@@ -1,4 +1,5 @@
 {{- range $poolName, $pool := .Values.workerPools }}
+{{- $dataSizeLimit := dig "dataVolume" "sizeLimit" "" $pool }}
 {{- if not (regexMatch "^[a-z][a-z0-9-]*$" $poolName) }}
 {{- fail (printf "invalid workerPool name %q: must match ^[a-z][a-z0-9-]*$" $poolName) }}
 {{- end }}
@@ -41,6 +42,8 @@ spec:
             - worker
             - --config
             - /etc/dagu/dagu.yaml
+            - --worker.coordinators
+            - "{{ include "dagu.fullname" $ }}-coordinator.{{ $.Release.Namespace }}.svc.cluster.local:50055"
             {{- if $pool.labels }}
             - --worker.labels
             - {{ include "dagu.workerLabels" $pool.labels | quote }}
@@ -92,8 +95,12 @@ spec:
       {{- end }}
       volumes:
         - name: data
-          persistentVolumeClaim:
-            claimName: {{ include "dagu.fullname" $ }}-data
+          {{- if $dataSizeLimit }}
+          emptyDir:
+            sizeLimit: {{ $dataSizeLimit | quote }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
         - name: config
           configMap:
             name: {{ include "dagu.fullname" $ }}-config

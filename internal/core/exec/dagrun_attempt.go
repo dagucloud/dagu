@@ -59,7 +59,7 @@ type DAGRunAttempt interface {
 	// Returns nil if no messages exist for the step.
 	ReadStepMessages(ctx context.Context, stepName string) ([]LLMMessage, error)
 	// WorkDir returns the path to the per-DAG-run working directory.
-	// Returns "" if the attempt does not support local storage (e.g., shared-nothing mode).
+	// Returns "" if the attempt does not support local storage.
 	WorkDir() string
 }
 

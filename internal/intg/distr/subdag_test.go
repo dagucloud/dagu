@@ -17,7 +17,7 @@ import (
 )
 
 func TestActionOutputsFromDistributedWorker(t *testing.T) {
-	t.Run("sharedNothingChildWorker", func(t *testing.T) {
+	t.Run("childWorker", func(t *testing.T) {
 		actionDir := writeActionOutputBundle(t, `
 name: notify-action-child
 worker_selector:
@@ -28,7 +28,7 @@ steps:
     with:
       values:
         messageId: msg-123
-        worker: shared-nothing
+        worker: remote-worker
 `)
 
 		f := newTestFixture(t, `
@@ -51,56 +51,14 @@ steps:
 
 		callAction := requireNodeByID(t, status, "call_action")
 		require.NotNil(t, callAction.OutputsValue)
-		require.JSONEq(t, `{"messageId":"msg-123","worker":"shared-nothing"}`, *callAction.OutputsValue)
+		require.JSONEq(t, `{"messageId":"msg-123","worker":"remote-worker"}`, *callAction.OutputsValue)
 
 		audit := requireNodeByID(t, status, "audit")
 		auditLog, err := os.ReadFile(audit.Stdout)
 		require.NoError(t, err)
-		require.Contains(t, string(auditLog), "message=msg-123 worker=shared-nothing")
+		require.Contains(t, string(auditLog), "message=msg-123 worker=remote-worker")
 	})
 
-	t.Run("sharedVolumeParentWorker", func(t *testing.T) {
-		actionDir := writeActionOutputBundle(t, `
-name: notify-action-child
-steps:
-  - id: publish
-    action: outputs.write
-    with:
-      values:
-        messageId: msg-123
-        worker: shared-volume
-`)
-
-		f := newTestFixture(t, `
-type: graph
-worker_selector:
-  type: test-worker
-steps:
-  - id: call_action
-    action: `+strconv.Quote("source:"+actionDir+"@local")+`
-
-  - id: audit
-    depends: [call_action]
-    action: log.write
-    with:
-      message: "message=${call_action.outputs.messageId} worker=${call_action.outputs.worker}"
-`, withWorkerMode(sharedFSMode), withLabels(map[string]string{"type": "test-worker"}), withLogPersistence())
-		defer f.cleanup()
-
-		require.NoError(t, f.enqueue())
-		f.waitForQueued()
-		f.startScheduler(30 * time.Second)
-
-		status := f.waitForStatus(core.Succeeded, 30*time.Second)
-		callAction := requireNodeByID(t, status, "call_action")
-		require.NotNil(t, callAction.OutputsValue)
-		require.JSONEq(t, `{"messageId":"msg-123","worker":"shared-volume"}`, *callAction.OutputsValue)
-
-		audit := requireNodeByID(t, status, "audit")
-		auditLog, err := os.ReadFile(audit.Stdout)
-		require.NoError(t, err)
-		require.Contains(t, string(auditLog), "message=msg-123 worker=shared-volume")
-	})
 }
 
 func writeActionOutputBundle(t *testing.T, actionYAML string) string {
@@ -300,7 +258,7 @@ steps:
 
 		f.coord.CreateDAGFile(t, f.coord.Config.Paths.DAGsDir, "child-remote", []byte(childYAML))
 
-		childWorker := f.setupSharedNothingWorker("child-worker", map[string]string{"type": "child"}, "")
+		childWorker := f.setupWorker("child-worker", map[string]string{"type": "child"}, "")
 		_ = childWorker
 
 		require.NoError(t, f.enqueue())
@@ -351,8 +309,8 @@ func TestSubDAG_ParentWithInlineChildOnWorker(t *testing.T) {
 		// fail with "file does not exist".
 		//
 		// The inline child also has a worker_selector so it dispatches
-		// through the coordinator (shared-nothing workers don't have a
-		// local DAGRunStore for subprocess-based sub-DAG execution).
+		// through the coordinator because workers execute task payloads
+		// without a local DAGRunStore for subprocess-based sub-DAG execution.
 		f := newTestFixture(t, `
 worker_selector:
   test: "true"

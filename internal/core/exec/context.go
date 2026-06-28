@@ -59,7 +59,7 @@ type RuntimeProfileEntry struct {
 // LogWriterFactory creates log writers for step stdout/stderr.
 // It abstracts where logs are written, allowing for:
 // - Local file-based storage (default)
-// - Remote streaming to coordinator (shared-nothing mode)
+// - Remote streaming to coordinator
 type LogWriterFactory interface {
 	// NewStepWriter creates a writer for a step's log output.
 	// stepName identifies the step, streamType should be StreamTypeStdout or StreamTypeStderr.

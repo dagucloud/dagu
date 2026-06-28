@@ -83,7 +83,7 @@ func materializeTaskWorkspace(
 	}, nil
 }
 
-func sharedNothingActionWorkDir(task *coordinatorv1.Task) string {
+func remoteActionWorkDir(task *coordinatorv1.Task) string {
 	return filepath.Join(
 		os.TempDir(),
 		fmt.Sprintf("dagu_%s_%s", fileutil.SafeName(task.Target), task.DagRunId),

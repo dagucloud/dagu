@@ -33,6 +33,13 @@ type Result struct {
 
 const defaultCommandTimeout = 30 * time.Second
 
+func defaultCommandTimeoutForPlatform() time.Duration {
+	if runtime.GOOS == "windows" {
+		return defaultCommandTimeout * 2
+	}
+	return defaultCommandTimeout
+}
+
 // NewRunner creates an isolated project seeded with package-local testdata.
 func NewRunner(t *testing.T) *Runner {
 	t.Helper()
@@ -326,7 +333,7 @@ func commandTimeout(t *testing.T) time.Duration {
 
 	raw := os.Getenv("DAGU_CONFORMANCE_COMMAND_TIMEOUT")
 	if raw == "" {
-		return defaultCommandTimeout
+		return defaultCommandTimeoutForPlatform()
 	}
 
 	timeout, err := time.ParseDuration(raw)

@@ -462,7 +462,7 @@ type Task struct {
 	WorkerSelector   map[string]string      `protobuf:"bytes,10,rep,name=worker_selector,json=workerSelector,proto3" json:"worker_selector,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"` // Required worker labels for execution
 	Definition       string                 `protobuf:"bytes,11,opt,name=definition,proto3" json:"definition,omitempty"`                                                                                                         // Optional: DAG definition (YAML) for local DAGs
 	WorkerId         string                 `protobuf:"bytes,12,opt,name=worker_id,json=workerId,proto3" json:"worker_id,omitempty"`                                                                                             // ID of the worker that will execute this task
-	// Previous status for OPERATION_RETRY in shared-nothing mode.
+	// Previous status for OPERATION_RETRY.
 	// When set, workers can retry without needing local DAGRunStore access.
 	PreviousStatus *DAGRunStatusProto `protobuf:"bytes,13,opt,name=previous_status,json=previousStatus,proto3" json:"previous_status,omitempty"`
 	// Attempt ID created by coordinator. Workers use this to create attempts with the same ID.
@@ -907,7 +907,7 @@ type Task_builder struct {
 	WorkerSelector   map[string]string
 	Definition       string
 	WorkerId         string
-	// Previous status for OPERATION_RETRY in shared-nothing mode.
+	// Previous status for OPERATION_RETRY.
 	// When set, workers can retry without needing local DAGRunStore access.
 	PreviousStatus *DAGRunStatusProto
 	// Attempt ID created by coordinator. Workers use this to create attempts with the same ID.

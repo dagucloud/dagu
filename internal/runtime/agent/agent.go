@@ -327,7 +327,7 @@ type Options struct {
 	PreparedAttempt exec.DAGRunAttempt
 	// RunStateStore records execution state for this DAG run.
 	RunStateStore runstate.Store
-	// DAGRunStore is the store for dag-run data. Nil in shared-nothing mode.
+	// DAGRunStore is the store for dag-run data. Nil for remote worker execution.
 	DAGRunStore exec.DAGRunStore
 	// QueueStore is the store for queued dag-run items. Nil when queues are unavailable.
 	QueueStore exec.QueueStore
@@ -1144,7 +1144,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	// Finalize status (after outputs are written)
 	a.writeStatus(ctx, attempt, finishedStatus)
 
-	// Stream scheduler log to coordinator if using remote logging (shared-nothing mode)
+	// Stream scheduler log to coordinator if remote logging is configured.
 	if a.logWriterFactory != nil {
 		if streamer, ok := a.logWriterFactory.(runtime.SchedulerLogStreamer); ok {
 			if err := streamer.StreamSchedulerLog(ctx, a.logFile); err != nil {
@@ -1530,8 +1530,8 @@ func (a *Agent) prepareWorkDir(ctx context.Context, attempt runstate.Attempt) (f
 }
 
 // writeStatus writes the current status to storage.
-// In shared-nothing mode (statusPusher is set), it only pushes to the coordinator.
-// In local mode, it writes to local storage via the run-state attempt.
+// When statusPusher is set, it pushes to the coordinator.
+// Otherwise, it writes to local storage via the run-state attempt.
 func (a *Agent) writeStatus(ctx context.Context, attempt runstate.Attempt, status exec.DAGRunStatus) {
 	if a.statusPusher != nil {
 		a.pushStatus(ctx, status)
@@ -1578,9 +1578,8 @@ func (a *Agent) watchCancelRequested(ctx context.Context, attempt runstate.Attem
 		select {
 		case <-ctx.Done():
 			// Only signal if the agent hasn't finished yet.
-			// This handles cancellation from the worker (via heartbeat CancelledRuns)
-			// in shared-nothing mode. If the agent already finished normally,
-			// sending an extra SIGTERM is unnecessary.
+			// This handles cancellation from the worker via heartbeat CancelledRuns.
+			// If the agent already finished normally, sending an extra SIGTERM is unnecessary.
 			if !a.finished.Load() {
 				a.stopChildren(context.Background(), syscall.SIGTERM, true)
 			}

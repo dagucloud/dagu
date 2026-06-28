@@ -46,8 +46,6 @@ type RemoteTaskHandlerConfig struct {
 	WorkerID string
 	// CoordinatorClient is the coordinator client with load balancing support
 	CoordinatorClient coordinator.Client
-	// DAGRunStore is the store for DAG run status (may be nil for fully remote mode)
-	DAGRunStore exec.DAGRunStore
 	// DAGStore is the store for DAG definitions
 	DAGStore exec.DAGStore
 	// DAGRunMgr is the manager for DAG runs
@@ -82,7 +80,6 @@ func NewRemoteTaskHandler(cfg RemoteTaskHandlerConfig) TaskHandler {
 	return &remoteTaskHandler{
 		workerID:           cfg.WorkerID,
 		coordinatorClient:  cfg.CoordinatorClient,
-		dagRunStore:        cfg.DAGRunStore,
 		dagStore:           cfg.DAGStore,
 		dagRunMgr:          cfg.DAGRunMgr,
 		stateStore:         stateStore,
@@ -96,7 +93,6 @@ func NewRemoteTaskHandler(cfg RemoteTaskHandlerConfig) TaskHandler {
 type remoteTaskHandler struct {
 	workerID           string
 	coordinatorClient  coordinator.Client
-	dagRunStore        exec.DAGRunStore
 	dagStore           exec.DAGStore
 	dagRunMgr          runtime.Manager
 	stateStore         dagstate.Store
@@ -165,7 +161,7 @@ func (h *remoteTaskHandler) handleRetry(ctx context.Context, task *coordinatorv1
 	}
 
 	if task.PreviousStatus == nil {
-		return fmt.Errorf("retry requires previous_status in task for shared-nothing mode")
+		return fmt.Errorf("retry requires previous_status in task")
 	}
 
 	status, convErr := convert.ProtoToDAGRunStatus(task.PreviousStatus)
@@ -416,7 +412,7 @@ func (h *remoteTaskHandler) loadDAG(ctx context.Context, task *coordinatorv1.Tas
 	}
 
 	// Remote tasks load the DAG definition received from the coordinator.
-	// Local DAG directories are outside the shared-nothing task boundary.
+	// Local DAG directories are outside the task payload boundary.
 	loadOpts := []spec.LoadOption{
 		spec.WithName(task.Target), // Use original DAG name, not temp file path
 	}
@@ -455,7 +451,7 @@ func (h *remoteTaskHandler) loadActionWorkspaceDAG(ctx context.Context, task *co
 		return nil, nil, fmt.Errorf("coordinator client does not support workspace bundles")
 	}
 
-	workDir := sharedNothingActionWorkDir(task)
+	workDir := remoteActionWorkDir(task)
 	workspace, err := materializeTaskWorkspace(ctx, task, client, actionWorkspaceDir(workDir))
 	if err != nil {
 		return nil, nil, err
@@ -623,7 +619,6 @@ func (h *remoteTaskHandler) executeDAGRun(
 	subWorkflowRunnerFactory := node.NewSubWorkflowRunnerFactory(node.SubWorkflowRunnerConfig{
 		DAGRunMgr:         h.dagRunMgr,
 		DAGStore:          h.dagStore,
-		DAGRunStore:       h.dagRunStore,
 		StateStore:        h.stateStore,
 		AgentStores:       agentStores,
 		ServiceRegistry:   h.serviceRegistry,
@@ -663,7 +658,6 @@ func (h *remoteTaskHandler) executeDAGRun(
 		ExtraEnvs:                extraEnvs,
 		QueuedRun:                queuedRun,
 		AttemptID:                attemptID,
-		DAGRunStore:              h.dagRunStore,
 		StateStore:               h.stateStore,
 		SecretStore:              agentStores.SecretStore,
 		SecretReferenceResolver:  h.secretReferenceResolver(dag, owner, coordinator.SecretReferenceRun{WorkerID: h.workerID, AttemptKey: attemptKey, AttemptID: attemptID}),
@@ -758,4 +752,17 @@ func (h *remoteTaskHandler) dagToolsBasePath() string {
 		}
 	}
 	return os.Getenv("PATH")
+}
+
+func previousStatusParams(task *coordinatorv1.Task) ([]string, error) {
+	if task.Operation != coordinatorv1.Operation_OPERATION_RETRY || task.PreviousStatus == nil {
+		return nil, nil
+	}
+
+	status, err := convert.ProtoToDAGRunStatus(task.PreviousStatus)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode previous task status: %w", err)
+	}
+
+	return append([]string(nil), status.ParamsList...), nil
 }

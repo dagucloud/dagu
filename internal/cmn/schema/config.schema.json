@@ -762,7 +762,7 @@
               }
             }
           ],
-          "description": "Coordinator address(es) to connect to. Accepts a single string or an array."
+          "description": "Coordinator address(es) for the worker command. Required when running `dagu worker`. Accepts a single string or an array."
         },
         "postgres_pool": {
           "$ref": "#/definitions/PostgresPoolDef"

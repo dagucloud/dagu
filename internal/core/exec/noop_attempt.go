@@ -10,12 +10,12 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 )
 
-// ErrNoopAttemptNotSupported is returned when an operation is not supported in shared-nothing mode.
-var ErrNoopAttemptNotSupported = errors.New("operation not supported in shared-nothing mode")
+// ErrNoopAttemptNotSupported is returned when an operation is not supported by a no-op attempt.
+var ErrNoopAttemptNotSupported = errors.New("operation not supported by no-op DAG run attempt")
 
-// noopDAGRunAttempt is a no-op implementation of DAGRunAttempt for shared-nothing mode.
-// In this mode, status is pushed via statusPusher to the coordinator, so local
-// attempt file operations are not needed.
+// noopDAGRunAttempt is a no-op implementation of DAGRunAttempt for remote workers.
+// Status is pushed via statusPusher to the coordinator, so local attempt file
+// operations are not needed.
 type noopDAGRunAttempt struct {
 	id  string
 	dag *core.DAG
@@ -23,7 +23,7 @@ type noopDAGRunAttempt struct {
 
 var _ DAGRunAttempt = (*noopDAGRunAttempt)(nil)
 
-// NewNoopDAGRunAttempt creates a no-op attempt for shared-nothing mode.
+// NewNoopDAGRunAttempt creates a no-op attempt for remote worker execution.
 func NewNoopDAGRunAttempt(id string, dag *core.DAG) DAGRunAttempt {
 	return &noopDAGRunAttempt{id: id, dag: dag}
 }

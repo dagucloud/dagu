@@ -33,7 +33,7 @@ go run ./examples/embedded/custom-executor
 This is useful when the embedding application already has domain-specific Go
 code and wants DAG steps to call that code without shelling out.
 
-## Shared-Nothing Distributed Execution
+## Distributed Worker Execution
 
 Run against an existing Dagu coordinator:
 

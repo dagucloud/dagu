@@ -23,7 +23,7 @@ func TestExecution_QueuedDispatch_ConsumesOneThousandItems(t *testing.T) {
 
 	f := newTestFixture(t, `
 type: graph
-name: shared-nothing-bulk-queue-test
+name: worker-bulk-queue-test
 queue: bulk-q
 worker_selector:
   tier: "queue"
@@ -86,7 +86,7 @@ func queuedDispatchBulkTimeout() time.Duration {
 func TestExecution_QueuedDispatch_RecoversWhenWorkerRegistersLater(t *testing.T) {
 	f := newTestFixture(t, `
 type: graph
-name: shared-nothing-late-worker-test
+name: worker-late-worker-test
 worker_selector:
   tier: "queue"
 steps:
@@ -101,7 +101,7 @@ steps:
 
 	requireQueuedRunStillPending(t, f, 2*time.Second)
 
-	f.setupSharedNothingWorker("late-worker", map[string]string{"tier": "queue"}, "")
+	f.setupWorker("late-worker", map[string]string{"tier": "queue"}, "")
 
 	status := f.waitForStatus(core.Succeeded, 20*time.Second)
 	require.Equal(t, "late-worker", status.WorkerID)
@@ -111,7 +111,7 @@ steps:
 func TestExecution_QueuedDispatch_RecoversWhenMatchingWorkerRegistersLater(t *testing.T) {
 	f := newTestFixture(t, `
 type: graph
-name: shared-nothing-selector-recovery-test
+name: worker-selector-recovery-test
 worker_selector:
   tier: "queue"
 steps:
@@ -120,7 +120,7 @@ steps:
 `, withWorkerCount(0), withWorkerMaxActiveRuns(1))
 	defer f.cleanup()
 
-	f.setupSharedNothingWorker("mismatched-worker", map[string]string{"tier": "other"}, "")
+	f.setupWorker("mismatched-worker", map[string]string{"tier": "other"}, "")
 
 	require.NoError(t, f.enqueue())
 	f.waitForQueued()
@@ -128,7 +128,7 @@ steps:
 
 	requireQueuedRunStillPending(t, f, 2*time.Second)
 
-	f.setupSharedNothingWorker("matching-worker", map[string]string{"tier": "queue"}, "")
+	f.setupWorker("matching-worker", map[string]string{"tier": "queue"}, "")
 
 	status := f.waitForStatus(core.Succeeded, 20*time.Second)
 	require.Equal(t, "matching-worker", status.WorkerID)

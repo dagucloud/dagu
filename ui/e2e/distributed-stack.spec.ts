@@ -29,7 +29,7 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-test('exercises the web UI against the real distributed shared-nothing worker stack', async ({
+test('exercises the web UI against the real distributed worker stack', async ({
   page,
   request,
 }) => {

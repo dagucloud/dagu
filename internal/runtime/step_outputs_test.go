@@ -128,7 +128,7 @@ func TestStepExecutorRemovesStepOutputFileAfterSetupFailure(t *testing.T) {
 }
 
 func TestStepInfoFallsBackToLegacyOutputsValue(t *testing.T) {
-	legacyOutputs := `{"messageId":"msg-123","worker":"shared-volume"}`
+	legacyOutputs := `{"messageId":"msg-123","worker":"legacy-worker"}`
 	node := runtime.NewNode(core.Step{Name: "call_action", ID: "call_action"}, runtime.NodeState{
 		OutputsValue: &legacyOutputs,
 	})

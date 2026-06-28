@@ -32,8 +32,8 @@ const (
 	testZombieDetectorInterval  = 500 * time.Millisecond
 )
 
-func delayedAfterAckFailureTimeout(mode workerMode) time.Duration {
-	if mode == sharedNothingMode && runtime.GOOS == "windows" && raceEnabled() {
+func delayedAfterAckFailureTimeout() time.Duration {
+	if runtime.GOOS == "windows" && raceEnabled() {
 		return 30 * time.Second
 	}
 	return 20 * time.Second
@@ -88,33 +88,15 @@ steps:
 }
 
 func TestDistributedRun_AckedTaskWithoutInitialStatus_MarkedFailedAndCleansLease(t *testing.T) {
-	t.Run("SharedNothing", func(t *testing.T) {
-		testDistributedRunAckedTaskWithoutInitialStatus(t, sharedNothingMode)
-	})
-
-	t.Run("SharedStorage", func(t *testing.T) {
-		testDistributedRunAckedTaskWithoutInitialStatus(t, sharedFSMode)
-	})
+	testDistributedRunAckedTaskWithoutInitialStatus(t)
 }
 
 func TestDistributedRun_DelayedAfterAck_DoesNotExecuteAfterStaleCleanup(t *testing.T) {
-	t.Run("SharedNothing", func(t *testing.T) {
-		testDistributedRunDelayedAfterAckDoesNotExecute(t, sharedNothingMode)
-	})
-
-	t.Run("SharedStorage", func(t *testing.T) {
-		testDistributedRunDelayedAfterAckDoesNotExecute(t, sharedFSMode)
-	})
+	testDistributedRunDelayedAfterAckDoesNotExecute(t)
 }
 
 func TestDistributedSubDAG_StaleLeaseMarkedFailedAndCleansLease(t *testing.T) {
-	t.Run("SharedNothing", func(t *testing.T) {
-		testDistributedSubDAGStaleLeaseMarkedFailedAndCleansLease(t, sharedNothingMode)
-	})
-
-	t.Run("SharedStorage", func(t *testing.T) {
-		testDistributedSubDAGStaleLeaseMarkedFailedAndCleansLease(t, sharedFSMode)
-	})
+	testDistributedSubDAGStaleLeaseMarkedFailedAndCleansLease(t)
 }
 
 // TestDistributedRun_HeartbeatRefreshKeepsQuietRunAlive verifies that a
@@ -427,18 +409,14 @@ steps:
 	}, distrTestTimeout(10*time.Second), 100*time.Millisecond, "shared lease should be removed after completion")
 }
 
-func testDistributedRunAckedTaskWithoutInitialStatus(t *testing.T, mode workerMode) {
+func testDistributedRunAckedTaskWithoutInitialStatus(t *testing.T) {
 	t.Helper()
 
 	opts := []fixtureOption{
 		withWorkerCount(0),
+		withWorkerMaxActiveRuns(1),
 		withStaleThresholds(testStaleHeartbeatThreshold, testStaleLeaseThreshold),
 		withZombieDetectionInterval(testZombieDetectorInterval),
-	}
-	if mode == sharedFSMode {
-		opts = append(opts, withWorkerMode(sharedFSMode))
-	} else {
-		opts = append(opts, withWorkerMaxActiveRuns(1))
 	}
 
 	f := newTestFixture(t, `
@@ -466,14 +444,7 @@ steps:
 		return true
 	}
 
-	switch mode {
-	case sharedFSMode:
-		crashWorker = f.setupSharedFSWorkerWithAfterAckHook("crash-worker", labels, afterAckHook)
-	case sharedNothingMode:
-		crashWorker = f.setupSharedNothingWorkerWithAfterAckHook("crash-worker", labels, "", afterAckHook)
-	default:
-		t.Fatalf("unsupported worker mode: %v", mode)
-	}
+	crashWorker = f.setupWorkerWithAfterAckHook("crash-worker", labels, "", afterAckHook)
 	require.NotNil(t, crashWorker)
 
 	require.NoError(t, f.enqueue())
@@ -502,7 +473,7 @@ steps:
 	defer cancel()
 	require.NoError(t, crashWorker.Stop(stopCtx))
 
-	finalStatus := f.waitForStatus(core.Failed, delayedAfterAckFailureTimeout(mode))
+	finalStatus := f.waitForStatus(core.Failed, delayedAfterAckFailureTimeout())
 	require.Equal(t, core.Failed, finalStatus.Status)
 	assert.Equal(t, lease.AttemptKey, finalStatus.AttemptKey)
 	assert.Contains(t, finalStatus.Error, "distributed run lease expired")
@@ -517,7 +488,7 @@ steps:
 	crashWorker.SetAfterTaskAckHook(nil)
 }
 
-func testDistributedRunDelayedAfterAckDoesNotExecute(t *testing.T, mode workerMode) {
+func testDistributedRunDelayedAfterAckDoesNotExecute(t *testing.T) {
 	t.Helper()
 
 	markerPath := filepath.Join(t.TempDir(), "executed.txt")
@@ -537,9 +508,6 @@ steps:
 		withStaleThresholds(testStaleHeartbeatThreshold, testStaleLeaseThreshold),
 		withZombieDetectionInterval(testZombieDetectorInterval),
 	}
-	if mode == sharedFSMode {
-		opts = append(opts, withWorkerMode(sharedFSMode))
-	}
 
 	f := newTestFixture(t, yaml, opts...)
 	defer f.cleanup()
@@ -556,15 +524,7 @@ steps:
 		}
 	}
 
-	var delayedWorker *worker.Worker
-	switch mode {
-	case sharedFSMode:
-		delayedWorker = f.setupSharedFSWorkerWithAfterAckHook("delayed-worker", map[string]string{"test": "true"}, afterAckHook)
-	case sharedNothingMode:
-		delayedWorker = f.setupSharedNothingWorkerWithAfterAckHook("delayed-worker", map[string]string{"test": "true"}, "", afterAckHook)
-	default:
-		t.Fatalf("unsupported worker mode: %v", mode)
-	}
+	delayedWorker := f.setupWorkerWithAfterAckHook("delayed-worker", map[string]string{"test": "true"}, "", afterAckHook)
 	require.NotNil(t, delayedWorker)
 
 	require.NoError(t, f.enqueue())
@@ -574,7 +534,7 @@ steps:
 	lease := waitForAnyLease(t, f, 5*time.Second)
 	require.Equal(t, "delayed-worker", lease.WorkerID)
 
-	failedStatus := f.waitForStatus(core.Failed, delayedAfterAckFailureTimeout(mode))
+	failedStatus := f.waitForStatus(core.Failed, delayedAfterAckFailureTimeout())
 	require.Equal(t, core.Failed, failedStatus.Status)
 	require.Equal(t, lease.AttemptKey, failedStatus.AttemptKey)
 
@@ -600,7 +560,7 @@ steps:
 	delayedWorker.SetAfterTaskAckHook(nil)
 }
 
-func testDistributedSubDAGStaleLeaseMarkedFailedAndCleansLease(t *testing.T, mode workerMode) {
+func testDistributedSubDAGStaleLeaseMarkedFailedAndCleansLease(t *testing.T) {
 	t.Helper()
 
 	opts := []fixtureOption{
@@ -608,9 +568,6 @@ func testDistributedSubDAGStaleLeaseMarkedFailedAndCleansLease(t *testing.T, mod
 		withWorkerMaxActiveRuns(1),
 		withStaleThresholds(testStaleHeartbeatThreshold, testStaleLeaseThreshold),
 		withZombieDetectionInterval(testZombieDetectorInterval),
-	}
-	if mode == sharedFSMode {
-		opts = append(opts, withWorkerMode(sharedFSMode))
 	}
 
 	f := newTestFixture(t, `
@@ -639,15 +596,7 @@ steps:
 		return triggered
 	}
 
-	var crashWorker *worker.Worker
-	switch mode {
-	case sharedFSMode:
-		crashWorker = f.setupSharedFSWorkerWithAfterAckHook("subdag-crash-worker", map[string]string{"test": "true"}, afterAckHook)
-	case sharedNothingMode:
-		crashWorker = f.setupSharedNothingWorkerWithAfterAckHook("subdag-crash-worker", map[string]string{"test": "true"}, "", afterAckHook)
-	default:
-		t.Fatalf("unsupported worker mode: %v", mode)
-	}
+	crashWorker := f.setupWorkerWithAfterAckHook("subdag-crash-worker", map[string]string{"test": "true"}, "", afterAckHook)
 	require.NotNil(t, crashWorker)
 	defer crashWorker.SetAfterTaskAckHook(nil)
 

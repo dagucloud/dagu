@@ -47,7 +47,7 @@ func artifactExecutionStatusTimeout() time.Duration {
 	case runtime.GOOS == "windows" && raceEnabled():
 		return 60 * time.Second
 	case runtime.GOOS == "windows":
-		// Shared-nothing artifact persistence has to archive worker output and
+		// Distributed artifact persistence has to archive worker output and
 		// stream it back to the coordinator, which is materially slower on the
 		// GitHub-hosted Windows runners than ordinary distributed execution.
 		return 45 * time.Second
@@ -208,9 +208,9 @@ steps:
 }
 
 func TestExecution_Artifacts(t *testing.T) {
-	t.Run("sharedNothingUploadsArtifactsToCoordinatorFilesystem", func(t *testing.T) {
+	t.Run("workerUploadsArtifactsToCoordinatorFilesystem", func(t *testing.T) {
 		f := newTestFixture(t, `
-name: shared-nothing-artifact-test
+name: worker-artifact-test
 worker_selector:
   test: "true"
 artifacts:
@@ -218,7 +218,7 @@ artifacts:
 steps:
   - name: write-artifacts
 `+artifactStepShellYAML()+`    command: |
-`+indentYAMLBlock(artifactWriteCommand("artifact from shared-nothing worker", false), 6)+`
+`+indentYAMLBlock(artifactWriteCommand("artifact from worker", false), 6)+`
 `, withArtifactPersistence())
 		defer f.cleanup()
 
@@ -232,12 +232,12 @@ steps:
 		require.NotEmpty(t, status.ArchiveDir)
 		require.DirExists(t, status.ArchiveDir)
 		assert.True(t, strings.HasPrefix(status.ArchiveDir, filepath.Join(f.artifactDir(), f.dagWrapper.Name)+string(os.PathSeparator)))
-		assertArtifactContains(t, status.ArchiveDir, "reports/summary.md", "artifact from shared-nothing worker")
+		assertArtifactContains(t, status.ArchiveDir, "reports/summary.md", "artifact from worker")
 	})
 
-	t.Run("sharedNothingFailedRunsStillUploadArtifactsToCoordinatorFilesystem", func(t *testing.T) {
+	t.Run("workerFailedRunsStillUploadArtifactsToCoordinatorFilesystem", func(t *testing.T) {
 		f := newTestFixture(t, `
-name: shared-nothing-failed-artifact-test
+name: worker-failed-artifact-test
 worker_selector:
   test: "true"
 artifacts:
@@ -245,7 +245,7 @@ artifacts:
 steps:
   - name: write-artifacts-and-fail
 `+artifactStepShellYAML()+`    command: |
-`+indentYAMLBlock(artifactWriteCommand("artifact from failed shared-nothing worker", true), 6)+`
+`+indentYAMLBlock(artifactWriteCommand("artifact from failed worker", true), 6)+`
 `, withArtifactPersistence())
 		defer f.cleanup()
 
@@ -259,12 +259,12 @@ steps:
 		require.NotEmpty(t, status.ArchiveDir)
 		require.DirExists(t, status.ArchiveDir)
 		assert.True(t, strings.HasPrefix(status.ArchiveDir, filepath.Join(f.artifactDir(), f.dagWrapper.Name)+string(os.PathSeparator)))
-		assertArtifactContains(t, status.ArchiveDir, "reports/summary.md", "artifact from failed shared-nothing worker")
+		assertArtifactContains(t, status.ArchiveDir, "reports/summary.md", "artifact from failed worker")
 	})
 
-	t.Run("sharedNothingCreatesEmptyArtifactDirectoryWhenNoFilesAreWritten", func(t *testing.T) {
+	t.Run("workerCreatesEmptyArtifactDirectoryWhenNoFilesAreWritten", func(t *testing.T) {
 		f := newTestFixture(t, `
-name: shared-nothing-empty-artifact-test
+name: worker-empty-artifact-test
 worker_selector:
   test: "true"
 artifacts:
@@ -290,33 +290,6 @@ steps:
 		entries, err := os.ReadDir(status.ArchiveDir)
 		require.NoError(t, err)
 		assert.Empty(t, entries)
-	})
-
-	t.Run("sharedFSWritesArtifactsToSharedFilesystem", func(t *testing.T) {
-		f := newTestFixture(t, `
-name: sharedfs-artifact-test
-worker_selector:
-  test: "true"
-artifacts:
-  enabled: true
-steps:
-  - name: write-artifacts
-`+artifactStepShellYAML()+`    command: |
-`+indentYAMLBlock(artifactWriteCommand("artifact from shared filesystem worker", false), 6)+`
-`, withWorkerMode(sharedFSMode))
-		defer f.cleanup()
-
-		require.NoError(t, f.enqueue())
-		f.waitForQueued()
-		f.startScheduler(30 * time.Second)
-
-		status := f.waitForStatus(core.Succeeded, artifactExecutionStatusTimeout())
-
-		require.Equal(t, core.Succeeded, status.Status)
-		require.NotEmpty(t, status.ArchiveDir)
-		require.DirExists(t, status.ArchiveDir)
-		assert.True(t, strings.HasPrefix(status.ArchiveDir, filepath.Join(f.artifactDir(), f.dagWrapper.Name)+string(os.PathSeparator)))
-		assertArtifactContains(t, status.ArchiveDir, "reports/summary.md", "artifact from shared filesystem worker")
 	})
 
 	t.Run("coordinatorRejectsStaleAttemptArtifactChunks", func(t *testing.T) {
@@ -439,196 +412,13 @@ steps:
 		require.Contains(t, status.Labels, "team=backend")
 	})
 
-	t.Run("labelsPreservedThroughCoordinator_SharedFS", func(t *testing.T) {
-		f := newTestFixture(t, `
-type: graph
-name: labels-sharedfs-test
-worker_selector:
-  test: "true"
-steps:
-  - name: step1
-    run: echo "tagged sharedfs run"
-`, withWorkerMode(sharedFSMode))
-		defer f.cleanup()
-
-		f.startScheduler(30 * time.Second)
-
-		require.NoError(t, f.startWithLabels("region=us-east-1"))
-
-		status := f.waitForStatus(core.Succeeded, 20*time.Second)
-
-		require.Equal(t, core.Succeeded, status.Status)
-		require.Contains(t, status.Labels, "region=us-east-1")
-	})
-}
-
-func TestExecution_SharedFSMode(t *testing.T) {
-	t.Run("statusWrittenToSharedFilesystem", func(t *testing.T) {
-		f := newTestFixture(t, `
-type: graph
-name: sharedfs-status-test
-worker_selector:
-  test: "true"
-steps:
-  - name: step1
-    run: echo "step1"
-  - name: step2
-    run: echo "step2"
-    depends: [step1]
-`, withWorkerMode(sharedFSMode))
-		defer f.cleanup()
-
-		require.NoError(t, f.enqueue())
-		f.waitForQueued()
-		f.startScheduler(30 * time.Second)
-
-		status := f.waitForStatus(core.Succeeded, directStartStatusTimeout())
-
-		require.Equal(t, core.Succeeded, status.Status)
-		require.Len(t, status.Nodes, 2)
-		f.assertAllNodesSucceeded(status)
-	})
-
-	t.Run("logsWrittenToSharedFilesystem", func(t *testing.T) {
-		f := newTestFixture(t, `
-name: sharedfs-log-test
-worker_selector:
-  test: "true"
-steps:
-  - name: echo-step
-    run: echo "test output"
-`, withWorkerMode(sharedFSMode))
-		defer f.cleanup()
-
-		require.NoError(t, f.enqueue())
-		f.waitForQueued()
-		f.startScheduler(30 * time.Second)
-
-		status := f.waitForStatus(core.Succeeded, 20*time.Second)
-
-		require.Equal(t, core.Succeeded, status.Status)
-		require.Len(t, status.Nodes, 1)
-		node := status.Nodes[0]
-		require.Equal(t, "echo-step", node.Step.Name)
-		require.NotEmpty(t, node.Stdout, "node should have stdout log file path set")
-	})
-
-	t.Run("subprocessExecutesDAGCorrectly", func(t *testing.T) {
-		opts := []fixtureOption{
-			withWorkerMode(sharedFSMode),
-			withLabels(map[string]string{"env": "test"}),
-		}
-		waitTimeout := 25 * time.Second
-		if runtime.GOOS == "windows" && raceEnabled() {
-			// The shared-fs subprocess path is vulnerable to false zombie detection
-			// on Windows while the built helper process is still initializing.
-			opts = append(opts,
-				withZombieDetectionInterval(2*time.Minute),
-				withStaleThresholds(5*time.Minute, 5*time.Minute),
-			)
-			waitTimeout = 45 * time.Second
-		}
-
-		f := newTestFixture(t, `
-type: graph
-name: sharedfs-subprocess-test
-worker_selector:
-  env: test
-steps:
-  - name: task1
-    run: echo "subprocess task1"
-  - name: task2
-    run: echo "subprocess task2"
-    depends: [task1]
-  - name: task3
-    run: echo "subprocess task3"
-    depends: [task2]
-`, opts...)
-		defer f.cleanup()
-
-		require.NoError(t, f.enqueue())
-		f.waitForQueued()
-		f.startScheduler(30 * time.Second)
-
-		status := f.waitForStatus(core.Succeeded, waitTimeout)
-		f.waitForRunReleasedFromWorkers(status.DAGRunID, waitTimeout)
-		require.Eventually(t, func() bool {
-			latest, err := f.latestStoredStatus()
-			if err != nil || latest.Status != core.Succeeded || len(latest.Nodes) != 3 {
-				return false
-			}
-			for _, node := range latest.Nodes {
-				if node.StartedAt == "" || node.StartedAt == "-" || node.FinishedAt == "" || node.FinishedAt == "-" {
-					return false
-				}
-			}
-			status = latest
-			return true
-		}, waitTimeout, 100*time.Millisecond, "shared-fs subprocess run should persist per-node timestamps before assertions")
-
-		require.Equal(t, core.Succeeded, status.Status)
-		require.Len(t, status.Nodes, 3)
-		f.assertAllNodesSucceeded(status)
-
-		for _, node := range status.Nodes {
-			require.NotEmpty(t, node.StartedAt, "node %s should have started", node.Step.Name)
-			require.NotEmpty(t, node.FinishedAt, "node %s should have finished", node.Step.Name)
-		}
-	})
-
-	t.Run("directStartWithSharedFS", func(t *testing.T) {
-		f := newTestFixture(t, `
-type: graph
-name: sharedfs-direct-start-test
-worker_selector:
-  test: "true"
-steps:
-  - name: step1
-    run: echo "direct start"
-  - name: step2
-    run: echo "done"
-    depends: [step1]
-`, withWorkerMode(sharedFSMode))
-		defer f.cleanup()
-
-		f.startScheduler(30 * time.Second)
-		require.NoError(t, f.start())
-
-		status := f.waitForStatus(core.Succeeded, 20*time.Second)
-		require.Equal(t, core.Succeeded, status.Status)
-		require.Len(t, status.Nodes, 2)
-		f.assertAllNodesSucceeded(status)
-	})
-
-	t.Run("directStartWithSharedFS_NoNameField", func(t *testing.T) {
-		f := newTestFixture(t, `
-type: graph
-worker_selector:
-  test: "true"
-steps:
-  - name: step1
-    run: echo "no name field"
-  - name: step2
-    run: echo "done"
-    depends: [step1]
-`, withWorkerMode(sharedFSMode))
-		defer f.cleanup()
-
-		f.startScheduler(30 * time.Second)
-		require.NoError(t, f.start())
-
-		status := f.waitForStatus(core.Succeeded, 20*time.Second)
-		require.Equal(t, core.Succeeded, status.Status)
-		require.Len(t, status.Nodes, 2)
-		f.assertAllNodesSucceeded(status)
-	})
 }
 
 func TestExecution_WorkDir(t *testing.T) {
-	t.Run("sharedNothingWorkDir", func(t *testing.T) {
+	t.Run("workerWorkDir", func(t *testing.T) {
 		f := newTestFixture(t, `
 type: graph
-name: workdir-shared-nothing-test
+name: workdir-worker-test
 worker_selector:
   test: "true"
 steps:
@@ -651,30 +441,6 @@ steps:
 		assertLogContains(t, f.logDir(), f.dagWrapper.Name, status.DAGRunID, "read-from-workdir", "hello")
 	})
 
-	t.Run("sharedFSWorkDir", func(t *testing.T) {
-		f := newTestFixture(t, `
-type: graph
-name: workdir-sharedfs-test
-worker_selector:
-  test: "true"
-steps:
-  - name: write-to-workdir
-    run: echo "world" > "${DAG_RUN_WORK_DIR}/data.txt"
-  - name: read-from-workdir
-    run: cat "${DAG_RUN_WORK_DIR}/data.txt"
-    depends: [write-to-workdir]
-`, withWorkerMode(sharedFSMode), withLogPersistence())
-		defer f.cleanup()
-
-		require.NoError(t, f.enqueue())
-		f.waitForQueued()
-		f.startScheduler(30 * time.Second)
-
-		status := f.waitForStatus(core.Succeeded, 20*time.Second)
-
-		require.Equal(t, core.Succeeded, status.Status)
-		f.assertAllNodesSucceeded(status)
-	})
 }
 
 func TestExecution_QueueLifecycle(t *testing.T) {
@@ -737,7 +503,7 @@ steps:
 }
 
 func TestExecution_QueuedCatchupHappyPath(t *testing.T) {
-	t.Run("sharedNothingPreservesCatchupMetadata", func(t *testing.T) {
+	t.Run("distributedWorkerPreservesCatchupMetadata", func(t *testing.T) {
 		scheduleTime := time.Date(2026, 3, 13, 10, 0, 0, 0, time.UTC)
 		expectedOutput := "distributed-catchup-remote"
 
@@ -768,40 +534,4 @@ steps:
 		assertLogContains(t, f.logDir(), f.dagWrapper.Name, status.DAGRunID, "echo-step", expectedOutput)
 	})
 
-	t.Run("sharedFSPreservesCatchupMetadata", func(t *testing.T) {
-		scheduleTime := time.Date(2026, 3, 13, 11, 0, 0, 0, time.UTC)
-		expectedOutput := "distributed-catchup-sharedfs"
-
-		f := newTestFixture(t, `
-name: distributed-catchup-sharedfs-test
-worker_selector:
-  test: "true"
-steps:
-  - name: echo-step
-    run: echo "`+expectedOutput+`"
-`, withWorkerMode(sharedFSMode))
-		defer f.cleanup()
-
-		runID, err := f.enqueueCatchup(scheduleTime)
-		require.NoError(t, err)
-
-		f.waitForQueued()
-		f.startScheduler(30 * time.Second)
-
-		status := f.waitForStatus(core.Succeeded, 20*time.Second)
-
-		require.Equal(t, runID, status.DAGRunID)
-		require.Equal(t, core.TriggerTypeCatchUp, status.TriggerType)
-		require.Equal(t, stringutil.FormatTime(scheduleTime), status.ScheduleTime)
-		require.NotEmpty(t, status.Log)
-		require.FileExists(t, status.Log)
-		require.Len(t, status.Nodes, 1)
-		require.NotEmpty(t, status.Nodes[0].Stdout)
-		require.FileExists(t, status.Nodes[0].Stdout)
-		f.assertWorkerID(status, "worker-1")
-		f.assertAllNodesSucceeded(status)
-		content, err := os.ReadFile(status.Nodes[0].Stdout)
-		require.NoError(t, err)
-		assert.Contains(t, string(content), expectedOutput)
-	})
 }

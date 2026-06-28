@@ -489,242 +489,6 @@ func (m *mockRemoteStateCoordinatorClient) ListState(ctx context.Context, req *c
 	return m.handler.ListState(ctx, req)
 }
 
-// mockRemoteDAGRunAttempt implements execution.DAGRunAttempt for testing
-type mockRemoteDAGRunAttempt struct {
-	id       string
-	status   *exec.DAGRunStatus
-	dag      *core.DAG
-	readErr  error
-	openErr  error
-	writeErr error
-	closeErr error
-	opened   bool
-	closed   bool
-	written  bool
-	aborting bool
-	hidden   bool
-	mu       sync.Mutex
-}
-
-func (m *mockRemoteDAGRunAttempt) ID() string {
-	return m.id
-}
-
-func (m *mockRemoteDAGRunAttempt) Open(_ context.Context) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.openErr != nil {
-		return m.openErr
-	}
-	m.opened = true
-	return nil
-}
-
-func (m *mockRemoteDAGRunAttempt) Write(_ context.Context, status exec.DAGRunStatus) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.writeErr != nil {
-		return m.writeErr
-	}
-	m.written = true
-	m.status = &status
-	return nil
-}
-
-func (m *mockRemoteDAGRunAttempt) Close(_ context.Context) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.closeErr != nil {
-		return m.closeErr
-	}
-	m.closed = true
-	return nil
-}
-
-func (m *mockRemoteDAGRunAttempt) ReadStatus(_ context.Context) (*exec.DAGRunStatus, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.readErr != nil {
-		return nil, m.readErr
-	}
-	return m.status, nil
-}
-
-func (m *mockRemoteDAGRunAttempt) ReadDAG(_ context.Context) (*core.DAG, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.dag, nil
-}
-
-func (m *mockRemoteDAGRunAttempt) SetDAG(dag *core.DAG) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.dag = dag
-}
-
-func (m *mockRemoteDAGRunAttempt) Abort(_ context.Context) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.aborting = true
-	return nil
-}
-
-func (m *mockRemoteDAGRunAttempt) IsAborting(_ context.Context) (bool, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.aborting, nil
-}
-
-func (m *mockRemoteDAGRunAttempt) Hide(_ context.Context) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.hidden = true
-	return nil
-}
-
-func (m *mockRemoteDAGRunAttempt) Hidden() bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.hidden
-}
-
-func (m *mockRemoteDAGRunAttempt) WriteOutputs(_ context.Context, _ *exec.DAGRunOutputs) error {
-	return nil
-}
-
-func (m *mockRemoteDAGRunAttempt) ReadOutputs(_ context.Context) (*exec.DAGRunOutputs, error) {
-	return nil, nil
-}
-
-func (m *mockRemoteDAGRunAttempt) WriteStepMessages(_ context.Context, _ string, _ []exec.LLMMessage) error {
-	return nil
-}
-
-func (m *mockRemoteDAGRunAttempt) ReadStepMessages(_ context.Context, _ string) ([]exec.LLMMessage, error) {
-	return nil, nil
-}
-
-func (m *mockRemoteDAGRunAttempt) WorkDir() string {
-	return ""
-}
-
-// mockRemoteDAGRunStore implements execution.DAGRunStore for testing
-type mockRemoteDAGRunStore struct {
-	attempts    map[string]exec.DAGRunAttempt
-	subAttempts map[string]exec.DAGRunAttempt
-	findErr     error
-	createErr   error
-	mu          sync.Mutex
-}
-
-func newMockRemoteDAGRunStore() *mockRemoteDAGRunStore {
-	return &mockRemoteDAGRunStore{
-		attempts:    make(map[string]exec.DAGRunAttempt),
-		subAttempts: make(map[string]exec.DAGRunAttempt),
-	}
-}
-
-func (m *mockRemoteDAGRunStore) SetAttempt(ref exec.DAGRunRef, attempt exec.DAGRunAttempt) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.attempts[ref.ID] = attempt
-}
-
-func (m *mockRemoteDAGRunStore) SetSubAttempt(rootRef exec.DAGRunRef, subID string, attempt exec.DAGRunAttempt) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	key := fmt.Sprintf("%s:%s", rootRef.ID, subID)
-	m.subAttempts[key] = attempt
-}
-
-func (m *mockRemoteDAGRunStore) FindAttempt(_ context.Context, ref exec.DAGRunRef) (exec.DAGRunAttempt, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.findErr != nil {
-		return nil, m.findErr
-	}
-	attempt, ok := m.attempts[ref.ID]
-	if !ok {
-		return nil, exec.ErrDAGRunIDNotFound
-	}
-	return attempt, nil
-}
-
-func (m *mockRemoteDAGRunStore) FindSubAttempt(_ context.Context, rootRef exec.DAGRunRef, subDAGRunID string) (exec.DAGRunAttempt, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.findErr != nil {
-		return nil, m.findErr
-	}
-	key := fmt.Sprintf("%s:%s", rootRef.ID, subDAGRunID)
-	attempt, ok := m.subAttempts[key]
-	if !ok {
-		return nil, exec.ErrDAGRunIDNotFound
-	}
-	return attempt, nil
-}
-
-func (m *mockRemoteDAGRunStore) CreateSubAttempt(_ context.Context, rootRef exec.DAGRunRef, subDAGRunID string) (exec.DAGRunAttempt, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.createErr != nil {
-		return nil, m.createErr
-	}
-	key := fmt.Sprintf("%s:%s", rootRef.ID, subDAGRunID)
-	attempt := &mockRemoteDAGRunAttempt{
-		id:     subDAGRunID,
-		status: &exec.DAGRunStatus{},
-	}
-	m.subAttempts[key] = attempt
-	return attempt, nil
-}
-
-func (m *mockRemoteDAGRunStore) CreateAttempt(_ context.Context, _ *core.DAG, _ time.Time, _ string, _ exec.NewDAGRunAttemptOptions) (exec.DAGRunAttempt, error) {
-	if m.createErr != nil {
-		return nil, m.createErr
-	}
-	panic("CreateAttempt not implemented in mock")
-}
-
-func (m *mockRemoteDAGRunStore) RecentAttempts(_ context.Context, _ string, _ int) []exec.DAGRunAttempt {
-	return nil
-}
-
-func (m *mockRemoteDAGRunStore) LatestAttempt(_ context.Context, _ string) (exec.DAGRunAttempt, error) {
-	return nil, exec.ErrDAGRunIDNotFound
-}
-
-func (m *mockRemoteDAGRunStore) ListStatuses(_ context.Context, _ ...exec.ListDAGRunStatusesOption) ([]*exec.DAGRunStatus, error) {
-	return nil, nil
-}
-
-func (m *mockRemoteDAGRunStore) ListStatusesPage(_ context.Context, _ ...exec.ListDAGRunStatusesOption) (exec.DAGRunStatusPage, error) {
-	return exec.DAGRunStatusPage{}, nil
-}
-
-func (m *mockRemoteDAGRunStore) CompareAndSwapLatestAttemptStatus(
-	_ context.Context,
-	_ exec.DAGRunRef,
-	_ string,
-	_ core.Status,
-	_ func(*exec.DAGRunStatus) error,
-	_ ...exec.CompareAndSwapStatusOption,
-) (*exec.DAGRunStatus, bool, error) {
-	return nil, false, nil
-}
-
-func (m *mockRemoteDAGRunStore) RemoveOldDAGRuns(_ context.Context, _ string, _ int, _ ...exec.RemoveOldDAGRunsOption) ([]string, error) {
-	return nil, nil
-}
-
-func (m *mockRemoteDAGRunStore) RenameDAGRuns(_ context.Context, _, _ string) error {
-	return nil
-}
-
-func (m *mockRemoteDAGRunStore) RemoveDAGRun(_ context.Context, _ exec.DAGRunRef, _ ...exec.RemoveDAGRunOption) error {
-	return nil
-}
-
 func TestNewRemoteTaskHandler(t *testing.T) {
 	t.Parallel()
 
@@ -732,13 +496,11 @@ func TestNewRemoteTaskHandler(t *testing.T) {
 		t.Parallel()
 
 		client := newMockRemoteCoordinatorClient()
-		store := newMockRemoteDAGRunStore()
 		cfg := &config.Config{}
 
 		handler := NewRemoteTaskHandler(RemoteTaskHandlerConfig{
 			WorkerID:          "worker-1",
 			CoordinatorClient: client,
-			DAGRunStore:       store,
 			Config:            cfg,
 		})
 
@@ -749,7 +511,6 @@ func TestNewRemoteTaskHandler(t *testing.T) {
 		require.True(t, ok, "should return *remoteTaskHandler")
 		assert.Equal(t, "worker-1", rh.workerID)
 		assert.Equal(t, client, rh.coordinatorClient)
-		assert.Equal(t, store, rh.dagRunStore)
 		assert.Equal(t, cfg, rh.config)
 	})
 
@@ -761,7 +522,6 @@ func TestNewRemoteTaskHandler(t *testing.T) {
 		handler := NewRemoteTaskHandler(RemoteTaskHandlerConfig{
 			WorkerID:          "worker-2",
 			CoordinatorClient: client,
-			// DAGRunStore is nil - valid for fully remote mode
 			// DAGStore is nil
 			// ServiceRegistry is nil
 		})
@@ -770,7 +530,6 @@ func TestNewRemoteTaskHandler(t *testing.T) {
 
 		rh, ok := handler.(*remoteTaskHandler)
 		require.True(t, ok)
-		assert.Nil(t, rh.dagRunStore)
 		assert.Nil(t, rh.dagStore)
 		assert.Nil(t, rh.serviceRegistry)
 	})
@@ -1240,7 +999,7 @@ func TestHandleRetry(t *testing.T) {
 		err := handler.handleRetry(context.Background(), task)
 
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "retry requires previous_status in task for shared-nothing mode")
+		require.Contains(t, err.Error(), "retry requires previous_status in task")
 	})
 
 	t.Run("QueuedCatchupPreservesTriggerType", func(t *testing.T) {
@@ -1285,7 +1044,6 @@ steps:
 		handler := &remoteTaskHandler{
 			workerID:          "test-worker",
 			coordinatorClient: client,
-			dagRunStore:       nil,
 			dagStore:          th.DAGStore,
 			dagRunMgr:         th.DAGRunMgr,
 			serviceRegistry:   th.ServiceRegistry,
@@ -1315,7 +1073,7 @@ steps:
 		require.Equal(t, core.TriggerTypeCatchUp, final.TriggerType)
 	})
 
-	t.Run("SharedNothingModeWithEmbeddedStatus", func(t *testing.T) {
+	t.Run("RemoteWorkerWithEmbeddedStatus", func(t *testing.T) {
 		t.Parallel()
 
 		tempDir := t.TempDir()
@@ -1331,7 +1089,6 @@ steps:
 		handler := &remoteTaskHandler{
 			workerID:          "test-worker",
 			coordinatorClient: newMockRemoteCoordinatorClient(),
-			dagRunStore:       nil, // No local store - fully shared-nothing
 			config: &config.Config{
 				Paths: config.PathsConfig{
 					DAGsDir: tempDir,
@@ -1357,13 +1114,13 @@ steps:
 			DagRunId:       "run-123",
 		}
 
-		// This will fail at agent creation since we don't have full dependencies,
-		// but it proves the shared-nothing path is taken
+		// This will fail at agent creation since full dependencies are not configured,
+		// but it verifies the retry path uses the embedded previous status.
 		err = handler.handleRetry(context.Background(), task)
 
 		// The error should NOT be about missing status source
 		require.Error(t, err)
-		require.NotContains(t, err.Error(), "retry requires either previous_status")
+		require.NotContains(t, err.Error(), "retry requires previous_status in task")
 	})
 }
 
@@ -1415,7 +1172,6 @@ steps:
 	handler := &remoteTaskHandler{
 		workerID:          "test-worker",
 		coordinatorClient: client,
-		dagRunStore:       nil,
 		dagStore:          th.DAGStore,
 		dagRunMgr:         th.DAGRunMgr,
 		serviceRegistry:   th.ServiceRegistry,
@@ -1540,7 +1296,7 @@ steps:
 func TestHandle_OperationRetryWithoutStatusSource(t *testing.T) {
 	t.Parallel()
 
-	// OPERATION_RETRY requires previous_status in the task for shared-nothing mode.
+	// OPERATION_RETRY requires previous_status in the task.
 	// All retry callers embed status via WithPreviousStatus().
 	handler := &remoteTaskHandler{
 		workerID:          "test-worker",
@@ -1561,7 +1317,7 @@ func TestHandle_OperationRetryWithoutStatusSource(t *testing.T) {
 	// Without PreviousStatus, retry should fail with a clear error
 	err := handler.Handle(context.Background(), task)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "retry requires previous_status in task for shared-nothing mode")
+	require.Contains(t, err.Error(), "retry requires previous_status in task")
 }
 
 func TestHandle_OperationRetryWithStep(t *testing.T) {
@@ -1587,7 +1343,7 @@ func TestHandle_OperationRetryWithStep(t *testing.T) {
 	err := handler.Handle(context.Background(), task)
 	require.Error(t, err)
 	// Should fail with "retry requires" error from handleRetry
-	require.Contains(t, err.Error(), "retry requires previous_status in task for shared-nothing mode")
+	require.Contains(t, err.Error(), "retry requires previous_status in task")
 }
 
 func TestHandleStart_SuccessPathWithCleanup(t *testing.T) {
@@ -1948,7 +1704,6 @@ steps:
 	handler := &remoteTaskHandler{
 		workerID:          "integration-test-worker",
 		coordinatorClient: client,
-		dagRunStore:       th.DAGRunStore,
 		dagStore:          th.DAGStore,
 		dagRunMgr:         th.DAGRunMgr,
 		serviceRegistry:   th.ServiceRegistry,
@@ -1988,7 +1743,6 @@ func TestExecuteDAGRun_FailedExecutionStillUploadsArtifacts(t *testing.T) {
 	handler := &remoteTaskHandler{
 		workerID:          "integration-test-worker",
 		coordinatorClient: client,
-		dagRunStore:       th.DAGRunStore,
 		dagStore:          th.DAGStore,
 		dagRunMgr:         th.DAGRunMgr,
 		serviceRegistry:   th.ServiceRegistry,
@@ -2053,7 +1807,6 @@ func TestExecuteDAGRun_ArtifactUploadFailureMarksRunFailed(t *testing.T) {
 	handler := &remoteTaskHandler{
 		workerID:          "integration-test-worker",
 		coordinatorClient: client,
-		dagRunStore:       th.DAGRunStore,
 		dagStore:          th.DAGStore,
 		dagRunMgr:         th.DAGRunMgr,
 		serviceRegistry:   th.ServiceRegistry,
@@ -2110,7 +1863,6 @@ func TestExecuteDAGRun_FailedExecutionWithArtifactUploadFailurePreservesFailedSt
 	handler := &remoteTaskHandler{
 		workerID:          "integration-test-worker",
 		coordinatorClient: client,
-		dagRunStore:       th.DAGRunStore,
 		dagStore:          th.DAGStore,
 		dagRunMgr:         th.DAGRunMgr,
 		serviceRegistry:   th.ServiceRegistry,

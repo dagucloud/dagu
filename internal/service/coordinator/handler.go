@@ -106,7 +106,7 @@ type Handler struct {
 	dispatchPollInitialWait time.Duration
 	dispatchPollMaxWait     time.Duration
 
-	// Optional: for shared-nothing worker architecture
+	// Optional worker runtime services.
 	dagRunStore               exec.DAGRunStore               // For status persistence
 	logDir                    string                         // For log storage
 	artifactDir               string                         // For artifact storage
@@ -118,7 +118,7 @@ type Handler struct {
 	dagRunLeaseStore          exec.DAGRunLeaseStore          // Shared distributed run leases
 	activeDistributedRunStore exec.ActiveDistributedRunStore // Shared active distributed attempt index
 	dagStore                  exec.DAGStore                  // DAG definitions for the GetDAG RPC
-	secretStore               secretpkg.Store                // Secret registry for shared-nothing workers
+	secretStore               secretpkg.Store                // Secret registry for workers
 
 	// Open attempts cache for status persistence
 	attemptsMu   sync.RWMutex
@@ -147,15 +147,15 @@ type Handler struct {
 // HandlerConfig holds configuration for creating a Handler.
 type HandlerConfig struct {
 	// DAGRunStore is the storage backend for DAG run status persistence.
-	// Required for shared-nothing worker architecture.
+	// Required for worker status reporting.
 	DAGRunStore exec.DAGRunStore
 
-	// LogDir is the directory for log storage in shared-nothing mode.
-	// Required for shared-nothing worker architecture.
+	// LogDir is the directory for streamed worker log storage.
+	// Required for worker log streaming.
 	LogDir string
 
-	// ArtifactDir is the directory for artifact storage in shared-nothing mode.
-	// Required for shared-nothing worker architecture.
+	// ArtifactDir is the directory for streamed worker artifact storage.
+	// Required for worker artifact streaming.
 	ArtifactDir string
 
 	// StateStore is the persistent DAG state store used by state RPCs.
@@ -187,7 +187,7 @@ type HandlerConfig struct {
 	// Optional - when nil, GetDAG returns Unimplemented.
 	DAGStore exec.DAGStore
 
-	// SecretStore resolves Dagu-managed secret registry refs for shared-nothing workers.
+	// SecretStore resolves Dagu-managed secret registry refs for workers.
 	// Optional - when nil, ResolveSecretReference returns FailedPrecondition.
 	SecretStore secretpkg.Store
 
@@ -1564,7 +1564,6 @@ func (h *Handler) isTaskCancelled(ctx context.Context, task *coordinatorv1.Runni
 }
 
 // ReportStatus receives status updates from workers and persists them.
-// This is used in shared-nothing architecture where workers don't have filesystem access.
 func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
 	ctx = h.eventContext(ctx)
 
@@ -1585,7 +1584,7 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 		return nil, status.Error(codes.InvalidArgument, "failed to convert status: "+convErr.Error())
 	}
 
-	// Transform worker-local log paths to coordinator paths (shared-nothing mode)
+	// Transform worker-local log paths to coordinator paths.
 	h.transformLogPaths(dagRunStatus)
 	if h.dagRunLeaseStore == nil {
 		dagRunStatus.LeaseAt = time.Now().UnixMilli()
@@ -1632,8 +1631,7 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 		return nil, status.Error(codes.Internal, "failed to write status: "+err.Error())
 	}
 
-	// Persist chat messages for each node (shared-nothing mode)
-	// This enables message persistence when workers don't have filesystem access
+	// Persist chat messages for each node.
 	h.persistChatMessages(ctx, attempt, dagRunStatus)
 
 	// Keep distributed liveness in the dedicated lease store and active index,
@@ -1672,10 +1670,9 @@ func (h *Handler) sameAttemptCancellationRequested(
 }
 
 // transformLogPaths rewrites worker-local log paths to coordinator paths.
-// This is called when logDir is configured (shared-nothing mode).
 func (h *Handler) transformLogPaths(status *exec.DAGRunStatus) {
 	if h.logDir == "" {
-		return // Not in shared-nothing mode, keep original paths
+		return
 	}
 
 	dagName := status.Name
@@ -1810,8 +1807,6 @@ func (h *Handler) transformArtifactPaths(
 }
 
 // persistChatMessages writes chat messages from status to the attempt.
-// This enables message persistence in shared-nothing mode where workers
-// don't have filesystem access to the coordinator's storage.
 // Errors are logged but don't fail the status update since messages are auxiliary data.
 func (h *Handler) persistChatMessages(ctx context.Context, attempt exec.DAGRunAttempt, status *exec.DAGRunStatus) {
 	// Helper to persist messages for a single node
@@ -1990,7 +1985,6 @@ func (h *Handler) getOrOpenAttemptWithFinder(ctx context.Context, cacheKey strin
 }
 
 // StreamLogs receives log streams from workers and writes them to local filesystem.
-// This is used in shared-nothing architecture where workers don't have filesystem access.
 func (h *Handler) StreamLogs(stream coordinatorv1.CoordinatorService_StreamLogsServer) error {
 	if h.logDir == "" {
 		return status.Error(codes.FailedPrecondition, "log streaming not configured: logDir is empty")
@@ -2017,7 +2011,7 @@ func (h *Handler) StreamArtifacts(stream coordinatorv1.CoordinatorService_Stream
 }
 
 // GetDAGRunStatus retrieves the status of a DAG run.
-// This is used by parent DAGs to poll the status of remote sub-DAGs in shared-nothing mode.
+// Parent DAGs use this to poll remote sub-DAG status through the coordinator.
 func (h *Handler) GetDAGRunStatus(ctx context.Context, req *coordinatorv1.GetDAGRunStatusRequest) (*coordinatorv1.GetDAGRunStatusResponse, error) {
 	if h.dagRunStore == nil {
 		return nil, status.Error(codes.FailedPrecondition, "DAG run status query not configured: dagRunStore is nil")
@@ -2031,11 +2025,8 @@ func (h *Handler) GetDAGRunStatus(ctx context.Context, req *coordinatorv1.GetDAG
 	var err error
 
 	// Always read the latest attempt from disk rather than using the openAttempts
-	// cache. In shared-storage mode, the worker creates a separate attempt on disk
-	// that the cache doesn't know about. Reading from disk via FindSubAttempt/
-	// FindAttempt calls LatestAttempt which returns the newest attempt.
-	// In shared-nothing mode, only the coordinator's attempt exists on disk and
-	// ReportStatus writes to it (synced), so reading from disk is also correct.
+	// cache. Remote workers report status to the coordinator, and ReportStatus
+	// writes to the coordinator-owned attempt before this status query reads it.
 	if req.RootDagRunName != "" && req.RootDagRunId != "" {
 		// Look up as a sub-DAG
 		rootRef := exec.DAGRunRef{Name: req.RootDagRunName, ID: req.RootDagRunId}
@@ -2076,8 +2067,7 @@ func (h *Handler) GetDAGRunStatus(ctx context.Context, req *coordinatorv1.GetDAG
 }
 
 // GetDAG retrieves the raw specification of a DAG by name.
-// This is used by workers to obtain DAG definitions that may not be available locally
-// (e.g., in a shared-nothing worker architecture).
+// Workers use this to obtain DAG definitions that may not be available locally.
 func (h *Handler) GetDAG(ctx context.Context, req *coordinatorv1.GetDAGRequest) (*coordinatorv1.GetDAGResponse, error) {
 	if h.dagStore == nil {
 		return nil, status.Error(codes.Unimplemented, "DAG store not configured: GetDAG is not available")
@@ -2845,8 +2835,7 @@ func (h *Handler) markWorkerTasksFailed(ctx context.Context, info *heartbeatInfo
 }
 
 // RequestCancel handles requests to cancel a DAG run.
-// This is used in shared-nothing mode for sub-DAG cancellation where the parent
-// worker cannot directly access the sub-DAG's attempt.
+// Parent workers use this for sub-DAG cancellation through the coordinator.
 func (h *Handler) RequestCancel(ctx context.Context, req *coordinatorv1.RequestCancelRequest) (*coordinatorv1.RequestCancelResponse, error) {
 	if h.dagRunStore == nil {
 		return nil, status.Error(codes.FailedPrecondition, "cancellation not available: DAG run storage not configured")

@@ -30,7 +30,7 @@ import (
 
 // grpcMaxMsgSize is the maximum message size for gRPC calls.
 // Default gRPC limit is 4 MB; we increase to 16 MB to handle large status
-// payloads that include LLM session messages in shared-nothing mode.
+// payloads that include LLM session messages from workers.
 const grpcMaxMsgSize = 16 * 1024 * 1024
 
 func CmdCoordinator() *cobra.Command {
@@ -42,9 +42,9 @@ func CmdCoordinator() *cobra.Command {
 
 The coordinator server provides a central point for distributed workers to:
 - Poll for tasks to execute
-- Fetch DAG definitions (To be implemented)
-- Report task execution status (To be implemented)
-- Register themselves with the system (to be implemented)
+- Fetch DAG definitions and workspace bundles
+- Report task execution status, logs, artifacts, and persistent state
+- Send heartbeats, task-claim acknowledgements, and cancellation requests
 
 This server uses gRPC for efficient communication with remote workers and
 supports authentication via signing keys and TLS encryption.

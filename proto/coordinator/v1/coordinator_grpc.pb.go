@@ -64,7 +64,6 @@ type CoordinatorServiceClient interface {
 	// specific coordinator instance.
 	RunHeartbeat(ctx context.Context, in *RunHeartbeatRequest, opts ...grpc.CallOption) (*RunHeartbeatResponse, error)
 	// ReportStatus is called by workers to push DAG run status updates.
-	// Used in shared-nothing architecture where workers don't have filesystem access.
 	ReportStatus(ctx context.Context, in *ReportStatusRequest, opts ...grpc.CallOption) (*ReportStatusResponse, error)
 	// StreamLogs is called by workers to stream step logs to the coordinator.
 	// Uses client streaming for efficient log transmission.
@@ -79,11 +78,11 @@ type CoordinatorServiceClient interface {
 	// GetWorkspaceBundle downloads an immutable content-addressed workspace bundle.
 	GetWorkspaceBundle(ctx context.Context, in *GetWorkspaceBundleRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WorkspaceBundleChunk], error)
 	// GetDAGRunStatus retrieves the status of a DAG run from the coordinator.
-	// Used by parent DAGs to poll status of remote sub-DAGs in shared-nothing mode.
+	// Used by parent DAGs to poll status of remote sub-DAGs.
 	GetDAGRunStatus(ctx context.Context, in *GetDAGRunStatusRequest, opts ...grpc.CallOption) (*GetDAGRunStatusResponse, error)
 	// RequestCancel is called to request cancellation of a DAG run.
-	// Used in shared-nothing mode for sub-DAG cancellation where the parent
-	// cannot directly access the sub-DAG's attempt.
+	// Used for sub-DAG cancellation where the parent cannot directly access the
+	// sub-DAG's attempt.
 	RequestCancel(ctx context.Context, in *RequestCancelRequest, opts ...grpc.CallOption) (*RequestCancelResponse, error)
 	// GetState retrieves persistent DAG state from the coordinator-owned store.
 	GetState(ctx context.Context, in *GetStateRequest, opts ...grpc.CallOption) (*GetStateResponse, error)
@@ -98,7 +97,7 @@ type CoordinatorServiceClient interface {
 	// sub-DAG execution.
 	GetDAG(ctx context.Context, in *GetDAGRequest, opts ...grpc.CallOption) (*GetDAGResponse, error)
 	// ResolveSecretReference resolves or checks a Dagu-managed secret registry ref.
-	// Used by shared-nothing workers that cannot read the coordinator's secret store.
+	// Used by workers that cannot read the coordinator's secret store.
 	ResolveSecretReference(ctx context.Context, in *ResolveSecretReferenceRequest, opts ...grpc.CallOption) (*ResolveSecretReferenceResponse, error)
 }
 
@@ -348,7 +347,6 @@ type CoordinatorServiceServer interface {
 	// specific coordinator instance.
 	RunHeartbeat(context.Context, *RunHeartbeatRequest) (*RunHeartbeatResponse, error)
 	// ReportStatus is called by workers to push DAG run status updates.
-	// Used in shared-nothing architecture where workers don't have filesystem access.
 	ReportStatus(context.Context, *ReportStatusRequest) (*ReportStatusResponse, error)
 	// StreamLogs is called by workers to stream step logs to the coordinator.
 	// Uses client streaming for efficient log transmission.
@@ -363,11 +361,11 @@ type CoordinatorServiceServer interface {
 	// GetWorkspaceBundle downloads an immutable content-addressed workspace bundle.
 	GetWorkspaceBundle(*GetWorkspaceBundleRequest, grpc.ServerStreamingServer[WorkspaceBundleChunk]) error
 	// GetDAGRunStatus retrieves the status of a DAG run from the coordinator.
-	// Used by parent DAGs to poll status of remote sub-DAGs in shared-nothing mode.
+	// Used by parent DAGs to poll status of remote sub-DAGs.
 	GetDAGRunStatus(context.Context, *GetDAGRunStatusRequest) (*GetDAGRunStatusResponse, error)
 	// RequestCancel is called to request cancellation of a DAG run.
-	// Used in shared-nothing mode for sub-DAG cancellation where the parent
-	// cannot directly access the sub-DAG's attempt.
+	// Used for sub-DAG cancellation where the parent cannot directly access the
+	// sub-DAG's attempt.
 	RequestCancel(context.Context, *RequestCancelRequest) (*RequestCancelResponse, error)
 	// GetState retrieves persistent DAG state from the coordinator-owned store.
 	GetState(context.Context, *GetStateRequest) (*GetStateResponse, error)
@@ -382,7 +380,7 @@ type CoordinatorServiceServer interface {
 	// sub-DAG execution.
 	GetDAG(context.Context, *GetDAGRequest) (*GetDAGResponse, error)
 	// ResolveSecretReference resolves or checks a Dagu-managed secret registry ref.
-	// Used by shared-nothing workers that cannot read the coordinator's secret store.
+	// Used by workers that cannot read the coordinator's secret store.
 	ResolveSecretReference(context.Context, *ResolveSecretReferenceRequest) (*ResolveSecretReferenceResponse, error)
 	mustEmbedUnimplementedCoordinatorServiceServer()
 }

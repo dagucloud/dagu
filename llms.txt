@@ -912,7 +912,7 @@ Reference formats:
 - `owner/repo@version` - GitHub repository
 - `source:target@version` - explicit local path, `file://` path, or Git source
 
-Use immutable tags or commit SHAs for production. Local `source:` paths are useful for development and shared-volume workers only when the worker executing the action can read the same path. For shared-nothing or heterogeneous workers, prefer GitHub or explicit Git `source:` refs. After resolution, Dagu packages the action workspace and can send that bundle to the worker running the child action DAG.
+Use immutable tags or commit SHAs for production. Local `source:` paths are useful for development only when the worker executing the action can read the same path. For distributed or heterogeneous workers, prefer GitHub or explicit Git `source:` refs. After resolution, Dagu packages the action workspace and can send that bundle to the worker running the child action DAG.
 
 ---
 

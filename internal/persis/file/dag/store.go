@@ -44,7 +44,7 @@ type Options struct {
 	BaseConfigPath         string                     // Optional base config file applied when loading DAGs
 	WorkspaceBaseConfigDir string                     // Optional directory containing workspace base configs
 	SkipExamples           bool                       // Skip creating example DAGs
-	SkipDirectoryCreation  bool                       // Skip creating base directory (for worker mode)
+	SkipDirectoryCreation  bool                       // Skip creating base directory for execution-scoped stores
 }
 
 // WithFileCache returns a DAGRepositoryOption that sets the file cache for DAG objects
@@ -92,7 +92,7 @@ func WithSkipExamples(skip bool) Option {
 }
 
 // WithSkipDirectoryCreation returns a DAGRepositoryOption that skips base directory creation.
-// This is used for worker mode where the DAGs directory should not be created.
+// This is used when a caller only needs to resolve existing DAG definitions.
 func WithSkipDirectoryCreation(skip bool) Option {
 	return func(o *Options) {
 		o.SkipDirectoryCreation = skip
@@ -142,7 +142,7 @@ type Storage struct {
 	workspaceBaseConfigDir string                     // Optional directory containing workspace base configs
 	baseConfigState        string                     // Last observed base config state for cache/index invalidation
 	skipExamples           bool                       // Skip creating example DAGs
-	skipDirectoryCreation  bool                       // Skip creating base directory (for worker mode)
+	skipDirectoryCreation  bool                       // Skip creating base directory for execution-scoped stores
 	baseConfigMu           sync.Mutex                 // Protects base config state refresh and invalidation
 	indexMu                sync.Mutex                 // Protects index load/rebuild/invalidate
 }
@@ -393,7 +393,6 @@ func (store *Storage) Delete(_ context.Context, name string) error {
 
 // ensureDirExist ensures that the base directory exists.
 func (store *Storage) ensureDirExist() error {
-	// Skip directory creation for worker mode
 	if store.skipDirectoryCreation {
 		return nil
 	}

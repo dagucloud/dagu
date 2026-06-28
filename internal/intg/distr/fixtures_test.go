@@ -30,15 +30,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type workerMode int
-
-const (
-	sharedNothingMode workerMode = iota
-	sharedFSMode
-)
-
 type fixtureConfig struct {
-	workerMode              workerMode
 	workerCount             int
 	workerMaxActiveRuns     int
 	workerLabels            map[string]string
@@ -73,10 +65,6 @@ func distrTestTimeout(timeout time.Duration) time.Duration {
 	default:
 		return timeout
 	}
-}
-
-func withWorkerMode(mode workerMode) fixtureOption {
-	return func(c *fixtureConfig) { c.workerMode = mode }
 }
 
 func withWorkerCount(n int) fixtureOption {
@@ -160,7 +148,6 @@ func newTestFixture(t *testing.T, yaml string, opts ...fixtureOption) *testFixtu
 	t.Helper()
 
 	cfg := &fixtureConfig{
-		workerMode:          sharedNothingMode,
 		workerCount:         1,
 		workerMaxActiveRuns: 10,
 		workerLabels:        map[string]string{"test": "true"},
@@ -188,9 +175,6 @@ func newTestFixture(t *testing.T, yaml string, opts ...fixtureOption) *testFixtu
 	}
 	if cfg.artifactPersistence {
 		coordOpts = append(coordOpts, test.WithArtifactPersistence())
-	}
-	if cfg.workerMode == sharedFSMode {
-		coordOpts = append(coordOpts, test.WithBuiltExecutable())
 	}
 	if cfg.dagsDir != "" {
 		coordOpts = append(coordOpts, test.WithDAGsDir(cfg.dagsDir))
@@ -220,13 +204,7 @@ func newTestFixture(t *testing.T, yaml string, opts ...fixtureOption) *testFixtu
 
 	for i := range cfg.workerCount {
 		workerID := fmt.Sprintf("worker-%d", i+1)
-		var w *worker.Worker
-		switch cfg.workerMode {
-		case sharedNothingMode:
-			w = f.setupSharedNothingWorker(workerID, cfg.workerLabels, cfg.workerBaseConfigPath)
-		case sharedFSMode:
-			w = f.setupSharedFSWorker(workerID, cfg.workerLabels)
-		}
+		w := f.setupWorker(workerID, cfg.workerLabels, cfg.workerBaseConfigPath)
 		f.workers = append(f.workers, w)
 	}
 
@@ -235,11 +213,11 @@ func newTestFixture(t *testing.T, yaml string, opts ...fixtureOption) *testFixtu
 	return f
 }
 
-func (f *testFixture) setupSharedNothingWorker(workerID string, labels map[string]string, workerBaseConfigPath string) *worker.Worker {
-	return f.setupSharedNothingWorkerWithAfterAckHook(workerID, labels, workerBaseConfigPath, nil)
+func (f *testFixture) setupWorker(workerID string, labels map[string]string, workerBaseConfigPath string) *worker.Worker {
+	return f.setupWorkerWithAfterAckHook(workerID, labels, workerBaseConfigPath, nil)
 }
 
-func (f *testFixture) setupSharedNothingWorkerWithAfterAckHook(
+func (f *testFixture) setupWorkerWithAfterAckHook(
 	workerID string,
 	labels map[string]string,
 	workerBaseConfigPath string,
@@ -261,7 +239,6 @@ func (f *testFixture) setupSharedNothingWorkerWithAfterAckHook(
 	handlerCfg := worker.RemoteTaskHandlerConfig{
 		WorkerID:          workerID,
 		CoordinatorClient: f.coordinatorClient,
-		DAGRunStore:       nil,
 		DAGStore:          f.coord.DAGStore,
 		DAGRunMgr:         f.coord.DAGRunMgr,
 		ServiceRegistry:   f.coord.ServiceRegistry,
@@ -271,33 +248,6 @@ func (f *testFixture) setupSharedNothingWorkerWithAfterAckHook(
 
 	w := worker.NewWorker(workerID, f.workerMaxActiveRuns, f.coordinatorClient, labels, f.coord.Config)
 	w.SetHandler(worker.NewRemoteTaskHandler(handlerCfg))
-	if afterAckHook != nil {
-		w.SetAfterTaskAckHook(afterAckHook)
-	}
-
-	return f.startWorker(w, workerID)
-}
-
-func (f *testFixture) setupSharedFSWorker(workerID string, labels map[string]string) *worker.Worker {
-	return f.setupSharedFSWorkerWithAfterAckHook(workerID, labels, nil)
-}
-
-func (f *testFixture) setupSharedFSWorkerWithAfterAckHook(
-	workerID string,
-	labels map[string]string,
-	afterAckHook func(context.Context, *coordinatorv1.Task) bool,
-) *worker.Worker {
-	f.t.Helper()
-
-	w := worker.NewWorker(
-		workerID,
-		f.workerMaxActiveRuns,
-		f.coordinatorClient,
-		labels,
-		f.coord.Config,
-		worker.WithDAGRunStore(f.coord.DAGRunStore),
-	)
-	w.SetHandler(worker.NewTaskHandlerWithDAGRunStore(f.coord.Config, f.coord.DAGRunStore))
 	if afterAckHook != nil {
 		w.SetAfterTaskAckHook(afterAckHook)
 	}

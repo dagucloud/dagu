@@ -57,7 +57,7 @@ type Client interface {
 	// RunHeartbeat refreshes leases for tasks owned by a specific coordinator.
 	RunHeartbeatTo(ctx context.Context, owner exec.HostInfo, req *coordinatorv1.RunHeartbeatRequest) (*coordinatorv1.RunHeartbeatResponse, error)
 
-	// ReportStatus sends a status update to the coordinator (for shared-nothing workers)
+	// ReportStatus sends a worker status update to the coordinator.
 	ReportStatus(ctx context.Context, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error)
 
 	// ReportStatusTo sends a status update to a specific owner coordinator.
@@ -76,7 +76,7 @@ type Client interface {
 	StreamArtifactsTo(ctx context.Context, owner exec.HostInfo) (coordinatorv1.CoordinatorService_StreamArtifactsClient, error)
 
 	// RequestCancel requests cancellation of a DAG run through the coordinator.
-	// Used in shared-nothing mode for sub-DAG cancellation.
+	// Used by worker sub-DAG cancellation.
 	RequestCancel(ctx context.Context, dagName, dagRunID string, rootRef *exec.DAGRunRef) error
 
 	// GetDAGRunStatus is inherited from execution.Dispatcher
@@ -147,7 +147,7 @@ type client struct {
 
 // grpcMaxMsgSize is the maximum message size for gRPC calls.
 // Default gRPC limit is 4 MB; we increase to 16 MB to handle large status
-// payloads that include LLM session messages in shared-nothing mode.
+// payloads that include LLM session messages from workers.
 const grpcMaxMsgSize = 16 * 1024 * 1024
 
 const maxPinnedStateCoordinators = 1024

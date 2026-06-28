@@ -193,14 +193,15 @@ queue:
 Modify `configmap.yaml` to adjust configuration:
 
 - `DAGU_COORDINATOR_HOST`: Bind address for coordinator gRPC server (set to `0.0.0.0` for distributed mode)
-- `DAGU_COORDINATOR_ADVERTISE`: Address workers use to connect (set to service name `dagu-server` for K8s)
+- `DAGU_COORDINATOR_ADVERTISE`: Address the coordinator advertises to other server-side components
 - `DAGU_COORDINATOR_PORT`: Coordinator gRPC port (default: 50055)
+- Worker deployments pass `--worker.coordinators=dagu-server:50055` so workers connect to the coordinator service directly
 - `DAGU_PEER_INSECURE`: Use insecure gRPC (true for local)
 - `DAGU_TZ`: Timezone
 
 **Important**: For distributed execution to work:
 - `DAGU_COORDINATOR_HOST` must be set to `0.0.0.0` (not `127.0.0.1`)
-- `DAGU_COORDINATOR_ADVERTISE` should be set to the service DNS name for K8s
+- Workers must set `--worker.coordinators` or `DAGU_WORKER_COORDINATORS` to the coordinator service address
 
 After modifying:
 ```bash
