@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path"
 	"path/filepath"
@@ -3438,6 +3439,55 @@ func TestRunner_DeadlockDetection(t *testing.T) {
 
 	require.ErrorIs(t, err, runtime.ErrDeadlockDetected)
 	require.Equal(t, core.Failed, r.Status(ctx, plan))
+}
+
+func TestRunner_ClosesPreparedOutputWritersOnFailedProgress(t *testing.T) {
+	t.Parallel()
+
+	writers := &closeTrackingLogWriterFactory{}
+	helper := setupRunner(t)
+	plan := helper.newPlan(t, failStep("fail"))
+	dag := &core.DAG{Name: "test_dag", WorkingDir: plan.workDir}
+	logFile := filepath.Join(helper.cfg.LogDir, fmt.Sprintf("%s_%s.log", dag.Name, helper.cfg.DAGRunID))
+	ctx := runtime.NewContext(
+		helper.Context,
+		dag,
+		helper.cfg.DAGRunID,
+		logFile,
+		runtime.WithLogWriterFactory(writers),
+	)
+
+	progressCh := make(chan *runtime.Node, 4)
+	err := helper.runner.Run(ctx, plan.Plan, progressCh)
+	close(progressCh)
+
+	progressCount := 0
+	for range progressCh {
+		progressCount++
+	}
+
+	require.Error(t, err)
+	require.GreaterOrEqual(t, progressCount, 2)
+	require.Equal(t, 2, writers.closes)
+}
+
+type closeTrackingLogWriterFactory struct {
+	closes int
+}
+
+func (f *closeTrackingLogWriterFactory) NewStepWriter(_ context.Context, _ string, _ int) io.WriteCloser {
+	return &closeTrackingWriter{closes: &f.closes}
+}
+
+type closeTrackingWriter struct {
+	closes *int
+}
+
+func (w *closeTrackingWriter) Write(p []byte) (int, error) { return len(p), nil }
+
+func (w *closeTrackingWriter) Close() error {
+	(*w.closes)++
+	return nil
 }
 
 func TestNewEnvWithStepInfo(t *testing.T) {
