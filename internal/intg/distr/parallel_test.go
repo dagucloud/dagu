@@ -8,12 +8,12 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"syscall"
 	"testing"
 	"time"
 
 	"github.com/dagucloud/dagu/internal/core"
+	"github.com/dagucloud/dagu/internal/test/intgharness"
 	"github.com/stretchr/testify/require"
 )
 
@@ -220,7 +220,13 @@ func TestParallel_MixedLocalAndDistributed(t *testing.T) {
 	t.Run("mixedLocalAndDistributedExecution", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		releaseFile := filepath.Join(t.TempDir(), "release")
-		waitForReleaseFile := strings.ReplaceAll(waitForReleaseFileScript(releaseFile), "\n", "\n      ")
+		startedDir := t.TempDir()
+		localStartedFile := filepath.Join(startedDir, "local-started")
+		distributedStartedFile := filepath.Join(startedDir, "distributed-started")
+		commands := intgharness.PortableCommands()
+		waitStepScript := func(startedFile string) string {
+			return indentYAMLBlock(commands.WriteFile(startedFile, "started")+"\n"+commands.WaitForFile(releaseFile), 6)
+		}
 		f := newTestFixture(t, `
 type: graph
 steps:
@@ -246,7 +252,7 @@ name: child-local
 steps:
   - name: wait
     run: |
-      `+waitForReleaseFile+`
+`+waitStepScript(localStartedFile)+`
 
 ---
 name: child-distributed
@@ -255,7 +261,7 @@ worker_selector:
 steps:
   - name: wait
     run: |
-      `+waitForReleaseFile+`
+`+waitStepScript(distributedStartedFile)+`
 `, withLabels(map[string]string{"type": "test-worker"}), withDAGsDir(tmpDir), withLogPersistence())
 
 		agent := f.dagWrapper.Agent()
@@ -281,6 +287,12 @@ steps:
 				return false
 			}
 			if len(st.Nodes) == 0 {
+				return false
+			}
+			if _, err := os.Stat(localStartedFile); err != nil {
+				return false
+			}
+			if _, err := os.Stat(distributedStartedFile); err != nil {
 				return false
 			}
 			var started int
