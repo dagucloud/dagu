@@ -24,6 +24,8 @@ import (
 const (
 	defaultAppStreamBufferSize = 32
 	appStreamDebounceInterval  = 200 * time.Millisecond
+	dagRunStatusPollInterval   = time.Second
+	dagRunStatusFileName       = "status.jsonl"
 )
 
 type AppEventType string
@@ -174,9 +176,10 @@ func (c *appEventCoalescer) flush() {
 	}
 }
 
-type recursiveWatcher struct {
+type directoryWatcher struct {
 	root       string
 	createRoot bool
+	scope      watchScope
 	watcher    filenotify.FileWatcher
 	onEvent    func(root, relPath string, op fsnotify.Op)
 	onReset    func(reason string)
@@ -185,17 +188,38 @@ type recursiveWatcher struct {
 	wg         sync.WaitGroup
 }
 
-func newRecursiveWatcher(root string, createRoot bool, onEvent func(root, relPath string, op fsnotify.Op), onReset func(reason string)) *recursiveWatcher {
-	return &recursiveWatcher{
+type appWatcher interface {
+	Start(context.Context) error
+	Stop()
+}
+
+type watchScope int
+
+const (
+	watchScopeRootOnly watchScope = iota
+	watchScopeOneLevel
+)
+
+func newDirectoryWatcher(root string, createRoot bool, onEvent func(root, relPath string, op fsnotify.Op), onReset func(reason string)) *directoryWatcher {
+	return newWatcher(root, createRoot, watchScopeRootOnly, onEvent, onReset)
+}
+
+func newOneLevelDirectoryWatcher(root string, createRoot bool, onEvent func(root, relPath string, op fsnotify.Op), onReset func(reason string)) *directoryWatcher {
+	return newWatcher(root, createRoot, watchScopeOneLevel, onEvent, onReset)
+}
+
+func newWatcher(root string, createRoot bool, scope watchScope, onEvent func(root, relPath string, op fsnotify.Op), onReset func(reason string)) *directoryWatcher {
+	return &directoryWatcher{
 		root:       root,
 		createRoot: createRoot,
+		scope:      scope,
 		onEvent:    onEvent,
 		onReset:    onReset,
 		done:       make(chan struct{}),
 	}
 }
 
-func (w *recursiveWatcher) Start(ctx context.Context) error {
+func (w *directoryWatcher) Start(ctx context.Context) error {
 	if w.root == "" {
 		return nil
 	}
@@ -207,10 +231,16 @@ func (w *recursiveWatcher) Start(ctx context.Context) error {
 		return nil
 	}
 
-	w.watcher = filenotify.New(time.Second)
-	if err := w.addDirRecursive(w.root); err != nil {
-		_ = w.watcher.Close()
+	paths, err := initialWatchPaths(w.root, w.scope)
+	if err != nil {
 		return err
+	}
+	w.watcher = filenotify.New(time.Second)
+	for _, path := range paths {
+		if err := w.watcher.Add(path); err != nil {
+			_ = w.watcher.Close()
+			return err
+		}
 	}
 
 	w.wg.Go(func() {
@@ -219,7 +249,7 @@ func (w *recursiveWatcher) Start(ctx context.Context) error {
 	return nil
 }
 
-func (w *recursiveWatcher) Stop() {
+func (w *directoryWatcher) Stop() {
 	w.stopOnce.Do(func() {
 		close(w.done)
 		if w.watcher != nil {
@@ -229,7 +259,7 @@ func (w *recursiveWatcher) Stop() {
 	w.wg.Wait()
 }
 
-func (w *recursiveWatcher) loop(ctx context.Context) {
+func (w *directoryWatcher) loop(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -250,14 +280,15 @@ func (w *recursiveWatcher) loop(ctx context.Context) {
 	}
 }
 
-func (w *recursiveWatcher) handleEvent(event fsnotify.Event) {
+func (w *directoryWatcher) handleEvent(event fsnotify.Event) {
 	if event.Op&(fsnotify.Create|fsnotify.Write|fsnotify.Remove|fsnotify.Rename) == 0 {
 		return
 	}
 
 	if event.Op&fsnotify.Create != 0 {
-		if info, err := os.Stat(event.Name); err == nil && info.IsDir() {
-			if err := w.addDirRecursive(event.Name); err != nil {
+		switch w.scope {
+		case watchScopeOneLevel:
+			if err := w.addCreatedChildDir(event.Name); err != nil {
 				w.onReset(fmt.Sprintf("failed to register watcher for %s: %v", event.Name, err))
 			}
 		}
@@ -270,22 +301,179 @@ func (w *recursiveWatcher) handleEvent(event fsnotify.Event) {
 	w.onEvent(w.root, filepath.ToSlash(relPath), event.Op)
 }
 
-func (w *recursiveWatcher) addDirRecursive(root string) error {
-	return filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+func (w *directoryWatcher) addCreatedChildDir(path string) error {
+	info, err := os.Stat(path)
+	if err != nil || !info.IsDir() {
+		return nil
+	}
+	parent := filepath.Clean(filepath.Dir(path))
+	if parent != filepath.Clean(w.root) {
+		return nil
+	}
+	return w.watcher.Add(path)
+}
+
+func initialWatchPaths(root string, scope watchScope) ([]string, error) {
+	if root == "" {
+		return nil, nil
+	}
+	switch scope {
+	case watchScopeRootOnly:
+		return []string{root}, nil
+	case watchScopeOneLevel:
+		return oneLevelWatchPaths(root)
+	default:
+		return []string{root}, nil
+	}
+}
+
+func oneLevelWatchPaths(root string) ([]string, error) {
+	paths := []string{root}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return nil, err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			paths = append(paths, filepath.Join(root, entry.Name()))
+		}
+	}
+	return paths, nil
+}
+
+type statusFileSnapshot struct {
+	modTime time.Time
+	size    int64
+}
+
+type dagRunStatusWatcher struct {
+	root       string
+	createRoot bool
+	interval   time.Duration
+	onEvent    func(root, relPath string, op fsnotify.Op)
+	onReset    func(reason string)
+	done       chan struct{}
+	stopOnce   sync.Once
+	wg         sync.WaitGroup
+	files      map[string]statusFileSnapshot
+}
+
+func newDAGRunStatusWatcher(root string, createRoot bool, onEvent func(root, relPath string, op fsnotify.Op), onReset func(reason string)) *dagRunStatusWatcher {
+	return &dagRunStatusWatcher{
+		root:       root,
+		createRoot: createRoot,
+		interval:   dagRunStatusPollInterval,
+		onEvent:    onEvent,
+		onReset:    onReset,
+		done:       make(chan struct{}),
+	}
+}
+
+func (w *dagRunStatusWatcher) Start(ctx context.Context) error {
+	if w.root == "" {
+		return nil
+	}
+	if w.createRoot {
+		if err := os.MkdirAll(w.root, 0750); err != nil {
+			return err
+		}
+	} else if _, err := os.Stat(w.root); errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+
+	files, err := scanDAGRunStatusFiles(w.root)
+	if err != nil {
+		return err
+	}
+	w.files = files
+	w.wg.Go(func() {
+		w.loop(ctx)
+	})
+	return nil
+}
+
+func (w *dagRunStatusWatcher) Stop() {
+	w.stopOnce.Do(func() {
+		close(w.done)
+	})
+	w.wg.Wait()
+}
+
+func (w *dagRunStatusWatcher) loop(ctx context.Context) {
+	ticker := time.NewTicker(w.interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-w.done:
+			return
+		case <-ticker.C:
+			w.poll()
+		}
+	}
+}
+
+func (w *dagRunStatusWatcher) poll() {
+	next, err := scanDAGRunStatusFiles(w.root)
+	if err != nil {
+		w.onReset(fmt.Sprintf("failed to scan dag-run status files for %s: %v", w.root, err))
+		return
+	}
+
+	for relPath, nextFile := range next {
+		prevFile, ok := w.files[relPath]
+		switch {
+		case !ok:
+			w.onEvent(w.root, relPath, fsnotify.Create)
+		case prevFile != nextFile:
+			w.onEvent(w.root, relPath, fsnotify.Write)
+		}
+	}
+	for relPath := range w.files {
+		if _, ok := next[relPath]; !ok {
+			w.onEvent(w.root, relPath, fsnotify.Remove)
+		}
+	}
+	w.files = next
+}
+
+func scanDAGRunStatusFiles(root string) (map[string]statusFileSnapshot, error) {
+	files := map[string]statusFileSnapshot{}
+	if root == "" {
+		return files, nil
+	}
+
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() || d.Name() != dagRunStatusFileName {
+			return err
+		}
+
+		info, err := d.Info()
 		if err != nil {
 			return err
 		}
-		if !d.IsDir() {
-			return nil
+		relPath, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
 		}
-		return w.watcher.Add(path)
+		files[filepath.ToSlash(relPath)] = statusFileSnapshot{
+			modTime: info.ModTime(),
+			size:    info.Size(),
+		}
+		return nil
 	})
+	if errors.Is(err, os.ErrNotExist) {
+		return files, nil
+	}
+	return files, err
 }
 
 type AppStreamService struct {
 	hub       *AppHub
 	coalescer *appEventCoalescer
-	watchers  []*recursiveWatcher
+	watchers  []appWatcher
 	nodeName  string
 	ctx       context.Context
 	cancel    context.CancelFunc
@@ -323,7 +511,7 @@ func NewAppStreamService(cfg AppStreamConfig) (*AppStreamService, error) {
 		cfg.Paths.AltDAGsDir,
 	)
 	for _, dagRoot := range paths {
-		service.watchers = append(service.watchers, newRecursiveWatcher(
+		service.watchers = append(service.watchers, newDirectoryWatcher(
 			dagRoot,
 			dagRoot == primaryDAGRoot,
 			service.handleDAGFileEvent,
@@ -331,10 +519,10 @@ func NewAppStreamService(cfg AppStreamConfig) (*AppStreamService, error) {
 		))
 	}
 	service.watchers = append(service.watchers,
-		newRecursiveWatcher(cfg.Paths.SuspendFlagsDir, true, service.handleSuspendFlagEvent, service.publishReset),
-		newRecursiveWatcher(cfg.Paths.DAGRunsDir, true, service.handleDAGRunEvent, service.publishReset),
-		newRecursiveWatcher(cfg.Paths.QueueDir, true, service.handleQueueEvent, service.publishReset),
-		newRecursiveWatcher(cfg.Paths.DocsDir, true, service.handleDocEvent, service.publishReset),
+		newDirectoryWatcher(cfg.Paths.SuspendFlagsDir, true, service.handleSuspendFlagEvent, service.publishReset),
+		newDAGRunStatusWatcher(cfg.Paths.DAGRunsDir, true, service.handleDAGRunEvent, service.publishReset),
+		newOneLevelDirectoryWatcher(cfg.Paths.QueueDir, true, service.handleQueueEvent, service.publishReset),
+		newDirectoryWatcher(cfg.Paths.DocsDir, true, service.handleDocEvent, service.publishReset),
 	)
 
 	for _, watcher := range service.watchers {

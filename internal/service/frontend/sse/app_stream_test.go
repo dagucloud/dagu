@@ -29,8 +29,8 @@ func TestWriteAppEventFrame(t *testing.T) {
 	assert.Contains(t, body, `"reason":"updated"`)
 }
 
-func TestRecursiveWatcherStopIsIdempotent(_ *testing.T) {
-	watcher := &recursiveWatcher{
+func TestDirectoryWatcherStopIsIdempotent(_ *testing.T) {
+	watcher := &directoryWatcher{
 		done: make(chan struct{}),
 	}
 
@@ -42,8 +42,8 @@ func TestRecursiveWatcherStopIsIdempotent(_ *testing.T) {
 func TestAppStreamServiceShutdownIsIdempotent(_ *testing.T) {
 	service := &AppStreamService{
 		cancel: func() {},
-		watchers: []*recursiveWatcher{
-			{done: make(chan struct{})},
+		watchers: []appWatcher{
+			&directoryWatcher{done: make(chan struct{})},
 		},
 	}
 
