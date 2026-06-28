@@ -3135,10 +3135,7 @@ func (a *API) rescheduleDAGRun(ctx context.Context, dagName, dagRunID string, op
 		return rescheduleDAGRunResult{}, fmt.Errorf("failed to enqueue dag-run: %w", enqueueErr)
 	}
 
-	queued := false
-	if dagStatus, _ := a.dagRunMgr.GetCurrentStatus(ctx, dag, newDagRunID); dagStatus != nil {
-		queued = dagStatus.Status == core.Queued
-	}
+	queued := true
 
 	detailsMap := map[string]any{
 		"dag_name":        dagName,
