@@ -34,18 +34,20 @@ func TestRunnerClosesStepWritersWhenFailedNodeReportsProgress(t *testing.T) {
 	)
 
 	progressCh := make(chan *runtime.Node)
-	progressDone := make(chan struct{})
+	progressCount := make(chan int, 1)
 	go func() {
+		count := 0
 		for range progressCh {
+			count++
 		}
-		close(progressDone)
+		progressCount <- count
 	}()
 
 	err := helper.runner.Run(ctx, plan.Plan, progressCh)
 	close(progressCh)
-	<-progressDone
 
 	require.Error(t, err)
+	require.Greater(t, <-progressCount, 0)
 	logWriters.requireClosed(t, exec.StreamTypeStdout)
 	logWriters.requireClosed(t, exec.StreamTypeStderr)
 }

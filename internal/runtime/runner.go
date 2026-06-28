@@ -486,7 +486,21 @@ func (r *Runner) runNodeExecution(ctx context.Context, plan *Plan, node *Node, p
 
 	ctx = spanCtx
 	ctx = r.setupNodeExecutionEnv(ctx, node)
-	defer r.teardownPreparedNode(node)
+	preparedNodeTornDown := false
+	teardownPreparedNode := func() {
+		if preparedNodeTornDown {
+			return
+		}
+		preparedNodeTornDown = true
+		r.teardownPreparedNode(node)
+	}
+	reportPreparedNode := func() {
+		teardownPreparedNode()
+		if progressCh != nil {
+			progressCh <- node
+		}
+	}
+	defer teardownPreparedNode()
 
 	// Check preconditions
 	logger.Debug(ctx, "Checking preconditions")
@@ -513,7 +527,7 @@ ExecRepeat: // repeat execution
 			continue ExecRepeat
 		}
 		if node.State().Status == core.NodeRetrying {
-			r.reportPreparedNode(node, progressCh)
+			reportPreparedNode()
 			return
 		}
 
@@ -528,7 +542,7 @@ ExecRepeat: // repeat execution
 		}
 
 		if execErr != nil && progressCh != nil {
-			r.reportPreparedNode(node, progressCh)
+			reportPreparedNode()
 			return
 		}
 
@@ -563,7 +577,7 @@ ExecRepeat: // repeat execution
 		r.saveChatMessages(ctx, node)
 	}
 
-	r.reportPreparedNode(node, progressCh)
+	reportPreparedNode()
 }
 
 // setupNodeExecutionEnv prepares the runtime-managed step env before
@@ -637,13 +651,6 @@ func (r *Runner) teardownPreparedNode(node *Node) {
 	if err := r.teardownNode(node); err != nil {
 		r.setLastError(err)
 		node.SetStatus(core.NodeFailed)
-	}
-}
-
-func (r *Runner) reportPreparedNode(node *Node, progressCh chan *Node) {
-	r.teardownPreparedNode(node)
-	if progressCh != nil {
-		progressCh <- node
 	}
 }
 
