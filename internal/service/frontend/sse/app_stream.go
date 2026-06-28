@@ -285,12 +285,9 @@ func (w *directoryWatcher) handleEvent(event fsnotify.Event) {
 		return
 	}
 
-	if event.Op&fsnotify.Create != 0 {
-		switch w.scope {
-		case watchScopeOneLevel:
-			if err := w.addCreatedChildDir(event.Name); err != nil {
-				w.onReset(fmt.Sprintf("failed to register watcher for %s: %v", event.Name, err))
-			}
+	if event.Op&fsnotify.Create != 0 && w.scope == watchScopeOneLevel {
+		if err := w.addCreatedChildDir(event.Name); err != nil {
+			w.onReset(fmt.Sprintf("failed to register watcher for %s: %v", event.Name, err))
 		}
 	}
 
