@@ -105,10 +105,7 @@ func TestEnqueueExecutorParallelHonorsMaxConcurrent(t *testing.T) {
 		},
 	}
 	parentRun := exec.NewDAGRunRef(parent.Name, "parent-run")
-	queueStore := &recordingQueueStore{
-		QueueStore: th.QueueStore,
-		delay:      50 * time.Millisecond,
-	}
+	queueStore := newRecordingQueueStore(th.QueueStore, 2)
 	ctx := runtime.NewContext(
 		th.Context,
 		parent,
@@ -140,7 +137,26 @@ func TestEnqueueExecutorParallelHonorsMaxConcurrent(t *testing.T) {
 
 	var stdout bytes.Buffer
 	execImpl.SetStdout(&stdout)
-	require.NoError(t, execImpl.Run(ctx))
+
+	runCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- execImpl.Run(runCtx)
+	}()
+
+	select {
+	case <-queueStore.TargetActiveReached():
+	case err := <-done:
+		require.NoError(t, err)
+		t.Fatal("enqueue completed before reaching target concurrency")
+	case <-runCtx.Done():
+		t.Fatalf("enqueue did not reach target concurrency: %v", runCtx.Err())
+	}
+
+	queueStore.Release()
+	require.NoError(t, <-done)
 
 	assert.Equal(t, 2, queueStore.MaxActive())
 }
@@ -151,7 +167,21 @@ type recordingQueueStore struct {
 	mu        sync.Mutex
 	active    int
 	maxActive int
-	delay     time.Duration
+
+	targetActive int
+	reached      chan struct{}
+	reachedOnce  sync.Once
+	release      chan struct{}
+	releaseOnce  sync.Once
+}
+
+func newRecordingQueueStore(store exec.QueueStore, targetActive int) *recordingQueueStore {
+	return &recordingQueueStore{
+		QueueStore:   store,
+		targetActive: targetActive,
+		reached:      make(chan struct{}),
+		release:      make(chan struct{}),
+	}
 }
 
 func (s *recordingQueueStore) Enqueue(ctx context.Context, name string, priority exec.QueuePriority, dagRun exec.DAGRunRef) error {
@@ -160,9 +190,19 @@ func (s *recordingQueueStore) Enqueue(ctx context.Context, name string, priority
 	if s.active > s.maxActive {
 		s.maxActive = s.active
 	}
+	if s.active >= s.targetActive {
+		s.reachedOnce.Do(func() { close(s.reached) })
+	}
 	s.mu.Unlock()
 
-	time.Sleep(s.delay)
+	select {
+	case <-s.release:
+	case <-ctx.Done():
+		s.mu.Lock()
+		s.active--
+		s.mu.Unlock()
+		return ctx.Err()
+	}
 
 	err := s.QueueStore.Enqueue(ctx, name, priority, dagRun)
 
@@ -171,6 +211,14 @@ func (s *recordingQueueStore) Enqueue(ctx context.Context, name string, priority
 	s.mu.Unlock()
 
 	return err
+}
+
+func (s *recordingQueueStore) TargetActiveReached() <-chan struct{} {
+	return s.reached
+}
+
+func (s *recordingQueueStore) Release() {
+	s.releaseOnce.Do(func() { close(s.release) })
 }
 
 func (s *recordingQueueStore) MaxActive() int {
