@@ -109,7 +109,6 @@ ${context.trigger.actor}
 ${context.paths.log_file}
 ${context.paths.work_dir}
 ${context.paths.artifacts_dir}
-${context.paths.docs_dir}
 ${context.paths.step_stdout_file}
 ${context.paths.step_stderr_file}
 ${context.paths.step_output_file}
@@ -243,7 +242,6 @@ Rules:
 | `context.paths.log_file` | All run, step, and handler scopes | Absolute path to the aggregated DAG-run log file. |
 | `context.paths.work_dir` | When a per-run work directory is available | Absolute path to the per-run work directory. |
 | `context.paths.artifacts_dir` | When artifact storage is active | Absolute path to the per-run artifacts directory or staging directory. |
-| `context.paths.docs_dir` | When a per-DAG docs directory is configured | Absolute path to the per-DAG docs directory. |
 | `context.paths.step_stdout_file` | Current executable step after stream files are assigned | Absolute path to the current step stdout file. |
 | `context.paths.step_stderr_file` | Current executable step after stream files are assigned | Absolute path to the current step stderr file. |
 | `context.paths.step_output_file` | Current step attempt after output publication is prepared | Absolute path to the current step output file used by Spec 012. |
@@ -309,7 +307,6 @@ Run-level projection:
 | `DAG_RUN_LOG_FILE` | `context.paths.log_file` | All steps and handlers. |
 | `DAG_RUN_WORK_DIR` | `context.paths.work_dir` | When a per-run work directory is available. |
 | `DAG_RUN_ARTIFACTS_DIR` | `context.paths.artifacts_dir` | When artifact storage is active. |
-| `DAG_DOCS_DIR` | `context.paths.docs_dir` | When a per-DAG docs directory is configured. |
 | `DAG_PARAMS_JSON` | Parameter payload JSON | When resolved parameters exist. |
 | `DAGU_PARAMS_JSON` | Same value as `DAG_PARAMS_JSON` | Compatibility alias when resolved parameters exist. |
 
@@ -382,7 +379,6 @@ Availability rules:
 - Step output file path is available only after step output publication is
   prepared for the current step attempt.
 - Artifact directory is available only when artifact storage is active.
-- Docs directory is available only when a docs directory is configured.
 - Profile context is available only when a runtime profile was selected.
 - Webhook context is available only for webhook-triggered runs.
 - Push-back context is available only for step executions caused by an
@@ -458,7 +454,6 @@ Frozen structured-reference aliases:
 | `paths.log_file` | `context.paths.log_file` |
 | `paths.work_dir` | `context.paths.work_dir` |
 | `paths.artifacts_dir` | `context.paths.artifacts_dir` |
-| `paths.docs_dir` | `context.paths.docs_dir` |
 | `paths.step_stdout_file` | `context.paths.step_stdout_file` |
 | `paths.step_stderr_file` | `context.paths.step_stderr_file` |
 | `paths.step_output_file` | `context.paths.step_output_file` |

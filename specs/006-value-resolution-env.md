@@ -152,7 +152,6 @@ Protected Dagu-managed root run environment names:
 - `DAG_NAME`
 - `DAG_RUN_ID`
 - `DAG_RUN_LOG_FILE`
-- `DAG_DOCS_DIR`
 - `DAG_RUN_WORK_DIR`
 - `DAG_RUN_ARTIFACTS_DIR`
 - `DAG_PARAMS_JSON`
@@ -201,7 +200,6 @@ Secret-reserved Dagu-managed environment names include every name starting with
 - `DAG_RUN_STATUS`
 - `DAG_WAITING_STEPS`
 - `DAGU_PARAMS_JSON`
-- `DAG_DOCS_DIR`
 - `DAG_PARAMS_JSON`
 - `DAG_RUN_WORK_DIR`
 - `DAG_RUN_ARTIFACTS_DIR`
