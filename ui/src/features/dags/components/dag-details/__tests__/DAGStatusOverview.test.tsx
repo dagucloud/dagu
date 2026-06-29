@@ -4,7 +4,13 @@
 import { cleanup, render, screen } from '@testing-library/react';
 import React from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
-import { NodeStatus, NodeStatusLabel, Status, StatusLabel } from '@/api/v1/schema';
+import {
+  DAGRunConditionStatus,
+  NodeStatus,
+  NodeStatusLabel,
+  Status,
+  StatusLabel,
+} from '@/api/v1/schema';
 import dayjs from '@/lib/dayjs';
 import DAGStatusOverview from '../DAGStatusOverview';
 
@@ -97,5 +103,55 @@ describe('DAGStatusOverview', () => {
     );
 
     expect(container.querySelector('.bg-\\[\\#e37400\\]')).not.toBeNull();
+  });
+
+  it('renders runtime conditions separately from precondition errors', () => {
+    const checkedAt = '2026-05-19T01:02:03Z';
+
+    render(
+      <DAGStatusOverview
+        status={{
+          dagRunId: 'run-4',
+          name: 'queued-dag',
+          rootDAGRunName: 'queued-dag',
+          rootDAGRunId: 'run-4',
+          log: '/tmp/test.log',
+          artifactsAvailable: false,
+          nodes: [],
+          autoRetryCount: 0,
+          autoRetryLimit: 0,
+          startedAt: '-',
+          finishedAt: '-',
+          status: Status.Queued,
+          statusLabel: StatusLabel.queued,
+          conditions: [
+            {
+              type: 'Queued',
+              status: DAGRunConditionStatus.True,
+              reason: 'QueueCapacity',
+              message: 'DAG-run is waiting for a worker.',
+              checkedAt,
+            },
+          ],
+          preconditions: [
+            {
+              condition: '${FOO}',
+              expected: 'ready',
+              error: 'FOO is not ready',
+            },
+          ],
+        }}
+      />
+    );
+
+    expect(screen.getByText('Runtime Conditions')).toBeInTheDocument();
+    expect(screen.getByText('QueueCapacity')).toBeInTheDocument();
+    expect(
+      screen.getByText('DAG-run is waiting for a worker.')
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(dayjs(checkedAt).format('YYYY-MM-DD HH:mm:ss'))
+    ).toBeInTheDocument();
+    expect(screen.getByText('DAGRun Precondition Unmet')).toBeInTheDocument();
   });
 });

@@ -266,21 +266,26 @@ func (s *serviceImpl) syncFilesToDAGsDir(_ context.Context, pullResult *PullResu
 		if filepath.Ext(file) == ".md" && !isMemoryFile(dagID) && !isSkillFile(dagID) && !isSoulFile(dagID) && !isDocFile(dagID) {
 			continue
 		}
-		repoFilePath := s.gitClient.GetFilePath(file)
+		repoFilePath, err := s.safeRepoPathToFilePath(file)
+		if err != nil {
+			continue
+		}
 		dagFilePath, err := s.safeDAGIDToFilePath(dagID)
 		if err != nil {
 			continue
 		}
 
 		// Read repo file content
-		repoContent, err := os.ReadFile(repoFilePath) //nolint:gosec // path constructed from internal repo
+		// #nosec G304 -- repoFilePath is constrained to the configured repository directory.
+		repoContent, err := os.ReadFile(repoFilePath)
 		if err != nil {
 			continue
 		}
 		repoHash := ComputeContentHash(repoContent)
 
 		// Check if local file exists
-		localContent, err := os.ReadFile(dagFilePath) //nolint:gosec // path constructed from internal dagsDir
+		// #nosec G304 -- dagFilePath is constrained to the configured DAG directory.
+		localContent, err := os.ReadFile(dagFilePath)
 		dagState := state.DAGs[dagID]
 
 		if err != nil {
@@ -471,8 +476,12 @@ func (s *serviceImpl) scanLocalDAGs(state *State) error {
 		}
 
 		// Read local file to compute hash
-		filePath := filepath.Join(s.dagsDir, entry.Name())
-		content, err := os.ReadFile(filePath) //nolint:gosec // path constructed from internal dagsDir
+		filePath, err := safeJoinWithinBase(s.dagsDir, entry.Name())
+		if err != nil {
+			continue
+		}
+		// #nosec G304 -- filePath is constrained to the configured DAG directory.
+		content, err := os.ReadFile(filePath)
 		if err != nil {
 			continue
 		}
@@ -2218,7 +2227,8 @@ func safeWriteFileWithinBase(baseDir, targetPath string, content []byte, perm os
 	} else if !os.IsNotExist(err) {
 		return err
 	}
-	return os.WriteFile(targetPath, content, perm) //nolint:gosec // targetPath is constrained to baseDir and symlink targets are rejected.
+	// #nosec G703 -- targetPath is constrained to baseDir and symlink targets are rejected.
+	return os.WriteFile(targetPath, content, perm)
 }
 
 func (s *serviceImpl) writeDAGFile(dagID, filePath string, content []byte) error {
@@ -2246,6 +2256,10 @@ func (s *serviceImpl) safeDAGIDToFilePath(dagID string) (string, error) {
 	}
 	ext := fileExtensionForID(normalized)
 	return safeJoinWithinBase(s.dagsDir, filepath.FromSlash(normalized+ext))
+}
+
+func (s *serviceImpl) safeRepoPathToFilePath(repoPath string) (string, error) {
+	return safeJoinWithinBase(s.gitClient.repoPath, filepath.FromSlash(repoPath))
 }
 
 func (s *serviceImpl) safeDAGIDToRepoPath(dagID string) (string, error) {

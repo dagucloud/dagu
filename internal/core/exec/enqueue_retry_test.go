@@ -72,6 +72,15 @@ func TestEnqueueRetry(t *testing.T) {
 				assert.Equal(t, core.Queued, store.status.Status)
 				assert.Equal(t, core.TriggerTypeRetry, store.status.TriggerType)
 				assert.NotEmpty(t, store.status.QueuedAt)
+				checkedAt, err := time.Parse(time.RFC3339, store.status.QueuedAt)
+				require.NoError(t, err)
+				assert.Equal(t, []exec.DAGRunCondition{
+					exec.NewQueuedDAGRunCondition(
+						"QueueAccepted",
+						"DAG-run is waiting in the queue.",
+						checkedAt,
+					),
+				}, store.status.Conditions)
 				assert.Equal(t, 2, store.status.AutoRetryCount)
 				assert.Equal(t, "old-profile", store.status.ProfileName)
 				assert.Equal(t, 1, store.casCalls)

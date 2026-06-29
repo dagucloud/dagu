@@ -19,6 +19,7 @@ var (
 	WithRawBody                 = withRawBody
 	WithRequestHeaders          = withRequestHeaders
 	BuildArtifactPreviewForTest = buildArtifactPreview
+	ToDAGRunSummaryForTest      = toDAGRunSummary
 )
 
 // ArtifactTextPreviewMaxBytesForTest exposes the artifact preview size limit to external-package tests.

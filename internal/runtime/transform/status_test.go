@@ -169,6 +169,27 @@ func TestStatusBuilderWithOptions(t *testing.T) {
 	assert.Equal(t, int64(9876543210), result.PIDStartedAt)
 }
 
+func TestStatusBuilderWithConditions(t *testing.T) {
+	t.Parallel()
+
+	dag := &core.DAG{Name: "queued-dag"}
+	condition := exec.NewQueuedDAGRunCondition(
+		"QueueAccepted",
+		"waiting in queue",
+		time.Date(2026, 5, 19, 1, 2, 3, 0, time.UTC),
+	)
+
+	result := transform.NewStatusBuilder(dag).Create(
+		"queued-run",
+		core.Queued,
+		0,
+		time.Time{},
+		transform.WithConditions([]exec.DAGRunCondition{condition}),
+	)
+
+	assert.Equal(t, []exec.DAGRunCondition{condition}, result.Conditions)
+}
+
 func TestStatusBuilderPopulatesPendingStepRetriesFromNodes(t *testing.T) {
 	dag := &core.DAG{
 		Name: "retrying-dag",

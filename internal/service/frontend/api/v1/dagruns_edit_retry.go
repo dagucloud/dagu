@@ -656,6 +656,13 @@ func (a *API) seedEditRetryAttempt(
 		transform.WithArchiveDir(artifactDir),
 		transform.WithAttemptID(attempt.ID()),
 		transform.WithQueuedAt(stringutil.FormatTime(now)),
+		transform.WithConditions([]exec.DAGRunCondition{
+			exec.NewQueuedDAGRunCondition(
+				"QueueAccepted",
+				"DAG-run is waiting in the queue.",
+				now,
+			),
+		}),
 		transform.WithPreconditions(dag.Preconditions),
 		transform.WithHierarchyRefs(
 			exec.NewDAGRunRef(dag.Name, dagRunID),

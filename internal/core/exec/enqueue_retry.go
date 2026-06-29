@@ -51,8 +51,16 @@ func EnqueueRetry(
 		status.AttemptID,
 		status.Status,
 		func(latest *DAGRunStatus) error {
+			now := time.Now()
 			latest.Status = core.Queued
-			latest.QueuedAt = stringutil.FormatTime(time.Now())
+			latest.QueuedAt = stringutil.FormatTime(now)
+			latest.Conditions = []DAGRunCondition{
+				NewQueuedDAGRunCondition(
+					"QueueAccepted",
+					"DAG-run is waiting in the queue.",
+					now,
+				),
+			}
 			latest.TriggerType = core.TriggerTypeRetry
 			if opts.AutoRetry {
 				latest.AutoRetryCount++

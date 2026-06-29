@@ -210,6 +210,13 @@ func WithPendingStepRetries(retries []exec.PendingStepRetry) StatusOption {
 	}
 }
 
+// WithConditions returns a StatusOption that sets observed runtime conditions.
+func WithConditions(conditions []exec.DAGRunCondition) StatusOption {
+	return func(s *exec.DAGRunStatus) {
+		s.Conditions = append([]exec.DAGRunCondition(nil), conditions...)
+	}
+}
+
 // WithRuntimeProfile returns a StatusOption that records selected profile metadata.
 func WithRuntimeProfile(name, resolvedAt string, entries []exec.RuntimeProfileEntry) StatusOption {
 	return func(s *exec.DAGRunStatus) {

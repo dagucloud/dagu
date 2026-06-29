@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import React from 'react';
-import { components } from '@/api/v1/schema';
+import { components, Status } from '@/api/v1/schema';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useConfig } from '@/contexts/ConfigContext';
 import dayjs from '@/lib/dayjs';
@@ -87,6 +87,10 @@ function QueueRunsTable({
         <tbody className="divide-y divide-border/50">
           {items.map((dagRun) => {
             const selected = selectable && Boolean(isSelected?.(dagRun));
+            const conditions =
+              dagRun.status === Status.Queued
+                ? (dagRun.conditions ?? [])
+                : [];
 
             return (
               <tr
@@ -147,6 +151,23 @@ function QueueRunsTable({
                         showQueuedAt ? dagRun.queuedAt : dagRun.startedAt
                       )}
                     </span>
+                    {conditions.map((condition, idx) => (
+                      <span
+                        key={`${condition.type}-${condition.reason}-${condition.checkedAt}-${idx}`}
+                        className="max-w-[28rem] whitespace-normal break-words leading-snug"
+                      >
+                        <span className="font-medium text-foreground">
+                          {condition.reason}
+                        </span>
+                        <span className="text-muted-foreground/90">: </span>
+                        <span className="text-muted-foreground/90">
+                          {condition.message}
+                        </span>
+                        <span className="ml-1 text-muted-foreground/70">
+                          Checked {formatDateTime(condition.checkedAt)}
+                        </span>
+                      </span>
+                    ))}
                   </div>
                 </td>
                 <td className="py-1.5 px-2 text-xs text-muted-foreground font-mono">

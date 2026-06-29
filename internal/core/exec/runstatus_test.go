@@ -194,6 +194,62 @@ func TestPendingStepRetriesFromStatus(t *testing.T) {
 	})
 }
 
+func TestNewQueuedDAGRunCondition(t *testing.T) {
+	t.Parallel()
+
+	checkedAt := time.Date(2026, 5, 19, 1, 2, 3, 0, time.UTC)
+
+	condition := exec.NewQueuedDAGRunCondition(
+		"QueueAccepted",
+		"waiting in queue",
+		checkedAt,
+	)
+
+	assert.Equal(t, exec.DAGRunCondition{
+		Type:      "Queued",
+		Status:    "True",
+		Reason:    "QueueAccepted",
+		Message:   "waiting in queue",
+		CheckedAt: "2026-05-19T01:02:03Z",
+	}, condition)
+
+	data, err := json.Marshal(condition)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{
+		"type": "Queued",
+		"status": "True",
+		"reason": "QueueAccepted",
+		"message": "waiting in queue",
+		"checkedAt": "2026-05-19T01:02:03Z"
+	}`, string(data))
+}
+
+func TestNormalizeDAGRunConditions(t *testing.T) {
+	t.Parallel()
+
+	condition := exec.NewQueuedDAGRunCondition(
+		"QueueAccepted",
+		"waiting in queue",
+		time.Date(2026, 5, 19, 1, 2, 3, 0, time.UTC),
+	)
+
+	queued := &exec.DAGRunStatus{
+		Status:     core.Queued,
+		Conditions: []exec.DAGRunCondition{condition},
+	}
+	exec.NormalizeDAGRunConditions(queued)
+	assert.Equal(t, []exec.DAGRunCondition{condition}, queued.Conditions)
+
+	running := &exec.DAGRunStatus{
+		Status:     core.Running,
+		Conditions: []exec.DAGRunCondition{condition},
+	}
+	exec.NormalizeDAGRunConditions(running)
+	assert.Nil(t, running.Conditions)
+
+	exec.NormalizeDAGRunConditions(nil)
+}
+
 func TestDAGRunStatusUnmarshalJSONDeprecatedTags(t *testing.T) {
 	t.Parallel()
 

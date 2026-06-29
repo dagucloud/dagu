@@ -5014,6 +5014,25 @@ export interface components {
             abort?: components["schemas"]["Step"];
             exit?: components["schemas"]["Step"];
         };
+        /** @description Observed runtime condition for a DAG-run */
+        DAGRunCondition: {
+            /** @description Condition type */
+            type: string;
+            /**
+             * @description Observed status of the condition
+             * @enum {string}
+             */
+            status: DAGRunConditionStatus;
+            /** @description Machine-readable reason for the condition status */
+            reason: string;
+            /** @description Human-readable detail for the condition status */
+            message: string;
+            /**
+             * Format: date-time
+             * @description RFC 3339 timestamp when the condition was observed
+             */
+            checkedAt: string;
+        };
         /** @description Current status of a DAG-run */
         DAGRunSummary: {
             dagRunId: components["schemas"]["DAGRunId"];
@@ -5043,6 +5062,8 @@ export interface components {
             /** @description ID of the worker that executed this DAG-run ('local' for local execution) */
             workerId?: string;
             triggerType?: components["schemas"]["TriggerType"];
+            /** @description Observed runtime conditions for the DAG-run */
+            conditions?: components["schemas"]["DAGRunCondition"][];
             /** @description List of labels for categorizing and filtering DAG runs */
             labels?: string[];
             /**
@@ -19968,6 +19989,11 @@ export enum ParamDefType {
     integer = "integer",
     number = "number",
     boolean = "boolean"
+}
+export enum DAGRunConditionStatus {
+    True = "True",
+    False = "False",
+    Unknown = "Unknown"
 }
 export enum ArtifactNodeType {
     directory = "directory",

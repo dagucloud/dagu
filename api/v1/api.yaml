@@ -13052,6 +13052,34 @@ components:
         exit:
           $ref: "#/components/schemas/Step"
 
+    DAGRunCondition:
+      type: object
+      description: "Observed runtime condition for a DAG-run"
+      properties:
+        type:
+          type: string
+          description: "Condition type"
+        status:
+          type: string
+          enum: ["True", "False", "Unknown"]
+          description: "Observed status of the condition"
+        reason:
+          type: string
+          description: "Machine-readable reason for the condition status"
+        message:
+          type: string
+          description: "Human-readable detail for the condition status"
+        checkedAt:
+          type: string
+          format: date-time
+          description: "RFC 3339 timestamp when the condition was observed"
+      required:
+        - type
+        - status
+        - reason
+        - message
+        - checkedAt
+
     DAGRunSummary:
       type: object
       description: "Current status of a DAG-run"
@@ -13100,6 +13128,11 @@ components:
           description: "ID of the worker that executed this DAG-run ('local' for local execution)"
         triggerType:
           $ref: "#/components/schemas/TriggerType"
+        conditions:
+          type: array
+          description: "Observed runtime conditions for the DAG-run"
+          items:
+            $ref: "#/components/schemas/DAGRunCondition"
         labels:
           type: array
           items:

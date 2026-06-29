@@ -486,6 +486,8 @@ func (a *API) runningSummaryFromLease(ctx context.Context, lease exec.DAGRunLeas
 		// persisted status has not caught up to running yet.
 		summary := toDAGRunSummary(*status)
 		summary.Status = api.StatusRunning
+		summary.StatusLabel = api.StatusLabelRunning
+		summary.Conditions = nil
 		return summary, true
 	case core.Failed, core.Aborted, core.Succeeded,
 		core.PartiallySucceeded, core.Waiting, core.Rejected:

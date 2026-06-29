@@ -107,6 +107,49 @@ type PreconditionErrorsProps = {
   preconditions?: components['schemas']['Condition'][];
 };
 
+type RuntimeConditionsProps = {
+  conditions?: components['schemas']['DAGRunCondition'][];
+};
+
+function RuntimeConditions({
+  conditions,
+}: RuntimeConditionsProps): React.JSX.Element | null {
+  if (!conditions || conditions.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="pb-2">
+      <div className="flex items-center mb-1">
+        <Info className="h-3.5 w-3.5 mr-1 text-muted-foreground" />
+        <span className="text-xs font-semibold text-muted-foreground">
+          Runtime Conditions
+        </span>
+      </div>
+      <div className="space-y-2">
+        {conditions.map((condition, idx) => (
+          <div
+            key={`${condition.type}-${condition.reason}-${idx}`}
+            className="p-1.5 bg-muted/30 border border-border rounded-md text-xs whitespace-normal break-words"
+          >
+            <div className="mb-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+              <span className="font-semibold text-foreground">
+                {condition.reason}
+              </span>
+              <span className="font-mono text-muted-foreground">
+                {formatTimestamp(condition.checkedAt)}
+              </span>
+            </div>
+            <div className="text-muted-foreground break-words">
+              {condition.message}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function PreconditionErrors({
   preconditions,
 }: PreconditionErrorsProps): React.JSX.Element | null {
@@ -382,6 +425,7 @@ function DAGStatusOverview({
         );
       })()}
 
+      <RuntimeConditions conditions={status.conditions} />
       <PreconditionErrors preconditions={status.preconditions} />
     </div>
   );

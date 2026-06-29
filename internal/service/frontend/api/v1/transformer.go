@@ -218,6 +218,31 @@ func toTriggerType(t core.TriggerType) *api.TriggerType {
 	return new(api.TriggerType(t.String()))
 }
 
+func toDAGRunConditions(status core.Status, conditions []exec.DAGRunCondition) *[]api.DAGRunCondition {
+	if status != core.Queued || len(conditions) == 0 {
+		return nil
+	}
+
+	result := make([]api.DAGRunCondition, 0, len(conditions))
+	for _, condition := range conditions {
+		checkedAt, err := time.Parse(time.RFC3339, condition.CheckedAt)
+		if err != nil {
+			continue
+		}
+		result = append(result, api.DAGRunCondition{
+			Type:      condition.Type,
+			Status:    api.DAGRunConditionStatus(condition.Status),
+			Reason:    condition.Reason,
+			Message:   condition.Message,
+			CheckedAt: checkedAt,
+		})
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return &result
+}
+
 func toRuntimeProfileName(name string) *api.RuntimeProfileName {
 	if name == "" {
 		return nil
@@ -242,6 +267,7 @@ func toDAGRunSummary(s exec.DAGRunStatus) api.DAGRunSummary {
 		QueuedAt:           ptrOf(s.QueuedAt),
 		AutoRetryCount:     s.AutoRetryCount,
 		AutoRetryLimit:     autoRetryLimit,
+		Conditions:         toDAGRunConditions(s.Status, s.Conditions),
 		ScheduleTime:       ptrOf(s.ScheduleTime),
 		StartedAt:          s.StartedAt,
 		FinishedAt:         s.FinishedAt,
@@ -306,6 +332,7 @@ func ToDAGRunDetails(s exec.DAGRunStatus) api.DAGRunDetails {
 		QueuedAt:           ptrOf(s.QueuedAt),
 		AutoRetryCount:     s.AutoRetryCount,
 		AutoRetryLimit:     autoRetryLimit,
+		Conditions:         toDAGRunConditions(s.Status, s.Conditions),
 		ScheduleTime:       ptrOf(s.ScheduleTime),
 		StartedAt:          s.StartedAt,
 		FinishedAt:         s.FinishedAt,

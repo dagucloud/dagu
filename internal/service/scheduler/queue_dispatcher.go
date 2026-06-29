@@ -63,6 +63,20 @@ type dispatchAdmissionInput struct {
 	nonAdmissionOccupancy int
 }
 
+const (
+	queuedConditionReasonQueueCapacityFull         = "QueueCapacityFull"
+	queuedConditionReasonDispatchAdmissionPending  = "DispatchAdmissionPending"
+	queuedConditionReasonDispatchAdmissionRejected = "DispatchAdmissionRejected"
+	queuedConditionReasonDistributedDispatchFailed = "DistributedDispatchFailed"
+
+	queuedConditionMessageQueueCapacityFull        = "DAG-run is waiting because queue capacity is full."
+	queuedConditionMessageDispatchAdmissionPending = "Distributed dispatch admission is still pending; DAG-run is waiting in the queue."
+
+	queuedConditionRefreshInterval = time.Minute
+)
+
+var errQueuedConditionFresh = errors.New("queued condition is already fresh")
+
 func newQueueDispatcher(deps queueDispatchDeps) *queueDispatcher {
 	if deps.isSuspended == nil {
 		deps.isSuspended = func(context.Context, string) bool { return false }
@@ -131,6 +145,7 @@ func (d *queueDispatcher) selectDispatchBatch(
 			tag.MaxConcurrency(maxConcurrency),
 			tag.Alive(aliveCount),
 		)
+		d.recordCapacityUnavailableConditions(ctx, items, outstandingDispatchCount > 0)
 		return queueDispatchBatch{}, nil
 	}
 
@@ -393,6 +408,10 @@ func (d *queueDispatcher) dispatchAndWaitForStartup(
 			return true
 		}
 		logger.Error(ctx, "Failed to dispatch DAG after retries", tag.Error(err))
+		d.recordQueuedCondition(ctx, runRef,
+			queuedConditionReasonDistributedDispatchFailed,
+			distributedDispatchFailedMessage(err),
+		)
 	}
 
 	defer d.wakeUp()
@@ -446,6 +465,10 @@ func (d *queueDispatcher) reserveDistributedAdmission(
 		if decision != nil {
 			reason = string(decision.Reason)
 		}
+		d.recordQueuedCondition(ctx, runRef,
+			queuedConditionReasonDispatchAdmissionRejected,
+			dispatchAdmissionRejectedMessage(reason),
+		)
 		logger.Debug(ctx, "Distributed queue admission rejected",
 			tag.RunID(runRef.ID),
 			tag.Queue(queueName),
@@ -600,6 +623,10 @@ func (d *queueDispatcher) selectRunnableQueueItems(
 				return nil, err
 			}
 			if reserved {
+				d.recordQueuedCondition(ctx, *runRef,
+					queuedConditionReasonDispatchAdmissionPending,
+					queuedConditionMessageDispatchAdmissionPending,
+				)
 				logger.Debug(ctx, "Skipping queue item with outstanding distributed dispatch reservation",
 					tag.RunID(runRef.ID),
 				)
@@ -610,6 +637,147 @@ func (d *queueDispatcher) selectRunnableQueueItems(
 	}
 
 	return runnable, nil
+}
+
+func dispatchAdmissionRejectedMessage(reason string) string {
+	if reason == "" {
+		return "Distributed dispatch admission was rejected; DAG-run is waiting in the queue."
+	}
+	return fmt.Sprintf("Distributed dispatch admission was rejected (%s); DAG-run is waiting in the queue.", reason)
+}
+
+func distributedDispatchFailedMessage(err error) string {
+	if err == nil {
+		return "Distributed dispatch failed; DAG-run is waiting in the queue."
+	}
+	return fmt.Sprintf("Distributed dispatch failed (%s); DAG-run is waiting in the queue.", err)
+}
+
+func (d *queueDispatcher) recordCapacityUnavailableConditions(
+	ctx context.Context,
+	items []exec.QueuedItemData,
+	checkOutstandingDispatch bool,
+) {
+	for _, item := range items {
+		runRef, err := item.Data()
+		if err != nil {
+			logger.Warn(ctx, "Failed to read queued item while updating queued condition", tag.Error(err))
+			continue
+		}
+		if runRef == nil {
+			continue
+		}
+		reason := queuedConditionReasonQueueCapacityFull
+		message := queuedConditionMessageQueueCapacityFull
+		if checkOutstandingDispatch {
+			reserved, err := d.hasOutstandingDispatchReservation(ctx, *runRef)
+			if err != nil {
+				logger.Warn(ctx, "Failed to check outstanding dispatch reservation while updating queued condition",
+					tag.Error(err),
+					tag.RunID(runRef.ID),
+				)
+			} else if reserved {
+				reason = queuedConditionReasonDispatchAdmissionPending
+				message = queuedConditionMessageDispatchAdmissionPending
+			}
+		}
+		d.recordQueuedCondition(ctx, *runRef, reason, message)
+	}
+}
+
+func (d *queueDispatcher) recordQueuedCondition(
+	ctx context.Context,
+	runRef exec.DAGRunRef,
+	reason string,
+	message string,
+) {
+	if err := d.updateQueuedCondition(ctx, runRef, reason, message, time.Now()); err != nil {
+		logger.Warn(ctx, "Failed to update queued DAG-run condition",
+			tag.Error(err),
+			tag.RunID(runRef.ID),
+		)
+	}
+}
+
+func (d *queueDispatcher) updateQueuedCondition(
+	ctx context.Context,
+	runRef exec.DAGRunRef,
+	reason string,
+	message string,
+	checkedAt time.Time,
+) error {
+	attempt, err := d.dagRunStore.FindAttempt(ctx, runRef)
+	if err != nil {
+		if errors.Is(err, exec.ErrDAGRunIDNotFound) {
+			return nil
+		}
+		return err
+	}
+	if attempt.Hidden() {
+		return nil
+	}
+
+	status, err := attempt.ReadStatus(ctx)
+	if err != nil {
+		if errors.Is(err, exec.ErrNoStatusData) || errors.Is(err, exec.ErrCorruptedStatusFile) {
+			return nil
+		}
+		return err
+	}
+	if status == nil || status.Status != core.Queued {
+		return nil
+	}
+	if !queuedConditionNeedsUpdate(status, reason, message, checkedAt) {
+		return nil
+	}
+
+	_, _, err = d.dagRunStore.CompareAndSwapLatestAttemptStatus(
+		ctx,
+		runRef,
+		status.AttemptID,
+		core.Queued,
+		func(latest *exec.DAGRunStatus) error {
+			if !queuedConditionNeedsUpdate(latest, reason, message, checkedAt) {
+				return errQueuedConditionFresh
+			}
+			latest.Conditions = []exec.DAGRunCondition{
+				exec.NewQueuedDAGRunCondition(reason, message, checkedAt),
+			}
+			return nil
+		},
+	)
+	if errors.Is(err, errQueuedConditionFresh) {
+		return nil
+	}
+	return err
+}
+
+func queuedConditionNeedsUpdate(
+	status *exec.DAGRunStatus,
+	reason string,
+	message string,
+	checkedAt time.Time,
+) bool {
+	if status == nil || len(status.Conditions) != 1 {
+		return true
+	}
+
+	condition := status.Conditions[0]
+	if condition.Type != "Queued" ||
+		condition.Status != "True" ||
+		condition.Reason != reason ||
+		condition.Message != message {
+		return true
+	}
+
+	observedAt, err := stringutil.ParseTime(condition.CheckedAt)
+	if err != nil || observedAt.IsZero() {
+		return true
+	}
+	if observedAt.After(checkedAt) {
+		return true
+	}
+	return checkedAt.Sub(observedAt) >= queuedConditionRefreshInterval
 }
 
 func (d *queueDispatcher) hasOutstandingDispatchReservation(ctx context.Context, runRef exec.DAGRunRef) (bool, error) {

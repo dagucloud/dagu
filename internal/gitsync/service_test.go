@@ -416,6 +416,12 @@ func TestSafeDAGIDPathValidation(t *testing.T) {
 		assert.Equal(t, "subdir/memory/MEMORY.md", path)
 	})
 
+	t.Run("valid repo file path", func(t *testing.T) {
+		path, err := s.safeRepoPathToFilePath("subdir/my-dag.yaml")
+		require.NoError(t, err)
+		assert.Equal(t, filepath.Join("/repo", "subdir", "my-dag.yaml"), path)
+	})
+
 	t.Run("normalizes backslash separators", func(t *testing.T) {
 		path, err := s.safeDAGIDToRepoPath(`memory\MEMORY`)
 		require.NoError(t, err)
@@ -430,6 +436,12 @@ func TestSafeDAGIDPathValidation(t *testing.T) {
 
 	t.Run("rejects absolute DAG ID", func(t *testing.T) {
 		_, err := s.safeDAGIDToRepoPath("/tmp/file")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrInvalidDAGID)
+	})
+
+	t.Run("rejects traversal repo file path", func(t *testing.T) {
+		_, err := s.safeRepoPathToFilePath("../outside.yaml")
 		require.Error(t, err)
 		assert.ErrorIs(t, err, ErrInvalidDAGID)
 	})
