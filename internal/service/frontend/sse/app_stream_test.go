@@ -29,27 +29,29 @@ func TestWriteAppEventFrame(t *testing.T) {
 	assert.Contains(t, body, `"reason":"updated"`)
 }
 
-func TestRecursiveWatcherStopIsIdempotent(_ *testing.T) {
-	watcher := &recursiveWatcher{
+func TestDirectoryWatcherStopIsIdempotent(t *testing.T) {
+	watcher := &directoryWatcher{
 		done: make(chan struct{}),
 	}
 
-	// Calling Stop twice asserts the method is idempotent and does not panic.
-	watcher.Stop()
-	watcher.Stop()
+	require.NotPanics(t, func() {
+		watcher.Stop()
+		watcher.Stop()
+	})
 }
 
-func TestAppStreamServiceShutdownIsIdempotent(_ *testing.T) {
+func TestAppStreamServiceShutdownIsIdempotent(t *testing.T) {
 	service := &AppStreamService{
 		cancel: func() {},
-		watchers: []*recursiveWatcher{
-			{done: make(chan struct{})},
+		watchers: []appWatcher{
+			&directoryWatcher{done: make(chan struct{})},
 		},
 	}
 
-	// Calling Shutdown twice asserts the method is idempotent and does not panic.
-	service.Shutdown()
-	service.Shutdown()
+	require.NotPanics(t, func() {
+		service.Shutdown()
+		service.Shutdown()
+	})
 }
 
 func TestAppHandlerHandleStreamUnavailable(t *testing.T) {
