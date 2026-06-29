@@ -997,25 +997,20 @@ func TestEnv_EvalString_Precedence(t *testing.T) {
 	}
 }
 
-func TestEnv_SpecialEnvVars_DAGDocsDirAndParamsJSON(t *testing.T) {
+func TestEnv_SpecialEnvVars_DAGParamsJSON(t *testing.T) {
 	t.Parallel()
-
-	cfg := &config.Config{}
-	cfg.Paths.DocsDir = "/docs"
-	ctx := config.WithConfig(context.Background(), cfg)
 
 	dag := &core.DAG{
 		Name:       "test-dag",
 		WorkingDir: t.TempDir(),
 		ParamsJSON: `{"a":"b"}`,
 	}
-	ctx = runtime.NewContext(ctx, dag, "run-1", "test.log")
+	ctx := runtime.NewContext(context.Background(), dag, "run-1", "test.log")
 
 	env := runtime.NewEnv(ctx, core.Step{Name: "step1"})
 	ctx = runtime.WithEnv(ctx, env)
 	result := runtime.AllEnvsMap(ctx)
 
-	assert.Equal(t, filepath.Join(cfg.Paths.DocsDir, dag.Name), result[exec.EnvKeyDAGDocsDir])
 	assert.Equal(t, `{"a":"b"}`, result[exec.EnvKeyDAGParamsJSONCompat])
 	assert.Equal(t, `{"a":"b"}`, result[exec.EnvKeyDAGParamsJSON])
 }

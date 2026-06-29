@@ -65,7 +65,6 @@ type SessionManager struct {
 	thinkingEffort        llm.ThinkingEffort
 	totalCost             float64
 	memoryStore           MemoryStore
-	docStore              DocStore
 	workspaceStore        workspacepkg.Store
 	dagStore              exec.DAGStore
 	dagRunStore           exec.DAGRunStore
@@ -117,7 +116,6 @@ type SessionManagerConfig struct {
 	OutputCostPer1M float64
 	ThinkingEffort  llm.ThinkingEffort
 	MemoryStore     MemoryStore
-	DocStore        DocStore
 	WorkspaceStore  workspacepkg.Store
 	// DAGStore provides DAG metadata and definitions for DAG management tools.
 	DAGStore exec.DAGStore
@@ -221,7 +219,6 @@ func NewSessionManager(cfg SessionManagerConfig) *SessionManager {
 		thinkingEffort:        cfg.ThinkingEffort,
 		totalCost:             totalCost,
 		memoryStore:           cfg.MemoryStore,
-		docStore:              cfg.DocStore,
 		workspaceStore:        cfg.WorkspaceStore,
 		dagStore:              cfg.DAGStore,
 		dagRunStore:           cfg.DAGRunStore,
@@ -922,7 +919,6 @@ func (sm *SessionManager) createLoop(provider llm.Provider, model string, histor
 			DAGStore:              sm.dagStore,
 			DAGRunStore:           sm.dagRunStore,
 			DAGRunWatcher:         sm.dagRunWatcher,
-			DocStore:              sm.docStore,
 			WorkspaceStore:        sm.workspaceStore,
 			RemoteContextResolver: sm.remoteContextResolver,
 			WebTools:              sm.webTools,

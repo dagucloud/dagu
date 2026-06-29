@@ -12,7 +12,6 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 
@@ -366,7 +365,6 @@ func buildSystemPrompt(dagCtx exec.Context, stepCfg *core.AgentStepConfig, memor
 	env := agent.EnvironmentInfo{}
 	if dagCtx.DAG != nil {
 		env.DAGsDir = dagCtx.DAG.Location
-		env.DocsDir = filepath.Join(dagCtx.DAG.Location, "docs")
 	}
 
 	var currentDAG *agent.CurrentDAG

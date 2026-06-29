@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,9 +16,7 @@ import (
 func TestNewContext_ManagedDAGRunEnvsAreProtectedAndAvailableToDAGEnv(t *testing.T) {
 	t.Parallel()
 
-	cfg := &config.Config{}
-	cfg.Paths.DocsDir = filepath.Join(t.TempDir(), "docs")
-	ctx := config.WithConfig(context.Background(), cfg)
+	ctx := context.Background()
 
 	dag := &core.DAG{
 		Name:       "test-dag",

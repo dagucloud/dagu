@@ -566,7 +566,6 @@ func buildDAGRunBuiltinContext(
 	addDAGRunBuiltinValue(values, "context.paths.log_file", managedEnvs[EnvKeyDAGRunLogFile])
 	addDAGRunBuiltinValue(values, "context.paths.work_dir", managedEnvs[EnvKeyDAGRunWorkDir])
 	addDAGRunBuiltinValue(values, "context.paths.artifacts_dir", managedEnvs[EnvKeyDAGRunArtifactsDir])
-	addDAGRunBuiltinValue(values, "context.paths.docs_dir", managedEnvs[EnvKeyDAGDocsDir])
 	addDAGRunBuiltinValue(values, "context.profile.name", options.profileName)
 	addDAGRunBuiltinValue(values, "context.profile.resolved_at", options.profileResolvedAt)
 	return cmnvalue.NewBuiltinContext(values)

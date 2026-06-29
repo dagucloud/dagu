@@ -10,14 +10,11 @@ import (
 	"testing"
 
 	apigen "github.com/dagucloud/dagu/api/v1"
-	"github.com/dagucloud/dagu/internal/agent"
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	filedag "github.com/dagucloud/dagu/internal/persis/file/dag"
-	"github.com/dagucloud/dagu/internal/persis/file/doc"
 	"github.com/dagucloud/dagu/internal/runtime"
 	apiv1 "github.com/dagucloud/dagu/internal/service/frontend/api/v1"
-	workspacepkg "github.com/dagucloud/dagu/internal/workspace"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -26,17 +23,12 @@ import (
 type searchTestSetup struct {
 	api      *apiv1.API
 	dagStore exec.DAGStore
-	docStore agent.DocStore
 }
 
-func newSearchAPI(dagStore exec.DAGStore, docStore agent.DocStore, extraOptions ...apiv1.APIOption) *apiv1.API {
+func newSearchAPI(dagStore exec.DAGStore, extraOptions ...apiv1.APIOption) *apiv1.API {
 	cfg := &config.Config{}
 
-	options := []apiv1.APIOption{}
-	if docStore != nil {
-		options = append(options, apiv1.WithDocStore(docStore))
-	}
-	options = append(options, extraOptions...)
+	options := append([]apiv1.APIOption{}, extraOptions...)
 
 	return apiv1.New(
 		dagStore,
@@ -53,19 +45,14 @@ func newSearchAPI(dagStore exec.DAGStore, docStore agent.DocStore, extraOptions 
 	)
 }
 
-func newSearchTestSetup(t *testing.T, withDocs bool) *searchTestSetup {
+func newSearchTestSetup(t *testing.T) *searchTestSetup {
 	t.Helper()
 
 	dagStore := filedag.New(t.TempDir(), filedag.WithSkipExamples(true))
-	var docStore agent.DocStore
-	if withDocs {
-		docStore = doc.New(t.TempDir())
-	}
 
 	return &searchTestSetup{
-		api:      newSearchAPI(dagStore, docStore),
+		api:      newSearchAPI(dagStore),
 		dagStore: dagStore,
-		docStore: docStore,
 	}
 }
 
@@ -75,17 +62,10 @@ func mustCreateDAG(t *testing.T, setup *searchTestSetup, name, spec string) {
 	require.NoError(t, err)
 }
 
-func mustCreateDoc(t *testing.T, setup *searchTestSetup, id, content string) {
-	t.Helper()
-	require.NotNil(t, setup.docStore)
-	err := setup.docStore.Create(context.Background(), id, content)
-	require.NoError(t, err)
-}
-
 func TestSearchDAGFeed(t *testing.T) {
 	t.Parallel()
 
-	setup := newSearchTestSetup(t, true)
+	setup := newSearchTestSetup(t)
 
 	mustCreateDAG(t, setup, "a-match", `name: a-match
 steps:
@@ -133,104 +113,10 @@ steps:
 	assert.Nil(t, secondPage.NextCursor)
 }
 
-func TestSearchDocFeed(t *testing.T) {
-	t.Parallel()
-
-	t.Run("returns cursor-based document results", func(t *testing.T) {
-		t.Parallel()
-
-		setup := newSearchTestSetup(t, true)
-		mustCreateDoc(t, setup, "alpha", "Needle.\nneedle.\nneedle.")
-		mustCreateDoc(t, setup, "beta", "needle.")
-		mustCreateDoc(t, setup, "gamma", "needleX")
-
-		limit := apigen.SearchLimit(1)
-		resp, err := setup.api.SearchDocFeed(adminCtx(), apigen.SearchDocFeedRequestObject{
-			Params: apigen.SearchDocFeedParams{
-				Q:     "needle.",
-				Limit: &limit,
-			},
-		})
-		require.NoError(t, err)
-
-		searchResp := resp.(apigen.SearchDocFeed200JSONResponse)
-		require.Len(t, searchResp.Results, 1)
-		assert.Equal(t, "alpha", searchResp.Results[0].Id)
-		assert.True(t, searchResp.Results[0].HasMoreMatches)
-		assert.NotNil(t, searchResp.Results[0].NextMatchesCursor)
-		assert.Len(t, searchResp.Results[0].Matches, 1)
-		assert.True(t, searchResp.HasMore)
-		require.NotNil(t, searchResp.NextCursor)
-
-		secondResp, err := setup.api.SearchDocFeed(adminCtx(), apigen.SearchDocFeedRequestObject{
-			Params: apigen.SearchDocFeedParams{
-				Q:      "needle.",
-				Limit:  &limit,
-				Cursor: searchResp.NextCursor,
-			},
-		})
-		require.NoError(t, err)
-
-		secondPage := secondResp.(apigen.SearchDocFeed200JSONResponse)
-		require.Len(t, secondPage.Results, 1)
-		assert.Equal(t, "beta", secondPage.Results[0].Id)
-		assert.False(t, secondPage.HasMore)
-	})
-
-	t.Run("returns forbidden when doc search is unavailable", func(t *testing.T) {
-		t.Parallel()
-
-		setup := newSearchTestSetup(t, false)
-		resp, err := setup.api.SearchDocFeed(adminCtx(), apigen.SearchDocFeedRequestObject{
-			Params: apigen.SearchDocFeedParams{Q: "needle."},
-		})
-		require.Nil(t, resp)
-		require.Error(t, err)
-
-		apiErr, ok := err.(*apiv1.Error)
-		require.True(t, ok)
-		assert.Equal(t, 403, apiErr.HTTPStatus)
-	})
-
-	t.Run("filters hidden workspace docs before cursor pagination", func(t *testing.T) {
-		t.Parallel()
-
-		dagStore := filedag.New(t.TempDir(), filedag.WithSkipExamples(true))
-		docStore := doc.New(t.TempDir())
-		api := newSearchAPI(
-			dagStore,
-			docStore,
-			apiv1.WithWorkspaceStore(&mockWorkspaceStore{
-				workspaces: []*workspacepkg.Workspace{{ID: "workspace-1", Name: "ops"}},
-			}),
-		)
-		setup := &searchTestSetup{api: api, dagStore: dagStore, docStore: docStore}
-		mustCreateDoc(t, setup, "ops/hidden", "needle.")
-		mustCreateDoc(t, setup, "public", "needle.")
-
-		limit := apigen.SearchLimit(1)
-		workspace := apigen.Workspace("default")
-		resp, err := api.SearchDocFeed(adminCtx(), apigen.SearchDocFeedRequestObject{
-			Params: apigen.SearchDocFeedParams{
-				Q:         "needle.",
-				Limit:     &limit,
-				Workspace: &workspace,
-			},
-		})
-		require.NoError(t, err)
-
-		searchResp := resp.(apigen.SearchDocFeed200JSONResponse)
-		require.Len(t, searchResp.Results, 1)
-		assert.Equal(t, "public", searchResp.Results[0].Id)
-		assert.False(t, searchResp.HasMore)
-		assert.Nil(t, searchResp.NextCursor)
-	})
-}
-
 func TestSearchDagMatches(t *testing.T) {
 	t.Parallel()
 
-	setup := newSearchTestSetup(t, false)
+	setup := newSearchTestSetup(t)
 	mustCreateDAG(t, setup, "match-heavy", `name: match-heavy
 steps:
   - run: echo "needle."
@@ -271,7 +157,7 @@ steps:
 func TestSearchDagMatchesUsesWorkspaceFromFeedCursor(t *testing.T) {
 	t.Parallel()
 
-	setup := newSearchTestSetup(t, false)
+	setup := newSearchTestSetup(t)
 	mustCreateDAG(t, setup, "ops-heavy", `name: ops-heavy
 labels:
   - workspace=ops
@@ -310,46 +196,10 @@ steps:
 	assert.False(t, matchesPage.HasMore)
 }
 
-func TestSearchDocMatches(t *testing.T) {
-	t.Parallel()
-
-	setup := newSearchTestSetup(t, true)
-	mustCreateDoc(t, setup, "guides/runbook", "needle.\nneedle.\nneedle.\nneedle.")
-
-	limit := apigen.SearchMatchLimit(3)
-	resp, err := setup.api.SearchDocMatches(adminCtx(), apigen.SearchDocMatchesRequestObject{
-		Params: apigen.SearchDocMatchesParams{
-			Path:  "guides/runbook",
-			Q:     "needle.",
-			Limit: &limit,
-		},
-	})
-	require.NoError(t, err)
-
-	matchResp := resp.(apigen.SearchDocMatches200JSONResponse)
-	assert.Len(t, matchResp.Matches, 3)
-	assert.True(t, matchResp.HasMore)
-	require.NotNil(t, matchResp.NextCursor)
-
-	secondResp, err := setup.api.SearchDocMatches(adminCtx(), apigen.SearchDocMatchesRequestObject{
-		Params: apigen.SearchDocMatchesParams{
-			Path:   "guides/runbook",
-			Q:      "needle.",
-			Limit:  &limit,
-			Cursor: matchResp.NextCursor,
-		},
-	})
-	require.NoError(t, err)
-
-	secondPage := secondResp.(apigen.SearchDocMatches200JSONResponse)
-	assert.Len(t, secondPage.Matches, 1)
-	assert.False(t, secondPage.HasMore)
-}
-
 func TestSearchInvalidCursor(t *testing.T) {
 	t.Parallel()
 
-	setup := newSearchTestSetup(t, true)
+	setup := newSearchTestSetup(t)
 	mustCreateDAG(t, setup, "match-heavy", `name: match-heavy
 steps:
   - run: echo "needle."`)
@@ -375,30 +225,9 @@ func TestSearchDAGFeedReturnsErrorWhenSearchRootIsBroken(t *testing.T) {
 	basePath := filepath.Join(t.TempDir(), "not-a-directory")
 	require.NoError(t, os.WriteFile(basePath, []byte("x"), 0600))
 
-	api := newSearchAPI(filedag.New(basePath, filedag.WithSkipExamples(true)), nil)
+	api := newSearchAPI(filedag.New(basePath, filedag.WithSkipExamples(true)))
 	resp, err := api.SearchDAGFeed(adminCtx(), apigen.SearchDAGFeedRequestObject{
 		Params: apigen.SearchDAGFeedParams{Q: "needle"},
-	})
-	require.Nil(t, resp)
-	require.Error(t, err)
-
-	apiErr, ok := err.(*apiv1.Error)
-	require.True(t, ok)
-	assert.Equal(t, 500, apiErr.HTTPStatus)
-}
-
-func TestSearchDocFeedReturnsErrorWhenSearchRootIsBroken(t *testing.T) {
-	t.Parallel()
-
-	docBasePath := filepath.Join(t.TempDir(), "not-a-directory")
-	require.NoError(t, os.WriteFile(docBasePath, []byte("x"), 0600))
-
-	api := newSearchAPI(
-		filedag.New(t.TempDir(), filedag.WithSkipExamples(true)),
-		doc.New(docBasePath),
-	)
-	resp, err := api.SearchDocFeed(adminCtx(), apigen.SearchDocFeedRequestObject{
-		Params: apigen.SearchDocFeedParams{Q: "needle"},
 	})
 	require.Nil(t, resp)
 	require.Error(t, err)

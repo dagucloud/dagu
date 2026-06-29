@@ -8,7 +8,6 @@ import { useInfinite } from '@/hooks/api';
 import { Search as SearchIcon } from 'lucide-react';
 import React, { useEffect, useMemo, useRef } from 'react';
 import { useLocation, useSearchParams } from 'react-router-dom';
-import { ToggleButton, ToggleGroup } from '@/components/ui/toggle-group';
 import { AppBarContext } from '../../contexts/AppBarContext';
 import { useSearchState } from '../../contexts/SearchStateContext';
 import {
@@ -17,11 +16,8 @@ import {
 } from '../../lib/workspace';
 import Title from '@/components/ui/title';
 
-type SearchScope = 'dags' | 'docs';
-
 type SearchFilters = {
   searchVal: string;
-  scope: SearchScope;
 };
 
 type SearchFeedPanelProps = {
@@ -46,22 +42,12 @@ type SearchFeedProps = {
   workspaceQuery: ReturnType<typeof workspaceSelectionQuery>;
 };
 
-function parseScope(value: string | null): SearchScope {
-  return value === 'docs' ? 'docs' : 'dags';
-}
-
 function buildSearchParams(filters: SearchFilters): URLSearchParams {
   const params = new URLSearchParams();
   const query = filters.searchVal.trim();
 
   if (query) {
     params.set('q', query);
-    params.set('scope', filters.scope);
-    return params;
-  }
-
-  if (filters.scope !== 'dags') {
-    params.set('scope', filters.scope);
   }
 
   return params;
@@ -272,96 +258,10 @@ function DAGSearchFeed({ query, remoteNode, workspaceQuery }: SearchFeedProps) {
       sentinelRef={sentinelRef}
     >
       <SearchResult
-        type="dag"
         query={query}
         results={results}
         workspaceQuery={workspaceQuery}
       />
-    </SearchFeedPanel>
-  );
-}
-
-function DocSearchFeed({ query, remoteNode, workspaceQuery }: SearchFeedProps) {
-  const sentinelRef = useRef<HTMLDivElement>(null);
-  const { data, error, isLoading, isValidating, setSize, mutate } = useInfinite(
-    '/search/docs',
-    (pageIndex, previousPage) => {
-      if (!query) {
-        return null;
-      }
-      if (previousPage && !previousPage.hasMore) {
-        return null;
-      }
-
-      return {
-        params: {
-          query: {
-            remoteNode,
-            q: query,
-            cursor: pageIndex === 0 ? undefined : previousPage?.nextCursor,
-            ...workspaceQuery,
-          },
-        },
-      };
-    },
-    {
-      revalidateIfStale: false,
-      revalidateOnFocus: false,
-      revalidateOnReconnect: false,
-      revalidateFirstPage: false,
-    }
-  );
-
-  const pages = data ?? [];
-  const results = pages.flatMap((page) => page.results ?? []);
-  const hasResults = results.length > 0;
-  const lastPage = pages[pages.length - 1];
-  const hasMore = lastPage?.hasMore ?? false;
-  const isLoadingMore = isValidating && pages.length > 0;
-  const unavailableMessage =
-    'Document management is not available on this server.';
-  const initialErrorMessage =
-    pages.length === 0 && error
-      ? getErrorMessage(error, unavailableMessage)
-      : null;
-  const loadMoreErrorMessage =
-    pages.length > 0 && error
-      ? getErrorMessage(error, unavailableMessage)
-      : null;
-
-  const loadMoreResults = React.useCallback(() => {
-    if (!query || !hasMore || isLoadingMore || loadMoreErrorMessage) {
-      return;
-    }
-    void setSize((current) => current + 1);
-  }, [hasMore, isLoadingMore, loadMoreErrorMessage, query, setSize]);
-
-  const retryLoadMore = React.useCallback(() => {
-    void mutate();
-  }, [mutate]);
-
-  useAutoLoadMore(
-    sentinelRef,
-    !!query && hasMore && !loadMoreErrorMessage,
-    loadMoreResults
-  );
-
-  return (
-    <SearchFeedPanel
-      title="Documents"
-      query={query}
-      hasResults={hasResults}
-      isLoading={isLoading}
-      initialErrorMessage={initialErrorMessage}
-      loadMoreErrorMessage={loadMoreErrorMessage}
-      emptyMessage="No documents found"
-      hasMore={hasMore}
-      isLoadingMore={isLoadingMore}
-      onLoadMore={loadMoreResults}
-      onRetryLoadMore={retryLoadMore}
-      sentinelRef={sentinelRef}
-    >
-      <SearchResult type="doc" query={query} results={results} />
     </SearchFeedPanel>
   );
 }
@@ -393,7 +293,6 @@ function Search() {
   const currentFilters = useMemo<SearchFilters>(
     () => ({
       searchVal: queryParams.get('q') || '',
-      scope: parseScope(queryParams.get('scope')),
     }),
     [queryParams]
   );
@@ -405,7 +304,7 @@ function Search() {
   }, [currentFilters.searchVal]);
 
   useEffect(() => {
-    const hasUrlState = queryParams.has('q') || queryParams.has('scope');
+    const hasUrlState = queryParams.has('q');
     if (hydratedScopeRef.current !== searchStateScope) {
       hydratedScopeRef.current = searchStateScope;
       const stored = searchState.readState<SearchFilters>(
@@ -444,12 +343,11 @@ function Search() {
       syncFilters(
         {
           searchVal: value.trim(),
-          scope: currentFilters.scope,
         },
         false
       );
     },
-    [currentFilters.scope, syncFilters]
+    [syncFilters]
   );
 
   const submittedQuery = currentFilters.searchVal.trim();
@@ -488,48 +386,14 @@ function Search() {
             </Button>
           </div>
 
-          <ToggleGroup aria-label="Search scope">
-            <ToggleButton
-              value="dags"
-              groupValue={currentFilters.scope}
-              onClick={() => {
-                syncFilters({
-                  searchVal,
-                  scope: 'dags',
-                });
-              }}
-            >
-              DAGs
-            </ToggleButton>
-            <ToggleButton
-              value="docs"
-              groupValue={currentFilters.scope}
-              onClick={() => {
-                syncFilters({
-                  searchVal,
-                  scope: 'docs',
-                });
-              }}
-            >
-              Docs
-            </ToggleButton>
-          </ToggleGroup>
         </div>
 
         <div className="mt-4 space-y-4">
-          {currentFilters.scope === 'docs' ? (
-            <DocSearchFeed
-              query={submittedQuery}
-              remoteNode={remoteNode}
-              workspaceQuery={workspaceQuery}
-            />
-          ) : (
-            <DAGSearchFeed
-              query={submittedQuery}
-              remoteNode={remoteNode}
-              workspaceQuery={workspaceQuery}
-            />
-          )}
+          <DAGSearchFeed
+            query={submittedQuery}
+            remoteNode={remoteNode}
+            workspaceQuery={workspaceQuery}
+          />
         </div>
       </div>
     </div>

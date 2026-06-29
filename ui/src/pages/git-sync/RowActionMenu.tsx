@@ -10,7 +10,7 @@ import { MoreHorizontal, EyeOff, Trash2, ArrowRightLeft } from 'lucide-react';
 
 interface RowActionMenuProps {
   itemId: string;
-  kind: 'dag' | 'config' | 'memory' | 'skill' | 'soul' | 'doc';
+  kind: 'dag' | 'config' | 'memory' | 'skill' | 'soul';
   status: SyncStatus;
   pushEnabled: boolean;
   canWrite: boolean;

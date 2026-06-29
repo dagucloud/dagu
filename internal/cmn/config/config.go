@@ -368,7 +368,6 @@ type OIDCRoleMapping struct {
 // PathsConfig represents the file system paths configuration.
 type PathsConfig struct {
 	DAGsDir            string
-	DocsDir            string
 	Executable         string
 	LogDir             string
 	ArtifactDir        string

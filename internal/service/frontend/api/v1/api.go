@@ -91,7 +91,6 @@ type API struct {
 	agentSoulStore       agent.SoulStore
 	agentOAuthManager    *agentoauth.Manager
 	agentAPI             *agent.API
-	docStore             agent.DocStore
 	baseConfigStore      baseconfig.Store
 	dagSettingsStore     dagsettings.Store
 	secretStore          secretpkg.Store
@@ -103,7 +102,6 @@ type API struct {
 	leaseStaleThreshold  time.Duration
 	schedulerStateStore  scheduler.WatermarkStore
 	dagMutationNotifier  func(fileName string)
-	docMutationNotifier  func()
 	snapshotStoreFactory agentsnapshot.StoreFactory
 	baseConfigFactory    WorkspaceBaseConfigStoreFactory
 }
@@ -317,13 +315,6 @@ func WithLicenseManager(m *license.Manager) APIOption {
 	}
 }
 
-// WithDocStore returns an APIOption that sets the API's doc store.
-func WithDocStore(store agent.DocStore) APIOption {
-	return func(a *API) {
-		a.docStore = store
-	}
-}
-
 // WithRemoteNodeResolver returns an APIOption that sets the remote node resolver.
 func WithRemoteNodeResolver(r *remotenode.Resolver) APIOption {
 	return func(a *API) {
@@ -357,14 +348,6 @@ func WithSchedulerStateStore(store scheduler.WatermarkStore) APIOption {
 func WithDAGMutationNotifier(fn func(fileName string)) APIOption {
 	return func(a *API) {
 		a.dagMutationNotifier = fn
-	}
-}
-
-// WithDocMutationNotifier returns an APIOption that is called after successful
-// document mutations that should invalidate live document views.
-func WithDocMutationNotifier(fn func()) APIOption {
-	return func(a *API) {
-		a.docMutationNotifier = fn
 	}
 }
 
@@ -453,12 +436,6 @@ func (a *API) requireValidBaseConfigWiring() {
 func (a *API) notifyDAGMutation(fileName string) {
 	if a.dagMutationNotifier != nil {
 		a.dagMutationNotifier(fileName)
-	}
-}
-
-func (a *API) notifyDocMutation() {
-	if a.docMutationNotifier != nil {
-		a.docMutationNotifier()
 	}
 }
 

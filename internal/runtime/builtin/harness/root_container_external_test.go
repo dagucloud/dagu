@@ -101,8 +101,7 @@ func TestSharedContainerHarnessEnvForTest_FiltersHostPathRuntimeVariables(t *tes
 		coreexec.EnvKeyDAGRunStepStdoutFile:          "/host/log/stdout.log",
 		coreexec.EnvKeyDAGRunStepStderrFile:          "/host/log/stderr.log",
 		coreexec.EnvKeyDAGPushBackPreviousStdoutFile: "/host/log/previous.log",
-		coreexec.EnvKeyDAGDocsDir:                    "/host/docs/workflow",
-		"PWD":                                        "/host/work",
+		"PWD": "/host/work",
 	})
 
 	assert.Equal(t, []string{

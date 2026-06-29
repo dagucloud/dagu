@@ -569,26 +569,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/search/docs": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Search documents
-         * @description Returns cursor-based, lightweight document search results for the global search page.
-         */
-        get: operations["searchDocFeed"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/search/dags/{fileName}/matches": {
         parameters: {
             query?: never;
@@ -601,26 +581,6 @@ export interface paths {
          * @description Returns cursor-based snippets for one matching DAG definition.
          */
         get: operations["searchDagMatches"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/search/docs/matches": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Search document match snippets
-         * @description Returns cursor-based snippets for one matching document.
-         */
-        get: operations["searchDocMatches"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3060,118 +3020,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/docs": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List documents
-         * @description Returns documents as a tree structure or flat list. All authenticated users can browse.
-         */
-        get: operations["listDocs"];
-        put?: never;
-        /**
-         * Create document
-         * @description Creates a new document. Requires DAG write permission.
-         */
-        post: operations["createDoc"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/docs/search": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Search documents
-         * @description Searches document content for the given query.
-         */
-        get: operations["searchDocs"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/docs/doc": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get document
-         * @description Returns a single document by path.
-         */
-        get: operations["getDoc"];
-        put?: never;
-        post?: never;
-        /**
-         * Delete document
-         * @description Deletes a document. Requires DAG write permission.
-         */
-        delete: operations["deleteDoc"];
-        options?: never;
-        head?: never;
-        /**
-         * Update document
-         * @description Updates an existing document's content. Requires DAG write permission.
-         */
-        patch: operations["updateDoc"];
-        trace?: never;
-    };
-    "/docs/doc/rename": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Rename document or directory
-         * @description Renames/moves a document or directory to a new path. When a directory path is given, all documents under it are moved atomically. Requires DAG write permission.
-         */
-        post: operations["renameDoc"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/docs/delete-batch": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Delete multiple documents or directories
-         * @description Deletes multiple documents and/or directories in a single operation. Supports recursive directory deletion. Not-found items are treated as successful deletes for idempotency. Requires DAG write permission.
-         */
-        post: operations["deleteDocBatch"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/remote-nodes": {
         parameters: {
             query?: never;
@@ -5341,27 +5189,6 @@ export interface components {
             hasMore: boolean;
             nextCursor?: string;
         };
-        /** @description Lightweight cursor-based search result item for a document */
-        DocSearchPageItem: {
-            id: string;
-            title: string;
-            /** @description Short document description from YAML frontmatter */
-            description: string;
-            /** @description Workspace that owns this document. Omitted for default documents. */
-            workspace?: string;
-            /** @description Whether additional snippets are available beyond the preview */
-            hasMoreMatches: boolean;
-            /** @description Opaque cursor for loading more snippets for this document result */
-            nextMatchesCursor?: string;
-            /** @description Preview snippets for the result */
-            matches: components["schemas"]["SearchMatchItem"][];
-        };
-        /** @description Cursor-based document search results */
-        DocSearchFeedResponse: {
-            results: components["schemas"]["DocSearchPageItem"][];
-            hasMore: boolean;
-            nextCursor?: string;
-        };
         /** @description Details of a search match within a search result */
         SearchMatchItem: {
             /** @description Matching line content */
@@ -6243,113 +6070,6 @@ export interface components {
             /** @description Markdown body content (identity definition) */
             content?: string;
         };
-        /** @description Full document with content */
-        DocResponse: {
-            id: string;
-            title: string;
-            /** @description Short document description from YAML frontmatter */
-            description: string;
-            /** @description Workspace that owns this document. Omitted for default documents. */
-            workspace?: string;
-            /** @description Full file content including YAML frontmatter */
-            content: string;
-            /** @description Absolute file path of the document on disk */
-            filePath?: string;
-            /**
-             * Format: date-time
-             * @description RFC3339 timestamp when the document was created
-             */
-            createdAt?: string;
-            /**
-             * Format: date-time
-             * @description RFC3339 timestamp when the document was last updated
-             */
-            updatedAt?: string;
-        };
-        /** @description Lightweight document metadata */
-        DocMetadataResponse: {
-            id: string;
-            title: string;
-            /** @description Short document description from YAML frontmatter */
-            description: string;
-            /** @description Workspace that owns this document. Omitted for default documents. */
-            workspace?: string;
-            /**
-             * Format: date-time
-             * @description Last modification time of the document file
-             */
-            modifiedAt?: string;
-        };
-        /** @description A file or directory node in the doc tree */
-        DocTreeNodeResponse: {
-            id: string;
-            name: string;
-            title?: string;
-            /** @description Workspace that owns this node. Omitted for default nodes. */
-            workspace?: string;
-            /** @enum {string} */
-            type: DocTreeNodeResponseType;
-            children?: components["schemas"]["DocTreeNodeResponse"][];
-            /**
-             * Format: date-time
-             * @description Last modification time. For files: file mtime. For directories: most recent descendant mtime.
-             */
-            modifiedAt?: string;
-        };
-        /** @description Paginated document list (tree or flat) */
-        DocListResponse: {
-            tree?: components["schemas"]["DocTreeNodeResponse"][];
-            items?: components["schemas"]["DocMetadataResponse"][];
-            pagination: components["schemas"]["Pagination"];
-        };
-        /** @description A search result for a single document */
-        DocSearchResultItem: {
-            id: string;
-            title: string;
-            /** @description Short document description from YAML frontmatter */
-            description: string;
-            /** @description Workspace that owns this document. Omitted for default documents. */
-            workspace?: string;
-            matches?: components["schemas"]["SearchMatchItem"][];
-        };
-        /** @description Search results */
-        DocSearchResponse: {
-            results: components["schemas"]["DocSearchResultItem"][];
-        };
-        /** @description Relative document path (without extension), e.g. runbooks/deploy-guide. Must not start with / or contain .. */
-        DocPath: string;
-        /** @description Request to create a new document */
-        CreateDocRequest: {
-            id: components["schemas"]["DocPath"];
-            /** @description Full file content including optional YAML frontmatter */
-            content: string;
-        };
-        /** @description Request to update document content */
-        UpdateDocRequest: {
-            /** @description Full file content including optional YAML frontmatter */
-            content: string;
-        };
-        /** @description Request to rename/move a document or directory */
-        RenameDocRequest: {
-            newPath: components["schemas"]["DocPath"];
-        };
-        /** @description Request to delete multiple documents or directories */
-        DocDeleteBatchRequest: {
-            /** @description Document or directory paths to delete (max 100) */
-            paths: components["schemas"]["DocPath"][];
-        };
-        DocDeleteBatchResponse: {
-            /** @description Successfully deleted paths */
-            deleted: string[];
-            /** @description Paths that failed to delete with error details */
-            failed: components["schemas"]["DocDeleteBatchFailedItem"][];
-            /** @description Human-readable summary */
-            message: string;
-        };
-        DocDeleteBatchFailedItem: {
-            path: string;
-            error: string;
-        };
         /** @description Hardcoded model preset with metadata */
         ModelPreset: {
             name: string;
@@ -6827,7 +6547,7 @@ export interface components {
         AgentSessionCursor: string;
         /** @description Pagination mode. Use `cursor` for the agent session sidebar infinite-loading flow; omit or use `offset` for compatibility pagination. */
         AgentSessionPaginationMode: ComponentsParametersAgentSessionPaginationMode;
-        /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. For document target APIs, use default or a workspace name; omitted means default. */
+        /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
         Workspace: string;
         /** @description Opaque cursor returned by the previous search response */
         SearchCursor: string;
@@ -7917,7 +7637,7 @@ export interface operations {
                 perPage?: components["parameters"]["PerPage"];
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
-                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. For document target APIs, use default or a workspace name; omitted means default. */
+                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
                 workspace?: components["parameters"]["Workspace"];
                 /** @description Filter DAGs by name */
                 name?: string;
@@ -8764,7 +8484,7 @@ export interface operations {
             query: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
-                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. For document target APIs, use default or a workspace name; omitted means default. */
+                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
                 workspace?: components["parameters"]["Workspace"];
                 /** @description A search query string */
                 q: string;
@@ -8810,55 +8530,6 @@ export interface operations {
             };
         };
     };
-    searchDocFeed: {
-        parameters: {
-            query: {
-                /** @description name of the remote node */
-                remoteNode?: components["parameters"]["RemoteNode"];
-                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. For document target APIs, use default or a workspace name; omitted means default. */
-                workspace?: components["parameters"]["Workspace"];
-                /** @description A search query string */
-                q: string;
-                /** @description Opaque cursor returned by the previous search response */
-                cursor?: components["parameters"]["SearchCursor"];
-                /** @description Number of search results to return (default 20, max 50) */
-                limit?: components["parameters"]["SearchLimit"];
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Cursor-based document search results */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DocSearchFeedResponse"];
-                };
-            };
-            /** @description Invalid request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Generic error response */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
     searchDagMatches: {
         parameters: {
             query: {
@@ -8868,7 +8539,7 @@ export interface operations {
                 q: string;
                 /** @description Filter DAG matches by labels (comma-separated). Returns matches only when the DAG has ALL specified labels. */
                 labels?: string;
-                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. For document target APIs, use default or a workspace name; omitted means default. */
+                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
                 workspace?: components["parameters"]["Workspace"];
                 /** @description Opaque cursor returned by the previous search response */
                 cursor?: components["parameters"]["SearchCursor"];
@@ -8922,72 +8593,12 @@ export interface operations {
             };
         };
     };
-    searchDocMatches: {
-        parameters: {
-            query: {
-                /** @description name of the remote node */
-                remoteNode?: components["parameters"]["RemoteNode"];
-                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. For document target APIs, use default or a workspace name; omitted means default. */
-                workspace?: components["parameters"]["Workspace"];
-                /** @description Document path (may include slashes for nested docs) */
-                path: components["schemas"]["DocPath"];
-                /** @description A search query string */
-                q: string;
-                /** @description Opaque cursor returned by the previous search response */
-                cursor?: components["parameters"]["SearchCursor"];
-                /** @description Number of search match snippets to return (default 5, max 50) */
-                limit?: components["parameters"]["SearchMatchLimit"];
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Cursor-based document match snippets */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SearchMatchesResponse"];
-                };
-            };
-            /** @description Invalid request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Document not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Generic error response */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
     getAllDAGLabels: {
         parameters: {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
-                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. For document target APIs, use default or a workspace name; omitted means default. */
+                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
                 workspace?: components["parameters"]["Workspace"];
             };
             header?: never;
@@ -9021,7 +8632,7 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
-                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. For document target APIs, use default or a workspace name; omitted means default. */
+                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
                 workspace?: components["parameters"]["Workspace"];
             };
             header?: never;
@@ -9067,7 +8678,7 @@ export interface operations {
                 cursor?: components["parameters"]["DAGRunListCursor"];
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
-                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. For document target APIs, use default or a workspace name; omitted means default. */
+                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
                 workspace?: components["parameters"]["Workspace"];
                 /** @description Filter DAG-runs by name */
                 name?: string;
@@ -9283,7 +8894,7 @@ export interface operations {
                 cursor?: components["parameters"]["DAGRunListCursor"];
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
-                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. For document target APIs, use default or a workspace name; omitted means default. */
+                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
                 workspace?: components["parameters"]["Workspace"];
             };
             header?: never;
@@ -16960,394 +16571,6 @@ export interface operations {
             };
         };
     };
-    listDocs: {
-        parameters: {
-            query?: {
-                /** @description name of the remote node */
-                remoteNode?: components["parameters"]["RemoteNode"];
-                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. For document target APIs, use default or a workspace name; omitted means default. */
-                workspace?: components["parameters"]["Workspace"];
-                /** @description page number of items to fetch (default is 1) */
-                page?: components["parameters"]["Page"];
-                /** @description number of items per page (default is 30, max is 100) */
-                perPage?: components["parameters"]["PerPage"];
-                /** @description If true, returns flat list instead of tree */
-                flat?: boolean;
-                /** @description Field to sort by:
-                 *     - `name`: Alphabetically by display name (case-insensitive)
-                 *     - `type`: By node type (dirs vs files), then alphabetically within each group
-                 *     - `mtime`: By last modification time
-                 *      */
-                sort?: PathsDocsGetParametersQuerySort;
-                /** @description Sort order. For type: asc=folders first. For mtime: desc=newest first. */
-                order?: PathsDocsGetParametersQueryOrder;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description List of documents */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DocListResponse"];
-                };
-            };
-            /** @description Unexpected error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    createDoc: {
-        parameters: {
-            query?: {
-                /** @description name of the remote node */
-                remoteNode?: components["parameters"]["RemoteNode"];
-                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. For document target APIs, use default or a workspace name; omitted means default. */
-                workspace?: components["parameters"]["Workspace"];
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateDocRequest"];
-            };
-        };
-        responses: {
-            /** @description Document created */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        message?: string;
-                    };
-                };
-            };
-            /** @description Invalid request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Document already exists */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Unexpected error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    searchDocs: {
-        parameters: {
-            query: {
-                /** @description name of the remote node */
-                remoteNode?: components["parameters"]["RemoteNode"];
-                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. For document target APIs, use default or a workspace name; omitted means default. */
-                workspace?: components["parameters"]["Workspace"];
-                /** @description Search query */
-                q: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Search results */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DocSearchResponse"];
-                };
-            };
-            /** @description Missing query parameter */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Unexpected error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    getDoc: {
-        parameters: {
-            query: {
-                /** @description name of the remote node */
-                remoteNode?: components["parameters"]["RemoteNode"];
-                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. For document target APIs, use default or a workspace name; omitted means default. */
-                workspace?: components["parameters"]["Workspace"];
-                /** @description Document path (may include slashes for nested docs) */
-                path: components["schemas"]["DocPath"];
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Document details */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DocResponse"];
-                };
-            };
-            /** @description Document not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Unexpected error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    deleteDoc: {
-        parameters: {
-            query: {
-                /** @description name of the remote node */
-                remoteNode?: components["parameters"]["RemoteNode"];
-                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. For document target APIs, use default or a workspace name; omitted means default. */
-                workspace?: components["parameters"]["Workspace"];
-                /** @description Document path (may include slashes for nested docs) */
-                path: components["schemas"]["DocPath"];
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Document deleted */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Document not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Unexpected error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    updateDoc: {
-        parameters: {
-            query: {
-                /** @description name of the remote node */
-                remoteNode?: components["parameters"]["RemoteNode"];
-                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. For document target APIs, use default or a workspace name; omitted means default. */
-                workspace?: components["parameters"]["Workspace"];
-                /** @description Document path (may include slashes for nested docs) */
-                path: components["schemas"]["DocPath"];
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateDocRequest"];
-            };
-        };
-        responses: {
-            /** @description Document updated */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        message?: string;
-                    };
-                };
-            };
-            /** @description Document not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Unexpected error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    renameDoc: {
-        parameters: {
-            query: {
-                /** @description name of the remote node */
-                remoteNode?: components["parameters"]["RemoteNode"];
-                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. For document target APIs, use default or a workspace name; omitted means default. */
-                workspace?: components["parameters"]["Workspace"];
-                /** @description Current document or directory path (may include slashes for nested docs) */
-                path: components["schemas"]["DocPath"];
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RenameDocRequest"];
-            };
-        };
-        responses: {
-            /** @description Document or directory renamed */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        message?: string;
-                    };
-                };
-            };
-            /** @description Document or directory not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Target path already exists */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Unexpected error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    deleteDocBatch: {
-        parameters: {
-            query?: {
-                /** @description name of the remote node */
-                remoteNode?: components["parameters"]["RemoteNode"];
-                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. For document target APIs, use default or a workspace name; omitted means default. */
-                workspace?: components["parameters"]["Workspace"];
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["DocDeleteBatchRequest"];
-            };
-        };
-        responses: {
-            /** @description Batch delete completed (may include partial failures) */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DocDeleteBatchResponse"];
-                };
-            };
-            /** @description Unexpected error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
     listRemoteNodes: {
         parameters: {
             query?: {
@@ -19780,15 +19003,6 @@ export enum PathsDagsGetParametersQueryOrder {
     asc = "asc",
     desc = "desc"
 }
-export enum PathsDocsGetParametersQuerySort {
-    name = "name",
-    type = "type",
-    mtime = "mtime"
-}
-export enum PathsDocsGetParametersQueryOrder {
-    asc = "asc",
-    desc = "desc"
-}
 export enum ChatMessageRole {
     system = "system",
     user = "user",
@@ -20046,8 +19260,7 @@ export enum SyncItemKind {
     config = "config",
     memory = "memory",
     skill = "skill",
-    soul = "soul",
-    doc = "doc"
+    soul = "soul"
 }
 export enum SyncAuthConfigType {
     token = "token",
@@ -20122,10 +19335,6 @@ export enum UpdateModelConfigRequestThinkingEffort {
     medium = "medium",
     high = "high",
     xhigh = "xhigh"
-}
-export enum DocTreeNodeResponseType {
-    file = "file",
-    directory = "directory"
 }
 export enum ModelPresetProvider {
     anthropic = "anthropic",

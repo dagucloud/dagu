@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/dagucloud/dagu/internal/agent"
 	authmodel "github.com/dagucloud/dagu/internal/auth"
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/cmn/crypto"
@@ -21,7 +20,6 @@ import (
 	"github.com/dagucloud/dagu/internal/notification"
 	fileaudit "github.com/dagucloud/dagu/internal/persis/file/audit"
 	filebaseconfig "github.com/dagucloud/dagu/internal/persis/file/baseconfig"
-	"github.com/dagucloud/dagu/internal/persis/file/doc"
 	fileeventstore "github.com/dagucloud/dagu/internal/persis/file/eventstore"
 	fileincident "github.com/dagucloud/dagu/internal/persis/file/incident"
 	filenotification "github.com/dagucloud/dagu/internal/persis/file/notification"
@@ -68,10 +66,6 @@ func NewAuditStore(cfg *config.Config) (AuditStore, error) {
 		return nil, nil
 	}
 	return fileaudit.New(filepath.Join(cfg.Paths.AdminLogsDir, "audit"), cfg.Server.Audit.RetentionDays)
-}
-
-func NewDocStore(cfg *config.Config) agent.DocStore {
-	return doc.New(cfg.Paths.DocsDir)
 }
 
 func NewEventStore(cfg *config.Config) (eventstore.Store, error) {

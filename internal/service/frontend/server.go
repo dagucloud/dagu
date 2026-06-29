@@ -248,11 +248,6 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 	referencesDir := agentStores.ReferencesDir
 	agentOAuthManager := agentStores.OAuthManager
 
-	var docStore agent.DocStore
-	if stores.DocStoreFactory != nil {
-		docStore = stores.DocStoreFactory(cfg)
-	}
-
 	var authSvc *authservice.Service
 	if cfg.Server.Auth.Mode == config.AuthModeBuiltin {
 		if stores.BuiltinAuthFactory == nil {
@@ -435,7 +430,7 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 
 	var agentAPI *agent.API
 	if agentConfigStore != nil {
-		agentAPI, err = initAgentAPI(ctx, agentConfigStore, agentModelStore, agentSoulStore, agentOAuthManager, cfg, referencesDir, dr, drs, auditSvc, auditEnabled, eventSvc, memoryStore, docStore, wsStore, newRemoteNodeAdapter(remoteNodeResolver), stores.AgentSessionStoreFactory)
+		agentAPI, err = initAgentAPI(ctx, agentConfigStore, agentModelStore, agentSoulStore, agentOAuthManager, cfg, referencesDir, dr, drs, auditSvc, auditEnabled, eventSvc, memoryStore, wsStore, newRemoteNodeAdapter(remoteNodeResolver), stores.AgentSessionStoreFactory)
 		if err != nil {
 			logger.Warn(ctx, "Failed to initialize agent API", tag.Error(err))
 		}
@@ -557,14 +552,6 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGsList)
 		srv.sseMultiplexer.WakeTopic(sse.TopicTypeDAG, fileName)
 	}))
-	apiOpts = append(apiOpts, apiv1.WithDocMutationNotifier(func() {
-		if srv.sseMultiplexer == nil {
-			return
-		}
-		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDocTree)
-		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDoc)
-	}))
-
 	// Pass license manager to API
 	if srv.licenseManager != nil {
 		apiOpts = append(apiOpts, apiv1.WithLicenseManager(srv.licenseManager))
@@ -583,9 +570,6 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 	}
 	if agentSoulStore != nil {
 		allAPIOptions = append(allAPIOptions, apiv1.WithAgentSoulStore(agentSoulStore))
-	}
-	if docStore != nil {
-		allAPIOptions = append(allAPIOptions, apiv1.WithDocStore(docStore))
 	}
 	if srv.agentAPI != nil {
 		allAPIOptions = append(allAPIOptions, apiv1.WithAgentAPI(srv.agentAPI))
@@ -683,7 +667,7 @@ func initSyncService(ctx context.Context, cfg *config.Config) gitsync.Service {
 
 // initAgentAPI creates and returns an agent API.
 // The API uses the config store to check enabled status and resolve providers via the model store.
-func initAgentAPI(ctx context.Context, configStore agent.ConfigStore, modelStore agent.ModelStore, soulStore agent.SoulStore, oauthManager *agentoauth.Manager, cfg *config.Config, referencesDir string, dagStore exec.DAGStore, dagRunStore exec.DAGRunStore, auditSvc *audit.Service, auditEnabled func() bool, eventSvc *eventstore.Service, memoryStore agent.MemoryStore, docStore agent.DocStore, workspaceStore workspacepkg.Store, remoteResolver agent.RemoteContextResolver, sessionFactory AgentSessionStoreFactory) (*agent.API, error) {
+func initAgentAPI(ctx context.Context, configStore agent.ConfigStore, modelStore agent.ModelStore, soulStore agent.SoulStore, oauthManager *agentoauth.Manager, cfg *config.Config, referencesDir string, dagStore exec.DAGStore, dagRunStore exec.DAGRunStore, auditSvc *audit.Service, auditEnabled func() bool, eventSvc *eventstore.Service, memoryStore agent.MemoryStore, workspaceStore workspacepkg.Store, remoteResolver agent.RemoteContextResolver, sessionFactory AgentSessionStoreFactory) (*agent.API, error) {
 	var sessStore agent.SessionStore
 	if sessionFactory != nil {
 		var err error
@@ -712,13 +696,11 @@ func initAgentAPI(ctx context.Context, configStore agent.ConfigStore, modelStore
 		Hooks:                 hooks,
 		EventService:          eventSvc,
 		MemoryStore:           memoryStore,
-		DocStore:              docStore,
 		WorkspaceStore:        workspaceStore,
 		OAuthManager:          oauthManager,
 		RemoteContextResolver: remoteResolver,
 		Environment: agent.EnvironmentInfo{
 			DAGsDir:        paths.DAGsDir,
-			DocsDir:        paths.DocsDir,
 			LogDir:         paths.LogDir,
 			DataDir:        paths.DataDir,
 			SessionsDir:    paths.SessionsDir,
@@ -1292,9 +1274,6 @@ func (srv *Server) wakeMultiplexedTopicsForAppEvent(event sse.AppEvent) {
 		} else {
 			srv.sseMultiplexer.WakeTopicType(sse.TopicTypeQueueItems)
 		}
-	case sse.AppEventTypeDoc:
-		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDocTree)
-		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDoc)
 	case sse.AppEventTypeReset:
 		srv.wakeAllMultiplexedFileBackedTopics()
 	}
@@ -1309,8 +1288,6 @@ func (srv *Server) wakeAllMultiplexedFileBackedTopics() {
 	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeQueueItems)
 	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeQueues)
 	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGsList)
-	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDoc)
-	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDocTree)
 }
 
 func (srv *Server) setupMCPRoute(ctx context.Context, r *chi.Mux) {
@@ -1357,17 +1334,8 @@ func (srv *Server) registerDedicatedSSEFetchers(registrar *sse.Multiplexer) {
 	registrar.RegisterFetcher(sse.TopicTypeDAGRuns, srv.apiV1.GetDAGRunsListData)
 	registrar.RegisterFetcher(sse.TopicTypeQueues, srv.apiV1.GetQueuesListData)
 	registrar.RegisterFetcher(sse.TopicTypeDAGsList, srv.apiV1.GetDAGsListData)
-	registrar.RegisterFetcher(sse.TopicTypeDoc, srv.apiV1.GetDocContentData)
-	registrar.RegisterFetcher(sse.TopicTypeDocTree, srv.apiV1.GetDocTreeData)
 
 	appStreamAvailable := srv.appStream != nil
-	if appStreamAvailable {
-		// Document topics are invalidated by API doc mutations and file watcher
-		// events. They should not keep polling while those wakeups are available.
-		registrar.SetRefreshMode(sse.TopicTypeDoc, sse.TopicRefreshModeOnDemand)
-		registrar.SetRefreshMode(sse.TopicTypeDocTree, sse.TopicRefreshModeOnDemand)
-		registrar.SetPublishOnWake(sse.TopicTypeDocTree, true)
-	}
 
 	// Run-driven topics have an event-store invalidation path. Keeping them on
 	// demand avoids repeated history and run-list reads while browsers are

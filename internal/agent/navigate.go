@@ -31,7 +31,6 @@ const navigateDescription = "Navigate the user to a specific page in the Dagu UI
 	"Available paths: '/dags' for DAG list, '/dags/<dag-name>' for DAG details, " +
 	"'/dags/<dag-name>/<tab>' for specific tab (spec, history), '/dag-runs' for all DAG runs, " +
 	"'/dag-runs/<dag-name>/<run-id>' for specific run details, '/queues' for queues, " +
-	"'/docs' for the documents page, '/docs/<doc-id>' for a specific document, " +
 	"'/system-status', '/webhooks', and '/audit-logs'. " +
 	"Admin-only pages: '/users', '/api-keys', '/terminal', '/git-sync', '/agent-settings'."
 

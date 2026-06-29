@@ -292,21 +292,21 @@ func TestSyncFilesToDAGsDir_PromotesMatchingUntrackedItemToSynced(t *testing.T) 
 	svc, dagsDir := newTestService(t, testCfgReadOnly)
 
 	repoPath := filepath.Join(svc.dataDir, "gitsync", "repo")
-	require.NoError(t, os.MkdirAll(filepath.Join(repoPath, "docs", "youtube_translate"), 0755))
+	require.NoError(t, os.MkdirAll(filepath.Join(repoPath, "memory", "dags", "youtube_translate"), 0755))
 	repo, err := git.PlainInit(repoPath, false)
 	require.NoError(t, err)
 	svc.gitClient.repo = repo
 
-	itemID := "docs/youtube_translate/example"
-	repoFile := filepath.Join(repoPath, "docs", "youtube_translate", "example.md")
-	localFile := filepath.Join(dagsDir, "docs", "youtube_translate", "example.md")
-	content := []byte("# translated doc\n")
+	itemID := "memory/dags/youtube_translate/MEMORY"
+	repoFile := filepath.Join(repoPath, "memory", "dags", "youtube_translate", "MEMORY.md")
+	localFile := filepath.Join(dagsDir, "memory", "dags", "youtube_translate", "MEMORY.md")
+	content := []byte("# translation memory\n")
 
 	require.NoError(t, os.MkdirAll(filepath.Dir(localFile), 0755))
 	require.NoError(t, os.WriteFile(repoFile, content, 0600))
 	require.NoError(t, os.WriteFile(localFile, content, 0600))
 
-	commitHash, err := svc.gitClient.AddAndCommit(filepath.Join("docs", "youtube_translate", "example.md"), "add doc")
+	commitHash, err := svc.gitClient.AddAndCommit(filepath.Join("memory", "dags", "youtube_translate", "MEMORY.md"), "add memory")
 	require.NoError(t, err)
 
 	now := time.Now()
@@ -315,7 +315,7 @@ func TestSyncFilesToDAGsDir_PromotesMatchingUntrackedItemToSynced(t *testing.T) 
 		DAGs: map[string]*DAGState{
 			itemID: {
 				Status:     StatusUntracked,
-				Kind:       DAGKindDoc,
+				Kind:       DAGKindMemory,
 				ModifiedAt: &now,
 				LocalHash:  ComputeContentHash(content),
 			},

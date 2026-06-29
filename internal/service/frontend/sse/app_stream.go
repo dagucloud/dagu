@@ -37,7 +37,6 @@ const (
 	AppEventTypeDAGChanged AppEventType = "dag.changed"
 	AppEventTypeRunChanged AppEventType = "dagrun.changed"
 	AppEventTypeQueue      AppEventType = "queue.changed"
-	AppEventTypeDoc        AppEventType = "doc.changed"
 )
 
 // AppEvent carries low-volume invalidations that tell the UI what to revalidate.
@@ -660,7 +659,6 @@ func NewAppStreamService(cfg AppStreamConfig) (*AppStreamService, error) {
 		newDirectoryWatcher(cfg.Paths.SuspendFlagsDir, true, service.handleSuspendFlagEvent, service.publishReset),
 		newDAGRunStatusWatcher(cfg.Paths.DAGRunsDir, true, service.handleDAGRunEvent, service.publishReset),
 		newOneLevelDirectoryWatcher(cfg.Paths.QueueDir, true, service.handleQueueEvent, service.publishReset),
-		newDirectoryWatcher(cfg.Paths.DocsDir, true, service.handleDocEvent, service.publishReset),
 	)
 
 	for _, watcher := range service.watchers {
@@ -770,18 +768,6 @@ func (s *AppStreamService) handleQueueEvent(_, relPath string, op fsnotify.Op) {
 		Type:      AppEventTypeQueue,
 		QueueName: parts[0],
 		Reason:    fileEventReason(op),
-	})
-}
-
-func (s *AppStreamService) handleDocEvent(_, relPath string, op fsnotify.Op) {
-	if filepath.Ext(relPath) != ".md" {
-		return
-	}
-	docPath := strings.TrimSuffix(filepath.ToSlash(relPath), ".md")
-	s.coalescer.Enqueue(AppEvent{
-		Type:   AppEventTypeDoc,
-		Path:   docPath,
-		Reason: fileEventReason(op),
 	})
 }
 
