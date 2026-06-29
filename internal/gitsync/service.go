@@ -256,14 +256,18 @@ func (s *serviceImpl) syncFilesToDAGsDir(_ context.Context, pullResult *PullResu
 	// Build set of DAG IDs present in remote repo for reconcileAfterPull
 	repoFileSet := make(map[string]struct{}, len(files))
 	for _, file := range files {
-		repoFileSet[s.filePathToDAGID(file)] = struct{}{}
+		dagID := s.filePathToDAGID(file)
+		if !isSyncableRepoFile(file, dagID) {
+			continue
+		}
+		repoFileSet[dagID] = struct{}{}
 	}
 
 	for _, file := range files {
 		dagID := s.filePathToDAGID(file)
 
 		// Only allow .md files from memory/, skills/, or souls/ directories.
-		if filepath.Ext(file) == ".md" && !isMemoryFile(dagID) && !isSkillFile(dagID) && !isSoulFile(dagID) {
+		if !isSyncableRepoFile(file, dagID) {
 			continue
 		}
 		repoFilePath := s.gitClient.GetFilePath(file)
@@ -1896,6 +1900,13 @@ func (s *serviceImpl) filePathToDAGID(filePath string) string {
 	ext := path.Ext(filePath)
 	dagID := strings.TrimSuffix(filePath, ext)
 	return dagID
+}
+
+func isSyncableRepoFile(filePath, dagID string) bool {
+	if filepath.Ext(filePath) != ".md" {
+		return true
+	}
+	return isMemoryFile(dagID) || isSkillFile(dagID) || isSoulFile(dagID)
 }
 
 // resolvePublishTargets validates and canonicalizes DAG IDs for batch publish.

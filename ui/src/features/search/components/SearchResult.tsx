@@ -187,24 +187,35 @@ function SearchResult(props: Props) {
       initialHasMoreMatches: result.hasMoreMatches,
       initialNextCursor: result.nextMatchesCursor,
       loadMore: async (cursor?: string): Promise<LoadMoreResponse> => {
-        const response = await client.GET('/search/dags/{fileName}/matches', {
-          params: {
-            path: { fileName: result.fileName },
-            query: {
-              remoteNode,
-              q: query,
-              cursor,
-              ...dagWorkspaceQuery,
+        try {
+          const response = await client.GET('/search/dags/{fileName}/matches', {
+            params: {
+              path: { fileName: result.fileName },
+              query: {
+                remoteNode,
+                q: query,
+                cursor,
+                ...dagWorkspaceQuery,
+              },
             },
-          },
-        });
+          });
 
-        return {
-          error: response.error?.message || undefined,
-          matches: response.data?.matches ?? [],
-          hasMore: response.data?.hasMore ?? false,
-          nextCursor: response.data?.nextCursor,
-        };
+          return {
+            error: response.error?.message || undefined,
+            matches: response.data?.matches ?? [],
+            hasMore: response.data?.hasMore ?? false,
+            nextCursor: response.data?.nextCursor,
+          };
+        } catch (error) {
+          return {
+            error:
+              error instanceof Error
+                ? error.message
+                : 'Failed to load more matches',
+            matches: [],
+            hasMore: false,
+          };
+        }
       },
     };
   });
