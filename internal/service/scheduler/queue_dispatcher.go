@@ -763,10 +763,7 @@ func queuedConditionNeedsUpdate(
 	}
 
 	condition := status.Conditions[0]
-	if condition.Type != "Queued" ||
-		condition.Status != "True" ||
-		condition.Reason != reason ||
-		condition.Message != message {
+	if condition.Type != "Queued" || condition.Status != "True" {
 		return true
 	}
 
@@ -775,6 +772,9 @@ func queuedConditionNeedsUpdate(
 		return true
 	}
 	if observedAt.After(checkedAt) {
+		return false
+	}
+	if condition.Reason != reason || condition.Message != message {
 		return true
 	}
 	return checkedAt.Sub(observedAt) >= queuedConditionRefreshInterval

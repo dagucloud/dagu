@@ -81,6 +81,31 @@ func TestQueueProcessorKeepsFreshQueuedCondition(t *testing.T) {
 	}, status.Conditions)
 }
 
+func TestQueuedConditionNeedsUpdateKeepsNewerObservation(t *testing.T) {
+	t.Parallel()
+
+	checkedAt := time.Date(2026, time.January, 2, 3, 4, 5, 0, time.UTC)
+	status := &exec.DAGRunStatus{
+		Status: core.Queued,
+		Conditions: []exec.DAGRunCondition{
+			exec.NewQueuedDAGRunCondition(
+				"DispatchAdmissionRejected",
+				"DAG-run is waiting because dispatch admission was rejected: no_capacity.",
+				checkedAt.Add(time.Second),
+			),
+		},
+	}
+
+	needsUpdate := scheduler.QueuedConditionNeedsUpdateForTest(
+		status,
+		"QueueCapacityFull",
+		"DAG-run is waiting because queue capacity is full.",
+		checkedAt,
+	)
+
+	require.False(t, needsUpdate)
+}
+
 func TestQueueProcessorRecordsPendingDispatchAdmissionCondition(t *testing.T) {
 	t.Parallel()
 

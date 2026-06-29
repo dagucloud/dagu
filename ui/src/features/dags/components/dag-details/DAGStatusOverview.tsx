@@ -130,7 +130,7 @@ function RuntimeConditions({
         {conditions.map((condition, idx) => (
           <div
             key={`${condition.type}-${condition.reason}-${idx}`}
-            className="p-1.5 bg-muted/30 border border-border rounded-md text-xs whitespace-normal break-words"
+            className="rounded-md border border-border bg-slate-200 p-1.5 text-xs whitespace-normal break-words dark:bg-slate-700"
           >
             <div className="mb-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
               <span className="font-semibold text-foreground">
