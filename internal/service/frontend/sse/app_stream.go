@@ -221,22 +221,16 @@ func newWatcher(root string, createRoot bool, scope watchScope, onEvent func(roo
 }
 
 func (w *directoryWatcher) Start(ctx context.Context) error {
-	if w.root == "" {
-		return nil
-	}
-	if w.createRoot {
-		if err := os.MkdirAll(w.root, 0750); err != nil {
-			return err
-		}
-	} else if _, err := os.Stat(w.root); errors.Is(err, os.ErrNotExist) {
-		return nil
+	ready, err := prepareWatchRoot(w.root, w.createRoot)
+	if err != nil || !ready {
+		return err
 	}
 
 	w.watcher = filenotify.New(time.Second)
-	if err := w.watcher.Add(w.root); err != nil {
-		_ = w.watcher.Close()
+	if err := w.addWatch(w.root); err != nil {
 		return err
 	}
+
 	if w.scope == watchScopeOneLevel {
 		paths, err := oneLevelWatchPaths(w.root)
 		if err != nil {
@@ -247,8 +241,7 @@ func (w *directoryWatcher) Start(ctx context.Context) error {
 			if path == w.root {
 				continue
 			}
-			if err := w.watcher.Add(path); err != nil {
-				_ = w.watcher.Close()
+			if err := w.addWatch(path); err != nil {
 				return err
 			}
 		}
@@ -257,6 +250,14 @@ func (w *directoryWatcher) Start(ctx context.Context) error {
 	w.wg.Go(func() {
 		w.loop(ctx)
 	})
+	return nil
+}
+
+func (w *directoryWatcher) addWatch(path string) error {
+	if err := w.watcher.Add(path); err != nil {
+		_ = w.watcher.Close()
+		return err
+	}
 	return nil
 }
 
@@ -321,20 +322,6 @@ func (w *directoryWatcher) addCreatedChildDir(path string) error {
 	return w.watcher.Add(path)
 }
 
-func initialWatchPaths(root string, scope watchScope) ([]string, error) {
-	if root == "" {
-		return nil, nil
-	}
-	switch scope {
-	case watchScopeRootOnly:
-		return []string{root}, nil
-	case watchScopeOneLevel:
-		return oneLevelWatchPaths(root)
-	default:
-		return []string{root}, nil
-	}
-}
-
 func oneLevelWatchPaths(root string) ([]string, error) {
 	paths := []string{root}
 	entries, err := os.ReadDir(root)
@@ -378,15 +365,9 @@ func newDAGRunStatusWatcher(root string, createRoot bool, onEvent func(root, rel
 }
 
 func (w *dagRunStatusWatcher) Start(ctx context.Context) error {
-	if w.root == "" {
-		return nil
-	}
-	if w.createRoot {
-		if err := os.MkdirAll(w.root, 0750); err != nil {
-			return err
-		}
-	} else if _, err := os.Stat(w.root); errors.Is(err, os.ErrNotExist) {
-		return nil
+	ready, err := prepareWatchRoot(w.root, w.createRoot)
+	if err != nil || !ready {
+		return err
 	}
 
 	files, err := scanDAGRunStatusFiles(w.root)
@@ -453,69 +434,53 @@ func scanDAGRunStatusFiles(root string) (map[string]statusFileSnapshot, error) {
 		return files, nil
 	}
 
-	dagDirs, err := readDirIfExists(root)
+	dagDirs, err := childDirs(root, anyDirName)
 	if err != nil {
 		return nil, err
 	}
 	for _, dagDir := range dagDirs {
-		if !dagDir.IsDir() {
-			continue
-		}
-		dagRunsDir := filepath.Join(root, dagDir.Name(), "dag-runs")
-		if err := scanDAGRunHistoryDir(root, dagRunsDir, files); err != nil {
+		dayDirs, err := dagRunDayDirs(filepath.Join(dagDir, "dag-runs"))
+		if err != nil {
 			return nil, err
+		}
+		for _, dayDir := range dayDirs {
+			if err := scanDAGRunDayStatuses(root, dayDir, files); err != nil {
+				return nil, err
+			}
 		}
 	}
 	return files, nil
 }
 
-func scanDAGRunHistoryDir(root, dagRunsDir string, files map[string]statusFileSnapshot) error {
-	years, err := readDirIfExists(dagRunsDir)
+func dagRunDayDirs(dagRunsDir string) ([]string, error) {
+	years, err := childDirs(dagRunsDir, isYearDirName)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	for _, year := range years {
-		if !year.IsDir() || !isFixedDigitName(year.Name(), 4) {
-			continue
-		}
-		yearDir := filepath.Join(dagRunsDir, year.Name())
-		months, err := readDirIfExists(yearDir)
+	var days []string
+	for _, yearDir := range years {
+		months, err := childDirs(yearDir, isTwoDigitName)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		for _, month := range months {
-			if !month.IsDir() || !isFixedDigitName(month.Name(), 2) {
-				continue
-			}
-			monthDir := filepath.Join(yearDir, month.Name())
-			days, err := readDirIfExists(monthDir)
+		for _, monthDir := range months {
+			monthDays, err := childDirs(monthDir, isTwoDigitName)
 			if err != nil {
-				return err
+				return nil, err
 			}
-			for _, day := range days {
-				if !day.IsDir() || !isFixedDigitName(day.Name(), 2) {
-					continue
-				}
-				dayDir := filepath.Join(monthDir, day.Name())
-				if err := scanDAGRunDayDir(root, dayDir, files); err != nil {
-					return err
-				}
-			}
+			days = append(days, monthDays...)
 		}
 	}
-	return nil
+	return days, nil
 }
 
-func scanDAGRunDayDir(root, dayDir string, files map[string]statusFileSnapshot) error {
-	runDirs, err := readDirIfExists(dayDir)
+func scanDAGRunDayStatuses(root, dayDir string, files map[string]statusFileSnapshot) error {
+	runDirs, err := childDirs(dayDir, isDAGRunDirName)
 	if err != nil {
 		return err
 	}
 	for _, runDir := range runDirs {
-		if !runDir.IsDir() || !strings.HasPrefix(runDir.Name(), filedagrun.DAGRunDirPrefix) {
-			continue
-		}
-		if err := scanDAGRunAttemptStatuses(root, filepath.Join(dayDir, runDir.Name()), files); err != nil {
+		if err := scanDAGRunAttemptStatuses(root, runDir, files); err != nil {
 			return err
 		}
 	}
@@ -523,30 +488,22 @@ func scanDAGRunDayDir(root, dayDir string, files map[string]statusFileSnapshot) 
 }
 
 func scanDAGRunAttemptStatuses(root, runDir string, files map[string]statusFileSnapshot) error {
-	entries, err := readDirIfExists(runDir)
+	attemptDirs, err := childDirs(runDir, isAttemptDirName)
 	if err != nil {
 		return err
 	}
-	for _, entry := range entries {
-		if !entry.IsDir() || !isAttemptDirName(entry.Name()) {
-			continue
-		}
-		statusPath := filepath.Join(runDir, entry.Name(), dagRunStatusFileName)
+	for _, attemptDir := range attemptDirs {
+		statusPath := filepath.Join(attemptDir, dagRunStatusFileName)
 		if err := recordDAGRunStatusFile(root, statusPath, files); err != nil {
 			return err
 		}
 	}
 
-	childrenDir := filepath.Join(runDir, filedagrun.SubDAGRunsDir)
-	children, err := readDirIfExists(childrenDir)
+	childRunDirs, err := childDirs(filepath.Join(runDir, filedagrun.SubDAGRunsDir), isSubDAGRunDirName)
 	if err != nil {
 		return err
 	}
-	for _, child := range children {
-		if !child.IsDir() || !strings.HasPrefix(child.Name(), filedagrun.SubDAGRunDirPrefix) {
-			continue
-		}
-		childRunDir := filepath.Join(childrenDir, child.Name())
+	for _, childRunDir := range childRunDirs {
 		if err := scanDAGRunAttemptStatuses(root, childRunDir, files); err != nil {
 			return err
 		}
@@ -584,12 +541,62 @@ func readDirIfExists(path string) ([]os.DirEntry, error) {
 	return entries, err
 }
 
+func childDirs(root string, match func(string) bool) ([]string, error) {
+	entries, err := readDirIfExists(root)
+	if err != nil {
+		return nil, err
+	}
+	paths := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() && match(entry.Name()) {
+			paths = append(paths, filepath.Join(root, entry.Name()))
+		}
+	}
+	return paths, nil
+}
+
+func prepareWatchRoot(root string, createRoot bool) (bool, error) {
+	if root == "" {
+		return false, nil
+	}
+	if createRoot {
+		if err := os.MkdirAll(root, 0750); err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+	if _, err := os.Stat(root); errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	return true, nil
+}
+
+func anyDirName(string) bool {
+	return true
+}
+
+func isDAGRunDirName(name string) bool {
+	return strings.HasPrefix(name, filedagrun.DAGRunDirPrefix)
+}
+
+func isSubDAGRunDirName(name string) bool {
+	return strings.HasPrefix(name, filedagrun.SubDAGRunDirPrefix)
+}
+
 func isAttemptDirName(name string) bool {
 	return strings.HasPrefix(name, filedagrun.AttemptDirPrefix) ||
 		strings.HasPrefix(name, "."+filedagrun.AttemptDirPrefix)
 }
 
-func isFixedDigitName(name string, size int) bool {
+func isYearDirName(name string) bool {
+	return isDigitName(name, 4)
+}
+
+func isTwoDigitName(name string) bool {
+	return isDigitName(name, 2)
+}
+
+func isDigitName(name string, size int) bool {
 	if len(name) != size {
 		return false
 	}

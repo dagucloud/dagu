@@ -13,16 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestInitialRootWatchPathsDoesNotDescend(t *testing.T) {
-	root := t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(root, "nested", "child"), 0o750))
-
-	paths, err := sse.InitialRootWatchPathsForTest(root)
-
-	require.NoError(t, err)
-	assert.Equal(t, []string{root}, paths)
-}
-
 func TestDAGRunStatusFilePathsOnlyIncludesStatusJSONL(t *testing.T) {
 	root := t.TempDir()
 	runDir := filepath.Join(root, "dag", "dag-runs", "2026", "06", "29", "dag-run_20260629_010203Z_run")

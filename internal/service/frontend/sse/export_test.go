@@ -5,10 +5,6 @@ package sse
 
 import "sort"
 
-func InitialRootWatchPathsForTest(root string) ([]string, error) {
-	return initialWatchPaths(root, watchScopeRootOnly)
-}
-
 func DAGRunStatusFilePathsForTest(root string) ([]string, error) {
 	files, err := scanDAGRunStatusFiles(root)
 	if err != nil {
