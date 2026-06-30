@@ -65,6 +65,25 @@ func (s startupWaitState) executionDone() (bool, error) {
 	return s.execDone()
 }
 
+type startupExecutionError struct {
+	err error
+}
+
+func newStartupExecutionError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return startupExecutionError{err: err}
+}
+
+func (e startupExecutionError) Error() string {
+	return e.err.Error()
+}
+
+func (e startupExecutionError) Unwrap() error {
+	return e.err
+}
+
 // QueueProcessor is responsible for processing queued DAG runs.
 type QueueProcessor struct {
 	queueStore             exec.QueueStore
@@ -444,7 +463,7 @@ func readStartupExecutionError(execErrCh <-chan error) error {
 	}
 	select {
 	case err := <-execErrCh:
-		return err
+		return newStartupExecutionError(err)
 	default:
 		return nil
 	}

@@ -1011,6 +1011,10 @@ func localLaunchFailed(err error) bool {
 		errors.Is(err, errExecutionExitedBeforeStartup) {
 		return false
 	}
+	var startupErr startupExecutionError
+	if !errors.As(err, &startupErr) {
+		return false
+	}
 	var exitErr *osexec.ExitError
 	return !errors.As(err, &exitErr)
 }
@@ -1065,7 +1069,7 @@ func (d *queueDispatcher) checkStartupStatus(ctx context.Context, queueName stri
 	}
 	if execDone {
 		if execDoneErr != nil {
-			return false, backoff.PermanentError(execDoneErr)
+			return false, backoff.PermanentError(newStartupExecutionError(execDoneErr))
 		}
 		return false, backoff.PermanentError(errExecutionExitedBeforeStartup)
 	}

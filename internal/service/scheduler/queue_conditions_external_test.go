@@ -27,6 +27,15 @@ import (
 
 const conditionTestStaleThreshold = time.Hour
 
+func TestLocalLaunchFailedOnlyClassifiesExecutionPathErrors(t *testing.T) {
+	t.Parallel()
+
+	require.False(t, scheduler.LocalLaunchFailedForTest(errors.New("read status failed")))
+	require.True(t, scheduler.LocalLaunchFailedForTest(
+		scheduler.NewStartupExecutionErrorForTest(errors.New("launcher failed")),
+	))
+}
+
 func TestQueueProcessorRecordsConcurrencyLimitQueuedCondition(t *testing.T) {
 	t.Parallel()
 

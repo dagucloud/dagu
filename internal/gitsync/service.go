@@ -2124,34 +2124,39 @@ func safeJoinWithinBase(baseDir, relativePath string) (string, error) {
 }
 
 func ensurePathWithinBase(baseDir, targetPath string) error {
+	_, err := relativePathWithinBase(baseDir, targetPath)
+	return err
+}
+
+func relativePathWithinBase(baseDir, targetPath string) (string, error) {
 	baseAbs, err := filepath.Abs(baseDir)
 	if err != nil {
-		return &InvalidDAGIDError{
+		return "", &InvalidDAGIDError{
 			DAGID:  targetPath,
 			Reason: "cannot resolve base directory",
 		}
 	}
 	targetAbs, err := filepath.Abs(targetPath)
 	if err != nil {
-		return &InvalidDAGIDError{
+		return "", &InvalidDAGIDError{
 			DAGID:  targetPath,
 			Reason: "cannot resolve path safely",
 		}
 	}
 	relToBase, err := filepath.Rel(baseAbs, targetAbs)
 	if err != nil {
-		return &InvalidDAGIDError{
+		return "", &InvalidDAGIDError{
 			DAGID:  targetPath,
 			Reason: "cannot resolve path safely",
 		}
 	}
 	if relToBase == ".." || strings.HasPrefix(relToBase, ".."+string(filepath.Separator)) || filepath.IsAbs(relToBase) {
-		return &InvalidDAGIDError{
+		return "", &InvalidDAGIDError{
 			DAGID:  targetPath,
 			Reason: "path escapes allowed base directory",
 		}
 	}
-	return nil
+	return relToBase, nil
 }
 
 func ensureExistingPathWithinBase(baseDir, targetPath string) error {
@@ -2167,61 +2172,137 @@ func ensureExistingPathWithinBase(baseDir, targetPath string) error {
 }
 
 func safeReadFileWithinBase(baseDir, targetPath string) ([]byte, error) {
-	if err := ensurePathWithinBase(baseDir, targetPath); err != nil {
+	relPath, err := relativePathWithinBase(baseDir, targetPath)
+	if err != nil {
 		return nil, err
 	}
-
-	file, err := os.Open(targetPath) // #nosec G304 -- targetPath is constrained to baseDir before opening.
+	root, err := os.OpenRoot(baseDir)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = root.Close()
+	}()
+	if err := rejectUnsafeRootPath(root, relPath, targetPath, "read", false); err != nil {
+		return nil, err
+	}
+	if err := ensureExistingPathWithinBase(baseDir, targetPath); err != nil {
+		return nil, err
+	}
+	file, err := openRootFileNoFollow(root, relPath, os.O_RDONLY, 0)
 	if err != nil {
 		return nil, err
 	}
 	defer func() {
 		_ = file.Close()
 	}()
-
-	fileInfo, err := file.Stat()
-	if err != nil {
-		return nil, err
-	}
-	pathInfo, err := os.Lstat(targetPath)
-	if err != nil {
-		return nil, err
-	}
-	if pathInfo.Mode()&os.ModeSymlink != 0 {
-		return nil, fmt.Errorf("refusing to read through symlink: %s", targetPath)
-	}
-	if !os.SameFile(pathInfo, fileInfo) {
-		return nil, fmt.Errorf("refusing to read path changed while opening: %s", targetPath)
-	}
-	if err := ensureExistingPathWithinBase(baseDir, targetPath); err != nil {
+	if err := validateOpenedRootFile(root, relPath, targetPath, "read", file); err != nil {
 		return nil, err
 	}
 	return io.ReadAll(file)
 }
 
 func safeWriteFileWithinBase(baseDir, targetPath string, content []byte, perm os.FileMode) error {
-	if err := ensurePathWithinBase(baseDir, targetPath); err != nil {
+	relPath, err := relativePathWithinBase(baseDir, targetPath)
+	if err != nil {
 		return err
 	}
 	parentDir := filepath.Dir(targetPath)
 	if err := ensurePathWithinBase(baseDir, parentDir); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(parentDir, 0750); err != nil {
+	root, err := os.OpenRoot(baseDir)
+	if err != nil {
 		return err
+	}
+	defer func() {
+		_ = root.Close()
+	}()
+	parentRel := filepath.Dir(relPath)
+	if parentRel != "." {
+		if err := root.MkdirAll(parentRel, 0750); err != nil {
+			return err
+		}
 	}
 	if err := ensureExistingPathWithinBase(baseDir, parentDir); err != nil {
 		return err
 	}
-	if info, err := os.Lstat(targetPath); err == nil {
-		if info.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("refusing to write through symlink: %s", targetPath)
-		}
-	} else if !os.IsNotExist(err) {
+	if err := rejectUnsafeRootPath(root, relPath, targetPath, "write", true); err != nil {
 		return err
 	}
-	// #nosec G304,G703 -- targetPath is constrained to baseDir and symlink targets are rejected.
-	return os.WriteFile(targetPath, content, perm)
+	file, err := openRootFileNoFollow(root, relPath, os.O_WRONLY, 0)
+	if os.IsNotExist(err) {
+		file, err = openRootFileNoFollow(root, relPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)
+	}
+	if os.IsExist(err) {
+		file, err = openRootFileNoFollow(root, relPath, os.O_WRONLY, 0)
+	}
+	if err != nil {
+		return err
+	}
+	if err := validateOpenedRootFile(root, relPath, targetPath, "write", file); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if err := file.Truncate(0); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if _, err := file.Write(content); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if err := file.Chmod(perm); err != nil {
+		_ = file.Close()
+		return err
+	}
+	return file.Close()
+}
+
+func rejectUnsafeRootPath(root *os.Root, relPath, targetPath, operation string, allowNotExist bool) error {
+	info, err := root.Lstat(relPath)
+	if err != nil {
+		if allowNotExist && os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	return rejectUnsafeFileInfo(info, targetPath, operation)
+}
+
+func validateOpenedRootFile(root *os.Root, relPath, targetPath, operation string, file *os.File) error {
+	fileInfo, err := file.Stat()
+	if err != nil {
+		return err
+	}
+	if err := rejectUnsafeFileInfo(fileInfo, targetPath, operation); err != nil {
+		return err
+	}
+	pathInfo, err := root.Lstat(relPath)
+	if err != nil {
+		return err
+	}
+	if err := rejectUnsafeFileInfo(pathInfo, targetPath, operation); err != nil {
+		return err
+	}
+	if !os.SameFile(pathInfo, fileInfo) {
+		return fmt.Errorf("refusing to %s path changed while opening: %s", operation, targetPath)
+	}
+	return nil
+}
+
+func rejectUnsafeFileInfo(info os.FileInfo, targetPath, operation string) error {
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("refusing to %s through symlink: %s", operation, targetPath)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("refusing to %s non-regular file: %s", operation, targetPath)
+	}
+	return nil
 }
 
 func (s *serviceImpl) writeDAGFile(dagID, filePath string, content []byte) error {
