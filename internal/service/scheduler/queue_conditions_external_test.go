@@ -200,7 +200,7 @@ func TestQueueProcessorRecordsDispatchUnavailableCondition(t *testing.T) {
 		t,
 		config.ExecutionModeDistributed,
 		nil,
-		&queueConditionDispatcher{dispatchErr: errors.New("coordinator unavailable")},
+		&queueConditionDispatcher{dispatchErr: errors.New("coordinator unavailable: internal endpoint 10.0.0.5")},
 	)
 	f.enqueueRun("waiting-run", nil)
 
@@ -208,6 +208,8 @@ func TestQueueProcessorRecordsDispatchUnavailableCondition(t *testing.T) {
 
 	status := f.readStatus("waiting-run")
 	requireQueuedCondition(t, status, "DispatchUnavailable", "Distributed dispatch is temporarily unavailable")
+	require.NotContains(t, status.Conditions[0].Message, "coordinator unavailable")
+	require.NotContains(t, status.Conditions[0].Message, "10.0.0.5")
 }
 
 type queueConditionFixture struct {

@@ -666,8 +666,7 @@ func queuedDispatchCondition(err error) (string, string) {
 	if err == nil {
 		return queuedConditionReasonDispatchUnavailable, queuedConditionMessageDispatchUnavailableNoError
 	}
-	return queuedConditionReasonDispatchUnavailable,
-		fmt.Sprintf("Distributed dispatch is temporarily unavailable (%s); DAG-run is waiting in the queue.", err)
+	return queuedConditionReasonDispatchUnavailable, queuedConditionMessageDispatchUnavailableNoError
 }
 
 func isWorkerSelectorNotMatched(err error) bool {
