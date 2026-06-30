@@ -357,7 +357,7 @@ func (d *queueDispatcher) queuedConditionItemsForRefresh(
 	d.queuedConditionCursorMu.Unlock()
 
 	selected := make([]exec.QueuedItemData, 0, queuedConditionRefreshBatchLimit)
-	for i := 0; i < queuedConditionRefreshBatchLimit; i++ {
+	for i := range queuedConditionRefreshBatchLimit {
 		selected = append(selected, items[(start+i)%len(items)])
 	}
 	return selected
