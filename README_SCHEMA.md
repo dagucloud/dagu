@@ -321,7 +321,7 @@ steps:
 Use `timeout_sec` to cap total wait time for polling actions such as
 `wait.file` and `wait.http`.
 
-### Agent Harness
+### Harness
 
 ```yaml
 harnesses:

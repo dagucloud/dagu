@@ -45,7 +45,7 @@ const (
 	// Requires: Core, Paths, Coordinator
 	ServiceCoordinator
 
-	// ServiceAgent is for the agent executor (runs DAGs).
+	// ServiceAgent is for the DAG runtime executor.
 	// Requires: Core, Paths, Queues (to check if distributed execution is enabled)
 	ServiceAgent
 )

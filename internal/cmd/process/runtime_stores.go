@@ -6,7 +6,6 @@ package process
 import (
 	"context"
 
-	"github.com/dagucloud/dagu/internal/clicontext"
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/persis/file"
 	"github.com/dagucloud/dagu/internal/profile"
@@ -20,7 +19,7 @@ type RuntimeStores struct {
 }
 
 // NewRuntimeStores creates the runtime store bundle for a command process role.
-func NewRuntimeStores(ctx context.Context, cfg *config.Config, _ *clicontext.Store) RuntimeStores {
+func NewRuntimeStores(ctx context.Context, cfg *config.Config) RuntimeStores {
 	return NewRuntimeStoresForConfig(ctx, cfg)
 }
 

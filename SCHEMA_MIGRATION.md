@@ -335,7 +335,7 @@ steps:
 
 If the v1 harness used `script:` for stdin, use `with.stdin` in v2.
 
-## Chat and Agent
+## Chat and Harness
 
 Chat before:
 

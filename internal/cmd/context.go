@@ -661,7 +661,7 @@ type runtimeStoresResult = cmdprocess.RuntimeStores
 
 // runtimeStores creates the runtime store bundle for this command context.
 func (c *Context) runtimeStores() runtimeStoresResult {
-	return cmdprocess.NewRuntimeStores(c.Context, c.Config, c.ContextStore)
+	return cmdprocess.NewRuntimeStores(c.Context, c.Config)
 }
 
 // OpenLogFile creates and opens a log file for a given dag-run.
