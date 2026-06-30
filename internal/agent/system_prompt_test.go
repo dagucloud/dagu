@@ -21,7 +21,6 @@ func TestGenerateSystemPrompt(t *testing.T) {
 		t.Parallel()
 		env := EnvironmentInfo{
 			DAGsDir:        "/dags",
-			DocsDir:        "/dags/docs",
 			LogDir:         "/logs",
 			SessionsDir:    "/data/agent/sessions",
 			WorkingDir:     "/work",
@@ -32,7 +31,6 @@ func TestGenerateSystemPrompt(t *testing.T) {
 
 		assert.NotEmpty(t, result)
 		assert.Contains(t, result, "/dags")
-		assert.Contains(t, result, "/dags/docs")
 		assert.Contains(t, result, "Session Store Directory: /data/agent/sessions")
 		assert.Contains(t, result, "/config/base.yaml")
 		assert.Contains(t, result, "Authenticated role: developer")
@@ -283,18 +281,6 @@ func TestGenerateSystemPrompt(t *testing.T) {
 		assert.Contains(t, result, "`web_extract`: Extract readable text")
 		assert.NotContains(t, result, "search_files")
 		assert.NotContains(t, result, "read_file")
-	})
-
-	t.Run("documents runbook tool for docs store moves and deletes", func(t *testing.T) {
-		t.Parallel()
-		env := EnvironmentInfo{DocsDir: "/dags/docs"}
-
-		result := GenerateSystemPrompt(SystemPromptParams{Env: env, Role: auth.RoleDeveloper})
-
-		assert.Contains(t, result, "`runbook_manage`: List/search/get/create/update/patch/move/delete")
-		assert.Contains(t, result, "Do not use `patch` to move, rename, delete, or maintain documents under /dags/docs")
-		assert.Contains(t, result, "`runbook_manage` action `move` with `id` and `new_id`")
-		assert.Contains(t, result, "`runbook_manage` action `delete`")
 	})
 
 	t.Run("authoring guidance prefers explicit actions for file and artifact operations", func(t *testing.T) {

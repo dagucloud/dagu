@@ -91,102 +91,6 @@ func TestDAGContext_UserEnvsMap(t *testing.T) {
 	}
 }
 
-func TestNewContext_DAGDocsDir(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name      string
-		docsDir   string
-		dagName   string
-		labels    core.Labels
-		expected  string
-		expectSet bool
-	}{
-		{
-			name:      "ConfigHasDocsDir",
-			docsDir:   "/var/dagu/docs",
-			dagName:   "my-workflow",
-			expected:  filepath.Join("/var/dagu/docs", "my-workflow"),
-			expectSet: true,
-		},
-		{
-			name:    "WorkspaceLabelUsesWorkspaceScopedDocsDir",
-			docsDir: "/var/dagu/docs",
-			dagName: "my-workflow",
-			labels: core.Labels{
-				{Key: "workspace", Value: "ops"},
-			},
-			expected:  filepath.Join("/var/dagu/docs", "ops", "my-workflow"),
-			expectSet: true,
-		},
-		{
-			name:    "ConflictingWorkspaceLabelsUseLegacyDocsDir",
-			docsDir: "/var/dagu/docs",
-			dagName: "my-workflow",
-			labels: core.Labels{
-				{Key: "workspace", Value: "ops"},
-				{Key: "workspace", Value: "prod"},
-			},
-			expected:  filepath.Join("/var/dagu/docs", "my-workflow"),
-			expectSet: true,
-		},
-		{
-			name:    "InvalidWorkspaceLabelUsesLegacyDocsDir",
-			docsDir: "/var/dagu/docs",
-			dagName: "my-workflow",
-			labels: core.Labels{
-				{Key: "workspace", Value: "../shared"},
-			},
-			expected:  filepath.Join("/var/dagu/docs", "my-workflow"),
-			expectSet: true,
-		},
-		{
-			name:      "DocsDirEmpty",
-			docsDir:   "",
-			dagName:   "my-workflow",
-			expectSet: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			ctx := context.Background()
-			if tt.docsDir != "" {
-				cfg := &config.Config{}
-				cfg.Paths.DocsDir = tt.docsDir
-				ctx = config.WithConfig(ctx, cfg)
-			}
-
-			dag := &core.DAG{Name: tt.dagName, Labels: tt.labels}
-			ctx = exec.NewContext(ctx, dag, "run-1", "test.log")
-			rCtx := exec.GetContext(ctx)
-			result := rCtx.UserEnvsMap()
-
-			if tt.expectSet {
-				assert.Equal(t, tt.expected, result[exec.EnvKeyDAGDocsDir])
-			} else {
-				_, ok := result[exec.EnvKeyDAGDocsDir]
-				assert.False(t, ok, "DAG_DOCS_DIR should not be set")
-			}
-		})
-	}
-
-	t.Run("NoConfigInContext", func(t *testing.T) {
-		t.Parallel()
-
-		ctx := context.Background()
-		dag := &core.DAG{Name: "my-workflow"}
-		ctx = exec.NewContext(ctx, dag, "run-1", "test.log")
-		rCtx := exec.GetContext(ctx)
-		result := rCtx.UserEnvsMap()
-
-		_, ok := result[exec.EnvKeyDAGDocsDir]
-		assert.False(t, ok, "DAG_DOCS_DIR should not be set when no config in context")
-	})
-}
-
 func TestNewContext_DAGParamsJSON(t *testing.T) {
 	t.Parallel()
 
@@ -301,29 +205,22 @@ func TestNewContext_DAGEnvCanReferenceRuntimeManagedDirs(t *testing.T) {
 	t.Parallel()
 
 	artifactDir := filepath.Join(t.TempDir(), "artifacts", "run-1")
-	docsDir := filepath.Join(t.TempDir(), "docs")
-	cfg := &config.Config{}
-	cfg.Paths.DocsDir = docsDir
 
 	dag := &core.DAG{
 		Name: "test-dag",
 		Env: []string{
-			"OUTPUT_FILE=current-plan.md",
-			"DAG_DOCS_DIR=/tmp/wrong-docs",
-			"PLAN_PATH=${DAG_DOCS_DIR}/${OUTPUT_FILE}",
 			"DAG_RUN_ARTIFACTS_DIR=/tmp/wrong-artifacts",
 			"WORK_DIR=${DAG_RUN_ARTIFACTS_DIR}",
 			"CURRENT_IDEA_PATH=${WORK_DIR}/current_idea.md",
 		},
 	}
 
-	ctx := config.WithConfig(context.Background(), cfg)
+	ctx := context.Background()
 	ctx = exec.NewContext(ctx, dag, "run-1", "test.log",
 		exec.WithArtifactDir(artifactDir),
 	)
 
 	result := exec.GetContext(ctx).UserEnvsMap()
-	assert.Equal(t, filepath.Join(docsDir, dag.Name, "current-plan.md"), filepath.Clean(result["PLAN_PATH"]))
 	assert.Equal(t, artifactDir, result["WORK_DIR"])
 	assert.Equal(t, filepath.Join(artifactDir, "current_idea.md"), filepath.Clean(result["CURRENT_IDEA_PATH"]))
 	assert.Equal(t, artifactDir, result[exec.EnvKeyDAGRunArtifactsDir])

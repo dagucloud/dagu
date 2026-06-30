@@ -250,7 +250,6 @@ func TestLoad_Env(t *testing.T) {
 		},
 		Paths: PathsConfig{
 			DAGsDir:            filepath.Join(testPaths, "dags"),
-			DocsDir:            filepath.Join(testPaths, "dags", "docs"),
 			AltDAGsDir:         filepath.Join(testPaths, "alt-dags"),
 			Executable:         filepath.Join(testPaths, "bin", "dagu"),
 			LogDir:             filepath.Join(testPaths, "logs"),
@@ -719,7 +718,6 @@ scheduler:
 		},
 		Paths: PathsConfig{
 			DAGsDir:            resolvedTestPath(t, "/var/dagu/dags"),
-			DocsDir:            resolvedTestPath(t, "/var/dagu/dags/docs"),
 			LogDir:             resolvedTestPath(t, "/var/dagu/logs"),
 			DataDir:            resolvedTestPath(t, "/var/dagu/data"),
 			DAGStateDir:        resolvedTestPath(t, "/var/dagu/data/dag-state"),

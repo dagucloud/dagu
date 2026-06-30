@@ -38,9 +38,6 @@ type ToolConfig struct {
 	// DAGRunWatcher provides session-local run watch registrations for dag_run_manage.
 	// Nil means dag_run_manage watch actions report unavailable when called.
 	DAGRunWatcher DAGRunWatcher
-	// DocStore provides access to Markdown docs/runbooks for runbook_manage.
-	// Nil means runbook_manage reports unavailable when called.
-	DocStore DocStore
 	// WorkspaceStore provides workspace names for workspace-scoped tools.
 	WorkspaceStore workspacepkg.Store
 	// RemoteContextResolver provides access to remote CLI contexts for remote_agent tools.

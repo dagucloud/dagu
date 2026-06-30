@@ -44,7 +44,7 @@ func Generate(opts Options) ([]byte, error) {
 	buf.WriteString("It runs as a single binary without requiring an external database or message broker. ")
 	buf.WriteString("It stores state locally by default and supports local, queued, and distributed execution modes.\n\n")
 	buf.WriteString("Use this compact reference when authoring, validating, or troubleshooting Dagu workflows with an AI agent. ")
-	buf.WriteString("For the full human documentation, see https://docs.dagu.sh/.\n")
+	buf.WriteString("It summarizes repository-local workflow references.\n")
 
 	for _, file := range sourceFiles {
 		path := filepath.Join(sourceDir, file)

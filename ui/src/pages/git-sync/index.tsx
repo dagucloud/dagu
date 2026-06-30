@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import {
   components,
   SyncItemKind,
@@ -67,8 +70,8 @@ type SyncConfigResponse = components['schemas']['SyncConfigResponse'];
 type SyncItemDiffResponse = components['schemas']['SyncItemDiffResponse'];
 type SyncItem = components['schemas']['SyncItem'];
 type StatusFilter = 'all' | 'modified' | 'untracked' | 'conflict' | 'missing';
-type TypeFilter = 'dag' | 'config' | 'memory' | 'skill' | 'soul' | 'doc';
-type UISyncKind = 'dag' | 'config' | 'memory' | 'skill' | 'soul' | 'doc';
+type TypeFilter = 'dag' | 'config' | 'memory' | 'skill' | 'soul';
+type UISyncKind = 'dag' | 'config' | 'memory' | 'skill' | 'soul';
 type SyncRow = { itemId: string; item: SyncItem; kind: UISyncKind };
 
 const statusFilters: StatusFilter[] = [
@@ -84,7 +87,6 @@ const typeFilters: TypeFilter[] = [
   'memory',
   'skill',
   'soul',
-  'doc',
 ];
 
 function parseStatusFilter(value: string | null): StatusFilter {
@@ -106,8 +108,7 @@ function parseTypeFilter(value: string | null): TypeFilter {
     value === 'config' ||
     value === 'memory' ||
     value === 'skill' ||
-    value === 'soul' ||
-    value === 'doc'
+    value === 'soul'
   ) {
     return value;
   }
@@ -119,7 +120,6 @@ function normalizeSyncItemKind(kind: SyncItemKind): UISyncKind {
   if (kind === SyncItemKind.memory) return 'memory';
   if (kind === SyncItemKind.skill) return 'skill';
   if (kind === SyncItemKind.soul) return 'soul';
-  if (kind === SyncItemKind.doc) return 'doc';
   return 'dag';
 }
 
@@ -516,7 +516,6 @@ export default function GitSyncPage() {
       memory: 0,
       skill: 0,
       soul: 0,
-      doc: 0,
     };
     for (const { kind } of syncRows) {
       counts[kind] += 1;
@@ -601,7 +600,6 @@ export default function GitSyncPage() {
     let memory = 0;
     let skill = 0;
     let soul = 0;
-    let doc = 0;
     for (const dagID of selectedDags) {
       const row = rowByID.get(dagID);
       if (!row) continue;
@@ -609,7 +607,6 @@ export default function GitSyncPage() {
       else if (row.kind === 'memory') memory += 1;
       else if (row.kind === 'skill') skill += 1;
       else if (row.kind === 'soul') soul += 1;
-      else if (row.kind === 'doc') doc += 1;
       else dag += 1;
     }
     return {
@@ -618,8 +615,7 @@ export default function GitSyncPage() {
       memory,
       skill,
       soul,
-      doc,
-      total: dag + config + memory + skill + soul + doc,
+      total: dag + config + memory + skill + soul,
     };
   }, [selectedDags, rowByID]);
 
@@ -630,7 +626,6 @@ export default function GitSyncPage() {
       memory: 'memory',
       skill: 'skill',
       soul: 'soul',
-      doc: 'doc',
     };
     const typeLabel = typeLabelMap[typeFilter] || typeFilter;
     if (searchQuery.trim()) {
@@ -801,7 +796,6 @@ export default function GitSyncPage() {
                     memory: 'Memory',
                     skill: 'Skills',
                     soul: 'Souls',
-                    doc: 'Docs',
                   } as Record<string, string>
                 )[f]
               }{' '}
@@ -829,7 +823,6 @@ export default function GitSyncPage() {
               : ''}
             {selectedCounts.skill > 0 ? `, ${selectedCounts.skill} skills` : ''}
             {selectedCounts.soul > 0 ? `, ${selectedCounts.soul} souls` : ''}
-            {selectedCounts.doc > 0 ? `, ${selectedCounts.doc} docs` : ''}
           </span>
         )}
       </div>
@@ -938,11 +931,6 @@ export default function GitSyncPage() {
                       {kind === 'soul' && (
                         <span className="text-[10px] px-1 py-0 rounded bg-cyan-500/10 text-cyan-600 dark:text-cyan-400">
                           soul
-                        </span>
-                      )}
-                      {kind === 'doc' && (
-                        <span className="text-[10px] px-1 py-0 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400">
-                          doc
                         </span>
                       )}
                     </div>

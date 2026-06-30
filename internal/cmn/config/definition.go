@@ -184,7 +184,6 @@ type PermissionsDef struct {
 // PathsDef configures file system paths.
 type PathsDef struct {
 	DAGsDir            string `mapstructure:"dags_dir"`
-	DocsDir            string `mapstructure:"docs_dir"`
 	Executable         string `mapstructure:"executable"`
 	LogDir             string `mapstructure:"log_dir"`
 	ArtifactDir        string `mapstructure:"artifact_dir"`

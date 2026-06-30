@@ -64,8 +64,6 @@ function toolDisplay(toolName: string, args: Record<string, unknown>): ToolDispl
       return { emoji: '🌐', label: 'remote agent' };
     case 'list_contexts':
       return { emoji: '🗂️', label: 'list contexts' };
-    case 'runbook_manage':
-      return { emoji: '📘', label: 'runbook' };
     case 'web_search':
       return { emoji: '🌐', label: 'search web' };
     case 'web_extract':

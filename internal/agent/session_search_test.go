@@ -55,7 +55,7 @@ func TestSessionSearchTool_Run(t *testing.T) {
 		}, Message{
 			Type:       MessageTypeAssistant,
 			SequenceID: 2,
-			Content:    "The fix was to write reports under DAGU_DOCS_DIR.",
+			Content:    "The fix was to write reports under DAG_RUN_ARTIFACTS_DIR.",
 			CreatedAt:  now.Add(-time.Hour),
 		})
 		seedSearchSession(t, store, &Session{
@@ -66,7 +66,7 @@ func TestSessionSearchTool_Run(t *testing.T) {
 		}, Message{
 			Type:       MessageTypeUser,
 			SequenceID: 1,
-			Content:    "DAGU_DOCS_DIR in the current turn should not be returned.",
+			Content:    "DAG_RUN_ARTIFACTS_DIR in the current turn should not be returned.",
 			CreatedAt:  now,
 		})
 		seedSearchSession(t, store, &Session{
@@ -77,7 +77,7 @@ func TestSessionSearchTool_Run(t *testing.T) {
 		}, Message{
 			Type:       MessageTypeUser,
 			SequenceID: 1,
-			Content:    "Other user also mentioned DAGU_DOCS_DIR.",
+			Content:    "Other user also mentioned DAG_RUN_ARTIFACTS_DIR.",
 			CreatedAt:  now,
 		})
 
@@ -86,12 +86,12 @@ func TestSessionSearchTool_Run(t *testing.T) {
 			SessionID:    "current-session",
 			User:         UserIdentity{UserID: "admin"},
 			SessionStore: store,
-		}, sessionSearchInput(t, "dagu_docs_dir", 5))
+		}, sessionSearchInput(t, "dag_run_artifacts_dir", 5))
 
 		assert.False(t, result.IsError)
 		assert.Contains(t, result.Content, "past-session")
 		assert.Contains(t, result.Content, "daily-import")
-		assert.Contains(t, result.Content, "DAGU_DOCS_DIR")
+		assert.Contains(t, result.Content, "DAG_RUN_ARTIFACTS_DIR")
 		assert.NotContains(t, result.Content, "current-session")
 		assert.NotContains(t, result.Content, "other-user-session")
 		assert.NotContains(t, result.Content, "Other user")

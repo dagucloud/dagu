@@ -256,9 +256,10 @@ func (a *API) GetSyncItemDiff(ctx context.Context, req api.GetSyncItemDiffReques
 		return nil, internalError(err)
 	}
 
+	filePath, _ := syncItemFilePath(diff.DAGID, gitsync.KindForDAGID(diff.DAGID))
 	return api.GetSyncItemDiff200JSONResponse{
 		ItemId:        diff.DAGID,
-		FilePath:      syncItemFilePath(diff.DAGID, gitsync.KindForDAGID(diff.DAGID)),
+		FilePath:      filePath,
 		Status:        toAPISyncStatus(diff.Status),
 		LocalContent:  diff.LocalContent,
 		RemoteContent: ptrOf(diff.RemoteContent),
@@ -691,44 +692,54 @@ func toAPISyncStatus(s gitsync.SyncStatus) api.SyncStatus {
 	}
 }
 
-func resolveKind(itemID string, kind gitsync.DAGKind) gitsync.DAGKind {
+func resolveKind(itemID string, kind gitsync.DAGKind) (gitsync.DAGKind, bool) {
 	if kind == "" {
-		return gitsync.KindForDAGID(itemID)
+		kind = gitsync.KindForDAGID(itemID)
 	}
-	return kind
+	switch kind {
+	case gitsync.DAGKindMemory, gitsync.DAGKindSkill, gitsync.DAGKindSoul,
+		gitsync.DAGKindConfig, gitsync.DAGKindDAG:
+		return kind, true
+	default:
+		return "", false
+	}
 }
 
-func toAPISyncItemKind(itemID string, kind gitsync.DAGKind) api.SyncItemKind {
-	kind = resolveKind(itemID, kind)
+func toAPISyncItemKind(itemID string, kind gitsync.DAGKind) (api.SyncItemKind, bool) {
+	kind, ok := resolveKind(itemID, kind)
+	if !ok {
+		return "", false
+	}
 
 	switch kind {
 	case gitsync.DAGKindMemory:
-		return api.SyncItemKindMemory
+		return api.SyncItemKindMemory, true
 	case gitsync.DAGKindSkill:
-		return api.SyncItemKindSkill
+		return api.SyncItemKindSkill, true
 	case gitsync.DAGKindSoul:
-		return api.SyncItemKindSoul
-	case gitsync.DAGKindDoc:
-		return api.SyncItemKindDoc
+		return api.SyncItemKindSoul, true
 	case gitsync.DAGKindConfig:
-		return api.SyncItemKindConfig
+		return api.SyncItemKindConfig, true
 	case gitsync.DAGKindDAG:
-		return api.SyncItemKindDag
+		return api.SyncItemKindDag, true
 	default:
-		return api.SyncItemKindDag
+		return "", false
 	}
 }
 
-func syncItemFilePath(itemID string, kind gitsync.DAGKind) string {
-	kind = resolveKind(itemID, kind)
+func syncItemFilePath(itemID string, kind gitsync.DAGKind) (string, bool) {
+	kind, ok := resolveKind(itemID, kind)
+	if !ok {
+		return "", false
+	}
 	ext := ".yaml"
 	switch kind {
-	case gitsync.DAGKindMemory, gitsync.DAGKindSkill, gitsync.DAGKindSoul, gitsync.DAGKindDoc:
+	case gitsync.DAGKindMemory, gitsync.DAGKindSkill, gitsync.DAGKindSoul:
 		ext = ".md"
 	case gitsync.DAGKindDAG, gitsync.DAGKindConfig:
 		// default .yaml extension
 	}
-	return itemID + ext
+	return itemID + ext, true
 }
 
 func toAPISyncItems(states map[string]*gitsync.DAGState) []api.SyncItem {
@@ -741,13 +752,20 @@ func toAPISyncItems(states map[string]*gitsync.DAGState) []api.SyncItem {
 		if state == nil {
 			continue
 		}
-		filePath := syncItemFilePath(itemID, state.Kind)
+		filePath, ok := syncItemFilePath(itemID, state.Kind)
+		if !ok {
+			continue
+		}
+		kind, ok := toAPISyncItemKind(itemID, state.Kind)
+		if !ok {
+			continue
+		}
 		item := api.SyncItem{
 			ItemId:             itemID,
 			FilePath:           filePath,
 			DisplayName:        filePath,
 			Status:             toAPISyncStatus(state.Status),
-			Kind:               toAPISyncItemKind(itemID, state.Kind),
+			Kind:               kind,
 			BaseCommit:         ptrOf(state.BaseCommit),
 			LastSyncedHash:     ptrOf(state.LastSyncedHash),
 			LastSyncedAt:       state.LastSyncedAt,

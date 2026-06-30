@@ -56,7 +56,6 @@ import SoulEditorPage from './pages/agent-souls/SoulEditorPage';
 import AgentToolsPage from './pages/agent-tools';
 import AdministrationPage from './pages/administration';
 import APIKeysPage from './pages/api-keys';
-import APIDocsPage from './pages/api-docs';
 import AuditLogsPage from './pages/audit-logs';
 import BaseConfigPage from './pages/base-config';
 import DAGRuns from './pages/dag-runs';
@@ -64,7 +63,6 @@ import DAGRunDetails from './pages/dag-runs/dag-run';
 import DAGs from './pages/dags';
 import DAGDetails from './pages/dags/dag';
 import WorkflowDesignPage from './pages/design';
-import DocsPage from './pages/docs';
 import EventLogsPage from './pages/event-logs';
 import GitSyncPage from './pages/git-sync';
 import HomePage from './pages/home';
@@ -583,10 +581,6 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
                                           element={<HomePage />}
                                         />
                                         <Route
-                                          path="/api-docs"
-                                          element={<APIDocsPage />}
-                                        />
-                                        <Route
                                           path="/integrations"
                                           element={<IntegrationsPage />}
                                         />
@@ -661,10 +655,6 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
                                         <Route
                                           path="/search/"
                                           element={<Search />}
-                                        />
-                                        <Route
-                                          path="/docs/*"
-                                          element={<DocsPage />}
                                         />
                                         <Route
                                           path="/queues"

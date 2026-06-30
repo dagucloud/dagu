@@ -376,7 +376,6 @@ func (l *ConfigLoader) loadPathsConfig(cfg *Config, def Definition) error {
 		source string
 	}{
 		{"DAGsDir", &cfg.Paths.DAGsDir, def.Paths.DAGsDir},
-		{"DocsDir", &cfg.Paths.DocsDir, def.Paths.DocsDir},
 		{"AltDAGsDir", &cfg.Paths.AltDAGsDir, def.Paths.AltDagsDir},
 		{"SuspendFlagsDir", &cfg.Paths.SuspendFlagsDir, def.Paths.SuspendFlagsDir},
 		{"DataDir", &cfg.Paths.DataDir, def.Paths.DataDir},
@@ -1448,10 +1447,6 @@ func (l *ConfigLoader) finalizePaths(cfg *Config) {
 		cfg.Paths.ArtifactDir = filepath.Join(cfg.Paths.DataDir, "artifacts")
 	}
 
-	if cfg.Paths.DocsDir == "" {
-		cfg.Paths.DocsDir = filepath.Join(cfg.Paths.DAGsDir, "docs")
-	}
-
 	if cfg.Paths.Executable == "" {
 		if executable, err := os.Executable(); err == nil {
 			cfg.Paths.Executable = executable
@@ -1801,7 +1796,6 @@ var envBindings = []envBinding{
 	// Paths
 	{key: "paths.dags_dir", env: "DAGS", isPath: true},
 	{key: "paths.dags_dir", env: "DAGS_DIR", isPath: true},
-	{key: "paths.docs_dir", env: "DOCS_DIR", isPath: true},
 	{key: "paths.alt_dags_dir", env: "ALT_DAGS_DIR", isPath: true},
 	{key: "paths.executable", env: "EXECUTABLE", isPath: true},
 	{key: "paths.log_dir", env: "LOG_DIR", isPath: true},

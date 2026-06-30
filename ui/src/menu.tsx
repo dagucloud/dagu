@@ -662,7 +662,6 @@ export const mainListItems = React.forwardRef<
               '/dags',
               '/search',
               '/base-config',
-              '/docs',
               '/git-sync',
             ]}
             to="/dags"
@@ -685,13 +684,6 @@ export const mainListItems = React.forwardRef<
                 customColor={customColor}
               />
             )}
-            <NavItem
-              to="/docs"
-              text="Runbooks"
-              isOpen={isOpen}
-              onClick={onNavItemClick}
-              customColor={customColor}
-            />
             {canWrite && config.gitSyncEnabled && (
               <NavItem
                 to="/git-sync"
@@ -823,7 +815,7 @@ export const mainListItems = React.forwardRef<
             icon={<Webhook size={18} />}
             label="Integrations"
             isOpen={isOpen}
-            basePath={['/integrations', '/webhooks', '/api-docs']}
+            basePath={['/integrations', '/webhooks']}
             to="/integrations"
             onClick={onNavItemClick}
             customColor={customColor}
@@ -837,13 +829,6 @@ export const mainListItems = React.forwardRef<
                 customColor={customColor}
               />
             )}
-            <NavItem
-              to="/api-docs"
-              text="API Reference"
-              isOpen={isOpen}
-              onClick={onNavItemClick}
-              customColor={customColor}
-            />
           </NavGroup>
 
           {canManageProfiles && (

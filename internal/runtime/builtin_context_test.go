@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/dagucloud/dagu/internal/cmn/config"
 	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
@@ -21,7 +20,6 @@ func TestResolveStringBuiltInRunContext(t *testing.T) {
 	t.Parallel()
 
 	tmpDir := t.TempDir()
-	docsDir := filepath.Join(tmpDir, "docs")
 	workDir := filepath.Join(tmpDir, "work")
 	artifactDir := filepath.Join(tmpDir, "artifacts")
 	logFile := filepath.Join(tmpDir, "dag.log")
@@ -29,11 +27,8 @@ func TestResolveStringBuiltInRunContext(t *testing.T) {
 	scheduledAt := "2026-03-13T10:00:00Z"
 	profileResolvedAt := "2026-03-13T09:59:00Z"
 
-	cfg := &config.Config{}
-	cfg.Paths.DocsDir = docsDir
-	ctx := config.WithConfig(context.Background(), cfg)
 	dag := &core.DAG{Name: "child"}
-	ctx = runtime.NewContext(ctx, dag, "run-1", logFile,
+	ctx := runtime.NewContext(context.Background(), dag, "run-1", logFile,
 		runtime.WithAttemptID("attempt-1"),
 		runtime.WithRootDAGRun(exec.NewDAGRunRef("root", "root-run-1")),
 		runtime.WithTriggerType(core.TriggerTypeScheduler),
@@ -55,11 +50,11 @@ func TestResolveStringBuiltInRunContext(t *testing.T) {
 	}, cmnvalue.EnvSourceStepEnv)
 	ctx = runtime.WithEnv(ctx, env)
 
-	got, err := runtime.ResolveString(ctx, "${context.dag.name}|${context.run.id}|${context.run.status}|${context.attempt.started_at}|${context.run.scheduled_at}|${context.run.root_name}|${context.run.root_id}|${context.attempt.id}|${context.step.id}|${context.step.name}|${context.trigger.type}|${context.paths.log_file}|${context.paths.work_dir}|${context.paths.artifacts_dir}|${context.paths.docs_dir}|${context.paths.step_stdout_file}|${context.paths.step_stderr_file}|${context.paths.step_output_file}|${context.profile.name}|${context.profile.resolved_at}|${context.pushback.iteration}|${context.pushback.previous_stdout_file}", cmnvalue.WorkflowField("run"))
+	got, err := runtime.ResolveString(ctx, "${context.dag.name}|${context.run.id}|${context.run.status}|${context.attempt.started_at}|${context.run.scheduled_at}|${context.run.root_name}|${context.run.root_id}|${context.attempt.id}|${context.step.id}|${context.step.name}|${context.trigger.type}|${context.paths.log_file}|${context.paths.work_dir}|${context.paths.artifacts_dir}|${context.paths.step_stdout_file}|${context.paths.step_stderr_file}|${context.paths.step_output_file}|${context.profile.name}|${context.profile.resolved_at}|${context.pushback.iteration}|${context.pushback.previous_stdout_file}", cmnvalue.WorkflowField("run"))
 	require.NoError(t, err)
 
 	expected := "child|run-1|succeeded|" + startedAt + "|" + scheduledAt + "|root|root-run-1|attempt-1|build-id|build|scheduler|" +
-		logFile + "|" + workDir + "|" + artifactDir + "|" + filepath.Join(docsDir, "child") + "|" +
+		logFile + "|" + workDir + "|" + artifactDir + "|" +
 		filepath.Join(tmpDir, "stdout.log") + "|" + filepath.Join(tmpDir, "stderr.log") + "|" +
 		filepath.Join(tmpDir, "output.json") + "|prod|" + profileResolvedAt + "|2|" + filepath.Join(tmpDir, "previous.log")
 	assert.Equal(t, expected, got)

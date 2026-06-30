@@ -102,7 +102,6 @@ type API struct {
 	environment           EnvironmentInfo
 	hooks                 *Hooks
 	memoryStore           MemoryStore
-	docStore              DocStore
 	workspaceStore        workspacepkg.Store
 	soulStore             SoulStore
 	remoteContextResolver RemoteContextResolver
@@ -124,7 +123,6 @@ type APIConfig struct {
 	Environment           EnvironmentInfo
 	Hooks                 *Hooks
 	MemoryStore           MemoryStore
-	DocStore              DocStore
 	WorkspaceStore        workspacepkg.Store
 	RemoteContextResolver RemoteContextResolver
 	OAuthManager          *agentoauth.Manager
@@ -186,7 +184,6 @@ func NewAPI(cfg APIConfig) *API {
 		environment:           cfg.Environment,
 		hooks:                 cfg.Hooks,
 		memoryStore:           cfg.MemoryStore,
-		docStore:              cfg.DocStore,
 		workspaceStore:        cfg.WorkspaceStore,
 		remoteContextResolver: cfg.RemoteContextResolver,
 		oauthManager:          cfg.OAuthManager,
@@ -619,7 +616,6 @@ func (a *API) buildSessionManagerConfig(ctx context.Context, id string, user Use
 		InputCostPer1M:        cfg.inputCostPer1M,
 		OutputCostPer1M:       cfg.outputCostPer1M,
 		MemoryStore:           a.memoryStore,
-		DocStore:              a.docStore,
 		WorkspaceStore:        a.workspaceStore,
 		DAGStore:              a.dagStore,
 		DAGRunStore:           a.dagRunStore,
