@@ -167,7 +167,7 @@ describe('DAGStatusOverview', () => {
         'The DAG-run cannot start because the queue active-run concurrency limit has been reached.'
       )
     ).toBeInTheDocument();
-    expect(screen.getByText('Worker not ready')).toBeInTheDocument();
+    expect(screen.getByText('Worker readiness unknown')).toBeInTheDocument();
     expect(
       screen.getByText('Worker availability is still being checked.')
     ).toBeInTheDocument();
@@ -186,7 +186,7 @@ describe('DAGStatusOverview', () => {
       container.querySelector('[data-testid="runtime-conditions"]')
         ?.textContent ?? '';
     expect(runtimeText.indexOf('Cannot start')).toBeLessThan(
-      runtimeText.indexOf('Worker not ready')
+      runtimeText.indexOf('Worker readiness unknown')
     );
     expect(
       runtimeText.indexOf(
@@ -198,7 +198,7 @@ describe('DAGStatusOverview', () => {
     expect(screen.getByText('DAGRun Precondition Unmet')).toBeInTheDocument();
   });
 
-  it('labels Runnable Unknown conditions by reason instead of always showing startup text', () => {
+  it('hides runtime conditions when only satisfied conditions are present', () => {
     render(
       <DAGStatusOverview
         status={{
@@ -206,6 +206,47 @@ describe('DAGStatusOverview', () => {
           name: 'queued-dag',
           rootDAGRunName: 'queued-dag',
           rootDAGRunId: 'run-5',
+          log: '/tmp/test.log',
+          artifactsAvailable: false,
+          nodes: [],
+          autoRetryCount: 0,
+          autoRetryLimit: 0,
+          startedAt: '-',
+          finishedAt: '-',
+          status: Status.Queued,
+          statusLabel: StatusLabel.queued,
+          conditions: [
+            {
+              type: 'Runnable',
+              status: DAGRunConditionStatus.True,
+              reason: 'Ready',
+              message: 'The DAG-run is ready to start.',
+              checkedAt: '2026-05-19T01:02:03Z',
+            },
+            {
+              type: 'ConcurrencyReady',
+              status: DAGRunConditionStatus.True,
+              reason: 'ConcurrencyAvailable',
+              message: 'The queue active-run concurrency limit has capacity.',
+              checkedAt: '2026-05-19T01:03:03Z',
+            },
+          ],
+          preconditions: [],
+        }}
+      />
+    );
+
+    expect(screen.queryByTestId('runtime-conditions')).not.toBeInTheDocument();
+  });
+
+  it('labels Runnable Unknown conditions by reason instead of always showing startup text', () => {
+    render(
+      <DAGStatusOverview
+        status={{
+          dagRunId: 'run-6',
+          name: 'queued-dag',
+          rootDAGRunName: 'queued-dag',
+          rootDAGRunId: 'run-6',
           log: '/tmp/test.log',
           status: Status.Queued,
           statusLabel: StatusLabel.queued,

@@ -229,9 +229,13 @@ func toDAGRunConditions(status core.Status, conditions []exec.DAGRunCondition) *
 		if err != nil {
 			continue
 		}
+		conditionStatus, ok := toDAGRunConditionStatus(condition.Status)
+		if !ok {
+			continue
+		}
 		result = append(result, api.DAGRunCondition{
 			Type:      condition.Type,
-			Status:    api.DAGRunConditionStatus(condition.Status),
+			Status:    conditionStatus,
 			Reason:    condition.Reason,
 			Message:   condition.Message,
 			CheckedAt: checkedAt,
@@ -241,6 +245,20 @@ func toDAGRunConditions(status core.Status, conditions []exec.DAGRunCondition) *
 		return nil
 	}
 	return &result
+}
+
+func toDAGRunConditionStatus(status string) (api.DAGRunConditionStatus, bool) {
+	switch status {
+	case string(api.DAGRunConditionStatusFalse):
+		return api.DAGRunConditionStatusFalse, true
+	case string(api.DAGRunConditionStatusTrue):
+		return api.DAGRunConditionStatusTrue, true
+	case string(api.DAGRunConditionStatusUnknown):
+		return api.DAGRunConditionStatusUnknown, true
+	default:
+		var zero api.DAGRunConditionStatus
+		return zero, false
+	}
 }
 
 func toRuntimeProfileName(name string) *api.RuntimeProfileName {

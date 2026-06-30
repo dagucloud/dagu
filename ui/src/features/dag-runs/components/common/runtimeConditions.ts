@@ -19,6 +19,7 @@ export function humanizeIdentifier(value: string | undefined): string {
 
 export function runtimeConditionLabel(condition: RuntimeCondition): string {
   const isReady = condition.status === DAGRunConditionStatus.True;
+  const isUnknown = condition.status === DAGRunConditionStatus.Unknown;
 
   switch (condition.type) {
     case 'Runnable':
@@ -43,23 +44,39 @@ export function runtimeConditionLabel(condition: RuntimeCondition): string {
           return 'Start status unknown';
       }
     case 'ConcurrencyReady':
-      return isReady ? 'Concurrency ready' : 'Concurrency not ready';
+      if (isReady) return 'Concurrency ready';
+      if (isUnknown) return 'Concurrency status unknown';
+      return 'Concurrency not ready';
     case 'WorkerReady':
-      return isReady ? 'Worker ready' : 'Worker not ready';
+      if (isReady) return 'Worker ready';
+      if (isUnknown) return 'Worker readiness unknown';
+      return 'Worker not ready';
     case 'QueueReady':
-      return isReady ? 'Queue ready' : 'Queue state unavailable';
+      if (isReady) return 'Queue ready';
+      if (isUnknown) return 'Queue state unavailable';
+      return 'Queue not ready';
     case 'RunRecordReady':
-      return isReady ? 'Run record ready' : 'Run record not ready';
+      if (isReady) return 'Run record ready';
+      if (isUnknown) return 'Run record status unknown';
+      return 'Run record not ready';
     case 'WorkerAssignmentReady':
-      return isReady ? 'Worker assignment ready' : 'Worker assignment not ready';
+      if (isReady) return 'Worker assignment ready';
+      if (isUnknown) return 'Worker assignment status unknown';
+      return 'Worker assignment not ready';
     case 'StartObserved':
-      return isReady ? 'Startup observed' : 'Startup not observed';
+      if (isReady) return 'Startup observed';
+      if (isUnknown) return 'Startup status unknown';
+      return 'Startup not observed';
     default: {
       const label = humanizeIdentifier(condition.type);
       if (!label) {
-        return isReady ? 'Condition ready' : 'Condition not ready';
+        if (isReady) return 'Condition ready';
+        if (isUnknown) return 'Condition status unknown';
+        return 'Condition not ready';
       }
-      return isReady ? label : `${label} not ready`;
+      if (isReady) return label;
+      if (isUnknown) return `${label} status unknown`;
+      return `${label} not ready`;
     }
   }
 }

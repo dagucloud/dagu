@@ -28,7 +28,6 @@ import {
   components,
   DAGRunConditionStatus,
   Status,
-  TriggerType,
 } from '../../../../api/v1/schema';
 import { triggerTypeLabels } from '../common/TriggerTypeIndicator';
 
@@ -169,7 +168,11 @@ function RuntimeConditions({
   conditions,
 }: RuntimeConditionsProps): React.JSX.Element | null {
   const { summary, details } = getRuntimeConditionGroups(conditions);
-  const visibleConditions = summary ? [summary, ...details] : details;
+  const visibleSummary =
+    summary?.status === DAGRunConditionStatus.True ? undefined : summary;
+  const visibleConditions = visibleSummary
+    ? [visibleSummary, ...details]
+    : details;
 
   if (visibleConditions.length === 0) {
     return null;

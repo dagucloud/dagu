@@ -112,6 +112,37 @@ func TestToDAGRunSummarySkipsOnlyConditionsWithInvalidCheckedAt(t *testing.T) {
 	assert.Equal(t, "2026-05-19T01:02:03Z", conditions[0]["checkedAt"])
 }
 
+func TestToDAGRunSummarySkipsConditionsWithInvalidStatus(t *testing.T) {
+	status := exec.DAGRunStatus{
+		Name:     "queued-dag",
+		DAGRunID: "run-1",
+		Status:   core.Queued,
+		Conditions: []exec.DAGRunCondition{
+			{
+				Type:      "Runnable",
+				Status:    "False",
+				Reason:    "MaxConcurrencyReached",
+				Message:   "The DAG-run cannot start because the queue active-run concurrency limit has been reached.",
+				CheckedAt: "2026-05-19T01:02:03Z",
+			},
+			{
+				Type:      "WorkerReady",
+				Status:    "LegacyMaybe",
+				Reason:    "LegacyStatus",
+				Message:   "Legacy condition status is malformed.",
+				CheckedAt: "2026-05-19T01:02:04Z",
+			},
+		},
+	}
+
+	summary := frontendapi.ToDAGRunSummaryForTest(status)
+
+	payload := marshalResponse(t, summary)
+	conditions := requireConditions(t, payload, 1)
+	assert.Equal(t, "Runnable", conditions[0]["type"])
+	assert.Equal(t, "False", conditions[0]["status"])
+}
+
 func TestToDAGRunSummarySkipsConditionsWhenStatusIsNotQueued(t *testing.T) {
 	status := exec.DAGRunStatus{
 		Name:     "running-dag",
