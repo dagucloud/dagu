@@ -173,4 +173,4 @@ Load only the file you need:
 - `references/dagu-action.md` when creating a reusable `dagu-action.yaml` package or checking action input/output schema behavior
 - `references/cli.md` when you need command flags or lookup commands such as `dagu schema`, `dagu config`, or `dagu history`
 - `references/context.md` when using `${context.*}` metadata references or declared step `outputs:`
-- `references/codingagent.md` only when the DAG invokes external coding-agent CLIs through `harness.run`
+- `references/harnesses.md` only when the DAG invokes external CLI harnesses through `harness.run`

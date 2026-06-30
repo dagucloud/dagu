@@ -1,4 +1,4 @@
-# External Coding-Agent CLI Harness
+# External CLI Harnesses
 
 Use `action: harness.run` to invoke external coding-agent CLIs from DAG steps. Dagu selects and invokes the configured CLI; the CLI itself must be installed on the host or available in the selected container.
 
