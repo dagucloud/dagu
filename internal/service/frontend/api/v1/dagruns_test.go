@@ -743,7 +743,7 @@ steps:
 	require.NoError(t, err)
 	require.True(t, alive)
 
-	time.Sleep(dagRunEventuallyTimeout(900 * time.Millisecond))
+	time.Sleep(900 * time.Millisecond)
 
 	resp := server.Client().Get(fmt.Sprintf("/api/v1/dag-runs/%s/%s", dagName, startBody.DagRunId)).
 		ExpectStatus(http.StatusOK).
