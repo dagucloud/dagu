@@ -35,7 +35,6 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	cmnschema "github.com/dagucloud/dagu/internal/cmn/schema"
 	"github.com/dagucloud/dagu/internal/cmn/signalctx"
-	"github.com/dagucloud/dagu/internal/cmn/telemetry"
 	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/gitsync"
@@ -161,7 +160,7 @@ func (srv *Server) RegisterRoutes(fn RouteRegistrar) {
 
 // NewServer constructs a Server from the provided configuration, stores, and services.
 // Returns an error if initialization fails (e.g., when builtin auth fails to initialize).
-func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs exec.DAGRunStore, qs exec.QueueStore, ps exec.ProcStore, drm runtime.Manager, cc coordinator.Client, sr exec.ServiceRegistry, mr *prometheus.Registry, collector *telemetry.Collector, rs *resource.Service, stores StoreFactories, opts ...ServerOption) (*Server, error) {
+func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs exec.DAGRunStore, qs exec.QueueStore, ps exec.ProcStore, drm runtime.Manager, cc coordinator.Client, sr exec.ServiceRegistry, mr *prometheus.Registry, rs *resource.Service, stores StoreFactories, opts ...ServerOption) (*Server, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
