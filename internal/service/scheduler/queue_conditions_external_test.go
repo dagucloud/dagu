@@ -59,6 +59,29 @@ func TestQueueProcessorRecordsConcurrencyLimitQueuedCondition(t *testing.T) {
 	require.Equal(t, 1, f.casCount("waiting-run"))
 }
 
+func TestQueueProcessorSkipsQueuedConditionRefreshForFreshDistributedLease(t *testing.T) {
+	t.Parallel()
+
+	f := newQueueConditionFixture(t, config.ExecutionModeLocal, nil)
+	attempt := f.enqueueRun("leased-run", nil)
+	runRef := exec.NewDAGRunRef(f.dag.Name, "leased-run")
+	require.NoError(t, f.leaseStore.Upsert(f.ctx, exec.DAGRunLease{
+		AttemptKey:      exec.GenerateAttemptKey(runRef.Name, runRef.ID, runRef.Name, runRef.ID, attempt.ID()),
+		DAGRun:          runRef,
+		Root:            runRef,
+		AttemptID:       attempt.ID(),
+		QueueName:       f.dag.Name,
+		WorkerID:        "worker-1",
+		LastHeartbeatAt: time.Now().UTC().UnixMilli(),
+	}))
+
+	f.processor.ProcessQueueItems(f.ctx, f.dag.Name)
+
+	status := f.readStatus("leased-run")
+	require.Empty(t, status.Conditions)
+	require.Equal(t, 0, f.casCount("leased-run"))
+}
+
 func TestQueueProcessorKeepsFreshQueuedCondition(t *testing.T) {
 	t.Parallel()
 

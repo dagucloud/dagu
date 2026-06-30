@@ -393,6 +393,17 @@ func (d *queueDispatcher) newQueuedConditionStageFromItem(
 	if !ok {
 		return nil
 	}
+	started, err := d.hasFreshDistributedLease(ctx, queueName, *runRef, attempt, status)
+	if err != nil {
+		logger.Warn(ctx, "Failed to check distributed lease while staging queued condition",
+			tag.Error(err),
+			tag.RunID(runRef.ID),
+		)
+		return nil
+	}
+	if started {
+		return nil
+	}
 	return d.newQueuedConditionStage(*runRef, queueName, item.ID(), attempt, status)
 }
 

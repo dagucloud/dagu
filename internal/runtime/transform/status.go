@@ -244,6 +244,7 @@ func (f *StatusBuilder) Create(
 	for _, opt := range opts {
 		opt(&statusObj)
 	}
+	exec.NormalizeDAGRunConditions(&statusObj)
 
 	if statusObj.PendingStepRetries == nil {
 		statusObj.PendingStepRetries = exec.PendingStepRetriesFromStatus(&statusObj)
