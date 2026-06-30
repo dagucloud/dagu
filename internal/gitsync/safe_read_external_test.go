@@ -45,6 +45,25 @@ func TestSafeReadFileWithinBaseForTestRejectsSymlink(t *testing.T) {
 	assert.Contains(t, err.Error(), "refusing to read through symlink")
 }
 
+func TestSafeReadFileWithinBaseForTestRejectsIntermediateSymlink(t *testing.T) {
+	t.Parallel()
+
+	baseDir := t.TempDir()
+	realDir := filepath.Join(baseDir, "real")
+	require.NoError(t, os.Mkdir(realDir, 0750))
+	realPath := filepath.Join(realDir, "dag.yaml")
+	require.NoError(t, os.WriteFile(realPath, []byte("steps: []\n"), 0600))
+	linkDir := filepath.Join(baseDir, "alias")
+	if err := os.Symlink(realDir, linkDir); err != nil {
+		t.Skipf("symlink creation is unavailable: %v", err)
+	}
+
+	_, err := gitsync.SafeReadFileWithinBaseForTest(baseDir, filepath.Join(linkDir, "dag.yaml"))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "refusing to read through symlink")
+}
+
 func TestSafeWriteFileWithinBaseForTestWritesRegularFile(t *testing.T) {
 	t.Parallel()
 
@@ -78,4 +97,26 @@ func TestSafeWriteFileWithinBaseForTestRejectsSymlink(t *testing.T) {
 	content, readErr := os.ReadFile(outsidePath)
 	require.NoError(t, readErr)
 	assert.Equal(t, "secret\n", string(content))
+}
+
+func TestSafeWriteFileWithinBaseForTestRejectsIntermediateSymlink(t *testing.T) {
+	t.Parallel()
+
+	baseDir := t.TempDir()
+	realDir := filepath.Join(baseDir, "real")
+	require.NoError(t, os.Mkdir(realDir, 0750))
+	realPath := filepath.Join(realDir, "dag.yaml")
+	require.NoError(t, os.WriteFile(realPath, []byte("steps: []\n"), 0600))
+	linkDir := filepath.Join(baseDir, "alias")
+	if err := os.Symlink(realDir, linkDir); err != nil {
+		t.Skipf("symlink creation is unavailable: %v", err)
+	}
+
+	err := gitsync.SafeWriteFileWithinBaseForTest(baseDir, filepath.Join(linkDir, "dag.yaml"), []byte("changed\n"))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "refusing to write through symlink")
+	content, readErr := os.ReadFile(realPath)
+	require.NoError(t, readErr)
+	assert.Equal(t, "steps: []\n", string(content))
 }

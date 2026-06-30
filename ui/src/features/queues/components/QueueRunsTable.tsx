@@ -28,14 +28,41 @@ interface QueueRunsTableProps {
   showQueuedAt?: boolean;
 }
 
+const QUEUED_CONDITION_FALLBACK_PRIORITY = [
+  'QueueReady',
+  'RunRecordReady',
+  'ConcurrencyReady',
+  'WorkerReady',
+  'WorkerAssignmentReady',
+  'StartObserved',
+];
+
+function queuedConditionFallbackRank(condition: RuntimeCondition): number {
+  const index = QUEUED_CONDITION_FALLBACK_PRIORITY.indexOf(condition.type);
+  return index === -1 ? QUEUED_CONDITION_FALLBACK_PRIORITY.length : index;
+}
+
+function compareQueuedConditionFallback(
+  left: RuntimeCondition,
+  right: RuntimeCondition
+): number {
+  return (
+    queuedConditionFallbackRank(left) - queuedConditionFallbackRank(right) ||
+    left.type.localeCompare(right.type) ||
+    left.status.localeCompare(right.status) ||
+    (left.reason ?? '').localeCompare(right.reason ?? '') ||
+    (left.checkedAt ?? '').localeCompare(right.checkedAt ?? '')
+  );
+}
+
 function getQueuedConditionSummary(
   conditions: RuntimeCondition[] | undefined
 ): RuntimeCondition | undefined {
   return (
     conditions?.find((condition) => condition.type === 'Runnable') ??
-    conditions?.find(
-      (condition) => condition.status !== DAGRunConditionStatus.True
-    )
+    conditions
+      ?.filter((condition) => condition.status !== DAGRunConditionStatus.True)
+      .sort(compareQueuedConditionFallback)[0]
   );
 }
 

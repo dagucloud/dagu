@@ -75,7 +75,7 @@ describe('QueueRunsTable', () => {
     expect(screen.queryByText('WorkerStateUnknown')).not.toBeInTheDocument();
   });
 
-  it('falls back to the first non-True condition when no Runnable condition is present', () => {
+  it('falls back to a deterministic non-True condition when no Runnable condition is present', () => {
     const queuedRun: components['schemas']['DAGRunSummary'] = {
       dagRunId: 'run-2',
       name: 'queued-dag',
@@ -88,17 +88,17 @@ describe('QueueRunsTable', () => {
       queuedAt: '2026-05-19T01:00:00Z',
       conditions: [
         {
-          type: 'ConcurrencyReady',
-          status: DAGRunConditionStatus.True,
-          reason: 'ConcurrencyAvailable',
-          message: 'The queue active-run concurrency limit has capacity.',
-          checkedAt: '2026-05-19T01:02:03Z',
-        },
-        {
           type: 'WorkerReady',
           status: DAGRunConditionStatus.Unknown,
           reason: 'WorkerStateUnknown',
           message: 'Worker availability is still being checked.',
+          checkedAt: '2026-05-19T01:02:03Z',
+        },
+        {
+          type: 'ConcurrencyReady',
+          status: DAGRunConditionStatus.False,
+          reason: 'MaxConcurrencyReached',
+          message: 'The queue active-run concurrency limit has been reached.',
           checkedAt: '2026-05-19T01:03:03Z',
         },
       ],
@@ -112,14 +112,14 @@ describe('QueueRunsTable', () => {
       />
     );
 
-    expect(screen.getByText('Worker not ready')).toBeInTheDocument();
+    expect(screen.getByText('Concurrency not ready')).toBeInTheDocument();
     expect(
-      screen.getByText('Worker availability is still being checked.')
+      screen.getByText('The queue active-run concurrency limit has been reached.')
     ).toBeInTheDocument();
     expect(screen.getByText(/Checked May 19, 01:03:03/)).toBeInTheDocument();
-    expect(screen.queryByText('Concurrency ready')).not.toBeInTheDocument();
+    expect(screen.queryByText('Worker not ready')).not.toBeInTheDocument();
     expect(
-      screen.queryByText('The queue active-run concurrency limit has capacity.')
+      screen.queryByText('Worker availability is still being checked.')
     ).not.toBeInTheDocument();
   });
 

@@ -2219,10 +2219,8 @@ func safeWriteFileWithinBase(baseDir, targetPath string, content []byte, perm os
 		_ = root.Close()
 	}()
 	parentRel := filepath.Dir(relPath)
-	if parentRel != "." {
-		if err := root.MkdirAll(parentRel, 0750); err != nil {
-			return err
-		}
+	if err := ensureSafeRootDirPath(root, parentRel, targetPath, "write", true); err != nil {
+		return err
 	}
 	if err := ensureExistingPathWithinBase(baseDir, parentDir); err != nil {
 		return err
@@ -2264,7 +2262,12 @@ func safeWriteFileWithinBase(baseDir, targetPath string, content []byte, perm os
 }
 
 func rejectUnsafeRootPath(root *os.Root, relPath, targetPath, operation string, allowNotExist bool) error {
-	info, err := root.Lstat(relPath)
+	cleanPath := filepath.Clean(relPath)
+	parentRel := filepath.Dir(cleanPath)
+	if err := ensureSafeRootDirPath(root, parentRel, targetPath, operation, false); err != nil {
+		return err
+	}
+	info, err := root.Lstat(cleanPath)
 	if err != nil {
 		if allowNotExist && os.IsNotExist(err) {
 			return nil
@@ -2272,6 +2275,44 @@ func rejectUnsafeRootPath(root *os.Root, relPath, targetPath, operation string, 
 		return err
 	}
 	return rejectUnsafeFileInfo(info, targetPath, operation)
+}
+
+func ensureSafeRootDirPath(root *os.Root, relDir, targetPath, operation string, create bool) error {
+	cleanDir := filepath.Clean(relDir)
+	if cleanDir == "." {
+		return nil
+	}
+	current := ""
+	for segment := range strings.SplitSeq(cleanDir, string(filepath.Separator)) {
+		if segment == "" || segment == "." {
+			continue
+		}
+		if segment == ".." {
+			return fmt.Errorf("refusing to %s path outside root: %s", operation, targetPath)
+		}
+		if current == "" {
+			current = segment
+		} else {
+			current = filepath.Join(current, segment)
+		}
+		info, err := root.Lstat(current)
+		if create && os.IsNotExist(err) {
+			if err := root.Mkdir(current, 0750); err != nil && !os.IsExist(err) {
+				return err
+			}
+			info, err = root.Lstat(current)
+		}
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("refusing to %s through symlink: %s", operation, targetPath)
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("refusing to %s through non-directory path segment: %s", operation, targetPath)
+		}
+	}
+	return nil
 }
 
 func validateOpenedRootFile(root *os.Root, relPath, targetPath, operation string, file *os.File) error {
@@ -2282,7 +2323,12 @@ func validateOpenedRootFile(root *os.Root, relPath, targetPath, operation string
 	if err := rejectUnsafeFileInfo(fileInfo, targetPath, operation); err != nil {
 		return err
 	}
-	pathInfo, err := root.Lstat(relPath)
+	cleanPath := filepath.Clean(relPath)
+	parentRel := filepath.Dir(cleanPath)
+	if err := ensureSafeRootDirPath(root, parentRel, targetPath, operation, false); err != nil {
+		return err
+	}
+	pathInfo, err := root.Lstat(cleanPath)
 	if err != nil {
 		return err
 	}
