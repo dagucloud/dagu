@@ -264,10 +264,23 @@ func (b *SubCmdBuilder) Restart(dag *core.DAG, opts RestartOptions) CmdSpec {
 
 // Retry creates a retry command spec.
 func (b *SubCmdBuilder) Retry(dag *core.DAG, dagRunID string, stepName string) CmdSpec {
+	return b.retry(dag, dagRunID, stepName, exec1.DAGRunRef{})
+}
+
+// RetryWithRootDAGRun creates a retry command spec for a sub DAG-run with an
+// explicit root DAG-run reference.
+func (b *SubCmdBuilder) RetryWithRootDAGRun(dag *core.DAG, dagRunID string, stepName string, root exec1.DAGRunRef) CmdSpec {
+	return b.retry(dag, dagRunID, stepName, root)
+}
+
+func (b *SubCmdBuilder) retry(dag *core.DAG, dagRunID string, stepName string, root exec1.DAGRunRef) CmdSpec {
 	args := []string{"retry", fmt.Sprintf("--run-id=%s", dagRunID), "-q"}
 
 	if stepName != "" {
 		args = append(args, fmt.Sprintf("--step=%s", stepName))
+	}
+	if !root.Zero() {
+		args = append(args, fmt.Sprintf("--root=%s", root.String()))
 	}
 
 	if b.configFile != "" {
