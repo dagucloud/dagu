@@ -50,7 +50,6 @@ The root `type:` controls how the workflow executes:
   parallel.
 - `graph` is the default when `type:` is omitted.
 - `chain` runs steps in order.
-- `agent` is reserved for agent-oriented execution.
 
 Do not confuse root `type:` with legacy step-level `type:`. Step-level
 `type:` is deprecated; use `action:` for named executors.
@@ -213,7 +212,7 @@ Current builtin actions:
 
 `run:` and `action:` are mutually exclusive on a step. Do not combine either
 with legacy execution fields such as `command:`, `script:`, step-level `type:`,
-`call:`, `messages:`, `agent:`, `llm:`, `value:`, or `routes:`.
+`call:`, `messages:`, `llm:`, `value:`, or `routes:`.
 
 Remote action packages contain a `dagu-action.yaml` manifest and a DAG
 entrypoint. GitHub refs such as `acme/dagu-action-notify@v1.2.0` and official
@@ -337,6 +336,11 @@ steps:
       provider: codex-cli
       prompt: Review the current branch and list actionable issues.
 ```
+
+Prefer `action: harness.run` for new workflows. Compatibility note: a
+top-level `harness:` config still causes steps without an explicit executor type
+to infer the harness executor. Do not mix top-level `harness:` with ordinary
+shell `run:` steps unless prompt inference is intended.
 
 ## Reusable Custom Actions
 

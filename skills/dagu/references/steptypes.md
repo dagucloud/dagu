@@ -465,7 +465,7 @@ steps:
 
 ## harness.run
 
-Run coding agents through predefined external CLIs or custom harness definitions.
+Invoke external coding-agent CLIs through built-in provider adapters or custom harness definitions.
 
 ```yaml
 harnesses:
@@ -491,13 +491,14 @@ steps:
     output: RESULT
 ```
 
-`with.prompt` is required and becomes the harness prompt. `with.provider` can be a Dagu CLI provider (`claude`, `codex`, `copilot`, `opencode`, `pi`) or a top-level `harnesses:` entry. For host subprocess runs, `with.stdin` is piped to stdin as supplementary context.
+`with.prompt` is required and is passed to the selected provider according to its built-in adapter or custom harness definition. `with.provider` can be a built-in provider adapter (`claude`, `codex`, `copilot`, `opencode`, `pi`) or a top-level `harnesses:` entry. For host subprocess runs, `with.stdin` is piped to stdin as supplementary context.
 
 Harness behavior:
 
-- Dagu CLI providers and custom providers pass non-reserved `with` keys as CLI flags. Dagu CLI providers normalize `snake_case` keys to kebab-case flags.
+- Built-in provider adapters and custom providers pass non-reserved `with` keys as CLI flags. Built-in adapters normalize `snake_case` keys to kebab-case flags.
 - `fallback` is an ordered list of provider configs. Nested fallback is not supported.
 - Provider value references must resolve to a concrete provider string before execution. Unresolved `${...}` provider values fail at runtime.
+- Prefer `action: harness.run` for new workflows. A top-level `harness:` config still causes steps without an explicit executor type to infer the harness executor for compatibility.
 
 Container support:
 

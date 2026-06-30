@@ -7,7 +7,7 @@
 
 <h1>Dagu</h1>
 
-Dagu is a lightweight, self-contained alternative to Airflow or Cron with Web UI. It supports Linux / Mac / Windows. Define [DAGs](https://en.wikipedia.org/wiki/Directed_acyclic_graph) in a simple, declarative YAML format. It natively supports shell commands, Docker containers, Kubernetes Jobs, remote commands via SSH, AI-agent harnesses, and more through Dagu Actions.
+Dagu is a lightweight, self-contained alternative to Airflow or Cron with Web UI. It supports Linux / Mac / Windows. Define [DAGs](https://en.wikipedia.org/wiki/Directed_acyclic_graph) in a simple, declarative YAML format. It natively supports shell commands, Docker containers, Kubernetes Jobs, remote commands via SSH, external coding-agent CLIs through `harness.run`, and more through Dagu Actions.
 
 It was designed to be easy to use, self-contained, and require no coding, making it ideal for small teams.
 
@@ -199,7 +199,7 @@ Managed Dagu instances do not expose a Docker daemon or Docker socket. Workflows
 - **Reproducibility:** Reproducible runs with pinned tools, plus automatic installation and caching on workers—eliminating the need to manually install dependencies on the server or workers.
 - **Built-in Approvals:** The Human-in-the-loop steps for manual approvals, review, and intervention in any workflow.
 - **MCP Server:** Built-in MCP server for authoring and running workflows via AI agents like Claude Code, Codex, Gemini CLI, Pi, OpenCode, and more.
-- **Harness-agnostic:** You can run coding agent CLIs (Claude Code, Codex, Gemini CLI, Pi, OpenCode, etc.) with a built-in harness action.
+- **External CLI Harness:** You can run coding-agent CLIs (Claude Code, Codex, Gemini CLI, Pi, OpenCode, etc.) with a built-in harness action or custom harness definition.
 - **Secret management:** Built-in secret management with secure log masking, preventing credentials from leaking into logs or the Web UI.
 - **Self-host or managed:** Self-hosted via a single binary that runs on Linux, macOS, and Windows. Includes an optional distributed worker mode for scaling out execution across machines.
 - **Permission Control:** RBAC and SSO support for team environments, controlling who can view, run, and edit workflows through granular permissions and audit logging.
@@ -471,7 +471,7 @@ handler_on:
     run: cleanup.sh
 ```
 
-### Coding-agent harness step with manual approval
+### External coding-agent CLI harness step with manual approval
 
 ```yaml
 steps:
@@ -518,7 +518,7 @@ Dagu includes built-in actions that run within the Dagu process or on the select
 | `sftp.upload` / `sftp.download` | File transfer over SFTP |
 | `http.request` | HTTP requests with headers, auth, and request bodies |
 | `chat.completion` | Run an LLM chat completion step |
-| `harness.run` | Run coding agent CLIs such as Claude Code, Codex, Copilot, OpenCode, and Pi |
+| `harness.run` | Run external coding-agent CLIs such as Claude Code, Codex, Copilot, OpenCode, and Pi |
 | `postgres.query` / `postgres.import` | PostgreSQL queries and imports |
 | `sqlite.query` / `sqlite.import` | SQLite queries and imports |
 | `redis.<operation>` | Redis commands, pipelines, and Lua scripts |
