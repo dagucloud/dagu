@@ -5,12 +5,16 @@ import React from 'react';
 import { components, DAGRunConditionStatus, Status } from '@/api/v1/schema';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useConfig } from '@/contexts/ConfigContext';
+import {
+  humanizeIdentifier,
+  runtimeConditionLabel,
+  RuntimeCondition,
+} from '@/features/dag-runs/components/common/runtimeConditions';
 import dayjs from '@/lib/dayjs';
 import { cn } from '@/lib/utils';
 import StatusChip from '@/components/ui/status-chip';
 
 type QueueDAGRun = components['schemas']['DAGRunSummary'];
-type RuntimeCondition = components['schemas']['DAGRunCondition'];
 
 interface QueueRunsTableProps {
   items: QueueDAGRun[];
@@ -22,65 +26,6 @@ interface QueueRunsTableProps {
   onToggleSelection?: (dagRun: QueueDAGRun) => void;
   onToggleAll?: (checked: boolean) => void;
   showQueuedAt?: boolean;
-}
-
-function humanizeIdentifier(value: string | undefined): string {
-  if (!value) {
-    return '';
-  }
-  return value
-    .replace(/[_-]+/g, ' ')
-    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .replace(/^./, (char) => char.toUpperCase());
-}
-
-function runtimeConditionLabel(condition: RuntimeCondition): string {
-  const isReady = condition.status === DAGRunConditionStatus.True;
-
-  switch (condition.type) {
-    case 'Runnable':
-      if (isReady) {
-        return 'Runnable';
-      }
-      if (condition.status === DAGRunConditionStatus.False) {
-        return 'Cannot start';
-      }
-      switch (condition.reason) {
-        case 'AssignmentUnavailable':
-          return 'Worker assignment unavailable';
-        case 'WorkerDispatchUnavailable':
-          return 'Worker dispatch unavailable';
-        case 'QueueStateUnavailable':
-          return 'Queue state unavailable';
-        case 'RunLivenessUnavailable':
-          return 'Run liveness unavailable';
-        case 'StartupNotObserved':
-          return 'Startup not observed';
-        default:
-          return 'Start status unknown';
-      }
-    case 'ConcurrencyReady':
-      return isReady ? 'Concurrency ready' : 'Concurrency not ready';
-    case 'WorkerReady':
-      return isReady ? 'Worker ready' : 'Worker not ready';
-    case 'QueueReady':
-      return isReady ? 'Queue ready' : 'Queue state unavailable';
-    case 'RunRecordReady':
-      return isReady ? 'Run record ready' : 'Run record not ready';
-    case 'WorkerAssignmentReady':
-      return isReady ? 'Worker assignment ready' : 'Worker assignment not ready';
-    case 'StartObserved':
-      return isReady ? 'Startup observed' : 'Startup not observed';
-    default: {
-      const label = humanizeIdentifier(condition.type);
-      if (!label) {
-        return isReady ? 'Condition ready' : 'Condition not ready';
-      }
-      return isReady ? label : `${label} not ready`;
-    }
-  }
 }
 
 function getQueuedConditionSummary(

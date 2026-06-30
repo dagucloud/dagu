@@ -279,17 +279,14 @@ func (s *serviceImpl) syncFilesToDAGsDir(_ context.Context, pullResult *PullResu
 			continue
 		}
 
-		// Read repo file content
-		// #nosec G304 -- repoFilePath is constrained to the configured repository directory.
-		repoContent, err := os.ReadFile(repoFilePath)
+		repoContent, err := safeReadFileWithinBase(s.gitClient.repoPath, repoFilePath)
 		if err != nil {
 			continue
 		}
 		repoHash := ComputeContentHash(repoContent)
 
 		// Check if local file exists
-		// #nosec G304 -- dagFilePath is constrained to the configured DAG directory.
-		localContent, err := os.ReadFile(dagFilePath)
+		localContent, err := s.readDAGFile(dagID, dagFilePath)
 		dagState := state.DAGs[dagID]
 
 		if err != nil {
@@ -484,8 +481,7 @@ func (s *serviceImpl) scanLocalDAGs(state *State) error {
 		if err != nil {
 			continue
 		}
-		// #nosec G304 -- filePath is constrained to the configured DAG directory.
-		content, err := os.ReadFile(filePath)
+		content, err := safeReadFileWithinBase(s.dagsDir, filePath)
 		if err != nil {
 			continue
 		}
@@ -1053,8 +1049,11 @@ func (s *serviceImpl) Discard(_ context.Context, dagID string) error {
 		return err
 	}
 
-	// Get content from repo
-	repoContent, err := os.ReadFile(s.gitClient.GetFilePath(repoFilePath))
+	repoFileFullPath, err := s.safeRepoPathToFilePath(repoFilePath)
+	if err != nil {
+		return err
+	}
+	repoContent, err := safeReadFileWithinBase(s.gitClient.repoPath, repoFileFullPath)
 	if err != nil {
 		return fmt.Errorf("failed to read repo file: %w", err)
 	}
@@ -2166,6 +2165,24 @@ func ensureExistingPathWithinBase(baseDir, targetPath string) error {
 	return ensurePathWithinBase(resolvedBase, resolvedTarget)
 }
 
+func safeReadFileWithinBase(baseDir, targetPath string) ([]byte, error) {
+	if err := ensurePathWithinBase(baseDir, targetPath); err != nil {
+		return nil, err
+	}
+	info, err := os.Lstat(targetPath)
+	if err != nil {
+		return nil, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("refusing to read through symlink: %s", targetPath)
+	}
+	if err := ensureExistingPathWithinBase(baseDir, targetPath); err != nil {
+		return nil, err
+	}
+	// #nosec G304 -- targetPath is constrained to baseDir and symlink targets are rejected.
+	return os.ReadFile(targetPath)
+}
+
 func safeWriteFileWithinBase(baseDir, targetPath string, content []byte, perm os.FileMode) error {
 	if err := ensurePathWithinBase(baseDir, targetPath); err != nil {
 		return err
@@ -2201,6 +2218,18 @@ func (s *serviceImpl) writeDAGFile(dagID, filePath string, content []byte) error
 		baseDir = filepath.Dir(s.baseConfig)
 	}
 	return safeWriteFileWithinBase(baseDir, filePath, content, 0600)
+}
+
+func (s *serviceImpl) readDAGFile(dagID, filePath string) ([]byte, error) {
+	baseDir := s.dagsDir
+	normalized, err := normalizeDAGID(dagID)
+	if err != nil {
+		return nil, err
+	}
+	if normalized == baseConfigID && s.baseConfig != "" {
+		baseDir = filepath.Dir(s.baseConfig)
+	}
+	return safeReadFileWithinBase(baseDir, filePath)
 }
 
 func (s *serviceImpl) safeDAGIDToFilePath(dagID string) (string, error) {
