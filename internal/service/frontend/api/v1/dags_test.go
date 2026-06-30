@@ -824,7 +824,6 @@ steps:
 				server.SubCmdBuilder,
 				server.Config.DefaultExecMode,
 				server.Config.Paths.BaseConfig,
-				nil,
 			),
 			config.Queues{
 				Enabled: true,

@@ -153,7 +153,7 @@ func (f *queueFixture) withProcessor(cfg config.Queues, opts ...QueueProcessorOp
 		WithDAGRunLeaseStore(f.leaseStore),
 	}, opts...)
 	f.processor = NewQueueProcessor(f.queueStore, f.dagRunStore, f.procStore,
-		NewDAGExecutor(nil, launcher.NewSubCmdBuilder(&config.Config{Paths: config.PathsConfig{Executable: "/usr/bin/dagu"}}), config.ExecutionModeLocal, "", nil),
+		NewDAGExecutor(nil, launcher.NewSubCmdBuilder(&config.Config{Paths: config.PathsConfig{Executable: "/usr/bin/dagu"}}), config.ExecutionModeLocal, ""),
 		cfg, options...,
 	)
 	f.dispatchStore = store.NewDispatchTaskStore(
@@ -489,7 +489,7 @@ func TestQueueDispatcher_DistributedDispatchReservesAdmissionToken(t *testing.T)
 		dagRunLeaseStore:       f.leaseStore,
 		dispatchTaskStore:      dispatchStore,
 		dispatchAdmissionStore: dispatchStore,
-		dagExecutor:            NewDAGExecutor(dispatcher, nil, config.ExecutionModeDistributed, "", nil),
+		dagExecutor:            NewDAGExecutor(dispatcher, nil, config.ExecutionModeDistributed, ""),
 		backoffConfig:          BackoffConfig{InitialInterval: 10 * time.Millisecond, MaxInterval: 50 * time.Millisecond, MaxRetries: 2, StartupGracePeriod: time.Second},
 		leaseStaleThreshold:    time.Minute,
 	})
@@ -559,7 +559,7 @@ func TestQueueProcessor_SuspendedManualQueuedRunStillDispatches(t *testing.T) {
 		queueStore:  f.queueStore,
 		dagRunStore: f.dagRunStore,
 		procStore:   procStore,
-		dagExecutor: NewDAGExecutor(dispatcher, nil, config.ExecutionModeDistributed, "", nil),
+		dagExecutor: NewDAGExecutor(dispatcher, nil, config.ExecutionModeDistributed, ""),
 		isSuspended: func(_ context.Context, name string) bool { return name == dagName },
 		backoffConfig: BackoffConfig{
 			InitialInterval:    10 * time.Millisecond,

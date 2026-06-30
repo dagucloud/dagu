@@ -5,16 +5,12 @@ package frontend
 
 import (
 	"context"
-	"crypto/tls"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
-	"maps"
 	"mime"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"os/signal"
 	"path"
@@ -31,18 +27,14 @@ import (
 	"github.com/go-chi/httplog/v2"
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/dagucloud/dagu/internal/agent"
-	"github.com/dagucloud/dagu/internal/agentoauth"
 	authmodel "github.com/dagucloud/dagu/internal/auth"
 	"github.com/dagucloud/dagu/internal/cmn/backoff"
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/cmn/crypto"
-	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	cmnschema "github.com/dagucloud/dagu/internal/cmn/schema"
 	"github.com/dagucloud/dagu/internal/cmn/signalctx"
-	"github.com/dagucloud/dagu/internal/cmn/telemetry"
 	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/gitsync"
@@ -92,8 +84,6 @@ type RouteRegistrar func(context.Context, chi.Router, string)
 // Server represents the HTTP server for the frontend application.
 type Server struct {
 	apiV1                 *apiv1.API
-	agentAPI              *agent.API
-	agentConfigStore      agent.ConfigStore
 	config                *config.Config
 	httpServer            *http.Server
 	funcsConfig           funcsConfig
@@ -118,7 +108,6 @@ type Server struct {
 	licenseManager        *license.Manager
 	remoteNodeResolver    *remotenode.Resolver
 	upgradeStore          upgrade.CacheStore
-	agentAPICallback      func(*agent.API)
 	routeRegistrars       []RouteRegistrar
 }
 
@@ -138,15 +127,6 @@ func WithLicenseManager(m *license.Manager) ServerOption {
 		if m != nil {
 			s.licenseManager = m
 		}
-	}
-}
-
-// WithAgentAPICallback registers a callback that is invoked with the agent API
-// instance after the server creates it. This allows external consumers (e.g. the
-// Telegram bot) to receive the agent API without the server permanently exposing it.
-func WithAgentAPICallback(fn func(*agent.API)) ServerOption {
-	return func(s *Server) {
-		s.agentAPICallback = fn
 	}
 }
 
@@ -180,7 +160,7 @@ func (srv *Server) RegisterRoutes(fn RouteRegistrar) {
 
 // NewServer constructs a Server from the provided configuration, stores, and services.
 // Returns an error if initialization fails (e.g., when builtin auth fails to initialize).
-func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs exec.DAGRunStore, qs exec.QueueStore, ps exec.ProcStore, drm runtime.Manager, cc coordinator.Client, sr exec.ServiceRegistry, mr *prometheus.Registry, collector *telemetry.Collector, rs *resource.Service, stores StoreFactories, opts ...ServerOption) (*Server, error) {
+func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs exec.DAGRunStore, qs exec.QueueStore, ps exec.ProcStore, drm runtime.Manager, cc coordinator.Client, sr exec.ServiceRegistry, mr *prometheus.Registry, rs *resource.Service, stores StoreFactories, opts ...ServerOption) (*Server, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -197,9 +177,6 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 		oidcButtonLabel string
 		setupRequired   bool
 	)
-	if stores.SnapshotStoreFactory != nil {
-		apiOpts = append(apiOpts, apiv1.WithSnapshotStoreFactory(stores.SnapshotStoreFactory))
-	}
 	if stores.WorkspaceBaseConfigStoreFactory != nil {
 		apiOpts = append(apiOpts, apiv1.WithWorkspaceBaseConfigStoreFactory(stores.WorkspaceBaseConfigStoreFactory))
 	}
@@ -226,27 +203,6 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 			apiOpts = append(apiOpts, apiv1.WithBaseConfigStore(baseConfigStore))
 		}
 	}
-
-	cacheLimits := cfg.Cache.Limits()
-	memoryCache := fileutil.NewCache[string]("agent_memory", cacheLimits.DAG.Limit, cacheLimits.DAG.TTL)
-	memoryCache.StartEviction(ctx)
-	if collector != nil {
-		collector.RegisterCache(memoryCache)
-	}
-	var agentStores agent.RuntimeStores
-	if stores.AgentStoresFactory != nil {
-		agentStores = stores.AgentStoresFactory(ctx, cfg, AgentStoresOptions{
-			MemoryCache:      memoryCache,
-			SeedReferences:   true,
-			SeedExampleSouls: true,
-		})
-	}
-	agentConfigStore := agentStores.ConfigStore
-	agentModelStore := agentStores.ModelStore
-	agentSoulStore := agentStores.SoulStore
-	memoryStore := agentStores.MemoryStore
-	referencesDir := agentStores.ReferencesDir
-	agentOAuthManager := agentStores.OAuthManager
 
 	var authSvc *authservice.Service
 	if cfg.Server.Auth.Mode == config.AuthModeBuiltin {
@@ -342,14 +298,15 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 		remoteNodes = names
 	}
 
-	if agentStores.SecretStore != nil {
-		apiOpts = append(apiOpts, apiv1.WithSecretStore(agentStores.SecretStore))
+	if stores.SecretStoreFactory != nil {
+		if secretStore := stores.SecretStoreFactory(ctx, cfg); secretStore != nil {
+			apiOpts = append(apiOpts, apiv1.WithSecretStore(secretStore))
+		}
 	}
-	if agentStores.ProfileStore != nil {
-		apiOpts = append(apiOpts, apiv1.WithProfileStore(agentStores.ProfileStore))
-	}
-	if agentOAuthManager != nil {
-		apiOpts = append(apiOpts, apiv1.WithAgentOAuthManager(agentOAuthManager))
+	if stores.ProfileStoreFactory != nil {
+		if profileStore := stores.ProfileStoreFactory(ctx, cfg); profileStore != nil {
+			apiOpts = append(apiOpts, apiv1.WithProfileStore(profileStore))
+		}
 	}
 
 	if stores.DAGSettingsStoreFactory != nil {
@@ -418,24 +375,6 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 		}
 	}
 
-	auditEnabled := func() bool {
-		if auditSvc == nil {
-			return false
-		}
-		if licenseChecker == nil {
-			return true
-		}
-		return licenseChecker.IsFeatureEnabled(license.FeatureAudit)
-	}
-
-	var agentAPI *agent.API
-	if agentConfigStore != nil {
-		agentAPI, err = initAgentAPI(ctx, agentConfigStore, agentModelStore, agentSoulStore, agentOAuthManager, cfg, referencesDir, dr, drs, auditSvc, auditEnabled, eventSvc, memoryStore, wsStore, newRemoteNodeAdapter(remoteNodeResolver), stores.AgentSessionStoreFactory)
-		if err != nil {
-			logger.Warn(ctx, "Failed to initialize agent API", tag.Error(err))
-		}
-	}
-
 	var (
 		upgradeStore      upgrade.CacheStore
 		updateInfoChecker UpdateChecker
@@ -453,8 +392,6 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 
 	srv := &Server{
 		config:                cfg,
-		agentAPI:              agentAPI,
-		agentConfigStore:      agentConfigStore,
 		builtinOIDCCfg:        builtinOIDCCfg,
 		authService:           authSvc,
 		auditService:          auditSvc,
@@ -488,7 +425,6 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 			WorkspaceStore:        wsStore,
 			SetupRequiredChecker:  &setupChecker{authSvc: authSvc, fallback: setupRequired},
 			UpdateChecker:         updateInfoChecker,
-			AgentEnabledChecker:   agentConfigStore,
 		},
 	}
 
@@ -519,11 +455,6 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 	}
 
 	srv.funcsConfig.APIBasePath = srv.config.Server.APIBasePath
-
-	// Notify callback with the agent API instance (if both are set).
-	if srv.agentAPICallback != nil && srv.agentAPI != nil {
-		srv.agentAPICallback(srv.agentAPI)
-	}
 
 	// Populate license checker and manager in funcsConfig after opts
 	if srv.licenseManager != nil {
@@ -558,22 +489,6 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 	}
 
 	allAPIOptions := append(apiOpts, srv.tunnelAPIOpts...)
-	if srv.agentConfigStore != nil {
-		allAPIOptions = append(allAPIOptions, apiv1.WithAgentConfigStore(srv.agentConfigStore))
-	}
-	if agentModelStore != nil {
-		allAPIOptions = append(allAPIOptions, apiv1.WithAgentModelStore(agentModelStore))
-	}
-
-	if memoryStore != nil {
-		allAPIOptions = append(allAPIOptions, apiv1.WithAgentMemoryStore(memoryStore))
-	}
-	if agentSoulStore != nil {
-		allAPIOptions = append(allAPIOptions, apiv1.WithAgentSoulStore(agentSoulStore))
-	}
-	if srv.agentAPI != nil {
-		allAPIOptions = append(allAPIOptions, apiv1.WithAgentAPI(srv.agentAPI))
-	}
 
 	srv.apiV1 = apiv1.New(dr, drs, qs, ps, drm, cfg, cc, sr, mr, rs, allAPIOptions...)
 
@@ -665,59 +580,6 @@ func initSyncService(ctx context.Context, cfg *config.Config) gitsync.Service {
 	return svc
 }
 
-// initAgentAPI creates and returns an agent API.
-// The API uses the config store to check enabled status and resolve providers via the model store.
-func initAgentAPI(ctx context.Context, configStore agent.ConfigStore, modelStore agent.ModelStore, soulStore agent.SoulStore, oauthManager *agentoauth.Manager, cfg *config.Config, referencesDir string, dagStore exec.DAGStore, dagRunStore exec.DAGRunStore, auditSvc *audit.Service, auditEnabled func() bool, eventSvc *eventstore.Service, memoryStore agent.MemoryStore, workspaceStore workspacepkg.Store, remoteResolver agent.RemoteContextResolver, sessionFactory AgentSessionStoreFactory) (*agent.API, error) {
-	var sessStore agent.SessionStore
-	if sessionFactory != nil {
-		var err error
-		sessStore, err = sessionFactory(cfg)
-		if err != nil {
-			logger.Warn(ctx, "Failed to create session store, persistence disabled", tag.Error(err))
-		}
-	}
-	paths := &cfg.Paths
-
-	hooks := agent.NewHooks()
-	hooks.OnBeforeToolExec(newAgentPolicyHook(configStore, auditSvc, auditEnabled))
-	if auditSvc != nil {
-		hooks.OnAfterToolExec(newAgentAuditHook(auditSvc, auditEnabled))
-	}
-
-	api := agent.NewAPI(agent.APIConfig{
-		ConfigStore:           configStore,
-		ModelStore:            modelStore,
-		SoulStore:             soulStore,
-		WorkingDir:            paths.DAGsDir,
-		Logger:                slog.Default(),
-		SessionStore:          sessStore,
-		DAGStore:              dagStore,
-		DAGRunStore:           dagRunStore,
-		Hooks:                 hooks,
-		EventService:          eventSvc,
-		MemoryStore:           memoryStore,
-		WorkspaceStore:        workspaceStore,
-		OAuthManager:          oauthManager,
-		RemoteContextResolver: remoteResolver,
-		Environment: agent.EnvironmentInfo{
-			DAGsDir:        paths.DAGsDir,
-			LogDir:         paths.LogDir,
-			DataDir:        paths.DataDir,
-			SessionsDir:    paths.SessionsDir,
-			ConfigFile:     paths.ConfigFileUsed,
-			WorkingDir:     paths.DAGsDir,
-			BaseConfigFile: paths.BaseConfig,
-			ReferencesDir:  referencesDir,
-		},
-	})
-
-	api.StartCleanup(ctx)
-
-	logger.Info(ctx, "Agent API initialized")
-
-	return api, nil
-}
-
 func initEventService(cfg *config.Config, factory EventStoreFactory) (*eventstore.Service, error) {
 	if factory == nil {
 		return nil, nil
@@ -730,41 +592,6 @@ func initEventService(cfg *config.Config, factory EventStoreFactory) (*eventstor
 		return nil, nil
 	}
 	return eventstore.New(store), nil
-}
-
-// newAgentAuditHook returns a hook that logs agent tool executions to the audit service.
-func newAgentAuditHook(auditSvc *audit.Service, auditEnabled func() bool) agent.AfterToolExecHookFunc {
-	return func(_ context.Context, info agent.ToolExecInfo, result agent.ToolOut) {
-		if info.Audit == nil || !isAuditEnabled(auditSvc, auditEnabled) {
-			return // tool opted out of audit
-		}
-
-		details := make(map[string]any)
-		if info.Audit.DetailExtractor != nil {
-			details = info.Audit.DetailExtractor(info.Input)
-		}
-		maps.Copy(details, result.AuditDetails)
-		if result.IsError {
-			details["failed"] = true
-		}
-		details["session_id"] = info.SessionID
-
-		detailsJSON, _ := json.Marshal(details)
-		entry := audit.NewEntry(audit.CategoryAgent, info.Audit.Action, info.User.UserID, info.User.Username).
-			WithDetails(string(detailsJSON)).
-			WithIPAddress(info.User.IPAddress)
-		_ = auditSvc.Log(context.Background(), entry)
-	}
-}
-
-func isAuditEnabled(auditSvc *audit.Service, auditEnabled func() bool) bool {
-	if auditSvc == nil {
-		return false
-	}
-	if auditEnabled == nil {
-		return true
-	}
-	return auditEnabled()
 }
 
 // sanitizedRequestLogger wraps httplog's RequestLogger with URL sanitization
@@ -899,10 +726,6 @@ func (srv *Server) Serve(ctx context.Context) error {
 
 	if srv.config.Server.Terminal.Enabled && srv.authService != nil {
 		srv.setupTerminalRoute(ctx, r, apiV1BasePath)
-	}
-
-	if srv.agentAPI != nil && srv.agentConfigStore != nil {
-		srv.setupAgentRoutes(ctx, r, apiV1BasePath)
 	}
 
 	srv.setupSSERoute(ctx, r, apiV1BasePath)
@@ -1359,155 +1182,6 @@ func (srv *Server) registerDedicatedSSEFetchers(registrar *sse.Multiplexer) {
 	}
 }
 
-func (srv *Server) setupAgentRoutes(ctx context.Context, r *chi.Mux, apiV1BasePath string) {
-	authMiddleware := srv.buildAgentAuthMiddleware(ctx)
-	// Only the SSE stream endpoint is registered as a manual route.
-	// All other agent endpoints are served through the OpenAPI handler.
-	streamPath := path.Join(apiV1BasePath, "agent/sessions/{id}/stream")
-	r.With(srv.agentAPI.EnabledMiddleware(), authMiddleware).Get(
-		streamPath, srv.handleAgentStream(apiV1BasePath),
-	)
-	logger.Info(ctx, "Agent SSE stream route configured")
-}
-
-// handleAgentStream returns a handler that checks for remoteNode and either
-// proxies the SSE stream to the remote node or delegates to the local handler.
-func (srv *Server) handleAgentStream(apiV1BasePath string) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		remoteNodeName := r.URL.Query().Get("remoteNode")
-		if remoteNodeName == "" || remoteNodeName == "local" {
-			srv.agentAPI.HandleStream(w, r)
-			return
-		}
-		srv.proxyAgentStream(w, r, remoteNodeName, apiV1BasePath)
-	}
-}
-
-// proxyAgentStream proxies the agent SSE stream to a remote node.
-// It follows the same streaming pattern as sse/proxy.go:proxyToRemoteNode.
-func (srv *Server) proxyAgentStream(w http.ResponseWriter, r *http.Request, nodeName, apiV1BasePath string) {
-	if srv.remoteNodeResolver == nil {
-		http.Error(w, "remote node resolution not available", http.StatusServiceUnavailable)
-		return
-	}
-
-	node, err := srv.remoteNodeResolver.GetByName(r.Context(), nodeName)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("unknown remote node: %s", nodeName), http.StatusBadRequest)
-		return
-	}
-
-	q := make(url.Values)
-	if token := r.URL.Query().Get("token"); token != "" {
-		q.Set("token", token)
-	}
-	remoteURL, err := buildAgentStreamRemoteURL(node.APIBaseURL, r.URL.Path, apiV1BasePath, q)
-	if err != nil {
-		http.Error(w, "failed to create proxy request", http.StatusInternalServerError)
-		return
-	}
-
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, remoteURL, nil) //nolint:gosec // remoteURL is built from a validated remote-node base URL.
-	if err != nil {
-		http.Error(w, "failed to create proxy request", http.StatusInternalServerError)
-		return
-	}
-	req.Header.Set("Accept", "text/event-stream")
-	node.ApplyAuth(req)
-
-	client := &http.Client{
-		// Timeout: 0 is safe for SSE because the request is created with
-		// r.Context() which is cancelled when the client disconnects.
-		Timeout: 0,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: node.SkipTLSVerify, //nolint:gosec
-				MinVersion:         tls.VersionTLS12,
-			},
-			MaxIdleConns:       10,
-			IdleConnTimeout:    90 * time.Second,
-			DisableCompression: true,
-		},
-	}
-
-	resp, err := doAgentStreamRequest(client, req)
-	if err != nil {
-		if r.Context().Err() != nil {
-			return // Client disconnected
-		}
-		http.Error(w, "failed to connect to remote node", http.StatusBadGateway)
-		return
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		http.Error(w, fmt.Sprintf("remote node returned status: %d", resp.StatusCode), resp.StatusCode)
-		return
-	}
-
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w, "streaming not supported", http.StatusInternalServerError)
-		return
-	}
-
-	// Set SSE headers and clear the write deadline to prevent the server's
-	// WriteTimeout (60s) from killing this long-lived SSE connection.
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no")
-	rc := http.NewResponseController(w)
-	_ = rc.SetWriteDeadline(time.Time{})
-
-	// Stream chunks from remote to client.
-	buf := make([]byte, 4096)
-	for {
-		n, readErr := resp.Body.Read(buf)
-		if n > 0 {
-			if _, writeErr := w.Write(buf[:n]); writeErr != nil {
-				return // defer resp.Body.Close() handles cleanup
-			}
-			flusher.Flush()
-		}
-		if readErr != nil {
-			return
-		}
-	}
-}
-
-// buildAgentStreamRemoteURL constructs the SSE stream URL for a remote node.
-func buildAgentStreamRemoteURL(baseURL, requestPath, apiV1BasePath string, query url.Values) (string, error) {
-	suffix, ok := strings.CutPrefix(requestPath, apiV1BasePath)
-	if !ok {
-		return "", fmt.Errorf("invalid URL path: %s", requestPath)
-	}
-	u, err := remotenode.ParseAPIBaseURL(baseURL)
-	if err != nil {
-		return "", err
-	}
-	u.Path = strings.TrimRight(u.Path, "/") + "/" + strings.TrimLeft(suffix, "/")
-	u.RawPath = ""
-	u.RawQuery = query.Encode()
-	return u.String(), nil
-}
-
-func doAgentStreamRequest(client *http.Client, req *http.Request) (*http.Response, error) {
-	return client.Do(req) //nolint:gosec // request URL is constrained by buildAgentStreamRemoteURL.
-}
-
-func (srv *Server) buildAgentAuthMiddleware(_ context.Context) func(http.Handler) http.Handler {
-	authOptions := srv.buildStreamAuthOptions("Dagu Agent")
-
-	return func(next http.Handler) http.Handler {
-		return srv.injectDefaultStreamUserMiddleware()(auth.QueryTokenMiddleware()(
-			auth.ClientIPMiddleware()(
-				auth.Middleware(authOptions)(next),
-			),
-		))
-	}
-}
-
 func (srv *Server) injectDefaultStreamUserMiddleware() func(http.Handler) http.Handler {
 	if srv.config.Server.Auth.Mode != config.AuthModeNone {
 		return func(next http.Handler) http.Handler {
@@ -1532,7 +1206,7 @@ func (srv *Server) injectDefaultStreamUserMiddleware() func(http.Handler) http.H
 	}
 }
 
-// buildStreamAuthOptions builds auth options for streaming endpoints (SSE, Agent SSE).
+// buildStreamAuthOptions builds auth options for streaming endpoints.
 // In basic auth mode, auth is disabled because EventSource/WebSocket cannot send
 // Basic auth headers. This matches the pre-existing behavior.
 func (srv *Server) buildStreamAuthOptions(realm string) auth.Options {

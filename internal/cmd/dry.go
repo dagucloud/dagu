@@ -72,7 +72,7 @@ func runDry(ctx *Context, args []string) error {
 		return err
 	}
 
-	as := ctx.agentStores()
+	as := ctx.runtimeStores()
 	profileName, err := runtimeProfileNameParam(ctx)
 	if err != nil {
 		return err
@@ -86,26 +86,20 @@ func runDry(ctx *Context, args []string) error {
 		ctx.DAGRunMgr,
 		dagStore,
 		agent.Options{
-			Dry:                        true,
-			DAGRunStore:                ctx.DAGRunStore,
-			QueueStore:                 ctx.QueueStore,
-			StateStore:                 ctx.StateStore,
-			SecretStore:                as.SecretStore,
-			ProfileStore:               as.ProfileStore,
-			ProfileName:                profileName,
-			ServiceRegistry:            ctx.ServiceRegistry,
-			SubWorkflowRunnerFactory:   ctx.SubWorkflowRunnerFactory(),
-			RootDAGRun:                 exec.NewDAGRunRef(dag.Name, dagRunID),
-			PeerConfig:                 ctx.Config.Core.Peer,
-			DefaultExecMode:            ctx.Config.DefaultExecMode,
-			AgentConfigStore:           as.ConfigStore,
-			AgentModelStore:            as.ModelStore,
-			AgentMemoryStore:           as.MemoryStore,
-			AgentSoulStore:             as.SoulStore,
-			AgentOAuthManager:          as.OAuthManager,
-			AgentRemoteContextResolver: as.ContextResolver,
-			DAGRunLogDir:               ctx.Config.Paths.LogDir,
-			DAGRunArtifactDir:          ctx.Config.Paths.ArtifactDir,
+			Dry:                      true,
+			DAGRunStore:              ctx.DAGRunStore,
+			QueueStore:               ctx.QueueStore,
+			StateStore:               ctx.StateStore,
+			SecretStore:              as.SecretStore,
+			ProfileStore:             as.ProfileStore,
+			ProfileName:              profileName,
+			ServiceRegistry:          ctx.ServiceRegistry,
+			SubWorkflowRunnerFactory: ctx.SubWorkflowRunnerFactory(),
+			RootDAGRun:               exec.NewDAGRunRef(dag.Name, dagRunID),
+			PeerConfig:               ctx.Config.Core.Peer,
+			DefaultExecMode:          ctx.Config.DefaultExecMode,
+			DAGRunLogDir:             ctx.Config.Paths.LogDir,
+			DAGRunArtifactDir:        ctx.Config.Paths.ArtifactDir,
 		},
 	)
 

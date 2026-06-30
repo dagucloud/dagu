@@ -88,7 +88,6 @@ var legacyToSnakeCaseKey = map[string]string{
 	"paths.usersdir":           "paths.users_dir",
 	"paths.apikeysdir":         "paths.api_keys_dir",
 	"paths.webhooksdir":        "paths.webhooks_dir",
-	"paths.sessionsdir":        "paths.sessions_dir",
 
 	// UI
 	"ui.logencodingcharset":    "ui.log_encoding_charset",

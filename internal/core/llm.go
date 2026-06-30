@@ -88,7 +88,7 @@ type ModelEntry struct {
 	APIKeyName string `json:"apiKeyName,omitempty"`
 }
 
-// LLMConfig contains the configuration for LLM-based executors (chat, agent, etc.).
+// LLMConfig contains the configuration for LLM-based executors.
 type LLMConfig struct {
 	// Provider is the LLM provider (openai, anthropic, gemini, openrouter, local).
 	// Used for single model config (backward compatible).

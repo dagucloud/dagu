@@ -148,8 +148,7 @@
     --shadow-md:
       0 1px 3px 0 rgba(7, 9, 14, 0.1), 0 1px 2px 0 rgba(7, 9, 14, 0.06);
     --shadow-lg:
-      0 10px 15px -3px rgba(7, 9, 14, 0.12),
-      0 4px 6px -4px rgba(7, 9, 14, 0.1);
+      0 10px 15px -3px rgba(7, 9, 14, 0.12), 0 4px 6px -4px rgba(7, 9, 14, 0.1);
 
     --bg: 246 248 252;
     --text: 14 20 29;
@@ -563,73 +562,6 @@ select:focus-visible {
 
 .dark ::-webkit-scrollbar-thumb:hover {
   background: var(--border-strong);
-}
-
-/* Agent modal — CRT power-on (subtle) */
-@keyframes agent-modal-in {
-  0% {
-    opacity: 0;
-    transform: scaleX(0.85) scaleY(0.01);
-    filter: brightness(2);
-  }
-  30% {
-    opacity: 1;
-    transform: scaleX(0.95) scaleY(0.01);
-    filter: brightness(1.8);
-  }
-  60% {
-    transform: scaleX(1.01) scaleY(1.02);
-    filter: brightness(1.1);
-  }
-  80% {
-    transform: scale(0.995);
-    filter: brightness(1);
-  }
-  100% {
-    transform: scale(1);
-    filter: brightness(1);
-  }
-}
-
-/* Agent modal — CRT power-off */
-@keyframes agent-modal-out {
-  0% {
-    opacity: 1;
-    transform: scale(1);
-    filter: brightness(1);
-  }
-  25% {
-    opacity: 0.4;
-  }
-  30% {
-    opacity: 1;
-    filter: brightness(1.6);
-  }
-  65% {
-    transform: scaleX(0.8) scaleY(0.005);
-    filter: brightness(5);
-  }
-  100% {
-    opacity: 0;
-    transform: scaleX(0.4) scaleY(0.005);
-    filter: brightness(8);
-  }
-}
-
-/* Sub-agent panel animations */
-@keyframes delegate-panel-in {
-  0% {
-    opacity: 0;
-    transform: scale(0.9) translateX(20px);
-    filter: blur(4px);
-  }
-  60% {
-    opacity: 1;
-    filter: blur(0px);
-  }
-  100% {
-    transform: scale(1) translateX(0);
-  }
 }
 
 /* Loading States */

@@ -18,14 +18,12 @@ export function ChatHistoryTab({ dagRun }: ChatHistoryTabProps) {
   const historySteps = useMemo(() => {
     return (
       dagRun.nodes?.filter(
-        (node) =>
-          node.step.executorConfig?.type === 'chat' ||
-          node.step.executorConfig?.type === 'agent'
+        (node) => node.step.executorConfig?.type === 'chat'
       ) || []
     );
   }, [dagRun.nodes]);
 
-  // Determine default selected step: last finished chat/agent step
+  // Determine default selected step: last finished chat step
   const defaultStep = useMemo(() => {
     const finishedStatuses = [
       NodeStatus.Success,
@@ -90,7 +88,7 @@ export function ChatHistoryTab({ dagRun }: ChatHistoryTabProps) {
   if (historySteps.length === 0) {
     return (
       <div className="text-xs text-muted-foreground p-2">
-        No chat or agent steps in this DAG run
+        No chat steps in this DAG run
       </div>
     );
   }

@@ -32,7 +32,6 @@ const CATEGORIES = [
   { value: 'webhook', label: 'Webhook' },
   { value: 'notification', label: 'Notification' },
   { value: 'git_sync', label: 'Git Sync' },
-  { value: 'agent', label: 'Agent' },
   { value: 'mcp', label: 'MCP' },
   { value: 'secret', label: 'Secret' },
   { value: 'workspace', label: 'Workspace' },
@@ -560,13 +559,6 @@ export default function AuditLogsPage() {
       if (entry.action === 'command') {
         return `Command: ${details.command || 'N/A'}`;
       }
-    }
-    if (entry.category === 'agent') {
-      if (entry.action === 'bash_exec')
-        return `Command: ${details.command || 'N/A'}`;
-      if (entry.action === 'file_read') return `Path: ${details.path || 'N/A'}`;
-      if (entry.action === 'file_patch')
-        return `${details.operation || 'patch'}: ${details.path || 'N/A'}`;
     }
     if (entry.category === 'mcp') {
       const summary = [

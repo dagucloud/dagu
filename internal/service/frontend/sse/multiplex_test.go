@@ -114,7 +114,7 @@ func TestMultiplexerCreateSessionFiltersUnsupportedTopics(t *testing.T) {
 	result, err := mux.createSession(
 		context.Background(),
 		recorder,
-		[]string{"agent:session-1", "dagrunlogs:dag/run-1"},
+		[]string{"chat:session-1", "dagrunlogs:dag/run-1"},
 		0,
 	)
 	require.NoError(t, err)
@@ -122,7 +122,7 @@ func TestMultiplexerCreateSessionFiltersUnsupportedTopics(t *testing.T) {
 
 	assert.Equal(t, []string{"dagrunlogs:dag/run-1"}, result.control.Subscribed)
 	require.Len(t, result.control.Errors, 1)
-	assert.Equal(t, "agent:session-1", result.control.Errors[0].Topic)
+	assert.Equal(t, "chat:session-1", result.control.Errors[0].Topic)
 	assert.Equal(t, "unsupported_topic", result.control.Errors[0].Code)
 }
 
@@ -175,7 +175,7 @@ func TestMultiplexerMutateSessionPartialUnsupportedTopic(t *testing.T) {
 	mutation, err := mux.mutateSession(
 		context.Background(),
 		result.session.id,
-		[]string{"agent:session-1", "dagrunlogs:dag/run-1"},
+		[]string{"chat:session-1", "dagrunlogs:dag/run-1"},
 		nil,
 	)
 	require.NoError(t, err)
@@ -183,7 +183,7 @@ func TestMultiplexerMutateSessionPartialUnsupportedTopic(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, mutation.statusCode)
 	assert.Equal(t, []string{"dagrunlogs:dag/run-1"}, mutation.response.Subscribed)
 	require.Len(t, mutation.response.Errors, 1)
-	assert.Equal(t, "agent:session-1", mutation.response.Errors[0].Topic)
+	assert.Equal(t, "chat:session-1", mutation.response.Errors[0].Topic)
 	assert.Equal(t, "unsupported_topic", mutation.response.Errors[0].Code)
 }
 
@@ -383,7 +383,7 @@ func TestMultiplexHandlerHandleStreamAllowsUnsupportedInitialTopics(t *testing.T
 
 	req := httptest.NewRequest(
 		http.MethodGet,
-		"/api/v1/events/stream?topic=agent%3Asession-1&topic=dagrunlogs%3Adag%2Frun-1",
+		"/api/v1/events/stream?topic=chat%3Asession-1&topic=dagrunlogs%3Adag%2Frun-1",
 		nil,
 	).WithContext(ctx)
 	recorder := httptest.NewRecorder()
@@ -398,7 +398,7 @@ func TestMultiplexHandlerHandleStreamAllowsUnsupportedInitialTopics(t *testing.T
 	control := parseControlEvent(t, body)
 	assert.Equal(t, []string{"dagrunlogs:dag/run-1"}, control.Subscribed)
 	require.Len(t, control.Errors, 1)
-	assert.Equal(t, "agent:session-1", control.Errors[0].Topic)
+	assert.Equal(t, "chat:session-1", control.Errors[0].Topic)
 	assert.Equal(t, "unsupported_topic", control.Errors[0].Code)
 }
 

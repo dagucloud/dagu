@@ -6,7 +6,6 @@ import React from 'react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppBarContext } from '@/contexts/AppBarContext';
-import { PageContextProvider } from '@/contexts/PageContext';
 import { useQuery } from '@/hooks/api';
 import { WorkspaceKind } from '@/lib/workspace';
 import DAGDetails from '..';
@@ -14,7 +13,10 @@ import DAGDetails from '..';
 vi.mock('@/features/dags/components/dag-details', () => ({
   DAGHeader: () => null,
   DAGDetailsContent: vi.fn(({ fillHeight }) => (
-    <div data-fill-height={String(fillHeight)} data-testid="dag-details-content" />
+    <div
+      data-fill-height={String(fillHeight)}
+      data-testid="dag-details-content"
+    />
   )),
 }));
 
@@ -66,11 +68,9 @@ function renderPage() {
   render(
     <MemoryRouter initialEntries={['/dags/release-notes']}>
       <AppBarContext.Provider value={appBarValue}>
-        <PageContextProvider>
-          <Routes>
-            <Route path="/dags/:fileName" element={<DAGDetails />} />
-          </Routes>
-        </PageContextProvider>
+        <Routes>
+          <Route path="/dags/:fileName" element={<DAGDetails />} />
+        </Routes>
       </AppBarContext.Provider>
     </MemoryRouter>
   );

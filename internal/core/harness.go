@@ -4,7 +4,6 @@
 package core
 
 import (
-	"fmt"
 	"maps"
 	"sort"
 	"strings"
@@ -47,11 +46,6 @@ type HarnessDefinition struct {
 // Nil values are used internally during base-config merge to delete inherited entries.
 type HarnessDefinitions map[string]*HarnessDefinition
 
-const (
-	// HarnessProviderBuiltin selects Dagu's in-process agent harness.
-	HarnessProviderBuiltin = "builtin"
-)
-
 var builtinHarnessCLIProviders = map[string]struct{}{
 	"claude":   {},
 	"codex":    {},
@@ -62,13 +56,7 @@ var builtinHarnessCLIProviders = map[string]struct{}{
 
 // IsBuiltinHarnessProvider reports whether name is a built-in harness provider.
 func IsBuiltinHarnessProvider(name string) bool {
-	return IsBuiltinAgentHarnessProvider(name) || IsBuiltinCLIHarnessProvider(name)
-}
-
-// IsBuiltinAgentHarnessProvider reports whether name selects the in-process
-// agent harness instead of a CLI harness provider.
-func IsBuiltinAgentHarnessProvider(name string) bool {
-	return name == HarnessProviderBuiltin
+	return IsBuiltinCLIHarnessProvider(name)
 }
 
 // IsBuiltinCLIHarnessProvider reports whether name selects a built-in CLI
@@ -78,75 +66,9 @@ func IsBuiltinCLIHarnessProvider(name string) bool {
 	return ok
 }
 
-var builtinAgentHarnessConfigKeys = map[string]struct{}{
-	"fallback":       {},
-	"max_iterations": {},
-	"memory":         {},
-	"model":          {},
-	"provider":       {},
-	"safe_mode":      {},
-	"skills":         {},
-	"soul":           {},
-	"tools":          {},
-	"web_search":     {},
-}
-
-var builtinAgentHarnessConfigAliases = map[string]string{
-	"max-iterations": "max_iterations",
-	"safe-mode":      "safe_mode",
-	"web-search":     "web_search",
-}
-
-// ValidateBuiltinAgentHarnessConfig rejects pass-through CLI flags for the
-// in-process agent harness provider.
-func ValidateBuiltinAgentHarnessConfig(cfg map[string]any) error {
-	for key := range cfg {
-		if _, ok := builtinAgentHarnessConfigKeys[canonicalBuiltinAgentHarnessConfigKey(key)]; !ok {
-			return fmt.Errorf("unsupported builtin provider field %q", key)
-		}
-	}
-	return nil
-}
-
-// NormalizeBuiltinAgentHarnessConfig clones cfg and canonicalizes known
-// builtin agent field aliases to the agent config field names.
-func NormalizeBuiltinAgentHarnessConfig(cfg map[string]any) map[string]any {
-	if cfg == nil {
-		return nil
-	}
-
-	normalized := make(map[string]any, len(cfg))
-	sourceKeys := make(map[string]string, len(cfg))
-	keys := make([]string, 0, len(cfg))
-	for key := range cfg {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-
-	for _, key := range keys {
-		canonical := canonicalBuiltinAgentHarnessConfigKey(key)
-		if prevKey, exists := sourceKeys[canonical]; exists && prevKey == canonical {
-			continue
-		}
-		normalized[canonical] = cloneHarnessValue(cfg[key])
-		sourceKeys[canonical] = key
-	}
-
-	return normalized
-}
-
-func canonicalBuiltinAgentHarnessConfigKey(key string) string {
-	if canonical, ok := builtinAgentHarnessConfigAliases[key]; ok {
-		return canonical
-	}
-	return key
-}
-
 // BuiltinHarnessProviderNames returns the built-in harness provider names.
 func BuiltinHarnessProviderNames() []string {
-	names := append([]string{HarnessProviderBuiltin}, BuiltinCLIHarnessProviderNames()...)
-	sort.Strings(names)
-	return names
+	return BuiltinCLIHarnessProviderNames()
 }
 
 // BuiltinCLIHarnessProviderNames returns the built-in CLI harness provider names.

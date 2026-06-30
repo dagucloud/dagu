@@ -40,7 +40,6 @@ const config = {
   authMode: 'builtin',
   terminalEnabled: true,
   gitSyncEnabled: true,
-  agentEnabled: true,
   permissions: {
     writeDags: true,
     runDags: true,
@@ -90,9 +89,7 @@ describe('HomePage', () => {
   it('renders grouped navigation cards for the main app areas', () => {
     renderHome();
 
-    expect(
-      screen.getByRole('heading', { name: 'Home' })
-    ).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Home' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Overview/i })).toHaveAttribute(
       'href',
       '/'

@@ -87,11 +87,9 @@ type Definition struct {
 	Audit      *AuditDef      `mapstructure:"audit"`
 	EventStore *EventStoreDef `mapstructure:"event_store"`
 	Webhooks   *WebhooksDef   `mapstructure:"webhooks"`
-	Session    *SessionDef    `mapstructure:"session"`
 	SSE        *SSEDef        `mapstructure:"sse"`
 	GitSync    *GitSyncDef    `mapstructure:"git_sync"`
 	Tunnel     *TunnelDef     `mapstructure:"tunnel"`
-	Bots       *BotsDef       `mapstructure:"bots"`
 	License    *LicenseDef    `mapstructure:"license"`
 }
 
@@ -202,7 +200,6 @@ type PathsDef struct {
 	UsersDir           string `mapstructure:"users_dir"`
 	APIKeysDir         string `mapstructure:"api_keys_dir"`
 	WebhooksDir        string `mapstructure:"webhooks_dir"`
-	SessionsDir        string `mapstructure:"sessions_dir"`
 	ContextsDir        string `mapstructure:"contexts_dir"`
 	RemoteNodesDir     string `mapstructure:"remote_nodes_dir"`
 	WorkspacesDir      string `mapstructure:"workspaces_dir"`
@@ -377,11 +374,6 @@ type WebhooksDef struct {
 	MaxPayloadSize *int `mapstructure:"max_payload_size"` // Default: 1MiB
 }
 
-// SessionDef configures agent session storage.
-type SessionDef struct {
-	MaxPerUser *int `mapstructure:"max_per_user"` // Default: 100; 0 = unlimited
-}
-
 // SSEDef configures multiplexed SSE streaming.
 type SSEDef struct {
 	MaxTopicsPerConnection *int    `mapstructure:"max_topics_per_connection"`
@@ -456,53 +448,6 @@ type TunnelRateLimitDef struct {
 	LoginAttempts        int   `mapstructure:"login_attempts"`         // Default: 5
 	WindowSeconds        int   `mapstructure:"window_seconds"`         // Default: 300
 	BlockDurationSeconds int   `mapstructure:"block_duration_seconds"` // Default: 900
-}
-
-// -----------------------------------------------------------------------------
-// Bots Configuration
-// -----------------------------------------------------------------------------
-
-// BotsDef configures bot integrations.
-type BotsDef struct {
-	Provider string          `mapstructure:"provider"`  // "telegram", "slack", "discord", etc.
-	SafeMode *bool           `mapstructure:"safe_mode"` // Default: true
-	Telegram *TelegramBotDef `mapstructure:"telegram"`
-	Slack    *SlackBotDef    `mapstructure:"slack"`
-	Discord  *DiscordBotDef  `mapstructure:"discord"`
-	Line     *LineBotDef     `mapstructure:"line"`
-}
-
-// TelegramBotDef configures the Telegram bot.
-type TelegramBotDef struct {
-	Token                string   `mapstructure:"token"`
-	AllowedChatIDs       []int64  `mapstructure:"allowed_chat_ids"`
-	InterestedEventTypes []string `mapstructure:"interested_event_types"`
-}
-
-// SlackBotDef configures the Slack bot.
-type SlackBotDef struct {
-	BotToken             string   `mapstructure:"bot_token"`
-	AppToken             string   `mapstructure:"app_token"`
-	AllowedChannelIDs    []string `mapstructure:"allowed_channel_ids"`
-	InterestedEventTypes []string `mapstructure:"interested_event_types"`
-	RespondToAll         *bool    `mapstructure:"respond_to_all"` // Default: true
-}
-
-// DiscordBotDef configures the Discord bot.
-type DiscordBotDef struct {
-	Token                string   `mapstructure:"token"`
-	AllowedChannelIDs    []string `mapstructure:"allowed_channel_ids"`
-	InterestedEventTypes []string `mapstructure:"interested_event_types"`
-	RespondToAll         *bool    `mapstructure:"respond_to_all"` // Default: true
-}
-
-// LineBotDef configures the LINE bot.
-type LineBotDef struct {
-	ChannelAccessToken   string   `mapstructure:"channel_access_token"`
-	ChannelSecret        string   `mapstructure:"channel_secret"`
-	AllowedSourceIDs     []string `mapstructure:"allowed_source_ids"`
-	InterestedEventTypes []string `mapstructure:"interested_event_types"`
-	RespondToAll         *bool    `mapstructure:"respond_to_all"` // Default: true
 }
 
 // -----------------------------------------------------------------------------

@@ -120,7 +120,6 @@ var legacyDispatchTaskJSONFields = map[string]string{
 	"schedule_time":                 "ScheduleTime",
 	"source_file":                   "SourceFile",
 	"worker_selector":               "WorkerSelector",
-	"agent_snapshot":                "AgentSnapshot",
 	"external_step_retry":           "ExternalStepRetry",
 	"workspace_bundle_digest":       "WorkspaceBundleDigest",
 	"workspace_bundle_size":         "WorkspaceBundleSize",
@@ -1226,7 +1225,6 @@ func cloneDispatchTask(task *exec.DispatchTask) *exec.DispatchTask {
 	}
 	cloned := *task
 	cloned.WorkerSelector = maps.Clone(task.WorkerSelector)
-	cloned.AgentSnapshot = append([]byte(nil), task.AgentSnapshot...)
 	return &cloned
 }
 

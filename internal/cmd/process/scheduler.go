@@ -87,7 +87,6 @@ func NewScheduler(cfg SchedulerConfig) (*scheduler.Scheduler, error) {
 		cfg.ServiceRegistry,
 		coordinatorClient,
 		watermarkStore,
-		scheduler.WithSnapshotStoreFactory(file.NewSnapshotStores),
 		scheduler.WithDAGProfileResolver(scheduler.NewDAGProfileResolver(dagSettingsStore, profileStore)),
 	)
 	if err != nil {

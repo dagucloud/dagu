@@ -15,7 +15,6 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/runtime"
-	"github.com/dagucloud/dagu/internal/runtime/builtin/agentstep"
 	"github.com/dagucloud/dagu/internal/runtime/builtin/chat"
 	"github.com/dagucloud/dagu/internal/test"
 	"github.com/google/uuid"
@@ -421,10 +420,6 @@ func chatStep(name string, depends ...string) core.Step {
 	return newStep(name, withDepends(depends...), withExecutorType(core.ExecutorTypeChat))
 }
 
-func agentStep(name string, depends ...string) core.Step {
-	return newStep(name, withDepends(depends...), withExecutorType(core.ExecutorTypeAgent))
-}
-
 // waitForNodeStatus polls until the named node reaches the given status or
 // the timeout expires.
 func waitForNodeStatus(plan *runtime.Plan, name string, status core.NodeStatus, timeout time.Duration) {
@@ -493,5 +488,4 @@ func waitForHandlerNodeStatus(r *runtime.Runner, handler core.HandlerType, statu
 
 func init() {
 	chat.RegisterMockExecutors()
-	agentstep.RegisterMockExecutors()
 }

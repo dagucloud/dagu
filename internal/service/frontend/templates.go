@@ -113,11 +113,6 @@ type UpdateChecker interface {
 	GetUpdateInfo() (updateAvailable bool, latestVersion string)
 }
 
-// AgentEnabledChecker provides the agent enabled status for template rendering.
-type AgentEnabledChecker interface {
-	IsEnabled(ctx context.Context) bool
-}
-
 type funcsConfig struct {
 	NavbarColor           string
 	NavbarTitle           string
@@ -138,7 +133,6 @@ type funcsConfig struct {
 
 	SetupRequiredChecker SetupRequiredChecker
 	UpdateChecker        UpdateChecker
-	AgentEnabledChecker  AgentEnabledChecker
 	LicenseChecker       license.Checker
 	LicenseManager       *license.Manager
 }
@@ -211,12 +205,6 @@ func defaultFunctions(cfg *funcsConfig) template.FuncMap {
 		},
 		"terminalEnabled": func() string { return boolStr(cfg.TerminalEnabled) },
 		"gitSyncEnabled":  func() string { return boolStr(cfg.GitSyncEnabled) },
-		"agentEnabled": func() string {
-			if cfg.AgentEnabledChecker == nil {
-				return "false"
-			}
-			return boolStr(cfg.AgentEnabledChecker.IsEnabled(context.Background()))
-		},
 
 		"setupRequired": func() string {
 			if cfg.SetupRequiredChecker == nil {

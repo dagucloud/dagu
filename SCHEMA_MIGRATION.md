@@ -22,7 +22,6 @@
 | `parallel:` with `call:` | `parallel:` with `action: dag.run` |
 | `type: router`, `value`, `routes` | `action: router.route` with `with.value` and `with.routes` |
 | `type: chat`, `messages`, `llm` | `action: chat.completion` with `with.prompt` or `with.messages` plus LLM keys |
-| `type: agent`, `messages`, `agent` | `action: agent.run` with `with.task`, `with.prompt`, or `with.messages` plus agent keys |
 | `type: harness` + prompt in `command` | `action: harness.run` with `with.prompt` |
 | `type: template` + `script` | `action: template.render` with `with.template` |
 | `type: log` | `action: log.write` |
@@ -336,7 +335,7 @@ steps:
 
 If the v1 harness used `script:` for stdin, use `with.stdin` in v2.
 
-## Chat and Agent
+## Chat
 
 Chat before:
 
@@ -364,32 +363,6 @@ steps:
       messages:
         - role: user
           content: Summarize ${REPORT_PATH}
-```
-
-Agent before:
-
-```yaml
-steps:
-  - id: investigate
-    type: agent
-    messages:
-      - role: user
-        content: Inspect the failed run.
-    agent:
-      model: claude-sonnet
-      safe_mode: true
-```
-
-Agent after:
-
-```yaml
-steps:
-  - id: investigate
-    action: agent.run
-    with:
-      task: Inspect the failed run.
-      model: claude-sonnet
-      safe_mode: true
 ```
 
 ## Template

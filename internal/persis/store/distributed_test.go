@@ -437,7 +437,6 @@ func TestDispatchTaskStore_ClaimsLegacyProtoJSONTaskRecord(t *testing.T) {
 			"schedule_time":                 "2026-05-31T00:00:00Z",
 			"source_file":                   "/dags/legacy.yaml",
 			"worker_selector":               map[string]string{"type": "gpu"},
-			"agent_snapshot":                []byte{1, 2, 3},
 			"external_step_retry":           true,
 			"workspace_bundle_digest":       "sha256:legacy",
 			"workspace_bundle_size":         42,
@@ -476,7 +475,6 @@ func TestDispatchTaskStore_ClaimsLegacyProtoJSONTaskRecord(t *testing.T) {
 	assert.Equal(t, "queue-legacy", claimed.Task.QueueName)
 	assert.Equal(t, "team=ops", claimed.Task.Labels)
 	assert.Equal(t, map[string]string{"type": "gpu"}, claimed.Task.WorkerSelector)
-	assert.Equal(t, []byte{1, 2, 3}, claimed.Task.AgentSnapshot)
 	assert.Equal(t, "sha256:legacy", claimed.Task.WorkspaceBundleDigest)
 	assert.Equal(t, int64(42), claimed.Task.WorkspaceBundleSize)
 	assert.Equal(t, "legacy.yaml", claimed.Task.WorkspaceBundleDAGPath)

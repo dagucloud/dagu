@@ -440,8 +440,7 @@ func filePersistenceFactory(ctx context.Context, cfg *config.Config) (iengine.Pe
 		ServiceRegistry: file.NewServiceRegistry(cfg),
 
 		DAGStoreFactory:      fileEngineDAGStore,
-		AgentStoresFactory:   fileEngineAgentStores,
-		SnapshotStoreFactory: file.NewSnapshotStores,
+		RuntimeStoresFactory: fileEngineRuntimeStores,
 	}, nil
 }
 
@@ -453,8 +452,11 @@ func fileEngineDAGStore(_ context.Context, cfg *config.Config, opts iengine.DAGS
 	return file.NewDAGStore(cfg, fileOpts...)
 }
 
-func fileEngineAgentStores(ctx context.Context, cfg *config.Config) iengine.AgentStores {
-	return file.NewAgentStores(ctx, cfg, file.WithAgentContextResolverFromConfig())
+func fileEngineRuntimeStores(ctx context.Context, cfg *config.Config) iengine.RuntimeStores {
+	return iengine.RuntimeStores{
+		SecretStore:  file.NewSecretStore(ctx, cfg),
+		ProfileStore: file.NewProfileStore(ctx, cfg),
+	}
 }
 
 func internalDistributedOptions(opts DistributedOptions) iengine.DistributedOptions {

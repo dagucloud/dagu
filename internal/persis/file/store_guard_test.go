@@ -21,11 +21,6 @@ import (
 //
 // NewProcStore returns a concrete *proc.Store, so the compiler already
 // prevents a swap; this test documents the contract for readers.
-//
-// Session has no such guard: store.SessionStore now uses hierarchical IDs
-// ("{userID}/{sessionID}") that map under the file backend to the released
-// {SessionsDir}/{userID}/{sessionID}.json layout byte-for-byte, so wiring
-// it through the collection-backed adapter is the canonical path.
 func TestFileBackendUsesFileSpecificProcStore(t *testing.T) {
 	t.Parallel()
 

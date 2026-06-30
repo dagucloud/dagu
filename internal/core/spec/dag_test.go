@@ -405,11 +405,6 @@ func TestBuildType(t *testing.T) {
 			expected: core.TypeChain,
 		},
 		{
-			name:    "AgentTypeNotSupported",
-			input:   "agent",
-			wantErr: true,
-		},
-		{
 			name:    "InvalidType",
 			input:   "invalid",
 			wantErr: true,

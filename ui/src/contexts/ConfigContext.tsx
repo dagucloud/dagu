@@ -49,7 +49,6 @@ export type Config = {
   oidcButtonLabel: string;
   terminalEnabled: boolean;
   gitSyncEnabled: boolean;
-  agentEnabled: boolean;
   updateAvailable: boolean;
   latestVersion: string;
   permissions: {
@@ -62,7 +61,9 @@ export type Config = {
 
 export const ConfigContext = createContext<Config>(null!);
 
-export const ConfigUpdateContext = createContext<(patch: Partial<Config>) => void>(() => {});
+export const ConfigUpdateContext = createContext<
+  (patch: Partial<Config>) => void
+>(() => {});
 
 /**
  * Access the application configuration from the nearest ConfigContext provider.

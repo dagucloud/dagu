@@ -515,7 +515,7 @@ func executeDAGRun(ctx *Context, d *core.DAG, parent exec.DAGRunRef, dagRunID st
 	// When running on a worker, the dag-run was already created by the coordinator.
 	queuedRun := workerID != "local"
 
-	as := ctx.agentStores()
+	as := ctx.runtimeStores()
 	extraEnvs, err := prepareDAGTools(ctx, d)
 	if err != nil {
 		return err
@@ -529,35 +529,29 @@ func executeDAGRun(ctx *Context, d *core.DAG, parent exec.DAGRunRef, dagRunID st
 		ctx.DAGRunMgr,
 		dr,
 		agent.Options{
-			ParentDAGRun:               parent,
-			ProgressDisplay:            shouldEnableProgress(ctx),
-			ExtraEnvs:                  extraEnvs,
-			WorkerID:                   workerID,
-			AttemptID:                  attemptID,
-			QueuedRun:                  queuedRun,
-			PreparedAttempt:            preparedAttempt,
-			DAGRunStore:                ctx.DAGRunStore,
-			QueueStore:                 ctx.QueueStore,
-			StateStore:                 ctx.StateStore,
-			SecretStore:                as.SecretStore,
-			ProfileStore:               as.ProfileStore,
-			ProfileName:                profileName,
-			ServiceRegistry:            ctx.ServiceRegistry,
-			SubWorkflowRunnerFactory:   ctx.SubWorkflowRunnerFactory(),
-			RootDAGRun:                 root,
-			PeerConfig:                 ctx.Config.Core.Peer,
-			TriggerType:                triggerType,
-			DefaultExecMode:            ctx.Config.DefaultExecMode,
-			AgentConfigStore:           as.ConfigStore,
-			AgentModelStore:            as.ModelStore,
-			AgentMemoryStore:           as.MemoryStore,
-			AgentSoulStore:             as.SoulStore,
-			AgentOAuthManager:          as.OAuthManager,
-			AgentRemoteContextResolver: as.ContextResolver,
-			ScheduleTime:               scheduleTime,
-			ArtifactDir:                artifactDir,
-			DAGRunLogDir:               ctx.Config.Paths.LogDir,
-			DAGRunArtifactDir:          ctx.Config.Paths.ArtifactDir,
+			ParentDAGRun:             parent,
+			ProgressDisplay:          shouldEnableProgress(ctx),
+			ExtraEnvs:                extraEnvs,
+			WorkerID:                 workerID,
+			AttemptID:                attemptID,
+			QueuedRun:                queuedRun,
+			PreparedAttempt:          preparedAttempt,
+			DAGRunStore:              ctx.DAGRunStore,
+			QueueStore:               ctx.QueueStore,
+			StateStore:               ctx.StateStore,
+			SecretStore:              as.SecretStore,
+			ProfileStore:             as.ProfileStore,
+			ProfileName:              profileName,
+			ServiceRegistry:          ctx.ServiceRegistry,
+			SubWorkflowRunnerFactory: ctx.SubWorkflowRunnerFactory(),
+			RootDAGRun:               root,
+			PeerConfig:               ctx.Config.Core.Peer,
+			TriggerType:              triggerType,
+			DefaultExecMode:          ctx.Config.DefaultExecMode,
+			ScheduleTime:             scheduleTime,
+			ArtifactDir:              artifactDir,
+			DAGRunLogDir:             ctx.Config.Paths.LogDir,
+			DAGRunArtifactDir:        ctx.Config.Paths.ArtifactDir,
 		},
 	)
 

@@ -20,21 +20,6 @@ type defaults struct {
 	SignalOnStop  *string               `yaml:"signal_on_stop,omitempty"`
 	Env           types.EnvValue        `yaml:"env,omitempty"`
 	Preconditions any                   `yaml:"preconditions,omitempty"`
-	Agent         *agentDefaults        `yaml:"agent,omitempty"`
-}
-
-// agentDefaults defines default values for agent step configuration.
-// Fields mirror agentConfig; each is applied only when the step does not
-// explicitly set its own value.
-type agentDefaults struct {
-	Model         string             `yaml:"model,omitempty"`
-	Tools         *agentToolsConfig  `yaml:"tools,omitempty"`
-	Skills        []string           `yaml:"skills,omitempty"`
-	Soul          string             `yaml:"soul,omitempty"`
-	Memory        *agentMemoryConfig `yaml:"memory,omitempty"`
-	Prompt        string             `yaml:"prompt,omitempty"`
-	MaxIterations *int               `yaml:"max_iterations,omitempty"`
-	SafeMode      *bool              `yaml:"safe_mode,omitempty"`
 }
 
 // decodeDefaults decodes a raw value (from YAML) into a typed *defaults struct.
@@ -104,56 +89,6 @@ func applyDefaults(s *step, d *defaults, raw map[string]any) {
 		s.SignalOnStop = d.SignalOnStop
 	}
 
-	// Agent defaults: apply each field only if the step doesn't set it.
-	// Like the top-level shouldApply, we consult the raw YAML map so that
-	// explicit zero values (e.g. soul: "") are honoured and not overridden.
-	if d.Agent != nil {
-		if s.Agent == nil {
-			s.Agent = &agentConfig{}
-		}
-		a, da := s.Agent, d.Agent
-
-		var agentRaw map[string]any
-		if raw != nil {
-			if v, ok := raw["agent"].(map[string]any); ok {
-				agentRaw = v
-			}
-		}
-
-		shouldApplyAgent := func(key string, isZero bool) bool {
-			if agentRaw != nil {
-				_, ok := agentRaw[key]
-				return !ok
-			}
-			return isZero
-		}
-
-		if shouldApplyAgent("model", a.Model == "") && da.Model != "" {
-			a.Model = da.Model
-		}
-		if shouldApplyAgent("tools", a.Tools == nil) && da.Tools != nil {
-			a.Tools = da.Tools
-		}
-		if shouldApplyAgent("skills", a.Skills == nil) && da.Skills != nil {
-			a.Skills = da.Skills
-		}
-		if shouldApplyAgent("soul", a.Soul == "") && da.Soul != "" {
-			a.Soul = da.Soul
-		}
-		if shouldApplyAgent("memory", a.Memory == nil) && da.Memory != nil {
-			a.Memory = da.Memory
-		}
-		if shouldApplyAgent("prompt", a.Prompt == "") && da.Prompt != "" {
-			a.Prompt = da.Prompt
-		}
-		if shouldApplyAgent("max_iterations", a.MaxIterations == nil) && da.MaxIterations != nil {
-			a.MaxIterations = da.MaxIterations
-		}
-		if shouldApplyAgent("safe_mode", a.SafeMode == nil) && da.SafeMode != nil {
-			a.SafeMode = da.SafeMode
-		}
-	}
-
 	// Additive fields: prepend defaults before step values
 	if !d.Env.IsZero() {
 		s.Env = s.Env.Prepend(d.Env)
@@ -219,66 +154,7 @@ func mergeDefaults(base, override *defaults, overrideRaw map[string]any) *defaul
 			merged.Preconditions = combinePreconditions(merged.Preconditions, override.Preconditions)
 		}
 	}
-	if shouldOverride("agent", override.Agent != nil) {
-		merged.Agent = mergeAgentDefaults(merged.Agent, override.Agent, nestedRawMap(overrideRaw, "agent"))
-	}
 	return &merged
-}
-
-func mergeAgentDefaults(base, override *agentDefaults, overrideRaw map[string]any) *agentDefaults {
-	if base == nil {
-		return override
-	}
-	if override == nil {
-		return base
-	}
-
-	merged := *base
-
-	shouldOverride := func(key string, hasValue bool) bool {
-		if overrideRaw != nil {
-			_, ok := overrideRaw[key]
-			return ok
-		}
-		return hasValue
-	}
-
-	if shouldOverride("model", override.Model != "") {
-		merged.Model = override.Model
-	}
-	if shouldOverride("tools", override.Tools != nil) {
-		merged.Tools = override.Tools
-	}
-	if shouldOverride("skills", override.Skills != nil) {
-		merged.Skills = append([]string(nil), override.Skills...)
-	}
-	if shouldOverride("soul", override.Soul != "") {
-		merged.Soul = override.Soul
-	}
-	if shouldOverride("memory", override.Memory != nil) {
-		merged.Memory = override.Memory
-	}
-	if shouldOverride("prompt", override.Prompt != "") {
-		merged.Prompt = override.Prompt
-	}
-	if shouldOverride("max_iterations", override.MaxIterations != nil) {
-		merged.MaxIterations = override.MaxIterations
-	}
-	if shouldOverride("safe_mode", override.SafeMode != nil) {
-		merged.SafeMode = override.SafeMode
-	}
-	return &merged
-}
-
-func nestedRawMap(raw map[string]any, key string) map[string]any {
-	if raw == nil {
-		return nil
-	}
-	value, ok := raw[key].(map[string]any)
-	if !ok {
-		return nil
-	}
-	return value
 }
 
 func isEmptyPreconditionsValue(value any) bool {

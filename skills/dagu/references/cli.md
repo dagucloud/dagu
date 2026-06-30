@@ -140,7 +140,7 @@ Examples:
 - `dagu schema dag steps` — Step definition structure
 - `dagu schema dag steps.container` — Container configuration
 - `dagu schema dag steps.retry_policy` — Retry policy fields
-- `dagu schema dag steps.agent` — Agent step configuration
+- `dagu schema dag steps.harness` — Harness step configuration
 - `dagu schema dag handler_on` — Lifecycle event hooks
 - `dagu schema config` — All config root-level fields
 - `dagu schema config auth` — Authentication configuration
@@ -208,10 +208,6 @@ Start distributed worker: `dagu worker [--worker.id/-w <id>] [--worker.max-activ
 
 ## Other Commands
 
-- `dagu agent [--model <model>] [--soul <soul>]` — Start an interactive Dagu agent chat using the current CLI context
-- `dagu agent -p <prompt> [--model <model>] [--soul <soul>]` — Send one non-interactive prompt to the Dagu agent
-- `dagu agent history [--limit <n>]` — List Dagu agent sessions
-- `dagu agent resume <session-id> [-p <prompt>] [--model <model>] [--soul <soul>]` — Resume interactively or send one non-interactive prompt to a Dagu agent session
 - `dagu example [id]` — Show built-in example DAGs
 - `dagu migrate history` — Migrate legacy DAG run history from the v1.16 layout to the v1.17+ format and archive the old data
 - `dagu version` — Show version

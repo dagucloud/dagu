@@ -32,35 +32,12 @@ vi.mock('@/hooks/api', () => ({
   useClient: () => clientMock,
 }));
 
-vi.mock('../features/agent', () => ({
-  AgentChatModal: () => null,
-  AgentChatProvider: ({ children }: { children: React.ReactNode }) => (
-    <>{children}</>
-  ),
-}));
-
 vi.mock('../layouts/Layout', () => ({
   default: ({ children }: { children: React.ReactNode }) => (
     <main>{children}</main>
   ),
 }));
 
-vi.mock('../pages/agent', () => ({ default: () => <h1>Agent</h1> }));
-vi.mock('../pages/agent-memory', () => ({
-  default: () => <h1>Agent Memory</h1>,
-}));
-vi.mock('../pages/agent-settings', () => ({
-  default: () => <h1>Agent Settings</h1>,
-}));
-vi.mock('../pages/agent-souls', () => ({
-  default: () => <h1>Agent Souls</h1>,
-}));
-vi.mock('../pages/agent-souls/SoulEditorPage', () => ({
-  default: () => <h1>Soul Editor</h1>,
-}));
-vi.mock('../pages/agent-tools', () => ({
-  default: () => <h1>Agent Tools</h1>,
-}));
 vi.mock('../pages/administration', () => ({
   default: () => <h1>Administration</h1>,
 }));
@@ -79,7 +56,6 @@ vi.mock('../pages/dags', () => ({ default: () => <h1>DAGs</h1> }));
 vi.mock('../pages/dags/dag', () => ({
   default: () => <h1>DAG Details</h1>,
 }));
-vi.mock('../pages/design', () => ({ default: () => <h1>Design</h1> }));
 vi.mock('../pages/event-logs', () => ({
   default: () => <h1>Event Logs</h1>,
 }));
@@ -146,7 +122,6 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     oidcButtonLabel: '',
     terminalEnabled: true,
     gitSyncEnabled: true,
-    agentEnabled: false,
     updateAvailable: false,
     latestVersion: '',
     permissions: {
@@ -211,9 +186,7 @@ describe('App license routing', () => {
   ])('allows $path in community mode', async ({ path, heading }) => {
     renderAt(path);
 
-    expect(
-      await screen.findByRole('heading', { name: heading })
-    ).toBeVisible();
+    expect(await screen.findByRole('heading', { name: heading })).toBeVisible();
     expect(
       screen.queryByRole('heading', { name: 'License Required' })
     ).not.toBeInTheDocument();

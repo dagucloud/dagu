@@ -25,8 +25,6 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/term"
 
-	agentpkg "github.com/dagucloud/dagu/internal/agent"
-	"github.com/dagucloud/dagu/internal/agentoauth"
 	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
@@ -214,19 +212,6 @@ type Agent struct {
 	// When set, the agent creates an attempt with this ID instead of generating a new one.
 	attemptID string
 
-	// agentConfigStore is the agent config store for agent step execution.
-	agentConfigStore agentpkg.ConfigStore
-	// agentModelStore is the agent model store for agent step execution.
-	agentModelStore agentpkg.ModelStore
-	// agentMemoryStore is the agent memory store for agent step execution.
-	agentMemoryStore agentpkg.MemoryStore
-	// agentSoulStore is the agent soul store for agent step execution.
-	agentSoulStore agentpkg.SoulStore
-	// agentOAuthManager resolves subscription-backed provider credentials.
-	agentOAuthManager *agentoauth.Manager
-	// agentRemoteContextResolver resolves remote CLI contexts for agent step execution.
-	agentRemoteContextResolver agentpkg.RemoteContextResolver
-
 	// workDir is the per-run work directory (for DAG_RUN_WORK_DIR).
 	workDir string
 	// extraEnvs are additional execution-scoped env vars injected into the DAG run context.
@@ -352,18 +337,6 @@ type Options struct {
 	TriggerType core.TriggerType
 	// DefaultExecMode is the server-level default execution mode.
 	DefaultExecMode config.ExecutionMode
-	// AgentConfigStore is the agent config store for agent step execution.
-	AgentConfigStore agentpkg.ConfigStore
-	// AgentModelStore is the agent model store for agent step execution.
-	AgentModelStore agentpkg.ModelStore
-	// AgentMemoryStore is the agent memory store for agent step execution.
-	AgentMemoryStore agentpkg.MemoryStore
-	// AgentSoulStore is the agent soul store for agent step execution.
-	AgentSoulStore agentpkg.SoulStore
-	// AgentOAuthManager resolves subscription-backed provider credentials.
-	AgentOAuthManager *agentoauth.Manager
-	// AgentRemoteContextResolver resolves remote CLI contexts for agent step execution.
-	AgentRemoteContextResolver agentpkg.RemoteContextResolver
 	// ScheduleTime is the RFC 3339 timestamp of when this run was scheduled.
 	// Set by the scheduler for cron-triggered runs; empty for manual runs.
 	ScheduleTime string
@@ -401,49 +374,43 @@ func New(
 	}
 
 	a := &Agent{
-		rootDAGRun:                 opts.RootDAGRun,
-		parentDAGRun:               opts.ParentDAGRun,
-		dagRunID:                   dagRunID,
-		dag:                        dag,
-		dry:                        opts.Dry,
-		retryTarget:                opts.RetryTarget,
-		logDir:                     logDir,
-		logFile:                    logFile,
-		artifactDir:                opts.ArtifactDir,
-		artifactFinalizer:          opts.ArtifactFinalizer,
-		dagRunMgr:                  drm,
-		dagStore:                   ds,
-		dagRunStore:                opts.DAGRunStore,
-		runStateStore:              runStateStore,
-		queueStore:                 opts.QueueStore,
-		stateStore:                 opts.StateStore,
-		secretStore:                opts.SecretStore,
-		secretReferenceResolver:    secretReferenceResolverForDAG(dag, opts),
-		profileStore:               opts.ProfileStore,
-		registry:                   opts.ServiceRegistry,
-		extraEnvs:                  append([]string{}, opts.ExtraEnvs...),
-		profileName:                opts.ProfileName,
-		stepRetry:                  opts.StepRetry,
-		peerConfig:                 opts.PeerConfig,
-		workerID:                   opts.WorkerID,
-		statusPusher:               opts.StatusPusher,
-		subWorkflowRunnerFactory:   opts.SubWorkflowRunnerFactory,
-		logWriterFactory:           opts.LogWriterFactory,
-		queuedRun:                  opts.QueuedRun,
-		attemptID:                  opts.AttemptID,
-		triggerType:                opts.TriggerType,
-		defaultExecMode:            opts.DefaultExecMode,
-		agentConfigStore:           opts.AgentConfigStore,
-		agentModelStore:            opts.AgentModelStore,
-		agentMemoryStore:           opts.AgentMemoryStore,
-		agentSoulStore:             opts.AgentSoulStore,
-		agentOAuthManager:          opts.AgentOAuthManager,
-		agentRemoteContextResolver: opts.AgentRemoteContextResolver,
-		scheduleTime:               opts.ScheduleTime,
-		dagRunLogDir:               opts.DAGRunLogDir,
-		dagRunArtifactDir:          opts.DAGRunArtifactDir,
-		socketServerFactory:        opts.SocketServerFactory,
-		remoteDAGLoader:            opts.RemoteDAGLoader,
+		rootDAGRun:               opts.RootDAGRun,
+		parentDAGRun:             opts.ParentDAGRun,
+		dagRunID:                 dagRunID,
+		dag:                      dag,
+		dry:                      opts.Dry,
+		retryTarget:              opts.RetryTarget,
+		logDir:                   logDir,
+		logFile:                  logFile,
+		artifactDir:              opts.ArtifactDir,
+		artifactFinalizer:        opts.ArtifactFinalizer,
+		dagRunMgr:                drm,
+		dagStore:                 ds,
+		dagRunStore:              opts.DAGRunStore,
+		runStateStore:            runStateStore,
+		queueStore:               opts.QueueStore,
+		stateStore:               opts.StateStore,
+		secretStore:              opts.SecretStore,
+		secretReferenceResolver:  secretReferenceResolverForDAG(dag, opts),
+		profileStore:             opts.ProfileStore,
+		registry:                 opts.ServiceRegistry,
+		extraEnvs:                append([]string{}, opts.ExtraEnvs...),
+		profileName:              opts.ProfileName,
+		stepRetry:                opts.StepRetry,
+		peerConfig:               opts.PeerConfig,
+		workerID:                 opts.WorkerID,
+		statusPusher:             opts.StatusPusher,
+		subWorkflowRunnerFactory: opts.SubWorkflowRunnerFactory,
+		logWriterFactory:         opts.LogWriterFactory,
+		queuedRun:                opts.QueuedRun,
+		attemptID:                opts.AttemptID,
+		triggerType:              opts.TriggerType,
+		defaultExecMode:          opts.DefaultExecMode,
+		scheduleTime:             opts.ScheduleTime,
+		dagRunLogDir:             opts.DAGRunLogDir,
+		dagRunArtifactDir:        opts.DAGRunArtifactDir,
+		socketServerFactory:      opts.SocketServerFactory,
+		remoteDAGLoader:          opts.RemoteDAGLoader,
 	}
 	if a.socketServerFactory == nil {
 		a.socketServerFactory = defaultSocketServerFactory
@@ -676,33 +643,6 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 	ctx = runtime.NewContext(ctx, a.dag, a.dagRunID, a.logFile, contextOpts...)
 	ctx = runtimeexec.WithSubWorkflowRunner(ctx, subWorkflowRunner)
-
-	// Inject agent stores into context via context.Value.
-	// This avoids a backwards dependency from the execution context to the agent package.
-	if a.agentConfigStore != nil {
-		ctx = agentpkg.WithConfigStore(ctx, a.agentConfigStore)
-	}
-	if a.agentModelStore != nil {
-		ctx = agentpkg.WithModelStore(ctx, a.agentModelStore)
-	}
-	if a.agentMemoryStore != nil {
-		ctx = agentpkg.WithMemoryStore(ctx, a.agentMemoryStore)
-	}
-	if a.agentSoulStore != nil {
-		ctx = agentpkg.WithSoulStore(ctx, a.agentSoulStore)
-	}
-	if a.agentOAuthManager != nil {
-		ctx = agentpkg.WithOAuthManager(ctx, a.agentOAuthManager)
-	}
-	if a.agentRemoteContextResolver != nil {
-		ctx = agentpkg.WithRemoteContextResolver(ctx, a.agentRemoteContextResolver)
-	}
-	if a.dagStore != nil {
-		ctx = agentpkg.WithDAGStore(ctx, a.dagStore)
-	}
-	if a.dagRunStore != nil {
-		ctx = agentpkg.WithDAGRunStore(ctx, a.dagRunStore)
-	}
 
 	// Add structured logging context
 	logFields := []slog.Attr{

@@ -19,13 +19,12 @@ type deprecatedStepField struct {
 }
 
 var deprecatedStepExecutionFields = []deprecatedStepField{
-	{name: "agent", replacement: "use action: agent.run with with"},
 	{name: "call", replacement: "use action: dag.run with with.dag"},
 	{name: "command", replacement: "use run"},
 	{name: "config", replacement: "use with"},
 	{name: "exec", replacement: "use action: exec"},
 	{name: "llm", replacement: "use action: chat.completion with with"},
-	{name: "messages", replacement: "use action: chat.completion or action: agent.run"},
+	{name: "messages", replacement: "use action: chat.completion"},
 	{name: "params", replacement: "use action: dag.run with with.params"},
 	{name: "routes", replacement: "use action: router.route with with.routes"},
 	{name: "script", replacement: "use run"},
