@@ -16,9 +16,6 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/api/v1"
-	"github.com/dagucloud/dagu/internal/agent"
-	"github.com/dagucloud/dagu/internal/agentoauth"
-	"github.com/dagucloud/dagu/internal/agentsnapshot"
 	"github.com/dagucloud/dagu/internal/auth"
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
@@ -85,12 +82,6 @@ type API struct {
 	tunnelService        *tunnel.Service
 	defaultExecMode      config.ExecutionMode
 	dagWritesDisabled    bool // True when git sync read-only mode is active
-	agentConfigStore     agent.ConfigStore
-	agentModelStore      agent.ModelStore
-	agentMemoryStore     agent.MemoryStore
-	agentSoulStore       agent.SoulStore
-	agentOAuthManager    *agentoauth.Manager
-	agentAPI             *agent.API
 	baseConfigStore      baseconfig.Store
 	dagSettingsStore     dagsettings.Store
 	secretStore          secretpkg.Store
@@ -102,7 +93,6 @@ type API struct {
 	leaseStaleThreshold  time.Duration
 	schedulerStateStore  scheduler.WatermarkStore
 	dagMutationNotifier  func(fileName string)
-	snapshotStoreFactory agentsnapshot.StoreFactory
 	baseConfigFactory    WorkspaceBaseConfigStoreFactory
 }
 
@@ -239,12 +229,6 @@ func WithWorkspaceBaseConfigStoreFactory(factory WorkspaceBaseConfigStoreFactory
 	}
 }
 
-func WithSnapshotStoreFactory(factory agentsnapshot.StoreFactory) APIOption {
-	return func(a *API) {
-		a.snapshotStoreFactory = factory
-	}
-}
-
 // WithSecretStore returns an APIOption that sets the secret registry store.
 func WithSecretStore(store secretpkg.Store) APIOption {
 	return func(a *API) {
@@ -270,41 +254,6 @@ func WithViewStore(store view.Store) APIOption {
 func WithDAGSettingsStore(store dagsettings.Store) APIOption {
 	return func(a *API) {
 		a.dagSettingsStore = store
-	}
-}
-
-// WithAgentConfigStore returns an APIOption that sets the API's agent config store.
-func WithAgentConfigStore(store agent.ConfigStore) APIOption {
-	return func(a *API) {
-		a.agentConfigStore = store
-	}
-}
-
-// WithAgentModelStore returns an APIOption that sets the API's agent model store.
-func WithAgentModelStore(store agent.ModelStore) APIOption {
-	return func(a *API) {
-		a.agentModelStore = store
-	}
-}
-
-// WithAgentMemoryStore returns an APIOption that sets the API's agent memory store.
-func WithAgentMemoryStore(store agent.MemoryStore) APIOption {
-	return func(a *API) {
-		a.agentMemoryStore = store
-	}
-}
-
-// WithAgentSoulStore returns an APIOption that sets the API's agent soul store.
-func WithAgentSoulStore(store agent.SoulStore) APIOption {
-	return func(a *API) {
-		a.agentSoulStore = store
-	}
-}
-
-// WithAgentOAuthManager returns an APIOption that sets the API's agent OAuth manager.
-func WithAgentOAuthManager(manager *agentoauth.Manager) APIOption {
-	return func(a *API) {
-		a.agentOAuthManager = manager
 	}
 }
 
@@ -371,13 +320,6 @@ func WithWorkerHeartbeatStore(store exec.WorkerHeartbeatStore) APIOption {
 func WithLeaseStaleThreshold(threshold time.Duration) APIOption {
 	return func(a *API) {
 		a.leaseStaleThreshold = threshold
-	}
-}
-
-// WithAgentAPI returns an APIOption that sets the API's agent API instance.
-func WithAgentAPI(a *agent.API) APIOption {
-	return func(api *API) {
-		api.agentAPI = a
 	}
 }
 

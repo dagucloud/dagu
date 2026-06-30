@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/internal/agent"
 	"github.com/dagucloud/dagu/internal/cmn/backoff"
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/cmn/crypto"
@@ -64,15 +63,15 @@ func TestRemoteTaskHandlerResolvesRegistrySecretsViaCoordinator(t *testing.T) {
 	workerID := "secret-reference-worker"
 	dagRunID := "secret-reference-run"
 
+	cfg := &config.Config{
+		Paths: config.PathsConfig{DataDir: t.TempDir()},
+	}
 	handler := workersvc.NewRemoteTaskHandler(workersvc.RemoteTaskHandlerConfig{
 		WorkerID:          workerID,
 		CoordinatorClient: client,
-		Config: &config.Config{
-			Paths: config.PathsConfig{DataDir: t.TempDir()},
-		},
-		AgentStoresFactory: func(ctx context.Context, cfg *config.Config) agent.RuntimeStores {
-			return file.NewAgentStores(ctx, cfg)
-		},
+		Config:            cfg,
+		SecretStore:       file.NewSecretStore(ctx, cfg),
+		ProfileStore:      file.NewProfileStore(ctx, cfg),
 	})
 
 	task := &coordinatorv1.Task{

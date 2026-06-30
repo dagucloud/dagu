@@ -158,7 +158,7 @@ func executeDAGWithRunID(ctx *Context, cli runtime.Manager, dag *core.DAG, dagRu
 		return fmt.Errorf("failed to initialize DAG store: %w", err)
 	}
 
-	as := ctx.agentStores()
+	as := ctx.runtimeStores()
 	extraEnvs, err := prepareDAGTools(ctx, dag)
 	if err != nil {
 		return err
@@ -172,29 +172,23 @@ func executeDAGWithRunID(ctx *Context, cli runtime.Manager, dag *core.DAG, dagRu
 		cli,
 		dr,
 		agent.Options{
-			Dry:                        false,
-			ExtraEnvs:                  extraEnvs,
-			PreparedAttempt:            preparedAttempt,
-			DAGRunStore:                ctx.DAGRunStore,
-			QueueStore:                 ctx.QueueStore,
-			StateStore:                 ctx.StateStore,
-			SecretStore:                as.SecretStore,
-			ProfileStore:               as.ProfileStore,
-			ServiceRegistry:            ctx.ServiceRegistry,
-			SubWorkflowRunnerFactory:   ctx.SubWorkflowRunnerFactory(),
-			RootDAGRun:                 exec.NewDAGRunRef(dag.Name, dagRunID),
-			PeerConfig:                 ctx.Config.Core.Peer,
-			DefaultExecMode:            ctx.Config.DefaultExecMode,
-			AgentConfigStore:           as.ConfigStore,
-			AgentModelStore:            as.ModelStore,
-			AgentMemoryStore:           as.MemoryStore,
-			AgentSoulStore:             as.SoulStore,
-			AgentOAuthManager:          as.OAuthManager,
-			AgentRemoteContextResolver: as.ContextResolver,
-			ScheduleTime:               scheduleTime,
-			ArtifactDir:                artifactDir,
-			DAGRunLogDir:               ctx.Config.Paths.LogDir,
-			DAGRunArtifactDir:          ctx.Config.Paths.ArtifactDir,
+			Dry:                      false,
+			ExtraEnvs:                extraEnvs,
+			PreparedAttempt:          preparedAttempt,
+			DAGRunStore:              ctx.DAGRunStore,
+			QueueStore:               ctx.QueueStore,
+			StateStore:               ctx.StateStore,
+			SecretStore:              as.SecretStore,
+			ProfileStore:             as.ProfileStore,
+			ServiceRegistry:          ctx.ServiceRegistry,
+			SubWorkflowRunnerFactory: ctx.SubWorkflowRunnerFactory(),
+			RootDAGRun:               exec.NewDAGRunRef(dag.Name, dagRunID),
+			PeerConfig:               ctx.Config.Core.Peer,
+			DefaultExecMode:          ctx.Config.DefaultExecMode,
+			ScheduleTime:             scheduleTime,
+			ArtifactDir:              artifactDir,
+			DAGRunLogDir:             ctx.Config.Paths.LogDir,
+			DAGRunArtifactDir:        ctx.Config.Paths.ArtifactDir,
 		})
 
 	listenSignals(ctx, agentInstance)

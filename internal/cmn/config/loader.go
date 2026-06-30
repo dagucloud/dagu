@@ -45,13 +45,9 @@ const (
 	// Requires: Core, Paths, Coordinator
 	ServiceCoordinator
 
-	// ServiceAgent is for the agent executor (runs DAGs).
+	// ServiceAgent is for the DAG runtime executor.
 	// Requires: Core, Paths, Queues (to check if distributed execution is enabled)
 	ServiceAgent
-
-	// ServiceBots is the bot service (Telegram, etc.).
-	// Requires: Core, Paths, Bots config, and Proc for agent stores.
-	ServiceBots
 )
 
 // ConfigLoader reads and merges configuration from various sources.
@@ -108,10 +104,9 @@ const (
 	SectionTunnel                                // 512
 	SectionLicense                               // 1024
 	SectionProc                                  // 2048
-	SectionBots                                  // 4096
 
 	// SectionAll combines all sections (useful for ServiceNone/CLI)
-	SectionAll = SectionServer | SectionScheduler | SectionWorker | SectionCoordinator | SectionUI | SectionQueues | SectionMonitoring | SectionGitSync | SectionTunnel | SectionLicense | SectionProc | SectionBots
+	SectionAll = SectionServer | SectionScheduler | SectionWorker | SectionCoordinator | SectionUI | SectionQueues | SectionMonitoring | SectionGitSync | SectionTunnel | SectionLicense | SectionProc
 )
 
 // serviceRequirements maps services to their required config sections using bitwise OR.
@@ -122,7 +117,6 @@ var serviceRequirements = map[Service]ConfigSection{
 	ServiceWorker:      SectionWorker | SectionCoordinator | SectionProc,
 	ServiceCoordinator: SectionCoordinator | SectionProc,
 	ServiceAgent:       SectionQueues | SectionProc,
-	ServiceBots:        SectionBots | SectionProc,
 }
 
 // requires checks if the loader's service requires the given config section.
@@ -273,7 +267,6 @@ func (l *ConfigLoader) buildConfig(def Definition) (*Config, error) {
 		{SectionMonitoring, func() { l.loadMonitoringConfig(&cfg, def) }},
 		{SectionGitSync, func() { l.loadGitSyncConfig(&cfg, def) }},
 		{SectionTunnel, func() { l.loadTunnelConfig(&cfg, def) }},
-		{SectionBots, func() { l.loadBotsConfig(&cfg, def) }},
 		{SectionLicense, func() { l.loadLicenseConfig(&cfg, def) }},
 	}
 
@@ -394,7 +387,6 @@ func (l *ConfigLoader) loadPathsConfig(cfg *Config, def Definition) error {
 		{"UsersDir", &cfg.Paths.UsersDir, def.Paths.UsersDir},
 		{"APIKeysDir", &cfg.Paths.APIKeysDir, def.Paths.APIKeysDir},
 		{"WebhooksDir", &cfg.Paths.WebhooksDir, def.Paths.WebhooksDir},
-		{"SessionsDir", &cfg.Paths.SessionsDir, def.Paths.SessionsDir},
 		{"ContextsDir", &cfg.Paths.ContextsDir, def.Paths.ContextsDir},
 		{"RemoteNodesDir", &cfg.Paths.RemoteNodesDir, def.Paths.RemoteNodesDir},
 		{"WorkspacesDir", &cfg.Paths.WorkspacesDir, def.Paths.WorkspacesDir},
@@ -688,8 +680,6 @@ func (l *ConfigLoader) loadServerDefaults(cfg *Config, def Definition) {
 	}
 
 	cfg.Server.Audit.RetentionDays = l.v.GetInt("audit.retention_days")
-
-	cfg.Server.Session.MaxPerUser = l.v.GetInt("session.max_per_user")
 
 	cfg.Server.SSE.MaxTopicsPerConnection = l.v.GetInt("sse.max_topics_per_connection")
 	cfg.Server.SSE.MaxClients = l.v.GetInt("sse.max_clients")
@@ -1195,189 +1185,6 @@ func setDefaultIfNotPositive(target *int, defaultValue int) {
 	}
 }
 
-func (l *ConfigLoader) loadBotsConfig(cfg *Config, def Definition) {
-	// Default safe mode to true
-	cfg.Bots.SafeMode = true
-	cfg.Bots.Telegram.InterestedEventTypes = append([]string(nil), DefaultBotInterestedEventTypes...)
-	cfg.Bots.Slack.InterestedEventTypes = append([]string(nil), DefaultBotInterestedEventTypes...)
-	cfg.Bots.Discord.InterestedEventTypes = append([]string(nil), DefaultBotInterestedEventTypes...)
-	cfg.Bots.Line.InterestedEventTypes = append([]string(nil), DefaultBotInterestedEventTypes...)
-	cfg.Bots.Slack.RespondToAll = true
-	cfg.Bots.Discord.RespondToAll = true
-	cfg.Bots.Line.RespondToAll = true
-
-	botsDef := def.Bots
-	if botsDef == nil {
-		botsDef = &BotsDef{}
-	}
-
-	// Check env var override for provider
-	if provider := l.v.GetString("bots.provider"); provider != "" {
-		cfg.Bots.Provider = BotProvider(provider)
-	}
-
-	// Check env var override for token
-	if token := l.v.GetString("bots.telegram.token"); token != "" {
-		cfg.Bots.Telegram.Token = token
-	}
-	if raw, ok := lookupInterestedEventTypesEnv("BOTS_TELEGRAM_INTERESTED_EVENT_TYPES"); ok {
-		cfg.Bots.Telegram.InterestedEventTypes = parseInterestedEventTypes(raw)
-	}
-
-	if cfg.Bots.Provider == BotProviderNone {
-		cfg.Bots.Provider = BotProvider(botsDef.Provider)
-	}
-
-	if botsDef.SafeMode != nil {
-		cfg.Bots.SafeMode = *botsDef.SafeMode
-	}
-
-	if botsDef.Telegram != nil {
-		if cfg.Bots.Telegram.Token == "" {
-			cfg.Bots.Telegram.Token = botsDef.Telegram.Token
-		}
-		if len(botsDef.Telegram.AllowedChatIDs) > 0 {
-			cfg.Bots.Telegram.AllowedChatIDs = botsDef.Telegram.AllowedChatIDs
-		}
-		if botsDef.Telegram.InterestedEventTypes != nil &&
-			!hasInterestedEventTypesEnv("BOTS_TELEGRAM_INTERESTED_EVENT_TYPES") {
-			cfg.Bots.Telegram.InterestedEventTypes = parseInterestedEventTypesSlice(botsDef.Telegram.InterestedEventTypes)
-		}
-	}
-
-	// Check env var override for Slack tokens
-	if botToken := l.v.GetString("bots.slack.bot_token"); botToken != "" {
-		cfg.Bots.Slack.BotToken = botToken
-	}
-	if appToken := l.v.GetString("bots.slack.app_token"); appToken != "" {
-		cfg.Bots.Slack.AppToken = appToken
-	}
-	if raw, ok := lookupInterestedEventTypesEnv("BOTS_SLACK_INTERESTED_EVENT_TYPES"); ok {
-		cfg.Bots.Slack.InterestedEventTypes = parseInterestedEventTypes(raw)
-	}
-
-	if botsDef.Slack != nil {
-		if cfg.Bots.Slack.BotToken == "" {
-			cfg.Bots.Slack.BotToken = botsDef.Slack.BotToken
-		}
-		if cfg.Bots.Slack.AppToken == "" {
-			cfg.Bots.Slack.AppToken = botsDef.Slack.AppToken
-		}
-		if len(botsDef.Slack.AllowedChannelIDs) > 0 {
-			cfg.Bots.Slack.AllowedChannelIDs = botsDef.Slack.AllowedChannelIDs
-		}
-		if botsDef.Slack.InterestedEventTypes != nil &&
-			!hasInterestedEventTypesEnv("BOTS_SLACK_INTERESTED_EVENT_TYPES") {
-			cfg.Bots.Slack.InterestedEventTypes = parseInterestedEventTypesSlice(botsDef.Slack.InterestedEventTypes)
-		}
-		if botsDef.Slack.RespondToAll != nil {
-			cfg.Bots.Slack.RespondToAll = *botsDef.Slack.RespondToAll
-		}
-	}
-
-	// Check env var override for Discord token
-	if token := l.v.GetString("bots.discord.token"); token != "" {
-		cfg.Bots.Discord.Token = token
-	}
-	if _, ok := os.LookupEnv(strings.ToUpper(AppSlug) + "_BOTS_DISCORD_ALLOWED_CHANNEL_IDS"); ok {
-		cfg.Bots.Discord.AllowedChannelIDs = parseStringList(l.v.Get("bots.discord.allowed_channel_ids"))
-	}
-	if raw, ok := lookupInterestedEventTypesEnv("BOTS_DISCORD_INTERESTED_EVENT_TYPES"); ok {
-		cfg.Bots.Discord.InterestedEventTypes = parseInterestedEventTypes(raw)
-	}
-	if _, ok := os.LookupEnv(strings.ToUpper(AppSlug) + "_BOTS_DISCORD_RESPOND_TO_ALL"); ok {
-		cfg.Bots.Discord.RespondToAll = l.v.GetBool("bots.discord.respond_to_all")
-	}
-
-	if botsDef.Discord != nil {
-		if cfg.Bots.Discord.Token == "" {
-			cfg.Bots.Discord.Token = botsDef.Discord.Token
-		}
-		if len(botsDef.Discord.AllowedChannelIDs) > 0 {
-			cfg.Bots.Discord.AllowedChannelIDs = botsDef.Discord.AllowedChannelIDs
-		}
-		if botsDef.Discord.InterestedEventTypes != nil &&
-			!hasInterestedEventTypesEnv("BOTS_DISCORD_INTERESTED_EVENT_TYPES") {
-			cfg.Bots.Discord.InterestedEventTypes = parseInterestedEventTypesSlice(botsDef.Discord.InterestedEventTypes)
-		}
-		if botsDef.Discord.RespondToAll != nil {
-			cfg.Bots.Discord.RespondToAll = *botsDef.Discord.RespondToAll
-		}
-	}
-
-	// Check env var override for LINE credentials
-	if token := l.v.GetString("bots.line.channel_access_token"); token != "" {
-		cfg.Bots.Line.ChannelAccessToken = token
-	}
-	if secret := l.v.GetString("bots.line.channel_secret"); secret != "" {
-		cfg.Bots.Line.ChannelSecret = secret
-	}
-	if _, ok := os.LookupEnv(strings.ToUpper(AppSlug) + "_BOTS_LINE_ALLOWED_SOURCE_IDS"); ok {
-		cfg.Bots.Line.AllowedSourceIDs = parseStringList(l.v.Get("bots.line.allowed_source_ids"))
-	}
-	if raw, ok := lookupInterestedEventTypesEnv("BOTS_LINE_INTERESTED_EVENT_TYPES"); ok {
-		cfg.Bots.Line.InterestedEventTypes = parseInterestedEventTypes(raw)
-	}
-	if _, ok := os.LookupEnv(strings.ToUpper(AppSlug) + "_BOTS_LINE_RESPOND_TO_ALL"); ok {
-		cfg.Bots.Line.RespondToAll = l.v.GetBool("bots.line.respond_to_all")
-	}
-
-	if botsDef.Line != nil {
-		if cfg.Bots.Line.ChannelAccessToken == "" {
-			cfg.Bots.Line.ChannelAccessToken = botsDef.Line.ChannelAccessToken
-		}
-		if cfg.Bots.Line.ChannelSecret == "" {
-			cfg.Bots.Line.ChannelSecret = botsDef.Line.ChannelSecret
-		}
-		if len(botsDef.Line.AllowedSourceIDs) > 0 &&
-			!hasEnv("BOTS_LINE_ALLOWED_SOURCE_IDS") {
-			cfg.Bots.Line.AllowedSourceIDs = botsDef.Line.AllowedSourceIDs
-		}
-		if botsDef.Line.InterestedEventTypes != nil &&
-			!hasInterestedEventTypesEnv("BOTS_LINE_INTERESTED_EVENT_TYPES") {
-			cfg.Bots.Line.InterestedEventTypes = parseInterestedEventTypesSlice(botsDef.Line.InterestedEventTypes)
-		}
-		if botsDef.Line.RespondToAll != nil &&
-			!hasEnv("BOTS_LINE_RESPOND_TO_ALL") {
-			cfg.Bots.Line.RespondToAll = *botsDef.Line.RespondToAll
-		}
-	}
-}
-
-func hasEnv(name string) bool {
-	_, ok := os.LookupEnv(strings.ToUpper(AppSlug) + "_" + name)
-	return ok
-}
-
-func parseInterestedEventTypes(raw string) []string {
-	if strings.TrimSpace(raw) == "" {
-		return []string{}
-	}
-	parts := strings.Split(raw, ",")
-	return parseInterestedEventTypesSlice(parts)
-}
-
-func parseInterestedEventTypesSlice(values []string) []string {
-	result := make([]string, 0, len(values))
-	for _, value := range values {
-		value = strings.TrimSpace(value)
-		if value == "" {
-			continue
-		}
-		result = append(result, value)
-	}
-	return result
-}
-
-func lookupInterestedEventTypesEnv(suffix string) (string, bool) {
-	return os.LookupEnv(strings.ToUpper(AppSlug) + "_" + suffix)
-}
-
-func hasInterestedEventTypesEnv(suffix string) bool {
-	_, ok := lookupInterestedEventTypesEnv(suffix)
-	return ok
-}
-
 func (l *ConfigLoader) loadLicenseConfig(cfg *Config, def Definition) {
 	if def.License == nil {
 		return
@@ -1433,9 +1240,6 @@ func (l *ConfigLoader) finalizePaths(cfg *Config) {
 		}
 	}
 
-	if cfg.Paths.SessionsDir == "" {
-		cfg.Paths.SessionsDir = filepath.Join(cfg.Paths.DataDir, "agent", "sessions")
-	}
 	if cfg.Paths.ToolsDir == "" {
 		cfg.Paths.ToolsDir = filepath.Join(cfg.Paths.DataDir, "tools")
 	}
@@ -1666,9 +1470,6 @@ func (l *ConfigLoader) setViperDefaultValues(paths Paths) {
 	// Terminal
 	l.v.SetDefault("terminal.max_sessions", 5)
 
-	// Session
-	l.v.SetDefault("session.max_per_user", 100)
-
 	// SSE
 	l.v.SetDefault("sse.max_topics_per_connection", 20)
 	l.v.SetDefault("sse.max_clients", 1000)
@@ -1712,7 +1513,6 @@ var envBindings = []envBinding{
 	{key: "event_store.enabled", env: "EVENT_STORE_ENABLED"},
 	{key: "event_store.retention_days", env: "EVENT_STORE_RETENTION_DAYS"},
 	{key: "webhooks.max_payload_size", env: "WEBHOOKS_MAX_PAYLOAD_SIZE"},
-	{key: "session.max_per_user", env: "SESSION_MAX_PER_USER"},
 	{key: "sse.max_topics_per_connection", env: "SSE_MAX_TOPICS_PER_CONNECTION"},
 	{key: "sse.max_clients", env: "SSE_MAX_CLIENTS"},
 	{key: "sse.heartbeat_interval", env: "SSE_HEARTBEAT_INTERVAL"},
@@ -1866,27 +1666,6 @@ var envBindings = []envBinding{
 	{key: "tunnel.rate_limiting.login_attempts", env: "TUNNEL_RATE_LIMITING_LOGIN_ATTEMPTS"},
 	{key: "tunnel.rate_limiting.window_seconds", env: "TUNNEL_RATE_LIMITING_WINDOW_SECONDS"},
 	{key: "tunnel.rate_limiting.block_duration_seconds", env: "TUNNEL_RATE_LIMITING_BLOCK_DURATION_SECONDS"},
-
-	// Bots
-	{key: "bots.provider", env: "BOTS_PROVIDER"},
-	{key: "bots.safe_mode", env: "BOTS_SAFE_MODE"},
-	{key: "bots.telegram.token", env: "BOTS_TELEGRAM_TOKEN"},
-	{key: "bots.telegram.allowed_chat_ids", env: "BOTS_TELEGRAM_ALLOWED_CHAT_IDS"},
-	{key: "bots.telegram.interested_event_types", env: "BOTS_TELEGRAM_INTERESTED_EVENT_TYPES"},
-	{key: "bots.slack.bot_token", env: "BOTS_SLACK_BOT_TOKEN"},
-	{key: "bots.slack.app_token", env: "BOTS_SLACK_APP_TOKEN"},
-	{key: "bots.slack.allowed_channel_ids", env: "BOTS_SLACK_ALLOWED_CHANNEL_IDS"},
-	{key: "bots.slack.interested_event_types", env: "BOTS_SLACK_INTERESTED_EVENT_TYPES"},
-	{key: "bots.slack.respond_to_all", env: "BOTS_SLACK_RESPOND_TO_ALL"},
-	{key: "bots.discord.token", env: "BOTS_DISCORD_TOKEN"},
-	{key: "bots.discord.allowed_channel_ids", env: "BOTS_DISCORD_ALLOWED_CHANNEL_IDS"},
-	{key: "bots.discord.interested_event_types", env: "BOTS_DISCORD_INTERESTED_EVENT_TYPES"},
-	{key: "bots.discord.respond_to_all", env: "BOTS_DISCORD_RESPOND_TO_ALL"},
-	{key: "bots.line.channel_access_token", env: "BOTS_LINE_CHANNEL_ACCESS_TOKEN"},
-	{key: "bots.line.channel_secret", env: "BOTS_LINE_CHANNEL_SECRET"},
-	{key: "bots.line.allowed_source_ids", env: "BOTS_LINE_ALLOWED_SOURCE_IDS"},
-	{key: "bots.line.interested_event_types", env: "BOTS_LINE_INTERESTED_EVENT_TYPES"},
-	{key: "bots.line.respond_to_all", env: "BOTS_LINE_RESPOND_TO_ALL"},
 
 	// License
 	{key: "license.key", env: "LICENSE_KEY"},

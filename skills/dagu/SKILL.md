@@ -11,7 +11,6 @@ Load only the reference file that matches the task.
 
 - Prefer `type: graph` for new DAGs. It supports both sequential flow via `depends:` and parallel flow.
 - Prefer `id` on every step. Omit `name` unless the display label must differ from the step ID.
-- Prefer `dagu enqueue` over `dagu start` for agent-run workflows.
 - Prefer `dagu schema ...` and `dagu validate ...` over guessing field names or shapes.
 - Prefer `action: template.render` when generating text files, prompts, or artifacts instead of assembling them with shell `echo` or heredocs.
 - Prefer `file.*` actions for local file operations such as stat, read, write, copy, move, delete, mkdir, and list instead of shelling out to `cp`, `mv`, `rm`, or `mkdir`.
@@ -26,7 +25,6 @@ Load only the reference file that matches the task.
 - Prefer scoped Dagu references for named values: `${consts.NAME}`, `${params.NAME}`, and `${env.NAME}`. Avoid unscoped braced names in examples unless the example is intentionally showing shell syntax.
 - Declare portable external CLI dependencies in top-level `tools` using aqua shorthand when the binary version affects reproducibility, for example `tools: ["jqlang/jq@jq-1.7.1"]`.
 - For remote actions, put `tools` in the referenced action DAG file, not in `dagu-action.yaml`; caller DAG tools are not inherited across the action boundary.
-- Do not add `tools` for CLIs that intentionally depend on user or worker preconfiguration, login state, local profiles, plugins, or credentials, such as `gcloud` and AI agent CLIs.
 - Use remote action packages (`dagu-action.yaml`) when reusable logic needs helper files, its own DAG, versioning, or an input/output schema contract.
 
 ## High-Signal Rules
@@ -47,7 +45,7 @@ Load only the reference file that matches the task.
 - `parallel:` currently requires `action: dag.run` to a child DAG.
 - Sub-DAGs do not inherit parent env vars; pass what you need via `params:`.
 - For arbitrary text inside shell steps, prefer `printenv VAR_NAME` or `action: template.render` over Dagu interpolation such as `${env.VAR_NAME}`.
-- `harness.run` supports `provider: builtin`, Dagu CLI providers (`claude`, `codex`, `copilot`, `opencode`, `pi`), and custom top-level `harnesses:` entries. It can use top-level `container:` or step-level `container:`. A step-level container takes precedence for that step. Containerized harness runs support Dagu CLI providers and custom providers that pass the prompt as an argument or flag; they do not support `provider: builtin`, `with.stdin`, or custom `prompt_mode: stdin`.
+- `harness.run` supports built-in CLI provider adapters (`claude`, `codex`, `copilot`, `opencode`, `pi`) and custom top-level `harnesses:` entries. It can use top-level `container:` or step-level `container:`.
 - Container runtime selection is service-level, not a DAG YAML field. Set `DAGU_CONTAINER_RUNTIME=podman` to use Podman, and set `DAGU_PODMAN_HOST` only when the Podman Docker-compatible socket is not the default.
 - DAG/action outputs are collected from string-form `output: VAR_NAME`, `stdout.outputs`, and `action: outputs.write`. Object-form `output:` stays step-scoped for `${step_id.output.*}` unless the workflow explicitly republishes values through `stdout.outputs` or `outputs.write`.
 - `state.get`, `state.set`, `state.delete`, `state.list`, and `state.diff` persist small JSON values across DAG runs. State scopes are `dag`, `root_dag`, `global`, and `custom`; use artifacts or external storage for large payloads.
@@ -173,4 +171,4 @@ Load only the file you need:
 - `references/dagu-action.md` when creating a reusable `dagu-action.yaml` package or checking action input/output schema behavior
 - `references/cli.md` when you need command flags or lookup commands such as `dagu schema`, `dagu config`, or `dagu history`
 - `references/context.md` when using `${context.*}` metadata references or declared step `outputs:`
-- `references/codingagent.md` only when the DAG itself runs AI coding agents as steps
+- `references/harnesses.md` only when the DAG invokes external CLI harnesses through `harness.run`

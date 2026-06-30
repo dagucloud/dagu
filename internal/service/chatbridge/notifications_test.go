@@ -4,13 +4,10 @@
 package chatbridge
 
 import (
-	"context"
-	"errors"
 	"fmt"
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/internal/agent"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/stretchr/testify/assert"
@@ -242,32 +239,6 @@ func TestNotificationBatcher_DiscardDestinationsRemovesReadyAndBufferedBatches(t
 	require.Never(t, func() bool {
 		return len(batcher.TakeReady()) > 0
 	}, 200*time.Millisecond, 20*time.Millisecond)
-}
-
-func TestGenerateNotificationMessage_UrgentSingleUsesLLMAndFallsBack(t *testing.T) {
-	t.Parallel()
-
-	batch := NotificationBatch{
-		Class: NotificationClassUrgent,
-		Events: []NotificationEvent{
-			{Status: &exec.DAGRunStatus{Name: "briefing", DAGRunID: "run-1", AttemptID: "a1", Status: core.Failed, Error: "boom"}},
-		},
-		WindowStart: time.Now().Add(-10 * time.Second),
-		WindowEnd:   time.Now(),
-	}
-
-	service := &fakeAgentService{
-		generatedMessage: agent.Message{Type: agent.MessageTypeAssistant, Content: "ai notification"},
-	}
-	msg, err := GenerateNotificationMessage(context.Background(), service, "sess-1", agent.UserIdentity{UserID: "u1"}, batch)
-	require.NoError(t, err)
-	assert.Equal(t, "ai notification", msg.Content)
-
-	service.generateErr = errors.New("llm unavailable")
-	msg, err = GenerateNotificationMessage(context.Background(), service, "sess-1", agent.UserIdentity{UserID: "u1"}, batch)
-	require.Error(t, err)
-	assert.Contains(t, msg.Content, "DAG `briefing` failed")
-	assert.NotContains(t, msg.Content, "llm unavailable")
 }
 
 func TestFormatNotificationBatch_CapsVisibleGroups(t *testing.T) {

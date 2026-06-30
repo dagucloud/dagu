@@ -11,8 +11,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	_ "github.com/dagucloud/dagu/internal/agent/schema" // Register schemas
 )
 
 func runSchemaCmd(args ...string) (string, error) {
@@ -39,7 +37,7 @@ func TestSchemaCommand(t *testing.T) {
 		out, err := runSchemaCmd("schema", "config")
 		require.NoError(t, err)
 		assert.Contains(t, out, "server")
-		assert.Contains(t, out, "bots")
+		assert.Contains(t, out, "auth")
 		assert.Contains(t, out, "license")
 	})
 

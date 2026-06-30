@@ -48,7 +48,7 @@ func TestExampleCommand(t *testing.T) {
 		out, err := runExampleCmd("example")
 		require.NoError(t, err)
 		assert.Contains(t, out, "parallel-steps")
-		assert.Contains(t, out, "agent-step")
+		assert.Contains(t, out, "custom-action")
 	})
 
 	t.Run("ShowByID", func(t *testing.T) {

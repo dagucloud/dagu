@@ -16,7 +16,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/dagucloud/dagu/internal/agentsnapshot"
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
@@ -439,7 +438,7 @@ func (e *Engine) runLocal(ctx context.Context, dag *core.DAG, runID string, opts
 		}
 	}
 
-	stores := e.agentStores(ctx)
+	stores := e.runtimeStores(ctx)
 	agentInstance := rtagent.New(
 		runID,
 		dag,
@@ -448,27 +447,21 @@ func (e *Engine) runLocal(ctx context.Context, dag *core.DAG, runID string, opts
 		e.dagRunMgr,
 		dagStore,
 		rtagent.Options{
-			Dry:                        opts.DryRun,
-			WorkerID:                   "local",
-			PreparedAttempt:            preparedAttempt(prepared),
-			RunStateStore:              e.runStateStore,
-			DAGRunStore:                e.dagRunStore,
-			StateStore:                 e.stateStore,
-			SecretStore:                stores.SecretStore,
-			ProfileStore:               stores.ProfileStore,
-			ServiceRegistry:            e.serviceRegistry,
-			SubWorkflowRunnerFactory:   e.subWorkflowRunnerFactory(stores),
-			RootDAGRun:                 root,
-			PeerConfig:                 e.cfg.Core.Peer,
-			TriggerType:                core.TriggerTypeManual,
-			DefaultExecMode:            configExecutionMode(e.defaultMode),
-			AgentConfigStore:           stores.ConfigStore,
-			AgentModelStore:            stores.ModelStore,
-			AgentMemoryStore:           stores.MemoryStore,
-			AgentSoulStore:             stores.SoulStore,
-			AgentOAuthManager:          stores.OAuthManager,
-			AgentRemoteContextResolver: stores.ContextResolver,
-			ArtifactDir:                artifactDir,
+			Dry:                      opts.DryRun,
+			WorkerID:                 "local",
+			PreparedAttempt:          preparedAttempt(prepared),
+			RunStateStore:            e.runStateStore,
+			DAGRunStore:              e.dagRunStore,
+			StateStore:               e.stateStore,
+			SecretStore:              stores.SecretStore,
+			ProfileStore:             stores.ProfileStore,
+			ServiceRegistry:          e.serviceRegistry,
+			SubWorkflowRunnerFactory: e.subWorkflowRunnerFactory(stores),
+			RootDAGRun:               root,
+			PeerConfig:               e.cfg.Core.Peer,
+			TriggerType:              core.TriggerTypeManual,
+			DefaultExecMode:          configExecutionMode(e.defaultMode),
+			ArtifactDir:              artifactDir,
 		},
 	)
 
@@ -527,12 +520,6 @@ func (e *Engine) runDistributed(ctx context.Context, dag *core.DAG, runID string
 	}
 	if dag.SourceFile != "" {
 		taskOpts = append(taskOpts, runtimeexec.WithSourceFile(dag.SourceFile))
-	}
-	if snapshot, snapErr := agentsnapshot.BuildFromPaths(ctx, dag, e.cfg.Paths, e.dagStore, e.snapshotStoreFactory); snapErr != nil {
-		_ = client.Cleanup(ctx)
-		return nil, fmt.Errorf("build agent snapshot: %w", snapErr)
-	} else if len(snapshot) > 0 {
-		taskOpts = append(taskOpts, runtimeexec.WithAgentSnapshot(snapshot))
 	}
 	task := runtimeexec.CreateTask(
 		dag.Name,
@@ -694,11 +681,11 @@ func (e *Engine) artifactDir(ctx context.Context, dag *core.DAG, runID string) (
 	return logpath.GenerateDir(ctx, e.cfg.Paths.ArtifactDir, dagArtifactDir, dag.Name, runID)
 }
 
-func (e *Engine) agentStores(ctx context.Context) AgentStores {
-	if e.agentStoresFactory == nil {
-		return AgentStores{}
+func (e *Engine) runtimeStores(ctx context.Context) RuntimeStores {
+	if e.runtimeStoresFactory == nil {
+		return RuntimeStores{}
 	}
-	return e.agentStoresFactory(ctx, e.cfg)
+	return e.runtimeStoresFactory(ctx, e.cfg)
 }
 
 func preparedAttempt(prepared *localPreparation) coreexec.DAGRunAttempt {

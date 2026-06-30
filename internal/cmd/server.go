@@ -5,23 +5,16 @@ package cmd
 
 import (
 	"fmt"
-	"log/slog"
 	"net"
 	"os/signal"
-	"path/filepath"
 	"strconv"
 	"syscall"
 
-	"github.com/dagucloud/dagu/internal/agent"
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/internal/service/discord"
 	"github.com/dagucloud/dagu/internal/service/frontend"
-	"github.com/dagucloud/dagu/internal/service/line"
 	"github.com/dagucloud/dagu/internal/service/resource"
-	daguslack "github.com/dagucloud/dagu/internal/service/slack"
-	"github.com/dagucloud/dagu/internal/service/telegram"
 	"github.com/dagucloud/dagu/internal/tunnel"
 	"github.com/spf13/cobra"
 )
@@ -106,129 +99,11 @@ func runServer(ctx *Context, _ []string) error {
 		serverOpts = append(serverOpts, frontend.WithTunnelService(tunnelService))
 	}
 
-	// If a bot provider is configured, capture the agent API via callback to start the bot.
-	var agentAPI *agent.API
-	if ctx.Config.Bots.Provider != config.BotProviderNone {
-		serverOpts = append(serverOpts, frontend.WithAgentAPICallback(func(api *agent.API) {
-			agentAPI = api
-		}))
-	}
-
 	// Initialize server (includes auth setup). Use serviceCtx so auth providers can
 	// respond to termination signals during potentially slow network operations.
 	server, err := serviceCtx.NewServer(resourceService, serverOpts...)
 	if err != nil {
 		return fmt.Errorf("failed to initialize server: %w", err)
-	}
-
-	// Start bot if a provider is configured and agent API is available.
-	if agentAPI != nil {
-		switch ctx.Config.Bots.Provider {
-		case config.BotProviderTelegram:
-			tgBot, tgErr := telegram.New(
-				telegram.Config{
-					Token:                 ctx.Config.Bots.Telegram.Token,
-					AllowedChatIDs:        ctx.Config.Bots.Telegram.AllowedChatIDs,
-					InterestedEventTypes:  ctx.Config.Bots.Telegram.InterestedEventTypes,
-					SafeMode:              ctx.Config.Bots.SafeMode,
-					EventService:          ctx.EventService,
-					NotificationStateFile: filepath.Join(ctx.Config.Paths.DataDir, "bots", "telegram", "notifications.json"),
-				},
-				agentAPI,
-				slog.Default(),
-			)
-			if tgErr != nil {
-				logger.Warn(serviceCtx, "Failed to initialize Telegram bot", tag.Error(tgErr))
-			} else {
-				go func() {
-					if runErr := tgBot.Run(signalCtx); runErr != nil {
-						logger.Error(serviceCtx, "Telegram bot failed", tag.Error(runErr))
-					}
-				}()
-				logger.Info(serviceCtx, "Telegram bot started")
-			}
-
-		case config.BotProviderSlack:
-			slackBot, slackErr := daguslack.New(
-				daguslack.Config{
-					BotToken:              ctx.Config.Bots.Slack.BotToken,
-					AppToken:              ctx.Config.Bots.Slack.AppToken,
-					AllowedChannelIDs:     ctx.Config.Bots.Slack.AllowedChannelIDs,
-					InterestedEventTypes:  ctx.Config.Bots.Slack.InterestedEventTypes,
-					RespondToAll:          ctx.Config.Bots.Slack.RespondToAll,
-					SafeMode:              ctx.Config.Bots.SafeMode,
-					EventService:          ctx.EventService,
-					NotificationStateFile: filepath.Join(ctx.Config.Paths.DataDir, "bots", "slack", "notifications.json"),
-				},
-				agentAPI,
-				slog.Default(),
-			)
-			if slackErr != nil {
-				logger.Warn(serviceCtx, "Failed to initialize Slack bot", tag.Error(slackErr))
-			} else {
-				go func() {
-					if runErr := slackBot.Run(signalCtx); runErr != nil {
-						logger.Error(serviceCtx, "Slack bot failed", tag.Error(runErr))
-					}
-				}()
-				logger.Info(serviceCtx, "Slack bot started")
-			}
-
-		case config.BotProviderDiscord:
-			discordBot, discordErr := discord.New(
-				discord.Config{
-					Token:                 ctx.Config.Bots.Discord.Token,
-					AllowedChannelIDs:     ctx.Config.Bots.Discord.AllowedChannelIDs,
-					InterestedEventTypes:  ctx.Config.Bots.Discord.InterestedEventTypes,
-					RespondToAll:          ctx.Config.Bots.Discord.RespondToAll,
-					SafeMode:              ctx.Config.Bots.SafeMode,
-					EventService:          ctx.EventService,
-					NotificationStateFile: filepath.Join(ctx.Config.Paths.DataDir, "bots", "discord", "notifications.json"),
-				},
-				agentAPI,
-				slog.Default(),
-			)
-			if discordErr != nil {
-				logger.Warn(serviceCtx, "Failed to initialize Discord bot", tag.Error(discordErr))
-			} else {
-				go func() {
-					if runErr := discordBot.Run(signalCtx); runErr != nil {
-						logger.Error(serviceCtx, "Discord bot failed", tag.Error(runErr))
-					}
-				}()
-				logger.Info(serviceCtx, "Discord bot started")
-			}
-
-		case config.BotProviderLine:
-			lineBot, lineErr := line.New(
-				line.Config{
-					ChannelAccessToken:    ctx.Config.Bots.Line.ChannelAccessToken,
-					ChannelSecret:         ctx.Config.Bots.Line.ChannelSecret,
-					AllowedSourceIDs:      ctx.Config.Bots.Line.AllowedSourceIDs,
-					InterestedEventTypes:  ctx.Config.Bots.Line.InterestedEventTypes,
-					RespondToAll:          ctx.Config.Bots.Line.RespondToAll,
-					SafeMode:              ctx.Config.Bots.SafeMode,
-					EventService:          ctx.EventService,
-					NotificationStateFile: filepath.Join(ctx.Config.Paths.DataDir, "bots", "line", "notifications.json"),
-				},
-				agentAPI,
-				slog.Default(),
-			)
-			if lineErr != nil {
-				logger.Warn(serviceCtx, "Failed to initialize LINE bot", tag.Error(lineErr))
-			} else {
-				server.RegisterRoutes(lineBot.ConfigureRoutes)
-				go func() {
-					if runErr := lineBot.Run(signalCtx); runErr != nil {
-						logger.Error(serviceCtx, "LINE bot failed", tag.Error(runErr))
-					}
-				}()
-				logger.Info(serviceCtx, "LINE bot started")
-			}
-
-		case config.BotProviderNone:
-			// No bot configured
-		}
 	}
 
 	// Start resource monitoring now that server initialization is complete.

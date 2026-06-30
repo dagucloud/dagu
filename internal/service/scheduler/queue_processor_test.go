@@ -6,7 +6,6 @@ package scheduler
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -153,7 +152,7 @@ func (f *queueFixture) withProcessor(cfg config.Queues, opts ...QueueProcessorOp
 		WithDAGRunLeaseStore(f.leaseStore),
 	}, opts...)
 	f.processor = NewQueueProcessor(f.queueStore, f.dagRunStore, f.procStore,
-		NewDAGExecutor(nil, launcher.NewSubCmdBuilder(&config.Config{Paths: config.PathsConfig{Executable: "/usr/bin/dagu"}}), config.ExecutionModeLocal, "", nil),
+		NewDAGExecutor(nil, launcher.NewSubCmdBuilder(&config.Config{Paths: config.PathsConfig{Executable: "/usr/bin/dagu"}}), config.ExecutionModeLocal, ""),
 		cfg, options...,
 	)
 	f.dispatchStore = store.NewDispatchTaskStore(
@@ -415,7 +414,7 @@ func TestQueueProcessor_SelectRunnableQueueItemsSkipsOutstandingReservations(t *
 
 func TestQueueProcessor_StaleOutstandingDispatchReservationsExpire(t *testing.T) {
 	f := newQueueFixture(t).withDAG("distributed-stale-select-dag", 1).
-		withProcessor(config.Queues{}, WithLeaseStaleThreshold(50*time.Millisecond)).
+		withProcessor(config.Queues{}, WithLeaseStaleThreshold(time.Nanosecond)).
 		simulateQueue(1, false)
 
 	f.enqueueRuns(1)
@@ -433,7 +432,6 @@ func TestQueueProcessor_StaleOutstandingDispatchReservationsExpire(t *testing.T)
 		AttemptID:  attempt.ID(),
 		AttemptKey: queueAttemptKey(runRef, attempt, status),
 	}))
-	agePendingDispatchReservationFiles(t, f.distributedDir, 2*time.Second)
 
 	var count int
 	var countErr error
@@ -489,7 +487,7 @@ func TestQueueDispatcher_DistributedDispatchReservesAdmissionToken(t *testing.T)
 		dagRunLeaseStore:       f.leaseStore,
 		dispatchTaskStore:      dispatchStore,
 		dispatchAdmissionStore: dispatchStore,
-		dagExecutor:            NewDAGExecutor(dispatcher, nil, config.ExecutionModeDistributed, "", nil),
+		dagExecutor:            NewDAGExecutor(dispatcher, nil, config.ExecutionModeDistributed, ""),
 		backoffConfig:          BackoffConfig{InitialInterval: 10 * time.Millisecond, MaxInterval: 50 * time.Millisecond, MaxRetries: 2, StartupGracePeriod: time.Second},
 		leaseStaleThreshold:    time.Minute,
 	})
@@ -559,7 +557,7 @@ func TestQueueProcessor_SuspendedManualQueuedRunStillDispatches(t *testing.T) {
 		queueStore:  f.queueStore,
 		dagRunStore: f.dagRunStore,
 		procStore:   procStore,
-		dagExecutor: NewDAGExecutor(dispatcher, nil, config.ExecutionModeDistributed, "", nil),
+		dagExecutor: NewDAGExecutor(dispatcher, nil, config.ExecutionModeDistributed, ""),
 		isSuspended: func(_ context.Context, name string) bool { return name == dagName },
 		backoffConfig: BackoffConfig{
 			InitialInterval:    10 * time.Millisecond,
@@ -622,34 +620,6 @@ func (m *mockDispatchTaskStore) HasOutstandingAttempt(ctx context.Context, attem
 		return m.hasOutstandingAttemptFunc(ctx, attemptKey, claimTimeout)
 	}
 	return false, nil
-}
-
-func agePendingDispatchReservationFiles(t *testing.T, distributedDir string, age time.Duration) {
-	t.Helper()
-
-	pendingDir := filepath.Join(distributedDir, "pending")
-	entries, err := os.ReadDir(pendingDir)
-	require.NoError(t, err)
-	require.NotEmpty(t, entries)
-
-	targetTime := time.Now().Add(-age).UTC().UnixMilli()
-	for _, entry := range entries {
-		path := filepath.Join(pendingDir, entry.Name())
-		data, err := os.ReadFile(path)
-		require.NoError(t, err)
-
-		var record map[string]any
-		require.NoError(t, json.Unmarshal(data, &record))
-		if payload, ok := record["data"].(map[string]any); ok {
-			payload["enqueuedAt"] = targetTime
-		} else {
-			record["enqueuedAt"] = targetTime
-		}
-
-		updated, err := json.Marshal(record)
-		require.NoError(t, err)
-		require.NoError(t, os.WriteFile(path, updated, 0o600))
-	}
 }
 
 func TestQueueProcessor_CheckStartupStatusTreatsRunningStatusAsStarted(t *testing.T) {

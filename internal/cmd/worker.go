@@ -105,12 +105,14 @@ func runWorker(ctx *Context, _ []string) error {
 		ctx.Config,
 	)
 
+	stores := cmdprocess.NewRuntimeStoresForConfig(ctx.Context, ctx.Config)
 	handlerCfg := worker.RemoteTaskHandlerConfig{
-		WorkerID:           workerID,
-		CoordinatorClient:  coordinatorCli,
-		PeerConfig:         ctx.Config.Core.Peer,
-		Config:             ctx.Config,
-		AgentStoresFactory: cmdprocess.NewRuntimeAgentStores,
+		WorkerID:          workerID,
+		CoordinatorClient: coordinatorCli,
+		PeerConfig:        ctx.Config.Core.Peer,
+		Config:            ctx.Config,
+		SecretStore:       stores.SecretStore,
+		ProfileStore:      stores.ProfileStore,
 	}
 	w.SetHandler(worker.NewRemoteTaskHandler(handlerCfg))
 	logger.Info(ctx, "Using remote task handler")

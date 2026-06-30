@@ -24,7 +24,6 @@ const testConfig: Config = {
   oidcButtonLabel: '',
   terminalEnabled: false,
   gitSyncEnabled: false,
-  agentEnabled: false,
   updateAvailable: false,
   latestVersion: '',
   permissions: {

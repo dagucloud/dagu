@@ -49,7 +49,6 @@ func runConfig(ctx *Context, _ []string) error {
 		{"Queue", paths.QueueDir},
 		{"Processes", paths.ProcDir},
 		{"Service registry", paths.ServiceRegistryDir},
-		{"Sessions", paths.SessionsDir},
 		{"Executable", paths.Executable},
 	}
 

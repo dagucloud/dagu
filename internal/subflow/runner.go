@@ -15,7 +15,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dagucloud/dagu/internal/agentsnapshot"
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
@@ -225,7 +224,7 @@ func (r *Runner) dispatchStart(ctx context.Context, req executor.SubWorkflowRequ
 		}
 	}
 
-	task, err := r.buildStartTask(ctx, req)
+	task, err := r.buildStartTask(req)
 	if err != nil {
 		return fmt.Errorf("failed to build coordinator task: %w", err)
 	}
@@ -258,7 +257,7 @@ func (r *Runner) dispatchRetryWithStatus(
 	stepName string,
 	previousStatus *exec.DAGRunStatus,
 ) error {
-	task, err := r.buildRetryTask(ctx, req, stepName, previousStatus)
+	task, err := r.buildRetryTask(req, stepName, previousStatus)
 	if err != nil {
 		return fmt.Errorf("failed to build retry coordinator task: %w", err)
 	}
@@ -278,8 +277,8 @@ func (r *Runner) dispatchRetryWithStatus(
 	return nil
 }
 
-func (r *Runner) buildStartTask(ctx context.Context, req executor.SubWorkflowRequest) (*exec.DispatchTask, error) {
-	opts, err := r.taskOptions(ctx, req, executor.WithTaskParams(req.Params))
+func (r *Runner) buildStartTask(req executor.SubWorkflowRequest) (*exec.DispatchTask, error) {
+	opts, err := r.taskOptions(req, executor.WithTaskParams(req.Params))
 	if err != nil {
 		return nil, err
 	}
@@ -293,7 +292,6 @@ func (r *Runner) buildStartTask(ctx context.Context, req executor.SubWorkflowReq
 }
 
 func (r *Runner) buildRetryTask(
-	ctx context.Context,
 	req executor.SubWorkflowRequest,
 	stepName string,
 	previousStatus *exec.DAGRunStatus,
@@ -302,7 +300,7 @@ func (r *Runner) buildRetryTask(
 	if stepName != "" {
 		extra = append(extra, executor.WithStep(stepName))
 	}
-	opts, err := r.taskOptions(ctx, req, extra...)
+	opts, err := r.taskOptions(req, extra...)
 	if err != nil {
 		return nil, err
 	}
@@ -336,7 +334,6 @@ func (r *Runner) existingStatus(
 }
 
 func (r *Runner) taskOptions(
-	ctx context.Context,
 	req executor.SubWorkflowRequest,
 	extra ...executor.TaskOption,
 ) ([]executor.TaskOption, error) {
@@ -363,13 +360,6 @@ func (r *Runner) taskOptions(
 		options = append(options, executor.WithProfileName(req.ProfileName))
 	}
 
-	snapshot, err := agentsnapshot.BuildFromContext(ctx, req.DAG)
-	if err != nil {
-		return nil, fmt.Errorf("build distributed agent snapshot: %w", err)
-	}
-	if len(snapshot) > 0 {
-		options = append(options, executor.WithAgentSnapshot(snapshot))
-	}
 	if req.Workspace != nil {
 		options = append(options, executor.WithWorkspaceBundle(req.Workspace.Descriptor))
 	}

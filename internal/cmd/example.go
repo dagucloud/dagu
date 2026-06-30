@@ -316,97 +316,6 @@ steps:
 	},
 	{
 		ID:          11,
-		Name:        "approval-gate",
-		Description: "Draft release notes with an agent, push back with rewind_to, then deploy",
-		Content: `type: graph
-artifacts:
-  enabled: true
-steps:
-  - id: build
-    output:
-      version: "v1.2.3"
-  - id: draft_release_notes
-    depends: [build]
-    action: agent.run
-    with:
-      task: |
-        Draft concise release notes for version ${build.output.version}.
-
-        Current draft path: ${DAG_RUN_ARTIFACTS_DIR}/release-notes.md
-
-        Reviewer feedback from the latest push-back: ${FEEDBACK}
-
-        Return Markdown with a summary and deployment notes.
-        If FEEDBACK is empty, produce the first draft.
-        If FEEDBACK is set, read the existing draft from the path above and revise it to address the feedback.
-    stdout: ${DAG_RUN_ARTIFACTS_DIR}/release-notes.md
-    approval:
-      prompt: "Review the release-notes.md artifact. Push back with FEEDBACK to regenerate it, or approve to continue to deploy."
-      input: [FEEDBACK]
-      rewind_to: draft_release_notes
-  - id: deploy
-    depends: [draft_release_notes]
-    run: echo "deploying ${build.output.version} with reviewed release notes"
-`,
-	},
-	{
-		ID:          12,
-		Name:        "agent-step",
-		Description: "Build the agent prompt with a template and write a report artifact",
-		Content: `type: graph
-artifacts:
-  enabled: true
-defaults:
-  retry_policy:
-    limit: 2
-    interval_sec: 5
-steps:
-  - id: gather_logs
-    run: 'echo "error: connection timeout at 10:23 AM"'
-    # output captures stdout into a variable, but the default max_output_size
-    # is 1048576 bytes (1 MiB). If logs can exceed that, write them to a
-    # temporary file instead and pass the file path to later steps.
-    output: ERROR_LOG
-  - id: build_prompt
-    action: template.render
-    with:
-      template: |
-        Analyze this incident log and suggest a fix:
-
-        {{ .error_log }}
-      data:
-        error_log: ${ERROR_LOG}
-    output: ANALYSIS_PROMPT
-    depends: [gather_logs]
-  - id: analyze
-    action: agent.run
-    with:
-      task: ${ANALYSIS_PROMPT}
-      max_iterations: 10
-    output: ANALYSIS
-    depends: [build_prompt]
-  - id: report
-    action: template.render
-    with:
-      template: |
-        # Incident Report
-
-        ## Error Log
-
-        {{ .error_log }}
-
-        ## Analysis
-
-        {{ .analysis }}
-      output: ${DAG_RUN_ARTIFACTS_DIR}/report.md
-      data:
-        error_log: ${ERROR_LOG}
-        analysis: ${ANALYSIS}
-    depends: [analyze]
-`,
-	},
-	{
-		ID:          13,
 		Name:        "custom-action",
 		Description: "Define a typed reusable action with actions and with",
 		Content: `type: graph
@@ -448,7 +357,7 @@ steps:
 `,
 	},
 	{
-		ID:          14,
+		ID:          12,
 		Name:        "template-step",
 		Description: "Render a deployment config artifact with structured data",
 		Content: `type: graph
@@ -483,14 +392,14 @@ steps:
 `,
 	},
 	{
-		ID:          15,
+		ID:          13,
 		Name:        "harness-step",
 		Description: "Build a harness prompt with template and write the result as an artifact",
 		Content: `type: graph
 artifacts:
   enabled: true
 harness:
-  # DAG-level defaults for harness steps. provider may be built-in or from harnesses:.
+  # DAG-level defaults for harness steps.
   provider: claude
   model: sonnet
   bare: true
@@ -537,7 +446,7 @@ steps:
 `,
 	},
 	{
-		ID:          16,
+		ID:          14,
 		Name:        "named-harnesses",
 		Description: "Define a named harness under harnesses and call it from a step",
 		Content: `type: graph

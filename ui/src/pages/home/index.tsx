@@ -205,7 +205,7 @@ export default function HomePage(): React.ReactElement {
             {
               to: '/administration',
               label: 'Administration',
-              description: 'Open access, infrastructure, and agent settings.',
+              description: 'Open access and infrastructure settings.',
             },
             {
               to: '/remote-nodes',
@@ -226,15 +226,6 @@ export default function HomePage(): React.ReactElement {
               label: 'License',
               description: 'Review plan and entitlement status.',
             },
-            ...(config.agentEnabled
-              ? [
-                  {
-                    to: '/agent',
-                    label: 'Agent',
-                    description: 'Configure models, tools, memory, and souls.',
-                  },
-                ]
-              : []),
           ]
         : [],
     },

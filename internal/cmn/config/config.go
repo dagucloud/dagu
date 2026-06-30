@@ -30,75 +30,12 @@ type Config struct {
 	Cache           CacheMode
 	GitSync         GitSyncConfig
 	Tunnel          TunnelConfig
-	Bots            BotsConfig
 	License         LicenseConfig
 	Notices         []string
 	Warnings        []string
 }
 
-// BotProvider identifies which bot integration to use.
-type BotProvider string
-
-const (
-	BotProviderNone     BotProvider = ""
-	BotProviderTelegram BotProvider = "telegram"
-	BotProviderSlack    BotProvider = "slack"
-	BotProviderDiscord  BotProvider = "discord"
-	BotProviderLine     BotProvider = "line"
-)
-
-var DefaultBotInterestedEventTypes = []string{
-	"dag.run.waiting",
-	"dag.run.succeeded",
-	"dag.run.failed",
-	"dag.run.aborted",
-	"dag.run.rejected",
-}
-
 const DefaultWebhookMaxPayloadSize = 1 * 1024 * 1024
-
-// BotsConfig holds the configuration for bot integrations.
-type BotsConfig struct {
-	Provider BotProvider
-	SafeMode bool
-	Telegram TelegramBotConfig
-	Slack    SlackBotConfig
-	Discord  DiscordBotConfig
-	Line     LineBotConfig
-}
-
-// TelegramBotConfig holds the Telegram-specific bot configuration.
-type TelegramBotConfig struct {
-	Token                string
-	AllowedChatIDs       []int64
-	InterestedEventTypes []string
-}
-
-// SlackBotConfig holds the Slack-specific bot configuration.
-type SlackBotConfig struct {
-	BotToken             string
-	AppToken             string
-	AllowedChannelIDs    []string
-	InterestedEventTypes []string
-	RespondToAll         bool // respond to all channel messages, not just @mentions
-}
-
-// DiscordBotConfig holds the Discord-specific bot configuration.
-type DiscordBotConfig struct {
-	Token                string
-	AllowedChannelIDs    []string
-	InterestedEventTypes []string
-	RespondToAll         bool // respond to all channel messages, not just @mentions
-}
-
-// LineBotConfig holds the LINE-specific bot configuration.
-type LineBotConfig struct {
-	ChannelAccessToken   string
-	ChannelSecret        string
-	AllowedSourceIDs     []string
-	InterestedEventTypes []string
-	RespondToAll         bool // respond to all group/room messages, not just mentions
-}
 
 // GitSyncConfig holds the configuration for Git sync functionality.
 type GitSyncConfig struct {
@@ -220,7 +157,6 @@ type Server struct {
 	Metrics            MetricsAccess // "private" or "public"
 	Terminal           TerminalConfig
 	Audit              AuditConfig
-	Session            SessionConfig
 	SSE                SSEConfig
 }
 
@@ -245,11 +181,6 @@ type EventStoreConfig struct {
 // WebhooksConfig contains configuration for webhook trigger endpoints.
 type WebhooksConfig struct {
 	MaxPayloadSize int // Default: 1MiB
-}
-
-// SessionConfig contains configuration for agent session cleanup.
-type SessionConfig struct {
-	MaxPerUser int // Default: 100; 0 = unlimited
 }
 
 // SSEConfig contains configuration for multiplexed SSE streaming.
@@ -386,7 +317,6 @@ type PathsConfig struct {
 	UsersDir           string
 	APIKeysDir         string
 	WebhooksDir        string
-	SessionsDir        string
 	ContextsDir        string
 	RemoteNodesDir     string
 	WorkspacesDir      string
@@ -578,9 +508,6 @@ func (c *Config) Validate() error {
 	if err := c.validateWebhooks(); err != nil {
 		return err
 	}
-	if err := c.validateBots(); err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -639,40 +566,6 @@ func (c *Config) validateWebhooks() error {
 	return nil
 }
 
-func (c *Config) validateBots() error {
-	if err := validateInterestedEventTypes("bots.telegram.interested_event_types", c.Bots.Telegram.InterestedEventTypes); err != nil {
-		return err
-	}
-	if err := validateInterestedEventTypes("bots.slack.interested_event_types", c.Bots.Slack.InterestedEventTypes); err != nil {
-		return err
-	}
-	if err := validateInterestedEventTypes("bots.discord.interested_event_types", c.Bots.Discord.InterestedEventTypes); err != nil {
-		return err
-	}
-	if err := validateInterestedEventTypes("bots.line.interested_event_types", c.Bots.Line.InterestedEventTypes); err != nil {
-		return err
-	}
-	return nil
-}
-
-func validateInterestedEventTypes(path string, eventTypes []string) error {
-	allowed := map[string]struct{}{
-		"dag.run.queued":    {},
-		"dag.run.running":   {},
-		"dag.run.waiting":   {},
-		"dag.run.succeeded": {},
-		"dag.run.failed":    {},
-		"dag.run.aborted":   {},
-		"dag.run.rejected":  {},
-	}
-	for _, eventType := range eventTypes {
-		if _, ok := allowed[eventType]; !ok {
-			return fmt.Errorf("%s contains unsupported event type %q", path, eventType)
-		}
-	}
-	return nil
-}
-
 func (c *Config) validateCoordinator() error {
 	if c.Coordinator.Port < 0 || c.Coordinator.Port > 65535 {
 		return fmt.Errorf("invalid coordinator.port: %d", c.Coordinator.Port)
@@ -719,9 +612,6 @@ func (c *Config) validateServer() error {
 		return fmt.Errorf("invalid auth mode: %q (must be one of: none, basic, builtin)", c.Server.Auth.Mode)
 	}
 
-	if c.Server.Session.MaxPerUser < 0 {
-		return fmt.Errorf("session.max_per_user must be >= 0")
-	}
 	if c.Server.Terminal.MaxSessions <= 0 {
 		return fmt.Errorf("terminal.max_sessions must be > 0")
 	}

@@ -28,7 +28,7 @@ steps:
 `)
 	coordinatorCli := coordinator.New(th.ServiceRegistry, coordinator.DefaultConfig())
 
-	dagExecutor := scheduler.NewDAGExecutor(coordinatorCli, th.SubCmdBuilder, config.ExecutionModeLocal, "", nil)
+	dagExecutor := scheduler.NewDAGExecutor(coordinatorCli, th.SubCmdBuilder, config.ExecutionModeLocal, "")
 	t.Cleanup(func() {
 		dagExecutor.Close(th.Context)
 	})
@@ -102,7 +102,7 @@ steps:
 	})
 
 	t.Run("HandleJob_Local_ExecutesDirectly", func(t *testing.T) {
-		localExecutor := scheduler.NewDAGExecutor(nil, th.SubCmdBuilder, config.ExecutionModeLocal, "", nil)
+		localExecutor := scheduler.NewDAGExecutor(nil, th.SubCmdBuilder, config.ExecutionModeLocal, "")
 
 		dag, err := spec.Load(context.Background(), testDAG.Location)
 		require.NoError(t, err)
@@ -137,7 +137,7 @@ steps:
 
 func TestDAGExecutor_DistributedRetryUsesPreviousStatusParamsList(t *testing.T) {
 	dispatcher := &capturingDispatcher{}
-	dagExecutor := scheduler.NewDAGExecutor(dispatcher, nil, config.ExecutionModeDistributed, "", nil)
+	dagExecutor := scheduler.NewDAGExecutor(dispatcher, nil, config.ExecutionModeDistributed, "")
 
 	dag := &core.DAG{
 		Name:           "queued-param-dag",
@@ -168,7 +168,7 @@ func TestDAGExecutor_DistributedRetryUsesPreviousStatusParamsList(t *testing.T) 
 
 func TestDAGExecutor_DistributedRetryPassesLegacyQueuedParams(t *testing.T) {
 	dispatcher := &capturingDispatcher{}
-	dagExecutor := scheduler.NewDAGExecutor(dispatcher, nil, config.ExecutionModeDistributed, "", nil)
+	dagExecutor := scheduler.NewDAGExecutor(dispatcher, nil, config.ExecutionModeDistributed, "")
 
 	dag := &core.DAG{
 		Name:           "legacy-queued-param-dag",
@@ -197,7 +197,7 @@ func TestDAGExecutor_DistributedRetryPassesLegacyQueuedParams(t *testing.T) {
 
 func TestDAGExecutor_DistributedRetryCarriesAdmissionReservationToken(t *testing.T) {
 	dispatcher := &capturingDispatcher{}
-	dagExecutor := scheduler.NewDAGExecutor(dispatcher, nil, config.ExecutionModeDistributed, "", nil)
+	dagExecutor := scheduler.NewDAGExecutor(dispatcher, nil, config.ExecutionModeDistributed, "")
 
 	dag := &core.DAG{
 		Name:           "admitted-dag",

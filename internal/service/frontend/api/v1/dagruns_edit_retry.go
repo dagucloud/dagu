@@ -17,7 +17,6 @@ import (
 	"time"
 
 	api "github.com/dagucloud/dagu/api/v1"
-	"github.com/dagucloud/dagu/internal/agentsnapshot"
 	"github.com/dagucloud/dagu/internal/cmn/collections"
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
@@ -902,12 +901,6 @@ func (a *API) dispatchEditRetry(ctx context.Context, dag *core.DAG, status *exec
 	if status.ProfileName != "" {
 		opts = append(opts, executor.WithProfileName(status.ProfileName))
 	}
-	if snapshot, err := agentsnapshot.BuildFromPaths(ctx, dag, a.config.Paths, a.dagStore, a.snapshotStoreFactory); err != nil {
-		return fmt.Errorf("build distributed agent snapshot: %w", err)
-	} else if len(snapshot) > 0 {
-		opts = append(opts, executor.WithAgentSnapshot(snapshot))
-	}
-
 	task := executor.CreateTask(
 		dag.Name,
 		string(dag.YamlData),

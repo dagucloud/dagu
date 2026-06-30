@@ -263,7 +263,7 @@ retry_policy:
 #   max_retries: 0
 
 # -- LLM Defaults --
-# Inherited by all chat and agent executor steps.
+# Inherited by all chat completion steps.
 # llm:
 #   provider: openai              # "openai", "anthropic", "gemini", "openrouter", "local".
 #   model: gpt-4o-mini

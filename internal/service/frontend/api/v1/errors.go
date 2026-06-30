@@ -16,6 +16,13 @@ type errorResponse struct {
 	Message string        `json:"message,omitempty"`
 }
 
+// ErrInvalidRequestBody is returned when a request body is missing or invalid.
+var ErrInvalidRequestBody = &Error{
+	Code:       api.ErrorCodeBadRequest,
+	Message:    "Invalid request body",
+	HTTPStatus: http.StatusBadRequest,
+}
+
 func WriteErrorResponse(w http.ResponseWriter, err error) {
 	w.Header().Set("Content-Type", "application/json")
 

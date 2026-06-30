@@ -4,9 +4,12 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
+	"sort"
+	"strings"
 
-	"github.com/dagucloud/dagu/internal/agent/schema"
+	schemapkg "github.com/dagucloud/dagu/internal/cmn/schema"
 	"github.com/spf13/cobra"
 )
 
@@ -43,11 +46,81 @@ func runSchema(cmd *cobra.Command, args []string) error {
 		path = args[1]
 	}
 
-	result, err := schema.DefaultRegistry.NavigateFull(schemaName, path)
+	result, err := navigateSchema(schemaName, path)
 	if err != nil {
 		return fmt.Errorf("schema navigation failed: %w", err)
 	}
 
 	_, _ = fmt.Fprint(cmd.OutOrStdout(), result)
 	return nil
+}
+
+func navigateSchema(schemaName, path string) (string, error) {
+	schemas := map[string][]byte{
+		"config": schemapkg.ConfigSchemaJSON,
+		"dag":    schemapkg.DAGSchemaJSON,
+	}
+	data, ok := schemas[schemaName]
+	if !ok {
+		names := make([]string, 0, len(schemas))
+		for name := range schemas {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		return "", fmt.Errorf("unknown schema %q; available schemas: %s", schemaName, strings.Join(names, ", "))
+	}
+
+	var root any
+	if err := json.Unmarshal(data, &root); err != nil {
+		return "", err
+	}
+
+	current := root
+	if path != "" {
+		var err error
+		current, err = navigateSchemaPath(root, strings.Split(path, "."))
+		if err != nil {
+			return "", err
+		}
+	}
+
+	result, err := json.MarshalIndent(current, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(result) + "\n", nil
+}
+
+func navigateSchemaPath(root any, parts []string) (any, error) {
+	current := root
+	for _, part := range parts {
+		next, ok := schemaChild(current, part)
+		if !ok {
+			return nil, fmt.Errorf("path %q not found", strings.Join(parts, "."))
+		}
+		current = next
+	}
+	return current, nil
+}
+
+func schemaChild(node any, name string) (any, bool) {
+	obj, ok := node.(map[string]any)
+	if !ok {
+		return nil, false
+	}
+
+	if properties, ok := obj["properties"].(map[string]any); ok {
+		if child, ok := properties[name]; ok {
+			return child, true
+		}
+	}
+	if items, ok := obj["items"]; ok {
+		if child, ok := schemaChild(items, name); ok {
+			return child, true
+		}
+	}
+	if child, ok := obj[name]; ok {
+		return child, true
+	}
+	return nil, false
 }

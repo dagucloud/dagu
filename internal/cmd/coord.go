@@ -226,7 +226,7 @@ func newCoordinator(
 	}
 
 	// Create handler with DAGRunStore for status persistence and LogDir for log streaming
-	agentStores := cmdprocess.NewRuntimeAgentStores(ctx.Context, cfg)
+	runtimeStores := cmdprocess.NewRuntimeStoresForConfig(ctx.Context, cfg)
 	handler := coordinator.NewHandler(coordinator.HandlerConfig{
 		DAGRunStore:               dagRunStore,
 		StateStore:                stateStore,
@@ -239,7 +239,7 @@ func newCoordinator(
 		DAGRunLeaseStore:          dagRunLeaseStore,
 		ActiveDistributedRunStore: activeDistributedRunStore,
 		DAGStore:                  dagStore,
-		SecretStore:               agentStores.SecretStore,
+		SecretStore:               runtimeStores.SecretStore,
 		EventService:              ctx.EventService,
 		EventSourceInstance:       ctx.EventSourceInstance,
 	})

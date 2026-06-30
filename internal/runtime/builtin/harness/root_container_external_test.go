@@ -5,7 +5,6 @@ package harness_test
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"github.com/dagucloud/dagu/internal/core"
@@ -32,44 +31,6 @@ func TestRunOnce_RootContainerWithoutSharedClientFails(t *testing.T) {
 	assert.Contains(t, err.Error(), "root-level container is configured")
 	assert.Contains(t, err.Error(), "no shared container client")
 	assert.Equal(t, 1, exec.ExitCode())
-}
-
-func TestRunOnce_BuiltinProviderWithRootContainerRejected(t *testing.T) {
-	dag := testRootContainerDAG(t)
-	step := core.Step{Name: "review"}
-	ctx := testHarnessContext(t, dag, step)
-	exec := harness.NewTestExecutorForTest(step, "inspect repo", "", dag.WorkingDir)
-
-	_, err := exec.RunOnceForTest(ctx, harness.NewTestBuiltinProviderConfigForTest("builtin"))
-
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "builtin provider does not support container execution")
-	assert.Equal(t, 1, exec.ExitCode())
-}
-
-func TestRun_RootContainerBuiltinFallbackContinuesToCLI(t *testing.T) {
-	dag := testRootContainerDAG(t)
-	step := core.Step{Name: "review"}
-	ctx := testHarnessContext(t, dag, step)
-	exec := harness.NewTestExecutorWithProviderConfigsForTest(
-		step,
-		"inspect repo",
-		"",
-		dag.WorkingDir,
-		harness.NewTestBuiltinProviderConfigForTest("builtin"),
-		harness.NewTestProviderConfigForTest("agent", core.HarnessDefinition{
-			Binary:     "agent",
-			PromptMode: core.HarnessPromptModeArg,
-		}, map[string]any{"provider": "agent"}),
-	)
-	var stderr strings.Builder
-	exec.SetStderr(&stderr)
-
-	err := exec.Run(ctx)
-
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no shared container client")
-	assert.Contains(t, stderr.String(), "with builtin failed; trying fallback")
 }
 
 func TestRunOnce_RootContainerStdinProviderRejectedBeforeSharedClientLookup(t *testing.T) {

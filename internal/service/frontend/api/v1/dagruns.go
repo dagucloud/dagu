@@ -24,7 +24,6 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/api/v1"
-	"github.com/dagucloud/dagu/internal/agentsnapshot"
 	"github.com/dagucloud/dagu/internal/auth"
 	"github.com/dagucloud/dagu/internal/cmn/buildenv"
 	"github.com/dagucloud/dagu/internal/cmn/collections"
@@ -1251,6 +1250,12 @@ func (a *API) ApproveDAGRunStep(ctx context.Context, request api.ApproveDAGRunSt
 	if err != nil {
 		return nil, fmt.Errorf("error waiting for dag-run to settle: %w", err)
 	}
+	if dagStatus.Status != core.Waiting {
+		return &api.ApproveDAGRunStep400JSONResponse{
+			Code:    api.ErrorCodeBadRequest,
+			Message: fmt.Sprintf("dag-run is not waiting for approval (status: %s)", dagStatus.Status),
+		}, nil
+	}
 
 	stepIdx := findStepByName(dagStatus.Nodes, request.StepName)
 	if stepIdx < 0 {
@@ -1329,6 +1334,24 @@ func (a *API) ApproveSubDAGRunStep(ctx context.Context, request api.ApproveSubDA
 	dagStatus, err = a.waitForManualStepMutationReady(ctx, attempt, dagStatus)
 	if err != nil {
 		return nil, fmt.Errorf("error waiting for sub DAG-run to settle: %w", err)
+	}
+	if dagStatus.Status != core.Waiting {
+		return &api.ApproveSubDAGRunStep400JSONResponse{
+			Code:    api.ErrorCodeBadRequest,
+			Message: fmt.Sprintf("sub DAG-run is not waiting for approval (status: %s)", dagStatus.Status),
+		}, nil
+	}
+	if mutationRef == rootRef {
+		rootStatus, err := a.dagRunMgr.GetSavedStatus(ctx, rootRef)
+		if err != nil {
+			return nil, fmt.Errorf("error reading root dag-run status: %w", err)
+		}
+		if rootStatus.Status == core.Running {
+			return &api.ApproveSubDAGRunStep400JSONResponse{
+				Code:    api.ErrorCodeBadRequest,
+				Message: "root dag-run is still running; wait until it enters waiting status before approving a sub DAG-run step",
+			}, nil
+		}
 	}
 
 	stepIdx := findStepByName(dagStatus.Nodes, request.StepName)
@@ -2678,12 +2701,6 @@ func (a *API) retryDAGRun(ctx context.Context, dagName, dagRunID, retryDagRunID,
 		if profileName != "" {
 			opts = append(opts, executor.WithProfileName(profileName))
 		}
-		if snapshot, err := agentsnapshot.BuildFromPaths(ctx, dag, a.config.Paths, a.dagStore, a.snapshotStoreFactory); err != nil {
-			return retryDAGRunResult{}, fmt.Errorf("build distributed agent snapshot: %w", err)
-		} else if len(snapshot) > 0 {
-			opts = append(opts, executor.WithAgentSnapshot(snapshot))
-		}
-
 		task := executor.CreateTask(
 			dag.Name,
 			string(dag.YamlData),
@@ -3509,6 +3526,9 @@ func (a *API) resumeSubDAGRun(ctx context.Context, rootRef exec.DAGRunRef, subDA
 	}
 
 	retrySpec := a.subCmdBuilder.Retry(prepared, subDAGRunID, "")
+	if !status.Root.Zero() && status.Root.ID != subDAGRunID {
+		retrySpec = a.subCmdBuilder.RetryWithRootDAGRun(prepared, subDAGRunID, "", status.Root)
+	}
 	return launcher.Start(ctx, retrySpec)
 }
 

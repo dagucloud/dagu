@@ -107,8 +107,8 @@ type Step struct {
 	// If set, the step runs in its own container instead of the DAG-level container.
 	// This uses the same configuration format as the DAG-level container field.
 	Container *Container `json:"container,omitempty"`
-	// LLM contains the configuration for LLM-based executors (chat, agent, etc.).
-	// Used with explicit type: chat (or future type: agent).
+	// LLM contains the configuration for LLM-based executors.
+	// Used with explicit type: chat.
 	LLM *LLMConfig `json:"llm,omitempty"`
 	// Messages contains the session messages for chat executor.
 	// Only used when type is "chat".
@@ -116,9 +116,6 @@ type Step struct {
 	// Router contains the routing configuration for router-type steps.
 	// Only used when type is "router".
 	Router *RouterConfig `json:"router,omitempty"`
-	// Agent contains the configuration for agent-type steps.
-	// Only used when type is "agent".
-	Agent *AgentStepConfig `json:"agent,omitempty"`
 	// Approval configures a human approval gate after step execution.
 	// When set, the step pauses in Waiting state after execution completes.
 	Approval *ApprovalConfig `json:"approval,omitempty"`
@@ -446,70 +443,9 @@ const (
 	// ExecutorTypeRouter is the executor type for router steps.
 	ExecutorTypeRouter = "router"
 
-	// ExecutorTypeAgent is the executor type for agent steps.
-	ExecutorTypeAgent = "agent"
-
 	// ExecutorTypeAction is the executor type for external Dagu actions.
 	ExecutorTypeAction = "action"
 )
-
-// AgentStepConfig contains the configuration for an agent step.
-type AgentStepConfig struct {
-	// Model overrides the global default model for this step.
-	Model string `json:"model,omitempty"`
-	// Tools configures which tools are available and their policies.
-	Tools *AgentToolsConfig `json:"tools,omitempty"`
-	// Skills lists skill IDs the agent is allowed to use.
-	// If empty, falls back to globally enabled skills from agent config.
-	Skills []string `json:"skills,omitempty"`
-	// Soul is the soul ID for this step's agent identity.
-	Soul string `json:"soul,omitempty"`
-	// Memory controls whether persistent memory is loaded.
-	Memory *AgentMemoryConfig `json:"memory,omitempty"`
-	// Prompt is additional instructions appended to the built-in system prompt.
-	Prompt string `json:"prompt,omitempty"`
-	// MaxIterations is the maximum number of tool call rounds (default: 50).
-	MaxIterations int `json:"maxIterations,omitempty"`
-	// SafeMode enables command approval via human review (default: true).
-	SafeMode bool `json:"safeMode"`
-	// WebSearch configures provider-native web search for this step.
-	// Overrides the global agent web search setting.
-	WebSearch *WebSearchConfig `json:"webSearch,omitempty"`
-}
-
-// AgentToolsConfig configures available tools and policies.
-type AgentToolsConfig struct {
-	// Enabled lists the tools to enable. When empty, all available tools are enabled.
-	Enabled []string `json:"enabled,omitempty"`
-	// BashPolicy configures bash command security rules.
-	BashPolicy *AgentBashPolicy `json:"bashPolicy,omitempty"`
-}
-
-// AgentBashPolicy configures bash command security enforcement.
-type AgentBashPolicy struct {
-	// DefaultBehavior is the default action when no rule matches ("allow" or "deny").
-	DefaultBehavior string `json:"defaultBehavior,omitempty"`
-	// DenyBehavior determines what happens when a command is denied ("block" or "ask_user").
-	DenyBehavior string `json:"denyBehavior,omitempty"`
-	// Rules is an ordered list of pattern-matching rules.
-	Rules []AgentBashRule `json:"rules,omitempty"`
-}
-
-// AgentBashRule is a single bash command policy rule.
-type AgentBashRule struct {
-	// Name is a human-readable name for the rule.
-	Name string `json:"name,omitempty"`
-	// Pattern is a regex pattern to match against commands.
-	Pattern string `json:"pattern"`
-	// Action is the action to take when the pattern matches ("allow" or "deny").
-	Action string `json:"action"`
-}
-
-// AgentMemoryConfig configures memory for the agent step.
-type AgentMemoryConfig struct {
-	// Enabled controls whether global and per-DAG memory is loaded.
-	Enabled bool `json:"enabled,omitempty"`
-}
 
 // RouterConfig contains routing configuration for router-type steps.
 type RouterConfig struct {

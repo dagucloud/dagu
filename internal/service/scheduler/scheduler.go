@@ -16,7 +16,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/dagucloud/dagu/internal/agentsnapshot"
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
@@ -67,17 +66,10 @@ type schedulerHooks struct {
 }
 
 type schedulerOptions struct {
-	snapshotStoreFactory agentsnapshot.StoreFactory
-	profileResolver      DAGProfileResolver
+	profileResolver DAGProfileResolver
 }
 
 type Option func(*schedulerOptions)
-
-func WithSnapshotStoreFactory(factory agentsnapshot.StoreFactory) Option {
-	return func(opts *schedulerOptions) {
-		opts.snapshotStoreFactory = factory
-	}
-}
 
 func WithDAGProfileResolver(resolver DAGProfileResolver) Option {
 	return func(opts *schedulerOptions) {
@@ -157,7 +149,6 @@ func newScheduler(
 		subCmdBuilder,
 		cfg.DefaultExecMode,
 		cfg.Paths.BaseConfig,
-		buildSnapshotBuilder(cfg.Paths, dagStore, options.snapshotStoreFactory),
 		WithDAGExecutorProfileResolver(options.profileResolver),
 	)
 	healthServer := NewHealthServer(cfg.Scheduler.Port)

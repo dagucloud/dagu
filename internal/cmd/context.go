@@ -233,9 +233,9 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 	if quiet {
 		opts = append(opts, logger.WithQuiet())
 	}
-	// For agent commands running in a terminal, suppress console output early
-	// to avoid debug logs cluttering the progress display or tree output
-	if !quiet && isAgentCommand(cmd.Name()) && term.IsTerminal(int(os.Stderr.Fd())) && os.Getenv("DISABLE_PROGRESS") == "" {
+	// For commands with progress output, suppress console output early to avoid
+	// debug logs cluttering the progress display or tree output.
+	if !quiet && isProgressOutputCommand(cmd.Name()) && term.IsTerminal(int(os.Stderr.Fd())) && os.Getenv("DISABLE_PROGRESS") == "" {
 		opts = append(opts, logger.WithQuiet())
 	}
 	if cfg.Core.LogFormat != "" {
@@ -443,24 +443,12 @@ func commandFamilyName(cmd *cobra.Command) string {
 	if isContextCommand(cmd) {
 		return "context"
 	}
-	if isAgentCLICommand(cmd) {
-		return "agent"
-	}
 	return cmd.Name()
 }
 
 func isContextCommand(cmd *cobra.Command) bool {
 	for current := cmd; current != nil; current = current.Parent() {
 		if current.Name() == "context" {
-			return true
-		}
-	}
-	return false
-}
-
-func isAgentCLICommand(cmd *cobra.Command) bool {
-	for current := cmd; current != nil; current = current.Parent() {
-		if current.Name() == "agent" {
 			return true
 		}
 	}
@@ -546,7 +534,7 @@ func serviceForCommand(cmdName string) config.Service {
 		return config.ServiceWorker
 	case "coordinator":
 		return config.ServiceCoordinator
-	case "start", "restart", "retry", "dry", "exec", "agent":
+	case "start", "restart", "retry", "dry", "exec":
 		return config.ServiceAgent
 	default:
 		// For all other commands (status, stop, validate, etc.), load all config
@@ -554,11 +542,9 @@ func serviceForCommand(cmdName string) config.Service {
 	}
 }
 
-// isAgentCommand returns true if the command name is an agent command
-// that displays progress or tree output.
-func isAgentCommand(cmdName string) bool {
+func isProgressOutputCommand(cmdName string) bool {
 	switch cmdName {
-	case "start", "restart", "retry", "dry", "exec", "agent":
+	case "start", "restart", "retry", "dry", "exec":
 		return true
 	default:
 		return false
@@ -593,6 +579,7 @@ func (c *Context) NewCoordinatorClient() coordinator.Client {
 }
 
 func (c *Context) SubWorkflowRunnerFactory() func(context.Context) (runtimeexec.SubWorkflowRunner, error) {
+	stores := c.runtimeStores()
 	return node.NewSubWorkflowRunnerFactory(node.SubWorkflowRunnerConfig{
 		DAGRunMgr: c.DAGRunMgr,
 		DAGStoreFactory: func(context.Context) (exec.DAGStore, error) {
@@ -601,7 +588,8 @@ func (c *Context) SubWorkflowRunnerFactory() func(context.Context) (runtimeexec.
 		DAGRunStore:       c.DAGRunStore,
 		QueueStore:        c.QueueStore,
 		StateStore:        c.StateStore,
-		AgentStores:       c.agentStores(),
+		SecretStore:       stores.SecretStore,
+		ProfileStore:      stores.ProfileStore,
 		ServiceRegistry:   c.ServiceRegistry,
 		PeerConfig:        c.Config.Core.Peer,
 		DefaultExecMode:   c.Config.DefaultExecMode,
@@ -668,12 +656,12 @@ func (c *Context) dagStore(cfg dagStoreConfig) (exec.DAGStore, error) {
 	})
 }
 
-// agentStoresResult holds the agent stores created by agentStores().
-type agentStoresResult = cmdprocess.AgentStores
+// runtimeStoresResult holds the stores created by runtimeStores().
+type runtimeStoresResult = cmdprocess.RuntimeStores
 
-// agentStores creates the agent store bundle for this command context.
-func (c *Context) agentStores() agentStoresResult {
-	return cmdprocess.NewAgentStores(c.Context, c.Config, c.ContextStore)
+// runtimeStores creates the runtime store bundle for this command context.
+func (c *Context) runtimeStores() runtimeStoresResult {
+	return cmdprocess.NewRuntimeStores(c.Context, c.Config)
 }
 
 // OpenLogFile creates and opens a log file for a given dag-run.

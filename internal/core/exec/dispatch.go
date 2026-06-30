@@ -58,7 +58,6 @@ type DispatchTask struct {
 	SourceFile   string
 
 	WorkerSelector map[string]string
-	AgentSnapshot  []byte
 
 	ExternalStepRetry bool
 

@@ -12,7 +12,6 @@ import {
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { components } from '../../../api/v1/schema';
 import { AppBarContext } from '../../../contexts/AppBarContext';
-import { usePageContext } from '../../../contexts/PageContext';
 import { RemoteNodeProvider } from '../../../contexts/RemoteNodeContext';
 import { UnsavedChangesProvider } from '../../../contexts/UnsavedChangesContext';
 import {
@@ -51,7 +50,6 @@ function DAGDetails() {
   const params = useParams<Params>();
   const navigate = useNavigate();
   const appBarContext = useContext(AppBarContext);
-  const { setContext } = usePageContext();
   const [searchParams] = useSearchParams();
 
   const dagRunId = searchParams.get('dagRunId');
@@ -82,20 +80,6 @@ function DAGDetails() {
     [remoteNode]
   );
   const fileName = params.fileName || '';
-
-  // Set page context for agent chat
-  useEffect(() => {
-    if (fileName) {
-      setContext({
-        dagFile: fileName,
-        dagRunId: dagRunId || undefined,
-        source: 'dag-details-page',
-      });
-    }
-    return () => {
-      setContext(null);
-    };
-  }, [fileName, dagRunId, setContext]);
 
   const dagSSE = useDAGSSE(fileName, !!fileName, remoteNode);
 

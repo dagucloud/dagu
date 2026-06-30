@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/dagucloud/dagu/internal/agentsnapshot"
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
@@ -39,8 +38,7 @@ type Engine struct {
 	logger          logger.Logger
 
 	dagStoreFactory      DAGStoreFactory
-	agentStoresFactory   AgentStoresFactory
-	snapshotStoreFactory agentsnapshot.StoreFactory
+	runtimeStoresFactory RuntimeStoresFactory
 }
 
 func New(ctx context.Context, opts Options) (*Engine, error) {
@@ -92,8 +90,7 @@ func New(ctx context.Context, opts Options) (*Engine, error) {
 		logger:          log,
 
 		dagStoreFactory:      persistence.DAGStoreFactory,
-		agentStoresFactory:   persistence.AgentStoresFactory,
-		snapshotStoreFactory: persistence.SnapshotStoreFactory,
+		runtimeStoresFactory: persistence.RuntimeStoresFactory,
 	}, nil
 }
 
@@ -207,14 +204,15 @@ func (e *Engine) coordinatorClient(opts DistributedOptions) (coordinator.Client,
 	return coordinator.New(registry, cfg), nil
 }
 
-func (e *Engine) subWorkflowRunnerFactory(stores AgentStores) func(context.Context) (runtimeexec.SubWorkflowRunner, error) {
+func (e *Engine) subWorkflowRunnerFactory(stores RuntimeStores) func(context.Context) (runtimeexec.SubWorkflowRunner, error) {
 	return node.NewSubWorkflowRunnerFactory(node.SubWorkflowRunnerConfig{
 		DAGRunMgr:         e.dagRunMgr,
 		DAGStore:          e.dagStore,
 		DAGRunStore:       e.dagRunStore,
 		RunStateStore:     e.runStateStore,
 		StateStore:        e.stateStore,
-		AgentStores:       stores,
+		SecretStore:       stores.SecretStore,
+		ProfileStore:      stores.ProfileStore,
 		ServiceRegistry:   e.serviceRegistry,
 		PeerConfig:        e.cfg.Core.Peer,
 		DefaultExecMode:   configExecutionMode(e.defaultMode),

@@ -20,7 +20,6 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/runtime"
-	"github.com/dagucloud/dagu/internal/runtime/builtin/agentstep"
 	"github.com/dagucloud/dagu/internal/runtime/builtin/chat"
 	"github.com/dagucloud/dagu/internal/test"
 	"github.com/google/uuid"
@@ -3511,29 +3510,6 @@ func TestNewEnvWithStepInfo(t *testing.T) {
 }
 
 func TestRunner_ChatMessagesHandler(t *testing.T) {
-	t.Run("BuiltinHarnessSupportsChatMessages", func(t *testing.T) {
-		t.Parallel()
-
-		step := newStep("harness1", withExecutorType("harness"))
-		step.ExecutorConfig.Config = map[string]any{"provider": core.HarnessProviderBuiltin}
-
-		assert.True(t, runtime.StepSupportsChatMessages(step))
-	})
-
-	t.Run("BuiltinHarnessFallbackSupportsChatMessages", func(t *testing.T) {
-		t.Parallel()
-
-		step := newStep("harness1", withExecutorType("harness"))
-		step.ExecutorConfig.Config = map[string]any{
-			"provider": "codex",
-			"fallback": []any{
-				map[string]any{"provider": core.HarnessProviderBuiltin},
-			},
-		}
-
-		assert.True(t, runtime.StepSupportsChatMessages(step))
-	})
-
 	t.Run("CLIHarnessDoesNotSupportChatMessages", func(t *testing.T) {
 		t.Parallel()
 
@@ -3713,125 +3689,9 @@ func TestRunner_ChatMessagesHandler(t *testing.T) {
 		assert.Equal(t, 0, handler.writeCalls)
 	})
 
-	t.Run("AgentStepSavesMessages", func(t *testing.T) {
-		t.Parallel()
-
-		handler := newMockMessagesHandler()
-		r := setupRunner(t, withMessagesHandler(handler))
-
-		plan := r.newPlan(t, newStep("agent1", withExecutorType(agentstep.MockExecutorType)))
-		result := plan.assertRun(t, core.Succeeded)
-		result.assertNodeStatus(t, "agent1", core.NodeSucceeded)
-
-		assert.Equal(t, 1, handler.writeCalls)
-		assert.NotEmpty(t, handler.messages["agent1"])
-
-		// Verify cost metadata was preserved
-		msgs := handler.messages["agent1"]
-		var foundCost bool
-		for _, m := range msgs {
-			if m.Metadata != nil && m.Metadata.Cost > 0 {
-				foundCost = true
-				assert.Equal(t, "openai", m.Metadata.Provider)
-				assert.Equal(t, "gpt-4", m.Metadata.Model)
-				assert.InDelta(t, 0.001, m.Metadata.Cost, 1e-9)
-			}
-		}
-		assert.True(t, foundCost, "expected at least one message with cost metadata")
-	})
-
-	t.Run("AgentStepInheritsFromDependency", func(t *testing.T) {
-		t.Parallel()
-
-		handler := newMockMessagesHandler()
-		handler.messages["step1"] = []exec.LLMMessage{
-			{Role: exec.RoleSystem, Content: "be helpful"},
-			{Role: exec.RoleUser, Content: "prior message"},
-		}
-
-		r := setupRunner(t, withMessagesHandler(handler))
-
-		plan := r.newPlan(t,
-			successStep("step1"),
-			newStep("agent1", withDepends("step1"), withExecutorType(agentstep.MockExecutorType)),
-		)
-		result := plan.assertRun(t, core.Succeeded)
-		result.assertNodeStatus(t, "agent1", core.NodeSucceeded)
-
-		assert.Equal(t, 1, handler.writeCalls)
-		// The mock prepends inherited context, so saved messages should contain the inherited ones
-		msgs := handler.messages["agent1"]
-		assert.True(t, len(msgs) > 2, "expected inherited + own messages")
-	})
-
-	t.Run("HandlerNotCalledForAgentStepWithNoMessages", func(t *testing.T) {
-		t.Parallel()
-
-		handler := newMockMessagesHandler()
-		r := setupRunner(t, withMessagesHandler(handler))
-
-		// agentStep helper creates a step with executor type "agent" (real executor),
-		// which will fail since no agent config is available — but the gate should
-		// allow the step through (setup/save calls won't panic).
-		plan := r.newPlan(t, agentStep("agent_fail"))
-		_ = plan.assertRun(t, core.Failed)
-
-		// Handler must not be called: step failed so saveChatMessages is skipped.
-		assert.Equal(t, 0, handler.writeCalls)
-	})
 }
 
 func TestSetupPushBackConversation(t *testing.T) {
-	t.Run("LoadsOwnMessagesForPushedBackAgentStep", func(t *testing.T) {
-		t.Parallel()
-
-		handler := newMockMessagesHandler()
-		// Pre-populate the step's own previous messages.
-		handler.messages["agent1"] = []exec.LLMMessage{
-			{Role: exec.RoleSystem, Content: "be helpful"},
-			{Role: exec.RoleUser, Content: "original prompt"},
-			{Role: exec.RoleAssistant, Content: "previous response"},
-		}
-		// Also set dependency messages to verify they get replaced.
-		handler.messages["dep1"] = []exec.LLMMessage{
-			{Role: exec.RoleUser, Content: "dep message"},
-		}
-
-		r := setupRunner(t, withMessagesHandler(handler))
-
-		step := newStep("agent1",
-			withExecutorType(core.ExecutorTypeAgent),
-			withDepends("dep1"),
-			withApproval(&core.ApprovalConfig{
-				Prompt: "review this",
-				Input:  []string{"FEEDBACK"},
-			}),
-		)
-
-		plan := r.newPlan(t, successStep("dep1"), step)
-		node := plan.GetNodeByName("agent1")
-		require.NotNil(t, node)
-
-		// Simulate push-back: set ApprovalIteration > 0
-		node.SetApprovalIteration(1)
-
-		ctx := context.Background()
-
-		// First, setupChatMessages sets dependency messages.
-		r.runner.SetupChatMessages(ctx, node)
-		msgs := node.GetChatMessages()
-		require.Len(t, msgs, 1)
-		assert.Equal(t, "dep message", msgs[0].Content)
-
-		// Then, setupPushBackConversation replaces with own messages.
-		r.runner.SetupPushBackConversation(ctx, node)
-		msgs = node.GetChatMessages()
-		require.Len(t, msgs, 3)
-		assert.Equal(t, "be helpful", msgs[0].Content)
-		assert.Equal(t, "original prompt", msgs[1].Content)
-		assert.Equal(t, "previous response", msgs[2].Content)
-	})
-
 	t.Run("LoadsOwnMessagesForPushedBackChatStep", func(t *testing.T) {
 		t.Parallel()
 
@@ -3879,19 +3739,19 @@ func TestSetupPushBackConversation(t *testing.T) {
 		t.Parallel()
 
 		handler := newMockMessagesHandler()
-		handler.messages["agent1"] = []exec.LLMMessage{
+		handler.messages["chat1"] = []exec.LLMMessage{
 			{Role: exec.RoleUser, Content: "should not load"},
 		}
 
 		r := setupRunner(t, withMessagesHandler(handler))
 
-		step := newStep("agent1",
-			withExecutorType(core.ExecutorTypeAgent),
+		step := newStep("chat1",
+			withExecutorType(core.ExecutorTypeChat),
 			withApproval(&core.ApprovalConfig{}),
 		)
 
 		plan := r.newPlan(t, step)
-		node := plan.GetNodeByName("agent1")
+		node := plan.GetNodeByName("chat1")
 		// ApprovalIteration is 0 (default) — no push-back
 
 		ctx := context.Background()
@@ -3902,7 +3762,7 @@ func TestSetupPushBackConversation(t *testing.T) {
 		assert.Empty(t, msgs)
 	})
 
-	t.Run("NoOpForNonAgentStep", func(t *testing.T) {
+	t.Run("NoOpForNonLLMStep", func(t *testing.T) {
 		t.Parallel()
 
 		handler := newMockMessagesHandler()
@@ -3928,23 +3788,23 @@ func TestSetupPushBackConversation(t *testing.T) {
 		assert.Empty(t, msgs)
 	})
 
-	t.Run("LoadsOwnMessagesForPushedBackAgentStepWithoutApprovalConfig", func(t *testing.T) {
+	t.Run("LoadsOwnMessagesForPushedBackChatStepWithoutApprovalConfig", func(t *testing.T) {
 		t.Parallel()
 
 		handler := newMockMessagesHandler()
-		handler.messages["agent1"] = []exec.LLMMessage{
+		handler.messages["chat1"] = []exec.LLMMessage{
 			{Role: exec.RoleUser, Content: "previous prompt"},
 			{Role: exec.RoleAssistant, Content: "previous response"},
 		}
 
 		r := setupRunner(t, withMessagesHandler(handler))
 
-		step := newStep("agent1",
-			withExecutorType(core.ExecutorTypeAgent),
+		step := newStep("chat1",
+			withExecutorType(core.ExecutorTypeChat),
 		)
 
 		plan := r.newPlan(t, step)
-		node := plan.GetNodeByName("agent1")
+		node := plan.GetNodeByName("chat1")
 		node.SetApprovalIteration(1)
 
 		ctx := context.Background()
@@ -3964,13 +3824,13 @@ func TestSetupPushBackConversation(t *testing.T) {
 
 		r := setupRunner(t, withMessagesHandler(handler))
 
-		step := newStep("agent1",
-			withExecutorType(core.ExecutorTypeAgent),
+		step := newStep("chat1",
+			withExecutorType(core.ExecutorTypeChat),
 			withApproval(&core.ApprovalConfig{}),
 		)
 
 		plan := r.newPlan(t, step)
-		node := plan.GetNodeByName("agent1")
+		node := plan.GetNodeByName("chat1")
 		node.SetApprovalIteration(1)
 
 		ctx := context.Background()

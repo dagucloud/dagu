@@ -14,7 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dagucloud/dagu/internal/agent"
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
@@ -27,10 +26,12 @@ import (
 	"github.com/dagucloud/dagu/internal/core/spec"
 	"github.com/dagucloud/dagu/internal/dagstate"
 	"github.com/dagucloud/dagu/internal/node"
+	"github.com/dagucloud/dagu/internal/profile"
 	"github.com/dagucloud/dagu/internal/proto/convert"
 	"github.com/dagucloud/dagu/internal/runtime"
 	rtagent "github.com/dagucloud/dagu/internal/runtime/agent"
 	"github.com/dagucloud/dagu/internal/runtime/workspacebundle"
+	"github.com/dagucloud/dagu/internal/secret"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
 	"github.com/dagucloud/dagu/internal/service/worker/coordreport"
 	dagutools "github.com/dagucloud/dagu/internal/tools"
@@ -58,12 +59,16 @@ type RemoteTaskHandlerConfig struct {
 	PeerConfig config.Peer
 	// Config is the main application configuration
 	Config *config.Config
-	// AgentStoresFactory creates backend-specific agent runtime stores.
-	AgentStoresFactory AgentStoresFactory
+	// SecretStore resolves Dagu-managed secrets during execution.
+	SecretStore secret.Store
+	// ProfileStore resolves profile values during execution.
+	ProfileStore profile.Store
 }
 
-// AgentStoresFactory wires backend-specific agent runtime stores.
-type AgentStoresFactory func(context.Context, *config.Config) agent.RuntimeStores
+type runtimeStores struct {
+	SecretStore  secret.Store
+	ProfileStore profile.Store
+}
 
 // NewRemoteTaskHandler creates a new TaskHandler that runs tasks in-process
 // with status pushing and log streaming to the coordinator.
@@ -78,28 +83,31 @@ func NewRemoteTaskHandler(cfg RemoteTaskHandlerConfig) TaskHandler {
 		}
 	}
 	return &remoteTaskHandler{
-		workerID:           cfg.WorkerID,
-		coordinatorClient:  cfg.CoordinatorClient,
-		dagStore:           cfg.DAGStore,
-		dagRunMgr:          cfg.DAGRunMgr,
-		stateStore:         stateStore,
-		serviceRegistry:    cfg.ServiceRegistry,
-		peerConfig:         cfg.PeerConfig,
-		config:             cfg.Config,
-		agentStoresFactory: cfg.AgentStoresFactory,
+		workerID:          cfg.WorkerID,
+		coordinatorClient: cfg.CoordinatorClient,
+		dagStore:          cfg.DAGStore,
+		dagRunMgr:         cfg.DAGRunMgr,
+		stateStore:        stateStore,
+		serviceRegistry:   cfg.ServiceRegistry,
+		peerConfig:        cfg.PeerConfig,
+		config:            cfg.Config,
+		runtimeStores: runtimeStores{
+			SecretStore:  cfg.SecretStore,
+			ProfileStore: cfg.ProfileStore,
+		},
 	}
 }
 
 type remoteTaskHandler struct {
-	workerID           string
-	coordinatorClient  coordinator.Client
-	dagStore           exec.DAGStore
-	dagRunMgr          runtime.Manager
-	stateStore         dagstate.Store
-	serviceRegistry    exec.ServiceRegistry
-	peerConfig         config.Peer
-	config             *config.Config
-	agentStoresFactory AgentStoresFactory
+	workerID          string
+	coordinatorClient coordinator.Client
+	dagStore          exec.DAGStore
+	dagRunMgr         runtime.Manager
+	stateStore        dagstate.Store
+	serviceRegistry   exec.ServiceRegistry
+	peerConfig        config.Peer
+	config            *config.Config
+	runtimeStores     runtimeStores
 }
 
 // Handle executes a task in-process with remote status/log streaming
@@ -144,7 +152,7 @@ func (h *remoteTaskHandler) handleStart(ctx context.Context, task *coordinatorv1
 	}
 
 	statusPusher, logStreamer, artifactUploader := h.createRemoteHandlers(task.DagRunId, dag.Name, root, owner)
-	err = h.executeDAGRun(ctx, dag, task.DagRunId, task.AttemptId, task.AttemptKey, task.ScheduleTime, root, parent, owner, statusPusher, logStreamer, artifactUploader, queuedRun, nil, task.AgentSnapshot, taskExtraEnvs(task), task.ProfileName)
+	err = h.executeDAGRun(ctx, dag, task.DagRunId, task.AttemptId, task.AttemptKey, task.ScheduleTime, root, parent, owner, statusPusher, logStreamer, artifactUploader, queuedRun, nil, taskExtraEnvs(task), task.ProfileName)
 	var initErr *taskInitError
 	if errors.As(err, &initErr) {
 		h.reportTaskInitFailure(ctx, task, root, parent, statusPusher, initErr.err, task.ProfileName)
@@ -189,7 +197,7 @@ func (h *remoteTaskHandler) handleRetry(ctx context.Context, task *coordinatorv1
 		target:      status,
 		stepName:    task.Step,
 		triggerType: triggerType,
-	}, task.AgentSnapshot, taskExtraEnvs(task), profileName)
+	}, taskExtraEnvs(task), profileName)
 	var initErr *taskInitError
 	if errors.As(err, &initErr) {
 		h.reportTaskInitFailure(ctx, task, root, parent, statusPusher, initErr.err, profileName)
@@ -296,8 +304,6 @@ type retryConfig struct {
 	triggerType core.TriggerType
 }
 
-type agentStoreBundle = agent.RuntimeStores
-
 type taskInitError struct {
 	err error
 }
@@ -350,42 +356,6 @@ func (h *remoteTaskHandler) createRemoteHandlers(dagRunID, dagName string, root 
 		target,
 	)
 	return statusPusher, logStreamer, artifactUploader
-}
-
-// agentStores creates the agent config, model, soul, memory, and OAuth stores from the config paths.
-func (h *remoteTaskHandler) agentStores(ctx context.Context) agentStoreBundle {
-	if h.agentStoresFactory == nil {
-		return agentStoreBundle{}
-	}
-	return h.agentStoresFactory(ctx, h.config)
-}
-
-func (h *remoteTaskHandler) agentStoresFromSnapshot(ctx context.Context, snapshotPayload []byte) (agentStoreBundle, error) {
-	snapshot, err := agent.UnmarshalSnapshot(snapshotPayload)
-	if err != nil {
-		return agentStoreBundle{}, err
-	}
-	if snapshot == nil {
-		return agentStoreBundle{}, fmt.Errorf("agent snapshot is empty")
-	}
-
-	stores := agent.NewSnapshotStores(snapshot)
-	if stores.ConfigStore == nil {
-		return agentStoreBundle{}, fmt.Errorf("agent snapshot is missing config")
-	}
-	if stores.ModelStore == nil {
-		return agentStoreBundle{}, fmt.Errorf("agent snapshot is missing models")
-	}
-
-	runtimeStores := h.agentStores(ctx)
-	return agentStoreBundle{
-		ConfigStore:  stores.ConfigStore,
-		ModelStore:   stores.ModelStore,
-		SoulStore:    stores.SoulStore,
-		MemoryStore:  stores.MemoryStore,
-		SecretStore:  runtimeStores.SecretStore,
-		ProfileStore: runtimeStores.ProfileStore,
-	}, nil
 }
 
 // loadDAG loads the DAG from task definition.
@@ -561,7 +531,6 @@ func (h *remoteTaskHandler) executeDAGRun(
 	artifactUploader runtime.ArtifactFinalizer,
 	queuedRun bool,
 	retry *retryConfig,
-	agentSnapshot []byte,
 	extraEnvs []string,
 	profileName string,
 ) error {
@@ -599,16 +568,7 @@ func (h *remoteTaskHandler) executeDAGRun(
 	// Configure logger to use the streaming writer
 	ctx = logger.WithLogger(ctx, logger.NewLogger(logger.WithWriter(logWriter)))
 
-	// Create agent stores for agent step execution
-	var agentStores agentStoreBundle
-	if len(agentSnapshot) > 0 {
-		agentStores, err = h.agentStoresFromSnapshot(ctx, agentSnapshot)
-		if err != nil {
-			return newTaskInitError(fmt.Errorf("hydrate agent snapshot: %w", err))
-		}
-	} else {
-		agentStores = h.agentStores(ctx)
-	}
+	runtimeStores := h.runtimeStores
 
 	toolEnvs, err := h.prepareDAGTools(ctx, dag)
 	if err != nil {
@@ -620,7 +580,8 @@ func (h *remoteTaskHandler) executeDAGRun(
 		DAGRunMgr:         h.dagRunMgr,
 		DAGStore:          h.dagStore,
 		StateStore:        h.stateStore,
-		AgentStores:       agentStores,
+		SecretStore:       runtimeStores.SecretStore,
+		ProfileStore:      runtimeStores.ProfileStore,
 		ServiceRegistry:   h.serviceRegistry,
 		PeerConfig:        h.peerConfig,
 		DefaultExecMode:   h.config.DefaultExecMode,
@@ -659,9 +620,9 @@ func (h *remoteTaskHandler) executeDAGRun(
 		QueuedRun:                queuedRun,
 		AttemptID:                attemptID,
 		StateStore:               h.stateStore,
-		SecretStore:              agentStores.SecretStore,
+		SecretStore:              runtimeStores.SecretStore,
 		SecretReferenceResolver:  h.secretReferenceResolver(dag, owner, coordinator.SecretReferenceRun{WorkerID: h.workerID, AttemptKey: attemptKey, AttemptID: attemptID}),
-		ProfileStore:             agentStores.ProfileStore,
+		ProfileStore:             runtimeStores.ProfileStore,
 		ProfileName:              profileName,
 		ServiceRegistry:          h.serviceRegistry,
 		SubWorkflowRunnerFactory: subWorkflowRunnerFactory,
@@ -669,11 +630,6 @@ func (h *remoteTaskHandler) executeDAGRun(
 		RootDAGRun:               root,
 		PeerConfig:               h.peerConfig,
 		DefaultExecMode:          h.config.DefaultExecMode,
-		AgentConfigStore:         agentStores.ConfigStore,
-		AgentModelStore:          agentStores.ModelStore,
-		AgentSoulStore:           agentStores.SoulStore,
-		AgentMemoryStore:         agentStores.MemoryStore,
-		AgentOAuthManager:        agentStores.OAuthManager,
 		ScheduleTime:             scheduleTime,
 		ArtifactDir:              env.artifactDir,
 		ArtifactFinalizer:        artifactUploader,

@@ -668,6 +668,14 @@ func TestRetry(t *testing.T) {
 		assert.Contains(t, spec.Args, "--step=step-1")
 	})
 
+	t.Run("RetryWithRootDAGRun", func(t *testing.T) {
+		t.Parallel()
+		root := exec.NewDAGRunRef("root-dag", "root-run-id")
+		spec := builder.RetryWithRootDAGRun(dag, "child-run-id", "", root)
+
+		assert.Contains(t, spec.Args, "--root=root-dag:root-run-id")
+	})
+
 	t.Run("RetryWithAllOptions", func(t *testing.T) {
 		t.Parallel()
 		spec := builder.Retry(dag, "full-retry-id", "step-2")
