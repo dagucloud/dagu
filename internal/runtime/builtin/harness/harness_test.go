@@ -200,18 +200,6 @@ func TestValidateHarnessStep(t *testing.T) {
 		assert.Contains(t, err.Error(), "config.provider is required")
 	})
 
-	t.Run("builtin_provider", func(t *testing.T) {
-		err := validateHarnessStep(core.Step{
-			Commands: []core.CommandEntry{{Command: "prompt"}},
-			ExecutorConfig: core.ExecutorConfig{Config: map[string]any{
-				"provider":       "builtin",
-				"model":          "coder-default",
-				"max_iterations": 20,
-			}},
-		})
-		assert.NoError(t, err)
-	})
-
 	t.Run("templated_provider_allowed", func(t *testing.T) {
 		err := validateHarnessStep(core.Step{
 			Commands:       []core.CommandEntry{{Command: "prompt"}},
@@ -288,15 +276,6 @@ func TestResolveProvider(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, []string{"-p", "hello"}, args)
 		assert.Equal(t, "context", mustReadAll(t, stdin))
-	})
-
-	t.Run("builtin_agent", func(t *testing.T) {
-		cfg, err := resolveProvider(map[string]any{"provider": "builtin"}, nil)
-		require.NoError(t, err)
-		assert.Equal(t, "builtin", cfg.name)
-		assert.Empty(t, cfg.binaryName())
-		assert.Nil(t, cfg.provider)
-		assert.Nil(t, cfg.definition)
 	})
 
 	t.Run("custom_definition", func(t *testing.T) {
@@ -421,100 +400,6 @@ func TestBuildProviderConfigs(t *testing.T) {
 		}, configs[0].flags)
 	})
 
-	t.Run("builtin_agent_with_cli_fallback", func(t *testing.T) {
-		configs, err := buildProviderConfigs(map[string]any{
-			"provider":       "builtin",
-			"model":          "coder-default",
-			"max_iterations": 20,
-			"fallback": []any{
-				map[string]any{"provider": "codex"},
-			},
-		}, nil)
-		require.NoError(t, err)
-		require.Len(t, configs, 2)
-		assert.Equal(t, "builtin", configs[0].name)
-		assert.Equal(t, map[string]any{
-			"provider":       "builtin",
-			"model":          "coder-default",
-			"max_iterations": 20,
-		}, configs[0].flags)
-		assert.Equal(t, "codex", configs[1].name)
-	})
-
-	t.Run("cli_provider_with_builtin_agent_fallback", func(t *testing.T) {
-		configs, err := buildProviderConfigs(map[string]any{
-			"provider": "codex",
-			"fallback": []any{
-				map[string]any{
-					"provider": "builtin",
-					"model":    "coder-default",
-				},
-			},
-		}, nil)
-		require.NoError(t, err)
-		require.Len(t, configs, 2)
-		assert.Equal(t, "codex", configs[0].name)
-		assert.Equal(t, "builtin", configs[1].name)
-		assert.Equal(t, map[string]any{
-			"provider": "builtin",
-			"model":    "coder-default",
-		}, configs[1].flags)
-	})
-
-	t.Run("builtin_agent_rejects_cli_flags", func(t *testing.T) {
-		_, err := buildProviderConfigs(map[string]any{
-			"provider":  "builtin",
-			"model":     "coder-default",
-			"full-auto": true,
-		}, nil)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), `unsupported builtin provider field "full-auto"`)
-	})
-}
-
-func TestBuiltinAgentStep(t *testing.T) {
-	exec := &harnessExecutor{
-		step: core.Step{
-			ID:   "review",
-			Name: "Review",
-			Approval: &core.ApprovalConfig{
-				Input: []string{"FEEDBACK"},
-			},
-		},
-		prompt: "Review this repository",
-		script: "Use the current branch diff as context.",
-	}
-
-	step, err := exec.builtinAgentStep(providerConfig{
-		name:    "builtin",
-		builtin: true,
-		flags: map[string]any{
-			"provider":       "builtin",
-			"model":          "coder-default",
-			"max_iterations": uint64(20),
-			"safe_mode":      false,
-			"tools": map[string]any{
-				"enabled": []any{"read", "bash", "think"},
-			},
-			"memory": map[string]any{
-				"enabled": true,
-			},
-		},
-	})
-	require.NoError(t, err)
-
-	assert.Equal(t, core.ExecutorTypeAgent, step.ExecutorConfig.Type)
-	require.Len(t, step.Messages, 1)
-	assert.Equal(t, core.LLMRoleUser, step.Messages[0].Role)
-	assert.Equal(t, "Review this repository\n\nUse the current branch diff as context.", step.Messages[0].Content)
-	require.NotNil(t, step.Agent)
-	assert.Equal(t, "coder-default", step.Agent.Model)
-	assert.Equal(t, 20, step.Agent.MaxIterations)
-	assert.False(t, step.Agent.SafeMode)
-	assert.Equal(t, []string{"read", "bash", "think"}, step.Agent.Tools.Enabled)
-	require.NotNil(t, step.Agent.Memory)
-	assert.True(t, step.Agent.Memory.Enabled)
-	assert.Equal(t, []string{"FEEDBACK"}, step.Approval.Input)
 }
 
 func TestProviderConfigBuildInvocation(t *testing.T) {
@@ -1021,22 +906,6 @@ func osUnsetForTest(t *testing.T, key string) {
 	})
 }
 
-// TestRunOnce_BuiltinProviderWithContainerRejected covers the daemon-free rejection
-// path: a builtin (in-process) provider cannot run inside a container. The error
-// must surface before any SDK client is initialized, so no Docker daemon is needed.
-func TestRunOnce_BuiltinProviderWithContainerRejected(t *testing.T) {
-	exec := &harnessExecutor{
-		step: core.Step{
-			Name:      "review",
-			Container: &core.Container{Image: "localhost/reviewer:latest"},
-		},
-	}
-	_, err := exec.runOnce(context.Background(), providerConfig{name: "builtin", builtin: true})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "builtin provider does not support container execution")
-	assert.Equal(t, 1, exec.ExitCode())
-}
-
 // TestRunContainerOnce_StdinScriptRejected covers the daemon-free rejection path:
 // containerized harness does not support stdin input, because Client.Run has no
 // stdin. The script + container combination is rejected earlier at validation
@@ -1070,10 +939,8 @@ func TestRunContainerOnce_StdinScriptRejected(t *testing.T) {
 
 // TestValidateHarnessStep_ScriptWithContainerRejected proves the script + container
 // combination fails fast at DAG-load validation rather than at run time. The
-// containerized agent runs via Client.Run which has no stdin, so a script (piped
-// to stdin on the host path) cannot be delivered. The executor advertises both
-// Script and Container capability, so without this validation a scripted harness
-// step that adds container: would pass load and only fail mid-run.
+// containerized harness provider runs via Client.Run which has no stdin, so a
+// script piped to stdin on the host path cannot be delivered.
 func TestValidateHarnessStep_ScriptWithContainerRejected(t *testing.T) {
 	step := core.Step{
 		Name:           "review",

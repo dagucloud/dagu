@@ -1,10 +1,9 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import React, { useCallback, useContext, useEffect } from 'react';
+import React, { useCallback, useContext } from 'react';
 import { useParams } from 'react-router-dom';
 import { AppBarContext } from '../../../contexts/AppBarContext';
-import { usePageContext } from '../../../contexts/PageContext';
 import { RemoteNodeProvider } from '../../../contexts/RemoteNodeContext';
 import { DAGRunDetailsContent } from '../../../features/dag-runs/components/dag-run-details';
 import { DAGRunContext } from '../../../features/dag-runs/contexts/DAGRunContext';
@@ -54,7 +53,6 @@ function ErrorDisplay({ error, name, dagRunId }: ErrorDisplayProps) {
 function DAGRunDetailsPage() {
   const { name, dagRunId = 'latest' } = useParams();
   const appBarContext = useContext(AppBarContext);
-  const { setContext } = usePageContext();
 
   const searchParams = new URLSearchParams(window.location.search);
   const subDAGRunId = searchParams.get('subDAGRunId');
@@ -115,19 +113,6 @@ function DAGRunDetailsPage() {
     return name || '';
   }
   const displayName = getDisplayName();
-
-  useEffect(() => {
-    if (!displayName) {
-      return;
-    }
-    setContext({
-      dagFile: displayName,
-      dagRunId: displayDAGRunId || undefined,
-      dagRunName: displayName,
-      source: 'dag-run-details-page',
-    });
-    return () => setContext(null);
-  }, [displayName, displayDAGRunId, setContext]);
 
   if (error && !dagRunDetails) {
     return <ErrorDisplay error={error} name={name} dagRunId={dagRunId} />;

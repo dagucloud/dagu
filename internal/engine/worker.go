@@ -53,16 +53,18 @@ func (e *Engine) NewWorker(opts WorkerOptions) (*Worker, error) {
 		return nil, err
 	}
 	labels := cloneStringMap(opts.Labels)
+	stores := e.runtimeStores(context.Background())
 	w := worker.NewWorker(workerID, maxActiveRuns, client, labels, &cfg)
 	w.SetHandler(worker.NewRemoteTaskHandler(worker.RemoteTaskHandlerConfig{
-		WorkerID:           workerID,
-		CoordinatorClient:  client,
-		DAGStore:           e.dagStore,
-		DAGRunMgr:          e.dagRunMgr,
-		ServiceRegistry:    e.serviceRegistry,
-		PeerConfig:         cfg.Core.Peer,
-		Config:             &cfg,
-		AgentStoresFactory: worker.AgentStoresFactory(e.agentStoresFactory),
+		WorkerID:          workerID,
+		CoordinatorClient: client,
+		DAGStore:          e.dagStore,
+		DAGRunMgr:         e.dagRunMgr,
+		ServiceRegistry:   e.serviceRegistry,
+		PeerConfig:        cfg.Core.Peer,
+		Config:            &cfg,
+		SecretStore:       stores.SecretStore,
+		ProfileStore:      stores.ProfileStore,
 	}))
 	return &Worker{inner: w}, nil
 }

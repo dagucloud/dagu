@@ -138,8 +138,6 @@ message Task {
   string claim_token = 24;
   // Original DAG file path for provenance-aware reschedule-from-file behavior.
   string source_file = 25;
-  // Opaque execution-scoped agent settings snapshot for distributed workers.
-  bytes agent_snapshot = 26;
   // Content-addressed workspace bundle for action sub-DAGs.
   string workspace_bundle_digest = 27;
   int64 workspace_bundle_size = 28;

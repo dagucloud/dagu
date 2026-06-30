@@ -15,7 +15,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dagucloud/dagu/internal/agentsnapshot"
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
@@ -363,13 +362,6 @@ func (r *Runner) taskOptions(
 		options = append(options, executor.WithProfileName(req.ProfileName))
 	}
 
-	snapshot, err := agentsnapshot.BuildFromContext(ctx, req.DAG)
-	if err != nil {
-		return nil, fmt.Errorf("build distributed agent snapshot: %w", err)
-	}
-	if len(snapshot) > 0 {
-		options = append(options, executor.WithAgentSnapshot(snapshot))
-	}
 	if req.Workspace != nil {
 		options = append(options, executor.WithWorkspaceBundle(req.Workspace.Descriptor))
 	}

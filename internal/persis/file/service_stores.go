@@ -10,8 +10,11 @@ import (
 	"path/filepath"
 
 	authmodel "github.com/dagucloud/dagu/internal/auth"
+	"github.com/dagucloud/dagu/internal/clicontext"
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/cmn/crypto"
+	"github.com/dagucloud/dagu/internal/cmn/logger"
+	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/core/baseconfig"
 	"github.com/dagucloud/dagu/internal/dagsettings"
 	"github.com/dagucloud/dagu/internal/githubdispatch"
@@ -25,7 +28,9 @@ import (
 	filenotification "github.com/dagucloud/dagu/internal/persis/file/notification"
 	"github.com/dagucloud/dagu/internal/persis/file/tokensecret"
 	"github.com/dagucloud/dagu/internal/persis/store"
+	"github.com/dagucloud/dagu/internal/profile"
 	"github.com/dagucloud/dagu/internal/remotenode"
+	"github.com/dagucloud/dagu/internal/secret"
 	"github.com/dagucloud/dagu/internal/service/audit"
 	"github.com/dagucloud/dagu/internal/service/eventstore"
 	"github.com/dagucloud/dagu/internal/upgrade"
@@ -53,6 +58,56 @@ func NewWorkspaceBaseConfigStore(dagsDir, workspaceName string) (baseconfig.Stor
 		workspace.BaseConfigPath(dagsDir, workspaceName),
 		WithBaseConfigSkipDefault(true),
 	)
+}
+
+// NewSecretStore wires the encrypted file-backed secret store from config paths.
+func NewSecretStore(ctx context.Context, cfg *config.Config) secret.Store {
+	if cfg == nil || cfg.Paths.DataDir == "" {
+		return nil
+	}
+	if encKey, encErr := crypto.ResolveKey(cfg.Paths.DataDir); encErr != nil {
+		logger.Warn(ctx, "Failed to resolve encryption key for secret store", tag.Error(encErr))
+	} else if enc, encErr := crypto.NewEncryptor(encKey); encErr != nil {
+		logger.Warn(ctx, "Failed to create encryptor for secret store", tag.Error(encErr))
+	} else if secretStore, storeErr := store.NewSecretStore(
+		NewCollection(filepath.Join(cfg.Paths.DataDir, "secrets"), WithIndentedJSON()), enc,
+	); storeErr != nil {
+		logger.Warn(ctx, "Failed to create secret store", tag.Error(storeErr))
+	} else {
+		return secretStore
+	}
+	return nil
+}
+
+// NewProfileStore wires the file-backed runtime profile store from config paths.
+func NewProfileStore(ctx context.Context, cfg *config.Config) profile.Store {
+	if cfg == nil || cfg.Paths.DataDir == "" {
+		return nil
+	}
+	profileStore, err := store.NewProfileStore(
+		NewCollection(filepath.Join(cfg.Paths.DataDir, "profiles"), WithIndentedJSON()),
+	)
+	if err != nil {
+		logger.Warn(ctx, "Failed to create profile store", tag.Error(err))
+		return nil
+	}
+	return profileStore
+}
+
+// NewContextStore wires the encrypted file-backed CLI context store from config paths.
+func NewContextStore(cfg *config.Config) (*clicontext.Store, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("file: config cannot be nil")
+	}
+	encKey, err := crypto.ResolveKey(cfg.Paths.DataDir)
+	if err != nil {
+		return nil, err
+	}
+	enc, err := crypto.NewEncryptor(encKey)
+	if err != nil {
+		return nil, err
+	}
+	return clicontext.NewStore(cfg.Paths.ContextsDir, enc)
 }
 
 // AuditStore is a file-backed audit store with an optional background cleaner.

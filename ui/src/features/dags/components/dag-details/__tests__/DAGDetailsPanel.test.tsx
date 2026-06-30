@@ -6,7 +6,6 @@ import React from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AppBarContext } from '@/contexts/AppBarContext';
-import { PageContextProvider } from '@/contexts/PageContext';
 import { useQuery } from '@/hooks/api';
 import { useDAGRunSSE } from '@/hooks/useDAGRunSSE';
 import { useDAGSSE } from '@/hooks/useDAGSSE';
@@ -46,7 +45,10 @@ vi.mock('../DAGDetailsContent', () => ({
     fillHeight?: boolean;
   }) => (
     <div>
-      <div data-fill-height={String(fillHeight)} data-testid="dag-details-content">
+      <div
+        data-fill-height={String(fillHeight)}
+        data-testid="dag-details-content"
+      >
         Previewing {dag.name} [{activeTab}] {dagRunId || 'latest'}
       </div>
       <div>
@@ -85,11 +87,9 @@ const useQueryMock = useQuery as unknown as {
 function renderPanel(appBarOverride?: Partial<typeof appBarValue>) {
   return render(
     <MemoryRouter>
-      <PageContextProvider>
-        <AppBarContext.Provider value={{ ...appBarValue, ...appBarOverride }}>
-          <DAGDetailsPanel fileName="example" onClose={vi.fn()} />
-        </AppBarContext.Provider>
-      </PageContextProvider>
+      <AppBarContext.Provider value={{ ...appBarValue, ...appBarOverride }}>
+        <DAGDetailsPanel fileName="example" onClose={vi.fn()} />
+      </AppBarContext.Provider>
     </MemoryRouter>
   );
 }

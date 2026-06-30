@@ -198,7 +198,6 @@ Current builtin actions:
 | `dag.enqueue` | Asynchronous child DAG enqueue | `dag`, optional `params`, optional `queue` |
 | `router.route` | Conditional routing | `value`, `routes` |
 | `chat.completion` | LLM chat completion | `prompt` or `messages`, model config |
-| `agent.run` | Agent step execution | `task`, `prompt`, or `messages`, agent config |
 | `harness.run` | CLI coding-agent harnesses | `prompt`, provider config, optional `stdin` |
 | `template.render` | Text/template rendering | `template`, optional data/config |
 | `log.write` | Log messages | `message` |

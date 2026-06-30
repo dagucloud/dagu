@@ -14,14 +14,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/internal/agent"
 	"github.com/dagucloud/dagu/internal/cmn/backoff"
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/dagstate"
-	"github.com/dagucloud/dagu/internal/persis/file"
 	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/persis/testutil"
 	"github.com/dagucloud/dagu/internal/proto/convert"
@@ -623,110 +621,6 @@ func TestCreateRemoteHandlers(t *testing.T) {
 		require.NotNil(t, logStreamer)
 		require.NotNil(t, artifactUploader)
 	})
-}
-
-func TestAgentStoresFromSnapshot_HydratesSnapshotStores(t *testing.T) {
-	t.Parallel()
-
-	handler := &remoteTaskHandler{
-		config: &config.Config{
-			Paths: config.PathsConfig{
-				DataDir: t.TempDir(),
-			},
-		},
-		agentStoresFactory: func(ctx context.Context, cfg *config.Config) agent.RuntimeStores {
-			return file.NewAgentStores(ctx, cfg)
-		},
-	}
-	payload, err := agent.MarshalSnapshot(&agent.Snapshot{
-		Config: &agent.Config{
-			Enabled:        true,
-			DefaultModelID: "model-default",
-		},
-		Models: []*agent.ModelConfig{
-			{
-				ID:       "model-default",
-				Name:     "Default",
-				Provider: "openai",
-				Model:    "gpt-5.4",
-				APIKey:   "test-key",
-			},
-		},
-		Souls: []*agent.Soul{
-			{ID: "helper", Name: "Helper", Content: "be precise"},
-		},
-		Memory: &agent.MemorySnapshot{
-			Global: "global memory",
-			PerDAG: map[string]string{"snapshot-dag": "dag memory"},
-		},
-	})
-	require.NoError(t, err)
-
-	stores, err := handler.agentStoresFromSnapshot(context.Background(), payload)
-	require.NoError(t, err)
-	require.NotNil(t, stores.ConfigStore)
-	require.NotNil(t, stores.ModelStore)
-	require.NotNil(t, stores.SoulStore)
-	require.NotNil(t, stores.MemoryStore)
-	require.NotNil(t, stores.SecretStore)
-	assert.Nil(t, stores.OAuthManager)
-
-	cfg, err := stores.ConfigStore.Load(context.Background())
-	require.NoError(t, err)
-	assert.Equal(t, "model-default", cfg.DefaultModelID)
-	model, err := stores.ModelStore.GetByID(context.Background(), "model-default")
-	require.NoError(t, err)
-	assert.Equal(t, "gpt-5.4", model.Model)
-	soul, err := stores.SoulStore.GetByID(context.Background(), "helper")
-	require.NoError(t, err)
-	assert.Equal(t, "Helper", soul.Name)
-	globalMemory, err := stores.MemoryStore.LoadGlobalMemory(context.Background())
-	require.NoError(t, err)
-	assert.Equal(t, "global memory", globalMemory)
-}
-
-func TestHandleStart_InvalidSnapshotReportsInitFailure(t *testing.T) {
-	t.Parallel()
-
-	var reported *coordinatorv1.ReportStatusRequest
-	client := newMockRemoteCoordinatorClient()
-	client.ReportStatusFunc = func(_ context.Context, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
-		reported = req
-		return &coordinatorv1.ReportStatusResponse{Accepted: true}, nil
-	}
-
-	handler := NewRemoteTaskHandler(RemoteTaskHandlerConfig{
-		WorkerID:          "worker-1",
-		CoordinatorClient: client,
-		Config:            &config.Config{},
-	})
-
-	task := &coordinatorv1.Task{
-		Operation:      coordinatorv1.Operation_OPERATION_START,
-		Target:         "snapshot-dag",
-		RootDagRunName: "snapshot-dag",
-		RootDagRunId:   "run-1",
-		DagRunId:       "run-1",
-		Definition: `
-steps:
-  - name: main
-    run: echo hello
-`,
-		AgentSnapshot: []byte("not-a-valid-snapshot"),
-	}
-
-	err := handler.Handle(context.Background(), task)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "hydrate agent snapshot")
-	require.NotNil(t, reported)
-	require.NotNil(t, reported.Status)
-
-	status, convErr := convert.ProtoToDAGRunStatus(reported.Status)
-	require.NoError(t, convErr)
-	assert.Equal(t, core.Failed, status.Status)
-	assert.Equal(t, "snapshot-dag", status.Name)
-	assert.Equal(t, "run-1", status.DAGRunID)
-	assert.Contains(t, status.Error, "hydrate agent snapshot")
 }
 
 func TestCreateAgentEnv(t *testing.T) {
@@ -1675,7 +1569,7 @@ steps:
 	statusPusher, logStreamer, artifactUploader := handler.createRemoteHandlers("run-error", dag.Name, root)
 
 	// Call executeDAGRun directly - should fail at createAgentEnv
-	err := handler.executeDAGRun(context.Background(), dag, "run-error", "", "", "", root, parent, exec.HostInfo{}, statusPusher, logStreamer, artifactUploader, false, nil, nil, nil, "")
+	err := handler.executeDAGRun(context.Background(), dag, "run-error", "", "", "", root, parent, exec.HostInfo{}, statusPusher, logStreamer, artifactUploader, false, nil, nil, "")
 
 	// On systems where null byte in path fails, we should get an error
 	if err != nil {
@@ -1720,7 +1614,7 @@ steps:
 
 	// Call executeDAGRun - this should succeed and log completion
 	// For top-level runs, pass empty parent and ensure root matches dagRunID
-	err := handler.executeDAGRun(th.Context, dag.DAG, dagRunID, "", "", "", root, exec.DAGRunRef{}, exec.HostInfo{}, statusPusher, logStreamer, artifactUploader, false, nil, nil, nil, "")
+	err := handler.executeDAGRun(th.Context, dag.DAG, dagRunID, "", "", "", root, exec.DAGRunRef{}, exec.HostInfo{}, statusPusher, logStreamer, artifactUploader, false, nil, nil, "")
 
 	// Should succeed for simple echo command
 	require.NoError(t, err, "executeDAGRun should succeed for simple echo command")
@@ -1756,7 +1650,7 @@ func TestExecuteDAGRun_FailedExecutionStillUploadsArtifacts(t *testing.T) {
 	logStreamer := coordreport.NewLogStreamer(client, "integration-test-worker", dagRunID, dag.Name, "", root)
 	artifactUploader := coordreport.NewArtifactUploader(client, "integration-test-worker", dagRunID, dag.Name, "", root)
 
-	err := handler.executeDAGRun(th.Context, dag.DAG, dagRunID, "", "", "", root, exec.DAGRunRef{}, exec.HostInfo{}, statusPusher, logStreamer, artifactUploader, false, nil, nil, nil, "")
+	err := handler.executeDAGRun(th.Context, dag.DAG, dagRunID, "", "", "", root, exec.DAGRunRef{}, exec.HostInfo{}, statusPusher, logStreamer, artifactUploader, false, nil, nil, "")
 	require.Error(t, err)
 
 	var sawData bool
@@ -1820,7 +1714,7 @@ func TestExecuteDAGRun_ArtifactUploadFailureMarksRunFailed(t *testing.T) {
 	logStreamer := coordreport.NewLogStreamer(client, "integration-test-worker", dagRunID, dag.Name, "", root)
 	artifactUploader := coordreport.NewArtifactUploader(client, "integration-test-worker", dagRunID, dag.Name, "", root)
 
-	err := handler.executeDAGRun(th.Context, dag.DAG, dagRunID, "", "", "", root, exec.DAGRunRef{}, exec.HostInfo{}, statusPusher, logStreamer, artifactUploader, false, nil, nil, nil, "")
+	err := handler.executeDAGRun(th.Context, dag.DAG, dagRunID, "", "", "", root, exec.DAGRunRef{}, exec.HostInfo{}, statusPusher, logStreamer, artifactUploader, false, nil, nil, "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "upload artifacts")
 	reportedMu.Lock()
@@ -1876,7 +1770,7 @@ func TestExecuteDAGRun_FailedExecutionWithArtifactUploadFailurePreservesFailedSt
 	logStreamer := coordreport.NewLogStreamer(client, "integration-test-worker", dagRunID, dag.Name, "", root)
 	artifactUploader := coordreport.NewArtifactUploader(client, "integration-test-worker", dagRunID, dag.Name, "", root)
 
-	err := handler.executeDAGRun(th.Context, dag.DAG, dagRunID, "", "", "", root, exec.DAGRunRef{}, exec.HostInfo{}, statusPusher, logStreamer, artifactUploader, false, nil, nil, nil, "")
+	err := handler.executeDAGRun(th.Context, dag.DAG, dagRunID, "", "", "", root, exec.DAGRunRef{}, exec.HostInfo{}, statusPusher, logStreamer, artifactUploader, false, nil, nil, "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "upload artifacts")
 	reportedMu.Lock()

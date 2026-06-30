@@ -4,7 +4,6 @@
 package chatbridge
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -12,10 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dagucloud/dagu/internal/agent"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/dagucloud/dagu/internal/llm"
 	"github.com/dagucloud/dagu/internal/service/eventstore"
 )
 
@@ -526,26 +523,6 @@ DAG Run ID: %s`, intro, status.Name, status.Status.String(), status.DAGRunID)
 	return prompt.String()
 }
 
-// GenerateNotificationMessage returns the assistant message content for a flushed batch.
-func GenerateNotificationMessage(
-	ctx context.Context,
-	svc AgentService,
-	sessionID string,
-	user agent.UserIdentity,
-	batch NotificationBatch,
-) (agent.Message, error) {
-	if svc != nil && batch.Class == NotificationClassUrgent && len(batch.Events) == 1 {
-		status := batch.Events[0].Status
-		msg, err := svc.GenerateAssistantMessage(ctx, sessionID, user, status.Name, BuildNotificationPrompt(status))
-		if err == nil {
-			return msg, nil
-		}
-		return newNotificationMessage(FormatNotificationBatch(batch)), err
-	}
-
-	return newNotificationMessage(FormatNotificationBatch(batch)), nil
-}
-
 // FormatNotificationBatch renders a deterministic notification message for a flushed batch.
 func FormatNotificationBatch(batch NotificationBatch) string {
 	if len(batch.Events) == 0 {
@@ -751,18 +728,6 @@ func waitingNotificationDetail(status *exec.DAGRunStatus) string {
 		return trimNotificationDetail(detail)
 	}
 	return "Action is required to resume the DAG."
-}
-
-func newNotificationMessage(content string) agent.Message {
-	return agent.Message{
-		Type:      agent.MessageTypeAssistant,
-		Content:   content,
-		CreatedAt: time.Now(),
-		LLMData: &llm.Message{
-			Role:    llm.RoleAssistant,
-			Content: content,
-		},
-	}
 }
 
 func cloneNotificationStatus(status *exec.DAGRunStatus) *exec.DAGRunStatus {

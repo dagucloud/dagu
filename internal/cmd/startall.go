@@ -9,23 +9,15 @@ import (
 	"fmt"
 	"log/slog"
 	"os/signal"
-	"path/filepath"
 	"sync"
 	"syscall"
 	"time"
 
-	"github.com/dagucloud/dagu/internal/agent"
-	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
-	"github.com/dagucloud/dagu/internal/service/discord"
 	"github.com/dagucloud/dagu/internal/service/eventstore"
-	"github.com/dagucloud/dagu/internal/service/frontend"
-	"github.com/dagucloud/dagu/internal/service/line"
 	"github.com/dagucloud/dagu/internal/service/resource"
-	daguslack "github.com/dagucloud/dagu/internal/service/slack"
-	"github.com/dagucloud/dagu/internal/service/telegram"
 	"github.com/spf13/cobra"
 )
 
@@ -125,18 +117,8 @@ func runStartAll(ctx *Context, _ []string) error {
 	// Initialize resource monitoring service
 	resourceService := resource.NewService(ctx.Config)
 
-	// Capture the agent API via callback so it can be shared with bots
-	// without the server permanently exposing its internals.
-	var agentAPI *agent.API
-	var serverOpts []frontend.ServerOption
-	if ctx.Config.Bots.Provider != config.BotProviderNone {
-		serverOpts = append(serverOpts, frontend.WithAgentAPICallback(func(api *agent.API) {
-			agentAPI = api
-		}))
-	}
-
 	// Use serviceCtx so auth initialization can respond to termination signals
-	server, err := serviceCtx.NewServer(resourceService, serverOpts...)
+	server, err := serviceCtx.NewServer(resourceService)
 	if err != nil {
 		return fmt.Errorf("failed to initialize server: %w", err)
 	}
@@ -165,100 +147,6 @@ func runStartAll(ctx *Context, _ []string) error {
 		logger.Info(serviceCtx, "Coordinator disabled via configuration")
 	}
 
-	// Initialize bot if selected as provider
-	var tgBot *telegram.Bot
-	var slackBot *daguslack.Bot
-	var discordBot *discord.Bot
-	var lineBot *line.Bot
-	if agentAPI != nil {
-		switch ctx.Config.Bots.Provider {
-		case config.BotProviderTelegram:
-			tgBot, err = telegram.New(
-				telegram.Config{
-					Token:                 ctx.Config.Bots.Telegram.Token,
-					AllowedChatIDs:        ctx.Config.Bots.Telegram.AllowedChatIDs,
-					InterestedEventTypes:  ctx.Config.Bots.Telegram.InterestedEventTypes,
-					SafeMode:              ctx.Config.Bots.SafeMode,
-					EventService:          ctx.EventService,
-					NotificationStateFile: filepath.Join(ctx.Config.Paths.DataDir, "bots", "telegram", "notifications.json"),
-				},
-				agentAPI,
-				slog.Default(),
-			)
-			if err != nil {
-				logger.Warn(serviceCtx, "Failed to initialize Telegram bot", tag.Error(err))
-			} else {
-				logger.Info(serviceCtx, "Telegram bot initialized")
-			}
-
-		case config.BotProviderSlack:
-			slackBot, err = daguslack.New(
-				daguslack.Config{
-					BotToken:              ctx.Config.Bots.Slack.BotToken,
-					AppToken:              ctx.Config.Bots.Slack.AppToken,
-					AllowedChannelIDs:     ctx.Config.Bots.Slack.AllowedChannelIDs,
-					InterestedEventTypes:  ctx.Config.Bots.Slack.InterestedEventTypes,
-					RespondToAll:          ctx.Config.Bots.Slack.RespondToAll,
-					SafeMode:              ctx.Config.Bots.SafeMode,
-					EventService:          ctx.EventService,
-					NotificationStateFile: filepath.Join(ctx.Config.Paths.DataDir, "bots", "slack", "notifications.json"),
-				},
-				agentAPI,
-				slog.Default(),
-			)
-			if err != nil {
-				logger.Warn(serviceCtx, "Failed to initialize Slack bot", tag.Error(err))
-			} else {
-				logger.Info(serviceCtx, "Slack bot initialized")
-			}
-
-		case config.BotProviderDiscord:
-			discordBot, err = discord.New(
-				discord.Config{
-					Token:                 ctx.Config.Bots.Discord.Token,
-					AllowedChannelIDs:     ctx.Config.Bots.Discord.AllowedChannelIDs,
-					InterestedEventTypes:  ctx.Config.Bots.Discord.InterestedEventTypes,
-					RespondToAll:          ctx.Config.Bots.Discord.RespondToAll,
-					SafeMode:              ctx.Config.Bots.SafeMode,
-					EventService:          ctx.EventService,
-					NotificationStateFile: filepath.Join(ctx.Config.Paths.DataDir, "bots", "discord", "notifications.json"),
-				},
-				agentAPI,
-				slog.Default(),
-			)
-			if err != nil {
-				logger.Warn(serviceCtx, "Failed to initialize Discord bot", tag.Error(err))
-			} else {
-				logger.Info(serviceCtx, "Discord bot initialized")
-			}
-
-		case config.BotProviderLine:
-			lineBot, err = line.New(
-				line.Config{
-					ChannelAccessToken:    ctx.Config.Bots.Line.ChannelAccessToken,
-					ChannelSecret:         ctx.Config.Bots.Line.ChannelSecret,
-					AllowedSourceIDs:      ctx.Config.Bots.Line.AllowedSourceIDs,
-					InterestedEventTypes:  ctx.Config.Bots.Line.InterestedEventTypes,
-					RespondToAll:          ctx.Config.Bots.Line.RespondToAll,
-					SafeMode:              ctx.Config.Bots.SafeMode,
-					EventService:          ctx.EventService,
-					NotificationStateFile: filepath.Join(ctx.Config.Paths.DataDir, "bots", "line", "notifications.json"),
-				},
-				agentAPI,
-				slog.Default(),
-			)
-			if err != nil {
-				logger.Warn(serviceCtx, "Failed to initialize LINE bot", tag.Error(err))
-			} else {
-				server.RegisterRoutes(lineBot.ConfigureRoutes)
-				logger.Info(serviceCtx, "LINE bot initialized")
-			}
-
-		case config.BotProviderNone:
-			// No bot configured
-		}
-	}
-
 	// Start resource monitoring service (starts its own goroutine internally)
 	if err := resourceService.Start(serviceCtx); err != nil {
 		return fmt.Errorf("failed to start resource service: %w", err)
@@ -268,18 +156,6 @@ func runStartAll(ctx *Context, _ []string) error {
 	var wg sync.WaitGroup
 	serviceCount := 2 // scheduler + server
 	if coord != nil {
-		serviceCount++
-	}
-	if tgBot != nil {
-		serviceCount++
-	}
-	if slackBot != nil {
-		serviceCount++
-	}
-	if discordBot != nil {
-		serviceCount++
-	}
-	if lineBot != nil {
 		serviceCount++
 	}
 	errCh := make(chan error, serviceCount)
@@ -302,54 +178,6 @@ func runStartAll(ctx *Context, _ []string) error {
 			if err := coord.Start(serviceCtx.WithEventSource(eventstore.SourceServiceCoordinator)); err != nil {
 				select {
 				case errCh <- fmt.Errorf("coordinator failed: %w", err):
-				default:
-				}
-			}
-		})
-	}
-
-	// Start Telegram bot
-	if tgBot != nil {
-		wg.Go(func() {
-			if err := tgBot.Run(signalCtx); err != nil {
-				select {
-				case errCh <- fmt.Errorf("telegram bot failed: %w", err):
-				default:
-				}
-			}
-		})
-	}
-
-	// Start Slack bot
-	if slackBot != nil {
-		wg.Go(func() {
-			if err := slackBot.Run(signalCtx); err != nil {
-				select {
-				case errCh <- fmt.Errorf("slack bot failed: %w", err):
-				default:
-				}
-			}
-		})
-	}
-
-	// Start Discord bot
-	if discordBot != nil {
-		wg.Go(func() {
-			if err := discordBot.Run(signalCtx); err != nil {
-				select {
-				case errCh <- fmt.Errorf("discord bot failed: %w", err):
-				default:
-				}
-			}
-		})
-	}
-
-	// Start LINE bot background work
-	if lineBot != nil {
-		wg.Go(func() {
-			if err := lineBot.Run(signalCtx); err != nil {
-				select {
-				case errCh <- fmt.Errorf("line bot failed: %w", err):
 				default:
 				}
 			}

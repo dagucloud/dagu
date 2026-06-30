@@ -11,7 +11,7 @@ Load only the reference file that matches the task.
 
 - Prefer `type: graph` for new DAGs. It supports both sequential flow via `depends:` and parallel flow.
 - Prefer `id` on every step. Omit `name` unless the display label must differ from the step ID.
-- Prefer `dagu enqueue` over `dagu start` for agent-run workflows.
+- Prefer `dagu enqueue` over `dagu start` when an AI-assisted workflow may take a long time or should run through normal queue controls.
 - Prefer `dagu schema ...` and `dagu validate ...` over guessing field names or shapes.
 - Prefer `action: template.render` when generating text files, prompts, or artifacts instead of assembling them with shell `echo` or heredocs.
 - Prefer `file.*` actions for local file operations such as stat, read, write, copy, move, delete, mkdir, and list instead of shelling out to `cp`, `mv`, `rm`, or `mkdir`.
@@ -47,7 +47,7 @@ Load only the reference file that matches the task.
 - `parallel:` currently requires `action: dag.run` to a child DAG.
 - Sub-DAGs do not inherit parent env vars; pass what you need via `params:`.
 - For arbitrary text inside shell steps, prefer `printenv VAR_NAME` or `action: template.render` over Dagu interpolation such as `${env.VAR_NAME}`.
-- `harness.run` supports `provider: builtin`, Dagu CLI providers (`claude`, `codex`, `copilot`, `opencode`, `pi`), and custom top-level `harnesses:` entries. It can use top-level `container:` or step-level `container:`. A step-level container takes precedence for that step. Containerized harness runs support Dagu CLI providers and custom providers that pass the prompt as an argument or flag; they do not support `provider: builtin`, `with.stdin`, or custom `prompt_mode: stdin`.
+- `harness.run` supports Dagu CLI providers (`claude`, `codex`, `copilot`, `opencode`, `pi`) and custom top-level `harnesses:` entries. It can use top-level `container:` or step-level `container:`. A step-level container takes precedence for that step. Containerized harness runs support Dagu CLI providers and custom providers that pass the prompt as an argument or flag; they do not support `with.stdin` or custom `prompt_mode: stdin`.
 - Container runtime selection is service-level, not a DAG YAML field. Set `DAGU_CONTAINER_RUNTIME=podman` to use Podman, and set `DAGU_PODMAN_HOST` only when the Podman Docker-compatible socket is not the default.
 - DAG/action outputs are collected from string-form `output: VAR_NAME`, `stdout.outputs`, and `action: outputs.write`. Object-form `output:` stays step-scoped for `${step_id.output.*}` unless the workflow explicitly republishes values through `stdout.outputs` or `outputs.write`.
 - `state.get`, `state.set`, `state.delete`, `state.list`, and `state.diff` persist small JSON values across DAG runs. State scopes are `dag`, `root_dag`, `global`, and `custom`; use artifacts or external storage for large payloads.

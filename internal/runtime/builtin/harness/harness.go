@@ -43,7 +43,6 @@ const failedStdoutTailLimit = 1024
 
 type providerConfig struct {
 	name       string
-	builtin    bool
 	provider   Provider
 	definition *core.HarnessDefinition
 	flags      map[string]any
@@ -65,8 +64,6 @@ type harnessExecutor struct {
 	prompt                 string
 	script                 string // piped to stdin if present
 	workDir                string
-	cancelBuiltin          context.CancelFunc
-	builtinStopped         bool
 	contextMessages        []coreexec.LLMMessage
 	savedMessages          []coreexec.LLMMessage
 	pushBackInputs         map[string]string
@@ -115,11 +112,6 @@ func (e *harnessExecutor) Stop(intent cmdutil.TerminationIntent) error {
 func (e *harnessExecutor) stop(req cmdutil.StopRequest) error {
 	e.mu.Lock()
 	if e.process == nil {
-		if e.cancelBuiltin != nil {
-			e.builtinStopped = true
-			e.cancelBuiltin()
-			e.cancelBuiltin = nil
-		}
 		// Containerized run: cancel the run context and stop the container via
 		// the SDK so a cancelled step leaves no running orphan (Close auto-removes
 		// when AutoRemove is set, i.e. keep_container is false).
@@ -229,14 +221,6 @@ func (e *harnessExecutor) Run(ctx context.Context) error {
 
 func (e *harnessExecutor) runOnce(ctx context.Context, cfg providerConfig) (*os.File, error) {
 	hasRootContainer := rootContainerConfigured(ctx)
-
-	if cfg.builtin {
-		if e.step.Container != nil || hasRootContainer {
-			e.exitCode = 1
-			return nil, fmt.Errorf("harness: builtin provider does not support container execution")
-		}
-		return e.runBuiltinOnce(ctx, cfg)
-	}
 
 	if e.step.Container != nil {
 		return e.runContainerOnce(ctx, cfg)
@@ -956,9 +940,6 @@ func resolveProvider(cfg map[string]any, defs core.HarnessDefinitions) (provider
 	if isTemplatedValue(providerName) {
 		return providerConfig{}, fmt.Errorf("harness: unresolved provider template %q", providerName)
 	}
-	if core.IsBuiltinAgentHarnessProvider(providerName) {
-		return providerConfig{name: providerName, builtin: true}, nil
-	}
 	if core.IsBuiltinCLIHarnessProvider(providerName) {
 		provider, err := getProvider(providerName)
 		if err != nil {
@@ -1173,7 +1154,6 @@ func validateProviderConfigs(cfg map[string]any) error {
 }
 
 func validateProviderConfig(cfg map[string]any, allowFallback bool) error {
-	providerStr, _ := cfg["provider"].(string)
 	if _, exists := cfg["binary"]; exists {
 		return fmt.Errorf("harness: config.binary is not supported; define a named harness under top-level harnesses and reference it via config.provider")
 	}
@@ -1185,11 +1165,8 @@ func validateProviderConfig(cfg map[string]any, allowFallback bool) error {
 			return fmt.Errorf("harness: config.fallback is not supported inside fallback providers")
 		}
 	}
-	if providerStr == "" {
+	if providerStr, _ := cfg["provider"].(string); providerStr == "" {
 		return fmt.Errorf("harness: config.provider is required")
-	}
-	if core.IsBuiltinAgentHarnessProvider(providerStr) {
-		return core.ValidateBuiltinAgentHarnessConfig(cfg)
 	}
 	return nil
 }

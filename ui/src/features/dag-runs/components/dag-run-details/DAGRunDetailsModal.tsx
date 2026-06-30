@@ -9,7 +9,6 @@ import { Button } from '@/components/ui/button';
 import type { StatusTab } from '@/features/dags/components/DAGStatus';
 import { cn } from '@/lib/utils';
 import { components } from '../../../../api/v1/schema';
-import { usePageContext } from '../../../../contexts/PageContext';
 import { useRemoteNode } from '../../../../contexts/RemoteNodeContext';
 import { shouldIgnoreKeyboardShortcuts } from '../../../../lib/keyboard-shortcuts';
 import LoadingIndicator from '@/components/ui/loading-indicator';
@@ -41,7 +40,6 @@ function DAGRunDetailsModal({
   initialTab = 'status',
 }: DAGRunDetailsModalProps): React.ReactElement | null {
   const navigate = useNavigate();
-  const { setContext } = usePageContext();
 
   const [shouldRender, setShouldRender] = useState(isOpen);
   const [isVisible, setIsVisible] = useState(false);
@@ -142,17 +140,6 @@ function DAGRunDetailsModal({
     isValidating &&
     previousData !== null &&
     (previousData.dagRunId !== dagRunId || previousData.name !== name);
-
-  useEffect(() => {
-    if (isOpen && name) {
-      setContext({
-        dagFile: name,
-        dagRunId: dagRunId || undefined,
-        dagRunName: name,
-        source: 'dag-run-details-modal',
-      });
-    }
-  }, [isOpen, name, dagRunId, setContext]);
 
   const refreshFn = useCallback(() => {
     setTimeout(() => {

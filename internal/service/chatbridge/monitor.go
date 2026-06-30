@@ -85,8 +85,8 @@ type NotificationRoutingTransport interface {
 
 // NotificationBatchDeliveryPolicyTransport can decide whether a ready batch
 // should be delivered to the transport or only acknowledged in monitor state.
-// Transports that feed built-in chat agents rely on the default success-digest
-// suppression, while direct notification transports can opt in.
+// Chat-style transports rely on the default success-digest suppression, while
+// direct notification transports can opt in.
 type NotificationBatchDeliveryPolicyTransport interface {
 	ShouldDeliverNotificationBatch(batch NotificationBatch) bool
 }
@@ -627,8 +627,8 @@ func (m *NotificationMonitor) flushPendingBatch(ctx context.Context, pending Not
 	}
 
 	// Successful completions still flow through the notification state machine so
-	// they can replace pending wait alerts. Built-in chat/agent transports keep
-	// the historical success-digest suppression unless they explicitly opt in.
+	// they can replace pending wait alerts. Chat-style transports keep the
+	// historical success-digest suppression unless they explicitly opt in.
 	if !m.shouldDeliverBatch(pending.Batch) {
 		m.markBatchDelivered(ctx, pending.Destination, pending.Batch)
 		return true

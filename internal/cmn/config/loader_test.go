@@ -232,7 +232,6 @@ func TestLoad_Env(t *testing.T) {
 			Metrics:           MetricsAccessPrivate,
 			Terminal:          TerminalConfig{Enabled: true, MaxSessions: 5},
 			Audit:             AuditConfig{Enabled: false, RetentionDays: 7},
-			Session:           SessionConfig{MaxPerUser: 100},
 			SSE: SSEConfig{
 				MaxTopicsPerConnection: 20,
 				MaxClients:             1000,
@@ -265,14 +264,13 @@ func TestLoad_Env(t *testing.T) {
 			ProcDir:            filepath.Join(testPaths, "proc"),
 			QueueDir:           filepath.Join(testPaths, "queue"),
 			ServiceRegistryDir: filepath.Join(testPaths, "service-registry"),
-			UsersDir:           filepath.Join(testPaths, "data", "users"),             // Derived from DataDir
-			APIKeysDir:         filepath.Join(testPaths, "data", "apikeys"),           // Derived from DataDir
-			WebhooksDir:        filepath.Join(testPaths, "data", "webhooks"),          // Derived from DataDir
-			SessionsDir:        filepath.Join(testPaths, "data", "agent", "sessions"), // Derived from DataDir
-			ContextsDir:        filepath.Join(testPaths, "data", "contexts"),          // Derived from DataDir
-			RemoteNodesDir:     filepath.Join(testPaths, "data", "remote-nodes"),      // Derived from DataDir
-			WorkspacesDir:      filepath.Join(testPaths, "data", "workspaces"),        // Derived from DataDir
-			ViewsDir:           filepath.Join(testPaths, "data", "views"),             // Derived from DataDir
+			UsersDir:           filepath.Join(testPaths, "data", "users"),        // Derived from DataDir
+			APIKeysDir:         filepath.Join(testPaths, "data", "apikeys"),      // Derived from DataDir
+			WebhooksDir:        filepath.Join(testPaths, "data", "webhooks"),     // Derived from DataDir
+			ContextsDir:        filepath.Join(testPaths, "data", "contexts"),     // Derived from DataDir
+			RemoteNodesDir:     filepath.Join(testPaths, "data", "remote-nodes"), // Derived from DataDir
+			WorkspacesDir:      filepath.Join(testPaths, "data", "workspaces"),   // Derived from DataDir
+			ViewsDir:           filepath.Join(testPaths, "data", "views"),        // Derived from DataDir
 		},
 		Secrets: SecretsConfig{
 			Vault: VaultSecretsConfig{
@@ -345,24 +343,6 @@ func TestLoad_Env(t *testing.T) {
 				LoginAttempts:        10,
 				WindowSeconds:        600,
 				BlockDurationSeconds: 1800,
-			},
-		},
-		Bots: BotsConfig{
-			SafeMode: true,
-			Telegram: TelegramBotConfig{
-				InterestedEventTypes: DefaultBotInterestedEventTypes,
-			},
-			Slack: SlackBotConfig{
-				InterestedEventTypes: DefaultBotInterestedEventTypes,
-				RespondToAll:         true,
-			},
-			Discord: DiscordBotConfig{
-				InterestedEventTypes: DefaultBotInterestedEventTypes,
-				RespondToAll:         true,
-			},
-			Line: LineBotConfig{
-				InterestedEventTypes: DefaultBotInterestedEventTypes,
-				RespondToAll:         true,
 			},
 		},
 		DefaultExecMode: ExecutionModeLocal,
@@ -700,7 +680,6 @@ scheduler:
 			Metrics:  MetricsAccessPrivate,
 			Terminal: TerminalConfig{Enabled: false, MaxSessions: 5},
 			Audit:    AuditConfig{Enabled: true, RetentionDays: 7},
-			Session:  SessionConfig{MaxPerUser: 100},
 			SSE: SSEConfig{
 				MaxTopicsPerConnection: 20,
 				MaxClients:             1000,
@@ -735,7 +714,6 @@ scheduler:
 			UsersDir:           resolvedTestPath(t, "/var/dagu/data/users"),
 			APIKeysDir:         resolvedTestPath(t, "/var/dagu/data/apikeys"),
 			WebhooksDir:        resolvedTestPath(t, "/var/dagu/data/webhooks"),
-			SessionsDir:        resolvedTestPath(t, "/var/dagu/data/agent/sessions"),
 			ContextsDir:        resolvedTestPath(t, "/var/dagu/data/contexts"),
 			RemoteNodesDir:     resolvedTestPath(t, "/var/dagu/data/remote-nodes"),
 			WorkspacesDir:      resolvedTestPath(t, "/var/dagu/data/workspaces"),
@@ -795,24 +773,6 @@ scheduler:
 		Monitoring: MonitoringConfig{
 			Retention: 24 * time.Hour,
 			Interval:  5 * time.Second,
-		},
-		Bots: BotsConfig{
-			SafeMode: true,
-			Telegram: TelegramBotConfig{
-				InterestedEventTypes: DefaultBotInterestedEventTypes,
-			},
-			Slack: SlackBotConfig{
-				InterestedEventTypes: DefaultBotInterestedEventTypes,
-				RespondToAll:         true,
-			},
-			Discord: DiscordBotConfig{
-				InterestedEventTypes: DefaultBotInterestedEventTypes,
-				RespondToAll:         true,
-			},
-			Line: LineBotConfig{
-				InterestedEventTypes: DefaultBotInterestedEventTypes,
-				RespondToAll:         true,
-			},
 		},
 		DefaultExecMode: ExecutionModeLocal,
 		Warnings:        nil,
@@ -874,7 +834,6 @@ paths:
 	assert.Equal(t, filepath.Join(dataDir, "queue"), cfg.Paths.QueueDir)
 	assert.Equal(t, filepath.Join(dataDir, "service-registry"), cfg.Paths.ServiceRegistryDir)
 	assert.Equal(t, filepath.Join(dataDir, "users"), cfg.Paths.UsersDir)
-	assert.Equal(t, filepath.Join(dataDir, "agent", "sessions"), cfg.Paths.SessionsDir)
 	assert.Equal(t, filepath.Join(dataDir, "contexts"), cfg.Paths.ContextsDir)
 }
 
@@ -1306,112 +1265,6 @@ func TestBindEnv_AsPath(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestLoad_BotInterestedEventTypesEnvOverridesConfig(t *testing.T) {
-	t.Run("telegram env overrides config", func(t *testing.T) {
-		cfg := loadWithEnv(t, `
-bots:
-  telegram:
-    interested_event_types:
-      - dag.run.failed
-      - dag.run.succeeded
-`, map[string]string{
-			"DAGU_BOTS_TELEGRAM_INTERESTED_EVENT_TYPES": "dag.run.running,dag.run.queued",
-		})
-
-		assert.Equal(t, []string{"dag.run.running", "dag.run.queued"}, cfg.Bots.Telegram.InterestedEventTypes)
-	})
-
-	t.Run("slack env can clear configured list", func(t *testing.T) {
-		cfg := loadWithEnv(t, `
-bots:
-  slack:
-    interested_event_types:
-      - dag.run.failed
-      - dag.run.succeeded
-`, map[string]string{
-			"DAGU_BOTS_SLACK_INTERESTED_EVENT_TYPES": "",
-		})
-
-		assert.Empty(t, cfg.Bots.Slack.InterestedEventTypes)
-	})
-
-	t.Run("discord env overrides config", func(t *testing.T) {
-		cfg := loadWithEnv(t, `
-bots:
-  discord:
-    interested_event_types:
-      - dag.run.failed
-      - dag.run.succeeded
-`, map[string]string{
-			"DAGU_BOTS_DISCORD_INTERESTED_EVENT_TYPES": "dag.run.running,dag.run.queued",
-		})
-
-		assert.Equal(t, []string{"dag.run.running", "dag.run.queued"}, cfg.Bots.Discord.InterestedEventTypes)
-	})
-
-	t.Run("line env overrides config", func(t *testing.T) {
-		cfg := loadWithEnv(t, `
-bots:
-  line:
-    interested_event_types:
-      - dag.run.failed
-      - dag.run.succeeded
-`, map[string]string{
-			"DAGU_BOTS_LINE_INTERESTED_EVENT_TYPES": "dag.run.running,dag.run.queued",
-		})
-
-		assert.Equal(t, []string{"dag.run.running", "dag.run.queued"}, cfg.Bots.Line.InterestedEventTypes)
-	})
-
-	t.Run("line env overrides config for source ids and respond mode", func(t *testing.T) {
-		cfg := loadWithEnv(t, `
-bots:
-  line:
-    allowed_source_ids:
-      - Ufrom-yaml
-    respond_to_all: true
-`, map[string]string{
-			"DAGU_BOTS_LINE_ALLOWED_SOURCE_IDS": "Ufrom-env,Cfrom-env",
-			"DAGU_BOTS_LINE_RESPOND_TO_ALL":     "false",
-		})
-
-		assert.Equal(t, []string{"Ufrom-env", "Cfrom-env"}, cfg.Bots.Line.AllowedSourceIDs)
-		assert.False(t, cfg.Bots.Line.RespondToAll)
-	})
-}
-
-func TestLoad_DiscordBotEnvOnlyConfig(t *testing.T) {
-	cfg := loadWithEnv(t, "# empty", map[string]string{
-		"DAGU_BOTS_PROVIDER":                    "discord",
-		"DAGU_BOTS_DISCORD_TOKEN":               "discord-token",
-		"DAGU_BOTS_DISCORD_ALLOWED_CHANNEL_IDS": "chan-1,chan-2",
-		"DAGU_BOTS_DISCORD_RESPOND_TO_ALL":      "false",
-	})
-
-	assert.Equal(t, BotProviderDiscord, cfg.Bots.Provider)
-	assert.Equal(t, "discord-token", cfg.Bots.Discord.Token)
-	assert.Equal(t, []string{"chan-1", "chan-2"}, cfg.Bots.Discord.AllowedChannelIDs)
-	assert.False(t, cfg.Bots.Discord.RespondToAll)
-	assert.Equal(t, DefaultBotInterestedEventTypes, cfg.Bots.Discord.InterestedEventTypes)
-}
-
-func TestLoad_LineBotEnvOnlyConfig(t *testing.T) {
-	cfg := loadWithEnv(t, "# empty", map[string]string{
-		"DAGU_BOTS_PROVIDER":                  "line",
-		"DAGU_BOTS_LINE_CHANNEL_ACCESS_TOKEN": "line-channel-token",
-		"DAGU_BOTS_LINE_CHANNEL_SECRET":       "line-channel-secret",
-		"DAGU_BOTS_LINE_ALLOWED_SOURCE_IDS":   "U123,C456",
-		"DAGU_BOTS_LINE_RESPOND_TO_ALL":       "false",
-	})
-
-	assert.Equal(t, BotProviderLine, cfg.Bots.Provider)
-	assert.Equal(t, "line-channel-token", cfg.Bots.Line.ChannelAccessToken)
-	assert.Equal(t, "line-channel-secret", cfg.Bots.Line.ChannelSecret)
-	assert.Equal(t, []string{"U123", "C456"}, cfg.Bots.Line.AllowedSourceIDs)
-	assert.False(t, cfg.Bots.Line.RespondToAll)
-	assert.Equal(t, DefaultBotInterestedEventTypes, cfg.Bots.Line.InterestedEventTypes)
 }
 
 func TestLoad_Monitoring(t *testing.T) {

@@ -7,14 +7,6 @@ import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import DAGListHeader from '../DAGListHeader';
 
-vi.mock('@/contexts/AuthContext', () => ({
-  useCanWrite: () => false,
-}));
-
-vi.mock('@/contexts/ConfigContext', () => ({
-  useConfig: () => ({ agentEnabled: false }),
-}));
-
 vi.mock('../../common', () => ({
   CreateDAGButton: () => null,
 }));

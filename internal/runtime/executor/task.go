@@ -126,17 +126,6 @@ func WithBaseConfig(content string) TaskOption {
 	}
 }
 
-// WithAgentSnapshot sets the opaque worker agent snapshot on the task.
-func WithAgentSnapshot(snapshot []byte) TaskOption {
-	return func(task *exec.DispatchTask) {
-		if len(snapshot) == 0 {
-			task.AgentSnapshot = nil
-			return
-		}
-		task.AgentSnapshot = append([]byte(nil), snapshot...)
-	}
-}
-
 // WithWorkspaceBundle sets workspace bundle metadata for worker dispatch.
 func WithWorkspaceBundle(desc workspacebundle.Descriptor) TaskOption {
 	return func(task *exec.DispatchTask) {

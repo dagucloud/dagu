@@ -31,7 +31,6 @@ const config: Config = {
   oidcButtonLabel: '',
   terminalEnabled: true,
   gitSyncEnabled: true,
-  agentEnabled: true,
   updateAvailable: false,
   latestVersion: '',
   permissions: {

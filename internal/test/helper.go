@@ -22,7 +22,6 @@ import (
 
 	"github.com/spf13/viper"
 
-	agentstore "github.com/dagucloud/dagu/internal/agent"
 	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
@@ -787,15 +786,13 @@ func (d *DAG) Agent(opts ...AgentOption) *Agent {
 	helper.opts.DAGRunArtifactDir = d.Config.Paths.ArtifactDir
 	if helper.opts.SubWorkflowRunnerFactory == nil {
 		helper.opts.SubWorkflowRunnerFactory = node.NewSubWorkflowRunnerFactory(node.SubWorkflowRunnerConfig{
-			DAGRunMgr:   d.DAGRunMgr,
-			DAGStore:    d.DAGStore,
-			DAGRunStore: d.DAGRunStore,
-			QueueStore:  d.QueueStore,
-			StateStore:  d.StateStore,
-			AgentStores: agentstore.RuntimeStores{
-				SecretStore:  helper.opts.SecretStore,
-				ProfileStore: helper.opts.ProfileStore,
-			},
+			DAGRunMgr:         d.DAGRunMgr,
+			DAGStore:          d.DAGStore,
+			DAGRunStore:       d.DAGRunStore,
+			QueueStore:        d.QueueStore,
+			StateStore:        d.StateStore,
+			SecretStore:       helper.opts.SecretStore,
+			ProfileStore:      helper.opts.ProfileStore,
 			ServiceRegistry:   d.ServiceRegistry,
 			PeerConfig:        d.Config.Core.Peer,
 			DefaultExecMode:   d.Config.DefaultExecMode,

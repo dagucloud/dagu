@@ -432,16 +432,4 @@ func TestTaskOption_Functions(t *testing.T) {
 		assert.Equal(t, "/dags/test-dag.yaml", task.SourceFile)
 	})
 
-	t.Run("WithAgentSnapshot", func(t *testing.T) {
-		t.Parallel()
-
-		task := &exec.DispatchTask{}
-		snapshot := []byte("agent-snapshot")
-		want := append([]byte(nil), snapshot...)
-		executor.WithAgentSnapshot(snapshot)(task)
-		snapshot[0] = 'X'
-
-		assert.Equal(t, want, task.AgentSnapshot)
-		assert.NotEqual(t, snapshot, task.AgentSnapshot)
-	})
 }

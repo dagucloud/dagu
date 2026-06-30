@@ -19,7 +19,7 @@ It was designed to be easy to use, self-contained, and require no coding, making
 - Use existing scripts or tools without any modifications.
 - Self-contained, with no need for a DBMS.
 - Built-in MCP support for AI agents to manage workflows.
-- Simple AI workflows with Built in Agent and Harness actions.
+- Run external coding-agent CLIs through `harness.run` when workflows need AI assistance.
 
 ## Quick Look
 
@@ -65,7 +65,7 @@ Dagu stores state in local files. How much it can run depends on the machine and
 | Cron and legacy script management | Turn complex jobs with interdependencies into maintainable DAGs with a UI, automatic logging, retries, and notifications instead of opaque cron jobs and bash scripts. |
 | Media conversion | Run `ffmpeg` for video transcoding and format conversion. Thanks to Dagu's file-backed nature, workers can run heavy conversions in parallel without single machine bottlenecks or external databases. |
 | Infrastructure and server automation | Run any command or script over SSH on remote servers, keeping logs, results, and notifications in one place. |
-| GitHub-driven workflows | Trigger workflows from GitHub events. This is useful for running your automation or AI agent workflows on private infrastructure without exposing your servers to the public internet. |
+| GitHub-driven workflows | Trigger workflows from GitHub events. This is useful for running automation on private infrastructure without exposing your servers to the public internet. |
 | Container and Kubernetes workflows | Run Docker containers and Kubernetes Jobs as steps in your workflows without building a custom control plane around containers. |
 | Customer support automation | Run self-service support tools that non-engineering teams can use to run approved workflows for running diagnostics, querying databases, and performing common support tasks without escalating to engineering. |
 | IoT and edge workflows | Run sensor polling, local ML inference, data preprocessing, backups, offline sync, health checks, etc. Dagu keeps these jobs close to the data source while still providing Web UI visibility. |
@@ -197,11 +197,10 @@ Managed Dagu instances do not expose a Docker daemon or Docker socket. Workflows
 - **Observability:** Shared workflows and scheduling with clear visualizations, status tracking, and logs in the Web UI.
 - **Language-agnostic:** No framework required. Define workflow steps using shell commands, Docker containers, Kubernetes Jobs, SQL queries, HTTP requests, and any other tool via official and third-party Dagu Actions.
 - **Reproducibility:** Reproducible runs with pinned tools, plus automatic installation and caching on workers—eliminating the need to manually install dependencies on the server or workers.
-- **Multiplayer Agent:** Shared AI agents integrated into workflows, the Web UI, and chat tools (Slack, Telegram, Discord, etc.).
 - **Built-in Approvals:** The Human-in-the-loop steps for manual approvals, review, and intervention in any workflow.
 - **MCP Server:** Built-in MCP server for authoring and running workflows via AI agents like Claude Code, Codex, Gemini CLI, Pi, OpenCode, and more.
-- **Harness-agnostic:** You can run Dagu's built-in agent or any coding agent CLI (Claude Code, Codex, Gemini CLI, Pi, OpenCode, etc.) with a built-in harness action.
-- **Secret management:** Built-in secret management with secure log masking, preventing credentials from leaking to AI agents or the Web UI.
+- **Harness-agnostic:** You can run coding agent CLIs (Claude Code, Codex, Gemini CLI, Pi, OpenCode, etc.) with a built-in harness action.
+- **Secret management:** Built-in secret management with secure log masking, preventing credentials from leaking into logs or the Web UI.
 - **Self-host or managed:** Self-hosted via a single binary that runs on Linux, macOS, and Windows. Includes an optional distributed worker mode for scaling out execution across machines.
 - **Permission Control:** RBAC and SSO support for team environments, controlling who can view, run, and edit workflows through granular permissions and audit logging.
 
@@ -472,15 +471,15 @@ handler_on:
     run: cleanup.sh
 ```
 
-### Built-in agent step with manual approval
+### Coding-agent harness step with manual approval
 
 ```yaml
 steps:
   - id: review
-    action: agent.run
+    action: harness.run
     with:
-      task: Review the README.md file and return concise Markdown findings.
-      max_iterations: 10
+      provider: codex
+      prompt: Review the README.md file and return concise Markdown findings.
     stdout:
       artifact: review.md
 
@@ -519,8 +518,7 @@ Dagu includes built-in actions that run within the Dagu process or on the select
 | `sftp.upload` / `sftp.download` | File transfer over SFTP |
 | `http.request` | HTTP requests with headers, auth, and request bodies |
 | `chat.completion` | Run an LLM chat completion step |
-| `harness.run` | Run Dagu's built-in agent or coding agent CLIs such as Claude Code, Codex, Copilot, OpenCode, and Pi |
-| `agent.run` | Built-in agent action with tool use |
+| `harness.run` | Run coding agent CLIs such as Claude Code, Codex, Copilot, OpenCode, and Pi |
 | `postgres.query` / `postgres.import` | PostgreSQL queries and imports |
 | `sqlite.query` / `sqlite.import` | SQLite queries and imports |
 | `redis.<operation>` | Redis commands, pipelines, and Lua scripts |
@@ -663,7 +661,6 @@ JSON or text format logging (`DAGU_LOG_FORMAT`). Logs are stored per-run with se
 
 ### Notifications
 
-- Slack and Telegram bot integration for run monitoring and status updates
 - Email notifications on DAG success, failure, or wait status via SMTP
 - Per-DAG webhook endpoints with token authentication
 

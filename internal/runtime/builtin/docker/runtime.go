@@ -13,7 +13,7 @@ import (
 
 // Container runtime selection is a SERVICE-LEVEL setting, not a per-step or
 // per-DAG YAML field. DAGU_CONTAINER_RUNTIME chooses docker (default) or podman
-// for every containerized step in this engine: harness.run agent steps,
+// for every containerized step in this engine: harness.run CLI steps,
 // step-level container jobs, and the DAG-level container. DAGU_PODMAN_HOST
 // optionally overrides podman's Docker-compatible socket path.
 const (

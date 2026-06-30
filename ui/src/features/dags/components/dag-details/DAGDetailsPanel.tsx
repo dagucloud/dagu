@@ -7,7 +7,6 @@ import { Maximize2, X } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { components } from '../../../../api/v1/schema';
-import { usePageContext } from '../../../../contexts/PageContext';
 import {
   RemoteNodeProvider,
   useRemoteNode,
@@ -61,7 +60,6 @@ function DAGDetailsPanel({
   onNavigate,
 }: Props): React.ReactElement | null {
   const navigate = useNavigate();
-  const { setContext } = usePageContext();
   const remoteNode = useRemoteNode();
 
   const [currentDAGRun, setCurrentDAGRun] = useState<
@@ -70,19 +68,6 @@ function DAGDetailsPanel({
   const [trackedDagRunId, setTrackedDagRunId] = useState<string>();
   const [activeTab, setActiveTab] = useState('status');
   const [notFound, setNotFound] = useState(false);
-
-  // Set page context for agent chat
-  useEffect(() => {
-    if (fileName) {
-      setContext({
-        dagFile: fileName,
-        source: 'dag-details-panel',
-      });
-    }
-    return () => {
-      setContext(null);
-    };
-  }, [fileName, setContext]);
 
   const dagSSE = useDAGSSE(fileName, !!fileName, remoteNode);
   // Fetch DAG details — SWR is the single source of truth, refreshed by live invalidations

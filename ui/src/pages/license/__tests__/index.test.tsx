@@ -35,7 +35,6 @@ function makeConfig(licenseOverrides: Partial<LicenseStatus> = {}): Config {
     oidcButtonLabel: '',
     terminalEnabled: false,
     gitSyncEnabled: false,
-    agentEnabled: false,
     updateAvailable: false,
     latestVersion: '',
     permissions: {
@@ -127,7 +126,9 @@ describe('LicensePage', () => {
     });
 
     expect(
-      screen.getByText(/This license is configured via an environment variable/i)
+      screen.getByText(
+        /This license is configured via an environment variable/i
+      )
     ).toBeInTheDocument();
     expect(
       screen.queryByRole('button', { name: 'Deactivate License' })

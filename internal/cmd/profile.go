@@ -222,7 +222,7 @@ func profileSetSecretCommand() *cobra.Command {
 		Short: "Set a runtime profile secret",
 		Args:  cobra.ExactArgs(2),
 	}, []commandLineFlag{profileValueStdinFlag}, func(ctx *Context, args []string) error {
-		stores := ctx.agentStores()
+		stores := ctx.runtimeStores()
 		if stores.SecretStore == nil {
 			return fmt.Errorf("secret store is not configured")
 		}
@@ -296,7 +296,7 @@ func runtimeProfileStore(ctx *Context) (profile.Store, error) {
 	if ctx.IsRemote() {
 		return nil, fmt.Errorf("profile command is not supported with --context")
 	}
-	stores := ctx.agentStores()
+	stores := ctx.runtimeStores()
 	if stores.ProfileStore == nil {
 		return nil, fmt.Errorf("profile store is not configured")
 	}

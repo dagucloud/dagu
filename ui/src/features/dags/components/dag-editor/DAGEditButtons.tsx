@@ -9,11 +9,9 @@
 import { useCanWriteForWorkspace } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { useErrorModal } from '@/components/ui/error-modal';
-import { PencilLine, Trash2, Wand2 } from 'lucide-react';
+import { PencilLine, Trash2 } from 'lucide-react';
 import React from 'react';
-import { Link } from 'react-router-dom';
 import { DAGNameInputModal } from '../../../../components/DAGNameInputModal';
-import { useConfig } from '../../../../contexts/ConfigContext';
 import { useRemoteNode } from '../../../../contexts/RemoteNodeContext';
 import { useClient } from '../../../../hooks/api';
 
@@ -34,7 +32,6 @@ function DAGEditButtons({ fileName, workspace }: Props) {
   const remoteNode = useRemoteNode();
   const canWrite = useCanWriteForWorkspace(workspace);
   const client = useClient();
-  const config = useConfig();
   const { showError } = useErrorModal();
   const [isRenameModalOpen, setIsRenameModalOpen] = React.useState(false);
   const [renameError, setRenameError] = React.useState<string | null>(null);
@@ -91,26 +88,12 @@ function DAGEditButtons({ fileName, workspace }: Props) {
     }
   };
 
-  const designSearchParams = new URLSearchParams();
-  designSearchParams.set('dag', fileName);
-  designSearchParams.set('remoteNode', remoteNode);
-  const designURL = `/design?${designSearchParams.toString()}`;
-
   return (
     <div className="flex items-center gap-2">
       <Button onClick={() => setIsRenameModalOpen(true)}>
         <PencilLine className="h-4 w-4" />
         Rename
       </Button>
-
-      {config.agentEnabled && (
-        <Button asChild variant="outline" title="Open this DAG in Design">
-          <Link to={designURL}>
-            <Wand2 className="h-4 w-4" />
-            Design
-          </Link>
-        </Button>
-      )}
 
       <Button
         variant="destructive"

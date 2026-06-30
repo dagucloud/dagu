@@ -1,12 +1,11 @@
 # Coding Agent Integration
 
-Use `action: harness.run` to run AI coding agents as DAG steps. A harness step can run Dagu's in-process agent, an external CLI on the host, an external CLI in a step-level container, or an external CLI in the DAG-level shared container.
+Use `action: harness.run` to run AI coding agents as DAG steps. A harness step can run an external CLI on the host, in a step-level container, or in the DAG-level shared container.
 
 ## Supported Providers
 
 | Provider | Runtime | Invocation |
 |----------|---------|------------|
-| `builtin` | In-process Dagu agent | Uses Dagu's agent executor. It is not a CLI process. |
 | `claude` | `claude` | `claude -p "<prompt>" [flags]` |
 | `codex` | `codex` | `codex exec "<prompt>" [flags]` |
 | `copilot` | `copilot` | `copilot -p "<prompt>" [flags]` |
@@ -18,8 +17,7 @@ The selected CLI provider's binary must be resolvable when it runs. Dagu CLI pro
 ## Feature Reference
 
 - `with.prompt` is required. In `action: harness.run`, it becomes the step command and is preserved as prompt text, including multiline text.
-- `with.stdin` becomes the step script. `provider: builtin` appends it to the user message after a blank line. Host subprocess runs pass it to stdin. Containerized harness runs reject stdin.
-- `provider: builtin` runs Dagu's in-process agent. It accepts builtin agent fields such as `model`, `max_iterations`, `safe_mode`, `skills`, `tools`, `memory`, and `web_search`. It rejects pass-through CLI flags.
+- `with.stdin` becomes the step script. Host subprocess runs pass it to stdin. Containerized harness runs reject stdin.
 - Dagu CLI providers are `claude`, `codex`, `copilot`, `opencode`, and `pi`. Non-reserved `with` keys become CLI flags.
 - Custom providers must be declared under top-level `harnesses:`. Custom names cannot collide with built-in provider names.
 - `fallback` is an ordered list of provider configs. Dagu tries the next config only when the previous attempt fails and the run context is still active. Fallback configs cannot contain another `fallback`.
@@ -30,7 +28,7 @@ The selected CLI provider's binary must be resolvable when it runs. Dagu CLI pro
 
 Harness supports Dagu providers and named custom harness definitions:
 
-- `with.provider` selects `builtin`, a Dagu CLI provider, or a custom `harnesses:` entry
+- `with.provider` selects a Dagu CLI provider or a custom `harnesses:` entry
 - top-level `harnesses.<name>` defines how to invoke a custom harness CLI
 
 For Dagu CLI providers and custom providers, non-reserved `with` keys are passed directly as CLI flags:
@@ -172,7 +170,6 @@ Container rules:
 
 - The selected provider binary must exist inside the container that runs the step.
 - Dagu CLI providers and custom providers with `prompt_mode: arg` or `prompt_mode: flag` can run in a container.
-- `provider: builtin` cannot run in a container because it is an in-process provider.
 - `with.stdin` is not supported in a container.
 - Custom providers with `prompt_mode: stdin` are not supported in a container.
 - A step-level image-mode container creates a container for the step. Dagu uses the provider binary as the container entrypoint and passes provider arguments as the command.
@@ -185,7 +182,7 @@ Container rules:
 - Provider flags still belong under `with:`. For example, Codex `sandbox: workspace-write` configures Codex inside the outer container boundary.
 - Docker or Podman is selected by the Dagu service process. This is not configured in the DAG YAML.
 
-## Pattern 1: Single Agent Step
+## Pattern 1: Single Harness Step
 
 ```yaml
 params:
@@ -362,7 +359,7 @@ steps:
 
 1. **Model names** — Look up current model names from each provider's documentation. Do not rely on hardcoded names; they change frequently.
 2. **Prompt as a parameter** — Expose the prompt via `params:` so users can customize from UI/CLI without editing the DAG.
-3. **Timeouts** — Set `timeout_sec:` (300-600s+) on agent steps. Agent CLIs can run for minutes.
+3. **Timeouts** — Set `timeout_sec:` (300-600s+) on harness steps. Agent CLIs can run for minutes.
 4. **Retry on transient failures** — Add `retry_policy: { limit: 3, interval_sec: 30 }` to handle rate limits and network errors.
 5. **Working directory** — Use `working_dir:` on the step. The CLI operates relative to this directory.
 6. **Output capture** — Use string-form `output: VAR_NAME` for small flat values, declared `outputs:` for explicit `${steps.<step_id>.outputs.<name>}` values, object-form `output:` for structured `${step_id.output.*}` access, and `stdout.artifact` / `stderr.artifact` when large agent output, reports, JSON, Markdown, or logs should be stored as DAG-run artifacts. Use `${step_id.stdout}` only when a downstream step needs the stdout log file path.

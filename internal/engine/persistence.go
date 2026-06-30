@@ -8,12 +8,12 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/dagucloud/dagu/internal/agent"
-	"github.com/dagucloud/dagu/internal/agentsnapshot"
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/dagstate"
+	"github.com/dagucloud/dagu/internal/profile"
 	"github.com/dagucloud/dagu/internal/runtime/runstate"
+	"github.com/dagucloud/dagu/internal/secret"
 )
 
 // PersistenceFactory wires backend-specific stores after configuration is loaded.
@@ -28,8 +28,7 @@ type Persistence struct {
 	StateStore           dagstate.Store
 	ServiceRegistry      exec.ServiceRegistry
 	DAGStoreFactory      DAGStoreFactory
-	AgentStoresFactory   AgentStoresFactory
-	SnapshotStoreFactory agentsnapshot.StoreFactory
+	RuntimeStoresFactory RuntimeStoresFactory
 }
 
 // DAGStoreFactoryOptions configures a backend-specific DAG definition store.
@@ -40,11 +39,14 @@ type DAGStoreFactoryOptions struct {
 // DAGStoreFactory creates DAG stores needed by execution-scoped loaders.
 type DAGStoreFactory func(context.Context, *config.Config, DAGStoreFactoryOptions) (exec.DAGStore, error)
 
-// AgentStoresFactory creates runtime agent stores for local execution.
-type AgentStoresFactory func(context.Context, *config.Config) AgentStores
+// RuntimeStoresFactory creates stores for local workflow execution.
+type RuntimeStoresFactory func(context.Context, *config.Config) RuntimeStores
 
-// AgentStores contains the stores and resolvers used by runtime agent flows.
-type AgentStores = agent.RuntimeStores
+// RuntimeStores contains the stores used by workflow execution.
+type RuntimeStores struct {
+	SecretStore  secret.Store
+	ProfileStore profile.Store
+}
 
 type validatingProcStore interface {
 	Validate(context.Context) error
@@ -94,11 +96,8 @@ func overridePersistence(base, override Persistence) Persistence {
 	if override.DAGStoreFactory != nil {
 		base.DAGStoreFactory = override.DAGStoreFactory
 	}
-	if override.AgentStoresFactory != nil {
-		base.AgentStoresFactory = override.AgentStoresFactory
-	}
-	if override.SnapshotStoreFactory != nil {
-		base.SnapshotStoreFactory = override.SnapshotStoreFactory
+	if override.RuntimeStoresFactory != nil {
+		base.RuntimeStoresFactory = override.RuntimeStoresFactory
 	}
 	return base
 }

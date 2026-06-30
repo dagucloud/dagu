@@ -12,7 +12,6 @@ import AdministrationPage from '..';
 const config = {
   authMode: 'builtin',
   terminalEnabled: true,
-  agentEnabled: true,
 } as Config;
 
 function renderPage(configOverride: Partial<Config> = {}) {
@@ -50,12 +49,6 @@ describe('AdministrationPage', () => {
       'href',
       '/remote-nodes'
     );
-    expect(screen.getByRole('link', { name: /agent/i })).toHaveAttribute(
-      'href',
-      '/agent'
-    );
-    expect(screen.queryByRole('link', { name: /^models$/i })).toBeNull();
-    expect(screen.queryByRole('link', { name: /^tools$/i })).toBeNull();
     expect(screen.getByText('Manage accounts and roles.')).toBeVisible();
     expect(
       screen.getByText('Issue access tokens for automation.')
@@ -67,20 +60,6 @@ describe('AdministrationPage', () => {
     expect(
       screen.getByText('Review plan and entitlement status.')
     ).toBeVisible();
-    expect(
-      screen.getByText('Configure models, tools, memory, and souls.')
-    ).toBeVisible();
     expect(setTitle).toHaveBeenCalledWith('Administration');
-  });
-
-  it('keeps agent configuration links visible when agent is disabled', () => {
-    renderPage({ agentEnabled: false });
-
-    expect(screen.getByRole('link', { name: /agent/i })).toHaveAttribute(
-      'href',
-      '/agent'
-    );
-    expect(screen.queryByRole('link', { name: /^models$/i })).toBeNull();
-    expect(screen.queryByRole('link', { name: /^tools$/i })).toBeNull();
   });
 });

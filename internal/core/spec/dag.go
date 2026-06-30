@@ -44,10 +44,9 @@ type dag struct {
 	Group string `yaml:"group,omitempty"`
 	// Description is the description of the DAG.
 	Description string `yaml:"description,omitempty"`
-	// Type is the execution type for steps (graph, chain, or agent).
+	// Type is the execution type for steps (graph or chain).
 	// Default is "graph" which uses dependency-based parallel execution.
 	// "chain" executes steps in the order they are defined.
-	// "agent" is reserved for future agent-based execution.
 	Type string `yaml:"type,omitempty"`
 	// Shell is the default shell to use for all steps in this DAG.
 	// If not specified, the system default shell is used.
@@ -862,8 +861,6 @@ func buildType(_ BuildContext, d *dag) (string, error) {
 	switch t {
 	case core.TypeGraph, core.TypeChain:
 		return t, nil
-	case core.TypeAgent:
-		return "", core.NewValidationError("type", t, fmt.Errorf("type 'agent' is reserved and not yet supported"))
 	default:
 		return "", core.NewValidationError("type", t, fmt.Errorf("invalid type: %s (must be one of: graph, chain)", t))
 	}
@@ -2917,9 +2914,6 @@ func validateHarnessProviderConfig(defs core.HarnessDefinitions, cfg map[string]
 	}
 	if strings.Contains(providerName, "${") {
 		return nil
-	}
-	if core.IsBuiltinAgentHarnessProvider(providerName) {
-		return core.ValidateBuiltinAgentHarnessConfig(cfg)
 	}
 	if core.IsBuiltinCLIHarnessProvider(providerName) {
 		return nil

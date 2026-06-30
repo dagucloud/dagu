@@ -120,17 +120,13 @@ type step struct {
 	// Deprecated: use With.
 	Config map[string]any `yaml:"config,omitempty"`
 
-	// LLM contains the configuration for LLM-based executors (chat, agent, etc.).
-	// Requires explicit type: chat (or future type: agent).
+	// LLM contains the configuration for LLM-based executors.
+	// Requires explicit type: chat.
 	LLM *llmConfig `yaml:"llm,omitempty"`
 
 	// Messages contains the session messages for chat steps.
 	// Only valid when type is "chat".
 	Messages []llmMessage `yaml:"messages,omitempty"`
-
-	// Agent contains the configuration for agent-type steps.
-	// Only valid when type is "agent".
-	Agent *agentConfig `yaml:"agent,omitempty"`
 
 	// Approval configures a human approval gate after step execution.
 	Approval *approvalConfig `yaml:"approval,omitempty"`
@@ -326,64 +322,6 @@ type llmMessage struct {
 	Content string `yaml:"content,omitempty"`
 }
 
-// agentConfig defines the agent configuration for an agent step.
-type agentConfig struct {
-	// Model overrides the global default model for this step.
-	Model string `yaml:"model,omitempty"`
-	// Tools configures which tools are available and their policies.
-	Tools *agentToolsConfig `yaml:"tools,omitempty"`
-	// Skills lists skill IDs the agent is allowed to use.
-	// If omitted, falls back to globally enabled skills.
-	Skills []string `yaml:"skills,omitempty"`
-	// Soul is the soul ID for this step's agent identity.
-	Soul string `yaml:"soul,omitempty"`
-	// Memory controls whether persistent memory is loaded.
-	Memory *agentMemoryConfig `yaml:"memory,omitempty"`
-	// Prompt is additional instructions appended to the built-in system prompt.
-	Prompt string `yaml:"prompt,omitempty"`
-	// MaxIterations is the maximum number of tool call rounds.
-	MaxIterations *int `yaml:"max_iterations,omitempty"`
-	// SafeMode enables command approval via human review.
-	SafeMode *bool `yaml:"safe_mode,omitempty"`
-	// WebSearch configures provider-native web search for this agent step.
-	// Overrides the global agent web search setting.
-	WebSearch *webSearchConfig `yaml:"web_search,omitempty"`
-}
-
-// agentToolsConfig configures available tools and policies.
-type agentToolsConfig struct {
-	// Enabled lists the tools to enable.
-	Enabled []string `yaml:"enabled,omitempty"`
-	// BashPolicy configures bash command security rules.
-	BashPolicy *agentBashPolicy `yaml:"bash_policy,omitempty"`
-}
-
-// agentBashPolicy configures bash command security enforcement.
-type agentBashPolicy struct {
-	// DefaultBehavior is the default action when no rule matches.
-	DefaultBehavior string `yaml:"default_behavior,omitempty"`
-	// DenyBehavior determines what happens when a command is denied.
-	DenyBehavior string `yaml:"deny_behavior,omitempty"`
-	// Rules is an ordered list of pattern-matching rules.
-	Rules []agentBashRule `yaml:"rules,omitempty"`
-}
-
-// agentBashRule is a single bash command policy rule.
-type agentBashRule struct {
-	// Name is a human-readable name for the rule.
-	Name string `yaml:"name,omitempty"`
-	// Pattern is a regex pattern to match against commands.
-	Pattern string `yaml:"pattern"`
-	// Action is the action to take when the pattern matches.
-	Action string `yaml:"action"`
-}
-
-// agentMemoryConfig configures memory for the agent step.
-type agentMemoryConfig struct {
-	// Enabled controls whether global and per-DAG memory is loaded.
-	Enabled bool `yaml:"enabled,omitempty"`
-}
-
 // stepTransformer is a generic implementation for step field transformations
 type stepTransformer[T any] struct {
 	fieldName string
@@ -521,7 +459,6 @@ var stepInteractionActionStage = stepActionStage{
 	{"messages", func(_ StepBuildContext, s *step, result *core.Step) error {
 		return buildStepMessages(s, result)
 	}, false},
-	{"agent", buildStepAgent, false},
 	{"router", buildStepRouter, false},
 	{"approval", buildStepApproval, false},
 }
@@ -575,7 +512,6 @@ var stepExecutionValidationStage = stepValidationStage{
 var stepInteractionValidationStage = stepValidationStage{
 	{"llm", validateLLM},
 	{"messages", validateMessages},
-	{"agent", validateAgent},
 }
 
 var stepValidationStages = []stepValidationStage{
@@ -2004,11 +1940,11 @@ func validateMessages(result *core.Step) error {
 	if len(result.Messages) == 0 {
 		return nil
 	}
-	if !core.SupportsLLM(result.ExecutorConfig.Type) && !core.SupportsAgent(result.ExecutorConfig.Type) {
+	if !core.SupportsLLM(result.ExecutorConfig.Type) {
 		return core.NewValidationError(
 			"messages",
 			result.Messages,
-			fmt.Errorf("action %q does not support messages field; use action: chat or action: agent", result.ExecutorConfig.Type),
+			fmt.Errorf("action %q does not support messages field; use action: chat", result.ExecutorConfig.Type),
 		)
 	}
 	return nil
@@ -2782,108 +2718,6 @@ func buildStepRouter(_ StepBuildContext, s *step, result *core.Step) error {
 	}
 	result.ExecutorConfig.Type = core.ExecutorTypeRouter
 
-	return nil
-}
-
-// buildStepAgent parses the agent configuration from step fields.
-func buildStepAgent(_ StepBuildContext, s *step, result *core.Step) error {
-	if !core.SupportsAgent(result.ExecutorConfig.Type) {
-		if s.Agent != nil {
-			return core.NewValidationError("agent", result.ExecutorConfig.Type,
-				fmt.Errorf("agent configuration is only valid for steps with type %q", core.ExecutorTypeAgent))
-		}
-		return nil
-	}
-
-	cfg := &core.AgentStepConfig{
-		SafeMode:      true, // default: safe mode enabled
-		MaxIterations: 50,   // default: 50 iterations
-	}
-
-	if s.Agent != nil {
-		cfg.Model = strings.TrimSpace(s.Agent.Model)
-		cfg.Prompt = s.Agent.Prompt
-
-		if s.Agent.MaxIterations != nil {
-			cfg.MaxIterations = *s.Agent.MaxIterations
-			if cfg.MaxIterations < 1 {
-				return core.NewValidationError("agent.max_iterations", cfg.MaxIterations,
-					fmt.Errorf("must be at least 1"))
-			}
-		}
-		if s.Agent.SafeMode != nil {
-			cfg.SafeMode = *s.Agent.SafeMode
-		}
-
-		if s.Agent.Tools != nil {
-			cfg.Tools = &core.AgentToolsConfig{
-				Enabled: s.Agent.Tools.Enabled,
-			}
-			if s.Agent.Tools.BashPolicy != nil {
-				bp := s.Agent.Tools.BashPolicy
-				cfg.Tools.BashPolicy = &core.AgentBashPolicy{
-					DefaultBehavior: bp.DefaultBehavior,
-					DenyBehavior:    bp.DenyBehavior,
-				}
-				for _, r := range bp.Rules {
-					cfg.Tools.BashPolicy.Rules = append(cfg.Tools.BashPolicy.Rules, core.AgentBashRule{
-						Name:    r.Name,
-						Pattern: r.Pattern,
-						Action:  r.Action,
-					})
-				}
-			}
-		}
-
-		if len(s.Agent.Skills) > 0 {
-			cfg.Skills = s.Agent.Skills
-		}
-
-		cfg.Soul = strings.TrimSpace(s.Agent.Soul)
-
-		if s.Agent.Memory != nil {
-			cfg.Memory = &core.AgentMemoryConfig{
-				Enabled: s.Agent.Memory.Enabled,
-			}
-		}
-
-		cfg.WebSearch = buildWebSearchConfig(s.Agent.WebSearch)
-	}
-
-	result.Agent = cfg
-	return nil
-}
-
-// validSlugIDRegexp matches a valid slug ID: lowercase alphanumeric segments separated by hyphens.
-// Duplicated from agent.validSlugRegexp to avoid an import cycle (spec -> agent -> spec).
-var validSlugIDRegexp = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
-
-const maxSlugIDLength = 128
-
-// validateAgent checks that agent steps have required configuration.
-func validateAgent(result *core.Step) error {
-	if result.Agent == nil {
-		return nil
-	}
-	if len(result.Messages) == 0 {
-		return core.NewValidationError(
-			"messages",
-			result.Messages,
-			fmt.Errorf("agent step requires at least one message"),
-		)
-	}
-	for _, id := range result.Agent.Skills {
-		if id == "" || len(id) > maxSlugIDLength || !validSlugIDRegexp.MatchString(id) {
-			return core.NewValidationError("agent.skills", id,
-				fmt.Errorf("invalid skill ID %q: must be lowercase alphanumeric with hyphens, max %d chars", id, maxSlugIDLength))
-		}
-	}
-	if result.Agent.Soul != "" {
-		if len(result.Agent.Soul) > maxSlugIDLength || !validSlugIDRegexp.MatchString(result.Agent.Soul) {
-			return core.NewValidationError("agent.soul", result.Agent.Soul,
-				fmt.Errorf("invalid soul ID %q: must be lowercase alphanumeric with hyphens, max %d chars", result.Agent.Soul, maxSlugIDLength))
-		}
-	}
 	return nil
 }
 

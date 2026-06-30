@@ -109,16 +109,6 @@ export default function AdministrationPage(): React.ReactElement {
         },
       ],
     },
-    {
-      title: 'Agent',
-      links: [
-        {
-          to: '/agent',
-          label: 'Agent',
-          description: 'Configure models, tools, memory, and souls.',
-        },
-      ],
-    },
   ].filter((section) => section.links.length > 0);
 
   return (

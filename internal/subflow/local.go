@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"sync"
 
-	agentctx "github.com/dagucloud/dagu/internal/agent"
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/cmn/logpath"
 	"github.com/dagucloud/dagu/internal/core"
@@ -355,12 +354,6 @@ func (r *Local) newAgent(
 	opts.ProfileName = req.ProfileName
 	opts.ServiceRegistry = r.serviceRegistry
 	opts.DefaultExecMode = rCtx.DefaultExecMode
-	opts.AgentConfigStore = agentctx.GetConfigStore(ctx)
-	opts.AgentModelStore = agentctx.GetModelStore(ctx)
-	opts.AgentMemoryStore = agentctx.GetMemoryStore(ctx)
-	opts.AgentSoulStore = agentctx.GetSoulStore(ctx)
-	opts.AgentOAuthManager = agentctx.GetOAuthManager(ctx)
-	opts.AgentRemoteContextResolver = agentctx.GetRemoteContextResolver(ctx)
 	opts.ArtifactDir = artifactDir
 	opts.DAGRunLogDir = logDir
 	opts.DAGRunArtifactDir = artifactBaseDir
@@ -401,10 +394,7 @@ func (r *Local) runAgent(ctx context.Context, runID string, child *rtagent.Agent
 	return result, nil
 }
 
-func (r *Local) dagStoreFromContext(ctx context.Context) exec.DAGStore {
-	if store := agentctx.GetDAGStore(ctx); store != nil {
-		return store
-	}
+func (r *Local) dagStoreFromContext(_ context.Context) exec.DAGStore {
 	return r.dagStore
 }
 
@@ -416,7 +406,7 @@ func (r *Local) dagRunStoreFromContext(ctx context.Context) exec.DAGRunStore {
 	if rCtx.DAGRunStore != nil {
 		return rCtx.DAGRunStore
 	}
-	return agentctx.GetDAGRunStore(ctx)
+	return nil
 }
 
 func (r *Local) runStateStoreFromContext(ctx context.Context) runstate.Store {

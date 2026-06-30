@@ -36,7 +36,6 @@ import {
   PanelLeft,
   SlidersHorizontal,
   Sun,
-  Terminal,
   Webhook,
 } from 'lucide-react';
 import * as React from 'react';
@@ -44,7 +43,6 @@ import { Link, useLocation } from 'react-router-dom';
 import { AppBarContext } from './contexts/AppBarContext';
 import { useViews } from '@/hooks/useViews';
 import { useUserPreferences } from './contexts/UserPreference';
-import { useAgentChatContext } from './features/agent';
 import { WorkspaceSelector } from './components/workspace/WorkspaceSelector';
 
 type NavItemProps = {
@@ -59,7 +57,6 @@ type NavItemProps = {
 
 type MainListItemsProps = {
   isOpen?: boolean;
-  onAgentModeToggle?: () => void;
   onNavItemClick?: () => void;
   onToggle?: () => void;
   customColor?: boolean;
@@ -451,13 +448,7 @@ export const mainListItems = React.forwardRef<
   HTMLDivElement,
   MainListItemsProps
 >(function MainListItems(
-  {
-    isOpen = false,
-    onAgentModeToggle,
-    onNavItemClick,
-    onToggle,
-    customColor = false,
-  },
+  { isOpen = false, onNavItemClick, onToggle, customColor = false },
   ref
 ) {
   const config = useConfig();
@@ -480,8 +471,6 @@ export const mainListItems = React.forwardRef<
   const canViewEventLogs = useCanViewEventLogs();
   const canViewAuditLogs = useCanViewAuditLogs();
   const { preferences, updatePreference } = useUserPreferences();
-  const { toggleChat } = useAgentChatContext();
-  const handleAgentClick = onAgentModeToggle ?? toggleChat;
 
   const theme = preferences.theme || 'dark';
   const title = config.title || DEFAULT_TITLE;
@@ -658,12 +647,7 @@ export const mainListItems = React.forwardRef<
             icon={<Network size={18} />}
             label="Workflows"
             isOpen={isOpen}
-            basePath={[
-              '/dags',
-              '/search',
-              '/base-config',
-              '/git-sync',
-            ]}
+            basePath={['/dags', '/search', '/base-config', '/git-sync']}
             to="/dags"
             onClick={onNavItemClick}
             customColor={customColor}
@@ -854,11 +838,6 @@ export const mainListItems = React.forwardRef<
                 '/remote-nodes',
                 '/terminal',
                 '/license',
-                '/agent',
-                '/agent-settings',
-                '/agent-tools',
-                '/agent-memory',
-                '/agent-souls',
                 '/administration',
               ]}
               to="/administration"
@@ -924,52 +903,6 @@ export const mainListItems = React.forwardRef<
                   customColor={customColor}
                 />
               </NavGroup>
-
-              <NavGroup
-                groupKey="administration-agent"
-                label="Agent"
-                isOpen={isOpen}
-                basePath={[
-                  '/agent',
-                  '/agent-settings',
-                  '/agent-tools',
-                  '/agent-memory',
-                  '/agent-souls',
-                ]}
-                to="/agent"
-                onClick={onNavItemClick}
-                customColor={customColor}
-                persistExpanded={false}
-              >
-                <NavItem
-                  to="/agent-settings"
-                  text="Models"
-                  isOpen={isOpen}
-                  onClick={onNavItemClick}
-                  customColor={customColor}
-                />
-                <NavItem
-                  to="/agent-tools"
-                  text="Tools"
-                  isOpen={isOpen}
-                  onClick={onNavItemClick}
-                  customColor={customColor}
-                />
-                <NavItem
-                  to="/agent-memory"
-                  text="Memory"
-                  isOpen={isOpen}
-                  onClick={onNavItemClick}
-                  customColor={customColor}
-                />
-                <NavItem
-                  to="/agent-souls"
-                  text="Souls"
-                  isOpen={isOpen}
-                  onClick={onNavItemClick}
-                  customColor={customColor}
-                />
-              </NavGroup>
             </NavGroup>
           )}
         </div>
@@ -983,14 +916,6 @@ export const mainListItems = React.forwardRef<
             !isOpen && 'flex flex-col items-center gap-1.5'
           )}
         >
-          {config.agentEnabled && (
-            <SidebarButton
-              onClick={handleAgentClick}
-              icon={<Terminal size={18} />}
-              label="Agent"
-              isOpen={isOpen}
-            />
-          )}
           <SidebarButton
             onClick={toggleTheme}
             icon={theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}

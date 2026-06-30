@@ -566,7 +566,7 @@ func executeRetry(ctx *Context, dag *core.DAG, status *exec.DAGRunStatus, rootRu
 		return fmt.Errorf("failed to initialize DAG store: %w", err)
 	}
 
-	as := ctx.agentStores()
+	as := ctx.runtimeStores()
 	triggerType := exec.PreservedQueueTriggerType(status)
 	if triggerType == core.TriggerTypeUnknown {
 		triggerType = core.TriggerTypeRetry
@@ -584,35 +584,29 @@ func executeRetry(ctx *Context, dag *core.DAG, status *exec.DAGRunStatus, rootRu
 		ctx.DAGRunMgr,
 		dr,
 		agent.Options{
-			RetryTarget:                status,
-			ParentDAGRun:               status.Parent,
-			ProgressDisplay:            shouldEnableProgress(ctx),
-			ExtraEnvs:                  extraEnvs,
-			StepRetry:                  stepName,
-			WorkerID:                   workerID,
-			AttemptID:                  attemptID,
-			PreparedAttempt:            preparedAttempt,
-			DAGRunStore:                ctx.DAGRunStore,
-			QueueStore:                 ctx.QueueStore,
-			StateStore:                 ctx.StateStore,
-			SecretStore:                as.SecretStore,
-			ProfileStore:               as.ProfileStore,
-			ProfileName:                profileName,
-			ServiceRegistry:            ctx.ServiceRegistry,
-			SubWorkflowRunnerFactory:   ctx.SubWorkflowRunnerFactory(),
-			RootDAGRun:                 rootRun,
-			PeerConfig:                 ctx.Config.Core.Peer,
-			TriggerType:                triggerType,
-			DefaultExecMode:            ctx.Config.DefaultExecMode,
-			AgentConfigStore:           as.ConfigStore,
-			AgentModelStore:            as.ModelStore,
-			AgentMemoryStore:           as.MemoryStore,
-			AgentSoulStore:             as.SoulStore,
-			AgentOAuthManager:          as.OAuthManager,
-			AgentRemoteContextResolver: as.ContextResolver,
-			ArtifactDir:                artifactDir,
-			DAGRunLogDir:               ctx.Config.Paths.LogDir,
-			DAGRunArtifactDir:          ctx.Config.Paths.ArtifactDir,
+			RetryTarget:              status,
+			ParentDAGRun:             status.Parent,
+			ProgressDisplay:          shouldEnableProgress(ctx),
+			ExtraEnvs:                extraEnvs,
+			StepRetry:                stepName,
+			WorkerID:                 workerID,
+			AttemptID:                attemptID,
+			PreparedAttempt:          preparedAttempt,
+			DAGRunStore:              ctx.DAGRunStore,
+			QueueStore:               ctx.QueueStore,
+			StateStore:               ctx.StateStore,
+			SecretStore:              as.SecretStore,
+			ProfileStore:             as.ProfileStore,
+			ProfileName:              profileName,
+			ServiceRegistry:          ctx.ServiceRegistry,
+			SubWorkflowRunnerFactory: ctx.SubWorkflowRunnerFactory(),
+			RootDAGRun:               rootRun,
+			PeerConfig:               ctx.Config.Core.Peer,
+			TriggerType:              triggerType,
+			DefaultExecMode:          ctx.Config.DefaultExecMode,
+			ArtifactDir:              artifactDir,
+			DAGRunLogDir:             ctx.Config.Paths.LogDir,
+			DAGRunArtifactDir:        ctx.Config.Paths.ArtifactDir,
 		},
 	)
 

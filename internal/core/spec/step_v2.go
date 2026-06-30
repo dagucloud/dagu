@@ -13,7 +13,6 @@ import (
 )
 
 var v2LegacyExecutionFields = map[string]struct{}{
-	"agent":          {},
 	"call":           {},
 	"command":        {},
 	"config":         {},
@@ -39,7 +38,6 @@ var v2RunWithFields = map[string]struct{}{
 type actionNormalizer func(normalized map[string]any, with map[string]any) error
 
 var builtinActionNormalizers = map[string]actionNormalizer{
-	"agent.run":       normalizeAgentAction,
 	"artifact.list":   operationAction("artifact", "list"),
 	"artifact.read":   operationAction("artifact", "read"),
 	"artifact.write":  operationAction("artifact", "write"),
@@ -661,31 +659,6 @@ func normalizeChatAction(normalized map[string]any, with map[string]any) error {
 	}
 	delete(normalized, "with")
 	normalized["type"] = "chat"
-	delete(normalized, "action")
-	return nil
-}
-
-func normalizeAgentAction(normalized map[string]any, with map[string]any) error {
-	messages, ok, err := actionMessages(with)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		task, err := requireActionStringField(with, "task")
-		if err != nil {
-			return core.NewValidationError("with", with, fmt.Errorf("agent.run requires with.task, with.prompt, or with.messages"))
-		}
-		messages = []any{map[string]any{"role": "user", "content": task}}
-		delete(with, "task")
-	}
-	normalized["messages"] = messages
-	delete(with, "prompt")
-	delete(with, "messages")
-	if len(with) > 0 {
-		normalized["agent"] = with
-	}
-	delete(normalized, "with")
-	normalized["type"] = "agent"
 	delete(normalized, "action")
 	return nil
 }

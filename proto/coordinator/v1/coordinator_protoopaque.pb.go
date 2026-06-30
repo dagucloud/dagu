@@ -475,7 +475,6 @@ type Task struct {
 	xxx_hidden_OwnerCoordinatorPort       int32                  `protobuf:"varint,23,opt,name=owner_coordinator_port,json=ownerCoordinatorPort,proto3"`
 	xxx_hidden_ClaimToken                 string                 `protobuf:"bytes,24,opt,name=claim_token,json=claimToken,proto3"`
 	xxx_hidden_SourceFile                 string                 `protobuf:"bytes,25,opt,name=source_file,json=sourceFile,proto3"`
-	xxx_hidden_AgentSnapshot              []byte                 `protobuf:"bytes,26,opt,name=agent_snapshot,json=agentSnapshot,proto3"`
 	xxx_hidden_WorkspaceBundleDigest      string                 `protobuf:"bytes,27,opt,name=workspace_bundle_digest,json=workspaceBundleDigest,proto3"`
 	xxx_hidden_WorkspaceBundleSize        int64                  `protobuf:"varint,28,opt,name=workspace_bundle_size,json=workspaceBundleSize,proto3"`
 	xxx_hidden_WorkspaceBundleDagPath     string                 `protobuf:"bytes,29,opt,name=workspace_bundle_dag_path,json=workspaceBundleDagPath,proto3"`
@@ -686,13 +685,6 @@ func (x *Task) GetSourceFile() string {
 	return ""
 }
 
-func (x *Task) GetAgentSnapshot() []byte {
-	if x != nil {
-		return x.xxx_hidden_AgentSnapshot
-	}
-	return nil
-}
-
 func (x *Task) GetWorkspaceBundleDigest() string {
 	if x != nil {
 		return x.xxx_hidden_WorkspaceBundleDigest
@@ -835,13 +827,6 @@ func (x *Task) SetSourceFile(v string) {
 	x.xxx_hidden_SourceFile = v
 }
 
-func (x *Task) SetAgentSnapshot(v []byte) {
-	if v == nil {
-		v = []byte{}
-	}
-	x.xxx_hidden_AgentSnapshot = v
-}
-
 func (x *Task) SetWorkspaceBundleDigest(v string) {
 	x.xxx_hidden_WorkspaceBundleDigest = v
 }
@@ -917,8 +902,6 @@ type Task_builder struct {
 	ClaimToken string
 	// Original DAG file path for provenance-aware reschedule-from-file behavior.
 	SourceFile string
-	// Opaque execution-scoped agent settings snapshot for distributed workers.
-	AgentSnapshot []byte
 	// Content-addressed workspace bundle for action sub-DAGs.
 	WorkspaceBundleDigest      string
 	WorkspaceBundleSize        int64
@@ -958,7 +941,6 @@ func (b0 Task_builder) Build() *Task {
 	x.xxx_hidden_OwnerCoordinatorPort = b.OwnerCoordinatorPort
 	x.xxx_hidden_ClaimToken = b.ClaimToken
 	x.xxx_hidden_SourceFile = b.SourceFile
-	x.xxx_hidden_AgentSnapshot = b.AgentSnapshot
 	x.xxx_hidden_WorkspaceBundleDigest = b.WorkspaceBundleDigest
 	x.xxx_hidden_WorkspaceBundleSize = b.WorkspaceBundleSize
 	x.xxx_hidden_WorkspaceBundleDagPath = b.WorkspaceBundleDagPath
@@ -5012,7 +4994,7 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\x0fDispatchRequest\x12(\n" +
 	"\x04task\x18\x01 \x01(\v2\x14.coordinator.v1.TaskR\x04task\x12>\n" +
 	"\x1badmission_reservation_token\x18\x02 \x01(\tR\x19admissionReservationToken\"\x12\n" +
-	"\x10DispatchResponse\"\xb0\v\n" +
+	"\x10DispatchResponse\"\x89\v\n" +
 	"\x04Task\x127\n" +
 	"\toperation\x18\x06 \x01(\x0e2\x19.coordinator.v1.OperationR\toperation\x12)\n" +
 	"\x11root_dag_run_name\x18\x01 \x01(\tR\x0erootDagRunName\x12%\n" +
@@ -5048,8 +5030,7 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\vclaim_token\x18\x18 \x01(\tR\n" +
 	"claimToken\x12\x1f\n" +
 	"\vsource_file\x18\x19 \x01(\tR\n" +
-	"sourceFile\x12%\n" +
-	"\x0eagent_snapshot\x18\x1a \x01(\fR\ragentSnapshot\x126\n" +
+	"sourceFile\x126\n" +
 	"\x17workspace_bundle_digest\x18\x1b \x01(\tR\x15workspaceBundleDigest\x122\n" +
 	"\x15workspace_bundle_size\x18\x1c \x01(\x03R\x13workspaceBundleSize\x129\n" +
 	"\x19workspace_bundle_dag_path\x18\x1d \x01(\tR\x16workspaceBundleDagPath\x12A\n" +

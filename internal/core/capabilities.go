@@ -28,8 +28,6 @@ type ExecutorCapabilities struct {
 	WorkerSelector bool
 	// LLM indicates whether the executor supports the llm field.
 	LLM bool
-	// Agent indicates whether the executor supports the agent field.
-	Agent bool
 	// CommandContext returns command execution facts for command field resolution.
 	CommandContext func(ctx context.Context, step Step) cmnvalue.CommandContext
 	// ScriptContext returns command execution facts for script field resolution.
@@ -120,11 +118,6 @@ func SupportsWorkerSelector(executorType string) bool {
 // SupportsLLM returns whether the executor type supports the llm field.
 func SupportsLLM(executorType string) bool {
 	return executorCapabilities.Get(executorType).LLM
-}
-
-// SupportsAgent returns whether the executor type supports the agent field.
-func SupportsAgent(executorType string) bool {
-	return executorCapabilities.Get(executorType).Agent
 }
 
 // CommandResolution returns command execution facts for command field resolution.

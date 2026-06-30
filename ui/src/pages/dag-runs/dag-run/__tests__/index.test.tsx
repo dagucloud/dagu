@@ -6,7 +6,6 @@ import React from 'react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppBarContext } from '@/contexts/AppBarContext';
-import { PageContextProvider } from '@/contexts/PageContext';
 import { useBoundedDAGRunDetails } from '@/features/dag-runs/hooks/useBoundedDAGRunDetails';
 import DAGRunDetailsPage from '..';
 
@@ -35,18 +34,15 @@ function renderPage() {
         value={
           {
             selectedRemoteNode: 'local',
-            setContext: vi.fn(),
           } as never
         }
       >
-        <PageContextProvider>
-          <Routes>
-            <Route
-              path="/dag-runs/:name/:dagRunId"
-              element={<DAGRunDetailsPage />}
-            />
-          </Routes>
-        </PageContextProvider>
+        <Routes>
+          <Route
+            path="/dag-runs/:name/:dagRunId"
+            element={<DAGRunDetailsPage />}
+          />
+        </Routes>
       </AppBarContext.Provider>
     </MemoryRouter>
   );

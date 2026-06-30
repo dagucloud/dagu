@@ -255,7 +255,6 @@ func TestMergeDefaults(t *testing.T) {
 
 	boolPtr := func(b bool) *bool { return &b }
 	strPtr := func(s string) *string { return &s }
-	intPtr := func(v int) *int { return &v }
 
 	t.Run("NilHandling", func(t *testing.T) {
 		t.Parallel()
@@ -280,16 +279,6 @@ func TestMergeDefaults(t *testing.T) {
 			SignalOnStop:  strPtr("SIGTERM"),
 			Env:           envValueMap(map[string]string{"BASE_ONLY": "base-only"}),
 			Preconditions: []any{"base-check"},
-			Agent: &agentDefaults{
-				Model:         "base-model",
-				Tools:         &agentToolsConfig{Enabled: []string{"bash"}},
-				Skills:        []string{"base-skill"},
-				Soul:          "base-soul",
-				Memory:        &agentMemoryConfig{Enabled: true},
-				Prompt:        "base prompt",
-				MaxIterations: intPtr(5),
-				SafeMode:      boolPtr(true),
-			},
 		}
 		override := &defaults{
 			ContinueOn:    continueOnValue("skipped"),
@@ -300,16 +289,6 @@ func TestMergeDefaults(t *testing.T) {
 			SignalOnStop:  strPtr("SIGINT"),
 			Env:           envValueMap(map[string]string{"OVERRIDE_ONLY": "override-only"}),
 			Preconditions: []any{"override-check"},
-			Agent: &agentDefaults{
-				Model:         "override-model",
-				Tools:         &agentToolsConfig{Enabled: []string{"git"}},
-				Skills:        []string{"override-skill"},
-				Soul:          "override-soul",
-				Memory:        &agentMemoryConfig{Enabled: false},
-				Prompt:        "override prompt",
-				MaxIterations: intPtr(9),
-				SafeMode:      boolPtr(false),
-			},
 		}
 
 		merged := mergeDefaults(base, override, nil)
@@ -334,23 +313,10 @@ func TestMergeDefaults(t *testing.T) {
 		require.True(t, ok)
 		require.Equal(t, []any{"base-check", "override-check"}, preconditions)
 
-		require.NotNil(t, merged.Agent)
-		require.Equal(t, "override-model", merged.Agent.Model)
-		require.Equal(t, []string{"git"}, merged.Agent.Tools.Enabled)
-		require.Equal(t, []string{"override-skill"}, merged.Agent.Skills)
-		require.Equal(t, "override-soul", merged.Agent.Soul)
-		require.NotNil(t, merged.Agent.Memory)
-		require.False(t, merged.Agent.Memory.Enabled)
-		require.Equal(t, "override prompt", merged.Agent.Prompt)
-		require.Equal(t, 9, *merged.Agent.MaxIterations)
-		require.False(t, *merged.Agent.SafeMode)
-
 		baseEnvEntries := base.Env.Entries()
 		require.Len(t, baseEnvEntries, 1)
 		require.Equal(t, "BASE_ONLY", baseEnvEntries[0].Key)
 		require.Equal(t, "base-only", baseEnvEntries[0].Value)
-		require.Equal(t, []string{"base-skill"}, base.Agent.Skills)
-		require.Equal(t, "base prompt", base.Agent.Prompt)
 	})
 
 	t.Run("ExplicitZeroAndEmptyOverridesWithRaw", func(t *testing.T) {
@@ -360,20 +326,11 @@ func TestMergeDefaults(t *testing.T) {
 			TimeoutSec:    600,
 			Env:           envValueMap(map[string]string{"BASE_ONLY": "base-only"}),
 			Preconditions: []any{"base-check"},
-			Agent: &agentDefaults{
-				Model:  "base-model",
-				Prompt: "base prompt",
-				Soul:   "base-soul",
-			},
 		}
 		overrideRaw := map[string]any{
 			"timeout_sec":   0,
 			"env":           []any{},
 			"preconditions": []any{},
-			"agent": map[string]any{
-				"prompt": "",
-				"soul":   "",
-			},
 		}
 		override, err := decodeDefaults(overrideRaw)
 		require.NoError(t, err)
@@ -385,92 +342,6 @@ func TestMergeDefaults(t *testing.T) {
 		preconditions, ok := merged.Preconditions.([]any)
 		require.True(t, ok)
 		require.Empty(t, preconditions)
-		require.NotNil(t, merged.Agent)
-		require.Equal(t, "base-model", merged.Agent.Model)
-		require.Empty(t, merged.Agent.Prompt)
-		require.Empty(t, merged.Agent.Soul)
-	})
-}
-
-func TestMergeAgentDefaults(t *testing.T) {
-	t.Parallel()
-
-	boolPtr := func(b bool) *bool { return &b }
-	intPtr := func(v int) *int { return &v }
-
-	t.Run("NilHandling", func(t *testing.T) {
-		t.Parallel()
-
-		base := &agentDefaults{Model: "base"}
-		override := &agentDefaults{Model: "override"}
-
-		require.Nil(t, mergeAgentDefaults(nil, nil, nil))
-		require.Same(t, base, mergeAgentDefaults(base, nil, nil))
-		require.Same(t, override, mergeAgentDefaults(nil, override, nil))
-	})
-
-	t.Run("OverrideFields", func(t *testing.T) {
-		t.Parallel()
-
-		base := &agentDefaults{
-			Model:         "base-model",
-			Tools:         &agentToolsConfig{Enabled: []string{"bash"}},
-			Skills:        []string{"base-skill"},
-			Soul:          "base-soul",
-			Memory:        &agentMemoryConfig{Enabled: true},
-			Prompt:        "base prompt",
-			MaxIterations: intPtr(5),
-			SafeMode:      boolPtr(true),
-		}
-		override := &agentDefaults{
-			Model:         "override-model",
-			Tools:         &agentToolsConfig{Enabled: []string{"git"}},
-			Skills:        []string{"override-skill"},
-			Soul:          "override-soul",
-			Memory:        &agentMemoryConfig{Enabled: false},
-			Prompt:        "override prompt",
-			MaxIterations: intPtr(9),
-			SafeMode:      boolPtr(false),
-		}
-
-		merged := mergeAgentDefaults(base, override, nil)
-		require.NotNil(t, merged)
-		require.NotSame(t, base, merged)
-		require.Equal(t, "override-model", merged.Model)
-		require.Equal(t, []string{"git"}, merged.Tools.Enabled)
-		require.Equal(t, []string{"override-skill"}, merged.Skills)
-		require.Equal(t, "override-soul", merged.Soul)
-		require.NotNil(t, merged.Memory)
-		require.False(t, merged.Memory.Enabled)
-		require.Equal(t, "override prompt", merged.Prompt)
-		require.Equal(t, 9, *merged.MaxIterations)
-		require.False(t, *merged.SafeMode)
-
-		require.Equal(t, []string{"base-skill"}, base.Skills)
-		require.Equal(t, "base prompt", base.Prompt)
-		require.Equal(t, 5, *base.MaxIterations)
-		require.True(t, *base.SafeMode)
-	})
-
-	t.Run("ExplicitEmptyStringsWithRaw", func(t *testing.T) {
-		t.Parallel()
-
-		base := &agentDefaults{
-			Model:  "base-model",
-			Prompt: "base prompt",
-			Soul:   "base-soul",
-		}
-		overrideRaw := map[string]any{
-			"prompt": "",
-			"soul":   "",
-		}
-		override := &agentDefaults{}
-
-		merged := mergeAgentDefaults(base, override, overrideRaw)
-		require.NotNil(t, merged)
-		require.Equal(t, "base-model", merged.Model)
-		require.Empty(t, merged.Prompt)
-		require.Empty(t, merged.Soul)
 	})
 }
 
