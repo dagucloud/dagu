@@ -20,6 +20,8 @@ import (
 	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/service/scheduler"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const conditionTestStaleThreshold = time.Hour
@@ -89,8 +91,8 @@ func TestQueuedConditionNeedsUpdateKeepsNewerObservation(t *testing.T) {
 		Status: core.Queued,
 		Conditions: []exec.DAGRunCondition{
 			exec.NewQueuedDAGRunCondition(
-				"DispatchAdmissionRejected",
-				"DAG-run is waiting because dispatch admission was rejected: no_capacity.",
+				"QueueConcurrencyLimitReached",
+				"DAG-run is waiting because the queue's active-run concurrency limit has been reached.",
 				checkedAt.Add(time.Second),
 			),
 		},
@@ -118,10 +120,10 @@ func TestQueueProcessorRecordsPendingDispatchAdmissionCondition(t *testing.T) {
 	f.processor.ProcessQueueItems(f.ctx, f.dag.Name)
 
 	status := f.readStatus("waiting-run")
-	requireQueuedCondition(t, status, "DispatchAdmissionPending", "dispatch admission is still pending")
+	requireQueuedCondition(t, status, "DispatchAdmissionPending", "dispatch reservation is already pending")
 }
 
-func TestQueueProcessorRecordsRejectedDispatchAdmissionCondition(t *testing.T) {
+func TestQueueProcessorRecordsNoDispatchCapacityCondition(t *testing.T) {
 	t.Parallel()
 
 	admissionStore := &queueConditionAdmissionStore{
@@ -133,17 +135,32 @@ func TestQueueProcessorRecordsRejectedDispatchAdmissionCondition(t *testing.T) {
 	f.processor.ProcessQueueItems(f.ctx, f.dag.Name)
 
 	status := f.readStatus("waiting-run")
-	requireQueuedCondition(t, status, "DispatchAdmissionRejected", "no_capacity")
+	requireQueuedCondition(t, status, "QueueConcurrencyLimitReached", "active-run concurrency limit has been reached")
 }
 
-func TestQueueProcessorRecordsDistributedDispatchFailureCondition(t *testing.T) {
+func TestQueueProcessorRecordsDuplicateDispatchAdmissionAsPendingCondition(t *testing.T) {
+	t.Parallel()
+
+	admissionStore := &queueConditionAdmissionStore{
+		decision: &exec.DispatchAdmissionDecision{Reason: exec.DispatchAdmissionRejectedDuplicate},
+	}
+	f := newQueueConditionFixture(t, config.ExecutionModeDistributed, admissionStore)
+	f.enqueueRun("waiting-run", nil)
+
+	f.processor.ProcessQueueItems(f.ctx, f.dag.Name)
+
+	status := f.readStatus("waiting-run")
+	requireQueuedCondition(t, status, "DispatchAdmissionPending", "dispatch reservation is already pending")
+}
+
+func TestQueueProcessorRecordsWorkerSelectorNotMatchedCondition(t *testing.T) {
 	t.Parallel()
 
 	f := newQueueConditionFixtureWithDispatcher(
 		t,
 		config.ExecutionModeDistributed,
 		nil,
-		&queueConditionDispatcher{dispatchErr: errors.New("worker unavailable")},
+		&queueConditionDispatcher{dispatchErr: status.Error(codes.FailedPrecondition, "no workers match the required selector")},
 	)
 	f.enqueueRun("waiting-run", []exec.DAGRunCondition{
 		exec.NewQueuedDAGRunCondition(
@@ -156,7 +173,41 @@ func TestQueueProcessorRecordsDistributedDispatchFailureCondition(t *testing.T) 
 	f.processor.ProcessQueueItems(f.ctx, f.dag.Name)
 
 	status := f.readStatus("waiting-run")
-	requireQueuedCondition(t, status, "DistributedDispatchFailed", "worker unavailable")
+	requireQueuedCondition(t, status, "WorkerSelectorNotMatched", "No healthy worker matches the required worker selector")
+}
+
+func TestQueueProcessorRecordsNoAvailableWorkerCondition(t *testing.T) {
+	t.Parallel()
+
+	f := newQueueConditionFixtureWithDispatcher(
+		t,
+		config.ExecutionModeDistributed,
+		nil,
+		&queueConditionDispatcher{dispatchErr: status.Error(codes.Unavailable, "no available workers")},
+	)
+	f.enqueueRun("waiting-run", nil)
+
+	f.processor.ProcessQueueItems(f.ctx, f.dag.Name)
+
+	status := f.readStatus("waiting-run")
+	requireQueuedCondition(t, status, "NoAvailableWorker", "No healthy distributed worker is available")
+}
+
+func TestQueueProcessorRecordsDispatchUnavailableCondition(t *testing.T) {
+	t.Parallel()
+
+	f := newQueueConditionFixtureWithDispatcher(
+		t,
+		config.ExecutionModeDistributed,
+		nil,
+		&queueConditionDispatcher{dispatchErr: errors.New("coordinator unavailable")},
+	)
+	f.enqueueRun("waiting-run", nil)
+
+	f.processor.ProcessQueueItems(f.ctx, f.dag.Name)
+
+	status := f.readStatus("waiting-run")
+	requireQueuedCondition(t, status, "DispatchUnavailable", "Distributed dispatch is temporarily unavailable")
 }
 
 type queueConditionFixture struct {

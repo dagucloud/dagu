@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	osexec "os/exec"
+	"strings"
 	"time"
 
 	"github.com/dagucloud/dagu/internal/cmn/backoff"
@@ -17,6 +18,8 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type queueDispatchDeps struct {
@@ -64,13 +67,17 @@ type dispatchAdmissionInput struct {
 }
 
 const (
-	queuedConditionReasonQueueConcurrencyLimit     = "QueueConcurrencyLimitReached"
-	queuedConditionReasonDispatchAdmissionPending  = "DispatchAdmissionPending"
-	queuedConditionReasonDispatchAdmissionRejected = "DispatchAdmissionRejected"
-	queuedConditionReasonDistributedDispatchFailed = "DistributedDispatchFailed"
+	queuedConditionReasonQueueConcurrencyLimit    = "QueueConcurrencyLimitReached"
+	queuedConditionReasonDispatchAdmissionPending = "DispatchAdmissionPending"
+	queuedConditionReasonWorkerSelectorNotMatched = "WorkerSelectorNotMatched"
+	queuedConditionReasonNoAvailableWorker        = "NoAvailableWorker"
+	queuedConditionReasonDispatchUnavailable      = "DispatchUnavailable"
 
-	queuedConditionMessageQueueConcurrencyLimit    = "DAG-run is waiting because the queue's active-run concurrency limit has been reached."
-	queuedConditionMessageDispatchAdmissionPending = "Distributed dispatch admission is still pending; DAG-run is waiting in the queue."
+	queuedConditionMessageQueueConcurrencyLimit      = "DAG-run is waiting because the queue's active-run concurrency limit has been reached."
+	queuedConditionMessageDispatchAdmissionPending   = "A distributed dispatch reservation is already pending; DAG-run is waiting in the queue."
+	queuedConditionMessageWorkerSelectorNotMatched   = "No healthy worker matches the required worker selector; DAG-run is waiting in the queue."
+	queuedConditionMessageNoAvailableWorker          = "No healthy distributed worker is available; DAG-run is waiting in the queue."
+	queuedConditionMessageDispatchUnavailableNoError = "Distributed dispatch is temporarily unavailable; DAG-run is waiting in the queue."
 
 	queuedConditionRefreshInterval = time.Minute
 )
@@ -408,10 +415,8 @@ func (d *queueDispatcher) dispatchAndWaitForStartup(
 			return true
 		}
 		logger.Error(ctx, "Failed to dispatch DAG after retries", tag.Error(err))
-		d.recordQueuedCondition(ctx, runRef,
-			queuedConditionReasonDistributedDispatchFailed,
-			distributedDispatchFailedMessage(err),
-		)
+		reason, message := queuedDispatchCondition(err)
+		d.recordQueuedCondition(ctx, runRef, reason, message)
 	}
 
 	defer d.wakeUp()
@@ -461,18 +466,16 @@ func (d *queueDispatcher) reserveDistributedAdmission(
 		return "", false
 	}
 	if decision == nil || !decision.Reserved {
-		reason := ""
+		logReason := ""
 		if decision != nil {
-			reason = string(decision.Reason)
+			logReason = string(decision.Reason)
 		}
-		d.recordQueuedCondition(ctx, runRef,
-			queuedConditionReasonDispatchAdmissionRejected,
-			dispatchAdmissionRejectedMessage(reason),
-		)
+		reason, message := dispatchAdmissionWaitingCondition(decision)
+		d.recordQueuedCondition(ctx, runRef, reason, message)
 		logger.Debug(ctx, "Distributed queue admission rejected",
 			tag.RunID(runRef.ID),
 			tag.Queue(queueName),
-			slog.String("reason", reason),
+			slog.String("reason", logReason),
 		)
 		return "", false
 	}
@@ -639,18 +642,55 @@ func (d *queueDispatcher) selectRunnableQueueItems(
 	return runnable, nil
 }
 
-func dispatchAdmissionRejectedMessage(reason string) string {
-	if reason == "" {
-		return "Distributed dispatch admission was rejected; DAG-run is waiting in the queue."
+func dispatchAdmissionWaitingCondition(decision *exec.DispatchAdmissionDecision) (string, string) {
+	if decision == nil {
+		return queuedConditionReasonDispatchAdmissionPending, queuedConditionMessageDispatchAdmissionPending
 	}
-	return fmt.Sprintf("Distributed dispatch admission was rejected (%s); DAG-run is waiting in the queue.", reason)
+	switch decision.Reason {
+	case exec.DispatchAdmissionRejectedNoCapacity:
+		return queuedConditionReasonQueueConcurrencyLimit, queuedConditionMessageQueueConcurrencyLimit
+	case exec.DispatchAdmissionRejectedDuplicate:
+		return queuedConditionReasonDispatchAdmissionPending, queuedConditionMessageDispatchAdmissionPending
+	default:
+		return queuedConditionReasonDispatchAdmissionPending, queuedConditionMessageDispatchAdmissionPending
+	}
 }
 
-func distributedDispatchFailedMessage(err error) string {
-	if err == nil {
-		return "Distributed dispatch failed; DAG-run is waiting in the queue."
+func queuedDispatchCondition(err error) (string, string) {
+	if isWorkerSelectorNotMatched(err) {
+		return queuedConditionReasonWorkerSelectorNotMatched, queuedConditionMessageWorkerSelectorNotMatched
 	}
-	return fmt.Sprintf("Distributed dispatch failed (%s); DAG-run is waiting in the queue.", err)
+	if isNoAvailableWorker(err) {
+		return queuedConditionReasonNoAvailableWorker, queuedConditionMessageNoAvailableWorker
+	}
+	if err == nil {
+		return queuedConditionReasonDispatchUnavailable, queuedConditionMessageDispatchUnavailableNoError
+	}
+	return queuedConditionReasonDispatchUnavailable,
+		fmt.Sprintf("Distributed dispatch is temporarily unavailable (%s); DAG-run is waiting in the queue.", err)
+}
+
+func isWorkerSelectorNotMatched(err error) bool {
+	st, ok := status.FromError(err)
+	if ok && st.Code() == codes.FailedPrecondition && strings.Contains(st.Message(), "no workers match the required selector") {
+		return true
+	}
+	return strings.Contains(strings.ToLower(errorMessage(err)), "no workers match the required selector")
+}
+
+func isNoAvailableWorker(err error) bool {
+	st, ok := status.FromError(err)
+	if ok && st.Code() == codes.Unavailable && strings.Contains(st.Message(), "no available workers") {
+		return true
+	}
+	return strings.Contains(strings.ToLower(errorMessage(err)), "no available workers")
+}
+
+func errorMessage(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }
 
 func (d *queueDispatcher) recordCapacityUnavailableConditions(
