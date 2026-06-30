@@ -110,6 +110,12 @@ func TestCompareAndSwapLatestAttemptStatusReturnsNormalizedConditions(t *testing
 	attempt, err := store.CreateAttempt(ctx, dag, startedAt, "run-conditions", exec.NewDAGRunAttemptOptions{})
 	require.NoError(t, err)
 	require.NoError(t, attempt.Open(ctx))
+	closed := false
+	t.Cleanup(func() {
+		if !closed {
+			_ = attempt.Close(ctx)
+		}
+	})
 
 	status := exec.DAGRunStatus{
 		Name:      dag.Name,
@@ -128,6 +134,7 @@ func TestCompareAndSwapLatestAttemptStatusReturnsNormalizedConditions(t *testing
 	}
 	require.NoError(t, attempt.Write(ctx, status))
 	require.NoError(t, attempt.Close(ctx))
+	closed = true
 
 	updated, swapped, err := store.CompareAndSwapLatestAttemptStatus(
 		ctx,
