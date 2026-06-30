@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	osexec "os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/dagucloud/dagu/internal/cmn/backoff"
@@ -51,6 +52,9 @@ type queueDispatcher struct {
 	leaseStaleThreshold    time.Duration
 	isClosed               func() bool
 	wakeUp                 func()
+
+	queuedConditionCursorMu sync.Mutex
+	queuedConditionCursor   map[string]int
 }
 
 type queueDispatchBatch struct {
@@ -91,7 +95,8 @@ const (
 	queuedConditionReasonRunLivenessUnavailable    = "RunLivenessUnavailable"
 	queuedConditionReasonQueueStateUnavailable     = "QueueStateUnavailable"
 
-	queuedConditionRefreshInterval = time.Minute
+	queuedConditionRefreshInterval   = time.Minute
+	queuedConditionRefreshBatchLimit = 100
 )
 
 var errQueuedConditionFresh = errors.New("queued condition is already fresh")
@@ -299,6 +304,7 @@ func newQueueDispatcher(deps queueDispatchDeps) *queueDispatcher {
 		leaseStaleThreshold:    deps.leaseStaleThreshold,
 		isClosed:               deps.isClosed,
 		wakeUp:                 deps.wakeUp,
+		queuedConditionCursor:  make(map[string]int),
 	}
 }
 
@@ -335,6 +341,26 @@ func newQueuedItemSnapshot(ctx context.Context, items []exec.QueuedItemData) que
 		snapshot[item.ID()] = *runRef
 	}
 	return snapshot
+}
+
+func (d *queueDispatcher) queuedConditionItemsForRefresh(
+	queueName string,
+	items []exec.QueuedItemData,
+) []exec.QueuedItemData {
+	if len(items) <= queuedConditionRefreshBatchLimit {
+		return items
+	}
+
+	d.queuedConditionCursorMu.Lock()
+	start := d.queuedConditionCursor[queueName] % len(items)
+	d.queuedConditionCursor[queueName] = (start + queuedConditionRefreshBatchLimit) % len(items)
+	d.queuedConditionCursorMu.Unlock()
+
+	selected := make([]exec.QueuedItemData, 0, queuedConditionRefreshBatchLimit)
+	for i := 0; i < queuedConditionRefreshBatchLimit; i++ {
+		selected = append(selected, items[(start+i)%len(items)])
+	}
+	return selected
 }
 
 func (d *queueDispatcher) newQueuedConditionStage(
@@ -1233,6 +1259,7 @@ func (d *queueDispatcher) recordCapacityUnavailableConditions(
 	items []exec.QueuedItemData,
 	checkOutstandingDispatch bool,
 ) {
+	items = d.queuedConditionItemsForRefresh(queueName, items)
 	queuedItems := newQueuedItemSnapshot(ctx, items)
 	for _, item := range items {
 		conditionStage := d.newQueuedConditionStageFromItem(ctx, queueName, item).
@@ -1262,6 +1289,7 @@ func (d *queueDispatcher) recordQueueStateUnavailableConditions(
 	queueName string,
 	items []exec.QueuedItemData,
 ) {
+	items = d.queuedConditionItemsForRefresh(queueName, items)
 	queuedItems := newQueuedItemSnapshot(ctx, items)
 	for _, item := range items {
 		conditionStage := d.newQueuedConditionStageFromItem(ctx, queueName, item).
