@@ -6,6 +6,7 @@ package gitsync
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"path"
@@ -2169,18 +2170,33 @@ func safeReadFileWithinBase(baseDir, targetPath string) ([]byte, error) {
 	if err := ensurePathWithinBase(baseDir, targetPath); err != nil {
 		return nil, err
 	}
-	info, err := os.Lstat(targetPath)
+
+	file, err := os.Open(targetPath) // #nosec G304 -- targetPath is constrained to baseDir before opening.
 	if err != nil {
 		return nil, err
 	}
-	if info.Mode()&os.ModeSymlink != 0 {
+	defer func() {
+		_ = file.Close()
+	}()
+
+	fileInfo, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	pathInfo, err := os.Lstat(targetPath)
+	if err != nil {
+		return nil, err
+	}
+	if pathInfo.Mode()&os.ModeSymlink != 0 {
 		return nil, fmt.Errorf("refusing to read through symlink: %s", targetPath)
+	}
+	if !os.SameFile(pathInfo, fileInfo) {
+		return nil, fmt.Errorf("refusing to read path changed while opening: %s", targetPath)
 	}
 	if err := ensureExistingPathWithinBase(baseDir, targetPath); err != nil {
 		return nil, err
 	}
-	// #nosec G304 -- targetPath is constrained to baseDir and symlink targets are rejected.
-	return os.ReadFile(targetPath)
+	return io.ReadAll(file)
 }
 
 func safeWriteFileWithinBase(baseDir, targetPath string, content []byte, perm os.FileMode) error {
@@ -2204,7 +2220,7 @@ func safeWriteFileWithinBase(baseDir, targetPath string, content []byte, perm os
 	} else if !os.IsNotExist(err) {
 		return err
 	}
-	// #nosec G703 -- targetPath is constrained to baseDir and symlink targets are rejected.
+	// #nosec G304,G703 -- targetPath is constrained to baseDir and symlink targets are rejected.
 	return os.WriteFile(targetPath, content, perm)
 }
 

@@ -314,33 +314,8 @@ type queuedConditionStage struct {
 	itemID       string
 	runRef       exec.DAGRunRef
 	attemptID    string
-	queuedItems  queuedItemSnapshot
 	observations []exec.DAGRunCondition
 	flushed      bool
-}
-
-type queuedItemSnapshot map[string]exec.DAGRunRef
-
-func newQueuedItemSnapshot(ctx context.Context, items []exec.QueuedItemData) queuedItemSnapshot {
-	if len(items) == 0 {
-		return nil
-	}
-	snapshot := make(queuedItemSnapshot, len(items))
-	for _, item := range items {
-		if item == nil {
-			continue
-		}
-		runRef, err := item.Data()
-		if err != nil {
-			logger.Warn(ctx, "Failed to read queued item while preparing queued condition snapshot", tag.Error(err))
-			continue
-		}
-		if runRef == nil {
-			continue
-		}
-		snapshot[item.ID()] = *runRef
-	}
-	return snapshot
 }
 
 func (d *queueDispatcher) queuedConditionItemsForRefresh(
@@ -419,13 +394,6 @@ func (d *queueDispatcher) newQueuedConditionStageFromItem(
 		return nil
 	}
 	return d.newQueuedConditionStage(*runRef, queueName, item.ID(), attempt, status)
-}
-
-func (s *queuedConditionStage) withQueuedItemSnapshot(snapshot queuedItemSnapshot) *queuedConditionStage {
-	if s != nil {
-		s.queuedItems = snapshot
-	}
-	return s
 }
 
 func (d *queueDispatcher) readQueuedConditionStatus(
@@ -537,10 +505,6 @@ func (s *queuedConditionStage) flushErr(ctx context.Context) error {
 func (s *queuedConditionStage) itemStillQueued(ctx context.Context) bool {
 	if s.dispatcher.queueStore == nil || s.queueName == "" || s.itemID == "" {
 		return true
-	}
-	if s.queuedItems != nil {
-		runRef, ok := s.queuedItems[s.itemID]
-		return ok && runRef == s.runRef
 	}
 	items, err := s.dispatcher.queueStore.List(ctx, s.queueName)
 	if err != nil {
@@ -1260,10 +1224,8 @@ func (d *queueDispatcher) recordCapacityUnavailableConditions(
 	checkOutstandingDispatch bool,
 ) {
 	items = d.queuedConditionItemsForRefresh(queueName, items)
-	queuedItems := newQueuedItemSnapshot(ctx, items)
 	for _, item := range items {
-		conditionStage := d.newQueuedConditionStageFromItem(ctx, queueName, item).
-			withQueuedItemSnapshot(queuedItems)
+		conditionStage := d.newQueuedConditionStageFromItem(ctx, queueName, item)
 		if conditionStage == nil {
 			continue
 		}
@@ -1290,10 +1252,8 @@ func (d *queueDispatcher) recordQueueStateUnavailableConditions(
 	items []exec.QueuedItemData,
 ) {
 	items = d.queuedConditionItemsForRefresh(queueName, items)
-	queuedItems := newQueuedItemSnapshot(ctx, items)
 	for _, item := range items {
-		conditionStage := d.newQueuedConditionStageFromItem(ctx, queueName, item).
-			withQueuedItemSnapshot(queuedItems)
+		conditionStage := d.newQueuedConditionStageFromItem(ctx, queueName, item)
 		conditionStage.observe(queueStateUnavailableConditionDefs...)
 		conditionStage.flush(ctx)
 	}
