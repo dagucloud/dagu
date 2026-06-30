@@ -384,6 +384,7 @@ func (d *queueDispatcher) newQueuedConditionStageFromItem(
 				tag.Error(err),
 				tag.RunID(runRef.ID),
 			)
+			return nil
 		}
 		if running {
 			return nil

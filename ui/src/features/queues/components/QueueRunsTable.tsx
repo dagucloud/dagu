@@ -58,8 +58,13 @@ function compareQueuedConditionFallback(
 function getQueuedConditionSummary(
   conditions: RuntimeCondition[] | undefined
 ): RuntimeCondition | undefined {
+  const runnable = conditions?.find(
+    (condition) =>
+      condition.type === 'Runnable' &&
+      condition.status !== DAGRunConditionStatus.True
+  );
   return (
-    conditions?.find((condition) => condition.type === 'Runnable') ??
+    runnable ??
     conditions
       ?.filter((condition) => condition.status !== DAGRunConditionStatus.True)
       .sort(compareQueuedConditionFallback)[0]

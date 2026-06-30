@@ -59,6 +59,42 @@ func TestQueueProcessorRecordsConcurrencyLimitQueuedCondition(t *testing.T) {
 	require.Equal(t, 1, f.casCount("waiting-run"))
 }
 
+func TestQueueProcessorSkipsQueuedConditionRefreshWhenLivenessUnavailable(t *testing.T) {
+	t.Parallel()
+
+	f := newQueueConditionFixtureWithConfig(
+		t,
+		config.ExecutionModeLocal,
+		nil,
+		&queueConditionDispatcher{},
+		queueConditionFixtureConfig{
+			procStore: func(store exec.ProcStore) exec.ProcStore {
+				return &queueConditionProcStore{
+					ProcStore:     store,
+					isRunAliveErr: errors.New("liveness unavailable"),
+				}
+			},
+		},
+	)
+	runningAttempt := f.createQueuedAttempt("running-run", nil)
+	require.NoError(t, f.leaseStore.Upsert(f.ctx, exec.DAGRunLease{
+		AttemptKey:      exec.GenerateAttemptKey(f.dag.Name, "running-run", f.dag.Name, "running-run", runningAttempt.ID()),
+		DAGRun:          exec.NewDAGRunRef(f.dag.Name, "running-run"),
+		Root:            exec.NewDAGRunRef(f.dag.Name, "running-run"),
+		AttemptID:       runningAttempt.ID(),
+		QueueName:       f.dag.Name,
+		WorkerID:        "worker-1",
+		LastHeartbeatAt: time.Now().UTC().UnixMilli(),
+	}))
+	f.enqueueRun("waiting-run", nil)
+
+	f.processor.ProcessQueueItems(f.ctx, f.dag.Name)
+
+	status := f.readStatus("waiting-run")
+	require.Empty(t, status.Conditions)
+	require.Equal(t, 0, f.casCount("waiting-run"))
+}
+
 func TestQueueProcessorSkipsQueuedConditionRefreshForFreshDistributedLease(t *testing.T) {
 	t.Parallel()
 

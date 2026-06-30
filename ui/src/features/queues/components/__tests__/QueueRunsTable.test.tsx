@@ -123,9 +123,55 @@ describe('QueueRunsTable', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('labels Runnable Unknown summaries by reason instead of always showing startup text', () => {
+  it('ignores satisfied Runnable summaries when choosing the queue row condition', () => {
     const queuedRun: components['schemas']['DAGRunSummary'] = {
       dagRunId: 'run-3',
+      name: 'queued-dag',
+      status: Status.Queued,
+      statusLabel: StatusLabel.queued,
+      startedAt: '-',
+      finishedAt: '-',
+      artifactsAvailable: false,
+      autoRetryCount: 0,
+      queuedAt: '2026-05-19T01:00:00Z',
+      conditions: [
+        {
+          type: 'Runnable',
+          status: DAGRunConditionStatus.True,
+          reason: 'Ready',
+          message: 'The DAG-run is ready to start.',
+          checkedAt: '2026-05-19T01:02:03Z',
+        },
+        {
+          type: 'WorkerReady',
+          status: DAGRunConditionStatus.Unknown,
+          reason: 'WorkerStateUnknown',
+          message: 'Worker availability is still being checked.',
+          checkedAt: '2026-05-19T01:03:03Z',
+        },
+      ],
+    };
+
+    render(
+      <QueueRunsTable
+        items={[queuedRun]}
+        onDAGRunClick={vi.fn()}
+        showQueuedAt
+      />
+    );
+
+    expect(screen.getByText('Worker readiness unknown')).toBeInTheDocument();
+    expect(
+      screen.getByText('Worker availability is still being checked.')
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText('The DAG-run is ready to start.')
+    ).not.toBeInTheDocument();
+  });
+
+  it('labels Runnable Unknown summaries by reason instead of always showing startup text', () => {
+    const queuedRun: components['schemas']['DAGRunSummary'] = {
+      dagRunId: 'run-4',
       name: 'queued-dag',
       status: Status.Queued,
       statusLabel: StatusLabel.queued,
