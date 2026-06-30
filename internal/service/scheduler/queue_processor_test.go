@@ -6,7 +6,6 @@ package scheduler
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -415,7 +414,7 @@ func TestQueueProcessor_SelectRunnableQueueItemsSkipsOutstandingReservations(t *
 
 func TestQueueProcessor_StaleOutstandingDispatchReservationsExpire(t *testing.T) {
 	f := newQueueFixture(t).withDAG("distributed-stale-select-dag", 1).
-		withProcessor(config.Queues{}, WithLeaseStaleThreshold(50*time.Millisecond)).
+		withProcessor(config.Queues{}, WithLeaseStaleThreshold(time.Nanosecond)).
 		simulateQueue(1, false)
 
 	f.enqueueRuns(1)
@@ -433,7 +432,6 @@ func TestQueueProcessor_StaleOutstandingDispatchReservationsExpire(t *testing.T)
 		AttemptID:  attempt.ID(),
 		AttemptKey: queueAttemptKey(runRef, attempt, status),
 	}))
-	agePendingDispatchReservationFiles(t, f.distributedDir, 2*time.Second)
 
 	var count int
 	var countErr error
@@ -622,34 +620,6 @@ func (m *mockDispatchTaskStore) HasOutstandingAttempt(ctx context.Context, attem
 		return m.hasOutstandingAttemptFunc(ctx, attemptKey, claimTimeout)
 	}
 	return false, nil
-}
-
-func agePendingDispatchReservationFiles(t *testing.T, distributedDir string, age time.Duration) {
-	t.Helper()
-
-	pendingDir := filepath.Join(distributedDir, "pending")
-	entries, err := os.ReadDir(pendingDir)
-	require.NoError(t, err)
-	require.NotEmpty(t, entries)
-
-	targetTime := time.Now().Add(-age).UTC().UnixMilli()
-	for _, entry := range entries {
-		path := filepath.Join(pendingDir, entry.Name())
-		data, err := os.ReadFile(path)
-		require.NoError(t, err)
-
-		var record map[string]any
-		require.NoError(t, json.Unmarshal(data, &record))
-		if payload, ok := record["data"].(map[string]any); ok {
-			payload["enqueuedAt"] = targetTime
-		} else {
-			record["enqueuedAt"] = targetTime
-		}
-
-		updated, err := json.Marshal(record)
-		require.NoError(t, err)
-		require.NoError(t, os.WriteFile(path, updated, 0o600))
-	}
 }
 
 func TestQueueProcessor_CheckStartupStatusTreatsRunningStatusAsStarted(t *testing.T) {
