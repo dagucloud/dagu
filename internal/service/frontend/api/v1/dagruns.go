@@ -1251,10 +1251,10 @@ func (a *API) ApproveDAGRunStep(ctx context.Context, request api.ApproveDAGRunSt
 	if err != nil {
 		return nil, fmt.Errorf("error waiting for dag-run to settle: %w", err)
 	}
-	if dagStatus.Status == core.Running {
+	if dagStatus.Status != core.Waiting {
 		return &api.ApproveDAGRunStep400JSONResponse{
 			Code:    api.ErrorCodeBadRequest,
-			Message: "dag-run is still running; wait until it enters waiting status before approving a step",
+			Message: fmt.Sprintf("dag-run is not waiting for approval (status: %s)", dagStatus.Status),
 		}, nil
 	}
 
@@ -1336,10 +1336,10 @@ func (a *API) ApproveSubDAGRunStep(ctx context.Context, request api.ApproveSubDA
 	if err != nil {
 		return nil, fmt.Errorf("error waiting for sub DAG-run to settle: %w", err)
 	}
-	if dagStatus.Status == core.Running {
+	if dagStatus.Status != core.Waiting {
 		return &api.ApproveSubDAGRunStep400JSONResponse{
 			Code:    api.ErrorCodeBadRequest,
-			Message: "sub DAG-run is still running; wait until it enters waiting status before approving a step",
+			Message: fmt.Sprintf("sub DAG-run is not waiting for approval (status: %s)", dagStatus.Status),
 		}, nil
 	}
 	if mutationRef == rootRef {

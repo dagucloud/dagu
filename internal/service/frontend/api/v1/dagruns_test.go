@@ -783,7 +783,7 @@ steps:
 
 	var body api.ApproveDAGRunStep400JSONResponse
 	resp.Unmarshal(t, &body)
-	require.Contains(t, body.Message, "dag-run is still running")
+	require.Contains(t, body.Message, "dag-run is not waiting for approval")
 
 	runningStatus := waitForStoredDAGRunStatus(t, server, dagName, startBody.DagRunId, 10*time.Second, func(status *exec.DAGRunStatus) bool {
 		return status.Status == core.Running &&
