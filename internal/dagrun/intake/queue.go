@@ -179,13 +179,6 @@ func queuedStatus(req QueueRequest, dagRun exec.DAGRunRef, attemptID, logFile, a
 		transform.WithAttemptID(attemptID),
 		transform.WithPreconditions(req.DAG.Preconditions),
 		transform.WithQueuedAt(stringutil.FormatTime(now)),
-		transform.WithConditions([]exec.DAGRunCondition{
-			exec.NewQueuedDAGRunCondition(
-				"QueueAccepted",
-				"DAG-run is waiting in the queue.",
-				now,
-			),
-		}),
 		transform.WithHierarchyRefs(root, req.Parent),
 		transform.WithTriggerType(req.TriggerType),
 		transform.WithRuntimeProfile(req.ProfileName, "", nil),

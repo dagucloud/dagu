@@ -294,8 +294,8 @@ func createDistributedQueueRunWithStatus(
 	if status == core.Queued {
 		runStatus.Conditions = []exec.DAGRunCondition{
 			exec.NewQueuedDAGRunCondition(
-				"QueueAccepted",
-				"DAG-run is waiting in the queue.",
+				"QueueConcurrencyLimitReached",
+				"DAG-run is waiting because the queue's active-run concurrency limit has been reached.",
 				time.Now().UTC(),
 			),
 		}

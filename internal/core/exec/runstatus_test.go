@@ -200,16 +200,16 @@ func TestNewQueuedDAGRunCondition(t *testing.T) {
 	checkedAt := time.Date(2026, 5, 19, 1, 2, 3, 0, time.UTC)
 
 	condition := exec.NewQueuedDAGRunCondition(
-		"QueueAccepted",
-		"waiting in queue",
+		"QueueConcurrencyLimitReached",
+		"active-run concurrency limit reached",
 		checkedAt,
 	)
 
 	assert.Equal(t, exec.DAGRunCondition{
 		Type:      "Queued",
 		Status:    "True",
-		Reason:    "QueueAccepted",
-		Message:   "waiting in queue",
+		Reason:    "QueueConcurrencyLimitReached",
+		Message:   "active-run concurrency limit reached",
 		CheckedAt: "2026-05-19T01:02:03Z",
 	}, condition)
 
@@ -218,8 +218,8 @@ func TestNewQueuedDAGRunCondition(t *testing.T) {
 	assert.JSONEq(t, `{
 		"type": "Queued",
 		"status": "True",
-		"reason": "QueueAccepted",
-		"message": "waiting in queue",
+		"reason": "QueueConcurrencyLimitReached",
+		"message": "active-run concurrency limit reached",
 		"checkedAt": "2026-05-19T01:02:03Z"
 	}`, string(data))
 }
@@ -228,8 +228,8 @@ func TestNormalizeDAGRunConditions(t *testing.T) {
 	t.Parallel()
 
 	condition := exec.NewQueuedDAGRunCondition(
-		"QueueAccepted",
-		"waiting in queue",
+		"QueueConcurrencyLimitReached",
+		"active-run concurrency limit reached",
 		time.Date(2026, 5, 19, 1, 2, 3, 0, time.UTC),
 	)
 

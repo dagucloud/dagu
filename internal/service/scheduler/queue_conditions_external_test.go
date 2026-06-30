@@ -24,7 +24,7 @@ import (
 
 const conditionTestStaleThreshold = time.Hour
 
-func TestQueueProcessorRecordsCapacityFullQueuedCondition(t *testing.T) {
+func TestQueueProcessorRecordsConcurrencyLimitQueuedCondition(t *testing.T) {
 	t.Parallel()
 
 	f := newQueueConditionFixture(t, config.ExecutionModeLocal, nil)
@@ -43,7 +43,7 @@ func TestQueueProcessorRecordsCapacityFullQueuedCondition(t *testing.T) {
 	f.processor.ProcessQueueItems(f.ctx, f.dag.Name)
 
 	status := f.readStatus("waiting-run")
-	requireQueuedCondition(t, status, "QueueCapacityFull", "queue capacity is full")
+	requireQueuedCondition(t, status, "QueueConcurrencyLimitReached", "active-run concurrency limit has been reached")
 }
 
 func TestQueueProcessorKeepsFreshQueuedCondition(t *testing.T) {
@@ -63,8 +63,8 @@ func TestQueueProcessorKeepsFreshQueuedCondition(t *testing.T) {
 	}))
 	f.enqueueRun("waiting-run", []exec.DAGRunCondition{
 		exec.NewQueuedDAGRunCondition(
-			"QueueCapacityFull",
-			"DAG-run is waiting because queue capacity is full.",
+			"QueueConcurrencyLimitReached",
+			"DAG-run is waiting because the queue's active-run concurrency limit has been reached.",
 			checkedAt,
 		),
 	})
@@ -74,8 +74,8 @@ func TestQueueProcessorKeepsFreshQueuedCondition(t *testing.T) {
 	status := f.readStatus("waiting-run")
 	require.Equal(t, []exec.DAGRunCondition{
 		exec.NewQueuedDAGRunCondition(
-			"QueueCapacityFull",
-			"DAG-run is waiting because queue capacity is full.",
+			"QueueConcurrencyLimitReached",
+			"DAG-run is waiting because the queue's active-run concurrency limit has been reached.",
 			checkedAt,
 		),
 	}, status.Conditions)
@@ -98,8 +98,8 @@ func TestQueuedConditionNeedsUpdateKeepsNewerObservation(t *testing.T) {
 
 	needsUpdate := scheduler.QueuedConditionNeedsUpdateForTest(
 		status,
-		"QueueCapacityFull",
-		"DAG-run is waiting because queue capacity is full.",
+		"QueueConcurrencyLimitReached",
+		"DAG-run is waiting because the queue's active-run concurrency limit has been reached.",
 		checkedAt,
 	)
 
@@ -147,8 +147,8 @@ func TestQueueProcessorRecordsDistributedDispatchFailureCondition(t *testing.T) 
 	)
 	f.enqueueRun("waiting-run", []exec.DAGRunCondition{
 		exec.NewQueuedDAGRunCondition(
-			"QueueAccepted",
-			"DAG-run is waiting in the queue.",
+			"QueueConcurrencyLimitReached",
+			"DAG-run is waiting because the queue's active-run concurrency limit has been reached.",
 			time.Now().UTC().Add(-2*time.Minute),
 		),
 	})

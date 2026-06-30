@@ -64,12 +64,12 @@ type dispatchAdmissionInput struct {
 }
 
 const (
-	queuedConditionReasonQueueCapacityFull         = "QueueCapacityFull"
+	queuedConditionReasonQueueConcurrencyLimit     = "QueueConcurrencyLimitReached"
 	queuedConditionReasonDispatchAdmissionPending  = "DispatchAdmissionPending"
 	queuedConditionReasonDispatchAdmissionRejected = "DispatchAdmissionRejected"
 	queuedConditionReasonDistributedDispatchFailed = "DistributedDispatchFailed"
 
-	queuedConditionMessageQueueCapacityFull        = "DAG-run is waiting because queue capacity is full."
+	queuedConditionMessageQueueConcurrencyLimit    = "DAG-run is waiting because the queue's active-run concurrency limit has been reached."
 	queuedConditionMessageDispatchAdmissionPending = "Distributed dispatch admission is still pending; DAG-run is waiting in the queue."
 
 	queuedConditionRefreshInterval = time.Minute
@@ -667,8 +667,8 @@ func (d *queueDispatcher) recordCapacityUnavailableConditions(
 		if runRef == nil {
 			continue
 		}
-		reason := queuedConditionReasonQueueCapacityFull
-		message := queuedConditionMessageQueueCapacityFull
+		reason := queuedConditionReasonQueueConcurrencyLimit
+		message := queuedConditionMessageQueueConcurrencyLimit
 		if checkOutstandingDispatch {
 			reserved, err := d.hasOutstandingDispatchReservation(ctx, *runRef)
 			if err != nil {

@@ -174,8 +174,8 @@ func TestStatusBuilderWithConditions(t *testing.T) {
 
 	dag := &core.DAG{Name: "queued-dag"}
 	condition := exec.NewQueuedDAGRunCondition(
-		"QueueAccepted",
-		"waiting in queue",
+		"QueueConcurrencyLimitReached",
+		"active-run concurrency limit reached",
 		time.Date(2026, 5, 19, 1, 2, 3, 0, time.UTC),
 	)
 

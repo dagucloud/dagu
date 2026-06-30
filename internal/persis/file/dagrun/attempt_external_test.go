@@ -68,8 +68,8 @@ func TestAttempt_WriteClearsRuntimeConditionsWhenStatusLeavesQueued(t *testing.T
 	}()
 
 	condition := exec.NewQueuedDAGRunCondition(
-		"QueueAccepted",
-		"DAG-run is waiting in the queue.",
+		"QueueConcurrencyLimitReached",
+		"DAG-run is waiting because the queue's active-run concurrency limit has been reached.",
 		startedAt,
 	)
 	queued := exec.DAGRunStatus{
@@ -116,8 +116,8 @@ func TestCompareAndSwapLatestAttemptStatusReturnsNormalizedConditions(t *testing
 		Status:    core.Queued,
 		Conditions: []exec.DAGRunCondition{
 			exec.NewQueuedDAGRunCondition(
-				"QueueAccepted",
-				"DAG-run is waiting in the queue.",
+				"QueueConcurrencyLimitReached",
+				"DAG-run is waiting because the queue's active-run concurrency limit has been reached.",
 				startedAt,
 			),
 		},

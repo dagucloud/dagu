@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestEnqueueRunPersistsQueuedCondition(t *testing.T) {
+func TestEnqueueRunDoesNotSeedQueuedCondition(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -44,11 +44,5 @@ func TestEnqueueRunPersistsQueuedCondition(t *testing.T) {
 	status, err := attempt.ReadStatus(ctx)
 	require.NoError(t, err)
 	require.Equal(t, core.Queued, status.Status)
-	require.Equal(t, []exec.DAGRunCondition{
-		exec.NewQueuedDAGRunCondition(
-			"QueueAccepted",
-			"DAG-run is waiting in the queue.",
-			now,
-		),
-	}, status.Conditions)
+	require.Empty(t, status.Conditions)
 }
