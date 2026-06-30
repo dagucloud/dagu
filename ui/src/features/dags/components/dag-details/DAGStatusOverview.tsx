@@ -19,7 +19,12 @@ import {
   Terminal,
 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { components, Status, TriggerType } from '../../../../api/v1/schema';
+import {
+  components,
+  DAGRunConditionStatus,
+  Status,
+  TriggerType,
+} from '../../../../api/v1/schema';
 import { triggerTypeLabels } from '../common/TriggerTypeIndicator';
 
 type Props = {
@@ -111,15 +116,123 @@ type RuntimeConditionsProps = {
   conditions?: components['schemas']['DAGRunCondition'][];
 };
 
+type RuntimeCondition = components['schemas']['DAGRunCondition'];
+
+function humanizeIdentifier(value: string | undefined): string {
+  if (!value) {
+    return '';
+  }
+  return value
+    .replace(/[_-]+/g, ' ')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^./, (char) => char.toUpperCase());
+}
+
+function runtimeConditionLabel(condition: RuntimeCondition): string {
+  const isReady = condition.status === DAGRunConditionStatus.True;
+
+  switch (condition.type) {
+    case 'Runnable':
+      if (isReady) {
+        return 'Runnable';
+      }
+      if (condition.status === DAGRunConditionStatus.False) {
+        return 'Cannot start';
+      }
+      switch (condition.reason) {
+        case 'AssignmentUnavailable':
+          return 'Worker assignment unavailable';
+        case 'WorkerDispatchUnavailable':
+          return 'Worker dispatch unavailable';
+        case 'QueueStateUnavailable':
+          return 'Queue state unavailable';
+        case 'RunLivenessUnavailable':
+          return 'Run liveness unavailable';
+        case 'StartupNotObserved':
+          return 'Startup not observed';
+        default:
+          return 'Start status unknown';
+      }
+    case 'ConcurrencyReady':
+      return isReady ? 'Concurrency ready' : 'Concurrency not ready';
+    case 'WorkerReady':
+      return isReady ? 'Worker ready' : 'Worker not ready';
+    case 'QueueReady':
+      return isReady ? 'Queue ready' : 'Queue state unavailable';
+    case 'RunRecordReady':
+      return isReady ? 'Run record ready' : 'Run record not ready';
+    case 'WorkerAssignmentReady':
+      return isReady ? 'Worker assignment ready' : 'Worker assignment not ready';
+    case 'StartObserved':
+      return isReady ? 'Startup observed' : 'Startup not observed';
+    default: {
+      const label = humanizeIdentifier(condition.type);
+      if (!label) {
+        return isReady ? 'Condition ready' : 'Condition not ready';
+      }
+      return isReady ? label : `${label} not ready`;
+    }
+  }
+}
+
+function getRuntimeConditionGroups(conditions: RuntimeCondition[] | undefined): {
+  summary?: RuntimeCondition;
+  details: RuntimeCondition[];
+} {
+  const summary = conditions?.find((condition) => condition.type === 'Runnable');
+  const details =
+    conditions?.filter(
+      (condition) =>
+        condition !== summary &&
+        condition.status !== DAGRunConditionStatus.True
+    ) ?? [];
+
+  return { summary, details };
+}
+
+type RuntimeConditionCardProps = {
+  condition: RuntimeCondition;
+};
+
+function RuntimeConditionCard({
+  condition,
+}: RuntimeConditionCardProps): React.JSX.Element {
+  return (
+    <div className="rounded-md border border-border bg-slate-200 p-1.5 text-xs whitespace-normal break-words dark:bg-slate-700">
+      <div className="mb-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+        <span className="font-semibold text-foreground">
+          {runtimeConditionLabel(condition)}
+        </span>
+        <span className="font-mono text-muted-foreground">
+          {formatTimestamp(condition.checkedAt)}
+        </span>
+      </div>
+      <div className="text-muted-foreground break-words">
+        {condition.message}
+      </div>
+      {condition.reason && (
+        <div className="mt-0.5 text-muted-foreground/80 break-words">
+          Reason: {humanizeIdentifier(condition.reason)}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function RuntimeConditions({
   conditions,
 }: RuntimeConditionsProps): React.JSX.Element | null {
-  if (!conditions || conditions.length === 0) {
+  const { summary, details } = getRuntimeConditionGroups(conditions);
+  const visibleConditions = summary ? [summary, ...details] : details;
+
+  if (visibleConditions.length === 0) {
     return null;
   }
 
   return (
-    <div className="pb-2">
+    <div className="pb-2" data-testid="runtime-conditions">
       <div className="flex items-center mb-1">
         <Info className="h-3.5 w-3.5 mr-1 text-muted-foreground" />
         <span className="text-xs font-semibold text-muted-foreground">
@@ -127,23 +240,11 @@ function RuntimeConditions({
         </span>
       </div>
       <div className="space-y-2">
-        {conditions.map((condition, idx) => (
-          <div
+        {visibleConditions.map((condition, idx) => (
+          <RuntimeConditionCard
             key={`${condition.type}-${condition.reason}-${idx}`}
-            className="rounded-md border border-border bg-slate-200 p-1.5 text-xs whitespace-normal break-words dark:bg-slate-700"
-          >
-            <div className="mb-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
-              <span className="font-semibold text-foreground">
-                {condition.reason}
-              </span>
-              <span className="font-mono text-muted-foreground">
-                {formatTimestamp(condition.checkedAt)}
-              </span>
-            </div>
-            <div className="text-muted-foreground break-words">
-              {condition.message}
-            </div>
-          </div>
+            condition={condition}
+          />
         ))}
       </div>
     </div>

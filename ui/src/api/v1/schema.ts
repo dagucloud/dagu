@@ -4862,7 +4862,7 @@ export interface components {
             abort?: components["schemas"]["Step"];
             exit?: components["schemas"]["Step"];
         };
-        /** @description Observed runtime condition for a DAG-run */
+        /** @description Type-keyed current-state runtime condition for a DAG-run. Each condition is the latest observation for its type, not a historical event. */
         DAGRunCondition: {
             /** @description Condition type */
             type: string;
@@ -4910,7 +4910,7 @@ export interface components {
             /** @description ID of the worker that executed this DAG-run ('local' for local execution) */
             workerId?: string;
             triggerType?: components["schemas"]["TriggerType"];
-            /** @description Observed runtime conditions for the DAG-run */
+            /** @description Type-keyed current-state runtime conditions for the DAG-run. This list reports the latest condition for each type, not a history of queued reasons. */
             conditions?: components["schemas"]["DAGRunCondition"][];
             /** @description List of labels for categorizing and filtering DAG runs */
             labels?: string[];

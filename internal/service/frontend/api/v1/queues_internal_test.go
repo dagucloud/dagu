@@ -293,9 +293,11 @@ func createDistributedQueueRunWithStatus(
 	runStatus.WorkerID = "worker-1"
 	if status == core.Queued {
 		runStatus.Conditions = []exec.DAGRunCondition{
-			exec.NewQueuedDAGRunCondition(
-				"QueueConcurrencyLimitReached",
-				"DAG-run is waiting because the queue's active-run concurrency limit has been reached.",
+			exec.NewDAGRunCondition(
+				"Runnable",
+				"False",
+				"MaxConcurrencyReached",
+				"The DAG-run cannot start because the queue active-run concurrency limit has been reached.",
 				time.Now().UTC(),
 			),
 		}

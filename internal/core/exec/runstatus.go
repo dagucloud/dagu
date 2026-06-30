@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -81,15 +82,81 @@ type DAGRunCondition struct {
 	CheckedAt string `json:"checkedAt"`
 }
 
-// NewQueuedDAGRunCondition creates a runtime condition for a queued DAG-run.
-func NewQueuedDAGRunCondition(reason, message string, checkedAt time.Time) DAGRunCondition {
+// NewDAGRunCondition creates a runtime condition for a DAG-run.
+func NewDAGRunCondition(conditionType, status, reason, message string, checkedAt time.Time) DAGRunCondition {
 	return DAGRunCondition{
-		Type:      "Queued",
-		Status:    "True",
+		Type:      conditionType,
+		Status:    status,
 		Reason:    reason,
 		Message:   message,
 		CheckedAt: stringutil.FormatTime(checkedAt),
 	}
+}
+
+// UpsertDAGRunCondition merges a condition into a type-keyed current-state list.
+func UpsertDAGRunCondition(conditions []DAGRunCondition, condition DAGRunCondition) []DAGRunCondition {
+	return MergeDAGRunConditions(conditions, condition)
+}
+
+// MergeDAGRunConditions merges observations into a type-keyed current-state list.
+func MergeDAGRunConditions(conditions []DAGRunCondition, observations ...DAGRunCondition) []DAGRunCondition {
+	merged := make([]DAGRunCondition, 0, len(conditions)+len(observations))
+	for _, condition := range conditions {
+		merged = upsertDAGRunCondition(merged, condition)
+	}
+	for _, observation := range observations {
+		merged = upsertDAGRunCondition(merged, observation)
+	}
+	sortDAGRunConditions(merged)
+	return merged
+}
+
+func upsertDAGRunCondition(conditions []DAGRunCondition, incoming DAGRunCondition) []DAGRunCondition {
+	for i := range conditions {
+		if conditions[i].Type != incoming.Type {
+			continue
+		}
+		if existingDAGRunConditionIsNewer(conditions[i], incoming) {
+			return conditions
+		}
+		conditions[i] = incoming
+		return conditions
+	}
+	return append(conditions, incoming)
+}
+
+func existingDAGRunConditionIsNewer(existing, incoming DAGRunCondition) bool {
+	existingCheckedAt, existingOK := parseDAGRunConditionCheckedAt(existing)
+	incomingCheckedAt, incomingOK := parseDAGRunConditionCheckedAt(incoming)
+	if existingOK && !incomingOK {
+		return true
+	}
+	if !existingOK || !incomingOK {
+		return false
+	}
+	return existingCheckedAt.After(incomingCheckedAt)
+}
+
+func parseDAGRunConditionCheckedAt(condition DAGRunCondition) (time.Time, bool) {
+	checkedAt, err := stringutil.ParseTime(condition.CheckedAt)
+	return checkedAt, err == nil && !checkedAt.IsZero()
+}
+
+func sortDAGRunConditions(conditions []DAGRunCondition) {
+	sort.SliceStable(conditions, func(i, j int) bool {
+		leftType := conditions[i].Type
+		rightType := conditions[j].Type
+		switch {
+		case leftType == rightType:
+			return false
+		case leftType == "Runnable":
+			return true
+		case rightType == "Runnable":
+			return false
+		default:
+			return leftType < rightType
+		}
+	})
 }
 
 // DAGRunStatus represents the complete execution state of a dag-run.
@@ -163,7 +230,13 @@ func IsLeaseActive(status *DAGRunStatus, staleThreshold time.Duration) bool {
 
 // NormalizeDAGRunConditions clears runtime conditions from non-queued statuses.
 func NormalizeDAGRunConditions(status *DAGRunStatus) {
-	if status == nil || status.Status == core.Queued {
+	if status == nil {
+		return
+	}
+	if status.Status == core.Queued {
+		if len(status.Conditions) > 0 {
+			status.Conditions = MergeDAGRunConditions(nil, status.Conditions...)
+		}
 		return
 	}
 	status.Conditions = nil

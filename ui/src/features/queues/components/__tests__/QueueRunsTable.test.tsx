@@ -21,7 +21,7 @@ afterEach(() => {
 });
 
 describe('QueueRunsTable', () => {
-  it('renders the first runtime condition for a queued DAG-run', () => {
+  it('renders only the Runnable summary when a queued DAG-run also has detail conditions', () => {
     const queuedRun: components['schemas']['DAGRunSummary'] = {
       dagRunId: 'run-1',
       name: 'queued-dag',
@@ -34,17 +34,18 @@ describe('QueueRunsTable', () => {
       queuedAt: '2026-05-19T01:00:00Z',
       conditions: [
         {
-          type: 'Queued',
-          status: DAGRunConditionStatus.True,
-          reason: 'QueueCapacity',
-          message: 'DAG-run is waiting for a worker.',
+          type: 'WorkerReady',
+          status: DAGRunConditionStatus.Unknown,
+          reason: 'WorkerStateUnknown',
+          message: 'Worker availability is still being checked.',
           checkedAt: '2026-05-19T01:02:03Z',
         },
         {
-          type: 'Queued',
-          status: DAGRunConditionStatus.Unknown,
-          reason: 'WorkerHeartbeatMissing',
-          message: 'Worker state is still being checked.',
+          type: 'Runnable',
+          status: DAGRunConditionStatus.False,
+          reason: 'MaxConcurrencyReached',
+          message:
+            'The DAG-run cannot start because the queue active-run concurrency limit has been reached.',
           checkedAt: '2026-05-19T01:03:03Z',
         },
       ],
@@ -58,15 +59,101 @@ describe('QueueRunsTable', () => {
       />
     );
 
-    expect(screen.getByText('QueueCapacity')).toBeInTheDocument();
     expect(
-      screen.getByText('DAG-run is waiting for a worker.')
+      screen.getByText('Cannot start')
     ).toBeInTheDocument();
-    expect(screen.getByText(/Checked May 19, 01:02:03/)).toBeInTheDocument();
-    expect(screen.getByText('WorkerHeartbeatMissing')).toBeInTheDocument();
     expect(
-      screen.getByText('Worker state is still being checked.')
+      screen.getByText(
+        'The DAG-run cannot start because the queue active-run concurrency limit has been reached.'
+      )
     ).toBeInTheDocument();
     expect(screen.getByText(/Checked May 19, 01:03:03/)).toBeInTheDocument();
+    expect(screen.queryByText('Worker not ready')).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('Worker availability is still being checked.')
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText('WorkerStateUnknown')).not.toBeInTheDocument();
+  });
+
+  it('falls back to the first non-True condition when no Runnable condition is present', () => {
+    const queuedRun: components['schemas']['DAGRunSummary'] = {
+      dagRunId: 'run-2',
+      name: 'queued-dag',
+      status: Status.Queued,
+      statusLabel: StatusLabel.queued,
+      startedAt: '-',
+      finishedAt: '-',
+      artifactsAvailable: false,
+      autoRetryCount: 0,
+      queuedAt: '2026-05-19T01:00:00Z',
+      conditions: [
+        {
+          type: 'ConcurrencyReady',
+          status: DAGRunConditionStatus.True,
+          reason: 'ConcurrencyAvailable',
+          message: 'The queue active-run concurrency limit has capacity.',
+          checkedAt: '2026-05-19T01:02:03Z',
+        },
+        {
+          type: 'WorkerReady',
+          status: DAGRunConditionStatus.Unknown,
+          reason: 'WorkerStateUnknown',
+          message: 'Worker availability is still being checked.',
+          checkedAt: '2026-05-19T01:03:03Z',
+        },
+      ],
+    };
+
+    render(
+      <QueueRunsTable
+        items={[queuedRun]}
+        onDAGRunClick={vi.fn()}
+        showQueuedAt
+      />
+    );
+
+    expect(screen.getByText('Worker not ready')).toBeInTheDocument();
+    expect(
+      screen.getByText('Worker availability is still being checked.')
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Checked May 19, 01:03:03/)).toBeInTheDocument();
+    expect(screen.queryByText('Concurrency ready')).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('The queue active-run concurrency limit has capacity.')
+    ).not.toBeInTheDocument();
+  });
+
+  it('labels Runnable Unknown summaries by reason instead of always showing startup text', () => {
+    const queuedRun: components['schemas']['DAGRunSummary'] = {
+      dagRunId: 'run-3',
+      name: 'queued-dag',
+      status: Status.Queued,
+      statusLabel: StatusLabel.queued,
+      startedAt: '-',
+      finishedAt: '-',
+      artifactsAvailable: false,
+      autoRetryCount: 0,
+      queuedAt: '2026-05-19T01:00:00Z',
+      conditions: [
+        {
+          type: 'Runnable',
+          status: DAGRunConditionStatus.Unknown,
+          reason: 'AssignmentUnavailable',
+          message: 'Dagu cannot determine whether worker assignment can proceed.',
+          checkedAt: '2026-05-19T01:03:03Z',
+        },
+      ],
+    };
+
+    render(
+      <QueueRunsTable
+        items={[queuedRun]}
+        onDAGRunClick={vi.fn()}
+        showQueuedAt
+      />
+    );
+
+    expect(screen.getByText('Worker assignment unavailable')).toBeInTheDocument();
+    expect(screen.queryByText('Startup not observed')).not.toBeInTheDocument();
   });
 });

@@ -24,6 +24,7 @@ var (
 	errProcessorClosed              = errors.New("processor closed")
 	errNotStarted                   = errors.New("execution not started")
 	errExecutionExitedBeforeStartup = errors.New("execution exited before startup")
+	errRunLivenessUnavailable       = errors.New("run liveness unavailable")
 )
 
 const suspendedQueueDropReason = "dag schedule suspended before dispatch"

@@ -5,7 +5,6 @@ package scheduler
 
 import (
 	"context"
-	"time"
 
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/core/exec"
@@ -46,13 +45,4 @@ func NewWithHooksForTest(
 
 func (s *RetryScanner) ScanForTest(ctx context.Context) error {
 	return s.scan(ctx)
-}
-
-func QueuedConditionNeedsUpdateForTest(
-	status *exec.DAGRunStatus,
-	reason string,
-	message string,
-	checkedAt time.Time,
-) bool {
-	return queuedConditionNeedsUpdate(status, reason, message, checkedAt)
 }

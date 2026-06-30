@@ -12639,7 +12639,7 @@ components:
 
     DAGRunCondition:
       type: object
-      description: "Observed runtime condition for a DAG-run"
+      description: "Type-keyed current-state runtime condition for a DAG-run. Each condition is the latest observation for its type, not a historical event."
       properties:
         type:
           type: string
@@ -12715,7 +12715,7 @@ components:
           $ref: "#/components/schemas/TriggerType"
         conditions:
           type: array
-          description: "Observed runtime conditions for the DAG-run"
+          description: "Type-keyed current-state runtime conditions for the DAG-run. This list reports the latest condition for each type, not a history of queued reasons."
           items:
             $ref: "#/components/schemas/DAGRunCondition"
         labels:
