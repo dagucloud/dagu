@@ -25,15 +25,8 @@ describe('IntegrationsPage', () => {
       'href',
       '/webhooks'
     );
-    expect(screen.getByRole('link', { name: /api docs/i })).toHaveAttribute(
-      'href',
-      '/api-docs'
-    );
     expect(
       screen.getByText('Trigger workflows from external systems.')
-    ).toBeVisible();
-    expect(
-      screen.getByText('Explore authenticated REST API endpoints.')
     ).toBeVisible();
     expect(setTitle).toHaveBeenCalledWith('Integrations');
   });

@@ -5,9 +5,7 @@ package exec
 
 import (
 	"context"
-	"path/filepath"
 
-	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/core"
 )
 
@@ -33,21 +31,6 @@ var managedDAGRunEnvs = []managedDAGRunEnv{
 		key: EnvKeyDAGName,
 		value: func(_ context.Context, dag *core.DAG, _ string, _ string, _ *contextOptions) (string, bool) {
 			return dag.Name, true
-		},
-	},
-	{
-		key: EnvKeyDAGDocsDir,
-		value: func(ctx context.Context, dag *core.DAG, _ string, _ string, _ *contextOptions) (string, bool) {
-			cfg := config.GetConfig(ctx)
-			if cfg.Paths.DocsDir == "" {
-				return "", false
-			}
-
-			docsDir := filepath.Join(cfg.Paths.DocsDir, dag.Name)
-			if workspaceName, ok := WorkspaceNameFromLabels(dag.Labels); ok {
-				docsDir = filepath.Join(cfg.Paths.DocsDir, workspaceName, dag.Name)
-			}
-			return docsDir, true
 		},
 	},
 	{

@@ -215,7 +215,7 @@ describe('ChatMessages tool activity', () => {
         limit: 5,
       }),
       toolCallMessage('msg-2', 'call-2', 'web_extract', {
-        urls: ['https://docs.dagu.sh'],
+        urls: ['https://example.com'],
       }),
     ]);
 

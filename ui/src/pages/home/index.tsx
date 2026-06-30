@@ -110,12 +110,7 @@ export default function HomePage(): React.ReactElement {
         {
           to: '/search',
           label: 'Search',
-          description: 'Find workflows and documentation.',
-        },
-        {
-          to: '/docs',
-          label: 'Runbooks',
-          description: 'Read and edit operational docs.',
+          description: 'Find workflows.',
         },
         ...(canWrite
           ? [
@@ -201,11 +196,6 @@ export default function HomePage(): React.ReactElement {
               },
             ]
           : []),
-        {
-          to: '/api-docs',
-          label: 'API Reference',
-          description: 'Browse HTTP API documentation.',
-        },
       ],
     },
     {

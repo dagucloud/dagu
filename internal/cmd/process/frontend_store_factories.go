@@ -36,7 +36,6 @@ func NewFrontendStoreFactories() frontend.StoreFactories {
 		BaseConfigStoreFactory:           newBaseConfigStore,
 		AgentStoresFactory:               newFrontendAgentStores,
 		AgentSessionStoreFactory:         file.NewAgentSessionStore,
-		DocStoreFactory:                  file.NewDocStore,
 		BuiltinAuthFactory:               newBuiltinAuthService,
 		RemoteNodeStoreFactory:           file.NewRemoteNodeStore,
 		DAGSettingsStoreFactory:          file.NewDAGSettingsStore,

@@ -146,7 +146,7 @@ type DAGDiff struct {
 
 // fileExtensionForID returns the file extension for a given ID.
 func fileExtensionForID(id string) string {
-	if isMemoryFile(id) || isSkillFile(id) || isSoulFile(id) || isDocFile(id) {
+	if isMemoryFile(id) || isSkillFile(id) || isSoulFile(id) {
 		return ".md"
 	}
 	return ".yaml"
@@ -256,14 +256,18 @@ func (s *serviceImpl) syncFilesToDAGsDir(_ context.Context, pullResult *PullResu
 	// Build set of DAG IDs present in remote repo for reconcileAfterPull
 	repoFileSet := make(map[string]struct{}, len(files))
 	for _, file := range files {
-		repoFileSet[s.filePathToDAGID(file)] = struct{}{}
+		dagID := s.filePathToDAGID(file)
+		if !isSyncableRepoFile(file, dagID) {
+			continue
+		}
+		repoFileSet[dagID] = struct{}{}
 	}
 
 	for _, file := range files {
 		dagID := s.filePathToDAGID(file)
 
-		// Only allow .md files from memory/, skills/, souls/, or docs/ directories
-		if filepath.Ext(file) == ".md" && !isMemoryFile(dagID) && !isSkillFile(dagID) && !isSoulFile(dagID) && !isDocFile(dagID) {
+		// Only allow .md files from memory/, skills/, or souls/ directories.
+		if !isSyncableRepoFile(file, dagID) {
 			continue
 		}
 		repoFilePath, err := s.safeRepoPathToFilePath(file)
@@ -508,9 +512,6 @@ func (s *serviceImpl) scanLocalDAGs(state *State) error {
 	// Scan souls directory for .md files
 	s.scanSoulFiles(state)
 
-	// Scan docs directory for .md files
-	s.scanDocFiles(state)
-
 	// Scan global and workspace base config files
 	s.scanConfigFiles(state)
 
@@ -685,54 +686,6 @@ func (s *serviceImpl) scanSoulFiles(state *State) {
 		}
 		state.DAGs[dagID] = ds
 	}
-}
-
-// scanDocFiles scans the docs directory for .md files and adds them as untracked.
-func (s *serviceImpl) scanDocFiles(state *State) {
-	docDir := filepath.Join(s.dagsDir, agentDocsDir)
-
-	_ = filepath.WalkDir(docDir, func(filePath string, d os.DirEntry, err error) error {
-		if err != nil {
-			return nil // skip errors
-		}
-		if d.IsDir() {
-			return nil
-		}
-		if filepath.Ext(filePath) != ".md" {
-			return nil
-		}
-
-		// Compute dagID relative to dagsDir, without extension
-		relPath, err := filepath.Rel(s.dagsDir, filePath)
-		if err != nil {
-			return nil
-		}
-		relPath = filepath.ToSlash(relPath)
-		dagID := strings.TrimSuffix(relPath, path.Ext(relPath))
-
-		// Skip if already tracked
-		if _, exists := state.DAGs[dagID]; exists {
-			return nil
-		}
-
-		content, err := os.ReadFile(filePath) //nolint:gosec // path constructed from internal dagsDir
-		if err != nil {
-			return nil
-		}
-
-		now := time.Now()
-		ds := &DAGState{
-			Status:     StatusUntracked,
-			Kind:       DAGKindDoc,
-			LocalHash:  ComputeContentHash(content),
-			ModifiedAt: &now,
-		}
-		if fi, err := os.Stat(filePath); err == nil {
-			updateStatCache(ds, fi)
-		}
-		state.DAGs[dagID] = ds
-		return nil
-	})
 }
 
 // refreshLocalHashes recalculates hashes for all tracked DAGs and updates status if modified.
@@ -1956,6 +1909,13 @@ func (s *serviceImpl) filePathToDAGID(filePath string) string {
 	ext := path.Ext(filePath)
 	dagID := strings.TrimSuffix(filePath, ext)
 	return dagID
+}
+
+func isSyncableRepoFile(filePath, dagID string) bool {
+	if filepath.Ext(filePath) != ".md" {
+		return true
+	}
+	return isMemoryFile(dagID) || isSkillFile(dagID) || isSoulFile(dagID)
 }
 
 // resolvePublishTargets validates and canonicalizes DAG IDs for batch publish.

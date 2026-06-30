@@ -36,9 +36,6 @@ const (
 	// When params were provided as JSON, the original payload is preserved.
 	EnvKeyDAGParamsJSON = "DAGU_PARAMS_JSON"
 
-	// EnvKeyDAGDocsDir holds the per-DAG docs directory path.
-	EnvKeyDAGDocsDir = "DAG_DOCS_DIR"
-
 	// EnvKeyDAGParamsJSONCompat is the DAG_-prefixed key for resolved parameters JSON.
 	// Both DAG_PARAMS_JSON and DAGU_PARAMS_JSON are set for backward compatibility.
 	EnvKeyDAGParamsJSONCompat = "DAG_PARAMS_JSON"

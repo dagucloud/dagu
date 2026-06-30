@@ -260,7 +260,6 @@ func (c *Context) newAgentAPI() (*agent.API, error) {
 		EventService:          c.EventService,
 		Environment: agent.EnvironmentInfo{
 			DAGsDir:        c.Config.Paths.DAGsDir,
-			DocsDir:        c.Config.Paths.DocsDir,
 			LogDir:         c.Config.Paths.LogDir,
 			DataDir:        c.Config.Paths.DataDir,
 			SessionsDir:    c.Config.Paths.SessionsDir,

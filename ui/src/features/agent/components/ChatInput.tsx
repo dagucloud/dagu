@@ -19,9 +19,7 @@ import {
 import { cn } from '@/lib/utils';
 import { DAGContext } from '../types';
 import { DAGPicker } from './DAGPicker';
-import { DocPicker, type DocRef, type DocPickerHandle } from './DocPicker';
 import { useDagPageContext } from '../hooks/useDagPageContext';
-import { useDocPageContext } from '../hooks/useDocPageContext';
 import { useAvailableModels } from '../hooks/useAvailableModels';
 import { useAvailableSouls } from '../hooks/useAvailableSouls';
 
@@ -55,16 +53,8 @@ export function ChatInput({
   const { models, selectedModel, setSelectedModel } = useAvailableModels();
   const { souls, selectedSoul, setSelectedSoul } = useAvailableSouls();
   const currentPageDag = useDagPageContext();
-  const currentPageDoc = useDocPageContext();
   // Track IME composition state manually for reliable Japanese/Chinese input handling
   const isComposingRef = useRef(false);
-
-  // Doc picker state
-  const [selectedDocs, setSelectedDocs] = useState<DocRef[]>([]);
-  const [atMenuOpen, setAtMenuOpen] = useState(false);
-  const [atQuery, setAtQuery] = useState('');
-  const [atStart, setAtStart] = useState(-1);
-  const docPickerRef = useRef<DocPickerHandle>(null);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -115,31 +105,15 @@ export function ChatInput({
       ? [currentPageDag, ...additionalDags]
       : additionalDags;
 
-    // Prepend doc instructions if selected.
-    let finalMessage = trimmed;
-    const additionalDocs = selectedDocs.filter(
-      (doc) => doc.id !== currentPageDoc?.id
-    );
-    const allDocs = currentPageDoc
-      ? [currentPageDoc, ...additionalDocs]
-      : additionalDocs;
-    if (allDocs.length > 0) {
-      const docPrefix = allDocs
-        .map((d) => `[Doc: ${d.id} | ${d.title}]`)
-        .join(' ');
-      finalMessage = `${docPrefix}\n${finalMessage}`;
-    }
-
     const soulValue =
       selectedSoul && selectedSoul !== '__default__' ? selectedSoul : undefined;
     onSend(
-      finalMessage,
+      trimmed,
       allContexts.length > 0 ? allContexts : undefined,
       selectedModel || undefined,
       soulValue
     );
     setMessage('');
-    setSelectedDocs([]);
   }, [
     message,
     isPending,
@@ -148,79 +122,15 @@ export function ChatInput({
     selectedDags,
     currentPageDag,
     selectedModel,
-    selectedDocs,
-    currentPageDoc,
     selectedSoul,
   ]);
 
-  const handleChange = useCallback(
-    (e: ChangeEvent<HTMLTextAreaElement>) => {
-      const val = e.target.value;
-      const pos = e.target.selectionStart ?? val.length;
-      setMessage(val);
-
-      // Detect '@' at start or after whitespace to open doc menu.
-      if (pos > 0 && val[pos - 1] === '@') {
-        const charBefore = pos > 1 ? val[pos - 2] : undefined;
-        if (
-          charBefore === undefined ||
-          charBefore === ' ' ||
-          charBefore === '\n'
-        ) {
-          setAtStart(pos - 1);
-          setAtMenuOpen(true);
-          setAtQuery('');
-          return;
-        }
-      }
-
-      // Update filter query while at menu is open.
-      if (atMenuOpen && atStart >= 0) {
-        const query = val.substring(atStart + 1, pos);
-        if (query.includes(' ')) {
-          setAtMenuOpen(false);
-          setAtStart(-1);
-        } else {
-          setAtQuery(query);
-        }
-      }
-    },
-    [atMenuOpen, atStart]
-  );
-
-  const handleDocSelect = useCallback(
-    (doc: DocRef) => {
-      if (!selectedDocs.find((d) => d.id === doc.id)) {
-        setSelectedDocs((prev) => [...prev, doc]);
-      }
-      const before = message.substring(0, atStart);
-      const after = message.substring(atStart + 1 + atQuery.length);
-      setMessage(before + after);
-      setAtMenuOpen(false);
-      setAtStart(-1);
-      setAtQuery('');
-      textareaRef.current?.focus();
-    },
-    [selectedDocs, message, atStart, atQuery]
-  );
-
-  const handleDocRemove = useCallback((id: string) => {
-    setSelectedDocs((prev) => prev.filter((d) => d.id !== id));
+  const handleChange = useCallback((e: ChangeEvent<HTMLTextAreaElement>) => {
+    setMessage(e.target.value);
   }, []);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
-      // Let doc picker handle keys when open.
-      if (atMenuOpen && docPickerRef.current) {
-        if (e.key === 'Backspace' && atQuery === '') {
-          setAtMenuOpen(false);
-          setAtStart(-1);
-          return;
-        }
-        const consumed = docPickerRef.current.handleKeyDown(e);
-        if (consumed) return;
-      }
-
       // Ignore Enter during IME composition (e.g., Japanese input conversion)
       // Check both isComposing and our manual ref for cross-browser compatibility
       if (
@@ -233,7 +143,7 @@ export function ChatInput({
         handleSend();
       }
     },
-    [handleSend, atMenuOpen, atQuery]
+    [handleSend]
   );
 
   const handleCompositionStart = useCallback(() => {
@@ -251,23 +161,6 @@ export function ChatInput({
         selectedDags={selectedDags}
         onChange={setSelectedDags}
         currentPageDag={currentPageDag}
-        disabled={disabled || showPauseButton}
-      />
-
-      {/* Doc chips and dropdown */}
-      <DocPicker
-        ref={docPickerRef}
-        selectedDocs={selectedDocs}
-        onSelect={handleDocSelect}
-        onRemove={handleDocRemove}
-        isOpen={atMenuOpen}
-        onClose={() => {
-          setAtMenuOpen(false);
-          setAtStart(-1);
-          setAtQuery('');
-        }}
-        filterQuery={atQuery}
-        currentPageDoc={currentPageDoc}
         disabled={disabled || showPauseButton}
       />
 

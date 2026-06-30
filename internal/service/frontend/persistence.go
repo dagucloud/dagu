@@ -33,7 +33,6 @@ type StoreFactories struct {
 	BaseConfigStoreFactory           BaseConfigStoreFactory
 	AgentStoresFactory               AgentStoresFactory
 	AgentSessionStoreFactory         AgentSessionStoreFactory
-	DocStoreFactory                  DocStoreFactory
 	BuiltinAuthFactory               BuiltinAuthFactory
 	RemoteNodeStoreFactory           RemoteNodeStoreFactory
 	DAGSettingsStoreFactory          DAGSettingsStoreFactory
@@ -59,8 +58,6 @@ type AgentStoresOptions struct {
 }
 
 type AgentSessionStoreFactory func(*config.Config) (agent.SessionStore, error)
-
-type DocStoreFactory func(*config.Config) agent.DocStore
 
 type BuiltinAuthFactory func(context.Context, *config.Config) (*BuiltinAuthResult, bool, error)
 

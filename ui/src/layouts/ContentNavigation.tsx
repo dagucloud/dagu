@@ -24,7 +24,6 @@ const STATIC_ROUTE_LABELS: Record<string, string> = {
   '/home': 'Home',
   '/dashboard': 'Timeline',
   '/cockpit': 'Cockpit',
-  '/api-docs': 'API Reference',
   '/integrations': 'Integrations',
   '/notifications': 'Notifications',
   '/notification-rules': 'Notification Rules',
@@ -35,7 +34,6 @@ const STATIC_ROUTE_LABELS: Record<string, string> = {
   '/dags': 'DAGs',
   '/search': 'Search',
   '/base-config': 'Base Config',
-  '/docs': 'Runbooks',
   '/queues': 'Queues',
   '/dag-runs': 'DAG Runs',
   '/system-status': 'System Status',
@@ -117,14 +115,6 @@ export function getBreadcrumbItems(pathname: string): BreadcrumbItemData[] {
     return items;
   }
 
-  if (segments[0] === 'docs') {
-    items.push({ label: 'Workflows' }, { label: 'Runbooks', to: '/docs' });
-    for (const segment of segments.slice(1)) {
-      items.push({ label: decodePathSegment(segment) });
-    }
-    return items;
-  }
-
   if (segments[0]?.startsWith('agent')) {
     items.push(
       { label: 'Administration', to: '/administration' },
@@ -189,7 +179,7 @@ export function getBreadcrumbItems(pathname: string): BreadcrumbItemData[] {
     return items;
   }
 
-  if (['integrations', 'webhooks', 'api-docs'].includes(segments[0] ?? '')) {
+  if (['integrations', 'webhooks'].includes(segments[0] ?? '')) {
     if (normalized !== '/integrations') {
       items.push({ label: 'Integrations', to: '/integrations' });
     }

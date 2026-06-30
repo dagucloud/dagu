@@ -65,7 +65,6 @@ vi.mock('../pages/administration', () => ({
   default: () => <h1>Administration</h1>,
 }));
 vi.mock('../pages/api-keys', () => ({ default: () => <h1>API Keys</h1> }));
-vi.mock('../pages/api-docs', () => ({ default: () => <h1>API Docs</h1> }));
 vi.mock('../pages/audit-logs', () => ({
   default: () => <h1>Audit Logs</h1>,
 }));
@@ -81,7 +80,6 @@ vi.mock('../pages/dags/dag', () => ({
   default: () => <h1>DAG Details</h1>,
 }));
 vi.mock('../pages/design', () => ({ default: () => <h1>Design</h1> }));
-vi.mock('../pages/docs', () => ({ default: () => <h1>Docs</h1> }));
 vi.mock('../pages/event-logs', () => ({
   default: () => <h1>Event Logs</h1>,
 }));

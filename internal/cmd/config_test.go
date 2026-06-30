@@ -35,7 +35,6 @@ func TestConfigCommand(t *testing.T) {
 	t.Run("ShowsLabels", func(t *testing.T) {
 		out := runConfigCmd(t)
 		assert.Contains(t, out, "DAGs directory:")
-		assert.Contains(t, out, "Docs directory:")
 		assert.Contains(t, out, "DAG runs:")
 		assert.Contains(t, out, "Log directory:")
 		assert.Contains(t, out, "Data directory:")

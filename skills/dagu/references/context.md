@@ -75,7 +75,6 @@ Path metadata:
 | `${context.paths.log_file}` | DAG run log file path |
 | `${context.paths.work_dir}` | Per-run working directory when one exists |
 | `${context.paths.artifacts_dir}` | Artifact directory when artifacts are enabled |
-| `${context.paths.docs_dir}` | DAG docs directory when one is configured |
 | `${context.paths.step_stdout_file}` | Current step stdout log file |
 | `${context.paths.step_stderr_file}` | Current step stderr log file |
 | `${context.paths.step_output_file}` | Current step output file path |

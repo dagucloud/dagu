@@ -32,7 +32,6 @@ describe('SearchResult', () => {
     render(
       <MemoryRouter>
         <SearchResult
-          type="dag"
           query="needle"
           results={[
             {
@@ -77,7 +76,6 @@ describe('SearchResult', () => {
     render(
       <MemoryRouter>
         <SearchResult
-          type="dag"
           query="needle"
           workspaceQuery={{
             workspace: 'team-a',
@@ -127,7 +125,6 @@ describe('SearchResult', () => {
     render(
       <MemoryRouter>
         <SearchResult
-          type="dag"
           query="needle"
           results={[
             {

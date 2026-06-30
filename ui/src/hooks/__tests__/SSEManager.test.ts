@@ -91,8 +91,6 @@ describe('endpointToTopic', () => {
       ],
       ['/events/queues?status=active&page=3', 'queues:page=3&status=active'],
       ['/events/queues/default/items', 'queueitems:default'],
-      ['/events/docs-tree?prefix=guides', 'doctree:prefix=guides'],
-      ['/events/docs/runbooks/deploy%20guide', 'doc:runbooks/deploy guide'],
     ];
 
     for (const [endpoint, topic] of cases) {
