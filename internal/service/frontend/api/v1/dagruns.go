@@ -1251,6 +1251,12 @@ func (a *API) ApproveDAGRunStep(ctx context.Context, request api.ApproveDAGRunSt
 	if err != nil {
 		return nil, fmt.Errorf("error waiting for dag-run to settle: %w", err)
 	}
+	if dagStatus.Status == core.Running {
+		return &api.ApproveDAGRunStep400JSONResponse{
+			Code:    api.ErrorCodeBadRequest,
+			Message: "dag-run is still running; wait until it enters waiting status before approving a step",
+		}, nil
+	}
 
 	stepIdx := findStepByName(dagStatus.Nodes, request.StepName)
 	if stepIdx < 0 {
@@ -1329,6 +1335,24 @@ func (a *API) ApproveSubDAGRunStep(ctx context.Context, request api.ApproveSubDA
 	dagStatus, err = a.waitForManualStepMutationReady(ctx, attempt, dagStatus)
 	if err != nil {
 		return nil, fmt.Errorf("error waiting for sub DAG-run to settle: %w", err)
+	}
+	if dagStatus.Status == core.Running {
+		return &api.ApproveSubDAGRunStep400JSONResponse{
+			Code:    api.ErrorCodeBadRequest,
+			Message: "sub DAG-run is still running; wait until it enters waiting status before approving a step",
+		}, nil
+	}
+	if mutationRef == rootRef {
+		rootStatus, err := a.dagRunMgr.GetSavedStatus(ctx, rootRef)
+		if err != nil {
+			return nil, fmt.Errorf("error reading root dag-run status: %w", err)
+		}
+		if rootStatus.Status == core.Running {
+			return &api.ApproveSubDAGRunStep400JSONResponse{
+				Code:    api.ErrorCodeBadRequest,
+				Message: "root dag-run is still running; wait until it enters waiting status before approving a sub DAG-run step",
+			}, nil
+		}
 	}
 
 	stepIdx := findStepByName(dagStatus.Nodes, request.StepName)
@@ -3509,6 +3533,9 @@ func (a *API) resumeSubDAGRun(ctx context.Context, rootRef exec.DAGRunRef, subDA
 	}
 
 	retrySpec := a.subCmdBuilder.Retry(prepared, subDAGRunID, "")
+	if !status.Root.Zero() && status.Root.ID != subDAGRunID {
+		retrySpec = a.subCmdBuilder.RetryWithRootDAGRun(prepared, subDAGRunID, "", status.Root)
+	}
 	return launcher.Start(ctx, retrySpec)
 }
 
