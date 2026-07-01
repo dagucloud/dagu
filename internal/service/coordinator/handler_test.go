@@ -3101,6 +3101,67 @@ func TestHandler_ReportStatus(t *testing.T) {
 		assert.ErrorIs(t, err, exec.ErrActiveRunNotFound)
 	})
 
+	t.Run("BootstrapsMissingSubAttemptRecomputesLogPathsAfterAttemptID", func(t *testing.T) {
+		t.Parallel()
+
+		store := newMockDAGRunStore()
+		baseDir := filepath.Join(t.TempDir(), "distributed")
+		logDir := filepath.Join(t.TempDir(), "logs")
+		leaseStore := newTestDAGRunLeaseStore(baseDir)
+		h := NewHandler(HandlerConfig{
+			DAGRunStore:      store,
+			DAGRunLeaseStore: leaseStore,
+			LogDir:           logDir,
+			Owner:            exec.CoordinatorEndpoint{ID: "coord-a"},
+		})
+		ctx := context.Background()
+
+		rootRef := exec.DAGRunRef{Name: "root-dag", ID: "root-run-123"}
+		store.addAttempt(rootRef, &exec.DAGRunStatus{
+			Name:     rootRef.Name,
+			DAGRunID: rootRef.ID,
+			Root:     rootRef,
+			Status:   core.Running,
+		})
+
+		runningProto, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
+			Name:      "child-dag",
+			DAGRunID:  "child-run-123",
+			Root:      rootRef,
+			ProcGroup: "child-queue",
+			Status:    core.Running,
+			WorkerID:  "worker-1",
+			Nodes: []*exec.Node{
+				{
+					Step:   core.Step{Name: "child-step"},
+					Status: core.NodeRunning,
+				},
+			},
+		})
+		require.NoError(t, convErr)
+
+		resp, err := h.ReportStatus(ctx, &coordinatorv1.ReportStatusRequest{
+			Status:             runningProto,
+			WorkerId:           "worker-1",
+			OwnerCoordinatorId: "coord-a",
+		})
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		require.True(t, resp.Accepted)
+
+		attempt, err := store.FindSubAttempt(ctx, rootRef, "child-run-123")
+		require.NoError(t, err)
+		current, err := attempt.ReadStatus(ctx)
+		require.NoError(t, err)
+
+		assert.Equal(t, "test-attempt", current.AttemptID)
+		expectedDir := filepath.Join(logDir, "root-dag", "root-run-123", "test-attempt")
+		assert.Equal(t, filepath.Join(expectedDir, "scheduler.log"), current.Log)
+		require.Len(t, current.Nodes, 1)
+		assert.Equal(t, filepath.Join(expectedDir, "child-step.stdout.log"), current.Nodes[0].Stdout)
+		assert.Equal(t, filepath.Join(expectedDir, "child-step.stderr.log"), current.Nodes[0].Stderr)
+	})
+
 	t.Run("DoesNotBootstrapMissingSubAttemptWithoutRootAttempt", func(t *testing.T) {
 		t.Parallel()
 

@@ -1602,6 +1602,7 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 			return nil, status.Error(codes.Internal, "failed to bootstrap sub-attempt: "+bootstrapErr.Error())
 		}
 		if bootstrapped {
+			h.transformLogPaths(dagRunStatus)
 			if err := h.transformArtifactPaths(ctx, bootstrappedAttempt, nil, dagRunStatus); err != nil {
 				return nil, status.Error(codes.Internal, "failed to resolve artifact path: "+err.Error())
 			}
