@@ -868,14 +868,16 @@ func (d *queueDispatcher) dispatchAndWaitForStartupWithConditions(
 			return true
 		}
 		logger.Error(ctx, "Failed to dispatch DAG after retries", tag.Error(err))
-		if errors.Is(err, errRunLivenessUnavailable) {
-			conditionStage.observe(runLivenessUnavailableConditionDefs...)
-		} else if dispatched && startupNotObserved(err) {
-			conditionStage.observe(startupNotObservedConditionDefs...)
-		} else {
-			conditionStage.observe(queuedDispatchCondition(err)...)
+		if shouldRecordStartupCondition(err) {
+			if errors.Is(err, errRunLivenessUnavailable) {
+				conditionStage.observe(runLivenessUnavailableConditionDefs...)
+			} else if dispatched && startupNotObserved(err) {
+				conditionStage.observe(startupNotObservedConditionDefs...)
+			} else {
+				conditionStage.observe(queuedDispatchCondition(err)...)
+			}
+			conditionStage.flush(ctx)
 		}
-		conditionStage.flush(ctx)
 	}
 
 	defer d.wakeUp()

@@ -4,6 +4,7 @@
 package distr_test
 
 import (
+	"context"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -61,13 +62,20 @@ steps:
 		return scheduledAt.Add(time.Minute)
 	})
 
-	require.Never(t, func() bool {
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		statuses, err := f.coord.DAGRunStore.ListStatuses(
-			f.coord.Context,
+			ctx,
 			exec.WithExactName(f.dagWrapper.Name),
 			exec.WithAllHistory(),
 		)
+		cancel()
 		require.NoError(t, err)
-		return len(statuses) != 1
-	}, 3*time.Second, 100*time.Millisecond)
+		require.Len(t, statuses, 1)
+		if !time.Now().Before(deadline) {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }

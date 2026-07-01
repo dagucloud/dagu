@@ -368,6 +368,24 @@ func TestQueueProcessorRecordsWorkerDispatchUnavailableCondition(t *testing.T) {
 	require.Equal(t, 1, f.casCount("waiting-run"))
 }
 
+func TestQueueProcessorSkipsDispatchConditionForShutdownCancellation(t *testing.T) {
+	t.Parallel()
+
+	f := newQueueConditionFixtureWithDispatcher(
+		t,
+		config.ExecutionModeDistributed,
+		nil,
+		&queueConditionDispatcher{dispatchErr: context.Canceled},
+	)
+	f.enqueueRun("waiting-run", nil)
+
+	f.processor.ProcessQueueItems(f.ctx, f.dag.Name)
+
+	status := f.readStatus("waiting-run")
+	require.Empty(t, status.Conditions)
+	require.Equal(t, 0, f.casCount("waiting-run"))
+}
+
 func TestQueueProcessorRecordsLaunchFailedCondition(t *testing.T) {
 	t.Parallel()
 
