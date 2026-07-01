@@ -567,7 +567,7 @@ func validIntRange(value string, minValue, maxValue int) bool {
 }
 
 func validCommaList(value string) bool {
-	for _, item := range strings.Split(value, ",") {
+	for item := range strings.SplitSeq(value, ",") {
 		if strings.TrimSpace(item) == "" {
 			return false
 		}
