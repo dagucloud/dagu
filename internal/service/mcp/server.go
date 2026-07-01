@@ -124,10 +124,11 @@ func registerTools(server *mcpsdk.Server, svc *Service) {
 		},
 	}, svc.readTool)
 
-	mcpsdk.AddTool(server, &mcpsdk.Tool{
+	server.AddTool(&mcpsdk.Tool{
 		Name:        toolChange,
 		Title:       "Preview or apply DAG changes",
 		Description: "Validate and optionally apply a DAG YAML change. Use mode=preview before mode=apply unless the user explicitly asked to write immediately.",
+		InputSchema: changeToolInputSchema(),
 		Annotations: &mcpsdk.ToolAnnotations{
 			DestructiveHint: truePtr,
 			OpenWorldHint:   falsePtr,
@@ -212,74 +213,6 @@ func registerPrompts(server *mcpsdk.Server) {
 			{Name: "dagRunId", Description: "DAG-run ID.", Required: true},
 		},
 	}, promptDebugRun)
-}
-
-func (svc *Service) changeTool(ctx context.Context, req *mcpsdk.CallToolRequest, input changeInput) (*mcpsdk.CallToolResult, map[string]any, error) {
-	return auditToolCall(ctx, svc.api, req, toolChange, changeAuditMetadata(input), func(ctx context.Context) (*mcpsdk.CallToolResult, map[string]any, error) {
-		return svc.changeToolImpl(ctx, input)
-	})
-}
-
-func (svc *Service) changeToolImpl(ctx context.Context, input changeInput) (*mcpsdk.CallToolResult, map[string]any, error) {
-	if err := svc.requireAPI(); err != nil {
-		return nil, nil, err
-	}
-	if err := requireName(input.Name); err != nil {
-		return nil, nil, err
-	}
-	if strings.TrimSpace(input.Spec) == "" {
-		return nil, nil, errors.New("spec is required")
-	}
-
-	changeType := input.Type
-	if changeType == "" {
-		changeType = "upsert_dag"
-	}
-	if changeType != "upsert_dag" {
-		return nil, nil, fmt.Errorf("unsupported change type %q", changeType)
-	}
-
-	mode := input.Mode
-	if mode == "" {
-		mode = "preview"
-	}
-	if mode != "preview" && mode != "apply" {
-		return nil, nil, fmt.Errorf("unsupported change mode %q", mode)
-	}
-
-	validation, err := svc.validateDAGSpec(ctx, input.Name, input.Spec)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	output := map[string]any{
-		"mode":       mode,
-		"type":       changeType,
-		"dagName":    input.Name,
-		"valid":      validation.Valid,
-		"errors":     validation.Errors,
-		"dag":        validation.Dag,
-		"applied":    false,
-		"references": defaultReferenceURIs(),
-		"dagUri":     dagSpecURI(input.Name),
-	}
-
-	if !validation.Valid {
-		return resultWithLinks("DAG spec is not valid; no changes were applied.", linkForDAGSpec(input.Name)), output, nil
-	}
-	if mode == "preview" {
-		return resultWithLinks("DAG spec is valid. Re-run with mode=apply to write it.", linkForDAGSpec(input.Name)), output, nil
-	}
-
-	created, err := svc.upsertDAG(ctx, input.Name, input.Spec)
-	if err != nil {
-		return nil, nil, err
-	}
-	output["applied"] = true
-	output["created"] = created
-	output["updated"] = !created
-
-	return resultWithLinks("DAG change applied.", linkForDAGSpec(input.Name)), output, nil
 }
 
 func (svc *Service) executeTool(ctx context.Context, req *mcpsdk.CallToolRequest, input executeInput) (*mcpsdk.CallToolResult, map[string]any, error) {
