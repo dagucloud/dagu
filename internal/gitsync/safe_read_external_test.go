@@ -78,6 +78,36 @@ func TestSafeWriteFileWithinBaseForTestWritesRegularFile(t *testing.T) {
 	assert.Equal(t, "steps:\n  - echo ok\n", string(content))
 }
 
+func TestSafeWriteFileWithinBaseForTestCreatesMissingBaseDir(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	baseDir := filepath.Join(tempDir, "dags")
+	filePath := filepath.Join(baseDir, "nested", "dag.yaml")
+
+	err := gitsync.SafeWriteFileWithinBaseForTest(baseDir, filePath, []byte("steps:\n  - echo ok\n"))
+
+	require.NoError(t, err)
+	content, err := os.ReadFile(filePath)
+	require.NoError(t, err)
+	assert.Equal(t, "steps:\n  - echo ok\n", string(content))
+}
+
+func TestSafeWriteFileWithinBaseForTestRejectsPathEscapesMissingBaseDir(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	baseDir := filepath.Join(tempDir, "dags")
+	outsidePath := filepath.Join(tempDir, "outside.yaml")
+
+	err := gitsync.SafeWriteFileWithinBaseForTest(baseDir, outsidePath, []byte("changed\n"))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "path escapes allowed base directory")
+	_, statErr := os.Stat(outsidePath)
+	assert.ErrorIs(t, statErr, os.ErrNotExist)
+}
+
 func TestSafeWriteFileWithinBaseForTestRejectsSymlink(t *testing.T) {
 	t.Parallel()
 

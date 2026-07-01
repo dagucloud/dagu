@@ -303,7 +303,7 @@ func (s *serviceImpl) syncFilesToDAGsDir(_ context.Context, pullResult *PullResu
 
 			// Local file doesn't exist, create it
 			if err := s.writeDAGFile(dagID, dagFilePath, repoContent); err != nil {
-				continue
+				return nil, nil, fmt.Errorf("failed to write synced item %q: %w", dagID, err)
 			}
 			now := time.Now()
 			newState := &DAGState{
@@ -381,7 +381,7 @@ func (s *serviceImpl) syncFilesToDAGsDir(_ context.Context, pullResult *PullResu
 		// Only update local file if remote changed (and local wasn't modified)
 		if localHash != repoHash {
 			if err := s.writeDAGFile(dagID, dagFilePath, repoContent); err != nil {
-				continue
+				return nil, nil, fmt.Errorf("failed to write synced item %q: %w", dagID, err)
 			}
 			now := time.Now()
 			newState := &DAGState{
@@ -2209,6 +2209,9 @@ func safeWriteFileWithinBase(baseDir, targetPath string, content []byte, perm os
 	}
 	parentDir := filepath.Dir(targetPath)
 	if err := ensurePathWithinBase(baseDir, parentDir); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(baseDir, 0750); err != nil {
 		return err
 	}
 	root, err := os.OpenRoot(baseDir)
