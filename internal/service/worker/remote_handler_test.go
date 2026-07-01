@@ -6,7 +6,6 @@ package worker
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -1725,7 +1724,7 @@ steps:
 	require.NoError(t, err, "executeDAGRun should succeed for simple echo command")
 }
 
-func TestRemoteRunReporter_FinalizesSchedulerLogWithCachedErrorAndSuppressesDeferredClose(t *testing.T) {
+func TestRemoteRunReporter_FinalizesSchedulerLogByClosingLiveWriterOnce(t *testing.T) {
 	const (
 		dagName   = "final-scheduler-log"
 		dagRunID  = "run-final-scheduler-log"
@@ -1739,7 +1738,6 @@ func TestRemoteRunReporter_FinalizesSchedulerLogWithCachedErrorAndSuppressesDefe
 		require.NoError(t, logFile.Close())
 	}()
 
-	replayErr := errors.New("scheduler replay close failed")
 	var (
 		streams   []*mockStreamLogsClient
 		streamsMu sync.Mutex
@@ -1755,7 +1753,6 @@ func TestRemoteRunReporter_FinalizesSchedulerLogWithCachedErrorAndSuppressesDefe
 	client := newMockRemoteCoordinatorClient()
 	client.StreamLogsFunc = func(context.Context) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
 		stream := newMockStreamLogsClient()
-		stream.closeErr = replayErr
 		streamsMu.Lock()
 		streams = append(streams, stream)
 		streamsMu.Unlock()
@@ -1798,7 +1795,7 @@ func TestRemoteRunReporter_FinalizesSchedulerLogWithCachedErrorAndSuppressesDefe
 	streamsMu.Lock()
 	finalsBeforeClose := countSchedulerFinalChunks(streams)
 	streamsMu.Unlock()
-	require.Equal(t, 1, finalsBeforeClose, "scheduler replay should send exactly one final marker before terminal status")
+	require.Equal(t, 1, finalsBeforeClose, "scheduler finalization should send exactly one final marker before terminal status")
 
 	require.NoError(t, schedulerWriter.Close())
 	streamsMu.Lock()
@@ -1806,19 +1803,17 @@ func TestRemoteRunReporter_FinalizesSchedulerLogWithCachedErrorAndSuppressesDefe
 	streamCountAfterFinalization := len(streams)
 	streamsMu.Unlock()
 
-	cachedErr := reporter.StreamSchedulerLog(context.Background(), logFilePath)
-	require.Error(t, cachedErr)
-	require.ErrorIs(t, cachedErr, replayErr)
+	require.NoError(t, reporter.StreamSchedulerLog(context.Background(), logFilePath))
 	streamsMu.Lock()
 	streamCountAfterCachedReplay := len(streams)
 	streamsMu.Unlock()
 
 	require.Equal(t, finalsBeforeClose, finalsAfterClose, "deferred close should not send a duplicate final scheduler marker")
-	require.Equal(t, streamCountAfterFinalization, streamCountAfterCachedReplay, "cached replay error should not reopen the stream")
+	require.Equal(t, streamCountAfterFinalization, streamCountAfterCachedReplay, "cached finalization should not reopen the stream")
 	require.Equal(t, []string{"terminal-status"}, events)
 }
 
-func TestRemoteRunReporter_SchedulerWriterCloseDoesNotUseLiveStream(t *testing.T) {
+func TestRemoteRunReporter_SchedulerWriterCloseUsesLiveStream(t *testing.T) {
 	const (
 		dagName   = "local-scheduler-log"
 		dagRunID  = "run-local-scheduler-log"
@@ -1873,22 +1868,23 @@ func TestRemoteRunReporter_SchedulerWriterCloseDoesNotUseLiveStream(t *testing.T
 	}()
 
 	select {
-	case err := <-done:
-		require.NoError(t, err)
+	case <-closeEntered:
+		unblock()
+		require.NoError(t, <-done)
 	case <-time.After(time.Second):
 		unblock()
 		require.NoError(t, <-done)
-		t.Fatal("scheduler writer close blocked on a live stream")
+		t.Fatal("scheduler writer close did not close a live stream")
 	}
 
 	select {
 	case <-streamOpened:
-		t.Fatal("remote scheduler writer opened a live scheduler log stream")
 	default:
+		t.Fatal("remote scheduler writer did not open a live scheduler log stream")
 	}
 	select {
 	case <-closeEntered:
-		t.Fatal("remote scheduler writer closed a live scheduler log stream")
+		t.Fatal("remote scheduler writer closed a live scheduler log stream more than once")
 	default:
 	}
 }
@@ -2024,7 +2020,14 @@ func TestRemoteRunReporter_UsesRuntimeContextForChildLogsAndArtifactsWithoutMuta
 	require.NoError(t, childWriter.Close())
 
 	childLogFile := filepath.Join(t.TempDir(), childRunID+".log")
-	require.NoError(t, os.WriteFile(childLogFile, []byte("child scheduler\n"), 0o600))
+	childLog, err := os.OpenFile(childLogFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, childLog.Close())
+	}()
+	childSchedulerWriter := reporter.NewSchedulerLogWriter(childCtx, childLog)
+	_, err = childSchedulerWriter.Write([]byte("child scheduler\n"))
+	require.NoError(t, err)
 	statusPusher := &finalSchedulerLogStatusPusher{
 		finalizer: reporter,
 		pusher: &recordingStatusPusher{
@@ -2057,7 +2060,7 @@ func TestRemoteRunReporter_UsesRuntimeContextForChildLogsAndArtifactsWithoutMuta
 	defer logStreamsMu.Unlock()
 	require.True(t, hasLogChunk(logStreams, rootRunID, rootName, rootAttempt, rootRef, "root-step"), "root step logs should keep root runtime metadata")
 	require.True(t, hasLogChunk(logStreams, childRunID, childName, childAttempt, rootRef, "child-step"), "child step logs should use child runtime metadata")
-	require.True(t, hasSchedulerFinalChunk(logStreams, childRunID, childName, childAttempt, rootRef), "child scheduler replay should use child runtime metadata")
+	require.True(t, hasSchedulerFinalChunk(logStreams, childRunID, childName, childAttempt, rootRef), "child scheduler final marker should use child runtime metadata")
 
 	artifactMu.Lock()
 	defer artifactMu.Unlock()
@@ -2157,7 +2160,7 @@ func TestExecuteDAGRun_FinalSchedulerLogStreamsBeforeTerminalStatus(t *testing.T
 	dagContent := `name: remote-handler-final-scheduler-log
 steps:
   - name: echo-step
-    run: echo "final scheduler replay"
+    run: echo "final scheduler stream"
 `
 	dag := th.DAG(t, dagContent)
 
@@ -2204,20 +2207,20 @@ steps:
 		streamsMu.Lock()
 		defer streamsMu.Unlock()
 
-		var schedulerReplayOpenErr error
-		foundSchedulerReplay := false
+		var schedulerStreamOpenErr error
+		foundSchedulerFinal := false
 		for _, captured := range streams {
 			for _, chunk := range captured.stream.snapshotChunks() {
 				if chunk.StreamType == coordinatorv1.LogStreamType_LOG_STREAM_TYPE_SCHEDULER && chunk.IsFinal {
 					require.Equal(t, status.AttemptID, chunk.AttemptId)
-					schedulerReplayOpenErr = captured.openErr
-					foundSchedulerReplay = true
+					schedulerStreamOpenErr = captured.openErr
+					foundSchedulerFinal = true
 				}
 			}
 		}
 
-		require.True(t, foundSchedulerReplay, "scheduler log should be finalized before terminal status is reported")
-		require.NoError(t, schedulerReplayOpenErr, "scheduler replay should open with a live context")
+		require.True(t, foundSchedulerFinal, "scheduler log should be finalized before terminal status is reported")
+		require.NoError(t, schedulerStreamOpenErr, "scheduler stream should open with a live context")
 
 		cancelRun()
 
@@ -2319,7 +2322,7 @@ steps:
 
 		streamsMu.Lock()
 		defer streamsMu.Unlock()
-		require.True(t, hasSchedulerDataChunk(streams, childRunID, status.Name, childAttemptID, root), "child scheduler log data should be replayed before child terminal status")
+		require.True(t, hasSchedulerDataChunk(streams, childRunID, status.Name, childAttemptID, root), "child scheduler log data should be streamed before child terminal status")
 		require.True(t, hasSchedulerFinalChunk(streams, childRunID, status.Name, childAttemptID, root), "child scheduler final marker should be sent before child terminal status")
 
 		return &coordinatorv1.ReportStatusResponse{Accepted: true}, nil

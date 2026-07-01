@@ -112,7 +112,6 @@ type remoteTaskHandler struct {
 }
 
 const (
-	remoteSchedulerLogReplayTimeout   = 5 * time.Second
 	remoteTerminalStatusReportTimeout = 5 * time.Second
 )
 
@@ -216,10 +215,8 @@ func (r *remoteRunReporter) EnableSchedulerFinalizer(logFile string) *schedulerL
 
 	if r.finalizer == nil {
 		r.finalizer = newSchedulerLogFinalizer()
-		r.finalizer.timeout = remoteSchedulerLogReplayTimeout
 	}
-	streamer := r.logStreamerLocked(r.defaults)
-	r.finalizer.register(r.defaults, logFile, streamer)
+	r.finalizer.register(r.defaults, logFile)
 	return r.finalizer
 }
 
@@ -229,31 +226,22 @@ func (r *remoteRunReporter) NewStepWriter(ctx context.Context, stepName string, 
 	if streamer == nil {
 		return &discardWriteCloser{}
 	}
-	return &schedulerMirroringStepWriter{
-		WriteCloser: streamer.NewStepWriter(ctx, stepName, streamType),
-		mirror: func(data []byte) {
-			r.mirrorStepOutput(meta, data)
-		},
-	}
+	return streamer.NewStepWriter(ctx, stepName, streamType)
 }
 
 func (r *remoteRunReporter) NewSchedulerLogWriter(ctx context.Context, localFile *os.File) io.WriteCloser {
-	writer := &schedulerLogFileWriter{localFile: localFile}
 	if r == nil {
-		return writer
-	}
-	r.mu.Lock()
-	finalizer := r.finalizer
-	r.mu.Unlock()
-	if finalizer == nil {
-		return writer
+		return nonClosingWriteCloser{Writer: localFile}
 	}
 	meta := r.metadataFromContext(ctx)
-	entry, _ := r.schedulerLogEntry(meta, localFileName(localFile))
-	if entry == nil {
-		return writer
+	streamer := r.logStreamerFor(meta)
+	if streamer == nil {
+		return nonClosingWriteCloser{Writer: localFile}
 	}
-	entry.trackWriter(writer)
+	writer := streamer.NewSchedulerLogWriter(context.WithoutCancel(ctx), localFile)
+	if finalizer := r.schedulerFinalizer(); finalizer != nil {
+		finalizer.trackWriter(meta, localFileName(localFile), writer)
+	}
 	return writer
 }
 
@@ -262,16 +250,17 @@ func (r *remoteRunReporter) StreamSchedulerLog(ctx context.Context, logFilePath 
 		return nil
 	}
 
-	entry, streamer := r.schedulerLogEntry(r.metadataFromContext(ctx), logFilePath)
-	if entry == nil && streamer == nil {
-		return nil
-	}
-	if entry == nil {
-		return streamer.StreamSchedulerLog(ctx, logFilePath)
+	meta := r.metadataFromContext(ctx)
+	if entry := r.schedulerLogEntry(meta, logFilePath); entry != nil {
+		_, err := entry.finalizeLog(ctx)
+		return err
 	}
 
-	_, err := entry.finalizeLog(ctx)
-	return err
+	streamer := r.logStreamerFor(meta)
+	if streamer == nil {
+		return nil
+	}
+	return streamer.StreamSchedulerLog(ctx, logFilePath)
 }
 
 func (r *remoteRunReporter) Finalize(ctx context.Context, attemptID, dir string) error {
@@ -288,54 +277,34 @@ func (r *remoteRunReporter) finalizeSchedulerLogForStatus(ctx context.Context, s
 	}
 
 	meta := r.metadataFromStatus(status)
-	entry, _ := r.schedulerLogEntry(meta, status.Log)
+	entry := r.schedulerLogEntry(meta, status.Log)
 	if entry == nil {
 		return false, nil
 	}
 	return entry.finalizeLog(ctx)
 }
 
-func (r *remoteRunReporter) mirrorStepOutput(meta remoteRunMetadata, data []byte) {
-	if r == nil || len(data) == 0 {
-		return
-	}
-
+func (r *remoteRunReporter) schedulerFinalizer() *schedulerLogFinalizer {
 	r.mu.Lock()
 	finalizer := r.finalizer
 	r.mu.Unlock()
-	if finalizer == nil {
-		return
-	}
-	entry := finalizer.entryForDAGRun(meta.normalize().dagRunID)
-	if entry == nil {
-		return
-	}
-	entry.mirrorStepOutput(data)
+	return finalizer
 }
 
-func (r *remoteRunReporter) schedulerLogEntry(meta remoteRunMetadata, logFile string) (*schedulerLogFinalizerEntry, *coordreport.LogStreamer) {
-	meta = meta.normalize()
-	streamer := r.logStreamerFor(meta)
-	if streamer == nil {
-		return nil, nil
-	}
-
-	r.mu.Lock()
-	finalizer := r.finalizer
-	r.mu.Unlock()
+func (r *remoteRunReporter) schedulerLogEntry(meta remoteRunMetadata, logFile string) *schedulerLogFinalizerEntry {
+	finalizer := r.schedulerFinalizer()
 	if finalizer == nil {
-		return nil, streamer
+		return nil
 	}
-
+	meta = meta.normalize()
 	entry := finalizer.entryForDAGRun(meta.dagRunID)
 	if entry == nil && logFile != "" {
 		entry = finalizer.entryForLogFile(logFile)
 	}
 	if entry == nil {
-		return finalizer.register(meta, logFile, streamer), streamer
+		return finalizer.register(meta, logFile)
 	}
-	entry.update(meta, streamer)
-	return entry, streamer
+	return entry
 }
 
 func (r *remoteRunReporter) metadataFromContext(ctx context.Context) remoteRunMetadata {
@@ -443,21 +412,22 @@ func (discardWriteCloser) Close() error {
 	return nil
 }
 
-type schedulerMirroringStepWriter struct {
-	io.WriteCloser
-	mirror func([]byte)
+type nonClosingWriteCloser struct {
+	io.Writer
 }
 
-func (w *schedulerMirroringStepWriter) Write(p []byte) (int, error) {
-	n, err := w.WriteCloser.Write(p)
-	if n > 0 && w.mirror != nil {
-		w.mirror(p[:n])
+func (w nonClosingWriteCloser) Write(p []byte) (int, error) {
+	if w.Writer == nil {
+		return len(p), nil
 	}
-	return n, err
+	return w.Writer.Write(p)
+}
+
+func (nonClosingWriteCloser) Close() error {
+	return nil
 }
 
 type schedulerLogFinalizer struct {
-	timeout   time.Duration
 	mu        sync.Mutex
 	byRunID   map[string]*schedulerLogFinalizerEntry
 	byLogFile map[string]*schedulerLogFinalizerEntry
@@ -470,7 +440,7 @@ func newSchedulerLogFinalizer() *schedulerLogFinalizer {
 	}
 }
 
-func (f *schedulerLogFinalizer) register(meta remoteRunMetadata, logFile string, streamer runtime.SchedulerLogStreamer) *schedulerLogFinalizerEntry {
+func (f *schedulerLogFinalizer) register(meta remoteRunMetadata, logFile string) *schedulerLogFinalizerEntry {
 	if f == nil || logFile == "" {
 		return nil
 	}
@@ -495,22 +465,24 @@ func (f *schedulerLogFinalizer) register(meta remoteRunMetadata, logFile string,
 
 	if entry := f.byRunID[meta.dagRunID]; entry != nil {
 		bind(entry)
-		entry.update(meta, streamer)
 		return entry
 	}
 	if entry := f.byLogFile[logFile]; entry != nil {
 		bind(entry)
-		entry.update(meta, streamer)
 		return entry
 	}
 
-	entry := &schedulerLogFinalizerEntry{
-		owner:    f,
-		logFile:  logFile,
-		streamer: streamer,
-	}
+	entry := &schedulerLogFinalizerEntry{}
 	bind(entry)
 	return entry
+}
+
+func (f *schedulerLogFinalizer) trackWriter(meta remoteRunMetadata, logFile string, writer io.Closer) {
+	entry := f.register(meta, logFile)
+	if entry == nil {
+		return
+	}
+	entry.trackWriter(writer)
 }
 
 func (f *schedulerLogFinalizer) entryForDAGRun(dagRunID string) *schedulerLogFinalizerEntry {
@@ -542,34 +514,14 @@ func dagRunIDFromSchedulerLogFile(logFile string) string {
 }
 
 type schedulerLogFinalizerEntry struct {
-	owner       *schedulerLogFinalizer
 	logFile     string
-	streamer    runtime.SchedulerLogStreamer
 	finalize    sync.Once
 	finalizeErr error
 	writerMu    sync.Mutex
-	writer      *schedulerLogFileWriter
+	writer      io.Closer
 }
 
-func (e *schedulerLogFinalizerEntry) update(meta remoteRunMetadata, streamer runtime.SchedulerLogStreamer) {
-	if e == nil {
-		return
-	}
-	meta = meta.normalize()
-
-	e.writerMu.Lock()
-	defer e.writerMu.Unlock()
-	if streamer != nil {
-		e.streamer = streamer
-	}
-	if meta.attemptID != "" {
-		if setter, ok := e.streamer.(interface{ SetAttemptID(string) }); ok {
-			setter.SetAttemptID(meta.attemptID)
-		}
-	}
-}
-
-func (e *schedulerLogFinalizerEntry) finalizeLog(ctx context.Context) (bool, error) {
+func (e *schedulerLogFinalizerEntry) finalizeLog(_ context.Context) (bool, error) {
 	if e == nil {
 		return false, nil
 	}
@@ -577,22 +529,13 @@ func (e *schedulerLogFinalizerEntry) finalizeLog(ctx context.Context) (bool, err
 	var ran bool
 	e.finalize.Do(func() {
 		ran = true
-		e.quiesceWriter()
-
-		streamCtx := context.WithoutCancel(ctx)
-		if e.owner.timeout > 0 {
-			var cancel context.CancelFunc
-			streamCtx, cancel = context.WithTimeout(streamCtx, e.owner.timeout)
-			defer cancel()
-		}
-
 		e.writerMu.Lock()
-		streamer := e.streamer
+		writer := e.writer
 		e.writerMu.Unlock()
-		if streamer == nil {
+		if writer == nil {
 			return
 		}
-		e.finalizeErr = streamer.StreamSchedulerLog(streamCtx, e.logFile)
+		e.finalizeErr = writer.Close()
 	})
 
 	if !ran {
@@ -601,7 +544,7 @@ func (e *schedulerLogFinalizerEntry) finalizeLog(ctx context.Context) (bool, err
 	return true, e.finalizeErr
 }
 
-func (e *schedulerLogFinalizerEntry) trackWriter(writer *schedulerLogFileWriter) {
+func (e *schedulerLogFinalizerEntry) trackWriter(writer io.Closer) {
 	if e == nil || writer == nil {
 		return
 	}
@@ -609,52 +552,6 @@ func (e *schedulerLogFinalizerEntry) trackWriter(writer *schedulerLogFileWriter)
 	e.writerMu.Lock()
 	e.writer = writer
 	e.writerMu.Unlock()
-}
-
-func (e *schedulerLogFinalizerEntry) quiesceWriter() {
-	e.writerMu.Lock()
-	writer := e.writer
-	e.writerMu.Unlock()
-	if writer == nil {
-		return
-	}
-	writer.finalize()
-}
-
-func (e *schedulerLogFinalizerEntry) mirrorStepOutput(data []byte) {
-	e.writerMu.Lock()
-	writer := e.writer
-	e.writerMu.Unlock()
-	if writer == nil {
-		return
-	}
-	_, _ = writer.Write(data)
-}
-
-type schedulerLogFileWriter struct {
-	localFile *os.File
-	mu        sync.Mutex
-	finalized bool
-}
-
-func (w *schedulerLogFileWriter) Write(p []byte) (int, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
-	if w.finalized || w.localFile == nil {
-		return len(p), nil
-	}
-	return w.localFile.Write(p)
-}
-
-func (w *schedulerLogFileWriter) Close() error {
-	return nil
-}
-
-func (w *schedulerLogFileWriter) finalize() {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	w.finalized = true
 }
 
 func localFileName(localFile *os.File) string {
@@ -1178,8 +1075,8 @@ func (h *remoteTaskHandler) executeDAGRun(
 		}
 	}
 
-	// Create a scheduler log writer. Remote reporters keep scheduler logs local
-	// and replay them before terminal status; other streamers may live-stream.
+	// Create a scheduler log writer. Remote reporters close it before terminal
+	// status so buffered scheduler chunks and the final marker reach coordinator.
 	var logWriter io.Writer = logFile
 	if logStreamer != nil {
 		streamingWriter := logStreamer.NewSchedulerLogWriter(ctx, logFile)
