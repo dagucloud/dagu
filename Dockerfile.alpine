@@ -31,7 +31,7 @@ RUN CGO_ENABLED=1 GOOS=$TARGETOS GOARCH=$TARGETARCH \
     go build -tags netgo,osusergo -ldflags="${LDFLAGS} -linkmode=external -extldflags=-static" -o ./bin/dagu ./cmd
 
 # Stage 3: Final Image
-FROM --platform=$TARGETPLATFORM alpine:3.23
+FROM --platform=$TARGETPLATFORM alpine:3.24
 ARG USER="dagu"
 ARG USER_UID=1000
 ARG USER_GID=$USER_UID
