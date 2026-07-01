@@ -725,7 +725,6 @@ See the distributed execution documentation for setup details.
 | `dagu enqueue <dag>` | Add DAG to the execution queue |
 | `dagu dequeue <queue-name> [--dag-run=<dag>:<run-id>]` | Remove a DAG-run from the queue |
 | `dagu cleanup <dag>` | Clean up old run data |
-| `dagu migrate history` | Migrate legacy run history |
 | `dagu version` | Show version |
 
 ## Environment Variables
