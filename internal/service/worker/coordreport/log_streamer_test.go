@@ -19,7 +19,9 @@ import (
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
 // logStreamerMockClient implements coordinator.Client for testing log streamer
@@ -886,6 +888,176 @@ func TestClose_CloseAndRecvError(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "close failed")
+}
+
+func TestLogStreamer_LogStreamingDisabled(t *testing.T) {
+	t.Parallel()
+
+	t.Run("step close ignores disabled CloseAndRecv", func(t *testing.T) {
+		t.Parallel()
+
+		mockStream := &mockStreamLogsClient{
+			closeErr: status.Error(codes.FailedPrecondition, "log streaming not configured: logDir is empty"),
+		}
+		client := &logStreamerMockClient{
+			streamLogsFunc: func(_ context.Context) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
+				return mockStream, nil
+			},
+		}
+		streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", exec.DAGRunRef{})
+		writer := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout)
+
+		_, err := writer.Write([]byte("data"))
+		require.NoError(t, err)
+
+		require.NoError(t, writer.Close())
+	})
+
+	t.Run("scheduler replay ignores disabled send", func(t *testing.T) {
+		t.Parallel()
+
+		mockStream := &mockStreamLogsClient{
+			sendErr: status.Error(codes.FailedPrecondition, "log streaming not configured: logDir is empty"),
+		}
+		client := &logStreamerMockClient{
+			streamLogsFunc: func(_ context.Context) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
+				return mockStream, nil
+			},
+		}
+		streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", exec.DAGRunRef{})
+
+		logFile, err := os.CreateTemp(t.TempDir(), "scheduler-*.log")
+		require.NoError(t, err)
+		_, err = logFile.WriteString("scheduler data")
+		require.NoError(t, err)
+		require.NoError(t, logFile.Close())
+
+		require.NoError(t, streamer.StreamSchedulerLog(context.Background(), logFile.Name()))
+	})
+
+	t.Run("scheduler replay ignores disabled CloseAndRecv", func(t *testing.T) {
+		t.Parallel()
+
+		mockStream := &mockStreamLogsClient{
+			closeErr: status.Error(codes.FailedPrecondition, "log streaming not configured: logDir is empty"),
+		}
+		client := &logStreamerMockClient{
+			streamLogsFunc: func(_ context.Context) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
+				return mockStream, nil
+			},
+		}
+		streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", exec.DAGRunRef{})
+
+		logFile, err := os.CreateTemp(t.TempDir(), "scheduler-*.log")
+		require.NoError(t, err)
+		_, err = logFile.WriteString("scheduler data")
+		require.NoError(t, err)
+		require.NoError(t, logFile.Close())
+
+		require.NoError(t, streamer.StreamSchedulerLog(context.Background(), logFile.Name()))
+	})
+
+	t.Run("step close skips final marker after disabled send", func(t *testing.T) {
+		t.Parallel()
+
+		var finalMarkerAttempted atomic.Bool
+		mockStream := &mockStreamLogsClient{
+			sendFunc: func(_ int, chunk *coordinatorv1.LogChunk) error {
+				if chunk.IsFinal {
+					finalMarkerAttempted.Store(true)
+					return errors.New("final marker should not be sent")
+				}
+				return status.Error(codes.FailedPrecondition, "log streaming not configured: logDir is empty")
+			},
+		}
+		client := &logStreamerMockClient{
+			streamLogsFunc: func(_ context.Context) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
+				return mockStream, nil
+			},
+		}
+		streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", exec.DAGRunRef{})
+		writer := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout)
+
+		_, err := writer.Write([]byte("data"))
+		require.NoError(t, err)
+
+		require.NoError(t, writer.Close())
+		assert.False(t, finalMarkerAttempted.Load())
+	})
+}
+
+func TestLogStreamer_PreservesFailedPrecondition(t *testing.T) {
+	t.Parallel()
+
+	t.Run("step close returns non-owner error", func(t *testing.T) {
+		t.Parallel()
+
+		mockStream := &mockStreamLogsClient{
+			closeErr: status.Error(codes.FailedPrecondition, "log chunk sent to non-owner coordinator"),
+		}
+		client := &logStreamerMockClient{
+			streamLogsFunc: func(_ context.Context) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
+				return mockStream, nil
+			},
+		}
+		streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", exec.DAGRunRef{})
+		writer := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout)
+
+		_, err := writer.Write([]byte("data"))
+		require.NoError(t, err)
+
+		err = writer.Close()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "log chunk sent to non-owner coordinator")
+	})
+
+	t.Run("scheduler replay returns non-owner error", func(t *testing.T) {
+		t.Parallel()
+
+		mockStream := &mockStreamLogsClient{
+			sendErr: status.Error(codes.FailedPrecondition, "log chunk sent to non-owner coordinator"),
+		}
+		client := &logStreamerMockClient{
+			streamLogsFunc: func(_ context.Context) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
+				return mockStream, nil
+			},
+		}
+		streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", exec.DAGRunRef{})
+
+		logFile, err := os.CreateTemp(t.TempDir(), "scheduler-*.log")
+		require.NoError(t, err)
+		_, err = logFile.WriteString("scheduler data")
+		require.NoError(t, err)
+		require.NoError(t, logFile.Close())
+
+		err = streamer.StreamSchedulerLog(context.Background(), logFile.Name())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "log chunk sent to non-owner coordinator")
+	})
+
+	t.Run("scheduler replay returns non-owner CloseAndRecv error", func(t *testing.T) {
+		t.Parallel()
+
+		mockStream := &mockStreamLogsClient{
+			closeErr: status.Error(codes.FailedPrecondition, "log chunk sent to non-owner coordinator"),
+		}
+		client := &logStreamerMockClient{
+			streamLogsFunc: func(_ context.Context) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
+				return mockStream, nil
+			},
+		}
+		streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", exec.DAGRunRef{})
+
+		logFile, err := os.CreateTemp(t.TempDir(), "scheduler-*.log")
+		require.NoError(t, err)
+		_, err = logFile.WriteString("scheduler data")
+		require.NoError(t, err)
+		require.NoError(t, logFile.Close())
+
+		err = streamer.StreamSchedulerLog(context.Background(), logFile.Name())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "log chunk sent to non-owner coordinator")
+	})
 }
 
 func TestClose_MultipleErrors(t *testing.T) {
