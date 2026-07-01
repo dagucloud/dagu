@@ -328,6 +328,7 @@ func TestReadInputValidationErrors(t *testing.T) {
 				"name": "tools",
 			},
 			code:    "invalid_tool_input",
+			field:   "name",
 			details: true,
 		},
 		{
@@ -337,6 +338,7 @@ func TestReadInputValidationErrors(t *testing.T) {
 				"dagRunId": "run-id",
 			},
 			code:    "invalid_tool_input",
+			field:   "dagRunId",
 			details: true,
 		},
 		{
@@ -346,6 +348,7 @@ func TestReadInputValidationErrors(t *testing.T) {
 				"query": "name=mcp_read_contract",
 			},
 			code:    "invalid_tool_input",
+			field:   "query",
 			details: true,
 		},
 		{
@@ -355,6 +358,7 @@ func TestReadInputValidationErrors(t *testing.T) {
 				"uri":    "dagu://reference/tools",
 			},
 			code:    "invalid_tool_input",
+			field:   "target",
 			details: true,
 		},
 	}

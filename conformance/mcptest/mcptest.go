@@ -15,6 +15,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/test"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -162,16 +163,22 @@ func (s *Server) StartDAG(t *testing.T, name string) string {
 func (s *Server) WaitForDAGRunStatus(t *testing.T, name, dagRunID string, status api.Status) {
 	t.Helper()
 
-	require.Eventually(t, func() bool {
+	var lastStatus api.Status
+	var lastStatusCode int
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		resp := s.server.Client().Get(fmt.Sprintf("/api/v1/dag-runs/%s/%s", name, dagRunID)).Send(t)
-		if resp.Response.StatusCode() != http.StatusOK {
-			return false
+		lastStatusCode = resp.Response.StatusCode()
+		if !assert.Equal(c, http.StatusOK, lastStatusCode) {
+			return
 		}
 
 		var result api.GetDAGRunDetails200JSONResponse
 		resp.Unmarshal(t, &result)
-		return result.DagRunDetails.Status == status
-	}, 10*time.Second, 250*time.Millisecond)
+		lastStatus = result.DagRunDetails.Status
+		assert.Equal(c, status, lastStatus)
+	}, 10*time.Second, 250*time.Millisecond,
+		"dag run %s/%s never reached status %v (last HTTP status: %d, last run status: %v)",
+		name, dagRunID, status, lastStatusCode, lastStatus)
 }
 
 func (s *Server) CreateCompletedRun(t *testing.T, name string) string {

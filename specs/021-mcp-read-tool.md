@@ -144,9 +144,6 @@ outside the table below fail with `invalid_tool_input` in target mode and
 | `runs` | `cursor` | Non-empty opaque string. |
 | `runs` | `labels` | Comma-separated non-empty label strings. |
 | `run_logs` | `tail` | Integer greater than or equal to `1`. |
-| `run_logs` | `head` | Integer greater than or equal to `1`. |
-| `run_logs` | `offset` | Integer greater than or equal to `1`. |
-| `run_logs` | `limit` | Integer from `1` through `10000`. |
 
 ### Output
 

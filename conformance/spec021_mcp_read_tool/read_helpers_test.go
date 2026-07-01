@@ -23,23 +23,19 @@ type readFixture struct {
 func newReadFixture(t *testing.T) readFixture {
 	t.Helper()
 
-	server := mcptest.NewServer(t)
-	dagName := "mcp_read_contract"
-	dagRunID := server.CreateCompletedRun(t, dagName)
-	session := server.Connect(t, "")
-	return readFixture{
-		server:   server,
-		session:  session,
-		dagName:  dagName,
-		dagRunID: dagRunID,
-	}
+	return newReadFixtureWithDAGName(t, "mcp_read_contract")
 }
 
 func newDottedDAGReadFixture(t *testing.T) readFixture {
 	t.Helper()
 
+	return newReadFixtureWithDAGName(t, "mcp.read-contract")
+}
+
+func newReadFixtureWithDAGName(t *testing.T, dagName string) readFixture {
+	t.Helper()
+
 	server := mcptest.NewServer(t)
-	dagName := "mcp.read-contract"
 	dagRunID := server.CreateCompletedRun(t, dagName)
 	session := server.Connect(t, "")
 	return readFixture{

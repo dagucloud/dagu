@@ -116,7 +116,7 @@ func registerTools(server *mcpsdk.Server, svc *Service) {
 		Name:        toolRead,
 		Title:       "Read Dagu state",
 		Description: "Read DAG specs, DAG details, DAG-run details, logs, list views, and Dagu MCP reference resources.",
-		InputSchema: json.RawMessage(`{"type":"object"}`),
+		InputSchema: readToolInputSchema(),
 		Annotations: &mcpsdk.ToolAnnotations{
 			OpenWorldHint: falsePtr,
 			ReadOnlyHint:  true,

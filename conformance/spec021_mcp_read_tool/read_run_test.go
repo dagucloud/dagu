@@ -71,7 +71,7 @@ func TestReadRunURIMode(t *testing.T) {
 		},
 		{
 			name:     "run logs",
-			uri:      runLogsURI(fixture.dagName, fixture.dagRunID, "head=1&offset=1&limit=100"),
+			uri:      runLogsURI(fixture.dagName, fixture.dagRunID, "tail=100"),
 			target:   "run_logs",
 			linkName: "dag_run_logs",
 			mimeType: "application/json",

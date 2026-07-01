@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	daguapi "github.com/dagucloud/dagu/api/v1"
+	"github.com/dagucloud/dagu/internal/core/exec"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -53,6 +54,35 @@ type readInput struct {
 	DAGRunID string `json:"dagRunId,omitempty" jsonschema:"DAG-run ID for run and run_logs targets. The value latest is accepted where Dagu accepts it."`
 	Query    string `json:"query,omitempty" jsonschema:"URL query string for list targets, for example page=1&perPage=100 or status=running."`
 	URI      string `json:"uri,omitempty" jsonschema:"Resource URI to read directly, for example dagu://reference/authoring."`
+}
+
+func readToolInputSchema() json.RawMessage {
+	return json.RawMessage(`{
+		"type": "object",
+		"properties": {
+			"target": {
+				"type": "string",
+				"description": "Read target: references, reference, dags, dag, dag_spec, runs, run, or run_logs."
+			},
+			"name": {
+				"type": "string",
+				"description": "DAG name or reference topic name."
+			},
+			"dagRunId": {
+				"type": "string",
+				"description": "DAG-run identifier for run and run_logs targets."
+			},
+			"query": {
+				"type": "string",
+				"description": "URL query string without a leading question mark."
+			},
+			"uri": {
+				"type": "string",
+				"description": "dagu:// resource URI to read directly."
+			}
+		},
+		"additionalProperties": false
+	}`)
 }
 
 type readToolError struct {
@@ -109,7 +139,7 @@ func (svc *Service) readToolImpl(ctx context.Context, input readInput) (*mcpsdk.
 	case readTargetDAGs:
 		if err = svc.requireAPI(); err == nil {
 			var raw any
-			raw, err = svc.api.GetDAGsListData(ctx, apiQueryString(input))
+			raw, err = svc.api.GetDAGsListData(ctx, input.Query)
 			if err == nil {
 				data, err = normalizeDAGList(raw)
 			}
@@ -133,7 +163,7 @@ func (svc *Service) readToolImpl(ctx context.Context, input readInput) (*mcpsdk.
 	case readTargetRuns:
 		if err = svc.requireAPI(); err == nil {
 			var raw any
-			raw, err = svc.api.GetDAGRunsListData(ctx, apiQueryString(input))
+			raw, err = svc.api.GetDAGRunsListData(ctx, input.Query)
 			if err == nil {
 				data, err = normalizeRunList(raw)
 			}
@@ -219,13 +249,17 @@ func parseReadToolInput(raw json.RawMessage) (readInput, *readToolError) {
 			}
 		}
 		if len(mixed) > 0 {
-			return readInput{}, &readToolError{
+			readErr := &readToolError{
 				Code:    readErrorInvalidToolInput,
 				Message: "URI mode cannot be combined with target-mode fields.",
 				Details: map[string]any{
 					"fields": mixed,
 				},
 			}
+			if len(mixed) == 1 {
+				readErr.Field = mixed[0]
+			}
+			return readInput{}, readErr
 		}
 		return parseReadResourceURI(values[readFieldURI])
 	}
@@ -506,7 +540,7 @@ func isAllowedReadQueryParam(target, key string) bool {
 		}
 	case readTargetRunLogs:
 		switch key {
-		case "tail", "head", "offset", "limit":
+		case "tail":
 			return true
 		}
 	}
@@ -546,10 +580,8 @@ func validReadQueryValue(target, key, value string) bool {
 		}
 	case readTargetRunLogs:
 		switch key {
-		case "tail", "head", "offset":
+		case "tail":
 			return validIntRange(value, 1, 0)
-		case "limit":
-			return validIntRange(value, 1, 10000)
 		}
 	}
 	return false
@@ -714,18 +746,6 @@ func normalizeRunDetails(raw any, fallbackName, fallbackDAGRunID string) (map[st
 	}, nil
 }
 
-func apiQueryString(input readInput) string {
-	if input.Query == "" || input.Target != readTargetRuns {
-		return input.Query
-	}
-	values, err := url.ParseQuery(input.Query)
-	if err != nil {
-		return input.Query
-	}
-	values.Del("cursor")
-	return values.Encode()
-}
-
 func classifyReadToolError(input readInput, err error) *readToolError {
 	var readErr *readToolError
 	if errors.As(err, &readErr) {
@@ -739,7 +759,7 @@ func classifyReadToolError(input readInput, err error) *readToolError {
 			URI:     resourceURIForReadError(input),
 		}
 	}
-	if isDAGNotFound(err) || looksNotFound(err) {
+	if isReadResourceNotFound(err) {
 		return resourceNotFoundReadError(input, err.Error())
 	}
 	return &readToolError{
@@ -748,6 +768,13 @@ func classifyReadToolError(input readInput, err error) *readToolError {
 		Target:  input.Target,
 		URI:     resourceURIForReadError(input),
 	}
+}
+
+func isReadResourceNotFound(err error) bool {
+	return isDAGNotFound(err) ||
+		errors.Is(err, exec.ErrDAGRunIDNotFound) ||
+		errors.Is(err, exec.ErrNoStatusData) ||
+		looksNotFound(err)
 }
 
 func looksNotFound(err error) bool {

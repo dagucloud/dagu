@@ -60,9 +60,9 @@ func TestReadTargetQueryParameters(t *testing.T) {
 			},
 		},
 		{
-			name:   "runs dates limit cursor and labels",
+			name:   "runs dates limit and labels",
 			target: "runs",
-			query:  "fromDate=0&toDate=4102444800&limit=500&cursor=opaque-cursor&labels=alpha,beta",
+			query:  "fromDate=0&toDate=4102444800&limit=500&labels=alpha,beta",
 			validate: func(t *testing.T, output map[string]any) {
 				requireItems(t, requireData(t, output))
 			},
@@ -71,14 +71,6 @@ func TestReadTargetQueryParameters(t *testing.T) {
 			name:   "run_logs tail",
 			target: "run_logs",
 			query:  "tail=1",
-			validate: func(t *testing.T, output map[string]any) {
-				requireRunLogsData(t, requireData(t, output))
-			},
-		},
-		{
-			name:   "run_logs head offset and limit",
-			target: "run_logs",
-			query:  "head=1&offset=1&limit=10000",
 			validate: func(t *testing.T, output map[string]any) {
 				requireRunLogsData(t, requireData(t, output))
 			},
@@ -135,7 +127,7 @@ func TestReadURIQueryParameters(t *testing.T) {
 		{
 			name:     "runs query",
 			target:   "runs",
-			uri:      "dagu://runs?name=" + fixture.dagName + "&dagRunId=latest&status=4&status=4&fromDate=0&toDate=4102444800&limit=500&cursor=opaque-cursor&labels=alpha,beta",
+			uri:      "dagu://runs?name=" + fixture.dagName + "&dagRunId=latest&status=4&status=4&fromDate=0&toDate=4102444800&limit=500&labels=alpha,beta",
 			linkName: "dag_runs",
 			mimeType: "application/json",
 			validate: func(t *testing.T, output map[string]any) {
@@ -145,7 +137,7 @@ func TestReadURIQueryParameters(t *testing.T) {
 		{
 			name:     "run logs query",
 			target:   "run_logs",
-			uri:      runLogsURI(fixture.dagName, fixture.dagRunID, "head=1&offset=1&limit=10000"),
+			uri:      runLogsURI(fixture.dagName, fixture.dagRunID, "tail=1"),
 			linkName: "dag_run_logs",
 			mimeType: "application/json",
 			validate: func(t *testing.T, output map[string]any) {
@@ -216,10 +208,9 @@ func TestReadTargetQueryValidationErrors(t *testing.T) {
 		{name: "runs repeated non-repeatable parameter", target: "runs", query: "name=a&name=b"},
 		{name: "run_logs tail below range", target: "run_logs", query: "tail=0"},
 		{name: "run_logs tail not integer", target: "run_logs", query: "tail=x"},
-		{name: "run_logs head below range", target: "run_logs", query: "head=0"},
-		{name: "run_logs offset below range", target: "run_logs", query: "offset=0"},
-		{name: "run_logs limit below range", target: "run_logs", query: "limit=0"},
-		{name: "run_logs limit above range", target: "run_logs", query: "limit=10001"},
+		{name: "run_logs unsupported head", target: "run_logs", query: "head=1"},
+		{name: "run_logs unsupported offset", target: "run_logs", query: "offset=1"},
+		{name: "run_logs unsupported limit", target: "run_logs", query: "limit=100"},
 		{name: "run_logs repeated non-repeatable parameter", target: "run_logs", query: "tail=1&tail=2"},
 	}
 
@@ -262,7 +253,7 @@ func TestReadURIQueryValidationErrors(t *testing.T) {
 		{name: "runs repeated non-repeatable parameter", uri: "dagu://runs?name=a&name=b"},
 		{name: "runs malformed percent encoding", uri: "dagu://runs?name=%zz"},
 		{name: "run_logs tail below range", uri: runLogsURI(fixture.dagName, fixture.dagRunID, "tail=0")},
-		{name: "run_logs limit above range", uri: runLogsURI(fixture.dagName, fixture.dagRunID, "limit=10001")},
+		{name: "run_logs unsupported limit", uri: runLogsURI(fixture.dagName, fixture.dagRunID, "limit=100")},
 		{name: "run_logs repeated non-repeatable parameter", uri: runLogsURI(fixture.dagName, fixture.dagRunID, "tail=1&tail=2")},
 	}
 
