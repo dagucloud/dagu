@@ -36,10 +36,10 @@ func (w *pollingQueueWatcher) Start(ctx context.Context) (<-chan struct{}, error
 		ctx = context.Background()
 	}
 	notifyCh := make(chan struct{}, 1)
+	last, _ := w.snapshot(ctx)
 	w.wg.Go(func() {
 		ticker := time.NewTicker(w.interval)
 		defer ticker.Stop()
-		last, _ := w.snapshot(ctx)
 		for {
 			select {
 			case <-ctx.Done():

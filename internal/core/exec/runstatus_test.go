@@ -194,6 +194,139 @@ func TestPendingStepRetriesFromStatus(t *testing.T) {
 	})
 }
 
+func TestNewDAGRunCondition(t *testing.T) {
+	t.Parallel()
+
+	checkedAt := time.Date(2026, 5, 19, 1, 2, 3, 0, time.UTC)
+
+	condition := exec.NewDAGRunCondition(
+		"Runnable",
+		"False",
+		"MaxConcurrencyReached",
+		"The DAG-run cannot start because the queue active-run concurrency limit has been reached.",
+		checkedAt,
+	)
+
+	assert.Equal(t, exec.DAGRunCondition{
+		Type:      "Runnable",
+		Status:    "False",
+		Reason:    "MaxConcurrencyReached",
+		Message:   "The DAG-run cannot start because the queue active-run concurrency limit has been reached.",
+		CheckedAt: "2026-05-19T01:02:03Z",
+	}, condition)
+
+	data, err := json.Marshal(condition)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{
+		"type": "Runnable",
+		"status": "False",
+		"reason": "MaxConcurrencyReached",
+		"message": "The DAG-run cannot start because the queue active-run concurrency limit has been reached.",
+		"checkedAt": "2026-05-19T01:02:03Z"
+	}`, string(data))
+}
+
+func TestMergeDAGRunConditionsUpsertsByTypeAndOrdersConditions(t *testing.T) {
+	t.Parallel()
+
+	checkedAt := time.Date(2026, 5, 19, 1, 2, 3, 0, time.UTC)
+	older := checkedAt.Add(-time.Minute)
+	newer := checkedAt.Add(time.Minute)
+
+	runnable := exec.NewDAGRunCondition(
+		"Runnable",
+		"False",
+		"MaxConcurrencyReached",
+		"The DAG-run cannot start because the queue active-run concurrency limit has been reached.",
+		checkedAt,
+	)
+	concurrencyReadyOlder := exec.NewDAGRunCondition(
+		"ConcurrencyReady",
+		"False",
+		"MaxConcurrencyReached",
+		"The queue active-run concurrency limit has been reached.",
+		older,
+	)
+	concurrencyReadyNewer := exec.NewDAGRunCondition(
+		"ConcurrencyReady",
+		"True",
+		"ConcurrencyAvailable",
+		"The queue active-run concurrency limit has capacity.",
+		newer,
+	)
+	workerReady := exec.NewDAGRunCondition(
+		"WorkerReady",
+		"Unknown",
+		"WorkerStateUnknown",
+		"Worker availability is still being checked.",
+		checkedAt,
+	)
+
+	conditions := exec.MergeDAGRunConditions(nil, concurrencyReadyOlder, workerReady)
+	conditions = exec.UpsertDAGRunCondition(conditions, runnable)
+	conditions = exec.UpsertDAGRunCondition(conditions, concurrencyReadyNewer)
+	conditions = exec.UpsertDAGRunCondition(
+		conditions,
+		exec.NewDAGRunCondition(
+			"ConcurrencyReady",
+			"False",
+			"StaleConcurrencyObservation",
+			"This older observation must not replace the current condition.",
+			older,
+		),
+	)
+
+	assert.Equal(t, []exec.DAGRunCondition{
+		runnable,
+		concurrencyReadyNewer,
+		workerReady,
+	}, conditions)
+}
+
+func TestNormalizeDAGRunConditions(t *testing.T) {
+	t.Parallel()
+
+	checkedAt := time.Date(2026, 5, 19, 1, 2, 3, 0, time.UTC)
+	conditions := []exec.DAGRunCondition{
+		exec.NewDAGRunCondition(
+			"Runnable",
+			"False",
+			"MaxConcurrencyReached",
+			"The DAG-run cannot start because the queue active-run concurrency limit has been reached.",
+			checkedAt,
+		),
+		exec.NewDAGRunCondition(
+			"ConcurrencyReady",
+			"False",
+			"MaxConcurrencyReached",
+			"The queue active-run concurrency limit has been reached.",
+			checkedAt.Add(time.Second),
+		),
+	}
+
+	queued := &exec.DAGRunStatus{
+		Status: core.Queued,
+		Conditions: append(conditions, exec.NewDAGRunCondition(
+			"Runnable",
+			"Unknown",
+			"StaleRunnableObservation",
+			"This older duplicate must be removed during normalization.",
+			checkedAt.Add(-time.Second),
+		)),
+	}
+	exec.NormalizeDAGRunConditions(queued)
+	assert.Equal(t, conditions, queued.Conditions)
+
+	running := &exec.DAGRunStatus{
+		Status:     core.Running,
+		Conditions: conditions,
+	}
+	exec.NormalizeDAGRunConditions(running)
+	assert.Nil(t, running.Conditions)
+
+	exec.NormalizeDAGRunConditions(nil)
+}
+
 func TestDAGRunStatusUnmarshalJSONDeprecatedTags(t *testing.T) {
 	t.Parallel()
 

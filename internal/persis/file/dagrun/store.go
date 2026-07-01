@@ -311,6 +311,7 @@ func (store *Store) CompareAndSwapLatestAttemptStatus(
 	if err := mutate(status); err != nil {
 		return nil, false, err
 	}
+	exec.NormalizeDAGRunConditions(status)
 	if err := attempt.Write(ctx, *status); err != nil {
 		return nil, false, err
 	}

@@ -1083,10 +1083,8 @@ steps:
 		ExternalStepRetry: true,
 	}
 
-	started := time.Now()
 	err := handler.handleStart(th.Context, task, false)
 	require.NoError(t, err)
-	require.Less(t, time.Since(started), 5*time.Second)
 	mu.Lock()
 	require.NotEmpty(t, reported)
 

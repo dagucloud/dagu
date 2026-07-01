@@ -27,6 +27,7 @@ type monitorEventStore struct {
 	headCalls      int
 	readCalls      int
 	lastHeadOffset int64
+	onReadEvents   func([]*eventstore.Event)
 }
 
 var _ eventstore.Store = (*monitorEventStore)(nil)
@@ -58,14 +59,21 @@ func (s *monitorEventStore) NotificationHeadCursor(context.Context) (eventstore.
 
 func (s *monitorEventStore) ReadNotificationEvents(_ context.Context, cursor eventstore.NotificationCursor) ([]*eventstore.Event, eventstore.NotificationCursor, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.readCalls++
 
 	index := int(cursor.Normalize().CommittedOffsets["events"])
 	if index < 0 || index > len(s.events) {
 		index = 0
 	}
-	return append([]*eventstore.Event(nil), s.events[index:]...), s.currentCursorLocked(), nil
+	events := append([]*eventstore.Event(nil), s.events[index:]...)
+	nextCursor := s.currentCursorLocked()
+	onReadEvents := s.onReadEvents
+	s.mu.Unlock()
+
+	if onReadEvents != nil {
+		onReadEvents(events)
+	}
+	return events, nextCursor, nil
 }
 
 func (s *monitorEventStore) currentCursorLocked() eventstore.NotificationCursor {
@@ -195,15 +203,78 @@ func TestNotificationMonitorDeliversOnlyFutureEventsAfterDestinationIsAdded(t *t
 	}, time.Second, 10*time.Millisecond)
 
 	transport.setDestinations([]string{"dest-1"})
-	require.NoError(t, store.Emit(context.Background(), newMonitorDAGRunEvent("new-run")))
+	newEvent := newMonitorDAGRunEvent("new-run")
+	newStatus, err := eventstore.DAGRunStatusFromEvent(newEvent)
+	require.NoError(t, err)
+	require.NoError(t, store.Emit(context.Background(), newEvent))
 
 	require.Eventually(t, func() bool {
-		return slices.Equal(transport.deliveredNames(), []string{"new-run"})
+		return slices.Equal(transport.deliveredNames(), []string{"new-run"}) &&
+			monitor.IsDelivered("dest-1", newStatus)
 	}, time.Second, 10*time.Millisecond)
 
 	stopMonitor()
 	stopped = true
 	require.Equal(t, []string{"new-run"}, transport.deliveredNames())
+}
+
+func TestNotificationMonitorDoesNotDeliverEventsReadAfterShutdown(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	store := &monitorEventStore{
+		onReadEvents: func(events []*eventstore.Event) {
+			if len(events) > 0 {
+				cancel()
+			}
+		},
+	}
+	service := eventstore.New(store)
+	transport := &mutableNotificationTransport{destinations: []string{"dest-1"}}
+
+	cfg := chatbridge.DefaultNotificationMonitorConfig()
+	cfg.PollInterval = 5 * time.Millisecond
+	cfg.SeenEvictInterval = time.Hour
+	cfg.UrgentWindow = 5 * time.Millisecond
+	cfg.SuccessWindow = 5 * time.Millisecond
+
+	monitor := chatbridge.NewNotificationMonitor(
+		service,
+		filepath.Join(t.TempDir(), "state.json"),
+		transport,
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		cfg,
+	)
+	done := make(chan struct{})
+	go func() {
+		monitor.Run(ctx)
+		close(done)
+	}()
+	defer func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for monitor shutdown")
+		}
+	}()
+
+	require.Eventually(t, func() bool {
+		headCalls, _ := store.stats()
+		return headCalls > 0
+	}, time.Second, 10*time.Millisecond)
+
+	require.NoError(t, store.Emit(context.Background(), newMonitorDAGRunEvent("cancelled-run")))
+
+	require.Eventually(t, func() bool {
+		select {
+		case <-done:
+			return true
+		default:
+			return false
+		}
+	}, time.Second, 10*time.Millisecond)
+	require.Empty(t, transport.deliveredNames())
 }
 
 func newMonitorDAGRunEvent(name string) *eventstore.Event {

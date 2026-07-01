@@ -24,6 +24,7 @@ var (
 	errProcessorClosed              = errors.New("processor closed")
 	errNotStarted                   = errors.New("execution not started")
 	errExecutionExitedBeforeStartup = errors.New("execution exited before startup")
+	errRunLivenessUnavailable       = errors.New("run liveness unavailable")
 )
 
 const suspendedQueueDropReason = "dag schedule suspended before dispatch"
@@ -62,6 +63,25 @@ func (s startupWaitState) executionDone() (bool, error) {
 		return false, nil
 	}
 	return s.execDone()
+}
+
+type startupExecutionError struct {
+	err error
+}
+
+func newStartupExecutionError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return startupExecutionError{err: err}
+}
+
+func (e startupExecutionError) Error() string {
+	return e.err.Error()
+}
+
+func (e startupExecutionError) Unwrap() error {
+	return e.err
 }
 
 // QueueProcessor is responsible for processing queued DAG runs.
@@ -443,7 +463,7 @@ func readStartupExecutionError(execErrCh <-chan error) error {
 	}
 	select {
 	case err := <-execErrCh:
-		return err
+		return newStartupExecutionError(err)
 	default:
 		return nil
 	}

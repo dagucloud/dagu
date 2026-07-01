@@ -169,6 +169,76 @@ func TestStatusBuilderWithOptions(t *testing.T) {
 	assert.Equal(t, int64(9876543210), result.PIDStartedAt)
 }
 
+func TestStatusBuilderWithConditions(t *testing.T) {
+	t.Parallel()
+
+	dag := &core.DAG{Name: "queued-dag"}
+	checkedAt := time.Date(2026, 5, 19, 1, 2, 3, 0, time.UTC)
+	runnable := exec.NewDAGRunCondition(
+		"Runnable",
+		"False",
+		"MaxConcurrencyReached",
+		"The DAG-run cannot start because the queue active-run concurrency limit has been reached.",
+		checkedAt,
+	)
+	concurrencyReadyOlder := exec.NewDAGRunCondition(
+		"ConcurrencyReady",
+		"False",
+		"MaxConcurrencyReached",
+		"The queue active-run concurrency limit has been reached.",
+		checkedAt.Add(-time.Minute),
+	)
+	concurrencyReadyNewer := exec.NewDAGRunCondition(
+		"ConcurrencyReady",
+		"True",
+		"ConcurrencyAvailable",
+		"The queue active-run concurrency limit has capacity.",
+		checkedAt.Add(time.Minute),
+	)
+
+	result := transform.NewStatusBuilder(dag).Create(
+		"queued-run",
+		core.Queued,
+		0,
+		time.Time{},
+		transform.WithConditions([]exec.DAGRunCondition{
+			concurrencyReadyOlder,
+			runnable,
+			concurrencyReadyNewer,
+		}),
+	)
+
+	assert.Equal(t, []exec.DAGRunCondition{
+		runnable,
+		concurrencyReadyNewer,
+	}, result.Conditions)
+}
+
+func TestStatusBuilderWithConditionsClearsConditionsForNonQueuedStatus(t *testing.T) {
+	t.Parallel()
+
+	dag := &core.DAG{Name: "running-dag"}
+	checkedAt := time.Date(2026, 5, 19, 1, 2, 3, 0, time.UTC)
+
+	result := transform.NewStatusBuilder(dag).Create(
+		"running-run",
+		core.Running,
+		0,
+		time.Time{},
+		transform.WithConditions([]exec.DAGRunCondition{
+			exec.NewDAGRunCondition(
+				"Runnable",
+				"False",
+				"MaxConcurrencyReached",
+				"The DAG-run cannot start because the queue active-run concurrency limit has been reached.",
+				checkedAt,
+			),
+		}),
+	)
+
+	assert.Empty(t, result.Conditions)
+}
+
 func TestStatusBuilderPopulatesPendingStepRetriesFromNodes(t *testing.T) {
 	dag := &core.DAG{
 		Name: "retrying-dag",

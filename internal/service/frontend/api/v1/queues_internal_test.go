@@ -128,6 +128,8 @@ func TestGetQueueCountsFreshLeaseForClaimedAttemptAsRunning(t *testing.T) {
 			assert.Equal(t, 1, queueResp.RunningCount)
 			assert.Equal(t, "claimed-run", queueResp.Running[0].DagRunId)
 			assert.Equal(t, openapiv1.StatusRunning, queueResp.Running[0].Status)
+			assert.Equal(t, openapiv1.StatusLabelRunning, queueResp.Running[0].StatusLabel)
+			assert.Nil(t, queueResp.Running[0].Conditions)
 		})
 	}
 }
@@ -289,6 +291,17 @@ func createDistributedQueueRunWithStatus(
 	runStatus.AttemptID = attempt.ID()
 	runStatus.ProcGroup = name
 	runStatus.WorkerID = "worker-1"
+	if status == core.Queued {
+		runStatus.Conditions = []exec.DAGRunCondition{
+			exec.NewDAGRunCondition(
+				"Runnable",
+				"False",
+				"MaxConcurrencyReached",
+				"The DAG-run cannot start because the queue active-run concurrency limit has been reached.",
+				time.Now().UTC(),
+			),
+		}
+	}
 	if status == core.Running {
 		runStatus.StartedAt = time.Now().UTC().Format(time.RFC3339)
 	}

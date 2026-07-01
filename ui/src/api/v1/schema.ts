@@ -4454,6 +4454,25 @@ export interface components {
             abort?: components["schemas"]["Step"];
             exit?: components["schemas"]["Step"];
         };
+        /** @description Type-keyed current-state runtime condition for a DAG-run. Each condition is the latest observation for its type, not a historical event. */
+        DAGRunCondition: {
+            /** @description Condition type */
+            type: string;
+            /**
+             * @description Observed status of the condition
+             * @enum {string}
+             */
+            status: DAGRunConditionStatus;
+            /** @description Machine-readable reason for the condition status */
+            reason: string;
+            /** @description Human-readable detail for the condition status */
+            message: string;
+            /**
+             * Format: date-time
+             * @description RFC 3339 timestamp when the condition was observed
+             */
+            checkedAt: string;
+        };
         /** @description Current status of a DAG-run */
         DAGRunSummary: {
             dagRunId: components["schemas"]["DAGRunId"];
@@ -4483,6 +4502,8 @@ export interface components {
             /** @description ID of the worker that executed this DAG-run ('local' for local execution) */
             workerId?: string;
             triggerType?: components["schemas"]["TriggerType"];
+            /** @description Type-keyed current-state runtime conditions for the DAG-run. This list reports the latest condition for each type, not a history of queued reasons. */
+            conditions?: components["schemas"]["DAGRunCondition"][];
             /** @description List of labels for categorizing and filtering DAG runs */
             labels?: string[];
             /**
@@ -16512,6 +16533,11 @@ export enum ParamDefType {
     integer = "integer",
     number = "number",
     boolean = "boolean"
+}
+export enum DAGRunConditionStatus {
+    True = "True",
+    False = "False",
+    Unknown = "Unknown"
 }
 export enum ArtifactNodeType {
     directory = "directory",

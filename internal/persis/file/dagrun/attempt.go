@@ -206,6 +206,8 @@ func (att *Attempt) Write(ctx context.Context, status exec.DAGRunStatus) error {
 		return fmt.Errorf("status file not open: %w", ErrStatusFileNotOpen)
 	}
 
+	exec.NormalizeDAGRunConditions(&status)
+
 	if writeErr := att.writer.Write(ctx, status); writeErr != nil {
 		return fmt.Errorf("failed to write status: %w", ErrWriteFailed)
 	}

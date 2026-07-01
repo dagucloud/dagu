@@ -46,3 +46,11 @@ func NewWithHooksForTest(
 func (s *RetryScanner) ScanForTest(ctx context.Context) error {
 	return s.scan(ctx)
 }
+
+func LocalLaunchFailedForTest(err error) bool {
+	return localLaunchFailed(err)
+}
+
+func NewStartupExecutionErrorForTest(err error) error {
+	return newStartupExecutionError(err)
+}

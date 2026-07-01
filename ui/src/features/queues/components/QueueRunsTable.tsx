@@ -2,9 +2,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import React from 'react';
-import { components } from '@/api/v1/schema';
+import { components, DAGRunConditionStatus, Status } from '@/api/v1/schema';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useConfig } from '@/contexts/ConfigContext';
+import {
+  humanizeIdentifier,
+  runtimeConditionLabel,
+  RuntimeCondition,
+} from '@/features/dag-runs/components/common/runtimeConditions';
 import dayjs from '@/lib/dayjs';
 import { cn } from '@/lib/utils';
 import StatusChip from '@/components/ui/status-chip';
@@ -21,6 +26,49 @@ interface QueueRunsTableProps {
   onToggleSelection?: (dagRun: QueueDAGRun) => void;
   onToggleAll?: (checked: boolean) => void;
   showQueuedAt?: boolean;
+}
+
+const QUEUED_CONDITION_FALLBACK_PRIORITY = [
+  'QueueReady',
+  'RunRecordReady',
+  'ConcurrencyReady',
+  'WorkerReady',
+  'WorkerAssignmentReady',
+  'StartObserved',
+];
+
+function queuedConditionFallbackRank(condition: RuntimeCondition): number {
+  const index = QUEUED_CONDITION_FALLBACK_PRIORITY.indexOf(condition.type);
+  return index === -1 ? QUEUED_CONDITION_FALLBACK_PRIORITY.length : index;
+}
+
+function compareQueuedConditionFallback(
+  left: RuntimeCondition,
+  right: RuntimeCondition
+): number {
+  return (
+    queuedConditionFallbackRank(left) - queuedConditionFallbackRank(right) ||
+    left.type.localeCompare(right.type) ||
+    left.status.localeCompare(right.status) ||
+    (left.reason ?? '').localeCompare(right.reason ?? '') ||
+    (left.checkedAt ?? '').localeCompare(right.checkedAt ?? '')
+  );
+}
+
+function getQueuedConditionSummary(
+  conditions: RuntimeCondition[] | undefined
+): RuntimeCondition | undefined {
+  const runnable = conditions?.find(
+    (condition) =>
+      condition.type === 'Runnable' &&
+      condition.status !== DAGRunConditionStatus.True
+  );
+  return (
+    runnable ??
+    conditions
+      ?.filter((condition) => condition.status !== DAGRunConditionStatus.True)
+      .sort(compareQueuedConditionFallback)[0]
+  );
 }
 
 function QueueRunsTable({
@@ -87,6 +135,10 @@ function QueueRunsTable({
         <tbody className="divide-y divide-border/50">
           {items.map((dagRun) => {
             const selected = selectable && Boolean(isSelected?.(dagRun));
+            const queuedConditionSummary =
+              dagRun.status === Status.Queued
+                ? getQueuedConditionSummary(dagRun.conditions)
+                : undefined;
 
             return (
               <tr
@@ -147,6 +199,29 @@ function QueueRunsTable({
                         showQueuedAt ? dagRun.queuedAt : dagRun.startedAt
                       )}
                     </span>
+                    {queuedConditionSummary && (
+                      <span
+                        className="max-w-[28rem] whitespace-normal break-words leading-snug"
+                      >
+                        <span className="font-medium text-foreground">
+                          {runtimeConditionLabel(queuedConditionSummary)}
+                        </span>
+                        <span className="text-muted-foreground/90">: </span>
+                        <span className="text-muted-foreground/90">
+                          {queuedConditionSummary.message}
+                        </span>
+                        {queuedConditionSummary.reason && (
+                          <span className="ml-1 text-muted-foreground/80">
+                            Reason:{' '}
+                            {humanizeIdentifier(queuedConditionSummary.reason)}
+                          </span>
+                        )}
+                        <span className="ml-1 text-muted-foreground/70">
+                          Checked{' '}
+                          {formatDateTime(queuedConditionSummary.checkedAt)}
+                        </span>
+                      </span>
+                    )}
                   </div>
                 </td>
                 <td className="py-1.5 px-2 text-xs text-muted-foreground font-mono">

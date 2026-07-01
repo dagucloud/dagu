@@ -312,7 +312,15 @@ func (m *NotificationMonitor) runUnlockedLoop(ctx context.Context) {
 			m.drainPendingBatches(ctx, nil)
 			return
 		case <-ticker.C:
+			if ctx.Err() != nil {
+				m.drainPendingBatches(ctx, nil)
+				return
+			}
 			m.syncPendingDestinations(ctx)
+			if ctx.Err() != nil {
+				m.drainPendingBatches(ctx, nil)
+				return
+			}
 			m.pollSource(ctx)
 		case <-evictTicker.C:
 			m.evictStaleDelivered(ctx)
@@ -343,7 +351,13 @@ func (m *NotificationMonitor) runOwnedLoop(parentCtx, sessionCtx context.Context
 		case <-sessionCtx.Done():
 			return m.finishOwnedLoop(parentCtx, nil)
 		case <-ticker.C:
+			if sessionCtx.Err() != nil {
+				return m.finishOwnedLoop(parentCtx, nil)
+			}
 			m.syncPendingDestinations(sessionCtx)
+			if sessionCtx.Err() != nil {
+				return m.finishOwnedLoop(parentCtx, nil)
+			}
 			m.pollSource(sessionCtx)
 		case <-evictTicker.C:
 			m.evictStaleDelivered(sessionCtx)
@@ -396,6 +410,9 @@ func (m *NotificationMonitor) pollSource(ctx context.Context) {
 		m.logger.Debug("Failed to read DAG-run events", slog.String("error", err.Error()))
 		return
 	}
+	if ctx.Err() != nil {
+		return
+	}
 
 	pending := make([]NotificationEvent, 0, len(events))
 	for _, event := range events {
@@ -437,6 +454,9 @@ func (m *NotificationMonitor) advanceSourceCursorToHead(ctx context.Context) {
 		m.logger.Debug("Failed to advance DAG-run notification cursor", slog.String("error", err.Error()))
 		return
 	}
+	if ctx.Err() != nil {
+		return
+	}
 
 	m.stateMu.Lock()
 	defer m.stateMu.Unlock()
@@ -453,6 +473,9 @@ func (m *NotificationMonitor) advanceSourceCursorToHead(ctx context.Context) {
 }
 
 func (m *NotificationMonitor) syncPendingDestinations(ctx context.Context) {
+	if ctx.Err() != nil {
+		return
+	}
 	if !m.ensureNotificationLockOwnership("Notification lock lost before syncing destinations") {
 		return
 	}
@@ -527,6 +550,9 @@ func (m *NotificationMonitor) enqueueEvents(ctx context.Context, destinations []
 
 func (m *NotificationMonitor) requeuePending(ctx context.Context, destinations []string) {
 	if len(destinations) == 0 {
+		return
+	}
+	if ctx.Err() != nil {
 		return
 	}
 	if !m.ensureNotificationLockOwnership("Notification lock lost before requeueing pending notifications") {
@@ -825,6 +851,9 @@ func (m *NotificationMonitor) ensureBootstrapped(ctx context.Context) bool {
 }
 
 func (m *NotificationMonitor) commitSourceProgress(ctx context.Context, destinations []string, nextCursor eventstore.NotificationCursor, events []NotificationEvent) ([]queuedNotification, bool) {
+	if ctx.Err() != nil {
+		return nil, false
+	}
 	if !m.canMutateNotificationState("Notification lock lost before advancing notification cursor") {
 		return nil, false
 	}

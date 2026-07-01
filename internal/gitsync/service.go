@@ -6,6 +6,7 @@ package gitsync
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"path"
@@ -270,21 +271,23 @@ func (s *serviceImpl) syncFilesToDAGsDir(_ context.Context, pullResult *PullResu
 		if !isSyncableRepoFile(file, dagID) {
 			continue
 		}
-		repoFilePath := s.gitClient.GetFilePath(file)
+		repoFilePath, err := s.safeRepoPathToFilePath(file)
+		if err != nil {
+			continue
+		}
 		dagFilePath, err := s.safeDAGIDToFilePath(dagID)
 		if err != nil {
 			continue
 		}
 
-		// Read repo file content
-		repoContent, err := os.ReadFile(repoFilePath) //nolint:gosec // path constructed from internal repo
+		repoContent, err := safeReadFileWithinBase(s.gitClient.repoPath, repoFilePath)
 		if err != nil {
 			continue
 		}
 		repoHash := ComputeContentHash(repoContent)
 
 		// Check if local file exists
-		localContent, err := os.ReadFile(dagFilePath) //nolint:gosec // path constructed from internal dagsDir
+		localContent, err := s.readDAGFile(dagID, dagFilePath)
 		dagState := state.DAGs[dagID]
 
 		if err != nil {
@@ -300,7 +303,7 @@ func (s *serviceImpl) syncFilesToDAGsDir(_ context.Context, pullResult *PullResu
 
 			// Local file doesn't exist, create it
 			if err := s.writeDAGFile(dagID, dagFilePath, repoContent); err != nil {
-				continue
+				return nil, nil, fmt.Errorf("failed to write synced item %q: %w", dagID, err)
 			}
 			now := time.Now()
 			newState := &DAGState{
@@ -378,7 +381,7 @@ func (s *serviceImpl) syncFilesToDAGsDir(_ context.Context, pullResult *PullResu
 		// Only update local file if remote changed (and local wasn't modified)
 		if localHash != repoHash {
 			if err := s.writeDAGFile(dagID, dagFilePath, repoContent); err != nil {
-				continue
+				return nil, nil, fmt.Errorf("failed to write synced item %q: %w", dagID, err)
 			}
 			now := time.Now()
 			newState := &DAGState{
@@ -475,8 +478,11 @@ func (s *serviceImpl) scanLocalDAGs(state *State) error {
 		}
 
 		// Read local file to compute hash
-		filePath := filepath.Join(s.dagsDir, entry.Name())
-		content, err := os.ReadFile(filePath) //nolint:gosec // path constructed from internal dagsDir
+		filePath, err := safeJoinWithinBase(s.dagsDir, entry.Name())
+		if err != nil {
+			continue
+		}
+		content, err := safeReadFileWithinBase(s.dagsDir, filePath)
 		if err != nil {
 			continue
 		}
@@ -1044,8 +1050,11 @@ func (s *serviceImpl) Discard(_ context.Context, dagID string) error {
 		return err
 	}
 
-	// Get content from repo
-	repoContent, err := os.ReadFile(s.gitClient.GetFilePath(repoFilePath))
+	repoFileFullPath, err := s.safeRepoPathToFilePath(repoFilePath)
+	if err != nil {
+		return err
+	}
+	repoContent, err := safeReadFileWithinBase(s.gitClient.repoPath, repoFileFullPath)
 	if err != nil {
 		return fmt.Errorf("failed to read repo file: %w", err)
 	}
@@ -2115,34 +2124,39 @@ func safeJoinWithinBase(baseDir, relativePath string) (string, error) {
 }
 
 func ensurePathWithinBase(baseDir, targetPath string) error {
+	_, err := relativePathWithinBase(baseDir, targetPath)
+	return err
+}
+
+func relativePathWithinBase(baseDir, targetPath string) (string, error) {
 	baseAbs, err := filepath.Abs(baseDir)
 	if err != nil {
-		return &InvalidDAGIDError{
+		return "", &InvalidDAGIDError{
 			DAGID:  targetPath,
 			Reason: "cannot resolve base directory",
 		}
 	}
 	targetAbs, err := filepath.Abs(targetPath)
 	if err != nil {
-		return &InvalidDAGIDError{
+		return "", &InvalidDAGIDError{
 			DAGID:  targetPath,
 			Reason: "cannot resolve path safely",
 		}
 	}
 	relToBase, err := filepath.Rel(baseAbs, targetAbs)
 	if err != nil {
-		return &InvalidDAGIDError{
+		return "", &InvalidDAGIDError{
 			DAGID:  targetPath,
 			Reason: "cannot resolve path safely",
 		}
 	}
 	if relToBase == ".." || strings.HasPrefix(relToBase, ".."+string(filepath.Separator)) || filepath.IsAbs(relToBase) {
-		return &InvalidDAGIDError{
+		return "", &InvalidDAGIDError{
 			DAGID:  targetPath,
 			Reason: "path escapes allowed base directory",
 		}
 	}
-	return nil
+	return relToBase, nil
 }
 
 func ensureExistingPathWithinBase(baseDir, targetPath string) error {
@@ -2157,28 +2171,187 @@ func ensureExistingPathWithinBase(baseDir, targetPath string) error {
 	return ensurePathWithinBase(resolvedBase, resolvedTarget)
 }
 
+func safeReadFileWithinBase(baseDir, targetPath string) ([]byte, error) {
+	relPath, err := relativePathWithinBase(baseDir, targetPath)
+	if err != nil {
+		return nil, err
+	}
+	root, err := os.OpenRoot(baseDir)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = root.Close()
+	}()
+	if err := rejectUnsafeRootPath(root, relPath, targetPath, "read", false); err != nil {
+		return nil, err
+	}
+	if err := ensureExistingPathWithinBase(baseDir, targetPath); err != nil {
+		return nil, err
+	}
+	file, err := openRootFileNoFollow(root, relPath, os.O_RDONLY, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = file.Close()
+	}()
+	if err := validateOpenedRootFile(root, relPath, targetPath, "read", file); err != nil {
+		return nil, err
+	}
+	return io.ReadAll(file)
+}
+
 func safeWriteFileWithinBase(baseDir, targetPath string, content []byte, perm os.FileMode) error {
-	if err := ensurePathWithinBase(baseDir, targetPath); err != nil {
+	relPath, err := relativePathWithinBase(baseDir, targetPath)
+	if err != nil {
 		return err
 	}
 	parentDir := filepath.Dir(targetPath)
 	if err := ensurePathWithinBase(baseDir, parentDir); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(parentDir, 0750); err != nil {
+	if err := os.MkdirAll(baseDir, 0750); err != nil {
+		return err
+	}
+	root, err := os.OpenRoot(baseDir)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = root.Close()
+	}()
+	parentRel := filepath.Dir(relPath)
+	if err := ensureSafeRootDirPath(root, parentRel, targetPath, "write", true); err != nil {
 		return err
 	}
 	if err := ensureExistingPathWithinBase(baseDir, parentDir); err != nil {
 		return err
 	}
-	if info, err := os.Lstat(targetPath); err == nil {
-		if info.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("refusing to write through symlink: %s", targetPath)
-		}
-	} else if !os.IsNotExist(err) {
+	if err := rejectUnsafeRootPath(root, relPath, targetPath, "write", true); err != nil {
 		return err
 	}
-	return os.WriteFile(targetPath, content, perm) //nolint:gosec // targetPath is constrained to baseDir and symlink targets are rejected.
+	file, err := openRootFileNoFollow(root, relPath, os.O_WRONLY, 0)
+	if os.IsNotExist(err) {
+		file, err = openRootFileNoFollow(root, relPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)
+	}
+	if os.IsExist(err) {
+		file, err = openRootFileNoFollow(root, relPath, os.O_WRONLY, 0)
+	}
+	if err != nil {
+		return err
+	}
+	if err := validateOpenedRootFile(root, relPath, targetPath, "write", file); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if err := file.Truncate(0); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if _, err := file.Write(content); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if err := file.Chmod(perm); err != nil {
+		_ = file.Close()
+		return err
+	}
+	return file.Close()
+}
+
+func rejectUnsafeRootPath(root *os.Root, relPath, targetPath, operation string, allowNotExist bool) error {
+	cleanPath := filepath.Clean(relPath)
+	parentRel := filepath.Dir(cleanPath)
+	if err := ensureSafeRootDirPath(root, parentRel, targetPath, operation, false); err != nil {
+		return err
+	}
+	info, err := root.Lstat(cleanPath)
+	if err != nil {
+		if allowNotExist && os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	return rejectUnsafeFileInfo(info, targetPath, operation)
+}
+
+func ensureSafeRootDirPath(root *os.Root, relDir, targetPath, operation string, create bool) error {
+	cleanDir := filepath.Clean(relDir)
+	if cleanDir == "." {
+		return nil
+	}
+	current := ""
+	for segment := range strings.SplitSeq(cleanDir, string(filepath.Separator)) {
+		if segment == "" || segment == "." {
+			continue
+		}
+		if segment == ".." {
+			return fmt.Errorf("refusing to %s path outside root: %s", operation, targetPath)
+		}
+		if current == "" {
+			current = segment
+		} else {
+			current = filepath.Join(current, segment)
+		}
+		info, err := root.Lstat(current)
+		if create && os.IsNotExist(err) {
+			if err := root.Mkdir(current, 0750); err != nil && !os.IsExist(err) {
+				return err
+			}
+			info, err = root.Lstat(current)
+		}
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("refusing to %s through symlink: %s", operation, targetPath)
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("refusing to %s through non-directory path segment: %s", operation, targetPath)
+		}
+	}
+	return nil
+}
+
+func validateOpenedRootFile(root *os.Root, relPath, targetPath, operation string, file *os.File) error {
+	fileInfo, err := file.Stat()
+	if err != nil {
+		return err
+	}
+	if err := rejectUnsafeFileInfo(fileInfo, targetPath, operation); err != nil {
+		return err
+	}
+	cleanPath := filepath.Clean(relPath)
+	parentRel := filepath.Dir(cleanPath)
+	if err := ensureSafeRootDirPath(root, parentRel, targetPath, operation, false); err != nil {
+		return err
+	}
+	pathInfo, err := root.Lstat(cleanPath)
+	if err != nil {
+		return err
+	}
+	if err := rejectUnsafeFileInfo(pathInfo, targetPath, operation); err != nil {
+		return err
+	}
+	if !os.SameFile(pathInfo, fileInfo) {
+		return fmt.Errorf("refusing to %s path changed while opening: %s", operation, targetPath)
+	}
+	return nil
+}
+
+func rejectUnsafeFileInfo(info os.FileInfo, targetPath, operation string) error {
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("refusing to %s through symlink: %s", operation, targetPath)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("refusing to %s non-regular file: %s", operation, targetPath)
+	}
+	return nil
 }
 
 func (s *serviceImpl) writeDAGFile(dagID, filePath string, content []byte) error {
@@ -2191,6 +2364,18 @@ func (s *serviceImpl) writeDAGFile(dagID, filePath string, content []byte) error
 		baseDir = filepath.Dir(s.baseConfig)
 	}
 	return safeWriteFileWithinBase(baseDir, filePath, content, 0600)
+}
+
+func (s *serviceImpl) readDAGFile(dagID, filePath string) ([]byte, error) {
+	baseDir := s.dagsDir
+	normalized, err := normalizeDAGID(dagID)
+	if err != nil {
+		return nil, err
+	}
+	if normalized == baseConfigID && s.baseConfig != "" {
+		baseDir = filepath.Dir(s.baseConfig)
+	}
+	return safeReadFileWithinBase(baseDir, filePath)
 }
 
 func (s *serviceImpl) safeDAGIDToFilePath(dagID string) (string, error) {
@@ -2206,6 +2391,10 @@ func (s *serviceImpl) safeDAGIDToFilePath(dagID string) (string, error) {
 	}
 	ext := fileExtensionForID(normalized)
 	return safeJoinWithinBase(s.dagsDir, filepath.FromSlash(normalized+ext))
+}
+
+func (s *serviceImpl) safeRepoPathToFilePath(repoPath string) (string, error) {
+	return safeJoinWithinBase(s.gitClient.repoPath, filepath.FromSlash(repoPath))
 }
 
 func (s *serviceImpl) safeDAGIDToRepoPath(dagID string) (string, error) {

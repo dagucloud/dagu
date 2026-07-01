@@ -8,6 +8,11 @@
  */
 import dayjs from '@/lib/dayjs';
 import {
+  humanizeIdentifier,
+  runtimeConditionLabel,
+  RuntimeCondition,
+} from '@/features/dag-runs/components/common/runtimeConditions';
+import {
   Check,
   Clock,
   Copy,
@@ -19,7 +24,11 @@ import {
   Terminal,
 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { components, Status, TriggerType } from '../../../../api/v1/schema';
+import {
+  components,
+  DAGRunConditionStatus,
+  Status,
+} from '../../../../api/v1/schema';
 import { triggerTypeLabels } from '../common/TriggerTypeIndicator';
 
 type Props = {
@@ -106,6 +115,88 @@ function truncateId(id: string): string {
 type PreconditionErrorsProps = {
   preconditions?: components['schemas']['Condition'][];
 };
+
+type RuntimeConditionsProps = {
+  conditions?: components['schemas']['DAGRunCondition'][];
+};
+
+function getRuntimeConditionGroups(conditions: RuntimeCondition[] | undefined): {
+  summary?: RuntimeCondition;
+  details: RuntimeCondition[];
+} {
+  const summary = conditions?.find((condition) => condition.type === 'Runnable');
+  const details =
+    conditions?.filter(
+      (condition) =>
+        condition !== summary &&
+        condition.status !== DAGRunConditionStatus.True
+    ) ?? [];
+
+  return { summary, details };
+}
+
+type RuntimeConditionCardProps = {
+  condition: RuntimeCondition;
+};
+
+function RuntimeConditionCard({
+  condition,
+}: RuntimeConditionCardProps): React.JSX.Element {
+  return (
+    <div className="rounded-md border border-border bg-slate-200 p-1.5 text-xs whitespace-normal break-words dark:bg-slate-700">
+      <div className="mb-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+        <span className="font-semibold text-foreground">
+          {runtimeConditionLabel(condition)}
+        </span>
+        <span className="font-mono text-muted-foreground">
+          {formatTimestamp(condition.checkedAt)}
+        </span>
+      </div>
+      <div className="text-muted-foreground break-words">
+        {condition.message}
+      </div>
+      {condition.reason && (
+        <div className="mt-0.5 text-muted-foreground/80 break-words">
+          Reason: {humanizeIdentifier(condition.reason)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RuntimeConditions({
+  conditions,
+}: RuntimeConditionsProps): React.JSX.Element | null {
+  const { summary, details } = getRuntimeConditionGroups(conditions);
+  const visibleSummary =
+    summary?.status === DAGRunConditionStatus.True ? undefined : summary;
+  const visibleConditions = visibleSummary
+    ? [visibleSummary, ...details]
+    : details;
+
+  if (visibleConditions.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="pb-2" data-testid="runtime-conditions">
+      <div className="flex items-center mb-1">
+        <Info className="h-3.5 w-3.5 mr-1 text-muted-foreground" />
+        <span className="text-xs font-semibold text-muted-foreground">
+          Runtime Conditions
+        </span>
+      </div>
+      <div className="space-y-2">
+        {visibleConditions.map((condition, idx) => (
+          <RuntimeConditionCard
+            key={`${condition.type}-${condition.reason}-${idx}`}
+            condition={condition}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function PreconditionErrors({
   preconditions,
@@ -382,6 +473,7 @@ function DAGStatusOverview({
         );
       })()}
 
+      <RuntimeConditions conditions={status.conditions} />
       <PreconditionErrors preconditions={status.preconditions} />
     </div>
   );

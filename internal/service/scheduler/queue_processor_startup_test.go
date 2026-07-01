@@ -436,6 +436,7 @@ func TestQueueDispatcher_DispatchAndWaitForStartup_RawStaleQueueDispatchStopsRet
 func TestQueueDispatcher_DispatchAndWaitForStartup_PermanentErrorStopsRetry(t *testing.T) {
 	dagRunStore := &mockDAGRunStore{}
 	procStore := &mockProcStore{}
+	attempt := &exec.MockDAGRunAttempt{}
 
 	// Dispatcher always returns a permanent error (selector mismatch).
 	disp := &mockDispatcher{
@@ -446,8 +447,25 @@ func TestQueueDispatcher_DispatchAndWaitForStartup_PermanentErrorStopsRetry(t *t
 
 	dagExec := NewDAGExecutor(disp, nil, config.ExecutionModeDistributed, "")
 	dag := &core.DAG{Name: "test-dag"}
-	status := &exec.DAGRunStatus{Status: core.Queued, TriggerType: core.TriggerTypeScheduler}
+	status := &exec.DAGRunStatus{
+		Name:        "test-dag",
+		DAGRunID:    "run-1",
+		AttemptID:   "attempt-1",
+		Status:      core.Queued,
+		TriggerType: core.TriggerTypeScheduler,
+	}
 	runRef := exec.NewDAGRunRef("test-dag", "run-1")
+	dagRunStore.On("FindAttempt", mock.Anything, runRef).Return(attempt, nil).Once()
+	attempt.On("Hidden").Return(false).Once()
+	attempt.On("ReadStatus", mock.Anything).Return(status, nil).Once()
+	dagRunStore.On(
+		"CompareAndSwapLatestAttemptStatus",
+		mock.Anything,
+		runRef,
+		"attempt-1",
+		core.Queued,
+		mock.Anything,
+	).Return(status, true, nil).Once()
 
 	dispatcher := newQueueDispatcher(queueDispatchDeps{
 		dagRunStore: dagRunStore,
@@ -466,4 +484,6 @@ func TestQueueDispatcher_DispatchAndWaitForStartup_PermanentErrorStopsRetry(t *t
 	// Should have been called exactly once (permanent error stops retries).
 	require.Equal(t, int32(1), disp.callCount.Load())
 	procStore.AssertNotCalled(t, "IsRunAlive", mock.Anything, mock.Anything, mock.Anything)
+	dagRunStore.AssertExpectations(t)
+	attempt.AssertExpectations(t)
 }

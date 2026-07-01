@@ -131,7 +131,7 @@ func (l *dirLock) Heartbeat(_ context.Context) error {
 
 	// Verify we still own the lock by checking the fence token
 	tokenPath := filepath.Join(l.lockPath, lockOwnerFileName)
-	data, err := os.ReadFile(tokenPath) //nolint:gosec // path is constructed from lock directory, not user input
+	data, err := fileutil.ReadFile(tokenPath)
 	if err != nil {
 		l.isHeld = false
 		return fmt.Errorf("%w: failed to read lock token: %v", ErrLockNotHeld, err)
@@ -269,7 +269,7 @@ func (l *dirLock) Unlock() error {
 
 	// Verify we still own the lock before removing
 	tokenPath := filepath.Join(l.lockPath, lockOwnerFileName)
-	data, err := os.ReadFile(tokenPath) //nolint:gosec // path is constructed from lock directory, not user input
+	data, err := fileutil.ReadFile(tokenPath)
 	if err != nil {
 		l.isHeld = false
 		return fmt.Errorf("%w: failed to read lock token: %v", ErrLockNotHeld, err)
@@ -310,7 +310,7 @@ func (l *dirLock) IsHeldByMe() bool {
 
 	// Verify the fence token still matches
 	tokenPath := filepath.Join(l.lockPath, lockOwnerFileName)
-	data, err := os.ReadFile(tokenPath) //nolint:gosec // path is constructed from lock directory, not user input
+	data, err := fileutil.ReadFile(tokenPath)
 	if err != nil || string(data) != l.fenceToken {
 		l.isHeld = false
 		return false

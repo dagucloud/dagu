@@ -72,6 +72,7 @@ func TestEnqueueRetry(t *testing.T) {
 				assert.Equal(t, core.Queued, store.status.Status)
 				assert.Equal(t, core.TriggerTypeRetry, store.status.TriggerType)
 				assert.NotEmpty(t, store.status.QueuedAt)
+				assert.Empty(t, store.status.Conditions)
 				assert.Equal(t, 2, store.status.AutoRetryCount)
 				assert.Equal(t, "old-profile", store.status.ProfileName)
 				assert.Equal(t, 1, store.casCalls)
