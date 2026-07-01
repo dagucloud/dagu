@@ -2,7 +2,7 @@
 
 Global flags on all commands: `--config/-c`, `--dagu-home`, `--quiet/-q`, `--cpu-profile`
 
-Advanced and deprecated flags below remain implemented in `internal/cmd/start.go`, `internal/cmd/enqueue.go`, `internal/cmd/exec.go`, and `internal/cmd/migrate.go`, so this reference keeps them documented even when they are mainly used by automation or backward-compatibility paths.
+Advanced and deprecated flags below remain implemented in `internal/cmd/start.go`, `internal/cmd/enqueue.go`, and `internal/cmd/exec.go`, so this reference keeps them documented even when they are mainly used by automation or backward-compatibility paths.
 
 ## Core Commands
 
@@ -209,7 +209,6 @@ Start distributed worker: `dagu worker [--worker.id/-w <id>] [--worker.max-activ
 ## Other Commands
 
 - `dagu example [id]` — Show built-in example DAGs
-- `dagu migrate history` — Migrate legacy DAG run history from the v1.16 layout to the v1.17+ format and archive the old data
 - `dagu version` — Show version
 - `dagu upgrade [--check] [--version/-v <ver>] [--dry-run] [--yes/-y]` — Self-update binary
 - `dagu license <activate|deactivate|check>` — Manage license

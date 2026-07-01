@@ -86,7 +86,6 @@ func TestRootCommand(t *testing.T) {
 			rootCmd.AddCommand(cmd.Scheduler())
 			rootCmd.AddCommand(cmd.Retry())
 			rootCmd.AddCommand(cmd.StartAll())
-			rootCmd.AddCommand(cmd.Migrate())
 			rootCmd.AddCommand(cmd.Profile())
 
 			// Set args
@@ -176,7 +175,6 @@ func TestRootCommandStructure(t *testing.T) {
 		"scheduler",
 		"retry",
 		"start-all",
-		"migrate",
 		"profile",
 	}
 
@@ -250,6 +248,5 @@ operations, or remote commands.
 	rootCmd.AddCommand(cmd.Scheduler())
 	rootCmd.AddCommand(cmd.Retry())
 	rootCmd.AddCommand(cmd.StartAll())
-	rootCmd.AddCommand(cmd.Migrate())
 	rootCmd.AddCommand(cmd.Profile())
 }
