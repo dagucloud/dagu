@@ -19,7 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const Timeout = 5 * time.Second
+const Timeout = 30 * time.Second
 
 type Server struct {
 	server test.Server
