@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.4
 # Stage 1: UI Builder
-FROM --platform=$BUILDPLATFORM node:25-alpine AS ui-builder
+FROM --platform=$BUILDPLATFORM node:26-alpine AS ui-builder
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
 RUN rm -f /usr/local/bin/yarn /usr/local/bin/yarnpkg && \
