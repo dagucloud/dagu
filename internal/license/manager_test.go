@@ -16,7 +16,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -143,118 +142,6 @@ func TestNewManager_FieldsSetCorrectly(t *testing.T) {
 		assert.True(t, checker.IsCommunity(), "freshly constructed manager must be in community mode")
 		assert.Equal(t, "", checker.Plan())
 		assert.Nil(t, checker.Claims())
-	})
-}
-
-func TestManager_ActivationData(t *testing.T) {
-	t.Parallel()
-
-	t.Run("returns persisted activation data from store", func(t *testing.T) {
-		t.Parallel()
-
-		pub, _ := testKeyPair(t)
-		store := &mockActivationStore{data: &ActivationData{
-			Token:           "tok",
-			HeartbeatSecret: "secret",
-			ServerID:        "srv-1",
-		}}
-		m := NewManager(ManagerConfig{LicenseDir: t.TempDir()}, pub, store, slog.Default())
-
-		data, err := m.ActivationData()
-		require.NoError(t, err)
-		require.NotNil(t, data)
-		assert.Equal(t, "srv-1", data.ServerID)
-	})
-
-	t.Run("nil store returns nil activation data", func(t *testing.T) {
-		t.Parallel()
-
-		pub, _ := testKeyPair(t)
-		m := NewManager(ManagerConfig{LicenseDir: t.TempDir()}, pub, nil, slog.Default())
-
-		data, err := m.ActivationData()
-		require.NoError(t, err)
-		assert.Nil(t, data)
-	})
-}
-
-func TestManager_CloudMachineCredentials(t *testing.T) {
-	t.Parallel()
-
-	t.Run("returns license id from claims id rather than tenant subject", func(t *testing.T) {
-		t.Parallel()
-
-		pub, _ := testKeyPair(t)
-		store := &mockActivationStore{data: &ActivationData{
-			ServerID:        "srv-1",
-			HeartbeatSecret: "hb-secret-1",
-		}}
-		m := NewManager(ManagerConfig{LicenseDir: t.TempDir()}, pub, store, slog.Default())
-		m.source = SourceActivationFile
-		m.state.Update(&LicenseClaims{
-			RegisteredClaims: jwt.RegisteredClaims{
-				Subject: "tenant-1",
-				ID:      "lic-1",
-			},
-		}, "token")
-
-		creds, err := m.CloudMachineCredentials()
-		require.NoError(t, err)
-		require.NotNil(t, creds)
-		assert.Equal(t, "lic-1", creds.LicenseID)
-		assert.Equal(t, "srv-1", creds.ServerID)
-		assert.Equal(t, "hb-secret-1", creds.HeartbeatSecret)
-	})
-
-	t.Run("returns nil when no machine activation data exists", func(t *testing.T) {
-		t.Parallel()
-
-		pub, _ := testKeyPair(t)
-		m := NewManager(ManagerConfig{LicenseDir: t.TempDir()}, pub, &mockActivationStore{}, slog.Default())
-		m.source = SourceActivationFile
-		m.state.Update(&LicenseClaims{
-			RegisteredClaims: jwt.RegisteredClaims{
-				Subject: "tenant-1",
-				ID:      "lic-1",
-			},
-		}, "token")
-
-		creds, err := m.CloudMachineCredentials()
-		require.NoError(t, err)
-		assert.Nil(t, creds)
-	})
-
-	t.Run("returns nil when source does not support heartbeat credentials", func(t *testing.T) {
-		t.Parallel()
-
-		pub, _ := testKeyPair(t)
-		store := &mockActivationStore{data: &ActivationData{
-			ServerID:        "srv-1",
-			HeartbeatSecret: "hb-secret-1",
-		}}
-		m := NewManager(ManagerConfig{LicenseDir: t.TempDir()}, pub, store, slog.Default())
-		m.source = SourceEnvInline
-		m.state.Update(&LicenseClaims{
-			RegisteredClaims: jwt.RegisteredClaims{
-				ID: "lic-1",
-			},
-		}, "token")
-
-		creds, err := m.CloudMachineCredentials()
-		require.NoError(t, err)
-		assert.Nil(t, creds)
-	})
-
-	t.Run("zero-value manager returns nil without panicking", func(t *testing.T) {
-		t.Parallel()
-
-		m := &Manager{}
-
-		require.NotPanics(t, func() {
-			creds, err := m.CloudMachineCredentials()
-			require.NoError(t, err)
-			assert.Nil(t, creds)
-		})
 	})
 }
 

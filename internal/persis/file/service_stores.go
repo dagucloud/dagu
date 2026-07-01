@@ -17,7 +17,6 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/core/baseconfig"
 	"github.com/dagucloud/dagu/internal/dagsettings"
-	"github.com/dagucloud/dagu/internal/githubdispatch"
 	"github.com/dagucloud/dagu/internal/incident"
 	"github.com/dagucloud/dagu/internal/license"
 	"github.com/dagucloud/dagu/internal/notification"
@@ -140,12 +139,6 @@ func NewEventCollector(cfg *config.Config) (EventCollector, error) {
 		return nil, nil
 	}
 	return fileeventstore.NewCollector(cfg.Paths.EventStoreDir, cfg.EventStore.RetentionDays)
-}
-
-func NewGitHubDispatchTracker(cfg *config.Config) githubdispatch.Tracker {
-	dir := filepath.Join(cfg.Paths.DataDir, "github-dispatch")
-	_ = os.MkdirAll(dir, 0o700)
-	return store.NewGitHubDispatchStore(NewCollection(dir, WithIndentedJSON()))
 }
 
 func NewDAGSettingsStore(cfg *config.Config) (dagsettings.Store, error) {

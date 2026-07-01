@@ -110,20 +110,6 @@ func NewScheduler(cfg SchedulerConfig) (*scheduler.Scheduler, error) {
 
 	sched.SetDAGRunLeaseStore(cfg.DAGRunLeaseStore)
 	sched.SetDispatchTaskStore(cfg.DispatchTaskStore)
-	if cfg.LicenseManager != nil {
-		githubTracker := file.NewGitHubDispatchTracker(cfg.Config)
-		sched.SetGitHubDispatchWorker(scheduler.NewGitHubDispatchWorker(
-			cfg.Config,
-			dagStore,
-			schedulerRunStore,
-			cfg.QueueStore,
-			&schedulerRunManager,
-			cfg.LicenseManager,
-			license.NewCloudClient(cfg.Config.License.CloudURL),
-			githubTracker,
-			logger.FromContext(ctx),
-		))
-	}
 
 	return sched, nil
 }

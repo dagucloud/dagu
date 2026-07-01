@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"time"
 
 	"github.com/dagucloud/dagu/internal/cmn/config"
@@ -74,53 +73,6 @@ type CloudError struct {
 	Message    string
 }
 
-type GitHubDispatchJob struct {
-	ID                string          `json:"id"`
-	BindingID         string          `json:"binding_id"`
-	InstallationID    int64           `json:"installation_id"`
-	RepositoryID      int64           `json:"repository_id"`
-	RepositoryName    string          `json:"repository_name"`
-	LicenseID         string          `json:"license_id"`
-	DAGName           string          `json:"dag_name"`
-	EventName         string          `json:"event_name"`
-	EventAction       string          `json:"event_action"`
-	DeliveryID        string          `json:"delivery_id"`
-	Ref               string          `json:"ref"`
-	SHA               string          `json:"sha"`
-	PullRequestNumber int64           `json:"pull_request_number"`
-	IssueNumber       int64           `json:"issue_number"`
-	CommentID         int64           `json:"comment_id"`
-	Command           string          `json:"command"`
-	ActorLogin        string          `json:"actor_login"`
-	CheckRunID        int64           `json:"check_run_id"`
-	Status            string          `json:"status"`
-	ClaimedBy         string          `json:"claimed_by"`
-	DAGRunID          string          `json:"dag_run_id"`
-	Payload           json.RawMessage `json:"payload"`
-	Headers           json.RawMessage `json:"headers"`
-}
-
-type PullGitHubDispatchRequest struct {
-	LicenseID       string `json:"license_id"`
-	ServerID        string `json:"server_id"`
-	HeartbeatSecret string `json:"heartbeat_secret"`
-}
-
-type AcceptGitHubDispatchRequest struct {
-	LicenseID string `json:"license_id"`
-	ServerID  string `json:"server_id"`
-	Secret    string `json:"secret"`
-	DAGRunID  string `json:"dag_run_id"`
-}
-
-type FinishGitHubDispatchRequest struct {
-	LicenseID     string `json:"license_id"`
-	ServerID      string `json:"server_id"`
-	Secret        string `json:"secret"`
-	ResultStatus  string `json:"result_status"`
-	ResultSummary string `json:"result_summary,omitempty"`
-}
-
 func (e *CloudError) Error() string {
 	return fmt.Sprintf("cloud API error (status %d): %s", e.StatusCode, e.Message)
 }
@@ -141,29 +93,6 @@ func (c *CloudClient) Heartbeat(ctx context.Context, req HeartbeatRequest) (*Hea
 		return nil, err
 	}
 	return &resp, nil
-}
-
-func (c *CloudClient) PullGitHubDispatch(ctx context.Context, req PullGitHubDispatchRequest) (*GitHubDispatchJob, error) {
-	var resp GitHubDispatchJob
-	ok, err := c.doJSONOptional(ctx, http.MethodPost, "/api/v1/github/dispatch/pull", req, &resp)
-	if err != nil {
-		return nil, err
-	}
-	if !ok {
-		return nil, nil
-	}
-	if resp.ID == "" {
-		return nil, fmt.Errorf("github dispatch response missing id")
-	}
-	return &resp, nil
-}
-
-func (c *CloudClient) AcceptGitHubDispatch(ctx context.Context, jobID string, req AcceptGitHubDispatchRequest) error {
-	return c.doJSONAllowNoContent(ctx, http.MethodPost, "/api/v1/github/dispatch/"+url.PathEscape(jobID)+"/accept", req, nil)
-}
-
-func (c *CloudClient) FinishGitHubDispatch(ctx context.Context, jobID string, req FinishGitHubDispatchRequest) error {
-	return c.doJSONAllowNoContent(ctx, http.MethodPost, "/api/v1/github/dispatch/"+url.PathEscape(jobID)+"/finish", req, nil)
 }
 
 func (c *CloudClient) doJSON(ctx context.Context, method, path string, reqBody, respBody any) error {

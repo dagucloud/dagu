@@ -56,7 +56,6 @@ type Scheduler struct {
 	lockHeld            atomic.Bool
 	clock               Clock // Clock function for getting current time
 	eventCollector      eventCollector
-	githubDispatch      githubDispatchRunner
 	notificationMonitor backgroundRunner
 	incidentMonitor     backgroundRunner
 }
@@ -611,10 +610,6 @@ func (s *Scheduler) Start(ctx context.Context) error {
 
 	wg.Go(func() {
 		s.startIncidentMonitor(ctx)
-	})
-
-	wg.Go(func() {
-		s.startGitHubDispatch(ctx)
 	})
 
 	wg.Go(func() {
