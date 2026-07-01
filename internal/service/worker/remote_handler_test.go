@@ -194,6 +194,22 @@ func (p *recordingStatusPusher) Push(ctx context.Context, status exec.DAGRunStat
 	return p.push(ctx, status)
 }
 
+type schedulerLogStatusFinalizerFunc func(context.Context, exec.DAGRunStatus) (bool, error)
+
+func (f schedulerLogStatusFinalizerFunc) finalizeSchedulerLogForStatus(ctx context.Context, status exec.DAGRunStatus) (bool, error) {
+	return f(ctx, status)
+}
+
+type schedulerLogContextCloserFunc func(context.Context) error
+
+func (f schedulerLogContextCloserFunc) Close() error {
+	return f(context.Background())
+}
+
+func (f schedulerLogContextCloserFunc) CloseWithContext(ctx context.Context) error {
+	return f(ctx)
+}
+
 type mockStreamArtifactsClient struct {
 	chunks   []*coordinatorv1.ArtifactChunk
 	mu       sync.Mutex
@@ -1811,6 +1827,75 @@ func TestRemoteRunReporter_FinalizesSchedulerLogByClosingLiveWriterOnce(t *testi
 	require.Equal(t, finalsBeforeClose, finalsAfterClose, "deferred close should not send a duplicate final scheduler marker")
 	require.Equal(t, streamCountAfterFinalization, streamCountAfterCachedReplay, "cached finalization should not reopen the stream")
 	require.Equal(t, []string{"terminal-status"}, events)
+}
+
+func TestFinalSchedulerLogStatusPusher_BoundsSchedulerLogFinalization(t *testing.T) {
+	const (
+		dagName  = "bounded-scheduler-log"
+		dagRunID = "run-bounded-scheduler-log"
+	)
+
+	finalizer := newSchedulerLogFinalizer()
+	finalizer.timeout = 20 * time.Millisecond
+	entry := finalizer.register(remoteRunMetadata{
+		dagRunID: dagRunID,
+		dagName:  dagName,
+		root:     exec.NewDAGRunRef(dagName, dagRunID),
+	}, filepath.Join(t.TempDir(), "scheduler.log"))
+	require.NotNil(t, entry)
+
+	entered := make(chan struct{})
+	done := make(chan error, 1)
+	var once sync.Once
+	entry.trackWriter(schedulerLogContextCloserFunc(func(ctx context.Context) error {
+		once.Do(func() { close(entered) })
+		<-ctx.Done()
+		err := ctx.Err()
+		done <- err
+		return err
+	}))
+
+	statusPushed := make(chan struct{}, 1)
+	statusPusher := &finalSchedulerLogStatusPusher{
+		finalizer: schedulerLogStatusFinalizerFunc(func(ctx context.Context, _ exec.DAGRunStatus) (bool, error) {
+			return entry.finalizeLog(ctx)
+		}),
+		pusher: &recordingStatusPusher{
+			push: func(ctx context.Context, status exec.DAGRunStatus) error {
+				require.Equal(t, dagRunID, status.DAGRunID)
+				require.Equal(t, core.Succeeded, status.Status)
+				require.NoError(t, ctx.Err(), "terminal status should use a live context")
+				statusPushed <- struct{}{}
+				return nil
+			},
+		},
+	}
+
+	start := time.Now()
+	require.NoError(t, statusPusher.Push(context.Background(), exec.DAGRunStatus{
+		Root:     exec.NewDAGRunRef(dagName, dagRunID),
+		Name:     dagName,
+		DAGRunID: dagRunID,
+		Status:   core.Succeeded,
+	}))
+	require.Less(t, time.Since(start), time.Second)
+
+	select {
+	case <-entered:
+	default:
+		t.Fatal("scheduler log finalizer did not close the tracked writer")
+	}
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+	default:
+		t.Fatal("scheduler log finalizer did not bound the close with a deadline")
+	}
+	select {
+	case <-statusPushed:
+	default:
+		t.Fatal("terminal status was not pushed after scheduler log finalization timed out")
+	}
 }
 
 func TestRemoteRunReporter_SchedulerWriterCloseUsesLiveStream(t *testing.T) {

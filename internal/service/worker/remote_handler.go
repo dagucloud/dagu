@@ -112,6 +112,7 @@ type remoteTaskHandler struct {
 }
 
 const (
+	remoteSchedulerLogFinalizeTimeout = 5 * time.Second
 	remoteTerminalStatusReportTimeout = 5 * time.Second
 )
 
@@ -428,6 +429,7 @@ func (nonClosingWriteCloser) Close() error {
 }
 
 type schedulerLogFinalizer struct {
+	timeout   time.Duration
 	mu        sync.Mutex
 	byRunID   map[string]*schedulerLogFinalizerEntry
 	byLogFile map[string]*schedulerLogFinalizerEntry
@@ -435,6 +437,7 @@ type schedulerLogFinalizer struct {
 
 func newSchedulerLogFinalizer() *schedulerLogFinalizer {
 	return &schedulerLogFinalizer{
+		timeout:   remoteSchedulerLogFinalizeTimeout,
 		byRunID:   make(map[string]*schedulerLogFinalizerEntry),
 		byLogFile: make(map[string]*schedulerLogFinalizerEntry),
 	}
@@ -472,7 +475,7 @@ func (f *schedulerLogFinalizer) register(meta remoteRunMetadata, logFile string)
 		return entry
 	}
 
-	entry := &schedulerLogFinalizerEntry{}
+	entry := &schedulerLogFinalizerEntry{timeout: f.timeout}
 	bind(entry)
 	return entry
 }
@@ -515,13 +518,14 @@ func dagRunIDFromSchedulerLogFile(logFile string) string {
 
 type schedulerLogFinalizerEntry struct {
 	logFile     string
+	timeout     time.Duration
 	finalize    sync.Once
 	finalizeErr error
 	writerMu    sync.Mutex
 	writer      io.Closer
 }
 
-func (e *schedulerLogFinalizerEntry) finalizeLog(_ context.Context) (bool, error) {
+func (e *schedulerLogFinalizerEntry) finalizeLog(ctx context.Context) (bool, error) {
 	if e == nil {
 		return false, nil
 	}
@@ -535,7 +539,9 @@ func (e *schedulerLogFinalizerEntry) finalizeLog(_ context.Context) (bool, error
 		if writer == nil {
 			return
 		}
-		e.finalizeErr = writer.Close()
+		closeCtx, cancel := schedulerLogCloseContext(ctx, e.timeout)
+		defer cancel()
+		e.finalizeErr = closeSchedulerLogWriter(closeCtx, writer)
 	})
 
 	if !ran {
@@ -552,6 +558,42 @@ func (e *schedulerLogFinalizerEntry) trackWriter(writer io.Closer) {
 	e.writerMu.Lock()
 	e.writer = writer
 	e.writerMu.Unlock()
+}
+
+type schedulerLogContextCloser interface {
+	CloseWithContext(context.Context) error
+}
+
+func schedulerLogCloseContext(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	closeCtx := context.WithoutCancel(ctx)
+	if timeout <= 0 {
+		return closeCtx, func() {}
+	}
+	return context.WithTimeout(closeCtx, timeout)
+}
+
+func closeSchedulerLogWriter(ctx context.Context, writer io.Closer) error {
+	if writer == nil {
+		return nil
+	}
+	if closer, ok := writer.(schedulerLogContextCloser); ok {
+		return closer.CloseWithContext(ctx)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- writer.Close()
+	}()
+
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func localFileName(localFile *os.File) string {
@@ -1081,7 +1123,9 @@ func (h *remoteTaskHandler) executeDAGRun(
 	if logStreamer != nil {
 		streamingWriter := logStreamer.NewSchedulerLogWriter(ctx, logFile)
 		defer func() {
-			if closeErr := streamingWriter.Close(); closeErr != nil {
+			closeCtx, cancel := schedulerLogCloseContext(ctx, remoteSchedulerLogFinalizeTimeout)
+			defer cancel()
+			if closeErr := closeSchedulerLogWriter(closeCtx, streamingWriter); closeErr != nil {
 				logger.Warn(ctx, "Failed to close scheduler log streamer", tag.Error(closeErr))
 			}
 		}()

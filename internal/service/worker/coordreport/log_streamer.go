@@ -146,8 +146,13 @@ func (s *LogStreamer) NewStepWriter(ctx context.Context, stepName string, stream
 // and streams to the coordinator in real-time. This enables viewing scheduler
 // logs while the DAG is still running.
 func (s *LogStreamer) NewSchedulerLogWriter(ctx context.Context, localFile *os.File) io.WriteCloser {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	streamCtx, cancel := context.WithCancel(ctx)
 	w := &schedulerLogWriter{
-		ctx:       ctx,
+		ctx:       streamCtx,
+		cancel:    cancel,
 		streamer:  s,
 		localFile: localFile,
 		buffer:    make([]byte, 0, logBufferSize),
@@ -459,6 +464,7 @@ func toProtoStreamType(streamType int) coordinatorv1.LogStreamType {
 // This enables viewing scheduler logs while the DAG is still running.
 type schedulerLogWriter struct {
 	ctx              context.Context
+	cancel           context.CancelFunc
 	streamer         *LogStreamer
 	localFile        *os.File
 	buffer           []byte
@@ -469,6 +475,12 @@ type schedulerLogWriter struct {
 	mu               sync.Mutex
 	closed           bool
 	streamInitFailed bool // Tracks permanent stream initialization failure
+}
+
+func (w *schedulerLogWriter) cancelStream() {
+	if w.cancel != nil {
+		w.cancel()
+	}
 }
 
 // Write implements io.Writer - writes to local file and buffers for streaming
@@ -630,6 +642,7 @@ func (w *schedulerLogWriter) streamUnsentLocalFileLocked() error {
 func (w *schedulerLogWriter) Close() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	defer w.cancelStream()
 
 	if w.closed {
 		return nil
@@ -664,4 +677,23 @@ func (w *schedulerLogWriter) Close() error {
 
 	// The caller owns localFile.
 	return nil
+}
+
+func (w *schedulerLogWriter) CloseWithContext(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- w.Close()
+	}()
+
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		w.cancelStream()
+		return ctx.Err()
+	}
 }
