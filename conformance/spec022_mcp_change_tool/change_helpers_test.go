@@ -158,6 +158,10 @@ func changeArguments(mode, changeType, name, spec string) map[string]any {
 	}
 }
 
+func changeDAGSpecURI(name string) string {
+	return "dagu://dags/" + url.PathEscape(name) + "/spec"
+}
+
 func requireString(t *testing.T, data map[string]any, key string) string {
 	t.Helper()
 

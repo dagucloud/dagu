@@ -285,11 +285,10 @@ func classifyChangeToolError(input changeInput, err error) *changeToolError {
 
 	if isDAGNotFound(err) {
 		out.Code = changeErrorResourceUnavailable
-		out.Message = err.Error()
+		out.Message = "The requested DAG resource is unavailable."
 		return out
 	}
 
-	out.Message = err.Error()
 	return out
 }
 

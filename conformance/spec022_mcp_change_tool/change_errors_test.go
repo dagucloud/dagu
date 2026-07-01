@@ -112,7 +112,7 @@ func TestChangeInputValidationErrors(t *testing.T) {
 			code:    "invalid_tool_input",
 			field:   "spec",
 			dagName: "mcp_change_error_missing_spec",
-			dagURI:  "dagu://dags/mcp_change_error_missing_spec/spec",
+			dagURI:  changeDAGSpecURI("mcp_change_error_missing_spec"),
 		},
 		{
 			name: "null spec",
@@ -123,7 +123,7 @@ func TestChangeInputValidationErrors(t *testing.T) {
 			code:    "invalid_tool_input",
 			field:   "spec",
 			dagName: "mcp_change_error_null_spec",
-			dagURI:  "dagu://dags/mcp_change_error_null_spec/spec",
+			dagURI:  changeDAGSpecURI("mcp_change_error_null_spec"),
 		},
 		{
 			name: "empty spec",
@@ -134,7 +134,7 @@ func TestChangeInputValidationErrors(t *testing.T) {
 			code:    "invalid_tool_input",
 			field:   "spec",
 			dagName: "mcp_change_error_empty_spec",
-			dagURI:  "dagu://dags/mcp_change_error_empty_spec/spec",
+			dagURI:  changeDAGSpecURI("mcp_change_error_empty_spec"),
 		},
 		{
 			name: "unsupported mode",
@@ -147,7 +147,7 @@ func TestChangeInputValidationErrors(t *testing.T) {
 			field:   "mode",
 			mode:    "write",
 			dagName: "mcp_change_error_mode",
-			dagURI:  "dagu://dags/mcp_change_error_mode/spec",
+			dagURI:  changeDAGSpecURI("mcp_change_error_mode"),
 		},
 		{
 			name: "case-sensitive unsupported mode",
@@ -160,7 +160,7 @@ func TestChangeInputValidationErrors(t *testing.T) {
 			field:   "mode",
 			mode:    "Preview",
 			dagName: "mcp_change_error_mode_case",
-			dagURI:  "dagu://dags/mcp_change_error_mode_case/spec",
+			dagURI:  changeDAGSpecURI("mcp_change_error_mode_case"),
 		},
 		{
 			name: "unsupported type",
@@ -173,7 +173,7 @@ func TestChangeInputValidationErrors(t *testing.T) {
 			field:      "type",
 			changeType: "delete_dag",
 			dagName:    "mcp_change_error_type",
-			dagURI:     "dagu://dags/mcp_change_error_type/spec",
+			dagURI:     changeDAGSpecURI("mcp_change_error_type"),
 		},
 		{
 			name: "case-sensitive unsupported type",
@@ -186,7 +186,7 @@ func TestChangeInputValidationErrors(t *testing.T) {
 			field:      "type",
 			changeType: "UPSERT_DAG",
 			dagName:    "mcp_change_error_type_case",
-			dagURI:     "dagu://dags/mcp_change_error_type_case/spec",
+			dagURI:     changeDAGSpecURI("mcp_change_error_type_case"),
 		},
 	}
 
@@ -237,5 +237,5 @@ func TestChangeAuthenticationErrors(t *testing.T) {
 	require.Equal(t, "apply", output["mode"])
 	require.Equal(t, "upsert_dag", output["type"])
 	require.Equal(t, "mcp_change_auth_denied", output["dagName"])
-	require.Equal(t, "dagu://dags/mcp_change_auth_denied/spec", output["dagUri"])
+	require.Equal(t, changeDAGSpecURI("mcp_change_auth_denied"), output["dagUri"])
 }

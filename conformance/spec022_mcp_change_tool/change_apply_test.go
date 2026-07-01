@@ -13,7 +13,7 @@ func TestChangeApplyCreatesDAG(t *testing.T) {
 	fixture := newChangeFixture(t)
 	dagName := "mcp_change_apply_create"
 	spec := fixtureSpec(t, "valid_initial.yaml")
-	dagURI := "dagu://dags/" + dagName + "/spec"
+	dagURI := changeDAGSpecURI(dagName)
 
 	result := callChange(t, fixture.session, changeArguments("apply", "upsert_dag", dagName, spec))
 	output := requireChangeSuccess(t, result, "DAG change applied.", dagURI)
@@ -35,7 +35,7 @@ func TestChangeApplyUpdatesExistingDAG(t *testing.T) {
 	dagName := "mcp_change_apply_update"
 	initialSpec := fixtureSpec(t, "valid_initial.yaml")
 	updatedSpec := fixtureSpec(t, "valid_updated.yaml")
-	dagURI := "dagu://dags/" + dagName + "/spec"
+	dagURI := changeDAGSpecURI(dagName)
 
 	createResult := callChange(t, fixture.session, changeArguments("apply", "upsert_dag", dagName, initialSpec))
 	createOutput := requireChangeSuccess(t, createResult, "DAG change applied.", dagURI)
@@ -61,7 +61,7 @@ func TestChangeApplyInvalidDoesNotOverwriteExistingDAG(t *testing.T) {
 	dagName := "mcp_change_apply_invalid"
 	initialSpec := fixtureSpec(t, "valid_initial.yaml")
 	invalidSpec := fixtureSpec(t, "invalid_malformed_yaml.yaml")
-	dagURI := "dagu://dags/" + dagName + "/spec"
+	dagURI := changeDAGSpecURI(dagName)
 
 	createResult := callChange(t, fixture.session, changeArguments("apply", "upsert_dag", dagName, initialSpec))
 	createOutput := requireChangeSuccess(t, createResult, "DAG change applied.", dagURI)
@@ -86,7 +86,7 @@ func TestChangeApplyAffectsOnlyNamedDAG(t *testing.T) {
 	otherName := "mcp_change_apply_other"
 	targetSpec := fixtureSpec(t, "valid_initial.yaml")
 	otherSpec := fixtureSpec(t, "valid_updated.yaml")
-	dagURI := "dagu://dags/" + targetName + "/spec"
+	dagURI := changeDAGSpecURI(targetName)
 	fixture.server.CreateDAG(t, otherName, otherSpec)
 
 	result := callChange(t, fixture.session, changeArguments("apply", "upsert_dag", targetName, targetSpec))

@@ -13,7 +13,7 @@ func TestChangePreviewValidDoesNotWrite(t *testing.T) {
 	fixture := newChangeFixture(t)
 	dagName := "mcp_change_preview_valid"
 	spec := fixtureSpec(t, "valid_initial.yaml")
-	dagURI := "dagu://dags/" + dagName + "/spec"
+	dagURI := changeDAGSpecURI(dagName)
 
 	result := callChange(t, fixture.session, changeArguments("preview", "upsert_dag", dagName, spec))
 	output := requireChangeSuccess(t, result, "DAG spec is valid. Re-run with mode=apply to write it.", dagURI)
@@ -35,7 +35,7 @@ func TestChangePreviewExistingDAGDoesNotUpdate(t *testing.T) {
 	dagName := "mcp_change_preview_existing"
 	initialSpec := fixtureSpec(t, "valid_initial.yaml")
 	updatedSpec := fixtureSpec(t, "valid_updated.yaml")
-	dagURI := "dagu://dags/" + dagName + "/spec"
+	dagURI := changeDAGSpecURI(dagName)
 	fixture.server.CreateDAG(t, dagName, initialSpec)
 
 	result := callChange(t, fixture.session, changeArguments("preview", "upsert_dag", dagName, updatedSpec))
@@ -55,7 +55,7 @@ func TestChangePreviewInvalidReturnsValidationResult(t *testing.T) {
 	fixture := newChangeFixture(t)
 	dagName := "mcp_change_preview_invalid"
 	spec := fixtureSpec(t, "invalid_malformed_yaml.yaml")
-	dagURI := "dagu://dags/" + dagName + "/spec"
+	dagURI := changeDAGSpecURI(dagName)
 
 	result := callChange(t, fixture.session, map[string]any{
 		"name": dagName,
@@ -79,7 +79,7 @@ func TestChangeDefaultsNullAndTrimmedFields(t *testing.T) {
 	fixture := newChangeFixture(t)
 	dagName := "mcp_change_defaults"
 	spec := fixtureSpec(t, "valid_initial.yaml")
-	dagURI := "dagu://dags/" + dagName + "/spec"
+	dagURI := changeDAGSpecURI(dagName)
 
 	result := callChange(t, fixture.session, map[string]any{
 		"mode": nil,
@@ -102,7 +102,7 @@ func TestChangeTrimsModeTypeAndName(t *testing.T) {
 	fixture := newChangeFixture(t)
 	dagName := "mcp_change_trimmed_fields"
 	spec := fixtureSpec(t, "valid_initial.yaml")
-	dagURI := "dagu://dags/" + dagName + "/spec"
+	dagURI := changeDAGSpecURI(dagName)
 
 	result := callChange(t, fixture.session, map[string]any{
 		"mode": "  preview  ",
