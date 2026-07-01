@@ -4,6 +4,7 @@
 package coordreport_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -12,7 +13,9 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
 	"github.com/dagucloud/dagu/internal/service/worker/coordreport"
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
@@ -185,6 +188,108 @@ func TestLogStreamer_FinalChunksIncludeOwnerCoordinatorID(t *testing.T) {
 	for _, chunk := range schedulerStream.getSentChunks() {
 		assert.Equal(t, owner.ID, chunk.OwnerCoordinatorId)
 	}
+}
+
+func TestSchedulerLogWriter_StreamFailure(t *testing.T) {
+	t.Parallel()
+
+	t.Run("WriteSucceedsWhenStreamFails", func(t *testing.T) {
+		t.Parallel()
+
+		mockStream := &mockStreamLogsClient{sendErr: errors.New("connection reset")}
+		client := &logStreamerMockClient{
+			streamLogsFunc: func(context.Context) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
+				return mockStream, nil
+			},
+		}
+		streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", exec.DAGRunRef{})
+		localFile, err := os.CreateTemp(t.TempDir(), "sched-*.log")
+		require.NoError(t, err)
+		defer func() { _ = localFile.Close() }()
+
+		w := streamer.NewSchedulerLogWriter(context.Background(), localFile)
+		_, err = w.Write([]byte("some output\n"))
+		require.NoError(t, err, "Write must not fail when gRPC streaming fails")
+		_ = w.Close()
+
+		_, _ = localFile.Seek(0, 0)
+		got, err := io.ReadAll(localFile)
+		require.NoError(t, err)
+		assert.Equal(t, "some output\n", string(got))
+	})
+
+	t.Run("BufferCappedOnRepeatedStreamFailures", func(t *testing.T) {
+		t.Parallel()
+
+		mockStream := &mockStreamLogsClient{sendErr: errors.New("unavailable")}
+		client := &logStreamerMockClient{
+			streamLogsFunc: func(context.Context) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
+				return mockStream, nil
+			},
+		}
+		streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", exec.DAGRunRef{})
+		localFile, err := os.CreateTemp(t.TempDir(), "sched-*.log")
+		require.NoError(t, err)
+		defer func() { _ = localFile.Close() }()
+
+		w := streamer.NewSchedulerLogWriter(context.Background(), localFile)
+		chunk := bytes.Repeat([]byte("x"), coordreport.LogBufferSize)
+		for range 10 {
+			_, err := w.Write(chunk)
+			require.NoError(t, err)
+		}
+		_ = w.Close()
+
+		fi, err := localFile.Stat()
+		require.NoError(t, err)
+		assert.Equal(t, int64(10*coordreport.LogBufferSize), fi.Size())
+	})
+
+	t.Run("NoDuplicateChunksOnStreamRecovery", func(t *testing.T) {
+		t.Parallel()
+
+		var mu sync.Mutex
+		failNext := true
+		mockStream := &mockStreamLogsClient{
+			sendFunc: func(_ int, _ *coordinatorv1.LogChunk) error {
+				mu.Lock()
+				defer mu.Unlock()
+				if failNext {
+					failNext = false
+					return errors.New("temporary failure")
+				}
+				return nil
+			},
+		}
+		openCount := atomic.Int32{}
+		client := &logStreamerMockClient{
+			streamLogsFunc: func(context.Context) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
+				openCount.Add(1)
+				return mockStream, nil
+			},
+		}
+		streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", exec.DAGRunRef{})
+		localFile, err := os.CreateTemp(t.TempDir(), "sched-*.log")
+		require.NoError(t, err)
+		defer func() { _ = localFile.Close() }()
+
+		w := streamer.NewSchedulerLogWriter(context.Background(), localFile)
+		chunk := bytes.Repeat([]byte("y"), coordreport.LogBufferSize)
+		_, err = w.Write(chunk)
+		require.NoError(t, err)
+		_, err = w.Write(chunk)
+		require.NoError(t, err)
+		require.NoError(t, w.Close())
+
+		var totalReceived int
+		for _, c := range mockStream.getSentChunks() {
+			if !c.IsFinal {
+				totalReceived += len(c.Data)
+			}
+		}
+		assert.Equal(t, 2*coordreport.LogBufferSize, totalReceived,
+			"stream should receive exactly 2 chunks, no duplicates from the failed first send")
+	})
 }
 
 func TestSetAttemptID(t *testing.T) {
@@ -397,12 +502,13 @@ func TestWrite_FlushError_Continues(t *testing.T) {
 	data := make([]byte, coordreport.LogBufferSize)
 	n, err := writer.Write(data)
 
-	// Write should succeed even though flush failed (best-effort)
-	require.NoError(t, err)
+	// Write should report the flush error (stream marked dead)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "send failed")
 	assert.Equal(t, len(data), n)
 }
 
-func TestWrite_FlushError_ClearsBuffer(t *testing.T) {
+func TestWrite_FlushError_PreservesBuffer(t *testing.T) {
 	t.Parallel()
 	mockStream := &mockStreamLogsClient{
 		sendErr: errors.New("send failed"),
@@ -420,9 +526,9 @@ func TestWrite_FlushError_ClearsBuffer(t *testing.T) {
 	data := make([]byte, coordreport.LogBufferSize)
 	_, _ = writer.Write(data)
 
-	// Buffer should be cleared to prevent memory growth
+	// Buffer should be preserved on error so Close() can log the tail
 	snapshot := coordreport.SnapshotStepLogWriter(stepWriter)
-	assert.Equal(t, 0, snapshot.BufferLen)
+	assert.Greater(t, snapshot.BufferLen, 0)
 }
 
 func TestFlush_EmptyBuffer(t *testing.T) {
@@ -477,7 +583,7 @@ func TestFlush_StreamInitFailure(t *testing.T) {
 
 	assert.Equal(t, initErr, result.Err)
 	assert.True(t, result.StreamFailed, "streamInitFailed should be set")
-	assert.Equal(t, 0, result.BufferLen, "buffer should be cleared")
+	assert.Greater(t, result.BufferLen, 0, "buffer should be preserved on init failure — Close() will handle it")
 }
 
 func TestFlush_AfterInitFailure(t *testing.T) {
@@ -1311,4 +1417,327 @@ func TestLogStreamer_RaceDetector(t *testing.T) {
 
 	wg.Wait()
 	assert.Greater(t, ops, int64(0))
+}
+
+// newStepWriterWithMode creates a step writer with a specific output buffering mode.
+func newStepWriterWithMode(
+	t *testing.T,
+	mode core.OutputBuffering,
+	client *logStreamerMockClient,
+) io.WriteCloser {
+	t.Helper()
+	streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", exec.DAGRunRef{})
+	ctx := runtime.WithOutputBuffering(context.Background(), mode)
+	return streamer.NewStepWriter(ctx, "step", exec.StreamTypeStdout)
+}
+
+func TestOutputBufferingBuffer_DefaultMode(t *testing.T) {
+	t.Parallel()
+	mockStream := &mockStreamLogsClient{}
+	client := &logStreamerMockClient{
+		streamLogsFunc: func(_ context.Context) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
+			return mockStream, nil
+		},
+	}
+	writer := newStepWriterWithMode(t, core.OutputBufferingBuffer, client)
+
+	// Write small data should NOT trigger flush in buffered mode
+	data := []byte("hello buffer mode")
+	n, err := writer.Write(data)
+	require.NoError(t, err)
+	assert.Equal(t, len(data), n)
+	assert.Empty(t, mockStream.getSentChunks(), "no chunks should be sent for small writes in buffer mode")
+
+	// Write enough to exceed 32KB threshold
+	largeData := make([]byte, coordreport.LogBufferSize)
+	for i := range largeData {
+		largeData[i] = byte('A')
+	}
+	n, err = writer.Write(largeData)
+	require.NoError(t, err)
+	assert.Equal(t, len(largeData), n)
+	chunks := mockStream.getSentChunks()
+	require.NotEmpty(t, chunks, "should flush when buffer exceeds 32KB threshold")
+
+	require.NoError(t, writer.Close())
+}
+
+func TestOutputBufferingLine_FlushesOnNewline(t *testing.T) {
+	t.Parallel()
+	mockStream := &mockStreamLogsClient{}
+	client := &logStreamerMockClient{
+		streamLogsFunc: func(_ context.Context) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
+			return mockStream, nil
+		},
+	}
+	writer := newStepWriterWithMode(t, core.OutputBufferingLine, client)
+
+	// Write without newline — should NOT flush
+	data := []byte("line without newline")
+	n, err := writer.Write(data)
+	require.NoError(t, err)
+	assert.Equal(t, len(data), n)
+	assert.Empty(t, mockStream.getSentChunks(), "no flush without newline in line mode")
+
+	// Write newline — should flush the complete line
+	n, err = writer.Write([]byte("\n"))
+	require.NoError(t, err)
+	assert.Equal(t, 1, n)
+
+	chunks := mockStream.getSentChunks()
+	require.Len(t, chunks, 1)
+	assert.Equal(t, []byte("line without newline\n"), chunks[0].Data)
+
+	require.NoError(t, writer.Close())
+}
+
+func TestOutputBufferingLine_MultiLineFlushesEachLine(t *testing.T) {
+	t.Parallel()
+	mockStream := &mockStreamLogsClient{}
+	client := &logStreamerMockClient{
+		streamLogsFunc: func(_ context.Context) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
+			return mockStream, nil
+		},
+	}
+	writer := newStepWriterWithMode(t, core.OutputBufferingLine, client)
+
+	// Write multiple lines in a single Write call
+	data := []byte("line1\nline2\nline3\n")
+	n, err := writer.Write(data)
+	require.NoError(t, err)
+	assert.Equal(t, len(data), n)
+
+	// Each line should be flushed separately
+	chunks := mockStream.getSentChunks()
+	require.Len(t, chunks, 3)
+	assert.Equal(t, []byte("line1\n"), chunks[0].Data)
+	assert.Equal(t, []byte("line2\n"), chunks[1].Data)
+	assert.Equal(t, []byte("line3\n"), chunks[2].Data)
+
+	require.NoError(t, writer.Close())
+}
+
+func TestOutputBufferingLine_PartialLineFlushedOnClose(t *testing.T) {
+	t.Parallel()
+	mockStream := &mockStreamLogsClient{}
+	client := &logStreamerMockClient{
+		streamLogsFunc: func(_ context.Context) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
+			return mockStream, nil
+		},
+	}
+	writer := newStepWriterWithMode(t, core.OutputBufferingLine, client)
+
+	// Write data without trailing newline
+	data := []byte("partial line")
+	n, err := writer.Write(data)
+	require.NoError(t, err)
+	assert.Equal(t, len(data), n)
+	assert.Empty(t, mockStream.getSentChunks(), "no flush without newline")
+
+	// Close should flush remaining buffer
+	require.NoError(t, writer.Close())
+
+	chunks := mockStream.getSentChunks()
+	require.GreaterOrEqual(t, len(chunks), 1)
+	assert.Equal(t, []byte("partial line"), chunks[0].Data)
+}
+
+func TestOutputBufferingLine_MixedNewlines(t *testing.T) {
+	t.Parallel()
+	mockStream := &mockStreamLogsClient{}
+	client := &logStreamerMockClient{
+		streamLogsFunc: func(_ context.Context) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
+			return mockStream, nil
+		},
+	}
+	writer := newStepWriterWithMode(t, core.OutputBufferingLine, client)
+
+	// First write: "hello\nworld" — "hello\n" should flush, "world" stays buffered
+	n, err := writer.Write([]byte("hello\nworld"))
+	require.NoError(t, err)
+	assert.Equal(t, 11, n)
+	chunks := mockStream.getSentChunks()
+	require.Len(t, chunks, 1)
+	assert.Equal(t, []byte("hello\n"), chunks[0].Data)
+
+	// Second write: "!\n" — "world!\n" should flush
+	n, err = writer.Write([]byte("!\n"))
+	require.NoError(t, err)
+	assert.Equal(t, 2, n)
+	chunks = mockStream.getSentChunks()
+	require.Len(t, chunks, 2)
+	assert.Equal(t, []byte("world!\n"), chunks[1].Data)
+
+	require.NoError(t, writer.Close())
+}
+
+func TestOutputBufferingNone_FlushesEveryWrite(t *testing.T) {
+	t.Parallel()
+	mockStream := &mockStreamLogsClient{}
+	client := &logStreamerMockClient{
+		streamLogsFunc: func(_ context.Context) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
+			return mockStream, nil
+		},
+	}
+	writer := newStepWriterWithMode(t, core.OutputBufferingNone, client)
+
+	// Every write should flush immediately
+	data1 := []byte("first write")
+	n, err := writer.Write(data1)
+	require.NoError(t, err)
+	assert.Equal(t, len(data1), n)
+
+	chunks := mockStream.getSentChunks()
+	require.Len(t, chunks, 1)
+	assert.Equal(t, data1, chunks[0].Data)
+
+	data2 := []byte("second write")
+	n, err = writer.Write(data2)
+	require.NoError(t, err)
+	assert.Equal(t, len(data2), n)
+
+	chunks = mockStream.getSentChunks()
+	require.Len(t, chunks, 2)
+	assert.Equal(t, data2, chunks[1].Data)
+
+	require.NoError(t, writer.Close())
+}
+
+func TestOutputBufferingNone_EmptyWrite(t *testing.T) {
+	t.Parallel()
+	mockStream := &mockStreamLogsClient{}
+	client := &logStreamerMockClient{
+		streamLogsFunc: func(_ context.Context) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
+			return mockStream, nil
+		},
+	}
+	writer := newStepWriterWithMode(t, core.OutputBufferingNone, client)
+
+	// Empty write should produce no chunks
+	n, err := writer.Write([]byte{})
+	require.NoError(t, err)
+	assert.Equal(t, 0, n)
+	chunks := mockStream.getSentChunks()
+	assert.Empty(t, chunks, "empty write should not send chunks")
+
+	require.NoError(t, writer.Close())
+}
+
+func TestOutputBufferingLine_EmptyLines(t *testing.T) {
+	t.Parallel()
+	mockStream := &mockStreamLogsClient{}
+	client := &logStreamerMockClient{
+		streamLogsFunc: func(_ context.Context) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
+			return mockStream, nil
+		},
+	}
+	writer := newStepWriterWithMode(t, core.OutputBufferingLine, client)
+
+	// Empty lines should flush individually
+	n, err := writer.Write([]byte("\n\n\n"))
+	require.NoError(t, err)
+	assert.Equal(t, 3, n)
+
+	chunks := mockStream.getSentChunks()
+	require.Len(t, chunks, 3)
+	assert.Equal(t, []byte("\n"), chunks[0].Data)
+	assert.Equal(t, []byte("\n"), chunks[1].Data)
+	assert.Equal(t, []byte("\n"), chunks[2].Data)
+
+	require.NoError(t, writer.Close())
+}
+
+func TestOutputBufferingLine_SendError(t *testing.T) {
+	t.Parallel()
+	mockStream := &mockStreamLogsClient{
+		sendErr: errors.New("line send failed"),
+	}
+	client := &logStreamerMockClient{
+		streamLogsFunc: func(_ context.Context) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
+			return mockStream, nil
+		},
+	}
+	writer := newStepWriterWithMode(t, core.OutputBufferingLine, client)
+
+	// Write a line — should fail on send
+	n, err := writer.Write([]byte("line\n"))
+	assert.Equal(t, 5, n)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "line send failed")
+
+	require.NoError(t, writer.Close())
+}
+
+func TestOutputBufferingNone_SendError(t *testing.T) {
+	t.Parallel()
+	mockStream := &mockStreamLogsClient{
+		sendErr: errors.New("immediate send failed"),
+	}
+	client := &logStreamerMockClient{
+		streamLogsFunc: func(_ context.Context) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
+			return mockStream, nil
+		},
+	}
+	writer := newStepWriterWithMode(t, core.OutputBufferingNone, client)
+
+	// Write should fail immediately
+	n, err := writer.Write([]byte("data"))
+	assert.Equal(t, 4, n)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "immediate send failed")
+
+	require.NoError(t, writer.Close())
+}
+
+func TestOutputBuffering_BackwardCompatibility(t *testing.T) {
+	t.Parallel()
+	// When no outputBuffering is set in context, behavior should be identical to old 32KB buffered mode
+	mockStream := &mockStreamLogsClient{}
+	client := &logStreamerMockClient{
+		streamLogsFunc: func(_ context.Context) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
+			return mockStream, nil
+		},
+	}
+	streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", exec.DAGRunRef{})
+	// Use default context (no buffering mode set) — should default to buffer mode
+	writer := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout)
+
+	// Small data should NOT flush
+	data := []byte("small data")
+	_, err := writer.Write(data)
+	require.NoError(t, err)
+	assert.Empty(t, mockStream.getSentChunks())
+
+	// 32KB should flush
+	largeData := make([]byte, coordreport.LogBufferSize)
+	_, err = writer.Write(largeData)
+	require.NoError(t, err)
+	assert.NotEmpty(t, mockStream.getSentChunks())
+
+	require.NoError(t, writer.Close())
+}
+
+func TestOutputBufferingNone_CloseWithData(t *testing.T) {
+	t.Parallel()
+	mockStream := &mockStreamLogsClient{}
+	client := &logStreamerMockClient{
+		streamLogsFunc: func(_ context.Context) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
+			return mockStream, nil
+		},
+	}
+	writer := newStepWriterWithMode(t, core.OutputBufferingNone, client)
+
+	// Write data (already flushed immediately)
+	_, _ = writer.Write([]byte("data1"))
+	_, _ = writer.Write([]byte("data2"))
+
+	// Close should not re-send already-flushed data (only final marker)
+	require.NoError(t, writer.Close())
+
+	// Should have: data1 chunk, data2 chunk, final marker
+	chunks := mockStream.getSentChunks()
+	require.Len(t, chunks, 3)
+	assert.Equal(t, []byte("data1"), chunks[0].Data)
+	assert.Equal(t, []byte("data2"), chunks[1].Data)
+	assert.True(t, chunks[2].IsFinal)
 }

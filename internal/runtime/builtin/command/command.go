@@ -4,6 +4,7 @@
 package command
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -31,6 +32,7 @@ var errNoCommandSpecified = fmt.Errorf("no command specified")
 var _ executor.Executor = (*commandExecutor)(nil)
 var _ executor.Stopper = (*commandExecutor)(nil)
 var _ executor.ExitCoder = (*commandExecutor)(nil)
+var _ executor.OutputBufferingAware = (*commandExecutor)(nil)
 
 type commandExecutor struct {
 	mu         sync.Mutex
@@ -73,6 +75,16 @@ func (e *commandExecutor) Run(ctx context.Context) error {
 	if err != nil {
 		e.mu.Unlock()
 		return fmt.Errorf("failed to create command: %w", err)
+	}
+
+	// Start pipe streaming goroutines when output buffering is line/none.
+	// These read directly from the subprocess stdout/stderr pipes, bypassing
+	// os/exec's 32KB io.Copy buffer for real-time streaming.
+	if e.config.stdoutPipe != nil {
+		go streamPipe(e.config.stdoutPipe, e.config.Stdout, e.config.outputBuffering)
+	}
+	if e.config.stderrPipe != nil {
+		go streamPipe(e.config.stderrPipe, e.config.Stderr, e.config.outputBuffering)
 	}
 
 	// Ensure the working directory exists
@@ -140,6 +152,11 @@ func (e *commandExecutor) SetStderr(out io.Writer) {
 	e.config.Stderr = out
 }
 
+// SetOutputBuffering implements executor.OutputBufferingAware.
+func (e *commandExecutor) SetOutputBuffering(mode core.OutputBuffering) {
+	e.config.outputBuffering = mode
+}
+
 func (e *commandExecutor) Kill(sig os.Signal) error {
 	return e.Stop(cmdutil.TerminationFromSignal(sig))
 }
@@ -189,6 +206,13 @@ type commandConfig struct {
 	Stdout             io.Writer
 	Stderr             io.Writer
 	UserSpecifiedShell bool
+	// outputBuffering controls how subprocess output is streamed.
+	// When set to "line" or "none", pipes are used instead of cmd.Stdout/Stderr.
+	outputBuffering core.OutputBuffering
+	// stdoutPipe and stderrPipe are set when outputBuffering is line/none.
+	// The command executor reads from these pipes and writes to Stdout/Stderr.
+	stdoutPipe io.ReadCloser
+	stderrPipe io.ReadCloser
 }
 
 func (cfg *commandConfig) newCmd(ctx context.Context, scriptFile string) (*exec.Cmd, error) {
@@ -282,8 +306,25 @@ func (cfg *commandConfig) newCmd(ctx context.Context, scriptFile string) (*exec.
 
 	cmd.Env = append(cmd.Env, runtime.AllEnvs(ctx)...)
 	cmd.Dir = cfg.Dir
-	cmd.Stdout = cfg.Stdout
-	cmd.Stderr = cfg.Stderr
+
+	// When output buffering mode is "line" or "none", use pipes to
+	// bypass os/exec's internal 32KB io.Copy buffer. This allows
+	// step output to be streamed line-by-line or byte-by-byte
+	// instead of waiting for the buffer to fill.
+	if cfg.outputBuffering == core.OutputBufferingLine || cfg.outputBuffering == core.OutputBufferingNone {
+		var err error
+		cfg.stdoutPipe, err = cmd.StdoutPipe()
+		if err != nil {
+			return nil, fmt.Errorf("failed to create stdout pipe: %w", err)
+		}
+		cfg.stderrPipe, err = cmd.StderrPipe()
+		if err != nil {
+			return nil, fmt.Errorf("failed to create stderr pipe: %w", err)
+		}
+	} else {
+		cmd.Stdout = cfg.Stdout
+		cmd.Stderr = cfg.Stderr
+	}
 	cmdutil.SetupCommand(cmd)
 
 	return cmd, nil
@@ -391,6 +432,39 @@ func init() {
 	executor.RegisterExecutor("", NewCommand, validateCommandStep, caps)
 	executor.RegisterExecutor("shell", NewCommand, validateCommandStep, caps)
 	executor.RegisterExecutor("command", NewCommand, validateCommandStep, caps)
+}
+
+// streamPipe reads from a subprocess pipe and writes to the destination writer,
+// using a buffering strategy based on the output mode:
+//   - "line": reads with bufio.Scanner, flushing on every newline
+//   - "none": reads with a 256-byte buffer for low-latency delivery
+func streamPipe(pipe io.ReadCloser, dest io.Writer, mode core.OutputBuffering) {
+	defer pipe.Close()
+	switch mode {
+	case core.OutputBufferingLine:
+		scanner := bufio.NewScanner(pipe)
+		for scanner.Scan() {
+			// Write the line including the newline character.
+			// scanner.Bytes() returns the line content without the delimiter.
+			line := scanner.Bytes()
+			buf := make([]byte, len(line)+1)
+			copy(buf, line)
+			buf[len(line)] = '\n'
+			if _, err := dest.Write(buf); err != nil {
+				return
+			}
+		}
+	case core.OutputBufferingNone:
+		buf := make([]byte, 256)
+		if _, err := io.CopyBuffer(dest, pipe, buf); err != nil {
+			return
+		}
+	default:
+		// Fallback: use io.Copy with default buffer
+		if _, err := io.Copy(dest, pipe); err != nil {
+			return
+		}
+	}
 }
 
 func commandContextShell(ctx context.Context, step core.Step) []string {

@@ -64,6 +64,11 @@ type Step struct {
 	// LogOutput specifies how stdout and stderr are handled in log files for this step.
 	// Overrides the DAG-level LogOutput setting. Empty string means inherit from DAG.
 	LogOutput LogOutputMode `json:"logOutput,omitempty"`
+	// OutputBuffering controls how the step's stdout/stderr is buffered before
+	// being written to the log stream. Overrides the DAG-level setting.
+	// "buffer" (default) uses internal buffers. "line" flushes on newlines.
+	// "none" disables all buffering.
+	OutputBuffering OutputBuffering `mapstructure:"outputBuffering" json:"outputBuffering,omitempty"`
 	// Output is the variable name to store captured stdout.
 	Output string `json:"output,omitempty"`
 	// StructuredOutput publishes post-processed step-scoped outputs for ${step.output.*} access.

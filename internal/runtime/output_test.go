@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -817,5 +818,315 @@ func TestOutputCoordinator_CapturedStderr(t *testing.T) {
 		output, err := oc.capturedStderr(ctx)
 		require.NoError(t, err)
 		assert.Equal(t, "first attempt\nsecond attempt", output)
+	})
+}
+
+func TestNewWriterForMode(t *testing.T) {
+	t.Parallel()
+
+	t.Run("BufferModeReturnsSafeBufferedWriter", func(t *testing.T) {
+		t.Parallel()
+
+		var buf bytes.Buffer
+		w := newWriterForMode(&buf, core.OutputBufferingBuffer)
+		_, ok := w.(*safeBufferedWriter)
+		assert.True(t, ok, "buffer mode should return safeBufferedWriter")
+	})
+
+	t.Run("LineModeReturnsLineBufferedWriter", func(t *testing.T) {
+		t.Parallel()
+
+		var buf bytes.Buffer
+		w := newWriterForMode(&buf, core.OutputBufferingLine)
+		_, ok := w.(*lineBufferedWriter)
+		assert.True(t, ok, "line mode should return lineBufferedWriter")
+	})
+
+	t.Run("NoneModeReturnsDirectWriter", func(t *testing.T) {
+		t.Parallel()
+
+		var buf bytes.Buffer
+		w := newWriterForMode(&buf, core.OutputBufferingNone)
+		_, ok := w.(*directWriter)
+		assert.True(t, ok, "none mode should return directWriter")
+	})
+
+	t.Run("EmptyModeDefaultsToBuffer", func(t *testing.T) {
+		t.Parallel()
+
+		var buf bytes.Buffer
+		w := newWriterForMode(&buf, "")
+		_, ok := w.(*safeBufferedWriter)
+		assert.True(t, ok, "empty mode should default to safeBufferedWriter")
+	})
+}
+
+func TestLineBufferedWriter(t *testing.T) {
+	t.Parallel()
+
+	t.Run("FlushesOnNewline", func(t *testing.T) {
+		t.Parallel()
+
+		var buf bytes.Buffer
+		lw := newLineBufferedWriter(&buf)
+
+		n, err := lw.Write([]byte("hello\nworld"))
+		require.NoError(t, err)
+		assert.Equal(t, 11, n)
+
+		// "hello\n" should have been flushed to the buffer
+		assert.Equal(t, "hello\n", buf.String())
+
+		// Flush the remaining "world"
+		err = lw.Flush()
+		require.NoError(t, err)
+		assert.Equal(t, "hello\nworld", buf.String())
+	})
+
+	t.Run("MultipleNewlines", func(t *testing.T) {
+		t.Parallel()
+
+		var buf bytes.Buffer
+		lw := newLineBufferedWriter(&buf)
+
+		n, err := lw.Write([]byte("a\nb\nc\n"))
+		require.NoError(t, err)
+		assert.Equal(t, 6, n)
+		assert.Equal(t, "a\nb\nc\n", buf.String())
+	})
+
+	t.Run("NoNewlineBuffered", func(t *testing.T) {
+		t.Parallel()
+
+		var buf bytes.Buffer
+		lw := newLineBufferedWriter(&buf)
+
+		n, err := lw.Write([]byte("hello world"))
+		require.NoError(t, err)
+		assert.Equal(t, 11, n)
+
+		// Nothing should be flushed yet
+		assert.Empty(t, buf.String())
+
+		// Flush should write the buffered data
+		err = lw.Flush()
+		require.NoError(t, err)
+		assert.Equal(t, "hello world", buf.String())
+	})
+
+	t.Run("FlushNoOpWhenEmpty", func(t *testing.T) {
+		t.Parallel()
+
+		var buf bytes.Buffer
+		lw := newLineBufferedWriter(&buf)
+
+		err := lw.Flush()
+		assert.NoError(t, err)
+		assert.Empty(t, buf.String())
+	})
+
+	t.Run("AutoFlushOnLargeLineWithoutNewline", func(t *testing.T) {
+		t.Parallel()
+
+		var buf bytes.Buffer
+		lw := newLineBufferedWriter(&buf)
+
+		data := make([]byte, maxLineBufferSize+1)
+		for i := range data {
+			data[i] = 'x'
+		}
+
+		n, err := lw.Write(data)
+		require.NoError(t, err)
+		assert.Equal(t, len(data), n)
+		assert.Equal(t, len(data), buf.Len())
+	})
+
+	t.Run("InitialCapacityPreAllocated", func(t *testing.T) {
+		t.Parallel()
+
+		var buf bytes.Buffer
+		lw := newLineBufferedWriter(&buf)
+		assert.Equal(t, 4096, cap(lw.buf), "initial capacity should be 4096")
+	})
+
+	t.Run("BackingArrayReleasedAfterFullDrain", func(t *testing.T) {
+		t.Parallel()
+
+		var buf bytes.Buffer
+		lw := newLineBufferedWriter(&buf)
+
+		_, err := lw.Write([]byte("hello\n"))
+		require.NoError(t, err)
+		assert.Equal(t, 0, cap(lw.buf), "backing array should be released after full drain")
+	})
+}
+
+func TestDirectWriter(t *testing.T) {
+	t.Parallel()
+
+	t.Run("WritesImmediately", func(t *testing.T) {
+		t.Parallel()
+
+		var buf bytes.Buffer
+		dw := newDirectWriter(&buf)
+
+		n, err := dw.Write([]byte("hello"))
+		require.NoError(t, err)
+		assert.Equal(t, 5, n)
+		assert.Equal(t, "hello", buf.String())
+	})
+
+	t.Run("FlushIsNoOp", func(t *testing.T) {
+		t.Parallel()
+
+		var buf bytes.Buffer
+		dw := newDirectWriter(&buf)
+
+		_, err := dw.Write([]byte("data"))
+		require.NoError(t, err)
+
+		err = dw.Flush()
+		assert.NoError(t, err)
+		assert.Equal(t, "data", buf.String())
+	})
+}
+
+func TestOutputCoordinator_SetupLocalWriters(t *testing.T) {
+	modeTest := func(t *testing.T, mode core.OutputBuffering, expectedType any) {
+		oc := &OutputCoordinator{}
+		tmpDir := t.TempDir()
+
+		stdoutPath := filepath.Join(tmpDir, "stdout.log")
+		stderrPath := filepath.Join(tmpDir, "stderr.log")
+
+		dag := &core.DAG{
+			Name:            "test",
+			OutputBuffering: mode,
+		}
+		ctx := NewContext(context.Background(), dag, "test-run", "test.log")
+		data := NodeData{
+			Step: core.Step{Name: "test"},
+			State: NodeState{
+				Stdout: stdoutPath,
+				Stderr: stderrPath,
+			},
+		}
+
+		err := oc.setupLocalWriters(ctx, data)
+		require.NoError(t, err)
+		require.NotNil(t, oc.stdoutWriter)
+		require.NotNil(t, oc.stderrWriter)
+
+		// Verify type
+		assert.IsType(t, expectedType, oc.stdoutWriter)
+		assert.IsType(t, expectedType, oc.stderrWriter)
+
+		// Verify files were created
+		assert.FileExists(t, stdoutPath)
+		assert.FileExists(t, stderrPath)
+
+		// Verify file names are set
+		assert.Equal(t, stdoutPath, oc.StdoutFile())
+
+		_ = oc.closeResources()
+	}
+
+	t.Run("BufferMode", func(t *testing.T) {
+		modeTest(t, core.OutputBufferingBuffer, &safeBufferedWriter{})
+	})
+
+	t.Run("LineMode", func(t *testing.T) {
+		modeTest(t, core.OutputBufferingLine, &lineBufferedWriter{})
+	})
+
+	t.Run("NoneMode", func(t *testing.T) {
+		modeTest(t, core.OutputBufferingNone, &directWriter{})
+	})
+
+	t.Run("DefaultMode", func(t *testing.T) {
+		// When no output buffering is set, it should default to buffer
+		modeTest(t, "", &safeBufferedWriter{})
+	})
+
+	t.Run("MergedStdoutStderr", func(t *testing.T) {
+		oc := &OutputCoordinator{}
+		tmpDir := t.TempDir()
+
+		combinedPath := filepath.Join(tmpDir, "combined.log")
+
+		dag := &core.DAG{
+			Name:            "test",
+			OutputBuffering: core.OutputBufferingNone,
+		}
+		ctx := NewContext(context.Background(), dag, "test-run", "test.log")
+		data := NodeData{
+			Step: core.Step{Name: "test"},
+			State: NodeState{
+				Stdout: combinedPath,
+				Stderr: combinedPath,
+			},
+		}
+
+		err := oc.setupLocalWriters(ctx, data)
+		require.NoError(t, err)
+		require.NotNil(t, oc.stdoutWriter)
+		require.NotNil(t, oc.stderrWriter)
+
+		// When merged, stdout and stderr writers should be the same instance
+		assert.Same(t, oc.stdoutWriter, oc.stderrWriter)
+		assert.Nil(t, oc.stderrFile, "stderrFile should be nil when merged")
+
+		_ = oc.closeResources()
+	})
+
+	t.Run("WritesFileContent", func(t *testing.T) {
+		// Verify that writes actually reach the file for all modes
+		for _, mode := range []core.OutputBuffering{
+			core.OutputBufferingBuffer,
+			core.OutputBufferingLine,
+			core.OutputBufferingNone,
+		} {
+			t.Run(string(mode), func(t *testing.T) {
+				oc := &OutputCoordinator{}
+				tmpDir := t.TempDir()
+
+				stdoutPath := filepath.Join(tmpDir, "stdout.log")
+				stderrPath := filepath.Join(tmpDir, "stderr.log")
+
+				dag := &core.DAG{
+					Name:            "test",
+					OutputBuffering: mode,
+				}
+				ctx := NewContext(context.Background(), dag, "test-run", "test.log")
+				data := NodeData{
+					Step: core.Step{Name: "test"},
+					State: NodeState{
+						Stdout: stdoutPath,
+						Stderr: stderrPath,
+					},
+				}
+
+				err := oc.setupLocalWriters(ctx, data)
+				require.NoError(t, err)
+				require.NotNil(t, oc.stdoutWriter)
+
+				// Write test data
+				testData := "test output content\n"
+				_, err = io.WriteString(oc.stdoutWriter, testData)
+				require.NoError(t, err)
+
+				// Flush to ensure data is written
+				_ = oc.flushWriters()
+
+				// Close resources to finalize
+				_ = oc.closeResources()
+
+				// Read file and verify
+				b, err := os.ReadFile(stdoutPath)
+				require.NoError(t, err)
+				assert.Equal(t, testData, string(b))
+			})
+		}
 	})
 }

@@ -18,6 +18,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/cmn/masking"
+	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/runtime/executor"
 )
@@ -116,6 +117,18 @@ func (oc *OutputCoordinator) setup(ctx context.Context, data NodeData) error {
 func (oc *OutputCoordinator) setupExecutorIO(ctx context.Context, cmd executor.Executor, data NodeData) error {
 	oc.mu.Lock()
 	defer oc.mu.Unlock()
+
+	// Compute the effective output buffering mode and propagate it to
+	// executors that implement OutputBufferingAware (e.g., command executor).
+	// This allows the command executor to use pipe-based I/O instead of
+	// os/exec's internal 32KB io.Copy buffer for "line" and "none" modes.
+	rCtx := GetDAGContext(ctx)
+	mode := core.EffectiveOutputBuffering(rCtx.DAG, &data.Step)
+	if aware, ok := cmd.(executor.OutputBufferingAware); ok {
+		aware.SetOutputBuffering(mode)
+	}
+	// Store mode in context for downstream consumers (e.g., remote log streaming)
+	ctx = WithOutputBuffering(ctx, mode)
 
 	var stdout io.Writer = os.Stdout
 	if oc.stdoutWriter != nil {
@@ -351,6 +364,11 @@ func (oc *OutputCoordinator) setupWriters(ctx context.Context, data NodeData) er
 func (oc *OutputCoordinator) setupRemoteWriters(ctx context.Context, data NodeData, factory LogWriterFactory) error {
 	stepName := data.Step.Name
 
+	// Compute effective output buffering mode and pass it through context
+	dag := GetDAGContext(ctx).DAG
+	mode := core.EffectiveOutputBuffering(dag, &data.Step)
+	ctx = WithOutputBuffering(ctx, mode)
+
 	// Create streaming writers for stdout and stderr
 	oc.stdoutWriter = factory.NewStepWriter(ctx, stepName, exec.StreamTypeStdout)
 	oc.stdoutFileName = data.State.Stdout // Keep path for status reporting
@@ -366,8 +384,13 @@ func (oc *OutputCoordinator) setupRemoteWriters(ctx context.Context, data NodeDa
 	return nil
 }
 
-// setupLocalWriters creates file-based writers (original behavior)
-func (oc *OutputCoordinator) setupLocalWriters(_ context.Context, data NodeData) error {
+// setupLocalWriters creates file-based writers that respect the OutputBuffering
+// mode from context (buffer, line, or none).
+func (oc *OutputCoordinator) setupLocalWriters(ctx context.Context, data NodeData) error {
+	// Compute effective output buffering mode
+	rCtx := GetDAGContext(ctx)
+	mode := core.EffectiveOutputBuffering(rCtx.DAG, &data.Step)
+
 	// Check if stdout and stderr should be merged (same file path)
 	isMerged := data.State.Stdout == data.State.Stderr
 
@@ -382,7 +405,7 @@ func (oc *OutputCoordinator) setupLocalWriters(_ context.Context, data NodeData)
 	if oc.masker != nil {
 		stdoutWriter = masking.NewMaskingWriter(oc.stdoutFile, oc.masker)
 	}
-	oc.stdoutWriter = newSafeBufferedWriter(stdoutWriter)
+	oc.stdoutWriter = newWriterForMode(stdoutWriter, mode)
 	oc.stdoutFileName = data.State.Stdout
 
 	// stderr - if merged, reuse the same file and writer
@@ -402,11 +425,28 @@ func (oc *OutputCoordinator) setupLocalWriters(_ context.Context, data NodeData)
 		if oc.masker != nil {
 			stderrWriter = masking.NewMaskingWriter(oc.stderrFile, oc.masker)
 		}
-		oc.stderrWriter = newSafeBufferedWriter(stderrWriter)
+		oc.stderrWriter = newWriterForMode(stderrWriter, mode)
 		oc.stderrFileName = data.State.Stderr
 	}
 
 	return nil
+}
+
+// newWriterForMode creates the appropriate writer based on the output buffering mode.
+//   - "buffer": wraps in a thread-safe buffered writer (bufio.Writer with 4KB buffer)
+//   - "line": wraps in a line-buffered writer that flushes on every newline
+//   - "none": wraps in a direct (unbuffered) writer
+func newWriterForMode(w io.Writer, mode core.OutputBuffering) io.Writer {
+	switch mode {
+	case core.OutputBufferingLine:
+		return newLineBufferedWriter(w)
+	case core.OutputBufferingNone:
+		return newDirectWriter(w)
+	case core.OutputBufferingBuffer:
+		return newSafeBufferedWriter(w)
+	default:
+		return newSafeBufferedWriter(w)
+	}
 }
 
 func (oc *OutputCoordinator) setupFile(ctx context.Context, filePath string, _ NodeData) (*os.File, error) {

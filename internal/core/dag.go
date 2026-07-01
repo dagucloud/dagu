@@ -57,6 +57,18 @@ func EffectiveLogOutput(dag *DAG, step *Step) LogOutputMode {
 	return LogOutputSeparate
 }
 
+// EffectiveOutputBuffering returns the effective output buffering mode for a step,
+// falling back from step-level to DAG-level to the default "buffer".
+func EffectiveOutputBuffering(d *DAG, s *Step) OutputBuffering {
+	if s != nil && s.OutputBuffering != "" {
+		return s.OutputBuffering
+	}
+	if d != nil && d.OutputBuffering != "" {
+		return d.OutputBuffering
+	}
+	return OutputBufferingBuffer
+}
+
 // DAG contains all information about a DAG.
 type DAG struct {
 	// WorkingDir is the working directory to run the DAG.
@@ -134,6 +146,10 @@ type DAG struct {
 	// Can be "separate" (default) for separate .out and .err files,
 	// or "merged" for a single combined .log file.
 	LogOutput LogOutputMode `json:"logOutput,omitempty"`
+	// OutputBuffering sets the default output buffering mode for all steps.
+	// Individual steps can override this with their own outputBuffering.
+	// Defaults to "buffer" if not set.
+	OutputBuffering OutputBuffering `mapstructure:"outputBuffering" json:"outputBuffering,omitempty"`
 	// DefaultParams contains the default parameters to be passed to the DAG.
 	DefaultParams string `json:"defaultParams,omitempty"`
 	// ParamDefs contains ordered parameter metadata derived from DAG params.

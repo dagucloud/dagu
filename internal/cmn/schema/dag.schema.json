@@ -587,6 +587,12 @@
       "default": "separate",
       "description": "Controls how stdout and stderr are logged. 'separate' writes stdout to .out and stderr to .err files. 'merged' writes both to a single .log file with interleaved output."
     },
+    "output_buffering": {
+      "type": "string",
+      "enum": ["buffer", "line", "none"],
+      "default": "buffer",
+      "description": "Controls how step output is buffered before being flushed to the log stream. 'buffer' uses internal buffers (default, high-throughput). 'line' flushes on every newline (best for real-time streaming). 'none' disables all buffering (maximum real-time, high overhead)."
+    },
     "handler_on": {
       "type": "object",
       "properties": {
@@ -1751,6 +1757,11 @@
           "type": "string",
           "enum": ["separate", "merged"],
           "description": "Override DAG-level log output mode. 'separate' writes stdout to .out and stderr to .err files. 'merged' writes both to a single .log file."
+        },
+        "output_buffering": {
+          "type": "string",
+          "enum": ["buffer", "line", "none"],
+          "description": "Controls how step output is buffered before being flushed to the log stream. 'buffer' uses internal buffers (default, high-throughput). 'line' flushes on every newline (best for real-time streaming). 'none' disables all buffering (maximum real-time, high overhead). Overrides the DAG-level output_buffering setting."
         },
         "output": {
           "oneOf": [

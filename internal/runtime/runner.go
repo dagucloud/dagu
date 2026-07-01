@@ -1355,6 +1355,12 @@ func (r *Runner) finishNode(node *Node, wg *sync.WaitGroup) {
 		// NotStarted/Running should not happen at this point.
 	}
 
+	// Ensure output writers are flushed and closed even on early goroutine
+	// returns (prepareNode failure, precondition skip, panic). Teardown is
+	// idempotent via CompareAndSwap — safe when already called by the normal
+	// teardownNode path.
+	_ = node.Teardown()
+
 	node.Finish()
 	wg.Done()
 }

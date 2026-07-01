@@ -85,6 +85,15 @@ var executorRegistry = make(map[string]ExecutorFactory)
 
 var executorRegistryMu sync.RWMutex
 
+// OutputBufferingAware is implemented by executors that support
+// different output buffering modes (buffer, line, none).
+// When set to "line" or "none", the executor should bypass
+// os/exec's internal 32KB io.Copy buffer and stream data directly
+// through its own pipe reader.
+type OutputBufferingAware interface {
+	SetOutputBuffering(mode core.OutputBuffering)
+}
+
 // ExitCoder is an interface for executors that can return an exit code.
 type ExitCoder interface {
 	ExitCode() int

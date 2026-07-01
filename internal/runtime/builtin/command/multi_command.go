@@ -17,6 +17,7 @@ import (
 
 var _ executor.Executor = (*multiCommandExecutor)(nil)
 var _ executor.ExitCoder = (*multiCommandExecutor)(nil)
+var _ executor.OutputBufferingAware = (*multiCommandExecutor)(nil)
 
 // multiCommandExecutor executes multiple commands sequentially.
 // It stops on the first command that fails (non-zero exit code).
@@ -72,6 +73,15 @@ func (e *multiCommandExecutor) SetStderr(out io.Writer) {
 	e.stderr = out
 	for _, cfg := range e.configs {
 		cfg.Stderr = out
+	}
+}
+
+// SetOutputBuffering implements executor.OutputBufferingAware.
+func (e *multiCommandExecutor) SetOutputBuffering(mode core.OutputBuffering) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for _, cfg := range e.configs {
+		cfg.outputBuffering = mode
 	}
 }
 
