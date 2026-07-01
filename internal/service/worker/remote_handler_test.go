@@ -326,80 +326,52 @@ func (m *mockStreamArtifactsClient) snapshotChunks() []*coordinatorv1.ArtifactCh
 }
 
 func countSchedulerFinalChunks(streams []*mockStreamLogsClient) int {
-	final := true
-	return countLogChunks(streams, logChunkPattern{
-		streamType: coordinatorv1.LogStreamType_LOG_STREAM_TYPE_SCHEDULER,
-		final:      &final,
+	return countLogChunks(streams, func(chunk *coordinatorv1.LogChunk) bool {
+		return chunk.StreamType == coordinatorv1.LogStreamType_LOG_STREAM_TYPE_SCHEDULER && chunk.IsFinal
 	})
 }
 
 func hasLogChunk(streams []*mockStreamLogsClient, dagRunID, dagName, attemptID string, root exec.DAGRunRef, stepName string) bool {
-	return hasMatchingLogChunk(streams, logChunkPattern{
-		dagRunID:  dagRunID,
-		dagName:   dagName,
-		attemptID: attemptID,
-		root:      root,
-		stepName:  stepName,
+	return hasLogChunkMatching(streams, func(chunk *coordinatorv1.LogChunk) bool {
+		return logChunkHasMetadata(chunk, dagRunID, dagName, attemptID, root) && chunk.StepName == stepName
 	})
 }
 
 func hasStepLogDataChunk(streams []*mockStreamLogsClient, dagRunID, dagName, attemptID string, root exec.DAGRunRef, stepName string, streamType coordinatorv1.LogStreamType) bool {
-	return hasMatchingLogChunk(streams, logChunkPattern{
-		dagRunID:     dagRunID,
-		dagName:      dagName,
-		attemptID:    attemptID,
-		root:         root,
-		stepName:     stepName,
-		streamType:   streamType,
-		requiresData: true,
+	return hasLogChunkMatching(streams, func(chunk *coordinatorv1.LogChunk) bool {
+		return logChunkHasMetadata(chunk, dagRunID, dagName, attemptID, root) &&
+			chunk.StepName == stepName &&
+			chunk.StreamType == streamType &&
+			len(chunk.Data) > 0
 	})
 }
 
 func hasSchedulerDataChunk(streams []*mockStreamLogsClient, dagRunID, dagName, attemptID string, root exec.DAGRunRef) bool {
-	final := false
-	return hasMatchingLogChunk(streams, logChunkPattern{
-		dagRunID:     dagRunID,
-		dagName:      dagName,
-		attemptID:    attemptID,
-		root:         root,
-		streamType:   coordinatorv1.LogStreamType_LOG_STREAM_TYPE_SCHEDULER,
-		final:        &final,
-		requiresData: true,
+	return hasLogChunkMatching(streams, func(chunk *coordinatorv1.LogChunk) bool {
+		return logChunkHasMetadata(chunk, dagRunID, dagName, attemptID, root) &&
+			chunk.StreamType == coordinatorv1.LogStreamType_LOG_STREAM_TYPE_SCHEDULER &&
+			!chunk.IsFinal &&
+			len(chunk.Data) > 0
 	})
 }
 
 func hasSchedulerFinalChunk(streams []*mockStreamLogsClient, dagRunID, dagName, attemptID string, root exec.DAGRunRef) bool {
-	final := true
-	return hasMatchingLogChunk(streams, logChunkPattern{
-		dagRunID:   dagRunID,
-		dagName:    dagName,
-		attemptID:  attemptID,
-		root:       root,
-		streamType: coordinatorv1.LogStreamType_LOG_STREAM_TYPE_SCHEDULER,
-		final:      &final,
+	return hasLogChunkMatching(streams, func(chunk *coordinatorv1.LogChunk) bool {
+		return logChunkHasMetadata(chunk, dagRunID, dagName, attemptID, root) &&
+			chunk.StreamType == coordinatorv1.LogStreamType_LOG_STREAM_TYPE_SCHEDULER &&
+			chunk.IsFinal
 	})
 }
 
-type logChunkPattern struct {
-	dagRunID     string
-	dagName      string
-	attemptID    string
-	root         exec.DAGRunRef
-	stepName     string
-	streamType   coordinatorv1.LogStreamType
-	final        *bool
-	requiresData bool
+func hasLogChunkMatching(streams []*mockStreamLogsClient, match func(*coordinatorv1.LogChunk) bool) bool {
+	return countLogChunks(streams, match) > 0
 }
 
-func hasMatchingLogChunk(streams []*mockStreamLogsClient, pattern logChunkPattern) bool {
-	return countLogChunks(streams, pattern) > 0
-}
-
-func countLogChunks(streams []*mockStreamLogsClient, pattern logChunkPattern) int {
+func countLogChunks(streams []*mockStreamLogsClient, match func(*coordinatorv1.LogChunk) bool) int {
 	var count int
 	for _, stream := range streams {
 		for _, chunk := range stream.snapshotChunks() {
-			if logChunkMatches(chunk, pattern) {
+			if match(chunk) {
 				count++
 			}
 		}
@@ -407,32 +379,12 @@ func countLogChunks(streams []*mockStreamLogsClient, pattern logChunkPattern) in
 	return count
 }
 
-func logChunkMatches(chunk *coordinatorv1.LogChunk, pattern logChunkPattern) bool {
-	if pattern.dagRunID != "" && chunk.DagRunId != pattern.dagRunID {
-		return false
-	}
-	if pattern.dagName != "" && chunk.DagName != pattern.dagName {
-		return false
-	}
-	if pattern.attemptID != "" && chunk.AttemptId != pattern.attemptID {
-		return false
-	}
-	if !pattern.root.Zero() && (chunk.RootDagRunName != pattern.root.Name || chunk.RootDagRunId != pattern.root.ID) {
-		return false
-	}
-	if pattern.stepName != "" && chunk.StepName != pattern.stepName {
-		return false
-	}
-	if pattern.streamType != coordinatorv1.LogStreamType_LOG_STREAM_TYPE_UNSPECIFIED && chunk.StreamType != pattern.streamType {
-		return false
-	}
-	if pattern.final != nil && chunk.IsFinal != *pattern.final {
-		return false
-	}
-	if pattern.requiresData && len(chunk.Data) == 0 {
-		return false
-	}
-	return true
+func logChunkHasMetadata(chunk *coordinatorv1.LogChunk, dagRunID, dagName, attemptID string, root exec.DAGRunRef) bool {
+	return chunk.DagRunId == dagRunID &&
+		chunk.DagName == dagName &&
+		chunk.AttemptId == attemptID &&
+		chunk.RootDagRunName == root.Name &&
+		chunk.RootDagRunId == root.ID
 }
 
 func hasArtifactChunk(streams []*mockStreamArtifactsClient, dagRunID, dagName, attemptID string, root exec.DAGRunRef, relPath string) bool {
