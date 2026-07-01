@@ -643,6 +643,8 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 	ctx = runtime.NewContext(ctx, a.dag, a.dagRunID, a.logFile, contextOpts...)
 	ctx = runtimeexec.WithSubWorkflowRunner(ctx, subWorkflowRunner)
+	ctx, closeSubDAGRunSchedulerLog := a.withSubDAGRunSchedulerLogWriter(ctx)
+	defer closeSubDAGRunSchedulerLog()
 
 	// Add structured logging context
 	logFields := []slog.Attr{
@@ -1107,12 +1109,13 @@ func (a *Agent) Run(ctx context.Context) error {
 }
 
 func (a *Agent) shouldDelayTerminalStatus(status core.Status) bool {
-	if a.artifactFinalizer == nil || a.artifactDir == "" {
-		return false
-	}
 	switch status {
 	case core.Failed, core.Aborted, core.Succeeded, core.PartiallySucceeded, core.Rejected:
-		return true
+		if a.artifactFinalizer != nil && a.artifactDir != "" {
+			return true
+		}
+		_, streamsSchedulerLog := a.logWriterFactory.(runtime.SchedulerLogStreamer)
+		return streamsSchedulerLog
 	default:
 		return false
 	}
@@ -1655,6 +1658,33 @@ func (a *Agent) createSubWorkflowRunner(ctx context.Context) (runtimeexec.SubWor
 	}
 
 	return a.subWorkflowRunnerFactory(ctx)
+}
+
+func (a *Agent) withSubDAGRunSchedulerLogWriter(ctx context.Context) (context.Context, func()) {
+	if !a.isSubDAGRun.Load() || a.logFile == "" {
+		return ctx, func() {}
+	}
+	streamer, ok := a.logWriterFactory.(runtime.SchedulerLogStreamer)
+	if !ok || streamer == nil {
+		return ctx, func() {}
+	}
+
+	file, err := os.OpenFile(a.logFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		logger.Warn(ctx, "Failed to open sub DAG scheduler log file", tag.File(a.logFile), tag.Error(err))
+		return ctx, func() {}
+	}
+
+	writer := streamer.NewSchedulerLogWriter(ctx, file)
+	ctx = logger.WithLogger(ctx, logger.NewLogger(logger.WithWriter(writer)))
+	return ctx, func() {
+		if err := writer.Close(); err != nil {
+			logger.Warn(ctx, "Failed to close sub DAG scheduler log streamer", tag.Error(err))
+		}
+		if err := file.Close(); err != nil {
+			logger.Warn(ctx, "Failed to close sub DAG scheduler log file", tag.File(a.logFile), tag.Error(err))
+		}
+	}
 }
 
 type resolvedProfileValues struct {

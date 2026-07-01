@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/dagucloud/dagu/internal/cmn/config"
@@ -110,6 +111,607 @@ type remoteTaskHandler struct {
 	runtimeStores     runtimeStores
 }
 
+const (
+	remoteSchedulerLogReplayTimeout   = 5 * time.Second
+	remoteTerminalStatusReportTimeout = 5 * time.Second
+)
+
+type remoteRunMetadata struct {
+	dagRunID  string
+	dagName   string
+	attemptID string
+	root      exec.DAGRunRef
+}
+
+func (m remoteRunMetadata) key() string {
+	return m.dagRunID
+}
+
+func (m remoteRunMetadata) normalize() remoteRunMetadata {
+	if m.root.Zero() && m.dagName != "" && m.dagRunID != "" {
+		m.root = exec.NewDAGRunRef(m.dagName, m.dagRunID)
+	}
+	return m
+}
+
+type remoteRunReporter struct {
+	client    coordinator.Client
+	workerID  string
+	owner     exec.HostInfo
+	mu        sync.Mutex
+	defaults  remoteRunMetadata
+	logs      map[string]*coordreport.LogStreamer
+	artifacts map[string]*coordreport.ArtifactUploader
+	finalizer *schedulerLogFinalizer
+}
+
+func newRemoteRunReporter(
+	client coordinator.Client,
+	workerID string,
+	defaults remoteRunMetadata,
+	owner exec.HostInfo,
+) *remoteRunReporter {
+	return &remoteRunReporter{
+		client:    client,
+		workerID:  workerID,
+		owner:     owner,
+		defaults:  defaults.normalize(),
+		logs:      make(map[string]*coordreport.LogStreamer),
+		artifacts: make(map[string]*coordreport.ArtifactUploader),
+	}
+}
+
+func (r *remoteRunReporter) SetAttemptID(attemptID string) {
+	if r == nil || attemptID == "" {
+		return
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.defaults.attemptID != "" {
+		return
+	}
+	r.defaults.attemptID = attemptID
+
+	key := r.defaults.key()
+	if streamer := r.logs[key]; streamer != nil {
+		streamer.SetAttemptID(attemptID)
+	}
+	if uploader := r.artifacts[key]; uploader != nil {
+		uploader.SetAttemptID(attemptID)
+	}
+}
+
+func (r *remoteRunReporter) EnableSchedulerFinalizer(logFile string) *schedulerLogFinalizer {
+	if r == nil || logFile == "" {
+		return nil
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.finalizer == nil {
+		r.finalizer = newSchedulerLogFinalizer()
+		r.finalizer.timeout = remoteSchedulerLogReplayTimeout
+	}
+	streamer := r.logStreamerLocked(r.defaults)
+	r.finalizer.register(r.defaults, logFile, streamer)
+	return r.finalizer
+}
+
+func (r *remoteRunReporter) NewStepWriter(ctx context.Context, stepName string, streamType int) io.WriteCloser {
+	meta := r.metadataFromContext(ctx)
+	streamer := r.logStreamerFor(meta)
+	if streamer == nil {
+		return &discardWriteCloser{}
+	}
+	return &schedulerMirroringStepWriter{
+		WriteCloser: streamer.NewStepWriter(ctx, stepName, streamType),
+		mirror: func(data []byte) {
+			r.mirrorStepOutput(meta, data)
+		},
+	}
+}
+
+func (r *remoteRunReporter) NewSchedulerLogWriter(ctx context.Context, localFile *os.File) io.WriteCloser {
+	writer := &schedulerLogFileWriter{localFile: localFile}
+	if r == nil {
+		return writer
+	}
+
+	r.mu.Lock()
+	finalizer := r.finalizer
+	r.mu.Unlock()
+	if finalizer == nil {
+		return writer
+	}
+
+	meta := r.metadataFromContext(ctx)
+	entry := finalizer.register(meta, localFileName(localFile), r.logStreamerFor(meta))
+	if entry == nil {
+		return writer
+	}
+	entry.trackWriter(writer)
+	return writer
+}
+
+func (r *remoteRunReporter) StreamSchedulerLog(ctx context.Context, logFilePath string) error {
+	if r == nil {
+		return nil
+	}
+
+	meta := r.metadataFromContext(ctx)
+	streamer := r.logStreamerFor(meta)
+	if streamer == nil {
+		return nil
+	}
+
+	if r.finalizer == nil {
+		return streamer.StreamSchedulerLog(ctx, logFilePath)
+	}
+
+	entry := r.finalizer.entryForLogFile(logFilePath)
+	if entry == nil {
+		entry = r.finalizer.register(meta, logFilePath, streamer)
+	} else {
+		entry.update(meta, streamer)
+	}
+	if entry == nil {
+		return streamer.StreamSchedulerLog(ctx, logFilePath)
+	}
+
+	_, err := entry.finalizeLog(ctx)
+	return err
+}
+
+func (r *remoteRunReporter) Finalize(ctx context.Context, attemptID, dir string) error {
+	uploader := r.artifactUploaderFor(r.metadataFromContext(ctx).withAttemptID(attemptID))
+	if uploader == nil {
+		return nil
+	}
+	return uploader.Finalize(ctx, attemptID, dir)
+}
+
+func (r *remoteRunReporter) finalizeSchedulerLogForStatus(ctx context.Context, status exec.DAGRunStatus) (bool, error) {
+	if r == nil || r.finalizer == nil {
+		return false, nil
+	}
+
+	meta := r.metadataFromStatus(status)
+	streamer := r.logStreamerFor(meta)
+	if streamer == nil {
+		return false, nil
+	}
+
+	entry := r.finalizer.entryForDAGRun(status.DAGRunID)
+	if entry == nil && status.Log != "" {
+		entry = r.finalizer.register(meta, status.Log, streamer)
+	}
+	if entry == nil {
+		return false, nil
+	}
+	entry.update(meta, streamer)
+	return entry.finalizeLog(ctx)
+}
+
+func (r *remoteRunReporter) mirrorStepOutput(meta remoteRunMetadata, data []byte) {
+	if r == nil || r.finalizer == nil || len(data) == 0 {
+		return
+	}
+
+	entry := r.finalizer.entryForDAGRun(meta.normalize().dagRunID)
+	if entry == nil {
+		return
+	}
+	entry.mirrorStepOutput(data)
+}
+
+func (r *remoteRunReporter) metadataFromContext(ctx context.Context) remoteRunMetadata {
+	r.mu.Lock()
+	meta := r.defaults
+	r.mu.Unlock()
+
+	if rCtx, ok := exec.LookupContext(ctx); ok {
+		if rCtx.DAGRunID != "" {
+			meta.dagRunID = rCtx.DAGRunID
+		}
+		if rCtx.DAG != nil && rCtx.DAG.Name != "" {
+			meta.dagName = rCtx.DAG.Name
+		}
+		if rCtx.AttemptID != "" {
+			meta.attemptID = rCtx.AttemptID
+		}
+		if !rCtx.RootDAGRun.Zero() {
+			meta.root = rCtx.RootDAGRun
+		}
+	}
+	return meta.normalize()
+}
+
+func (r *remoteRunReporter) metadataFromStatus(status exec.DAGRunStatus) remoteRunMetadata {
+	r.mu.Lock()
+	meta := r.defaults
+	r.mu.Unlock()
+
+	if status.DAGRunID != "" {
+		meta.dagRunID = status.DAGRunID
+	}
+	if status.Name != "" {
+		meta.dagName = status.Name
+	}
+	if status.AttemptID != "" {
+		meta.attemptID = status.AttemptID
+	}
+	if !status.Root.Zero() {
+		meta.root = status.Root
+	}
+	return meta.normalize()
+}
+
+func (m remoteRunMetadata) withAttemptID(attemptID string) remoteRunMetadata {
+	if attemptID != "" {
+		m.attemptID = attemptID
+	}
+	return m
+}
+
+func (r *remoteRunReporter) logStreamerFor(meta remoteRunMetadata) *coordreport.LogStreamer {
+	if r == nil {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.logStreamerLocked(meta)
+}
+
+func (r *remoteRunReporter) logStreamerLocked(meta remoteRunMetadata) *coordreport.LogStreamer {
+	meta = meta.normalize()
+	key := meta.key()
+	if key == "" {
+		return nil
+	}
+	streamer := r.logs[key]
+	if streamer == nil {
+		streamer = coordreport.NewLogStreamer(
+			r.client,
+			r.workerID,
+			meta.dagRunID,
+			meta.dagName,
+			meta.attemptID,
+			meta.root,
+			r.owner,
+		)
+		r.logs[key] = streamer
+		return streamer
+	}
+	if meta.attemptID != "" {
+		streamer.SetAttemptID(meta.attemptID)
+	}
+	return streamer
+}
+
+func (r *remoteRunReporter) artifactUploaderFor(meta remoteRunMetadata) *coordreport.ArtifactUploader {
+	if r == nil {
+		return nil
+	}
+
+	meta = meta.normalize()
+	key := meta.key()
+	if key == "" {
+		return nil
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	uploader := r.artifacts[key]
+	if uploader == nil {
+		uploader = coordreport.NewArtifactUploader(
+			r.client,
+			r.workerID,
+			meta.dagRunID,
+			meta.dagName,
+			meta.attemptID,
+			meta.root,
+			r.owner,
+		)
+		r.artifacts[key] = uploader
+		return uploader
+	}
+	if meta.attemptID != "" {
+		uploader.SetAttemptID(meta.attemptID)
+	}
+	return uploader
+}
+
+type discardWriteCloser struct{}
+
+func (discardWriteCloser) Write(p []byte) (int, error) {
+	return len(p), nil
+}
+
+func (discardWriteCloser) Close() error {
+	return nil
+}
+
+type schedulerMirroringStepWriter struct {
+	io.WriteCloser
+	mirror func([]byte)
+}
+
+func (w *schedulerMirroringStepWriter) Write(p []byte) (int, error) {
+	n, err := w.WriteCloser.Write(p)
+	if n > 0 && w.mirror != nil {
+		w.mirror(p[:n])
+	}
+	return n, err
+}
+
+type schedulerLogFinalizer struct {
+	timeout   time.Duration
+	mu        sync.Mutex
+	byRunID   map[string]*schedulerLogFinalizerEntry
+	byLogFile map[string]*schedulerLogFinalizerEntry
+}
+
+func newSchedulerLogFinalizer() *schedulerLogFinalizer {
+	return &schedulerLogFinalizer{
+		byRunID:   make(map[string]*schedulerLogFinalizerEntry),
+		byLogFile: make(map[string]*schedulerLogFinalizerEntry),
+	}
+}
+
+func (f *schedulerLogFinalizer) register(meta remoteRunMetadata, logFile string, streamer runtime.SchedulerLogStreamer) *schedulerLogFinalizerEntry {
+	if f == nil || logFile == "" {
+		return nil
+	}
+	meta = meta.normalize()
+	if meta.dagRunID == "" {
+		meta.dagRunID = dagRunIDFromSchedulerLogFile(logFile)
+	}
+	if meta.dagRunID == "" {
+		return nil
+	}
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if entry := f.byRunID[meta.dagRunID]; entry != nil {
+		if entry.logFile == "" {
+			entry.logFile = logFile
+			f.byLogFile[logFile] = entry
+		}
+		entry.writerMu.Lock()
+		entry.updateLocked(meta, streamer)
+		entry.writerMu.Unlock()
+		return entry
+	}
+	if entry := f.byLogFile[logFile]; entry != nil {
+		f.byRunID[meta.dagRunID] = entry
+		entry.writerMu.Lock()
+		entry.updateLocked(meta, streamer)
+		entry.writerMu.Unlock()
+		return entry
+	}
+
+	entry := &schedulerLogFinalizerEntry{
+		owner:    f,
+		meta:     meta,
+		logFile:  logFile,
+		streamer: streamer,
+	}
+	f.byRunID[meta.dagRunID] = entry
+	f.byLogFile[logFile] = entry
+	return entry
+}
+
+func (f *schedulerLogFinalizer) entryForDAGRun(dagRunID string) *schedulerLogFinalizerEntry {
+	if f == nil || dagRunID == "" {
+		return nil
+	}
+	f.mu.Lock()
+	entry := f.byRunID[dagRunID]
+	f.mu.Unlock()
+	return entry
+}
+
+func (f *schedulerLogFinalizer) entryForLogFile(logFile string) *schedulerLogFinalizerEntry {
+	if f == nil || logFile == "" {
+		return nil
+	}
+	f.mu.Lock()
+	entry := f.byLogFile[logFile]
+	f.mu.Unlock()
+	return entry
+}
+
+func dagRunIDFromSchedulerLogFile(logFile string) string {
+	base := filepath.Base(logFile)
+	if base == "" || base == "." || base == string(filepath.Separator) {
+		return ""
+	}
+	return strings.TrimSuffix(base, ".log")
+}
+
+type schedulerLogFinalizerEntry struct {
+	owner       *schedulerLogFinalizer
+	meta        remoteRunMetadata
+	logFile     string
+	streamer    runtime.SchedulerLogStreamer
+	finalize    sync.Once
+	finalizeErr error
+	writerMu    sync.Mutex
+	writer      *schedulerLogFileWriter
+}
+
+func (e *schedulerLogFinalizerEntry) update(meta remoteRunMetadata, streamer runtime.SchedulerLogStreamer) {
+	if e == nil {
+		return
+	}
+	e.writerMu.Lock()
+	defer e.writerMu.Unlock()
+	e.updateLocked(meta, streamer)
+}
+
+func (e *schedulerLogFinalizerEntry) updateLocked(meta remoteRunMetadata, streamer runtime.SchedulerLogStreamer) {
+	meta = meta.normalize()
+	if meta.dagRunID != "" {
+		e.meta.dagRunID = meta.dagRunID
+	}
+	if meta.dagName != "" {
+		e.meta.dagName = meta.dagName
+	}
+	if streamer != nil {
+		e.streamer = streamer
+	}
+	if meta.attemptID != "" {
+		e.meta.attemptID = meta.attemptID
+		if setter, ok := e.streamer.(interface{ SetAttemptID(string) }); ok {
+			setter.SetAttemptID(meta.attemptID)
+		}
+	}
+	if !meta.root.Zero() {
+		e.meta.root = meta.root
+	}
+}
+
+func (e *schedulerLogFinalizerEntry) finalizeLog(ctx context.Context) (bool, error) {
+	if e == nil {
+		return false, nil
+	}
+
+	var ran bool
+	e.finalize.Do(func() {
+		ran = true
+		e.quiesceWriter()
+
+		streamCtx := context.WithoutCancel(ctx)
+		if e.owner.timeout > 0 {
+			var cancel context.CancelFunc
+			streamCtx, cancel = context.WithTimeout(streamCtx, e.owner.timeout)
+			defer cancel()
+		}
+
+		e.writerMu.Lock()
+		streamer := e.streamer
+		e.writerMu.Unlock()
+		if streamer == nil {
+			return
+		}
+		e.finalizeErr = streamer.StreamSchedulerLog(streamCtx, e.logFile)
+	})
+
+	if !ran {
+		return false, e.finalizeErr
+	}
+	return true, e.finalizeErr
+}
+
+func (e *schedulerLogFinalizerEntry) trackWriter(writer *schedulerLogFileWriter) {
+	if e == nil || writer == nil {
+		return
+	}
+
+	e.writerMu.Lock()
+	e.writer = writer
+	e.writerMu.Unlock()
+}
+
+func (e *schedulerLogFinalizerEntry) quiesceWriter() {
+	e.writerMu.Lock()
+	writer := e.writer
+	e.writerMu.Unlock()
+	if writer == nil {
+		return
+	}
+	writer.finalize()
+}
+
+func (e *schedulerLogFinalizerEntry) mirrorStepOutput(data []byte) {
+	e.writerMu.Lock()
+	writer := e.writer
+	e.writerMu.Unlock()
+	if writer == nil {
+		return
+	}
+	_, _ = writer.Write(data)
+}
+
+type schedulerLogFileWriter struct {
+	localFile *os.File
+	mu        sync.Mutex
+	finalized bool
+}
+
+func (w *schedulerLogFileWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.finalized || w.localFile == nil {
+		return len(p), nil
+	}
+	return w.localFile.Write(p)
+}
+
+func (w *schedulerLogFileWriter) Close() error {
+	return nil
+}
+
+func (w *schedulerLogFileWriter) finalize() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.finalized = true
+}
+
+func localFileName(localFile *os.File) string {
+	if localFile == nil {
+		return ""
+	}
+	return localFile.Name()
+}
+
+type finalSchedulerLogStatusPusher struct {
+	pusher    runtime.StatusPusher
+	finalizer interface {
+		finalizeSchedulerLogForStatus(context.Context, exec.DAGRunStatus) (bool, error)
+	}
+}
+
+func (p *finalSchedulerLogStatusPusher) Push(ctx context.Context, status exec.DAGRunStatus) error {
+	finalized := false
+	if p.finalizer != nil && shouldFinalizeSchedulerLogBeforeStatus(status.Status) {
+		if ran, err := p.finalizer.finalizeSchedulerLogForStatus(ctx, status); ran {
+			finalized = true
+			if err != nil {
+				logger.Warn(ctx, "Failed to finalize scheduler log before reporting terminal status",
+					tag.RunID(status.DAGRunID),
+					tag.Error(err))
+			}
+		}
+	}
+	if finalized {
+		pushCtx := context.WithoutCancel(ctx)
+		if remoteTerminalStatusReportTimeout > 0 {
+			var cancel context.CancelFunc
+			pushCtx, cancel = context.WithTimeout(pushCtx, remoteTerminalStatusReportTimeout)
+			defer cancel()
+		}
+		return p.pusher.Push(pushCtx, status)
+	}
+	return p.pusher.Push(ctx, status)
+}
+
+func shouldFinalizeSchedulerLogBeforeStatus(status core.Status) bool {
+	switch status {
+	case core.Failed, core.Aborted, core.Succeeded, core.PartiallySucceeded, core.Rejected:
+		return true
+	case core.NotStarted, core.Running, core.Queued, core.Waiting:
+		return false
+	}
+	return false
+}
+
 // Handle executes a task in-process with remote status/log streaming
 func (h *remoteTaskHandler) Handle(ctx context.Context, task *coordinatorv1.Task) error {
 	logger.Info(ctx, "Executing remote task",
@@ -151,10 +753,10 @@ func (h *remoteTaskHandler) handleStart(ctx context.Context, task *coordinatorv1
 		defer cleanup()
 	}
 
-	statusPusher, logStreamer, artifactUploader := h.createRemoteHandlers(task.DagRunId, dag.Name, root, owner)
+	statusPusher, logStreamer, artifactUploader := h.createRemoteHandlers(task.DagRunId, dag.Name, task.AttemptId, root, owner)
 	err = h.executeDAGRun(ctx, dag, task.DagRunId, task.AttemptId, task.AttemptKey, task.ScheduleTime, root, parent, owner, statusPusher, logStreamer, artifactUploader, queuedRun, nil, taskExtraEnvs(task), task.ProfileName)
 	var initErr *taskInitError
-	if errors.As(err, &initErr) {
+	if errors.As(err, &initErr) && !initErr.reported {
 		h.reportTaskInitFailure(ctx, task, root, parent, statusPusher, initErr.err, task.ProfileName)
 	}
 	return err
@@ -190,7 +792,7 @@ func (h *remoteTaskHandler) handleRetry(ctx context.Context, task *coordinatorv1
 		defer cleanup()
 	}
 
-	statusPusher, logStreamer, artifactUploader := h.createRemoteHandlers(task.DagRunId, dag.Name, root, owner)
+	statusPusher, logStreamer, artifactUploader := h.createRemoteHandlers(task.DagRunId, dag.Name, task.AttemptId, root, owner)
 	triggerType := exec.PreservedQueueTriggerType(status)
 
 	err = h.executeDAGRun(ctx, dag, task.DagRunId, task.AttemptId, task.AttemptKey, task.ScheduleTime, root, parent, owner, statusPusher, logStreamer, artifactUploader, false, &retryConfig{
@@ -199,7 +801,7 @@ func (h *remoteTaskHandler) handleRetry(ctx context.Context, task *coordinatorv1
 		triggerType: triggerType,
 	}, taskExtraEnvs(task), profileName)
 	var initErr *taskInitError
-	if errors.As(err, &initErr) {
+	if errors.As(err, &initErr) && !initErr.reported {
 		h.reportTaskInitFailure(ctx, task, root, parent, statusPusher, initErr.err, profileName)
 	}
 	return err
@@ -255,29 +857,48 @@ func (h *remoteTaskHandler) reportTaskInitFailure(
 		return
 	}
 
+	h.reportDAGRunInitFailure(ctx, task.Target, task.DagRunId, task.AttemptId, task.Params, root, parent, statusPusher, initErr, profileName)
+}
+
+func (h *remoteTaskHandler) reportDAGRunInitFailure(
+	ctx context.Context,
+	target string,
+	dagRunID string,
+	attemptID string,
+	params string,
+	root exec.DAGRunRef,
+	parent exec.DAGRunRef,
+	statusPusher runtime.StatusPusher,
+	initErr error,
+	profileName string,
+) {
+	if statusPusher == nil || initErr == nil {
+		return
+	}
+
 	finishedAt := stringutil.FormatTime(time.Now())
 	logger.Warn(ctx, "Failed to initialize DAG on worker",
-		tag.Target(task.Target),
-		tag.RunID(task.DagRunId),
+		tag.Target(target),
+		tag.RunID(dagRunID),
 		tag.Error(initErr),
 	)
 	status := exec.DAGRunStatus{
 		Root:        root,
 		Parent:      parent,
-		Name:        task.Target,
-		DAGRunID:    task.DagRunId,
-		AttemptID:   task.AttemptId,
+		Name:        target,
+		DAGRunID:    dagRunID,
+		AttemptID:   attemptID,
 		Status:      core.Failed,
 		FinishedAt:  finishedAt,
 		Error:       initErr.Error(),
-		Params:      task.Params,
+		Params:      params,
 		ProfileName: profileName,
 	}
 
 	if err := statusPusher.Push(ctx, status); err != nil {
 		logger.Warn(ctx, "Failed to report init failure status",
-			tag.Target(task.Target),
-			tag.RunID(task.DagRunId),
+			tag.Target(target),
+			tag.RunID(dagRunID),
 			tag.Error(err),
 		)
 	}
@@ -305,7 +926,8 @@ type retryConfig struct {
 }
 
 type taskInitError struct {
-	err error
+	err      error
+	reported bool
 }
 
 func (e *taskInitError) Error() string {
@@ -323,6 +945,13 @@ func newTaskInitError(err error) error {
 	return &taskInitError{err: err}
 }
 
+func newReportedTaskInitError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &taskInitError{err: err, reported: true}
+}
+
 func taskExtraEnvs(task *coordinatorv1.Task) []string {
 	if task == nil || !task.ExternalStepRetry {
 		return nil
@@ -331,31 +960,24 @@ func taskExtraEnvs(task *coordinatorv1.Task) []string {
 }
 
 // createRemoteHandlers creates the remote status, log, and artifact transport handlers.
-func (h *remoteTaskHandler) createRemoteHandlers(dagRunID, dagName string, root exec.DAGRunRef, owner ...exec.HostInfo) (runtime.StatusPusher, runtime.SchedulerLogStreamer, runtime.ArtifactFinalizer) {
+func (h *remoteTaskHandler) createRemoteHandlers(dagRunID, dagName, attemptID string, root exec.DAGRunRef, owner ...exec.HostInfo) (runtime.StatusPusher, runtime.SchedulerLogStreamer, runtime.ArtifactFinalizer) {
 	var target exec.HostInfo
 	if len(owner) > 0 {
 		target = owner[0]
 	}
 	statusPusher := coordreport.NewStatusPusher(h.coordinatorClient, h.workerID, target)
-	logStreamer := coordreport.NewLogStreamer(
+	reporter := newRemoteRunReporter(
 		h.coordinatorClient,
 		h.workerID,
-		dagRunID,
-		dagName,
-		"", // attemptID will be set by agent after attempt creation
-		root,
+		remoteRunMetadata{
+			dagRunID:  dagRunID,
+			dagName:   dagName,
+			attemptID: attemptID,
+			root:      root,
+		},
 		target,
 	)
-	artifactUploader := coordreport.NewArtifactUploader(
-		h.coordinatorClient,
-		h.workerID,
-		dagRunID,
-		dagName,
-		"",
-		root,
-		target,
-	)
-	return statusPusher, logStreamer, artifactUploader
+	return statusPusher, reporter, reporter
 }
 
 // loadDAG loads the DAG from task definition.
@@ -552,8 +1174,23 @@ func (h *remoteTaskHandler) executeDAGRun(
 		}
 	}()
 
-	// Create a writer that writes to both local file AND streams to coordinator in real-time.
-	// This enables viewing scheduler logs while the DAG is still running.
+	var schedulerFinalizer interface {
+		finalizeSchedulerLogForStatus(context.Context, exec.DAGRunStatus) (bool, error)
+	}
+	if reporter, ok := logStreamer.(*remoteRunReporter); ok {
+		if reporter.EnableSchedulerFinalizer(env.logFile) != nil {
+			schedulerFinalizer = reporter
+			if statusPusher != nil {
+				statusPusher = &finalSchedulerLogStatusPusher{
+					pusher:    statusPusher,
+					finalizer: schedulerFinalizer,
+				}
+			}
+		}
+	}
+
+	// Create a scheduler log writer. Remote reporters keep scheduler logs local
+	// and replay them before terminal status; other streamers may live-stream.
 	var logWriter io.Writer = logFile
 	if logStreamer != nil {
 		streamingWriter := logStreamer.NewSchedulerLogWriter(ctx, logFile)
@@ -572,6 +1209,16 @@ func (h *remoteTaskHandler) executeDAGRun(
 
 	toolEnvs, err := h.prepareDAGTools(ctx, dag)
 	if err != nil {
+		if schedulerFinalizer != nil && statusPusher != nil {
+			target := dagRunID
+			params := ""
+			if dag != nil {
+				target = dag.Name
+				params = strings.Join(dag.Params, " ")
+			}
+			h.reportDAGRunInitFailure(ctx, target, dagRunID, attemptID, params, root, parent, statusPusher, err, profileName)
+			return newReportedTaskInitError(err)
+		}
 		return newTaskInitError(err)
 	}
 	extraEnvs = append(extraEnvs, toolEnvs...)
