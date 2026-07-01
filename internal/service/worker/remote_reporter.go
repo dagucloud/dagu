@@ -431,7 +431,7 @@ type schedulerLogFinalizerEntry struct {
 	timeout     time.Duration
 	finalize    sync.Once
 	finalizeErr error
-	writerMu    sync.Mutex
+	mu          sync.Mutex
 	writer      io.Closer
 }
 
@@ -440,16 +440,17 @@ func (e *schedulerLogFinalizerEntry) finalizeLog(ctx context.Context) (bool, err
 		return false, nil
 	}
 
-	e.writerMu.Lock()
-	writer := e.writer
-	e.writerMu.Unlock()
-	if writer == nil {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if e.writer == nil {
 		return false, nil
 	}
 
 	var ran bool
 	e.finalize.Do(func() {
 		ran = true
+		writer := e.writer
 		closeCtx, cancel := schedulerLogCloseContext(ctx, e.timeout)
 		defer cancel()
 		e.finalizeErr = closeSchedulerLogWriter(closeCtx, writer)
@@ -466,9 +467,9 @@ func (e *schedulerLogFinalizerEntry) trackWriter(writer io.Closer) {
 		return
 	}
 
-	e.writerMu.Lock()
+	e.mu.Lock()
 	e.writer = writer
-	e.writerMu.Unlock()
+	e.mu.Unlock()
 }
 
 type schedulerLogContextCloser interface {
