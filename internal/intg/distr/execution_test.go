@@ -162,6 +162,69 @@ steps:
 	})
 }
 
+func TestExecution_DistributedWorkerLogsVisibleFromCoordinator(t *testing.T) {
+	firstStdout := "distributed-first-stdout"
+	firstStderr := "distributed-first-stderr"
+	secondStdout := "distributed-second-stdout"
+	secondStderr := "distributed-second-stderr"
+
+	f := newTestFixture(t, `
+name: distributed-worker-visible-logs-test
+worker_selector:
+  test: "true"
+steps:
+  - name: first
+`+artifactStepShellYAML()+`    command: |
+`+indentYAMLBlock(test.JoinLines(
+		test.Output(firstStdout),
+		test.Stderr(firstStderr),
+	), 6)+`
+  - name: second
+`+artifactStepShellYAML()+`    command: |
+`+indentYAMLBlock(test.JoinLines(
+		test.Output(secondStdout),
+		test.Stderr(secondStderr),
+	), 6)+`
+    depends: [first]
+`, withLogPersistence())
+	defer f.cleanup()
+
+	require.NoError(t, f.enqueue())
+	f.waitForQueued()
+	f.startScheduler(30 * time.Second)
+
+	status := f.waitForStatus(core.Succeeded, executionStatusTimeout())
+
+	require.Equal(t, core.Succeeded, status.Status)
+	f.assertAllNodesSucceeded(status)
+
+	expectedStepLogs := []struct {
+		stepName string
+		suffix   string
+		lines    []string
+	}{
+		{stepName: "first", suffix: "stdout", lines: []string{firstStdout}},
+		{stepName: "first", suffix: "stderr", lines: []string{firstStderr}},
+		{stepName: "second", suffix: "stdout", lines: []string{secondStdout}},
+		{stepName: "second", suffix: "stderr", lines: []string{secondStderr}},
+	}
+	for _, expected := range expectedStepLogs {
+		matches := findLogFiles(t, f.logDir(), f.dagWrapper.Name, status.DAGRunID, expected.stepName, expected.suffix)
+		require.NotEmpty(t, matches, "no %s log file found for step %s", expected.suffix, expected.stepName)
+		content := getLogContent(t, matches[0])
+		for _, line := range expected.lines {
+			assert.Contains(t, content, line, "%s log file for step %s should contain expected content", expected.suffix, expected.stepName)
+		}
+	}
+
+	require.NotEmpty(t, status.Log, "run-level scheduler log path should be persisted")
+	require.FileExists(t, status.Log, "run-level scheduler log should exist on the coordinator")
+	runLog := getLogContent(t, status.Log)
+	for _, line := range []string{firstStdout, firstStderr, secondStdout, secondStderr} {
+		assert.Contains(t, runLog, line, "run-level scheduler log should contain distributed step output evidence")
+	}
+}
+
 func TestExecution_LargeOutput(t *testing.T) {
 	t.Run("largeOutputStreamedCorrectly", func(t *testing.T) {
 		command := `      for i in $(seq 1 2000); do

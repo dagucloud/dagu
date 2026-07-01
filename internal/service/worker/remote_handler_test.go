@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -23,6 +24,7 @@ import (
 	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/persis/testutil"
 	"github.com/dagucloud/dagu/internal/proto/convert"
+	dagruntime "github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/transform"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
 	"github.com/dagucloud/dagu/internal/service/worker/coordreport"
@@ -109,12 +111,13 @@ func TestPollerAckTaskClaimRejectsPartialOwnerMetadata(t *testing.T) {
 }
 
 type mockStreamLogsClient struct {
-	chunks   []*coordinatorv1.LogChunk
-	mu       sync.Mutex
-	sendErr  error
-	closeErr error
-	response *coordinatorv1.StreamLogsResponse
-	ctx      context.Context
+	chunks           []*coordinatorv1.LogChunk
+	mu               sync.Mutex
+	sendErr          error
+	closeErr         error
+	closeAndRecvFunc func() (*coordinatorv1.StreamLogsResponse, error)
+	response         *coordinatorv1.StreamLogsResponse
+	ctx              context.Context
 }
 
 func newMockStreamLogsClient() *mockStreamLogsClient {
@@ -139,6 +142,9 @@ func (m *mockStreamLogsClient) Send(chunk *coordinatorv1.LogChunk) error {
 }
 
 func (m *mockStreamLogsClient) CloseAndRecv() (*coordinatorv1.StreamLogsResponse, error) {
+	if m.closeAndRecvFunc != nil {
+		return m.closeAndRecvFunc()
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.closeErr != nil {
@@ -172,6 +178,36 @@ func (m *mockStreamLogsClient) SendMsg(any) error {
 
 func (m *mockStreamLogsClient) RecvMsg(any) error {
 	return nil
+}
+
+func (m *mockStreamLogsClient) snapshotChunks() []*coordinatorv1.LogChunk {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]*coordinatorv1.LogChunk(nil), m.chunks...)
+}
+
+type recordingStatusPusher struct {
+	push func(context.Context, exec.DAGRunStatus) error
+}
+
+func (p *recordingStatusPusher) Push(ctx context.Context, status exec.DAGRunStatus) error {
+	return p.push(ctx, status)
+}
+
+type schedulerLogStatusFinalizerFunc func(context.Context, exec.DAGRunStatus) (bool, error)
+
+func (f schedulerLogStatusFinalizerFunc) finalizeSchedulerLogForStatus(ctx context.Context, status exec.DAGRunStatus) (bool, error) {
+	return f(ctx, status)
+}
+
+type schedulerLogContextCloserFunc func(context.Context) error
+
+func (f schedulerLogContextCloserFunc) Close() error {
+	return f(context.Background())
+}
+
+func (f schedulerLogContextCloserFunc) CloseWithContext(ctx context.Context) error {
+	return f(ctx)
 }
 
 type mockStreamArtifactsClient struct {
@@ -296,6 +332,90 @@ func (m *mockStreamArtifactsClient) SendMsg(any) error {
 
 func (m *mockStreamArtifactsClient) RecvMsg(any) error {
 	return nil
+}
+
+func (m *mockStreamArtifactsClient) snapshotChunks() []*coordinatorv1.ArtifactChunk {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]*coordinatorv1.ArtifactChunk(nil), m.chunks...)
+}
+
+func countSchedulerFinalChunks(streams []*mockStreamLogsClient) int {
+	return countLogChunks(streams, func(chunk *coordinatorv1.LogChunk) bool {
+		return chunk.StreamType == coordinatorv1.LogStreamType_LOG_STREAM_TYPE_SCHEDULER && chunk.IsFinal
+	})
+}
+
+func hasLogChunk(streams []*mockStreamLogsClient, dagRunID, dagName, attemptID string, root exec.DAGRunRef, stepName string) bool {
+	return hasLogChunkMatching(streams, func(chunk *coordinatorv1.LogChunk) bool {
+		return logChunkHasMetadata(chunk, dagRunID, dagName, attemptID, root) && chunk.StepName == stepName
+	})
+}
+
+func hasStepLogDataChunk(streams []*mockStreamLogsClient, dagRunID, dagName, attemptID string, root exec.DAGRunRef, stepName string, streamType coordinatorv1.LogStreamType) bool {
+	return hasLogChunkMatching(streams, func(chunk *coordinatorv1.LogChunk) bool {
+		return logChunkHasMetadata(chunk, dagRunID, dagName, attemptID, root) &&
+			chunk.StepName == stepName &&
+			chunk.StreamType == streamType &&
+			len(chunk.Data) > 0
+	})
+}
+
+func hasSchedulerDataChunk(streams []*mockStreamLogsClient, dagRunID, dagName, attemptID string, root exec.DAGRunRef) bool {
+	return hasLogChunkMatching(streams, func(chunk *coordinatorv1.LogChunk) bool {
+		return logChunkHasMetadata(chunk, dagRunID, dagName, attemptID, root) &&
+			chunk.StreamType == coordinatorv1.LogStreamType_LOG_STREAM_TYPE_SCHEDULER &&
+			!chunk.IsFinal &&
+			len(chunk.Data) > 0
+	})
+}
+
+func hasSchedulerFinalChunk(streams []*mockStreamLogsClient, dagRunID, dagName, attemptID string, root exec.DAGRunRef) bool {
+	return hasLogChunkMatching(streams, func(chunk *coordinatorv1.LogChunk) bool {
+		return logChunkHasMetadata(chunk, dagRunID, dagName, attemptID, root) &&
+			chunk.StreamType == coordinatorv1.LogStreamType_LOG_STREAM_TYPE_SCHEDULER &&
+			chunk.IsFinal
+	})
+}
+
+func hasLogChunkMatching(streams []*mockStreamLogsClient, match func(*coordinatorv1.LogChunk) bool) bool {
+	return countLogChunks(streams, match) > 0
+}
+
+func countLogChunks(streams []*mockStreamLogsClient, match func(*coordinatorv1.LogChunk) bool) int {
+	var count int
+	for _, stream := range streams {
+		for _, chunk := range stream.snapshotChunks() {
+			if match(chunk) {
+				count++
+			}
+		}
+	}
+	return count
+}
+
+func logChunkHasMetadata(chunk *coordinatorv1.LogChunk, dagRunID, dagName, attemptID string, root exec.DAGRunRef) bool {
+	return chunk.DagRunId == dagRunID &&
+		chunk.DagName == dagName &&
+		chunk.AttemptId == attemptID &&
+		chunk.RootDagRunName == root.Name &&
+		chunk.RootDagRunId == root.ID
+}
+
+func hasArtifactChunk(streams []*mockStreamArtifactsClient, dagRunID, dagName, attemptID string, root exec.DAGRunRef, relPath string) bool {
+	for _, stream := range streams {
+		for _, chunk := range stream.snapshotChunks() {
+			if chunk.DagRunId == dagRunID &&
+				chunk.DagName == dagName &&
+				chunk.AttemptId == attemptID &&
+				chunk.RootDagRunName == root.Name &&
+				chunk.RootDagRunId == root.ID &&
+				chunk.RelativePath == relPath {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 type mockRemoteCoordinatorClient struct {
@@ -584,7 +704,7 @@ func TestCreateRemoteHandlers(t *testing.T) {
 		}
 
 		root := exec.DAGRunRef{Name: "root-dag", ID: "root-123"}
-		statusPusher, _, _ := handler.createRemoteHandlers("run-1", "test-dag", root)
+		statusPusher, _, _ := handler.createRemoteHandlers("run-1", "test-dag", "attempt-1", root)
 
 		require.NotNil(t, statusPusher)
 	})
@@ -599,7 +719,7 @@ func TestCreateRemoteHandlers(t *testing.T) {
 		}
 
 		root := exec.DAGRunRef{Name: "root-dag", ID: "root-123"}
-		_, logStreamer, _ := handler.createRemoteHandlers("run-1", "test-dag", root)
+		_, logStreamer, _ := handler.createRemoteHandlers("run-1", "test-dag", "attempt-1", root)
 
 		require.NotNil(t, logStreamer)
 	})
@@ -614,7 +734,7 @@ func TestCreateRemoteHandlers(t *testing.T) {
 		}
 
 		root := exec.DAGRunRef{Name: "my-root", ID: "root-xyz"}
-		statusPusher, logStreamer, artifactUploader := handler.createRemoteHandlers("my-run-id", "my-dag", root)
+		statusPusher, logStreamer, artifactUploader := handler.createRemoteHandlers("my-run-id", "my-dag", "attempt-1", root)
 
 		// Both should be created
 		require.NotNil(t, statusPusher)
@@ -1564,7 +1684,7 @@ steps:
 	// Create remote handlers
 	root := exec.DAGRunRef{Name: "root", ID: "root-1"}
 	parent := exec.DAGRunRef{Name: "parent", ID: "parent-1"}
-	statusPusher, logStreamer, artifactUploader := handler.createRemoteHandlers("run-error", dag.Name, root)
+	statusPusher, logStreamer, artifactUploader := handler.createRemoteHandlers("run-error", dag.Name, "attempt-error", root)
 
 	// Call executeDAGRun directly - should fail at createAgentEnv
 	err := handler.executeDAGRun(context.Background(), dag, "run-error", "", "", "", root, parent, exec.HostInfo{}, statusPusher, logStreamer, artifactUploader, false, nil, nil, "")
@@ -1616,6 +1736,737 @@ steps:
 
 	// Should succeed for simple echo command
 	require.NoError(t, err, "executeDAGRun should succeed for simple echo command")
+}
+
+func TestRemoteRunReporter_FinalizesSchedulerLogByClosingLiveWriterOnce(t *testing.T) {
+	const (
+		dagName   = "final-scheduler-log"
+		dagRunID  = "run-final-scheduler-log"
+		attemptID = "attempt-final-scheduler-log"
+	)
+
+	logFilePath := filepath.Join(t.TempDir(), "scheduler.log")
+	logFile, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, logFile.Close())
+	}()
+
+	var (
+		streams   []*mockStreamLogsClient
+		streamsMu sync.Mutex
+		events    []string
+		eventsMu  sync.Mutex
+	)
+	record := func(event string) {
+		eventsMu.Lock()
+		defer eventsMu.Unlock()
+		events = append(events, event)
+	}
+
+	client := newMockRemoteCoordinatorClient()
+	client.StreamLogsFunc = func(context.Context) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
+		stream := newMockStreamLogsClient()
+		streamsMu.Lock()
+		streams = append(streams, stream)
+		streamsMu.Unlock()
+		return stream, nil
+	}
+
+	reporter := newRemoteRunReporter(client, "worker-1", remoteRunMetadata{
+		dagRunID:  dagRunID,
+		dagName:   dagName,
+		attemptID: attemptID,
+		root:      exec.NewDAGRunRef(dagName, dagRunID),
+	}, exec.HostInfo{})
+	require.NotNil(t, reporter.EnableSchedulerFinalizer(logFilePath))
+
+	schedulerWriter := reporter.NewSchedulerLogWriter(context.Background(), logFile)
+	_, err = schedulerWriter.Write([]byte(strings.Repeat("x", 40*1024)))
+	require.NoError(t, err)
+
+	statusPusher := &finalSchedulerLogStatusPusher{
+		finalizer: reporter,
+		pusher: &recordingStatusPusher{
+			push: func(ctx context.Context, status exec.DAGRunStatus) error {
+				require.Equal(t, dagRunID, status.DAGRunID)
+				require.Equal(t, core.Succeeded, status.Status)
+				require.NoError(t, ctx.Err(), "terminal status should be pushed with a live context")
+				record("terminal-status")
+				return nil
+			},
+		},
+	}
+
+	require.NoError(t, statusPusher.Push(context.Background(), exec.DAGRunStatus{
+		Root:      exec.NewDAGRunRef(dagName, dagRunID),
+		Name:      dagName,
+		DAGRunID:  dagRunID,
+		AttemptID: attemptID,
+		Status:    core.Succeeded,
+		Log:       logFilePath,
+	}))
+	streamsMu.Lock()
+	finalsBeforeClose := countSchedulerFinalChunks(streams)
+	streamsMu.Unlock()
+	require.Equal(t, 1, finalsBeforeClose, "scheduler finalization should send exactly one final marker before terminal status")
+
+	require.NoError(t, schedulerWriter.Close())
+	streamsMu.Lock()
+	finalsAfterClose := countSchedulerFinalChunks(streams)
+	streamCountAfterFinalization := len(streams)
+	streamsMu.Unlock()
+
+	require.NoError(t, reporter.StreamSchedulerLog(context.Background(), logFilePath))
+	streamsMu.Lock()
+	streamCountAfterCachedReplay := len(streams)
+	streamsMu.Unlock()
+
+	require.Equal(t, finalsBeforeClose, finalsAfterClose, "deferred close should not send a duplicate final scheduler marker")
+	require.Equal(t, streamCountAfterFinalization, streamCountAfterCachedReplay, "cached finalization should not reopen the stream")
+	require.Equal(t, []string{"terminal-status"}, events)
+}
+
+func TestFinalSchedulerLogStatusPusher_BoundsSchedulerLogFinalization(t *testing.T) {
+	const (
+		dagName  = "bounded-scheduler-log"
+		dagRunID = "run-bounded-scheduler-log"
+	)
+
+	finalizer := newSchedulerLogFinalizer()
+	finalizer.timeout = 20 * time.Millisecond
+	entry := finalizer.register(remoteRunMetadata{
+		dagRunID: dagRunID,
+		dagName:  dagName,
+		root:     exec.NewDAGRunRef(dagName, dagRunID),
+	}, filepath.Join(t.TempDir(), "scheduler.log"))
+	require.NotNil(t, entry)
+
+	entered := make(chan struct{})
+	done := make(chan error, 1)
+	var once sync.Once
+	entry.trackWriter(schedulerLogContextCloserFunc(func(ctx context.Context) error {
+		once.Do(func() { close(entered) })
+		<-ctx.Done()
+		err := ctx.Err()
+		done <- err
+		return err
+	}))
+
+	statusPushed := make(chan struct{}, 1)
+	statusPusher := &finalSchedulerLogStatusPusher{
+		finalizer: schedulerLogStatusFinalizerFunc(func(ctx context.Context, _ exec.DAGRunStatus) (bool, error) {
+			return entry.finalizeLog(ctx)
+		}),
+		pusher: &recordingStatusPusher{
+			push: func(ctx context.Context, status exec.DAGRunStatus) error {
+				require.Equal(t, dagRunID, status.DAGRunID)
+				require.Equal(t, core.Succeeded, status.Status)
+				require.NoError(t, ctx.Err(), "terminal status should use a live context")
+				statusPushed <- struct{}{}
+				return nil
+			},
+		},
+	}
+
+	start := time.Now()
+	require.NoError(t, statusPusher.Push(context.Background(), exec.DAGRunStatus{
+		Root:     exec.NewDAGRunRef(dagName, dagRunID),
+		Name:     dagName,
+		DAGRunID: dagRunID,
+		Status:   core.Succeeded,
+	}))
+	require.Less(t, time.Since(start), time.Second)
+
+	select {
+	case <-entered:
+	default:
+		t.Fatal("scheduler log finalizer did not close the tracked writer")
+	}
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+	default:
+		t.Fatal("scheduler log finalizer did not bound the close with a deadline")
+	}
+	select {
+	case <-statusPushed:
+	default:
+		t.Fatal("terminal status was not pushed after scheduler log finalization timed out")
+	}
+}
+
+func TestSchedulerLogFinalizerEntry_FinalizeBeforeWriterDoesNotConsumeOnce(t *testing.T) {
+	const (
+		dagName  = "late-scheduler-writer"
+		dagRunID = "run-late-scheduler-writer"
+	)
+
+	finalizer := newSchedulerLogFinalizer()
+	entry := finalizer.register(remoteRunMetadata{
+		dagRunID: dagRunID,
+		dagName:  dagName,
+		root:     exec.NewDAGRunRef(dagName, dagRunID),
+	}, filepath.Join(t.TempDir(), "scheduler.log"))
+	require.NotNil(t, entry)
+
+	ran, err := entry.finalizeLog(context.Background())
+	require.NoError(t, err)
+	require.False(t, ran)
+
+	var closes int
+	entry.trackWriter(schedulerLogContextCloserFunc(func(context.Context) error {
+		closes++
+		return nil
+	}))
+
+	ran, err = entry.finalizeLog(context.Background())
+	require.NoError(t, err)
+	require.True(t, ran)
+	require.Equal(t, 1, closes)
+
+	ran, err = entry.finalizeLog(context.Background())
+	require.NoError(t, err)
+	require.False(t, ran)
+	require.Equal(t, 1, closes)
+}
+
+func TestRemoteRunReporter_SchedulerWriterCloseUsesLiveStream(t *testing.T) {
+	const (
+		dagName   = "local-scheduler-log"
+		dagRunID  = "run-local-scheduler-log"
+		attemptID = "attempt-local-scheduler-log"
+	)
+
+	logFilePath := filepath.Join(t.TempDir(), "scheduler.log")
+	logFile, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, logFile.Close())
+	}()
+
+	streamOpened := make(chan struct{}, 1)
+	closeEntered := make(chan struct{}, 1)
+	unblockClose := make(chan struct{})
+	var unblockOnce sync.Once
+	unblock := func() {
+		unblockOnce.Do(func() {
+			close(unblockClose)
+		})
+	}
+	defer unblock()
+
+	client := newMockRemoteCoordinatorClient()
+	client.StreamLogsFunc = func(context.Context) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
+		streamOpened <- struct{}{}
+		stream := newMockStreamLogsClient()
+		stream.closeAndRecvFunc = func() (*coordinatorv1.StreamLogsResponse, error) {
+			closeEntered <- struct{}{}
+			<-unblockClose
+			return &coordinatorv1.StreamLogsResponse{}, nil
+		}
+		return stream, nil
+	}
+
+	reporter := newRemoteRunReporter(client, "worker-1", remoteRunMetadata{
+		dagRunID:  dagRunID,
+		dagName:   dagName,
+		attemptID: attemptID,
+		root:      exec.NewDAGRunRef(dagName, dagRunID),
+	}, exec.HostInfo{})
+	require.NotNil(t, reporter.EnableSchedulerFinalizer(logFilePath))
+
+	schedulerWriter := reporter.NewSchedulerLogWriter(context.Background(), logFile)
+	_, err = schedulerWriter.Write([]byte(strings.Repeat("x", 40*1024)))
+	require.NoError(t, err)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- schedulerWriter.Close()
+	}()
+
+	select {
+	case <-closeEntered:
+		unblock()
+		require.NoError(t, <-done)
+	case <-time.After(time.Second):
+		unblock()
+		require.NoError(t, <-done)
+		t.Fatal("scheduler writer close did not close a live stream")
+	}
+
+	select {
+	case <-streamOpened:
+	default:
+		t.Fatal("remote scheduler writer did not open a live scheduler log stream")
+	}
+	select {
+	case <-closeEntered:
+		t.Fatal("remote scheduler writer closed a live scheduler log stream more than once")
+	default:
+	}
+}
+
+func TestRemoteRunReporter_MirrorsStepOutputIntoFinalSchedulerLog(t *testing.T) {
+	const (
+		dagName   = "mirrored-scheduler-log"
+		dagRunID  = "run-mirrored-scheduler-log"
+		attemptID = "attempt-mirrored-scheduler-log"
+	)
+
+	logFilePath := filepath.Join(t.TempDir(), "scheduler.log")
+	logFile, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, logFile.Close())
+	}()
+
+	var (
+		streams   []*mockStreamLogsClient
+		streamsMu sync.Mutex
+	)
+	client := newMockRemoteCoordinatorClient()
+	client.StreamLogsFunc = func(context.Context) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
+		stream := newMockStreamLogsClient()
+		streamsMu.Lock()
+		streams = append(streams, stream)
+		streamsMu.Unlock()
+		return stream, nil
+	}
+
+	reporter := newRemoteRunReporter(client, "worker-1", remoteRunMetadata{
+		dagRunID:  dagRunID,
+		dagName:   dagName,
+		attemptID: attemptID,
+		root:      exec.NewDAGRunRef(dagName, dagRunID),
+	}, exec.HostInfo{})
+	require.NotNil(t, reporter.EnableSchedulerFinalizer(logFilePath))
+
+	schedulerWriter := reporter.NewSchedulerLogWriter(context.Background(), logFile)
+	_, err = schedulerWriter.Write([]byte("scheduler-start\n"))
+	require.NoError(t, err)
+
+	stdoutWriter := reporter.NewStepWriter(context.Background(), "step-one", exec.StreamTypeStdout)
+	_, err = stdoutWriter.Write([]byte("mirrored-stdout\n"))
+	require.NoError(t, err)
+	require.NoError(t, stdoutWriter.Close())
+
+	stderrWriter := reporter.NewStepWriter(context.Background(), "step-one", exec.StreamTypeStderr)
+	_, err = stderrWriter.Write([]byte("mirrored-stderr\n"))
+	require.NoError(t, err)
+	require.NoError(t, stderrWriter.Close())
+
+	require.NoError(t, schedulerWriter.Close())
+	require.NoError(t, reporter.StreamSchedulerLog(context.Background(), logFilePath))
+
+	streamsMu.Lock()
+	defer streamsMu.Unlock()
+	require.NotEmpty(t, streams)
+	var schedulerLog []byte
+	for _, stream := range streams {
+		for _, chunk := range stream.snapshotChunks() {
+			if chunk.StreamType != coordinatorv1.LogStreamType_LOG_STREAM_TYPE_SCHEDULER || chunk.IsFinal {
+				continue
+			}
+			schedulerLog = append(schedulerLog, chunk.Data...)
+		}
+	}
+	require.Contains(t, string(schedulerLog), "scheduler-start")
+	require.Contains(t, string(schedulerLog), "mirrored-stdout")
+	require.Contains(t, string(schedulerLog), "mirrored-stderr")
+}
+
+func TestRemoteRunReporter_UsesRuntimeContextForChildLogsAndArtifactsWithoutMutatingRoot(t *testing.T) {
+	const (
+		rootName     = "root-dag"
+		rootRunID    = "root-run-metadata"
+		rootAttempt  = "root-attempt"
+		childName    = "child-dag"
+		childRunID   = "child-run-metadata"
+		childAttempt = "child-attempt"
+	)
+
+	var (
+		logStreams      []*mockStreamLogsClient
+		logStreamsMu    sync.Mutex
+		artifactStreams []*mockStreamArtifactsClient
+		artifactMu      sync.Mutex
+		events          []string
+		eventsMu        sync.Mutex
+	)
+	record := func(event string) {
+		eventsMu.Lock()
+		defer eventsMu.Unlock()
+		events = append(events, event)
+	}
+
+	client := newMockRemoteCoordinatorClient()
+	client.StreamLogsFunc = func(context.Context) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
+		stream := newMockStreamLogsClient()
+		logStreamsMu.Lock()
+		logStreams = append(logStreams, stream)
+		logStreamsMu.Unlock()
+		return stream, nil
+	}
+	client.StreamArtifactsFunc = func(context.Context) (coordinatorv1.CoordinatorService_StreamArtifactsClient, error) {
+		stream := newMockStreamArtifactsClient()
+		artifactMu.Lock()
+		artifactStreams = append(artifactStreams, stream)
+		artifactMu.Unlock()
+		return stream, nil
+	}
+
+	rootRef := exec.NewDAGRunRef(rootName, rootRunID)
+	reporter := newRemoteRunReporter(client, "worker-1", remoteRunMetadata{
+		dagRunID:  rootRunID,
+		dagName:   rootName,
+		attemptID: rootAttempt,
+		root:      rootRef,
+	}, exec.HostInfo{})
+	require.NotNil(t, reporter.EnableSchedulerFinalizer(filepath.Join(t.TempDir(), "scheduler.log")))
+
+	rootWriter := reporter.NewStepWriter(context.Background(), "root-step", exec.StreamTypeStdout)
+	_, err := rootWriter.Write([]byte("root output"))
+	require.NoError(t, err)
+	require.NoError(t, rootWriter.Close())
+
+	childDAG := &core.DAG{Name: childName}
+	childCtx := dagruntime.NewContext(context.Background(), childDAG, childRunID, "", dagruntime.WithAttemptID(childAttempt), dagruntime.WithRootDAGRun(rootRef))
+	childWriter := reporter.NewStepWriter(childCtx, "child-step", exec.StreamTypeStdout)
+	_, err = childWriter.Write([]byte("child output"))
+	require.NoError(t, err)
+	require.NoError(t, childWriter.Close())
+
+	childLogFile := filepath.Join(t.TempDir(), childRunID+".log")
+	childLog, err := os.OpenFile(childLogFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, childLog.Close())
+	}()
+	childSchedulerWriter := reporter.NewSchedulerLogWriter(childCtx, childLog)
+	_, err = childSchedulerWriter.Write([]byte("child scheduler\n"))
+	require.NoError(t, err)
+	statusPusher := &finalSchedulerLogStatusPusher{
+		finalizer: reporter,
+		pusher: &recordingStatusPusher{
+			push: func(ctx context.Context, status exec.DAGRunStatus) error {
+				require.NoError(t, ctx.Err())
+				require.Equal(t, childRunID, status.DAGRunID)
+				require.Equal(t, childAttempt, status.AttemptID)
+				logStreamsMu.Lock()
+				defer logStreamsMu.Unlock()
+				require.True(t, hasSchedulerFinalChunk(logStreams, childRunID, childName, childAttempt, rootRef), "child scheduler log should be finalized before child terminal status")
+				record("child-terminal-status")
+				return nil
+			},
+		},
+	}
+	require.NoError(t, statusPusher.Push(childCtx, exec.DAGRunStatus{
+		Root:      rootRef,
+		Name:      childName,
+		DAGRunID:  childRunID,
+		AttemptID: childAttempt,
+		Status:    core.Succeeded,
+		Log:       childLogFile,
+	}))
+
+	artifactDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(artifactDir, "out.txt"), []byte("artifact"), 0o600))
+	require.NoError(t, reporter.Finalize(childCtx, childAttempt, artifactDir))
+
+	logStreamsMu.Lock()
+	defer logStreamsMu.Unlock()
+	require.True(t, hasLogChunk(logStreams, rootRunID, rootName, rootAttempt, rootRef, "root-step"), "root step logs should keep root runtime metadata")
+	require.True(t, hasLogChunk(logStreams, childRunID, childName, childAttempt, rootRef, "child-step"), "child step logs should use child runtime metadata")
+	require.True(t, hasSchedulerFinalChunk(logStreams, childRunID, childName, childAttempt, rootRef), "child scheduler final marker should use child runtime metadata")
+
+	artifactMu.Lock()
+	defer artifactMu.Unlock()
+	require.True(t, hasArtifactChunk(artifactStreams, childRunID, childName, childAttempt, rootRef, "out.txt"), "child artifacts should use child runtime metadata")
+	require.Equal(t, []string{"child-terminal-status"}, events)
+}
+
+func TestHandleStart_InitFailureFinalizesSchedulerLogBeforeTerminalStatus(t *testing.T) {
+	const dagRunID = "run-init-failure-final-scheduler-log"
+
+	dagContent := `name: init-failure-final-log
+tools:
+  packages:
+    - name: jq
+      package: jqlang/jq
+      version: jq-1.7.1
+      commands: [jq]
+steps:
+  - name: echo-step
+    run: echo "should not run"
+`
+
+	var (
+		streamsMu sync.Mutex
+		streams   []*mockStreamLogsClient
+	)
+
+	runCtx, cancelRun := context.WithCancel(context.Background())
+	defer cancelRun()
+
+	client := newMockRemoteCoordinatorClient()
+	client.StreamLogsFunc = func(ctx context.Context) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
+		stream := newMockStreamLogsClient()
+		stream.ctx = ctx
+		stream.closeAndRecvFunc = func() (*coordinatorv1.StreamLogsResponse, error) {
+			cancelRun()
+			return &coordinatorv1.StreamLogsResponse{}, nil
+		}
+
+		streamsMu.Lock()
+		streams = append(streams, stream)
+		streamsMu.Unlock()
+
+		return stream, nil
+	}
+
+	var terminalStatusSeen bool
+	client.ReportStatusFunc = func(ctx context.Context, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
+		status, err := convert.ProtoToDAGRunStatus(req.Status)
+		require.NoError(t, err)
+		if status.Status != core.Failed {
+			return &coordinatorv1.ReportStatusResponse{Accepted: true}, nil
+		}
+		terminalStatusSeen = true
+		require.NoError(t, ctx.Err(), "init failure terminal status should use a live context")
+
+		streamsMu.Lock()
+		defer streamsMu.Unlock()
+		foundSchedulerReplay := false
+		for _, stream := range streams {
+			for _, chunk := range stream.snapshotChunks() {
+				if chunk.StreamType == coordinatorv1.LogStreamType_LOG_STREAM_TYPE_SCHEDULER && chunk.IsFinal {
+					foundSchedulerReplay = true
+				}
+			}
+		}
+		require.True(t, foundSchedulerReplay, "scheduler log should be finalized before init failure status is reported")
+
+		return &coordinatorv1.ReportStatusResponse{Accepted: true}, nil
+	}
+
+	handler := &remoteTaskHandler{
+		workerID:          "integration-test-worker",
+		coordinatorClient: client,
+		config: &config.Config{
+			Paths: config.PathsConfig{
+				DAGsDir: t.TempDir(),
+			},
+		},
+	}
+
+	err := handler.handleStart(runCtx, &coordinatorv1.Task{
+		Target:       "init-failure-final-log",
+		Definition:   dagContent,
+		DagRunId:     dagRunID,
+		RootDagRunId: dagRunID,
+		AttemptId:    "attempt-init-failure",
+	}, false)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "tools dir is required")
+	require.True(t, terminalStatusSeen)
+}
+
+func TestExecuteDAGRun_FinalSchedulerLogStreamsBeforeTerminalStatus(t *testing.T) {
+	th := test.Setup(t)
+
+	dagContent := `name: remote-handler-final-scheduler-log
+steps:
+  - name: echo-step
+    run: echo "final scheduler stream"
+`
+	dag := th.DAG(t, dagContent)
+
+	type capturedStream struct {
+		openErr error
+		stream  *mockStreamLogsClient
+	}
+
+	var (
+		streamsMu sync.Mutex
+		streams   []capturedStream
+	)
+
+	client := newMockRemoteCoordinatorClient()
+	client.StreamLogsFunc = func(ctx context.Context) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
+		stream := newMockStreamLogsClient()
+		stream.ctx = ctx
+
+		streamsMu.Lock()
+		streams = append(streams, capturedStream{
+			openErr: ctx.Err(),
+			stream:  stream,
+		})
+		streamsMu.Unlock()
+
+		return stream, nil
+	}
+
+	runCtx, cancelRun := context.WithCancel(th.Context)
+	defer cancelRun()
+
+	var terminalStatusSeen bool
+	var terminalStatusReports int
+	client.ReportStatusFunc = func(_ context.Context, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
+		status, err := convert.ProtoToDAGRunStatus(req.Status)
+		require.NoError(t, err)
+
+		if status.Status != core.Succeeded {
+			return &coordinatorv1.ReportStatusResponse{Accepted: true}, nil
+		}
+		terminalStatusSeen = true
+		terminalStatusReports++
+
+		streamsMu.Lock()
+		defer streamsMu.Unlock()
+
+		var schedulerStreamOpenErr error
+		foundSchedulerFinal := false
+		for _, captured := range streams {
+			for _, chunk := range captured.stream.snapshotChunks() {
+				if chunk.StreamType == coordinatorv1.LogStreamType_LOG_STREAM_TYPE_SCHEDULER && chunk.IsFinal {
+					require.Equal(t, status.AttemptID, chunk.AttemptId)
+					schedulerStreamOpenErr = captured.openErr
+					foundSchedulerFinal = true
+				}
+			}
+		}
+
+		require.True(t, foundSchedulerFinal, "scheduler log should be finalized before terminal status is reported")
+		require.NoError(t, schedulerStreamOpenErr, "scheduler stream should open with a live context")
+
+		cancelRun()
+
+		return &coordinatorv1.ReportStatusResponse{Accepted: true}, nil
+	}
+
+	handler := &remoteTaskHandler{
+		workerID:          "integration-test-worker",
+		coordinatorClient: client,
+		dagStore:          th.DAGStore,
+		dagRunMgr:         th.DAGRunMgr,
+		serviceRegistry:   th.ServiceRegistry,
+		peerConfig:        config.Peer{Insecure: true},
+		config:            th.Config,
+	}
+
+	dagRunID := "run-final-scheduler-log"
+	root := exec.DAGRunRef{Name: dag.Name, ID: dagRunID}
+	statusPusher, logStreamer, artifactUploader := handler.createRemoteHandlers(dagRunID, dag.Name, "", root)
+
+	err := handler.executeDAGRun(runCtx, dag.DAG, dagRunID, "", "", "", root, exec.DAGRunRef{}, exec.HostInfo{}, statusPusher, logStreamer, artifactUploader, false, nil, nil, "")
+	require.NoError(t, err)
+	require.True(t, terminalStatusSeen)
+	require.Equal(t, 1, terminalStatusReports)
+}
+
+func TestExecuteDAGRun_FinalSchedulerLogUsesChildMetadataForLocalSubDAG(t *testing.T) {
+	th := test.Setup(t)
+
+	childCommand := `printf "child stdout\n"
+printf "child stderr\n" >&2`
+	childShell := "/bin/sh"
+	if runtime.GOOS == "windows" {
+		childCommand = `[Console]::Out.WriteLine('child stdout')
+[Console]::Error.WriteLine('child stderr')`
+		childShell = "powershell"
+	}
+	indentedChildCommand := "      " + strings.ReplaceAll(childCommand, "\n", "\n      ")
+
+	const childDAGName = "worker-child-final-log"
+
+	dagContent := fmt.Sprintf(`name: worker-subdag-final-log
+steps:
+  - name: run-child
+    action: dag.run
+    with:
+      dag: %s
+---
+name: %s
+worker_selector: local
+steps:
+  - name: child-step
+    run: |
+%s
+    with:
+      shell: %s
+`, childDAGName, childDAGName, indentedChildCommand, childShell)
+	dag := th.DAG(t, dagContent)
+
+	var (
+		streamsMu sync.Mutex
+		streams   []*mockStreamLogsClient
+
+		childTerminalSeen bool
+		childRunID        string
+		childAttemptID    string
+	)
+
+	client := newMockRemoteCoordinatorClient()
+	client.StreamLogsFunc = func(ctx context.Context) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
+		stream := newMockStreamLogsClient()
+		stream.ctx = ctx
+
+		streamsMu.Lock()
+		streams = append(streams, stream)
+		streamsMu.Unlock()
+
+		return stream, nil
+	}
+
+	root := exec.NewDAGRunRef(dag.Name, "run-local-subdag-final-scheduler-log")
+	client.ReportStatusFunc = func(_ context.Context, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
+		status, err := convert.ProtoToDAGRunStatus(req.Status)
+		require.NoError(t, err)
+
+		if status.Name != childDAGName || status.Status != core.Succeeded {
+			return &coordinatorv1.ReportStatusResponse{Accepted: true}, nil
+		}
+
+		childTerminalSeen = true
+		childRunID = status.DAGRunID
+		childAttemptID = status.AttemptID
+
+		require.NotEmpty(t, childRunID)
+		require.NotEqual(t, root.ID, childRunID)
+		require.NotEmpty(t, childAttemptID)
+		require.Equal(t, root, status.Root)
+		require.Equal(t, exec.NewDAGRunRef(dag.Name, root.ID), status.Parent)
+
+		streamsMu.Lock()
+		defer streamsMu.Unlock()
+		require.True(t, hasSchedulerDataChunk(streams, childRunID, status.Name, childAttemptID, root), "child scheduler log data should be streamed before child terminal status")
+		require.True(t, hasSchedulerFinalChunk(streams, childRunID, status.Name, childAttemptID, root), "child scheduler final marker should be sent before child terminal status")
+
+		return &coordinatorv1.ReportStatusResponse{Accepted: true}, nil
+	}
+
+	handler := &remoteTaskHandler{
+		workerID:          "integration-test-worker",
+		coordinatorClient: client,
+		dagStore:          th.DAGStore,
+		dagRunMgr:         th.DAGRunMgr,
+		serviceRegistry:   th.ServiceRegistry,
+		peerConfig:        config.Peer{Insecure: true},
+		config:            th.Config,
+	}
+
+	require.NoError(t, os.MkdirAll(th.Config.Paths.LogDir, 0o750))
+
+	statusPusher, logStreamer, artifactUploader := handler.createRemoteHandlers(root.ID, dag.Name, "", root)
+	err := handler.executeDAGRun(th.Context, dag.DAG, root.ID, "", "", "", root, exec.DAGRunRef{}, exec.HostInfo{}, statusPusher, logStreamer, artifactUploader, false, nil, nil, "")
+	require.NoError(t, err)
+	require.True(t, childTerminalSeen)
+
+	streamsMu.Lock()
+	defer streamsMu.Unlock()
+	require.True(t, hasStepLogDataChunk(streams, childRunID, childDAGName, childAttemptID, root, "child-step", coordinatorv1.LogStreamType_LOG_STREAM_TYPE_STDOUT), "child stdout chunks should use child metadata")
+	require.True(t, hasStepLogDataChunk(streams, childRunID, childDAGName, childAttemptID, root, "child-step", coordinatorv1.LogStreamType_LOG_STREAM_TYPE_STDERR), "child stderr chunks should use child metadata")
 }
 
 func TestExecuteDAGRun_FailedExecutionStillUploadsArtifacts(t *testing.T) {

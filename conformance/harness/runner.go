@@ -35,7 +35,7 @@ const defaultCommandTimeout = 30 * time.Second
 
 func defaultCommandTimeoutForPlatform() time.Duration {
 	if runtime.GOOS == "windows" {
-		return defaultCommandTimeout * 2
+		return defaultCommandTimeout * 3
 	}
 	return defaultCommandTimeout
 }

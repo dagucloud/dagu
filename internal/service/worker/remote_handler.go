@@ -151,10 +151,10 @@ func (h *remoteTaskHandler) handleStart(ctx context.Context, task *coordinatorv1
 		defer cleanup()
 	}
 
-	statusPusher, logStreamer, artifactUploader := h.createRemoteHandlers(task.DagRunId, dag.Name, root, owner)
+	statusPusher, logStreamer, artifactUploader := h.createRemoteHandlers(task.DagRunId, dag.Name, task.AttemptId, root, owner)
 	err = h.executeDAGRun(ctx, dag, task.DagRunId, task.AttemptId, task.AttemptKey, task.ScheduleTime, root, parent, owner, statusPusher, logStreamer, artifactUploader, queuedRun, nil, taskExtraEnvs(task), task.ProfileName)
 	var initErr *taskInitError
-	if errors.As(err, &initErr) {
+	if errors.As(err, &initErr) && !initErr.reported {
 		h.reportTaskInitFailure(ctx, task, root, parent, statusPusher, initErr.err, task.ProfileName)
 	}
 	return err
@@ -190,7 +190,7 @@ func (h *remoteTaskHandler) handleRetry(ctx context.Context, task *coordinatorv1
 		defer cleanup()
 	}
 
-	statusPusher, logStreamer, artifactUploader := h.createRemoteHandlers(task.DagRunId, dag.Name, root, owner)
+	statusPusher, logStreamer, artifactUploader := h.createRemoteHandlers(task.DagRunId, dag.Name, task.AttemptId, root, owner)
 	triggerType := exec.PreservedQueueTriggerType(status)
 
 	err = h.executeDAGRun(ctx, dag, task.DagRunId, task.AttemptId, task.AttemptKey, task.ScheduleTime, root, parent, owner, statusPusher, logStreamer, artifactUploader, false, &retryConfig{
@@ -199,7 +199,7 @@ func (h *remoteTaskHandler) handleRetry(ctx context.Context, task *coordinatorv1
 		triggerType: triggerType,
 	}, taskExtraEnvs(task), profileName)
 	var initErr *taskInitError
-	if errors.As(err, &initErr) {
+	if errors.As(err, &initErr) && !initErr.reported {
 		h.reportTaskInitFailure(ctx, task, root, parent, statusPusher, initErr.err, profileName)
 	}
 	return err
@@ -255,29 +255,48 @@ func (h *remoteTaskHandler) reportTaskInitFailure(
 		return
 	}
 
+	h.reportDAGRunInitFailure(ctx, task.Target, task.DagRunId, task.AttemptId, task.Params, root, parent, statusPusher, initErr, profileName)
+}
+
+func (h *remoteTaskHandler) reportDAGRunInitFailure(
+	ctx context.Context,
+	target string,
+	dagRunID string,
+	attemptID string,
+	params string,
+	root exec.DAGRunRef,
+	parent exec.DAGRunRef,
+	statusPusher runtime.StatusPusher,
+	initErr error,
+	profileName string,
+) {
+	if statusPusher == nil || initErr == nil {
+		return
+	}
+
 	finishedAt := stringutil.FormatTime(time.Now())
 	logger.Warn(ctx, "Failed to initialize DAG on worker",
-		tag.Target(task.Target),
-		tag.RunID(task.DagRunId),
+		tag.Target(target),
+		tag.RunID(dagRunID),
 		tag.Error(initErr),
 	)
 	status := exec.DAGRunStatus{
 		Root:        root,
 		Parent:      parent,
-		Name:        task.Target,
-		DAGRunID:    task.DagRunId,
-		AttemptID:   task.AttemptId,
+		Name:        target,
+		DAGRunID:    dagRunID,
+		AttemptID:   attemptID,
 		Status:      core.Failed,
 		FinishedAt:  finishedAt,
 		Error:       initErr.Error(),
-		Params:      task.Params,
+		Params:      params,
 		ProfileName: profileName,
 	}
 
 	if err := statusPusher.Push(ctx, status); err != nil {
 		logger.Warn(ctx, "Failed to report init failure status",
-			tag.Target(task.Target),
-			tag.RunID(task.DagRunId),
+			tag.Target(target),
+			tag.RunID(dagRunID),
 			tag.Error(err),
 		)
 	}
@@ -305,7 +324,8 @@ type retryConfig struct {
 }
 
 type taskInitError struct {
-	err error
+	err      error
+	reported bool
 }
 
 func (e *taskInitError) Error() string {
@@ -323,6 +343,13 @@ func newTaskInitError(err error) error {
 	return &taskInitError{err: err}
 }
 
+func newReportedTaskInitError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &taskInitError{err: err, reported: true}
+}
+
 func taskExtraEnvs(task *coordinatorv1.Task) []string {
 	if task == nil || !task.ExternalStepRetry {
 		return nil
@@ -331,31 +358,24 @@ func taskExtraEnvs(task *coordinatorv1.Task) []string {
 }
 
 // createRemoteHandlers creates the remote status, log, and artifact transport handlers.
-func (h *remoteTaskHandler) createRemoteHandlers(dagRunID, dagName string, root exec.DAGRunRef, owner ...exec.HostInfo) (runtime.StatusPusher, runtime.SchedulerLogStreamer, runtime.ArtifactFinalizer) {
+func (h *remoteTaskHandler) createRemoteHandlers(dagRunID, dagName, attemptID string, root exec.DAGRunRef, owner ...exec.HostInfo) (runtime.StatusPusher, runtime.SchedulerLogStreamer, runtime.ArtifactFinalizer) {
 	var target exec.HostInfo
 	if len(owner) > 0 {
 		target = owner[0]
 	}
 	statusPusher := coordreport.NewStatusPusher(h.coordinatorClient, h.workerID, target)
-	logStreamer := coordreport.NewLogStreamer(
+	reporter := newRemoteRunReporter(
 		h.coordinatorClient,
 		h.workerID,
-		dagRunID,
-		dagName,
-		"", // attemptID will be set by agent after attempt creation
-		root,
+		remoteRunMetadata{
+			dagRunID:  dagRunID,
+			dagName:   dagName,
+			attemptID: attemptID,
+			root:      root,
+		},
 		target,
 	)
-	artifactUploader := coordreport.NewArtifactUploader(
-		h.coordinatorClient,
-		h.workerID,
-		dagRunID,
-		dagName,
-		"",
-		root,
-		target,
-	)
-	return statusPusher, logStreamer, artifactUploader
+	return statusPusher, reporter, reporter
 }
 
 // loadDAG loads the DAG from task definition.
@@ -552,13 +572,28 @@ func (h *remoteTaskHandler) executeDAGRun(
 		}
 	}()
 
-	// Create a writer that writes to both local file AND streams to coordinator in real-time.
-	// This enables viewing scheduler logs while the DAG is still running.
+	var schedulerFinalizer schedulerLogStatusFinalizer
+	if reporter, ok := logStreamer.(*remoteRunReporter); ok {
+		if reporter.EnableSchedulerFinalizer(env.logFile) != nil {
+			schedulerFinalizer = reporter
+			if statusPusher != nil {
+				statusPusher = &finalSchedulerLogStatusPusher{
+					pusher:    statusPusher,
+					finalizer: reporter,
+				}
+			}
+		}
+	}
+
+	// Create a scheduler log writer. Remote reporters close it before terminal
+	// status so buffered scheduler chunks and the final marker reach coordinator.
 	var logWriter io.Writer = logFile
 	if logStreamer != nil {
 		streamingWriter := logStreamer.NewSchedulerLogWriter(ctx, logFile)
 		defer func() {
-			if closeErr := streamingWriter.Close(); closeErr != nil {
+			closeCtx, cancel := schedulerLogCloseContext(ctx, remoteSchedulerLogFinalizeTimeout)
+			defer cancel()
+			if closeErr := closeSchedulerLogWriter(closeCtx, streamingWriter); closeErr != nil {
 				logger.Warn(ctx, "Failed to close scheduler log streamer", tag.Error(closeErr))
 			}
 		}()
@@ -572,6 +607,16 @@ func (h *remoteTaskHandler) executeDAGRun(
 
 	toolEnvs, err := h.prepareDAGTools(ctx, dag)
 	if err != nil {
+		if schedulerFinalizer != nil && statusPusher != nil {
+			target := dagRunID
+			params := ""
+			if dag != nil {
+				target = dag.Name
+				params = strings.Join(dag.Params, " ")
+			}
+			h.reportDAGRunInitFailure(ctx, target, dagRunID, attemptID, params, root, parent, statusPusher, err, profileName)
+			return newReportedTaskInitError(err)
+		}
 		return newTaskInitError(err)
 	}
 	extraEnvs = append(extraEnvs, toolEnvs...)
