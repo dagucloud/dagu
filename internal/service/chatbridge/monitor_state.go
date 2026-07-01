@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/service/eventstore"
 )
 
@@ -83,7 +84,7 @@ func (s *notificationStateStore) Load(_ context.Context) notificationStateLoadRe
 		return result
 	}
 
-	data, err := os.ReadFile(filepath.Clean(s.path))
+	data, err := fileutil.ReadFile(filepath.Clean(s.path))
 	if err != nil {
 		if os.IsNotExist(err) {
 			result.Missing = true
@@ -132,7 +133,7 @@ func (s *notificationStateStore) Save(_ context.Context, state notificationMonit
 		_ = os.Remove(tmp)
 		return err
 	}
-	if err := os.Rename(tmp, s.path); err != nil {
+	if err := fileutil.ReplaceFile(tmp, s.path); err != nil {
 		_ = os.Remove(tmp)
 		return fmt.Errorf("rename notification state: %w", err)
 	}
@@ -165,7 +166,7 @@ func (s *notificationStateStore) quarantineCorruptStateFile() (string, error) {
 		return "", nil
 	}
 	quarantinedPath := fmt.Sprintf("%s.corrupt.%s", s.path, time.Now().UTC().Format("20060102T150405.000000000Z"))
-	if err := os.Rename(s.path, quarantinedPath); err != nil {
+	if err := fileutil.Rename(s.path, quarantinedPath); err != nil {
 		if os.IsNotExist(err) {
 			return "", nil
 		}
