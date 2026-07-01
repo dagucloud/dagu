@@ -99,7 +99,7 @@ Minimum `data` models:
 
 | Model | Required shape |
 | --- | --- |
-| Reference collection | `data.items` is an array. Each item has `name` string, `uri` string, and `mimeType` string. The array includes `authoring`, `tools`, and `notifications`. |
+| Reference collection | `data.items` is an array. Each item has `name` string, `uri` string, and `mimeType` string. The array includes `authoring`, `tools`, `read-tool`, `change-tool`, `execute-tool`, and `notifications`. |
 | Reference topic | `data.mimeType` is `text/markdown`; `data.text` is the Markdown content string. |
 | DAG collection | `data.items` is an array. Each item has `name` string and `uri` string. `uri` is the canonical `dagu://dags/{name}/spec` URI for that DAG. |
 | DAG detail | `data.name` is the DAG name string. `data.specUri` is the canonical `dagu://dags/{name}/spec` URI. |
