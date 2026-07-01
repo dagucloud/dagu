@@ -476,7 +476,7 @@ func validateReadQuery(target, rawQuery string, uriMode bool, rawURI string) *re
 		if !isAllowedReadQueryParam(target, key) {
 			return readQueryError(target, uriMode, rawURI, "Unsupported query parameter.")
 		}
-		if len(rawValues) > 1 && !(target == readTargetRuns && key == "status") {
+		if len(rawValues) > 1 && (target != readTargetRuns || key != "status") {
 			return readQueryError(target, uriMode, rawURI, "Query parameter must not be repeated.")
 		}
 		for _, rawValue := range rawValues {
