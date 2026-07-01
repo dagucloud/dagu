@@ -70,6 +70,7 @@ func changeToolInputSchema() json.RawMessage {
 				"description": "DAG YAML document to validate and optionally store."
 			}
 		},
+		"required": ["name", "spec"],
 		"additionalProperties": false
 	}`)
 }
