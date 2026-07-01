@@ -1487,14 +1487,14 @@ func TestLogStreamer_StepOutputMirrorsToSchedulerLog(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, scheduler.Close())
 
-		var schedulerLog string
+		var schedulerLog strings.Builder
 		for _, chunk := range retryStream.getSentChunks() {
 			if chunk.StreamType == coordinatorv1.LogStreamType_LOG_STREAM_TYPE_SCHEDULER &&
 				!chunk.IsFinal {
-				schedulerLog += string(chunk.Data)
+				schedulerLog.WriteString(string(chunk.Data))
 			}
 		}
-		assert.Equal(t, first+second, schedulerLog)
+		assert.Equal(t, first+second, schedulerLog.String())
 	})
 }
 
