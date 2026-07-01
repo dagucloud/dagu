@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -1172,6 +1173,118 @@ func TestLogStreamer_StdoutAndStderr(t *testing.T) {
 	}
 	assert.True(t, hasStdout)
 	assert.True(t, hasStderr)
+}
+
+func TestLogStreamer_StepOutputMirrorsToSchedulerLog(t *testing.T) {
+	t.Parallel()
+
+	t.Run("successful step sends", func(t *testing.T) {
+		mockStream := &mockStreamLogsClient{}
+		client := &logStreamerMockClient{
+			streamLogsFunc: func(_ context.Context) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
+				return mockStream, nil
+			},
+		}
+		streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", exec.DAGRunRef{})
+
+		localFile, err := os.CreateTemp(t.TempDir(), "scheduler-*.log")
+		require.NoError(t, err)
+		defer func() { _ = localFile.Close() }()
+
+		scheduler := streamer.NewSchedulerLogWriter(context.Background(), localFile)
+		stdout := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout)
+		stderr := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStderr)
+
+		const schedulerData = "scheduler live data\n"
+		const stdoutData = "stdout mirror data\n"
+		const stderrData = "stderr mirror data\n"
+
+		_, err = scheduler.Write([]byte(schedulerData))
+		require.NoError(t, err)
+		_, err = stdout.Write([]byte(stdoutData))
+		require.NoError(t, err)
+		_, err = stderr.Write([]byte(stderrData))
+		require.NoError(t, err)
+
+		require.NoError(t, stdout.Close())
+		require.NoError(t, stderr.Close())
+		require.NoError(t, scheduler.Close())
+
+		logData, err := os.ReadFile(localFile.Name())
+		require.NoError(t, err)
+		logContent := string(logData)
+		assert.Equal(t, 1, strings.Count(logContent, stdoutData))
+		assert.Equal(t, 1, strings.Count(logContent, stderrData))
+
+		chunks := mockStream.getSentChunks()
+		var stdoutChunk, stderrChunk bool
+		var schedulerChunks []string
+		for _, chunk := range chunks {
+			switch {
+			case chunk.StreamType == coordinatorv1.LogStreamType_LOG_STREAM_TYPE_STDOUT &&
+				string(chunk.Data) == stdoutData:
+				stdoutChunk = true
+			case chunk.StreamType == coordinatorv1.LogStreamType_LOG_STREAM_TYPE_STDERR &&
+				string(chunk.Data) == stderrData:
+				stderrChunk = true
+			case chunk.StreamType == coordinatorv1.LogStreamType_LOG_STREAM_TYPE_SCHEDULER &&
+				!chunk.IsFinal:
+				schedulerChunks = append(schedulerChunks, string(chunk.Data))
+			}
+		}
+		assert.True(t, stdoutChunk)
+		assert.True(t, stderrChunk)
+		assert.Equal(t, []string{schedulerData}, schedulerChunks)
+	})
+
+	t.Run("failed step send still mirrors for replay", func(t *testing.T) {
+		stepStream := &mockStreamLogsClient{sendErr: errors.New("step send failed")}
+		schedulerStream := &mockStreamLogsClient{}
+		var streamCalls int
+		client := &logStreamerMockClient{
+			streamLogsFunc: func(_ context.Context) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
+				streamCalls++
+				if streamCalls == 1 {
+					return stepStream, nil
+				}
+				return schedulerStream, nil
+			},
+		}
+		streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", exec.DAGRunRef{})
+
+		localFile, err := os.CreateTemp(t.TempDir(), "scheduler-*.log")
+		require.NoError(t, err)
+		defer func() { _ = localFile.Close() }()
+
+		scheduler := streamer.NewSchedulerLogWriter(context.Background(), localFile)
+		stdout := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout)
+
+		const schedulerData = "scheduler live data\n"
+		const marker = "failed step marker\n"
+		require.Less(t, len(marker), coordreport.LogBufferSize)
+		stepData := marker + strings.Repeat("x", coordreport.LogBufferSize-len(marker))
+
+		_, err = scheduler.Write([]byte(schedulerData))
+		require.NoError(t, err)
+		_, err = stdout.Write([]byte(stepData))
+		require.NoError(t, err)
+
+		_ = stdout.Close()
+		require.NoError(t, scheduler.Close())
+
+		logData, err := os.ReadFile(localFile.Name())
+		require.NoError(t, err)
+		assert.Equal(t, 1, strings.Count(string(logData), marker))
+
+		var schedulerChunks []string
+		for _, chunk := range schedulerStream.getSentChunks() {
+			if chunk.StreamType == coordinatorv1.LogStreamType_LOG_STREAM_TYPE_SCHEDULER &&
+				!chunk.IsFinal {
+				schedulerChunks = append(schedulerChunks, string(chunk.Data))
+			}
+		}
+		assert.Equal(t, []string{schedulerData}, schedulerChunks)
+	})
 }
 
 func TestLogStreamer_LargeOutput(t *testing.T) {
