@@ -1898,6 +1898,41 @@ func TestFinalSchedulerLogStatusPusher_BoundsSchedulerLogFinalization(t *testing
 	}
 }
 
+func TestSchedulerLogFinalizerEntry_FinalizeBeforeWriterDoesNotConsumeOnce(t *testing.T) {
+	const (
+		dagName  = "late-scheduler-writer"
+		dagRunID = "run-late-scheduler-writer"
+	)
+
+	finalizer := newSchedulerLogFinalizer()
+	entry := finalizer.register(remoteRunMetadata{
+		dagRunID: dagRunID,
+		dagName:  dagName,
+		root:     exec.NewDAGRunRef(dagName, dagRunID),
+	}, filepath.Join(t.TempDir(), "scheduler.log"))
+	require.NotNil(t, entry)
+
+	ran, err := entry.finalizeLog(context.Background())
+	require.NoError(t, err)
+	require.False(t, ran)
+
+	var closes int
+	entry.trackWriter(schedulerLogContextCloserFunc(func(context.Context) error {
+		closes++
+		return nil
+	}))
+
+	ran, err = entry.finalizeLog(context.Background())
+	require.NoError(t, err)
+	require.True(t, ran)
+	require.Equal(t, 1, closes)
+
+	ran, err = entry.finalizeLog(context.Background())
+	require.NoError(t, err)
+	require.False(t, ran)
+	require.Equal(t, 1, closes)
+}
+
 func TestRemoteRunReporter_SchedulerWriterCloseUsesLiveStream(t *testing.T) {
 	const (
 		dagName   = "local-scheduler-log"

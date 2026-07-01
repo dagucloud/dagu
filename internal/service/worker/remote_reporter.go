@@ -440,15 +440,16 @@ func (e *schedulerLogFinalizerEntry) finalizeLog(ctx context.Context) (bool, err
 		return false, nil
 	}
 
+	e.writerMu.Lock()
+	writer := e.writer
+	e.writerMu.Unlock()
+	if writer == nil {
+		return false, nil
+	}
+
 	var ran bool
 	e.finalize.Do(func() {
 		ran = true
-		e.writerMu.Lock()
-		writer := e.writer
-		e.writerMu.Unlock()
-		if writer == nil {
-			return
-		}
 		closeCtx, cancel := schedulerLogCloseContext(ctx, e.timeout)
 		defer cancel()
 		e.finalizeErr = closeSchedulerLogWriter(closeCtx, writer)
