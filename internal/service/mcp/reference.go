@@ -71,7 +71,145 @@ The server intentionally exposes three tools.
 - dagu_change: preview or apply a DAG YAML upsert.
 - dagu_execute: start, enqueue, retry, or stop a DAG-run.
 
+Detailed tool references:
+
+- dagu://reference/read-tool: dagu_read inputs, targets, URI mode, query parameters, outputs, and errors.
+- dagu://reference/change-tool: dagu_change preview and apply contract for DAG YAML upsert.
+- dagu://reference/execute-tool: dagu_execute start, enqueue, retry, and stop contract.
+
 Use dagu_execute action=retry with name and dagRunId for retry. Use action=stop with name and dagRunId for stop. Use action=start or action=enqueue with targetType=dag for a stored DAG, or targetType=inline_spec with spec for an ad hoc run.`,
+		},
+		{
+			topic:       "read-tool",
+			uri:         "dagu://reference/read-tool",
+			name:        "dagu_mcp_read_tool_reference",
+			title:       "Dagu MCP read tool",
+			description: "Detailed dagu_read input, output, and error reference.",
+			text: `# dagu_read reference
+
+Purpose: read Dagu state and built-in reference content. The tool is read-only.
+
+Addressing:
+
+- Target mode uses target plus target-specific fields.
+- URI mode uses uri and forbids target, name, dagRunId, and query.
+
+Fields:
+
+- target: required in target mode. Values are references, reference, dags, dag, dag_spec, runs, run, and run_logs.
+- name: DAG name or reference topic name. Required for dag, dag_spec, run, and run_logs. Optional for reference; defaults to authoring. Forbidden for references, dags, and runs.
+- dagRunId: required for run and run_logs. Forbidden for other targets.
+- query: URL query string without a leading question mark. Allowed for dags, runs, and run_logs.
+- uri: dagu:// resource URI for URI mode.
+
+Targets:
+
+- references lists built-in reference topics.
+- reference reads one Markdown reference topic.
+- dags lists DAGs.
+- dag reads DAG details.
+- dag_spec reads the current DAG YAML.
+- runs lists DAG-runs.
+- run reads one DAG-run.
+- run_logs reads scheduler and step log metadata.
+
+Query parameters:
+
+- dags: page, perPage, name, labels, sort, order.
+- runs: name, dagRunId, status, fromDate, toDate, limit, cursor, labels. status may repeat.
+- run_logs: tail.
+
+Output:
+
+- Successful result text is Dagu read completed.
+- Structured output has target, data, references, and uri when the read has a canonical resource URI.
+- Reference URIs in references point to built-in guidance resources.
+
+Errors:
+
+- invalid_tool_input for malformed target-mode input.
+- invalid_resource_uri for malformed URI-mode input.
+- unsupported_read_target for unknown target.
+- unsupported_resource for unknown dagu:// family.
+- resource_not_found, resource_unavailable, or internal_error for runtime failures.`,
+		},
+		{
+			topic:       "change-tool",
+			uri:         "dagu://reference/change-tool",
+			name:        "dagu_mcp_change_tool_reference",
+			title:       "Dagu MCP change tool",
+			description: "Detailed dagu_change input, output, and error reference.",
+			text: `# dagu_change reference
+
+Purpose: validate or write a DAG YAML upsert.
+
+Fields:
+
+- mode: preview or apply. Defaults to preview.
+- type: change type. The supported value is upsert_dag. Defaults to upsert_dag.
+- name: target DAG name. Required.
+- spec: DAG YAML document. Required.
+
+Mode behavior:
+
+- preview validates the spec and returns validation output without writing a DAG.
+- apply validates the spec and writes the DAG only when validation succeeds.
+- apply returns whether the DAG was created or updated.
+
+Output:
+
+- Successful result text is Dagu change completed.
+- Structured output has mode, type, dagName, valid, errors, applied, references, and DAG data when validation succeeds.
+- dagUri is present when the DAG spec resource can be identified.
+
+Errors:
+
+- invalid_tool_input for missing fields, unknown mode, unknown type, malformed input, or validation failure shape that cannot be represented.
+- unauthorized when the caller cannot perform the requested write.
+- internal_error for unexpected failures.`,
+		},
+		{
+			topic:       "execute-tool",
+			uri:         "dagu://reference/execute-tool",
+			name:        "dagu_mcp_execute_tool_reference",
+			title:       "Dagu MCP execute tool",
+			description: "Detailed dagu_execute input, output, and error reference.",
+			text: `# dagu_execute reference
+
+Purpose: control DAG execution through start, enqueue, retry, and stop actions.
+
+Fields:
+
+- action: required. Values are start, enqueue, retry, and stop.
+- targetType: dag, inline_spec, or run. Defaults to run for retry and stop, inline_spec when spec is present, otherwise dag.
+- name: DAG name. Required for stored DAG runs and run actions.
+- spec: inline DAG YAML for targetType=inline_spec.
+- dagRunId: DAG-run identifier. Required for retry and stop. Optional override for start and enqueue.
+- params: run parameters string for start and enqueue.
+- queue: queue name for enqueue.
+- singleton: singleton run flag for start and enqueue.
+- labels: labels for start and enqueue.
+- stepName: optional failed step name for retry.
+
+Action behavior:
+
+- start runs a stored DAG when targetType=dag and runs an inline spec when targetType=inline_spec.
+- enqueue enqueues a stored DAG or inline spec.
+- retry retries an existing DAG-run and may target a step with stepName.
+- stop stops an existing DAG-run.
+
+Output:
+
+- Successful result text is Dagu execute completed.
+- Structured output has action, targetType, dagName, dagRunId, and references.
+- When a run is identified, output includes runUri, logsUri, and subscribe guidance.
+
+Errors:
+
+- invalid_tool_input for missing fields, unknown action, unsupported targetType, or malformed input.
+- unauthorized when the caller cannot perform the requested execution operation.
+- resource_not_found when the named DAG or DAG-run does not exist.
+- resource_unavailable or internal_error for runtime failures.`,
 		},
 		{
 			topic:       "notifications",
@@ -92,9 +230,12 @@ Clients without resource subscription support should poll dagu_read target=run w
 
 func defaultReferenceURIs() []string {
 	refs := referenceResources()
-	uris := make([]string, 0, len(refs))
+	uris := make([]string, 0, 3)
 	for _, ref := range refs {
-		uris = append(uris, ref.uri)
+		switch ref.topic {
+		case "authoring", "tools", "notifications":
+			uris = append(uris, ref.uri)
+		}
 	}
 	return uris
 }

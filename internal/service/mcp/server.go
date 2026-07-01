@@ -88,14 +88,6 @@ func NewServer(api *frontendapi.API) *mcpsdk.Server {
 	return server
 }
 
-type readInput struct {
-	Target   string `json:"target" jsonschema:"Read target: dags, dag, dag_spec, runs, run, run_logs, or reference."`
-	Name     string `json:"name,omitempty" jsonschema:"DAG name for dag, dag_spec, run, and run_logs targets."`
-	DAGRunID string `json:"dagRunId,omitempty" jsonschema:"DAG-run ID for run and run_logs targets. The value latest is accepted where Dagu accepts it."`
-	Query    string `json:"query,omitempty" jsonschema:"URL query string for list targets, for example page=1&perPage=100 or status=running."`
-	URI      string `json:"uri,omitempty" jsonschema:"Resource URI to read directly, for example dagu://reference/authoring."`
-}
-
 type changeInput struct {
 	Mode string `json:"mode,omitempty" jsonschema:"preview or apply. Defaults to preview."`
 	Type string `json:"type,omitempty" jsonschema:"Change type. Currently upsert_dag."`
@@ -120,10 +112,11 @@ func registerTools(server *mcpsdk.Server, svc *Service) {
 	falsePtr := new(false)
 	truePtr := new(true)
 
-	mcpsdk.AddTool(server, &mcpsdk.Tool{
+	server.AddTool(&mcpsdk.Tool{
 		Name:        toolRead,
 		Title:       "Read Dagu state",
 		Description: "Read DAG specs, DAG details, DAG-run details, logs, list views, and Dagu MCP reference resources.",
+		InputSchema: readToolInputSchema(),
 		Annotations: &mcpsdk.ToolAnnotations{
 			OpenWorldHint: falsePtr,
 			ReadOnlyHint:  true,
@@ -219,98 +212,6 @@ func registerPrompts(server *mcpsdk.Server) {
 			{Name: "dagRunId", Description: "DAG-run ID.", Required: true},
 		},
 	}, promptDebugRun)
-}
-
-func (svc *Service) readTool(ctx context.Context, req *mcpsdk.CallToolRequest, input readInput) (*mcpsdk.CallToolResult, map[string]any, error) {
-	return auditToolCall(ctx, svc.api, req, toolRead, readAuditMetadata(input), func(ctx context.Context) (*mcpsdk.CallToolResult, map[string]any, error) {
-		return svc.readToolImpl(ctx, input)
-	})
-}
-
-func (svc *Service) readToolImpl(ctx context.Context, input readInput) (*mcpsdk.CallToolResult, map[string]any, error) {
-	target := strings.TrimSpace(input.Target)
-	if target == "" && input.URI != "" {
-		target = "reference"
-	}
-
-	var (
-		data any
-		uri  string
-		err  error
-	)
-
-	switch target {
-	case "reference":
-		uri = input.URI
-		if uri == "" {
-			topic := strings.TrimSpace(input.Name)
-			if topic == "" {
-				topic = "authoring"
-			}
-			uri = "dagu://reference/" + pathEscape(topic)
-		}
-		content, mime, readErr := svc.readResourceText(ctx, uri)
-		if readErr != nil {
-			return nil, nil, readErr
-		}
-		data = map[string]any{"text": content, "mimeType": mime}
-	case "dags":
-		if err = svc.requireAPI(); err == nil {
-			data, err = svc.api.GetDAGsListData(ctx, input.Query)
-		}
-	case "dag":
-		if err = requireName(input.Name); err == nil {
-			if err = svc.requireAPI(); err == nil {
-				data, err = svc.api.GetDAGDetailsData(ctx, input.Name)
-				uri = dagSpecURI(input.Name)
-			}
-		}
-	case "dag_spec":
-		if err = requireName(input.Name); err == nil {
-			if err = svc.requireAPI(); err == nil {
-				data, err = svc.getDAGSpec(ctx, input.Name)
-				uri = dagSpecURI(input.Name)
-			}
-		}
-	case "runs":
-		if err = svc.requireAPI(); err == nil {
-			data, err = svc.api.GetDAGRunsListData(ctx, input.Query)
-		}
-	case "run":
-		if err = requireRun(input.Name, input.DAGRunID); err == nil {
-			if err = svc.requireAPI(); err == nil {
-				data, err = svc.api.GetDAGRunDetailsData(ctx, input.Name+"/"+input.DAGRunID)
-				uri = runURI(input.Name, input.DAGRunID)
-			}
-		}
-	case "run_logs":
-		if err = requireRun(input.Name, input.DAGRunID); err == nil {
-			if err = svc.requireAPI(); err == nil {
-				identifier := input.Name + "/" + input.DAGRunID
-				if input.Query != "" {
-					identifier += "?" + input.Query
-				}
-				data, err = svc.api.GetDAGRunLogsData(ctx, identifier)
-				uri = runLogsURIWithQuery(input.Name, input.DAGRunID, input.Query)
-			}
-		}
-	default:
-		err = fmt.Errorf("unknown read target %q", input.Target)
-	}
-	if err != nil {
-		return nil, nil, err
-	}
-
-	output := map[string]any{
-		"target":     target,
-		"data":       data,
-		"references": defaultReferenceURIs(),
-	}
-	if uri != "" {
-		output["uri"] = uri
-	}
-
-	return resultWithLinks("Dagu read completed.", linksForURI(uri)...), output, nil
 }
 
 func (svc *Service) changeTool(ctx context.Context, req *mcpsdk.CallToolRequest, input changeInput) (*mcpsdk.CallToolResult, map[string]any, error) {
@@ -994,53 +895,6 @@ func resultWithLinks(message string, links ...resourceLink) *mcpsdk.CallToolResu
 		})
 	}
 	return &mcpsdk.CallToolResult{Content: content}
-}
-
-func linksForURI(uri string) []resourceLink {
-	if uri == "" {
-		return nil
-	}
-	parsed, err := url.Parse(uri)
-	if err != nil {
-		return nil
-	}
-	switch parsed.Host {
-	case "dags":
-		segments, err := uriPathSegments(parsed)
-		if err != nil || len(segments) != 2 {
-			return nil
-		}
-		return []resourceLink{linkForDAGSpec(segments[0])}
-	case "runs":
-		segments, err := uriPathSegments(parsed)
-		if err != nil || len(segments) < 2 {
-			return nil
-		}
-		if len(segments) == 3 && segments[2] == "logs" {
-			return []resourceLink{{
-				uri:         uri,
-				name:        "dag_run_logs",
-				title:       "DAG-run logs",
-				description: "Logs for this DAG-run.",
-				mimeType:    resourceMIMEJSON,
-			}}
-		}
-		return []resourceLink{{
-			uri:         uri,
-			name:        "dag_run",
-			title:       "DAG-run details",
-			description: "DAG-run details.",
-			mimeType:    resourceMIMEJSON,
-		}}
-	default:
-		return []resourceLink{{
-			uri:         uri,
-			name:        "dagu_reference",
-			title:       "Dagu reference",
-			description: "Dagu MCP reference.",
-			mimeType:    resourceMIMEText,
-		}}
-	}
 }
 
 func linkForDAGSpec(name string) resourceLink {

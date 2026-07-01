@@ -98,16 +98,15 @@ func waitForStoredDAGRunStatus(
 	t.Helper()
 
 	ref := exec.NewDAGRunRef(dagName, dagRunID)
-	// Read persisted status through a fresh store without the long-lived server cache.
-	// API tests intentionally verify out-of-band status writes (approve/reject/reschedule),
-	// so cached reads can hide valid cross-process updates on Windows.
-	store := dagrun.New(
-		server.Config.Paths.DAGRunsDir,
-		dagrun.WithLatestStatusToday(server.Config.Server.LatestStatusToday),
-		dagrun.WithLocation(server.Config.Core.Location),
-	)
 	var status *exec.DAGRunStatus
 	require.Eventually(t, func() bool {
+		// Create the store inside the poll so attempt discovery can observe a
+		// retry/resume attempt created after polling starts.
+		store := dagrun.New(
+			server.Config.Paths.DAGRunsDir,
+			dagrun.WithLatestStatusToday(server.Config.Server.LatestStatusToday),
+			dagrun.WithLocation(server.Config.Core.Location),
+		)
 		attempt, err := store.FindAttempt(server.Context, ref)
 		if err != nil {
 			return false
@@ -133,13 +132,13 @@ func waitForStoredSubDAGRunStatus(
 ) *exec.DAGRunStatus {
 	t.Helper()
 
-	store := dagrun.New(
-		server.Config.Paths.DAGRunsDir,
-		dagrun.WithLatestStatusToday(server.Config.Server.LatestStatusToday),
-		dagrun.WithLocation(server.Config.Core.Location),
-	)
 	var status *exec.DAGRunStatus
 	require.Eventually(t, func() bool {
+		store := dagrun.New(
+			server.Config.Paths.DAGRunsDir,
+			dagrun.WithLatestStatusToday(server.Config.Server.LatestStatusToday),
+			dagrun.WithLocation(server.Config.Core.Location),
+		)
 		attempt, err := store.FindSubAttempt(server.Context, root, subDAGRunID)
 		if err != nil {
 			return false

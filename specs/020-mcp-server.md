@@ -126,6 +126,8 @@ Rules:
 
 - Reference collection resources return the available reference resource URIs
   and titles or descriptions when available.
+- The built-in reference topic set includes `authoring`, `tools`,
+  `read-tool`, `change-tool`, `execute-tool`, and `notifications`.
 - Reference topic resources return Markdown text owned by the Dagu MCP server.
 - DAG collection resources return a paginated or bounded list of DAG summaries
   visible to the caller.
@@ -204,6 +206,14 @@ Built-in reference topic:
 
 ```text
 dagu://reference/authoring
+```
+
+Detailed tool reference topics:
+
+```text
+dagu://reference/read-tool
+dagu://reference/change-tool
+dagu://reference/execute-tool
 ```
 
 DAG collection with list filters:
