@@ -1597,6 +1597,27 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 
 	latestAttempt, latestStatus, err := h.resolveLatestAttempt(ctx, dagRunStatus.Name, dagRunStatus.DAGRunID, dagRunStatus.Root)
 	if err != nil {
+		bootstrappedAttempt, bootstrapped, bootstrapErr := h.bootstrapMissingSubAttempt(ctx, req.WorkerId, dagRunStatus, err)
+		if bootstrapErr != nil {
+			return nil, status.Error(codes.Internal, "failed to bootstrap sub-attempt: "+bootstrapErr.Error())
+		}
+		if bootstrapped {
+			h.transformLogPaths(dagRunStatus)
+			if err := h.transformArtifactPaths(ctx, bootstrappedAttempt, nil, dagRunStatus); err != nil {
+				return nil, status.Error(codes.Internal, "failed to resolve artifact path: "+err.Error())
+			}
+			if err := bootstrappedAttempt.Write(ctx, *dagRunStatus); err != nil {
+				return nil, status.Error(codes.Internal, "failed to write status: "+err.Error())
+			}
+
+			h.persistChatMessages(ctx, bootstrappedAttempt, dagRunStatus)
+
+			ownership := h.distributedAttempts()
+			ownership.syncFromStatus(ctx, req.WorkerId, dagRunStatus, bootstrappedAttempt.ID())
+			h.finalizeAdmissionForStatus(ctx, dagRunStatus, bootstrappedAttempt.ID())
+
+			return &coordinatorv1.ReportStatusResponse{Accepted: true}, nil
+		}
 		if errors.Is(err, exec.ErrDAGRunIDNotFound) || errors.Is(err, exec.ErrNoStatusData) {
 			logRejectedRemoteStatusUpdate(ctx, req.WorkerId, dagRunStatus, nil, remoteAttemptRejectedLeaseInactive)
 			return &coordinatorv1.ReportStatusResponse{
@@ -1643,6 +1664,98 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 	// the agent may push the same terminal status multiple times from different
 	// code paths. Attempts are cleaned up during coordinator shutdown.
 	return &coordinatorv1.ReportStatusResponse{Accepted: true}, nil
+}
+
+func (h *Handler) bootstrapMissingSubAttempt(
+	ctx context.Context,
+	workerID string,
+	runStatus *exec.DAGRunStatus,
+	resolveErr error,
+) (exec.DAGRunAttempt, bool, error) {
+	if !errors.Is(resolveErr, exec.ErrDAGRunIDNotFound) || runStatus == nil {
+		return nil, false, nil
+	}
+
+	rootRef := runStatus.Root
+	if rootRef.ID == "" || rootRef.Name == "" || rootRef.ID == runStatus.DAGRunID {
+		return nil, false, nil
+	}
+	if runStatus.Name == "" || runStatus.DAGRunID == "" {
+		return nil, false, nil
+	}
+
+	reportingWorkerID, ok := remoteWorkerIDForBootstrap(runStatus, workerID)
+	if !ok {
+		return nil, false, nil
+	}
+
+	rootAttempt, err := h.dagRunStore.FindAttempt(ctx, rootRef)
+	if err != nil {
+		if errors.Is(err, exec.ErrDAGRunIDNotFound) {
+			return nil, false, nil
+		}
+		return nil, false, fmt.Errorf("find root attempt: %w", err)
+	}
+	rootStatus, err := rootAttempt.ReadStatus(ctx)
+	if err != nil {
+		if errors.Is(err, exec.ErrNoStatusData) {
+			return nil, false, nil
+		}
+		return nil, false, fmt.Errorf("read root status: %w", err)
+	}
+	if rootStatus == nil || isTerminalRunStatus(rootStatus.Status) {
+		return nil, false, nil
+	}
+
+	attempt, err := h.dagRunStore.CreateSubAttempt(ctx, rootRef, runStatus.DAGRunID)
+	if err != nil {
+		return nil, false, fmt.Errorf("create sub-attempt: %w", err)
+	}
+	attempt.SetDAG(&core.DAG{Name: runStatus.Name})
+	if err := attempt.Open(ctx); err != nil {
+		return nil, false, fmt.Errorf("open sub-attempt: %w", err)
+	}
+
+	attemptID := runStatus.AttemptID
+	if attemptID == "" {
+		attemptID = attempt.ID()
+		runStatus.AttemptID = attemptID
+	}
+	runStatus.AttemptKey = exec.GenerateAttemptKey(
+		rootRef.Name,
+		rootRef.ID,
+		runStatus.Name,
+		runStatus.DAGRunID,
+		attemptID,
+	)
+	if runStatus.WorkerID == "" {
+		runStatus.WorkerID = reportingWorkerID
+	}
+
+	h.attemptsMu.Lock()
+	h.openAttempts[runStatus.DAGRunID] = attempt
+	h.attemptsMu.Unlock()
+
+	return attempt, true, nil
+}
+
+func remoteWorkerIDForBootstrap(runStatus *exec.DAGRunStatus, fallbackWorkerID string) (string, bool) {
+	if runStatus == nil {
+		return "", false
+	}
+	if runStatus.WorkerID != "" {
+		if !exec.IsRemoteWorkerID(runStatus.WorkerID) {
+			return "", false
+		}
+		if fallbackWorkerID != "" && fallbackWorkerID != runStatus.WorkerID {
+			return "", false
+		}
+		return runStatus.WorkerID, true
+	}
+	if !exec.IsRemoteWorkerID(fallbackWorkerID) {
+		return "", false
+	}
+	return fallbackWorkerID, true
 }
 
 func (h *Handler) sameAttemptCancellationRequested(

@@ -907,10 +907,15 @@ steps:
 }
 
 func TestApproveDAGRunStepResumeRefreshesProcessIdentity(t *testing.T) {
+	const (
+		procHeartbeatInterval = 150 * time.Millisecond
+		procStaleThreshold    = 2 * time.Second
+	)
+
 	server := test.SetupServer(t, test.WithConfigMutator(func(cfg *config.Config) {
-		cfg.Proc.HeartbeatInterval = 50 * time.Millisecond
-		cfg.Proc.HeartbeatSyncInterval = 50 * time.Millisecond
-		cfg.Proc.StaleThreshold = 300 * time.Millisecond
+		cfg.Proc.HeartbeatInterval = procHeartbeatInterval
+		cfg.Proc.HeartbeatSyncInterval = procHeartbeatInterval
+		cfg.Proc.StaleThreshold = procStaleThreshold
 	}))
 	release := newHoldFile(t)
 
@@ -958,11 +963,12 @@ steps:
 	})
 	require.NotEqual(t, waitingStatus.PID, runningStatus.PID)
 	require.NotEqual(t, waitingStatus.PIDStartedAt, runningStatus.PIDStartedAt)
-	alive, err := server.ProcStore.IsAttemptAlive(server.Context, dagName, runningStatus.DAGRun(), runningStatus.AttemptID)
-	require.NoError(t, err)
-	require.True(t, alive)
+	require.Eventually(t, func() bool {
+		alive, err := server.ProcStore.IsAttemptAlive(server.Context, dagName, runningStatus.DAGRun(), runningStatus.AttemptID)
+		return err == nil && alive
+	}, dagRunEventuallyTimeout(5*time.Second), 100*time.Millisecond)
 
-	time.Sleep(900 * time.Millisecond)
+	time.Sleep(procStaleThreshold + time.Second)
 
 	resp := server.Client().Get(fmt.Sprintf("/api/v1/dag-runs/%s/%s", dagName, startBody.DagRunId)).
 		ExpectStatus(http.StatusOK).

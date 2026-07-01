@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/test/intgharness"
 	"github.com/stretchr/testify/require"
@@ -213,6 +214,52 @@ steps:
 
 		st := agent.Status(f.coord.Context)
 		require.NotEqual(t, core.Succeeded, st.Status)
+	})
+}
+
+func TestParallel_ForceLocalSubDAGsFromDistributedWorker(t *testing.T) {
+	t.Run("workerDispatchedParentRunsLocalChildren", func(t *testing.T) {
+		f := newTestFixture(t, `
+steps:
+  - name: process-items
+    action: dag.run
+    with:
+      dag: local-child
+    parallel:
+      items: ["item1", "item2", "item3"]
+      max_concurrent: 3
+    output: RESULTS
+
+---
+name: local-child
+worker_selector: local
+steps:
+  - name: process
+    run: echo "processed $1 locally"
+`, withConfigMutator(func(c *config.Config) {
+			c.DefaultExecMode = config.ExecutionModeDistributed
+		}), withLogPersistence())
+		defer f.cleanup()
+
+		require.NoError(t, f.enqueue())
+		f.waitForQueued()
+		f.startScheduler(30 * time.Second)
+
+		status := f.waitForStatusIn([]core.Status{core.Succeeded, core.Failed, core.Aborted}, 25*time.Second)
+
+		require.Equal(t, core.Succeeded, status.Status)
+		require.Len(t, status.Nodes, 1)
+
+		node := status.Nodes[0]
+		require.Equal(t, "process-items", node.Step.Name)
+		require.Equal(t, core.NodeSucceeded, node.Status)
+		require.Len(t, node.SubRuns, 3)
+
+		value, ok := node.OutputVariables.Load("RESULTS")
+		require.True(t, ok)
+		results := value.(string)
+		require.Contains(t, results, `"succeeded": 3`)
+		require.Contains(t, results, `"failed": 0`)
 	})
 }
 
