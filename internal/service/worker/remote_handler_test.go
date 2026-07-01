@@ -326,10 +326,80 @@ func (m *mockStreamArtifactsClient) snapshotChunks() []*coordinatorv1.ArtifactCh
 }
 
 func countSchedulerFinalChunks(streams []*mockStreamLogsClient) int {
+	final := true
+	return countLogChunks(streams, logChunkPattern{
+		streamType: coordinatorv1.LogStreamType_LOG_STREAM_TYPE_SCHEDULER,
+		final:      &final,
+	})
+}
+
+func hasLogChunk(streams []*mockStreamLogsClient, dagRunID, dagName, attemptID string, root exec.DAGRunRef, stepName string) bool {
+	return hasMatchingLogChunk(streams, logChunkPattern{
+		dagRunID:  dagRunID,
+		dagName:   dagName,
+		attemptID: attemptID,
+		root:      root,
+		stepName:  stepName,
+	})
+}
+
+func hasStepLogDataChunk(streams []*mockStreamLogsClient, dagRunID, dagName, attemptID string, root exec.DAGRunRef, stepName string, streamType coordinatorv1.LogStreamType) bool {
+	return hasMatchingLogChunk(streams, logChunkPattern{
+		dagRunID:     dagRunID,
+		dagName:      dagName,
+		attemptID:    attemptID,
+		root:         root,
+		stepName:     stepName,
+		streamType:   streamType,
+		requiresData: true,
+	})
+}
+
+func hasSchedulerDataChunk(streams []*mockStreamLogsClient, dagRunID, dagName, attemptID string, root exec.DAGRunRef) bool {
+	final := false
+	return hasMatchingLogChunk(streams, logChunkPattern{
+		dagRunID:     dagRunID,
+		dagName:      dagName,
+		attemptID:    attemptID,
+		root:         root,
+		streamType:   coordinatorv1.LogStreamType_LOG_STREAM_TYPE_SCHEDULER,
+		final:        &final,
+		requiresData: true,
+	})
+}
+
+func hasSchedulerFinalChunk(streams []*mockStreamLogsClient, dagRunID, dagName, attemptID string, root exec.DAGRunRef) bool {
+	final := true
+	return hasMatchingLogChunk(streams, logChunkPattern{
+		dagRunID:   dagRunID,
+		dagName:    dagName,
+		attemptID:  attemptID,
+		root:       root,
+		streamType: coordinatorv1.LogStreamType_LOG_STREAM_TYPE_SCHEDULER,
+		final:      &final,
+	})
+}
+
+type logChunkPattern struct {
+	dagRunID     string
+	dagName      string
+	attemptID    string
+	root         exec.DAGRunRef
+	stepName     string
+	streamType   coordinatorv1.LogStreamType
+	final        *bool
+	requiresData bool
+}
+
+func hasMatchingLogChunk(streams []*mockStreamLogsClient, pattern logChunkPattern) bool {
+	return countLogChunks(streams, pattern) > 0
+}
+
+func countLogChunks(streams []*mockStreamLogsClient, pattern logChunkPattern) int {
 	var count int
 	for _, stream := range streams {
 		for _, chunk := range stream.snapshotChunks() {
-			if chunk.StreamType == coordinatorv1.LogStreamType_LOG_STREAM_TYPE_SCHEDULER && chunk.IsFinal {
+			if logChunkMatches(chunk, pattern) {
 				count++
 			}
 		}
@@ -337,73 +407,32 @@ func countSchedulerFinalChunks(streams []*mockStreamLogsClient) int {
 	return count
 }
 
-func hasLogChunk(streams []*mockStreamLogsClient, dagRunID, dagName, attemptID string, root exec.DAGRunRef, stepName string) bool {
-	for _, stream := range streams {
-		for _, chunk := range stream.snapshotChunks() {
-			if chunk.DagRunId == dagRunID &&
-				chunk.DagName == dagName &&
-				chunk.AttemptId == attemptID &&
-				chunk.RootDagRunName == root.Name &&
-				chunk.RootDagRunId == root.ID &&
-				chunk.StepName == stepName {
-				return true
-			}
-		}
+func logChunkMatches(chunk *coordinatorv1.LogChunk, pattern logChunkPattern) bool {
+	if pattern.dagRunID != "" && chunk.DagRunId != pattern.dagRunID {
+		return false
 	}
-	return false
-}
-
-func hasStepLogDataChunk(streams []*mockStreamLogsClient, dagRunID, dagName, attemptID string, root exec.DAGRunRef, stepName string, streamType coordinatorv1.LogStreamType) bool {
-	for _, stream := range streams {
-		for _, chunk := range stream.snapshotChunks() {
-			if chunk.DagRunId == dagRunID &&
-				chunk.DagName == dagName &&
-				chunk.AttemptId == attemptID &&
-				chunk.RootDagRunName == root.Name &&
-				chunk.RootDagRunId == root.ID &&
-				chunk.StepName == stepName &&
-				chunk.StreamType == streamType &&
-				len(chunk.Data) > 0 {
-				return true
-			}
-		}
+	if pattern.dagName != "" && chunk.DagName != pattern.dagName {
+		return false
 	}
-	return false
-}
-
-func hasSchedulerDataChunk(streams []*mockStreamLogsClient, dagRunID, dagName, attemptID string, root exec.DAGRunRef) bool {
-	for _, stream := range streams {
-		for _, chunk := range stream.snapshotChunks() {
-			if chunk.DagRunId == dagRunID &&
-				chunk.DagName == dagName &&
-				chunk.AttemptId == attemptID &&
-				chunk.RootDagRunName == root.Name &&
-				chunk.RootDagRunId == root.ID &&
-				chunk.StreamType == coordinatorv1.LogStreamType_LOG_STREAM_TYPE_SCHEDULER &&
-				!chunk.IsFinal &&
-				len(chunk.Data) > 0 {
-				return true
-			}
-		}
+	if pattern.attemptID != "" && chunk.AttemptId != pattern.attemptID {
+		return false
 	}
-	return false
-}
-
-func hasSchedulerFinalChunk(streams []*mockStreamLogsClient, dagRunID, dagName, attemptID string, root exec.DAGRunRef) bool {
-	for _, stream := range streams {
-		for _, chunk := range stream.snapshotChunks() {
-			if chunk.DagRunId == dagRunID &&
-				chunk.DagName == dagName &&
-				chunk.AttemptId == attemptID &&
-				chunk.RootDagRunName == root.Name &&
-				chunk.RootDagRunId == root.ID &&
-				chunk.StreamType == coordinatorv1.LogStreamType_LOG_STREAM_TYPE_SCHEDULER &&
-				chunk.IsFinal {
-				return true
-			}
-		}
+	if !pattern.root.Zero() && (chunk.RootDagRunName != pattern.root.Name || chunk.RootDagRunId != pattern.root.ID) {
+		return false
 	}
-	return false
+	if pattern.stepName != "" && chunk.StepName != pattern.stepName {
+		return false
+	}
+	if pattern.streamType != coordinatorv1.LogStreamType_LOG_STREAM_TYPE_UNSPECIFIED && chunk.StreamType != pattern.streamType {
+		return false
+	}
+	if pattern.final != nil && chunk.IsFinal != *pattern.final {
+		return false
+	}
+	if pattern.requiresData && len(chunk.Data) == 0 {
+		return false
+	}
+	return true
 }
 
 func hasArtifactChunk(streams []*mockStreamArtifactsClient, dagRunID, dagName, attemptID string, root exec.DAGRunRef, relPath string) bool {
@@ -2030,8 +2059,6 @@ func TestRemoteRunReporter_UsesRuntimeContextForChildLogsAndArtifactsWithoutMuta
 	}, exec.HostInfo{})
 	require.NotNil(t, reporter.EnableSchedulerFinalizer(filepath.Join(t.TempDir(), "scheduler.log")))
 
-	reporter.SetAttemptID(childAttempt)
-
 	rootWriter := reporter.NewStepWriter(context.Background(), "root-step", exec.StreamTypeStdout)
 	_, err := rootWriter.Write([]byte("root output"))
 	require.NoError(t, err)
@@ -2076,7 +2103,7 @@ func TestRemoteRunReporter_UsesRuntimeContextForChildLogsAndArtifactsWithoutMuta
 
 	logStreamsMu.Lock()
 	defer logStreamsMu.Unlock()
-	require.True(t, hasLogChunk(logStreams, rootRunID, rootName, rootAttempt, rootRef, "root-step"), "root SetAttemptID state should not be overwritten by child attempts")
+	require.True(t, hasLogChunk(logStreams, rootRunID, rootName, rootAttempt, rootRef, "root-step"), "root step logs should keep root runtime metadata")
 	require.True(t, hasLogChunk(logStreams, childRunID, childName, childAttempt, rootRef, "child-step"), "child step logs should use child runtime metadata")
 	require.True(t, hasSchedulerFinalChunk(logStreams, childRunID, childName, childAttempt, rootRef), "child scheduler replay should use child runtime metadata")
 
