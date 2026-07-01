@@ -1,6 +1,6 @@
 # Spec: MCP Read Tool
 
-Status: Draft.
+Status: Implemented.
 
 ## Scope
 
