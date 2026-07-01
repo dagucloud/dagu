@@ -40,16 +40,22 @@ MCP requests use the Dagu server's configured authentication mode.
 
 Rules:
 
+- MCP requests are authenticated by the Dagu HTTP server before MCP request
+  handling.
 - When authentication is disabled for the Dagu server, the MCP endpoint accepts
-  unauthenticated requests.
-- When built-in authentication is enabled, the MCP endpoint accepts a valid
-  Dagu login token or a valid Dagu API key.
-- When basic authentication is enabled, the MCP endpoint accepts valid HTTP
-  Basic credentials.
-- A credential rejected by the Dagu server authentication layer is rejected
-  before MCP request handling.
-- A credential accepted for MCP does not bypass role or authorization checks
-  required by the underlying Dagu operation.
+  requests without credentials.
+- `Authorization` is the canonical credential carrier.
+- Built-in authentication uses `Authorization: Bearer <token>`, where
+  `<token>` is a Dagu login token or a Dagu API key.
+- Basic authentication uses
+  `Authorization: Basic <base64(username:password)>`.
+- For clients that cannot send headers, the server may accept `?token=<token>`
+  as a bearer-token fallback when no `Authorization` header is present.
+- An accepted credential establishes identity only. Requested Dagu operations
+  still apply normal authorization checks.
+
+This spec does not define token issuance, token internals, API-key storage,
+OIDC login flow, or exact HTTP challenge bodies.
 
 ### API-Key Surface
 
@@ -63,7 +69,8 @@ Rules:
   MCP endpoint.
 - An API key that includes only the `mcp` surface is not accepted by REST API
   routes solely because it is valid for MCP.
-- Surface acceptance is checked before an MCP request is handled.
+- Surface acceptance is checked by the Dagu HTTP server before an MCP request
+  is handled.
 
 ### Resource URI Model
 
