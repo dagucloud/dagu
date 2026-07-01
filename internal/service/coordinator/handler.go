@@ -1688,11 +1688,22 @@ func (h *Handler) bootstrapMissingSubAttempt(
 		return nil, false, nil
 	}
 
-	if _, err := h.dagRunStore.FindAttempt(ctx, rootRef); err != nil {
+	rootAttempt, err := h.dagRunStore.FindAttempt(ctx, rootRef)
+	if err != nil {
 		if errors.Is(err, exec.ErrDAGRunIDNotFound) {
 			return nil, false, nil
 		}
 		return nil, false, fmt.Errorf("find root attempt: %w", err)
+	}
+	rootStatus, err := rootAttempt.ReadStatus(ctx)
+	if err != nil {
+		if errors.Is(err, exec.ErrNoStatusData) {
+			return nil, false, nil
+		}
+		return nil, false, fmt.Errorf("read root status: %w", err)
+	}
+	if rootStatus == nil || isTerminalRunStatus(rootStatus.Status) {
+		return nil, false, nil
 	}
 
 	attempt, err := h.dagRunStore.CreateSubAttempt(ctx, rootRef, runStatus.DAGRunID)
@@ -1731,11 +1742,14 @@ func remoteWorkerIDForBootstrap(runStatus *exec.DAGRunStatus, fallbackWorkerID s
 	if runStatus == nil {
 		return "", false
 	}
-	if exec.IsRemoteWorkerID(runStatus.WorkerID) {
-		return runStatus.WorkerID, true
-	}
 	if runStatus.WorkerID != "" {
-		return "", false
+		if !exec.IsRemoteWorkerID(runStatus.WorkerID) {
+			return "", false
+		}
+		if fallbackWorkerID != "" && fallbackWorkerID != runStatus.WorkerID {
+			return "", false
+		}
+		return runStatus.WorkerID, true
 	}
 	if !exec.IsRemoteWorkerID(fallbackWorkerID) {
 		return "", false

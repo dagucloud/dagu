@@ -3131,6 +3131,80 @@ func TestHandler_ReportStatus(t *testing.T) {
 		assert.ErrorIs(t, err, exec.ErrDAGRunIDNotFound)
 	})
 
+	t.Run("DoesNotBootstrapMissingSubAttemptUnderTerminalRoot", func(t *testing.T) {
+		t.Parallel()
+
+		store := newMockDAGRunStore()
+		h := NewHandler(HandlerConfig{DAGRunStore: store})
+		ctx := context.Background()
+
+		rootRef := exec.DAGRunRef{Name: "root-dag", ID: "root-run-123"}
+		store.addAttempt(rootRef, &exec.DAGRunStatus{
+			Name:     rootRef.Name,
+			DAGRunID: rootRef.ID,
+			Root:     rootRef,
+			Status:   core.Succeeded,
+		})
+
+		protoStatus, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
+			Name:     "child-dag",
+			DAGRunID: "child-run-123",
+			Root:     rootRef,
+			Status:   core.Running,
+			WorkerID: "worker-1",
+		})
+		require.NoError(t, convErr)
+
+		resp, err := h.ReportStatus(ctx, &coordinatorv1.ReportStatusRequest{
+			Status:   protoStatus,
+			WorkerId: "worker-1",
+		})
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		require.False(t, resp.Accepted)
+		assert.Equal(t, remoteAttemptRejectedLeaseInactive, resp.Error)
+
+		_, err = store.FindSubAttempt(ctx, rootRef, "child-run-123")
+		assert.ErrorIs(t, err, exec.ErrDAGRunIDNotFound)
+	})
+
+	t.Run("DoesNotBootstrapMissingSubAttemptWithMismatchedWorkerID", func(t *testing.T) {
+		t.Parallel()
+
+		store := newMockDAGRunStore()
+		h := NewHandler(HandlerConfig{DAGRunStore: store})
+		ctx := context.Background()
+
+		rootRef := exec.DAGRunRef{Name: "root-dag", ID: "root-run-123"}
+		store.addAttempt(rootRef, &exec.DAGRunStatus{
+			Name:     rootRef.Name,
+			DAGRunID: rootRef.ID,
+			Root:     rootRef,
+			Status:   core.Running,
+		})
+
+		protoStatus, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
+			Name:     "child-dag",
+			DAGRunID: "child-run-123",
+			Root:     rootRef,
+			Status:   core.Running,
+			WorkerID: "worker-1",
+		})
+		require.NoError(t, convErr)
+
+		resp, err := h.ReportStatus(ctx, &coordinatorv1.ReportStatusRequest{
+			Status:   protoStatus,
+			WorkerId: "worker-2",
+		})
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		require.False(t, resp.Accepted)
+		assert.Equal(t, remoteAttemptRejectedLeaseInactive, resp.Error)
+
+		_, err = store.FindSubAttempt(ctx, rootRef, "child-run-123")
+		assert.ErrorIs(t, err, exec.ErrDAGRunIDNotFound)
+	})
+
 	t.Run("AcceptsCancelledTerminalStatusAfterLeaseFailure", func(t *testing.T) {
 		t.Parallel()
 
