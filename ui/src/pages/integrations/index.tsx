@@ -18,6 +18,11 @@ const integrationLinks: IntegrationLink[] = [
     label: 'Webhooks',
     description: 'Trigger workflows from external systems.',
   },
+  {
+    to: '/api-docs',
+    label: 'API Docs',
+    description: 'Explore authenticated REST API endpoints.',
+  },
 ];
 
 export default function IntegrationsPage(): React.ReactElement {

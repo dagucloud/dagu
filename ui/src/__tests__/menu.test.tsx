@@ -255,6 +255,9 @@ describe('sidebar menu', () => {
     ).toHaveAttribute('aria-expanded', 'false');
 
     expect(
+      screen.queryByRole('link', { name: 'API Docs' })
+    ).not.toBeInTheDocument();
+    expect(
       screen.queryByRole('link', { name: 'Dashboard' })
     ).not.toBeInTheDocument();
   });
@@ -336,6 +339,7 @@ describe('sidebar menu', () => {
     );
     const integrationSubmenuItems = [
       screen.getByRole('link', { name: 'Webhooks' }),
+      screen.getByRole('link', { name: 'API Reference' }),
     ];
     for (const item of integrationSubmenuItems) {
       expect(item).toBeVisible();

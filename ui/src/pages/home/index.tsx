@@ -196,6 +196,11 @@ export default function HomePage(): React.ReactElement {
               },
             ]
           : []),
+        {
+          to: '/api-docs',
+          label: 'API Reference',
+          description: 'Browse HTTP API documentation.',
+        },
       ],
     },
     {
