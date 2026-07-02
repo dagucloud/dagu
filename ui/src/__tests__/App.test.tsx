@@ -42,6 +42,7 @@ vi.mock('../pages/administration', () => ({
   default: () => <h1>Administration</h1>,
 }));
 vi.mock('../pages/api-keys', () => ({ default: () => <h1>API Keys</h1> }));
+vi.mock('../pages/api-docs', () => ({ default: () => <h1>API Docs</h1> }));
 vi.mock('../pages/audit-logs', () => ({
   default: () => <h1>Audit Logs</h1>,
 }));

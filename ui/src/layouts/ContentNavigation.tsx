@@ -24,6 +24,7 @@ const STATIC_ROUTE_LABELS: Record<string, string> = {
   '/home': 'Home',
   '/dashboard': 'Timeline',
   '/cockpit': 'Cockpit',
+  '/api-docs': 'API Reference',
   '/integrations': 'Integrations',
   '/notifications': 'Notifications',
   '/notification-rules': 'Notification Rules',
@@ -143,7 +144,7 @@ export function getBreadcrumbItems(pathname: string): BreadcrumbItemData[] {
     return items;
   }
 
-  if (['integrations', 'webhooks'].includes(segments[0] ?? '')) {
+  if (['integrations', 'webhooks', 'api-docs'].includes(segments[0] ?? '')) {
     if (normalized !== '/integrations') {
       items.push({ label: 'Integrations', to: '/integrations' });
     }

@@ -41,6 +41,7 @@ import {
 import { UserRole } from './api/v1/schema';
 import AdministrationPage from './pages/administration';
 import APIKeysPage from './pages/api-keys';
+import APIDocsPage from './pages/api-docs';
 import AuditLogsPage from './pages/audit-logs';
 import BaseConfigPage from './pages/base-config';
 import DAGRuns from './pages/dag-runs';
@@ -530,6 +531,10 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
                                     <Route
                                       path="/home"
                                       element={<HomePage />}
+                                    />
+                                    <Route
+                                      path="/api-docs"
+                                      element={<APIDocsPage />}
                                     />
                                     <Route
                                       path="/integrations"

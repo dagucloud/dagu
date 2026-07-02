@@ -603,3 +603,81 @@ select:focus-visible {
 .tracking-wide {
   letter-spacing: 0;
 }
+
+@layer components {
+  .api-docs-shell {
+    min-height: 100%;
+  }
+
+  .api-docs-viewer {
+    height: 100%;
+    min-height: 0;
+    background:
+      radial-gradient(
+        circle at top left,
+        color-mix(in srgb, var(--primary) 12%, transparent),
+        transparent 32%
+      ),
+      linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--card) 94%, transparent),
+        var(--background)
+      );
+    --scalar-background-1: var(--background);
+    --scalar-background-2: var(--card);
+    --scalar-background-3: var(--muted);
+    --scalar-background-accent: var(--accent);
+    --scalar-color-1: var(--foreground);
+    --scalar-color-2: var(--muted-foreground);
+    --scalar-color-3: var(--text-secondary);
+    --scalar-border-color: var(--border);
+    --scalar-sidebar-background-1: color-mix(
+      in srgb,
+      var(--card) 92%,
+      var(--background)
+    );
+    --scalar-sidebar-item-hover-background: var(--sidebar-hover);
+    --scalar-button-1: var(--primary);
+    --scalar-button-1-color: var(--primary-foreground);
+  }
+
+  .api-docs-viewer > * {
+    height: 100%;
+    min-height: 0;
+  }
+
+  @media (min-width: 1001px) {
+    .api-docs-viewer .references-layout {
+      height: 100%;
+      min-height: 0;
+      overflow: hidden;
+      grid-template-rows: var(--scalar-header-height, 0px) minmax(0, 1fr) auto;
+      --full-height: 100%;
+    }
+
+    .api-docs-viewer .references-navigation,
+    .api-docs-viewer .references-rendered {
+      min-height: 0;
+      max-height: 100%;
+    }
+
+    .api-docs-viewer .references-navigation {
+      overflow: hidden;
+    }
+
+    .api-docs-viewer .references-navigation-list {
+      position: static;
+      top: auto;
+      height: 100%;
+      min-height: 0;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+    }
+
+    .api-docs-viewer .references-rendered {
+      height: 100%;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+    }
+  }
+}
