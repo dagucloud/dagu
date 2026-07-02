@@ -33,6 +33,45 @@ builds:
       - goos: windows
         goarch: arm
         goarm: "7"
+  - id: dagu-headless
+    dir: ./cmd
+    binary: dagu
+    flags:
+      - -tags=headless
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - "amd64"
+      - "386"
+      - "arm"
+      - "arm64"
+      - "ppc64le"
+      - "s390x"
+    goarm:
+      - "6"
+      - "7"
+    ignore:
+      # Go does not support windows/arm.
+      - goos: windows
+        goarch: arm
+        goarm: "6"
+      - goos: windows
+        goarch: arm
+        goarm: "7"
+
+archives:
+  - id: dagu
+    ids:
+      - dagu
+    name_template: "dagu_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ with .Arm }}v{{ . }}{{ end }}"
+  - id: dagu-headless
+    ids:
+      - dagu-headless
+    name_template: "dagu-headless_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ with .Arm }}v{{ . }}{{ end }}"
 
 release:
   mode: keep-existing
@@ -53,6 +92,8 @@ changelog:
 
 brews:
   - skip_upload: auto
+    ids:
+      - dagu
     repository:
       owner: dagu-org
       name: homebrew-brew
@@ -71,6 +112,8 @@ brews:
 
   # Deprecated brew tap:
   - skip_upload: auto
+    ids:
+      - dagu
     repository:
       owner: yohamta
       name: homebrew-tap

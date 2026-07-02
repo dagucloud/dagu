@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"embed"
 	"encoding/hex"
 	"encoding/json"
 	"io"
@@ -27,9 +26,6 @@ import (
 	"github.com/dagucloud/dagu/internal/service/frontend/api/pathutil"
 	workspacepkg "github.com/dagucloud/dagu/internal/workspace"
 )
-
-//go:embed templates/* assets/*
-var assetsFS embed.FS
 
 const (
 	templatePath     = "templates/"
@@ -65,8 +61,12 @@ func currentAssetVersion() string {
 	return assetVersion
 }
 
+func (srv *Server) webUIEnabled() bool {
+	return webUIEmbedded && !srv.config.Server.Headless
+}
+
 func (srv *Server) useTemplate(ctx context.Context, layout, name string) func(http.ResponseWriter, any) {
-	if srv.config.Server.Headless {
+	if !srv.webUIEnabled() {
 		return func(w http.ResponseWriter, _ any) {
 			http.Error(w, "Web UI is disabled in headless mode", http.StatusForbidden)
 		}
