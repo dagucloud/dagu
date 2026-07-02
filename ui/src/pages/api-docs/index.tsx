@@ -6,7 +6,12 @@ import { AppBarContext } from '@/contexts/AppBarContext';
 import { TOKEN_KEY } from '@/contexts/AuthContext';
 import { useConfig } from '@/contexts/ConfigContext';
 import fetchJson from '@/lib/fetchJson';
-import { AlertCircle, ExternalLink, RefreshCw, ShieldCheck } from 'lucide-react';
+import {
+  AlertCircle,
+  ExternalLink,
+  RefreshCw,
+  ShieldCheck,
+} from 'lucide-react';
 import * as React from 'react';
 import ScalarViewer from './ScalarViewer';
 
@@ -19,34 +24,53 @@ type LoadState =
 
 export default function APIDocsPage(): React.ReactElement {
   const appBarContext = React.useContext(AppBarContext);
-  const { setTitle } = appBarContext;
+  const { selectedRemoteNode, setTitle } = appBarContext;
   const config = useConfig();
   const [state, setState] = React.useState<LoadState>({ status: 'loading' });
+  const requestSeqRef = React.useRef(0);
+  const remoteNode = selectedRemoteNode || 'local';
+  const openAPIPath = React.useMemo(
+    () => `/openapi.json?remoteNode=${encodeURIComponent(remoteNode)}`,
+    [remoteNode]
+  );
 
   React.useEffect(() => {
     setTitle('API Docs');
   }, [setTitle]);
 
   const loadSpec = React.useCallback(async () => {
+    const requestSeq = requestSeqRef.current + 1;
+    requestSeqRef.current = requestSeq;
     setState({ status: 'loading' });
 
     try {
-      const spec = await fetchJson<OpenAPIDocument>('/openapi.json');
+      const spec = await fetchJson<OpenAPIDocument>(openAPIPath);
+      if (requestSeqRef.current !== requestSeq) {
+        return;
+      }
       setState({ status: 'ready', spec });
     } catch (error) {
+      if (requestSeqRef.current !== requestSeq) {
+        return;
+      }
       setState({
         status: 'error',
-        message: error instanceof Error ? error.message : 'Failed to load the API reference.',
+        message:
+          error instanceof Error
+            ? error.message
+            : 'Failed to load the API reference.',
       });
     }
-  }, []);
+  }, [openAPIPath]);
 
   React.useEffect(() => {
     void loadSpec();
   }, [loadSpec]);
 
   const preferredBearerToken =
-    config.authMode === 'builtin' ? localStorage.getItem(TOKEN_KEY) ?? undefined : undefined;
+    config.authMode === 'builtin'
+      ? (localStorage.getItem(TOKEN_KEY) ?? undefined)
+      : undefined;
 
   return (
     <div className="api-docs-shell flex h-full min-h-0 flex-col gap-4">
@@ -56,9 +80,12 @@ export default function APIDocsPage(): React.ReactElement {
             <ShieldCheck className="h-4 w-4 text-primary" />
             Authenticated reference
           </div>
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground">REST API Docs</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+            REST API Docs
+          </h1>
           <p className="max-w-3xl text-sm text-muted-foreground">
-            The reference is loaded from the live authenticated OpenAPI document served by this Dagu instance.
+            The reference is loaded from the live authenticated OpenAPI document
+            served by this Dagu instance.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -67,7 +94,11 @@ export default function APIDocsPage(): React.ReactElement {
             Reload
           </Button>
           <Button variant="outline" asChild>
-            <a href={`${config.apiURL}/openapi.json`} target="_blank" rel="noreferrer">
+            <a
+              href={`${config.apiURL}${openAPIPath}`}
+              target="_blank"
+              rel="noreferrer"
+            >
               <ExternalLink className="h-4 w-4" />
               Raw JSON
             </a>
@@ -80,8 +111,13 @@ export default function APIDocsPage(): React.ReactElement {
           <div className="flex h-full min-h-[420px] flex-col items-center justify-center gap-3 px-6 text-center">
             <RefreshCw className="h-5 w-5 animate-spin text-muted-foreground" />
             <div>
-              <p className="font-medium text-foreground">Loading API reference</p>
-              <p className="text-sm text-muted-foreground">Fetching `/openapi.json` with the current auth context.</p>
+              <p className="font-medium text-foreground">
+                Loading API reference
+              </p>
+              <p className="text-sm text-muted-foreground">
+                Fetching <code>/openapi.json</code> with the current auth
+                context.
+              </p>
             </div>
           </div>
         )}
@@ -90,7 +126,9 @@ export default function APIDocsPage(): React.ReactElement {
           <div className="flex h-full min-h-[420px] flex-col items-center justify-center gap-4 px-6 text-center">
             <AlertCircle className="h-6 w-6 text-destructive" />
             <div className="space-y-1">
-              <p className="font-medium text-foreground">Unable to load the API reference</p>
+              <p className="font-medium text-foreground">
+                Unable to load the API reference
+              </p>
               <p className="text-sm text-muted-foreground">{state.message}</p>
             </div>
             <Button variant="primary" onClick={() => void loadSpec()}>
@@ -100,7 +138,10 @@ export default function APIDocsPage(): React.ReactElement {
         )}
 
         {state.status === 'ready' && (
-          <ScalarViewer spec={state.spec} preferredBearerToken={preferredBearerToken} />
+          <ScalarViewer
+            spec={state.spec}
+            preferredBearerToken={preferredBearerToken}
+          />
         )}
       </div>
     </div>

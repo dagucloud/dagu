@@ -255,8 +255,8 @@ describe('sidebar menu', () => {
     ).toHaveAttribute('aria-expanded', 'false');
 
     expect(
-      screen.queryByRole('link', { name: 'API Docs' })
-    ).not.toBeInTheDocument();
+      screen.getByRole('link', { name: 'API Reference' })
+    ).not.toBeVisible();
     expect(
       screen.queryByRole('link', { name: 'Dashboard' })
     ).not.toBeInTheDocument();

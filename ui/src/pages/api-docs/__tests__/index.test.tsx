@@ -1,7 +1,13 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { render, screen, waitFor } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import * as React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppBarContext } from '@/contexts/AppBarContext';
@@ -74,19 +80,29 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
   };
 }
 
-function renderPage(configOverrides: Partial<Config> = {}) {
+type AppBarContextValue = React.ContextType<typeof AppBarContext>;
+
+function makeAppBarContext(
+  overrides: Partial<AppBarContextValue> = {}
+): AppBarContextValue {
+  return {
+    title: '',
+    setTitle: () => undefined,
+    remoteNodes: ['local'],
+    setRemoteNodes: () => undefined,
+    selectedRemoteNode: 'local',
+    selectRemoteNode: () => undefined,
+    ...overrides,
+  };
+}
+
+function renderPage(
+  configOverrides: Partial<Config> = {},
+  appBarOverrides: Partial<AppBarContextValue> = {}
+) {
   return render(
     <ConfigContext.Provider value={makeConfig(configOverrides)}>
-      <AppBarContext.Provider
-        value={{
-          title: '',
-          setTitle: () => undefined,
-          remoteNodes: ['local'],
-          setRemoteNodes: () => undefined,
-          selectedRemoteNode: 'local',
-          selectRemoteNode: () => undefined,
-        }}
-      >
+      <AppBarContext.Provider value={makeAppBarContext(appBarOverrides)}>
         <APIDocsPage />
       </AppBarContext.Provider>
     </ConfigContext.Provider>
@@ -106,7 +122,29 @@ describe('APIDocsPage', () => {
     renderPage();
 
     expect(screen.getByText('Loading API reference')).toBeInTheDocument();
-    expect(fetchJsonMock).toHaveBeenCalledWith('/openapi.json');
+    expect(fetchJsonMock).toHaveBeenCalledWith(
+      '/openapi.json?remoteNode=local'
+    );
+  });
+
+  it('uses the selected remote node for the OpenAPI document and raw JSON link', async () => {
+    fetchJsonMock.mockResolvedValue({
+      openapi: '3.0.0',
+      info: {
+        title: 'Dagu',
+      },
+    });
+
+    renderPage({}, { selectedRemoteNode: 'worker-a' });
+
+    expect(await screen.findByTestId('scalar-viewer')).toBeInTheDocument();
+    expect(fetchJsonMock).toHaveBeenCalledWith(
+      '/openapi.json?remoteNode=worker-a'
+    );
+    expect(screen.getByRole('link', { name: /raw json/i })).toHaveAttribute(
+      'href',
+      '/api/v1/openapi.json?remoteNode=worker-a'
+    );
   });
 
   it('shows an error state when the document fetch fails', async () => {
@@ -114,7 +152,9 @@ describe('APIDocsPage', () => {
 
     renderPage();
 
-    expect(await screen.findByText('Unable to load the API reference')).toBeInTheDocument();
+    expect(
+      await screen.findByText('Unable to load the API reference')
+    ).toBeInTheDocument();
     expect(screen.getByText('request failed')).toBeInTheDocument();
   });
 
@@ -138,6 +178,63 @@ describe('APIDocsPage', () => {
         })
       );
     });
+  });
+
+  it('keeps the latest reload result when requests finish out of order', async () => {
+    let resolveFirst: (value: Record<string, unknown>) => void = () =>
+      undefined;
+    let resolveSecond: (value: Record<string, unknown>) => void = () =>
+      undefined;
+    const firstRequest = new Promise<Record<string, unknown>>((resolve) => {
+      resolveFirst = resolve;
+    });
+    const secondRequest = new Promise<Record<string, unknown>>((resolve) => {
+      resolveSecond = resolve;
+    });
+
+    fetchJsonMock
+      .mockReturnValueOnce(firstRequest)
+      .mockReturnValueOnce(secondRequest);
+
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: /reload/i }));
+
+    await act(async () => {
+      resolveSecond({
+        openapi: '3.1.0',
+        info: {
+          title: 'Latest',
+        },
+      });
+      await secondRequest;
+    });
+
+    expect(await screen.findByTestId('scalar-viewer')).toBeInTheDocument();
+    expect(scalarViewerMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        spec: expect.objectContaining({
+          openapi: '3.1.0',
+        }),
+      })
+    );
+
+    await act(async () => {
+      resolveFirst({
+        openapi: '3.0.0',
+        info: {
+          title: 'Stale',
+        },
+      });
+      await firstRequest;
+    });
+
+    expect(scalarViewerMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        spec: expect.objectContaining({
+          openapi: '3.1.0',
+        }),
+      })
+    );
   });
 
   it('prefills the builtin bearer token for the viewer', async () => {

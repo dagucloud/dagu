@@ -20,15 +20,16 @@ describe('IntegrationsPage', () => {
       </MemoryRouter>
     );
 
-    expect(screen.getByRole('heading', { name: /integrations/i })).toBeVisible();
+    expect(
+      screen.getByRole('heading', { name: /integrations/i })
+    ).toBeVisible();
     expect(screen.getByRole('link', { name: /webhooks/i })).toHaveAttribute(
       'href',
       '/webhooks'
     );
-    expect(screen.getByRole('link', { name: /api docs/i })).toHaveAttribute(
-      'href',
-      '/api-docs'
-    );
+    expect(
+      screen.getByRole('link', { name: /api reference/i })
+    ).toHaveAttribute('href', '/api-docs');
     expect(
       screen.getByText('Trigger workflows from external systems.')
     ).toBeVisible();

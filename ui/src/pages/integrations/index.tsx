@@ -20,7 +20,7 @@ const integrationLinks: IntegrationLink[] = [
   },
   {
     to: '/api-docs',
-    label: 'API Docs',
+    label: 'API Reference',
     description: 'Explore authenticated REST API endpoints.',
   },
 ];

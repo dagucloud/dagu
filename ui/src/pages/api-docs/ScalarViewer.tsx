@@ -14,8 +14,30 @@ export default function ScalarViewer({
   spec,
   preferredBearerToken,
 }: ScalarViewerProps): React.ReactElement {
-  const darkMode =
-    typeof document !== 'undefined' && document.documentElement.classList.contains('dark');
+  const [darkMode, setDarkMode] = React.useState(
+    () =>
+      typeof document !== 'undefined' &&
+      document.documentElement.classList.contains('dark')
+  );
+
+  React.useEffect(() => {
+    if (typeof document === 'undefined') {
+      return;
+    }
+
+    const updateDarkMode = () => {
+      setDarkMode(document.documentElement.classList.contains('dark'));
+    };
+    updateDarkMode();
+
+    const observer = new MutationObserver(updateDarkMode);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class'],
+    });
+
+    return () => observer.disconnect();
+  }, []);
 
   const configuration: Record<string, unknown> = {
     content: spec,
