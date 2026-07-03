@@ -5,6 +5,7 @@ package telemetry_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -31,6 +32,7 @@ func TestCollectorEmitsDAGRunStatusGaugeFromLatestAttempt(t *testing.T) {
 			dags: []*core.DAG{
 				{Name: "daily"},
 				{Name: "fresh"},
+				{Name: "broken"},
 			},
 		},
 		dagRunStore,
@@ -62,7 +64,7 @@ func TestCollectorEmitsDAGRunStatusGaugeFromLatestAttempt(t *testing.T) {
 		"dag":    "fresh",
 		"status": "running",
 	}, 0)
-
+	assertNoDAGMetrics(t, statusFamily, "broken")
 }
 
 type dagStoreStub struct {
@@ -87,6 +89,9 @@ func (s *dagRunStoreStub) ListStatuses(context.Context, ...exec.ListDAGRunStatus
 }
 
 func (s *dagRunStoreStub) LatestAttempt(_ context.Context, name string) (exec.DAGRunAttempt, error) {
+	if name == "broken" {
+		return nil, errors.New("boom")
+	}
 	statuses := s.statuses[name]
 	if len(statuses) == 0 {
 		return nil, exec.ErrNoStatusData
@@ -127,6 +132,18 @@ func findMetric(t *testing.T, family *dto.MetricFamily, labels map[string]string
 	}
 	require.Failf(t, "metric not found", "metric %s with labels %v not found", family.GetName(), labels)
 	return nil
+}
+
+func assertNoDAGMetrics(t *testing.T, family *dto.MetricFamily, dagName string) {
+	t.Helper()
+	require.NotNil(t, family)
+	for _, metric := range family.GetMetric() {
+		for _, label := range metric.GetLabel() {
+			if label.GetName() == "dag" && label.GetValue() == dagName {
+				require.Failf(t, "metric found", "metric %s with dag %q found", family.GetName(), dagName)
+			}
+		}
+	}
 }
 
 func metricLabelsMatch(metric *dto.Metric, expected map[string]string) bool {
