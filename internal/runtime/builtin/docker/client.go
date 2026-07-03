@@ -1342,14 +1342,22 @@ func (c *Client) shouldPullImage(ctx context.Context, cli *client.Client, platfo
 		if err != nil {
 			return false, fmt.Errorf("failed to inspect image %s: %w", summary.ID, err)
 		}
-		if (platform.OS == inspect.Os) && (platform.Architecture == inspect.Architecture) && (platform.Variant == inspect.Variant) {
-			// We have the correct image locally, no need to pull
+		imagePlatform := specs.Platform{
+			OS:           inspect.Os,
+			Architecture: inspect.Architecture,
+			Variant:      inspect.Variant,
+		}
+		if imagePlatformMatches(*platform, imagePlatform) {
 			return false, nil
 		}
 	}
 
 	// We don't have the correct image
 	return true, nil
+}
+
+func imagePlatformMatches(target specs.Platform, image specs.Platform) bool {
+	return platforms.OnlyStrict(target).Match(image)
 }
 
 // parseRestartPolicy parses a docker restart policy string into container.RestartPolicy.

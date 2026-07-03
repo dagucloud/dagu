@@ -579,7 +579,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 
 	// Initialize the runner
-	a.runner = a.newRunner(attempt)
+	a.setRunner(a.newRunner(attempt))
 
 	// Setup the execution plan for the DAG.
 	if err := a.setupPlan(ctx); err != nil {
@@ -2120,6 +2120,18 @@ func (a *Agent) stopChildren(ctx context.Context, sig os.Signal, allowOverride b
 	}
 }
 
+func (a *Agent) setRunner(runner *runtime.Runner) {
+	a.lock.Lock()
+	defer a.lock.Unlock()
+	a.runner = runner
+}
+
+func (a *Agent) setPlan(plan *runtime.Plan) {
+	a.lock.Lock()
+	defer a.lock.Unlock()
+	a.plan = plan
+}
+
 // setupPlan setups the DAG plan. If is retry execution, it loads nodes
 // from the retry node so that it runs the same DAG as the previous run.
 func (a *Agent) setupPlan(ctx context.Context) error {
@@ -2157,7 +2169,7 @@ func (a *Agent) setupFreshPlan() error {
 	if err != nil {
 		return err
 	}
-	a.plan = plan
+	a.setPlan(plan)
 	return nil
 }
 
@@ -2187,7 +2199,7 @@ func (a *Agent) setupStepRetryPlan(nodes []*runtime.Node) error {
 	if err != nil {
 		return err
 	}
-	a.plan = plan
+	a.setPlan(plan)
 	return nil
 }
 
@@ -2197,7 +2209,7 @@ func (a *Agent) setupDefaultRetryPlan(ctx context.Context, nodes []*runtime.Node
 	if err != nil {
 		return err
 	}
-	a.plan = plan
+	a.setPlan(plan)
 	return nil
 }
 

@@ -329,7 +329,7 @@ func TestDispatchTaskStore_ClaimRecycleAndSelectorFiltering(t *testing.T) {
 
 	ctx := context.Background()
 	col := testutil.NewMemoryBackend().Collection("dispatch_tasks")
-	claimTimeout := 50 * time.Millisecond
+	claimTimeout := 5 * time.Second
 	s := store.NewDispatchTaskStore(col, store.WithDispatchReservationTTL(claimTimeout))
 
 	require.NoError(t, s.Enqueue(ctx, &exec.DispatchTask{
@@ -378,17 +378,13 @@ func TestDispatchTaskStore_ClaimRecycleAndSelectorFiltering(t *testing.T) {
 	require.NotNil(t, gpuClaim)
 	assert.Equal(t, "run-a", gpuClaim.Task.DAGRunID)
 
-	var reclaimed *exec.ClaimedDispatchTask
-	var reclaimErr error
-	require.Eventually(t, func() bool {
-		reclaimed, reclaimErr = s.ClaimNext(ctx, exec.DispatchTaskClaim{
-			WorkerID: "worker-2",
-			PollerID: "poller-2",
-			Labels:   map[string]string{"type": "cpu"},
-			Owner:    exec.CoordinatorEndpoint{ID: "coord-b"},
-		})
-		return reclaimErr == nil && reclaimed != nil
-	}, 500*time.Millisecond, 10*time.Millisecond)
+	store.AgeDispatchClaimForTest(t, s, claimed.ClaimToken, 2*claimTimeout)
+	reclaimed, reclaimErr := s.ClaimNext(ctx, exec.DispatchTaskClaim{
+		WorkerID: "worker-2",
+		PollerID: "poller-2",
+		Labels:   map[string]string{"type": "cpu"},
+		Owner:    exec.CoordinatorEndpoint{ID: "coord-b"},
+	})
 	require.NoError(t, reclaimErr)
 	require.NotNil(t, reclaimed)
 	assert.Equal(t, "run-b", reclaimed.Task.DAGRunID)

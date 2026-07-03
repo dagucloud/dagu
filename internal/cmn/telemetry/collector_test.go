@@ -380,8 +380,8 @@ func TestCollector_Describe(t *testing.T) {
 		count++
 	}
 
-	// 9 aggregate/info + 5 per-DAG + 5 per-worker + 1 cache metrics
-	assert.Equal(t, 20, count)
+	// 9 aggregate/info + 6 per-DAG + 5 per-worker + 1 cache metrics
+	assert.Equal(t, 21, count)
 }
 
 func TestCollector_Collect_BasicMetrics(t *testing.T) {
