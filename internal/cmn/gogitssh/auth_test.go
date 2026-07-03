@@ -6,20 +6,18 @@ package gogitssh_test
 import (
 	"crypto/ed25519"
 	"crypto/rand"
-	"crypto/x509"
 	"encoding/pem"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/dagucloud/dagu/internal/cmn/gogitssh"
+	"github.com/dagucloud/dagu/internal/testutil"
 	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	"github.com/stretchr/testify/require"
 	cryptossh "golang.org/x/crypto/ssh"
 )
 
 func TestNewPublicKeysFromFileLeavesHostVerificationToTransport(t *testing.T) {
-	keyPath := writePrivateKey(t)
+	keyPath := testutil.WriteSSHPrivateKey(t, t.TempDir(), "id_ed25519")
 
 	auth, err := gogitssh.NewPublicKeysFromFile("git", keyPath, "")
 	require.NoError(t, err)
@@ -34,7 +32,7 @@ func TestNewPublicKeysFromFileLeavesHostVerificationToTransport(t *testing.T) {
 }
 
 func TestNewPublicKeysLeavesHostVerificationToTransport(t *testing.T) {
-	keyBytes := privateKeyPEM(t)
+	keyBytes := testutil.SSHPrivateKeyPEM(t)
 
 	auth, err := gogitssh.NewPublicKeys("git", keyBytes, "")
 	require.NoError(t, err)
@@ -96,26 +94,6 @@ func TestUserFromURL(t *testing.T) {
 			require.Equal(t, tt.want, gogitssh.UserFromURL(tt.repoURL, tt.fallback))
 		})
 	}
-}
-
-func writePrivateKey(t *testing.T) string {
-	t.Helper()
-
-	keyPath := filepath.Join(t.TempDir(), "id_ed25519")
-	require.NoError(t, os.WriteFile(keyPath, privateKeyPEM(t), 0o600))
-	return keyPath
-}
-
-func privateKeyPEM(t *testing.T) []byte {
-	t.Helper()
-
-	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
-
-	der, err := x509.MarshalPKCS8PrivateKey(privateKey)
-	require.NoError(t, err)
-
-	return pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der})
 }
 
 func encryptedPrivateKeyPEM(t *testing.T, passphrase string) []byte {

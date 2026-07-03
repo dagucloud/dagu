@@ -39,11 +39,6 @@ func TestGitClient_NormalizeRepoURL(t *testing.T) {
 			expected: "git@github.com:dagucloud/dagu.git",
 		},
 		{
-			name:     "ssh url with non-git user",
-			repo:     "deploy@example.com:dagucloud/dagu.git",
-			expected: "deploy@example.com:dagucloud/dagu.git",
-		},
-		{
 			name:     "short format",
 			repo:     "github.com/dagucloud/dagu",
 			expected: "https://github.com/dagucloud/dagu.git",

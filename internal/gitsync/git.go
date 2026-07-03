@@ -100,7 +100,7 @@ func isSCPStyleURL(s string) bool {
 	}
 	at := strings.IndexByte(s, '@')
 	colon := strings.IndexByte(s, ':')
-	return at > 0 && colon > at+1
+	return at > 0 && colon > at+1 && colon < len(s)-1
 }
 
 // Clone clones the repository.
