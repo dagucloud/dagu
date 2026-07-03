@@ -10,6 +10,7 @@ name: child
 steps:
   - id: inspect
     run: |
+      set -eu
       context_work='${context.paths.work_dir}'
       if [ "$(basename "$PWD")" = "parent-work" ]; then
         printf 'child inherited parent working directory\n' >&2

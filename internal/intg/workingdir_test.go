@@ -4,6 +4,7 @@
 package intg_test
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -99,14 +100,16 @@ steps:
 			continue
 		}
 
-		subDir := getSubDAGWorkingDir(t, th, ref, node.SubRuns[0].DAGRunID)
+		subAttempt, err := th.DAGRunStore.FindSubAttempt(th.Context, ref, node.SubRuns[0].DAGRunID)
+		require.NoError(t, err)
+		subDir := getSubDAGWorkingDir(t, th.Context, subAttempt)
 
 		switch node.Step.Name {
 		case "call_child_with_wd":
 			assert.Contains(t, subDir, childDir,
 				"SubDAG with explicit workingDir should run in childDir")
 		case "call_child_no_wd":
-			subWorkDir := getSubDAGRunWorkDir(t, th, ref, node.SubRuns[0].DAGRunID)
+			subWorkDir := subAttempt.WorkDir()
 			assert.Equal(t, filepath.Clean(subWorkDir), filepath.Clean(subDir),
 				"SubDAG without workingDir should run in its own DAG-run work directory")
 		}
@@ -114,13 +117,10 @@ steps:
 }
 
 // getSubDAGWorkingDir retrieves the working directory from a subDAG's stdout log.
-func getSubDAGWorkingDir(t *testing.T, th test.Helper, ref exec.DAGRunRef, subRunID string) string {
+func getSubDAGWorkingDir(t *testing.T, ctx context.Context, subAttempt exec.DAGRunAttempt) string {
 	t.Helper()
 
-	subAttempt, err := th.DAGRunStore.FindSubAttempt(th.Context, ref, subRunID)
-	require.NoError(t, err)
-
-	subStatus, err := subAttempt.ReadStatus(th.Context)
+	subStatus, err := subAttempt.ReadStatus(ctx)
 	require.NoError(t, err)
 	require.NotEmpty(t, subStatus.Nodes)
 
@@ -128,13 +128,4 @@ func getSubDAGWorkingDir(t *testing.T, th test.Helper, ref exec.DAGRunRef, subRu
 	require.NoError(t, err)
 
 	return strings.TrimSpace(string(logContent))
-}
-
-func getSubDAGRunWorkDir(t *testing.T, th test.Helper, ref exec.DAGRunRef, subRunID string) string {
-	t.Helper()
-
-	subAttempt, err := th.DAGRunStore.FindSubAttempt(th.Context, ref, subRunID)
-	require.NoError(t, err)
-
-	return subAttempt.WorkDir()
 }
