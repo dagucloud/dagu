@@ -5,6 +5,7 @@ package telemetry
 
 import (
 	"context"
+	"errors"
 	"runtime"
 	"sort"
 	"sync"
@@ -483,17 +484,21 @@ func (c *Collector) collectDAGRunStatusMetrics(ctx context.Context, ch chan<- pr
 		}
 
 		currentStatus := core.NotStarted
-		statuses, err := c.dagRunStore.ListStatuses(ctx,
-			exec.WithExactName(dag.Name),
-			exec.WithLimit(1),
-			exec.WithAllHistory(),
-		)
+		attempt, err := c.dagRunStore.LatestAttempt(ctx, dag.Name)
 		if err != nil {
-			logger.Warn(ctx, "Failed to list latest DAG-run status for metrics", tag.DAG(dag.Name), tag.Error(err))
-			continue
-		}
-		if len(statuses) > 0 && statuses[0] != nil {
-			currentStatus = statuses[0].Status
+			if !errors.Is(err, exec.ErrNoStatusData) {
+				logger.Warn(ctx, "Failed to find latest DAG-run attempt for metrics", tag.DAG(dag.Name), tag.Error(err))
+				continue
+			}
+		} else if attempt != nil {
+			status, err := attempt.ReadStatus(ctx)
+			if err != nil {
+				logger.Warn(ctx, "Failed to read latest DAG-run status for metrics", tag.DAG(dag.Name), tag.Error(err))
+				continue
+			}
+			if status != nil {
+				currentStatus = status.Status
+			}
 		}
 
 		for _, status := range dagRunStatusGaugeStatuses {

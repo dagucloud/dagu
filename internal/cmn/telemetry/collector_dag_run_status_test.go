@@ -17,7 +17,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core/exec"
 )
 
-func TestCollectorEmitsDAGRunStatusGaugeFromAllHistory(t *testing.T) {
+func TestCollectorEmitsDAGRunStatusGaugeFromLatestAttempt(t *testing.T) {
 	dagRunStore := &dagRunStoreStub{
 		statuses: map[string][]*exec.DAGRunStatus{
 			"daily": {
@@ -82,19 +82,16 @@ type dagRunStoreStub struct {
 	statuses map[string][]*exec.DAGRunStatus
 }
 
-func (s *dagRunStoreStub) ListStatuses(_ context.Context, opts ...exec.ListDAGRunStatusesOption) ([]*exec.DAGRunStatus, error) {
-	var options exec.ListDAGRunStatusesOptions
-	for _, opt := range opts {
-		opt(&options)
+func (s *dagRunStoreStub) ListStatuses(context.Context, ...exec.ListDAGRunStatusesOption) ([]*exec.DAGRunStatus, error) {
+	return nil, nil
+}
+
+func (s *dagRunStoreStub) LatestAttempt(_ context.Context, name string) (exec.DAGRunAttempt, error) {
+	statuses := s.statuses[name]
+	if len(statuses) == 0 {
+		return nil, exec.ErrNoStatusData
 	}
-	if options.ExactName == "" || !options.AllHistory {
-		return nil, nil
-	}
-	statuses := s.statuses[options.ExactName]
-	if options.Limit > 0 && len(statuses) > options.Limit {
-		return statuses[:options.Limit], nil
-	}
-	return statuses, nil
+	return &exec.MockDAGRunAttempt{Status: statuses[0]}, nil
 }
 
 type queueStoreStub struct {
