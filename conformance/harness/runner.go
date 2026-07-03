@@ -241,6 +241,12 @@ func (r *Runner) WriteExecutable(name string, content string) {
 	r.writeFile(name, content, 0o755)
 }
 
+// ProjectPath returns an absolute path inside the isolated project.
+func (r *Runner) ProjectPath(name string) string {
+	r.t.Helper()
+	return r.projectPath(name)
+}
+
 func (r *Runner) writeFile(name string, content string, perm os.FileMode) {
 	r.t.Helper()
 

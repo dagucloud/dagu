@@ -153,7 +153,6 @@ func WithSkipBaseHandlers() LoadOption {
 }
 
 // WithDefaultWorkingDir sets the default working directory for DAGs without explicit workingDir.
-// This is used for sub-DAG execution to inherit the parent's working directory.
 func WithDefaultWorkingDir(defaultWorkingDir string) LoadOption {
 	return func(o *LoadOptions) {
 		dir := strings.TrimSpace(defaultWorkingDir)

@@ -20,8 +20,8 @@ import (
 // TestWorkingDirectoryResolution verifies working directory resolution:
 //  1. DAG-level working_dir sets the working directory for steps
 //  2. Step-level relative dir resolves against DAG's working_dir
-//  3. SubDAG with explicit working_dir uses its own context (overrides inherited)
-//  4. SubDAG without working_dir inherits parent's working_dir (for local execution)
+//  3. SubDAG with explicit working_dir uses its own context
+//  4. SubDAG without working_dir uses its own DAG-run work directory
 func TestWorkingDirectoryResolution(t *testing.T) {
 	th := test.Setup(t)
 
@@ -104,10 +104,11 @@ steps:
 		switch node.Step.Name {
 		case "call_child_with_wd":
 			assert.Contains(t, subDir, childDir,
-				"SubDAG with explicit workingDir should run in childDir (overriding inherited)")
+				"SubDAG with explicit workingDir should run in childDir")
 		case "call_child_no_wd":
-			assert.Contains(t, subDir, parentDir,
-				"SubDAG without workingDir should inherit parent's workingDir")
+			subWorkDir := getSubDAGRunWorkDir(t, th, ref, node.SubRuns[0].DAGRunID)
+			assert.Equal(t, filepath.Clean(subWorkDir), filepath.Clean(subDir),
+				"SubDAG without workingDir should run in its own DAG-run work directory")
 		}
 	}
 }
@@ -127,4 +128,13 @@ func getSubDAGWorkingDir(t *testing.T, th test.Helper, ref exec.DAGRunRef, subRu
 	require.NoError(t, err)
 
 	return strings.TrimSpace(string(logContent))
+}
+
+func getSubDAGRunWorkDir(t *testing.T, th test.Helper, ref exec.DAGRunRef, subRunID string) string {
+	t.Helper()
+
+	subAttempt, err := th.DAGRunStore.FindSubAttempt(th.Context, ref, subRunID)
+	require.NoError(t, err)
+
+	return subAttempt.WorkDir()
 }

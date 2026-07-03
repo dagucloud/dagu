@@ -1,0 +1,41 @@
+working_dir: .
+steps:
+  - id: fanout
+    action: dag.run
+    with:
+      dag: child-default-workdir
+      params:
+        - item: ${ITEM}
+    parallel:
+      items:
+        - alpha
+        - beta
+      max_concurrent: 2
+    output: PARALLEL_RESULTS
+  - id: record
+    depends: fanout
+    run: |
+      printf '%s\n' "$PARALLEL_RESULTS" > parallel-workdir-results.txt
+
+---
+name: child-default-workdir
+params:
+  - name: item
+    description: Fan-out item.
+steps:
+  - id: write
+    run: |
+      set -eu
+      context_work='${context.paths.work_dir}'
+      if [ "$PWD" != "$DAG_RUN_WORK_DIR" ]; then
+        printf 'PWD did not match DAG_RUN_WORK_DIR\n' >&2
+        exit 1
+      fi
+      if [ "$PWD" != "$context_work" ]; then
+        printf 'PWD did not match context.paths.work_dir\n' >&2
+        exit 1
+      fi
+      set -C
+      : > collision.txt
+      printf 'item=%s\npwd=%s\nwork=%s\ncontext=%s\n' '${params.item}' "$PWD" "$DAG_RUN_WORK_DIR" "$context_work"
+    output: CHILD_INFO

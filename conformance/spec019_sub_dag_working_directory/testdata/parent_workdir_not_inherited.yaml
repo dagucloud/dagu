@@ -1,0 +1,25 @@
+working_dir: parent-work
+steps:
+  - id: child
+    action: dag.run
+    with:
+      dag: child
+
+---
+name: child
+steps:
+  - id: inspect
+    run: |
+      context_work='${context.paths.work_dir}'
+      if [ "$(basename "$PWD")" = "parent-work" ]; then
+        printf 'child inherited parent working directory\n' >&2
+        exit 1
+      fi
+      if [ "$PWD" != "$DAG_RUN_WORK_DIR" ]; then
+        printf 'PWD did not match DAG_RUN_WORK_DIR\n' >&2
+        exit 1
+      fi
+      if [ "$PWD" != "$context_work" ]; then
+        printf 'PWD did not match context.paths.work_dir\n' >&2
+        exit 1
+      fi

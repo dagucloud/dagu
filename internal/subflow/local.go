@@ -500,7 +500,7 @@ func inProcessLoadOptions(
 	if req.Params != "" {
 		loadOpts = append(loadOpts, spec.WithParams(req.Params))
 	}
-	if workDir != "" {
+	if req.Workspace != nil && workDir != "" {
 		loadOpts = append(loadOpts, spec.WithDefaultWorkingDir(workDir))
 	}
 

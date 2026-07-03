@@ -122,7 +122,6 @@ type BuildOpts struct {
 	// DAGsDir is the directory containing the core.DAG files.
 	DAGsDir string
 	// DefaultWorkingDir is the default working directory for DAGs without explicit workingDir.
-	// This is used for sub-DAG execution to inherit the parent's working directory.
 	DefaultWorkingDir string
 	// Flags stores all boolean options controlling build behaviour.
 	Flags BuildFlag

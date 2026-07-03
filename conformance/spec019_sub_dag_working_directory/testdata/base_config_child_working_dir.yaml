@@ -1,0 +1,30 @@
+working_dir: .
+steps:
+  - id: child
+    action: dag.run
+    with:
+      dag: child-base-workdir
+    output: CHILD_RESULTS
+  - id: record
+    depends: child
+    run: |
+      printf '%s\n' "$CHILD_RESULTS" > base-config-child-results.txt
+
+---
+name: child-base-workdir
+steps:
+  - id: inspect
+    run: |
+      context_work='${context.paths.work_dir}'
+      printf 'cwd=%s\n' "$(basename "$PWD")"
+      if [ "$PWD" = "$DAG_RUN_WORK_DIR" ]; then
+        printf 'comparison=same\n'
+      else
+        printf 'comparison=different\n'
+      fi
+      if [ "$DAG_RUN_WORK_DIR" != "$context_work" ]; then
+        printf 'context.paths.work_dir did not match DAG_RUN_WORK_DIR\n' >&2
+        exit 1
+      fi
+      printf 'context=same\n'
+    output: CHILD_INFO
