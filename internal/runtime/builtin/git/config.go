@@ -73,7 +73,7 @@ var configSchema = &jsonschema.Schema{
 		"depth":          {Type: "integer", Minimum: new(float64(0)), Description: "Shallow clone/fetch depth. Zero means full history."},
 		"force":          {Type: "boolean", Description: "Force checkout when the existing worktree has local changes. Defaults to false."},
 		"token":          {Type: "string", Description: "HTTPS token for repository authentication."},
-		"username":       {Type: "string", Description: "HTTPS username when using password authentication."},
+		"username":       {Type: "string", Description: "Username for HTTPS password authentication or SSH key authentication."},
 		"password":       {Type: "string", Description: "HTTPS password for repository authentication."},
 		"ssh_key_path":   {Type: "string", Description: "Path to an SSH private key for repository authentication."},
 		"ssh_passphrase": {Type: "string", Description: "Passphrase for ssh_key_path."},
