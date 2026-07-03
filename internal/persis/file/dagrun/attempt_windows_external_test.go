@@ -21,10 +21,7 @@ import (
 func TestAttemptWorkDirShortensLongWindowsPath(t *testing.T) {
 	t.Parallel()
 
-	dagRunDir := filepath.Join(t.TempDir(), "dag-run_20260703_111258Z_run")
-	for len(filepath.Join(dagRunDir, "work")) < 300 {
-		dagRunDir = filepath.Join(dagRunDir, "nested-directory")
-	}
+	dagRunDir := longWindowsDAGRunDir(t)
 	attemptDir := filepath.Join(dagRunDir, "attempt_20260703_111258_000Z_attempt")
 	statusFile := filepath.Join(attemptDir, dagrun.JSONLStatusFile)
 
@@ -46,10 +43,7 @@ func TestDAGRunRemoveDeletesShortenedWindowsWorkDir(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	dagRunDir := filepath.Join(t.TempDir(), "dag-run_20260703_111258Z_run")
-	for len(filepath.Join(dagRunDir, "work")) < 300 {
-		dagRunDir = filepath.Join(dagRunDir, "nested-directory")
-	}
+	dagRunDir := longWindowsDAGRunDir(t)
 	require.NoError(t, os.MkdirAll(dagRunDir, 0750))
 
 	run, err := dagrun.NewDAGRun(dagRunDir)
@@ -72,4 +66,15 @@ func TestDAGRunRemoveDeletesShortenedWindowsWorkDir(t *testing.T) {
 
 	require.NoError(t, run.Remove(ctx))
 	require.NoDirExists(t, workDir)
+}
+
+func longWindowsDAGRunDir(t *testing.T) string {
+	t.Helper()
+
+	baseDir := t.TempDir()
+	dagRunDirName := "dag-run_20260703_111258Z_run"
+	for len(filepath.Join(baseDir, dagRunDirName, "work")) < 300 {
+		baseDir = filepath.Join(baseDir, "nested-directory")
+	}
+	return filepath.Join(baseDir, dagRunDirName)
 }
