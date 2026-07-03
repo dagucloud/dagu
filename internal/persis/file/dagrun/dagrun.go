@@ -250,7 +250,73 @@ func (dr DAGRun) Remove(ctx context.Context) error {
 			tag.Error(err),
 			tag.RunID(dr.dagRunID))
 	}
+	if err := dr.removeExternalWorkDirs(ctx); err != nil {
+		logger.Error(ctx, "Failed to remove external work directories",
+			tag.Error(err),
+			tag.RunID(dr.dagRunID))
+	}
 	return fileutil.RemoveAll(dr.baseDir)
+}
+
+func (dr DAGRun) removeExternalWorkDirs(ctx context.Context) error {
+	workDirs := make(map[string]struct{})
+	if err := dr.addExternalWorkDirs(workDirs); err != nil {
+		return err
+	}
+
+	children, err := dr.ListSubDAGRuns(ctx)
+	if err != nil {
+		return err
+	}
+	for _, child := range children {
+		if err := child.addExternalWorkDirs(workDirs); err != nil {
+			return err
+		}
+	}
+
+	var joined error
+	for dir := range workDirs {
+		if err := fileutil.RemoveAll(dir); err != nil {
+			joined = errors.Join(joined, err)
+		}
+	}
+	return joined
+}
+
+func (dr DAGRun) addExternalWorkDirs(workDirs map[string]struct{}) error {
+	attDirs, err := dr.listAttemptDirs()
+	if err != nil {
+		return fmt.Errorf("failed to list attempt directories: %w", err)
+	}
+
+	for _, attDir := range attDirs {
+		attempt, err := dr.AttemptByDir(attDir, nil)
+		if err != nil {
+			return fmt.Errorf("failed to read attempt data: %w", err)
+		}
+		workDir := filepath.Clean(attempt.WorkDir())
+		if dirContainsPath(dr.baseDir, workDir) {
+			continue
+		}
+		workDirs[workDir] = struct{}{}
+	}
+	return nil
+}
+
+func dirContainsPath(dir, path string) bool {
+	cleanDir, err := filepath.Abs(filepath.Clean(dir))
+	if err != nil {
+		return false
+	}
+	cleanPath, err := filepath.Abs(filepath.Clean(path))
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(cleanDir, cleanPath)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)) && !filepath.IsAbs(rel))
 }
 
 // removeLogFiles removes all log files associated with the dag-run and its sub dag-runs.
