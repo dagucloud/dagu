@@ -106,11 +106,11 @@ steps:
 
 		switch node.Step.Name {
 		case "call_child_with_wd":
-			assert.Contains(t, subDir, childDir,
+			assertSameWorkingDir(t, childDir, subDir,
 				"SubDAG with explicit workingDir should run in childDir")
 		case "call_child_no_wd":
 			subWorkDir := subAttempt.WorkDir()
-			assert.Equal(t, filepath.Clean(subWorkDir), filepath.Clean(subDir),
+			assertSameWorkingDir(t, subWorkDir, subDir,
 				"SubDAG without workingDir should run in its own DAG-run work directory")
 		}
 	}
@@ -128,4 +128,22 @@ func getSubDAGWorkingDir(t *testing.T, ctx context.Context, subAttempt exec.DAGR
 	require.NoError(t, err)
 
 	return strings.TrimSpace(string(logContent))
+}
+
+func assertSameWorkingDir(t *testing.T, expected, actual, message string) {
+	t.Helper()
+
+	expected = filepath.Clean(expected)
+	actual = filepath.Clean(actual)
+	if runtime.GOOS != "windows" {
+		assert.Equal(t, expected, actual, message)
+		return
+	}
+
+	expectedInfo, err := os.Stat(expected)
+	require.NoError(t, err)
+	actualInfo, err := os.Stat(actual)
+	require.NoError(t, err)
+	assert.Truef(t, os.SameFile(expectedInfo, actualInfo),
+		"%s\nexpected: %s\nactual: %s", message, expected, actual)
 }
