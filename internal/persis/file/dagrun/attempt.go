@@ -6,6 +6,8 @@ package dagrun
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -48,6 +50,8 @@ const MessagesDir = "messages"
 
 // CancelRequestedFlag is a special flag used to indicate that a cancel request has been made.
 const CancelRequestedFlag = "CANCEL_REQUESTED"
+
+const windowsMaxWorkingDirLen = 248
 
 var _ exec.DAGRunAttempt = (*Attempt)(nil)
 
@@ -711,7 +715,24 @@ func (att *Attempt) dagRunDir() string {
 // The work directory lives at the dag-run level (not attempt level)
 // so it persists across retries.
 func (att *Attempt) WorkDir() string {
-	return filepath.Join(att.dagRunDir(), "work")
+	return workDirForDAGRunDir(att.dagRunDir())
+}
+
+func workDirForDAGRunDir(dagRunDir string) string {
+	dir := filepath.Join(dagRunDir, "work")
+	if runtime.GOOS != "windows" {
+		return dir
+	}
+
+	abs, err := filepath.Abs(filepath.Clean(dir))
+	if err != nil || len(abs) < windowsMaxWorkingDirLen {
+		return dir
+	}
+
+	// Windows process creation rejects long current-directory paths.
+	// Hashing the run directory keeps a stable per-run work dir across retries.
+	sum := sha256.Sum256([]byte(abs))
+	return filepath.Join(os.TempDir(), "dagu", "work", hex.EncodeToString(sum[:]))
 }
 
 // readLineFrom reads a line from the file starting at the specified offset.
