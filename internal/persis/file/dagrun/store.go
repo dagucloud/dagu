@@ -444,43 +444,48 @@ func (store *Store) RecentAttempts(ctx context.Context, dagName string, itemLimi
 // LatestAttempt returns the most recent history record for the specified DAG name.
 // If latestStatusToday is true, it only returns today's status.
 func (store *Store) LatestAttempt(ctx context.Context, dagName string) (exec.DAGRunAttempt, error) {
-	root := NewDataRoot(store.baseDir, dagName)
-
 	if store.latestStatusToday {
 		// Use the configured timezone to calculate "today"
 		now := time.Now().In(store.location)
 		startOfDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, store.location)
 		startOfDayInUTC := exec.NewUTC(startOfDay)
 
-		if attempt, err := root.latestAttemptFromPointer(ctx, store.cache, startOfDayInUTC); err == nil {
-			return attempt, nil
-		}
-
-		// Get the latest execution data after the start of the day.
-		exec, err := root.LatestAfter(ctx, startOfDayInUTC)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get latest after: %w", err)
-		}
-
-		attempt, err := exec.LatestAttempt(ctx, store.cache)
-		if err == nil {
-			if markerErr := updateLatestAttemptPointer(ctx, attempt.file); markerErr != nil {
-				logger.Debug(ctx, "Failed to refresh DAG-run latest attempt pointer", tag.Error(markerErr))
-			}
-		}
-		return attempt, err
+		return store.latestAttempt(ctx, dagName, startOfDayInUTC)
 	}
 
-	if attempt, err := root.latestAttemptFromPointer(ctx, store.cache, exec.TimeInUTC{}); err == nil {
+	return store.LatestAttemptAllHistory(ctx, dagName)
+}
+
+// LatestAttemptAllHistory returns the latest attempt regardless of the
+// latestStatusToday setting.
+func (store *Store) LatestAttemptAllHistory(ctx context.Context, dagName string) (exec.DAGRunAttempt, error) {
+	return store.latestAttempt(ctx, dagName, exec.TimeInUTC{})
+}
+
+func (store *Store) latestAttempt(ctx context.Context, dagName string, since exec.TimeInUTC) (exec.DAGRunAttempt, error) {
+	root := NewDataRoot(store.baseDir, dagName)
+
+	if attempt, err := root.latestAttemptFromPointer(ctx, store.cache, since); err == nil {
 		return attempt, nil
 	}
 
-	// Get the latest execution data.
+	if !since.IsZero() {
+		latest, err := root.LatestAfter(ctx, since)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get latest after: %w", err)
+		}
+		return store.latestAttemptFromRun(ctx, latest)
+	}
+
 	latest := root.Latest(ctx, 1)
 	if len(latest) == 0 {
 		return nil, exec.ErrNoStatusData
 	}
-	attempt, err := latest[0].LatestAttempt(ctx, store.cache)
+	return store.latestAttemptFromRun(ctx, latest[0])
+}
+
+func (store *Store) latestAttemptFromRun(ctx context.Context, run *DAGRun) (exec.DAGRunAttempt, error) {
+	attempt, err := run.LatestAttempt(ctx, store.cache)
 	if err == nil {
 		if markerErr := updateLatestAttemptPointer(ctx, attempt.file); markerErr != nil {
 			logger.Debug(ctx, "Failed to refresh DAG-run latest attempt pointer", tag.Error(markerErr))

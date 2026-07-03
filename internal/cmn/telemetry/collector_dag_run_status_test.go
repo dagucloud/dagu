@@ -11,6 +11,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/dagucloud/dagu/internal/cmn/telemetry"
@@ -32,6 +33,7 @@ func TestCollectorEmitsDAGRunStatusGaugeFromLatestAttempt(t *testing.T) {
 			dags: []*core.DAG{
 				{Name: "daily"},
 				{Name: "fresh"},
+				{Name: "empty"},
 				{Name: "broken"},
 			},
 		},
@@ -64,6 +66,10 @@ func TestCollectorEmitsDAGRunStatusGaugeFromLatestAttempt(t *testing.T) {
 		"dag":    "fresh",
 		"status": "running",
 	}, 0)
+	assertGaugeValue(t, statusFamily, map[string]string{
+		"dag":    "empty",
+		"status": "not_started",
+	}, 1)
 	assertNoDAGMetrics(t, statusFamily, "broken")
 }
 
@@ -88,9 +94,18 @@ func (s *dagRunStoreStub) ListStatuses(context.Context, ...exec.ListDAGRunStatus
 	return nil, nil
 }
 
-func (s *dagRunStoreStub) LatestAttempt(_ context.Context, name string) (exec.DAGRunAttempt, error) {
+func (s *dagRunStoreStub) LatestAttempt(context.Context, string) (exec.DAGRunAttempt, error) {
+	return nil, exec.ErrNoStatusData
+}
+
+func (s *dagRunStoreStub) LatestAttemptAllHistory(_ context.Context, name string) (exec.DAGRunAttempt, error) {
 	if name == "broken" {
 		return nil, errors.New("boom")
+	}
+	if name == "empty" {
+		attempt := &exec.MockDAGRunAttempt{}
+		attempt.On("ReadStatus", mock.Anything).Return(nil, exec.ErrNoStatusData)
+		return attempt, nil
 	}
 	statuses := s.statuses[name]
 	if len(statuses) == 0 {

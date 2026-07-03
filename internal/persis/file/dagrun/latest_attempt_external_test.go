@@ -17,6 +17,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type latestAttemptAllHistoryStore interface {
+	LatestAttemptAllHistory(ctx context.Context, dagName string) (exec.DAGRunAttempt, error)
+}
+
 func TestStoreLatestAttemptUsesPersistedLatestPointer(t *testing.T) {
 	ctx := context.Background()
 	baseDir := t.TempDir()
@@ -43,6 +47,39 @@ func TestStoreLatestAttemptUsesPersistedLatestPointer(t *testing.T) {
 	status, err := latest.ReadStatus(ctx)
 	require.NoError(t, err)
 	require.Equal(t, "run-1", status.DAGRunID)
+	require.Equal(t, core.Succeeded, status.Status)
+}
+
+func TestStoreLatestAttemptAllHistoryBypassesTodayScope(t *testing.T) {
+	ctx := context.Background()
+	baseDir := t.TempDir()
+	store := dagrun.New(baseDir, dagrun.WithLatestStatusToday(true))
+	allHistoryStore, ok := store.(latestAttemptAllHistoryStore)
+	require.True(t, ok)
+
+	dag := &core.DAG{Name: "latest-all-history"}
+	startedAt := time.Now().AddDate(0, 0, -2).UTC()
+
+	attempt, err := store.CreateAttempt(ctx, dag, startedAt, "old-run", exec.NewDAGRunAttemptOptions{})
+	require.NoError(t, err)
+	require.NoError(t, attempt.Open(ctx))
+	require.NoError(t, attempt.Write(ctx, exec.DAGRunStatus{
+		Name:      dag.Name,
+		DAGRunID:  "old-run",
+		AttemptID: attempt.ID(),
+		Status:    core.Succeeded,
+		StartedAt: startedAt.Format(time.RFC3339),
+	}))
+	require.NoError(t, attempt.Close(ctx))
+
+	_, err = store.LatestAttempt(ctx, dag.Name)
+	require.Error(t, err)
+
+	latest, err := allHistoryStore.LatestAttemptAllHistory(ctx, dag.Name)
+	require.NoError(t, err)
+	status, err := latest.ReadStatus(ctx)
+	require.NoError(t, err)
+	require.Equal(t, "old-run", status.DAGRunID)
 	require.Equal(t, core.Succeeded, status.Status)
 }
 

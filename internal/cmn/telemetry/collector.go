@@ -89,6 +89,10 @@ type Collector struct {
 	mu sync.RWMutex
 }
 
+type dagRunLatestAttemptAllHistoryStore interface {
+	LatestAttemptAllHistory(ctx context.Context, name string) (exec.DAGRunAttempt, error)
+}
+
 // NewCollector creates a new metrics collector
 func NewCollector(
 	version string,
@@ -484,7 +488,7 @@ func (c *Collector) collectDAGRunStatusMetrics(ctx context.Context, ch chan<- pr
 		}
 
 		currentStatus := core.NotStarted
-		attempt, err := c.dagRunStore.LatestAttempt(ctx, dag.Name)
+		attempt, err := c.latestDAGRunAttempt(ctx, dag.Name)
 		if err != nil {
 			if !errors.Is(err, exec.ErrNoStatusData) {
 				logger.Warn(ctx, "Failed to find latest DAG-run attempt for metrics", tag.DAG(dag.Name), tag.Error(err))
@@ -493,10 +497,11 @@ func (c *Collector) collectDAGRunStatusMetrics(ctx context.Context, ch chan<- pr
 		} else if attempt != nil {
 			status, err := attempt.ReadStatus(ctx)
 			if err != nil {
-				logger.Warn(ctx, "Failed to read latest DAG-run status for metrics", tag.DAG(dag.Name), tag.Error(err))
-				continue
-			}
-			if status != nil {
+				if !errors.Is(err, exec.ErrNoStatusData) && !errors.Is(err, exec.ErrCorruptedStatusFile) {
+					logger.Warn(ctx, "Failed to read latest DAG-run status for metrics", tag.DAG(dag.Name), tag.Error(err))
+					continue
+				}
+			} else if status != nil {
 				currentStatus = status.Status
 			}
 		}
@@ -515,6 +520,13 @@ func (c *Collector) collectDAGRunStatusMetrics(ctx context.Context, ch chan<- pr
 			)
 		}
 	}
+}
+
+func (c *Collector) latestDAGRunAttempt(ctx context.Context, name string) (exec.DAGRunAttempt, error) {
+	if store, ok := c.dagRunStore.(dagRunLatestAttemptAllHistoryStore); ok {
+		return store.LatestAttemptAllHistory(ctx, name)
+	}
+	return c.dagRunStore.LatestAttempt(ctx, name)
 }
 
 func (c *Collector) collectQueueMetrics(ctx context.Context, ch chan<- prometheus.Metric) {
