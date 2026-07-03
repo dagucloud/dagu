@@ -16,7 +16,7 @@ var _ gitssh.AuthMethod = (*publicKeysAuth)(nil)
 
 // NewPublicKeysFromFile returns go-git SSH auth for a private key file.
 func NewPublicKeysFromFile(user, pemFile, passphrase string) (gitssh.AuthMethod, error) {
-	pemBytes, err := os.ReadFile(pemFile)
+	pemBytes, err := os.ReadFile(pemFile) //nolint:gosec // pemFile is the configured SSH private-key path.
 	if err != nil {
 		return nil, err
 	}
