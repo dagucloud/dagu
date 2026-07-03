@@ -8,6 +8,7 @@ import (
 	"errors"
 	"runtime"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 
@@ -30,7 +31,7 @@ var (
 	// queueWaitBuckets defines buckets for queue wait time (shorter timescales)
 	queueWaitBuckets = []float64{1, 5, 10, 30, 60, 120, 300, 600}
 
-	dagRunStatusGaugeStatuses = []core.Status{
+	dagRunStatusValues = []core.Status{
 		core.NotStarted,
 		core.Queued,
 		core.Running,
@@ -73,6 +74,7 @@ type Collector struct {
 	dagRunsQueuedByDAGDesc    *prometheus.Desc
 	dagRunsTotalByDAGDesc     *prometheus.Desc
 	dagRunStatusDesc          *prometheus.Desc
+	dagRunStatusInfoDesc      *prometheus.Desc
 	dagRunDurationDesc        *prometheus.Desc
 	queueWaitTimeDesc         *prometheus.Desc
 
@@ -187,8 +189,14 @@ func NewCollector(
 		),
 		dagRunStatusDesc: prometheus.NewDesc(
 			"dagu_dag_run_status",
-			"Current status of the most recent DAG run as a one-hot gauge",
-			[]string{"dag", "status"},
+			"Current status code of the most recent DAG run",
+			[]string{"dag"},
+			nil,
+		),
+		dagRunStatusInfoDesc: prometheus.NewDesc(
+			"dagu_dag_run_status_info",
+			"Mapping from DAG run status code to status name",
+			[]string{"status", "code"},
 			nil,
 		),
 		dagRunDurationDesc: prometheus.NewDesc(
@@ -278,6 +286,7 @@ func (c *Collector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- c.dagRunsQueuedByDAGDesc
 	ch <- c.dagRunsTotalByDAGDesc
 	ch <- c.dagRunStatusDesc
+	ch <- c.dagRunStatusInfoDesc
 	ch <- c.dagRunDurationDesc
 	ch <- c.queueWaitTimeDesc
 
@@ -323,6 +332,7 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 
 	// Collect DAG metrics
 	c.collectDAGMetrics(ctx, ch)
+	c.collectDAGRunStatusInfoMetrics(ch)
 
 	// Scheduler status
 	schedulerRunning := float64(0)
@@ -506,19 +516,25 @@ func (c *Collector) collectDAGRunStatusMetrics(ctx context.Context, ch chan<- pr
 			}
 		}
 
-		for _, status := range dagRunStatusGaugeStatuses {
-			value := float64(0)
-			if status == currentStatus {
-				value = 1
-			}
-			ch <- prometheus.MustNewConstMetric(
-				c.dagRunStatusDesc,
-				prometheus.GaugeValue,
-				value,
-				dag.Name,
-				status.String(),
-			)
-		}
+		ch <- prometheus.MustNewConstMetric(
+			c.dagRunStatusDesc,
+			prometheus.GaugeValue,
+			float64(currentStatus),
+			dag.Name,
+		)
+	}
+}
+
+func (c *Collector) collectDAGRunStatusInfoMetrics(ch chan<- prometheus.Metric) {
+	for _, status := range dagRunStatusValues {
+		code := strconv.Itoa(int(status))
+		ch <- prometheus.MustNewConstMetric(
+			c.dagRunStatusInfoDesc,
+			prometheus.GaugeValue,
+			1,
+			status.String(),
+			code,
+		)
 	}
 }
 

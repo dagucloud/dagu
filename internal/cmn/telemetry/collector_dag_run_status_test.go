@@ -51,26 +51,26 @@ func TestCollectorEmitsDAGRunStatusGaugeFromLatestAttempt(t *testing.T) {
 
 	statusFamily := metricMap["dagu_dag_run_status"]
 	assertGaugeValue(t, statusFamily, map[string]string{
-		"dag":    "daily",
-		"status": "succeeded",
-	}, 1)
+		"dag": "daily",
+	}, float64(core.Succeeded))
+	assertMetricDoesNotHaveLabel(t, statusFamily, "daily", "status")
 	assertGaugeValue(t, statusFamily, map[string]string{
-		"dag":    "daily",
-		"status": "failed",
-	}, 0)
+		"dag": "fresh",
+	}, float64(core.NotStarted))
 	assertGaugeValue(t, statusFamily, map[string]string{
-		"dag":    "fresh",
-		"status": "not_started",
-	}, 1)
-	assertGaugeValue(t, statusFamily, map[string]string{
-		"dag":    "fresh",
-		"status": "running",
-	}, 0)
-	assertGaugeValue(t, statusFamily, map[string]string{
-		"dag":    "empty",
-		"status": "not_started",
-	}, 1)
+		"dag": "empty",
+	}, float64(core.NotStarted))
 	assertNoDAGMetrics(t, statusFamily, "broken")
+
+	statusInfoFamily := metricMap["dagu_dag_run_status_info"]
+	assertGaugeValue(t, statusInfoFamily, map[string]string{
+		"status": "succeeded",
+		"code":   "4",
+	}, 1)
+	assertGaugeValue(t, statusInfoFamily, map[string]string{
+		"status": "failed",
+		"code":   "2",
+	}, 1)
 }
 
 type dagStoreStub struct {
@@ -158,6 +158,14 @@ func assertNoDAGMetrics(t *testing.T, family *dto.MetricFamily, dagName string) 
 				require.Failf(t, "metric found", "metric %s with dag %q found", family.GetName(), dagName)
 			}
 		}
+	}
+}
+
+func assertMetricDoesNotHaveLabel(t *testing.T, family *dto.MetricFamily, dagName, labelName string) {
+	t.Helper()
+	metric := findMetric(t, family, map[string]string{"dag": dagName})
+	for _, label := range metric.GetLabel() {
+		require.NotEqual(t, labelName, label.GetName())
 	}
 }
 
