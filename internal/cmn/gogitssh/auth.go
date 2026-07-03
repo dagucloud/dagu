@@ -6,6 +6,7 @@ package gogitssh
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
@@ -37,9 +38,9 @@ func NewPublicKeys(user string, pemBytes []byte, passphrase string) (gitssh.Auth
 
 // UserFromURL returns the SSH username embedded in repoURL, or fallback.
 func UserFromURL(repoURL, fallback string) string {
-	endpoint, err := transport.NewEndpoint(repoURL)
+	endpoint, err := transport.NewEndpoint(strings.TrimSpace(repoURL))
 	if err != nil || endpoint.User == "" {
-		return fallback
+		return strings.TrimSpace(fallback)
 	}
 	return endpoint.User
 }

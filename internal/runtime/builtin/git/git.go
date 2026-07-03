@@ -360,9 +360,9 @@ func ensureCloneTarget(path string) error {
 
 func (e *executorImpl) auth() (transport.AuthMethod, error) {
 	if e.cfg.SSHKeyPath != "" {
-		username := e.cfg.Username
+		username := strings.TrimSpace(e.cfg.Username)
 		if username == "" {
-			username = gogitssh.UserFromURL(e.cfg.Repository, "git")
+			username = gogitssh.UserFromURL(strings.TrimSpace(e.cfg.Repository), "git")
 		}
 		auth, err := gogitssh.NewPublicKeysFromFile(username, e.resolvePath(e.cfg.SSHKeyPath), e.cfg.SSHPassphrase)
 		if err != nil {

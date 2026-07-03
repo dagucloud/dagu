@@ -50,6 +50,26 @@ func TestSSHAuthUsesConfiguredUsername(t *testing.T) {
 	require.Empty(t, cfg.HostKeyAlgorithms)
 }
 
+func TestSSHAuthTrimsUsernameBeforeFallback(t *testing.T) {
+	workDir := t.TempDir()
+	testutil.WriteSSHPrivateKey(t, workDir, "id_ed25519")
+
+	auth, err := gitexecutor.AuthForTest(map[string]any{
+		"repository":   " builder@example.com:org/repo.git ",
+		"ssh_key_path": "id_ed25519",
+		"username":     "   ",
+	}, workDir)
+	require.NoError(t, err)
+
+	sshAuth, ok := auth.(gitssh.AuthMethod)
+	require.True(t, ok)
+	cfg, err := sshAuth.ClientConfig()
+	require.NoError(t, err)
+	require.Equal(t, "builder", cfg.User)
+	require.Nil(t, cfg.HostKeyCallback)
+	require.Empty(t, cfg.HostKeyAlgorithms)
+}
+
 func TestSSHAuthUsesRepositoryURLUser(t *testing.T) {
 	workDir := t.TempDir()
 	testutil.WriteSSHPrivateKey(t, workDir, "id_ed25519")
