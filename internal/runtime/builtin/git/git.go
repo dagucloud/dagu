@@ -23,6 +23,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
+	cryptossh "golang.org/x/crypto/ssh"
 )
 
 const (
@@ -360,7 +361,7 @@ func ensureCloneTarget(path string) error {
 
 func (e *executorImpl) auth() (transport.AuthMethod, error) {
 	if e.cfg.SSHKeyPath != "" {
-		auth, err := gitssh.NewPublicKeysFromFile("git", e.resolvePath(e.cfg.SSHKeyPath), e.cfg.SSHPassphrase)
+		auth, err := newPublicKeysFromFile("git", e.resolvePath(e.cfg.SSHKeyPath), e.cfg.SSHPassphrase)
 		if err != nil {
 			return nil, fmt.Errorf("git checkout: load ssh key: %w", err)
 		}
@@ -377,6 +378,28 @@ func (e *executorImpl) auth() (transport.AuthMethod, error) {
 		return &githttp.BasicAuth{Username: username, Password: e.cfg.Password}, nil
 	}
 	return nil, nil
+}
+
+// TODO: Delete this local key loader after go-git resolves the known_hosts regression.
+// See https://github.com/go-git/go-git/issues/1551.
+func newPublicKeysFromFile(user, keyPath, passphrase string) (*gitssh.PublicKeys, error) {
+	// Leave host-key verification unset; go-git's transport owns known_hosts handling.
+	key, err := os.ReadFile(keyPath) // #nosec G304 -- SSH key path is explicit git executor configuration.
+	if err != nil {
+		return nil, err
+	}
+
+	var signer cryptossh.Signer
+	if passphrase == "" {
+		signer, err = cryptossh.ParsePrivateKey(key)
+	} else {
+		signer, err = cryptossh.ParsePrivateKeyWithPassphrase(key, []byte(passphrase))
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return &gitssh.PublicKeys{User: user, Signer: signer}, nil
 }
 
 func (e *executorImpl) resolvePath(path string) string {

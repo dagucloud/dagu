@@ -44,13 +44,6 @@ updates:
         patterns:
           - "*"
     ignore:
-      # TODO: Keep go-git pinned until the SSH known_hosts regression is fixed upstream.
-      # See https://github.com/go-git/go-git/issues/1551.
-      - dependency-name: "github.com/go-git/go-git/v5"
-        update-types:
-          - "version-update:semver-major"
-          - "version-update:semver-minor"
-          - "version-update:semver-patch"
       - dependency-name: "*"
         update-types:
           - "version-update:semver-major"

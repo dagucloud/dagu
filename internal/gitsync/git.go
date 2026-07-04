@@ -20,6 +20,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
 	"github.com/go-git/go-git/v5/plumbing/transport/ssh"
+	cryptossh "golang.org/x/crypto/ssh"
 )
 
 // GitClient provides Git operations using go-git.
@@ -59,7 +60,7 @@ func (c *GitClient) getAuth() (transport.AuthMethod, error) {
 		if c.cfg.Auth.SSHKeyPath == "" {
 			return nil, &ValidationError{Field: "auth.sshKeyPath", Message: "SSH key path is required for SSH auth"}
 		}
-		auth, err := ssh.NewPublicKeysFromFile("git", c.cfg.Auth.SSHKeyPath, c.cfg.Auth.SSHPassphrase)
+		auth, err := newPublicKeysFromFile("git", c.cfg.Auth.SSHKeyPath, c.cfg.Auth.SSHPassphrase)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load SSH key: %w", err)
 		}
@@ -69,6 +70,28 @@ func (c *GitClient) getAuth() (transport.AuthMethod, error) {
 		// No auth
 		return nil, nil
 	}
+}
+
+// TODO: Delete this local key loader after go-git resolves the known_hosts regression.
+// See https://github.com/go-git/go-git/issues/1551.
+func newPublicKeysFromFile(user, keyPath, passphrase string) (*ssh.PublicKeys, error) {
+	// Leave host-key verification unset; go-git's transport owns known_hosts handling.
+	key, err := os.ReadFile(keyPath) // #nosec G304 -- SSH key path is explicit Git Sync configuration.
+	if err != nil {
+		return nil, err
+	}
+
+	var signer cryptossh.Signer
+	if passphrase == "" {
+		signer, err = cryptossh.ParsePrivateKey(key)
+	} else {
+		signer, err = cryptossh.ParsePrivateKeyWithPassphrase(key, []byte(passphrase))
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return &ssh.PublicKeys{User: user, Signer: signer}, nil
 }
 
 // normalizeRepoURL normalizes the repository URL to a full clone URL.
