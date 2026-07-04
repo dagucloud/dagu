@@ -24,6 +24,8 @@ updates:
         patterns:
           - "*"
     ignore:
+      # TODO: Keep go-git pinned until the SSH known_hosts regression is fixed upstream.
+      # See https://github.com/go-git/go-git/issues/1551.
       - dependency-name: "github.com/go-git/go-git/v5"
       - dependency-name: "*"
         update-types:
