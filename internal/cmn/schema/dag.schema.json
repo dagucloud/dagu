@@ -6670,7 +6670,7 @@
         },
         "username": {
           "type": "string",
-          "description": "Username for HTTPS password authentication or SSH key authentication."
+          "description": "HTTPS username when using password authentication."
         },
         "password": {
           "type": "string",

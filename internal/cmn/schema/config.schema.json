@@ -999,7 +999,7 @@
         },
         "repository": {
           "type": "string",
-          "description": "Git repository URL. For SSH servers that require a username other than 'git', include it in the URL."
+          "description": "Git repository URL."
         },
         "branch": {
           "type": "string",

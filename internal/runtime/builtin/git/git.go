@@ -14,7 +14,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/dagucloud/dagu/internal/cmn/gogitssh"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/executor"
@@ -23,6 +22,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
+	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
 )
 
 const (
@@ -360,11 +360,7 @@ func ensureCloneTarget(path string) error {
 
 func (e *executorImpl) auth() (transport.AuthMethod, error) {
 	if e.cfg.SSHKeyPath != "" {
-		username := strings.TrimSpace(e.cfg.Username)
-		if username == "" {
-			username = gogitssh.UserFromURL(strings.TrimSpace(e.cfg.Repository), "git")
-		}
-		auth, err := gogitssh.NewPublicKeysFromFile(username, e.resolvePath(e.cfg.SSHKeyPath), e.cfg.SSHPassphrase)
+		auth, err := gitssh.NewPublicKeysFromFile("git", e.resolvePath(e.cfg.SSHKeyPath), e.cfg.SSHPassphrase)
 		if err != nil {
 			return nil, fmt.Errorf("git checkout: load ssh key: %w", err)
 		}

@@ -24,6 +24,7 @@ updates:
         patterns:
           - "*"
     ignore:
+      - dependency-name: "github.com/go-git/go-git/v5"
       - dependency-name: "*"
         update-types:
           - "version-update:semver-major"

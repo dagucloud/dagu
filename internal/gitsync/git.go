@@ -13,13 +13,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dagucloud/dagu/internal/cmn/gogitssh"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
+	"github.com/go-git/go-git/v5/plumbing/transport/ssh"
 )
 
 // GitClient provides Git operations using go-git.
@@ -59,8 +59,7 @@ func (c *GitClient) getAuth() (transport.AuthMethod, error) {
 		if c.cfg.Auth.SSHKeyPath == "" {
 			return nil, &ValidationError{Field: "auth.sshKeyPath", Message: "SSH key path is required for SSH auth"}
 		}
-		user := gogitssh.UserFromURL(c.normalizeRepoURL(), "git")
-		auth, err := gogitssh.NewPublicKeysFromFile(user, c.cfg.Auth.SSHKeyPath, c.cfg.Auth.SSHPassphrase)
+		auth, err := ssh.NewPublicKeysFromFile("git", c.cfg.Auth.SSHKeyPath, c.cfg.Auth.SSHPassphrase)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load SSH key: %w", err)
 		}
@@ -90,17 +89,7 @@ func (c *GitClient) isFullURL(s string) bool {
 	return strings.HasPrefix(s, "https://") ||
 		strings.HasPrefix(s, "http://") ||
 		strings.HasPrefix(s, "git@") ||
-		strings.HasPrefix(s, "ssh://") ||
-		isSCPStyleURL(s)
-}
-
-func isSCPStyleURL(s string) bool {
-	if strings.Contains(s, "://") {
-		return false
-	}
-	at := strings.IndexByte(s, '@')
-	colon := strings.IndexByte(s, ':')
-	return at > 0 && colon > at+1 && colon < len(s)-1
+		strings.HasPrefix(s, "ssh://")
 }
 
 // Clone clones the repository.
