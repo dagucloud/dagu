@@ -143,7 +143,7 @@ func parseAttemptStatusFileInfo(statusFile string) (attemptStatusFileInfo, bool)
 
 	attemptDir := filepath.Dir(cleanStatusFile)
 	attemptDirName := filepath.Base(attemptDir)
-	if !reAttemptDir.MatchString(attemptDirName) {
+	if !isAttemptDirName(attemptDirName) {
 		return attemptStatusFileInfo{}, false
 	}
 
@@ -182,7 +182,7 @@ func attemptStatusFileInfoLess(a, b attemptStatusFileInfo) bool {
 	if a.runDirName != b.runDirName {
 		return a.runDirName < b.runDirName
 	}
-	return a.attemptDirName < b.attemptDirName
+	return attemptDirOlder(a.attemptDirName, b.attemptDirName)
 }
 
 func latestAttemptPointerPath(dagRunsDir string) string {

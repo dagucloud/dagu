@@ -189,7 +189,7 @@ func TestStoreListRetryCandidatesIgnoresChildAttemptStatusFiles(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, candidates)
 
-	childSidecarDir := filepath.Join(
+	runDir := filepath.Join(
 		baseDir,
 		parentDAG.Name,
 		"dag-runs",
@@ -197,10 +197,9 @@ func TestStoreListRetryCandidatesIgnoresChildAttemptStatusFiles(t *testing.T) {
 		"06",
 		"08",
 		"dag-run_20260608_120000Z_parent-run",
-		"children",
-		".dagrun.retry-candidates",
 	)
-	require.NoDirExists(t, childSidecarDir)
+	require.NoDirExists(t, filepath.Join(runDir, dagrun.SubDAGRunsDir, ".dagrun.retry-candidates"))
+	require.NoDirExists(t, filepath.Join(runDir, dagrun.LegacySubDAGRunsDir, ".dagrun.retry-candidates"))
 }
 
 func retryCandidateDAG() *core.DAG {

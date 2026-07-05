@@ -90,11 +90,11 @@ func (att *Attempt) SetDAG(dag *core.DAG) {
 // NewAttempt creates a new Run for the specified file.
 func NewAttempt(file string, cache *fileutil.Cache[*exec.DAGRunStatus], opts ...AttemptOption) (*Attempt, error) {
 	dirName := filepath.Base(filepath.Dir(file))
-	matches := reAttemptDir.FindStringSubmatch(strings.TrimPrefix(dirName, "."))
-	if len(matches) != 3 {
+	info, ok := parseAttemptDirName(dirName)
+	if !ok {
 		return nil, fmt.Errorf("invalid file path for run data: %s", file)
 	}
-	att := &Attempt{id: matches[2], file: file, cache: cache}
+	att := &Attempt{id: info.id, file: file, cache: cache}
 	for _, opt := range opts {
 		opt(att)
 	}
@@ -729,19 +729,12 @@ func subDAGWorkDirName(childRunID string) string {
 }
 
 func subDAGWorkDirParts(dagRunDir string) (rootDir, childRunID string, ok bool) {
-	childrenDir := filepath.Dir(dagRunDir)
-	if filepath.Base(childrenDir) != SubDAGRunsDir {
+	parentDir := filepath.Dir(dagRunDir)
+	childRunID, ok = parseSubDAGRunDirName(filepath.Base(parentDir), filepath.Base(dagRunDir))
+	if !ok {
 		return "", "", false
 	}
-	childDir := filepath.Base(dagRunDir)
-	if !strings.HasPrefix(childDir, SubDAGRunDirPrefix) {
-		return "", "", false
-	}
-	childRunID = strings.TrimPrefix(childDir, SubDAGRunDirPrefix)
-	if childRunID == "" {
-		return "", "", false
-	}
-	return filepath.Dir(childrenDir), childRunID, true
+	return filepath.Dir(parentDir), childRunID, true
 }
 
 // readLineFrom reads a line from the file starting at the specified offset.

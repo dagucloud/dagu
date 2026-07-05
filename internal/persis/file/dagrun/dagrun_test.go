@@ -114,8 +114,8 @@ func TestListSubDAGRuns(t *testing.T) {
 		require.NoError(t, os.MkdirAll(subDir, 0750))
 
 		// Create two sub dag-run directories
-		sub1Dir := filepath.Join(subDir, SubDAGRunDirPrefix+"sub1")
-		sub2Dir := filepath.Join(subDir, SubDAGRunDirPrefix+"sub2")
+		sub1Dir := filepath.Join(subDir, "sub1")
+		sub2Dir := filepath.Join(subDir, "sub2")
 		require.NoError(t, os.MkdirAll(sub1Dir, 0750))
 		require.NoError(t, os.MkdirAll(sub2Dir, 0750))
 
@@ -134,6 +134,31 @@ func TestListSubDAGRuns(t *testing.T) {
 		}
 		assert.Contains(t, subIDs, "sub1")
 		assert.Contains(t, subIDs, "sub2")
+	})
+
+	t.Run("WithCurrentAndLegacySubDAGRuns", func(t *testing.T) {
+		root := setupTestDataRoot(t)
+		run := root.CreateTestDAGRun(t, "parent-dag-run", exec.NewUTC(time.Now()))
+
+		currentSubDir := filepath.Join(run.baseDir, SubDAGRunsDir)
+		legacySubDir := filepath.Join(run.baseDir, LegacySubDAGRunsDir)
+		require.NoError(t, os.MkdirAll(filepath.Join(currentSubDir, "current"), 0750))
+		require.NoError(t, os.MkdirAll(filepath.Join(currentSubDir, "shared"), 0750))
+		require.NoError(t, os.MkdirAll(filepath.Join(legacySubDir, LegacySubDAGRunDirPrefix+"legacy"), 0750))
+		require.NoError(t, os.MkdirAll(filepath.Join(legacySubDir, LegacySubDAGRunDirPrefix+"shared"), 0750))
+
+		subRuns, err := run.ListSubDAGRuns(run.Context)
+		require.NoError(t, err)
+
+		subIDs := make([]string, len(subRuns))
+		for i, subRun := range subRuns {
+			subIDs[i] = subRun.dagRunID
+		}
+		assert.ElementsMatch(t, []string{"current", "shared", "legacy"}, subIDs)
+
+		shared, err := run.FindSubDAGRun(run.Context, "shared")
+		require.NoError(t, err)
+		assert.Equal(t, filepath.Join(currentSubDir, "shared"), shared.baseDir)
 	})
 }
 
@@ -282,7 +307,7 @@ func TestRemoveLogFiles(t *testing.T) {
 		subDir := filepath.Join(run.baseDir, SubDAGRunsDir)
 		require.NoError(t, os.MkdirAll(subDir, 0750))
 
-		subDAGRunDir := filepath.Join(subDir, SubDAGRunDirPrefix+"sub1")
+		subDAGRunDir := filepath.Join(subDir, "sub1")
 		require.NoError(t, os.MkdirAll(subDAGRunDir, 0750))
 
 		subDAGRun, err := NewDAGRun(subDAGRunDir)
@@ -440,7 +465,7 @@ func TestDAGRunRemove(t *testing.T) {
 		}
 
 		for _, subRun := range subDAGRuns {
-			subDAGRunDir := filepath.Join(subDir, SubDAGRunDirPrefix+subRun.dagRunID)
+			subDAGRunDir := filepath.Join(subDir, subRun.dagRunID)
 			require.NoError(t, os.MkdirAll(subDAGRunDir, 0750))
 
 			subDAGRun, err := NewDAGRun(subDAGRunDir)
@@ -529,12 +554,14 @@ func TestDAGRun_listAttemptDirs(t *testing.T) {
 
 	// Create some normal attempt directories with older timestamps
 	normalAttempt1 := filepath.Join(run.baseDir, "attempt_20250722_120000_123Z_abc123")
-	normalAttempt2 := filepath.Join(run.baseDir, "attempt_20250722_120100_456Z_def456")
+	normalAttempt2 := filepath.Join(run.baseDir, "a_20250722_120100_456Z_def456")
 	require.NoError(t, os.MkdirAll(normalAttempt1, 0755))
 	require.NoError(t, os.MkdirAll(normalAttempt2, 0755))
 
-	// Create a hidden attempt directory with the latest timestamp
-	hiddenAttempt := filepath.Join(run.baseDir, ".attempt_20250722_120200_789Z_ghi789")
+	// Create hidden attempt directories with old and new prefixes
+	legacyHiddenAttempt := filepath.Join(run.baseDir, ".attempt_20250722_120150_789Z_legacy")
+	hiddenAttempt := filepath.Join(run.baseDir, ".a_20250722_120200_789Z_ghi789")
+	require.NoError(t, os.MkdirAll(legacyHiddenAttempt, 0755))
 	require.NoError(t, os.MkdirAll(hiddenAttempt, 0755))
 
 	// Create some non-attempt directories that should be ignored
@@ -548,20 +575,21 @@ func TestDAGRun_listAttemptDirs(t *testing.T) {
 	dirs, err := run.listAttemptDirs()
 	require.NoError(t, err)
 
-	// Should return 3 directories (2 normal + 1 hidden)
-	assert.Len(t, dirs, 3, "should return all attempt directories including hidden ones")
+	// Should return 4 directories (2 normal + 2 hidden)
+	assert.Len(t, dirs, 4, "should return all attempt directories including hidden ones")
 
 	// Verify the directories are sorted in reverse order (newest first)
 	// The hidden attempt with latest timestamp should be first
 	expected := []string{
-		".attempt_20250722_120200_789Z_ghi789", // Latest (hidden)
-		"attempt_20250722_120100_456Z_def456",  // Second
+		".a_20250722_120200_789Z_ghi789",       // Latest (hidden)
+		".attempt_20250722_120150_789Z_legacy", // Second (hidden legacy)
+		"a_20250722_120100_456Z_def456",        // Third
 		"attempt_20250722_120000_123Z_abc123",  // Oldest
 	}
 	assert.Equal(t, expected, dirs, "directories should be sorted newest first with hidden directory in correct position")
 
 	// Create status files so attempts are considered valid
-	for _, dir := range []string{normalAttempt1, normalAttempt2, hiddenAttempt} {
+	for _, dir := range []string{normalAttempt1, normalAttempt2, legacyHiddenAttempt, hiddenAttempt} {
 		statusFile := filepath.Join(dir, JSONLStatusFile)
 		status := createTestStatus(core.Succeeded)
 		data, err := json.Marshal(status)

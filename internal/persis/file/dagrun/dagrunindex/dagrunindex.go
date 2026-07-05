@@ -29,15 +29,21 @@ const (
 	// MinRunsForIndex is the minimum number of runs needed to create an index.
 	MinRunsForIndex = 10
 
-	dagRunDirPrefix  = "dag-run_"
-	attemptDirPrefix = "attempt_"
-	statusFile       = "status.jsonl"
+	dagRunDirPrefix        = "dag-run_"
+	attemptDirPrefix       = "a_"
+	legacyAttemptDirPrefix = "attempt_"
+	statusFile             = "status.jsonl"
 )
 
 var (
 	reDAGRunDir  = regexp.MustCompile(`^` + dagRunDirPrefix + `(\d{8}_\d{6}Z)_(.*)$`)
-	reAttemptDir = regexp.MustCompile(`^` + attemptDirPrefix + `(\d{8}_\d{6}_\d{3}Z)_(.*)$`)
+	reAttemptDir = regexp.MustCompile(`^(?:` + regexp.QuoteMeta(attemptDirPrefix) + `|` + regexp.QuoteMeta(legacyAttemptDirPrefix) + `)(\d{8}_\d{6}_\d{3}Z)_(.*)$`)
 )
+
+type attemptDirInfo struct {
+	timestamp string
+	id        string
+}
 
 // Entry holds a cached summary for a single DAG run.
 type Entry struct {
@@ -355,7 +361,7 @@ func findLatestAttempt(runDir string) (string, error) {
 		if strings.HasPrefix(name, ".") {
 			continue
 		}
-		if e.IsDir() && reAttemptDir.MatchString(name) {
+		if e.IsDir() && isAttemptDirName(name) {
 			attemptDirs = append(attemptDirs, name)
 		}
 	}
@@ -365,8 +371,37 @@ func findLatestAttempt(runDir string) (string, error) {
 	}
 
 	// Sort descending (newest first).
-	sort.Sort(sort.Reverse(sort.StringSlice(attemptDirs)))
+	sort.Slice(attemptDirs, func(i, j int) bool {
+		return attemptDirNewer(attemptDirs[i], attemptDirs[j])
+	})
 	return attemptDirs[0], nil
+}
+
+func parseAttemptDirName(name string) (attemptDirInfo, bool) {
+	matches := reAttemptDir.FindStringSubmatch(strings.TrimPrefix(name, "."))
+	if len(matches) != 3 {
+		return attemptDirInfo{}, false
+	}
+	return attemptDirInfo{timestamp: matches[1], id: matches[2]}, true
+}
+
+func isAttemptDirName(name string) bool {
+	_, ok := parseAttemptDirName(name)
+	return ok
+}
+
+func attemptDirNewer(a, b string) bool {
+	aInfo, aOK := parseAttemptDirName(a)
+	bInfo, bOK := parseAttemptDirName(b)
+	if aOK && bOK {
+		if aInfo.timestamp != bInfo.timestamp {
+			return aInfo.timestamp > bInfo.timestamp
+		}
+		if aInfo.id != bInfo.id {
+			return aInfo.id > bInfo.id
+		}
+	}
+	return strings.TrimPrefix(a, ".") > strings.TrimPrefix(b, ".")
 }
 
 func parseDagRunID(dirName string) string {

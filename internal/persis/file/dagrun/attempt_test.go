@@ -465,7 +465,7 @@ func createTempDir(t *testing.T) string {
 	attemptID, err := genAttemptID()
 	require.NoError(t, err)
 
-	dir, err := os.MkdirTemp("", "attempt_"+formatAttemptTimestamp(exec.NewUTC(time.Now()))+"_"+attemptID)
+	dir, err := os.MkdirTemp("", attemptDirName(exec.NewUTC(time.Now()), attemptID))
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		_ = os.RemoveAll(dir)
@@ -888,7 +888,7 @@ func TestAttempt_WorkDir(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	dagRunDir := filepath.Join(dir, "dag-run_20250101_000000Z_abc")
-	attemptDir := filepath.Join(dagRunDir, "attempt_20250101_000000_000Z_xyz")
+	attemptDir := filepath.Join(dagRunDir, "a_20250101_000000_000Z_xyz")
 	require.NoError(t, os.MkdirAll(attemptDir, 0750))
 	statusFile := filepath.Join(attemptDir, "status.jsonl")
 	require.NoError(t, os.WriteFile(statusFile, nil, 0600))

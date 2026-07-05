@@ -498,13 +498,22 @@ func scanDAGRunAttemptStatuses(root, runDir string, files map[string]statusFileS
 		}
 	}
 
-	childRunDirs, err := childDirs(filepath.Join(runDir, filedagrun.SubDAGRunsDir), isSubDAGRunDirName)
-	if err != nil {
-		return err
+	childRunRoots := []struct {
+		dirName string
+		match   func(string) bool
+	}{
+		{dirName: filedagrun.SubDAGRunsDir, match: isCurrentSubDAGRunDirName},
+		{dirName: filedagrun.LegacySubDAGRunsDir, match: isLegacySubDAGRunDirName},
 	}
-	for _, childRunDir := range childRunDirs {
-		if err := scanDAGRunAttemptStatuses(root, childRunDir, files); err != nil {
+	for _, childRunRoot := range childRunRoots {
+		childRunDirs, err := childDirs(filepath.Join(runDir, childRunRoot.dirName), childRunRoot.match)
+		if err != nil {
 			return err
+		}
+		for _, childRunDir := range childRunDirs {
+			if err := scanDAGRunAttemptStatuses(root, childRunDir, files); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -578,13 +587,16 @@ func isDAGRunDirName(name string) bool {
 	return strings.HasPrefix(name, filedagrun.DAGRunDirPrefix)
 }
 
-func isSubDAGRunDirName(name string) bool {
-	return strings.HasPrefix(name, filedagrun.SubDAGRunDirPrefix)
+func isCurrentSubDAGRunDirName(name string) bool {
+	return name != "" && !strings.HasPrefix(name, ".")
+}
+
+func isLegacySubDAGRunDirName(name string) bool {
+	return strings.HasPrefix(name, filedagrun.LegacySubDAGRunDirPrefix)
 }
 
 func isAttemptDirName(name string) bool {
-	return strings.HasPrefix(name, filedagrun.AttemptDirPrefix) ||
-		strings.HasPrefix(name, "."+filedagrun.AttemptDirPrefix)
+	return filedagrun.IsAttemptDirName(name)
 }
 
 func isYearDirName(name string) bool {

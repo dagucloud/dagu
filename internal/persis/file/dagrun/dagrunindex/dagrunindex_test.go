@@ -224,7 +224,7 @@ func TestTryLoadForDay_StaleIndex_NewAttempt(t *testing.T) {
 	dirEntries := readDayDir(t, dayDir)
 	for _, de := range dirEntries {
 		if de.IsDir() {
-			newAttemptDir := filepath.Join(dayDir, de.Name(), "attempt_20240115_130000_002Z_retry1")
+			newAttemptDir := filepath.Join(dayDir, de.Name(), "a_20240115_130000_002Z_retry1")
 			require.NoError(t, os.MkdirAll(newAttemptDir, 0750))
 			st := exec.DAGRunStatus{Status: core.Succeeded, StartedAt: "2024-01-15T13:00:00Z", FinishedAt: "2024-01-15T13:01:00Z"}
 			data, _ := json.Marshal(st)
@@ -242,7 +242,7 @@ func TestTryLoadForDay_StaleIndex_NewAttempt(t *testing.T) {
 	// Verify the rebuilt index reflects the new attempt.
 	found := false
 	for _, e := range entries {
-		if e.LatestAttemptDir == "attempt_20240115_130000_002Z_retry1" {
+		if e.LatestAttemptDir == "a_20240115_130000_002Z_retry1" {
 			found = true
 			break
 		}
@@ -315,15 +315,15 @@ func TestFilterDAGRunDirs(t *testing.T) {
 func TestFindLatestAttempt(t *testing.T) {
 	dir := t.TempDir()
 
-	// Create attempt directories.
+	// Create current and legacy attempt directories.
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "attempt_20240115_120000_001Z_aaa"), 0750))
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, "attempt_20240115_130000_002Z_bbb"), 0750))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "a_20240115_130000_002Z_bbb"), 0750))
 	// Hidden attempt (dequeued).
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".attempt_20240115_140000_003Z_ccc"), 0750))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".a_20240115_140000_003Z_ccc"), 0750))
 
 	latest, err := findLatestAttempt(dir)
 	require.NoError(t, err)
-	assert.Equal(t, "attempt_20240115_130000_002Z_bbb", latest)
+	assert.Equal(t, "a_20240115_130000_002Z_bbb", latest)
 }
 
 func TestFindLatestAttempt_Empty(t *testing.T) {

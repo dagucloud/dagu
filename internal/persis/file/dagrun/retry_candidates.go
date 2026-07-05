@@ -185,7 +185,7 @@ func retryCandidateRootPaths(statusFile string) (runDir, dayDir string, ok bool)
 		return "", "", false
 	}
 	attemptDir := filepath.Dir(statusFile)
-	if !strings.HasPrefix(filepath.Base(attemptDir), AttemptDirPrefix) {
+	if !isAttemptDirName(filepath.Base(attemptDir)) {
 		return "", "", false
 	}
 	runDir = filepath.Dir(attemptDir)
