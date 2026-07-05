@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dagucloud/dagu/internal/cmn/runtimeprofile"
 	"github.com/robfig/cron/v3"
 )
 
@@ -19,6 +18,7 @@ var (
 		cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow,
 	)
 	rfc3339MinuteOffsetRe = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00(?:Z|[+-]\d{2}:\d{2})$`)
+	runtimeProfileNameRe  = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
 )
 
 const canonicalOneOffLayout = "2006-01-02T15:04:00Z07:00"
@@ -226,7 +226,7 @@ func parseScheduleMap(m map[string]any, opts ScheduleParseOptions) (Schedule, er
 				return Schedule{}, fmt.Errorf("profile must be a string, got %T", value)
 			}
 			profile = strings.TrimSpace(val)
-			if !runtimeprofile.IsValidName(profile) {
+			if !runtimeProfileNameRe.MatchString(profile) {
 				return Schedule{}, fmt.Errorf("invalid profile name: %q", profile)
 			}
 		default:

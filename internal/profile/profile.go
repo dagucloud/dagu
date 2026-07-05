@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dagucloud/dagu/internal/cmn/runtimeprofile"
 	"github.com/google/uuid"
 )
 
@@ -40,7 +39,10 @@ var (
 	ErrReservedKey   = errors.New("profile key is reserved")
 )
 
-var envKeyPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+var (
+	profileNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
+	envKeyPattern      = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+)
 
 type Profile struct {
 	ID          string
@@ -100,7 +102,7 @@ func New(input CreateInput, now time.Time) (*Profile, error) {
 }
 
 func ValidateName(name string) error {
-	if !runtimeprofile.IsValidName(name) {
+	if !profileNamePattern.MatchString(name) {
 		return fmt.Errorf("%w: %q", ErrInvalidName, name)
 	}
 	return nil
