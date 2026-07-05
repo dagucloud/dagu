@@ -11,10 +11,13 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/core"
+	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/executor"
 	"github.com/go-resty/resty/v2"
 	"github.com/go-viper/mapstructure/v2"
@@ -42,6 +45,7 @@ type httpConfig struct {
 	Silent        bool              `json:"silent" mapstructure:"silent"`
 	Debug         bool              `json:"debug" mapstructure:"debug"`
 	Format        string            `json:"format" mapstructure:"format"`
+	Output        string            `json:"output" mapstructure:"output"`
 	JSON          bool              `json:"json" mapstructure:"json"`
 	SkipTLSVerify bool              `json:"skip_tls_verify" mapstructure:"skip_tls_verify"`
 }
@@ -49,7 +53,8 @@ type httpConfig struct {
 type httpJSONResult struct {
 	StatusCode int                 `json:"status_code"`
 	Headers    map[string][]string `json:"headers"`
-	Body       any                 `json:"body"`
+	Body       any                 `json:"body,omitempty"`
+	Output     string              `json:"output,omitempty"`
 }
 
 func newHTTP(ctx context.Context, step core.Step) (executor.Executor, error) {
@@ -98,6 +103,9 @@ func newHTTP(ctx context.Context, step core.Step) (executor.Executor, error) {
 	}
 	if method == "" {
 		return nil, fmt.Errorf("http executor: method is required (set via command or with.method)")
+	}
+	if err := prepareHTTPOutputConfig(ctx, &reqCfg); err != nil {
+		return nil, err
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -161,8 +169,12 @@ func (e *http) writeJSONResult(rsp *resty.Response) error {
 		httpJSONResultData.StatusCode = rsp.StatusCode()
 	}
 
-	if err = json.Unmarshal(rsp.Body(), &httpJSONResultData.Body); err != nil {
-		return err
+	if e.cfg.Output != "" && rsp.IsSuccess() {
+		httpJSONResultData.Output = e.cfg.Output
+	} else {
+		if err = json.Unmarshal(rsp.Body(), &httpJSONResultData.Body); err != nil {
+			return err
+		}
 	}
 
 	if httpJSONResultBytes, err = json.MarshalIndent(httpJSONResultData, "", " "); err != nil {
@@ -193,8 +205,28 @@ func (e *http) writeTextResult(rsp *resty.Response) error {
 	return nil
 }
 
+func (e *http) writeFileResult(rsp *resty.Response) error {
+	if !e.cfg.Silent && !e.isJSONFormat() {
+		if _, err := e.stdout.Write([]byte(rsp.Status() + "\n")); err != nil {
+			return err
+		}
+		if err := rsp.Header().Write(e.stdout); err != nil {
+			return err
+		}
+	}
+
+	if err := os.MkdirAll(filepath.Dir(e.cfg.Output), 0o750); err != nil {
+		return err
+	}
+	return fileutil.WriteFileAtomic(e.cfg.Output, rsp.Body(), 0o600)
+}
+
 func (e *http) isJSONFormat() bool {
 	return e.cfg.Format == "json" || e.cfg.JSON
+}
+
+func (e *http) hasFileOutput() bool {
+	return e.cfg.Output != ""
 }
 
 func (e *http) Run(_ context.Context) error {
@@ -204,6 +236,15 @@ func (e *http) Run(_ context.Context) error {
 	}
 
 	resCode := rsp.StatusCode()
+
+	if e.hasFileOutput() && rsp.IsSuccess() {
+		if err = e.writeFileResult(rsp); err != nil {
+			return err
+		}
+		if !e.isJSONFormat() {
+			return nil
+		}
+	}
 
 	if e.isJSONFormat() {
 		if err = e.writeJSONResult(rsp); err != nil {
@@ -218,6 +259,20 @@ func (e *http) Run(_ context.Context) error {
 	if !rsp.IsSuccess() {
 		return fmt.Errorf("%w: %d", errHTTPStatusCode, resCode)
 	}
+	return nil
+}
+
+func prepareHTTPOutputConfig(ctx context.Context, cfg *httpConfig) error {
+	output := strings.TrimSpace(cfg.Output)
+	if output == "" {
+		cfg.Output = ""
+		return nil
+	}
+	if !filepath.IsAbs(output) {
+		env := runtime.GetEnv(ctx)
+		output = filepath.Join(env.WorkingDir, output)
+	}
+	cfg.Output = filepath.Clean(output)
 	return nil
 }
 

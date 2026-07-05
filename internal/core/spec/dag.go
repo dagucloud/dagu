@@ -29,6 +29,7 @@ const dagRunArtifactsDirEnvKey = "DAG_RUN_ARTIFACTS_DIR"
 
 var dagRunArtifactsDirReferencePattern = regexp.MustCompile(
 	`(?:\$\{` + regexp.QuoteMeta(dagRunArtifactsDirEnvKey) + `\}` +
+		`|\$\{env\.` + regexp.QuoteMeta(dagRunArtifactsDirEnvKey) + `\}` +
 		`|\$` + regexp.QuoteMeta(dagRunArtifactsDirEnvKey) + `(?:\b|[^A-Za-z0-9_])` +
 		`|\$env:` + regexp.QuoteMeta(dagRunArtifactsDirEnvKey) + `(?:\b|[^A-Za-z0-9_])` +
 		`|%` + regexp.QuoteMeta(dagRunArtifactsDirEnvKey) + `%` +

@@ -27,6 +27,8 @@ var configSchema = &jsonschema.Schema{
 		"body":            {Type: "string", Description: "Request body content"},
 		"silent":          {Type: "boolean", Description: "Suppress headers/status output on success"},
 		"debug":           {Type: "boolean", Description: "Enable debug mode"},
+		"format":          {Type: "string", Description: "Response output format. Use json for structured stdout."},
+		"output":          {Type: "string", Description: "File path to write the response body to. When set, the response body is written to this file instead of stdout."},
 		"json":            {Type: "boolean", Description: "Format output as JSON"},
 		"skip_tls_verify": {Type: "boolean", Description: "Skip TLS certificate verification"},
 	},
