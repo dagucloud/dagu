@@ -71,31 +71,13 @@ func newHourlyCatchupDAG(t *testing.T, name string) *core.DAG {
 	}
 }
 
-type staticProfileResolver struct {
+type testProfileResolver struct {
 	profile string
 	err     error
 }
 
-func (r staticProfileResolver) ResolveProfile(context.Context, string) (string, error) {
+func (r *testProfileResolver) ResolveProfile(context.Context, string) (string, error) {
 	return r.profile, r.err
-}
-
-type mutableProfileResolver struct {
-	mu      sync.Mutex
-	profile string
-	err     error
-}
-
-func (r *mutableProfileResolver) ResolveProfile(context.Context, string) (string, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.profile, r.err
-}
-
-func (r *mutableProfileResolver) SetProfile(profile string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.profile = profile
 }
 
 func mustParseProfileSchedule(t *testing.T, expr, profile string) core.Schedule {
@@ -1536,7 +1518,7 @@ func TestTickPlanner_ProfileScopedStartSchedules(t *testing.T) {
 	t.Parallel()
 
 	tp := NewTickPlanner(TickPlannerConfig{
-		ProfileResolver: staticProfileResolver{profile: "prod"},
+		ProfileResolver: &testProfileResolver{profile: "prod"},
 		GetLatestStatus: func(_ context.Context, _ *core.DAG) (exec.DAGRunStatus, error) {
 			return exec.DAGRunStatus{}, nil
 		},
@@ -1590,7 +1572,7 @@ func TestTickPlanner_ProfileScopedSchedulesResolveErrorFailsClosed(t *testing.T)
 	t.Parallel()
 
 	tp := NewTickPlanner(TickPlannerConfig{
-		ProfileResolver: staticProfileResolver{err: errors.New("profile store unavailable")},
+		ProfileResolver: &testProfileResolver{err: errors.New("profile store unavailable")},
 		GetLatestStatus: func(_ context.Context, _ *core.DAG) (exec.DAGRunStatus, error) {
 			return exec.DAGRunStatus{}, nil
 		},
@@ -1614,7 +1596,7 @@ func TestTickPlanner_ProfileScopedStopRestartSchedules(t *testing.T) {
 	t.Parallel()
 
 	tp := NewTickPlanner(TickPlannerConfig{
-		ProfileResolver: staticProfileResolver{profile: "dev"},
+		ProfileResolver: &testProfileResolver{profile: "dev"},
 		GetLatestStatus: func(_ context.Context, _ *core.DAG) (exec.DAGRunStatus, error) {
 			return exec.DAGRunStatus{Status: core.Running}, nil
 		},
@@ -1663,7 +1645,7 @@ func TestTickPlanner_ProfileScopedCatchupSchedules(t *testing.T) {
 	tp := NewTickPlanner(TickPlannerConfig{
 		WatermarkStore:  store,
 		QueuesEnabled:   true,
-		ProfileResolver: staticProfileResolver{profile: "dev"},
+		ProfileResolver: &testProfileResolver{profile: "dev"},
 		GetLatestStatus: func(_ context.Context, _ *core.DAG) (exec.DAGRunStatus, error) {
 			return exec.DAGRunStatus{}, nil
 		},
@@ -1700,7 +1682,7 @@ func TestTickPlanner_ProfileChangeDropsInactiveCatchupSchedules(t *testing.T) {
 	store := &mockWatermarkStore{
 		state: newMockWatermarkState(time.Date(2026, 2, 7, 9, 0, 0, 0, time.UTC)),
 	}
-	resolver := &mutableProfileResolver{profile: "dev"}
+	resolver := &testProfileResolver{profile: "dev"}
 	tp := NewTickPlanner(TickPlannerConfig{
 		WatermarkStore:  store,
 		QueuesEnabled:   true,
@@ -1727,7 +1709,7 @@ func TestTickPlanner_ProfileChangeDropsInactiveCatchupSchedules(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, 3, buf.Len())
 
-	resolver.SetProfile("prod")
+	resolver.profile = "prod"
 	runs := tp.Plan(context.Background(), now)
 	assert.Empty(t, runs)
 	_, ok = tp.buffers[dag.Name]
