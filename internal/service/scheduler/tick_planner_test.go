@@ -1546,7 +1546,8 @@ func TestTickPlanner_ProfileScopedStartSchedules(t *testing.T) {
 		Events:    make(chan DAGChangeEvent, 1),
 	})
 	dag := &core.DAG{
-		Name: "profile-scoped-start-dag",
+		Name:     "profile-scoped-start-dag",
+		Location: "/tmp/profile-scoped-start-dag.yaml",
 		Schedule: []core.Schedule{
 			mustParseProfileSchedule(t, "0 * * * *", "prod"),
 			mustParseProfileSchedule(t, "0 * * * *", "dev"),
@@ -1600,6 +1601,7 @@ func TestTickPlanner_ProfileScopedSchedulesResolveErrorFailsClosed(t *testing.T)
 	})
 	dag := &core.DAG{
 		Name:     "profile-resolve-error-dag",
+		Location: "/tmp/profile-resolve-error-dag.yaml",
 		Schedule: []core.Schedule{mustParseProfileSchedule(t, "0 * * * *", "prod")},
 	}
 	require.NoError(t, tp.Init(context.Background(), []*core.DAG{dag}))
@@ -1622,7 +1624,8 @@ func TestTickPlanner_ProfileScopedStopRestartSchedules(t *testing.T) {
 		Events:    make(chan DAGChangeEvent, 1),
 	})
 	dag := &core.DAG{
-		Name: "profile-scoped-control-dag",
+		Name:     "profile-scoped-control-dag",
+		Location: "/tmp/profile-scoped-control-dag.yaml",
 		StopSchedule: []core.Schedule{
 			mustParseProfileSchedule(t, "0 * * * *", "prod"),
 			mustParseProfileSchedule(t, "0 * * * *", "dev"),
@@ -1671,6 +1674,7 @@ func TestTickPlanner_ProfileScopedCatchupSchedules(t *testing.T) {
 	})
 	dag := &core.DAG{
 		Name:          "profile-scoped-catchup-dag",
+		Location:      "/tmp/profile-scoped-catchup-dag.yaml",
 		CatchupWindow: 6 * time.Hour,
 		Schedule: []core.Schedule{
 			mustParseProfileSchedule(t, "0 * * * *", "prod"),
@@ -1711,6 +1715,7 @@ func TestTickPlanner_ProfileChangeDropsInactiveCatchupSchedules(t *testing.T) {
 	})
 	dag := &core.DAG{
 		Name:          "profile-change-catchup-dag",
+		Location:      "/tmp/profile-change-catchup-dag.yaml",
 		CatchupWindow: 6 * time.Hour,
 		Schedule: []core.Schedule{
 			mustParseProfileSchedule(t, "30 * * * *", "dev"),

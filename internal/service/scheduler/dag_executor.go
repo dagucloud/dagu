@@ -285,14 +285,11 @@ func (e *DAGExecutor) defaultProfileName(ctx context.Context, dag *core.DAG) (st
 	if e.profileResolver == nil || dag == nil {
 		return "", nil
 	}
-	dagName := dag.FileName()
-	if dagName == "" {
-		dagName = dag.Name
+	fileName := dag.FileName()
+	if fileName == "" {
+		return "", fmt.Errorf("DAG file name is required to resolve default profile")
 	}
-	if dagName == "" {
-		return "", nil
-	}
-	return e.profileResolver.ResolveProfile(ctx, dagName)
+	return e.profileResolver.ResolveProfile(ctx, fileName)
 }
 
 func profileNameFromStatus(status *exec.DAGRunStatus) string {

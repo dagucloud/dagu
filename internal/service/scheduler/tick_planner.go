@@ -253,14 +253,14 @@ func (tp *TickPlanner) effectiveDAGProfile(ctx context.Context, dag *core.DAG) (
 	if tp.cfg.ProfileResolver == nil || dag == nil {
 		return "", true
 	}
-	dagName := dag.FileName()
-	if dagName == "" {
-		dagName = dag.Name
+	fileName := dag.FileName()
+	if fileName == "" {
+		logger.Error(ctx, "Failed to resolve DAG profile: DAG file name is empty",
+			tag.DAG(dag.Name),
+		)
+		return "", false
 	}
-	if dagName == "" {
-		return "", true
-	}
-	profile, err := tp.cfg.ProfileResolver.ResolveProfile(ctx, dagName)
+	profile, err := tp.cfg.ProfileResolver.ResolveProfile(ctx, fileName)
 	if err != nil {
 		logger.Error(ctx, "Failed to resolve DAG profile",
 			tag.DAG(dag.Name),
