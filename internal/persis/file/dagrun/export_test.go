@@ -14,8 +14,3 @@ func UpdateLatestAttemptPointerForTest(ctx context.Context, statusFile string) e
 func LatestAttemptPointerPathForTest(dagRunsDir string) string {
 	return latestAttemptPointerPath(dagRunsDir)
 }
-
-// SubDAGWorkDirNameForTest exposes child workdir leaf names to external tests.
-func SubDAGWorkDirNameForTest(childRunID string) string {
-	return subDAGWorkDirName(childRunID)
-}

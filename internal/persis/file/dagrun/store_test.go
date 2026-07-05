@@ -81,6 +81,7 @@ func TestStorePreservesDAGRunFileCompatibilityLayout(t *testing.T) {
 	attemptDir := filepath.Join(runDir, "attempt_20260527_010203_456Z_attempt-compat")
 	statusFile := filepath.Join(attemptDir, JSONLStatusFile)
 	assert.Equal(t, statusFile, parentAttempt.(*Attempt).file)
+	assert.Equal(t, filepath.Join(runDir, "work"), parentAttempt.(*Attempt).WorkDir())
 	require.DirExists(t, runDir)
 	require.DirExists(t, attemptDir)
 	require.FileExists(t, statusFile)
@@ -94,7 +95,9 @@ func TestStorePreservesDAGRunFileCompatibilityLayout(t *testing.T) {
 	require.FileExists(t, filepath.Join(childAttemptDir, JSONLStatusFile))
 	require.FileExists(t, filepath.Join(childAttemptDir, DAGDefinition))
 	require.NoDirExists(t, filepath.Join(runDir, SubDAGRunsDir, "child_child-run", "work"))
-	require.DirExists(t, filepath.Join(runDir, subDAGWorkDirName("child-run")))
+	childWorkDir := filepath.Join(runDir, subDAGWorkDirName("child-run"))
+	assert.Equal(t, childWorkDir, childAttempt.(*Attempt).WorkDir())
+	require.DirExists(t, childWorkDir)
 
 	assert.NoDirExists(t, filepath.Join(baseDir, "dag_runs"))
 	assert.NoDirExists(t, filepath.Join(baseDir, "dagruns"))

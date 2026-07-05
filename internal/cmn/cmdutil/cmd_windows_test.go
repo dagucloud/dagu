@@ -3,7 +3,7 @@
 
 //go:build windows
 
-package cmdutil_test
+package cmdutil
 
 import (
 	"os/exec"
@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
 	"golang.org/x/sys/windows"
 )
 
@@ -32,7 +31,7 @@ func TestKillProcessTree_Integration(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 
 	// Try to kill it
-	err := cmdutil.KillProcessTreeForTest(pid)
+	err := killProcessTree(pid)
 	if err != nil {
 		t.Fatalf("killProcessTree returned error: %v", err)
 	}
