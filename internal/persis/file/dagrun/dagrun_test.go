@@ -160,6 +160,21 @@ func TestListSubDAGRuns(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, filepath.Join(currentSubDir, "shared"), shared.baseDir)
 	})
+
+	t.Run("RejectsInvalidSubDAGRunID", func(t *testing.T) {
+		root := setupTestDataRoot(t)
+		run := root.CreateTestDAGRun(t, "parent-dag-run", exec.NewUTC(time.Now()))
+
+		_, err := run.CreateSubDAGRun(run.Context, "../../escape")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid sub dag-run ID")
+
+		_, err = run.FindSubDAGRun(run.Context, "../../escape")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid sub dag-run ID")
+
+		require.NoDirExists(t, filepath.Join(filepath.Dir(run.baseDir), "escape"))
+	})
 }
 
 func TestListLogFiles(t *testing.T) {
