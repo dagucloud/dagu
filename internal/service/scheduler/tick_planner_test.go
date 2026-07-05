@@ -1648,6 +1648,42 @@ func TestTickPlanner_DispatchRunSuspendedCatchupAdvancesWatermark(t *testing.T) 
 	assert.Equal(t, scheduledTime, wm.LastScheduledTime)
 }
 
+func TestTickPlanner_DispatchRunLegacyCatchupAttemptAdvancesWatermark(t *testing.T) {
+	t.Parallel()
+
+	store := &mockWatermarkStore{}
+	scheduledTime := time.Date(2026, 2, 7, 11, 0, 0, 0, time.UTC)
+	dag := newHourlyCatchupDAG(t, "legacy.catchup-dag")
+	legacyRunID := generateLegacyCatchupRunID(dag.Name, scheduledTime)
+	var checkedRunIDs []string
+
+	tp := NewTickPlanner(TickPlannerConfig{
+		WatermarkStore: store,
+		QueuesEnabled:  true,
+		Enqueue: func(_ context.Context, _ *core.DAG, _ string, _ core.TriggerType, _ time.Time) error {
+			t.Fatal("enqueue should not be called when the legacy run already exists")
+			return nil
+		},
+		RunExists: func(_ context.Context, _ *core.DAG, runID string) (bool, error) {
+			checkedRunIDs = append(checkedRunIDs, runID)
+			return runID == legacyRunID, nil
+		},
+		Events: make(chan DAGChangeEvent, 1),
+	})
+	require.NoError(t, tp.Init(context.Background(), nil))
+
+	run, ok := tp.createPlannedRun(context.Background(), dag, core.Schedule{}, scheduledTime, core.TriggerTypeCatchUp)
+	require.True(t, ok)
+	tp.DispatchRun(context.Background(), run)
+
+	assert.Equal(t, []string{legacyRunID}, checkedRunIDs)
+	tp.mu.RLock()
+	wm, ok := tp.watermarkState.DAGs[dag.Name]
+	tp.mu.RUnlock()
+	require.True(t, ok)
+	assert.Equal(t, scheduledTime, wm.LastScheduledTime)
+}
+
 func TestTickPlanner_DispatchRunRestartForwardsScheduledTime(t *testing.T) {
 	t.Parallel()
 
