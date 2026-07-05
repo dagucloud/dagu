@@ -578,15 +578,14 @@ func TestDAGRun_listAttemptDirs(t *testing.T) {
 	// Should return 4 directories (2 normal + 2 hidden)
 	assert.Len(t, dirs, 4, "should return all attempt directories including hidden ones")
 
-	// Verify the directories are sorted in reverse order (newest first)
-	// The hidden attempt with latest timestamp should be first
+	// Verify current-format attempts are ordered before legacy attempts.
 	expected := []string{
-		".a_20250722_120200_789Z_ghi789",       // Latest (hidden)
-		".attempt_20250722_120150_789Z_legacy", // Second (hidden legacy)
-		"a_20250722_120100_456Z_def456",        // Third
-		"attempt_20250722_120000_123Z_abc123",  // Oldest
+		".a_20250722_120200_789Z_ghi789",
+		"a_20250722_120100_456Z_def456",
+		".attempt_20250722_120150_789Z_legacy",
+		"attempt_20250722_120000_123Z_abc123",
 	}
-	assert.Equal(t, expected, dirs, "directories should be sorted newest first with hidden directory in correct position")
+	assert.Equal(t, expected, dirs, "current-format attempts should be ordered before legacy attempts")
 
 	// Create status files so attempts are considered valid
 	for _, dir := range []string{normalAttempt1, normalAttempt2, legacyHiddenAttempt, hiddenAttempt} {

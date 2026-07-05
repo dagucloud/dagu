@@ -318,6 +318,7 @@ func TestFindLatestAttempt(t *testing.T) {
 	// Create current and legacy attempt directories.
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "attempt_20240115_120000_001Z_aaa"), 0750))
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "a_20240115_130000_002Z_bbb"), 0750))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "attempt_20240115_140000_002Z_later-legacy"), 0750))
 	// Hidden attempt (dequeued).
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".a_20240115_140000_003Z_ccc"), 0750))
 

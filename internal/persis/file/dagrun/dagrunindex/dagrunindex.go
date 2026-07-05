@@ -41,8 +41,7 @@ var (
 )
 
 type attemptDirInfo struct {
-	timestamp string
-	id        string
+	current bool
 }
 
 // Entry holds a cached summary for a single DAG run.
@@ -370,7 +369,7 @@ func findLatestAttempt(runDir string) (string, error) {
 		return "", nil
 	}
 
-	// Sort descending (newest first).
+	// Sort current-format attempts before legacy attempts.
 	sort.Slice(attemptDirs, func(i, j int) bool {
 		return attemptDirNewer(attemptDirs[i], attemptDirs[j])
 	})
@@ -378,11 +377,12 @@ func findLatestAttempt(runDir string) (string, error) {
 }
 
 func parseAttemptDirName(name string) (attemptDirInfo, bool) {
-	matches := reAttemptDir.FindStringSubmatch(strings.TrimPrefix(name, "."))
+	cleanName := strings.TrimPrefix(name, ".")
+	matches := reAttemptDir.FindStringSubmatch(cleanName)
 	if len(matches) != 3 {
 		return attemptDirInfo{}, false
 	}
-	return attemptDirInfo{timestamp: matches[1], id: matches[2]}, true
+	return attemptDirInfo{current: strings.HasPrefix(cleanName, attemptDirPrefix)}, true
 }
 
 func isAttemptDirName(name string) bool {
@@ -394,11 +394,8 @@ func attemptDirNewer(a, b string) bool {
 	aInfo, aOK := parseAttemptDirName(a)
 	bInfo, bOK := parseAttemptDirName(b)
 	if aOK && bOK {
-		if aInfo.timestamp != bInfo.timestamp {
-			return aInfo.timestamp > bInfo.timestamp
-		}
-		if aInfo.id != bInfo.id {
-			return aInfo.id > bInfo.id
+		if aInfo.current != bInfo.current {
+			return aInfo.current
 		}
 	}
 	return strings.TrimPrefix(a, ".") > strings.TrimPrefix(b, ".")
