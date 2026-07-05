@@ -40,10 +40,6 @@ var (
 	reAttemptDir = regexp.MustCompile(`^(?:` + regexp.QuoteMeta(attemptDirPrefix) + `|` + regexp.QuoteMeta(legacyAttemptDirPrefix) + `)(\d{8}_\d{6}_\d{3}Z)_(.*)$`)
 )
 
-type attemptDirInfo struct {
-	current bool
-}
-
 // Entry holds a cached summary for a single DAG run.
 type Entry struct {
 	DagRunDir            string
@@ -376,29 +372,17 @@ func findLatestAttempt(runDir string) (string, error) {
 	return attemptDirs[0], nil
 }
 
-func parseAttemptDirName(name string) (attemptDirInfo, bool) {
-	cleanName := strings.TrimPrefix(name, ".")
-	matches := reAttemptDir.FindStringSubmatch(cleanName)
-	if len(matches) != 3 {
-		return attemptDirInfo{}, false
-	}
-	return attemptDirInfo{current: strings.HasPrefix(cleanName, attemptDirPrefix)}, true
-}
-
 func isAttemptDirName(name string) bool {
-	_, ok := parseAttemptDirName(name)
-	return ok
+	return reAttemptDir.MatchString(strings.TrimPrefix(name, "."))
 }
 
 func attemptDirNewer(a, b string) bool {
-	aInfo, aOK := parseAttemptDirName(a)
-	bInfo, bOK := parseAttemptDirName(b)
-	if aOK && bOK {
-		if aInfo.current != bInfo.current {
-			return aInfo.current
-		}
+	a = strings.TrimPrefix(a, ".")
+	b = strings.TrimPrefix(b, ".")
+	if aCurrent, bCurrent := strings.HasPrefix(a, attemptDirPrefix), strings.HasPrefix(b, attemptDirPrefix); aCurrent != bCurrent {
+		return aCurrent
 	}
-	return strings.TrimPrefix(a, ".") > strings.TrimPrefix(b, ".")
+	return a > b
 }
 
 func parseDagRunID(dirName string) string {

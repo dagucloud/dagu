@@ -487,8 +487,7 @@ func (dr DAGRun) validatedArtifactDir(dir string) (string, bool) {
 }
 
 type attemptDirInfo struct {
-	id      string
-	current bool
+	id string
 }
 
 // Regular expressions for parsing directory names
@@ -500,17 +499,15 @@ func attemptDirName(ts exec.TimeInUTC, attemptID string) string {
 }
 
 func parseAttemptDirName(name string) (attemptDirInfo, bool) {
-	cleanName := strings.TrimPrefix(name, ".")
-	matches := reAttemptDir.FindStringSubmatch(cleanName)
+	matches := reAttemptDir.FindStringSubmatch(strings.TrimPrefix(name, "."))
 	if len(matches) != 3 {
 		return attemptDirInfo{}, false
 	}
-	return attemptDirInfo{id: matches[2], current: strings.HasPrefix(cleanName, AttemptDirPrefix)}, true
+	return attemptDirInfo{id: matches[2]}, true
 }
 
 func isAttemptDirName(name string) bool {
-	_, ok := parseAttemptDirName(name)
-	return ok
+	return reAttemptDir.MatchString(strings.TrimPrefix(name, "."))
 }
 
 // IsAttemptDirName reports whether a directory name is a current or legacy attempt directory.
@@ -519,25 +516,21 @@ func IsAttemptDirName(name string) bool {
 }
 
 func attemptDirNewer(a, b string) bool {
-	aInfo, aOK := parseAttemptDirName(a)
-	bInfo, bOK := parseAttemptDirName(b)
-	if aOK && bOK {
-		if aInfo.current != bInfo.current {
-			return aInfo.current
-		}
+	a = strings.TrimPrefix(a, ".")
+	b = strings.TrimPrefix(b, ".")
+	if aCurrent, bCurrent := strings.HasPrefix(a, AttemptDirPrefix), strings.HasPrefix(b, AttemptDirPrefix); aCurrent != bCurrent {
+		return aCurrent
 	}
-	return strings.TrimPrefix(a, ".") > strings.TrimPrefix(b, ".")
+	return a > b
 }
 
 func attemptDirOlder(a, b string) bool {
-	aInfo, aOK := parseAttemptDirName(a)
-	bInfo, bOK := parseAttemptDirName(b)
-	if aOK && bOK {
-		if aInfo.current != bInfo.current {
-			return !aInfo.current
-		}
+	a = strings.TrimPrefix(a, ".")
+	b = strings.TrimPrefix(b, ".")
+	if aCurrent, bCurrent := strings.HasPrefix(a, AttemptDirPrefix), strings.HasPrefix(b, AttemptDirPrefix); aCurrent != bCurrent {
+		return !aCurrent
 	}
-	return strings.TrimPrefix(a, ".") < strings.TrimPrefix(b, ".")
+	return a < b
 }
 
 func parseSubDAGRunDirName(parentDirName, dirName string) (string, bool) {
