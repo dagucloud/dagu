@@ -19,7 +19,6 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/launcher"
-	"github.com/google/uuid"
 )
 
 const staleLocalRunStartupGrace = 2 * time.Second
@@ -199,13 +198,13 @@ func (m *Manager) stopSingleDAGRun(ctx context.Context, dag *core.DAG, dagRunID 
 	return fmt.Errorf("failed to find dag-run attempt: %w", err)
 }
 
-// GenDAGRunID generates a unique ID for a dag-run using UUID version 7.
+// GenDAGRunID generates a unique ID for a dag-run.
 func (m *Manager) GenDAGRunID(_ context.Context) (string, error) {
-	id, err := uuid.NewV7()
+	id, err := exec.NewDAGRunID()
 	if err != nil {
 		return "", fmt.Errorf("failed to generate dag-run ID: %w", err)
 	}
-	return id.String(), nil
+	return id, nil
 }
 
 // IsRunning checks if a dag-run is currently running. It prefers the live socket

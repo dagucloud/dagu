@@ -43,7 +43,6 @@ import (
 	"github.com/dagucloud/dagu/internal/service/frontend"
 	"github.com/dagucloud/dagu/internal/service/resource"
 	"github.com/dagucloud/dagu/internal/service/scheduler"
-	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -734,13 +733,9 @@ func NewCommand(cmd *cobra.Command, flags []commandLineFlag, runFunc func(cmd *C
 	return cmd
 }
 
-// genRunID creates a new UUID string to be used as a dag-run IDentifier.
+// genRunID creates a new auto-generated dag-run ID.
 func genRunID() (string, error) {
-	id, err := uuid.NewV7()
-	if err != nil {
-		return "", err
-	}
-	return id.String(), nil
+	return exec.NewDAGRunID()
 }
 
 // validateRunID checks if the dag-run ID is valid and not empty.
