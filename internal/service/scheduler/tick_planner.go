@@ -230,27 +230,23 @@ func NewTickPlanner(cfg TickPlannerConfig) *TickPlanner {
 }
 
 func (tp *TickPlanner) activeDAGSchedules(ctx context.Context, dag *core.DAG) (activeDAGSchedules, bool) {
-	profile, ok := tp.effectiveDAGProfile(ctx, dag)
+	if dag == nil {
+		return activeDAGSchedules{}, true
+	}
+	profile, ok := tp.resolveDAGProfile(ctx, dag)
 	if !ok {
 		return activeDAGSchedules{}, false
-	}
-	return activeDAGSchedulesForProfile(dag, profile), true
-}
-
-func activeDAGSchedulesForProfile(dag *core.DAG, profile string) activeDAGSchedules {
-	if dag == nil {
-		return activeDAGSchedules{profile: profile}
 	}
 	return activeDAGSchedules{
 		profile: profile,
 		start:   filterSchedulesByProfile(dag.Schedule, profile),
 		stop:    filterSchedulesByProfile(dag.StopSchedule, profile),
 		restart: filterSchedulesByProfile(dag.RestartSchedule, profile),
-	}
+	}, true
 }
 
-func (tp *TickPlanner) effectiveDAGProfile(ctx context.Context, dag *core.DAG) (string, bool) {
-	if tp.cfg.ProfileResolver == nil || dag == nil {
+func (tp *TickPlanner) resolveDAGProfile(ctx context.Context, dag *core.DAG) (string, bool) {
+	if tp.cfg.ProfileResolver == nil {
 		return "", true
 	}
 	fileName := dag.FileName()
@@ -272,31 +268,17 @@ func (tp *TickPlanner) effectiveDAGProfile(ctx context.Context, dag *core.DAG) (
 }
 
 func filterSchedulesByProfile(schedules []core.Schedule, profile string) []core.Schedule {
-	var filtered []core.Schedule
-	changed := false
-	for i, schedule := range schedules {
-		if scheduleActiveForProfile(schedule, profile) {
-			if changed {
-				filtered = append(filtered, schedule)
-			}
-			continue
+	filtered := make([]core.Schedule, 0, len(schedules))
+	for _, schedule := range schedules {
+		if scheduleMatchesProfile(schedule, profile) {
+			filtered = append(filtered, schedule)
 		}
-		if !changed {
-			changed = true
-			filtered = append([]core.Schedule(nil), schedules[:i]...)
-		}
-	}
-	if !changed {
-		return schedules
 	}
 	return filtered
 }
 
-func scheduleActiveForProfile(schedule core.Schedule, profile string) bool {
-	if schedule.Profile == "" {
-		return true
-	}
-	return profile != "" && schedule.Profile == profile
+func scheduleMatchesProfile(schedule core.Schedule, profile string) bool {
+	return schedule.Profile == "" || schedule.Profile == profile
 }
 
 // Init loads watermark state and computes catchup buffers for existing DAGs.
@@ -716,7 +698,7 @@ func (tp *TickPlanner) dropInactiveCatchupItems(ctx context.Context, dagName str
 		if !ok {
 			return
 		}
-		if item.Schedule.GetKind() == "" || scheduleActiveForProfile(item.Schedule, profile) {
+		if item.Schedule.GetKind() == "" || scheduleMatchesProfile(item.Schedule, profile) {
 			return
 		}
 		popped, _ := buf.Pop()
