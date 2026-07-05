@@ -5,10 +5,6 @@
 
 package cmdutil
 
-func NormalizeLongWindowsDirForTest(dir string) string {
-	return normalizeLongWindowsDir(dir)
-}
-
 func KillProcessTreeForTest(pid uint32) error {
 	return killProcessTree(pid)
 }

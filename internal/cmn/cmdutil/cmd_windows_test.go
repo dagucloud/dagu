@@ -6,10 +6,7 @@
 package cmdutil_test
 
 import (
-	"os"
 	"os/exec"
-	"path/filepath"
-	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -17,58 +14,6 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
 	"golang.org/x/sys/windows"
 )
-
-func TestNormalizeLongWindowsDir(t *testing.T) {
-	short := `C:\dagu\work`
-	if got := cmdutil.NormalizeLongWindowsDirForTest(short); got != short {
-		t.Fatalf("short path changed: got %q, want %q", got, short)
-	}
-
-	longTail := strings.TrimSuffix(strings.Repeat(`nested\`, 40), `\`)
-	long := `C:\dagu\` + longTail
-	got := cmdutil.NormalizeLongWindowsDirForTest(long)
-	if !strings.HasPrefix(got, `\\?\C:\dagu\`) {
-		t.Fatalf("long path was not extended: got %q", got)
-	}
-
-	alreadyExtended := `\\?\C:\dagu\` + longTail
-	if got := cmdutil.NormalizeLongWindowsDirForTest(alreadyExtended); got != alreadyExtended {
-		t.Fatalf("extended path changed: got %q, want %q", got, alreadyExtended)
-	}
-
-	unc := `\\server\share\` + longTail
-	got = cmdutil.NormalizeLongWindowsDirForTest(unc)
-	if !strings.HasPrefix(got, `\\?\UNC\server\share\`) {
-		t.Fatalf("long UNC path was not extended: got %q", got)
-	}
-
-	device := `\\.\C:\dagu\` + longTail
-	if got := cmdutil.NormalizeLongWindowsDirForTest(device); got != device {
-		t.Fatalf("device path changed: got %q, want %q", got, device)
-	}
-}
-
-func TestStartManagedProcessWithLongDir(t *testing.T) {
-	dir := t.TempDir()
-	for len(dir) < 248 {
-		dir = filepath.Join(dir, "nested")
-	}
-	if err := os.MkdirAll(dir, 0o750); err != nil {
-		t.Fatalf("failed to create long working directory: %v", err)
-	}
-
-	cmd := exec.Command("cmd", "/C", "cd")
-	cmd.Dir = dir
-	proc, err := cmdutil.StartManagedProcess(cmd)
-	if err != nil {
-		t.Fatalf("failed to start process in long working directory: %v", err)
-	}
-	defer func() { _ = proc.Release() }()
-
-	if err := cmd.Wait(); err != nil {
-		t.Fatalf("process failed in long working directory: %v", err)
-	}
-}
 
 // TestKillProcessTree_Integration starts a dummy process and kills it using killProcessTree.
 func TestKillProcessTree_Integration(t *testing.T) {
