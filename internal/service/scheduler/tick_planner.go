@@ -1259,6 +1259,42 @@ func (tp *TickPlanner) recomputeBuffer(ctx context.Context, dag *core.DAG) bool 
 	return watermarkAdvanced
 }
 
+func (tp *TickPlanner) runExistsAny(ctx context.Context, run PlannedRun, runIDs ...string) (bool, string, error) {
+	for _, runID := range runIDs {
+		if runID == "" {
+			continue
+		}
+		exists, err := tp.cfg.RunExists(ctx, run.DAG, runID)
+		if err != nil {
+			return false, runID, err
+		}
+		if exists {
+			return true, runID, nil
+		}
+	}
+	return false, "", nil
+}
+
+func legacyScheduledRunID(run PlannedRun) string {
+	if run.ScheduleType != ScheduleTypeStart {
+		return ""
+	}
+	if run.TriggerType == core.TriggerTypeCatchUp {
+		return generateLegacyCatchupRunID(run.DAG.Name, run.ScheduledTime)
+	}
+	if !run.Schedule.IsOneOff() {
+		return ""
+	}
+	fingerprint := run.Fingerprint
+	if fingerprint == "" {
+		fingerprint = run.Schedule.Fingerprint()
+	}
+	if fingerprint == "" {
+		return ""
+	}
+	return generateLegacyOneOffRunID(run.DAG.Name, fingerprint, run.ScheduledTime)
+}
+
 // DispatchRun dispatches a PlannedRun using the configured dispatch functions.
 func (tp *TickPlanner) DispatchRun(ctx context.Context, run PlannedRun) {
 	logger.Info(ctx, "Dispatching planned run",
@@ -1281,11 +1317,11 @@ func (tp *TickPlanner) DispatchRun(ctx context.Context, run PlannedRun) {
 	}
 
 	if run.ScheduleType == ScheduleTypeStart && run.Schedule.IsOneOff() {
-		exists, err := tp.cfg.RunExists(ctx, run.DAG, run.RunID)
+		exists, existingRunID, err := tp.runExistsAny(ctx, run, run.RunID, legacyScheduledRunID(run))
 		if err != nil {
 			logger.Error(ctx, "Failed to check for existing one-off dag-run",
 				tag.DAG(run.DAG.Name),
-				tag.RunID(run.RunID),
+				tag.RunID(existingRunID),
 				tag.Error(err),
 			)
 			return
@@ -1307,6 +1343,21 @@ func (tp *TickPlanner) DispatchRun(ctx context.Context, run PlannedRun) {
 				)
 				return
 			}
+			legacyRunID := legacyScheduledRunID(run)
+			exists, existingRunID, existsErr := tp.runExistsAny(ctx, run, legacyRunID)
+			if existsErr != nil {
+				logger.Error(ctx, "Failed to check for existing catchup dag-run",
+					tag.DAG(run.DAG.Name),
+					tag.RunID(existingRunID),
+					tag.Error(existsErr),
+				)
+				tp.reinsertCatchupItem(ctx, run)
+				return
+			}
+			if exists {
+				tp.advanceDAGWatermark(run.DAG.Name, run.ScheduledTime)
+				return
+			}
 			err = tp.cfg.Enqueue(ctx, run.DAG, run.RunID, run.TriggerType, run.ScheduledTime)
 		} else {
 			err = tp.cfg.Dispatch(ctx, run.DAG, run.RunID, run.TriggerType, run.ScheduledTime)
@@ -1319,11 +1370,11 @@ func (tp *TickPlanner) DispatchRun(ctx context.Context, run PlannedRun) {
 
 	if err != nil {
 		if run.ScheduleType == ScheduleTypeStart && run.Schedule.IsOneOff() {
-			exists, existsErr := tp.cfg.RunExists(ctx, run.DAG, run.RunID)
+			exists, existingRunID, existsErr := tp.runExistsAny(ctx, run, run.RunID, legacyScheduledRunID(run))
 			if existsErr != nil {
 				logger.Error(ctx, "Failed to re-check one-off dag-run after dispatch error",
 					tag.DAG(run.DAG.Name),
-					tag.RunID(run.RunID),
+					tag.RunID(existingRunID),
 					tag.Error(existsErr),
 				)
 				return
