@@ -170,11 +170,12 @@ func (dr DAGRun) FindSubDAGRun(_ context.Context, dagRunID string) (*DAGRun, err
 	if err := exec.ValidateDAGRunID(dagRunID); err != nil {
 		return nil, fmt.Errorf("invalid sub dag-run ID: %w", err)
 	}
-	candidates := []string{
-		filepath.Join(dr.baseDir, SubDAGRunsDir, dagRunID),
-		filepath.Join(dr.baseDir, LegacySubDAGRunsDir, LegacySubDAGRunDirPrefix+dagRunID),
-	}
-	for _, dir := range candidates {
+	for _, parentDirName := range []string{SubDAGRunsDir, LegacySubDAGRunsDir} {
+		dirName, ok := subDAGRunDirName(parentDirName, dagRunID)
+		if !ok {
+			continue
+		}
+		dir := filepath.Join(dr.baseDir, parentDirName, dirName)
 		info, err := os.Stat(dir)
 		if err == nil && info.IsDir() {
 			return newDAGRun(dir, dr.artifactDir)
@@ -524,6 +525,23 @@ func attemptDirNewer(a, b string) bool {
 
 func attemptDirOlder(a, b string) bool {
 	return attemptDirNewer(b, a)
+}
+
+func subDAGRunDirName(parentDirName, dagRunID string) (string, bool) {
+	switch parentDirName {
+	case SubDAGRunsDir:
+		if dagRunID == "" || strings.HasPrefix(dagRunID, ".") {
+			return "", false
+		}
+		return dagRunID, true
+	case LegacySubDAGRunsDir:
+		if dagRunID == "" {
+			return "", false
+		}
+		return LegacySubDAGRunDirPrefix + dagRunID, true
+	default:
+		return "", false
+	}
 }
 
 func subDAGRunIDFromDir(parentDirName, dirName string) (string, bool) {
