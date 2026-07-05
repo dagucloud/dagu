@@ -76,11 +76,6 @@
         {
           "type": "object",
           "properties": {
-            "profile": {
-              "type": "string",
-              "minLength": 1,
-              "description": "Runtime profile name inherited by schedule entries that do not set their own profile"
-            },
             "start": {
               "oneOf": [
                 {
@@ -147,20 +142,11 @@
               ]
             }
           },
-          "dependencies": {
-            "profile": {
-              "anyOf": [
-                { "required": ["start"] },
-                { "required": ["stop"] },
-                { "required": ["restart"] }
-              ]
-            }
-          },
           "additionalProperties": false,
-          "description": "Advanced scheduling with separate start, stop, and restart schedules. The optional profile field is inherited by schedule entries that do not set their own profile."
+          "description": "Advanced scheduling with separate start, stop, and restart schedules."
         }
       ],
-      "description": "Schedule configuration for the DAG. Start schedules support cron expressions, cron object entries, schedule-level profile inheritance, profile-scoped entries, and one-off RFC 3339 timestamps with explicit offsets. Stop and restart remain cron-only but may still use profile-scoped cron objects."
+      "description": "Schedule configuration for the DAG. Start schedules support cron expressions, profile-scoped cron object entries, and one-off RFC 3339 timestamps with explicit offsets. Stop and restart remain cron-only but may still use profile-scoped cron objects."
     },
     "skip_if_successful": {
       "type": "boolean",
@@ -823,16 +809,7 @@
   "definitions": {
     "scheduleCronEntry": {
       "type": "object",
-      "oneOf": [
-        {
-          "required": ["expression"],
-          "not": { "required": ["cron"] }
-        },
-        {
-          "required": ["cron"],
-          "not": { "required": ["expression"] }
-        }
-      ],
+      "required": ["expression"],
       "properties": {
         "kind": {
           "type": "string",
@@ -842,10 +819,6 @@
           "type": "string",
           "description": "Cron expression for a recurring schedule entry"
         },
-        "cron": {
-          "type": "string",
-          "description": "Alias for expression when authoring cron schedule entries"
-        },
         "profile": {
           "type": "string",
           "minLength": 1,
@@ -853,7 +826,7 @@
         }
       },
       "additionalProperties": false,
-      "description": "Cron schedule entry. Use either expression or cron, optionally scoped to a runtime profile."
+      "description": "Cron schedule entry, optionally scoped to a runtime profile."
     },
     "scheduleAtEntry": {
       "type": "object",

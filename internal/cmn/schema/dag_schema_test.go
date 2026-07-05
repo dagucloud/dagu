@@ -900,10 +900,10 @@ steps:
 `,
 		},
 		{
-			name: "CronAliasWithProfile",
+			name: "ExpressionWithProfile",
 			spec: `
 schedule:
-  - cron: "*/20 * * * *"
+  - expression: "*/20 * * * *"
     profile: prod
 steps:
   - run: echo hi
@@ -914,32 +914,16 @@ steps:
 			spec: `
 schedule:
   start:
-    - cron: "*/20 * * * *"
+    - expression: "*/20 * * * *"
       profile: dev
     - at: "2026-03-29T02:10:00+01:00"
       profile: prod
   stop:
-    cron: "0 18 * * *"
+    expression: "0 18 * * *"
     profile: dev
   restart:
     - expression: "0 12 * * *"
       profile: prod
-steps:
-  - run: echo hi
-`,
-		},
-		{
-			name: "ScheduleProfileInheritedByEntries",
-			spec: `
-schedule:
-  profile: prod
-  start:
-    - "*/20 * * * *"
-    - cron: "0 2 * * *"
-      profile: dev
-  stop: "0 18 * * *"
-  restart:
-    - cron: "0 12 * * *"
 steps:
   - run: echo hi
 `,
@@ -989,11 +973,10 @@ steps:
 			wantErr: "schedule",
 		},
 		{
-			name: "RejectCronAliasWithExpression",
+			name: "RejectCronAlias",
 			spec: `
 schedule:
   - cron: "0 * * * *"
-    expression: "30 * * * *"
 steps:
   - run: echo hi
 `,

@@ -125,15 +125,15 @@ stop: "0 18 * * *"
 			name: "ProfileScopedObjectEntries",
 			input: `
 start:
-  - cron: "*/20 * * * *"
+  - expression: "*/20 * * * *"
     profile: prod
   - expression: "30 */2 * * *"
     profile: dev
 stop:
-  cron: "0 18 * * *"
+  expression: "0 18 * * *"
   profile: prod
 restart:
-  - cron: "0 12 * * *"
+  - expression: "0 12 * * *"
     profile: dev
 `,
 			wantStarts:          []string{"*/20 * * * *", "30 */2 * * *"},
@@ -144,52 +144,22 @@ restart:
 			wantRestartProfiles: []string{"dev"},
 		},
 		{
-			name: "ScheduleProfileInheritedByEntries",
-			input: `
-profile: prod
-start:
-  - "*/20 * * * *"
-  - cron: "0 2 * * *"
-stop: "0 18 * * *"
-restart:
-  - cron: "0 12 * * *"
-`,
-			wantStarts:          []string{"*/20 * * * *", "0 2 * * *"},
-			wantStops:           []string{"0 18 * * *"},
-			wantRestarts:        []string{"0 12 * * *"},
-			wantStartProfiles:   []string{"prod", "prod"},
-			wantStopProfiles:    []string{"prod"},
-			wantRestartProfiles: []string{"prod"},
-		},
-		{
-			name: "ScheduleProfileDoesNotOverrideEntryProfile",
-			input: `
-profile: prod
-start:
-  - "0 2 * * *"
-  - cron: "30 */2 * * *"
-    profile: dev
-`,
-			wantStarts:        []string{"0 2 * * *", "30 */2 * * *"},
-			wantStartProfiles: []string{"prod", "dev"},
-		},
-		{
 			name:        "InvalidMapKey",
 			input:       `invalid: "0 * * * *"`,
 			wantErr:     true,
 			errContains: "unknown key",
 		},
 		{
-			name:        "InvalidScheduleProfileType",
+			name:        "InvalidScheduleProfileKey",
 			input:       `profile: 123`,
 			wantErr:     true,
-			errContains: "schedule.profile: expected string",
+			errContains: "unknown key",
 		},
 		{
-			name:        "InvalidScheduleProfileOnly",
-			input:       `profile: prod`,
+			name:        "RejectCronAlias",
+			input:       `start: {cron: "0 * * * *"}`,
 			wantErr:     true,
-			errContains: "requires start, stop, or restart",
+			errContains: "unknown key",
 		},
 		{
 			name: "InvalidArrayElementType",

@@ -244,11 +244,11 @@ func TestScheduleJSON(t *testing.T) {
 		require.NotNil(t, schedule.Parsed)
 	})
 
-	t.Run("UnmarshalCronAliasWithProfile", func(t *testing.T) {
+	t.Run("UnmarshalExpressionWithProfile", func(t *testing.T) {
 		t.Parallel()
 
 		var schedule core.Schedule
-		err := json.Unmarshal([]byte(`{"cron":"0 0 * * *","profile":" prod "}`), &schedule)
+		err := json.Unmarshal([]byte(`{"expression":"0 0 * * *","profile":" prod "}`), &schedule)
 		require.NoError(t, err)
 		require.Equal(t, core.ScheduleKindCron, schedule.GetKind())
 		require.Equal(t, "0 0 * * *", schedule.Expression)
@@ -282,13 +282,13 @@ func TestScheduleJSON(t *testing.T) {
 		require.Contains(t, err.Error(), "must not include both expression and at")
 	})
 
-	t.Run("UnmarshalRejectsCronAndExpression", func(t *testing.T) {
+	t.Run("UnmarshalRejectsCronAlias", func(t *testing.T) {
 		t.Parallel()
 
 		var schedule core.Schedule
-		err := json.Unmarshal([]byte(`{"cron":"0 0 * * *","expression":"30 0 * * *"}`), &schedule)
+		err := json.Unmarshal([]byte(`{"cron":"0 0 * * *"}`), &schedule)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "must not include both expression and cron")
+		require.Contains(t, err.Error(), `unknown key "cron"`)
 	})
 
 	t.Run("MarshalUnmarshalOneOffJSON", func(t *testing.T) {

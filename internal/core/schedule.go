@@ -195,7 +195,6 @@ func parseScheduleMap(m map[string]any, opts ScheduleParseOptions) (Schedule, er
 	var (
 		kind       ScheduleKind
 		expression string
-		cronExpr   string
 		at         string
 		profile    string
 	)
@@ -214,12 +213,6 @@ func parseScheduleMap(m map[string]any, opts ScheduleParseOptions) (Schedule, er
 				return Schedule{}, fmt.Errorf("expression must be a string, got %T", value)
 			}
 			expression = val
-		case "cron":
-			val, ok := value.(string)
-			if !ok {
-				return Schedule{}, fmt.Errorf("cron must be a string, got %T", value)
-			}
-			cronExpr = val
 		case "at":
 			val, ok := value.(string)
 			if !ok {
@@ -235,13 +228,6 @@ func parseScheduleMap(m map[string]any, opts ScheduleParseOptions) (Schedule, er
 		default:
 			return Schedule{}, fmt.Errorf("unknown key %q", key)
 		}
-	}
-
-	if expression != "" && cronExpr != "" {
-		return Schedule{}, fmt.Errorf("schedule object must not include both expression and cron")
-	}
-	if expression == "" {
-		expression = cronExpr
 	}
 
 	if expression != "" && at != "" {

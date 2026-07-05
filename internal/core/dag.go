@@ -1030,37 +1030,14 @@ func (s Schedule) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON implements the json.Unmarshaler interface.
 // It also parses the cron expression to populate the Parsed field.
 func (s *Schedule) UnmarshalJSON(data []byte) error {
-	var alias struct {
-		Kind       ScheduleKind `json:"kind"`
-		Expression string       `json:"expression"`
-		Cron       string       `json:"cron"`
-		At         string       `json:"at"`
-		Profile    string       `json:"profile"`
-	}
-	if err := json.Unmarshal(data, &alias); err != nil {
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
 
-	if alias.Kind == "" && alias.Expression == "" && alias.Cron == "" && alias.At == "" && alias.Profile == "" {
+	if len(raw) == 0 {
 		*s = Schedule{}
 		return nil
-	}
-
-	raw := make(map[string]any, 5)
-	if alias.Kind != "" {
-		raw["kind"] = string(alias.Kind)
-	}
-	if alias.Expression != "" {
-		raw["expression"] = alias.Expression
-	}
-	if alias.Cron != "" {
-		raw["cron"] = alias.Cron
-	}
-	if alias.At != "" {
-		raw["at"] = alias.At
-	}
-	if alias.Profile != "" {
-		raw["profile"] = alias.Profile
 	}
 
 	schedule, err := parseScheduleMap(raw, ScheduleParseOptions{AllowAt: true})
