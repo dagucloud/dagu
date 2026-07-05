@@ -29,21 +29,32 @@ func scheduleKinds(schedules []core.Schedule) []core.ScheduleKind {
 	return result
 }
 
+func scheduleProfiles(schedules []core.Schedule) []string {
+	result := make([]string, 0, len(schedules))
+	for _, schedule := range schedules {
+		result = append(result, schedule.Profile)
+	}
+	return result
+}
+
 func TestScheduleValue_UnmarshalYAML(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name            string
-		input           string
-		wantErr         bool
-		errContains     string
-		wantStarts      []string
-		wantStops       []string
-		wantRestarts    []string
-		wantHasStop     bool
-		wantHasRestart  bool
-		checkHasStop    bool
-		checkHasRestart bool
+		name                string
+		input               string
+		wantErr             bool
+		errContains         string
+		wantStarts          []string
+		wantStops           []string
+		wantRestarts        []string
+		wantStartProfiles   []string
+		wantStopProfiles    []string
+		wantRestartProfiles []string
+		wantHasStop         bool
+		wantHasRestart      bool
+		checkHasStop        bool
+		checkHasRestart     bool
 	}{
 		{
 			name:            "SingleCronExpression",
@@ -111,10 +122,74 @@ stop: "0 18 * * *"
 			wantStops:  []string{"0 18 * * *"},
 		},
 		{
+			name: "ProfileScopedObjectEntries",
+			input: `
+start:
+  - cron: "*/20 * * * *"
+    profile: prod
+  - expression: "30 */2 * * *"
+    profile: dev
+stop:
+  cron: "0 18 * * *"
+  profile: prod
+restart:
+  - cron: "0 12 * * *"
+    profile: dev
+`,
+			wantStarts:          []string{"*/20 * * * *", "30 */2 * * *"},
+			wantStops:           []string{"0 18 * * *"},
+			wantRestarts:        []string{"0 12 * * *"},
+			wantStartProfiles:   []string{"prod", "dev"},
+			wantStopProfiles:    []string{"prod"},
+			wantRestartProfiles: []string{"dev"},
+		},
+		{
+			name: "ScheduleProfileInheritedByEntries",
+			input: `
+profile: prod
+start:
+  - "*/20 * * * *"
+  - cron: "0 2 * * *"
+stop: "0 18 * * *"
+restart:
+  - cron: "0 12 * * *"
+`,
+			wantStarts:          []string{"*/20 * * * *", "0 2 * * *"},
+			wantStops:           []string{"0 18 * * *"},
+			wantRestarts:        []string{"0 12 * * *"},
+			wantStartProfiles:   []string{"prod", "prod"},
+			wantStopProfiles:    []string{"prod"},
+			wantRestartProfiles: []string{"prod"},
+		},
+		{
+			name: "ScheduleProfileDoesNotOverrideEntryProfile",
+			input: `
+profile: prod
+start:
+  - "0 2 * * *"
+  - cron: "30 */2 * * *"
+    profile: dev
+`,
+			wantStarts:        []string{"0 2 * * *", "30 */2 * * *"},
+			wantStartProfiles: []string{"prod", "dev"},
+		},
+		{
 			name:        "InvalidMapKey",
 			input:       `invalid: "0 * * * *"`,
 			wantErr:     true,
 			errContains: "unknown key",
+		},
+		{
+			name:        "InvalidScheduleProfileType",
+			input:       `profile: 123`,
+			wantErr:     true,
+			errContains: "schedule.profile: expected string",
+		},
+		{
+			name:        "InvalidScheduleProfileOnly",
+			input:       `profile: prod`,
+			wantErr:     true,
+			errContains: "requires start, stop, or restart",
 		},
 		{
 			name: "InvalidArrayElementType",
@@ -149,6 +224,15 @@ start:
 			}
 			if tt.wantRestarts != nil {
 				assert.Equal(t, tt.wantRestarts, scheduleExpressions(s.Restarts()))
+			}
+			if tt.wantStartProfiles != nil {
+				assert.Equal(t, tt.wantStartProfiles, scheduleProfiles(s.Starts()))
+			}
+			if tt.wantStopProfiles != nil {
+				assert.Equal(t, tt.wantStopProfiles, scheduleProfiles(s.Stops()))
+			}
+			if tt.wantRestartProfiles != nil {
+				assert.Equal(t, tt.wantRestartProfiles, scheduleProfiles(s.Restarts()))
 			}
 			if tt.checkHasStop {
 				assert.Equal(t, tt.wantHasStop, s.HasStopSchedule())

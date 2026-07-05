@@ -135,11 +135,15 @@ func (s Schedule) Fingerprint() string {
 	if err != nil {
 		return ""
 	}
+	profileSuffix := ""
+	if normalized.Profile != "" {
+		profileSuffix = "|profile:" + normalized.Profile
+	}
 	switch normalized.Kind {
 	case ScheduleKindCron:
-		return "cron:" + normalized.Expression
+		return "cron:" + normalized.Expression + profileSuffix
 	case ScheduleKindAt:
-		return "at:" + normalized.At
+		return "at:" + normalized.At + profileSuffix
 	default:
 		return ""
 	}
@@ -167,23 +171,33 @@ func (s Schedule) normalized() (Schedule, error) {
 }
 
 func normalizeSchedule(s Schedule) (Schedule, error) {
+	profile := strings.TrimSpace(s.Profile)
+	var schedule Schedule
+	var err error
 	switch s.GetKind() {
 	case ScheduleKindCron:
-		return NewCronSchedule(s.Expression)
+		schedule, err = NewCronSchedule(s.Expression)
 	case ScheduleKindAt:
-		return NewOneOffSchedule(s.At)
+		schedule, err = NewOneOffSchedule(s.At)
 	case "":
 		return Schedule{}, nil
 	default:
 		return Schedule{}, fmt.Errorf("unsupported schedule kind %q", s.Kind)
 	}
+	if err != nil {
+		return Schedule{}, err
+	}
+	schedule.Profile = profile
+	return schedule, nil
 }
 
 func parseScheduleMap(m map[string]any, opts ScheduleParseOptions) (Schedule, error) {
 	var (
 		kind       ScheduleKind
 		expression string
+		cronExpr   string
 		at         string
+		profile    string
 	)
 
 	for key, value := range m {
@@ -200,15 +214,34 @@ func parseScheduleMap(m map[string]any, opts ScheduleParseOptions) (Schedule, er
 				return Schedule{}, fmt.Errorf("expression must be a string, got %T", value)
 			}
 			expression = val
+		case "cron":
+			val, ok := value.(string)
+			if !ok {
+				return Schedule{}, fmt.Errorf("cron must be a string, got %T", value)
+			}
+			cronExpr = val
 		case "at":
 			val, ok := value.(string)
 			if !ok {
 				return Schedule{}, fmt.Errorf("at must be a string, got %T", value)
 			}
 			at = val
+		case "profile":
+			val, ok := value.(string)
+			if !ok {
+				return Schedule{}, fmt.Errorf("profile must be a string, got %T", value)
+			}
+			profile = strings.TrimSpace(val)
 		default:
 			return Schedule{}, fmt.Errorf("unknown key %q", key)
 		}
+	}
+
+	if expression != "" && cronExpr != "" {
+		return Schedule{}, fmt.Errorf("schedule object must not include both expression and cron")
+	}
+	if expression == "" {
+		expression = cronExpr
 	}
 
 	if expression != "" && at != "" {
@@ -251,6 +284,7 @@ func parseScheduleMap(m map[string]any, opts ScheduleParseOptions) (Schedule, er
 		Kind:       kind,
 		Expression: expression,
 		At:         at,
+		Profile:    profile,
 	})
 }
 

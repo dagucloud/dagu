@@ -900,6 +900,51 @@ steps:
 `,
 		},
 		{
+			name: "CronAliasWithProfile",
+			spec: `
+schedule:
+  - cron: "*/20 * * * *"
+    profile: prod
+steps:
+  - run: echo hi
+`,
+		},
+		{
+			name: "ProfileScopedControlSchedules",
+			spec: `
+schedule:
+  start:
+    - cron: "*/20 * * * *"
+      profile: dev
+    - at: "2026-03-29T02:10:00+01:00"
+      profile: prod
+  stop:
+    cron: "0 18 * * *"
+    profile: dev
+  restart:
+    - expression: "0 12 * * *"
+      profile: prod
+steps:
+  - run: echo hi
+`,
+		},
+		{
+			name: "ScheduleProfileInheritedByEntries",
+			spec: `
+schedule:
+  profile: prod
+  start:
+    - "*/20 * * * *"
+    - cron: "0 2 * * *"
+      profile: dev
+  stop: "0 18 * * *"
+  restart:
+    - cron: "0 12 * * *"
+steps:
+  - run: echo hi
+`,
+		},
+		{
 			name: "RejectTypedCronWithoutExpression",
 			spec: `
 schedule:
@@ -938,6 +983,37 @@ steps:
 schedule:
   stop:
     kind: cron
+steps:
+  - run: echo hi
+`,
+			wantErr: "schedule",
+		},
+		{
+			name: "RejectCronAliasWithExpression",
+			spec: `
+schedule:
+  - cron: "0 * * * *"
+    expression: "30 * * * *"
+steps:
+  - run: echo hi
+`,
+			wantErr: "schedule",
+		},
+		{
+			name: "RejectProfileOnlySchedule",
+			spec: `
+schedule:
+  - profile: prod
+steps:
+  - run: echo hi
+`,
+			wantErr: "schedule",
+		},
+		{
+			name: "RejectScheduleProfileWithoutEntries",
+			spec: `
+schedule:
+  profile: prod
 steps:
   - run: echo hi
 `,

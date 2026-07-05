@@ -217,12 +217,13 @@ func newScheduler(
 		Restart: func(ctx context.Context, dag *core.DAG, scheduleTime time.Time) error {
 			return dagExecutor.Restart(ctx, dag, scheduleTime)
 		},
-		Clock:         defaultClock,
-		Location:      timeLoc,
-		Events:        eventCh,
-		QueuesEnabled: queuesEnabled,
-		Enqueue:       enqueueFunc,
-		IsQueued:      isQueued,
+		Clock:           defaultClock,
+		Location:        timeLoc,
+		Events:          eventCh,
+		ProfileResolver: options.profileResolver,
+		QueuesEnabled:   queuesEnabled,
+		Enqueue:         enqueueFunc,
+		IsQueued:        isQueued,
 		RunExists: func(ctx context.Context, dag *core.DAG, runID string) (bool, error) {
 			_, err := dagRunStore.FindAttempt(ctx, exec.NewDAGRunRef(dag.Name, runID))
 			switch {

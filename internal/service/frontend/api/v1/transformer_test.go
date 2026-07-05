@@ -304,6 +304,7 @@ func TestToNodeIncludesNormalizedPushBackHistory(t *testing.T) {
 func TestToDAGIncludesTypedSchedules(t *testing.T) {
 	cronSchedule, err := core.NewCronSchedule("*/5 * * * *")
 	require.NoError(t, err)
+	cronSchedule.Profile = "prod"
 
 	oneOffSchedule, err := core.NewOneOffSchedule("2026-03-29T02:10:00+01:00")
 	require.NoError(t, err)
@@ -320,6 +321,8 @@ func TestToDAGIncludesTypedSchedules(t *testing.T) {
 	require.NotNil(t, cronAPI.Kind)
 	assert.Equal(t, openapi.ScheduleKindCron, *cronAPI.Kind)
 	assert.Equal(t, "*/5 * * * *", cronAPI.Expression)
+	require.NotNil(t, cronAPI.Profile)
+	assert.Equal(t, "prod", string(*cronAPI.Profile))
 	assert.Nil(t, cronAPI.At)
 
 	oneOffAPI := (*dag.Schedule)[1]

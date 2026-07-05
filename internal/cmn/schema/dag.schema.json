@@ -67,39 +67,8 @@
               {
                 "type": "string"
               },
-              {
-                "type": "object",
-                "properties": {
-                  "kind": {
-                    "type": "string",
-                    "enum": ["cron"]
-                  },
-                  "expression": {
-                    "type": "string",
-                    "description": "Cron expression for a recurring schedule entry"
-                  }
-                },
-                "required": ["expression"],
-                "additionalProperties": false,
-                "description": "Typed cron schedule entry"
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "kind": {
-                    "type": "string",
-                    "enum": ["at"]
-                  },
-                  "at": {
-                    "type": "string",
-                    "format": "date-time",
-                    "description": "RFC 3339 timestamp with explicit offset and minute precision for a one-off schedule entry"
-                  }
-                },
-                "required": ["at"],
-                "additionalProperties": false,
-                "description": "Typed one-off schedule entry"
-              }
+              { "$ref": "#/definitions/scheduleCronEntry" },
+              { "$ref": "#/definitions/scheduleAtEntry" }
             ]
           },
           "description": "Multiple schedule entries for starting the DAG at different times"
@@ -107,43 +76,19 @@
         {
           "type": "object",
           "properties": {
+            "profile": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Runtime profile name inherited by schedule entries that do not set their own profile"
+            },
             "start": {
               "oneOf": [
                 {
                   "type": "string",
                   "description": "Single cron expression for starting the DAG"
                 },
-                {
-                  "type": "object",
-                  "properties": {
-                    "kind": {
-                      "type": "string",
-                      "enum": ["cron"]
-                    },
-                    "expression": {
-                      "type": "string"
-                    }
-                  },
-                  "required": ["expression"],
-                  "additionalProperties": false,
-                  "description": "Single typed cron schedule entry for starting the DAG"
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "kind": {
-                      "type": "string",
-                      "enum": ["at"]
-                    },
-                    "at": {
-                      "type": "string",
-                      "format": "date-time"
-                    }
-                  },
-                  "required": ["at"],
-                  "additionalProperties": false,
-                  "description": "Single typed one-off schedule entry for starting the DAG"
-                },
+                { "$ref": "#/definitions/scheduleCronEntry" },
+                { "$ref": "#/definitions/scheduleAtEntry" },
                 {
                   "type": "array",
                   "items": {
@@ -151,35 +96,8 @@
                       {
                         "type": "string"
                       },
-                      {
-                        "type": "object",
-                        "properties": {
-                          "kind": {
-                            "type": "string",
-                            "enum": ["cron"]
-                          },
-                          "expression": {
-                            "type": "string"
-                          }
-                        },
-                        "required": ["expression"],
-                        "additionalProperties": false
-                      },
-                      {
-                        "type": "object",
-                        "properties": {
-                          "kind": {
-                            "type": "string",
-                            "enum": ["at"]
-                          },
-                          "at": {
-                            "type": "string",
-                            "format": "date-time"
-                          }
-                        },
-                        "required": ["at"],
-                        "additionalProperties": false
-                      }
+                      { "$ref": "#/definitions/scheduleCronEntry" },
+                      { "$ref": "#/definitions/scheduleAtEntry" }
                     ]
                   },
                   "description": "Multiple schedule entries for starting the DAG"
@@ -192,21 +110,7 @@
                   "type": "string",
                   "description": "Single cron expression for stopping the DAG"
                 },
-                {
-                  "type": "object",
-                  "properties": {
-                    "kind": {
-                      "type": "string",
-                      "enum": ["cron"]
-                    },
-                    "expression": {
-                      "type": "string"
-                    }
-                  },
-                  "required": ["expression"],
-                  "additionalProperties": false,
-                  "description": "Single typed cron schedule entry for stopping the DAG"
-                },
+                { "$ref": "#/definitions/scheduleCronEntry" },
                 {
                   "type": "array",
                   "items": {
@@ -214,20 +118,7 @@
                       {
                         "type": "string"
                       },
-                      {
-                        "type": "object",
-                        "properties": {
-                          "kind": {
-                            "type": "string",
-                            "enum": ["cron"]
-                          },
-                          "expression": {
-                            "type": "string"
-                          }
-                        },
-                        "required": ["expression"],
-                        "additionalProperties": false
-                      }
+                      { "$ref": "#/definitions/scheduleCronEntry" }
                     ]
                   },
                   "description": "Multiple cron expressions for stopping the DAG"
@@ -240,21 +131,7 @@
                   "type": "string",
                   "description": "Single cron expression for restarting the DAG"
                 },
-                {
-                  "type": "object",
-                  "properties": {
-                    "kind": {
-                      "type": "string",
-                      "enum": ["cron"]
-                    },
-                    "expression": {
-                      "type": "string"
-                    }
-                  },
-                  "required": ["expression"],
-                  "additionalProperties": false,
-                  "description": "Single typed cron schedule entry for restarting the DAG"
-                },
+                { "$ref": "#/definitions/scheduleCronEntry" },
                 {
                   "type": "array",
                   "items": {
@@ -262,20 +139,7 @@
                       {
                         "type": "string"
                       },
-                      {
-                        "type": "object",
-                        "properties": {
-                          "kind": {
-                            "type": "string",
-                            "enum": ["cron"]
-                          },
-                          "expression": {
-                            "type": "string"
-                          }
-                        },
-                        "required": ["expression"],
-                        "additionalProperties": false
-                      }
+                      { "$ref": "#/definitions/scheduleCronEntry" }
                     ]
                   },
                   "description": "Multiple cron expressions for restarting the DAG"
@@ -283,11 +147,20 @@
               ]
             }
           },
+          "dependencies": {
+            "profile": {
+              "anyOf": [
+                { "required": ["start"] },
+                { "required": ["stop"] },
+                { "required": ["restart"] }
+              ]
+            }
+          },
           "additionalProperties": false,
-          "description": "Advanced scheduling with separate start, stop, and restart schedules"
+          "description": "Advanced scheduling with separate start, stop, and restart schedules. The optional profile field is inherited by schedule entries that do not set their own profile."
         }
       ],
-      "description": "Schedule configuration for the DAG. Start schedules support cron expressions and one-off RFC 3339 timestamps with explicit offsets. Stop and restart remain cron-only."
+      "description": "Schedule configuration for the DAG. Start schedules support cron expressions, cron object entries, schedule-level profile inheritance, profile-scoped entries, and one-off RFC 3339 timestamps with explicit offsets. Stop and restart remain cron-only but may still use profile-scoped cron objects."
     },
     "skip_if_successful": {
       "type": "boolean",
@@ -948,6 +821,62 @@
     }
   },
   "definitions": {
+    "scheduleCronEntry": {
+      "type": "object",
+      "oneOf": [
+        {
+          "required": ["expression"],
+          "not": { "required": ["cron"] }
+        },
+        {
+          "required": ["cron"],
+          "not": { "required": ["expression"] }
+        }
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["cron"]
+        },
+        "expression": {
+          "type": "string",
+          "description": "Cron expression for a recurring schedule entry"
+        },
+        "cron": {
+          "type": "string",
+          "description": "Alias for expression when authoring cron schedule entries"
+        },
+        "profile": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Runtime profile name that activates this schedule entry"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Cron schedule entry. Use either expression or cron, optionally scoped to a runtime profile."
+    },
+    "scheduleAtEntry": {
+      "type": "object",
+      "required": ["at"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["at"]
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "RFC 3339 timestamp with explicit offset and minute precision for a one-off schedule entry"
+        },
+        "profile": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Runtime profile name that activates this schedule entry"
+        }
+      },
+      "additionalProperties": false,
+      "description": "One-off schedule entry, optionally scoped to a runtime profile."
+    },
     "resources": {
       "type": "object",
       "additionalProperties": false,

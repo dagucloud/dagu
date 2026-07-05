@@ -33,13 +33,27 @@ func ComputeReplayFrom(catchupWindow time.Duration, lastTick, lastScheduledTime,
 // with high-frequency schedules (e.g., 30-day window + per-minute cron).
 const MaxMissedRuns = 1000
 
+type missedScheduleInterval struct {
+	Schedule      core.Schedule
+	ScheduledTime time.Time
+}
+
 // ComputeMissedIntervals iterates each schedule's cron expression from
 // replayFrom to replayTo, collects all missed ticks, merges and sorts
 // chronologically. Duplicates across schedules are removed.
 // If the total exceeds MaxMissedRuns, only the most recent runs are kept.
 func ComputeMissedIntervals(schedules []core.Schedule, replayFrom, replayTo time.Time) []time.Time {
+	intervals := computeMissedScheduleIntervals(schedules, replayFrom, replayTo)
+	result := make([]time.Time, 0, len(intervals))
+	for _, interval := range intervals {
+		result = append(result, interval.ScheduledTime)
+	}
+	return result
+}
+
+func computeMissedScheduleIntervals(schedules []core.Schedule, replayFrom, replayTo time.Time) []missedScheduleInterval {
 	seen := make(map[time.Time]struct{})
-	var result []time.Time
+	var result []missedScheduleInterval
 
 	for _, sched := range schedules {
 		if sched.Parsed == nil {
@@ -50,7 +64,10 @@ func ComputeMissedIntervals(schedules []core.Schedule, replayFrom, replayTo time
 		for !t.After(replayTo) {
 			if _, dup := seen[t]; !dup {
 				seen[t] = struct{}{}
-				result = append(result, t)
+				result = append(result, missedScheduleInterval{
+					Schedule:      sched,
+					ScheduledTime: t,
+				})
 			}
 			next := sched.Parsed.Next(t).Round(0)
 			if !next.After(t) {
@@ -61,7 +78,7 @@ func ComputeMissedIntervals(schedules []core.Schedule, replayFrom, replayTo time
 	}
 
 	sort.Slice(result, func(i, j int) bool {
-		return result[i].Before(result[j])
+		return result[i].ScheduledTime.Before(result[j].ScheduledTime)
 	})
 
 	// Cap to most recent runs to prevent memory explosion.

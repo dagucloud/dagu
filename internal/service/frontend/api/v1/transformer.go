@@ -28,6 +28,10 @@ func toSchedule(s core.Schedule) api.Schedule {
 	if at, ok := s.OneOffTime(); ok {
 		schedule.At = &at
 	}
+	if s.Profile != "" {
+		profileName := api.RuntimeProfileName(s.Profile)
+		schedule.Profile = &profileName
+	}
 	return schedule
 }
 

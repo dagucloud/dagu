@@ -19,6 +19,7 @@ type QueueItem struct {
 	ScheduledTime time.Time
 	TriggerType   core.TriggerType
 	ScheduleType  ScheduleType
+	Schedule      core.Schedule
 }
 
 // ScheduleBuffer is a per-DAG in-memory FIFO queue for catch-up runs.

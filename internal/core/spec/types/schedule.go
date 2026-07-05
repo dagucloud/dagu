@@ -5,6 +5,7 @@ package types
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/goccy/go-yaml"
@@ -20,6 +21,7 @@ import (
 //	schedule: "0 * * * *"
 //	schedule: ["0 * * * *", "30 * * * *"]
 //	schedule:
+//	  profile: prod
 //	  start: "0 8 * * *"
 //	  stop: "0 18 * * *"
 //	  restart: "0 12 * * *"
@@ -89,12 +91,21 @@ func (s *ScheduleValue) UnmarshalYAML(data []byte) error {
 }
 
 func (s *ScheduleValue) parseScheduleMap(m map[string]any) error {
+	inheritedProfile, err := scheduleMapProfile(m)
+	if err != nil {
+		return err
+	}
+	hasSchedule := false
 	for key, v := range m {
+		if key == "profile" {
+			continue
+		}
 		opts := core.ScheduleParseOptions{AllowAt: key == "start"}
 		values, err := parseScheduleEntry(v, opts)
 		if err != nil {
 			return fmt.Errorf("schedule.%s: %w", key, err)
 		}
+		applyInheritedScheduleProfile(values, inheritedProfile)
 
 		switch key {
 		case "start":
@@ -104,10 +115,37 @@ func (s *ScheduleValue) parseScheduleMap(m map[string]any) error {
 		case "restart":
 			s.restarts = values
 		default:
-			return fmt.Errorf("schedule: unknown key %q (expected start, stop, or restart)", key)
+			return fmt.Errorf("schedule: unknown key %q (expected profile, start, stop, or restart)", key)
 		}
+		hasSchedule = true
+	}
+	if inheritedProfile != "" && !hasSchedule {
+		return fmt.Errorf("schedule.profile requires start, stop, or restart")
 	}
 	return nil
+}
+
+func scheduleMapProfile(m map[string]any) (string, error) {
+	raw, ok := m["profile"]
+	if !ok {
+		return "", nil
+	}
+	profile, ok := raw.(string)
+	if !ok {
+		return "", fmt.Errorf("schedule.profile: expected string, got %T", raw)
+	}
+	return strings.TrimSpace(profile), nil
+}
+
+func applyInheritedScheduleProfile(schedules []core.Schedule, profile string) {
+	if profile == "" {
+		return
+	}
+	for i := range schedules {
+		if schedules[i].Profile == "" {
+			schedules[i].Profile = profile
+		}
+	}
 }
 
 func parseScheduleEntry(v any, opts core.ScheduleParseOptions) ([]core.Schedule, error) {

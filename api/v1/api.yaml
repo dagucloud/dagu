@@ -10763,14 +10763,25 @@ components:
       additionalProperties: false
       minProperties: 1
       not:
-        required:
-          - expression
-          - at
+        anyOf:
+          - required:
+              - expression
+              - at
+          - required:
+              - cron
+              - at
+          - required:
+              - expression
+              - cron
       properties:
         kind:
           type: string
           enum: ["cron", "at"]
           description: "Schedule type. When omitted alongside expression, the schedule is treated as cron for backward compatibility."
+        cron:
+          type: string
+          description: "Alias for expression when authoring cron schedules"
+          x-go-type-skip-optional-pointer: true
         expression:
           type: string
           description: "Cron expression for recurring schedules"
@@ -10779,6 +10790,9 @@ components:
           type: string
           format: date-time
           description: "RFC 3339 timestamp with explicit offset for one-off schedules"
+        profile:
+          $ref: "#/components/schemas/RuntimeProfileName"
+          description: "Runtime profile name that activates this schedule entry"
 
     Status:
       type: integer
