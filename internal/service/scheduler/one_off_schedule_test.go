@@ -61,7 +61,7 @@ func TestReconcileOneOffState_NewEntriesRespectAddSemantics(t *testing.T) {
 		Schedule: []core.Schedule{future, past},
 	}
 
-	next, changed := reconcileOneOffState(DAGWatermark{}, dag, now)
+	next, changed := reconcileOneOffState(DAGWatermark{}, dag.Schedule, now)
 	require.True(t, changed)
 	require.Len(t, next.OneOffs, 2)
 	assert.Equal(t, OneOffStatusPending, next.OneOffs[future.Fingerprint()].Status)
@@ -79,7 +79,7 @@ func TestReconcileOneOffState_ScheduledNowStaysPending(t *testing.T) {
 		Schedule: []core.Schedule{schedule},
 	}
 
-	next, changed := reconcileOneOffState(DAGWatermark{}, dag, now)
+	next, changed := reconcileOneOffState(DAGWatermark{}, dag.Schedule, now)
 	require.True(t, changed)
 	require.Len(t, next.OneOffs, 1)
 	assert.Equal(t, OneOffStatusPending, next.OneOffs[schedule.Fingerprint()].Status)

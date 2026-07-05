@@ -288,15 +288,6 @@ func scheduleActiveForProfile(schedule core.Schedule, profile string) bool {
 	return profile != "" && schedule.Profile == profile
 }
 
-func dagWithStartSchedules(dag *core.DAG, schedules []core.Schedule) *core.DAG {
-	if dag == nil {
-		return nil
-	}
-	cloned := *dag
-	cloned.Schedule = schedules
-	return &cloned
-}
-
 // Init loads watermark state and computes catchup buffers for existing DAGs.
 func (tp *TickPlanner) Init(ctx context.Context, dags []*core.DAG) error {
 	tp.entryMu.Lock()
@@ -339,10 +330,9 @@ func (tp *TickPlanner) Init(ctx context.Context, dags []*core.DAG) error {
 		if !ok {
 			continue
 		}
-		activeDag := dagWithStartSchedules(dag, active.start)
 		current := state.DAGs[dag.Name]
-		next, changed := reconcileOneOffState(current, activeDag, observedAt)
-		next, startChanged := reconcileStartScheduleState(next, activeDag, observedAt)
+		next, changed := reconcileOneOffState(current, active.start, observedAt)
+		next, startChanged := reconcileStartScheduleState(next, active.start, dag.SkipIfSuccessful, observedAt)
 		changed = changed || startChanged
 		if !changed {
 			continue
@@ -1219,13 +1209,12 @@ func (tp *TickPlanner) reconcileOneOffSchedules(ctx context.Context, dag *core.D
 	if !ok {
 		return false
 	}
-	activeDag := dagWithStartSchedules(dag, active.start)
 
 	tp.mu.Lock()
 	defer tp.mu.Unlock()
 
 	current := tp.watermarkState.DAGs[dag.Name]
-	next, changed := reconcileOneOffState(current, activeDag, tp.cfg.Clock())
+	next, changed := reconcileOneOffState(current, active.start, tp.cfg.Clock())
 	if !changed {
 		return false
 	}
@@ -1247,13 +1236,12 @@ func (tp *TickPlanner) reconcileStartScheduleState(ctx context.Context, dag *cor
 	if !ok {
 		return false
 	}
-	activeDag := dagWithStartSchedules(dag, active.start)
 
 	tp.mu.Lock()
 	defer tp.mu.Unlock()
 
 	current := tp.watermarkState.DAGs[dag.Name]
-	next, changed := reconcileStartScheduleState(current, activeDag, tp.cfg.Clock())
+	next, changed := reconcileStartScheduleState(current, active.start, dag.SkipIfSuccessful, tp.cfg.Clock())
 	if !changed {
 		return false
 	}

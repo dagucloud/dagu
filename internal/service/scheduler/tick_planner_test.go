@@ -1621,6 +1621,8 @@ func TestTickPlanner_ProfileScopedStopRestartSchedules(t *testing.T) {
 	var stopCount, restartCount int
 	for _, run := range runs {
 		switch run.ScheduleType {
+		case ScheduleTypeStart:
+			t.Fatalf("unexpected start schedule run: %+v", run)
 		case ScheduleTypeStop:
 			stopCount++
 		case ScheduleTypeRestart:
