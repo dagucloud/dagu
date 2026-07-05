@@ -6,6 +6,8 @@ package dagrun
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
+	"encoding/base32"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -714,9 +716,16 @@ func (att *Attempt) WorkDir() string {
 
 func workDirForDAGRunDir(dagRunDir string) string {
 	if rootDir, childRunID, ok := subDAGWorkDirParts(dagRunDir); ok {
-		return filepath.Join(rootDir, SubDAGWorkDirPrefix+childRunID)
+		return filepath.Join(rootDir, subDAGWorkDirName(childRunID))
 	}
 	return filepath.Join(dagRunDir, "work")
+}
+
+func subDAGWorkDirName(childRunID string) string {
+	sum := sha256.Sum256([]byte(childRunID))
+	return SubDAGWorkDirPrefix + strings.ToLower(
+		base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(sum[:8]),
+	)
 }
 
 func subDAGWorkDirParts(dagRunDir string) (rootDir, childRunID string, ok bool) {

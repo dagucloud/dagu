@@ -34,6 +34,6 @@ func TestAttemptWorkDirUsesRootRunAnchorForSubDAG(t *testing.T) {
 	childAttempt, err := dagrun.NewAttempt(childAttemptFile, nil)
 	require.NoError(t, err)
 
-	require.Equal(t, filepath.Join(rootRunDir, dagrun.SubDAGWorkDirPrefix+childRunID), childAttempt.WorkDir())
+	require.Equal(t, filepath.Join(rootRunDir, dagrun.SubDAGWorkDirNameForTest(childRunID)), childAttempt.WorkDir())
 	require.NotEqual(t, filepath.Join(childRunDir, "work"), childAttempt.WorkDir())
 }

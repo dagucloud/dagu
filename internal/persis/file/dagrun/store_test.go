@@ -94,7 +94,7 @@ func TestStorePreservesDAGRunFileCompatibilityLayout(t *testing.T) {
 	require.FileExists(t, filepath.Join(childAttemptDir, JSONLStatusFile))
 	require.FileExists(t, filepath.Join(childAttemptDir, DAGDefinition))
 	require.NoDirExists(t, filepath.Join(runDir, SubDAGRunsDir, "child_child-run", "work"))
-	require.DirExists(t, filepath.Join(runDir, SubDAGWorkDirPrefix+"child-run"))
+	require.DirExists(t, filepath.Join(runDir, subDAGWorkDirName("child-run")))
 
 	assert.NoDirExists(t, filepath.Join(baseDir, "dag_runs"))
 	assert.NoDirExists(t, filepath.Join(baseDir, "dagruns"))
