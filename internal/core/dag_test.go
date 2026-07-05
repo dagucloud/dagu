@@ -293,9 +293,17 @@ func TestScheduleJSON(t *testing.T) {
 		require.NoError(t, err)
 		require.Contains(t, string(data), `"warnings"`)
 
+		var raw map[string]any
+		require.NoError(t, json.Unmarshal(data, &raw))
+		raw["warnings"] = []string{"external warning metadata"}
+		data, err = json.Marshal(raw)
+		require.NoError(t, err)
+
 		var unmarshaled core.Schedule
 		require.NoError(t, json.Unmarshal(data, &unmarshaled))
 		require.Equal(t, original.Expression, unmarshaled.Expression)
+		require.Equal(t, original.Warnings, unmarshaled.Warnings)
+		require.NotContains(t, unmarshaled.Warnings, "external warning metadata")
 	})
 
 	t.Run("UnmarshalRejectsConflictingScheduleFields", func(t *testing.T) {
