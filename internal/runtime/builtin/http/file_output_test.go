@@ -132,6 +132,43 @@ func TestHTTPExecutorFileOutputKeepsExistingFileOnHTTPError(t *testing.T) {
 	assert.Equal(t, "old", string(got))
 }
 
+func TestHTTPExecutorFileOutputWithJSONKeepsHTTPStatusOnError(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, _ *nethttp.Request) {
+		w.WriteHeader(nethttp.StatusInternalServerError)
+		_, _ = w.Write([]byte("server failed"))
+	}))
+	defer server.Close()
+
+	output := filepath.Join(t.TempDir(), "payload.bin")
+	require.NoError(t, os.WriteFile(output, []byte("old"), 0o600))
+
+	exec, err := executor.NewExecutor(context.Background(), httpStep(server.URL, map[string]any{
+		"output": output,
+		"format": "json",
+		"silent": true,
+	}))
+	require.NoError(t, err)
+
+	var stdout bytes.Buffer
+	exec.SetStdout(&stdout)
+	exec.SetStderr(&bytes.Buffer{})
+
+	err = exec.Run(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "http status code not 2xx")
+
+	got, err := os.ReadFile(output)
+	require.NoError(t, err)
+	assert.Equal(t, "old", string(got))
+
+	var metadata map[string]any
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &metadata))
+	assert.Equal(t, float64(nethttp.StatusInternalServerError), metadata["status_code"])
+	assert.Equal(t, "server failed", metadata["body"])
+}
+
 func httpStep(url string, cfg map[string]any) core.Step {
 	return core.Step{
 		Commands: []core.CommandEntry{{Command: "GET", Args: []string{url}}},
