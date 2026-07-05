@@ -8,6 +8,8 @@ package cmdutil
 import (
 	"fmt"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"unsafe"
 
@@ -25,6 +27,30 @@ func setupCommand(cmd *exec.Cmd) {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
 	cmd.SysProcAttr.CreationFlags |= windows.CREATE_NEW_PROCESS_GROUP
+	cmd.Dir = normalizeLongWindowsDir(cmd.Dir)
+}
+
+func normalizeLongWindowsDir(dir string) string {
+	if dir == "" || isWindowsExtendedPath(dir) {
+		return dir
+	}
+
+	abs, err := filepath.Abs(filepath.Clean(dir))
+	if err != nil || len(abs) < 248 {
+		return dir
+	}
+
+	if strings.HasPrefix(abs, `\\.\`) {
+		return abs
+	}
+	if strings.HasPrefix(abs, `\\`) {
+		return `\\?\UNC\` + strings.TrimPrefix(abs, `\\`)
+	}
+	return `\\?\` + abs
+}
+
+func isWindowsExtendedPath(path string) bool {
+	return strings.HasPrefix(path, `\\?\`) || strings.HasPrefix(path, `\??\`)
 }
 
 // killProcessTree kills a process and its subprocess tree on Windows
