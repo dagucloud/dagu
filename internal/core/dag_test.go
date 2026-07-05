@@ -273,6 +273,22 @@ func TestScheduleJSON(t *testing.T) {
 		require.Equal(t, "prod", unmarshaled.Profile)
 	})
 
+	t.Run("UnmarshalIgnoresWarningsMetadata", func(t *testing.T) {
+		t.Parallel()
+
+		original, err := core.NewCronSchedule("*/40 * * * *")
+		require.NoError(t, err)
+		require.NotEmpty(t, original.Warnings)
+
+		data, err := json.Marshal(original)
+		require.NoError(t, err)
+		require.Contains(t, string(data), `"warnings"`)
+
+		var unmarshaled core.Schedule
+		require.NoError(t, json.Unmarshal(data, &unmarshaled))
+		require.Equal(t, original.Expression, unmarshaled.Expression)
+	})
+
 	t.Run("UnmarshalRejectsConflictingScheduleFields", func(t *testing.T) {
 		t.Parallel()
 

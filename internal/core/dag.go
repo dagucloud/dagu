@@ -1034,6 +1034,7 @@ func (s *Schedule) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
+	delete(raw, "warnings")
 
 	if len(raw) == 0 {
 		*s = Schedule{}
