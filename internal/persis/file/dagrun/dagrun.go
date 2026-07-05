@@ -106,7 +106,7 @@ func NewDAGRun(dir string) (*DAGRun, error) {
 func newDAGRun(dir, artifactDir string) (*DAGRun, error) {
 	// Determine if the run is a sub dag-run or a regular dag-run.
 	parentDir := filepath.Dir(dir)
-	if dagRunID, ok := parseSubDAGRunDirName(filepath.Base(parentDir), filepath.Base(dir)); ok {
+	if dagRunID, ok := subDAGRunIDFromDir(filepath.Base(parentDir), filepath.Base(dir)); ok {
 		return &DAGRun{
 			baseDir:     dir,
 			artifactDir: artifactDir,
@@ -197,7 +197,7 @@ func (dr DAGRun) ListSubDAGRuns(ctx context.Context) ([]*DAGRun, error) {
 			if !entry.IsDir() {
 				continue
 			}
-			dagRunID, ok := parseSubDAGRunDirName(dirName, entry.Name())
+			dagRunID, ok := subDAGRunIDFromDir(dirName, entry.Name())
 			if !ok {
 				continue
 			}
@@ -367,7 +367,7 @@ func (dr DAGRun) listAttemptDirs() ([]string, error) {
 		if !entry.IsDir() {
 			continue
 		}
-		if isAttemptDirName(entry.Name()) {
+		if IsAttemptDirName(entry.Name()) {
 			dirs = append(dirs, entry.Name())
 		}
 	}
@@ -486,10 +486,6 @@ func (dr DAGRun) validatedArtifactDir(dir string) (string, bool) {
 	return cleanDir, true
 }
 
-type attemptDirInfo struct {
-	id string
-}
-
 // Regular expressions for parsing directory names
 var reDAGRunDir = regexp.MustCompile(`^` + DAGRunDirPrefix + `(\d{8}_\d{6}Z)_(.*)$`) // Matches dag-run directory names
 var reAttemptDir = regexp.MustCompile(`^(?:` + regexp.QuoteMeta(AttemptDirPrefix) + `|` + regexp.QuoteMeta(LegacyAttemptDirPrefix) + `)(\d{8}_\d{6}_\d{3}Z)_(.*)$`)
@@ -498,21 +494,17 @@ func attemptDirName(ts exec.TimeInUTC, attemptID string) string {
 	return AttemptDirPrefix + formatAttemptTimestamp(ts) + "_" + attemptID
 }
 
-func parseAttemptDirName(name string) (attemptDirInfo, bool) {
+func attemptIDFromDir(name string) (string, bool) {
 	matches := reAttemptDir.FindStringSubmatch(strings.TrimPrefix(name, "."))
 	if len(matches) != 3 {
-		return attemptDirInfo{}, false
+		return "", false
 	}
-	return attemptDirInfo{id: matches[2]}, true
-}
-
-func isAttemptDirName(name string) bool {
-	return reAttemptDir.MatchString(strings.TrimPrefix(name, "."))
+	return matches[2], true
 }
 
 // IsAttemptDirName reports whether a directory name is a current or legacy attempt directory.
 func IsAttemptDirName(name string) bool {
-	return isAttemptDirName(name)
+	return reAttemptDir.MatchString(strings.TrimPrefix(name, "."))
 }
 
 func attemptDirNewer(a, b string) bool {
@@ -525,15 +517,10 @@ func attemptDirNewer(a, b string) bool {
 }
 
 func attemptDirOlder(a, b string) bool {
-	a = strings.TrimPrefix(a, ".")
-	b = strings.TrimPrefix(b, ".")
-	if aCurrent, bCurrent := strings.HasPrefix(a, AttemptDirPrefix), strings.HasPrefix(b, AttemptDirPrefix); aCurrent != bCurrent {
-		return !aCurrent
-	}
-	return a < b
+	return attemptDirNewer(b, a)
 }
 
-func parseSubDAGRunDirName(parentDirName, dirName string) (string, bool) {
+func subDAGRunIDFromDir(parentDirName, dirName string) (string, bool) {
 	switch parentDirName {
 	case SubDAGRunsDir:
 		if dirName == "" || strings.HasPrefix(dirName, ".") {
@@ -541,14 +528,8 @@ func parseSubDAGRunDirName(parentDirName, dirName string) (string, bool) {
 		}
 		return dirName, true
 	case LegacySubDAGRunsDir:
-		if !strings.HasPrefix(dirName, LegacySubDAGRunDirPrefix) {
-			return "", false
-		}
-		dagRunID := strings.TrimPrefix(dirName, LegacySubDAGRunDirPrefix)
-		if dagRunID == "" {
-			return "", false
-		}
-		return dagRunID, true
+		dagRunID, ok := strings.CutPrefix(dirName, LegacySubDAGRunDirPrefix)
+		return dagRunID, ok && dagRunID != ""
 	default:
 		return "", false
 	}

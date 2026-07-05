@@ -90,11 +90,11 @@ func (att *Attempt) SetDAG(dag *core.DAG) {
 // NewAttempt creates a new Run for the specified file.
 func NewAttempt(file string, cache *fileutil.Cache[*exec.DAGRunStatus], opts ...AttemptOption) (*Attempt, error) {
 	dirName := filepath.Base(filepath.Dir(file))
-	info, ok := parseAttemptDirName(dirName)
+	attemptID, ok := attemptIDFromDir(dirName)
 	if !ok {
 		return nil, fmt.Errorf("invalid file path for run data: %s", file)
 	}
-	att := &Attempt{id: info.id, file: file, cache: cache}
+	att := &Attempt{id: attemptID, file: file, cache: cache}
 	for _, opt := range opts {
 		opt(att)
 	}
@@ -730,7 +730,7 @@ func subDAGWorkDirName(childRunID string) string {
 
 func subDAGWorkDirParts(dagRunDir string) (rootDir, childRunID string, ok bool) {
 	parentDir := filepath.Dir(dagRunDir)
-	childRunID, ok = parseSubDAGRunDirName(filepath.Base(parentDir), filepath.Base(dagRunDir))
+	childRunID, ok = subDAGRunIDFromDir(filepath.Base(parentDir), filepath.Base(dagRunDir))
 	if !ok {
 		return "", "", false
 	}

@@ -143,7 +143,7 @@ func parseAttemptStatusFileInfo(statusFile string) (attemptStatusFileInfo, bool)
 
 	attemptDir := filepath.Dir(cleanStatusFile)
 	attemptDirName := filepath.Base(attemptDir)
-	if !isAttemptDirName(attemptDirName) {
+	if !IsAttemptDirName(attemptDirName) {
 		return attemptStatusFileInfo{}, false
 	}
 
