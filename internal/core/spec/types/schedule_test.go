@@ -156,6 +156,16 @@ restart:
 			errContains: "unknown key",
 		},
 		{
+			name: "InvalidScheduleProfileName",
+			input: `
+start:
+  expression: "0 * * * *"
+  profile: Prod
+`,
+			wantErr:     true,
+			errContains: "invalid profile name",
+		},
+		{
 			name:        "RejectCronAlias",
 			input:       `start: {cron: "0 * * * *"}`,
 			wantErr:     true,

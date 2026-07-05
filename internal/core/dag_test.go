@@ -257,6 +257,15 @@ func TestScheduleJSON(t *testing.T) {
 		require.Contains(t, schedule.Fingerprint(), "|profile:prod")
 	})
 
+	t.Run("UnmarshalInvalidProfile", func(t *testing.T) {
+		t.Parallel()
+
+		var schedule core.Schedule
+		err := json.Unmarshal([]byte(`{"expression":"0 0 * * *","profile":"Prod"}`), &schedule)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "invalid profile name")
+	})
+
 	t.Run("MarshalJSONIncludesProfile", func(t *testing.T) {
 		t.Parallel()
 

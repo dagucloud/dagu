@@ -116,6 +116,8 @@ type TickPlannerConfig struct {
 //     GetLatestStatus, GenRunID). This is intentional: the lock prevents
 //     event processing during planning, ensuring a consistent snapshot of
 //     entries for the entire plan cycle.
+//   - Plan() resolves DAG profiles before the main planning lock, then
+//     revalidates the entry snapshot under entryMu before producing work.
 //   - lastPlanResult is accessed only from cronLoop (Plan writes, Advance reads)
 //     and requires no lock. See field comment for details.
 type TickPlanner struct {
@@ -157,6 +159,11 @@ const (
 // plannerEntry tracks a single DAG's scheduling metadata.
 type plannerEntry struct {
 	dag *core.DAG
+}
+
+type plannerEntrySnapshot struct {
+	dagName string
+	dag     *core.DAG
 }
 
 type activeDAGSchedules struct {
@@ -227,15 +234,19 @@ func (tp *TickPlanner) activeDAGSchedules(ctx context.Context, dag *core.DAG) (a
 	if !ok {
 		return activeDAGSchedules{}, false
 	}
+	return activeDAGSchedulesForProfile(dag, profile), true
+}
+
+func activeDAGSchedulesForProfile(dag *core.DAG, profile string) activeDAGSchedules {
 	if dag == nil {
-		return activeDAGSchedules{profile: profile}, true
+		return activeDAGSchedules{profile: profile}
 	}
 	return activeDAGSchedules{
 		profile: profile,
 		start:   filterSchedulesByProfile(dag.Schedule, profile),
 		stop:    filterSchedulesByProfile(dag.StopSchedule, profile),
 		restart: filterSchedulesByProfile(dag.RestartSchedule, profile),
-	}, true
+	}
 }
 
 func (tp *TickPlanner) effectiveDAGProfile(ctx context.Context, dag *core.DAG) (string, bool) {
@@ -325,11 +336,13 @@ func (tp *TickPlanner) Init(ctx context.Context, dags []*core.DAG) error {
 	stateChanged := pruned > 0
 
 	observedAt := tp.cfg.Clock().In(tp.cfg.Location)
+	activeByDAG := make(map[string]activeDAGSchedules, len(dags))
 	for _, dag := range dags {
 		active, ok := tp.activeDAGSchedules(ctx, dag)
 		if !ok {
 			continue
 		}
+		activeByDAG[dag.Name] = active
 		current := state.DAGs[dag.Name]
 		next, changed := reconcileOneOffState(current, active.start, observedAt)
 		next, startChanged := reconcileStartScheduleState(next, active.start, dag.SkipIfSuccessful, observedAt)
@@ -363,7 +376,7 @@ func (tp *TickPlanner) Init(ctx context.Context, dags []*core.DAG) error {
 		slog.Int("dagCount", len(state.DAGs)),
 	)
 
-	tp.initBuffers(ctx, dags)
+	tp.initBuffers(ctx, dags, activeByDAG)
 	if stateChanged {
 		tp.Flush(ctx)
 	}
@@ -373,7 +386,7 @@ func (tp *TickPlanner) Init(ctx context.Context, dags []*core.DAG) error {
 // initBuffers creates per-DAG queues for DAGs with CatchupWindow > 0
 // and enqueues catch-up items. Requires QueuesEnabled; when disabled,
 // catchup buffers are not populated and a warning is logged per DAG.
-func (tp *TickPlanner) initBuffers(ctx context.Context, dags []*core.DAG) {
+func (tp *TickPlanner) initBuffers(ctx context.Context, dags []*core.DAG, activeByDAG map[string]activeDAGSchedules) {
 	if !tp.cfg.QueuesEnabled {
 		for _, dag := range dags {
 			if dag.CatchupWindow > 0 {
@@ -401,7 +414,10 @@ func (tp *TickPlanner) initBuffers(ctx context.Context, dags []*core.DAG) {
 		if dag.CatchupWindow <= 0 {
 			continue
 		}
-		active, ok := tp.activeDAGSchedules(ctx, dag)
+		active, ok := activeByDAG[dag.Name]
+		if !ok && activeByDAG == nil {
+			active, ok = tp.activeDAGSchedules(ctx, dag)
+		}
 		if !ok || len(active.start) == 0 {
 			continue
 		}
@@ -468,13 +484,35 @@ func (tp *TickPlanner) initBuffers(ctx context.Context, dags []*core.DAG) {
 // The caller just dispatches.
 func (tp *TickPlanner) Plan(ctx context.Context, now time.Time) []PlannedRun {
 	tp.entryMu.Lock()
-	defer tp.entryMu.Unlock()
-
 	tp.pruneExpiredDeletedWatermarks(now)
+	snapshots := make([]plannerEntrySnapshot, 0, len(tp.entries))
+	for dagName, entry := range tp.entries {
+		snapshots = append(snapshots, plannerEntrySnapshot{
+			dagName: dagName,
+			dag:     entry.dag,
+		})
+	}
+	tp.entryMu.Unlock()
+
+	activeByDAG := make(map[string]activeDAGSchedules, len(snapshots))
+	for _, snapshot := range snapshots {
+		active, ok := tp.activeDAGSchedules(ctx, snapshot.dag)
+		if ok {
+			activeByDAG[snapshot.dagName] = active
+		}
+	}
+
+	tp.entryMu.Lock()
+	defer tp.entryMu.Unlock()
 
 	var candidates []PlannedRun
 
-	for dagName, entry := range tp.entries {
+	for _, snapshot := range snapshots {
+		dagName := snapshot.dagName
+		entry, ok := tp.entries[dagName]
+		if !ok || entry.dag != snapshot.dag {
+			continue
+		}
 		// Check suspension.
 		// IsSuspended is keyed by filename stem (not dag.Name), matching the
 		// file-based suspension flag system in filedag/store.go.
@@ -482,7 +520,7 @@ func (tp *TickPlanner) Plan(ctx context.Context, now time.Time) []PlannedRun {
 			tp.dropSuspendedCatchupState(dagName, entry.dag, now)
 			continue
 		}
-		active, ok := tp.activeDAGSchedules(ctx, entry.dag)
+		active, ok := activeByDAG[dagName]
 		if !ok {
 			continue
 		}
@@ -1162,27 +1200,33 @@ func (tp *TickPlanner) handleEvent(ctx context.Context, event DAGChangeEvent) {
 		if event.DAG == nil {
 			return
 		}
+		active, activeOK := tp.activeDAGSchedules(ctx, event.DAG)
 		delete(tp.deletedGrace, event.DAGName)
 		tp.entries[event.DAGName] = &plannerEntry{dag: event.DAG}
 		// Set watermark to now (new DAGs have no catchup)
 		flushNow = tp.advanceDAGWatermark(event.DAGName, tp.cfg.Clock())
-		flushNow = tp.reconcileStartScheduleState(ctx, event.DAG) || flushNow
-		flushNow = tp.reconcileOneOffSchedules(ctx, event.DAG) || flushNow
+		if activeOK {
+			flushNow = tp.reconcileStartScheduleState(event.DAG, active) || flushNow
+			flushNow = tp.reconcileOneOffSchedules(event.DAG, active) || flushNow
+		}
 		logger.Info(ctx, "Planner: DAG added", tag.DAG(event.DAGName))
 
 	case DAGChangeUpdated:
 		if event.DAG == nil {
 			return
 		}
+		active, activeOK := tp.activeDAGSchedules(ctx, event.DAG)
 		delete(tp.deletedGrace, event.DAGName)
 		tp.entries[event.DAGName] = &plannerEntry{dag: event.DAG}
 		// Remove existing buffer and recompute if catchupWindow > 0
 		delete(tp.buffers, event.DAGName)
-		if event.DAG.CatchupWindow > 0 {
-			flushNow = tp.recomputeBuffer(ctx, event.DAG)
+		if activeOK && event.DAG.CatchupWindow > 0 {
+			flushNow = tp.recomputeBuffer(ctx, event.DAG, active)
 		}
-		flushNow = tp.reconcileStartScheduleState(ctx, event.DAG) || flushNow
-		flushNow = tp.reconcileOneOffSchedules(ctx, event.DAG) || flushNow
+		if activeOK {
+			flushNow = tp.reconcileStartScheduleState(event.DAG, active) || flushNow
+			flushNow = tp.reconcileOneOffSchedules(event.DAG, active) || flushNow
+		}
 		logger.Info(ctx, "Planner: DAG updated", tag.DAG(event.DAGName))
 
 	case DAGChangeDeleted:
@@ -1201,12 +1245,8 @@ func (tp *TickPlanner) handleEvent(ctx context.Context, event DAGChangeEvent) {
 	}
 }
 
-func (tp *TickPlanner) reconcileOneOffSchedules(ctx context.Context, dag *core.DAG) bool {
+func (tp *TickPlanner) reconcileOneOffSchedules(dag *core.DAG, active activeDAGSchedules) bool {
 	if dag == nil {
-		return false
-	}
-	active, ok := tp.activeDAGSchedules(ctx, dag)
-	if !ok {
 		return false
 	}
 
@@ -1228,12 +1268,8 @@ func (tp *TickPlanner) reconcileOneOffSchedules(ctx context.Context, dag *core.D
 	return true
 }
 
-func (tp *TickPlanner) reconcileStartScheduleState(ctx context.Context, dag *core.DAG) bool {
+func (tp *TickPlanner) reconcileStartScheduleState(dag *core.DAG, active activeDAGSchedules) bool {
 	if dag == nil {
-		return false
-	}
-	active, ok := tp.activeDAGSchedules(ctx, dag)
-	if !ok {
 		return false
 	}
 
@@ -1325,12 +1361,11 @@ func (tp *TickPlanner) reinsertCatchupItem(ctx context.Context, run PlannedRun) 
 }
 
 // recomputeBuffer creates a new catch-up buffer for a DAG using the existing watermark.
-func (tp *TickPlanner) recomputeBuffer(ctx context.Context, dag *core.DAG) bool {
+func (tp *TickPlanner) recomputeBuffer(ctx context.Context, dag *core.DAG, active activeDAGSchedules) bool {
 	if !tp.cfg.QueuesEnabled {
 		return false
 	}
-	active, ok := tp.activeDAGSchedules(ctx, dag)
-	if !ok || len(active.start) == 0 {
+	if len(active.start) == 0 {
 		return false
 	}
 

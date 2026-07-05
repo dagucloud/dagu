@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dagucloud/dagu/internal/cmn/runtimeprofile"
 	"github.com/robfig/cron/v3"
 )
 
@@ -225,6 +226,9 @@ func parseScheduleMap(m map[string]any, opts ScheduleParseOptions) (Schedule, er
 				return Schedule{}, fmt.Errorf("profile must be a string, got %T", value)
 			}
 			profile = strings.TrimSpace(val)
+			if !runtimeprofile.IsValidName(profile) {
+				return Schedule{}, fmt.Errorf("invalid profile name: %q", profile)
+			}
 		default:
 			return Schedule{}, fmt.Errorf("unknown key %q", key)
 		}

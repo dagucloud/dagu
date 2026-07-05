@@ -80,6 +80,24 @@ func (r staticProfileResolver) ResolveProfile(context.Context, string) (string, 
 	return r.profile, r.err
 }
 
+type mutableProfileResolver struct {
+	mu      sync.Mutex
+	profile string
+	err     error
+}
+
+func (r *mutableProfileResolver) ResolveProfile(context.Context, string) (string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.profile, r.err
+}
+
+func (r *mutableProfileResolver) SetProfile(profile string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.profile = profile
+}
+
 func mustParseProfileSchedule(t *testing.T, expr, profile string) core.Schedule {
 	t.Helper()
 	schedule := mustParseSchedule(t, expr)
@@ -1669,6 +1687,52 @@ func TestTickPlanner_ProfileScopedCatchupSchedules(t *testing.T) {
 		require.True(t, ok)
 		assert.Equal(t, "dev", item.Schedule.Profile)
 	}
+}
+
+func TestTickPlanner_ProfileChangeDropsInactiveCatchupSchedules(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
+	store := &mockWatermarkStore{
+		state: newMockWatermarkState(time.Date(2026, 2, 7, 9, 0, 0, 0, time.UTC)),
+	}
+	resolver := &mutableProfileResolver{profile: "dev"}
+	tp := NewTickPlanner(TickPlannerConfig{
+		WatermarkStore:  store,
+		QueuesEnabled:   true,
+		ProfileResolver: resolver,
+		GetLatestStatus: func(_ context.Context, _ *core.DAG) (exec.DAGRunStatus, error) {
+			return exec.DAGRunStatus{}, nil
+		},
+		IsRunning: func(_ context.Context, _ *core.DAG) (bool, error) { return false, nil },
+		GenRunID:  func(_ context.Context) (string, error) { return "run-1", nil },
+		Clock:     func() time.Time { return now },
+		Events:    make(chan DAGChangeEvent, 1),
+	})
+	dag := &core.DAG{
+		Name:          "profile-change-catchup-dag",
+		CatchupWindow: 6 * time.Hour,
+		Schedule: []core.Schedule{
+			mustParseProfileSchedule(t, "30 * * * *", "dev"),
+		},
+	}
+	require.NoError(t, tp.Init(context.Background(), []*core.DAG{dag}))
+
+	buf, ok := tp.buffers[dag.Name]
+	require.True(t, ok)
+	require.Equal(t, 3, buf.Len())
+
+	resolver.SetProfile("prod")
+	runs := tp.Plan(context.Background(), now)
+	assert.Empty(t, runs)
+	_, ok = tp.buffers[dag.Name]
+	assert.False(t, ok)
+
+	tp.mu.RLock()
+	wm, ok := tp.watermarkState.DAGs[dag.Name]
+	tp.mu.RUnlock()
+	require.True(t, ok)
+	assert.Equal(t, time.Date(2026, 2, 7, 11, 30, 0, 0, time.UTC), wm.LastScheduledTime)
 }
 
 func TestTickPlanner_ShouldRunAlreadyFinished(t *testing.T) {

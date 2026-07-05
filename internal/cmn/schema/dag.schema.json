@@ -63,13 +63,7 @@
         {
           "type": "array",
           "items": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              { "$ref": "#/definitions/scheduleCronEntry" },
-              { "$ref": "#/definitions/scheduleAtEntry" }
-            ]
+            "$ref": "#/definitions/scheduleStartArrayItem"
           },
           "description": "Multiple schedule entries for starting the DAG at different times"
         },
@@ -87,13 +81,7 @@
                 {
                   "type": "array",
                   "items": {
-                    "oneOf": [
-                      {
-                        "type": "string"
-                      },
-                      { "$ref": "#/definitions/scheduleCronEntry" },
-                      { "$ref": "#/definitions/scheduleAtEntry" }
-                    ]
+                    "$ref": "#/definitions/scheduleStartArrayItem"
                   },
                   "description": "Multiple schedule entries for starting the DAG"
                 }
@@ -109,12 +97,7 @@
                 {
                   "type": "array",
                   "items": {
-                    "oneOf": [
-                      {
-                        "type": "string"
-                      },
-                      { "$ref": "#/definitions/scheduleCronEntry" }
-                    ]
+                    "$ref": "#/definitions/scheduleCronOnlyArrayItem"
                   },
                   "description": "Multiple cron expressions for stopping the DAG"
                 }
@@ -130,12 +113,7 @@
                 {
                   "type": "array",
                   "items": {
-                    "oneOf": [
-                      {
-                        "type": "string"
-                      },
-                      { "$ref": "#/definitions/scheduleCronEntry" }
-                    ]
+                    "$ref": "#/definitions/scheduleCronOnlyArrayItem"
                   },
                   "description": "Multiple cron expressions for restarting the DAG"
                 }
@@ -807,6 +785,23 @@
     }
   },
   "definitions": {
+    "scheduleStartArrayItem": {
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        { "$ref": "#/definitions/scheduleCronEntry" },
+        { "$ref": "#/definitions/scheduleAtEntry" }
+      ]
+    },
+    "scheduleCronOnlyArrayItem": {
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        { "$ref": "#/definitions/scheduleCronEntry" }
+      ]
+    },
     "scheduleCronEntry": {
       "type": "object",
       "required": ["expression"],
@@ -822,6 +817,8 @@
         "profile": {
           "type": "string",
           "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-z0-9][a-z0-9._-]*$",
           "description": "Runtime profile name that activates this schedule entry"
         }
       },
@@ -844,6 +841,8 @@
         "profile": {
           "type": "string",
           "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-z0-9][a-z0-9._-]*$",
           "description": "Runtime profile name that activates this schedule entry"
         }
       },

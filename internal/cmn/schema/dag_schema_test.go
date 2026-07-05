@@ -993,6 +993,17 @@ steps:
 			wantErr: "schedule",
 		},
 		{
+			name: "RejectInvalidScheduleProfileName",
+			spec: `
+schedule:
+  - expression: "0 * * * *"
+    profile: Prod
+steps:
+  - run: echo hi
+`,
+			wantErr: "schedule",
+		},
+		{
 			name: "RejectScheduleProfileWithoutEntries",
 			spec: `
 schedule:
