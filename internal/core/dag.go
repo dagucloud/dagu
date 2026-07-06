@@ -591,7 +591,7 @@ func (d *DAG) loadSingleDotEnvFile(ctx context.Context, resolver *fileutil.FileR
 
 	valueResolver := cmnvalue.NewResolver(
 		cmnvalue.StaticScope{Consts: cmnvalue.Values(d.Consts), Params: d.ParamDeclarations()},
-		cmnvalue.RuntimeScope{Consts: cmnvalue.Values(d.Consts), Params: d.ParamValues(), Env: cmnvalue.GetEnvScope(ctx)},
+		cmnvalue.RuntimeScope{Consts: cmnvalue.Values(d.Consts), Params: d.ParamValues(), ParamsJSON: d.ParamsJSON, Env: cmnvalue.GetEnvScope(ctx)},
 	)
 	evaluatedPath, err := valueResolver.String(ctx, filePath, cmnvalue.DotenvPathField("dotenv"))
 	if err != nil {

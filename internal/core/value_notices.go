@@ -21,6 +21,7 @@ func ReportValueReferenceNotices(dag *DAG, sink cmnvalue.ValueReferenceNoticeSin
 	runtimeScope := cmnvalue.RuntimeScope{
 		Consts:         cmnvalue.Values(dag.Consts),
 		Params:         dag.ParamValues(),
+		ParamsJSON:     dag.ParamsJSON,
 		Steps:          map[string]cmnvalue.StepInfo{},
 		BuiltinContext: noticeBuiltinContext(dag.Name, "", ""),
 	}

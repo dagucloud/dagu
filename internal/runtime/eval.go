@@ -43,15 +43,18 @@ func EvalObject[T any](ctx context.Context, obj T) (T, error) {
 func resolverFromEnv(env Env) cmnvalue.Resolver {
 	var consts cmnvalue.Values
 	var params cmnvalue.Values
+	var paramsJSON string
 	var paramDeclarations cmnvalue.Values
 	if env.DAG != nil {
 		consts = cmnvalue.Values(env.DAG.Consts)
 		params = env.DAG.ParamValues()
+		paramsJSON = env.DAG.ParamsJSON
 		paramDeclarations = env.DAG.ParamDeclarations()
 	}
 	scope := cmnvalue.RuntimeScope{
 		Consts:         consts,
 		Params:         params,
+		ParamsJSON:     paramsJSON,
 		Env:            env.Scope,
 		Steps:          env.StepMap,
 		Foreach:        env.Foreach,

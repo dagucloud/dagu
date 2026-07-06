@@ -308,6 +308,9 @@ func bindingValue(ctx context.Context, path string, scope RuntimeScope, requireV
 	case "consts":
 		return bindingMapValue("consts", segments[1], scope.Consts, requireValue)
 	case "params":
+		if len(segments) == 1 {
+			return bindingParamsJSONValue(scope.ParamsJSON, requireValue)
+		}
 		return bindingMapValue("params", segments[1], scope.Params, requireValue)
 	case "env":
 		return bindingEnvValue(segments[1], scope.Env, requireValue)
@@ -320,6 +323,19 @@ func bindingValue(ctx context.Context, path string, scope RuntimeScope, requireV
 	default:
 		return nil, nil
 	}
+}
+
+func bindingParamsJSONValue(value string, requireValue bool) (any, error) {
+	if value != "" {
+		return value, nil
+	}
+	if !requireValue {
+		return nil, nil
+	}
+	return nil, newNoticeReasonError(
+		ValueReferenceReasonNamespaceUnavailable,
+		"params is unavailable in this context",
+	)
 }
 
 func bindingBuiltinContextValue(path string, builtins BuiltinContext, requireValue bool) (any, error) {
@@ -445,7 +461,12 @@ func bindingEnvValue(name string, scope *EnvScope, requireValue bool) (any, erro
 
 func supportedStrictBinding(segments []string) bool {
 	switch segments[0] {
-	case "consts", "params":
+	case "consts":
+		return len(segments) == 2 && bindingNamePattern.MatchString(segments[1])
+	case "params":
+		if len(segments) == 1 {
+			return true
+		}
 		return len(segments) == 2 && bindingNamePattern.MatchString(segments[1])
 	case "env":
 		return len(segments) == 2 && ValidEnvName(segments[1])

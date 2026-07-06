@@ -53,6 +53,7 @@ type StaticScope struct {
 type RuntimeScope struct {
 	Consts         Values
 	Params         Values
+	ParamsJSON     string
 	Env            *EnvScope
 	Steps          map[string]StepInfo
 	Foreach        Values

@@ -6,25 +6,27 @@ Implemented.
 
 ## Scope
 
-This spec defines `${params.name}` references.
+This spec defines `${params}` and `${params.name}` references.
 
 Common reference syntax is defined by [Spec 003: Value Resolution and Field Evaluation](003-value-resolution.md).
 Spec 003 also defines unbraced text preservation, supported fields, string insertion, and resolution timing.
 
 This spec does not define parameter declaration schema beyond the rules needed for value resolution.
 
-This spec does not define positional parameter behavior.
-It only states that positional parameters are not addressable through the `params` namespace.
+This spec does not define positional parameter lookup behavior.
+It only states that positional parameters are not addressable through `${params.name}`.
 
 ## Goal
 
-Supported workflow fields can reference named runtime parameters.
+Supported workflow fields can reference runtime parameters by name and can read
+the resolved parameter payload as JSON.
 
 ## Motivation
 
 Runtime parameters let a workflow caller provide values without editing the workflow file.
-Value resolution needs a named lookup rule.
-Supported fields can then use those values predictably.
+Value resolution needs a named lookup rule and a whole-payload rule. Supported
+fields can then use either one parameter value or the full resolved payload
+predictably.
 
 This spec separates declaration validation from runtime value availability.
 `dagu validate` can reject invalid parameter declarations.
@@ -39,7 +41,7 @@ Explicit inspection surfaces report passive notices for preserved parameter refe
 
 - Parameter names must match `^[A-Za-z][A-Za-z0-9_]*$`.
 
-- Positional parameters are not addressable through the `params` namespace.
+- Positional parameters are not addressable through `${params.name}`.
 
 - `params[].default` and declaration metadata do not support Dagu references.
 
@@ -49,13 +51,20 @@ Explicit inspection surfaces report passive notices for preserved parameter refe
 
 ### Reference Form
 
+- `${params}` reads the resolved runtime parameter payload encoded as JSON.
+- `${params}` has the same payload as `DAGU_PARAMS_JSON`.
+
 - `${params.name}` reads the runtime value for the declared parameter `name`.
 
-- A braced expression is a `params` reference only when it matches `${params.name}`.
+- A braced expression is a `params` reference only when it is `${params}` or
+  matches `${params.name}`.
 - The `name` part must match the parameter name rule.
 
-- Braced text that does not match `${params.name}` is not interpreted by the `params` namespace.
+- Braced text that is not `${params}` and does not match `${params.name}` is not interpreted by the `params` namespace.
 - Dagu preserves unsupported braced text as ordinary string content.
+
+- `$params` is not Dagu-owned params reference syntax.
+- Dagu preserves `$params` as ordinary string content.
 
 - `$params.name` is not Dagu-owned params reference syntax.
 - Dagu preserves `$params.name` as ordinary string content.
@@ -64,16 +73,17 @@ Explicit inspection surfaces report passive notices for preserved parameter refe
 
 ### Field Availability
 
-- `${params.name}` is available in Spec 003 value-resolution fields that resolve after runtime params are available.
+- `${params}` and `${params.name}` are available in Spec 003 value-resolution
+  fields that resolve after runtime params are available.
 
-- `${params.name}` is available inside `params[].eval`.
+- `${params}` and `${params.name}` are available inside `params[].eval`.
 - Spec 003 defines when `params[].eval` is used.
 - Spec 011 defines how dynamic evaluation runs.
 
-- `${params.name}` is not available in root `consts` list-form values.
+- `${params}` and `${params.name}` are not available in root `consts` list-form values.
 - `consts` resolution can see only earlier `consts` entries.
 
-- `${params.name}` is not available inside `params[].default` or declaration metadata.
+- `${params}` and `${params.name}` are not available inside `params[].default` or declaration metadata.
 - `params[].default` and declaration metadata are literal.
 
 - The validator and runtime must use the same field availability rules.
@@ -86,9 +96,12 @@ Explicit inspection surfaces report passive notices for preserved parameter refe
 
 - Runtime `params` are available after Dagu builds the run input.
 
-- A resolved parameter value is inserted into string fields. Spec 003 defines the insertion rules.
+- `${params}` inserts the resolved runtime parameter payload as a JSON string.
+- `${params}` resolves only when that JSON payload exists.
 
-- A declared `params` reference resolves when the runtime value exists.
+- A resolved `${params.name}` value is inserted into string fields. Spec 003 defines the insertion rules.
+
+- A declared `${params.name}` reference resolves when the runtime value exists.
 
 - If the runtime value is missing, Dagu preserves the original reference text.
 - Explicit inspection surfaces report a passive notice for that preserved reference.
@@ -103,22 +116,25 @@ Explicit inspection surfaces report passive notices for preserved parameter refe
 - In workflows with only positional parameters, a `${params.name}` reference has no matching named declaration and must preserve the original reference text.
 - Explicit inspection surfaces must report a passive notice for that preserved reference.
 
-- A `${params.name}` reference in a field where params are unavailable must preserve the original reference text.
+- A `${params}` or `${params.name}` reference in a field where params are unavailable must preserve the original reference text.
 - Explicit inspection surfaces must report a passive notice for that preserved reference.
 
 - A declared `params` reference with no runtime value must preserve the original reference text.
+- Explicit inspection surfaces must report a passive notice for that preserved reference.
+
+- A `${params}` reference with no resolved parameter payload must preserve the original reference text.
 - Explicit inspection surfaces must report a passive notice for that preserved reference.
 
 - Notices must identify the owning field and the original reference text.
 
 ## Field Matrix
 
-This matrix defines the required `${params.name}` behavior for value-resolution fields.
+This matrix defines the required `${params}` and `${params.name}` behavior for value-resolution fields.
 
 | Spec 003 field surface | Params behavior |
 | --- | --- |
-| `consts` list form | `${params.name}` is unavailable because only earlier `${consts.*}` entries are visible. Dagu preserves the original reference text. Explicit inspection surfaces report a passive notice. |
-| `params[].eval` | `${params.name}` references in `eval` resolve before command substitution. Missing runtime values preserve before the evaluated parameter is consumed. Explicit inspection surfaces report a passive notice. |
+| `consts` list form | Params references are unavailable because only earlier `${consts.*}` entries are visible. Dagu preserves the original reference text. Explicit inspection surfaces report a passive notice. |
+| `params[].eval` | Params references in `eval` resolve before command substitution. Missing runtime values preserve before the evaluated parameter is consumed. Explicit inspection surfaces report a passive notice. |
 | `env` | Root environment values in map form, array-of-map form, and `KEY=value` list form resolve declared params. |
 | `dotenv[]` | Each dotenv path string resolves declared params. |
 | `shell`, `shell_args[]`, `working_dir` | Root shell command, shell args, and working directory resolve declared params. |
@@ -151,6 +167,18 @@ params:
 steps:
   - name: deploy
     run: ./deploy.sh ${params.environment}
+```
+
+Whole params payload:
+
+```yaml
+params:
+  - name: environment
+    type: string
+    required: true
+steps:
+  - name: write-payload
+    run: printf '%s\n' '${params}' > params.json
 ```
 
 Undeclared `params` reference:

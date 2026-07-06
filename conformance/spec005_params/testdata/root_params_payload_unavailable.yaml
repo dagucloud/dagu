@@ -1,0 +1,5 @@
+working_dir: .
+steps:
+  - name: write-unavailable-root-params-payload
+    run: |
+      printf '%s\n' '${params}' > params-payload-unavailable.txt

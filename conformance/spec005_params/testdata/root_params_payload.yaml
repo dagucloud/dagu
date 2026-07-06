@@ -1,0 +1,19 @@
+params:
+  - name: environment
+    type: string
+    required: true
+  - name: tag
+    type: string
+    required: true
+working_dir: .
+steps:
+  - name: write-root-params-payload
+    run: |
+      if [ '${params}' != "$DAGU_PARAMS_JSON" ]; then
+        {
+          printf 'params=%s\n' '${params}'
+          printf 'env=%s\n' "$DAGU_PARAMS_JSON"
+        } > params-payload.txt
+        exit 1
+      fi
+      printf '%s\n' '${params}' > params-payload.txt

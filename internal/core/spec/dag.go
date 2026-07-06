@@ -1515,6 +1515,7 @@ func buildParams(ctx BuildContext, d *dag) ([]string, error) {
 	if ctx.envScope != nil {
 		ctx.envScope.paramDeclarations = paramDeclarationsFromResult(result)
 		ctx.envScope.params = paramValuesFromResult(result)
+		ctx.envScope.paramsJSON = result.ParamsJSON
 		if len(result.Params) > 0 {
 			paramVars := make(map[string]string, len(result.Params))
 			for _, p := range result.Params {

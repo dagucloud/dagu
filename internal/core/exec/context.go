@@ -494,10 +494,12 @@ func evaluateDAGEnvRuntime(
 ) map[string]string {
 	var envList []string
 	var params cmnvalue.Values
+	var paramsJSON string
 	var paramDeclarations cmnvalue.Values
 	if dag != nil {
 		envList = dag.Env
 		params = dag.ParamValues()
+		paramsJSON = dag.ParamsJSON
 		paramDeclarations = dag.ParamDeclarations()
 	}
 	if len(runtimeParams) > 0 {
@@ -530,7 +532,7 @@ func evaluateDAGEnvRuntime(
 
 		resolver := cmnvalue.NewResolver(
 			cmnvalue.StaticScope{Params: paramDeclarations},
-			cmnvalue.RuntimeScope{Params: params, Env: scope, BuiltinContext: runBuiltinContext},
+			cmnvalue.RuntimeScope{Params: params, ParamsJSON: paramsJSON, Env: scope, BuiltinContext: runBuiltinContext},
 		)
 		evaluated, err := resolver.String(ctx, value, cmnvalue.RuntimeDAGEnvField("env."+key))
 		if err != nil {

@@ -55,6 +55,7 @@ type envScopeState struct {
 	buildEnv          map[string]string // Also store as map for WithVariables
 	consts            map[string]any
 	params            cmnvalue.Values
+	paramsJSON        string
 	paramDeclarations cmnvalue.Values
 }
 

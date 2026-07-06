@@ -19,7 +19,8 @@ It covers:
 This spec does not define:
 
 - user-authored `env` declarations
-- parameter declaration, validation, or individual `${params.name}` references
+- parameter declaration, validation, individual `${params.name}` references,
+  or root `${params}` payload references
 - step output declaration or `${steps.step_id.outputs.name}` references
 - secret provider lookup or secret masking
 - lifecycle handler execution order
@@ -38,8 +39,8 @@ Workflow authors can read stable DAG-run metadata without depending on ambient
 host environment, storage layout, UI state, or scheduler internals.
 
 Shell-oriented steps can continue to use small environment variables.
-Object-valued payloads stay on their existing compatibility environment
-variables or owning specs instead of becoming structured string references.
+Object-valued payloads stay on their owning specs or compatibility
+environment variables instead of becoming `context.*` string references.
 
 ## Motivation
 
@@ -307,8 +308,8 @@ Run-level projection:
 | `DAG_RUN_LOG_FILE` | `context.paths.log_file` | All steps and handlers. |
 | `DAG_RUN_WORK_DIR` | `context.paths.work_dir` | When a per-run work directory is available. |
 | `DAG_RUN_ARTIFACTS_DIR` | `context.paths.artifacts_dir` | When artifact storage is active. |
-| `DAG_PARAMS_JSON` | Parameter payload JSON | When resolved parameters exist. |
-| `DAGU_PARAMS_JSON` | Same value as `DAG_PARAMS_JSON` | Compatibility alias when resolved parameters exist. |
+| `DAGU_PARAMS_JSON` | Resolved parameter payload JSON; same payload as `${params}` from Spec 005 | When resolved parameters exist. |
+| `DAG_PARAMS_JSON` | Same value as `DAGU_PARAMS_JSON` | Compatibility alias when resolved parameters exist. |
 
 Step and handler projection:
 
@@ -421,9 +422,9 @@ Rules:
 Rules:
 
 - Existing environment variable names listed in this spec remain supported.
-- `DAG_PARAMS_JSON` is the canonical parameter payload environment variable.
-- `DAGU_PARAMS_JSON` remains a compatibility alias with the same value whenever
-  `DAG_PARAMS_JSON` is set.
+- `DAGU_PARAMS_JSON` is the canonical parameter payload environment variable.
+- `DAG_PARAMS_JSON` remains a compatibility alias with the same value whenever
+  `DAGU_PARAMS_JSON` is set.
 - New structured context fields must be additive.
 - New structured context fields must be added under `context.*`.
 - Short top-level aliases are frozen. They remain supported for the exact fields
