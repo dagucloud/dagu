@@ -25,7 +25,7 @@ type schedulerStateFile struct {
 	DAGs          map[string]DAGWatermark `json:"dags,omitempty"`
 }
 
-type legacySchedulerStateFile struct {
+type schedulerStateCompatFile struct {
 	SchemaVersion int                     `json:"version"`
 	LastTick      time.Time               `json:"lastTick"`
 	DAGs          map[string]DAGWatermark `json:"dags,omitempty"`
@@ -71,8 +71,8 @@ func (s *watermarkStore) Load(ctx context.Context) (*SchedulerState, error) {
 		return cached, err
 	}
 
-	var rawState legacySchedulerStateFile
-	found, err := store.NewSingleRecord[legacySchedulerStateFile](s.col, watermarkStateID).Load(ctx, &rawState)
+	var rawState schedulerStateCompatFile
+	found, err := store.NewSingleRecord[schedulerStateCompatFile](s.col, watermarkStateID).Load(ctx, &rawState)
 	if err != nil {
 		if errors.Is(err, store.ErrCorrupt) {
 			logger.Warn(ctx, "watermark: corrupt state, starting fresh", tag.Error(err))

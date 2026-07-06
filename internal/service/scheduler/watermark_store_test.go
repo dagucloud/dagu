@@ -96,6 +96,41 @@ func TestWatermarkSaveFileLayoutCompatibility(t *testing.T) {
 	assert.Contains(t, checkpoint, "lastTick")
 }
 
+func TestWatermarkLoadMigratesLegacyLastTickToCheckpoint(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	storeDir := filepath.Join(root, "scheduler")
+	require.NoError(t, os.MkdirAll(storeDir, 0o700))
+
+	lastTick := time.Date(2026, 2, 7, 12, 2, 0, 0, time.UTC)
+	rawState := fmt.Appendf(nil, `{"version":3,"lastTick":%q,"dags":{"my-dag":{}}}`, lastTick.Format(time.RFC3339))
+	require.NoError(t, os.WriteFile(filepath.Join(storeDir, "state.json"), rawState, 0o600))
+
+	s := scheduler.NewWatermarkStore(file.NewCollection(storeDir, file.WithIndentedJSON()))
+
+	got, err := s.Load(ctx)
+	require.NoError(t, err)
+	require.Equal(t, scheduler.SchedulerStateVersion, got.Version)
+	require.Equal(t, lastTick, got.LastTick)
+	require.Contains(t, got.DAGs, "my-dag")
+
+	require.NoError(t, s.Save(ctx, got))
+
+	rawMigratedState, err := os.ReadFile(filepath.Join(storeDir, "state.json"))
+	require.NoError(t, err)
+	var stateBody map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(rawMigratedState, &stateBody))
+	assert.NotContains(t, stateBody, "lastTick")
+
+	rawCheckpoint, err := os.ReadFile(filepath.Join(storeDir, "checkpoint.json"))
+	require.NoError(t, err)
+	var checkpoint struct {
+		LastTick time.Time `json:"lastTick"`
+	}
+	require.NoError(t, json.Unmarshal(rawCheckpoint, &checkpoint))
+	assert.Equal(t, lastTick, checkpoint.LastTick)
+}
+
 func TestWatermarkSaveSkipsStateWriteForCheckpointOnlyChange(t *testing.T) {
 	ctx := context.Background()
 	col := testutil.NewMemoryBackend().Collection("watermark")
