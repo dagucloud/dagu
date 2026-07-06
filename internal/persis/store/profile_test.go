@@ -98,6 +98,36 @@ func TestProfileStoreInheritedProfilesMustStayActiveProtected(t *testing.T) {
 	assert.Contains(t, err.Error(), "inherited profiles must be active")
 }
 
+func TestProfileStoreDefaultProfileOnlyAllowedOnWorkspaceInheritedProfile(t *testing.T) {
+	ctx := context.Background()
+	s := newProfileStore(t)
+
+	runtimeProfile, err := profile.New(profile.CreateInput{Name: "local"}, time.Now())
+	require.NoError(t, err)
+	runtimeProfile.DefaultProfile = "prod"
+	err = s.Create(ctx, runtimeProfile)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "default profile is only allowed")
+
+	globalProfile, err := profile.NewInherited(profile.GlobalInheritedRef(), profile.InheritedCreateInput{}, time.Now())
+	require.NoError(t, err)
+	globalProfile.DefaultProfile = "prod"
+	err = s.Create(ctx, globalProfile)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "default profile is only allowed")
+
+	ref, err := profile.WorkspaceInheritedRef("ops")
+	require.NoError(t, err)
+	workspaceProfile, err := profile.NewInherited(ref, profile.InheritedCreateInput{}, time.Now())
+	require.NoError(t, err)
+	workspaceProfile.DefaultProfile = "prod"
+	require.NoError(t, s.Create(ctx, workspaceProfile))
+
+	got, err := s.GetInherited(ctx, ref)
+	require.NoError(t, err)
+	assert.Equal(t, "prod", got.DefaultProfile)
+}
+
 func TestProfileStoreCreateRejectsDuplicateName(t *testing.T) {
 	ctx := context.Background()
 	s := newProfileStore(t)

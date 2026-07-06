@@ -95,6 +95,14 @@ func IsInheritedStorageName(name string) bool {
 	if name == inheritedGlobalStorageName {
 		return true
 	}
+	return IsWorkspaceInheritedStorageName(name)
+}
+
+func IsGlobalInheritedStorageName(name string) bool {
+	return name == inheritedGlobalStorageName
+}
+
+func IsWorkspaceInheritedStorageName(name string) bool {
 	if !strings.HasPrefix(name, inheritedWorkspaceNamePrefix) {
 		return false
 	}

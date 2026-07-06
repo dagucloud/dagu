@@ -556,7 +556,7 @@ func (a *API) TriggerWebhook(ctx context.Context, request api.TriggerWebhookRequ
 		dagRunID = uuid.Must(uuid.NewV7()).String()
 	}
 
-	profileName, err := a.runProfileForDAG(ctx, request.FileName, nil)
+	profileName, err := a.runProfileForDAG(ctx, request.FileName, dagWorkspaceName(dag), nil)
 	if err != nil {
 		return nil, err
 	}

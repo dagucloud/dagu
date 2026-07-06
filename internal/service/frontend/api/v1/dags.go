@@ -1035,7 +1035,7 @@ func (a *API) ExecuteDAG(ctx context.Context, request api.ExecuteDAGRequestObjec
 	if err != nil {
 		return nil, err
 	}
-	profileName, err := a.runProfileForDAG(ctx, request.FileName, request.Body.Profile)
+	profileName, err := a.runProfileForDAG(ctx, request.FileName, dagWorkspaceName(dag), request.Body.Profile)
 	if err != nil {
 		return nil, err
 	}
@@ -1132,7 +1132,7 @@ func (a *API) ExecuteDAGSync(ctx context.Context, request api.ExecuteDAGSyncRequ
 	if err != nil {
 		return nil, err
 	}
-	profileName, err := a.runProfileForDAG(ctx, request.FileName, request.Body.Profile)
+	profileName, err := a.runProfileForDAG(ctx, request.FileName, dagWorkspaceName(dag), request.Body.Profile)
 	if err != nil {
 		return nil, err
 	}
@@ -1674,7 +1674,7 @@ func (a *API) EnqueueDAGDAGRun(ctx context.Context, request api.EnqueueDAGDAGRun
 	if err != nil {
 		return nil, err
 	}
-	profileName, err := a.runProfileForDAG(ctx, request.FileName, request.Body.Profile)
+	profileName, err := a.runProfileForDAG(ctx, request.FileName, dagWorkspaceName(dag), request.Body.Profile)
 	if err != nil {
 		return nil, err
 	}

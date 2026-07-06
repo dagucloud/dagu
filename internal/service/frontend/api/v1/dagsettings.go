@@ -17,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/dagsettings"
+	profilepkg "github.com/dagucloud/dagu/internal/profile"
 	"github.com/dagucloud/dagu/internal/service/audit"
 )
 
@@ -150,26 +151,50 @@ func (a *API) DeleteDAGSettings(ctx context.Context, request api.DeleteDAGSettin
 	return api.DeleteDAGSettings204Response{}, nil
 }
 
-func (a *API) defaultRunProfileName(ctx context.Context, dagName string) (string, error) {
-	if a.dagSettingsStore == nil {
-		return "", nil
-	}
-	settings, err := a.dagSettingsStore.Get(ctx, dagName)
+func (a *API) defaultRunProfileName(ctx context.Context, dagName string, workspaceName string) (string, error) {
+	profileName, err := dagsettings.ResolveProfile(ctx, a.dagSettingsStore, a.profileStore, dagName, workspaceName)
 	if err != nil {
-		if errors.Is(err, dagsettings.ErrNotFound) {
-			return "", nil
-		}
-		return "", err
+		return "", a.defaultRunProfileError(err)
 	}
-	return a.ensureRunnableRuntimeProfileAvailable(ctx, settings.Profile)
+	return profileName, nil
 }
 
-func (a *API) runProfileForDAG(ctx context.Context, dagName string, profile *api.RuntimeProfileOverride) (string, error) {
+func (a *API) defaultRunProfileError(err error) error {
+	var refErr *dagsettings.ProfileReferenceError
+	name := ""
+	if errors.As(err, &refErr) {
+		name = refErr.Name
+	}
+	if errors.Is(err, profilepkg.ErrInvalidName) {
+		return &Error{
+			HTTPStatus: http.StatusBadRequest,
+			Code:       api.ErrorCodeBadRequest,
+			Message:    err.Error(),
+		}
+	}
+	if errors.Is(err, profilepkg.ErrNotFound) {
+		return &Error{
+			HTTPStatus: http.StatusNotFound,
+			Code:       api.ErrorCodeNotFound,
+			Message:    fmt.Sprintf("runtime profile %s not found", name),
+		}
+	}
+	if errors.Is(err, profilepkg.ErrDisabled) {
+		return &Error{
+			HTTPStatus: http.StatusBadRequest,
+			Code:       api.ErrorCodeBadRequest,
+			Message:    fmt.Sprintf("runtime profile %s is disabled", name),
+		}
+	}
+	return err
+}
+
+func (a *API) runProfileForDAG(ctx context.Context, dagName string, workspaceName string, profile *api.RuntimeProfileOverride) (string, error) {
 	profileName, explicit, err := a.explicitRunProfile(ctx, profile)
 	if err != nil || explicit {
 		return profileName, err
 	}
-	return a.defaultRunProfileName(ctx, dagName)
+	return a.defaultRunProfileName(ctx, dagName, workspaceName)
 }
 
 func (a *API) getDAGForSettings(ctx context.Context, fileName string) (*core.DAG, error) {

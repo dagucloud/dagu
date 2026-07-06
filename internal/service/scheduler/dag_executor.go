@@ -63,7 +63,7 @@ type DAGExecutor struct {
 }
 
 type DAGProfileResolver interface {
-	ResolveProfile(ctx context.Context, dagName string) (string, error)
+	ResolveProfile(ctx context.Context, dagName string, workspaceName string) (string, error)
 }
 
 type DAGExecutorOption func(*DAGExecutor)
@@ -289,7 +289,7 @@ func (e *DAGExecutor) defaultProfileName(ctx context.Context, dag *core.DAG) (st
 	if fileName == "" {
 		return "", fmt.Errorf("DAG file name is required to resolve default profile")
 	}
-	return e.profileResolver.ResolveProfile(ctx, fileName)
+	return e.profileResolver.ResolveProfile(ctx, fileName, dagWorkspaceName(dag))
 }
 
 func profileNameFromStatus(status *exec.DAGRunStatus) string {

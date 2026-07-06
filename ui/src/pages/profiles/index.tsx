@@ -27,6 +27,13 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   Table,
   TableBody,
   TableCell,
@@ -72,6 +79,8 @@ type RuntimeProfileEntryResponse =
   components['schemas']['RuntimeProfileEntryResponse'];
 type ProfileAPIError = components['schemas']['Error'];
 type APIClient = ReturnType<typeof useClient>;
+
+const NO_WORKSPACE_DEFAULT_PROFILE_VALUE = '__none__';
 
 type ProfileFormState = {
   name: string;
@@ -299,7 +308,7 @@ function targetFromGlobalDefaults(
   return {
     kind: 'global',
     name: '_global',
-    title: 'Global defaults',
+    title: 'Global environment',
     description: defaults?.description,
     protected: true,
     entries: defaults?.entries || [],
@@ -319,7 +328,7 @@ function targetFromWorkspaceDefaults(
   return {
     kind: 'workspace',
     name: `_workspaces/${workspaceName}`,
-    title: `${workspaceName} defaults`,
+    title: 'Workspace environment',
     description: defaults?.description,
     protected: true,
     entries: defaults?.entries || [],
@@ -340,8 +349,9 @@ export default function ProfilesPage(): React.ReactNode {
   const selectedWorkspaceName = workspaceNameForSelection(
     appBarContext.workspaceSelection
   );
-  const canManageWorkspaceDefaults =
-    useCanWriteForWorkspace(selectedWorkspaceName);
+  const canManageWorkspaceDefaults = useCanWriteForWorkspace(
+    selectedWorkspaceName
+  );
 
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -373,6 +383,13 @@ export default function ProfilesPage(): React.ReactNode {
 
   const { data, mutate, isLoading } = useQuery('/profiles', queryInit);
   const profiles = data?.profiles || [];
+  const activeProfiles = useMemo(
+    () =>
+      profiles.filter(
+        (profile) => profile.status === RuntimeProfileStatus.active
+      ),
+    [profiles]
+  );
   const {
     data: globalDefaults,
     mutate: mutateGlobalDefaults,
@@ -400,7 +417,7 @@ export default function ProfilesPage(): React.ReactNode {
             query: { remoteNode },
           },
         }
-        : null
+      : null
   );
   const globalDefaultsLoadError = globalDefaultsError
     ? errorMessage(globalDefaultsError, 'Failed to load global defaults')
@@ -446,6 +463,10 @@ export default function ProfilesPage(): React.ReactNode {
     void mutateGlobalDefaults();
     void mutateWorkspaceDefaults();
   }, [mutate, mutateGlobalDefaults, mutateWorkspaceDefaults]);
+
+  const workspaceDefaultProfileActionKey = workspaceTarget
+    ? `${workspaceTarget.actionKey}:defaultProfile`
+    : null;
 
   const openEntryDialog = useCallback(
     (target: ProfileEntryTarget, kind: RuntimeProfileEntryKind) => {
@@ -550,6 +571,42 @@ export default function ProfilesPage(): React.ReactNode {
       reload();
     } catch (err) {
       setError(errorMessage(err, 'Failed to delete entry'));
+    } finally {
+      setActionProfile(null);
+    }
+  }
+
+  async function updateWorkspaceDefaultProfile(value: string): Promise<void> {
+    if (!workspaceTarget?.workspaceName) return;
+    const defaultProfile =
+      value === NO_WORKSPACE_DEFAULT_PROFILE_VALUE ? '' : value;
+    setError(null);
+    setSuccess(null);
+    setActionProfile(workspaceDefaultProfileActionKey);
+    try {
+      const { error: apiError } = await client.PATCH(
+        '/profiles/_workspaces/{workspaceName}',
+        {
+          params: {
+            path: { workspaceName: workspaceTarget.workspaceName },
+            query: { remoteNode },
+          },
+          body: { defaultProfile },
+        }
+      );
+      if (apiError) {
+        throw new Error(
+          apiError.message || 'Failed to update workspace default profile'
+        );
+      }
+      setSuccess(
+        defaultProfile
+          ? `Workspace default profile set to ${defaultProfile}`
+          : 'Workspace default profile cleared'
+      );
+      void mutateWorkspaceDefaults();
+    } catch (err) {
+      setError(errorMessage(err, 'Failed to update workspace default profile'));
     } finally {
       setActionProfile(null);
     }
@@ -675,6 +732,42 @@ export default function ProfilesPage(): React.ReactNode {
                       onAdd={openEntryDialog}
                       onEdit={editEntry}
                       onDelete={confirmDeleteEntry}
+                    />
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {workspaceTarget.updatedAt
+                      ? dayjs(workspaceTarget.updatedAt).format(
+                          'MMM D, YYYY HH:mm'
+                        )
+                      : 'Never'}
+                  </TableCell>
+                </TableRow>
+              )}
+              {workspaceTarget && canManageWorkspaceDefaults && (
+                <TableRow>
+                  <TableCell>
+                    <div className="flex min-w-0 flex-col gap-1">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <SlidersHorizontal className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+                        <span className="font-medium">
+                          Workspace default profile
+                        </span>
+                      </div>
+                      <span className="text-xs text-muted-foreground">
+                        Fallback when the run and DAG do not choose a profile.
+                      </span>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant="outline">Workspace</Badge>
+                  </TableCell>
+                  <TableCell>
+                    <WorkspaceDefaultProfileCell
+                      profiles={activeProfiles}
+                      value={workspaceDefaults?.defaultProfile || ''}
+                      busy={actionProfile === workspaceDefaultProfileActionKey}
+                      isLoading={isLoading || isWorkspaceDefaultsLoading}
+                      onChange={updateWorkspaceDefaultProfile}
                     />
                   </TableCell>
                   <TableCell className="text-muted-foreground">
@@ -904,6 +997,69 @@ export default function ProfilesPage(): React.ReactNode {
   );
 }
 
+function WorkspaceDefaultProfileCell({
+  profiles,
+  value,
+  busy,
+  isLoading,
+  onChange,
+}: {
+  profiles: RuntimeProfileResponse[];
+  value: string;
+  busy: boolean;
+  isLoading: boolean;
+  onChange: (value: string) => void;
+}): React.ReactElement {
+  const unavailable =
+    value !== '' && !profiles.some((profile) => profile.name === value);
+  return (
+    <div className="flex max-w-sm items-center gap-2">
+      <Select
+        value={value || NO_WORKSPACE_DEFAULT_PROFILE_VALUE}
+        disabled={busy || isLoading}
+        onValueChange={onChange}
+      >
+        <SelectTrigger
+          aria-label="Workspace default profile"
+          className="h-8 w-full min-w-[220px]"
+        >
+          <SelectValue placeholder="None" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={NO_WORKSPACE_DEFAULT_PROFILE_VALUE}>
+            None
+          </SelectItem>
+          {unavailable && (
+            <SelectItem value={value} disabled>
+              <span className="flex w-full items-center justify-between gap-3">
+                <span>{value}</span>
+                <Badge variant="secondary" className="h-4 px-1.5 text-[10px]">
+                  Unavailable
+                </Badge>
+              </span>
+            </SelectItem>
+          )}
+          {profiles.map((profile) => (
+            <SelectItem key={profile.id} value={profile.name}>
+              <span className="flex w-full items-center justify-between gap-3">
+                <span>{profile.name}</span>
+                {profile.protected && (
+                  <Badge variant="outline" className="h-4 px-1.5 text-[10px]">
+                    Protected
+                  </Badge>
+                )}
+              </span>
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {busy && (
+        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+      )}
+    </div>
+  );
+}
+
 function ProfileEntriesCell({
   target,
   busy,
@@ -916,7 +1072,10 @@ function ProfileEntriesCell({
   busy: boolean;
   isLoading?: boolean;
   onAdd: (target: ProfileEntryTarget, kind: RuntimeProfileEntryKind) => void;
-  onEdit: (target: ProfileEntryTarget, entry: RuntimeProfileEntryResponse) => void;
+  onEdit: (
+    target: ProfileEntryTarget,
+    entry: RuntimeProfileEntryResponse
+  ) => void;
   onDelete: (
     target: ProfileEntryTarget,
     entry: RuntimeProfileEntryResponse

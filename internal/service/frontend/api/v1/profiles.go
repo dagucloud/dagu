@@ -599,6 +599,10 @@ func (a *API) updateInheritedRuntimeProfile(
 	if body == nil {
 		return api.InheritedRuntimeProfileResponse{}, ptrOf(runtimeProfileBadRequest("Request body is required")), nil
 	}
+	defaultProfile, clientErr, err := a.resolveInheritedDefaultProfile(ctx, ref, body.DefaultProfile)
+	if clientErr != nil || err != nil {
+		return api.InheritedRuntimeProfileResponse{}, clientErr, err
+	}
 
 	actor := currentActorID(ctx)
 	item, err := a.getOrCreateInheritedRuntimeProfile(ctx, ref, actor)
@@ -612,6 +616,9 @@ func (a *API) updateInheritedRuntimeProfile(
 		Description: body.Description,
 		UpdatedBy:   actor,
 	}, time.Now().UTC())
+	if body.DefaultProfile != nil {
+		item.DefaultProfile = defaultProfile
+	}
 	item.Protected = true
 	item.Status = profilepkg.StatusActive
 
@@ -626,6 +633,24 @@ func (a *API) updateInheritedRuntimeProfile(
 		inheritedRuntimeProfileAuditDetails(ref, workspaceName, item))
 
 	return toInheritedRuntimeProfileResponse(ref, workspaceName, item), nil, nil
+}
+
+func (a *API) resolveInheritedDefaultProfile(
+	ctx context.Context,
+	ref profilepkg.InheritedRef,
+	defaultProfile *api.RuntimeProfileName,
+) (string, *api.Error, error) {
+	if defaultProfile == nil {
+		return "", nil, nil
+	}
+	if !profilepkg.IsWorkspaceInheritedStorageName(ref.StorageName()) {
+		return "", ptrOf(runtimeProfileBadRequest("defaultProfile is only supported for workspace defaults")), nil
+	}
+	profileName, err := a.ensureRunnableRuntimeProfile(ctx, string(*defaultProfile))
+	if err != nil {
+		return "", nil, err
+	}
+	return profileName, nil, nil
 }
 
 func (a *API) setInheritedRuntimeProfileVariable(
@@ -914,6 +939,10 @@ func toInheritedRuntimeProfileResponse(
 	}
 	resp.CreatedAt = ptrOf(item.CreatedAt)
 	resp.Description = ptrOf(item.Description)
+	if item.DefaultProfile != "" {
+		defaultProfile := api.RuntimeProfileName(item.DefaultProfile)
+		resp.DefaultProfile = &defaultProfile
+	}
 	resp.Id = ptrOf(item.ID)
 	resp.UpdatedAt = ptrOf(item.UpdatedAt)
 	return resp
@@ -973,6 +1002,9 @@ func inheritedRuntimeProfileAuditDetails(
 	if item != nil {
 		details["id"] = item.ID
 		details["entry_count"] = len(item.Entries)
+		if item.DefaultProfile != "" {
+			details["default_profile"] = item.DefaultProfile
+		}
 	}
 	return details
 }

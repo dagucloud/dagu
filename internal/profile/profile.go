@@ -45,16 +45,17 @@ var (
 )
 
 type Profile struct {
-	ID          string
-	Name        string
-	Description string
-	Status      Status
-	Protected   bool
-	Entries     []Entry
-	CreatedBy   string
-	CreatedAt   time.Time
-	UpdatedBy   string
-	UpdatedAt   time.Time
+	ID             string
+	Name           string
+	Description    string
+	Status         Status
+	Protected      bool
+	DefaultProfile string `json:"defaultProfile,omitempty"`
+	Entries        []Entry
+	CreatedBy      string
+	CreatedAt      time.Time
+	UpdatedBy      string
+	UpdatedAt      time.Time
 }
 
 type Entry struct {

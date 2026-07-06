@@ -6,6 +6,8 @@ package scheduler
 import (
 	"context"
 
+	"github.com/dagucloud/dagu/internal/core"
+	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/dagsettings"
 	"github.com/dagucloud/dagu/internal/profile"
 )
@@ -22,9 +24,20 @@ func NewDAGProfileResolver(settingsStore dagsettings.Store, profileStore profile
 	}
 }
 
-func (r *dagProfileResolver) ResolveProfile(ctx context.Context, dagName string) (string, error) {
+func (r *dagProfileResolver) ResolveProfile(ctx context.Context, dagName string, workspaceName string) (string, error) {
 	if r == nil {
 		return "", nil
 	}
-	return dagsettings.ResolveProfile(ctx, r.settingsStore, r.profileStore, dagName)
+	return dagsettings.ResolveProfile(ctx, r.settingsStore, r.profileStore, dagName, workspaceName)
+}
+
+func dagWorkspaceName(dag *core.DAG) string {
+	if dag == nil {
+		return ""
+	}
+	workspaceName, ok := exec.WorkspaceNameFromLabels(dag.Labels)
+	if !ok {
+		return ""
+	}
+	return workspaceName
 }

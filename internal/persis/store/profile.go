@@ -162,6 +162,15 @@ func validateStoredProfile(p *profile.Profile) error {
 	if err := validateProfileStorageName(p.Name); err != nil {
 		return err
 	}
+	defaultProfile := p.DefaultProfile
+	if defaultProfile != "" {
+		if !profile.IsWorkspaceInheritedStorageName(p.Name) {
+			return errors.New("profile store: default profile is only allowed on workspace inherited profiles")
+		}
+		if err := profile.ValidateName(defaultProfile); err != nil {
+			return err
+		}
+	}
 	if profile.IsInheritedStorageName(p.Name) {
 		if !p.Protected {
 			return errors.New("profile store: inherited profiles must be protected")

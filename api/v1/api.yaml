@@ -13373,6 +13373,9 @@ components:
       properties:
         description:
           type: string
+        defaultProfile:
+          $ref: "#/components/schemas/RuntimeProfileName"
+          description: "Workspace default runtime profile. Only valid for workspace defaults. Empty string clears the setting; omit to leave it unchanged."
 
     SetRuntimeProfileVariableRequest:
       type: object
@@ -13477,6 +13480,9 @@ components:
           $ref: "#/components/schemas/InheritedRuntimeProfileScope"
         workspace:
           $ref: "#/components/schemas/WorkspaceName"
+        defaultProfile:
+          $ref: "#/components/schemas/RuntimeProfileName"
+          description: "Workspace default runtime profile used when a run and DAG do not select a profile."
         description:
           type: string
         status:

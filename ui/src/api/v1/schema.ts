@@ -4149,6 +4149,8 @@ export interface components {
              * @description RFC 3339 timestamp with explicit offset for one-off schedules
              */
             at?: string;
+            /** @description Runtime profile name that activates this schedule entry */
+            profile?: components["schemas"]["RuntimeProfileName"];
         };
         /**
          * @description Numeric status code indicating current DAG-run state:
@@ -5524,6 +5526,8 @@ export interface components {
         };
         UpdateInheritedRuntimeProfileRequest: {
             description?: string;
+            /** @description Workspace default runtime profile. Only valid for workspace defaults. Empty string clears the setting; omit to leave it unchanged. */
+            defaultProfile?: components["schemas"]["RuntimeProfileName"];
         };
         SetRuntimeProfileVariableRequest: {
             value: string;
@@ -5565,6 +5569,8 @@ export interface components {
             name: components["schemas"]["InheritedRuntimeProfileName"];
             scope: components["schemas"]["InheritedRuntimeProfileScope"];
             workspace?: components["schemas"]["WorkspaceName"];
+            /** @description Workspace default runtime profile used when a run and DAG do not select a profile. */
+            defaultProfile?: components["schemas"]["RuntimeProfileName"];
             description?: string;
             status: components["schemas"]["RuntimeProfileStatus"];
             protected: boolean;

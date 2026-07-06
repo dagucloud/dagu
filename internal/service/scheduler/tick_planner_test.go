@@ -76,7 +76,7 @@ type testProfileResolver struct {
 	err     error
 }
 
-func (r *testProfileResolver) ResolveProfile(context.Context, string) (string, error) {
+func (r *testProfileResolver) ResolveProfile(context.Context, string, string) (string, error) {
 	return r.profile, r.err
 }
 
