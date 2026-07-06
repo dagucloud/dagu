@@ -469,7 +469,7 @@ func (tp *TickPlanner) initBuffers(ctx context.Context, dags []*core.DAG, active
 // The caller just dispatches.
 func (tp *TickPlanner) Plan(ctx context.Context, now time.Time) []PlannedRun {
 	tp.entryMu.Lock()
-	flushPrunedWatermarks := tp.pruneExpiredDeletedWatermarks(now)
+	flushState := tp.pruneExpiredDeletedWatermarks(now)
 	snapshots := make([]plannerEntrySnapshot, 0, len(tp.entries))
 	for dagName, entry := range tp.entries {
 		snapshots = append(snapshots, plannerEntrySnapshot{
@@ -486,9 +486,9 @@ func (tp *TickPlanner) Plan(ctx context.Context, now time.Time) []PlannedRun {
 			activeByDAG[snapshot.dagName] = active
 			continue
 		}
-		flushPrunedWatermarks = tp.reconcileNextRun(snapshot.dagName, nil, now, true) || flushPrunedWatermarks
+		flushState = tp.reconcileNextRun(snapshot.dagName, nil, now, true) || flushState
 	}
-	if flushPrunedWatermarks {
+	if flushState {
 		tp.Flush(ctx)
 	}
 

@@ -2060,7 +2060,7 @@ func (a *API) nextRunProjection(ctx context.Context) func(*core.DAG, time.Time) 
 			if nextRun, ok := scheduler.ProjectedNextRun(dag, schedulerState); ok {
 				return nextRun
 			}
-			if hasProfileScopedSchedule(dag) {
+			if hasProfileSchedule(dag) {
 				return time.Time{}
 			}
 		}
@@ -2068,7 +2068,7 @@ func (a *API) nextRunProjection(ctx context.Context) func(*core.DAG, time.Time) 
 	}
 }
 
-func hasProfileScopedSchedule(dag *core.DAG) bool {
+func hasProfileSchedule(dag *core.DAG) bool {
 	if dag == nil {
 		return false
 	}
