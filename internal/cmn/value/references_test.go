@@ -106,6 +106,23 @@ func TestResolverStringResolvesRootParamsPayload(t *testing.T) {
 	assert.Equal(t, paramsJSON, got)
 }
 
+func TestResolverStringResolvesRootParamsPayloadWithStaticConsts(t *testing.T) {
+	t.Parallel()
+
+	resolver := value.NewResolver(
+		value.StaticScope{
+			Consts: value.Values{"service": "api"},
+		},
+		value.RuntimeScope{
+			ParamsJSON: `{"environment":"prod"}`,
+		},
+	)
+
+	got, err := resolver.String(context.Background(), "${consts.service}:${params}", value.WorkflowField("run"))
+	require.NoError(t, err)
+	assert.Equal(t, `api:{"environment":"prod"}`, got)
+}
+
 func TestResolverWorkflowFieldPreservesCommandSubstitution(t *testing.T) {
 	t.Parallel()
 
