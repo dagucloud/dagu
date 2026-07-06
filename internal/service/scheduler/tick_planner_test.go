@@ -72,11 +72,15 @@ func newHourlyCatchupDAG(t *testing.T, name string) *core.DAG {
 }
 
 type testProfileResolver struct {
-	profile string
-	err     error
+	profile       string
+	err           error
+	dagName       string
+	workspaceName string
 }
 
-func (r *testProfileResolver) ResolveProfile(context.Context, string, string) (string, error) {
+func (r *testProfileResolver) ResolveProfile(_ context.Context, dagName string, workspaceName string) (string, error) {
+	r.dagName = dagName
+	r.workspaceName = workspaceName
 	return r.profile, r.err
 }
 
@@ -1515,8 +1519,9 @@ func TestLatestScheduledSlotMarksRemovedScheduleSlotStale(t *testing.T) {
 func TestTickPlanner_ProfileScopedStartSchedules(t *testing.T) {
 	t.Parallel()
 
+	resolver := &testProfileResolver{profile: "prod"}
 	tp := NewTickPlanner(TickPlannerConfig{
-		ProfileResolver: &testProfileResolver{profile: "prod"},
+		ProfileResolver: resolver,
 		GetLatestStatus: func(_ context.Context, _ *core.DAG) (exec.DAGRunStatus, error) {
 			return exec.DAGRunStatus{}, nil
 		},
@@ -1528,6 +1533,7 @@ func TestTickPlanner_ProfileScopedStartSchedules(t *testing.T) {
 	dag := &core.DAG{
 		Name:     "profile-scoped-start-dag",
 		Location: "/tmp/profile-scoped-start-dag.yaml",
+		Labels:   core.NewLabels([]string{"workspace=ops"}),
 		Schedule: []core.Schedule{
 			mustParseProfileSchedule(t, "0 * * * *", "prod"),
 			mustParseProfileSchedule(t, "0 * * * *", "dev"),
@@ -1538,6 +1544,8 @@ func TestTickPlanner_ProfileScopedStartSchedules(t *testing.T) {
 	runs := tp.Plan(context.Background(), time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC))
 	require.Len(t, runs, 1)
 	assert.Equal(t, "prod", runs[0].Schedule.Profile)
+	assert.Equal(t, "profile-scoped-start-dag", resolver.dagName)
+	assert.Equal(t, "ops", resolver.workspaceName)
 }
 
 func TestTickPlanner_ProfileScopedStartSchedulesWithoutDefaultProfile(t *testing.T) {

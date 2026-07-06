@@ -1024,7 +1024,7 @@ function WorkspaceDefaultProfileCell({
       >
         <SelectTrigger
           aria-label="Workspace default profile"
-          className="h-8 w-full min-w-[220px]"
+          className="h-7 w-full min-w-[220px]"
         >
           <SelectValue placeholder="None" />
         </SelectTrigger>

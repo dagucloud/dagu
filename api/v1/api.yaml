@@ -13374,9 +13374,7 @@ components:
         description:
           type: string
         defaultProfile:
-          type: string
-          maxLength: 128
-          pattern: "^$|^[a-z0-9][a-z0-9._-]*$"
+          $ref: "#/components/schemas/RuntimeProfileOverride"
           description: "Workspace default runtime profile. Only valid for workspace defaults. Empty string clears the setting; omit to leave it unchanged."
 
     SetRuntimeProfileVariableRequest:
