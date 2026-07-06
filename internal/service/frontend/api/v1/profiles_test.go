@@ -29,10 +29,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func boolPtr(v bool) *bool {
-	return &v
-}
-
 func TestRuntimeProfilesAPI_CreateSetEntriesDoesNotReturnPlaintext(t *testing.T) {
 	ctx := context.Background()
 	api, profileStore, secretStore := newRuntimeProfilesTestAPI(t)
@@ -398,7 +394,7 @@ steps:
 
 	server.Client().Post("/api/v1/profiles", apigen.CreateRuntimeProfileJSONRequestBody{
 		Name:      "prod",
-		Protected: boolPtr(true),
+		Protected: new(true),
 	}).WithBearerToken(adminToken).ExpectStatus(http.StatusCreated).Send(t)
 
 	localProfile := apigen.RuntimeProfileOverride("local")
@@ -518,7 +514,7 @@ func TestRuntimeProfilesAPI_WorkspaceDefaultProfileRun(t *testing.T) {
 	}).WithBearerToken(managerToken).ExpectStatus(http.StatusCreated).Send(t)
 	server.Client().Post("/api/v1/profiles", apigen.CreateRuntimeProfileJSONRequestBody{
 		Name:      "prod",
-		Protected: boolPtr(true),
+		Protected: new(true),
 	}).WithBearerToken(adminToken).ExpectStatus(http.StatusCreated).Send(t)
 
 	protectedProfile := apigen.RuntimeProfileName("prod")
