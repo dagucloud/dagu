@@ -1002,11 +1002,10 @@ func (srv *Server) setupTerminalRoute(ctx context.Context, r *chi.Mux, apiV1Base
 
 func (srv *Server) setupSSERoute(ctx context.Context, r *chi.Mux, apiV1BasePath string) {
 	appStream, err := sse.NewAppStreamService(sse.AppStreamConfig{
-		Paths:             srv.config.Paths,
-		HeartbeatInterval: srv.config.Server.SSE.HeartbeatInterval,
+		Paths: srv.config.Paths,
 	})
 	if err != nil {
-		logger.Warn(ctx, "Failed to start app SSE stream", tag.Error(err))
+		logger.Warn(ctx, "Failed to start SSE invalidation stream", tag.Error(err))
 	} else {
 		srv.appStream = appStream
 	}
@@ -1030,7 +1029,6 @@ func (srv *Server) setupSSERoute(ctx context.Context, r *chi.Mux, apiV1BasePath 
 	}
 
 	multiplexHandler := sse.NewMultiplexHandler(srv.sseMultiplexer, srv.remoteNodeResolver)
-	appHandler := sse.NewAppHandler(srv.appStream, srv.remoteNodeResolver)
 
 	authOpts := srv.buildStreamAuthOptions("restricted")
 
@@ -1040,7 +1038,6 @@ func (srv *Server) setupSSERoute(ctx context.Context, r *chi.Mux, apiV1BasePath 
 		r.Use(auth.Middleware(authOpts))
 		r.Use(srv.injectDefaultStreamUserMiddleware())
 
-		r.Get("/app", appHandler.HandleStream)
 		r.Get("/stream", multiplexHandler.HandleStream)
 		r.Post("/stream/topics", multiplexHandler.HandleTopicMutation)
 	})
@@ -1069,7 +1066,7 @@ func (srv *Server) startAppStreamInvalidationBridge(ctx context.Context) {
 			}
 		}
 	}()
-	logger.Info(ctx, "App SSE stream configured for multiplexed invalidation")
+	logger.Info(ctx, "SSE invalidation stream configured for multiplexed topics")
 }
 
 func (srv *Server) wakeMultiplexedTopicsForAppEvent(event sse.AppEvent) {
@@ -1078,15 +1075,7 @@ func (srv *Server) wakeMultiplexedTopicsForAppEvent(event sse.AppEvent) {
 	}
 
 	switch event.Type {
-	case sse.AppEventTypeConnected:
-		return
 	case sse.AppEventTypeDAGChanged:
-		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGsList)
-		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAG)
-		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGHistory)
-	case sse.AppEventTypeRunChanged:
-		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGRuns)
-		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeQueues)
 		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGsList)
 		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAG)
 		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGHistory)

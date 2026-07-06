@@ -282,6 +282,31 @@ steps:
 	}, time.Second, 10*time.Millisecond)
 }
 
+func TestSetupSSERouteDoesNotExposeAppStreamEndpoint(t *testing.T) {
+	t.Parallel()
+
+	srv := &Server{
+		config: &config.Config{},
+		apiV1:  &apiv1.API{},
+	}
+
+	router := chi.NewMux()
+	srv.setupSSERoute(testContext(t), router, "/api/v1")
+	t.Cleanup(func() {
+		if srv.appStream != nil {
+			srv.appStream.Shutdown()
+		}
+		if srv.sseMultiplexer != nil {
+			srv.sseMultiplexer.Shutdown()
+		}
+	})
+
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/events/app", nil))
+
+	assert.Equal(t, http.StatusNotFound, recorder.Code)
+}
+
 func TestCacheControlForAssetDisablesJavaScriptCaching(t *testing.T) {
 	t.Parallel()
 
