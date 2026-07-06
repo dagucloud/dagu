@@ -184,6 +184,32 @@ func TestWatermarkSaveSkipsStateWriteForCheckpointOnlyChange(t *testing.T) {
 	assert.Equal(t, state.LastTick, got.LastTick)
 }
 
+func TestWatermarkSaveSkipsSameCheckpoint(t *testing.T) {
+	ctx := context.Background()
+	col := testutil.NewMemoryBackend().Collection("watermark")
+	s := scheduler.NewWatermarkStore(col)
+
+	state := &scheduler.SchedulerState{
+		Version:  scheduler.SchedulerStateVersion,
+		LastTick: time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC),
+		DAGs: map[string]scheduler.DAGWatermark{
+			"my-dag": {},
+		},
+	}
+	require.NoError(t, s.Save(ctx, state))
+	versioned := col.(interface {
+		RecordVersion(context.Context, string) (string, error)
+	})
+	checkpointVersion, err := versioned.RecordVersion(ctx, "checkpoint")
+	require.NoError(t, err)
+
+	require.NoError(t, s.Save(ctx, state))
+
+	nextCheckpointVersion, err := versioned.RecordVersion(ctx, "checkpoint")
+	require.NoError(t, err)
+	assert.Equal(t, checkpointVersion, nextCheckpointVersion)
+}
+
 func TestWatermarkSaveDoesNotAdvanceStateCacheWhenCheckpointWriteFails(t *testing.T) {
 	ctx := context.Background()
 	col := &checkpointFailCollection{Collection: testutil.NewMemoryBackend().Collection("watermark")}

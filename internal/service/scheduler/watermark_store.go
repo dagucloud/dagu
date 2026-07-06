@@ -45,11 +45,10 @@ type watermarkStore struct {
 	rec           *store.SingleRecord[schedulerStateFile]
 	checkpointRec *store.SingleRecord[schedulerCheckpoint]
 
-	mu                      sync.Mutex
-	cachedState             *SchedulerState
-	cachedStateRecordToken  string
-	cachedStatePayload      []byte
-	cachedCheckpointPayload []byte
+	mu                     sync.Mutex
+	cachedState            *SchedulerState
+	cachedStateRecordToken string
+	cachedStatePayload     []byte
 }
 
 // NewWatermarkStore returns a [WatermarkStore] backed by col.
@@ -116,19 +115,14 @@ func (s *watermarkStore) Load(ctx context.Context) (*SchedulerState, error) {
 	if state.DAGs == nil {
 		state.DAGs = make(map[string]DAGWatermark)
 	}
-	checkpointFound := false
 	if checkpoint, ok, checkpointErr := s.loadCheckpoint(ctx); checkpointErr != nil {
 		return nil, checkpointErr
 	} else if ok {
-		checkpointFound = true
 		state.LastTick = checkpoint.LastTick
 	}
 	s.cacheStateLocked(ctx, state)
 	if originalVersion != expected || !rawState.LastTick.IsZero() {
 		s.cachedStatePayload = nil
-	}
-	if !checkpointFound && !state.LastTick.IsZero() {
-		s.cachedCheckpointPayload = nil
 	}
 	return cloneSchedulerState(state), nil
 }
@@ -161,11 +155,9 @@ func (s *watermarkStore) Save(ctx context.Context, state *SchedulerState) error 
 	}
 
 	checkpoint := schedulerCheckpoint{LastTick: state.LastTick}
-	checkpointData, err := persis.Encode(&checkpoint)
-	if err != nil {
-		return fmt.Errorf("watermark store: encode checkpoint: %w", err)
-	}
-	checkpointChanged := !bytes.Equal(checkpointData, s.cachedCheckpointPayload)
+	checkpointChanged := stateChanged ||
+		s.cachedState == nil ||
+		!state.LastTick.Equal(s.cachedState.LastTick)
 	if checkpointChanged {
 		if err := s.checkpointRec.Save(ctx, &checkpoint); err != nil {
 			return fmt.Errorf("watermark store: save checkpoint: %w", err)
@@ -179,9 +171,6 @@ func (s *watermarkStore) Save(ctx context.Context, state *SchedulerState) error 
 		} else {
 			s.cachedStateRecordToken = ""
 		}
-	}
-	if checkpointChanged {
-		s.cachedCheckpointPayload = append(s.cachedCheckpointPayload[:0], checkpointData...)
 	}
 	s.cachedState = cloneSchedulerState(state)
 	return nil
@@ -266,10 +255,6 @@ func (s *watermarkStore) cacheStateLocked(ctx context.Context, state *SchedulerS
 		s.cachedStateRecordToken = token
 	} else {
 		s.cachedStateRecordToken = ""
-	}
-	checkpoint := schedulerCheckpoint{LastTick: state.LastTick}
-	if data, err := persis.Encode(&checkpoint); err == nil {
-		s.cachedCheckpointPayload = data
 	}
 }
 
