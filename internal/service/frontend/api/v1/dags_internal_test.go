@@ -71,6 +71,7 @@ steps:
 		Version: scheduler.SchedulerStateVersion,
 		DAGs: map[string]scheduler.DAGWatermark{
 			dag.Name: {
+				NextRun: &scheduledAt,
 				OneOffs: map[string]scheduler.OneOffScheduleState{
 					dag.Schedule[0].Fingerprint(): {
 						ScheduledTime: scheduledAt,
@@ -115,6 +116,52 @@ steps:
 	require.Len(t, sseResp.Dags, 1)
 	require.NotNil(t, sseResp.Dags[0].NextRun)
 	require.True(t, listResp.Dags[0].NextRun.Equal(*sseResp.Dags[0].NextRun))
+}
+
+func TestListDAGsDataUsesStoredEmptyNextRunProjection(t *testing.T) {
+	t.Parallel()
+
+	helper := test.Setup(t, test.WithStatusPersistence())
+	dag := helper.DAG(t, `
+name: inactive-profile-next-run-dag
+schedule:
+  - expression: "* * * * *"
+    profile: prod
+steps:
+  - run: echo hi
+`)
+
+	state := &scheduler.SchedulerState{
+		Version: scheduler.SchedulerStateVersion,
+		DAGs: map[string]scheduler.DAGWatermark{
+			dag.Name: {},
+		},
+	}
+
+	api := localapi.New(
+		helper.DAGStore,
+		helper.DAGRunStore,
+		helper.QueueStore,
+		helper.ProcStore,
+		helper.DAGRunMgr,
+		helper.Config,
+		nil,
+		helper.ServiceRegistry,
+		nil,
+		nil,
+		localapi.WithSchedulerStateStore(stubSchedulerStateStore{state: state}),
+	)
+
+	name := dag.Name
+	listRespObj, err := api.ListDAGs(context.Background(), openapi.ListDAGsRequestObject{
+		Params: openapi.ListDAGsParams{Name: &name},
+	})
+	require.NoError(t, err)
+
+	listResp, ok := listRespObj.(*openapi.ListDAGs200JSONResponse)
+	require.True(t, ok)
+	require.Len(t, listResp.Dags, 1)
+	require.Nil(t, listResp.Dags[0].NextRun)
 }
 
 func TestNextRunProjectionUsesConfiguredLocation(t *testing.T) {
@@ -773,6 +820,7 @@ steps:
 		Version: scheduler.SchedulerStateVersion,
 		DAGs: map[string]scheduler.DAGWatermark{
 			dag.Name: {
+				NextRun: &scheduledAt,
 				OneOffs: map[string]scheduler.OneOffScheduleState{
 					dag.Schedule[0].Fingerprint(): {
 						ScheduledTime: scheduledAt,

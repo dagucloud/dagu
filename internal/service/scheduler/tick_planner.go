@@ -126,7 +126,6 @@ type TickPlanner struct {
 	// watermark state (protected by mu)
 	mu             sync.RWMutex
 	watermarkState *SchedulerState
-	watermarkDirty atomic.Bool
 
 	// per-DAG tracking (protected by entryMu)
 	entryMu      sync.Mutex
@@ -233,6 +232,13 @@ func (tp *TickPlanner) activeDAGSchedules(ctx context.Context, dag *core.DAG) (a
 	if dag == nil {
 		return activeDAGSchedules{}, true
 	}
+	if !hasProfileScopedSchedules(dag.Schedule, dag.StopSchedule, dag.RestartSchedule) {
+		return activeDAGSchedules{
+			start:   dag.Schedule,
+			stop:    dag.StopSchedule,
+			restart: dag.RestartSchedule,
+		}, true
+	}
 	profile, ok := tp.resolveDAGProfile(ctx, dag)
 	if !ok {
 		return activeDAGSchedules{}, false
@@ -243,6 +249,17 @@ func (tp *TickPlanner) activeDAGSchedules(ctx context.Context, dag *core.DAG) (a
 		stop:    filterSchedulesByProfile(dag.StopSchedule, profile),
 		restart: filterSchedulesByProfile(dag.RestartSchedule, profile),
 	}, true
+}
+
+func hasProfileScopedSchedules(scheduleGroups ...[]core.Schedule) bool {
+	for _, schedules := range scheduleGroups {
+		for _, schedule := range schedules {
+			if schedule.Profile != "" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (tp *TickPlanner) resolveDAGProfile(ctx context.Context, dag *core.DAG) (string, bool) {
@@ -315,28 +332,19 @@ func (tp *TickPlanner) Init(ctx context.Context, dags []*core.DAG) error {
 			pruned++
 		}
 	}
-	stateChanged := pruned > 0
-
 	observedAt := tp.cfg.Clock().In(tp.cfg.Location)
 	activeByDAG := make(map[string]activeDAGSchedules, len(dags))
 	for _, dag := range dags {
 		active, ok := tp.activeDAGSchedules(ctx, dag)
 		if !ok {
+			state.DAGs[dag.Name] = reconcileNextRunState(state.DAGs[dag.Name], nil, observedAt, true)
 			continue
 		}
 		activeByDAG[dag.Name] = active
 		current := state.DAGs[dag.Name]
-		next, changed := reconcileOneOffState(current, active.start, observedAt)
-		next, startChanged := reconcileStartScheduleState(next, active.start, dag.SkipIfSuccessful, observedAt)
-		changed = changed || startChanged
-		if !changed {
-			continue
-		}
-		stateChanged = true
-		if isZeroDAGWatermark(next) {
-			delete(state.DAGs, dag.Name)
-			continue
-		}
+		next, _ := reconcileOneOffState(current, active.start, observedAt)
+		next, _ = reconcileStartScheduleState(next, active.start, dag.SkipIfSuccessful, observedAt)
+		next = reconcileNextRunState(next, active.start, observedAt, false)
 		state.DAGs[dag.Name] = next
 	}
 
@@ -349,9 +357,6 @@ func (tp *TickPlanner) Init(ctx context.Context, dags []*core.DAG) error {
 	tp.mu.Lock()
 	tp.watermarkState = state
 	tp.mu.Unlock()
-	if stateChanged {
-		tp.watermarkDirty.Store(true)
-	}
 
 	logger.Info(ctx, "Loaded scheduler watermark",
 		slog.Time("lastTick", state.LastTick),
@@ -359,9 +364,7 @@ func (tp *TickPlanner) Init(ctx context.Context, dags []*core.DAG) error {
 	)
 
 	tp.initBuffers(ctx, dags, activeByDAG)
-	if stateChanged {
-		tp.Flush(ctx)
-	}
+	tp.Flush(ctx)
 	return nil
 }
 
@@ -466,7 +469,7 @@ func (tp *TickPlanner) initBuffers(ctx context.Context, dags []*core.DAG, active
 // The caller just dispatches.
 func (tp *TickPlanner) Plan(ctx context.Context, now time.Time) []PlannedRun {
 	tp.entryMu.Lock()
-	tp.pruneExpiredDeletedWatermarks(now)
+	flushPrunedWatermarks := tp.pruneExpiredDeletedWatermarks(now)
 	snapshots := make([]plannerEntrySnapshot, 0, len(tp.entries))
 	for dagName, entry := range tp.entries {
 		snapshots = append(snapshots, plannerEntrySnapshot{
@@ -481,7 +484,12 @@ func (tp *TickPlanner) Plan(ctx context.Context, now time.Time) []PlannedRun {
 		active, ok := tp.activeDAGSchedules(ctx, snapshot.dag)
 		if ok {
 			activeByDAG[snapshot.dagName] = active
+			continue
 		}
+		flushPrunedWatermarks = tp.reconcileNextRun(snapshot.dagName, nil, now, true) || flushPrunedWatermarks
+	}
+	if flushPrunedWatermarks {
+		tp.Flush(ctx)
 	}
 
 	tp.entryMu.Lock()
@@ -499,6 +507,7 @@ func (tp *TickPlanner) Plan(ctx context.Context, now time.Time) []PlannedRun {
 		// IsSuspended is keyed by filename stem (not dag.Name), matching the
 		// file-based suspension flag system in filedag/store.go.
 		if isSuspendedDAG(ctx, tp.cfg.IsSuspended, nil, entry.dag) {
+			tp.reconcileNextRun(dagName, nil, now, true)
 			tp.dropSuspendedCatchupState(dagName, entry.dag, now)
 			continue
 		}
@@ -506,6 +515,7 @@ func (tp *TickPlanner) Plan(ctx context.Context, now time.Time) []PlannedRun {
 		if !ok {
 			continue
 		}
+		tp.reconcileNextRun(dagName, active.start, now.In(tp.cfg.Location), false)
 
 		// Check catchup buffer first (catchup has priority over live)
 		catchupProduced := false
@@ -1023,7 +1033,6 @@ func (tp *TickPlanner) Advance(now time.Time) {
 		tp.watermarkState.DAGs[run.DAG.Name] = dagState
 	}
 
-	tp.watermarkDirty.Store(true)
 	tp.lastPlanResult = nil
 }
 
@@ -1038,8 +1047,8 @@ func (tp *TickPlanner) dropSuspendedCatchupState(dagName string, dag *core.DAG, 
 	}
 }
 
-// advanceDAGWatermark updates the per-DAG watermark to the given time
-// and marks the state as dirty. Caller must NOT hold tp.mu.
+// advanceDAGWatermark updates the per-DAG watermark to the given time.
+// Caller must NOT hold tp.mu.
 func (tp *TickPlanner) advanceDAGWatermark(dagName string, scheduledTime time.Time) bool {
 	tp.mu.Lock()
 	defer tp.mu.Unlock()
@@ -1050,7 +1059,6 @@ func (tp *TickPlanner) advanceDAGWatermark(dagName string, scheduledTime time.Ti
 	}
 	dagState.LastScheduledTime = scheduledTime
 	tp.watermarkState.DAGs[dagName] = dagState
-	tp.watermarkDirty.Store(true)
 	return true
 }
 
@@ -1078,19 +1086,18 @@ func (tp *TickPlanner) markOneOffConsumed(dagName, fingerprint string, scheduled
 	state.Status = OneOffStatusConsumed
 	dagState.OneOffs[fingerprint] = state
 	tp.watermarkState.DAGs[dagName] = dagState
-	tp.watermarkDirty.Store(true)
 	return true
 }
 
-// Flush writes the watermark state to disk if dirty.
+// Flush writes the current scheduler state snapshot to durable storage.
 // Safe for concurrent use.
 func (tp *TickPlanner) Flush(ctx context.Context) {
-	if !tp.watermarkDirty.CompareAndSwap(true, false) {
-		return
-	}
-
 	// Snapshot under read lock to avoid holding the lock during I/O.
 	tp.mu.RLock()
+	if tp.watermarkState == nil {
+		tp.mu.RUnlock()
+		return
+	}
 	snapshot := &SchedulerState{
 		Version:  tp.watermarkState.Version,
 		LastTick: tp.watermarkState.LastTick,
@@ -1103,7 +1110,6 @@ func (tp *TickPlanner) Flush(ctx context.Context) {
 
 	if err := tp.cfg.WatermarkStore.Save(ctx, snapshot); err != nil {
 		logger.Error(ctx, "Failed to flush watermark state", tag.Error(err))
-		tp.watermarkDirty.Store(true)
 	}
 }
 
@@ -1190,6 +1196,9 @@ func (tp *TickPlanner) handleEvent(ctx context.Context, event DAGChangeEvent) {
 		if activeOK {
 			flushNow = tp.reconcileStartScheduleState(event.DAG, active) || flushNow
 			flushNow = tp.reconcileOneOffSchedules(event.DAG, active) || flushNow
+			flushNow = tp.reconcileNextRun(event.DAGName, active.start, tp.cfg.Clock().In(tp.cfg.Location), false) || flushNow
+		} else {
+			flushNow = tp.reconcileNextRun(event.DAGName, nil, tp.cfg.Clock().In(tp.cfg.Location), true) || flushNow
 		}
 		logger.Info(ctx, "Planner: DAG added", tag.DAG(event.DAGName))
 
@@ -1208,6 +1217,9 @@ func (tp *TickPlanner) handleEvent(ctx context.Context, event DAGChangeEvent) {
 		if activeOK {
 			flushNow = tp.reconcileStartScheduleState(event.DAG, active) || flushNow
 			flushNow = tp.reconcileOneOffSchedules(event.DAG, active) || flushNow
+			flushNow = tp.reconcileNextRun(event.DAGName, active.start, tp.cfg.Clock().In(tp.cfg.Location), false) || flushNow
+		} else {
+			flushNow = tp.reconcileNextRun(event.DAGName, nil, tp.cfg.Clock().In(tp.cfg.Location), true) || flushNow
 		}
 		logger.Info(ctx, "Planner: DAG updated", tag.DAG(event.DAGName))
 
@@ -1246,8 +1258,42 @@ func (tp *TickPlanner) reconcileOneOffSchedules(dag *core.DAG, active activeDAGS
 	} else {
 		tp.watermarkState.DAGs[dag.Name] = next
 	}
-	tp.watermarkDirty.Store(true)
 	return true
+}
+
+func (tp *TickPlanner) reconcileNextRun(dagName string, schedules []core.Schedule, now time.Time, suspended bool) bool {
+	if dagName == "" {
+		return false
+	}
+
+	tp.mu.Lock()
+	defer tp.mu.Unlock()
+
+	current := tp.watermarkState.DAGs[dagName]
+	next := reconcileNextRunState(current, schedules, now, suspended)
+	if sameTimePtr(current.NextRun, next.NextRun) {
+		if _, ok := tp.watermarkState.DAGs[dagName]; ok {
+			return false
+		}
+	}
+	tp.watermarkState.DAGs[dagName] = next
+	return true
+}
+
+func (tp *TickPlanner) recomputeDAGProjection(ctx context.Context, dag *core.DAG) bool {
+	if dag == nil {
+		return false
+	}
+	active, ok := tp.activeDAGSchedules(ctx, dag)
+	if !ok {
+		return tp.reconcileNextRun(dag.Name, nil, tp.cfg.Clock().In(tp.cfg.Location), true)
+	}
+	return tp.reconcileNextRun(
+		dag.Name,
+		active.start,
+		tp.cfg.Clock().In(tp.cfg.Location),
+		false,
+	)
 }
 
 func (tp *TickPlanner) reconcileStartScheduleState(dag *core.DAG, active activeDAGSchedules) bool {
@@ -1269,7 +1315,6 @@ func (tp *TickPlanner) reconcileStartScheduleState(dag *core.DAG, active activeD
 	} else {
 		tp.watermarkState.DAGs[dag.Name] = next
 	}
-	tp.watermarkDirty.Store(true)
 	return true
 }
 
@@ -1284,16 +1329,16 @@ func (tp *TickPlanner) hasDAGWatermark(dagName string) bool {
 	return ok
 }
 
-func (tp *TickPlanner) pruneExpiredDeletedWatermarks(now time.Time) {
+func (tp *TickPlanner) pruneExpiredDeletedWatermarks(now time.Time) bool {
 	if len(tp.deletedGrace) == 0 {
-		return
+		return false
 	}
 
 	tp.mu.Lock()
 	defer tp.mu.Unlock()
 
 	if tp.watermarkState == nil || tp.watermarkState.DAGs == nil {
-		return
+		return false
 	}
 
 	changed := false
@@ -1311,10 +1356,7 @@ func (tp *TickPlanner) pruneExpiredDeletedWatermarks(now time.Time) {
 		delete(tp.watermarkState.DAGs, dagName)
 		changed = true
 	}
-
-	if changed {
-		tp.watermarkDirty.Store(true)
-	}
+	return changed
 }
 
 // reinsertCatchupItem puts a failed catchup run back at the front of the
@@ -1443,6 +1485,7 @@ func (tp *TickPlanner) DispatchRun(ctx context.Context, run PlannedRun) {
 		}
 		if exists {
 			if tp.markOneOffConsumed(run.DAG.Name, run.Fingerprint, run.ScheduledTime) {
+				tp.recomputeDAGProjection(ctx, run.DAG)
 				tp.Flush(ctx)
 			}
 			return
@@ -1509,6 +1552,7 @@ func (tp *TickPlanner) DispatchRun(ctx context.Context, run PlannedRun) {
 			}
 			if exists {
 				if tp.markOneOffConsumed(run.DAG.Name, run.Fingerprint, run.ScheduledTime) {
+					tp.recomputeDAGProjection(ctx, run.DAG)
 					tp.Flush(ctx)
 				}
 				return
@@ -1536,6 +1580,7 @@ func (tp *TickPlanner) DispatchRun(ctx context.Context, run PlannedRun) {
 	}
 	if run.ScheduleType == ScheduleTypeStart && run.Schedule.IsOneOff() {
 		if tp.markOneOffConsumed(run.DAG.Name, run.Fingerprint, run.ScheduledTime) {
+			tp.recomputeDAGProjection(ctx, run.DAG)
 			tp.Flush(ctx)
 		}
 	}

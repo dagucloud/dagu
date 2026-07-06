@@ -68,8 +68,10 @@ func TestWatermarkSaveFileLayoutCompatibility(t *testing.T) {
 	root := t.TempDir()
 	col := file.NewCollection(filepath.Join(root, "scheduler"), file.WithIndentedJSON())
 	s := scheduler.NewWatermarkStore(col)
+	now := time.Now().UTC()
 	state := &scheduler.SchedulerState{
-		Version: scheduler.SchedulerStateVersion,
+		Version:  scheduler.SchedulerStateVersion,
+		LastTick: now,
 		DAGs: map[string]scheduler.DAGWatermark{
 			"my-dag": {},
 		},
@@ -83,8 +85,46 @@ func TestWatermarkSaveFileLayoutCompatibility(t *testing.T) {
 	require.NoError(t, json.Unmarshal(raw, &body))
 	assert.NotContains(t, body, "encoding")
 	assert.NotContains(t, body, "data")
+	assert.NotContains(t, body, "lastTick")
 	assert.Contains(t, body, "version")
 	assert.Contains(t, body, "dags")
+
+	rawCheckpoint, err := os.ReadFile(filepath.Join(root, "scheduler", "checkpoint.json"))
+	require.NoError(t, err)
+	var checkpoint map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(rawCheckpoint, &checkpoint))
+	assert.Contains(t, checkpoint, "lastTick")
+}
+
+func TestWatermarkSaveSkipsStateWriteForCheckpointOnlyChange(t *testing.T) {
+	ctx := context.Background()
+	col := testutil.NewMemoryBackend().Collection("watermark")
+	s := scheduler.NewWatermarkStore(col)
+
+	state := &scheduler.SchedulerState{
+		Version:  scheduler.SchedulerStateVersion,
+		LastTick: time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC),
+		DAGs: map[string]scheduler.DAGWatermark{
+			"my-dag": {},
+		},
+	}
+	require.NoError(t, s.Save(ctx, state))
+	versioned := col.(interface {
+		RecordVersion(context.Context, string) (string, error)
+	})
+	stateVersion, err := versioned.RecordVersion(ctx, "state")
+	require.NoError(t, err)
+
+	state.LastTick = state.LastTick.Add(time.Minute)
+	require.NoError(t, s.Save(ctx, state))
+
+	nextStateVersion, err := versioned.RecordVersion(ctx, "state")
+	require.NoError(t, err)
+	assert.Equal(t, stateVersion, nextStateVersion)
+
+	got, err := s.Load(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, state.LastTick, got.LastTick)
 }
 
 func TestWatermarkSave_Overwrite(t *testing.T) {
