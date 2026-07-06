@@ -153,15 +153,10 @@ func (s *watermarkStore) Save(ctx context.Context, state *SchedulerState) error 
 	if err != nil {
 		return fmt.Errorf("watermark store: encode state: %w", err)
 	}
-	if !bytes.Equal(stateData, s.cachedStatePayload) {
+	stateChanged := !bytes.Equal(stateData, s.cachedStatePayload)
+	if stateChanged {
 		if err := s.rec.Save(ctx, &stateFile); err != nil {
 			return fmt.Errorf("watermark store: save: %w", err)
-		}
-		s.cachedStatePayload = append(s.cachedStatePayload[:0], stateData...)
-		if token, ok, err := s.stateRecordToken(ctx); ok && err == nil {
-			s.cachedStateRecordToken = token
-		} else {
-			s.cachedStateRecordToken = ""
 		}
 	}
 
@@ -170,10 +165,22 @@ func (s *watermarkStore) Save(ctx context.Context, state *SchedulerState) error 
 	if err != nil {
 		return fmt.Errorf("watermark store: encode checkpoint: %w", err)
 	}
-	if !bytes.Equal(checkpointData, s.cachedCheckpointPayload) {
+	checkpointChanged := !bytes.Equal(checkpointData, s.cachedCheckpointPayload)
+	if checkpointChanged {
 		if err := s.checkpointRec.Save(ctx, &checkpoint); err != nil {
 			return fmt.Errorf("watermark store: save checkpoint: %w", err)
 		}
+	}
+
+	if stateChanged {
+		s.cachedStatePayload = append(s.cachedStatePayload[:0], stateData...)
+		if token, ok, err := s.stateRecordToken(ctx); ok && err == nil {
+			s.cachedStateRecordToken = token
+		} else {
+			s.cachedStateRecordToken = ""
+		}
+	}
+	if checkpointChanged {
 		s.cachedCheckpointPayload = append(s.cachedCheckpointPayload[:0], checkpointData...)
 	}
 	s.cachedState = cloneSchedulerState(state)

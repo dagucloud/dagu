@@ -96,6 +96,18 @@ func apiStatusOutputValue(t *testing.T, status *exec.DAGRunStatus, key string) s
 	return ""
 }
 
+func asGetDAGSpecResp(t *testing.T, respObj any) *api.GetDAGSpec200JSONResponse {
+	t.Helper()
+
+	resp, ok := respObj.(*api.GetDAGSpec200JSONResponse)
+	if ok {
+		return resp
+	}
+	valueResp, ok := respObj.(api.GetDAGSpec200JSONResponse)
+	require.True(t, ok, "expected GetDAGSpec 200 response, got %T", respObj)
+	return &valueResp
+}
+
 func TestDAGRunHistoryReturnsNotFoundForMissingDAG(t *testing.T) {
 	server := test.SetupServer(t)
 
@@ -1030,6 +1042,49 @@ steps:
 	require.Nil(t, listResp.Dags[0].NextRun)
 }
 
+func TestListDAGsDataFallsBackForMissingUnprofiledProjection(t *testing.T) {
+	t.Parallel()
+
+	helper := test.Setup(t, test.WithStatusPersistence())
+	dag := helper.DAG(t, `
+name: cold-unprofiled-next-run-dag
+schedule:
+  - expression: "* * * * *"
+steps:
+  - run: echo hi
+`)
+
+	state := &scheduler.SchedulerState{
+		Version: scheduler.SchedulerStateVersion,
+		DAGs:    map[string]scheduler.DAGWatermark{},
+	}
+
+	apiImpl := localapi.New(
+		helper.DAGStore,
+		helper.DAGRunStore,
+		helper.QueueStore,
+		helper.ProcStore,
+		helper.DAGRunMgr,
+		helper.Config,
+		nil,
+		helper.ServiceRegistry,
+		nil,
+		nil,
+		localapi.WithSchedulerStateStore(stubSchedulerStateStore{state: state}),
+	)
+
+	name := dag.Name
+	listRespObj, err := apiImpl.ListDAGs(context.Background(), api.ListDAGsRequestObject{
+		Params: api.ListDAGsParams{Name: &name},
+	})
+	require.NoError(t, err)
+
+	listResp, ok := listRespObj.(*api.ListDAGs200JSONResponse)
+	require.True(t, ok)
+	require.Len(t, listResp.Dags, 1)
+	require.NotNil(t, listResp.Dags[0].NextRun)
+}
+
 func TestNextRunProjectionUsesConfiguredLocation(t *testing.T) {
 	t.Parallel()
 
@@ -1727,12 +1782,7 @@ steps:
 	})
 	require.NoError(t, err)
 
-	specResp, ok := specRespObj.(*api.GetDAGSpec200JSONResponse)
-	if !ok {
-		valueResp, valueOK := specRespObj.(api.GetDAGSpec200JSONResponse)
-		require.True(t, valueOK)
-		specResp = &valueResp
-	}
+	specResp := asGetDAGSpecResp(t, specRespObj)
 	require.NotNil(t, specResp.Dag)
 	require.NotNil(t, specResp.Dag.NextRun)
 	require.True(t, scheduledAt.Equal(*specResp.Dag.NextRun))
@@ -1768,12 +1818,7 @@ steps:
 	})
 	require.NoError(t, err)
 
-	specResp, ok := specRespObj.(*api.GetDAGSpec200JSONResponse)
-	if !ok {
-		valueResp, valueOK := specRespObj.(api.GetDAGSpec200JSONResponse)
-		require.True(t, valueOK)
-		specResp = &valueResp
-	}
+	specResp := asGetDAGSpecResp(t, specRespObj)
 	require.Len(t, specResp.ValueReferenceNotices, 1)
 
 	notice := specResp.ValueReferenceNotices[0]
@@ -1817,12 +1862,7 @@ steps:
 	})
 	require.NoError(t, err)
 
-	specResp, ok := specRespObj.(*api.GetDAGSpec200JSONResponse)
-	if !ok {
-		valueResp, valueOK := specRespObj.(api.GetDAGSpec200JSONResponse)
-		require.True(t, valueOK)
-		specResp = &valueResp
-	}
+	specResp := asGetDAGSpecResp(t, specRespObj)
 	require.Len(t, specResp.ValueReferenceNotices, 1)
 
 	notice := specResp.ValueReferenceNotices[0]
