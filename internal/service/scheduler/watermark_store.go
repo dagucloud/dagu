@@ -21,14 +21,14 @@ const watermarkStateID = "state"
 const watermarkCheckpointID = "checkpoint"
 
 type schedulerStateFile struct {
-	Version int                     `json:"version"`
-	DAGs    map[string]DAGWatermark `json:"dags,omitempty"`
+	SchemaVersion int                     `json:"version"`
+	DAGs          map[string]DAGWatermark `json:"dags,omitempty"`
 }
 
 type legacySchedulerStateFile struct {
-	Version  int                     `json:"version"`
-	LastTick time.Time               `json:"lastTick"`
-	DAGs     map[string]DAGWatermark `json:"dags,omitempty"`
+	SchemaVersion int                     `json:"version"`
+	LastTick      time.Time               `json:"lastTick"`
+	DAGs          map[string]DAGWatermark `json:"dags,omitempty"`
 }
 
 type schedulerCheckpoint struct {
@@ -45,11 +45,11 @@ type watermarkStore struct {
 	rec           *store.SingleRecord[schedulerStateFile]
 	checkpointRec *store.SingleRecord[schedulerCheckpoint]
 
-	mu                   sync.Mutex
-	cachedVersion        string
-	cachedState          *SchedulerState
-	cachedStateData      []byte
-	cachedCheckpointData []byte
+	mu                      sync.Mutex
+	cachedState             *SchedulerState
+	cachedStateRecordToken  string
+	cachedStatePayload      []byte
+	cachedCheckpointPayload []byte
 }
 
 // NewWatermarkStore returns a [WatermarkStore] backed by col.
@@ -89,9 +89,9 @@ func (s *watermarkStore) Load(ctx context.Context) (*SchedulerState, error) {
 	}
 
 	const expected = SchedulerStateVersion
-	originalVersion := rawState.Version
+	originalVersion := rawState.SchemaVersion
 	state := &SchedulerState{
-		Version:  rawState.Version,
+		Version:  rawState.SchemaVersion,
 		LastTick: rawState.LastTick,
 		DAGs:     rawState.DAGs,
 	}
@@ -125,10 +125,10 @@ func (s *watermarkStore) Load(ctx context.Context) (*SchedulerState, error) {
 	}
 	s.cacheStateLocked(ctx, state)
 	if originalVersion != expected || !rawState.LastTick.IsZero() {
-		s.cachedStateData = nil
+		s.cachedStatePayload = nil
 	}
 	if !checkpointFound && !state.LastTick.IsZero() {
-		s.cachedCheckpointData = nil
+		s.cachedCheckpointPayload = nil
 	}
 	return cloneSchedulerState(state), nil
 }
@@ -143,8 +143,8 @@ func (s *watermarkStore) Save(ctx context.Context, state *SchedulerState) error 
 	defer s.mu.Unlock()
 
 	stateFile := schedulerStateFile{
-		Version: state.Version,
-		DAGs:    make(map[string]DAGWatermark, len(state.DAGs)),
+		SchemaVersion: state.Version,
+		DAGs:          make(map[string]DAGWatermark, len(state.DAGs)),
 	}
 	for dagName, dagState := range state.DAGs {
 		stateFile.DAGs[dagName] = cloneDAGWatermark(dagState)
@@ -153,12 +153,16 @@ func (s *watermarkStore) Save(ctx context.Context, state *SchedulerState) error 
 	if err != nil {
 		return fmt.Errorf("watermark store: encode state: %w", err)
 	}
-	if !bytes.Equal(stateData, s.cachedStateData) {
+	if !bytes.Equal(stateData, s.cachedStatePayload) {
 		if err := s.rec.Save(ctx, &stateFile); err != nil {
 			return fmt.Errorf("watermark store: save: %w", err)
 		}
-		s.cachedStateData = append(s.cachedStateData[:0], stateData...)
-		s.cachedVersion = s.recordVersion(ctx, watermarkStateID)
+		s.cachedStatePayload = append(s.cachedStatePayload[:0], stateData...)
+		if token, ok, err := s.stateRecordToken(ctx); ok && err == nil {
+			s.cachedStateRecordToken = token
+		} else {
+			s.cachedStateRecordToken = ""
+		}
 	}
 
 	checkpoint := schedulerCheckpoint{LastTick: state.LastTick}
@@ -166,11 +170,11 @@ func (s *watermarkStore) Save(ctx context.Context, state *SchedulerState) error 
 	if err != nil {
 		return fmt.Errorf("watermark store: encode checkpoint: %w", err)
 	}
-	if !bytes.Equal(checkpointData, s.cachedCheckpointData) {
+	if !bytes.Equal(checkpointData, s.cachedCheckpointPayload) {
 		if err := s.checkpointRec.Save(ctx, &checkpoint); err != nil {
 			return fmt.Errorf("watermark store: save checkpoint: %w", err)
 		}
-		s.cachedCheckpointData = append(s.cachedCheckpointData[:0], checkpointData...)
+		s.cachedCheckpointPayload = append(s.cachedCheckpointPayload[:0], checkpointData...)
 	}
 	s.cachedState = cloneSchedulerState(state)
 	return nil
@@ -185,7 +189,7 @@ func newEmptyWatermarkState() *SchedulerState {
 	}
 }
 
-// migrateWatermarkState upgrades a legacy state (versions 0 to 2) to the
+// migrateWatermarkState upgrades a legacy state to the
 // current version, returning an error for any version it cannot migrate.
 func migrateWatermarkState(version int, state *SchedulerState) (*SchedulerState, error) {
 	if state == nil {
@@ -214,26 +218,26 @@ func migrateWatermarkState(version int, state *SchedulerState) (*SchedulerState,
 }
 
 func (s *watermarkStore) cachedStateLocked(ctx context.Context) (*SchedulerState, bool, error) {
-	if s.cachedState == nil || s.cachedVersion == "" {
+	if s.cachedState == nil || s.cachedStateRecordToken == "" {
 		return nil, false, nil
 	}
-	version, ok, err := s.recordVersionOK(ctx, watermarkStateID)
+	token, ok, err := s.stateRecordToken(ctx)
 	if !ok {
 		return nil, false, nil
 	}
 	if errors.Is(err, persis.ErrNotFound) {
-		s.cachedVersion = ""
+		s.cachedStateRecordToken = ""
 		s.cachedState = nil
-		s.cachedStateData = nil
+		s.cachedStatePayload = nil
 		return nil, false, nil
 	}
 	if err != nil {
-		return nil, false, fmt.Errorf("watermark store: record version: %w", err)
+		return nil, false, fmt.Errorf("watermark store: state record: %w", err)
 	}
-	if version != s.cachedVersion {
-		s.cachedVersion = ""
+	if token != s.cachedStateRecordToken {
+		s.cachedStateRecordToken = ""
 		s.cachedState = nil
-		s.cachedStateData = nil
+		s.cachedStatePayload = nil
 		return nil, false, nil
 	}
 	return cloneSchedulerState(s.cachedState), true, nil
@@ -242,19 +246,23 @@ func (s *watermarkStore) cachedStateLocked(ctx context.Context) (*SchedulerState
 func (s *watermarkStore) cacheStateLocked(ctx context.Context, state *SchedulerState) {
 	s.cachedState = cloneSchedulerState(state)
 	stateFile := schedulerStateFile{
-		Version: state.Version,
-		DAGs:    make(map[string]DAGWatermark, len(state.DAGs)),
+		SchemaVersion: state.Version,
+		DAGs:          make(map[string]DAGWatermark, len(state.DAGs)),
 	}
 	for dagName, dagState := range state.DAGs {
 		stateFile.DAGs[dagName] = cloneDAGWatermark(dagState)
 	}
 	if data, err := persis.Encode(&stateFile); err == nil {
-		s.cachedStateData = data
+		s.cachedStatePayload = data
 	}
-	s.cachedVersion = s.recordVersion(ctx, watermarkStateID)
+	if token, ok, err := s.stateRecordToken(ctx); ok && err == nil {
+		s.cachedStateRecordToken = token
+	} else {
+		s.cachedStateRecordToken = ""
+	}
 	checkpoint := schedulerCheckpoint{LastTick: state.LastTick}
 	if data, err := persis.Encode(&checkpoint); err == nil {
-		s.cachedCheckpointData = data
+		s.cachedCheckpointPayload = data
 	}
 }
 
@@ -271,19 +279,11 @@ func (s *watermarkStore) loadCheckpoint(ctx context.Context) (schedulerCheckpoin
 	return checkpoint, found, nil
 }
 
-func (s *watermarkStore) recordVersion(ctx context.Context, id string) string {
-	version, ok, err := s.recordVersionOK(ctx, id)
-	if !ok || err != nil {
-		return ""
-	}
-	return version
-}
-
-func (s *watermarkStore) recordVersionOK(ctx context.Context, id string) (string, bool, error) {
+func (s *watermarkStore) stateRecordToken(ctx context.Context) (string, bool, error) {
 	col, ok := s.col.(recordVersionCollection)
 	if !ok {
 		return "", false, nil
 	}
-	version, err := col.RecordVersion(ctx, id)
-	return version, true, err
+	token, err := col.RecordVersion(ctx, watermarkStateID)
+	return token, true, err
 }
