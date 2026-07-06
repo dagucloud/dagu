@@ -256,7 +256,15 @@ func (tp *TickPlanner) resolveDAGProfile(ctx context.Context, dag *core.DAG) (st
 		)
 		return "", false
 	}
-	profile, err := tp.cfg.ProfileResolver.ResolveProfile(ctx, fileName, dagWorkspaceName(dag))
+	workspaceName, err := dagWorkspaceName(dag)
+	if err != nil {
+		logger.Error(ctx, "Failed to resolve DAG profile",
+			tag.DAG(dag.Name),
+			tag.Error(err),
+		)
+		return "", false
+	}
+	profile, err := tp.cfg.ProfileResolver.ResolveProfile(ctx, fileName, workspaceName)
 	if err != nil {
 		logger.Error(ctx, "Failed to resolve DAG profile",
 			tag.DAG(dag.Name),

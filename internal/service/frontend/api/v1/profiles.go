@@ -638,7 +638,7 @@ func (a *API) updateInheritedRuntimeProfile(
 func (a *API) resolveInheritedDefaultProfile(
 	ctx context.Context,
 	ref profilepkg.InheritedRef,
-	defaultProfile *api.RuntimeProfileName,
+	defaultProfile *string,
 ) (string, *api.Error, error) {
 	if defaultProfile == nil {
 		return "", nil, nil
@@ -646,7 +646,7 @@ func (a *API) resolveInheritedDefaultProfile(
 	if !profilepkg.IsWorkspaceInheritedStorageName(ref.StorageName()) {
 		return "", ptrOf(runtimeProfileBadRequest("defaultProfile is only supported for workspace defaults")), nil
 	}
-	profileName, err := a.ensureRunnableRuntimeProfile(ctx, string(*defaultProfile))
+	profileName, err := a.ensureRunnableRuntimeProfile(ctx, *defaultProfile)
 	if err != nil {
 		return "", nil, err
 	}

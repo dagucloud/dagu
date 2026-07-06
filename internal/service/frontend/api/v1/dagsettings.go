@@ -186,6 +186,9 @@ func (a *API) defaultRunProfileError(err error) error {
 			Message:    fmt.Sprintf("runtime profile %s is disabled", name),
 		}
 	}
+	if errors.Is(err, dagsettings.ErrProfileStoreUnavailable) {
+		return profileStoreUnavailable()
+	}
 	return err
 }
 

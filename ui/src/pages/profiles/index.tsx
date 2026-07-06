@@ -766,6 +766,7 @@ export default function ProfilesPage(): React.ReactNode {
                       profiles={activeProfiles}
                       value={workspaceDefaults?.defaultProfile || ''}
                       busy={actionProfile === workspaceDefaultProfileActionKey}
+                      disabled={!canManageProfiles}
                       isLoading={isLoading || isWorkspaceDefaultsLoading}
                       onChange={updateWorkspaceDefaultProfile}
                     />
@@ -1001,12 +1002,14 @@ function WorkspaceDefaultProfileCell({
   profiles,
   value,
   busy,
+  disabled,
   isLoading,
   onChange,
 }: {
   profiles: RuntimeProfileResponse[];
   value: string;
   busy: boolean;
+  disabled: boolean;
   isLoading: boolean;
   onChange: (value: string) => void;
 }): React.ReactElement {
@@ -1016,7 +1019,7 @@ function WorkspaceDefaultProfileCell({
     <div className="flex max-w-sm items-center gap-2">
       <Select
         value={value || NO_WORKSPACE_DEFAULT_PROFILE_VALUE}
-        disabled={busy || isLoading}
+        disabled={disabled || busy || isLoading}
         onValueChange={onChange}
       >
         <SelectTrigger

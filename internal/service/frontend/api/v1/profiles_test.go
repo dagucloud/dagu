@@ -29,6 +29,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func boolPtr(v bool) *bool {
+	return &v
+}
+
 func TestRuntimeProfilesAPI_CreateSetEntriesDoesNotReturnPlaintext(t *testing.T) {
 	ctx := context.Background()
 	api, profileStore, secretStore := newRuntimeProfilesTestAPI(t)
@@ -271,7 +275,7 @@ func TestRuntimeProfilesAPI_WorkspaceDefaultProfileSetGetClear(t *testing.T) {
 		apiv1.WithWorkspaceStore(workspaceStore),
 	)
 
-	defaultProfile := apigen.RuntimeProfileName("local")
+	defaultProfile := "local"
 	workspaceName := apigen.WorkspaceName("ops")
 	resp, err := api.UpdateWorkspaceRuntimeProfileDefaults(ctx, apigen.UpdateWorkspaceRuntimeProfileDefaultsRequestObject{
 		WorkspaceName: workspaceName,
@@ -300,7 +304,7 @@ func TestRuntimeProfilesAPI_WorkspaceDefaultProfileSetGetClear(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "local", stored.DefaultProfile)
 
-	emptyProfile := apigen.RuntimeProfileName("")
+	emptyProfile := ""
 	clearResp, err := api.UpdateWorkspaceRuntimeProfileDefaults(ctx, apigen.UpdateWorkspaceRuntimeProfileDefaultsRequestObject{
 		WorkspaceName: workspaceName,
 		Body: &apigen.UpdateInheritedRuntimeProfileRequest{
@@ -329,7 +333,7 @@ func TestRuntimeProfilesAPI_WorkspaceDefaultProfileSetGetClear(t *testing.T) {
 
 	for _, tt := range []struct {
 		name       string
-		profile    apigen.RuntimeProfileName
+		profile    string
 		httpStatus int
 	}{
 		{name: "missing", profile: "missing", httpStatus: http.StatusNotFound},
@@ -394,7 +398,7 @@ steps:
 
 	server.Client().Post("/api/v1/profiles", apigen.CreateRuntimeProfileJSONRequestBody{
 		Name:      "prod",
-		Protected: new(true),
+		Protected: boolPtr(true),
 	}).WithBearerToken(adminToken).ExpectStatus(http.StatusCreated).Send(t)
 
 	localProfile := apigen.RuntimeProfileOverride("local")
@@ -448,9 +452,10 @@ steps:
 	server.Client().Post("/api/v1/profiles", apigen.CreateRuntimeProfileJSONRequestBody{
 		Name: "local",
 	}).WithBearerToken(managerToken).ExpectStatus(http.StatusCreated).Send(t)
+	protected := true
 	server.Client().Post("/api/v1/profiles", apigen.CreateRuntimeProfileJSONRequestBody{
 		Name:      "prod",
-		Protected: new(true),
+		Protected: &protected,
 	}).WithBearerToken(adminToken).ExpectStatus(http.StatusCreated).Send(t)
 
 	localProfile := apigen.RuntimeProfileName("local")
@@ -513,7 +518,7 @@ func TestRuntimeProfilesAPI_WorkspaceDefaultProfileRun(t *testing.T) {
 	}).WithBearerToken(managerToken).ExpectStatus(http.StatusCreated).Send(t)
 	server.Client().Post("/api/v1/profiles", apigen.CreateRuntimeProfileJSONRequestBody{
 		Name:      "prod",
-		Protected: new(true),
+		Protected: boolPtr(true),
 	}).WithBearerToken(adminToken).ExpectStatus(http.StatusCreated).Send(t)
 
 	protectedProfile := apigen.RuntimeProfileName("prod")

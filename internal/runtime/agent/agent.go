@@ -578,13 +578,16 @@ func (a *Agent) Run(ctx context.Context) error {
 		}
 	}
 
-	// Initialize the runner
-	a.runner = a.newRunner(attempt)
-
-	// Setup the execution plan for the DAG.
-	if err := a.setupPlan(ctx); err != nil {
+	// Initialize the runner and execution plan for the DAG.
+	runner := a.newRunner(attempt)
+	plan, err := a.setupPlan(ctx)
+	if err != nil {
 		return fmt.Errorf("failed to setup execution plan: %w", err)
 	}
+	a.lock.Lock()
+	a.runner = runner
+	a.plan = plan
+	a.lock.Unlock()
 
 	// Create a new environment for the dag-run.
 	dbClient := newDBClient(a.dagRunStore, a.dagStore, a.remoteDAGLoader)
@@ -2122,7 +2125,7 @@ func (a *Agent) stopChildren(ctx context.Context, sig os.Signal, allowOverride b
 
 // setupPlan setups the DAG plan. If is retry execution, it loads nodes
 // from the retry node so that it runs the same DAG as the previous run.
-func (a *Agent) setupPlan(ctx context.Context) error {
+func (a *Agent) setupPlan(ctx context.Context) (*runtime.Plan, error) {
 	if a.retryTarget != nil {
 		return a.setupRetryPlan(ctx)
 	}
@@ -2130,10 +2133,10 @@ func (a *Agent) setupPlan(ctx context.Context) error {
 }
 
 // setupRetryPlan sets up the plan for retry.
-func (a *Agent) setupRetryPlan(ctx context.Context) error {
+func (a *Agent) setupRetryPlan(ctx context.Context) (*runtime.Plan, error) {
 	nodes, err := a.retryNodes()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	// If the previous run was killed before writing node data to the status
 	// (e.g., SIGKILL before the initial 100ms status write), retryTarget.Nodes
@@ -2142,7 +2145,7 @@ func (a *Agent) setupRetryPlan(ctx context.Context) error {
 	if len(nodes) == 0 {
 		logger.Warn(ctx, "Retry target has no nodes; falling back to fresh plan from DAG definition")
 		if a.stepRetry != "" {
-			return fmt.Errorf("cannot retry step %q: previous attempt has no node state", a.stepRetry)
+			return nil, fmt.Errorf("cannot retry step %q: previous attempt has no node state", a.stepRetry)
 		}
 		return a.setupFreshPlan()
 	}
@@ -2152,13 +2155,12 @@ func (a *Agent) setupRetryPlan(ctx context.Context) error {
 	return a.setupDefaultRetryPlan(ctx, nodes)
 }
 
-func (a *Agent) setupFreshPlan() error {
+func (a *Agent) setupFreshPlan() (*runtime.Plan, error) {
 	plan, err := runtime.NewPlan(a.dag.Steps...)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	a.plan = plan
-	return nil
+	return plan, nil
 }
 
 func (a *Agent) retryNodes() ([]*runtime.Node, error) {
@@ -2182,23 +2184,21 @@ func (a *Agent) retryNodes() ([]*runtime.Node, error) {
 }
 
 // setupStepRetryPlan sets up the plan for retrying a specific step.
-func (a *Agent) setupStepRetryPlan(nodes []*runtime.Node) error {
+func (a *Agent) setupStepRetryPlan(nodes []*runtime.Node) (*runtime.Plan, error) {
 	plan, err := runtime.CreateStepRetryPlan(a.dag, nodes, a.stepRetry)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	a.plan = plan
-	return nil
+	return plan, nil
 }
 
 // setupDefaultRetryPlan sets up the plan for the default retry behavior (all failed/canceled nodes and downstreams).
-func (a *Agent) setupDefaultRetryPlan(ctx context.Context, nodes []*runtime.Node) error {
+func (a *Agent) setupDefaultRetryPlan(ctx context.Context, nodes []*runtime.Node) (*runtime.Plan, error) {
 	plan, err := runtime.CreateRetryPlan(ctx, a.dag, nodes...)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	a.plan = plan
-	return nil
+	return plan, nil
 }
 
 func (a *Agent) setupDAGRunAttempt(ctx context.Context) (runstate.Attempt, error) {

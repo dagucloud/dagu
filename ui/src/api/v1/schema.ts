@@ -5527,7 +5527,7 @@ export interface components {
         UpdateInheritedRuntimeProfileRequest: {
             description?: string;
             /** @description Workspace default runtime profile. Only valid for workspace defaults. Empty string clears the setting; omit to leave it unchanged. */
-            defaultProfile?: components["schemas"]["RuntimeProfileName"];
+            defaultProfile?: string;
         };
         SetRuntimeProfileVariableRequest: {
             value: string;

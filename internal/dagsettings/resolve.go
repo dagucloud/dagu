@@ -6,11 +6,13 @@ package dagsettings
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 
 	"github.com/dagucloud/dagu/internal/profile"
 )
+
+// ErrProfileStoreUnavailable means a selected runtime profile cannot be checked.
+var ErrProfileStoreUnavailable = errors.New("runtime profile store is not configured")
 
 type ProfileReferenceError struct {
 	Name string
@@ -65,7 +67,7 @@ func workspaceDefaultProfile(ctx context.Context, profileStore profile.Store, wo
 		return "", nil
 	}
 	if profileStore == nil {
-		return "", fmt.Errorf("runtime profile store is not configured")
+		return "", nil
 	}
 	ref, err := profile.WorkspaceInheritedRef(workspaceName)
 	if err != nil {
@@ -87,7 +89,7 @@ func ensureRunnableProfile(ctx context.Context, profileStore profile.Store, prof
 		return "", nil
 	}
 	if profileStore == nil {
-		return "", fmt.Errorf("runtime profile store is not configured")
+		return "", ErrProfileStoreUnavailable
 	}
 	resolved, err := profile.NewManager(profileStore, nil).EnsureRunnable(ctx, profileName)
 	if err != nil {

@@ -53,6 +53,34 @@ func TestResolveProfileMissingSettingsReturnsEmpty(t *testing.T) {
 	assert.Empty(t, resolved)
 }
 
+func TestResolveProfileWorkspaceDefaultWithoutProfileStoreReturnsEmpty(t *testing.T) {
+	ctx := context.Background()
+	backend := testutil.NewMemoryBackend()
+	settingsStore, err := store.NewDAGSettingsStore(backend.Collection("dag-settings"))
+	require.NoError(t, err)
+
+	resolved, err := dagsettings.ResolveProfile(ctx, settingsStore, nil, "example", "ops")
+	require.NoError(t, err)
+	assert.Empty(t, resolved)
+}
+
+func TestResolveProfileDAGDefaultWithoutProfileStoreReturnsUnavailable(t *testing.T) {
+	ctx := context.Background()
+	backend := testutil.NewMemoryBackend()
+	settingsStore, err := store.NewDAGSettingsStore(backend.Collection("dag-settings"))
+	require.NoError(t, err)
+
+	settings, err := dagsettings.New(dagsettings.UpdateInput{
+		DAGName: "example",
+		Profile: "prod",
+	}, time.Now())
+	require.NoError(t, err)
+	require.NoError(t, settingsStore.Upsert(ctx, settings))
+
+	_, err = dagsettings.ResolveProfile(ctx, settingsStore, nil, "example", "ops")
+	require.ErrorIs(t, err, dagsettings.ErrProfileStoreUnavailable)
+}
+
 func TestResolveProfileReturnsDisabledProfileError(t *testing.T) {
 	ctx := context.Background()
 	backend := testutil.NewMemoryBackend()
