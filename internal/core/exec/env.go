@@ -36,6 +36,9 @@ const (
 	// When params were provided as JSON, the original payload is preserved.
 	EnvKeyDAGParamsJSON = "DAG_PARAMS_JSON"
 
+	// EnvKeyDAGParamsJSONCompat exposes the resolved parameters encoded as JSON.
+	EnvKeyDAGParamsJSONCompat = "DAGU_PARAMS_JSON"
+
 	// EnvKeyDAGRunWorkDir holds the path to the per-DAG-run working directory.
 	EnvKeyDAGRunWorkDir = "DAG_RUN_WORK_DIR"
 

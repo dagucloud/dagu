@@ -123,9 +123,12 @@ func TestNewContext_DAGParamsJSON(t *testing.T) {
 
 			if tt.expectSet {
 				assert.Equal(t, tt.paramsJSON, result[exec.EnvKeyDAGParamsJSON])
+				assert.Equal(t, tt.paramsJSON, result[exec.EnvKeyDAGParamsJSONCompat])
 			} else {
 				_, ok := result[exec.EnvKeyDAGParamsJSON]
 				assert.False(t, ok, "DAG_PARAMS_JSON should not be set")
+				_, ok = result[exec.EnvKeyDAGParamsJSONCompat]
+				assert.False(t, ok, "DAGU_PARAMS_JSON should not be set")
 			}
 		})
 	}
