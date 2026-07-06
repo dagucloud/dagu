@@ -52,15 +52,6 @@ var managedDAGRunEnvs = []managedDAGRunEnv{
 		},
 	},
 	{
-		key: EnvKeyDAGParamsJSONCompat,
-		value: func(_ context.Context, dag *core.DAG, _ string, _ string, _ *contextOptions) (string, bool) {
-			if dag.ParamsJSON == "" {
-				return "", false
-			}
-			return dag.ParamsJSON, true
-		},
-	},
-	{
 		key: EnvKeyDAGParamsJSON,
 		value: func(_ context.Context, dag *core.DAG, _ string, _ string, _ *contextOptions) (string, bool) {
 			if dag.ParamsJSON == "" {

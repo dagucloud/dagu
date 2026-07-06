@@ -148,7 +148,7 @@ type DAG struct {
 	Params []string `json:"-"`
 	// ParamsJSON contains the JSON representation of the resolved parameters.
 	// When params were supplied as JSON, the original payload is preserved.
-	// Steps can consume this via the DAGU_PARAMS_JSON environment variable.
+	// Steps can consume this via the DAG_PARAMS_JSON environment variable.
 	// Note: This field is evaluated at build time and may contain secrets.
 	// It is excluded from JSON serialization to prevent secret leakage.
 	ParamsJSON string `json:"-"`

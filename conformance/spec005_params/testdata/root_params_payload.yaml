@@ -9,10 +9,10 @@ working_dir: .
 steps:
   - name: write-root-params-payload
     run: |
-      if [ '${params}' != "$DAGU_PARAMS_JSON" ]; then
+      if [ '${params}' != "$DAG_PARAMS_JSON" ]; then
         {
           printf 'params=%s\n' '${params}'
-          printf 'env=%s\n' "$DAGU_PARAMS_JSON"
+          printf 'env=%s\n' "$DAG_PARAMS_JSON"
         } > params-payload.txt
         exit 1
       fi

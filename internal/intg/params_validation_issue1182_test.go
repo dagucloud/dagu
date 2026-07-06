@@ -129,7 +129,7 @@ steps:
     run: echo "batch_size=$batch_size debug=$debug"
     output: VALUES
   - name: params-json
-    run: printenv DAGU_PARAMS_JSON
+    run: printenv DAG_PARAMS_JSON
     output: PARAMS_JSON
 `)
 

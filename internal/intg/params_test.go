@@ -36,11 +36,8 @@ steps:
     run: echo "region=$region count=$count debug=$debug"
     output: SHELL_VALUES
   - name: params-json
-    run: printenv DAGU_PARAMS_JSON
-    output: PARAMS_JSON
-  - name: params-json-compat
     run: printenv DAG_PARAMS_JSON
-    output: PARAMS_JSON_COMPAT
+    output: PARAMS_JSON
 `)
 
 	runID := uuid.Must(uuid.NewV7()).String()
@@ -55,10 +52,8 @@ steps:
 
 	require.Contains(t, outputs.Outputs, "shellValues")
 	require.Contains(t, outputs.Outputs, "paramsJson")
-	require.Contains(t, outputs.Outputs, "paramsJsonCompat")
 	assert.Equal(t, "region=us-east-1 count=3 debug=false", outputs.Outputs["shellValues"])
 	assert.JSONEq(t, `{"region":"us-east-1","count":"3","debug":"false"}`, outputs.Outputs["paramsJson"])
-	assert.JSONEq(t, `{"region":"us-east-1","count":"3","debug":"false"}`, outputs.Outputs["paramsJsonCompat"])
 	assert.JSONEq(t, `["region=us-east-1","count=3","debug=false"]`, outputs.Metadata.Params)
 }
 
@@ -156,7 +151,7 @@ steps:
     command: echo "region=$region count=$count debug=$debug"
     output: SHELL_VALUES
   - name: params-json
-    command: printenv DAGU_PARAMS_JSON
+    command: printenv DAG_PARAMS_JSON
     output: PARAMS_JSON
 `)
 

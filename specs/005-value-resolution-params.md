@@ -52,7 +52,7 @@ Explicit inspection surfaces report passive notices for preserved parameter refe
 ### Reference Form
 
 - `${params}` reads the resolved runtime parameter payload encoded as JSON.
-- `${params}` has the same payload as `DAGU_PARAMS_JSON`.
+- `${params}` has the same payload as `DAG_PARAMS_JSON`.
 
 - `${params.name}` reads the runtime value for the declared parameter `name`.
 

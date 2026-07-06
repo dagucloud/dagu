@@ -46,7 +46,7 @@ steps:
     run: echo "region=$region count=$count debug=$debug"
     output: SHELL_VALUES
   - name: params-json
-    run: printenv DAGU_PARAMS_JSON
+    run: printenv DAG_PARAMS_JSON
     output: PARAMS_JSON
 `, withLabels(map[string]string{"type": "test-worker"}))
 
@@ -133,7 +133,7 @@ steps:
     run: echo "content_hash=$content_hash"
     output: SHELL_VALUE
   - name: params-json
-    run: printenv DAGU_PARAMS_JSON
+    run: printenv DAG_PARAMS_JSON
     output: PARAMS_JSON
 `)
 	defer f.cleanup()

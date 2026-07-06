@@ -308,8 +308,7 @@ Run-level projection:
 | `DAG_RUN_LOG_FILE` | `context.paths.log_file` | All steps and handlers. |
 | `DAG_RUN_WORK_DIR` | `context.paths.work_dir` | When a per-run work directory is available. |
 | `DAG_RUN_ARTIFACTS_DIR` | `context.paths.artifacts_dir` | When artifact storage is active. |
-| `DAGU_PARAMS_JSON` | Resolved parameter payload JSON; same payload as `${params}` from Spec 005 | When resolved parameters exist. |
-| `DAG_PARAMS_JSON` | Same value as `DAGU_PARAMS_JSON` | Compatibility alias when resolved parameters exist. |
+| `DAG_PARAMS_JSON` | Resolved parameter payload JSON; same payload as `${params}` from Spec 005 | When resolved parameters exist. |
 
 Step and handler projection:
 
@@ -422,9 +421,7 @@ Rules:
 Rules:
 
 - Existing environment variable names listed in this spec remain supported.
-- `DAGU_PARAMS_JSON` is the canonical parameter payload environment variable.
-- `DAG_PARAMS_JSON` remains a compatibility alias with the same value whenever
-  `DAGU_PARAMS_JSON` is set.
+- `DAG_PARAMS_JSON` is the parameter payload environment variable.
 - New structured context fields must be additive.
 - New structured context fields must be added under `context.*`.
 - Short top-level aliases are frozen. They remain supported for the exact fields
