@@ -160,17 +160,15 @@ func resolveWorkingDirStrict(ctx context.Context, step core.Step, rCtx Context) 
 	return fallbackWorkingDir(ctx, step.Name), nil
 }
 
-func expandRuntimeValue(ctx context.Context, raw string, rCtx Context, dag *core.DAG, scope *cmnvalue.EnvScope, step core.Step, field cmnvalue.Field) (string, error) {
-	var consts cmnvalue.Values
-	var params cmnvalue.Values
-	var paramsJSON string
-	var paramDeclarations cmnvalue.Values
+func dagValueResolutionScope(dag *core.DAG) (consts cmnvalue.Values, params cmnvalue.Values, paramsJSON string, paramDeclarations cmnvalue.Values) {
 	if dag != nil {
-		consts = cmnvalue.Values(dag.Consts)
-		params = dag.ParamValues()
-		paramsJSON = dag.ParamsJSON
-		paramDeclarations = dag.ParamDeclarations()
+		return cmnvalue.Values(dag.Consts), dag.ParamValues(), dag.ParamsJSON, dag.ParamDeclarations()
 	}
+	return nil, nil, "", nil
+}
+
+func expandRuntimeValue(ctx context.Context, raw string, rCtx Context, dag *core.DAG, scope *cmnvalue.EnvScope, step core.Step, field cmnvalue.Field) (string, error) {
+	consts, params, paramsJSON, paramDeclarations := dagValueResolutionScope(dag)
 	if rCtx.DAG == nil {
 		rCtx.DAG = dag
 	}
@@ -463,16 +461,7 @@ func evalShellWithScope(ctx context.Context, dag *core.DAG, scope *cmnvalue.EnvS
 }
 
 func evalShellInvocationWithScope(ctx context.Context, dag *core.DAG, scope *cmnvalue.EnvScope, shell string, shellArgs []string, shellFieldForPath func(string) cmnvalue.Field, argFieldForPath func(string) cmnvalue.Field) ([]string, error) {
-	var consts cmnvalue.Values
-	var params cmnvalue.Values
-	var paramsJSON string
-	var paramDeclarations cmnvalue.Values
-	if dag != nil {
-		consts = cmnvalue.Values(dag.Consts)
-		params = dag.ParamValues()
-		paramsJSON = dag.ParamsJSON
-		paramDeclarations = dag.ParamDeclarations()
-	}
+	consts, params, paramsJSON, paramDeclarations := dagValueResolutionScope(dag)
 	resolver := cmnvalue.NewResolver(
 		cmnvalue.StaticScope{Consts: consts, Params: paramDeclarations},
 		cmnvalue.RuntimeScope{Consts: consts, Params: params, ParamsJSON: paramsJSON, Env: scope},
@@ -486,16 +475,7 @@ func evalShellInvocationWithScope(ctx context.Context, dag *core.DAG, scope *cmn
 }
 
 func evalShellArgsWithScope(ctx context.Context, dag *core.DAG, scope *cmnvalue.EnvScope, shell []string, shellArgs []string, fieldForPath func(string) cmnvalue.Field) ([]string, error) {
-	var consts cmnvalue.Values
-	var params cmnvalue.Values
-	var paramsJSON string
-	var paramDeclarations cmnvalue.Values
-	if dag != nil {
-		consts = cmnvalue.Values(dag.Consts)
-		params = dag.ParamValues()
-		paramsJSON = dag.ParamsJSON
-		paramDeclarations = dag.ParamDeclarations()
-	}
+	consts, params, paramsJSON, paramDeclarations := dagValueResolutionScope(dag)
 	resolver := cmnvalue.NewResolver(
 		cmnvalue.StaticScope{Consts: consts, Params: paramDeclarations},
 		cmnvalue.RuntimeScope{Consts: consts, Params: params, ParamsJSON: paramsJSON, Env: scope},
