@@ -2056,8 +2056,28 @@ func (a *API) nextRunProjection(ctx context.Context) func(*core.DAG, time.Time) 
 	}
 
 	return func(dag *core.DAG, now time.Time) time.Time {
+		if schedulerState != nil {
+			if nextRun, ok := scheduler.ProjectedNextRun(dag, schedulerState); ok {
+				return nextRun
+			}
+			if hasProfileSchedule(dag) {
+				return time.Time{}
+			}
+		}
 		return scheduler.NextPlannedRun(dag, now.In(location), schedulerState)
 	}
+}
+
+func hasProfileSchedule(dag *core.DAG) bool {
+	if dag == nil {
+		return false
+	}
+	for _, schedule := range dag.Schedule {
+		if schedule.Profile != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // parseIntParam parses an integer string, returning defaultVal if parsing fails or value is <= 0.

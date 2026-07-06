@@ -169,7 +169,6 @@ func TestTickPlanner_Advance(t *testing.T) {
 	tp.mu.RLock()
 	require.Equal(t, tickTime, tp.watermarkState.LastTick)
 	tp.mu.RUnlock()
-	require.True(t, tp.watermarkDirty.Load())
 }
 
 func TestTickPlanner_AdvanceBeforeInit(t *testing.T) {
@@ -196,10 +195,9 @@ func TestTickPlanner_FlushWritesSnapshot(t *testing.T) {
 	saved := store.lastSaved()
 	require.NotNil(t, saved)
 	require.Equal(t, tickTime, saved.LastTick)
-	require.False(t, tp.watermarkDirty.Load())
 }
 
-func TestTickPlanner_FlushRemarksDirtyOnError(t *testing.T) {
+func TestTickPlanner_FlushHandlesSaveError(t *testing.T) {
 	t.Parallel()
 
 	store := &mockWatermarkStore{saveErr: errors.New("write error")}
@@ -209,10 +207,10 @@ func TestTickPlanner_FlushRemarksDirtyOnError(t *testing.T) {
 	tp.Advance(time.Now())
 	tp.Flush(context.Background())
 
-	assert.True(t, tp.watermarkDirty.Load())
+	assert.Nil(t, store.lastSaved())
 }
 
-func TestTickPlanner_FlushSkipsWhenClean(t *testing.T) {
+func TestTickPlanner_FlushWritesCurrentSnapshot(t *testing.T) {
 	t.Parallel()
 
 	store := &mockWatermarkStore{}
@@ -220,7 +218,7 @@ func TestTickPlanner_FlushSkipsWhenClean(t *testing.T) {
 	require.NoError(t, tp.Init(context.Background(), nil))
 
 	tp.Flush(context.Background())
-	assert.Nil(t, store.lastSaved())
+	assert.NotNil(t, store.lastSaved())
 }
 
 func TestTickPlanner_PlanCatchupDispatches(t *testing.T) {

@@ -786,6 +786,7 @@ func (s *Scheduler) runTick(ctx context.Context, tickTime time.Time) {
 		s.dispatchRun(ctx, run)
 	}
 	s.planner.Advance(tickTime)
+	s.planner.Flush(ctx)
 }
 
 // NextTick returns the next tick time for the scheduler.

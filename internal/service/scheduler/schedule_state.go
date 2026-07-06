@@ -13,13 +13,37 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 )
 
-const SchedulerStateVersion = 3
+const SchedulerStateVersion = 4
+
+func cloneTimePtr(t *time.Time) *time.Time {
+	if t == nil {
+		return nil
+	}
+	cloned := *t
+	return &cloned
+}
+
+func cloneSchedulerState(state *SchedulerState) *SchedulerState {
+	if state == nil {
+		return nil
+	}
+	cloned := &SchedulerState{
+		Version:  state.Version,
+		LastTick: state.LastTick,
+		DAGs:     make(map[string]DAGWatermark, len(state.DAGs)),
+	}
+	for dagName, dagState := range state.DAGs {
+		cloned.DAGs[dagName] = cloneDAGWatermark(dagState)
+	}
+	return cloned
+}
 
 func cloneDAGWatermark(w DAGWatermark) DAGWatermark {
 	cloned := DAGWatermark{
 		LastScheduledTime:        w.LastScheduledTime,
 		StartScheduleFingerprint: w.StartScheduleFingerprint,
 		SkipSuccessResetAt:       w.SkipSuccessResetAt,
+		NextRun:                  cloneTimePtr(w.NextRun),
 	}
 	if len(w.OneOffs) > 0 {
 		cloned.OneOffs = make(map[string]OneOffScheduleState, len(w.OneOffs))
@@ -32,7 +56,33 @@ func isZeroDAGWatermark(w DAGWatermark) bool {
 	return w.LastScheduledTime.IsZero() &&
 		w.StartScheduleFingerprint == "" &&
 		w.SkipSuccessResetAt.IsZero() &&
-		len(w.OneOffs) == 0
+		len(w.OneOffs) == 0 &&
+		w.NextRun == nil
+}
+
+func sameTimePtr(a, b *time.Time) bool {
+	switch {
+	case a == nil || b == nil:
+		return a == b
+	default:
+		return a.Equal(*b)
+	}
+}
+
+func reconcileNextRunState(current DAGWatermark, schedules []core.Schedule, now time.Time, suspended bool) DAGWatermark {
+	next := cloneDAGWatermark(current)
+	var projected *time.Time
+	if !suspended {
+		nextRun := nextPlannedRunFromSchedules(schedules, now, next)
+		if !nextRun.IsZero() {
+			projected = &nextRun
+		}
+	}
+	if sameTimePtr(next.NextRun, projected) {
+		return next
+	}
+	next.NextRun = cloneTimePtr(projected)
+	return next
 }
 
 func oneOffSchedules(all []core.Schedule) []core.Schedule {
@@ -149,19 +199,9 @@ func reconcileStartScheduleState(current DAGWatermark, schedules []core.Schedule
 	return next, true
 }
 
-// NextPlannedRun projects the next scheduler-aware run time for DAG listing/sorting.
-func NextPlannedRun(dag *core.DAG, now time.Time, state *SchedulerState) time.Time {
-	if dag == nil {
-		return time.Time{}
-	}
-
-	var dagState DAGWatermark
-	if state != nil {
-		dagState = state.DAGs[dag.Name]
-	}
-
+func nextPlannedRunFromSchedules(schedules []core.Schedule, now time.Time, dagState DAGWatermark) time.Time {
 	var next time.Time
-	for _, schedule := range dag.Schedule {
+	for _, schedule := range schedules {
 		var candidate time.Time
 		switch {
 		case schedule.IsCron():
@@ -185,6 +225,32 @@ func NextPlannedRun(dag *core.DAG, now time.Time, state *SchedulerState) time.Ti
 			next = candidate
 		}
 	}
-
 	return next
+}
+
+// ProjectedNextRun returns the scheduler-owned next-run projection for a DAG.
+func ProjectedNextRun(dag *core.DAG, state *SchedulerState) (time.Time, bool) {
+	if dag == nil || state == nil {
+		return time.Time{}, false
+	}
+	dagState, ok := state.DAGs[dag.Name]
+	if !ok {
+		return time.Time{}, false
+	}
+	if dagState.NextRun == nil {
+		return time.Time{}, true
+	}
+	return *dagState.NextRun, true
+}
+
+// NextPlannedRun projects the next scheduler-aware run time for DAG listing/sorting.
+func NextPlannedRun(dag *core.DAG, now time.Time, state *SchedulerState) time.Time {
+	if dag == nil {
+		return time.Time{}
+	}
+	var dagState DAGWatermark
+	if state != nil {
+		dagState = state.DAGs[dag.Name]
+	}
+	return nextPlannedRunFromSchedules(dag.Schedule, now, dagState)
 }

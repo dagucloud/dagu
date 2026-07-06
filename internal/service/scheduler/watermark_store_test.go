@@ -6,6 +6,7 @@ package scheduler_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -25,6 +26,27 @@ func newWatermarkStore(t *testing.T) scheduler.WatermarkStore {
 	t.Helper()
 	col := testutil.NewMemoryBackend().Collection("watermark")
 	return scheduler.NewWatermarkStore(col)
+}
+
+var errCheckpointSave = errors.New("checkpoint save failed")
+
+type checkpointFailCollection struct {
+	persis.Collection
+	failCheckpoint bool
+}
+
+func (c *checkpointFailCollection) Put(ctx context.Context, rec *persis.Record) error {
+	if c.failCheckpoint && rec.ID == "checkpoint" {
+		return errCheckpointSave
+	}
+	return c.Collection.Put(ctx, rec)
+}
+
+func (c *checkpointFailCollection) RecordVersion(ctx context.Context, id string) (string, error) {
+	versioned := c.Collection.(interface {
+		RecordVersion(context.Context, string) (string, error)
+	})
+	return versioned.RecordVersion(ctx, id)
 }
 
 func TestWatermarkLoad_Empty(t *testing.T) {
@@ -68,8 +90,10 @@ func TestWatermarkSaveFileLayoutCompatibility(t *testing.T) {
 	root := t.TempDir()
 	col := file.NewCollection(filepath.Join(root, "scheduler"), file.WithIndentedJSON())
 	s := scheduler.NewWatermarkStore(col)
+	now := time.Now().UTC()
 	state := &scheduler.SchedulerState{
-		Version: scheduler.SchedulerStateVersion,
+		Version:  scheduler.SchedulerStateVersion,
+		LastTick: now,
 		DAGs: map[string]scheduler.DAGWatermark{
 			"my-dag": {},
 		},
@@ -83,8 +107,136 @@ func TestWatermarkSaveFileLayoutCompatibility(t *testing.T) {
 	require.NoError(t, json.Unmarshal(raw, &body))
 	assert.NotContains(t, body, "encoding")
 	assert.NotContains(t, body, "data")
+	assert.NotContains(t, body, "lastTick")
 	assert.Contains(t, body, "version")
 	assert.Contains(t, body, "dags")
+
+	rawCheckpoint, err := os.ReadFile(filepath.Join(root, "scheduler", "checkpoint.json"))
+	require.NoError(t, err)
+	var checkpoint map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(rawCheckpoint, &checkpoint))
+	assert.Contains(t, checkpoint, "lastTick")
+}
+
+func TestWatermarkLoadMigratesLegacyLastTickToCheckpoint(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	storeDir := filepath.Join(root, "scheduler")
+	require.NoError(t, os.MkdirAll(storeDir, 0o700))
+
+	lastTick := time.Date(2026, 2, 7, 12, 2, 0, 0, time.UTC)
+	rawState := fmt.Appendf(nil, `{"version":3,"lastTick":%q,"dags":{"my-dag":{}}}`, lastTick.Format(time.RFC3339))
+	require.NoError(t, os.WriteFile(filepath.Join(storeDir, "state.json"), rawState, 0o600))
+
+	s := scheduler.NewWatermarkStore(file.NewCollection(storeDir, file.WithIndentedJSON()))
+
+	got, err := s.Load(ctx)
+	require.NoError(t, err)
+	require.Equal(t, scheduler.SchedulerStateVersion, got.Version)
+	require.Equal(t, lastTick, got.LastTick)
+	require.Contains(t, got.DAGs, "my-dag")
+
+	require.NoError(t, s.Save(ctx, got))
+
+	rawMigratedState, err := os.ReadFile(filepath.Join(storeDir, "state.json"))
+	require.NoError(t, err)
+	var stateBody map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(rawMigratedState, &stateBody))
+	assert.NotContains(t, stateBody, "lastTick")
+
+	rawCheckpoint, err := os.ReadFile(filepath.Join(storeDir, "checkpoint.json"))
+	require.NoError(t, err)
+	var checkpoint struct {
+		LastTick time.Time `json:"lastTick"`
+	}
+	require.NoError(t, json.Unmarshal(rawCheckpoint, &checkpoint))
+	assert.Equal(t, lastTick, checkpoint.LastTick)
+}
+
+func TestWatermarkSaveSkipsStateWriteForCheckpointOnlyChange(t *testing.T) {
+	ctx := context.Background()
+	col := testutil.NewMemoryBackend().Collection("watermark")
+	s := scheduler.NewWatermarkStore(col)
+
+	state := &scheduler.SchedulerState{
+		Version:  scheduler.SchedulerStateVersion,
+		LastTick: time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC),
+		DAGs: map[string]scheduler.DAGWatermark{
+			"my-dag": {},
+		},
+	}
+	require.NoError(t, s.Save(ctx, state))
+	versioned := col.(interface {
+		RecordVersion(context.Context, string) (string, error)
+	})
+	stateVersion, err := versioned.RecordVersion(ctx, "state")
+	require.NoError(t, err)
+
+	state.LastTick = state.LastTick.Add(time.Minute)
+	require.NoError(t, s.Save(ctx, state))
+
+	nextStateVersion, err := versioned.RecordVersion(ctx, "state")
+	require.NoError(t, err)
+	assert.Equal(t, stateVersion, nextStateVersion)
+
+	got, err := s.Load(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, state.LastTick, got.LastTick)
+}
+
+func TestWatermarkSaveSkipsSameCheckpoint(t *testing.T) {
+	ctx := context.Background()
+	col := testutil.NewMemoryBackend().Collection("watermark")
+	s := scheduler.NewWatermarkStore(col)
+
+	state := &scheduler.SchedulerState{
+		Version:  scheduler.SchedulerStateVersion,
+		LastTick: time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC),
+		DAGs: map[string]scheduler.DAGWatermark{
+			"my-dag": {},
+		},
+	}
+	require.NoError(t, s.Save(ctx, state))
+	versioned := col.(interface {
+		RecordVersion(context.Context, string) (string, error)
+	})
+	checkpointVersion, err := versioned.RecordVersion(ctx, "checkpoint")
+	require.NoError(t, err)
+
+	require.NoError(t, s.Save(ctx, state))
+
+	nextCheckpointVersion, err := versioned.RecordVersion(ctx, "checkpoint")
+	require.NoError(t, err)
+	assert.Equal(t, checkpointVersion, nextCheckpointVersion)
+}
+
+func TestWatermarkSaveDoesNotAdvanceStateCacheWhenCheckpointWriteFails(t *testing.T) {
+	ctx := context.Background()
+	col := &checkpointFailCollection{Collection: testutil.NewMemoryBackend().Collection("watermark")}
+	s := scheduler.NewWatermarkStore(col)
+
+	initialTick := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
+	initialState := &scheduler.SchedulerState{
+		Version:  scheduler.SchedulerStateVersion,
+		LastTick: initialTick,
+		DAGs:     map[string]scheduler.DAGWatermark{"dag-a": {}},
+	}
+	require.NoError(t, s.Save(ctx, initialState))
+
+	col.failCheckpoint = true
+	nextState := &scheduler.SchedulerState{
+		Version:  scheduler.SchedulerStateVersion,
+		LastTick: initialTick.Add(time.Minute),
+		DAGs:     map[string]scheduler.DAGWatermark{"dag-b-longer-name": {}},
+	}
+	require.ErrorIs(t, s.Save(ctx, nextState), errCheckpointSave)
+
+	col.failCheckpoint = false
+	got, err := s.Load(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, initialTick, got.LastTick)
+	assert.Contains(t, got.DAGs, "dag-b-longer-name")
+	assert.NotContains(t, got.DAGs, "dag-a")
 }
 
 func TestWatermarkSave_Overwrite(t *testing.T) {
