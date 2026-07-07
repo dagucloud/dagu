@@ -2,9 +2,9 @@
 
 ## Status
 
-Not implemented.
+Implemented.
 
-This spec defines target conformance behavior for DAG-level and step-level
+This spec defines conformance behavior for DAG-level and step-level
 `preconditions`.
 
 ## Scope
