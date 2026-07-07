@@ -65,6 +65,7 @@ type Runner struct {
 	dagRunIsRoot         bool
 
 	canceled  int32
+	failed    int32
 	mu        sync.RWMutex
 	pause     time.Duration
 	lastError error
@@ -155,11 +156,13 @@ func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan *Node) err
 		if err != nil {
 			logger.Info(ctx, "Preconditions are not met", tag.Error(err))
 			r.setLastError(err)
+			r.setFailed()
 			r.Cancel(plan)
 		} else if err := EvalConditions(ctx, shell, rCtx.DAG.Preconditions); err != nil {
 			logger.Info(ctx, "Preconditions are not met", tag.Error(err))
 			if !errors.Is(err, ErrConditionNotMet) {
 				r.setLastError(err)
+				r.setFailed()
 			}
 			r.Cancel(plan)
 		}
@@ -939,6 +942,9 @@ func (r *Runner) Cancel(p *Plan) {
 
 // Status returns the status of the runner.
 func (r *Runner) Status(ctx context.Context, p *Plan) core.Status {
+	if r.isFailed() {
+		return core.Failed
+	}
 	if r.isCanceled() && !r.isSucceed(p) {
 		return core.Aborted
 	}
@@ -1003,6 +1009,12 @@ func (r *Runner) isCanceled() bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.canceled == 1
+}
+
+func (r *Runner) isFailed() bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.failed == 1
 }
 
 func isReady(ctx context.Context, plan *Plan, node *Node) bool {
@@ -1162,6 +1174,12 @@ func (r *Runner) setCanceled() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.canceled = 1
+}
+
+func (r *Runner) setFailed() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.failed = 1
 }
 
 func (r *Runner) isSucceed(p *Plan) bool {

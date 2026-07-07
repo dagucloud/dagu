@@ -1,3 +1,4 @@
+name: root_substitution_failure
 working_dir: .
 preconditions:
   - condition: '$(printf "%s\n" root-error >&2; exit 7)'

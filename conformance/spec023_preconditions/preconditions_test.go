@@ -447,9 +447,10 @@ func TestRuntimeValueMatchDetailsUnix(t *testing.T) {
 			absentFile: "expected-substitution-ran.txt",
 		},
 		{
-			name:       "shell variables outside substitution are ordinary text",
-			file:       "value_match_shell_var_literal.yaml",
-			absentFile: "shell-var-literal-ran.txt",
+			name:       "unqualified env variables resolve before matching",
+			file:       "value_match_env_var_resolves.yaml",
+			outputFile: "env-var-resolves-ran.txt",
+			content:    "ran\n",
 		},
 		{
 			name:       "successful substitution stderr is ignored",

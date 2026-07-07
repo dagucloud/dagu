@@ -36,7 +36,7 @@ func TestEvalConditions(t *testing.T) {
 		},
 		{
 			name:       "EnvVar",
-			conditions: []*core.Condition{{Condition: "${TEST_CONDITION}", Expected: "100"}},
+			conditions: []*core.Condition{{Condition: "${env.TEST_CONDITION}", Expected: "100"}},
 		},
 		{
 			name: "MultipleCond",
@@ -80,10 +80,6 @@ func TestEvalConditions(t *testing.T) {
 			name:       "RegexMatch",
 			conditions: []*core.Condition{{Condition: "test", Expected: "re:^test$"}},
 		},
-		{
-			name:       "ValueMatchPreservesBacktickSubstitution",
-			conditions: []*core.Condition{{Condition: "`printf 100`", Expected: "`printf 100`"}},
-		},
 		// Negate tests
 		{
 			name: "NegateMatchingCondition",
@@ -116,13 +112,13 @@ func TestEvalConditions(t *testing.T) {
 		{
 			name: "NegateEnvVar",
 			conditions: []*core.Condition{
-				{Condition: "${TEST_CONDITION}", Expected: "wrong_value", Negate: true},
+				{Condition: "${env.TEST_CONDITION}", Expected: "wrong_value", Negate: true},
 			},
 		},
 		{
 			name: "NegateEnvVarMatching",
 			conditions: []*core.Condition{
-				{Condition: "${TEST_CONDITION}", Expected: "100", Negate: true},
+				{Condition: "${env.TEST_CONDITION}", Expected: "100", Negate: true},
 			},
 			wantErr:             true,
 			wantConditionNotMet: true,
@@ -193,6 +189,19 @@ func TestEvalConditions(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestEvalConditions_ValueMatchRunsCommandSubstitution(t *testing.T) {
+	if goruntime.GOOS == "windows" {
+		t.Skip("uses POSIX command snippets")
+	}
+
+	ctx := newTestContext()
+	err := runtime.EvalConditions(ctx, []string{"sh"}, []*core.Condition{
+		{Condition: "`printf 100`", Expected: "100"},
+		{Condition: "$(printf 200)", Expected: "200"},
+	})
+	require.NoError(t, err)
 }
 
 func TestEvalConditions_ShellWithDuplicateCFlag(t *testing.T) {

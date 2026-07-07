@@ -139,6 +139,8 @@ Rules:
 - Value resolution follows Spec 003.
 - Dagu-owned references in `condition` use the normal `${consts.*}`,
   `${params.*}`, `${env.*}`, and `${steps.*.outputs.*}` forms.
+- Unqualified environment references in `condition`, such as `$NAME` and
+  `${NAME}`, resolve according to Spec 006 for precondition condition fields.
 - Unresolved supported references are preserved and reported as passive notices
   by inspection surfaces as defined by Spec 003 and Spec 007.
 - `condition` does not run dynamic evaluation.
@@ -218,9 +220,11 @@ Rules:
   error.
 - A command substitution that cannot start is an evaluation error.
 - A command substitution that times out is an evaluation error.
-- Shell syntax outside command-substitution forms is ordinary text.
-- `$NAME` and `${NAME}` outside command-substitution forms are not interpreted
-  by Dagu.
+- Command substitutions are the only shell syntax that Dagu executes in
+  value-match condition text.
+- Shell operators, redirects, glob characters, quotes, and other shell syntax
+  outside command-substitution forms are ordinary text after Dagu-owned value
+  and environment resolution.
 - Literal `expected` passes when at least one line in the condition text exactly
   equals `expected`.
 - `expected: re:<pattern>` passes when `<pattern>` matches at least one line in

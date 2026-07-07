@@ -184,6 +184,11 @@ func policyForField(field Field) resolverPolicy {
 		return workflowValuePolicy()
 	case fieldConditionValue:
 		return resolverPolicy{strict: true, options: []option{withoutSubstitute()}}
+	case fieldConditionRuntimeValue:
+		return resolverPolicy{
+			strict:  true,
+			options: []option{withShellCommandSubstitution()},
+		}
 	case fieldDAGEnv:
 		return resolverPolicy{strict: true, envVariables: envVariablesUser, options: []option{withOSExpansion(), withoutSubstitute()}}
 	case fieldRuntimeDAGEnv:

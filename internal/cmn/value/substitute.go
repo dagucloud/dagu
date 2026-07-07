@@ -105,7 +105,15 @@ func runCommandWithContext(ctx context.Context, cmdStr string) (string, error) {
 	commandCtx, cancel, timeout := withCommandTimeout(ctx, substituteCommandTimeout())
 	defer cancel()
 
-	cmd := buildShellCommandContext(commandCtx, shellCommandFromContext(ctx), cmdStr)
+	var cmd *exec.Cmd
+	if shell, ok := commandSubstitutionShellFromContext(ctx); ok {
+		cmd = buildShellCommandArgsContext(commandCtx, shell, cmdStr)
+	} else {
+		cmd = buildShellCommandContext(commandCtx, shellCommandFromContext(ctx), cmdStr)
+	}
+	if dir, ok := commandSubstitutionWorkingDirFromContext(ctx); ok {
+		cmd.Dir = dir
+	}
 
 	if scope := GetEnvScope(ctx); scope != nil {
 		cmd.Env = scope.ToSlice()
@@ -132,6 +140,24 @@ func runCommandWithContext(ctx context.Context, cmdStr string) (string, error) {
 	return strings.TrimSpace(stdout.String()), nil
 }
 
+func buildShellCommandArgsContext(ctx context.Context, shell []string, cmdStr string) *exec.Cmd {
+	if len(shell) == 0 {
+		return buildShellCommandContext(ctx, "", cmdStr)
+	}
+
+	name := shell[0]
+	args := append([]string(nil), shell[1:]...)
+	switch strings.ToLower(filepath.Base(name)) {
+	case "powershell.exe", "powershell", "pwsh.exe", "pwsh":
+		args = appendPowerShellCommandArgs(args, cmdStr)
+	case "cmd.exe", "cmd":
+		args = appendShellCommandArgs(args, "/c", cmdStr)
+	default:
+		args = appendShellCommandArgs(args, "-c", cmdStr)
+	}
+	return exec.CommandContext(ctx, name, args...) //nolint:gosec
+}
+
 func shellCommandFromContext(ctx context.Context) string {
 	if cfg := config.GetConfig(ctx); cfg != nil && cfg.Core.DefaultShell != "" {
 		return cmdutil.GetShellCommand(cfg.Core.DefaultShell)
@@ -144,6 +170,28 @@ func shellCommandFromContext(ctx context.Context) string {
 	}
 
 	return cmdutil.GetShellCommand("")
+}
+
+func commandSubstitutionShellFromContext(ctx context.Context) ([]string, bool) {
+	if ctx == nil {
+		return nil, false
+	}
+	shell, ok := ctx.Value(commandSubstitutionShellKey{}).([]string)
+	if !ok || len(shell) == 0 {
+		return nil, false
+	}
+	return append([]string(nil), shell...), true
+}
+
+func commandSubstitutionWorkingDirFromContext(ctx context.Context) (string, bool) {
+	if ctx == nil {
+		return "", false
+	}
+	dir, ok := ctx.Value(commandSubstitutionWorkingDirKey{}).(string)
+	if !ok || strings.TrimSpace(dir) == "" {
+		return "", false
+	}
+	return dir, true
 }
 
 func withCommandTimeout(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc, time.Duration) {
@@ -244,6 +292,25 @@ type shellCommandSubstitutionRead struct {
 	cmd string
 	end int
 	ok  bool
+}
+
+type commandSubstitutionShellKey struct{}
+type commandSubstitutionWorkingDirKey struct{}
+
+// WithCommandSubstitutionShell sets the shell used by command substitutions.
+func WithCommandSubstitutionShell(ctx context.Context, shell []string) context.Context {
+	if ctx == nil || len(shell) == 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, commandSubstitutionShellKey{}, append([]string(nil), shell...))
+}
+
+// WithCommandSubstitutionWorkingDir sets the working directory used by command substitutions.
+func WithCommandSubstitutionWorkingDir(ctx context.Context, dir string) context.Context {
+	if ctx == nil || strings.TrimSpace(dir) == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, commandSubstitutionWorkingDirKey{}, dir)
 }
 
 func readShellCommandSubstitution(runes []rune, start int) (shellCommandSubstitutionRead, error) {

@@ -65,6 +65,7 @@ func TestResolverFieldPolicyMatrix(t *testing.T) {
 		"DAGShell":                   strictNoOS,
 		"StepShell":                  strictNoOS,
 		"ConditionValue":             strictNoOS,
+		"ConditionRuntimeValue":      strictNoOS,
 		"ConditionCommand":           strictOS,
 		"DirectCommand":              strictOS,
 		"ShellCommand":               strictNoOS,

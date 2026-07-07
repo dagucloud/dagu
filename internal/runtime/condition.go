@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
@@ -57,7 +58,7 @@ func EvalCondition(ctx context.Context, shell []string, c *core.Condition) error
 	var err error
 	switch {
 	case c.Condition != "" && c.Expected != "":
-		err = matchCondition(ctx, c)
+		err = matchCondition(ctx, shell, c)
 
 	default:
 		err = evalCommand(ctx, shell, c)
@@ -81,8 +82,9 @@ func EvalCondition(ctx context.Context, shell []string, c *core.Condition) error
 
 // matchCondition evaluates the condition and checks if it matches the expected value.
 // It returns an error if the condition was not met.
-func matchCondition(ctx context.Context, c *core.Condition) error {
-	evaluatedVal, err := resolveRuntimeString(ctx, c.Condition, cmnvalue.ConditionValueField("condition"))
+func matchCondition(ctx context.Context, shell []string, c *core.Condition) error {
+	evalCtx := conditionValueContext(ctx, shell)
+	evaluatedVal, err := resolveRuntimeString(evalCtx, c.Condition, cmnvalue.ConditionRuntimeValueField("condition"))
 	if err != nil {
 		return fmt.Errorf("failed to evaluate the value: Error=%v", err)
 	}
@@ -115,19 +117,45 @@ func evalCommand(ctx context.Context, shell []string, c *core.Condition) error {
 	if err != nil {
 		return fmt.Errorf("failed to evaluate command: %w", err)
 	}
-	if len(shell) > 0 {
-		return runShellCommand(ctx, shell, commandToRun)
+	workingDir := ""
+	if env, ok := conditionEnv(ctx); ok {
+		workingDir = env.WorkingDir
 	}
-	return runDirectCommand(ctx, commandToRun)
+	if len(shell) > 0 {
+		return runShellCommand(ctx, shell, commandToRun, workingDir)
+	}
+	return runDirectCommand(ctx, commandToRun, workingDir)
 }
 
-func runShellCommand(ctx context.Context, shell []string, commandToRun string) error {
+func conditionValueContext(ctx context.Context, shell []string) context.Context {
+	ctx = cmnvalue.WithCommandSubstitutionShell(ctx, shell)
+	if env, ok := conditionEnv(ctx); ok && env.WorkingDir != "" {
+		ctx = cmnvalue.WithCommandSubstitutionWorkingDir(ctx, filepath.Clean(env.WorkingDir))
+	}
+	return ctx
+}
+
+func conditionEnv(ctx context.Context) (Env, bool) {
+	if env, ok := LookupEnv(ctx); ok {
+		return env, true
+	}
+	rCtx, ok := LookupDAGContext(ctx)
+	if !ok || rCtx.DAG == nil {
+		return Env{}, false
+	}
+	return NewEnv(ctx, core.Step{}), true
+}
+
+func runShellCommand(ctx context.Context, shell []string, commandToRun string, workingDir string) error {
 	args := make([]string, len(shell)-1)
 	copy(args, shell[1:])
 	args = appendShellCommandFlag(shell[0], args)
 	args = append(args, commandToRun)
 	cmd := exec.CommandContext(ctx, shell[0], args...) // nolint:gosec
 	cmd.Env = append(cmd.Env, AllEnvs(ctx)...)
+	if workingDir != "" {
+		cmd.Dir = workingDir
+	}
 	_, err := cmd.Output()
 	if err != nil {
 		return fmt.Errorf("%w: %s", ErrConditionNotMet, err)
@@ -166,9 +194,12 @@ func hasShellCommandFlag(shell string, args []string) bool {
 	return false
 }
 
-func runDirectCommand(ctx context.Context, commandToRun string) error {
+func runDirectCommand(ctx context.Context, commandToRun string, workingDir string) error {
 	cmd := exec.CommandContext(ctx, commandToRun)
 	cmd.Env = append(cmd.Env, AllEnvs(ctx)...)
+	if workingDir != "" {
+		cmd.Dir = workingDir
+	}
 	_, err := cmd.Output()
 	if err != nil {
 		return fmt.Errorf("%w: %s", ErrConditionNotMet, err)

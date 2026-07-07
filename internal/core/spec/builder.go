@@ -145,32 +145,58 @@ func parsePrecondition(ctx BuildContext, precondition any) ([]*core.Condition, e
 		return nil, nil
 
 	case string:
+		return parsePreconditionEntry(ctx, v)
+
+	case []any:
+		var ret []*core.Condition
+		for _, vv := range v {
+			parsed, err := parsePreconditionEntry(ctx, vv)
+			if err != nil {
+				return nil, err
+			}
+			ret = append(ret, parsed...)
+		}
+		return ret, nil
+
+	default:
+		return nil, core.NewValidationError("preconditions", v, ErrPreconditionMustBeArrayOrString)
+	}
+}
+
+func parsePreconditionEntry(_ BuildContext, precondition any) ([]*core.Condition, error) {
+	switch v := precondition.(type) {
+	case string:
+		if strings.TrimSpace(v) == "" {
+			return nil, core.NewValidationError("preconditions", v, ErrPreconditionValueMustBeString)
+		}
 		return []*core.Condition{{Condition: v}}, nil
 
 	case map[string]any:
 		var ret core.Condition
+		hasCondition := false
+		hasExpected := false
 		for key, vv := range v {
 			switch strings.ToLower(key) {
 			case "condition":
 				val, ok := vv.(string)
-				if !ok {
+				if !ok || strings.TrimSpace(val) == "" {
 					return nil, core.NewValidationError("preconditions", vv, ErrPreconditionValueMustBeString)
 				}
 				ret.Condition = val
+				hasCondition = true
 
 			case "expected":
 				val, ok := vv.(string)
-				if !ok {
+				if !ok || strings.TrimSpace(val) == "" {
 					return nil, core.NewValidationError("preconditions", vv, ErrPreconditionValueMustBeString)
+				}
+				if strings.HasPrefix(val, "re:") {
+					if _, err := regexp.Compile(strings.TrimPrefix(val, "re:")); err != nil {
+						return nil, core.NewValidationError("preconditions", vv, fmt.Errorf("expected regexp is invalid: %w", err))
+					}
 				}
 				ret.Expected = val
-
-			case "command":
-				val, ok := vv.(string)
-				if !ok {
-					return nil, core.NewValidationError("preconditions", vv, ErrPreconditionValueMustBeString)
-				}
-				ret.Condition = val
+				hasExpected = true
 
 			case "negate":
 				val, ok := vv.(bool)
@@ -185,26 +211,20 @@ func parsePrecondition(ctx BuildContext, precondition any) ([]*core.Condition, e
 			}
 		}
 
+		if !hasCondition {
+			return nil, core.NewValidationError("preconditions", v, fmt.Errorf("condition is required"))
+		}
+		if hasExpected && strings.TrimSpace(ret.Expected) == "" {
+			return nil, core.NewValidationError("preconditions", v, fmt.Errorf("expected is required when set"))
+		}
 		if err := ret.Validate(); err != nil {
 			return nil, core.NewValidationError("preconditions", v, err)
 		}
 
 		return []*core.Condition{&ret}, nil
 
-	case []any:
-		var ret []*core.Condition
-		for _, vv := range v {
-			parsed, err := parsePrecondition(ctx, vv)
-			if err != nil {
-				return nil, err
-			}
-			ret = append(ret, parsed...)
-		}
-		return ret, nil
-
 	default:
-		return nil, core.NewValidationError("preconditions", v, ErrPreconditionMustBeArrayOrString)
-
+		return nil, core.NewValidationError("preconditions", v, ErrPreconditionValueMustBeString)
 	}
 }
 

@@ -6,4 +6,4 @@ steps:
     preconditions:
       - condition: "$READY_VALUE"
         expected: ready
-    run: printf '%s\n' ran > shell-var-literal-ran.txt
+    run: printf '%s\n' ran > env-var-resolves-ran.txt

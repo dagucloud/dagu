@@ -113,3 +113,15 @@ func TestNonDynamicFieldsPreserveCommandSubstitutionText(t *testing.T) {
 		})
 	}
 }
+
+func TestConditionValueFieldRunsCommandSubstitution(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("uses POSIX command snippets")
+	}
+
+	resolver := value.NewResolver(value.StaticScope{}, value.RuntimeScope{})
+	got, err := resolver.String(context.Background(), "`printf one` and $(printf two)", value.ConditionRuntimeValueField("steps[0].preconditions[0].condition"))
+	require.NoError(t, err)
+	assert.Equal(t, "one and two", got)
+}
