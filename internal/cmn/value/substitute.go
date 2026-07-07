@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -36,15 +35,8 @@ func buildShellCommandContext(ctx context.Context, shell, cmdStr string) *exec.C
 		return exec.CommandContext(ctx, "sh", "-c", cmdStr) //nolint:gosec
 	}
 
-	shell, shellArgs := splitShellCommand(shell)
-	switch strings.ToLower(filepath.Base(shell)) {
-	case "powershell.exe", "powershell", "pwsh.exe", "pwsh":
-		return exec.CommandContext(ctx, shell, appendPowerShellCommandArgs(shellArgs, cmdStr)...) //nolint:gosec
-	case "cmd.exe", "cmd":
-		return exec.CommandContext(ctx, shell, appendShellCommandArgs(shellArgs, "/c", cmdStr)...) //nolint:gosec
-	default:
-		return exec.CommandContext(ctx, shell, appendShellCommandArgs(shellArgs, "-c", cmdStr)...) //nolint:gosec
-	}
+	name, args := splitShellCommand(shell)
+	return exec.CommandContext(ctx, name, buildShellArgsForCommand(name, args, cmdStr)...) //nolint:gosec
 }
 
 func splitShellCommand(shell string) (string, []string) {
@@ -61,7 +53,7 @@ func splitShellCommand(shell string) (string, []string) {
 
 func appendPowerShellCommandArgs(args []string, cmdStr string) []string {
 	result := append([]string(nil), args...)
-	commandFlagIndex := shellArgIndex(result, "-Command")
+	commandFlagIndex := shellArgIndex(result, "-Command", "-C")
 	if commandFlagIndex < 0 {
 		commandFlagIndex = len(result)
 	}
@@ -75,7 +67,10 @@ func appendPowerShellCommandArgs(args []string, cmdStr string) []string {
 		prefix = append(prefix, "-NonInteractive")
 	}
 	result = append(prefix, suffix...)
-	return appendShellCommandArgs(result, "-Command", cmdStr)
+	if !hasShellArg(result, "-Command", "-C") {
+		result = append(result, "-Command")
+	}
+	return append(result, cmdStr)
 }
 
 func appendShellCommandArgs(args []string, flag, cmdStr string) []string {
@@ -86,17 +81,19 @@ func appendShellCommandArgs(args []string, flag, cmdStr string) []string {
 	return append(result, cmdStr)
 }
 
-func shellArgIndex(args []string, flag string) int {
+func shellArgIndex(args []string, flags ...string) int {
 	for i, arg := range args {
-		if strings.EqualFold(arg, flag) {
-			return i
+		for _, flag := range flags {
+			if strings.EqualFold(arg, flag) {
+				return i
+			}
 		}
 	}
 	return -1
 }
 
-func hasShellArg(args []string, flag string) bool {
-	return shellArgIndex(args, flag) >= 0
+func hasShellArg(args []string, flags ...string) bool {
+	return shellArgIndex(args, flags...) >= 0
 }
 
 // runCommandWithContext executes cmdStr in a shell using the EnvScope from context,
@@ -147,15 +144,14 @@ func buildShellCommandArgsContext(ctx context.Context, shell []string, cmdStr st
 
 	name := shell[0]
 	args := append([]string(nil), shell[1:]...)
-	switch strings.ToLower(filepath.Base(name)) {
-	case "powershell.exe", "powershell", "pwsh.exe", "pwsh":
-		args = appendPowerShellCommandArgs(args, cmdStr)
-	case "cmd.exe", "cmd":
-		args = appendShellCommandArgs(args, "/c", cmdStr)
-	default:
-		args = appendShellCommandArgs(args, "-c", cmdStr)
+	return exec.CommandContext(ctx, name, buildShellArgsForCommand(name, args, cmdStr)...) //nolint:gosec
+}
+
+func buildShellArgsForCommand(name string, args []string, cmdStr string) []string {
+	if cmdutil.IsPowerShell(name) {
+		return appendPowerShellCommandArgs(args, cmdStr)
 	}
-	return exec.CommandContext(ctx, name, args...) //nolint:gosec
+	return appendShellCommandArgs(args, cmdutil.ShellCommandFlag(name), cmdStr)
 }
 
 func shellCommandFromContext(ctx context.Context) string {

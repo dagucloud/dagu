@@ -418,8 +418,8 @@ Validation must fail when:
 - An object condition entry has non-boolean `negate`.
 - An object condition entry contains an unknown field.
 - An object condition entry contains legacy `command`.
-- `expected` starts with `re:` and the remaining text is not a valid Go regexp
-  pattern.
+- `expected` starts with `re:` and the remaining text is empty, whitespace
+  only, or not a valid Go regexp pattern.
 
 Validation must not:
 

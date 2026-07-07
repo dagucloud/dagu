@@ -1997,6 +1997,38 @@ func TestRunner_DAGPreconditions(t *testing.T) {
 		// Check that the runner was canceled
 		assert.Equal(t, core.Aborted, r.runner.Status(ctx, plan.Plan))
 	})
+
+	t.Run("DAGPreconditionFailureDoesNotLeakToNextRun", func(t *testing.T) {
+		r := setupRunner(t)
+
+		failedPlan := r.newPlan(t, successStep("first"))
+		failedDAG := &core.DAG{
+			Name:       "test_dag_failed",
+			WorkingDir: failedPlan.workDir,
+			Preconditions: []*core.Condition{
+				{
+					Condition: "$(exit 1)",
+					Expected:  "ready",
+				},
+			},
+		}
+		failedLogPath := filepath.Join(r.cfg.LogDir, fmt.Sprintf("%s_%s.log", failedDAG.Name, r.cfg.DAGRunID))
+		failedCtx := runtime.NewContext(failedPlan.Context, failedDAG, r.cfg.DAGRunID, failedLogPath)
+
+		require.Error(t, r.runner.Run(failedCtx, failedPlan.Plan, nil))
+		assert.Equal(t, core.Failed, r.runner.Status(failedCtx, failedPlan.Plan))
+
+		successPlan := r.newPlan(t, successStep("second"))
+		successDAG := &core.DAG{
+			Name:       "test_dag_success",
+			WorkingDir: successPlan.workDir,
+		}
+		successLogPath := filepath.Join(r.cfg.LogDir, fmt.Sprintf("%s_%s.log", successDAG.Name, r.cfg.DAGRunID))
+		successCtx := runtime.NewContext(successPlan.Context, successDAG, r.cfg.DAGRunID, successLogPath)
+
+		require.NoError(t, r.runner.Run(successCtx, successPlan.Plan, nil))
+		assert.Equal(t, core.Succeeded, r.runner.Status(successCtx, successPlan.Plan))
+	})
 }
 
 func TestRunner_DAGPreconditionShellReferencePreserved(t *testing.T) {

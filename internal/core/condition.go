@@ -9,10 +9,10 @@ import (
 	"sync"
 )
 
-// Condition contains a condition and the expected value.
-// Conditions are evaluated and compared to the expected value.
-// The condition can be a command substitution or an environment variable.
-// The expected value must be a string without any substitutions.
+// Condition contains a precondition expression and optional expected value.
+// With Expected empty, Condition is evaluated as a command check.
+// With Expected set, Condition is evaluated as a runtime value and compared
+// against Expected.
 type Condition struct {
 	mu sync.RWMutex
 

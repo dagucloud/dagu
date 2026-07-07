@@ -41,6 +41,18 @@ func TestBuildShellCommandDoesNotDuplicateCommandFlag(t *testing.T) {
 	assert.Equal(t, []string{"-NoProfile", "-NonInteractive", "-Command", "echo hello"}, cmd.Args[1:])
 }
 
+func TestBuildShellCommandDoesNotDuplicatePowerShellAliasFlag(t *testing.T) {
+	cmd := value.BuildShellCommandForTest("pwsh -NoProfile -C", "echo hello")
+
+	assert.Equal(t, []string{"-NoProfile", "-NonInteractive", "-C", "echo hello"}, cmd.Args[1:])
+}
+
+func TestBuildShellCommandUsesNixShellCommandFlag(t *testing.T) {
+	cmd := value.BuildShellCommandForTest("nix-shell", "echo hello")
+
+	assert.Equal(t, []string{"--run", "echo hello"}, cmd.Args[1:])
+}
+
 func TestBuildShellCommandKeepsExistingShellPathWithSpaces(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "shell dir")
 	require.NoError(t, os.MkdirAll(dir, 0750))

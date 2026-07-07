@@ -191,6 +191,9 @@ func parsePreconditionEntry(_ BuildContext, precondition any) ([]*core.Condition
 					return nil, core.NewValidationError("preconditions", vv, ErrPreconditionValueMustBeString)
 				}
 				if after, ok0 := strings.CutPrefix(val, "re:"); ok0 {
+					if strings.TrimSpace(after) == "" {
+						return nil, core.NewValidationError("preconditions", vv, fmt.Errorf("expected regexp is empty"))
+					}
 					if _, err := regexp.Compile(after); err != nil {
 						return nil, core.NewValidationError("preconditions", vv, fmt.Errorf("expected regexp is invalid: %w", err))
 					}

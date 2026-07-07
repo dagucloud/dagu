@@ -134,6 +134,7 @@ func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan *Node) err
 	if err := r.setup(ctx); err != nil {
 		return err
 	}
+	r.resetRunState()
 
 	// Create a cancellable context for the entire execution
 	var cancel context.CancelFunc
@@ -1180,6 +1181,14 @@ func (r *Runner) setFailed() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.failed = 1
+}
+
+func (r *Runner) resetRunState() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.canceled = 0
+	r.failed = 0
+	r.lastError = nil
 }
 
 func (r *Runner) isSucceed(p *Plan) bool {

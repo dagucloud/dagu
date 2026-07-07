@@ -114,7 +114,7 @@ func TestNonDynamicFieldsPreserveCommandSubstitutionText(t *testing.T) {
 	}
 }
 
-func TestConditionValueFieldRunsCommandSubstitution(t *testing.T) {
+func TestConditionRuntimeValueFieldRunsCommandSubstitution(t *testing.T) {
 	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("uses POSIX command snippets")

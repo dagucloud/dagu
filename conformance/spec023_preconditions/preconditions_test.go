@@ -96,6 +96,11 @@ func TestValidatePreconditions(t *testing.T) {
 			file:        "invalid_regex.yaml",
 			stderrParts: []string{"preconditions", "expected", "regexp"},
 		},
+		{
+			name:        "empty regex",
+			file:        "invalid_regex_empty.yaml",
+			stderrParts: []string{"preconditions", "expected", "regexp"},
+		},
 	}
 	for _, tc := range invalidCases {
 		t.Run(tc.name, func(t *testing.T) {
