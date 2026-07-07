@@ -31,6 +31,7 @@ It must not be treated as product behavior until implementation catches up.
 | [020: MCP Server](020-mcp-server.md) | Not implemented |
 | [021: MCP Read Tool](021-mcp-read-tool.md) | Implemented |
 | [022: MCP Change Tool](022-mcp-change-tool.md) | Implemented |
+| [023: Preconditions](023-preconditions.md) | Not implemented |
 
 **Writing guidelines:**
 
