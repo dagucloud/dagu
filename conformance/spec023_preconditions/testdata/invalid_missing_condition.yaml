@@ -1,0 +1,6 @@
+working_dir: .
+preconditions:
+  - expected: ready
+steps:
+  - id: main
+    run: "true"

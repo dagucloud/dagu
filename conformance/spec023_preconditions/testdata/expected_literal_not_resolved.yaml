@@ -1,0 +1,10 @@
+working_dir: .
+params:
+  - name: environment
+    default: prod
+steps:
+  - id: write
+    preconditions:
+      - condition: prod
+        expected: '${params.environment}'
+    run: printf '%s\n' ran > expected-literal-ran.txt

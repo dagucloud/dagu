@@ -1,0 +1,6 @@
+working_dir: .
+steps:
+  - id: write
+    preconditions:
+      - condition: ./definitely-missing-precondition-command
+    run: printf '%s\n' ran > missing-command-ran.txt

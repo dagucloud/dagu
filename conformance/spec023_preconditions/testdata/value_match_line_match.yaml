@@ -1,0 +1,10 @@
+working_dir: .
+steps:
+  - id: write
+    preconditions:
+      - condition: |
+          alpha
+          ready
+          omega
+        expected: ready
+    run: printf '%s\n' ran > line-match-ran.txt

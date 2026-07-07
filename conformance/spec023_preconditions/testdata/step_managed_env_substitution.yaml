@@ -1,0 +1,7 @@
+working_dir: .
+steps:
+  - id: managed_env
+    preconditions:
+      - condition: '$(printf "%s" "$DAG_RUN_STEP_NAME")'
+        expected: managed_env
+    run: printf '%s\n' managed-env > managed-env.txt

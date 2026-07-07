@@ -1,0 +1,10 @@
+working_dir: .
+steps:
+  - id: optional
+    preconditions:
+      - condition: disabled
+        expected: enabled
+    run: printf '%s\n' optional > optional-ran.txt
+  - id: dependent
+    depends: optional
+    run: printf '%s\n' dependent > dependent-ran.txt

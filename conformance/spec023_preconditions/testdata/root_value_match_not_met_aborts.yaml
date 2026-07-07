@@ -1,0 +1,14 @@
+working_dir: .
+preconditions:
+  - condition: disabled
+    expected: enabled
+handler_on:
+  init:
+    run: printf '%s\n' init > init-ran.txt
+  abort:
+    run: printf '%s\n' abort > abort-ran.txt
+  failure:
+    run: printf '%s\n' failure > failure-ran.txt
+steps:
+  - id: main
+    run: printf '%s\n' main > main-ran.txt

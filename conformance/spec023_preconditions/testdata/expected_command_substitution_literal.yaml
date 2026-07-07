@@ -1,0 +1,7 @@
+working_dir: .
+steps:
+  - id: write
+    preconditions:
+      - condition: ready
+        expected: '$(printf ready)'
+    run: printf '%s\n' ran > expected-substitution-ran.txt

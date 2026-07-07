@@ -1,0 +1,9 @@
+working_dir: .
+steps:
+  - id: write
+    preconditions:
+      - condition: '$(printf 1 >> condition-order.txt; printf no)'
+        expected: yes
+      - condition: '$(printf 2 >> condition-order.txt; printf yes)'
+        expected: yes
+    run: printf '%s\n' ran > multiple-conditions-ran.txt

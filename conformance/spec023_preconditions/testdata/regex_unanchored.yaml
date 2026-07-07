@@ -1,0 +1,7 @@
+working_dir: .
+steps:
+  - id: write
+    preconditions:
+      - condition: prefix-ready-suffix
+        expected: re:ready
+    run: printf '%s\n' ran > regex-unanchored-ran.txt

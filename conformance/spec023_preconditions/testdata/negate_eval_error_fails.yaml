@@ -1,0 +1,8 @@
+working_dir: .
+steps:
+  - id: write
+    preconditions:
+      - condition: '$(printf "%s\n" step-error >&2; exit 3)'
+        expected: ready
+        negate: true
+    run: printf '%s\n' ran > negate-eval-error.txt

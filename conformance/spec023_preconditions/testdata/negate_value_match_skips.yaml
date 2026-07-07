@@ -1,0 +1,8 @@
+working_dir: .
+steps:
+  - id: write
+    preconditions:
+      - condition: enabled
+        expected: enabled
+        negate: true
+    run: printf '%s\n' ran > negate-value-match.txt

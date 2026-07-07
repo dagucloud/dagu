@@ -1,0 +1,5 @@
+working_dir: .
+preconditions: ./missing-validator-command
+steps:
+  - id: validate_runtime
+    run: printf '%s\n' runtime > validate-runtime-ran.txt

@@ -1,0 +1,7 @@
+working_dir: .
+steps:
+  - id: write
+    preconditions:
+      - condition: test -f missing.lock
+        negate: true
+    run: printf '%s\n' ran > negate-command-failure.txt

@@ -1,0 +1,16 @@
+working_dir: .
+steps:
+  - id: guarded
+    preconditions:
+      - condition: disabled
+        expected: enabled
+    retry_policy:
+      limit: 2
+      interval_sec: 0
+    repeat_policy:
+      repeat: true
+      limit: 2
+      interval_sec: 0
+    run: |
+      printf '%s\n' action >> policy-action.txt
+      exit 1

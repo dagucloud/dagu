@@ -1,0 +1,10 @@
+working_dir: .
+steps:
+  - id: write
+    preconditions:
+      - condition: 'printf "pre-out\n"; printf "pre-err\n" >&2'
+    run: |
+      printf 'action-out\n'
+      printf 'action-err\n' >&2
+    stdout: command-check-stdout.txt
+    stderr: command-check-stderr.txt

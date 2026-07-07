@@ -1,0 +1,7 @@
+working_dir: .
+steps:
+  - id: write
+    preconditions:
+      - condition: "true"
+        negate: true
+    run: printf '%s\n' ran > negate-command-success.txt

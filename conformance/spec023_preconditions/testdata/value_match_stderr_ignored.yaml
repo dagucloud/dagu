@@ -1,0 +1,7 @@
+working_dir: .
+steps:
+  - id: write
+    preconditions:
+      - condition: '$(printf "%s\n" ignored >&2; printf ready)'
+        expected: ready
+    run: printf '%s\n' ran > substitution-stderr-ignored.txt

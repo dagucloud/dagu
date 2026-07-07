@@ -1,0 +1,9 @@
+working_dir: .
+env:
+  READY_VALUE: ready
+steps:
+  - id: write
+    preconditions:
+      - condition: "$READY_VALUE"
+        expected: ready
+    run: printf '%s\n' ran > shell-var-literal-ran.txt
