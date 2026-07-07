@@ -229,7 +229,7 @@ func TestRuntimeDAGLevelPreconditionStatusEffectsUnix(t *testing.T) {
 		{
 			name:     "dag-level substitution receives root working directory and env",
 			file:     "root_value_match_context.yaml",
-			exitCode: intPtr(0),
+			exitCode: new(int),
 			files: map[string]string{
 				"rootctx/root-context-ran.txt": "root-context\n",
 			},
@@ -550,8 +550,4 @@ func TestValidateDoesNotExecutePreconditionCommandSubstitutionUnix(t *testing.T)
 	result.ExpectStdout("")
 	dagu.ExpectNoFile("validate-substitution-ran.txt")
 	dagu.ExpectNoFile("validate-runtime-ran.txt")
-}
-
-func intPtr(v int) *int {
-	return &v
 }

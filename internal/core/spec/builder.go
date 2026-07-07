@@ -190,8 +190,8 @@ func parsePreconditionEntry(_ BuildContext, precondition any) ([]*core.Condition
 				if !ok || strings.TrimSpace(val) == "" {
 					return nil, core.NewValidationError("preconditions", vv, ErrPreconditionValueMustBeString)
 				}
-				if strings.HasPrefix(val, "re:") {
-					if _, err := regexp.Compile(strings.TrimPrefix(val, "re:")); err != nil {
+				if after, ok0 := strings.CutPrefix(val, "re:"); ok0 {
+					if _, err := regexp.Compile(after); err != nil {
 						return nil, core.NewValidationError("preconditions", vv, fmt.Errorf("expected regexp is invalid: %w", err))
 					}
 				}
