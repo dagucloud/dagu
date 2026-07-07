@@ -1,0 +1,7 @@
+working_dir: .
+steps:
+  - id: write
+    preconditions:
+      - condition: "`printf step`"
+        expected: step
+    run: printf '%s\n' step > step-backtick.txt

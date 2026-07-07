@@ -1,0 +1,10 @@
+working_dir: .
+steps:
+  - id: write
+    working_dir: workspace
+    env:
+      READY_VALUE: ready
+    preconditions:
+      - condition: "$(test -f ready.flag && printf '%s' \"$READY_VALUE\")"
+        expected: ready
+    run: printf '%s\n' context > context-ran.txt

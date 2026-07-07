@@ -1,0 +1,7 @@
+working_dir: .
+steps:
+  - id: should_skip
+    preconditions:
+      - condition: "$(printf actual)"
+        expected: expected
+    run: printf '%s\n' bad > not-met-ran.txt

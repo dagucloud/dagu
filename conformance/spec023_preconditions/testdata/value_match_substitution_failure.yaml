@@ -1,0 +1,7 @@
+working_dir: .
+steps:
+  - id: should_fail
+    preconditions:
+      - condition: "$(sh -c 'exit 7')"
+        expected: ok
+    run: printf '%s\n' bad > failure-ran.txt

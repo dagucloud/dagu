@@ -1,0 +1,7 @@
+working_dir: .
+steps:
+  - id: write
+    preconditions:
+      - condition: "$(printf bad > validate-substitution-ran.txt; printf ok)"
+        expected: ok
+    run: printf '%s\n' bad > validate-runtime-ran.txt

@@ -1,0 +1,11 @@
+working_dir: .
+params:
+  - name: environment
+    type: string
+    default: prod
+steps:
+  - id: write
+    preconditions:
+      - condition: "$(printf '%s-api' '${params.environment}')"
+        expected: prod-api
+    run: printf '%s\n' refs > refs-first.txt
