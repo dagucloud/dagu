@@ -382,11 +382,11 @@ func findRetryAttempt(
 	return dagRunStore.FindSubAttempt(ctx, rootRun, ref.ID)
 }
 
-func newQueueDispatchNotQueuedError(status *exec.DAGRunStatus) *exec.DAGRunNotQueuedError {
+func newQueueDispatchNotQueuedError(status *exec.DAGRunStatus) *history.DAGRunNotQueuedError {
 	if status == nil {
-		return &exec.DAGRunNotQueuedError{}
+		return &history.DAGRunNotQueuedError{}
 	}
-	return &exec.DAGRunNotQueuedError{Status: status.Status, HasStatus: true}
+	return &history.DAGRunNotQueuedError{Status: status.Status, HasStatus: true}
 }
 
 // enqueueRetry enqueues the retry and persists Queued status via History.
@@ -400,7 +400,7 @@ func enqueueRetry(ctx *Context, _ exec.DAGRunAttempt, dag *core.DAG, status *exe
 		}),
 	})
 	if err := historySvc.RetryRun(ctx.Context, history.RetryRunCommand{DAG: dag, Status: status}); err != nil {
-		if errors.Is(err, exec.ErrRetryStaleLatest) {
+		if errors.Is(err, history.ErrRetryStaleLatest) {
 			return fmt.Errorf("dag-run state changed before retry could be queued")
 		}
 		return err

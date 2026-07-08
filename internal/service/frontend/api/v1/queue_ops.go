@@ -11,6 +11,7 @@ import (
 
 	openapiv1 "github.com/dagucloud/dagu/api/v1"
 	"github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/internal/service/history"
 )
 
 func (a *API) queueNameForDAGRun(ctx context.Context, dagRun exec.DAGRunRef) (string, error) {
@@ -37,7 +38,7 @@ func mapAbortQueuedDAGRunAPIError(dagName, dagRunID string, err error) error {
 		}
 	}
 
-	var notQueuedErr *exec.DAGRunNotQueuedError
+	var notQueuedErr *history.DAGRunNotQueuedError
 	if errors.As(err, &notQueuedErr) {
 		message := "DAGRun status is not queued"
 		if notQueuedErr.HasStatus {

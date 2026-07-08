@@ -46,7 +46,7 @@ func (s *Service) retryRun(ctx context.Context, cmd RetryRunCommand) error {
 		if updatedStatus != nil && updatedStatus.Status == core.Queued {
 			return nil
 		}
-		return exec.ErrRetryStaleLatest
+		return ErrRetryStaleLatest
 	}
 
 	dagRun := cmd.Status.DAGRun()

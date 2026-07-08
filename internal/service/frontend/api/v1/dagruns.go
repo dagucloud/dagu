@@ -2753,7 +2753,7 @@ func (a *API) enqueueRetry(ctx context.Context, attempt exec.DAGRunAttempt, dag 
 		}),
 	})
 	if err := historySvc.RetryRun(eventCtx, history.RetryRunCommand{DAG: dag, Status: status}); err != nil {
-		if errors.Is(err, exec.ErrRetryStaleLatest) {
+		if errors.Is(err, history.ErrRetryStaleLatest) {
 			return &Error{
 				HTTPStatus: http.StatusBadRequest,
 				Code:       api.ErrorCodeBadRequest,

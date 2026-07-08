@@ -102,7 +102,7 @@ func (s *Service) PrepareLocalAttempt(ctx context.Context, cmd PrepareLocalAttem
 type RetryRunCommand struct {
 	DAG     *core.DAG
 	Status  *exec.DAGRunStatus
-	Options exec.EnqueueRetryOptions
+	Options RetryRunOptions
 }
 
 // RetryRun persists retry state and publishes the dispatch intent.

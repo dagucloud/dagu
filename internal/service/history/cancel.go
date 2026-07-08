@@ -76,11 +76,11 @@ func (s *Service) cancelQueuedRun(ctx context.Context, cmd CancelQueuedRunComman
 	return nil
 }
 
-func newDAGRunNotQueuedError(status *exec.DAGRunStatus) *exec.DAGRunNotQueuedError {
+func newDAGRunNotQueuedError(status *exec.DAGRunStatus) *DAGRunNotQueuedError {
 	if status == nil {
-		return &exec.DAGRunNotQueuedError{}
+		return &DAGRunNotQueuedError{}
 	}
-	return &exec.DAGRunNotQueuedError{
+	return &DAGRunNotQueuedError{
 		Status:    status.Status,
 		HasStatus: true,
 	}

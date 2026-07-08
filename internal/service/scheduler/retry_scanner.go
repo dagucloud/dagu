@@ -179,12 +179,12 @@ func (s *RetryScanner) processFailedRunFromSummary(
 	})
 	err := historySvc.RetryRun(ctx, history.RetryRunCommand{
 		Status: listed,
-		Options: exec.EnqueueRetryOptions{
+		Options: history.RetryRunOptions{
 			AutoRetry: true,
 		},
 	})
 	if err != nil {
-		if errors.Is(err, exec.ErrRetryStaleLatest) {
+		if errors.Is(err, history.ErrRetryStaleLatest) {
 			logger.Debug(ctx, "Retry scanner skipped DAG run",
 				tag.DAG(listed.Name),
 				tag.RunID(listed.DAGRunID),
@@ -270,12 +270,12 @@ func (s *RetryScanner) processFailedRunLegacy(
 	err = historySvc.RetryRun(ctx, history.RetryRunCommand{
 		DAG:    dagSnapshot,
 		Status: latestStatus,
-		Options: exec.EnqueueRetryOptions{
+		Options: history.RetryRunOptions{
 			AutoRetry: true,
 		},
 	})
 	if err != nil {
-		if errors.Is(err, exec.ErrRetryStaleLatest) {
+		if errors.Is(err, history.ErrRetryStaleLatest) {
 			logger.Debug(ctx, "Retry scanner skipped DAG run",
 				tag.DAG(latestStatus.Name),
 				tag.RunID(latestStatus.DAGRunID),

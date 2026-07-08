@@ -20,6 +20,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core/spec"
 	"github.com/dagucloud/dagu/internal/persis/file"
 	"github.com/dagucloud/dagu/internal/runtime/transform"
+	"github.com/dagucloud/dagu/internal/service/history"
 	"github.com/dagucloud/dagu/internal/service/scheduler"
 	"github.com/dagucloud/dagu/internal/test"
 	"github.com/dagucloud/dagu/internal/test/intgharness"
@@ -529,16 +530,15 @@ func (f *fixture) RunningRunWithMetadata(opts runStatusOptions) string {
 	return f.writeRunStatus(core.Running, opts)
 }
 
-// RetryEnqueue enqueues a previously failed run for retry using exec.EnqueueRetry.
+// RetryEnqueue enqueues a previously failed run for retry through History.
 func (f *fixture) RetryEnqueue(runID string) *fixture {
-	err := exec.EnqueueRetry(
-		f.th.Context,
-		f.th.DAGRunStore,
-		f.th.QueueStore,
-		f.dag,
-		f.MustStatus(runID),
-		exec.EnqueueRetryOptions{},
-	)
+	historySvc := history.New(history.Config{
+		DAGRunStore: f.th.DAGRunStore,
+		Scheduler: history.ScheduleFunc(func(ctx context.Context, req history.ScheduleRequest) error {
+			return f.th.QueueStore.Enqueue(ctx, req.QueueName, req.Priority, req.DAGRun)
+		}),
+	})
+	err := historySvc.RetryRun(f.th.Context, history.RetryRunCommand{DAG: f.dag, Status: f.MustStatus(runID)})
 	require.NoError(f.t, err)
 	return f
 }
