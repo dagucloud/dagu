@@ -260,7 +260,7 @@ func (e *enqueueExecutor) enqueueOne(ctx context.Context, runParams executor.Run
 		return enqueueRunOutput{}, fmt.Errorf("failed to enqueue DAG run: %w", err)
 	}
 	if err := rCtx.QueueStore.Enqueue(ctx, queueName, exec1.QueuePriorityLow, queued.DAGRun); err != nil {
-		if rmErr := historySvc.RemoveRun(ctx, history.RemoveRunCommand{DAGRun: queued.DAGRun}); rmErr != nil {
+		if rmErr := historySvc.DiscardSubmittedRun(ctx, history.DiscardSubmittedRunCommand{DAGRun: queued.DAGRun}); rmErr != nil {
 			return enqueueRunOutput{}, fmt.Errorf("failed to enqueue DAG run: %w; rollback failed: %v", err, rmErr)
 		}
 		return enqueueRunOutput{}, fmt.Errorf("failed to enqueue DAG run: %w", err)

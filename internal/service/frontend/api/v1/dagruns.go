@@ -2985,14 +2985,14 @@ func (a *API) DequeueDAGRun(ctx context.Context, request api.DequeueDAGRunReques
 	dagRun := exec.NewDAGRunRef(request.Name, request.DagRunId)
 	workspaceName, err := a.workspaceNameForDAGRun(ctx, dagRun)
 	if err != nil {
-		return nil, mapAbortQueuedDAGRunAPIError(request.Name, request.DagRunId, err)
+		return nil, mapDispatchCancelAPIError(request.Name, request.DagRunId, err)
 	}
 	if err := a.requireExecuteForWorkspace(ctx, workspaceName); err != nil {
 		return nil, err
 	}
 	queueName, err := a.queueNameForDAGRun(ctx, dagRun)
 	if err != nil {
-		return nil, mapAbortQueuedDAGRunAPIError(request.Name, request.DagRunId, err)
+		return nil, mapDispatchCancelAPIError(request.Name, request.DagRunId, err)
 	}
 
 	if err := a.procStore.Lock(ctx, queueName); err != nil {
@@ -3002,7 +3002,7 @@ func (a *API) DequeueDAGRun(ctx context.Context, request api.DequeueDAGRunReques
 
 	historySvc := history.New(history.Config{DAGRunStore: a.dagRunStore})
 	if err := historySvc.MarkDispatchCanceled(ctx, history.MarkDispatchCanceledCommand{DAGRun: dagRun}); err != nil {
-		return nil, mapAbortQueuedDAGRunAPIError(request.Name, request.DagRunId, err)
+		return nil, mapDispatchCancelAPIError(request.Name, request.DagRunId, err)
 	}
 	if _, err := a.queueStore.DequeueByDAGRunID(ctx, queueName, dagRun); err != nil && !errors.Is(err, exec.ErrQueueItemNotFound) {
 		return nil, fmt.Errorf("error dequeueing dag-run: %w", err)
@@ -3258,7 +3258,7 @@ func (a *API) enqueuePreparedDAGRun(
 		return err
 	}
 	if err := a.queueStore.Enqueue(ctx, queuedDAG.ProcGroup(), exec.QueuePriorityLow, queued.DAGRun); err != nil {
-		if rmErr := historySvc.RemoveRun(ctx, history.RemoveRunCommand{DAGRun: queued.DAGRun}); rmErr != nil {
+		if rmErr := historySvc.DiscardSubmittedRun(ctx, history.DiscardSubmittedRunCommand{DAGRun: queued.DAGRun}); rmErr != nil {
 			return fmt.Errorf("failed to enqueue DAG run: %w; rollback failed: %v", err, rmErr)
 		}
 		return fmt.Errorf("failed to enqueue DAG run: %w", err)

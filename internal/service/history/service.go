@@ -135,12 +135,12 @@ func (s *Service) MarkDispatchCanceled(ctx context.Context, cmd MarkDispatchCanc
 	return s.markDispatchCanceled(ctx, cmd)
 }
 
-// RemoveRunCommand removes all persisted history for a DAG run.
-type RemoveRunCommand struct {
+// DiscardSubmittedRunCommand removes persisted history for a submitted DAG run.
+type DiscardSubmittedRunCommand struct {
 	DAGRun exec.DAGRunRef
 }
 
-// RemoveRun removes all persisted history for a DAG run.
-func (s *Service) RemoveRun(ctx context.Context, cmd RemoveRunCommand) error {
+// DiscardSubmittedRun removes persisted history for a submitted DAG run.
+func (s *Service) DiscardSubmittedRun(ctx context.Context, cmd DiscardSubmittedRunCommand) error {
 	return s.cfg.DAGRunStore.RemoveDAGRun(ctx, cmd.DAGRun)
 }

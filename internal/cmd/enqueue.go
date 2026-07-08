@@ -120,7 +120,7 @@ func enqueueDAGRun(ctx *Context, dag *core.DAG, dagRunID string, triggerType cor
 		return err
 	}
 	if err := ctx.QueueStore.Enqueue(ctx.Context, dag.ProcGroup(), exec.QueuePriorityLow, queued.DAGRun); err != nil {
-		if rmErr := historySvc.RemoveRun(ctx.Context, history.RemoveRunCommand{DAGRun: queued.DAGRun}); rmErr != nil {
+		if rmErr := historySvc.DiscardSubmittedRun(ctx.Context, history.DiscardSubmittedRunCommand{DAGRun: queued.DAGRun}); rmErr != nil {
 			return fmt.Errorf("failed to enqueue DAG run: %w; rollback failed: %v", err, rmErr)
 		}
 		return fmt.Errorf("failed to enqueue DAG run: %w", err)

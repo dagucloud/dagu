@@ -51,7 +51,7 @@ func runDequeue(ctx *Context, args []string) error {
 	return dequeueQueuedDAGRun(ctx, requestedQueueName, dagRun)
 }
 
-// dequeueFirst dequeues the first DAG run from the named queue and processes that run as aborted.
+// dequeueFirst dequeues the first DAG run from the named queue and records dispatch cancellation.
 //
 // It returns an error if queues are disabled, if removing an item from the queue fails,
 // if the queue is empty, if retrieving the dequeued item's DAG-run data fails, or if
@@ -90,13 +90,13 @@ func dequeueFirst(ctx *Context, queueName string) error {
 			return nil
 		})
 		if err != nil {
-			if isQueueAbortSkippable(err) {
+			if isDispatchCancelSkippable(err) {
 				if _, deleteErr := ctx.QueueStore.DeleteByItemIDs(ctx.Context, queueName, []string{item.ID()}); deleteErr != nil {
 					return fmt.Errorf("failed to discard stale queue head: %w", deleteErr)
 				}
 				continue
 			}
-			return mapAbortQueuedDAGRunError(*data, err)
+			return mapDispatchCancelError(*data, err)
 		}
 
 		logger.Info(ctx.Context, "Dequeued dag-run",
@@ -109,7 +109,7 @@ func dequeueFirst(ctx *Context, queueName string) error {
 	}
 }
 
-// dequeueQueuedDAGRun aborts a queued dag-run and removes its queue entries.
+// dequeueQueuedDAGRun records dispatch cancellation and removes queue entries.
 func dequeueQueuedDAGRun(ctx *Context, requestedQueueName string, dagRun exec.DAGRunRef) error {
 	// Check if queues are enabled
 	if !ctx.Config.Queues.Enabled {
@@ -118,7 +118,7 @@ func dequeueQueuedDAGRun(ctx *Context, requestedQueueName string, dagRun exec.DA
 
 	actualQueueName, err := queueNameForDAGRun(ctx, dagRun)
 	if err != nil {
-		if isQueueLookupFallbackAllowed(err) {
+		if isQueueNameLookupFallbackAllowed(err) {
 			removed, fallbackErr := removeQueuedDAGRunByQueueName(ctx, requestedQueueName, dagRun)
 			if fallbackErr != nil {
 				return fallbackErr
@@ -132,7 +132,7 @@ func dequeueQueuedDAGRun(ctx *Context, requestedQueueName string, dagRun exec.DA
 				return nil
 			}
 		}
-		return mapAbortQueuedDAGRunError(dagRun, err)
+		return mapDispatchCancelError(dagRun, err)
 	}
 
 	err = withQueueProcLock(ctx, actualQueueName, func() error {
@@ -149,7 +149,7 @@ func dequeueQueuedDAGRun(ctx *Context, requestedQueueName string, dagRun exec.DA
 		return nil
 	})
 	if err != nil {
-		return mapAbortQueuedDAGRunError(dagRun, err)
+		return mapDispatchCancelError(dagRun, err)
 	}
 
 	logger.Info(ctx.Context, "Dequeued dag-run",
@@ -175,7 +175,7 @@ func removeQueuedDAGRunByQueueName(ctx *Context, queueName string, dagRun exec.D
 		return nil
 	})
 	if err != nil {
-		return false, mapAbortQueuedDAGRunError(dagRun, err)
+		return false, mapDispatchCancelError(dagRun, err)
 	}
 	return removed, nil
 }
@@ -203,7 +203,7 @@ func withQueueProcLock(ctx *Context, queueName string, fn func() error) error {
 	return fn()
 }
 
-func mapAbortQueuedDAGRunError(dagRun exec.DAGRunRef, err error) error {
+func mapDispatchCancelError(dagRun exec.DAGRunRef, err error) error {
 	if errors.Is(err, exec.ErrDAGRunIDNotFound) || errors.Is(err, exec.ErrNoStatusData) {
 		return fmt.Errorf("failed to find the record for dag-run ID %s: %w", dagRun.ID, err)
 	}
@@ -211,15 +211,15 @@ func mapAbortQueuedDAGRunError(dagRun exec.DAGRunRef, err error) error {
 	var notQueuedErr *history.RunNotPendingError
 	if errors.As(err, &notQueuedErr) {
 		if notQueuedErr.HasStatus {
-			return fmt.Errorf("dag-run %s is not in queued status but %s", dagRun.ID, notQueuedErr.Status)
+			return fmt.Errorf("dag-run %s is not pending dispatch but %s", dagRun.ID, notQueuedErr.Status)
 		}
-		return fmt.Errorf("dag-run %s is not in queued status", dagRun.ID)
+		return fmt.Errorf("dag-run %s is not pending dispatch", dagRun.ID)
 	}
 
 	return err
 }
 
-func isQueueAbortSkippable(err error) bool {
+func isDispatchCancelSkippable(err error) bool {
 	if err == nil {
 		return false
 	}
@@ -230,7 +230,7 @@ func isQueueAbortSkippable(err error) bool {
 	return errors.As(err, &notQueuedErr)
 }
 
-func isQueueLookupFallbackAllowed(err error) bool {
+func isQueueNameLookupFallbackAllowed(err error) bool {
 	return errors.Is(err, exec.ErrDAGRunIDNotFound) ||
 		errors.Is(err, exec.ErrNoStatusData) ||
 		errors.Is(err, exec.ErrCorruptedStatusFile)

@@ -28,7 +28,7 @@ func (a *API) queueNameForDAGRun(ctx context.Context, dagRun exec.DAGRunRef) (st
 	return dag.ProcGroup(), nil
 }
 
-func mapAbortQueuedDAGRunAPIError(dagName, dagRunID string, err error) error {
+func mapDispatchCancelAPIError(dagName, dagRunID string, err error) error {
 	switch {
 	case errors.Is(err, exec.ErrDAGRunIDNotFound), errors.Is(err, exec.ErrNoStatusData):
 		return &Error{
@@ -40,9 +40,9 @@ func mapAbortQueuedDAGRunAPIError(dagName, dagRunID string, err error) error {
 
 	var notQueuedErr *history.RunNotPendingError
 	if errors.As(err, &notQueuedErr) {
-		message := "DAGRun status is not queued"
+		message := "DAGRun is not pending dispatch"
 		if notQueuedErr.HasStatus {
-			message = fmt.Sprintf("DAGRun status is not queued: %s", notQueuedErr.Status)
+			message = fmt.Sprintf("DAGRun is not pending dispatch: %s", notQueuedErr.Status)
 		}
 		return &Error{
 			HTTPStatus: http.StatusBadRequest,

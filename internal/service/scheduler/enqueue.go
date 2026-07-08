@@ -81,7 +81,7 @@ func EnqueueCatchupRun(
 		return fmt.Errorf("failed to enqueue catchup run: %w", err)
 	}
 	if err := queueStore.Enqueue(ctx, dagCopy.ProcGroup(), exec.QueuePriorityLow, queued.DAGRun); err != nil {
-		if rmErr := historySvc.RemoveRun(ctx, history.RemoveRunCommand{DAGRun: queued.DAGRun}); rmErr != nil {
+		if rmErr := historySvc.DiscardSubmittedRun(ctx, history.DiscardSubmittedRunCommand{DAGRun: queued.DAGRun}); rmErr != nil {
 			return fmt.Errorf("failed to enqueue catchup run: %w; rollback failed: %v", err, rmErr)
 		}
 		return fmt.Errorf("failed to enqueue catchup run: %w", err)
