@@ -368,9 +368,12 @@ func New(
 ) *Agent {
 	runStateStore := opts.RunStateStore
 	if runStateStore == nil {
-		runStateStore = runstate.NewHistoryStore(opts.DAGRunStore)
-	}
-	if opts.PreparedAttempt != nil {
+		historyOpts := []runstate.HistoryStoreOption{}
+		if opts.PreparedAttempt != nil {
+			historyOpts = append(historyOpts, runstate.WithPreparedAttempt(opts.PreparedAttempt))
+		}
+		runStateStore = runstate.NewHistoryStore(opts.DAGRunStore, historyOpts...)
+	} else if opts.PreparedAttempt != nil {
 		runStateStore = runstate.NewPreparedStore(runStateStore, opts.PreparedAttempt)
 	}
 

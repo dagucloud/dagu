@@ -13,17 +13,18 @@ import (
 	"github.com/dagucloud/dagu/internal/core/exec"
 )
 
-type historyStoreOption func(*historyStore)
+// HistoryStoreOption configures a history-backed run-state store.
+type HistoryStoreOption func(*historyStore)
 
 // WithPreparedAttempt reuses execution state prepared before runtime execution.
-func WithPreparedAttempt(attempt Attempt) historyStoreOption {
+func WithPreparedAttempt(attempt Attempt) HistoryStoreOption {
 	return func(s *historyStore) {
 		s.preparedAttempt = attempt
 	}
 }
 
 // NewHistoryStore uses Dagu's run history store as the runtime run-state store.
-func NewHistoryStore(store exec.DAGRunStore, opts ...historyStoreOption) Store {
+func NewHistoryStore(store exec.DAGRunStore, opts ...HistoryStoreOption) Store {
 	s := &historyStore{store: store}
 	for _, opt := range opts {
 		opt(s)

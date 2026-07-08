@@ -14,6 +14,7 @@ import (
 	"github.com/dagucloud/dagu/internal/runtime/agent"
 	"github.com/dagucloud/dagu/internal/runtime/runstate"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
+	"github.com/dagucloud/dagu/internal/service/history"
 	"github.com/dagucloud/dagu/internal/service/worker"
 )
 
@@ -121,8 +122,9 @@ type Worker struct {
 }
 
 type localPreparation struct {
-	attempt     runstate.Attempt
-	proc        coreexec.ProcHandle
-	logFile     string
-	artifactDir string
+	attempt       runstate.Attempt
+	proc          coreexec.ProcHandle
+	logFile       string
+	artifactDir   string
+	rollbackToken history.PreparedLocalAttemptRollbackToken
 }

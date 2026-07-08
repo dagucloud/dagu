@@ -18,7 +18,7 @@ import (
 
 func TestHistoryStoreBeginAttemptUsesPreparedAttempt(t *testing.T) {
 	ctx := context.Background()
-	dag := &core.DAG{Name: "parent"}
+	dag := &core.DAG{Name: "parent", HistRetentionRuns: 2}
 	attempt := newRecordingAttempt("attempt-1")
 	store := &recordingDAGRunStore{}
 
@@ -32,6 +32,10 @@ func TestHistoryStoreBeginAttemptUsesPreparedAttempt(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "attempt-1", got.ID())
 	require.Zero(t, store.createCalls)
+	require.Len(t, store.removeOldCalls, 1)
+	require.Equal(t, 0, store.removeOldCalls[0].retentionDays)
+	require.NotNil(t, store.removeOldCalls[0].opts.RetentionRuns)
+	require.Equal(t, 2, *store.removeOldCalls[0].opts.RetentionRuns)
 }
 
 func TestHistoryStoreBeginAttemptRejectsPreparedAttemptIDMismatch(t *testing.T) {

@@ -426,13 +426,13 @@ func (e *Engine) runLocal(ctx context.Context, dag *core.DAG, runID string, opts
 
 	logFile, err := e.openLocalLogFile(ctx, dag, runID, prepared)
 	if err != nil {
-		releaseLocalPreparation(ctx, prepared)
+		e.discardLocalPreparation(ctx, prepared)
 		return nil, err
 	}
 	artifactDir, err := e.localArtifactDir(ctx, dag, runID, prepared)
 	if err != nil {
 		_ = logFile.Close()
-		releaseLocalPreparation(ctx, prepared)
+		e.discardLocalPreparation(ctx, prepared)
 		return nil, err
 	}
 	dagStore, err := e.dagStoreFactory(ctx, e.cfg, DAGStoreFactoryOptions{
@@ -440,7 +440,7 @@ func (e *Engine) runLocal(ctx context.Context, dag *core.DAG, runID string, opts
 	})
 	if err != nil {
 		_ = logFile.Close()
-		releaseLocalPreparation(ctx, prepared)
+		e.discardLocalPreparation(ctx, prepared)
 		return nil, err
 	}
 
@@ -660,10 +660,11 @@ func (e *Engine) prepareHistoryLocal(ctx context.Context, dag *core.DAG, runID s
 		return nil, err
 	}
 	return &localPreparation{
-		attempt:     prepared.Execution,
-		proc:        prepared.Execution.ProcHandle(),
-		logFile:     prepared.Execution.LogFile(),
-		artifactDir: prepared.Execution.ArtifactDir(),
+		attempt:       prepared.Execution,
+		proc:          prepared.Execution.ProcHandle(),
+		logFile:       prepared.Execution.LogFile(),
+		artifactDir:   prepared.Execution.ArtifactDir(),
+		rollbackToken: prepared.RollbackToken,
 	}, nil
 }
 
@@ -744,6 +745,17 @@ func releaseLocalPreparation(ctx context.Context, prepared *localPreparation) {
 		return
 	}
 	_ = prepared.proc.Stop(ctx)
+}
+
+func (e *Engine) discardLocalPreparation(ctx context.Context, prepared *localPreparation) {
+	releaseLocalPreparation(ctx, prepared)
+	if prepared == nil {
+		return
+	}
+	historySvc := history.New(history.Config{DAGRunStore: e.dagRunStore})
+	_ = historySvc.DiscardPreparedLocalAttempt(ctx, history.DiscardPreparedLocalAttemptCommand{
+		RollbackToken: prepared.rollbackToken,
+	})
 }
 
 func (e *Engine) runtimeStores(ctx context.Context) RuntimeStores {

@@ -95,13 +95,30 @@ type PrepareLocalAttemptCommand struct {
 
 // PreparedLocalAttempt is a local attempt with acquired process ownership.
 type PreparedLocalAttempt struct {
-	Execution *ExecutionContext
-	Status    *exec.DAGRunStatus
+	Execution     *ExecutionContext
+	Status        *exec.DAGRunStatus
+	RollbackToken PreparedLocalAttemptRollbackToken
 }
 
 // PrepareLocalAttempt prepares an attempt and acquires local execution ownership.
 func (s *Service) PrepareLocalAttempt(ctx context.Context, cmd PrepareLocalAttemptCommand) (*PreparedLocalAttempt, error) {
 	return s.prepareLocalAttempt(ctx, cmd)
+}
+
+// DiscardPreparedLocalAttemptCommand removes a newly prepared local attempt.
+type DiscardPreparedLocalAttemptCommand struct {
+	RollbackToken PreparedLocalAttemptRollbackToken
+}
+
+// DiscardPreparedLocalAttempt removes a newly prepared local attempt.
+func (s *Service) DiscardPreparedLocalAttempt(ctx context.Context, cmd DiscardPreparedLocalAttemptCommand) error {
+	if cmd.RollbackToken.dagRun.Zero() {
+		return nil
+	}
+	if s.cfg.DAGRunStore == nil {
+		return fmt.Errorf("dag-run store is required")
+	}
+	return s.cfg.DAGRunStore.RemoveDAGRun(context.WithoutCancel(ctx), cmd.RollbackToken.dagRun)
 }
 
 // RetryRunCommand requests a lifecycle transition back to dispatch eligibility.
@@ -210,7 +227,7 @@ func (s *Service) DiscardSubmittedRun(ctx context.Context, cmd DiscardSubmittedR
 	if err := s.validateDiscardSubmittedRun(cmd); err != nil {
 		return err
 	}
-	return s.cfg.DAGRunStore.RemoveDAGRun(ctx, cmd.RollbackToken.dagRun)
+	return s.cfg.DAGRunStore.RemoveDAGRun(context.WithoutCancel(ctx), cmd.RollbackToken.dagRun)
 }
 
 func (s *Service) validateDiscardSubmittedRun(cmd DiscardSubmittedRunCommand) error {
@@ -225,6 +242,11 @@ func (s *Service) validateDiscardSubmittedRun(cmd DiscardSubmittedRunCommand) er
 
 // SubmitRollbackToken authorizes rollback of a submitted run.
 type SubmitRollbackToken struct {
+	dagRun exec.DAGRunRef
+}
+
+// PreparedLocalAttemptRollbackToken authorizes cleanup of a newly prepared attempt.
+type PreparedLocalAttemptRollbackToken struct {
 	dagRun exec.DAGRunRef
 }
 

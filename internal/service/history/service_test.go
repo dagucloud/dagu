@@ -49,6 +49,34 @@ func TestSubmitRunWritesPendingLifecycleState(t *testing.T) {
 	require.Empty(t, status.Conditions)
 }
 
+func TestDiscardSubmittedRunIgnoresContextCancellation(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	tmp := t.TempDir()
+	dag := testHistoryDAG("history-submit-cancel-rollback")
+	store := dagrun.New(filepath.Join(tmp, "dag-runs"), dagrun.WithLatestStatusToday(false))
+	historySvc := history.New(history.Config{
+		DAGRunStore: store,
+		LogBaseDir:  filepath.Join(tmp, "logs"),
+	})
+	submitted, err := historySvc.SubmitRun(ctx, history.SubmitRunCommand{
+		DAG:      dag,
+		DAGRunID: "run-rollback",
+	})
+	require.NoError(t, err)
+
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	err = historySvc.DiscardSubmittedRun(canceled, history.DiscardSubmittedRunCommand{
+		RollbackToken: submitted.RollbackToken,
+	})
+	require.NoError(t, err)
+
+	_, err = store.FindAttempt(ctx, submitted.DAGRun)
+	require.Error(t, err)
+}
+
 func TestRetryRunRecordsPendingRetryState(t *testing.T) {
 	t.Parallel()
 

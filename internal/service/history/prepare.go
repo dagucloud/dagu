@@ -86,7 +86,8 @@ func (s *Service) prepareLocalAttempt(ctx context.Context, cmd PrepareLocalAttem
 			preparedLogFile(logFile, status),
 			preparedArtifactDir(artifactDir, status),
 		),
-		Status: status,
+		Status:        status,
+		RollbackToken: preparedLocalAttemptRollbackToken(cmd),
 	}, nil
 }
 
@@ -236,4 +237,13 @@ func preparedArtifactDir(artifactDir string, status *exec.DAGRunStatus) string {
 		return status.ArchiveDir
 	}
 	return artifactDir
+}
+
+func preparedLocalAttemptRollbackToken(cmd PrepareLocalAttemptCommand) PreparedLocalAttemptRollbackToken {
+	if cmd.Mode != PrepareAttemptCreate || cmd.AttemptOptions.RootDAGRun != nil {
+		return PreparedLocalAttemptRollbackToken{}
+	}
+	return PreparedLocalAttemptRollbackToken{
+		dagRun: exec.NewDAGRunRef(cmd.DAG.Name, cmd.DAGRunID),
+	}
 }
