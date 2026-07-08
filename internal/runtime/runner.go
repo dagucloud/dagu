@@ -1466,7 +1466,7 @@ func (r *Runner) handleNodeExecutionError(ctx context.Context, plan *Plan, node 
 		r.setLastError(execErr)
 
 	case r.isCanceled():
-		r.setLastError(execErr)
+		node.SetStatus(core.NodeAborted)
 
 	case node.retryPolicy.Limit > node.GetRetryCount():
 		if r.shouldRetryNode(ctx, node, execErr) {

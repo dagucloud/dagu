@@ -108,7 +108,7 @@ steps:
 				return false
 			}
 			return status.Status == core.Aborted || status.Status == core.Failed
-		}, 15*time.Second, 500*time.Millisecond, "Timeout waiting for DAG to be cancelled")
+		}, distrTestTimeout(15*time.Second), 500*time.Millisecond, "Timeout waiting for DAG to be cancelled")
 
 		finalStatus, err := f.latestStatus()
 		require.NoError(t, err)

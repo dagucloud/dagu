@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -21,11 +22,75 @@ import (
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/builtin/chat"
+	runtimeexec "github.com/dagucloud/dagu/internal/runtime/executor"
 	"github.com/dagucloud/dagu/internal/test"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type stoppedStatusExecutor struct {
+	ready    chan struct{}
+	stopped  chan struct{}
+	stopOnce sync.Once
+	stdout   io.Writer
+	stderr   io.Writer
+}
+
+func newStoppedStatusExecutor() *stoppedStatusExecutor {
+	return &stoppedStatusExecutor{
+		ready:   make(chan struct{}),
+		stopped: make(chan struct{}),
+	}
+}
+
+func (e *stoppedStatusExecutor) SetStdout(out io.Writer) { e.stdout = out }
+
+func (e *stoppedStatusExecutor) SetStderr(out io.Writer) { e.stderr = out }
+
+func (e *stoppedStatusExecutor) Run(ctx context.Context) error {
+	close(e.ready)
+
+	select {
+	case <-e.stopped:
+		return fmt.Errorf("executor stopped")
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (e *stoppedStatusExecutor) Kill(os.Signal) error {
+	e.stopOnce.Do(func() {
+		close(e.stopped)
+	})
+	return nil
+}
+
+func (e *stoppedStatusExecutor) DetermineNodeStatus() (core.NodeStatus, error) {
+	return core.NodeFailed, nil
+}
+
+func registerStoppedStatusExecutor(t *testing.T) (string, <-chan *stoppedStatusExecutor) {
+	t.Helper()
+
+	executorType := "test-stopped-status-" + uuid.Must(uuid.NewV7()).String()
+	execCh := make(chan *stoppedStatusExecutor, 1)
+	runtimeexec.RegisterExecutor(
+		executorType,
+		func(context.Context, core.Step) (runtimeexec.Executor, error) {
+			exec := newStoppedStatusExecutor()
+			execCh <- exec
+			return exec, nil
+		},
+		nil,
+		core.ExecutorCapabilities{},
+	)
+	t.Cleanup(func() {
+		runtimeexec.UnregisterExecutor(executorType)
+	})
+
+	return executorType, execCh
+}
 
 func shellTestPath(path string) string {
 	return filepath.ToSlash(path)
@@ -2164,6 +2229,38 @@ func TestRunner_SignalHandling(t *testing.T) {
 		result := plan.assertRun(t, core.Aborted)
 		result.assertNodeStatus(t, "1", core.NodeAborted)
 	})
+}
+
+func TestRunner_CancelSuppressesPostStopExecutorStatusError(t *testing.T) {
+	executorType, execCh := registerStoppedStatusExecutor(t)
+	r := setupRunner(t)
+
+	plan := r.newPlan(t, newStep("1", withExecutorType(executorType)))
+	dag := &core.DAG{Name: "test_dag", WorkingDir: plan.workDir}
+	logFilename := fmt.Sprintf("%s_%s.log", dag.Name, r.cfg.DAGRunID)
+	logFilePath := path.Join(r.cfg.LogDir, logFilename)
+	ctx := runtime.NewContext(plan.Context, dag, r.cfg.DAGRunID, logFilePath)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- r.runner.Run(ctx, plan.Plan, nil)
+	}()
+
+	exec := <-execCh
+	<-exec.ready
+
+	r.runner.Signal(ctx, plan.Plan, syscall.SIGTERM, nil, false)
+
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("runner did not finish after cancellation")
+	}
+
+	require.Equal(t, core.Aborted, r.runner.Status(ctx, plan.Plan))
+	result := runResult{planHelper: plan}
+	result.assertNodeStatus(t, "1", core.NodeAborted)
 }
 
 func TestRunner_ComplexDependencyChains(t *testing.T) {

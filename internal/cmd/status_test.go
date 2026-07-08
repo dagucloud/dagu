@@ -56,10 +56,9 @@ func TestStatusCommand(t *testing.T) {
   - name: "1"
     run: %q
 `, holdUntilFileExistsCommand(release)))
-		done := make(chan struct{})
+		done := make(chan error, 1)
 		go func() {
-			th.RunCommand(t, cmd.Start(), test.CmdTest{Args: []string{"start", dagFile.Location}})
-			close(done)
+			done <- th.ExecuteCommand(cmd.Start(), test.CmdTest{Args: []string{"start", dagFile.Location}})
 		}()
 
 		waitForDAGRunning(t, th, dagFile.Location)
@@ -68,7 +67,7 @@ func TestStatusCommand(t *testing.T) {
 		require.NoError(t, err)
 
 		releaseHoldFile(t, release)
-		<-done
+		require.NoError(t, <-done)
 	})
 
 	t.Run("StatusDAGSuccess", func(t *testing.T) {
@@ -262,16 +261,15 @@ steps:
   - name: "1"
     run: %q
 `, holdUntilFileExistsCommand(release)))
-		done := make(chan struct{})
+		done := make(chan error, 1)
 		go func() {
-			th.RunCommand(t, cmd.Start(), test.CmdTest{Args: []string{"start", dagFile.Location}})
-			close(done)
+			done <- th.ExecuteCommand(cmd.Start(), test.CmdTest{Args: []string{"start", dagFile.Location}})
 		}()
 
 		waitForDAGRunning(t, th, dagFile.Location)
 
 		th.RunCommand(t, cmd.Stop(), test.CmdTest{Args: []string{"stop", dagFile.Location}})
-		<-done
+		require.NoError(t, <-done)
 
 		err := executeCommand(th.Context, cmd.Status(), []string{dagFile.Location})
 		require.NoError(t, err)
@@ -327,10 +325,9 @@ steps:
   - name: "1"
     run: %q
 `, holdUntilFileExistsCommand(release)))
-		done := make(chan struct{})
+		done := make(chan error, 1)
 		go func() {
-			th.RunCommand(t, cmd.Start(), test.CmdTest{Args: []string{"start", dagFile.Location}})
-			close(done)
+			done <- th.ExecuteCommand(cmd.Start(), test.CmdTest{Args: []string{"start", dagFile.Location}})
 		}()
 
 		waitForDAGRunning(t, th, dagFile.Location)
@@ -339,7 +336,7 @@ steps:
 		require.NoError(t, err)
 
 		releaseHoldFile(t, release)
-		<-done
+		require.NoError(t, <-done)
 	})
 
 	t.Run("StatusDAGWithAttemptID", func(t *testing.T) {

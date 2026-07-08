@@ -28,12 +28,11 @@ func TestStopCommand(t *testing.T) {
     run: %q
 `, holdUntilFileExistsCommand(release)))
 
-		done := make(chan struct{})
+		done := make(chan error, 1)
 		go func() {
 			// Start the DAG to stop.
 			args := []string{"start", dag.Location}
-			th.RunCommand(t, cmd.Start(), test.CmdTest{Args: args})
-			close(done)
+			done <- th.ExecuteCommand(cmd.Start(), test.CmdTest{Args: args})
 		}()
 
 		// Wait for the dag-run running.
@@ -46,7 +45,7 @@ func TestStopCommand(t *testing.T) {
 
 		// Check the dag-run is stopped.
 		dag.AssertLatestStatus(t, core.Aborted)
-		<-done
+		require.NoError(t, <-done)
 	})
 	t.Run("StopDAGRunWithRunID", func(t *testing.T) {
 		t.Parallel()
@@ -58,13 +57,12 @@ func TestStopCommand(t *testing.T) {
     run: %q
 `, holdUntilFileExistsCommand(release)))
 
-		done := make(chan struct{})
+		done := make(chan error, 1)
 		dagRunID := uuid.Must(uuid.NewV7()).String()
 		go func() {
 			// Start the dag-run to stop.
 			args := []string{"start", "--run-id=" + dagRunID, dag.Location}
-			th.RunCommand(t, cmd.Start(), test.CmdTest{Args: args})
-			close(done)
+			done <- th.ExecuteCommand(cmd.Start(), test.CmdTest{Args: args})
 		}()
 
 		// Wait for the dag-run running
@@ -77,7 +75,7 @@ func TestStopCommand(t *testing.T) {
 
 		// Check the dag-run is stopped.
 		dag.AssertLatestStatus(t, core.Aborted)
-		<-done
+		require.NoError(t, <-done)
 	})
 	t.Run("CancelFailedAutoRetryPendingDAGRunWithRunID", func(t *testing.T) {
 		t.Parallel()
