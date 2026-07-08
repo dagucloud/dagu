@@ -16,25 +16,16 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ArrowRightLeft, RefreshCw } from 'lucide-react';
 import { useEffect, useState } from 'react';
-
-type ItemKind = 'dag' | 'config' | 'memory' | 'skill' | 'soul';
+import { deriveSyncKindFromItemId, type SyncKind } from './sync-kind';
 
 interface MoveDialogProps {
   open: boolean;
   itemId: string;
-  itemKind: ItemKind;
+  itemKind: SyncKind;
   itemStatus: SyncStatus;
   isMoving: boolean;
   onConfirm: (newItemId: string, message: string, force: boolean) => void;
   onCancel: () => void;
-}
-
-function deriveKind(id: string): ItemKind {
-  if (id === 'base' || /^workspaces\/[^/]+\/base$/.test(id)) return 'config';
-  if (id.startsWith('memory/')) return 'memory';
-  if (id.startsWith('skills/')) return 'skill';
-  if (id.startsWith('souls/')) return 'soul';
-  return 'dag';
 }
 
 export function MoveDialog({
@@ -73,11 +64,9 @@ export function MoveDialog({
       setValidationError('Config items cannot be moved');
       return false;
     }
-    const newKind = deriveKind(newItemId.trim());
+    const newKind = deriveSyncKindFromItemId(newItemId.trim());
     if (newKind !== itemKind) {
-      setValidationError(
-        `Cannot move a ${itemKind} item to a ${newKind} path`
-      );
+      setValidationError(`Cannot move a ${itemKind} item to a ${newKind} path`);
       return false;
     }
     setValidationError('');
@@ -96,9 +85,8 @@ export function MoveDialog({
         <DialogHeader>
           <DialogTitle className="text-base">Move Item</DialogTitle>
           <DialogDescription className="text-xs">
-            Rename{' '}
-            <span className="font-mono font-medium">{itemId}</span> to a new
-            path.
+            Rename <span className="font-mono font-medium">{itemId}</span> to a
+            new path.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
@@ -155,11 +143,7 @@ export function MoveDialog({
           <Button variant="outline" size="sm" onClick={onCancel}>
             Cancel
           </Button>
-          <Button
-            size="sm"
-            onClick={handleSubmit}
-            disabled={isMoving}
-          >
+          <Button size="sm" onClick={handleSubmit} disabled={isMoving}>
             {isMoving ? (
               <>
                 <RefreshCw className="h-3.5 w-3.5 mr-1 animate-spin" />

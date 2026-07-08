@@ -1,12 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {
-  components,
-  SyncItemKind,
-  SyncStatus,
-  SyncSummary,
-} from '@/api/v1/schema';
+import { components, SyncStatus, SyncSummary } from '@/api/v1/schema';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -63,6 +58,15 @@ import { DiffModal } from './DiffModal';
 import { ForgetDialog } from './ForgetDialog';
 import { MoveDialog } from './MoveDialog';
 import { RowActionMenu } from './RowActionMenu';
+import {
+  createSyncKindCounts,
+  normalizeSyncItemKind,
+  parseSyncKind,
+  syncKindBadgeClass,
+  syncKindFilters,
+  syncKindLabels,
+  type SyncKind,
+} from './sync-kind';
 import { useSyncReconcile } from './useSyncReconcile';
 
 type SyncStatusResponse = components['schemas']['SyncStatusResponse'];
@@ -70,9 +74,7 @@ type SyncConfigResponse = components['schemas']['SyncConfigResponse'];
 type SyncItemDiffResponse = components['schemas']['SyncItemDiffResponse'];
 type SyncItem = components['schemas']['SyncItem'];
 type StatusFilter = 'all' | 'modified' | 'untracked' | 'conflict' | 'missing';
-type TypeFilter = 'dag' | 'config' | 'memory' | 'skill' | 'soul';
-type UISyncKind = 'dag' | 'config' | 'memory' | 'skill' | 'soul';
-type SyncRow = { itemId: string; item: SyncItem; kind: UISyncKind };
+type SyncRow = { itemId: string; item: SyncItem; kind: SyncKind };
 
 const statusFilters: StatusFilter[] = [
   'all',
@@ -81,14 +83,6 @@ const statusFilters: StatusFilter[] = [
   'conflict',
   'missing',
 ];
-const typeFilters: TypeFilter[] = [
-  'dag',
-  'config',
-  'memory',
-  'skill',
-  'soul',
-];
-
 function parseStatusFilter(value: string | null): StatusFilter {
   if (
     value === 'all' ||
@@ -100,27 +94,6 @@ function parseStatusFilter(value: string | null): StatusFilter {
     return value;
   }
   return 'all';
-}
-
-function parseTypeFilter(value: string | null): TypeFilter {
-  if (
-    value === 'dag' ||
-    value === 'config' ||
-    value === 'memory' ||
-    value === 'skill' ||
-    value === 'soul'
-  ) {
-    return value;
-  }
-  return 'dag';
-}
-
-function normalizeSyncItemKind(kind: SyncItemKind): UISyncKind {
-  if (kind === SyncItemKind.config) return 'config';
-  if (kind === SyncItemKind.memory) return 'memory';
-  if (kind === SyncItemKind.skill) return 'skill';
-  if (kind === SyncItemKind.soul) return 'soul';
-  return 'dag';
 }
 
 // Subtle, readable status colors
@@ -256,10 +229,10 @@ export default function GitSyncPage() {
   });
 
   const statusFilter = parseStatusFilter(searchParams.get('status'));
-  const typeFilter = parseTypeFilter(searchParams.get('type'));
+  const typeFilter = parseSyncKind(searchParams.get('type'));
 
   const setFilters = useCallback(
-    (next: Partial<{ status: StatusFilter; type: TypeFilter }>) => {
+    (next: Partial<{ status: StatusFilter; type: SyncKind }>) => {
       const nextStatus = next.status ?? statusFilter;
       const nextType = next.type ?? typeFilter;
       const params = new URLSearchParams(searchParams);
@@ -510,13 +483,7 @@ export default function GitSyncPage() {
   }, []);
 
   const typeCounts = useMemo(() => {
-    const counts: Record<TypeFilter, number> = {
-      dag: 0,
-      config: 0,
-      memory: 0,
-      skill: 0,
-      soul: 0,
-    };
+    const counts = createSyncKindCounts();
     for (const { kind } of syncRows) {
       counts[kind] += 1;
     }
@@ -595,39 +562,21 @@ export default function GitSyncPage() {
   const canForcePublish = publishItemStatus === SyncStatus.conflict;
 
   const selectedCounts = useMemo(() => {
-    let dag = 0;
-    let config = 0;
-    let memory = 0;
-    let skill = 0;
-    let soul = 0;
+    const counts = createSyncKindCounts();
     for (const dagID of selectedDags) {
       const row = rowByID.get(dagID);
       if (!row) continue;
-      if (row.kind === 'config') config += 1;
-      else if (row.kind === 'memory') memory += 1;
-      else if (row.kind === 'skill') skill += 1;
-      else if (row.kind === 'soul') soul += 1;
-      else dag += 1;
+      counts[row.kind] += 1;
     }
+    const total = syncKindFilters.reduce((sum, kind) => sum + counts[kind], 0);
     return {
-      dag,
-      config,
-      memory,
-      skill,
-      soul,
-      total: dag + config + memory + skill + soul,
+      ...counts,
+      total,
     };
   }, [selectedDags, rowByID]);
 
   const emptyStateMessage = useMemo(() => {
-    const typeLabelMap: Record<string, string> = {
-      dag: 'DAG',
-      config: 'config',
-      memory: 'memory',
-      skill: 'skill',
-      soul: 'soul',
-    };
-    const typeLabel = typeLabelMap[typeFilter] || typeFilter;
+    const typeLabel = syncKindLabels[typeFilter].singular;
     if (searchQuery.trim()) {
       if (statusFilter === 'all') {
         return `No ${typeLabel} items matching "${searchQuery.trim()}"`;
@@ -639,6 +588,22 @@ export default function GitSyncPage() {
     }
     return `No ${typeLabel} items with ${statusFilter} status`;
   }, [searchQuery, statusFilter, typeFilter]);
+
+  const selectedCountText = useMemo(
+    () =>
+      syncKindFilters
+        .filter((kind) => selectedCounts[kind] > 0)
+        .map((kind) => {
+          const count = selectedCounts[kind];
+          const label =
+            count === 1
+              ? syncKindLabels[kind].selectionSingular
+              : syncKindLabels[kind].selectionPlural;
+          return `${count} ${label}`;
+        })
+        .join(', '),
+    [selectedCounts]
+  );
 
   const missingCount = status?.counts?.missing || 0;
 
@@ -776,7 +741,7 @@ export default function GitSyncPage() {
       {/* Filter Controls */}
       <div className="flex items-center justify-between gap-2">
         <div className="inline-flex items-center rounded-md border border-border/60 bg-card p-0.5 text-xs">
-          {typeFilters.map((f) => (
+          {syncKindFilters.map((f) => (
             <button
               key={f}
               type="button"
@@ -788,18 +753,7 @@ export default function GitSyncPage() {
                   : 'text-muted-foreground hover:text-foreground'
               )}
             >
-              {
-                (
-                  {
-                    dag: 'DAGs',
-                    config: 'Config',
-                    memory: 'Memory',
-                    skill: 'Skills',
-                    soul: 'Souls',
-                  } as Record<string, string>
-                )[f]
-              }{' '}
-              ({typeCounts[f]})
+              {syncKindLabels[f].plural} ({typeCounts[f]})
             </button>
           ))}
         </div>
@@ -814,15 +768,7 @@ export default function GitSyncPage() {
         </div>
         {selectedCounts.total > 0 && (
           <span className="text-xs text-muted-foreground">
-            Selected: {selectedCounts.dag} DAGs
-            {selectedCounts.config > 0
-              ? `, ${selectedCounts.config} config`
-              : ''}
-            {selectedCounts.memory > 0
-              ? `, ${selectedCounts.memory} memory`
-              : ''}
-            {selectedCounts.skill > 0 ? `, ${selectedCounts.skill} skills` : ''}
-            {selectedCounts.soul > 0 ? `, ${selectedCounts.soul} souls` : ''}
+            Selected: {selectedCountText}
           </span>
         )}
       </div>
@@ -918,19 +864,14 @@ export default function GitSyncPage() {
                       >
                         {item.displayName}
                       </span>
-                      {kind === 'memory' && (
-                        <span className="text-[10px] px-1 py-0 rounded bg-purple-500/10 text-purple-600 dark:text-purple-400">
-                          memory
-                        </span>
-                      )}
-                      {kind === 'skill' && (
-                        <span className="text-[10px] px-1 py-0 rounded bg-pink-500/10 text-pink-600 dark:text-pink-400">
-                          skill
-                        </span>
-                      )}
-                      {kind === 'soul' && (
-                        <span className="text-[10px] px-1 py-0 rounded bg-cyan-500/10 text-cyan-600 dark:text-cyan-400">
-                          soul
+                      {syncKindBadgeClass[kind] && (
+                        <span
+                          className={cn(
+                            'text-[10px] px-1 py-0 rounded',
+                            syncKindBadgeClass[kind]
+                          )}
+                        >
+                          {syncKindLabels[kind].badge}
                         </span>
                       )}
                     </div>

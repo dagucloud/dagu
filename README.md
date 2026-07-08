@@ -29,9 +29,9 @@ For a quick look at how workflows are defined, see the examples.
   <img src="./assets/images/dagu-demo.gif" width="720" alt="Dagu demo showing the cockpit kanban view and YAML workflow editing">
 </div>
 
-| Run Details | Step Logs |
-|---|---|
-| ![Run details in dark mode](./assets/images/readme-run-details-dark.png) | ![Workflow logs in dark mode](./assets/images/readme-logs-dark.png) |
+| Run Details | Step Logs | Documents |
+|---|---|---|
+| ![Run details in dark mode](./assets/images/readme-run-details-dark.png) | ![Workflow logs in dark mode](./assets/images/readme-logs-dark.png) | ![Workflow documents in dark mode](./assets/images/readme-documents-dark.png) |
 
 **Try it live:** [Live Demo](https://dagu-demo-f5e33d0e.dagu.sh) (credentials: `demouser` / `demouser`)
 
@@ -61,7 +61,7 @@ Dagu stores state in local files. How much it can run depends on the machine and
 
 | Use Case | How Dagu Helps |
 | --- | --- |
-| ETL and data operations | Turn data extraction scripts, SQL queries, dbt commands, and data-processing runbooks into observable pipelines with durable execution. |
+| ETL and data operations | Turn data extraction scripts, SQL queries, dbt commands, and data-processing docs into observable pipelines with durable execution. |
 | Cron and legacy script management | Turn complex jobs with interdependencies into maintainable DAGs with a UI, automatic logging, retries, and notifications instead of opaque cron jobs and bash scripts. |
 | Media conversion | Run `ffmpeg` for video transcoding and format conversion. Thanks to Dagu's file-backed nature, workers can run heavy conversions in parallel without single machine bottlenecks or external databases. |
 | Infrastructure and server automation | Run any command or script over SSH on remote servers, keeping logs, results, and notifications in one place. |

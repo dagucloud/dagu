@@ -16,12 +16,14 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/core/baseconfig"
+	"github.com/dagucloud/dagu/internal/core/docs"
 	"github.com/dagucloud/dagu/internal/dagsettings"
 	"github.com/dagucloud/dagu/internal/incident"
 	"github.com/dagucloud/dagu/internal/license"
 	"github.com/dagucloud/dagu/internal/notification"
 	fileaudit "github.com/dagucloud/dagu/internal/persis/file/audit"
 	filebaseconfig "github.com/dagucloud/dagu/internal/persis/file/baseconfig"
+	filedoc "github.com/dagucloud/dagu/internal/persis/file/doc"
 	fileeventstore "github.com/dagucloud/dagu/internal/persis/file/eventstore"
 	fileincident "github.com/dagucloud/dagu/internal/persis/file/incident"
 	filenotification "github.com/dagucloud/dagu/internal/persis/file/notification"
@@ -150,6 +152,13 @@ func NewDAGSettingsStore(cfg *config.Config) (dagsettings.Store, error) {
 		return nil, fmt.Errorf("DAG settings store: create directory %s: %w", dir, err)
 	}
 	return store.NewDAGSettingsStore(NewCollection(dir, WithIndentedJSON()))
+}
+
+func NewDocStore(cfg *config.Config) docs.DocStore {
+	if cfg == nil || cfg.Paths.DocsDir == "" {
+		return nil
+	}
+	return filedoc.New(cfg.Paths.DocsDir)
 }
 
 func NewIncidentStore(cfg *config.Config, enc *crypto.Encryptor) (incident.Store, error) {

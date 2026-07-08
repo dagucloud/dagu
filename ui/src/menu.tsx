@@ -647,7 +647,13 @@ export const mainListItems = React.forwardRef<
             icon={<Network size={18} />}
             label="Workflows"
             isOpen={isOpen}
-            basePath={['/dags', '/search', '/base-config', '/git-sync']}
+            basePath={[
+              '/dags',
+              '/search',
+              '/base-config',
+              '/docs',
+              '/git-sync',
+            ]}
             to="/dags"
             onClick={onNavItemClick}
             customColor={customColor}
@@ -668,6 +674,13 @@ export const mainListItems = React.forwardRef<
                 customColor={customColor}
               />
             )}
+            <NavItem
+              to="/docs"
+              text="Docs"
+              isOpen={isOpen}
+              onClick={onNavItemClick}
+              customColor={customColor}
+            />
             {canWrite && config.gitSyncEnabled && (
               <NavItem
                 to="/git-sync"

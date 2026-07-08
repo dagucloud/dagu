@@ -10,6 +10,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/cmn/crypto"
 	"github.com/dagucloud/dagu/internal/core/baseconfig"
+	"github.com/dagucloud/dagu/internal/core/docs"
 	"github.com/dagucloud/dagu/internal/dagsettings"
 	"github.com/dagucloud/dagu/internal/incident"
 	"github.com/dagucloud/dagu/internal/notification"
@@ -34,6 +35,7 @@ type StoreFactories struct {
 	SecretStoreFactory               SecretStoreFactory
 	ProfileStoreFactory              ProfileStoreFactory
 	DAGSettingsStoreFactory          DAGSettingsStoreFactory
+	DocStoreFactory                  DocStoreFactory
 	NotificationStoreFactory         NotificationStoreFactory
 	NotificationMonitorStateFileFunc MonitorStateFileFunc
 	IncidentStoreFactory             IncidentStoreFactory
@@ -56,6 +58,8 @@ type BuiltinAuthFactory func(context.Context, *config.Config) (*BuiltinAuthResul
 type RemoteNodeStoreFactory func(*config.Config, *crypto.Encryptor) (remotenode.Store, error)
 
 type DAGSettingsStoreFactory func(*config.Config) (dagsettings.Store, error)
+
+type DocStoreFactory func(*config.Config) docs.DocStore
 
 type NotificationStoreFactory func(*config.Config, *crypto.Encryptor) (notification.Store, error)
 

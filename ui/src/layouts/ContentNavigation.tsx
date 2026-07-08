@@ -35,6 +35,7 @@ const STATIC_ROUTE_LABELS: Record<string, string> = {
   '/dags': 'DAGs',
   '/search': 'Search',
   '/base-config': 'Base Config',
+  '/docs': 'Docs',
   '/queues': 'Queues',
   '/dag-runs': 'DAG Runs',
   '/system-status': 'System Status',
@@ -106,6 +107,16 @@ export function getBreadcrumbItems(pathname: string): BreadcrumbItemData[] {
     items.push({ label: 'Executions' }, { label: 'Queues', to: '/queues' });
     if (segments[1]) {
       items.push({ label: decodePathSegment(segments[1]) });
+    }
+    return items;
+  }
+
+  if (segments[0] === 'docs') {
+    items.push({ label: 'Workflows' }, { label: 'Docs', to: '/docs' });
+    let docsPath = '/docs';
+    for (const segment of segments.slice(1)) {
+      docsPath += `/${segment}`;
+      items.push({ label: decodePathSegment(segment), to: docsPath });
     }
     return items;
   }

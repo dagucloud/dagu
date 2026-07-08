@@ -55,6 +55,7 @@ func TestSharedContainerHarnessEnvForTest_FiltersHostPathRuntimeVariables(t *tes
 	got := harness.SharedContainerHarnessEnvForTest(map[string]string{
 		"API_TOKEN":                                  "secret",
 		coreexec.EnvKeyDAGName:                       "workflow",
+		coreexec.EnvKeyDAGDocsDir:                    "/host/docs/workflow",
 		coreexec.EnvKeyDAGRunID:                      "run-1",
 		coreexec.EnvKeyDAGRunWorkDir:                 "/host/work",
 		coreexec.EnvKeyDAGRunLogFile:                 "/host/log/main.log",

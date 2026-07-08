@@ -10,10 +10,11 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { MoreHorizontal, EyeOff, Trash2, ArrowRightLeft } from 'lucide-react';
+import type { SyncKind } from './sync-kind';
 
 interface RowActionMenuProps {
   itemId: string;
-  kind: 'dag' | 'config' | 'memory' | 'skill' | 'soul';
+  kind: SyncKind;
   status: SyncStatus;
   pushEnabled: boolean;
   canWrite: boolean;

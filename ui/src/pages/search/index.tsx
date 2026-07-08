@@ -8,6 +8,8 @@ import { useInfinite } from '@/hooks/api';
 import { Search as SearchIcon } from 'lucide-react';
 import React, { useEffect, useMemo, useRef } from 'react';
 import { useLocation, useSearchParams } from 'react-router-dom';
+import { ToggleButton, ToggleGroup } from '@/components/ui/toggle-group';
+import { components } from '@/api/v1/schema';
 import { AppBarContext } from '../../contexts/AppBarContext';
 import { useSearchState } from '../../contexts/SearchStateContext';
 import {
@@ -16,8 +18,14 @@ import {
 } from '../../lib/workspace';
 import Title from '@/components/ui/title';
 
+type SearchScope = 'dags' | 'docs';
+type DagResult = components['schemas']['DAGSearchPageItem'];
+type DocResult = components['schemas']['DocSearchPageItem'];
+type SearchPageResult = DagResult | DocResult;
+
 type SearchFilters = {
   searchVal: string;
+  scope: SearchScope;
 };
 
 type SearchFeedPanelProps = {
@@ -42,12 +50,36 @@ type SearchFeedProps = {
   workspaceQuery: ReturnType<typeof workspaceSelectionQuery>;
 };
 
+type SearchFeedPage = {
+  results?: SearchPageResult[];
+  hasMore?: boolean;
+  nextCursor?: string;
+};
+
+type CursorSearchFeedProps<T extends SearchPageResult> = SearchFeedProps & {
+  endpoint: '/search/dags' | '/search/docs';
+  title: string;
+  emptyMessage: string;
+  unavailableMessage?: string;
+  renderResults: (results: T[]) => React.ReactNode;
+};
+
+function parseScope(value: string | null): SearchScope {
+  return value === 'docs' ? 'docs' : 'dags';
+}
+
 function buildSearchParams(filters: SearchFilters): URLSearchParams {
   const params = new URLSearchParams();
   const query = filters.searchVal.trim();
 
   if (query) {
     params.set('q', query);
+    params.set('scope', filters.scope);
+    return params;
+  }
+
+  if (filters.scope !== 'dags') {
+    params.set('scope', filters.scope);
   }
 
   return params;
@@ -183,11 +215,20 @@ function SearchFeedPanel({
   );
 }
 
-function DAGSearchFeed({ query, remoteNode, workspaceQuery }: SearchFeedProps) {
+function CursorSearchFeed<T extends SearchPageResult>({
+  endpoint,
+  title,
+  emptyMessage,
+  unavailableMessage,
+  query,
+  remoteNode,
+  workspaceQuery,
+  renderResults,
+}: CursorSearchFeedProps<T>) {
   const sentinelRef = useRef<HTMLDivElement>(null);
   const { data, error, isLoading, isValidating, setSize, mutate } = useInfinite(
-    '/search/dags',
-    (pageIndex, previousPage) => {
+    endpoint,
+    (pageIndex, previousPage: SearchFeedPage | null) => {
       if (!query) {
         return null;
       }
@@ -214,16 +255,20 @@ function DAGSearchFeed({ query, remoteNode, workspaceQuery }: SearchFeedProps) {
     }
   );
 
-  const pages = data ?? [];
-  const results = pages.flatMap((page) => page.results ?? []);
+  const pages = (data ?? []) as SearchFeedPage[];
+  const results = pages.flatMap((page) => page.results ?? []) as T[];
   const hasResults = results.length > 0;
   const lastPage = pages[pages.length - 1];
   const hasMore = lastPage?.hasMore ?? false;
   const isLoadingMore = isValidating && pages.length > 0;
   const initialErrorMessage =
-    pages.length === 0 && error ? getErrorMessage(error) : null;
+    pages.length === 0 && error
+      ? getErrorMessage(error, unavailableMessage)
+      : null;
   const loadMoreErrorMessage =
-    pages.length > 0 && error ? getErrorMessage(error) : null;
+    pages.length > 0 && error
+      ? getErrorMessage(error, unavailableMessage)
+      : null;
 
   const loadMoreResults = React.useCallback(() => {
     if (!query || !hasMore || isLoadingMore || loadMoreErrorMessage) {
@@ -244,25 +289,59 @@ function DAGSearchFeed({ query, remoteNode, workspaceQuery }: SearchFeedProps) {
 
   return (
     <SearchFeedPanel
-      title="DAGs"
+      title={title}
       query={query}
       hasResults={hasResults}
       isLoading={isLoading}
       initialErrorMessage={initialErrorMessage}
       loadMoreErrorMessage={loadMoreErrorMessage}
-      emptyMessage="No dags found"
+      emptyMessage={emptyMessage}
       hasMore={hasMore}
       isLoadingMore={isLoadingMore}
       onLoadMore={loadMoreResults}
       onRetryLoadMore={retryLoadMore}
       sentinelRef={sentinelRef}
     >
-      <SearchResult
-        query={query}
-        results={results}
-        workspaceQuery={workspaceQuery}
-      />
+      {renderResults(results)}
     </SearchFeedPanel>
+  );
+}
+
+function DAGSearchFeed({ query, remoteNode, workspaceQuery }: SearchFeedProps) {
+  return (
+    <CursorSearchFeed<DagResult>
+      endpoint="/search/dags"
+      title="DAGs"
+      emptyMessage="No dags found"
+      query={query}
+      remoteNode={remoteNode}
+      workspaceQuery={workspaceQuery}
+      renderResults={(results) => (
+        <SearchResult
+          type="dag"
+          query={query}
+          results={results}
+          workspaceQuery={workspaceQuery}
+        />
+      )}
+    />
+  );
+}
+
+function DocSearchFeed({ query, remoteNode, workspaceQuery }: SearchFeedProps) {
+  return (
+    <CursorSearchFeed<DocResult>
+      endpoint="/search/docs"
+      title="Docs"
+      emptyMessage="No docs found"
+      unavailableMessage="Document management is not available on this server."
+      query={query}
+      remoteNode={remoteNode}
+      workspaceQuery={workspaceQuery}
+      renderResults={(results) => (
+        <SearchResult type="doc" query={query} results={results} />
+      )}
+    />
   );
 }
 
@@ -293,6 +372,7 @@ function Search() {
   const currentFilters = useMemo<SearchFilters>(
     () => ({
       searchVal: queryParams.get('q') || '',
+      scope: parseScope(queryParams.get('scope')),
     }),
     [queryParams]
   );
@@ -304,7 +384,7 @@ function Search() {
   }, [currentFilters.searchVal]);
 
   useEffect(() => {
-    const hasUrlState = queryParams.has('q');
+    const hasUrlState = queryParams.has('q') || queryParams.has('scope');
     if (hydratedScopeRef.current !== searchStateScope) {
       hydratedScopeRef.current = searchStateScope;
       const stored = searchState.readState<SearchFilters>(
@@ -343,11 +423,12 @@ function Search() {
       syncFilters(
         {
           searchVal: value.trim(),
+          scope: currentFilters.scope,
         },
         false
       );
     },
-    [syncFilters]
+    [currentFilters.scope, syncFilters]
   );
 
   const submittedQuery = currentFilters.searchVal.trim();
@@ -384,16 +465,49 @@ function Search() {
               <SearchIcon className="h-4 w-4" />
               Search
             </Button>
+            <ToggleGroup aria-label="Search scope">
+              <ToggleButton
+                value="dags"
+                groupValue={currentFilters.scope}
+                onClick={() => {
+                  syncFilters({
+                    searchVal: currentFilters.searchVal,
+                    scope: 'dags',
+                  });
+                }}
+              >
+                DAGs
+              </ToggleButton>
+              <ToggleButton
+                value="docs"
+                groupValue={currentFilters.scope}
+                onClick={() => {
+                  syncFilters({
+                    searchVal: currentFilters.searchVal,
+                    scope: 'docs',
+                  });
+                }}
+              >
+                Docs
+              </ToggleButton>
+            </ToggleGroup>
           </div>
-
         </div>
 
         <div className="mt-4 space-y-4">
-          <DAGSearchFeed
-            query={submittedQuery}
-            remoteNode={remoteNode}
-            workspaceQuery={workspaceQuery}
-          />
+          {currentFilters.scope === 'docs' ? (
+            <DocSearchFeed
+              query={submittedQuery}
+              remoteNode={remoteNode}
+              workspaceQuery={workspaceQuery}
+            />
+          ) : (
+            <DAGSearchFeed
+              query={submittedQuery}
+              remoteNode={remoteNode}
+              workspaceQuery={workspaceQuery}
+            />
+          )}
         </div>
       </div>
     </div>

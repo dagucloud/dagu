@@ -41,6 +41,7 @@ const (
 	agentMemoryDir = "memory"
 	agentSkillsDir = "skills"
 	agentSoulsDir  = "souls"
+	docsDir        = "docs"
 	baseConfigID   = "base"
 )
 
@@ -60,6 +61,9 @@ const (
 	// DAGKindSoul indicates an agent soul file under souls/.
 	DAGKindSoul DAGKind = "soul"
 
+	// DAGKindDoc indicates a document file under docs/.
+	DAGKindDoc DAGKind = "doc"
+
 	// DAGKindConfig indicates a global or workspace base config file.
 	DAGKindConfig DAGKind = "config"
 )
@@ -78,6 +82,9 @@ func KindForDAGID(id string) DAGKind {
 	}
 	if strings.HasPrefix(id, agentSoulsDir+"/") {
 		return DAGKindSoul
+	}
+	if strings.HasPrefix(id, docsDir+"/") {
+		return DAGKindDoc
 	}
 	return DAGKindDAG
 }
@@ -122,6 +129,11 @@ func isSkillFile(id string) bool {
 // isSoulFile returns true if the file ID belongs to the souls directory.
 func isSoulFile(id string) bool {
 	return KindForDAGID(id) == DAGKindSoul
+}
+
+// isDocFile returns true if the file ID belongs to the docs directory.
+func isDocFile(id string) bool {
+	return KindForDAGID(id) == DAGKindDoc
 }
 
 // State represents the overall sync state.

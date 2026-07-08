@@ -117,6 +117,7 @@ func TestFileExtensionForID(t *testing.T) {
 
 	assert.Equal(t, ".md", fileExtensionForID("memory/MEMORY"))
 	assert.Equal(t, ".md", fileExtensionForID("memory/dags/my-dag/MEMORY"))
+	assert.Equal(t, ".md", fileExtensionForID("docs/deploy-guide"))
 	assert.Equal(t, ".yaml", fileExtensionForID("my-dag"))
 	assert.Equal(t, ".yaml", fileExtensionForID("subdir/my-dag"))
 }
@@ -223,6 +224,10 @@ func TestScanLocalDAGs_IgnoresNonMemoryMd(t *testing.T) {
 	// Create a regular .yaml DAG
 	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "my-dag.yaml"), []byte("steps: []"), 0600))
 
+	// Create a docs markdown file
+	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "docs", "ops"), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "docs", "ops", "deploy.md"), []byte("# deploy"), 0600))
+
 	s := &serviceImpl{
 		dagsDir: tempDir,
 		cfg:     &Config{},
@@ -236,7 +241,11 @@ func TestScanLocalDAGs_IgnoresNonMemoryMd(t *testing.T) {
 	assert.Contains(t, state.DAGs, "my-dag")
 	assert.Equal(t, DAGKindDAG, state.DAGs["my-dag"].Kind)
 
-	// Should NOT find README.md (it's not a yaml DAG or memory file at root)
+	// Should find docs markdown under docs/
+	assert.Contains(t, state.DAGs, "docs/ops/deploy")
+	assert.Equal(t, DAGKindDoc, state.DAGs["docs/ops/deploy"].Kind)
+
+	// Should NOT find README.md at root.
 	assert.NotContains(t, state.DAGs, "README")
 }
 
