@@ -5,7 +5,6 @@ package history
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -25,7 +24,6 @@ func (s *Service) submitRun(ctx context.Context, cmd SubmitRunCommand) (*Submitt
 
 	now := s.now()
 	dagRun := exec.NewDAGRunRef(cmd.DAG.Name, cmd.DAGRunID)
-	queueName := submitQueueName(cmd)
 
 	logFile, err := logpath.Generate(ctx, s.cfg.LogBaseDir, cmd.DAG.LogDir, cmd.DAG.Name, cmd.DAGRunID)
 	if err != nil {
@@ -62,23 +60,12 @@ func (s *Service) submitRun(ctx context.Context, cmd SubmitRunCommand) (*Submitt
 		return nil, err
 	}
 
-	if err := s.cfg.Scheduler.ScheduleRun(ctx, ScheduleRequest{
-		QueueName: queueName,
-		Priority:  exec.QueuePriorityLow,
-		DAGRun:    dagRun,
-	}); err != nil {
-		return nil, joinCloseAndEnqueue(
-			wrapCloseErr(writeResult.closeErr),
-			fmt.Errorf("failed to enqueue DAG run: %w", err),
-		)
-	}
 	committed = true
 
 	return &SubmittedRun{
 		DAGRun:         dagRun,
 		Attempt:        attempt,
 		Status:         status,
-		QueueName:      queueName,
 		LogFile:        logFile,
 		ArtifactDir:    artifactDir,
 		StatusCloseErr: writeResult.closeErr,
@@ -88,9 +75,6 @@ func (s *Service) submitRun(ctx context.Context, cmd SubmitRunCommand) (*Submitt
 func (s *Service) validateSubmitRun(cmd SubmitRunCommand) error {
 	if s.cfg.DAGRunStore == nil {
 		return fmt.Errorf("dag-run store is required")
-	}
-	if s.cfg.Scheduler == nil {
-		return fmt.Errorf("scheduler is required")
 	}
 	if cmd.DAG == nil {
 		return fmt.Errorf("dag is required")
@@ -106,13 +90,6 @@ func (s *Service) now() time.Time {
 		return s.cfg.Now()
 	}
 	return time.Now()
-}
-
-func submitQueueName(cmd SubmitRunCommand) string {
-	if cmd.QueueName != "" {
-		return cmd.QueueName
-	}
-	return cmd.DAG.ProcGroup()
 }
 
 func (s *Service) submitArtifactDir(ctx context.Context, cmd SubmitRunCommand) (string, error) {
@@ -176,11 +153,4 @@ func wrapCloseErr(err error) error {
 		return nil
 	}
 	return fmt.Errorf("failed to close queued DAG run: %w", err)
-}
-
-func joinCloseAndEnqueue(closeErr, enqueueErr error) error {
-	if closeErr == nil {
-		return enqueueErr
-	}
-	return errors.Join(closeErr, enqueueErr)
 }

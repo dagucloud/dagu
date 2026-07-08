@@ -14,6 +14,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/service/history"
+	"github.com/dagucloud/dagu/internal/service/matching"
 )
 
 // EnqueueCatchupRun enqueues a catchup run for a DAG.
@@ -69,11 +70,12 @@ func EnqueueCatchupRun(
 		DAGRunStore:     dagRunStore,
 		LogBaseDir:      baseLogDir,
 		ArtifactBaseDir: baseArtifactDir,
-		Scheduler: history.ScheduleFunc(func(callCtx context.Context, req history.ScheduleRequest) error {
-			return queueStore.Enqueue(callCtx, req.QueueName, req.Priority, req.DAGRun)
-		}),
 	})
-	_, err = historySvc.SubmitRun(ctx, history.SubmitRunCommand{
+	matchingSvc := matching.New(matching.Config{
+		QueueStore: queueStore,
+		History:    historySvc,
+	})
+	_, err = matchingSvc.SubmitRun(ctx, matching.SubmitRunCommand{
 		DAG:          dagCopy,
 		DAGRunID:     runID,
 		TriggerType:  triggerType,

@@ -11,6 +11,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/service/history"
+	"github.com/dagucloud/dagu/internal/service/matching"
 	"github.com/spf13/cobra"
 )
 
@@ -81,13 +82,12 @@ func dequeueFirst(ctx *Context, queueName string) error {
 
 		err = withQueueProcLock(ctx, queueName, func() error {
 			historySvc := history.New(history.Config{DAGRunStore: ctx.DAGRunStore})
-			if err := historySvc.CancelQueuedRun(ctx.Context, history.CancelQueuedRunCommand{DAGRun: *data}); err != nil {
-				return err
-			}
-			if _, err := ctx.QueueStore.DeleteByItemIDs(ctx.Context, queueName, []string{item.ID()}); err != nil {
-				return fmt.Errorf("failed to delete dequeued queue item: %w", err)
-			}
-			return nil
+			matchingSvc := matching.New(matching.Config{QueueStore: ctx.QueueStore, History: historySvc})
+			return matchingSvc.CancelPendingRun(ctx.Context, matching.CancelPendingRunCommand{
+				DAGRun:    *data,
+				QueueName: queueName,
+				ItemIDs:   []string{item.ID()},
+			})
 		})
 		if err != nil {
 			if isQueueAbortSkippable(err) {
@@ -137,16 +137,12 @@ func dequeueQueuedDAGRun(ctx *Context, requestedQueueName string, dagRun exec.DA
 
 	err = withQueueProcLock(ctx, actualQueueName, func() error {
 		historySvc := history.New(history.Config{DAGRunStore: ctx.DAGRunStore})
-		if err := historySvc.CancelQueuedRun(ctx.Context, history.CancelQueuedRunCommand{DAGRun: dagRun}); err != nil {
-			return err
-		}
-		if _, err := ctx.QueueStore.DequeueByDAGRunID(ctx.Context, actualQueueName, dagRun); err != nil {
-			if errors.Is(err, exec.ErrQueueItemNotFound) && actualQueueName == requestedQueueName {
-				return nil
-			}
-			return fmt.Errorf("failed to dequeue dag-run %s from queue %s: %w", dagRun.ID, actualQueueName, err)
-		}
-		return nil
+		matchingSvc := matching.New(matching.Config{QueueStore: ctx.QueueStore, History: historySvc})
+		return matchingSvc.CancelPendingRun(ctx.Context, matching.CancelPendingRunCommand{
+			DAGRun:                 dagRun,
+			QueueName:              actualQueueName,
+			IgnoreMissingQueueItem: actualQueueName == requestedQueueName,
+		})
 	})
 	if err != nil {
 		return mapAbortQueuedDAGRunError(dagRun, err)
@@ -208,7 +204,7 @@ func mapAbortQueuedDAGRunError(dagRun exec.DAGRunRef, err error) error {
 		return fmt.Errorf("failed to find the record for dag-run ID %s: %w", dagRun.ID, err)
 	}
 
-	var notQueuedErr *history.DAGRunNotQueuedError
+	var notQueuedErr *history.RunNotPendingError
 	if errors.As(err, &notQueuedErr) {
 		if notQueuedErr.HasStatus {
 			return fmt.Errorf("dag-run %s is not in queued status but %s", dagRun.ID, notQueuedErr.Status)
@@ -226,7 +222,7 @@ func isQueueAbortSkippable(err error) bool {
 	if errors.Is(err, exec.ErrDAGRunIDNotFound) || errors.Is(err, exec.ErrNoStatusData) || errors.Is(err, exec.ErrCorruptedStatusFile) {
 		return true
 	}
-	var notQueuedErr *history.DAGRunNotQueuedError
+	var notQueuedErr *history.RunNotPendingError
 	return errors.As(err, &notQueuedErr)
 }
 

@@ -8,29 +8,26 @@ import (
 	"fmt"
 
 	"github.com/dagucloud/dagu/internal/core"
-	"github.com/dagucloud/dagu/internal/core/exec"
 )
 
 // ErrRetryStaleLatest indicates the caller tried to retry a non-latest attempt.
 var ErrRetryStaleLatest = errors.New("retry target is no longer the latest attempt")
 
-// RetryRunOptions control how queued retry metadata is persisted.
+// RetryRunOptions control how retry metadata is persisted.
 type RetryRunOptions struct {
 	// AutoRetry marks scheduler-issued DAG auto-retries.
 	AutoRetry bool
-	// OnQueued is called after the queued status and queue item are both durably written.
-	OnQueued func(*exec.DAGRunStatus) error
 }
 
-// DAGRunNotQueuedError reports that the latest visible attempt is no longer queued.
-type DAGRunNotQueuedError struct {
+// RunNotPendingError reports that the latest visible attempt is not pending dispatch.
+type RunNotPendingError struct {
 	Status    core.Status
 	HasStatus bool
 }
 
-func (e *DAGRunNotQueuedError) Error() string {
+func (e *RunNotPendingError) Error() string {
 	if e == nil || !e.HasStatus {
-		return "dag-run is not queued"
+		return "dag-run is not pending dispatch"
 	}
-	return fmt.Sprintf("dag-run is not queued: %s", e.Status)
+	return fmt.Sprintf("dag-run is not pending dispatch: %s", e.Status)
 }

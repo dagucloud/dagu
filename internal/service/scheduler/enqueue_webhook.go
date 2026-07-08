@@ -14,6 +14,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/service/history"
+	"github.com/dagucloud/dagu/internal/service/matching"
 )
 
 // EnqueueWebhookRun enqueues a webhook-triggered run while preserving the same
@@ -58,11 +59,12 @@ func EnqueueWebhookRun(
 		LogBaseDir:      baseLogDir,
 		ArtifactBaseDir: baseArtifactDir,
 		Now:             func() time.Time { return now },
-		Scheduler: history.ScheduleFunc(func(callCtx context.Context, req history.ScheduleRequest) error {
-			return queueStore.Enqueue(callCtx, req.QueueName, req.Priority, req.DAGRun)
-		}),
 	})
-	_, err = historySvc.SubmitRun(ctx, history.SubmitRunCommand{
+	matchingSvc := matching.New(matching.Config{
+		QueueStore: queueStore,
+		History:    historySvc,
+	})
+	_, err = matchingSvc.SubmitRun(ctx, matching.SubmitRunCommand{
 		DAG:         dagCopy,
 		DAGRunID:    runID,
 		TriggerType: core.TriggerTypeWebhook,

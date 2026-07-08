@@ -15,7 +15,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core/exec"
 )
 
-func (s *Service) cancelQueuedRun(ctx context.Context, cmd CancelQueuedRunCommand) error {
+func (s *Service) markDispatchCanceled(ctx context.Context, cmd MarkDispatchCanceledCommand) error {
 	attempt, err := s.cfg.DAGRunStore.FindAttempt(ctx, cmd.DAGRun)
 	if err != nil {
 		return err
@@ -26,7 +26,7 @@ func (s *Service) cancelQueuedRun(ctx context.Context, cmd CancelQueuedRunComman
 		return err
 	}
 	if status == nil || status.Status != core.Queued {
-		return newDAGRunNotQueuedError(status)
+		return newRunNotPendingError(status)
 	}
 
 	finishedAt := time.Now().UTC().Format(time.RFC3339)
@@ -49,11 +49,11 @@ func (s *Service) cancelQueuedRun(ctx context.Context, cmd CancelQueuedRunComman
 		return err
 	}
 	if !swapped {
-		return newDAGRunNotQueuedError(currentStatus)
+		return newRunNotPendingError(currentStatus)
 	}
 
 	if err := attempt.Hide(ctx); err != nil {
-		logger.Warn(ctx, "Queued DAG-run was aborted but hiding the attempt failed",
+		logger.Warn(ctx, "Pending DAG-run was aborted but hiding the attempt failed",
 			tag.DAG(cmd.DAGRun.Name),
 			tag.RunID(cmd.DAGRun.ID),
 			tag.AttemptID(attempt.ID()),
@@ -76,11 +76,11 @@ func (s *Service) cancelQueuedRun(ctx context.Context, cmd CancelQueuedRunComman
 	return nil
 }
 
-func newDAGRunNotQueuedError(status *exec.DAGRunStatus) *DAGRunNotQueuedError {
+func newRunNotPendingError(status *exec.DAGRunStatus) *RunNotPendingError {
 	if status == nil {
-		return &DAGRunNotQueuedError{}
+		return &RunNotPendingError{}
 	}
-	return &DAGRunNotQueuedError{
+	return &RunNotPendingError{
 		Status:    status.Status,
 		HasStatus: true,
 	}

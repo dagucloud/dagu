@@ -18,6 +18,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/runtime/agent"
 	"github.com/dagucloud/dagu/internal/service/history"
+	"github.com/dagucloud/dagu/internal/service/matching"
 	"github.com/spf13/cobra"
 )
 
@@ -382,11 +383,11 @@ func findRetryAttempt(
 	return dagRunStore.FindSubAttempt(ctx, rootRun, ref.ID)
 }
 
-func newQueueDispatchNotQueuedError(status *exec.DAGRunStatus) *history.DAGRunNotQueuedError {
+func newQueueDispatchNotQueuedError(status *exec.DAGRunStatus) *history.RunNotPendingError {
 	if status == nil {
-		return &history.DAGRunNotQueuedError{}
+		return &history.RunNotPendingError{}
 	}
-	return &history.DAGRunNotQueuedError{Status: status.Status, HasStatus: true}
+	return &history.RunNotPendingError{Status: status.Status, HasStatus: true}
 }
 
 // enqueueRetry enqueues the retry and persists Queued status via History.
@@ -395,11 +396,12 @@ func newQueueDispatchNotQueuedError(status *exec.DAGRunStatus) *history.DAGRunNo
 func enqueueRetry(ctx *Context, _ exec.DAGRunAttempt, dag *core.DAG, status *exec.DAGRunStatus, dagRunID string) error {
 	historySvc := history.New(history.Config{
 		DAGRunStore: ctx.DAGRunStore,
-		Scheduler: history.ScheduleFunc(func(callCtx context.Context, req history.ScheduleRequest) error {
-			return ctx.QueueStore.Enqueue(callCtx, req.QueueName, req.Priority, req.DAGRun)
-		}),
 	})
-	if err := historySvc.RetryRun(ctx.Context, history.RetryRunCommand{DAG: dag, Status: status}); err != nil {
+	matchingSvc := matching.New(matching.Config{
+		QueueStore: ctx.QueueStore,
+		History:    historySvc,
+	})
+	if _, err := matchingSvc.RetryRun(ctx.Context, matching.RetryRunCommand{DAG: dag, Status: status}); err != nil {
 		if errors.Is(err, history.ErrRetryStaleLatest) {
 			return fmt.Errorf("dag-run state changed before retry could be queued")
 		}

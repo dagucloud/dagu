@@ -24,6 +24,7 @@ import (
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/executor"
 	"github.com/dagucloud/dagu/internal/service/history"
+	"github.com/dagucloud/dagu/internal/service/matching"
 )
 
 const dagEnqueueQueueConfigKey = "queue"
@@ -249,11 +250,12 @@ func (e *enqueueExecutor) enqueueOne(ctx context.Context, runParams executor.Run
 		DAGRunStore:     rCtx.DAGRunStore,
 		LogBaseDir:      rCtx.DAGRunLogDir,
 		ArtifactBaseDir: rCtx.DAGRunArtifactDir,
-		Scheduler: history.ScheduleFunc(func(callCtx context.Context, req history.ScheduleRequest) error {
-			return rCtx.QueueStore.Enqueue(callCtx, req.QueueName, req.Priority, req.DAGRun)
-		}),
 	})
-	_, err = historySvc.SubmitRun(ctx, history.SubmitRunCommand{
+	matchingSvc := matching.New(matching.Config{
+		QueueStore: rCtx.QueueStore,
+		History:    historySvc,
+	})
+	_, err = matchingSvc.SubmitRun(ctx, matching.SubmitRunCommand{
 		DAG:         dagCopy,
 		DAGRunID:    runParams.RunID,
 		QueueName:   queueName,

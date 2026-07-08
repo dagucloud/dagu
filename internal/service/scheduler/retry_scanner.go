@@ -14,6 +14,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/service/history"
+	"github.com/dagucloud/dagu/internal/service/matching"
 )
 
 const retryScanInterval = 30 * time.Second
@@ -173,11 +174,12 @@ func (s *RetryScanner) processFailedRunFromSummary(
 
 	historySvc := history.New(history.Config{
 		DAGRunStore: s.dagRunStore,
-		Scheduler: history.ScheduleFunc(func(callCtx context.Context, req history.ScheduleRequest) error {
-			return s.queueStore.Enqueue(callCtx, req.QueueName, req.Priority, req.DAGRun)
-		}),
 	})
-	err := historySvc.RetryRun(ctx, history.RetryRunCommand{
+	matchingSvc := matching.New(matching.Config{
+		QueueStore: s.queueStore,
+		History:    historySvc,
+	})
+	_, err := matchingSvc.RetryRun(ctx, matching.RetryRunCommand{
 		Status: listed,
 		Options: history.RetryRunOptions{
 			AutoRetry: true,
@@ -263,11 +265,12 @@ func (s *RetryScanner) processFailedRunLegacy(
 
 	historySvc := history.New(history.Config{
 		DAGRunStore: s.dagRunStore,
-		Scheduler: history.ScheduleFunc(func(callCtx context.Context, req history.ScheduleRequest) error {
-			return s.queueStore.Enqueue(callCtx, req.QueueName, req.Priority, req.DAGRun)
-		}),
 	})
-	err = historySvc.RetryRun(ctx, history.RetryRunCommand{
+	matchingSvc := matching.New(matching.Config{
+		QueueStore: s.queueStore,
+		History:    historySvc,
+	})
+	_, err = matchingSvc.RetryRun(ctx, matching.RetryRunCommand{
 		DAG:    dagSnapshot,
 		Status: latestStatus,
 		Options: history.RetryRunOptions{

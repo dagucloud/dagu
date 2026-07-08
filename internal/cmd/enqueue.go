@@ -4,7 +4,6 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 
@@ -13,6 +12,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/service/history"
+	"github.com/dagucloud/dagu/internal/service/matching"
 	"github.com/spf13/cobra"
 )
 
@@ -108,11 +108,12 @@ func enqueueDAGRun(ctx *Context, dag *core.DAG, dagRunID string, triggerType cor
 		DAGRunStore:     ctx.DAGRunStore,
 		LogBaseDir:      ctx.Config.Paths.LogDir,
 		ArtifactBaseDir: ctx.Config.Paths.ArtifactDir,
-		Scheduler: history.ScheduleFunc(func(callCtx context.Context, req history.ScheduleRequest) error {
-			return ctx.QueueStore.Enqueue(callCtx, req.QueueName, req.Priority, req.DAGRun)
-		}),
 	})
-	queued, err := historySvc.SubmitRun(ctx.Context, history.SubmitRunCommand{
+	matchingSvc := matching.New(matching.Config{
+		QueueStore: ctx.QueueStore,
+		History:    historySvc,
+	})
+	queued, err := matchingSvc.SubmitRun(ctx.Context, matching.SubmitRunCommand{
 		DAG:                     dag,
 		DAGRunID:                dagRunID,
 		TriggerType:             triggerType,

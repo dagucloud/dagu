@@ -256,7 +256,7 @@ steps:
 			Args: []string{"retry", "--run-id=missing-run", dagFile.Location},
 		})
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "dag-run is not queued")
+		require.Contains(t, err.Error(), "dag-run is not pending dispatch")
 	})
 
 	t.Run("QueueDispatchRetryUsesQueuedAttempt", func(t *testing.T) {

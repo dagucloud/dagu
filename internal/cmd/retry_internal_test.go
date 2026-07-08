@@ -29,7 +29,7 @@ func TestEnsureQueueDispatchRetryTarget_MissingRunReturnsNotQueued(t *testing.T)
 	)
 	require.Error(t, err)
 
-	var notQueuedErr *history.DAGRunNotQueuedError
+	var notQueuedErr *history.RunNotPendingError
 	require.ErrorAs(t, err, &notQueuedErr)
 	assert.False(t, notQueuedErr.HasStatus)
 }
@@ -64,7 +64,7 @@ func TestEnsureQueueDispatchRetryTarget_MissingStatusReturnsNotQueued(t *testing
 	)
 	require.Error(t, err)
 
-	var notQueuedErr *history.DAGRunNotQueuedError
+	var notQueuedErr *history.RunNotPendingError
 	require.ErrorAs(t, err, &notQueuedErr)
 	assert.False(t, notQueuedErr.HasStatus)
 }

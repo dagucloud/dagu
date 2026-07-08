@@ -15,7 +15,6 @@ import (
 type Config struct {
 	DAGRunStore exec.DAGRunStore
 	ProcStore   LocalProcStore
-	Scheduler   Scheduler
 
 	LogBaseDir      string
 	ArtifactBaseDir string
@@ -38,8 +37,6 @@ type SubmitRunCommand struct {
 	DAG      *core.DAG
 	DAGRunID string
 
-	QueueName string
-
 	Root        exec.DAGRunRef
 	Parent      exec.DAGRunRef
 	TriggerType core.TriggerType
@@ -57,14 +54,13 @@ type SubmittedRun struct {
 	DAGRun      exec.DAGRunRef
 	Attempt     exec.DAGRunAttempt
 	Status      exec.DAGRunStatus
-	QueueName   string
 	LogFile     string
 	ArtifactDir string
 
 	StatusCloseErr error
 }
 
-// SubmitRun records a new DAG-run lifecycle and publishes its dispatch intent.
+// SubmitRun records a new DAG-run lifecycle.
 func (s *Service) SubmitRun(ctx context.Context, cmd SubmitRunCommand) (*SubmittedRun, error) {
 	return s.submitRun(ctx, cmd)
 }
@@ -105,17 +101,46 @@ type RetryRunCommand struct {
 	Options RetryRunOptions
 }
 
-// RetryRun persists retry state and publishes the dispatch intent.
-func (s *Service) RetryRun(ctx context.Context, cmd RetryRunCommand) error {
+// RetriedRun is the result of a retry lifecycle transition.
+type RetriedRun struct {
+	DAGRun         exec.DAGRunRef
+	Status         *exec.DAGRunStatus
+	PreviousStatus exec.DAGRunStatus
+}
+
+// RetryRun persists retry state.
+func (s *Service) RetryRun(ctx context.Context, cmd RetryRunCommand) (*RetriedRun, error) {
 	return s.retryRun(ctx, cmd)
 }
 
-// CancelQueuedRunCommand cancels a DAG run that has not started execution.
-type CancelQueuedRunCommand struct {
+// UndoRetryRunCommand restores the status captured before RetryRun.
+type UndoRetryRunCommand struct {
+	DAGRun         exec.DAGRunRef
+	QueuedStatus   *exec.DAGRunStatus
+	PreviousStatus exec.DAGRunStatus
+}
+
+// UndoRetryRun restores the status captured before RetryRun.
+func (s *Service) UndoRetryRun(ctx context.Context, cmd UndoRetryRunCommand) error {
+	return s.undoRetryRun(ctx, cmd)
+}
+
+// MarkDispatchCanceledCommand records cancellation before execution starts.
+type MarkDispatchCanceledCommand struct {
 	DAGRun exec.DAGRunRef
 }
 
-// CancelQueuedRun cancels the latest queued attempt for a DAG run.
-func (s *Service) CancelQueuedRun(ctx context.Context, cmd CancelQueuedRunCommand) error {
-	return s.cancelQueuedRun(ctx, cmd)
+// MarkDispatchCanceled records cancellation before execution starts.
+func (s *Service) MarkDispatchCanceled(ctx context.Context, cmd MarkDispatchCanceledCommand) error {
+	return s.markDispatchCanceled(ctx, cmd)
+}
+
+// RemoveRunCommand removes all persisted history for a DAG run.
+type RemoveRunCommand struct {
+	DAGRun exec.DAGRunRef
+}
+
+// RemoveRun removes all persisted history for a DAG run.
+func (s *Service) RemoveRun(ctx context.Context, cmd RemoveRunCommand) error {
+	return s.cfg.DAGRunStore.RemoveDAGRun(ctx, cmd.DAGRun)
 }

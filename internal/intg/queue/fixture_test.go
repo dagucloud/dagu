@@ -21,6 +21,7 @@ import (
 	"github.com/dagucloud/dagu/internal/persis/file"
 	"github.com/dagucloud/dagu/internal/runtime/transform"
 	"github.com/dagucloud/dagu/internal/service/history"
+	"github.com/dagucloud/dagu/internal/service/matching"
 	"github.com/dagucloud/dagu/internal/service/scheduler"
 	"github.com/dagucloud/dagu/internal/test"
 	"github.com/dagucloud/dagu/internal/test/intgharness"
@@ -534,11 +535,12 @@ func (f *fixture) RunningRunWithMetadata(opts runStatusOptions) string {
 func (f *fixture) RetryEnqueue(runID string) *fixture {
 	historySvc := history.New(history.Config{
 		DAGRunStore: f.th.DAGRunStore,
-		Scheduler: history.ScheduleFunc(func(ctx context.Context, req history.ScheduleRequest) error {
-			return f.th.QueueStore.Enqueue(ctx, req.QueueName, req.Priority, req.DAGRun)
-		}),
 	})
-	err := historySvc.RetryRun(f.th.Context, history.RetryRunCommand{DAG: f.dag, Status: f.MustStatus(runID)})
+	matchingSvc := matching.New(matching.Config{
+		QueueStore: f.th.QueueStore,
+		History:    historySvc,
+	})
+	_, err := matchingSvc.RetryRun(f.th.Context, matching.RetryRunCommand{DAG: f.dag, Status: f.MustStatus(runID)})
 	require.NoError(f.t, err)
 	return f
 }

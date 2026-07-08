@@ -5,7 +5,6 @@ package history
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -14,10 +13,15 @@ import (
 	"github.com/dagucloud/dagu/internal/core/exec"
 )
 
-func (s *Service) retryRun(ctx context.Context, cmd RetryRunCommand) error {
+func (s *Service) retryRun(ctx context.Context, cmd RetryRunCommand) (*RetriedRun, error) {
 	if cmd.Status.Status == core.Queued {
-		return nil
+		return &RetriedRun{
+			DAGRun:         cmd.Status.DAGRun(),
+			Status:         cmd.Status,
+			PreviousStatus: *cmd.Status,
+		}, nil
 	}
+	previousStatus := *cmd.Status
 
 	updatedStatus, swapped, err := s.cfg.DAGRunStore.CompareAndSwapLatestAttemptStatus(
 		ctx,
@@ -40,72 +44,42 @@ func (s *Service) retryRun(ctx context.Context, cmd RetryRunCommand) error {
 		},
 	)
 	if err != nil {
-		return fmt.Errorf("persist queued retry status: %w", err)
+		return nil, fmt.Errorf("persist queued retry status: %w", err)
 	}
 	if !swapped {
 		if updatedStatus != nil && updatedStatus.Status == core.Queued {
-			return nil
+			return &RetriedRun{
+				DAGRun:         updatedStatus.DAGRun(),
+				Status:         updatedStatus,
+				PreviousStatus: previousStatus,
+			}, nil
 		}
-		return ErrRetryStaleLatest
+		return nil, ErrRetryStaleLatest
 	}
 
-	dagRun := cmd.Status.DAGRun()
-	procGroup := retryProcGroup(cmd.DAG, updatedStatus)
-	if procGroup == "" {
-		_, _, _ = s.cfg.DAGRunStore.CompareAndSwapLatestAttemptStatus(
-			ctx,
-			dagRun,
-			updatedStatus.AttemptID,
-			core.Queued,
-			func(latest *exec.DAGRunStatus) error {
-				latest.Status = cmd.Status.Status
-				latest.QueuedAt = cmd.Status.QueuedAt
-				latest.TriggerType = cmd.Status.TriggerType
-				latest.AutoRetryCount = cmd.Status.AutoRetryCount
-				return nil
-			},
-		)
-		return errors.New("enqueue retry: proc group is empty")
-	}
-	if err := s.cfg.Scheduler.ScheduleRun(ctx, ScheduleRequest{
-		QueueName: procGroup,
-		Priority:  exec.QueuePriorityLow,
-		DAGRun:    dagRun,
-	}); err != nil {
-		_, _, _ = s.cfg.DAGRunStore.CompareAndSwapLatestAttemptStatus(
-			ctx,
-			dagRun,
-			updatedStatus.AttemptID,
-			core.Queued,
-			func(latest *exec.DAGRunStatus) error {
-				latest.Status = cmd.Status.Status
-				latest.QueuedAt = cmd.Status.QueuedAt
-				latest.TriggerType = cmd.Status.TriggerType
-				latest.AutoRetryCount = cmd.Status.AutoRetryCount
-				return nil
-			},
-		)
-		return fmt.Errorf("enqueue retry: %w", err)
-	}
-
-	if cmd.Options.OnQueued != nil {
-		if err := cmd.Options.OnQueued(updatedStatus); err != nil {
-			return err
-		}
-	}
-
-	return nil
+	return &RetriedRun{
+		DAGRun:         updatedStatus.DAGRun(),
+		Status:         updatedStatus,
+		PreviousStatus: previousStatus,
+	}, nil
 }
 
-func retryProcGroup(dag *core.DAG, status *exec.DAGRunStatus) string {
-	if status != nil && status.ProcGroup != "" {
-		return status.ProcGroup
+func (s *Service) undoRetryRun(ctx context.Context, cmd UndoRetryRunCommand) error {
+	if cmd.QueuedStatus == nil {
+		return nil
 	}
-	if dag != nil {
-		return dag.ProcGroup()
-	}
-	if status != nil {
-		return status.Name
-	}
-	return ""
+	_, _, err := s.cfg.DAGRunStore.CompareAndSwapLatestAttemptStatus(
+		ctx,
+		cmd.DAGRun,
+		cmd.QueuedStatus.AttemptID,
+		core.Queued,
+		func(latest *exec.DAGRunStatus) error {
+			latest.Status = cmd.PreviousStatus.Status
+			latest.QueuedAt = cmd.PreviousStatus.QueuedAt
+			latest.TriggerType = cmd.PreviousStatus.TriggerType
+			latest.AutoRetryCount = cmd.PreviousStatus.AutoRetryCount
+			return nil
+		},
+	)
+	return err
 }
