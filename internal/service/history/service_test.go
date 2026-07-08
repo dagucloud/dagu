@@ -327,6 +327,81 @@ func TestDiscardSubmittedRunUsesSubmitRollbackToken(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestRecordEarlyFailureRecordsHistoryState(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	tmp := t.TempDir()
+	dag := testHistoryDAG("history-early-failure")
+	store := dagrun.New(filepath.Join(tmp, "dag-runs"), dagrun.WithLatestStatusToday(false))
+	now := time.Date(2026, 5, 19, 7, 8, 9, 0, time.UTC)
+	historySvc := history.New(history.Config{
+		DAGRunStore:     store,
+		LogBaseDir:      filepath.Join(tmp, "logs"),
+		ArtifactBaseDir: filepath.Join(tmp, "artifacts"),
+		Now:             func() time.Time { return now },
+	})
+
+	err := historySvc.RecordEarlyFailure(ctx, history.RecordEarlyFailureCommand{
+		DAG:      dag,
+		DAGRunID: "run-early",
+		Err:      errors.New("process acquisition failed"),
+	})
+	require.NoError(t, err)
+
+	attempt, err := store.FindAttempt(ctx, exec.NewDAGRunRef(dag.Name, "run-early"))
+	require.NoError(t, err)
+	status, err := attempt.ReadStatus(ctx)
+	require.NoError(t, err)
+	require.Equal(t, core.Failed, status.Status)
+	require.Equal(t, "process acquisition failed", status.Error)
+	require.Equal(t, stringutil.FormatTime(now), status.FinishedAt)
+	require.NotEmpty(t, status.Log)
+
+	storedDAG, err := attempt.ReadDAG(ctx)
+	require.NoError(t, err)
+	require.Equal(t, dag.Name, storedDAG.Name)
+}
+
+func TestRepairQueuedCatchupRunPersistsLocalMetadata(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	tmp := t.TempDir()
+	dag := testHistoryDAG("history-catchup-repair")
+	dag.Artifacts = &core.ArtifactsConfig{Enabled: true, Dir: "dag-artifacts"}
+	store := dagrun.New(filepath.Join(tmp, "dag-runs"), dagrun.WithLatestStatusToday(false))
+	_, status := writeHistoryAttemptStatus(t, ctx, store, dag, "run-catchup", core.Queued, exec.NewDAGRunAttemptOptions{}, time.Now(),
+		func(st *exec.DAGRunStatus) {
+			st.TriggerType = core.TriggerTypeCatchUp
+			st.Log = ""
+			st.ArchiveDir = ""
+		},
+	)
+	historySvc := history.New(history.Config{
+		DAGRunStore:     store,
+		LogBaseDir:      filepath.Join(tmp, "logs"),
+		ArtifactBaseDir: filepath.Join(tmp, "artifacts"),
+	})
+
+	err := historySvc.RepairQueuedCatchupRun(ctx, history.RepairQueuedCatchupRunCommand{
+		DAG:    dag,
+		Status: status,
+	})
+	require.NoError(t, err)
+
+	attempt, err := store.FindAttempt(ctx, exec.NewDAGRunRef(dag.Name, "run-catchup"))
+	require.NoError(t, err)
+	repaired, err := attempt.ReadStatus(ctx)
+	require.NoError(t, err)
+	require.Equal(t, core.Queued, repaired.Status)
+	require.Equal(t, core.TriggerTypeCatchUp, repaired.TriggerType)
+	require.NotEmpty(t, repaired.Log)
+	require.NotEmpty(t, repaired.ArchiveDir)
+	require.Contains(t, filepath.Clean(repaired.Log), filepath.Clean(filepath.Join(tmp, "logs")))
+	require.Contains(t, filepath.Clean(repaired.ArchiveDir), "dag-artifacts")
+}
+
 func testHistoryDAG(name string) *core.DAG {
 	dag := &core.DAG{
 		Name: name,

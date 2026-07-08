@@ -142,6 +142,30 @@ func (s *Service) MarkDispatchCanceled(ctx context.Context, cmd MarkDispatchCanc
 	return s.markDispatchCanceled(ctx, cmd)
 }
 
+// RepairQueuedCatchupRunCommand repairs persisted metadata for a queued catchup run.
+type RepairQueuedCatchupRunCommand struct {
+	DAG    *core.DAG
+	Status *exec.DAGRunStatus
+	Root   exec.DAGRunRef
+}
+
+// RepairQueuedCatchupRun fills missing local metadata before a queued catchup run executes.
+func (s *Service) RepairQueuedCatchupRun(ctx context.Context, cmd RepairQueuedCatchupRunCommand) error {
+	return s.repairQueuedCatchupRun(ctx, cmd)
+}
+
+// RecordEarlyFailureCommand records a failed lifecycle before execution starts.
+type RecordEarlyFailureCommand struct {
+	DAG      *core.DAG
+	DAGRunID string
+	Err      error
+}
+
+// RecordEarlyFailure records a failed lifecycle before execution starts.
+func (s *Service) RecordEarlyFailure(ctx context.Context, cmd RecordEarlyFailureCommand) error {
+	return s.recordEarlyFailure(ctx, cmd)
+}
+
 // DiscardSubmittedRunCommand removes persisted history for a submitted DAG run.
 type DiscardSubmittedRunCommand struct {
 	RollbackToken SubmitRollbackToken

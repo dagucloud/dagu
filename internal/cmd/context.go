@@ -5,7 +5,6 @@ package cmd
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -14,7 +13,6 @@ import (
 	"runtime/pprof"
 	"strings"
 	"syscall"
-	"time"
 
 	"golang.org/x/term"
 
@@ -37,10 +35,10 @@ import (
 	"github.com/dagucloud/dagu/internal/persis/store"
 	"github.com/dagucloud/dagu/internal/runtime"
 	runtimeexec "github.com/dagucloud/dagu/internal/runtime/executor"
-	"github.com/dagucloud/dagu/internal/runtime/transform"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
 	"github.com/dagucloud/dagu/internal/service/eventstore"
 	"github.com/dagucloud/dagu/internal/service/frontend"
+	"github.com/dagucloud/dagu/internal/service/history"
 	"github.com/dagucloud/dagu/internal/service/resource"
 	"github.com/dagucloud/dagu/internal/service/scheduler"
 	"github.com/spf13/cobra"
@@ -779,62 +777,14 @@ type LogConfig = logpath.Config
 // RecordEarlyFailure records a failure in the execution history before the DAG has fully started.
 // This is used for infrastructure errors like singleton conflicts or process acquisition failures.
 func (c *Context) RecordEarlyFailure(dag *core.DAG, dagRunID string, err error) error {
-	if dag == nil || dagRunID == "" {
-		return fmt.Errorf("DAG and dag-run ID are required to record failure")
-	}
-
-	// 1. Check if a DAGRunAttempt already exists for the given run-id.
-	ref := exec.NewDAGRunRef(dag.Name, dagRunID)
-	attempt, findErr := c.DAGRunStore.FindAttempt(c, ref)
-	if findErr != nil && !errors.Is(findErr, exec.ErrDAGRunIDNotFound) {
-		return fmt.Errorf("failed to check for existing attempt: %w", findErr)
-	}
-
-	if attempt == nil {
-		// 2. Create the attempt if not exists
-		att, createErr := c.DAGRunStore.CreateAttempt(c, dag, time.Now(), dagRunID, exec.NewDAGRunAttemptOptions{})
-		if createErr != nil {
-			return fmt.Errorf("failed to create run to record failure: %w", createErr)
-		}
-		attempt = att
-	}
-
-	// 3. Construct the "Failed" status
-	statusBuilder := transform.NewStatusBuilder(dag)
-	logPath, logPathErr := c.GenLogFileName(dag, dagRunID)
-	if logPathErr != nil {
-		logger.Warn(c, "Failed to generate log file path for early failure status",
-			tag.Error(logPathErr),
-			tag.DAG(dag.Name),
-			tag.RunID(dagRunID),
-		)
-	}
-	artifactDir, artifactDirErr := c.GenArtifactDir(dag, dagRunID)
-	if artifactDirErr != nil {
-		logger.Warn(c, "Failed to generate artifact directory for early failure status",
-			tag.Error(artifactDirErr),
-			tag.DAG(dag.Name),
-			tag.RunID(dagRunID),
-		)
-	}
-	status := statusBuilder.Create(dagRunID, core.Failed, 0, time.Now(),
-		transform.WithLogFilePath(logPath),
-		transform.WithArchiveDir(artifactDir),
-		transform.WithFinishedAt(time.Now()),
-		transform.WithError(err.Error()),
-	)
-
-	// 4. Write the status
-	if err := attempt.Open(c); err != nil {
-		return fmt.Errorf("failed to open attempt for recording failure: %w", err)
-	}
-	defer func() {
-		_ = attempt.Close(c)
-	}()
-
-	if err := attempt.Write(c, status); err != nil {
-		return fmt.Errorf("failed to write failed status: %w", err)
-	}
-
-	return nil
+	historySvc := history.New(history.Config{
+		DAGRunStore:     c.DAGRunStore,
+		LogBaseDir:      c.Config.Paths.LogDir,
+		ArtifactBaseDir: c.Config.Paths.ArtifactDir,
+	})
+	return historySvc.RecordEarlyFailure(c, history.RecordEarlyFailureCommand{
+		DAG:      dag,
+		DAGRunID: dagRunID,
+		Err:      err,
+	})
 }

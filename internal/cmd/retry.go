@@ -149,10 +149,6 @@ func runRetry(ctx *Context, args []string) error {
 		return err
 	}
 
-	if err := prepareQueuedCatchupRetry(ctx, attempt, dag, status); err != nil {
-		return err
-	}
-
 	if rootRun.Zero() {
 		rootRun = status.Root
 		if rootRun.Zero() {
@@ -160,6 +156,19 @@ func runRetry(ctx *Context, args []string) error {
 		}
 	}
 	status.Root = rootRun
+
+	historySvc := history.New(history.Config{
+		DAGRunStore:     ctx.DAGRunStore,
+		LogBaseDir:      ctx.Config.Paths.LogDir,
+		ArtifactBaseDir: ctx.Config.Paths.ArtifactDir,
+	})
+	if err := historySvc.RepairQueuedCatchupRun(ctx.Context, history.RepairQueuedCatchupRunCommand{
+		DAG:    dag,
+		Status: status,
+		Root:   rootRun,
+	}); err != nil {
+		return err
+	}
 
 	// Block retry via CLI for DAGs with workerSelector, UNLESS this is a distributed worker execution
 	// (indicated by --worker-id being set to something other than "local")
@@ -185,16 +194,17 @@ func runRetry(ctx *Context, args []string) error {
 	if workerID == "local" {
 		return withPreparedLocalExecution(
 			ctx,
-			dag,
-			dagRunID,
-			rootRun,
-			status.Parent,
-			exec.PreservedQueueTriggerType(status),
-			status.ScheduleTime,
-			profileName,
-			retryPrepareMode(queueDispatchRetry, status, rootRun, dagRunID),
-			"",
-			retryAttemptOptions(rootRun, dagRunID),
+			history.PrepareLocalAttemptCommand{
+				DAG:            dag,
+				DAGRunID:       dagRunID,
+				Root:           rootRun,
+				Parent:         status.Parent,
+				TriggerType:    exec.PreservedQueueTriggerType(status),
+				ScheduleTime:   status.ScheduleTime,
+				ProfileName:    profileName,
+				Mode:           retryPrepareMode(queueDispatchRetry, status, rootRun, dagRunID),
+				AttemptOptions: retryAttemptOptions(rootRun, dagRunID),
+			},
 			func(preparedAttempt *history.ExecutionContext) error {
 				return executeRetry(ctx, dag, status, rootRun, stepName, workerID, attemptID, profileName, preparedAttempt)
 			},
@@ -211,16 +221,17 @@ func runRetry(ctx *Context, args []string) error {
 
 	return withPreparedLocalExecution(
 		ctx,
-		dag,
-		dagRunID,
-		rootRun,
-		status.Parent,
-		exec.PreservedQueueTriggerType(status),
-		status.ScheduleTime,
-		profileName,
-		openExistingPrepareMode(rootRun, dagRunID),
-		attemptID,
-		exec.NewDAGRunAttemptOptions{},
+		history.PrepareLocalAttemptCommand{
+			DAG:          dag,
+			DAGRunID:     dagRunID,
+			Root:         rootRun,
+			Parent:       status.Parent,
+			TriggerType:  exec.PreservedQueueTriggerType(status),
+			ScheduleTime: status.ScheduleTime,
+			ProfileName:  profileName,
+			Mode:         openExistingPrepareMode(rootRun, dagRunID),
+			AttemptID:    attemptID,
+		},
 		func(preparedAttempt *history.ExecutionContext) error {
 			return executeRetry(ctx, dag, status, rootRun, stepName, workerID, attemptID, profileName, preparedAttempt)
 		},
@@ -439,45 +450,6 @@ func retryQueueName(dag *core.DAG, status *exec.DAGRunStatus) string {
 		return status.Name
 	}
 	return ""
-}
-
-// prepareQueuedCatchupRetry repairs queued catchup records before they run
-// through the retry path. The queue processor executes catchup items via
-// `retry`, and executeRetry expects status.Log to already exist. Older or
-// previously broken queued catchup statuses may have an empty log path, so
-// this fills it in and persists the repaired status before execution.
-func prepareQueuedCatchupRetry(ctx *Context, attempt exec.DAGRunAttempt, dag *core.DAG, status *exec.DAGRunStatus) error {
-	if !exec.IsQueuedCatchup(status) || (status.Log != "" && (!dag.ArtifactsEnabled() || status.ArchiveDir != "")) {
-		return nil
-	}
-
-	if status.Log == "" {
-		logPath, err := ctx.GenLogFileName(dag, status.DAGRunID)
-		if err != nil {
-			return fmt.Errorf("failed to generate queued catchup log file: %w", err)
-		}
-		status.Log = logPath
-	}
-	if dag.ArtifactsEnabled() && status.ArchiveDir == "" {
-		artifactDir, err := ctx.GenArtifactDir(dag, status.DAGRunID)
-		if err != nil {
-			return fmt.Errorf("failed to generate queued catchup artifact directory: %w", err)
-		}
-		status.ArchiveDir = artifactDir
-	}
-
-	if err := attempt.Open(ctx.Context); err != nil {
-		return fmt.Errorf("failed to open queued catchup attempt: %w", err)
-	}
-	defer func() {
-		_ = attempt.Close(ctx.Context)
-	}()
-
-	if err := attempt.Write(ctx.Context, *status); err != nil {
-		return fmt.Errorf("failed to persist queued catchup log file path: %w", err)
-	}
-
-	return nil
 }
 
 func waitForRetrySourceRelease(ctx *Context, dag *core.DAG, status *exec.DAGRunStatus) error {

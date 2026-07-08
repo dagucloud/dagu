@@ -10,22 +10,12 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/core"
-	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/service/history"
 )
 
 func withPreparedLocalExecution(
 	ctx *Context,
-	dag *core.DAG,
-	dagRunID string,
-	root exec.DAGRunRef,
-	parent exec.DAGRunRef,
-	triggerType core.TriggerType,
-	scheduleTime string,
-	profileName string,
-	mode history.PrepareAttemptMode,
-	attemptID string,
-	attemptOptions exec.NewDAGRunAttemptOptions,
+	cmd history.PrepareLocalAttemptCommand,
 	run func(*history.ExecutionContext) error,
 ) error {
 	historySvc := history.New(history.Config{
@@ -34,18 +24,7 @@ func withPreparedLocalExecution(
 		LogBaseDir:      ctx.Config.Paths.LogDir,
 		ArtifactBaseDir: ctx.Config.Paths.ArtifactDir,
 	})
-	prepared, err := historySvc.PrepareLocalAttempt(ctx.Context, history.PrepareLocalAttemptCommand{
-		DAG:            dag,
-		DAGRunID:       dagRunID,
-		Root:           root,
-		Parent:         parent,
-		TriggerType:    triggerType,
-		ScheduleTime:   scheduleTime,
-		ProfileName:    profileName,
-		Mode:           mode,
-		AttemptID:      attemptID,
-		AttemptOptions: attemptOptions,
-	})
+	prepared, err := historySvc.PrepareLocalAttempt(ctx.Context, cmd)
 	if err != nil {
 		logger.Debug(ctx, "Failed to prepare local execution", tag.Error(err))
 		return err

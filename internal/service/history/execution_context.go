@@ -36,11 +36,6 @@ func (e *ExecutionContext) DAGRun() exec.DAGRunRef {
 	return e.dagRun
 }
 
-// AttemptID returns the prepared attempt identifier.
-func (e *ExecutionContext) AttemptID() string {
-	return e.ID()
-}
-
 // LogFile returns the main DAG-run log file path.
 func (e *ExecutionContext) LogFile() string {
 	return e.logFile

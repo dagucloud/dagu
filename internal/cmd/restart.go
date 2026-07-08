@@ -115,16 +115,13 @@ func handleRestartProcess(ctx *Context, d *core.DAG, oldDagRunID string, schedul
 
 	return withPreparedLocalExecution(
 		ctx,
-		d,
-		newDagRunID,
-		exec.NewDAGRunRef(d.Name, newDagRunID),
-		exec.DAGRunRef{},
-		core.TriggerTypeUnknown,
-		scheduleTime,
-		"",
-		history.PrepareAttemptCreate,
-		"",
-		exec.NewDAGRunAttemptOptions{},
+		history.PrepareLocalAttemptCommand{
+			DAG:          d,
+			DAGRunID:     newDagRunID,
+			Root:         exec.NewDAGRunRef(d.Name, newDagRunID),
+			ScheduleTime: scheduleTime,
+			Mode:         history.PrepareAttemptCreate,
+		},
 		func(preparedAttempt *history.ExecutionContext) error {
 			return executeDAGWithRunID(ctx, ctx.DAGRunMgr, d, newDagRunID, scheduleTime, preparedAttempt)
 		},

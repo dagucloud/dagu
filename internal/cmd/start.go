@@ -248,16 +248,16 @@ func tryExecuteDAG(ctx *Context, dag *core.DAG, dagRunID string, root exec.DAGRu
 
 	return withPreparedLocalExecution(
 		ctx,
-		dag,
-		dagRunID,
-		root,
-		exec.DAGRunRef{},
-		triggerType,
-		scheduleTime,
-		profileName,
-		prepareModeForWorker(workerID),
-		attemptID,
-		exec.NewDAGRunAttemptOptions{},
+		history.PrepareLocalAttemptCommand{
+			DAG:          dag,
+			DAGRunID:     dagRunID,
+			Root:         root,
+			TriggerType:  triggerType,
+			ScheduleTime: scheduleTime,
+			ProfileName:  profileName,
+			Mode:         prepareModeForWorker(workerID),
+			AttemptID:    attemptID,
+		},
 		func(preparedAttempt *history.ExecutionContext) error {
 			return executeDAGRun(ctx, dag, exec.DAGRunRef{}, dagRunID, root, workerID, attemptID, triggerType, scheduleTime, profileName, preparedAttempt)
 		},
@@ -411,16 +411,17 @@ func handleSubDAGRun(ctx *Context, dag *core.DAG, dagRunID string, params string
 		}
 		return withPreparedLocalExecution(
 			ctx,
-			dag,
-			dagRunID,
-			root,
-			parent,
-			triggerType,
-			scheduleTime,
-			profileName,
-			history.PrepareAttemptOpenSub,
-			attemptID,
-			exec.NewDAGRunAttemptOptions{},
+			history.PrepareLocalAttemptCommand{
+				DAG:          dag,
+				DAGRunID:     dagRunID,
+				Root:         root,
+				Parent:       parent,
+				TriggerType:  triggerType,
+				ScheduleTime: scheduleTime,
+				ProfileName:  profileName,
+				Mode:         history.PrepareAttemptOpenSub,
+				AttemptID:    attemptID,
+			},
 			func(preparedAttempt *history.ExecutionContext) error {
 				return executeDAGRun(ctx, dag, parent, dagRunID, root, workerID, attemptID, triggerType, scheduleTime, profileName, preparedAttempt)
 			},
@@ -433,17 +434,18 @@ func handleSubDAGRun(ctx *Context, dag *core.DAG, dagRunID string, params string
 	if errors.Is(err, exec.ErrDAGRunIDNotFound) {
 		return withPreparedLocalExecution(
 			ctx,
-			dag,
-			dagRunID,
-			root,
-			parent,
-			triggerType,
-			scheduleTime,
-			profileName,
-			history.PrepareAttemptCreate,
-			"",
-			exec.NewDAGRunAttemptOptions{
-				RootDAGRun: &root,
+			history.PrepareLocalAttemptCommand{
+				DAG:          dag,
+				DAGRunID:     dagRunID,
+				Root:         root,
+				Parent:       parent,
+				TriggerType:  triggerType,
+				ScheduleTime: scheduleTime,
+				ProfileName:  profileName,
+				Mode:         history.PrepareAttemptCreate,
+				AttemptOptions: exec.NewDAGRunAttemptOptions{
+					RootDAGRun: &root,
+				},
 			},
 			func(preparedAttempt *history.ExecutionContext) error {
 				return executeDAGRun(ctx, dag, parent, dagRunID, root, workerID, attemptID, triggerType, scheduleTime, profileName, preparedAttempt)
@@ -461,18 +463,19 @@ func handleSubDAGRun(ctx *Context, dag *core.DAG, dagRunID string, params string
 
 	return withPreparedLocalExecution(
 		ctx,
-		dag,
-		dagRunID,
-		root,
-		status.Parent,
-		exec.PreservedQueueTriggerType(status),
-		status.ScheduleTime,
-		profileName,
-		subDAGRetryPrepareMode(status),
-		"",
-		exec.NewDAGRunAttemptOptions{
-			Retry:      true,
-			RootDAGRun: &root,
+		history.PrepareLocalAttemptCommand{
+			DAG:          dag,
+			DAGRunID:     dagRunID,
+			Root:         root,
+			Parent:       status.Parent,
+			TriggerType:  exec.PreservedQueueTriggerType(status),
+			ScheduleTime: status.ScheduleTime,
+			ProfileName:  profileName,
+			Mode:         subDAGRetryPrepareMode(status),
+			AttemptOptions: exec.NewDAGRunAttemptOptions{
+				Retry:      true,
+				RootDAGRun: &root,
+			},
 		},
 		func(preparedAttempt *history.ExecutionContext) error {
 			return executeRetry(ctx, dag, status, root, "", workerID, attemptID, profileName, preparedAttempt)
