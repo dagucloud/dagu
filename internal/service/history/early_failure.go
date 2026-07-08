@@ -8,9 +8,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/dagucloud/dagu/internal/cmn/logger"
-	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/internal/cmn/logpath"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/runtime/transform"
@@ -34,25 +31,13 @@ func (s *Service) recordEarlyFailure(ctx context.Context, cmd RecordEarlyFailure
 		attempt = created
 	}
 
-	logPath, logErr := logpath.Generate(ctx, s.cfg.LogBaseDir, cmd.DAG.LogDir, cmd.DAG.Name, cmd.DAGRunID)
-	if logErr != nil {
-		logger.Warn(ctx, "Failed to generate log file path for early failure status",
-			tag.Error(logErr),
-			tag.DAG(cmd.DAG.Name),
-			tag.RunID(cmd.DAGRunID),
-		)
-	}
-	artifactDir, artifactErr := s.localArtifactDir(ctx, PrepareLocalAttemptCommand{
-		DAG:      cmd.DAG,
-		DAGRunID: cmd.DAGRunID,
-	})
-	if artifactErr != nil {
-		logger.Warn(ctx, "Failed to generate artifact directory for early failure status",
-			tag.Error(artifactErr),
-			tag.DAG(cmd.DAG.Name),
-			tag.RunID(cmd.DAGRunID),
-		)
-	}
+	logPath, artifactDir := s.failurePaths(
+		ctx,
+		cmd.DAG,
+		cmd.DAGRunID,
+		"Failed to generate log file path for early failure status",
+		"Failed to generate artifact directory for early failure status",
+	)
 
 	now := s.now()
 	status := transform.NewStatusBuilder(cmd.DAG).Create(
@@ -66,17 +51,7 @@ func (s *Service) recordEarlyFailure(ctx context.Context, cmd RecordEarlyFailure
 		transform.WithError(cmd.Err.Error()),
 	)
 
-	if err := attempt.Open(ctx); err != nil {
-		return fmt.Errorf("failed to open attempt for recording failure: %w", err)
-	}
-	defer func() {
-		_ = attempt.Close(ctx)
-	}()
-
-	if err := attempt.Write(ctx, status); err != nil {
-		return fmt.Errorf("failed to write failed status: %w", err)
-	}
-	return nil
+	return writeFailedStatus(ctx, attempt, status, "failed to open attempt for recording failure")
 }
 
 func (s *Service) validateRecordEarlyFailure(cmd RecordEarlyFailureCommand) error {

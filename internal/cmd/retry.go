@@ -157,12 +157,7 @@ func runRetry(ctx *Context, args []string) error {
 	}
 	status.Root = rootRun
 
-	historySvc := history.New(history.Config{
-		DAGRunStore:     ctx.DAGRunStore,
-		LogBaseDir:      ctx.Config.Paths.LogDir,
-		ArtifactBaseDir: ctx.Config.Paths.ArtifactDir,
-	})
-	if err := historySvc.RepairQueuedCatchupRun(ctx.Context, history.RepairQueuedCatchupRunCommand{
+	if err := ctx.historyService().RepairQueuedCatchupRun(ctx.Context, history.RepairQueuedCatchupRunCommand{
 		DAG:    dag,
 		Status: status,
 		Root:   rootRun,
@@ -409,9 +404,7 @@ func newQueueDispatchNotQueuedError(status *exec.DAGRunStatus) *history.RunNotPe
 // Retries respect global queue capacity because the queue processor picks them up
 // when capacity is available.
 func enqueueRetry(ctx *Context, _ exec.DAGRunAttempt, dag *core.DAG, status *exec.DAGRunStatus, dagRunID string) error {
-	historySvc := history.New(history.Config{
-		DAGRunStore: ctx.DAGRunStore,
-	})
+	historySvc := ctx.historyService()
 	retried, err := historySvc.RetryRun(ctx.Context, history.RetryRunCommand{Status: status})
 	if err != nil {
 		if errors.Is(err, history.ErrRetryStaleLatest) {

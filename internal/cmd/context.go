@@ -661,6 +661,15 @@ func (c *Context) runtimeStores() runtimeStoresResult {
 	return cmdprocess.NewRuntimeStores(c.Context, c.Config)
 }
 
+func (c *Context) historyService() *history.Service {
+	return history.New(history.Config{
+		DAGRunStore:     c.DAGRunStore,
+		ProcStore:       c.ProcStore,
+		LogBaseDir:      c.Config.Paths.LogDir,
+		ArtifactBaseDir: c.Config.Paths.ArtifactDir,
+	})
+}
+
 // OpenLogFile creates and opens a log file for a given dag-run.
 // It evaluates the log directory, validates settings, creates the log directory,
 // builds a filename using the current timestamp and dag-run ID, and then opens the file.
@@ -777,12 +786,7 @@ type LogConfig = logpath.Config
 // RecordEarlyFailure records a failure in the execution history before the DAG has fully started.
 // This is used for infrastructure errors like singleton conflicts or process acquisition failures.
 func (c *Context) RecordEarlyFailure(dag *core.DAG, dagRunID string, err error) error {
-	historySvc := history.New(history.Config{
-		DAGRunStore:     c.DAGRunStore,
-		LogBaseDir:      c.Config.Paths.LogDir,
-		ArtifactBaseDir: c.Config.Paths.ArtifactDir,
-	})
-	return historySvc.RecordEarlyFailure(c, history.RecordEarlyFailureCommand{
+	return c.historyService().RecordEarlyFailure(c, history.RecordEarlyFailureCommand{
 		DAG:      dag,
 		DAGRunID: dagRunID,
 		Err:      err,

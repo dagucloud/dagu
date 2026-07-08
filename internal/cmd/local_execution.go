@@ -18,13 +18,7 @@ func withPreparedLocalExecution(
 	cmd history.PrepareLocalAttemptCommand,
 	run func(*history.ExecutionContext) error,
 ) error {
-	historySvc := history.New(history.Config{
-		DAGRunStore:     ctx.DAGRunStore,
-		ProcStore:       ctx.ProcStore,
-		LogBaseDir:      ctx.Config.Paths.LogDir,
-		ArtifactBaseDir: ctx.Config.Paths.ArtifactDir,
-	})
-	prepared, err := historySvc.PrepareLocalAttempt(ctx.Context, cmd)
+	prepared, err := ctx.historyService().PrepareLocalAttempt(ctx.Context, cmd)
 	if err != nil {
 		logger.Debug(ctx, "Failed to prepare local execution", tag.Error(err))
 		return err

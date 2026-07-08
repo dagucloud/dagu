@@ -36,10 +36,7 @@ func (s *Service) repairQueuedCatchupRun(ctx context.Context, cmd RepairQueuedCa
 		cmd.Status.Log = logPath
 	}
 	if cmd.DAG.ArtifactsEnabled() && cmd.Status.ArchiveDir == "" {
-		artifactDir, err := s.localArtifactDir(ctx, PrepareLocalAttemptCommand{
-			DAG:      cmd.DAG,
-			DAGRunID: cmd.Status.DAGRunID,
-		})
+		artifactDir, err := s.localArtifactDir(ctx, cmd.DAG, cmd.Status.DAGRunID)
 		if err != nil {
 			return fmt.Errorf("failed to generate queued catchup artifact directory: %w", err)
 		}

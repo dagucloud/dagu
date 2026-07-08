@@ -103,11 +103,7 @@ func enqueueDAGRun(ctx *Context, dag *core.DAG, dagRunID string, triggerType cor
 		return fmt.Errorf("DAG %q with ID %q already exists", dag.Name, dagRunID)
 	}
 
-	historySvc := history.New(history.Config{
-		DAGRunStore:     ctx.DAGRunStore,
-		LogBaseDir:      ctx.Config.Paths.LogDir,
-		ArtifactBaseDir: ctx.Config.Paths.ArtifactDir,
-	})
+	historySvc := ctx.historyService()
 	queued, err := historySvc.SubmitRun(ctx.Context, history.SubmitRunCommand{
 		DAG:                     dag,
 		DAGRunID:                dagRunID,
