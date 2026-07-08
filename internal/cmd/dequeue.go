@@ -11,7 +11,6 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/service/history"
-	"github.com/dagucloud/dagu/internal/service/matching"
 	"github.com/spf13/cobra"
 )
 
@@ -82,12 +81,13 @@ func dequeueFirst(ctx *Context, queueName string) error {
 
 		err = withQueueProcLock(ctx, queueName, func() error {
 			historySvc := history.New(history.Config{DAGRunStore: ctx.DAGRunStore})
-			matchingSvc := matching.New(matching.Config{QueueStore: ctx.QueueStore, History: historySvc})
-			return matchingSvc.CancelPendingRun(ctx.Context, matching.CancelPendingRunCommand{
-				DAGRun:    *data,
-				QueueName: queueName,
-				ItemIDs:   []string{item.ID()},
-			})
+			if err := historySvc.MarkDispatchCanceled(ctx.Context, history.MarkDispatchCanceledCommand{DAGRun: *data}); err != nil {
+				return err
+			}
+			if _, err := ctx.QueueStore.DeleteByItemIDs(ctx.Context, queueName, []string{item.ID()}); err != nil {
+				return fmt.Errorf("failed to delete dequeued queue item: %w", err)
+			}
+			return nil
 		})
 		if err != nil {
 			if isQueueAbortSkippable(err) {
@@ -137,12 +137,16 @@ func dequeueQueuedDAGRun(ctx *Context, requestedQueueName string, dagRun exec.DA
 
 	err = withQueueProcLock(ctx, actualQueueName, func() error {
 		historySvc := history.New(history.Config{DAGRunStore: ctx.DAGRunStore})
-		matchingSvc := matching.New(matching.Config{QueueStore: ctx.QueueStore, History: historySvc})
-		return matchingSvc.CancelPendingRun(ctx.Context, matching.CancelPendingRunCommand{
-			DAGRun:                 dagRun,
-			QueueName:              actualQueueName,
-			IgnoreMissingQueueItem: actualQueueName == requestedQueueName,
-		})
+		if err := historySvc.MarkDispatchCanceled(ctx.Context, history.MarkDispatchCanceledCommand{DAGRun: dagRun}); err != nil {
+			return err
+		}
+		if _, err := ctx.QueueStore.DequeueByDAGRunID(ctx.Context, actualQueueName, dagRun); err != nil {
+			if errors.Is(err, exec.ErrQueueItemNotFound) && actualQueueName == requestedQueueName {
+				return nil
+			}
+			return fmt.Errorf("failed to dequeue dag-run %s from queue %s: %w", dagRun.ID, actualQueueName, err)
+		}
+		return nil
 	})
 	if err != nil {
 		return mapAbortQueuedDAGRunError(dagRun, err)

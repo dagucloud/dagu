@@ -6,6 +6,7 @@ package scheduler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -14,7 +15,6 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/service/history"
-	"github.com/dagucloud/dagu/internal/service/matching"
 )
 
 const retryScanInterval = 30 * time.Second
@@ -175,11 +175,7 @@ func (s *RetryScanner) processFailedRunFromSummary(
 	historySvc := history.New(history.Config{
 		DAGRunStore: s.dagRunStore,
 	})
-	matchingSvc := matching.New(matching.Config{
-		QueueStore: s.queueStore,
-		History:    historySvc,
-	})
-	_, err := matchingSvc.RetryRun(ctx, matching.RetryRunCommand{
+	retried, err := historySvc.RetryRun(ctx, history.RetryRunCommand{
 		Status: listed,
 		Options: history.RetryRunOptions{
 			AutoRetry: true,
@@ -194,6 +190,9 @@ func (s *RetryScanner) processFailedRunFromSummary(
 			)
 			return nil
 		}
+		return err
+	}
+	if err := s.enqueueRetriedRun(ctx, historySvc, retried, nil); err != nil {
 		return err
 	}
 
@@ -266,11 +265,7 @@ func (s *RetryScanner) processFailedRunLegacy(
 	historySvc := history.New(history.Config{
 		DAGRunStore: s.dagRunStore,
 	})
-	matchingSvc := matching.New(matching.Config{
-		QueueStore: s.queueStore,
-		History:    historySvc,
-	})
-	_, err = matchingSvc.RetryRun(ctx, matching.RetryRunCommand{
+	retried, err := historySvc.RetryRun(ctx, history.RetryRunCommand{
 		DAG:    dagSnapshot,
 		Status: latestStatus,
 		Options: history.RetryRunOptions{
@@ -288,6 +283,9 @@ func (s *RetryScanner) processFailedRunLegacy(
 		}
 		return err
 	}
+	if err := s.enqueueRetriedRun(ctx, historySvc, retried, dagSnapshot); err != nil {
+		return err
+	}
 
 	logger.Info(ctx, "Retry scanner ensured DAG-level retry is queued",
 		tag.DAG(latestStatus.Name),
@@ -296,6 +294,40 @@ func (s *RetryScanner) processFailedRunLegacy(
 		slog.Duration("computed_delay", decision.computedDelay),
 	)
 	return nil
+}
+
+func (s *RetryScanner) enqueueRetriedRun(ctx context.Context, historySvc *history.Service, retried *history.RetriedRun, dag *core.DAG) error {
+	queueName := retryQueueName(dag, retried.Status)
+	if queueName == "" {
+		_ = historySvc.UndoRetryRun(ctx, history.UndoRetryRunCommand{
+			DAGRun:         retried.DAGRun,
+			QueuedStatus:   retried.Status,
+			PreviousStatus: retried.PreviousStatus,
+		})
+		return errors.New("enqueue retry: proc group is empty")
+	}
+	if err := s.queueStore.Enqueue(ctx, queueName, exec.QueuePriorityLow, retried.DAGRun); err != nil {
+		_ = historySvc.UndoRetryRun(ctx, history.UndoRetryRunCommand{
+			DAGRun:         retried.DAGRun,
+			QueuedStatus:   retried.Status,
+			PreviousStatus: retried.PreviousStatus,
+		})
+		return fmt.Errorf("enqueue retry: %w", err)
+	}
+	return nil
+}
+
+func retryQueueName(dag *core.DAG, status *exec.DAGRunStatus) string {
+	if status != nil && status.ProcGroup != "" {
+		return status.ProcGroup
+	}
+	if dag != nil {
+		return dag.ProcGroup()
+	}
+	if status != nil {
+		return status.Name
+	}
+	return ""
 }
 
 func (s *RetryScanner) evaluateRetryDecision(

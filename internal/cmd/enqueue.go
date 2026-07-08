@@ -12,7 +12,6 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/service/history"
-	"github.com/dagucloud/dagu/internal/service/matching"
 	"github.com/spf13/cobra"
 )
 
@@ -109,11 +108,7 @@ func enqueueDAGRun(ctx *Context, dag *core.DAG, dagRunID string, triggerType cor
 		LogBaseDir:      ctx.Config.Paths.LogDir,
 		ArtifactBaseDir: ctx.Config.Paths.ArtifactDir,
 	})
-	matchingSvc := matching.New(matching.Config{
-		QueueStore: ctx.QueueStore,
-		History:    historySvc,
-	})
-	queued, err := matchingSvc.SubmitRun(ctx.Context, matching.SubmitRunCommand{
+	queued, err := historySvc.SubmitRun(ctx.Context, history.SubmitRunCommand{
 		DAG:                     dag,
 		DAGRunID:                dagRunID,
 		TriggerType:             triggerType,
@@ -123,6 +118,12 @@ func enqueueDAGRun(ctx *Context, dag *core.DAG, dagRunID string, triggerType cor
 	})
 	if err != nil {
 		return err
+	}
+	if err := ctx.QueueStore.Enqueue(ctx.Context, dag.ProcGroup(), exec.QueuePriorityLow, queued.DAGRun); err != nil {
+		if rmErr := historySvc.RemoveRun(ctx.Context, history.RemoveRunCommand{DAGRun: queued.DAGRun}); rmErr != nil {
+			return fmt.Errorf("failed to enqueue DAG run: %w; rollback failed: %v", err, rmErr)
+		}
+		return fmt.Errorf("failed to enqueue DAG run: %w", err)
 	}
 	if queued.StatusCloseErr != nil {
 		logger.Warn(ctx.Context, "Failed to close queued status before enqueue",

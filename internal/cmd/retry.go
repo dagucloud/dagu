@@ -18,7 +18,6 @@ import (
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/runtime/agent"
 	"github.com/dagucloud/dagu/internal/service/history"
-	"github.com/dagucloud/dagu/internal/service/matching"
 	"github.com/spf13/cobra"
 )
 
@@ -397,21 +396,48 @@ func enqueueRetry(ctx *Context, _ exec.DAGRunAttempt, dag *core.DAG, status *exe
 	historySvc := history.New(history.Config{
 		DAGRunStore: ctx.DAGRunStore,
 	})
-	matchingSvc := matching.New(matching.Config{
-		QueueStore: ctx.QueueStore,
-		History:    historySvc,
-	})
-	if _, err := matchingSvc.RetryRun(ctx.Context, matching.RetryRunCommand{DAG: dag, Status: status}); err != nil {
+	retried, err := historySvc.RetryRun(ctx.Context, history.RetryRunCommand{DAG: dag, Status: status})
+	if err != nil {
 		if errors.Is(err, history.ErrRetryStaleLatest) {
 			return fmt.Errorf("dag-run state changed before retry could be queued")
 		}
 		return err
+	}
+	queueName := retryQueueName(dag, retried.Status)
+	if queueName == "" {
+		_ = historySvc.UndoRetryRun(ctx.Context, history.UndoRetryRunCommand{
+			DAGRun:         retried.DAGRun,
+			QueuedStatus:   retried.Status,
+			PreviousStatus: retried.PreviousStatus,
+		})
+		return fmt.Errorf("enqueue retry: proc group is empty")
+	}
+	if err := ctx.QueueStore.Enqueue(ctx.Context, queueName, exec.QueuePriorityLow, retried.DAGRun); err != nil {
+		_ = historySvc.UndoRetryRun(ctx.Context, history.UndoRetryRunCommand{
+			DAGRun:         retried.DAGRun,
+			QueuedStatus:   retried.Status,
+			PreviousStatus: retried.PreviousStatus,
+		})
+		return fmt.Errorf("enqueue retry: %w", err)
 	}
 	logger.Info(ctx, "Enqueued retry; will run when queue capacity is available",
 		tag.DAG(dag.Name),
 		tag.RunID(dagRunID),
 	)
 	return nil
+}
+
+func retryQueueName(dag *core.DAG, status *exec.DAGRunStatus) string {
+	if status != nil && status.ProcGroup != "" {
+		return status.ProcGroup
+	}
+	if dag != nil {
+		return dag.ProcGroup()
+	}
+	if status != nil {
+		return status.Name
+	}
+	return ""
 }
 
 // prepareQueuedCatchupRetry repairs queued catchup records before they run

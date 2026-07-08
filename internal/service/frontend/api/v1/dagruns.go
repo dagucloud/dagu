@@ -43,7 +43,6 @@ import (
 	"github.com/dagucloud/dagu/internal/runtime/executor"
 	"github.com/dagucloud/dagu/internal/service/audit"
 	"github.com/dagucloud/dagu/internal/service/history"
-	"github.com/dagucloud/dagu/internal/service/matching"
 	"github.com/dagucloud/dagu/internal/workspace"
 	"github.com/goccy/go-yaml"
 	"github.com/goccy/go-yaml/parser"
@@ -2738,7 +2737,7 @@ func (a *API) retryDAGRun(ctx context.Context, dagName, dagRunID, retryDagRunID,
 	return retryDAGRunResult{}, nil
 }
 
-// enqueueRetry asks Matching to enqueue the retry after History records state.
+// enqueueRetry enqueues the retry after History records state.
 // Retries respect global queue capacity because the queue processor picks them up
 // when capacity is available.
 func (a *API) enqueueRetry(ctx context.Context, attempt exec.DAGRunAttempt, dag *core.DAG) error {
@@ -2750,11 +2749,8 @@ func (a *API) enqueueRetry(ctx context.Context, attempt exec.DAGRunAttempt, dag 
 	historySvc := history.New(history.Config{
 		DAGRunStore: a.dagRunStore,
 	})
-	matchingSvc := matching.New(matching.Config{
-		QueueStore: a.queueStore,
-		History:    historySvc,
-	})
-	if _, err := matchingSvc.RetryRun(eventCtx, matching.RetryRunCommand{DAG: dag, Status: status}); err != nil {
+	retried, err := historySvc.RetryRun(eventCtx, history.RetryRunCommand{DAG: dag, Status: status})
+	if err != nil {
 		if errors.Is(err, history.ErrRetryStaleLatest) {
 			return &Error{
 				HTTPStatus: http.StatusBadRequest,
@@ -2764,7 +2760,37 @@ func (a *API) enqueueRetry(ctx context.Context, attempt exec.DAGRunAttempt, dag 
 		}
 		return err
 	}
+	queueName := apiRetryQueueName(dag, retried.Status)
+	if queueName == "" {
+		_ = historySvc.UndoRetryRun(eventCtx, history.UndoRetryRunCommand{
+			DAGRun:         retried.DAGRun,
+			QueuedStatus:   retried.Status,
+			PreviousStatus: retried.PreviousStatus,
+		})
+		return fmt.Errorf("enqueue retry: proc group is empty")
+	}
+	if err := a.queueStore.Enqueue(eventCtx, queueName, exec.QueuePriorityLow, retried.DAGRun); err != nil {
+		_ = historySvc.UndoRetryRun(eventCtx, history.UndoRetryRunCommand{
+			DAGRun:         retried.DAGRun,
+			QueuedStatus:   retried.Status,
+			PreviousStatus: retried.PreviousStatus,
+		})
+		return fmt.Errorf("enqueue retry: %w", err)
+	}
 	return nil
+}
+
+func apiRetryQueueName(dag *core.DAG, status *exec.DAGRunStatus) string {
+	if status != nil && status.ProcGroup != "" {
+		return status.ProcGroup
+	}
+	if dag != nil {
+		return dag.ProcGroup()
+	}
+	if status != nil {
+		return status.Name
+	}
+	return ""
 }
 
 func (a *API) logRetryAudit(ctx context.Context, dagName, dagRunID, stepName string, distributed bool) {
@@ -2975,13 +3001,11 @@ func (a *API) DequeueDAGRun(ctx context.Context, request api.DequeueDAGRunReques
 	defer a.procStore.Unlock(ctx, queueName)
 
 	historySvc := history.New(history.Config{DAGRunStore: a.dagRunStore})
-	matchingSvc := matching.New(matching.Config{QueueStore: a.queueStore, History: historySvc})
-	if err := matchingSvc.CancelPendingRun(ctx, matching.CancelPendingRunCommand{
-		DAGRun:                 dagRun,
-		QueueName:              queueName,
-		IgnoreMissingQueueItem: true,
-	}); err != nil {
+	if err := historySvc.MarkDispatchCanceled(ctx, history.MarkDispatchCanceledCommand{DAGRun: dagRun}); err != nil {
 		return nil, mapAbortQueuedDAGRunAPIError(request.Name, request.DagRunId, err)
+	}
+	if _, err := a.queueStore.DequeueByDAGRunID(ctx, queueName, dagRun); err != nil && !errors.Is(err, exec.ErrQueueItemNotFound) {
+		return nil, fmt.Errorf("error dequeueing dag-run: %w", err)
 	}
 
 	a.logAudit(ctx, audit.CategoryDAG, "dag_dequeue", map[string]any{
@@ -3223,11 +3247,7 @@ func (a *API) enqueuePreparedDAGRun(
 		LogBaseDir:      a.config.Paths.LogDir,
 		ArtifactBaseDir: a.config.Paths.ArtifactDir,
 	})
-	matchingSvc := matching.New(matching.Config{
-		QueueStore: a.queueStore,
-		History:    historySvc,
-	})
-	queued, err := matchingSvc.SubmitRun(ctx, matching.SubmitRunCommand{
+	queued, err := historySvc.SubmitRun(ctx, history.SubmitRunCommand{
 		DAG:                     queuedDAG,
 		DAGRunID:                dagRunID,
 		TriggerType:             triggerType,
@@ -3236,6 +3256,12 @@ func (a *API) enqueuePreparedDAGRun(
 	})
 	if err != nil {
 		return err
+	}
+	if err := a.queueStore.Enqueue(ctx, queuedDAG.ProcGroup(), exec.QueuePriorityLow, queued.DAGRun); err != nil {
+		if rmErr := historySvc.RemoveRun(ctx, history.RemoveRunCommand{DAGRun: queued.DAGRun}); rmErr != nil {
+			return fmt.Errorf("failed to enqueue DAG run: %w; rollback failed: %v", err, rmErr)
+		}
+		return fmt.Errorf("failed to enqueue DAG run: %w", err)
 	}
 	if queued.StatusCloseErr != nil {
 		logger.Warn(ctx, "Failed to close queued dag-run status before enqueue",

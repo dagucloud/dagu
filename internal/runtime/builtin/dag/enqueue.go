@@ -24,7 +24,6 @@ import (
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/executor"
 	"github.com/dagucloud/dagu/internal/service/history"
-	"github.com/dagucloud/dagu/internal/service/matching"
 )
 
 const dagEnqueueQueueConfigKey = "queue"
@@ -251,18 +250,19 @@ func (e *enqueueExecutor) enqueueOne(ctx context.Context, runParams executor.Run
 		LogBaseDir:      rCtx.DAGRunLogDir,
 		ArtifactBaseDir: rCtx.DAGRunArtifactDir,
 	})
-	matchingSvc := matching.New(matching.Config{
-		QueueStore: rCtx.QueueStore,
-		History:    historySvc,
-	})
-	_, err = matchingSvc.SubmitRun(ctx, matching.SubmitRunCommand{
+	queued, err := historySvc.SubmitRun(ctx, history.SubmitRunCommand{
 		DAG:         dagCopy,
 		DAGRunID:    runParams.RunID,
-		QueueName:   queueName,
 		TriggerType: core.TriggerTypeSubDAG,
 		ProfileName: rCtx.ProfileName,
 	})
 	if err != nil {
+		return enqueueRunOutput{}, fmt.Errorf("failed to enqueue DAG run: %w", err)
+	}
+	if err := rCtx.QueueStore.Enqueue(ctx, queueName, exec1.QueuePriorityLow, queued.DAGRun); err != nil {
+		if rmErr := historySvc.RemoveRun(ctx, history.RemoveRunCommand{DAGRun: queued.DAGRun}); rmErr != nil {
+			return enqueueRunOutput{}, fmt.Errorf("failed to enqueue DAG run: %w; rollback failed: %v", err, rmErr)
+		}
 		return enqueueRunOutput{}, fmt.Errorf("failed to enqueue DAG run: %w", err)
 	}
 
