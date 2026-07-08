@@ -13,7 +13,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/dagucloud/dagu/internal/dagrun/intake"
+	"github.com/dagucloud/dagu/internal/service/history"
 )
 
 // EnqueueCatchupRun enqueues a catchup run for a DAG.
@@ -65,16 +65,18 @@ func EnqueueCatchupRun(
 	dagCopy := fullDAG.Clone()
 	dagCopy.Location = ""
 
-	_, err = intake.EnqueueRun(ctx, intake.QueueRequest{
+	historySvc := history.New(history.Config{
 		DAGRunStore:     dagRunStore,
 		QueueStore:      queueStore,
-		DAG:             dagCopy,
-		DAGRunID:        runID,
 		LogBaseDir:      baseLogDir,
 		ArtifactBaseDir: baseArtifactDir,
-		TriggerType:     triggerType,
-		ScheduleTime:    stringutil.FormatTime(scheduleTime),
-		ProfileName:     profileName,
+	})
+	_, err = historySvc.SubmitRun(ctx, history.SubmitRunCommand{
+		DAG:          dagCopy,
+		DAGRunID:     runID,
+		TriggerType:  triggerType,
+		ScheduleTime: stringutil.FormatTime(scheduleTime),
+		ProfileName:  profileName,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to enqueue catchup run: %w", err)

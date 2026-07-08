@@ -10,6 +10,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/internal/service/history"
 	"github.com/spf13/cobra"
 )
 
@@ -79,7 +80,8 @@ func dequeueFirst(ctx *Context, queueName string) error {
 		}
 
 		err = withQueueProcLock(ctx, queueName, func() error {
-			if err := exec.AbortQueuedDAGRun(ctx.Context, ctx.DAGRunStore, *data); err != nil {
+			historySvc := history.New(history.Config{DAGRunStore: ctx.DAGRunStore})
+			if err := historySvc.CancelQueuedRun(ctx.Context, history.CancelQueuedRunCommand{DAGRun: *data}); err != nil {
 				return err
 			}
 			if _, err := ctx.QueueStore.DeleteByItemIDs(ctx.Context, queueName, []string{item.ID()}); err != nil {
@@ -134,7 +136,8 @@ func dequeueQueuedDAGRun(ctx *Context, requestedQueueName string, dagRun exec.DA
 	}
 
 	err = withQueueProcLock(ctx, actualQueueName, func() error {
-		if err := exec.AbortQueuedDAGRun(ctx.Context, ctx.DAGRunStore, dagRun); err != nil {
+		historySvc := history.New(history.Config{DAGRunStore: ctx.DAGRunStore})
+		if err := historySvc.CancelQueuedRun(ctx.Context, history.CancelQueuedRunCommand{DAGRun: dagRun}); err != nil {
 			return err
 		}
 		if _, err := ctx.QueueStore.DequeueByDAGRunID(ctx.Context, actualQueueName, dagRun); err != nil {

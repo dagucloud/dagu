@@ -17,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/runtime/agent"
+	"github.com/dagucloud/dagu/internal/service/history"
 	"github.com/spf13/cobra"
 )
 
@@ -388,11 +389,15 @@ func newQueueDispatchNotQueuedError(status *exec.DAGRunStatus) *exec.DAGRunNotQu
 	return &exec.DAGRunNotQueuedError{Status: status.Status, HasStatus: true}
 }
 
-// enqueueRetry enqueues the retry and persists Queued status via exec.EnqueueRetry.
+// enqueueRetry enqueues the retry and persists Queued status via History.
 // Retries respect global queue capacity because the queue processor picks them up
 // when capacity is available.
 func enqueueRetry(ctx *Context, _ exec.DAGRunAttempt, dag *core.DAG, status *exec.DAGRunStatus, dagRunID string) error {
-	if err := exec.EnqueueRetry(ctx.Context, ctx.DAGRunStore, ctx.QueueStore, dag, status, exec.EnqueueRetryOptions{}); err != nil {
+	historySvc := history.New(history.Config{
+		DAGRunStore: ctx.DAGRunStore,
+		QueueStore:  ctx.QueueStore,
+	})
+	if err := historySvc.RetryRun(ctx.Context, history.RetryRunCommand{DAG: dag, Status: status}); err != nil {
 		if errors.Is(err, exec.ErrRetryStaleLatest) {
 			return fmt.Errorf("dag-run state changed before retry could be queued")
 		}

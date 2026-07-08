@@ -13,7 +13,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/dagucloud/dagu/internal/dagrun/intake"
+	"github.com/dagucloud/dagu/internal/service/history"
 )
 
 // EnqueueWebhookRun enqueues a webhook-triggered run while preserving the same
@@ -53,15 +53,17 @@ func EnqueueWebhookRun(
 	dagCopy := fullDAG.Clone()
 	dagCopy.Location = ""
 
-	_, err = intake.EnqueueRun(ctx, intake.QueueRequest{
+	historySvc := history.New(history.Config{
 		DAGRunStore:     dagRunStore,
 		QueueStore:      queueStore,
-		DAG:             dagCopy,
-		DAGRunID:        runID,
 		LogBaseDir:      baseLogDir,
 		ArtifactBaseDir: baseArtifactDir,
-		TriggerType:     core.TriggerTypeWebhook,
 		Now:             func() time.Time { return now },
+	})
+	_, err = historySvc.SubmitRun(ctx, history.SubmitRunCommand{
+		DAG:         dagCopy,
+		DAGRunID:    runID,
+		TriggerType: core.TriggerTypeWebhook,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to enqueue webhook run: %w", err)

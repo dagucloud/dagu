@@ -13,6 +13,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/internal/service/history"
 )
 
 const retryScanInterval = 30 * time.Second
@@ -170,8 +171,15 @@ func (s *RetryScanner) processFailedRunFromSummary(
 		return nil
 	}
 
-	err := exec.EnqueueRetry(ctx, s.dagRunStore, s.queueStore, nil, listed, exec.EnqueueRetryOptions{
-		AutoRetry: true,
+	historySvc := history.New(history.Config{
+		DAGRunStore: s.dagRunStore,
+		QueueStore:  s.queueStore,
+	})
+	err := historySvc.RetryRun(ctx, history.RetryRunCommand{
+		Status: listed,
+		Options: exec.EnqueueRetryOptions{
+			AutoRetry: true,
+		},
 	})
 	if err != nil {
 		if errors.Is(err, exec.ErrRetryStaleLatest) {
@@ -251,8 +259,16 @@ func (s *RetryScanner) processFailedRunLegacy(
 		return nil
 	}
 
-	err = exec.EnqueueRetry(ctx, s.dagRunStore, s.queueStore, dagSnapshot, latestStatus, exec.EnqueueRetryOptions{
-		AutoRetry: true,
+	historySvc := history.New(history.Config{
+		DAGRunStore: s.dagRunStore,
+		QueueStore:  s.queueStore,
+	})
+	err = historySvc.RetryRun(ctx, history.RetryRunCommand{
+		DAG:    dagSnapshot,
+		Status: latestStatus,
+		Options: exec.EnqueueRetryOptions{
+			AutoRetry: true,
+		},
 	})
 	if err != nil {
 		if errors.Is(err, exec.ErrRetryStaleLatest) {

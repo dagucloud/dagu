@@ -21,9 +21,9 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	exec1 "github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/core/spec"
-	"github.com/dagucloud/dagu/internal/dagrun/intake"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/executor"
+	"github.com/dagucloud/dagu/internal/service/history"
 )
 
 const dagEnqueueQueueConfigKey = "queue"
@@ -245,16 +245,18 @@ func (e *enqueueExecutor) enqueueOne(ctx context.Context, runParams executor.Run
 		return enqueueRunOutput{}, fmt.Errorf("failed to check existing DAG run: %w", err)
 	}
 
-	_, err = intake.EnqueueRun(ctx, intake.QueueRequest{
+	historySvc := history.New(history.Config{
 		DAGRunStore:     rCtx.DAGRunStore,
 		QueueStore:      rCtx.QueueStore,
-		DAG:             dagCopy,
-		DAGRunID:        runParams.RunID,
-		QueueName:       queueName,
 		LogBaseDir:      rCtx.DAGRunLogDir,
 		ArtifactBaseDir: rCtx.DAGRunArtifactDir,
-		TriggerType:     core.TriggerTypeSubDAG,
-		ProfileName:     rCtx.ProfileName,
+	})
+	_, err = historySvc.SubmitRun(ctx, history.SubmitRunCommand{
+		DAG:         dagCopy,
+		DAGRunID:    runParams.RunID,
+		QueueName:   queueName,
+		TriggerType: core.TriggerTypeSubDAG,
+		ProfileName: rCtx.ProfileName,
 	})
 	if err != nil {
 		return enqueueRunOutput{}, fmt.Errorf("failed to enqueue DAG run: %w", err)

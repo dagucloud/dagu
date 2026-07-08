@@ -11,7 +11,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/dagucloud/dagu/internal/dagrun/intake"
+	"github.com/dagucloud/dagu/internal/service/history"
 	"github.com/spf13/cobra"
 )
 
@@ -103,13 +103,15 @@ func enqueueDAGRun(ctx *Context, dag *core.DAG, dagRunID string, triggerType cor
 		return fmt.Errorf("DAG %q with ID %q already exists", dag.Name, dagRunID)
 	}
 
-	queued, err := intake.EnqueueRun(ctx.Context, intake.QueueRequest{
-		DAGRunStore:             ctx.DAGRunStore,
-		QueueStore:              ctx.QueueStore,
+	historySvc := history.New(history.Config{
+		DAGRunStore:     ctx.DAGRunStore,
+		QueueStore:      ctx.QueueStore,
+		LogBaseDir:      ctx.Config.Paths.LogDir,
+		ArtifactBaseDir: ctx.Config.Paths.ArtifactDir,
+	})
+	queued, err := historySvc.SubmitRun(ctx.Context, history.SubmitRunCommand{
 		DAG:                     dag,
 		DAGRunID:                dagRunID,
-		LogBaseDir:              ctx.Config.Paths.LogDir,
-		ArtifactBaseDir:         ctx.Config.Paths.ArtifactDir,
 		TriggerType:             triggerType,
 		ScheduleTime:            scheduleTime,
 		ProfileName:             profileName,
