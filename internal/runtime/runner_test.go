@@ -2254,7 +2254,7 @@ func TestRunner_CancelSuppressesPostStopExecutorStatusError(t *testing.T) {
 	select {
 	case err := <-done:
 		require.NoError(t, err)
-	case <-time.After(2 * time.Second):
+	case <-time.After(platformTestDuration(2*time.Second, 10*time.Second)):
 		t.Fatal("runner did not finish after cancellation")
 	}
 
