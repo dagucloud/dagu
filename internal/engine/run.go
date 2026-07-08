@@ -647,7 +647,7 @@ func (e *Engine) prepareHistoryLocal(ctx context.Context, dag *core.DAG, runID s
 		LogBaseDir:      e.cfg.Paths.LogDir,
 		ArtifactBaseDir: e.cfg.Paths.ArtifactDir,
 	})
-	prepared, err := historySvc.PrepareLocalAttempt(ctx, history.PrepareLocalAttemptCommand{
+	prepared, err := historySvc.PrepareLocalAttempt(ctx, history.PrepareLocalAttemptRequest{
 		DAG:      dag,
 		DAGRunID: runID,
 		Root:     root,
@@ -753,7 +753,7 @@ func (e *Engine) discardLocalPreparation(ctx context.Context, prepared *localPre
 		return
 	}
 	historySvc := history.New(history.Config{DAGRunStore: e.dagRunStore})
-	_ = historySvc.DiscardPreparedLocalAttempt(ctx, history.DiscardPreparedLocalAttemptCommand{
+	_ = historySvc.DiscardPreparedLocalAttempt(ctx, history.DiscardPreparedLocalAttemptRequest{
 		RollbackToken: prepared.rollbackToken,
 	})
 }

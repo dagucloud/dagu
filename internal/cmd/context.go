@@ -786,7 +786,7 @@ type LogConfig = logpath.Config
 // RecordEarlyFailure records a failure in the execution history before the DAG has fully started.
 // This is used for infrastructure errors like singleton conflicts or process acquisition failures.
 func (c *Context) RecordEarlyFailure(dag *core.DAG, dagRunID string, err error) error {
-	return c.historyService().RecordEarlyFailure(c, history.RecordEarlyFailureCommand{
+	return c.historyService().RecordEarlyFailure(c, history.RecordEarlyFailureRequest{
 		DAG:      dag,
 		DAGRunID: dagRunID,
 		Err:      err,

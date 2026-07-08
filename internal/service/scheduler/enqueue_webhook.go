@@ -59,7 +59,7 @@ func EnqueueWebhookRun(
 		ArtifactBaseDir: baseArtifactDir,
 		Now:             func() time.Time { return now },
 	})
-	queued, err := historySvc.SubmitRun(ctx, history.SubmitRunCommand{
+	queued, err := historySvc.SubmitRun(ctx, history.SubmitRunRequest{
 		DAG:         dagCopy,
 		DAGRunID:    runID,
 		TriggerType: core.TriggerTypeWebhook,
@@ -68,7 +68,7 @@ func EnqueueWebhookRun(
 		return fmt.Errorf("failed to enqueue webhook run: %w", err)
 	}
 	if err := queueStore.Enqueue(ctx, dagCopy.ProcGroup(), exec.QueuePriorityLow, queued.DAGRun); err != nil {
-		if rmErr := historySvc.DiscardSubmittedRun(ctx, history.DiscardSubmittedRunCommand{
+		if rmErr := historySvc.DiscardSubmittedRun(ctx, history.DiscardSubmittedRunRequest{
 			RollbackToken: queued.RollbackToken,
 		}); rmErr != nil {
 			return fmt.Errorf("failed to enqueue webhook run: %w; rollback failed: %v", err, rmErr)

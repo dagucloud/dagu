@@ -70,7 +70,7 @@ func EnqueueCatchupRun(
 		LogBaseDir:      baseLogDir,
 		ArtifactBaseDir: baseArtifactDir,
 	})
-	queued, err := historySvc.SubmitRun(ctx, history.SubmitRunCommand{
+	queued, err := historySvc.SubmitRun(ctx, history.SubmitRunRequest{
 		DAG:          dagCopy,
 		DAGRunID:     runID,
 		TriggerType:  triggerType,
@@ -81,7 +81,7 @@ func EnqueueCatchupRun(
 		return fmt.Errorf("failed to enqueue catchup run: %w", err)
 	}
 	if err := queueStore.Enqueue(ctx, dagCopy.ProcGroup(), exec.QueuePriorityLow, queued.DAGRun); err != nil {
-		if rmErr := historySvc.DiscardSubmittedRun(ctx, history.DiscardSubmittedRunCommand{
+		if rmErr := historySvc.DiscardSubmittedRun(ctx, history.DiscardSubmittedRunRequest{
 			RollbackToken: queued.RollbackToken,
 		}); rmErr != nil {
 			return fmt.Errorf("failed to enqueue catchup run: %w; rollback failed: %v", err, rmErr)

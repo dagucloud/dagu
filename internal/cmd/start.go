@@ -248,7 +248,7 @@ func tryExecuteDAG(ctx *Context, dag *core.DAG, dagRunID string, root exec.DAGRu
 
 	return withPreparedLocalExecution(
 		ctx,
-		history.PrepareLocalAttemptCommand{
+		history.PrepareLocalAttemptRequest{
 			DAG:          dag,
 			DAGRunID:     dagRunID,
 			Root:         root,
@@ -411,7 +411,7 @@ func handleSubDAGRun(ctx *Context, dag *core.DAG, dagRunID string, params string
 		}
 		return withPreparedLocalExecution(
 			ctx,
-			history.PrepareLocalAttemptCommand{
+			history.PrepareLocalAttemptRequest{
 				DAG:          dag,
 				DAGRunID:     dagRunID,
 				Root:         root,
@@ -434,7 +434,7 @@ func handleSubDAGRun(ctx *Context, dag *core.DAG, dagRunID string, params string
 	if errors.Is(err, exec.ErrDAGRunIDNotFound) {
 		return withPreparedLocalExecution(
 			ctx,
-			history.PrepareLocalAttemptCommand{
+			history.PrepareLocalAttemptRequest{
 				DAG:          dag,
 				DAGRunID:     dagRunID,
 				Root:         root,
@@ -463,7 +463,7 @@ func handleSubDAGRun(ctx *Context, dag *core.DAG, dagRunID string, params string
 
 	return withPreparedLocalExecution(
 		ctx,
-		history.PrepareLocalAttemptCommand{
+		history.PrepareLocalAttemptRequest{
 			DAG:          dag,
 			DAGRunID:     dagRunID,
 			Root:         root,

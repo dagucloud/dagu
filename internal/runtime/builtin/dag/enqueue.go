@@ -250,7 +250,7 @@ func (e *enqueueExecutor) enqueueOne(ctx context.Context, runParams executor.Run
 		LogBaseDir:      rCtx.DAGRunLogDir,
 		ArtifactBaseDir: rCtx.DAGRunArtifactDir,
 	})
-	queued, err := historySvc.SubmitRun(ctx, history.SubmitRunCommand{
+	queued, err := historySvc.SubmitRun(ctx, history.SubmitRunRequest{
 		DAG:         dagCopy,
 		DAGRunID:    runParams.RunID,
 		TriggerType: core.TriggerTypeSubDAG,
@@ -260,7 +260,7 @@ func (e *enqueueExecutor) enqueueOne(ctx context.Context, runParams executor.Run
 		return enqueueRunOutput{}, fmt.Errorf("failed to enqueue DAG run: %w", err)
 	}
 	if err := rCtx.QueueStore.Enqueue(ctx, queueName, exec1.QueuePriorityLow, queued.DAGRun); err != nil {
-		if rmErr := historySvc.DiscardSubmittedRun(ctx, history.DiscardSubmittedRunCommand{
+		if rmErr := historySvc.DiscardSubmittedRun(ctx, history.DiscardSubmittedRunRequest{
 			RollbackToken: queued.RollbackToken,
 		}); rmErr != nil {
 			return enqueueRunOutput{}, fmt.Errorf("failed to enqueue DAG run: %w; rollback failed: %v", err, rmErr)

@@ -25,7 +25,7 @@ import (
 	"github.com/dagucloud/dagu/internal/runtime/transform"
 )
 
-func (s *Service) seedEditRetryRun(ctx context.Context, cmd SeedEditRetryRunCommand) (*SeededEditRetryRun, error) {
+func (s *Service) seedEditRetryRun(ctx context.Context, cmd SeedEditRetryRunRequest) (*SeededEditRetryRun, error) {
 	if err := s.validateSeedEditRetryRun(cmd); err != nil {
 		return nil, err
 	}
@@ -86,7 +86,7 @@ func (s *Service) seedEditRetryRun(ctx context.Context, cmd SeedEditRetryRunComm
 	return &SeededEditRetryRun{DAGRun: dagRun, Status: &status}, nil
 }
 
-func (s *Service) markEditRetrySeedFailed(ctx context.Context, cmd MarkEditRetrySeedFailedCommand) error {
+func (s *Service) markEditRetrySeedFailed(ctx context.Context, cmd MarkEditRetrySeedFailedRequest) error {
 	if cmd.Status == nil || cmd.Cause == nil {
 		return nil
 	}
@@ -115,7 +115,7 @@ func (s *Service) markEditRetrySeedFailed(ctx context.Context, cmd MarkEditRetry
 	return nil
 }
 
-func (s *Service) validateSeedEditRetryRun(cmd SeedEditRetryRunCommand) error {
+func (s *Service) validateSeedEditRetryRun(cmd SeedEditRetryRunRequest) error {
 	if s.cfg.DAGRunStore == nil {
 		return fmt.Errorf("dag-run store is required")
 	}
@@ -132,7 +132,7 @@ func (s *Service) validateSeedEditRetryRun(cmd SeedEditRetryRunCommand) error {
 }
 
 func editRetrySeedStatus(
-	cmd SeedEditRetryRunCommand,
+	cmd SeedEditRetryRunRequest,
 	dagRun exec.DAGRunRef,
 	attemptID string,
 	logFile string,

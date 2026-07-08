@@ -15,7 +15,7 @@ import (
 
 func withPreparedLocalExecution(
 	ctx *Context,
-	cmd history.PrepareLocalAttemptCommand,
+	cmd history.PrepareLocalAttemptRequest,
 	run func(*history.ExecutionContext) error,
 ) error {
 	prepared, err := ctx.historyService().PrepareLocalAttempt(ctx.Context, cmd)

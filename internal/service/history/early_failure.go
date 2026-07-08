@@ -13,7 +13,7 @@ import (
 	"github.com/dagucloud/dagu/internal/runtime/transform"
 )
 
-func (s *Service) recordEarlyFailure(ctx context.Context, cmd RecordEarlyFailureCommand) error {
+func (s *Service) recordEarlyFailure(ctx context.Context, cmd RecordEarlyFailureRequest) error {
 	if err := s.validateRecordEarlyFailure(cmd); err != nil {
 		return err
 	}
@@ -54,7 +54,7 @@ func (s *Service) recordEarlyFailure(ctx context.Context, cmd RecordEarlyFailure
 	return writeFailedStatus(ctx, attempt, status, "failed to open attempt for recording failure")
 }
 
-func (s *Service) validateRecordEarlyFailure(cmd RecordEarlyFailureCommand) error {
+func (s *Service) validateRecordEarlyFailure(cmd RecordEarlyFailureRequest) error {
 	if s.cfg.DAGRunStore == nil {
 		return fmt.Errorf("dag-run store is required")
 	}

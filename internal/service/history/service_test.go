@@ -33,7 +33,7 @@ func TestSubmitRunWritesPendingLifecycleState(t *testing.T) {
 		LogBaseDir:  filepath.Join(tmp, "logs"),
 		Now:         func() time.Time { return now },
 	})
-	submitted, err := historySvc.SubmitRun(ctx, history.SubmitRunCommand{
+	submitted, err := historySvc.SubmitRun(ctx, history.SubmitRunRequest{
 		DAG:      dag,
 		DAGRunID: "run-1",
 	})
@@ -60,7 +60,7 @@ func TestDiscardSubmittedRunIgnoresContextCancellation(t *testing.T) {
 		DAGRunStore: store,
 		LogBaseDir:  filepath.Join(tmp, "logs"),
 	})
-	submitted, err := historySvc.SubmitRun(ctx, history.SubmitRunCommand{
+	submitted, err := historySvc.SubmitRun(ctx, history.SubmitRunRequest{
 		DAG:      dag,
 		DAGRunID: "run-rollback",
 	})
@@ -68,7 +68,7 @@ func TestDiscardSubmittedRunIgnoresContextCancellation(t *testing.T) {
 
 	canceled, cancel := context.WithCancel(ctx)
 	cancel()
-	err = historySvc.DiscardSubmittedRun(canceled, history.DiscardSubmittedRunCommand{
+	err = historySvc.DiscardSubmittedRun(canceled, history.DiscardSubmittedRunRequest{
 		RollbackToken: submitted.RollbackToken,
 	})
 	require.NoError(t, err)
@@ -97,7 +97,7 @@ func TestRetryRunRecordsPendingRetryState(t *testing.T) {
 		Now:         func() time.Time { return now },
 	})
 
-	retried, err := historySvc.RetryRun(ctx, history.RetryRunCommand{Status: status})
+	retried, err := historySvc.RetryRun(ctx, history.RetryRunRequest{Status: status})
 	require.NoError(t, err)
 	require.Equal(t, exec.NewDAGRunRef(dag.Name, "run-1"), retried.DAGRun)
 
@@ -127,7 +127,7 @@ func TestRetryRunAutoRetryIncrementsCount(t *testing.T) {
 	)
 	historySvc := history.New(history.Config{DAGRunStore: store})
 
-	_, err := historySvc.RetryRun(ctx, history.RetryRunCommand{
+	_, err := historySvc.RetryRun(ctx, history.RetryRunRequest{
 		Status: status,
 		Options: history.RetryRunOptions{
 			AutoRetry: true,
@@ -153,7 +153,7 @@ func TestRetryRunReturnsStaleWhenLatestAttemptChanged(t *testing.T) {
 	writeHistoryAttemptStatus(t, ctx, store, dag, "run-stale", core.Running, exec.NewDAGRunAttemptOptions{Retry: true}, time.Now())
 	historySvc := history.New(history.Config{DAGRunStore: store})
 
-	_, err := historySvc.RetryRun(ctx, history.RetryRunCommand{Status: staleStatus})
+	_, err := historySvc.RetryRun(ctx, history.RetryRunRequest{Status: staleStatus})
 	require.ErrorIs(t, err, history.ErrRetryStaleLatest)
 }
 
@@ -171,7 +171,7 @@ func TestUndoRetryRunRestoresPreviousStatus(t *testing.T) {
 	)
 	historySvc := history.New(history.Config{DAGRunStore: store})
 
-	retried, err := historySvc.RetryRun(ctx, history.RetryRunCommand{
+	retried, err := historySvc.RetryRun(ctx, history.RetryRunRequest{
 		Status: status,
 		Options: history.RetryRunOptions{
 			AutoRetry: true,
@@ -179,7 +179,7 @@ func TestUndoRetryRunRestoresPreviousStatus(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	err = historySvc.UndoRetryRun(ctx, history.UndoRetryRunCommand{
+	err = historySvc.UndoRetryRun(ctx, history.UndoRetryRunRequest{
 		RollbackToken: retried.RollbackToken,
 	})
 	require.NoError(t, err)
@@ -204,11 +204,11 @@ func TestUndoRetryRunUsesRollbackTokenSnapshot(t *testing.T) {
 	_, status := writeHistoryAttemptStatus(t, ctx, store, dag, "run-token", core.Failed, exec.NewDAGRunAttemptOptions{}, time.Now())
 	historySvc := history.New(history.Config{DAGRunStore: store})
 
-	retried, err := historySvc.RetryRun(ctx, history.RetryRunCommand{Status: status})
+	retried, err := historySvc.RetryRun(ctx, history.RetryRunRequest{Status: status})
 	require.NoError(t, err)
 	retried.Status.AttemptID = "mutated-attempt"
 
-	err = historySvc.UndoRetryRun(ctx, history.UndoRetryRunCommand{
+	err = historySvc.UndoRetryRun(ctx, history.UndoRetryRunRequest{
 		RollbackToken: retried.RollbackToken,
 	})
 	require.NoError(t, err)
@@ -232,7 +232,7 @@ func TestMarkDispatchCanceledPreservesPreviousVisibleAttempt(t *testing.T) {
 	writeHistoryAttemptStatus(t, ctx, store, dag, runRef.ID, core.Queued, exec.NewDAGRunAttemptOptions{Retry: true}, time.Now())
 	historySvc := history.New(history.Config{DAGRunStore: store})
 
-	err := historySvc.MarkDispatchCanceled(ctx, history.MarkDispatchCanceledCommand{DAGRun: runRef})
+	err := historySvc.MarkDispatchCanceled(ctx, history.MarkDispatchCanceledRequest{DAGRun: runRef})
 	require.NoError(t, err)
 
 	attempt, err := store.FindAttempt(ctx, runRef)
@@ -253,7 +253,7 @@ func TestMarkDispatchCanceledRemovesRunWhenPendingAttemptIsOnlyVisibleAttempt(t 
 	writeHistoryAttemptStatus(t, ctx, store, dag, runRef.ID, core.Queued, exec.NewDAGRunAttemptOptions{}, time.Now())
 	historySvc := history.New(history.Config{DAGRunStore: store})
 
-	err := historySvc.MarkDispatchCanceled(ctx, history.MarkDispatchCanceledCommand{DAGRun: runRef})
+	err := historySvc.MarkDispatchCanceled(ctx, history.MarkDispatchCanceledRequest{DAGRun: runRef})
 	require.NoError(t, err)
 
 	_, err = store.FindAttempt(ctx, runRef)
@@ -272,7 +272,7 @@ func TestMarkDispatchCanceledRejectsNonPendingStatus(t *testing.T) {
 	writeHistoryAttemptStatus(t, ctx, store, dag, runRef.ID, core.Running, exec.NewDAGRunAttemptOptions{}, time.Now())
 	historySvc := history.New(history.Config{DAGRunStore: store})
 
-	err := historySvc.MarkDispatchCanceled(ctx, history.MarkDispatchCanceledCommand{DAGRun: runRef})
+	err := historySvc.MarkDispatchCanceled(ctx, history.MarkDispatchCanceledRequest{DAGRun: runRef})
 	require.Error(t, err)
 	var notPendingErr *history.RunNotPendingError
 	require.ErrorAs(t, err, &notPendingErr)
@@ -287,20 +287,20 @@ func TestHistoryCommandsValidateRequiredInputs(t *testing.T) {
 	store := dagrun.New(filepath.Join(tmp, "dag-runs"), dagrun.WithLatestStatusToday(false))
 
 	historySvc := history.New(history.Config{DAGRunStore: store})
-	_, err := historySvc.RetryRun(ctx, history.RetryRunCommand{})
+	_, err := historySvc.RetryRun(ctx, history.RetryRunRequest{})
 	require.ErrorContains(t, err, "status is required")
 
-	err = historySvc.MarkDispatchCanceled(ctx, history.MarkDispatchCanceledCommand{})
+	err = historySvc.MarkDispatchCanceled(ctx, history.MarkDispatchCanceledRequest{})
 	require.ErrorContains(t, err, "dag-run is required")
 
-	err = historySvc.DiscardSubmittedRun(ctx, history.DiscardSubmittedRunCommand{})
+	err = historySvc.DiscardSubmittedRun(ctx, history.DiscardSubmittedRunRequest{})
 	require.ErrorContains(t, err, "dag-run is required")
 
-	err = historySvc.UndoRetryRun(ctx, history.UndoRetryRunCommand{})
+	err = historySvc.UndoRetryRun(ctx, history.UndoRetryRunRequest{})
 	require.ErrorContains(t, err, "dag-run is required")
 
 	missingStoreSvc := history.New(history.Config{})
-	_, err = missingStoreSvc.RetryRun(ctx, history.RetryRunCommand{
+	_, err = missingStoreSvc.RetryRun(ctx, history.RetryRunRequest{
 		Status: &exec.DAGRunStatus{
 			Name:      "dag",
 			DAGRunID:  "run",
@@ -309,15 +309,15 @@ func TestHistoryCommandsValidateRequiredInputs(t *testing.T) {
 	})
 	require.ErrorContains(t, err, "dag-run store is required")
 
-	err = missingStoreSvc.UndoRetryRun(ctx, history.UndoRetryRunCommand{})
+	err = missingStoreSvc.UndoRetryRun(ctx, history.UndoRetryRunRequest{})
 	require.ErrorContains(t, err, "dag-run store is required")
 
-	err = missingStoreSvc.MarkDispatchCanceled(ctx, history.MarkDispatchCanceledCommand{
+	err = missingStoreSvc.MarkDispatchCanceled(ctx, history.MarkDispatchCanceledRequest{
 		DAGRun: exec.NewDAGRunRef("dag", "run"),
 	})
 	require.ErrorContains(t, err, "dag-run store is required")
 
-	err = missingStoreSvc.DiscardSubmittedRun(ctx, history.DiscardSubmittedRunCommand{})
+	err = missingStoreSvc.DiscardSubmittedRun(ctx, history.DiscardSubmittedRunRequest{})
 	require.ErrorContains(t, err, "dag-run store is required")
 }
 
@@ -333,18 +333,18 @@ func TestDiscardSubmittedRunUsesSubmitRollbackToken(t *testing.T) {
 		LogBaseDir:  filepath.Join(tmp, "logs"),
 	})
 
-	first, err := historySvc.SubmitRun(ctx, history.SubmitRunCommand{
+	first, err := historySvc.SubmitRun(ctx, history.SubmitRunRequest{
 		DAG:      dag,
 		DAGRunID: "run-first",
 	})
 	require.NoError(t, err)
-	second, err := historySvc.SubmitRun(ctx, history.SubmitRunCommand{
+	second, err := historySvc.SubmitRun(ctx, history.SubmitRunRequest{
 		DAG:      dag,
 		DAGRunID: "run-second",
 	})
 	require.NoError(t, err)
 
-	err = historySvc.DiscardSubmittedRun(ctx, history.DiscardSubmittedRunCommand{
+	err = historySvc.DiscardSubmittedRun(ctx, history.DiscardSubmittedRunRequest{
 		RollbackToken: first.RollbackToken,
 	})
 	require.NoError(t, err)
@@ -370,7 +370,7 @@ func TestRecordEarlyFailureRecordsHistoryState(t *testing.T) {
 		Now:             func() time.Time { return now },
 	})
 
-	err := historySvc.RecordEarlyFailure(ctx, history.RecordEarlyFailureCommand{
+	err := historySvc.RecordEarlyFailure(ctx, history.RecordEarlyFailureRequest{
 		DAG:      dag,
 		DAGRunID: "run-early",
 		Err:      errors.New("process acquisition failed"),
@@ -397,7 +397,8 @@ func TestRepairQueuedCatchupRunPersistsLocalMetadata(t *testing.T) {
 	ctx := context.Background()
 	tmp := t.TempDir()
 	dag := testHistoryDAG("history-catchup-repair")
-	dag.Artifacts = &core.ArtifactsConfig{Enabled: true, Dir: "dag-artifacts"}
+	artifactDir := filepath.Join(tmp, "dag-artifacts")
+	dag.Artifacts = &core.ArtifactsConfig{Enabled: true, Dir: artifactDir}
 	store := dagrun.New(filepath.Join(tmp, "dag-runs"), dagrun.WithLatestStatusToday(false))
 	_, status := writeHistoryAttemptStatus(t, ctx, store, dag, "run-catchup", core.Queued, exec.NewDAGRunAttemptOptions{}, time.Now(),
 		func(st *exec.DAGRunStatus) {
@@ -412,7 +413,7 @@ func TestRepairQueuedCatchupRunPersistsLocalMetadata(t *testing.T) {
 		ArtifactBaseDir: filepath.Join(tmp, "artifacts"),
 	})
 
-	err := historySvc.RepairQueuedCatchupRun(ctx, history.RepairQueuedCatchupRunCommand{
+	err := historySvc.RepairQueuedCatchupRun(ctx, history.RepairQueuedCatchupRunRequest{
 		DAG:    dag,
 		Status: status,
 	})
@@ -427,7 +428,7 @@ func TestRepairQueuedCatchupRunPersistsLocalMetadata(t *testing.T) {
 	require.NotEmpty(t, repaired.Log)
 	require.NotEmpty(t, repaired.ArchiveDir)
 	require.Contains(t, filepath.Clean(repaired.Log), filepath.Clean(filepath.Join(tmp, "logs")))
-	require.Contains(t, filepath.Clean(repaired.ArchiveDir), "dag-artifacts")
+	require.Contains(t, filepath.Clean(repaired.ArchiveDir), filepath.Clean(artifactDir))
 }
 
 func TestSeedEditRetryRunRecordsQueuedStateAndFailure(t *testing.T) {
@@ -446,7 +447,7 @@ func TestSeedEditRetryRunRecordsQueuedStateAndFailure(t *testing.T) {
 		Now:             func() time.Time { return now },
 	})
 
-	seeded, err := historySvc.SeedEditRetryRun(ctx, history.SeedEditRetryRunCommand{
+	seeded, err := historySvc.SeedEditRetryRun(ctx, history.SeedEditRetryRunRequest{
 		DAG:          dag,
 		DAGRunID:     "run-edit-retry",
 		Params:       "P1=new",
@@ -464,7 +465,7 @@ func TestSeedEditRetryRunRecordsQueuedStateAndFailure(t *testing.T) {
 	require.NotEmpty(t, seeded.Status.Log)
 
 	now = now.Add(time.Minute)
-	err = historySvc.MarkEditRetrySeedFailed(ctx, history.MarkEditRetrySeedFailedCommand{
+	err = historySvc.MarkEditRetrySeedFailed(ctx, history.MarkEditRetrySeedFailedRequest{
 		Status: seeded.Status,
 		Cause:  errors.New("launcher failed"),
 	})

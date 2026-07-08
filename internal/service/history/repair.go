@@ -11,7 +11,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core/exec"
 )
 
-func (s *Service) repairQueuedCatchupRun(ctx context.Context, cmd RepairQueuedCatchupRunCommand) error {
+func (s *Service) repairQueuedCatchupRun(ctx context.Context, cmd RepairQueuedCatchupRunRequest) error {
 	if !exec.IsQueuedCatchup(cmd.Status) {
 		return nil
 	}

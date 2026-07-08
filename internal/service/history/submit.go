@@ -17,7 +17,7 @@ import (
 	"github.com/dagucloud/dagu/internal/runtime/transform"
 )
 
-func (s *Service) submitRun(ctx context.Context, cmd SubmitRunCommand) (*SubmittedRun, error) {
+func (s *Service) submitRun(ctx context.Context, cmd SubmitRunRequest) (*SubmittedRun, error) {
 	if err := s.validateSubmitRun(cmd); err != nil {
 		return nil, err
 	}
@@ -73,7 +73,7 @@ func (s *Service) submitRun(ctx context.Context, cmd SubmitRunCommand) (*Submitt
 	}, nil
 }
 
-func (s *Service) validateSubmitRun(cmd SubmitRunCommand) error {
+func (s *Service) validateSubmitRun(cmd SubmitRunRequest) error {
 	if s.cfg.DAGRunStore == nil {
 		return fmt.Errorf("dag-run store is required")
 	}
@@ -93,7 +93,7 @@ func (s *Service) now() time.Time {
 	return time.Now()
 }
 
-func (s *Service) submitArtifactDir(ctx context.Context, cmd SubmitRunCommand) (string, error) {
+func (s *Service) submitArtifactDir(ctx context.Context, cmd SubmitRunRequest) (string, error) {
 	dir, err := s.localArtifactDir(ctx, cmd.DAG, cmd.DAGRunID)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate artifact directory: %w", err)
@@ -101,7 +101,7 @@ func (s *Service) submitArtifactDir(ctx context.Context, cmd SubmitRunCommand) (
 	return dir, nil
 }
 
-func queuedStatus(cmd SubmitRunCommand, dagRun exec.DAGRunRef, attemptID, logFile, archiveDir string, now time.Time) exec.DAGRunStatus {
+func queuedStatus(cmd SubmitRunRequest, dagRun exec.DAGRunRef, attemptID, logFile, archiveDir string, now time.Time) exec.DAGRunStatus {
 	root := cmd.Root
 	if root.Zero() {
 		root = dagRun

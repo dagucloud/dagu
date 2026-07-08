@@ -12,7 +12,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core/exec"
 )
 
-func (s *Service) retryRun(ctx context.Context, cmd RetryRunCommand) (*RetriedRun, error) {
+func (s *Service) retryRun(ctx context.Context, cmd RetryRunRequest) (*RetriedRun, error) {
 	if err := s.validateRetryRun(cmd); err != nil {
 		return nil, err
 	}
@@ -78,7 +78,7 @@ func (s *Service) retryRun(ctx context.Context, cmd RetryRunCommand) (*RetriedRu
 	}, nil
 }
 
-func (s *Service) undoRetryRun(ctx context.Context, cmd UndoRetryRunCommand) error {
+func (s *Service) undoRetryRun(ctx context.Context, cmd UndoRetryRunRequest) error {
 	if err := s.validateUndoRetryRun(cmd); err != nil {
 		return err
 	}
@@ -98,7 +98,7 @@ func (s *Service) undoRetryRun(ctx context.Context, cmd UndoRetryRunCommand) err
 	return err
 }
 
-func (s *Service) validateRetryRun(cmd RetryRunCommand) error {
+func (s *Service) validateRetryRun(cmd RetryRunRequest) error {
 	if s.cfg.DAGRunStore == nil {
 		return fmt.Errorf("dag-run store is required")
 	}
@@ -114,7 +114,7 @@ func (s *Service) validateRetryRun(cmd RetryRunCommand) error {
 	return nil
 }
 
-func (s *Service) validateUndoRetryRun(cmd UndoRetryRunCommand) error {
+func (s *Service) validateUndoRetryRun(cmd UndoRetryRunRequest) error {
 	if s.cfg.DAGRunStore == nil {
 		return fmt.Errorf("dag-run store is required")
 	}

@@ -175,7 +175,7 @@ func (s *RetryScanner) processFailedRunFromSummary(
 	historySvc := history.New(history.Config{
 		DAGRunStore: s.dagRunStore,
 	})
-	retried, err := historySvc.RetryRun(ctx, history.RetryRunCommand{
+	retried, err := historySvc.RetryRun(ctx, history.RetryRunRequest{
 		Status: listed,
 		Options: history.RetryRunOptions{
 			AutoRetry: true,
@@ -265,7 +265,7 @@ func (s *RetryScanner) processFailedRunLegacy(
 	historySvc := history.New(history.Config{
 		DAGRunStore: s.dagRunStore,
 	})
-	retried, err := historySvc.RetryRun(ctx, history.RetryRunCommand{
+	retried, err := historySvc.RetryRun(ctx, history.RetryRunRequest{
 		Status: latestStatus,
 		Options: history.RetryRunOptions{
 			AutoRetry: true,
@@ -298,13 +298,13 @@ func (s *RetryScanner) processFailedRunLegacy(
 func (s *RetryScanner) enqueueRetriedRun(ctx context.Context, historySvc *history.Service, retried *history.RetriedRun, dag *core.DAG) error {
 	queueName := retryQueueName(dag, retried.Status)
 	if queueName == "" {
-		_ = historySvc.UndoRetryRun(ctx, history.UndoRetryRunCommand{
+		_ = historySvc.UndoRetryRun(ctx, history.UndoRetryRunRequest{
 			RollbackToken: retried.RollbackToken,
 		})
 		return errors.New("enqueue retry: proc group is empty")
 	}
 	if err := s.queueStore.Enqueue(ctx, queueName, exec.QueuePriorityLow, retried.DAGRun); err != nil {
-		_ = historySvc.UndoRetryRun(ctx, history.UndoRetryRunCommand{
+		_ = historySvc.UndoRetryRun(ctx, history.UndoRetryRunRequest{
 			RollbackToken: retried.RollbackToken,
 		})
 		return fmt.Errorf("enqueue retry: %w", err)

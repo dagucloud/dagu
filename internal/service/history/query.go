@@ -10,8 +10,8 @@ import (
 	"github.com/dagucloud/dagu/internal/core/exec"
 )
 
-// DispatchMetadataCommand identifies a submitted run.
-type DispatchMetadataCommand struct {
+// DispatchMetadataRequest identifies a submitted run.
+type DispatchMetadataRequest struct {
 	DAGRun exec.DAGRunRef
 }
 
@@ -22,11 +22,11 @@ type DispatchMetadata struct {
 }
 
 // DispatchMetadata returns dispatch queue metadata for a submitted run.
-func (s *Service) DispatchMetadata(ctx context.Context, cmd DispatchMetadataCommand) (*DispatchMetadata, error) {
-	if err := s.validateDispatchMetadata(cmd); err != nil {
+func (s *Service) DispatchMetadata(ctx context.Context, req DispatchMetadataRequest) (*DispatchMetadata, error) {
+	if err := s.validateDispatchMetadata(req); err != nil {
 		return nil, err
 	}
-	attempt, err := s.cfg.DAGRunStore.FindAttempt(ctx, cmd.DAGRun)
+	attempt, err := s.cfg.DAGRunStore.FindAttempt(ctx, req.DAGRun)
 	if err != nil {
 		return nil, err
 	}
@@ -35,12 +35,12 @@ func (s *Service) DispatchMetadata(ctx context.Context, cmd DispatchMetadataComm
 		return nil, fmt.Errorf("error reading DAG: %w", err)
 	}
 	return &DispatchMetadata{
-		DAGRun:    cmd.DAGRun,
+		DAGRun:    req.DAGRun,
 		QueueName: dag.ProcGroup(),
 	}, nil
 }
 
-func (s *Service) validateDispatchMetadata(cmd DispatchMetadataCommand) error {
+func (s *Service) validateDispatchMetadata(cmd DispatchMetadataRequest) error {
 	if s.cfg.DAGRunStore == nil {
 		return fmt.Errorf("dag-run store is required")
 	}

@@ -16,7 +16,7 @@ import (
 
 func (a *API) queueNameForDAGRun(ctx context.Context, dagRun exec.DAGRunRef) (string, error) {
 	historySvc := history.New(history.Config{DAGRunStore: a.dagRunStore})
-	metadata, err := historySvc.DispatchMetadata(ctx, history.DispatchMetadataCommand{
+	metadata, err := historySvc.DispatchMetadata(ctx, history.DispatchMetadataRequest{
 		DAGRun: dagRun,
 	})
 	if err != nil {

@@ -15,7 +15,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core/exec"
 )
 
-func (s *Service) markDispatchCanceled(ctx context.Context, cmd MarkDispatchCanceledCommand) error {
+func (s *Service) markDispatchCanceled(ctx context.Context, cmd MarkDispatchCanceledRequest) error {
 	if err := s.validateMarkDispatchCanceled(cmd); err != nil {
 		return err
 	}
@@ -79,7 +79,7 @@ func (s *Service) markDispatchCanceled(ctx context.Context, cmd MarkDispatchCanc
 	return nil
 }
 
-func (s *Service) validateMarkDispatchCanceled(cmd MarkDispatchCanceledCommand) error {
+func (s *Service) validateMarkDispatchCanceled(cmd MarkDispatchCanceledRequest) error {
 	if s.cfg.DAGRunStore == nil {
 		return fmt.Errorf("dag-run store is required")
 	}

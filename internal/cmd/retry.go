@@ -157,7 +157,7 @@ func runRetry(ctx *Context, args []string) error {
 	}
 	status.Root = rootRun
 
-	if err := ctx.historyService().RepairQueuedCatchupRun(ctx.Context, history.RepairQueuedCatchupRunCommand{
+	if err := ctx.historyService().RepairQueuedCatchupRun(ctx.Context, history.RepairQueuedCatchupRunRequest{
 		DAG:    dag,
 		Status: status,
 		Root:   rootRun,
@@ -189,7 +189,7 @@ func runRetry(ctx *Context, args []string) error {
 	if workerID == "local" {
 		return withPreparedLocalExecution(
 			ctx,
-			history.PrepareLocalAttemptCommand{
+			history.PrepareLocalAttemptRequest{
 				DAG:            dag,
 				DAGRunID:       dagRunID,
 				Root:           rootRun,
@@ -216,7 +216,7 @@ func runRetry(ctx *Context, args []string) error {
 
 	return withPreparedLocalExecution(
 		ctx,
-		history.PrepareLocalAttemptCommand{
+		history.PrepareLocalAttemptRequest{
 			DAG:          dag,
 			DAGRunID:     dagRunID,
 			Root:         rootRun,
@@ -405,7 +405,7 @@ func newQueueDispatchNotQueuedError(status *exec.DAGRunStatus) *history.RunNotPe
 // when capacity is available.
 func enqueueRetry(ctx *Context, dag *core.DAG, status *exec.DAGRunStatus, dagRunID string) error {
 	historySvc := ctx.historyService()
-	retried, err := historySvc.RetryRun(ctx.Context, history.RetryRunCommand{Status: status})
+	retried, err := historySvc.RetryRun(ctx.Context, history.RetryRunRequest{Status: status})
 	if err != nil {
 		if errors.Is(err, history.ErrRetryStaleLatest) {
 			return fmt.Errorf("dag-run state changed before retry could be queued")
@@ -414,13 +414,13 @@ func enqueueRetry(ctx *Context, dag *core.DAG, status *exec.DAGRunStatus, dagRun
 	}
 	queueName := retryQueueName(dag, retried.Status)
 	if queueName == "" {
-		_ = historySvc.UndoRetryRun(ctx.Context, history.UndoRetryRunCommand{
+		_ = historySvc.UndoRetryRun(ctx.Context, history.UndoRetryRunRequest{
 			RollbackToken: retried.RollbackToken,
 		})
 		return fmt.Errorf("enqueue retry: proc group is empty")
 	}
 	if err := ctx.QueueStore.Enqueue(ctx.Context, queueName, exec.QueuePriorityLow, retried.DAGRun); err != nil {
-		_ = historySvc.UndoRetryRun(ctx.Context, history.UndoRetryRunCommand{
+		_ = historySvc.UndoRetryRun(ctx.Context, history.UndoRetryRunRequest{
 			RollbackToken: retried.RollbackToken,
 		})
 		return fmt.Errorf("enqueue retry: %w", err)

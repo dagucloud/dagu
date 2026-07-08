@@ -26,7 +26,7 @@ type LocalProcStore interface {
 	Acquire(ctx context.Context, groupName string, meta exec.ProcMeta) (exec.ProcHandle, error)
 }
 
-func (s *Service) prepareLocalAttempt(ctx context.Context, cmd PrepareLocalAttemptCommand) (*PreparedLocalAttempt, error) {
+func (s *Service) prepareLocalAttempt(ctx context.Context, cmd PrepareLocalAttemptRequest) (*PreparedLocalAttempt, error) {
 	if err := s.validatePrepareLocalAttempt(cmd); err != nil {
 		return nil, err
 	}
@@ -91,7 +91,7 @@ func (s *Service) prepareLocalAttempt(ctx context.Context, cmd PrepareLocalAttem
 	}, nil
 }
 
-func (s *Service) validatePrepareLocalAttempt(cmd PrepareLocalAttemptCommand) error {
+func (s *Service) validatePrepareLocalAttempt(cmd PrepareLocalAttemptRequest) error {
 	if s.cfg.DAGRunStore == nil {
 		return fmt.Errorf("dag-run store is required")
 	}
@@ -112,7 +112,7 @@ func (s *Service) validatePrepareLocalAttempt(cmd PrepareLocalAttemptCommand) er
 
 func (s *Service) resolveLocalAttempt(
 	ctx context.Context,
-	cmd PrepareLocalAttemptCommand,
+	cmd PrepareLocalAttemptRequest,
 ) (exec.DAGRunAttempt, *exec.DAGRunStatus, error) {
 	switch cmd.Mode {
 	case PrepareAttemptCreate:
@@ -129,7 +129,7 @@ func (s *Service) resolveLocalAttempt(
 
 func (s *Service) openExistingRootAttempt(
 	ctx context.Context,
-	cmd PrepareLocalAttemptCommand,
+	cmd PrepareLocalAttemptRequest,
 ) (exec.DAGRunAttempt, *exec.DAGRunStatus, error) {
 	attempt, err := s.cfg.DAGRunStore.FindAttempt(ctx, exec.NewDAGRunRef(cmd.DAG.Name, cmd.DAGRunID))
 	if err != nil {
@@ -147,7 +147,7 @@ func (s *Service) openExistingRootAttempt(
 
 func (s *Service) openExistingSubAttempt(
 	ctx context.Context,
-	cmd PrepareLocalAttemptCommand,
+	cmd PrepareLocalAttemptRequest,
 ) (exec.DAGRunAttempt, *exec.DAGRunStatus, error) {
 	if cmd.Root.Zero() || cmd.Root.ID == cmd.DAGRunID {
 		return nil, nil, fmt.Errorf("root dag-run is required for sub-attempt")
@@ -193,7 +193,7 @@ func validatePreparedAttemptBinding(
 
 func (s *Service) recordPreparedAttemptFailure(
 	ctx context.Context,
-	cmd PrepareLocalAttemptCommand,
+	cmd PrepareLocalAttemptRequest,
 	attempt exec.DAGRunAttempt,
 	runErr error,
 ) error {
@@ -239,7 +239,7 @@ func preparedArtifactDir(artifactDir string, status *exec.DAGRunStatus) string {
 	return artifactDir
 }
 
-func preparedLocalAttemptRollbackToken(cmd PrepareLocalAttemptCommand) PreparedLocalAttemptRollbackToken {
+func preparedLocalAttemptRollbackToken(cmd PrepareLocalAttemptRequest) PreparedLocalAttemptRollbackToken {
 	if cmd.Mode != PrepareAttemptCreate || cmd.AttemptOptions.RootDAGRun != nil {
 		return PreparedLocalAttemptRollbackToken{}
 	}

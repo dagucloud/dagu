@@ -542,7 +542,7 @@ func (a *API) launchEditRetryDAGRun(ctx context.Context, plan *editRetryPlan) (q
 		LogBaseDir:      a.config.Paths.LogDir,
 		ArtifactBaseDir: a.config.Paths.ArtifactDir,
 	})
-	seeded, err := historySvc.SeedEditRetryRun(ctx, history.SeedEditRetryRunCommand{
+	seeded, err := historySvc.SeedEditRetryRun(ctx, history.SeedEditRetryRunRequest{
 		DAG:           plan.editedDAG,
 		DAGRunID:      plan.newDAGRunID,
 		Params:        plan.params,
@@ -557,7 +557,7 @@ func (a *API) launchEditRetryDAGRun(ctx context.Context, plan *editRetryPlan) (q
 	seedStatus := seeded.Status
 	defer func() {
 		if err != nil {
-			_ = historySvc.MarkEditRetrySeedFailed(ctx, history.MarkEditRetrySeedFailedCommand{
+			_ = historySvc.MarkEditRetrySeedFailed(ctx, history.MarkEditRetrySeedFailedRequest{
 				Status: seedStatus,
 				Cause:  err,
 			})

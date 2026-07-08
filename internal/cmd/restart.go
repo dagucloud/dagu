@@ -115,7 +115,7 @@ func handleRestartProcess(ctx *Context, d *core.DAG, oldDagRunID string, schedul
 
 	return withPreparedLocalExecution(
 		ctx,
-		history.PrepareLocalAttemptCommand{
+		history.PrepareLocalAttemptRequest{
 			DAG:          d,
 			DAGRunID:     newDagRunID,
 			Root:         exec.NewDAGRunRef(d.Name, newDagRunID),

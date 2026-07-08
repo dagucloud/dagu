@@ -80,7 +80,7 @@ func dequeueFirst(ctx *Context, queueName string) error {
 		}
 
 		err = withQueueProcLock(ctx, queueName, func() error {
-			if err := ctx.historyService().MarkDispatchCanceled(ctx.Context, history.MarkDispatchCanceledCommand{DAGRun: *data}); err != nil {
+			if err := ctx.historyService().MarkDispatchCanceled(ctx.Context, history.MarkDispatchCanceledRequest{DAGRun: *data}); err != nil {
 				return err
 			}
 			if _, err := ctx.QueueStore.DeleteByItemIDs(ctx.Context, queueName, []string{item.ID()}); err != nil {
@@ -135,7 +135,7 @@ func dequeueQueuedDAGRun(ctx *Context, requestedQueueName string, dagRun exec.DA
 	}
 
 	err = withQueueProcLock(ctx, actualQueueName, func() error {
-		if err := ctx.historyService().MarkDispatchCanceled(ctx.Context, history.MarkDispatchCanceledCommand{DAGRun: dagRun}); err != nil {
+		if err := ctx.historyService().MarkDispatchCanceled(ctx.Context, history.MarkDispatchCanceledRequest{DAGRun: dagRun}); err != nil {
 			return err
 		}
 		if _, err := ctx.QueueStore.DequeueByDAGRunID(ctx.Context, actualQueueName, dagRun); err != nil {
@@ -179,7 +179,7 @@ func removeQueuedDAGRunByQueueName(ctx *Context, queueName string, dagRun exec.D
 }
 
 func queueNameForDAGRun(ctx *Context, dagRun exec.DAGRunRef) (string, error) {
-	metadata, err := ctx.historyService().DispatchMetadata(ctx.Context, history.DispatchMetadataCommand{
+	metadata, err := ctx.historyService().DispatchMetadata(ctx.Context, history.DispatchMetadataRequest{
 		DAGRun: dagRun,
 	})
 	if err != nil {
