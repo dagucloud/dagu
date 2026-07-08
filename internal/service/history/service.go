@@ -9,14 +9,13 @@ import (
 
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/dagucloud/dagu/internal/dagrun/intake"
 )
 
 // Config provides the stores and path roots required by the History service.
 type Config struct {
 	DAGRunStore exec.DAGRunStore
 	QueueStore  exec.QueueStore
-	ProcStore   intake.LocalProcStore
+	ProcStore   LocalProcStore
 
 	LogBaseDir      string
 	ArtifactBaseDir string
@@ -67,36 +66,7 @@ type SubmittedRun struct {
 
 // SubmitRun records a new DAG-run lifecycle and publishes its dispatch intent.
 func (s *Service) SubmitRun(ctx context.Context, cmd SubmitRunCommand) (*SubmittedRun, error) {
-	queued, err := intake.EnqueueRun(ctx, intake.QueueRequest{
-		DAGRunStore:             s.cfg.DAGRunStore,
-		QueueStore:              s.cfg.QueueStore,
-		DAG:                     cmd.DAG,
-		DAGRunID:                cmd.DAGRunID,
-		QueueName:               cmd.QueueName,
-		LogBaseDir:              s.cfg.LogBaseDir,
-		ArtifactBaseDir:         s.cfg.ArtifactBaseDir,
-		Root:                    cmd.Root,
-		Parent:                  cmd.Parent,
-		TriggerType:             cmd.TriggerType,
-		ScheduleTime:            cmd.ScheduleTime,
-		ProfileName:             cmd.ProfileName,
-		AttemptOptions:          cmd.AttemptOptions,
-		ProceedOnStatusCloseErr: cmd.ProceedOnStatusCloseErr,
-		Now:                     s.cfg.Now,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return &SubmittedRun{
-		DAGRun:         queued.DAGRun,
-		Attempt:        queued.Attempt,
-		Status:         queued.Status,
-		QueueName:      queued.QueueName,
-		LogFile:        queued.LogFile,
-		ArtifactDir:    queued.ArtifactDir,
-		StatusCloseErr: queued.StatusCloseErr,
-	}, nil
+	return s.submitRun(ctx, cmd)
 }
 
 // LocalAttemptBuilder creates or resolves the attempt a local execution owns.
@@ -125,27 +95,7 @@ type PreparedLocalAttempt struct {
 
 // PrepareLocalAttempt prepares an attempt and acquires local execution ownership.
 func (s *Service) PrepareLocalAttempt(ctx context.Context, cmd PrepareLocalAttemptCommand) (*PreparedLocalAttempt, error) {
-	prepared, err := intake.PrepareLocalExecution(ctx, intake.LocalRequest{
-		ProcStore:       s.cfg.ProcStore,
-		DAG:             cmd.DAG,
-		DAGRunID:        cmd.DAGRunID,
-		Root:            cmd.Root,
-		Parent:          cmd.Parent,
-		TriggerType:     cmd.TriggerType,
-		ScheduleTime:    cmd.ScheduleTime,
-		ProfileName:     cmd.ProfileName,
-		LogBaseDir:      s.cfg.LogBaseDir,
-		ArtifactBaseDir: s.cfg.ArtifactBaseDir,
-		BuildAttempt:    intake.LocalAttemptBuilder(cmd.BuildAttempt),
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return &PreparedLocalAttempt{
-		Attempt: prepared.Attempt,
-		Proc:    prepared.Proc,
-	}, nil
+	return s.prepareLocalAttempt(ctx, cmd)
 }
 
 // RetryRunCommand requests a lifecycle transition back to dispatch eligibility.
@@ -157,7 +107,7 @@ type RetryRunCommand struct {
 
 // RetryRun persists retry state and publishes the dispatch intent.
 func (s *Service) RetryRun(ctx context.Context, cmd RetryRunCommand) error {
-	return exec.EnqueueRetry(ctx, s.cfg.DAGRunStore, s.cfg.QueueStore, cmd.DAG, cmd.Status, cmd.Options)
+	return s.retryRun(ctx, cmd)
 }
 
 // CancelQueuedRunCommand cancels a DAG run that has not started execution.
@@ -167,5 +117,5 @@ type CancelQueuedRunCommand struct {
 
 // CancelQueuedRun cancels the latest queued attempt for a DAG run.
 func (s *Service) CancelQueuedRun(ctx context.Context, cmd CancelQueuedRunCommand) error {
-	return exec.AbortQueuedDAGRun(ctx, s.cfg.DAGRunStore, cmd.DAGRun)
+	return s.cancelQueuedRun(ctx, cmd)
 }
