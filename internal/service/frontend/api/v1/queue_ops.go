@@ -15,17 +15,14 @@ import (
 )
 
 func (a *API) queueNameForDAGRun(ctx context.Context, dagRun exec.DAGRunRef) (string, error) {
-	attempt, err := a.dagRunStore.FindAttempt(ctx, dagRun)
+	historySvc := history.New(history.Config{DAGRunStore: a.dagRunStore})
+	metadata, err := historySvc.DispatchMetadata(ctx, history.DispatchMetadataCommand{
+		DAGRun: dagRun,
+	})
 	if err != nil {
 		return "", err
 	}
-
-	dag, err := attempt.ReadDAG(ctx)
-	if err != nil {
-		return "", fmt.Errorf("error reading DAG: %w", err)
-	}
-
-	return dag.ProcGroup(), nil
+	return metadata.QueueName, nil
 }
 
 func mapDispatchCancelAPIError(dagName, dagRunID string, err error) error {

@@ -181,17 +181,14 @@ func removeQueuedDAGRunByQueueName(ctx *Context, queueName string, dagRun exec.D
 }
 
 func queueNameForDAGRun(ctx *Context, dagRun exec.DAGRunRef) (string, error) {
-	attempt, err := ctx.DAGRunStore.FindAttempt(ctx, dagRun)
+	historySvc := history.New(history.Config{DAGRunStore: ctx.DAGRunStore})
+	metadata, err := historySvc.DispatchMetadata(ctx.Context, history.DispatchMetadataCommand{
+		DAGRun: dagRun,
+	})
 	if err != nil {
 		return "", err
 	}
-
-	dag, err := attempt.ReadDAG(ctx)
-	if err != nil {
-		return "", fmt.Errorf("error reading DAG: %w", err)
-	}
-
-	return dag.ProcGroup(), nil
+	return metadata.QueueName, nil
 }
 
 func withQueueProcLock(ctx *Context, queueName string, fn func() error) error {

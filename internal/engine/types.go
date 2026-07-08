@@ -121,6 +121,8 @@ type Worker struct {
 }
 
 type localPreparation struct {
-	attempt coreexec.DAGRunAttempt
-	proc    coreexec.ProcHandle
+	attempt     runstate.Attempt
+	proc        coreexec.ProcHandle
+	logFile     string
+	artifactDir string
 }

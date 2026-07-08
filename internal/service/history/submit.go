@@ -64,10 +64,11 @@ func (s *Service) submitRun(ctx context.Context, cmd SubmitRunCommand) (*Submitt
 
 	return &SubmittedRun{
 		DAGRun:         dagRun,
-		Attempt:        attempt,
+		AttemptID:      attempt.ID(),
 		Status:         status,
 		LogFile:        logFile,
 		ArtifactDir:    artifactDir,
+		RollbackToken:  SubmitRollbackToken{dagRun: dagRun},
 		StatusCloseErr: writeResult.closeErr,
 	}, nil
 }

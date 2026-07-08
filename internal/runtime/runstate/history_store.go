@@ -15,8 +15,8 @@ import (
 
 type historyStoreOption func(*historyStore)
 
-// WithPreparedAttempt reuses an attempt that was opened by Dagu before runtime execution.
-func WithPreparedAttempt(attempt exec.DAGRunAttempt) historyStoreOption {
+// WithPreparedAttempt reuses execution state prepared before runtime execution.
+func WithPreparedAttempt(attempt Attempt) historyStoreOption {
 	return func(s *historyStore) {
 		s.preparedAttempt = attempt
 	}
@@ -33,7 +33,7 @@ func NewHistoryStore(store exec.DAGRunStore, opts ...historyStoreOption) Store {
 
 type historyStore struct {
 	store           exec.DAGRunStore
-	preparedAttempt exec.DAGRunAttempt
+	preparedAttempt Attempt
 }
 
 func (s *historyStore) BeginAttempt(ctx context.Context, req BeginAttemptRequest) (Attempt, error) {
@@ -47,7 +47,6 @@ func (s *historyStore) BeginAttempt(ctx context.Context, req BeginAttemptRequest
 		}
 	}
 
-	var attempt exec.DAGRunAttempt
 	if s.preparedAttempt != nil {
 		if req.AttemptID != "" && s.preparedAttempt.ID() != req.AttemptID {
 			return nil, fmt.Errorf(
@@ -56,23 +55,24 @@ func (s *historyStore) BeginAttempt(ctx context.Context, req BeginAttemptRequest
 				req.AttemptID,
 			)
 		}
-		s.preparedAttempt.SetDAG(req.DAG)
-		attempt = s.preparedAttempt
+		if req.DAG != nil && req.DAG.HistRetentionRuns > 0 {
+			if _, err := s.store.RemoveOldDAGRuns(ctx, req.DAG.Name, 0, exec.WithRetentionRuns(req.DAG.HistRetentionRuns)); err != nil {
+				logger.Error(ctx, "DAG runs data cleanup failed", tag.Error(err))
+			}
+		}
+		return s.preparedAttempt, nil
 	} else {
 		created, err := s.store.CreateAttempt(ctx, req.DAG, time.Now(), req.RunID, dagRunAttemptOptions(req))
 		if err != nil {
 			return nil, err
 		}
-		attempt = created
-	}
-
-	if req.DAG != nil && req.DAG.HistRetentionRuns > 0 {
-		if _, err := s.store.RemoveOldDAGRuns(ctx, req.DAG.Name, 0, exec.WithRetentionRuns(req.DAG.HistRetentionRuns)); err != nil {
-			logger.Error(ctx, "DAG runs data cleanup failed", tag.Error(err))
+		if req.DAG != nil && req.DAG.HistRetentionRuns > 0 {
+			if _, err := s.store.RemoveOldDAGRuns(ctx, req.DAG.Name, 0, exec.WithRetentionRuns(req.DAG.HistRetentionRuns)); err != nil {
+				logger.Error(ctx, "DAG runs data cleanup failed", tag.Error(err))
+			}
 		}
+		return wrapDAGRunAttempt(created), nil
 	}
-
-	return wrapDAGRunAttempt(attempt), nil
 }
 
 func (s *historyStore) OpenAttempt(ctx context.Context, ref exec.DAGRunRef) (Attempt, error) {

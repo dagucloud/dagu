@@ -53,11 +53,12 @@ type SubmitRunCommand struct {
 // SubmittedRun is the result of a submitted DAG run.
 type SubmittedRun struct {
 	DAGRun      exec.DAGRunRef
-	Attempt     exec.DAGRunAttempt
+	AttemptID   string
 	Status      exec.DAGRunStatus
 	LogFile     string
 	ArtifactDir string
 
+	RollbackToken  SubmitRollbackToken
 	StatusCloseErr error
 }
 
@@ -66,8 +67,14 @@ func (s *Service) SubmitRun(ctx context.Context, cmd SubmitRunCommand) (*Submitt
 	return s.submitRun(ctx, cmd)
 }
 
-// LocalAttemptBuilder creates or resolves the attempt a local execution owns.
-type LocalAttemptBuilder func(context.Context) (exec.DAGRunAttempt, error)
+// PrepareAttemptMode selects how History resolves the execution attempt.
+type PrepareAttemptMode string
+
+const (
+	PrepareAttemptCreate       PrepareAttemptMode = "create"
+	PrepareAttemptOpenExisting PrepareAttemptMode = "open_existing"
+	PrepareAttemptOpenSub      PrepareAttemptMode = "open_sub"
+)
 
 // PrepareLocalAttemptCommand prepares a local execution attempt.
 type PrepareLocalAttemptCommand struct {
@@ -81,13 +88,15 @@ type PrepareLocalAttemptCommand struct {
 	ScheduleTime string
 	ProfileName  string
 
-	BuildAttempt LocalAttemptBuilder
+	Mode           PrepareAttemptMode
+	AttemptID      string
+	AttemptOptions exec.NewDAGRunAttemptOptions
 }
 
 // PreparedLocalAttempt is a local attempt with acquired process ownership.
 type PreparedLocalAttempt struct {
-	Attempt exec.DAGRunAttempt
-	Proc    exec.ProcHandle
+	Execution *ExecutionContext
+	Status    *exec.DAGRunStatus
 }
 
 // PrepareLocalAttempt prepares an attempt and acquires local execution ownership.
@@ -103,9 +112,9 @@ type RetryRunCommand struct {
 
 // RetriedRun is the result of a retry lifecycle transition.
 type RetriedRun struct {
-	DAGRun         exec.DAGRunRef
-	Status         *exec.DAGRunStatus
-	PreviousStatus exec.DAGRunStatus
+	DAGRun        exec.DAGRunRef
+	Status        *exec.DAGRunStatus
+	RollbackToken RetryRollbackToken
 }
 
 // RetryRun persists retry state.
@@ -115,9 +124,7 @@ func (s *Service) RetryRun(ctx context.Context, cmd RetryRunCommand) (*RetriedRu
 
 // UndoRetryRunCommand restores the status captured before RetryRun.
 type UndoRetryRunCommand struct {
-	DAGRun         exec.DAGRunRef
-	QueuedStatus   *exec.DAGRunStatus
-	PreviousStatus exec.DAGRunStatus
+	RollbackToken RetryRollbackToken
 }
 
 // UndoRetryRun restores the status captured before RetryRun.
@@ -137,7 +144,7 @@ func (s *Service) MarkDispatchCanceled(ctx context.Context, cmd MarkDispatchCanc
 
 // DiscardSubmittedRunCommand removes persisted history for a submitted DAG run.
 type DiscardSubmittedRunCommand struct {
-	DAGRun exec.DAGRunRef
+	RollbackToken SubmitRollbackToken
 }
 
 // DiscardSubmittedRun removes persisted history for a submitted DAG run.
@@ -145,17 +152,29 @@ func (s *Service) DiscardSubmittedRun(ctx context.Context, cmd DiscardSubmittedR
 	if err := s.validateDiscardSubmittedRun(cmd); err != nil {
 		return err
 	}
-	return s.cfg.DAGRunStore.RemoveDAGRun(ctx, cmd.DAGRun)
+	return s.cfg.DAGRunStore.RemoveDAGRun(ctx, cmd.RollbackToken.dagRun)
 }
 
 func (s *Service) validateDiscardSubmittedRun(cmd DiscardSubmittedRunCommand) error {
 	if s.cfg.DAGRunStore == nil {
 		return fmt.Errorf("dag-run store is required")
 	}
-	if err := validateDAGRunRef(cmd.DAGRun); err != nil {
+	if err := validateDAGRunRef(cmd.RollbackToken.dagRun); err != nil {
 		return err
 	}
 	return nil
+}
+
+// SubmitRollbackToken authorizes rollback of a submitted run.
+type SubmitRollbackToken struct {
+	dagRun exec.DAGRunRef
+}
+
+// RetryRollbackToken authorizes rollback of a retry transition.
+type RetryRollbackToken struct {
+	dagRun         exec.DAGRunRef
+	queuedStatus   exec.DAGRunStatus
+	previousStatus exec.DAGRunStatus
 }
 
 func validateDAGRunRef(dagRun exec.DAGRunRef) error {

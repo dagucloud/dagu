@@ -2763,17 +2763,13 @@ func (a *API) enqueueRetry(ctx context.Context, attempt exec.DAGRunAttempt, dag 
 	queueName := apiRetryQueueName(dag, retried.Status)
 	if queueName == "" {
 		_ = historySvc.UndoRetryRun(eventCtx, history.UndoRetryRunCommand{
-			DAGRun:         retried.DAGRun,
-			QueuedStatus:   retried.Status,
-			PreviousStatus: retried.PreviousStatus,
+			RollbackToken: retried.RollbackToken,
 		})
 		return fmt.Errorf("enqueue retry: proc group is empty")
 	}
 	if err := a.queueStore.Enqueue(eventCtx, queueName, exec.QueuePriorityLow, retried.DAGRun); err != nil {
 		_ = historySvc.UndoRetryRun(eventCtx, history.UndoRetryRunCommand{
-			DAGRun:         retried.DAGRun,
-			QueuedStatus:   retried.Status,
-			PreviousStatus: retried.PreviousStatus,
+			RollbackToken: retried.RollbackToken,
 		})
 		return fmt.Errorf("enqueue retry: %w", err)
 	}
@@ -3258,7 +3254,9 @@ func (a *API) enqueuePreparedDAGRun(
 		return err
 	}
 	if err := a.queueStore.Enqueue(ctx, queuedDAG.ProcGroup(), exec.QueuePriorityLow, queued.DAGRun); err != nil {
-		if rmErr := historySvc.DiscardSubmittedRun(ctx, history.DiscardSubmittedRunCommand{DAGRun: queued.DAGRun}); rmErr != nil {
+		if rmErr := historySvc.DiscardSubmittedRun(ctx, history.DiscardSubmittedRunCommand{
+			RollbackToken: queued.RollbackToken,
+		}); rmErr != nil {
 			return fmt.Errorf("failed to enqueue DAG run: %w; rollback failed: %v", err, rmErr)
 		}
 		return fmt.Errorf("failed to enqueue DAG run: %w", err)

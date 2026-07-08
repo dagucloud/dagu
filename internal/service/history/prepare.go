@@ -35,13 +35,21 @@ func (s *Service) prepareLocalAttempt(ctx context.Context, cmd PrepareLocalAttem
 	if cmd.Root.Zero() {
 		cmd.Root = exec.NewDAGRunRef(cmd.DAG.Name, cmd.DAGRunID)
 	}
+	logFile, err := logpath.Generate(ctx, s.cfg.LogBaseDir, cmd.DAG.LogDir, cmd.DAG.Name, cmd.DAGRunID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate log file name: %w", err)
+	}
+	artifactDir, err := s.localArtifactDir(ctx, cmd)
+	if err != nil {
+		return nil, err
+	}
 
 	if err := s.cfg.ProcStore.Lock(ctx, cmd.DAG.ProcGroup()); err != nil {
 		return nil, fmt.Errorf("failed to lock process group: %w", err)
 	}
 	defer s.cfg.ProcStore.Unlock(ctx, cmd.DAG.ProcGroup())
 
-	attempt, err := cmd.BuildAttempt(ctx)
+	attempt, status, err := s.resolveLocalAttempt(ctx, cmd)
 	if err != nil {
 		if errors.Is(err, exec.ErrDAGRunAlreadyExists) {
 			return nil, fmt.Errorf("%w: dag-run ID %s already exists for DAG %s", ErrLocalExecutionAlreadyExists, cmd.DAGRunID, cmd.DAG.Name)
@@ -49,7 +57,7 @@ func (s *Service) prepareLocalAttempt(ctx context.Context, cmd PrepareLocalAttem
 		return nil, fmt.Errorf("failed to prepare execution attempt: %w", err)
 	}
 	if attempt == nil {
-		return nil, fmt.Errorf("attempt builder returned nil attempt")
+		return nil, fmt.Errorf("attempt resolution returned nil attempt")
 	}
 	attempt.SetDAG(cmd.DAG)
 
@@ -73,12 +81,21 @@ func (s *Service) prepareLocalAttempt(ctx context.Context, cmd PrepareLocalAttem
 	}
 
 	return &PreparedLocalAttempt{
-		Attempt: attempt,
-		Proc:    proc,
+		Execution: newExecutionContext(
+			exec.NewDAGRunRef(cmd.DAG.Name, cmd.DAGRunID),
+			attempt,
+			proc,
+			preparedLogFile(logFile, status),
+			preparedArtifactDir(artifactDir, status),
+		),
+		Status: status,
 	}, nil
 }
 
 func (s *Service) validatePrepareLocalAttempt(cmd PrepareLocalAttemptCommand) error {
+	if s.cfg.DAGRunStore == nil {
+		return fmt.Errorf("dag-run store is required")
+	}
 	if s.cfg.ProcStore == nil {
 		return fmt.Errorf("proc store is required")
 	}
@@ -88,8 +105,89 @@ func (s *Service) validatePrepareLocalAttempt(cmd PrepareLocalAttemptCommand) er
 	if cmd.DAGRunID == "" {
 		return fmt.Errorf("dag-run ID is required")
 	}
-	if cmd.BuildAttempt == nil {
-		return fmt.Errorf("attempt builder is required")
+	if cmd.Mode == "" {
+		return fmt.Errorf("attempt mode is required")
+	}
+	return nil
+}
+
+func (s *Service) resolveLocalAttempt(
+	ctx context.Context,
+	cmd PrepareLocalAttemptCommand,
+) (exec.DAGRunAttempt, *exec.DAGRunStatus, error) {
+	switch cmd.Mode {
+	case PrepareAttemptCreate:
+		attempt, err := s.cfg.DAGRunStore.CreateAttempt(ctx, cmd.DAG, s.now(), cmd.DAGRunID, cmd.AttemptOptions)
+		return attempt, nil, err
+	case PrepareAttemptOpenExisting:
+		return s.openExistingRootAttempt(ctx, cmd)
+	case PrepareAttemptOpenSub:
+		return s.openExistingSubAttempt(ctx, cmd)
+	default:
+		return nil, nil, fmt.Errorf("unknown attempt mode %q", cmd.Mode)
+	}
+}
+
+func (s *Service) openExistingRootAttempt(
+	ctx context.Context,
+	cmd PrepareLocalAttemptCommand,
+) (exec.DAGRunAttempt, *exec.DAGRunStatus, error) {
+	attempt, err := s.cfg.DAGRunStore.FindAttempt(ctx, exec.NewDAGRunRef(cmd.DAG.Name, cmd.DAGRunID))
+	if err != nil {
+		return nil, nil, err
+	}
+	status, err := attempt.ReadStatus(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := validatePreparedAttemptBinding(cmd.DAGRunID, cmd.AttemptID, attempt, status); err != nil {
+		return nil, nil, err
+	}
+	return attempt, status, nil
+}
+
+func (s *Service) openExistingSubAttempt(
+	ctx context.Context,
+	cmd PrepareLocalAttemptCommand,
+) (exec.DAGRunAttempt, *exec.DAGRunStatus, error) {
+	if cmd.Root.Zero() || cmd.Root.ID == cmd.DAGRunID {
+		return nil, nil, fmt.Errorf("root dag-run is required for sub-attempt")
+	}
+	attempt, err := s.cfg.DAGRunStore.FindSubAttempt(ctx, cmd.Root, cmd.DAGRunID)
+	if err != nil {
+		return nil, nil, err
+	}
+	status, err := attempt.ReadStatus(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := validatePreparedAttemptBinding(cmd.DAGRunID, cmd.AttemptID, attempt, status); err != nil {
+		return nil, nil, err
+	}
+	return attempt, status, nil
+}
+
+func validatePreparedAttemptBinding(
+	dagRunID, requestedAttemptID string,
+	attempt exec.DAGRunAttempt,
+	status *exec.DAGRunStatus,
+) error {
+	if requestedAttemptID == "" {
+		return nil
+	}
+	currentAttemptID := requestedAttemptID
+	if status != nil && status.AttemptID != "" {
+		currentAttemptID = status.AttemptID
+	} else if attempt != nil && attempt.ID() != "" {
+		currentAttemptID = attempt.ID()
+	}
+	if currentAttemptID != requestedAttemptID {
+		return fmt.Errorf(
+			"distributed worker attempt %q is stale for dag-run %s; latest attempt is %q",
+			requestedAttemptID,
+			dagRunID,
+			currentAttemptID,
+		)
 	}
 	return nil
 }
@@ -153,4 +251,18 @@ func (s *Service) localArtifactDir(ctx context.Context, cmd PrepareLocalAttemptC
 		return "", nil
 	}
 	return logpath.GenerateDir(ctx, s.cfg.ArtifactBaseDir, cmd.DAG.Artifacts.Dir, cmd.DAG.Name, cmd.DAGRunID)
+}
+
+func preparedLogFile(logFile string, status *exec.DAGRunStatus) string {
+	if status != nil && status.Log != "" {
+		return status.Log
+	}
+	return logFile
+}
+
+func preparedArtifactDir(artifactDir string, status *exec.DAGRunStatus) string {
+	if status != nil && status.ArchiveDir != "" {
+		return status.ArchiveDir
+	}
+	return artifactDir
 }

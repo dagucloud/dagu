@@ -15,6 +15,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/agent"
+	"github.com/dagucloud/dagu/internal/service/history"
 	"github.com/spf13/cobra"
 )
 
@@ -121,18 +122,18 @@ func handleRestartProcess(ctx *Context, d *core.DAG, oldDagRunID string, schedul
 		core.TriggerTypeUnknown,
 		scheduleTime,
 		"",
-		func(execCtx context.Context) (exec.DAGRunAttempt, error) {
-			return ctx.DAGRunStore.CreateAttempt(execCtx, d, time.Now(), newDagRunID, exec.NewDAGRunAttemptOptions{})
-		},
-		func(preparedAttempt exec.DAGRunAttempt) error {
+		history.PrepareAttemptCreate,
+		"",
+		exec.NewDAGRunAttemptOptions{},
+		func(preparedAttempt *history.ExecutionContext) error {
 			return executeDAGWithRunID(ctx, ctx.DAGRunMgr, d, newDagRunID, scheduleTime, preparedAttempt)
 		},
 	)
 }
 
 // executeDAGWithRunID executes a DAG with a pre-generated run ID.
-func executeDAGWithRunID(ctx *Context, cli runtime.Manager, dag *core.DAG, dagRunID string, scheduleTime string, preparedAttempt exec.DAGRunAttempt) error {
-	logFile, err := ctx.OpenLogFile(dag, dagRunID)
+func executeDAGWithRunID(ctx *Context, cli runtime.Manager, dag *core.DAG, dagRunID string, scheduleTime string, preparedAttempt *history.ExecutionContext) error {
+	logFile, err := openExecutionLogFile(ctx, preparedAttempt, dag, dagRunID)
 	if err != nil {
 		return fmt.Errorf("failed to initialize log file: %w", err)
 	}
@@ -146,7 +147,7 @@ func executeDAGWithRunID(ctx *Context, cli runtime.Manager, dag *core.DAG, dagRu
 
 	logger.Info(ctx, "Dag-run restart initiated", tag.File(logFile.Name()))
 
-	artifactDir, err := ctx.GenArtifactDir(dag, dagRunID)
+	artifactDir, err := executionArtifactDir(ctx, preparedAttempt, dag, dagRunID)
 	if err != nil {
 		return fmt.Errorf("failed to initialize artifact directory: %w", err)
 	}

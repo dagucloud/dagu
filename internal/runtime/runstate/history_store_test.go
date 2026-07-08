@@ -31,7 +31,6 @@ func TestHistoryStoreBeginAttemptUsesPreparedAttempt(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, "attempt-1", got.ID())
-	require.Same(t, dag, attempt.dag)
 	require.Zero(t, store.createCalls)
 }
 
@@ -297,6 +296,10 @@ func (a *recordingAttempt) Write(_ context.Context, status exec.DAGRunStatus) er
 	return nil
 }
 
+func (a *recordingAttempt) RecordStatus(ctx context.Context, status exec.DAGRunStatus) error {
+	return a.Write(ctx, status)
+}
+
 func (a *recordingAttempt) Close(context.Context) error {
 	a.closeCalls++
 	return nil
@@ -319,8 +322,16 @@ func (a *recordingAttempt) Abort(context.Context) error {
 	return nil
 }
 
+func (a *recordingAttempt) RequestCancel(ctx context.Context) error {
+	return a.Abort(ctx)
+}
+
 func (a *recordingAttempt) IsAborting(context.Context) (bool, error) {
 	return false, nil
+}
+
+func (a *recordingAttempt) CancelRequested(ctx context.Context) (bool, error) {
+	return a.IsAborting(ctx)
 }
 
 func (a *recordingAttempt) Hide(context.Context) error { return nil }
@@ -330,6 +341,10 @@ func (a *recordingAttempt) Hidden() bool { return false }
 func (a *recordingAttempt) WriteOutputs(_ context.Context, outputs *exec.DAGRunOutputs) error {
 	a.writtenOutputs = outputs
 	return nil
+}
+
+func (a *recordingAttempt) RecordOutputs(ctx context.Context, outputs *exec.DAGRunOutputs) error {
+	return a.WriteOutputs(ctx, outputs)
 }
 
 func (a *recordingAttempt) ReadOutputs(context.Context) (*exec.DAGRunOutputs, error) {

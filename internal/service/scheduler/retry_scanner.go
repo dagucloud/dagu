@@ -299,17 +299,13 @@ func (s *RetryScanner) enqueueRetriedRun(ctx context.Context, historySvc *histor
 	queueName := retryQueueName(dag, retried.Status)
 	if queueName == "" {
 		_ = historySvc.UndoRetryRun(ctx, history.UndoRetryRunCommand{
-			DAGRun:         retried.DAGRun,
-			QueuedStatus:   retried.Status,
-			PreviousStatus: retried.PreviousStatus,
+			RollbackToken: retried.RollbackToken,
 		})
 		return errors.New("enqueue retry: proc group is empty")
 	}
 	if err := s.queueStore.Enqueue(ctx, queueName, exec.QueuePriorityLow, retried.DAGRun); err != nil {
 		_ = historySvc.UndoRetryRun(ctx, history.UndoRetryRunCommand{
-			DAGRun:         retried.DAGRun,
-			QueuedStatus:   retried.Status,
-			PreviousStatus: retried.PreviousStatus,
+			RollbackToken: retried.RollbackToken,
 		})
 		return fmt.Errorf("enqueue retry: %w", err)
 	}

@@ -307,9 +307,9 @@ type Options struct {
 	// AttemptID is the attempt ID from the coordinator.
 	// When set, the agent creates an attempt with this ID instead of generating a new one.
 	AttemptID string
-	// PreparedAttempt is an exact attempt that was created or reopened before proc acquisition.
+	// PreparedAttempt is exact execution state created or reopened before proc acquisition.
 	// This is used for local execution so the proc heartbeat can include the final attempt ID.
-	PreparedAttempt exec.DAGRunAttempt
+	PreparedAttempt runstate.Attempt
 	// RunStateStore records execution state for this DAG run.
 	RunStateStore runstate.Store
 	// DAGRunStore is the store for dag-run data. Nil for remote worker execution.
@@ -367,10 +367,11 @@ func New(
 	opts Options,
 ) *Agent {
 	runStateStore := opts.RunStateStore
-	if runStateStore == nil && opts.PreparedAttempt != nil {
-		runStateStore = runstate.NewHistoryStore(opts.DAGRunStore, runstate.WithPreparedAttempt(opts.PreparedAttempt))
-	} else if runStateStore == nil {
+	if runStateStore == nil {
 		runStateStore = runstate.NewHistoryStore(opts.DAGRunStore)
+	}
+	if opts.PreparedAttempt != nil {
+		runStateStore = runstate.NewPreparedStore(runStateStore, opts.PreparedAttempt)
 	}
 
 	a := &Agent{

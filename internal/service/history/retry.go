@@ -18,9 +18,13 @@ func (s *Service) retryRun(ctx context.Context, cmd RetryRunCommand) (*RetriedRu
 	}
 	if cmd.Status.Status == core.Queued {
 		return &RetriedRun{
-			DAGRun:         cmd.Status.DAGRun(),
-			Status:         cmd.Status,
-			PreviousStatus: *cmd.Status,
+			DAGRun: cmd.Status.DAGRun(),
+			Status: cmd.Status,
+			RollbackToken: RetryRollbackToken{
+				dagRun:         cmd.Status.DAGRun(),
+				queuedStatus:   *cmd.Status,
+				previousStatus: *cmd.Status,
+			},
 		}, nil
 	}
 	previousStatus := *cmd.Status
@@ -51,38 +55,43 @@ func (s *Service) retryRun(ctx context.Context, cmd RetryRunCommand) (*RetriedRu
 	if !swapped {
 		if updatedStatus != nil && updatedStatus.Status == core.Queued {
 			return &RetriedRun{
-				DAGRun:         updatedStatus.DAGRun(),
-				Status:         updatedStatus,
-				PreviousStatus: previousStatus,
+				DAGRun: updatedStatus.DAGRun(),
+				Status: updatedStatus,
+				RollbackToken: RetryRollbackToken{
+					dagRun:         updatedStatus.DAGRun(),
+					queuedStatus:   *updatedStatus,
+					previousStatus: previousStatus,
+				},
 			}, nil
 		}
 		return nil, ErrRetryStaleLatest
 	}
 
 	return &RetriedRun{
-		DAGRun:         updatedStatus.DAGRun(),
-		Status:         updatedStatus,
-		PreviousStatus: previousStatus,
+		DAGRun: updatedStatus.DAGRun(),
+		Status: updatedStatus,
+		RollbackToken: RetryRollbackToken{
+			dagRun:         updatedStatus.DAGRun(),
+			queuedStatus:   *updatedStatus,
+			previousStatus: previousStatus,
+		},
 	}, nil
 }
 
 func (s *Service) undoRetryRun(ctx context.Context, cmd UndoRetryRunCommand) error {
-	if cmd.QueuedStatus == nil {
-		return nil
-	}
 	if err := s.validateUndoRetryRun(cmd); err != nil {
 		return err
 	}
 	_, _, err := s.cfg.DAGRunStore.CompareAndSwapLatestAttemptStatus(
 		ctx,
-		cmd.DAGRun,
-		cmd.QueuedStatus.AttemptID,
+		cmd.RollbackToken.dagRun,
+		cmd.RollbackToken.queuedStatus.AttemptID,
 		core.Queued,
 		func(latest *exec.DAGRunStatus) error {
-			latest.Status = cmd.PreviousStatus.Status
-			latest.QueuedAt = cmd.PreviousStatus.QueuedAt
-			latest.TriggerType = cmd.PreviousStatus.TriggerType
-			latest.AutoRetryCount = cmd.PreviousStatus.AutoRetryCount
+			latest.Status = cmd.RollbackToken.previousStatus.Status
+			latest.QueuedAt = cmd.RollbackToken.previousStatus.QueuedAt
+			latest.TriggerType = cmd.RollbackToken.previousStatus.TriggerType
+			latest.AutoRetryCount = cmd.RollbackToken.previousStatus.AutoRetryCount
 			return nil
 		},
 	)
@@ -109,10 +118,10 @@ func (s *Service) validateUndoRetryRun(cmd UndoRetryRunCommand) error {
 	if s.cfg.DAGRunStore == nil {
 		return fmt.Errorf("dag-run store is required")
 	}
-	if err := validateDAGRunRef(cmd.DAGRun); err != nil {
+	if err := validateDAGRunRef(cmd.RollbackToken.dagRun); err != nil {
 		return err
 	}
-	if cmd.QueuedStatus.AttemptID == "" {
+	if cmd.RollbackToken.queuedStatus.AttemptID == "" {
 		return fmt.Errorf("queued attempt ID is required")
 	}
 	return nil

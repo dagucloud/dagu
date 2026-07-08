@@ -17,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/runtime/agent"
+	"github.com/dagucloud/dagu/internal/runtime/runstate"
 	"github.com/dagucloud/dagu/internal/service/history"
 	"github.com/spf13/cobra"
 )
@@ -191,23 +192,10 @@ func runRetry(ctx *Context, args []string) error {
 			exec.PreservedQueueTriggerType(status),
 			status.ScheduleTime,
 			profileName,
-			func(execCtx context.Context) (exec.DAGRunAttempt, error) {
-				if queueDispatchRetry {
-					queuedAttempt, queuedStatus, err := queueDispatchRetryTarget(execCtx, ctx.DAGRunStore, ref, rootRun, attempt.ID())
-					if err != nil {
-						return nil, err
-					}
-					if shouldUseQueuedDispatchAttempt(queuedStatus) {
-						return queuedAttempt, nil
-					}
-				}
-				opts := exec.NewDAGRunAttemptOptions{Retry: true}
-				if !rootRun.Zero() && rootRun.ID != dagRunID {
-					opts.RootDAGRun = &rootRun
-				}
-				return ctx.DAGRunStore.CreateAttempt(execCtx, dag, time.Now(), dagRunID, opts)
-			},
-			func(preparedAttempt exec.DAGRunAttempt) error {
+			retryPrepareMode(queueDispatchRetry, status, rootRun, dagRunID),
+			"",
+			retryAttemptOptions(rootRun, dagRunID),
+			func(preparedAttempt *history.ExecutionContext) error {
 				return executeRetry(ctx, dag, status, rootRun, stepName, workerID, attemptID, profileName, preparedAttempt)
 			},
 		)
@@ -230,18 +218,35 @@ func runRetry(ctx *Context, args []string) error {
 		exec.PreservedQueueTriggerType(status),
 		status.ScheduleTime,
 		profileName,
-		func(execCtx context.Context) (exec.DAGRunAttempt, error) {
-			if queueDispatchRetry {
-				if err := ensureQueueDispatchRetryTarget(execCtx, ctx.DAGRunStore, ref, rootRun); err != nil {
-					return nil, err
-				}
-			}
-			return attempt, nil
-		},
-		func(preparedAttempt exec.DAGRunAttempt) error {
+		openExistingPrepareMode(rootRun, dagRunID),
+		attemptID,
+		exec.NewDAGRunAttemptOptions{},
+		func(preparedAttempt *history.ExecutionContext) error {
 			return executeRetry(ctx, dag, status, rootRun, stepName, workerID, attemptID, profileName, preparedAttempt)
 		},
 	)
+}
+
+func retryPrepareMode(queueDispatchRetry bool, status *exec.DAGRunStatus, rootRun exec.DAGRunRef, dagRunID string) history.PrepareAttemptMode {
+	if queueDispatchRetry && shouldUseQueuedDispatchAttempt(status) {
+		return openExistingPrepareMode(rootRun, dagRunID)
+	}
+	return history.PrepareAttemptCreate
+}
+
+func openExistingPrepareMode(rootRun exec.DAGRunRef, dagRunID string) history.PrepareAttemptMode {
+	if !rootRun.Zero() && rootRun.ID != dagRunID {
+		return history.PrepareAttemptOpenSub
+	}
+	return history.PrepareAttemptOpenExisting
+}
+
+func retryAttemptOptions(rootRun exec.DAGRunRef, dagRunID string) exec.NewDAGRunAttemptOptions {
+	opts := exec.NewDAGRunAttemptOptions{Retry: true}
+	if !rootRun.Zero() && rootRun.ID != dagRunID {
+		opts.RootDAGRun = &rootRun
+	}
+	return opts
 }
 
 func restoreRetryExecutionContext(dag *core.DAG, status *exec.DAGRunStatus, attempt exec.DAGRunAttempt) {
@@ -406,17 +411,13 @@ func enqueueRetry(ctx *Context, _ exec.DAGRunAttempt, dag *core.DAG, status *exe
 	queueName := retryQueueName(dag, retried.Status)
 	if queueName == "" {
 		_ = historySvc.UndoRetryRun(ctx.Context, history.UndoRetryRunCommand{
-			DAGRun:         retried.DAGRun,
-			QueuedStatus:   retried.Status,
-			PreviousStatus: retried.PreviousStatus,
+			RollbackToken: retried.RollbackToken,
 		})
 		return fmt.Errorf("enqueue retry: proc group is empty")
 	}
 	if err := ctx.QueueStore.Enqueue(ctx.Context, queueName, exec.QueuePriorityLow, retried.DAGRun); err != nil {
 		_ = historySvc.UndoRetryRun(ctx.Context, history.UndoRetryRunCommand{
-			DAGRun:         retried.DAGRun,
-			QueuedStatus:   retried.Status,
-			PreviousStatus: retried.PreviousStatus,
+			RollbackToken: retried.RollbackToken,
 		})
 		return fmt.Errorf("enqueue retry: %w", err)
 	}
@@ -568,7 +569,7 @@ func retrySourceMayStillBeFinalizing(status *exec.DAGRunStatus) bool {
 
 // executeRetry runs a retry of a DAG run using the original run's log file.
 // Queued catchup runs reuse this path but preserve their catchup trigger type.
-func executeRetry(ctx *Context, dag *core.DAG, status *exec.DAGRunStatus, rootRun exec.DAGRunRef, stepName, workerID, attemptID, profileName string, preparedAttempt exec.DAGRunAttempt) error {
+func executeRetry(ctx *Context, dag *core.DAG, status *exec.DAGRunStatus, rootRun exec.DAGRunRef, stepName, workerID, attemptID, profileName string, preparedAttempt runstate.Attempt) error {
 	if stepName != "" {
 		ctx.Context = logger.WithValues(ctx.Context, tag.Step(stepName))
 	}

@@ -4,8 +4,9 @@
 package cmd
 
 import (
-	"context"
+	"os"
 
+	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/core"
@@ -22,23 +23,28 @@ func withPreparedLocalExecution(
 	triggerType core.TriggerType,
 	scheduleTime string,
 	profileName string,
-	buildAttempt func(context.Context) (exec.DAGRunAttempt, error),
-	run func(exec.DAGRunAttempt) error,
+	mode history.PrepareAttemptMode,
+	attemptID string,
+	attemptOptions exec.NewDAGRunAttemptOptions,
+	run func(*history.ExecutionContext) error,
 ) error {
 	historySvc := history.New(history.Config{
+		DAGRunStore:     ctx.DAGRunStore,
 		ProcStore:       ctx.ProcStore,
 		LogBaseDir:      ctx.Config.Paths.LogDir,
 		ArtifactBaseDir: ctx.Config.Paths.ArtifactDir,
 	})
 	prepared, err := historySvc.PrepareLocalAttempt(ctx.Context, history.PrepareLocalAttemptCommand{
-		DAG:          dag,
-		DAGRunID:     dagRunID,
-		Root:         root,
-		Parent:       parent,
-		TriggerType:  triggerType,
-		ScheduleTime: scheduleTime,
-		ProfileName:  profileName,
-		BuildAttempt: buildAttempt,
+		DAG:            dag,
+		DAGRunID:       dagRunID,
+		Root:           root,
+		Parent:         parent,
+		TriggerType:    triggerType,
+		ScheduleTime:   scheduleTime,
+		ProfileName:    profileName,
+		Mode:           mode,
+		AttemptID:      attemptID,
+		AttemptOptions: attemptOptions,
 	})
 	if err != nil {
 		logger.Debug(ctx, "Failed to prepare local execution", tag.Error(err))
@@ -46,11 +52,25 @@ func withPreparedLocalExecution(
 	}
 
 	prevProc := ctx.Proc
-	ctx.Proc = prepared.Proc
+	ctx.Proc = prepared.Execution.ProcHandle()
 	defer func() {
 		ctx.Proc = prevProc
-		_ = prepared.Proc.Stop(ctx)
+		_ = prepared.Execution.Release(ctx)
 	}()
 
-	return run(prepared.Attempt)
+	return run(prepared.Execution)
+}
+
+func openExecutionLogFile(ctx *Context, prepared *history.ExecutionContext, dag *core.DAG, dagRunID string) (*os.File, error) {
+	if prepared != nil && prepared.LogFile() != "" {
+		return fileutil.OpenOrCreateFile(prepared.LogFile())
+	}
+	return ctx.OpenLogFile(dag, dagRunID)
+}
+
+func executionArtifactDir(ctx *Context, prepared *history.ExecutionContext, dag *core.DAG, dagRunID string) (string, error) {
+	if prepared != nil {
+		return prepared.ArtifactDir(), nil
+	}
+	return ctx.GenArtifactDir(dag, dagRunID)
 }

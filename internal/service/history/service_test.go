@@ -45,7 +45,7 @@ func TestSubmitRunWritesPendingLifecycleState(t *testing.T) {
 	status, err := attempt.ReadStatus(ctx)
 	require.NoError(t, err)
 	require.Equal(t, core.Queued, status.Status)
-	require.Equal(t, submitted.Attempt.ID(), status.AttemptID)
+	require.Equal(t, submitted.AttemptID, status.AttemptID)
 	require.Empty(t, status.Conditions)
 }
 
@@ -72,7 +72,6 @@ func TestRetryRunRecordsPendingRetryState(t *testing.T) {
 	retried, err := historySvc.RetryRun(ctx, history.RetryRunCommand{Status: status})
 	require.NoError(t, err)
 	require.Equal(t, exec.NewDAGRunRef(dag.Name, "run-1"), retried.DAGRun)
-	require.Equal(t, core.Failed, retried.PreviousStatus.Status)
 
 	attempt, err := store.FindAttempt(ctx, exec.NewDAGRunRef(dag.Name, "run-1"))
 	require.NoError(t, err)
@@ -153,9 +152,7 @@ func TestUndoRetryRunRestoresPreviousStatus(t *testing.T) {
 	require.NoError(t, err)
 
 	err = historySvc.UndoRetryRun(ctx, history.UndoRetryRunCommand{
-		DAGRun:         retried.DAGRun,
-		QueuedStatus:   retried.Status,
-		PreviousStatus: retried.PreviousStatus,
+		RollbackToken: retried.RollbackToken,
 	})
 	require.NoError(t, err)
 
@@ -167,6 +164,32 @@ func TestUndoRetryRunRestoresPreviousStatus(t *testing.T) {
 	require.Empty(t, rolledBack.QueuedAt)
 	require.Equal(t, core.TriggerTypeUnknown, rolledBack.TriggerType)
 	require.Equal(t, 1, rolledBack.AutoRetryCount)
+}
+
+func TestUndoRetryRunUsesRollbackTokenSnapshot(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	tmp := t.TempDir()
+	dag := testHistoryDAG("history-retry-token")
+	store := dagrun.New(filepath.Join(tmp, "dag-runs"), dagrun.WithLatestStatusToday(false))
+	_, status := writeHistoryAttemptStatus(t, ctx, store, dag, "run-token", core.Failed, exec.NewDAGRunAttemptOptions{}, time.Now())
+	historySvc := history.New(history.Config{DAGRunStore: store})
+
+	retried, err := historySvc.RetryRun(ctx, history.RetryRunCommand{Status: status})
+	require.NoError(t, err)
+	retried.Status.AttemptID = "mutated-attempt"
+
+	err = historySvc.UndoRetryRun(ctx, history.UndoRetryRunCommand{
+		RollbackToken: retried.RollbackToken,
+	})
+	require.NoError(t, err)
+
+	attempt, err := store.FindAttempt(ctx, exec.NewDAGRunRef(dag.Name, "run-token"))
+	require.NoError(t, err)
+	rolledBack, err := attempt.ReadStatus(ctx)
+	require.NoError(t, err)
+	require.Equal(t, core.Failed, rolledBack.Status)
 }
 
 func TestMarkDispatchCanceledPreservesPreviousVisibleAttempt(t *testing.T) {
@@ -245,11 +268,8 @@ func TestHistoryCommandsValidateRequiredInputs(t *testing.T) {
 	err = historySvc.DiscardSubmittedRun(ctx, history.DiscardSubmittedRunCommand{})
 	require.ErrorContains(t, err, "dag-run is required")
 
-	err = historySvc.UndoRetryRun(ctx, history.UndoRetryRunCommand{
-		DAGRun:       exec.NewDAGRunRef("dag", "run"),
-		QueuedStatus: &exec.DAGRunStatus{},
-	})
-	require.ErrorContains(t, err, "queued attempt ID is required")
+	err = historySvc.UndoRetryRun(ctx, history.UndoRetryRunCommand{})
+	require.ErrorContains(t, err, "dag-run is required")
 
 	missingStoreSvc := history.New(history.Config{})
 	_, err = missingStoreSvc.RetryRun(ctx, history.RetryRunCommand{
@@ -261,12 +281,7 @@ func TestHistoryCommandsValidateRequiredInputs(t *testing.T) {
 	})
 	require.ErrorContains(t, err, "dag-run store is required")
 
-	err = missingStoreSvc.UndoRetryRun(ctx, history.UndoRetryRunCommand{
-		DAGRun: exec.NewDAGRunRef("dag", "run"),
-		QueuedStatus: &exec.DAGRunStatus{
-			AttemptID: "attempt",
-		},
-	})
+	err = missingStoreSvc.UndoRetryRun(ctx, history.UndoRetryRunCommand{})
 	require.ErrorContains(t, err, "dag-run store is required")
 
 	err = missingStoreSvc.MarkDispatchCanceled(ctx, history.MarkDispatchCanceledCommand{
@@ -274,10 +289,42 @@ func TestHistoryCommandsValidateRequiredInputs(t *testing.T) {
 	})
 	require.ErrorContains(t, err, "dag-run store is required")
 
-	err = missingStoreSvc.DiscardSubmittedRun(ctx, history.DiscardSubmittedRunCommand{
-		DAGRun: exec.NewDAGRunRef("dag", "run"),
-	})
+	err = missingStoreSvc.DiscardSubmittedRun(ctx, history.DiscardSubmittedRunCommand{})
 	require.ErrorContains(t, err, "dag-run store is required")
+}
+
+func TestDiscardSubmittedRunUsesSubmitRollbackToken(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	tmp := t.TempDir()
+	dag := testHistoryDAG("history-submit-rollback")
+	store := dagrun.New(filepath.Join(tmp, "dag-runs"), dagrun.WithLatestStatusToday(false))
+	historySvc := history.New(history.Config{
+		DAGRunStore: store,
+		LogBaseDir:  filepath.Join(tmp, "logs"),
+	})
+
+	first, err := historySvc.SubmitRun(ctx, history.SubmitRunCommand{
+		DAG:      dag,
+		DAGRunID: "run-first",
+	})
+	require.NoError(t, err)
+	second, err := historySvc.SubmitRun(ctx, history.SubmitRunCommand{
+		DAG:      dag,
+		DAGRunID: "run-second",
+	})
+	require.NoError(t, err)
+
+	err = historySvc.DiscardSubmittedRun(ctx, history.DiscardSubmittedRunCommand{
+		RollbackToken: first.RollbackToken,
+	})
+	require.NoError(t, err)
+
+	_, err = store.FindAttempt(ctx, first.DAGRun)
+	require.Error(t, err)
+	_, err = store.FindAttempt(ctx, second.DAGRun)
+	require.NoError(t, err)
 }
 
 func testHistoryDAG(name string) *core.DAG {

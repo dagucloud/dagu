@@ -25,6 +25,7 @@ import (
 	"github.com/dagucloud/dagu/internal/runtime/agent"
 	"github.com/dagucloud/dagu/internal/runtime/executor"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
+	"github.com/dagucloud/dagu/internal/service/history"
 	"github.com/dagucloud/dagu/internal/workspace"
 	"github.com/spf13/cobra"
 )
@@ -254,20 +255,20 @@ func tryExecuteDAG(ctx *Context, dag *core.DAG, dagRunID string, root exec.DAGRu
 		triggerType,
 		scheduleTime,
 		profileName,
-		func(execCtx context.Context) (exec.DAGRunAttempt, error) {
-			if workerID != "local" {
-				attempt, _, err := resolveWorkerPreparedAttempt(execCtx, ctx.DAGRunStore, dag.Name, dagRunID, root, attemptID)
-				if err != nil {
-					return nil, err
-				}
-				return attempt, nil
-			}
-			return ctx.DAGRunStore.CreateAttempt(execCtx, dag, time.Now(), dagRunID, exec.NewDAGRunAttemptOptions{})
-		},
-		func(preparedAttempt exec.DAGRunAttempt) error {
+		prepareModeForWorker(workerID),
+		attemptID,
+		exec.NewDAGRunAttemptOptions{},
+		func(preparedAttempt *history.ExecutionContext) error {
 			return executeDAGRun(ctx, dag, exec.DAGRunRef{}, dagRunID, root, workerID, attemptID, triggerType, scheduleTime, profileName, preparedAttempt)
 		},
 	)
+}
+
+func prepareModeForWorker(workerID string) history.PrepareAttemptMode {
+	if workerID != "local" {
+		return history.PrepareAttemptOpenExisting
+	}
+	return history.PrepareAttemptCreate
 }
 
 // getDAGRunInfo extracts and validates dag-run ID and references from command flags.
@@ -417,14 +418,10 @@ func handleSubDAGRun(ctx *Context, dag *core.DAG, dagRunID string, params string
 			triggerType,
 			scheduleTime,
 			profileName,
-			func(execCtx context.Context) (exec.DAGRunAttempt, error) {
-				attempt, _, err := resolveWorkerPreparedAttempt(execCtx, ctx.DAGRunStore, dag.Name, dagRunID, root, attemptID)
-				if err != nil {
-					return nil, err
-				}
-				return attempt, nil
-			},
-			func(preparedAttempt exec.DAGRunAttempt) error {
+			history.PrepareAttemptOpenSub,
+			attemptID,
+			exec.NewDAGRunAttemptOptions{},
+			func(preparedAttempt *history.ExecutionContext) error {
 				return executeDAGRun(ctx, dag, parent, dagRunID, root, workerID, attemptID, triggerType, scheduleTime, profileName, preparedAttempt)
 			},
 		)
@@ -443,12 +440,12 @@ func handleSubDAGRun(ctx *Context, dag *core.DAG, dagRunID string, params string
 			triggerType,
 			scheduleTime,
 			profileName,
-			func(execCtx context.Context) (exec.DAGRunAttempt, error) {
-				return ctx.DAGRunStore.CreateAttempt(execCtx, dag, time.Now(), dagRunID, exec.NewDAGRunAttemptOptions{
-					RootDAGRun: &root,
-				})
+			history.PrepareAttemptCreate,
+			"",
+			exec.NewDAGRunAttemptOptions{
+				RootDAGRun: &root,
 			},
-			func(preparedAttempt exec.DAGRunAttempt) error {
+			func(preparedAttempt *history.ExecutionContext) error {
 				return executeDAGRun(ctx, dag, parent, dagRunID, root, workerID, attemptID, triggerType, scheduleTime, profileName, preparedAttempt)
 			},
 		)
@@ -471,25 +468,28 @@ func handleSubDAGRun(ctx *Context, dag *core.DAG, dagRunID string, params string
 		exec.PreservedQueueTriggerType(status),
 		status.ScheduleTime,
 		profileName,
-		func(execCtx context.Context) (exec.DAGRunAttempt, error) {
-			if status.Status == core.Queued {
-				subAttempt.SetDAG(dag)
-				return subAttempt, nil
-			}
-			return ctx.DAGRunStore.CreateAttempt(execCtx, dag, time.Now(), dagRunID, exec.NewDAGRunAttemptOptions{
-				Retry:      true,
-				RootDAGRun: &root,
-			})
+		subDAGRetryPrepareMode(status),
+		"",
+		exec.NewDAGRunAttemptOptions{
+			Retry:      true,
+			RootDAGRun: &root,
 		},
-		func(preparedAttempt exec.DAGRunAttempt) error {
+		func(preparedAttempt *history.ExecutionContext) error {
 			return executeRetry(ctx, dag, status, root, "", workerID, attemptID, profileName, preparedAttempt)
 		},
 	)
 }
 
+func subDAGRetryPrepareMode(status *exec.DAGRunStatus) history.PrepareAttemptMode {
+	if status != nil && status.Status == core.Queued {
+		return history.PrepareAttemptOpenSub
+	}
+	return history.PrepareAttemptCreate
+}
+
 // executeDAGRun initializes execution state for a DAG run and invokes the shared agent executor.
-func executeDAGRun(ctx *Context, d *core.DAG, parent exec.DAGRunRef, dagRunID string, root exec.DAGRunRef, workerID, attemptID string, triggerType core.TriggerType, scheduleTime, profileName string, preparedAttempt exec.DAGRunAttempt) error {
-	logFile, err := ctx.OpenLogFile(d, dagRunID)
+func executeDAGRun(ctx *Context, d *core.DAG, parent exec.DAGRunRef, dagRunID string, root exec.DAGRunRef, workerID, attemptID string, triggerType core.TriggerType, scheduleTime, profileName string, preparedAttempt *history.ExecutionContext) error {
+	logFile, err := openExecutionLogFile(ctx, preparedAttempt, d, dagRunID)
 	if err != nil {
 		return fmt.Errorf("failed to initialize log file for DAG %s: %w", d.Name, err)
 	}
@@ -499,7 +499,7 @@ func executeDAGRun(ctx *Context, d *core.DAG, parent exec.DAGRunRef, dagRunID st
 
 	logger.Debug(ctx, "Dag-run initiated", tag.File(logFile.Name()))
 
-	artifactDir, err := ctx.GenArtifactDir(d, dagRunID)
+	artifactDir, err := executionArtifactDir(ctx, preparedAttempt, d, dagRunID)
 	if err != nil {
 		return fmt.Errorf("failed to initialize artifact directory for DAG %s: %w", d.Name, err)
 	}

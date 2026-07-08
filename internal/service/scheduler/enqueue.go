@@ -21,8 +21,8 @@ import (
 // The function is idempotent: if a run with the same ID already exists
 // (checked via FindAttempt), it returns nil without creating a duplicate.
 //
-// On failure after CreateAttempt but before Enqueue, the orphaned attempt
-// record is cleaned up via RemoveDAGRun.
+// On failure after History records the run but before Enqueue, the orphaned
+// history is discarded with the submit rollback token.
 //
 // The DAG is reloaded from source before persistence so queued catchup retries
 // inherit a complete execution snapshot. The reloaded DAG is then shallow-copied
@@ -81,7 +81,9 @@ func EnqueueCatchupRun(
 		return fmt.Errorf("failed to enqueue catchup run: %w", err)
 	}
 	if err := queueStore.Enqueue(ctx, dagCopy.ProcGroup(), exec.QueuePriorityLow, queued.DAGRun); err != nil {
-		if rmErr := historySvc.DiscardSubmittedRun(ctx, history.DiscardSubmittedRunCommand{DAGRun: queued.DAGRun}); rmErr != nil {
+		if rmErr := historySvc.DiscardSubmittedRun(ctx, history.DiscardSubmittedRunCommand{
+			RollbackToken: queued.RollbackToken,
+		}); rmErr != nil {
 			return fmt.Errorf("failed to enqueue catchup run: %w; rollback failed: %v", err, rmErr)
 		}
 		return fmt.Errorf("failed to enqueue catchup run: %w", err)

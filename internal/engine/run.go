@@ -26,7 +26,9 @@ import (
 	"github.com/dagucloud/dagu/internal/core/spec"
 	rtagent "github.com/dagucloud/dagu/internal/runtime/agent"
 	runtimeexec "github.com/dagucloud/dagu/internal/runtime/executor"
+	"github.com/dagucloud/dagu/internal/runtime/runstate"
 	"github.com/dagucloud/dagu/internal/runtime/transform"
+	"github.com/dagucloud/dagu/internal/service/history"
 	"github.com/dagucloud/dagu/internal/workspace"
 )
 
@@ -412,13 +414,25 @@ func (e *Engine) runLoaded(ctx context.Context, dag *core.DAG, opts RunOptions) 
 }
 
 func (e *Engine) runLocal(ctx context.Context, dag *core.DAG, runID string, opts RunOptions) (*Run, error) {
-	logFile, err := e.openLogFile(ctx, dag, runID)
+	root := coreexec.NewDAGRunRef(dag.Name, runID)
+	var prepared *localPreparation
+	if !opts.DryRun {
+		var err error
+		prepared, err = e.prepareLocal(ctx, dag, runID, root)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	logFile, err := e.openLocalLogFile(ctx, dag, runID, prepared)
 	if err != nil {
+		releaseLocalPreparation(ctx, prepared)
 		return nil, err
 	}
-	artifactDir, err := e.artifactDir(ctx, dag, runID)
+	artifactDir, err := e.localArtifactDir(ctx, dag, runID, prepared)
 	if err != nil {
 		_ = logFile.Close()
+		releaseLocalPreparation(ctx, prepared)
 		return nil, err
 	}
 	dagStore, err := e.dagStoreFactory(ctx, e.cfg, DAGStoreFactoryOptions{
@@ -426,16 +440,8 @@ func (e *Engine) runLocal(ctx context.Context, dag *core.DAG, runID string, opts
 	})
 	if err != nil {
 		_ = logFile.Close()
+		releaseLocalPreparation(ctx, prepared)
 		return nil, err
-	}
-	root := coreexec.NewDAGRunRef(dag.Name, runID)
-	var prepared *localPreparation
-	if !opts.DryRun {
-		prepared, err = e.prepareLocal(ctx, dag, runID, root)
-		if err != nil {
-			_ = logFile.Close()
-			return nil, err
-		}
 	}
 
 	stores := e.runtimeStores(ctx)
@@ -581,22 +587,33 @@ func (r *Run) doneError() error {
 }
 
 func (e *Engine) prepareLocal(ctx context.Context, dag *core.DAG, runID string, root coreexec.DAGRunRef) (*localPreparation, error) {
+	if e.runStateStore == nil && e.dagRunStore != nil {
+		return e.prepareHistoryLocal(ctx, dag, runID, root)
+	}
+
 	if err := e.procStore.Lock(ctx, dag.ProcGroup()); err != nil {
 		return nil, fmt.Errorf("lock process group: %w", err)
 	}
 	defer e.procStore.Unlock(ctx, dag.ProcGroup())
 
-	var attempt coreexec.DAGRunAttempt
+	var attempt runstate.Attempt
 	attemptID := runID
-	if e.dagRunStore != nil {
-		created, err := e.dagRunStore.CreateAttempt(ctx, dag, time.Now(), runID, coreexec.NewDAGRunAttemptOptions{})
+	stateStore := e.runStateStore
+	if stateStore == nil {
+		stateStore = runstate.NewHistoryStore(e.dagRunStore)
+	}
+	if stateStore != nil {
+		created, err := stateStore.BeginAttempt(ctx, runstate.BeginAttemptRequest{
+			DAG:        dag,
+			RunID:      runID,
+			RootDAGRun: root,
+		})
 		if err != nil {
 			if errors.Is(err, coreexec.ErrDAGRunAlreadyExists) {
 				return nil, fmt.Errorf("dag-run ID %s already exists for DAG %s: %w", runID, dag.Name, err)
 			}
 			return nil, fmt.Errorf("create DAG run attempt: %w", err)
 		}
-		created.SetDAG(dag)
 		attempt = created
 		attemptID = created.ID()
 	} else if e.runStateStore != nil {
@@ -623,9 +640,36 @@ func (e *Engine) prepareLocal(ctx context.Context, dag *core.DAG, runID string, 
 	return &localPreparation{attempt: attempt, proc: proc}, nil
 }
 
+func (e *Engine) prepareHistoryLocal(ctx context.Context, dag *core.DAG, runID string, root coreexec.DAGRunRef) (*localPreparation, error) {
+	historySvc := history.New(history.Config{
+		DAGRunStore:     e.dagRunStore,
+		ProcStore:       e.procStore,
+		LogBaseDir:      e.cfg.Paths.LogDir,
+		ArtifactBaseDir: e.cfg.Paths.ArtifactDir,
+	})
+	prepared, err := historySvc.PrepareLocalAttempt(ctx, history.PrepareLocalAttemptCommand{
+		DAG:      dag,
+		DAGRunID: runID,
+		Root:     root,
+		Mode:     history.PrepareAttemptCreate,
+	})
+	if err != nil {
+		if errors.Is(err, history.ErrLocalExecutionAlreadyExists) {
+			return nil, fmt.Errorf("dag-run ID %s already exists for DAG %s: %w", runID, dag.Name, coreexec.ErrDAGRunAlreadyExists)
+		}
+		return nil, err
+	}
+	return &localPreparation{
+		attempt:     prepared.Execution,
+		proc:        prepared.Execution.ProcHandle(),
+		logFile:     prepared.Execution.LogFile(),
+		artifactDir: prepared.Execution.ArtifactDir(),
+	}, nil
+}
+
 func (e *Engine) recordPreparedFailure(
 	ctx context.Context,
-	attempt coreexec.DAGRunAttempt,
+	attempt runstate.Attempt,
 	dag *core.DAG,
 	runID string,
 	root coreexec.DAGRunRef,
@@ -659,7 +703,7 @@ func (e *Engine) recordPreparedFailure(
 	defer func() {
 		_ = attempt.Close(ctx)
 	}()
-	return attempt.Write(ctx, status)
+	return attempt.RecordStatus(ctx, status)
 }
 
 func (e *Engine) openLogFile(ctx context.Context, dag *core.DAG, runID string) (*os.File, error) {
@@ -668,6 +712,13 @@ func (e *Engine) openLogFile(ctx context.Context, dag *core.DAG, runID string) (
 		return nil, err
 	}
 	return fileutil.OpenOrCreateFile(path)
+}
+
+func (e *Engine) openLocalLogFile(ctx context.Context, dag *core.DAG, runID string, prepared *localPreparation) (*os.File, error) {
+	if prepared != nil && prepared.logFile != "" {
+		return fileutil.OpenOrCreateFile(prepared.logFile)
+	}
+	return e.openLogFile(ctx, dag, runID)
 }
 
 func (e *Engine) artifactDir(ctx context.Context, dag *core.DAG, runID string) (string, error) {
@@ -681,6 +732,20 @@ func (e *Engine) artifactDir(ctx context.Context, dag *core.DAG, runID string) (
 	return logpath.GenerateDir(ctx, e.cfg.Paths.ArtifactDir, dagArtifactDir, dag.Name, runID)
 }
 
+func (e *Engine) localArtifactDir(ctx context.Context, dag *core.DAG, runID string, prepared *localPreparation) (string, error) {
+	if prepared != nil {
+		return prepared.artifactDir, nil
+	}
+	return e.artifactDir(ctx, dag, runID)
+}
+
+func releaseLocalPreparation(ctx context.Context, prepared *localPreparation) {
+	if prepared == nil || prepared.proc == nil {
+		return
+	}
+	_ = prepared.proc.Stop(ctx)
+}
+
 func (e *Engine) runtimeStores(ctx context.Context) RuntimeStores {
 	if e.runtimeStoresFactory == nil {
 		return RuntimeStores{}
@@ -688,7 +753,7 @@ func (e *Engine) runtimeStores(ctx context.Context) RuntimeStores {
 	return e.runtimeStoresFactory(ctx, e.cfg)
 }
 
-func preparedAttempt(prepared *localPreparation) coreexec.DAGRunAttempt {
+func preparedAttempt(prepared *localPreparation) runstate.Attempt {
 	if prepared == nil {
 		return nil
 	}
