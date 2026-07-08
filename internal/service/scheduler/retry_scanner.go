@@ -266,7 +266,6 @@ func (s *RetryScanner) processFailedRunLegacy(
 		DAGRunStore: s.dagRunStore,
 	})
 	retried, err := historySvc.RetryRun(ctx, history.RetryRunCommand{
-		DAG:    dagSnapshot,
 		Status: latestStatus,
 		Options: history.RetryRunOptions{
 			AutoRetry: true,

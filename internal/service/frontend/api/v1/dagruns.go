@@ -2749,7 +2749,7 @@ func (a *API) enqueueRetry(ctx context.Context, attempt exec.DAGRunAttempt, dag 
 	historySvc := history.New(history.Config{
 		DAGRunStore: a.dagRunStore,
 	})
-	retried, err := historySvc.RetryRun(eventCtx, history.RetryRunCommand{DAG: dag, Status: status})
+	retried, err := historySvc.RetryRun(eventCtx, history.RetryRunCommand{Status: status})
 	if err != nil {
 		if errors.Is(err, history.ErrRetryStaleLatest) {
 			return &Error{

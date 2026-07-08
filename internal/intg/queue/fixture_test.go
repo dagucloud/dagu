@@ -535,7 +535,7 @@ func (f *fixture) RetryEnqueue(runID string) *fixture {
 	historySvc := history.New(history.Config{
 		DAGRunStore: f.th.DAGRunStore,
 	})
-	retried, err := historySvc.RetryRun(f.th.Context, history.RetryRunCommand{DAG: f.dag, Status: f.MustStatus(runID)})
+	retried, err := historySvc.RetryRun(f.th.Context, history.RetryRunCommand{Status: f.MustStatus(runID)})
 	require.NoError(f.t, err)
 	err = f.th.QueueStore.Enqueue(f.th.Context, f.dag.ProcGroup(), exec.QueuePriorityLow, retried.DAGRun)
 	require.NoError(f.t, err)

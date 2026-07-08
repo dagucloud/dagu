@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
@@ -54,8 +53,9 @@ func (s *Service) prepareLocalAttempt(ctx context.Context, cmd PrepareLocalAttem
 	}
 	attempt.SetDAG(cmd.DAG)
 
+	now := s.now()
 	proc, err := s.cfg.ProcStore.Acquire(ctx, cmd.DAG.ProcGroup(), exec.ProcMeta{
-		StartedAt:    time.Now().Unix(),
+		StartedAt:    now.Unix(),
 		Name:         cmd.DAG.Name,
 		DAGRunID:     cmd.DAGRunID,
 		AttemptID:    attempt.ID(),
@@ -100,6 +100,7 @@ func (s *Service) recordPreparedAttemptFailure(
 	attempt exec.DAGRunAttempt,
 	runErr error,
 ) error {
+	now := s.now()
 	logFile, logErr := logpath.Generate(ctx, s.cfg.LogBaseDir, cmd.DAG.LogDir, cmd.DAG.Name, cmd.DAGRunID)
 	if logErr != nil {
 		logger.Warn(ctx, "Failed to generate log file path for prepared local execution failure",
@@ -123,7 +124,7 @@ func (s *Service) recordPreparedAttemptFailure(
 		transform.WithHierarchyRefs(cmd.Root, cmd.Parent),
 		transform.WithLogFilePath(logFile),
 		transform.WithArchiveDir(archiveDir),
-		transform.WithFinishedAt(time.Now()),
+		transform.WithFinishedAt(now),
 		transform.WithError(runErr.Error()),
 		transform.WithWorkerID("local"),
 		transform.WithTriggerType(cmd.TriggerType),
@@ -132,7 +133,7 @@ func (s *Service) recordPreparedAttemptFailure(
 	if cmd.ScheduleTime != "" {
 		opts = append(opts, transform.WithScheduleTime(cmd.ScheduleTime))
 	}
-	status := transform.NewStatusBuilder(cmd.DAG).Create(cmd.DAGRunID, core.Failed, 0, time.Now(), opts...)
+	status := transform.NewStatusBuilder(cmd.DAG).Create(cmd.DAGRunID, core.Failed, 0, now, opts...)
 
 	if err := attempt.Open(ctx); err != nil {
 		return fmt.Errorf("failed to open attempt for failure recording: %w", err)

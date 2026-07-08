@@ -5,6 +5,7 @@ package history
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/dagucloud/dagu/internal/core"
@@ -96,7 +97,6 @@ func (s *Service) PrepareLocalAttempt(ctx context.Context, cmd PrepareLocalAttem
 
 // RetryRunCommand requests a lifecycle transition back to dispatch eligibility.
 type RetryRunCommand struct {
-	DAG     *core.DAG
 	Status  *exec.DAGRunStatus
 	Options RetryRunOptions
 }
@@ -142,5 +142,25 @@ type DiscardSubmittedRunCommand struct {
 
 // DiscardSubmittedRun removes persisted history for a submitted DAG run.
 func (s *Service) DiscardSubmittedRun(ctx context.Context, cmd DiscardSubmittedRunCommand) error {
+	if err := s.validateDiscardSubmittedRun(cmd); err != nil {
+		return err
+	}
 	return s.cfg.DAGRunStore.RemoveDAGRun(ctx, cmd.DAGRun)
+}
+
+func (s *Service) validateDiscardSubmittedRun(cmd DiscardSubmittedRunCommand) error {
+	if s.cfg.DAGRunStore == nil {
+		return fmt.Errorf("dag-run store is required")
+	}
+	if err := validateDAGRunRef(cmd.DAGRun); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateDAGRunRef(dagRun exec.DAGRunRef) error {
+	if dagRun.Name == "" || dagRun.ID == "" {
+		return fmt.Errorf("dag-run is required")
+	}
+	return nil
 }

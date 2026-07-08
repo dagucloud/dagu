@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/persis/file/dagrun"
@@ -62,9 +63,13 @@ func TestRetryRunRecordsPendingRetryState(t *testing.T) {
 			st.Conditions = []exec.DAGRunCondition{{Type: "ready", Status: "true"}}
 		},
 	)
-	historySvc := history.New(history.Config{DAGRunStore: store})
+	now := time.Date(2026, 5, 19, 4, 5, 6, 0, time.UTC)
+	historySvc := history.New(history.Config{
+		DAGRunStore: store,
+		Now:         func() time.Time { return now },
+	})
 
-	retried, err := historySvc.RetryRun(ctx, history.RetryRunCommand{DAG: dag, Status: status})
+	retried, err := historySvc.RetryRun(ctx, history.RetryRunCommand{Status: status})
 	require.NoError(t, err)
 	require.Equal(t, exec.NewDAGRunRef(dag.Name, "run-1"), retried.DAGRun)
 	require.Equal(t, core.Failed, retried.PreviousStatus.Status)
@@ -77,7 +82,7 @@ func TestRetryRunRecordsPendingRetryState(t *testing.T) {
 	require.Equal(t, core.TriggerTypeRetry, queued.TriggerType)
 	require.Equal(t, "prod", queued.ProfileName)
 	require.Equal(t, 2, queued.AutoRetryCount)
-	require.NotEmpty(t, queued.QueuedAt)
+	require.Equal(t, stringutil.FormatTime(now), queued.QueuedAt)
 	require.Empty(t, queued.Conditions)
 }
 
@@ -96,7 +101,6 @@ func TestRetryRunAutoRetryIncrementsCount(t *testing.T) {
 	historySvc := history.New(history.Config{DAGRunStore: store})
 
 	_, err := historySvc.RetryRun(ctx, history.RetryRunCommand{
-		DAG:    dag,
 		Status: status,
 		Options: history.RetryRunOptions{
 			AutoRetry: true,
@@ -122,7 +126,7 @@ func TestRetryRunReturnsStaleWhenLatestAttemptChanged(t *testing.T) {
 	writeHistoryAttemptStatus(t, ctx, store, dag, "run-stale", core.Running, exec.NewDAGRunAttemptOptions{Retry: true}, time.Now())
 	historySvc := history.New(history.Config{DAGRunStore: store})
 
-	_, err := historySvc.RetryRun(ctx, history.RetryRunCommand{DAG: dag, Status: staleStatus})
+	_, err := historySvc.RetryRun(ctx, history.RetryRunCommand{Status: staleStatus})
 	require.ErrorIs(t, err, history.ErrRetryStaleLatest)
 }
 
@@ -141,7 +145,6 @@ func TestUndoRetryRunRestoresPreviousStatus(t *testing.T) {
 	historySvc := history.New(history.Config{DAGRunStore: store})
 
 	retried, err := historySvc.RetryRun(ctx, history.RetryRunCommand{
-		DAG:    dag,
 		Status: status,
 		Options: history.RetryRunOptions{
 			AutoRetry: true,
@@ -223,6 +226,58 @@ func TestMarkDispatchCanceledRejectsNonPendingStatus(t *testing.T) {
 	var notPendingErr *history.RunNotPendingError
 	require.ErrorAs(t, err, &notPendingErr)
 	require.Equal(t, core.Running, notPendingErr.Status)
+}
+
+func TestHistoryCommandsValidateRequiredInputs(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	tmp := t.TempDir()
+	store := dagrun.New(filepath.Join(tmp, "dag-runs"), dagrun.WithLatestStatusToday(false))
+
+	historySvc := history.New(history.Config{DAGRunStore: store})
+	_, err := historySvc.RetryRun(ctx, history.RetryRunCommand{})
+	require.ErrorContains(t, err, "status is required")
+
+	err = historySvc.MarkDispatchCanceled(ctx, history.MarkDispatchCanceledCommand{})
+	require.ErrorContains(t, err, "dag-run is required")
+
+	err = historySvc.DiscardSubmittedRun(ctx, history.DiscardSubmittedRunCommand{})
+	require.ErrorContains(t, err, "dag-run is required")
+
+	err = historySvc.UndoRetryRun(ctx, history.UndoRetryRunCommand{
+		DAGRun:       exec.NewDAGRunRef("dag", "run"),
+		QueuedStatus: &exec.DAGRunStatus{},
+	})
+	require.ErrorContains(t, err, "queued attempt ID is required")
+
+	missingStoreSvc := history.New(history.Config{})
+	_, err = missingStoreSvc.RetryRun(ctx, history.RetryRunCommand{
+		Status: &exec.DAGRunStatus{
+			Name:      "dag",
+			DAGRunID:  "run",
+			AttemptID: "attempt",
+		},
+	})
+	require.ErrorContains(t, err, "dag-run store is required")
+
+	err = missingStoreSvc.UndoRetryRun(ctx, history.UndoRetryRunCommand{
+		DAGRun: exec.NewDAGRunRef("dag", "run"),
+		QueuedStatus: &exec.DAGRunStatus{
+			AttemptID: "attempt",
+		},
+	})
+	require.ErrorContains(t, err, "dag-run store is required")
+
+	err = missingStoreSvc.MarkDispatchCanceled(ctx, history.MarkDispatchCanceledCommand{
+		DAGRun: exec.NewDAGRunRef("dag", "run"),
+	})
+	require.ErrorContains(t, err, "dag-run store is required")
+
+	err = missingStoreSvc.DiscardSubmittedRun(ctx, history.DiscardSubmittedRunCommand{
+		DAGRun: exec.NewDAGRunRef("dag", "run"),
+	})
+	require.ErrorContains(t, err, "dag-run store is required")
 }
 
 func testHistoryDAG(name string) *core.DAG {

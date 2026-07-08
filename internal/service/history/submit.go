@@ -147,10 +147,3 @@ func writeQueuedStatus(ctx context.Context, attempt exec.DAGRunAttempt, status e
 	}
 	return queuedStatusWriteResult{}, nil
 }
-
-func wrapCloseErr(err error) error {
-	if err == nil {
-		return nil
-	}
-	return fmt.Errorf("failed to close queued DAG run: %w", err)
-}

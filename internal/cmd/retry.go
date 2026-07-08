@@ -396,7 +396,7 @@ func enqueueRetry(ctx *Context, _ exec.DAGRunAttempt, dag *core.DAG, status *exe
 	historySvc := history.New(history.Config{
 		DAGRunStore: ctx.DAGRunStore,
 	})
-	retried, err := historySvc.RetryRun(ctx.Context, history.RetryRunCommand{DAG: dag, Status: status})
+	retried, err := historySvc.RetryRun(ctx.Context, history.RetryRunCommand{Status: status})
 	if err != nil {
 		if errors.Is(err, history.ErrRetryStaleLatest) {
 			return fmt.Errorf("dag-run state changed before retry could be queued")

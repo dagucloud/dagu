@@ -6,7 +6,6 @@ package history
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/dagucloud/dagu/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/internal/core"
@@ -14,6 +13,9 @@ import (
 )
 
 func (s *Service) retryRun(ctx context.Context, cmd RetryRunCommand) (*RetriedRun, error) {
+	if err := s.validateRetryRun(cmd); err != nil {
+		return nil, err
+	}
 	if cmd.Status.Status == core.Queued {
 		return &RetriedRun{
 			DAGRun:         cmd.Status.DAGRun(),
@@ -29,7 +31,7 @@ func (s *Service) retryRun(ctx context.Context, cmd RetryRunCommand) (*RetriedRu
 		cmd.Status.AttemptID,
 		cmd.Status.Status,
 		func(latest *exec.DAGRunStatus) error {
-			now := time.Now()
+			now := s.now()
 			latest.Status = core.Queued
 			latest.QueuedAt = stringutil.FormatTime(now)
 			latest.Conditions = nil
@@ -68,6 +70,9 @@ func (s *Service) undoRetryRun(ctx context.Context, cmd UndoRetryRunCommand) err
 	if cmd.QueuedStatus == nil {
 		return nil
 	}
+	if err := s.validateUndoRetryRun(cmd); err != nil {
+		return err
+	}
 	_, _, err := s.cfg.DAGRunStore.CompareAndSwapLatestAttemptStatus(
 		ctx,
 		cmd.DAGRun,
@@ -82,4 +87,33 @@ func (s *Service) undoRetryRun(ctx context.Context, cmd UndoRetryRunCommand) err
 		},
 	)
 	return err
+}
+
+func (s *Service) validateRetryRun(cmd RetryRunCommand) error {
+	if s.cfg.DAGRunStore == nil {
+		return fmt.Errorf("dag-run store is required")
+	}
+	if cmd.Status == nil {
+		return fmt.Errorf("status is required")
+	}
+	if err := validateDAGRunRef(cmd.Status.DAGRun()); err != nil {
+		return err
+	}
+	if cmd.Status.AttemptID == "" {
+		return fmt.Errorf("attempt ID is required")
+	}
+	return nil
+}
+
+func (s *Service) validateUndoRetryRun(cmd UndoRetryRunCommand) error {
+	if s.cfg.DAGRunStore == nil {
+		return fmt.Errorf("dag-run store is required")
+	}
+	if err := validateDAGRunRef(cmd.DAGRun); err != nil {
+		return err
+	}
+	if cmd.QueuedStatus.AttemptID == "" {
+		return fmt.Errorf("queued attempt ID is required")
+	}
+	return nil
 }

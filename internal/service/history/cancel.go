@@ -16,6 +16,9 @@ import (
 )
 
 func (s *Service) markDispatchCanceled(ctx context.Context, cmd MarkDispatchCanceledCommand) error {
+	if err := s.validateMarkDispatchCanceled(cmd); err != nil {
+		return err
+	}
 	attempt, err := s.cfg.DAGRunStore.FindAttempt(ctx, cmd.DAGRun)
 	if err != nil {
 		return err
@@ -29,7 +32,7 @@ func (s *Service) markDispatchCanceled(ctx context.Context, cmd MarkDispatchCanc
 		return newRunNotPendingError(status)
 	}
 
-	finishedAt := time.Now().UTC().Format(time.RFC3339)
+	finishedAt := s.now().UTC().Format(time.RFC3339)
 	currentStatus, swapped, err := s.cfg.DAGRunStore.CompareAndSwapLatestAttemptStatus(
 		ctx,
 		cmd.DAGRun,
@@ -73,6 +76,16 @@ func (s *Service) markDispatchCanceled(ctx context.Context, cmd MarkDispatchCanc
 		return err
 	}
 
+	return nil
+}
+
+func (s *Service) validateMarkDispatchCanceled(cmd MarkDispatchCanceledCommand) error {
+	if s.cfg.DAGRunStore == nil {
+		return fmt.Errorf("dag-run store is required")
+	}
+	if err := validateDAGRunRef(cmd.DAGRun); err != nil {
+		return err
+	}
 	return nil
 }
 
