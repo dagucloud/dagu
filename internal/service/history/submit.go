@@ -94,11 +94,7 @@ func (s *Service) now() time.Time {
 }
 
 func (s *Service) submitArtifactDir(ctx context.Context, cmd SubmitRunCommand) (string, error) {
-	if !cmd.DAG.ArtifactsEnabled() {
-		return "", nil
-	}
-
-	dir, err := logpath.GenerateDir(ctx, s.cfg.ArtifactBaseDir, cmd.DAG.Artifacts.Dir, cmd.DAG.Name, cmd.DAGRunID)
+	dir, err := s.localArtifactDir(ctx, cmd.DAG, cmd.DAGRunID)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate artifact directory: %w", err)
 	}

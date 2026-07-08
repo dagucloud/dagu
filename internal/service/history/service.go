@@ -166,6 +166,40 @@ func (s *Service) RecordEarlyFailure(ctx context.Context, cmd RecordEarlyFailure
 	return s.recordEarlyFailure(ctx, cmd)
 }
 
+// SeedEditRetryRunCommand creates a queued retry seed for edited DAG execution.
+type SeedEditRetryRunCommand struct {
+	DAG      *core.DAG
+	DAGRunID string
+
+	Params        string
+	ProfileName   string
+	SourceStatus  *exec.DAGRunStatus
+	SkippedSteps  []string
+	SourceWorkDir string
+}
+
+// SeededEditRetryRun is the result of creating an edit-retry seed.
+type SeededEditRetryRun struct {
+	DAGRun exec.DAGRunRef
+	Status *exec.DAGRunStatus
+}
+
+// SeedEditRetryRun records the queued lifecycle state for an edit retry.
+func (s *Service) SeedEditRetryRun(ctx context.Context, cmd SeedEditRetryRunCommand) (*SeededEditRetryRun, error) {
+	return s.seedEditRetryRun(ctx, cmd)
+}
+
+// MarkEditRetrySeedFailedCommand records a failed edit-retry seed.
+type MarkEditRetrySeedFailedCommand struct {
+	Status *exec.DAGRunStatus
+	Cause  error
+}
+
+// MarkEditRetrySeedFailed marks an edit-retry seed as failed if it is still queued.
+func (s *Service) MarkEditRetrySeedFailed(ctx context.Context, cmd MarkEditRetrySeedFailedCommand) error {
+	return s.markEditRetrySeedFailed(ctx, cmd)
+}
+
 // DiscardSubmittedRunCommand removes persisted history for a submitted DAG run.
 type DiscardSubmittedRunCommand struct {
 	RollbackToken SubmitRollbackToken

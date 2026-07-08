@@ -6,32 +6,23 @@ package api
 import (
 	"context"
 	"fmt"
-	"io"
-	"io/fs"
 	"maps"
 	"net/http"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
 	api "github.com/dagucloud/dagu/api/v1"
-	"github.com/dagucloud/dagu/internal/cmn/collections"
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/internal/cmn/logpath"
-	"github.com/dagucloud/dagu/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/core/spec"
 	"github.com/dagucloud/dagu/internal/dispatch"
 	"github.com/dagucloud/dagu/internal/launcher"
-	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/executor"
-	"github.com/dagucloud/dagu/internal/runtime/transform"
 	"github.com/dagucloud/dagu/internal/service/audit"
+	"github.com/dagucloud/dagu/internal/service/history"
 )
 
 type editRetryOptions struct {
@@ -546,14 +537,30 @@ func (a *API) launchEditRetryDAGRun(ctx context.Context, plan *editRetryPlan) (q
 		return false, fmt.Errorf("edit retry plan is incomplete")
 	}
 
-	nodes := editRetrySeedNodes(plan.editedDAG, plan.sourceStatus, plan.skippedSteps)
-	seedStatus, err := a.seedEditRetryAttempt(ctx, plan.editedDAG, plan.newDAGRunID, plan.params, plan.profileName, nodes, plan.sourceAttempt.WorkDir())
+	historySvc := history.New(history.Config{
+		DAGRunStore:     a.dagRunStore,
+		LogBaseDir:      a.config.Paths.LogDir,
+		ArtifactBaseDir: a.config.Paths.ArtifactDir,
+	})
+	seeded, err := historySvc.SeedEditRetryRun(ctx, history.SeedEditRetryRunCommand{
+		DAG:           plan.editedDAG,
+		DAGRunID:      plan.newDAGRunID,
+		Params:        plan.params,
+		ProfileName:   plan.profileName,
+		SourceStatus:  plan.sourceStatus,
+		SkippedSteps:  plan.skippedSteps,
+		SourceWorkDir: plan.sourceAttempt.WorkDir(),
+	})
 	if err != nil {
 		return false, err
 	}
+	seedStatus := seeded.Status
 	defer func() {
 		if err != nil {
-			a.markEditRetrySeedFailed(ctx, seedStatus, err)
+			_ = historySvc.MarkEditRetrySeedFailed(ctx, history.MarkEditRetrySeedFailedCommand{
+				Status: seedStatus,
+				Cause:  err,
+			})
 		}
 	}()
 
@@ -587,308 +594,6 @@ func (a *API) launchEditRetryDAGRun(ctx context.Context, plan *editRetryPlan) (q
 	return false, nil
 }
 
-func (a *API) markEditRetrySeedFailed(ctx context.Context, status *exec.DAGRunStatus, cause error) {
-	if status == nil || cause == nil {
-		return
-	}
-	_, _, err := a.dagRunStore.CompareAndSwapLatestAttemptStatus(
-		ctx,
-		status.DAGRun(),
-		status.AttemptID,
-		core.Queued,
-		func(latest *exec.DAGRunStatus) error {
-			latest.Status = core.Failed
-			latest.FinishedAt = stringutil.FormatTime(time.Now())
-			latest.Error = cause.Error()
-			return nil
-		},
-	)
-	if err != nil {
-		logger.Warn(ctx, "Failed to mark edit retry seed as failed",
-			tag.DAG(status.Name),
-			tag.RunID(status.DAGRunID),
-			tag.Error(err),
-		)
-	}
-}
-
-func (a *API) seedEditRetryAttempt(
-	ctx context.Context,
-	dag *core.DAG,
-	dagRunID string,
-	params string,
-	profileName string,
-	nodes []runtime.NodeData,
-	sourceWorkDir string,
-) (*exec.DAGRunStatus, error) {
-	now := time.Now()
-	attempt, err := a.dagRunStore.CreateAttempt(ctx, dag, now, dagRunID, exec.NewDAGRunAttemptOptions{})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create edit retry attempt: %w", err)
-	}
-	committed := false
-	defer func() {
-		if committed {
-			return
-		}
-		if rmErr := a.dagRunStore.RemoveDAGRun(ctx, exec.NewDAGRunRef(dag.Name, dagRunID)); rmErr != nil {
-			logger.Error(ctx, "Failed to rollback edit retry attempt",
-				tag.DAG(dag.Name),
-				tag.RunID(dagRunID),
-				tag.Error(rmErr),
-			)
-		}
-	}()
-
-	logFile, err := logpath.Generate(ctx, a.config.Paths.LogDir, dag.LogDir, dag.Name, dagRunID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate edit retry log file: %w", err)
-	}
-	artifactDir, err := editRetryArtifactDir(ctx, a.config.Paths.ArtifactDir, dag, dagRunID)
-	if err != nil {
-		return nil, err
-	}
-
-	opts := []transform.StatusOption{
-		transform.WithNodes(nodes),
-		transform.WithLogFilePath(logFile),
-		transform.WithArchiveDir(artifactDir),
-		transform.WithAttemptID(attempt.ID()),
-		transform.WithQueuedAt(stringutil.FormatTime(now)),
-		transform.WithPreconditions(dag.Preconditions),
-		transform.WithHierarchyRefs(
-			exec.NewDAGRunRef(dag.Name, dagRunID),
-			exec.DAGRunRef{},
-		),
-		transform.WithTriggerType(core.TriggerTypeRetry),
-		transform.WithRuntimeProfile(profileName, "", nil),
-	}
-	status := transform.NewStatusBuilder(dag).Create(dagRunID, core.Queued, 0, time.Time{}, opts...)
-	status.Params = params
-	status.ParamsList = dag.Params
-
-	if err := attempt.Open(ctx); err != nil {
-		return nil, fmt.Errorf("failed to open edit retry attempt: %w", err)
-	}
-	if hasSkippedEditRetryNode(nodes) && sourceWorkDir != "" {
-		newWorkDir := attempt.WorkDir()
-		if err := copyEditRetryWorkDir(sourceWorkDir, newWorkDir); err != nil {
-			_ = attempt.Close(ctx)
-			return nil, fmt.Errorf("failed to copy edit retry work directory: %w", err)
-		}
-		remapEditRetryWorkDirOutputs(status.Nodes, sourceWorkDir, newWorkDir)
-	}
-
-	if err := attempt.Write(ctx, status); err != nil {
-		_ = attempt.Close(ctx)
-		return nil, fmt.Errorf("failed to save edit retry status: %w", err)
-	}
-	if err := attempt.Close(ctx); err != nil {
-		return nil, fmt.Errorf("failed to close edit retry attempt: %w", err)
-	}
-	committed = true
-
-	return &status, nil
-}
-
-func hasSkippedEditRetryNode(nodes []runtime.NodeData) bool {
-	for _, node := range nodes {
-		if node.State.SkippedByRetry {
-			return true
-		}
-	}
-	return false
-}
-
-func copyEditRetryWorkDir(sourceWorkDir, targetWorkDir string) error {
-	sourceWorkDir = cleanEditRetryWorkDir(sourceWorkDir)
-	targetWorkDir = cleanEditRetryWorkDir(targetWorkDir)
-	if sourceWorkDir == "" || targetWorkDir == "" || sourceWorkDir == targetWorkDir {
-		return nil
-	}
-
-	info, err := os.Stat(sourceWorkDir)
-	if err != nil {
-		return err
-	}
-	if !info.IsDir() {
-		return fmt.Errorf("%s is not a directory", sourceWorkDir)
-	}
-	if err := os.MkdirAll(targetWorkDir, 0o750); err != nil {
-		return err
-	}
-
-	return filepath.WalkDir(sourceWorkDir, func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		rel, err := filepath.Rel(sourceWorkDir, path)
-		if err != nil {
-			return err
-		}
-		if rel == "." {
-			return nil
-		}
-
-		targetPath := filepath.Join(targetWorkDir, rel)
-		info, err := entry.Info()
-		if err != nil {
-			return err
-		}
-		mode := info.Mode()
-		switch {
-		case entry.IsDir():
-			return os.MkdirAll(targetPath, mode.Perm())
-		case mode.Type()&os.ModeSymlink != 0:
-			return copyEditRetrySymlink(sourceWorkDir, targetWorkDir, path, targetPath)
-		case mode.IsRegular():
-			return copyEditRetryFile(path, targetPath, mode)
-		default:
-			return nil
-		}
-	})
-}
-
-func copyEditRetrySymlink(sourceWorkDir, targetWorkDir, sourcePath, targetPath string) error {
-	linkTarget, err := os.Readlink(sourcePath)
-	if err != nil {
-		return err
-	}
-
-	resolvedSourceTarget := linkTarget
-	if !filepath.IsAbs(resolvedSourceTarget) {
-		resolvedSourceTarget = filepath.Join(filepath.Dir(sourcePath), resolvedSourceTarget)
-	}
-	resolvedSourceTarget = filepath.Clean(resolvedSourceTarget)
-	if err := ensureEditRetryPathWithin(sourceWorkDir, resolvedSourceTarget); err != nil {
-		return fmt.Errorf("unsafe symlink target %s: %w", sourcePath, err)
-	}
-	if evaluatedSourceTarget, err := filepath.EvalSymlinks(resolvedSourceTarget); err == nil {
-		if err := ensureEditRetryResolvedPathWithin(sourceWorkDir, evaluatedSourceTarget); err != nil {
-			return fmt.Errorf("unsafe symlink target %s: %w", sourcePath, err)
-		}
-	} else if !os.IsNotExist(err) {
-		return err
-	}
-
-	sourceTargetRel, err := filepath.Rel(sourceWorkDir, resolvedSourceTarget)
-	if err != nil {
-		return err
-	}
-	targetLinkTarget := filepath.Join(targetWorkDir, sourceTargetRel)
-	relativeTargetLink, err := filepath.Rel(filepath.Dir(targetPath), targetLinkTarget)
-	if err != nil {
-		return err
-	}
-
-	if err := os.MkdirAll(filepath.Dir(targetPath), 0o750); err != nil {
-		return err
-	}
-	if err := os.Remove(targetPath); err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	return os.Symlink(relativeTargetLink, targetPath) //nolint:gosec // symlink target is constrained to the copied work directory.
-}
-
-func ensureEditRetryPathWithin(baseDir, targetPath string) error {
-	baseAbs, err := filepath.Abs(baseDir)
-	if err != nil {
-		return err
-	}
-	targetAbs, err := filepath.Abs(targetPath)
-	if err != nil {
-		return err
-	}
-	relToBase, err := filepath.Rel(baseAbs, targetAbs)
-	if err != nil {
-		return err
-	}
-	if relToBase == ".." || strings.HasPrefix(relToBase, ".."+string(filepath.Separator)) || filepath.IsAbs(relToBase) {
-		return fmt.Errorf("path escapes source work directory")
-	}
-	return nil
-}
-
-func ensureEditRetryResolvedPathWithin(baseDir, targetPath string) error {
-	resolvedBase, err := filepath.EvalSymlinks(baseDir)
-	if err != nil {
-		return err
-	}
-	return ensureEditRetryPathWithin(resolvedBase, targetPath)
-}
-
-func copyEditRetryFile(sourcePath, targetPath string, mode fs.FileMode) error {
-	source, err := os.Open(sourcePath) //nolint:gosec
-	if err != nil {
-		return err
-	}
-	defer func() {
-		_ = source.Close()
-	}()
-
-	if err := os.MkdirAll(filepath.Dir(targetPath), 0o750); err != nil {
-		return err
-	}
-	target, err := os.OpenFile(targetPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode.Perm()) //nolint:gosec
-	if err != nil {
-		return err
-	}
-	defer func() {
-		_ = target.Close()
-	}()
-
-	if _, err := io.Copy(target, source); err != nil {
-		return err
-	}
-	return target.Chmod(mode.Perm())
-}
-
-func remapEditRetryWorkDirOutputs(nodes []*exec.Node, sourceWorkDir, targetWorkDir string) {
-	sourceWorkDir = cleanEditRetryWorkDir(sourceWorkDir)
-	targetWorkDir = cleanEditRetryWorkDir(targetWorkDir)
-	if sourceWorkDir == "" || targetWorkDir == "" || sourceWorkDir == targetWorkDir {
-		return
-	}
-
-	replacements := [][2]string{{sourceWorkDir, targetWorkDir}}
-	sourceSlash := filepath.ToSlash(sourceWorkDir)
-	targetSlash := filepath.ToSlash(targetWorkDir)
-	if sourceSlash != sourceWorkDir || targetSlash != targetWorkDir {
-		replacements = append(replacements, [2]string{sourceSlash, targetSlash})
-	}
-
-	for _, node := range nodes {
-		if node == nil || !node.SkippedByRetry || node.OutputVariables == nil {
-			continue
-		}
-		node.OutputVariables.Range(func(key, value any) bool {
-			text, ok := value.(string)
-			if !ok {
-				return true
-			}
-			rewritten := text
-			for _, replacement := range replacements {
-				rewritten = strings.ReplaceAll(rewritten, replacement[0], replacement[1])
-			}
-			if rewritten != text {
-				node.OutputVariables.Store(key, rewritten)
-			}
-			return true
-		})
-	}
-}
-
-func cleanEditRetryWorkDir(dir string) string {
-	dir = strings.TrimSpace(dir)
-	if dir == "" {
-		return ""
-	}
-	if abs, err := filepath.Abs(dir); err == nil {
-		return filepath.Clean(abs)
-	}
-	return filepath.Clean(dir)
-}
-
 func (a *API) dispatchEditRetry(ctx context.Context, dag *core.DAG, status *exec.DAGRunStatus) error {
 	opts := []executor.TaskOption{
 		executor.WithWorkerSelector(dag.WorkerSelector),
@@ -914,121 +619,6 @@ func (a *API) dispatchEditRetry(ctx context.Context, dag *core.DAG, status *exec
 	return nil
 }
 
-func editRetrySeedNodes(dag *core.DAG, sourceStatus *exec.DAGRunStatus, skippedSteps []string) []runtime.NodeData {
-	sourceNodes := make(map[string]*exec.Node, len(sourceStatus.Nodes))
-	for _, node := range sourceStatus.Nodes {
-		if node != nil {
-			sourceNodes[node.Step.Name] = node
-		}
-	}
-	skipSet := make(map[string]struct{}, len(skippedSteps))
-	for _, stepName := range skippedSteps {
-		skipSet[stepName] = struct{}{}
-	}
-
-	nodes := make([]runtime.NodeData, 0, len(dag.Steps))
-	for _, step := range dag.Steps {
-		data := runtime.NodeData{
-			Step: step,
-			State: runtime.NodeState{
-				Status: core.NodeNotStarted,
-			},
-		}
-		if _, ok := skipSet[step.Name]; ok {
-			data.State = skippedEditRetryNodeState(sourceNodes[step.Name])
-		}
-		nodes = append(nodes, data)
-	}
-	return nodes
-}
-
-func skippedEditRetryNodeState(source *exec.Node) runtime.NodeState {
-	state := runtime.NodeState{
-		Status:         core.NodeSkipped,
-		SkippedByRetry: true,
-	}
-	if source == nil {
-		return state
-	}
-
-	startedAt, _ := stringutil.ParseTime(source.StartedAt)
-	finishedAt, _ := stringutil.ParseTime(source.FinishedAt)
-	retriedAt, _ := stringutil.ParseTime(source.RetriedAt)
-	state.Stdout = source.Stdout
-	state.Stderr = source.Stderr
-	state.StartedAt = startedAt
-	state.FinishedAt = finishedAt
-	state.RetriedAt = retriedAt
-	state.RetryCount = source.RetryCount
-	state.DoneCount = source.DoneCount
-	state.Repeated = source.Repeated
-	state.OutputVariables = cloneSyncMap(source.OutputVariables)
-	state.ChatMessages = append([]exec.LLMMessage(nil), source.ChatMessages...)
-	state.ToolDefinitions = append([]exec.ToolDefinition(nil), source.ToolDefinitions...)
-	state.ApprovalInputs = cloneStringMap(source.ApprovalInputs)
-	state.ApprovedAt = source.ApprovedAt
-	state.ApprovedBy = source.ApprovedBy
-	state.RejectedAt = source.RejectedAt
-	state.RejectedBy = source.RejectedBy
-	state.RejectionReason = source.RejectionReason
-	state.ApprovalIteration = source.ApprovalIteration
-	state.PushBackInputs = cloneStringMap(source.PushBackInputs)
-	state.PushBackHistory = clonePushBackHistory(source.PushBackHistory)
-	return state
-}
-
-func cloneSyncMap(src *collections.SyncMap) *collections.SyncMap {
-	if src == nil {
-		return nil
-	}
-	dst := &collections.SyncMap{}
-	src.Range(func(key, value any) bool {
-		dst.Store(key, value)
-		return true
-	})
-	return dst
-}
-
-func cloneStringMap(src map[string]string) map[string]string {
-	if len(src) == 0 {
-		return nil
-	}
-	dst := make(map[string]string, len(src))
-	maps.Copy(dst, src)
-	return dst
-}
-
-func clonePushBackHistory(src []exec.PushBackEntry) []exec.PushBackEntry {
-	if len(src) == 0 {
-		return nil
-	}
-	dst := make([]exec.PushBackEntry, len(src))
-	for i, entry := range src {
-		dst[i] = exec.PushBackEntry{
-			Iteration: entry.Iteration,
-			By:        entry.By,
-			At:        entry.At,
-			Inputs:    cloneStringMap(entry.Inputs),
-		}
-	}
-	return dst
-}
-
-func editRetryArtifactDir(ctx context.Context, baseDir string, dag *core.DAG, dagRunID string) (string, error) {
-	if dag == nil || !dag.ArtifactsEnabled() {
-		return "", nil
-	}
-	dagArtifactDir := ""
-	if dag.Artifacts != nil {
-		dagArtifactDir = dag.Artifacts.Dir
-	}
-	artifactDir, err := logpath.GenerateDir(ctx, baseDir, dagArtifactDir, dag.Name, dagRunID)
-	if err != nil {
-		return "", fmt.Errorf("failed to generate edit retry artifact directory: %w", err)
-	}
-	return artifactDir, nil
-}
-
 func editRetryPreviewSteps(dag *core.DAG) []api.Step {
 	if dag == nil || len(dag.Steps) == 0 {
 		return []api.Step{}
@@ -1038,6 +628,15 @@ func editRetryPreviewSteps(dag *core.DAG) []api.Step {
 		steps[i] = toStep(step)
 	}
 	return steps
+}
+
+func cloneStringMap(src map[string]string) map[string]string {
+	if len(src) == 0 {
+		return nil
+	}
+	dst := make(map[string]string, len(src))
+	maps.Copy(dst, src)
+	return dst
 }
 
 func editRetryWarnings(skipped []string, ineligible []editRetryIneligibleStep, reusableSourceSteps int) []string {

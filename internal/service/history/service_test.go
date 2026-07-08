@@ -402,6 +402,55 @@ func TestRepairQueuedCatchupRunPersistsLocalMetadata(t *testing.T) {
 	require.Contains(t, filepath.Clean(repaired.ArchiveDir), "dag-artifacts")
 }
 
+func TestSeedEditRetryRunRecordsQueuedStateAndFailure(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	tmp := t.TempDir()
+	dag := testHistoryDAG("history-edit-retry")
+	dag.Params = []string{"P1=old"}
+	store := dagrun.New(filepath.Join(tmp, "dag-runs"), dagrun.WithLatestStatusToday(false))
+	now := time.Date(2026, 5, 19, 8, 9, 10, 0, time.UTC)
+	historySvc := history.New(history.Config{
+		DAGRunStore:     store,
+		LogBaseDir:      filepath.Join(tmp, "logs"),
+		ArtifactBaseDir: filepath.Join(tmp, "artifacts"),
+		Now:             func() time.Time { return now },
+	})
+
+	seeded, err := historySvc.SeedEditRetryRun(ctx, history.SeedEditRetryRunCommand{
+		DAG:          dag,
+		DAGRunID:     "run-edit-retry",
+		Params:       "P1=new",
+		ProfileName:  "prod",
+		SourceStatus: &exec.DAGRunStatus{},
+	})
+	require.NoError(t, err)
+	require.Equal(t, exec.NewDAGRunRef(dag.Name, "run-edit-retry"), seeded.DAGRun)
+	require.Equal(t, core.Queued, seeded.Status.Status)
+	require.Equal(t, core.TriggerTypeRetry, seeded.Status.TriggerType)
+	require.Equal(t, "P1=new", seeded.Status.Params)
+	require.Equal(t, []string{"P1=old"}, seeded.Status.ParamsList)
+	require.Equal(t, "prod", seeded.Status.ProfileName)
+	require.Equal(t, stringutil.FormatTime(now), seeded.Status.QueuedAt)
+	require.NotEmpty(t, seeded.Status.Log)
+
+	now = now.Add(time.Minute)
+	err = historySvc.MarkEditRetrySeedFailed(ctx, history.MarkEditRetrySeedFailedCommand{
+		Status: seeded.Status,
+		Cause:  errors.New("launcher failed"),
+	})
+	require.NoError(t, err)
+
+	attempt, err := store.FindAttempt(ctx, seeded.DAGRun)
+	require.NoError(t, err)
+	status, err := attempt.ReadStatus(ctx)
+	require.NoError(t, err)
+	require.Equal(t, core.Failed, status.Status)
+	require.Equal(t, "launcher failed", status.Error)
+	require.Equal(t, stringutil.FormatTime(now), status.FinishedAt)
+}
+
 func testHistoryDAG(name string) *core.DAG {
 	dag := &core.DAG{
 		Name: name,

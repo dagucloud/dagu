@@ -177,7 +177,7 @@ func runRetry(ctx *Context, args []string) error {
 	// Step retry is not supported via queue (queue processor does not pass step name).
 	queueConfig := ctx.Config.FindQueueConfig(dag.ProcGroup())
 	if stepName == "" && queueConfig != nil && status.Status != core.Queued {
-		return enqueueRetry(ctx, attempt, dag, status, dagRunID)
+		return enqueueRetry(ctx, dag, status, dagRunID)
 	}
 
 	if err := waitForRetrySourceRelease(ctx, dag, status); err != nil {
@@ -403,7 +403,7 @@ func newQueueDispatchNotQueuedError(status *exec.DAGRunStatus) *history.RunNotPe
 // enqueueRetry enqueues the retry and persists Queued status via History.
 // Retries respect global queue capacity because the queue processor picks them up
 // when capacity is available.
-func enqueueRetry(ctx *Context, _ exec.DAGRunAttempt, dag *core.DAG, status *exec.DAGRunStatus, dagRunID string) error {
+func enqueueRetry(ctx *Context, dag *core.DAG, status *exec.DAGRunStatus, dagRunID string) error {
 	historySvc := ctx.historyService()
 	retried, err := historySvc.RetryRun(ctx.Context, history.RetryRunCommand{Status: status})
 	if err != nil {
