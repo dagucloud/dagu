@@ -62,7 +62,11 @@ func (s *Service) submitRun(ctx context.Context, cmd SubmitRunCommand) (*Submitt
 		return nil, err
 	}
 
-	if err := s.cfg.QueueStore.Enqueue(ctx, queueName, exec.QueuePriorityLow, dagRun); err != nil {
+	if err := s.cfg.Scheduler.ScheduleRun(ctx, ScheduleRequest{
+		QueueName: queueName,
+		Priority:  exec.QueuePriorityLow,
+		DAGRun:    dagRun,
+	}); err != nil {
 		return nil, joinCloseAndEnqueue(
 			wrapCloseErr(writeResult.closeErr),
 			fmt.Errorf("failed to enqueue DAG run: %w", err),
@@ -85,8 +89,8 @@ func (s *Service) validateSubmitRun(cmd SubmitRunCommand) error {
 	if s.cfg.DAGRunStore == nil {
 		return fmt.Errorf("dag-run store is required")
 	}
-	if s.cfg.QueueStore == nil {
-		return fmt.Errorf("queue store is required")
+	if s.cfg.Scheduler == nil {
+		return fmt.Errorf("scheduler is required")
 	}
 	if cmd.DAG == nil {
 		return fmt.Errorf("dag is required")

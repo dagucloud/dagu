@@ -173,7 +173,9 @@ func (s *RetryScanner) processFailedRunFromSummary(
 
 	historySvc := history.New(history.Config{
 		DAGRunStore: s.dagRunStore,
-		QueueStore:  s.queueStore,
+		Scheduler: history.ScheduleFunc(func(callCtx context.Context, req history.ScheduleRequest) error {
+			return s.queueStore.Enqueue(callCtx, req.QueueName, req.Priority, req.DAGRun)
+		}),
 	})
 	err := historySvc.RetryRun(ctx, history.RetryRunCommand{
 		Status: listed,
@@ -261,7 +263,9 @@ func (s *RetryScanner) processFailedRunLegacy(
 
 	historySvc := history.New(history.Config{
 		DAGRunStore: s.dagRunStore,
-		QueueStore:  s.queueStore,
+		Scheduler: history.ScheduleFunc(func(callCtx context.Context, req history.ScheduleRequest) error {
+			return s.queueStore.Enqueue(callCtx, req.QueueName, req.Priority, req.DAGRun)
+		}),
 	})
 	err = historySvc.RetryRun(ctx, history.RetryRunCommand{
 		DAG:    dagSnapshot,

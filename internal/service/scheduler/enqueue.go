@@ -67,9 +67,11 @@ func EnqueueCatchupRun(
 
 	historySvc := history.New(history.Config{
 		DAGRunStore:     dagRunStore,
-		QueueStore:      queueStore,
 		LogBaseDir:      baseLogDir,
 		ArtifactBaseDir: baseArtifactDir,
+		Scheduler: history.ScheduleFunc(func(callCtx context.Context, req history.ScheduleRequest) error {
+			return queueStore.Enqueue(callCtx, req.QueueName, req.Priority, req.DAGRun)
+		}),
 	})
 	_, err = historySvc.SubmitRun(ctx, history.SubmitRunCommand{
 		DAG:          dagCopy,

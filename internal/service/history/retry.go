@@ -67,7 +67,11 @@ func (s *Service) retryRun(ctx context.Context, cmd RetryRunCommand) error {
 		)
 		return errors.New("enqueue retry: proc group is empty")
 	}
-	if err := s.cfg.QueueStore.Enqueue(ctx, procGroup, exec.QueuePriorityLow, dagRun); err != nil {
+	if err := s.cfg.Scheduler.ScheduleRun(ctx, ScheduleRequest{
+		QueueName: procGroup,
+		Priority:  exec.QueuePriorityLow,
+		DAGRun:    dagRun,
+	}); err != nil {
 		_, _, _ = s.cfg.DAGRunStore.CompareAndSwapLatestAttemptStatus(
 			ctx,
 			dagRun,

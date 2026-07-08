@@ -247,9 +247,11 @@ func (e *enqueueExecutor) enqueueOne(ctx context.Context, runParams executor.Run
 
 	historySvc := history.New(history.Config{
 		DAGRunStore:     rCtx.DAGRunStore,
-		QueueStore:      rCtx.QueueStore,
 		LogBaseDir:      rCtx.DAGRunLogDir,
 		ArtifactBaseDir: rCtx.DAGRunArtifactDir,
+		Scheduler: history.ScheduleFunc(func(callCtx context.Context, req history.ScheduleRequest) error {
+			return rCtx.QueueStore.Enqueue(callCtx, req.QueueName, req.Priority, req.DAGRun)
+		}),
 	})
 	_, err = historySvc.SubmitRun(ctx, history.SubmitRunCommand{
 		DAG:         dagCopy,

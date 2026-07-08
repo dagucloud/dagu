@@ -395,7 +395,9 @@ func newQueueDispatchNotQueuedError(status *exec.DAGRunStatus) *exec.DAGRunNotQu
 func enqueueRetry(ctx *Context, _ exec.DAGRunAttempt, dag *core.DAG, status *exec.DAGRunStatus, dagRunID string) error {
 	historySvc := history.New(history.Config{
 		DAGRunStore: ctx.DAGRunStore,
-		QueueStore:  ctx.QueueStore,
+		Scheduler: history.ScheduleFunc(func(callCtx context.Context, req history.ScheduleRequest) error {
+			return ctx.QueueStore.Enqueue(callCtx, req.QueueName, req.Priority, req.DAGRun)
+		}),
 	})
 	if err := historySvc.RetryRun(ctx.Context, history.RetryRunCommand{DAG: dag, Status: status}); err != nil {
 		if errors.Is(err, exec.ErrRetryStaleLatest) {

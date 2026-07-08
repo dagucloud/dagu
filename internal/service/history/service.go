@@ -14,8 +14,8 @@ import (
 // Config provides the stores and path roots required by the History service.
 type Config struct {
 	DAGRunStore exec.DAGRunStore
-	QueueStore  exec.QueueStore
 	ProcStore   LocalProcStore
+	Scheduler   Scheduler
 
 	LogBaseDir      string
 	ArtifactBaseDir string

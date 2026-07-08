@@ -31,9 +31,11 @@ func TestSubmitRunWritesQueuedLifecycleState(t *testing.T) {
 
 	historySvc := history.New(history.Config{
 		DAGRunStore: dagRunStore,
-		QueueStore:  queueStore,
 		LogBaseDir:  filepath.Join(tmp, "logs"),
 		Now:         func() time.Time { return now },
+		Scheduler: history.ScheduleFunc(func(ctx context.Context, req history.ScheduleRequest) error {
+			return queueStore.Enqueue(ctx, req.QueueName, req.Priority, req.DAGRun)
+		}),
 	})
 	submitted, err := historySvc.SubmitRun(ctx, history.SubmitRunCommand{
 		DAG:      dag,

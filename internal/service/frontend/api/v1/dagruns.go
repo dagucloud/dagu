@@ -2748,7 +2748,9 @@ func (a *API) enqueueRetry(ctx context.Context, attempt exec.DAGRunAttempt, dag 
 	eventCtx := a.withEventContext(ctx)
 	historySvc := history.New(history.Config{
 		DAGRunStore: a.dagRunStore,
-		QueueStore:  a.queueStore,
+		Scheduler: history.ScheduleFunc(func(callCtx context.Context, req history.ScheduleRequest) error {
+			return a.queueStore.Enqueue(callCtx, req.QueueName, req.Priority, req.DAGRun)
+		}),
 	})
 	if err := historySvc.RetryRun(eventCtx, history.RetryRunCommand{DAG: dag, Status: status}); err != nil {
 		if errors.Is(err, exec.ErrRetryStaleLatest) {
@@ -3214,9 +3216,11 @@ func (a *API) enqueuePreparedDAGRun(
 
 	historySvc := history.New(history.Config{
 		DAGRunStore:     a.dagRunStore,
-		QueueStore:      a.queueStore,
 		LogBaseDir:      a.config.Paths.LogDir,
 		ArtifactBaseDir: a.config.Paths.ArtifactDir,
+		Scheduler: history.ScheduleFunc(func(callCtx context.Context, req history.ScheduleRequest) error {
+			return a.queueStore.Enqueue(callCtx, req.QueueName, req.Priority, req.DAGRun)
+		}),
 	})
 	queued, err := historySvc.SubmitRun(ctx, history.SubmitRunCommand{
 		DAG:                     queuedDAG,
