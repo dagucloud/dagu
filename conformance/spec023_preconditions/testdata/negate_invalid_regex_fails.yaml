@@ -1,0 +1,8 @@
+working_dir: .
+steps:
+  - id: write
+    preconditions:
+      - condition: ready
+        expected: "re:["
+        negate: true
+    run: printf '%s\n' ran > negate-invalid-regex.txt

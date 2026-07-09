@@ -2,6 +2,6 @@ working_dir: .
 steps:
   - id: write
     preconditions:
-      - condition: "$(printf '%s%s' hour- 08)"
-        expected: "re:^hour-0[8-9]$"
+      - condition: "$(printf hour-08)"
+        expected: "$(printf hour-08)"
     run: printf '%s\n' dollar > step-dollar.txt

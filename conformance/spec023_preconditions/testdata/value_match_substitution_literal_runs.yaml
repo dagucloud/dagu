@@ -1,0 +1,7 @@
+working_dir: .
+steps:
+  - id: write
+    preconditions:
+      - condition: '$(printf bad > value-match-substitution-ran.txt; printf ready)'
+        expected: '$(printf bad > value-match-substitution-ran.txt; printf ready)'
+    run: printf '%s\n' ran > substitution-literal.txt

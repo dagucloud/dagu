@@ -15,9 +15,8 @@ It does not make every shell syntax form part of the workflow language.
 Define what Dagu does when a field is marked dynamic-evaluated.
 
 In this spec set, dynamic evaluation is available only for `params[].eval`.
-Other fields must opt in through Spec 003 or their owning spec.
-An owning spec may reuse the command-substitution syntax defined here without
-making the field dynamic-evaluated.
+No other field executes this command-substitution syntax as Dagu field
+evaluation.
 
 ## Input
 
@@ -53,8 +52,7 @@ Rules:
 - Dagu executes command substitutions written in backtick form or `$()` form.
 - Dagu inserts command stdout into the evaluated value after trimming surrounding whitespace.
 - Backtick text and `$()` text in fields other than `params[].eval` are not dynamic evaluation.
-- Dagu leaves them unchanged during dynamic evaluation unless an owning spec
-  defines a later command-substitution phase.
+- Dagu leaves them unchanged during dynamic evaluation.
 
 ## Command Substitution Syntax
 
@@ -101,8 +99,7 @@ Rules:
 When dynamic evaluation succeeds, Dagu inserts the evaluated value into the owning field.
 
 Backtick text and `$()` text outside `params[].eval` remain part of the evaluated value.
-A later phase or target runtime may still interpret them.
-Spec 023 defines such a later phase for value-match preconditions.
+A target runtime may still interpret them after Dagu starts that runtime.
 
 ## Errors
 

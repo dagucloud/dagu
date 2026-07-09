@@ -1,7 +1,7 @@
 working_dir: .
 preconditions:
   - condition: "`printf root`"
-    expected: root
+    expected: "`printf root`"
 steps:
   - id: write
     run: printf '%s\n' root > root-backtick.txt

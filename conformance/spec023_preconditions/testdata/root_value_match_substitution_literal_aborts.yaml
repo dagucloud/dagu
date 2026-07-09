@@ -1,7 +1,7 @@
-name: root_substitution_failure
+name: root_substitution_literal
 working_dir: .
 preconditions:
-  - condition: '$(printf "%s\n" root-error >&2; exit 7)'
+  - condition: '$(printf "%s\n" root-error > root-substitution-ran.txt; exit 7)'
     expected: ready
 handler_on:
   init:

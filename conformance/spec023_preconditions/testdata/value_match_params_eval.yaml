@@ -1,0 +1,10 @@
+working_dir: .
+params:
+  - name: readiness
+    eval: $(printf ready)
+steps:
+  - id: write
+    preconditions:
+      - condition: ${params.readiness}
+        expected: ready
+    run: printf '%s\n' params-eval > params-eval-precondition.txt

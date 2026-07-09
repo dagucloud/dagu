@@ -115,7 +115,7 @@ func TestValidatePreconditions(t *testing.T) {
 	}
 }
 
-func TestRuntimeValueMatchCommandSubstitutionUnix(t *testing.T) {
+func TestRuntimeValueMatchPreservesCommandSubstitutionUnix(t *testing.T) {
 	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("fixtures use POSIX shell snippets")
@@ -129,37 +129,42 @@ func TestRuntimeValueMatchCommandSubstitutionUnix(t *testing.T) {
 		setup   func(*harness.Runner)
 	}{
 		{
-			name:    "dag-level backtick substitution matches expected value",
+			name:    "dag-level backtick text matches literally",
 			file:    "root_value_match_backtick.yaml",
 			output:  "root-backtick.txt",
 			content: "root\n",
 		},
 		{
-			name:    "step-level backtick substitution matches expected value",
+			name:    "step-level backtick text matches literally",
 			file:    "step_value_match_backtick.yaml",
 			output:  "step-backtick.txt",
 			content: "step\n",
 		},
 		{
-			name:    "step-level dollar paren substitution matches regex expected value",
+			name:    "step-level dollar paren text matches literally",
 			file:    "step_value_match_dollar.yaml",
 			output:  "step-dollar.txt",
 			content: "dollar\n",
 		},
 		{
-			name:    "dagu references resolve before command substitution",
+			name:    "params eval value can be matched by a precondition",
+			file:    "value_match_params_eval.yaml",
+			output:  "params-eval-precondition.txt",
+			content: "params-eval\n",
+		},
+		{
+			name:    "dagu references resolve before matching",
 			file:    "value_match_resolves_refs_first.yaml",
 			output:  "refs-first.txt",
 			content: "refs\n",
 		},
 		{
-			name:    "step substitution receives step working directory and env",
+			name:    "step value-match expands step env",
 			file:    "value_match_step_context.yaml",
 			output:  "workspace/context-ran.txt",
 			content: "context\n",
 			setup: func(dagu *harness.Runner) {
 				dagu.Mkdir("workspace")
-				dagu.WriteFile("workspace/ready.flag", "")
 			},
 		},
 	}
@@ -207,16 +212,17 @@ func TestRuntimeDAGLevelPreconditionStatusEffectsUnix(t *testing.T) {
 			},
 		},
 		{
-			name:    "value-match substitution error fails before steps",
-			file:    "root_value_match_substitution_failure_fails.yaml",
-			nonZero: true,
+			name:     "value-match substitution text is not executed before DAG abort",
+			file:     "root_value_match_substitution_literal_aborts.yaml",
+			exitCode: new(int),
 			files: map[string]string{
-				"failure-ran.txt": "failure\n",
+				"abort-ran.txt": "abort\n",
 			},
 			absentFiles: []string{
-				"abort-ran.txt",
 				"init-ran.txt",
+				"failure-ran.txt",
 				"main-ran.txt",
+				"root-substitution-ran.txt",
 			},
 		},
 		{
@@ -232,7 +238,7 @@ func TestRuntimeDAGLevelPreconditionStatusEffectsUnix(t *testing.T) {
 			},
 		},
 		{
-			name:     "dag-level substitution receives root working directory and env",
+			name:     "dag-level value-match expands root env",
 			file:     "root_value_match_context.yaml",
 			exitCode: new(int),
 			files: map[string]string{
@@ -365,10 +371,10 @@ func TestRuntimeNegatedPreconditionsUnix(t *testing.T) {
 			absentFile: "negate-command-success.txt",
 		},
 		{
-			name:       "negation does not convert evaluation error into success",
-			file:       "negate_eval_error_fails.yaml",
+			name:       "negation does not convert invalid regex into success",
+			file:       "negate_invalid_regex_fails.yaml",
 			exitCode:   1,
-			absentFile: "negate-eval-error.txt",
+			absentFile: "negate-invalid-regex.txt",
 		},
 	}
 
@@ -458,10 +464,11 @@ func TestRuntimeValueMatchDetailsUnix(t *testing.T) {
 			content:    "ran\n",
 		},
 		{
-			name:       "successful substitution stderr is ignored",
-			file:       "value_match_stderr_ignored.yaml",
-			outputFile: "substitution-stderr-ignored.txt",
+			name:       "command substitution text is matched literally",
+			file:       "value_match_substitution_literal_runs.yaml",
+			outputFile: "substitution-literal.txt",
 			content:    "ran\n",
+			absentFile: "value-match-substitution-ran.txt",
 		},
 		{
 			name:       "literal expected matches one condition line",
@@ -481,8 +488,8 @@ func TestRuntimeValueMatchDetailsUnix(t *testing.T) {
 			content:    "ran\n",
 		},
 		{
-			name:       "step substitution receives managed step env",
-			file:       "step_managed_env_substitution.yaml",
+			name:       "step managed env resolves before matching",
+			file:       "step_managed_env_value_match.yaml",
 			outputFile: "managed-env.txt",
 			content:    "managed-env\n",
 		},
@@ -512,22 +519,22 @@ func TestRuntimePreconditionOutcomesUnix(t *testing.T) {
 	}
 
 	cases := []struct {
-		name       string
-		file       string
-		exitCode   int
-		absentFile string
+		name        string
+		file        string
+		exitCode    int
+		absentFiles []string
 	}{
 		{
-			name:       "value-match mismatch skips step without running action",
-			file:       "value_match_not_met_skips.yaml",
-			exitCode:   0,
-			absentFile: "not-met-ran.txt",
+			name:        "value-match mismatch skips step without running action",
+			file:        "value_match_not_met_skips.yaml",
+			exitCode:    0,
+			absentFiles: []string{"not-met-ran.txt"},
 		},
 		{
-			name:       "value-match substitution failure fails owning step",
-			file:       "value_match_substitution_failure.yaml",
-			exitCode:   1,
-			absentFile: "failure-ran.txt",
+			name:        "value-match substitution text mismatch skips step without executing it",
+			file:        "value_match_substitution_literal_skips.yaml",
+			exitCode:    0,
+			absentFiles: []string{"failure-ran.txt", "step-substitution-ran.txt"},
 		},
 	}
 
@@ -538,7 +545,9 @@ func TestRuntimePreconditionOutcomesUnix(t *testing.T) {
 			dagu := harness.NewRunner(t)
 			result := dagu.Run("start", tc.file)
 			result.ExpectExitCode(tc.exitCode)
-			dagu.ExpectNoFile(tc.absentFile)
+			for _, file := range tc.absentFiles {
+				dagu.ExpectNoFile(file)
+			}
 		})
 	}
 }

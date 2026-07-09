@@ -112,6 +112,7 @@ func TestResolverFieldPolicyBacktickMatrix(t *testing.T) {
 		{name: "step env", field: value.StepEnvField("field"), want: "`printf matrix`"},
 		{name: "container env", field: value.ContainerEnvField("field"), want: "`printf matrix`"},
 		{name: "dynamic params", field: value.DynamicParamEvalField("field"), want: "matrix"},
+		{name: "condition runtime value", field: value.ConditionRuntimeValueField("field"), want: "`printf matrix`"},
 		{name: "template script", field: value.TemplateScriptField("field"), want: "`printf matrix`"},
 		{name: "direct command", field: value.DirectCommandField("field", value.CommandContext{}), want: "`printf matrix`"},
 	} {

@@ -191,17 +191,18 @@ func TestEvalConditions(t *testing.T) {
 	}
 }
 
-func TestEvalConditions_ValueMatchRunsCommandSubstitution(t *testing.T) {
-	if goruntime.GOOS == "windows" {
-		t.Skip("uses POSIX command snippets")
-	}
-
+func TestEvalConditions_ValueMatchPreservesCommandSubstitution(t *testing.T) {
 	ctx := newTestContext()
 	err := runtime.EvalConditions(ctx, []string{"sh"}, []*core.Condition{
-		{Condition: "`printf 100`", Expected: "100"},
-		{Condition: "$(printf 200)", Expected: "200"},
+		{Condition: "`printf 100`", Expected: "`printf 100`"},
+		{Condition: "$(printf 200)", Expected: "$(printf 200)"},
 	})
 	require.NoError(t, err)
+
+	err = runtime.EvalConditions(ctx, []string{"sh"}, []*core.Condition{
+		{Condition: "`printf 100`", Expected: "100"},
+	})
+	require.ErrorIs(t, err, runtime.ErrConditionNotMet)
 }
 
 func TestEvalConditions_ShellWithDuplicateCFlag(t *testing.T) {

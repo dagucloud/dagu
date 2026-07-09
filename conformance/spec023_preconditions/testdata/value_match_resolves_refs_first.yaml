@@ -6,6 +6,6 @@ params:
 steps:
   - id: write
     preconditions:
-      - condition: "$(printf '%s-api' '${params.environment}')"
+      - condition: "${params.environment}-api"
         expected: prod-api
     run: printf '%s\n' refs > refs-first.txt

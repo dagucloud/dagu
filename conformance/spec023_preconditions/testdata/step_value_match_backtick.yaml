@@ -3,5 +3,5 @@ steps:
   - id: write
     preconditions:
       - condition: "`printf step`"
-        expected: step
+        expected: "`printf step`"
     run: printf '%s\n' step > step-backtick.txt

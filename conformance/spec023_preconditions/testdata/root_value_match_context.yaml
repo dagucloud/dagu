@@ -2,7 +2,7 @@ working_dir: rootctx
 env:
   READY_VALUE: root-ready
 preconditions:
-  - condition: '$(test -f ready.flag && printf "%s" "$READY_VALUE")'
+  - condition: "$READY_VALUE"
     expected: root-ready
 steps:
   - id: main

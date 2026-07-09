@@ -132,7 +132,7 @@ func StepShellField(path string) Field { return newField(path, fieldStepShell) }
 // ConditionValueField returns the policy for non-command condition values.
 func ConditionValueField(path string) Field { return newField(path, fieldConditionValue) }
 
-// ConditionRuntimeValueField returns the runtime policy for value-match condition values.
+// ConditionRuntimeValueField returns the runtime policy for value-match condition text.
 func ConditionRuntimeValueField(path string) Field {
 	return newField(path, fieldConditionRuntimeValue)
 }

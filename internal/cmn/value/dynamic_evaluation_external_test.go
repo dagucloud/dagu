@@ -97,6 +97,7 @@ func TestNonDynamicFieldsPreserveCommandSubstitutionText(t *testing.T) {
 		{name: "container env", field: value.ContainerEnvField("steps[0].container.env.OUTSIDE")},
 		{name: "executor config", field: value.ExecutorConfigField("steps[0].with.value")},
 		{name: "condition value", field: value.ConditionValueField("steps[0].preconditions[0].condition")},
+		{name: "condition runtime value", field: value.ConditionRuntimeValueField("steps[0].preconditions[0].condition")},
 		{name: "retry integer", field: value.RetryIntegerField("steps[0].retryPolicy.limit")},
 		{name: "repeat integer", field: value.RepeatIntegerField("steps[0].repeatPolicy.repeat")},
 		{name: "server base path", field: value.ServerBasePathField("config.serverBasePath")},
@@ -114,14 +115,11 @@ func TestNonDynamicFieldsPreserveCommandSubstitutionText(t *testing.T) {
 	}
 }
 
-func TestConditionRuntimeValueFieldRunsCommandSubstitution(t *testing.T) {
+func TestConditionRuntimeValueFieldPreservesCommandSubstitution(t *testing.T) {
 	t.Parallel()
-	if runtime.GOOS == "windows" {
-		t.Skip("uses POSIX command snippets")
-	}
 
 	resolver := value.NewResolver(value.StaticScope{}, value.RuntimeScope{})
 	got, err := resolver.String(context.Background(), "`printf one` and $(printf two)", value.ConditionRuntimeValueField("steps[0].preconditions[0].condition"))
 	require.NoError(t, err)
-	assert.Equal(t, "one and two", got)
+	assert.Equal(t, "`printf one` and $(printf two)", got)
 }
