@@ -343,7 +343,7 @@ environment references.
 | `steps[].env` values | Dagu expands while constructing the step environment scope. | Not allowed. |
 | Selected root or step `container.env` values | Dagu expands while constructing the selected container environment scope. | Not allowed. |
 | `dotenv[]` path strings | Dagu expands before loading dotenv files. | Allowed. |
-| `params[].eval` | Dagu expands before dynamic evaluation runs. | Allowed. |
+| `params[].eval`, `preconditions[].eval`, and `steps[].preconditions[].eval` | Dagu expands before dynamic evaluation runs. | Allowed. |
 | `params[].default`, runtime parameter overrides, `secrets[].key`, and `secrets[].options` | Dagu does not expand unqualified environment syntax. | Not applicable. |
 | `shell`, `shell_args[]`, root `working_dir`, `steps[].working_dir`, `preconditions[].condition`, `steps[].preconditions[].condition`, and `steps[].repeat_policy.condition` | Dagu expands against the current environment scope before the field is used. | Not allowed unless the owning field spec explicitly defines a host-process fallback. |
 | `steps[].run` command form, script form, and array entries | Dagu preserves unqualified environment syntax for the selected shell or script interpreter. | Not allowed during Dagu value resolution. |

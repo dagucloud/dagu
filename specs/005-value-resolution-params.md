@@ -139,12 +139,14 @@ This matrix defines the required `${params}` and `${params.name}` behavior for v
 | `dotenv[]` | Each dotenv path string resolves declared params. |
 | `shell`, `shell_args[]`, `working_dir` | Root shell command, shell args, and working directory resolve declared params. |
 | `preconditions[].condition` | Root precondition condition strings resolve declared params. |
+| `preconditions[].eval` | Root precondition eval strings resolve declared params before dynamic evaluation. |
 | root `container` | Container string form resolves declared params. In object form, `exec`, `image`, `name`, `user`, `working_dir`, `network`, `volumes[]`, `ports[]`, `env` values, `command[]`, and `shell[]` resolve declared params. |
 | `steps[].run` | String-form `run` and each array-form `run` entry resolve declared params. |
 | `steps[].with` | Every nested string value under the step `with` object resolves declared params. |
 | `steps[].working_dir` | Step working directory resolves declared params. |
 | `steps[].env` | Step environment values in map form, array-of-map form, and `KEY=value` list form resolve declared params. |
 | `steps[].preconditions[].condition` | Step precondition condition strings resolve declared params. |
+| `steps[].preconditions[].eval` | Step precondition eval strings resolve declared params before dynamic evaluation. |
 | `steps[].repeat_policy.condition` | Repeat condition strings resolve declared params. |
 | `steps[].parallel` | `variable`, `items[]`, `items[].value`, and `items[].params.*` string values resolve declared params. |
 | `steps[].foreach` | `items`, `key`, value-resolved string fields inside `foreach.steps`, and `collect` values resolve declared params. |

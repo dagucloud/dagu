@@ -565,7 +565,7 @@
           }
         }
       ],
-      "description": "Conditions that must be satisfied before the DAG can run. Can use shell expansions or command substitutions to validate external states."
+      "description": "Conditions that must be satisfied before the DAG can run. Use condition for command checks or literal/value-resolved comparisons, and eval with expected for dynamic command substitutions."
     },
     "params": {
       "oneOf": [
@@ -1836,7 +1836,7 @@
               }
             }
           ],
-          "description": "Conditions that must be met before this step can run. Supports command exit codes, environment variables, and regex matching."
+          "description": "Conditions that must be met before this step can run. Use condition for command checks or literal/value-resolved comparisons, and eval with expected for dynamic command substitutions."
         },
         "signal_on_stop": {
           "type": "string",
@@ -2857,17 +2857,21 @@
     },
     "condition": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "condition": {
           "type": "string",
-          "description": "Command or expression to evaluate. Can include shell commands, environment variables, or command substitutions with backticks."
+          "minLength": 1,
+          "description": "Value to compare when expected is set, or command text to execute when expected is omitted. Dagu-owned references are resolved, but backticks and $() are literal in value-match mode."
         },
-        "command": {
+        "eval": {
           "type": "string",
-          "description": "Deprecated alias for condition. Still accepted for backward compatibility."
+          "minLength": 1,
+          "description": "Dynamic expression evaluated before comparing with expected. Use for command substitutions in value-match preconditions."
         },
         "expected": {
           "type": "string",
+          "minLength": 1,
           "description": "Expected value or pattern to match against the condition result. Supports regex patterns with 're:' prefix (e.g., 're:0[1-9]' for matching numbers 01-09)."
         },
         "negate": {
@@ -2875,7 +2879,17 @@
           "description": "If true, inverts the condition result. The DAG/step will run when the condition does NOT match the expected value."
         }
       },
-      "description": "Defines a condition that must be met before execution. Used in preconditions at both DAG and step levels."
+      "oneOf": [
+        {
+          "required": ["condition"],
+          "not": { "required": ["eval"] }
+        },
+        {
+          "required": ["eval", "expected"],
+          "not": { "required": ["condition"] }
+        }
+      ],
+      "description": "Defines a condition that must be met before execution. Used in preconditions at both DAG and step levels. Object entries must set exactly one of condition or eval; eval is valid only with expected."
     },
     "mailConfig": {
       "type": "object",
