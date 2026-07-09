@@ -202,10 +202,7 @@ func (m *Manager) stopSingleDAGRun(ctx context.Context, dag *core.DAG, dagRunID 
 		// Request cancel for active runs (works for both local and distributed
 		// execution). This creates an abort flag that the runner or coordinator
 		// can detect on heartbeat.
-		if err := requestAbort(); err != nil {
-			return err
-		}
-		return nil
+		return requestAbort()
 	}
 
 	// If we couldn't find the attempt and the process isn't running locally, nothing to do
