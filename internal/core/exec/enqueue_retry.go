@@ -48,7 +48,7 @@ func EnqueueRetry(
 	dagRun := status.DAGRun()
 	originalStatus, err := retryStatusSnapshot(ctx, dagRunStore, dagRun)
 	if err != nil {
-		return fmt.Errorf("persist queued retry status: %w", err)
+		return fmt.Errorf("read retry status snapshot: %w", err)
 	}
 
 	updatedStatus, swapped, err := dagRunStore.CompareAndSwapLatestAttemptStatus(
