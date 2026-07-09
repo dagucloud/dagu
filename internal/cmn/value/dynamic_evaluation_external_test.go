@@ -123,3 +123,28 @@ func TestConditionRuntimeValueFieldPreservesCommandSubstitution(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "`printf one` and $(printf two)", got)
 }
+
+func TestConditionEvalFieldRunsCommandSubstitution(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("uses POSIX command snippets")
+	}
+
+	resolver := value.NewResolver(value.StaticScope{}, value.RuntimeScope{})
+	got, err := resolver.String(context.Background(), "`printf one` and $(printf two)", value.ConditionEvalField("steps[0].preconditions[0].eval"))
+	require.NoError(t, err)
+	assert.Equal(t, "one and two", got)
+}
+
+func TestResolverWithoutCommandSubstitutionPreservesDynamicEvalCommands(t *testing.T) {
+	t.Parallel()
+
+	resolver := value.NewResolver(
+		value.StaticScope{},
+		value.RuntimeScope{},
+		value.WithoutCommandSubstitution(),
+	)
+	got, err := resolver.String(context.Background(), "`printf one` and $(printf two)", value.ConditionEvalField("steps[0].preconditions[0].eval"))
+	require.NoError(t, err)
+	assert.Equal(t, "`printf one` and $(printf two)", got)
+}

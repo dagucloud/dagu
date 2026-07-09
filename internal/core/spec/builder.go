@@ -174,6 +174,7 @@ func parsePreconditionEntry(_ BuildContext, precondition any) ([]*core.Condition
 	case map[string]any:
 		var ret core.Condition
 		hasCondition := false
+		hasEval := false
 		hasExpected := false
 		for key, vv := range v {
 			switch strings.ToLower(key) {
@@ -184,6 +185,14 @@ func parsePreconditionEntry(_ BuildContext, precondition any) ([]*core.Condition
 				}
 				ret.Condition = val
 				hasCondition = true
+
+			case "eval":
+				val, ok := vv.(string)
+				if !ok || strings.TrimSpace(val) == "" {
+					return nil, core.NewValidationError("preconditions", v, fmt.Errorf("eval must be a non-empty string: %w", ErrPreconditionValueMustBeString))
+				}
+				ret.Eval = val
+				hasEval = true
 
 			case "expected":
 				val, ok := vv.(string)
@@ -214,8 +223,14 @@ func parsePreconditionEntry(_ BuildContext, precondition any) ([]*core.Condition
 			}
 		}
 
-		if !hasCondition {
-			return nil, core.NewValidationError("preconditions", v, fmt.Errorf("condition is required"))
+		if hasCondition && hasEval {
+			return nil, core.NewValidationError("preconditions", v, fmt.Errorf("only one of condition or eval is allowed"))
+		}
+		if !hasCondition && !hasEval {
+			return nil, core.NewValidationError("preconditions", v, fmt.Errorf("condition or eval is required"))
+		}
+		if hasEval && !hasExpected {
+			return nil, core.NewValidationError("preconditions", v, fmt.Errorf("expected is required when eval is set"))
 		}
 		if hasExpected && strings.TrimSpace(ret.Expected) == "" {
 			return nil, core.NewValidationError("preconditions", v, fmt.Errorf("expected is required when set"))

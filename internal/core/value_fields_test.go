@@ -22,6 +22,7 @@ func TestReferenceFieldsEmitsValidationPathSet(t *testing.T) {
 		WorkingDir: "${consts.workdir}",
 		Preconditions: []*core.Condition{
 			{Condition: "${env.READY}"},
+			{Eval: "${params.root_eval}", Expected: "ready"},
 		},
 		Container: &core.Container{
 			Exec:       "${consts.exec}",
@@ -60,6 +61,7 @@ func TestReferenceFieldsEmitsValidationPathSet(t *testing.T) {
 				Env: []string{"STEP=${env.STEP}"},
 				Preconditions: []*core.Condition{
 					{Condition: "${env.STEP_READY}"},
+					{Eval: "${params.step_eval}", Expected: "ready"},
 				},
 				RetryPolicy: core.RetryPolicy{
 					LimitStr:       "${consts.retry_limit}",
@@ -163,6 +165,7 @@ func TestReferenceFieldsEmitsValidationPathSet(t *testing.T) {
 		"shell_args[0]",
 		"working_dir",
 		"preconditions[0].condition",
+		"preconditions[1].eval",
 		"container.exec",
 		"container.image",
 		"container.name",
@@ -183,6 +186,7 @@ func TestReferenceFieldsEmitsValidationPathSet(t *testing.T) {
 		"steps[0].working_dir",
 		"steps[0].env[0]",
 		"steps[0].preconditions[0].condition",
+		"steps[0].preconditions[1].eval",
 		"steps[0].retry_policy.limit",
 		"steps[0].retry_policy.interval_sec",
 		"steps[0].repeat_policy.limit",

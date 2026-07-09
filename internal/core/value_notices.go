@@ -81,6 +81,7 @@ func ReportValueReferenceNotices(dag *DAG, sink cmnvalue.ValueReferenceNoticeSin
 				suppressStepOutputReferences: true,
 				suppressForeachReferences:    foreachItemScopeField,
 			}),
+			cmnvalue.WithoutCommandSubstitution(),
 		)
 		_, _ = resolver.String(context.Background(), field.Value, field.Field)
 	}
@@ -207,6 +208,7 @@ func reportEnvValueReferenceNotices(
 			staticScope,
 			runtimeScope,
 			cmnvalue.WithValueReferenceNotices(fieldSink),
+			cmnvalue.WithoutCommandSubstitution(),
 		)
 		resolved, err := resolver.String(context.Background(), value, fieldForPath(fieldPath))
 		if err != nil {

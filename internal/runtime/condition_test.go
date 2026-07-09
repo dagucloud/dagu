@@ -205,6 +205,35 @@ func TestEvalConditions_ValueMatchPreservesCommandSubstitution(t *testing.T) {
 	require.ErrorIs(t, err, runtime.ErrConditionNotMet)
 }
 
+func TestEvalConditions_ValueMatchEvalRunsCommandSubstitution(t *testing.T) {
+	ctx := newTestContext()
+	err := runtime.EvalConditions(ctx, []string{"sh"}, []*core.Condition{
+		{Eval: "$(printf 100)", Expected: "100"},
+		{Eval: "`printf 200`", Expected: "200"},
+	})
+	require.NoError(t, err)
+
+	err = runtime.EvalConditions(ctx, []string{"sh"}, []*core.Condition{
+		{Eval: "$(printf 100)", Expected: "101"},
+	})
+	require.ErrorIs(t, err, runtime.ErrConditionNotMet)
+}
+
+func TestEvalConditions_ValueMatchEvalUsesWorkingDir(t *testing.T) {
+	ctx := newTestContext()
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ready.flag"), nil, 0o644))
+
+	env := runtime.GetEnv(ctx)
+	env.WorkingDir = dir
+	ctx = runtime.WithEnv(ctx, env)
+
+	err := runtime.EvalConditions(ctx, []string{"sh"}, []*core.Condition{
+		{Eval: "$(test -f ready.flag && printf ready)", Expected: "ready"},
+	})
+	require.NoError(t, err)
+}
+
 func TestEvalConditions_ShellWithDuplicateCFlag(t *testing.T) {
 	ctx := newTestContext()
 	// Shell already includes -c; should not get doubled

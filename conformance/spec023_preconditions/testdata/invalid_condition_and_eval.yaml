@@ -1,0 +1,8 @@
+working_dir: .
+preconditions:
+  - condition: ready
+    eval: $(printf ready)
+    expected: ready
+steps:
+  - id: main
+    run: "true"

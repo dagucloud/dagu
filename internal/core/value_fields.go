@@ -217,6 +217,8 @@ func (w *referenceFieldWalker) walkConditions(path string, conditions []*Conditi
 		}
 		fieldPath := fmt.Sprintf("%s[%d].condition", path, i)
 		w.add(base.withPathValue(fieldPath, condition.Condition).withField(cmnvalue.ConditionValueField(fieldPath)))
+		evalPath := fmt.Sprintf("%s[%d].eval", path, i)
+		w.add(base.withPathValue(evalPath, condition.Eval).withField(cmnvalue.ConditionEvalField(evalPath)))
 	}
 }
 

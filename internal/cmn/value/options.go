@@ -79,6 +79,12 @@ func withoutSubstitute() option {
 	}
 }
 
+func withoutShellCommandSubstitution() option {
+	return func(opts *options) {
+		opts.SubstituteShellCommand = false
+	}
+}
+
 func withShellCommandSubstitution() option {
 	return func(opts *options) {
 		opts.SubstituteShellCommand = true

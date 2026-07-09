@@ -1,0 +1,7 @@
+working_dir: .
+preconditions:
+  - eval: true
+    expected: ready
+steps:
+  - id: main
+    run: "true"

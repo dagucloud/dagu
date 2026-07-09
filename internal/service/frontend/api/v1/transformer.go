@@ -204,12 +204,18 @@ func toStep(obj core.Step) api.Step {
 }
 
 func toPrecondition(obj *core.Condition) api.Condition {
-	return api.Condition{
-		Condition: obj.Condition,
-		Expected:  ptrOf(obj.Expected),
-		Negate:    ptrOf(obj.Negate),
-		Error:     ptrOf(obj.GetErrorMessage()),
+	condition := api.Condition{
+		Expected: ptrOf(obj.Expected),
+		Negate:   ptrOf(obj.Negate),
+		Error:    ptrOf(obj.GetErrorMessage()),
 	}
+	if obj.Condition != "" {
+		condition.Condition = ptrOf(obj.Condition)
+	}
+	if obj.Eval != "" {
+		condition.Eval = ptrOf(obj.Eval)
+	}
+	return condition
 }
 
 func toTriggerType(t core.TriggerType) *api.TriggerType {

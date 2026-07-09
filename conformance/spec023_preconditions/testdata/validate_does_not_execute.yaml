@@ -4,4 +4,6 @@ steps:
     preconditions:
       - condition: "$(printf bad > validate-substitution-ran.txt; printf ok)"
         expected: ok
+      - eval: "$(printf bad > validate-eval-ran.txt; printf ok)"
+        expected: ok
     run: printf '%s\n' bad > validate-runtime-ran.txt

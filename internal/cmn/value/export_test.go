@@ -40,6 +40,7 @@ func SemanticFieldsForTest(path string) []SemanticFieldForTest {
 		{Name: "StepShell", Field: StepShellField(path)},
 		{Name: "ConditionValue", Field: ConditionValueField(path)},
 		{Name: "ConditionRuntimeValue", Field: ConditionRuntimeValueField(path)},
+		{Name: "ConditionEval", Field: ConditionEvalField(path)},
 		{Name: "ConditionCommand", Field: ConditionCommandField(path, command)},
 		{Name: "DirectCommand", Field: DirectCommandField(path, command)},
 		{Name: "ShellCommand", Field: ShellCommandField(path, command)},

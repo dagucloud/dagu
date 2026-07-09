@@ -14,9 +14,10 @@ import (
 
 // Resolver resolves workflow values for semantic fields.
 type Resolver struct {
-	static  StaticScope
-	runtime RuntimeScope
-	notices ValueReferenceNoticeSink
+	static                     StaticScope
+	runtime                    RuntimeScope
+	notices                    ValueReferenceNoticeSink
+	disableCommandSubstitution bool
 }
 
 // ResolverOption configures a Resolver.
@@ -35,6 +36,13 @@ func NewResolver(static StaticScope, runtime RuntimeScope, opts ...ResolverOptio
 func WithValueReferenceNotices(sink ValueReferenceNoticeSink) ResolverOption {
 	return func(r *Resolver) {
 		r.notices = sink
+	}
+}
+
+// WithoutCommandSubstitution prevents resolver policies from executing command substitutions.
+func WithoutCommandSubstitution() ResolverOption {
+	return func(r *Resolver) {
+		r.disableCommandSubstitution = true
 	}
 }
 
@@ -138,6 +146,9 @@ func (r Resolver) optionsFor(policy resolverPolicy) []option {
 		opts = append(opts, withStepMap(r.runtime.Steps))
 	}
 	opts = append(opts, policy.options...)
+	if r.disableCommandSubstitution {
+		opts = append(opts, withoutSubstitute(), withoutShellCommandSubstitution())
+	}
 	return opts
 }
 
@@ -186,6 +197,8 @@ func policyForField(field Field) resolverPolicy {
 		return resolverPolicy{strict: true, options: []option{withoutSubstitute()}}
 	case fieldConditionRuntimeValue:
 		return resolverPolicy{strict: true, options: []option{withoutSubstitute()}}
+	case fieldConditionEval:
+		return resolverPolicy{strict: true, envVariables: envVariablesUser, options: []option{withOSExpansion(), withShellCommandSubstitution()}}
 	case fieldDAGEnv:
 		return resolverPolicy{strict: true, envVariables: envVariablesUser, options: []option{withOSExpansion(), withoutSubstitute()}}
 	case fieldRuntimeDAGEnv:

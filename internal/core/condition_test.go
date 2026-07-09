@@ -41,6 +41,14 @@ func TestCondition_MarshalJSON(t *testing.T) {
 			expected: `{"condition":"test -f file.txt","expected":"true","error":"file not found"}`,
 		},
 		{
+			name: "WithEval",
+			condition: &core.Condition{
+				Eval:     "$(printf ready)",
+				Expected: "ready",
+			},
+			expected: `{"eval":"$(printf ready)","expected":"ready"}`,
+		},
+		{
 			name:      "EmptyFields",
 			condition: &core.Condition{},
 			expected:  `{}`,
@@ -87,6 +95,14 @@ func TestCondition_UnmarshalJSON(t *testing.T) {
 			}(),
 		},
 		{
+			name: "WithEval",
+			json: `{"eval":"$(printf ready)","expected":"ready"}`,
+			expected: &core.Condition{
+				Eval:     "$(printf ready)",
+				Expected: "ready",
+			},
+		},
+		{
 			name:     "EmptyFields",
 			json:     `{}`,
 			expected: &core.Condition{},
@@ -102,6 +118,7 @@ func TestCondition_UnmarshalJSON(t *testing.T) {
 			require.NoError(t, err)
 
 			assert.Equal(t, tt.expected.Condition, condition.Condition)
+			assert.Equal(t, tt.expected.Eval, condition.Eval)
 			assert.Equal(t, tt.expected.Expected, condition.Expected)
 			assert.Equal(t, tt.expected.GetErrorMessage(), condition.GetErrorMessage())
 		})
@@ -125,9 +142,33 @@ func TestCondition_Validate(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "EmptyCondition",
+			name: "MissingValueSource",
 			condition: &core.Condition{
 				Expected: "true",
+			},
+			wantErr: true,
+		},
+		{
+			name: "EvalValueMatch",
+			condition: &core.Condition{
+				Eval:     "$(printf ready)",
+				Expected: "ready",
+			},
+			wantErr: false,
+		},
+		{
+			name: "EvalWithoutExpected",
+			condition: &core.Condition{
+				Eval: "$(printf ready)",
+			},
+			wantErr: true,
+		},
+		{
+			name: "ConditionAndEval",
+			condition: &core.Condition{
+				Condition: "ready",
+				Eval:      "$(printf ready)",
+				Expected:  "ready",
 			},
 			wantErr: true,
 		},

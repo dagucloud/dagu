@@ -1,0 +1,7 @@
+working_dir: .
+preconditions:
+  - eval: $(printf ready)
+    expected: ready
+steps:
+  - id: validate_runtime
+    run: printf '%s\n' runtime > validate-runtime-ran.txt

@@ -1,0 +1,8 @@
+working_dir: .
+steps:
+  - id: write
+    working_dir: workspace
+    preconditions:
+      - eval: $(test -f ready.flag && printf ready)
+        expected: ready
+    run: printf '%s\n' eval > eval-precondition.txt

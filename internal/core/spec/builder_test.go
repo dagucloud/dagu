@@ -1246,6 +1246,24 @@ steps:
 		assert.Len(t, th.Steps[0].Preconditions, 1)
 		assert.Equal(t, &core.Condition{Condition: "test -f file.txt", Expected: "true"}, th.Steps[0].Preconditions[0])
 	})
+	t.Run("PreconditionEval", func(t *testing.T) {
+		t.Parallel()
+
+		data := []byte(`
+steps:
+  - name: "eval_gate"
+    run: "echo eval"
+    preconditions:
+      - eval: "$(printf ready)"
+        expected: "ready"
+`)
+		dag, err := spec.LoadYAML(context.Background(), data)
+		require.NoError(t, err)
+		th := DAG{t: t, DAG: dag}
+		assert.Len(t, th.Steps, 1)
+		assert.Len(t, th.Steps[0].Preconditions, 1)
+		assert.Equal(t, &core.Condition{Eval: "$(printf ready)", Expected: "ready"}, th.Steps[0].Preconditions[0])
+	})
 	t.Run("StepPreconditionsWithNegate", func(t *testing.T) {
 		t.Parallel()
 

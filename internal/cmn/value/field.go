@@ -35,6 +35,7 @@ const (
 	fieldStepShell
 	fieldConditionValue
 	fieldConditionRuntimeValue
+	fieldConditionEval
 	fieldConditionCommand
 	fieldDirectCommand
 	fieldShellCommand
@@ -135,6 +136,11 @@ func ConditionValueField(path string) Field { return newField(path, fieldConditi
 // ConditionRuntimeValueField returns the runtime policy for value-match condition text.
 func ConditionRuntimeValueField(path string) Field {
 	return newField(path, fieldConditionRuntimeValue)
+}
+
+// ConditionEvalField returns the runtime policy for dynamic precondition values.
+func ConditionEvalField(path string) Field {
+	return newField(path, fieldConditionEval)
 }
 
 // ConditionCommandField returns the policy for command condition values.

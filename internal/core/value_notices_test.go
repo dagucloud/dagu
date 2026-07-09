@@ -4,6 +4,9 @@
 package core_test
 
 import (
+	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 
 	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
@@ -35,4 +38,28 @@ func TestReportValueReferenceNoticesForBuiltInRunContext(t *testing.T) {
 	assert.Equal(t, "steps[0].run", notices[1].FieldPath)
 	assert.Equal(t, "${context.paths.context}", notices[1].Token)
 	assert.Equal(t, cmnvalue.ValueReferenceReasonUnknownContextField, notices[1].Reason)
+}
+
+func TestReportValueReferenceNoticesDoesNotRunPreconditionEval(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("uses POSIX command snippets")
+	}
+
+	marker := filepath.Join(t.TempDir(), "notice-ran.txt")
+	dag := &core.DAG{
+		Steps: []core.Step{{
+			Name: "check",
+			Preconditions: []*core.Condition{{
+				Eval:     "$(printf bad > '" + marker + "'; printf ok)",
+				Expected: "ok",
+			}},
+		}},
+	}
+
+	var collector cmnvalue.ValueReferenceNoticeCollector
+	core.ReportValueReferenceNotices(dag, &collector)
+
+	_, err := os.Stat(marker)
+	require.True(t, os.IsNotExist(err), "expected marker to be absent")
 }

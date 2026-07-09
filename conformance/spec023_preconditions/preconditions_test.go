@@ -17,6 +17,7 @@ func TestValidatePreconditions(t *testing.T) {
 		"valid_string_shortcut.yaml",
 		"valid_empty_array.yaml",
 		"valid_missing_command_check.yaml",
+		"valid_eval_value_match.yaml",
 	}
 	for _, file := range validCases {
 		t.Run(file, func(t *testing.T) {
@@ -52,9 +53,14 @@ func TestValidatePreconditions(t *testing.T) {
 			stderrParts: []string{"preconditions"},
 		},
 		{
-			name:        "missing condition",
+			name:        "missing condition and eval",
 			file:        "invalid_missing_condition.yaml",
 			stderrParts: []string{"preconditions", "condition"},
+		},
+		{
+			name:        "condition and eval",
+			file:        "invalid_condition_and_eval.yaml",
+			stderrParts: []string{"preconditions", "condition", "eval"},
 		},
 		{
 			name:        "empty condition",
@@ -65,6 +71,21 @@ func TestValidatePreconditions(t *testing.T) {
 			name:        "non-string condition",
 			file:        "invalid_condition_non_string.yaml",
 			stderrParts: []string{"preconditions", "condition"},
+		},
+		{
+			name:        "empty eval",
+			file:        "invalid_eval_empty.yaml",
+			stderrParts: []string{"preconditions", "eval"},
+		},
+		{
+			name:        "non-string eval",
+			file:        "invalid_eval_non_string.yaml",
+			stderrParts: []string{"preconditions", "eval"},
+		},
+		{
+			name:        "eval without expected",
+			file:        "invalid_eval_without_expected.yaml",
+			stderrParts: []string{"preconditions", "eval", "expected"},
 		},
 		{
 			name:        "non-string expected",
@@ -151,6 +172,16 @@ func TestRuntimeValueMatchPreservesCommandSubstitutionUnix(t *testing.T) {
 			file:    "value_match_params_eval.yaml",
 			output:  "params-eval-precondition.txt",
 			content: "params-eval\n",
+		},
+		{
+			name:    "precondition eval value can be matched directly",
+			file:    "value_match_eval.yaml",
+			output:  "workspace/eval-precondition.txt",
+			content: "eval\n",
+			setup: func(dagu *harness.Runner) {
+				dagu.Mkdir("workspace")
+				dagu.WriteFile("workspace/ready.flag", "")
+			},
 		},
 		{
 			name:    "dagu references resolve before matching",
@@ -563,5 +594,6 @@ func TestValidateDoesNotExecutePreconditionCommandSubstitutionUnix(t *testing.T)
 	result.ExpectExitCode(0)
 	result.ExpectStdout("")
 	dagu.ExpectNoFile("validate-substitution-ran.txt")
+	dagu.ExpectNoFile("validate-eval-ran.txt")
 	dagu.ExpectNoFile("validate-runtime-ran.txt")
 }

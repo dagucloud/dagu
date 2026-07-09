@@ -48,6 +48,8 @@ shell_args:
 working_dir: /tmp/${params.environment}
 preconditions:
   - condition: ready-${params.environment}
+  - eval: ready-${params.environment}
+    expected: ready-prod
 container:
   image: repo/${params.environment}:latest
   env:
@@ -60,6 +62,8 @@ steps:
       - STEP_VALUE=${params.environment}
     preconditions:
       - condition: check-${params.environment}
+      - eval: check-${params.environment}
+        expected: check-prod
     retry_policy:
       limit: ${params.retry_limit}
       interval_sec: ${params.retry_interval}
@@ -156,6 +160,7 @@ steps:
 	assert.Equal(t, "prod", resolved["shell_args[1]"])
 	assert.Equal(t, "/tmp/prod", resolved["working_dir"])
 	assert.Equal(t, "ready-prod", resolved["preconditions[0].condition"])
+	assert.Equal(t, "ready-prod", resolved["preconditions[1].eval"])
 	assert.Equal(t, "repo/prod:latest", resolved["container.image"])
 	assert.Equal(t, "prod", resolved["container.env[0]"])
 
@@ -163,6 +168,7 @@ steps:
 	assert.Equal(t, "/work/prod", resolved["steps[0].working_dir"])
 	assert.Equal(t, "prod", resolved["steps[0].env[0]"])
 	assert.Equal(t, "check-prod", resolved["steps[0].preconditions[0].condition"])
+	assert.Equal(t, "check-prod", resolved["steps[0].preconditions[1].eval"])
 	assert.Equal(t, "3", resolved["steps[0].retry_policy.limit"])
 	assert.Equal(t, "5", resolved["steps[0].retry_policy.interval_sec"])
 	assert.Equal(t, "keep-going", resolved["steps[0].repeat_policy.condition"])

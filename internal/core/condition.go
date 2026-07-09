@@ -6,17 +6,16 @@ package core
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 )
 
-// Condition contains a precondition expression and optional expected value.
-// With Expected empty, Condition is evaluated as a command check.
-// With Expected set, Condition is evaluated as a runtime value and compared
-// against Expected.
+// Condition describes a precondition command check or value match.
 type Condition struct {
 	mu sync.RWMutex
 
 	Condition    string // Condition to evaluate
+	Eval         string // Dynamic value to evaluate
 	Expected     string // Expected value
 	Negate       bool   // Negate the condition result (run when condition does NOT match)
 	errorMessage string // Error message if the condition is not met
@@ -24,6 +23,7 @@ type Condition struct {
 
 type conditionJSON struct {
 	Condition    string `json:"condition,omitempty"`
+	Eval         string `json:"eval,omitempty"`
 	Expected     string `json:"expected,omitempty"`
 	Negate       bool   `json:"negate,omitempty"`
 	ErrorMessage string `json:"error,omitempty"`
@@ -40,6 +40,7 @@ func (c *Condition) UnmarshalJSON(data []byte) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.Condition = decoded.Condition
+	c.Eval = decoded.Eval
 	c.Expected = decoded.Expected
 	c.Negate = decoded.Negate
 	c.errorMessage = decoded.ErrorMessage
@@ -47,8 +48,15 @@ func (c *Condition) UnmarshalJSON(data []byte) error {
 }
 
 func (c *Condition) Validate() error {
-	if c.Condition == "" {
-		return fmt.Errorf("condition is required")
+	hasCondition := strings.TrimSpace(c.Condition) != ""
+	hasEval := strings.TrimSpace(c.Eval) != ""
+	switch {
+	case hasCondition && hasEval:
+		return fmt.Errorf("only one of condition or eval is allowed")
+	case !hasCondition && !hasEval:
+		return fmt.Errorf("condition or eval is required")
+	case hasEval && strings.TrimSpace(c.Expected) == "":
+		return fmt.Errorf("expected is required when eval is set")
 	}
 	return nil
 }
@@ -70,6 +78,7 @@ func (c *Condition) snapshot() conditionJSON {
 	defer c.mu.RUnlock()
 	return conditionJSON{
 		Condition:    c.Condition,
+		Eval:         c.Eval,
 		Expected:     c.Expected,
 		Negate:       c.Negate,
 		ErrorMessage: c.errorMessage,
