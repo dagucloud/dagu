@@ -457,6 +457,9 @@ func (m *NotificationMonitor) advanceSourceCursorToHead(ctx context.Context) {
 	if ctx.Err() != nil {
 		return
 	}
+	if len(destinationSet(m.transport.NotificationDestinations())) > 0 {
+		return
+	}
 
 	m.stateMu.Lock()
 	defer m.stateMu.Unlock()

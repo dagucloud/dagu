@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"sync"
 	"testing"
@@ -32,6 +33,13 @@ type monitorEventStore struct {
 
 var _ eventstore.Store = (*monitorEventStore)(nil)
 var _ eventstore.NotificationReader = (*monitorEventStore)(nil)
+
+func monitorEventuallyTimeout(base time.Duration) time.Duration {
+	if runtime.GOOS == "windows" {
+		return base * 3
+	}
+	return base
+}
 
 func (s *monitorEventStore) Emit(_ context.Context, event *eventstore.Event) error {
 	if event == nil {
@@ -155,13 +163,13 @@ func TestNotificationMonitorWithoutDestinationsAdvancesCursorWithoutReadingEvent
 	require.Eventually(t, func() bool {
 		headCalls, _ := store.stats()
 		return headCalls > 0
-	}, time.Second, 10*time.Millisecond)
+	}, monitorEventuallyTimeout(time.Second), 10*time.Millisecond)
 
 	require.NoError(t, store.Emit(context.Background(), newMonitorDAGRunEvent("old-run")))
 
 	require.Eventually(t, func() bool {
 		return store.lastHead() >= 1
-	}, time.Second, 10*time.Millisecond)
+	}, monitorEventuallyTimeout(time.Second), 10*time.Millisecond)
 }
 
 func TestNotificationMonitorDeliversOnlyFutureEventsAfterDestinationIsAdded(t *testing.T) {
@@ -195,12 +203,12 @@ func TestNotificationMonitorDeliversOnlyFutureEventsAfterDestinationIsAdded(t *t
 	require.Eventually(t, func() bool {
 		headCalls, _ := store.stats()
 		return headCalls > 0
-	}, time.Second, 10*time.Millisecond)
+	}, monitorEventuallyTimeout(time.Second), 10*time.Millisecond)
 
 	require.NoError(t, store.Emit(context.Background(), newMonitorDAGRunEvent("old-run")))
 	require.Eventually(t, func() bool {
 		return store.lastHead() >= 1
-	}, time.Second, 10*time.Millisecond)
+	}, monitorEventuallyTimeout(time.Second), 10*time.Millisecond)
 
 	transport.setDestinations([]string{"dest-1"})
 	newEvent := newMonitorDAGRunEvent("new-run")
@@ -211,7 +219,7 @@ func TestNotificationMonitorDeliversOnlyFutureEventsAfterDestinationIsAdded(t *t
 	require.Eventually(t, func() bool {
 		return slices.Equal(transport.deliveredNames(), []string{"new-run"}) &&
 			monitor.IsDelivered("dest-1", newStatus)
-	}, time.Second, 10*time.Millisecond)
+	}, monitorEventuallyTimeout(time.Second), 10*time.Millisecond)
 
 	stopMonitor()
 	stopped = true
@@ -262,7 +270,7 @@ func TestNotificationMonitorDoesNotDeliverEventsReadAfterShutdown(t *testing.T) 
 	require.Eventually(t, func() bool {
 		headCalls, _ := store.stats()
 		return headCalls > 0
-	}, time.Second, 10*time.Millisecond)
+	}, monitorEventuallyTimeout(time.Second), 10*time.Millisecond)
 
 	require.NoError(t, store.Emit(context.Background(), newMonitorDAGRunEvent("cancelled-run")))
 
@@ -273,7 +281,7 @@ func TestNotificationMonitorDoesNotDeliverEventsReadAfterShutdown(t *testing.T) 
 		default:
 			return false
 		}
-	}, time.Second, 10*time.Millisecond)
+	}, monitorEventuallyTimeout(time.Second), 10*time.Millisecond)
 	require.Empty(t, transport.deliveredNames())
 }
 
