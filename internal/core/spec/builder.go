@@ -189,7 +189,7 @@ func parsePreconditionEntry(_ BuildContext, precondition any) ([]*core.Condition
 			case "eval":
 				val, ok := vv.(string)
 				if !ok || strings.TrimSpace(val) == "" {
-					return nil, core.NewValidationError("preconditions", v, fmt.Errorf("eval must be a non-empty string: %w", ErrPreconditionValueMustBeString))
+					return nil, core.NewValidationError("preconditions", vv, fmt.Errorf("eval must be a non-empty string: %w", ErrPreconditionValueMustBeString))
 				}
 				ret.Eval = val
 				hasEval = true

@@ -193,9 +193,7 @@ func policyForField(field Field) resolverPolicy {
 		return resolverPolicy{strict: true, options: []option{withoutSubstitute()}}
 	case fieldWorkflowObject:
 		return workflowValuePolicy()
-	case fieldConditionValue:
-		return resolverPolicy{strict: true, options: []option{withoutSubstitute()}}
-	case fieldConditionRuntimeValue:
+	case fieldConditionValue, fieldConditionRuntimeValue:
 		return resolverPolicy{strict: true, options: []option{withoutSubstitute()}}
 	case fieldConditionEval:
 		return resolverPolicy{strict: true, envVariables: envVariablesUser, options: []option{withOSExpansion(), withShellCommandSubstitution()}}

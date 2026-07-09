@@ -12045,6 +12045,10 @@ components:
     Condition:
       type: object
       description: "Precondition that must be satisfied before running a step or DAG-run"
+      not:
+        required:
+          - condition
+          - eval
       properties:
         condition:
           type: string
