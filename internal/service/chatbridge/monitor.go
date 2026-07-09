@@ -400,7 +400,7 @@ func (m *NotificationMonitor) pollSource(ctx context.Context) {
 	m.stateMu.Unlock()
 
 	destinations := m.transport.NotificationDestinations()
-	if len(destinationSet(destinations)) == 0 {
+	if !hasDestinations(destinations) {
 		m.advanceSourceCursorToHead(ctx)
 		return
 	}
@@ -457,7 +457,7 @@ func (m *NotificationMonitor) advanceSourceCursorToHead(ctx context.Context) {
 	if ctx.Err() != nil {
 		return
 	}
-	if len(destinationSet(m.transport.NotificationDestinations())) > 0 {
+	if hasDestinations(m.transport.NotificationDestinations()) {
 		return
 	}
 
@@ -1354,6 +1354,15 @@ func destinationSet(destinations []string) map[string]struct{} {
 		allowed[destination] = struct{}{}
 	}
 	return allowed
+}
+
+func hasDestinations(destinations []string) bool {
+	for _, destination := range destinations {
+		if destination != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func routedDestinationsForEvents(
