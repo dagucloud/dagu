@@ -71,6 +71,71 @@ func TestManager(t *testing.T) {
 
 		dag.AssertCurrentStatus(t, core.NotStarted)
 	})
+	t.Run("StopViaSocketRequestsCancel", func(t *testing.T) {
+		dag := th.DAG(t, `steps:
+  - name: "1"
+    run: "exit 0"
+`)
+		ctx := th.Context
+		dagRunID := uuid.Must(uuid.NewV7()).String()
+		attempt, err := th.DAGRunStore.CreateAttempt(ctx, dag.DAG, time.Now(), dagRunID, exec.NewDAGRunAttemptOptions{})
+		require.NoError(t, err)
+		require.NoError(t, attempt.Open(ctx))
+		require.NoError(t, attempt.Write(ctx, testNewStatus(dag.DAG, dagRunID, core.Running, core.NodeRunning)))
+		require.NoError(t, attempt.Close(ctx))
+
+		proc, err := th.ProcStore.Acquire(ctx, dag.ProcGroup(), exec.ProcMeta{
+			StartedAt:    time.Now().Unix(),
+			Name:         dag.Name,
+			DAGRunID:     dagRunID,
+			AttemptID:    attempt.ID(),
+			RootName:     dag.Name,
+			RootDAGRunID: dagRunID,
+		})
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			_ = proc.Stop(ctx)
+		})
+
+		stopRequested := make(chan struct{}, 1)
+		socketServer, err := sock.NewServer(
+			dag.SockAddr(dagRunID),
+			func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodPost || r.URL.Path != "/stop" {
+					w.WriteHeader(http.StatusNotFound)
+					return
+				}
+				select {
+				case stopRequested <- struct{}{}:
+				default:
+				}
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte("OK"))
+			},
+		)
+		require.NoError(t, err)
+
+		listen := make(chan error, 1)
+		go func() {
+			_ = socketServer.Serve(ctx, listen)
+			_ = socketServer.Shutdown(ctx)
+		}()
+		require.NoError(t, <-listen)
+		t.Cleanup(func() {
+			_ = socketServer.Shutdown(ctx)
+		})
+
+		require.NoError(t, th.DAGRunMgr.Stop(ctx, dag.DAG, dagRunID))
+
+		select {
+		case <-stopRequested:
+		case <-time.After(5 * time.Second):
+			require.FailNow(t, "socket stop request was not received")
+		}
+		aborting, err := attempt.IsAborting(ctx)
+		require.NoError(t, err)
+		require.True(t, aborting)
+	})
 	t.Run("UpdateStatus", func(t *testing.T) {
 		dag := th.DAG(t, `steps:
   - name: "1"
