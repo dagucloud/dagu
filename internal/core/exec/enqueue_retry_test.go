@@ -51,7 +51,6 @@ func TestEnqueueRetry(t *testing.T) {
 				AttemptID:      "att-1",
 				Status:         core.Failed,
 				AutoRetryCount: 2,
-				ProfileName:    "old-profile",
 			},
 			store: &stubDAGRunStore{
 				status: &exec.DAGRunStatus{
@@ -60,7 +59,19 @@ func TestEnqueueRetry(t *testing.T) {
 					AttemptID:      "att-1",
 					Status:         core.Failed,
 					AutoRetryCount: 2,
+					Log:            "/tmp/test-dag/run-1.log",
+					WorkingDir:     "/tmp/test-dag/run-1",
 					ProfileName:    "old-profile",
+					ProfileResolvedAt: time.Date(
+						2026, 3, 14, 14, 30, 0, 0, time.UTC,
+					).Format(time.RFC3339),
+				},
+				casStatus: &exec.DAGRunStatus{
+					Name:           "test-dag",
+					DAGRunID:       "run-1",
+					AttemptID:      "att-1",
+					Status:         core.Failed,
+					AutoRetryCount: 2,
 				},
 			},
 			setupQueue: func(qs *exec.MockQueueStore) {
@@ -75,6 +86,9 @@ func TestEnqueueRetry(t *testing.T) {
 				assert.Empty(t, store.status.Conditions)
 				assert.Equal(t, 2, store.status.AutoRetryCount)
 				assert.Equal(t, "old-profile", store.status.ProfileName)
+				assert.Equal(t, "/tmp/test-dag/run-1.log", store.status.Log)
+				assert.Equal(t, "/tmp/test-dag/run-1", store.status.WorkingDir)
+				assert.NotEmpty(t, store.status.ProfileResolvedAt)
 				assert.Equal(t, 1, store.casCalls)
 			},
 		},
@@ -125,6 +139,15 @@ func TestEnqueueRetry(t *testing.T) {
 					Status:         core.Failed,
 					AutoRetryCount: 1,
 					ProcGroup:      "custom-queue",
+					Log:            "/tmp/test-dag/run-fast-path.log",
+				},
+				casStatus: &exec.DAGRunStatus{
+					Name:           "test-dag",
+					DAGRunID:       "run-fast-path",
+					AttemptID:      "att-fast-path",
+					Status:         core.Failed,
+					AutoRetryCount: 1,
+					ProcGroup:      "input-queue",
 				},
 			},
 			setupQueue: func(qs *exec.MockQueueStore) {
@@ -313,6 +336,7 @@ func TestEnqueueRetry(t *testing.T) {
 
 type stubDAGRunStore struct {
 	status        *exec.DAGRunStatus
+	casStatus     *exec.DAGRunStatus
 	firstErr      error
 	secondErr     error
 	firstSwapped  bool
@@ -376,6 +400,9 @@ func (s *stubDAGRunStore) CompareAndSwapLatestAttemptStatus(
 	}
 
 	updated := s.cloneStatus()
+	if s.casCalls == 1 && s.casStatus != nil {
+		updated = cloneDAGRunStatus(s.casStatus)
+	}
 	if err := mutate(updated); err != nil {
 		return nil, false, err
 	}
@@ -384,7 +411,10 @@ func (s *stubDAGRunStore) CompareAndSwapLatestAttemptStatus(
 }
 
 func (s *stubDAGRunStore) FindAttempt(context.Context, exec.DAGRunRef) (exec.DAGRunAttempt, error) {
-	return nil, errors.New("unexpected call")
+	if s.status == nil {
+		return nil, exec.ErrDAGRunIDNotFound
+	}
+	return &exec.MockDAGRunAttempt{Status: s.cloneStatus()}, nil
 }
 
 func (s *stubDAGRunStore) FindSubAttempt(context.Context, exec.DAGRunRef, string) (exec.DAGRunAttempt, error) {
@@ -408,9 +438,13 @@ func (s *stubDAGRunStore) RemoveDAGRun(context.Context, exec.DAGRunRef, ...exec.
 }
 
 func (s *stubDAGRunStore) cloneStatus() *exec.DAGRunStatus {
-	if s.status == nil {
+	return cloneDAGRunStatus(s.status)
+}
+
+func cloneDAGRunStatus(status *exec.DAGRunStatus) *exec.DAGRunStatus {
+	if status == nil {
 		return nil
 	}
-	cloned := *s.status
+	cloned := *status
 	return &cloned
 }
