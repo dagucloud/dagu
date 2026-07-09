@@ -109,11 +109,13 @@ func requireNodeOutputVariable(t *testing.T, node *Node, name string) string {
 	v, ok := nodeData.State.OutputVariables.Load(name)
 	require.True(t, ok, "%s variable should be present", name)
 
-	output := v.(string)
-	if idx := strings.Index(output, "="); idx != -1 {
-		output = output[idx+1:]
-	}
-	return output
+	output, ok := v.(string)
+	require.True(t, ok, "%s variable should be stored as a string", name)
+
+	key, value, found := strings.Cut(output, "=")
+	require.True(t, found, "%s variable should be encoded as KEY=value", name)
+	require.Equal(t, name, key, "encoded output variable key should match map key")
+	return value
 }
 
 func writeRepeatedX(ctx context.Context, w io.Writer, size int) error {
