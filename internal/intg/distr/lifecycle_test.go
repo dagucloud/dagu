@@ -88,17 +88,30 @@ steps:
 		f.startScheduler(30 * time.Second)
 
 		var dagRunID string
+		var subRunID string
 		require.Eventually(t, func() bool {
 			status, err := f.latestStatus()
 			if err != nil {
 				return false
 			}
-			if status.Status == core.Running {
-				dagRunID = status.DAGRunID
-				return true
+			if status.Status != core.Running {
+				return false
+			}
+			dagRunID = status.DAGRunID
+			for _, node := range status.Nodes {
+				if node.Status == core.NodeRunning && len(node.SubRuns) > 0 {
+					subRunID = node.SubRuns[0].DAGRunID
+					return subRunID != ""
+				}
 			}
 			return false
-		}, 10*time.Second, 200*time.Millisecond, "Timeout waiting for DAG to start running")
+		}, distrTestTimeout(15*time.Second), 200*time.Millisecond, "Timeout waiting for DAG to start sub-DAG")
+
+		rootRef := exec.NewDAGRunRef(f.dagWrapper.Name, dagRunID)
+		require.Eventually(t, func() bool {
+			status, err := f.dagWrapper.DAGRunMgr.FindSubDAGRunStatus(f.coord.Context, rootRef, subRunID)
+			return err == nil && status != nil && status.Status == core.Running
+		}, distrTestTimeout(15*time.Second), 200*time.Millisecond, "Timeout waiting for sub-DAG to start running")
 
 		require.NoError(t, f.stop(dagRunID))
 
