@@ -189,10 +189,6 @@ func (c *Collection) WithLock(ctx context.Context, key string, fn func() error) 
 	if err != nil {
 		return err
 	}
-	return withDirLock(ctx, lockDir, fn)
-}
-
-func withDirLock(ctx context.Context, lockDir string, fn func() error) error {
 	lock := dirlock.New(lockDir, &dirlock.LockOptions{
 		StaleThreshold: 30 * time.Second,
 		RetryInterval:  50 * time.Millisecond,
@@ -282,44 +278,38 @@ func (c *Collection) CompareAndSwap(_ context.Context, id string, expected, next
 
 // RemoveCorrupt removes id only when its file is invalid JSON. A non-zero
 // staleBefore restricts removal to files last modified at or before that time.
-func (c *Collection) RemoveCorrupt(ctx context.Context, id string, staleBefore time.Time) (bool, error) {
-	var removed bool
-	err := withDirLock(ctx, c.dir+".corrupt-lock", func() error {
-		c.mu.Lock()
-		defer c.mu.Unlock()
+func (c *Collection) RemoveCorrupt(_ context.Context, id string, staleBefore time.Time) (bool, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-		path, err := c.filePath(id)
-		if err != nil {
-			return err
+	path, err := c.filePath(id)
+	if err != nil {
+		return false, err
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, persis.ErrNotFound
 		}
-		info, err := os.Stat(path)
-		if err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				return persis.ErrNotFound
-			}
-			return err
+		return false, err
+	}
+	if !staleBefore.IsZero() && info.ModTime().After(staleBefore) {
+		return false, nil
+	}
+	raw, err := fileutil.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, persis.ErrNotFound
 		}
-		if !staleBefore.IsZero() && info.ModTime().After(staleBefore) {
-			return nil
-		}
-		raw, err := fileutil.ReadFile(path)
-		if err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				return persis.ErrNotFound
-			}
-			return err
-		}
-		if json.Valid(raw) {
-			return persis.ErrConflict
-		}
-
-		if err := fileutil.RemoveFileDurable(path); err != nil {
-			return err
-		}
-		removed = true
-		return nil
-	})
-	return removed, err
+		return false, err
+	}
+	if json.Valid(raw) {
+		return false, persis.ErrConflict
+	}
+	if err := fileutil.RemoveFileDurable(path); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // ─── internal helpers ─────────────────────────────────────────────────────────

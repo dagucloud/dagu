@@ -5,6 +5,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/dagucloud/dagu/internal/core/exec"
@@ -50,6 +51,25 @@ func removeCorruptRecord(
 		return false, nil
 	}
 	return remover.RemoveCorrupt(ctx, id, staleBefore)
+}
+
+func removeCorruptRecordForRetry(
+	ctx context.Context,
+	col persis.Collection,
+	id string,
+	readErr error,
+) (bool, error) {
+	removed, err := removeCorruptRecord(ctx, col, id, time.Time{})
+	if err != nil {
+		if errors.Is(err, persis.ErrNotFound) || errors.Is(err, persis.ErrConflict) {
+			return false, persis.ErrConflict
+		}
+		return false, err
+	}
+	if !removed {
+		return false, readErr
+	}
+	return true, persis.ErrConflict
 }
 
 func removeStaleCorruptRecord(

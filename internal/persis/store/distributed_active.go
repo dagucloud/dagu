@@ -60,18 +60,11 @@ func (s *ActiveDistributedRunStore) Upsert(ctx context.Context, record exec.Acti
 
 		existing, getErr := s.col.Get(ctx, id)
 		if errors.Is(getErr, persis.ErrCorrupt) {
-			removed, removeErr := removeCorruptRecord(ctx, s.col, id, time.Time{})
-			if errors.Is(removeErr, persis.ErrNotFound) || errors.Is(removeErr, persis.ErrConflict) {
-				return persis.ErrConflict
-			}
-			if removeErr != nil {
-				return removeErr
-			}
+			removed, retryErr := removeCorruptRecordForRetry(ctx, s.col, id, getErr)
 			if removed {
 				logger.Warn(ctx, "Removed corrupt active distributed run entry before replacement", tag.Name(id))
-				return persis.ErrConflict
 			}
-			return getErr
+			return retryErr
 		}
 		if getErr != nil && !errors.Is(getErr, persis.ErrNotFound) {
 			return getErr
@@ -115,34 +108,33 @@ func (s *ActiveDistributedRunStore) Get(ctx context.Context, attemptKey string) 
 
 func (s *ActiveDistributedRunStore) ListAll(ctx context.Context) ([]exec.ActiveDistributedRun, error) {
 	recs, err := listAllStrictWithReadError(ctx, s.col, persis.ListQuery{}, func(id string, readErr error) (bool, error) {
-		if errors.Is(readErr, persis.ErrCorrupt) {
-			removed, removeErr := removeStaleCorruptRecord(
-				ctx,
-				s.col,
-				id,
-				s.corruptRecordGracePeriod,
-			)
-			if removeErr == nil && removed {
-				logger.Warn(ctx, "Removed stale corrupt active distributed run entry",
-					tag.Name(id),
-					tag.Error(readErr),
-				)
-				return true, nil
-			}
-			if errors.Is(removeErr, persis.ErrNotFound) {
-				return true, nil
-			}
-			if removeErr != nil && !errors.Is(removeErr, persis.ErrNotFound) {
-				logger.Warn(ctx, "Failed to remove corrupt active distributed run entry",
-					tag.Name(id),
-					tag.Error(removeErr),
-				)
-			}
+		if !errors.Is(readErr, persis.ErrCorrupt) {
+			logSkippedActiveDistributedRun(ctx, id, readErr)
+			return true, nil
 		}
-		logger.Warn(ctx, "Skipping corrupted active distributed run entry",
-			tag.Name(id),
-			tag.Error(readErr),
+
+		removed, removeErr := removeStaleCorruptRecord(
+			ctx,
+			s.col,
+			id,
+			s.corruptRecordGracePeriod,
 		)
+		if errors.Is(removeErr, persis.ErrNotFound) {
+			return true, nil
+		}
+		if removeErr != nil {
+			logger.Warn(ctx, "Failed to remove corrupt active distributed run entry",
+				tag.Name(id),
+				tag.Error(removeErr),
+			)
+		} else if removed {
+			logger.Warn(ctx, "Removed stale corrupt active distributed run entry",
+				tag.Name(id),
+				tag.Error(readErr),
+			)
+			return true, nil
+		}
+		logSkippedActiveDistributedRun(ctx, id, readErr)
 		return true, nil
 	})
 	if err != nil {
@@ -152,10 +144,7 @@ func (s *ActiveDistributedRunStore) ListAll(ctx context.Context) ([]exec.ActiveD
 	for _, rec := range recs {
 		var record exec.ActiveDistributedRun
 		if err := persis.Decode(rec, &record); err != nil {
-			logger.Warn(ctx, "Skipping corrupted active distributed run entry",
-				tag.Name(rec.ID),
-				tag.Error(err),
-			)
+			logSkippedActiveDistributedRun(ctx, rec.ID, err)
 			continue
 		}
 		if record.AttemptKey == "" {
@@ -167,4 +156,11 @@ func (s *ActiveDistributedRunStore) ListAll(ctx context.Context) ([]exec.ActiveD
 		return records[i].AttemptKey < records[j].AttemptKey
 	})
 	return records, nil
+}
+
+func logSkippedActiveDistributedRun(ctx context.Context, id string, err error) {
+	logger.Warn(ctx, "Skipping corrupted active distributed run entry",
+		tag.Name(id),
+		tag.Error(err),
+	)
 }

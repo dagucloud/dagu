@@ -69,18 +69,11 @@ func (s *DAGRunLeaseStore) Upsert(ctx context.Context, lease exec.DAGRunLease) e
 
 		existing, getErr := s.col.Get(ctx, id)
 		if errors.Is(getErr, persis.ErrCorrupt) {
-			removed, removeErr := removeCorruptRecord(ctx, s.col, id, time.Time{})
-			if errors.Is(removeErr, persis.ErrNotFound) || errors.Is(removeErr, persis.ErrConflict) {
-				return persis.ErrConflict
-			}
-			if removeErr != nil {
-				return removeErr
-			}
+			removed, retryErr := removeCorruptRecordForRetry(ctx, s.col, id, getErr)
 			if removed {
 				logger.Warn(ctx, "Removed corrupt distributed lease entry before replacement", tag.Name(id))
-				return persis.ErrConflict
 			}
-			return getErr
+			return retryErr
 		}
 		if getErr != nil && !errors.Is(getErr, persis.ErrNotFound) {
 			return getErr
