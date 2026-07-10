@@ -17,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/internal/persis"
 	"github.com/dagucloud/dagu/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/internal/proto/convert"
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
@@ -32,6 +33,18 @@ func coordinatorTestTimeout(timeout time.Duration) time.Duration {
 		return timeout * 5
 	}
 	return timeout
+}
+
+type corruptLeaseStore struct {
+	exec.DAGRunLeaseStore
+	attemptKey string
+}
+
+func (s corruptLeaseStore) Get(ctx context.Context, attemptKey string) (*exec.DAGRunLease, error) {
+	if attemptKey == s.attemptKey {
+		return nil, persis.ErrCorrupt
+	}
+	return s.DAGRunLeaseStore.Get(ctx, attemptKey)
 }
 
 func TestDispatchBindErrorCode(t *testing.T) {
@@ -1208,6 +1221,74 @@ func TestHandler_Heartbeat(t *testing.T) {
 		require.NoError(t, err)
 		assert.Greater(t, lease.LastHeartbeatAt, initial.UnixMilli())
 		assert.Equal(t, initial.UnixMilli(), lease.ClaimedAt)
+	})
+
+	t.Run("RunHeartbeatCoalescesFreshSharedLease", func(t *testing.T) {
+		t.Parallel()
+
+		leaseStore := newTestDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
+		h := NewHandler(HandlerConfig{
+			DAGRunLeaseStore: leaseStore,
+			Owner:            exec.CoordinatorEndpoint{ID: "coord-a"},
+		})
+		ctx := context.Background()
+		initial := time.Now().UTC()
+		require.NoError(t, leaseStore.Upsert(ctx, exec.DAGRunLease{
+			AttemptKey:      "attempt-key-1",
+			DAGRun:          exec.NewDAGRunRef("test-dag", "run-123"),
+			AttemptID:       "attempt-1",
+			WorkerID:        "worker-1",
+			LastHeartbeatAt: initial.UnixMilli(),
+		}))
+
+		_, err := h.RunHeartbeat(ctx, &coordinatorv1.RunHeartbeatRequest{
+			WorkerId:           "worker-1",
+			OwnerCoordinatorId: "coord-a",
+			RunningTasks: []*coordinatorv1.RunningTask{
+				{AttemptKey: "attempt-key-1"},
+			},
+		})
+		require.NoError(t, err)
+
+		lease, err := leaseStore.Get(ctx, "attempt-key-1")
+		require.NoError(t, err)
+		assert.Equal(t, initial.UnixMilli(), lease.LastHeartbeatAt)
+	})
+
+	t.Run("RunHeartbeatIsolatesCorruptLease", func(t *testing.T) {
+		t.Parallel()
+
+		baseStore := newTestDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
+		leaseStore := corruptLeaseStore{DAGRunLeaseStore: baseStore, attemptKey: "corrupt-key"}
+		h := NewHandler(HandlerConfig{
+			DAGRunLeaseStore: leaseStore,
+			Owner:            exec.CoordinatorEndpoint{ID: "coord-a"},
+		})
+		ctx := context.Background()
+		initial := time.Now().Add(-10 * time.Second).UTC()
+		require.NoError(t, baseStore.Upsert(ctx, exec.DAGRunLease{
+			AttemptKey:      "valid-key",
+			DAGRun:          exec.NewDAGRunRef("test-dag", "run-123"),
+			AttemptID:       "attempt-1",
+			WorkerID:        "worker-1",
+			LastHeartbeatAt: initial.UnixMilli(),
+		}))
+
+		resp, err := h.RunHeartbeat(ctx, &coordinatorv1.RunHeartbeatRequest{
+			WorkerId:           "worker-1",
+			OwnerCoordinatorId: "coord-a",
+			RunningTasks: []*coordinatorv1.RunningTask{
+				{AttemptKey: "corrupt-key"},
+				{AttemptKey: "valid-key"},
+			},
+		})
+		require.NoError(t, err)
+		require.Len(t, resp.CancelledRuns, 1)
+		assert.Equal(t, "corrupt-key", resp.CancelledRuns[0].AttemptKey)
+
+		lease, err := baseStore.Get(ctx, "valid-key")
+		require.NoError(t, err)
+		assert.Greater(t, lease.LastHeartbeatAt, initial.UnixMilli())
 	})
 
 	t.Run("RunHeartbeatRepairsStaleLeaseFailureForOwnedAttempt", func(t *testing.T) {

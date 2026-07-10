@@ -23,6 +23,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/core/spec"
 	"github.com/dagucloud/dagu/internal/dagstate"
+	"github.com/dagucloud/dagu/internal/persis"
 	"github.com/dagucloud/dagu/internal/proto/convert"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/workspacebundle"
@@ -1174,8 +1175,8 @@ func (h *Handler) RunHeartbeat(ctx context.Context, req *coordinatorv1.RunHeartb
 		if task == nil || task.AttemptKey == "" {
 			continue
 		}
-		if err := h.dagRunLeaseStore.Touch(ctx, task.AttemptKey, observedAt); err != nil {
-			if errors.Is(err, exec.ErrDAGRunLeaseNotFound) {
+		if err := h.refreshRunLease(ctx, task.AttemptKey, observedAt); err != nil {
+			if errors.Is(err, exec.ErrDAGRunLeaseNotFound) || errors.Is(err, persis.ErrCorrupt) {
 				cancelledRuns = appendCancelledRunIfMissing(cancelledRuns, task.AttemptKey)
 				continue
 			}
@@ -1188,6 +1189,17 @@ func (h *Handler) RunHeartbeat(ctx context.Context, req *coordinatorv1.RunHeartb
 		RunningTasks: req.RunningTasks,
 	}))
 	return &coordinatorv1.RunHeartbeatResponse{CancelledRuns: cancelledRuns}, nil
+}
+
+func (h *Handler) refreshRunLease(ctx context.Context, attemptKey string, observedAt time.Time) error {
+	lease, err := h.dagRunLeaseStore.Get(ctx, attemptKey)
+	if err != nil {
+		return err
+	}
+	if lease != nil && observedAt.Before(lease.LastHeartbeatTime().Add(h.leaseRefreshWriteInterval())) {
+		return nil
+	}
+	return h.dagRunLeaseStore.Touch(ctx, attemptKey, observedAt)
 }
 
 func (h *Handler) repairStaleLeaseFailureFromRunHeartbeat(
