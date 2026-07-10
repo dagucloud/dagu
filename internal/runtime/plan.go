@@ -23,8 +23,9 @@ var (
 // Plan represents a plan of execution for a set of steps.
 // It encapsulates the graph structure and ensures thread-safe access.
 type Plan struct {
-	startedAt  time.Time
-	finishedAt time.Time
+	startedAt       time.Time
+	finishedAt      time.Time
+	cancelRequested bool
 
 	// Graph structure (immutable after construction)
 	nodes      []*Node
@@ -397,6 +398,18 @@ func (p *Plan) Finish() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.finishedAt = time.Now()
+}
+
+func (p *Plan) requestCancel() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.cancelRequested = true
+}
+
+func (p *Plan) isCancelRequested() bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.cancelRequested
 }
 
 // PlanNodeStates holds the state flags for nodes in a plan.

@@ -134,7 +134,7 @@ func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan *Node) err
 	if err := r.setup(ctx); err != nil {
 		return err
 	}
-	r.resetRunState()
+	r.resetRunState(plan)
 
 	// Create a cancellable context for the entire execution
 	var cancel context.CancelFunc
@@ -903,12 +903,13 @@ func (r *Runner) Stop(
 ) {
 	isTermination := intent.IsTermination()
 
-	// Set canceled flag FIRST so execution loops see it immediately.
-	// This prevents a race where the execution loop checks isCanceled()
-	// before we've set the flag, causing it to mark nodes as Succeeded
-	// instead of Aborted.
-	if !r.isCanceled() && isTermination {
-		r.setCanceled()
+	// Record termination before inspecting nodes so execution that has not
+	// started yet observes the request.
+	if isTermination {
+		plan.requestCancel()
+		if !r.isCanceled() {
+			r.setCanceled()
+		}
 	}
 
 	for _, node := range plan.Nodes() {
@@ -935,6 +936,7 @@ func (r *Runner) Stop(
 
 // Cancel sends -1 signal to all nodes.
 func (r *Runner) Cancel(p *Plan) {
+	p.requestCancel()
 	r.setCanceled()
 	for _, node := range p.Nodes() {
 		node.Cancel()
@@ -1183,10 +1185,15 @@ func (r *Runner) setFailed() {
 	r.failed = 1
 }
 
-func (r *Runner) resetRunState() {
+func (r *Runner) resetRunState(plan *Plan) {
+	cancelRequested := plan.isCancelRequested()
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.canceled = 0
+	if cancelRequested {
+		r.canceled = 1
+	}
 	r.failed = 0
 	r.lastError = nil
 }

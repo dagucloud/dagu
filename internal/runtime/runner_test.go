@@ -2181,6 +2181,16 @@ func TestRunner_StatusDefersForcedStatusUntilTerminal(t *testing.T) {
 }
 
 func TestRunner_SignalHandling(t *testing.T) {
+	t.Run("SignalBeforeRun", func(t *testing.T) {
+		r := setupRunner(t)
+		plan := r.newPlan(t, successStep("1"))
+
+		r.runner.Signal(r.Context, plan.Plan, syscall.SIGTERM, nil, false)
+
+		result := plan.assertRun(t, core.Aborted)
+		result.assertNodeStatus(t, "1", core.NodeNotStarted)
+	})
+
 	t.Run("SignalWithDoneChannel", func(t *testing.T) {
 		r := setupRunner(t)
 
