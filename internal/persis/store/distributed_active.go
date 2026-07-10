@@ -60,13 +60,16 @@ func (s *ActiveDistributedRunStore) Upsert(ctx context.Context, record exec.Acti
 
 		existing, getErr := s.col.Get(ctx, id)
 		if errors.Is(getErr, persis.ErrCorrupt) {
-			repaired, repairErr := repairCorruptRecord(ctx, s.col, stored)
-			if repairErr != nil {
-				return repairErr
+			removed, removeErr := removeCorruptRecord(ctx, s.col, id, time.Time{})
+			if errors.Is(removeErr, persis.ErrNotFound) || errors.Is(removeErr, persis.ErrConflict) {
+				return persis.ErrConflict
 			}
-			if repaired {
-				logger.Warn(ctx, "Repaired corrupt active distributed run entry", tag.Name(id))
-				return nil
+			if removeErr != nil {
+				return removeErr
+			}
+			if removed {
+				logger.Warn(ctx, "Removed corrupt active distributed run entry before replacement", tag.Name(id))
+				return persis.ErrConflict
 			}
 			return getErr
 		}
@@ -113,23 +116,26 @@ func (s *ActiveDistributedRunStore) Get(ctx context.Context, attemptKey string) 
 func (s *ActiveDistributedRunStore) ListAll(ctx context.Context) ([]exec.ActiveDistributedRun, error) {
 	recs, err := listAllStrictWithReadError(ctx, s.col, persis.ListQuery{}, func(id string, readErr error) (bool, error) {
 		if errors.Is(readErr, persis.ErrCorrupt) {
-			quarantined, quarantineErr := quarantineStaleCorruptRecord(
+			removed, removeErr := removeStaleCorruptRecord(
 				ctx,
 				s.col,
 				id,
 				s.corruptRecordGracePeriod,
 			)
-			if quarantineErr == nil && quarantined {
-				logger.Warn(ctx, "Quarantined stale corrupt active distributed run entry",
+			if removeErr == nil && removed {
+				logger.Warn(ctx, "Removed stale corrupt active distributed run entry",
 					tag.Name(id),
 					tag.Error(readErr),
 				)
 				return true, nil
 			}
-			if quarantineErr != nil && !errors.Is(quarantineErr, persis.ErrNotFound) {
-				logger.Warn(ctx, "Failed to quarantine corrupt active distributed run entry",
+			if errors.Is(removeErr, persis.ErrNotFound) {
+				return true, nil
+			}
+			if removeErr != nil && !errors.Is(removeErr, persis.ErrNotFound) {
+				logger.Warn(ctx, "Failed to remove corrupt active distributed run entry",
 					tag.Name(id),
-					tag.Error(quarantineErr),
+					tag.Error(removeErr),
 				)
 			}
 		}

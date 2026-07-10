@@ -345,7 +345,7 @@ func TestQueueProcessor_StaleCorruptLeaseDoesNotBlockCapacityCheck(t *testing.T)
 	count, err := f.processor.newQueueDispatcher().countActiveDistributedRuns(f.ctx, f.dag.Name)
 	require.NoError(t, err)
 	assert.Zero(t, count)
-	assert.Contains(t, f.logs(), "Quarantined stale corrupt distributed lease entry")
+	assert.Contains(t, f.logs(), "Removed stale corrupt distributed lease entry")
 }
 
 func TestQueueProcessor_ProcessQueueItems_FailsClosedOnOutstandingDispatchCountError(t *testing.T) {

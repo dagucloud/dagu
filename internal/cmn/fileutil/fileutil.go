@@ -317,12 +317,12 @@ func WriteFileAtomicExclusive(filePath string, data []byte, perm os.FileMode) er
 	return nil
 }
 
-// RenameFileDurable renames source to target and persists the directory entry.
-func RenameFileDurable(source, target string) error {
-	if err := ReplaceFile(source, target); err != nil {
+// RemoveFileDurable removes path and persists the directory entry change.
+func RemoveFileDurable(path string) error {
+	if err := Remove(path); err != nil {
 		return err
 	}
-	return syncDir(filepath.Dir(target))
+	return syncDir(filepath.Dir(path))
 }
 
 func writeSyncedTempFile(dir, base string, data []byte, perm os.FileMode) (string, error) {

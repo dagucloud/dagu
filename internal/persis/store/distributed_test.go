@@ -197,7 +197,7 @@ func TestDAGRunLeaseStore_ListAllSurfacesCorruptRecord(t *testing.T) {
 	assert.NoError(t, statErr)
 }
 
-func TestDAGRunLeaseStore_UpsertRepairsCorruptRecord(t *testing.T) {
+func TestDAGRunLeaseStore_UpsertReplacesCorruptRecord(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -222,7 +222,7 @@ func TestDAGRunLeaseStore_UpsertRepairsCorruptRecord(t *testing.T) {
 	assert.Equal(t, "queue-a", lease.QueueName)
 }
 
-func TestDAGRunLeaseStore_ListAllQuarantinesStaleCorruptRecord(t *testing.T) {
+func TestDAGRunLeaseStore_ListAllRemovesStaleCorruptRecord(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -242,9 +242,9 @@ func TestDAGRunLeaseStore_ListAllQuarantinesStaleCorruptRecord(t *testing.T) {
 
 	_, err = os.Stat(path)
 	assert.ErrorIs(t, err, os.ErrNotExist)
-	quarantined, err := filepath.Glob(path + ".corrupt-*")
+	entries, err := os.ReadDir(dir)
 	require.NoError(t, err)
-	assert.Len(t, quarantined, 1)
+	assert.Empty(t, entries)
 }
 
 func TestActiveDistributedRunStore_UpsertListGetAndDelete(t *testing.T) {
@@ -381,7 +381,7 @@ func TestActiveDistributedRunStore_ListAllSkipsCorruptRecord(t *testing.T) {
 	assert.NoError(t, statErr)
 }
 
-func TestActiveDistributedRunStore_UpsertRepairsCorruptRecord(t *testing.T) {
+func TestActiveDistributedRunStore_UpsertReplacesCorruptRecord(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -405,7 +405,7 @@ func TestActiveDistributedRunStore_UpsertRepairsCorruptRecord(t *testing.T) {
 	assert.Equal(t, "worker-1", record.WorkerID)
 }
 
-func TestActiveDistributedRunStore_ListAllQuarantinesStaleCorruptRecord(t *testing.T) {
+func TestActiveDistributedRunStore_ListAllRemovesStaleCorruptRecord(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -425,9 +425,9 @@ func TestActiveDistributedRunStore_ListAllQuarantinesStaleCorruptRecord(t *testi
 
 	_, err = os.Stat(path)
 	assert.ErrorIs(t, err, os.ErrNotExist)
-	quarantined, err := filepath.Glob(path + ".corrupt-*")
+	entries, err := os.ReadDir(dir)
 	require.NoError(t, err)
-	assert.Len(t, quarantined, 1)
+	assert.Empty(t, entries)
 }
 
 func TestDispatchTaskStore_ClaimRecycleAndSelectorFiltering(t *testing.T) {

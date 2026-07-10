@@ -5,7 +5,6 @@ package store
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"github.com/dagucloud/dagu/internal/core/exec"
@@ -21,7 +20,7 @@ type distributedStoreOptions struct {
 }
 
 // WithCorruptRecordGracePeriod sets how long a corrupt distributed record
-// remains fail-closed before it can be quarantined as stale.
+// remains fail-closed before it can be removed as stale.
 func WithCorruptRecordGracePeriod(period time.Duration) DistributedStoreOption {
 	return func(opts *distributedStoreOptions) {
 		opts.corruptRecordGracePeriod = max(period, 0)
@@ -37,32 +36,28 @@ func resolveDistributedStoreOptions(opts []DistributedStoreOption) distributedSt
 }
 
 type corruptRecordCollection interface {
-	RepairCorrupt(ctx context.Context, rec *persis.Record) error
-	QuarantineCorrupt(ctx context.Context, id string, staleBefore time.Time) (bool, error)
+	RemoveCorrupt(ctx context.Context, id string, staleBefore time.Time) (bool, error)
 }
 
-func repairCorruptRecord(ctx context.Context, col persis.Collection, rec *persis.Record) (bool, error) {
-	repairer, ok := col.(corruptRecordCollection)
+func removeCorruptRecord(
+	ctx context.Context,
+	col persis.Collection,
+	id string,
+	staleBefore time.Time,
+) (bool, error) {
+	remover, ok := col.(corruptRecordCollection)
 	if !ok {
 		return false, nil
 	}
-	err := repairer.RepairCorrupt(ctx, rec)
-	if errors.Is(err, persis.ErrNotFound) || errors.Is(err, persis.ErrConflict) {
-		return false, persis.ErrConflict
-	}
-	return err == nil, err
+	return remover.RemoveCorrupt(ctx, id, staleBefore)
 }
 
-func quarantineStaleCorruptRecord(
+func removeStaleCorruptRecord(
 	ctx context.Context,
 	col persis.Collection,
 	id string,
 	gracePeriod time.Duration,
 ) (bool, error) {
-	quarantiner, ok := col.(corruptRecordCollection)
-	if !ok {
-		return false, nil
-	}
 	staleBefore := time.Now().UTC().Add(-gracePeriod)
-	return quarantiner.QuarantineCorrupt(ctx, id, staleBefore)
+	return removeCorruptRecord(ctx, col, id, staleBefore)
 }

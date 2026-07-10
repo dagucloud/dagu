@@ -69,13 +69,16 @@ func (s *DAGRunLeaseStore) Upsert(ctx context.Context, lease exec.DAGRunLease) e
 
 		existing, getErr := s.col.Get(ctx, id)
 		if errors.Is(getErr, persis.ErrCorrupt) {
-			repaired, repairErr := repairCorruptRecord(ctx, s.col, stored)
-			if repairErr != nil {
-				return repairErr
+			removed, removeErr := removeCorruptRecord(ctx, s.col, id, time.Time{})
+			if errors.Is(removeErr, persis.ErrNotFound) || errors.Is(removeErr, persis.ErrConflict) {
+				return persis.ErrConflict
 			}
-			if repaired {
-				logger.Warn(ctx, "Repaired corrupt distributed lease entry", tag.Name(id))
-				return nil
+			if removeErr != nil {
+				return removeErr
+			}
+			if removed {
+				logger.Warn(ctx, "Removed corrupt distributed lease entry before replacement", tag.Name(id))
+				return persis.ErrConflict
 			}
 			return getErr
 		}
@@ -166,22 +169,22 @@ func (s *DAGRunLeaseStore) ListAll(ctx context.Context) ([]exec.DAGRunLease, err
 		if !errors.Is(readErr, persis.ErrCorrupt) {
 			return false, nil
 		}
-		quarantined, quarantineErr := quarantineStaleCorruptRecord(
+		removed, removeErr := removeStaleCorruptRecord(
 			ctx,
 			s.col,
 			id,
 			s.corruptRecordGracePeriod,
 		)
-		if errors.Is(quarantineErr, persis.ErrNotFound) {
+		if errors.Is(removeErr, persis.ErrNotFound) {
 			return true, nil
 		}
-		if quarantineErr != nil {
-			return false, quarantineErr
+		if removeErr != nil {
+			return false, removeErr
 		}
-		if !quarantined {
+		if !removed {
 			return false, nil
 		}
-		logger.Warn(ctx, "Quarantined stale corrupt distributed lease entry",
+		logger.Warn(ctx, "Removed stale corrupt distributed lease entry",
 			tag.Name(id),
 			tag.Error(readErr),
 		)

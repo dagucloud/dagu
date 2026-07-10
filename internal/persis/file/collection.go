@@ -189,6 +189,10 @@ func (c *Collection) WithLock(ctx context.Context, key string, fn func() error) 
 	if err != nil {
 		return err
 	}
+	return withDirLock(ctx, lockDir, fn)
+}
+
+func withDirLock(ctx context.Context, lockDir string, fn func() error) error {
 	lock := dirlock.New(lockDir, &dirlock.LockOptions{
 		StaleThreshold: 30 * time.Second,
 		RetryInterval:  50 * time.Millisecond,
@@ -276,41 +280,11 @@ func (c *Collection) CompareAndSwap(_ context.Context, id string, expected, next
 	return c.writeFile(path, rec)
 }
 
-// RepairCorrupt replaces rec.ID only when its current file is invalid JSON.
-func (c *Collection) RepairCorrupt(ctx context.Context, rec *persis.Record) error {
-	if rec == nil {
-		return fmt.Errorf("file backend: nil record")
-	}
-	if !json.Valid(rec.Data) {
-		return fmt.Errorf("file backend: invalid JSON record %q", rec.ID)
-	}
-	return c.WithLock(ctx, ".repair/"+rec.ID, func() error {
-		c.mu.Lock()
-		defer c.mu.Unlock()
-
-		path, err := c.filePath(rec.ID)
-		if err != nil {
-			return err
-		}
-		raw, err := fileutil.ReadFile(path)
-		if err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				return persis.ErrNotFound
-			}
-			return err
-		}
-		if json.Valid(raw) {
-			return persis.ErrConflict
-		}
-		return c.writeFile(path, rec)
-	})
-}
-
-// QuarantineCorrupt renames id out of the collection when its file is invalid
-// JSON and was last modified before staleBefore.
-func (c *Collection) QuarantineCorrupt(ctx context.Context, id string, staleBefore time.Time) (bool, error) {
-	var quarantined bool
-	err := c.WithLock(ctx, ".repair/"+id, func() error {
+// RemoveCorrupt removes id only when its file is invalid JSON. A non-zero
+// staleBefore restricts removal to files last modified at or before that time.
+func (c *Collection) RemoveCorrupt(ctx context.Context, id string, staleBefore time.Time) (bool, error) {
+	var removed bool
+	err := withDirLock(ctx, c.dir+".corrupt-lock", func() error {
 		c.mu.Lock()
 		defer c.mu.Unlock()
 
@@ -325,7 +299,7 @@ func (c *Collection) QuarantineCorrupt(ctx context.Context, id string, staleBefo
 			}
 			return err
 		}
-		if info.ModTime().After(staleBefore) {
+		if !staleBefore.IsZero() && info.ModTime().After(staleBefore) {
 			return nil
 		}
 		raw, err := fileutil.ReadFile(path)
@@ -339,14 +313,13 @@ func (c *Collection) QuarantineCorrupt(ctx context.Context, id string, staleBefo
 			return persis.ErrConflict
 		}
 
-		quarantinePath := fmt.Sprintf("%s.corrupt-%d", path, time.Now().UTC().UnixNano())
-		if err := fileutil.RenameFileDurable(path, quarantinePath); err != nil {
+		if err := fileutil.RemoveFileDurable(path); err != nil {
 			return err
 		}
-		quarantined = true
+		removed = true
 		return nil
 	})
-	return quarantined, err
+	return removed, err
 }
 
 // ─── internal helpers ─────────────────────────────────────────────────────────
