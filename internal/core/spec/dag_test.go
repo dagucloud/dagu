@@ -2797,6 +2797,16 @@ steps:
 			expected: &core.ArtifactsConfig{Enabled: true},
 		},
 		{
+			name: "AutoEnableWhenEnvReferencesArtifactsDir",
+			yaml: `
+env:
+  REPORT_DIR: ${DAG_RUN_ARTIFACTS_DIR}/reports
+steps:
+  - run: ./generate-report
+`,
+			expected: &core.ArtifactsConfig{Enabled: true},
+		},
+		{
 			name: "AutoEnableWhenStdoutArtifactIsUsed",
 			yaml: `
 steps:

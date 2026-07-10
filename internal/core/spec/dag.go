@@ -1091,6 +1091,12 @@ func valueReferencesRunArtifactsDir(v reflect.Value) bool {
 		v = v.Elem()
 	}
 
+	if v.CanInterface() {
+		if provider, ok := v.Interface().(interface{ Value() any }); ok {
+			return valueReferencesRunArtifactsDir(reflect.ValueOf(provider.Value()))
+		}
+	}
+
 	switch v.Kind() {
 	case reflect.String:
 		return referencesArtifactsEnvVar(v.String())
@@ -1108,8 +1114,12 @@ func valueReferencesRunArtifactsDir(v reflect.Value) bool {
 			}
 		}
 	case reflect.Struct:
-		for _, field := range v.Fields() {
-			if valueReferencesRunArtifactsDir(field) {
+		t := v.Type()
+		for i := range v.NumField() {
+			if t.Field(i).PkgPath != "" {
+				continue
+			}
+			if valueReferencesRunArtifactsDir(v.Field(i)) {
 				return true
 			}
 		}
