@@ -185,12 +185,66 @@ func TestDAGRunLeaseStore_ListAllSurfacesCorruptRecord(t *testing.T) {
 
 	ctx := context.Background()
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, encodedKey("corrupt-lease")+".json"), []byte("{"), 0o600))
+	corruptPath := filepath.Join(dir, encodedKey("corrupt-lease")+".json")
+	require.NoError(t, os.WriteFile(corruptPath, []byte("{"), 0o600))
 
 	s := store.NewDAGRunLeaseStore(file.NewCollection(dir))
 	_, err := s.ListAll(ctx)
 	require.Error(t, err)
+	assert.ErrorIs(t, err, persis.ErrCorrupt)
 	assert.Contains(t, err.Error(), "corrupt")
+	_, statErr := os.Stat(corruptPath)
+	assert.NoError(t, statErr)
+}
+
+func TestDAGRunLeaseStore_UpsertRepairsCorruptRecord(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dir := t.TempDir()
+	path := filepath.Join(dir, encodedKey("repair-lease")+".json")
+	require.NoError(t, os.WriteFile(path, nil, 0o600))
+
+	s := store.NewDAGRunLeaseStore(file.NewCollection(dir))
+	require.NoError(t, s.Upsert(ctx, exec.DAGRunLease{
+		AttemptKey:      "repair-lease",
+		DAGRun:          exec.NewDAGRunRef("dag-a", "run-1"),
+		Root:            exec.NewDAGRunRef("dag-a", "run-1"),
+		AttemptID:       "attempt-1",
+		QueueName:       "queue-a",
+		WorkerID:        "worker-1",
+		LastHeartbeatAt: time.Now().UTC().UnixMilli(),
+	}))
+
+	lease, err := s.Get(ctx, "repair-lease")
+	require.NoError(t, err)
+	require.NotNil(t, lease)
+	assert.Equal(t, "queue-a", lease.QueueName)
+}
+
+func TestDAGRunLeaseStore_ListAllQuarantinesStaleCorruptRecord(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dir := t.TempDir()
+	path := filepath.Join(dir, encodedKey("stale-corrupt-lease")+".json")
+	require.NoError(t, os.WriteFile(path, nil, 0o600))
+	old := time.Now().Add(-2 * time.Minute)
+	require.NoError(t, os.Chtimes(path, old, old))
+
+	s := store.NewDAGRunLeaseStore(
+		file.NewCollection(dir),
+		store.WithCorruptRecordGracePeriod(time.Minute),
+	)
+	leases, err := s.ListAll(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, leases)
+
+	_, err = os.Stat(path)
+	assert.ErrorIs(t, err, os.ErrNotExist)
+	quarantined, err := filepath.Glob(path + ".corrupt-*")
+	require.NoError(t, err)
+	assert.Len(t, quarantined, 1)
 }
 
 func TestActiveDistributedRunStore_UpsertListGetAndDelete(t *testing.T) {
@@ -316,12 +370,64 @@ func TestActiveDistributedRunStore_ListAllSkipsCorruptRecord(t *testing.T) {
 		WorkerID:   "worker-1",
 		Status:     core.Running,
 	}))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, encodedKey("corrupt-active")+".json"), []byte("{"), 0o600))
+	corruptPath := filepath.Join(dir, encodedKey("corrupt-active")+".json")
+	require.NoError(t, os.WriteFile(corruptPath, []byte("{"), 0o600))
 
 	records, err := s.ListAll(ctx)
 	require.NoError(t, err)
 	require.Len(t, records, 1)
 	assert.Equal(t, "attempt-key-1", records[0].AttemptKey)
+	_, statErr := os.Stat(corruptPath)
+	assert.NoError(t, statErr)
+}
+
+func TestActiveDistributedRunStore_UpsertRepairsCorruptRecord(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dir := t.TempDir()
+	path := filepath.Join(dir, encodedKey("repair-active")+".json")
+	require.NoError(t, os.WriteFile(path, nil, 0o600))
+
+	s := store.NewActiveDistributedRunStore(file.NewCollection(dir))
+	require.NoError(t, s.Upsert(ctx, exec.ActiveDistributedRun{
+		AttemptKey: "repair-active",
+		DAGRun:     exec.NewDAGRunRef("dag-a", "run-1"),
+		Root:       exec.NewDAGRunRef("dag-a", "run-1"),
+		AttemptID:  "attempt-1",
+		WorkerID:   "worker-1",
+		Status:     core.Running,
+	}))
+
+	record, err := s.Get(ctx, "repair-active")
+	require.NoError(t, err)
+	require.NotNil(t, record)
+	assert.Equal(t, "worker-1", record.WorkerID)
+}
+
+func TestActiveDistributedRunStore_ListAllQuarantinesStaleCorruptRecord(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dir := t.TempDir()
+	path := filepath.Join(dir, encodedKey("stale-corrupt-active")+".json")
+	require.NoError(t, os.WriteFile(path, nil, 0o600))
+	old := time.Now().Add(-2 * time.Minute)
+	require.NoError(t, os.Chtimes(path, old, old))
+
+	s := store.NewActiveDistributedRunStore(
+		file.NewCollection(dir),
+		store.WithCorruptRecordGracePeriod(time.Minute),
+	)
+	records, err := s.ListAll(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, records)
+
+	_, err = os.Stat(path)
+	assert.ErrorIs(t, err, os.ErrNotExist)
+	quarantined, err := filepath.Glob(path + ".corrupt-*")
+	require.NoError(t, err)
+	assert.Len(t, quarantined, 1)
 }
 
 func TestDispatchTaskStore_ClaimRecycleAndSelectorFiltering(t *testing.T) {

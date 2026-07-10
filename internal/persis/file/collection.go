@@ -77,8 +77,7 @@ func (c *Collection) Put(_ context.Context, rec *persis.Record) error {
 }
 
 // Create atomically inserts rec. Returns [persis.ErrConflict] when a
-// record with rec.ID already exists. Uses O_EXCL|O_CREATE for atomic
-// cross-process insert.
+// record with rec.ID already exists.
 func (c *Collection) Create(_ context.Context, rec *persis.Record) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -104,25 +103,10 @@ func (c *Collection) Create(_ context.Context, rec *persis.Record) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return err
 	}
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) //nolint:gosec // path is sanitized via c.filePath -> pathUnderRoot
-	if err != nil {
+	if err := fileutil.WriteFileAtomicExclusive(path, body, 0o600); err != nil {
 		if errors.Is(err, fs.ErrExist) {
 			return persis.ErrConflict
 		}
-		return err
-	}
-	if _, err := f.Write(body); err != nil {
-		_ = f.Close()
-		_ = os.Remove(path)
-		return err
-	}
-	if err := f.Sync(); err != nil {
-		_ = f.Close()
-		_ = os.Remove(path)
-		return err
-	}
-	if err := f.Close(); err != nil {
-		_ = os.Remove(path)
 		return err
 	}
 	mtime := rec.UpdatedAt
@@ -292,6 +276,79 @@ func (c *Collection) CompareAndSwap(_ context.Context, id string, expected, next
 	return c.writeFile(path, rec)
 }
 
+// RepairCorrupt replaces rec.ID only when its current file is invalid JSON.
+func (c *Collection) RepairCorrupt(ctx context.Context, rec *persis.Record) error {
+	if rec == nil {
+		return fmt.Errorf("file backend: nil record")
+	}
+	if !json.Valid(rec.Data) {
+		return fmt.Errorf("file backend: invalid JSON record %q", rec.ID)
+	}
+	return c.WithLock(ctx, ".repair/"+rec.ID, func() error {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+
+		path, err := c.filePath(rec.ID)
+		if err != nil {
+			return err
+		}
+		raw, err := fileutil.ReadFile(path)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return persis.ErrNotFound
+			}
+			return err
+		}
+		if json.Valid(raw) {
+			return persis.ErrConflict
+		}
+		return c.writeFile(path, rec)
+	})
+}
+
+// QuarantineCorrupt renames id out of the collection when its file is invalid
+// JSON and was last modified before staleBefore.
+func (c *Collection) QuarantineCorrupt(ctx context.Context, id string, staleBefore time.Time) (bool, error) {
+	var quarantined bool
+	err := c.WithLock(ctx, ".repair/"+id, func() error {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+
+		path, err := c.filePath(id)
+		if err != nil {
+			return err
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return persis.ErrNotFound
+			}
+			return err
+		}
+		if info.ModTime().After(staleBefore) {
+			return nil
+		}
+		raw, err := fileutil.ReadFile(path)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return persis.ErrNotFound
+			}
+			return err
+		}
+		if json.Valid(raw) {
+			return persis.ErrConflict
+		}
+
+		quarantinePath := fmt.Sprintf("%s.corrupt-%d", path, time.Now().UTC().UnixNano())
+		if err := fileutil.RenameFileDurable(path, quarantinePath); err != nil {
+			return err
+		}
+		quarantined = true
+		return nil
+	})
+	return quarantined, err
+}
+
 // ─── internal helpers ─────────────────────────────────────────────────────────
 
 func (c *Collection) filePath(id string) (string, error) {
@@ -328,7 +385,7 @@ func (c *Collection) readFile(path string) (*persis.Record, error) {
 		return nil, err
 	}
 	if !json.Valid(raw) {
-		return nil, fmt.Errorf("file backend: corrupt record at %q: invalid JSON", path)
+		return nil, fmt.Errorf("file backend: %w at %q: invalid JSON", persis.ErrCorrupt, path)
 	}
 
 	info, err := os.Stat(path)

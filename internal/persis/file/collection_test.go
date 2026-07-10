@@ -448,14 +448,23 @@ func TestFileCollectionPutNilReturnsError(t *testing.T) {
 	require.ErrorContains(t, err, "nil record")
 }
 
-// TestFileCollectionCreateIsAtomicAcrossGoroutines races 16 goroutines on the
-// same ID and asserts that exactly one Create succeeds and the rest see
-// ErrConflict. Exercises the O_EXCL guarantee against in-process concurrency.
+func TestFileCollectionGetReportsTypedCorruption(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "broken.json"), nil, 0o600))
+
+	_, err := file.NewCollection(root).Get(context.Background(), "broken")
+	assert.ErrorIs(t, err, persis.ErrCorrupt)
+}
+
+// TestFileCollectionCreateIsAtomicAcrossGoroutines races concurrent creators
+// on one ID and verifies the collection's exclusive-insert contract.
 func TestFileCollectionCreateIsAtomicAcrossGoroutines(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	col := file.NewCollection(t.TempDir())
+	root := t.TempDir()
 
 	const goroutines = 16
 	var (
@@ -468,7 +477,7 @@ func TestFileCollectionCreateIsAtomicAcrossGoroutines(t *testing.T) {
 	for range goroutines {
 		wg.Go(func() {
 			<-start
-			err := col.Create(ctx, &persis.Record{
+			err := file.NewCollection(root).Create(ctx, &persis.Record{
 				ID:        "shared",
 				Data:      []byte(`{}`),
 				CreatedAt: time.Now().UTC(),

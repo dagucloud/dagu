@@ -14,4 +14,8 @@ var (
 	// ErrConflict is returned by CompareAndSwap when the current Data does not
 	// match the expected value.
 	ErrConflict = errors.New("persis: compare-and-swap conflict")
+
+	// ErrCorrupt is returned when a record exists but its stored representation
+	// cannot be decoded by the backend.
+	ErrCorrupt = errors.New("persis: corrupt record")
 )

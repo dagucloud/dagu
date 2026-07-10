@@ -330,6 +330,24 @@ func TestQueueProcessor_ProcessQueueItems_FailsClosedOnLeaseCountError(t *testin
 	assert.Contains(t, f.logs(), "Failed to count distributed leases")
 }
 
+func TestQueueProcessor_StaleCorruptLeaseDoesNotBlockCapacityCheck(t *testing.T) {
+	f := newQueueFixture(t).withDAG("stale-corrupt-lease-dag", 1).
+		withProcessor(config.Queues{}).
+		simulateQueue(1, false)
+
+	leaseDir := filepath.Join(f.distributedDir, "leases")
+	require.NoError(t, os.MkdirAll(leaseDir, 0o750))
+	path := filepath.Join(leaseDir, "stale-corrupt.json")
+	require.NoError(t, os.WriteFile(path, nil, 0o600))
+	old := time.Now().Add(-2 * exec.DefaultStaleLeaseThreshold)
+	require.NoError(t, os.Chtimes(path, old, old))
+
+	count, err := f.processor.newQueueDispatcher().countActiveDistributedRuns(f.ctx, f.dag.Name)
+	require.NoError(t, err)
+	assert.Zero(t, count)
+	assert.Contains(t, f.logs(), "Quarantined stale corrupt distributed lease entry")
+}
+
 func TestQueueProcessor_ProcessQueueItems_FailsClosedOnOutstandingDispatchCountError(t *testing.T) {
 	f := newQueueFixture(t).withDAG("distributed-dispatch-count-error-dag", 1).
 		withProcessor(config.Queues{}).

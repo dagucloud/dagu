@@ -22,12 +22,17 @@ var _ exec.ActiveDistributedRunStore = (*ActiveDistributedRunStore)(nil)
 // of a [persis.Collection]. Record IDs intentionally match the file-backed
 // distributed store SHA-256 key.
 type ActiveDistributedRunStore struct {
-	col persis.Collection
+	col                      persis.Collection
+	corruptRecordGracePeriod time.Duration
 }
 
 // NewActiveDistributedRunStore creates an ActiveDistributedRunStore backed by col.
-func NewActiveDistributedRunStore(col persis.Collection) *ActiveDistributedRunStore {
-	return &ActiveDistributedRunStore{col: col}
+func NewActiveDistributedRunStore(col persis.Collection, opts ...DistributedStoreOption) *ActiveDistributedRunStore {
+	resolved := resolveDistributedStoreOptions(opts)
+	return &ActiveDistributedRunStore{
+		col:                      col,
+		corruptRecordGracePeriod: resolved.corruptRecordGracePeriod,
+	}
 }
 
 // Upsert writes the active-run record. Get → Create if absent /
@@ -42,23 +47,35 @@ func (s *ActiveDistributedRunStore) Upsert(ctx context.Context, record exec.Acti
 		now := time.Now().UTC()
 		record.UpdatedAt = now.UnixMilli()
 
-		existing, getErr := s.col.Get(ctx, id)
-		if getErr != nil && !errors.Is(getErr, persis.ErrNotFound) {
-			return getErr
-		}
-
 		data, err := persis.Encode(record)
 		if err != nil {
 			return err
 		}
+		stored := &persis.Record{
+			ID:        id,
+			Data:      data,
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
+
+		existing, getErr := s.col.Get(ctx, id)
+		if errors.Is(getErr, persis.ErrCorrupt) {
+			repaired, repairErr := repairCorruptRecord(ctx, s.col, stored)
+			if repairErr != nil {
+				return repairErr
+			}
+			if repaired {
+				logger.Warn(ctx, "Repaired corrupt active distributed run entry", tag.Name(id))
+				return nil
+			}
+			return getErr
+		}
+		if getErr != nil && !errors.Is(getErr, persis.ErrNotFound) {
+			return getErr
+		}
 
 		if existing == nil {
-			return s.col.Create(ctx, &persis.Record{
-				ID:        id,
-				Data:      data,
-				CreatedAt: now,
-				UpdatedAt: now,
-			})
+			return s.col.Create(ctx, stored)
 		}
 		casErr := s.col.CompareAndSwap(ctx, id, existing.Data, data)
 		if errors.Is(casErr, persis.ErrNotFound) {
@@ -94,11 +111,33 @@ func (s *ActiveDistributedRunStore) Get(ctx context.Context, attemptKey string) 
 }
 
 func (s *ActiveDistributedRunStore) ListAll(ctx context.Context) ([]exec.ActiveDistributedRun, error) {
-	recs, err := listAllBestEffort(ctx, s.col, persis.ListQuery{}, func(id string, err error) {
+	recs, err := listAllStrictWithReadError(ctx, s.col, persis.ListQuery{}, func(id string, readErr error) (bool, error) {
+		if errors.Is(readErr, persis.ErrCorrupt) {
+			quarantined, quarantineErr := quarantineStaleCorruptRecord(
+				ctx,
+				s.col,
+				id,
+				s.corruptRecordGracePeriod,
+			)
+			if quarantineErr == nil && quarantined {
+				logger.Warn(ctx, "Quarantined stale corrupt active distributed run entry",
+					tag.Name(id),
+					tag.Error(readErr),
+				)
+				return true, nil
+			}
+			if quarantineErr != nil && !errors.Is(quarantineErr, persis.ErrNotFound) {
+				logger.Warn(ctx, "Failed to quarantine corrupt active distributed run entry",
+					tag.Name(id),
+					tag.Error(quarantineErr),
+				)
+			}
+		}
 		logger.Warn(ctx, "Skipping corrupted active distributed run entry",
 			tag.Name(id),
-			tag.Error(err),
+			tag.Error(readErr),
 		)
+		return true, nil
 	})
 	if err != nil {
 		return nil, err
