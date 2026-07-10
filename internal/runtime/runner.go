@@ -1186,12 +1186,10 @@ func (r *Runner) setFailed() {
 }
 
 func (r *Runner) resetRunState(plan *Plan) {
-	cancelRequested := plan.isCancelRequested()
-
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.canceled = 0
-	if cancelRequested {
+	if plan.isCancelRequested() {
 		r.canceled = 1
 	}
 	r.failed = 0
