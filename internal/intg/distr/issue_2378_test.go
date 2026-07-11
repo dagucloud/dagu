@@ -76,7 +76,7 @@ steps:
 	var subRuns []exec.DAGRunStatus
 	require.Eventually(t, func() bool {
 		rootStatus, err := f.latestStatus()
-		if err != nil || rootStatus.Status != core.Running || len(rootStatus.Nodes) != 2 {
+		if err != nil || rootStatus.Status != core.Running || rootStatus.AttemptKey == "" || len(rootStatus.Nodes) != 2 {
 			return false
 		}
 
@@ -87,7 +87,8 @@ steps:
 				return false
 			}
 			subStatus, err := readSubDAGRunStatus(f, currentRootRef, node.SubRuns[0].DAGRunID)
-			if err != nil || subStatus == nil || subStatus.Status != core.Running || subStatus.AttemptKey == "" {
+			if err != nil || subStatus == nil || subStatus.Status != core.Running ||
+				subStatus.AttemptKey == "" || subStatus.ClaimKey != rootStatus.AttemptKey {
 				return false
 			}
 			currentSubRuns = append(currentSubRuns, *subStatus)
@@ -122,11 +123,20 @@ steps:
 }
 
 func TestIssue2378_InlineSubDAGFailsWhenClaimDies(t *testing.T) {
-	releaseFile := filepath.Join(t.TempDir(), "inline-subdag.release")
-	t.Cleanup(func() {
-		_ = os.WriteFile(releaseFile, []byte("ok"), 0o600)
-	})
+	heartbeatThreshold := testStaleHeartbeatThreshold
+	leaseThreshold := testStaleLeaseThreshold
+	eventuallyTimeout := 15 * time.Second
+	failureTimeout := 20 * time.Second
+	schedulerTimeout := 45 * time.Second
+	if runtime.GOOS == "windows" {
+		heartbeatThreshold = 12 * time.Second
+		leaseThreshold = 20 * time.Second
+		eventuallyTimeout = 30 * time.Second
+		failureTimeout = 90 * time.Second
+		schedulerTimeout = 90 * time.Second
+	}
 
+	releaseFile := filepath.Join(t.TempDir(), "inline-subdag.release")
 	f := newTestFixture(t, fmt.Sprintf(`
 name: issue-2378-owner-parent
 worker_selector:
@@ -142,19 +152,20 @@ steps:
 %s
 `, indentYAMLBlock(intgharness.PortableCommands().WaitForFile(releaseFile), 6)),
 		withWorkerCount(0),
-		withStaleThresholds(testStaleHeartbeatThreshold, testStaleLeaseThreshold),
+		withStaleThresholds(heartbeatThreshold, leaseThreshold),
 		withZombieDetectionInterval(testZombieDetectorInterval),
 	)
-	defer f.cleanup()
 
 	workerCmd, _ := startWorkerProcess(t, f, "issue-2378-owner-worker", "test=true")
-	t.Cleanup(func() {
+	defer func() {
+		_ = os.WriteFile(releaseFile, []byte("ok"), 0o600)
 		_ = cmdutil.TerminateProcessGroup(workerCmd, cmdutil.ForceTermination())
-	})
+		f.cleanup()
+	}()
 
 	require.NoError(t, f.enqueue())
 	f.waitForQueued()
-	f.startScheduler(45 * time.Second)
+	f.startScheduler(schedulerTimeout)
 
 	var rootRef exec.DAGRunRef
 	var childRunID string
@@ -172,11 +183,11 @@ steps:
 		childRunID = node.SubRuns[0].DAGRunID
 		childStatus, err := readSubDAGRunStatus(f, rootRef, childRunID)
 		return err == nil && childStatus != nil && childStatus.Status == core.Running
-	}, distrTestTimeout(15*time.Second), 100*time.Millisecond, "inline sub-DAG should be running before its execution owner stops")
+	}, distrTestTimeout(eventuallyTimeout), 100*time.Millisecond, "inline sub-DAG should be running before its claim stops")
 
 	require.NoError(t, cmdutil.TerminateProcessGroup(workerCmd, cmdutil.ForceTermination()))
 
-	childStatus := waitForSubDAGRunStatus(t, f, rootRef, childRunID, core.Failed, 20*time.Second)
+	childStatus := waitForSubDAGRunStatus(t, f, rootRef, childRunID, core.Failed, failureTimeout)
 	require.Equal(t, exec.DistributedLeaseExpiredReason("issue-2378-owner-worker"), childStatus.Error)
-	f.waitForStatus(core.Failed, 15*time.Second)
+	f.waitForStatus(core.Failed, failureTimeout)
 }

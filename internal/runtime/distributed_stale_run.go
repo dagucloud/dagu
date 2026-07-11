@@ -24,8 +24,8 @@ type StaleRunRepairConfig struct {
 	Now                           func() time.Time
 }
 
-// RepairStaleRemoteRun marks a remote active attempt failed only
-// when both the run lease and worker evidence confirm that the exact attempt is gone.
+// RepairStaleRemoteRun marks an active remote run failed only when both the
+// claim lease and worker evidence confirm that its execution claim is gone.
 func RepairStaleRemoteRun(
 	ctx context.Context,
 	cfg StaleRunRepairConfig,
