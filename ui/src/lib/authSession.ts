@@ -5,6 +5,8 @@ export const TOKEN_KEY = 'dagu_auth_token';
 export const AUTH_TOKEN_EXPIRES_AT_KEY = 'dagu_auth_token_expires_at';
 export const AUTH_SESSION_CHANGED_EVENT = 'dagu:auth-session-changed';
 
+const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
+
 declare const getConfig: undefined | (() => { authMode?: string });
 
 type AuthSessionReason =
@@ -98,9 +100,7 @@ export function setAuthSession(
   });
 }
 
-export function clearAuthSession(
-  reason: AuthSessionReason = 'logout'
-): void {
+export function clearAuthSession(reason: AuthSessionReason = 'logout'): void {
   const hadToken = localStorage.getItem(TOKEN_KEY) !== null;
   const hadExpiresAt = localStorage.getItem(AUTH_TOKEN_EXPIRES_AT_KEY) !== null;
   localStorage.removeItem(TOKEN_KEY);
@@ -117,6 +117,35 @@ export function getAuthExpiresAt(): string | null {
 export function isAuthSessionExpired(now: number): boolean {
   const expiresAt = parseExpiresAt(getAuthExpiresAt());
   return expiresAt !== null && expiresAt <= now;
+}
+
+export function scheduleAuthSessionExpiry(): () => void {
+  let timeout: number | null = null;
+
+  const scheduleNextCheck = () => {
+    const expiresAt = parseExpiresAt(getAuthExpiresAt());
+    if (expiresAt === null) {
+      return;
+    }
+
+    const remaining = expiresAt - Date.now();
+    if (remaining <= 0) {
+      clearAuthSession('expired');
+      return;
+    }
+
+    timeout = window.setTimeout(
+      scheduleNextCheck,
+      Math.min(remaining, MAX_TIMER_DELAY_MS)
+    );
+  };
+
+  scheduleNextCheck();
+  return () => {
+    if (timeout !== null) {
+      window.clearTimeout(timeout);
+    }
+  };
 }
 
 export function getAuthToken(): string | null {

@@ -7,14 +7,12 @@ import {
   clearAuthSession,
   getAuthToken,
   handleAuthResponse,
+  scheduleAuthSessionExpiry,
   setAuthSession,
 } from '../authSession';
 
 function base64URL(value: string): string {
-  return btoa(value)
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '');
+  return btoa(value).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
 function createJWT(payload: Record<string, unknown>): string {
@@ -28,6 +26,8 @@ describe('authSession', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
     vi.unstubAllGlobals();
     localStorage.clear();
   });
@@ -68,6 +68,26 @@ describe('authSession', () => {
       token: null,
       reason: 'expired',
     });
+  });
+
+  it('keeps a long-lived session until its actual expiry', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
+    const setTimeoutSpy = vi.spyOn(window, 'setTimeout');
+    const day = 24 * 60 * 60 * 1000;
+    const expiresAt = new Date(Date.now() + 90 * day).toISOString();
+    setAuthSession('long-lived-token', expiresAt);
+
+    const cancel = scheduleAuthSessionExpiry();
+    const firstDelay = Number(setTimeoutSpy.mock.calls[0]?.[1]);
+    expect(firstDelay).toBeLessThanOrEqual(2 ** 31 - 1);
+
+    vi.advanceTimersByTime(89 * day);
+    expect(getAuthToken()).toBe('long-lived-token');
+
+    vi.advanceTimersByTime(day);
+    expect(getAuthToken()).toBeNull();
+    cancel();
   });
 
   it('ignores login failures when there is no active token to invalidate', () => {

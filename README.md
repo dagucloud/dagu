@@ -809,7 +809,7 @@ The embedded API is experimental and may change. See the embedded API documentat
 | `DAGU_AUTH_BASIC_USERNAME` | — | Basic auth username |
 | `DAGU_AUTH_BASIC_PASSWORD` | — | Basic auth password |
 | `DAGU_AUTH_TOKEN_SECRET` | (auto) | JWT signing secret |
-| `DAGU_AUTH_TOKEN_TTL` | `24h` | JWT token lifetime |
+| `DAGU_AUTH_TOKEN_TTL` | `24h` | JWT token lifetime (maximum: `8760h` / 365 days) |
 
 OIDC variables: `DAGU_AUTH_OIDC_CLIENT_ID`, `DAGU_AUTH_OIDC_CLIENT_SECRET`, `DAGU_AUTH_OIDC_ISSUER`, `DAGU_AUTH_OIDC_SCOPES`, `DAGU_AUTH_OIDC_WHITELIST`, `DAGU_AUTH_OIDC_AUTO_SIGNUP`, `DAGU_AUTH_OIDC_DEFAULT_ROLE`, `DAGU_AUTH_OIDC_ALLOWED_DOMAINS`.
 

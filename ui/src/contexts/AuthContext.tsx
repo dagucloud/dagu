@@ -18,8 +18,8 @@ import {
   TOKEN_KEY,
   addAuthSessionListener,
   clearAuthSession,
-  getAuthExpiresAt,
   getAuthToken,
+  scheduleAuthSessionExpiry,
   setAuthSession,
 } from '@/lib/authSession';
 import {
@@ -181,19 +181,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!token) {
       return;
     }
-    const expiresAt = getAuthExpiresAt();
-    if (!expiresAt) {
-      return;
-    }
-    const delay = Date.parse(expiresAt) - Date.now();
-    if (delay <= 0) {
-      clearAuthSession('expired');
-      return;
-    }
-    const timeout = window.setTimeout(() => {
-      clearAuthSession('expired');
-    }, delay);
-    return () => window.clearTimeout(timeout);
+    return scheduleAuthSessionExpiry();
   }, [token]);
 
   useEffect(() => {

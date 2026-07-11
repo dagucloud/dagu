@@ -404,7 +404,7 @@
         },
         "ttl": {
           "type": "string",
-          "description": "Token time-to-live duration (e.g., '24h')."
+          "description": "Token time-to-live duration up to 8760h (365 days), e.g. '24h'."
         }
       }
     },

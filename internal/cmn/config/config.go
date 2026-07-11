@@ -246,6 +246,8 @@ type AuthBuiltin struct {
 	InitialAdmin InitialAdmin
 }
 
+const maxBuiltinAuthTokenTTL = 365 * 24 * time.Hour
+
 // TokenConfig represents JWT token configuration.
 type TokenConfig struct {
 	Secret string
@@ -694,6 +696,9 @@ func (c *Config) validateBuiltinAuth() error {
 	}
 	if c.Server.Auth.Builtin.Token.TTL <= 0 {
 		return fmt.Errorf("builtin auth requires a positive token TTL")
+	}
+	if c.Server.Auth.Builtin.Token.TTL > maxBuiltinAuthTokenTTL {
+		return fmt.Errorf("builtin auth token TTL must not exceed 8760h (365 days)")
 	}
 
 	// Validate initial_admin: both fields must be set, or neither.

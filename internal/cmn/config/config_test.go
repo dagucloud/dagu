@@ -331,6 +331,36 @@ func TestConfig_Validate(t *testing.T) {
 		assert.Contains(t, err.Error(), "positive token TTL")
 	})
 
+	t.Run("BuiltinAuth_MaxTokenTTL", func(t *testing.T) {
+		t.Parallel()
+		cfg := validBaseConfig()
+		cfg.Server.Auth = Auth{
+			Mode: AuthModeBuiltin,
+			Builtin: AuthBuiltin{
+				Token: TokenConfig{Secret: "secret", TTL: 365 * 24 * time.Hour},
+			},
+		}
+		cfg.Paths.UsersDir = "/tmp/users"
+		cfg.UI.MaxDashboardPageLimit = 1
+		require.NoError(t, cfg.Validate())
+	})
+
+	t.Run("BuiltinAuth_TokenTTLAboveMaximum", func(t *testing.T) {
+		t.Parallel()
+		cfg := validBaseConfig()
+		cfg.Server.Auth = Auth{
+			Mode: AuthModeBuiltin,
+			Builtin: AuthBuiltin{
+				Token: TokenConfig{Secret: "secret", TTL: 365*24*time.Hour + time.Second},
+			},
+		}
+		cfg.Paths.UsersDir = "/tmp/users"
+		cfg.UI.MaxDashboardPageLimit = 1
+		err := cfg.Validate()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "must not exceed 8760h (365 days)")
+	})
+
 	t.Run("BuiltinAuth_InitialAdmin_BothSet", func(t *testing.T) {
 		t.Parallel()
 		cfg := validBaseConfig()
