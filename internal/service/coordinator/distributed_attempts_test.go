@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDistributedAttemptOwnershipStatusDecision(t *testing.T) {
+func TestAttemptOwnershipStatusDecision(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -112,7 +112,7 @@ func TestDistributedAttemptOwnershipStatusDecision(t *testing.T) {
 	})
 }
 
-func TestDistributedAttemptOwnershipSyncFromStatus(t *testing.T) {
+func TestAttemptOwnershipSyncFromStatus(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -153,7 +153,7 @@ func TestDistributedAttemptOwnershipSyncFromStatus(t *testing.T) {
 		WorkerID:   "worker-1",
 	}
 	activeUpdatedLowerBound := time.Now().UTC().UnixMilli()
-	ownership.syncFromStatus(ctx, "", status, "", "owner-attempt-key")
+	ownership.syncFromStatus(ctx, "", status, "")
 	activeUpdatedUpperBound := time.Now().UTC().UnixMilli()
 
 	lease, err := leaseStore.Get(ctx, "attempt-key-1")
@@ -163,7 +163,6 @@ func TestDistributedAttemptOwnershipSyncFromStatus(t *testing.T) {
 	assert.Equal(t, "existing-queue", lease.QueueName)
 	assert.Equal(t, "worker-1", lease.WorkerID)
 	assert.Equal(t, "coord-a", lease.Owner.ID)
-	assert.Equal(t, "owner-attempt-key", lease.LivenessAttemptKey)
 
 	record, err := activeStore.Get(ctx, "attempt-key-1")
 	require.NoError(t, err)
@@ -172,13 +171,12 @@ func TestDistributedAttemptOwnershipSyncFromStatus(t *testing.T) {
 	assert.Equal(t, "attempt-1", record.AttemptID)
 	assert.Equal(t, "worker-1", record.WorkerID)
 	assert.Equal(t, core.Running, record.Status)
-	assert.Equal(t, "owner-attempt-key", record.LivenessAttemptKey)
 	assert.GreaterOrEqual(t, record.UpdatedAt, activeUpdatedLowerBound)
 	assert.LessOrEqual(t, record.UpdatedAt, activeUpdatedUpperBound)
 
 	status.Status = core.Queued
 	activeUpdatedLowerBound = time.Now().UTC().UnixMilli()
-	ownership.syncFromStatus(ctx, "worker-1", status, "", "owner-attempt-key")
+	ownership.syncFromStatus(ctx, "worker-1", status, "")
 	activeUpdatedUpperBound = time.Now().UTC().UnixMilli()
 
 	lease, err = leaseStore.Get(ctx, "attempt-key-1")
@@ -191,7 +189,7 @@ func TestDistributedAttemptOwnershipSyncFromStatus(t *testing.T) {
 	assert.LessOrEqual(t, record.UpdatedAt, activeUpdatedUpperBound)
 
 	status.Status = core.Succeeded
-	ownership.syncFromStatus(ctx, "worker-1", status, "", "owner-attempt-key")
+	ownership.syncFromStatus(ctx, "worker-1", status, "")
 
 	_, err = leaseStore.Get(ctx, "attempt-key-1")
 	assert.ErrorIs(t, err, exec.ErrDAGRunLeaseNotFound)
@@ -199,7 +197,43 @@ func TestDistributedAttemptOwnershipSyncFromStatus(t *testing.T) {
 	assert.ErrorIs(t, err, exec.ErrActiveRunNotFound)
 }
 
-func TestDistributedAttemptOwnershipTaskClaimTracking(t *testing.T) {
+func TestInlineRunSharesClaimLease(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	baseDir := filepath.Join(t.TempDir(), "distributed")
+	leaseStore := newTestDAGRunLeaseStore(baseDir)
+	activeStore := newTestActiveDistributedRunStore(baseDir)
+	ownership := newAttemptOwnership(attemptOwnershipConfig{
+		LeaseStore:     leaseStore,
+		ActiveRunStore: activeStore,
+	})
+
+	require.NoError(t, leaseStore.Upsert(ctx, exec.DAGRunLease{
+		AttemptKey:      "claim-key",
+		WorkerID:        "worker-1",
+		LastHeartbeatAt: time.Now().UTC().UnixMilli(),
+	}))
+	status := &exec.DAGRunStatus{
+		Name:       "child",
+		DAGRunID:   "child-run",
+		AttemptID:  "child-attempt",
+		AttemptKey: "child-key",
+		ClaimKey:   "claim-key",
+		WorkerID:   "worker-1",
+		Status:     core.Running,
+	}
+
+	ownership.syncFromStatus(ctx, "worker-1", status, "")
+
+	lease, err := leaseStore.Get(ctx, "claim-key")
+	require.NoError(t, err)
+	assert.True(t, lease.MatchesClaim(status.EffectiveClaimKey(), status.WorkerID))
+	_, err = activeStore.Get(ctx, "child-key")
+	require.NoError(t, err)
+}
+
+func TestAttemptOwnershipTaskClaimTracking(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -233,7 +267,6 @@ func TestDistributedAttemptOwnershipTaskClaimTracking(t *testing.T) {
 	lease, err := leaseStore.Get(ctx, "attempt-key-1")
 	require.NoError(t, err)
 	assert.Equal(t, "attempt-key-1", lease.AttemptKey)
-	assert.Equal(t, "attempt-key-1", lease.LivenessAttemptKey)
 	assert.Equal(t, exec.NewDAGRunRef("test-dag", "run-1"), lease.DAGRun)
 	assert.Equal(t, exec.NewDAGRunRef("test-dag", "run-1"), lease.Root)
 	assert.Equal(t, "test-dag", lease.QueueName)
@@ -247,7 +280,6 @@ func TestDistributedAttemptOwnershipTaskClaimTracking(t *testing.T) {
 	assert.Equal(t, exec.NewDAGRunRef("test-dag", "run-1"), record.DAGRun)
 	assert.Equal(t, exec.NewDAGRunRef("test-dag", "run-1"), record.Root)
 	assert.Equal(t, "attempt-1", record.AttemptID)
-	assert.Equal(t, "attempt-key-1", record.LivenessAttemptKey)
 	assert.Equal(t, "worker-1", record.WorkerID)
 	assert.Equal(t, core.Queued, record.Status)
 	assert.GreaterOrEqual(t, record.UpdatedAt, activeUpdatedLowerBound)

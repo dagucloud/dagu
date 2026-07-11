@@ -1307,7 +1307,7 @@ func TestHandler_Heartbeat(t *testing.T) {
 		ctx := context.Background()
 
 		ref := exec.NewDAGRunRef("test-dag", "run-123")
-		reason := staleDistributedLeaseReason("worker-1")
+		reason := exec.DistributedLeaseExpiredReason("worker-1")
 		attempt := store.addAttempt(ref, &exec.DAGRunStatus{
 			Name:       "test-dag",
 			DAGRunID:   "run-123",
@@ -1399,7 +1399,7 @@ func TestHandler_Heartbeat(t *testing.T) {
 		ctx := context.Background()
 
 		ref := exec.NewDAGRunRef("test-dag", "run-123")
-		reason := staleDistributedLeaseReason("worker-1")
+		reason := exec.DistributedLeaseExpiredReason("worker-1")
 		attempt := store.addAttempt(ref, &exec.DAGRunStatus{
 			Name:       "test-dag",
 			DAGRunID:   "run-123",
@@ -2167,9 +2167,9 @@ func TestHandler_ZombieDetection(t *testing.T) {
 				status, err := attempt.ReadStatus(ctx)
 				require.NoError(t, err)
 				assert.Equal(t, core.Failed, status.Status)
-				assert.Equal(t, staleDistributedLeaseReason("worker-1"), status.Error)
+				assert.Equal(t, exec.DistributedLeaseExpiredReason("worker-1"), status.Error)
 				assert.Equal(t, core.NodeFailed, status.Nodes[0].Status)
-				assert.Equal(t, staleDistributedLeaseReason("worker-1"), status.Nodes[0].Error)
+				assert.Equal(t, exec.DistributedLeaseExpiredReason("worker-1"), status.Nodes[0].Error)
 
 				_, err = leaseStore.Get(ctx, "lease-key-1")
 				assert.ErrorIs(t, err, exec.ErrDAGRunLeaseNotFound)
@@ -2224,7 +2224,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		status, err := attempt.ReadStatus(ctx)
 		require.NoError(t, err)
 		assert.Equal(t, core.Failed, status.Status)
-		assert.Equal(t, staleDistributedLeaseReason("worker-1"), status.Error)
+		assert.Equal(t, exec.DistributedLeaseExpiredReason("worker-1"), status.Error)
 		assert.Equal(t, core.NodeFailed, status.Nodes[0].Status)
 
 		_, err = leaseStore.Get(ctx, "lease-key-1")
@@ -2461,9 +2461,9 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		status, err := attempt.ReadStatus(ctx)
 		require.NoError(t, err)
 		require.Equal(t, core.Failed, status.Status)
-		require.Equal(t, staleDistributedLeaseReason("worker-1"), status.Error)
+		require.Equal(t, exec.DistributedLeaseExpiredReason("worker-1"), status.Error)
 		require.Equal(t, core.NodeFailed, status.Nodes[0].Status)
-		require.Equal(t, staleDistributedLeaseReason("worker-1"), status.Nodes[0].Error)
+		require.Equal(t, exec.DistributedLeaseExpiredReason("worker-1"), status.Nodes[0].Error)
 
 		_, err = leaseStore.Get(ctx, attemptKey)
 		assert.ErrorIs(t, err, exec.ErrDAGRunLeaseNotFound)
@@ -2653,7 +2653,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		status, err := attempt.ReadStatus(ctx)
 		require.NoError(t, err)
 		assert.Equal(t, core.Failed, status.Status)
-		assert.Equal(t, staleDistributedLeaseReason("worker-1"), status.Error)
+		assert.Equal(t, exec.DistributedLeaseExpiredReason("worker-1"), status.Error)
 		assert.Equal(t, core.NodeFailed, status.Nodes[0].Status)
 
 		_, err = leaseStore.Get(ctx, attemptKey)
@@ -2690,7 +2690,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		status, err := attempt.ReadStatus(ctx)
 		require.NoError(t, err)
 		assert.Equal(t, core.Failed, status.Status)
-		assert.Equal(t, staleDistributedLeaseReason("worker-1"), status.Error)
+		assert.Equal(t, exec.DistributedLeaseExpiredReason("worker-1"), status.Error)
 		assert.Equal(t, core.NodeFailed, status.Nodes[0].Status)
 	})
 
@@ -2865,7 +2865,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		status, err := attempt.ReadStatus(ctx)
 		require.NoError(t, err)
 		assert.Equal(t, core.Failed, status.Status)
-		assert.Equal(t, staleDistributedLeaseReason("worker-1"), status.Error)
+		assert.Equal(t, exec.DistributedLeaseExpiredReason("worker-1"), status.Error)
 
 		records, err := activeStore.ListAll(ctx)
 		require.NoError(t, err)

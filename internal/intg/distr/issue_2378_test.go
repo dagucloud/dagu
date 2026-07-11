@@ -121,7 +121,7 @@ steps:
 	require.Equal(t, core.Succeeded, finalStatus.Status)
 }
 
-func TestIssue2378_InlineSubDAGFailsWhenExecutionOwnerDies(t *testing.T) {
+func TestIssue2378_InlineSubDAGFailsWhenClaimDies(t *testing.T) {
 	releaseFile := filepath.Join(t.TempDir(), "inline-subdag.release")
 	t.Cleanup(func() {
 		_ = os.WriteFile(releaseFile, []byte("ok"), 0o600)

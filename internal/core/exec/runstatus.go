@@ -167,6 +167,7 @@ type DAGRunStatus struct {
 	DAGRunID       string            `json:"dagRunId"`
 	AttemptID      string            `json:"attemptId"`
 	AttemptKey     string            `json:"attemptKey,omitempty"` // Globally unique attempt identifier
+	ClaimKey       string            `json:"claimKey,omitempty"`   // Worker claim that executes this attempt
 	Status         core.Status       `json:"status"`
 	Conditions     []DAGRunCondition `json:"conditions,omitempty"`
 	TriggerType    core.TriggerType  `json:"triggerType,omitempty"`
@@ -207,6 +208,15 @@ type DAGRunStatus struct {
 	Preconditions        []*core.Condition     `json:"preconditions,omitempty"`
 	Labels               []string              `json:"labels,omitempty"`
 	LeaseAt              int64                 `json:"leaseAt,omitempty"` // Unix millis; stamped by coordinator on observed run liveness
+}
+
+// EffectiveClaimKey returns the worker claim that executes this attempt.
+func (s DAGRunStatus) EffectiveClaimKey() string {
+	if s.ClaimKey != "" {
+		return s.ClaimKey
+	}
+	// TODO: Remove the AttemptKey fallback in the next major version.
+	return s.AttemptKey
 }
 
 // Tags returns labels under their deprecated name.

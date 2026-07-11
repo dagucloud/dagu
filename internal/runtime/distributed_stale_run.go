@@ -14,22 +14,21 @@ import (
 
 const defaultStaleWorkerHeartbeatThreshold = 30 * time.Second
 
-// DistributedRunRepairConfig configures conservative stale distributed-run repair.
-type DistributedRunRepairConfig struct {
+// StaleRunRepairConfig configures conservative stale remote-run repair.
+type StaleRunRepairConfig struct {
 	DAGRunStore                   exec.DAGRunStore
 	DAGRunLeaseStore              exec.DAGRunLeaseStore
 	WorkerHeartbeatStore          exec.WorkerHeartbeatStore
-	LivenessAttemptKey            string
 	StaleLeaseThreshold           time.Duration
 	StaleWorkerHeartbeatThreshold time.Duration
 	Now                           func() time.Time
 }
 
-// ConfirmAndRepairStaleDistributedRun marks a remote active attempt failed only
+// RepairStaleRemoteRun marks a remote active attempt failed only
 // when both the run lease and worker evidence confirm that the exact attempt is gone.
-func ConfirmAndRepairStaleDistributedRun(
+func RepairStaleRemoteRun(
 	ctx context.Context,
-	cfg DistributedRunRepairConfig,
+	cfg StaleRunRepairConfig,
 	status *exec.DAGRunStatus,
 	fallbackAttemptID string,
 	fallbackWorkerID string,
@@ -42,7 +41,7 @@ func ConfirmAndRepairStaleDistributedRun(
 	if !ok {
 		return status, false, nil
 	}
-	if !statusEligibleForDistributedRepair(status.Status) {
+	if !statusRepairable(status.Status) {
 		return status, false, nil
 	}
 
@@ -64,36 +63,21 @@ func ConfirmAndRepairStaleDistributedRun(
 		now = cfg.Now().UTC()
 	}
 
-	livenessAttemptKey := cfg.LivenessAttemptKey
-	lease, err := cfg.DAGRunLeaseStore.Get(ctx, attemptKey)
+	claimKey := status.EffectiveClaimKey()
+	if claimKey == "" {
+		claimKey = attemptKey
+	}
+	lease, err := cfg.DAGRunLeaseStore.Get(ctx, claimKey)
 	switch {
 	case err == nil:
-		if lease != nil && !exec.LeaseIdentityMatchesStatus(lease, status, attemptID) {
+		if lease != nil && lease.AttemptKey != claimKey {
 			return status, false, nil
-		}
-		if livenessAttemptKey == "" && lease != nil {
-			livenessAttemptKey = lease.EffectiveLivenessAttemptKey()
 		}
 	case errors.Is(err, exec.ErrDAGRunLeaseNotFound):
 	default:
 		return status, false, err
 	}
-	if livenessAttemptKey == "" {
-		livenessAttemptKey = attemptKey
-	}
-
-	livenessLease := lease
-	if livenessAttemptKey != attemptKey {
-		livenessLease, err = cfg.DAGRunLeaseStore.Get(ctx, livenessAttemptKey)
-		switch {
-		case err == nil:
-		case errors.Is(err, exec.ErrDAGRunLeaseNotFound):
-			livenessLease = nil
-		default:
-			return status, false, err
-		}
-	}
-	if livenessAttemptLeaseFresh(livenessLease, livenessAttemptKey, workerID, now, staleLeaseThresholdOrDefault(cfg.StaleLeaseThreshold)) {
+	if lease.MatchesClaim(claimKey, workerID) && lease.IsFresh(now, staleLeaseThresholdOrDefault(cfg.StaleLeaseThreshold)) {
 		return status, false, nil
 	}
 
@@ -104,7 +88,7 @@ func ConfirmAndRepairStaleDistributedRun(
 			if record.Stats == nil {
 				return status, false, nil
 			}
-			if workerHeartbeatReportsAttempt(record, status, attemptKey, livenessAttemptKey) {
+			if workerReportsClaim(record, status, attemptKey, claimKey) {
 				return status, false, nil
 			}
 		}
@@ -138,16 +122,6 @@ func ConfirmAndRepairStaleDistributedRun(
 	return currentStatus, true, nil
 }
 
-func livenessAttemptLeaseFresh(lease *exec.DAGRunLease, livenessAttemptKey, workerID string, now time.Time, threshold time.Duration) bool {
-	if lease == nil || livenessAttemptKey == "" || lease.AttemptKey != livenessAttemptKey {
-		return false
-	}
-	if lease.WorkerID != "" && workerID != "" && lease.WorkerID != workerID {
-		return false
-	}
-	return lease.IsFresh(now, threshold)
-}
-
 func remoteWorkerIDForStatus(status *exec.DAGRunStatus, fallbackWorkerID string) (string, bool) {
 	if status == nil {
 		return "", false
@@ -167,7 +141,7 @@ func remoteWorkerIDForStatus(status *exec.DAGRunStatus, fallbackWorkerID string)
 	return fallbackWorkerID, true
 }
 
-func statusEligibleForDistributedRepair(status core.Status) bool {
+func statusRepairable(status core.Status) bool {
 	return status == core.Running || status == core.Queued || status == core.NotStarted
 }
 
@@ -178,7 +152,7 @@ func workerHeartbeatFresh(record *exec.WorkerHeartbeatRecord, now time.Time, thr
 	return now.Sub(record.LastHeartbeatTime()) < threshold
 }
 
-func workerHeartbeatReportsAttempt(record *exec.WorkerHeartbeatRecord, status *exec.DAGRunStatus, attemptKey, livenessAttemptKey string) bool {
+func workerReportsClaim(record *exec.WorkerHeartbeatRecord, status *exec.DAGRunStatus, attemptKey, claimKey string) bool {
 	if record == nil || record.Stats == nil {
 		return false
 	}
@@ -187,10 +161,10 @@ func workerHeartbeatReportsAttempt(record *exec.WorkerHeartbeatRecord, status *e
 		if task == nil {
 			continue
 		}
-		if task.AttemptKey != "" && task.AttemptKey == livenessAttemptKey {
+		if task.AttemptKey != "" && task.AttemptKey == claimKey {
 			return true
 		}
-		if task.AttemptKey == "" && livenessAttemptKey == attemptKey && task.DAGRunID == status.DAGRunID && task.DAGName == status.Name {
+		if task.AttemptKey == "" && claimKey == attemptKey && task.DAGRunID == status.DAGRunID && task.DAGName == status.Name {
 			return true
 		}
 	}

@@ -249,8 +249,6 @@ message ReportStatusRequest {
   string worker_id = 1;
   DAGRunStatusProto status = 2;
   string owner_coordinator_id = 3;
-  // Attempt whose lease and heartbeat determine liveness for this status.
-  string liveness_attempt_key = 4;
 }
 
 // Response message for reporting DAG run status.

@@ -1959,7 +1959,7 @@ func (a *API) loadRootDAGRunDetailsAttemptAndStatus(
 			return nil, nil, fmt.Errorf("latest dag-run status is unavailable for DAG %s", dagName)
 		}
 
-		return attempt, a.repairConfirmedStaleDistributedRunOnRead(ctx, dagStatus, attempt.ID()), nil
+		return attempt, a.repairStaleRunOnRead(ctx, dagStatus, attempt.ID()), nil
 	}
 
 	ref := exec.NewDAGRunRef(dagName, dagRunId)
@@ -1976,10 +1976,10 @@ func (a *API) loadRootDAGRunDetailsAttemptAndStatus(
 		return nil, nil, err
 	}
 
-	return attempt, a.repairConfirmedStaleDistributedRunOnRead(ctx, dagStatus, attempt.ID()), nil
+	return attempt, a.repairStaleRunOnRead(ctx, dagStatus, attempt.ID()), nil
 }
 
-func (a *API) repairConfirmedStaleDistributedRunOnRead(
+func (a *API) repairStaleRunOnRead(
 	ctx context.Context,
 	status *exec.DAGRunStatus,
 	fallbackAttemptID string,
@@ -1994,10 +1994,10 @@ func (a *API) repairConfirmedStaleDistributedRunOnRead(
 	}
 	fallbackWorkerID := status.WorkerID
 	if fallbackWorkerID == "" {
-		fallbackWorkerID = a.distributedFallbackWorkerIDFromLease(ctx, status, attemptID)
+		fallbackWorkerID = a.workerIDFromClaim(ctx, status, attemptID)
 	}
 
-	reconciled, _, err := runtime.ConfirmAndRepairStaleDistributedRun(ctx, runtime.DistributedRunRepairConfig{
+	reconciled, _, err := runtime.RepairStaleRemoteRun(ctx, runtime.StaleRunRepairConfig{
 		DAGRunStore:          a.dagRunStore,
 		DAGRunLeaseStore:     a.dagRunLeaseStore,
 		WorkerHeartbeatStore: a.workerHeartbeatStore,
@@ -2018,7 +2018,7 @@ func (a *API) repairConfirmedStaleDistributedRunOnRead(
 	return status
 }
 
-func (a *API) distributedFallbackWorkerIDFromLease(
+func (a *API) workerIDFromClaim(
 	ctx context.Context,
 	status *exec.DAGRunStatus,
 	fallbackAttemptID string,
@@ -2027,12 +2027,15 @@ func (a *API) distributedFallbackWorkerIDFromLease(
 		return ""
 	}
 
-	attemptKey := exec.AttemptKeyForStatus(status, fallbackAttemptID)
-	if attemptKey == "" {
+	claimKey := status.EffectiveClaimKey()
+	if claimKey == "" {
+		claimKey = exec.AttemptKeyForStatus(status, fallbackAttemptID)
+	}
+	if claimKey == "" {
 		return ""
 	}
 
-	lease, err := a.dagRunLeaseStore.Get(ctx, attemptKey)
+	lease, err := a.dagRunLeaseStore.Get(ctx, claimKey)
 	if err != nil || lease == nil || !exec.IsRemoteWorkerID(lease.WorkerID) {
 		return ""
 	}

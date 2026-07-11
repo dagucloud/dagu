@@ -43,26 +43,21 @@ func TestAttemptKeyForStatus(t *testing.T) {
 	})
 }
 
-func TestDistributedTrackingEffectiveLivenessAttemptKey(t *testing.T) {
+func TestDAGRunStatusEffectiveClaimKey(t *testing.T) {
 	t.Parallel()
 
-	t.Run("Lease", func(t *testing.T) {
-		t.Parallel()
+	assert.Equal(t, "attempt-key", (exec.DAGRunStatus{AttemptKey: "attempt-key"}).EffectiveClaimKey())
+	assert.Equal(t, "claim-key", (exec.DAGRunStatus{
+		AttemptKey: "attempt-key",
+		ClaimKey:   "claim-key",
+	}).EffectiveClaimKey())
+}
 
-		assert.Equal(t, "attempt-key", (exec.DAGRunLease{AttemptKey: "attempt-key"}).EffectiveLivenessAttemptKey())
-		assert.Equal(t, "owner-key", (exec.DAGRunLease{
-			AttemptKey:         "attempt-key",
-			LivenessAttemptKey: "owner-key",
-		}).EffectiveLivenessAttemptKey())
-	})
+func TestDAGRunLeaseMatchesClaim(t *testing.T) {
+	t.Parallel()
 
-	t.Run("ActiveRun", func(t *testing.T) {
-		t.Parallel()
-
-		assert.Equal(t, "attempt-key", (exec.ActiveDistributedRun{AttemptKey: "attempt-key"}).EffectiveLivenessAttemptKey())
-		assert.Equal(t, "owner-key", (exec.ActiveDistributedRun{
-			AttemptKey:         "attempt-key",
-			LivenessAttemptKey: "owner-key",
-		}).EffectiveLivenessAttemptKey())
-	})
+	lease := &exec.DAGRunLease{AttemptKey: "claim-key", WorkerID: "worker-1"}
+	assert.True(t, lease.MatchesClaim("claim-key", "worker-1"))
+	assert.False(t, lease.MatchesClaim("other-claim", "worker-1"))
+	assert.False(t, lease.MatchesClaim("claim-key", "worker-2"))
 }

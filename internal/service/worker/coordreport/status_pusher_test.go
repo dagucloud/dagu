@@ -110,12 +110,12 @@ func TestNewStatusPusher(t *testing.T) {
 	t.Parallel()
 
 	client := &mockCoordinatorClient{}
-	pusher := coordreport.NewStatusPusher(client, "worker-123", "owner-attempt-key")
+	pusher := coordreport.NewStatusPusher(client, "worker-123", "claim-key")
 
 	require.NotNil(t, pusher)
 	snapshot := coordreport.SnapshotStatusPusher(pusher)
 	assert.Equal(t, "worker-123", snapshot.WorkerID)
-	assert.Equal(t, "owner-attempt-key", snapshot.LivenessAttemptKey)
+	assert.Equal(t, "claim-key", snapshot.ClaimKey)
 	assert.Equal(t, client, snapshot.Client)
 }
 
@@ -133,7 +133,7 @@ func TestPush(t *testing.T) {
 			},
 		}
 
-		pusher := coordreport.NewStatusPusher(client, "worker-1", "owner-attempt-key")
+		pusher := coordreport.NewStatusPusher(client, "worker-1", "claim-key")
 		status := exec.DAGRunStatus{
 			Name:     "test-dag",
 			DAGRunID: "run-123",
@@ -145,7 +145,6 @@ func TestPush(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, capturedReq)
 		assert.Equal(t, "worker-1", capturedReq.WorkerId)
-		assert.Equal(t, "owner-attempt-key", capturedReq.LivenessAttemptKey)
 		assert.NotNil(t, capturedReq.Status)
 		assert.NotEmpty(t, capturedReq.Status.JsonData)
 		// Verify the JSON contains the expected data
@@ -153,6 +152,7 @@ func TestPush(t *testing.T) {
 		require.NoError(t, convErr)
 		require.NotNil(t, s)
 		assert.Equal(t, "run-123", s.DAGRunID)
+		assert.Equal(t, "claim-key", s.ClaimKey)
 	})
 
 	t.Run("Rejected", func(t *testing.T) {

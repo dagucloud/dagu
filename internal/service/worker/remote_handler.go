@@ -358,12 +358,12 @@ func taskExtraEnvs(task *coordinatorv1.Task) []string {
 }
 
 // createRemoteHandlers creates the remote status, log, and artifact transport handlers.
-func (h *remoteTaskHandler) createRemoteHandlers(dagRunID, dagName, attemptID, livenessAttemptKey string, root exec.DAGRunRef, owner ...exec.HostInfo) (runtime.StatusPusher, runtime.SchedulerLogStreamer, runtime.ArtifactFinalizer) {
+func (h *remoteTaskHandler) createRemoteHandlers(dagRunID, dagName, attemptID, claimKey string, root exec.DAGRunRef, owner ...exec.HostInfo) (runtime.StatusPusher, runtime.SchedulerLogStreamer, runtime.ArtifactFinalizer) {
 	var target exec.HostInfo
 	if len(owner) > 0 {
 		target = owner[0]
 	}
-	statusPusher := coordreport.NewStatusPusher(h.coordinatorClient, h.workerID, livenessAttemptKey, target)
+	statusPusher := coordreport.NewStatusPusher(h.coordinatorClient, h.workerID, claimKey, target)
 	reporter := newRemoteRunReporter(
 		h.coordinatorClient,
 		h.workerID,
