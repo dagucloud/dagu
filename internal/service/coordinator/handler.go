@@ -2377,7 +2377,7 @@ func (h *Handler) reconcileDistributedLease(ctx context.Context, lease exec.DAGR
 
 	switch runStatus.Status {
 	case core.Running, core.NotStarted, core.Queued:
-		if h.distributedLeaseLivenessFresh(ctx, &lease, now) {
+		if h.distributedLeaseAuthorityMayBeFresh(ctx, &lease, now) {
 			ownership.upsertActiveFromStatus(ctx, runStatus, workerID, attemptID, lease.LivenessAuthorityKey())
 			return
 		}
@@ -2441,7 +2441,7 @@ func staleDistributedLeaseReason(workerID string) string {
 	return exec.DistributedLeaseExpiredReason(workerID)
 }
 
-func (h *Handler) distributedLeaseLivenessFresh(ctx context.Context, lease *exec.DAGRunLease, now time.Time) bool {
+func (h *Handler) distributedLeaseAuthorityMayBeFresh(ctx context.Context, lease *exec.DAGRunLease, now time.Time) bool {
 	if lease == nil {
 		return false
 	}
@@ -2524,7 +2524,7 @@ func (h *Handler) detectOrphanedDistributedStatuses(ctx context.Context, now tim
 		}
 
 		if exec.LeaseIdentityMatchesStatus(leaseState.lease, status, leaseState.attemptID) &&
-			h.distributedLeaseLivenessFresh(ctx, leaseState.lease, now) {
+			h.distributedLeaseAuthorityMayBeFresh(ctx, leaseState.lease, now) {
 			continue
 		}
 
@@ -2628,7 +2628,7 @@ func (h *Handler) detectIndexedDistributedStatuses(ctx context.Context, now time
 		}
 
 		if exec.LeaseIdentityMatchesStatus(lease, runStatus, record.AttemptID) &&
-			h.distributedLeaseLivenessFresh(ctx, lease, now) {
+			h.distributedLeaseAuthorityMayBeFresh(ctx, lease, now) {
 			ownership.upsertActiveFromStatus(ctx, runStatus, workerID, record.AttemptID, record.LivenessAuthorityKey())
 			continue
 		}
