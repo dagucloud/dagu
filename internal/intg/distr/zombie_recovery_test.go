@@ -43,48 +43,72 @@ func waitForReleaseFileScript(path string) string {
 	return intgharness.PortableCommands().WaitForFile(path)
 }
 
-// TestDistributedRun_WorkerCrash_MarkedFailed verifies that a hard-killed worker
-// is treated as a crash and the coordinator's zombie detector marks the run FAILED.
+// TestDistributedRun_WorkerCrash_MarkedFailed verifies that a hard-killed
+// worker causes its claim-bound parent and inline sub-DAG to fail.
 func TestDistributedRun_WorkerCrash_MarkedFailed(t *testing.T) {
-	releaseFile := filepath.Join(t.TempDir(), "worker-crash.release")
-	t.Cleanup(func() {
-		_ = os.WriteFile(releaseFile, []byte("ok"), 0600)
-	})
+	heartbeatThreshold := testStaleHeartbeatThreshold
+	leaseThreshold := testStaleLeaseThreshold
+	runningTimeout := 15 * time.Second
+	failureTimeout := 20 * time.Second
+	schedulerTimeout := 45 * time.Second
+	if runtime.GOOS == "windows" {
+		heartbeatThreshold = 12 * time.Second
+		leaseThreshold = 20 * time.Second
+		runningTimeout = 30 * time.Second
+		failureTimeout = 90 * time.Second
+		schedulerTimeout = 90 * time.Second
+	}
 
+	releaseFile := filepath.Join(t.TempDir(), "worker-crash.release")
 	f := newTestFixture(t, fmt.Sprintf(`
-type: graph
-name: zombie-crash-test
+name: worker-crash-parent
 worker_selector:
   test: "true"
 steps:
-  - name: long-step
-    run: |
+  - name: call-child
+    call: worker-crash-child
+---
+name: worker-crash-child
+steps:
+  - name: wait
+    command: |
 %s
 `, indentYAMLBlock(waitForReleaseFileScript(releaseFile), 6)),
 		withWorkerCount(0),
-		withStaleThresholds(testStaleHeartbeatThreshold, testStaleLeaseThreshold),
+		withStaleThresholds(heartbeatThreshold, leaseThreshold),
 		withZombieDetectionInterval(testZombieDetectorInterval),
 	)
-	defer f.cleanup()
-
 	workerCmd, _ := startWorkerProcess(t, f, "crash-worker", "test=true")
+	defer func() {
+		_ = os.WriteFile(releaseFile, []byte("ok"), 0o600)
+		_ = cmdutil.TerminateProcessGroup(workerCmd, cmdutil.ForceTermination())
+		f.cleanup()
+	}()
 
 	require.NoError(t, f.enqueue())
 	f.waitForQueued()
-	f.startScheduler(90 * time.Second)
+	f.startScheduler(schedulerTimeout)
 
-	status := f.waitForStatus(core.Running, 15*time.Second)
-	require.Equal(t, core.Running, status.Status)
-	require.NotEmpty(t, status.AttemptKey)
+	var status exec.DAGRunStatus
+	var subRuns []exec.DAGRunStatus
+	require.Eventually(t, func() bool {
+		var ok bool
+		status, subRuns, ok = readRunningInlineSubDAGs(f, 1)
+		return ok
+	}, distrTestTimeout(runningTimeout), 100*time.Millisecond, "inline sub-DAG should be running before its worker stops")
 	require.Equal(t, "crash-worker", status.WorkerID)
 	lease := waitForLease(t, f, status.AttemptKey, 5*time.Second)
 	require.Equal(t, "crash-worker", lease.WorkerID)
 
 	require.NoError(t, cmdutil.TerminateProcessGroup(workerCmd, cmdutil.ForceTermination()))
 
-	finalStatus := f.waitForStatus(core.Failed, 20*time.Second)
-	assert.Equal(t, core.Failed, finalStatus.Status)
-	assert.Contains(t, finalStatus.Error, "worker")
+	expectedReason := exec.DistributedLeaseExpiredReason("crash-worker")
+	rootRef := exec.NewDAGRunRef(status.Name, status.DAGRunID)
+	childStatus := waitForSubDAGRunStatus(t, f, rootRef, subRuns[0].DAGRunID, core.Failed, failureTimeout)
+	require.Equal(t, expectedReason, childStatus.Error)
+
+	finalStatus := f.waitForStatus(core.Failed, failureTimeout)
+	require.Equal(t, expectedReason, finalStatus.Error)
 }
 
 func TestDistributedRun_AckedTaskWithoutInitialStatus_MarkedFailedAndCleansLease(t *testing.T) {
@@ -99,57 +123,85 @@ func TestDistributedSubDAG_StaleLeaseMarkedFailedAndCleansLease(t *testing.T) {
 	testDistributedSubDAGStaleLeaseMarkedFailedAndCleansLease(t)
 }
 
-// TestDistributedRun_HeartbeatRefreshKeepsQuietRunAlive verifies that a
-// long-running quiet step remains RUNNING past the lease threshold because
-// coordinator-owned heartbeat refreshes keep the lease fresh.
+// TestDistributedRun_HeartbeatRefreshKeepsQuietRunAlive verifies that inline
+// sub-DAGs remain running past the lease threshold while their claim is alive.
 func TestDistributedRun_HeartbeatRefreshKeepsQuietRunAlive(t *testing.T) {
 	heartbeatThreshold := testStaleHeartbeatThreshold
 	leaseThreshold := testStaleLeaseThreshold
 	freshWindow := 2 * time.Second
 	leaseObservationWindow := leaseThreshold + time.Second
 	finalStatusTimeout := 15 * time.Second
+	runningTimeout := 15 * time.Second
+	heartbeatRefreshTimeout := 10 * time.Second
+	schedulerTimeout := 30 * time.Second
 	if runtime.GOOS == "windows" {
 		heartbeatThreshold = 12 * time.Second
 		leaseThreshold = 20 * time.Second
-		// Windows service startup and timer scheduling can lag enough that the
-		// refreshed lease is still valid but older than the nominal stale window.
 		freshWindow = leaseThreshold + 5*time.Second
 		leaseObservationWindow = leaseThreshold + 3*time.Second
 		finalStatusTimeout = 90 * time.Second
+		runningTimeout = 30 * time.Second
+		heartbeatRefreshTimeout = 30 * time.Second
+		schedulerTimeout = 90 * time.Second
 	}
 	releaseFile := filepath.Join(t.TempDir(), "quiet-heartbeat.release")
-	t.Cleanup(func() {
-		_ = os.WriteFile(releaseFile, []byte("ok"), 0600)
-	})
-
 	f := newTestFixture(t, fmt.Sprintf(`
-type: graph
-name: quiet-heartbeat-test
+name: quiet-heartbeat-parent
 worker_selector:
   test: "true"
 steps:
-  - name: long-step
-    run: |
+  - name: call-child-a
+    call: quiet-heartbeat-child-a
+  - name: call-child-b
+    call: quiet-heartbeat-child-b
+---
+name: quiet-heartbeat-child-a
+steps:
+  - name: wait
+    command: |
 %s
-`, indentYAMLBlock(waitForReleaseFileScript(releaseFile), 6)),
+---
+name: quiet-heartbeat-child-b
+steps:
+  - name: wait
+    command: |
+%s
+`, indentYAMLBlock(waitForReleaseFileScript(releaseFile), 6), indentYAMLBlock(waitForReleaseFileScript(releaseFile), 6)),
 		withStaleThresholds(heartbeatThreshold, leaseThreshold),
 		withZombieDetectionInterval(testZombieDetectorInterval),
 	)
-	defer f.cleanup()
+	defer func() {
+		_ = os.WriteFile(releaseFile, []byte("ok"), 0o600)
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			status, err := f.latestStatus()
+			if err == nil && !status.Status.IsActive() {
+				break
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		f.cleanup()
+	}()
 
 	require.NoError(t, f.enqueue())
 	f.waitForQueued()
-	f.startScheduler(30 * time.Second)
+	f.startScheduler(schedulerTimeout)
 
-	status := f.waitForStatus(core.Running, 15*time.Second)
-	require.NotEmpty(t, status.AttemptKey)
+	var status exec.DAGRunStatus
+	var subRuns []exec.DAGRunStatus
+	require.Eventually(t, func() bool {
+		var ok bool
+		status, subRuns, ok = readRunningInlineSubDAGs(f, 2)
+		return ok
+	}, distrTestTimeout(runningTimeout), 100*time.Millisecond, "both inline sub-DAGs should be running")
+	require.Len(t, subRuns, 2)
+
 	initialLease := waitForLease(t, f, status.AttemptKey, 5*time.Second).LastHeartbeatAt
-	runningSince := time.Now()
 
 	var lease exec.DAGRunLease
 	require.Eventually(t, func() bool {
-		currentStatus, err := f.latestStatus()
-		if err != nil || currentStatus.Status != core.Running || currentStatus.AttemptKey != status.AttemptKey {
+		currentStatus, _, ok := readRunningInlineSubDAGs(f, 2)
+		if !ok || currentStatus.AttemptKey != status.AttemptKey {
 			return false
 		}
 		currentLease, err := f.coord.DAGRunLeaseStore.Get(f.coord.Context, status.AttemptKey)
@@ -159,26 +211,18 @@ steps:
 		status = currentStatus
 		lease = *currentLease
 		return true
-	}, 10*time.Second, 100*time.Millisecond, "heartbeat should refresh while run remains active")
+	}, distrTestTimeout(heartbeatRefreshTimeout), 100*time.Millisecond, "heartbeat should refresh while inline sub-DAGs remain active")
 
 	assert.Greater(t, lease.LastHeartbeatAt, initialLease)
 	assert.WithinDuration(t, time.Now(), time.UnixMilli(lease.LastHeartbeatAt), freshWindow)
-	if runtime.GOOS == "windows" {
-		// The Windows signal/file-handle path is flaky after this point, but the
-		// behavior under test is already proven: coordinator heartbeats refreshed
-		// the lease while the quiet run remained active.
-		require.NoError(t, os.WriteFile(releaseFile, []byte("ok"), 0600))
-		return
-	}
-	require.Eventually(t, func() bool {
-		return time.Since(runningSince) >= leaseObservationWindow
-	}, leaseObservationWindow+time.Second, 200*time.Millisecond)
-	status, err := f.latestStatus()
-	require.NoError(t, err)
-	require.Equal(t, core.Running, status.Status, "run should remain active beyond the stale threshold")
+
+	time.Sleep(leaseObservationWindow)
+	status, subRuns, ok := readRunningInlineSubDAGs(f, 2)
+	require.True(t, ok, "inline sub-DAGs should remain active beyond the stale threshold")
+	require.Len(t, subRuns, 2)
 	lease = waitForLease(t, f, status.AttemptKey, 5*time.Second)
 
-	require.NoError(t, os.WriteFile(releaseFile, []byte("ok"), 0600))
+	require.NoError(t, os.WriteFile(releaseFile, []byte("ok"), 0o600))
 	finalStatus := f.waitForStatus(core.Succeeded, finalStatusTimeout)
 	assert.Equal(t, core.Succeeded, finalStatus.Status)
 }
@@ -735,6 +779,29 @@ func waitForLease(t *testing.T, f *testFixture, attemptKey string, timeout time.
 	}, timeout, 100*time.Millisecond, "lease %s should exist", attemptKey)
 
 	return *lease
+}
+
+func readRunningInlineSubDAGs(f *testFixture, expected int) (exec.DAGRunStatus, []exec.DAGRunStatus, bool) {
+	status, err := f.latestStatus()
+	if err != nil || status.Status != core.Running || status.AttemptKey == "" || len(status.Nodes) != expected {
+		return exec.DAGRunStatus{}, nil, false
+	}
+
+	rootRef := exec.NewDAGRunRef(status.Name, status.DAGRunID)
+	subRuns := make([]exec.DAGRunStatus, 0, expected)
+	for _, node := range status.Nodes {
+		if node == nil || node.Status != core.NodeRunning || len(node.SubRuns) != 1 {
+			return exec.DAGRunStatus{}, nil, false
+		}
+		subStatus, err := readSubDAGRunStatus(f, rootRef, node.SubRuns[0].DAGRunID)
+		if err != nil || subStatus == nil || subStatus.Status != core.Running ||
+			subStatus.AttemptKey == "" || subStatus.ClaimKey != status.AttemptKey {
+			return exec.DAGRunStatus{}, nil, false
+		}
+		subRuns = append(subRuns, *subStatus)
+	}
+
+	return status, subRuns, true
 }
 
 func waitForSubDAGRunStatus(
