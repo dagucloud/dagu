@@ -1625,7 +1625,7 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 			h.persistChatMessages(ctx, bootstrappedAttempt, dagRunStatus)
 
 			ownership := h.attemptOwnership()
-			ownership.syncFromStatus(ctx, req.WorkerId, dagRunStatus, bootstrappedAttempt.ID())
+			ownership.syncFromStatus(context.WithoutCancel(ctx), req.WorkerId, dagRunStatus, bootstrappedAttempt.ID())
 			h.finalizeAdmissionForStatus(ctx, dagRunStatus, bootstrappedAttempt.ID())
 
 			return &coordinatorv1.ReportStatusResponse{Accepted: true}, nil
@@ -1669,7 +1669,7 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 	h.persistChatMessages(ctx, attempt, dagRunStatus)
 
 	// Run history stores claim membership; live claim state stays in the lease store.
-	ownership.syncFromStatus(ctx, req.WorkerId, dagRunStatus, attempt.ID())
+	ownership.syncFromStatus(context.WithoutCancel(ctx), req.WorkerId, dagRunStatus, attempt.ID())
 	h.finalizeAdmissionForStatus(ctx, dagRunStatus, attempt.ID())
 
 	// Note: We don't close the attempt immediately on terminal status because
