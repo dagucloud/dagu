@@ -115,7 +115,7 @@ func TestNewStatusPusher(t *testing.T) {
 	require.NotNil(t, pusher)
 	snapshot := coordreport.SnapshotStatusPusher(pusher)
 	assert.Equal(t, "worker-123", snapshot.WorkerID)
-	assert.Equal(t, "owner-attempt-key", snapshot.ExecutionOwnerAttemptKey)
+	assert.Equal(t, "owner-attempt-key", snapshot.LivenessAttemptKey)
 	assert.Equal(t, client, snapshot.Client)
 }
 
@@ -145,7 +145,7 @@ func TestPush(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, capturedReq)
 		assert.Equal(t, "worker-1", capturedReq.WorkerId)
-		assert.Equal(t, "owner-attempt-key", capturedReq.ExecutionOwnerAttemptKey)
+		assert.Equal(t, "owner-attempt-key", capturedReq.LivenessAttemptKey)
 		assert.NotNil(t, capturedReq.Status)
 		assert.NotEmpty(t, capturedReq.Status.JsonData)
 		// Verify the JSON contains the expected data

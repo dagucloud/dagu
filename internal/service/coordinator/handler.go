@@ -1275,7 +1275,7 @@ func (h *Handler) repairStaleLeaseFailureFromRunHeartbeat(
 		return
 	}
 
-	h.distributedAttempts().upsertActiveFromStatus(repairCtx, repairedStatus, workerID, lease.AttemptID, lease.LivenessAuthorityKey())
+	h.distributedAttempts().upsertActiveFromStatus(repairCtx, repairedStatus, workerID, lease.AttemptID, lease.EffectiveLivenessAttemptKey())
 	logger.Info(ctx, "Repaired stale distributed run failure from fresh heartbeat",
 		tag.DAG(lease.DAGRun.Name),
 		tag.RunID(lease.DAGRun.ID),
@@ -1625,7 +1625,7 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 			h.persistChatMessages(ctx, bootstrappedAttempt, dagRunStatus)
 
 			ownership := h.distributedAttempts()
-			ownership.syncFromStatus(ctx, req.WorkerId, dagRunStatus, bootstrappedAttempt.ID(), req.ExecutionOwnerAttemptKey)
+			ownership.syncFromStatus(ctx, req.WorkerId, dagRunStatus, bootstrappedAttempt.ID(), req.LivenessAttemptKey)
 			h.finalizeAdmissionForStatus(ctx, dagRunStatus, bootstrappedAttempt.ID())
 
 			return &coordinatorv1.ReportStatusResponse{Accepted: true}, nil
@@ -1669,7 +1669,7 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 
 	// Keep distributed liveness in the dedicated lease store and active index,
 	// not in run history.
-	ownership.syncFromStatus(ctx, req.WorkerId, dagRunStatus, attempt.ID(), req.ExecutionOwnerAttemptKey)
+	ownership.syncFromStatus(ctx, req.WorkerId, dagRunStatus, attempt.ID(), req.LivenessAttemptKey)
 	h.finalizeAdmissionForStatus(ctx, dagRunStatus, attempt.ID())
 
 	// Note: We don't close the attempt immediately on terminal status because
@@ -2377,8 +2377,8 @@ func (h *Handler) reconcileDistributedLease(ctx context.Context, lease exec.DAGR
 
 	switch runStatus.Status {
 	case core.Running, core.NotStarted, core.Queued:
-		if h.distributedLeaseAuthorityMayBeFresh(ctx, &lease, now) {
-			ownership.upsertActiveFromStatus(ctx, runStatus, workerID, attemptID, lease.LivenessAuthorityKey())
+		if h.distributedLeaseLivenessMayBeFresh(ctx, &lease, now) {
+			ownership.upsertActiveFromStatus(ctx, runStatus, workerID, attemptID, lease.EffectiveLivenessAttemptKey())
 			return
 		}
 	case core.Failed, core.Aborted, core.Succeeded, core.PartiallySucceeded, core.Waiting, core.Rejected:
@@ -2400,7 +2400,7 @@ func (h *Handler) reconcileDistributedLease(ctx context.Context, lease exec.DAGR
 		return
 	}
 
-	reconciledStatus, repaired, err := h.confirmAndRepairStaleDistributedRun(ctx, runStatus, attemptID, workerID, lease.LivenessAuthorityKey())
+	reconciledStatus, repaired, err := h.confirmAndRepairStaleDistributedRun(ctx, runStatus, attemptID, workerID, lease.EffectiveLivenessAttemptKey())
 	if err != nil {
 		logger.Error(ctx, "Failed to confirm stale distributed run from lease reconciliation",
 			tag.DAG(lease.DAGRun.Name),
@@ -2433,7 +2433,7 @@ func (h *Handler) reconcileDistributedLease(ctx context.Context, lease exec.DAGR
 		return
 	}
 	if reconciledWorkerID, ok := distributedWorkerIDForStatus(reconciledStatus, workerID); ok {
-		ownership.restoreConfirmedFromStatus(ctx, reconciledWorkerID, reconciledStatus, attemptID, lease.LivenessAuthorityKey())
+		ownership.restoreConfirmedFromStatus(ctx, reconciledWorkerID, reconciledStatus, attemptID, lease.EffectiveLivenessAttemptKey())
 	}
 }
 
@@ -2441,35 +2441,35 @@ func staleDistributedLeaseReason(workerID string) string {
 	return exec.DistributedLeaseExpiredReason(workerID)
 }
 
-func (h *Handler) distributedLeaseAuthorityMayBeFresh(ctx context.Context, lease *exec.DAGRunLease, now time.Time) bool {
+func (h *Handler) distributedLeaseLivenessMayBeFresh(ctx context.Context, lease *exec.DAGRunLease, now time.Time) bool {
 	if lease == nil {
 		return false
 	}
 
-	authorityKey := lease.LivenessAuthorityKey()
-	if authorityKey == lease.AttemptKey {
+	livenessAttemptKey := lease.EffectiveLivenessAttemptKey()
+	if livenessAttemptKey == lease.AttemptKey {
 		return lease.IsFresh(now, h.staleLeaseThreshold)
 	}
 
-	authorityLease, err := h.dagRunLeaseStore.Get(ctx, authorityKey)
+	livenessLease, err := h.dagRunLeaseStore.Get(ctx, livenessAttemptKey)
 	switch {
 	case err == nil:
 	case errors.Is(err, exec.ErrDAGRunLeaseNotFound):
 		return false
 	default:
-		logger.Warn(ctx, "Failed to read distributed liveness authority lease",
-			tag.AttemptKey(authorityKey),
+		logger.Warn(ctx, "Failed to read distributed liveness lease",
+			tag.AttemptKey(livenessAttemptKey),
 			tag.Error(err),
 		)
 		return true
 	}
-	if authorityLease == nil || authorityLease.AttemptKey != authorityKey {
+	if livenessLease == nil || livenessLease.AttemptKey != livenessAttemptKey {
 		return false
 	}
-	if lease.WorkerID != "" && authorityLease.WorkerID != "" && lease.WorkerID != authorityLease.WorkerID {
+	if lease.WorkerID != "" && livenessLease.WorkerID != "" && lease.WorkerID != livenessLease.WorkerID {
 		return false
 	}
-	return authorityLease.IsFresh(now, h.staleLeaseThreshold)
+	return livenessLease.IsFresh(now, h.staleLeaseThreshold)
 }
 
 func (h *Handler) confirmAndRepairStaleDistributedRun(
@@ -2477,7 +2477,7 @@ func (h *Handler) confirmAndRepairStaleDistributedRun(
 	status *exec.DAGRunStatus,
 	fallbackAttemptID string,
 	fallbackWorkerID string,
-	executionOwnerAttemptKey string,
+	livenessAttemptKey string,
 ) (*exec.DAGRunStatus, bool, error) {
 	repairCtx := context.WithoutCancel(ctx)
 	if status != nil && status.DAGRunID != "" {
@@ -2496,7 +2496,7 @@ func (h *Handler) confirmAndRepairStaleDistributedRun(
 		DAGRunStore:                   h.dagRunStore,
 		DAGRunLeaseStore:              h.dagRunLeaseStore,
 		WorkerHeartbeatStore:          h.workerHeartbeatStore,
-		ExecutionOwnerAttemptKey:      executionOwnerAttemptKey,
+		LivenessAttemptKey:            livenessAttemptKey,
 		StaleLeaseThreshold:           h.staleLeaseThreshold,
 		StaleWorkerHeartbeatThreshold: h.staleHeartbeatThreshold,
 	}, status, fallbackAttemptID, fallbackWorkerID)
@@ -2524,7 +2524,7 @@ func (h *Handler) detectOrphanedDistributedStatuses(ctx context.Context, now tim
 		}
 
 		if exec.LeaseIdentityMatchesStatus(leaseState.lease, status, leaseState.attemptID) &&
-			h.distributedLeaseAuthorityMayBeFresh(ctx, leaseState.lease, now) {
+			h.distributedLeaseLivenessMayBeFresh(ctx, leaseState.lease, now) {
 			continue
 		}
 
@@ -2533,11 +2533,11 @@ func (h *Handler) detectOrphanedDistributedStatuses(ctx context.Context, now tim
 			continue
 		}
 
-		executionOwnerAttemptKey := leaseState.attemptKey
+		livenessAttemptKey := leaseState.attemptKey
 		if leaseState.lease != nil {
-			executionOwnerAttemptKey = leaseState.lease.LivenessAuthorityKey()
+			livenessAttemptKey = leaseState.lease.EffectiveLivenessAttemptKey()
 		}
-		reconciledStatus, repaired, err := h.confirmAndRepairStaleDistributedRun(ctx, status, leaseState.attemptID, status.WorkerID, executionOwnerAttemptKey)
+		reconciledStatus, repaired, err := h.confirmAndRepairStaleDistributedRun(ctx, status, leaseState.attemptID, status.WorkerID, livenessAttemptKey)
 		if err != nil {
 			logger.Error(ctx, "Failed to confirm stale orphaned distributed run",
 				tag.DAG(status.Name),
@@ -2565,7 +2565,7 @@ func (h *Handler) detectOrphanedDistributedStatuses(ctx context.Context, now tim
 			continue
 		}
 		if reconciledWorkerID, ok := distributedWorkerIDForStatus(reconciledStatus, status.WorkerID); ok {
-			ownership.restoreConfirmedFromStatus(ctx, reconciledWorkerID, reconciledStatus, leaseState.attemptID, executionOwnerAttemptKey)
+			ownership.restoreConfirmedFromStatus(ctx, reconciledWorkerID, reconciledStatus, leaseState.attemptID, livenessAttemptKey)
 		}
 
 	}
@@ -2628,8 +2628,8 @@ func (h *Handler) detectIndexedDistributedStatuses(ctx context.Context, now time
 		}
 
 		if exec.LeaseIdentityMatchesStatus(lease, runStatus, record.AttemptID) &&
-			h.distributedLeaseAuthorityMayBeFresh(ctx, lease, now) {
-			ownership.upsertActiveFromStatus(ctx, runStatus, workerID, record.AttemptID, record.LivenessAuthorityKey())
+			h.distributedLeaseLivenessMayBeFresh(ctx, lease, now) {
+			ownership.upsertActiveFromStatus(ctx, runStatus, workerID, record.AttemptID, record.EffectiveLivenessAttemptKey())
 			continue
 		}
 
@@ -2638,7 +2638,7 @@ func (h *Handler) detectIndexedDistributedStatuses(ctx context.Context, now time
 			continue
 		}
 
-		reconciledStatus, repaired, err := h.confirmAndRepairStaleDistributedRun(ctx, runStatus, record.AttemptID, workerID, record.LivenessAuthorityKey())
+		reconciledStatus, repaired, err := h.confirmAndRepairStaleDistributedRun(ctx, runStatus, record.AttemptID, workerID, record.EffectiveLivenessAttemptKey())
 		if err != nil {
 			logger.Error(ctx, "Failed to confirm stale indexed distributed run",
 				tag.DAG(record.DAGRun.Name),
@@ -2666,7 +2666,7 @@ func (h *Handler) detectIndexedDistributedStatuses(ctx context.Context, now time
 			continue
 		}
 		if reconciledWorkerID, ok := distributedWorkerIDForStatus(reconciledStatus, workerID); ok {
-			ownership.restoreConfirmedFromStatus(ctx, reconciledWorkerID, reconciledStatus, record.AttemptID, record.LivenessAuthorityKey())
+			ownership.restoreConfirmedFromStatus(ctx, reconciledWorkerID, reconciledStatus, record.AttemptID, record.EffectiveLivenessAttemptKey())
 			continue
 		}
 

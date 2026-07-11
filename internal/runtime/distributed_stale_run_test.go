@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestLivenessAuthorityLeaseFresh(t *testing.T) {
+func TestLivenessAttemptLeaseFresh(t *testing.T) {
 	t.Parallel()
 
 	now := time.Unix(100, 0).UTC()
@@ -21,13 +21,13 @@ func TestLivenessAuthorityLeaseFresh(t *testing.T) {
 		LastHeartbeatAt: now.Add(-time.Second).UnixMilli(),
 	}
 
-	assert.True(t, livenessAuthorityLeaseFresh(lease, "owner-key", "worker-1", now, 3*time.Second))
-	assert.False(t, livenessAuthorityLeaseFresh(lease, "different-claim", "worker-1", now, 3*time.Second))
-	assert.False(t, livenessAuthorityLeaseFresh(lease, "owner-key", "worker-2", now, 3*time.Second))
-	assert.False(t, livenessAuthorityLeaseFresh(lease, "owner-key", "worker-1", now, 500*time.Millisecond))
+	assert.True(t, livenessAttemptLeaseFresh(lease, "owner-key", "worker-1", now, 3*time.Second))
+	assert.False(t, livenessAttemptLeaseFresh(lease, "different-claim", "worker-1", now, 3*time.Second))
+	assert.False(t, livenessAttemptLeaseFresh(lease, "owner-key", "worker-2", now, 3*time.Second))
+	assert.False(t, livenessAttemptLeaseFresh(lease, "owner-key", "worker-1", now, 500*time.Millisecond))
 }
 
-func TestWorkerHeartbeatReportsExecutionOwnerAttempt(t *testing.T) {
+func TestWorkerHeartbeatReportsLivenessAttempt(t *testing.T) {
 	t.Parallel()
 
 	record := &exec.WorkerHeartbeatRecord{Stats: &exec.WorkerStats{

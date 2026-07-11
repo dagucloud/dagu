@@ -19,7 +19,7 @@ type DistributedRunRepairConfig struct {
 	DAGRunStore                   exec.DAGRunStore
 	DAGRunLeaseStore              exec.DAGRunLeaseStore
 	WorkerHeartbeatStore          exec.WorkerHeartbeatStore
-	ExecutionOwnerAttemptKey      string
+	LivenessAttemptKey            string
 	StaleLeaseThreshold           time.Duration
 	StaleWorkerHeartbeatThreshold time.Duration
 	Now                           func() time.Time
@@ -64,36 +64,36 @@ func ConfirmAndRepairStaleDistributedRun(
 		now = cfg.Now().UTC()
 	}
 
-	executionOwnerAttemptKey := cfg.ExecutionOwnerAttemptKey
+	livenessAttemptKey := cfg.LivenessAttemptKey
 	lease, err := cfg.DAGRunLeaseStore.Get(ctx, attemptKey)
 	switch {
 	case err == nil:
 		if lease != nil && !exec.LeaseIdentityMatchesStatus(lease, status, attemptID) {
 			return status, false, nil
 		}
-		if executionOwnerAttemptKey == "" && lease != nil {
-			executionOwnerAttemptKey = lease.LivenessAuthorityKey()
+		if livenessAttemptKey == "" && lease != nil {
+			livenessAttemptKey = lease.EffectiveLivenessAttemptKey()
 		}
 	case errors.Is(err, exec.ErrDAGRunLeaseNotFound):
 	default:
 		return status, false, err
 	}
-	if executionOwnerAttemptKey == "" {
-		executionOwnerAttemptKey = attemptKey
+	if livenessAttemptKey == "" {
+		livenessAttemptKey = attemptKey
 	}
 
-	authorityLease := lease
-	if executionOwnerAttemptKey != attemptKey {
-		authorityLease, err = cfg.DAGRunLeaseStore.Get(ctx, executionOwnerAttemptKey)
+	livenessLease := lease
+	if livenessAttemptKey != attemptKey {
+		livenessLease, err = cfg.DAGRunLeaseStore.Get(ctx, livenessAttemptKey)
 		switch {
 		case err == nil:
 		case errors.Is(err, exec.ErrDAGRunLeaseNotFound):
-			authorityLease = nil
+			livenessLease = nil
 		default:
 			return status, false, err
 		}
 	}
-	if livenessAuthorityLeaseFresh(authorityLease, executionOwnerAttemptKey, workerID, now, staleLeaseThresholdOrDefault(cfg.StaleLeaseThreshold)) {
+	if livenessAttemptLeaseFresh(livenessLease, livenessAttemptKey, workerID, now, staleLeaseThresholdOrDefault(cfg.StaleLeaseThreshold)) {
 		return status, false, nil
 	}
 
@@ -104,7 +104,7 @@ func ConfirmAndRepairStaleDistributedRun(
 			if record.Stats == nil {
 				return status, false, nil
 			}
-			if workerHeartbeatReportsAttempt(record, status, attemptKey, executionOwnerAttemptKey) {
+			if workerHeartbeatReportsAttempt(record, status, attemptKey, livenessAttemptKey) {
 				return status, false, nil
 			}
 		}
@@ -138,8 +138,8 @@ func ConfirmAndRepairStaleDistributedRun(
 	return currentStatus, true, nil
 }
 
-func livenessAuthorityLeaseFresh(lease *exec.DAGRunLease, authorityKey, workerID string, now time.Time, threshold time.Duration) bool {
-	if lease == nil || authorityKey == "" || lease.AttemptKey != authorityKey {
+func livenessAttemptLeaseFresh(lease *exec.DAGRunLease, livenessAttemptKey, workerID string, now time.Time, threshold time.Duration) bool {
+	if lease == nil || livenessAttemptKey == "" || lease.AttemptKey != livenessAttemptKey {
 		return false
 	}
 	if lease.WorkerID != "" && workerID != "" && lease.WorkerID != workerID {
@@ -178,7 +178,7 @@ func workerHeartbeatFresh(record *exec.WorkerHeartbeatRecord, now time.Time, thr
 	return now.Sub(record.LastHeartbeatTime()) < threshold
 }
 
-func workerHeartbeatReportsAttempt(record *exec.WorkerHeartbeatRecord, status *exec.DAGRunStatus, attemptKey, executionOwnerAttemptKey string) bool {
+func workerHeartbeatReportsAttempt(record *exec.WorkerHeartbeatRecord, status *exec.DAGRunStatus, attemptKey, livenessAttemptKey string) bool {
 	if record == nil || record.Stats == nil {
 		return false
 	}
@@ -187,10 +187,10 @@ func workerHeartbeatReportsAttempt(record *exec.WorkerHeartbeatRecord, status *e
 		if task == nil {
 			continue
 		}
-		if task.AttemptKey != "" && task.AttemptKey == executionOwnerAttemptKey {
+		if task.AttemptKey != "" && task.AttemptKey == livenessAttemptKey {
 			return true
 		}
-		if task.AttemptKey == "" && executionOwnerAttemptKey == attemptKey && task.DAGRunID == status.DAGRunID && task.DAGName == status.Name {
+		if task.AttemptKey == "" && livenessAttemptKey == attemptKey && task.DAGRunID == status.DAGRunID && task.DAGName == status.Name {
 			return true
 		}
 	}
