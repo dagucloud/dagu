@@ -110,11 +110,12 @@ func TestNewStatusPusher(t *testing.T) {
 	t.Parallel()
 
 	client := &mockCoordinatorClient{}
-	pusher := coordreport.NewStatusPusher(client, "worker-123")
+	pusher := coordreport.NewStatusPusher(client, "worker-123", "owner-attempt-key")
 
 	require.NotNil(t, pusher)
 	snapshot := coordreport.SnapshotStatusPusher(pusher)
 	assert.Equal(t, "worker-123", snapshot.WorkerID)
+	assert.Equal(t, "owner-attempt-key", snapshot.ExecutionOwnerAttemptKey)
 	assert.Equal(t, client, snapshot.Client)
 }
 
@@ -132,7 +133,7 @@ func TestPush(t *testing.T) {
 			},
 		}
 
-		pusher := coordreport.NewStatusPusher(client, "worker-1")
+		pusher := coordreport.NewStatusPusher(client, "worker-1", "owner-attempt-key")
 		status := exec.DAGRunStatus{
 			Name:     "test-dag",
 			DAGRunID: "run-123",
@@ -144,6 +145,7 @@ func TestPush(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, capturedReq)
 		assert.Equal(t, "worker-1", capturedReq.WorkerId)
+		assert.Equal(t, "owner-attempt-key", capturedReq.ExecutionOwnerAttemptKey)
 		assert.NotNil(t, capturedReq.Status)
 		assert.NotEmpty(t, capturedReq.Status.JsonData)
 		// Verify the JSON contains the expected data
@@ -165,7 +167,7 @@ func TestPush(t *testing.T) {
 			},
 		}
 
-		pusher := coordreport.NewStatusPusher(client, "worker-1")
+		pusher := coordreport.NewStatusPusher(client, "worker-1", "")
 		status := exec.DAGRunStatus{Name: "test-dag", DAGRunID: "run-123"}
 
 		err := pusher.Push(context.Background(), status)
@@ -187,7 +189,7 @@ func TestPush(t *testing.T) {
 			},
 		}
 
-		pusher := coordreport.NewStatusPusher(client, "worker-1")
+		pusher := coordreport.NewStatusPusher(client, "worker-1", "")
 		err := pusher.Push(context.Background(), exec.DAGRunStatus{})
 
 		require.Error(t, err)
@@ -206,7 +208,7 @@ func TestPush(t *testing.T) {
 			},
 		}
 
-		pusher := coordreport.NewStatusPusher(client, "worker-1")
+		pusher := coordreport.NewStatusPusher(client, "worker-1", "")
 		err := pusher.Push(context.Background(), exec.DAGRunStatus{})
 
 		require.Error(t, err)
@@ -222,7 +224,7 @@ func TestPush(t *testing.T) {
 			},
 		}
 
-		pusher := coordreport.NewStatusPusher(client, "worker-1")
+		pusher := coordreport.NewStatusPusher(client, "worker-1", "")
 		err := pusher.Push(context.Background(), exec.DAGRunStatus{})
 
 		require.Error(t, err)
@@ -242,7 +244,7 @@ func TestPush(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel() // Cancel immediately
 
-		pusher := coordreport.NewStatusPusher(client, "worker-1")
+		pusher := coordreport.NewStatusPusher(client, "worker-1", "")
 		err := pusher.Push(ctx, exec.DAGRunStatus{})
 
 		require.Error(t, err)
@@ -280,7 +282,7 @@ func TestPush(t *testing.T) {
 			},
 		}
 
-		pusher := coordreport.NewStatusPusher(client, "worker-1")
+		pusher := coordreport.NewStatusPusher(client, "worker-1", "")
 		err := pusher.Push(context.Background(), status)
 
 		require.NoError(t, err)
@@ -310,7 +312,7 @@ func TestPush(t *testing.T) {
 			},
 		}
 
-		pusher := coordreport.NewStatusPusher(client, "worker-1", exec.HostInfo{ID: "coord-1", Host: "127.0.0.1", Port: 4321})
+		pusher := coordreport.NewStatusPusher(client, "worker-1", "owner-attempt-key", exec.HostInfo{ID: "coord-1", Host: "127.0.0.1", Port: 4321})
 		err := pusher.Push(context.Background(), exec.DAGRunStatus{Name: "test-dag", DAGRunID: "run-owner"})
 
 		require.NoError(t, err)

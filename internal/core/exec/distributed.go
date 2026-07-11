@@ -166,15 +166,24 @@ type WorkerHeartbeatStore interface {
 
 // DAGRunLease is the shared liveness record for an active distributed attempt.
 type DAGRunLease struct {
-	AttemptKey      string              `json:"attemptKey"`
-	DAGRun          DAGRunRef           `json:"dagRun"`
-	Root            DAGRunRef           `json:"root,omitzero"`
-	AttemptID       string              `json:"attemptId"`
-	QueueName       string              `json:"queueName"`
-	WorkerID        string              `json:"workerId"`
-	Owner           CoordinatorEndpoint `json:"owner"`
-	ClaimedAt       int64               `json:"claimedAt"`
-	LastHeartbeatAt int64               `json:"lastHeartbeatAt"`
+	AttemptKey               string              `json:"attemptKey"`
+	ExecutionOwnerAttemptKey string              `json:"executionOwnerAttemptKey,omitempty"`
+	DAGRun                   DAGRunRef           `json:"dagRun"`
+	Root                     DAGRunRef           `json:"root,omitzero"`
+	AttemptID                string              `json:"attemptId"`
+	QueueName                string              `json:"queueName"`
+	WorkerID                 string              `json:"workerId"`
+	Owner                    CoordinatorEndpoint `json:"owner"`
+	ClaimedAt                int64               `json:"claimedAt"`
+	LastHeartbeatAt          int64               `json:"lastHeartbeatAt"`
+}
+
+// LivenessAuthorityKey returns the claimed attempt that owns this run's liveness.
+func (l DAGRunLease) LivenessAuthorityKey() string {
+	if l.ExecutionOwnerAttemptKey != "" {
+		return l.ExecutionOwnerAttemptKey
+	}
+	return l.AttemptKey
 }
 
 // LastHeartbeatTime returns the last run heartbeat time.
@@ -214,13 +223,22 @@ type DAGRunLeaseStore interface {
 // ActiveDistributedRun is the durable active-set record for a remote attempt
 // that is still expected to own execution authority.
 type ActiveDistributedRun struct {
-	AttemptKey string      `json:"attemptKey"`
-	DAGRun     DAGRunRef   `json:"dagRun"`
-	Root       DAGRunRef   `json:"root,omitzero"`
-	AttemptID  string      `json:"attemptId"`
-	WorkerID   string      `json:"workerId"`
-	Status     core.Status `json:"status"`
-	UpdatedAt  int64       `json:"updatedAt"`
+	AttemptKey               string      `json:"attemptKey"`
+	ExecutionOwnerAttemptKey string      `json:"executionOwnerAttemptKey,omitempty"`
+	DAGRun                   DAGRunRef   `json:"dagRun"`
+	Root                     DAGRunRef   `json:"root,omitzero"`
+	AttemptID                string      `json:"attemptId"`
+	WorkerID                 string      `json:"workerId"`
+	Status                   core.Status `json:"status"`
+	UpdatedAt                int64       `json:"updatedAt"`
+}
+
+// LivenessAuthorityKey returns the claimed attempt that owns this run's liveness.
+func (r ActiveDistributedRun) LivenessAuthorityKey() string {
+	if r.ExecutionOwnerAttemptKey != "" {
+		return r.ExecutionOwnerAttemptKey
+	}
+	return r.AttemptKey
 }
 
 // ActiveDistributedRunStore persists the coordinator-owned active distributed

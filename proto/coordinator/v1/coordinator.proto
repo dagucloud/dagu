@@ -249,6 +249,8 @@ message ReportStatusRequest {
   string worker_id = 1;
   DAGRunStatusProto status = 2;
   string owner_coordinator_id = 3;
+  // Attempt claimed by the worker that owns execution liveness for this status.
+  string execution_owner_attempt_key = 4;
 }
 
 // Response message for reporting DAG run status.

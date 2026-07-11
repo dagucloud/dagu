@@ -18,9 +18,10 @@ var _ runtime.StatusPusher = (*StatusPusher)(nil)
 
 // StatusPusher sends status updates to coordinator via gRPC
 type StatusPusher struct {
-	client   coordinator.Client
-	workerID string
-	owner    exec.HostInfo
+	client                   coordinator.Client
+	workerID                 string
+	owner                    exec.HostInfo
+	executionOwnerAttemptKey string
 }
 
 // AttemptRejectedError indicates the coordinator explicitly rejected a status
@@ -44,16 +45,17 @@ func (e *AttemptRejectedError) AttemptRejectedReason() string {
 	return e.Reason
 }
 
-// NewStatusPusher creates a new StatusPusher
-func NewStatusPusher(client coordinator.Client, workerID string, owner ...exec.HostInfo) *StatusPusher {
+// NewStatusPusher creates a StatusPusher bound to a claimed attempt.
+func NewStatusPusher(client coordinator.Client, workerID, executionOwnerAttemptKey string, owner ...exec.HostInfo) *StatusPusher {
 	var target exec.HostInfo
 	if len(owner) > 0 {
 		target = owner[0]
 	}
 	return &StatusPusher{
-		client:   client,
-		workerID: workerID,
-		owner:    target,
+		client:                   client,
+		workerID:                 workerID,
+		owner:                    target,
+		executionOwnerAttemptKey: executionOwnerAttemptKey,
 	}
 }
 
@@ -64,9 +66,10 @@ func (p *StatusPusher) Push(ctx context.Context, status exec.DAGRunStatus) error
 		return fmt.Errorf("failed to convert status to proto: %w", err)
 	}
 	req := &coordinatorv1.ReportStatusRequest{
-		WorkerId:           p.workerID,
-		Status:             protoStatus,
-		OwnerCoordinatorId: p.owner.ID,
+		WorkerId:                 p.workerID,
+		Status:                   protoStatus,
+		OwnerCoordinatorId:       p.owner.ID,
+		ExecutionOwnerAttemptKey: p.executionOwnerAttemptKey,
 	}
 
 	var resp *coordinatorv1.ReportStatusResponse

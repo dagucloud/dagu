@@ -1978,12 +1978,13 @@ func (b0 RunningTask_builder) Build() *RunningTask {
 
 // Request message for reporting DAG run status.
 type ReportStatusRequest struct {
-	state                         protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_WorkerId           string                 `protobuf:"bytes,1,opt,name=worker_id,json=workerId,proto3"`
-	xxx_hidden_Status             *DAGRunStatusProto     `protobuf:"bytes,2,opt,name=status,proto3"`
-	xxx_hidden_OwnerCoordinatorId string                 `protobuf:"bytes,3,opt,name=owner_coordinator_id,json=ownerCoordinatorId,proto3"`
-	unknownFields                 protoimpl.UnknownFields
-	sizeCache                     protoimpl.SizeCache
+	state                               protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_WorkerId                 string                 `protobuf:"bytes,1,opt,name=worker_id,json=workerId,proto3"`
+	xxx_hidden_Status                   *DAGRunStatusProto     `protobuf:"bytes,2,opt,name=status,proto3"`
+	xxx_hidden_OwnerCoordinatorId       string                 `protobuf:"bytes,3,opt,name=owner_coordinator_id,json=ownerCoordinatorId,proto3"`
+	xxx_hidden_ExecutionOwnerAttemptKey string                 `protobuf:"bytes,4,opt,name=execution_owner_attempt_key,json=executionOwnerAttemptKey,proto3"`
+	unknownFields                       protoimpl.UnknownFields
+	sizeCache                           protoimpl.SizeCache
 }
 
 func (x *ReportStatusRequest) Reset() {
@@ -2032,6 +2033,13 @@ func (x *ReportStatusRequest) GetOwnerCoordinatorId() string {
 	return ""
 }
 
+func (x *ReportStatusRequest) GetExecutionOwnerAttemptKey() string {
+	if x != nil {
+		return x.xxx_hidden_ExecutionOwnerAttemptKey
+	}
+	return ""
+}
+
 func (x *ReportStatusRequest) SetWorkerId(v string) {
 	x.xxx_hidden_WorkerId = v
 }
@@ -2042,6 +2050,10 @@ func (x *ReportStatusRequest) SetStatus(v *DAGRunStatusProto) {
 
 func (x *ReportStatusRequest) SetOwnerCoordinatorId(v string) {
 	x.xxx_hidden_OwnerCoordinatorId = v
+}
+
+func (x *ReportStatusRequest) SetExecutionOwnerAttemptKey(v string) {
+	x.xxx_hidden_ExecutionOwnerAttemptKey = v
 }
 
 func (x *ReportStatusRequest) HasStatus() bool {
@@ -2061,6 +2073,8 @@ type ReportStatusRequest_builder struct {
 	WorkerId           string
 	Status             *DAGRunStatusProto
 	OwnerCoordinatorId string
+	// Attempt claimed by the worker that owns execution liveness for this status.
+	ExecutionOwnerAttemptKey string
 }
 
 func (b0 ReportStatusRequest_builder) Build() *ReportStatusRequest {
@@ -2070,6 +2084,7 @@ func (b0 ReportStatusRequest_builder) Build() *ReportStatusRequest {
 	x.xxx_hidden_WorkerId = b.WorkerId
 	x.xxx_hidden_Status = b.Status
 	x.xxx_hidden_OwnerCoordinatorId = b.OwnerCoordinatorId
+	x.xxx_hidden_ExecutionOwnerAttemptKey = b.ExecutionOwnerAttemptKey
 	return m0
 }
 
@@ -5097,11 +5112,12 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\x13parent_dag_run_name\x18\x06 \x01(\tR\x10parentDagRunName\x12)\n" +
 	"\x11parent_dag_run_id\x18\a \x01(\tR\x0eparentDagRunId\x12\x1f\n" +
 	"\vattempt_key\x18\b \x01(\tR\n" +
-	"attemptKey\"\x9f\x01\n" +
+	"attemptKey\"\xde\x01\n" +
 	"\x13ReportStatusRequest\x12\x1b\n" +
 	"\tworker_id\x18\x01 \x01(\tR\bworkerId\x129\n" +
 	"\x06status\x18\x02 \x01(\v2!.coordinator.v1.DAGRunStatusProtoR\x06status\x120\n" +
-	"\x14owner_coordinator_id\x18\x03 \x01(\tR\x12ownerCoordinatorId\"H\n" +
+	"\x14owner_coordinator_id\x18\x03 \x01(\tR\x12ownerCoordinatorId\x12=\n" +
+	"\x1bexecution_owner_attempt_key\x18\x04 \x01(\tR\x18executionOwnerAttemptKey\"H\n" +
 	"\x14ReportStatusResponse\x12\x1a\n" +
 	"\baccepted\x18\x01 \x01(\bR\baccepted\x12\x14\n" +
 	"\x05error\x18\x02 \x01(\tR\x05error\"0\n" +

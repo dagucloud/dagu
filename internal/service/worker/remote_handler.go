@@ -151,7 +151,7 @@ func (h *remoteTaskHandler) handleStart(ctx context.Context, task *coordinatorv1
 		defer cleanup()
 	}
 
-	statusPusher, logStreamer, artifactUploader := h.createRemoteHandlers(task.DagRunId, dag.Name, task.AttemptId, root, owner)
+	statusPusher, logStreamer, artifactUploader := h.createRemoteHandlers(task.DagRunId, dag.Name, task.AttemptId, task.AttemptKey, root, owner)
 	err = h.executeDAGRun(ctx, dag, task.DagRunId, task.AttemptId, task.AttemptKey, task.ScheduleTime, root, parent, owner, statusPusher, logStreamer, artifactUploader, queuedRun, nil, taskExtraEnvs(task), task.ProfileName)
 	var initErr *taskInitError
 	if errors.As(err, &initErr) && !initErr.reported {
@@ -190,7 +190,7 @@ func (h *remoteTaskHandler) handleRetry(ctx context.Context, task *coordinatorv1
 		defer cleanup()
 	}
 
-	statusPusher, logStreamer, artifactUploader := h.createRemoteHandlers(task.DagRunId, dag.Name, task.AttemptId, root, owner)
+	statusPusher, logStreamer, artifactUploader := h.createRemoteHandlers(task.DagRunId, dag.Name, task.AttemptId, task.AttemptKey, root, owner)
 	triggerType := exec.PreservedQueueTriggerType(status)
 
 	err = h.executeDAGRun(ctx, dag, task.DagRunId, task.AttemptId, task.AttemptKey, task.ScheduleTime, root, parent, owner, statusPusher, logStreamer, artifactUploader, false, &retryConfig{
@@ -213,7 +213,7 @@ func retryTaskProfileName(status *exec.DAGRunStatus) string {
 }
 
 func (h *remoteTaskHandler) reportTaskLoadFailure(ctx context.Context, task *coordinatorv1.Task, root, parent exec.DAGRunRef, owner exec.HostInfo, loadErr error, profileName string) {
-	statusPusher := coordreport.NewStatusPusher(h.coordinatorClient, h.workerID, owner)
+	statusPusher := coordreport.NewStatusPusher(h.coordinatorClient, h.workerID, task.AttemptKey, owner)
 	finishedAt := stringutil.FormatTime(time.Now())
 	logger.Warn(ctx, "Failed to load DAG on worker",
 		tag.Target(task.Target),
@@ -358,12 +358,12 @@ func taskExtraEnvs(task *coordinatorv1.Task) []string {
 }
 
 // createRemoteHandlers creates the remote status, log, and artifact transport handlers.
-func (h *remoteTaskHandler) createRemoteHandlers(dagRunID, dagName, attemptID string, root exec.DAGRunRef, owner ...exec.HostInfo) (runtime.StatusPusher, runtime.SchedulerLogStreamer, runtime.ArtifactFinalizer) {
+func (h *remoteTaskHandler) createRemoteHandlers(dagRunID, dagName, attemptID, executionOwnerAttemptKey string, root exec.DAGRunRef, owner ...exec.HostInfo) (runtime.StatusPusher, runtime.SchedulerLogStreamer, runtime.ArtifactFinalizer) {
 	var target exec.HostInfo
 	if len(owner) > 0 {
 		target = owner[0]
 	}
-	statusPusher := coordreport.NewStatusPusher(h.coordinatorClient, h.workerID, target)
+	statusPusher := coordreport.NewStatusPusher(h.coordinatorClient, h.workerID, executionOwnerAttemptKey, target)
 	reporter := newRemoteRunReporter(
 		h.coordinatorClient,
 		h.workerID,

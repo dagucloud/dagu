@@ -704,7 +704,7 @@ func TestCreateRemoteHandlers(t *testing.T) {
 		}
 
 		root := exec.DAGRunRef{Name: "root-dag", ID: "root-123"}
-		statusPusher, _, _ := handler.createRemoteHandlers("run-1", "test-dag", "attempt-1", root)
+		statusPusher, _, _ := handler.createRemoteHandlers("run-1", "test-dag", "attempt-1", "attempt-key-1", root)
 
 		require.NotNil(t, statusPusher)
 	})
@@ -719,7 +719,7 @@ func TestCreateRemoteHandlers(t *testing.T) {
 		}
 
 		root := exec.DAGRunRef{Name: "root-dag", ID: "root-123"}
-		_, logStreamer, _ := handler.createRemoteHandlers("run-1", "test-dag", "attempt-1", root)
+		_, logStreamer, _ := handler.createRemoteHandlers("run-1", "test-dag", "attempt-1", "attempt-key-1", root)
 
 		require.NotNil(t, logStreamer)
 	})
@@ -734,7 +734,7 @@ func TestCreateRemoteHandlers(t *testing.T) {
 		}
 
 		root := exec.DAGRunRef{Name: "my-root", ID: "root-xyz"}
-		statusPusher, logStreamer, artifactUploader := handler.createRemoteHandlers("my-run-id", "my-dag", "attempt-1", root)
+		statusPusher, logStreamer, artifactUploader := handler.createRemoteHandlers("my-run-id", "my-dag", "attempt-1", "attempt-key-1", root)
 
 		// Both should be created
 		require.NotNil(t, statusPusher)
@@ -1684,7 +1684,7 @@ steps:
 	// Create remote handlers
 	root := exec.DAGRunRef{Name: "root", ID: "root-1"}
 	parent := exec.DAGRunRef{Name: "parent", ID: "parent-1"}
-	statusPusher, logStreamer, artifactUploader := handler.createRemoteHandlers("run-error", dag.Name, "attempt-error", root)
+	statusPusher, logStreamer, artifactUploader := handler.createRemoteHandlers("run-error", dag.Name, "attempt-error", "attempt-key-error", root)
 
 	// Call executeDAGRun directly - should fail at createAgentEnv
 	err := handler.executeDAGRun(context.Background(), dag, "run-error", "", "", "", root, parent, exec.HostInfo{}, statusPusher, logStreamer, artifactUploader, false, nil, nil, "")
@@ -1726,7 +1726,7 @@ steps:
 	// For a top-level run, root ID should match the dagRunID
 	dagRunID := "run-success-1"
 	root := exec.DAGRunRef{Name: dag.Name, ID: dagRunID}
-	statusPusher := coordreport.NewStatusPusher(client, "integration-test-worker")
+	statusPusher := coordreport.NewStatusPusher(client, "integration-test-worker", "")
 	logStreamer := coordreport.NewLogStreamer(client, "integration-test-worker", dagRunID, dag.Name, "", root)
 	artifactUploader := coordreport.NewArtifactUploader(client, "integration-test-worker", dagRunID, dag.Name, "", root)
 
@@ -2357,7 +2357,7 @@ steps:
 
 	dagRunID := "run-final-scheduler-log"
 	root := exec.DAGRunRef{Name: dag.Name, ID: dagRunID}
-	statusPusher, logStreamer, artifactUploader := handler.createRemoteHandlers(dagRunID, dag.Name, "", root)
+	statusPusher, logStreamer, artifactUploader := handler.createRemoteHandlers(dagRunID, dag.Name, "", "", root)
 
 	err := handler.executeDAGRun(runCtx, dag.DAG, dagRunID, "", "", "", root, exec.DAGRunRef{}, exec.HostInfo{}, statusPusher, logStreamer, artifactUploader, false, nil, nil, "")
 	require.NoError(t, err)
@@ -2458,7 +2458,7 @@ steps:
 
 	require.NoError(t, os.MkdirAll(th.Config.Paths.LogDir, 0o750))
 
-	statusPusher, logStreamer, artifactUploader := handler.createRemoteHandlers(root.ID, dag.Name, "", root)
+	statusPusher, logStreamer, artifactUploader := handler.createRemoteHandlers(root.ID, dag.Name, "", "", root)
 	err := handler.executeDAGRun(th.Context, dag.DAG, root.ID, "", "", "", root, exec.DAGRunRef{}, exec.HostInfo{}, statusPusher, logStreamer, artifactUploader, false, nil, nil, "")
 	require.NoError(t, err)
 	require.True(t, childTerminalSeen)
@@ -2495,7 +2495,7 @@ func TestExecuteDAGRun_FailedExecutionStillUploadsArtifacts(t *testing.T) {
 
 	dagRunID := "run-failure-artifacts-1"
 	root := exec.DAGRunRef{Name: dag.Name, ID: dagRunID}
-	statusPusher := coordreport.NewStatusPusher(client, "integration-test-worker")
+	statusPusher := coordreport.NewStatusPusher(client, "integration-test-worker", "")
 	logStreamer := coordreport.NewLogStreamer(client, "integration-test-worker", dagRunID, dag.Name, "", root)
 	artifactUploader := coordreport.NewArtifactUploader(client, "integration-test-worker", dagRunID, dag.Name, "", root)
 
@@ -2559,7 +2559,7 @@ func TestExecuteDAGRun_ArtifactUploadFailureMarksRunFailed(t *testing.T) {
 
 	dagRunID := "run-upload-failure-1"
 	root := exec.DAGRunRef{Name: dag.Name, ID: dagRunID}
-	statusPusher := coordreport.NewStatusPusher(client, "integration-test-worker")
+	statusPusher := coordreport.NewStatusPusher(client, "integration-test-worker", "")
 	logStreamer := coordreport.NewLogStreamer(client, "integration-test-worker", dagRunID, dag.Name, "", root)
 	artifactUploader := coordreport.NewArtifactUploader(client, "integration-test-worker", dagRunID, dag.Name, "", root)
 
@@ -2615,7 +2615,7 @@ func TestExecuteDAGRun_FailedExecutionWithArtifactUploadFailurePreservesFailedSt
 
 	dagRunID := "run-failure-upload-failure-1"
 	root := exec.DAGRunRef{Name: dag.Name, ID: dagRunID}
-	statusPusher := coordreport.NewStatusPusher(client, "integration-test-worker")
+	statusPusher := coordreport.NewStatusPusher(client, "integration-test-worker", "")
 	logStreamer := coordreport.NewLogStreamer(client, "integration-test-worker", dagRunID, dag.Name, "", root)
 	artifactUploader := coordreport.NewArtifactUploader(client, "integration-test-worker", dagRunID, dag.Name, "", root)
 

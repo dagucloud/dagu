@@ -42,3 +42,27 @@ func TestAttemptKeyForStatus(t *testing.T) {
 		assert.Empty(t, exec.AttemptKeyForStatus(status, ""))
 	})
 }
+
+func TestDistributedTrackingLivenessAuthorityKey(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Lease", func(t *testing.T) {
+		t.Parallel()
+
+		assert.Equal(t, "attempt-key", (exec.DAGRunLease{AttemptKey: "attempt-key"}).LivenessAuthorityKey())
+		assert.Equal(t, "owner-key", (exec.DAGRunLease{
+			AttemptKey:               "attempt-key",
+			ExecutionOwnerAttemptKey: "owner-key",
+		}).LivenessAuthorityKey())
+	})
+
+	t.Run("ActiveRun", func(t *testing.T) {
+		t.Parallel()
+
+		assert.Equal(t, "attempt-key", (exec.ActiveDistributedRun{AttemptKey: "attempt-key"}).LivenessAuthorityKey())
+		assert.Equal(t, "owner-key", (exec.ActiveDistributedRun{
+			AttemptKey:               "attempt-key",
+			ExecutionOwnerAttemptKey: "owner-key",
+		}).LivenessAuthorityKey())
+	})
+}
