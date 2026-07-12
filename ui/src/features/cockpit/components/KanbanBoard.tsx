@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { components, ViewColumn } from '@/api/v1/schema';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import {
@@ -25,7 +25,10 @@ export function KanbanBoard({
   visibleColumns,
 }: Props): React.ReactElement {
   const isMobile = useIsMobile();
-  const columnOrder = normalizeViewColumns(visibleColumns);
+  const columnOrder = useMemo(
+    () => normalizeViewColumns(visibleColumns),
+    [visibleColumns]
+  );
 
   if (isMobile) {
     return (
