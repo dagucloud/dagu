@@ -311,6 +311,7 @@ function DAGRunActions({
               );
               return;
             }
+            showToast('Stop signal sent');
             reloadData();
           }}
         >
@@ -389,6 +390,7 @@ function DAGRunActions({
                 );
                 return;
               }
+              showToast('Retry started');
             }
             reloadData();
           }}
@@ -584,6 +586,8 @@ function DAGRunActions({
                       `Failed to reject ${errors.length} step(s)`,
                       `Failed to reject: ${errors.join(', ')}`
                     );
+                  } else {
+                    showToast('DAG run rejected');
                   }
                   setRejectReason('');
                   reloadData();
@@ -625,6 +629,7 @@ function DAGRunActions({
               );
               return;
             }
+            showToast('DAG run dequeued');
             reloadData();
           }}
         >

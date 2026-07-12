@@ -506,6 +506,8 @@ function DAGActions({
                       `Failed to reject ${errors.length} step(s)`,
                       `Failed to reject: ${errors.join(', ')}`
                     );
+                  } else {
+                    showToast('DAG run rejected');
                   }
                   setRejectReason('');
                   reloadData();
@@ -547,6 +549,7 @@ function DAGActions({
                 return;
               }
               setStopAllRunning(false);
+              showToast('Stop signal sent to all running instances');
               reloadData();
             } else {
               // Use dag-run API - requires DAG name and ID
@@ -573,6 +576,7 @@ function DAGActions({
                   );
                   return;
                 }
+                showToast('Stop signal sent');
                 reloadData();
               } else {
                 console.error('Cannot stop DAG: missing DAG name or run ID');
@@ -721,6 +725,7 @@ function DAGActions({
                   );
                   return;
                 }
+                showToast('Retry started');
               }
               reloadData();
             } else {
@@ -907,6 +912,7 @@ function DAGActions({
             if (data?.dagRunId) {
               await dagContext.onRunStarted?.(data.dagRunId);
             }
+            showToast(immediate ? 'DAG run started' : 'DAG run enqueued');
             // Just refresh the current page data
             reloadData();
             // Navigate to status tab after execution (if available)

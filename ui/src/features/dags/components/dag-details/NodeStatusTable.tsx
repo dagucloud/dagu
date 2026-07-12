@@ -54,6 +54,11 @@ function NodeStatusTable({
     return null;
   }
 
+  // Surface the first failed step's log without an extra click
+  const firstFailedStepName = nodes.find(
+    (n) => n.status === NodeStatus.Failed && (n.stdout || n.stderr)
+  )?.step.name;
+
   return (
     <div>
       {/* Desktop view - Table with horizontal scroll for intermediate sizes */}
@@ -86,6 +91,7 @@ function NodeStatusTable({
                   onNodeStatusUpdated={onNodeStatusUpdated}
                   dagRun={status}
                   view="desktop"
+                  defaultLogExpanded={n.step.name === firstFailedStepName}
                 />
               ))}
             </TableBody>
@@ -105,6 +111,7 @@ function NodeStatusTable({
             onNodeStatusUpdated={onNodeStatusUpdated}
             dagRun={status}
             view="mobile"
+            defaultLogExpanded={n.step.name === firstFailedStepName}
           />
         ))}
       </div>

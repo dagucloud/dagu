@@ -4,15 +4,8 @@
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useQuery } from '@/hooks/api';
 import { whenEnabled } from '@/hooks/queryUtils';
+import { AnsiLine } from '@/lib/ansi';
 import { components, Stream } from '../../../../api/v1/schema';
-
-/**
- * ANSI color codes regex for stripping
- */
-const ANSI_CODES_REGEX = [
-  '[\\u001B\\u009B][[\\]()#;?]*(?:(?:(?:(?:;[-a-zA-Z\\d\\/#&.:=?%@~_]+)*|[a-zA-Z\\d]+(?:;[-a-zA-Z\\d\\/#&.:=?%@~_]*)*)?\\u0007)',
-  '(?:(?:\\d{1,4}(?:;\\d{0,4})*)?[\\dA-PR-TZcf-nq-uy=><~]))',
-].join('|');
 
 /**
  * Simple inline log viewer - no controls, just logs
@@ -90,8 +83,7 @@ export function InlineLogViewer({
   const { data, isLoading } = isSubDAGRun ? subDAGQuery : dagRunQuery;
 
   // Process log content
-  const content =
-    data?.content?.replace(new RegExp(ANSI_CODES_REGEX, 'g'), '') || '';
+  const content = data?.content || '';
   const lines = content ? content.split('\n') : [];
   const totalLines = data?.totalLines || 0;
   const lineCount = data?.lineCount || 0;
@@ -117,7 +109,7 @@ export function InlineLogViewer({
                     {lineNumber}
                   </span>
                   <span className="whitespace-pre-wrap break-all flex-grow">
-                    {line || ' '}
+                    {line ? <AnsiLine text={line} /> : ' '}
                   </span>
                 </div>
               );
@@ -129,4 +121,4 @@ export function InlineLogViewer({
   );
 }
 
-export { ANSI_CODES_REGEX, Stream };
+export { Stream };

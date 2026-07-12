@@ -11,6 +11,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import RelativeTime from '@/components/ui/relative-time';
 import StatusChip from '@/components/ui/status-chip';
 import AutoRetryBadge from '../common/AutoRetryBadge';
 import { DAGRunDetailsModal } from '../../components/dag-run-details';
@@ -83,11 +84,19 @@ function DAGRunCard({ dagRun, timezoneInfo }: DAGRunCardProps) {
           </div>
           <div className="flex justify-between items-center text-xs">
             <span className="text-muted-foreground text-xs">Started:</span>
-            <span className="truncate ml-2">{dagRun.startedAt}</span>
+            <RelativeTime
+              className="truncate ml-2"
+              timestamp={dagRun.startedAt}
+              absolute={dagRun.startedAt || undefined}
+            />
           </div>
           <div className="flex justify-between items-center text-xs">
             <span className="text-muted-foreground text-xs">Finished:</span>
-            <span className="truncate ml-2">{dagRun.finishedAt || '-'}</span>
+            <RelativeTime
+              className="truncate ml-2"
+              timestamp={dagRun.finishedAt}
+              absolute={dagRun.finishedAt || undefined}
+            />
           </div>
           {dagRun.workerId && (
             <div className="flex justify-between items-center text-xs">

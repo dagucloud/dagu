@@ -20,6 +20,7 @@ import { useUserPreferences } from '../../../../contexts/UserPreference';
 import { useQuery } from '../../../../hooks/api';
 import { whenEnabled } from '../../../../hooks/queryUtils';
 import { useDAGRunLogsSSE } from '../../../../hooks/useDAGRunLogsSSE';
+import { AnsiLine } from '@/lib/ansi';
 import LoadingIndicator from '@/components/ui/loading-indicator';
 
 // Extended Log type with pagination fields
@@ -46,15 +47,6 @@ type Props = {
   /** Full DAG-run details (optional) - used to determine if this is a sub DAG-run */
   dagRun?: components['schemas']['DAGRunDetails'];
 };
-
-/**
- * Regular expression to match ANSI color codes for removal
- * Credit: https://github.com/chalk/ansi-regex/commit/02fa893d619d3da85411acc8fd4e2eea0e95a9d9 under MIT license
- */
-const ANSI_CODES_REGEX = [
-  '[\\u001B\\u009B][[\\]()#;?]*(?:(?:(?:(?:;[-a-zA-Z\\d\\/#&.:=?%@~_]+)*|[a-zA-Z\\d]+(?:;[-a-zA-Z\\d\\/#&.:=?%@~_]*)*)?\\u0007)',
-  '(?:(?:\\d{1,4}(?:;\\d{0,4})*)?[\\dA-PR-TZcf-nq-uy=><~]))',
-].join('|');
 
 /**
  * ExecutionLog displays the log output for a DAG run
@@ -336,8 +328,7 @@ function ExecutionLog({ name, dagRunId, dagRun }: Props) {
   }
 
   // Process log data
-  const content =
-    logData?.content.replace(new RegExp(ANSI_CODES_REGEX, 'g'), '') || '';
+  const content = logData?.content || '';
   const totalLines = logData?.totalLines || 0;
   const hasMore = logData?.hasMore || false;
   const isEstimate = logData?.isEstimate || false;
@@ -559,7 +550,7 @@ function ExecutionLog({ name, dagRunId, dagRun }: Props) {
               <span
                 className={`flex-grow select-text cursor-text ${preferences.logWrap ? 'whitespace-pre-wrap break-all' : 'whitespace-pre'}`}
               >
-                {line || ' '}
+                {line ? <AnsiLine text={line} /> : ' '}
               </span>
             </div>
           ))}

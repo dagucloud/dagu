@@ -39,6 +39,7 @@ import {
   getScheduleLabel,
   parseNextRun,
 } from '../../../../lib/dagSchedule';
+import RelativeTime from '@/components/ui/relative-time';
 import StatusChip from '@/components/ui/status-chip';
 import Ticker from '@/components/ui/ticker';
 import VisuallyHidden from '@/components/ui/visually-hidden';
@@ -174,7 +175,11 @@ function DAGCard({
         {dag.latestDAGRun.startedAt && dag.latestDAGRun.startedAt !== '-' && (
           <span className="flex items-center gap-0.5">
             <Calendar className="h-2.5 w-2.5" />
-            <span className="text-xs">{dag.latestDAGRun.startedAt}</span>
+            <RelativeTime
+              className="text-xs"
+              timestamp={dag.latestDAGRun.startedAt}
+              absolute={dag.latestDAGRun.startedAt}
+            />
           </span>
         )}
       </div>
@@ -582,7 +587,6 @@ const defaultColumns = [
         return <span className="font-normal text-muted-foreground">-</span>;
       }
 
-      const formattedStartedAt = startedAt;
       let durationContent: React.ReactNode = null;
 
       if (finishedAt && finishedAt !== '-') {
@@ -609,7 +613,7 @@ const defaultColumns = [
       return (
         <div className="space-y-0.5 min-w-0">
           <div className="font-normal text-foreground/70 text-xs truncate">
-            {formattedStartedAt}
+            <RelativeTime timestamp={startedAt} absolute={startedAt} />
           </div>
           {durationContent}
         </div>

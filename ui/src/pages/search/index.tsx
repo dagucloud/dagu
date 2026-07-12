@@ -24,6 +24,7 @@ type SearchFeedPanelProps = {
   title: string;
   query: string;
   hasResults: boolean;
+  resultCount: number;
   isLoading: boolean;
   initialErrorMessage: string | null;
   loadMoreErrorMessage: string | null;
@@ -96,6 +97,7 @@ function SearchFeedPanel({
   title,
   query,
   hasResults,
+  resultCount,
   isLoading,
   initialErrorMessage,
   loadMoreErrorMessage,
@@ -139,7 +141,10 @@ function SearchFeedPanel({
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-lg font-semibold">{title}</h2>
-        <span className="text-xs text-muted-foreground">Infinite results</span>
+        <span className="text-xs text-muted-foreground">
+          {resultCount}
+          {hasMore ? '+' : ''} result{resultCount === 1 ? '' : 's'}
+        </span>
       </div>
 
       {children}
@@ -247,6 +252,7 @@ function DAGSearchFeed({ query, remoteNode, workspaceQuery }: SearchFeedProps) {
       title="DAGs"
       query={query}
       hasResults={hasResults}
+      resultCount={results.length}
       isLoading={isLoading}
       initialErrorMessage={initialErrorMessage}
       loadMoreErrorMessage={loadMoreErrorMessage}
@@ -385,7 +391,6 @@ function Search() {
               Search
             </Button>
           </div>
-
         </div>
 
         <div className="mt-4 space-y-4">

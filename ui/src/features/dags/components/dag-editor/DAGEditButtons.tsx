@@ -8,6 +8,7 @@
  */
 import { useCanWriteForWorkspace } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
+import ConfirmModal from '@/components/ui/confirm-dialog';
 import { useErrorModal } from '@/components/ui/error-modal';
 import { PencilLine, Trash2 } from 'lucide-react';
 import React from 'react';
@@ -33,6 +34,7 @@ function DAGEditButtons({ fileName, workspace }: Props) {
   const canWrite = useCanWriteForWorkspace(workspace);
   const client = useClient();
   const { showError } = useErrorModal();
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = React.useState(false);
   const [isRenameModalOpen, setIsRenameModalOpen] = React.useState(false);
   const [renameError, setRenameError] = React.useState<string | null>(null);
   const [isRenameLoading, setIsRenameLoading] = React.useState(false);
@@ -95,12 +97,18 @@ function DAGEditButtons({ fileName, workspace }: Props) {
         Rename
       </Button>
 
-      <Button
-        variant="destructive"
-        onClick={async () => {
-          if (!confirm('Are you sure to delete the DAG?')) {
-            return;
-          }
+      <Button variant="destructive" onClick={() => setIsDeleteModalOpen(true)}>
+        <Trash2 className="h-4 w-4" />
+        Delete
+      </Button>
+
+      <ConfirmModal
+        title="Delete DAG"
+        buttonText="Delete"
+        visible={isDeleteModalOpen}
+        dismissModal={() => setIsDeleteModalOpen(false)}
+        onSubmit={async () => {
+          setIsDeleteModalOpen(false);
           const { error } = await client.DELETE('/dags/{fileName}', {
             params: {
               path: {
@@ -128,9 +136,15 @@ function DAGEditButtons({ fileName, workspace }: Props) {
             : `${basePath}/dags/`;
         }}
       >
-        <Trash2 className="h-4 w-4" />
-        Delete
-      </Button>
+        <div className="space-y-2 text-sm">
+          <p>Do you really want to delete this DAG?</p>
+          <p className="font-mono text-xs">{fileName}</p>
+          <p className="text-muted-foreground">
+            The definition file and its run history are removed. This action
+            cannot be undone.
+          </p>
+        </div>
+      </ConfirmModal>
 
       <DAGNameInputModal
         isOpen={isRenameModalOpen}

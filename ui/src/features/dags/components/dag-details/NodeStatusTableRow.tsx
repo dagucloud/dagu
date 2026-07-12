@@ -87,6 +87,8 @@ type Props = {
   dagRun: components['schemas']['DAGRunDetails'];
   /** View mode: desktop or mobile */
   view?: 'desktop' | 'mobile';
+  /** Whether the inline log starts expanded */
+  defaultLogExpanded?: boolean;
 };
 
 /**
@@ -149,6 +151,7 @@ function NodeStatusTableRow({
   onNodeStatusUpdated,
   dagRun,
   view = 'desktop',
+  defaultLogExpanded = false,
 }: Props) {
   const { dagRunId, name: dagName } = dagRun;
   const navigate = useNavigate();
@@ -166,9 +169,9 @@ function NodeStatusTableRow({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   // State for inline log expansion
-  const [isLogExpanded, setIsLogExpanded] = useState(false);
+  const [isLogExpanded, setIsLogExpanded] = useState(defaultLogExpanded);
   const [activeLogTab, setActiveLogTab] = useState<'stdout' | 'stderr'>(
-    'stdout'
+    defaultLogExpanded && node.stderr ? 'stderr' : 'stdout'
   );
   // State for status update modal
   const [showStatusModal, setShowStatusModal] = useState(false);

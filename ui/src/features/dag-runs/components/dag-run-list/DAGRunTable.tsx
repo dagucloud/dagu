@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/table';
 import { useConfig } from '../../../../contexts/ConfigContext';
 import dayjs from '../../../../lib/dayjs';
+import RelativeTime from '@/components/ui/relative-time';
 import StatusChip from '@/components/ui/status-chip';
 import AutoRetryBadge from '../common/AutoRetryBadge';
 import { TriggerTypeIndicator } from '../../../dags/components/common/TriggerTypeIndicator';
@@ -369,11 +370,17 @@ function DAGRunTable({
               <div className="flex justify-between items-center">
                 <div>
                   <span className="text-muted-foreground">Queued: </span>
-                  {dagRun.queuedAt || '-'}
+                  <RelativeTime
+                    timestamp={dagRun.queuedAt}
+                    absolute={dagRun.queuedAt || undefined}
+                  />
                 </div>
                 <div>
                   <span className="text-muted-foreground">Started: </span>
-                  {dagRun.startedAt || '-'}
+                  <RelativeTime
+                    timestamp={dagRun.startedAt}
+                    absolute={dagRun.startedAt || undefined}
+                  />
                 </div>
               </div>
               <div className="text-left flex items-center gap-1.5">
@@ -561,10 +568,16 @@ function DAGRunTable({
                 </TableCell>
               )}
               <TableCell className="py-1 px-2 text-left">
-                {dagRun.queuedAt || '-'}
+                <RelativeTime
+                  timestamp={dagRun.queuedAt}
+                  absolute={dagRun.queuedAt || undefined}
+                />
               </TableCell>
               <TableCell className="py-1 px-2 text-left">
-                {dagRun.startedAt || '-'}
+                <RelativeTime
+                  timestamp={dagRun.startedAt}
+                  absolute={dagRun.startedAt || undefined}
+                />
               </TableCell>
               <TableCell className="py-1 px-2 text-left">
                 <div className="flex items-center gap-1">

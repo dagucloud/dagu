@@ -1,6 +1,7 @@
 import React from 'react';
 import { ChevronDown, ChevronRight, Clock, AlertCircle } from 'lucide-react';
 import type { components } from '../../../api/v1/schema';
+import RelativeTime from '@/components/ui/relative-time';
 import { cn } from '../../../lib/utils';
 import WorkerHealth from './WorkerHealth';
 
@@ -14,8 +15,15 @@ interface WorkerListProps {
   onTaskClick?: (task: RunningTask) => void;
 }
 
-function WorkerList({ workers, isLoading, errors, onTaskClick }: WorkerListProps) {
-  const [expandedWorkers, setExpandedWorkers] = React.useState<Set<string>>(new Set());
+function WorkerList({
+  workers,
+  isLoading,
+  errors,
+  onTaskClick,
+}: WorkerListProps) {
+  const [expandedWorkers, setExpandedWorkers] = React.useState<Set<string>>(
+    new Set()
+  );
 
   const toggleExpanded = (workerId: string) => {
     setExpandedWorkers((prev) => {
@@ -45,7 +53,9 @@ function WorkerList({ workers, isLoading, errors, onTaskClick }: WorkerListProps
           <span>Warnings:</span>
         </div>
         {errors.map((error, idx) => (
-          <p key={idx} className="text-xs text-muted-foreground pl-6">{error}</p>
+          <p key={idx} className="text-xs text-muted-foreground pl-6">
+            {error}
+          </p>
         ))}
       </div>
     );
@@ -63,15 +73,16 @@ function WorkerList({ workers, isLoading, errors, onTaskClick }: WorkerListProps
     <div className="divide-y">
       {workers.map((worker) => {
         const isExpanded = expandedWorkers.has(worker.id);
-        const hasRunningTasks = worker.runningTasks && worker.runningTasks.length > 0;
-        
+        const hasRunningTasks =
+          worker.runningTasks && worker.runningTasks.length > 0;
+
         return (
           <div key={worker.id} className="hover:bg-muted/50 transition-colors">
             {/* Worker row */}
             <div
               className={cn(
-                "px-3 py-2 flex items-center gap-3 cursor-pointer",
-                isExpanded && "bg-muted/30"
+                'px-3 py-2 flex items-center gap-3 cursor-pointer',
+                isExpanded && 'bg-muted/30'
               )}
               onClick={() => toggleExpanded(worker.id)}
             >
@@ -99,14 +110,15 @@ function WorkerList({ workers, isLoading, errors, onTaskClick }: WorkerListProps
               {/* Labels */}
               <div className="flex-1 min-w-0">
                 <div className="flex flex-wrap gap-1">
-                  {worker.labels && Object.entries(worker.labels).map(([key, value]) => (
-                    <span
-                      key={key}
-                      className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-accent text-foreground/90"
-                    >
-                      {key}={value}
-                    </span>
-                  ))}
+                  {worker.labels &&
+                    Object.entries(worker.labels).map(([key, value]) => (
+                      <span
+                        key={key}
+                        className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-accent text-foreground/90"
+                      >
+                        {key}={value}
+                      </span>
+                    ))}
                 </div>
               </div>
 
@@ -128,7 +140,12 @@ function WorkerList({ workers, isLoading, errors, onTaskClick }: WorkerListProps
 
               {/* Last heartbeat */}
               <div className="w-16 text-right">
-                <RelativeTime timestamp={worker.lastHeartbeatAt} />
+                <RelativeTime
+                  className="text-xs text-muted-foreground"
+                  timestamp={worker.lastHeartbeatAt}
+                  fallback="Never"
+                  compact
+                />
               </div>
             </div>
 
@@ -140,7 +157,11 @@ function WorkerList({ workers, isLoading, errors, onTaskClick }: WorkerListProps
                     Running Tasks ({worker.runningTasks.length})
                   </div>
                   {worker.runningTasks.map((task: RunningTask) => (
-                    <TaskRow key={task.dagRunId} task={task} onTaskClick={onTaskClick} />
+                    <TaskRow
+                      key={task.dagRunId}
+                      task={task}
+                      onTaskClick={onTaskClick}
+                    />
                   ))}
                 </div>
               </div>
@@ -154,7 +175,7 @@ function WorkerList({ workers, isLoading, errors, onTaskClick }: WorkerListProps
 
 function UtilizationBar({ busy, total }: { busy: number; total: number }) {
   const percentage = total > 0 ? (busy / total) * 100 : 0;
-  
+
   return (
     <div className="space-y-1">
       <div className="flex justify-between text-xs">
@@ -164,11 +185,16 @@ function UtilizationBar({ busy, total }: { busy: number; total: number }) {
       <div className="h-1.5 bg-muted rounded-full overflow-hidden">
         <div
           className={cn(
-            "h-full transition-all duration-300",
-            percentage >= 90 ? "bg-error" :
-            percentage >= 70 ? "bg-warning" :
-            percentage >= 50 ? "bg-warning" :
-            percentage > 0 ? "bg-success" : "bg-muted"
+            'h-full transition-all duration-300',
+            percentage >= 90
+              ? 'bg-error'
+              : percentage >= 70
+                ? 'bg-warning'
+                : percentage >= 50
+                  ? 'bg-warning'
+                  : percentage > 0
+                    ? 'bg-success'
+                    : 'bg-muted'
           )}
           style={{ width: `${percentage}%` }}
         />
@@ -177,19 +203,26 @@ function UtilizationBar({ busy, total }: { busy: number; total: number }) {
   );
 }
 
-function TaskRow({ task, onTaskClick }: { task: RunningTask; onTaskClick?: (task: RunningTask) => void }) {
+function TaskRow({
+  task,
+  onTaskClick,
+}: {
+  task: RunningTask;
+  onTaskClick?: (task: RunningTask) => void;
+}) {
   const duration = React.useMemo(() => {
     if (!task.startedAt) return '';
     const start = new Date(task.startedAt).getTime();
     const now = new Date().getTime();
     const seconds = Math.floor((now - start) / 1000);
-    
+
     if (seconds < 60) return `${seconds}s`;
     if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
     return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
   }, [task.startedAt]);
 
-  const isNestedTask = task.rootDagRunName && task.rootDagRunName !== task.dagName;
+  const isNestedTask =
+    task.rootDagRunName && task.rootDagRunName !== task.dagName;
 
   const handleClick = (e: React.MouseEvent) => {
     if (e.metaKey || e.ctrlKey) {
@@ -212,7 +245,7 @@ function TaskRow({ task, onTaskClick }: { task: RunningTask; onTaskClick?: (task
   };
 
   return (
-    <div 
+    <div
       className="flex items-center gap-3 p-1.5 rounded bg-background/50 cursor-pointer hover:bg-background/80 transition-colors"
       onClick={handleClick}
     >
@@ -224,7 +257,7 @@ function TaskRow({ task, onTaskClick }: { task: RunningTask; onTaskClick?: (task
         </div>
         {isNestedTask && (
           <div className="text-xs text-muted-foreground mt-0.5">
-            <span className="opacity-60">root:</span> {task.rootDagRunName} 
+            <span className="opacity-60">root:</span> {task.rootDagRunName}
             <span className="opacity-40 ml-1">({task.rootDagRunId})</span>
           </div>
         )}
@@ -239,35 +272,6 @@ function TaskRow({ task, onTaskClick }: { task: RunningTask; onTaskClick?: (task
       </div>
     </div>
   );
-}
-
-function RelativeTime({ timestamp }: { timestamp: string }) {
-  const [relative, setRelative] = React.useState('');
-
-  React.useEffect(() => {
-    const updateRelative = () => {
-      if (!timestamp) {
-        setRelative('Never');
-        return;
-      }
-
-      const time = new Date(timestamp).getTime();
-      const now = new Date().getTime();
-      const seconds = Math.floor((now - time) / 1000);
-
-      if (seconds < 5) setRelative('Now');
-      else if (seconds < 60) setRelative(`${seconds}s`);
-      else if (seconds < 3600) setRelative(`${Math.floor(seconds / 60)}m`);
-      else if (seconds < 86400) setRelative(`${Math.floor(seconds / 3600)}h`);
-      else setRelative(`${Math.floor(seconds / 86400)}d`);
-    };
-
-    updateRelative();
-    const interval = setInterval(updateRelative, 1000);
-    return () => clearInterval(interval);
-  }, [timestamp]);
-
-  return <span className="text-xs text-muted-foreground">{relative}</span>;
 }
 
 export default WorkerList;

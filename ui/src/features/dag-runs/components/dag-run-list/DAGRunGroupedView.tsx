@@ -7,6 +7,7 @@ import { useMemo, useState } from 'react';
 import { components, Status } from '../../../../api/v1/schema';
 import dayjs from '../../../../lib/dayjs';
 import { getDAGRunScheduleSortValue } from '../../../../lib/dagRunTiming';
+import RelativeTime from '@/components/ui/relative-time';
 import StatusChip from '@/components/ui/status-chip';
 import AutoRetryBadge from '../common/AutoRetryBadge';
 import {
@@ -323,13 +324,19 @@ function DAGRunGroupedView({
                                   <span className="text-muted-foreground">
                                     Queued:{' '}
                                   </span>
-                                  {dagRun.queuedAt || '-'}
+                                  <RelativeTime
+                                    timestamp={dagRun.queuedAt}
+                                    absolute={dagRun.queuedAt || undefined}
+                                  />
                                 </div>
                                 <div className="whitespace-nowrap">
                                   <span className="text-muted-foreground">
                                     Started:{' '}
                                   </span>
-                                  {dagRun.startedAt || '-'}
+                                  <RelativeTime
+                                    timestamp={dagRun.startedAt}
+                                    absolute={dagRun.startedAt || undefined}
+                                  />
                                 </div>
                                 <div className="flex items-center gap-1 whitespace-nowrap">
                                   <span className="text-muted-foreground">

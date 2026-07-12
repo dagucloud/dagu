@@ -1,6 +1,7 @@
 import React from 'react';
 import { Activity, ChevronDown, ChevronRight, Clock } from 'lucide-react';
 import type { components } from '../../../api/v1/schema';
+import RelativeTime from '@/components/ui/relative-time';
 import { cn } from '../../../lib/utils';
 import WorkerHealth from '../../workers/components/WorkerHealth';
 
@@ -14,8 +15,15 @@ interface WorkersSummaryProps {
   onTaskClick?: (task: RunningTask) => void;
 }
 
-function WorkersSummary({ workers, isLoading, errors, onTaskClick }: WorkersSummaryProps) {
-  const [expandedWorkers, setExpandedWorkers] = React.useState<Set<string>>(new Set());
+function WorkersSummary({
+  workers,
+  isLoading,
+  errors,
+  onTaskClick,
+}: WorkersSummaryProps) {
+  const [expandedWorkers, setExpandedWorkers] = React.useState<Set<string>>(
+    new Set()
+  );
 
   const toggleExpanded = (workerId: string) => {
     setExpandedWorkers((prev) => {
@@ -32,10 +40,20 @@ function WorkersSummary({ workers, isLoading, errors, onTaskClick }: WorkersSumm
   // Calculate metrics
   const metrics = React.useMemo(() => {
     const totalWorkers = workers.length;
-    const totalPollers = workers.reduce((sum, w) => sum + (w.totalPollers || 0), 0);
-    const busyPollers = workers.reduce((sum, w) => sum + (w.busyPollers || 0), 0);
-    const totalTasks = workers.reduce((sum, w) => sum + (w.runningTasks?.length || 0), 0);
-    const utilization = totalPollers > 0 ? Math.round((busyPollers / totalPollers) * 100) : 0;
+    const totalPollers = workers.reduce(
+      (sum, w) => sum + (w.totalPollers || 0),
+      0
+    );
+    const busyPollers = workers.reduce(
+      (sum, w) => sum + (w.busyPollers || 0),
+      0
+    );
+    const totalTasks = workers.reduce(
+      (sum, w) => sum + (w.runningTasks?.length || 0),
+      0
+    );
+    const utilization =
+      totalPollers > 0 ? Math.round((busyPollers / totalPollers) * 100) : 0;
 
     const healthyWorkers = workers.filter((worker) => {
       if (!worker.lastHeartbeatAt) return false;
@@ -44,7 +62,14 @@ function WorkersSummary({ workers, isLoading, errors, onTaskClick }: WorkersSumm
       return now - lastHeartbeat < 10000;
     }).length;
 
-    return { totalWorkers, healthyWorkers, totalPollers, busyPollers, totalTasks, utilization };
+    return {
+      totalWorkers,
+      healthyWorkers,
+      totalPollers,
+      busyPollers,
+      totalTasks,
+      utilization,
+    };
   }, [workers]);
 
   return (
@@ -57,20 +82,30 @@ function WorkersSummary({ workers, isLoading, errors, onTaskClick }: WorkersSumm
         </div>
         <div className="flex items-center gap-5 text-xs text-muted-foreground">
           <div className="flex items-baseline gap-1">
-            <span className="text-sm font-light tabular-nums text-foreground">{metrics.totalWorkers}</span>
+            <span className="text-sm font-light tabular-nums text-foreground">
+              {metrics.totalWorkers}
+            </span>
             <span>workers</span>
-            <span className="text-muted-foreground/60">({metrics.healthyWorkers} up)</span>
+            <span className="text-muted-foreground/60">
+              ({metrics.healthyWorkers} up)
+            </span>
           </div>
           <div className="flex items-baseline gap-1">
-            <span className="text-sm font-light tabular-nums text-foreground">{metrics.busyPollers}/{metrics.totalPollers}</span>
+            <span className="text-sm font-light tabular-nums text-foreground">
+              {metrics.busyPollers}/{metrics.totalPollers}
+            </span>
             <span>pollers</span>
           </div>
           <div className="flex items-baseline gap-1">
-            <span className="text-sm font-light tabular-nums text-foreground">{metrics.totalTasks}</span>
+            <span className="text-sm font-light tabular-nums text-foreground">
+              {metrics.totalTasks}
+            </span>
             <span>tasks</span>
           </div>
           <div className="flex items-baseline gap-1">
-            <span className="text-sm font-light tabular-nums text-foreground">{metrics.utilization}%</span>
+            <span className="text-sm font-light tabular-nums text-foreground">
+              {metrics.utilization}%
+            </span>
             <span>util</span>
           </div>
         </div>
@@ -84,7 +119,9 @@ function WorkersSummary({ workers, isLoading, errors, onTaskClick }: WorkersSumm
           </div>
         ) : errors && errors.length > 0 ? (
           <div className="p-2 text-sm text-warning">
-            {errors.map((err, idx) => <div key={idx}>{err}</div>)}
+            {errors.map((err, idx) => (
+              <div key={idx}>{err}</div>
+            ))}
           </div>
         ) : workers.length === 0 ? (
           <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
@@ -94,17 +131,19 @@ function WorkersSummary({ workers, isLoading, errors, onTaskClick }: WorkersSumm
           <div className="divide-y">
             {workers.map((worker) => {
               const isExpanded = expandedWorkers.has(worker.id);
-              const hasRunningTasks = worker.runningTasks && worker.runningTasks.length > 0;
-              const utilization = worker.totalPollers > 0
-                ? Math.round((worker.busyPollers / worker.totalPollers) * 100)
-                : 0;
+              const hasRunningTasks =
+                worker.runningTasks && worker.runningTasks.length > 0;
+              const utilization =
+                worker.totalPollers > 0
+                  ? Math.round((worker.busyPollers / worker.totalPollers) * 100)
+                  : 0;
 
               return (
                 <div key={worker.id}>
                   <div
                     className={cn(
-                      "px-3 py-2 flex items-center gap-2 cursor-pointer hover:bg-muted/50 transition-colors text-sm",
-                      isExpanded && "bg-muted/30"
+                      'px-3 py-2 flex items-center gap-2 cursor-pointer hover:bg-muted/50 transition-colors text-sm',
+                      isExpanded && 'bg-muted/30'
                     )}
                     onClick={() => toggleExpanded(worker.id)}
                   >
@@ -125,19 +164,23 @@ function WorkersSummary({ workers, isLoading, errors, onTaskClick }: WorkersSumm
                     </div>
 
                     <div className="flex flex-wrap gap-1">
-                      {worker.labels && Object.entries(worker.labels).slice(0, 2).map(([key, value]) => (
-                        <span
-                          key={key}
-                          className="px-1.5 py-0.5 rounded text-xs font-medium bg-accent"
-                        >
-                          {key}={value}
-                        </span>
-                      ))}
-                      {worker.labels && Object.keys(worker.labels).length > 2 && (
-                        <span className="text-xs text-muted-foreground">
-                          +{Object.keys(worker.labels).length - 2}
-                        </span>
-                      )}
+                      {worker.labels &&
+                        Object.entries(worker.labels)
+                          .slice(0, 2)
+                          .map(([key, value]) => (
+                            <span
+                              key={key}
+                              className="px-1.5 py-0.5 rounded text-xs font-medium bg-accent"
+                            >
+                              {key}={value}
+                            </span>
+                          ))}
+                      {worker.labels &&
+                        Object.keys(worker.labels).length > 2 && (
+                          <span className="text-xs text-muted-foreground">
+                            +{Object.keys(worker.labels).length - 2}
+                          </span>
+                        )}
                     </div>
 
                     <div className="w-20 flex items-center gap-1">
@@ -156,13 +199,22 @@ function WorkersSummary({ workers, isLoading, errors, onTaskClick }: WorkersSumm
                       {worker.runningTasks?.length || 0}/{worker.totalPollers}
                     </div>
 
-                    <RelativeTime timestamp={worker.lastHeartbeatAt} />
+                    <RelativeTime
+                      className="text-xs text-muted-foreground w-10 text-right"
+                      timestamp={worker.lastHeartbeatAt}
+                      fallback="Never"
+                      compact
+                    />
                   </div>
 
                   {isExpanded && hasRunningTasks && (
                     <div className="bg-muted/20 border-t px-8 py-2 space-y-1">
                       {worker.runningTasks.map((task: RunningTask) => (
-                        <TaskRow key={task.dagRunId} task={task} onTaskClick={onTaskClick} />
+                        <TaskRow
+                          key={task.dagRunId}
+                          task={task}
+                          onTaskClick={onTaskClick}
+                        />
                       ))}
                     </div>
                   )}
@@ -176,7 +228,13 @@ function WorkersSummary({ workers, isLoading, errors, onTaskClick }: WorkersSumm
   );
 }
 
-function TaskRow({ task, onTaskClick }: { task: RunningTask; onTaskClick?: (task: RunningTask) => void }) {
+function TaskRow({
+  task,
+  onTaskClick,
+}: {
+  task: RunningTask;
+  onTaskClick?: (task: RunningTask) => void;
+}) {
   const duration = React.useMemo(() => {
     if (!task.startedAt) return '';
     const start = new Date(task.startedAt).getTime();
@@ -214,39 +272,12 @@ function TaskRow({ task, onTaskClick }: { task: RunningTask; onTaskClick?: (task
     >
       <Clock className="h-3 w-3 text-muted-foreground flex-shrink-0" />
       <span className="font-medium truncate">{task.dagName}</span>
-      <span className="text-muted-foreground font-mono truncate">{task.dagRunId}</span>
+      <span className="text-muted-foreground font-mono truncate">
+        {task.dagRunId}
+      </span>
       <span className="text-muted-foreground ml-auto">{duration}</span>
     </div>
   );
-}
-
-function RelativeTime({ timestamp }: { timestamp: string }) {
-  const [relative, setRelative] = React.useState('');
-
-  React.useEffect(() => {
-    const updateRelative = () => {
-      if (!timestamp) {
-        setRelative('Never');
-        return;
-      }
-
-      const time = new Date(timestamp).getTime();
-      const now = new Date().getTime();
-      const seconds = Math.floor((now - time) / 1000);
-
-      if (seconds < 5) setRelative('Now');
-      else if (seconds < 60) setRelative(`${seconds}s`);
-      else if (seconds < 3600) setRelative(`${Math.floor(seconds / 60)}m`);
-      else if (seconds < 86400) setRelative(`${Math.floor(seconds / 3600)}h`);
-      else setRelative(`${Math.floor(seconds / 86400)}d`);
-    };
-
-    updateRelative();
-    const interval = setInterval(updateRelative, 1000);
-    return () => clearInterval(interval);
-  }, [timestamp]);
-
-  return <span className="text-xs text-muted-foreground w-10 text-right">{relative}</span>;
 }
 
 export default WorkersSummary;

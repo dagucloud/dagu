@@ -1,29 +1,64 @@
-import { Check } from 'lucide-react';
+import { AlertCircle, Check, Info } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
+
+export type ToastVariant = 'success' | 'error' | 'info';
+
+type ToastOptions = {
+  duration?: number;
+  variant?: ToastVariant;
+};
 
 interface SimpleToastProps {
   message: string;
   duration?: number;
+  variant?: ToastVariant;
   onClose?: () => void;
 }
 
 // Minimum duration to ensure animations complete properly
 const MIN_DURATION = 500;
 
+const DEFAULT_DURATIONS: Record<ToastVariant, number> = {
+  success: 1800,
+  info: 2200,
+  error: 3500,
+};
+
+const VARIANT_STYLES: Record<
+  ToastVariant,
+  { circleClass: string; iconClass: string; icon: React.ElementType }
+> = {
+  success: {
+    circleClass: 'border-success',
+    iconClass: 'text-success',
+    icon: Check,
+  },
+  error: {
+    circleClass: 'border-destructive',
+    iconClass: 'text-destructive',
+    icon: AlertCircle,
+  },
+  info: { circleClass: 'border-info', iconClass: 'text-info', icon: Info },
+};
+
 export const SimpleToast: React.FC<SimpleToastProps> = ({
   message,
-  duration = 1800,
+  duration,
+  variant = 'success',
   onClose,
 }) => {
   const [isVisible, setIsVisible] = useState(true);
   const [animationState, setAnimationState] = useState<
     'entering' | 'visible' | 'exiting'
   >('entering');
-  const [checkAnimated, setCheckAnimated] = useState(false);
+  const [iconAnimated, setIconAnimated] = useState(false);
 
   // Ensure duration is at least MIN_DURATION
-  const safeDuration = Math.max(duration, MIN_DURATION);
+  const safeDuration = Math.max(
+    duration ?? DEFAULT_DURATIONS[variant],
+    MIN_DURATION
+  );
 
   useEffect(() => {
     // Enter animation
@@ -31,9 +66,9 @@ export const SimpleToast: React.FC<SimpleToastProps> = ({
       setAnimationState('visible');
     }, 20);
 
-    // Checkmark draw animation
-    const checkTimer = setTimeout(() => {
-      setCheckAnimated(true);
+    // Icon draw animation
+    const iconTimer = setTimeout(() => {
+      setIconAnimated(true);
     }, 150);
 
     // Start exit animation (at least 350ms before end)
@@ -49,7 +84,7 @@ export const SimpleToast: React.FC<SimpleToastProps> = ({
 
     return () => {
       clearTimeout(enterTimer);
-      clearTimeout(checkTimer);
+      clearTimeout(iconTimer);
       clearTimeout(exitTimer);
       clearTimeout(removeTimer);
     };
@@ -68,6 +103,12 @@ export const SimpleToast: React.FC<SimpleToastProps> = ({
     }
   };
 
+  const {
+    circleClass,
+    iconClass,
+    icon: IconComponent,
+  } = VARIANT_STYLES[variant];
+
   return createPortal(
     <div className="fixed inset-0 z-[100] flex items-center justify-center pointer-events-none">
       <div
@@ -84,26 +125,26 @@ export const SimpleToast: React.FC<SimpleToastProps> = ({
           ${getAnimationClasses()}
         `}
       >
-        {/* Animated checkmark circle */}
+        {/* Animated icon circle */}
         <div className="relative w-12 h-12">
           {/* Circle background */}
           <div
             className={`
               absolute inset-0 rounded-full
-              border-[2.5px] border-success
+              border-[2.5px] ${circleClass}
               transition-all duration-300 ease-out
-              ${checkAnimated ? 'opacity-100 scale-100' : 'opacity-0 scale-75'}
+              ${iconAnimated ? 'opacity-100 scale-100' : 'opacity-0 scale-75'}
             `}
           />
-          {/* Checkmark icon */}
+          {/* Variant icon */}
           <div
             className={`
               absolute inset-0 flex items-center justify-center
               transition-all duration-300 ease-out delay-100
-              ${checkAnimated ? 'opacity-100 scale-100' : 'opacity-0 scale-50'}
+              ${iconAnimated ? 'opacity-100 scale-100' : 'opacity-0 scale-50'}
             `}
           >
-            <Check className="h-7 w-7 text-success" strokeWidth={3} />
+            <IconComponent className={`h-7 w-7 ${iconClass}`} strokeWidth={3} />
           </div>
         </div>
 
@@ -112,7 +153,7 @@ export const SimpleToast: React.FC<SimpleToastProps> = ({
           className={`
             text-sm font-medium text-foreground/90 text-center px-2
             transition-all duration-200 delay-150
-            ${checkAnimated ? 'opacity-100' : 'opacity-0'}
+            ${iconAnimated ? 'opacity-100' : 'opacity-0'}
           `}
         >
           {message}
@@ -128,7 +169,7 @@ interface ToastManagerProps {
 }
 
 interface ToastContextType {
-  showToast: (message: string, duration?: number) => void;
+  showToast: (message: string, options?: ToastOptions) => void;
 }
 
 export const ToastContext = React.createContext<ToastContextType>({
@@ -138,12 +179,18 @@ export const ToastContext = React.createContext<ToastContextType>({
 export const ToastProvider: React.FC<ToastManagerProps> = ({ children }) => {
   const [toast, setToast] = useState<{
     message: string;
-    duration: number;
+    duration?: number;
+    variant: ToastVariant;
     id: number;
   } | null>(null);
 
-  const showToast = (message: string, duration = 1500) => {
-    setToast({ message, duration, id: Date.now() });
+  const showToast = (message: string, options?: ToastOptions) => {
+    setToast({
+      message,
+      duration: options?.duration,
+      variant: options?.variant ?? 'success',
+      id: Date.now(),
+    });
   };
 
   const handleClose = () => {
@@ -158,6 +205,7 @@ export const ToastProvider: React.FC<ToastManagerProps> = ({ children }) => {
           key={toast.id}
           message={toast.message}
           duration={toast.duration}
+          variant={toast.variant}
           onClose={handleClose}
         />
       )}
