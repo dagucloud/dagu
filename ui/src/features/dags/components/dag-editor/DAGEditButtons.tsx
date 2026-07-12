@@ -140,8 +140,8 @@ function DAGEditButtons({ fileName, workspace }: Props) {
           <p>Do you really want to delete this DAG?</p>
           <p className="font-mono text-xs">{fileName}</p>
           <p className="text-muted-foreground">
-            The definition file and its run history are removed. This action
-            cannot be undone.
+            The definition file is removed; past run history is kept. This
+            action cannot be undone.
           </p>
         </div>
       </ConfirmModal>

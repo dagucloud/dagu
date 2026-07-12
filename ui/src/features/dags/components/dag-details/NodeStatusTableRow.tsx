@@ -46,7 +46,7 @@ import {
   RefreshCw,
   X,
 } from 'lucide-react';
-import { useContext, useEffect, useState } from 'react';
+import { useContext, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { buildDAGPageURL } from '../../../dag-runs/lib/dagRunUrls';
 import {
@@ -194,6 +194,22 @@ function NodeStatusTableRow({
     dagRun.rootDAGRunId !== dagRun.dagRunId;
   const shouldFetchLogStepOutput =
     logMessage !== null && hasStdout && !!dagRunId;
+
+  // Expand the log when this row becomes the first failed step while already
+  // mounted (live polling). Applied once per false-to-true transition so a
+  // manual collapse afterwards is respected.
+  const autoExpandApplied = useRef(defaultLogExpanded);
+  useEffect(() => {
+    if (!defaultLogExpanded) {
+      autoExpandApplied.current = false;
+      return;
+    }
+    if (autoExpandApplied.current || !hasLogs) return;
+    autoExpandApplied.current = true;
+    setIsLogExpanded(true);
+    setActiveLogTab(hasStderr ? 'stderr' : 'stdout');
+  }, [defaultLogExpanded, hasLogs, hasStderr]);
+
   const showStepActions = Boolean(dagRunId && config.permissions.runDags);
   const canRetryStep =
     showStepActions &&

@@ -20,6 +20,11 @@ function getErrorStatus(error: unknown): number | undefined {
   return err?.status ?? err?.response?.status;
 }
 
+function getErrorCode(error: unknown): string | undefined {
+  const code = (error as { code?: unknown })?.code;
+  return typeof code === 'string' ? code : undefined;
+}
+
 function getErrorMessage(error: unknown): string {
   const message = (error as { message?: string })?.message;
   return typeof message === 'string' && message.length > 0
@@ -30,6 +35,29 @@ function getErrorMessage(error: unknown): string {
 function isAbortLike(error: unknown): boolean {
   const name = (error as { name?: string })?.name;
   return name === 'AbortError' || name === 'RequestAbortError';
+}
+
+// API error codes that are expected states, not failures worth a notice:
+// auth errors trigger the login redirect, and missing resources (e.g. a step
+// log that has not been written yet) are rendered by the requesting component.
+const IGNORED_ERROR_CODES = new Set([
+  'not_found',
+  'unauthorized',
+  'auth.unauthorized',
+]);
+
+/**
+ * Reports whether a query error represents an expected condition that should
+ * not be surfaced as a global notice. Handles both error shapes seen in the
+ * app: `FetchError` carrying an HTTP response, and the parsed API error body
+ * (`{code, message}`) thrown by the typed query hooks.
+ */
+export function isIgnorableQueryError(error: unknown): boolean {
+  if (isAbortLike(error)) return true;
+  const status = getErrorStatus(error);
+  if (status === 401 || status === 404) return true;
+  const code = getErrorCode(error);
+  return code !== undefined && IGNORED_ERROR_CODES.has(code);
 }
 
 /**
@@ -70,9 +98,7 @@ export function QueryFeedback({ children }: { children: React.ReactNode }) {
   const handleError = React.useCallback((error: unknown) => {
     console.error(error);
 
-    if (isAbortLike(error)) return;
-    // 401 is handled by the auth middleware (redirect to login).
-    if (getErrorStatus(error) === 401) return;
+    if (isIgnorableQueryError(error)) return;
 
     const message = getErrorMessage(error);
     const now = Date.now();
