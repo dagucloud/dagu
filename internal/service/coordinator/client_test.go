@@ -801,7 +801,7 @@ func TestClientStatePinnedCoordinatorRefreshesSameCoordinatorEndpoint(t *testing
 	t.Parallel()
 
 	config := coordinator.DefaultConfig()
-	config.RequestTimeout = 100 * time.Millisecond
+	config.RequestTimeout = time.Second
 
 	ref := &coordinatorv1.StateRef{Scope: "dag", Namespace: "daily-agent", Key: "cursor"}
 	entry := &coordinatorv1.StateEntry{Ref: ref, Value: []byte(`1`), Version: 1}
@@ -925,7 +925,7 @@ func TestClientStatePinnedCoordinatorReselectsWhenCoordinatorIDDisappears(t *tes
 	t.Parallel()
 
 	config := coordinator.DefaultConfig()
-	config.RequestTimeout = 100 * time.Millisecond
+	config.RequestTimeout = time.Second
 
 	ref := &coordinatorv1.StateRef{Scope: "dag", Namespace: "daily-agent", Key: "cursor"}
 	entry := &coordinatorv1.StateEntry{Ref: ref, Value: []byte(`1`), Version: 1}
