@@ -13639,6 +13639,16 @@ components:
         total:
           type: integer
 
+    ViewColumn:
+      type: string
+      enum:
+        - queued
+        - running
+        - review
+        - done
+        - failed
+      description: "A status column available in a Kanban view."
+
     ViewSpec:
       type: object
       required:
@@ -13683,6 +13693,14 @@ components:
           minimum: 1
           maximum: 30
           description: "Required number of days each row (bucket) groups. Rows scroll back in time by this unit."
+        columns:
+          type: array
+          minItems: 1
+          maxItems: 5
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/ViewColumn"
+          description: "Status columns to display, in left-to-right order. Omitted values use the default order with all columns visible."
         pinned:
           type: boolean
           default: false
@@ -13714,6 +13732,11 @@ components:
           type: string
         intervalDays:
           type: integer
+        columns:
+          type: array
+          items:
+            $ref: "#/components/schemas/ViewColumn"
+          description: "Visible status columns in left-to-right display order."
         pinned:
           type: boolean
         createdBy:

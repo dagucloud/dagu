@@ -20,6 +20,7 @@ func validView() *view.View {
 		Name:         "My View",
 		Type:         view.TypeKanban,
 		IntervalDays: 3,
+		Columns:      view.DefaultColumns(),
 	}
 }
 
@@ -40,6 +41,8 @@ func TestView_Validate_Errors(t *testing.T) {
 		{"interval too large", func(v *view.View) { v.IntervalDays = view.MaxIntervalDays + 1 }, view.ErrInvalidInterval},
 		{"too many labels", func(v *view.View) { v.Labels = make([]string, view.MaxLabels+1) }, view.ErrTooManyLabels},
 		{"unknown type", func(v *view.View) { v.Type = "timeline" }, view.ErrInvalidType},
+		{"unknown column", func(v *view.View) { v.Columns = []string{"running", "unknown"} }, view.ErrInvalidColumns},
+		{"duplicate column", func(v *view.View) { v.Columns = []string{"running", "running"} }, view.ErrInvalidColumns},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -67,6 +70,7 @@ func TestView_Normalize(t *testing.T) {
 	assert.Equal(t, "dag", v.DAGName)
 	assert.Equal(t, []string{"a", "b"}, v.Labels, "empty and oversized labels are dropped")
 	assert.Equal(t, 5, v.IntervalDays)
+	assert.Equal(t, view.DefaultColumns(), v.Columns)
 }
 
 func TestView_StorageRoundTrip(t *testing.T) {
@@ -79,6 +83,7 @@ func TestView_StorageRoundTrip(t *testing.T) {
 		Labels:       []string{"a", "b=c"},
 		DAGName:      "etl",
 		IntervalDays: 7,
+		Columns:      []string{view.ColumnRunning, view.ColumnFailed},
 		Pinned:       true,
 		CreatedBy:    "alice",
 		CreatedAt:    now,
@@ -87,4 +92,10 @@ func TestView_StorageRoundTrip(t *testing.T) {
 
 	got := original.ToStorage().ToView()
 	assert.Equal(t, original, got)
+}
+
+func TestView_StoredViewWithoutColumnsUsesDefaultLayout(t *testing.T) {
+	stored := &view.ViewForStorage{ID: "legacy", Name: "Legacy"}
+
+	assert.Equal(t, view.DefaultColumns(), stored.ToView().Columns)
 }

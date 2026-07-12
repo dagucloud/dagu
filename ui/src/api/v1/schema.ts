@@ -5635,6 +5635,11 @@ export interface components {
             secrets: components["schemas"]["SecretResponse"][];
             total: number;
         };
+        /**
+         * @description A status column available in a Kanban view.
+         * @enum {string}
+         */
+        ViewColumn: ViewColumn;
         ViewSpec: {
             /** @description Display name for the view. */
             name: string;
@@ -5652,6 +5657,8 @@ export interface components {
             dagName?: string;
             /** @description Required number of days each row (bucket) groups. Rows scroll back in time by this unit. */
             intervalDays: number;
+            /** @description Status columns to display, in left-to-right order. Omitted values use the default order with all columns visible. */
+            columns?: components["schemas"]["ViewColumn"][];
             /**
              * @description Whether the view is pinned to the left sidebar.
              * @default false
@@ -5666,6 +5673,8 @@ export interface components {
             labels?: string[];
             dagName?: string;
             intervalDays: number;
+            /** @description Visible status columns in left-to-right display order. */
+            columns?: components["schemas"]["ViewColumn"][];
             pinned?: boolean;
             /** @description Username of the creator, for display only. */
             createdBy?: string;
@@ -16673,6 +16682,13 @@ export enum SecretStatus {
 }
 export enum CreateSecretRequestProviderType {
     dagu_managed = "dagu-managed"
+}
+export enum ViewColumn {
+    queued = "queued",
+    running = "running",
+    review = "review",
+    done = "done",
+    failed = "failed"
 }
 export enum ViewSpecType {
     kanban = "kanban"

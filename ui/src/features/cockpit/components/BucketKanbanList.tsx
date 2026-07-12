@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { components } from '@/api/v1/schema';
+import { components, ViewColumn } from '@/api/v1/schema';
 import DAGRunDetailsModal from '@/features/dag-runs/components/dag-run-details/DAGRunDetailsModal';
 import type { KanbanFilters } from '../hooks/useDateKanbanData';
 import { useInfiniteBuckets } from '../hooks/useInfiniteBuckets';
@@ -15,6 +15,7 @@ interface Props {
   intervalDays: number;
   filters: KanbanFilters;
   resetKey?: string;
+  visibleColumns?: readonly ViewColumn[];
 }
 
 /**
@@ -27,6 +28,7 @@ export function BucketKanbanList({
   intervalDays,
   filters,
   resetKey,
+  visibleColumns,
 }: Props): React.ReactElement {
   const { buckets, hasMore, loadNext } = useInfiniteBuckets(
     intervalDays,
@@ -102,6 +104,7 @@ export function BucketKanbanList({
             toStr={bucket.toStr}
             isLive={bucket.isLive}
             filters={filters}
+            visibleColumns={visibleColumns}
             onCardClick={handleCardClick}
             onArtifactsClick={handleArtifactsClick}
           />

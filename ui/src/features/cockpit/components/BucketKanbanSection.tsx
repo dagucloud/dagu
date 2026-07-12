@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import React, { useMemo } from 'react';
-import { components } from '@/api/v1/schema';
+import { components, ViewColumn } from '@/api/v1/schema';
 import { useConfig } from '@/contexts/ConfigContext';
 import dayjs from '@/lib/dayjs';
 import {
@@ -21,6 +21,7 @@ interface Props {
   filters?: KanbanFilters;
   onCardClick: (run: DAGRunSummary) => void;
   onArtifactsClick: (run: DAGRunSummary) => void;
+  visibleColumns?: readonly ViewColumn[];
 }
 
 function formatBucketHeader(fromStr: string, toStr: string): string {
@@ -41,6 +42,7 @@ export function BucketKanbanSection({
   filters,
   onCardClick,
   onArtifactsClick,
+  visibleColumns,
 }: Props): React.ReactElement {
   const { tzOffsetInSec } = useConfig();
   const { fromDate, toDate } = useMemo(
@@ -84,6 +86,7 @@ export function BucketKanbanSection({
       ) : (
         <KanbanBoard
           columns={columns}
+          visibleColumns={visibleColumns}
           onCardClick={onCardClick}
           onArtifactsClick={onArtifactsClick}
         />

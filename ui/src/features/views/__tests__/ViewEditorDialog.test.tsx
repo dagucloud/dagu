@@ -6,6 +6,7 @@ import userEvent from '@testing-library/user-event';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppBarContext } from '@/contexts/AppBarContext';
+import { ViewColumn } from '@/api/v1/schema';
 import { WorkspaceKind } from '@/lib/workspace';
 import { ViewEditorDialog } from '../ViewEditorDialog';
 
@@ -55,10 +56,71 @@ describe('ViewEditorDialog', () => {
         type: 'kanban',
         workspace: '',
         intervalDays: 1,
+        columns: [
+          ViewColumn.queued,
+          ViewColumn.running,
+          ViewColumn.review,
+          ViewColumn.done,
+          ViewColumn.failed,
+        ],
         pinned: false,
       })
     );
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
+  });
+
+  it('saves hidden columns and the configured display order', async () => {
+    const user = userEvent.setup();
+    render(<ViewEditorDialog open onOpenChange={vi.fn()} />);
+
+    await user.type(screen.getByPlaceholderText('My view'), 'Failures first');
+    await user.click(screen.getByRole('checkbox', { name: 'Queued' }));
+    expect(screen.getByText('Hidden')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Move Queued up' })
+    ).not.toBeInTheDocument();
+    const moveFailedUp = screen.getByRole('button', {
+      name: 'Move Failed up',
+    });
+    await user.click(moveFailedUp);
+    await user.click(moveFailedUp);
+    await user.click(moveFailedUp);
+    await user.click(screen.getByRole('button', { name: /create/i }));
+
+    await waitFor(() => expect(createView).toHaveBeenCalledTimes(1));
+    expect(createView).toHaveBeenCalledWith(
+      expect.objectContaining({
+        columns: [
+          ViewColumn.failed,
+          ViewColumn.running,
+          ViewColumn.review,
+          ViewColumn.done,
+        ],
+      })
+    );
+  });
+
+  it('adds a restored column to the end of the visible order', async () => {
+    const user = userEvent.setup();
+    render(<ViewEditorDialog open onOpenChange={vi.fn()} />);
+
+    await user.type(screen.getByPlaceholderText('My view'), 'Custom order');
+    await user.click(screen.getByRole('checkbox', { name: 'Queued' }));
+    await user.click(screen.getByRole('checkbox', { name: 'Queued' }));
+    await user.click(screen.getByRole('button', { name: /create/i }));
+
+    await waitFor(() => expect(createView).toHaveBeenCalledTimes(1));
+    expect(createView).toHaveBeenCalledWith(
+      expect.objectContaining({
+        columns: [
+          ViewColumn.running,
+          ViewColumn.review,
+          ViewColumn.done,
+          ViewColumn.failed,
+          ViewColumn.queued,
+        ],
+      })
+    );
   });
 
   it('edits an existing view via update', async () => {

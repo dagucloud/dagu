@@ -3,9 +3,11 @@
 
 import React from 'react';
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
-import { Status, StatusLabel, TriggerType } from '@/api/v1/schema';
+import userEvent from '@testing-library/user-event';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { Status, StatusLabel, TriggerType, ViewColumn } from '@/api/v1/schema';
 import { KanbanColumn } from '../KanbanColumn';
+import { KanbanBoard } from '../KanbanBoard';
 import { MobileKanbanBoard } from '../MobileKanbanBoard';
 import type {
   KanbanColumnData,
@@ -38,6 +40,10 @@ vi.mock('../KanbanCard', () => ({
   KanbanCard: ({ run }: { run: { dagRunId: string } }) => (
     <div data-testid={`kanban-card-${run.dagRunId}`} />
   ),
+}));
+
+vi.mock('@/hooks/useIsMobile', () => ({
+  useIsMobile: () => false,
 }));
 
 function createColumn(
@@ -83,6 +89,10 @@ function createColumn(
   };
 }
 
+beforeEach(() => {
+  localStorage.clear();
+});
+
 describe('cockpit count labels', () => {
   it('shows a plus in desktop headers when the column has more runs', () => {
     render(
@@ -114,7 +124,7 @@ describe('cockpit count labels', () => {
       />
     );
 
-    expect(screen.getByRole('button', { name: /Running/ })).toHaveTextContent(
+    expect(screen.getByRole('tab', { name: /Running/ })).toHaveTextContent(
       'Running2+'
     );
   });
@@ -141,5 +151,89 @@ describe('cockpit count labels', () => {
     expect(boardRoot?.firstElementChild).toHaveClass('overflow-y-hidden');
     expect(boardRoot?.lastElementChild).toHaveClass('max-h-[70vh]');
     expect(boardRoot?.lastElementChild).toHaveClass('overflow-hidden');
+  });
+
+  it('renders only configured desktop columns in their saved order', () => {
+    const columns: KanbanColumns = {
+      queued: createColumn(),
+      running: createColumn(),
+      review: createColumn({ runs: [] }),
+      done: createColumn({ runs: [] }),
+      failed: createColumn({ runs: [] }),
+    };
+
+    render(
+      <KanbanBoard
+        columns={columns}
+        visibleColumns={[ViewColumn.failed, ViewColumn.running]}
+        onCardClick={() => {}}
+        onArtifactsClick={() => {}}
+      />
+    );
+
+    const labels = screen
+      .getAllByRole('region')
+      .map((region) => region.getAttribute('aria-label'));
+    expect(labels).toEqual(['Failed column', 'Running column']);
+  });
+
+  it('renders only configured mobile tabs and falls back to a visible tab', () => {
+    localStorage.setItem('dagu_cockpit_active_tab', ViewColumn.queued);
+    const columns: KanbanColumns = {
+      queued: createColumn(),
+      running: createColumn(),
+      review: createColumn({ runs: [] }),
+      done: createColumn({ runs: [] }),
+      failed: createColumn({ runs: [] }),
+    };
+
+    render(
+      <MobileKanbanBoard
+        columns={columns}
+        visibleColumns={[ViewColumn.failed, ViewColumn.running]}
+        onCardClick={() => {}}
+        onArtifactsClick={() => {}}
+      />
+    );
+
+    expect(screen.getAllByRole('tab')).toHaveLength(2);
+    expect(screen.getByRole('tab', { name: /Failed/ })).toBeInTheDocument();
+    expect(
+      screen.queryByRole('tab', { name: /Queued/ })
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /Running/ })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+    expect(screen.getByRole('tabpanel')).toHaveAccessibleName(/Running/);
+  });
+
+  it('supports keyboard navigation between mobile tabs', async () => {
+    const user = userEvent.setup();
+    const columns: KanbanColumns = {
+      queued: createColumn(),
+      running: createColumn(),
+      review: createColumn({ runs: [] }),
+      done: createColumn({ runs: [] }),
+      failed: createColumn({ runs: [] }),
+    };
+
+    render(
+      <MobileKanbanBoard
+        columns={columns}
+        visibleColumns={[ViewColumn.failed, ViewColumn.running]}
+        onCardClick={() => {}}
+        onArtifactsClick={() => {}}
+      />
+    );
+
+    const runningTab = screen.getByRole('tab', { name: /Running/ });
+    runningTab.focus();
+    await user.keyboard('{ArrowRight}');
+
+    const failedTab = screen.getByRole('tab', { name: /Failed/ });
+    expect(failedTab).toHaveFocus();
+    expect(failedTab).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tabpanel')).toHaveAccessibleName(/Failed/);
   });
 });

@@ -59,6 +59,26 @@ func TestViewsAPI_CreateDefaultsAndActor(t *testing.T) {
 	assert.Equal(t, "admin", *created.CreatedBy, "no-auth actor is admin")
 	require.NotNil(t, created.Labels)
 	assert.Equal(t, []string{"team=platform"}, *created.Labels)
+	require.NotNil(t, created.Columns)
+	assert.Equal(t, []apigen.ViewColumn{
+		apigen.ViewColumnQueued,
+		apigen.ViewColumnRunning,
+		apigen.ViewColumnReview,
+		apigen.ViewColumnDone,
+		apigen.ViewColumnFailed,
+	}, *created.Columns)
+}
+
+func TestViewsAPI_CreatePreservesColumnVisibilityAndOrder(t *testing.T) {
+	columns := []apigen.ViewColumn{apigen.ViewColumnFailed, apigen.ViewColumnRunning}
+	created := mustCreateView(t, newViewsTestAPI(t), context.Background(), apigen.ViewSpec{
+		Name:         "Failures",
+		IntervalDays: 3,
+		Columns:      &columns,
+	})
+
+	require.NotNil(t, created.Columns)
+	assert.Equal(t, columns, *created.Columns)
 }
 
 func TestViewsAPI_CreateValidation(t *testing.T) {
@@ -80,6 +100,16 @@ func TestViewsAPI_CreateValidation(t *testing.T) {
 			assert.True(t, ok, "expected 400, got %T", resp)
 		})
 	}
+}
+
+func TestViewsAPI_CreateRejectsEmptyColumns(t *testing.T) {
+	emptyColumns := []apigen.ViewColumn{}
+	resp, err := newViewsTestAPI(t).CreateView(context.Background(), apigen.CreateViewRequestObject{
+		Body: &apigen.ViewSpec{Name: "x", IntervalDays: 3, Columns: &emptyColumns},
+	})
+	require.NoError(t, err)
+	_, ok := resp.(apigen.CreateView400JSONResponse)
+	assert.True(t, ok)
 }
 
 func TestViewsAPI_CreateMissingBody(t *testing.T) {
@@ -135,6 +165,27 @@ func TestViewsAPI_UpdatePreservesCreator(t *testing.T) {
 	assert.Equal(t, created.CreatedAt, updated.CreatedAt, "CreatedAt preserved")
 	require.NotNil(t, updated.CreatedBy)
 	assert.Equal(t, *created.CreatedBy, *updated.CreatedBy, "CreatedBy preserved")
+}
+
+func TestViewsAPI_UpdateWithoutColumnsPreservesExistingLayout(t *testing.T) {
+	ctx := context.Background()
+	api := newViewsTestAPI(t)
+	columns := []apigen.ViewColumn{apigen.ViewColumnRunning, apigen.ViewColumnQueued}
+	created := mustCreateView(t, api, ctx, apigen.ViewSpec{
+		Name:         "Before",
+		IntervalDays: 3,
+		Columns:      &columns,
+	})
+
+	resp, err := api.UpdateView(ctx, apigen.UpdateViewRequestObject{
+		ViewId: created.Id,
+		Body:   &apigen.ViewSpec{Name: "After", IntervalDays: 3},
+	})
+	require.NoError(t, err)
+	updated, ok := resp.(apigen.UpdateView200JSONResponse)
+	require.True(t, ok)
+	require.NotNil(t, updated.Columns)
+	assert.Equal(t, columns, *updated.Columns)
 }
 
 func TestViewsAPI_UpdateNotFound(t *testing.T) {

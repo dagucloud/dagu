@@ -62,7 +62,10 @@ export function KanbanColumn({
   }, [hasMore, isLoadingMore, loadMore, runs.length]);
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+    <section
+      aria-label={`${title} column`}
+      className="flex min-h-0 min-w-0 flex-1 flex-col"
+    >
       {!hideHeader && (
         <div className="flex items-center gap-2 px-1 pb-2">
           <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
@@ -127,6 +130,6 @@ export function KanbanColumn({
           </>
         )}
       </div>
-    </div>
+    </section>
   );
 }

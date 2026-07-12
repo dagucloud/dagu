@@ -21,6 +21,23 @@ const (
 	TypeKanban = "kanban"
 )
 
+// Kanban columns.
+const (
+	ColumnQueued  = "queued"
+	ColumnRunning = "running"
+	ColumnReview  = "review"
+	ColumnDone    = "done"
+	ColumnFailed  = "failed"
+)
+
+var defaultColumns = []string{
+	ColumnQueued,
+	ColumnRunning,
+	ColumnReview,
+	ColumnDone,
+	ColumnFailed,
+}
+
 // Field bounds.
 const (
 	MaxNameLength    = 100
@@ -42,6 +59,7 @@ var (
 	ErrInvalidInterval = errors.New("view: intervalDays out of range")
 	ErrTooManyLabels   = errors.New("view: too many labels")
 	ErrInvalidType     = errors.New("view: unknown type")
+	ErrInvalidColumns  = errors.New("view: invalid columns")
 	ErrViewChanged     = errors.New("view: changed")
 )
 
@@ -56,6 +74,7 @@ type View struct {
 	Labels       []string
 	DAGName      string
 	IntervalDays int
+	Columns      []string
 	Pinned       bool
 	CreatedBy    string
 	CreatedAt    time.Time
@@ -63,7 +82,7 @@ type View struct {
 }
 
 // Normalize trims string fields, drops empty or oversized labels, and applies
-// the default render type. Call before Validate.
+// default values. Call before Validate.
 func (v *View) Normalize() {
 	v.Name = strings.TrimSpace(v.Name)
 	v.Workspace = strings.TrimSpace(v.Workspace)
@@ -71,6 +90,9 @@ func (v *View) Normalize() {
 	v.Type = strings.TrimSpace(v.Type)
 	if v.Type == "" {
 		v.Type = TypeKanban
+	}
+	if len(v.Columns) == 0 {
+		v.Columns = DefaultColumns()
 	}
 	labels := make([]string, 0, len(v.Labels))
 	for _, l := range v.Labels {
@@ -98,8 +120,34 @@ func (v *View) Validate() error {
 		return ErrTooManyLabels
 	case !ValidType(v.Type):
 		return ErrInvalidType
+	case !ValidColumns(v.Columns):
+		return ErrInvalidColumns
 	}
 	return nil
+}
+
+// DefaultColumns returns all Kanban columns in their default display order.
+func DefaultColumns() []string {
+	return slices.Clone(defaultColumns)
+}
+
+// ValidColumns reports whether columns is a non-empty, duplicate-free subset
+// of the supported Kanban columns.
+func ValidColumns(columns []string) bool {
+	if len(columns) == 0 || len(columns) > len(defaultColumns) {
+		return false
+	}
+	seen := make(map[string]struct{}, len(columns))
+	for _, column := range columns {
+		if !slices.Contains(defaultColumns, column) {
+			return false
+		}
+		if _, exists := seen[column]; exists {
+			return false
+		}
+		seen[column] = struct{}{}
+	}
+	return true
 }
 
 // ValidType reports whether t is a known render type.
@@ -121,6 +169,7 @@ type ViewForStorage struct {
 	Labels       []string  `json:"labels,omitempty"`
 	DAGName      string    `json:"dag_name,omitempty"`
 	IntervalDays int       `json:"interval_days"`
+	Columns      []string  `json:"columns,omitempty"`
 	Pinned       bool      `json:"pinned,omitempty"`
 	CreatedBy    string    `json:"created_by,omitempty"`
 	CreatedAt    time.Time `json:"created_at"`
@@ -137,6 +186,7 @@ func (v *View) ToStorage() *ViewForStorage {
 		Labels:       slices.Clone(v.Labels),
 		DAGName:      v.DAGName,
 		IntervalDays: v.IntervalDays,
+		Columns:      slices.Clone(v.Columns),
 		Pinned:       v.Pinned,
 		CreatedBy:    v.CreatedBy,
 		CreatedAt:    v.CreatedAt,
@@ -146,6 +196,10 @@ func (v *View) ToStorage() *ViewForStorage {
 
 // ToView converts a stored representation back to a View.
 func (s *ViewForStorage) ToView() *View {
+	columns := slices.Clone(s.Columns)
+	if len(columns) == 0 {
+		columns = DefaultColumns()
+	}
 	return &View{
 		ID:           s.ID,
 		Name:         s.Name,
@@ -154,6 +208,7 @@ func (s *ViewForStorage) ToView() *View {
 		Labels:       slices.Clone(s.Labels),
 		DAGName:      s.DAGName,
 		IntervalDays: s.IntervalDays,
+		Columns:      columns,
 		Pinned:       s.Pinned,
 		CreatedBy:    s.CreatedBy,
 		CreatedAt:    s.CreatedAt,

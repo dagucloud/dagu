@@ -72,6 +72,9 @@ func (a *API) CreateView(ctx context.Context, request api.CreateViewRequestObjec
 	if request.Body == nil {
 		return api.CreateView400JSONResponse(viewBadRequest("Request body is required")), nil
 	}
+	if request.Body.Columns != nil && len(*request.Body.Columns) == 0 {
+		return api.CreateView400JSONResponse(viewBadRequest(view.ErrInvalidColumns.Error())), nil
+	}
 
 	now := time.Now().UTC()
 	v := viewFromSpec(*request.Body)
@@ -141,8 +144,14 @@ func (a *API) UpdateView(ctx context.Context, request api.UpdateViewRequestObjec
 	if request.Body == nil {
 		return api.UpdateView400JSONResponse(viewBadRequest("Request body is required")), nil
 	}
+	if request.Body.Columns != nil && len(*request.Body.Columns) == 0 {
+		return api.UpdateView400JSONResponse(viewBadRequest(view.ErrInvalidColumns.Error())), nil
+	}
 
 	updated := viewFromSpec(*request.Body)
+	if request.Body.Columns == nil {
+		updated.Columns = slices.Clone(existing.Columns)
+	}
 	updated.ID = existing.ID
 	updated.CreatedBy = existing.CreatedBy
 	updated.CreatedAt = existing.CreatedAt
@@ -240,6 +249,12 @@ func viewFromSpec(spec api.ViewSpec) *view.View {
 	if spec.Labels != nil {
 		v.Labels = slices.Clone(*spec.Labels)
 	}
+	if spec.Columns != nil {
+		v.Columns = make([]string, len(*spec.Columns))
+		for i, column := range *spec.Columns {
+			v.Columns[i] = string(column)
+		}
+	}
 	return v
 }
 
@@ -256,6 +271,11 @@ func toViewResponse(v *view.View) api.View {
 	resp.DagName = ptrOf(v.DAGName)
 	resp.Pinned = ptrOf(v.Pinned)
 	resp.CreatedBy = ptrOf(v.CreatedBy)
+	columns := make([]api.ViewColumn, len(v.Columns))
+	for i, column := range v.Columns {
+		columns[i] = api.ViewColumn(column)
+	}
+	resp.Columns = &columns
 	if len(v.Labels) > 0 {
 		labels := slices.Clone(v.Labels)
 		resp.Labels = &labels

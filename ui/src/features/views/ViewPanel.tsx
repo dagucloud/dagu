@@ -33,6 +33,7 @@ export function ViewPanel({ view }: Props): React.ReactElement {
           intervalDays={view.intervalDays}
           filters={filters}
           resetKey={view.id}
+          visibleColumns={view.columns}
         />
       );
   }
