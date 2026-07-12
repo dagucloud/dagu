@@ -176,7 +176,7 @@ func (s *Server) WaitForDAGRunStatus(t *testing.T, name, dagRunID string, status
 		resp.Unmarshal(t, &result)
 		lastStatus = result.DagRunDetails.Status
 		assert.Equal(c, status, lastStatus)
-	}, 10*time.Second, 250*time.Millisecond,
+	}, Timeout, 250*time.Millisecond,
 		"dag run %s/%s never reached status %v (last HTTP status: %d, last run status: %v)",
 		name, dagRunID, status, lastStatusCode, lastStatus)
 }
