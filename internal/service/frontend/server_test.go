@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"sync/atomic"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -323,7 +324,9 @@ func TestCacheControlForAssetCachesCurrentVersionedMainBundle(t *testing.T) {
 func TestAssetRouteCachesCurrentVersionedMainBundle(t *testing.T) {
 	router := chi.NewMux()
 	srv := &Server{}
-	srv.setupAssetRoutes(router, "")
+	srv.setupAssetRoutesWithFS(router, "", fstest.MapFS{
+		"assets/bundle.js": {Data: []byte("bundle")},
+	})
 
 	requestURL := "/assets/bundle.js?v=" + url.QueryEscape(currentAssetVersion())
 	recorder := httptest.NewRecorder()

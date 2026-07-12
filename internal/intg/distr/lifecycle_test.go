@@ -81,7 +81,7 @@ worker_selector:
 steps:
   - name: long-sleep
     run: %s
-`, test.ShellQuote(test.Sleep(30*time.Second))), withLabels(map[string]string{"foo": "bar"}))
+`, test.ShellQuote(test.Sleep(1000*time.Second))), withLabels(map[string]string{"foo": "bar"}))
 		defer f.cleanup()
 
 		require.NoError(t, f.start())
@@ -90,22 +90,21 @@ steps:
 		var dagRunID string
 		var subRunID string
 		require.Eventually(t, func() bool {
-			status, err := f.latestStatus()
+			workers, err := f.coordinatorClient.GetWorkers(f.coord.Context)
 			if err != nil {
 				return false
 			}
-			if status.Status != core.Running {
-				return false
-			}
-			dagRunID = status.DAGRunID
-			for _, node := range status.Nodes {
-				if node.Status == core.NodeRunning && len(node.SubRuns) > 0 {
-					subRunID = node.SubRuns[0].DAGRunID
-					return subRunID != ""
+			for _, worker := range workers {
+				for _, task := range worker.RunningTasks {
+					if task.GetDagName() == "dotest" && task.GetRootDagRunName() == f.dagWrapper.Name {
+						dagRunID = task.GetRootDagRunId()
+						subRunID = task.GetDagRunId()
+						return dagRunID != "" && subRunID != ""
+					}
 				}
 			}
 			return false
-		}, distrTestTimeout(15*time.Second), 200*time.Millisecond, "Timeout waiting for DAG to start sub-DAG")
+		}, distrTestTimeout(15*time.Second), 200*time.Millisecond, "Timeout waiting for worker to start sub-DAG")
 
 		rootRef := exec.NewDAGRunRef(f.dagWrapper.Name, dagRunID)
 		require.Eventually(t, func() bool {
