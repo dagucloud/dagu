@@ -210,7 +210,8 @@ type DAGRunStatus struct {
 	LeaseAt              int64                 `json:"leaseAt,omitempty"` // Unix millis; stamped by coordinator on observed run liveness
 }
 
-// EffectiveClaimKey returns the worker claim that executes this attempt.
+// EffectiveClaimKey returns ClaimKey, falling back to AttemptKey when no claim
+// is recorded.
 func (s DAGRunStatus) EffectiveClaimKey() string {
 	if s.ClaimKey != "" {
 		return s.ClaimKey

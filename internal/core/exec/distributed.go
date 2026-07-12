@@ -177,7 +177,9 @@ type DAGRunLease struct {
 	LastHeartbeatAt int64               `json:"lastHeartbeatAt"`
 }
 
-// MatchesClaim reports whether the lease belongs to the claim on the worker.
+// MatchesClaim reports whether the lease identifies claimKey without
+// conflicting with workerID. An empty worker ID on either side is treated as
+// unspecified.
 func (l *DAGRunLease) MatchesClaim(claimKey, workerID string) bool {
 	if l == nil || claimKey == "" || l.AttemptKey != claimKey {
 		return false
@@ -209,7 +211,7 @@ func (l DAGRunLease) IsFresh(now time.Time, staleThreshold time.Duration) bool {
 	return now.Sub(l.LastHeartbeatTime()) < staleThreshold
 }
 
-// DAGRunLeaseStore persists active distributed attempt leases.
+// DAGRunLeaseStore persists live worker-claim leases.
 type DAGRunLeaseStore interface {
 	Upsert(ctx context.Context, lease DAGRunLease) error
 	Touch(ctx context.Context, attemptKey string, observedAt time.Time) error

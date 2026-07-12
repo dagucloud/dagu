@@ -14,7 +14,8 @@ import (
 
 const defaultStaleWorkerHeartbeatThreshold = 30 * time.Second
 
-// StaleRunRepairConfig configures conservative stale remote-run repair.
+// StaleRunRepairConfig provides the stores, thresholds, and clock used to
+// confirm and repair stale remote runs.
 type StaleRunRepairConfig struct {
 	DAGRunStore                   exec.DAGRunStore
 	DAGRunLeaseStore              exec.DAGRunLeaseStore

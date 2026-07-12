@@ -45,7 +45,7 @@ func (e *AttemptRejectedError) AttemptRejectedReason() string {
 	return e.Reason
 }
 
-// NewStatusPusher creates a StatusPusher bound to a claimed attempt.
+// NewStatusPusher creates a StatusPusher bound to a worker claim.
 func NewStatusPusher(client coordinator.Client, workerID, claimKey string, owner ...exec.HostInfo) *StatusPusher {
 	var target exec.HostInfo
 	if len(owner) > 0 {

@@ -1625,6 +1625,8 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 			h.persistChatMessages(ctx, bootstrappedAttempt, dagRunStatus)
 
 			ownership := h.attemptOwnership()
+			// Live tracking must complete after the status write even if the
+			// reporting worker disconnects.
 			ownership.syncFromStatus(context.WithoutCancel(ctx), req.WorkerId, dagRunStatus, bootstrappedAttempt.ID())
 			h.finalizeAdmissionForStatus(ctx, dagRunStatus, bootstrappedAttempt.ID())
 
@@ -1668,7 +1670,8 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 	// Persist chat messages for each node.
 	h.persistChatMessages(ctx, attempt, dagRunStatus)
 
-	// Run history stores claim membership; live claim state stays in the lease store.
+	// Live tracking must complete after the status write even if the reporting
+	// worker disconnects.
 	ownership.syncFromStatus(context.WithoutCancel(ctx), req.WorkerId, dagRunStatus, attempt.ID())
 	h.finalizeAdmissionForStatus(ctx, dagRunStatus, attempt.ID())
 
