@@ -9,10 +9,13 @@ import { BookOpen } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { JSONSchema } from '@/lib/schema-utils';
 import { Button } from '@/components/ui/button';
+import LoadingIndicator from '@/components/ui/loading-indicator';
 import { useDebouncedValue } from '../../../../hooks/useDebouncedValue';
 import { useYamlCursorPath } from '../../../../hooks/useYamlCursorPath';
-import DAGEditor, { type CursorPosition } from './DAGEditor';
+import type { CursorPosition } from './DAGEditor';
 import { SchemaDocSidebar } from './SchemaDocSidebar';
+
+const DAGEditor = React.lazy(() => import('./DAGEditor'));
 
 /**
  * Props for the DAGEditorWithDocs component
@@ -139,15 +142,17 @@ function DAGEditorWithDocs({
       {/* Editor and Sidebar */}
       <div className="flex-1 flex min-h-0">
         <div className="flex-1 min-w-0">
-          <DAGEditor
-            value={value}
-            readOnly={readOnly}
-            lineNumbers={true}
-            onChange={readOnly ? undefined : onChange}
-            onCursorPositionChange={handleCursorPositionChange}
-            modelUri={modelUri}
-            schema={schema}
-          />
+          <React.Suspense fallback={<LoadingIndicator />}>
+            <DAGEditor
+              value={value}
+              readOnly={readOnly}
+              lineNumbers={true}
+              onChange={readOnly ? undefined : onChange}
+              onCursorPositionChange={handleCursorPositionChange}
+              modelUri={modelUri}
+              schema={schema}
+            />
+          </React.Suspense>
         </div>
         <SchemaDocSidebar
           isOpen={sidebarOpen}

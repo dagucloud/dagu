@@ -40,40 +40,50 @@ import {
   type WorkspaceSelection,
 } from './lib/workspace';
 import { UserRole } from './api/v1/schema';
-import AdministrationPage from './pages/administration';
-import APIKeysPage from './pages/api-keys';
-import APIDocsPage from './pages/api-docs';
-import AuditLogsPage from './pages/audit-logs';
-import BaseConfigPage from './pages/base-config';
-import DAGRuns from './pages/dag-runs';
-import DAGRunDetails from './pages/dag-runs/dag-run';
-import DAGs from './pages/dags';
-import DAGDetails from './pages/dags/dag';
-import EventLogsPage from './pages/event-logs';
-import GitSyncPage from './pages/git-sync';
-import HomePage from './pages/home';
-import IncidentPoliciesPage from './pages/incident-policies';
-import IncidentProvidersPage from './pages/incident-providers';
-import IncidentsPage from './pages/incidents';
-import IntegrationsPage from './pages/integrations';
-import LicensePage from './pages/license';
 import LoginPage from './pages/login';
-import NotificationChannelsPage from './pages/notification-channels';
-import NotificationRulesPage from './pages/notification-rules';
-import NotificationsPage from './pages/notifications';
-import OverviewPage from './pages/overview';
-import ViewPage from './pages/views';
-import ProfilesPage from './pages/profiles';
-import Queues from './pages/queues';
-import QueueDetailsPage from './pages/queues/queue';
-import Search from './pages/search';
-import SecretsPage from './pages/secrets';
 import SetupPage from './pages/setup';
-import SystemStatus from './pages/system-status';
-import TerminalPage from './pages/terminal';
-import RemoteNodesPage from './pages/remote-nodes';
-import UsersPage from './pages/users';
-import WebhooksPage from './pages/webhooks';
+import LoadingIndicator from './components/ui/loading-indicator';
+
+const AdministrationPage = React.lazy(() => import('./pages/administration'));
+const APIKeysPage = React.lazy(() => import('./pages/api-keys'));
+const APIDocsPage = React.lazy(() => import('./pages/api-docs'));
+const AuditLogsPage = React.lazy(() => import('./pages/audit-logs'));
+const BaseConfigPage = React.lazy(() => import('./pages/base-config'));
+const DAGRuns = React.lazy(() => import('./pages/dag-runs'));
+const DAGRunDetails = React.lazy(() => import('./pages/dag-runs/dag-run'));
+const DAGs = React.lazy(() => import('./pages/dags'));
+const DAGDetails = React.lazy(() => import('./pages/dags/dag'));
+const EventLogsPage = React.lazy(() => import('./pages/event-logs'));
+const GitSyncPage = React.lazy(() => import('./pages/git-sync'));
+const HomePage = React.lazy(() => import('./pages/home'));
+const IncidentPoliciesPage = React.lazy(
+  () => import('./pages/incident-policies')
+);
+const IncidentProvidersPage = React.lazy(
+  () => import('./pages/incident-providers')
+);
+const IncidentsPage = React.lazy(() => import('./pages/incidents'));
+const IntegrationsPage = React.lazy(() => import('./pages/integrations'));
+const LicensePage = React.lazy(() => import('./pages/license'));
+const NotificationChannelsPage = React.lazy(
+  () => import('./pages/notification-channels')
+);
+const NotificationRulesPage = React.lazy(
+  () => import('./pages/notification-rules')
+);
+const NotificationsPage = React.lazy(() => import('./pages/notifications'));
+const OverviewPage = React.lazy(() => import('./pages/overview'));
+const ViewPage = React.lazy(() => import('./pages/views'));
+const ProfilesPage = React.lazy(() => import('./pages/profiles'));
+const Queues = React.lazy(() => import('./pages/queues'));
+const QueueDetailsPage = React.lazy(() => import('./pages/queues/queue'));
+const Search = React.lazy(() => import('./pages/search'));
+const SecretsPage = React.lazy(() => import('./pages/secrets'));
+const SystemStatus = React.lazy(() => import('./pages/system-status'));
+const TerminalPage = React.lazy(() => import('./pages/terminal'));
+const RemoteNodesPage = React.lazy(() => import('./pages/remote-nodes'));
+const UsersPage = React.lazy(() => import('./pages/users'));
+const WebhooksPage = React.lazy(() => import('./pages/webhooks'));
 
 type Props = {
   config: Config;
@@ -207,6 +217,18 @@ function LicenseRequiredMessage(): React.ReactElement {
         page to activate your license.
       </p>
     </div>
+  );
+}
+
+function LazyRoutes({
+  children,
+}: {
+  children: React.ReactNode;
+}): React.ReactElement {
+  return (
+    <React.Suspense fallback={<LoadingIndicator />}>
+      <Routes>{children}</Routes>
+    </React.Suspense>
   );
 }
 
@@ -509,7 +531,7 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
                               element={
                                 <ProtectedRoute>
                                   <Layout navbarColor={config.navbarColor}>
-                                    <Routes>
+                                    <LazyRoutes>
                                       <Route
                                         path="/"
                                         element={<OverviewPage />}
@@ -733,7 +755,7 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
                                           </AdminElement>
                                         }
                                       />
-                                    </Routes>
+                                    </LazyRoutes>
                                   </Layout>
                                 </ProtectedRoute>
                               }

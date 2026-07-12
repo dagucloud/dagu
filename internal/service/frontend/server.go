@@ -902,7 +902,8 @@ func (srv *Server) setupAssetRoutes(r *chi.Mux, basePath string) {
 	}
 
 	r.Get(assetsPath, func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", cacheControlForAsset(r.URL.Path))
+		isCurrentVersion := r.URL.Query().Get("v") == currentAssetVersion()
+		w.Header().Set("Cache-Control", cacheControlForAsset(r.URL.Path, isCurrentVersion))
 
 		// Serve schemas from shared package instead of embedded assets
 		if strings.HasSuffix(r.URL.Path, "dag.schema.json") {
@@ -923,9 +924,12 @@ func (srv *Server) setupAssetRoutes(r *chi.Mux, basePath string) {
 	})
 }
 
-func cacheControlForAsset(assetPath string) string {
+func cacheControlForAsset(assetPath string, isCurrentVersion bool) string {
 	base := path.Base(assetPath)
 	lowerBase := strings.ToLower(base)
+	if strings.EqualFold(base, "bundle.js") && isCurrentVersion {
+		return "max-age=31536000, immutable"
+	}
 	if hasContentHashSuffix(lowerBase, ".worker.js") {
 		return "max-age=31536000, immutable"
 	}

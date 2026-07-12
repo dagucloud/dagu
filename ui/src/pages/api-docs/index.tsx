@@ -13,7 +13,8 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import * as React from 'react';
-import ScalarViewer from './ScalarViewer';
+
+const ScalarViewer = React.lazy(() => import('./ScalarViewer'));
 
 type OpenAPIDocument = Record<string, unknown>;
 
@@ -138,10 +139,18 @@ export default function APIDocsPage(): React.ReactElement {
         )}
 
         {state.status === 'ready' && (
-          <ScalarViewer
-            spec={state.spec}
-            preferredBearerToken={preferredBearerToken}
-          />
+          <React.Suspense
+            fallback={
+              <div className="flex h-full min-h-[420px] items-center justify-center">
+                <RefreshCw className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            }
+          >
+            <ScalarViewer
+              spec={state.spec}
+              preferredBearerToken={preferredBearerToken}
+            />
+          </React.Suspense>
         )}
       </div>
     </div>

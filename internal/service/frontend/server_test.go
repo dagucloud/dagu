@@ -310,8 +310,27 @@ func TestSetupSSERouteDoesNotExposeAppStreamEndpoint(t *testing.T) {
 func TestCacheControlForAssetDisablesJavaScriptCaching(t *testing.T) {
 	t.Parallel()
 
-	assert.Equal(t, "no-cache, no-store, must-revalidate", cacheControlForAsset("/assets/bundle.js"))
-	assert.Equal(t, "no-cache, no-store, must-revalidate", cacheControlForAsset("/assets/legacy.js"))
+	assert.Equal(t, "no-cache, no-store, must-revalidate", cacheControlForAsset("/assets/bundle.js", false))
+	assert.Equal(t, "no-cache, no-store, must-revalidate", cacheControlForAsset("/assets/legacy.js", false))
+}
+
+func TestCacheControlForAssetCachesCurrentVersionedMainBundle(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, "max-age=31536000, immutable", cacheControlForAsset("/assets/bundle.js", true))
+}
+
+func TestAssetRouteCachesCurrentVersionedMainBundle(t *testing.T) {
+	router := chi.NewMux()
+	srv := &Server{}
+	srv.setupAssetRoutes(router, "")
+
+	requestURL := "/assets/bundle.js?v=" + url.QueryEscape(currentAssetVersion())
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, requestURL, nil))
+
+	assert.Equal(t, http.StatusOK, recorder.Code)
+	assert.Equal(t, "max-age=31536000, immutable", recorder.Header().Get("Cache-Control"))
 }
 
 func TestCacheControlForAssetCachesContentHashedJavaScriptChunks(t *testing.T) {
@@ -320,7 +339,7 @@ func TestCacheControlForAssetCachesContentHashedJavaScriptChunks(t *testing.T) {
 	assert.Equal(
 		t,
 		"max-age=31536000, immutable",
-		cacheControlForAsset("/assets/vendors.a1b2c3d4e5f6a1b2.bundle.js"),
+		cacheControlForAsset("/assets/vendors.a1b2c3d4e5f6a1b2.bundle.js", false),
 	)
 }
 
@@ -330,19 +349,19 @@ func TestCacheControlForAssetCachesContentHashedJavaScriptWorkers(t *testing.T) 
 	assert.Equal(
 		t,
 		"max-age=31536000, immutable",
-		cacheControlForAsset("/assets/yaml.a1b2c3d4e5f6a1b2.worker.js"),
+		cacheControlForAsset("/assets/yaml.a1b2c3d4e5f6a1b2.worker.js", false),
 	)
 	assert.Equal(
 		t,
 		"no-cache, no-store, must-revalidate",
-		cacheControlForAsset("/assets/yaml.worker.js"),
+		cacheControlForAsset("/assets/yaml.worker.js", false),
 	)
 }
 
 func TestCacheControlForAssetCachesNonJavaScriptAssets(t *testing.T) {
 	t.Parallel()
 
-	assert.Equal(t, "max-age=86400", cacheControlForAsset("/assets/favicon.ico"))
+	assert.Equal(t, "max-age=86400", cacheControlForAsset("/assets/favicon.ico", false))
 }
 
 func TestServerUsesEvaluatedBasePathForOIDCAndAPI(t *testing.T) {
