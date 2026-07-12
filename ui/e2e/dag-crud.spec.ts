@@ -83,7 +83,10 @@ steps:
     await dialog.getByRole('button', { name: 'Rename' }).click();
 
     await expect(page).toHaveURL(
-      localScopedURL(stack.local.baseURL, `/dags/${encodeURIComponent(newName)}`)
+      localScopedURL(
+        stack.local.baseURL,
+        `/dags/${encodeURIComponent(newName)}`
+      )
     );
   });
 

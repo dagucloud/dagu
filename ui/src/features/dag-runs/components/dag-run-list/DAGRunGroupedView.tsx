@@ -326,7 +326,7 @@ function DAGRunGroupedView({
                                   </span>
                                   <RelativeTime
                                     timestamp={dagRun.queuedAt}
-                                    absolute={dagRun.queuedAt || undefined}
+                                    absolute={dagRun.queuedAt}
                                   />
                                 </div>
                                 <div className="whitespace-nowrap">
@@ -335,7 +335,7 @@ function DAGRunGroupedView({
                                   </span>
                                   <RelativeTime
                                     timestamp={dagRun.startedAt}
-                                    absolute={dagRun.startedAt || undefined}
+                                    absolute={dagRun.startedAt}
                                   />
                                 </div>
                                 <div className="flex items-center gap-1 whitespace-nowrap">

@@ -9,6 +9,7 @@ import { SWRConfig } from 'swr';
 const ERROR_COOLDOWN_MS = 30_000;
 const NOTICE_TTL_MS = 6_000;
 const MAX_NOTICES = 3;
+const MAX_COOLDOWN_ENTRIES = 100;
 
 type Notice = {
   id: number;
@@ -102,9 +103,21 @@ export function QueryFeedback({ children }: { children: React.ReactNode }) {
 
     const message = getErrorMessage(error);
     const now = Date.now();
-    const lastShown = lastShownRef.current.get(message);
+    const lastShownByMessage = lastShownRef.current;
+    for (const [cachedMessage, shownAt] of lastShownByMessage) {
+      if (now - shownAt >= ERROR_COOLDOWN_MS) {
+        lastShownByMessage.delete(cachedMessage);
+      }
+    }
+
+    const lastShown = lastShownByMessage.get(message);
     if (lastShown && now - lastShown < ERROR_COOLDOWN_MS) return;
-    lastShownRef.current.set(message, now);
+    lastShownByMessage.set(message, now);
+    while (lastShownByMessage.size > MAX_COOLDOWN_ENTRIES) {
+      const oldestMessage = lastShownByMessage.keys().next().value;
+      if (oldestMessage === undefined) break;
+      lastShownByMessage.delete(oldestMessage);
+    }
 
     const id = ++idRef.current;
     setNotices((current) => [

@@ -864,6 +864,7 @@ function DAGActions({
               if (startedRunId) {
                 await dagContext.onRunStarted?.(startedRunId);
               }
+              showToast(immediate ? 'DAG run started' : 'DAG run enqueued');
               return;
             }
 

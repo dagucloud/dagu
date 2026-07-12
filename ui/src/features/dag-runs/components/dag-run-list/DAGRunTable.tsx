@@ -372,14 +372,14 @@ function DAGRunTable({
                   <span className="text-muted-foreground">Queued: </span>
                   <RelativeTime
                     timestamp={dagRun.queuedAt}
-                    absolute={dagRun.queuedAt || undefined}
+                    absolute={dagRun.queuedAt}
                   />
                 </div>
                 <div>
                   <span className="text-muted-foreground">Started: </span>
                   <RelativeTime
                     timestamp={dagRun.startedAt}
-                    absolute={dagRun.startedAt || undefined}
+                    absolute={dagRun.startedAt}
                   />
                 </div>
               </div>
@@ -570,13 +570,13 @@ function DAGRunTable({
               <TableCell className="py-1 px-2 text-left">
                 <RelativeTime
                   timestamp={dagRun.queuedAt}
-                  absolute={dagRun.queuedAt || undefined}
+                  absolute={dagRun.queuedAt}
                 />
               </TableCell>
               <TableCell className="py-1 px-2 text-left">
                 <RelativeTime
                   timestamp={dagRun.startedAt}
-                  absolute={dagRun.startedAt || undefined}
+                  absolute={dagRun.startedAt}
                 />
               </TableCell>
               <TableCell className="py-1 px-2 text-left">

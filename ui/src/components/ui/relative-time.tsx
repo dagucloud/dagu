@@ -12,7 +12,7 @@ type Props = {
   /** Single-unit form ("5s", "3m", "2h", "4d") instead of "3 minutes ago". */
   compact?: boolean;
   /** Tooltip text; defaults to the parsed timestamp formatted as an absolute time. */
-  absolute?: string;
+  absolute?: string | null;
   className?: string;
 };
 

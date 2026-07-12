@@ -87,7 +87,7 @@ function DAGRunCard({ dagRun, timezoneInfo }: DAGRunCardProps) {
             <RelativeTime
               className="truncate ml-2"
               timestamp={dagRun.startedAt}
-              absolute={dagRun.startedAt || undefined}
+              absolute={dagRun.startedAt}
             />
           </div>
           <div className="flex justify-between items-center text-xs">
@@ -95,7 +95,7 @@ function DAGRunCard({ dagRun, timezoneInfo }: DAGRunCardProps) {
             <RelativeTime
               className="truncate ml-2"
               timestamp={dagRun.finishedAt}
-              absolute={dagRun.finishedAt || undefined}
+              absolute={dagRun.finishedAt}
             />
           </div>
           {dagRun.workerId && (

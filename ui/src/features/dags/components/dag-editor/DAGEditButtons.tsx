@@ -35,6 +35,7 @@ function DAGEditButtons({ fileName, workspace }: Props) {
   const client = useClient();
   const { showError } = useErrorModal();
   const [isDeleteModalOpen, setIsDeleteModalOpen] = React.useState(false);
+  const [isDeleteLoading, setIsDeleteLoading] = React.useState(false);
   const [isRenameModalOpen, setIsRenameModalOpen] = React.useState(false);
   const [renameError, setRenameError] = React.useState<string | null>(null);
   const [isRenameLoading, setIsRenameLoading] = React.useState(false);
@@ -106,34 +107,48 @@ function DAGEditButtons({ fileName, workspace }: Props) {
         title="Delete DAG"
         buttonText="Delete"
         visible={isDeleteModalOpen}
-        dismissModal={() => setIsDeleteModalOpen(false)}
+        dismissModal={() => {
+          if (!isDeleteLoading) setIsDeleteModalOpen(false);
+        }}
+        submitDisabled={isDeleteLoading}
         onSubmit={async () => {
-          setIsDeleteModalOpen(false);
-          const { error } = await client.DELETE('/dags/{fileName}', {
-            params: {
-              path: {
-                fileName: fileName,
+          if (isDeleteLoading) return;
+          setIsDeleteLoading(true);
+          try {
+            const { error } = await client.DELETE('/dags/{fileName}', {
+              params: {
+                path: {
+                  fileName: fileName,
+                },
+                query: {
+                  remoteNode,
+                },
               },
-              query: {
-                remoteNode,
-              },
-            },
-          });
-          if (error) {
+            });
+            if (error) {
+              showError(
+                error.message || 'Failed to delete DAG',
+                'Please try again or check the server connection.'
+              );
+              return;
+            }
+
+            setIsDeleteModalOpen(false);
+            const basePath = window.location.pathname.split('/dags')[0] || '';
+            const searchParams = new URLSearchParams();
+            searchParams.set('remoteNode', remoteNode);
+            const query = searchParams.toString();
+            window.location.href = query
+              ? `${basePath}/dags/?${query}`
+              : `${basePath}/dags/`;
+          } catch {
             showError(
-              error.message || 'Failed to delete DAG',
+              'Failed to delete DAG',
               'Please try again or check the server connection.'
             );
-            return;
+          } finally {
+            setIsDeleteLoading(false);
           }
-          // Redirect to the DAGs list page
-          const basePath = window.location.pathname.split('/dags')[0] || '';
-          const searchParams = new URLSearchParams();
-          searchParams.set('remoteNode', remoteNode);
-          const query = searchParams.toString();
-          window.location.href = query
-            ? `${basePath}/dags/?${query}`
-            : `${basePath}/dags/`;
         }}
       >
         <div className="space-y-2 text-sm">
