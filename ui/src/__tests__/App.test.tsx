@@ -8,10 +8,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Config } from '@/contexts/ConfigContext';
 import App from '../App';
 
-const { clientMock, clientGetMock } = vi.hoisted(() => {
+const { clientMock, clientGetMock, overviewImportError } = vi.hoisted(() => {
   const clientGetMock = vi.fn();
   return {
     clientGetMock,
+    overviewImportError: { current: false },
     clientMock: {
       GET: clientGetMock,
       POST: vi.fn(),
@@ -85,7 +86,12 @@ vi.mock('../pages/notification-rules', () => ({
 vi.mock('../pages/notifications', () => ({
   default: () => <h1>Notifications</h1>,
 }));
-vi.mock('../pages/overview', () => ({ default: () => <h1>Overview</h1> }));
+vi.mock('../pages/overview', () => {
+  if (overviewImportError.current) {
+    throw new Error('Loading chunk failed');
+  }
+  return { default: () => <h1>Overview</h1> };
+});
 vi.mock('../pages/views', () => ({ default: () => <h1>View</h1> }));
 vi.mock('../pages/profiles', () => ({ default: () => <h1>Profiles</h1> }));
 vi.mock('../pages/queues', () => ({ default: () => <h1>Queues</h1> }));
@@ -168,6 +174,7 @@ describe('App license routing', () => {
     sessionStorage.clear();
     clientGetMock.mockReset();
     clientGetMock.mockResolvedValue({ data: { workspaces: [] } });
+    overviewImportError.current = false;
     vi.stubGlobal(
       'fetch',
       vi.fn(async () =>
@@ -204,5 +211,21 @@ describe('App license routing', () => {
     expect(
       screen.queryByRole('heading', { name: 'Incidents' })
     ).not.toBeInTheDocument();
+  });
+
+  it('offers a reload when a lazy route chunk fails to load', async () => {
+    overviewImportError.current = true;
+    const consoleError = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => undefined);
+
+    renderAt('/');
+
+    expect(
+      await screen.findByRole('heading', { name: 'Unable to load this page' })
+    ).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Reload' })).toBeVisible();
+
+    consoleError.mockRestore();
   });
 });

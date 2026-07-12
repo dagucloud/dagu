@@ -220,15 +220,62 @@ function LicenseRequiredMessage(): React.ReactElement {
   );
 }
 
+type LazyRouteErrorBoundaryProps = {
+  children: React.ReactNode;
+};
+
+type LazyRouteErrorBoundaryState = {
+  hasError: boolean;
+};
+
+class LazyRouteErrorBoundary extends React.Component<
+  LazyRouteErrorBoundaryProps,
+  LazyRouteErrorBoundaryState
+> {
+  state: LazyRouteErrorBoundaryState = { hasError: false };
+
+  static getDerivedStateFromError(): LazyRouteErrorBoundaryState {
+    return { hasError: true };
+  }
+
+  render(): React.ReactNode {
+    if (this.state.hasError) {
+      return (
+        <div
+          role="alert"
+          className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center"
+        >
+          <h2 className="text-xl font-semibold">Unable to load this page</h2>
+          <p className="max-w-md text-sm text-muted-foreground">
+            The page may have changed since this tab was opened. Reload to use
+            the latest version.
+          </p>
+          <button
+            type="button"
+            className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+            onClick={() => window.location.reload()}
+          >
+            Reload
+          </button>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
 function LazyRoutes({
   children,
 }: {
   children: React.ReactNode;
 }): React.ReactElement {
   return (
-    <React.Suspense fallback={<LoadingIndicator />}>
-      <Routes>{children}</Routes>
-    </React.Suspense>
+    <LazyRouteErrorBoundary>
+      <React.Suspense fallback={<LoadingIndicator />}>
+        <Routes>{children}</Routes>
+      </React.Suspense>
+    </LazyRouteErrorBoundary>
   );
 }
 

@@ -927,7 +927,7 @@ func (srv *Server) setupAssetRoutes(r *chi.Mux, basePath string) {
 func cacheControlForAsset(assetPath string, isCurrentVersion bool) string {
 	base := path.Base(assetPath)
 	lowerBase := strings.ToLower(base)
-	if strings.EqualFold(base, "bundle.js") && isCurrentVersion {
+	if lowerBase == "bundle.js" && isCurrentVersion {
 		return "max-age=31536000, immutable"
 	}
 	if hasContentHashSuffix(lowerBase, ".worker.js") {
