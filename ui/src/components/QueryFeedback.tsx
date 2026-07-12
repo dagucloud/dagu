@@ -44,6 +44,17 @@ export function QueryFeedback({ children }: { children: React.ReactNode }) {
   );
   const lastShownRef = React.useRef<Map<string, number>>(new Map());
   const idRef = React.useRef(0);
+  const timeoutsRef = React.useRef<Set<ReturnType<typeof setTimeout>>>(
+    new Set()
+  );
+
+  React.useEffect(() => {
+    const timeouts = timeoutsRef.current;
+    return () => {
+      timeouts.forEach(clearTimeout);
+      timeouts.clear();
+    };
+  }, []);
 
   React.useEffect(() => {
     const handleOnline = () => setIsOffline(false);
@@ -74,9 +85,11 @@ export function QueryFeedback({ children }: { children: React.ReactNode }) {
       ...current.slice(-(MAX_NOTICES - 1)),
       { id, message },
     ]);
-    setTimeout(() => {
+    const timeout = setTimeout(() => {
+      timeoutsRef.current.delete(timeout);
       setNotices((current) => current.filter((notice) => notice.id !== id));
     }, NOTICE_TTL_MS);
+    timeoutsRef.current.add(timeout);
   }, []);
 
   return (

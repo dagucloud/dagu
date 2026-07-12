@@ -342,12 +342,32 @@ function StepLog({
     remoteNode,
   ]);
 
+  // Prioritize SSE data, then REST data, then cached data
+  const logData = (sseLogData ||
+    data ||
+    cachedData) as LogWithPagination | null;
+  const content = logData?.content || '';
+
+  const lines = React.useMemo(() => {
+    const rawLines = content ? content.split('\n') : ['<No log output>'];
+    return rawLines[rawLines.length - 1] === ''
+      ? rawLines.slice(0, -1)
+      : rawLines;
+  }, [content]);
+
+  const trimmedSearch = searchTerm.trim();
+  const matchIndexes = React.useMemo(() => {
+    if (!trimmedSearch) return [];
+    const term = trimmedSearch.toLowerCase();
+    return lines.reduce<number[]>((acc, line, index) => {
+      if (stripAnsi(line).toLowerCase().includes(term)) acc.push(index);
+      return acc;
+    }, []);
+  }, [lines, trimmedSearch]);
+
   if (isLoading && !cachedData && isInitialLoad.current) {
     return <LoadingIndicator />;
   }
-
-  // Prioritize SSE data, then REST data, then cached data
-  const logData = (sseLogData || data || cachedData) as LogWithPagination;
 
   // Show error state (but not 404 since that means no log file exists yet)
   const isNotFoundError = error?.message?.includes('not found');
@@ -361,27 +381,13 @@ function StepLog({
     );
   }
 
-  const content = logData?.content || '';
   const totalLines = logData?.totalLines || 0;
   const hasMore = logData?.hasMore || false;
   const isEstimate = logData?.isEstimate || false;
-
-  const rawLines = content ? content.split('\n') : ['<No log output>'];
-  const lines =
-    rawLines[rawLines.length - 1] === '' ? rawLines.slice(0, -1) : rawLines;
   const effectiveTotalLines =
     totalLines - lines.length <= 1 ? lines.length : totalLines;
 
   const totalPages = calculateTotalPages(effectiveTotalLines, pageSize);
-
-  const trimmedSearch = searchTerm.trim();
-  const matchIndexes = trimmedSearch
-    ? lines.reduce<number[]>((acc, line, index) => {
-        if (stripAnsi(line).toLowerCase().includes(trimmedSearch.toLowerCase()))
-          acc.push(index);
-        return acc;
-      }, [])
-    : [];
 
   function scrollToMatch(matchPosition: number): void {
     const lineIndex = matchIndexes[matchPosition];

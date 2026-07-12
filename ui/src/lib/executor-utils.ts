@@ -4,6 +4,7 @@
  * @module lib/executor-utils
  */
 import type { components } from '@/api/v1/schema';
+import { stripAnsi } from './ansi';
 
 /**
  * Get displayable command from executor config when step.commands is empty.
@@ -73,15 +74,8 @@ export function getLogMessageFromConfig(
   return typeof message === 'string' ? message : null;
 }
 
-const ANSI_CODES_REGEX = [
-  '[\\u001B\\u009B][[\\]()#;?]*(?:(?:(?:(?:;[-a-zA-Z\\d\\/#&.:=?%@~_]+)*|[a-zA-Z\\d]+(?:;[-a-zA-Z\\d\\/#&.:=?%@~_]*)*)?\\u0007)',
-  '(?:(?:\\d{1,4}(?:;\\d{0,4})*)?[\\dA-PR-TZcf-nq-uy=><~]))',
-].join('|');
-const ANSI_CODES_RE = new RegExp(ANSI_CODES_REGEX, 'g');
-
 export function formatLogStepOutput(content: string): string {
-  return content
-    .replace(ANSI_CODES_RE, '')
+  return stripAnsi(content)
     .replace(/\r\n/g, '\n')
     .replace(/\r/g, '\n')
     .replace(/\n+$/, '');
