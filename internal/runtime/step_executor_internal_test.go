@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
@@ -74,6 +75,29 @@ func TestStepExecutorClearsEmptyToolDefinitionsAndOutputs(t *testing.T) {
 
 	require.Empty(t, node.GetToolDefinitions())
 	require.Nil(t, node.State().OutputsValue)
+}
+
+func TestStepExecutorRecordsTimeoutBeforeCommandStarts(t *testing.T) {
+	executorType := "test-step-executor-pre-run-timeout"
+	runtimeexec.RegisterExecutor(executorType, func(ctx context.Context, _ core.Step) (runtimeexec.Executor, error) {
+		<-ctx.Done()
+		return &emptySideChannelExecutor{}, nil
+	}, nil, core.ExecutorCapabilities{})
+	t.Cleanup(func() { runtimeexec.UnregisterExecutor(executorType) })
+
+	node := NewNode(core.Step{
+		Name: "pre-run-timeout-step",
+		ExecutorConfig: core.ExecutorConfig{
+			Type: executorType,
+		},
+		Timeout: 10 * time.Millisecond,
+	}, NodeState{})
+
+	err := NewStepExecutor().Execute(newTestStepExecutorContext(), node)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.ErrorContains(t, err, "step timed out")
+	require.Equal(t, core.NodeFailed, node.Status())
+	require.Equal(t, 124, node.GetExitCode())
 }
 
 func newTestStepExecutorContext() context.Context {

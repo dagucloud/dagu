@@ -6,6 +6,7 @@ package runtime
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
@@ -31,12 +32,12 @@ func NewStepExecutor() *StepExecutor {
 // the node. Runner owns scheduling, retries, repeats, and final DAG-state
 // decisions; StepExecutor only preserves executor-provided status overrides.
 func (e *StepExecutor) Execute(ctx context.Context, node *Node, onSetup ...func()) error {
+	attemptStarted := time.Now()
 	ctx, cancel, stepTimeout := node.setupContextWithTimeout(ctx)
 	defer cancel()
 
 	if err := preRunAbortErr(ctx, node); err != nil {
-		node.SetError(err)
-		return err
+		return recordPreRunAbort(ctx, node, err, stepTimeout, attemptStarted)
 	}
 
 	ctx, cmd, err := node.setupExecutor(ctx)
@@ -70,8 +71,7 @@ func (e *StepExecutor) Execute(ctx context.Context, node *Node, onSetup ...func(
 	}
 
 	if err := preRunAbortErr(ctx, node); err != nil {
-		node.SetError(err)
-		return err
+		return recordPreRunAbort(ctx, node, err, stepTimeout, attemptStarted)
 	}
 
 	e.setupExecutorSideChannels(cmd, node)
@@ -112,6 +112,17 @@ func preRunAbortErr(ctx context.Context, node *Node) error {
 		return errNodeExecutionAborted
 	}
 	return ctx.Err()
+}
+
+func recordPreRunAbort(ctx context.Context, node *Node, err error, stepTimeout time.Duration, attemptStarted time.Time) error {
+	if stepTimeout > 0 && errors.Is(err, context.DeadlineExceeded) && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		exitCode, timeoutErr := node.handleTimeout(ctx, node.Step(), stepTimeout, time.Since(attemptStarted))
+		node.SetExitCode(exitCode)
+		return timeoutErr
+	}
+
+	node.SetError(err)
+	return err
 }
 
 func wrapStepSetupError(err error) error {
