@@ -417,7 +417,7 @@ func (a *API) ConfigureRoutes(ctx context.Context, r chi.Router, writeTimeout ti
 
 		middlewares := []api.StrictMiddlewareFunc{
 			validateDAGFileNameMiddleware,
-			refreshExecuteDAGSyncWriteDeadline(writeTimeout),
+			resetSyncWriteDeadline(writeTimeout),
 		}
 		options := api.StrictHTTPServerOptions{
 			ResponseErrorHandlerFunc: a.handleError,
@@ -429,13 +429,13 @@ func (a *API) ConfigureRoutes(ctx context.Context, r chi.Router, writeTimeout ti
 	return nil
 }
 
-func refreshExecuteDAGSyncWriteDeadline(timeout time.Duration) api.StrictMiddlewareFunc {
+// TODO: Remove this workaround with the deprecated ExecuteDAGSync API.
+func resetSyncWriteDeadline(timeout time.Duration) api.StrictMiddlewareFunc {
 	return func(next api.StrictHandlerFunc, operationID string) api.StrictHandlerFunc {
 		if operationID != "ExecuteDAGSync" {
 			return next
 		}
 
-		// TODO: Remove this compatibility workaround when the deprecated ExecuteDAGSync API is removed.
 		return func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error) {
 			response, err := next(ctx, w, r, request)
 			_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(timeout))

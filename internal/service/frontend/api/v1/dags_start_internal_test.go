@@ -28,7 +28,7 @@ func TestExecuteDAGSyncWriteDeadlineStartsWithResponse(t *testing.T) {
 	t.Parallel()
 
 	const timeout = 25 * time.Millisecond
-	handler := refreshExecuteDAGSyncWriteDeadline(timeout)(
+	handler := resetSyncWriteDeadline(timeout)(
 		func(context.Context, http.ResponseWriter, *http.Request, any) (any, error) {
 			time.Sleep(2 * timeout)
 			return nil, nil
