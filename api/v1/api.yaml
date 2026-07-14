@@ -1116,7 +1116,10 @@ paths:
   /dags/{fileName}/start-sync:
     post:
       summary: "Execute DAG synchronously and wait for completion"
+      deprecated: true
       description: |
+        **Deprecated:** Use `POST /dags/{fileName}/start`, then monitor the DAG run through the DAG-run status API or SSE.
+
         Creates a DAG-run from the DAG definition, starts its execution, waits for it to complete (or timeout), and returns the full execution details including node statuses.
 
         **Important behaviors:**

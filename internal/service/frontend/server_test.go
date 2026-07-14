@@ -60,7 +60,9 @@ func TestRESTWriteDeadlineStartsWithResponse(t *testing.T) {
 
 	resp, err := server.Client().Get(server.URL)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	t.Cleanup(func() {
+		require.NoError(t, resp.Body.Close())
+	})
 	require.Equal(t, http.StatusNoContent, resp.StatusCode)
 }
 

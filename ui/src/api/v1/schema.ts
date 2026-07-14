@@ -371,7 +371,10 @@ export interface paths {
         put?: never;
         /**
          * Execute DAG synchronously and wait for completion
-         * @description Creates a DAG-run from the DAG definition, starts its execution, waits for it to complete (or timeout), and returns the full execution details including node statuses.
+         * @deprecated
+         * @description **Deprecated:** Use `POST /dags/{fileName}/start`, then monitor the DAG run through the DAG-run status API or SSE.
+         *
+         *     Creates a DAG-run from the DAG definition, starts its execution, waits for it to complete (or timeout), and returns the full execution details including node statuses.
          *
          *     **Important behaviors:**
          *     - If the timeout is exceeded, the DAG run continues executing in the background. The 408 response includes the `dagRunId` so clients can monitor or cancel the run.
