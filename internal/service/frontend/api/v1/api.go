@@ -388,7 +388,7 @@ func (a *API) webhookMaxPayloadSize() int {
 	return a.config.Webhooks.MaxPayloadSize
 }
 
-func (a *API) ConfigureRoutes(ctx context.Context, r chi.Router) error {
+func (a *API) ConfigureRoutes(ctx context.Context, r chi.Router, writeTimeout time.Duration) error {
 	swagger, err := a.loadOpenAPISpec(ctx)
 	if err != nil {
 		return err
@@ -415,7 +415,10 @@ func (a *API) ConfigureRoutes(ctx context.Context, r chi.Router) error {
 		r.Use(WithRemoteNode(a.remoteNodeResolver, mountedAPIPath))
 		r.Use(WebhookRequestContextMiddleware(a.webhookMaxPayloadSize()))
 
-		middlewares := []api.StrictMiddlewareFunc{validateDAGFileNameMiddleware}
+		middlewares := []api.StrictMiddlewareFunc{
+			validateDAGFileNameMiddleware,
+			refreshExecuteDAGSyncWriteDeadline(writeTimeout),
+		}
 		options := api.StrictHTTPServerOptions{
 			ResponseErrorHandlerFunc: a.handleError,
 		}
@@ -424,6 +427,21 @@ func (a *API) ConfigureRoutes(ctx context.Context, r chi.Router) error {
 	})
 
 	return nil
+}
+
+func refreshExecuteDAGSyncWriteDeadline(timeout time.Duration) api.StrictMiddlewareFunc {
+	return func(next api.StrictHandlerFunc, operationID string) api.StrictHandlerFunc {
+		if operationID != "ExecuteDAGSync" {
+			return next
+		}
+
+		// TODO: Remove this compatibility workaround when the deprecated ExecuteDAGSync API is removed.
+		return func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error) {
+			response, err := next(ctx, w, r, request)
+			_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(timeout))
+			return response, err
+		}
+	}
 }
 
 func (a *API) restAuditSeedMiddleware() func(http.Handler) http.Handler {

@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -22,6 +23,36 @@ import (
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/stretchr/testify/require"
 )
+
+func TestExecuteDAGSyncWriteDeadlineStartsWithResponse(t *testing.T) {
+	t.Parallel()
+
+	const timeout = 25 * time.Millisecond
+	handler := refreshExecuteDAGSyncWriteDeadline(timeout)(
+		func(context.Context, http.ResponseWriter, *http.Request, any) (any, error) {
+			time.Sleep(2 * timeout)
+			return nil, nil
+		},
+		"ExecuteDAGSync",
+	)
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, err := handler(r.Context(), w, r, nil); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	server.Config.WriteTimeout = timeout
+	server.Start()
+	t.Cleanup(server.Close)
+
+	resp, err := server.Client().Get(server.URL)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, resp.Body.Close())
+	})
+	require.Equal(t, http.StatusNoContent, resp.StatusCode)
+}
 
 func TestWaitForLocalDAGStartReturnsNilWhenStarterProcessStillAlive(t *testing.T) {
 	t.Parallel()
