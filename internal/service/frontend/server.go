@@ -67,6 +67,7 @@ import (
 const (
 	serverShutdownTimeout = 10 * time.Second
 	httpShutdownBudget    = 5 * time.Second
+	httpWriteTimeout      = 60 * time.Second
 )
 
 type shutdownActions struct {
@@ -741,7 +742,7 @@ func (srv *Server) Serve(ctx context.Context) error {
 		Addr:              addr,
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       120 * time.Second,
-		WriteTimeout:      60 * time.Second,
+		WriteTimeout:      httpWriteTimeout,
 	}
 
 	metrics.StartUptime(ctx)
@@ -976,9 +977,41 @@ func (srv *Server) setupOIDCRoutes(r *chi.Mux, basePath string) {
 	r.Get(pathutil.BuildPublicEndpointPath(basePath, "oidc-callback"), auth.BuiltinOIDCCallbackHandler(srv.builtinOIDCCfg))
 }
 
+type writeDeadlineResponseWriter struct {
+	http.ResponseWriter
+	timeout time.Duration
+}
+
+func (w *writeDeadlineResponseWriter) WriteHeader(statusCode int) {
+	w.refreshDeadline()
+	w.ResponseWriter.WriteHeader(statusCode)
+}
+
+func (w *writeDeadlineResponseWriter) Write(data []byte) (int, error) {
+	w.refreshDeadline()
+	return w.ResponseWriter.Write(data)
+}
+
+func (w *writeDeadlineResponseWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
+}
+
+func (w *writeDeadlineResponseWriter) refreshDeadline() {
+	_ = http.NewResponseController(w.ResponseWriter).SetWriteDeadline(time.Now().Add(w.timeout))
+}
+
+func refreshWriteDeadline(timeout time.Duration) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			next.ServeHTTP(&writeDeadlineResponseWriter{ResponseWriter: w, timeout: timeout}, r)
+		})
+	}
+}
+
 func (srv *Server) setupAPIRoutes(ctx context.Context, r *chi.Mux, apiV1BasePath string) error {
 	var setupErr error
 	r.Route(apiV1BasePath, func(r chi.Router) {
+		r.Use(refreshWriteDeadline(httpWriteTimeout))
 		if err := srv.apiV1.ConfigureRoutes(ctx, r); err != nil {
 			logger.Error(ctx, "Failed to configure API routes", tag.Error(err))
 			setupErr = err

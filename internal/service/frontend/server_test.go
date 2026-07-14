@@ -45,6 +45,25 @@ func testAppStream(t *testing.T) *sse.AppStreamService {
 	return stream
 }
 
+func TestRESTWriteDeadlineStartsWithResponse(t *testing.T) {
+	t.Parallel()
+
+	const timeout = 25 * time.Millisecond
+	handler := refreshWriteDeadline(timeout)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(2 * timeout)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	server := httptest.NewUnstartedServer(handler)
+	server.Config.WriteTimeout = timeout
+	server.Start()
+	t.Cleanup(server.Close)
+
+	resp, err := server.Client().Get(server.URL)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusNoContent, resp.StatusCode)
+}
+
 func TestRegisterDedicatedSSEFetchersUsesEventStoreInvalidationForRunTopics(t *testing.T) {
 	t.Parallel()
 
