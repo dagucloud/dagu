@@ -102,6 +102,46 @@ func TestCORSPolicy_ExplicitOrigin(t *testing.T) {
 	})
 }
 
+func TestCORSPolicy_WildcardPattern(t *testing.T) {
+	t.Parallel()
+
+	called := false
+	policy := corsPolicy{
+		allowedOrigins: []string{"https://a*a.com"},
+		setupPath:      "/api/v1/auth/setup",
+	}
+	handler := policy.middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	t.Run("matches complete prefix and suffix", func(t *testing.T) {
+		called = false
+		req := newPreflightRequest("/api/v1/dag-runs", "https://aa.com")
+		resp := httptest.NewRecorder()
+
+		handler.ServeHTTP(resp, req)
+
+		require.Equal(t, http.StatusOK, resp.Code)
+		assert.Equal(t, "https://aa.com", resp.Header().Get("Access-Control-Allow-Origin"))
+		assert.Equal(t, "true", resp.Header().Get("Access-Control-Allow-Credentials"))
+		assert.False(t, called)
+	})
+
+	t.Run("rejects overlapping prefix and suffix", func(t *testing.T) {
+		called = false
+		req := httptest.NewRequest(http.MethodPost, "http://dagu.example/api/v1/dag-runs", nil)
+		req.Header.Set("Origin", "https://a.com")
+		resp := httptest.NewRecorder()
+
+		handler.ServeHTTP(resp, req)
+
+		assert.Equal(t, http.StatusForbidden, resp.Code)
+		assert.Empty(t, resp.Header().Get("Access-Control-Allow-Origin"))
+		assert.False(t, called)
+	})
+}
+
 func TestCORSPolicy_ExplicitWildcard(t *testing.T) {
 	t.Parallel()
 
@@ -165,26 +205,64 @@ func TestCORSPolicy_ExplicitWildcard(t *testing.T) {
 	})
 }
 
-func TestCORSPolicy_UsesPublicURLForSameOrigin(t *testing.T) {
+func TestCORSPolicy_SameOriginDetection(t *testing.T) {
 	t.Parallel()
 
-	called := false
-	policy := corsPolicy{
-		publicURL: "https://dagu.example/workflows",
-		setupPath: "/api/v1/auth/setup",
+	tests := []struct {
+		name         string
+		publicURL    string
+		requestURL   string
+		origin       string
+		secFetchSite string
+	}{
+		{
+			name:       "public URL behind reverse proxy",
+			publicURL:  "https://dagu.example/workflows",
+			requestURL: "http://internal:8080/api/v1/dag-runs",
+			origin:     "https://dagu.example",
+		},
+		{
+			name:       "default HTTP port",
+			requestURL: "http://dagu.example:80/api/v1/dag-runs",
+			origin:     "http://dagu.example",
+		},
+		{
+			name:       "default HTTPS port",
+			requestURL: "https://dagu.example:443/api/v1/dag-runs",
+			origin:     "https://dagu.example",
+		},
+		{
+			name:         "fetch metadata through TLS proxy",
+			requestURL:   "http://dagu.example/api/v1/dag-runs",
+			origin:       "https://dagu.example",
+			secFetchSite: "same-origin",
+		},
 	}
-	handler := policy.middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		called = true
-		w.WriteHeader(http.StatusNoContent)
-	}))
-	req := httptest.NewRequest(http.MethodPost, "http://internal:8080/api/v1/dag-runs", nil)
-	req.Header.Set("Origin", "https://dagu.example")
-	resp := httptest.NewRecorder()
 
-	handler.ServeHTTP(resp, req)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			called := false
+			policy := corsPolicy{
+				publicURL: tt.publicURL,
+				setupPath: "/api/v1/auth/setup",
+			}
+			handler := policy.middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				called = true
+				w.WriteHeader(http.StatusNoContent)
+			}))
+			req := httptest.NewRequest(http.MethodPost, tt.requestURL, nil)
+			req.Header.Set("Origin", tt.origin)
+			if tt.secFetchSite != "" {
+				req.Header.Set("Sec-Fetch-Site", tt.secFetchSite)
+			}
+			resp := httptest.NewRecorder()
 
-	assert.Equal(t, http.StatusNoContent, resp.Code)
-	assert.True(t, called)
+			handler.ServeHTTP(resp, req)
+
+			assert.Equal(t, http.StatusNoContent, resp.Code)
+			assert.True(t, called)
+		})
+	}
 }
 
 func newPreflightRequest(requestPath, origin string) *http.Request {

@@ -4,9 +4,9 @@
 package frontend
 
 import (
+	"net"
 	"net/http"
 	"net/url"
-	"slices"
 	"strings"
 
 	"github.com/go-chi/cors"
@@ -21,14 +21,22 @@ type corsPolicy struct {
 func (p corsPolicy) middleware(next http.Handler) http.Handler {
 	wrapped := next
 	if len(p.allowedOrigins) > 0 {
-		wrapped = cors.Handler(cors.Options{
-			AllowedOrigins:   p.allowedOrigins,
+		allowAllOrigins := p.allowsAllOrigins()
+		options := cors.Options{
 			AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 			AllowedHeaders:   []string{"Content-Type", "Authorization", "Content-Encoding", "Accept", "MCP-Protocol-Version", "Mcp-Session-Id", "Last-Event-ID"},
 			ExposedHeaders:   []string{"Mcp-Session-Id"},
-			AllowCredentials: !slices.Contains(p.allowedOrigins, "*"),
+			AllowCredentials: !allowAllOrigins,
 			MaxAge:           300,
-		})(next)
+		}
+		if allowAllOrigins {
+			options.AllowedOrigins = []string{"*"}
+		} else {
+			options.AllowOriginFunc = func(_ *http.Request, origin string) bool {
+				return p.allowsOrigin(origin)
+			}
+		}
+		wrapped = cors.Handler(options)(next)
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -79,9 +87,19 @@ func (p corsPolicy) allowsOrigin(origin string) bool {
 		if wildcardIndex := strings.IndexByte(candidate, '*'); wildcardIndex >= 0 {
 			prefix := candidate[:wildcardIndex]
 			suffix := candidate[wildcardIndex+1:]
-			if strings.HasPrefix(origin, prefix) && strings.HasSuffix(origin, suffix) {
+			if len(origin) >= len(prefix)+len(suffix) &&
+				strings.HasPrefix(origin, prefix) && strings.HasSuffix(origin, suffix) {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+func (p corsPolicy) allowsAllOrigins() bool {
+	for _, origin := range p.allowedOrigins {
+		if strings.TrimSpace(origin) == "*" {
+			return true
 		}
 	}
 	return false
@@ -99,5 +117,22 @@ func canonicalOrigin(value string) string {
 	if !strings.EqualFold(parsed.Scheme, "http") && !strings.EqualFold(parsed.Scheme, "https") {
 		return ""
 	}
-	return strings.ToLower(parsed.Scheme + "://" + parsed.Host)
+
+	scheme := strings.ToLower(parsed.Scheme)
+	hostname := strings.ToLower(parsed.Hostname())
+	if hostname == "" {
+		return ""
+	}
+	port := parsed.Port()
+	if (scheme == "http" && port == "80") || (scheme == "https" && port == "443") {
+		port = ""
+	}
+
+	host := hostname
+	if port != "" {
+		host = net.JoinHostPort(hostname, port)
+	} else if strings.Contains(hostname, ":") {
+		host = "[" + hostname + "]"
+	}
+	return scheme + "://" + host
 }
