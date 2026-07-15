@@ -56,7 +56,7 @@ func (p corsPolicy) isCrossOrigin(r *http.Request, origin string) bool {
 	if sourceOrigin == "" {
 		return true
 	}
-	if sourceOrigin == p.targetOrigin(r) {
+	if sourceOrigin == requestOrigin(r) || sourceOrigin == canonicalOrigin(p.publicURL) {
 		return false
 	}
 
@@ -65,11 +65,7 @@ func (p corsPolicy) isCrossOrigin(r *http.Request, origin string) bool {
 	return !strings.EqualFold(strings.TrimSpace(r.Header.Get("Sec-Fetch-Site")), "same-origin")
 }
 
-func (p corsPolicy) targetOrigin(r *http.Request) string {
-	if origin := canonicalOrigin(p.publicURL); origin != "" {
-		return origin
-	}
-
+func requestOrigin(r *http.Request) string {
 	scheme := "http"
 	if r.TLS != nil {
 		scheme = "https"
@@ -79,9 +75,10 @@ func (p corsPolicy) targetOrigin(r *http.Request) string {
 
 func (p corsPolicy) allowsOrigin(origin string) bool {
 	origin = strings.ToLower(strings.TrimSpace(origin))
+	canonicalRequestOrigin := canonicalOrigin(origin)
 	for _, candidate := range p.allowedOrigins {
 		candidate = strings.ToLower(strings.TrimSpace(candidate))
-		if candidate == "*" || candidate == origin {
+		if candidate == "*" {
 			return true
 		}
 		if prefix, suffix, ok := strings.Cut(candidate, "*"); ok {
@@ -89,6 +86,11 @@ func (p corsPolicy) allowsOrigin(origin string) bool {
 				strings.HasPrefix(origin, prefix) && strings.HasSuffix(origin, suffix) {
 				return true
 			}
+			continue
+		}
+		if candidate == origin ||
+			(canonicalRequestOrigin != "" && canonicalOrigin(candidate) == canonicalRequestOrigin) {
+			return true
 		}
 	}
 	return false

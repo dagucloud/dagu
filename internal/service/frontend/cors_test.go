@@ -73,8 +73,12 @@ func TestCORSPolicy_ExplicitOrigin(t *testing.T) {
 	t.Parallel()
 
 	policy := corsPolicy{
-		allowedOrigins: []string{"https://app.example"},
-		setupPath:      "/api/v1/auth/setup",
+		allowedOrigins: []string{
+			"https://app.example",
+			"http://local.example:80",
+			"https://secure.example:443",
+		},
+		setupPath: "/api/v1/auth/setup",
 	}
 	handler := policy.middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
@@ -89,6 +93,28 @@ func TestCORSPolicy_ExplicitOrigin(t *testing.T) {
 		require.Equal(t, http.StatusOK, resp.Code)
 		assert.Equal(t, "https://app.example", resp.Header().Get("Access-Control-Allow-Origin"))
 		assert.Equal(t, "true", resp.Header().Get("Access-Control-Allow-Credentials"))
+	})
+
+	t.Run("equivalent default ports", func(t *testing.T) {
+		tests := []struct {
+			name   string
+			origin string
+		}{
+			{name: "HTTP", origin: "http://local.example"},
+			{name: "HTTPS", origin: "https://secure.example"},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				req := newPreflightRequest("/api/v1/dag-runs", tt.origin)
+				resp := httptest.NewRecorder()
+
+				handler.ServeHTTP(resp, req)
+
+				require.Equal(t, http.StatusOK, resp.Code)
+				assert.Equal(t, tt.origin, resp.Header().Get("Access-Control-Allow-Origin"))
+				assert.Equal(t, "true", resp.Header().Get("Access-Control-Allow-Credentials"))
+			})
+		}
 	})
 
 	t.Run("not allowed", func(t *testing.T) {
@@ -220,6 +246,12 @@ func TestCORSPolicy_SameOriginDetection(t *testing.T) {
 			publicURL:  "https://dagu.example/workflows",
 			requestURL: "http://internal:8080/api/v1/dag-runs",
 			origin:     "https://dagu.example",
+		},
+		{
+			name:       "request URL when public URL differs",
+			publicURL:  "https://dagu.example/workflows",
+			requestURL: "http://internal:8080/api/v1/dag-runs",
+			origin:     "http://internal:8080",
 		},
 		{
 			name:       "default HTTP port",
