@@ -84,9 +84,7 @@ func (p corsPolicy) allowsOrigin(origin string) bool {
 		if candidate == "*" || candidate == origin {
 			return true
 		}
-		if wildcardIndex := strings.IndexByte(candidate, '*'); wildcardIndex >= 0 {
-			prefix := candidate[:wildcardIndex]
-			suffix := candidate[wildcardIndex+1:]
+		if prefix, suffix, ok := strings.Cut(candidate, "*"); ok {
 			if len(origin) >= len(prefix)+len(suffix) &&
 				strings.HasPrefix(origin, prefix) && strings.HasSuffix(origin, suffix) {
 				return true
