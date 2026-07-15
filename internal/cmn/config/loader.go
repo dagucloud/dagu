@@ -654,6 +654,17 @@ func (l *ConfigLoader) loadServerDefaults(cfg *Config, def Definition) {
 	cfg.Server.BasePath = cleanServerBasePath(cfg.Server.BasePath)
 	cfg.Server.CheckUpdates = l.v.GetBool("check_updates")
 	cfg.Server.CORSAllowedOrigins = parseStringList(l.v.Get("cors_allowed_origins"))
+	for _, origin := range cfg.Server.CORSAllowedOrigins {
+		if strings.TrimSpace(origin) != "*" {
+			continue
+		}
+		warning := `cors_allowed_origins contains "*"; any website may make browser requests to the Dagu API`
+		if cfg.Server.Auth.Mode == AuthModeNone {
+			warning += `, and auth.mode "none" allows those requests to execute workflows without authentication`
+		}
+		l.warnings = append(l.warnings, warning)
+		break
+	}
 
 	cfg.Server.Metrics = MetricsAccessPrivate
 	if def.Metrics != nil {

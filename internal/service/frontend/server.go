@@ -15,7 +15,6 @@ import (
 	"os"
 	"os/signal"
 	"path"
-	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -24,7 +23,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/go-chi/cors"
 	"github.com/go-chi/httplog/v2"
 	"github.com/prometheus/client_golang/prometheus"
 
@@ -701,19 +699,11 @@ func (srv *Server) Serve(ctx context.Context) error {
 	}
 	r.Use(middleware.Recoverer)
 	r.Use(securityHeadersMiddleware(srv.config.Server.TLS != nil))
-	corsOrigins := srv.config.Server.CORSAllowedOrigins
-	allowCredentials := len(corsOrigins) > 0 && !slices.Contains(corsOrigins, "*")
-	if !allowCredentials {
-		corsOrigins = []string{"*"}
-	}
-	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   corsOrigins,
-		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Content-Type", "Authorization", "Content-Encoding", "Accept", "MCP-Protocol-Version", "Mcp-Session-Id", "Last-Event-ID"},
-		ExposedHeaders:   []string{"Mcp-Session-Id"},
-		AllowCredentials: allowCredentials,
-		MaxAge:           300,
-	}))
+	r.Use(corsPolicy{
+		allowedOrigins: srv.config.Server.CORSAllowedOrigins,
+		publicURL:      srv.config.Server.PublicURL,
+		setupPath:      path.Join(apiV1BasePath, "auth/setup"),
+	}.middleware)
 	r.Use(middleware.RedirectSlashes)
 
 	if err := srv.setupRoutes(ctx, r); err != nil {

@@ -1607,6 +1607,55 @@ metrics: "invalid_value"
 	})
 }
 
+func TestLoad_CORSAllowedOrigins(t *testing.T) {
+	t.Run("EmptyDisablesCORS", func(t *testing.T) {
+		cfg := loadFromYAML(t, `
+auth:
+  mode: none
+cors_allowed_origins: []
+`)
+		assert.Empty(t, cfg.Server.CORSAllowedOrigins)
+		assert.Empty(t, cfg.Warnings)
+	})
+
+	t.Run("ExplicitOrigins", func(t *testing.T) {
+		cfg := loadFromYAML(t, `
+auth:
+  mode: none
+cors_allowed_origins:
+  - https://app.example.com
+  - https://admin.example.com
+`)
+		assert.Equal(t, []string{"https://app.example.com", "https://admin.example.com"}, cfg.Server.CORSAllowedOrigins)
+		assert.Empty(t, cfg.Warnings)
+	})
+
+	t.Run("WildcardWarning", func(t *testing.T) {
+		cfg := loadFromYAML(t, `
+auth:
+  mode: builtin
+cors_allowed_origins:
+  - "*"
+`)
+		assert.Equal(t, []string{"*"}, cfg.Server.CORSAllowedOrigins)
+		require.Len(t, cfg.Warnings, 1)
+		assert.Contains(t, cfg.Warnings[0], "any website may make browser requests")
+	})
+
+	t.Run("WildcardWithoutAuthWarning", func(t *testing.T) {
+		cfg := loadFromYAML(t, `
+auth:
+  mode: none
+cors_allowed_origins:
+  - "*"
+`)
+		assert.Equal(t, []string{"*"}, cfg.Server.CORSAllowedOrigins)
+		require.Len(t, cfg.Warnings, 1)
+		assert.Contains(t, cfg.Warnings[0], `auth.mode "none"`)
+		assert.Contains(t, cfg.Warnings[0], "execute workflows without authentication")
+	})
+}
+
 func TestLoad_AccessLogMode(t *testing.T) {
 	t.Run("AccessLogAll", func(t *testing.T) {
 		cfg := loadFromYAML(t, `

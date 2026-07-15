@@ -788,7 +788,7 @@ The embedded API is experimental and may change. See the embedded API documentat
 | `DAGU_LOG_FORMAT` | `text` | `text` or `json` |
 | `DAGU_CERT_FILE` | — | TLS certificate |
 | `DAGU_KEY_FILE` | — | TLS private key |
-| `DAGU_CORS_ALLOWED_ORIGINS` | — | Comma-separated list of allowed CORS origins (e.g. `https://app.example.com`). When unset, all origins are allowed without credentials. When set, only listed origins are allowed and credentials are enabled. |
+| `DAGU_CORS_ALLOWED_ORIGINS` | — | Comma-separated list of allowed CORS origins (e.g. `https://app.example.com`). When unset, cross-origin browser access is disabled. Exact origins enable credentials. An explicit `*` allows every origin without credentials and emits a security warning. |
 
 ### Paths
 

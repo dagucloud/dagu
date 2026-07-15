@@ -45,7 +45,7 @@
     "cors_allowed_origins": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "Explicit list of origins allowed to make cross-origin requests. When unset, all origins are allowed without credentials. When set, only listed origins are allowed and credentials are enabled. A wildcard '*' in the list is treated the same as unset."
+      "description": "Origins allowed to make cross-origin requests. When unset or empty, cross-origin browser access is disabled. Exact origins enable credentials. An explicit '*' allows every origin without credentials and emits a security warning."
     },
     "debug": {
       "type": "boolean",

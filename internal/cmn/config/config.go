@@ -150,9 +150,9 @@ type Server struct {
 	RemoteNodes       []RemoteNode
 	Permissions       map[Permission]bool
 	StrictValidation  bool
-	// CORSAllowedOrigins lists explicit origins for CORS. When empty, all
-	// origins are allowed but AllowCredentials is disabled (spec-compliant).
-	// When set, only listed origins are allowed and AllowCredentials is enabled.
+	// CORSAllowedOrigins lists origins allowed to make cross-origin requests.
+	// An empty list disables CORS. A literal wildcard explicitly allows every
+	// origin without credentials; exact origins enable credentials.
 	CORSAllowedOrigins []string
 	Metrics            MetricsAccess // "private" or "public"
 	Terminal           TerminalConfig
