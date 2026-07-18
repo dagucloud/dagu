@@ -20,7 +20,9 @@ import (
 
 func substituteCommandTimeout() time.Duration {
 	if runtime.GOOS == "windows" {
-		return 10 * time.Second
+		// Cold-start of powershell.exe (JIT + antivirus scan) can exceed 10s
+		// on a fresh machine before process caches warm up.
+		return 30 * time.Second
 	}
 	return 2 * time.Second
 }

@@ -69,6 +69,15 @@ jobs:
             choco install make --no-progress -y
           }
 
+      # Conformance fixtures spawn Windows PowerShell (powershell.exe) under a
+      # bounded command-substitution timeout. The first spawn on a fresh runner
+      # pays a JIT/antivirus penalty that can exceed the timeout, so pay it here
+      # instead of inside a test.
+      - name: Warm up Windows PowerShell
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: Write-Output warmup
+
       - name: Run conformance tests
         shell: bash
         run: make conformance GO_TEST_FLAGS="${{ matrix.go_test_flags }}"
