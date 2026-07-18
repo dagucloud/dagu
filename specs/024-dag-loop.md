@@ -120,8 +120,8 @@ Rules:
 - `loop.while` and `loop.until` accept a non-empty string shortcut or an
   array of condition entries.
 
-- A `loop.while` or `loop.until` array must contain at least one condition
-  entry. An empty array is invalid.
+- A `loop.while` or `loop.until` array must contain at least one and at
+  most `100` condition entries. An empty array is invalid.
 
 - Condition entry shape, string-shortcut normalization, condition text,
   eval text, expected values, and negation follow the Spec 023 rules for
@@ -146,7 +146,8 @@ Rules:
 
 - `loop.max_interval_sec` is optional.
 
-- `loop.max_interval_sec` is valid only when `loop.backoff` is present.
+- `loop.max_interval_sec` is valid only when backoff is enabled, that is
+  when `loop.backoff` is `true` or a number greater than `1.0`.
 
 - `loop.max_interval_sec` must resolve to an integer greater than or equal
   to `1`.
@@ -323,9 +324,9 @@ Rules:
 - For each loop condition entry, the feedback file marks the entry's
   result with the token `met` or `not met`.
 
-- Per entry, at most the last 64 KiB of captured command-check output is
-  retained, and at most the last 64 KiB of a value-match actual value is
-  retained.
+- Per reported value, at most the last 64 KiB is retained. This applies
+  to captured command-check output, value-match actual values, and
+  expected values.
 
 - The exact formatting around these values is not defined by this spec.
   Consumers may rely on the presence of the reported values and result
@@ -467,6 +468,8 @@ Validation must fail when:
 - `loop` contains both `while` and `until`.
 - `loop.while` or `loop.until` is neither a non-empty string nor a
   non-empty array.
+- a `loop.while` or `loop.until` array contains more than `100` condition
+  entries.
 - a loop condition entry violates the Spec 023 condition entry shape
   rules.
 - `loop.max_iterations` is missing.
@@ -475,7 +478,8 @@ Validation must fail when:
 - a static `loop.interval_sec` is not an integer greater than or equal to
   `0`.
 - `loop.backoff` is neither a boolean nor a number greater than `1.0`.
-- `loop.max_interval_sec` is present without `loop.backoff`.
+- `loop.max_interval_sec` is present while `loop.backoff` is omitted or
+  `false`.
 - a static `loop.max_interval_sec` is not an integer greater than or equal
   to `1`.
 - `loop.on_exhausted` is neither `fail` nor `succeed`.
@@ -668,8 +672,6 @@ Expected behavior:
 - `invocations.log` contains two lines.
 - The second line is byte-identical to the first line.
 - Neither line contains a session-resume or continuation argument.
-- The two invocations differ only in their loop environment variable
-  values.
 
 ### Chat Requests Carry No Earlier-Iteration Messages
 
