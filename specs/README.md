@@ -32,6 +32,7 @@ It must not be treated as product behavior until implementation catches up.
 | [021: MCP Read Tool](021-mcp-read-tool.md) | Implemented |
 | [022: MCP Change Tool](022-mcp-change-tool.md) | Implemented |
 | [023: Preconditions](023-preconditions.md) | Implemented |
+| [030: Git Worktree Action](030-git-worktree-action.md) | Not implemented |
 
 **Writing guidelines:**
 
