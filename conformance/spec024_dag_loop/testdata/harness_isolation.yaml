@@ -1,0 +1,18 @@
+type: graph
+working_dir: .
+harnesses:
+  recorder:
+    binary: ./record-agent.sh
+    prefix_args: [exec]
+    prompt_mode: stdin
+loop:
+  until: test "$DAGU_LOOP_ITERATION" -ge 2
+  max_iterations: 3
+steps:
+  - id: attempt
+    action: harness.run
+    with:
+      provider: recorder
+      prompt: fixed prompt
+      stdin: fixed stdin
+      format: json

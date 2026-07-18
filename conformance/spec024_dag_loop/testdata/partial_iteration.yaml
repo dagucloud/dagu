@@ -1,0 +1,15 @@
+type: chain
+working_dir: .
+loop:
+  until: |
+    printf '%s\n' "$DAGU_LOOP_ITERATION" >> partial-conditions.txt
+    test "$DAGU_LOOP_ITERATION" -ge 2
+  max_iterations: 3
+steps:
+  - id: allowed_failure
+    continue_on: failed
+    run: |
+      printf 'x\n' >> partial-attempts.txt
+      exit 1
+  - id: still_runs
+    run: "true"

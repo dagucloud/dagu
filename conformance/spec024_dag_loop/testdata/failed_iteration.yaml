@@ -1,0 +1,17 @@
+type: graph
+working_dir: .
+handler_on:
+  success:
+    run: printf 'success\n' > success-handler.txt
+  failure:
+    run: printf 'failure\n' > failure-handler.txt
+  exit:
+    run: printf 'exit\n' > exit-handler.txt
+loop:
+  until: printf 'condition\n' > condition-ran.txt
+  max_iterations: 5
+steps:
+  - id: fail
+    run: |
+      printf 'x\n' >> failed-iteration-count.txt
+      exit 1

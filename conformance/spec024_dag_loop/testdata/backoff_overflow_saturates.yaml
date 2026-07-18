@@ -1,0 +1,13 @@
+type: graph
+working_dir: .
+timeout_sec: 5
+loop:
+  until: "false"
+  max_iterations: 3
+  interval_sec: 1
+  backoff: 1.7976931348623157e+308
+  max_interval_sec: 1
+  on_exhausted: succeed
+steps:
+  - id: work
+    run: printf 'x\n' >> backoff-overflow-count.txt

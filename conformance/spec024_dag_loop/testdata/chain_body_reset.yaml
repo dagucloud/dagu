@@ -1,0 +1,10 @@
+type: chain
+working_dir: .
+loop:
+  until: test "$DAGU_LOOP_ITERATION" -ge 2
+  max_iterations: 3
+steps:
+  - id: first
+    run: printf 'a-%s\n' "$DAGU_LOOP_ITERATION" >> chain-order.txt
+  - id: second
+    run: printf 'b-%s\n' "$DAGU_LOOP_ITERATION" >> chain-order.txt

@@ -1,0 +1,18 @@
+type: graph
+working_dir: .
+params:
+  - name: iterations
+    description: Runtime iteration bound.
+  - name: interval
+    description: Runtime interval.
+  - name: cap
+    description: Runtime interval cap.
+loop:
+  until: "true"
+  max_iterations: "${params.iterations}"
+  interval_sec: "${params.interval}"
+  backoff: 2
+  max_interval_sec: "${params.cap}"
+steps:
+  - id: noop
+    run: "true"

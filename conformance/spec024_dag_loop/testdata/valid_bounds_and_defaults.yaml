@@ -1,0 +1,9 @@
+type: graph
+working_dir: .
+loop:
+  until: "true"
+  max_iterations: 1000
+  interval_sec: 604800
+steps:
+  - id: noop
+    run: "true"

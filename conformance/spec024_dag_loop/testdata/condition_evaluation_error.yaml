@@ -1,0 +1,12 @@
+type: chain
+working_dir: .
+loop:
+  until:
+    - condition: "${steps.producer.outputs.verdict}"
+      expected: approved
+  max_iterations: 2
+steps:
+  - id: producer
+    run: printf 'x\n' >> evaluation-error-count.txt
+    outputs:
+      - name: verdict

@@ -1,0 +1,12 @@
+type: graph
+working_dir: .
+loop:
+  until: "false"
+  max_iterations: 3
+  interval_sec: 1
+  backoff: 2
+  max_interval_sec: 10
+  on_exhausted: succeed
+steps:
+  - id: timestamp
+    run: date +%s >> backoff-timestamps.txt

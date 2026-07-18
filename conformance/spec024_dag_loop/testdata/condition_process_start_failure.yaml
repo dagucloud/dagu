@@ -1,0 +1,13 @@
+type: graph
+working_dir: .
+shell: dagu-spec024-shell-that-does-not-exist
+loop:
+  until: "true"
+  max_iterations: 2
+  on_exhausted: succeed
+steps:
+  - id: work
+    shell:
+      - sh
+      - -c
+    run: printf 'x\n' >> process-start-failure-count.txt

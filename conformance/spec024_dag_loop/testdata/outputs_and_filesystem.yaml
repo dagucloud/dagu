@@ -1,0 +1,23 @@
+type: chain
+working_dir: .
+loop:
+  until: test "$DAGU_LOOP_ITERATION" -ge 2
+  max_iterations: 3
+steps:
+  - id: persist_file
+    run: printf 'x\n' >> persistent-filesystem.txt
+  - id: named
+    continue_on: failed
+    run: |
+      if test "$DAGU_LOOP_ITERATION" -eq 1; then
+        printf 'value=named-1\n' >> "$DAGU_OUTPUT_FILE"
+      else
+        exit 1
+      fi
+    outputs:
+      - name: value
+  - id: singular
+    run: printf 'captured-%s\n' "$DAGU_LOOP_ITERATION"
+    output: CAPTURED
+  - id: consume
+    run: printf '%s|%s\n' '${steps.named.outputs.value}' "$CAPTURED" >> output-consumer.txt

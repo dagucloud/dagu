@@ -1,0 +1,5 @@
+type: graph
+loop: forever
+steps:
+  - id: noop
+    run: "true"

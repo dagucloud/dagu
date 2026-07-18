@@ -1,0 +1,12 @@
+type: graph
+working_dir: .
+loop:
+  while: "false"
+  max_iterations: 1
+  interval_sec: 0
+  backoff: 1.000001
+  max_interval_sec: 1
+  on_exhausted: fail
+steps:
+  - id: noop
+    run: "true"

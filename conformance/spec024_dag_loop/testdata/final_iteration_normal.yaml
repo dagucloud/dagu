@@ -1,0 +1,8 @@
+type: graph
+working_dir: .
+loop:
+  until: test "$DAGU_LOOP_ITERATION" -eq 2
+  max_iterations: 2
+steps:
+  - id: work
+    run: printf 'x\n' >> final-normal-count.txt

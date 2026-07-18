@@ -1,0 +1,23 @@
+type: chain
+working_dir: .
+preconditions:
+  - condition: printf 'root-pre\n' >> lifecycle.txt
+handler_on:
+  init:
+    run: printf 'init\n' >> lifecycle.txt
+  success:
+    run: printf 'success\n' >> lifecycle.txt
+  failure:
+    run: printf 'failure\n' > failure-handler.txt
+  exit:
+    run: printf 'exit\n' >> lifecycle.txt
+loop:
+  until: |
+    printf 'condition-%s\n' "$DAGU_LOOP_ITERATION" >> lifecycle.txt
+    test "$DAGU_LOOP_ITERATION" -ge 2
+  max_iterations: 3
+steps:
+  - id: work
+    preconditions:
+      - condition: printf 'step-pre-%s\n' "$DAGU_LOOP_ITERATION" >> lifecycle.txt
+    run: printf 'step-%s\n' "$DAGU_LOOP_ITERATION" >> lifecycle.txt

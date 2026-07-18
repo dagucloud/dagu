@@ -1,0 +1,14 @@
+type: graph
+working_dir: .
+timeout_sec: 1
+handler_on:
+  success:
+    run: printf 'success\n' > success-handler.txt
+loop:
+  until: "false"
+  max_iterations: 3
+  interval_sec: 5
+  on_exhausted: succeed
+steps:
+  - id: work
+    run: printf 'x\n' >> timeout-count.txt

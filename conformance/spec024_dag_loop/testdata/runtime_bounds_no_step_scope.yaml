@@ -1,0 +1,12 @@
+type: graph
+working_dir: .
+loop:
+  until: "true"
+  max_iterations: "${steps.bound.outputs.iterations}"
+steps:
+  - id: bound
+    run: |
+      printf 'bounds\n' > bounds-step-ran.txt
+      printf 'iterations=1\n' >> "$DAGU_OUTPUT_FILE"
+    outputs:
+      - name: iterations

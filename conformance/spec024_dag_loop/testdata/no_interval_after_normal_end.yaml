@@ -1,0 +1,10 @@
+type: graph
+working_dir: .
+timeout_sec: 2
+loop:
+  until: "true"
+  max_iterations: 2
+  interval_sec: 10
+steps:
+  - id: work
+    run: printf 'x\n' > no-final-wait.txt

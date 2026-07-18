@@ -1,0 +1,15 @@
+type: graph
+working_dir: .
+loop:
+  until:
+    - condition: |
+        printf 'one\n' >> condition-order.txt
+        false
+    - condition: |
+        printf 'two\n' >> condition-order.txt
+        false
+  max_iterations: 2
+  on_exhausted: succeed
+steps:
+  - id: work
+    run: "true"

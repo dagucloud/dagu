@@ -1,0 +1,8 @@
+type: graph
+working_dir: .
+loop:
+  until: printf 'condition\n' > validate-loop-ran.txt
+  max_iterations: 2
+steps:
+  - id: write
+    run: printf 'step\n' > validate-loop-ran.txt

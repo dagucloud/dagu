@@ -1,0 +1,10 @@
+type: graph
+working_dir: .
+loop:
+  until:
+    - condition: "false"
+      negate: true
+  max_iterations: 3
+steps:
+  - id: work
+    run: printf 'x\n' >> negate-count.txt

@@ -1,0 +1,16 @@
+type: chain
+working_dir: .
+loop:
+  while:
+    - condition: "true"
+    - condition: literal
+      expected: literal
+    - eval: abc-123
+      expected: "re:^[a-z]+-[0-9]+$"
+      negate: false
+  max_iterations: 10
+  interval_sec: 0
+  on_exhausted: succeed
+steps:
+  - id: noop
+    run: "true"

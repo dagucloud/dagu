@@ -1,0 +1,6 @@
+type: graph
+loop:
+  until: "true"
+steps:
+  - id: noop
+    run: "true"

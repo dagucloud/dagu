@@ -1,0 +1,19 @@
+type: chain
+working_dir: .
+loop:
+  until:
+    - condition: "${steps.review.outputs.verdict}"
+      expected: approved
+  max_iterations: 3
+steps:
+  - id: work
+    run: printf 'x\n' >> output-attempts.txt
+  - id: review
+    run: |
+      if test "$(wc -l < output-attempts.txt | tr -d ' ')" -ge 2; then
+        printf 'verdict=approved\n' >> "$DAGU_OUTPUT_FILE"
+      else
+        printf 'verdict=rejected\n' >> "$DAGU_OUTPUT_FILE"
+      fi
+    outputs:
+      - name: verdict

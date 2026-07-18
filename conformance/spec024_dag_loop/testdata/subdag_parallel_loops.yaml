@@ -1,0 +1,27 @@
+type: graph
+working_dir: .
+steps:
+  - id: fanout
+    action: dag.run
+    with:
+      dag: spec024-parallel-child
+      params:
+        - item: "${ITEM}"
+    parallel:
+      items: [alpha, beta]
+      max_concurrent: 2
+
+---
+
+name: spec024-parallel-child
+type: graph
+working_dir: .
+params:
+  - name: item
+    description: Fan-out item.
+loop:
+  until: test "$DAGU_LOOP_ITERATION" -ge 2
+  max_iterations: 3
+steps:
+  - id: record
+    run: printf '%s\n' "$DAGU_LOOP_ITERATION" >> 'parallel-${params.item}.txt'

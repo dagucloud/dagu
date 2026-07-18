@@ -1,0 +1,10 @@
+type: graph
+working_dir: .
+loop:
+  until: test "$DAGU_LOOP_ITERATION" -ge 2
+  max_iterations: 3
+steps:
+  - id: first
+    run: printf '%s\n' "$DAGU_LOOP_ITERATION" >> graph-a.txt
+  - id: second
+    run: printf '%s\n' "$DAGU_LOOP_ITERATION" >> graph-b.txt

@@ -1,0 +1,24 @@
+type: graph
+working_dir: .
+loop:
+  until: test "$DAGU_LOOP_ITERATION" -ge 2
+  max_iterations: 3
+steps:
+  - id: child
+    action: dag.run
+    with:
+      dag: spec024-non-loop-child
+
+---
+
+name: spec024-non-loop-child
+type: graph
+working_dir: .
+steps:
+  - id: inspect
+    run: |
+      if test "${DAGU_LOOP_ITERATION+x}" = x || test "${DAGU_LOOP_MAX_ITERATIONS+x}" = x || test "${DAGU_LOOP_FEEDBACK_FILE+x}" = x; then
+        printf 'parent loop environment leaked into child\n' >&2
+        exit 1
+      fi
+      printf 'child\n' >> non-loop-child.txt

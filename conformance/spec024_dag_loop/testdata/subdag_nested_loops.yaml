@@ -1,0 +1,35 @@
+type: chain
+working_dir: .
+loop:
+  until: test "$DAGU_LOOP_ITERATION" -ge 2
+  max_iterations: 3
+steps:
+  - id: child
+    action: dag.run
+    with:
+      dag: spec024-nested-child
+      params:
+        - parent_iteration: "${env.DAGU_LOOP_ITERATION}"
+    output: CHILD_RESULT
+  - id: record_parent
+    run: |
+      printf '%s\n' "$DAGU_LOOP_ITERATION" >> parent-loop.txt
+      printf '%s\n' "$CHILD_RESULT" > nested-child-result.txt
+
+---
+
+name: spec024-nested-child
+type: graph
+working_dir: .
+params:
+  - name: parent_iteration
+    description: Parent iteration index.
+loop:
+  until: test "$DAGU_LOOP_ITERATION" -ge 2
+  max_iterations: 3
+steps:
+  - id: record_child
+    run: |
+      printf '%s|%s\n' '${params.parent_iteration}' "$DAGU_LOOP_ITERATION" >> child-loop.txt
+      printf 'child-%s\n' "$DAGU_LOOP_ITERATION"
+    output: CHILD_VALUE

@@ -1,0 +1,8 @@
+type: graph
+working_dir: .
+loop:
+  while: test "$DAGU_LOOP_ITERATION" -lt 3
+  max_iterations: 5
+steps:
+  - id: work
+    run: printf 'x\n' >> while-continues-count.txt

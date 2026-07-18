@@ -1,0 +1,13 @@
+type: graph
+working_dir: .
+timeout_sec: 6
+loop:
+  until: "false"
+  max_iterations: 3
+  interval_sec: 1
+  backoff: 100
+  max_interval_sec: 2
+  on_exhausted: succeed
+steps:
+  - id: work
+    run: printf 'x\n' >> backoff-cap-count.txt

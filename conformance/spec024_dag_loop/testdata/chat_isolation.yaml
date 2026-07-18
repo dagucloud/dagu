@@ -1,0 +1,19 @@
+type: graph
+working_dir: .
+params:
+  - name: base_url
+    description: Recording endpoint base URL.
+loop:
+  until: test "$DAGU_LOOP_ITERATION" -ge 2
+  max_iterations: 3
+steps:
+  - id: ask
+    action: chat.completion
+    with:
+      provider: local
+      model: test-model
+      base_url: "${params.base_url}"
+      stream: false
+      messages:
+        - role: user
+          content: say ok

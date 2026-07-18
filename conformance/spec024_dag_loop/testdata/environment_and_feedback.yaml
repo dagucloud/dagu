@@ -1,0 +1,27 @@
+type: graph
+working_dir: .
+env:
+  DAGU_LOOP_ITERATION: root-override
+  DAGU_LOOP_MAX_ITERATIONS: root-override
+  DAGU_LOOP_FEEDBACK_FILE: root-override
+loop:
+  until:
+    - condition: |
+        printf 'stdout-marker-%s\n' "$DAGU_LOOP_ITERATION"
+        printf 'stderr-marker-%s\n' "$DAGU_LOOP_ITERATION" >&2
+        test "$DAGU_LOOP_ITERATION" -ge 3
+    - condition: actual-marker
+      expected: expected-marker
+      negate: true
+  max_iterations: 4
+steps:
+  - id: inspect
+    env:
+      DAGU_LOOP_ITERATION: step-override
+      DAGU_LOOP_MAX_ITERATIONS: step-override
+      DAGU_LOOP_FEEDBACK_FILE: step-override
+    preconditions:
+      - condition: printf '%s\n' "$DAGU_LOOP_ITERATION" >> step-precondition-env.txt
+    run: |
+      printf '%s|%s|%s\n' "$DAGU_LOOP_ITERATION" "$DAGU_LOOP_MAX_ITERATIONS" "$DAGU_LOOP_FEEDBACK_FILE" >> loop-env.txt
+      cp "$DAGU_LOOP_FEEDBACK_FILE" "feedback-${DAGU_LOOP_ITERATION}.txt"

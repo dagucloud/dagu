@@ -1,0 +1,10 @@
+type: graph
+working_dir: .
+loop:
+  until:
+    - eval: $(printf 'attempt-%s' "$DAGU_LOOP_ITERATION")
+      expected: "re:^attempt-2$"
+  max_iterations: 3
+steps:
+  - id: work
+    run: printf 'x\n' >> regex-count.txt

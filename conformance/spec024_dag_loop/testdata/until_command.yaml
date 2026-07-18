@@ -1,0 +1,8 @@
+type: graph
+working_dir: .
+loop:
+  until: test "$(wc -l < until-count.txt | tr -d ' ')" -ge 3
+  max_iterations: 5
+steps:
+  - id: work
+    run: printf 'x\n' >> until-count.txt

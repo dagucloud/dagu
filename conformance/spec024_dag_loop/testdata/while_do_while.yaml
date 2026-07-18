@@ -1,0 +1,8 @@
+type: graph
+working_dir: .
+loop:
+  while: test -f keep-looping.flag
+  max_iterations: 1
+steps:
+  - id: work
+    run: printf 'x\n' >> while-count.txt

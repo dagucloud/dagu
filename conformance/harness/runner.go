@@ -31,6 +31,22 @@ type Result struct {
 	stderr   string
 }
 
+// RunningCommand controls an in-progress Dagu command invocation.
+type RunningCommand struct {
+	t       *testing.T
+	cmd     *exec.Cmd
+	args    []string
+	timeout time.Duration
+	stdout  *bytes.Buffer
+	stderr  *bytes.Buffer
+	done    <-chan commandCompletion
+}
+
+type commandCompletion struct {
+	err        error
+	contextErr error
+}
+
 const defaultCommandTimeout = 30 * time.Second
 
 func defaultCommandTimeoutForPlatform() time.Duration {
@@ -64,6 +80,93 @@ func (r *Runner) Run(args ...string) *Result {
 func (r *Runner) RunWithEnv(env []string, args ...string) *Result {
 	r.t.Helper()
 	return r.run(env, args...)
+}
+
+// Start begins a Dagu command and returns control before it completes.
+func (r *Runner) Start(args ...string) *RunningCommand {
+	r.t.Helper()
+
+	timeout := commandTimeout(r.t)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	stdout := new(bytes.Buffer)
+	stderr := new(bytes.Buffer)
+	// Binary-level tests intentionally execute the configured Dagu binary.
+	cmd := exec.CommandContext(ctx, daguBinary(r.t), args...) //nolint:gosec
+	cmd.Dir = r.dir
+	cmd.Env = appendEnv(isolatedEnv(r.t), "PWD="+r.dir)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	if err := cmd.Start(); err != nil {
+		cancel()
+		r.t.Fatalf("starting dagu %s: %v", strings.Join(args, " "), err)
+	}
+
+	done := make(chan commandCompletion, 1)
+	finished := make(chan struct{})
+	go func() {
+		err := cmd.Wait()
+		contextErr := ctx.Err()
+		cancel()
+		done <- commandCompletion{err: err, contextErr: contextErr}
+		close(finished)
+	}()
+	r.t.Cleanup(func() {
+		select {
+		case <-finished:
+		default:
+			_ = cmd.Process.Kill()
+		}
+	})
+
+	return &RunningCommand{
+		t:       r.t,
+		cmd:     cmd,
+		args:    append([]string(nil), args...),
+		timeout: timeout,
+		stdout:  stdout,
+		stderr:  stderr,
+		done:    done,
+	}
+}
+
+// Interrupt sends an interrupt signal to the Dagu process.
+func (c *RunningCommand) Interrupt() {
+	c.t.Helper()
+	if err := c.cmd.Process.Signal(os.Interrupt); err != nil {
+		c.t.Fatalf("interrupting dagu %s: %v", strings.Join(c.args, " "), err)
+	}
+}
+
+// Wait waits for an in-progress Dagu command to complete.
+func (c *RunningCommand) Wait() *Result {
+	c.t.Helper()
+
+	completion := <-c.done
+	if completion.contextErr != nil {
+		c.t.Fatalf(
+			"dagu command timed out after %s: dagu %s\nstdout:\n%s\nstderr:\n%s",
+			c.timeout,
+			strings.Join(c.args, " "),
+			c.stdout.String(),
+			c.stderr.String(),
+		)
+	}
+
+	exitCode := 0
+	if completion.err != nil {
+		exitErr, ok := completion.err.(*exec.ExitError)
+		if !ok {
+			c.t.Fatalf("running dagu %s: %v", strings.Join(c.args, " "), completion.err)
+		}
+		exitCode = exitErr.ExitCode()
+	}
+
+	return &Result{
+		t:        c.t,
+		exitCode: exitCode,
+		stdout:   c.stdout.String(),
+		stderr:   c.stderr.String(),
+	}
 }
 
 func (r *Runner) run(extraEnv []string, args ...string) *Result {

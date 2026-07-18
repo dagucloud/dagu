@@ -1,0 +1,15 @@
+type: graph
+working_dir: .
+loop:
+  until:
+    - eval: |
+        $(printf 'value-head-marker'; i=0; while test "$i" -lt 70000; do printf 'x'; i=$((i + 1)); done; printf 'value-tail-marker')
+      expected: expected-marker
+  max_iterations: 2
+  on_exhausted: succeed
+steps:
+  - id: copy
+    run: |
+      if test "$DAGU_LOOP_ITERATION" -eq 2; then
+        cp "$DAGU_LOOP_FEEDBACK_FILE" large-value-feedback.txt
+      fi

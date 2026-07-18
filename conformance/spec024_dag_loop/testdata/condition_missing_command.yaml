@@ -1,0 +1,9 @@
+type: graph
+working_dir: .
+loop:
+  until: dagu-spec024-command-that-does-not-exist
+  max_iterations: 2
+  on_exhausted: succeed
+steps:
+  - id: work
+    run: printf 'x\n' >> missing-command-count.txt

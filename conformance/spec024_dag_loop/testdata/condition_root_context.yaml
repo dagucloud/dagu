@@ -1,0 +1,16 @@
+type: graph
+working_dir: condition-work
+shell:
+  - ./loop-shell.sh
+  - -c
+env:
+  ROOT_MARKER: root-value
+loop:
+  until: |
+    test "$(basename "$PWD")" = condition-work &&
+      test "$ROOT_MARKER" = root-value &&
+      test -f step-created.flag
+  max_iterations: 1
+steps:
+  - id: create
+    run: touch step-created.flag

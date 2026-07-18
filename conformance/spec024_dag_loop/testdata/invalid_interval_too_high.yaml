@@ -1,0 +1,8 @@
+type: graph
+loop:
+  until: "true"
+  max_iterations: 1
+  interval_sec: 604801
+steps:
+  - id: noop
+    run: "true"

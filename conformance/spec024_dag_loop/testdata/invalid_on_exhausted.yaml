@@ -1,0 +1,8 @@
+type: graph
+loop:
+  until: "true"
+  max_iterations: 1
+  on_exhausted: ignore
+steps:
+  - id: noop
+    run: "true"

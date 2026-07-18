@@ -1,0 +1,14 @@
+type: graph
+working_dir: .
+params:
+  - name: environment
+    default: prod
+loop:
+  until:
+    - condition: prod
+      expected: '${params.environment}'
+  max_iterations: 2
+  on_exhausted: succeed
+steps:
+  - id: work
+    run: printf 'x\n' >> expected-literal-count.txt

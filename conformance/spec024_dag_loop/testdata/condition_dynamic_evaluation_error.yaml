@@ -1,0 +1,10 @@
+type: graph
+working_dir: .
+loop:
+  until:
+    - eval: $(printf 'dynamic evaluation failed\n' >&2; exit 7)
+      expected: ready
+  max_iterations: 2
+steps:
+  - id: work
+    run: printf 'x\n' >> dynamic-evaluation-count.txt

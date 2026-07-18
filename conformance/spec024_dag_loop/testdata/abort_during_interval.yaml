@@ -1,0 +1,17 @@
+type: graph
+working_dir: .
+handler_on:
+  success:
+    run: printf 'success\n' > success-handler.txt
+  abort:
+    run: printf 'abort\n' > abort-handler.txt
+loop:
+  until: |
+    printf 'condition\n' > abort-condition-ran.txt
+    false
+  max_iterations: 3
+  interval_sec: 10
+  on_exhausted: succeed
+steps:
+  - id: work
+    run: printf 'x\n' >> abort-count.txt
