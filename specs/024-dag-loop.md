@@ -133,8 +133,8 @@ Rules:
 
 - `loop.interval_sec` is optional and defaults to `0`.
 
-- `loop.interval_sec` must resolve to an integer greater than or equal to
-  `0`.
+- `loop.interval_sec` must resolve to an integer from `0` through
+  `604800`.
 
 - `loop.backoff` is optional.
 
@@ -149,8 +149,10 @@ Rules:
 - `loop.max_interval_sec` is valid only when backoff is enabled, that is
   when `loop.backoff` is `true` or a number greater than `1.0`.
 
-- `loop.max_interval_sec` must resolve to an integer greater than or equal
-  to `1`.
+- `loop.max_interval_sec` is required when backoff is enabled.
+
+- `loop.max_interval_sec` must resolve to an integer from `1` through
+  `604800`.
 
 - `loop.on_exhausted` is optional and defaults to `fail`.
 
@@ -281,8 +283,11 @@ Rules:
 - With `backoff`, the wait before iteration `N + 1` is
   `interval_sec * backoff^(N - 1)` seconds.
 
-- When `max_interval_sec` is present, the wait is capped at
-  `max_interval_sec` seconds.
+- With `backoff`, the wait is capped at `max_interval_sec` seconds.
+
+- The wait computation must saturate at the cap. A backoff term that
+  exceeds any intermediate numeric representation must produce the capped
+  wait, not an error, an overflow, or a shorter wait.
 
 - Abort during the wait ends the loop without starting another iteration.
 
@@ -302,6 +307,15 @@ Rules:
 - Loop environment variables are set only when the root `loop` field is
   present.
 
+- Loop environment names are execution-attempt Dagu-managed values under
+  Spec 006. Once set for an iteration, they take precedence over root
+  `env`, step `env`, and container environment entries with the same
+  names.
+
+- Loop environment variables are not part of the environment a parent run
+  passes to a child DAG run. A child DAG run has loop environment
+  variables only when its own DAG defines `loop`.
+
 - Loop environment variables are available wherever the step action
   environment is available, including step-level precondition checks under
   the Spec 023 context rules.
@@ -311,6 +325,10 @@ Rules:
 - The feedback file exists and is empty when the first iteration starts.
 
 - The feedback file path is stable for the whole DAG-run attempt.
+
+- The feedback file path is meaningful to step processes that share the
+  runner's filesystem. Executor specs define how executors that run step
+  processes remotely or in containers receive the feedback file.
 
 - Before each iteration after the first, the feedback file content is
   replaced with the most recent continuation decision. Content is not
@@ -322,7 +340,8 @@ Rules:
   matches.
 
 - For each loop condition entry, the feedback file marks the entry's
-  result with the token `met` or `not met`.
+  result with the token `met` or `not met`. The token reports the result
+  after negation, the same value used to decide list passage.
 
 - Per reported value, at most the last 64 KiB is retained. This applies
   to captured command-check output, value-match actual values, and
@@ -337,6 +356,11 @@ Rules:
 Rules:
 
 - Published step outputs persist across iterations.
+
+- Output variables captured through the singular step `output` field
+  follow the same persistence: the variable keeps its most recently
+  captured value across iterations until the producing step captures a
+  new value.
 
 - Step-output references in step fields keep the Spec 007
   dependency-ordering requirements. Loop iteration does not allow a step
@@ -475,13 +499,14 @@ Validation must fail when:
 - `loop.max_iterations` is missing.
 - a static `loop.max_iterations` is not an integer from `1` through
   `1000`.
-- a static `loop.interval_sec` is not an integer greater than or equal to
-  `0`.
+- a static `loop.interval_sec` is not an integer from `0` through
+  `604800`.
 - `loop.backoff` is neither a boolean nor a number greater than `1.0`.
 - `loop.max_interval_sec` is present while `loop.backoff` is omitted or
   `false`.
-- a static `loop.max_interval_sec` is not an integer greater than or equal
-  to `1`.
+- `loop.backoff` enables backoff and `loop.max_interval_sec` is missing.
+- a static `loop.max_interval_sec` is not an integer from `1` through
+  `604800`.
 - `loop.on_exhausted` is neither `fail` nor `succeed`.
 
 Validation must not:
