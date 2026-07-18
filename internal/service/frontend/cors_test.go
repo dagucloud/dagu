@@ -30,6 +30,7 @@ func TestCORSPolicy_DefaultDeniesCrossOriginRequests(t *testing.T) {
 
 		assert.Equal(t, http.StatusForbidden, resp.Code)
 		assert.Empty(t, resp.Header().Get("Access-Control-Allow-Origin"))
+		assert.Contains(t, resp.Header().Values("Vary"), "Origin")
 		assert.False(t, called)
 	})
 
@@ -54,6 +55,7 @@ func TestCORSPolicy_DefaultDeniesCrossOriginRequests(t *testing.T) {
 		handler.ServeHTTP(resp, req)
 
 		assert.Equal(t, http.StatusNoContent, resp.Code)
+		assert.Contains(t, resp.Header().Values("Vary"), "Origin")
 		assert.True(t, called)
 	})
 
@@ -125,6 +127,7 @@ func TestCORSPolicy_ExplicitOrigin(t *testing.T) {
 
 		assert.Equal(t, http.StatusForbidden, resp.Code)
 		assert.Empty(t, resp.Header().Get("Access-Control-Allow-Origin"))
+		assert.Contains(t, resp.Header().Values("Vary"), "Origin")
 	})
 }
 

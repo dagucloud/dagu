@@ -19,8 +19,9 @@ type corsPolicy struct {
 }
 
 func (p corsPolicy) middleware(next http.Handler) http.Handler {
+	corsConfigured := len(p.allowedOrigins) > 0
 	wrapped := next
-	if len(p.allowedOrigins) > 0 {
+	if corsConfigured {
 		allowAllOrigins := p.allowsAllOrigins()
 		options := cors.Options{
 			AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
@@ -40,9 +41,15 @@ func (p corsPolicy) middleware(next http.Handler) http.Handler {
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !corsConfigured {
+			w.Header().Add("Vary", "Origin")
+		}
 		origin := r.Header.Get("Origin")
 		if origin != "" && p.isCrossOrigin(r, origin) {
 			if p.isSetupPath(r.URL.Path) || !p.allowsOrigin(origin) {
+				if corsConfigured {
+					w.Header().Add("Vary", "Origin")
+				}
 				http.Error(w, "cross-origin request denied", http.StatusForbidden)
 				return
 			}
