@@ -1,0 +1,5 @@
+steps:
+  - action: git.worktree_add
+    with:
+      repository: 42
+      branch: topic

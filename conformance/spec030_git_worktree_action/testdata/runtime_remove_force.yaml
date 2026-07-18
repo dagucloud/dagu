@@ -1,0 +1,17 @@
+params:
+  - name: repository
+    type: string
+    required: true
+  - name: branch
+    type: string
+    required: true
+working_dir: .
+steps:
+  - id: remove
+    action: git.worktree_remove
+    with:
+      repository: "${params.repository}"
+      branch: "${params.branch}"
+      force: true
+    stdout: action-stdout.json
+    stderr: action-stderr.txt

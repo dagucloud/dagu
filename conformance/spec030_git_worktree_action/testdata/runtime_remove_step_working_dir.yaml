@@ -1,0 +1,10 @@
+working_dir: .
+steps:
+  - id: remove
+    working_dir: ./workspace
+    action: git.worktree_remove
+    with:
+      repository: ../repo
+      path: ./wt/step-directory
+    stdout: ../action-stdout.json
+    stderr: ../action-stderr.txt

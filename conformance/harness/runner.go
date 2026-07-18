@@ -316,6 +316,13 @@ func (r *Result) ExpectStderr(stderr string) {
 	require.Equal(r.t, stderr, r.stderr)
 }
 
+// ExpectStderrNotEmpty fails the test when stderr is empty.
+func (r *Result) ExpectStderrNotEmpty() {
+	r.t.Helper()
+
+	require.NotEmpty(r.t, r.stderr)
+}
+
 // ExpectStderrContains fails the test when stderr lacks any required text.
 func (r *Result) ExpectStderrContains(parts ...string) {
 	r.t.Helper()

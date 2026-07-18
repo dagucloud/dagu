@@ -1,0 +1,24 @@
+params:
+  - name: repository
+    type: string
+    required: true
+  - name: branch
+    type: string
+    required: true
+  - name: path
+    type: string
+    required: true
+  - name: from
+    type: string
+    required: true
+working_dir: .
+steps:
+  - id: add
+    action: git.worktree_add
+    with:
+      repository: "${params.repository}"
+      branch: "${params.branch}"
+      path: "${params.path}"
+      from: "${params.from}"
+    stdout: action-stdout.json
+    stderr: action-stderr.txt

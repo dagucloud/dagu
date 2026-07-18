@@ -1,0 +1,5 @@
+steps:
+  - action: git.worktree_remove
+    with:
+      repository: ./repo
+      branch: ""

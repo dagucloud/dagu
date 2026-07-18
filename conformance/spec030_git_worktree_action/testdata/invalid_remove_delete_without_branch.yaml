@@ -1,0 +1,6 @@
+steps:
+  - action: git.worktree_remove
+    with:
+      repository: ./repo
+      path: ./wt/topic
+      delete_branch: true
