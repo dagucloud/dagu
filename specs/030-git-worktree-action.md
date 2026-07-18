@@ -47,7 +47,6 @@ worktree, and a repeated remove succeeds without one.
 
 - YAML schema: [Spec 002: YAML Schema](002-yaml-schema.md)
 - Value resolution: [Spec 003: Value Resolution and Field Evaluation](003-value-resolution.md)
-- Step outputs: [Spec 012: Step Outputs](012-step-outputs.md)
 - Step run: [Spec 013: Step Run](013-step-run.md)
 
 ## Terms
@@ -65,6 +64,9 @@ one operation.
 
 The default worktree path is the worktree path Dagu derives when `path` is
 omitted.
+
+A registration is stale when a linked worktree is registered and its directory
+does not exist.
 
 ## Behavior
 
@@ -95,7 +97,7 @@ Rules:
 | `branch` | One of `branch`, `path` | Branch whose registered linked worktree is removed. |
 | `path` | One of `branch`, `path` | Worktree path to remove. |
 | `force` | No | Remove even when the worktree has local changes. Defaults to `false`. |
-| `delete_branch` | No | Also delete the local branch after removal. Defaults to `false`. |
+| `delete_branch` | No | Also delete the local branch after removal. Requires `branch`. Defaults to `false`. |
 
 Rules:
 
@@ -104,8 +106,13 @@ Rules:
 - `force` and `delete_branch` must be booleans when present.
 - A `with` field not listed for the selected operation is a validation error.
 - `git.worktree_remove` accepts `branch`, `path`, or both.
-- When `git.worktree_remove` receives both `branch` and `path`, the registered
-  worktree for `branch` must be at the resolved `path`.
+- `delete_branch: true` requires `branch`.
+- When `git.worktree_remove` receives both `branch` and `path` and either
+  resolves to a registered linked worktree, the registered worktree for
+  `branch` must be the one at the resolved `path`.
+- When `git.worktree_remove` receives both `branch` and `path` and neither
+  resolves to a registered linked worktree, the remove operation follows the
+  no-target rules.
 
 ### Path Resolution
 
@@ -127,9 +134,12 @@ worktree path is `/work/repo.worktrees/feature-auth`.
 Rules:
 
 - If the repository has a registered linked worktree for `branch` at the
-  worktree path, the add operation succeeds without changing the worktree.
+  worktree path and the registration is not stale, the add operation succeeds
+  without changing the worktree.
 - Reuse must not discard uncommitted changes in the existing worktree.
 - Reuse must not move the existing worktree's `HEAD`.
+- A stale registration for `branch` at the worktree path is a runtime error
+  for the add operation.
 - If no linked worktree is registered for `branch` at the worktree path, the
   add operation registers a linked worktree at the worktree path with `branch`
   checked out.
@@ -152,6 +162,8 @@ Rules:
   by the registered linked worktree of `branch`.
 - If the target worktree is registered, the remove operation removes its
   directory and unregisters it.
+- If the target registration is stale, the remove operation unregisters it,
+  reports `removed` `true`, and does not check dirty state.
 - If no target worktree is registered, the remove operation succeeds without
   removing anything.
 - A worktree with uncommitted changes is removed only when `force` is `true`.
@@ -173,7 +185,8 @@ Rules:
   line, followed by one newline.
 - A failed operation writes no result document to stdout.
 - Diagnostic text goes to stderr only.
-- `output` captures the result document under Spec 012.
+- How later steps consume the result document is owned by the step output and
+  value-resolution specs and is not defined by this spec.
 
 `git.worktree_add` result fields:
 
@@ -201,10 +214,15 @@ Rules:
 Rules:
 
 - A failed operation fails the step.
+- If the add operation created the branch and a later part of the operation
+  fails, the created branch may remain.
+- A failed or interrupted add operation must not leave a registered worktree
+  whose directory does not exist.
+- The remove operation removes the worktree before deleting the branch.
+- If branch deletion fails after the worktree was removed, the worktree
+  removal is not rolled back and the step fails.
 - Workflow abort and step timeout interrupt the operation and the step follows
   the abort or timeout behavior.
-- An interrupted add operation must not leave a registered worktree whose
-  directory does not exist.
 
 ## Errors
 
@@ -219,6 +237,7 @@ Validation must fail when:
 - `git.worktree_add` has empty or non-string `path` or `from`.
 - `git.worktree_remove` has neither `branch` nor `path`.
 - `git.worktree_remove` has empty or non-string `branch` or `path`.
+- `git.worktree_remove` has `delete_branch: true` without `branch`.
 - `force` or `delete_branch` is present and not a boolean.
 - A `with` field is not listed for the selected operation.
 
@@ -233,15 +252,19 @@ The step must fail when:
 
 - The repository path does not contain a Git repository.
 - `git.worktree_add` cannot resolve `from` while the branch does not exist.
-- The worktree path exists and is not an empty directory and is not the
-  registered worktree for `branch`.
-- `branch` is checked out in the primary working tree.
-- `branch` is registered to a linked worktree at a different path than the
-  worktree path.
+- In `git.worktree_add`, the worktree path exists and is not an empty
+  directory and is not the registered worktree for `branch`.
+- In `git.worktree_add`, `branch` is checked out in the primary working tree.
+- In `git.worktree_add`, `branch` is registered to a linked worktree at a
+  different path than the worktree path.
+- In `git.worktree_add`, the registration for `branch` at the worktree path
+  is stale.
 - `git.worktree_remove` targets the primary working tree.
-- `git.worktree_remove` receives both `branch` and `path` and the registered
-  worktree for `branch` is not at the resolved `path`.
-- The target worktree has uncommitted changes and `force` is `false`.
+- `git.worktree_remove` receives both `branch` and `path`, at least one of
+  them resolves to a registered linked worktree, and the registered worktree
+  for `branch` is not the one at the resolved `path`.
+- In `git.worktree_remove`, the target worktree has uncommitted changes and
+  `force` is `false`.
 - `delete_branch` is `true` and the branch is checked out in another worktree
   after removal.
 
@@ -260,7 +283,6 @@ steps:
       repository: ./repo
       branch: feature-x
       path: ./wt/feature-x
-    output: WT
 ```
 
 Expected behavior:
