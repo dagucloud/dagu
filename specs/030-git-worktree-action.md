@@ -125,6 +125,10 @@ Rules:
 - The folder name is `branch` with every `/` replaced by `-`.
 - The repository path must contain an existing Git repository.
 - A bare repository is a valid `repository` for both operations.
+- A bare repository has no primary working tree; rules that reference the
+  primary working tree are inapplicable to it.
+- Linked worktrees are identified only through the repository's worktree
+  registration metadata.
 
 Example: with `repository: /work/repo` and `branch: feature/auth`, the default
 worktree path is `/work/repo.worktrees/feature-auth`.
@@ -205,7 +209,7 @@ Rules:
 | --- | --- | --- |
 | `operation` | string | Always `worktree_remove`. |
 | `path` | string | The worktree path, empty when no worktree was registered and `path` was omitted. |
-| `branch` | string | The `branch` input, empty when omitted. |
+| `branch` | string | The `branch` input verbatim, empty when omitted. The removed worktree's checked-out branch is not derived or reported. |
 | `removed` | boolean | `true` when this run removed a registered worktree. |
 | `branch_deleted` | boolean | `true` when this run deleted the branch. |
 
