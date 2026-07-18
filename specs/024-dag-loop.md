@@ -70,6 +70,10 @@ loop.
 The iteration index is the one-based ordinal of an iteration inside one
 DAG-run attempt.
 
+An iteration's terminal status is the DAG-run terminal status that the
+iteration's completed step statuses would produce if the DAG run ended
+after that iteration.
+
 A loop condition list is the normalized ordered list of condition entries
 under `loop.while` or `loop.until`.
 
@@ -116,6 +120,9 @@ Rules:
 - `loop.while` and `loop.until` accept a non-empty string shortcut or an
   array of condition entries.
 
+- A `loop.while` or `loop.until` array must contain at least one condition
+  entry. An empty array is invalid.
+
 - Condition entry shape, string-shortcut normalization, condition text,
   eval text, expected values, and negation follow the Spec 023 rules for
   condition entries, applied to loop condition entries.
@@ -133,6 +140,9 @@ Rules:
 
 - `loop.backoff` accepts `true`, which means `2.0`, or a number greater
   than `1.0`.
+
+- `loop.backoff: false` is valid and has the same behavior as an omitted
+  `backoff`.
 
 - `loop.max_interval_sec` is optional.
 
@@ -198,6 +208,11 @@ Rules:
 - The first iteration always runs. Loop conditions are never evaluated
   before the first iteration, in both `while` and `until` modes.
 
+- A waiting state, such as a step paused for approval, is not a terminal
+  status. An iteration completes only when it reaches a terminal status.
+  Waiting keeps its normal behavior and does not trigger a continuation
+  decision.
+
 - After an iteration completes, the loop proceeds in this order:
 
   1. If the iteration's terminal status is not `succeeded` and not
@@ -259,7 +274,8 @@ Rules:
 - Dagu waits before starting iteration `N + 1` only after the continuation
   decision for iteration `N` decides to continue.
 
-- Without `backoff`, the wait is `interval_sec` seconds.
+- Without `backoff`, or with `backoff: false`, the wait is `interval_sec`
+  seconds.
 
 - With `backoff`, the wait before iteration `N + 1` is
   `interval_sec * backoff^(N - 1)` seconds.
@@ -300,15 +316,20 @@ Rules:
   appended across iterations.
 
 - For each loop condition entry, in source order, the feedback file
-  reports whether the entry was met and includes the entry's captured
-  combined stdout and stderr for command checks, or the actual value and
-  expected value for value matches.
+  includes the entry's captured combined stdout and stderr for command
+  checks, or the entry's actual value and expected value for value
+  matches.
 
-- Per entry, at most the last 64 KiB of captured output is retained.
+- For each loop condition entry, the feedback file marks the entry's
+  result with the token `met` or `not met`.
 
-- The exact formatting of the feedback file is not defined by this spec.
-  Consumers may rely on the presence of the reported values, not on
-  surrounding layout.
+- Per entry, at most the last 64 KiB of captured command-check output is
+  retained, and at most the last 64 KiB of a value-match actual value is
+  retained.
+
+- The exact formatting around these values is not defined by this spec.
+  Consumers may rely on the presence of the reported values and result
+  tokens, not on surrounding layout.
 
 ### State Across Iterations
 
@@ -316,12 +337,21 @@ Rules:
 
 - Published step outputs persist across iterations.
 
-- A step-output reference resolves to the most recently published value
-  for that output, from any completed or current iteration.
+- Step-output references in step fields keep the Spec 007
+  dependency-ordering requirements. Loop iteration does not allow a step
+  to reference an output whose producing step is not ordered before it.
 
-- Until a producing step publishes an output in the current iteration,
-  a reference to that output resolves to the value published in an
-  earlier iteration.
+- A step-output reference resolves to the most recently published value
+  for that output.
+
+- When the producing step has not published the output in the current
+  iteration, for example because the producer was skipped or its failure
+  was continued in the current iteration, an ordered reference resolves to
+  the value published in an earlier iteration.
+
+- Earlier-iteration values of steps that are not ordered before the
+  consuming step flow only through the feedback file, the loop environment
+  variables, and filesystem state.
 
 - An output that has never been published behaves as an unresolved
   reference under Spec 003 and Spec 007.
@@ -435,7 +465,8 @@ Validation must fail when:
 - `loop` contains an unknown field.
 - `loop` omits both `while` and `until`.
 - `loop` contains both `while` and `until`.
-- `loop.while` or `loop.until` is neither a non-empty string nor an array.
+- `loop.while` or `loop.until` is neither a non-empty string nor a
+  non-empty array.
 - a loop condition entry violates the Spec 023 condition entry shape
   rules.
 - `loop.max_iterations` is missing.
