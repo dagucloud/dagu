@@ -264,13 +264,42 @@ func newStepOutputNoticeContext(dag *DAG) *stepOutputNoticeContext {
 			continue
 		}
 		ctx.stepsByID[step.ID] = step
-		names := make(map[string]struct{}, len(step.Outputs))
+		fixedOutputs := fixedActionOutputs(step)
+		names := make(map[string]struct{}, len(step.Outputs)+len(fixedOutputs))
 		for _, output := range step.Outputs {
+			names[output.Name] = struct{}{}
+		}
+		for _, output := range fixedOutputs {
 			names[output.Name] = struct{}{}
 		}
 		ctx.outputNames[step.ID] = names
 	}
 	return ctx
+}
+
+func fixedActionOutputs(step Step) []StepOutputDeclaration {
+	if step.ExecutorConfig.Type != "git" || len(step.Commands) == 0 {
+		return nil
+	}
+	switch strings.TrimSpace(step.Commands[0].Command) {
+	case "worktree.add":
+		return []StepOutputDeclaration{
+			{Name: "path", Type: StepDeclaredOutputTypeString},
+			{Name: "branch", Type: StepDeclaredOutputTypeString},
+			{Name: "commit", Type: StepDeclaredOutputTypeString},
+			{Name: "worktree_created", Type: StepDeclaredOutputTypeJSON},
+			{Name: "branch_created", Type: StepDeclaredOutputTypeJSON},
+		}
+	case "worktree.remove":
+		return []StepOutputDeclaration{
+			{Name: "path", Type: StepDeclaredOutputTypeString},
+			{Name: "branch", Type: StepDeclaredOutputTypeString},
+			{Name: "worktree_removed", Type: StepDeclaredOutputTypeJSON},
+			{Name: "branch_deleted", Type: StepDeclaredOutputTypeJSON},
+		}
+	default:
+		return nil
+	}
 }
 
 func (c *stepOutputNoticeContext) report(

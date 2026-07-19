@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,6 +24,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
+	"github.com/gofrs/flock"
 	cryptossh "golang.org/x/crypto/ssh"
 )
 
@@ -30,24 +32,34 @@ const (
 	executorType = "git"
 	remoteName   = "origin"
 
-	opCheckout = "checkout"
+	opCheckout       = "checkout"
+	opWorktreeAdd    = "worktree.add"
+	opWorktreeRemove = "worktree.remove"
 )
 
 var (
-	_ executor.Executor  = (*executorImpl)(nil)
-	_ executor.ExitCoder = (*executorImpl)(nil)
+	_ executor.Executor                = (*executorImpl)(nil)
+	_ executor.ExitCoder               = (*executorImpl)(nil)
+	_ executor.OutputsProvider         = (*executorImpl)(nil)
+	_ executor.DeclaredOutputsProvider = (*executorImpl)(nil)
+	_ io.Closer                        = (*executorImpl)(nil)
 )
 
 type executorImpl struct {
-	mu       sync.Mutex
-	stdout   io.Writer
-	stderr   io.Writer
-	cancel   context.CancelFunc
-	kill     context.Context
-	cfg      config
-	op       string
-	workDir  string
-	exitCode int
+	mu           sync.Mutex
+	stdout       io.Writer
+	stderr       io.Writer
+	cancel       context.CancelFunc
+	kill         context.Context
+	cfg          config
+	worktreeCfg  worktreeConfig
+	op           string
+	workDir      string
+	dagRunID     string
+	stepIdentity string
+	outputs      map[string]any
+	repoLock     *flock.Flock
+	exitCode     int
 }
 
 type checkoutResult struct {
@@ -64,25 +76,44 @@ func init() {
 }
 
 func newExecutor(ctx context.Context, step core.Step) (executor.Executor, error) {
-	cfg := config{}
-	if err := decodeConfig(step.ExecutorConfig.Config, &cfg); err != nil {
-		return nil, err
-	}
 	op := stepOperation(step)
-	if err := validateConfig(op, cfg); err != nil {
-		return nil, err
+	cfg := config{}
+	worktreeCfg := worktreeConfig{}
+	switch op {
+	case opCheckout:
+		if err := decodeConfig(step.ExecutorConfig.Config, &cfg); err != nil {
+			return nil, err
+		}
+		if err := validateConfig(op, cfg); err != nil {
+			return nil, err
+		}
+	case opWorktreeAdd, opWorktreeRemove:
+		var err error
+		worktreeCfg, err = decodeWorktreeConfig(op, step.ExecutorConfig.Config, false)
+		if err != nil {
+			return nil, err
+		}
+	default:
+		return nil, fmt.Errorf("git: unsupported operation %q", op)
 	}
 
 	kill, cancel := context.WithCancel(ctx)
 	env := runtime.GetEnv(ctx)
+	stepIdentity := step.ID
+	if stepIdentity == "" {
+		stepIdentity = step.Name
+	}
 	return &executorImpl{
-		stdout:  os.Stdout,
-		stderr:  os.Stderr,
-		cancel:  cancel,
-		kill:    kill,
-		cfg:     cfg,
-		op:      op,
-		workDir: env.WorkingDir,
+		stdout:       os.Stdout,
+		stderr:       os.Stderr,
+		cancel:       cancel,
+		kill:         kill,
+		cfg:          cfg,
+		worktreeCfg:  worktreeCfg,
+		op:           op,
+		workDir:      env.WorkingDir,
+		dagRunID:     env.DAGRunID,
+		stepIdentity: stepIdentity,
 	}, nil
 }
 
@@ -90,11 +121,16 @@ func validateStep(step core.Step) error {
 	if step.ExecutorConfig.Type != executorType {
 		return nil
 	}
+	op := stepOperation(step)
+	if op == opWorktreeAdd || op == opWorktreeRemove {
+		_, err := decodeWorktreeConfig(op, step.ExecutorConfig.Config, true)
+		return err
+	}
 	cfg := config{}
 	if err := decodeConfig(step.ExecutorConfig.Config, &cfg); err != nil {
 		return err
 	}
-	return validateConfig(stepOperation(step), cfg)
+	return validateConfig(op, cfg)
 }
 
 func stepOperation(step core.Step) string {
@@ -140,6 +176,8 @@ func (e *executorImpl) Run(ctx context.Context) error {
 	switch e.op {
 	case opCheckout:
 		err = e.runCheckout(ctx)
+	case opWorktreeAdd, opWorktreeRemove:
+		err = e.runWorktree(ctx)
 	default:
 		err = fmt.Errorf("git: unsupported operation %q", e.op)
 	}
@@ -147,11 +185,42 @@ func (e *executorImpl) Run(ctx context.Context) error {
 	e.mu.Lock()
 	if err != nil {
 		e.exitCode = 1
+		e.outputs = nil
 	} else {
 		e.exitCode = 0
 	}
 	e.mu.Unlock()
+	if err != nil && (e.op == opWorktreeAdd || e.op == opWorktreeRemove) {
+		e.mu.Lock()
+		stderr := e.stderr
+		e.mu.Unlock()
+		_, _ = fmt.Fprintln(stderr, err)
+	}
 	return err
+}
+
+// GetOutputs returns the fixed output set published by a worktree action.
+func (e *executorImpl) GetOutputs() map[string]any {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return maps.Clone(e.outputs)
+}
+
+// PublishesDeclaredOutputs exposes fixed action fields to strict output references.
+func (e *executorImpl) PublishesDeclaredOutputs() bool {
+	return e.op == opWorktreeAdd || e.op == opWorktreeRemove
+}
+
+// Close releases repository mutation serialization held for output capture.
+func (e *executorImpl) Close() error {
+	e.mu.Lock()
+	lock := e.repoLock
+	e.repoLock = nil
+	e.mu.Unlock()
+	if lock == nil {
+		return nil
+	}
+	return lock.Close()
 }
 
 func (e *executorImpl) runContext(parent context.Context) (context.Context, context.CancelFunc) {

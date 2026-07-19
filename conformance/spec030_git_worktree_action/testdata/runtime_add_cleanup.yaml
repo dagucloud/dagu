@@ -5,6 +5,12 @@ params:
   - name: branch
     type: string
     required: true
+  - name: path
+    type: string
+    required: true
+  - name: cleanup
+    type: string
+    required: true
 working_dir: .
 steps:
   - id: add
@@ -13,6 +19,8 @@ steps:
     with:
       branch: "${params.branch}"
       create_branch: true
+      path: "${params.path}"
+      cleanup: "${params.cleanup}"
     stderr: ../action-stderr.txt
 
   - id: capture

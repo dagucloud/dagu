@@ -11,11 +11,11 @@ steps:
 
   - id: capture
     depends: add
-    type: template
-    script: |
-      path=${steps.add.outputs.path}
-      branch=${steps.add.outputs.branch}
-      commit=${steps.add.outputs.commit}
-      worktree_created=${steps.add.outputs.worktree_created}
-      branch_created=${steps.add.outputs.branch_created}
+    run: |
+      printf '%s\n' \
+        'path=${steps.add.outputs.path}' \
+        'branch=${steps.add.outputs.branch}' \
+        'commit=${steps.add.outputs.commit}' \
+        'worktree_created=${steps.add.outputs.worktree_created}' \
+        'branch_created=${steps.add.outputs.branch_created}'
     stdout: action-outputs.txt

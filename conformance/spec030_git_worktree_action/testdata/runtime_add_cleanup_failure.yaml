@@ -8,7 +8,7 @@ params:
   - name: path
     type: string
     required: true
-  - name: base
+  - name: cleanup
     type: string
     required: true
 working_dir: .
@@ -20,16 +20,9 @@ steps:
       branch: "${params.branch}"
       create_branch: true
       path: "${params.path}"
-      base: "${params.base}"
+      cleanup: "${params.cleanup}"
     stderr: ../action-stderr.txt
 
-  - id: capture
+  - id: fail
     depends: add
-    run: |
-      printf '%s\n' \
-        'path=${steps.add.outputs.path}' \
-        'branch=${steps.add.outputs.branch}' \
-        'commit=${steps.add.outputs.commit}' \
-        'worktree_created=${steps.add.outputs.worktree_created}' \
-        'branch_created=${steps.add.outputs.branch_created}'
-    stdout: action-outputs.txt
+    run: exit 1

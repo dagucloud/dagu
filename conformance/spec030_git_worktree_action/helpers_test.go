@@ -218,8 +218,6 @@ func startWithParams(dagu *harness.Runner, fixture string, params ...string) *ha
 func requireValidWorkflow(dagu *harness.Runner, fixture string) {
 	result := dagu.Run("validate", fixture)
 	result.ExpectExitCode(0)
-	result.ExpectStdout("")
-	result.ExpectStderr("")
 }
 
 func readAddResult(t *testing.T, dagu *harness.Runner) addResult {

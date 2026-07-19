@@ -1,37 +1,57 @@
 working_dir: ./missing-repository
+params:
+  - name: cleanup
+    type: string
+    required: true
 steps:
-  - id: add-generated
+  - id: add_generated
     action: git.worktree.add
 
-  - id: add-generated-from-base
+  - id: add_generated_from_base
     action: git.worktree.add
     with:
       base: missing-base
 
-  - id: add-explicit
+  - id: add_explicit
     action: git.worktree.add
     with:
       branch: missing-branch
 
-  - id: add-all-fields
+  - id: add_all_fields
     action: git.worktree.add
     with:
       branch: missing-branch
       path: ./missing-worktree
       create_branch: true
       base: missing-base
+      cleanup: never
 
-  - id: remove-by-branch
+  - id: add_cleanup_on_success
+    action: git.worktree.add
+    with:
+      cleanup: on_success
+
+  - id: add_cleanup_on_finish
+    action: git.worktree.add
+    with:
+      cleanup: on_finish
+
+  - id: add_cleanup_from_param
+    action: git.worktree.add
+    with:
+      cleanup: "${params.cleanup}"
+
+  - id: remove_by_branch
     action: git.worktree.remove
     with:
       branch: missing-branch
 
-  - id: remove-by-path
+  - id: remove_by_path
     action: git.worktree.remove
     with:
       path: ./missing-worktree
 
-  - id: remove-by-both
+  - id: remove_by_both
     action: git.worktree.remove
     with:
       branch: missing-branch

@@ -154,3 +154,9 @@ type ToolDefinitionProvider interface {
 type OutputsProvider interface {
 	GetOutputs() map[string]any
 }
+
+// DeclaredOutputsProvider marks executor outputs as available to strict step output references.
+type DeclaredOutputsProvider interface {
+	OutputsProvider
+	PublishesDeclaredOutputs() bool
+}

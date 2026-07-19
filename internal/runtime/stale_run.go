@@ -57,6 +57,7 @@ func cloneStatusForStaleRunRepair(status *exec.DAGRunStatus) *exec.DAGRunStatus 
 	}
 
 	cloned := *status
+	cloned.GitWorktreeFinalization = cloneGitWorktreeFinalization(status.GitWorktreeFinalization)
 	if len(status.Nodes) > 0 {
 		cloned.Nodes = make([]*exec.Node, 0, len(status.Nodes))
 		for _, node := range status.Nodes {

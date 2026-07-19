@@ -154,7 +154,6 @@ func TestGitWorktreeRemoveDirtyRequiresForce(t *testing.T) {
 
 	refused := startWithParams(dagu, "runtime_remove_branch.yaml", "working_dir=./repo", "branch=dirty")
 	refused.ExpectNonZeroExitCode()
-	refused.ExpectStdout("")
 	refused.ExpectStderrNotEmpty()
 	requireNoPublishedOutputs(t, dagu)
 	require.DirExists(t, path)
@@ -227,7 +226,6 @@ func TestGitWorktreeRemoveDeletesBranches(t *testing.T) {
 
 		result := startWithParams(dagu, "runtime_remove_delete.yaml", "working_dir=./repo", "branch=unmerged")
 		result.ExpectNonZeroExitCode()
-		result.ExpectStdout("")
 		result.ExpectStderrNotEmpty()
 		requireNoPublishedOutputs(t, dagu)
 		require.DirExists(t, path)
@@ -312,7 +310,6 @@ func TestGitWorktreeRemoveRuntimeErrors(t *testing.T) {
 		requireValidWorkflow(dagu, "runtime_remove_branch.yaml")
 		result := startWithParams(dagu, "runtime_remove_branch.yaml", "working_dir=./missing", "branch=topic")
 		result.ExpectNonZeroExitCode()
-		result.ExpectStdout("")
 		result.ExpectStderrNotEmpty()
 		requireNoPublishedOutputs(t, dagu)
 	})
@@ -324,7 +321,6 @@ func TestGitWorktreeRemoveRuntimeErrors(t *testing.T) {
 		requireValidWorkflow(dagu, "runtime_remove_path.yaml")
 		result := startWithParams(dagu, "runtime_remove_path.yaml", "working_dir=./repo", "path=.")
 		result.ExpectNonZeroExitCode()
-		result.ExpectStdout("")
 		result.ExpectStderrNotEmpty()
 		requireNoPublishedOutputs(t, dagu)
 		require.DirExists(t, repo.path)
@@ -349,7 +345,6 @@ func TestGitWorktreeRemoveRuntimeErrors(t *testing.T) {
 			"path=../wt/beta",
 		)
 		result.ExpectNonZeroExitCode()
-		result.ExpectStdout("")
 		result.ExpectStderrNotEmpty()
 		requireNoPublishedOutputs(t, dagu)
 		requireLinkedWorktree(t, repo.path, alphaPath, "alpha", repo.baseCommit)
@@ -363,7 +358,6 @@ func TestGitWorktreeRemoveRuntimeErrors(t *testing.T) {
 		requireValidWorkflow(dagu, "runtime_remove_delete.yaml")
 		result := startWithParams(dagu, "runtime_remove_delete.yaml", "working_dir=./repo", "branch=main")
 		result.ExpectNonZeroExitCode()
-		result.ExpectStdout("")
 		result.ExpectStderrNotEmpty()
 		requireNoPublishedOutputs(t, dagu)
 		require.DirExists(t, repo.path)

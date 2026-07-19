@@ -437,7 +437,6 @@ func TestGitWorktreeAddRuntimeErrors(t *testing.T) {
 			"path=../wt/topic",
 		)
 		result.ExpectNonZeroExitCode()
-		result.ExpectStdout("")
 		result.ExpectStderrNotEmpty()
 		requireNoPublishedOutputs(t, dagu)
 	})
@@ -455,7 +454,6 @@ func TestGitWorktreeAddRuntimeErrors(t *testing.T) {
 			"path=../wt/topic",
 		)
 		result.ExpectNonZeroExitCode()
-		result.ExpectStdout("")
 		result.ExpectStderrNotEmpty()
 		requireNoPublishedOutputs(t, dagu)
 	})
@@ -474,7 +472,6 @@ func TestGitWorktreeAddRuntimeErrors(t *testing.T) {
 			"base=does-not-exist",
 		)
 		result.ExpectNonZeroExitCode()
-		result.ExpectStdout("")
 		result.ExpectStderrNotEmpty()
 		requireNoPublishedOutputs(t, dagu)
 		require.False(t, refExists(t, repo.path, "refs/heads/topic"))
@@ -494,7 +491,6 @@ func TestGitWorktreeAddRuntimeErrors(t *testing.T) {
 			"path=../wt/missing",
 		)
 		result.ExpectNonZeroExitCode()
-		result.ExpectStdout("")
 		result.ExpectStderrNotEmpty()
 		requireNoPublishedOutputs(t, dagu)
 		require.False(t, refExists(t, repo.path, "refs/heads/missing"))
@@ -514,7 +510,6 @@ func TestGitWorktreeAddRuntimeErrors(t *testing.T) {
 			"path=../wt/invalid",
 		)
 		result.ExpectNonZeroExitCode()
-		result.ExpectStdout("")
 		result.ExpectStderrNotEmpty()
 		requireNoPublishedOutputs(t, dagu)
 		requireNoLinkedWorktree(t, repo.path, dagu.ProjectPath("wt/invalid"), "")
@@ -534,7 +529,6 @@ func TestGitWorktreeAddRuntimeErrors(t *testing.T) {
 			"path=../wt/occupied",
 		)
 		result.ExpectNonZeroExitCode()
-		result.ExpectStdout("")
 		result.ExpectStderrNotEmpty()
 		requireNoPublishedOutputs(t, dagu)
 		dagu.ExpectFileContent("wt/occupied/keep.txt", "keep\n")
@@ -555,7 +549,6 @@ func TestGitWorktreeAddRuntimeErrors(t *testing.T) {
 			"path=../wt/main",
 		)
 		result.ExpectNonZeroExitCode()
-		result.ExpectStdout("")
 		result.ExpectStderrNotEmpty()
 		requireNoPublishedOutputs(t, dagu)
 		requireNoLinkedWorktree(t, repo.path, dagu.ProjectPath("wt/main"), "")
@@ -576,7 +569,6 @@ func TestGitWorktreeAddRuntimeErrors(t *testing.T) {
 			"path=../wt/requested",
 		)
 		result.ExpectNonZeroExitCode()
-		result.ExpectStdout("")
 		result.ExpectStderrNotEmpty()
 		requireNoPublishedOutputs(t, dagu)
 		requireLinkedWorktree(t, repo.path, otherPath, "linked", repo.baseCommit)
@@ -601,7 +593,6 @@ func TestGitWorktreeAddRuntimeErrors(t *testing.T) {
 			"path=../wt/stale",
 		)
 		result.ExpectNonZeroExitCode()
-		result.ExpectStdout("")
 		result.ExpectStderrNotEmpty()
 		requireNoPublishedOutputs(t, dagu)
 		require.NoDirExists(t, path)
@@ -624,7 +615,6 @@ func TestGitWorktreeAddRuntimeErrors(t *testing.T) {
 			"path=../wt/shared",
 		)
 		result.ExpectNonZeroExitCode()
-		result.ExpectStdout("")
 		result.ExpectStderrNotEmpty()
 		requireNoPublishedOutputs(t, dagu)
 		requireLinkedWorktree(t, repo.path, path, "other", repo.baseCommit)

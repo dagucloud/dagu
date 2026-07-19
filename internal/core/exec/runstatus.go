@@ -82,6 +82,22 @@ type DAGRunCondition struct {
 	CheckedAt string `json:"checkedAt"`
 }
 
+// GitWorktreeCleanup describes a run-owned worktree awaiting automatic cleanup.
+type GitWorktreeCleanup struct {
+	Policy         string `json:"policy"`
+	RepositoryRoot string `json:"repositoryRoot"`
+	CommonDir      string `json:"commonDir"`
+	Path           string `json:"path"`
+	Branch         string `json:"branch"`
+}
+
+// GitWorktreeFinalization records automatic cleanup state for a DAG run.
+type GitWorktreeFinalization struct {
+	Status   core.Status          `json:"status,omitempty"`
+	Error    string               `json:"error,omitempty"`
+	Cleanups []GitWorktreeCleanup `json:"cleanups,omitempty"`
+}
+
 // NewDAGRunCondition creates a runtime condition for a DAG-run.
 func NewDAGRunCondition(conditionType, status, reason, message string, checkedAt time.Time) DAGRunCondition {
 	return DAGRunCondition{
@@ -192,22 +208,23 @@ type DAGRunStatus struct {
 	AutoRetryInterval time.Duration `json:"autoRetryInterval,omitempty"`
 	AutoRetryBackoff  float64       `json:"autoRetryBackoff,omitempty"`
 	// AutoRetryMaxInterval is stored as a duration snapshot for retry scanner decisions.
-	AutoRetryMaxInterval time.Duration         `json:"autoRetryMaxInterval,omitempty"`
-	ProcGroup            string                `json:"procGroup,omitempty"`
-	SuspendFlagName      string                `json:"suspendFlagName,omitempty"`
-	Log                  string                `json:"log,omitempty"`
-	WorkingDir           string                `json:"workingDir,omitempty"`
-	ArchiveDir           string                `json:"archiveDir,omitempty"`
-	Error                string                `json:"error,omitempty"`
-	Params               string                `json:"params,omitempty"`
-	ParamsList           []string              `json:"paramsList,omitempty"`
-	ProfileName          string                `json:"profileName,omitempty"`
-	ProfileResolvedAt    string                `json:"profileResolvedAt,omitempty"`
-	ProfileEntries       []RuntimeProfileEntry `json:"profileEntries,omitempty"`
-	PendingStepRetries   []PendingStepRetry    `json:"pendingStepRetries"`
-	Preconditions        []*core.Condition     `json:"preconditions,omitempty"`
-	Labels               []string              `json:"labels,omitempty"`
-	LeaseAt              int64                 `json:"leaseAt,omitempty"` // Unix millis; stamped by coordinator on observed run liveness
+	AutoRetryMaxInterval    time.Duration            `json:"autoRetryMaxInterval,omitempty"`
+	ProcGroup               string                   `json:"procGroup,omitempty"`
+	SuspendFlagName         string                   `json:"suspendFlagName,omitempty"`
+	Log                     string                   `json:"log,omitempty"`
+	WorkingDir              string                   `json:"workingDir,omitempty"`
+	ArchiveDir              string                   `json:"archiveDir,omitempty"`
+	Error                   string                   `json:"error,omitempty"`
+	Params                  string                   `json:"params,omitempty"`
+	ParamsList              []string                 `json:"paramsList,omitempty"`
+	ProfileName             string                   `json:"profileName,omitempty"`
+	ProfileResolvedAt       string                   `json:"profileResolvedAt,omitempty"`
+	ProfileEntries          []RuntimeProfileEntry    `json:"profileEntries,omitempty"`
+	PendingStepRetries      []PendingStepRetry       `json:"pendingStepRetries"`
+	Preconditions           []*core.Condition        `json:"preconditions,omitempty"`
+	Labels                  []string                 `json:"labels,omitempty"`
+	LeaseAt                 int64                    `json:"leaseAt,omitempty"` // Unix millis; stamped by coordinator on observed run liveness
+	GitWorktreeFinalization *GitWorktreeFinalization `json:"gitWorktreeFinalization,omitempty"`
 }
 
 // EffectiveClaimKey returns ClaimKey, falling back to AttemptKey when no claim

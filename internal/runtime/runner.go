@@ -44,21 +44,22 @@ type ChatMessagesHandler interface {
 
 // Runner runs a plan of steps.
 type Runner struct {
-	logDir          string
-	maxActiveRuns   int
-	timeout         time.Duration
-	delay           time.Duration
-	dry             bool
-	onInit          *core.Step
-	onExit          *core.Step
-	onSuccess       *core.Step
-	onFailure       *core.Step
-	onAbort         *core.Step
-	dagRunID        string
-	messagesHandler ChatMessagesHandler
-	stepExecutor    *StepExecutor
-	onWait          *core.Step
-	forcedStatus    *core.Status
+	logDir                  string
+	maxActiveRuns           int
+	timeout                 time.Duration
+	delay                   time.Duration
+	dry                     bool
+	onInit                  *core.Step
+	onExit                  *core.Step
+	onSuccess               *core.Step
+	onFailure               *core.Step
+	onAbort                 *core.Step
+	dagRunID                string
+	messagesHandler         ChatMessagesHandler
+	stepExecutor            *StepExecutor
+	onWait                  *core.Step
+	forcedStatus            *core.Status
+	gitWorktreeFinalization *exec.GitWorktreeFinalization
 
 	dagRunAutoRetryCount int
 	dagRunAutoRetryLimit int
@@ -86,43 +87,45 @@ type Runner struct {
 
 func New(cfg *Config) *Runner {
 	return &Runner{
-		logDir:               cfg.LogDir,
-		maxActiveRuns:        cfg.MaxActiveSteps,
-		timeout:              cfg.Timeout,
-		delay:                cfg.Delay,
-		dry:                  cfg.Dry,
-		onInit:               cfg.OnInit,
-		onExit:               cfg.OnExit,
-		onSuccess:            cfg.OnSuccess,
-		onFailure:            cfg.OnFailure,
-		onAbort:              cfg.OnAbort,
-		dagRunID:             cfg.DAGRunID,
-		messagesHandler:      cfg.MessagesHandler,
-		stepExecutor:         NewStepExecutor(),
-		pause:                time.Millisecond * 100,
-		onWait:               cfg.OnWait,
-		forcedStatus:         cfg.ForcedStatus,
-		dagRunAutoRetryCount: cfg.DAGRunAutoRetryCount,
-		dagRunAutoRetryLimit: cfg.DAGRunAutoRetryLimit,
-		dagRunIsRoot:         cfg.DAGRunIsRoot,
+		logDir:                  cfg.LogDir,
+		maxActiveRuns:           cfg.MaxActiveSteps,
+		timeout:                 cfg.Timeout,
+		delay:                   cfg.Delay,
+		dry:                     cfg.Dry,
+		onInit:                  cfg.OnInit,
+		onExit:                  cfg.OnExit,
+		onSuccess:               cfg.OnSuccess,
+		onFailure:               cfg.OnFailure,
+		onAbort:                 cfg.OnAbort,
+		dagRunID:                cfg.DAGRunID,
+		messagesHandler:         cfg.MessagesHandler,
+		stepExecutor:            NewStepExecutor(),
+		pause:                   time.Millisecond * 100,
+		onWait:                  cfg.OnWait,
+		forcedStatus:            cfg.ForcedStatus,
+		dagRunAutoRetryCount:    cfg.DAGRunAutoRetryCount,
+		dagRunAutoRetryLimit:    cfg.DAGRunAutoRetryLimit,
+		dagRunIsRoot:            cfg.DAGRunIsRoot,
+		gitWorktreeFinalization: cloneGitWorktreeFinalization(cfg.GitWorktreeFinalization),
 	}
 }
 
 type Config struct {
-	LogDir          string
-	MaxActiveSteps  int
-	Timeout         time.Duration
-	Delay           time.Duration
-	Dry             bool
-	OnInit          *core.Step
-	OnExit          *core.Step
-	OnSuccess       *core.Step
-	OnFailure       *core.Step
-	OnAbort         *core.Step
-	DAGRunID        string
-	MessagesHandler ChatMessagesHandler
-	OnWait          *core.Step
-	ForcedStatus    *core.Status
+	LogDir                  string
+	MaxActiveSteps          int
+	Timeout                 time.Duration
+	Delay                   time.Duration
+	Dry                     bool
+	OnInit                  *core.Step
+	OnExit                  *core.Step
+	OnSuccess               *core.Step
+	OnFailure               *core.Step
+	OnAbort                 *core.Step
+	DAGRunID                string
+	MessagesHandler         ChatMessagesHandler
+	OnWait                  *core.Step
+	ForcedStatus            *core.Status
+	GitWorktreeFinalization *exec.GitWorktreeFinalization
 
 	DAGRunAutoRetryCount int
 	DAGRunAutoRetryLimit int
@@ -135,6 +138,7 @@ func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan *Node) err
 		return err
 	}
 	r.resetRunState(plan)
+	ctx = withGitWorktreeCleanupSink(ctx, r.registerGitWorktreeCleanup)
 
 	// Create a cancellable context for the entire execution
 	var cancel context.CancelFunc
@@ -422,6 +426,131 @@ func (r *Runner) shouldRunFailureHandler(status core.Status) bool {
 		return true
 	}
 	return r.dagRunAutoRetryCount >= r.dagRunAutoRetryLimit
+}
+
+func cloneGitWorktreeFinalization(in *exec.GitWorktreeFinalization) *exec.GitWorktreeFinalization {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	out.Cleanups = append([]exec.GitWorktreeCleanup(nil), in.Cleanups...)
+	return &out
+}
+
+func (r *Runner) registerGitWorktreeCleanup(cleanup exec.GitWorktreeCleanup) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.gitWorktreeFinalization == nil {
+		r.gitWorktreeFinalization = &exec.GitWorktreeFinalization{}
+	}
+	for _, existing := range r.gitWorktreeFinalization.Cleanups {
+		if existing.CommonDir == cleanup.CommonDir && existing.Path == cleanup.Path && existing.Branch == cleanup.Branch {
+			return nil
+		}
+	}
+	r.gitWorktreeFinalization.Cleanups = append(r.gitWorktreeFinalization.Cleanups, cleanup)
+	return nil
+}
+
+// GitWorktreeFinalization returns a snapshot of run-owned cleanup state.
+func (r *Runner) GitWorktreeFinalization() *exec.GitWorktreeFinalization {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return cloneGitWorktreeFinalization(r.gitWorktreeFinalization)
+}
+
+// HasGitWorktreeCleanups reports whether the run owns worktrees awaiting a terminal decision.
+func (r *Runner) HasGitWorktreeCleanups() bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.gitWorktreeFinalization != nil && len(r.gitWorktreeFinalization.Cleanups) > 0
+}
+
+// HasPendingGitWorktreeFinalization reports whether finalization was interrupted.
+func (r *Runner) HasPendingGitWorktreeFinalization() bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.gitWorktreeFinalization != nil &&
+		r.gitWorktreeFinalization.Status != core.NotStarted &&
+		len(r.gitWorktreeFinalization.Cleanups) > 0
+}
+
+// BeginGitWorktreeFinalization selects cleanup obligations for a terminal status.
+func (r *Runner) BeginGitWorktreeFinalization(status core.Status, statusError string) []exec.GitWorktreeCleanup {
+	if status == core.Failed && !r.shouldRunFailureHandler(status) {
+		return nil
+	}
+	if !gitWorktreeTerminalStatus(status) {
+		return nil
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.gitWorktreeFinalization == nil {
+		return nil
+	}
+	if r.gitWorktreeFinalization.Status != core.NotStarted {
+		status = r.gitWorktreeFinalization.Status
+	} else {
+		r.gitWorktreeFinalization.Status = status
+		r.gitWorktreeFinalization.Error = statusError
+	}
+
+	eligible := make([]exec.GitWorktreeCleanup, 0, len(r.gitWorktreeFinalization.Cleanups))
+	for _, cleanup := range r.gitWorktreeFinalization.Cleanups {
+		if cleanup.Policy == "on_finish" || (cleanup.Policy == "on_success" && status.IsSuccess()) {
+			eligible = append(eligible, cleanup)
+		}
+	}
+	r.gitWorktreeFinalization.Cleanups = eligible
+	if len(eligible) == 0 {
+		r.gitWorktreeFinalization = nil
+		return nil
+	}
+	return append([]exec.GitWorktreeCleanup(nil), eligible...)
+}
+
+// CompleteGitWorktreeCleanup removes a successfully finalized obligation.
+func (r *Runner) CompleteGitWorktreeCleanup(completed exec.GitWorktreeCleanup) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.gitWorktreeFinalization == nil {
+		return
+	}
+	cleanups := r.gitWorktreeFinalization.Cleanups
+	for i, cleanup := range cleanups {
+		if cleanup.CommonDir == completed.CommonDir && cleanup.Path == completed.Path && cleanup.Branch == completed.Branch {
+			r.gitWorktreeFinalization.Cleanups = append(cleanups[:i], cleanups[i+1:]...)
+			break
+		}
+	}
+}
+
+// EndGitWorktreeFinalization closes the current finalization phase.
+func (r *Runner) EndGitWorktreeFinalization() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.gitWorktreeFinalization == nil {
+		return
+	}
+	if len(r.gitWorktreeFinalization.Cleanups) == 0 {
+		r.gitWorktreeFinalization = nil
+		return
+	}
+	r.gitWorktreeFinalization.Status = core.NotStarted
+	r.gitWorktreeFinalization.Error = ""
+}
+
+func gitWorktreeTerminalStatus(status core.Status) bool {
+	switch status {
+	case core.Succeeded, core.PartiallySucceeded, core.Failed, core.Aborted, core.Rejected:
+		return true
+	case core.NotStarted, core.Running, core.Queued, core.Waiting:
+		return false
+	default:
+		return false
+	}
 }
 
 func (r *Runner) processCompletedNode(ctx context.Context, plan *Plan, node *Node, readyCh chan *Node) {

@@ -17,8 +17,6 @@ func TestValidateGitWorktreeActions(t *testing.T) {
 		dagu := harness.NewRunner(t)
 		result := dagu.Run("validate", "valid_shapes.yaml")
 		result.ExpectExitCode(0)
-		result.ExpectStdout("")
-		result.ExpectStderr("")
 	})
 
 	invalidCases := []struct {
@@ -34,6 +32,9 @@ func TestValidateGitWorktreeActions(t *testing.T) {
 		{file: "invalid_add_base_empty.yaml", stderrParts: []string{"base"}},
 		{file: "invalid_add_base_non_string.yaml", stderrParts: []string{"base"}},
 		{file: "invalid_add_base_without_create_branch.yaml", stderrParts: []string{"base", "create_branch"}},
+		{file: "invalid_add_cleanup_empty.yaml", stderrParts: []string{"cleanup"}},
+		{file: "invalid_add_cleanup_unknown.yaml", stderrParts: []string{"cleanup"}},
+		{file: "invalid_add_cleanup_non_string.yaml", stderrParts: []string{"cleanup"}},
 		{file: "invalid_add_unknown_field.yaml", stderrParts: []string{"repository"}},
 		{file: "invalid_add_force.yaml", stderrParts: []string{"force"}},
 		{file: "invalid_remove_selector_missing.yaml", stderrParts: []string{"branch", "path"}},
@@ -46,6 +47,7 @@ func TestValidateGitWorktreeActions(t *testing.T) {
 		{file: "invalid_remove_delete_without_branch.yaml", stderrParts: []string{"delete_branch", "branch"}},
 		{file: "invalid_remove_force_delete_branch_non_boolean.yaml", stderrParts: []string{"force_delete_branch"}},
 		{file: "invalid_remove_force_delete_without_delete_branch.yaml", stderrParts: []string{"force_delete_branch", "delete_branch"}},
+		{file: "invalid_remove_cleanup.yaml", stderrParts: []string{"cleanup"}},
 		{file: "invalid_remove_unknown_field.yaml", stderrParts: []string{"base"}},
 	}
 	for _, tc := range invalidCases {

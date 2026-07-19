@@ -151,3 +151,53 @@ func TestSetupVariables_StepEnvEvaluatesSequentiallyWithRuntimeVars(t *testing.T
 		})
 	}
 }
+
+func TestRunnerGitWorktreeFinalization(t *testing.T) {
+	t.Parallel()
+
+	onSuccess := exec.GitWorktreeCleanup{
+		Policy:    "on_success",
+		CommonDir: "/repo/.git",
+		Path:      "/repo.worktrees/success",
+		Branch:    "success",
+	}
+	onFinish := exec.GitWorktreeCleanup{
+		Policy:    "on_finish",
+		CommonDir: "/repo/.git",
+		Path:      "/repo.worktrees/finish",
+		Branch:    "finish",
+	}
+
+	runner := New(&Config{
+		DAGRunAutoRetryLimit: 1,
+		DAGRunIsRoot:         true,
+	})
+	require.NoError(t, runner.registerGitWorktreeCleanup(onSuccess))
+	require.NoError(t, runner.registerGitWorktreeCleanup(onSuccess))
+	require.NoError(t, runner.registerGitWorktreeCleanup(onFinish))
+
+	assert.Empty(t, runner.BeginGitWorktreeFinalization(core.Failed, "retryable"))
+	retryState := runner.GitWorktreeFinalization()
+	require.NotNil(t, retryState)
+	assert.Equal(t, core.NotStarted, retryState.Status)
+	assert.ElementsMatch(t, []exec.GitWorktreeCleanup{onSuccess, onFinish}, retryState.Cleanups)
+
+	resumed := New(&Config{
+		DAGRunAutoRetryCount:    1,
+		DAGRunAutoRetryLimit:    1,
+		DAGRunIsRoot:            true,
+		GitWorktreeFinalization: retryState,
+	})
+	eligible := resumed.BeginGitWorktreeFinalization(core.Failed, "terminal")
+	assert.Equal(t, []exec.GitWorktreeCleanup{onFinish}, eligible)
+	phase := resumed.GitWorktreeFinalization()
+	require.NotNil(t, phase)
+	assert.Equal(t, core.Failed, phase.Status)
+	assert.Equal(t, "terminal", phase.Error)
+	assert.Equal(t, []exec.GitWorktreeCleanup{onFinish}, phase.Cleanups)
+
+	resumed.CompleteGitWorktreeCleanup(onFinish)
+	resumed.EndGitWorktreeFinalization()
+	assert.Nil(t, resumed.GitWorktreeFinalization())
+	assert.Len(t, retryState.Cleanups, 2)
+}

@@ -79,6 +79,16 @@ func scanReferences(raw string) []reference {
 	return refs
 }
 
+// HasValueReference reports whether raw contains a supported value-reference form.
+func HasValueReference(raw string) bool {
+	for _, ref := range scanReferences(raw) {
+		if ref.Kind == referenceStrict || ref.Kind == referenceEval {
+			return true
+		}
+	}
+	return false
+}
+
 func classifyBracedReference(rawRef, expr string, start, end int) reference {
 	segments := strings.Split(expr, ".")
 	ref := reference{

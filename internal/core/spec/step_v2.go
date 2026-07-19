@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 )
 
@@ -38,60 +39,62 @@ var v2RunWithFields = map[string]struct{}{
 type actionNormalizer func(normalized map[string]any, with map[string]any) error
 
 var builtinActionNormalizers = map[string]actionNormalizer{
-	"artifact.list":   operationAction("artifact", "list"),
-	"artifact.read":   operationAction("artifact", "read"),
-	"artifact.write":  operationAction("artifact", "write"),
-	"archive.create":  operationAction("archive", "create"),
-	"archive.extract": operationAction("archive", "extract"),
-	"archive.list":    operationAction("archive", "list"),
-	"chat.completion": normalizeChatAction,
-	"container.run":   optionalCommandAction("container", "command"),
-	"dag.enqueue":     normalizeDagEnqueueAction,
-	"dag.run":         normalizeDagRunAction,
-	"data.convert":    operationAction("data", "convert"),
-	"data.pick":       operationAction("data", "pick"),
-	"docker.run":      optionalCommandAction("docker", "command"),
-	"exec":            normalizeExecAction,
-	"file.copy":       operationAction("file", "copy"),
-	"file.delete":     operationAction("file", "delete"),
-	"file.list":       operationAction("file", "list"),
-	"file.mkdir":      operationAction("file", "mkdir"),
-	"file.move":       operationAction("file", "move"),
-	"file.read":       operationAction("file", "read"),
-	"file.stat":       operationAction("file", "stat"),
-	"file.write":      operationAction("file", "write"),
-	"git.checkout":    operationAction("git", "checkout"),
-	"harness.run":     normalizeHarnessRunAction,
-	"http.request":    normalizeHTTPRequestAction,
-	"jq.filter":       normalizeJQFilterAction,
-	"k8s.run":         optionalCommandAction("k8s", "command"),
-	"kubernetes.run":  optionalCommandAction("kubernetes", "command"),
-	"log.write":       normalizeLogAction,
-	"mail.send":       typedAction("mail"),
-	"noop":            normalizeNoopAction,
-	"outputs.write":   operationAction("outputs", "write"),
-	"postgres.query":  commandAction("postgres", "query"),
-	"postgres.import": importAction("postgres"),
-	"router.route":    normalizeRouterAction,
-	"s3.delete":       operationAction("s3", "delete"),
-	"s3.download":     operationAction("s3", "download"),
-	"s3.list":         operationAction("s3", "list"),
-	"s3.upload":       operationAction("s3", "upload"),
-	"sftp.download":   directionAction("sftp", "download"),
-	"sftp.upload":     directionAction("sftp", "upload"),
-	"sqlite.query":    commandAction("sqlite", "query"),
-	"sqlite.import":   importAction("sqlite"),
-	"ssh.run":         commandAction("ssh", "command"),
-	"state.delete":    operationAction("state", "delete"),
-	"state.diff":      operationAction("state", "diff"),
-	"state.get":       operationAction("state", "get"),
-	"state.list":      operationAction("state", "list"),
-	"state.set":       operationAction("state", "set"),
-	"template.render": normalizeTemplateAction,
-	"wait.duration":   operationAction("wait", "duration"),
-	"wait.file":       operationAction("wait", "file"),
-	"wait.http":       operationAction("wait", "http"),
-	"wait.until":      operationAction("wait", "until"),
+	"artifact.list":       operationAction("artifact", "list"),
+	"artifact.read":       operationAction("artifact", "read"),
+	"artifact.write":      operationAction("artifact", "write"),
+	"archive.create":      operationAction("archive", "create"),
+	"archive.extract":     operationAction("archive", "extract"),
+	"archive.list":        operationAction("archive", "list"),
+	"chat.completion":     normalizeChatAction,
+	"container.run":       optionalCommandAction("container", "command"),
+	"dag.enqueue":         normalizeDagEnqueueAction,
+	"dag.run":             normalizeDagRunAction,
+	"data.convert":        operationAction("data", "convert"),
+	"data.pick":           operationAction("data", "pick"),
+	"docker.run":          optionalCommandAction("docker", "command"),
+	"exec":                normalizeExecAction,
+	"file.copy":           operationAction("file", "copy"),
+	"file.delete":         operationAction("file", "delete"),
+	"file.list":           operationAction("file", "list"),
+	"file.mkdir":          operationAction("file", "mkdir"),
+	"file.move":           operationAction("file", "move"),
+	"file.read":           operationAction("file", "read"),
+	"file.stat":           operationAction("file", "stat"),
+	"file.write":          operationAction("file", "write"),
+	"git.checkout":        operationAction("git", "checkout"),
+	"git.worktree.add":    normalizeGitWorktreeAddAction,
+	"git.worktree.remove": normalizeGitWorktreeRemoveAction,
+	"harness.run":         normalizeHarnessRunAction,
+	"http.request":        normalizeHTTPRequestAction,
+	"jq.filter":           normalizeJQFilterAction,
+	"k8s.run":             optionalCommandAction("k8s", "command"),
+	"kubernetes.run":      optionalCommandAction("kubernetes", "command"),
+	"log.write":           normalizeLogAction,
+	"mail.send":           typedAction("mail"),
+	"noop":                normalizeNoopAction,
+	"outputs.write":       operationAction("outputs", "write"),
+	"postgres.query":      commandAction("postgres", "query"),
+	"postgres.import":     importAction("postgres"),
+	"router.route":        normalizeRouterAction,
+	"s3.delete":           operationAction("s3", "delete"),
+	"s3.download":         operationAction("s3", "download"),
+	"s3.list":             operationAction("s3", "list"),
+	"s3.upload":           operationAction("s3", "upload"),
+	"sftp.download":       directionAction("sftp", "download"),
+	"sftp.upload":         directionAction("sftp", "upload"),
+	"sqlite.query":        commandAction("sqlite", "query"),
+	"sqlite.import":       importAction("sqlite"),
+	"ssh.run":             commandAction("ssh", "command"),
+	"state.delete":        operationAction("state", "delete"),
+	"state.diff":          operationAction("state", "diff"),
+	"state.get":           operationAction("state", "get"),
+	"state.list":          operationAction("state", "list"),
+	"state.set":           operationAction("state", "set"),
+	"template.render":     normalizeTemplateAction,
+	"wait.duration":       operationAction("wait", "duration"),
+	"wait.file":           operationAction("wait", "file"),
+	"wait.http":           operationAction("wait", "http"),
+	"wait.until":          operationAction("wait", "until"),
 }
 
 // BuiltinActionNames returns the currently accepted built-in action names in
@@ -570,6 +573,112 @@ func operationAction(executorType, operation string) actionNormalizer {
 	return func(normalized map[string]any, with map[string]any) error {
 		return normalizeOperationAction(normalized, executorType, with, operation)
 	}
+}
+
+func normalizeGitWorktreeAddAction(normalized map[string]any, with map[string]any) error {
+	if err := validateGitWorktreeOutputOverrides(normalized); err != nil {
+		return err
+	}
+	if err := validateGitWorktreeFields(with, map[string]gitWorktreeFieldKind{
+		"branch":        gitWorktreeString,
+		"path":          gitWorktreeString,
+		"create_branch": gitWorktreeBool,
+		"base":          gitWorktreeString,
+		"cleanup":       gitWorktreeCleanup,
+	}); err != nil {
+		return err
+	}
+	if _, hasBranch := with["branch"]; hasBranch {
+		if _, hasBase := with["base"]; hasBase {
+			createBranch, _ := with["create_branch"].(bool)
+			if !createBranch {
+				return core.NewValidationError("with", with, fmt.Errorf("with.base requires create_branch: true when branch is specified"))
+			}
+		}
+	}
+	return normalizeOperationAction(normalized, "git", with, "worktree.add")
+}
+
+func normalizeGitWorktreeRemoveAction(normalized map[string]any, with map[string]any) error {
+	if err := validateGitWorktreeOutputOverrides(normalized); err != nil {
+		return err
+	}
+	if err := validateGitWorktreeFields(with, map[string]gitWorktreeFieldKind{
+		"branch":              gitWorktreeString,
+		"path":                gitWorktreeString,
+		"force":               gitWorktreeBool,
+		"delete_branch":       gitWorktreeBool,
+		"force_delete_branch": gitWorktreeBool,
+	}); err != nil {
+		return err
+	}
+	_, hasBranch := with["branch"]
+	_, hasPath := with["path"]
+	if !hasBranch && !hasPath {
+		return core.NewValidationError("with", with, fmt.Errorf("git.worktree.remove requires with.branch or with.path"))
+	}
+	deleteBranch, _ := with["delete_branch"].(bool)
+	if deleteBranch && !hasBranch {
+		return core.NewValidationError("with", with, fmt.Errorf("with.delete_branch requires with.branch"))
+	}
+	forceDeleteBranch, _ := with["force_delete_branch"].(bool)
+	if forceDeleteBranch && !deleteBranch {
+		return core.NewValidationError("with", with, fmt.Errorf("with.force_delete_branch requires delete_branch: true"))
+	}
+	return normalizeOperationAction(normalized, "git", with, "worktree.remove")
+}
+
+type gitWorktreeFieldKind uint8
+
+const (
+	gitWorktreeString gitWorktreeFieldKind = iota
+	gitWorktreeBool
+	gitWorktreeCleanup
+)
+
+func validateGitWorktreeFields(with map[string]any, allowed map[string]gitWorktreeFieldKind) error {
+	for name, value := range with {
+		kind, ok := allowed[name]
+		if !ok {
+			return core.NewValidationError("with", with, fmt.Errorf("unsupported git worktree field %q", name))
+		}
+		switch kind {
+		case gitWorktreeString:
+			text, ok := value.(string)
+			if !ok || strings.TrimSpace(text) == "" {
+				return core.NewValidationError("with", with, fmt.Errorf("with.%s must be a non-empty string", name))
+			}
+		case gitWorktreeBool:
+			if _, ok := value.(bool); !ok {
+				return core.NewValidationError("with", with, fmt.Errorf("with.%s must be a boolean", name))
+			}
+		case gitWorktreeCleanup:
+			text, ok := value.(string)
+			if !ok || strings.TrimSpace(text) == "" {
+				return core.NewValidationError("with", with, fmt.Errorf("with.cleanup must be a non-empty string"))
+			}
+			if !cmnvalue.HasValueReference(text) && text != "never" && text != "on_success" && text != "on_finish" {
+				return core.NewValidationError("with", with, fmt.Errorf("with.cleanup must be never, on_success, or on_finish"))
+			}
+		}
+	}
+	return nil
+}
+
+func validateGitWorktreeOutputOverrides(normalized map[string]any) error {
+	if _, ok := normalized["output"]; ok {
+		return core.NewValidationError("output", normalized["output"], fmt.Errorf("git worktree actions have fixed outputs"))
+	}
+	if _, ok := normalized["outputs"]; ok {
+		return core.NewValidationError("outputs", normalized["outputs"], fmt.Errorf("git worktree actions have fixed outputs"))
+	}
+	stdout, ok := normalized["stdout"].(map[string]any)
+	if ok {
+		if _, hasOutputs := stdout["outputs"]; hasOutputs {
+			return core.NewValidationError("stdout.outputs", stdout["outputs"], fmt.Errorf("git worktree actions have fixed outputs"))
+		}
+	}
+	return nil
 }
 
 func normalizeTemplateAction(normalized map[string]any, with map[string]any) error {

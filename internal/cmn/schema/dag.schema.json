@@ -2439,6 +2439,29 @@
         },
         {
           "if": {
+            "properties": { "action": { "const": "git.worktree.add" } },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "with": { "$ref": "#/definitions/gitWorktreeAddActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "const": "git.worktree.remove" } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/gitWorktreeRemoveActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
             "properties": { "action": { "enum": ["wait.duration", "wait.until", "wait.file", "wait.http"] } },
             "required": ["action"]
           },
@@ -5982,6 +6005,8 @@
             "file.stat",
             "file.write",
             "git.checkout",
+            "git.worktree.add",
+            "git.worktree.remove",
             "harness.run",
             "http.request",
             "jq.filter",
@@ -6601,6 +6626,98 @@
         }
       },
       "description": "Configuration for action: git.checkout."
+    },
+    "gitWorktreeAddActionConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "branch": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Local branch checked out in the linked worktree. Dagu generates one when omitted."
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Linked-worktree path. Relative paths resolve from the detected repository root."
+        },
+        "create_branch": {
+          "type": "boolean",
+          "description": "Permit creation of an explicitly named branch."
+        },
+        "base": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Local base revision used only when the selected branch is created."
+        },
+        "cleanup": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Automatic cleanup policy: never, on_success, on_finish, or a runtime value reference."
+        }
+      },
+      "allOf": [
+        {
+          "if": { "required": ["branch", "base"] },
+          "then": {
+            "required": ["create_branch"],
+            "properties": { "create_branch": { "const": true } }
+          }
+        }
+      ],
+      "description": "Configuration for action: git.worktree.add."
+    },
+    "gitWorktreeRemoveActionConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "anyOf": [
+        { "required": ["branch"] },
+        { "required": ["path"] }
+      ],
+      "properties": {
+        "branch": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Local branch whose linked worktree is removed."
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Linked-worktree path. Relative paths resolve from the detected repository root."
+        },
+        "force": {
+          "type": "boolean",
+          "description": "Remove a dirty linked worktree."
+        },
+        "delete_branch": {
+          "type": "boolean",
+          "description": "Delete the selected local branch after removing its worktree."
+        },
+        "force_delete_branch": {
+          "type": "boolean",
+          "description": "Permit deletion when the selected branch is not merged into repository HEAD."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": ["delete_branch"],
+            "properties": { "delete_branch": { "const": true } }
+          },
+          "then": { "required": ["branch"] }
+        },
+        {
+          "if": {
+            "required": ["force_delete_branch"],
+            "properties": { "force_delete_branch": { "const": true } }
+          },
+          "then": {
+            "required": ["delete_branch"],
+            "properties": { "delete_branch": { "const": true } }
+          }
+        }
+      ],
+      "description": "Configuration for action: git.worktree.remove."
     },
     "waitActionConfig": {
       "type": "object",

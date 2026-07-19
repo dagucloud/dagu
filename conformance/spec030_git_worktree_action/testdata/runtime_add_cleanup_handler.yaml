@@ -1,18 +1,18 @@
-params:
-  - name: working_dir
-    type: string
-    required: true
-  - name: branch
-    type: string
-    required: true
 working_dir: .
+handler_on:
+  exit:
+    working_dir: ./wt/cleanup-handler
+    run: printf 'worktree visible to exit handler'
+    stdout: ../../handler-saw-worktree.txt
 steps:
   - id: add
-    working_dir: "${params.working_dir}"
+    working_dir: ./repo
     action: git.worktree.add
     with:
-      branch: "${params.branch}"
+      branch: cleanup-handler
       create_branch: true
+      path: ../wt/cleanup-handler
+      cleanup: on_success
     stderr: ../action-stderr.txt
 
   - id: capture

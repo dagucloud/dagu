@@ -1,0 +1,6 @@
+working_dir: ./repo
+steps:
+  - id: add
+    action: git.worktree.add
+    with:
+      cleanup: true

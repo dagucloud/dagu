@@ -1,0 +1,7 @@
+working_dir: ./repo
+steps:
+  - id: remove
+    action: git.worktree.remove
+    with:
+      branch: topic
+      cleanup: on_success
