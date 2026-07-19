@@ -44,20 +44,15 @@ func (e *declaredSideChannelExecutor) PublishesDeclaredOutputs() bool {
 	return true
 }
 
-type changingDeclaredSideChannelExecutor struct {
+type invalidDeclaredSideChannelExecutor struct {
 	emptySideChannelExecutor
-	calls int
 }
 
-func (e *changingDeclaredSideChannelExecutor) GetOutputs() map[string]any {
-	e.calls++
-	if e.calls == 1 {
-		return map[string]any{"path": "/tmp/worktree"}
-	}
+func (e *invalidDeclaredSideChannelExecutor) GetOutputs() map[string]any {
 	return map[string]any{"invalid": make(chan int)}
 }
 
-func (e *changingDeclaredSideChannelExecutor) PublishesDeclaredOutputs() bool {
+func (e *invalidDeclaredSideChannelExecutor) PublishesDeclaredOutputs() bool {
 	return true
 }
 
@@ -133,7 +128,7 @@ func TestStepExecutorPublishesExecutorDeclaredOutputs(t *testing.T) {
 func TestStepExecutorRecordsDeclaredOutputSerializationError(t *testing.T) {
 	executorType := "test-step-executor-invalid-declared-outputs"
 	runtimeexec.RegisterExecutor(executorType, func(context.Context, core.Step) (runtimeexec.Executor, error) {
-		return &changingDeclaredSideChannelExecutor{}, nil
+		return &invalidDeclaredSideChannelExecutor{}, nil
 	}, nil, core.ExecutorCapabilities{})
 	t.Cleanup(func() { runtimeexec.UnregisterExecutor(executorType) })
 
