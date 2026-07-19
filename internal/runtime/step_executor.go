@@ -97,6 +97,7 @@ func (e *StepExecutor) Execute(ctx context.Context, node *Node, onSetup ...func(
 		if declared, ok := cmd.(executor.DeclaredOutputsProvider); ok && declared.PublishesDeclaredOutputs() {
 			value, serializeErr := serializeOutputsValue(ctx, declared.GetOutputs())
 			if serializeErr != nil {
+				node.SetError(serializeErr)
 				return serializeErr
 			}
 			node.setStepOutputsValue(value)

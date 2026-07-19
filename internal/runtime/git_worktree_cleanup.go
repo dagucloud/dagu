@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 )
 
@@ -23,7 +24,7 @@ func withGitWorktreeCleanupSink(ctx context.Context, sink gitWorktreeCleanupSink
 func SetGitWorktreeCleanup(ctx context.Context, cleanup exec.GitWorktreeCleanup) error {
 	sink, ok := ctx.Value(gitWorktreeCleanupSinkKey{}).(gitWorktreeCleanupSink)
 	if !ok || sink == nil {
-		if cleanup.Policy == "never" {
+		if cleanup.Policy == core.GitWorktreeCleanupNever {
 			return nil
 		}
 		return fmt.Errorf("git worktree cleanup is unavailable outside a DAG run")

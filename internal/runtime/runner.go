@@ -446,7 +446,7 @@ func (r *Runner) setGitWorktreeCleanup(cleanup exec.GitWorktreeCleanup) error {
 			if !sameGitWorktreeCleanupTarget(existing, cleanup) {
 				continue
 			}
-			if cleanup.Policy == "never" {
+			if cleanup.Policy == core.GitWorktreeCleanupNever {
 				cleanups := r.gitWorktreeFinalization.Cleanups
 				r.gitWorktreeFinalization.Cleanups = append(cleanups[:i], cleanups[i+1:]...)
 				if len(r.gitWorktreeFinalization.Cleanups) == 0 {
@@ -458,7 +458,7 @@ func (r *Runner) setGitWorktreeCleanup(cleanup exec.GitWorktreeCleanup) error {
 			return nil
 		}
 	}
-	if cleanup.Policy == "never" {
+	if cleanup.Policy == core.GitWorktreeCleanupNever {
 		return nil
 	}
 	if r.gitWorktreeFinalization == nil {
@@ -518,7 +518,8 @@ func (r *Runner) BeginGitWorktreeFinalization(status core.Status, statusError st
 
 	eligible := make([]exec.GitWorktreeCleanup, 0, len(r.gitWorktreeFinalization.Cleanups))
 	for _, cleanup := range r.gitWorktreeFinalization.Cleanups {
-		if cleanup.Policy == "on_finish" || (cleanup.Policy == "on_success" && status.IsSuccess()) {
+		if cleanup.Policy == core.GitWorktreeCleanupOnFinish ||
+			(cleanup.Policy == core.GitWorktreeCleanupOnSuccess && status.IsSuccess()) {
 			eligible = append(eligible, cleanup)
 		}
 	}

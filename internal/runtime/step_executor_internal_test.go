@@ -44,6 +44,23 @@ func (e *declaredSideChannelExecutor) PublishesDeclaredOutputs() bool {
 	return true
 }
 
+type changingDeclaredSideChannelExecutor struct {
+	emptySideChannelExecutor
+	calls int
+}
+
+func (e *changingDeclaredSideChannelExecutor) GetOutputs() map[string]any {
+	e.calls++
+	if e.calls == 1 {
+		return map[string]any{"path": "/tmp/worktree"}
+	}
+	return map[string]any{"invalid": make(chan int)}
+}
+
+func (e *changingDeclaredSideChannelExecutor) PublishesDeclaredOutputs() bool {
+	return true
+}
+
 func TestStepExecutorReturnsWrappedSetupError(t *testing.T) {
 	executorType := "test-step-executor-setup-error"
 	setupErr := errors.New("setup failed")
@@ -111,6 +128,26 @@ func TestStepExecutorPublishesExecutorDeclaredOutputs(t *testing.T) {
 	require.JSONEq(t, `{"created":true,"path":"/tmp/worktree"}`, *state.StepOutputsValue)
 	info := node.StepInfo()
 	require.NotNil(t, info.DeclaredOutputs)
+}
+
+func TestStepExecutorRecordsDeclaredOutputSerializationError(t *testing.T) {
+	executorType := "test-step-executor-invalid-declared-outputs"
+	runtimeexec.RegisterExecutor(executorType, func(context.Context, core.Step) (runtimeexec.Executor, error) {
+		return &changingDeclaredSideChannelExecutor{}, nil
+	}, nil, core.ExecutorCapabilities{})
+	t.Cleanup(func() { runtimeexec.UnregisterExecutor(executorType) })
+
+	node := NewNode(core.Step{
+		ID:   "worktree",
+		Name: "worktree",
+		ExecutorConfig: core.ExecutorConfig{
+			Type: executorType,
+		},
+	}, NodeState{})
+
+	err := NewStepExecutor().Execute(newTestStepExecutorContext(), node)
+	require.ErrorContains(t, err, "failed to serialize outputs")
+	require.Same(t, err, node.Error())
 }
 
 func TestStepExecutorRecordsTimeoutBeforeCommandStarts(t *testing.T) {

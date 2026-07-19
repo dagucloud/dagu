@@ -657,7 +657,11 @@ func validateGitWorktreeFields(with map[string]any, allowed map[string]gitWorktr
 			if !ok || strings.TrimSpace(text) == "" {
 				return core.NewValidationError("with", with, fmt.Errorf("with.cleanup must be a non-empty string"))
 			}
-			if !cmnvalue.HasValueReference(text) && text != "never" && text != "on_success" && text != "on_finish" {
+			text = strings.TrimSpace(text)
+			if !cmnvalue.HasValueReference(text) &&
+				text != core.GitWorktreeCleanupNever &&
+				text != core.GitWorktreeCleanupOnSuccess &&
+				text != core.GitWorktreeCleanupOnFinish {
 				return core.NewValidationError("with", with, fmt.Errorf("with.cleanup must be never, on_success, or on_finish"))
 			}
 		}

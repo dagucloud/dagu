@@ -156,13 +156,13 @@ func TestRunnerGitWorktreeFinalization(t *testing.T) {
 	t.Parallel()
 
 	onSuccess := exec.GitWorktreeCleanup{
-		Policy:    "on_success",
+		Policy:    core.GitWorktreeCleanupOnSuccess,
 		CommonDir: "/repo/.git",
 		Path:      "/repo.worktrees/success",
 		Branch:    "success",
 	}
 	onFinish := exec.GitWorktreeCleanup{
-		Policy:    "on_finish",
+		Policy:    core.GitWorktreeCleanupOnFinish,
 		CommonDir: "/repo/.git",
 		Path:      "/repo.worktrees/finish",
 		Branch:    "finish",
@@ -207,7 +207,7 @@ func TestRunnerSetGitWorktreeCleanupReplacesRecreatedTarget(t *testing.T) {
 
 	runner := New(&Config{})
 	cleanup := exec.GitWorktreeCleanup{
-		Policy:         "on_success",
+		Policy:         core.GitWorktreeCleanupOnSuccess,
 		RepositoryRoot: "/repo",
 		CommonDir:      "/repo/.git",
 		Path:           "/repo.worktrees/topic",
@@ -215,13 +215,13 @@ func TestRunnerSetGitWorktreeCleanupReplacesRecreatedTarget(t *testing.T) {
 	}
 	require.NoError(t, runner.setGitWorktreeCleanup(cleanup))
 
-	cleanup.Policy = "on_finish"
+	cleanup.Policy = core.GitWorktreeCleanupOnFinish
 	require.NoError(t, runner.setGitWorktreeCleanup(cleanup))
 	state := runner.GitWorktreeFinalization()
 	require.NotNil(t, state)
 	assert.Equal(t, []exec.GitWorktreeCleanup{cleanup}, state.Cleanups)
 
-	cleanup.Policy = "never"
+	cleanup.Policy = core.GitWorktreeCleanupNever
 	require.NoError(t, runner.setGitWorktreeCleanup(cleanup))
 	assert.Nil(t, runner.GitWorktreeFinalization())
 }

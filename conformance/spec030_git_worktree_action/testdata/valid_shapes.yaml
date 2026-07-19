@@ -36,6 +36,11 @@ steps:
     with:
       cleanup: on_finish
 
+  - id: add_cleanup_padded
+    action: git.worktree.add
+    with:
+      cleanup: " on_success "
+
   - id: add_cleanup_from_param
     action: git.worktree.add
     with:

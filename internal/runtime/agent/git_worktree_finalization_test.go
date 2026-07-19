@@ -58,7 +58,7 @@ func TestAgentFinalizeGitWorktreesResumesPersistedPhase(t *testing.T) {
 		GitWorktreeFinalization: &coreexec.GitWorktreeFinalization{
 			Status: core.Succeeded,
 			Cleanups: []coreexec.GitWorktreeCleanup{{
-				Policy:         "on_finish",
+				Policy:         core.GitWorktreeCleanupOnFinish,
 				RepositoryRoot: repoRoot,
 				CommonDir:      commonDir,
 				Path:           worktreePath,

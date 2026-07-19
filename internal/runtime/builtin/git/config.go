@@ -63,7 +63,7 @@ func decodeWorktreeConfig(operation string, raw map[string]any, allowReferences 
 		}
 	}
 
-	cfg := worktreeConfig{Cleanup: "never"}
+	cfg := worktreeConfig{Cleanup: core.GitWorktreeCleanupNever}
 	var err error
 	if cfg.Branch, cfg.HasBranch, err = worktreeString(raw, "branch"); err != nil {
 		return worktreeConfig{}, err
@@ -97,7 +97,9 @@ func decodeWorktreeConfig(operation string, raw map[string]any, allowReferences 
 			return worktreeConfig{}, fmt.Errorf("git %s: base requires create_branch when branch is specified", operation)
 		}
 		switch cfg.Cleanup {
-		case "never", "on_success", "on_finish":
+		case core.GitWorktreeCleanupNever,
+			core.GitWorktreeCleanupOnSuccess,
+			core.GitWorktreeCleanupOnFinish:
 		default:
 			if !allowReferences || !cmnvalue.HasValueReference(cfg.Cleanup) {
 				return worktreeConfig{}, fmt.Errorf("git %s: cleanup must be never, on_success, or on_finish", operation)

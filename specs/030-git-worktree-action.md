@@ -2,7 +2,7 @@
 
 ## Status
 
-Not implemented.
+Implemented.
 
 This spec defines conformance behavior for the built-in `git.worktree.add` and
 `git.worktree.remove` actions.
