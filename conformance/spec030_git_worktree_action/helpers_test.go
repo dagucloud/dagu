@@ -4,12 +4,11 @@
 package spec030_git_worktree_action_test
 
 import (
-	"bytes"
-	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -18,8 +17,8 @@ import (
 )
 
 const (
-	actionStdoutFile = "action-stdout.json"
-	actionStderrFile = "action-stderr.txt"
+	actionOutputsFile = "action-outputs.txt"
+	actionStderrFile  = "action-stderr.txt"
 )
 
 type repositoryFixture struct {
@@ -28,20 +27,18 @@ type repositoryFixture struct {
 }
 
 type addResult struct {
-	Operation       string `json:"operation"`
-	Path            string `json:"path"`
-	Branch          string `json:"branch"`
-	Commit          string `json:"commit"`
-	WorktreeCreated bool   `json:"worktree_created"`
-	BranchCreated   bool   `json:"branch_created"`
+	Path            string
+	Branch          string
+	Commit          string
+	WorktreeCreated bool
+	BranchCreated   bool
 }
 
 type removeResult struct {
-	Operation       string `json:"operation"`
-	Path            string `json:"path"`
-	Branch          string `json:"branch"`
-	WorktreeRemoved bool   `json:"worktree_removed"`
-	BranchDeleted   bool   `json:"branch_deleted"`
+	Path            string
+	Branch          string
+	WorktreeRemoved bool
+	BranchDeleted   bool
 }
 
 type worktreeEntry struct {
@@ -227,9 +224,18 @@ func requireValidWorkflow(dagu *harness.Runner, fixture string) {
 
 func readAddResult(t *testing.T, dagu *harness.Runner) addResult {
 	t.Helper()
-	var result addResult
-	readResultLine(t, dagu, &result, "operation", "path", "branch", "commit", "worktree_created", "branch_created")
-	require.Equal(t, "worktree_add", result.Operation)
+	values := readPublishedOutputs(t, dagu, "path", "branch", "commit", "worktree_created", "branch_created")
+	worktreeCreated, err := strconv.ParseBool(values["worktree_created"])
+	require.NoError(t, err)
+	branchCreated, err := strconv.ParseBool(values["branch_created"])
+	require.NoError(t, err)
+	result := addResult{
+		Path:            values["path"],
+		Branch:          values["branch"],
+		Commit:          values["commit"],
+		WorktreeCreated: worktreeCreated,
+		BranchCreated:   branchCreated,
+	}
 	require.NotEmpty(t, result.Path)
 	require.NotEmpty(t, result.Branch)
 	require.NotEmpty(t, result.Commit)
@@ -238,30 +244,41 @@ func readAddResult(t *testing.T, dagu *harness.Runner) addResult {
 
 func readRemoveResult(t *testing.T, dagu *harness.Runner) removeResult {
 	t.Helper()
-	var result removeResult
-	readResultLine(t, dagu, &result, "operation", "path", "branch", "worktree_removed", "branch_deleted")
-	require.Equal(t, "worktree_remove", result.Operation)
-	return result
+	values := readPublishedOutputs(t, dagu, "path", "branch", "worktree_removed", "branch_deleted")
+	worktreeRemoved, err := strconv.ParseBool(values["worktree_removed"])
+	require.NoError(t, err)
+	branchDeleted, err := strconv.ParseBool(values["branch_deleted"])
+	require.NoError(t, err)
+	return removeResult{
+		Path:            values["path"],
+		Branch:          values["branch"],
+		WorktreeRemoved: worktreeRemoved,
+		BranchDeleted:   branchDeleted,
+	}
 }
 
-func readResultLine(t *testing.T, dagu *harness.Runner, target any, requiredFields ...string) {
+func readPublishedOutputs(t *testing.T, dagu *harness.Runner, requiredFields ...string) map[string]string {
 	t.Helper()
-	data, err := os.ReadFile(dagu.ProjectPath(actionStdoutFile))
+	data, err := os.ReadFile(dagu.ProjectPath(actionOutputsFile))
 	require.NoError(t, err)
-	require.True(t, bytes.HasSuffix(data, []byte("\n")), "result must end in one newline: %q", data)
-	require.Equal(t, 1, bytes.Count(data, []byte("\n")), "result must occupy exactly one line: %q", data)
-	document := bytes.TrimSuffix(data, []byte("\n"))
-	var fields map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(document, &fields))
+	require.True(t, strings.HasSuffix(string(data), "\n"), "captured outputs must end in one newline: %q", data)
+
+	fields := make(map[string]string, len(requiredFields))
+	for line := range strings.SplitSeq(strings.TrimSuffix(string(data), "\n"), "\n") {
+		name, value, ok := strings.Cut(line, "=")
+		require.True(t, ok, "invalid captured output line %q", line)
+		require.NotContains(t, fields, name, "duplicate captured output %q", name)
+		fields[name] = value
+	}
 	for _, field := range requiredFields {
 		require.Contains(t, fields, field)
 	}
-	require.NoError(t, json.Unmarshal(document, target))
+	return fields
 }
 
-func requireNoResultDocument(t *testing.T, dagu *harness.Runner) {
+func requireNoPublishedOutputs(t *testing.T, dagu *harness.Runner) {
 	t.Helper()
-	data, err := os.ReadFile(dagu.ProjectPath(actionStdoutFile))
+	data, err := os.ReadFile(dagu.ProjectPath(actionOutputsFile))
 	if errors.Is(err, os.ErrNotExist) {
 		return
 	}
@@ -269,9 +286,9 @@ func requireNoResultDocument(t *testing.T, dagu *harness.Runner) {
 	require.Empty(t, data)
 }
 
-func resetActionStreams(t *testing.T, dagu *harness.Runner) {
+func resetActionFiles(t *testing.T, dagu *harness.Runner) {
 	t.Helper()
-	for _, name := range []string{actionStdoutFile, actionStderrFile} {
+	for _, name := range []string{actionOutputsFile, actionStderrFile} {
 		err := os.Remove(dagu.ProjectPath(name))
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			require.NoError(t, err)

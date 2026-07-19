@@ -25,7 +25,7 @@ This spec covers:
 - idempotent add and remove behavior
 - conflict detection
 - repository-scoped mutation serialization
-- the result document
+- the action output contract
 - validation and runtime errors
 
 This spec does not define:
@@ -54,7 +54,9 @@ directory and do not repeat that path in `with`.
 
 - YAML schema: [Spec 002: YAML Schema](002-yaml-schema.md)
 - Value resolution: [Spec 003: Value Resolution and Field Evaluation](003-value-resolution.md)
+- Step output references: [Spec 007: Value Resolution Steps](007-value-resolution-steps.md)
 - Step identity: [Spec 009: Step Reference](009-step-reference.md)
+- Step outputs: [Spec 012: Step Outputs](012-step-outputs.md)
 - Step run: [Spec 013: Step Run](013-step-run.md)
 - Built-in run context: [Spec 017: Built-in Run Context](017-built-in-run-context.md)
 
@@ -174,10 +176,10 @@ Rules:
 - If a generated branch already exists after an interrupted or partially
   completed attempt, the action treats it as an existing selected branch. This
   permits a retry to finish creating or reuse the worktree.
-- The selected branch name is returned in the result document so later steps
+- The selected branch name is published as the `branch` output so later steps
   do not need to reconstruct a generated name.
-- A later remove operation can receive the result `branch` and `path` values to
-  remove the generated worktree and, when requested, its branch.
+- A later remove operation can receive the published `branch` and `path`
+  outputs to remove the generated worktree and, when requested, its branch.
 
 ### Path Resolution
 
@@ -282,42 +284,56 @@ Rules:
   execute their inspect-and-mutate sequences serially, including when they
   belong to different DAG runs in the same filesystem environment.
 - Serialization begins before worktree registrations or refs are inspected and
-  ends after the result document is written or the operation fails.
+  ends after the action outputs are published or the operation fails.
 - Waiting for serialization is context-cancellable. Abort or timeout while
-  waiting makes no repository change and writes no result document.
+  waiting makes no repository change and publishes no outputs.
 - Serialization does not coordinate Git mutations performed outside Dagu.
 
-### Result Document
+### Action Outputs
 
 Rules:
 
-- A successful operation writes exactly one JSON object to stdout, on one
-  line, followed by one newline.
-- A failed operation writes no result document to stdout.
-- Diagnostic text goes to stderr only.
-- How later steps consume the result document is owned by the step output and
-  value-resolution specs and is not defined by this spec.
+- Both actions have a fixed output contract. Workflow authors do not declare an
+  `output`, declare top-level `outputs`, or decode stdout to use it.
+- Action normalization makes the fixed contract available to step-output
+  reference validation without requiring a top-level `outputs` field in the
+  workflow.
+- After a successful operation, the executor publishes all output fields as one
+  atomic set on the same lookup surface as declared step outputs.
+- The built-in executor publishes these values directly. It does not use
+  `DAGU_OUTPUT_FILE`; this spec owns that exception to the file-based producer
+  defined by Spec 012.
+- A dependent step reads a field with
+  `${steps.<step-id>.outputs.<field>}` according to Specs 007 and 012.
+- A failed, aborted, or timed-out operation publishes no outputs from that
+  attempt. Outputs from a failed attempt must not be available to later steps
+  or a retry.
+- Stdout is not a result channel for these actions. Workflow behavior must not
+  depend on parsing action stdout.
+- Diagnostic text goes to stderr.
 
-`git.worktree.add` result fields:
+`git.worktree.add` output fields:
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `operation` | string | Always `worktree_add`. |
 | `path` | string | The worktree path. |
 | `branch` | string | The selected branch checked out in the worktree, including the generated name when the input omitted `branch`. |
 | `commit` | string | `HEAD` commit hash of the worktree after the operation. |
 | `worktree_created` | boolean | `true` when this run registered the worktree. |
 | `branch_created` | boolean | `true` when this run created the branch. |
 
-`git.worktree.remove` result fields:
+`git.worktree.remove` output fields:
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `operation` | string | Always `worktree_remove`. |
 | `path` | string | The worktree path, empty when no worktree was registered and `path` was omitted. |
 | `branch` | string | The branch checked out in the resolved target. When no target resolves, the `branch` input; empty when neither is available. |
 | `worktree_removed` | boolean | `true` when this run removed a registered worktree. |
 | `branch_deleted` | boolean | `true` when this run deleted the branch. |
+
+String fields use the `string` output type. Boolean fields use the `json`
+output type and publish JSON booleans. When inserted into a string-valued field,
+the booleans resolve as `true` or `false` according to Spec 003.
 
 ### Lifecycle
 
@@ -326,6 +342,7 @@ Rules:
 - A failed operation fails the step.
 - Validation, revision resolution, registration conflict checks, and remove
   preflight checks complete before the first mutation.
+- Output publication occurs only after every required Git mutation succeeds.
 - If an unexpected failure occurs after the add operation creates the branch,
   the created branch may remain.
 - A failed or interrupted add operation must not leave a registered worktree
@@ -420,8 +437,8 @@ Expected behavior:
 - The generated branch starts at the detected repository `HEAD` commit.
 - The worktree is created at
   `./repo.worktrees/<generated branch>`.
-- The result reports the generated name in `branch`, with `worktree_created`
-  and `branch_created` both `true`.
+- The action publishes the generated name in `branch`, with
+  `worktree_created` and `branch_created` both `true`.
 
 ### Parameterized Inputs
 
@@ -467,8 +484,7 @@ Expected behavior:
 - `./wt/feature-x` is a linked worktree of `./repo`.
 - Branch `feature-x` exists and is checked out in `./wt/feature-x`.
 - The branch points at the commit that `HEAD` of `./repo` pointed at.
-- Stdout is one JSON line with `operation` `worktree_add`, `worktree_created`
-  `true`, and `branch_created` `true`.
+- The action outputs `worktree_created` and `branch_created` are both `true`.
 
 ### Add Is Idempotent
 
@@ -494,7 +510,7 @@ steps:
 Expected behavior:
 
 - Both steps succeed.
-- `second` reports `worktree_created` `false` and `branch_created` `false`.
+- `second` publishes `worktree_created` `false` and `branch_created` `false`.
 - Files created in `./wt/feature-x` between the two steps remain.
 
 ### Add From Base Revision
@@ -531,7 +547,7 @@ steps:
 Expected behavior:
 
 - The worktree is created at `./repo.worktrees/feature/auth`.
-- The result `path` is the resolved absolute form of that directory.
+- The `path` output is the resolved absolute form of that directory.
 
 ### Remove With Branch Delete
 
@@ -557,7 +573,7 @@ Expected behavior:
 
 - `./wt/short-lived` does not exist after `remove`.
 - Branch `short-lived` does not exist after `remove`.
-- `remove` reports `worktree_removed` `true` and `branch_deleted` `true`.
+- `remove` publishes `worktree_removed` `true` and `branch_deleted` `true`.
 
 ### Remove Is Idempotent
 
@@ -573,7 +589,7 @@ steps:
 Expected behavior:
 
 - The step succeeds.
-- The result reports `worktree_removed` `false` and `branch_deleted` `false`.
+- The action publishes `worktree_removed` `false` and `branch_deleted` `false`.
 
 ### Unmerged Branch Deletion Requires Explicit Force
 
@@ -656,26 +672,26 @@ working_dir: ./repo
 steps:
   - id: create_worktree
     action: git.worktree.add
-    output:
-      path:
-        from: stdout
-        decode: json
-        select: .path
-      branch:
-        from: stdout
-        decode: json
-        select: .branch
 
   - id: test
     depends: create_worktree
-    working_dir: "${create_worktree.output.path}"
+    working_dir: "${steps.create_worktree.outputs.path}"
     run: go test ./...
+
+  - id: remove_worktree
+    depends: test
+    action: git.worktree.remove
+    with:
+      path: "${steps.create_worktree.outputs.path}"
+      branch: "${steps.create_worktree.outputs.branch}"
 ```
 
 Expected behavior:
 
-- `create_worktree.output.path` is the absolute worktree path from the action
-  result.
-- `create_worktree.output.branch` is the generated branch name and can be
-  passed to a later remove operation.
+- `${steps.create_worktree.outputs.path}` resolves to the absolute worktree
+  path published by the action without a workflow-side output declaration.
+- `${steps.create_worktree.outputs.branch}` is the generated branch name and
+  can be passed to a later remove operation.
 - `test` runs in the created or reused worktree.
+- `remove_worktree` removes the same worktree without reconstructing its path or
+  generated branch name.

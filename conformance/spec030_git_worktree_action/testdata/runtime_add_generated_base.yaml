@@ -12,5 +12,15 @@ steps:
     action: git.worktree.add
     with:
       base: "${params.base}"
-    stdout: ../action-stdout.json
     stderr: ../action-stderr.txt
+
+  - id: capture
+    depends: add
+    type: template
+    script: |
+      path=${steps.add.outputs.path}
+      branch=${steps.add.outputs.branch}
+      commit=${steps.add.outputs.commit}
+      worktree_created=${steps.add.outputs.worktree_created}
+      branch_created=${steps.add.outputs.branch_created}
+    stdout: action-outputs.txt

@@ -33,7 +33,7 @@ func TestGitWorktreeAddGeneratesBranchWhenOmitted(t *testing.T) {
 	require.True(t, firstResult.BranchCreated)
 	requireLinkedWorktree(t, repo.path, firstPath, firstResult.Branch, repo.baseCommit)
 
-	resetActionStreams(t, dagu)
+	resetActionFiles(t, dagu)
 	second := startWithParams(dagu, "runtime_add_generated.yaml", "working_dir=./repo")
 	second.ExpectExitCode(0)
 	secondResult := readAddResult(t, dagu)
@@ -132,7 +132,7 @@ func TestGitWorktreeAddDefaultPathsDoNotCollide(t *testing.T) {
 	nested.ExpectExitCode(0)
 	nestedResult := readAddResult(t, dagu)
 
-	resetActionStreams(t, dagu)
+	resetActionFiles(t, dagu)
 	flat := startWithParams(
 		dagu,
 		"runtime_add_default.yaml",
@@ -163,7 +163,7 @@ func TestGitWorktreePathsResolveFromRepositoryRoot(t *testing.T) {
 	require.Equal(t, worktreePath, addResult.Path)
 	requireLinkedWorktree(t, repo.path, worktreePath, "step-directory", repo.baseCommit)
 
-	resetActionStreams(t, dagu)
+	resetActionFiles(t, dagu)
 	remove := dagu.Run("start", "runtime_remove_step_working_dir.yaml")
 	remove.ExpectExitCode(0)
 	removeResult := readRemoveResult(t, dagu)
@@ -187,7 +187,7 @@ func TestGitWorktreeActionsDetectRepositoryFromSubdirectory(t *testing.T) {
 	require.True(t, addResult.WorktreeCreated)
 	requireLinkedWorktree(t, repo.path, worktreePath, "from-subdirectory", repo.baseCommit)
 
-	resetActionStreams(t, dagu)
+	resetActionFiles(t, dagu)
 	remove := dagu.Run("start", "runtime_remove_subdirectory.yaml")
 	remove.ExpectExitCode(0)
 	removeResult := readRemoveResult(t, dagu)
@@ -218,7 +218,7 @@ func TestGitWorktreeActionsDetectRepositoryFromLinkedWorktree(t *testing.T) {
 	require.Equal(t, worktreePath, addResult.Path)
 	requireLinkedWorktree(t, repo.path, worktreePath, "from-linked", repo.baseCommit)
 
-	resetActionStreams(t, dagu)
+	resetActionFiles(t, dagu)
 	remove := startWithParams(
 		dagu,
 		"runtime_remove_branch.yaml",
@@ -365,7 +365,7 @@ func TestGitWorktreeAddReusesWorktreeWithoutChangingIt(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(worktreePath, "base.txt"), []byte("modified\n"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(worktreePath, "untracked.txt"), []byte("keep\n"), 0o644))
 	headBefore := gitOutput(t, worktreePath, "rev-parse", "HEAD")
-	resetActionStreams(t, dagu)
+	resetActionFiles(t, dagu)
 
 	second := startWithParams(dagu, "runtime_add.yaml", params...)
 	second.ExpectExitCode(0)
@@ -439,7 +439,7 @@ func TestGitWorktreeAddRuntimeErrors(t *testing.T) {
 		result.ExpectNonZeroExitCode()
 		result.ExpectStdout("")
 		result.ExpectStderrNotEmpty()
-		requireNoResultDocument(t, dagu)
+		requireNoPublishedOutputs(t, dagu)
 	})
 
 	t.Run("working directory is not a repository", func(t *testing.T) {
@@ -457,7 +457,7 @@ func TestGitWorktreeAddRuntimeErrors(t *testing.T) {
 		result.ExpectNonZeroExitCode()
 		result.ExpectStdout("")
 		result.ExpectStderrNotEmpty()
-		requireNoResultDocument(t, dagu)
+		requireNoPublishedOutputs(t, dagu)
 	})
 
 	t.Run("base cannot be resolved", func(t *testing.T) {
@@ -476,7 +476,7 @@ func TestGitWorktreeAddRuntimeErrors(t *testing.T) {
 		result.ExpectNonZeroExitCode()
 		result.ExpectStdout("")
 		result.ExpectStderrNotEmpty()
-		requireNoResultDocument(t, dagu)
+		requireNoPublishedOutputs(t, dagu)
 		require.False(t, refExists(t, repo.path, "refs/heads/topic"))
 		requireNoLinkedWorktree(t, repo.path, dagu.ProjectPath("wt/topic"), "topic")
 	})
@@ -496,7 +496,7 @@ func TestGitWorktreeAddRuntimeErrors(t *testing.T) {
 		result.ExpectNonZeroExitCode()
 		result.ExpectStdout("")
 		result.ExpectStderrNotEmpty()
-		requireNoResultDocument(t, dagu)
+		requireNoPublishedOutputs(t, dagu)
 		require.False(t, refExists(t, repo.path, "refs/heads/missing"))
 		requireNoLinkedWorktree(t, repo.path, dagu.ProjectPath("wt/missing"), "missing")
 	})
@@ -516,7 +516,7 @@ func TestGitWorktreeAddRuntimeErrors(t *testing.T) {
 		result.ExpectNonZeroExitCode()
 		result.ExpectStdout("")
 		result.ExpectStderrNotEmpty()
-		requireNoResultDocument(t, dagu)
+		requireNoPublishedOutputs(t, dagu)
 		requireNoLinkedWorktree(t, repo.path, dagu.ProjectPath("wt/invalid"), "")
 	})
 
@@ -536,7 +536,7 @@ func TestGitWorktreeAddRuntimeErrors(t *testing.T) {
 		result.ExpectNonZeroExitCode()
 		result.ExpectStdout("")
 		result.ExpectStderrNotEmpty()
-		requireNoResultDocument(t, dagu)
+		requireNoPublishedOutputs(t, dagu)
 		dagu.ExpectFileContent("wt/occupied/keep.txt", "keep\n")
 		require.False(t, refExists(t, repo.path, "refs/heads/occupied"))
 		requireNoLinkedWorktree(t, repo.path, dagu.ProjectPath("wt/occupied"), "occupied")
@@ -557,7 +557,7 @@ func TestGitWorktreeAddRuntimeErrors(t *testing.T) {
 		result.ExpectNonZeroExitCode()
 		result.ExpectStdout("")
 		result.ExpectStderrNotEmpty()
-		requireNoResultDocument(t, dagu)
+		requireNoPublishedOutputs(t, dagu)
 		requireNoLinkedWorktree(t, repo.path, dagu.ProjectPath("wt/main"), "")
 	})
 
@@ -578,7 +578,7 @@ func TestGitWorktreeAddRuntimeErrors(t *testing.T) {
 		result.ExpectNonZeroExitCode()
 		result.ExpectStdout("")
 		result.ExpectStderrNotEmpty()
-		requireNoResultDocument(t, dagu)
+		requireNoPublishedOutputs(t, dagu)
 		requireLinkedWorktree(t, repo.path, otherPath, "linked", repo.baseCommit)
 		requireNoLinkedWorktree(t, repo.path, dagu.ProjectPath("wt/requested"), "")
 	})
@@ -603,7 +603,7 @@ func TestGitWorktreeAddRuntimeErrors(t *testing.T) {
 		result.ExpectNonZeroExitCode()
 		result.ExpectStdout("")
 		result.ExpectStderrNotEmpty()
-		requireNoResultDocument(t, dagu)
+		requireNoPublishedOutputs(t, dagu)
 		require.NoDirExists(t, path)
 		require.DirExists(t, path+".moved")
 		require.True(t, refExists(t, repo.path, "refs/heads/stale"))
@@ -626,7 +626,7 @@ func TestGitWorktreeAddRuntimeErrors(t *testing.T) {
 		result.ExpectNonZeroExitCode()
 		result.ExpectStdout("")
 		result.ExpectStderrNotEmpty()
-		requireNoResultDocument(t, dagu)
+		requireNoPublishedOutputs(t, dagu)
 		requireLinkedWorktree(t, repo.path, path, "other", repo.baseCommit)
 		require.False(t, refExists(t, repo.path, "refs/heads/wanted"))
 	})

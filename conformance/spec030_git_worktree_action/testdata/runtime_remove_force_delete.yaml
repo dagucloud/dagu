@@ -14,5 +14,14 @@ steps:
       branch: "${params.branch}"
       delete_branch: true
       force_delete_branch: true
-    stdout: ../action-stdout.json
     stderr: ../action-stderr.txt
+
+  - id: capture
+    depends: remove
+    type: template
+    script: |
+      path=${steps.remove.outputs.path}
+      branch=${steps.remove.outputs.branch}
+      worktree_removed=${steps.remove.outputs.worktree_removed}
+      branch_deleted=${steps.remove.outputs.branch_deleted}
+    stdout: action-outputs.txt
