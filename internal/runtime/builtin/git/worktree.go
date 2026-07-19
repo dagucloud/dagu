@@ -27,15 +27,11 @@ const (
 
 var commitHashPattern = regexp.MustCompile(`^[0-9a-fA-F]{7,64}$`)
 
-// repository keeps display paths separate from canonical coordination paths.
 type repository struct {
-	// root preserves the user-visible path spelling used for relative paths and outputs.
-	root string
-	// commonDir is canonical so every worktree of a repository uses the same lock.
+	root      string
 	commonDir string
 }
 
-// worktreeRegistration is a canonicalized record from Git's porcelain output.
 type worktreeRegistration struct {
 	path    string
 	head    string
@@ -138,8 +134,6 @@ func (e *executorImpl) resolveRepositoryDisplayRoot(ctx context.Context, workDir
 			}
 		}
 	}
-	// Preserve the step's path spelling when it identifies the same repository.
-	// Canonical paths remain reserved for registration comparison and locking.
 	canonicalCandidate, err := canonicalPath(candidate)
 	if err == nil && canonicalCandidate == canonicalRoot {
 		return candidate, nil
@@ -168,7 +162,12 @@ func (e *executorImpl) lockRepository(ctx context.Context, commonDir string) err
 
 func (e *executorImpl) runWorktreeAdd(ctx context.Context, repo repository) error {
 	cfg := e.worktreeCfg
-	branch, generated := e.selectAddBranch()
+	branch := cfg.Branch
+	generated := !cfg.HasBranch
+	if generated {
+		digest := sha256.Sum256([]byte(e.dagRunID + "\x00" + e.stepIdentity))
+		branch = "dagu/" + hex.EncodeToString(digest[:16])
+	}
 	if err := e.validateBranch(ctx, repo.root, branch); err != nil {
 		return err
 	}
@@ -176,8 +175,15 @@ func (e *executorImpl) runWorktreeAdd(ctx context.Context, repo repository) erro
 	target := cfg.Path
 	if !cfg.HasPath {
 		target = filepath.Join(repo.root+".worktrees", filepath.FromSlash(branch))
+	} else if !filepath.IsAbs(target) {
+		target = filepath.Join(repo.root, target)
 	}
-	target, targetKey, err := resolveWorktreePath(repo.root, target)
+	var err error
+	target, err = cleanAbsolutePath(target)
+	if err != nil {
+		return fmt.Errorf("resolve worktree path %q: %w", cfg.Path, err)
+	}
+	targetKey, err := canonicalPath(target)
 	if err != nil {
 		return fmt.Errorf("resolve worktree path %q: %w", cfg.Path, err)
 	}
@@ -186,23 +192,35 @@ func (e *executorImpl) runWorktreeAdd(ctx context.Context, repo repository) erro
 	if err != nil {
 		return err
 	}
-	existing, err := reusableAddRegistration(registrations, targetKey, target, branch)
-	if err != nil {
-		return err
-	}
-	if existing != nil {
-		e.publishAddOutputs(target, branch, existing.head, false, false)
+	byPath := registrationByPath(registrations, targetKey)
+	byBranch := registrationByBranch(registrations, branch)
+	if byPath != nil && byBranch != nil && byPath == byBranch && !byPath.primary && !byPath.bare {
+		stale, staleErr := registrationStale(*byPath)
+		if staleErr != nil {
+			return staleErr
+		}
+		if stale {
+			return fmt.Errorf("worktree %q has a stale registration; use git.worktree.remove to unregister it before retrying", target)
+		}
+		e.publishAddOutputs(target, branch, byPath.head, false, false)
 		return nil
+	}
+	if byBranch != nil {
+		return fmt.Errorf("branch %q is already checked out at %q", branch, byBranch.path)
+	}
+	if byPath != nil {
+		return fmt.Errorf("path %q is already registered for branch %q", target, shortBranch(byPath.branch))
 	}
 	if err := ensureWorktreeTarget(target); err != nil {
 		return err
 	}
 
 	branchRef := "refs/heads/" + branch
-	_, branchExists, err := e.resolveExactCommit(ctx, repo.root, branchRef)
+	commit, branchExists, err := e.resolveExactCommit(ctx, repo.root, branchRef)
 	if err != nil {
 		return err
 	}
+	branchCreated := !branchExists
 	args := []string{"worktree", "add"}
 	if branchExists {
 		args = append(args, "--", target, branch)
@@ -210,7 +228,7 @@ func (e *executorImpl) runWorktreeAdd(ctx context.Context, repo repository) erro
 		if !generated && !cfg.CreateBranch {
 			return fmt.Errorf("branch %q does not exist; set create_branch to create it", branch)
 		}
-		commit, err := e.resolveAddBase(ctx, repo.root, cfg)
+		commit, err = e.resolveAddBase(ctx, repo.root, cfg)
 		if err != nil {
 			return err
 		}
@@ -220,64 +238,25 @@ func (e *executorImpl) runWorktreeAdd(ctx context.Context, repo repository) erro
 		return e.failedAddError(ctx, repo.root, target, branch, fmt.Errorf("create worktree %q: %w", target, err))
 	}
 
-	// Git success is not sufficient: publish outputs only after the expected
-	// branch and live registration are visible in the repository.
 	registrations, err = e.listWorktrees(ctx, repo.root)
 	if err != nil {
 		return err
 	}
-	commit, err := addedWorktreeCommit(registrations, targetKey, target, branchRef, branch)
-	if err != nil {
-		return e.failedAddError(ctx, repo.root, target, branch, err)
-	}
-	e.publishAddOutputs(target, branch, commit, true, !branchExists)
-	return nil
-}
-
-func (e *executorImpl) selectAddBranch() (branch string, generated bool) {
-	if e.worktreeCfg.HasBranch {
-		return e.worktreeCfg.Branch, false
-	}
-	// The NUL separator keeps distinct run/step identity pairs unambiguous.
-	digest := sha256.Sum256([]byte(e.dagRunID + "\x00" + e.stepIdentity))
-	return "dagu/" + hex.EncodeToString(digest[:16]), true
-}
-
-func reusableAddRegistration(registrations []worktreeRegistration, targetKey, target, branch string) (*worktreeRegistration, error) {
-	byPath := registrationByPath(registrations, targetKey)
-	byBranch := registrationByBranch(registrations, branch)
-	if byPath != nil && byPath == byBranch && !byPath.primary && !byPath.bare {
-		stale, err := registrationStale(*byPath)
-		if err != nil {
-			return nil, err
-		}
-		if stale {
-			return nil, fmt.Errorf("worktree %q has a stale registration; use git.worktree.remove to unregister it before retrying", target)
-		}
-		return byPath, nil
-	}
-	if byBranch != nil {
-		return nil, fmt.Errorf("branch %q is already checked out at %q", branch, byBranch.path)
-	}
-	if byPath != nil {
-		return nil, fmt.Errorf("path %q is already registered for branch %q", target, shortBranch(byPath.branch))
-	}
-	return nil, nil
-}
-
-func addedWorktreeCommit(registrations []worktreeRegistration, targetKey, target, branchRef, branch string) (string, error) {
 	created := registrationByPath(registrations, targetKey)
 	if created == nil || created.branch != branchRef {
-		return "", fmt.Errorf("created worktree registration does not match path %q and branch %q", target, branch)
+		return e.failedAddError(ctx, repo.root, target, branch,
+			fmt.Errorf("created worktree registration does not match path %q and branch %q", target, branch))
 	}
 	stale, err := registrationStale(*created)
 	if err != nil {
-		return "", err
+		return e.failedAddError(ctx, repo.root, target, branch, err)
 	}
 	if stale {
-		return "", fmt.Errorf("created worktree %q is missing", target)
+		return e.failedAddError(ctx, repo.root, target, branch, fmt.Errorf("created worktree %q is missing", target))
 	}
-	return created.head, nil
+	commit = created.head
+	e.publishAddOutputs(target, branch, commit, true, branchCreated)
+	return nil
 }
 
 func (e *executorImpl) publishAddOutputs(path, branch, commit string, worktreeCreated, branchCreated bool) {
@@ -330,9 +309,7 @@ func (e *executorImpl) resolveExactCommit(ctx context.Context, repoRoot, ref str
 	if err == nil {
 		return strings.TrimSpace(string(output)), true, nil
 	}
-	exitCode := gitExitCode(err)
-	// An unresolved ref is an expected negative result for this probe.
-	if exitCode == 128 || exitCode == 1 {
+	if exitCode := gitExitCode(err); exitCode == 128 || exitCode == 1 {
 		return "", false, nil
 	}
 	return "", false, fmt.Errorf("resolve %q: %w", ref, gitCommandError(err, output))
@@ -404,75 +381,30 @@ func ensureWorktreeTarget(path string) error {
 	return nil
 }
 
-func resolveWorktreePath(repoRoot, path string) (string, string, error) {
-	if !filepath.IsAbs(path) {
-		path = filepath.Join(repoRoot, path)
-	}
-	resolved, err := cleanAbsolutePath(path)
-	if err != nil {
-		return "", "", err
-	}
-	canonical, err := canonicalPath(resolved)
-	if err != nil {
-		return "", "", err
-	}
-	return resolved, canonical, nil
-}
-
 func (e *executorImpl) runWorktreeRemove(ctx context.Context, repo repository) error {
+	cfg := e.worktreeCfg
 	registrations, err := e.listWorktrees(ctx, repo.root)
 	if err != nil {
 		return err
 	}
 
-	path, branch, target, err := e.resolveRemoveTarget(ctx, repo, registrations)
-	if err != nil {
-		return err
-	}
-
-	// Complete every safety check before the first mutation. In particular, a
-	// rejected branch deletion must not remove the worktree first.
-	stale, err := e.preflightWorktreeRemoval(ctx, target)
-	if err != nil {
-		return err
-	}
-	branchExists, err := e.preflightBranchDeletion(ctx, repo.root, registrations, target)
-	if err != nil {
-		return err
-	}
-
-	registrations, worktreeRemoved, err := e.removeRegisteredWorktree(ctx, repo.root, registrations, target, stale)
-	if err != nil {
-		return err
-	}
-	branchDeleted, err := e.deleteWorktreeBranch(ctx, repo.root, registrations, branchExists)
-	if err != nil {
-		return err
-	}
-
-	e.publishRemoveOutputs(path, branch, worktreeRemoved, branchDeleted)
-	return nil
-}
-
-func (e *executorImpl) resolveRemoveTarget(
-	ctx context.Context,
-	repo repository,
-	registrations []worktreeRegistration,
-) (string, string, *worktreeRegistration, error) {
-	cfg := e.worktreeCfg
 	path := ""
 	var byPath *worktreeRegistration
 	if cfg.HasPath {
-		var pathKey string
-		var err error
-		path, pathKey, err = resolveWorktreePath(repo.root, cfg.Path)
-		if err != nil {
-			return "", "", nil, fmt.Errorf("resolve worktree path %q: %w", cfg.Path, err)
+		path = cfg.Path
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(repo.root, path)
 		}
-		for _, registration := range registrations {
-			if registration.primary && registration.path == pathKey {
-				return "", "", nil, fmt.Errorf("refusing to remove primary working tree %q", path)
-			}
+		path, err = cleanAbsolutePath(path)
+		if err != nil {
+			return fmt.Errorf("resolve worktree path %q: %w", cfg.Path, err)
+		}
+		pathKey, canonicalErr := canonicalPath(path)
+		if canonicalErr != nil {
+			return fmt.Errorf("resolve worktree path %q: %w", cfg.Path, canonicalErr)
+		}
+		if registration := registrationByPath(registrations, pathKey); registration != nil && registration.primary {
+			return fmt.Errorf("refusing to remove primary working tree %q", path)
 		}
 		byPath = linkedRegistrationByPath(registrations, pathKey)
 	}
@@ -480,16 +412,15 @@ func (e *executorImpl) resolveRemoveTarget(
 	var byBranch *worktreeRegistration
 	if cfg.HasBranch {
 		if err := e.validateBranch(ctx, repo.root, cfg.Branch); err != nil {
-			return "", "", nil, err
+			return err
 		}
 		byBranch = linkedRegistrationByBranch(registrations, cfg.Branch)
 	}
-
 	var target *worktreeRegistration
 	if cfg.HasPath && cfg.HasBranch {
 		if byPath != nil || byBranch != nil {
 			if byPath == nil || byBranch == nil || byPath.path != byBranch.path {
-				return "", "", nil, fmt.Errorf("branch %q and path %q identify different worktrees", cfg.Branch, path)
+				return fmt.Errorf("branch %q and path %q identify different worktrees", cfg.Branch, path)
 			}
 			target = byPath
 		}
@@ -507,113 +438,84 @@ func (e *executorImpl) resolveRemoveTarget(
 		branch = shortBranch(target.branch)
 	}
 	if target != nil && cfg.HasBranch && shortBranch(target.branch) != cfg.Branch {
-		return "", "", nil, fmt.Errorf("path %q is registered for branch %q, not %q", path, shortBranch(target.branch), cfg.Branch)
+		return fmt.Errorf("path %q is registered for branch %q, not %q", path, shortBranch(target.branch), cfg.Branch)
 	}
-	return path, branch, target, nil
-}
 
-func (e *executorImpl) preflightWorktreeRemoval(ctx context.Context, target *worktreeRegistration) (bool, error) {
-	if target == nil {
-		return false, nil
+	// Complete every safety check before mutating the worktree or branch.
+	stale := false
+	if target != nil {
+		stale, err = registrationStale(*target)
+		if err != nil {
+			return err
+		}
+		if !stale {
+			dirty, dirtyErr := e.worktreeDirty(ctx, target.path)
+			if dirtyErr != nil {
+				return dirtyErr
+			}
+			if dirty && !cfg.Force {
+				return fmt.Errorf("worktree %q has uncommitted changes", target.path)
+			}
+		}
 	}
-	stale, err := registrationStale(*target)
-	if err != nil || stale {
-		return stale, err
-	}
-	dirty, err := e.worktreeDirty(ctx, target.path)
-	if err != nil {
-		return false, err
-	}
-	if dirty && !e.worktreeCfg.Force {
-		return false, fmt.Errorf("worktree %q has uncommitted changes", target.path)
-	}
-	return false, nil
-}
 
-func (e *executorImpl) preflightBranchDeletion(
-	ctx context.Context,
-	repoRoot string,
-	registrations []worktreeRegistration,
-	target *worktreeRegistration,
-) (bool, error) {
-	cfg := e.worktreeCfg
-	if !cfg.DeleteBranch {
-		return false, nil
+	branchExists := false
+	if cfg.DeleteBranch {
+		_, branchExists, err = e.resolveExactCommit(ctx, repo.root, "refs/heads/"+cfg.Branch)
+		if err != nil {
+			return err
+		}
+		if branchExists {
+			if conflict := checkedOutRegistration(registrations, cfg.Branch, target); conflict != nil {
+				return fmt.Errorf("branch %q is checked out at %q", cfg.Branch, conflict.path)
+			}
+			if !cfg.ForceDeleteBranch {
+				output, mergeErr := e.gitRaw(ctx, repo.root, "merge-base", "--is-ancestor", "refs/heads/"+cfg.Branch, "HEAD")
+				if mergeErr != nil {
+					if gitExitCode(mergeErr) == 1 {
+						return fmt.Errorf("branch %q is not merged into repository HEAD", cfg.Branch)
+					}
+					return fmt.Errorf("check whether branch %q is merged: %w", cfg.Branch, gitCommandError(mergeErr, output))
+				}
+			}
+		}
 	}
-	_, branchExists, err := e.resolveExactCommit(ctx, repoRoot, "refs/heads/"+cfg.Branch)
-	if err != nil || !branchExists {
-		return branchExists, err
-	}
-	if conflict := checkedOutRegistration(registrations, cfg.Branch, target); conflict != nil {
-		return false, fmt.Errorf("branch %q is checked out at %q", cfg.Branch, conflict.path)
-	}
-	if cfg.ForceDeleteBranch {
-		return true, nil
-	}
-	output, err := e.gitRaw(ctx, repoRoot, "merge-base", "--is-ancestor", "refs/heads/"+cfg.Branch, "HEAD")
-	if err == nil {
-		return true, nil
-	}
-	if gitExitCode(err) == 1 {
-		return false, fmt.Errorf("branch %q is not merged into repository HEAD", cfg.Branch)
-	}
-	return false, fmt.Errorf("check whether branch %q is merged: %w", cfg.Branch, gitCommandError(err, output))
-}
 
-func (e *executorImpl) removeRegisteredWorktree(
-	ctx context.Context,
-	repoRoot string,
-	registrations []worktreeRegistration,
-	target *worktreeRegistration,
-	stale bool,
-) ([]worktreeRegistration, bool, error) {
-	if target == nil {
-		return registrations, false, nil
+	worktreeRemoved := false
+	if target != nil {
+		args := []string{"worktree", "remove"}
+		if stale || cfg.Force {
+			args = append(args, "--force")
+		}
+		args = append(args, "--", target.path)
+		if _, err := e.gitOutput(ctx, repo.root, args...); err != nil {
+			return fmt.Errorf("remove worktree %q: %w", target.path, err)
+		}
+		registrations, err = e.listWorktrees(ctx, repo.root)
+		if err != nil {
+			return err
+		}
+		if linkedRegistrationByPath(registrations, target.path) != nil {
+			return fmt.Errorf("worktree %q remains registered after removal", target.path)
+		}
+		worktreeRemoved = true
 	}
-	args := []string{"worktree", "remove"}
-	if stale || e.worktreeCfg.Force {
-		args = append(args, "--force")
-	}
-	args = append(args, "--", target.path)
-	if _, err := e.gitOutput(ctx, repoRoot, args...); err != nil {
-		return nil, false, fmt.Errorf("remove worktree %q: %w", target.path, err)
-	}
-	registrations, err := e.listWorktrees(ctx, repoRoot)
-	if err != nil {
-		return nil, false, err
-	}
-	if linkedRegistrationByPath(registrations, target.path) != nil {
-		return nil, false, fmt.Errorf("worktree %q remains registered after removal", target.path)
-	}
-	return registrations, true, nil
-}
 
-func (e *executorImpl) deleteWorktreeBranch(
-	ctx context.Context,
-	repoRoot string,
-	registrations []worktreeRegistration,
-	branchExists bool,
-) (bool, error) {
-	cfg := e.worktreeCfg
-	if !cfg.DeleteBranch || !branchExists {
-		return false, nil
+	branchDeleted := false
+	if cfg.DeleteBranch && branchExists {
+		if conflict := checkedOutRegistration(registrations, cfg.Branch, nil); conflict != nil {
+			return fmt.Errorf("branch %q is checked out at %q", cfg.Branch, conflict.path)
+		}
+		flag := "-d"
+		if cfg.ForceDeleteBranch {
+			flag = "-D"
+		}
+		if _, err := e.gitOutput(ctx, repo.root, "branch", flag, "--", cfg.Branch); err != nil {
+			return fmt.Errorf("delete branch %q: %w", cfg.Branch, err)
+		}
+		branchDeleted = true
 	}
-	// Recheck after worktree removal so a branch is never deleted while another
-	// registration still reports it as checked out.
-	if conflict := checkedOutRegistration(registrations, cfg.Branch, nil); conflict != nil {
-		return false, fmt.Errorf("branch %q is checked out at %q", cfg.Branch, conflict.path)
-	}
-	flag := "-d"
-	if cfg.ForceDeleteBranch {
-		flag = "-D"
-	}
-	if _, err := e.gitOutput(ctx, repoRoot, "branch", flag, "--", cfg.Branch); err != nil {
-		return false, fmt.Errorf("delete branch %q: %w", cfg.Branch, err)
-	}
-	return true, nil
-}
 
-func (e *executorImpl) publishRemoveOutputs(path, branch string, worktreeRemoved, branchDeleted bool) {
 	e.mu.Lock()
 	e.outputs = map[string]any{
 		"path":             path,
@@ -622,6 +524,7 @@ func (e *executorImpl) publishRemoveOutputs(path, branch string, worktreeRemoved
 		"branch_deleted":   branchDeleted,
 	}
 	e.mu.Unlock()
+	return nil
 }
 
 func (e *executorImpl) worktreeDirty(ctx context.Context, path string) (bool, error) {
@@ -636,19 +539,14 @@ func checkedOutRegistration(registrations []worktreeRegistration, branch string,
 	ref := "refs/heads/" + branch
 	for i := range registrations {
 		registration := &registrations[i]
-		if registration.branch != ref {
-			continue
+		if registration.branch == ref && (except == nil || registration.path != except.path) {
+			return registration
 		}
-		if except != nil && registration.path == except.path {
-			continue
-		}
-		return registration
 	}
 	return nil
 }
 
 func (e *executorImpl) listWorktrees(ctx context.Context, repoRoot string) ([]worktreeRegistration, error) {
-	// NUL-delimited porcelain preserves paths containing whitespace or newlines.
 	output, err := e.gitRaw(ctx, repoRoot, "worktree", "list", "--porcelain", "-z")
 	if err != nil {
 		return nil, fmt.Errorf("list worktrees: %w", gitCommandError(err, output))
@@ -695,7 +593,6 @@ func (e *executorImpl) listWorktrees(ctx context.Context, repoRoot string) ([]wo
 	if err := flush(); err != nil {
 		return nil, fmt.Errorf("parse worktree registration: %w", err)
 	}
-	// Git lists the primary working tree first; a bare repository has no primary tree.
 	if len(registrations) > 0 && !registrations[0].bare {
 		registrations[0].primary = true
 	}
@@ -785,11 +682,7 @@ func canonicalPath(path string) (string, error) {
 }
 
 func cleanAbsolutePath(path string) (string, error) {
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Clean(abs), nil
+	return filepath.Abs(path)
 }
 
 func repositoryPathSpelling(repo repository, canonical string) string {
@@ -834,17 +727,12 @@ func (e *executorImpl) gitRaw(ctx context.Context, dir string, args ...string) (
 
 func sanitizedGitEnvironment() []string {
 	// Inherited Git plumbing variables can redirect `git -C` to unrelated state.
-	blocked := map[string]bool{
-		"GIT_DIR":        true,
-		"GIT_WORK_TREE":  true,
-		"GIT_COMMON_DIR": true,
-		"GIT_INDEX_FILE": true,
-	}
 	environment := os.Environ()
 	filtered := environment[:0]
 	for _, entry := range environment {
-		name, _, ok := strings.Cut(entry, "=")
-		if ok && blocked[name] {
+		name, _, _ := strings.Cut(entry, "=")
+		switch name {
+		case "GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE":
 			continue
 		}
 		filtered = append(filtered, entry)
