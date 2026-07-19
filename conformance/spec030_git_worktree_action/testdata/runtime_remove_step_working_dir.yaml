@@ -1,10 +1,9 @@
 working_dir: .
 steps:
   - id: remove
-    working_dir: ./workspace
-    action: git.worktree_remove
+    working_dir: ./repo
+    action: git.worktree.remove
     with:
-      repository: ../repo
-      path: ./wt/step-directory
+      path: ../workspace/wt/step-directory
     stdout: ../action-stdout.json
     stderr: ../action-stderr.txt

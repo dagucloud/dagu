@@ -1,34 +1,30 @@
+working_dir: ./missing-repository
 steps:
   - id: add-minimal
-    action: git.worktree_add
+    action: git.worktree.add
     with:
-      repository: ./missing-repository
       branch: missing-branch
 
   - id: add-all-fields
-    action: git.worktree_add
+    action: git.worktree.add
     with:
-      repository: ./missing-repository
       branch: missing-branch
       path: ./missing-worktree
       from: missing-start-point
 
   - id: remove-by-branch
-    action: git.worktree_remove
+    action: git.worktree.remove
     with:
-      repository: ./missing-repository
       branch: missing-branch
 
   - id: remove-by-path
-    action: git.worktree_remove
+    action: git.worktree.remove
     with:
-      repository: ./missing-repository
       path: ./missing-worktree
 
   - id: remove-by-both
-    action: git.worktree_remove
+    action: git.worktree.remove
     with:
-      repository: ./missing-repository
       branch: missing-branch
       path: ./missing-worktree
       force: true

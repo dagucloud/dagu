@@ -1,5 +1,4 @@
 steps:
-  - action: git.worktree_move
+  - action: git.worktree.move
     with:
-      repository: ./repo
       branch: topic

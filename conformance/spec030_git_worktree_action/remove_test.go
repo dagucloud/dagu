@@ -23,7 +23,7 @@ func TestGitWorktreeRemoveSelectors(t *testing.T) {
 		path := dagu.ProjectPath("wt/by-branch")
 		createLinkedWorktree(t, repo.path, path, "by-branch", repo.baseCommit)
 
-		result := startWithParams(dagu, "runtime_remove_branch.yaml", "repository=./repo", "branch=by-branch")
+		result := startWithParams(dagu, "runtime_remove_branch.yaml", "working_dir=./repo", "branch=by-branch")
 		result.ExpectExitCode(0)
 		actual := readRemoveResult(t, dagu)
 		require.Equal(t, path, actual.Path)
@@ -42,7 +42,7 @@ func TestGitWorktreeRemoveSelectors(t *testing.T) {
 		path := dagu.ProjectPath("wt/by-path")
 		createLinkedWorktree(t, repo.path, path, "by-path", repo.baseCommit)
 
-		result := startWithParams(dagu, "runtime_remove_path.yaml", "repository=./repo", "path=./wt/by-path")
+		result := startWithParams(dagu, "runtime_remove_path.yaml", "working_dir=./repo", "path=../wt/by-path")
 		result.ExpectExitCode(0)
 		actual := readRemoveResult(t, dagu)
 		require.Equal(t, path, actual.Path)
@@ -61,7 +61,7 @@ func TestGitWorktreeRemoveSelectors(t *testing.T) {
 		path := dagu.ProjectPath("wt/by-both")
 		createLinkedWorktree(t, repo.path, path, "by-both", repo.baseCommit)
 
-		params := []string{"repository=./repo", "branch=by-both", "path=./wt/by-both"}
+		params := []string{"working_dir=./repo", "branch=by-both", "path=../wt/by-both"}
 		result := startWithParams(dagu, "runtime_remove_both.yaml", params...)
 		result.ExpectExitCode(0)
 		actual := readRemoveResult(t, dagu)
@@ -90,7 +90,7 @@ func TestGitWorktreeRemoveMissingTargetsIsIdempotent(t *testing.T) {
 		t.Parallel()
 		dagu := harness.NewRunner(t)
 		_ = initRepository(t, dagu)
-		result := startWithParams(dagu, "runtime_remove_branch.yaml", "repository=./repo", "branch=missing")
+		result := startWithParams(dagu, "runtime_remove_branch.yaml", "working_dir=./repo", "branch=missing")
 		result.ExpectExitCode(0)
 		actual := readRemoveResult(t, dagu)
 		require.Empty(t, actual.Path)
@@ -103,7 +103,7 @@ func TestGitWorktreeRemoveMissingTargetsIsIdempotent(t *testing.T) {
 		t.Parallel()
 		dagu := harness.NewRunner(t)
 		_ = initRepository(t, dagu)
-		result := startWithParams(dagu, "runtime_remove_path.yaml", "repository=./repo", "path=./wt/missing")
+		result := startWithParams(dagu, "runtime_remove_path.yaml", "working_dir=./repo", "path=../wt/missing")
 		result.ExpectExitCode(0)
 		actual := readRemoveResult(t, dagu)
 		require.Equal(t, dagu.ProjectPath("wt/missing"), actual.Path)
@@ -117,7 +117,7 @@ func TestGitWorktreeRemoveMissingTargetsIsIdempotent(t *testing.T) {
 		dagu := harness.NewRunner(t)
 		_ = initRepository(t, dagu)
 		dagu.WriteFile("wt/unregistered/keep.txt", "keep\n")
-		result := startWithParams(dagu, "runtime_remove_path.yaml", "repository=./repo", "path=./wt/unregistered")
+		result := startWithParams(dagu, "runtime_remove_path.yaml", "working_dir=./repo", "path=../wt/unregistered")
 		result.ExpectExitCode(0)
 		actual := readRemoveResult(t, dagu)
 		require.Equal(t, dagu.ProjectPath("wt/unregistered"), actual.Path)
@@ -129,7 +129,7 @@ func TestGitWorktreeRemoveMissingTargetsIsIdempotent(t *testing.T) {
 		t.Parallel()
 		dagu := harness.NewRunner(t)
 		repo := initRepository(t, dagu)
-		result := startWithParams(dagu, "runtime_remove_branch.yaml", "repository=./repo", "branch=main")
+		result := startWithParams(dagu, "runtime_remove_branch.yaml", "working_dir=./repo", "branch=main")
 		result.ExpectExitCode(0)
 		actual := readRemoveResult(t, dagu)
 		require.Empty(t, actual.Path)
@@ -152,7 +152,7 @@ func TestGitWorktreeRemoveDirtyRequiresForce(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(path, "untracked.txt"), []byte("untracked\n"), 0o644))
 	requireValidWorkflow(dagu, "runtime_remove_branch.yaml")
 
-	refused := startWithParams(dagu, "runtime_remove_branch.yaml", "repository=./repo", "branch=dirty")
+	refused := startWithParams(dagu, "runtime_remove_branch.yaml", "working_dir=./repo", "branch=dirty")
 	refused.ExpectNonZeroExitCode()
 	refused.ExpectStdout("")
 	refused.ExpectStderrNotEmpty()
@@ -163,7 +163,7 @@ func TestGitWorktreeRemoveDirtyRequiresForce(t *testing.T) {
 	requireLinkedWorktree(t, repo.path, path, "dirty", repo.baseCommit)
 
 	resetActionStreams(t, dagu)
-	forced := startWithParams(dagu, "runtime_remove_force.yaml", "repository=./repo", "branch=dirty")
+	forced := startWithParams(dagu, "runtime_remove_force.yaml", "working_dir=./repo", "branch=dirty")
 	forced.ExpectExitCode(0)
 	actual := readRemoveResult(t, dagu)
 	require.True(t, actual.Removed)
@@ -183,7 +183,7 @@ func TestGitWorktreeRemoveUnregistersStaleTarget(t *testing.T) {
 	require.NoError(t, os.Rename(path, path+".moved"))
 	requireLinkedWorktree(t, repo.path, path, "stale", repo.baseCommit)
 
-	result := startWithParams(dagu, "runtime_remove_branch.yaml", "repository=./repo", "branch=stale")
+	result := startWithParams(dagu, "runtime_remove_branch.yaml", "working_dir=./repo", "branch=stale")
 	result.ExpectExitCode(0)
 	actual := readRemoveResult(t, dagu)
 	require.Equal(t, path, actual.Path)
@@ -206,7 +206,7 @@ func TestGitWorktreeRemoveDeletesBranches(t *testing.T) {
 		createLinkedWorktree(t, repo.path, path, "unmerged", repo.baseCommit)
 		_ = commitFile(t, path, "branch-only.txt", "branch\n", "unmerged change")
 
-		result := startWithParams(dagu, "runtime_remove_delete.yaml", "repository=./repo", "branch=unmerged")
+		result := startWithParams(dagu, "runtime_remove_delete.yaml", "working_dir=./repo", "branch=unmerged")
 		result.ExpectExitCode(0)
 		actual := readRemoveResult(t, dagu)
 		require.True(t, actual.Removed)
@@ -222,7 +222,7 @@ func TestGitWorktreeRemoveDeletesBranches(t *testing.T) {
 		repo := initRepository(t, dagu)
 		gitRun(t, repo.path, "branch", "disposable", repo.baseCommit)
 
-		result := startWithParams(dagu, "runtime_remove_delete.yaml", "repository=./repo", "branch=disposable")
+		result := startWithParams(dagu, "runtime_remove_delete.yaml", "working_dir=./repo", "branch=disposable")
 		result.ExpectExitCode(0)
 		actual := readRemoveResult(t, dagu)
 		require.Empty(t, actual.Path)
@@ -235,7 +235,7 @@ func TestGitWorktreeRemoveDeletesBranches(t *testing.T) {
 		t.Parallel()
 		dagu := harness.NewRunner(t)
 		_ = initRepository(t, dagu)
-		result := startWithParams(dagu, "runtime_remove_delete.yaml", "repository=./repo", "branch=missing")
+		result := startWithParams(dagu, "runtime_remove_delete.yaml", "working_dir=./repo", "branch=missing")
 		result.ExpectExitCode(0)
 		actual := readRemoveResult(t, dagu)
 		require.False(t, actual.Removed)
@@ -254,7 +254,7 @@ func TestGitWorktreeRemoveSupportsBareRepository(t *testing.T) {
 	path := dagu.ProjectPath("wt/bare-main")
 	gitRun(t, barePath, "worktree", "add", path, "main")
 
-	result := startWithParams(dagu, "runtime_remove_branch.yaml", "repository=./bare.git", "branch=main")
+	result := startWithParams(dagu, "runtime_remove_branch.yaml", "working_dir=./bare.git", "branch=main")
 	result.ExpectExitCode(0)
 	actual := readRemoveResult(t, dagu)
 	require.Equal(t, path, actual.Path)
@@ -268,11 +268,11 @@ func TestGitWorktreeRemoveSupportsBareRepository(t *testing.T) {
 func TestGitWorktreeRemoveRuntimeErrors(t *testing.T) {
 	t.Parallel()
 
-	t.Run("repository does not exist", func(t *testing.T) {
+	t.Run("working directory does not exist", func(t *testing.T) {
 		t.Parallel()
 		dagu := harness.NewRunner(t)
 		requireValidWorkflow(dagu, "runtime_remove_branch.yaml")
-		result := startWithParams(dagu, "runtime_remove_branch.yaml", "repository=./missing", "branch=topic")
+		result := startWithParams(dagu, "runtime_remove_branch.yaml", "working_dir=./missing", "branch=topic")
 		result.ExpectNonZeroExitCode()
 		result.ExpectStdout("")
 		result.ExpectStderrNotEmpty()
@@ -284,7 +284,7 @@ func TestGitWorktreeRemoveRuntimeErrors(t *testing.T) {
 		dagu := harness.NewRunner(t)
 		repo := initRepository(t, dagu)
 		requireValidWorkflow(dagu, "runtime_remove_path.yaml")
-		result := startWithParams(dagu, "runtime_remove_path.yaml", "repository=./repo", "path=./repo")
+		result := startWithParams(dagu, "runtime_remove_path.yaml", "working_dir=./repo", "path=.")
 		result.ExpectNonZeroExitCode()
 		result.ExpectStdout("")
 		result.ExpectStderrNotEmpty()
@@ -306,9 +306,9 @@ func TestGitWorktreeRemoveRuntimeErrors(t *testing.T) {
 		result := startWithParams(
 			dagu,
 			"runtime_remove_both.yaml",
-			"repository=./repo",
+			"working_dir=./repo",
 			"branch=alpha",
-			"path=./wt/beta",
+			"path=../wt/beta",
 		)
 		result.ExpectNonZeroExitCode()
 		result.ExpectStdout("")
@@ -323,7 +323,7 @@ func TestGitWorktreeRemoveRuntimeErrors(t *testing.T) {
 		dagu := harness.NewRunner(t)
 		repo := initRepository(t, dagu)
 		requireValidWorkflow(dagu, "runtime_remove_delete.yaml")
-		result := startWithParams(dagu, "runtime_remove_delete.yaml", "repository=./repo", "branch=main")
+		result := startWithParams(dagu, "runtime_remove_delete.yaml", "working_dir=./repo", "branch=main")
 		result.ExpectNonZeroExitCode()
 		result.ExpectStdout("")
 		result.ExpectStderrNotEmpty()

@@ -1,11 +1,10 @@
 working_dir: .
 steps:
   - id: add
-    working_dir: ./workspace
-    action: git.worktree_add
+    working_dir: ./repo
+    action: git.worktree.add
     with:
-      repository: ../repo
       branch: step-directory
-      path: ./wt/step-directory
+      path: ../workspace/wt/step-directory
     stdout: ../action-stdout.json
     stderr: ../action-stderr.txt

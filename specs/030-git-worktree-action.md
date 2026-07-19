@@ -4,19 +4,20 @@
 
 Not implemented.
 
-This spec defines conformance behavior for the built-in `git.worktree_add` and
-`git.worktree_remove` actions.
+This spec defines conformance behavior for the built-in `git.worktree.add` and
+`git.worktree.remove` actions.
 
 ## Scope
 
 This spec defines linked-worktree management for a local Git repository:
 
-- `git.worktree_add`, which ensures a linked worktree exists for a branch.
-- `git.worktree_remove`, which removes a linked worktree.
+- `git.worktree.add`, which ensures a linked worktree exists for a branch.
+- `git.worktree.remove`, which removes a linked worktree.
 
 This spec covers:
 
 - accepted `with` fields for both operations
+- repository detection from the step working directory
 - path resolution and the default worktree path
 - branch creation from a start point
 - idempotent add and remove behavior
@@ -43,6 +44,9 @@ tools.
 Both operations must be safe to re-run: a repeated add reuses the existing
 worktree, and a repeated remove succeeds without one.
 
+Workflow authors select the repository through the standard step working
+directory and do not repeat that path in `with`.
+
 ## Related Specs
 
 - YAML schema: [Spec 002: YAML Schema](002-yaml-schema.md)
@@ -57,7 +61,7 @@ itself.
 A linked worktree is an additional working tree registered to the repository
 with its own checked-out branch.
 
-The repository path is the resolved value of `repository`.
+The repository path is the resolved step working directory of the action.
 
 The worktree path is the resolved directory of the linked worktree named by
 one operation.
@@ -74,26 +78,24 @@ does not exist.
 
 Rules:
 
-- `action: git.worktree_add` selects the add operation.
-- `action: git.worktree_remove` selects the remove operation.
-- Any other `git.worktree*` action name is a validation error.
+- `action: git.worktree.add` selects the add operation.
+- `action: git.worktree.remove` selects the remove operation.
+- Any other `git.worktree.*` action name is a validation error.
 
 ### Field Shape
 
-`with` fields for `git.worktree_add`:
+`with` fields for `git.worktree.add`:
 
 | Field | Required | Meaning |
 | --- | --- | --- |
-| `repository` | Yes | Local path of an existing Git repository. |
 | `branch` | Yes | Branch checked out in the linked worktree. |
 | `path` | No | Worktree path. Defaults to the default worktree path. |
 | `from` | No | Start point used only when `branch` does not exist. |
 
-`with` fields for `git.worktree_remove`:
+`with` fields for `git.worktree.remove`:
 
 | Field | Required | Meaning |
 | --- | --- | --- |
-| `repository` | Yes | Local path of an existing Git repository. |
 | `branch` | One of `branch`, `path` | Branch whose registered linked worktree is removed. |
 | `path` | One of `branch`, `path` | Worktree path to remove. |
 | `force` | No | Remove even when the worktree has local changes. Defaults to `false`. |
@@ -101,16 +103,15 @@ Rules:
 
 Rules:
 
-- `repository` must be a non-empty string.
 - `branch`, `path`, and `from` must be non-empty strings when present.
 - `force` and `delete_branch` must be booleans when present.
 - A `with` field not listed for the selected operation is a validation error.
-- `git.worktree_remove` accepts `branch`, `path`, or both.
+- `git.worktree.remove` accepts `branch`, `path`, or both.
 - `delete_branch: true` requires `branch`.
-- When `git.worktree_remove` receives both `branch` and `path` and either
+- When `git.worktree.remove` receives both `branch` and `path` and either
   resolves to a registered linked worktree, the registered worktree for
   `branch` must be the one at the resolved `path`.
-- When `git.worktree_remove` receives both `branch` and `path` and neither
+- When `git.worktree.remove` receives both `branch` and `path` and neither
   resolves to a registered linked worktree, the remove operation follows the
   no-target rules.
 
@@ -118,20 +119,23 @@ Rules:
 
 Rules:
 
-- Relative `repository` and `path` values resolve from the step working
-  directory.
+- The repository path is the resolved step working directory.
+- The step working directory itself must represent an existing Git repository;
+  an ancestor repository is not selected implicitly.
+- A non-bare primary working tree with a `.git` directory and a linked worktree
+  with a `.git` file are both valid repository paths.
+- Relative `path` values resolve from the step working directory.
 - Resolved paths are cleaned before use.
 - The default worktree path is `<repository path>.worktrees/<folder name>`.
 - The folder name is `branch` with every `/` replaced by `-`.
-- The repository path must contain an existing Git repository.
-- A bare repository is a valid `repository` for both operations.
+- A bare repository is a valid step working directory for both operations.
 - A bare repository has no primary working tree; rules that reference the
   primary working tree are inapplicable to it.
 - Linked worktrees are identified only through the repository's worktree
   registration metadata.
 
-Example: with `repository: /work/repo` and `branch: feature/auth`, the default
-worktree path is `/work/repo.worktrees/feature-auth`.
+Example: with step working directory `/work/repo` and `branch: feature/auth`,
+the default worktree path is `/work/repo.worktrees/feature-auth`.
 
 ### Add Operation
 
@@ -192,7 +196,7 @@ Rules:
 - How later steps consume the result document is owned by the step output and
   value-resolution specs and is not defined by this spec.
 
-`git.worktree_add` result fields:
+`git.worktree.add` result fields:
 
 | Field | Type | Meaning |
 | --- | --- | --- |
@@ -203,7 +207,7 @@ Rules:
 | `created` | boolean | `true` when this run registered the worktree. |
 | `branch_created` | boolean | `true` when this run created the branch. |
 
-`git.worktree_remove` result fields:
+`git.worktree.remove` result fields:
 
 | Field | Type | Meaning |
 | --- | --- | --- |
@@ -234,40 +238,39 @@ Rules:
 
 Validation must fail when:
 
-- The action name selects an operation other than `worktree_add` or
-  `worktree_remove` in the `git.worktree*` name space.
-- `repository` is missing, empty, or not a string.
-- `git.worktree_add` has missing, empty, or non-string `branch`.
-- `git.worktree_add` has empty or non-string `path` or `from`.
-- `git.worktree_remove` has neither `branch` nor `path`.
-- `git.worktree_remove` has empty or non-string `branch` or `path`.
-- `git.worktree_remove` has `delete_branch: true` without `branch`.
+- The action name is not `git.worktree.add` or `git.worktree.remove` in the
+  `git.worktree.*` namespace.
+- `git.worktree.add` has missing, empty, or non-string `branch`.
+- `git.worktree.add` has empty or non-string `path` or `from`.
+- `git.worktree.remove` has neither `branch` nor `path`.
+- `git.worktree.remove` has empty or non-string `branch` or `path`.
+- `git.worktree.remove` has `delete_branch: true` without `branch`.
 - `force` or `delete_branch` is present and not a boolean.
 - A `with` field is not listed for the selected operation.
 
 Validation must not:
 
-- Check whether `repository` exists.
+- Check whether the step working directory contains a Git repository.
 - Check whether `branch`, `path`, or `from` can be resolved.
 
 ### Runtime Errors
 
 The step must fail when:
 
-- The repository path does not contain a Git repository.
-- `git.worktree_add` cannot resolve `from` while the branch does not exist.
-- In `git.worktree_add`, the worktree path exists and is not an empty
+- The step working directory does not represent a Git repository.
+- `git.worktree.add` cannot resolve `from` while the branch does not exist.
+- In `git.worktree.add`, the worktree path exists and is not an empty
   directory and is not the registered worktree for `branch`.
-- In `git.worktree_add`, `branch` is checked out in the primary working tree.
-- In `git.worktree_add`, `branch` is registered to a linked worktree at a
+- In `git.worktree.add`, `branch` is checked out in the primary working tree.
+- In `git.worktree.add`, `branch` is registered to a linked worktree at a
   different path than the worktree path.
-- In `git.worktree_add`, the registration for `branch` at the worktree path
+- In `git.worktree.add`, the registration for `branch` at the worktree path
   is stale.
-- `git.worktree_remove` targets the primary working tree.
-- `git.worktree_remove` receives both `branch` and `path`, at least one of
+- `git.worktree.remove` targets the primary working tree.
+- `git.worktree.remove` receives both `branch` and `path`, at least one of
   them resolves to a registered linked worktree, and the registered worktree
   for `branch` is not the one at the resolved `path`.
-- In `git.worktree_remove`, the target worktree has uncommitted changes and
+- In `git.worktree.remove`, the target worktree has uncommitted changes and
   `force` is `false`.
 - `delete_branch` is `true` and the branch is checked out in another worktree
   after removal.
@@ -280,13 +283,13 @@ on branch `main`, prepared by test setup.
 ### Add Creates Branch And Worktree
 
 ```yaml
+working_dir: ./repo
 steps:
   - id: create_worktree
-    action: git.worktree_add
+    action: git.worktree.add
     with:
-      repository: ./repo
       branch: feature-x
-      path: ./wt/feature-x
+      path: ../wt/feature-x
 ```
 
 Expected behavior:
@@ -300,21 +303,20 @@ Expected behavior:
 ### Add Is Idempotent
 
 ```yaml
+working_dir: ./repo
 steps:
   - id: first
-    action: git.worktree_add
+    action: git.worktree.add
     with:
-      repository: ./repo
       branch: feature-x
-      path: ./wt/feature-x
+      path: ../wt/feature-x
 
   - id: second
     depends: first
-    action: git.worktree_add
+    action: git.worktree.add
     with:
-      repository: ./repo
       branch: feature-x
-      path: ./wt/feature-x
+      path: ../wt/feature-x
 ```
 
 Expected behavior:
@@ -326,14 +328,14 @@ Expected behavior:
 ### Add From Start Point
 
 ```yaml
+working_dir: ./repo
 steps:
   - id: from_tag
-    action: git.worktree_add
+    action: git.worktree.add
     with:
-      repository: ./repo
       branch: hotfix
       from: v1.0.0
-      path: ./wt/hotfix
+      path: ../wt/hotfix
 ```
 
 Expected behavior:
@@ -344,11 +346,11 @@ Expected behavior:
 ### Default Worktree Path
 
 ```yaml
+working_dir: ./repo
 steps:
   - id: default_path
-    action: git.worktree_add
+    action: git.worktree.add
     with:
-      repository: ./repo
       branch: feature/auth
 ```
 
@@ -360,19 +362,18 @@ Expected behavior:
 ### Remove With Branch Delete
 
 ```yaml
+working_dir: ./repo
 steps:
   - id: create
-    action: git.worktree_add
+    action: git.worktree.add
     with:
-      repository: ./repo
       branch: short-lived
-      path: ./wt/short-lived
+      path: ../wt/short-lived
 
   - id: remove
     depends: create
-    action: git.worktree_remove
+    action: git.worktree.remove
     with:
-      repository: ./repo
       branch: short-lived
       delete_branch: true
 ```
@@ -386,11 +387,11 @@ Expected behavior:
 ### Remove Is Idempotent
 
 ```yaml
+working_dir: ./repo
 steps:
   - id: remove_missing
-    action: git.worktree_remove
+    action: git.worktree.remove
     with:
-      repository: ./repo
       branch: never-created
 ```
 
@@ -402,23 +403,22 @@ Expected behavior:
 ### Dirty Remove Requires Force
 
 ```yaml
+working_dir: ./repo
 steps:
   - id: create
-    action: git.worktree_add
+    action: git.worktree.add
     with:
-      repository: ./repo
       branch: dirty
-      path: ./wt/dirty
+      path: ../wt/dirty
 
   - id: make_dirty
     depends: create
-    run: touch ./wt/dirty/untracked-file
+    run: touch ../wt/dirty/untracked-file
 
   - id: remove
     depends: make_dirty
-    action: git.worktree_remove
+    action: git.worktree.remove
     with:
-      repository: ./repo
       branch: dirty
 ```
 
@@ -431,17 +431,17 @@ Expected behavior:
 ### Occupied Path Fails
 
 ```yaml
+working_dir: ./repo
 steps:
   - id: occupy
-    run: mkdir -p ./wt/taken && touch ./wt/taken/file
+    run: mkdir -p ../wt/taken && touch ../wt/taken/file
 
   - id: add
     depends: occupy
-    action: git.worktree_add
+    action: git.worktree.add
     with:
-      repository: ./repo
       branch: taken
-      path: ./wt/taken
+      path: ../wt/taken
 ```
 
 Expected behavior:

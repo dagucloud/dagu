@@ -1,5 +1,0 @@
-steps:
-  - action: git.worktree_add
-    with:
-      repository: ""
-      branch: topic

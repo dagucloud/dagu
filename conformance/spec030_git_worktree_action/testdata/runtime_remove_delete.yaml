@@ -1,5 +1,5 @@
 params:
-  - name: repository
+  - name: working_dir
     type: string
     required: true
   - name: branch
@@ -8,10 +8,10 @@ params:
 working_dir: .
 steps:
   - id: remove
-    action: git.worktree_remove
+    working_dir: "${params.working_dir}"
+    action: git.worktree.remove
     with:
-      repository: "${params.repository}"
       branch: "${params.branch}"
       delete_branch: true
-    stdout: action-stdout.json
-    stderr: action-stderr.txt
+    stdout: ../action-stdout.json
+    stderr: ../action-stderr.txt

@@ -22,9 +22,9 @@ func TestGitWorktreeAddCreatesBranchAndResolvesPaths(t *testing.T) {
 	result := startWithParams(
 		dagu,
 		"runtime_add.yaml",
-		"repository=./repo",
+		"working_dir=./repo",
 		"branch=feature-x",
-		"path=./wt/../wt/feature-x",
+		"path=../wt/../wt/feature-x",
 	)
 	result.ExpectExitCode(0)
 	dagu.ExpectFileContent(actionStderrFile, "")
@@ -50,7 +50,7 @@ func TestGitWorktreeAddUsesDefaultPath(t *testing.T) {
 	result := startWithParams(
 		dagu,
 		"runtime_add_default.yaml",
-		"repository=./repo",
+		"working_dir=./repo",
 		"branch=feature/auth",
 	)
 	result.ExpectExitCode(0)
@@ -84,6 +84,41 @@ func TestGitWorktreePathsResolveFromStepWorkingDirectory(t *testing.T) {
 	require.Equal(t, worktreePath, removeResult.Path)
 	require.True(t, removeResult.Removed)
 	require.NoDirExists(t, worktreePath)
+}
+
+func TestGitWorktreeActionsDetectRepositoryFromLinkedWorktree(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	repo := initRepository(t, dagu)
+	linkedPath := dagu.ProjectPath("linked")
+	createLinkedWorktree(t, repo.path, linkedPath, "linked-base", repo.baseCommit)
+
+	add := startWithParams(
+		dagu,
+		"runtime_add.yaml",
+		"working_dir=./linked",
+		"branch=from-linked",
+		"path=../wt/from-linked",
+	)
+	add.ExpectExitCode(0)
+	worktreePath := dagu.ProjectPath("wt/from-linked")
+	addResult := readAddResult(t, dagu)
+	require.Equal(t, worktreePath, addResult.Path)
+	requireLinkedWorktree(t, repo.path, worktreePath, "from-linked", repo.baseCommit)
+
+	resetActionStreams(t, dagu)
+	remove := startWithParams(
+		dagu,
+		"runtime_remove_branch.yaml",
+		"working_dir=./linked",
+		"branch=from-linked",
+	)
+	remove.ExpectExitCode(0)
+	removeResult := readRemoveResult(t, dagu)
+	require.Equal(t, worktreePath, removeResult.Path)
+	require.True(t, removeResult.Removed)
+	requireNoLinkedWorktree(t, repo.path, worktreePath, "from-linked")
 }
 
 func TestGitWorktreeAddResolvesStartPointOrder(t *testing.T) {
@@ -160,9 +195,9 @@ func TestGitWorktreeAddResolvesStartPointOrder(t *testing.T) {
 			result := startWithParams(
 				dagu,
 				"runtime_add_from.yaml",
-				"repository=./repo",
+				"working_dir=./repo",
 				"branch="+tc.newBranch,
-				"path=./"+pathName,
+				"path=../"+pathName,
 				"from="+tc.from(repo, secondCommit),
 			)
 			result.ExpectExitCode(0)
@@ -189,9 +224,9 @@ func TestGitWorktreeAddExistingBranchIgnoresFrom(t *testing.T) {
 	result := startWithParams(
 		dagu,
 		"runtime_add_from.yaml",
-		"repository=./repo",
+		"working_dir=./repo",
 		"branch=existing",
-		"path=./wt/existing",
+		"path=../wt/existing",
 		"from=does-not-exist",
 	)
 	result.ExpectExitCode(0)
@@ -208,7 +243,7 @@ func TestGitWorktreeAddReusesWorktreeWithoutChangingIt(t *testing.T) {
 
 	dagu := harness.NewRunner(t)
 	repo := initRepository(t, dagu)
-	params := []string{"repository=./repo", "branch=reused", "path=./wt/reused"}
+	params := []string{"working_dir=./repo", "branch=reused", "path=../wt/reused"}
 	first := startWithParams(dagu, "runtime_add.yaml", params...)
 	first.ExpectExitCode(0)
 	firstResult := readAddResult(t, dagu)
@@ -243,9 +278,9 @@ func TestGitWorktreeAddAcceptsExistingEmptyDirectory(t *testing.T) {
 	result := startWithParams(
 		dagu,
 		"runtime_add.yaml",
-		"repository=./repo",
+		"working_dir=./repo",
 		"branch=empty-target",
-		"path=./wt/empty",
+		"path=../wt/empty",
 	)
 	result.ExpectExitCode(0)
 	actual := readAddResult(t, dagu)
@@ -264,9 +299,9 @@ func TestGitWorktreeAddSupportsBareRepository(t *testing.T) {
 	result := startWithParams(
 		dagu,
 		"runtime_add.yaml",
-		"repository=./bare.git",
+		"working_dir=./bare.git",
 		"branch=main",
-		"path=./wt/bare-main",
+		"path=../wt/bare-main",
 	)
 	result.ExpectExitCode(0)
 	actual := readAddResult(t, dagu)
@@ -279,16 +314,16 @@ func TestGitWorktreeAddSupportsBareRepository(t *testing.T) {
 func TestGitWorktreeAddRuntimeErrors(t *testing.T) {
 	t.Parallel()
 
-	t.Run("repository does not exist", func(t *testing.T) {
+	t.Run("working directory does not exist", func(t *testing.T) {
 		t.Parallel()
 		dagu := harness.NewRunner(t)
 		requireValidWorkflow(dagu, "runtime_add.yaml")
 		result := startWithParams(
 			dagu,
 			"runtime_add.yaml",
-			"repository=./missing",
+			"working_dir=./missing",
 			"branch=topic",
-			"path=./wt/topic",
+			"path=../wt/topic",
 		)
 		result.ExpectNonZeroExitCode()
 		result.ExpectStdout("")
@@ -296,7 +331,7 @@ func TestGitWorktreeAddRuntimeErrors(t *testing.T) {
 		requireNoResultDocument(t, dagu)
 	})
 
-	t.Run("repository path is not a repository", func(t *testing.T) {
+	t.Run("working directory is not a repository", func(t *testing.T) {
 		t.Parallel()
 		dagu := harness.NewRunner(t)
 		dagu.Mkdir("not-repo")
@@ -304,9 +339,9 @@ func TestGitWorktreeAddRuntimeErrors(t *testing.T) {
 		result := startWithParams(
 			dagu,
 			"runtime_add.yaml",
-			"repository=./not-repo",
+			"working_dir=./not-repo",
 			"branch=topic",
-			"path=./wt/topic",
+			"path=../wt/topic",
 		)
 		result.ExpectNonZeroExitCode()
 		result.ExpectStdout("")
@@ -322,9 +357,9 @@ func TestGitWorktreeAddRuntimeErrors(t *testing.T) {
 		result := startWithParams(
 			dagu,
 			"runtime_add_from.yaml",
-			"repository=./repo",
+			"working_dir=./repo",
 			"branch=topic",
-			"path=./wt/topic",
+			"path=../wt/topic",
 			"from=does-not-exist",
 		)
 		result.ExpectNonZeroExitCode()
@@ -344,9 +379,9 @@ func TestGitWorktreeAddRuntimeErrors(t *testing.T) {
 		result := startWithParams(
 			dagu,
 			"runtime_add.yaml",
-			"repository=./repo",
+			"working_dir=./repo",
 			"branch=occupied",
-			"path=./wt/occupied",
+			"path=../wt/occupied",
 		)
 		result.ExpectNonZeroExitCode()
 		result.ExpectStdout("")
@@ -364,9 +399,9 @@ func TestGitWorktreeAddRuntimeErrors(t *testing.T) {
 		result := startWithParams(
 			dagu,
 			"runtime_add.yaml",
-			"repository=./repo",
+			"working_dir=./repo",
 			"branch=main",
-			"path=./wt/main",
+			"path=../wt/main",
 		)
 		result.ExpectNonZeroExitCode()
 		result.ExpectStdout("")
@@ -385,9 +420,9 @@ func TestGitWorktreeAddRuntimeErrors(t *testing.T) {
 		result := startWithParams(
 			dagu,
 			"runtime_add.yaml",
-			"repository=./repo",
+			"working_dir=./repo",
 			"branch=linked",
-			"path=./wt/requested",
+			"path=../wt/requested",
 		)
 		result.ExpectNonZeroExitCode()
 		result.ExpectStdout("")
@@ -410,9 +445,9 @@ func TestGitWorktreeAddRuntimeErrors(t *testing.T) {
 		result := startWithParams(
 			dagu,
 			"runtime_add.yaml",
-			"repository=./repo",
+			"working_dir=./repo",
 			"branch=stale",
-			"path=./wt/stale",
+			"path=../wt/stale",
 		)
 		result.ExpectNonZeroExitCode()
 		result.ExpectStdout("")
@@ -433,9 +468,9 @@ func TestGitWorktreeAddRuntimeErrors(t *testing.T) {
 		result := startWithParams(
 			dagu,
 			"runtime_add.yaml",
-			"repository=./repo",
+			"working_dir=./repo",
 			"branch=wanted",
-			"path=./wt/shared",
+			"path=../wt/shared",
 		)
 		result.ExpectNonZeroExitCode()
 		result.ExpectStdout("")

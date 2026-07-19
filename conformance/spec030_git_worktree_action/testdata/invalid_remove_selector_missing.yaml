@@ -1,4 +1,3 @@
 steps:
-  - action: git.worktree_remove
-    with:
-      repository: ./repo
+  - action: git.worktree.remove
+    with: {}

@@ -1,4 +1,3 @@
 steps:
-  - action: git.worktree_add
-    with:
-      repository: ./repo
+  - action: git.worktree.add
+    with: {}

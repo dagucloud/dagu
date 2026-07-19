@@ -1,6 +1,5 @@
 steps:
-  - action: git.worktree_add
+  - action: git.worktree.add
     with:
-      repository: ./repo
       branch: topic
-      token: secret
+      repository: ./repo

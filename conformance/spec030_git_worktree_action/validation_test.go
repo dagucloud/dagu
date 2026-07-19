@@ -25,10 +25,7 @@ func TestValidateGitWorktreeActions(t *testing.T) {
 		file        string
 		stderrParts []string
 	}{
-		{file: "invalid_action.yaml", stderrParts: []string{"git.worktree_move"}},
-		{file: "invalid_repository_missing.yaml", stderrParts: []string{"repository"}},
-		{file: "invalid_repository_empty.yaml", stderrParts: []string{"repository"}},
-		{file: "invalid_repository_non_string.yaml", stderrParts: []string{"repository"}},
+		{file: "invalid_action.yaml", stderrParts: []string{"git.worktree.move"}},
 		{file: "invalid_add_branch_missing.yaml", stderrParts: []string{"branch"}},
 		{file: "invalid_add_branch_empty.yaml", stderrParts: []string{"branch"}},
 		{file: "invalid_add_branch_non_string.yaml", stderrParts: []string{"branch"}},
@@ -36,10 +33,8 @@ func TestValidateGitWorktreeActions(t *testing.T) {
 		{file: "invalid_add_path_non_string.yaml", stderrParts: []string{"path"}},
 		{file: "invalid_add_from_empty.yaml", stderrParts: []string{"from"}},
 		{file: "invalid_add_from_non_string.yaml", stderrParts: []string{"from"}},
-		{file: "invalid_add_unknown_field.yaml", stderrParts: []string{"token"}},
+		{file: "invalid_add_unknown_field.yaml", stderrParts: []string{"repository"}},
 		{file: "invalid_add_force.yaml", stderrParts: []string{"force"}},
-		{file: "invalid_remove_repository_missing.yaml", stderrParts: []string{"repository"}},
-		{file: "invalid_remove_repository_non_string.yaml", stderrParts: []string{"repository"}},
 		{file: "invalid_remove_selector_missing.yaml", stderrParts: []string{"branch", "path"}},
 		{file: "invalid_remove_branch_empty.yaml", stderrParts: []string{"branch"}},
 		{file: "invalid_remove_branch_non_string.yaml", stderrParts: []string{"branch"}},

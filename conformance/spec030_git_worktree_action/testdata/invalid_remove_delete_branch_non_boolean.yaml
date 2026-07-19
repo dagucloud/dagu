@@ -1,6 +1,5 @@
 steps:
-  - action: git.worktree_remove
+  - action: git.worktree.remove
     with:
-      repository: ./repo
       branch: topic
       delete_branch: 1
