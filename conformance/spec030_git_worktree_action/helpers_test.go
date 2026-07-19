@@ -147,7 +147,7 @@ func listWorktrees(t *testing.T, repoPath string) []worktreeEntry {
 			continue
 		}
 		entry := worktreeEntry{}
-		for _, line := range strings.Split(block, "\n") {
+		for line := range strings.SplitSeq(block, "\n") {
 			switch {
 			case strings.HasPrefix(line, "worktree "):
 				entry.path = canonicalPath(t, strings.TrimPrefix(line, "worktree "))
