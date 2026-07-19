@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"runtime"
 	"testing"
 	"time"
 
@@ -160,7 +161,11 @@ func (c *Coordinator) DispatchTask(t *testing.T, task *coordinatorv1.Task) error
 
 	client := coordinatorv1.NewCoordinatorServiceClient(conn)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	timeout := 5 * time.Second
+	if runtime.GOOS == "windows" {
+		timeout *= 5
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	_, err = client.Dispatch(ctx, &coordinatorv1.DispatchRequest{Task: task})
