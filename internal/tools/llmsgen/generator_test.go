@@ -35,7 +35,7 @@ func TestGenerateBuildsLLMsTextFromBundledSkillSources(t *testing.T) {
 		"# Remote Action Packages",
 		"# Dagu CLI Reference",
 		"# Context References, Scoped Values, And Step Outputs",
-		"# Coding Agent Integration",
+		"# External CLI Harnesses",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("generated output missing %q\n%s", want, output)
@@ -63,7 +63,7 @@ func TestGenerateBuildsLLMsTextFromBundledSkillSources(t *testing.T) {
 		"# Remote Action Packages",
 		"# Dagu CLI Reference",
 		"# Context References, Scoped Values, And Step Outputs",
-		"# Coding Agent Integration",
+		"# External CLI Harnesses",
 	)
 }
 
@@ -122,7 +122,7 @@ Use dagu validate.
 
 Use scoped references.
 `,
-		filepath.Join("references", "codingagent.md"): `# Coding Agent Integration
+		filepath.Join("references", "harnesses.md"): `# External CLI Harnesses
 
 Use harness.run.
 `,

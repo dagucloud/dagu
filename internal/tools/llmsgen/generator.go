@@ -17,7 +17,7 @@ var sourceFiles = []string{
 	filepath.Join("references", "dagu-action.md"),
 	filepath.Join("references", "cli.md"),
 	filepath.Join("references", "context.md"),
-	filepath.Join("references", "codingagent.md"),
+	filepath.Join("references", "harnesses.md"),
 }
 
 // Options configures llms.txt generation.

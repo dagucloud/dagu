@@ -14,6 +14,7 @@ Load only the reference file that matches the task.
 - Prefer `dagu schema ...` and `dagu validate ...` over guessing field names or shapes.
 - Prefer `action: template.render` when generating text files, prompts, or artifacts instead of assembling them with shell `echo` or heredocs.
 - Prefer `file.*` actions for local file operations such as stat, read, write, copy, move, delete, mkdir, and list instead of shelling out to `cp`, `mv`, `rm`, or `mkdir`.
+- Prefer `git.worktree.add` and `git.worktree.remove` when steps need isolated branches inside an existing local Git repository. Use the add action's `cleanup` policy when the worktree should be removed at run finalization.
 - Prefer `stdout.artifact` / `stderr.artifact` when a command stream should become a DAG-run artifact, especially for large reports, JSON, Markdown, logs, or generated files.
 - Prefer `artifact.*` actions for explicit artifact reads/writes/lists. Use `DAG_RUN_ARTIFACTS_DIR` only when a tool truly needs a filesystem path inside the step.
 - Prefer string-form `output: VAR_NAME` for capturing small stdout values into flat variables.
@@ -49,6 +50,7 @@ Load only the reference file that matches the task.
 - Container runtime selection is service-level, not a DAG YAML field. Set `DAGU_CONTAINER_RUNTIME=podman` to use Podman, and set `DAGU_PODMAN_HOST` only when the Podman Docker-compatible socket is not the default.
 - DAG/action outputs are collected from string-form `output: VAR_NAME`, `stdout.outputs`, and `action: outputs.write`. Object-form `output:` stays step-scoped for `${step_id.output.*}` unless the workflow explicitly republishes values through `stdout.outputs` or `outputs.write`.
 - `state.get`, `state.set`, `state.delete`, `state.list`, and `state.diff` persist small JSON values across DAG runs. State scopes are `dag`, `root_dag`, `global`, and `custom`; use artifacts or external storage for large payloads.
+- Git worktree actions discover the repository from the step `working_dir`. Relative worktree paths resolve from the repository root, and the actions never fetch or push.
 - Remote action packages define `dagu-action.yaml` with `apiVersion: v1alpha1`, `name`, `dag`, and optional `inputs`/`outputs` JSON Schemas. `inputs` validates caller `with:` before the action DAG starts; `outputs` validates the final action output object after the action DAG returns.
 - Remote action manifests do not support `tools`. Declare external CLI tools in the action DAG itself so local and distributed workers prepare the right binaries for that action run.
 - In remote action examples, prefer `dag: workflow.yaml` for the action DAG filename. The `dag` field accepts any safe relative file path, but `workflow.yaml` avoids confusing the executable DAG with the `dagu-action.yaml` manifest.
@@ -167,7 +169,7 @@ steps:
 
 Load only the file you need:
 
-- `references/steptypes.md` when choosing an action or checking executor-specific caveats such as `dag.run`, `parallel`, `jq.filter`, `file.*`, `state.*`, or `template.render`
+- `references/steptypes.md` when choosing an action or checking executor-specific caveats such as `dag.run`, `parallel`, `git.worktree.*`, `jq.filter`, `file.*`, `state.*`, or `template.render`
 - `references/dagu-action.md` when creating a reusable `dagu-action.yaml` package or checking action input/output schema behavior
 - `references/cli.md` when you need command flags or lookup commands such as `dagu schema`, `dagu config`, or `dagu history`
 - `references/context.md` when using `${context.*}` metadata references or declared step `outputs:`

@@ -77,6 +77,88 @@ steps:
 
 Dagu can drive Docker or Podman through a Docker-compatible API. Runtime selection is service-level, not a DAG YAML field. Set `DAGU_CONTAINER_RUNTIME=podman` for Podman. Set `DAGU_PODMAN_HOST` only when the Podman socket is not the default.
 
+## git.worktree.add / git.worktree.remove
+
+Create isolated working directories for branches in an existing local Git repository. The actions discover the repository from the step `working_dir`; they do not clone, fetch, or push.
+
+This example creates a generated branch, runs tests inside its worktree, and removes the worktree when the DAG finishes:
+
+```yaml
+working_dir: ./repo
+
+steps:
+  - id: worktree
+    action: git.worktree.add
+    with:
+      cleanup: on_finish
+
+  - id: test
+    depends: worktree
+    working_dir: "${steps.worktree.outputs.path}"
+    run: go test ./...
+```
+
+When `branch` is omitted, Dagu generates a stable branch name for that step and DAG run. The default path is `<repository-root>.worktrees/<branch>`.
+
+To create an explicit branch from a local commit, branch, `origin` remote-tracking branch, or tag:
+
+```yaml
+working_dir: ./repo
+
+steps:
+  - id: worktree
+    action: git.worktree.add
+    with:
+      branch: feature/api
+      create_branch: true
+      base: main
+      path: ../worktrees/feature-api
+```
+
+`git.worktree.add` fields:
+
+- `branch` - local branch to check out. Omit it to let Dagu generate one.
+- `path` - worktree directory. Relative paths resolve from the repository root.
+- `create_branch` - allow creation of an explicitly named branch. Defaults to `false`.
+- `base` - local commit, branch, remote-tracking branch, or tag used when creating the branch. Defaults to repository `HEAD`.
+- `cleanup` - `never` (default), `on_success`, or `on_finish`.
+
+The add action is idempotent. It reuses a matching registered worktree without resetting its branch or discarding local changes. Automatic cleanup only owns worktrees created by the current DAG run, never reused worktrees, and it does not delete branches.
+
+Use `git.worktree.remove` for explicit removal:
+
+```yaml
+working_dir: ./repo
+
+steps:
+  - id: worktree
+    action: git.worktree.add
+
+  - id: remove_worktree
+    depends: worktree
+    action: git.worktree.remove
+    with:
+      path: "${steps.worktree.outputs.path}"
+      branch: "${steps.worktree.outputs.branch}"
+      delete_branch: true
+```
+
+`git.worktree.remove` fields:
+
+- `branch` and `path` - provide either selector or both. When both resolve to a worktree, they must identify the same registration.
+- `force` - remove a dirty worktree. Defaults to `false`.
+- `delete_branch` - delete the local branch after removing the worktree. Requires `branch`.
+- `force_delete_branch` - allow deletion of an unmerged branch. Requires `delete_branch: true`.
+
+`force` and `force_delete_branch` protect different data: `force` permits removal of local worktree changes, while `force_delete_branch` permits deletion of unmerged commits.
+
+Both actions publish fixed outputs. Do not add `output`, `outputs`, or `stdout.outputs` to these steps. Read results through `${steps.<id>.outputs.<field>}`.
+
+- Add outputs: `path`, `branch`, `commit`, `worktree_created`, `branch_created`.
+- Remove outputs: `path`, `branch`, `worktree_removed`, `branch_deleted`.
+
+Dagu refuses to remove the primary working tree. Worktree mutations against the same repository are serialized, but Git changes made outside Dagu are not covered by that lock.
+
 ## dag.run
 
 Execute another DAG as a child DAG.
