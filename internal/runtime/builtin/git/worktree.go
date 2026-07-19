@@ -130,7 +130,7 @@ func repositoryDisplayRoot(ctx context.Context, executor *executorImpl, workDir,
 		if prefixErr != nil {
 			return "", fmt.Errorf("resolve repository path prefix: %w", prefixErr)
 		}
-		for _, part := range strings.Split(filepath.ToSlash(strings.TrimSpace(prefix)), "/") {
+		for part := range strings.SplitSeq(filepath.ToSlash(strings.TrimSpace(prefix)), "/") {
 			if part != "" {
 				candidate = filepath.Dir(candidate)
 			}
@@ -579,7 +579,7 @@ func (e *executorImpl) listWorktrees(ctx context.Context, repoRoot string) ([]wo
 		current = worktreeRegistration{}
 		return nil
 	}
-	for _, field := range bytes.Split(output, []byte{0}) {
+	for field := range bytes.SplitSeq(output, []byte{0}) {
 		line := string(field)
 		if line == "" {
 			if err := flush(); err != nil {
