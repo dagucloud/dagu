@@ -113,10 +113,15 @@ type APIKeyStore interface {
 	// Returns ErrAPIKeyNotFound if the API key does not exist.
 	GetByID(ctx context.Context, id string) (*APIKey, error)
 
+	// GetByDigest retrieves an API key by its credential digest.
+	// Returns ErrAPIKeyNotFound if the API key does not exist.
+	GetByDigest(ctx context.Context, digest string) (*APIKey, error)
+
 	// List returns all API keys in the store.
 	List(ctx context.Context) ([]*APIKey, error)
 
 	// Update modifies an existing API key.
+	// Credential fields and a newer LastUsedAt value in storage are preserved.
 	// Returns ErrAPIKeyNotFound if the API key does not exist.
 	Update(ctx context.Context, key *APIKey) error
 
@@ -124,8 +129,11 @@ type APIKeyStore interface {
 	// Returns ErrAPIKeyNotFound if the API key does not exist.
 	Delete(ctx context.Context, id string) error
 
-	// UpdateLastUsed updates the LastUsedAt timestamp for an API key.
-	// This is called when the API key is used for authentication.
+	// PromoteDigest atomically assigns a credential digest to an API key.
+	// Repeating the promotion with the same digest is idempotent.
+	PromoteDigest(ctx context.Context, id, digest string) error
+
+	// UpdateLastUsed records recent API key use without persisting more than once per minute.
 	UpdateLastUsed(ctx context.Context, id string) error
 }
 

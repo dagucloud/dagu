@@ -109,6 +109,7 @@ func TestAPIKey_ToStorage(t *testing.T) {
 		Description: "Test description",
 		Role:        RoleAdmin,
 		KeyHash:     "hash123",
+		KeyDigest:   "sha256:v1:digest123",
 		KeyPrefix:   "dagu_tes",
 		CreatedAt:   now,
 		UpdatedAt:   now,
@@ -123,6 +124,7 @@ func TestAPIKey_ToStorage(t *testing.T) {
 	assert.Equal(t, key.Description, storage.Description)
 	assert.Equal(t, key.Role, storage.Role)
 	assert.Equal(t, key.KeyHash, storage.KeyHash)
+	assert.Equal(t, key.KeyDigest, storage.KeyDigest)
 	assert.Equal(t, key.KeyPrefix, storage.KeyPrefix)
 	assert.Equal(t, key.CreatedAt, storage.CreatedAt)
 	assert.Equal(t, key.UpdatedAt, storage.UpdatedAt)
@@ -140,6 +142,7 @@ func TestAPIKeyForStorage_ToAPIKey(t *testing.T) {
 		Description: "Test description",
 		Role:        RoleViewer,
 		KeyHash:     "hash456",
+		KeyDigest:   "sha256:v1:digest456",
 		KeyPrefix:   "dagu_xyz",
 		CreatedAt:   now,
 		UpdatedAt:   now,
@@ -154,6 +157,7 @@ func TestAPIKeyForStorage_ToAPIKey(t *testing.T) {
 	assert.Equal(t, storage.Description, key.Description)
 	assert.Equal(t, storage.Role, key.Role)
 	assert.Equal(t, storage.KeyHash, key.KeyHash)
+	assert.Equal(t, storage.KeyDigest, key.KeyDigest)
 	assert.Equal(t, storage.KeyPrefix, key.KeyPrefix)
 	assert.Equal(t, storage.CreatedAt, key.CreatedAt)
 	assert.Equal(t, storage.UpdatedAt, key.UpdatedAt)
@@ -246,6 +250,7 @@ func TestAPIKey_ToStorage_ToAPIKey_Roundtrip(t *testing.T) {
 		Description: "Roundtrip test",
 		Role:        RoleOperator,
 		KeyHash:     "secret-hash",
+		KeyDigest:   "sha256:v1:roundtrip",
 		KeyPrefix:   "dagu_rnd",
 		CreatedAt:   now,
 		UpdatedAt:   now,
@@ -267,6 +272,7 @@ func TestAPIKey_ToStorage_ToAPIKey_Roundtrip(t *testing.T) {
 	assert.Equal(t, original.Description, recovered.Description)
 	assert.Equal(t, original.Role, recovered.Role)
 	assert.Equal(t, original.KeyHash, recovered.KeyHash)
+	assert.Equal(t, original.KeyDigest, recovered.KeyDigest)
 	assert.Equal(t, original.KeyPrefix, recovered.KeyPrefix)
 	assert.Equal(t, original.CreatedAt, recovered.CreatedAt)
 	assert.Equal(t, original.UpdatedAt, recovered.UpdatedAt)
@@ -286,6 +292,7 @@ func TestAPIKey_JSONSerialization(t *testing.T) {
 		Description: "JSON test",
 		Role:        RoleAdmin,
 		KeyHash:     "should-be-excluded",
+		KeyDigest:   "sha256:v1:should-also-be-excluded",
 		KeyPrefix:   "dagu_jsn",
 		CreatedAt:   now,
 		UpdatedAt:   now,
@@ -322,6 +329,7 @@ func TestAPIKeyForStorage_JSONSerialization(t *testing.T) {
 		Description: "Storage test",
 		Role:        RoleManager,
 		KeyHash:     "included-hash",
+		KeyDigest:   "sha256:v1:included-digest",
 		KeyPrefix:   "dagu_str",
 		CreatedAt:   now,
 		UpdatedAt:   now,
@@ -336,6 +344,8 @@ func TestAPIKeyForStorage_JSONSerialization(t *testing.T) {
 	jsonStr := string(data)
 	assert.Contains(t, jsonStr, "included-hash")
 	assert.Contains(t, jsonStr, "key_hash")
+	assert.Contains(t, jsonStr, "sha256:v1:included-digest")
+	assert.Contains(t, jsonStr, "key_digest")
 
 	// Deserialize back
 	var recovered APIKeyForStorage
@@ -346,8 +356,8 @@ func TestAPIKeyForStorage_JSONSerialization(t *testing.T) {
 	assert.Equal(t, storage.Name, recovered.Name)
 	assert.Equal(t, storage.Role, recovered.Role)
 	assert.Equal(t, storage.KeyHash, recovered.KeyHash)
+	assert.Equal(t, storage.KeyDigest, recovered.KeyDigest)
 }
-
 func TestAPIKey_NilLastUsedAt(t *testing.T) {
 	key := &APIKey{
 		ID:        "key-id",

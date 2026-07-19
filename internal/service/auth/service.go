@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/dagucloud/dagu/internal/auth"
@@ -58,6 +59,12 @@ const (
 	apiKeyRandomBytes = 32
 	// apiKeyPrefixLength is the length of the key prefix stored for identification.
 	apiKeyPrefixLength = 8
+	// apiKeyDigestPrefix identifies the digest format stored with API keys.
+	apiKeyDigestPrefix = "sha256:v1:"
+	// apiKeyDigestDomain separates API key digests from other SHA-256 uses.
+	apiKeyDigestDomain = "dagu-api-key:v1\x00" //nolint:gosec // Domain separator, not a credential.
+	// apiKeyLastUsedUpdateInterval limits persistence writes for active API keys.
+	apiKeyLastUsedUpdateInterval = time.Minute
 	// webhookTokenPrefix is the fixed prefix for all webhook tokens.
 	webhookTokenPrefix = "dagu_wh_" //nolint:gosec // Not a credential, just a token prefix
 	// webhookTokenRandomBytes is the number of random bytes for webhook token generation.
@@ -93,10 +100,11 @@ type Claims struct {
 
 // Service provides authentication and user management functionality.
 type Service struct {
-	store        auth.UserStore
-	apiKeyStore  auth.APIKeyStore
-	webhookStore auth.WebhookStore
-	config       Config
+	store             auth.UserStore
+	apiKeyStore       auth.APIKeyStore
+	webhookStore      auth.WebhookStore
+	config            Config
+	apiKeyMigrationMu sync.Mutex
 }
 
 // Option is a functional option for configuring the Service.
@@ -509,6 +517,7 @@ func (s *Service) CreateAPIKey(ctx context.Context, input CreateAPIKeyInput, cre
 	if err != nil {
 		return nil, err
 	}
+	apiKey.KeyDigest = keyParts.keyDigest
 	apiKey.WorkspaceAccess = auth.CloneWorkspaceAccess(input.WorkspaceAccess)
 	if err := s.applyAPIKeyCreateMetadata(ctx, apiKey, input); err != nil {
 		return nil, err
@@ -528,6 +537,7 @@ type apiKeyParts struct {
 	fullKey   string
 	keyPrefix string
 	keyHash   string
+	keyDigest string
 }
 
 // generateAPIKey generates a new API key with prefix, hash, and prefix for display.
@@ -558,7 +568,13 @@ func generateAPIKey(bcryptCost int) (*apiKeyParts, error) {
 		fullKey:   fullKey,
 		keyPrefix: keyPrefix,
 		keyHash:   string(hashBytes),
+		keyDigest: apiKeyDigest(fullKey),
 	}, nil
+}
+
+func apiKeyDigest(fullKey string) string {
+	sum := sha256.Sum256([]byte(apiKeyDigestDomain + fullKey))
+	return apiKeyDigestPrefix + hex.EncodeToString(sum[:])
 }
 
 // GetAPIKey retrieves an API key by ID.
@@ -659,7 +675,6 @@ func (s *Service) DeleteAPIKey(ctx context.Context, id string) error {
 }
 
 // ValidateAPIKey validates an API key and returns the associated APIKey if valid.
-// Uses the stored KeyPrefix to skip non-matching keys before bcrypt comparison.
 func (s *Service) ValidateAPIKey(ctx context.Context, keySecret string) (*auth.APIKey, error) {
 	if s.apiKeyStore == nil {
 		return nil, ErrAPIKeyNotConfigured
@@ -670,36 +685,78 @@ func (s *Service) ValidateAPIKey(ctx context.Context, keySecret string) (*auth.A
 		return nil, ErrInvalidAPIKey
 	}
 
+	digest := apiKeyDigest(keySecret)
+	key, err := s.apiKeyStore.GetByDigest(ctx, digest)
+	if err == nil {
+		return s.finishAPIKeyValidation(ctx, key)
+	}
+	if !errors.Is(err, auth.ErrAPIKeyNotFound) {
+		return nil, fmt.Errorf("failed to get API key by digest: %w", err)
+	}
+
+	return s.validateLegacyAPIKey(ctx, keySecret, digest)
+}
+
+func (s *Service) validateLegacyAPIKey(ctx context.Context, keySecret, digest string) (*auth.APIKey, error) {
+	s.apiKeyMigrationMu.Lock()
+	defer s.apiKeyMigrationMu.Unlock()
+
+	key, err := s.apiKeyStore.GetByDigest(ctx, digest)
+	if err == nil {
+		return s.finishAPIKeyValidation(ctx, key)
+	}
+	if !errors.Is(err, auth.ErrAPIKeyNotFound) {
+		return nil, fmt.Errorf("failed to recheck API key digest: %w", err)
+	}
+
 	keys, err := s.apiKeyStore.List(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list API keys: %w", err)
+		return nil, fmt.Errorf("failed to list legacy API keys: %w", err)
 	}
 
-	// Extract the candidate prefix for fast filtering before bcrypt.
-	var candidatePrefix string
-	if len(keySecret) >= apiKeyPrefixLength {
-		candidatePrefix = keySecret[:apiKeyPrefixLength]
+	candidatePrefix := keySecret
+	if len(candidatePrefix) > apiKeyPrefixLength {
+		candidatePrefix = candidatePrefix[:apiKeyPrefixLength]
 	}
-
 	for _, key := range keys {
-		if candidatePrefix != "" && key.KeyPrefix != candidatePrefix {
+		if key.KeyDigest != "" || key.KeyPrefix != candidatePrefix {
 			continue
 		}
-		if err := bcrypt.CompareHashAndPassword([]byte(key.KeyHash), []byte(keySecret)); err == nil {
-			key = auth.NormalizeAPIKeyMetadata(key)
-			if err := s.validateAPIKeyOwner(ctx, key); err != nil {
-				return nil, err
-			}
-			// Update last used timestamp synchronously.
-			// This avoids goroutine leaks and race conditions with Delete.
-			if err := s.apiKeyStore.UpdateLastUsed(ctx, key.ID); err != nil {
-				slog.Error("failed to update API key last used timestamp", "keyID", key.ID, "error", err)
-			}
-			return key, nil
+		if err := bcrypt.CompareHashAndPassword([]byte(key.KeyHash), []byte(keySecret)); err != nil {
+			continue
 		}
+
+		if err := s.apiKeyStore.PromoteDigest(ctx, key.ID, digest); err != nil {
+			slog.Error("failed to promote legacy API key digest", "keyID", key.ID, "error", err)
+		} else {
+			key.KeyDigest = digest
+		}
+		return s.finishAPIKeyValidation(ctx, key)
 	}
 
 	return nil, ErrInvalidAPIKey
+}
+
+func (s *Service) finishAPIKeyValidation(ctx context.Context, key *auth.APIKey) (*auth.APIKey, error) {
+	if key == nil {
+		return nil, ErrInvalidAPIKey
+	}
+	key = auth.NormalizeAPIKeyMetadata(key)
+	if err := s.validateAPIKeyOwner(ctx, key); err != nil {
+		return nil, err
+	}
+	s.updateAPIKeyLastUsed(ctx, key)
+	return key, nil
+}
+
+func (s *Service) updateAPIKeyLastUsed(ctx context.Context, key *auth.APIKey) {
+	now := time.Now().UTC()
+	if key.LastUsedAt != nil && now.Sub(*key.LastUsedAt) < apiKeyLastUsedUpdateInterval {
+		return
+	}
+	if err := s.apiKeyStore.UpdateLastUsed(ctx, key.ID); err != nil {
+		slog.Error("failed to update API key last used timestamp", "keyID", key.ID, "error", err)
+	}
 }
 
 func (s *Service) applyAPIKeyCreateMetadata(ctx context.Context, key *auth.APIKey, input CreateAPIKeyInput) error {

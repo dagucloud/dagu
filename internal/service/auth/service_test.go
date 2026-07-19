@@ -5,8 +5,10 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -745,16 +747,69 @@ func TestService_GetUserFromToken_NoPasswordChangeTokenStillValid(t *testing.T) 
 func setupTestServiceWithAPIKeys(t *testing.T) (*Service, func()) {
 	t.Helper()
 	backend := testutil.NewMemoryBackend()
-	userStore, err := persiststore.NewUserStore(backend.Collection("users"))
-	require.NoError(t, err, "failed to create user store")
 	apiKeyStore, err := persiststore.NewAPIKeyStore(backend.Collection("apikeys"))
 	require.NoError(t, err, "failed to create API key store")
+	return newTestServiceWithAPIKeyStore(t, apiKeyStore), func() {}
+}
+
+func newTestServiceWithAPIKeyStore(tb testing.TB, apiKeyStore auth.APIKeyStore) *Service {
+	tb.Helper()
+	userStore, err := persiststore.NewUserStore(testutil.NewMemoryBackend().Collection("users"))
+	require.NoError(tb, err, "failed to create user store")
 	config := Config{
 		TokenSecret: mustTokenSecret("test-secret-key-for-jwt-signing"),
 		TokenTTL:    time.Hour,
 		BcryptCost:  4, // Low cost for faster tests
 	}
-	return New(userStore, config, WithAPIKeyStore(apiKeyStore)), func() {}
+	return New(userStore, config, WithAPIKeyStore(apiKeyStore))
+}
+
+type observedAPIKeyStore struct {
+	auth.APIKeyStore
+
+	mu                  sync.Mutex
+	promoteCalls        int
+	updateLastUsedCalls int
+	promoteErr          error
+	updateLastUsedErr   error
+}
+
+func (s *observedAPIKeyStore) PromoteDigest(ctx context.Context, id, digest string) error {
+	s.mu.Lock()
+	s.promoteCalls++
+	err := s.promoteErr
+	s.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	return s.APIKeyStore.PromoteDigest(ctx, id, digest)
+}
+
+func (s *observedAPIKeyStore) UpdateLastUsed(ctx context.Context, id string) error {
+	s.mu.Lock()
+	s.updateLastUsedCalls++
+	err := s.updateLastUsedErr
+	s.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	return s.APIKeyStore.UpdateLastUsed(ctx, id)
+}
+
+func (s *observedAPIKeyStore) counts() (promote, updateLastUsed int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.promoteCalls, s.updateLastUsedCalls
+}
+
+func createLegacyAPIKey(tb testing.TB, store auth.APIKeyStore, name string) (*auth.APIKey, *apiKeyParts) {
+	tb.Helper()
+	parts, err := generateAPIKey(4)
+	require.NoError(tb, err)
+	key, err := auth.NewAPIKey(name, "", auth.RoleViewer, parts.keyHash, parts.keyPrefix, "creator-id")
+	require.NoError(tb, err)
+	require.NoError(tb, store.Create(context.Background(), key))
+	return key, parts
 }
 
 func TestService_CreateAPIKey(t *testing.T) {
@@ -779,6 +834,7 @@ func TestService_CreateAPIKey(t *testing.T) {
 	assert.True(t, strings.HasPrefix(result.FullKey, "dagu_"), "full key should start with 'dagu_'")
 	assert.NotEmpty(t, result.APIKey.KeyPrefix)
 	assert.NotEmpty(t, result.APIKey.KeyHash)
+	assert.Equal(t, apiKeyDigest(result.FullKey), result.APIKey.KeyDigest)
 }
 
 func TestService_CreateAPIKey_EmptyName(t *testing.T) {
@@ -1072,6 +1128,131 @@ func TestService_ValidateAPIKey(t *testing.T) {
 	assert.Equal(t, auth.RoleManager, apiKey.Role)
 }
 
+func TestService_ValidateAPIKey_LazilyPersistsLegacyDigest(t *testing.T) {
+	backend := testutil.NewMemoryBackend()
+	store, err := persiststore.NewAPIKeyStore(backend.Collection("apikeys"))
+	require.NoError(t, err)
+	observed := &observedAPIKeyStore{APIKeyStore: store}
+	svc := newTestServiceWithAPIKeyStore(t, observed)
+	legacy, parts := createLegacyAPIKey(t, store, "legacy-key")
+
+	validated, err := svc.ValidateAPIKey(context.Background(), parts.fullKey)
+	require.NoError(t, err)
+	assert.Equal(t, legacy.ID, validated.ID)
+
+	digest := apiKeyDigest(parts.fullKey)
+	persisted, err := store.GetByID(context.Background(), legacy.ID)
+	require.NoError(t, err)
+	assert.Equal(t, digest, persisted.KeyDigest)
+	indexed, err := store.GetByDigest(context.Background(), digest)
+	require.NoError(t, err)
+	assert.Equal(t, legacy.ID, indexed.ID)
+	restartedStore, err := persiststore.NewAPIKeyStore(backend.Collection("apikeys"))
+	require.NoError(t, err)
+	restartedSvc := newTestServiceWithAPIKeyStore(t, restartedStore)
+	restartedKey, err := restartedSvc.ValidateAPIKey(context.Background(), parts.fullKey)
+	require.NoError(t, err)
+	assert.Equal(t, legacy.ID, restartedKey.ID)
+
+	_, err = svc.ValidateAPIKey(context.Background(), parts.fullKey)
+	require.NoError(t, err)
+	promoteCalls, _ := observed.counts()
+	assert.Equal(t, 1, promoteCalls)
+}
+
+func TestService_ValidateAPIKey_SerializesLegacyMigration(t *testing.T) {
+	backend := testutil.NewMemoryBackend()
+	store, err := persiststore.NewAPIKeyStore(backend.Collection("apikeys"))
+	require.NoError(t, err)
+	observed := &observedAPIKeyStore{APIKeyStore: store}
+	svc := newTestServiceWithAPIKeyStore(t, observed)
+	legacy, parts := createLegacyAPIKey(t, store, "concurrent-legacy-key")
+
+	const workers = 24
+	start := make(chan struct{})
+	errs := make(chan error, workers)
+	var wg sync.WaitGroup
+	for range workers {
+		wg.Go(func() {
+			<-start
+			key, err := svc.ValidateAPIKey(context.Background(), parts.fullKey)
+			if err == nil && key.ID != legacy.ID {
+				err = fmt.Errorf("validated key ID %q, want %q", key.ID, legacy.ID)
+			}
+			errs <- err
+		})
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		require.NoError(t, err)
+	}
+
+	promoteCalls, _ := observed.counts()
+	assert.Equal(t, 1, promoteCalls)
+}
+
+func TestService_ValidateAPIKey_PromotionFailureDoesNotRejectLegacyKey(t *testing.T) {
+	backend := testutil.NewMemoryBackend()
+	store, err := persiststore.NewAPIKeyStore(backend.Collection("apikeys"))
+	require.NoError(t, err)
+	observed := &observedAPIKeyStore{
+		APIKeyStore: store,
+		promoteErr:  errors.New("promotion failed"),
+	}
+	svc := newTestServiceWithAPIKeyStore(t, observed)
+	legacy, parts := createLegacyAPIKey(t, store, "promotion-failure-key")
+
+	validated, err := svc.ValidateAPIKey(context.Background(), parts.fullKey)
+	require.NoError(t, err)
+	assert.Equal(t, legacy.ID, validated.ID)
+
+	persisted, err := store.GetByID(context.Background(), legacy.ID)
+	require.NoError(t, err)
+	assert.Empty(t, persisted.KeyDigest)
+}
+
+func TestService_ValidateAPIKey_DoesNotPromoteLegacyKeyForWrongSecret(t *testing.T) {
+	backend := testutil.NewMemoryBackend()
+	store, err := persiststore.NewAPIKeyStore(backend.Collection("apikeys"))
+	require.NoError(t, err)
+	observed := &observedAPIKeyStore{APIKeyStore: store}
+	svc := newTestServiceWithAPIKeyStore(t, observed)
+	legacy, parts := createLegacyAPIKey(t, store, "wrong-secret-legacy-key")
+	wrongSecret := parts.keyPrefix + "different-secret"
+
+	_, err = svc.ValidateAPIKey(context.Background(), wrongSecret)
+	require.ErrorIs(t, err, ErrInvalidAPIKey)
+
+	persisted, err := store.GetByID(context.Background(), legacy.ID)
+	require.NoError(t, err)
+	assert.Empty(t, persisted.KeyDigest)
+	promoteCalls, _ := observed.counts()
+	assert.Zero(t, promoteCalls)
+}
+
+func TestService_ValidateAPIKey_PromotesLegacyKeyBeforeRejectingDisabledOwner(t *testing.T) {
+	backend := testutil.NewMemoryBackend()
+	store, err := persiststore.NewAPIKeyStore(backend.Collection("apikeys"))
+	require.NoError(t, err)
+	svc := newTestServiceWithAPIKeyStore(t, store)
+	owner := auth.NewUser("disabled-owner", "unused-password-hash", auth.RoleViewer)
+	owner.IsDisabled = true
+	require.NoError(t, svc.store.Create(context.Background(), owner))
+
+	legacy, parts := createLegacyAPIKey(t, store, "disabled-owner-legacy-key")
+	legacy.AttributionClass = auth.APIKeyAttributionUserOwned
+	legacy.OwnerUserID = owner.ID
+	require.NoError(t, store.Update(context.Background(), legacy))
+
+	_, err = svc.ValidateAPIKey(context.Background(), parts.fullKey)
+	require.ErrorIs(t, err, ErrInvalidAPIKey)
+	persisted, err := store.GetByID(context.Background(), legacy.ID)
+	require.NoError(t, err)
+	assert.Equal(t, apiKeyDigest(parts.fullKey), persisted.KeyDigest)
+}
+
 func TestService_ValidateAPIKey_InvalidPrefix(t *testing.T) {
 	svc, cleanup := setupTestServiceWithAPIKeys(t)
 	defer cleanup()
@@ -1079,6 +1260,9 @@ func TestService_ValidateAPIKey_InvalidPrefix(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := svc.ValidateAPIKey(ctx, "invalid_prefix_key")
+	require.ErrorIs(t, err, ErrInvalidAPIKey)
+
+	_, err = svc.ValidateAPIKey(ctx, apiKeyPrefix)
 	require.ErrorIs(t, err, ErrInvalidAPIKey)
 }
 
@@ -1165,6 +1349,47 @@ func TestService_ValidateAPIKey_UpdatesLastUsed(t *testing.T) {
 	require.NotNil(t, apiKey2.LastUsedAt, "LastUsedAt should be populated after validation")
 }
 
+func TestService_ValidateAPIKey_ThrottlesLastUsedUpdates(t *testing.T) {
+	backend := testutil.NewMemoryBackend()
+	store, err := persiststore.NewAPIKeyStore(backend.Collection("apikeys"))
+	require.NoError(t, err)
+	observed := &observedAPIKeyStore{APIKeyStore: store}
+	svc := newTestServiceWithAPIKeyStore(t, observed)
+
+	result, err := svc.CreateAPIKey(context.Background(), CreateAPIKeyInput{
+		Name: "last-used-throttle-key",
+		Role: auth.RoleViewer,
+	}, "creator-id")
+	require.NoError(t, err)
+
+	_, err = svc.ValidateAPIKey(context.Background(), result.FullKey)
+	require.NoError(t, err)
+	_, err = svc.ValidateAPIKey(context.Background(), result.FullKey)
+	require.NoError(t, err)
+	_, updateCalls := observed.counts()
+	assert.Equal(t, 1, updateCalls)
+}
+
+func TestService_ValidateAPIKey_LastUsedFailureDoesNotRejectKey(t *testing.T) {
+	backend := testutil.NewMemoryBackend()
+	store, err := persiststore.NewAPIKeyStore(backend.Collection("apikeys"))
+	require.NoError(t, err)
+	observed := &observedAPIKeyStore{
+		APIKeyStore:       store,
+		updateLastUsedErr: errors.New("last-used update failed"),
+	}
+	svc := newTestServiceWithAPIKeyStore(t, observed)
+
+	result, err := svc.CreateAPIKey(context.Background(), CreateAPIKeyInput{
+		Name: "last-used-failure-key",
+		Role: auth.RoleViewer,
+	}, "creator-id")
+	require.NoError(t, err)
+	validated, err := svc.ValidateAPIKey(context.Background(), result.FullKey)
+	require.NoError(t, err)
+	assert.Equal(t, result.APIKey.ID, validated.ID)
+}
+
 func TestGenerateAPIKey(t *testing.T) {
 	// Test API key generation
 	keyParts, err := generateAPIKey(4) // Low cost for fast tests
@@ -1182,9 +1407,17 @@ func TestGenerateAPIKey(t *testing.T) {
 	// Verify hash is valid bcrypt hash
 	assert.NotEmpty(t, keyParts.keyHash, "Key hash should not be empty")
 	assert.True(t, strings.HasPrefix(keyParts.keyHash, "$2"), "Key hash should be bcrypt format")
+	assert.Equal(t, apiKeyDigest(keyParts.fullKey), keyParts.keyDigest)
 
 	// Verify full key is long enough (should be at least 40 chars: 5 prefix + 32 bytes base58)
 	assert.GreaterOrEqual(t, len(keyParts.fullKey), 40, "Full key should be at least 40 characters")
+}
+
+func TestAPIKeyDigest(t *testing.T) {
+	assert.Equal(t,
+		"sha256:v1:dffc41464f28bdb8ce95d13ecf9acd5ee6bf07a4b56860688431d8e803200514",
+		apiKeyDigest("dagu_example"),
+	)
 }
 
 func TestGenerateAPIKey_UniqueKeys(t *testing.T) {
@@ -1195,5 +1428,41 @@ func TestGenerateAPIKey_UniqueKeys(t *testing.T) {
 		require.NoError(t, err)
 		assert.False(t, keys[keyParts.fullKey], "Generated key should be unique")
 		keys[keyParts.fullKey] = true
+	}
+}
+
+func BenchmarkService_ValidateAPIKey_DigestPath(b *testing.B) {
+	backend := testutil.NewMemoryBackend()
+	apiKeyStore, err := persiststore.NewAPIKeyStore(backend.Collection("apikeys"))
+	require.NoError(b, err)
+	svc := newTestServiceWithAPIKeyStore(b, apiKeyStore)
+	const fullKey = "dagu_benchmark_digest_path_secret"
+	key, err := auth.NewAPIKey(
+		"benchmark-key",
+		"",
+		auth.RoleViewer,
+		"unused-bcrypt-hash",
+		fullKey[:apiKeyPrefixLength],
+		"creator-id",
+	)
+	require.NoError(b, err)
+	key.KeyDigest = apiKeyDigest(fullKey)
+	require.NoError(b, apiKeyStore.Create(context.Background(), key))
+	_, err = svc.ValidateAPIKey(context.Background(), fullKey)
+	require.NoError(b, err)
+
+	var firstErr error
+	var errOnce sync.Once
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			if _, err := svc.ValidateAPIKey(context.Background(), fullKey); err != nil {
+				errOnce.Do(func() { firstErr = err })
+				return
+			}
+		}
+	})
+	if firstErr != nil {
+		b.Fatal(firstErr)
 	}
 }

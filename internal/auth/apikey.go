@@ -65,6 +65,9 @@ type APIKey struct {
 	// KeyHash is the bcrypt hash of the API key secret.
 	// Excluded from JSON serialization for security.
 	KeyHash string `json:"-"`
+	// KeyDigest is the versioned digest used for API key lookup.
+	// Excluded from JSON serialization for security.
+	KeyDigest string `json:"-"`
 	// KeyPrefix stores the first 8 characters of the key for identification.
 	KeyPrefix string `json:"key_prefix"`
 	// CreatedAt is the timestamp when the API key was created.
@@ -108,7 +111,7 @@ func NewAPIKey(name, description string, role Role, keyHash, keyPrefix, createdB
 }
 
 // APIKeyForStorage is used for JSON serialization to persistent storage.
-// It includes the key hash which is excluded from the regular APIKey JSON.
+// It includes credential fields excluded from the regular APIKey JSON.
 type APIKeyForStorage struct {
 	ID                       string                 `json:"id"`
 	Name                     string                 `json:"name"`
@@ -123,6 +126,7 @@ type APIKeyForStorage struct {
 	ServiceAccountName       string                 `json:"service_account_name,omitempty"`
 	MigratedAsServiceAccount bool                   `json:"migrated_as_service_account,omitempty"`
 	KeyHash                  string                 `json:"key_hash"`
+	KeyDigest                string                 `json:"key_digest,omitempty"`
 	KeyPrefix                string                 `json:"key_prefix"`
 	CreatedAt                time.Time              `json:"created_at"`
 	UpdatedAt                time.Time              `json:"updated_at"`
@@ -149,6 +153,7 @@ func (k *APIKey) ToStorage() *APIKeyForStorage {
 		ServiceAccountName:       normalized.ServiceAccountName,
 		MigratedAsServiceAccount: normalized.MigratedAsServiceAccount,
 		KeyHash:                  normalized.KeyHash,
+		KeyDigest:                normalized.KeyDigest,
 		KeyPrefix:                normalized.KeyPrefix,
 		CreatedAt:                normalized.CreatedAt,
 		UpdatedAt:                normalized.UpdatedAt,
@@ -175,6 +180,7 @@ func (s *APIKeyForStorage) ToAPIKey() *APIKey {
 		ServiceAccountName:       s.ServiceAccountName,
 		MigratedAsServiceAccount: s.MigratedAsServiceAccount,
 		KeyHash:                  s.KeyHash,
+		KeyDigest:                s.KeyDigest,
 		KeyPrefix:                s.KeyPrefix,
 		CreatedAt:                s.CreatedAt,
 		UpdatedAt:                s.UpdatedAt,
