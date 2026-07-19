@@ -2,4 +2,5 @@ steps:
   - action: git.worktree.remove
     with:
       branch: topic
-      base: main
+      delete_branch: true
+      force_delete_branch: 1

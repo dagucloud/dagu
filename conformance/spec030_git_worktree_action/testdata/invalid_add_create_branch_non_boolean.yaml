@@ -2,4 +2,4 @@ steps:
   - action: git.worktree.add
     with:
       branch: topic
-      from: 42
+      create_branch: "true"

@@ -1,5 +1,5 @@
 steps:
-  - action: git.worktree.remove
+  - action: git.worktree.add
     with:
       branch: topic
       base: main

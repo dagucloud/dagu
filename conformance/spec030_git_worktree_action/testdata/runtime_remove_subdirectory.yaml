@@ -1,0 +1,9 @@
+working_dir: .
+steps:
+  - id: remove
+    working_dir: ./repo/services/api
+    action: git.worktree.remove
+    with:
+      path: ../wt/from-subdirectory
+    stdout: ../../../action-stdout.json
+    stderr: ../../../action-stderr.txt

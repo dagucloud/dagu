@@ -8,6 +8,9 @@ params:
   - name: path
     type: string
     required: true
+  - name: base
+    type: string
+    required: true
 working_dir: .
 steps:
   - id: add
@@ -17,5 +20,6 @@ steps:
       branch: "${params.branch}"
       create_branch: true
       path: "${params.path}"
+      base: "${params.base}"
     stdout: ../action-stdout.json
     stderr: ../action-stderr.txt

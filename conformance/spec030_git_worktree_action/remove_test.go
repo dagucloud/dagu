@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestGitWorktreeRemoveSelectors(t *testing.T) {
+func TestGitWorktreeRemoveSelectorsResolveParameterInputs(t *testing.T) {
 	t.Parallel()
 
 	t.Run("branch", func(t *testing.T) {
@@ -28,7 +28,7 @@ func TestGitWorktreeRemoveSelectors(t *testing.T) {
 		actual := readRemoveResult(t, dagu)
 		require.Equal(t, path, actual.Path)
 		require.Equal(t, "by-branch", actual.Branch)
-		require.True(t, actual.Removed)
+		require.True(t, actual.WorktreeRemoved)
 		require.False(t, actual.BranchDeleted)
 		require.NoDirExists(t, path)
 		require.True(t, refExists(t, repo.path, "refs/heads/by-branch"))
@@ -46,8 +46,8 @@ func TestGitWorktreeRemoveSelectors(t *testing.T) {
 		result.ExpectExitCode(0)
 		actual := readRemoveResult(t, dagu)
 		require.Equal(t, path, actual.Path)
-		require.Empty(t, actual.Branch)
-		require.True(t, actual.Removed)
+		require.Equal(t, "by-path", actual.Branch)
+		require.True(t, actual.WorktreeRemoved)
 		require.False(t, actual.BranchDeleted)
 		require.NoDirExists(t, path)
 		require.True(t, refExists(t, repo.path, "refs/heads/by-path"))
@@ -67,7 +67,7 @@ func TestGitWorktreeRemoveSelectors(t *testing.T) {
 		actual := readRemoveResult(t, dagu)
 		require.Equal(t, path, actual.Path)
 		require.Equal(t, "by-both", actual.Branch)
-		require.True(t, actual.Removed)
+		require.True(t, actual.WorktreeRemoved)
 		require.False(t, actual.BranchDeleted)
 
 		resetActionStreams(t, dagu)
@@ -76,7 +76,7 @@ func TestGitWorktreeRemoveSelectors(t *testing.T) {
 		repeatedResult := readRemoveResult(t, dagu)
 		require.Equal(t, path, repeatedResult.Path)
 		require.Equal(t, "by-both", repeatedResult.Branch)
-		require.False(t, repeatedResult.Removed)
+		require.False(t, repeatedResult.WorktreeRemoved)
 		require.False(t, repeatedResult.BranchDeleted)
 		require.True(t, refExists(t, repo.path, "refs/heads/by-both"))
 		requireNoLinkedWorktree(t, repo.path, path, "by-both")
@@ -95,7 +95,7 @@ func TestGitWorktreeRemoveMissingTargetsIsIdempotent(t *testing.T) {
 		actual := readRemoveResult(t, dagu)
 		require.Empty(t, actual.Path)
 		require.Equal(t, "missing", actual.Branch)
-		require.False(t, actual.Removed)
+		require.False(t, actual.WorktreeRemoved)
 		require.False(t, actual.BranchDeleted)
 	})
 
@@ -108,7 +108,7 @@ func TestGitWorktreeRemoveMissingTargetsIsIdempotent(t *testing.T) {
 		actual := readRemoveResult(t, dagu)
 		require.Equal(t, dagu.ProjectPath("wt/missing"), actual.Path)
 		require.Empty(t, actual.Branch)
-		require.False(t, actual.Removed)
+		require.False(t, actual.WorktreeRemoved)
 		require.False(t, actual.BranchDeleted)
 	})
 
@@ -121,7 +121,7 @@ func TestGitWorktreeRemoveMissingTargetsIsIdempotent(t *testing.T) {
 		result.ExpectExitCode(0)
 		actual := readRemoveResult(t, dagu)
 		require.Equal(t, dagu.ProjectPath("wt/unregistered"), actual.Path)
-		require.False(t, actual.Removed)
+		require.False(t, actual.WorktreeRemoved)
 		dagu.ExpectFileContent("wt/unregistered/keep.txt", "keep\n")
 	})
 
@@ -134,7 +134,7 @@ func TestGitWorktreeRemoveMissingTargetsIsIdempotent(t *testing.T) {
 		actual := readRemoveResult(t, dagu)
 		require.Empty(t, actual.Path)
 		require.Equal(t, "main", actual.Branch)
-		require.False(t, actual.Removed)
+		require.False(t, actual.WorktreeRemoved)
 		require.False(t, actual.BranchDeleted)
 		require.DirExists(t, repo.path)
 		require.True(t, refExists(t, repo.path, "refs/heads/main"))
@@ -166,7 +166,7 @@ func TestGitWorktreeRemoveDirtyRequiresForce(t *testing.T) {
 	forced := startWithParams(dagu, "runtime_remove_force.yaml", "working_dir=./repo", "branch=dirty")
 	forced.ExpectExitCode(0)
 	actual := readRemoveResult(t, dagu)
-	require.True(t, actual.Removed)
+	require.True(t, actual.WorktreeRemoved)
 	require.False(t, actual.BranchDeleted)
 	require.NoDirExists(t, path)
 	require.True(t, refExists(t, repo.path, "refs/heads/dirty"))
@@ -188,7 +188,7 @@ func TestGitWorktreeRemoveUnregistersStaleTarget(t *testing.T) {
 	actual := readRemoveResult(t, dagu)
 	require.Equal(t, path, actual.Path)
 	require.Equal(t, "stale", actual.Branch)
-	require.True(t, actual.Removed)
+	require.True(t, actual.WorktreeRemoved)
 	require.False(t, actual.BranchDeleted)
 	require.True(t, refExists(t, repo.path, "refs/heads/stale"))
 	require.DirExists(t, path+".moved")
@@ -198,22 +198,60 @@ func TestGitWorktreeRemoveUnregistersStaleTarget(t *testing.T) {
 func TestGitWorktreeRemoveDeletesBranches(t *testing.T) {
 	t.Parallel()
 
-	t.Run("unmerged branch after worktree removal", func(t *testing.T) {
+	t.Run("merged branch", func(t *testing.T) {
+		t.Parallel()
+		dagu := harness.NewRunner(t)
+		repo := initRepository(t, dagu)
+		path := dagu.ProjectPath("wt/merged")
+		createLinkedWorktree(t, repo.path, path, "merged", repo.baseCommit)
+
+		result := startWithParams(dagu, "runtime_remove_delete.yaml", "working_dir=./repo", "branch=merged")
+		result.ExpectExitCode(0)
+		actual := readRemoveResult(t, dagu)
+		require.Equal(t, "merged", actual.Branch)
+		require.True(t, actual.WorktreeRemoved)
+		require.True(t, actual.BranchDeleted)
+		require.NoDirExists(t, path)
+		require.False(t, refExists(t, repo.path, "refs/heads/merged"))
+		requireNoLinkedWorktree(t, repo.path, path, "merged")
+	})
+
+	t.Run("unmerged branch is refused before worktree removal", func(t *testing.T) {
 		t.Parallel()
 		dagu := harness.NewRunner(t)
 		repo := initRepository(t, dagu)
 		path := dagu.ProjectPath("wt/unmerged")
 		createLinkedWorktree(t, repo.path, path, "unmerged", repo.baseCommit)
-		_ = commitFile(t, path, "branch-only.txt", "branch\n", "unmerged change")
+		branchCommit := commitFile(t, path, "branch-only.txt", "branch\n", "unmerged change")
+		requireValidWorkflow(dagu, "runtime_remove_delete.yaml")
 
 		result := startWithParams(dagu, "runtime_remove_delete.yaml", "working_dir=./repo", "branch=unmerged")
+		result.ExpectNonZeroExitCode()
+		result.ExpectStdout("")
+		result.ExpectStderrNotEmpty()
+		requireNoResultDocument(t, dagu)
+		require.DirExists(t, path)
+		require.True(t, refExists(t, repo.path, "refs/heads/unmerged"))
+		requireLinkedWorktree(t, repo.path, path, "unmerged", branchCommit)
+	})
+
+	t.Run("forced deletion permits unmerged branch", func(t *testing.T) {
+		t.Parallel()
+		dagu := harness.NewRunner(t)
+		repo := initRepository(t, dagu)
+		path := dagu.ProjectPath("wt/forced-unmerged")
+		createLinkedWorktree(t, repo.path, path, "forced-unmerged", repo.baseCommit)
+		_ = commitFile(t, path, "branch-only.txt", "branch\n", "unmerged change")
+
+		result := startWithParams(dagu, "runtime_remove_force_delete.yaml", "working_dir=./repo", "branch=forced-unmerged")
 		result.ExpectExitCode(0)
 		actual := readRemoveResult(t, dagu)
-		require.True(t, actual.Removed)
+		require.Equal(t, "forced-unmerged", actual.Branch)
+		require.True(t, actual.WorktreeRemoved)
 		require.True(t, actual.BranchDeleted)
 		require.NoDirExists(t, path)
-		require.False(t, refExists(t, repo.path, "refs/heads/unmerged"))
-		requireNoLinkedWorktree(t, repo.path, path, "unmerged")
+		require.False(t, refExists(t, repo.path, "refs/heads/forced-unmerged"))
+		requireNoLinkedWorktree(t, repo.path, path, "forced-unmerged")
 	})
 
 	t.Run("branch without registered worktree", func(t *testing.T) {
@@ -226,7 +264,7 @@ func TestGitWorktreeRemoveDeletesBranches(t *testing.T) {
 		result.ExpectExitCode(0)
 		actual := readRemoveResult(t, dagu)
 		require.Empty(t, actual.Path)
-		require.False(t, actual.Removed)
+		require.False(t, actual.WorktreeRemoved)
 		require.True(t, actual.BranchDeleted)
 		require.False(t, refExists(t, repo.path, "refs/heads/disposable"))
 	})
@@ -238,7 +276,7 @@ func TestGitWorktreeRemoveDeletesBranches(t *testing.T) {
 		result := startWithParams(dagu, "runtime_remove_delete.yaml", "working_dir=./repo", "branch=missing")
 		result.ExpectExitCode(0)
 		actual := readRemoveResult(t, dagu)
-		require.False(t, actual.Removed)
+		require.False(t, actual.WorktreeRemoved)
 		require.False(t, actual.BranchDeleted)
 	})
 
@@ -258,7 +296,7 @@ func TestGitWorktreeRemoveSupportsBareRepository(t *testing.T) {
 	result.ExpectExitCode(0)
 	actual := readRemoveResult(t, dagu)
 	require.Equal(t, path, actual.Path)
-	require.True(t, actual.Removed)
+	require.True(t, actual.WorktreeRemoved)
 	require.False(t, actual.BranchDeleted)
 	require.NoDirExists(t, path)
 	require.True(t, refExists(t, barePath, "refs/heads/main"))

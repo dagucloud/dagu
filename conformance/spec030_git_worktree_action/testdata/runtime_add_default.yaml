@@ -12,5 +12,6 @@ steps:
     action: git.worktree.add
     with:
       branch: "${params.branch}"
+      create_branch: true
     stdout: ../action-stdout.json
     stderr: ../action-stderr.txt

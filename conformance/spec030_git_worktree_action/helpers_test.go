@@ -28,20 +28,20 @@ type repositoryFixture struct {
 }
 
 type addResult struct {
-	Operation     string `json:"operation"`
-	Path          string `json:"path"`
-	Branch        string `json:"branch"`
-	Commit        string `json:"commit"`
-	Created       bool   `json:"created"`
-	BranchCreated bool   `json:"branch_created"`
+	Operation       string `json:"operation"`
+	Path            string `json:"path"`
+	Branch          string `json:"branch"`
+	Commit          string `json:"commit"`
+	WorktreeCreated bool   `json:"worktree_created"`
+	BranchCreated   bool   `json:"branch_created"`
 }
 
 type removeResult struct {
-	Operation     string `json:"operation"`
-	Path          string `json:"path"`
-	Branch        string `json:"branch"`
-	Removed       bool   `json:"removed"`
-	BranchDeleted bool   `json:"branch_deleted"`
+	Operation       string `json:"operation"`
+	Path            string `json:"path"`
+	Branch          string `json:"branch"`
+	WorktreeRemoved bool   `json:"worktree_removed"`
+	BranchDeleted   bool   `json:"branch_deleted"`
 }
 
 type worktreeEntry struct {
@@ -228,7 +228,7 @@ func requireValidWorkflow(dagu *harness.Runner, fixture string) {
 func readAddResult(t *testing.T, dagu *harness.Runner) addResult {
 	t.Helper()
 	var result addResult
-	readResultLine(t, dagu, &result, "operation", "path", "branch", "commit", "created", "branch_created")
+	readResultLine(t, dagu, &result, "operation", "path", "branch", "commit", "worktree_created", "branch_created")
 	require.Equal(t, "worktree_add", result.Operation)
 	require.NotEmpty(t, result.Path)
 	require.NotEmpty(t, result.Branch)
@@ -239,7 +239,7 @@ func readAddResult(t *testing.T, dagu *harness.Runner) addResult {
 func readRemoveResult(t *testing.T, dagu *harness.Runner) removeResult {
 	t.Helper()
 	var result removeResult
-	readResultLine(t, dagu, &result, "operation", "path", "branch", "removed", "branch_deleted")
+	readResultLine(t, dagu, &result, "operation", "path", "branch", "worktree_removed", "branch_deleted")
 	require.Equal(t, "worktree_remove", result.Operation)
 	return result
 }

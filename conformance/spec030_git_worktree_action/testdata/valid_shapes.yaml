@@ -10,7 +10,8 @@ steps:
     with:
       branch: missing-branch
       path: ./missing-worktree
-      from: missing-start-point
+      create_branch: true
+      base: missing-base
 
   - id: remove-by-branch
     action: git.worktree.remove
@@ -29,3 +30,4 @@ steps:
       path: ./missing-worktree
       force: true
       delete_branch: true
+      force_delete_branch: true

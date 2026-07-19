@@ -1,0 +1,11 @@
+working_dir: .
+steps:
+  - id: add
+    working_dir: ./repo/services/api
+    action: git.worktree.add
+    with:
+      branch: from-subdirectory
+      create_branch: true
+      path: ../wt/from-subdirectory
+    stdout: ../../../action-stdout.json
+    stderr: ../../../action-stderr.txt

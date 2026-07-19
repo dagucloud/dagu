@@ -8,9 +8,6 @@ params:
   - name: path
     type: string
     required: true
-  - name: from
-    type: string
-    required: true
 working_dir: .
 steps:
   - id: add
@@ -19,6 +16,5 @@ steps:
     with:
       branch: "${params.branch}"
       path: "${params.path}"
-      from: "${params.from}"
     stdout: ../action-stdout.json
     stderr: ../action-stderr.txt

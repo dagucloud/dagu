@@ -5,6 +5,7 @@ steps:
     action: git.worktree.add
     with:
       branch: step-directory
+      create_branch: true
       path: ../workspace/wt/step-directory
     stdout: ../action-stdout.json
     stderr: ../action-stderr.txt

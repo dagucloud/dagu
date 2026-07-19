@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestGitWorktreeAddCreatesBranchAndResolvesPaths(t *testing.T) {
+func TestGitWorktreeAddResolvesParameterInputsAndPaths(t *testing.T) {
 	t.Parallel()
 
 	dagu := harness.NewRunner(t)
@@ -34,7 +34,7 @@ func TestGitWorktreeAddCreatesBranchAndResolvesPaths(t *testing.T) {
 	require.Equal(t, wantPath, actual.Path)
 	require.Equal(t, "feature-x", actual.Branch)
 	require.Equal(t, repo.baseCommit, actual.Commit)
-	require.True(t, actual.Created)
+	require.True(t, actual.WorktreeCreated)
 	require.True(t, actual.BranchCreated)
 	require.FileExists(t, filepath.Join(wantPath, "base.txt"))
 	require.Equal(t, "feature-x", gitOutput(t, wantPath, "symbolic-ref", "--short", "HEAD"))
@@ -55,7 +55,7 @@ func TestGitWorktreeAddUsesDefaultPath(t *testing.T) {
 	)
 	result.ExpectExitCode(0)
 
-	wantPath := dagu.ProjectPath("repo.worktrees/feature-auth")
+	wantPath := dagu.ProjectPath("repo.worktrees/feature/auth")
 	actual := readAddResult(t, dagu)
 	require.Equal(t, wantPath, actual.Path)
 	require.Equal(t, "feature/auth", actual.Branch)
@@ -63,7 +63,39 @@ func TestGitWorktreeAddUsesDefaultPath(t *testing.T) {
 	requireLinkedWorktree(t, repo.path, wantPath, "feature/auth", repo.baseCommit)
 }
 
-func TestGitWorktreePathsResolveFromStepWorkingDirectory(t *testing.T) {
+func TestGitWorktreeAddDefaultPathsDoNotCollide(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	repo := initRepository(t, dagu)
+
+	nested := startWithParams(
+		dagu,
+		"runtime_add_default.yaml",
+		"working_dir=./repo",
+		"branch=feature/auth",
+	)
+	nested.ExpectExitCode(0)
+	nestedResult := readAddResult(t, dagu)
+
+	resetActionStreams(t, dagu)
+	flat := startWithParams(
+		dagu,
+		"runtime_add_default.yaml",
+		"working_dir=./repo",
+		"branch=feature-auth",
+	)
+	flat.ExpectExitCode(0)
+	flatResult := readAddResult(t, dagu)
+
+	require.Equal(t, dagu.ProjectPath("repo.worktrees/feature/auth"), nestedResult.Path)
+	require.Equal(t, dagu.ProjectPath("repo.worktrees/feature-auth"), flatResult.Path)
+	require.NotEqual(t, nestedResult.Path, flatResult.Path)
+	requireLinkedWorktree(t, repo.path, nestedResult.Path, "feature/auth", repo.baseCommit)
+	requireLinkedWorktree(t, repo.path, flatResult.Path, "feature-auth", repo.baseCommit)
+}
+
+func TestGitWorktreePathsResolveFromRepositoryRoot(t *testing.T) {
 	t.Parallel()
 
 	dagu := harness.NewRunner(t)
@@ -82,7 +114,32 @@ func TestGitWorktreePathsResolveFromStepWorkingDirectory(t *testing.T) {
 	remove.ExpectExitCode(0)
 	removeResult := readRemoveResult(t, dagu)
 	require.Equal(t, worktreePath, removeResult.Path)
-	require.True(t, removeResult.Removed)
+	require.True(t, removeResult.WorktreeRemoved)
+	require.NoDirExists(t, worktreePath)
+}
+
+func TestGitWorktreeActionsDetectRepositoryFromSubdirectory(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	repo := initRepository(t, dagu)
+	dagu.Mkdir("repo/services/api")
+
+	add := dagu.Run("start", "runtime_add_subdirectory.yaml")
+	add.ExpectExitCode(0)
+	worktreePath := dagu.ProjectPath("wt/from-subdirectory")
+	addResult := readAddResult(t, dagu)
+	require.Equal(t, worktreePath, addResult.Path)
+	require.True(t, addResult.WorktreeCreated)
+	requireLinkedWorktree(t, repo.path, worktreePath, "from-subdirectory", repo.baseCommit)
+
+	resetActionStreams(t, dagu)
+	remove := dagu.Run("start", "runtime_remove_subdirectory.yaml")
+	remove.ExpectExitCode(0)
+	removeResult := readRemoveResult(t, dagu)
+	require.Equal(t, worktreePath, removeResult.Path)
+	require.Equal(t, "from-subdirectory", removeResult.Branch)
+	require.True(t, removeResult.WorktreeRemoved)
 	require.NoDirExists(t, worktreePath)
 }
 
@@ -117,60 +174,60 @@ func TestGitWorktreeActionsDetectRepositoryFromLinkedWorktree(t *testing.T) {
 	remove.ExpectExitCode(0)
 	removeResult := readRemoveResult(t, dagu)
 	require.Equal(t, worktreePath, removeResult.Path)
-	require.True(t, removeResult.Removed)
+	require.True(t, removeResult.WorktreeRemoved)
 	requireNoLinkedWorktree(t, repo.path, worktreePath, "from-linked")
 }
 
-func TestGitWorktreeAddResolvesStartPointOrder(t *testing.T) {
+func TestGitWorktreeAddResolvesBaseOrder(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
 		name      string
-		from      func(repositoryFixture, string) string
+		base      func(repositoryFixture, string) string
 		want      func(repositoryFixture, string) string
 		newBranch string
 	}{
 		{
 			name:      "commit hash",
-			from:      func(repo repositoryFixture, _ string) string { return repo.baseCommit },
+			base:      func(repo repositoryFixture, _ string) string { return repo.baseCommit },
 			want:      func(repo repositoryFixture, _ string) string { return repo.baseCommit },
-			newBranch: "from-hash",
+			newBranch: "base-hash",
 		},
 		{
 			name:      "local branch",
-			from:      func(_ repositoryFixture, _ string) string { return "local-start" },
+			base:      func(_ repositoryFixture, _ string) string { return "local-start" },
 			want:      func(repo repositoryFixture, _ string) string { return repo.baseCommit },
-			newBranch: "from-local",
+			newBranch: "base-local",
 		},
 		{
 			name:      "origin tracking branch",
-			from:      func(_ repositoryFixture, _ string) string { return "remote-start" },
+			base:      func(_ repositoryFixture, _ string) string { return "remote-start" },
 			want:      func(repo repositoryFixture, _ string) string { return repo.baseCommit },
-			newBranch: "from-remote",
+			newBranch: "base-remote",
 		},
 		{
 			name:      "tag",
-			from:      func(_ repositoryFixture, _ string) string { return "tag-start" },
+			base:      func(_ repositoryFixture, _ string) string { return "tag-start" },
 			want:      func(repo repositoryFixture, _ string) string { return repo.baseCommit },
-			newBranch: "from-tag",
+			newBranch: "base-tag",
 		},
 		{
 			name:      "annotated tag",
-			from:      func(_ repositoryFixture, _ string) string { return "annotated-start" },
+			base:      func(_ repositoryFixture, _ string) string { return "annotated-start" },
 			want:      func(repo repositoryFixture, _ string) string { return repo.baseCommit },
-			newBranch: "from-annotated-tag",
+			newBranch: "base-annotated-tag",
 		},
 		{
 			name:      "local branch precedes origin and tag",
-			from:      func(_ repositoryFixture, _ string) string { return "priority" },
+			base:      func(_ repositoryFixture, _ string) string { return "priority" },
 			want:      func(repo repositoryFixture, _ string) string { return repo.baseCommit },
-			newBranch: "from-local-priority",
+			newBranch: "base-local-priority",
 		},
 		{
 			name:      "origin precedes tag",
-			from:      func(_ repositoryFixture, _ string) string { return "remote-priority" },
+			base:      func(_ repositoryFixture, _ string) string { return "remote-priority" },
 			want:      func(repo repositoryFixture, _ string) string { return repo.baseCommit },
-			newBranch: "from-remote-priority",
+			newBranch: "base-remote-priority",
 		},
 	}
 
@@ -194,18 +251,18 @@ func TestGitWorktreeAddResolvesStartPointOrder(t *testing.T) {
 			pathName := "wt/" + tc.newBranch
 			result := startWithParams(
 				dagu,
-				"runtime_add_from.yaml",
+				"runtime_add_base.yaml",
 				"working_dir=./repo",
 				"branch="+tc.newBranch,
 				"path=../"+pathName,
-				"from="+tc.from(repo, secondCommit),
+				"base="+tc.base(repo, secondCommit),
 			)
 			result.ExpectExitCode(0)
 
 			wantCommit := tc.want(repo, secondCommit)
 			actual := readAddResult(t, dagu)
 			require.Equal(t, wantCommit, actual.Commit)
-			require.True(t, actual.Created)
+			require.True(t, actual.WorktreeCreated)
 			require.True(t, actual.BranchCreated)
 			require.Equal(t, wantCommit, gitOutput(t, repo.path, "rev-parse", "refs/heads/"+tc.newBranch))
 			requireLinkedWorktree(t, repo.path, dagu.ProjectPath(pathName), tc.newBranch, wantCommit)
@@ -213,7 +270,7 @@ func TestGitWorktreeAddResolvesStartPointOrder(t *testing.T) {
 	}
 }
 
-func TestGitWorktreeAddExistingBranchIgnoresFrom(t *testing.T) {
+func TestGitWorktreeAddExistingBranchIgnoresBase(t *testing.T) {
 	t.Parallel()
 
 	dagu := harness.NewRunner(t)
@@ -223,17 +280,17 @@ func TestGitWorktreeAddExistingBranchIgnoresFrom(t *testing.T) {
 
 	result := startWithParams(
 		dagu,
-		"runtime_add_from.yaml",
+		"runtime_add_base.yaml",
 		"working_dir=./repo",
 		"branch=existing",
 		"path=../wt/existing",
-		"from=does-not-exist",
+		"base=does-not-exist",
 	)
 	result.ExpectExitCode(0)
 
 	actual := readAddResult(t, dagu)
 	require.Equal(t, repo.baseCommit, actual.Commit)
-	require.True(t, actual.Created)
+	require.True(t, actual.WorktreeCreated)
 	require.False(t, actual.BranchCreated)
 	require.Equal(t, repo.baseCommit, gitOutput(t, repo.path, "rev-parse", "refs/heads/existing"))
 }
@@ -247,7 +304,7 @@ func TestGitWorktreeAddReusesWorktreeWithoutChangingIt(t *testing.T) {
 	first := startWithParams(dagu, "runtime_add.yaml", params...)
 	first.ExpectExitCode(0)
 	firstResult := readAddResult(t, dagu)
-	require.True(t, firstResult.Created)
+	require.True(t, firstResult.WorktreeCreated)
 	require.True(t, firstResult.BranchCreated)
 
 	worktreePath := dagu.ProjectPath("wt/reused")
@@ -259,7 +316,7 @@ func TestGitWorktreeAddReusesWorktreeWithoutChangingIt(t *testing.T) {
 	second := startWithParams(dagu, "runtime_add.yaml", params...)
 	second.ExpectExitCode(0)
 	secondResult := readAddResult(t, dagu)
-	require.False(t, secondResult.Created)
+	require.False(t, secondResult.WorktreeCreated)
 	require.False(t, secondResult.BranchCreated)
 	require.Equal(t, headBefore, secondResult.Commit)
 	require.Equal(t, headBefore, gitOutput(t, worktreePath, "rev-parse", "HEAD"))
@@ -284,7 +341,7 @@ func TestGitWorktreeAddAcceptsExistingEmptyDirectory(t *testing.T) {
 	)
 	result.ExpectExitCode(0)
 	actual := readAddResult(t, dagu)
-	require.True(t, actual.Created)
+	require.True(t, actual.WorktreeCreated)
 	requireLinkedWorktree(t, repo.path, dagu.ProjectPath("wt/empty"), "empty-target", repo.baseCommit)
 }
 
@@ -298,7 +355,7 @@ func TestGitWorktreeAddSupportsBareRepository(t *testing.T) {
 
 	result := startWithParams(
 		dagu,
-		"runtime_add.yaml",
+		"runtime_add_existing.yaml",
 		"working_dir=./bare.git",
 		"branch=main",
 		"path=../wt/bare-main",
@@ -306,7 +363,7 @@ func TestGitWorktreeAddSupportsBareRepository(t *testing.T) {
 	result.ExpectExitCode(0)
 	actual := readAddResult(t, dagu)
 	require.Equal(t, repo.baseCommit, actual.Commit)
-	require.True(t, actual.Created)
+	require.True(t, actual.WorktreeCreated)
 	require.False(t, actual.BranchCreated)
 	requireLinkedWorktree(t, barePath, dagu.ProjectPath("wt/bare-main"), "main", repo.baseCommit)
 }
@@ -349,18 +406,18 @@ func TestGitWorktreeAddRuntimeErrors(t *testing.T) {
 		requireNoResultDocument(t, dagu)
 	})
 
-	t.Run("start point cannot be resolved", func(t *testing.T) {
+	t.Run("base cannot be resolved", func(t *testing.T) {
 		t.Parallel()
 		dagu := harness.NewRunner(t)
 		repo := initRepository(t, dagu)
-		requireValidWorkflow(dagu, "runtime_add_from.yaml")
+		requireValidWorkflow(dagu, "runtime_add_base.yaml")
 		result := startWithParams(
 			dagu,
-			"runtime_add_from.yaml",
+			"runtime_add_base.yaml",
 			"working_dir=./repo",
 			"branch=topic",
 			"path=../wt/topic",
-			"from=does-not-exist",
+			"base=does-not-exist",
 		)
 		result.ExpectNonZeroExitCode()
 		result.ExpectStdout("")
@@ -368,6 +425,45 @@ func TestGitWorktreeAddRuntimeErrors(t *testing.T) {
 		requireNoResultDocument(t, dagu)
 		require.False(t, refExists(t, repo.path, "refs/heads/topic"))
 		requireNoLinkedWorktree(t, repo.path, dagu.ProjectPath("wt/topic"), "topic")
+	})
+
+	t.Run("missing branch requires explicit creation", func(t *testing.T) {
+		t.Parallel()
+		dagu := harness.NewRunner(t)
+		repo := initRepository(t, dagu)
+		requireValidWorkflow(dagu, "runtime_add_existing.yaml")
+		result := startWithParams(
+			dagu,
+			"runtime_add_existing.yaml",
+			"working_dir=./repo",
+			"branch=missing",
+			"path=../wt/missing",
+		)
+		result.ExpectNonZeroExitCode()
+		result.ExpectStdout("")
+		result.ExpectStderrNotEmpty()
+		requireNoResultDocument(t, dagu)
+		require.False(t, refExists(t, repo.path, "refs/heads/missing"))
+		requireNoLinkedWorktree(t, repo.path, dagu.ProjectPath("wt/missing"), "missing")
+	})
+
+	t.Run("invalid branch name", func(t *testing.T) {
+		t.Parallel()
+		dagu := harness.NewRunner(t)
+		repo := initRepository(t, dagu)
+		requireValidWorkflow(dagu, "runtime_add.yaml")
+		result := startWithParams(
+			dagu,
+			"runtime_add.yaml",
+			"working_dir=./repo",
+			"branch=invalid..branch",
+			"path=../wt/invalid",
+		)
+		result.ExpectNonZeroExitCode()
+		result.ExpectStdout("")
+		result.ExpectStderrNotEmpty()
+		requireNoResultDocument(t, dagu)
+		requireNoLinkedWorktree(t, repo.path, dagu.ProjectPath("wt/invalid"), "")
 	})
 
 	t.Run("non-empty path is occupied", func(t *testing.T) {
@@ -388,6 +484,7 @@ func TestGitWorktreeAddRuntimeErrors(t *testing.T) {
 		result.ExpectStderrNotEmpty()
 		requireNoResultDocument(t, dagu)
 		dagu.ExpectFileContent("wt/occupied/keep.txt", "keep\n")
+		require.False(t, refExists(t, repo.path, "refs/heads/occupied"))
 		requireNoLinkedWorktree(t, repo.path, dagu.ProjectPath("wt/occupied"), "occupied")
 	})
 
@@ -395,10 +492,10 @@ func TestGitWorktreeAddRuntimeErrors(t *testing.T) {
 		t.Parallel()
 		dagu := harness.NewRunner(t)
 		repo := initRepository(t, dagu)
-		requireValidWorkflow(dagu, "runtime_add.yaml")
+		requireValidWorkflow(dagu, "runtime_add_existing.yaml")
 		result := startWithParams(
 			dagu,
-			"runtime_add.yaml",
+			"runtime_add_existing.yaml",
 			"working_dir=./repo",
 			"branch=main",
 			"path=../wt/main",
@@ -416,10 +513,10 @@ func TestGitWorktreeAddRuntimeErrors(t *testing.T) {
 		repo := initRepository(t, dagu)
 		otherPath := dagu.ProjectPath("wt/elsewhere")
 		createLinkedWorktree(t, repo.path, otherPath, "linked", repo.baseCommit)
-		requireValidWorkflow(dagu, "runtime_add.yaml")
+		requireValidWorkflow(dagu, "runtime_add_existing.yaml")
 		result := startWithParams(
 			dagu,
-			"runtime_add.yaml",
+			"runtime_add_existing.yaml",
 			"working_dir=./repo",
 			"branch=linked",
 			"path=../wt/requested",
@@ -440,11 +537,11 @@ func TestGitWorktreeAddRuntimeErrors(t *testing.T) {
 		createLinkedWorktree(t, repo.path, path, "stale", repo.baseCommit)
 		require.NoError(t, os.Rename(path, path+".moved"))
 		requireLinkedWorktree(t, repo.path, path, "stale", repo.baseCommit)
-		requireValidWorkflow(dagu, "runtime_add.yaml")
+		requireValidWorkflow(dagu, "runtime_add_existing.yaml")
 
 		result := startWithParams(
 			dagu,
-			"runtime_add.yaml",
+			"runtime_add_existing.yaml",
 			"working_dir=./repo",
 			"branch=stale",
 			"path=../wt/stale",
@@ -477,6 +574,7 @@ func TestGitWorktreeAddRuntimeErrors(t *testing.T) {
 		result.ExpectStderrNotEmpty()
 		requireNoResultDocument(t, dagu)
 		requireLinkedWorktree(t, repo.path, path, "other", repo.baseCommit)
+		require.False(t, refExists(t, repo.path, "refs/heads/wanted"))
 	})
 }
 

@@ -1,0 +1,6 @@
+steps:
+  - action: git.worktree.add
+    with:
+      branch: topic
+      create_branch: true
+      base: ""
