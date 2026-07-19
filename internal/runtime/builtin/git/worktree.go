@@ -17,8 +17,6 @@ import (
 	"strings"
 	"time"
 
-	coreexec "github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/gofrs/flock"
 )
 
@@ -256,15 +254,6 @@ func (e *executorImpl) runWorktreeAdd(ctx context.Context, repo repository) erro
 		return e.failedAddError(ctx, repo.root, target, branch, fmt.Errorf("created worktree %q is missing", target))
 	}
 	commit = created.head
-	if err := runtime.SetGitWorktreeCleanup(ctx, coreexec.GitWorktreeCleanup{
-		Policy:         cfg.Cleanup,
-		RepositoryRoot: repo.root,
-		CommonDir:      repo.commonDir,
-		Path:           target,
-		Branch:         branch,
-	}); err != nil {
-		return fmt.Errorf("record automatic cleanup: %w", err)
-	}
 	e.publishAddOutputs(target, branch, commit, true, branchCreated)
 	return nil
 }
@@ -771,33 +760,4 @@ func gitExitCode(err error) int {
 		return exitErr.ExitCode()
 	}
 	return -1
-}
-
-// Cleanup removes one run-owned worktree without deleting its branch.
-func Cleanup(ctx context.Context, cleanup coreexec.GitWorktreeCleanup) error {
-	executor := &executorImpl{
-		workDir: cleanup.RepositoryRoot,
-		op:      opWorktreeRemove,
-		worktreeCfg: worktreeConfig{
-			Branch:    cleanup.Branch,
-			Path:      cleanup.Path,
-			HasBranch: true,
-			HasPath:   true,
-		},
-	}
-	repo, err := executor.discoverRepository(ctx)
-	if err != nil {
-		return fmt.Errorf("cleanup policy %s repository %q path %q branch %q: %w", cleanup.Policy, cleanup.RepositoryRoot, cleanup.Path, cleanup.Branch, err)
-	}
-	if repo.commonDir != cleanup.CommonDir {
-		return fmt.Errorf("cleanup policy %s repository %q path %q branch %q: repository common directory changed", cleanup.Policy, cleanup.RepositoryRoot, cleanup.Path, cleanup.Branch)
-	}
-	if err := executor.lockRepository(ctx, repo.commonDir); err != nil {
-		return fmt.Errorf("cleanup policy %s repository %q path %q branch %q: %w", cleanup.Policy, cleanup.RepositoryRoot, cleanup.Path, cleanup.Branch, err)
-	}
-	defer func() { _ = executor.Close() }()
-	if err := executor.runWorktreeRemove(ctx, repo); err != nil {
-		return fmt.Errorf("cleanup policy %s repository %q path %q branch %q: %w", cleanup.Policy, cleanup.RepositoryRoot, cleanup.Path, cleanup.Branch, err)
-	}
-	return nil
 }

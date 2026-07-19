@@ -1,8 +1,4 @@
 working_dir: ./missing-repository
-params:
-  - name: cleanup
-    type: string
-    required: true
 steps:
   - id: add_generated
     action: git.worktree.add
@@ -24,27 +20,6 @@ steps:
       path: ./missing-worktree
       create_branch: true
       base: missing-base
-      cleanup: never
-
-  - id: add_cleanup_on_success
-    action: git.worktree.add
-    with:
-      cleanup: on_success
-
-  - id: add_cleanup_on_finish
-    action: git.worktree.add
-    with:
-      cleanup: on_finish
-
-  - id: add_cleanup_padded
-    action: git.worktree.add
-    with:
-      cleanup: " on_success "
-
-  - id: add_cleanup_from_param
-    action: git.worktree.add
-    with:
-      cleanup: "${params.cleanup}"
 
   - id: remove_by_branch
     action: git.worktree.remove

@@ -23,7 +23,6 @@ This spec covers:
 - deterministic branch generation when `branch` is omitted
 - explicit branch creation from a base revision
 - idempotent add and remove behavior
-- optional run-finalization cleanup for worktrees created by the add action
 - conflict detection
 - repository-scoped mutation serialization
 - the action output contract
@@ -36,7 +35,6 @@ This spec does not define:
 - repository authentication fields
 - copying untracked files into a new worktree
 - worktree locking, moving, repairing, or pruning
-- presentation of cleanup progress in the API or UI
 - mutations performed outside Dagu while an action is running
 
 ## Goal
@@ -51,8 +49,8 @@ worktree, and a repeated remove succeeds without one.
 Workflow authors select the repository through the standard step working
 directory and do not repeat that path in `with`.
 
-Workflow authors may keep explicit lifecycle control with
-`git.worktree.remove` or attach safe, ownership-aware cleanup to the add action.
+Workflow authors control the worktree lifecycle explicitly with
+`git.worktree.remove`.
 
 ## Related Specs
 
@@ -91,10 +89,6 @@ does not exist.
 The selected branch is the explicit `branch` input when it is present and the
 Dagu-generated branch when `branch` is omitted.
 
-A cleanup obligation is the run-owned record that an add operation created a
-linked worktree which may be removed when the owning DAG run reaches the
-terminal state selected by its cleanup policy.
-
 ## Behavior
 
 ### Operation Selection
@@ -115,7 +109,6 @@ Rules:
 | `path` | No | Worktree path. Defaults to the default worktree path. |
 | `create_branch` | No | Permit creation of an explicitly named `branch` when it does not exist. Defaults to `false`. A generated branch is always eligible for creation. |
 | `base` | No | Base revision used when the selected branch is created. Defaults to the detected repository `HEAD`. |
-| `cleanup` | No | Automatic cleanup policy for a worktree created by this action. One of `never`, `on_success`, or `on_finish`. Defaults to `never`. |
 
 `with` fields for `git.worktree.remove`:
 
@@ -130,8 +123,6 @@ Rules:
 Rules:
 
 - `branch`, `path`, and `base` must be non-empty strings when present.
-- `cleanup` must be a non-empty string when present. A literal value must be
-  `never`, `on_success`, or `on_finish`.
 - `create_branch`, `force`, `delete_branch`, and `force_delete_branch` must be
   booleans when present.
 - A `with` field not listed for the selected operation is a validation error.
@@ -152,8 +143,7 @@ Rules:
 Rules:
 
 - The step `working_dir` and the reference-capable string fields `branch`,
-  `path`, `base`, and `cleanup` are value-resolved at step start according to
-  Spec 003.
+  `path`, and `base` are value-resolved at step start according to Spec 003.
 - Supported Dagu references such as `${params.name}`, `${env.NAME}`, and step
   output references may be used in those string-valued fields when their
   namespace is available.
@@ -161,9 +151,6 @@ Rules:
   branch lookup, or base revision lookup.
 - Non-empty string requirements apply to the resolved runtime values as well
   as literal values that can be checked during workflow validation.
-- After value resolution, `cleanup` must be `never`, `on_success`, or
-  `on_finish`. Cleanup policy selection completes before the add operation
-  inspects or changes the repository.
 - `create_branch`, `force`, `delete_branch`, and `force_delete_branch` are YAML
   booleans and are not string-valued reference fields. A value such as
   `create_branch: "${params.create_branch}"` is a string and is invalid.
@@ -258,10 +245,6 @@ Rules:
   `refs/remotes/origin/<base>`, `refs/tags/<base>`.
 - `base` is ignored when `branch` already exists.
 - The add operation must not fetch, push, or contact any remote.
-- When the operation creates the linked worktree and `cleanup` is not `never`,
-  it records a cleanup obligation for the current DAG run.
-- Reusing a registered worktree does not create a cleanup obligation, even if
-  `cleanup` is `on_success` or `on_finish`.
 
 ### Remove Operation
 
@@ -295,70 +278,17 @@ Rules:
   branch is still deleted when it exists.
 - The remove operation must not fetch, push, or contact any remote.
 
-### Automatic Cleanup
-
-Rules:
-
-- Automatic cleanup is available only on `git.worktree.add`.
-- `cleanup: never` does not register a cleanup obligation. This is the default.
-- `cleanup: on_success` makes an owned worktree eligible for cleanup when the
-  owning DAG run finishes with `Succeeded` or `PartiallySucceeded`.
-- `cleanup: on_finish` makes an owned worktree eligible for cleanup when the
-  owning DAG run finishes with any terminal status, including `Failed`,
-  `Aborted`, or `Rejected`.
-- `Waiting` and `Queued` are not terminal statuses. Cleanup does not run while
-  the DAG is waiting, queued for a retry, or otherwise able to resume.
-- Cleanup runs after all applicable `handler_on` steps, including
-  `handler_on.exit`, have finished. Handlers can therefore use the worktree.
-  For `on_success`, eligibility is decided from the run status after those
-  handlers finish.
-- The finalizer uses the repository, path, and selected branch captured by the
-  successful add operation. It does not re-evaluate workflow values.
-- Only a worktree whose registration was created by an add operation in the
-  same DAG run is owned by that run. A worktree reused from an earlier DAG run
-  is never removed automatically.
-- If an earlier attempt in the same DAG run created the worktree and a later
-  retry reused it, the run retains the original cleanup obligation.
-- If a later add operation in the same DAG run creates a new registration for
-  the same repository, path, and branch, its cleanup policy replaces the prior
-  obligation. `cleanup: never` retires the prior obligation for that target.
-- Cleanup removes the linked worktree but never deletes its branch. This
-  applies to explicit and Dagu-generated branches. Branch deletion requires an
-  explicit `git.worktree.remove` action with `delete_branch: true`.
-- Cleanup applies the remove operation's safety behavior with `force: false`
-  and `delete_branch: false`. A dirty worktree is preserved and cleanup fails.
-- Before removal, both the captured path and captured branch must still
-  identify the registered worktree. A conflicting registration makes cleanup
-  fail without changing either worktree.
-- If the owned registration has already been removed, cleanup succeeds without
-  removing an unregistered directory at the captured path.
-- If the owned registration is stale, cleanup unregisters it and succeeds
-  without checking dirty state.
-- A cleanup obligation is idempotent. Resuming or retrying finalization after
-  successful removal does not fail and does not remove another worktree.
-- All eligible cleanup obligations are attempted. One cleanup failure does not
-  prevent finalization of another owned worktree.
-- A cleanup failure changes an otherwise successful run to `Failed`. A run
-  that was already `Failed`, `Aborted`, or `Rejected` retains that status and
-  records the cleanup error in its diagnostics.
-- Because cleanup runs after lifecycle handlers, a cleanup failure does not
-  cause `handler_on.failure` or `handler_on.exit` to run again.
-- `on_finish` finalization after an abort uses a cleanup context independent of
-  the canceled step context. Terminating the Dagu process may interrupt that
-  finalization; cleanup continues when the run resumes finalization.
-- Automatic cleanup must not fetch, push, or contact any remote.
-
 ### Mutation Serialization
 
 Rules:
 
-- Add, remove, and automatic cleanup operations that resolve to the same common
-  Git directory must execute their inspect-and-mutate sequences serially,
+- Add and remove operations that resolve to the same common Git directory must
+  execute their inspect-and-mutate sequences serially,
   including when they belong to different DAG runs in the same filesystem
   environment.
 - Serialization begins before worktree registrations or refs are inspected and
-  ends after action outputs are published, automatic cleanup succeeds, or the
-  operation's failure is recorded.
+  ends after action outputs are published or the operation's failure is
+  recorded.
 - Waiting for serialization is context-cancellable. Abort or timeout while
   waiting makes no repository change and publishes no outputs.
 - Serialization does not coordinate Git mutations performed outside Dagu.
@@ -409,10 +339,6 @@ String fields use the `string` output type. Boolean fields use the `json`
 output type and publish JSON booleans. When inserted into a string-valued field,
 the booleans resolve as `true` or `false` according to Spec 003.
 
-Automatic cleanup does not revise the add action's outputs. In particular,
-`worktree_created` remains `true` when the action created the registration,
-even if the finalizer later removes it.
-
 ### Lifecycle
 
 Rules:
@@ -421,9 +347,6 @@ Rules:
 - Validation, revision resolution, registration conflict checks, and remove
   preflight checks complete before the first mutation.
 - Output publication occurs only after every required Git mutation succeeds.
-- A successful add publishes its outputs before any later automatic cleanup.
-- Automatic cleanup runs after lifecycle handlers and before the terminal run
-  result is finalized.
 - If an unexpected failure occurs after the add operation creates the branch,
   the created branch may remain.
 - A failed or interrupted add operation must not leave a registered worktree
@@ -434,8 +357,6 @@ Rules:
   removal is not rolled back and the step fails.
 - Workflow abort and step timeout interrupt the operation and the step follows
   the abort or timeout behavior.
-- Cleanup obligations survive step retry and root-DAG automatic retry within
-  the same DAG run until terminal finalization.
 
 ## Errors
 
@@ -448,8 +369,6 @@ Validation must fail when:
 - `git.worktree.add` has empty or non-string `branch` when present.
 - `git.worktree.add` has empty or non-string `path` or `base`.
 - `git.worktree.add` has non-boolean `create_branch`.
-- `git.worktree.add` has a literal `cleanup` other than `never`, `on_success`,
-  or `on_finish`, or has a non-string `cleanup` value.
 - `git.worktree.add` has both an explicit `branch` and `base` without
   `create_branch: true`.
 - `git.worktree.remove` has neither `branch` nor `path`.
@@ -465,8 +384,6 @@ Validation must not:
 
 - Check whether the step working directory is inside a Git repository.
 - Check whether `branch`, `path`, or `base` can be resolved.
-- Reject a reference-bearing `cleanup` string solely because its runtime value
-  is not available during workflow validation.
 
 ### Runtime Errors
 
@@ -474,8 +391,6 @@ The action step must fail when:
 
 - After value resolution, a present `branch`, `path`, or `base` resolves to an
   empty string.
-- After value resolution, `cleanup` is empty or is not `never`, `on_success`,
-  or `on_finish`.
 - The step working directory is not inside a Git repository and is not a bare
   repository directory.
 - `git.worktree.add` receives an invalid explicit local branch name.
@@ -501,20 +416,10 @@ The action step must fail when:
 - `delete_branch` is `true` and the branch is checked out in another worktree
   after removal.
 
-Run finalization must report a cleanup failure when:
-
-- Automatic cleanup finds a dirty owned worktree.
-- The captured branch and path no longer identify the same registered linked
-  worktree.
-
 Runtime diagnostics must identify the selected operation, detected repository
 root, relevant branch or path, and the reason for failure. A stale-registration
 diagnostic must explain that `git.worktree.remove` can unregister the stale
 target before retrying the add operation.
-
-Cleanup diagnostics must identify the cleanup policy, detected repository
-root, captured branch and path, and the reason the owned worktree was not
-removed.
 
 ## Examples
 
@@ -647,34 +552,6 @@ Expected behavior:
 
 - The worktree is created at `./repo.worktrees/feature/auth`.
 - The `path` output is the resolved absolute form of that directory.
-
-### Clean Up After A Successful DAG Run
-
-```yaml
-working_dir: ./repo
-steps:
-  - id: create_worktree
-    action: git.worktree.add
-    with:
-      cleanup: on_success
-
-  - id: test
-    depends: create_worktree
-    working_dir: "${steps.create_worktree.outputs.path}"
-    run: go test ./...
-```
-
-Expected behavior:
-
-- The worktree remains available to every normal step and lifecycle handler.
-- When the DAG succeeds, the finalizer removes the worktree registration and
-  directory.
-- The selected branch remains in the repository.
-- If `test` fails or the run is aborted, the worktree remains for inspection.
-
-Changing the policy to `on_finish` also removes an owned, clean worktree after
-failure or abort. Changing it to `never`, or omitting it, leaves cleanup to an
-explicit `git.worktree.remove` step.
 
 ### Remove With Branch Delete
 

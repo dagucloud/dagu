@@ -6649,11 +6649,6 @@
           "type": "string",
           "minLength": 1,
           "description": "Local base revision used only when the selected branch is created."
-        },
-        "cleanup": {
-          "type": "string",
-          "minLength": 1,
-          "description": "Automatic cleanup policy: never, on_success, on_finish, or a runtime value reference."
         }
       },
       "allOf": [

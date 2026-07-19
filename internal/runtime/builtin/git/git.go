@@ -89,7 +89,7 @@ func newExecutor(ctx context.Context, step core.Step) (executor.Executor, error)
 		}
 	case opWorktreeAdd, opWorktreeRemove:
 		var err error
-		worktreeCfg, err = decodeWorktreeConfig(op, step.ExecutorConfig.Config, false)
+		worktreeCfg, err = decodeWorktreeConfig(op, step.ExecutorConfig.Config)
 		if err != nil {
 			return nil, err
 		}
@@ -123,7 +123,7 @@ func validateStep(step core.Step) error {
 	}
 	op := stepOperation(step)
 	if op == opWorktreeAdd || op == opWorktreeRemove {
-		_, err := decodeWorktreeConfig(op, step.ExecutorConfig.Config, true)
+		_, err := decodeWorktreeConfig(op, step.ExecutorConfig.Config)
 		return err
 	}
 	cfg := config{}

@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	osExec "os/exec"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -83,13 +82,6 @@ func writeFileCommand(path, content string) string {
 		return fmt.Sprintf("Set-Content -Path %s -Value %s -NoNewline", test.PowerShellQuote(path), test.PowerShellQuote(content))
 	}
 	return fmt.Sprintf("printf '%%s' %s > %s", test.PosixQuote(content), test.PosixQuote(path))
-}
-
-func appendFileCommand(path, content string) string {
-	if runtime.GOOS == "windows" {
-		return fmt.Sprintf("Add-Content -Path %s -Value %s -NoNewline", test.PowerShellQuote(path), test.PowerShellQuote(content))
-	}
-	return fmt.Sprintf("printf '%%s' %s >> %s", test.PosixQuote(content), test.PosixQuote(path))
 }
 
 func waitForTestFile(t *testing.T, path string, timeout time.Duration) {
@@ -490,82 +482,6 @@ steps:
 		// Check if the exit handler is executed
 		require.Equal(t, core.NodeSucceeded.String(), dagRunStatus.OnExit.Status.String())
 	})
-}
-
-func TestAgentRunResumesGitWorktreeFinalizationWithoutRerunningPlan(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Parallel()
-	}
-
-	gitPath, err := osExec.LookPath("git")
-	if err != nil {
-		t.Skip("git executable is unavailable")
-	}
-
-	testDir := t.TempDir()
-	repoRoot := filepath.Join(testDir, "repo")
-	cmd := osExec.Command(gitPath, "init", repoRoot) //nolint:gosec // Test arguments are fixed or temporary paths.
-	output, err := cmd.CombinedOutput()
-	require.NoErrorf(t, err, "git init: %s", output)
-	commonDir, err := filepath.EvalSymlinks(filepath.Join(repoRoot, ".git"))
-	require.NoError(t, err)
-
-	stepMarker := filepath.Join(testDir, "step-marker")
-	successMarker := filepath.Join(testDir, "success-marker")
-	exitMarker := filepath.Join(testDir, "exit-marker")
-
-	th := test.Setup(t)
-	dag := th.DAG(t, fmt.Sprintf(`handler_on:
-  success:
-    run: %q
-  exit:
-    run: %q
-steps:
-  - name: completed
-    run: %q
-`, appendFileCommand(successMarker, "s"), appendFileCommand(exitMarker, "e"), appendFileCommand(stepMarker, "x")))
-
-	initial := dag.Agent(test.WithDAGRunID("resume-worktree-finalization"))
-	initial.RunSuccess(t)
-	retryTarget := initial.Status(th.Context)
-	require.Len(t, retryTarget.Nodes, 1)
-	require.Equal(t, core.NodeSucceeded, retryTarget.Nodes[0].Status)
-	retryTarget.GitWorktreeFinalization = &exec.GitWorktreeFinalization{
-		Status: core.Succeeded,
-		Cleanups: []exec.GitWorktreeCleanup{{
-			Policy:         core.GitWorktreeCleanupOnFinish,
-			RepositoryRoot: repoRoot,
-			CommonDir:      commonDir,
-			Path:           filepath.Join(testDir, "missing-worktree"),
-			Branch:         "resume-cleanup",
-		}},
-	}
-
-	resumed := dag.Agent(test.WithAgentOptions(agent.Options{RetryTarget: &retryTarget}))
-	require.NoError(t, resumed.Run(th.Context))
-
-	status := resumed.Status(th.Context)
-	require.Equal(t, core.Succeeded, status.Status)
-	require.Len(t, status.Nodes, 1)
-	require.Equal(t, core.NodeSucceeded, status.Nodes[0].Status)
-	require.Equal(t, retryTarget.Nodes[0].FinishedAt, status.Nodes[0].FinishedAt)
-	require.Nil(t, status.GitWorktreeFinalization)
-
-	latest, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag.DAG)
-	require.NoError(t, err)
-	require.Equal(t, core.Succeeded, latest.Status)
-	require.Len(t, latest.Nodes, 1)
-	require.Equal(t, core.NodeSucceeded, latest.Nodes[0].Status)
-
-	stepData, err := os.ReadFile(stepMarker)
-	require.NoError(t, err)
-	successData, err := os.ReadFile(successMarker)
-	require.NoError(t, err)
-	exitData, err := os.ReadFile(exitMarker)
-	require.NoError(t, err)
-	require.Equal(t, "x", string(stepData))
-	require.Equal(t, "s", string(successData))
-	require.Equal(t, "e", string(exitData))
 }
 
 func TestAgent_WorkingDirExpansion(t *testing.T) {

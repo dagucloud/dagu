@@ -14,7 +14,7 @@ Load only the reference file that matches the task.
 - Prefer `dagu schema ...` and `dagu validate ...` over guessing field names or shapes.
 - Prefer `action: template.render` when generating text files, prompts, or artifacts instead of assembling them with shell `echo` or heredocs.
 - Prefer `file.*` actions for local file operations such as stat, read, write, copy, move, delete, mkdir, and list instead of shelling out to `cp`, `mv`, `rm`, or `mkdir`.
-- Prefer `git.worktree.add` and `git.worktree.remove` when steps need isolated branches inside an existing local Git repository. Use the add action's `cleanup` policy when the worktree should be removed at run finalization.
+- Prefer `git.worktree.add` and `git.worktree.remove` when steps need isolated branches inside an existing local Git repository. Add an explicit remove step when the workflow should delete the worktree.
 - Prefer `stdout.artifact` / `stderr.artifact` when a command stream should become a DAG-run artifact, especially for large reports, JSON, Markdown, logs, or generated files.
 - Prefer `artifact.*` actions for explicit artifact reads/writes/lists. Use `DAG_RUN_ARTIFACTS_DIR` only when a tool truly needs a filesystem path inside the step.
 - Prefer string-form `output: VAR_NAME` for capturing small stdout values into flat variables.

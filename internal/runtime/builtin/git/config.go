@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"strings"
 
-	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/google/jsonschema-go/jsonschema"
@@ -30,7 +29,6 @@ type worktreeConfig struct {
 	Branch            string
 	Path              string
 	Base              string
-	Cleanup           string
 	HasBranch         bool
 	HasPath           bool
 	HasBase           bool
@@ -40,14 +38,14 @@ type worktreeConfig struct {
 	ForceDeleteBranch bool
 }
 
-func decodeWorktreeConfig(operation string, raw map[string]any, allowReferences bool) (worktreeConfig, error) {
+func decodeWorktreeConfig(operation string, raw map[string]any) (worktreeConfig, error) {
 	if raw == nil {
 		raw = map[string]any{}
 	}
 	allowed := map[string]bool{}
 	switch operation {
 	case opWorktreeAdd:
-		for _, name := range []string{"branch", "path", "create_branch", "base", "cleanup"} {
+		for _, name := range []string{"branch", "path", "create_branch", "base"} {
 			allowed[name] = true
 		}
 	case opWorktreeRemove:
@@ -63,7 +61,7 @@ func decodeWorktreeConfig(operation string, raw map[string]any, allowReferences 
 		}
 	}
 
-	cfg := worktreeConfig{Cleanup: core.GitWorktreeCleanupNever}
+	cfg := worktreeConfig{}
 	var err error
 	if cfg.Branch, cfg.HasBranch, err = worktreeString(raw, "branch"); err != nil {
 		return worktreeConfig{}, err
@@ -73,11 +71,6 @@ func decodeWorktreeConfig(operation string, raw map[string]any, allowReferences 
 	}
 	if cfg.Base, cfg.HasBase, err = worktreeString(raw, "base"); err != nil {
 		return worktreeConfig{}, err
-	}
-	if cleanup, ok, cleanupErr := worktreeString(raw, "cleanup"); cleanupErr != nil {
-		return worktreeConfig{}, cleanupErr
-	} else if ok {
-		cfg.Cleanup = cleanup
 	}
 	if cfg.CreateBranch, err = worktreeBool(raw, "create_branch"); err != nil {
 		return worktreeConfig{}, err
@@ -95,15 +88,6 @@ func decodeWorktreeConfig(operation string, raw map[string]any, allowReferences 
 	if operation == opWorktreeAdd {
 		if cfg.HasBranch && cfg.HasBase && !cfg.CreateBranch {
 			return worktreeConfig{}, fmt.Errorf("git %s: base requires create_branch when branch is specified", operation)
-		}
-		switch cfg.Cleanup {
-		case core.GitWorktreeCleanupNever,
-			core.GitWorktreeCleanupOnSuccess,
-			core.GitWorktreeCleanupOnFinish:
-		default:
-			if !allowReferences || !cmnvalue.HasValueReference(cfg.Cleanup) {
-				return worktreeConfig{}, fmt.Errorf("git %s: cleanup must be never, on_success, or on_finish", operation)
-			}
 		}
 	} else {
 		if !cfg.HasBranch && !cfg.HasPath {
@@ -193,7 +177,6 @@ var configSchema = &jsonschema.Schema{
 		"force":               {Type: "boolean", Description: "Force checkout when the existing worktree has local changes. Defaults to false."},
 		"create_branch":       {Type: "boolean", Description: "Permit creation of an explicitly named worktree branch."},
 		"base":                {Type: "string", Description: "Local base revision for a new worktree branch."},
-		"cleanup":             {Type: "string", Description: "Automatic cleanup policy for a created worktree."},
 		"delete_branch":       {Type: "boolean", Description: "Delete the local branch after removing its worktree."},
 		"force_delete_branch": {Type: "boolean", Description: "Permit deletion of an unmerged local branch."},
 		"token":               {Type: "string", Description: "HTTPS token for repository authentication."},

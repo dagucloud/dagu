@@ -44,22 +44,21 @@ type ChatMessagesHandler interface {
 
 // Runner runs a plan of steps.
 type Runner struct {
-	logDir                  string
-	maxActiveRuns           int
-	timeout                 time.Duration
-	delay                   time.Duration
-	dry                     bool
-	onInit                  *core.Step
-	onExit                  *core.Step
-	onSuccess               *core.Step
-	onFailure               *core.Step
-	onAbort                 *core.Step
-	dagRunID                string
-	messagesHandler         ChatMessagesHandler
-	stepExecutor            *StepExecutor
-	onWait                  *core.Step
-	forcedStatus            *core.Status
-	gitWorktreeFinalization *exec.GitWorktreeFinalization
+	logDir          string
+	maxActiveRuns   int
+	timeout         time.Duration
+	delay           time.Duration
+	dry             bool
+	onInit          *core.Step
+	onExit          *core.Step
+	onSuccess       *core.Step
+	onFailure       *core.Step
+	onAbort         *core.Step
+	dagRunID        string
+	messagesHandler ChatMessagesHandler
+	stepExecutor    *StepExecutor
+	onWait          *core.Step
+	forcedStatus    *core.Status
 
 	dagRunAutoRetryCount int
 	dagRunAutoRetryLimit int
@@ -87,45 +86,43 @@ type Runner struct {
 
 func New(cfg *Config) *Runner {
 	return &Runner{
-		logDir:                  cfg.LogDir,
-		maxActiveRuns:           cfg.MaxActiveSteps,
-		timeout:                 cfg.Timeout,
-		delay:                   cfg.Delay,
-		dry:                     cfg.Dry,
-		onInit:                  cfg.OnInit,
-		onExit:                  cfg.OnExit,
-		onSuccess:               cfg.OnSuccess,
-		onFailure:               cfg.OnFailure,
-		onAbort:                 cfg.OnAbort,
-		dagRunID:                cfg.DAGRunID,
-		messagesHandler:         cfg.MessagesHandler,
-		stepExecutor:            NewStepExecutor(),
-		pause:                   time.Millisecond * 100,
-		onWait:                  cfg.OnWait,
-		forcedStatus:            cfg.ForcedStatus,
-		dagRunAutoRetryCount:    cfg.DAGRunAutoRetryCount,
-		dagRunAutoRetryLimit:    cfg.DAGRunAutoRetryLimit,
-		dagRunIsRoot:            cfg.DAGRunIsRoot,
-		gitWorktreeFinalization: cloneGitWorktreeFinalization(cfg.GitWorktreeFinalization),
+		logDir:               cfg.LogDir,
+		maxActiveRuns:        cfg.MaxActiveSteps,
+		timeout:              cfg.Timeout,
+		delay:                cfg.Delay,
+		dry:                  cfg.Dry,
+		onInit:               cfg.OnInit,
+		onExit:               cfg.OnExit,
+		onSuccess:            cfg.OnSuccess,
+		onFailure:            cfg.OnFailure,
+		onAbort:              cfg.OnAbort,
+		dagRunID:             cfg.DAGRunID,
+		messagesHandler:      cfg.MessagesHandler,
+		stepExecutor:         NewStepExecutor(),
+		pause:                time.Millisecond * 100,
+		onWait:               cfg.OnWait,
+		forcedStatus:         cfg.ForcedStatus,
+		dagRunAutoRetryCount: cfg.DAGRunAutoRetryCount,
+		dagRunAutoRetryLimit: cfg.DAGRunAutoRetryLimit,
+		dagRunIsRoot:         cfg.DAGRunIsRoot,
 	}
 }
 
 type Config struct {
-	LogDir                  string
-	MaxActiveSteps          int
-	Timeout                 time.Duration
-	Delay                   time.Duration
-	Dry                     bool
-	OnInit                  *core.Step
-	OnExit                  *core.Step
-	OnSuccess               *core.Step
-	OnFailure               *core.Step
-	OnAbort                 *core.Step
-	DAGRunID                string
-	MessagesHandler         ChatMessagesHandler
-	OnWait                  *core.Step
-	ForcedStatus            *core.Status
-	GitWorktreeFinalization *exec.GitWorktreeFinalization
+	LogDir          string
+	MaxActiveSteps  int
+	Timeout         time.Duration
+	Delay           time.Duration
+	Dry             bool
+	OnInit          *core.Step
+	OnExit          *core.Step
+	OnSuccess       *core.Step
+	OnFailure       *core.Step
+	OnAbort         *core.Step
+	DAGRunID        string
+	MessagesHandler ChatMessagesHandler
+	OnWait          *core.Step
+	ForcedStatus    *core.Status
 
 	DAGRunAutoRetryCount int
 	DAGRunAutoRetryLimit int
@@ -138,7 +135,6 @@ func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan *Node) err
 		return err
 	}
 	r.resetRunState(plan)
-	ctx = withGitWorktreeCleanupSink(ctx, r.setGitWorktreeCleanup)
 
 	// Create a cancellable context for the entire execution
 	var cancel context.CancelFunc

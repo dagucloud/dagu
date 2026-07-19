@@ -226,19 +226,6 @@ func WithRuntimeProfile(name, resolvedAt string, entries []exec.RuntimeProfileEn
 	}
 }
 
-// WithGitWorktreeFinalization records run-owned automatic cleanup state.
-func WithGitWorktreeFinalization(finalization *exec.GitWorktreeFinalization) StatusOption {
-	return func(s *exec.DAGRunStatus) {
-		if finalization == nil {
-			s.GitWorktreeFinalization = nil
-			return
-		}
-		copied := *finalization
-		copied.Cleanups = append([]exec.GitWorktreeCleanup(nil), finalization.Cleanups...)
-		s.GitWorktreeFinalization = &copied
-	}
-}
-
 // Create builds a Status object for a dag-run with the specified parameters
 func (f *StatusBuilder) Create(
 	dagRunID string,

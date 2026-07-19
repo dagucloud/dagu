@@ -9,7 +9,6 @@ import (
 	"sort"
 	"strings"
 
-	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 )
 
@@ -584,7 +583,6 @@ func normalizeGitWorktreeAddAction(normalized map[string]any, with map[string]an
 		"path":          gitWorktreeString,
 		"create_branch": gitWorktreeBool,
 		"base":          gitWorktreeString,
-		"cleanup":       gitWorktreeCleanup,
 	}); err != nil {
 		return err
 	}
@@ -633,7 +631,6 @@ type gitWorktreeFieldKind uint8
 const (
 	gitWorktreeString gitWorktreeFieldKind = iota
 	gitWorktreeBool
-	gitWorktreeCleanup
 )
 
 func validateGitWorktreeFields(with map[string]any, allowed map[string]gitWorktreeFieldKind) error {
@@ -651,18 +648,6 @@ func validateGitWorktreeFields(with map[string]any, allowed map[string]gitWorktr
 		case gitWorktreeBool:
 			if _, ok := value.(bool); !ok {
 				return core.NewValidationError("with", with, fmt.Errorf("with.%s must be a boolean", name))
-			}
-		case gitWorktreeCleanup:
-			text, ok := value.(string)
-			if !ok || strings.TrimSpace(text) == "" {
-				return core.NewValidationError("with", with, fmt.Errorf("with.cleanup must be a non-empty string"))
-			}
-			text = strings.TrimSpace(text)
-			if !cmnvalue.HasValueReference(text) &&
-				text != core.GitWorktreeCleanupNever &&
-				text != core.GitWorktreeCleanupOnSuccess &&
-				text != core.GitWorktreeCleanupOnFinish {
-				return core.NewValidationError("with", with, fmt.Errorf("with.cleanup must be never, on_success, or on_finish"))
 			}
 		}
 	}

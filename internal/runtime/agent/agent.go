@@ -46,7 +46,6 @@ import (
 	profilepkg "github.com/dagucloud/dagu/internal/profile"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/builtin/docker"
-	gitexecutor "github.com/dagucloud/dagu/internal/runtime/builtin/git"
 	"github.com/dagucloud/dagu/internal/runtime/builtin/s3"
 	"github.com/dagucloud/dagu/internal/runtime/builtin/ssh"
 	runtimeexec "github.com/dagucloud/dagu/internal/runtime/executor"
@@ -1013,13 +1012,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		}
 	}
 
-	pendingWorktreeFinalization := a.runner.HasPendingGitWorktreeFinalization()
-	var lastErr error
-	if pendingWorktreeFinalization {
-		logger.Info(ctx, "Resuming Git worktree finalization")
-	} else {
-		lastErr = a.runner.Run(ctx, a.plan, progressCh)
-	}
+	lastErr := a.runner.Run(ctx, a.plan, progressCh)
 
 	// Drain the progress goroutine before computing the final status.
 	// This prevents the progress goroutine from overwriting the final
@@ -1031,14 +1024,6 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	// Update the finished status to the runstore database.
 	finishedStatus := a.Status(ctx)
-	if pendingWorktreeFinalization {
-		phase := a.runner.GitWorktreeFinalization()
-		finishedStatus.Status = phase.Status
-		finishedStatus.Error = phase.Error
-	}
-	if err := a.finalizeGitWorktrees(ctx, attempt, &finishedStatus); err != nil {
-		lastErr = errors.Join(lastErr, err)
-	}
 
 	if a.artifactFinalizer != nil && a.artifactDir != "" {
 		artifactFinalizeStartedAt := time.Now()
@@ -1126,73 +1111,9 @@ func (a *Agent) Run(ctx context.Context) error {
 	return lastErr
 }
 
-func (a *Agent) finalizeGitWorktrees(ctx context.Context, attempt runstate.Attempt, finishedStatus *exec.DAGRunStatus) error {
-	if a.runner == nil || finishedStatus == nil {
-		return nil
-	}
-	terminalStatus := finishedStatus.Status
-	terminalError := finishedStatus.Error
-	if phase := a.runner.GitWorktreeFinalization(); phase != nil && phase.Status != core.NotStarted {
-		terminalStatus = phase.Status
-		terminalError = phase.Error
-	}
-	cleanups := a.runner.BeginGitWorktreeFinalization(terminalStatus, terminalError)
-	if len(cleanups) == 0 {
-		finishedStatus.GitWorktreeFinalization = a.runner.GitWorktreeFinalization()
-		return nil
-	}
-
-	finalizeCtx, cancelFinalize := context.WithTimeout(context.WithoutCancel(ctx), gitWorktreeFinalizeTimeout)
-	defer cancelFinalize()
-	persistProgress := func() {
-		status := a.Status(finalizeCtx)
-		status.Status = core.Running
-		status.FinishedAt = exec.FormatTime(time.Time{})
-		a.writeStatus(finalizeCtx, attempt, status)
-	}
-	persistProgress()
-
-	var cleanupErrors []error
-	for _, cleanup := range cleanups {
-		if err := gitexecutor.Cleanup(finalizeCtx, cleanup); err != nil {
-			cleanupErrors = append(cleanupErrors, err)
-		} else {
-			a.runner.CompleteGitWorktreeCleanup(cleanup)
-		}
-		persistProgress()
-	}
-	if len(cleanupErrors) == 0 {
-		a.runner.EndGitWorktreeFinalization()
-	}
-
-	updated := a.Status(finalizeCtx)
-	updated.Status = terminalStatus
-	updated.Error = terminalError
-	updated.FinishedAt = finishedStatus.FinishedAt
-	updated.GitWorktreeFinalization = a.runner.GitWorktreeFinalization()
-	if len(cleanupErrors) != 0 {
-		cleanupErr := fmt.Errorf("automatic Git worktree cleanup: %w", errors.Join(cleanupErrors...))
-		if terminalStatus.IsSuccess() {
-			updated.Status = core.Failed
-		}
-		if updated.Error == "" {
-			updated.Error = cleanupErr.Error()
-		} else {
-			updated.Error += "; " + cleanupErr.Error()
-		}
-		*finishedStatus = updated
-		return cleanupErr
-	}
-	*finishedStatus = updated
-	return nil
-}
-
 func (a *Agent) shouldDelayTerminalStatus(status core.Status) bool {
 	switch status {
 	case core.Failed, core.Aborted, core.Succeeded, core.PartiallySucceeded, core.Rejected:
-		if a.runner != nil && a.runner.HasGitWorktreeCleanups() {
-			return true
-		}
 		if a.artifactFinalizer != nil && a.artifactDir != "" {
 			return true
 		}
@@ -1444,7 +1365,6 @@ func (a *Agent) Status(ctx context.Context) exec.DAGRunStatus {
 		transform.WithAutoRetryCount(a.currentAutoRetryCount()),
 		transform.WithPIDStartedAt(currentPIDStartedAt()),
 		transform.WithRuntimeProfile(a.profileName, a.profileResolvedAt, a.profileEntries),
-		transform.WithGitWorktreeFinalization(a.runner.GitWorktreeFinalization()),
 	}
 
 	// If the current execution is based on a persisted target, copy timing data
@@ -1626,7 +1546,6 @@ func (a *Agent) Signal(ctx context.Context, sig os.Signal) {
 // wait before read the running status
 const waitForRunning = time.Millisecond * 100
 const artifactFinalizeTimeout = 30 * time.Second
-const gitWorktreeFinalizeTimeout = 30 * time.Second
 
 var remoteStatusPushTimeout = 5 * time.Second
 
@@ -1729,10 +1648,6 @@ func (a *Agent) newRunner(attempt runstate.Attempt) *runtime.Runner {
 		DAGRunAutoRetryLimit: autoRetryLimit,
 		DAGRunIsRoot:         a.parentDAGRun.Zero(),
 	}
-	if a.retryTarget != nil {
-		cfg.GitWorktreeFinalization = a.retryTarget.GitWorktreeFinalization
-	}
-
 	return runtime.New(cfg)
 }
 

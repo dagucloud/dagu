@@ -81,7 +81,7 @@ Dagu can drive Docker or Podman through a Docker-compatible API. Runtime selecti
 
 Create isolated working directories for branches in an existing local Git repository. The actions discover the repository from the step `working_dir`; they do not clone, fetch, or push.
 
-This example creates a generated branch, runs tests inside its worktree, and removes the worktree when the DAG finishes:
+This example creates a generated branch, runs tests inside its worktree, and then removes the worktree explicitly:
 
 ```yaml
 working_dir: ./repo
@@ -89,13 +89,17 @@ working_dir: ./repo
 steps:
   - id: worktree
     action: git.worktree.add
-    with:
-      cleanup: on_finish
 
   - id: test
     depends: worktree
     working_dir: "${steps.worktree.outputs.path}"
     run: go test ./...
+
+  - id: remove_worktree
+    depends: test
+    action: git.worktree.remove
+    with:
+      path: "${steps.worktree.outputs.path}"
 ```
 
 When `branch` is omitted, Dagu generates a stable branch name for that step and DAG run. The default path is `<repository-root>.worktrees/<branch>`.
@@ -121,9 +125,8 @@ steps:
 - `path` - worktree directory. Relative paths resolve from the repository root.
 - `create_branch` - allow creation of an explicitly named branch. Defaults to `false`.
 - `base` - local commit, branch, remote-tracking branch, or tag used when creating the branch. Defaults to repository `HEAD`.
-- `cleanup` - `never` (default), `on_success`, or `on_finish`.
 
-The add action is idempotent. It reuses a matching registered worktree without resetting its branch or discarding local changes. Automatic cleanup only owns worktrees created by the current DAG run, never reused worktrees, and it does not delete branches.
+The add action is idempotent. It reuses a matching registered worktree without resetting its branch or discarding local changes. Worktrees remain registered until an explicit remove action or an external Git command removes them.
 
 Use `git.worktree.remove` for explicit removal:
 
