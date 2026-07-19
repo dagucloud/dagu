@@ -26,7 +26,6 @@ func TestValidateGitWorktreeActions(t *testing.T) {
 		stderrParts []string
 	}{
 		{file: "invalid_action.yaml", stderrParts: []string{"git.worktree.move"}},
-		{file: "invalid_add_branch_missing.yaml", stderrParts: []string{"branch"}},
 		{file: "invalid_add_branch_empty.yaml", stderrParts: []string{"branch"}},
 		{file: "invalid_add_branch_non_string.yaml", stderrParts: []string{"branch"}},
 		{file: "invalid_add_path_empty.yaml", stderrParts: []string{"path"}},

@@ -11,7 +11,8 @@ This spec defines conformance behavior for the built-in `git.worktree.add` and
 
 This spec defines linked-worktree management for a local Git repository:
 
-- `git.worktree.add`, which ensures a linked worktree exists for a branch.
+- `git.worktree.add`, which ensures a linked worktree exists for an explicit or
+  Dagu-generated branch.
 - `git.worktree.remove`, which removes a linked worktree.
 
 This spec covers:
@@ -19,6 +20,7 @@ This spec covers:
 - accepted `with` fields for both operations
 - repository detection from within the step working directory's repository
 - path resolution and the default worktree path
+- deterministic branch generation when `branch` is omitted
 - explicit branch creation from a base revision
 - idempotent add and remove behavior
 - conflict detection
@@ -52,7 +54,9 @@ directory and do not repeat that path in `with`.
 
 - YAML schema: [Spec 002: YAML Schema](002-yaml-schema.md)
 - Value resolution: [Spec 003: Value Resolution and Field Evaluation](003-value-resolution.md)
+- Step identity: [Spec 009: Step Reference](009-step-reference.md)
 - Step run: [Spec 013: Step Run](013-step-run.md)
+- Built-in run context: [Spec 017: Built-in Run Context](017-built-in-run-context.md)
 
 ## Terms
 
@@ -78,6 +82,9 @@ omitted.
 A registration is stale when a linked worktree is registered and its directory
 does not exist.
 
+The selected branch is the explicit `branch` input when it is present and the
+Dagu-generated branch when `branch` is omitted.
+
 ## Behavior
 
 ### Operation Selection
@@ -94,10 +101,10 @@ Rules:
 
 | Field | Required | Meaning |
 | --- | --- | --- |
-| `branch` | Yes | Branch checked out in the linked worktree. |
+| `branch` | No | Branch checked out in the linked worktree. When omitted, Dagu generates a branch for the current DAG run and step. |
 | `path` | No | Worktree path. Defaults to the default worktree path. |
-| `create_branch` | No | Permit creation of `branch` when it does not exist. Defaults to `false`. |
-| `base` | No | Base revision used only when `create_branch` is `true` and `branch` does not exist. Defaults to the detected repository `HEAD`. |
+| `create_branch` | No | Permit creation of an explicitly named `branch` when it does not exist. Defaults to `false`. A generated branch is always eligible for creation. |
+| `base` | No | Base revision used when the selected branch is created. Defaults to the detected repository `HEAD`. |
 
 `with` fields for `git.worktree.remove`:
 
@@ -115,7 +122,8 @@ Rules:
 - `create_branch`, `force`, `delete_branch`, and `force_delete_branch` must be
   booleans when present.
 - A `with` field not listed for the selected operation is a validation error.
-- `base` requires `create_branch: true`.
+- When `branch` is present, `base` requires `create_branch: true`.
+- When `branch` is omitted, `base` is allowed without `create_branch: true`.
 - `git.worktree.remove` accepts `branch`, `path`, or both.
 - `delete_branch: true` requires `branch`.
 - `force_delete_branch: true` requires `delete_branch: true`.
@@ -143,6 +151,34 @@ Rules:
   booleans and are not string-valued reference fields. A value such as
   `create_branch: "${params.create_branch}"` is a string and is invalid.
 
+### Branch Selection
+
+Rules:
+
+- When `branch` is present, its resolved value is the selected branch.
+- When `branch` is omitted, Dagu generates the selected branch from the current
+  DAG run identity and the current executable step identity.
+- A generated branch name starts with `dagu/` and is a valid local Git branch
+  name.
+- Generation is deterministic for the same DAG run and executable step. Step
+  retries in the same DAG run select the same branch.
+- Different executable steps in one DAG run, and executions in different DAG
+  runs, select different generated branches.
+- Runtime step identity components that are not valid in a Git branch name are
+  encoded or replaced. The exact encoding and branch suffix are implementation
+  details.
+- A generated branch is created when it does not exist; `create_branch: true`
+  is not required.
+- `create_branch` does not disable creation of a generated branch. Its value
+  controls only an explicitly supplied branch.
+- If a generated branch already exists after an interrupted or partially
+  completed attempt, the action treats it as an existing selected branch. This
+  permits a retry to finish creating or reuse the worktree.
+- The selected branch name is returned in the result document so later steps
+  do not need to reconstruct a generated name.
+- A later remove operation can receive the result `branch` and `path` values to
+  remove the generated worktree and, when requested, its branch.
+
 ### Path Resolution
 
 Rules:
@@ -157,9 +193,9 @@ Rules:
 - Relative `path` values resolve from the detected repository root, not from
   the nested step working directory.
 - Resolved paths are cleaned before use.
-- The default worktree path is `<repository root>.worktrees/<branch>`.
-- `/` separators in `branch` are preserved as directory separators in the
-  default worktree path.
+- The default worktree path is `<repository root>.worktrees/<selected branch>`.
+- `/` separators in the selected branch are preserved as directory separators
+  in the default worktree path.
 - Branch names are not flattened: `feature/auth` and `feature-auth` resolve to
   different default worktree paths.
 - A bare repository is a valid step working directory for both operations.
@@ -176,6 +212,7 @@ worktree path is `/work/repo.worktrees/feature/auth`.
 
 Rules:
 
+- In this section, `branch` means the selected branch.
 - The action validates the branch name, resolves `base` when needed, and checks
   the requested path and existing registrations before creating a branch or
   worktree.
@@ -192,11 +229,14 @@ Rules:
 - If `branch` exists, the new worktree checks out the existing branch without
   moving it.
 - If `branch` does not exist and `create_branch` is `false`, the operation
-  fails without creating a branch or worktree.
+  fails without creating a branch or worktree when `branch` was explicitly
+  supplied.
 - If `branch` does not exist and `create_branch` is `true`, the add operation
   creates it at the commit resolved from `base`.
-- If `branch` does not exist, `create_branch` is `true`, and `base` is omitted,
-  the branch is created at the detected repository `HEAD` commit.
+- If `branch` was generated and does not exist, the add operation creates it at
+  the commit resolved from `base`.
+- Whenever a branch is created and `base` is omitted, it is created at the
+  detected repository `HEAD` commit.
 - `base` resolves in this order: commit hash, `refs/heads/<base>`,
   `refs/remotes/origin/<base>`, `refs/tags/<base>`.
 - `base` is ignored when `branch` already exists.
@@ -264,7 +304,7 @@ Rules:
 | --- | --- | --- |
 | `operation` | string | Always `worktree_add`. |
 | `path` | string | The worktree path. |
-| `branch` | string | The branch checked out in the worktree. |
+| `branch` | string | The selected branch checked out in the worktree, including the generated name when the input omitted `branch`. |
 | `commit` | string | `HEAD` commit hash of the worktree after the operation. |
 | `worktree_created` | boolean | `true` when this run registered the worktree. |
 | `branch_created` | boolean | `true` when this run created the branch. |
@@ -305,10 +345,11 @@ Validation must fail when:
 
 - The action name is not `git.worktree.add` or `git.worktree.remove` in the
   `git.worktree.*` namespace.
-- `git.worktree.add` has missing, empty, or non-string `branch`.
+- `git.worktree.add` has empty or non-string `branch` when present.
 - `git.worktree.add` has empty or non-string `path` or `base`.
 - `git.worktree.add` has non-boolean `create_branch`.
-- `git.worktree.add` has `base` without `create_branch: true`.
+- `git.worktree.add` has both an explicit `branch` and `base` without
+  `create_branch: true`.
 - `git.worktree.remove` has neither `branch` nor `path`.
 - `git.worktree.remove` has empty or non-string `branch` or `path`.
 - `git.worktree.remove` has `delete_branch: true` without `branch`.
@@ -327,15 +368,15 @@ Validation must not:
 
 The step must fail when:
 
-- After value resolution, required `branch` or a present `path` or `base`
-  resolves to an empty string.
+- After value resolution, a present `branch`, `path`, or `base` resolves to an
+  empty string.
 - The step working directory is not inside a Git repository and is not a bare
   repository directory.
-- `git.worktree.add` receives an invalid local branch name.
+- `git.worktree.add` receives an invalid explicit local branch name.
 - `git.worktree.add` cannot resolve `base` while the branch does not exist and
-  `create_branch` is `true`.
-- `git.worktree.add` names a branch that does not exist while `create_branch`
-  is `false`.
+  the action is permitted to create it.
+- `git.worktree.add` explicitly names a branch that does not exist while
+  `create_branch` is `false`.
 - In `git.worktree.add`, the worktree path exists and is not an empty
   directory and is not the registered worktree for `branch`.
 - In `git.worktree.add`, `branch` is checked out in the primary working tree.
@@ -363,6 +404,24 @@ target before retrying the add operation.
 
 Each example assumes a fixture repository at `./repo` with an initial commit
 on branch `main`, prepared by test setup.
+
+### Add With Generated Branch
+
+```yaml
+working_dir: ./repo
+steps:
+  - id: create_worktree
+    action: git.worktree.add
+```
+
+Expected behavior:
+
+- Dagu generates a valid branch name beginning with `dagu/`.
+- The generated branch starts at the detected repository `HEAD` commit.
+- The worktree is created at
+  `./repo.worktrees/<generated branch>`.
+- The result reports the generated name in `branch`, with `worktree_created`
+  and `branch_created` both `true`.
 
 ### Parameterized Inputs
 
@@ -597,14 +656,15 @@ working_dir: ./repo
 steps:
   - id: create_worktree
     action: git.worktree.add
-    with:
-      branch: feature-x
-      create_branch: true
     output:
       path:
         from: stdout
         decode: json
         select: .path
+      branch:
+        from: stdout
+        decode: json
+        select: .branch
 
   - id: test
     depends: create_worktree
@@ -616,4 +676,6 @@ Expected behavior:
 
 - `create_worktree.output.path` is the absolute worktree path from the action
   result.
+- `create_worktree.output.branch` is the generated branch name and can be
+  passed to a later remove operation.
 - `test` runs in the created or reused worktree.

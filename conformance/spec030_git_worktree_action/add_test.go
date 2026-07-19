@@ -6,11 +6,65 @@ package spec030_git_worktree_action_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/dagucloud/dagu/conformance/harness"
 	"github.com/stretchr/testify/require"
 )
+
+func TestGitWorktreeAddGeneratesBranchWhenOmitted(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	repo := initRepository(t, dagu)
+
+	first := startWithParams(dagu, "runtime_add_generated.yaml", "working_dir=./repo")
+	first.ExpectExitCode(0)
+	dagu.ExpectFileContent(actionStderrFile, "")
+
+	firstResult := readAddResult(t, dagu)
+	require.True(t, strings.HasPrefix(firstResult.Branch, "dagu/"))
+	gitRun(t, repo.path, "check-ref-format", "--branch", firstResult.Branch)
+	firstPath := filepath.Join(repo.path+".worktrees", filepath.FromSlash(firstResult.Branch))
+	require.Equal(t, firstPath, firstResult.Path)
+	require.Equal(t, repo.baseCommit, firstResult.Commit)
+	require.True(t, firstResult.WorktreeCreated)
+	require.True(t, firstResult.BranchCreated)
+	requireLinkedWorktree(t, repo.path, firstPath, firstResult.Branch, repo.baseCommit)
+
+	resetActionStreams(t, dagu)
+	second := startWithParams(dagu, "runtime_add_generated.yaml", "working_dir=./repo")
+	second.ExpectExitCode(0)
+	secondResult := readAddResult(t, dagu)
+	secondPath := filepath.Join(repo.path+".worktrees", filepath.FromSlash(secondResult.Branch))
+	require.True(t, strings.HasPrefix(secondResult.Branch, "dagu/"))
+	require.NotEqual(t, firstResult.Branch, secondResult.Branch)
+	require.Equal(t, secondPath, secondResult.Path)
+	requireLinkedWorktree(t, repo.path, secondPath, secondResult.Branch, repo.baseCommit)
+}
+
+func TestGitWorktreeAddGeneratedBranchResolvesBase(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	repo := initRepository(t, dagu)
+	commitFile(t, repo.path, "second.txt", "second\n", "second")
+
+	result := startWithParams(
+		dagu,
+		"runtime_add_generated_base.yaml",
+		"working_dir=./repo",
+		"base="+repo.baseCommit,
+	)
+	result.ExpectExitCode(0)
+	actual := readAddResult(t, dagu)
+	require.True(t, strings.HasPrefix(actual.Branch, "dagu/"))
+	require.Equal(t, repo.baseCommit, actual.Commit)
+	require.True(t, actual.WorktreeCreated)
+	require.True(t, actual.BranchCreated)
+	requireLinkedWorktree(t, repo.path, actual.Path, actual.Branch, repo.baseCommit)
+}
 
 func TestGitWorktreeAddResolvesParameterInputsAndPaths(t *testing.T) {
 	t.Parallel()
@@ -427,7 +481,7 @@ func TestGitWorktreeAddRuntimeErrors(t *testing.T) {
 		requireNoLinkedWorktree(t, repo.path, dagu.ProjectPath("wt/topic"), "topic")
 	})
 
-	t.Run("missing branch requires explicit creation", func(t *testing.T) {
+	t.Run("missing explicit branch requires creation permission", func(t *testing.T) {
 		t.Parallel()
 		dagu := harness.NewRunner(t)
 		repo := initRepository(t, dagu)

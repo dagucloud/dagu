@@ -1,0 +1,11 @@
+params:
+  - name: working_dir
+    type: string
+    required: true
+working_dir: .
+steps:
+  - id: add
+    working_dir: "${params.working_dir}"
+    action: git.worktree.add
+    stdout: ../action-stdout.json
+    stderr: ../action-stderr.txt

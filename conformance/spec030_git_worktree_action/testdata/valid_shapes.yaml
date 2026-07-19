@@ -1,6 +1,14 @@
 working_dir: ./missing-repository
 steps:
-  - id: add-minimal
+  - id: add-generated
+    action: git.worktree.add
+
+  - id: add-generated-from-base
+    action: git.worktree.add
+    with:
+      base: missing-base
+
+  - id: add-explicit
     action: git.worktree.add
     with:
       branch: missing-branch
