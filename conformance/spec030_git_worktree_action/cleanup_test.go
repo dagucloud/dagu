@@ -145,6 +145,51 @@ func TestGitWorktreeAutomaticCleanupDoesNotOwnReusedWorktree(t *testing.T) {
 	requireLinkedWorktree(t, repo.path, path, "reused-cleanup", repo.baseCommit)
 }
 
+func TestGitWorktreeAutomaticCleanupUsesRecreatedWorktreePolicy(t *testing.T) {
+	t.Parallel()
+
+	t.Run("never replaces on finish", func(t *testing.T) {
+		t.Parallel()
+		dagu := harness.NewRunner(t)
+		repo := initRepository(t, dagu)
+		path := dagu.ProjectPath("wt/recreated-never")
+
+		result := startWithParams(
+			dagu,
+			"runtime_add_cleanup_recreated.yaml",
+			"working_dir=./repo",
+			"branch=recreated-never",
+			"path=../wt/recreated-never",
+			"first_cleanup=on_finish",
+			"second_cleanup=never",
+		)
+		result.ExpectNonZeroExitCode()
+		require.DirExists(t, path)
+		requireLinkedWorktree(t, repo.path, path, "recreated-never", repo.baseCommit)
+	})
+
+	t.Run("on finish replaces on success", func(t *testing.T) {
+		t.Parallel()
+		dagu := harness.NewRunner(t)
+		repo := initRepository(t, dagu)
+		path := dagu.ProjectPath("wt/recreated-finish")
+
+		result := startWithParams(
+			dagu,
+			"runtime_add_cleanup_recreated.yaml",
+			"working_dir=./repo",
+			"branch=recreated-finish",
+			"path=../wt/recreated-finish",
+			"first_cleanup=on_success",
+			"second_cleanup=on_finish",
+		)
+		result.ExpectNonZeroExitCode()
+		require.NoDirExists(t, path)
+		require.True(t, refExists(t, repo.path, "refs/heads/recreated-finish"))
+		requireNoLinkedWorktree(t, repo.path, path, "recreated-finish")
+	})
+}
+
 func TestGitWorktreeAutomaticCleanupRunsAfterLifecycleHandlers(t *testing.T) {
 	t.Parallel()
 

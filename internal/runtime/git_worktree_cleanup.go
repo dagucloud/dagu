@@ -18,10 +18,14 @@ func withGitWorktreeCleanupSink(ctx context.Context, sink gitWorktreeCleanupSink
 	return context.WithValue(ctx, gitWorktreeCleanupSinkKey{}, sink)
 }
 
-// RegisterGitWorktreeCleanup attaches an owned worktree to the current DAG run.
-func RegisterGitWorktreeCleanup(ctx context.Context, cleanup exec.GitWorktreeCleanup) error {
+// SetGitWorktreeCleanup updates automatic cleanup ownership for a newly created worktree.
+// The never policy clears matching ownership and is safe outside a DAG run.
+func SetGitWorktreeCleanup(ctx context.Context, cleanup exec.GitWorktreeCleanup) error {
 	sink, ok := ctx.Value(gitWorktreeCleanupSinkKey{}).(gitWorktreeCleanupSink)
 	if !ok || sink == nil {
+		if cleanup.Policy == "never" {
+			return nil
+		}
 		return fmt.Errorf("git worktree cleanup is unavailable outside a DAG run")
 	}
 	return sink(cleanup)

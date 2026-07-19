@@ -138,7 +138,7 @@ func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan *Node) err
 		return err
 	}
 	r.resetRunState(plan)
-	ctx = withGitWorktreeCleanupSink(ctx, r.registerGitWorktreeCleanup)
+	ctx = withGitWorktreeCleanupSink(ctx, r.setGitWorktreeCleanup)
 
 	// Create a cancellable context for the entire execution
 	var cancel context.CancelFunc
@@ -437,20 +437,39 @@ func cloneGitWorktreeFinalization(in *exec.GitWorktreeFinalization) *exec.GitWor
 	return &out
 }
 
-func (r *Runner) registerGitWorktreeCleanup(cleanup exec.GitWorktreeCleanup) error {
+func (r *Runner) setGitWorktreeCleanup(cleanup exec.GitWorktreeCleanup) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if r.gitWorktreeFinalization == nil {
-		r.gitWorktreeFinalization = &exec.GitWorktreeFinalization{}
-	}
-	for _, existing := range r.gitWorktreeFinalization.Cleanups {
-		if existing.CommonDir == cleanup.CommonDir && existing.Path == cleanup.Path && existing.Branch == cleanup.Branch {
+	if r.gitWorktreeFinalization != nil {
+		for i, existing := range r.gitWorktreeFinalization.Cleanups {
+			if !sameGitWorktreeCleanupTarget(existing, cleanup) {
+				continue
+			}
+			if cleanup.Policy == "never" {
+				cleanups := r.gitWorktreeFinalization.Cleanups
+				r.gitWorktreeFinalization.Cleanups = append(cleanups[:i], cleanups[i+1:]...)
+				if len(r.gitWorktreeFinalization.Cleanups) == 0 {
+					r.gitWorktreeFinalization = nil
+				}
+			} else {
+				r.gitWorktreeFinalization.Cleanups[i] = cleanup
+			}
 			return nil
 		}
 	}
+	if cleanup.Policy == "never" {
+		return nil
+	}
+	if r.gitWorktreeFinalization == nil {
+		r.gitWorktreeFinalization = &exec.GitWorktreeFinalization{}
+	}
 	r.gitWorktreeFinalization.Cleanups = append(r.gitWorktreeFinalization.Cleanups, cleanup)
 	return nil
+}
+
+func sameGitWorktreeCleanupTarget(left, right exec.GitWorktreeCleanup) bool {
+	return left.CommonDir == right.CommonDir && left.Path == right.Path && left.Branch == right.Branch
 }
 
 // GitWorktreeFinalization returns a snapshot of run-owned cleanup state.
@@ -520,7 +539,7 @@ func (r *Runner) CompleteGitWorktreeCleanup(completed exec.GitWorktreeCleanup) {
 	}
 	cleanups := r.gitWorktreeFinalization.Cleanups
 	for i, cleanup := range cleanups {
-		if cleanup.CommonDir == completed.CommonDir && cleanup.Path == completed.Path && cleanup.Branch == completed.Branch {
+		if sameGitWorktreeCleanupTarget(cleanup, completed) {
 			r.gitWorktreeFinalization.Cleanups = append(cleanups[:i], cleanups[i+1:]...)
 			break
 		}

@@ -172,9 +172,9 @@ func TestRunnerGitWorktreeFinalization(t *testing.T) {
 		DAGRunAutoRetryLimit: 1,
 		DAGRunIsRoot:         true,
 	})
-	require.NoError(t, runner.registerGitWorktreeCleanup(onSuccess))
-	require.NoError(t, runner.registerGitWorktreeCleanup(onSuccess))
-	require.NoError(t, runner.registerGitWorktreeCleanup(onFinish))
+	require.NoError(t, runner.setGitWorktreeCleanup(onSuccess))
+	require.NoError(t, runner.setGitWorktreeCleanup(onSuccess))
+	require.NoError(t, runner.setGitWorktreeCleanup(onFinish))
 
 	assert.Empty(t, runner.BeginGitWorktreeFinalization(core.Failed, "retryable"))
 	retryState := runner.GitWorktreeFinalization()
@@ -200,4 +200,28 @@ func TestRunnerGitWorktreeFinalization(t *testing.T) {
 	resumed.EndGitWorktreeFinalization()
 	assert.Nil(t, resumed.GitWorktreeFinalization())
 	assert.Len(t, retryState.Cleanups, 2)
+}
+
+func TestRunnerSetGitWorktreeCleanupReplacesRecreatedTarget(t *testing.T) {
+	t.Parallel()
+
+	runner := New(&Config{})
+	cleanup := exec.GitWorktreeCleanup{
+		Policy:         "on_success",
+		RepositoryRoot: "/repo",
+		CommonDir:      "/repo/.git",
+		Path:           "/repo.worktrees/topic",
+		Branch:         "topic",
+	}
+	require.NoError(t, runner.setGitWorktreeCleanup(cleanup))
+
+	cleanup.Policy = "on_finish"
+	require.NoError(t, runner.setGitWorktreeCleanup(cleanup))
+	state := runner.GitWorktreeFinalization()
+	require.NotNil(t, state)
+	assert.Equal(t, []exec.GitWorktreeCleanup{cleanup}, state.Cleanups)
+
+	cleanup.Policy = "never"
+	require.NoError(t, runner.setGitWorktreeCleanup(cleanup))
+	assert.Nil(t, runner.GitWorktreeFinalization())
 }

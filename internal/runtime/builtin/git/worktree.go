@@ -32,7 +32,6 @@ var commitHashPattern = regexp.MustCompile(`^[0-9a-fA-F]{7,64}$`)
 type repository struct {
 	root      string
 	commonDir string
-	bare      bool
 }
 
 type worktreeRegistration struct {
@@ -117,7 +116,7 @@ func (e *executorImpl) discoverRepository(ctx context.Context) (repository, erro
 	if err != nil {
 		return repository{}, fmt.Errorf("canonicalize repository common directory: %w", err)
 	}
-	return repository{root: root, commonDir: commonDir, bare: bare}, nil
+	return repository{root: root, commonDir: commonDir}, nil
 }
 
 func repositoryDisplayRoot(ctx context.Context, executor *executorImpl, workDir, canonicalRoot string, bare bool) (string, error) {
@@ -257,16 +256,14 @@ func (e *executorImpl) runWorktreeAdd(ctx context.Context, repo repository) erro
 		return e.failedAddError(ctx, repo.root, target, branch, fmt.Errorf("created worktree %q is missing", target))
 	}
 	commit = created.head
-	if cfg.Cleanup != "never" {
-		if err := runtime.RegisterGitWorktreeCleanup(ctx, coreexec.GitWorktreeCleanup{
-			Policy:         cfg.Cleanup,
-			RepositoryRoot: repo.root,
-			CommonDir:      repo.commonDir,
-			Path:           target,
-			Branch:         branch,
-		}); err != nil {
-			return fmt.Errorf("record automatic cleanup: %w", err)
-		}
+	if err := runtime.SetGitWorktreeCleanup(ctx, coreexec.GitWorktreeCleanup{
+		Policy:         cfg.Cleanup,
+		RepositoryRoot: repo.root,
+		CommonDir:      repo.commonDir,
+		Path:           target,
+		Branch:         branch,
+	}); err != nil {
+		return fmt.Errorf("record automatic cleanup: %w", err)
 	}
 	e.publishAddOutputs(target, branch, commit, true, branchCreated)
 	return nil

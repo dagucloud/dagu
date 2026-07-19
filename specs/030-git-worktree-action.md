@@ -319,6 +319,9 @@ Rules:
   is never removed automatically.
 - If an earlier attempt in the same DAG run created the worktree and a later
   retry reused it, the run retains the original cleanup obligation.
+- If a later add operation in the same DAG run creates a new registration for
+  the same repository, path, and branch, its cleanup policy replaces the prior
+  obligation. `cleanup: never` retires the prior obligation for that target.
 - Cleanup removes the linked worktree but never deletes its branch. This
   applies to explicit and Dagu-generated branches. Branch deletion requires an
   explicit `git.worktree.remove` action with `delete_branch: true`.
