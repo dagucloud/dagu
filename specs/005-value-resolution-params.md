@@ -11,7 +11,12 @@ This spec defines `${params}` and `${params.name}` references.
 Common reference syntax is defined by [Spec 003: Value Resolution and Field Evaluation](003-value-resolution.md).
 Spec 003 also defines unbraced text preservation, supported fields, string insertion, and resolution timing.
 
-This spec does not define parameter declaration schema beyond the rules needed for value resolution.
+Scalar declaration and coercion behavior shared by typed input surfaces is
+defined by [Spec 008: Scalar Input Schema](008-scalar-input-schema.md). This
+spec defines only the additional declaration rules needed for parameter value
+resolution.
+
+Each scalar property in a schema-backed parameter object opts into Spec 008.
 
 This spec does not define positional parameter lookup behavior.
 It only states that positional parameters are not addressable through `${params.name}`.

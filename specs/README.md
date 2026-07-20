@@ -19,6 +19,7 @@ It must not be treated as product behavior until implementation catches up.
 | [005: Value Resolution Params](005-value-resolution-params.md) | Implemented |
 | [006: Value Resolution Env](006-value-resolution-env.md) | Implemented |
 | [007: Value Resolution Steps](007-value-resolution-steps.md) | Implemented |
+| [008: Scalar Input Schema](008-scalar-input-schema.md) | Not implemented |
 | [009: Step Reference](009-step-reference.md) | Implemented |
 | [011: Dynamic Evaluation](011-dynamic-evaluation.md) | Implemented |
 | [012: Step Outputs](012-step-outputs.md) | Implemented |
@@ -33,6 +34,7 @@ It must not be treated as product behavior until implementation catches up.
 | [022: MCP Change Tool](022-mcp-change-tool.md) | Implemented |
 | [023: Preconditions](023-preconditions.md) | Implemented |
 | [030: Git Worktree Action](030-git-worktree-action.md) | Implemented |
+| [031: Human Tasks](031-human-task.md) | Not implemented |
 
 **Writing guidelines:**
 
