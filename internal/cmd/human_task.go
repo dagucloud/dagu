@@ -116,104 +116,186 @@ func runHumanTaskCompleteWith(ctx *Context, args []string, deps humanTaskComplet
 		return fmt.Errorf("DAG-run store is not configured")
 	}
 
-	dagRunID, err := ctx.StringParam(humanTaskRunIDFlag.name)
+	request, err := parseHumanTaskCompletionRequest(ctx)
 	if err != nil {
 		return err
 	}
-	subRunID, err := ctx.StringParam(humanTaskSubRunIDFlag.name)
-	if err != nil {
-		return err
-	}
-	stepID, err := ctx.StringParam(humanTaskStepFlag.name)
-	if err != nil {
-		return err
-	}
-	stepID = strings.TrimSpace(stepID)
-	if stepID == "" {
-		return fmt.Errorf("--step must not be empty")
-	}
-
 	completionInput, err := parseHumanTaskCompletionInput(ctx.Command)
 	if err != nil {
 		return err
 	}
-
-	dagName, err := extractDAGName(ctx, args[0])
+	target, err := loadHumanTaskCompletionTarget(ctx, args[0], request)
 	if err != nil {
-		return fmt.Errorf("failed to extract DAG name: %w", err)
+		return err
 	}
-	rootRef := exec.NewDAGRunRef(dagName, dagRunID)
-	attempt, err := extractAttemptForStatus(ctx, dagName, dagRunID, subRunID)
+	result, err := completeHumanTaskStatus(ctx, target, completionInput, deps)
 	if err != nil {
-		return fmt.Errorf("failed to find DAG-run: %w", err)
+		return err
+	}
+	if result.alreadyCompleted {
+		return reportHumanTaskAlreadyCompleted(
+			ctx,
+			target.dag.Name,
+			result.status,
+			request.stepID,
+			target.rootRef,
+			target.owningRef,
+		)
+	}
+	if hasWaitingNodes(result.status.Nodes) {
+		_, err := fmt.Fprintf(ctx.Command.OutOrStdout(), "Completed human task %s; DAG-run remains waiting.\n", request.stepID)
+		return err
+	}
+	if err := deps.launch(ctx, target.dag, result.status, target.rootRef, target.owningRef); err != nil {
+		return fmt.Errorf(
+			"human task %q was completed, but the DAG-run could not be resumed: %w; resume it with `%s`",
+			request.stepID,
+			err,
+			humanTaskRetryCommand(ctx, target.dag.Name, target.rootRef, target.owningRef),
+		)
+	}
+	_, err = fmt.Fprintf(ctx.Command.OutOrStdout(), "Completed human task %s; DAG-run resume started.\n", request.stepID)
+	return err
+}
+
+type humanTaskCompletionRequest struct {
+	dagRunID string
+	subRunID string
+	stepID   string
+}
+
+type humanTaskCompletionTarget struct {
+	dag       *core.DAG
+	status    *exec.DAGRunStatus
+	rootRef   exec.DAGRunRef
+	owningRef exec.DAGRunRef
+	request   humanTaskCompletionRequest
+}
+
+type humanTaskCompletionResult struct {
+	status           *exec.DAGRunStatus
+	alreadyCompleted bool
+}
+
+func parseHumanTaskCompletionRequest(ctx *Context) (humanTaskCompletionRequest, error) {
+	dagRunID, err := ctx.StringParam(humanTaskRunIDFlag.name)
+	if err != nil {
+		return humanTaskCompletionRequest{}, err
+	}
+	subRunID, err := ctx.StringParam(humanTaskSubRunIDFlag.name)
+	if err != nil {
+		return humanTaskCompletionRequest{}, err
+	}
+	stepID, err := ctx.StringParam(humanTaskStepFlag.name)
+	if err != nil {
+		return humanTaskCompletionRequest{}, err
+	}
+	stepID = strings.TrimSpace(stepID)
+	if stepID == "" {
+		return humanTaskCompletionRequest{}, fmt.Errorf("--step must not be empty")
+	}
+	return humanTaskCompletionRequest{
+		dagRunID: dagRunID,
+		subRunID: subRunID,
+		stepID:   stepID,
+	}, nil
+}
+
+func loadHumanTaskCompletionTarget(
+	ctx *Context,
+	dagArg string,
+	request humanTaskCompletionRequest,
+) (*humanTaskCompletionTarget, error) {
+	dagName, err := extractDAGName(ctx, dagArg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract DAG name: %w", err)
+	}
+	rootRef := exec.NewDAGRunRef(dagName, request.dagRunID)
+	attempt, err := extractAttemptForStatus(ctx, dagName, request.dagRunID, request.subRunID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find DAG-run: %w", err)
 	}
 	dag, err := attempt.ReadDAG(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to read DAG from run data: %w", err)
+		return nil, fmt.Errorf("failed to read DAG from run data: %w", err)
 	}
 	if dag == nil {
-		return fmt.Errorf("failed to read DAG from run data: DAG data is nil")
+		return nil, fmt.Errorf("failed to read DAG from run data: DAG data is nil")
 	}
 	status, err := attempt.ReadStatus(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to read DAG-run status: %w", err)
+		return nil, fmt.Errorf("failed to read DAG-run status: %w", err)
 	}
 	if status == nil {
-		return fmt.Errorf("failed to read DAG-run status: status data is nil")
+		return nil, fmt.Errorf("failed to read DAG-run status: status data is nil")
 	}
-
 	status, err = waitForHumanTaskCompletionReady(ctx, attempt, dag, status)
 	if err != nil {
-		return err
-	}
-	owningRef := exec.NewDAGRunRef(status.Name, status.DAGRunID)
-	if owningRef.Name == "" || owningRef.ID == "" {
-		return fmt.Errorf("stored DAG-run identity is incomplete")
+		return nil, err
 	}
 
-	node, err := findHumanTaskNodeByID(status.Nodes, stepID)
+	owningRef := exec.NewDAGRunRef(status.Name, status.DAGRunID)
+	if owningRef.Name == "" || owningRef.ID == "" {
+		return nil, fmt.Errorf("stored DAG-run identity is incomplete")
+	}
+	return &humanTaskCompletionTarget{
+		dag:       dag,
+		status:    status,
+		rootRef:   rootRef,
+		owningRef: owningRef,
+		request:   request,
+	}, nil
+}
+
+func completeHumanTaskStatus(
+	ctx *Context,
+	target *humanTaskCompletionTarget,
+	input humanTaskCompletionInput,
+	deps humanTaskCompleteDeps,
+) (*humanTaskCompletionResult, error) {
+	stepID := target.request.stepID
+	node, err := findHumanTaskNodeByID(target.status.Nodes, stepID)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	validated, err := validateHumanTaskCompletion(node, completionInput)
+	validated, err := validateHumanTaskCompletion(node, input)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if _, err := marshalHumanTaskCompletionOutputs(dag, validated); err != nil {
-		return err
+	if _, err := marshalHumanTaskCompletionOutputs(target.dag, validated); err != nil {
+		return nil, err
 	}
-	alreadyCompleted := humanTaskNodeCompleted(node)
-	if alreadyCompleted {
+	if humanTaskNodeCompleted(node) {
 		if !bytes.Equal(node.HumanTaskInput, validated.Canonical) {
-			return fmt.Errorf("human task step %q was already completed with different input", stepID)
+			return nil, fmt.Errorf("human task step %q was already completed with different input", stepID)
 		}
-		return reportHumanTaskAlreadyCompleted(ctx, dag.Name, status, stepID, rootRef, owningRef)
+		return &humanTaskCompletionResult{status: target.status, alreadyCompleted: true}, nil
 	}
-	if status.Status != core.Waiting {
-		return fmt.Errorf("DAG-run %s is not waiting (status: %s)", owningRef, status.Status)
+	if target.status.Status != core.Waiting {
+		return nil, fmt.Errorf("DAG-run %s is not waiting (status: %s)", target.owningRef, target.status.Status)
 	}
 
 	completedAt := deps.now().UTC().Format(time.RFC3339)
 	completedBy := deps.actor()
 	var concurrentlyCompletedStatus *exec.DAGRunStatus
 	casOptions := []exec.CompareAndSwapStatusOption{
-		exec.WithCompareAndSwapRootDAGRun(rootRef),
-		exec.WithCompareAndSwapExpectedAttemptKey(status.AttemptKey),
+		exec.WithCompareAndSwapRootDAGRun(target.rootRef),
+		exec.WithCompareAndSwapExpectedAttemptKey(target.status.AttemptKey),
 	}
-	if subRunID != "" {
+	if target.request.subRunID != "" {
 		casOptions = append(casOptions, exec.WithCompareAndSwapExpectedRootStatus(core.Waiting))
 	}
 	updated, swapped, err := ctx.DAGRunStore.CompareAndSwapLatestAttemptStatus(
 		ctx,
-		owningRef,
-		status.AttemptID,
+		target.owningRef,
+		target.status.AttemptID,
 		core.Waiting,
 		func(latest *exec.DAGRunStatus) error {
 			latestNode, err := findHumanTaskNodeByID(latest.Nodes, stepID)
 			if err != nil {
 				return err
 			}
-			latestValidated, err := validateHumanTaskCompletion(latestNode, completionInput)
+			latestValidated, err := validateHumanTaskCompletion(latestNode, input)
 			if err != nil {
 				return err
 			}
@@ -228,7 +310,7 @@ func runHumanTaskCompleteWith(ctx *Context, args []string, deps humanTaskComplet
 				return fmt.Errorf("human task step %q is not waiting (status: %s)", stepID, latestNode.Status)
 			}
 
-			outputsValue, err := marshalHumanTaskCompletionOutputs(dag, latestValidated)
+			outputsValue, err := marshalHumanTaskCompletionOutputs(target.dag, latestValidated)
 			if err != nil {
 				return err
 			}
@@ -247,40 +329,33 @@ func runHumanTaskCompleteWith(ctx *Context, args []string, deps humanTaskComplet
 		casOptions...,
 	)
 	if errors.Is(err, errHumanTaskCompletionAlreadyApplied) {
-		return reportHumanTaskAlreadyCompleted(ctx, dag.Name, concurrentlyCompletedStatus, stepID, rootRef, owningRef)
+		return &humanTaskCompletionResult{status: concurrentlyCompletedStatus, alreadyCompleted: true}, nil
 	}
 	if err != nil {
-		return fmt.Errorf("failed to complete human task: %w", err)
+		return nil, fmt.Errorf("failed to complete human task: %w", err)
 	}
 	if !swapped {
-		if updated != nil {
-			latestNode, findErr := findHumanTaskNodeByID(updated.Nodes, stepID)
-			if findErr == nil && humanTaskNodeCompleted(latestNode) {
-				latestValidated, validateErr := validateHumanTaskCompletion(latestNode, completionInput)
-				if validateErr == nil && bytes.Equal(latestNode.HumanTaskInput, latestValidated.Canonical) {
-					return reportHumanTaskAlreadyCompleted(ctx, dag.Name, updated, stepID, rootRef, owningRef)
-				}
-				return fmt.Errorf("human task step %q was already completed with different input", stepID)
+		return resolveHumanTaskCompletionConflict(updated, stepID, input)
+	}
+	return &humanTaskCompletionResult{status: updated}, nil
+}
+
+func resolveHumanTaskCompletionConflict(
+	updated *exec.DAGRunStatus,
+	stepID string,
+	input humanTaskCompletionInput,
+) (*humanTaskCompletionResult, error) {
+	if updated != nil {
+		latestNode, findErr := findHumanTaskNodeByID(updated.Nodes, stepID)
+		if findErr == nil && humanTaskNodeCompleted(latestNode) {
+			latestValidated, validateErr := validateHumanTaskCompletion(latestNode, input)
+			if validateErr == nil && bytes.Equal(latestNode.HumanTaskInput, latestValidated.Canonical) {
+				return &humanTaskCompletionResult{status: updated, alreadyCompleted: true}, nil
 			}
+			return nil, fmt.Errorf("human task step %q was already completed with different input", stepID)
 		}
-		return fmt.Errorf("DAG-run changed while completing human task %q; inspect its current status and retry", stepID)
 	}
-
-	if hasWaitingNodes(updated.Nodes) {
-		_, err := fmt.Fprintf(ctx.Command.OutOrStdout(), "Completed human task %s; DAG-run remains waiting.\n", stepID)
-		return err
-	}
-
-	if err := deps.launch(ctx, dag, updated, rootRef, owningRef); err != nil {
-		return fmt.Errorf(
-			"human task %q was completed, but the DAG-run could not be resumed: %w; resume it with `%s`",
-			stepID,
-			err,
-			humanTaskRetryCommand(ctx, dag.Name, rootRef, owningRef),
-		)
-	}
-	_, err = fmt.Fprintf(ctx.Command.OutOrStdout(), "Completed human task %s; DAG-run resume started.\n", stepID)
-	return err
+	return nil, fmt.Errorf("DAG-run changed while completing human task %q; inspect its current status and retry", stepID)
 }
 
 func parseHumanTaskCompletionInput(command *cobra.Command) (humanTaskCompletionInput, error) {
@@ -495,31 +570,50 @@ func launchHumanTaskRetry(
 }
 
 func humanTaskRetrySpec(ctx *Context, dag *core.DAG, rootRef, owningRef exec.DAGRunRef) launcher.CmdSpec {
+	selectors := newHumanTaskRetrySelectors(ctx, rootRef, owningRef)
 	builder := launcher.NewSubCmdBuilder(ctx.Config)
-	retrySpec := builder.Retry(dag, owningRef.ID, "")
-	if owningRef != rootRef {
-		retrySpec = builder.RetryWithRootDAGRun(dag, owningRef.ID, "", rootRef)
+	retrySpec := builder.Retry(dag, selectors.runID, "")
+	if !selectors.rootRef.Zero() {
+		retrySpec = builder.RetryWithRootDAGRun(dag, selectors.runID, "", selectors.rootRef)
 	}
-	if daguHome := explicitHumanTaskDAGUHome(ctx); daguHome != "" {
+	if selectors.daguHome != "" {
 		target := retrySpec.Args[len(retrySpec.Args)-1]
-		retrySpec.Args = append(retrySpec.Args[:len(retrySpec.Args)-1], "--dagu-home="+daguHome, target)
+		retrySpec.Args = append(retrySpec.Args[:len(retrySpec.Args)-1], "--dagu-home="+selectors.daguHome, target)
 	}
 	return retrySpec
 }
 
 func humanTaskRetryCommand(ctx *Context, dagName string, rootRef, owningRef exec.DAGRunRef) string {
-	parts := []string{"dagu", "retry", "--run-id=" + owningRef.ID}
-	if owningRef != rootRef {
-		parts = append(parts, "--root="+rootRef.String())
+	selectors := newHumanTaskRetrySelectors(ctx, rootRef, owningRef)
+	parts := []string{"dagu", "retry", "--run-id=" + selectors.runID}
+	if !selectors.rootRef.Zero() {
+		parts = append(parts, "--root="+selectors.rootRef.String())
 	}
 	if ctx != nil && ctx.Config != nil && ctx.Config.Paths.ConfigFileUsed != "" {
 		parts = append(parts, "--config", cmdutil.ShellQuote(ctx.Config.Paths.ConfigFileUsed))
 	}
-	if daguHome := explicitHumanTaskDAGUHome(ctx); daguHome != "" {
-		parts = append(parts, "--dagu-home", cmdutil.ShellQuote(daguHome))
+	if selectors.daguHome != "" {
+		parts = append(parts, "--dagu-home", cmdutil.ShellQuote(selectors.daguHome))
 	}
 	parts = append(parts, cmdutil.ShellQuote(dagName))
 	return strings.Join(parts, " ")
+}
+
+type humanTaskRetrySelectors struct {
+	runID    string
+	rootRef  exec.DAGRunRef
+	daguHome string
+}
+
+func newHumanTaskRetrySelectors(ctx *Context, rootRef, owningRef exec.DAGRunRef) humanTaskRetrySelectors {
+	selectors := humanTaskRetrySelectors{
+		runID:    owningRef.ID,
+		daguHome: explicitHumanTaskDAGUHome(ctx),
+	}
+	if owningRef != rootRef {
+		selectors.rootRef = rootRef
+	}
+	return selectors
 }
 
 func explicitHumanTaskDAGUHome(ctx *Context) string {
