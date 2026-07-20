@@ -195,7 +195,7 @@ type TrustedProxyRoleMappingDef struct {
 	WorkspaceMappings      map[string][]TrustedProxyWorkspaceGrant `mapstructure:"workspace_mappings" yaml:"workspace_mappings"`
 	DefaultWorkspaceAccess *string                                 `mapstructure:"default_workspace_access" yaml:"default_workspace_access"`
 	RequireMapping         *bool                                   `mapstructure:"require_mapping" yaml:"require_mapping"`
-	SyncAccess             *bool                                   `mapstructure:"sync_access" yaml:"sync_access"`
+	SkipOrgRoleSync        *bool                                   `mapstructure:"skip_org_role_sync" yaml:"skip_org_role_sync"`
 }
 
 // PermissionsDef configures UI and API permissions.

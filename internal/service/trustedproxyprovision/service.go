@@ -45,7 +45,7 @@ type Config struct {
 	UsersDir        string
 	Source          string
 	AutoSignup      bool
-	SyncAccess      bool
+	SkipOrgRoleSync bool
 	RoleMapping     authmapping.Config
 	WorkspaceExists func(context.Context, string) (bool, error)
 }
@@ -57,7 +57,7 @@ type Service struct {
 	source          string
 	autoSignup      bool
 	requireMapping  bool
-	syncAccess      bool
+	skipOrgRoleSync bool
 	mapper          *authmapping.Mapper
 	workspaceExists func(context.Context, string) (bool, error)
 	logger          *slog.Logger
@@ -88,7 +88,7 @@ func New(userStore auth.UserStore, config Config) (*Service, error) {
 		source:          config.Source,
 		autoSignup:      config.AutoSignup,
 		requireMapping:  config.RoleMapping.Strict,
-		syncAccess:      config.SyncAccess,
+		skipOrgRoleSync: config.SkipOrgRoleSync,
 		mapper:          mapper,
 		workspaceExists: config.WorkspaceExists,
 		logger:          slog.Default().With(slog.String("service", "trustedproxyprovision")),
@@ -153,7 +153,7 @@ func (s *Service) processExisting(ctx context.Context, user *auth.User, groups [
 	if user.IsDisabled {
 		return nil, false, authservice.ErrUserDisabled
 	}
-	if !s.syncAccess {
+	if s.skipOrgRoleSync {
 		if s.requireMapping {
 			if _, err := s.mapAccess(ctx, groups); err != nil {
 				return nil, false, err

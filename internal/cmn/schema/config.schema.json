@@ -631,10 +631,10 @@
           "description": "Deny login unless at least one group or workspace mapping matches.",
           "default": true
         },
-        "sync_access": {
+        "skip_org_role_sync": {
           "type": "boolean",
-          "description": "Recalculate role and workspace access on every login.",
-          "default": true
+          "description": "Preserve existing role and workspace access instead of synchronizing subsequent logins.",
+          "default": false
         }
       }
     },

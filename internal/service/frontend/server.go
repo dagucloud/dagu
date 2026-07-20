@@ -304,7 +304,7 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 				UsersDir:        cfg.Paths.UsersDir,
 				Source:          trustedProxy.Source,
 				AutoSignup:      trustedProxy.AutoSignup,
-				SyncAccess:      trustedProxy.RoleMapping.SyncAccess,
+				SkipOrgRoleSync: trustedProxy.RoleMapping.SkipOrgRoleSync,
 				WorkspaceExists: workspaceExists,
 				RoleMapping: authmapping.Config{
 					DefaultRole:            authmodel.Role(trustedProxy.RoleMapping.DefaultRole),
@@ -333,7 +333,7 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 			logger.Info(ctx, "Proxy authentication enabled",
 				slog.Bool("autoSignup", trustedProxy.AutoSignup),
 				slog.String("defaultRole", trustedProxy.RoleMapping.DefaultRole),
-				slog.Bool("authorizationSync", trustedProxy.RoleMapping.SyncAccess))
+				slog.Bool("skipOrgRoleSync", trustedProxy.RoleMapping.SkipOrgRoleSync))
 		}
 
 		oidcCfg := cfg.Server.Auth.OIDC

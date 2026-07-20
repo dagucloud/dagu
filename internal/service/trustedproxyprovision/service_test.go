@@ -37,9 +37,9 @@ func seedUser(t *testing.T, userStore auth.UserStore, username string) *auth.Use
 func newTestService(t *testing.T, userStore auth.UserStore, mutate func(*Config)) *Service {
 	t.Helper()
 	config := Config{
-		UsersDir:   t.TempDir(),
-		AutoSignup: true,
-		SyncAccess: true,
+		UsersDir:        t.TempDir(),
+		AutoSignup:      true,
+		SkipOrgRoleSync: false,
 		RoleMapping: authmapping.Config{
 			DefaultRole: auth.RoleViewer,
 		},
@@ -223,26 +223,56 @@ func TestProcessLoginSynchronizesFullAuthorization(t *testing.T) {
 	assert.Equal(t, user.WorkspaceAccess, persisted.WorkspaceAccess)
 }
 
-func TestProcessLoginWithSyncDisabledRetainsAuthorization(t *testing.T) {
+func TestProcessLoginWithOrgRoleSyncSkippedRetainsAuthorization(t *testing.T) {
 	ctx := context.Background()
 	userStore := newTestUserStore(t)
-	existing := auth.NewUser("trusted", "", auth.RoleManager)
+	existing := auth.NewUser("trusted", "", auth.RoleViewer)
 	existing.AuthProvider = auth.AuthProviderProxy
 	existing.TrustedProxyUser = "opaque-user"
+	existing.WorkspaceAccess = &auth.WorkspaceAccess{Grants: []auth.WorkspaceGrant{
+		{Workspace: "manually-added", Role: auth.RoleDeveloper},
+	}}
 	require.NoError(t, userStore.Create(ctx, existing))
 	service := newTestService(t, userStore, func(config *Config) {
-		config.SyncAccess = false
+		config.SkipOrgRoleSync = true
 		config.RoleMapping.Strict = true
-		config.RoleMapping.GroupMappings = map[string]auth.Role{"members": auth.RoleViewer}
+		config.RoleMapping.GroupMappings = map[string]auth.Role{"members": auth.RoleManager}
 	})
 
 	user, created, err := service.ProcessLogin(ctx, "opaque-user", []string{"members"})
 	require.NoError(t, err)
 	assert.False(t, created)
-	assert.Equal(t, auth.RoleManager, user.Role)
+	assert.Equal(t, auth.RoleViewer, user.Role)
+	assert.Equal(t, existing.WorkspaceAccess, user.WorkspaceAccess)
+
+	persisted, err := userStore.GetByID(ctx, existing.ID)
+	require.NoError(t, err)
+	assert.Equal(t, existing.Role, persisted.Role)
+	assert.Equal(t, existing.WorkspaceAccess, persisted.WorkspaceAccess)
 }
 
-func TestProcessLoginWithSyncDisabledStillRequiresMapping(t *testing.T) {
+func TestProcessLoginWithOrgRoleSyncSkippedMapsNewUser(t *testing.T) {
+	ctx := context.Background()
+	userStore := newTestUserStore(t)
+	seedUser(t, userStore, "admin")
+	service := newTestService(t, userStore, func(config *Config) {
+		config.SkipOrgRoleSync = true
+		config.RoleMapping.Strict = true
+		config.RoleMapping.WorkspaceMappings = map[string][]authmapping.WorkspaceGrantConfig{
+			"platform": {{Workspace: "infrastructure", Role: auth.RoleDeveloper}},
+		}
+	})
+
+	user, created, err := service.ProcessLogin(ctx, "new-user", []string{"platform"})
+	require.NoError(t, err)
+	assert.True(t, created)
+	assert.Equal(t, auth.RoleViewer, user.Role)
+	assert.Equal(t, &auth.WorkspaceAccess{Grants: []auth.WorkspaceGrant{
+		{Workspace: "infrastructure", Role: auth.RoleDeveloper},
+	}}, user.WorkspaceAccess)
+}
+
+func TestProcessLoginWithOrgRoleSyncSkippedStillRequiresMapping(t *testing.T) {
 	ctx := context.Background()
 	userStore := newTestUserStore(t)
 	existing := auth.NewUser("trusted", "", auth.RoleManager)
@@ -250,7 +280,7 @@ func TestProcessLoginWithSyncDisabledStillRequiresMapping(t *testing.T) {
 	existing.TrustedProxyUser = "opaque-user"
 	require.NoError(t, userStore.Create(ctx, existing))
 	service := newTestService(t, userStore, func(config *Config) {
-		config.SyncAccess = false
+		config.SkipOrgRoleSync = true
 		config.RoleMapping.Strict = true
 		config.RoleMapping.GroupMappings = map[string]auth.Role{"members": auth.RoleViewer}
 	})

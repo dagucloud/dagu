@@ -76,7 +76,7 @@ var legacyToSnakeCaseKey = map[string]string{
 	"auth.proxy.rolemapping.workspacemappings":      "auth.proxy.role_mapping.workspace_mappings",
 	"auth.proxy.rolemapping.defaultworkspaceaccess": "auth.proxy.role_mapping.default_workspace_access",
 	"auth.proxy.rolemapping.requiremapping":         "auth.proxy.role_mapping.require_mapping",
-	"auth.proxy.rolemapping.syncaccess":             "auth.proxy.role_mapping.sync_access",
+	"auth.proxy.rolemapping.skiporgrolesync":        "auth.proxy.role_mapping.skip_org_role_sync",
 
 	// Permissions
 	"permissions.writedags": "permissions.write_dags",

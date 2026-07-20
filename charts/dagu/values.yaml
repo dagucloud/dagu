@@ -110,7 +110,8 @@ auth:
       defaultWorkspaceAccess: "none"
       # When true, enabling proxy authentication requires at least one mapping.
       requireMapping: true
-      syncAccess: true
+      # When true, preserve existing role and workspace access on subsequent logins.
+      skipOrgRoleSync: false
       groupMappings: {}
       workspaceMappings: {}
 

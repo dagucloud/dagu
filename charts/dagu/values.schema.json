@@ -95,8 +95,9 @@
                 "requireMapping": {
                   "type": "boolean"
                 },
-                "syncAccess": {
-                  "type": "boolean"
+                "skipOrgRoleSync": {
+                  "type": "boolean",
+                  "default": false
                 },
                 "groupMappings": {
                   "type": "object",
@@ -132,7 +133,7 @@
                 "defaultRole",
                 "defaultWorkspaceAccess",
                 "requireMapping",
-                "syncAccess",
+                "skipOrgRoleSync",
                 "groupMappings",
                 "workspaceMappings"
               ]
