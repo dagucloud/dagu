@@ -132,7 +132,7 @@ func foreachRuntimeStep(probeType string, items []any, maxConcurrent int) core.S
 func registerForeachProbeExecutor(t *testing.T) (string, *foreachProbeState) {
 	t.Helper()
 
-	state := &foreachProbeState{activeChanged: make(chan struct{}, 1)}
+	state := &foreachProbeState{activeChanged: make(chan struct{})}
 	executorType := "foreach_probe_" + strconv.FormatInt(time.Now().UnixNano(), 36)
 	executor.RegisterExecutor(executorType, func(_ context.Context, step core.Step) (executor.Executor, error) {
 		return &foreachProbeExecutor{
@@ -162,16 +162,14 @@ type foreachProbeRecord struct {
 
 func (s *foreachProbeState) start() {
 	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	s.active++
 	if s.active > s.max {
 		s.max = s.active
 	}
-	s.mu.Unlock()
-
-	select {
-	case s.activeChanged <- struct{}{}:
-	default:
-	}
+	close(s.activeChanged)
+	s.activeChanged = make(chan struct{})
 }
 
 func (s *foreachProbeState) waitForActive(ctx context.Context, minimum int) error {
@@ -181,6 +179,7 @@ func (s *foreachProbeState) waitForActive(ctx context.Context, minimum int) erro
 	for {
 		s.mu.Lock()
 		maxActive := s.max
+		activeChanged := s.activeChanged
 		s.mu.Unlock()
 		if maxActive >= minimum {
 			return nil
@@ -191,7 +190,7 @@ func (s *foreachProbeState) waitForActive(ctx context.Context, minimum int) erro
 			return ctx.Err()
 		case <-timer.C:
 			return fmt.Errorf("timed out waiting for %d active foreach executions", minimum)
-		case <-s.activeChanged:
+		case <-activeChanged:
 		}
 	}
 }
