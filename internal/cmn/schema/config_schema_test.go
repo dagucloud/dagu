@@ -101,6 +101,41 @@ auth:
 `,
 		},
 		{
+			name: "ValidExplicitAll",
+			spec: `
+auth:
+  oidc:
+    role_mapping:
+      workspace_mappings:
+        sre-team:
+          - workspace: payments
+            role: viewer
+      default_workspace_access: all
+`,
+		},
+		{
+			name: "ValidEmptyMappingsWithoutDefault",
+			spec: `
+auth:
+  oidc:
+    role_mapping:
+      workspace_mappings: {}
+`,
+		},
+		{
+			name: "MissingDefaultWithMappings",
+			spec: `
+auth:
+  oidc:
+    role_mapping:
+      workspace_mappings:
+        sre-team:
+          - workspace: payments
+            role: viewer
+`,
+			wantErr: true,
+		},
+		{
 			name: "AdminGrant",
 			spec: `
 auth:

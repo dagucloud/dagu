@@ -367,6 +367,13 @@ func (a *API) ResetUserPassword(ctx context.Context, request api.ResetUserPasswo
 				HTTPStatus: http.StatusBadRequest,
 			}
 		}
+		if errors.Is(err, authservice.ErrOIDCPasswordManagement) {
+			return nil, &Error{
+				Code:       api.ErrorCodeForbidden,
+				Message:    "Password is managed by the identity provider for this user",
+				HTTPStatus: http.StatusForbidden,
+			}
+		}
 		return nil, err
 	}
 

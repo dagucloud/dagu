@@ -320,7 +320,11 @@ export default function UsersPage() {
                   <TableCell>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label={`Actions for ${user.username}`}
+                        >
                           <MoreHorizontal className="h-4 w-4" />
                         </Button>
                       </DropdownMenuTrigger>
@@ -333,14 +337,15 @@ export default function UsersPage() {
                             Edit
                           </DropdownMenuItem>
                         )}
-                        {isAdmin && (
-                          <DropdownMenuItem
-                            onClick={() => setResetPasswordUser(user)}
-                          >
-                            <Key className="h-4 w-4 mr-2" />
-                            Reset Password
-                          </DropdownMenuItem>
-                        )}
+                        {isAdmin &&
+                          user.authProvider !== UserAuthProvider.oidc && (
+                            <DropdownMenuItem
+                              onClick={() => setResetPasswordUser(user)}
+                            >
+                              <Key className="h-4 w-4 mr-2" />
+                              Reset Password
+                            </DropdownMenuItem>
+                          )}
                         {hasRbac && isAdmin && user.id !== currentUser?.id && (
                           <DropdownMenuItem
                             onClick={() => handleToggleDisabled(user)}

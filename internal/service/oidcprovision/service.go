@@ -120,7 +120,7 @@ func (s *Service) ProcessLogin(ctx context.Context, claims OIDCClaims) (*auth.Us
 		// Sync mapped authorization on re-login unless synchronization is disabled.
 		if !s.config.RoleMapping.SkipOrgRoleSync {
 			if err := s.syncUserAccess(ctx, user, claims); err != nil {
-				if errors.Is(err, ErrNoRoleFound) {
+				if s.roleMapper.WorkspaceAccessPolicyActive() || errors.Is(err, ErrNoRoleFound) {
 					s.logger.Warn("OIDC login rejected: authorization mapping failed",
 						slog.String("user_id", user.ID),
 						slog.String("error", err.Error()))

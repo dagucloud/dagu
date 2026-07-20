@@ -297,7 +297,7 @@ type OIDCRoleMapping struct {
 	GroupsClaim            string                          // Default: "groups"
 	GroupMappings          map[string]string               // IdP group -> Dagu role
 	WorkspaceMappings      map[string][]OIDCWorkspaceGrant // IdP group -> workspace grants
-	DefaultWorkspaceAccess string                          // Default: "all"
+	DefaultWorkspaceAccess string                          // Default: "all"; required with workspace mappings
 	RoleAttributePath      string                          // jq expression for role extraction
 	RoleAttributeStrict    bool                            // Deny login if no global or workspace mapping matches
 	SkipOrgRoleSync        bool                            // Keep first-login role and workspace access assignments
@@ -758,6 +758,12 @@ func (c *Config) validateOIDCForBuiltin() error {
 }
 
 func validateOIDCWorkspaceMappings(mapping OIDCRoleMapping) error {
+	if mapping.DefaultWorkspaceAccess == "" && len(mapping.WorkspaceMappings) > 0 {
+		return fmt.Errorf(
+			"OIDC roleMapping.defaultWorkspaceAccess must be explicitly set to all or none when workspaceMappings is configured",
+		)
+	}
+
 	switch mapping.DefaultWorkspaceAccess {
 	case "", OIDCDefaultWorkspaceAccessAll, OIDCDefaultWorkspaceAccessNone:
 	default:

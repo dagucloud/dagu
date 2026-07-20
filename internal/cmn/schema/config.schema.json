@@ -353,6 +353,21 @@
       "type": "object",
       "description": "Maps OIDC claims to Dagu roles.",
       "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "required": ["workspace_mappings"],
+            "properties": {
+              "workspace_mappings": {
+                "minProperties": 1
+              }
+            }
+          },
+          "then": {
+            "required": ["default_workspace_access"]
+          }
+        }
+      ],
       "properties": {
         "default_role": {
           "type": "string",
@@ -385,7 +400,7 @@
         },
         "default_workspace_access": {
           "type": "string",
-          "description": "Workspace access assigned when no global or workspace mapping matches. Default: 'all'.",
+          "description": "Workspace access assigned when no global or workspace mapping matches. Required with non-empty workspace_mappings; otherwise defaults to 'all'.",
           "enum": ["all", "none"],
           "default": "all"
         },

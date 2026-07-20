@@ -228,6 +228,12 @@ func (a *API) ChangePassword(ctx context.Context, request api.ChangePasswordRequ
 				Message: "New password does not meet security requirements",
 			}, nil
 		}
+		if errors.Is(err, authservice.ErrOIDCPasswordManagement) {
+			return api.ChangePassword403JSONResponse{
+				Code:    api.ErrorCodeForbidden,
+				Message: "Password is managed by the identity provider for this user",
+			}, nil
+		}
 		return nil, err
 	}
 

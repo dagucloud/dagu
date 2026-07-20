@@ -30,6 +30,7 @@ var (
 	ErrMissingSecret                     = errors.New("token secret is not configured")
 	ErrPasswordMismatch                  = errors.New("current password is incorrect")
 	ErrWeakPassword                      = errors.New("password does not meet requirements")
+	ErrOIDCPasswordManagement            = errors.New("passwords for OIDC users are managed by the identity provider")
 	ErrCannotDeleteSelf                  = errors.New("cannot delete your own account")
 	ErrInvalidAPIKey                     = errors.New("invalid API key")
 	ErrAPIKeyNotConfigured               = errors.New("API key management is not configured")
@@ -161,6 +162,14 @@ func (s *Service) Authenticate(ctx context.Context, username, password string) (
 			return nil, ErrInvalidCredentials
 		}
 		return nil, fmt.Errorf("failed to get user: %w", err)
+	}
+
+	if user.IsOIDCUser() {
+		// OIDC users must authenticate through their identity provider. Use the
+		// dummy hash so this path has the same shape as an unknown username and
+		// never accepts a legacy password hash that may still be persisted.
+		_ = bcrypt.CompareHashAndPassword(dummyHash, []byte(password))
+		return nil, ErrInvalidCredentials
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
@@ -342,6 +351,9 @@ func (s *Service) UpdateUser(ctx context.Context, id string, input UpdateUserInp
 	if err != nil {
 		return nil, err
 	}
+	if input.Password != nil && user.IsOIDCUser() {
+		return nil, ErrOIDCPasswordManagement
+	}
 
 	if input.Username != nil && *input.Username != "" {
 		user.Username = *input.Username
@@ -406,6 +418,9 @@ func (s *Service) ChangePassword(ctx context.Context, userID, oldPassword, newPa
 	if err != nil {
 		return err
 	}
+	if user.IsOIDCUser() {
+		return ErrOIDCPasswordManagement
+	}
 
 	// Verify old password
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(oldPassword)); err != nil {
@@ -436,6 +451,9 @@ func (s *Service) ResetPassword(ctx context.Context, userID, newPassword string)
 	user, err := s.store.GetByID(ctx, userID)
 	if err != nil {
 		return err
+	}
+	if user.IsOIDCUser() {
+		return ErrOIDCPasswordManagement
 	}
 
 	// Validate new password

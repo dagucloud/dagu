@@ -672,8 +672,9 @@ func (l *ConfigLoader) setAuthDefaults(cfg *Config) {
 	if cfg.Server.Auth.OIDC.RoleMapping.DefaultRole == "" {
 		cfg.Server.Auth.OIDC.RoleMapping.DefaultRole = "viewer"
 	}
-	if cfg.Server.Auth.OIDC.RoleMapping.DefaultWorkspaceAccess == "" {
-		cfg.Server.Auth.OIDC.RoleMapping.DefaultWorkspaceAccess = OIDCDefaultWorkspaceAccessAll
+	roleMapping := &cfg.Server.Auth.OIDC.RoleMapping
+	if roleMapping.DefaultWorkspaceAccess == "" && len(roleMapping.WorkspaceMappings) == 0 {
+		roleMapping.DefaultWorkspaceAccess = OIDCDefaultWorkspaceAccessAll
 	}
 	if cfg.Server.Auth.OIDC.ButtonLabel == "" {
 		cfg.Server.Auth.OIDC.ButtonLabel = "Login with SSO"

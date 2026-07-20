@@ -999,7 +999,7 @@ func TestProcessLogin_StrictMissRejectsExistingUser(t *testing.T) {
 	assert.Equal(t, auth.AllWorkspaceAccess(), existing.WorkspaceAccess)
 }
 
-func TestProcessLogin_UpdateFailureReturnsStoredAuthorization(t *testing.T) {
+func TestProcessLogin_WorkspaceAccessUpdateFailureRejectsLogin(t *testing.T) {
 	store := newMockUserStore()
 	existing := &auth.User{
 		ID:              "existing-id",
@@ -1030,12 +1030,55 @@ func TestProcessLogin_UpdateFailureReturnsStoredAuthorization(t *testing.T) {
 		Email:     "existing@example.com",
 		RawClaims: map[string]any{"groups": []any{"team"}},
 	})
-	require.NoError(t, err)
+	require.ErrorContains(t, err, "failed to update OIDC user authorization: storage unavailable")
+	assert.Nil(t, user)
 	assert.False(t, isNew)
-	assert.Equal(t, auth.RoleManager, user.Role)
-	assert.Equal(t, auth.AllWorkspaceAccess(), user.WorkspaceAccess)
+	assert.Equal(t, auth.RoleManager, existing.Role)
+	assert.Equal(t, auth.AllWorkspaceAccess(), existing.WorkspaceAccess)
 	assert.Equal(t, auth.RoleManager, store.users[existing.ID].Role)
 	assert.Equal(t, auth.AllWorkspaceAccess(), store.users[existing.ID].WorkspaceAccess)
+	assert.Equal(t, 1, store.updateCalls)
+}
+
+func TestProcessLogin_RoleOnlyUpdateFailurePreservesLegacyLoginBehavior(t *testing.T) {
+	store := newMockUserStore()
+	existingAccess := &auth.WorkspaceAccess{Grants: []auth.WorkspaceGrant{
+		{Workspace: "payments", Role: auth.RoleOperator},
+	}}
+	existing := &auth.User{
+		ID:              "existing-id",
+		Username:        "existing",
+		Role:            auth.RoleViewer,
+		WorkspaceAccess: existingAccess,
+		AuthProvider:    "oidc",
+		OIDCIssuer:      "https://issuer.example.com",
+		OIDCSubject:     "subject",
+	}
+	require.NoError(t, store.Create(context.Background(), existing))
+	store.updateErr = errors.New("storage unavailable")
+
+	svc, err := New(store, Config{
+		Issuer:      "https://issuer.example.com",
+		DefaultRole: auth.RoleViewer,
+		RoleMapping: RoleMapperConfig{
+			GroupMappings: map[string]string{"staff": "operator"},
+			DefaultRole:   auth.RoleViewer,
+		},
+	})
+	require.NoError(t, err)
+
+	user, isNew, err := svc.ProcessLogin(context.Background(), OIDCClaims{
+		Subject:   "subject",
+		Email:     "existing@example.com",
+		RawClaims: map[string]any{"groups": []any{"staff"}},
+	})
+	require.NoError(t, err)
+	assert.False(t, isNew)
+	assert.Same(t, existing, user)
+	assert.Equal(t, auth.RoleViewer, user.Role)
+	assert.Same(t, existingAccess, user.WorkspaceAccess)
+	assert.Equal(t, auth.RoleViewer, store.users[existing.ID].Role)
+	assert.Same(t, existingAccess, store.users[existing.ID].WorkspaceAccess)
 	assert.Equal(t, 1, store.updateCalls)
 }
 

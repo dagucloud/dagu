@@ -693,6 +693,27 @@ func TestConfig_ValidateOIDCWorkspaceMappings(t *testing.T) {
 		require.NoError(t, cfg.Validate())
 	})
 
+	t.Run("AllowsOmittedDefaultWithoutMappings", func(t *testing.T) {
+		t.Parallel()
+		cfg := newConfig()
+		cfg.Server.Auth.OIDC.RoleMapping.DefaultWorkspaceAccess = ""
+
+		require.NoError(t, cfg.Validate())
+	})
+
+	t.Run("RequiresExplicitDefaultWithMappings", func(t *testing.T) {
+		t.Parallel()
+		cfg := newConfig()
+		cfg.Server.Auth.OIDC.RoleMapping.DefaultWorkspaceAccess = ""
+		cfg.Server.Auth.OIDC.RoleMapping.WorkspaceMappings = map[string][]OIDCWorkspaceGrant{
+			"team": {{Workspace: "payments", Role: "viewer"}},
+		}
+
+		err := cfg.Validate()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "defaultWorkspaceAccess must be explicitly set")
+	})
+
 	t.Run("InvalidMappingWithIncompleteOIDC", func(t *testing.T) {
 		t.Parallel()
 		cfg := newConfig()

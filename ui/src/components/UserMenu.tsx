@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { useConfig } from '@/contexts/ConfigContext';
+import { UserAuthProvider } from '@/api/v1/schema';
 import { cn } from '@/lib/utils';
 import {
   DropdownMenu,
@@ -54,7 +55,8 @@ export function UserMenu({ isCollapsed = false }: UserMenuProps) {
             <span
               className="text-xs font-medium overflow-hidden whitespace-nowrap"
               style={{
-                transition: 'opacity 200ms cubic-bezier(0.4, 0, 0.2, 1), transform 200ms cubic-bezier(0.4, 0, 0.2, 1), max-width 280ms cubic-bezier(0.4, 0, 0.2, 1)',
+                transition:
+                  'opacity 200ms cubic-bezier(0.4, 0, 0.2, 1), transform 200ms cubic-bezier(0.4, 0, 0.2, 1), max-width 280ms cubic-bezier(0.4, 0, 0.2, 1)',
                 opacity: isCollapsed ? 0 : 1,
                 maxWidth: isCollapsed ? '0px' : '120px',
                 transform: isCollapsed ? 'translateX(-8px)' : 'translateX(0)',
@@ -64,7 +66,11 @@ export function UserMenu({ isCollapsed = false }: UserMenuProps) {
             </span>
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align={isCollapsed ? 'center' : 'end'} side="top" className="w-56">
+        <DropdownMenuContent
+          align={isCollapsed ? 'center' : 'end'}
+          side="top"
+          className="w-56"
+        >
           <DropdownMenuLabel className="font-normal">
             <div className="flex flex-col space-y-1">
               <p className="text-sm font-medium">{user.username}</p>
@@ -74,12 +80,19 @@ export function UserMenu({ isCollapsed = false }: UserMenuProps) {
             </div>
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={() => setShowChangePassword(true)}>
-            <Key className="h-4 w-4 mr-2" />
-            Change Password
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={handleLogout} className="text-error focus:text-error">
+          {user.authProvider !== UserAuthProvider.oidc && (
+            <>
+              <DropdownMenuItem onClick={() => setShowChangePassword(true)}>
+                <Key className="h-4 w-4 mr-2" />
+                Change Password
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+            </>
+          )}
+          <DropdownMenuItem
+            onClick={handleLogout}
+            className="text-error focus:text-error"
+          >
             <LogOut className="h-4 w-4 mr-2" />
             Sign Out
           </DropdownMenuItem>

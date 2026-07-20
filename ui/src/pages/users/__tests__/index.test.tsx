@@ -150,6 +150,45 @@ describe('UsersPage', () => {
     expect(screen.queryByText('Managed by SSO')).not.toBeInTheDocument();
   });
 
+  it('does not offer local password reset for OIDC users', async () => {
+    const user = userEvent.setup();
+    renderPage({
+      users: [makeUser()],
+      oidcWorkspaceAccessSyncEnabled: true,
+    });
+
+    await user.click(
+      await screen.findByRole('button', {
+        name: 'Actions for oidc-user@example.com',
+      })
+    );
+
+    expect(
+      screen.queryByRole('menuitem', { name: 'Reset Password' })
+    ).not.toBeInTheDocument();
+  });
+
+  it('offers password reset for local users', async () => {
+    const user = userEvent.setup();
+    renderPage({
+      users: [
+        makeUser({
+          id: 'local-user',
+          username: 'local-user',
+          authProvider: UserAuthProvider.builtin,
+        }),
+      ],
+    });
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Actions for local-user' })
+    );
+
+    expect(
+      screen.getByRole('menuitem', { name: 'Reset Password' })
+    ).toBeVisible();
+  });
+
   it('clears managed user state when a node refresh fails', async () => {
     const fetchMock = vi
       .fn()

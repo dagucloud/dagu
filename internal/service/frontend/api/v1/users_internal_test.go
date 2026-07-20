@@ -5,12 +5,14 @@ package api
 
 import (
 	"context"
+	"net/http"
 	"testing"
 
 	generatedapi "github.com/dagucloud/dagu/api/v1"
 	"github.com/dagucloud/dagu/internal/auth"
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/license"
+	authservice "github.com/dagucloud/dagu/internal/service/auth"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -19,6 +21,16 @@ type listUsersAuthService struct{ AuthService }
 
 func (listUsersAuthService) ListUsers(context.Context) ([]*auth.User, error) {
 	return []*auth.User{}, nil
+}
+
+type resetPasswordAuthService struct{ AuthService }
+
+func (resetPasswordAuthService) GetUser(context.Context, string) (*auth.User, error) {
+	return &auth.User{Username: "oidc-user"}, nil
+}
+
+func (resetPasswordAuthService) ResetPassword(context.Context, string, string) error {
+	return authservice.ErrOIDCPasswordManagement
 }
 
 func newOIDCWorkspaceSyncConfig() *config.Config {
@@ -90,4 +102,24 @@ func TestListUsersReportsOIDCWorkspaceAccessSyncState(t *testing.T) {
 	require.True(t, ok)
 	require.NotNil(t, response.OidcWorkspaceAccessSyncEnabled)
 	assert.True(t, *response.OidcWorkspaceAccessSyncEnabled)
+}
+
+func TestResetUserPasswordRejectsOIDCUser(t *testing.T) {
+	t.Parallel()
+
+	a := &API{authService: resetPasswordAuthService{}}
+	ctx := auth.WithUser(context.Background(), &auth.User{Role: auth.RoleAdmin})
+
+	result, err := a.ResetUserPassword(ctx, generatedapi.ResetUserPasswordRequestObject{
+		UserId: "oidc-user-id",
+		Body:   &generatedapi.ResetPasswordRequest{NewPassword: "newpassword1"},
+	})
+
+	assert.Nil(t, result)
+	require.Error(t, err)
+	var apiErr *Error
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, http.StatusForbidden, apiErr.HTTPStatus)
+	assert.Equal(t, generatedapi.ErrorCodeForbidden, apiErr.Code)
+	assert.Equal(t, "Password is managed by the identity provider for this user", apiErr.Message)
 }

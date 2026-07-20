@@ -223,7 +223,7 @@ paths:
   /auth/change-password:
     post:
       summary: "Change current user's password"
-      description: "Allows the authenticated user to change their own password"
+      description: "Allows an authenticated builtin user to change their own password. OIDC users must manage authentication through their identity provider."
       operationId: "changePassword"
       tags:
         - "auth"
@@ -248,6 +248,12 @@ paths:
                 $ref: "#/components/schemas/Error"
         "401":
           description: "Not authenticated or wrong current password"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Password is managed by the identity provider"
           content:
             application/json:
               schema:
@@ -480,7 +486,7 @@ paths:
   /users/{userId}/reset-password:
     post:
       summary: "Reset user's password"
-      description: "Resets a user's password to a new value. Requires admin role."
+      description: "Resets a builtin user's password to a new value. Requires admin role. OIDC users do not have Dagu passwords."
       operationId: "resetUserPassword"
       tags:
         - "users"
@@ -512,7 +518,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "403":
-          description: "Forbidden - requires admin role"
+          description: "Forbidden - requires admin role, or the target user is managed by OIDC"
           content:
             application/json:
               schema:

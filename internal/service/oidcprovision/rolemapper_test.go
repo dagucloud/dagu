@@ -425,6 +425,18 @@ func TestRoleMapper_MapAccess(t *testing.T) {
 			expectedAccess: auth.AllWorkspaceAccess(),
 		},
 		{
+			name: "global viewer mapping replaces higher workspace role",
+			config: RoleMapperConfig{
+				GroupMappings:          map[string]string{"auditors": "viewer"},
+				WorkspaceMappings:      workspaceMappings,
+				DefaultRole:            auth.RoleViewer,
+				DefaultWorkspaceAccess: "none",
+			},
+			claims:         map[string]any{"groups": []any{"auditors", "sre-team"}},
+			expectedRole:   auth.RoleViewer,
+			expectedAccess: auth.AllWorkspaceAccess(),
+		},
+		{
 			name: "workspace-only match",
 			config: RoleMapperConfig{
 				WorkspaceMappings: workspaceMappings,

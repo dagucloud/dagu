@@ -1223,6 +1223,33 @@ auth:
 	require.True(t, cfg.Server.Auth.OIDC.RoleMapping.WorkspaceAccessPolicyActive())
 }
 
+func TestLoad_OIDCWorkspaceMappingsRequiresExplicitDefaultFromYAML(t *testing.T) {
+	err := loadWithErrorFromYAML(t, `
+auth:
+  mode: builtin
+  oidc:
+    role_mapping:
+      workspace_mappings:
+        sre-team:
+          - workspace: payments
+            role: viewer
+`)
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "defaultWorkspaceAccess must be explicitly set")
+}
+
+func TestLoad_OIDCWorkspaceMappingsRequiresExplicitDefaultFromEnvironment(t *testing.T) {
+	t.Setenv(
+		"DAGU_AUTH_OIDC_WORKSPACE_MAPPINGS",
+		`{"sre-team":[{"workspace":"payments","role":"viewer"}]}`,
+	)
+
+	err := loadWithErrorFromYAML(t, "# minimal config")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "defaultWorkspaceAccess must be explicitly set")
+}
+
 func TestLoad_OIDCWorkspaceMappingsEnvironmentOverridesYAML(t *testing.T) {
 	cfg := loadWithEnv(t, `
 auth:

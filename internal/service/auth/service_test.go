@@ -17,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/internal/persis/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/bcrypt"
 )
 
 func mustTokenSecret(s string) auth.TokenSecret {
@@ -120,6 +121,22 @@ func TestService_Authenticate(t *testing.T) {
 	if err != ErrInvalidCredentials {
 		t.Errorf("Authenticate() with non-existent user error = %v, want %v", err, ErrInvalidCredentials)
 	}
+}
+
+func TestService_AuthenticateRejectsOIDCUserWithPasswordHash(t *testing.T) {
+	svc, cleanup := setupTestService(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("password123"), svc.config.BcryptCost)
+	require.NoError(t, err)
+	user := auth.NewUser("oidc-user", string(passwordHash), auth.RoleViewer)
+	user.AuthProvider = "oidc"
+	require.NoError(t, svc.store.Create(ctx, user))
+
+	authenticated, err := svc.Authenticate(ctx, user.Username, "password123")
+	assert.Nil(t, authenticated)
+	assert.ErrorIs(t, err, ErrInvalidCredentials)
 }
 
 func TestService_GenerateAndValidateToken(t *testing.T) {
@@ -297,6 +314,24 @@ func TestService_ChangePassword_WrongOldPassword(t *testing.T) {
 	if err != ErrPasswordMismatch {
 		t.Errorf("ChangePassword() with wrong old password error = %v, want %v", err, ErrPasswordMismatch)
 	}
+}
+
+func TestService_ChangePasswordRejectsOIDCUser(t *testing.T) {
+	svc, cleanup := setupTestService(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	user := auth.NewUser("oidc-user", "legacy-password-hash", auth.RoleViewer)
+	user.AuthProvider = "oidc"
+	require.NoError(t, svc.store.Create(ctx, user))
+
+	err := svc.ChangePassword(ctx, user.ID, "oldpassword", "newpassword1")
+	assert.ErrorIs(t, err, ErrOIDCPasswordManagement)
+
+	stored, getErr := svc.store.GetByID(ctx, user.ID)
+	require.NoError(t, getErr)
+	assert.Equal(t, "legacy-password-hash", stored.PasswordHash)
+	assert.Nil(t, stored.PasswordChangedAt)
 }
 
 func TestService_DeleteUser(t *testing.T) {
@@ -533,6 +568,24 @@ func TestService_ResetPassword_WeakPassword(t *testing.T) {
 	}
 }
 
+func TestService_ResetPasswordRejectsOIDCUser(t *testing.T) {
+	svc, cleanup := setupTestService(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	user := auth.NewUser("oidc-user", "legacy-password-hash", auth.RoleViewer)
+	user.AuthProvider = "oidc"
+	require.NoError(t, svc.store.Create(ctx, user))
+
+	err := svc.ResetPassword(ctx, user.ID, "newpassword1")
+	assert.ErrorIs(t, err, ErrOIDCPasswordManagement)
+
+	stored, getErr := svc.store.GetByID(ctx, user.ID)
+	require.NoError(t, getErr)
+	assert.Equal(t, "legacy-password-hash", stored.PasswordHash)
+	assert.Nil(t, stored.PasswordChangedAt)
+}
+
 func TestService_UpdateUser_WithPassword(t *testing.T) {
 	svc, cleanup := setupTestService(t)
 	defer cleanup()
@@ -561,6 +614,26 @@ func TestService_UpdateUser_WithPassword(t *testing.T) {
 	// Verify new password works
 	_, err = svc.Authenticate(ctx, "testuser", "newpassword1")
 	assert.NoError(t, err, "new password should work")
+}
+
+func TestService_UpdateUserRejectsPasswordForOIDCUser(t *testing.T) {
+	svc, cleanup := setupTestService(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	user := auth.NewUser("oidc-user", "legacy-password-hash", auth.RoleViewer)
+	user.AuthProvider = "oidc"
+	require.NoError(t, svc.store.Create(ctx, user))
+
+	newPassword := "newpassword1"
+	updated, err := svc.UpdateUser(ctx, user.ID, UpdateUserInput{Password: &newPassword})
+	assert.Nil(t, updated)
+	assert.ErrorIs(t, err, ErrOIDCPasswordManagement)
+
+	stored, getErr := svc.store.GetByID(ctx, user.ID)
+	require.NoError(t, getErr)
+	assert.Equal(t, "legacy-password-hash", stored.PasswordHash)
+	assert.Nil(t, stored.PasswordChangedAt)
 }
 
 func TestService_UpdateUser_WeakPassword(t *testing.T) {
