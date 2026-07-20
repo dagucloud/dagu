@@ -6,6 +6,7 @@ package runtime_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"strconv"
@@ -73,7 +74,7 @@ func TestForeachRuntimeHonorsMaxConcurrent(t *testing.T) {
 		map[string]any{"slug": "b", "url": "b"},
 		map[string]any{"slug": "c", "url": "c"},
 	}, 2)
-	parent.Foreach.Steps[0].ExecutorConfig.Config["delay_ms"] = "80"
+	parent.Foreach.Steps[0].ExecutorConfig.Config["wait_for_active"] = "2"
 
 	r.newPlan(t, parent).assertRun(t, core.Succeeded)
 
@@ -131,7 +132,7 @@ func foreachRuntimeStep(probeType string, items []any, maxConcurrent int) core.S
 func registerForeachProbeExecutor(t *testing.T) (string, *foreachProbeState) {
 	t.Helper()
 
-	state := &foreachProbeState{}
+	state := &foreachProbeState{activeChanged: make(chan struct{}, 1)}
 	executorType := "foreach_probe_" + strconv.FormatInt(time.Now().UnixNano(), 36)
 	executor.RegisterExecutor(executorType, func(_ context.Context, step core.Step) (executor.Executor, error) {
 		return &foreachProbeExecutor{
@@ -147,10 +148,11 @@ func registerForeachProbeExecutor(t *testing.T) (string, *foreachProbeState) {
 }
 
 type foreachProbeState struct {
-	mu     sync.Mutex
-	active int
-	max    int
-	seen   []foreachProbeRecord
+	mu            sync.Mutex
+	active        int
+	max           int
+	seen          []foreachProbeRecord
+	activeChanged chan struct{}
 }
 
 type foreachProbeRecord struct {
@@ -160,10 +162,37 @@ type foreachProbeRecord struct {
 
 func (s *foreachProbeState) start() {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.active++
 	if s.active > s.max {
 		s.max = s.active
+	}
+	s.mu.Unlock()
+
+	select {
+	case s.activeChanged <- struct{}{}:
+	default:
+	}
+}
+
+func (s *foreachProbeState) waitForActive(ctx context.Context, minimum int) error {
+	timer := time.NewTimer(platformTestDuration(2*time.Second, 5*time.Second))
+	defer timer.Stop()
+
+	for {
+		s.mu.Lock()
+		maxActive := s.max
+		s.mu.Unlock()
+		if maxActive >= minimum {
+			return nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timer.C:
+			return fmt.Errorf("timed out waiting for %d active foreach executions", minimum)
+		case <-s.activeChanged:
+		}
 	}
 }
 
@@ -214,6 +243,16 @@ func (e *foreachProbeExecutor) Run(ctx context.Context) error {
 			Key:   stringConfigValue(e.cfg["key"]),
 		})
 	}()
+
+	if value := stringConfigValue(e.cfg["wait_for_active"]); value != "" {
+		minimum, err := strconv.Atoi(value)
+		if err != nil {
+			return err
+		}
+		if err := e.state.waitForActive(ctx, minimum); err != nil {
+			return err
+		}
+	}
 
 	if delay := stringConfigValue(e.cfg["delay_ms"]); delay != "" {
 		millis, err := strconv.Atoi(delay)
