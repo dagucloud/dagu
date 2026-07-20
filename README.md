@@ -687,6 +687,7 @@ See the Artifacts documentation and the Web UI guide for the full artifact brows
 - **Catch-up scheduling**: Automatically runs missed intervals when the scheduler was down
 - **Zombie detection**: Identifies and handles stalled DAG runs (configurable interval, default 45s)
 - **Retry policies**: Per-step retry with configurable limits, intervals, and exit code filtering
+- **Human tasks**: Pause local runs for acknowledgement or schema-validated operator input, then expose form values to downstream steps
 - **Lifecycle hooks**: `onInit`, `onSuccess`, `onFailure`, `onAbort`, `onExit`, `onWait`
 - **Preconditions**: Gate DAG or step execution on shell command results
 - **High availability**: Scheduler lock with stale detection for failover
@@ -724,6 +725,7 @@ See the distributed execution documentation for setup details.
 | `dagu stop <dag>` | Stop a running DAG |
 | `dagu restart <dag>` | Restart a DAG |
 | `dagu retry --run-id=<run-id> <dag>` | Retry a failed run |
+| `dagu human-task complete --run-id=<run-id> --step=<id> <dag>` | Complete a waiting human task |
 | `dagu dry <dag>` | Dry run — show what would execute |
 | `dagu status <dag>` | Show DAG run status |
 | `dagu history <dag>` | Show execution history |

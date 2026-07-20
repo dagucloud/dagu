@@ -102,6 +102,8 @@ Use single quotes around context references when the shell should receive the re
 
 A step can declare outputs and write them during execution. Dagu reads the output file after the command succeeds and publishes the values as `${steps.<step_id>.outputs.<name>}`.
 
+Human task form outputs use the same reference namespace without an authored `outputs:` field. Dagu automatically publishes required form properties and optional properties with defaults after `action: human.task` is completed. Optional properties without defaults are not published.
+
 ```yaml
 steps:
   - id: build

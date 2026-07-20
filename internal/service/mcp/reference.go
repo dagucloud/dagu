@@ -52,6 +52,9 @@ Authoring rules:
 - Single-line run values are shell commands. Array-form run entries run one by one. Multi-line run values are scripts.
 - Dagu does not split shell syntax such as pipes, redirects, &&, or ; into separate Dagu commands.
 - Declared step outputs use a step-level outputs field and write records to DAGU_OUTPUT_FILE. Later steps read them as ${steps.step_id.outputs.name}.
+- human.task defines a processless local operator step with an explicit id, required with.prompt, and optional flat scalar with.form JSON Schema. Omit form for acknowledgement-only tasks.
+- Human task form properties that are required or have defaults become ${steps.step_id.outputs.name} values after completion. Do not declare outputs on a human.task step; additionalProperties defaults to false.
+- Human tasks cannot run in lifecycle handlers, foreach.steps, or remote workers, and they do not support reject or rewind. The MCP tool surface does not expose human-task completion; completion currently uses the local dagu human-task complete command.
 - Use context references for run metadata, such as ${context.dag.name}, ${context.run.id}, and ${context.paths.artifacts_dir}.
 - git.worktree.add creates or reuses a linked worktree in the local repository containing the step working_dir. Omit branch for a Dagu-generated branch, or set branch with create_branch: true and optional base to create a named branch.
 - git.worktree.add publishes path, branch, commit, worktree_created, and branch_created. Read them as ${steps.step_id.outputs.field}; do not declare outputs on the step.

@@ -67,6 +67,12 @@ func TestServerExposesReferenceResourcesAndPrompts(t *testing.T) {
 	require.Contains(t, got.Contents[0].Text, "retry")
 	require.Contains(t, got.Contents[0].Text, "stop")
 
+	authoring, err := session.ReadResource(ctx, &mcpsdk.ReadResourceParams{URI: "dagu://reference/authoring"})
+	require.NoError(t, err)
+	require.Len(t, authoring.Contents, 1)
+	require.Contains(t, authoring.Contents[0].Text, "human.task")
+	require.Contains(t, authoring.Contents[0].Text, "Human task form properties")
+
 	prompts, err := session.ListPrompts(ctx, nil)
 	require.NoError(t, err)
 	names := make([]string, 0, len(prompts.Prompts))

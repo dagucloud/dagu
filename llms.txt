@@ -23,6 +23,7 @@ Load only the reference file that matches the task.
 - Prefer string-form `output: VAR_NAME` for capturing small stdout values into flat variables.
 - Prefer object-form `output:` when downstream steps need structured values via `${step_id.output.*}`.
 - Prefer declared step `outputs:` with `$DAGU_OUTPUT_FILE` when a step must publish explicit values for `${steps.<step_id>.outputs.<name>}`.
+- Use `action: human.task` when a local operator must provide typed input before downstream steps continue. Human task form outputs use `${steps.<step_id>.outputs.<name>}` without an authored `outputs:` field.
 - Prefer `stdout.outputs` or `action: outputs.write` when a DAG or remote action needs to return caller-visible values via `${step_id.outputs.*}`.
 - Prefer `state.*` actions for small persistent JSON state across DAG runs, such as cursors, checkpoints, and previous-value comparisons.
 - Prefer temporary files in the artifacts dir only when downstream steps need file paths; otherwise let commands write large artifact content to stdout and attach it with `stdout.artifact`.
@@ -37,6 +38,7 @@ Load only the reference file that matches the task.
   - string form captures trimmed stdout into an env-scope variable such as `${env.VERSION}`
   - object form publishes structured step-scoped output for `${step_id.output.*}` access
 - Declared step `outputs:` publish explicit values through `${steps.<step_id>.outputs.<name>}`. Write values inside the running step to `$DAGU_OUTPUT_FILE`; Dagu captures them only after the command succeeds.
+- `human.task` is a processless local step with an explicit `id`, a required `with.prompt`, and an optional flat scalar form. Required form properties and optional properties with defaults become `${steps.<step_id>.outputs.<name>}` values after completion.
 - `stdout.artifact` / `stderr.artifact` store command stdout/stderr directly as relative artifact paths, for example `stdout: {artifact: reports/report.md}`. Artifact outputs auto-enable artifacts unless `artifacts.enabled: false` is explicitly set, which is invalid.
 - `${step_id.stdout}` is a log file path, not stdout content.
 - Use `${context.*}` for run metadata in DAG YAML, for example `${context.dag.name}`, `${context.run.id}`, or `${context.paths.artifacts_dir}`. Unavailable context values remain unresolved text instead of becoming empty strings.
@@ -168,11 +170,37 @@ steps:
         reviewed: false
 ```
 
+## Example of Human Input
+
+```yaml
+steps:
+  - id: review
+    action: human.task
+    with:
+      prompt: Choose the deployment target
+      form:
+        type: object
+        properties:
+          environment:
+            type: string
+            enum: [staging, production]
+          note:
+            type: string
+            default: ""
+        required: [environment]
+
+  - id: deploy
+    depends: [review]
+    run: ./deploy --environment '${steps.review.outputs.environment}' --note '${steps.review.outputs.note}'
+```
+
+Complete the task from the local context with `dagu human-task complete --run-id=<run-id> --step=review --input environment=production <dag-name>`. A form is optional for acknowledgement-only tasks.
+
 ## Reference Guide
 
 Load only the file you need:
 
-- `references/steptypes.md` when choosing an action or checking executor-specific caveats such as `dag.run`, `parallel`, `git.worktree.*`, `jq.filter`, `file.*`, `state.*`, or `template.render`
+- `references/steptypes.md` when choosing an action or checking action-specific behavior such as `human.task`, `dag.run`, `parallel`, `git.worktree.*`, `jq.filter`, `file.*`, `state.*`, or `template.render`
 - `references/dagu-action.md` when creating a reusable `dagu-action.yaml` package or checking action input/output schema behavior
 - `references/cli.md` when you need command flags or lookup commands such as `dagu schema`, `dagu config`, or `dagu history`
 - `references/context.md` when using `${context.*}` metadata references or declared step `outputs:`
@@ -359,6 +387,61 @@ steps:
 ```
 
 Sub-DAGs do not inherit parent env vars. Pass values explicitly via `with.params`.
+
+## human.task
+
+Pause a local DAG run until an operator completes a processless step. A human task does not execute a command and is distinct from an approval gate: completion always succeeds the step, with no reject or rewind operation.
+
+```yaml
+params:
+  RELEASE: v1.2.3
+
+steps:
+  - id: review
+    action: human.task
+    with:
+      prompt: Select a deployment window for ${params.RELEASE}
+      form:
+        type: object
+        title: Deployment review
+        properties:
+          window:
+            type: string
+            enum: [morning, evening]
+          ticket:
+            type: string
+            pattern: '^CHG-[0-9]+$'
+          notify:
+            type: boolean
+            default: true
+        required: [window, ticket]
+
+  - id: deploy
+    depends: [review]
+    run: ./deploy --window '${steps.review.outputs.window}' --ticket '${steps.review.outputs.ticket}'
+```
+
+`with.prompt` is required and supports normal Dagu value references. `with.form` is optional; omit it for an acknowledgement-only task that accepts no input.
+
+The form is a flat object JSON Schema:
+
+- `type` must be `object`.
+- Property names must start with a letter and contain only letters, digits, or `_`.
+- Property types are `string`, `integer`, `number`, and `boolean`.
+- Supported property constraints include `default`, `enum`, `oneOf` choices, `minimum`, `maximum`, `minLength`, `maxLength`, and `pattern`.
+- `additionalProperties` defaults to `false`. Set it explicitly to `true` only when undeclared completion fields are intended.
+
+Dagu derives outputs from form properties; do not add an `outputs:` field to the human task. Required properties and optional properties with defaults are available to later steps as `${steps.<step_id>.outputs.<name>}`. Optional properties without defaults are accepted when supplied but are not published as step outputs.
+
+Human tasks require an explicit `id`, run locally, and cannot be used in lifecycle handlers or `foreach.steps`. Executor, retry, repeat, timeout, container, worker selector, output capture, and approval fields are not supported on the same step.
+
+Complete a waiting task from a local context:
+
+```sh
+dagu human-task complete --run-id=<run-id> --step=review --input window=morning --input ticket=CHG-123 <dag-name>
+```
+
+Use `--inputs-json` instead of repeated `--input` flags when input types must be preserved exactly.
 
 ## Declared Step Outputs
 
@@ -1063,6 +1146,30 @@ Retry a previous DAG run using the same run ID.
 dagu retry <dag> --run-id/-r <id> [--step <name>] [--worker-id <id>]
 ```
 
+### dagu human-task complete
+
+Complete a waiting human task in a local DAG run.
+
+```sh
+dagu human-task complete [flags] <root-dag-name>
+```
+
+Flags:
+
+- `--run-id/-r` — Root DAG-run ID containing the human task; required
+- `--sub-run-id/-s` — Sub-DAG-run ID when the task belongs to a child run
+- `--step` — Human task step ID; required and matched against `id`, not the display name
+- `--input` — Form input in `key=value` form; repeatable and coerced using the form schema
+- `--inputs-json` — Typed form input as one JSON object
+
+`--input` and `--inputs-json` are mutually exclusive. Omit both for an acknowledgement-only task. Completing one of several waiting human tasks leaves the DAG run waiting; completing the last one starts the run resume automatically. The command only supports the local context.
+
+```sh
+dagu human-task complete --run-id=run-1 --step=review --input environment=production deploy
+dagu human-task complete --run-id=run-1 --step=review --inputs-json='{"environment":"production","notify":true}' deploy
+dagu human-task complete --run-id=root-1 --sub-run-id=child-1 --step=review root-dag
+```
+
 ### dagu dry
 
 Dry-run a DAG without executing commands: `dagu dry [--params/-p] [--name/-N] <dag> [-- params...]`
@@ -1297,6 +1404,8 @@ Use single quotes around context references when the shell should receive the re
 ## Declared Step Outputs
 
 A step can declare outputs and write them during execution. Dagu reads the output file after the command succeeds and publishes the values as `${steps.<step_id>.outputs.<name>}`.
+
+Human task form outputs use the same reference namespace without an authored `outputs:` field. Dagu automatically publishes required form properties and optional properties with defaults after `action: human.task` is completed. Optional properties without defaults are not published.
 
 ```yaml
 steps:

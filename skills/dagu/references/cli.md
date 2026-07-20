@@ -84,6 +84,30 @@ Retry a previous DAG run using the same run ID.
 dagu retry <dag> --run-id/-r <id> [--step <name>] [--worker-id <id>]
 ```
 
+### dagu human-task complete
+
+Complete a waiting human task in a local DAG run.
+
+```sh
+dagu human-task complete [flags] <root-dag-name>
+```
+
+Flags:
+
+- `--run-id/-r` — Root DAG-run ID containing the human task; required
+- `--sub-run-id/-s` — Sub-DAG-run ID when the task belongs to a child run
+- `--step` — Human task step ID; required and matched against `id`, not the display name
+- `--input` — Form input in `key=value` form; repeatable and coerced using the form schema
+- `--inputs-json` — Typed form input as one JSON object
+
+`--input` and `--inputs-json` are mutually exclusive. Omit both for an acknowledgement-only task. Completing one of several waiting human tasks leaves the DAG run waiting; completing the last one starts the run resume automatically. The command only supports the local context.
+
+```sh
+dagu human-task complete --run-id=run-1 --step=review --input environment=production deploy
+dagu human-task complete --run-id=run-1 --step=review --inputs-json='{"environment":"production","notify":true}' deploy
+dagu human-task complete --run-id=root-1 --sub-run-id=child-1 --step=review root-dag
+```
+
 ### dagu dry
 
 Dry-run a DAG without executing commands: `dagu dry [--params/-p] [--name/-N] <dag> [-- params...]`
