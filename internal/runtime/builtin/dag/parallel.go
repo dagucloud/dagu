@@ -562,7 +562,7 @@ func (e *parallelExecutor) newChildExecutor(
 	}
 
 	if err := validateSubDAG(child.DAG, target, e.step.WorkerSelector); err != nil {
-		_ = child.Cleanup(ctx)
+		_ = child.Cleanup(context.WithoutCancel(ctx))
 		return nil, err
 	}
 

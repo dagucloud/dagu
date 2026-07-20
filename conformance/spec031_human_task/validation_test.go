@@ -58,6 +58,8 @@ func TestHumanTaskShapeValidation(t *testing.T) {
 }
 
 func TestHumanTaskChildDAGBoundary(t *testing.T) {
+	t.Parallel()
+
 	root := harness.NewRunner(t)
 	rootResult := root.Run("start", "--run-id=spec031-child-root", "child_human.yaml")
 	rootResult.ExpectExitCode(0)

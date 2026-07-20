@@ -230,6 +230,23 @@ func TestRunHumanTaskCompleteKeepsCompletionWhenRetryLaunchFails(t *testing.T) {
 	assert.Equal(t, core.NodeSucceeded, fixture.status.Nodes[0].Status)
 	assert.JSONEq(t, `{}`, string(fixture.status.Nodes[0].HumanTaskInput))
 	assert.Nil(t, fixture.status.Nodes[0].StepOutputsValue)
+	assert.Equal(t, "2026-07-20T01:00:00Z", fixture.status.FinishedAt)
+	assert.Empty(t, fixture.errorOutput.String())
+}
+
+func TestRunHumanTaskCompleteReportsResumeClaimRollbackFailure(t *testing.T) {
+	fixture := newHumanTaskCompleteFixture(t, nil, false)
+	fixture.store.failCompareAndSwapCall = 2
+	fixture.store.compareAndSwapErr = errors.New("status write failed")
+
+	err := runHumanTaskCompleteWith(fixture.ctx, []string{"human-task-test"}, fixture.deps(
+		func(*Context, *core.DAG, *exec.DAGRunStatus) error {
+			return errors.New("executable unavailable")
+		},
+	))
+	require.Error(t, err)
+	assert.Contains(t, fixture.errorOutput.String(), `failed to roll back resume claim for human task "review" in DAG-run "run-1"`)
+	assert.Contains(t, fixture.errorOutput.String(), "status write failed")
 }
 
 func TestRunHumanTaskCompleteEnforcesSavedDAGOutputSize(t *testing.T) {
@@ -301,6 +318,13 @@ func TestWaitForHumanTaskCompletionReadyWaitsForRemoteFinalStatus(t *testing.T) 
 		WorkerID:   "worker-1",
 		Status:     core.Waiting,
 		FinishedAt: "",
+		Nodes: []*exec.Node{{
+			Step: core.Step{
+				ID:        "review",
+				HumanTask: &core.HumanTaskConfig{Prompt: "Review"},
+			},
+			Status: core.NodeWaiting,
+		}},
 	}
 	finalStatus := *status
 	finalStatus.FinishedAt = "2026-07-20T01:02:03Z"
@@ -311,6 +335,24 @@ func TestWaitForHumanTaskCompletionReadyWaitsForRemoteFinalStatus(t *testing.T) 
 	require.NoError(t, err)
 	assert.Equal(t, finalStatus.FinishedAt, latest.FinishedAt)
 	assert.Equal(t, 1, attempt.calls)
+}
+
+func TestWaitForHumanTaskCompletionReadyReturnsStepLookupError(t *testing.T) {
+	dag := &core.DAG{Name: "human-task-test"}
+	status := &exec.DAGRunStatus{
+		Name:      dag.Name,
+		DAGRunID:  "run-1",
+		AttemptID: "attempt-1",
+		WorkerID:  "worker-1",
+		Status:    core.Waiting,
+	}
+	attempt := &humanTaskStatusSequenceAttempt{}
+	ctx := &Context{Context: t.Context()}
+
+	_, err := waitForHumanTaskCompletionReady(ctx, attempt, dag, status, "missing")
+	require.Error(t, err)
+	assert.ErrorContains(t, err, `human task step ID "missing" was not found`)
+	assert.Zero(t, attempt.calls)
 }
 
 func TestRunHumanTaskCompleteQueuesRemoteRetry(t *testing.T) {
@@ -337,12 +379,13 @@ func TestRunHumanTaskCompleteQueuesRemoteRetry(t *testing.T) {
 }
 
 type humanTaskCompleteFixture struct {
-	command *cobra.Command
-	ctx     *Context
-	dag     *core.DAG
-	status  *exec.DAGRunStatus
-	store   *humanTaskCompletionStore
-	output  *bytes.Buffer
+	command     *cobra.Command
+	ctx         *Context
+	dag         *core.DAG
+	status      *exec.DAGRunStatus
+	store       *humanTaskCompletionStore
+	output      *bytes.Buffer
+	errorOutput *bytes.Buffer
 }
 
 func newHumanTaskCompleteFixture(t *testing.T, form json.RawMessage, anotherWaiting bool) *humanTaskCompleteFixture {
@@ -384,7 +427,9 @@ func newHumanTaskCompleteFixture(t *testing.T, form json.RawMessage, anotherWait
 	require.NoError(t, command.Flags().Set(humanTaskRunIDFlag.name, "run-1"))
 	require.NoError(t, command.Flags().Set(humanTaskStepFlag.name, "review"))
 	output := &bytes.Buffer{}
+	errorOutput := &bytes.Buffer{}
 	command.SetOut(output)
+	command.SetErr(errorOutput)
 	return &humanTaskCompleteFixture{
 		command: command,
 		ctx: &Context{
@@ -392,10 +437,11 @@ func newHumanTaskCompleteFixture(t *testing.T, form json.RawMessage, anotherWait
 			Command:     command,
 			DAGRunStore: store,
 		},
-		dag:    dag,
-		status: status,
-		store:  store,
-		output: output,
+		dag:         dag,
+		status:      status,
+		store:       store,
+		output:      output,
+		errorOutput: errorOutput,
 	}
 }
 
@@ -461,14 +507,16 @@ func (a *humanTaskCompletionAttempt) ReadStatus(context.Context) (*exec.DAGRunSt
 
 type humanTaskCompletionStore struct {
 	exec.DAGRunStore
-	attempt             *humanTaskCompletionAttempt
-	status              *exec.DAGRunStatus
-	compareAndSwapCalls int
-	expectedAttemptID   string
-	expectedStatus      core.Status
-	options             exec.CompareAndSwapStatusOptions
-	beforeMutate        func()
-	writes              int
+	attempt                *humanTaskCompletionAttempt
+	status                 *exec.DAGRunStatus
+	compareAndSwapCalls    int
+	expectedAttemptID      string
+	expectedStatus         core.Status
+	options                exec.CompareAndSwapStatusOptions
+	beforeMutate           func()
+	writes                 int
+	failCompareAndSwapCall int
+	compareAndSwapErr      error
 }
 
 type humanTaskCompletionProcStore struct {
@@ -554,6 +602,9 @@ func (s *humanTaskCompletionStore) CompareAndSwapLatestAttemptStatus(
 	opts ...exec.CompareAndSwapStatusOption,
 ) (*exec.DAGRunStatus, bool, error) {
 	s.compareAndSwapCalls++
+	if s.compareAndSwapCalls == s.failCompareAndSwapCall {
+		return s.status, false, s.compareAndSwapErr
+	}
 	s.expectedAttemptID = expectedAttemptID
 	s.expectedStatus = expectedStatus
 	s.options = exec.NewCompareAndSwapStatusOptions(opts...)

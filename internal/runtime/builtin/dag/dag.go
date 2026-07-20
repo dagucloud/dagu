@@ -63,12 +63,14 @@ func newDAGExecutor(ctx context.Context, step core.Step) (executor.Executor, err
 	}
 
 	if err := validateSubDAG(child.DAG, step.SubDAG.Name, step.WorkerSelector); err != nil {
+		_ = child.Cleanup(context.WithoutCancel(ctx))
 		return nil, err
 	}
 	child.SetWorkerSelector(step.WorkerSelector)
 
 	dir := runtime.GetEnv(ctx).WorkingDir
 	if dir != "" && !fileutil.FileExists(dir) {
+		_ = child.Cleanup(context.WithoutCancel(ctx))
 		return nil, ErrWorkingDirNotExist
 	}
 

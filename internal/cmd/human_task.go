@@ -365,7 +365,7 @@ func rollbackHumanTaskResumeClaim(
 	target *humanTaskCompletionTarget,
 	result *humanTaskCompletionResult,
 ) {
-	_, _, _ = ctx.DAGRunStore.CompareAndSwapLatestAttemptStatus(
+	_, _, err := ctx.DAGRunStore.CompareAndSwapLatestAttemptStatus(
 		ctx,
 		target.ref,
 		result.status.AttemptID,
@@ -378,6 +378,15 @@ func rollbackHumanTaskResumeClaim(
 		},
 		exec.WithCompareAndSwapExpectedAttemptKey(result.status.AttemptKey),
 	)
+	if err != nil {
+		_, _ = fmt.Fprintf(
+			ctx.Command.ErrOrStderr(),
+			"warning: failed to roll back resume claim for human task %q in DAG-run %q: %v\n",
+			target.stepID,
+			target.ref.ID,
+			err,
+		)
+	}
 }
 
 func resolveHumanTaskCompletionConflict(
@@ -655,28 +664,36 @@ func waitForHumanTaskAttemptFinalization(
 	stepID string,
 ) (*exec.DAGRunStatus, error) {
 	deadline := time.Now().Add(humanTaskSettleTimeout)
-	for humanTaskAttemptIsFinalizing(latest, attemptID, stepID) {
+	for {
+		finalizing, err := humanTaskAttemptIsFinalizing(latest, attemptID, stepID)
+		if err != nil {
+			return nil, err
+		}
+		if !finalizing {
+			return latest, nil
+		}
 		if !time.Now().Before(deadline) {
 			return nil, fmt.Errorf("DAG-run attempt %s is still finalizing; retry human-task completion", attemptID)
 		}
 		if err := waitForNextHumanTaskPoll(ctx); err != nil {
 			return nil, err
 		}
-		var err error
 		latest, err = reloadHumanTaskStatus(ctx, attempt)
 		if err != nil {
 			return nil, err
 		}
 	}
-	return latest, nil
 }
 
-func humanTaskAttemptIsFinalizing(status *exec.DAGRunStatus, attemptID, stepID string) bool {
+func humanTaskAttemptIsFinalizing(status *exec.DAGRunStatus, attemptID, stepID string) (bool, error) {
 	if status.Status != core.Waiting || status.AttemptID != attemptID || status.FinishedAt != "" {
-		return false
+		return false, nil
 	}
 	node, err := findHumanTaskNodeByID(status.Nodes, stepID)
-	return err != nil || !humanTaskNodeCompleted(node)
+	if err != nil {
+		return false, err
+	}
+	return !humanTaskNodeCompleted(node), nil
 }
 
 func reloadHumanTaskStatus(ctx *Context, attempt exec.DAGRunAttempt) (*exec.DAGRunStatus, error) {
