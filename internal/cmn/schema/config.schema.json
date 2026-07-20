@@ -555,7 +555,7 @@
           "maxLength": 128,
           "default": ""
         },
-        "login_label": {
+        "button_label": {
           "type": "string",
           "minLength": 1,
           "maxLength": 128,

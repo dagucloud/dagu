@@ -151,7 +151,7 @@ func TestDefaultFunctionsExposeLicensedTrustedProxyLogin(t *testing.T) {
 	assert.Equal(t, "false", enabled())
 }
 
-func TestBaseTemplateEscapesTrustedProxyLoginLabelForJavaScript(t *testing.T) {
+func TestBaseTemplateEscapesProxyButtonLabelForJavaScript(t *testing.T) {
 	t.Parallel()
 
 	const label = `</script><script>alert("injected")</script>`

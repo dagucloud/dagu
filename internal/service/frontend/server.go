@@ -532,7 +532,7 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 			OIDCEnabled:           oidcEnabled,
 			OIDCButtonLabel:       oidcButtonLabel,
 			ProxyEnabled:          cfg.Server.Auth.Proxy.Enabled,
-			ProxyButtonLabel:      cfg.Server.Auth.Proxy.LoginLabel,
+			ProxyButtonLabel:      cfg.Server.Auth.Proxy.ButtonLabel,
 			TerminalEnabled:       cfg.Server.Terminal.Enabled && authSvc != nil,
 			GitSyncEnabled:        cfg.GitSync.Enabled,
 			WorkspaceStore:        wsStore,

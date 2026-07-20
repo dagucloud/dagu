@@ -328,7 +328,7 @@ func (m OIDCRoleMapping) WorkspaceAccessPolicyActive() bool {
 type AuthTrustedProxy struct {
 	Enabled     bool
 	Source      string
-	LoginLabel  string
+	ButtonLabel string
 	Headers     TrustedProxyHeaders
 	AutoSignup  bool
 	RoleMapping TrustedProxyRoleMapping
@@ -906,7 +906,7 @@ func (c *Config) validateTrustedProxyAuth() error {
 			return fmt.Errorf("auth.proxy.headers.user and auth.proxy.headers.groups must be different")
 		}
 	}
-	if err := validateTrustedProxyLoginLabel(trustedProxy.LoginLabel); err != nil {
+	if err := validateProxyButtonLabel(trustedProxy.ButtonLabel); err != nil {
 		return err
 	}
 	return validateTrustedProxyRoleMapping(trustedProxy.RoleMapping)
@@ -970,20 +970,20 @@ func isHTTPFieldName(name string) bool {
 	return true
 }
 
-func validateTrustedProxyLoginLabel(label string) error {
-	const maxLoginLabelRunes = 128
+func validateProxyButtonLabel(label string) error {
+	const maxButtonLabelRunes = 128
 	if strings.TrimSpace(label) == "" {
-		return fmt.Errorf("auth.proxy.login_label must not be empty")
+		return fmt.Errorf("auth.proxy.button_label must not be empty")
 	}
 	if !utf8.ValidString(label) {
-		return fmt.Errorf("auth.proxy.login_label must be valid UTF-8")
+		return fmt.Errorf("auth.proxy.button_label must be valid UTF-8")
 	}
-	if utf8.RuneCountInString(label) > maxLoginLabelRunes {
-		return fmt.Errorf("auth.proxy.login_label must not exceed %d characters", maxLoginLabelRunes)
+	if utf8.RuneCountInString(label) > maxButtonLabelRunes {
+		return fmt.Errorf("auth.proxy.button_label must not exceed %d characters", maxButtonLabelRunes)
 	}
 	for _, r := range label {
 		if unicode.IsControl(r) {
-			return fmt.Errorf("auth.proxy.login_label must not contain control characters")
+			return fmt.Errorf("auth.proxy.button_label must not contain control characters")
 		}
 	}
 	return nil

@@ -176,7 +176,7 @@ type OIDCRoleMappingDef struct {
 type AuthTrustedProxyDef struct {
 	Enabled     *bool                       `mapstructure:"enabled" yaml:"enabled"`
 	Source      *string                     `mapstructure:"source" yaml:"source"`
-	LoginLabel  *string                     `mapstructure:"login_label" yaml:"login_label"`
+	ButtonLabel *string                     `mapstructure:"button_label" yaml:"button_label"`
 	Headers     *TrustedProxyHeadersDef     `mapstructure:"headers" yaml:"headers"`
 	AutoSignup  *bool                       `mapstructure:"auto_signup" yaml:"auto_signup"`
 	RoleMapping *TrustedProxyRoleMappingDef `mapstructure:"role_mapping" yaml:"role_mapping"`

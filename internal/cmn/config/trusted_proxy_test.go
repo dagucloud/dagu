@@ -22,11 +22,11 @@ func validProxyConfig() *Config {
 			Token: TokenConfig{Secret: "secret", TTL: time.Hour},
 		},
 		Proxy: AuthTrustedProxy{
-			Enabled:    true,
-			Source:     "corp-sso",
-			LoginLabel: "Continue with SSO",
-			Headers:    TrustedProxyHeaders{User: "X-Auth-Request-User"},
-			AutoSignup: true,
+			Enabled:     true,
+			Source:      "corp-sso",
+			ButtonLabel: "Continue with SSO",
+			Headers:     TrustedProxyHeaders{User: "X-Auth-Request-User"},
+			AutoSignup:  true,
 			RoleMapping: TrustedProxyRoleMapping{
 				DefaultRole:            "viewer",
 				DefaultWorkspaceAccess: TrustedProxyDefaultWorkspaceAccessNone,
@@ -163,23 +163,23 @@ func TestConfigValidateProxy(t *testing.T) {
 			wantErr: "headers.user and auth.proxy.headers.groups must be different",
 		},
 		{
-			name: "RejectsBlankLoginLabel",
+			name: "RejectsBlankButtonLabel",
 			mutate: func(cfg *Config) {
-				cfg.Server.Auth.Proxy.LoginLabel = " \t"
+				cfg.Server.Auth.Proxy.ButtonLabel = " \t"
 			},
-			wantErr: "auth.proxy.login_label must not be empty",
+			wantErr: "auth.proxy.button_label must not be empty",
 		},
 		{
-			name: "RejectsControlInLoginLabel",
+			name: "RejectsControlInButtonLabel",
 			mutate: func(cfg *Config) {
-				cfg.Server.Auth.Proxy.LoginLabel = "Continue\nwith SSO"
+				cfg.Server.Auth.Proxy.ButtonLabel = "Continue\nwith SSO"
 			},
-			wantErr: "auth.proxy.login_label must not contain control characters",
+			wantErr: "auth.proxy.button_label must not contain control characters",
 		},
 		{
-			name: "RejectsLongLoginLabel",
+			name: "RejectsLongButtonLabel",
 			mutate: func(cfg *Config) {
-				cfg.Server.Auth.Proxy.LoginLabel = strings.Repeat("認", 129)
+				cfg.Server.Auth.Proxy.ButtonLabel = strings.Repeat("認", 129)
 			},
 			wantErr: "must not exceed 128 characters",
 		},
@@ -273,7 +273,7 @@ func TestLoadProxyDefaults(t *testing.T) {
 
 	require.False(t, cfg.Server.Auth.Proxy.Enabled)
 	require.Empty(t, cfg.Server.Auth.Proxy.Source)
-	require.Equal(t, "Continue with SSO", cfg.Server.Auth.Proxy.LoginLabel)
+	require.Equal(t, "Continue with SSO", cfg.Server.Auth.Proxy.ButtonLabel)
 	require.True(t, cfg.Server.Auth.Proxy.AutoSignup)
 	require.Equal(t, "viewer", cfg.Server.Auth.Proxy.RoleMapping.DefaultRole)
 	require.Equal(t, TrustedProxyDefaultWorkspaceAccessNone, cfg.Server.Auth.Proxy.RoleMapping.DefaultWorkspaceAccess)
@@ -288,7 +288,7 @@ auth:
   proxy:
     enabled: true
     source: corp-sso
-    login_label: Company SSO
+    button_label: Company SSO
     headers:
       user: X-Auth-Request-User
       groups: X-Auth-Request-Groups
@@ -313,7 +313,7 @@ auth:
 	trustedProxy := cfg.Server.Auth.Proxy
 	require.True(t, trustedProxy.Enabled)
 	require.Equal(t, "corp-sso", trustedProxy.Source)
-	require.Equal(t, "Company SSO", trustedProxy.LoginLabel)
+	require.Equal(t, "Company SSO", trustedProxy.ButtonLabel)
 	require.Equal(t, TrustedProxyHeaders{User: "X-Auth-Request-User", Groups: "X-Auth-Request-Groups"}, trustedProxy.Headers)
 	require.False(t, trustedProxy.AutoSignup)
 	require.Equal(t, "operator", trustedProxy.RoleMapping.DefaultRole)
@@ -346,7 +346,7 @@ auth:
 `, map[string]string{
 		"DAGU_AUTH_PROXY_ENABLED":                  "true",
 		"DAGU_AUTH_PROXY_SOURCE":                   "env-sso",
-		"DAGU_AUTH_PROXY_LOGIN_LABEL":              "Environment SSO",
+		"DAGU_AUTH_PROXY_BUTTON_LABEL":             "Environment SSO",
 		"DAGU_AUTH_PROXY_HEADERS_USER":             "X-Env-User",
 		"DAGU_AUTH_PROXY_HEADERS_GROUPS":           "X-Env-Groups",
 		"DAGU_AUTH_PROXY_AUTO_SIGNUP":              "false",
@@ -361,7 +361,7 @@ auth:
 	trustedProxy := cfg.Server.Auth.Proxy
 	require.True(t, trustedProxy.Enabled)
 	require.Equal(t, "env-sso", trustedProxy.Source)
-	require.Equal(t, "Environment SSO", trustedProxy.LoginLabel)
+	require.Equal(t, "Environment SSO", trustedProxy.ButtonLabel)
 	require.Equal(t, TrustedProxyHeaders{User: "X-Env-User", Groups: "X-Env-Groups"}, trustedProxy.Headers)
 	require.False(t, trustedProxy.AutoSignup)
 	require.Equal(t, "developer", trustedProxy.RoleMapping.DefaultRole)

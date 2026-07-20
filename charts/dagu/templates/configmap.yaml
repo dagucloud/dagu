@@ -108,7 +108,7 @@ data:
 {{- with .Values.auth.proxy.source }}
         source: {{ . | quote }}
 {{- end }}
-        login_label: {{ .Values.auth.proxy.loginLabel | quote }}
+        button_label: {{ .Values.auth.proxy.buttonLabel | quote }}
         headers:
           user: {{ .Values.auth.proxy.headers.user | quote }}
           groups: {{ .Values.auth.proxy.headers.groups | quote }}

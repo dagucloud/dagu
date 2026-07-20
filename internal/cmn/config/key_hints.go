@@ -68,7 +68,7 @@ var legacyToSnakeCaseKey = map[string]string{
 	"auth.oidc.rolemapping.skiporgrolesync":        "auth.oidc.role_mapping.skip_org_role_sync",
 
 	// Auth proxy
-	"auth.proxy.loginlabel":                         "auth.proxy.login_label",
+	"auth.proxy.buttonlabel":                        "auth.proxy.button_label",
 	"auth.proxy.autosignup":                         "auth.proxy.auto_signup",
 	"auth.proxy.rolemapping":                        "auth.proxy.role_mapping",
 	"auth.proxy.rolemapping.defaultrole":            "auth.proxy.role_mapping.default_role",

@@ -222,8 +222,8 @@ func TestLoad_Env(t *testing.T) {
 					},
 				},
 				Proxy: AuthTrustedProxy{
-					LoginLabel: "Continue with SSO",
-					AutoSignup: true,
+					ButtonLabel: "Continue with SSO",
+					AutoSignup:  true,
 					RoleMapping: TrustedProxyRoleMapping{
 						DefaultRole:            "viewer",
 						DefaultWorkspaceAccess: TrustedProxyDefaultWorkspaceAccessNone,
@@ -664,8 +664,8 @@ scheduler:
 					},
 				},
 				Proxy: AuthTrustedProxy{
-					LoginLabel: "Continue with SSO",
-					AutoSignup: true,
+					ButtonLabel: "Continue with SSO",
+					AutoSignup:  true,
 					RoleMapping: TrustedProxyRoleMapping{
 						DefaultRole:            "viewer",
 						DefaultWorkspaceAccess: TrustedProxyDefaultWorkspaceAccessNone,

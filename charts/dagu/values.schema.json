@@ -50,7 +50,7 @@
               "type": "string",
               "maxLength": 128
             },
-            "loginLabel": {
+            "buttonLabel": {
               "type": "string",
               "minLength": 1,
               "maxLength": 128
@@ -141,7 +141,7 @@
           },
           "required": [
             "enabled",
-            "loginLabel",
+            "buttonLabel",
             "headers",
             "autoSignup",
             "roleMapping"

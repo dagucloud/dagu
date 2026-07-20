@@ -292,7 +292,7 @@ auth:
   proxy:
     enabled: true
     source: corp-sso
-    login_label: Company SSO
+    button_label: Company SSO
     headers:
       user: X-Auth-Request-User
       groups: X-Auth-Request-Groups

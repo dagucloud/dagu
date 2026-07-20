@@ -40,7 +40,7 @@ auth:
   proxy:
     enabled: true
     source: corporate-sso
-    loginLabel: Continue with Corporate SSO
+    buttonLabel: Continue with Corporate SSO
     headers:
       user: X-Auth-Request-User
       groups: X-Auth-Request-Groups
@@ -70,7 +70,7 @@ environment variables:
 ```text
 DAGU_AUTH_PROXY_ENABLED
 DAGU_AUTH_PROXY_SOURCE
-DAGU_AUTH_PROXY_LOGIN_LABEL
+DAGU_AUTH_PROXY_BUTTON_LABEL
 DAGU_AUTH_PROXY_HEADERS_USER
 DAGU_AUTH_PROXY_HEADERS_GROUPS
 DAGU_AUTH_PROXY_AUTO_SIGNUP

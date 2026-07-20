@@ -672,8 +672,8 @@ func (l *ConfigLoader) loadTrustedProxyAuth(cfg *Config, authDef *AuthDef) {
 	if trustedProxyDef.Source != nil {
 		trustedProxy.Source = *trustedProxyDef.Source
 	}
-	if trustedProxyDef.LoginLabel != nil {
-		trustedProxy.LoginLabel = *trustedProxyDef.LoginLabel
+	if trustedProxyDef.ButtonLabel != nil {
+		trustedProxy.ButtonLabel = *trustedProxyDef.ButtonLabel
 	}
 	if trustedProxyDef.Headers != nil {
 		trustedProxy.Headers.User = trustedProxyDef.Headers.User
@@ -1048,7 +1048,7 @@ func (l *ConfigLoader) setAuthDefaults(cfg *Config) {
 
 func (l *ConfigLoader) setTrustedProxyDefaults(cfg *Config) {
 	trustedProxy := &cfg.Server.Auth.Proxy
-	trustedProxy.LoginLabel = "Continue with SSO"
+	trustedProxy.ButtonLabel = "Continue with SSO"
 	trustedProxy.AutoSignup = true
 	trustedProxy.RoleMapping.DefaultRole = "viewer"
 	trustedProxy.RoleMapping.DefaultWorkspaceAccess = TrustedProxyDefaultWorkspaceAccessNone
@@ -2015,7 +2015,7 @@ var envBindings = []envBinding{
 	// Auth proxy
 	{key: "auth.proxy.enabled", env: "AUTH_PROXY_ENABLED", requires: SectionServer},
 	{key: "auth.proxy.source", env: "AUTH_PROXY_SOURCE", requires: SectionServer},
-	{key: "auth.proxy.login_label", env: "AUTH_PROXY_LOGIN_LABEL", requires: SectionServer},
+	{key: "auth.proxy.button_label", env: "AUTH_PROXY_BUTTON_LABEL", requires: SectionServer},
 	{key: "auth.proxy.headers.user", env: "AUTH_PROXY_HEADERS_USER", requires: SectionServer},
 	{key: "auth.proxy.headers.groups", env: "AUTH_PROXY_HEADERS_GROUPS", requires: SectionServer},
 	{key: "auth.proxy.auto_signup", env: "AUTH_PROXY_AUTO_SIGNUP", requires: SectionServer},

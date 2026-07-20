@@ -100,7 +100,7 @@ auth:
     # Optional identity namespace. Changing it makes the same header identity
     # resolve to a distinct account.
     source: ""
-    loginLabel: "Continue with SSO"
+    buttonLabel: "Continue with SSO"
     headers:
       user: "X-Auth-Request-User"
       groups: "X-Auth-Request-Groups"
