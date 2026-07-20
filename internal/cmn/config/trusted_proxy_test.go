@@ -30,7 +30,6 @@ func validProxyConfig() *Config {
 			RoleMapping: TrustedProxyRoleMapping{
 				DefaultRole:            "viewer",
 				DefaultWorkspaceAccess: TrustedProxyDefaultWorkspaceAccessNone,
-				SyncAccess:             true,
 			},
 		},
 	}
@@ -278,7 +277,6 @@ func TestLoadProxyDefaults(t *testing.T) {
 	require.Equal(t, "viewer", cfg.Server.Auth.Proxy.RoleMapping.DefaultRole)
 	require.Equal(t, TrustedProxyDefaultWorkspaceAccessNone, cfg.Server.Auth.Proxy.RoleMapping.DefaultWorkspaceAccess)
 	require.True(t, cfg.Server.Auth.Proxy.RoleMapping.RequireMapping)
-	require.True(t, cfg.Server.Auth.Proxy.RoleMapping.SyncAccess)
 }
 
 func TestLoadProxyFromYAML(t *testing.T) {
@@ -297,7 +295,6 @@ auth:
       default_role: operator
       default_workspace_access: none
       require_mapping: true
-      sync_access: false
       group_mappings:
         Admins: admin
         admins: viewer
@@ -324,7 +321,6 @@ auth:
 	}, trustedProxy.RoleMapping.WorkspaceMappings)
 	require.Equal(t, TrustedProxyDefaultWorkspaceAccessNone, trustedProxy.RoleMapping.DefaultWorkspaceAccess)
 	require.True(t, trustedProxy.RoleMapping.RequireMapping)
-	require.False(t, trustedProxy.RoleMapping.SyncAccess)
 }
 
 func TestLoadProxyFromEnvironment(t *testing.T) {
@@ -353,7 +349,6 @@ auth:
 		"DAGU_AUTH_PROXY_DEFAULT_ROLE":             "developer",
 		"DAGU_AUTH_PROXY_DEFAULT_WORKSPACE_ACCESS": "none",
 		"DAGU_AUTH_PROXY_REQUIRE_MAPPING":          "false",
-		"DAGU_AUTH_PROXY_SYNC_ACCESS":              "false",
 		"DAGU_AUTH_PROXY_GROUP_MAPPINGS":           `{"Admins":"admin","admins":"viewer"}`,
 		"DAGU_AUTH_PROXY_WORKSPACE_MAPPINGS":       `{"Developers":[{"workspace":"payments","role":"developer"}],"developers":[{"workspace":"operations","role":"viewer"}]}`,
 	})
@@ -372,7 +367,6 @@ auth:
 	}, trustedProxy.RoleMapping.WorkspaceMappings)
 	require.Equal(t, TrustedProxyDefaultWorkspaceAccessNone, trustedProxy.RoleMapping.DefaultWorkspaceAccess)
 	require.False(t, trustedProxy.RoleMapping.RequireMapping)
-	require.False(t, trustedProxy.RoleMapping.SyncAccess)
 }
 
 func TestLoadProxyMappingsMergesLegacyAdminYAML(t *testing.T) {
@@ -557,10 +551,6 @@ func TestLoadProxyCamelCaseKeyHints(t *testing.T) {
 		{
 			legacy: "auth.proxy.roleMapping.workspaceMappings",
 			want:   "auth.proxy.rolemapping.workspacemappings -> auth.proxy.role_mapping.workspace_mappings",
-		},
-		{
-			legacy: "auth.proxy.roleMapping.syncAccess",
-			want:   "auth.proxy.rolemapping.syncaccess -> auth.proxy.role_mapping.sync_access",
 		},
 	}
 

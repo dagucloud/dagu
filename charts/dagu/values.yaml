@@ -110,7 +110,6 @@ auth:
       defaultWorkspaceAccess: "none"
       # When true, enabling proxy authentication requires at least one mapping.
       requireMapping: true
-      syncAccess: true
       groupMappings: {}
       workspaceMappings: {}
 

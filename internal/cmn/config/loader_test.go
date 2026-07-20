@@ -228,7 +228,6 @@ func TestLoad_Env(t *testing.T) {
 						DefaultRole:            "viewer",
 						DefaultWorkspaceAccess: TrustedProxyDefaultWorkspaceAccessNone,
 						RequireMapping:         true,
-						SyncAccess:             true,
 					},
 				},
 				Builtin: AuthBuiltin{
@@ -670,7 +669,6 @@ scheduler:
 						DefaultRole:            "viewer",
 						DefaultWorkspaceAccess: TrustedProxyDefaultWorkspaceAccessNone,
 						RequireMapping:         true,
-						SyncAccess:             true,
 					},
 				},
 				Builtin: AuthBuiltin{

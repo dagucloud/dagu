@@ -49,7 +49,6 @@ auth:
       defaultRole: viewer
       defaultWorkspaceAccess: none
       requireMapping: true
-      syncAccess: true
       groupMappings:
         dagu-admins: admin
       workspaceMappings:
@@ -77,7 +76,6 @@ DAGU_AUTH_PROXY_AUTO_SIGNUP
 DAGU_AUTH_PROXY_DEFAULT_ROLE
 DAGU_AUTH_PROXY_DEFAULT_WORKSPACE_ACCESS
 DAGU_AUTH_PROXY_REQUIRE_MAPPING
-DAGU_AUTH_PROXY_SYNC_ACCESS
 ```
 
 `DAGU_AUTH_PROXY_GROUP_MAPPINGS` and
@@ -87,12 +85,9 @@ Helm deployments must use the `auth.proxy` values above; the chart rejects
 `DAGU_AUTH_PROXY_*` entries in `extraEnv` so its replica and rollout safeguards
 cannot be bypassed.
 
-When `syncAccess` is true, each proxy login replaces the user's role and
-workspace access with the current mapping result. API edits remain possible but
-can be overwritten by the next login. When it is false, Dagu keeps the
-authorization assigned when the account was first provisioned. `requireMapping`
-still checks the current proxy groups on every login, even when synchronization
-is disabled.
+Each proxy login recalculates the user's role and workspace access from the
+current mappings. API edits remain possible but can be overwritten by the next
+login. `requireMapping` checks the current proxy groups on every login.
 
 With `requireMapping: false`, `defaultWorkspaceAccess: none` gives an unmatched
 user no named-workspace grants, but the user's global `viewer` role still

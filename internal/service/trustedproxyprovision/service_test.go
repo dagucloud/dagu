@@ -39,7 +39,6 @@ func newTestService(t *testing.T, userStore auth.UserStore, mutate func(*Config)
 	config := Config{
 		UsersDir:   t.TempDir(),
 		AutoSignup: true,
-		SyncAccess: true,
 		RoleMapping: authmapping.Config{
 			DefaultRole: auth.RoleViewer,
 		},
@@ -223,7 +222,7 @@ func TestProcessLoginSynchronizesFullAuthorization(t *testing.T) {
 	assert.Equal(t, user.WorkspaceAccess, persisted.WorkspaceAccess)
 }
 
-func TestProcessLoginWithSyncDisabledRetainsAuthorization(t *testing.T) {
+func TestProcessLoginRejectsExistingUserOnStrictMappingMiss(t *testing.T) {
 	ctx := context.Background()
 	userStore := newTestUserStore(t)
 	existing := auth.NewUser("trusted", "", auth.RoleManager)
@@ -231,26 +230,6 @@ func TestProcessLoginWithSyncDisabledRetainsAuthorization(t *testing.T) {
 	existing.TrustedProxyUser = "opaque-user"
 	require.NoError(t, userStore.Create(ctx, existing))
 	service := newTestService(t, userStore, func(config *Config) {
-		config.SyncAccess = false
-		config.RoleMapping.Strict = true
-		config.RoleMapping.GroupMappings = map[string]auth.Role{"members": auth.RoleViewer}
-	})
-
-	user, created, err := service.ProcessLogin(ctx, "opaque-user", []string{"members"})
-	require.NoError(t, err)
-	assert.False(t, created)
-	assert.Equal(t, auth.RoleManager, user.Role)
-}
-
-func TestProcessLoginWithSyncDisabledStillRequiresMapping(t *testing.T) {
-	ctx := context.Background()
-	userStore := newTestUserStore(t)
-	existing := auth.NewUser("trusted", "", auth.RoleManager)
-	existing.AuthProvider = auth.AuthProviderProxy
-	existing.TrustedProxyUser = "opaque-user"
-	require.NoError(t, userStore.Create(ctx, existing))
-	service := newTestService(t, userStore, func(config *Config) {
-		config.SyncAccess = false
 		config.RoleMapping.Strict = true
 		config.RoleMapping.GroupMappings = map[string]auth.Role{"members": auth.RoleViewer}
 	})

@@ -45,7 +45,6 @@ type Config struct {
 	UsersDir        string
 	Source          string
 	AutoSignup      bool
-	SyncAccess      bool
 	RoleMapping     authmapping.Config
 	WorkspaceExists func(context.Context, string) (bool, error)
 }
@@ -56,8 +55,6 @@ type Service struct {
 	usersDir        string
 	source          string
 	autoSignup      bool
-	requireMapping  bool
-	syncAccess      bool
 	mapper          *authmapping.Mapper
 	workspaceExists func(context.Context, string) (bool, error)
 	logger          *slog.Logger
@@ -87,8 +84,6 @@ func New(userStore auth.UserStore, config Config) (*Service, error) {
 		usersDir:        config.UsersDir,
 		source:          config.Source,
 		autoSignup:      config.AutoSignup,
-		requireMapping:  config.RoleMapping.Strict,
-		syncAccess:      config.SyncAccess,
 		mapper:          mapper,
 		workspaceExists: config.WorkspaceExists,
 		logger:          slog.Default().With(slog.String("service", "trustedproxyprovision")),
@@ -152,15 +147,6 @@ func (s *Service) ProcessLogin(ctx context.Context, identity string, groups []st
 func (s *Service) processExisting(ctx context.Context, user *auth.User, groups []string) (*auth.User, bool, error) {
 	if user.IsDisabled {
 		return nil, false, authservice.ErrUserDisabled
-	}
-	if !s.syncAccess {
-		if s.requireMapping {
-			if _, err := s.mapAccess(ctx, groups); err != nil {
-				return nil, false, err
-			}
-		}
-		s.logger.Debug("proxy login resolved existing user", slog.String("user_id", user.ID))
-		return user, false, nil
 	}
 
 	mapping, err := s.mapAccess(ctx, groups)

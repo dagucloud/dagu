@@ -117,7 +117,6 @@ data:
           default_role: {{ .Values.auth.proxy.roleMapping.defaultRole | quote }}
           default_workspace_access: {{ .Values.auth.proxy.roleMapping.defaultWorkspaceAccess | quote }}
           require_mapping: {{ .Values.auth.proxy.roleMapping.requireMapping }}
-          sync_access: {{ .Values.auth.proxy.roleMapping.syncAccess }}
 {{- with .Values.auth.proxy.roleMapping.groupMappings }}
           group_mappings:
 {{ toYaml . | indent 12 }}
