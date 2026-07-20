@@ -555,7 +555,14 @@ func parseStatusFileWithContext(ctx context.Context, file string) (*exec.DAGRunS
 func openStatusFileWithRetry(path string) (*os.File, error) {
 	var file *os.File
 	err := retryTransientStatusRead(func() error {
-		opened, err := os.Open(path) //nolint:gosec
+		root, err := os.OpenRoot(filepath.Dir(path))
+		if err != nil {
+			return err
+		}
+		defer func() { _ = root.Close() }()
+
+		// Root.Open permits atomic replacement while a status reader is active on Windows.
+		opened, err := root.Open(filepath.Base(path))
 		if err != nil {
 			return err
 		}

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
@@ -430,6 +431,23 @@ func TestSafeRename(t *testing.T) {
 	content, err := os.ReadFile(targetFile)
 	require.NoError(t, err)
 	assert.Equal(t, "new content", string(content))
+}
+
+func TestStatusReaderAllowsCompactionReplacement(t *testing.T) {
+	dir := createTempDir(t)
+	targetFile := filepath.Join(dir, "status.dat")
+	sourceFile := filepath.Join(dir, "compacted.tmp")
+	require.NoError(t, os.WriteFile(targetFile, []byte("old status"), 0600))
+	require.NoError(t, os.WriteFile(sourceFile, []byte("compacted status"), 0600))
+
+	reader, err := openStatusFileWithRetry(targetFile)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, reader.Close()) }()
+
+	require.NoError(t, fileutil.ReplaceFile(sourceFile, targetFile))
+	content, err := os.ReadFile(targetFile)
+	require.NoError(t, err)
+	assert.Equal(t, "compacted status", string(content))
 }
 
 func TestAttempt_HideAndIsHidden(t *testing.T) {
