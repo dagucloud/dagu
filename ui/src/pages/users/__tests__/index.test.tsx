@@ -19,6 +19,7 @@ vi.mock('@/contexts/AuthContext', () => ({
 }));
 
 type User = components['schemas']['User'];
+type UsersListResponse = components['schemas']['UsersListResponse'];
 
 function makeConfig(): Config {
   return {
@@ -36,6 +37,8 @@ function makeConfig(): Config {
     setupRequired: false,
     oidcEnabled: true,
     oidcButtonLabel: 'Login with SSO',
+    trustedProxyEnabled: true,
+    trustedProxyButtonLabel: 'Continue with SSO',
     terminalEnabled: false,
     gitSyncEnabled: false,
     updateAvailable: false,
@@ -137,17 +140,27 @@ describe('UsersPage', () => {
         }),
       ],
       oidcWorkspaceAccessSyncEnabled: true,
+      managedAuthorizationProviders: [UserAuthProvider.oidc],
     });
 
     expect(await screen.findByText('Managed by SSO')).toBeVisible();
     expect(screen.getByText('Local')).toBeVisible();
   });
 
-  it('treats an omitted management flag as disabled', async () => {
-    renderPage({ users: [makeUser()] });
+  it('treats an empty managed-provider list as unmanaged', async () => {
+    renderPage({ users: [makeUser()], managedAuthorizationProviders: [] });
 
     expect(await screen.findByText('SSO')).toBeVisible();
     expect(screen.queryByText('Managed by SSO')).not.toBeInTheDocument();
+  });
+
+  it('supports older nodes that only report the OIDC sync flag', async () => {
+    renderPage({
+      users: [makeUser()],
+      oidcWorkspaceAccessSyncEnabled: true,
+    } as UsersListResponse);
+
+    expect(await screen.findByText('Managed by SSO')).toBeVisible();
   });
 
   it('does not offer local password reset for OIDC users', async () => {
@@ -155,6 +168,7 @@ describe('UsersPage', () => {
     renderPage({
       users: [makeUser()],
       oidcWorkspaceAccessSyncEnabled: true,
+      managedAuthorizationProviders: [UserAuthProvider.oidc],
     });
 
     await user.click(
@@ -163,6 +177,28 @@ describe('UsersPage', () => {
       })
     );
 
+    expect(
+      screen.queryByRole('menuitem', { name: 'Reset Password' })
+    ).not.toBeInTheDocument();
+  });
+
+  it('marks trusted proxy authorization as managed and hides password reset', async () => {
+    const user = userEvent.setup();
+    renderPage({
+      users: [
+        makeUser({
+          id: 'proxy-user',
+          username: 'proxy-user',
+          authProvider: UserAuthProvider.trusted_proxy,
+        }),
+      ],
+      managedAuthorizationProviders: [UserAuthProvider.trusted_proxy],
+    });
+
+    expect(await screen.findByText('Managed by Trusted Proxy')).toBeVisible();
+    await user.click(
+      screen.getByRole('button', { name: 'Actions for proxy-user' })
+    );
     expect(
       screen.queryByRole('menuitem', { name: 'Reset Password' })
     ).not.toBeInTheDocument();
@@ -178,6 +214,7 @@ describe('UsersPage', () => {
           authProvider: UserAuthProvider.builtin,
         }),
       ],
+      managedAuthorizationProviders: [],
     });
 
     await user.click(
@@ -197,6 +234,7 @@ describe('UsersPage', () => {
         json: async () => ({
           users: [makeUser()],
           oidcWorkspaceAccessSyncEnabled: true,
+          managedAuthorizationProviders: [UserAuthProvider.oidc],
         }),
       })
       .mockResolvedValueOnce({ ok: false });
@@ -250,7 +288,7 @@ describe('UsersPage', () => {
                 ],
               },
             })}
-            oidcWorkspaceAccessSyncEnabled
+            managedAuthorizationProviders={[UserAuthProvider.oidc]}
             onClose={() => undefined}
             onSuccess={onSuccess}
           />
@@ -276,5 +314,29 @@ describe('UsersPage', () => {
       username: 'renamed@example.com',
     });
     expect(onSuccess).toHaveBeenCalledOnce();
+  });
+
+  it('renders trusted proxy authorization as read-only when managed', () => {
+    render(
+      <ConfigContext.Provider value={makeConfig()}>
+        <AppBarContext.Provider value={appBarValue}>
+          <UserFormModal
+            open
+            user={makeUser({
+              authProvider: UserAuthProvider.trusted_proxy,
+              username: 'proxy-user',
+            })}
+            managedAuthorizationProviders={[UserAuthProvider.trusted_proxy]}
+            onClose={() => undefined}
+            onSuccess={() => undefined}
+          />
+        </AppBarContext.Provider>
+      </ConfigContext.Provider>
+    );
+
+    expect(
+      screen.getByLabelText('Role managed by Trusted Proxy')
+    ).toBeVisible();
+    expect(screen.getByText('Managed by Trusted Proxy')).toBeVisible();
   });
 });

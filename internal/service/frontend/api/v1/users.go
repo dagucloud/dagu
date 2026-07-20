@@ -34,7 +34,28 @@ func (a *API) ListUsers(ctx context.Context, _ api.ListUsersRequestObject) (api.
 	return api.ListUsers200JSONResponse{
 		Users:                          toAPIUsers(users),
 		OidcWorkspaceAccessSyncEnabled: &syncEnabled,
+		ManagedAuthorizationProviders:  a.managedAuthorizationProviders(syncEnabled),
 	}, nil
+}
+
+func (a *API) managedAuthorizationProviders(oidcSyncEnabled bool) []api.UserAuthProvider {
+	providers := make([]api.UserAuthProvider, 0, 2)
+	if oidcSyncEnabled {
+		providers = append(providers, api.UserAuthProviderOidc)
+	}
+	if a.config == nil {
+		return providers
+	}
+	if a.licenseManager != nil && !a.licenseManager.Checker().IsFeatureEnabled(license.FeatureSSO) {
+		return providers
+	}
+	authConfig := a.config.Server.Auth
+	if authConfig.Mode == config.AuthModeBuiltin &&
+		authConfig.Proxy.Enabled &&
+		!authConfig.Proxy.RoleMapping.SkipOrgRoleSync {
+		providers = append(providers, api.UserAuthProviderTrustedProxy)
+	}
+	return providers
 }
 
 func (a *API) oidcWorkspaceAccessSyncEnabled() bool {

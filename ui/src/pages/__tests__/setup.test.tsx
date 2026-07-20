@@ -44,6 +44,8 @@ const config: Config = {
   setupRequired: true,
   oidcEnabled: false,
   oidcButtonLabel: '',
+  trustedProxyEnabled: false,
+  trustedProxyButtonLabel: '',
   terminalEnabled: false,
   gitSyncEnabled: false,
   updateAvailable: false,

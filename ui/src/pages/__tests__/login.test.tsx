@@ -1,0 +1,101 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+import { render, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
+import { describe, expect, it, vi } from 'vitest';
+
+import { ConfigContext, type Config } from '@/contexts/ConfigContext';
+import LoginPage from '../login';
+
+vi.mock('@/contexts/AuthContext', () => ({
+  useAuth: () => ({
+    login: vi.fn(),
+    isAuthenticated: false,
+    isLoading: false,
+    setupRequired: false,
+  }),
+}));
+
+function makeConfig(overrides: Partial<Config> = {}): Config {
+  return {
+    apiURL: '/dagu/api/v1',
+    basePath: '/dagu',
+    title: 'Dagu',
+    navbarColor: '',
+    tz: 'UTC',
+    tzOffsetInSec: 0,
+    version: 'test',
+    maxDashboardPageLimit: 100,
+    remoteNodes: '',
+    initialWorkspaces: [],
+    authMode: 'builtin',
+    setupRequired: false,
+    oidcEnabled: false,
+    oidcButtonLabel: '',
+    trustedProxyEnabled: false,
+    trustedProxyButtonLabel: '',
+    terminalEnabled: false,
+    gitSyncEnabled: false,
+    updateAvailable: false,
+    latestVersion: '',
+    permissions: { writeDags: false, runDags: false },
+    license: {
+      valid: true,
+      plan: 'enterprise',
+      expiry: '',
+      features: ['sso'],
+      gracePeriod: false,
+      community: false,
+      source: 'test',
+      warningCode: '',
+    },
+    paths: {
+      dagsDir: '',
+      logDir: '',
+      suspendFlagsDir: '',
+      adminLogsDir: '',
+      baseConfig: '',
+      dagRunsDir: '',
+      queueDir: '',
+      procDir: '',
+      serviceRegistryDir: '',
+      configFileUsed: '',
+      gitSyncDir: '',
+      auditLogsDir: '',
+    },
+    ...overrides,
+  };
+}
+
+function renderLogin(config: Config) {
+  render(
+    <MemoryRouter initialEntries={['/login']}>
+      <ConfigContext.Provider value={config}>
+        <LoginPage />
+      </ConfigContext.Provider>
+    </MemoryRouter>
+  );
+}
+
+describe('LoginPage trusted proxy login', () => {
+  it('renders the configured explicit login link', () => {
+    renderLogin(
+      makeConfig({
+        trustedProxyEnabled: true,
+        trustedProxyButtonLabel: 'Continue with Corporate SSO',
+      })
+    );
+
+    expect(
+      screen.getByRole('link', { name: 'Continue with Corporate SSO' })
+    ).toHaveAttribute('href', '/dagu/trusted-proxy-login');
+    expect(screen.queryByText('Login with SSO')).not.toBeInTheDocument();
+  });
+
+  it('does not render an external-login separator when integrations are disabled', () => {
+    renderLogin(makeConfig());
+
+    expect(screen.queryByText('or')).not.toBeInTheDocument();
+  });
+});

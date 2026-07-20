@@ -41,18 +41,25 @@ type UsersListResponse = components['schemas']['UsersListResponse'];
 
 function AuthProviderBadge({
   user,
-  syncEnabled,
+  managedProviders,
 }: {
   user: User;
-  syncEnabled: boolean;
+  managedProviders: UserAuthProvider[];
 }) {
-  if (user.authProvider !== UserAuthProvider.oidc) {
+  const provider = user.authProvider ?? UserAuthProvider.builtin;
+  if (provider === UserAuthProvider.builtin) {
     return 'Local';
   }
-  if (!syncEnabled) {
-    return 'SSO';
+  const providerLabel =
+    provider === UserAuthProvider.oidc ? 'SSO' : 'Trusted Proxy';
+  if (!managedProviders.includes(provider)) {
+    return providerLabel;
   }
-  return <Badge variant="info">Managed by SSO</Badge>;
+  return <Badge variant="info">Managed by {providerLabel}</Badge>;
+}
+
+function canUsePassword(user: User): boolean {
+  return !user.authProvider || user.authProvider === UserAuthProvider.builtin;
 }
 
 /**
@@ -69,8 +76,8 @@ export default function UsersPage() {
   const hasRbac = useHasFeature('rbac');
   const appBarContext = useContext(AppBarContext);
   const [users, setUsers] = useState<User[]>([]);
-  const [oidcWorkspaceAccessSyncEnabled, setOIDCWorkspaceAccessSyncEnabled] =
-    useState(false);
+  const [managedAuthorizationProviders, setManagedAuthorizationProviders] =
+    useState<UserAuthProvider[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const fetchSequence = useRef(0);
@@ -91,7 +98,7 @@ export default function UsersPage() {
     setIsLoading(true);
     setError(null);
     setUsers([]);
-    setOIDCWorkspaceAccessSyncEnabled(false);
+    setManagedAuthorizationProviders([]);
     setShowCreateModal(false);
     setEditingUser(null);
     setResetPasswordUser(null);
@@ -119,8 +126,9 @@ export default function UsersPage() {
         return;
       }
       setUsers(data.users || []);
-      setOIDCWorkspaceAccessSyncEnabled(
-        data.oidcWorkspaceAccessSyncEnabled === true
+      setManagedAuthorizationProviders(
+        data.managedAuthorizationProviders ??
+          (data.oidcWorkspaceAccessSyncEnabled ? [UserAuthProvider.oidc] : [])
       );
       setError(null);
     } catch (err) {
@@ -299,7 +307,7 @@ export default function UsersPage() {
                   <TableCell className="text-sm text-muted-foreground">
                     <AuthProviderBadge
                       user={user}
-                      syncEnabled={oidcWorkspaceAccessSyncEnabled}
+                      managedProviders={managedAuthorizationProviders}
                     />
                   </TableCell>
                   <TableCell className="text-sm">
@@ -337,15 +345,14 @@ export default function UsersPage() {
                             Edit
                           </DropdownMenuItem>
                         )}
-                        {isAdmin &&
-                          user.authProvider !== UserAuthProvider.oidc && (
-                            <DropdownMenuItem
-                              onClick={() => setResetPasswordUser(user)}
-                            >
-                              <Key className="h-4 w-4 mr-2" />
-                              Reset Password
-                            </DropdownMenuItem>
-                          )}
+                        {isAdmin && canUsePassword(user) && (
+                          <DropdownMenuItem
+                            onClick={() => setResetPasswordUser(user)}
+                          >
+                            <Key className="h-4 w-4 mr-2" />
+                            Reset Password
+                          </DropdownMenuItem>
+                        )}
                         {hasRbac && isAdmin && user.id !== currentUser?.id && (
                           <DropdownMenuItem
                             onClick={() => handleToggleDisabled(user)}
@@ -397,7 +404,7 @@ export default function UsersPage() {
       <UserFormModal
         open={!!editingUser}
         user={editingUser || undefined}
-        oidcWorkspaceAccessSyncEnabled={oidcWorkspaceAccessSyncEnabled}
+        managedAuthorizationProviders={managedAuthorizationProviders}
         onClose={() => setEditingUser(null)}
         onSuccess={() => {
           setEditingUser(null);

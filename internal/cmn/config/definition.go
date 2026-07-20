@@ -110,10 +110,11 @@ type TLSDef struct {
 
 // AuthDef configures authentication for the application.
 type AuthDef struct {
-	Mode    *string         `mapstructure:"mode"` // "none", "basic", or "builtin"
-	Basic   *AuthBasicDef   `mapstructure:"basic"`
-	OIDC    *AuthOIDCDef    `mapstructure:"oidc"`
-	Builtin *AuthBuiltinDef `mapstructure:"builtin"`
+	Mode    *string              `mapstructure:"mode"` // "none", "basic", or "builtin"
+	Basic   *AuthBasicDef        `mapstructure:"basic"`
+	OIDC    *AuthOIDCDef         `mapstructure:"oidc"`
+	Proxy   *AuthTrustedProxyDef `mapstructure:"proxy"`
+	Builtin *AuthBuiltinDef      `mapstructure:"builtin"`
 }
 
 // AuthBasicDef configures basic authentication credentials.
@@ -169,6 +170,33 @@ type OIDCRoleMappingDef struct {
 	RoleAttributePath      string                          `mapstructure:"role_attribute_path"`      // jq expression for role extraction
 	RoleAttributeStrict    *bool                           `mapstructure:"role_attribute_strict"`    // Deny login if no global or workspace mapping matches
 	SkipOrgRoleSync        *bool                           `mapstructure:"skip_org_role_sync"`       // Keep first-login authorization assignments
+}
+
+// AuthTrustedProxyDef configures authentication delegated to a trusted reverse proxy.
+type AuthTrustedProxyDef struct {
+	Enabled      *bool                       `mapstructure:"enabled" yaml:"enabled"`
+	Source       *string                     `mapstructure:"source" yaml:"source"`
+	LoginLabel   *string                     `mapstructure:"login_label" yaml:"login_label"`
+	Headers      *TrustedProxyHeadersDef     `mapstructure:"headers" yaml:"headers"`
+	GroupsFormat *string                     `mapstructure:"groups_format" yaml:"groups_format"`
+	AutoSignup   *bool                       `mapstructure:"auto_signup" yaml:"auto_signup"`
+	RoleMapping  *TrustedProxyRoleMappingDef `mapstructure:"role_mapping" yaml:"role_mapping"`
+}
+
+// TrustedProxyHeadersDef identifies the headers populated by the trusted proxy.
+type TrustedProxyHeadersDef struct {
+	User   string `mapstructure:"user" yaml:"user"`
+	Groups string `mapstructure:"groups" yaml:"groups"`
+}
+
+// TrustedProxyRoleMappingDef maps trusted proxy groups to Dagu authorization.
+type TrustedProxyRoleMappingDef struct {
+	DefaultRole            *string                                 `mapstructure:"default_role" yaml:"default_role"`
+	GroupMappings          map[string]string                       `mapstructure:"group_mappings" yaml:"group_mappings"`
+	WorkspaceMappings      map[string][]TrustedProxyWorkspaceGrant `mapstructure:"workspace_mappings" yaml:"workspace_mappings"`
+	DefaultWorkspaceAccess *string                                 `mapstructure:"default_workspace_access" yaml:"default_workspace_access"`
+	RoleAttributeStrict    *bool                                   `mapstructure:"role_attribute_strict" yaml:"role_attribute_strict"`
+	SkipOrgRoleSync        *bool                                   `mapstructure:"skip_org_role_sync" yaml:"skip_org_role_sync"`
 }
 
 // PermissionsDef configures UI and API permissions.

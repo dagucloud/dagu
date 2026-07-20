@@ -1,3 +1,36 @@
+{{- range .Values.extraEnv }}
+{{- if hasPrefix "DAGU_AUTH_PROXY_" .name }}
+{{- fail (printf "extraEnv entry %q must not configure trusted proxy authentication; use auth.proxy values" .name) }}
+{{- end }}
+{{- end }}
+{{- if and .Values.auth.proxy.enabled (ne .Values.auth.mode "builtin") }}
+{{- fail "auth.proxy.enabled requires auth.mode=builtin" }}
+{{- end }}
+{{- if and .Values.auth.proxy.enabled (ne (int .Values.ui.replicas) 1) }}
+{{- fail "auth.proxy.enabled requires ui.replicas=1" }}
+{{- end }}
+{{- if .Values.auth.proxy.enabled }}
+{{- $userHeader := .Values.auth.proxy.headers.user }}
+{{- $groupsHeader := .Values.auth.proxy.headers.groups }}
+{{- if not (regexMatch "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$" $userHeader) }}
+{{- fail "auth.proxy.headers.user must be a valid HTTP header name" }}
+{{- end }}
+{{- if and $groupsHeader (not (regexMatch "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$" $groupsHeader)) }}
+{{- fail "auth.proxy.headers.groups must be a valid HTTP header name" }}
+{{- end }}
+{{- if has (lower $userHeader) (list "authorization" "cookie" "host") }}
+{{- fail "auth.proxy.headers.user must not be Authorization, Cookie, or Host" }}
+{{- end }}
+{{- if and $groupsHeader (has (lower $groupsHeader) (list "authorization" "cookie" "host")) }}
+{{- fail "auth.proxy.headers.groups must not be Authorization, Cookie, or Host" }}
+{{- end }}
+{{- if and $groupsHeader (eq (lower $userHeader) (lower $groupsHeader)) }}
+{{- fail "auth.proxy.headers.user and auth.proxy.headers.groups must be different" }}
+{{- end }}
+{{- if and (not $groupsHeader) (or .Values.auth.proxy.roleMapping.groupMappings .Values.auth.proxy.roleMapping.workspaceMappings) }}
+{{- fail "auth.proxy.headers.groups is required when group or workspace mappings are configured" }}
+{{- end }}
+{{- end }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -66,6 +99,36 @@ data:
         token:
           secret: {{ .Values.auth.builtin.token.secret | quote }}
           ttl: {{ .Values.auth.builtin.token.ttl | quote }}
+{{- if .Values.auth.proxy.enabled }}
+      proxy:
+        enabled: true
+{{- with .Values.auth.proxy.source }}
+        source: {{ . | quote }}
+{{- end }}
+        login_label: {{ .Values.auth.proxy.loginLabel | quote }}
+        headers:
+          user: {{ .Values.auth.proxy.headers.user | quote }}
+          groups: {{ .Values.auth.proxy.headers.groups | quote }}
+        groups_format: {{ .Values.auth.proxy.groupsFormat | quote }}
+        auto_signup: {{ .Values.auth.proxy.autoSignup }}
+        role_mapping:
+          default_role: {{ .Values.auth.proxy.roleMapping.defaultRole | quote }}
+          default_workspace_access: {{ .Values.auth.proxy.roleMapping.defaultWorkspaceAccess | quote }}
+          role_attribute_strict: {{ .Values.auth.proxy.roleMapping.roleAttributeStrict }}
+          skip_org_role_sync: {{ .Values.auth.proxy.roleMapping.skipOrgRoleSync }}
+{{- with .Values.auth.proxy.roleMapping.groupMappings }}
+          group_mappings:
+{{ toYaml . | indent 12 }}
+{{- else }}
+          group_mappings: {}
+{{- end }}
+{{- with .Values.auth.proxy.roleMapping.workspaceMappings }}
+          workspace_mappings:
+{{ toYaml . | indent 12 }}
+{{- else }}
+          workspace_mappings: {}
+{{- end }}
+{{- end }}
 
     # Peer communication (required for distributed mode)
     peer:

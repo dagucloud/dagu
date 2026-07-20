@@ -37,7 +37,7 @@ type WorkspaceAccess = components['schemas']['WorkspaceAccess'];
 type UserFormModalProps = {
   open: boolean;
   user?: User;
-  oidcWorkspaceAccessSyncEnabled?: boolean;
+  managedAuthorizationProviders?: UserAuthProvider[];
   onClose: () => void;
   onSuccess: () => void;
 };
@@ -74,17 +74,21 @@ const ROLES = [
 export function UserFormModal({
   open,
   user,
-  oidcWorkspaceAccessSyncEnabled = false,
+  managedAuthorizationProviders = [],
   onClose,
   onSuccess,
 }: UserFormModalProps) {
   const config = useConfig();
   const appBarContext = useContext(AppBarContext);
   const isEditing = !!user;
-  const managedBySSO =
+  const authorizationManaged =
     isEditing &&
-    user.authProvider === UserAuthProvider.oidc &&
-    oidcWorkspaceAccessSyncEnabled;
+    !!user.authProvider &&
+    managedAuthorizationProviders.includes(user.authProvider);
+  const managedProviderLabel =
+    user?.authProvider === UserAuthProvider.trusted_proxy
+      ? 'Trusted Proxy'
+      : 'SSO';
 
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -120,7 +124,7 @@ export function UserFormModal({
       return;
     }
     if (
-      !managedBySSO &&
+      !authorizationManaged &&
       !workspaceAccess.all &&
       workspaceAccess.grants.length === 0
     ) {
@@ -138,7 +142,7 @@ export function UserFormModal({
       const remoteNode = encodeURIComponent(
         appBarContext.selectedRemoteNode || 'local'
       );
-      const payload = managedBySSO
+      const payload = authorizationManaged
         ? { username }
         : { username, role: effectiveRole, workspaceAccess };
       const endpoint = user
@@ -174,7 +178,9 @@ export function UserFormModal({
         <DialogHeader>
           <div className="flex items-center gap-2">
             <DialogTitle>{isEditing ? 'Edit User' : 'Create User'}</DialogTitle>
-            {managedBySSO && <Badge variant="info">Managed by SSO</Badge>}
+            {authorizationManaged && (
+              <Badge variant="info">Managed by {managedProviderLabel}</Badge>
+            )}
           </div>
         </DialogHeader>
 
@@ -223,9 +229,9 @@ export function UserFormModal({
             <Label htmlFor="role" className="text-sm">
               Role
             </Label>
-            {managedBySSO ? (
+            {authorizationManaged ? (
               <div
-                aria-label="Role managed by SSO"
+                aria-label={`Role managed by ${managedProviderLabel}`}
                 className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm capitalize"
               >
                 {user.role}
@@ -255,7 +261,7 @@ export function UserFormModal({
             )}
           </div>
 
-          {managedBySSO ? (
+          {authorizationManaged ? (
             <div className="space-y-1.5">
               <Label className="text-sm">Workspace Access</Label>
               <WorkspaceAccessSummary
@@ -263,8 +269,8 @@ export function UserFormModal({
                 workspaces={appBarContext.workspaces}
               />
               <p className="text-xs text-muted-foreground">
-                Role and workspace access are updated from the identity provider
-                at SSO sign-in.
+                Role and workspace access are updated by {managedProviderLabel}
+                at sign-in.
               </p>
             </div>
           ) : (

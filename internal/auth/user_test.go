@@ -125,12 +125,15 @@ func TestUser_StorageRoundtrip(t *testing.T) {
 	t.Run("preserves all fields through roundtrip", func(t *testing.T) {
 		now := time.Now().UTC()
 		original := &User{
-			ID:           "roundtrip-id",
-			Username:     "roundtrip-user",
-			PasswordHash: "roundtrip-hash",
-			Role:         RoleManager,
-			CreatedAt:    now,
-			UpdatedAt:    now.Add(time.Minute),
+			ID:                 "roundtrip-id",
+			Username:           "roundtrip-user",
+			PasswordHash:       "roundtrip-hash",
+			Role:               RoleManager,
+			CreatedAt:          now,
+			UpdatedAt:          now.Add(time.Minute),
+			AuthProvider:       AuthProviderTrustedProxy,
+			TrustedProxySource: "edge-cluster",
+			TrustedProxyUser:   "opaque-id",
 		}
 
 		storage := original.ToStorage()
@@ -142,7 +145,27 @@ func TestUser_StorageRoundtrip(t *testing.T) {
 		assert.Equal(t, original.Role, recovered.Role)
 		assert.Equal(t, original.CreatedAt, recovered.CreatedAt)
 		assert.Equal(t, original.UpdatedAt, recovered.UpdatedAt)
+		assert.Equal(t, original.AuthProvider, recovered.AuthProvider)
+		assert.Equal(t, original.TrustedProxySource, recovered.TrustedProxySource)
+		assert.Equal(t, original.TrustedProxyUser, recovered.TrustedProxyUser)
 	})
+}
+
+func TestUserCanUsePassword(t *testing.T) {
+	tests := []struct {
+		provider string
+		expected bool
+	}{
+		{provider: "", expected: true},
+		{provider: AuthProviderBuiltin, expected: true},
+		{provider: AuthProviderOIDC, expected: false},
+		{provider: AuthProviderTrustedProxy, expected: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.provider, func(t *testing.T) {
+			assert.Equal(t, tc.expected, (&User{AuthProvider: tc.provider}).CanUsePassword())
+		})
+	}
 }
 
 func TestUser_JSONSerialization(t *testing.T) {

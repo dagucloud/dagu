@@ -60,6 +60,17 @@ describe('UserMenu', () => {
     expect(screen.getByRole('menuitem', { name: 'Sign Out' })).toBeVisible();
   });
 
+  it('does not offer password changes to trusted proxy users', async () => {
+    const user = userEvent.setup();
+    renderMenu(UserAuthProvider.trusted_proxy);
+
+    await user.click(screen.getByRole('button', { name: 'test-user' }));
+
+    expect(
+      screen.queryByRole('menuitem', { name: 'Change Password' })
+    ).not.toBeInTheDocument();
+  });
+
   it('offers password changes to local users', async () => {
     const user = userEvent.setup();
     renderMenu(UserAuthProvider.builtin);

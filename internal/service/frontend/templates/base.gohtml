@@ -23,7 +23,9 @@
           authMode: "{{ authMode }}",
           setupRequired: "{{ setupRequired }}" === "true",
           oidcEnabled: "{{ oidcEnabled }}" === "true",
-          oidcButtonLabel: "{{ oidcButtonLabel }}",
+          oidcButtonLabel: "{{ js oidcButtonLabel }}",
+          trustedProxyEnabled: "{{ trustedProxyEnabled }}" === "true",
+          trustedProxyButtonLabel: "{{ js trustedProxyButtonLabel }}",
           terminalEnabled: "{{ terminalEnabled }}" === "true",
           gitSyncEnabled: "{{ gitSyncEnabled }}" === "true",
           permissions: {

@@ -274,6 +274,9 @@
         "oidc": {
           "$ref": "#/definitions/AuthOIDCDef"
         },
+        "proxy": {
+          "$ref": "#/definitions/AuthProxyDef"
+        },
         "builtin": {
           "$ref": "#/definitions/AuthBuiltinDef"
         }
@@ -435,6 +438,179 @@
         "role": {
           "type": "string",
           "description": "Role assigned in the workspace.",
+          "enum": ["manager", "developer", "operator", "viewer"]
+        }
+      }
+    },
+    "AuthProxyDef": {
+      "type": "object",
+      "description": "Authentication delegated to a trusted reverse proxy.",
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "required": ["enabled"],
+            "properties": {
+              "enabled": {"const": true}
+            }
+          },
+          "then": {
+            "required": ["headers"],
+            "properties": {
+              "headers": {"required": ["user"]}
+            }
+          }
+        },
+        {
+          "if": {
+            "required": ["role_mapping"],
+            "properties": {
+              "role_mapping": {
+                "required": ["group_mappings"],
+                "properties": {
+                  "group_mappings": {"minProperties": 1}
+                }
+              }
+            }
+          },
+          "then": {
+            "required": ["headers"],
+            "properties": {
+              "headers": {"required": ["groups"]}
+            }
+          }
+        },
+        {
+          "if": {
+            "required": ["role_mapping"],
+            "properties": {
+              "role_mapping": {
+                "required": ["workspace_mappings"],
+                "properties": {
+                  "workspace_mappings": {"minProperties": 1}
+                }
+              }
+            }
+          },
+          "then": {
+            "required": ["headers"],
+            "properties": {
+              "headers": {"required": ["groups"]}
+            }
+          }
+        }
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "source": {
+          "type": "string",
+          "maxLength": 128,
+          "default": ""
+        },
+        "login_label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "default": "Continue with SSO"
+        },
+        "headers": {
+          "$ref": "#/definitions/ProxyHeadersDef"
+        },
+        "groups_format": {
+          "type": "string",
+          "enum": ["csv"],
+          "default": "csv"
+        },
+        "auto_signup": {
+          "type": "boolean",
+          "default": true
+        },
+        "role_mapping": {
+          "$ref": "#/definitions/ProxyRoleMappingDef"
+        }
+      }
+    },
+    "ProxyHeadersDef": {
+      "type": "object",
+      "description": "Identity headers populated by the trusted proxy.",
+      "additionalProperties": false,
+      "properties": {
+        "user": {
+          "type": "string",
+          "minLength": 1
+        },
+        "groups": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "ProxyRoleMappingDef": {
+      "type": "object",
+      "description": "Maps trusted proxy groups to Dagu authorization.",
+      "additionalProperties": false,
+      "properties": {
+        "default_role": {
+          "type": "string",
+          "enum": ["admin", "manager", "developer", "operator", "viewer"],
+          "default": "viewer"
+        },
+        "group_mappings": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": ".*\\S.*"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "enum": ["admin", "manager", "developer", "operator", "viewer"]
+          }
+        },
+        "workspace_mappings": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": ".*\\S.*"
+          },
+          "additionalProperties": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/definitions/ProxyWorkspaceGrantDef"
+            }
+          }
+        },
+        "default_workspace_access": {
+          "type": "string",
+          "enum": ["all", "none"],
+          "default": "all"
+        },
+        "role_attribute_strict": {
+          "type": "boolean",
+          "default": false
+        },
+        "skip_org_role_sync": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "ProxyWorkspaceGrantDef": {
+      "type": "object",
+      "description": "Assigns a trusted proxy group member a role in one workspace.",
+      "additionalProperties": false,
+      "required": ["workspace", "role"],
+      "properties": {
+        "workspace": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "not": {
+            "pattern": "^([Aa][Ll][Ll]|[Dd][Ee][Ff][Aa][Uu][Ll][Tt]|[Gg][Ll][Oo][Bb][Aa][Ll])$"
+          }
+        },
+        "role": {
+          "type": "string",
           "enum": ["manager", "developer", "operator", "viewer"]
         }
       }

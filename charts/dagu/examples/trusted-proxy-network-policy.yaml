@@ -1,0 +1,27 @@
+# Edit namespaces and labels to match the deployment before applying this file.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: dagu-ui-from-auth-ingress
+  namespace: dagu
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: dagu
+      app.kubernetes.io/instance: dagu
+      app.kubernetes.io/component: ui
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              dagu.sh/trusted-ingress: "true"
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ingress-nginx
+              app.kubernetes.io/component: controller
+      ports:
+        - protocol: TCP
+          port: 8080
+    # Add narrowly scoped monitoring sources here if probes originate from pods.

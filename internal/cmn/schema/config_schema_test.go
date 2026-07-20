@@ -254,6 +254,183 @@ auth:
 	}
 }
 
+func TestConfigSchemaProxy(t *testing.T) {
+	t.Parallel()
+
+	resolved := mustResolveConfigSchema(t)
+	tests := []struct {
+		name    string
+		spec    string
+		wantErr bool
+	}{
+		{
+			name: "DisabledByDefault",
+			spec: `
+auth:
+  mode: builtin
+  proxy: {}
+`,
+		},
+		{
+			name: "ValidFallbackOnly",
+			spec: `
+auth:
+  mode: builtin
+  proxy:
+    enabled: true
+    headers:
+      user: X-Auth-Request-User
+`,
+		},
+		{
+			name: "ValidMappings",
+			spec: `
+auth:
+  mode: builtin
+  proxy:
+    enabled: true
+    source: corp-sso
+    login_label: Company SSO
+    headers:
+      user: X-Auth-Request-User
+      groups: X-Auth-Request-Groups
+    groups_format: csv
+    auto_signup: false
+    role_mapping:
+      default_role: viewer
+      default_workspace_access: none
+      role_attribute_strict: true
+      skip_org_role_sync: true
+      group_mappings:
+        admins: admin
+      workspace_mappings:
+        developers:
+          - workspace: payments
+            role: developer
+`,
+		},
+		{
+			name: "SourceTooLong",
+			spec: `
+auth:
+  proxy:
+    source: ` + strings.Repeat("x", 129) + `
+`,
+			wantErr: true,
+		},
+		{
+			name: "EnabledRequiresUserHeader",
+			spec: `
+auth:
+  proxy:
+    enabled: true
+`,
+			wantErr: true,
+		},
+		{
+			name: "GroupMappingsRequireGroupsHeader",
+			spec: `
+auth:
+  proxy:
+    headers:
+      user: X-Auth-Request-User
+    role_mapping:
+      group_mappings:
+        admins: admin
+`,
+			wantErr: true,
+		},
+		{
+			name: "WorkspaceMappingsRequireGroupsHeader",
+			spec: `
+auth:
+  proxy:
+    headers:
+      user: X-Auth-Request-User
+    role_mapping:
+      workspace_mappings:
+        developers:
+          - workspace: payments
+            role: developer
+`,
+			wantErr: true,
+		},
+		{
+			name: "UnsupportedGroupsFormat",
+			spec: `
+auth:
+  proxy:
+    groups_format: json
+`,
+			wantErr: true,
+		},
+		{
+			name: "InvalidGlobalRole",
+			spec: `
+auth:
+  proxy:
+    role_mapping:
+      group_mappings:
+        admins: owner
+`,
+			wantErr: true,
+		},
+		{
+			name: "WorkspaceAdminRole",
+			spec: `
+auth:
+  proxy:
+    headers:
+      groups: X-Auth-Request-Groups
+    role_mapping:
+      workspace_mappings:
+        developers:
+          - workspace: payments
+            role: admin
+`,
+			wantErr: true,
+		},
+		{
+			name: "InvalidWorkspace",
+			spec: `
+auth:
+  proxy:
+    headers:
+      groups: X-Auth-Request-Groups
+    role_mapping:
+      workspace_mappings:
+        developers:
+          - workspace: bad/name
+            role: viewer
+`,
+			wantErr: true,
+		},
+		{
+			name: "UnexpectedProperty",
+			spec: `
+auth:
+  proxy:
+    enabled: false
+    unexpected: true
+`,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			doc := mustParseYAMLDocument(t, tt.spec)
+			err := resolved.Validate(doc)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
 func TestConfigSchemaRepoCopyMatchesEmbeddedSchema(t *testing.T) {
 	t.Parallel()
 

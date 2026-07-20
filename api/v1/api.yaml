@@ -223,7 +223,7 @@ paths:
   /auth/change-password:
     post:
       summary: "Change current user's password"
-      description: "Allows an authenticated builtin user to change their own password. OIDC users must manage authentication through their identity provider."
+      description: "Allows a locally authenticated builtin user to change their own password. Externally authenticated users do not have Dagu passwords."
       operationId: "changePassword"
       tags:
         - "auth"
@@ -486,7 +486,7 @@ paths:
   /users/{userId}/reset-password:
     post:
       summary: "Reset user's password"
-      description: "Resets a builtin user's password to a new value. Requires admin role. OIDC users do not have Dagu passwords."
+      description: "Resets a locally authenticated builtin user's password to a new value. Requires admin role. Externally authenticated users do not have Dagu passwords."
       operationId: "resetUserPassword"
       tags:
         - "users"
@@ -518,7 +518,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "403":
-          description: "Forbidden - requires admin role, or the target user is managed by OIDC"
+          description: "Forbidden - requires admin role, or the target user uses an external authentication provider"
           content:
             application/json:
               schema:
@@ -12406,6 +12406,14 @@ components:
         - operator
         - viewer
 
+    UserAuthProvider:
+      type: string
+      description: "Authentication provider for a user account"
+      enum:
+        - builtin
+        - oidc
+        - trusted_proxy
+
     WorkspaceName:
       type: string
       description: "Workspace name. The reserved names all, default, and global are not allowed."
@@ -12577,9 +12585,7 @@ components:
         workspaceAccess:
           $ref: "#/components/schemas/WorkspaceAccess"
         authProvider:
-          type: string
-          enum: [builtin, oidc]
-          description: "Authentication provider (builtin or oidc)"
+          $ref: "#/components/schemas/UserAuthProvider"
         isDisabled:
           type: boolean
           description: "Whether the user account is disabled"
@@ -12619,8 +12625,15 @@ components:
         oidcWorkspaceAccessSyncEnabled:
           type: boolean
           description: "Whether OIDC role and workspace access are synchronized by this node"
+        managedAuthorizationProviders:
+          type: array
+          description: "Authentication providers that synchronize role and workspace access at login on this node"
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/UserAuthProvider"
       required:
         - users
+        - managedAuthorizationProviders
 
     APIKey:
       type: object

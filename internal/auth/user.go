@@ -9,6 +9,15 @@ import (
 	"github.com/google/uuid"
 )
 
+const (
+	// AuthProviderBuiltin identifies users authenticated with a Dagu password.
+	AuthProviderBuiltin = "builtin"
+	// AuthProviderOIDC identifies users authenticated through OIDC.
+	AuthProviderOIDC = "oidc"
+	// AuthProviderTrustedProxy identifies users authenticated by a trusted proxy.
+	AuthProviderTrustedProxy = "trusted_proxy"
+)
+
 // User represents a user in the system.
 type User struct {
 	// ID is the unique identifier for the user (UUID).
@@ -28,13 +37,17 @@ type User struct {
 	// UpdatedAt is the timestamp when the user was last modified.
 	UpdatedAt time.Time `json:"updated_at"`
 
-	// AuthProvider indicates how the user was created: "builtin" or "oidc".
+	// AuthProvider indicates how the user authenticates.
 	// Empty string is treated as "builtin" for backward compatibility.
 	AuthProvider string `json:"auth_provider,omitempty"`
 	// OIDCIssuer is the OIDC provider issuer URL (set when AuthProvider is "oidc").
 	OIDCIssuer string `json:"oidc_issuer,omitempty"`
 	// OIDCSubject is the unique subject identifier from the OIDC provider.
 	OIDCSubject string `json:"oidc_subject,omitempty"`
+	// TrustedProxySource identifies the trusted proxy identity source.
+	TrustedProxySource string `json:"trusted_proxy_source,omitempty"`
+	// TrustedProxyUser is the opaque identity supplied by the trusted proxy.
+	TrustedProxyUser string `json:"trusted_proxy_user,omitempty"`
 	// IsDisabled indicates if the user account is disabled.
 	// Disabled users cannot log in.
 	IsDisabled bool `json:"is_disabled,omitempty"`
@@ -61,57 +74,68 @@ func NewUser(username string, passwordHash string, role Role) *User {
 // UserForStorage is used for JSON serialization to persistent storage.
 // It includes the password hash which is excluded from the regular User JSON.
 type UserForStorage struct {
-	ID                string           `json:"id"`
-	Username          string           `json:"username"`
-	PasswordHash      string           `json:"password_hash"`
-	Role              Role             `json:"role"`
-	WorkspaceAccess   *WorkspaceAccess `json:"workspace_access,omitempty"`
-	CreatedAt         time.Time        `json:"created_at"`
-	UpdatedAt         time.Time        `json:"updated_at"`
-	AuthProvider      string           `json:"auth_provider,omitempty"`
-	OIDCIssuer        string           `json:"oidc_issuer,omitempty"`
-	OIDCSubject       string           `json:"oidc_subject,omitempty"`
-	IsDisabled        bool             `json:"is_disabled,omitempty"`
-	PasswordChangedAt *time.Time       `json:"password_changed_at,omitempty"`
+	ID                 string           `json:"id"`
+	Username           string           `json:"username"`
+	PasswordHash       string           `json:"password_hash"`
+	Role               Role             `json:"role"`
+	WorkspaceAccess    *WorkspaceAccess `json:"workspace_access,omitempty"`
+	CreatedAt          time.Time        `json:"created_at"`
+	UpdatedAt          time.Time        `json:"updated_at"`
+	AuthProvider       string           `json:"auth_provider,omitempty"`
+	OIDCIssuer         string           `json:"oidc_issuer,omitempty"`
+	OIDCSubject        string           `json:"oidc_subject,omitempty"`
+	TrustedProxySource string           `json:"trusted_proxy_source,omitempty"`
+	TrustedProxyUser   string           `json:"trusted_proxy_user,omitempty"`
+	IsDisabled         bool             `json:"is_disabled,omitempty"`
+	PasswordChangedAt  *time.Time       `json:"password_changed_at,omitempty"`
 }
 
 // ToStorage converts a User to UserForStorage for persistence.
 func (u *User) ToStorage() *UserForStorage {
 	return &UserForStorage{
-		ID:                u.ID,
-		Username:          u.Username,
-		PasswordHash:      u.PasswordHash,
-		Role:              u.Role,
-		WorkspaceAccess:   CloneWorkspaceAccess(u.WorkspaceAccess),
-		CreatedAt:         u.CreatedAt,
-		UpdatedAt:         u.UpdatedAt,
-		AuthProvider:      u.AuthProvider,
-		OIDCIssuer:        u.OIDCIssuer,
-		OIDCSubject:       u.OIDCSubject,
-		IsDisabled:        u.IsDisabled,
-		PasswordChangedAt: u.PasswordChangedAt,
+		ID:                 u.ID,
+		Username:           u.Username,
+		PasswordHash:       u.PasswordHash,
+		Role:               u.Role,
+		WorkspaceAccess:    CloneWorkspaceAccess(u.WorkspaceAccess),
+		CreatedAt:          u.CreatedAt,
+		UpdatedAt:          u.UpdatedAt,
+		AuthProvider:       u.AuthProvider,
+		OIDCIssuer:         u.OIDCIssuer,
+		OIDCSubject:        u.OIDCSubject,
+		TrustedProxySource: u.TrustedProxySource,
+		TrustedProxyUser:   u.TrustedProxyUser,
+		IsDisabled:         u.IsDisabled,
+		PasswordChangedAt:  u.PasswordChangedAt,
 	}
 }
 
 // ToUser converts UserForStorage back to User.
 func (s *UserForStorage) ToUser() *User {
 	return &User{
-		ID:                s.ID,
-		Username:          s.Username,
-		PasswordHash:      s.PasswordHash,
-		Role:              s.Role,
-		WorkspaceAccess:   CloneWorkspaceAccess(s.WorkspaceAccess),
-		CreatedAt:         s.CreatedAt,
-		UpdatedAt:         s.UpdatedAt,
-		AuthProvider:      s.AuthProvider,
-		OIDCIssuer:        s.OIDCIssuer,
-		OIDCSubject:       s.OIDCSubject,
-		IsDisabled:        s.IsDisabled,
-		PasswordChangedAt: s.PasswordChangedAt,
+		ID:                 s.ID,
+		Username:           s.Username,
+		PasswordHash:       s.PasswordHash,
+		Role:               s.Role,
+		WorkspaceAccess:    CloneWorkspaceAccess(s.WorkspaceAccess),
+		CreatedAt:          s.CreatedAt,
+		UpdatedAt:          s.UpdatedAt,
+		AuthProvider:       s.AuthProvider,
+		OIDCIssuer:         s.OIDCIssuer,
+		OIDCSubject:        s.OIDCSubject,
+		TrustedProxySource: s.TrustedProxySource,
+		TrustedProxyUser:   s.TrustedProxyUser,
+		IsDisabled:         s.IsDisabled,
+		PasswordChangedAt:  s.PasswordChangedAt,
 	}
 }
 
 // IsOIDCUser returns true if the user was created via OIDC auto-signup.
 func (u *User) IsOIDCUser() bool {
-	return u.AuthProvider == "oidc"
+	return u.AuthProvider == AuthProviderOIDC
+}
+
+// CanUsePassword reports whether password authentication is available to the user.
+func (u *User) CanUsePassword() bool {
+	return u.AuthProvider == "" || u.AuthProvider == AuthProviderBuiltin
 }

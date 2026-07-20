@@ -108,6 +108,19 @@ func TestMiddleware_APIKeyValidation(t *testing.T) {
 	assert.Equal(t, auth.RoleManager, handler.user.Role)
 }
 
+func TestMiddleware_IgnoresTrustedProxyIdentityHeaders(t *testing.T) {
+	middleware := Middleware(Options{AuthRequired: true, JWTValidator: newMockTokenValidator()})
+	handler := &testHandler{}
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users", nil)
+	req.Header.Set("X-Proxy-User", "forged-user")
+	req.Header.Set("X-Proxy-Groups", "admins")
+	resp := httptest.NewRecorder()
+	middleware(handler).ServeHTTP(resp, req)
+
+	assert.Equal(t, http.StatusUnauthorized, resp.Code)
+	assert.Nil(t, handler.user)
+}
+
 func TestMiddleware_APIKeyRequiredSurface(t *testing.T) {
 	apiKeyValidator := newMockAPIKeyValidator()
 	apiKeyValidator.AddKey("dagu_mcpkey", &auth.APIKey{

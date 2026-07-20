@@ -95,6 +95,24 @@ auth:
     token:
       secret: ""               # optional: auto-generated at {data_dir}/auth/token_secret
       ttl: "24h"
+  proxy:
+    enabled: false
+    # Optional identity namespace. Changing it makes the same header identity
+    # resolve to a distinct account.
+    source: ""
+    loginLabel: "Continue with SSO"
+    headers:
+      user: "X-Auth-Request-User"
+      groups: "X-Auth-Request-Groups"
+    groupsFormat: "csv"
+    autoSignup: true
+    roleMapping:
+      defaultRole: "viewer"
+      defaultWorkspaceAccess: "all"
+      roleAttributeStrict: false
+      skipOrgRoleSync: false
+      groupMappings: {}
+      workspaceMappings: {}
 
 # Persistence - REQUIRED: Dagu needs a shared filesystem (RWX)
 # Use NFS, EFS, CephFS, or similar storage that supports ReadWriteMany

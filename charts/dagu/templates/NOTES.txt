@@ -12,9 +12,16 @@ Components deployed:
   {{- end }}
   UI: {{ .Values.ui.replicas }} replica(s)
 
+{{ if .Values.auth.proxy.enabled }}
+Trusted proxy authentication is enabled.
+  Route UI traffic only through the trusted authentication proxy.
+  Do not use kubectl port-forward, NodePort, public LoadBalancer, or any other
+  path that can reach the Dagu UI service without passing through that proxy.
+{{ else }}
 Access the UI:
   kubectl port-forward svc/{{ include "dagu.fullname" . }}-ui 8080:8080
   Then visit http://localhost:8080
+{{ end }}
 
 Verify installation:
   kubectl get pods -l app.kubernetes.io/instance={{ .Release.Name }}

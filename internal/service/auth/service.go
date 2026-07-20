@@ -24,13 +24,15 @@ import (
 
 // Service errors.
 var (
-	ErrInvalidCredentials                = errors.New("invalid username or password")
-	ErrInvalidToken                      = errors.New("invalid or expired token")
-	ErrTokenExpired                      = errors.New("token has expired")
-	ErrMissingSecret                     = errors.New("token secret is not configured")
-	ErrPasswordMismatch                  = errors.New("current password is incorrect")
-	ErrWeakPassword                      = errors.New("password does not meet requirements")
-	ErrOIDCPasswordManagement            = errors.New("passwords for OIDC users are managed by the identity provider")
+	ErrInvalidCredentials             = errors.New("invalid username or password")
+	ErrInvalidToken                   = errors.New("invalid or expired token")
+	ErrTokenExpired                   = errors.New("token has expired")
+	ErrMissingSecret                  = errors.New("token secret is not configured")
+	ErrPasswordMismatch               = errors.New("current password is incorrect")
+	ErrWeakPassword                   = errors.New("password does not meet requirements")
+	ErrExternalAuthPasswordManagement = errors.New("passwords for externally authenticated users are managed by the identity provider")
+	// ErrOIDCPasswordManagement is retained for callers that handle the legacy error name.
+	ErrOIDCPasswordManagement            = ErrExternalAuthPasswordManagement
 	ErrCannotDeleteSelf                  = errors.New("cannot delete your own account")
 	ErrInvalidAPIKey                     = errors.New("invalid API key")
 	ErrAPIKeyNotConfigured               = errors.New("API key management is not configured")
@@ -44,7 +46,7 @@ var (
 	ErrMissingWebhookHMACSignature       = errors.New("missing webhook HMAC signature")
 	ErrInvalidWebhookHMACSignature       = errors.New("invalid webhook HMAC signature")
 	ErrWebhookHMACNotConfigured          = errors.New("webhook HMAC is not configured")
-	ErrUserDisabled                      = errors.New("your account has been disabled, contact administrator")
+	ErrUserDisabled                      = auth.ErrUserDisabled
 )
 
 const (
@@ -164,8 +166,8 @@ func (s *Service) Authenticate(ctx context.Context, username, password string) (
 		return nil, fmt.Errorf("failed to get user: %w", err)
 	}
 
-	if user.IsOIDCUser() {
-		// OIDC users must authenticate through their identity provider. Use the
+	if !user.CanUsePassword() {
+		// Externally authenticated users must use their identity provider. Use the
 		// dummy hash so this path has the same shape as an unknown username and
 		// never accepts a legacy password hash that may still be persisted.
 		_ = bcrypt.CompareHashAndPassword(dummyHash, []byte(password))
@@ -351,32 +353,37 @@ func (s *Service) UpdateUser(ctx context.Context, id string, input UpdateUserInp
 	if err != nil {
 		return nil, err
 	}
-	if input.Password != nil && user.IsOIDCUser() {
-		return nil, ErrOIDCPasswordManagement
+	if input.Password != nil && !user.CanUsePassword() {
+		return nil, ErrExternalAuthPasswordManagement
 	}
 
+	patch := auth.UserPatch{}
 	if input.Username != nil && *input.Username != "" {
-		user.Username = *input.Username
+		username := *input.Username
+		patch.Username = &username
 	}
 
+	effectiveRole := user.Role
 	if input.Role != nil {
 		if !input.Role.Valid() {
 			return nil, fmt.Errorf("invalid role: %s", *input.Role)
 		}
-		user.Role = *input.Role
+		role := *input.Role
+		patch.Role = &role
+		effectiveRole = role
 	}
 
+	effectiveWorkspaceAccess := auth.CloneWorkspaceAccess(user.WorkspaceAccess)
 	if input.WorkspaceAccess != nil {
-		user.WorkspaceAccess = auth.CloneWorkspaceAccess(input.WorkspaceAccess)
+		patch.WorkspaceAccess = auth.CloneWorkspaceAccess(input.WorkspaceAccess)
+		effectiveWorkspaceAccess = patch.WorkspaceAccess
 	}
 
 	if input.Role != nil || input.WorkspaceAccess != nil {
-		if err := auth.ValidateWorkspaceAccess(user.Role, user.WorkspaceAccess, nil); err != nil {
+		if err := auth.ValidateWorkspaceAccess(effectiveRole, effectiveWorkspaceAccess, nil); err != nil {
 			return nil, err
 		}
 	}
-
-	now := time.Now().UTC()
 
 	if input.Password != nil && *input.Password != "" {
 		if err := s.validatePassword(*input.Password); err != nil {
@@ -386,21 +393,16 @@ func (s *Service) UpdateUser(ctx context.Context, id string, input UpdateUserInp
 		if err != nil {
 			return nil, fmt.Errorf("failed to hash password: %w", err)
 		}
-		user.PasswordHash = string(passwordHash)
-		user.PasswordChangedAt = &now
+		hash := string(passwordHash)
+		patch.PasswordHash = &hash
 	}
 
 	if input.IsDisabled != nil {
-		user.IsDisabled = *input.IsDisabled
+		disabled := *input.IsDisabled
+		patch.IsDisabled = &disabled
 	}
 
-	user.UpdatedAt = now
-
-	if err := s.store.Update(ctx, user); err != nil {
-		return nil, err
-	}
-
-	return user, nil
+	return s.store.Patch(ctx, id, patch)
 }
 
 // DeleteUser deletes a user by ID.
@@ -418,8 +420,8 @@ func (s *Service) ChangePassword(ctx context.Context, userID, oldPassword, newPa
 	if err != nil {
 		return err
 	}
-	if user.IsOIDCUser() {
-		return ErrOIDCPasswordManagement
+	if !user.CanUsePassword() {
+		return ErrExternalAuthPasswordManagement
 	}
 
 	// Verify old password
@@ -438,12 +440,9 @@ func (s *Service) ChangePassword(ctx context.Context, userID, oldPassword, newPa
 		return fmt.Errorf("failed to hash password: %w", err)
 	}
 
-	now := time.Now().UTC()
-	user.PasswordHash = string(passwordHash)
-	user.PasswordChangedAt = &now
-	user.UpdatedAt = now
-
-	return s.store.Update(ctx, user)
+	hash := string(passwordHash)
+	_, err = s.store.Patch(ctx, userID, auth.UserPatch{PasswordHash: &hash})
+	return err
 }
 
 // ResetPassword allows an admin to reset a user's password without knowing the old password.
@@ -452,8 +451,8 @@ func (s *Service) ResetPassword(ctx context.Context, userID, newPassword string)
 	if err != nil {
 		return err
 	}
-	if user.IsOIDCUser() {
-		return ErrOIDCPasswordManagement
+	if !user.CanUsePassword() {
+		return ErrExternalAuthPasswordManagement
 	}
 
 	// Validate new password
@@ -467,12 +466,9 @@ func (s *Service) ResetPassword(ctx context.Context, userID, newPassword string)
 		return fmt.Errorf("failed to hash password: %w", err)
 	}
 
-	now := time.Now().UTC()
-	user.PasswordHash = string(passwordHash)
-	user.PasswordChangedAt = &now
-	user.UpdatedAt = now
-
-	return s.store.Update(ctx, user)
+	hash := string(passwordHash)
+	_, err = s.store.Patch(ctx, userID, auth.UserPatch{PasswordHash: &hash})
+	return err
 }
 
 // CountUsers returns the total number of users in the store.

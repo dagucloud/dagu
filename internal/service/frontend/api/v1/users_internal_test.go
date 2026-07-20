@@ -102,6 +102,39 @@ func TestListUsersReportsOIDCWorkspaceAccessSyncState(t *testing.T) {
 	require.True(t, ok)
 	require.NotNil(t, response.OidcWorkspaceAccessSyncEnabled)
 	assert.True(t, *response.OidcWorkspaceAccessSyncEnabled)
+	assert.Equal(t, []generatedapi.UserAuthProvider{generatedapi.UserAuthProviderOidc}, response.ManagedAuthorizationProviders)
+}
+
+func TestManagedAuthorizationProvidersIncludesTrustedProxySync(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{Server: config.Server{Auth: config.Auth{
+		Mode: config.AuthModeBuiltin,
+		Proxy: config.AuthTrustedProxy{
+			Enabled: true,
+		},
+	}}}
+	a := &API{config: cfg}
+	assert.Equal(t,
+		[]generatedapi.UserAuthProvider{generatedapi.UserAuthProviderTrustedProxy},
+		a.managedAuthorizationProviders(false),
+	)
+
+	cfg.Server.Auth.Proxy.RoleMapping.SkipOrgRoleSync = true
+	assert.Empty(t, a.managedAuthorizationProviders(false))
+
+	cfg.Server.Auth.Proxy.RoleMapping.SkipOrgRoleSync = false
+	a.licenseManager = license.NewTestManager(license.FeatureRBAC)
+	assert.Empty(t, a.managedAuthorizationProviders(false))
+
+	a.licenseManager = license.NewTestManager(license.FeatureSSO)
+	assert.Equal(t,
+		[]generatedapi.UserAuthProvider{generatedapi.UserAuthProviderTrustedProxy},
+		a.managedAuthorizationProviders(false),
+	)
+
+	cfg.Server.Auth.Mode = config.AuthModeBasic
+	assert.Empty(t, a.managedAuthorizationProviders(false))
 }
 
 func TestResetUserPasswordRejectsOIDCUser(t *testing.T) {

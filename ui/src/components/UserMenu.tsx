@@ -80,7 +80,8 @@ export function UserMenu({ isCollapsed = false }: UserMenuProps) {
             </div>
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
-          {user.authProvider !== UserAuthProvider.oidc && (
+          {(!user.authProvider ||
+            user.authProvider === UserAuthProvider.builtin) && (
             <>
               <DropdownMenuItem onClick={() => setShowChangePassword(true)}>
                 <Key className="h-4 w-4 mr-2" />

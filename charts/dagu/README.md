@@ -212,6 +212,13 @@ helm install dagu dagu/dagu \
   --set auth.mode=none
 ```
 
+Trusted proxy header authentication is available for deployments where an
+authenticating reverse proxy is the only network path to the UI. It requires
+builtin authentication, `auth.proxy.enabled: true`, and one UI replica. See
+[`TRUSTED_PROXY_AUTH.md`](./TRUSTED_PROXY_AUTH.md) for the trust contract,
+oauth2-proxy and ingress-nginx configuration, NetworkPolicy example, validation,
+and recovery guidance.
+
 ### Component Resources
 
 ```yaml

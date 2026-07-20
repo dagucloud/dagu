@@ -40,6 +40,24 @@ func setupTestService(t *testing.T) (*Service, func()) {
 	return New(store, config), func() {}
 }
 
+type pauseAfterGetUserStore struct {
+	auth.UserStore
+	afterGet chan struct{}
+	resume   chan struct{}
+	once     sync.Once
+}
+
+func (s *pauseAfterGetUserStore) GetByID(ctx context.Context, id string) (*auth.User, error) {
+	user, err := s.UserStore.GetByID(ctx, id)
+	if err == nil {
+		s.once.Do(func() {
+			close(s.afterGet)
+			<-s.resume
+		})
+	}
+	return user, err
+}
+
 func TestService_CreateUser(t *testing.T) {
 	svc, cleanup := setupTestService(t)
 	defer cleanup()
@@ -137,6 +155,58 @@ func TestService_AuthenticateRejectsOIDCUserWithPasswordHash(t *testing.T) {
 	authenticated, err := svc.Authenticate(ctx, user.Username, "password123")
 	assert.Nil(t, authenticated)
 	assert.ErrorIs(t, err, ErrInvalidCredentials)
+}
+
+func TestService_AuthenticateRejectsEveryExternalProvider(t *testing.T) {
+	for _, provider := range []string{"oidc", "trusted_proxy", "future_provider"} {
+		t.Run(provider, func(t *testing.T) {
+			svc, cleanup := setupTestService(t)
+			defer cleanup()
+
+			ctx := context.Background()
+			passwordHash, err := bcrypt.GenerateFromPassword([]byte("password123"), svc.config.BcryptCost)
+			require.NoError(t, err)
+			user := auth.NewUser(provider+"-user", string(passwordHash), auth.RoleViewer)
+			user.AuthProvider = provider
+			if provider == auth.AuthProviderTrustedProxy {
+				user.TrustedProxyUser = provider + "-identity"
+			}
+			require.NoError(t, svc.store.Create(ctx, user))
+
+			authenticated, err := svc.Authenticate(ctx, user.Username, "password123")
+			assert.Nil(t, authenticated)
+			assert.ErrorIs(t, err, ErrInvalidCredentials)
+		})
+	}
+}
+
+func TestService_PasswordManagementRejectsEveryExternalProvider(t *testing.T) {
+	for _, provider := range []string{"oidc", "trusted_proxy", "future_provider"} {
+		t.Run(provider, func(t *testing.T) {
+			svc, cleanup := setupTestService(t)
+			defer cleanup()
+
+			ctx := context.Background()
+			user := auth.NewUser(provider+"-user", "legacy-password-hash", auth.RoleViewer)
+			user.AuthProvider = provider
+			if provider == auth.AuthProviderTrustedProxy {
+				user.TrustedProxyUser = provider + "-identity"
+			}
+			require.NoError(t, svc.store.Create(ctx, user))
+
+			newPassword := "newpassword1"
+			updated, err := svc.UpdateUser(ctx, user.ID, UpdateUserInput{Password: &newPassword})
+			assert.Nil(t, updated)
+			assert.ErrorIs(t, err, ErrExternalAuthPasswordManagement)
+			assert.ErrorIs(t, svc.ChangePassword(ctx, user.ID, "oldpassword", newPassword), ErrExternalAuthPasswordManagement)
+			assert.ErrorIs(t, svc.ResetPassword(ctx, user.ID, newPassword), ErrExternalAuthPasswordManagement)
+
+			stored, err := svc.store.GetByID(ctx, user.ID)
+			require.NoError(t, err)
+			assert.Equal(t, "legacy-password-hash", stored.PasswordHash)
+			assert.Nil(t, stored.PasswordChangedAt)
+		})
+	}
 }
 
 func TestService_GenerateAndValidateToken(t *testing.T) {
@@ -462,6 +532,60 @@ func TestService_UpdateUserPreservesOIDCManagedEmptyWorkspaceAccess(t *testing.T
 	assert.False(t, stored.IsDisabled)
 	assert.False(t, stored.WorkspaceAccess.All)
 	assert.Empty(t, stored.WorkspaceAccess.Grants)
+}
+
+func TestService_UpdateUserPreservesAuthorizationSynchronizedAfterRead(t *testing.T) {
+	ctx := context.Background()
+	baseStore, err := persiststore.NewUserStore(testutil.NewMemoryBackend().Collection("users"))
+	require.NoError(t, err)
+	user := auth.NewUser("proxy-user", "", auth.RoleAdmin)
+	user.AuthProvider = auth.AuthProviderTrustedProxy
+	user.TrustedProxyUser = "stable-identity"
+	require.NoError(t, baseStore.Create(ctx, user))
+
+	pausingStore := &pauseAfterGetUserStore{
+		UserStore: baseStore,
+		afterGet:  make(chan struct{}),
+		resume:    make(chan struct{}),
+	}
+	svc := New(pausingStore, Config{
+		TokenSecret: mustTokenSecret("test-secret-key-for-jwt-signing"),
+		TokenTTL:    time.Hour,
+		BcryptCost:  4,
+	})
+
+	type updateResult struct {
+		user *auth.User
+		err  error
+	}
+	result := make(chan updateResult, 1)
+	username := "proxy-renamed"
+	go func() {
+		updated, updateErr := svc.UpdateUser(ctx, user.ID, UpdateUserInput{Username: &username})
+		result <- updateResult{user: updated, err: updateErr}
+	}()
+
+	select {
+	case <-pausingStore.afterGet:
+	case <-time.After(time.Second):
+		t.Fatal("UpdateUser did not reach the store read")
+	}
+	_, syncErr := baseStore.SyncAuthorization(ctx, user.ID, auth.RoleViewer, &auth.WorkspaceAccess{Grants: []auth.WorkspaceGrant{}})
+	close(pausingStore.resume)
+	require.NoError(t, syncErr)
+
+	var got updateResult
+	select {
+	case got = <-result:
+	case <-time.After(time.Second):
+		t.Fatal("UpdateUser did not complete")
+	}
+	require.NoError(t, got.err)
+	require.NotNil(t, got.user)
+	assert.Equal(t, username, got.user.Username)
+	assert.Equal(t, auth.RoleViewer, got.user.Role)
+	assert.False(t, got.user.WorkspaceAccess.All)
+	assert.Empty(t, got.user.WorkspaceAccess.Grants)
 }
 
 func TestService_UpdateUserRejectsExplicitEmptyWorkspaceAccess(t *testing.T) {

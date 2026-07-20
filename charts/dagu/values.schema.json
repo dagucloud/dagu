@@ -21,6 +21,140 @@
         }
       }
     },
+    "ui": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "replicas": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "auth": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["none", "basic", "builtin"]
+        },
+        "proxy": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "source": {
+              "type": "string",
+              "maxLength": 128
+            },
+            "loginLabel": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "headers": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "user": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$",
+                  "not": {
+                    "pattern": "^([Aa][Uu][Tt][Hh][Oo][Rr][Ii][Zz][Aa][Tt][Ii][Oo][Nn]|[Cc][Oo][Oo][Kk][Ii][Ee]|[Hh][Oo][Ss][Tt])$"
+                  }
+                },
+                "groups": {
+                  "type": "string",
+                  "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]*$",
+                  "not": {
+                    "pattern": "^([Aa][Uu][Tt][Hh][Oo][Rr][Ii][Zz][Aa][Tt][Ii][Oo][Nn]|[Cc][Oo][Oo][Kk][Ii][Ee]|[Hh][Oo][Ss][Tt])$"
+                  }
+                }
+              },
+              "required": ["user", "groups"]
+            },
+            "groupsFormat": {
+              "type": "string",
+              "const": "csv"
+            },
+            "autoSignup": {
+              "type": "boolean"
+            },
+            "roleMapping": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "defaultRole": {
+                  "type": "string",
+                  "enum": ["admin", "manager", "developer", "operator", "viewer"]
+                },
+                "defaultWorkspaceAccess": {
+                  "type": "string",
+                  "enum": ["all", "none"]
+                },
+                "roleAttributeStrict": {
+                  "type": "boolean"
+                },
+                "skipOrgRoleSync": {
+                  "type": "boolean"
+                },
+                "groupMappings": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string",
+                    "enum": ["admin", "manager", "developer", "operator", "viewer"]
+                  }
+                },
+                "workspaceMappings": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "workspace": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "role": {
+                          "type": "string",
+                          "enum": ["manager", "developer", "operator", "viewer"]
+                        }
+                      },
+                      "required": ["workspace", "role"]
+                    }
+                  }
+                }
+              },
+              "required": [
+                "defaultRole",
+                "defaultWorkspaceAccess",
+                "roleAttributeStrict",
+                "skipOrgRoleSync",
+                "groupMappings",
+                "workspaceMappings"
+              ]
+            }
+          },
+          "required": [
+            "enabled",
+            "loginLabel",
+            "headers",
+            "groupsFormat",
+            "autoSignup",
+            "roleMapping"
+          ]
+        },
+        "trustedProxy": false,
+        "trusted_proxy": false
+      }
+    },
     "extraEnv": {
       "type": "array",
       "items": {
@@ -42,5 +176,48 @@
         ]
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "auth": {
+            "properties": {
+              "proxy": {
+                "properties": {
+                  "enabled": {
+                    "const": true
+                  }
+                },
+                "required": ["enabled"]
+              }
+            },
+            "required": ["proxy"]
+          }
+        },
+        "required": ["auth"]
+      },
+      "then": {
+        "properties": {
+          "auth": {
+            "properties": {
+              "mode": {
+                "const": "builtin"
+              }
+            },
+            "required": ["mode"]
+          },
+          "ui": {
+            "properties": {
+              "replicas": {
+                "const": 1
+              }
+            },
+            "required": ["replicas"]
+          }
+        },
+        "required": ["auth", "ui"]
+      }
+    }
+  ]
 }

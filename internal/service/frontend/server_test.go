@@ -378,11 +378,13 @@ func TestServerUsesEvaluatedBasePathForOIDCAndAPI(t *testing.T) {
 			APIBasePath: "/rest",
 		},
 	}
+	evaluatedBasePath, err := evaluateConfiguredBasePath(ctx, cfg.Server.BasePath)
+	require.NoError(t, err)
 
 	srv := &Server{
 		config: cfg,
 		funcsConfig: funcsConfig{
-			BasePath:    evaluateConfiguredBasePath(ctx, cfg.Server.BasePath),
+			BasePath:    evaluatedBasePath,
 			APIBasePath: cfg.Server.APIBasePath,
 		},
 		builtinOIDCCfg: &frontendauth.BuiltinOIDCConfig{
@@ -415,6 +417,32 @@ func TestServerUsesEvaluatedBasePathForOIDCAndAPI(t *testing.T) {
 	rootCallbackRecorder := httptest.NewRecorder()
 	r.ServeHTTP(rootCallbackRecorder, httptest.NewRequest(http.MethodGet, "/oidc-callback", nil))
 	assert.Equal(t, http.StatusNotFound, rootCallbackRecorder.Code)
+}
+
+func TestEvaluateConfiguredBasePathKeepsRedirectsLocal(t *testing.T) {
+	const envKey = "DAGU_TEST_UNTRUSTED_BASE_PATH"
+	t.Setenv(envKey, "//evil.example")
+
+	evaluated, err := evaluateConfiguredBasePath(
+		testContext(t),
+		"${"+envKey+"}",
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "/evil.example", evaluated)
+
+	redirect, err := url.Parse(evaluated + "/login#token=secret")
+	require.NoError(t, err)
+	assert.Empty(t, redirect.Host)
+	assert.Empty(t, redirect.Scheme)
+}
+
+func TestEvaluateConfiguredBasePathRejectsURLSyntax(t *testing.T) {
+	for _, basePath := range []string{"/dagu?next=//evil.example", "/dagu#fragment", `/\\evil.example`} {
+		t.Run(basePath, func(t *testing.T) {
+			_, err := evaluateConfiguredBasePath(testContext(t), basePath)
+			require.ErrorContains(t, err, "local URL path")
+		})
+	}
 }
 
 func TestPublicURLWithBasePath(t *testing.T) {

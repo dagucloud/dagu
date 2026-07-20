@@ -20,6 +20,7 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+	"unicode"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -43,6 +44,7 @@ import (
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/service/audit"
 	authservice "github.com/dagucloud/dagu/internal/service/auth"
+	"github.com/dagucloud/dagu/internal/service/authmapping"
 	"github.com/dagucloud/dagu/internal/service/chatbridge"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
 	"github.com/dagucloud/dagu/internal/service/eventstore"
@@ -57,6 +59,7 @@ import (
 	notificationservice "github.com/dagucloud/dagu/internal/service/notification"
 	"github.com/dagucloud/dagu/internal/service/oidcprovision"
 	"github.com/dagucloud/dagu/internal/service/resource"
+	"github.com/dagucloud/dagu/internal/service/trustedproxyprovision"
 	"github.com/dagucloud/dagu/internal/tunnel"
 	"github.com/dagucloud/dagu/internal/upgrade"
 	workspacepkg "github.com/dagucloud/dagu/internal/workspace"
@@ -88,6 +91,7 @@ type Server struct {
 	httpServer            *http.Server
 	funcsConfig           funcsConfig
 	builtinOIDCCfg        *auth.BuiltinOIDCConfig
+	trustedProxyCfg       *auth.TrustedProxyLoginConfig
 	authService           *authservice.Service
 	auditService          *audit.Service
 	auditStore            AuditStore
@@ -168,6 +172,35 @@ func toOIDCWorkspaceMappings(mappings map[string][]config.OIDCWorkspaceGrant) ma
 	return result
 }
 
+func toTrustedProxyGroupMappings(mappings map[string]string) map[string]authmodel.Role {
+	if len(mappings) == 0 {
+		return nil
+	}
+	result := make(map[string]authmodel.Role, len(mappings))
+	for group, role := range mappings {
+		result[group] = authmodel.Role(role)
+	}
+	return result
+}
+
+func toTrustedProxyWorkspaceMappings(mappings map[string][]config.TrustedProxyWorkspaceGrant) map[string][]authmapping.WorkspaceGrantConfig {
+	if len(mappings) == 0 {
+		return nil
+	}
+	result := make(map[string][]authmapping.WorkspaceGrantConfig, len(mappings))
+	for group, grants := range mappings {
+		converted := make([]authmapping.WorkspaceGrantConfig, len(grants))
+		for i, grant := range grants {
+			converted[i] = authmapping.WorkspaceGrantConfig{
+				Workspace: grant.Workspace,
+				Role:      authmodel.Role(grant.Role),
+			}
+		}
+		result[group] = converted
+	}
+	return result
+}
+
 // RegisterRoutes appends a route registrar that is applied before API routes
 // are mounted.
 func (srv *Server) RegisterRoutes(fn RouteRegistrar) {
@@ -187,10 +220,15 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 	for _, n := range cfg.Server.RemoteNodes {
 		remoteNodes = append(remoteNodes, n.Name)
 	}
+	evaluatedBasePath, err := evaluateConfiguredBasePath(ctx, cfg.Server.BasePath)
+	if err != nil {
+		return nil, err
+	}
 
 	var (
 		apiOpts         []apiv1.APIOption
 		builtinOIDCCfg  *auth.BuiltinOIDCConfig
+		trustedProxyCfg = &auth.TrustedProxyLoginConfig{LoginBasePath: evaluatedBasePath}
 		oidcEnabled     bool
 		oidcButtonLabel string
 		setupRequired   bool
@@ -198,7 +236,6 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 	if stores.WorkspaceBaseConfigStoreFactory != nil {
 		apiOpts = append(apiOpts, apiv1.WithWorkspaceBaseConfigStoreFactory(stores.WorkspaceBaseConfigStoreFactory))
 	}
-	evaluatedBasePath := evaluateConfiguredBasePath(ctx, cfg.Server.BasePath)
 
 	auditSvc, auditStore, err := initAuditService(cfg, stores.AuditStoreFactory)
 	if err != nil {
@@ -226,6 +263,7 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 	// mapping can report dormant grants without making workspace existence a
 	// prerequisite for authentication.
 	var wsStore workspacepkg.Store
+	var workspaceExists func(context.Context, string) (bool, error)
 	if stores.WorkspaceStoreFactory != nil {
 		var wsErr error
 		wsStore, wsErr = stores.WorkspaceStoreFactory(cfg)
@@ -233,6 +271,17 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 			logger.Warn(ctx, "Failed to create workspace store", tag.Error(wsErr))
 		} else {
 			apiOpts = append(apiOpts, apiv1.WithWorkspaceStore(wsStore))
+			workspaceExists = func(ctx context.Context, name string) (bool, error) {
+				_, err := wsStore.GetByName(ctx, name)
+				switch {
+				case err == nil:
+					return true, nil
+				case errors.Is(err, workspacepkg.ErrWorkspaceNotFound):
+					return false, nil
+				default:
+					return false, err
+				}
+			}
 		}
 	}
 
@@ -248,6 +297,44 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 		authSvc = result.AuthService
 		setupRequired = isSetupRequired
 		apiOpts = append(apiOpts, apiv1.WithAuthService(result.AuthService))
+
+		trustedProxy := cfg.Server.Auth.Proxy
+		if trustedProxy.Enabled {
+			trustedProvisionSvc, err := trustedproxyprovision.New(result.UserStore, trustedproxyprovision.Config{
+				UsersDir:        cfg.Paths.UsersDir,
+				Source:          trustedProxy.Source,
+				AutoSignup:      trustedProxy.AutoSignup,
+				SkipOrgRoleSync: trustedProxy.RoleMapping.SkipOrgRoleSync,
+				WorkspaceExists: workspaceExists,
+				RoleMapping: authmapping.Config{
+					DefaultRole:            authmodel.Role(trustedProxy.RoleMapping.DefaultRole),
+					GroupMappings:          toTrustedProxyGroupMappings(trustedProxy.RoleMapping.GroupMappings),
+					WorkspaceMappings:      toTrustedProxyWorkspaceMappings(trustedProxy.RoleMapping.WorkspaceMappings),
+					DefaultWorkspaceAccess: trustedProxy.RoleMapping.DefaultWorkspaceAccess,
+					Strict:                 trustedProxy.RoleMapping.RoleAttributeStrict,
+				},
+			})
+			if err != nil {
+				return nil, fmt.Errorf("failed to create trusted proxy provisioning service: %w", err)
+			}
+			trustedProxyCfg = &auth.TrustedProxyLoginConfig{
+				Enabled:        true,
+				UserHeader:     trustedProxy.Headers.User,
+				GroupsHeader:   trustedProxy.Headers.Groups,
+				GroupsRequired: len(trustedProxy.RoleMapping.GroupMappings) > 0 || len(trustedProxy.RoleMapping.WorkspaceMappings) > 0,
+				Provision:      trustedProvisionSvc,
+				AuthService:    result.AuthService,
+				InitialSetupComplete: func(ctx context.Context) (bool, error) {
+					count, err := result.AuthService.CountUsers(ctx)
+					return count > 0, err
+				},
+				LoginBasePath: evaluatedBasePath,
+			}
+			logger.Info(ctx, "Trusted proxy authentication enabled",
+				slog.Bool("autoSignup", trustedProxy.AutoSignup),
+				slog.String("defaultRole", trustedProxy.RoleMapping.DefaultRole),
+				slog.Bool("authorizationSync", !trustedProxy.RoleMapping.SkipOrgRoleSync))
+		}
 
 		oidcCfg := cfg.Server.Auth.OIDC
 		if oidcCfg.IsConfigured() {
@@ -271,19 +358,7 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 					DefaultRole:            authmodel.Role(oidcCfg.RoleMapping.DefaultRole),
 				},
 			}
-			if wsStore != nil {
-				provisionCfg.WorkspaceExists = func(ctx context.Context, name string) (bool, error) {
-					_, err := wsStore.GetByName(ctx, name)
-					switch {
-					case err == nil:
-						return true, nil
-					case errors.Is(err, workspacepkg.ErrWorkspaceNotFound):
-						return false, nil
-					default:
-						return false, err
-					}
-				}
-			}
+			provisionCfg.WorkspaceExists = workspaceExists
 			provisionSvc, err := oidcprovision.New(result.UserStore, provisionCfg)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create OIDC provisioning service: %w", err)
@@ -428,6 +503,7 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 	srv := &Server{
 		config:                cfg,
 		builtinOIDCCfg:        builtinOIDCCfg,
+		trustedProxyCfg:       trustedProxyCfg,
 		authService:           authSvc,
 		auditService:          auditSvc,
 		auditStore:            auditStore,
@@ -442,24 +518,26 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 		remoteNodeResolver:    remoteNodeResolver,
 		upgradeStore:          upgradeStore,
 		funcsConfig: funcsConfig{
-			NavbarColor:           cfg.UI.NavbarColor,
-			NavbarTitle:           cfg.UI.NavbarTitle,
-			BasePath:              evaluatedBasePath,
-			APIBasePath:           cfg.Server.APIBasePath,
-			TZ:                    cfg.Core.TZ,
-			TzOffsetInSec:         cfg.Core.TzOffsetInSec,
-			MaxDashboardPageLimit: cfg.UI.MaxDashboardPageLimit,
-			RemoteNodes:           remoteNodes,
-			Permissions:           cfg.Server.Permissions,
-			Paths:                 cfg.Paths,
-			AuthMode:              cfg.Server.Auth.Mode,
-			OIDCEnabled:           oidcEnabled,
-			OIDCButtonLabel:       oidcButtonLabel,
-			TerminalEnabled:       cfg.Server.Terminal.Enabled && authSvc != nil,
-			GitSyncEnabled:        cfg.GitSync.Enabled,
-			WorkspaceStore:        wsStore,
-			SetupRequiredChecker:  &setupChecker{authSvc: authSvc, fallback: setupRequired},
-			UpdateChecker:         updateInfoChecker,
+			NavbarColor:             cfg.UI.NavbarColor,
+			NavbarTitle:             cfg.UI.NavbarTitle,
+			BasePath:                evaluatedBasePath,
+			APIBasePath:             cfg.Server.APIBasePath,
+			TZ:                      cfg.Core.TZ,
+			TzOffsetInSec:           cfg.Core.TzOffsetInSec,
+			MaxDashboardPageLimit:   cfg.UI.MaxDashboardPageLimit,
+			RemoteNodes:             remoteNodes,
+			Permissions:             cfg.Server.Permissions,
+			Paths:                   cfg.Paths,
+			AuthMode:                cfg.Server.Auth.Mode,
+			OIDCEnabled:             oidcEnabled,
+			OIDCButtonLabel:         oidcButtonLabel,
+			TrustedProxyEnabled:     cfg.Server.Auth.Proxy.Enabled,
+			TrustedProxyButtonLabel: cfg.Server.Auth.Proxy.LoginLabel,
+			TerminalEnabled:         cfg.Server.Terminal.Enabled && authSvc != nil,
+			GitSyncEnabled:          cfg.GitSync.Enabled,
+			WorkspaceStore:          wsStore,
+			SetupRequiredChecker:    &setupChecker{authSvc: authSvc, fallback: setupRequired},
+			UpdateChecker:           updateInfoChecker,
 		},
 	}
 
@@ -499,10 +577,16 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 		if srv.builtinOIDCCfg != nil {
 			srv.builtinOIDCCfg.LicenseChecker = licenseChecker
 		}
+		if srv.trustedProxyCfg != nil {
+			srv.trustedProxyCfg.LicenseChecker = licenseChecker
+		}
 	}
 
 	if srv.licenseManager != nil && srv.builtinOIDCCfg != nil && !srv.licenseManager.Checker().IsFeatureEnabled(license.FeatureSSO) {
 		logger.Warn(ctx, "SSO (OIDC) is configured but currently unavailable because the active license does not enable it")
+	}
+	if srv.licenseManager != nil && srv.trustedProxyCfg.Enabled && !srv.licenseManager.Checker().IsFeatureEnabled(license.FeatureSSO) {
+		logger.Warn(ctx, "Trusted proxy authentication is configured but currently unavailable because the active license does not enable it")
 	}
 
 	if srv.auditService != nil {
@@ -713,10 +797,13 @@ func (srv *Server) Serve(ctx context.Context) error {
 			logLevel = slog.LevelDebug
 		}
 		requestLogger := httplog.NewLogger("http", httplog.Options{
-			LogLevel:         logLevel,
-			JSON:             srv.config.Core.LogFormat == "json",
-			Concise:          true,
-			RequestHeaders:   srv.config.Core.Debug,
+			LogLevel:       logLevel,
+			JSON:           srv.config.Core.LogFormat == "json",
+			Concise:        true,
+			RequestHeaders: srv.config.Core.Debug,
+			HideRequestHeaders: trustedProxyRequestHeaders(
+				srv.config.Server.Auth.Proxy,
+			),
 			MessageFieldName: "msg",
 			ResponseHeaders:  false,
 			QuietDownRoutes: []string{
@@ -781,6 +868,20 @@ func (srv *Server) Serve(ctx context.Context) error {
 	srv.setupGracefulShutdown(ctx)
 
 	return nil
+}
+
+func trustedProxyRequestHeaders(cfg config.AuthTrustedProxy) []string {
+	if !cfg.Enabled {
+		return nil
+	}
+	headers := make([]string, 0, 2)
+	if cfg.Headers.User != "" {
+		headers = append(headers, cfg.Headers.User)
+	}
+	if cfg.Headers.Groups != "" {
+		headers = append(headers, cfg.Headers.Groups)
+	}
+	return headers
 }
 
 func (srv *Server) startNotificationMonitor(ctx context.Context) {
@@ -878,12 +979,13 @@ func ensureLeadingSlash(p string) string {
 }
 
 func (srv *Server) setupRoutes(ctx context.Context, r *chi.Mux) error {
+	basePath := srv.funcsConfig.BasePath
+	srv.setupTrustedProxyRoute(r, basePath)
 	if srv.config.Server.Headless {
 		logger.Info(ctx, "Headless mode enabled: UI is disabled, but API remains active")
 		return nil
 	}
 
-	basePath := srv.funcsConfig.BasePath
 	srv.setupAssetRoutes(r, basePath)
 	srv.setupOIDCRoutes(r, basePath)
 
@@ -898,14 +1000,21 @@ func (srv *Server) setupRoutes(ctx context.Context, r *chi.Mux) error {
 	return nil
 }
 
-func evaluateConfiguredBasePath(ctx context.Context, basePath string) string {
+func evaluateConfiguredBasePath(ctx context.Context, basePath string) (string, error) {
 	resolver := cmnvalue.NewResolver(cmnvalue.StaticScope{}, cmnvalue.RuntimeScope{})
 	evaluated, err := resolver.String(ctx, basePath, cmnvalue.ServerBasePathField("server.base_path"))
 	if err != nil {
-		logger.Warn(ctx, "Failed to evaluate server base path", tag.Path(basePath), tag.Error(err))
-		return basePath
+		return "", fmt.Errorf("evaluate server base path: %w", err)
 	}
-	return evaluated
+	if strings.ContainsAny(evaluated, "?#\\") || strings.IndexFunc(evaluated, unicode.IsControl) >= 0 {
+		return "", fmt.Errorf("evaluate server base path: result must be a local URL path")
+	}
+
+	cleaned := path.Clean("/" + strings.TrimLeft(strings.TrimSpace(evaluated), "/"))
+	if cleaned == "/" {
+		return "", nil
+	}
+	return cleaned, nil
 }
 
 func publicURLWithBasePath(publicURL, basePath string) string {
@@ -992,6 +1101,13 @@ func hasContentHashSuffix(base, suffix string) bool {
 		}
 	}
 	return true
+}
+
+func (srv *Server) setupTrustedProxyRoute(r *chi.Mux, basePath string) {
+	r.Handle(
+		pathutil.BuildPublicEndpointPath(basePath, "trusted-proxy-login"),
+		auth.TrustedProxyLoginHandler(srv.trustedProxyCfg),
+	)
 }
 
 func (srv *Server) setupOIDCRoutes(r *chi.Mux, basePath string) {

@@ -66,7 +66,7 @@ type OIDCClaims struct {
 
 // Service provides OIDC user provisioning functionality.
 type Service struct {
-	userStore  auth.UserStore
+	userStore  auth.AuthorizationSyncUserStore
 	config     Config
 	roleMapper *RoleMapper
 	logger     *slog.Logger
@@ -74,6 +74,10 @@ type Service struct {
 
 // New creates a new OIDC provisioning service.
 func New(userStore auth.UserStore, config Config) (*Service, error) {
+	authorizationStore, ok := userStore.(auth.AuthorizationSyncUserStore)
+	if !ok {
+		return nil, errors.New("OIDC provisioner: user store does not support atomic authorization sync")
+	}
 	if config.RoleMapping.DefaultRole == auth.RoleNone {
 		config.RoleMapping.DefaultRole = config.DefaultRole
 	}
@@ -83,7 +87,7 @@ func New(userStore auth.UserStore, config Config) (*Service, error) {
 	}
 
 	return &Service{
-		userStore:  userStore,
+		userStore:  authorizationStore,
 		config:     config,
 		roleMapper: roleMapper,
 		logger:     slog.Default().With(slog.String("service", "oidcprovision")),
@@ -120,7 +124,9 @@ func (s *Service) ProcessLogin(ctx context.Context, claims OIDCClaims) (*auth.Us
 		// Sync mapped authorization on re-login unless synchronization is disabled.
 		if !s.config.RoleMapping.SkipOrgRoleSync {
 			if err := s.syncUserAccess(ctx, user, claims); err != nil {
-				if s.roleMapper.WorkspaceAccessPolicyActive() || errors.Is(err, ErrNoRoleFound) {
+				if s.roleMapper.WorkspaceAccessPolicyActive() ||
+					errors.Is(err, ErrNoRoleFound) ||
+					errors.Is(err, auth.ErrUserDisabled) {
 					s.logger.Warn("OIDC login rejected: authorization mapping failed",
 						slog.String("user_id", user.ID),
 						slog.String("error", err.Error()))
@@ -247,15 +253,16 @@ func (s *Service) syncUserAccess(ctx context.Context, user *auth.User, claims OI
 
 	oldRole := user.Role
 	oldAccess := auth.CloneWorkspaceAccess(user.WorkspaceAccess)
-	updated := *user
-	updated.Role = newRole
-	if accessPolicyActive {
-		updated.WorkspaceAccess = auth.CloneWorkspaceAccess(newAccess)
+	workspaceAccess := newAccess
+	if !accessPolicyActive {
+		workspaceAccess = nil
 	}
-	updated.UpdatedAt = time.Now().UTC()
-
-	if err := s.userStore.Update(ctx, &updated); err != nil {
+	updated, err := s.userStore.SyncAuthorization(ctx, user.ID, newRole, workspaceAccess)
+	if err != nil {
 		return fmt.Errorf("failed to update OIDC user authorization: %w", err)
+	}
+	if updated == nil {
+		return errors.New("failed to update OIDC user authorization: store returned no user")
 	}
 
 	user.Role = updated.Role
