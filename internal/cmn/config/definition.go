@@ -161,20 +161,14 @@ type AuthOIDCDef struct {
 
 // OIDCRoleMappingDef maps OIDC claims to Dagu roles.
 type OIDCRoleMappingDef struct {
-	DefaultRole            string                             `mapstructure:"default_role"`             // Default: "viewer"
-	GroupsClaim            string                             `mapstructure:"groups_claim"`             // Default: "groups"
-	GroupMappings          map[string]string                  `mapstructure:"group_mappings"`           // IdP group -> Dagu role
-	WorkspaceMappings      map[string][]OIDCWorkspaceGrantDef `mapstructure:"workspace_mappings"`       // IdP group -> workspace grants
-	DefaultWorkspaceAccess string                             `mapstructure:"default_workspace_access"` // Default: "all"
-	RoleAttributePath      string                             `mapstructure:"role_attribute_path"`      // jq expression for role extraction
-	RoleAttributeStrict    *bool                              `mapstructure:"role_attribute_strict"`    // Deny login if no global or workspace mapping matches
-	SkipOrgRoleSync        *bool                              `mapstructure:"skip_org_role_sync"`       // Keep first-login authorization assignments
-}
-
-// OIDCWorkspaceGrantDef configures a role grant for one workspace.
-type OIDCWorkspaceGrantDef struct {
-	Workspace string `mapstructure:"workspace" json:"workspace"`
-	Role      string `mapstructure:"role" json:"role"`
+	DefaultRole            string                          `mapstructure:"default_role"`             // Default: "viewer"
+	GroupsClaim            string                          `mapstructure:"groups_claim"`             // Default: "groups"
+	GroupMappings          map[string]string               `mapstructure:"group_mappings"`           // IdP group -> Dagu role
+	WorkspaceMappings      map[string][]OIDCWorkspaceGrant `mapstructure:"workspace_mappings"`       // IdP group -> workspace grants
+	DefaultWorkspaceAccess string                          `mapstructure:"default_workspace_access"` // Default: "all"
+	RoleAttributePath      string                          `mapstructure:"role_attribute_path"`      // jq expression for role extraction
+	RoleAttributeStrict    *bool                           `mapstructure:"role_attribute_strict"`    // Deny login if no global or workspace mapping matches
+	SkipOrgRoleSync        *bool                           `mapstructure:"skip_org_role_sync"`       // Keep first-login authorization assignments
 }
 
 // PermissionsDef configures UI and API permissions.

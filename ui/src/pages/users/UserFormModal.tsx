@@ -136,54 +136,26 @@ export function UserFormModal({
         appBarContext.selectedRemoteNode || 'local'
       );
       const effectiveRole = workspaceAccess.all ? role : UserRole.viewer;
-      const payload: {
-        username: string;
-        role?: string;
-        workspaceAccess?: WorkspaceAccess;
-      } = {
-        username,
-      };
-      if (!managedBySSO) {
-        payload.role = effectiveRole;
-        payload.workspaceAccess = workspaceAccess;
-      }
+      const payload = managedBySSO
+        ? { username }
+        : { username, role: effectiveRole, workspaceAccess };
+      const endpoint = user
+        ? `${config.apiURL}/users/${user.id}?remoteNode=${remoteNode}`
+        : `${config.apiURL}/users?remoteNode=${remoteNode}`;
+      const response = await fetch(endpoint, {
+        method: user ? 'PATCH' : 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(user ? payload : { ...payload, password }),
+      });
 
-      if (isEditing) {
-        // Update user
-        const response = await fetch(
-          `${config.apiURL}/users/${user.id}?remoteNode=${remoteNode}`,
-          {
-            method: 'PATCH',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify(payload),
-          }
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(
+          data.message || `Failed to ${user ? 'update' : 'create'} user`
         );
-
-        if (!response.ok) {
-          const data = await response.json().catch(() => ({}));
-          throw new Error(data.message || 'Failed to update user');
-        }
-      } else {
-        // Create user
-        const response = await fetch(
-          `${config.apiURL}/users?remoteNode=${remoteNode}`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify({ ...payload, password }),
-          }
-        );
-
-        if (!response.ok) {
-          const data = await response.json().catch(() => ({}));
-          throw new Error(data.message || 'Failed to create user');
-        }
       }
 
       onSuccess();

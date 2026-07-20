@@ -589,7 +589,7 @@ func (l *ConfigLoader) loadOIDCRoleMapping(cfg *Config, rm *OIDCRoleMappingDef) 
 	cfg.Server.Auth.OIDC.RoleMapping.DefaultRole = rm.DefaultRole
 	cfg.Server.Auth.OIDC.RoleMapping.GroupsClaim = rm.GroupsClaim
 	cfg.Server.Auth.OIDC.RoleMapping.GroupMappings = rm.GroupMappings
-	cfg.Server.Auth.OIDC.RoleMapping.WorkspaceMappings = toOIDCWorkspaceMappings(rm.WorkspaceMappings)
+	cfg.Server.Auth.OIDC.RoleMapping.WorkspaceMappings = rm.WorkspaceMappings
 	cfg.Server.Auth.OIDC.RoleMapping.DefaultWorkspaceAccess = rm.DefaultWorkspaceAccess
 	cfg.Server.Auth.OIDC.RoleMapping.RoleAttributePath = rm.RoleAttributePath
 
@@ -599,25 +599,6 @@ func (l *ConfigLoader) loadOIDCRoleMapping(cfg *Config, rm *OIDCRoleMappingDef) 
 	if rm.SkipOrgRoleSync != nil {
 		cfg.Server.Auth.OIDC.RoleMapping.SkipOrgRoleSync = *rm.SkipOrgRoleSync
 	}
-}
-
-func toOIDCWorkspaceMappings(input map[string][]OIDCWorkspaceGrantDef) map[string][]OIDCWorkspaceGrant {
-	if input == nil {
-		return nil
-	}
-
-	result := make(map[string][]OIDCWorkspaceGrant, len(input))
-	for group, grants := range input {
-		converted := make([]OIDCWorkspaceGrant, len(grants))
-		for i, grant := range grants {
-			converted[i] = OIDCWorkspaceGrant{
-				Workspace: grant.Workspace,
-				Role:      grant.Role,
-			}
-		}
-		result[group] = converted
-	}
-	return result
 }
 
 func (l *ConfigLoader) loadOIDCWorkspaceMappingsEnv() error {
@@ -639,7 +620,7 @@ func (l *ConfigLoader) loadOIDCWorkspaceMappingsEnv() error {
 
 	decoder := json.NewDecoder(strings.NewReader(trimmed))
 	decoder.DisallowUnknownFields()
-	var mappings map[string][]OIDCWorkspaceGrantDef
+	var mappings map[string][]OIDCWorkspaceGrant
 	if err := decoder.Decode(&mappings); err != nil {
 		return fmt.Errorf("invalid %s JSON: %w", envName, err)
 	}

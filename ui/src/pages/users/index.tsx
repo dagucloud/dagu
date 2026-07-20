@@ -39,6 +39,22 @@ import { UserFormModal } from './UserFormModal';
 type User = components['schemas']['User'];
 type UsersListResponse = components['schemas']['UsersListResponse'];
 
+function UserAuthProvider({
+  user,
+  syncEnabled,
+}: {
+  user: User;
+  syncEnabled: boolean;
+}) {
+  if (user.authProvider !== 'oidc') {
+    return 'Local';
+  }
+  if (!syncEnabled) {
+    return 'SSO';
+  }
+  return <Badge variant="info">Managed by SSO</Badge>;
+}
+
 /**
  * Render the Users management page with a table of accounts and controls for creating, editing, resetting passwords, and deleting users.
  *
@@ -281,15 +297,10 @@ export default function UsersPage() {
                     </span>
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    {user.authProvider === 'oidc' ? (
-                      oidcWorkspaceAccessSyncEnabled ? (
-                        <Badge variant="info">Managed by SSO</Badge>
-                      ) : (
-                        'SSO'
-                      )
-                    ) : (
-                      'Local'
-                    )}
+                    <UserAuthProvider
+                      user={user}
+                      syncEnabled={oidcWorkspaceAccessSyncEnabled}
+                    />
                   </TableCell>
                   <TableCell className="text-sm">
                     {user.isDisabled ? (

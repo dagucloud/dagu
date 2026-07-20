@@ -305,8 +305,8 @@ type OIDCRoleMapping struct {
 
 // OIDCWorkspaceGrant assigns an OIDC group member a role in one workspace.
 type OIDCWorkspaceGrant struct {
-	Workspace string
-	Role      string
+	Workspace string `mapstructure:"workspace" json:"workspace"`
+	Role      string `mapstructure:"role" json:"role"`
 }
 
 const (
