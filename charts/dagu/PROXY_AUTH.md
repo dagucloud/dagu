@@ -1,12 +1,12 @@
-# Trusted proxy header authentication
+# Proxy authentication
 
-Trusted proxy authentication lets an authenticating reverse proxy establish a
+Proxy authentication lets an authenticating reverse proxy establish a
 Dagu browser session. Dagu trusts the configured identity headers only on
-`GET /trusted-proxy-login`; sending the same headers to APIs, webhooks, health
+`GET /proxy-login`; sending the same headers to APIs, webhooks, health
 checks, static files, or other routes does not authenticate those requests.
 
 This feature is safe only when every route to the Dagu UI service passes through
-the trusted proxy. A client that can reach the UI directly can choose the
+the authenticating proxy. A client that can reach the UI directly can choose the
 identity headers and impersonate a user.
 
 Dagu's built-in tunnel must remain disabled because it creates a separate
@@ -18,7 +18,7 @@ this combination at startup.
 - Builtin authentication is initialized with a local emergency administrator.
 - The active license includes SSO.
 - Exactly one UI replica is running. The Helm chart rejects other replica counts
-  while trusted proxy authentication is enabled and uses the `Recreate` upgrade
+  while proxy authentication is enabled and uses the `Recreate` upgrade
   strategy to prevent old and new UI pods from overlapping.
 - The proxy supplies a stable, unique, non-reassigned user identifier. Changing
   the meaning of the user header can create another account or reuse an old one.
@@ -87,7 +87,7 @@ Helm deployments must use the `auth.proxy` values above; the chart rejects
 `DAGU_AUTH_PROXY_*` entries in `extraEnv` so its replica and rollout safeguards
 cannot be bypassed.
 
-When `syncAccess` is true, each trusted-proxy login replaces the user's role and
+When `syncAccess` is true, each proxy login replaces the user's role and
 workspace access with the current mapping result. API edits remain possible but
 can be overwritten by the next login. When it is false, Dagu keeps the
 authorization assigned when the account was first provisioned. `requireMapping`
@@ -103,7 +103,7 @@ are both enabled.
 
 ## Proxy contract
 
-For requests sent to Dagu, the trusted proxy must:
+For requests sent to Dagu, the authenticating proxy must:
 
 1. Remove identity headers supplied by the client.
 2. Authenticate the request.
@@ -135,12 +135,12 @@ extraArgs:
 ```
 
 The exact provider, cookie, redirect URL, and client-secret settings are
-deployment-specific. Scope `trusted-proxy-ip` to the ingress controllers that
-can reach oauth2-proxy; reverse-proxy mode otherwise trusts forwarded headers
-from every source for backward compatibility. Configure every required
-ingress-controller CIDR using the argument syntax supported by the deployed
-oauth2-proxy chart version. Expose oauth2-proxy's `/oauth2/start` and callback
-routes through the same public hostname.
+deployment-specific. Scope the `trusted-proxy-ip` option to the ingress
+controllers that can reach oauth2-proxy; reverse-proxy mode otherwise trusts
+forwarded headers from every source for backward compatibility. Configure every
+required ingress-controller CIDR using the argument syntax supported by the
+deployed oauth2-proxy chart version. Expose oauth2-proxy's `/oauth2/start` and
+callback routes through the same public hostname.
 
 Following ingress-nginx's
 [external authentication pattern](https://kubernetes.github.io/ingress-nginx/examples/auth/oauth-external-auth/),
@@ -177,18 +177,18 @@ Proxy configuration is not complete until the negative tests below pass.
 
 ## Network isolation
 
-[`examples/trusted-proxy-network-policy.yaml`](./examples/trusted-proxy-network-policy.yaml)
+[`examples/proxy-network-policy.yaml`](./examples/proxy-network-policy.yaml)
 is a starting point. In the ingress-nginx external-auth topology above,
 ingress-nginx forwards the application request after consulting oauth2-proxy,
 so the policy must allow the ingress controller rather than oauth2-proxy. Edit
 its release, namespace, and ingress-controller labels before applying it, and
-label the controller namespace with `dagu.sh/trusted-ingress=true`. The example
+label the controller namespace with `dagu.sh/proxy-ingress=true`. The example
 is deliberately not installed by the chart because ingress and monitoring
 topology cannot be inferred safely.
 
 ```bash
-kubectl label namespace ingress-nginx dagu.sh/trusted-ingress=true
-kubectl apply -f charts/dagu/examples/trusted-proxy-network-policy.yaml
+kubectl label namespace ingress-nginx dagu.sh/proxy-ingress=true
+kubectl apply -f charts/dagu/examples/proxy-network-policy.yaml
 ```
 
 Keep the UI Service as `ClusterIP`. Do not add a public `LoadBalancer`,
@@ -202,7 +202,7 @@ Verify both boundaries before rollout:
 ```bash
 # A forged identity must be rejected by the proxy or overwritten with the
 # identity of the authenticated browser session.
-curl -i https://dagu.example.com/trusted-proxy-login \
+curl -i https://dagu.example.com/proxy-login \
   -H 'X-Auth-Request-User: forged-user'
 
 # From an unrelated pod, direct UI access must time out or be denied.
@@ -214,23 +214,23 @@ kubectl -n default run dagu-direct-check --rm -i --restart=Never \
 Also verify a valid browser login, group mapping, strict no-match denial, and a
 disabled account before exposing the service broadly.
 
-Trusted-proxy chart upgrades briefly interrupt the UI because the old UI pod is
-stopped before its replacement starts. Scheduler, coordinator, and worker
-upgrade strategies are unchanged.
+Chart upgrades briefly interrupt the UI while proxy authentication is enabled
+because the old UI pod is stopped before its replacement starts. Scheduler,
+coordinator, and worker upgrade strategies are unchanged.
 
 ## Account lifecycle and recovery
 
-- Trusted-proxy users do not have Dagu passwords. Password login, change, and
+- Proxy users do not have Dagu passwords. Password login, change, and
   administrator reset are unavailable for them.
 - Disabling a user takes effect when the current JWT is checked on the next
-  request. Mapping changes take effect at the next trusted-proxy login.
+  request. Mapping changes take effect at the next proxy login.
 - Deleting a user allows the same identity to be provisioned again when
   `autoSignup` is true. Disable the user for durable denial.
 - Keep the local emergency administrator and test it periodically through a
   network-restricted operator path. That path must strip identity headers and
-  deny `/trusted-proxy-login`; it exists only for local password recovery.
+  deny `/proxy-login`; it exists only for local password recovery.
 
 To roll back, first remove `auth.proxy`, restore a safe access path for
 the local administrator, and then deploy the older Dagu version. Preserve a user
-store backup: older binaries may not retain trusted-proxy identity metadata if
-they update these user records.
+store backup: older binaries may not retain proxy identity metadata if they
+update these user records.

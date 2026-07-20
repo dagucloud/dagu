@@ -21,8 +21,8 @@ const (
 )
 
 var (
-	errTrustedProxyIdentityUnavailable = errors.New("trusted proxy identity unavailable")
-	errTrustedProxyIdentityInvalid     = errors.New("trusted proxy identity invalid")
+	errTrustedProxyIdentityUnavailable = errors.New("proxy identity unavailable")
+	errTrustedProxyIdentityInvalid     = errors.New("proxy identity invalid")
 )
 
 type trustedProxyIdentity struct {

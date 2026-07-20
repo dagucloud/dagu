@@ -324,7 +324,7 @@ func (m OIDCRoleMapping) WorkspaceAccessPolicyActive() bool {
 	return len(m.WorkspaceMappings) > 0 || m.DefaultWorkspaceAccess == OIDCDefaultWorkspaceAccessNone
 }
 
-// AuthTrustedProxy configures authentication delegated to a trusted reverse proxy.
+// AuthTrustedProxy configures authentication delegated to an authenticating reverse proxy.
 type AuthTrustedProxy struct {
 	Enabled     bool
 	Source      string
@@ -334,13 +334,13 @@ type AuthTrustedProxy struct {
 	RoleMapping TrustedProxyRoleMapping
 }
 
-// TrustedProxyHeaders identifies the headers populated by the trusted proxy.
+// TrustedProxyHeaders identifies the headers populated by the authenticating proxy.
 type TrustedProxyHeaders struct {
 	User   string
 	Groups string
 }
 
-// TrustedProxyRoleMapping defines how trusted proxy groups map to Dagu authorization.
+// TrustedProxyRoleMapping defines how proxy groups map to Dagu authorization.
 type TrustedProxyRoleMapping struct {
 	DefaultRole            string
 	GroupMappings          map[string]string
@@ -350,7 +350,7 @@ type TrustedProxyRoleMapping struct {
 	SyncAccess             bool
 }
 
-// TrustedProxyWorkspaceGrant assigns a trusted proxy group member a role in one workspace.
+// TrustedProxyWorkspaceGrant assigns a proxy group member a role in one workspace.
 type TrustedProxyWorkspaceGrant struct {
 	Workspace string `mapstructure:"workspace" json:"workspace" yaml:"workspace"`
 	Role      string `mapstructure:"role" json:"role" yaml:"role"`

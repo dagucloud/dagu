@@ -13,8 +13,8 @@ Components deployed:
   UI: {{ .Values.ui.replicas }} replica(s)
 
 {{ if .Values.auth.proxy.enabled }}
-Trusted proxy authentication is enabled.
-  Route UI traffic only through the trusted authentication proxy.
+Proxy authentication is enabled.
+  Route UI traffic only through the authenticating proxy.
   Do not use kubectl port-forward, NodePort, public LoadBalancer, or any other
   path that can reach the Dagu UI service without passing through that proxy.
 {{ else }}

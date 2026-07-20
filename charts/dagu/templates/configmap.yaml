@@ -1,6 +1,6 @@
 {{- range .Values.extraEnv }}
 {{- if hasPrefix "DAGU_AUTH_PROXY_" .name }}
-{{- fail (printf "extraEnv entry %q must not configure trusted proxy authentication; use auth.proxy values" .name) }}
+{{- fail (printf "extraEnv entry %q must not configure proxy authentication; use auth.proxy values" .name) }}
 {{- end }}
 {{- end }}
 {{- if and .Values.auth.proxy.enabled (ne .Values.auth.mode "builtin") }}

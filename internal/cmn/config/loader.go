@@ -780,7 +780,7 @@ func (l *ConfigLoader) mergeTrustedProxyMappingsFile(filename string) error {
 
 	data, err := os.ReadFile(filename)
 	if err != nil {
-		return fmt.Errorf("failed to read trusted proxy mappings from %q: %w", filename, err)
+		return fmt.Errorf("failed to read proxy authentication mappings from %q: %w", filename, err)
 	}
 
 	var document trustedProxyMappingsDocument

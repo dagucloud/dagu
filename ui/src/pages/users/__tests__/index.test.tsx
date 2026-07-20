@@ -37,8 +37,8 @@ function makeConfig(): Config {
     setupRequired: false,
     oidcEnabled: true,
     oidcButtonLabel: 'Login with SSO',
-    trustedProxyEnabled: true,
-    trustedProxyButtonLabel: 'Continue with SSO',
+    proxyEnabled: true,
+    proxyButtonLabel: 'Continue with SSO',
     terminalEnabled: false,
     gitSyncEnabled: false,
     updateAvailable: false,
@@ -182,7 +182,7 @@ describe('UsersPage', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('marks trusted proxy authorization as managed and hides password reset', async () => {
+  it('marks proxy authorization as managed and hides password reset', async () => {
     const user = userEvent.setup();
     renderPage({
       users: [
@@ -316,7 +316,7 @@ describe('UsersPage', () => {
     expect(onSuccess).toHaveBeenCalledOnce();
   });
 
-  it('renders trusted proxy authorization as read-only when managed', () => {
+  it('renders proxy authorization as read-only when managed', () => {
     render(
       <ConfigContext.Provider value={makeConfig()}>
         <AppBarContext.Provider value={appBarValue}>

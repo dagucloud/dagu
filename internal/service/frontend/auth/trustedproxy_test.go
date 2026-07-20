@@ -61,7 +61,7 @@ func TestTrustedProxyLoginHandlerSuccess(t *testing.T) {
 	provision := &trustedProxyProvisionStub{user: user, isNew: true}
 	cfg := trustedProxyTestConfig(provision)
 
-	req := httptest.NewRequest(http.MethodGet, "/base/trusted-proxy-login", nil)
+	req := httptest.NewRequest(http.MethodGet, "/base/proxy-login", nil)
 	req = req.WithContext(cmnlogger.WithLogger(req.Context(), cmnlogger.NewLogger(
 		cmnlogger.WithWriter(&logOutput),
 		cmnlogger.WithQuiet(),
@@ -141,7 +141,7 @@ func TestTrustedProxyLoginHandlerFailures(t *testing.T) {
 			if tt.configure != nil {
 				tt.configure(cfg, provision)
 			}
-			target := "/base/trusted-proxy-login" + tt.target
+			target := "/base/proxy-login" + tt.target
 			var body *strings.Reader
 			if tt.body != "" {
 				body = strings.NewReader(tt.body)

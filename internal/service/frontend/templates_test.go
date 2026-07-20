@@ -130,24 +130,24 @@ func TestDefaultFunctionsExposeLicensedTrustedProxyLogin(t *testing.T) {
 
 	licensed := license.NewTestManager(license.FeatureSSO)
 	funcs := defaultFunctions(&funcsConfig{
-		TrustedProxyEnabled:     true,
-		TrustedProxyButtonLabel: "Continue with Corporate SSO",
-		LicenseChecker:          licensed.Checker(),
+		ProxyEnabled:     true,
+		ProxyButtonLabel: "Continue with Corporate SSO",
+		LicenseChecker:   licensed.Checker(),
 	})
 
-	enabled, ok := funcs["trustedProxyEnabled"].(func() string)
+	enabled, ok := funcs["proxyEnabled"].(func() string)
 	require.True(t, ok)
 	assert.Equal(t, "true", enabled())
-	label, ok := funcs["trustedProxyButtonLabel"].(func() string)
+	label, ok := funcs["proxyButtonLabel"].(func() string)
 	require.True(t, ok)
 	assert.Equal(t, "Continue with Corporate SSO", label())
 
 	unlicensed := license.NewTestManager(license.FeatureRBAC)
 	funcs = defaultFunctions(&funcsConfig{
-		TrustedProxyEnabled: true,
-		LicenseChecker:      unlicensed.Checker(),
+		ProxyEnabled:   true,
+		LicenseChecker: unlicensed.Checker(),
 	})
-	enabled = funcs["trustedProxyEnabled"].(func() string)
+	enabled = funcs["proxyEnabled"].(func() string)
 	assert.Equal(t, "false", enabled())
 }
 
@@ -156,8 +156,8 @@ func TestBaseTemplateEscapesTrustedProxyLoginLabelForJavaScript(t *testing.T) {
 
 	const label = `</script><script>alert("injected")</script>`
 	tmpl, err := template.New("base").Funcs(defaultFunctions(&funcsConfig{
-		TrustedProxyEnabled:     true,
-		TrustedProxyButtonLabel: label,
+		ProxyEnabled:     true,
+		ProxyButtonLabel: label,
 	})).ParseFS(assetsFS, "templates/base.gohtml")
 	require.NoError(t, err)
 	tmpl, err = tmpl.Parse(`{{define "content"}}{{end}}`)

@@ -26,15 +26,15 @@ var (
 	// ErrOIDCIdentityAlreadyExists is returned when attempting to create a user
 	// with an OIDC identity that already exists.
 	ErrOIDCIdentityAlreadyExists = errors.New("OIDC identity already exists")
-	// ErrTrustedProxyIdentityNotFound is returned when a trusted-proxy identity cannot be found.
-	ErrTrustedProxyIdentityNotFound = errors.New("trusted-proxy identity not found")
+	// ErrTrustedProxyIdentityNotFound is returned when a proxy identity cannot be found.
+	ErrTrustedProxyIdentityNotFound = errors.New("proxy identity not found")
 	// ErrTrustedProxyIdentityAlreadyExists is returned when attempting to create a user
-	// with a trusted-proxy identity that already exists.
-	ErrTrustedProxyIdentityAlreadyExists = errors.New("trusted-proxy identity already exists")
+	// with a proxy identity that already exists.
+	ErrTrustedProxyIdentityAlreadyExists = errors.New("proxy identity already exists")
 	// ErrInvalidTrustedProxyIdentity is returned when the provider and trusted identity are inconsistent.
-	ErrInvalidTrustedProxyIdentity = errors.New("invalid trusted-proxy identity")
+	ErrInvalidTrustedProxyIdentity = errors.New("invalid proxy identity")
 	// ErrTrustedProxyIdentityImmutable is returned when an existing trusted identity is changed.
-	ErrTrustedProxyIdentityImmutable = errors.New("trusted-proxy identity is immutable")
+	ErrTrustedProxyIdentityImmutable = errors.New("proxy identity is immutable")
 )
 
 // Common errors for API key store operations.
@@ -98,7 +98,7 @@ type UserStore interface {
 	// Returns ErrOIDCIdentityNotFound if no user exists with the given OIDC identity.
 	GetByOIDCIdentity(ctx context.Context, issuer, subject string) (*User, error)
 
-	// GetByTrustedProxyIdentity retrieves a user by their trusted-proxy identity source and user.
+	// GetByTrustedProxyIdentity retrieves a user by their proxy identity source and user.
 	// Returns ErrTrustedProxyIdentityNotFound if no user exists with the given identity.
 	GetByTrustedProxyIdentity(ctx context.Context, source, user string) (*User, error)
 

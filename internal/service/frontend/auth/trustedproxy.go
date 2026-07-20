@@ -19,7 +19,7 @@ import (
 	"github.com/dagucloud/dagu/internal/service/trustedproxyprovision"
 )
 
-// TrustedProxyProvisioner resolves trusted proxy identities into Dagu users.
+// TrustedProxyProvisioner resolves proxy identities into Dagu users.
 type TrustedProxyProvisioner interface {
 	ProcessLogin(context.Context, string, []string) (*authmodel.User, bool, error)
 }
@@ -29,7 +29,7 @@ type TrustedProxyTokenService interface {
 	GenerateToken(*authmodel.User) (*authservice.TokenResult, error)
 }
 
-// TrustedProxyLoginConfig configures the trusted proxy browser login endpoint.
+// TrustedProxyLoginConfig configures the proxy authentication browser login endpoint.
 type TrustedProxyLoginConfig struct {
 	Enabled              bool
 	UserHeader           string
@@ -63,12 +63,12 @@ func TrustedProxyLoginHandler(cfg *TrustedProxyLoginConfig) http.Handler {
 			return
 		}
 		if cfg.LicenseChecker != nil && !cfg.LicenseChecker.IsFeatureEnabled(license.FeatureSSO) {
-			logger.Warn(r.Context(), "Trusted proxy login denied", slog.String("reason", "license_unavailable"))
+			logger.Warn(r.Context(), "Proxy login denied", slog.String("reason", "license_unavailable"))
 			writeTrustedProxyError(w, http.StatusForbidden, "access denied")
 			return
 		}
 		if cfg.Provision == nil || cfg.AuthService == nil {
-			logger.Error(r.Context(), "Trusted proxy login services are not configured")
+			logger.Error(r.Context(), "Proxy login services are not configured")
 			writeTrustedProxyError(w, http.StatusInternalServerError, "authentication failed")
 			return
 		}
@@ -77,10 +77,10 @@ func TrustedProxyLoginHandler(cfg *TrustedProxyLoginConfig) http.Handler {
 		if err != nil {
 			switch {
 			case errors.Is(err, errTrustedProxyIdentityUnavailable):
-				logger.Warn(r.Context(), "Trusted proxy login denied", slog.String("reason", "identity_unavailable"))
+				logger.Warn(r.Context(), "Proxy login denied", slog.String("reason", "identity_unavailable"))
 				writeTrustedProxyError(w, http.StatusUnauthorized, "proxy identity unavailable")
 			default:
-				logger.Warn(r.Context(), "Trusted proxy login denied", slog.String("reason", "invalid_identity"))
+				logger.Warn(r.Context(), "Proxy login denied", slog.String("reason", "invalid_identity"))
 				writeTrustedProxyError(w, http.StatusBadRequest, "invalid proxy identity")
 			}
 			return
@@ -92,38 +92,38 @@ func TrustedProxyLoginHandler(cfg *TrustedProxyLoginConfig) http.Handler {
 			case errors.Is(err, trustedproxyprovision.ErrInitialSetupRequired):
 				redirectTrustedProxySetup(w, r, cfg.LoginBasePath)
 			case errors.Is(err, trustedproxyprovision.ErrInvalidIdentity):
-				logger.Warn(r.Context(), "Trusted proxy login denied", slog.String("reason", "invalid_identity"))
+				logger.Warn(r.Context(), "Proxy login denied", slog.String("reason", "invalid_identity"))
 				writeTrustedProxyError(w, http.StatusBadRequest, "invalid proxy identity")
 			case errors.Is(err, trustedproxyprovision.ErrAutoSignupDisabled):
-				logger.Warn(r.Context(), "Trusted proxy login denied", slog.String("reason", "auto_signup_disabled"))
+				logger.Warn(r.Context(), "Proxy login denied", slog.String("reason", "auto_signup_disabled"))
 				writeTrustedProxyError(w, http.StatusForbidden, "access denied")
 			case errors.Is(err, trustedproxyprovision.ErrAuthorizationMapping):
-				logger.Warn(r.Context(), "Trusted proxy login denied", slog.String("reason", "authorization_mapping"))
+				logger.Warn(r.Context(), "Proxy login denied", slog.String("reason", "authorization_mapping"))
 				writeTrustedProxyError(w, http.StatusForbidden, "access denied")
 			case errors.Is(err, authservice.ErrUserDisabled):
-				logger.Warn(r.Context(), "Trusted proxy login denied", slog.String("reason", "user_disabled"))
+				logger.Warn(r.Context(), "Proxy login denied", slog.String("reason", "user_disabled"))
 				writeTrustedProxyError(w, http.StatusForbidden, "access denied")
 			default:
-				logger.Error(r.Context(), "Trusted proxy provisioning failed", tag.Error(err))
+				logger.Error(r.Context(), "Proxy authentication provisioning failed", tag.Error(err))
 				writeTrustedProxyError(w, http.StatusInternalServerError, "authentication failed")
 			}
 			return
 		}
 		if user == nil {
-			logger.Error(r.Context(), "Trusted proxy provisioning returned no user")
+			logger.Error(r.Context(), "Proxy authentication provisioning returned no user")
 			writeTrustedProxyError(w, http.StatusInternalServerError, "authentication failed")
 			return
 		}
 
 		tokenResult, err := cfg.AuthService.GenerateToken(user)
 		if err != nil || tokenResult == nil || tokenResult.Token == "" {
-			logger.Error(r.Context(), "Trusted proxy session creation failed", tag.Error(err))
+			logger.Error(r.Context(), "Proxy session creation failed", tag.Error(err))
 			writeTrustedProxyError(w, http.StatusInternalServerError, "authentication failed")
 			return
 		}
 
 		access := authmodel.NormalizeWorkspaceAccess(user.WorkspaceAccess)
-		logger.Info(r.Context(), "Trusted proxy login accepted",
+		logger.Info(r.Context(), "Proxy login accepted",
 			slog.String("user_id", user.ID),
 			slog.Bool("new_user", isNew),
 			slog.Int("group_count", len(identity.groups)),
@@ -143,13 +143,13 @@ func TrustedProxyLoginHandler(cfg *TrustedProxyLoginConfig) http.Handler {
 
 func allowTrustedProxyAfterInitialSetup(w http.ResponseWriter, r *http.Request, cfg *TrustedProxyLoginConfig) bool {
 	if cfg.InitialSetupComplete == nil {
-		logger.Error(r.Context(), "Initial setup check is not configured for trusted proxy login")
+		logger.Error(r.Context(), "Initial setup check is not configured for proxy login")
 		writeTrustedProxyError(w, http.StatusInternalServerError, "authentication failed")
 		return false
 	}
 	complete, err := cfg.InitialSetupComplete(r.Context())
 	if err != nil {
-		logger.Error(r.Context(), "Failed to check initial setup before trusted proxy login", tag.Error(err))
+		logger.Error(r.Context(), "Failed to check initial setup before proxy login", tag.Error(err))
 		writeTrustedProxyError(w, http.StatusInternalServerError, "authentication failed")
 		return false
 	}

@@ -44,9 +44,9 @@ type User struct {
 	OIDCIssuer string `json:"oidc_issuer,omitempty"`
 	// OIDCSubject is the unique subject identifier from the OIDC provider.
 	OIDCSubject string `json:"oidc_subject,omitempty"`
-	// TrustedProxySource identifies the trusted proxy identity source.
+	// TrustedProxySource identifies the proxy identity source.
 	TrustedProxySource string `json:"trusted_proxy_source,omitempty"`
-	// TrustedProxyUser is the opaque identity supplied by the trusted proxy.
+	// TrustedProxyUser is the opaque identity supplied by the authenticating proxy.
 	TrustedProxyUser string `json:"trusted_proxy_user,omitempty"`
 	// IsDisabled indicates if the user account is disabled.
 	// Disabled users cannot log in.

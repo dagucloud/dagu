@@ -26,7 +26,7 @@ type UserStore struct {
 	mu                     sync.RWMutex
 	byUsername             map[string]string // username → userID
 	byOIDCIdentity         map[string]string // oidcKey(issuer,subject) → userID
-	byTrustedProxyIdentity map[string]string // trusted proxy source + user → userID
+	byTrustedProxyIdentity map[string]string // proxy source + user → userID
 	count                  int64
 }
 
@@ -181,7 +181,7 @@ func (s *UserStore) GetByOIDCIdentity(ctx context.Context, issuer, subject strin
 	return user, err
 }
 
-// GetByTrustedProxyIdentity retrieves a user by their trusted-proxy identity source and user.
+// GetByTrustedProxyIdentity retrieves a user by their proxy identity source and user.
 // Returns [auth.ErrTrustedProxyIdentityNotFound] if no user exists with the given identity.
 func (s *UserStore) GetByTrustedProxyIdentity(ctx context.Context, source, identity string) (*auth.User, error) {
 	if identity == "" {

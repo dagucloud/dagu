@@ -33,8 +33,8 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     setupRequired: false,
     oidcEnabled: false,
     oidcButtonLabel: '',
-    trustedProxyEnabled: false,
-    trustedProxyButtonLabel: '',
+    proxyEnabled: false,
+    proxyButtonLabel: '',
     terminalEnabled: false,
     gitSyncEnabled: false,
     updateAvailable: false,
@@ -78,18 +78,18 @@ function renderLogin(config: Config) {
   );
 }
 
-describe('LoginPage trusted proxy login', () => {
+describe('LoginPage proxy login', () => {
   it('renders the configured explicit login link', () => {
     renderLogin(
       makeConfig({
-        trustedProxyEnabled: true,
-        trustedProxyButtonLabel: 'Continue with Corporate SSO',
+        proxyEnabled: true,
+        proxyButtonLabel: 'Continue with Corporate SSO',
       })
     );
 
     expect(
       screen.getByRole('link', { name: 'Continue with Corporate SSO' })
-    ).toHaveAttribute('href', '/dagu/trusted-proxy-login');
+    ).toHaveAttribute('href', '/dagu/proxy-login');
     expect(screen.queryByText('Login with SSO')).not.toBeInTheDocument();
   });
 

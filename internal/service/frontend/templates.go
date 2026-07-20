@@ -114,24 +114,24 @@ type UpdateChecker interface {
 }
 
 type funcsConfig struct {
-	NavbarColor             string
-	NavbarTitle             string
-	BasePath                string
-	APIBasePath             string
-	TZ                      string
-	TzOffsetInSec           int
-	MaxDashboardPageLimit   int
-	RemoteNodes             []string
-	Permissions             map[config.Permission]bool
-	Paths                   config.PathsConfig
-	AuthMode                config.AuthMode
-	OIDCEnabled             bool
-	OIDCButtonLabel         string
-	TrustedProxyEnabled     bool
-	TrustedProxyButtonLabel string
-	TerminalEnabled         bool
-	GitSyncEnabled          bool
-	WorkspaceStore          workspacepkg.Store
+	NavbarColor           string
+	NavbarTitle           string
+	BasePath              string
+	APIBasePath           string
+	TZ                    string
+	TzOffsetInSec         int
+	MaxDashboardPageLimit int
+	RemoteNodes           []string
+	Permissions           map[config.Permission]bool
+	Paths                 config.PathsConfig
+	AuthMode              config.AuthMode
+	OIDCEnabled           bool
+	OIDCButtonLabel       string
+	ProxyEnabled          bool
+	ProxyButtonLabel      string
+	TerminalEnabled       bool
+	GitSyncEnabled        bool
+	WorkspaceStore        workspacepkg.Store
 
 	SetupRequiredChecker SetupRequiredChecker
 	UpdateChecker        UpdateChecker
@@ -143,20 +143,20 @@ func defaultFunctions(cfg *funcsConfig) template.FuncMap {
 	boolStr := func(b bool) string { return strconv.FormatBool(b) }
 
 	return template.FuncMap{
-		"defTitle":                func(v any) string { s, _ := v.(string); return s },
-		"version":                 func() string { return config.Version },
-		"assetVersion":            currentAssetVersion,
-		"navbarColor":             func() string { return cfg.NavbarColor },
-		"navbarTitle":             func() string { return cfg.NavbarTitle },
-		"basePath":                func() string { return cfg.BasePath },
-		"apiURL":                  func() string { return pathutil.BuildMountedAPIPath(cfg.BasePath, cfg.APIBasePath) },
-		"tz":                      func() string { return cfg.TZ },
-		"tzOffsetInSec":           func() int { return cfg.TzOffsetInSec },
-		"maxDashboardPageLimit":   func() int { return cfg.MaxDashboardPageLimit },
-		"remoteNodes":             func() string { return strings.Join(cfg.RemoteNodes, ",") },
-		"authMode":                func() string { return string(cfg.AuthMode) },
-		"oidcButtonLabel":         func() string { return cfg.OIDCButtonLabel },
-		"trustedProxyButtonLabel": func() string { return cfg.TrustedProxyButtonLabel },
+		"defTitle":              func(v any) string { s, _ := v.(string); return s },
+		"version":               func() string { return config.Version },
+		"assetVersion":          currentAssetVersion,
+		"navbarColor":           func() string { return cfg.NavbarColor },
+		"navbarTitle":           func() string { return cfg.NavbarTitle },
+		"basePath":              func() string { return cfg.BasePath },
+		"apiURL":                func() string { return pathutil.BuildMountedAPIPath(cfg.BasePath, cfg.APIBasePath) },
+		"tz":                    func() string { return cfg.TZ },
+		"tzOffsetInSec":         func() int { return cfg.TzOffsetInSec },
+		"maxDashboardPageLimit": func() int { return cfg.MaxDashboardPageLimit },
+		"remoteNodes":           func() string { return strings.Join(cfg.RemoteNodes, ",") },
+		"authMode":              func() string { return string(cfg.AuthMode) },
+		"oidcButtonLabel":       func() string { return cfg.OIDCButtonLabel },
+		"proxyButtonLabel":      func() string { return cfg.ProxyButtonLabel },
 		"initialWorkspacesJSON": func() string {
 			if cfg.WorkspaceStore == nil {
 				return "[]"
@@ -206,8 +206,8 @@ func defaultFunctions(cfg *funcsConfig) template.FuncMap {
 			}
 			return "true"
 		},
-		"trustedProxyEnabled": func() string {
-			if !cfg.TrustedProxyEnabled {
+		"proxyEnabled": func() string {
+			if !cfg.ProxyEnabled {
 				return "false"
 			}
 			if cfg.LicenseChecker != nil && !cfg.LicenseChecker.IsFeatureEnabled(license.FeatureSSO) {

@@ -315,7 +315,7 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 				},
 			})
 			if err != nil {
-				return nil, fmt.Errorf("failed to create trusted proxy provisioning service: %w", err)
+				return nil, fmt.Errorf("failed to create proxy authentication provisioning service: %w", err)
 			}
 			trustedProxyCfg = &auth.TrustedProxyLoginConfig{
 				Enabled:        true,
@@ -330,7 +330,7 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 				},
 				LoginBasePath: evaluatedBasePath,
 			}
-			logger.Info(ctx, "Trusted proxy authentication enabled",
+			logger.Info(ctx, "Proxy authentication enabled",
 				slog.Bool("autoSignup", trustedProxy.AutoSignup),
 				slog.String("defaultRole", trustedProxy.RoleMapping.DefaultRole),
 				slog.Bool("authorizationSync", trustedProxy.RoleMapping.SyncAccess))
@@ -518,26 +518,26 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 		remoteNodeResolver:    remoteNodeResolver,
 		upgradeStore:          upgradeStore,
 		funcsConfig: funcsConfig{
-			NavbarColor:             cfg.UI.NavbarColor,
-			NavbarTitle:             cfg.UI.NavbarTitle,
-			BasePath:                evaluatedBasePath,
-			APIBasePath:             cfg.Server.APIBasePath,
-			TZ:                      cfg.Core.TZ,
-			TzOffsetInSec:           cfg.Core.TzOffsetInSec,
-			MaxDashboardPageLimit:   cfg.UI.MaxDashboardPageLimit,
-			RemoteNodes:             remoteNodes,
-			Permissions:             cfg.Server.Permissions,
-			Paths:                   cfg.Paths,
-			AuthMode:                cfg.Server.Auth.Mode,
-			OIDCEnabled:             oidcEnabled,
-			OIDCButtonLabel:         oidcButtonLabel,
-			TrustedProxyEnabled:     cfg.Server.Auth.Proxy.Enabled,
-			TrustedProxyButtonLabel: cfg.Server.Auth.Proxy.LoginLabel,
-			TerminalEnabled:         cfg.Server.Terminal.Enabled && authSvc != nil,
-			GitSyncEnabled:          cfg.GitSync.Enabled,
-			WorkspaceStore:          wsStore,
-			SetupRequiredChecker:    &setupChecker{authSvc: authSvc, fallback: setupRequired},
-			UpdateChecker:           updateInfoChecker,
+			NavbarColor:           cfg.UI.NavbarColor,
+			NavbarTitle:           cfg.UI.NavbarTitle,
+			BasePath:              evaluatedBasePath,
+			APIBasePath:           cfg.Server.APIBasePath,
+			TZ:                    cfg.Core.TZ,
+			TzOffsetInSec:         cfg.Core.TzOffsetInSec,
+			MaxDashboardPageLimit: cfg.UI.MaxDashboardPageLimit,
+			RemoteNodes:           remoteNodes,
+			Permissions:           cfg.Server.Permissions,
+			Paths:                 cfg.Paths,
+			AuthMode:              cfg.Server.Auth.Mode,
+			OIDCEnabled:           oidcEnabled,
+			OIDCButtonLabel:       oidcButtonLabel,
+			ProxyEnabled:          cfg.Server.Auth.Proxy.Enabled,
+			ProxyButtonLabel:      cfg.Server.Auth.Proxy.LoginLabel,
+			TerminalEnabled:       cfg.Server.Terminal.Enabled && authSvc != nil,
+			GitSyncEnabled:        cfg.GitSync.Enabled,
+			WorkspaceStore:        wsStore,
+			SetupRequiredChecker:  &setupChecker{authSvc: authSvc, fallback: setupRequired},
+			UpdateChecker:         updateInfoChecker,
 		},
 	}
 
@@ -586,7 +586,7 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 		logger.Warn(ctx, "SSO (OIDC) is configured but currently unavailable because the active license does not enable it")
 	}
 	if srv.licenseManager != nil && srv.trustedProxyCfg.Enabled && !srv.licenseManager.Checker().IsFeatureEnabled(license.FeatureSSO) {
-		logger.Warn(ctx, "Trusted proxy authentication is configured but currently unavailable because the active license does not enable it")
+		logger.Warn(ctx, "Proxy authentication is configured but currently unavailable because the active license does not enable it")
 	}
 
 	if srv.auditService != nil {
@@ -1105,7 +1105,7 @@ func hasContentHashSuffix(base, suffix string) bool {
 
 func (srv *Server) setupTrustedProxyRoute(r *chi.Mux, basePath string) {
 	r.Handle(
-		pathutil.BuildPublicEndpointPath(basePath, "trusted-proxy-login"),
+		pathutil.BuildPublicEndpointPath(basePath, "proxy-login"),
 		auth.TrustedProxyLoginHandler(srv.trustedProxyCfg),
 	)
 }

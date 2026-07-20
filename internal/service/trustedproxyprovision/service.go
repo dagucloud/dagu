@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Package trustedproxyprovision provisions users authenticated by a trusted proxy.
+// Package trustedproxyprovision provisions users through proxy authentication.
 package trustedproxyprovision
 
 import (
@@ -34,13 +34,13 @@ var (
 	ErrAutoSignupDisabled = errors.New("automatic account creation is disabled")
 	// ErrAuthorizationMapping is returned when strict mapping finds no authorized group.
 	ErrAuthorizationMapping = errors.New("no authorization mapping matched")
-	// ErrInitialSetupRequired is returned when trusted proxy login would create the first account.
+	// ErrInitialSetupRequired is returned when proxy login would create the first account.
 	ErrInitialSetupRequired = errors.New("initial administrator setup is required")
 	// ErrInvalidIdentity is returned when provisioning receives an empty identity.
-	ErrInvalidIdentity = errors.New("trusted proxy identity is required")
+	ErrInvalidIdentity = errors.New("proxy identity is required")
 )
 
-// Config defines trusted-proxy provisioning behavior.
+// Config defines proxy authentication provisioning behavior.
 type Config struct {
 	UsersDir        string
 	Source          string
@@ -50,7 +50,7 @@ type Config struct {
 	WorkspaceExists func(context.Context, string) (bool, error)
 }
 
-// Service provisions and synchronizes trusted-proxy users.
+// Service provisions and synchronizes proxy users.
 type Service struct {
 	userStore       auth.AuthorizationSyncUserStore
 	usersDir        string
@@ -63,24 +63,24 @@ type Service struct {
 	logger          *slog.Logger
 }
 
-// New creates a trusted-proxy provisioning service.
+// New creates a proxy authentication provisioning service.
 func New(userStore auth.UserStore, config Config) (*Service, error) {
 	if userStore == nil {
-		return nil, errors.New("trusted proxy provisioner: user store is required")
+		return nil, errors.New("proxy authentication provisioner: user store is required")
 	}
 	authorizationStore, ok := userStore.(auth.AuthorizationSyncUserStore)
 	if !ok {
-		return nil, errors.New("trusted proxy provisioner: user store does not support atomic authorization sync")
+		return nil, errors.New("proxy authentication provisioner: user store does not support atomic authorization sync")
 	}
 	if strings.TrimSpace(config.UsersDir) == "" {
-		return nil, errors.New("trusted proxy provisioner: users directory is required")
+		return nil, errors.New("proxy authentication provisioner: users directory is required")
 	}
 	if !config.RoleMapping.DefaultRole.Valid() {
-		return nil, fmt.Errorf("trusted proxy provisioner: invalid default role %q", config.RoleMapping.DefaultRole)
+		return nil, fmt.Errorf("proxy authentication provisioner: invalid default role %q", config.RoleMapping.DefaultRole)
 	}
 	mapper, err := authmapping.New(config.RoleMapping)
 	if err != nil {
-		return nil, fmt.Errorf("trusted proxy provisioner: compile authorization mapping: %w", err)
+		return nil, fmt.Errorf("proxy authentication provisioner: compile authorization mapping: %w", err)
 	}
 	return &Service{
 		userStore:       authorizationStore,
@@ -106,7 +106,7 @@ func (s *Service) ProcessLogin(ctx context.Context, identity string, groups []st
 		return s.processExisting(ctx, user, groups)
 	}
 	if !errors.Is(err, auth.ErrTrustedProxyIdentityNotFound) {
-		return nil, false, fmt.Errorf("lookup trusted proxy identity: %w", err)
+		return nil, false, fmt.Errorf("lookup proxy identity: %w", err)
 	}
 	if !s.autoSignup {
 		return nil, false, ErrAutoSignupDisabled
@@ -135,12 +135,12 @@ func (s *Service) ProcessLogin(ctx context.Context, identity string, groups []st
 		return s.processExisting(ctx, user, groups)
 	}
 	if !errors.Is(err, auth.ErrTrustedProxyIdentityNotFound) {
-		return nil, false, fmt.Errorf("recheck trusted proxy identity: %w", err)
+		return nil, false, fmt.Errorf("recheck proxy identity: %w", err)
 	}
 
 	count, err := s.userStore.Count(ctx)
 	if err != nil {
-		return nil, false, fmt.Errorf("count users before trusted proxy signup: %w", err)
+		return nil, false, fmt.Errorf("count users before proxy signup: %w", err)
 	}
 	if count == 0 {
 		return nil, false, ErrInitialSetupRequired
@@ -159,7 +159,7 @@ func (s *Service) processExisting(ctx context.Context, user *auth.User, groups [
 				return nil, false, err
 			}
 		}
-		s.logger.Debug("trusted proxy login resolved existing user", slog.String("user_id", user.ID))
+		s.logger.Debug("proxy login resolved existing user", slog.String("user_id", user.ID))
 		return user, false, nil
 	}
 
@@ -168,7 +168,7 @@ func (s *Service) processExisting(ctx context.Context, user *auth.User, groups [
 		return nil, false, err
 	}
 	if user.Role == mapping.Role && workspaceAccessEqual(user.WorkspaceAccess, mapping.WorkspaceAccess) {
-		s.logger.Debug("trusted proxy login resolved existing user",
+		s.logger.Debug("proxy login resolved existing user",
 			slog.String("user_id", user.ID),
 			slog.Int("group_count", len(groups)),
 			slog.Int("mapping_match_count", mapping.MatchCount))
@@ -182,13 +182,13 @@ func (s *Service) processExisting(ctx context.Context, user *auth.User, groups [
 		return nil, false, authservice.ErrUserDisabled
 	}
 	if err != nil {
-		return nil, false, fmt.Errorf("update trusted proxy authorization: %w", err)
+		return nil, false, fmt.Errorf("update proxy authorization: %w", err)
 	}
 	if updated == nil {
-		return nil, false, errors.New("update trusted proxy authorization: store returned no user")
+		return nil, false, errors.New("update proxy authorization: store returned no user")
 	}
 
-	s.logger.Info("trusted proxy user authorization updated",
+	s.logger.Info("proxy user authorization updated",
 		slog.String("user_id", updated.ID),
 		slog.String("old_role", string(oldRole)),
 		slog.String("new_role", string(updated.Role)),
@@ -220,7 +220,7 @@ func (s *Service) createUser(
 			TrustedProxyUser:   identity,
 		}
 		if err := s.userStore.Create(ctx, user); err == nil {
-			s.logger.Info("trusted proxy user created",
+			s.logger.Info("proxy user created",
 				slog.String("user_id", user.ID),
 				slog.String("role", string(user.Role)),
 				slog.Any("workspace_access", canonicalWorkspaceAccess(user.WorkspaceAccess)),
@@ -229,7 +229,7 @@ func (s *Service) createUser(
 			return user, true, nil
 		} else if !errors.Is(err, auth.ErrUserAlreadyExists) &&
 			!errors.Is(err, auth.ErrTrustedProxyIdentityAlreadyExists) {
-			return nil, false, fmt.Errorf("create trusted proxy user: %w", err)
+			return nil, false, fmt.Errorf("create proxy user: %w", err)
 		}
 
 		existing, err := s.userStore.GetByTrustedProxyIdentity(ctx, s.source, identity)
@@ -237,10 +237,10 @@ func (s *Service) createUser(
 			return s.processExisting(ctx, existing, groups)
 		}
 		if !errors.Is(err, auth.ErrTrustedProxyIdentityNotFound) {
-			return nil, false, fmt.Errorf("resolve concurrent trusted proxy signup: %w", err)
+			return nil, false, fmt.Errorf("resolve concurrent proxy signup: %w", err)
 		}
 	}
-	return nil, false, errors.New("create trusted proxy user: username candidates exhausted")
+	return nil, false, errors.New("create proxy user: username candidates exhausted")
 }
 
 func (s *Service) mapAccess(ctx context.Context, groups []string) (authmapping.Result, error) {
@@ -249,7 +249,7 @@ func (s *Service) mapAccess(ctx context.Context, groups []string) (authmapping.R
 		return authmapping.Result{}, ErrAuthorizationMapping
 	}
 	if err != nil {
-		return authmapping.Result{}, fmt.Errorf("map trusted proxy authorization: %w", err)
+		return authmapping.Result{}, fmt.Errorf("map proxy authorization: %w", err)
 	}
 	s.warnForDormantGrants(ctx, result.WorkspaceAccess)
 	return result, nil
@@ -266,13 +266,13 @@ func (s *Service) warnForDormantGrants(ctx context.Context, workspaceAccess *aut
 	for _, grant := range access.Grants {
 		exists, err := s.workspaceExists(ctx, grant.Workspace)
 		if err != nil {
-			s.logger.Warn("failed to check trusted proxy workspace grant",
+			s.logger.Warn("failed to check proxy workspace grant",
 				slog.String("workspace", grant.Workspace),
 				slog.String("error", err.Error()))
 			continue
 		}
 		if !exists {
-			s.logger.Warn("trusted proxy workspace grant references a nonexistent workspace",
+			s.logger.Warn("proxy workspace grant references a nonexistent workspace",
 				slog.String("workspace", grant.Workspace))
 		}
 	}

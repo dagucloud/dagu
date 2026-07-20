@@ -172,7 +172,7 @@ type OIDCRoleMappingDef struct {
 	SkipOrgRoleSync        *bool                           `mapstructure:"skip_org_role_sync"`       // Keep first-login authorization assignments
 }
 
-// AuthTrustedProxyDef configures authentication delegated to a trusted reverse proxy.
+// AuthTrustedProxyDef configures authentication delegated to an authenticating reverse proxy.
 type AuthTrustedProxyDef struct {
 	Enabled     *bool                       `mapstructure:"enabled" yaml:"enabled"`
 	Source      *string                     `mapstructure:"source" yaml:"source"`
@@ -182,13 +182,13 @@ type AuthTrustedProxyDef struct {
 	RoleMapping *TrustedProxyRoleMappingDef `mapstructure:"role_mapping" yaml:"role_mapping"`
 }
 
-// TrustedProxyHeadersDef identifies the headers populated by the trusted proxy.
+// TrustedProxyHeadersDef identifies the headers populated by the authenticating proxy.
 type TrustedProxyHeadersDef struct {
 	User   string `mapstructure:"user" yaml:"user"`
 	Groups string `mapstructure:"groups" yaml:"groups"`
 }
 
-// TrustedProxyRoleMappingDef maps trusted proxy groups to Dagu authorization.
+// TrustedProxyRoleMappingDef maps proxy groups to Dagu authorization.
 type TrustedProxyRoleMappingDef struct {
 	DefaultRole            *string                                 `mapstructure:"default_role" yaml:"default_role"`
 	GroupMappings          map[string]string                       `mapstructure:"group_mappings" yaml:"group_mappings"`

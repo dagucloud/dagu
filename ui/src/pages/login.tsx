@@ -94,7 +94,7 @@ export default function LoginPage() {
     window.location.href = `${config.basePath}/oidc-login`;
   };
 
-  const externalLoginEnabled = config.oidcEnabled || config.trustedProxyEnabled;
+  const externalLoginEnabled = config.oidcEnabled || config.proxyEnabled;
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-muted/50">
@@ -184,11 +184,11 @@ export default function LoginPage() {
                 </Button>
               )}
 
-              {config.trustedProxyEnabled && (
+              {config.proxyEnabled && (
                 <Button asChild variant="outline" className="w-full h-9">
-                  <a href={`${config.basePath}/trusted-proxy-login`}>
+                  <a href={`${config.basePath}/proxy-login`}>
                     <ShieldCheck className="h-4 w-4" />
-                    {config.trustedProxyButtonLabel || 'Continue with SSO'}
+                    {config.proxyButtonLabel || 'Continue with SSO'}
                   </a>
                 </Button>
               )}

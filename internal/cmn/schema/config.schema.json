@@ -444,7 +444,7 @@
     },
     "AuthProxyDef": {
       "type": "object",
-      "description": "Authentication delegated to a trusted reverse proxy.",
+      "description": "Authentication delegated to an authenticating reverse proxy.",
       "additionalProperties": false,
       "allOf": [
         {
@@ -575,7 +575,7 @@
     },
     "ProxyHeadersDef": {
       "type": "object",
-      "description": "Identity headers populated by the trusted proxy.",
+      "description": "Identity headers populated by the authenticating proxy.",
       "additionalProperties": false,
       "properties": {
         "user": {
@@ -590,7 +590,7 @@
     },
     "ProxyRoleMappingDef": {
       "type": "object",
-      "description": "Maps trusted proxy groups to Dagu authorization.",
+      "description": "Maps proxy groups to Dagu authorization.",
       "additionalProperties": false,
       "properties": {
         "default_role": {
@@ -640,7 +640,7 @@
     },
     "ProxyWorkspaceGrantDef": {
       "type": "object",
-      "description": "Assigns a trusted proxy group member a role in one workspace.",
+      "description": "Assigns a proxy group member a role in one workspace.",
       "additionalProperties": false,
       "required": ["workspace", "role"],
       "properties": {

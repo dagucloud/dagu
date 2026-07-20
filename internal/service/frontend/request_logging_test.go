@@ -39,7 +39,7 @@ func TestRequestLoggerRedactsTrustedProxyHeaders(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/trusted-proxy-login", nil)
+	req := httptest.NewRequest(http.MethodGet, "/proxy-login", nil)
 	req.Header.Set("X-Proxy-User", "canonical-user")
 	req.Header.Set("X-Proxy-Groups", "group-secret")
 	handler.ServeHTTP(httptest.NewRecorder(), req)
@@ -57,7 +57,7 @@ func TestDisabledTrustedProxyRoutePrecedesSPAFallback(t *testing.T) {
 	})
 
 	resp := httptest.NewRecorder()
-	router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/base/trusted-proxy-login", nil))
+	router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/base/proxy-login", nil))
 
 	assert.Equal(t, http.StatusNotFound, resp.Code)
 	assert.Equal(t, "not found\n", resp.Body.String())

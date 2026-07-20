@@ -60,7 +60,7 @@ describe('UserMenu', () => {
     expect(screen.getByRole('menuitem', { name: 'Sign Out' })).toBeVisible();
   });
 
-  it('does not offer password changes to trusted proxy users', async () => {
+  it('does not offer password changes to proxy users', async () => {
     const user = userEvent.setup();
     renderMenu(UserAuthProvider.proxy);
 

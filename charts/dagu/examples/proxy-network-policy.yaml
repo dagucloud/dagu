@@ -16,7 +16,7 @@ spec:
     - from:
         - namespaceSelector:
             matchLabels:
-              dagu.sh/trusted-ingress: "true"
+              dagu.sh/proxy-ingress: "true"
           podSelector:
             matchLabels:
               app.kubernetes.io/name: ingress-nginx
