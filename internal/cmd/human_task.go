@@ -9,8 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
-	"os/user"
 	"strings"
 	"time"
 
@@ -92,14 +90,12 @@ type humanTaskCompletionInput struct {
 
 type humanTaskCompleteDeps struct {
 	now    func() time.Time
-	actor  func() string
 	launch func(*Context, *core.DAG, *exec.DAGRunStatus, exec.DAGRunRef, exec.DAGRunRef) error
 }
 
 func defaultHumanTaskCompleteDeps() humanTaskCompleteDeps {
 	return humanTaskCompleteDeps{
 		now:    time.Now,
-		actor:  currentHumanTaskActor,
 		launch: launchHumanTaskRetry,
 	}
 }
@@ -258,11 +254,8 @@ func completeHumanTaskStatus(
 	if err != nil {
 		return nil, err
 	}
-	validated, err := validateHumanTaskCompletion(node, input)
+	validated, _, err := prepareHumanTaskCompletion(target.dag, node, input)
 	if err != nil {
-		return nil, err
-	}
-	if _, err := marshalHumanTaskCompletionOutputs(target.dag, validated); err != nil {
 		return nil, err
 	}
 	if humanTaskNodeCompleted(node) {
@@ -276,7 +269,6 @@ func completeHumanTaskStatus(
 	}
 
 	completedAt := deps.now().UTC().Format(time.RFC3339)
-	completedBy := deps.actor()
 	var concurrentlyCompletedStatus *exec.DAGRunStatus
 	casOptions := []exec.CompareAndSwapStatusOption{
 		exec.WithCompareAndSwapRootDAGRun(target.rootRef),
@@ -295,7 +287,7 @@ func completeHumanTaskStatus(
 			if err != nil {
 				return err
 			}
-			latestValidated, err := validateHumanTaskCompletion(latestNode, input)
+			latestValidated, outputsValue, err := prepareHumanTaskCompletion(target.dag, latestNode, input)
 			if err != nil {
 				return err
 			}
@@ -310,13 +302,7 @@ func completeHumanTaskStatus(
 				return fmt.Errorf("human task step %q is not waiting (status: %s)", stepID, latestNode.Status)
 			}
 
-			outputsValue, err := marshalHumanTaskCompletionOutputs(target.dag, latestValidated)
-			if err != nil {
-				return err
-			}
 			latestNode.HumanTaskInput = append(json.RawMessage(nil), latestValidated.Canonical...)
-			latestNode.HumanTaskCompletedAt = completedAt
-			latestNode.HumanTaskCompletedBy = completedBy
 			if outputsValue == "" {
 				latestNode.StepOutputsValue = nil
 			} else {
@@ -440,6 +426,22 @@ func validateHumanTaskCompletion(node *exec.Node, input humanTaskCompletionInput
 		return nil, fmt.Errorf("invalid input for human task step %q: %w", node.Step.ID, err)
 	}
 	return result, nil
+}
+
+func prepareHumanTaskCompletion(
+	dag *core.DAG,
+	node *exec.Node,
+	input humanTaskCompletionInput,
+) (*spec.HumanTaskInputResult, string, error) {
+	result, err := validateHumanTaskCompletion(node, input)
+	if err != nil {
+		return nil, "", err
+	}
+	outputs, err := marshalHumanTaskCompletionOutputs(dag, result)
+	if err != nil {
+		return nil, "", err
+	}
+	return result, outputs, nil
 }
 
 func marshalHumanTaskCompletionOutputs(dag *core.DAG, result *spec.HumanTaskInputResult) (string, error) {
@@ -633,26 +635,4 @@ func explicitHumanTaskDAGUHome(ctx *Context) string {
 		return ""
 	}
 	return fileutil.ResolvePathOrBlank(value)
-}
-
-func currentHumanTaskActor() string {
-	current, err := user.Current()
-	if err == nil && current != nil {
-		if username := strings.TrimSpace(current.Username); username != "" {
-			return username
-		}
-		if name := strings.TrimSpace(current.Name); name != "" {
-			return name
-		}
-		if uid := strings.TrimSpace(current.Uid); uid != "" {
-			return "uid:" + uid
-		}
-	}
-	if username := strings.TrimSpace(os.Getenv("USER")); username != "" {
-		return username
-	}
-	if username := strings.TrimSpace(os.Getenv("USERNAME")); username != "" {
-		return username
-	}
-	return "local"
 }

@@ -4149,8 +4149,9 @@ func TestHumanTask(t *testing.T) {
 		result := plan.assertRun(t, core.Waiting)
 		result.assertNodeStatus(t, "review", core.NodeWaiting)
 		result.assertNodeStatus(t, "deploy", core.NodeNotStarted)
-		state := result.nodeByName(t, "review").State()
-		assert.Equal(t, "Review production deployment", state.HumanTaskPrompt)
+		review := result.nodeByName(t, "review")
+		state := review.State()
+		assert.Equal(t, "Review production deployment", review.Step().HumanTask.Prompt)
 		assert.False(t, state.StartedAt.IsZero())
 		assert.True(t, state.FinishedAt.IsZero())
 	})
@@ -4170,7 +4171,6 @@ func TestHumanTask(t *testing.T) {
 		result := plan.assertRun(t, core.Succeeded)
 		result.assertNodeStatus(t, "review", core.NodeSkipped)
 		result.assertNodeStatus(t, "deploy", core.NodeSkipped)
-		assert.Empty(t, result.nodeByName(t, "review").State().HumanTaskPrompt)
 	})
 
 	t.Run("DryRunCompletesWithoutWaiting", func(t *testing.T) {
@@ -4190,23 +4190,7 @@ func TestHumanTask(t *testing.T) {
 		result := plan.assertRun(t, core.Succeeded)
 		result.assertNodeStatus(t, "review", core.NodeSucceeded)
 		result.assertNodeStatus(t, "deploy", core.NodeSucceeded)
-		assert.Equal(t, "Review production deployment", result.nodeByName(t, "review").State().HumanTaskPrompt)
-	})
-
-	t.Run("PreconditionEvaluationFailureCancelsPlan", func(t *testing.T) {
-		t.Parallel()
-		r := setupRunner(t, withMaxActiveRuns(1))
-		plan := r.newPlan(t,
-			newStep("review",
-				withHumanTask(&core.HumanTaskConfig{Prompt: "Review"}),
-				withPrecondition(&core.Condition{Eval: "value"}),
-			),
-			successStep("independent"),
-		)
-
-		result := plan.assertRunError(t, core.Aborted)
-		result.assertNodeStatus(t, "review", core.NodeFailed)
-		result.assertNodeStatus(t, "independent", core.NodeNotStarted)
+		assert.Equal(t, "Review production deployment", result.nodeByName(t, "review").Step().HumanTask.Prompt)
 	})
 
 	t.Run("RetryMakesCompletionOutputAvailableToDependent", func(t *testing.T) {

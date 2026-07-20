@@ -108,28 +108,13 @@ func TestParseHumanTaskCompletionInput(t *testing.T) {
 	}
 }
 
-func TestFindHumanTaskNodeByIDDoesNotMatchDisplayName(t *testing.T) {
-	nodes := []*exec.Node{{
-		Step: core.Step{
-			ID:        "review-id",
-			Name:      "Review",
-			HumanTask: &core.HumanTaskConfig{Prompt: "Review?"},
-		},
-	}}
-
-	_, err := findHumanTaskNodeByID(nodes, "Review")
-	require.Error(t, err)
-	assert.ErrorContains(t, err, "was not found")
-}
-
 func TestRunHumanTaskCompletePersistsCanonicalInputAndLaunchesRetry(t *testing.T) {
 	fixture := newHumanTaskCompleteFixture(t, humanTaskTestForm(), false)
 	require.NoError(t, fixture.command.Flags().Set(humanTaskFlagInput, "count=3"))
 
 	var launched bool
 	deps := humanTaskCompleteDeps{
-		now:   func() time.Time { return time.Date(2026, 7, 20, 1, 2, 3, 0, time.UTC) },
-		actor: func() string { return "operator" },
+		now: func() time.Time { return time.Date(2026, 7, 20, 1, 2, 3, 0, time.UTC) },
 		launch: func(_ *Context, _ *core.DAG, status *exec.DAGRunStatus, root, owning exec.DAGRunRef) error {
 			launched = true
 			assert.Same(t, fixture.status, status)
@@ -151,9 +136,8 @@ func TestRunHumanTaskCompletePersistsCanonicalInputAndLaunchesRetry(t *testing.T
 
 	node := fixture.status.Nodes[0]
 	assert.Equal(t, core.NodeSucceeded, node.Status)
-	assert.Equal(t, "Deploy the release?", node.HumanTaskPrompt)
-	assert.Equal(t, "2026-07-20T01:02:03Z", node.HumanTaskCompletedAt)
-	assert.Equal(t, "operator", node.HumanTaskCompletedBy)
+	assert.Equal(t, "Deploy the release?", node.Step.HumanTask.Prompt)
+	assert.Equal(t, "2026-07-20T01:02:03Z", node.FinishedAt)
 	assert.JSONEq(t, `{"count":3,"region":"us"}`, string(node.HumanTaskInput))
 	require.NotNil(t, node.StepOutputsValue)
 	assert.JSONEq(t, `{"count":"3","region":"us"}`, *node.StepOutputsValue)
@@ -180,7 +164,6 @@ func TestRunHumanTaskCompleteIsIdempotentForSameCanonicalInput(t *testing.T) {
 	fixture := newHumanTaskCompleteFixture(t, nil, false)
 	fixture.status.Nodes[0].Status = core.NodeSucceeded
 	fixture.status.Nodes[0].HumanTaskInput = json.RawMessage(`{}`)
-	fixture.status.Nodes[0].HumanTaskCompletedAt = "2026-07-20T01:02:03Z"
 
 	launchCalls := 0
 	err := runHumanTaskCompleteWith(fixture.ctx, []string{"human-task-test"}, fixture.deps(
@@ -214,7 +197,6 @@ func TestRunHumanTaskCompleteConcurrentSameInputDoesNotWriteAgain(t *testing.T) 
 	fixture.store.beforeMutate = func() {
 		fixture.status.Nodes[0].Status = core.NodeSucceeded
 		fixture.status.Nodes[0].HumanTaskInput = json.RawMessage(`{}`)
-		fixture.status.Nodes[0].HumanTaskCompletedAt = "2026-07-20T01:02:03Z"
 	}
 
 	launchCalls := 0
@@ -366,9 +348,8 @@ func newHumanTaskCompleteFixture(t *testing.T, form json.RawMessage, anotherWait
 		AttemptKey: "attempt-key-1",
 		Status:     core.Waiting,
 		Nodes: []*exec.Node{{
-			Step:            step,
-			Status:          core.NodeWaiting,
-			HumanTaskPrompt: "Deploy the release?",
+			Step:   step,
+			Status: core.NodeWaiting,
 		}},
 	}
 	if anotherWaiting {
@@ -408,7 +389,6 @@ func (f *humanTaskCompleteFixture) deps(
 	}
 	return humanTaskCompleteDeps{
 		now:    func() time.Time { return time.Date(2026, 7, 20, 1, 2, 3, 0, time.UTC) },
-		actor:  func() string { return "operator" },
 		launch: launch,
 	}
 }

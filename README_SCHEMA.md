@@ -255,7 +255,7 @@ steps:
     run: ./deploy.sh '${steps.review.outputs.environment}'
 ```
 
-Form `additionalProperties` defaults to `false`. Required properties and optional properties with defaults become `${steps.<step_id>.outputs.<name>}` values after completion; do not author `outputs:` on the human task. Complete a waiting task locally with `dagu human-task complete --run-id=<run-id> --step=review <dag-name>`, adding repeated `--input key=value` flags or one `--inputs-json` object when the form accepts input.
+Form `additionalProperties` defaults to `false`. Every declared form property is a step output, published when submitted or defaulted, and available as `${steps.<step_id>.outputs.<name>}`; do not author `outputs:` on the human task. Complete a waiting task locally with `dagu human-task complete --run-id=<run-id> --step=review <dag-name>`, adding repeated `--input key=value` flags or one `--inputs-json` object when the form accepts input.
 
 ### SQL Query
 

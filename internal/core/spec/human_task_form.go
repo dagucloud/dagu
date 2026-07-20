@@ -43,9 +43,8 @@ var humanTaskFormOneOfFields = map[string]struct{}{
 	"const":       {},
 }
 
-// HumanTaskInputResult contains validated form values and their step outputs.
+// HumanTaskInputResult contains canonical form input and its step outputs.
 type HumanTaskInputResult struct {
-	Values    map[string]any
 	Canonical json.RawMessage
 	Outputs   map[string]string
 }
@@ -131,55 +130,35 @@ func preserveHumanTaskOneOfConstraints(source, target *jsonschema.Schema) error 
 			return fmt.Errorf("form property %q has an invalid oneOf schema", name)
 		}
 
-		if propertyType, authored, valid := humanTaskAuthoredScalarType(sourceProperty); authored {
-			if !valid {
-				return fmt.Errorf("form property %q oneOf type must be scalar", name)
+		if sourceProperty.Type != "" {
+			if !humanTaskTypesCompatible(sourceProperty.Type, targetProperty.Type) {
+				return fmt.Errorf("form property %q oneOf values do not match type %s", name, sourceProperty.Type)
 			}
-			for idx, option := range sourceProperty.OneOf {
-				if option == nil || option.Const == nil || !humanTaskScalarTypeAccepts(propertyType, *option.Const) {
-					return fmt.Errorf("form property %q oneOf[%d].const does not match type %s", name, idx, propertyType)
-				}
-			}
-			targetProperty.Type = propertyType
+			targetProperty.Type = sourceProperty.Type
 		}
 
 		for idx, sourceOption := range sourceProperty.OneOf {
-			optionType, authored, valid := humanTaskAuthoredScalarType(sourceOption)
-			if !authored {
+			if sourceOption == nil || sourceOption.Type == "" {
 				continue
 			}
-			if !valid || sourceOption.Const == nil || !humanTaskScalarTypeAccepts(optionType, *sourceOption.Const) {
+			if !humanTaskTypesCompatible(sourceOption.Type, targetProperty.OneOf[idx].Type) {
 				return fmt.Errorf("form property %q oneOf[%d].const does not match its type", name, idx)
 			}
-			targetProperty.OneOf[idx].Type = optionType
+			targetProperty.OneOf[idx].Type = sourceOption.Type
 		}
 
 		targetProperty.Pattern = sourceProperty.Pattern
-		targetProperty.Enum = cloneSchemaEnumValues(sourceProperty.Enum)
-		targetProperty.Minimum = cloneFloat64(sourceProperty.Minimum)
-		targetProperty.Maximum = cloneFloat64(sourceProperty.Maximum)
-		targetProperty.MinLength = cloneInt(sourceProperty.MinLength)
-		targetProperty.MaxLength = cloneInt(sourceProperty.MaxLength)
+		targetProperty.Enum = sourceProperty.Enum
+		targetProperty.Minimum = sourceProperty.Minimum
+		targetProperty.Maximum = sourceProperty.Maximum
+		targetProperty.MinLength = sourceProperty.MinLength
+		targetProperty.MaxLength = sourceProperty.MaxLength
 	}
 	return nil
 }
 
-func humanTaskAuthoredScalarType(schema *jsonschema.Schema) (value string, authored, valid bool) {
-	if schema == nil {
-		return "", false, false
-	}
-	if schema.Type != "" {
-		_, valid := humanTaskScalarTypes[schema.Type]
-		return schema.Type, true, valid
-	}
-	if len(schema.Types) > 0 {
-		if len(schema.Types) != 1 {
-			return "", true, false
-		}
-		_, valid := humanTaskScalarTypes[schema.Types[0]]
-		return schema.Types[0], true, valid
-	}
-	return "", false, false
+func humanTaskTypesCompatible(authored, inferred string) bool {
+	return authored == inferred || authored == core.ParamDefTypeNumber && inferred == core.ParamDefTypeInteger
 }
 
 var humanTaskScalarTypes = map[string]struct{}{
@@ -187,53 +166,6 @@ var humanTaskScalarTypes = map[string]struct{}{
 	core.ParamDefTypeInteger: {},
 	core.ParamDefTypeNumber:  {},
 	core.ParamDefTypeBoolean: {},
-}
-
-func humanTaskScalarTypeAccepts(schemaType string, value any) bool {
-	switch schemaType {
-	case core.ParamDefTypeString:
-		_, ok := value.(string)
-		return ok
-	case core.ParamDefTypeBoolean:
-		_, ok := value.(bool)
-		return ok
-	case core.ParamDefTypeInteger:
-		switch typed := value.(type) {
-		case float64:
-			return typed == math.Trunc(typed)
-		case float32:
-			return typed == float32(math.Trunc(float64(typed)))
-		case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
-			return true
-		default:
-			return false
-		}
-	case core.ParamDefTypeNumber:
-		switch value.(type) {
-		case float32, float64, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
-			return true
-		default:
-			return false
-		}
-	default:
-		return false
-	}
-}
-
-func cloneFloat64(value *float64) *float64 {
-	if value == nil {
-		return nil
-	}
-	cloned := *value
-	return &cloned
-}
-
-func cloneInt(value *int) *int {
-	if value == nil {
-		return nil
-	}
-	cloned := *value
-	return &cloned
 }
 
 func validateHumanTaskFormShape(form map[string]any) error {
@@ -526,17 +458,9 @@ func humanTaskRequiredNames(raw any) ([]string, error) {
 }
 
 func deriveHumanTaskOutputs(root *jsonschema.Schema) ([]core.StepOutputDeclaration, error) {
-	required := make(map[string]struct{}, len(root.Required))
-	for _, name := range root.Required {
-		required[name] = struct{}{}
-	}
 	outputs := make([]core.StepOutputDeclaration, 0, len(root.Properties))
 	for _, name := range topLevelSchemaOrder(root) {
 		property := root.Properties[name]
-		_, isRequired := required[name]
-		if !isRequired && (property == nil || len(property.Default) == 0) {
-			continue
-		}
 		propertyType, ok := schemaScalarType(property)
 		if !ok {
 			return nil, fmt.Errorf("form property %q must have a scalar type", name)
@@ -561,7 +485,7 @@ func ValidateHumanTaskInputs(form json.RawMessage, inputs map[string]any, coerce
 			return nil, fmt.Errorf("this human task does not accept input")
 		}
 		canonical, _ := json.Marshal(values)
-		return &HumanTaskInputResult{Values: values, Canonical: canonical, Outputs: map[string]string{}}, nil
+		return &HumanTaskInputResult{Canonical: canonical, Outputs: map[string]string{}}, nil
 	}
 
 	var schema jsonschema.Schema
@@ -625,5 +549,5 @@ func ValidateHumanTaskInputs(form json.RawMessage, inputs map[string]any, coerce
 		}
 		outputs[declaration.Name] = stringifyTypedValue(value)
 	}
-	return &HumanTaskInputResult{Values: values, Canonical: canonical, Outputs: outputs}, nil
+	return &HumanTaskInputResult{Canonical: canonical, Outputs: outputs}, nil
 }

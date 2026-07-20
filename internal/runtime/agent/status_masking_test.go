@@ -21,12 +21,10 @@ func TestMaskNodeSecretsMasksHumanTaskPrompt(t *testing.T) {
 		Step: core.Step{HumanTask: &core.HumanTaskConfig{
 			Prompt: "Review very-secret-token",
 		}},
-		HumanTaskPrompt: "Review very-secret-token",
 	}
 
 	maskNodeSecrets(masker, node)
 
-	assert.NotContains(t, node.HumanTaskPrompt, "very-secret-token")
 	require.NotNil(t, node.Step.HumanTask)
 	assert.NotContains(t, node.Step.HumanTask.Prompt, "very-secret-token")
 }

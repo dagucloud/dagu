@@ -5,7 +5,6 @@ package dagrun
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -323,30 +322,14 @@ func (store *Store) CompareAndSwapLatestAttemptStatus(
 	}
 	defer func() { _ = attempt.Close(ctx) }()
 
-	updatedStatus, err := cloneDAGRunStatus(status)
-	if err != nil {
+	if err := mutate(status); err != nil {
 		return nil, false, err
 	}
-	if err := mutate(updatedStatus); err != nil {
+	exec.NormalizeDAGRunConditions(status)
+	if err := attempt.Write(ctx, *status); err != nil {
 		return nil, false, err
 	}
-	exec.NormalizeDAGRunConditions(updatedStatus)
-	if err := attempt.Write(ctx, *updatedStatus); err != nil {
-		return nil, false, err
-	}
-	return updatedStatus, true, nil
-}
-
-func cloneDAGRunStatus(status *exec.DAGRunStatus) (*exec.DAGRunStatus, error) {
-	data, err := json.Marshal(status)
-	if err != nil {
-		return nil, fmt.Errorf("clone DAG-run status: %w", err)
-	}
-	var cloned exec.DAGRunStatus
-	if err := json.Unmarshal(data, &cloned); err != nil {
-		return nil, fmt.Errorf("clone DAG-run status: %w", err)
-	}
-	return &cloned, nil
+	return status, true, nil
 }
 
 func formatUnixToRFC3339(unix int64) string {
@@ -415,18 +398,6 @@ func (store *Store) CreateAttempt(ctx context.Context, dag *core.DAG, timestamp 
 // newChildRecord creates a new history record for a sub dag-run.
 func (b *Store) newChildRecord(ctx context.Context, dag *core.DAG, timestamp time.Time, dagRunID string, opts exec.NewDAGRunAttemptOptions) (exec.DAGRunAttempt, error) {
 	dataRoot := NewDataRoot(b.baseDir, opts.RootDAGRun.Name)
-	lockCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-
-	if err := dataRoot.Lock(lockCtx); err != nil {
-		return nil, fmt.Errorf("failed to acquire lock for sub dag-run %s: %w", dagRunID, err)
-	}
-	defer func() {
-		if err := dataRoot.Unlock(); err != nil {
-			logger.Error(ctx, "Failed to unlock sub dag-run", tag.RunID(dagRunID), tag.Error(err))
-		}
-	}()
-
 	root, err := dataRoot.FindByDAGRunID(ctx, opts.RootDAGRun.ID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find root execution: %w", err)

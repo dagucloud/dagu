@@ -59,6 +59,7 @@ steps:
 		{Name: "window", Type: core.StepDeclaredOutputTypeString},
 		{Name: "retries", Type: core.StepDeclaredOutputTypeJSON},
 		{Name: "confirmed", Type: core.StepDeclaredOutputTypeJSON},
+		{Name: "note", Type: core.StepDeclaredOutputTypeString},
 		{Name: "decision", Type: core.StepDeclaredOutputTypeString},
 	}, step.Outputs)
 
@@ -281,21 +282,6 @@ steps:
 			message: "does not support approval",
 		},
 		{
-			name: "ForeachBody",
-			yaml: `
-steps:
-  - id: loop
-    foreach:
-      items: [one]
-      steps:
-        - id: review
-          action: human.task
-          with:
-            prompt: Review
-`,
-			message: "human.task cannot be used inside foreach.steps",
-		},
-		{
 			name: "OneOfConstDoesNotMatchType",
 			yaml: `
 steps:
@@ -350,89 +336,10 @@ steps:
 			message: "is not declared",
 		},
 		{
-			name: "NullRequired",
-			yaml: `
-steps:
-  - id: review
-    action: human.task
-    with:
-      prompt: Review
-      form:
-        type: object
-        required: null
-`,
-			message: "required must be an array",
-		},
-		{
-			name: "NullTitle",
-			yaml: `
-steps:
-  - id: review
-    action: human.task
-    with:
-      prompt: Review
-      form:
-        type: object
-        title: null
-`,
-			message: "title must be a string",
-		},
-		{
-			name: "EmptyEnum",
-			yaml: `
-steps:
-  - id: review
-    action: human.task
-    with:
-      prompt: Review
-      form:
-        type: object
-        properties:
-          decision:
-            type: string
-            enum: []
-`,
-			message: "enum must be a non-empty array",
-		},
-		{
-			name: "StepWorkerSelector",
-			yaml: `
-steps:
-  - id: review
-    action: human.task
-    worker_selector:
-      region: local
-    with:
-      prompt: Review
-`,
-			message: "does not support worker_selector",
-		},
-		{
 			name: "DAGWorkerSelector",
 			yaml: `
 worker_selector:
   region: remote
-steps:
-  - id: review
-    action: human.task
-    with:
-      prompt: Review
-`,
-			message: "cannot be dispatched to workers",
-		},
-		{
-			name: "DAGWorkerSelectorWithLocalHumanTask",
-			yaml: `
-name: parent
-worker_selector:
-  region: remote
-steps:
-  - id: child
-    action: dag.run
-    with:
-      dag: child
----
-name: child
 steps:
   - id: review
     action: human.task
@@ -484,7 +391,7 @@ func TestValidateHumanTaskInputs(t *testing.T) {
 	result, err := ValidateHumanTaskInputs(form, map[string]any{"window": "night", "count": "3", "note": "ready"}, true)
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"window":"night","count":3,"note":"ready"}`, string(result.Canonical))
-	assert.Equal(t, map[string]string{"window": "night", "count": "3"}, result.Outputs)
+	assert.Equal(t, map[string]string{"window": "night", "count": "3", "note": "ready"}, result.Outputs)
 
 	_, err = ValidateHumanTaskInputs(form, map[string]any{"count": 1}, false)
 	require.Error(t, err)

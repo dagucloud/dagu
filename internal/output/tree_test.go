@@ -6,7 +6,6 @@ package output
 import (
 	"fmt"
 	"os"
-	"strings"
 	"testing"
 	"unicode/utf8"
 
@@ -143,12 +142,11 @@ func TestRenderDAGStatus_WaitingHumanTask(t *testing.T) {
 				ID:   "production_review",
 				Name: "production_review",
 				HumanTask: &core.HumanTaskConfig{
-					Prompt: "Review ${ENV}",
+					Prompt: "Review production",
 					Form:   []byte(`{"type":"object","additionalProperties":false}`),
 				},
 			},
-			Status:          core.NodeWaiting,
-			HumanTaskPrompt: "Review production",
+			Status: core.NodeWaiting,
 		}},
 	}
 
@@ -167,11 +165,9 @@ func TestRenderDAGStatus_WaitingHumanTaskPreservesResolvedPromptAndUTF8(t *testi
 		Nodes: []*exec.Node{
 			{
 				Step: core.Step{
-					ID:   "empty_prompt",
-					Name: "empty_prompt",
-					HumanTask: &core.HumanTaskConfig{
-						Prompt: "${EMPTY}",
-					},
+					ID:        "empty_prompt",
+					Name:      "empty_prompt",
+					HumanTask: &core.HumanTaskConfig{},
 				},
 				Status: core.NodeWaiting,
 			},
@@ -180,12 +176,11 @@ func TestRenderDAGStatus_WaitingHumanTaskPreservesResolvedPromptAndUTF8(t *testi
 					ID:   "multiline",
 					Name: "multiline",
 					HumanTask: &core.HumanTaskConfig{
-						Prompt: "authored",
+						Prompt: "第一行\n第二行",
 						Form:   []byte(`{"type":"object","description":"日本語の長い説明文を安全に折り返します"}`),
 					},
 				},
-				Status:          core.NodeWaiting,
-				HumanTaskPrompt: "第一行\n第二行",
+				Status: core.NodeWaiting,
 			},
 		},
 	}
@@ -193,25 +188,9 @@ func TestRenderDAGStatus_WaitingHumanTaskPreservesResolvedPromptAndUTF8(t *testi
 	output := newTestRendererWithConfig(func(config *Config) { config.MaxWidth = 28 }).RenderDAGStatus(dag, status)
 	assert.True(t, utf8.ValidString(output))
 	assert.Contains(t, output, "prompt: \n")
-	assert.NotContains(t, output, "${EMPTY}")
 	assert.Contains(t, output, "prompt: 第一行")
 	assert.Contains(t, output, "第二行")
 	assert.NotContains(t, output, "\n第二行")
-}
-
-func TestRenderCommandLinePreservesMultilineTextWhenWrappingIsDisabled(t *testing.T) {
-	t.Parallel()
-
-	longLine := "prompt: " + strings.Repeat("あ", 30)
-	output := newTestRendererWithConfig(func(config *Config) { config.MaxWidth = 0 }).renderCommandLine(
-		longLine+"\nsecond line",
-		true,
-		"",
-	)
-
-	assert.Contains(t, output, longLine+"\n")
-	assert.Contains(t, output, "second line\n")
-	assert.Equal(t, 2, strings.Count(output, "\n"))
 }
 
 func TestRenderDAGStatus_AbortedStatus(t *testing.T) {

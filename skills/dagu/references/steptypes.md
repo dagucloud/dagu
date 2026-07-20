@@ -221,7 +221,7 @@ The form is a flat object JSON Schema:
 - Supported property constraints include `default`, `enum`, `oneOf` choices, `minimum`, `maximum`, `minLength`, `maxLength`, and `pattern`.
 - `additionalProperties` defaults to `false`. Set it explicitly to `true` only when undeclared completion fields are intended.
 
-Dagu derives outputs from form properties; do not add an `outputs:` field to the human task. Required properties and optional properties with defaults are available to later steps as `${steps.<step_id>.outputs.<name>}`. Optional properties without defaults are accepted when supplied but are not published as step outputs.
+Dagu derives outputs from form properties; do not add an `outputs:` field to the human task. Every declared property is a step output, published when submitted or defaulted, and available as `${steps.<step_id>.outputs.<name>}`.
 
 Human tasks require an explicit `id`, run locally, and cannot be used in lifecycle handlers or `foreach.steps`. Executor, retry, repeat, timeout, container, worker selector, output capture, and approval fields are not supported on the same step.
 

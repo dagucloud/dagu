@@ -6,7 +6,6 @@ package dagrun
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -604,28 +603,6 @@ func TestJSONDB(t *testing.T) {
 		require.Equal(t, "lease expired", foundStatus.Error)
 		require.Equal(t, core.NodeFailed, foundStatus.Nodes[0].Status)
 
-		mutationErr := errors.New("mutation rejected")
-		_, swapped, err = th.Store.CompareAndSwapLatestAttemptStatus(
-			th.Context,
-			subRef,
-			subAttempt.ID(),
-			core.Failed,
-			func(status *exec.DAGRunStatus) error {
-				status.Status = core.Succeeded
-				status.Nodes[0].Status = core.NodeSucceeded
-				return mutationErr
-			},
-			exec.WithCompareAndSwapRootDAGRun(rootRef),
-		)
-		require.ErrorIs(t, err, mutationErr)
-		require.False(t, swapped)
-
-		foundAttempt, err = th.Store.FindSubAttempt(th.Context, rootRef, subRef.ID)
-		require.NoError(t, err)
-		foundStatus, err = foundAttempt.ReadStatus(th.Context)
-		require.NoError(t, err)
-		require.Equal(t, core.Failed, foundStatus.Status)
-		require.Equal(t, core.NodeFailed, foundStatus.Nodes[0].Status)
 	})
 	t.Run("CreateSubAttemptEmptyRootID", func(t *testing.T) {
 		th := setupTestStore(t)

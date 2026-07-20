@@ -38,7 +38,7 @@ Load only the reference file that matches the task.
   - string form captures trimmed stdout into an env-scope variable such as `${env.VERSION}`
   - object form publishes structured step-scoped output for `${step_id.output.*}` access
 - Declared step `outputs:` publish explicit values through `${steps.<step_id>.outputs.<name>}`. Write values inside the running step to `$DAGU_OUTPUT_FILE`; Dagu captures them only after the command succeeds.
-- `human.task` is a processless local step with an explicit `id`, a required `with.prompt`, and an optional flat scalar form. Required form properties and optional properties with defaults become `${steps.<step_id>.outputs.<name>}` values after completion.
+- `human.task` is a processless local step with an explicit `id`, a required `with.prompt`, and an optional flat scalar form. Every declared form property is a step output, published when submitted or defaulted, and available as `${steps.<step_id>.outputs.<name>}`.
 - `stdout.artifact` / `stderr.artifact` store command stdout/stderr directly as relative artifact paths, for example `stdout: {artifact: reports/report.md}`. Artifact outputs auto-enable artifacts unless `artifacts.enabled: false` is explicitly set, which is invalid.
 - `${step_id.stdout}` is a log file path, not stdout content.
 - Use `${context.*}` for run metadata in DAG YAML, for example `${context.dag.name}`, `${context.run.id}`, or `${context.paths.artifacts_dir}`. Unavailable context values remain unresolved text instead of becoming empty strings.
@@ -431,7 +431,7 @@ The form is a flat object JSON Schema:
 - Supported property constraints include `default`, `enum`, `oneOf` choices, `minimum`, `maximum`, `minLength`, `maxLength`, and `pattern`.
 - `additionalProperties` defaults to `false`. Set it explicitly to `true` only when undeclared completion fields are intended.
 
-Dagu derives outputs from form properties; do not add an `outputs:` field to the human task. Required properties and optional properties with defaults are available to later steps as `${steps.<step_id>.outputs.<name>}`. Optional properties without defaults are accepted when supplied but are not published as step outputs.
+Dagu derives outputs from form properties; do not add an `outputs:` field to the human task. Every declared property is a step output, published when submitted or defaulted, and available as `${steps.<step_id>.outputs.<name>}`.
 
 Human tasks require an explicit `id`, run locally, and cannot be used in lifecycle handlers or `foreach.steps`. Executor, retry, repeat, timeout, container, worker selector, output capture, and approval fields are not supported on the same step.
 
@@ -1405,7 +1405,7 @@ Use single quotes around context references when the shell should receive the re
 
 A step can declare outputs and write them during execution. Dagu reads the output file after the command succeeds and publishes the values as `${steps.<step_id>.outputs.<name>}`.
 
-Human task form outputs use the same reference namespace without an authored `outputs:` field. Dagu automatically publishes required form properties and optional properties with defaults after `action: human.task` is completed. Optional properties without defaults are not published.
+Human task form outputs use the same reference namespace without an authored `outputs:` field. Every declared property is published when submitted or defaulted.
 
 ```yaml
 steps:

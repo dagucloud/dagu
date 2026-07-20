@@ -42,7 +42,6 @@ func maskNodeSecrets(masker *masking.Masker, node *exec.Node) {
 	}
 	node.Step = maskStepSecrets(masker, node.Step)
 	node.Error = masker.MaskString(node.Error)
-	node.HumanTaskPrompt = masker.MaskString(node.HumanTaskPrompt)
 	node.OutputVariables = maskOutputVariables(masker, node.OutputVariables)
 	node.OutputValue = maskStringPointer(masker, node.OutputValue)
 	node.OutputsValue = maskStringPointer(masker, node.OutputsValue)
