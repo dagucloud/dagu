@@ -388,6 +388,9 @@ func TestServerUsesEvaluatedBasePathForOIDCAndAPI(t *testing.T) {
 		builtinOIDCCfg: &frontendauth.BuiltinOIDCConfig{
 			OAuth2Config:  &oauth2.Config{},
 			LoginBasePath: "/dagu",
+			InitialSetupComplete: func(context.Context) (bool, error) {
+				return true, nil
+			},
 		},
 	}
 

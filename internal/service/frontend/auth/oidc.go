@@ -189,7 +189,9 @@ type BuiltinOIDCConfig struct {
 	Provision      *oidcprovision.Service
 	AuthService    *authservice.Service
 	LicenseChecker license.Checker
-	LoginBasePath  string // Base path for login page redirect
+	// InitialSetupComplete reports whether builtin administrator bootstrap has completed.
+	InitialSetupComplete func(context.Context) (bool, error)
+	LoginBasePath        string // Base path for login page redirect
 }
 
 // InitBuiltinOIDCConfig initializes OIDC for builtin auth mode.
@@ -214,11 +216,18 @@ func InitBuiltinOIDCConfig(ctx context.Context, cfg config.AuthOIDC, authSvc *au
 	}
 
 	return &BuiltinOIDCConfig{
-		Provider:      result.Provider,
-		Verifier:      result.Verifier,
-		OAuth2Config:  result.OAuth2Config,
-		Provision:     provisionSvc,
-		AuthService:   authSvc,
+		Provider:     result.Provider,
+		Verifier:     result.Verifier,
+		OAuth2Config: result.OAuth2Config,
+		Provision:    provisionSvc,
+		AuthService:  authSvc,
+		InitialSetupComplete: func(ctx context.Context) (bool, error) {
+			count, err := authSvc.CountUsers(ctx)
+			if err != nil {
+				return false, err
+			}
+			return count > 0, nil
+		},
 		LoginBasePath: loginBasePath,
 	}, nil
 }
@@ -226,6 +235,10 @@ func InitBuiltinOIDCConfig(ctx context.Context, cfg config.AuthOIDC, authSvc *au
 // BuiltinOIDCLoginHandler returns a handler that initiates the OIDC login flow.
 func BuiltinOIDCLoginHandler(cfg *BuiltinOIDCConfig) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if !allowOIDCAfterInitialSetup(w, r, cfg) {
+			return
+		}
+
 		if cfg.LicenseChecker != nil && !cfg.LicenseChecker.IsFeatureEnabled(license.FeatureSSO) {
 			redirectWithError(w, r, cfg.LoginBasePath, "SSO requires an active Dagu license")
 			return
@@ -247,6 +260,10 @@ func BuiltinOIDCLoginHandler(cfg *BuiltinOIDCConfig) http.HandlerFunc {
 func BuiltinOIDCCallbackHandler(cfg *BuiltinOIDCConfig) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
+
+		if !allowOIDCAfterInitialSetup(w, r, cfg) {
+			return
+		}
 
 		if cfg.LicenseChecker != nil && !cfg.LicenseChecker.IsFeatureEnabled(license.FeatureSSO) {
 			redirectWithError(w, r, cfg.LoginBasePath, "SSO requires an active Dagu license")
@@ -378,6 +395,24 @@ func BuiltinOIDCCallbackHandler(cfg *BuiltinOIDCConfig) http.HandlerFunc {
 		redirectURL += "#token=" + url.QueryEscape(tokenResult.Token)
 		http.Redirect(w, r, redirectURL, http.StatusFound)
 	}
+}
+
+func allowOIDCAfterInitialSetup(w http.ResponseWriter, r *http.Request, cfg *BuiltinOIDCConfig) bool {
+	if cfg.InitialSetupComplete == nil {
+		logger.Error(r.Context(), "Initial setup check is not configured for OIDC login")
+	} else {
+		complete, err := cfg.InitialSetupComplete(r.Context())
+		if err != nil {
+			logger.Error(r.Context(), "Failed to check initial setup before OIDC login", tag.Error(err))
+		} else if complete {
+			return true
+		}
+	}
+
+	clearOIDCStateCookies(w, r)
+	setupURL := strings.TrimSuffix(cfg.LoginBasePath, "/") + "/setup"
+	http.Redirect(w, r, setupURL, http.StatusFound)
+	return false
 }
 
 // redirectWithError redirects to the login page with an error message.
