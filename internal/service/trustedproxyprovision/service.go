@@ -45,7 +45,7 @@ type Config struct {
 	UsersDir        string
 	Source          string
 	AutoSignup      bool
-	SkipOrgRoleSync bool
+	SyncAccess      bool
 	RoleMapping     authmapping.Config
 	WorkspaceExists func(context.Context, string) (bool, error)
 }
@@ -56,7 +56,8 @@ type Service struct {
 	usersDir        string
 	source          string
 	autoSignup      bool
-	skipOrgRoleSync bool
+	requireMapping  bool
+	syncAccess      bool
 	mapper          *authmapping.Mapper
 	workspaceExists func(context.Context, string) (bool, error)
 	logger          *slog.Logger
@@ -86,7 +87,8 @@ func New(userStore auth.UserStore, config Config) (*Service, error) {
 		usersDir:        config.UsersDir,
 		source:          config.Source,
 		autoSignup:      config.AutoSignup,
-		skipOrgRoleSync: config.SkipOrgRoleSync,
+		requireMapping:  config.RoleMapping.Strict,
+		syncAccess:      config.SyncAccess,
 		mapper:          mapper,
 		workspaceExists: config.WorkspaceExists,
 		logger:          slog.Default().With(slog.String("service", "trustedproxyprovision")),
@@ -151,7 +153,12 @@ func (s *Service) processExisting(ctx context.Context, user *auth.User, groups [
 	if user.IsDisabled {
 		return nil, false, authservice.ErrUserDisabled
 	}
-	if s.skipOrgRoleSync {
+	if !s.syncAccess {
+		if s.requireMapping {
+			if _, err := s.mapAccess(ctx, groups); err != nil {
+				return nil, false, err
+			}
+		}
 		s.logger.Debug("trusted proxy login resolved existing user", slog.String("user_id", user.ID))
 		return user, false, nil
 	}
@@ -208,7 +215,7 @@ func (s *Service) createUser(
 			WorkspaceAccess:    auth.CloneWorkspaceAccess(mapping.WorkspaceAccess),
 			CreatedAt:          now,
 			UpdatedAt:          now,
-			AuthProvider:       auth.AuthProviderTrustedProxy,
+			AuthProvider:       auth.AuthProviderProxy,
 			TrustedProxySource: s.source,
 			TrustedProxyUser:   identity,
 		}

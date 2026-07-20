@@ -77,10 +77,6 @@
               },
               "required": ["user", "groups"]
             },
-            "groupsFormat": {
-              "type": "string",
-              "const": "csv"
-            },
             "autoSignup": {
               "type": "boolean"
             },
@@ -96,10 +92,10 @@
                   "type": "string",
                   "enum": ["all", "none"]
                 },
-                "roleAttributeStrict": {
+                "requireMapping": {
                   "type": "boolean"
                 },
-                "skipOrgRoleSync": {
+                "syncAccess": {
                   "type": "boolean"
                 },
                 "groupMappings": {
@@ -135,8 +131,8 @@
               "required": [
                 "defaultRole",
                 "defaultWorkspaceAccess",
-                "roleAttributeStrict",
-                "skipOrgRoleSync",
+                "requireMapping",
+                "syncAccess",
                 "groupMappings",
                 "workspaceMappings"
               ]
@@ -146,7 +142,6 @@
             "enabled",
             "loginLabel",
             "headers",
-            "groupsFormat",
             "autoSignup",
             "roleMapping"
           ]

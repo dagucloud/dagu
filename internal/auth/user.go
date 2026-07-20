@@ -14,8 +14,8 @@ const (
 	AuthProviderBuiltin = "builtin"
 	// AuthProviderOIDC identifies users authenticated through OIDC.
 	AuthProviderOIDC = "oidc"
-	// AuthProviderTrustedProxy identifies users authenticated by a trusted proxy.
-	AuthProviderTrustedProxy = "trusted_proxy"
+	// AuthProviderProxy identifies users authenticated through proxy authentication.
+	AuthProviderProxy = "proxy"
 )
 
 // User represents a user in the system.

@@ -51,7 +51,7 @@ function AuthProviderBadge({
     return 'Local';
   }
   const providerLabel =
-    provider === UserAuthProvider.oidc ? 'SSO' : 'Trusted Proxy';
+    provider === UserAuthProvider.oidc ? 'SSO' : 'Proxy';
   if (!managedProviders.includes(provider)) {
     return providerLabel;
   }

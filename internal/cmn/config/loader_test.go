@@ -222,12 +222,13 @@ func TestLoad_Env(t *testing.T) {
 					},
 				},
 				Proxy: AuthTrustedProxy{
-					LoginLabel:   "Continue with SSO",
-					GroupsFormat: TrustedProxyGroupsFormatCSV,
-					AutoSignup:   true,
+					LoginLabel: "Continue with SSO",
+					AutoSignup: true,
 					RoleMapping: TrustedProxyRoleMapping{
 						DefaultRole:            "viewer",
-						DefaultWorkspaceAccess: TrustedProxyDefaultWorkspaceAccessAll,
+						DefaultWorkspaceAccess: TrustedProxyDefaultWorkspaceAccessNone,
+						RequireMapping:         true,
+						SyncAccess:             true,
 					},
 				},
 				Builtin: AuthBuiltin{
@@ -663,12 +664,13 @@ scheduler:
 					},
 				},
 				Proxy: AuthTrustedProxy{
-					LoginLabel:   "Continue with SSO",
-					GroupsFormat: TrustedProxyGroupsFormatCSV,
-					AutoSignup:   true,
+					LoginLabel: "Continue with SSO",
+					AutoSignup: true,
 					RoleMapping: TrustedProxyRoleMapping{
 						DefaultRole:            "viewer",
-						DefaultWorkspaceAccess: TrustedProxyDefaultWorkspaceAccessAll,
+						DefaultWorkspaceAccess: TrustedProxyDefaultWorkspaceAccessNone,
+						RequireMapping:         true,
+						SyncAccess:             true,
 					},
 				},
 				Builtin: AuthBuiltin{

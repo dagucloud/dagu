@@ -679,9 +679,6 @@ func (l *ConfigLoader) loadTrustedProxyAuth(cfg *Config, authDef *AuthDef) {
 		trustedProxy.Headers.User = trustedProxyDef.Headers.User
 		trustedProxy.Headers.Groups = trustedProxyDef.Headers.Groups
 	}
-	if trustedProxyDef.GroupsFormat != nil {
-		trustedProxy.GroupsFormat = *trustedProxyDef.GroupsFormat
-	}
 	if trustedProxyDef.AutoSignup != nil {
 		trustedProxy.AutoSignup = *trustedProxyDef.AutoSignup
 	}
@@ -699,11 +696,11 @@ func (l *ConfigLoader) loadTrustedProxyAuth(cfg *Config, authDef *AuthDef) {
 	if roleMappingDef.DefaultWorkspaceAccess != nil {
 		roleMapping.DefaultWorkspaceAccess = *roleMappingDef.DefaultWorkspaceAccess
 	}
-	if roleMappingDef.RoleAttributeStrict != nil {
-		roleMapping.RoleAttributeStrict = *roleMappingDef.RoleAttributeStrict
+	if roleMappingDef.RequireMapping != nil {
+		roleMapping.RequireMapping = *roleMappingDef.RequireMapping
 	}
-	if roleMappingDef.SkipOrgRoleSync != nil {
-		roleMapping.SkipOrgRoleSync = *roleMappingDef.SkipOrgRoleSync
+	if roleMappingDef.SyncAccess != nil {
+		roleMapping.SyncAccess = *roleMappingDef.SyncAccess
 	}
 }
 
@@ -1052,10 +1049,11 @@ func (l *ConfigLoader) setAuthDefaults(cfg *Config) {
 func (l *ConfigLoader) setTrustedProxyDefaults(cfg *Config) {
 	trustedProxy := &cfg.Server.Auth.Proxy
 	trustedProxy.LoginLabel = "Continue with SSO"
-	trustedProxy.GroupsFormat = TrustedProxyGroupsFormatCSV
 	trustedProxy.AutoSignup = true
 	trustedProxy.RoleMapping.DefaultRole = "viewer"
-	trustedProxy.RoleMapping.DefaultWorkspaceAccess = TrustedProxyDefaultWorkspaceAccessAll
+	trustedProxy.RoleMapping.DefaultWorkspaceAccess = TrustedProxyDefaultWorkspaceAccessNone
+	trustedProxy.RoleMapping.RequireMapping = true
+	trustedProxy.RoleMapping.SyncAccess = true
 }
 
 // warnIfWeakValue appends a warning if value matches any entry in weakList (case-insensitive).
@@ -2020,12 +2018,11 @@ var envBindings = []envBinding{
 	{key: "auth.proxy.login_label", env: "AUTH_PROXY_LOGIN_LABEL", requires: SectionServer},
 	{key: "auth.proxy.headers.user", env: "AUTH_PROXY_HEADERS_USER", requires: SectionServer},
 	{key: "auth.proxy.headers.groups", env: "AUTH_PROXY_HEADERS_GROUPS", requires: SectionServer},
-	{key: "auth.proxy.groups_format", env: "AUTH_PROXY_GROUPS_FORMAT", requires: SectionServer},
 	{key: "auth.proxy.auto_signup", env: "AUTH_PROXY_AUTO_SIGNUP", requires: SectionServer},
 	{key: "auth.proxy.role_mapping.default_role", env: "AUTH_PROXY_DEFAULT_ROLE", requires: SectionServer},
 	{key: "auth.proxy.role_mapping.default_workspace_access", env: "AUTH_PROXY_DEFAULT_WORKSPACE_ACCESS", requires: SectionServer},
-	{key: "auth.proxy.role_mapping.role_attribute_strict", env: "AUTH_PROXY_ROLE_ATTRIBUTE_STRICT", requires: SectionServer},
-	{key: "auth.proxy.role_mapping.skip_org_role_sync", env: "AUTH_PROXY_SKIP_ORG_ROLE_SYNC", requires: SectionServer},
+	{key: "auth.proxy.role_mapping.require_mapping", env: "AUTH_PROXY_REQUIRE_MAPPING", requires: SectionServer},
+	{key: "auth.proxy.role_mapping.sync_access", env: "AUTH_PROXY_SYNC_ACCESS", requires: SectionServer},
 	// Auth (builtin)
 	{key: "auth.builtin.token.secret", env: "AUTH_TOKEN_SECRET"},
 	{key: "auth.builtin.token.ttl", env: "AUTH_TOKEN_TTL"},

@@ -86,9 +86,7 @@ export function UserFormModal({
     !!user.authProvider &&
     managedAuthorizationProviders.includes(user.authProvider);
   const managedProviderLabel =
-    user?.authProvider === UserAuthProvider.trusted_proxy
-      ? 'Trusted Proxy'
-      : 'SSO';
+    user?.authProvider === UserAuthProvider.proxy ? 'Proxy' : 'SSO';
 
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');

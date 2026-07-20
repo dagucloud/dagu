@@ -131,7 +131,7 @@ func TestUser_StorageRoundtrip(t *testing.T) {
 			Role:               RoleManager,
 			CreatedAt:          now,
 			UpdatedAt:          now.Add(time.Minute),
-			AuthProvider:       AuthProviderTrustedProxy,
+			AuthProvider:       AuthProviderProxy,
 			TrustedProxySource: "edge-cluster",
 			TrustedProxyUser:   "opaque-id",
 		}
@@ -159,7 +159,7 @@ func TestUserCanUsePassword(t *testing.T) {
 		{provider: "", expected: true},
 		{provider: AuthProviderBuiltin, expected: true},
 		{provider: AuthProviderOIDC, expected: false},
-		{provider: AuthProviderTrustedProxy, expected: false},
+		{provider: AuthProviderProxy, expected: false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.provider, func(t *testing.T) {

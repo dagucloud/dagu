@@ -217,7 +217,10 @@ authenticating reverse proxy is the only network path to the UI. It requires
 builtin authentication, `auth.proxy.enabled: true`, and one UI replica. See
 [`TRUSTED_PROXY_AUTH.md`](./TRUSTED_PROXY_AUTH.md) for the trust contract,
 oauth2-proxy and ingress-nginx configuration, NetworkPolicy example, validation,
-and recovery guidance.
+and recovery guidance. By default, proxy login requires an explicit group or
+workspace mapping and recalculates access on every login. If mapping is made
+optional, unmatched users receive no named-workspace grants but retain the
+global viewer permission for unlabelled DAGs and their logs.
 
 ### Component Resources
 

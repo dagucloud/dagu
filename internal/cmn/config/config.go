@@ -326,13 +326,12 @@ func (m OIDCRoleMapping) WorkspaceAccessPolicyActive() bool {
 
 // AuthTrustedProxy configures authentication delegated to a trusted reverse proxy.
 type AuthTrustedProxy struct {
-	Enabled      bool
-	Source       string
-	LoginLabel   string
-	Headers      TrustedProxyHeaders
-	GroupsFormat string
-	AutoSignup   bool
-	RoleMapping  TrustedProxyRoleMapping
+	Enabled     bool
+	Source      string
+	LoginLabel  string
+	Headers     TrustedProxyHeaders
+	AutoSignup  bool
+	RoleMapping TrustedProxyRoleMapping
 }
 
 // TrustedProxyHeaders identifies the headers populated by the trusted proxy.
@@ -347,8 +346,8 @@ type TrustedProxyRoleMapping struct {
 	GroupMappings          map[string]string
 	WorkspaceMappings      map[string][]TrustedProxyWorkspaceGrant
 	DefaultWorkspaceAccess string
-	RoleAttributeStrict    bool
-	SkipOrgRoleSync        bool
+	RequireMapping         bool
+	SyncAccess             bool
 }
 
 // TrustedProxyWorkspaceGrant assigns a trusted proxy group member a role in one workspace.
@@ -358,8 +357,6 @@ type TrustedProxyWorkspaceGrant struct {
 }
 
 const (
-	// TrustedProxyGroupsFormatCSV parses the groups header as CSV.
-	TrustedProxyGroupsFormatCSV = "csv"
 	// TrustedProxyDefaultWorkspaceAccessAll grants unmatched users access to every workspace.
 	TrustedProxyDefaultWorkspaceAccessAll = "all"
 	// TrustedProxyDefaultWorkspaceAccessNone denies unmatched users access to named workspaces.
@@ -892,7 +889,11 @@ func (c *Config) validateTrustedProxyAuth() error {
 	if err := validateTrustedProxyHeaderName("auth.proxy.headers.user", trustedProxy.Headers.User); err != nil {
 		return err
 	}
-	if len(trustedProxy.RoleMapping.GroupMappings) > 0 || len(trustedProxy.RoleMapping.WorkspaceMappings) > 0 {
+	hasMappings := len(trustedProxy.RoleMapping.GroupMappings) > 0 || len(trustedProxy.RoleMapping.WorkspaceMappings) > 0
+	if trustedProxy.RoleMapping.RequireMapping && !hasMappings {
+		return fmt.Errorf("auth.proxy.role_mapping.require_mapping requires at least one group_mappings or workspace_mappings entry")
+	}
+	if hasMappings {
 		if trustedProxy.Headers.Groups == "" {
 			return fmt.Errorf("auth.proxy.headers.groups is required when role mappings are configured")
 		}
@@ -904,9 +905,6 @@ func (c *Config) validateTrustedProxyAuth() error {
 		if strings.EqualFold(trustedProxy.Headers.User, trustedProxy.Headers.Groups) {
 			return fmt.Errorf("auth.proxy.headers.user and auth.proxy.headers.groups must be different")
 		}
-	}
-	if trustedProxy.GroupsFormat != TrustedProxyGroupsFormatCSV {
-		return fmt.Errorf("auth.proxy.groups_format must be %q", TrustedProxyGroupsFormatCSV)
 	}
 	if err := validateTrustedProxyLoginLabel(trustedProxy.LoginLabel); err != nil {
 		return err

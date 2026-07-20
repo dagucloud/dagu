@@ -62,7 +62,7 @@ describe('UserMenu', () => {
 
   it('does not offer password changes to trusted proxy users', async () => {
     const user = userEvent.setup();
-    renderMenu(UserAuthProvider.trusted_proxy);
+    renderMenu(UserAuthProvider.proxy);
 
     await user.click(screen.getByRole('button', { name: 'test-user' }));
 

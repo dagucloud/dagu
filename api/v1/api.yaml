@@ -12412,7 +12412,7 @@ components:
       enum:
         - builtin
         - oidc
-        - trusted_proxy
+        - proxy
 
     WorkspaceName:
       type: string

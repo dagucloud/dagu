@@ -39,6 +39,7 @@ func newTestService(t *testing.T, userStore auth.UserStore, mutate func(*Config)
 	config := Config{
 		UsersDir:   t.TempDir(),
 		AutoSignup: true,
+		SyncAccess: true,
 		RoleMapping: authmapping.Config{
 			DefaultRole: auth.RoleViewer,
 		},
@@ -68,7 +69,7 @@ func TestProcessLoginCreatesTrustedProxyUser(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, created)
 	assert.Equal(t, "alice_example_com", user.Username)
-	assert.Equal(t, auth.AuthProviderTrustedProxy, user.AuthProvider)
+	assert.Equal(t, auth.AuthProviderProxy, user.AuthProvider)
 	assert.Equal(t, "edge-a", user.TrustedProxySource)
 	assert.Equal(t, "Alice@example.com", user.TrustedProxyUser)
 	assert.Empty(t, user.PasswordHash)
@@ -201,7 +202,7 @@ func TestProcessLoginSynchronizesFullAuthorization(t *testing.T) {
 	userStore := newTestUserStore(t)
 	seedUser(t, userStore, "admin")
 	existing := auth.NewUser("renamed-user", "", auth.RoleDeveloper)
-	existing.AuthProvider = auth.AuthProviderTrustedProxy
+	existing.AuthProvider = auth.AuthProviderProxy
 	existing.TrustedProxyUser = "opaque-user"
 	existing.WorkspaceAccess = auth.AllWorkspaceAccess()
 	require.NoError(t, userStore.Create(ctx, existing))
@@ -222,29 +223,47 @@ func TestProcessLoginSynchronizesFullAuthorization(t *testing.T) {
 	assert.Equal(t, user.WorkspaceAccess, persisted.WorkspaceAccess)
 }
 
-func TestProcessLoginSkipSyncRetainsAuthorization(t *testing.T) {
+func TestProcessLoginWithSyncDisabledRetainsAuthorization(t *testing.T) {
 	ctx := context.Background()
 	userStore := newTestUserStore(t)
 	existing := auth.NewUser("trusted", "", auth.RoleManager)
-	existing.AuthProvider = auth.AuthProviderTrustedProxy
+	existing.AuthProvider = auth.AuthProviderProxy
 	existing.TrustedProxyUser = "opaque-user"
 	require.NoError(t, userStore.Create(ctx, existing))
 	service := newTestService(t, userStore, func(config *Config) {
-		config.SkipOrgRoleSync = true
+		config.SyncAccess = false
 		config.RoleMapping.Strict = true
+		config.RoleMapping.GroupMappings = map[string]auth.Role{"members": auth.RoleViewer}
 	})
 
-	user, created, err := service.ProcessLogin(ctx, "opaque-user", nil)
+	user, created, err := service.ProcessLogin(ctx, "opaque-user", []string{"members"})
 	require.NoError(t, err)
 	assert.False(t, created)
 	assert.Equal(t, auth.RoleManager, user.Role)
+}
+
+func TestProcessLoginWithSyncDisabledStillRequiresMapping(t *testing.T) {
+	ctx := context.Background()
+	userStore := newTestUserStore(t)
+	existing := auth.NewUser("trusted", "", auth.RoleManager)
+	existing.AuthProvider = auth.AuthProviderProxy
+	existing.TrustedProxyUser = "opaque-user"
+	require.NoError(t, userStore.Create(ctx, existing))
+	service := newTestService(t, userStore, func(config *Config) {
+		config.SyncAccess = false
+		config.RoleMapping.Strict = true
+		config.RoleMapping.GroupMappings = map[string]auth.Role{"members": auth.RoleViewer}
+	})
+
+	_, _, err := service.ProcessLogin(ctx, "opaque-user", []string{"former-member"})
+	assert.ErrorIs(t, err, ErrAuthorizationMapping)
 }
 
 func TestProcessLoginRejectsDisabledUser(t *testing.T) {
 	ctx := context.Background()
 	userStore := newTestUserStore(t)
 	existing := auth.NewUser("trusted", "", auth.RoleViewer)
-	existing.AuthProvider = auth.AuthProviderTrustedProxy
+	existing.AuthProvider = auth.AuthProviderProxy
 	existing.TrustedProxyUser = "opaque-user"
 	existing.IsDisabled = true
 	require.NoError(t, userStore.Create(ctx, existing))
@@ -330,7 +349,7 @@ func TestProcessLoginDoesNotExposeUnpersistedAuthorization(t *testing.T) {
 	ctx := context.Background()
 	userStore := newTestUserStore(t)
 	existing := auth.NewUser("trusted", "", auth.RoleManager)
-	existing.AuthProvider = auth.AuthProviderTrustedProxy
+	existing.AuthProvider = auth.AuthProviderProxy
 	existing.TrustedProxyUser = "opaque-user"
 	require.NoError(t, userStore.Create(ctx, existing))
 	service := newTestService(t, failingAuthorizationSyncStore{AuthorizationSyncUserStore: userStore}, nil)
@@ -375,7 +394,7 @@ func TestProcessLoginPreservesConcurrentDisable(t *testing.T) {
 	ctx := context.Background()
 	userStore := newTestUserStore(t)
 	existing := auth.NewUser("trusted", "", auth.RoleManager)
-	existing.AuthProvider = auth.AuthProviderTrustedProxy
+	existing.AuthProvider = auth.AuthProviderProxy
 	existing.TrustedProxyUser = "opaque-user"
 	require.NoError(t, userStore.Create(ctx, existing))
 	concurrentStore := &disableBeforeAuthorizationSyncStore{AuthorizationSyncUserStore: userStore}

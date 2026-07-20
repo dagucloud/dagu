@@ -272,7 +272,7 @@ auth:
 `,
 		},
 		{
-			name: "ValidFallbackOnly",
+			name: "ValidWithoutRequiredMapping",
 			spec: `
 auth:
   mode: builtin
@@ -280,6 +280,8 @@ auth:
     enabled: true
     headers:
       user: X-Auth-Request-User
+    role_mapping:
+      require_mapping: false
 `,
 		},
 		{
@@ -294,13 +296,12 @@ auth:
     headers:
       user: X-Auth-Request-User
       groups: X-Auth-Request-Groups
-    groups_format: csv
     auto_signup: false
     role_mapping:
       default_role: viewer
       default_workspace_access: none
-      role_attribute_strict: true
-      skip_org_role_sync: true
+      require_mapping: true
+      sync_access: true
       group_mappings:
         admins: admin
       workspace_mappings:
@@ -308,6 +309,20 @@ auth:
           - workspace: payments
             role: developer
 `,
+		},
+		{
+			name: "RequiredMappingMustBeConfigured",
+			spec: `
+auth:
+  mode: builtin
+  proxy:
+    enabled: true
+    headers:
+      user: X-Auth-Request-User
+    role_mapping:
+      require_mapping: true
+`,
+			wantErr: true,
 		},
 		{
 			name: "SourceTooLong",
@@ -352,15 +367,6 @@ auth:
         developers:
           - workspace: payments
             role: developer
-`,
-			wantErr: true,
-		},
-		{
-			name: "UnsupportedGroupsFormat",
-			spec: `
-auth:
-  proxy:
-    groups_format: json
 `,
 			wantErr: true,
 		},

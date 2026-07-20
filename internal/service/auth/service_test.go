@@ -158,7 +158,7 @@ func TestService_AuthenticateRejectsOIDCUserWithPasswordHash(t *testing.T) {
 }
 
 func TestService_AuthenticateRejectsEveryExternalProvider(t *testing.T) {
-	for _, provider := range []string{"oidc", "trusted_proxy", "future_provider"} {
+	for _, provider := range []string{"oidc", "proxy", "future_provider"} {
 		t.Run(provider, func(t *testing.T) {
 			svc, cleanup := setupTestService(t)
 			defer cleanup()
@@ -168,7 +168,7 @@ func TestService_AuthenticateRejectsEveryExternalProvider(t *testing.T) {
 			require.NoError(t, err)
 			user := auth.NewUser(provider+"-user", string(passwordHash), auth.RoleViewer)
 			user.AuthProvider = provider
-			if provider == auth.AuthProviderTrustedProxy {
+			if provider == auth.AuthProviderProxy {
 				user.TrustedProxyUser = provider + "-identity"
 			}
 			require.NoError(t, svc.store.Create(ctx, user))
@@ -181,7 +181,7 @@ func TestService_AuthenticateRejectsEveryExternalProvider(t *testing.T) {
 }
 
 func TestService_PasswordManagementRejectsEveryExternalProvider(t *testing.T) {
-	for _, provider := range []string{"oidc", "trusted_proxy", "future_provider"} {
+	for _, provider := range []string{"oidc", "proxy", "future_provider"} {
 		t.Run(provider, func(t *testing.T) {
 			svc, cleanup := setupTestService(t)
 			defer cleanup()
@@ -189,7 +189,7 @@ func TestService_PasswordManagementRejectsEveryExternalProvider(t *testing.T) {
 			ctx := context.Background()
 			user := auth.NewUser(provider+"-user", "legacy-password-hash", auth.RoleViewer)
 			user.AuthProvider = provider
-			if provider == auth.AuthProviderTrustedProxy {
+			if provider == auth.AuthProviderProxy {
 				user.TrustedProxyUser = provider + "-identity"
 			}
 			require.NoError(t, svc.store.Create(ctx, user))
@@ -539,7 +539,7 @@ func TestService_UpdateUserPreservesAuthorizationSynchronizedAfterRead(t *testin
 	baseStore, err := persiststore.NewUserStore(testutil.NewMemoryBackend().Collection("users"))
 	require.NoError(t, err)
 	user := auth.NewUser("proxy-user", "", auth.RoleAdmin)
-	user.AuthProvider = auth.AuthProviderTrustedProxy
+	user.AuthProvider = auth.AuthProviderProxy
 	user.TrustedProxyUser = "stable-identity"
 	require.NoError(t, baseStore.Create(ctx, user))
 

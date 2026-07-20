@@ -189,13 +189,13 @@ describe('UsersPage', () => {
         makeUser({
           id: 'proxy-user',
           username: 'proxy-user',
-          authProvider: UserAuthProvider.trusted_proxy,
+          authProvider: UserAuthProvider.proxy,
         }),
       ],
-      managedAuthorizationProviders: [UserAuthProvider.trusted_proxy],
+      managedAuthorizationProviders: [UserAuthProvider.proxy],
     });
 
-    expect(await screen.findByText('Managed by Trusted Proxy')).toBeVisible();
+    expect(await screen.findByText('Managed by Proxy')).toBeVisible();
     await user.click(
       screen.getByRole('button', { name: 'Actions for proxy-user' })
     );
@@ -323,10 +323,10 @@ describe('UsersPage', () => {
           <UserFormModal
             open
             user={makeUser({
-              authProvider: UserAuthProvider.trusted_proxy,
+              authProvider: UserAuthProvider.proxy,
               username: 'proxy-user',
             })}
-            managedAuthorizationProviders={[UserAuthProvider.trusted_proxy]}
+            managedAuthorizationProviders={[UserAuthProvider.proxy]}
             onClose={() => undefined}
             onSuccess={() => undefined}
           />
@@ -335,8 +335,8 @@ describe('UsersPage', () => {
     );
 
     expect(
-      screen.getByLabelText('Role managed by Trusted Proxy')
+      screen.getByLabelText('Role managed by Proxy')
     ).toBeVisible();
-    expect(screen.getByText('Managed by Trusted Proxy')).toBeVisible();
+    expect(screen.getByText('Managed by Proxy')).toBeVisible();
   });
 });

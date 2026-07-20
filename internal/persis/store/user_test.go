@@ -83,13 +83,13 @@ func TestUserCreate_DuplicateTrustedProxyIdentity(t *testing.T) {
 	s := newUserStore(t)
 
 	u1 := newUser("alice")
-	u1.AuthProvider = auth.AuthProviderTrustedProxy
+	u1.AuthProvider = auth.AuthProviderProxy
 	u1.TrustedProxySource = "edge-a"
 	u1.TrustedProxyUser = "opaque-user"
 	require.NoError(t, s.Create(ctx, u1))
 
 	u2 := newUser("bob")
-	u2.AuthProvider = auth.AuthProviderTrustedProxy
+	u2.AuthProvider = auth.AuthProviderProxy
 	u2.TrustedProxySource = "edge-a"
 	u2.TrustedProxyUser = "opaque-user"
 	assert.ErrorIs(t, s.Create(ctx, u2), auth.ErrTrustedProxyIdentityAlreadyExists)
@@ -100,13 +100,13 @@ func TestUserCreate_AllowsSameTrustedProxyUserFromDifferentSources(t *testing.T)
 	s := newUserStore(t)
 
 	first := newUser("alice")
-	first.AuthProvider = auth.AuthProviderTrustedProxy
+	first.AuthProvider = auth.AuthProviderProxy
 	first.TrustedProxySource = "edge-a"
 	first.TrustedProxyUser = "opaque-user"
 	require.NoError(t, s.Create(ctx, first))
 
 	second := newUser("bob")
-	second.AuthProvider = auth.AuthProviderTrustedProxy
+	second.AuthProvider = auth.AuthProviderProxy
 	second.TrustedProxySource = "edge-b"
 	second.TrustedProxyUser = "opaque-user"
 	require.NoError(t, s.Create(ctx, second))
@@ -125,12 +125,12 @@ func TestUserCreate_ReportsTrustedIdentityConflictBeforeUsernameConflict(t *test
 	ctx := context.Background()
 	s := newUserStore(t)
 	u1 := newUser("same-name")
-	u1.AuthProvider = auth.AuthProviderTrustedProxy
+	u1.AuthProvider = auth.AuthProviderProxy
 	u1.TrustedProxyUser = "same-identity"
 	require.NoError(t, s.Create(ctx, u1))
 	u2 := newUser("same-name")
 	u2.ID = "different-id"
-	u2.AuthProvider = auth.AuthProviderTrustedProxy
+	u2.AuthProvider = auth.AuthProviderProxy
 	u2.TrustedProxyUser = "same-identity"
 
 	assert.ErrorIs(t, s.Create(ctx, u2), auth.ErrTrustedProxyIdentityAlreadyExists)
@@ -182,7 +182,7 @@ func TestUserGetByTrustedProxyIdentity(t *testing.T) {
 	ctx := context.Background()
 	s := newUserStore(t)
 	u := newUser("proxy-user")
-	u.AuthProvider = auth.AuthProviderTrustedProxy
+	u.AuthProvider = auth.AuthProviderProxy
 	u.TrustedProxySource = "edge-a"
 	u.TrustedProxyUser = "opaque-proxy-id"
 	require.NoError(t, s.Create(ctx, u))
@@ -283,7 +283,7 @@ func TestUserUpdate_TrustedProxyIdentityIsImmutable(t *testing.T) {
 	ctx := context.Background()
 	s := newUserStore(t)
 	u := newUser("proxy-renamed")
-	u.AuthProvider = auth.AuthProviderTrustedProxy
+	u.AuthProvider = auth.AuthProviderProxy
 	u.TrustedProxyUser = "old-identity"
 	require.NoError(t, s.Create(ctx, u))
 
@@ -301,7 +301,7 @@ func TestUserUpdate_TrustedProxySourceIsImmutable(t *testing.T) {
 	ctx := context.Background()
 	s := newUserStore(t)
 	u := newUser("proxy-source")
-	u.AuthProvider = auth.AuthProviderTrustedProxy
+	u.AuthProvider = auth.AuthProviderProxy
 	u.TrustedProxySource = "edge-a"
 	u.TrustedProxyUser = "stable-identity"
 	require.NoError(t, s.Create(ctx, u))
@@ -320,7 +320,7 @@ func TestUserUpdate_TrustedProxyProviderCannotBeRemoved(t *testing.T) {
 	ctx := context.Background()
 	s := newUserStore(t)
 	u := newUser("proxy-provider")
-	u.AuthProvider = auth.AuthProviderTrustedProxy
+	u.AuthProvider = auth.AuthProviderProxy
 	u.TrustedProxyUser = "stable-identity"
 	require.NoError(t, s.Create(ctx, u))
 
@@ -330,14 +330,14 @@ func TestUserUpdate_TrustedProxyProviderCannotBeRemoved(t *testing.T) {
 
 	got, err := s.GetByTrustedProxyIdentity(ctx, "", "stable-identity")
 	require.NoError(t, err)
-	assert.Equal(t, auth.AuthProviderTrustedProxy, got.AuthProvider)
+	assert.Equal(t, auth.AuthProviderProxy, got.AuthProvider)
 }
 
 func TestUserPatchPreservesUnspecifiedAuthorization(t *testing.T) {
 	ctx := context.Background()
 	s := newUserStore(t)
 	u := newUser("proxy-patch")
-	u.AuthProvider = auth.AuthProviderTrustedProxy
+	u.AuthProvider = auth.AuthProviderProxy
 	u.TrustedProxySource = "edge-a"
 	u.TrustedProxyUser = "patch-identity"
 	require.NoError(t, s.Create(ctx, u))
@@ -360,7 +360,7 @@ func TestUserSyncAuthorizationPreservesAdministrativeFields(t *testing.T) {
 	ctx := context.Background()
 	s := newUserStore(t)
 	u := newUser("proxy-original")
-	u.AuthProvider = auth.AuthProviderTrustedProxy
+	u.AuthProvider = auth.AuthProviderProxy
 	u.TrustedProxySource = "edge-a"
 	u.TrustedProxyUser = "stable-identity"
 	u.Role = auth.RoleViewer
@@ -400,7 +400,7 @@ func TestUserSyncAuthorizationRejectsDisabledUser(t *testing.T) {
 	ctx := context.Background()
 	s := newUserStore(t)
 	u := newUser("proxy-disabled")
-	u.AuthProvider = auth.AuthProviderTrustedProxy
+	u.AuthProvider = auth.AuthProviderProxy
 	u.TrustedProxyUser = "disabled-identity"
 	u.IsDisabled = true
 	require.NoError(t, s.Create(ctx, u))
@@ -420,7 +420,7 @@ func TestUserCreate_ValidatesTrustedProxyProviderAndIdentity(t *testing.T) {
 	s := newUserStore(t)
 
 	missingIdentity := newUser("missing-identity")
-	missingIdentity.AuthProvider = auth.AuthProviderTrustedProxy
+	missingIdentity.AuthProvider = auth.AuthProviderProxy
 	assert.ErrorIs(t, s.Create(ctx, missingIdentity), auth.ErrInvalidTrustedProxyIdentity)
 
 	wrongProvider := newUser("wrong-provider")
@@ -432,7 +432,7 @@ func TestUserCreate_ValidatesTrustedProxyProviderAndIdentity(t *testing.T) {
 	assert.ErrorIs(t, s.Create(ctx, wrongProviderSource), auth.ErrInvalidTrustedProxyIdentity)
 
 	mixedIdentity := newUser("mixed-identity")
-	mixedIdentity.AuthProvider = auth.AuthProviderTrustedProxy
+	mixedIdentity.AuthProvider = auth.AuthProviderProxy
 	mixedIdentity.TrustedProxyUser = "opaque-id"
 	mixedIdentity.OIDCIssuer = "https://issuer.example"
 	assert.ErrorIs(t, s.Create(ctx, mixedIdentity), auth.ErrInvalidTrustedProxyIdentity)
@@ -463,7 +463,7 @@ func TestUserDelete_TrustedProxyIdentity(t *testing.T) {
 	ctx := context.Background()
 	s := newUserStore(t)
 	u := newUser("proxy-delete")
-	u.AuthProvider = auth.AuthProviderTrustedProxy
+	u.AuthProvider = auth.AuthProviderProxy
 	u.TrustedProxySource = "edge-a"
 	u.TrustedProxyUser = "delete-identity"
 	require.NoError(t, s.Create(ctx, u))
@@ -507,12 +507,12 @@ func TestUserIndexRebuiltOnStartup(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, s1.Create(ctx, newUser("kate")))
 	leo := newUser("leo")
-	leo.AuthProvider = auth.AuthProviderTrustedProxy
+	leo.AuthProvider = auth.AuthProviderProxy
 	leo.TrustedProxySource = "edge-a"
 	leo.TrustedProxyUser = "leo-proxy-id"
 	require.NoError(t, s1.Create(ctx, leo))
 	maya := newUser("maya")
-	maya.AuthProvider = auth.AuthProviderTrustedProxy
+	maya.AuthProvider = auth.AuthProviderProxy
 	maya.TrustedProxySource = "edge-b"
 	maya.TrustedProxyUser = "leo-proxy-id"
 	require.NoError(t, s1.Create(ctx, maya))
@@ -541,7 +541,7 @@ func TestUserIndexRebuildRejectsDuplicateTrustedProxyIdentity(t *testing.T) {
 	now := time.Now().UTC()
 	for _, username := range []string{"first", "second"} {
 		user := newUser(username)
-		user.AuthProvider = auth.AuthProviderTrustedProxy
+		user.AuthProvider = auth.AuthProviderProxy
 		user.TrustedProxySource = "edge-a"
 		user.TrustedProxyUser = "duplicate-identity"
 		data, err := persis.Encode(user.ToStorage())
@@ -583,7 +583,7 @@ func TestUserTrustedProxyIndexChangesOnlyAfterPersistence(t *testing.T) {
 	userStore, err := store.NewUserStore(collection)
 	require.NoError(t, err)
 	user := newUser("proxy-index")
-	user.AuthProvider = auth.AuthProviderTrustedProxy
+	user.AuthProvider = auth.AuthProviderProxy
 	user.TrustedProxySource = "edge-a"
 	user.TrustedProxyUser = "proxy-index-identity"
 

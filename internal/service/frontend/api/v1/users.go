@@ -52,8 +52,8 @@ func (a *API) managedAuthorizationProviders(oidcSyncEnabled bool) []api.UserAuth
 	authConfig := a.config.Server.Auth
 	if authConfig.Mode == config.AuthModeBuiltin &&
 		authConfig.Proxy.Enabled &&
-		!authConfig.Proxy.RoleMapping.SkipOrgRoleSync {
-		providers = append(providers, api.UserAuthProviderTrustedProxy)
+		authConfig.Proxy.RoleMapping.SyncAccess {
+		providers = append(providers, api.UserAuthProviderProxy)
 	}
 	return providers
 }

@@ -104,13 +104,13 @@ auth:
     headers:
       user: "X-Auth-Request-User"
       groups: "X-Auth-Request-Groups"
-    groupsFormat: "csv"
     autoSignup: true
     roleMapping:
       defaultRole: "viewer"
-      defaultWorkspaceAccess: "all"
-      roleAttributeStrict: false
-      skipOrgRoleSync: false
+      defaultWorkspaceAccess: "none"
+      # When true, enabling proxy authentication requires at least one mapping.
+      requireMapping: true
+      syncAccess: true
       groupMappings: {}
       workspaceMappings: {}
 

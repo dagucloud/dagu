@@ -491,7 +491,7 @@ func trustedProxyKey(source, user string) string {
 }
 
 func validateTrustedProxyIdentity(provider, source, user, oidcIssuer, oidcSubject string) error {
-	if provider == auth.AuthProviderTrustedProxy {
+	if provider == auth.AuthProviderProxy {
 		if user == "" || oidcIssuer != "" || oidcSubject != "" {
 			return auth.ErrInvalidTrustedProxyIdentity
 		}

@@ -463,6 +463,51 @@
         },
         {
           "if": {
+            "required": ["enabled"],
+            "properties": {
+              "enabled": {"const": true}
+            }
+          },
+          "then": {
+            "anyOf": [
+              {
+                "required": ["role_mapping"],
+                "properties": {
+                  "role_mapping": {
+                    "required": ["require_mapping"],
+                    "properties": {
+                      "require_mapping": {"const": false}
+                    }
+                  }
+                }
+              },
+              {
+                "required": ["role_mapping"],
+                "properties": {
+                  "role_mapping": {
+                    "required": ["group_mappings"],
+                    "properties": {
+                      "group_mappings": {"minProperties": 1}
+                    }
+                  }
+                }
+              },
+              {
+                "required": ["role_mapping"],
+                "properties": {
+                  "role_mapping": {
+                    "required": ["workspace_mappings"],
+                    "properties": {
+                      "workspace_mappings": {"minProperties": 1}
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "if": {
             "required": ["role_mapping"],
             "properties": {
               "role_mapping": {
@@ -518,11 +563,6 @@
         },
         "headers": {
           "$ref": "#/definitions/ProxyHeadersDef"
-        },
-        "groups_format": {
-          "type": "string",
-          "enum": ["csv"],
-          "default": "csv"
         },
         "auto_signup": {
           "type": "boolean",
@@ -584,15 +624,17 @@
         "default_workspace_access": {
           "type": "string",
           "enum": ["all", "none"],
-          "default": "all"
+          "default": "none"
         },
-        "role_attribute_strict": {
+        "require_mapping": {
           "type": "boolean",
-          "default": false
+          "description": "Deny login unless at least one group or workspace mapping matches.",
+          "default": true
         },
-        "skip_org_role_sync": {
+        "sync_access": {
           "type": "boolean",
-          "default": false
+          "description": "Recalculate role and workspace access on every login.",
+          "default": true
         }
       }
     },

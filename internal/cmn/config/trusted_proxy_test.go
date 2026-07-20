@@ -22,15 +22,15 @@ func validProxyConfig() *Config {
 			Token: TokenConfig{Secret: "secret", TTL: time.Hour},
 		},
 		Proxy: AuthTrustedProxy{
-			Enabled:      true,
-			Source:       "corp-sso",
-			LoginLabel:   "Continue with SSO",
-			Headers:      TrustedProxyHeaders{User: "X-Auth-Request-User"},
-			GroupsFormat: TrustedProxyGroupsFormatCSV,
-			AutoSignup:   true,
+			Enabled:    true,
+			Source:     "corp-sso",
+			LoginLabel: "Continue with SSO",
+			Headers:    TrustedProxyHeaders{User: "X-Auth-Request-User"},
+			AutoSignup: true,
 			RoleMapping: TrustedProxyRoleMapping{
 				DefaultRole:            "viewer",
-				DefaultWorkspaceAccess: TrustedProxyDefaultWorkspaceAccessAll,
+				DefaultWorkspaceAccess: TrustedProxyDefaultWorkspaceAccessNone,
+				SyncAccess:             true,
 			},
 		},
 	}
@@ -41,7 +41,7 @@ func validProxyConfig() *Config {
 func TestConfigValidateProxy(t *testing.T) {
 	t.Parallel()
 
-	t.Run("ValidFallbackOnly", func(t *testing.T) {
+	t.Run("ValidWithoutRequiredMapping", func(t *testing.T) {
 		t.Parallel()
 		require.NoError(t, validProxyConfig().Validate())
 	})
@@ -56,6 +56,7 @@ func TestConfigValidateProxy(t *testing.T) {
 	t.Run("ValidMappings", func(t *testing.T) {
 		t.Parallel()
 		cfg := validProxyConfig()
+		cfg.Server.Auth.Proxy.RoleMapping.RequireMapping = true
 		cfg.Server.Auth.Proxy.Headers.Groups = "X-Auth-Request-Groups"
 		cfg.Server.Auth.Proxy.RoleMapping.GroupMappings = map[string]string{"admins": "admin"}
 		cfg.Server.Auth.Proxy.RoleMapping.WorkspaceMappings = map[string][]TrustedProxyWorkspaceGrant{
@@ -140,6 +141,13 @@ func TestConfigValidateProxy(t *testing.T) {
 			wantErr: "reserved header",
 		},
 		{
+			name: "RequiresConfiguredMapping",
+			mutate: func(cfg *Config) {
+				cfg.Server.Auth.Proxy.RoleMapping.RequireMapping = true
+			},
+			wantErr: "auth.proxy.role_mapping.require_mapping requires at least one group_mappings or workspace_mappings entry",
+		},
+		{
 			name: "RequiresGroupsHeaderForMappings",
 			mutate: func(cfg *Config) {
 				cfg.Server.Auth.Proxy.RoleMapping.GroupMappings = map[string]string{"admins": "admin"}
@@ -153,13 +161,6 @@ func TestConfigValidateProxy(t *testing.T) {
 				cfg.Server.Auth.Proxy.RoleMapping.GroupMappings = map[string]string{"admins": "admin"}
 			},
 			wantErr: "headers.user and auth.proxy.headers.groups must be different",
-		},
-		{
-			name: "RejectsUnsupportedGroupsFormat",
-			mutate: func(cfg *Config) {
-				cfg.Server.Auth.Proxy.GroupsFormat = "json"
-			},
-			wantErr: "auth.proxy.groups_format",
 		},
 		{
 			name: "RejectsBlankLoginLabel",
@@ -273,10 +274,11 @@ func TestLoadProxyDefaults(t *testing.T) {
 	require.False(t, cfg.Server.Auth.Proxy.Enabled)
 	require.Empty(t, cfg.Server.Auth.Proxy.Source)
 	require.Equal(t, "Continue with SSO", cfg.Server.Auth.Proxy.LoginLabel)
-	require.Equal(t, TrustedProxyGroupsFormatCSV, cfg.Server.Auth.Proxy.GroupsFormat)
 	require.True(t, cfg.Server.Auth.Proxy.AutoSignup)
 	require.Equal(t, "viewer", cfg.Server.Auth.Proxy.RoleMapping.DefaultRole)
-	require.Equal(t, TrustedProxyDefaultWorkspaceAccessAll, cfg.Server.Auth.Proxy.RoleMapping.DefaultWorkspaceAccess)
+	require.Equal(t, TrustedProxyDefaultWorkspaceAccessNone, cfg.Server.Auth.Proxy.RoleMapping.DefaultWorkspaceAccess)
+	require.True(t, cfg.Server.Auth.Proxy.RoleMapping.RequireMapping)
+	require.True(t, cfg.Server.Auth.Proxy.RoleMapping.SyncAccess)
 }
 
 func TestLoadProxyFromYAML(t *testing.T) {
@@ -290,13 +292,12 @@ auth:
     headers:
       user: X-Auth-Request-User
       groups: X-Auth-Request-Groups
-    groups_format: csv
     auto_signup: false
     role_mapping:
       default_role: operator
       default_workspace_access: none
-      role_attribute_strict: true
-      skip_org_role_sync: true
+      require_mapping: true
+      sync_access: false
       group_mappings:
         Admins: admin
         admins: viewer
@@ -314,7 +315,6 @@ auth:
 	require.Equal(t, "corp-sso", trustedProxy.Source)
 	require.Equal(t, "Company SSO", trustedProxy.LoginLabel)
 	require.Equal(t, TrustedProxyHeaders{User: "X-Auth-Request-User", Groups: "X-Auth-Request-Groups"}, trustedProxy.Headers)
-	require.Equal(t, TrustedProxyGroupsFormatCSV, trustedProxy.GroupsFormat)
 	require.False(t, trustedProxy.AutoSignup)
 	require.Equal(t, "operator", trustedProxy.RoleMapping.DefaultRole)
 	require.Equal(t, map[string]string{"Admins": "admin", "admins": "viewer"}, trustedProxy.RoleMapping.GroupMappings)
@@ -323,8 +323,8 @@ auth:
 		"developers": {{Workspace: "operations", Role: "viewer"}},
 	}, trustedProxy.RoleMapping.WorkspaceMappings)
 	require.Equal(t, TrustedProxyDefaultWorkspaceAccessNone, trustedProxy.RoleMapping.DefaultWorkspaceAccess)
-	require.True(t, trustedProxy.RoleMapping.RoleAttributeStrict)
-	require.True(t, trustedProxy.RoleMapping.SkipOrgRoleSync)
+	require.True(t, trustedProxy.RoleMapping.RequireMapping)
+	require.False(t, trustedProxy.RoleMapping.SyncAccess)
 }
 
 func TestLoadProxyFromEnvironment(t *testing.T) {
@@ -349,12 +349,11 @@ auth:
 		"DAGU_AUTH_PROXY_LOGIN_LABEL":              "Environment SSO",
 		"DAGU_AUTH_PROXY_HEADERS_USER":             "X-Env-User",
 		"DAGU_AUTH_PROXY_HEADERS_GROUPS":           "X-Env-Groups",
-		"DAGU_AUTH_PROXY_GROUPS_FORMAT":            "csv",
 		"DAGU_AUTH_PROXY_AUTO_SIGNUP":              "false",
 		"DAGU_AUTH_PROXY_DEFAULT_ROLE":             "developer",
 		"DAGU_AUTH_PROXY_DEFAULT_WORKSPACE_ACCESS": "none",
-		"DAGU_AUTH_PROXY_ROLE_ATTRIBUTE_STRICT":    "true",
-		"DAGU_AUTH_PROXY_SKIP_ORG_ROLE_SYNC":       "true",
+		"DAGU_AUTH_PROXY_REQUIRE_MAPPING":          "false",
+		"DAGU_AUTH_PROXY_SYNC_ACCESS":              "false",
 		"DAGU_AUTH_PROXY_GROUP_MAPPINGS":           `{"Admins":"admin","admins":"viewer"}`,
 		"DAGU_AUTH_PROXY_WORKSPACE_MAPPINGS":       `{"Developers":[{"workspace":"payments","role":"developer"}],"developers":[{"workspace":"operations","role":"viewer"}]}`,
 	})
@@ -372,8 +371,8 @@ auth:
 		"developers": {{Workspace: "operations", Role: "viewer"}},
 	}, trustedProxy.RoleMapping.WorkspaceMappings)
 	require.Equal(t, TrustedProxyDefaultWorkspaceAccessNone, trustedProxy.RoleMapping.DefaultWorkspaceAccess)
-	require.True(t, trustedProxy.RoleMapping.RoleAttributeStrict)
-	require.True(t, trustedProxy.RoleMapping.SkipOrgRoleSync)
+	require.False(t, trustedProxy.RoleMapping.RequireMapping)
+	require.False(t, trustedProxy.RoleMapping.SyncAccess)
 }
 
 func TestLoadProxyMappingsMergesLegacyAdminYAML(t *testing.T) {
@@ -483,9 +482,9 @@ auth:
 auth:
   proxy:
     role_mapping:
-      role_attribute_strcit: true
+      require_mappnig: true
 `,
-			key: "role_attribute_strcit",
+			key: "require_mappnig",
 		},
 		{
 			name: "WorkspaceGrant",
@@ -560,8 +559,8 @@ func TestLoadProxyCamelCaseKeyHints(t *testing.T) {
 			want:   "auth.proxy.rolemapping.workspacemappings -> auth.proxy.role_mapping.workspace_mappings",
 		},
 		{
-			legacy: "auth.proxy.roleMapping.skipOrgRoleSync",
-			want:   "auth.proxy.rolemapping.skiporgrolesync -> auth.proxy.role_mapping.skip_org_role_sync",
+			legacy: "auth.proxy.roleMapping.syncAccess",
+			want:   "auth.proxy.rolemapping.syncaccess -> auth.proxy.role_mapping.sync_access",
 		},
 	}
 

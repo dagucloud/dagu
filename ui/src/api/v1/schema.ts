@@ -16606,7 +16606,7 @@ export enum UserRole {
 export enum UserAuthProvider {
     builtin = "builtin",
     oidc = "oidc",
-    trusted_proxy = "trusted_proxy"
+    proxy = "proxy"
 }
 export enum APIKeyAllowedSurfaces {
     rest_api = "rest_api",

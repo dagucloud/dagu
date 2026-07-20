@@ -44,13 +44,12 @@ auth:
     headers:
       user: X-Auth-Request-User
       groups: X-Auth-Request-Groups
-    groupsFormat: csv
     autoSignup: true
     roleMapping:
       defaultRole: viewer
       defaultWorkspaceAccess: none
-      roleAttributeStrict: true
-      skipOrgRoleSync: false
+      requireMapping: true
+      syncAccess: true
       groupMappings:
         dagu-admins: admin
       workspaceMappings:
@@ -74,12 +73,11 @@ DAGU_AUTH_PROXY_SOURCE
 DAGU_AUTH_PROXY_LOGIN_LABEL
 DAGU_AUTH_PROXY_HEADERS_USER
 DAGU_AUTH_PROXY_HEADERS_GROUPS
-DAGU_AUTH_PROXY_GROUPS_FORMAT
 DAGU_AUTH_PROXY_AUTO_SIGNUP
 DAGU_AUTH_PROXY_DEFAULT_ROLE
 DAGU_AUTH_PROXY_DEFAULT_WORKSPACE_ACCESS
-DAGU_AUTH_PROXY_ROLE_ATTRIBUTE_STRICT
-DAGU_AUTH_PROXY_SKIP_ORG_ROLE_SYNC
+DAGU_AUTH_PROXY_REQUIRE_MAPPING
+DAGU_AUTH_PROXY_SYNC_ACCESS
 ```
 
 `DAGU_AUTH_PROXY_GROUP_MAPPINGS` and
@@ -89,15 +87,19 @@ Helm deployments must use the `auth.proxy` values above; the chart rejects
 `DAGU_AUTH_PROXY_*` entries in `extraEnv` so its replica and rollout safeguards
 cannot be bypassed.
 
-When `skipOrgRoleSync` is false, each trusted-proxy login replaces the user's
-role and workspace access with the current mapping result. API edits remain
-possible but can be overwritten by the next login. When it is true, Dagu keeps
-the authorization assigned when the account was first provisioned.
+When `syncAccess` is true, each trusted-proxy login replaces the user's role and
+workspace access with the current mapping result. API edits remain possible but
+can be overwritten by the next login. When it is false, Dagu keeps the
+authorization assigned when the account was first provisioned. `requireMapping`
+still checks the current proxy groups on every login, even when synchronization
+is disabled.
 
-`defaultWorkspaceAccess: none` gives an unmatched user no named-workspace
-grants. The existing viewer permission for unlabelled workflows still applies.
-With `roleAttributeStrict: true`, a user with no matching global or workspace
-mapping is denied instead.
+With `requireMapping: false`, `defaultWorkspaceAccess: none` gives an unmatched
+user no named-workspace grants, but the user's global `viewer` role still
+permits viewing unlabelled DAGs and their logs. With `requireMapping: true`, a
+user with no matching global or workspace mapping is denied instead. The chart
+requires at least one mapping when proxy authentication and `requireMapping`
+are both enabled.
 
 ## Proxy contract
 

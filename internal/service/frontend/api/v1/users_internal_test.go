@@ -112,24 +112,27 @@ func TestManagedAuthorizationProvidersIncludesTrustedProxySync(t *testing.T) {
 		Mode: config.AuthModeBuiltin,
 		Proxy: config.AuthTrustedProxy{
 			Enabled: true,
+			RoleMapping: config.TrustedProxyRoleMapping{
+				SyncAccess: true,
+			},
 		},
 	}}}
 	a := &API{config: cfg}
 	assert.Equal(t,
-		[]generatedapi.UserAuthProvider{generatedapi.UserAuthProviderTrustedProxy},
+		[]generatedapi.UserAuthProvider{generatedapi.UserAuthProviderProxy},
 		a.managedAuthorizationProviders(false),
 	)
 
-	cfg.Server.Auth.Proxy.RoleMapping.SkipOrgRoleSync = true
+	cfg.Server.Auth.Proxy.RoleMapping.SyncAccess = false
 	assert.Empty(t, a.managedAuthorizationProviders(false))
 
-	cfg.Server.Auth.Proxy.RoleMapping.SkipOrgRoleSync = false
+	cfg.Server.Auth.Proxy.RoleMapping.SyncAccess = true
 	a.licenseManager = license.NewTestManager(license.FeatureRBAC)
 	assert.Empty(t, a.managedAuthorizationProviders(false))
 
 	a.licenseManager = license.NewTestManager(license.FeatureSSO)
 	assert.Equal(t,
-		[]generatedapi.UserAuthProvider{generatedapi.UserAuthProviderTrustedProxy},
+		[]generatedapi.UserAuthProvider{generatedapi.UserAuthProviderProxy},
 		a.managedAuthorizationProviders(false),
 	)
 
