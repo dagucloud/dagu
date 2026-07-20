@@ -329,9 +329,7 @@ func TestProcessLoginConcurrentRequestsConverge(t *testing.T) {
 	var createdCount atomic.Int32
 	var wg sync.WaitGroup
 	for range requests {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			user, created, err := service.ProcessLogin(ctx, "same-identity", nil)
 			if err != nil {
 				errs <- err
@@ -341,7 +339,7 @@ func TestProcessLoginConcurrentRequestsConverge(t *testing.T) {
 				createdCount.Add(1)
 			}
 			ids <- user.ID
-		}()
+		})
 	}
 	wg.Wait()
 	close(errs)

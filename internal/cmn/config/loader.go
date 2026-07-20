@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"maps"
 	"net"
 	"os"
 	"path"
@@ -813,9 +814,7 @@ func (l *ConfigLoader) mergeTrustedProxyMappingsFile(filename string) error {
 		if l.trustedProxyGroupMappings == nil {
 			l.trustedProxyGroupMappings = make(map[string]string, len(roleMapping.GroupMappings))
 		}
-		for group, role := range roleMapping.GroupMappings {
-			l.trustedProxyGroupMappings[group] = role
-		}
+		maps.Copy(l.trustedProxyGroupMappings, roleMapping.GroupMappings)
 		l.trustedProxyGroupMappingsSet = true
 	}
 	if roleMapping.WorkspaceMappings != nil {
@@ -864,9 +863,7 @@ func (l *ConfigLoader) applyTrustedProxyMappings(def *Definition) {
 
 func cloneTrustedProxyGroupMappings(mappings map[string]string) map[string]string {
 	cloned := make(map[string]string, len(mappings))
-	for group, role := range mappings {
-		cloned[group] = role
-	}
+	maps.Copy(cloned, mappings)
 	return cloned
 }
 
