@@ -21,7 +21,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/oauth2"
 
+	authmodel "github.com/dagucloud/dagu/internal/auth"
 	"github.com/dagucloud/dagu/internal/cmn/config"
+	authservice "github.com/dagucloud/dagu/internal/service/auth"
 	"github.com/dagucloud/dagu/internal/service/eventstore"
 	apiv1 "github.com/dagucloud/dagu/internal/service/frontend/api/v1"
 	frontendauth "github.com/dagucloud/dagu/internal/service/frontend/auth"
@@ -43,6 +45,21 @@ func testAppStream(t *testing.T) *sse.AppStreamService {
 	require.NoError(t, err)
 	t.Cleanup(stream.Shutdown)
 	return stream
+}
+
+type proxyProvisionSpy struct {
+	calls atomic.Int64
+}
+
+func (s *proxyProvisionSpy) ProcessLogin(context.Context, string, []string) (*authmodel.User, bool, error) {
+	s.calls.Add(1)
+	return authmodel.NewUser("proxy-user", "", authmodel.RoleViewer), true, nil
+}
+
+type proxyTokenStub struct{}
+
+func (proxyTokenStub) GenerateToken(*authmodel.User) (*authservice.TokenResult, error) {
+	return &authservice.TokenResult{Token: "proxy-token"}, nil
 }
 
 func TestRegisterDedicatedSSEFetchersUsesEventStoreInvalidationForRunTopics(t *testing.T) {
@@ -367,7 +384,7 @@ func TestCacheControlForAssetCachesNonJavaScriptAssets(t *testing.T) {
 	assert.Equal(t, "max-age=86400", cacheControlForAsset("/assets/favicon.ico", false))
 }
 
-func TestServerUsesEvaluatedBasePathForOIDCAndAPI(t *testing.T) {
+func TestServerAuthRoutesUseEvaluatedBasePathAndKeepProxyHeadersScoped(t *testing.T) {
 	const envKey = "DAGU_TEST_BASE_PATH_SEGMENT"
 	t.Setenv(envKey, "dagu")
 
@@ -381,6 +398,7 @@ func TestServerUsesEvaluatedBasePathForOIDCAndAPI(t *testing.T) {
 	evaluatedBasePath, err := evaluateConfiguredBasePath(ctx, cfg.Server.BasePath)
 	require.NoError(t, err)
 
+	proxyProvision := &proxyProvisionSpy{}
 	srv := &Server{
 		config: cfg,
 		funcsConfig: funcsConfig{
@@ -394,29 +412,54 @@ func TestServerUsesEvaluatedBasePathForOIDCAndAPI(t *testing.T) {
 				return true, nil
 			},
 		},
+		trustedProxyCfg: &frontendauth.TrustedProxyLoginConfig{
+			Enabled:       true,
+			UserHeader:    "X-Proxy-User",
+			GroupsHeader:  "X-Proxy-Groups",
+			Provision:     proxyProvision,
+			AuthService:   proxyTokenStub{},
+			LoginBasePath: "/dagu",
+			InitialSetupComplete: func(context.Context) (bool, error) {
+				return true, nil
+			},
+		},
 	}
 
 	assert.Equal(t, "/dagu/rest", srv.configureAPIPath(ctx))
 
 	r := chi.NewMux()
+	srv.setupTrustedProxyRoute(r, srv.funcsConfig.BasePath)
 	srv.setupOIDCRoutes(r, srv.funcsConfig.BasePath)
+	newRequest := func(target string) *http.Request {
+		req := httptest.NewRequest(http.MethodGet, target, nil)
+		req.Header.Set("X-Proxy-User", "forged-user")
+		req.Header.Set("X-Proxy-Groups", "admins")
+		return req
+	}
 
 	loginRecorder := httptest.NewRecorder()
-	r.ServeHTTP(loginRecorder, httptest.NewRequest(http.MethodGet, "/dagu/oidc-login", nil))
+	r.ServeHTTP(loginRecorder, newRequest("/dagu/oidc-login"))
 	assert.Equal(t, http.StatusFound, loginRecorder.Code)
 
 	rootLoginRecorder := httptest.NewRecorder()
-	r.ServeHTTP(rootLoginRecorder, httptest.NewRequest(http.MethodGet, "/oidc-login", nil))
+	r.ServeHTTP(rootLoginRecorder, newRequest("/oidc-login"))
 	assert.Equal(t, http.StatusNotFound, rootLoginRecorder.Code)
 
 	callbackRecorder := httptest.NewRecorder()
-	r.ServeHTTP(callbackRecorder, httptest.NewRequest(http.MethodGet, "/dagu/oidc-callback", nil))
+	r.ServeHTTP(callbackRecorder, newRequest("/dagu/oidc-callback"))
 	assert.Equal(t, http.StatusFound, callbackRecorder.Code)
 	assert.Contains(t, callbackRecorder.Header().Get("Location"), "/dagu/login?error=")
 
 	rootCallbackRecorder := httptest.NewRecorder()
-	r.ServeHTTP(rootCallbackRecorder, httptest.NewRequest(http.MethodGet, "/oidc-callback", nil))
+	r.ServeHTTP(rootCallbackRecorder, newRequest("/oidc-callback"))
 	assert.Equal(t, http.StatusNotFound, rootCallbackRecorder.Code)
+	assert.Zero(t, proxyProvision.calls.Load())
+
+	proxyRecorder := httptest.NewRecorder()
+	r.ServeHTTP(proxyRecorder, newRequest("/dagu/proxy-login"))
+	assert.Equal(t, http.StatusFound, proxyRecorder.Code)
+	assert.Equal(t, "/dagu/login?welcome=true#token=proxy-token", proxyRecorder.Header().Get("Location"))
+	assert.Equal(t, int64(1), proxyProvision.calls.Load())
 }
 
 func TestEvaluateConfiguredBasePathKeepsRedirectsLocal(t *testing.T) {

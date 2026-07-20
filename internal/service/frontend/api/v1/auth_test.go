@@ -10,6 +10,7 @@ import (
 
 	"github.com/dagucloud/dagu/api/v1"
 	"github.com/dagucloud/dagu/internal/cmn/config"
+	"github.com/dagucloud/dagu/internal/license"
 	"github.com/dagucloud/dagu/internal/service/frontend"
 	"github.com/dagucloud/dagu/internal/test"
 	"github.com/stretchr/testify/require"
@@ -216,6 +217,132 @@ func TestAuth_PublicPaths(t *testing.T) {
 
 	// Other endpoints - require auth
 	server.Client().Get("/api/v1/dag-runs").ExpectStatus(http.StatusUnauthorized).Send(t)
+}
+
+func TestAuth_ProxyHeadersAreScopedToProxyLogin(t *testing.T) {
+	server := test.SetupServer(t,
+		test.WithConfigMutator(func(cfg *config.Config) {
+			cfg.Server.Auth.Mode = config.AuthModeBuiltin
+			cfg.Server.Auth.Builtin.Token.Secret = "proxy-route-isolation-secret"
+			cfg.Server.Auth.Builtin.Token.TTL = time.Hour
+			cfg.Server.Auth.Proxy.Enabled = true
+			cfg.Server.Auth.Proxy.Headers.User = "X-Proxy-User"
+			cfg.Server.Auth.Proxy.Headers.Groups = "X-Proxy-Groups"
+			cfg.Server.Auth.Proxy.AutoSignup = true
+			cfg.Server.Auth.Proxy.RoleMapping.DefaultRole = "viewer"
+			cfg.Server.Auth.Proxy.RoleMapping.DefaultWorkspaceAccess = config.TrustedProxyDefaultWorkspaceAccessNone
+			cfg.Server.Metrics = config.MetricsAccessPrivate
+		}),
+		test.WithServerOptions(frontend.WithLicenseManager(license.NewTestManager(
+			license.FeatureRBAC,
+			license.FeatureSSO,
+		))),
+	)
+
+	setupResp := server.Client().Post("/api/v1/auth/setup", api.SetupRequest{
+		Username: "admin",
+		Password: "adminpass",
+	}).ExpectStatus(http.StatusOK).Send(t)
+	var setupResult api.LoginResponse
+	setupResp.Unmarshal(t, &setupResult)
+	require.NotEmpty(t, setupResult.Token)
+
+	const dagName = "proxy_header_route_isolation"
+	createTestDAG(t, server, setupResult.Token, dagName)
+	server.Client().Post("/api/v1/dags/"+dagName+"/webhook", nil).
+		WithBearerToken(setupResult.Token).
+		ExpectStatus(http.StatusCreated).Send(t)
+
+	tests := []struct {
+		name       string
+		method     string
+		path       string
+		body       any
+		wantStatus int
+		assert     func(*testing.T, *test.Response)
+	}{
+		{
+			name:       "protected REST API",
+			method:     http.MethodGet,
+			path:       "/api/v1/dag-runs",
+			wantStatus: http.StatusUnauthorized,
+			assert: func(t *testing.T, resp *test.Response) {
+				require.Equal(t, `Bearer realm="restricted"`, resp.Response.Header().Get("WWW-Authenticate"))
+			},
+		},
+		{
+			name:       "SSE",
+			method:     http.MethodGet,
+			path:       "/api/v1/events/stream",
+			wantStatus: http.StatusUnauthorized,
+			assert: func(t *testing.T, resp *test.Response) {
+				require.Equal(t, `Bearer realm="restricted"`, resp.Response.Header().Get("WWW-Authenticate"))
+			},
+		},
+		{
+			name:       "webhook",
+			method:     http.MethodPost,
+			path:       "/api/v1/webhooks/" + dagName,
+			body:       api.WebhookRequest{},
+			wantStatus: http.StatusUnauthorized,
+			assert: func(t *testing.T, resp *test.Response) {
+				require.Contains(t, resp.Body, "invalid webhook token")
+			},
+		},
+		{
+			name:       "private metrics",
+			method:     http.MethodGet,
+			path:       "/api/v1/metrics",
+			wantStatus: http.StatusUnauthorized,
+			assert: func(t *testing.T, resp *test.Response) {
+				require.Equal(t, `Bearer realm="restricted"`, resp.Response.Header().Get("WWW-Authenticate"))
+			},
+		},
+		{
+			name:       "health",
+			method:     http.MethodGet,
+			path:       "/api/v1/health",
+			wantStatus: http.StatusOK,
+			assert: func(t *testing.T, resp *test.Response) {
+				var health api.HealthResponse
+				resp.Unmarshal(t, &health)
+				require.Equal(t, api.HealthResponseStatusHealthy, health.Status)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := server.Client()
+			var request *test.Request
+			switch tt.method {
+			case http.MethodGet:
+				request = client.Get(tt.path)
+			case http.MethodPost:
+				request = client.Post(tt.path, tt.body)
+			default:
+				t.Fatalf("unsupported test method %q", tt.method)
+			}
+
+			resp := request.
+				WithHeader("X-Proxy-User", "forged-user").
+				WithHeader("X-Proxy-Groups", "admins").
+				ExpectStatus(tt.wantStatus).Send(t)
+			tt.assert(t, resp)
+		})
+	}
+
+	usersResp := server.Client().Get("/api/v1/users").
+		WithBearerToken(setupResult.Token).
+		ExpectStatus(http.StatusOK).Send(t)
+	var users api.UsersListResponse
+	usersResp.Unmarshal(t, &users)
+	require.NotEmpty(t, users.Users)
+	for _, user := range users.Users {
+		if user.AuthProvider != nil {
+			require.NotEqual(t, api.UserAuthProviderProxy, *user.AuthProvider)
+		}
+	}
 }
 
 // loginAndGetToken is a helper that logs in and returns the JWT token.
