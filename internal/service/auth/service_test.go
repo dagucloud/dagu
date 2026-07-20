@@ -396,7 +396,7 @@ func TestService_ChangePasswordRejectsOIDCUser(t *testing.T) {
 	require.NoError(t, svc.store.Create(ctx, user))
 
 	err := svc.ChangePassword(ctx, user.ID, "oldpassword", "newpassword1")
-	assert.ErrorIs(t, err, ErrOIDCPasswordManagement)
+	assert.ErrorIs(t, err, ErrExternalAuthPasswordManagement)
 
 	stored, getErr := svc.store.GetByID(ctx, user.ID)
 	require.NoError(t, getErr)
@@ -702,7 +702,7 @@ func TestService_ResetPasswordRejectsOIDCUser(t *testing.T) {
 	require.NoError(t, svc.store.Create(ctx, user))
 
 	err := svc.ResetPassword(ctx, user.ID, "newpassword1")
-	assert.ErrorIs(t, err, ErrOIDCPasswordManagement)
+	assert.ErrorIs(t, err, ErrExternalAuthPasswordManagement)
 
 	stored, getErr := svc.store.GetByID(ctx, user.ID)
 	require.NoError(t, getErr)
@@ -752,7 +752,7 @@ func TestService_UpdateUserRejectsPasswordForOIDCUser(t *testing.T) {
 	newPassword := "newpassword1"
 	updated, err := svc.UpdateUser(ctx, user.ID, UpdateUserInput{Password: &newPassword})
 	assert.Nil(t, updated)
-	assert.ErrorIs(t, err, ErrOIDCPasswordManagement)
+	assert.ErrorIs(t, err, ErrExternalAuthPasswordManagement)
 
 	stored, getErr := svc.store.GetByID(ctx, user.ID)
 	require.NoError(t, getErr)

@@ -13,7 +13,7 @@ type AuthSessionReason =
   | 'login'
   | 'logout'
   | 'setup'
-  | 'oidc'
+  | 'external'
   | 'expired'
   | 'unauthorized';
 

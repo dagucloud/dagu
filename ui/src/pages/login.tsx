@@ -45,7 +45,7 @@ export default function LoginPage() {
 
     // Store the token and navigate home. AuthProvider validates it on the next page load.
     if (tokenParam) {
-      setAuthSession(tokenParam, null, 'oidc');
+      setAuthSession(tokenParam, null, 'external');
       // Navigate to home immediately - AuthProvider will validate token on next page load
       navigate(from, { replace: true });
       return;

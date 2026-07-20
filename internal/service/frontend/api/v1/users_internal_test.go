@@ -26,11 +26,11 @@ func (listUsersAuthService) ListUsers(context.Context) ([]*auth.User, error) {
 type resetPasswordAuthService struct{ AuthService }
 
 func (resetPasswordAuthService) GetUser(context.Context, string) (*auth.User, error) {
-	return &auth.User{Username: "oidc-user"}, nil
+	return &auth.User{Username: "external-user"}, nil
 }
 
 func (resetPasswordAuthService) ResetPassword(context.Context, string, string) error {
-	return authservice.ErrOIDCPasswordManagement
+	return authservice.ErrExternalAuthPasswordManagement
 }
 
 func newOIDCWorkspaceSyncConfig() *config.Config {
@@ -140,14 +140,14 @@ func TestManagedAuthorizationProvidersIncludesProxySync(t *testing.T) {
 	assert.Empty(t, a.managedAuthorizationProviders(false))
 }
 
-func TestResetUserPasswordRejectsOIDCUser(t *testing.T) {
+func TestResetUserPasswordRejectsExternalUser(t *testing.T) {
 	t.Parallel()
 
 	a := &API{authService: resetPasswordAuthService{}}
 	ctx := auth.WithUser(context.Background(), &auth.User{Role: auth.RoleAdmin})
 
 	result, err := a.ResetUserPassword(ctx, generatedapi.ResetUserPasswordRequestObject{
-		UserId: "oidc-user-id",
+		UserId: "external-user-id",
 		Body:   &generatedapi.ResetPasswordRequest{NewPassword: "newpassword1"},
 	})
 
@@ -157,5 +157,5 @@ func TestResetUserPasswordRejectsOIDCUser(t *testing.T) {
 	require.ErrorAs(t, err, &apiErr)
 	assert.Equal(t, http.StatusForbidden, apiErr.HTTPStatus)
 	assert.Equal(t, generatedapi.ErrorCodeForbidden, apiErr.Code)
-	assert.Equal(t, "Password is managed by the identity provider for this user", apiErr.Message)
+	assert.Equal(t, "Password is managed by the authentication provider for this user", apiErr.Message)
 }

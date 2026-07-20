@@ -6054,7 +6054,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Password is managed by the identity provider */
+            /** @description Password is managed by the authentication provider */
             403: {
                 headers: {
                     [name: string]: unknown;

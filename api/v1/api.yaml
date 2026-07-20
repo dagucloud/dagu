@@ -253,7 +253,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "403":
-          description: "Password is managed by the identity provider"
+          description: "Password is managed by the authentication provider"
           content:
             application/json:
               schema:

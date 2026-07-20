@@ -17,14 +17,14 @@ import (
 type changePasswordAuthService struct{ AuthService }
 
 func (changePasswordAuthService) ChangePassword(context.Context, string, string, string) error {
-	return authservice.ErrOIDCPasswordManagement
+	return authservice.ErrExternalAuthPasswordManagement
 }
 
-func TestChangePasswordRejectsOIDCUser(t *testing.T) {
+func TestChangePasswordRejectsExternalUser(t *testing.T) {
 	t.Parallel()
 
 	a := &API{authService: changePasswordAuthService{}}
-	ctx := auth.WithUser(context.Background(), &auth.User{ID: "oidc-user-id", Role: auth.RoleViewer})
+	ctx := auth.WithUser(context.Background(), &auth.User{ID: "external-user-id", Role: auth.RoleViewer})
 
 	result, err := a.ChangePassword(ctx, generatedapi.ChangePasswordRequestObject{
 		Body: &generatedapi.ChangePasswordRequest{
@@ -37,5 +37,5 @@ func TestChangePasswordRejectsOIDCUser(t *testing.T) {
 	response, ok := result.(generatedapi.ChangePassword403JSONResponse)
 	require.True(t, ok)
 	assert.Equal(t, generatedapi.ErrorCodeForbidden, response.Code)
-	assert.Equal(t, "Password is managed by the identity provider for this user", response.Message)
+	assert.Equal(t, "Password is managed by the authentication provider for this user", response.Message)
 }

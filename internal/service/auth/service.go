@@ -24,15 +24,13 @@ import (
 
 // Service errors.
 var (
-	ErrInvalidCredentials             = errors.New("invalid username or password")
-	ErrInvalidToken                   = errors.New("invalid or expired token")
-	ErrTokenExpired                   = errors.New("token has expired")
-	ErrMissingSecret                  = errors.New("token secret is not configured")
-	ErrPasswordMismatch               = errors.New("current password is incorrect")
-	ErrWeakPassword                   = errors.New("password does not meet requirements")
-	ErrExternalAuthPasswordManagement = errors.New("passwords for externally authenticated users are managed by the identity provider")
-	// ErrOIDCPasswordManagement is retained for callers that handle the legacy error name.
-	ErrOIDCPasswordManagement            = ErrExternalAuthPasswordManagement
+	ErrInvalidCredentials                = errors.New("invalid username or password")
+	ErrInvalidToken                      = errors.New("invalid or expired token")
+	ErrTokenExpired                      = errors.New("token has expired")
+	ErrMissingSecret                     = errors.New("token secret is not configured")
+	ErrPasswordMismatch                  = errors.New("current password is incorrect")
+	ErrWeakPassword                      = errors.New("password does not meet requirements")
+	ErrExternalAuthPasswordManagement    = errors.New("passwords for externally authenticated users are managed by their authentication provider")
 	ErrCannotDeleteSelf                  = errors.New("cannot delete your own account")
 	ErrInvalidAPIKey                     = errors.New("invalid API key")
 	ErrAPIKeyNotConfigured               = errors.New("API key management is not configured")
