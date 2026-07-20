@@ -854,7 +854,7 @@ func (s *authorizationChangedAfterOIDCLookupStore) GetByOIDCIdentity(
 		latest := *stored
 		latest.WorkspaceAccess = auth.AllWorkspaceAccess()
 		latest.Role = auth.RoleAdmin
-		s.updateErr = s.AuthorizationSyncUserStore.Update(ctx, &latest)
+		s.updateErr = s.Update(ctx, &latest)
 	})
 	if s.updateErr != nil {
 		return nil, s.updateErr

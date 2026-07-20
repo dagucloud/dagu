@@ -376,14 +376,14 @@ func (s *authorizationChangedAfterLookupStore) GetByTrustedProxyIdentity(
 		return nil, err
 	}
 	s.once.Do(func() {
-		latest, err := s.AuthorizationSyncUserStore.GetByID(ctx, user.ID)
+		latest, err := s.GetByID(ctx, user.ID)
 		if err != nil {
 			s.updateErr = err
 			return
 		}
 		latest.Role = auth.RoleAdmin
 		latest.WorkspaceAccess = auth.AllWorkspaceAccess()
-		s.updateErr = s.AuthorizationSyncUserStore.Update(ctx, latest)
+		s.updateErr = s.Update(ctx, latest)
 	})
 	if s.updateErr != nil {
 		return nil, s.updateErr
