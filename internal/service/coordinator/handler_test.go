@@ -3036,6 +3036,40 @@ func TestHandler_ReportStatus(t *testing.T) {
 		assert.WithinDuration(t, time.Now(), time.UnixMilli(status.LeaseAt), 2*time.Second)
 	})
 
+	t.Run("WaitingStatusClosesCachedAttempt", func(t *testing.T) {
+		t.Parallel()
+
+		store := newMockDAGRunStore()
+		h := NewHandler(HandlerConfig{DAGRunStore: store})
+		ctx := context.Background()
+
+		ref := exec.DAGRunRef{Name: "test-dag", ID: "run-123"}
+		attempt := store.addAttempt(ref, &exec.DAGRunStatus{
+			Name:      ref.Name,
+			DAGRunID:  ref.ID,
+			AttemptID: "attempt-1",
+			Status:    core.Running,
+		})
+		protoStatus, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
+			Name:       ref.Name,
+			DAGRunID:   ref.ID,
+			AttemptID:  "attempt-1",
+			Status:     core.Waiting,
+			FinishedAt: time.Now().UTC().Format(time.RFC3339),
+		})
+		require.NoError(t, convErr)
+
+		resp, err := h.ReportStatus(ctx, &coordinatorv1.ReportStatusRequest{Status: protoStatus})
+		require.NoError(t, err)
+		require.True(t, resp.Accepted)
+		assert.True(t, attempt.WasClosed())
+
+		h.attemptsMu.RLock()
+		_, cached := h.openAttempts[ref.ID]
+		h.attemptsMu.RUnlock()
+		assert.False(t, cached)
+	})
+
 	t.Run("RejectsLateStatusForLeaseCleanedAttempt", func(t *testing.T) {
 		t.Parallel()
 
