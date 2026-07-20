@@ -105,13 +105,16 @@ func TestListUsersReportsOIDCWorkspaceAccessSyncState(t *testing.T) {
 	assert.Equal(t, []generatedapi.UserAuthProvider{generatedapi.UserAuthProviderOidc}, response.ManagedAuthorizationProviders)
 }
 
-func TestManagedAuthorizationProvidersIncludesEnabledProxy(t *testing.T) {
+func TestManagedAuthorizationProvidersIncludesTrustedProxySync(t *testing.T) {
 	t.Parallel()
 
 	cfg := &config.Config{Server: config.Server{Auth: config.Auth{
 		Mode: config.AuthModeBuiltin,
 		Proxy: config.AuthTrustedProxy{
 			Enabled: true,
+			RoleMapping: config.TrustedProxyRoleMapping{
+				SyncAccess: true,
+			},
 		},
 	}}}
 	a := &API{config: cfg}
@@ -120,6 +123,10 @@ func TestManagedAuthorizationProvidersIncludesEnabledProxy(t *testing.T) {
 		a.managedAuthorizationProviders(false),
 	)
 
+	cfg.Server.Auth.Proxy.RoleMapping.SyncAccess = false
+	assert.Empty(t, a.managedAuthorizationProviders(false))
+
+	cfg.Server.Auth.Proxy.RoleMapping.SyncAccess = true
 	a.licenseManager = license.NewTestManager(license.FeatureRBAC)
 	assert.Empty(t, a.managedAuthorizationProviders(false))
 

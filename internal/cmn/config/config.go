@@ -347,6 +347,7 @@ type TrustedProxyRoleMapping struct {
 	WorkspaceMappings      map[string][]TrustedProxyWorkspaceGrant
 	DefaultWorkspaceAccess string
 	RequireMapping         bool
+	SyncAccess             bool
 }
 
 // TrustedProxyWorkspaceGrant assigns a proxy group member a role in one workspace.

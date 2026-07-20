@@ -630,6 +630,11 @@
           "type": "boolean",
           "description": "Deny login unless at least one group or workspace mapping matches.",
           "default": true
+        },
+        "sync_access": {
+          "type": "boolean",
+          "description": "Recalculate role and workspace access on every login.",
+          "default": true
         }
       }
     },

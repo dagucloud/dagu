@@ -95,6 +95,9 @@
                 "requireMapping": {
                   "type": "boolean"
                 },
+                "syncAccess": {
+                  "type": "boolean"
+                },
                 "groupMappings": {
                   "type": "object",
                   "additionalProperties": {
@@ -129,6 +132,7 @@
                 "defaultRole",
                 "defaultWorkspaceAccess",
                 "requireMapping",
+                "syncAccess",
                 "groupMappings",
                 "workspaceMappings"
               ]

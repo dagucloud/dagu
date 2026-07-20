@@ -301,6 +301,7 @@ auth:
       default_role: viewer
       default_workspace_access: none
       require_mapping: true
+      sync_access: true
       group_mappings:
         admins: admin
       workspace_mappings:
