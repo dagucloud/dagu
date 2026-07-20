@@ -716,6 +716,38 @@ func TestValidateStepIDLength(t *testing.T) {
 	})
 }
 
+func TestValidateStepsHumanTask(t *testing.T) {
+	t.Run("human task without executor returns nil", func(t *testing.T) {
+		dag := &DAG{Steps: []Step{{
+			Name:      "review",
+			HumanTask: &HumanTaskConfig{Prompt: "Review deployment"},
+		}}}
+		assert.NoError(t, ValidateSteps(dag))
+	})
+
+	t.Run("human task rejects executor", func(t *testing.T) {
+		dag := &DAG{Steps: []Step{{
+			Name:           "review",
+			ExecutorConfig: ExecutorConfig{Type: "command"},
+			HumanTask:      &HumanTaskConfig{Prompt: "Review deployment"},
+		}}}
+		err := ValidateSteps(dag)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "human task cannot use an executor")
+	})
+
+	t.Run("human task rejects command", func(t *testing.T) {
+		dag := &DAG{Steps: []Step{{
+			Name:      "review",
+			Commands:  []CommandEntry{{Command: "echo"}},
+			HumanTask: &HumanTaskConfig{Prompt: "Review deployment"},
+		}}}
+		err := ValidateSteps(dag)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "human task cannot execute commands")
+	})
+}
+
 func TestValidateStepWithValidator(t *testing.T) {
 	t.Run("no validator returns nil", func(t *testing.T) {
 		step := Step{

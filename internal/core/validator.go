@@ -350,7 +350,7 @@ func validateForeachBodyDependencies(parent Step, bodySteps []Step, bodyNames, v
 
 func validateStepWithValidator(step Step) error {
 	if step.HumanTask != nil {
-		return nil
+		return validateHumanTaskStep(step)
 	}
 	validator := stepValidator(step.ExecutorConfig.Type)
 	if validator == nil {
@@ -362,6 +362,17 @@ func validateStepWithValidator(step Step) error {
 			return err
 		}
 		return NewValidationError("type", nil, err)
+	}
+	return nil
+}
+
+func validateHumanTaskStep(step Step) error {
+	if step.ExecutorConfig.Type != "" || len(step.ExecutorConfig.Config) > 0 || len(step.ExecutorConfig.Metadata) > 0 {
+		return NewValidationError("type", step.ExecutorConfig.Type, fmt.Errorf("human task cannot use an executor"))
+	}
+	if len(step.Commands) > 0 || step.Command != "" || step.CmdWithArgs != "" || step.CmdArgsSys != "" ||
+		step.ShellCmdArgs != "" || step.Script != "" || len(step.Args) > 0 {
+		return NewValidationError("command", nil, fmt.Errorf("human task cannot execute commands"))
 	}
 	return nil
 }
