@@ -130,6 +130,12 @@ func withApproval(approval *core.ApprovalConfig) stepOption {
 	}
 }
 
+func withHumanTask(task *core.HumanTaskConfig) stepOption {
+	return func(step *core.Step) {
+		step.HumanTask = task
+	}
+}
+
 func withStepTimeout(d time.Duration) stepOption {
 	return func(step *core.Step) {
 		step.Timeout = d
@@ -261,6 +267,31 @@ type planHelper struct {
 
 func (ph planHelper) assertRun(t *testing.T, expectedStatus core.Status) runResult {
 	t.Helper()
+	result := ph.runAndAssertStatus(t, expectedStatus)
+
+	switch expectedStatus {
+	case core.Succeeded, core.Aborted, core.Waiting, core.Rejected:
+		require.NoError(t, result.Error)
+
+	case core.Failed, core.PartiallySucceeded:
+		require.Error(t, result.Error)
+
+	case core.Running, core.NotStarted, core.Queued:
+		t.Errorf("unexpected status %s", expectedStatus)
+	}
+
+	return result
+}
+
+func (ph planHelper) assertRunError(t *testing.T, expectedStatus core.Status) runResult {
+	t.Helper()
+	result := ph.runAndAssertStatus(t, expectedStatus)
+	require.Error(t, result.Error)
+	return result
+}
+
+func (ph planHelper) runAndAssertStatus(t *testing.T, expectedStatus core.Status) runResult {
+	t.Helper()
 
 	dag := &core.DAG{Name: "test_dag", WorkingDir: ph.workDir}
 	logFilename := fmt.Sprintf("%s_%s.log", dag.Name, ph.cfg.DAGRunID)
@@ -282,18 +313,6 @@ func (ph planHelper) assertRun(t *testing.T, expectedStatus core.Status) runResu
 	err := ph.runner.Run(ctx, ph.Plan, progressCh)
 
 	close(progressCh)
-
-	switch expectedStatus {
-	case core.Succeeded, core.Aborted, core.Waiting, core.Rejected:
-		require.NoError(t, err)
-
-	case core.Failed, core.PartiallySucceeded:
-		require.Error(t, err)
-
-	case core.Running, core.NotStarted, core.Queued:
-		t.Errorf("unexpected status %s", expectedStatus)
-
-	}
 
 	require.Equal(t, expectedStatus.String(), ph.runner.Status(ctx, ph.Plan).String(),
 		"expected status %s, got %s", expectedStatus, ph.runner.Status(ctx, ph.Plan))

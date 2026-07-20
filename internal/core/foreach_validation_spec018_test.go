@@ -184,3 +184,31 @@ func TestValidateStepsSpec018ForeachRejectsTopLevelBodyDependency(t *testing.T) 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "body dependencies must stay inside foreach.steps")
 }
+
+func TestValidateStepsForeachRejectsHumanTaskBody(t *testing.T) {
+	t.Parallel()
+
+	dag := &core.DAG{
+		Steps: []core.Step{
+			{
+				ID:             "loop",
+				Name:           "loop",
+				ExecutorConfig: core.ExecutorConfig{Type: core.ExecutorTypeForeach},
+				Foreach: &core.ForeachConfig{
+					Items: []any{"one"},
+					Steps: []core.Step{
+						{
+							ID:        "review",
+							Name:      "review",
+							HumanTask: &core.HumanTaskConfig{Prompt: "Review"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	err := core.ValidateSteps(dag)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "human.task cannot be used inside foreach.steps")
+}

@@ -217,10 +217,10 @@ func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan *Node) err
 			activeReadyCh = readyCh
 		}
 
-		// Check for Wait condition: no running nodes, no ready nodes, and waiting for approval.
+		// Check for Wait condition: no running nodes, no ready nodes, and waiting for manual completion.
 		nodeStates := plan.NodeStates()
 		if running == 0 && len(readyCh) == 0 && nodeStates.HasWaiting {
-			logger.Info(ctx, "DAG entering wait status - waiting for human approval")
+			logger.Info(ctx, "DAG entering wait status - waiting for human input")
 			break
 		}
 		if running == 0 && len(readyCh) == 0 && nodeStates.HasRetrying {
@@ -273,6 +273,10 @@ func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan *Node) err
 					r.setLastError(err)
 					n.MarkError(err)
 					n.SetStatus(core.NodeFailed)
+					return
+				}
+				if n.Step().HumanTask != nil {
+					r.runHumanTask(ctx, plan, n, progressCh)
 					return
 				}
 
@@ -369,7 +373,7 @@ func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan *Node) err
 			}
 		}
 
-		logger.Info(ctx, "DAG waiting for approval")
+		logger.Info(ctx, "DAG waiting for human input")
 		return r.lastError
 
 	case core.Queued:
@@ -642,6 +646,41 @@ func (r *Runner) prepareNode(ctx context.Context, node *Node) error {
 		return nil
 	}
 	return node.Prepare(ctx, r.logDir, r.dagRunID)
+}
+
+func (r *Runner) runHumanTask(ctx context.Context, plan *Plan, node *Node, progressCh chan *Node) {
+	ctx = r.setupNodeExecutionEnv(ctx, node)
+	met, err := meetsPreconditions(ctx, node, progressCh)
+	if err != nil {
+		r.setLastError(err)
+		r.Cancel(plan)
+		return
+	}
+	if !met {
+		return
+	}
+
+	task := node.Step().HumanTask
+	prompt, err := resolveRuntimeString(ctx, task.Prompt, cmnvalue.WorkflowField("with.prompt"))
+	if err != nil {
+		err = fmt.Errorf("failed to evaluate human task prompt: %w", err)
+		r.setLastError(err)
+		node.MarkError(err)
+		node.SetStatus(core.NodeFailed)
+		if progressCh != nil {
+			progressCh <- node
+		}
+		return
+	}
+
+	if r.dry {
+		node.CompleteHumanTaskDryRun(prompt)
+	} else {
+		node.OpenHumanTask(prompt, time.Now())
+	}
+	if progressCh != nil {
+		progressCh <- node
+	}
 }
 
 func (r *Runner) teardownNode(node *Node) error {
@@ -1083,7 +1122,7 @@ func isReady(ctx context.Context, plan *Plan, node *Node) bool {
 			return false
 
 		case core.NodeWaiting:
-			logger.Debug(ctx, "Dependency waiting for approval",
+			logger.Debug(ctx, "Dependency waiting for manual completion",
 				tag.Step(node.Name()), tag.Dependency(dep.Name()))
 			return false
 
@@ -1383,11 +1422,13 @@ func (r *Runner) finishNode(node *Node, wg *sync.WaitGroup) {
 	case core.NodeAborted:
 		r.metrics.canceledNodes++
 	case core.NodeWaiting, core.NodeNotStarted, core.NodeRunning, core.NodeRetrying:
-		// Waiting nodes are counted when they complete after approval.
+		// Waiting nodes are counted when they complete after manual input.
 		// NotStarted/Running should not happen at this point.
 	}
 
-	node.Finish()
+	if node.State().Status != core.NodeWaiting || node.Step().HumanTask == nil {
+		node.Finish()
+	}
 	wg.Done()
 }
 

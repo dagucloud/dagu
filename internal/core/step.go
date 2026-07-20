@@ -119,6 +119,8 @@ type Step struct {
 	// Approval configures a human approval gate after step execution.
 	// When set, the step pauses in Waiting state after execution completes.
 	Approval *ApprovalConfig `json:"approval,omitempty"`
+	// HumanTask configures a processless step completed by a local operator.
+	HumanTask *HumanTaskConfig `json:"humanTask,omitempty"`
 }
 
 const (
@@ -425,6 +427,12 @@ type ApprovalConfig struct {
 	// RewindTo is the step name or ID to restart from on push-back.
 	// When empty, push-back re-executes the approval step itself.
 	RewindTo string `json:"rewindTo,omitempty"`
+}
+
+// HumanTaskConfig defines the prompt and input form for a human task step.
+type HumanTaskConfig struct {
+	Prompt string          `json:"prompt,omitempty"`
+	Form   json.RawMessage `json:"form,omitempty"`
 }
 
 const (

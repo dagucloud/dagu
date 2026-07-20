@@ -42,6 +42,7 @@ func maskNodeSecrets(masker *masking.Masker, node *exec.Node) {
 	}
 	node.Step = maskStepSecrets(masker, node.Step)
 	node.Error = masker.MaskString(node.Error)
+	node.HumanTaskPrompt = masker.MaskString(node.HumanTaskPrompt)
 	node.OutputVariables = maskOutputVariables(masker, node.OutputVariables)
 	node.OutputValue = maskStringPointer(masker, node.OutputValue)
 	node.OutputsValue = maskStringPointer(masker, node.OutputsValue)
@@ -72,6 +73,11 @@ func maskStepSecrets(masker *masking.Masker, step core.Step) core.Step {
 	step.Script = masker.MaskString(step.Script)
 	step.Args = maskStrings(masker, step.Args)
 	step.Env = maskStrings(masker, step.Env)
+	if step.HumanTask != nil {
+		humanTask := *step.HumanTask
+		humanTask.Prompt = masker.MaskString(humanTask.Prompt)
+		step.HumanTask = &humanTask
+	}
 
 	if len(step.Commands) > 0 {
 		commands := append([]core.CommandEntry(nil), step.Commands...)

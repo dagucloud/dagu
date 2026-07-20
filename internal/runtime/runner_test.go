@@ -4133,6 +4133,112 @@ func TestPushBackPreconditionUsesSameEnvAsCommand(t *testing.T) {
 	assert.Equal(t, "rerun from review", strings.TrimSpace(string(output)))
 }
 
+func TestHumanTask(t *testing.T) {
+	t.Run("WaitsWithoutExecutorAfterResolvingPrompt", func(t *testing.T) {
+		t.Parallel()
+		r := setupRunner(t)
+
+		plan := r.newPlan(t,
+			newStep("review",
+				withEnvVars("SUBJECT=production deployment"),
+				withHumanTask(&core.HumanTaskConfig{Prompt: "Review ${SUBJECT}"}),
+			),
+			successStep("deploy", "review"),
+		)
+
+		result := plan.assertRun(t, core.Waiting)
+		result.assertNodeStatus(t, "review", core.NodeWaiting)
+		result.assertNodeStatus(t, "deploy", core.NodeNotStarted)
+		state := result.nodeByName(t, "review").State()
+		assert.Equal(t, "Review production deployment", state.HumanTaskPrompt)
+		assert.False(t, state.StartedAt.IsZero())
+		assert.True(t, state.FinishedAt.IsZero())
+	})
+
+	t.Run("DoesNotOpenWhenPreconditionDoesNotMatch", func(t *testing.T) {
+		t.Parallel()
+		r := setupRunner(t)
+
+		plan := r.newPlan(t,
+			newStep("review",
+				withHumanTask(&core.HumanTaskConfig{Prompt: "Review deployment"}),
+				withPrecondition(&core.Condition{Condition: "1", Expected: "0"}),
+			),
+			successStep("deploy", "review"),
+		)
+
+		result := plan.assertRun(t, core.Succeeded)
+		result.assertNodeStatus(t, "review", core.NodeSkipped)
+		result.assertNodeStatus(t, "deploy", core.NodeSkipped)
+		assert.Empty(t, result.nodeByName(t, "review").State().HumanTaskPrompt)
+	})
+
+	t.Run("DryRunCompletesWithoutWaiting", func(t *testing.T) {
+		t.Parallel()
+		r := setupRunner(t, func(cfg *runtime.Config) {
+			cfg.Dry = true
+		})
+
+		plan := r.newPlan(t,
+			newStep("review",
+				withEnvVars("SUBJECT=production deployment"),
+				withHumanTask(&core.HumanTaskConfig{Prompt: "Review ${SUBJECT}"}),
+			),
+			successStep("deploy", "review"),
+		)
+
+		result := plan.assertRun(t, core.Succeeded)
+		result.assertNodeStatus(t, "review", core.NodeSucceeded)
+		result.assertNodeStatus(t, "deploy", core.NodeSucceeded)
+		assert.Equal(t, "Review production deployment", result.nodeByName(t, "review").State().HumanTaskPrompt)
+	})
+
+	t.Run("PreconditionEvaluationFailureCancelsPlan", func(t *testing.T) {
+		t.Parallel()
+		r := setupRunner(t, withMaxActiveRuns(1))
+		plan := r.newPlan(t,
+			newStep("review",
+				withHumanTask(&core.HumanTaskConfig{Prompt: "Review"}),
+				withPrecondition(&core.Condition{Eval: "value"}),
+			),
+			successStep("independent"),
+		)
+
+		result := plan.assertRunError(t, core.Aborted)
+		result.assertNodeStatus(t, "review", core.NodeFailed)
+		result.assertNodeStatus(t, "independent", core.NodeNotStarted)
+	})
+
+	t.Run("RetryMakesCompletionOutputAvailableToDependent", func(t *testing.T) {
+		t.Parallel()
+		r := setupRunner(t)
+		stepOutputs := `{"window":"night"}`
+		review := newStep("review",
+			withID("review"),
+			withHumanTask(&core.HumanTaskConfig{Prompt: "Review"}),
+		)
+		review.Outputs = []core.StepOutputDeclaration{{Name: "window", Type: core.StepDeclaredOutputTypeString}}
+		deploy := newStep("deploy",
+			withDepends("review"),
+			withCommand(`echo ${steps.review.outputs.window}`),
+		)
+		dag := &core.DAG{Name: "test_dag", Steps: []core.Step{review, deploy}}
+		nodes := []*runtime.Node{
+			runtime.NewNode(review, runtime.NodeState{Status: core.NodeSucceeded, StepOutputsValue: &stepOutputs}),
+			runtime.NewNode(deploy, runtime.NodeState{Status: core.NodeNotStarted}),
+		}
+		plan, err := runtime.CreateRetryPlan(r.Context, dag, nodes...)
+		require.NoError(t, err)
+		result := (planHelper{testHelper: r, Plan: plan, workDir: t.TempDir()}).assertRun(t, core.Succeeded)
+
+		output, err := os.ReadFile(result.nodeByName(t, "deploy").GetStdout())
+		require.NoError(t, err)
+		assert.Equal(t, "night", strings.TrimSpace(string(output)))
+		require.NotNil(t, result.nodeByName(t, "review").State().StepOutputsValue)
+		assert.JSONEq(t, stepOutputs, *result.nodeByName(t, "review").State().StepOutputsValue)
+	})
+}
+
 func TestWaitStep(t *testing.T) {
 	t.Run("WaitStepResultsInWaitStatus", func(t *testing.T) {
 		t.Parallel()

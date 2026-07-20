@@ -37,8 +37,9 @@ type dagExecutor struct {
 
 // Errors for DAG executor
 var (
-	ErrWorkingDirNotExist      = fmt.Errorf("working directory does not exist")
-	ErrApprovalStepsWithWorker = fmt.Errorf("sub-DAG with approval steps cannot be dispatched to workers")
+	ErrWorkingDirNotExist       = fmt.Errorf("working directory does not exist")
+	ErrApprovalStepsWithWorker  = fmt.Errorf("sub-DAG with approval steps cannot be dispatched to workers")
+	ErrHumanTaskStepsWithWorker = fmt.Errorf("sub-DAG with human task steps cannot be dispatched to workers")
 )
 
 func newDAGExecutor(ctx context.Context, step core.Step) (executor.Executor, error) {
@@ -54,6 +55,9 @@ func newDAGExecutor(ctx context.Context, step core.Step) (executor.Executor, err
 	// Validate: sub-DAGs with approval steps cannot be dispatched to workers
 	if len(step.WorkerSelector) > 0 && child.DAG.HasApprovalSteps() {
 		return nil, fmt.Errorf("%w: %s", ErrApprovalStepsWithWorker, step.SubDAG.Name)
+	}
+	if len(step.WorkerSelector) > 0 && child.DAG.HasHumanTaskSteps() {
+		return nil, fmt.Errorf("%w: %s", ErrHumanTaskStepsWithWorker, step.SubDAG.Name)
 	}
 	child.SetWorkerSelector(step.WorkerSelector)
 

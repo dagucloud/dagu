@@ -868,6 +868,338 @@ steps:
 	}
 }
 
+func TestDAGSchemaHumanTask(t *testing.T) {
+	t.Parallel()
+
+	resolved := mustResolveDAGSchema(t)
+
+	tests := []struct {
+		name  string
+		spec  string
+		valid bool
+	}{
+		{
+			name: "AcknowledgementOnly",
+			spec: `
+steps:
+  - id: acknowledge
+    action: human.task
+    with:
+      prompt: Confirm the maintenance notice was read
+`,
+			valid: true,
+		},
+		{
+			name: "FlatScalarForm",
+			spec: `
+steps:
+  - id: review
+    action: human.task
+    with:
+      prompt: Review the deployment request
+      form:
+        type: object
+        title: Deployment review
+        description: Capture the operator decision.
+        properties:
+          summary:
+            type: string
+            title: Summary
+            description: Short review summary.
+            default: ready
+            minLength: 1
+            maxLength: 200
+            pattern: "^[a-z]+$"
+          retries:
+            type: integer
+            default: 0
+            minimum: 0
+            maximum: 5
+          confidence:
+            type: number
+            enum: [0.5, 1]
+          confirmed:
+            type: boolean
+            default: false
+          decision:
+            title: Decision
+            oneOf:
+              - type: string
+                const: approve
+                title: Approve
+                description: Continue the deployment.
+              - const: reject
+                title: Reject
+        required: [decision]
+`,
+			valid: true,
+		},
+		{
+			name: "ExplicitAdditionalProperties",
+			spec: `
+steps:
+  - id: collect
+    action: human.task
+    with:
+      prompt: Record any relevant details
+      form:
+        type: object
+        properties: {}
+        additionalProperties: true
+`,
+			valid: true,
+		},
+		{
+			name: "MissingID",
+			spec: `
+steps:
+  - action: human.task
+    with:
+      prompt: Review
+`,
+		},
+		{
+			name: "BlankID",
+			spec: `
+steps:
+  - id: "   "
+    action: human.task
+    with:
+      prompt: Review
+`,
+		},
+		{
+			name: "MissingWith",
+			spec: `
+steps:
+  - id: review
+    action: human.task
+`,
+		},
+		{
+			name: "MissingPrompt",
+			spec: `
+steps:
+  - id: review
+    action: human.task
+    with: {}
+`,
+		},
+		{
+			name: "BlankPrompt",
+			spec: `
+steps:
+  - id: review
+    action: human.task
+    with:
+      prompt: "   "
+`,
+		},
+		{
+			name: "UnknownWithField",
+			spec: `
+steps:
+  - id: review
+    action: human.task
+    with:
+      prompt: Review
+      assignee: operator
+`,
+		},
+		{
+			name: "ExplicitOutputs",
+			spec: `
+steps:
+  - id: review
+    action: human.task
+    outputs:
+      - name: decision
+    with:
+      prompt: Review
+`,
+		},
+		{
+			name: "ApprovalIsSeparate",
+			spec: `
+steps:
+  - id: review
+    action: human.task
+    approval:
+      prompt: Approve
+    with:
+      prompt: Review
+`,
+		},
+		{
+			name: "RejectExecutionPolicy",
+			spec: `
+steps:
+  - id: review
+    action: human.task
+    retry_policy:
+      limit: 1
+    with:
+      prompt: Review
+`,
+		},
+		{
+			name: "RejectLifecycleHandler",
+			spec: `
+handler_on:
+  init:
+    id: review
+    action: human.task
+    with:
+      prompt: Review
+steps:
+  - run: echo ready
+`,
+		},
+		{
+			name: "RejectForeachBody",
+			spec: `
+steps:
+  - id: loop
+    foreach:
+      items: [one]
+      steps:
+        - id: review
+          action: human.task
+          with:
+            prompt: Review
+`,
+		},
+		{
+			name: "FormMustBeObjectSchema",
+			spec: `
+steps:
+  - id: review
+    action: human.task
+    with:
+      prompt: Review
+      form: decision
+`,
+		},
+		{
+			name: "FormRequiresObjectType",
+			spec: `
+steps:
+  - id: review
+    action: human.task
+    with:
+      prompt: Review
+      form:
+        properties: {}
+`,
+		},
+		{
+			name: "RejectNestedProperty",
+			spec: `
+steps:
+  - id: review
+    action: human.task
+    with:
+      prompt: Review
+      form:
+        type: object
+        properties:
+          nested:
+            type: object
+`,
+		},
+		{
+			name: "RejectPropertyWithoutScalarSchema",
+			spec: `
+steps:
+  - id: review
+    action: human.task
+    with:
+      prompt: Review
+      form:
+        type: object
+        properties:
+          decision:
+            title: Decision
+`,
+		},
+		{
+			name: "RejectUnsupportedPropertyKeyword",
+			spec: `
+steps:
+  - id: review
+    action: human.task
+    with:
+      prompt: Review
+      form:
+        type: object
+        properties:
+          scheduled_at:
+            type: string
+            format: date-time
+`,
+		},
+		{
+			name: "RejectInvalidPropertyName",
+			spec: `
+steps:
+  - id: review
+    action: human.task
+    with:
+      prompt: Review
+      form:
+        type: object
+        properties:
+          bad-name:
+            type: string
+`,
+		},
+		{
+			name: "RejectSchemaValuedAdditionalProperties",
+			spec: `
+steps:
+  - id: review
+    action: human.task
+    with:
+      prompt: Review
+      form:
+        type: object
+        additionalProperties:
+          type: string
+`,
+		},
+		{
+			name: "OneOfRequiresConst",
+			spec: `
+steps:
+  - id: review
+    action: human.task
+    with:
+      prompt: Review
+      form:
+        type: object
+        properties:
+          decision:
+            oneOf:
+              - title: Approve
+`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			doc := mustParseYAMLDocument(t, tt.spec)
+			err := resolved.Validate(doc)
+			if tt.valid {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+		})
+	}
+}
+
 func TestDAGSchemaSchedule(t *testing.T) {
 	t.Parallel()
 

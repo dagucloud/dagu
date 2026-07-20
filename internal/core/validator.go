@@ -296,6 +296,10 @@ func validateForeachConfig(step Step, visibleNames, visibleIDs map[string]struct
 	validateApprovalRewindTargets(bodyDAG, bodyNames, errs)
 
 	for _, bodyStep := range bodyDAG.Steps {
+		if bodyStep.HumanTask != nil {
+			*errs = append(*errs, NewValidationError("foreach.steps", bodyStep.ID,
+				fmt.Errorf("human.task cannot be used inside foreach.steps")))
+		}
 		*errs = append(*errs, validateStep(bodyStep)...)
 		validateForeachConfig(bodyStep, bodyNames, bodyIDs, errs)
 	}
@@ -345,6 +349,9 @@ func validateForeachBodyDependencies(parent Step, bodySteps []Step, bodyNames, v
 }
 
 func validateStepWithValidator(step Step) error {
+	if step.HumanTask != nil {
+		return nil
+	}
 	validator := stepValidator(step.ExecutorConfig.Type)
 	if validator == nil {
 		return nil

@@ -467,6 +467,9 @@ func (a *Agent) Run(ctx context.Context) error {
 		tag.RunID(a.dagRunID),
 		tag.AttemptID(a.dagRunAttemptID),
 	)
+	if exec.IsRemoteWorkerID(a.workerID) && a.dag.HasHumanTaskSteps() {
+		return fmt.Errorf("DAG %q contains human task steps and cannot run on remote worker %q", a.dag.Name, a.workerID)
+	}
 
 	// Initialize propagators for W3C trace context before anything else
 	telemetry.InitializePropagators()

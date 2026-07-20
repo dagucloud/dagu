@@ -65,6 +65,7 @@ var builtinActionNormalizers = map[string]actionNormalizer{
 	"git.worktree.remove": normalizeGitWorktreeRemoveAction,
 	"harness.run":         normalizeHarnessRunAction,
 	"http.request":        normalizeHTTPRequestAction,
+	"human.task":          normalizeHumanTaskAction,
 	"jq.filter":           normalizeJQFilterAction,
 	"k8s.run":             optionalCommandAction("k8s", "command"),
 	"kubernetes.run":      optionalCommandAction("kubernetes", "command"),

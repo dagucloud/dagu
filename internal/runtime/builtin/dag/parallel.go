@@ -565,6 +565,10 @@ func (e *parallelExecutor) newChildExecutor(
 		_ = child.Cleanup(ctx)
 		return nil, fmt.Errorf("%w: %s", ErrApprovalStepsWithWorker, target)
 	}
+	if len(e.step.WorkerSelector) > 0 && child.DAG.HasHumanTaskSteps() {
+		_ = child.Cleanup(ctx)
+		return nil, fmt.Errorf("%w: %s", ErrHumanTaskStepsWithWorker, target)
+	}
 
 	child.SetWorkerSelector(e.step.WorkerSelector)
 	child.SetExternalStepRetry(true)

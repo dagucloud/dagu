@@ -145,6 +145,19 @@ func TestAgent_Run(t *testing.T) {
 
 		dag.AssertLatestStatus(t, core.Succeeded)
 	})
+	t.Run("HumanTaskRejectedOnRemoteWorker", func(t *testing.T) {
+		th := test.Setup(t)
+		dag := th.DAG(t, `steps:
+  - id: review
+    action: human.task
+    with:
+      prompt: Review the deployment
+`)
+		dagAgent := dag.Agent(test.WithAgentOptions(agent.Options{WorkerID: "worker-1"}))
+
+		err := dagAgent.Run(th.Context)
+		require.ErrorContains(t, err, "cannot run on remote worker")
+	})
 	t.Run("DeleteOldHistory", func(t *testing.T) {
 		th := test.Setup(t)
 		dag := th.DAG(t, `steps:

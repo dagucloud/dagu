@@ -428,21 +428,21 @@
       "type": "object",
       "properties": {
         "init": {
-          "$ref": "#/definitions/step",
+          "$ref": "#/definitions/handlerStep",
           "description": "Step to execute before any workflow steps run (after preconditions pass). If this fails, the DAG fails and no steps execute."
         },
         "failure": {
-          "$ref": "#/definitions/step"
+          "$ref": "#/definitions/handlerStep"
         },
         "success": {
-          "$ref": "#/definitions/step"
+          "$ref": "#/definitions/handlerStep"
         },
         "abort": {
-          "$ref": "#/definitions/step",
+          "$ref": "#/definitions/handlerStep",
           "description": "Step to execute when the DAG is aborted."
         },
         "exit": {
-          "$ref": "#/definitions/step"
+          "$ref": "#/definitions/handlerStep"
         }
       },
       "description": "Lifecycle event hooks that define commands to execute at various points in the DAG lifecycle: init (before steps), success, failure, abort, and exit (always runs last)."
@@ -1502,6 +1502,30 @@
         }
       ]
     },
+    "handlerStep": {
+      "allOf": [
+        { "$ref": "#/definitions/step" },
+        {
+          "not": {
+            "properties": { "action": { "const": "human.task" } },
+            "required": ["action"]
+          }
+        }
+      ],
+      "description": "Executable lifecycle handler step. Processless human tasks are workflow steps and cannot run as handlers."
+    },
+    "foreachBodyStep": {
+      "allOf": [
+        { "$ref": "#/definitions/step" },
+        {
+          "not": {
+            "properties": { "action": { "const": "human.task" } },
+            "required": ["action"]
+          }
+        }
+      ],
+      "description": "Executable foreach body step. Human tasks require a persistent, uniquely addressable workflow step."
+    },
     "step": {
       "type": "object",
       "additionalProperties": false,
@@ -2007,7 +2031,7 @@
               "type": "array",
               "minItems": 1,
               "items": {
-                "$ref": "#/definitions/step"
+                "$ref": "#/definitions/foreachBodyStep"
               },
               "description": "Inline body steps executed once per item"
             },
@@ -2258,6 +2282,43 @@
             "required": ["with"],
             "properties": {
               "with": { "$ref": "#/definitions/httpRequestActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "const": "human.task" } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["id", "with"],
+            "not": {
+              "anyOf": [
+                { "required": ["approval"] },
+                { "required": ["container"] },
+                { "required": ["foreach"] },
+                { "required": ["log_output"] },
+                { "required": ["mail_on_error"] },
+                { "required": ["output"] },
+                { "required": ["output_schema"] },
+                { "required": ["outputs"] },
+                { "required": ["parallel"] },
+                { "required": ["repeat_policy"] },
+                { "required": ["retry_policy"] },
+                { "required": ["signal_on_stop"] },
+                { "required": ["stderr"] },
+                { "required": ["stdout"] },
+                { "required": ["timeout_sec"] },
+                { "required": ["worker_selector"] }
+              ]
+            },
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              },
+              "with": { "$ref": "#/definitions/humanTaskActionConfig" }
             }
           }
         },
@@ -6009,6 +6070,7 @@
             "git.worktree.remove",
             "harness.run",
             "http.request",
+            "human.task",
             "jq.filter",
             "k8s.run",
             "kubernetes.run",
@@ -6297,6 +6359,142 @@
         }
       ],
       "description": "Configuration for action: harness.run."
+    },
+    "humanTaskActionConfig": {
+      "type": "object",
+      "required": ["prompt"],
+      "additionalProperties": false,
+      "properties": {
+        "prompt": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "description": "Instructions shown to the operator completing the task."
+        },
+        "form": {
+          "$ref": "#/definitions/humanTaskFormSchema",
+          "description": "Optional inline JSON Schema for typed completion input. Omit for acknowledgement-only tasks."
+        }
+      },
+      "description": "Configuration for action: human.task."
+    },
+    "humanTaskFormSchema": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "object"
+        },
+        "title": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "properties": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[A-Za-z][A-Za-z0-9_]*$"
+          },
+          "additionalProperties": {
+            "$ref": "#/definitions/humanTaskFormPropertySchema"
+          },
+          "default": {}
+        },
+        "required": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_]*$"
+          }
+        },
+        "additionalProperties": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "description": "Flat object JSON Schema rendered as the human task completion form."
+    },
+    "humanTaskFormPropertySchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "anyOf": [
+        { "required": ["type"] },
+        { "required": ["enum"] },
+        { "required": ["oneOf"] }
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["string", "integer", "number", "boolean"]
+        },
+        "title": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "default": {
+          "type": ["string", "number", "boolean"]
+        },
+        "enum": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": ["string", "number", "boolean"]
+          }
+        },
+        "oneOf": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/definitions/humanTaskFormOneOfOptionSchema"
+          }
+        },
+        "minimum": {
+          "type": "number"
+        },
+        "maximum": {
+          "type": "number"
+        },
+        "minLength": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "maxLength": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "pattern": {
+          "type": "string"
+        }
+      },
+      "description": "Renderable scalar JSON Schema property for a human task form."
+    },
+    "humanTaskFormOneOfOptionSchema": {
+      "type": "object",
+      "required": ["const"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["string", "integer", "number", "boolean"]
+        },
+        "title": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "const": {
+          "type": ["string", "number", "boolean"]
+        }
+      },
+      "description": "Labeled scalar choice for a human task form property."
     },
     "jqFilterActionConfig": {
       "type": "object",

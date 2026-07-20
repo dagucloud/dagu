@@ -219,6 +219,9 @@ func (e *enqueueExecutor) enqueueOne(ctx context.Context, runParams executor.Run
 	if len(e.step.WorkerSelector) > 0 && child.DAG.HasApprovalSteps() {
 		return enqueueRunOutput{}, fmt.Errorf("%w: %s", ErrApprovalStepsWithWorker, target)
 	}
+	if len(e.step.WorkerSelector) > 0 && child.DAG.HasHumanTaskSteps() {
+		return enqueueRunOutput{}, fmt.Errorf("%w: %s", ErrHumanTaskStepsWithWorker, target)
+	}
 
 	dagCopy, err := spec.ResolveRuntimeParams(ctx, child.DAG, runParams.Params, spec.ResolveRuntimeParamsOptions{
 		BaseConfig: config.GetConfig(ctx).Paths.BaseConfig,

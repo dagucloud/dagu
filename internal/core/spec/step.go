@@ -441,6 +441,7 @@ var stepExecutionTargetStage = stepActionStage{
 	{"parallel", buildStepParallel, false},
 	{"foreach", nil, false},
 	{"subDAG", buildStepSubDAG, false},
+	{"human_task", buildStepHumanTask, false},
 	{"executor", buildStepExecutor, true},
 }
 
@@ -1975,6 +1976,9 @@ func buildStepParamsField(ctx StepBuildContext, s *step, result *core.Step) erro
 func buildStepExecutor(ctx StepBuildContext, s *step, result *core.Step) error {
 	if err := validateStepConfigAliasStruct(s); err != nil {
 		return err
+	}
+	if result.HumanTask != nil {
+		return nil
 	}
 
 	// Step-level type and with/config fields

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/dagucloud/dagu/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/internal/core"
@@ -182,8 +183,15 @@ func (r *Renderer) renderStepContent(node *exec.Node, isLast bool, prefix string
 	hasOutput := r.hasOutput(node)
 	hasError := node.Error != "" && node.Status == core.NodeFailed
 	hasSubRuns := len(node.SubRuns) > 0
+	hasHumanTask := node.Status == core.NodeWaiting && node.Step.HumanTask != nil
 
-	wroteField := r.renderCommands(&buf, node, cPrefix, hasOutput, hasError, hasSubRuns)
+	wroteField := r.renderCommands(&buf, node, cPrefix, hasOutput, hasError, hasSubRuns, hasHumanTask)
+
+	if hasHumanTask {
+		r.addFieldSpacing(&buf, wroteField, cPrefix)
+		buf.WriteString(r.renderHumanTask(node, !hasOutput && !hasError && !hasSubRuns, cPrefix))
+		wroteField = true
+	}
 
 	if hasOutput {
 		r.addFieldSpacing(&buf, wroteField, cPrefix)
@@ -206,8 +214,8 @@ func (r *Renderer) renderStepContent(node *exec.Node, isLast bool, prefix string
 }
 
 // renderCommands renders step commands and returns true if any were written.
-func (r *Renderer) renderCommands(buf *strings.Builder, node *exec.Node, cPrefix string, hasOutput, hasError, hasSubRuns bool) bool {
-	hasFollowingContent := hasOutput || hasError || hasSubRuns
+func (r *Renderer) renderCommands(buf *strings.Builder, node *exec.Node, cPrefix string, hasOutput, hasError, hasSubRuns, hasHumanTask bool) bool {
+	hasFollowingContent := hasOutput || hasError || hasSubRuns || hasHumanTask
 
 	if len(node.Step.Commands) > 0 {
 		for i, cmd := range node.Step.Commands {
@@ -224,6 +232,23 @@ func (r *Renderer) renderCommands(buf *strings.Builder, node *exec.Node, cPrefix
 	}
 
 	return false
+}
+
+func (r *Renderer) renderHumanTask(node *exec.Node, isLastSection bool, prefix string) string {
+	details := []string{
+		"step id: " + node.Step.ID,
+		"prompt: " + node.HumanTaskPrompt,
+	}
+	if len(node.Step.HumanTask.Form) > 0 {
+		details = append(details, "form: "+string(node.Step.HumanTask.Form))
+	}
+
+	var buf strings.Builder
+	for i, detail := range details {
+		isLast := isLastSection && i == len(details)-1
+		buf.WriteString(r.renderCommandLine(detail, isLast, prefix))
+	}
+	return buf.String()
 }
 
 // addFieldSpacing adds vertical spacing between fields if needed.
@@ -278,11 +303,14 @@ func (r *Renderer) renderCommandLine(cmdStr string, isLast bool, prefix string) 
 	branch := branchChar(isLast)
 
 	if r.config.MaxWidth > 0 {
-		prefixLen := len(prefix) + len(branch)
+		prefixLen := utf8.RuneCountInString(prefix) + utf8.RuneCountInString(branch)
 		maxContentWidth := r.config.MaxWidth - prefixLen
-		if maxContentWidth > 20 && len(cmdStr) > maxContentWidth {
+		if maxContentWidth > 20 && (utf8.RuneCountInString(cmdStr) > maxContentWidth || strings.ContainsAny(cmdStr, "\r\n")) {
 			return r.renderWrappedLine(cmdStr, branch, isLast, prefix)
 		}
+	}
+	if strings.ContainsAny(cmdStr, "\r\n") {
+		return r.renderWrappedLine(cmdStr, branch, isLast, prefix)
 	}
 
 	return prefix + branch + r.text(cmdStr) + "\n"
@@ -292,9 +320,16 @@ func (r *Renderer) renderCommandLine(cmdStr string, isLast bool, prefix string) 
 func (r *Renderer) renderWrappedLine(text string, branch string, isLast bool, prefix string) string {
 	var buf strings.Builder
 
-	maxContentWidth := max(r.config.MaxWidth-len(prefix)-len(branch), 20)
 	contPrefix := childPrefix(prefix, isLast)
-	lines := wrapText(text, maxContentWidth)
+	var lines []string
+	if r.config.MaxWidth > 0 {
+		maxContentWidth := max(r.config.MaxWidth-utf8.RuneCountInString(prefix)-utf8.RuneCountInString(branch), 20)
+		lines = wrapText(text, maxContentWidth)
+	} else {
+		text = strings.ReplaceAll(text, "\r\n", "\n")
+		text = strings.ReplaceAll(text, "\r", "\n")
+		lines = strings.Split(text, "\n")
+	}
 
 	for i, line := range lines {
 		if i == 0 {
@@ -309,39 +344,60 @@ func (r *Renderer) renderWrappedLine(text string, branch string, isLast bool, pr
 
 // wrapText wraps text at word boundaries to fit within maxWidth.
 func wrapText(text string, maxWidth int) []string {
-	if len(text) <= maxWidth {
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\r", "\n")
+	if !strings.Contains(text, "\n") && utf8.RuneCountInString(text) <= maxWidth {
+		return []string{text}
+	}
+
+	var lines []string
+	for logicalLine := range strings.SplitSeq(text, "\n") {
+		lines = append(lines, wrapTextLine(logicalLine, maxWidth)...)
+	}
+	return lines
+}
+
+func wrapTextLine(text string, maxWidth int) []string {
+	if utf8.RuneCountInString(text) <= maxWidth {
 		return []string{text}
 	}
 
 	var lines []string
 	words := strings.Fields(text)
 	var currentLine strings.Builder
+	currentWidth := 0
 
 	for _, word := range words {
-		if len(word) > maxWidth {
+		wordRunes := []rune(word)
+		if len(wordRunes) > maxWidth {
 			if currentLine.Len() > 0 {
 				lines = append(lines, currentLine.String())
 				currentLine.Reset()
+				currentWidth = 0
 			}
-			for len(word) > maxWidth {
-				lines = append(lines, word[:maxWidth])
-				word = word[maxWidth:]
+			for len(wordRunes) > maxWidth {
+				lines = append(lines, string(wordRunes[:maxWidth]))
+				wordRunes = wordRunes[maxWidth:]
 			}
-			if len(word) > 0 {
-				currentLine.WriteString(word)
+			if len(wordRunes) > 0 {
+				currentLine.WriteString(string(wordRunes))
+				currentWidth = len(wordRunes)
 			}
 			continue
 		}
 
 		if currentLine.Len() == 0 {
 			currentLine.WriteString(word)
-		} else if currentLine.Len()+1+len(word) <= maxWidth {
+			currentWidth = len(wordRunes)
+		} else if currentWidth+1+len(wordRunes) <= maxWidth {
 			currentLine.WriteString(" ")
 			currentLine.WriteString(word)
+			currentWidth += 1 + len(wordRunes)
 		} else {
 			lines = append(lines, currentLine.String())
 			currentLine.Reset()
 			currentLine.WriteString(word)
+			currentWidth = len(wordRunes)
 		}
 	}
 

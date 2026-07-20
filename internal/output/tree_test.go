@@ -6,7 +6,9 @@ package output
 import (
 	"fmt"
 	"os"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
@@ -127,6 +129,89 @@ func TestRenderDAGStatus_RunningStatus(t *testing.T) {
 
 	require.Contains(t, output, "[running]")
 	require.Contains(t, output, "Running")
+}
+
+func TestRenderDAGStatus_WaitingHumanTask(t *testing.T) {
+	t.Parallel()
+
+	dag := &core.DAG{Name: "deploy"}
+	status := &exec.DAGRunStatus{
+		Name:   "deploy",
+		Status: core.Waiting,
+		Nodes: []*exec.Node{{
+			Step: core.Step{
+				ID:   "production_review",
+				Name: "production_review",
+				HumanTask: &core.HumanTaskConfig{
+					Prompt: "Review ${ENV}",
+					Form:   []byte(`{"type":"object","additionalProperties":false}`),
+				},
+			},
+			Status:          core.NodeWaiting,
+			HumanTaskPrompt: "Review production",
+		}},
+	}
+
+	output := newTestRenderer().RenderDAGStatus(dag, status)
+	assert.Contains(t, output, "step id: production_review")
+	assert.Contains(t, output, "prompt: Review production")
+	assert.Contains(t, output, `form: {"type":"object","additionalProperties":false}`)
+}
+
+func TestRenderDAGStatus_WaitingHumanTaskPreservesResolvedPromptAndUTF8(t *testing.T) {
+	t.Parallel()
+
+	dag := &core.DAG{Name: "deploy"}
+	status := &exec.DAGRunStatus{
+		Status: core.Waiting,
+		Nodes: []*exec.Node{
+			{
+				Step: core.Step{
+					ID:   "empty_prompt",
+					Name: "empty_prompt",
+					HumanTask: &core.HumanTaskConfig{
+						Prompt: "${EMPTY}",
+					},
+				},
+				Status: core.NodeWaiting,
+			},
+			{
+				Step: core.Step{
+					ID:   "multiline",
+					Name: "multiline",
+					HumanTask: &core.HumanTaskConfig{
+						Prompt: "authored",
+						Form:   []byte(`{"type":"object","description":"日本語の長い説明文を安全に折り返します"}`),
+					},
+				},
+				Status:          core.NodeWaiting,
+				HumanTaskPrompt: "第一行\n第二行",
+			},
+		},
+	}
+
+	output := newTestRendererWithConfig(func(config *Config) { config.MaxWidth = 28 }).RenderDAGStatus(dag, status)
+	assert.True(t, utf8.ValidString(output))
+	assert.Contains(t, output, "prompt: \n")
+	assert.NotContains(t, output, "${EMPTY}")
+	assert.Contains(t, output, "prompt: 第一行")
+	assert.Contains(t, output, "第二行")
+	assert.NotContains(t, output, "\n第二行")
+}
+
+func TestRenderCommandLinePreservesMultilineTextWhenWrappingIsDisabled(t *testing.T) {
+	t.Parallel()
+
+	longLine := "prompt: " + strings.Repeat("あ", 30)
+	output := newTestRendererWithConfig(func(config *Config) { config.MaxWidth = 0 }).renderCommandLine(
+		longLine+"\nsecond line",
+		true,
+		"",
+	)
+
+	assert.Contains(t, output, longLine+"\n")
+	assert.Contains(t, output, "second line\n")
+	assert.Equal(t, 2, strings.Count(output, "\n"))
 }
 
 func TestRenderDAGStatus_AbortedStatus(t *testing.T) {
