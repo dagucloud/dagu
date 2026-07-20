@@ -392,6 +392,61 @@ func TestService_UpdateUser(t *testing.T) {
 	}
 }
 
+func TestService_UpdateUserPreservesOIDCManagedEmptyWorkspaceAccess(t *testing.T) {
+	svc, cleanup := setupTestService(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	user := auth.NewUser("oidc-user", "", auth.RoleViewer)
+	user.AuthProvider = "oidc"
+	user.OIDCIssuer = "https://idp.example.com"
+	user.OIDCSubject = "subject-1"
+	user.WorkspaceAccess = &auth.WorkspaceAccess{Grants: []auth.WorkspaceGrant{}}
+	require.NoError(t, svc.store.Create(ctx, user))
+
+	username := "renamed-oidc-user"
+	updated, err := svc.UpdateUser(ctx, user.ID, UpdateUserInput{Username: &username})
+	require.NoError(t, err)
+	assert.Equal(t, username, updated.Username)
+	assert.False(t, updated.WorkspaceAccess.All)
+	assert.Empty(t, updated.WorkspaceAccess.Grants)
+
+	disabled := true
+	updated, err = svc.UpdateUser(ctx, user.ID, UpdateUserInput{IsDisabled: &disabled})
+	require.NoError(t, err)
+	assert.True(t, updated.IsDisabled)
+
+	disabled = false
+	updated, err = svc.UpdateUser(ctx, user.ID, UpdateUserInput{IsDisabled: &disabled})
+	require.NoError(t, err)
+	assert.False(t, updated.IsDisabled)
+
+	stored, err := svc.GetUser(ctx, user.ID)
+	require.NoError(t, err)
+	assert.Equal(t, username, stored.Username)
+	assert.False(t, stored.IsDisabled)
+	assert.False(t, stored.WorkspaceAccess.All)
+	assert.Empty(t, stored.WorkspaceAccess.Grants)
+}
+
+func TestService_UpdateUserRejectsExplicitEmptyWorkspaceAccess(t *testing.T) {
+	svc, cleanup := setupTestService(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	user, err := svc.CreateUser(ctx, CreateUserInput{
+		Username: "testuser",
+		Password: "password123",
+		Role:     auth.RoleViewer,
+	})
+	require.NoError(t, err)
+
+	_, err = svc.UpdateUser(ctx, user.ID, UpdateUserInput{
+		WorkspaceAccess: &auth.WorkspaceAccess{},
+	})
+	require.ErrorIs(t, err, auth.ErrInvalidWorkspaceAccess)
+}
+
 func TestService_ListUsers(t *testing.T) {
 	svc, cleanup := setupTestService(t)
 	defer cleanup()

@@ -358,8 +358,10 @@ func (s *Service) UpdateUser(ctx context.Context, id string, input UpdateUserInp
 		user.WorkspaceAccess = auth.CloneWorkspaceAccess(input.WorkspaceAccess)
 	}
 
-	if err := auth.ValidateWorkspaceAccess(user.Role, user.WorkspaceAccess, nil); err != nil {
-		return nil, err
+	if input.Role != nil || input.WorkspaceAccess != nil {
+		if err := auth.ValidateWorkspaceAccess(user.Role, user.WorkspaceAccess, nil); err != nil {
+			return nil, err
+		}
 	}
 
 	now := time.Now().UTC()
