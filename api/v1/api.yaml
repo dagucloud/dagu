@@ -12610,6 +12610,9 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/User"
+        oidcWorkspaceAccessSyncEnabled:
+          type: boolean
+          description: "Whether OIDC role and workspace access are synchronized by this node"
       required:
         - users
 

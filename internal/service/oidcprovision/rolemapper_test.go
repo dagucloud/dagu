@@ -383,3 +383,264 @@ func TestGetNestedClaim(t *testing.T) {
 		})
 	}
 }
+
+func TestRoleMapper_MapAccess(t *testing.T) {
+	workspaceMappings := map[string][]WorkspaceGrantConfig{
+		"sre-team": {
+			{Workspace: "payments", Role: "operator"},
+			{Workspace: "infra", Role: "developer"},
+		},
+	}
+
+	tests := []struct {
+		name           string
+		config         RoleMapperConfig
+		claims         map[string]any
+		expectedRole   auth.Role
+		expectedAccess *auth.WorkspaceAccess
+		expectedError  error
+	}{
+		{
+			name: "explicit jq viewer is global",
+			config: RoleMapperConfig{
+				RoleAttributePath:      `"viewer"`,
+				WorkspaceMappings:      workspaceMappings,
+				DefaultRole:            auth.RoleManager,
+				DefaultWorkspaceAccess: "none",
+			},
+			claims:         map[string]any{"groups": []any{"sre-team"}},
+			expectedRole:   auth.RoleViewer,
+			expectedAccess: auth.AllWorkspaceAccess(),
+		},
+		{
+			name: "global group mapping replaces workspace mapping",
+			config: RoleMapperConfig{
+				GroupMappings:          map[string]string{"staff": "operator"},
+				WorkspaceMappings:      workspaceMappings,
+				DefaultRole:            auth.RoleViewer,
+				DefaultWorkspaceAccess: "none",
+			},
+			claims:         map[string]any{"groups": []any{"staff", "sre-team"}},
+			expectedRole:   auth.RoleOperator,
+			expectedAccess: auth.AllWorkspaceAccess(),
+		},
+		{
+			name: "workspace-only match",
+			config: RoleMapperConfig{
+				WorkspaceMappings: workspaceMappings,
+				DefaultRole:       auth.RoleManager,
+			},
+			claims:       map[string]any{"groups": []any{"sre-team"}},
+			expectedRole: auth.RoleViewer,
+			expectedAccess: &auth.WorkspaceAccess{Grants: []auth.WorkspaceGrant{
+				{Workspace: "infra", Role: auth.RoleDeveloper},
+				{Workspace: "payments", Role: auth.RoleOperator},
+			}},
+		},
+		{
+			name: "unmatched all fallback",
+			config: RoleMapperConfig{
+				WorkspaceMappings: workspaceMappings,
+				DefaultRole:       auth.RoleManager,
+			},
+			claims:         map[string]any{"groups": []any{"other"}},
+			expectedRole:   auth.RoleManager,
+			expectedAccess: auth.AllWorkspaceAccess(),
+		},
+		{
+			name: "unmatched none fallback uses viewer",
+			config: RoleMapperConfig{
+				DefaultRole:            auth.RoleManager,
+				DefaultWorkspaceAccess: "none",
+			},
+			claims:         map[string]any{"groups": []any{"other"}},
+			expectedRole:   auth.RoleViewer,
+			expectedAccess: &auth.WorkspaceAccess{Grants: []auth.WorkspaceGrant{}},
+		},
+		{
+			name: "strict workspace-only match succeeds",
+			config: RoleMapperConfig{
+				WorkspaceMappings:   workspaceMappings,
+				RoleAttributeStrict: true,
+				DefaultRole:         auth.RoleViewer,
+			},
+			claims:       map[string]any{"groups": []any{"sre-team"}},
+			expectedRole: auth.RoleViewer,
+			expectedAccess: &auth.WorkspaceAccess{Grants: []auth.WorkspaceGrant{
+				{Workspace: "infra", Role: auth.RoleDeveloper},
+				{Workspace: "payments", Role: auth.RoleOperator},
+			}},
+		},
+		{
+			name: "strict total miss fails",
+			config: RoleMapperConfig{
+				WorkspaceMappings:   workspaceMappings,
+				RoleAttributeStrict: true,
+				DefaultRole:         auth.RoleViewer,
+			},
+			claims:        map[string]any{"groups": []any{"other"}},
+			expectedError: ErrNoRoleFound,
+		},
+		{
+			name: "group matching is case sensitive",
+			config: RoleMapperConfig{
+				WorkspaceMappings:      workspaceMappings,
+				DefaultRole:            auth.RoleViewer,
+				DefaultWorkspaceAccess: "none",
+			},
+			claims:         map[string]any{"groups": []any{"SRE-TEAM"}},
+			expectedRole:   auth.RoleViewer,
+			expectedAccess: &auth.WorkspaceAccess{Grants: []auth.WorkspaceGrant{}},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mapper, err := NewRoleMapper(tc.config)
+			require.NoError(t, err)
+
+			role, access, err := mapper.MapAccess(tc.claims)
+			if tc.expectedError != nil {
+				assert.ErrorIs(t, err, tc.expectedError)
+				assert.Nil(t, access)
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.expectedRole, role)
+			assert.Equal(t, tc.expectedAccess, access)
+		})
+	}
+}
+
+func TestRoleMapper_MapAccessMergesHighestRoleDeterministically(t *testing.T) {
+	mapper, err := NewRoleMapper(RoleMapperConfig{
+		GroupsClaim: "realm_access.roles",
+		WorkspaceMappings: map[string][]WorkspaceGrantConfig{
+			"operators": {
+				{Workspace: "payments", Role: "operator"},
+				{Workspace: "zeta", Role: "viewer"},
+			},
+			"developers": {
+				{Workspace: "payments", Role: "developer"},
+				{Workspace: "alpha", Role: "manager"},
+			},
+		},
+		DefaultRole: auth.RoleViewer,
+	})
+	require.NoError(t, err)
+
+	role, access, err := mapper.MapAccess(map[string]any{
+		"realm_access": map[string]any{"roles": "operators developers operators"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, auth.RoleViewer, role)
+	assert.Equal(t, &auth.WorkspaceAccess{Grants: []auth.WorkspaceGrant{
+		{Workspace: "alpha", Role: auth.RoleManager},
+		{Workspace: "payments", Role: auth.RoleDeveloper},
+		{Workspace: "zeta", Role: auth.RoleViewer},
+	}}, access)
+}
+
+func TestNewRoleMapper_ValidatesWorkspaceMappings(t *testing.T) {
+	tests := []struct {
+		name          string
+		config        RoleMapperConfig
+		errorContains string
+	}{
+		{
+			name:          "invalid default access",
+			config:        RoleMapperConfig{DefaultWorkspaceAccess: "selected"},
+			errorContains: "must be all or none",
+		},
+		{
+			name: "blank group",
+			config: RoleMapperConfig{WorkspaceMappings: map[string][]WorkspaceGrantConfig{
+				"  ": {{Workspace: "payments", Role: "viewer"}},
+			}},
+			errorContains: "must not be blank",
+		},
+		{
+			name: "empty grant list",
+			config: RoleMapperConfig{WorkspaceMappings: map[string][]WorkspaceGrantConfig{
+				"team": {},
+			}},
+			errorContains: "at least one grant",
+		},
+		{
+			name: "invalid workspace",
+			config: RoleMapperConfig{WorkspaceMappings: map[string][]WorkspaceGrantConfig{
+				"team": {{Workspace: "invalid/name", Role: "viewer"}},
+			}},
+			errorContains: "invalid workspace mapping",
+		},
+		{
+			name: "reserved workspace",
+			config: RoleMapperConfig{WorkspaceMappings: map[string][]WorkspaceGrantConfig{
+				"team": {{Workspace: "global", Role: "viewer"}},
+			}},
+			errorContains: "reserved names",
+		},
+		{
+			name: "invalid role",
+			config: RoleMapperConfig{WorkspaceMappings: map[string][]WorkspaceGrantConfig{
+				"team": {{Workspace: "payments", Role: "owner"}},
+			}},
+			errorContains: "invalid role",
+		},
+		{
+			name: "admin role",
+			config: RoleMapperConfig{WorkspaceMappings: map[string][]WorkspaceGrantConfig{
+				"team": {{Workspace: "payments", Role: "admin"}},
+			}},
+			errorContains: "admin cannot be scoped",
+		},
+		{
+			name: "duplicate workspace in group",
+			config: RoleMapperConfig{WorkspaceMappings: map[string][]WorkspaceGrantConfig{
+				"team": {
+					{Workspace: "payments", Role: "viewer"},
+					{Workspace: "payments", Role: "operator"},
+				},
+			}},
+			errorContains: "duplicate workspace",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := NewRoleMapper(tc.config)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.errorContains)
+		})
+	}
+}
+
+func TestRoleMapper_WorkspaceAccessPolicyActive(t *testing.T) {
+	mappingConfig := RoleMapperConfig{
+		WorkspaceMappings: map[string][]WorkspaceGrantConfig{
+			"team": {{Workspace: "payments", Role: "viewer"}},
+		},
+	}
+
+	tests := []struct {
+		name     string
+		config   RoleMapperConfig
+		expected bool
+	}{
+		{name: "absent", config: RoleMapperConfig{}, expected: false},
+		{name: "explicit all", config: RoleMapperConfig{DefaultWorkspaceAccess: "all"}, expected: false},
+		{name: "explicit none", config: RoleMapperConfig{DefaultWorkspaceAccess: "none"}, expected: true},
+		{name: "workspace mappings", config: mappingConfig, expected: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, tc.config.WorkspaceAccessPolicyActive())
+			mapper, err := NewRoleMapper(tc.config)
+			require.NoError(t, err)
+			assert.Equal(t, tc.expected, mapper.WorkspaceAccessPolicyActive())
+			assert.Equal(t, tc.expected, mapper.IsConfigured())
+		})
+	}
+}

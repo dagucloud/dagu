@@ -76,6 +76,107 @@ check_updates: false
 	}
 }
 
+func TestConfigSchemaOIDCWorkspaceMappings(t *testing.T) {
+	t.Parallel()
+
+	resolved := mustResolveConfigSchema(t)
+	tests := []struct {
+		name    string
+		spec    string
+		wantErr bool
+	}{
+		{
+			name: "Valid",
+			spec: `
+auth:
+  oidc:
+    role_mapping:
+      workspace_mappings:
+        sre-team:
+          - workspace: payments
+            role: operator
+          - workspace: infra
+            role: developer
+      default_workspace_access: none
+`,
+		},
+		{
+			name: "AdminGrant",
+			spec: `
+auth:
+  oidc:
+    role_mapping:
+      workspace_mappings:
+        sre-team:
+          - workspace: payments
+            role: admin
+`,
+			wantErr: true,
+		},
+		{
+			name: "BlankGroup",
+			spec: `
+auth:
+  oidc:
+    role_mapping:
+      workspace_mappings:
+        " ":
+          - workspace: payments
+            role: viewer
+`,
+			wantErr: true,
+		},
+		{
+			name: "EmptyGrants",
+			spec: `
+auth:
+  oidc:
+    role_mapping:
+      workspace_mappings:
+        sre-team: []
+`,
+			wantErr: true,
+		},
+		{
+			name: "InvalidWorkspace",
+			spec: `
+auth:
+  oidc:
+    role_mapping:
+      workspace_mappings:
+        sre-team:
+          - workspace: bad/name
+            role: viewer
+`,
+			wantErr: true,
+		},
+		{
+			name: "InvalidDefault",
+			spec: `
+auth:
+  oidc:
+    role_mapping:
+      default_workspace_access: restricted
+`,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			doc := mustParseYAMLDocument(t, tt.spec)
+			err := resolved.Validate(doc)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
 func TestConfigSchemaRepoCopyMatchesEmbeddedSchema(t *testing.T) {
 	t.Parallel()
 

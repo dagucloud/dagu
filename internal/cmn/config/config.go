@@ -9,6 +9,9 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/dagucloud/dagu/internal/auth"
+	"github.com/dagucloud/dagu/internal/workspace"
 )
 
 // Config holds the overall configuration for the application.
@@ -290,12 +293,32 @@ func (o AuthOIDC) IsConfigured() bool {
 
 // OIDCRoleMapping defines how OIDC claims are mapped to Dagu roles.
 type OIDCRoleMapping struct {
-	DefaultRole         string            // Default: "viewer"
-	GroupsClaim         string            // Default: "groups"
-	GroupMappings       map[string]string // IdP group -> Dagu role
-	RoleAttributePath   string            // jq expression for role extraction
-	RoleAttributeStrict bool              // Deny login if no valid role found
-	SkipOrgRoleSync     bool              // Only assign roles on first login
+	DefaultRole            string                          // Default: "viewer"
+	GroupsClaim            string                          // Default: "groups"
+	GroupMappings          map[string]string               // IdP group -> Dagu role
+	WorkspaceMappings      map[string][]OIDCWorkspaceGrant // IdP group -> workspace grants
+	DefaultWorkspaceAccess string                          // Default: "all"
+	RoleAttributePath      string                          // jq expression for role extraction
+	RoleAttributeStrict    bool                            // Deny login if no global or workspace mapping matches
+	SkipOrgRoleSync        bool                            // Keep first-login role and workspace access assignments
+}
+
+// OIDCWorkspaceGrant assigns an OIDC group member a role in one workspace.
+type OIDCWorkspaceGrant struct {
+	Workspace string
+	Role      string
+}
+
+const (
+	// OIDCDefaultWorkspaceAccessAll grants unmatched users access to every workspace.
+	OIDCDefaultWorkspaceAccessAll = "all"
+	// OIDCDefaultWorkspaceAccessNone denies unmatched users access to named workspaces.
+	OIDCDefaultWorkspaceAccessNone = "none"
+)
+
+// WorkspaceAccessPolicyActive reports whether OIDC login manages workspace access.
+func (m OIDCRoleMapping) WorkspaceAccessPolicyActive() bool {
+	return len(m.WorkspaceMappings) > 0 || m.DefaultWorkspaceAccess == OIDCDefaultWorkspaceAccessNone
 }
 
 // PathsConfig represents the file system paths configuration.
@@ -706,6 +729,9 @@ func (c *Config) validateBuiltinAuth() error {
 	if (ia.Username == "") != (ia.Password == "") {
 		return fmt.Errorf("auth.builtin.initial_admin requires both username and password to be set, or neither")
 	}
+	if err := validateOIDCWorkspaceMappings(c.Server.Auth.OIDC.RoleMapping); err != nil {
+		return err
+	}
 
 	if c.Server.Auth.OIDC.IsConfigured() {
 		return c.validateOIDCForBuiltin()
@@ -717,11 +743,8 @@ func (c *Config) validateBuiltinAuth() error {
 func (c *Config) validateOIDCForBuiltin() error {
 	oidc := c.Server.Auth.OIDC
 
-	switch oidc.RoleMapping.DefaultRole {
-	case "admin", "manager", "developer", "operator", "viewer":
-		// Valid roles
-	default:
-		return fmt.Errorf("OIDC roleMapping.defaultRole must be one of: admin, manager, developer, operator, viewer (got: %q)", oidc.RoleMapping.DefaultRole)
+	if _, err := auth.ParseRole(oidc.RoleMapping.DefaultRole); err != nil {
+		return fmt.Errorf("OIDC roleMapping.defaultRole: %w", err)
 	}
 
 	if !slices.Contains(oidc.Scopes, "email") {
@@ -729,6 +752,67 @@ func (c *Config) validateOIDCForBuiltin() error {
 			return fmt.Errorf("OIDC scopes must include 'email' when whitelist or allowedDomains is configured")
 		}
 		c.Warnings = append(c.Warnings, "OIDC scopes do not include 'email'; access control features will not work if added later")
+	}
+
+	return nil
+}
+
+func validateOIDCWorkspaceMappings(mapping OIDCRoleMapping) error {
+	switch mapping.DefaultWorkspaceAccess {
+	case "", OIDCDefaultWorkspaceAccessAll, OIDCDefaultWorkspaceAccessNone:
+	default:
+		return fmt.Errorf(
+			"OIDC roleMapping.defaultWorkspaceAccess must be one of: all, none (got: %q)",
+			mapping.DefaultWorkspaceAccess,
+		)
+	}
+
+	groups := make([]string, 0, len(mapping.WorkspaceMappings))
+	for group := range mapping.WorkspaceMappings {
+		groups = append(groups, group)
+	}
+	slices.Sort(groups)
+
+	for _, group := range groups {
+		if strings.TrimSpace(group) == "" {
+			return fmt.Errorf("OIDC roleMapping.workspaceMappings contains a blank group name")
+		}
+
+		grants := mapping.WorkspaceMappings[group]
+		if len(grants) == 0 {
+			return fmt.Errorf("OIDC roleMapping.workspaceMappings[%q] must contain at least one grant", group)
+		}
+
+		seenWorkspaces := make(map[string]struct{}, len(grants))
+		for i, grant := range grants {
+			if err := workspace.ValidateName(grant.Workspace); err != nil {
+				return fmt.Errorf(
+					"OIDC roleMapping.workspaceMappings[%q][%d].workspace %q is invalid: %w",
+					group, i, grant.Workspace, err,
+				)
+			}
+			if _, exists := seenWorkspaces[grant.Workspace]; exists {
+				return fmt.Errorf(
+					"OIDC roleMapping.workspaceMappings[%q] contains duplicate workspace %q",
+					group, grant.Workspace,
+				)
+			}
+			seenWorkspaces[grant.Workspace] = struct{}{}
+
+			role, err := auth.ParseRole(grant.Role)
+			if err != nil {
+				return fmt.Errorf(
+					"OIDC roleMapping.workspaceMappings[%q][%d].role: %w",
+					group, i, err,
+				)
+			}
+			if role == auth.RoleAdmin {
+				return fmt.Errorf(
+					"OIDC roleMapping.workspaceMappings[%q][%d].role must not be admin",
+					group, i,
+				)
+			}
+		}
 	}
 
 	return nil

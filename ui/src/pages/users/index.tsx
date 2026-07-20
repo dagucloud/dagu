@@ -1,5 +1,6 @@
 import { components } from '@/api/v1/schema';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -30,12 +31,13 @@ import {
   UserCheck,
   UserPlus,
 } from 'lucide-react';
-import { useCallback, useContext, useEffect, useState } from 'react';
+import { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ResetPasswordModal } from './ResetPasswordModal';
 import { UserFormModal } from './UserFormModal';
 
 type User = components['schemas']['User'];
+type UsersListResponse = components['schemas']['UsersListResponse'];
 
 /**
  * Render the Users management page with a table of accounts and controls for creating, editing, resetting passwords, and deleting users.
@@ -51,8 +53,11 @@ export default function UsersPage() {
   const hasRbac = useHasFeature('rbac');
   const appBarContext = useContext(AppBarContext);
   const [users, setUsers] = useState<User[]>([]);
+  const [oidcWorkspaceAccessSyncEnabled, setOIDCWorkspaceAccessSyncEnabled] =
+    useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const fetchSequence = useRef(0);
 
   // Modal states
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -66,6 +71,15 @@ export default function UsersPage() {
   }, [appBarContext]);
 
   const fetchUsers = useCallback(async () => {
+    const sequence = ++fetchSequence.current;
+    setIsLoading(true);
+    setError(null);
+    setUsers([]);
+    setOIDCWorkspaceAccessSyncEnabled(false);
+    setShowCreateModal(false);
+    setEditingUser(null);
+    setResetPasswordUser(null);
+    setDeletingUser(null);
     try {
       const token = localStorage.getItem(TOKEN_KEY);
       const remoteNode = encodeURIComponent(
@@ -84,12 +98,24 @@ export default function UsersPage() {
         throw new Error('Failed to fetch users');
       }
 
-      const data = await response.json();
+      const data = (await response.json()) as UsersListResponse;
+      if (sequence !== fetchSequence.current) {
+        return;
+      }
       setUsers(data.users || []);
+      setOIDCWorkspaceAccessSyncEnabled(
+        data.oidcWorkspaceAccessSyncEnabled === true
+      );
+      setError(null);
     } catch (err) {
+      if (sequence !== fetchSequence.current) {
+        return;
+      }
       setError(err instanceof Error ? err.message : 'Failed to load users');
     } finally {
-      setIsLoading(false);
+      if (sequence === fetchSequence.current) {
+        setIsLoading(false);
+      }
     }
   }, [config.apiURL, appBarContext.selectedRemoteNode]);
 
@@ -255,7 +281,15 @@ export default function UsersPage() {
                     </span>
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    {user.authProvider === 'oidc' ? 'SSO' : 'Local'}
+                    {user.authProvider === 'oidc' ? (
+                      oidcWorkspaceAccessSyncEnabled ? (
+                        <Badge variant="info">Managed by SSO</Badge>
+                      ) : (
+                        'SSO'
+                      )
+                    ) : (
+                      'Local'
+                    )}
                   </TableCell>
                   <TableCell className="text-sm">
                     {user.isDisabled ? (
@@ -347,6 +381,7 @@ export default function UsersPage() {
       <UserFormModal
         open={!!editingUser}
         user={editingUser || undefined}
+        oidcWorkspaceAccessSyncEnabled={oidcWorkspaceAccessSyncEnabled}
         onClose={() => setEditingUser(null)}
         onSuccess={() => {
           setEditingUser(null);

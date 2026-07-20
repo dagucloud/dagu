@@ -369,17 +369,55 @@
             "type": "string"
           }
         },
+        "workspace_mappings": {
+          "type": "object",
+          "description": "Mapping of IdP group names to workspace role grants.",
+          "propertyNames": {
+            "pattern": ".*\\S.*"
+          },
+          "additionalProperties": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/definitions/OIDCWorkspaceGrantDef"
+            }
+          }
+        },
+        "default_workspace_access": {
+          "type": "string",
+          "description": "Workspace access assigned when no global or workspace mapping matches. Default: 'all'.",
+          "enum": ["all", "none"],
+          "default": "all"
+        },
         "role_attribute_path": {
           "type": "string",
           "description": "jq expression for extracting role from OIDC claims."
         },
         "role_attribute_strict": {
           "type": "boolean",
-          "description": "Deny login if no valid role is found via role mapping."
+          "description": "Deny login when neither a global nor workspace mapping matches."
         },
         "skip_org_role_sync": {
           "type": "boolean",
-          "description": "Only assign roles on first login, skip subsequent syncs."
+          "description": "Keep first-login role and workspace access assignments instead of synchronizing subsequent logins."
+        }
+      }
+    },
+    "OIDCWorkspaceGrantDef": {
+      "type": "object",
+      "description": "Assigns an OIDC group member a role in one workspace.",
+      "additionalProperties": false,
+      "required": ["workspace", "role"],
+      "properties": {
+        "workspace": {
+          "type": "string",
+          "description": "Workspace name.",
+          "pattern": "^[A-Za-z0-9_-]+$"
+        },
+        "role": {
+          "type": "string",
+          "description": "Role assigned in the workspace.",
+          "enum": ["manager", "developer", "operator", "viewer"]
         }
       }
     },

@@ -4844,9 +4844,11 @@ export interface components {
         };
         /** @description Precondition that must be satisfied before running a step or DAG-run */
         Condition: {
-            /** @description Expression or check to evaluate. When `expected` is omitted, the value runs as a command check using the same variable expansion rules as shell `command` steps. */
-            condition: string;
-            /** @description Expected result of the condition evaluation. When set, Dagu compares the evaluated string output instead of using command exit status. */
+            /** @description Value or command text to evaluate. When `expected` is omitted, this runs as a command check. When `expected` is set, this is value-resolved and compared as data. */
+            condition?: string;
+            /** @description Dynamic value expression to evaluate and compare with `expected`. Valid only when `expected` is set and `condition` is omitted. */
+            eval?: string;
+            /** @description Expected result for a value-match precondition. When set, Dagu compares the actual value from `condition` or `eval` instead of using command exit status. */
             expected?: string;
             /** @description If true, inverts the condition result (run when condition does NOT match) */
             negate?: boolean;
@@ -5123,6 +5125,8 @@ export interface components {
         /** @description Response containing list of users */
         UsersListResponse: {
             users: components["schemas"]["User"][];
+            /** @description Whether OIDC role and workspace access are synchronized by this node */
+            oidcWorkspaceAccessSyncEnabled?: boolean;
         };
         /** @description API key information */
         APIKey: {

@@ -216,7 +216,10 @@ func TestLoad_Env(t *testing.T) {
 					Scopes:       []string{"openid", "profile", "email"},
 					AutoSignup:   true, // Defaults to true
 					ButtonLabel:  "Login with SSO",
-					RoleMapping:  OIDCRoleMapping{DefaultRole: "viewer"},
+					RoleMapping: OIDCRoleMapping{
+						DefaultRole:            "viewer",
+						DefaultWorkspaceAccess: OIDCDefaultWorkspaceAccessAll,
+					},
 				},
 				Builtin: AuthBuiltin{
 					Token: TokenConfig{TTL: 24 * time.Hour},
@@ -645,7 +648,10 @@ scheduler:
 					Whitelist:    []string{"user@example.com"},
 					AutoSignup:   true, // Defaults to true
 					ButtonLabel:  "Login with SSO",
-					RoleMapping:  OIDCRoleMapping{DefaultRole: "viewer"},
+					RoleMapping: OIDCRoleMapping{
+						DefaultRole:            "viewer",
+						DefaultWorkspaceAccess: OIDCDefaultWorkspaceAccessAll,
+					},
 				},
 				Builtin: AuthBuiltin{
 					Token: TokenConfig{TTL: 24 * time.Hour},
@@ -1186,6 +1192,118 @@ func loadWithErrorFromYAML(t *testing.T, yamlContent string) error {
 	require.NoError(t, err)
 
 	return testLoadWithError(t, WithConfigFile(configFile))
+}
+
+func TestLoad_OIDCWorkspaceMappingsFromYAML(t *testing.T) {
+	cfg := loadFromYAML(t, `
+auth:
+  mode: builtin
+  oidc:
+    client_id: client-id
+    client_secret: client-secret
+    client_url: https://dagu.example.com
+    issuer: https://idp.example.com
+    role_mapping:
+      workspace_mappings:
+        sre-team:
+          - workspace: payments
+            role: operator
+          - workspace: infra
+            role: developer
+      default_workspace_access: none
+`)
+
+	require.Equal(t, map[string][]OIDCWorkspaceGrant{
+		"sre-team": {
+			{Workspace: "payments", Role: "operator"},
+			{Workspace: "infra", Role: "developer"},
+		},
+	}, cfg.Server.Auth.OIDC.RoleMapping.WorkspaceMappings)
+	require.Equal(t, OIDCDefaultWorkspaceAccessNone, cfg.Server.Auth.OIDC.RoleMapping.DefaultWorkspaceAccess)
+	require.True(t, cfg.Server.Auth.OIDC.RoleMapping.WorkspaceAccessPolicyActive())
+}
+
+func TestLoad_OIDCWorkspaceMappingsEnvironmentOverridesYAML(t *testing.T) {
+	cfg := loadWithEnv(t, `
+auth:
+  mode: builtin
+  oidc:
+    client_id: client-id
+    client_secret: client-secret
+    client_url: https://dagu.example.com
+    issuer: https://idp.example.com
+    role_mapping:
+      workspace_mappings:
+        yaml-team:
+          - workspace: yaml-workspace
+            role: viewer
+      default_workspace_access: all
+`, map[string]string{
+		"DAGU_AUTH_OIDC_WORKSPACE_MAPPINGS":       `{"env-team":[{"workspace":"env-workspace","role":"manager"}]}`,
+		"DAGU_AUTH_OIDC_DEFAULT_WORKSPACE_ACCESS": "none",
+	})
+
+	require.Equal(t, map[string][]OIDCWorkspaceGrant{
+		"env-team": {{Workspace: "env-workspace", Role: "manager"}},
+	}, cfg.Server.Auth.OIDC.RoleMapping.WorkspaceMappings)
+	require.Equal(t, OIDCDefaultWorkspaceAccessNone, cfg.Server.Auth.OIDC.RoleMapping.DefaultWorkspaceAccess)
+}
+
+func TestLoad_OIDCWorkspaceMappingsEnvironmentRejectsMalformedJSON(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+	}{
+		{name: "Empty", value: ""},
+		{name: "Array", value: `[]`},
+		{name: "InvalidObject", value: `{"team":`},
+		{name: "UnknownGrantField", value: `{"team":[{"workspace":"payments","role":"viewer","unknown":true}]}`},
+		{name: "MultipleObjects", value: `{} {}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("DAGU_AUTH_OIDC_WORKSPACE_MAPPINGS", tt.value)
+
+			err := loadWithErrorFromYAML(t, "# minimal config")
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "DAGU_AUTH_OIDC_WORKSPACE_MAPPINGS")
+		})
+	}
+}
+
+func TestLoad_OIDCWorkspaceAccessDefaultsToAll(t *testing.T) {
+	cfg := loadFromYAML(t, "# minimal config")
+
+	require.Equal(t, OIDCDefaultWorkspaceAccessAll, cfg.Server.Auth.OIDC.RoleMapping.DefaultWorkspaceAccess)
+	require.False(t, cfg.Server.Auth.OIDC.RoleMapping.WorkspaceAccessPolicyActive())
+}
+
+func TestLoad_OIDCWorkspaceMappingCamelCaseKeyHints(t *testing.T) {
+	tests := []struct {
+		legacy string
+		want   string
+	}{
+		{
+			legacy: "auth.oidc.roleMapping.workspaceMappings",
+			want:   "auth.oidc.rolemapping.workspacemappings -> auth.oidc.role_mapping.workspace_mappings",
+		},
+		{
+			legacy: "auth.oidc.roleMapping.defaultWorkspaceAccess",
+			want:   "auth.oidc.rolemapping.defaultworkspaceaccess -> auth.oidc.role_mapping.default_workspace_access",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.legacy, func(t *testing.T) {
+			v := viper.New()
+			v.Set(tt.legacy, "value")
+
+			err := checkForLegacyKeys(v)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tt.want)
+		})
+	}
 }
 
 func TestLoad_ConfigFileUsed(t *testing.T) {

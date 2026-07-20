@@ -10,6 +10,8 @@ import (
 
 	"github.com/dagucloud/dagu/api/v1"
 	"github.com/dagucloud/dagu/internal/auth"
+	"github.com/dagucloud/dagu/internal/cmn/config"
+	"github.com/dagucloud/dagu/internal/license"
 	"github.com/dagucloud/dagu/internal/service/audit"
 	authservice "github.com/dagucloud/dagu/internal/service/auth"
 )
@@ -27,10 +29,26 @@ func (a *API) ListUsers(ctx context.Context, _ api.ListUsersRequestObject) (api.
 	if err != nil {
 		return nil, err
 	}
+	syncEnabled := a.oidcWorkspaceAccessSyncEnabled()
 
 	return api.ListUsers200JSONResponse{
-		Users: toAPIUsers(users),
+		Users:                          toAPIUsers(users),
+		OidcWorkspaceAccessSyncEnabled: &syncEnabled,
 	}, nil
+}
+
+func (a *API) oidcWorkspaceAccessSyncEnabled() bool {
+	if a.config == nil {
+		return false
+	}
+	if a.licenseManager != nil && !a.licenseManager.Checker().IsFeatureEnabled(license.FeatureSSO) {
+		return false
+	}
+	authConfig := a.config.Server.Auth
+	return authConfig.Mode == config.AuthModeBuiltin &&
+		authConfig.OIDC.IsConfigured() &&
+		authConfig.OIDC.RoleMapping.WorkspaceAccessPolicyActive() &&
+		!authConfig.OIDC.RoleMapping.SkipOrgRoleSync
 }
 
 // CreateUser creates a new user. Requires admin role.

@@ -150,6 +150,24 @@ func WithAPIOption(opt apiv1.APIOption) ServerOption {
 	}
 }
 
+func toOIDCWorkspaceMappings(mappings map[string][]config.OIDCWorkspaceGrant) map[string][]oidcprovision.WorkspaceGrantConfig {
+	if len(mappings) == 0 {
+		return nil
+	}
+	result := make(map[string][]oidcprovision.WorkspaceGrantConfig, len(mappings))
+	for group, grants := range mappings {
+		converted := make([]oidcprovision.WorkspaceGrantConfig, len(grants))
+		for i, grant := range grants {
+			converted[i] = oidcprovision.WorkspaceGrantConfig{
+				Workspace: grant.Workspace,
+				Role:      grant.Role,
+			}
+		}
+		result[group] = converted
+	}
+	return result
+}
+
 // RegisterRoutes appends a route registrar that is applied before API routes
 // are mounted.
 func (srv *Server) RegisterRoutes(fn RouteRegistrar) {
@@ -204,6 +222,20 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 		}
 	}
 
+	// Initialize the workspace store before OIDC provisioning so login-time
+	// mapping can report dormant grants without making workspace existence a
+	// prerequisite for authentication.
+	var wsStore workspacepkg.Store
+	if stores.WorkspaceStoreFactory != nil {
+		var wsErr error
+		wsStore, wsErr = stores.WorkspaceStoreFactory(cfg)
+		if wsErr != nil {
+			logger.Warn(ctx, "Failed to create workspace store", tag.Error(wsErr))
+		} else {
+			apiOpts = append(apiOpts, apiv1.WithWorkspaceStore(wsStore))
+		}
+	}
+
 	var authSvc *authservice.Service
 	if cfg.Server.Auth.Mode == config.AuthModeBuiltin {
 		if stores.BuiltinAuthFactory == nil {
@@ -229,13 +261,28 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 				AllowedDomains: oidcCfg.AllowedDomains,
 				Whitelist:      oidcCfg.Whitelist,
 				RoleMapping: oidcprovision.RoleMapperConfig{
-					GroupsClaim:         oidcCfg.RoleMapping.GroupsClaim,
-					GroupMappings:       oidcCfg.RoleMapping.GroupMappings,
-					RoleAttributePath:   oidcCfg.RoleMapping.RoleAttributePath,
-					RoleAttributeStrict: oidcCfg.RoleMapping.RoleAttributeStrict,
-					SkipOrgRoleSync:     oidcCfg.RoleMapping.SkipOrgRoleSync,
-					DefaultRole:         authmodel.Role(oidcCfg.RoleMapping.DefaultRole),
+					GroupsClaim:            oidcCfg.RoleMapping.GroupsClaim,
+					GroupMappings:          oidcCfg.RoleMapping.GroupMappings,
+					WorkspaceMappings:      toOIDCWorkspaceMappings(oidcCfg.RoleMapping.WorkspaceMappings),
+					DefaultWorkspaceAccess: oidcCfg.RoleMapping.DefaultWorkspaceAccess,
+					RoleAttributePath:      oidcCfg.RoleMapping.RoleAttributePath,
+					RoleAttributeStrict:    oidcCfg.RoleMapping.RoleAttributeStrict,
+					SkipOrgRoleSync:        oidcCfg.RoleMapping.SkipOrgRoleSync,
+					DefaultRole:            authmodel.Role(oidcCfg.RoleMapping.DefaultRole),
 				},
+			}
+			if wsStore != nil {
+				provisionCfg.WorkspaceExists = func(ctx context.Context, name string) (bool, error) {
+					_, err := wsStore.GetByName(ctx, name)
+					switch {
+					case err == nil:
+						return true, nil
+					case errors.Is(err, workspacepkg.ErrWorkspaceNotFound):
+						return false, nil
+					default:
+						return false, err
+					}
+				}
 			}
 			provisionSvc, err := oidcprovision.New(result.UserStore, provisionCfg)
 			if err != nil {
@@ -361,18 +408,6 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 		}
 	} else if encryptor == nil {
 		logger.Warn(ctx, "Incident settings store is disabled because encrypted storage is not available")
-	}
-
-	// Initialize workspace store
-	var wsStore workspacepkg.Store
-	if stores.WorkspaceStoreFactory != nil {
-		var wsErr error
-		wsStore, wsErr = stores.WorkspaceStoreFactory(cfg)
-		if wsErr != nil {
-			logger.Warn(ctx, "Failed to create workspace store", tag.Error(wsErr))
-		} else {
-			apiOpts = append(apiOpts, apiv1.WithWorkspaceStore(wsStore))
-		}
 	}
 
 	var (

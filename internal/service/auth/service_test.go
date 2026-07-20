@@ -209,6 +209,38 @@ func TestService_GetUserFromToken(t *testing.T) {
 	}
 }
 
+func TestService_GetUserFromTokenReturnsCurrentAuthorization(t *testing.T) {
+	svc, cleanup := setupTestService(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	user, err := svc.CreateUser(ctx, CreateUserInput{
+		Username:        "authorization-refresh",
+		Password:        "password123",
+		Role:            auth.RoleDeveloper,
+		WorkspaceAccess: auth.AllWorkspaceAccess(),
+	})
+	require.NoError(t, err)
+
+	tokenResult, err := svc.GenerateToken(user)
+	require.NoError(t, err)
+
+	role := auth.RoleViewer
+	workspaceAccess := &auth.WorkspaceAccess{
+		Grants: []auth.WorkspaceGrant{{Workspace: "payments", Role: auth.RoleOperator}},
+	}
+	_, err = svc.UpdateUser(ctx, user.ID, UpdateUserInput{
+		Role:            &role,
+		WorkspaceAccess: workspaceAccess,
+	})
+	require.NoError(t, err)
+
+	retrieved, err := svc.GetUserFromToken(ctx, tokenResult.Token)
+	require.NoError(t, err)
+	assert.Equal(t, auth.RoleViewer, retrieved.Role)
+	assert.Equal(t, workspaceAccess, retrieved.WorkspaceAccess)
+}
+
 func TestService_ChangePassword(t *testing.T) {
 	svc, cleanup := setupTestService(t)
 	defer cleanup()
