@@ -47,7 +47,9 @@ type RoleMapperConfig struct {
 
 // RoleMapper maps OIDC claims to Dagu authorization.
 type RoleMapper struct {
-	config                  RoleMapperConfig
+	groupsClaim             string
+	defaultRole             auth.Role
+	roleAttributeStrict     bool
 	jqQuery                 *gojq.Code
 	groupMappings           map[string]auth.Role
 	groupMappingsConfigured bool
@@ -60,17 +62,16 @@ var ErrNoRoleFound = errors.New("no valid role found from OIDC claims")
 
 // NewRoleMapper creates a new RoleMapper with the given configuration.
 func NewRoleMapper(config RoleMapperConfig) (*RoleMapper, error) {
-	rm := &RoleMapper{
-		config:                  config,
-		groupMappings:           make(map[string]auth.Role, len(config.GroupMappings)),
-		groupMappingsConfigured: len(config.GroupMappings) > 0,
-		workspaceMappings:       make(map[string][]auth.WorkspaceGrant, len(config.WorkspaceMappings)),
+	groupsClaim := config.GroupsClaim
+	if groupsClaim == "" {
+		groupsClaim = "groups"
 	}
 
+	groupMappings := make(map[string]auth.Role, len(config.GroupMappings))
 	for group, roleValue := range config.GroupMappings {
 		role := auth.Role(strings.ToLower(roleValue))
 		if role.Valid() {
-			rm.groupMappings[group] = role
+			groupMappings[group] = role
 		}
 	}
 
@@ -81,15 +82,46 @@ func NewRoleMapper(config RoleMapperConfig) (*RoleMapper, error) {
 	if defaultWorkspaceAccess != defaultWorkspaceAccessAll && defaultWorkspaceAccess != defaultWorkspaceAccessNone {
 		return nil, fmt.Errorf("invalid default workspace access %q: must be all or none", config.DefaultWorkspaceAccess)
 	}
-	rm.defaultWorkspaceAccess = defaultWorkspaceAccess
+	workspaceMappings, err := compileWorkspaceMappings(config.WorkspaceMappings)
+	if err != nil {
+		return nil, err
+	}
 
-	groups := make([]string, 0, len(config.WorkspaceMappings))
-	for group := range config.WorkspaceMappings {
+	rm := &RoleMapper{
+		groupsClaim:             groupsClaim,
+		defaultRole:             config.DefaultRole,
+		roleAttributeStrict:     config.RoleAttributeStrict,
+		groupMappings:           groupMappings,
+		groupMappingsConfigured: len(config.GroupMappings) > 0,
+		workspaceMappings:       workspaceMappings,
+		defaultWorkspaceAccess:  defaultWorkspaceAccess,
+	}
+
+	if config.RoleAttributePath != "" {
+		query, err := gojq.Parse(config.RoleAttributePath)
+		if err != nil {
+			return nil, fmt.Errorf("invalid roleAttributePath jq expression: %w", err)
+		}
+		code, err := gojq.Compile(query)
+		if err != nil {
+			return nil, fmt.Errorf("failed to compile roleAttributePath jq expression: %w", err)
+		}
+		rm.jqQuery = code
+	}
+
+	return rm, nil
+}
+
+func compileWorkspaceMappings(input map[string][]WorkspaceGrantConfig) (map[string][]auth.WorkspaceGrant, error) {
+	groups := make([]string, 0, len(input))
+	for group := range input {
 		groups = append(groups, group)
 	}
 	sort.Strings(groups)
+
+	compiledMappings := make(map[string][]auth.WorkspaceGrant, len(input))
 	for _, group := range groups {
-		grants := config.WorkspaceMappings[group]
+		grants := input[group]
 		if strings.TrimSpace(group) == "" {
 			return nil, errors.New("workspace mapping group must not be blank")
 		}
@@ -120,23 +152,10 @@ func NewRoleMapper(config RoleMapperConfig) (*RoleMapper, error) {
 				Role:      role,
 			})
 		}
-		rm.workspaceMappings[group] = compiled
+		compiledMappings[group] = compiled
 	}
 
-	// Pre-compile jq query if provided
-	if config.RoleAttributePath != "" {
-		query, err := gojq.Parse(config.RoleAttributePath)
-		if err != nil {
-			return nil, fmt.Errorf("invalid roleAttributePath jq expression: %w", err)
-		}
-		code, err := gojq.Compile(query)
-		if err != nil {
-			return nil, fmt.Errorf("failed to compile roleAttributePath jq expression: %w", err)
-		}
-		rm.jqQuery = code
-	}
-
-	return rm, nil
+	return compiledMappings, nil
 }
 
 // MapRole determines the Dagu role from OIDC claims.
@@ -147,10 +166,10 @@ func NewRoleMapper(config RoleMapperConfig) (*RoleMapper, error) {
 func (rm *RoleMapper) MapRole(rawClaims map[string]any) (auth.Role, error) {
 	role, found := rm.mapGlobalRole(rawClaims)
 	if !found {
-		if rm.config.RoleAttributeStrict {
+		if rm.roleAttributeStrict {
 			return "", ErrNoRoleFound
 		}
-		return rm.config.DefaultRole, nil
+		return rm.defaultRole, nil
 	}
 
 	return role, nil
@@ -166,7 +185,7 @@ func (rm *RoleMapper) MapAccess(rawClaims map[string]any) (auth.Role, *auth.Work
 		return auth.RoleViewer, &auth.WorkspaceAccess{Grants: grants}, nil
 	}
 
-	if rm.config.RoleAttributeStrict {
+	if rm.roleAttributeStrict {
 		return "", nil, ErrNoRoleFound
 	}
 
@@ -174,7 +193,7 @@ func (rm *RoleMapper) MapAccess(rawClaims map[string]any) (auth.Role, *auth.Work
 		return auth.RoleViewer, &auth.WorkspaceAccess{Grants: []auth.WorkspaceGrant{}}, nil
 	}
 
-	return rm.config.DefaultRole, auth.AllWorkspaceAccess(), nil
+	return rm.defaultRole, auth.AllWorkspaceAccess(), nil
 }
 
 func (rm *RoleMapper) mapGlobalRole(rawClaims map[string]any) (auth.Role, bool) {
@@ -301,13 +320,8 @@ func rolePriority(role auth.Role) int {
 // extractGroups extracts group names from claims using the configured claim name.
 // Supports nested claims using dot notation (e.g., "realm_access.roles").
 func (rm *RoleMapper) extractGroups(claims map[string]any) []string {
-	claimName := rm.config.GroupsClaim
-	if claimName == "" {
-		claimName = "groups" // Default
-	}
-
 	// Handle nested claims (e.g., "realm_access.roles" for Keycloak)
-	value := getNestedClaim(claims, claimName)
+	value := getNestedClaim(claims, rm.groupsClaim)
 	if value == nil {
 		return nil
 	}
@@ -356,9 +370,4 @@ func (rm *RoleMapper) IsConfigured() bool {
 // WorkspaceAccessPolicyActive reports whether OIDC controls workspace access.
 func (rm *RoleMapper) WorkspaceAccessPolicyActive() bool {
 	return len(rm.workspaceMappings) > 0 || rm.defaultWorkspaceAccess == defaultWorkspaceAccessNone
-}
-
-// WorkspaceAccessPolicyActive reports whether the configuration controls workspace access.
-func (c RoleMapperConfig) WorkspaceAccessPolicyActive() bool {
-	return len(c.WorkspaceMappings) > 0 || c.DefaultWorkspaceAccess == defaultWorkspaceAccessNone
 }

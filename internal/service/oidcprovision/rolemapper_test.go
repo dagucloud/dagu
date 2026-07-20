@@ -636,7 +636,6 @@ func TestRoleMapper_WorkspaceAccessPolicyActive(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.expected, tc.config.WorkspaceAccessPolicyActive())
 			mapper, err := NewRoleMapper(tc.config)
 			require.NoError(t, err)
 			assert.Equal(t, tc.expected, mapper.WorkspaceAccessPolicyActive())
