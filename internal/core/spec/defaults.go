@@ -71,25 +71,26 @@ func applyDefaults(s *step, d *defaults, raw map[string]any) {
 		return isZero
 	}
 
-	applyExecutionDefaults := strings.TrimSpace(s.Action) != "human.task"
 	// Override fields: apply only if step did not explicitly set the field
-	if applyExecutionDefaults && shouldApply("retry_policy", s.RetryPolicy == nil) && d.RetryPolicy != nil {
-		s.RetryPolicy = d.RetryPolicy
+	if strings.TrimSpace(s.Action) != "human.task" {
+		if shouldApply("retry_policy", s.RetryPolicy == nil) && d.RetryPolicy != nil {
+			s.RetryPolicy = d.RetryPolicy
+		}
+		if shouldApply("repeat_policy", s.RepeatPolicy == nil) && d.RepeatPolicy != nil {
+			s.RepeatPolicy = d.RepeatPolicy
+		}
+		if shouldApply("timeout_sec", s.TimeoutSec == 0) && d.TimeoutSec != 0 {
+			s.TimeoutSec = d.TimeoutSec
+		}
+		if shouldApply("mail_on_error", !s.MailOnError) && d.MailOnError != nil {
+			s.MailOnError = *d.MailOnError
+		}
+		if shouldApply("signal_on_stop", s.SignalOnStop == nil) && d.SignalOnStop != nil {
+			s.SignalOnStop = d.SignalOnStop
+		}
 	}
 	if shouldApply("continue_on", s.ContinueOn.IsZero()) && !d.ContinueOn.IsZero() {
 		s.ContinueOn = d.ContinueOn
-	}
-	if applyExecutionDefaults && shouldApply("repeat_policy", s.RepeatPolicy == nil) && d.RepeatPolicy != nil {
-		s.RepeatPolicy = d.RepeatPolicy
-	}
-	if applyExecutionDefaults && shouldApply("timeout_sec", s.TimeoutSec == 0) && d.TimeoutSec != 0 {
-		s.TimeoutSec = d.TimeoutSec
-	}
-	if applyExecutionDefaults && shouldApply("mail_on_error", !s.MailOnError) && d.MailOnError != nil {
-		s.MailOnError = *d.MailOnError
-	}
-	if applyExecutionDefaults && shouldApply("signal_on_stop", s.SignalOnStop == nil) && d.SignalOnStop != nil {
-		s.SignalOnStop = d.SignalOnStop
 	}
 
 	// Additive fields: prepend defaults before step values

@@ -154,10 +154,10 @@ type humanTaskCompletionRequest struct {
 }
 
 type humanTaskCompletionTarget struct {
-	dag     *core.DAG
-	status  *exec.DAGRunStatus
-	ref     exec.DAGRunRef
-	request humanTaskCompletionRequest
+	dag    *core.DAG
+	status *exec.DAGRunStatus
+	ref    exec.DAGRunRef
+	stepID string
 }
 
 type humanTaskCompletionResult struct {
@@ -225,10 +225,10 @@ func loadHumanTaskCompletionTarget(
 		return nil, fmt.Errorf("stored DAG-run identity %s does not match requested DAG-run %s", storedRef, ref)
 	}
 	return &humanTaskCompletionTarget{
-		dag:     dag,
-		status:  status,
-		ref:     ref,
-		request: request,
+		dag:    dag,
+		status: status,
+		ref:    ref,
+		stepID: request.stepID,
 	}, nil
 }
 
@@ -238,7 +238,7 @@ func completeHumanTaskStatus(
 	input humanTaskCompletionInput,
 	deps humanTaskCompleteDeps,
 ) (*humanTaskCompletionResult, error) {
-	stepID := target.request.stepID
+	stepID := target.stepID
 	node, err := findHumanTaskNodeByID(target.status.Nodes, stepID)
 	if err != nil {
 		return nil, err
@@ -335,22 +335,29 @@ func parseHumanTaskCompletionInput(command *cobra.Command) (humanTaskCompletionI
 	}
 
 	if command.Flags().Changed(humanTaskFlagInputsJSON) {
-		decoder := json.NewDecoder(strings.NewReader(rawJSON))
-		decoder.UseNumber()
-		var decoded any
-		if err := decoder.Decode(&decoded); err != nil {
-			return humanTaskCompletionInput{}, fmt.Errorf("invalid --%s value: %w", humanTaskFlagInputsJSON, err)
-		}
-		if err := requireJSONEOF(decoder); err != nil {
-			return humanTaskCompletionInput{}, fmt.Errorf("invalid --%s value: %w", humanTaskFlagInputsJSON, err)
-		}
-		values, ok := decoded.(map[string]any)
-		if !ok || values == nil {
-			return humanTaskCompletionInput{}, fmt.Errorf("--%s must be a JSON object", humanTaskFlagInputsJSON)
-		}
-		return humanTaskCompletionInput{values: values}, nil
+		return parseHumanTaskJSONInput(rawJSON)
 	}
+	return parseHumanTaskInputPairs(pairs)
+}
 
+func parseHumanTaskJSONInput(raw string) (humanTaskCompletionInput, error) {
+	decoder := json.NewDecoder(strings.NewReader(raw))
+	decoder.UseNumber()
+	var decoded any
+	if err := decoder.Decode(&decoded); err != nil {
+		return humanTaskCompletionInput{}, fmt.Errorf("invalid --%s value: %w", humanTaskFlagInputsJSON, err)
+	}
+	if err := requireJSONEOF(decoder); err != nil {
+		return humanTaskCompletionInput{}, fmt.Errorf("invalid --%s value: %w", humanTaskFlagInputsJSON, err)
+	}
+	values, ok := decoded.(map[string]any)
+	if !ok || values == nil {
+		return humanTaskCompletionInput{}, fmt.Errorf("--%s must be a JSON object", humanTaskFlagInputsJSON)
+	}
+	return humanTaskCompletionInput{values: values}, nil
+}
+
+func parseHumanTaskInputPairs(pairs []string) (humanTaskCompletionInput, error) {
 	values := make(map[string]any, len(pairs))
 	for _, pair := range pairs {
 		name, value, ok := strings.Cut(pair, "=")
@@ -397,22 +404,14 @@ func findHumanTaskNodeByID(nodes []*exec.Node, stepID string) (*exec.Node, error
 	return found, nil
 }
 
-func validateHumanTaskCompletion(node *exec.Node, input humanTaskCompletionInput) (*spec.HumanTaskInputResult, error) {
-	result, err := spec.ValidateHumanTaskInputs(node.Step.HumanTask.Form, input.values, input.coerceStrings)
-	if err != nil {
-		return nil, fmt.Errorf("invalid input for human task step %q: %w", node.Step.ID, err)
-	}
-	return result, nil
-}
-
 func prepareHumanTaskCompletion(
 	dag *core.DAG,
 	node *exec.Node,
 	input humanTaskCompletionInput,
 ) (*spec.HumanTaskInputResult, string, error) {
-	result, err := validateHumanTaskCompletion(node, input)
+	result, err := spec.ValidateHumanTaskInputs(node.Step.HumanTask.Form, input.values, input.coerceStrings)
 	if err != nil {
-		return nil, "", err
+		return nil, "", fmt.Errorf("invalid input for human task step %q: %w", node.Step.ID, err)
 	}
 	outputs, err := marshalHumanTaskCompletionOutputs(dag, result)
 	if err != nil {
@@ -457,6 +456,15 @@ func hasWaitingNodes(nodes []*exec.Node) bool {
 	return false
 }
 
+func waitForNextHumanTaskPoll(ctx *Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(humanTaskSettlePollInterval):
+		return nil
+	}
+}
+
 func waitForHumanTaskCompletionReady(
 	ctx *Context,
 	attempt exec.DAGRunAttempt,
@@ -485,10 +493,8 @@ func waitForHumanTaskCompletionReady(
 		if !time.Now().Before(deadline) {
 			return nil, fmt.Errorf("DAG-run attempt %s is still finalizing; retry human-task completion", status.AttemptID)
 		}
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(humanTaskSettlePollInterval):
+		if err := waitForNextHumanTaskPoll(ctx); err != nil {
+			return nil, err
 		}
 	}
 
@@ -506,10 +512,8 @@ func waitForRemoteHumanTaskAttempt(
 		if !time.Now().Before(deadline) {
 			return nil, fmt.Errorf("DAG-run attempt %s is still finalizing; retry human-task completion", status.AttemptID)
 		}
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(humanTaskSettlePollInterval):
+		if err := waitForNextHumanTaskPoll(ctx); err != nil {
+			return nil, err
 		}
 		var err error
 		latest, err = reloadHumanTaskStatus(ctx, attempt)
@@ -575,10 +579,8 @@ func waitForRemoteHumanTaskDispatch(ctx *Context, dag *core.DAG, status *exec.DA
 		if !time.Now().Before(deadline) {
 			return fmt.Errorf("previous distributed dispatch is still finalizing")
 		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(humanTaskSettlePollInterval):
+		if err := waitForNextHumanTaskPoll(ctx); err != nil {
+			return err
 		}
 	}
 }

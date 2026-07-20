@@ -58,7 +58,7 @@ func buildHumanTaskForm(raw any) (json.RawMessage, []core.StepOutputDeclaration,
 	if !ok {
 		return nil, nil, fmt.Errorf("form must be an object schema")
 	}
-	form = cloneMap(form)
+	form = maps.Clone(form)
 	if err := validateHumanTaskFormShape(form); err != nil {
 		return nil, nil, err
 	}
@@ -98,17 +98,9 @@ func buildHumanTaskForm(raw any) (json.RawMessage, []core.StepOutputDeclaration,
 			return nil, nil, err
 		}
 	}
+	sanitized.AdditionalProperties = root.AdditionalProperties
 
 	normalizedData, err := json.Marshal(sanitized)
-	if err != nil {
-		return nil, nil, fmt.Errorf("marshal normalized form schema: %w", err)
-	}
-	var normalized map[string]any
-	if err := json.Unmarshal(normalizedData, &normalized); err != nil {
-		return nil, nil, fmt.Errorf("decode normalized form schema: %w", err)
-	}
-	normalized["additionalProperties"] = form["additionalProperties"]
-	normalizedData, err = json.Marshal(normalized)
 	if err != nil {
 		return nil, nil, fmt.Errorf("marshal normalized form schema: %w", err)
 	}
@@ -224,12 +216,11 @@ func validateHumanTaskFormProperty(name string, rawProperty any) error {
 			return fmt.Errorf("form property %q uses unsupported schema field %q", name, field)
 		}
 	}
-	if _, hasType := property["type"]; !hasType {
-		if _, hasEnum := property["enum"]; !hasEnum {
-			if _, hasOneOf := property["oneOf"]; !hasOneOf {
-				return fmt.Errorf("form property %q must define type, enum, or oneOf", name)
-			}
-		}
+	_, hasType := property["type"]
+	_, hasEnum := property["enum"]
+	_, hasOneOf := property["oneOf"]
+	if !hasType && !hasEnum && !hasOneOf {
+		return fmt.Errorf("form property %q must define type, enum, or oneOf", name)
 	}
 	if propertyType, exists := property["type"]; exists {
 		if err := validateHumanTaskScalarType(propertyType, fmt.Sprintf("form property %q type", name)); err != nil {
@@ -388,13 +379,10 @@ func humanTaskFormItems(raw any) ([]any, bool) {
 
 func isHumanTaskFormScalar(value any) bool {
 	switch value.(type) {
-	case string, bool,
-		int, int8, int16, int32, int64,
-		uint, uint8, uint16, uint32, uint64,
-		float32, float64, json.Number:
+	case string, bool:
 		return true
 	default:
-		return false
+		return isHumanTaskFormNumber(value)
 	}
 }
 
@@ -501,7 +489,6 @@ func ValidateHumanTaskInputs(form json.RawMessage, inputs map[string]any, coerce
 		if !declared {
 			continue
 		}
-		var raw string
 		switch typed := value.(type) {
 		case json.Number:
 			if integer, err := typed.Int64(); err == nil {
@@ -518,15 +505,14 @@ func ValidateHumanTaskInputs(form json.RawMessage, inputs map[string]any, coerce
 			if !coerceStrings {
 				continue
 			}
-			raw = typed
+			coerced, err := coerceSchemaPairValue(name, typed, property, false)
+			if err != nil {
+				return nil, err
+			}
+			values[name] = coerced
 		default:
 			continue
 		}
-		coerced, err := coerceSchemaPairValue(name, raw, property, false)
-		if err != nil {
-			return nil, err
-		}
-		values[name] = coerced
 	}
 	values, err = validateSchemaMap(values, resolved, false)
 	if err != nil {
