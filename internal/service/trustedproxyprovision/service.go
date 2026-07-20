@@ -75,9 +75,6 @@ func New(userStore auth.UserStore, config Config) (*Service, error) {
 	if strings.TrimSpace(config.UsersDir) == "" {
 		return nil, errors.New("proxy authentication provisioner: users directory is required")
 	}
-	if !config.RoleMapping.DefaultRole.Valid() {
-		return nil, fmt.Errorf("proxy authentication provisioner: invalid default role %q", config.RoleMapping.DefaultRole)
-	}
 	mapper, err := authmapping.New(config.RoleMapping)
 	if err != nil {
 		return nil, fmt.Errorf("proxy authentication provisioner: compile authorization mapping: %w", err)
@@ -167,32 +164,31 @@ func (s *Service) processExisting(ctx context.Context, user *auth.User, groups [
 	if err != nil {
 		return nil, false, err
 	}
-	if user.Role == mapping.Role && workspaceAccessEqual(user.WorkspaceAccess, mapping.WorkspaceAccess) {
-		s.logger.Debug("proxy login resolved existing user",
-			slog.String("user_id", user.ID),
-			slog.Int("group_count", len(groups)),
-			slog.Int("mapping_match_count", mapping.MatchCount))
-		return user, false, nil
-	}
 
-	oldRole := user.Role
-	oldAccess := canonicalWorkspaceAccess(user.WorkspaceAccess)
-	updated, err := s.userStore.SyncAuthorization(ctx, user.ID, mapping.Role, mapping.WorkspaceAccess)
+	syncResult, err := s.userStore.SyncAuthorization(ctx, user.ID, mapping.Role, mapping.WorkspaceAccess)
 	if errors.Is(err, auth.ErrUserDisabled) {
 		return nil, false, authservice.ErrUserDisabled
 	}
 	if err != nil {
 		return nil, false, fmt.Errorf("update proxy authorization: %w", err)
 	}
+	updated := syncResult.User
 	if updated == nil {
 		return nil, false, errors.New("update proxy authorization: store returned no user")
+	}
+	if !syncResult.Changed {
+		s.logger.Debug("proxy login resolved existing user",
+			slog.String("user_id", updated.ID),
+			slog.Int("group_count", len(groups)),
+			slog.Int("mapping_match_count", mapping.MatchCount))
+		return updated, false, nil
 	}
 
 	s.logger.Info("proxy user authorization updated",
 		slog.String("user_id", updated.ID),
-		slog.String("old_role", string(oldRole)),
+		slog.String("old_role", string(syncResult.PreviousRole)),
 		slog.String("new_role", string(updated.Role)),
-		slog.Any("old_workspace_access", oldAccess),
+		slog.Any("old_workspace_access", canonicalWorkspaceAccess(syncResult.PreviousWorkspaceAccess)),
 		slog.Any("new_workspace_access", canonicalWorkspaceAccess(updated.WorkspaceAccess)),
 		slog.Int("group_count", len(groups)),
 		slog.Int("mapping_match_count", mapping.MatchCount))
@@ -328,12 +324,6 @@ func truncateASCII(value string, maxLength int) string {
 		return value
 	}
 	return strings.TrimRight(value[:maxLength], "_")
-}
-
-func workspaceAccessEqual(left, right *auth.WorkspaceAccess) bool {
-	leftCanonical := canonicalWorkspaceAccess(left)
-	rightCanonical := canonicalWorkspaceAccess(right)
-	return leftCanonical.All == rightCanonical.All && slices.Equal(leftCanonical.Grants, rightCanonical.Grants)
 }
 
 func canonicalWorkspaceAccess(access *auth.WorkspaceAccess) auth.WorkspaceAccess {

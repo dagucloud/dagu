@@ -6,6 +6,7 @@ package auth
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -65,6 +66,30 @@ func CloneWorkspaceAccess(access *WorkspaceAccess) *WorkspaceAccess {
 		All:    normalized.All,
 		Grants: grants,
 	}
+}
+
+// WorkspaceAccessEqual reports whether two policies grant the same workspace access.
+// Grant order and surrounding workspace whitespace do not affect equality.
+func WorkspaceAccessEqual(left, right *WorkspaceAccess) bool {
+	leftNormalized := NormalizeWorkspaceAccess(left)
+	rightNormalized := NormalizeWorkspaceAccess(right)
+	if leftNormalized.All != rightNormalized.All {
+		return false
+	}
+	if leftNormalized.All {
+		return true
+	}
+
+	slices.SortFunc(leftNormalized.Grants, compareWorkspaceGrants)
+	slices.SortFunc(rightNormalized.Grants, compareWorkspaceGrants)
+	return slices.Equal(leftNormalized.Grants, rightNormalized.Grants)
+}
+
+func compareWorkspaceGrants(left, right WorkspaceGrant) int {
+	if result := strings.Compare(left.Workspace, right.Workspace); result != 0 {
+		return result
+	}
+	return strings.Compare(string(left.Role), string(right.Role))
 }
 
 // EffectiveRole returns the role that applies to a workspace.

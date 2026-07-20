@@ -386,12 +386,12 @@ func (s *UserStore) SyncAuthorization(
 	id string,
 	role auth.Role,
 	workspaceAccess *auth.WorkspaceAccess,
-) (*auth.User, error) {
+) (auth.AuthorizationSyncResult, error) {
 	if id == "" {
-		return nil, auth.ErrInvalidUserID
+		return auth.AuthorizationSyncResult{}, auth.ErrInvalidUserID
 	}
 	if !role.Valid() {
-		return nil, auth.ErrInvalidRole
+		return auth.AuthorizationSyncResult{}, auth.ErrInvalidRole
 	}
 
 	s.mu.Lock()
@@ -400,19 +400,29 @@ func (s *UserStore) SyncAuthorization(
 	rec, err := s.col.Get(ctx, id)
 	if err != nil {
 		if errors.Is(err, persis.ErrNotFound) {
-			return nil, auth.ErrUserNotFound
+			return auth.AuthorizationSyncResult{}, auth.ErrUserNotFound
 		}
-		return nil, err
+		return auth.AuthorizationSyncResult{}, err
 	}
 	var stored auth.UserForStorage
 	if err := persis.Decode(rec, &stored); err != nil {
-		return nil, fmt.Errorf("user store: decode for authorization sync: %w", err)
+		return auth.AuthorizationSyncResult{}, fmt.Errorf("user store: decode for authorization sync: %w", err)
 	}
 	if err := validateTrustedProxyIdentity(stored.AuthProvider, stored.TrustedProxySource, stored.TrustedProxyUser, stored.OIDCIssuer, stored.OIDCSubject); err != nil {
-		return nil, fmt.Errorf("user store: existing user: %w", err)
+		return auth.AuthorizationSyncResult{}, fmt.Errorf("user store: existing user: %w", err)
 	}
 	if stored.IsDisabled {
-		return nil, auth.ErrUserDisabled
+		return auth.AuthorizationSyncResult{}, auth.ErrUserDisabled
+	}
+
+	result := auth.AuthorizationSyncResult{
+		PreviousRole:            stored.Role,
+		PreviousWorkspaceAccess: auth.CloneWorkspaceAccess(stored.WorkspaceAccess),
+	}
+	if stored.Role == role &&
+		(workspaceAccess == nil || auth.WorkspaceAccessEqual(stored.WorkspaceAccess, workspaceAccess)) {
+		result.User = stored.ToUser()
+		return result, nil
 	}
 
 	stored.Role = role
@@ -422,7 +432,7 @@ func (s *UserStore) SyncAuthorization(
 	stored.UpdatedAt = time.Now().UTC()
 	data, err := persis.Encode(&stored)
 	if err != nil {
-		return nil, err
+		return auth.AuthorizationSyncResult{}, err
 	}
 	if err := s.col.Put(ctx, &persis.Record{
 		ID:        id,
@@ -430,9 +440,11 @@ func (s *UserStore) SyncAuthorization(
 		CreatedAt: rec.CreatedAt,
 		UpdatedAt: stored.UpdatedAt,
 	}); err != nil {
-		return nil, err
+		return auth.AuthorizationSyncResult{}, err
 	}
-	return stored.ToUser(), nil
+	result.User = stored.ToUser()
+	result.Changed = true
+	return result, nil
 }
 
 // Delete removes a user by their ID.

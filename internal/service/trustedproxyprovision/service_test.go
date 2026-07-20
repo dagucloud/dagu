@@ -360,6 +360,62 @@ func TestProcessLoginConcurrentRequestsConverge(t *testing.T) {
 	assert.Equal(t, int64(2), count)
 }
 
+type authorizationChangedAfterLookupStore struct {
+	auth.AuthorizationSyncUserStore
+	once      sync.Once
+	updateErr error
+}
+
+func (s *authorizationChangedAfterLookupStore) GetByTrustedProxyIdentity(
+	ctx context.Context,
+	source string,
+	identity string,
+) (*auth.User, error) {
+	user, err := s.AuthorizationSyncUserStore.GetByTrustedProxyIdentity(ctx, source, identity)
+	if err != nil {
+		return nil, err
+	}
+	s.once.Do(func() {
+		latest, err := s.AuthorizationSyncUserStore.GetByID(ctx, user.ID)
+		if err != nil {
+			s.updateErr = err
+			return
+		}
+		latest.Role = auth.RoleAdmin
+		latest.WorkspaceAccess = auth.AllWorkspaceAccess()
+		s.updateErr = s.AuthorizationSyncUserStore.Update(ctx, latest)
+	})
+	if s.updateErr != nil {
+		return nil, s.updateErr
+	}
+	return user, nil
+}
+
+func TestProcessLoginSynchronizesAgainstLatestStoredAuthorization(t *testing.T) {
+	ctx := context.Background()
+	userStore := newTestUserStore(t)
+	existing := auth.NewUser("trusted", "", auth.RoleViewer)
+	existing.AuthProvider = auth.AuthProviderProxy
+	existing.TrustedProxyUser = "opaque-user"
+	existing.WorkspaceAccess = &auth.WorkspaceAccess{Grants: []auth.WorkspaceGrant{}}
+	require.NoError(t, userStore.Create(ctx, existing))
+	concurrentStore := &authorizationChangedAfterLookupStore{AuthorizationSyncUserStore: userStore}
+	service := newTestService(t, concurrentStore, func(config *Config) {
+		config.RoleMapping.DefaultWorkspaceAccess = authmapping.DefaultWorkspaceAccessNone
+	})
+
+	user, created, err := service.ProcessLogin(ctx, "opaque-user", nil)
+	require.NoError(t, err)
+	assert.False(t, created)
+	assert.Equal(t, auth.RoleViewer, user.Role)
+	assert.Equal(t, &auth.WorkspaceAccess{Grants: []auth.WorkspaceGrant{}}, user.WorkspaceAccess)
+
+	persisted, err := userStore.GetByID(ctx, existing.ID)
+	require.NoError(t, err)
+	assert.Equal(t, auth.RoleViewer, persisted.Role)
+	assert.Equal(t, &auth.WorkspaceAccess{Grants: []auth.WorkspaceGrant{}}, persisted.WorkspaceAccess)
+}
+
 type failingAuthorizationSyncStore struct {
 	auth.AuthorizationSyncUserStore
 }
@@ -369,8 +425,8 @@ func (f failingAuthorizationSyncStore) SyncAuthorization(
 	string,
 	auth.Role,
 	*auth.WorkspaceAccess,
-) (*auth.User, error) {
-	return nil, errors.New("write failed")
+) (auth.AuthorizationSyncResult, error) {
+	return auth.AuthorizationSyncResult{}, errors.New("write failed")
 }
 
 func TestProcessLoginDoesNotExposeUnpersistedAuthorization(t *testing.T) {
@@ -401,7 +457,7 @@ func (s *disableBeforeAuthorizationSyncStore) SyncAuthorization(
 	id string,
 	role auth.Role,
 	workspaceAccess *auth.WorkspaceAccess,
-) (*auth.User, error) {
+) (auth.AuthorizationSyncResult, error) {
 	var disableErr error
 	s.once.Do(func() {
 		user, err := s.GetByID(ctx, id)
@@ -413,7 +469,7 @@ func (s *disableBeforeAuthorizationSyncStore) SyncAuthorization(
 		disableErr = s.Update(ctx, user)
 	})
 	if disableErr != nil {
-		return nil, disableErr
+		return auth.AuthorizationSyncResult{}, disableErr
 	}
 	return s.AuthorizationSyncUserStore.SyncAuthorization(ctx, id, role, workspaceAccess)
 }

@@ -130,13 +130,25 @@ type UserPatch struct {
 	IsDisabled      *bool
 }
 
+// AuthorizationSyncResult describes an atomic authorization synchronization.
+type AuthorizationSyncResult struct {
+	// User is the current stored user.
+	User *User
+	// Changed reports whether the synchronization modified authorization.
+	Changed bool
+	// PreviousRole is the role observed immediately before synchronization.
+	PreviousRole Role
+	// PreviousWorkspaceAccess is the workspace policy observed immediately before synchronization.
+	PreviousWorkspaceAccess *WorkspaceAccess
+}
+
 // AuthorizationSyncUserStore atomically synchronizes externally managed authorization.
 type AuthorizationSyncUserStore interface {
 	UserStore
 
 	// SyncAuthorization updates role and, when non-nil, workspace access on an enabled user.
-	// It returns the current stored user after the update.
-	SyncAuthorization(ctx context.Context, id string, role Role, workspaceAccess *WorkspaceAccess) (*User, error)
+	// It returns the current user and the authorization state observed under the same lock.
+	SyncAuthorization(ctx context.Context, id string, role Role, workspaceAccess *WorkspaceAccess) (AuthorizationSyncResult, error)
 }
 
 // APIKeyStore defines the interface for API key persistence operations.

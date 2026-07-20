@@ -38,6 +38,24 @@ func TestWorkspaceAccessNormalizeAndClone(t *testing.T) {
 	assert.Equal(t, RoleDeveloper, original.Grants[0].Role)
 }
 
+func TestWorkspaceAccessEqual(t *testing.T) {
+	assert.True(t, WorkspaceAccessEqual(nil, AllWorkspaceAccess()))
+	assert.True(t, WorkspaceAccessEqual(
+		&WorkspaceAccess{Grants: []WorkspaceGrant{
+			{Workspace: "ops", Role: RoleDeveloper},
+			{Workspace: "prod", Role: RoleOperator},
+		}},
+		&WorkspaceAccess{Grants: []WorkspaceGrant{
+			{Workspace: " prod ", Role: RoleOperator},
+			{Workspace: "ops", Role: RoleDeveloper},
+		}},
+	))
+	assert.False(t, WorkspaceAccessEqual(
+		&WorkspaceAccess{Grants: []WorkspaceGrant{{Workspace: "ops", Role: RoleDeveloper}}},
+		&WorkspaceAccess{Grants: []WorkspaceGrant{{Workspace: "ops", Role: RoleViewer}}},
+	))
+}
+
 func TestWorkspaceAccessEffectiveRole(t *testing.T) {
 	scoped := &WorkspaceAccess{
 		Grants: []WorkspaceGrant{

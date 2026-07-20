@@ -57,6 +57,10 @@ type Mapper struct {
 
 // New compiles group-based authorization configuration.
 func New(config Config) (*Mapper, error) {
+	if !config.DefaultRole.Valid() {
+		return nil, fmt.Errorf("invalid default role %q", config.DefaultRole)
+	}
+
 	defaultWorkspaceAccess := config.DefaultWorkspaceAccess
 	if defaultWorkspaceAccess == "" {
 		defaultWorkspaceAccess = DefaultWorkspaceAccessAll

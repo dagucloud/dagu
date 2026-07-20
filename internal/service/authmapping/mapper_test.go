@@ -79,16 +79,21 @@ func TestMapperAllFallback(t *testing.T) {
 }
 
 func TestMapperRejectsInvalidWorkspaceMapping(t *testing.T) {
-	_, err := New(Config{WorkspaceMappings: map[string][]WorkspaceGrantConfig{
+	_, err := New(Config{DefaultRole: auth.RoleViewer, WorkspaceMappings: map[string][]WorkspaceGrantConfig{
 		"admins": {{Workspace: "payments", Role: auth.RoleAdmin}},
 	}})
 	assert.ErrorContains(t, err, "admin cannot be scoped")
 
-	_, err = New(Config{WorkspaceMappings: map[string][]WorkspaceGrantConfig{
+	_, err = New(Config{DefaultRole: auth.RoleViewer, WorkspaceMappings: map[string][]WorkspaceGrantConfig{
 		"team": {
 			{Workspace: "payments", Role: auth.RoleViewer},
 			{Workspace: "payments", Role: auth.RoleOperator},
 		},
 	}})
 	assert.ErrorContains(t, err, "duplicate workspace")
+}
+
+func TestMapperRejectsInvalidDefaultRole(t *testing.T) {
+	_, err := New(Config{DefaultRole: auth.Role("unknown")})
+	assert.ErrorContains(t, err, "invalid default role")
 }

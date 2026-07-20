@@ -56,6 +56,10 @@ func NewRoleMapper(config RoleMapperConfig) (*RoleMapper, error) {
 	if groupsClaim == "" {
 		groupsClaim = "groups"
 	}
+	defaultRole := config.DefaultRole
+	if defaultRole == auth.RoleNone {
+		defaultRole = auth.RoleViewer
+	}
 
 	groupMappings := make(map[string]auth.Role, len(config.GroupMappings))
 	for group, roleValue := range config.GroupMappings {
@@ -79,7 +83,7 @@ func NewRoleMapper(config RoleMapperConfig) (*RoleMapper, error) {
 	}
 
 	groupMapper, err := authmapping.New(authmapping.Config{
-		DefaultRole:            config.DefaultRole,
+		DefaultRole:            defaultRole,
 		GroupMappings:          groupMappings,
 		WorkspaceMappings:      workspaceMappings,
 		DefaultWorkspaceAccess: config.DefaultWorkspaceAccess,

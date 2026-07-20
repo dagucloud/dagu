@@ -245,22 +245,15 @@ func (s *Service) syncUserAccess(ctx context.Context, user *auth.User, claims OI
 		return err
 	}
 
-	roleChanged := user.Role != newRole
-	accessChanged := accessPolicyActive && !workspaceAccessEqual(user.WorkspaceAccess, newAccess)
-	if !roleChanged && !accessChanged {
-		return nil
-	}
-
-	oldRole := user.Role
-	oldAccess := auth.CloneWorkspaceAccess(user.WorkspaceAccess)
 	workspaceAccess := newAccess
 	if !accessPolicyActive {
 		workspaceAccess = nil
 	}
-	updated, err := s.userStore.SyncAuthorization(ctx, user.ID, newRole, workspaceAccess)
+	syncResult, err := s.userStore.SyncAuthorization(ctx, user.ID, newRole, workspaceAccess)
 	if err != nil {
 		return fmt.Errorf("failed to update OIDC user authorization: %w", err)
 	}
+	updated := syncResult.User
 	if updated == nil {
 		return errors.New("failed to update OIDC user authorization: store returned no user")
 	}
@@ -270,20 +263,23 @@ func (s *Service) syncUserAccess(ctx context.Context, user *auth.User, claims OI
 		user.WorkspaceAccess = auth.CloneWorkspaceAccess(updated.WorkspaceAccess)
 	}
 	user.UpdatedAt = updated.UpdatedAt
+	if !syncResult.Changed {
+		return nil
+	}
 
 	if accessPolicyActive {
 		s.logger.Info("OIDC user authorization updated",
 			slog.String("user_id", user.ID),
 			slog.String("username", user.Username),
-			slog.String("old_role", string(oldRole)),
+			slog.String("old_role", string(syncResult.PreviousRole)),
 			slog.String("new_role", string(newRole)),
-			slog.Any("old_workspace_access", canonicalWorkspaceAccess(oldAccess)),
+			slog.Any("old_workspace_access", canonicalWorkspaceAccess(syncResult.PreviousWorkspaceAccess)),
 			slog.Any("new_workspace_access", canonicalWorkspaceAccess(updated.WorkspaceAccess)))
 	} else {
 		s.logger.Info("OIDC user role updated",
 			slog.String("user_id", user.ID),
 			slog.String("username", user.Username),
-			slog.String("old_role", string(oldRole)),
+			slog.String("old_role", string(syncResult.PreviousRole)),
 			slog.String("new_role", string(newRole)))
 	}
 
@@ -312,12 +308,6 @@ func (s *Service) warnForDormantGrants(ctx context.Context, workspaceAccess *aut
 				slog.String("workspace", grant.Workspace))
 		}
 	}
-}
-
-func workspaceAccessEqual(left, right *auth.WorkspaceAccess) bool {
-	leftCanonical := canonicalWorkspaceAccess(left)
-	rightCanonical := canonicalWorkspaceAccess(right)
-	return leftCanonical.All == rightCanonical.All && slices.Equal(leftCanonical.Grants, rightCanonical.Grants)
 }
 
 func canonicalWorkspaceAccess(workspaceAccess *auth.WorkspaceAccess) auth.WorkspaceAccess {

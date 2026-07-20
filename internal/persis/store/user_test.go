@@ -368,10 +368,14 @@ func TestUserSyncAuthorizationPreservesAdministrativeFields(t *testing.T) {
 
 	u.Username = "proxy-renamed"
 	require.NoError(t, s.Update(ctx, u))
-	updated, err := s.SyncAuthorization(ctx, u.ID, auth.RoleOperator, &auth.WorkspaceAccess{
+	result, err := s.SyncAuthorization(ctx, u.ID, auth.RoleOperator, &auth.WorkspaceAccess{
 		Grants: []auth.WorkspaceGrant{{Workspace: "payments", Role: auth.RoleDeveloper}},
 	})
 	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.Equal(t, auth.RoleViewer, result.PreviousRole)
+	assert.True(t, auth.WorkspaceAccessEqual(auth.AllWorkspaceAccess(), result.PreviousWorkspaceAccess))
+	updated := result.User
 	assert.Equal(t, "proxy-renamed", updated.Username)
 	assert.Equal(t, "edge-a", updated.TrustedProxySource)
 	assert.Equal(t, "stable-identity", updated.TrustedProxyUser)
@@ -391,8 +395,10 @@ func TestUserSyncAuthorizationPreservesWorkspaceAccessWhenUnmanaged(t *testing.T
 	}
 	require.NoError(t, s.Create(ctx, u))
 
-	updated, err := s.SyncAuthorization(ctx, u.ID, auth.RoleViewer, nil)
+	result, err := s.SyncAuthorization(ctx, u.ID, auth.RoleViewer, nil)
 	require.NoError(t, err)
+	assert.False(t, result.Changed)
+	updated := result.User
 	assert.Equal(t, u.WorkspaceAccess, updated.WorkspaceAccess)
 }
 
@@ -405,8 +411,8 @@ func TestUserSyncAuthorizationRejectsDisabledUser(t *testing.T) {
 	u.IsDisabled = true
 	require.NoError(t, s.Create(ctx, u))
 
-	updated, err := s.SyncAuthorization(ctx, u.ID, auth.RoleViewer, auth.AllWorkspaceAccess())
-	assert.Nil(t, updated)
+	result, err := s.SyncAuthorization(ctx, u.ID, auth.RoleViewer, auth.AllWorkspaceAccess())
+	assert.Nil(t, result.User)
 	assert.ErrorIs(t, err, auth.ErrUserDisabled)
 
 	stored, err := s.GetByID(ctx, u.ID)

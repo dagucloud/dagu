@@ -585,7 +585,7 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 	if srv.licenseManager != nil && srv.builtinOIDCCfg != nil && !srv.licenseManager.Checker().IsFeatureEnabled(license.FeatureSSO) {
 		logger.Warn(ctx, "SSO (OIDC) is configured but currently unavailable because the active license does not enable it")
 	}
-	if srv.licenseManager != nil && srv.trustedProxyCfg.Enabled && !srv.licenseManager.Checker().IsFeatureEnabled(license.FeatureSSO) {
+	if srv.licenseManager != nil && srv.trustedProxyCfg != nil && srv.trustedProxyCfg.Enabled && !srv.licenseManager.Checker().IsFeatureEnabled(license.FeatureSSO) {
 		logger.Warn(ctx, "Proxy authentication is configured but currently unavailable because the active license does not enable it")
 	}
 

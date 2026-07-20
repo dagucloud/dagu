@@ -266,7 +266,7 @@ export function UserFormModal({
                 value={workspaceAccess}
                 workspaces={appBarContext.workspaces}
               />
-              <p className="text-xs text-muted-foreground">
+              <p className="text-xs text-slate-500 dark:text-slate-500">
                 Role and workspace access are updated by {managedProviderLabel}
                 at sign-in.
               </p>
