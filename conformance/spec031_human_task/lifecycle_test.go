@@ -240,7 +240,7 @@ func TestPreconditionSkipAndDryRun(t *testing.T) {
 
 func collapseStatusLines(stdout string) string {
 	var result strings.Builder
-	for _, line := range strings.Split(stdout, "\n") {
+	for line := range strings.SplitSeq(stdout, "\n") {
 		if index := strings.Index(line, "│     "); index >= 0 {
 			line = line[index+len("│     "):]
 		}
@@ -263,12 +263,10 @@ func runConcurrentCompletions(
 	start := make(chan struct{})
 	var wg sync.WaitGroup
 	for index, value := range values {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			<-start
 			results[index] = complete(t, dagu, env, runID, "choose", "concurrent.yaml", "--input=lane="+value)
-		}()
+		})
 	}
 	close(start)
 	wg.Wait()
