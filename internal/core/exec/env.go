@@ -29,7 +29,7 @@ const (
 	// EnvKeyDAGRunStatus holds the current status of the DAG run (e.g., "running", "success", "failed").
 	EnvKeyDAGRunStatus = "DAG_RUN_STATUS"
 
-	// EnvKeyDAGWaitingSteps holds comma-separated step names that are waiting for approval.
+	// EnvKeyDAGWaitingSteps holds comma-separated step names that require manual action.
 	EnvKeyDAGWaitingSteps = "DAG_WAITING_STEPS"
 
 	// EnvKeyDAGParamsJSON exposes the resolved parameters encoded as JSON.

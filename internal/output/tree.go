@@ -184,7 +184,8 @@ func (r *Renderer) renderStepContent(node *exec.Node, isLast bool, prefix string
 	hasSubRuns := len(node.SubRuns) > 0
 	hasHumanTask := node.Status == core.NodeWaiting && node.Step.HumanTask != nil
 
-	wroteField := r.renderCommands(&buf, node, cPrefix, hasOutput, hasError, hasSubRuns, hasHumanTask)
+	hasFollowingContent := hasOutput || hasError || hasSubRuns || hasHumanTask
+	wroteField := r.renderCommands(&buf, node, cPrefix, hasFollowingContent)
 
 	if hasHumanTask {
 		r.addFieldSpacing(&buf, wroteField, cPrefix)
@@ -213,9 +214,7 @@ func (r *Renderer) renderStepContent(node *exec.Node, isLast bool, prefix string
 }
 
 // renderCommands renders step commands and returns true if any were written.
-func (r *Renderer) renderCommands(buf *strings.Builder, node *exec.Node, cPrefix string, hasOutput, hasError, hasSubRuns, hasHumanTask bool) bool {
-	hasFollowingContent := hasOutput || hasError || hasSubRuns || hasHumanTask
-
+func (r *Renderer) renderCommands(buf *strings.Builder, node *exec.Node, cPrefix string, hasFollowingContent bool) bool {
 	if len(node.Step.Commands) > 0 {
 		for i, cmd := range node.Step.Commands {
 			isLastCmd := i == len(node.Step.Commands)-1 && !hasFollowingContent

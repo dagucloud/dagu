@@ -446,7 +446,7 @@ func (p *Plan) NodeStates() PlanNodeStates {
 	return states
 }
 
-// WaitingStepNames returns the names of steps that are waiting for approval.
+// WaitingStepNames returns the names of steps that require manual action.
 func (p *Plan) WaitingStepNames() []string {
 	p.mu.RLock()
 	defer p.mu.RUnlock()

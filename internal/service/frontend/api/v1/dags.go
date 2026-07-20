@@ -1210,9 +1210,8 @@ func (a *API) waitForDAGCompletion(
 
 			lastStatus = status
 
-			// Check if execution is complete (not active) or waiting for human approval.
-			// We return on "waiting" status because approval workflows
-			// require external intervention that would cause indefinite blocking otherwise.
+			// Check if execution is complete (not active) or waiting for manual action.
+			// Waiting runs require external intervention and would otherwise block indefinitely.
 			// The client can poll the status endpoint or use callbacks to resume monitoring.
 			if !status.Status.IsActive() || status.Status.IsWaiting() {
 				return status, nil

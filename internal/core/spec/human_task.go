@@ -4,7 +4,6 @@
 package spec
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -54,17 +53,6 @@ func normalizeHumanTaskAction(normalized map[string]any, with map[string]any) er
 	if !ok || strings.TrimSpace(prompt) == "" {
 		return core.NewValidationError("with.prompt", with["prompt"], fmt.Errorf("with.prompt must be a non-empty string"))
 	}
-	if form, exists := with["form"]; exists {
-		normalizedForm, _, err := buildHumanTaskForm(form)
-		if err != nil {
-			return core.NewValidationError("with.form", form, err)
-		}
-		var formMap map[string]any
-		if err := json.Unmarshal(normalizedForm, &formMap); err != nil {
-			return fmt.Errorf("decode normalized human task form: %w", err)
-		}
-		with["form"] = formMap
-	}
 	normalized["with"] = with
 	return nil
 }
@@ -76,7 +64,7 @@ func buildStepHumanTask(_ StepBuildContext, s *step, result *core.Step) error {
 
 	form, outputs, err := buildHumanTaskForm(s.With["form"])
 	if err != nil {
-		return err
+		return core.NewValidationError("with.form", s.With["form"], err)
 	}
 	prompt, _ := s.With["prompt"].(string)
 	result.HumanTask = &core.HumanTaskConfig{

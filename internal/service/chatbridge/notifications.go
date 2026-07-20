@@ -485,7 +485,7 @@ func BuildNotificationPrompt(status *exec.DAGRunStatus) string {
 
 	var intro string
 	if status.Status == core.Waiting {
-		intro = "A DAG run is waiting for human approval. Please write a brief, urgent notification message for the user. Let them know which steps are waiting and that action is needed. Keep it concise (2-4 sentences)."
+		intro = "A DAG run is waiting for manual action. Please write a brief, urgent notification message for the user. Let them know which steps are waiting and that action is needed. Keep it concise (2-4 sentences)."
 	} else {
 		intro = "A DAG run just completed. Please write a brief, helpful notification message for the user about this event. Keep it concise (2-4 sentences). Include the key facts and any actionable information."
 	}
@@ -652,7 +652,7 @@ func formatSingleNotification(status *exec.DAGRunStatus) string {
 	case core.Running:
 		fmt.Fprintf(&b, "%s DAG `%s` started running.", emoji, status.Name)
 	case core.Waiting:
-		fmt.Fprintf(&b, "%s DAG `%s` is waiting for approval.", emoji, status.Name)
+		fmt.Fprintf(&b, "%s DAG `%s` is waiting for manual action.", emoji, status.Name)
 		if detail := waitingNotificationDetail(status); detail != "" {
 			fmt.Fprintf(&b, "\n%s", detail)
 		}

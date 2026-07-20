@@ -243,12 +243,12 @@ func completeHumanTaskStatus(
 	if err != nil {
 		return nil, err
 	}
-	validated, _, err := prepareHumanTaskCompletion(target.dag, node, input)
+	completion, outputsValue, err := prepareHumanTaskCompletion(target.dag, node, input)
 	if err != nil {
 		return nil, err
 	}
 	if humanTaskNodeCompleted(node) {
-		if !bytes.Equal(node.HumanTaskInput, validated.Canonical) {
+		if !bytes.Equal(node.HumanTaskInput, completion.Canonical) {
 			return nil, fmt.Errorf("human task step %q was already completed with different input", stepID)
 		}
 		return &humanTaskCompletionResult{status: target.status, alreadyCompleted: true}, nil
@@ -269,12 +269,8 @@ func completeHumanTaskStatus(
 			if err != nil {
 				return err
 			}
-			latestValidated, outputsValue, err := prepareHumanTaskCompletion(target.dag, latestNode, input)
-			if err != nil {
-				return err
-			}
 			if humanTaskNodeCompleted(latestNode) {
-				if !bytes.Equal(latestNode.HumanTaskInput, latestValidated.Canonical) {
+				if !bytes.Equal(latestNode.HumanTaskInput, completion.Canonical) {
 					return fmt.Errorf("human task step %q was already completed with different input", stepID)
 				}
 				concurrentlyCompletedStatus = latest
@@ -284,7 +280,7 @@ func completeHumanTaskStatus(
 				return fmt.Errorf("human task step %q is not waiting (status: %s)", stepID, latestNode.Status)
 			}
 
-			latestNode.HumanTaskInput = append(json.RawMessage(nil), latestValidated.Canonical...)
+			latestNode.HumanTaskInput = append(json.RawMessage(nil), completion.Canonical...)
 			if outputsValue == "" {
 				latestNode.StepOutputsValue = nil
 			} else {
@@ -303,7 +299,7 @@ func completeHumanTaskStatus(
 		return nil, fmt.Errorf("failed to complete human task: %w", err)
 	}
 	if !swapped {
-		return resolveHumanTaskCompletionConflict(updated, stepID, input)
+		return resolveHumanTaskCompletionConflict(updated, stepID, completion.Canonical)
 	}
 	return &humanTaskCompletionResult{status: updated}, nil
 }
@@ -311,13 +307,12 @@ func completeHumanTaskStatus(
 func resolveHumanTaskCompletionConflict(
 	updated *exec.DAGRunStatus,
 	stepID string,
-	input humanTaskCompletionInput,
+	canonicalInput json.RawMessage,
 ) (*humanTaskCompletionResult, error) {
 	if updated != nil {
 		latestNode, findErr := findHumanTaskNodeByID(updated.Nodes, stepID)
 		if findErr == nil && humanTaskNodeCompleted(latestNode) {
-			latestValidated, validateErr := validateHumanTaskCompletion(latestNode, input)
-			if validateErr == nil && bytes.Equal(latestNode.HumanTaskInput, latestValidated.Canonical) {
+			if bytes.Equal(latestNode.HumanTaskInput, canonicalInput) {
 				return &humanTaskCompletionResult{status: updated, alreadyCompleted: true}, nil
 			}
 			return nil, fmt.Errorf("human task step %q was already completed with different input", stepID)

@@ -46,7 +46,7 @@ func (s Status) String() string {
 }
 
 // IsActive checks if the status is active (not yet completed).
-// This includes Running, Queued, and Wait (waiting for human approval).
+// This includes running, queued, and waiting executions.
 func (s Status) IsActive() bool {
 	return s == Running || s == Queued || s == Waiting
 }
@@ -56,7 +56,7 @@ func (s Status) IsSuccess() bool {
 	return s == Succeeded || s == PartiallySucceeded
 }
 
-// IsWaiting checks if the status is waiting for human approval.
+// IsWaiting checks if the status requires manual action before it can continue.
 func (s Status) IsWaiting() bool {
 	return s == Waiting
 }
@@ -84,7 +84,7 @@ func (s NodeStatus) IsSuccess() bool {
 	return s == NodeSucceeded || s == NodePartiallySucceeded
 }
 
-// IsWaiting checks if the node status is waiting for human approval.
+// IsWaiting checks if the node status requires manual action before it can continue.
 func (s NodeStatus) IsWaiting() bool {
 	return s == NodeWaiting
 }

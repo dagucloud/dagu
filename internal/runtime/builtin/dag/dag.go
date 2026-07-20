@@ -42,6 +42,16 @@ var (
 	ErrHumanTaskStepsInSubDAG  = fmt.Errorf("human task steps are not allowed in sub-DAGs")
 )
 
+func validateSubDAG(childDAG *core.DAG, name string, workerSelector map[string]string) error {
+	if len(workerSelector) > 0 && childDAG.HasApprovalSteps() {
+		return fmt.Errorf("%w: %s", ErrApprovalStepsWithWorker, name)
+	}
+	if childDAG.HasHumanTaskSteps() {
+		return fmt.Errorf("%w: %s", ErrHumanTaskStepsInSubDAG, name)
+	}
+	return nil
+}
+
 func newDAGExecutor(ctx context.Context, step core.Step) (executor.Executor, error) {
 	if step.SubDAG == nil {
 		return nil, fmt.Errorf("sub DAG configuration is missing")
@@ -52,12 +62,8 @@ func newDAGExecutor(ctx context.Context, step core.Step) (executor.Executor, err
 		return nil, err
 	}
 
-	// Validate: sub-DAGs with approval steps cannot be dispatched to workers
-	if len(step.WorkerSelector) > 0 && child.DAG.HasApprovalSteps() {
-		return nil, fmt.Errorf("%w: %s", ErrApprovalStepsWithWorker, step.SubDAG.Name)
-	}
-	if child.DAG.HasHumanTaskSteps() {
-		return nil, fmt.Errorf("%w: %s", ErrHumanTaskStepsInSubDAG, step.SubDAG.Name)
+	if err := validateSubDAG(child.DAG, step.SubDAG.Name, step.WorkerSelector); err != nil {
+		return nil, err
 	}
 	child.SetWorkerSelector(step.WorkerSelector)
 
