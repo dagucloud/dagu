@@ -1,4 +1,4 @@
-import { components } from '@/api/v1/schema';
+import { components, UserAuthProvider } from '@/api/v1/schema';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -39,14 +39,14 @@ import { UserFormModal } from './UserFormModal';
 type User = components['schemas']['User'];
 type UsersListResponse = components['schemas']['UsersListResponse'];
 
-function UserAuthProvider({
+function AuthProviderBadge({
   user,
   syncEnabled,
 }: {
   user: User;
   syncEnabled: boolean;
 }) {
-  if (user.authProvider !== 'oidc') {
+  if (user.authProvider !== UserAuthProvider.oidc) {
     return 'Local';
   }
   if (!syncEnabled) {
@@ -297,7 +297,7 @@ export default function UsersPage() {
                     </span>
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    <UserAuthProvider
+                    <AuthProviderBadge
                       user={user}
                       syncEnabled={oidcWorkspaceAccessSyncEnabled}
                     />

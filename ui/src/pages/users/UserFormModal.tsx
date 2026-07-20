@@ -4,7 +4,7 @@
 import { useState, useEffect, useContext } from 'react';
 import { useConfig } from '@/contexts/ConfigContext';
 import { AppBarContext } from '@/contexts/AppBarContext';
-import { components, UserRole } from '@/api/v1/schema';
+import { components, UserAuthProvider, UserRole } from '@/api/v1/schema';
 import {
   defaultWorkspaceAccess,
   emptyWorkspaceAccess,
@@ -82,7 +82,9 @@ export function UserFormModal({
   const appBarContext = useContext(AppBarContext);
   const isEditing = !!user;
   const managedBySSO =
-    isEditing && user.authProvider === 'oidc' && oidcWorkspaceAccessSyncEnabled;
+    isEditing &&
+    user.authProvider === UserAuthProvider.oidc &&
+    oidcWorkspaceAccessSyncEnabled;
 
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -92,6 +94,7 @@ export function UserFormModal({
   );
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const effectiveRole = workspaceAccess.all ? role : UserRole.viewer;
 
   useEffect(() => {
     if (user) {
@@ -135,7 +138,6 @@ export function UserFormModal({
       const remoteNode = encodeURIComponent(
         appBarContext.selectedRemoteNode || 'local'
       );
-      const effectiveRole = workspaceAccess.all ? role : UserRole.viewer;
       const payload = managedBySSO
         ? { username }
         : { username, role: effectiveRole, workspaceAccess };
@@ -230,7 +232,7 @@ export function UserFormModal({
               </div>
             ) : (
               <Select
-                value={workspaceAccess.all ? role : UserRole.viewer}
+                value={effectiveRole}
                 onValueChange={setRole}
                 disabled={!workspaceAccess.all}
               >

@@ -1631,7 +1631,6 @@ var envBindings = []envBinding{
 	{key: "auth.oidc.role_mapping.default_role", env: "AUTH_OIDC_DEFAULT_ROLE"},
 	{key: "auth.oidc.role_mapping.groups_claim", env: "AUTH_OIDC_GROUPS_CLAIM"},
 	{key: "auth.oidc.role_mapping.group_mappings", env: "AUTH_OIDC_GROUP_MAPPINGS"},
-	{key: "auth.oidc.role_mapping.workspace_mappings", env: "AUTH_OIDC_WORKSPACE_MAPPINGS"},
 	{key: "auth.oidc.role_mapping.default_workspace_access", env: "AUTH_OIDC_DEFAULT_WORKSPACE_ACCESS"},
 	{key: "auth.oidc.role_mapping.role_attribute_path", env: "AUTH_OIDC_ROLE_ATTRIBUTE_PATH"},
 	{key: "auth.oidc.role_mapping.role_attribute_strict", env: "AUTH_OIDC_ROLE_ATTRIBUTE_STRICT"},
