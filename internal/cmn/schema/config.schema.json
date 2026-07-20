@@ -463,24 +463,19 @@
         },
         {
           "if": {
-            "required": ["enabled"],
+            "required": ["enabled", "role_mapping"],
             "properties": {
-              "enabled": {"const": true}
+              "enabled": {"const": true},
+              "role_mapping": {
+                "required": ["require_mapping"],
+                "properties": {
+                  "require_mapping": {"const": true}
+                }
+              }
             }
           },
           "then": {
             "anyOf": [
-              {
-                "required": ["role_mapping"],
-                "properties": {
-                  "role_mapping": {
-                    "required": ["require_mapping"],
-                    "properties": {
-                      "require_mapping": {"const": false}
-                    }
-                  }
-                }
-              },
               {
                 "required": ["role_mapping"],
                 "properties": {
@@ -629,7 +624,7 @@
         "require_mapping": {
           "type": "boolean",
           "description": "Deny login unless at least one group or workspace mapping matches.",
-          "default": true
+          "default": false
         },
         "skip_org_role_sync": {
           "type": "boolean",

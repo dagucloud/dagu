@@ -272,7 +272,7 @@ auth:
 `,
 		},
 		{
-			name: "ValidWithoutRequiredMapping",
+			name: "ValidWithDefaultMappingPolicy",
 			spec: `
 auth:
   mode: builtin
@@ -280,8 +280,6 @@ auth:
     enabled: true
     headers:
       user: X-Auth-Request-User
-    role_mapping:
-      require_mapping: false
 `,
 		},
 		{

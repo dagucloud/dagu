@@ -48,6 +48,7 @@ auth:
     roleMapping:
       defaultRole: viewer
       defaultWorkspaceAccess: none
+      # Optional strict mode: reject identities that match no mapping.
       requireMapping: true
       skipOrgRoleSync: false
       groupMappings:
@@ -80,6 +81,9 @@ DAGU_AUTH_PROXY_REQUIRE_MAPPING
 DAGU_AUTH_PROXY_SKIP_ORG_ROLE_SYNC
 ```
 
+`DAGU_AUTH_PROXY_REQUIRE_MAPPING` defaults to `false`. Set it to `true` only
+when identities without a matching global or workspace mapping must be denied.
+
 `DAGU_AUTH_PROXY_GROUP_MAPPINGS` and
 `DAGU_AUTH_PROXY_WORKSPACE_MAPPINGS` accept JSON objects matching the
 YAML mapping values. Invalid JSON or trailing input prevents server startup.
@@ -90,17 +94,17 @@ cannot be bypassed.
 When `skipOrgRoleSync` is false, each proxy login replaces the user's role and
 workspace access with the current mapping result. API edits remain possible but
 can be overwritten by the next login. When it is true, Dagu keeps the
-existing role and workspace access, including manual changes. `requireMapping`
-still checks the current proxy groups on every login, even when synchronization
-is skipped. New users always receive the current mapping when their account is
-created.
+existing role and workspace access, including manual changes. When
+`requireMapping` is true, it still checks the current proxy groups on every
+login, even when synchronization is skipped. New users always receive the
+current mapping when their account is created.
 
-With `requireMapping: false`, `defaultWorkspaceAccess: none` gives an unmatched
-user no named-workspace grants, but the user's global `viewer` role still
-permits viewing unlabelled DAGs and their logs. With `requireMapping: true`, a
-user with no matching global or workspace mapping is denied instead. The chart
-requires at least one mapping when proxy authentication and `requireMapping`
-are both enabled.
+With the default `requireMapping: false`, `defaultWorkspaceAccess: none` gives
+an unmatched user no named-workspace grants, but the user's global `viewer`
+role still permits viewing unlabelled DAGs and their logs. Only an explicit
+`requireMapping: true` denies a user with no matching global or workspace
+mapping. The chart requires at least one mapping when proxy authentication and
+`requireMapping` are both enabled.
 
 ## Proxy contract
 

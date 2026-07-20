@@ -1052,7 +1052,7 @@ func (l *ConfigLoader) setTrustedProxyDefaults(cfg *Config) {
 	trustedProxy.AutoSignup = true
 	trustedProxy.RoleMapping.DefaultRole = "viewer"
 	trustedProxy.RoleMapping.DefaultWorkspaceAccess = TrustedProxyDefaultWorkspaceAccessNone
-	trustedProxy.RoleMapping.RequireMapping = true
+	trustedProxy.RoleMapping.RequireMapping = false
 	trustedProxy.RoleMapping.SkipOrgRoleSync = false
 }
 

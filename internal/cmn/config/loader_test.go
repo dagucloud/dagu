@@ -227,7 +227,7 @@ func TestLoad_Env(t *testing.T) {
 					RoleMapping: TrustedProxyRoleMapping{
 						DefaultRole:            "viewer",
 						DefaultWorkspaceAccess: TrustedProxyDefaultWorkspaceAccessNone,
-						RequireMapping:         true,
+						RequireMapping:         false,
 						SkipOrgRoleSync:        false,
 					},
 				},
@@ -669,7 +669,7 @@ scheduler:
 					RoleMapping: TrustedProxyRoleMapping{
 						DefaultRole:            "viewer",
 						DefaultWorkspaceAccess: TrustedProxyDefaultWorkspaceAccessNone,
-						RequireMapping:         true,
+						RequireMapping:         false,
 						SkipOrgRoleSync:        false,
 					},
 				},

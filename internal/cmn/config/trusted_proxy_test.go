@@ -41,7 +41,7 @@ func validProxyConfig() *Config {
 func TestConfigValidateProxy(t *testing.T) {
 	t.Parallel()
 
-	t.Run("ValidWithoutRequiredMapping", func(t *testing.T) {
+	t.Run("ValidWithDefaultMappingPolicy", func(t *testing.T) {
 		t.Parallel()
 		require.NoError(t, validProxyConfig().Validate())
 	})
@@ -277,8 +277,21 @@ func TestLoadProxyDefaults(t *testing.T) {
 	require.True(t, cfg.Server.Auth.Proxy.AutoSignup)
 	require.Equal(t, "viewer", cfg.Server.Auth.Proxy.RoleMapping.DefaultRole)
 	require.Equal(t, TrustedProxyDefaultWorkspaceAccessNone, cfg.Server.Auth.Proxy.RoleMapping.DefaultWorkspaceAccess)
-	require.True(t, cfg.Server.Auth.Proxy.RoleMapping.RequireMapping)
+	require.False(t, cfg.Server.Auth.Proxy.RoleMapping.RequireMapping)
 	require.False(t, cfg.Server.Auth.Proxy.RoleMapping.SkipOrgRoleSync)
+}
+
+func TestLoadProxyDefaultMappingPolicyAllowsNoMappings(t *testing.T) {
+	cfg := loadFromYAML(t, `
+auth:
+  mode: builtin
+  proxy:
+    enabled: true
+    headers:
+      user: X-Auth-Request-User
+`)
+
+	require.False(t, cfg.Server.Auth.Proxy.RoleMapping.RequireMapping)
 }
 
 func TestLoadProxyFromYAML(t *testing.T) {
@@ -352,7 +365,7 @@ auth:
 		"DAGU_AUTH_PROXY_AUTO_SIGNUP":              "false",
 		"DAGU_AUTH_PROXY_DEFAULT_ROLE":             "developer",
 		"DAGU_AUTH_PROXY_DEFAULT_WORKSPACE_ACCESS": "none",
-		"DAGU_AUTH_PROXY_REQUIRE_MAPPING":          "false",
+		"DAGU_AUTH_PROXY_REQUIRE_MAPPING":          "true",
 		"DAGU_AUTH_PROXY_SKIP_ORG_ROLE_SYNC":       "true",
 		"DAGU_AUTH_PROXY_GROUP_MAPPINGS":           `{"Admins":"admin","admins":"viewer"}`,
 		"DAGU_AUTH_PROXY_WORKSPACE_MAPPINGS":       `{"Developers":[{"workspace":"payments","role":"developer"}],"developers":[{"workspace":"operations","role":"viewer"}]}`,
@@ -371,7 +384,7 @@ auth:
 		"developers": {{Workspace: "operations", Role: "viewer"}},
 	}, trustedProxy.RoleMapping.WorkspaceMappings)
 	require.Equal(t, TrustedProxyDefaultWorkspaceAccessNone, trustedProxy.RoleMapping.DefaultWorkspaceAccess)
-	require.False(t, trustedProxy.RoleMapping.RequireMapping)
+	require.True(t, trustedProxy.RoleMapping.RequireMapping)
 	require.True(t, trustedProxy.RoleMapping.SkipOrgRoleSync)
 }
 

@@ -108,8 +108,8 @@ auth:
     roleMapping:
       defaultRole: "viewer"
       defaultWorkspaceAccess: "none"
-      # When true, enabling proxy authentication requires at least one mapping.
-      requireMapping: true
+      # Set to true to deny login unless at least one mapping matches.
+      requireMapping: false
       # When true, preserve existing role and workspace access on subsequent logins.
       skipOrgRoleSync: false
       groupMappings: {}
