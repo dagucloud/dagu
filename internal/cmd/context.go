@@ -221,7 +221,8 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 		}
 	}
 	if scope == commandScopeLocalOnly && selectedContextName != clicontext.LocalContextName {
-		return nil, fmt.Errorf("command %q only supports the local context", cmd.Name())
+		commandPath := strings.TrimSpace(strings.TrimPrefix(cmd.CommandPath(), cmd.Root().Name()))
+		return nil, fmt.Errorf("command %q only supports the local context", commandPath)
 	}
 
 	// Create a logger context based on config and quiet mode

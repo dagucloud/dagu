@@ -1,0 +1,16 @@
+name: spec031_independent_branch
+working_dir: .
+steps:
+  - id: review
+    action: human.task
+    with:
+      prompt: Review the independent work
+
+  - id: independent
+    run: printf 'independent\n'
+    stdout: independent.txt
+
+  - id: after_review
+    depends: review
+    run: printf 'resumed\n'
+    stdout: resumed.txt

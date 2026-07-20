@@ -1,0 +1,33 @@
+name: spec031_typed_form
+working_dir: .
+steps:
+  - id: release_review
+    action: human.task
+    with:
+      prompt: Choose the release target
+      form:
+        type: object
+        title: Release review
+        description: Select the deployment settings.
+        properties:
+          environment:
+            type: string
+            title: Environment
+            enum: [staging, production]
+          replicas:
+            type: integer
+            minimum: 1
+            default: 2
+          notify:
+            type: boolean
+            default: true
+        required: [environment]
+
+  - id: record_release
+    depends: release_review
+    env:
+      TARGET: ${steps.release_review.outputs.environment}
+      REPLICAS: ${steps.release_review.outputs.replicas}
+      NOTIFY: ${steps.release_review.outputs.notify}
+    run: printf '%s,%s,%s\n' "$TARGET" "$REPLICAS" "$NOTIFY"
+    stdout: release.txt

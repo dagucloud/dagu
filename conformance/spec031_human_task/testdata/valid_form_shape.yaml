@@ -1,0 +1,17 @@
+steps:
+  - id: review
+    action: human.task
+    with:
+      prompt: Choose a target
+      form:
+        type: object
+        properties:
+          environment:
+            type: string
+            enum: [staging, production]
+          count:
+            type: integer
+            minimum: 1
+          notify:
+            type: boolean
+        required: [environment]

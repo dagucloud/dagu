@@ -2,11 +2,7 @@
 
 ## Status
 
-Not implemented.
-
-This spec can be marked `Implemented` only after Spec 008 is implemented and
-all local and distributed Spec 031 conformance tests pass. Skipped distributed
-tests do not establish conformance.
+Implemented.
 
 ## Scope
 
@@ -46,7 +42,6 @@ by that explicit step `id`.
 - Value resolution: [Spec 003: Value Resolution and Field Evaluation](003-value-resolution.md)
 - Environment values: [Spec 006: Value Resolution Env](006-value-resolution-env.md)
 - Step output references: [Spec 007: Value Resolution Steps](007-value-resolution-steps.md)
-- Scalar input fields: [Spec 008: Scalar Input Schema](008-scalar-input-schema.md)
 - Step identity: [Spec 009: Step Reference](009-step-reference.md)
 - Step outputs: [Spec 012: Step Outputs](012-step-outputs.md)
 - Preconditions: [Spec 023: Preconditions](023-preconditions.md)
@@ -181,7 +176,7 @@ When present, `with.form` is a flat object schema:
 | `type` | Yes | Must be `object`. |
 | `title` | No | String display metadata. |
 | `description` | No | String help metadata. |
-| `properties` | No | Map of property names to Spec 008 scalar-field schemas. Defaults to `{}`. |
+| `properties` | No | Map of scalar field schemas using the same shape as schema-backed DAG parameters. Defaults to `{}`. |
 | `required` | No | List of unique declared property names. Defaults to `[]`. |
 | `additionalProperties` | No | Whether undeclared input is accepted. Defaults to `false`. |
 
@@ -190,9 +185,14 @@ Rules:
 - A root field not listed in the table is invalid.
 - Property names must match `^[A-Za-z][A-Za-z0-9_]*$`.
 - Every `required` name must be declared in `properties`.
-- Nested declared objects and arrays are invalid because every declared
-  property uses Spec 008.
-- Defaults and declared values are validated according to Spec 008.
+- Declared properties use the same scalar field shape, validation, and
+  string-coercion behavior as schema-backed DAG parameters. Supported property
+  types are `string`, `integer`, `number`, and `boolean`; supported fields are
+  `type`, `title`, `description`, `default`, `enum`, `oneOf`, `minimum`,
+  `maximum`, `minLength`, `maxLength`, and `pattern`.
+- Nested declared objects and arrays are invalid.
+- Defaults and declared values are validated by the shared parameter-field
+  rules.
 - Defaults are applied before this form enforces `required`.
 - An omitted optional property without a default remains absent.
 - `additionalProperties: false` rejects every undeclared input property.
@@ -315,7 +315,7 @@ Rules:
 - The value is every character after the first `=`; additional `=` characters
   are preserved.
 - A property name cannot occur more than once.
-- Declared values use Spec 008 string coercion.
+- Declared values use the same string coercion as schema-backed DAG parameters.
 - Accepted undeclared values remain strings.
 
 ### `--inputs-json` Parsing
@@ -459,7 +459,7 @@ Validation must fail without executing a step when:
 - the form root has an unsupported field or a type other than `object`
 - `properties` is not an object
 - a property name is invalid
-- a property violates Spec 008
+- a property violates the shared scalar parameter-field rules
 - `required` is not a unique list of declared property names
 - `additionalProperties` is not a boolean
 - a human task appears in `foreach.steps` or a handler

@@ -1,0 +1,26 @@
+name: spec031_distributed_root
+worker_selector:
+  spec031: "true"
+working_dir: .
+steps:
+  - id: opened
+    run: printf '%s\n' "$SPEC031_WORKER_MARKER" > "$SPEC031_OPENED_FILE"
+
+  - id: review
+    depends: opened
+    action: human.task
+    with:
+      prompt: Select the distributed deployment environment
+      form:
+        type: object
+        properties:
+          environment:
+            type: string
+            enum: [staging, production]
+        required: [environment]
+
+  - id: deploy
+    depends: review
+    env:
+      ENVIRONMENT: ${steps.review.outputs.environment}
+    run: printf '%s,%s\n' "$ENVIRONMENT" "$SPEC031_WORKER_MARKER" > "$SPEC031_RESULT_FILE"

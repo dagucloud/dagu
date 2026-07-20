@@ -1,0 +1,5 @@
+steps:
+  - id: child_review
+    action: human.task
+    with:
+      prompt: Review the child run

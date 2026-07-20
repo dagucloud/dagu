@@ -1,0 +1,23 @@
+name: spec031_sequential_waiting
+working_dir: .
+steps:
+  - id: first_review
+    action: human.task
+    with:
+      prompt: Complete the first review
+
+  - id: between_reviews
+    depends: first_review
+    run: printf 'between\n'
+    stdout: between.txt
+
+  - id: second_review
+    depends: between_reviews
+    action: human.task
+    with:
+      prompt: Complete the second review
+
+  - id: finish
+    depends: second_review
+    run: printf 'finished\n'
+    stdout: finished.txt

@@ -49,6 +49,9 @@ func normalizeHumanTaskAction(normalized map[string]any, with map[string]any) er
 			return core.NewValidationError("with", with, fmt.Errorf("human.task does not support with.%s", name))
 		}
 	}
+	if form, exists := with["form"]; exists && form == nil {
+		return core.NewValidationError("with.form", nil, fmt.Errorf("with.form must be an object schema"))
+	}
 	prompt, ok := with["prompt"].(string)
 	if !ok || strings.TrimSpace(prompt) == "" {
 		return core.NewValidationError("with.prompt", with["prompt"], fmt.Errorf("with.prompt must be a non-empty string"))

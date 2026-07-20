@@ -1,0 +1,34 @@
+name: spec031_prompt_snapshot
+params:
+  - name: target
+    type: string
+    default: production
+env:
+  REVIEWER: operator
+working_dir: .
+steps:
+  - id: describe
+    run: printf 'subject=release\n' >> "$DAGU_OUTPUT_FILE"
+    outputs:
+      - name: subject
+
+  - id: review
+    depends: describe
+    action: human.task
+    with:
+      prompt: Review ${steps.describe.outputs.subject} for ${params.target} as ${REVIEWER} in ${DAG_RUN_ID}
+      form:
+        type: object
+        title: ${REVIEWER}
+        properties:
+          environment:
+            type: string
+            description: ${params.target}
+        required: [environment]
+
+  - id: record
+    depends: review
+    env:
+      ENVIRONMENT: ${steps.review.outputs.environment}
+    run: printf '%s\n' "$ENVIRONMENT"
+    stdout: snapshot.txt

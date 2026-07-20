@@ -1,0 +1,5 @@
+steps:
+  - id: acknowledge
+    action: human.task
+    with:
+      prompt: Confirm maintenance

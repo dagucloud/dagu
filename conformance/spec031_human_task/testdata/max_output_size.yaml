@@ -1,0 +1,13 @@
+name: spec031_max_output_size
+max_output_size: 16
+steps:
+  - id: size_review
+    action: human.task
+    with:
+      prompt: Enter a short value
+      form:
+        type: object
+        properties:
+          value:
+            type: string
+        required: [value]

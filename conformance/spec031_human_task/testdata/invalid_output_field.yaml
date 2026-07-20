@@ -1,0 +1,6 @@
+steps:
+  - id: review
+    action: human.task
+    outputs: []
+    with:
+      prompt: Review the release

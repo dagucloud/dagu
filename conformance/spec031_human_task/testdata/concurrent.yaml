@@ -1,0 +1,21 @@
+name: spec031_concurrent
+working_dir: .
+steps:
+  - id: choose
+    action: human.task
+    with:
+      prompt: Choose a release lane
+      form:
+        type: object
+        properties:
+          lane:
+            type: string
+            enum: [blue, green]
+        required: [lane]
+
+  - id: deploy
+    depends: choose
+    env:
+      LANE: ${steps.choose.outputs.lane}
+    run: printf '%s\n' "$LANE"
+    stdout: concurrent.txt

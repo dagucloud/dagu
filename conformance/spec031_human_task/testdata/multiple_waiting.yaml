@@ -1,0 +1,17 @@
+name: spec031_multiple_waiting
+working_dir: .
+steps:
+  - id: review_a
+    action: human.task
+    with:
+      prompt: Confirm A
+
+  - id: review_b
+    action: human.task
+    with:
+      prompt: Confirm B
+
+  - id: deploy
+    depends: [review_a, review_b]
+    run: printf 'deployed\n'
+    stdout: deployed.txt

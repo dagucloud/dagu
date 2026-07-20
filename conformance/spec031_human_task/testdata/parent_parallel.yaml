@@ -1,0 +1,16 @@
+steps:
+  - id: run_children
+    action: dag.run
+    with:
+      dag: spec031_child_human
+    parallel:
+      items: [one]
+
+---
+
+name: spec031_child_human
+steps:
+  - id: child_review
+    action: human.task
+    with:
+      prompt: Review the child run

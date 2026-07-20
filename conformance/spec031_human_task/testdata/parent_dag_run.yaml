@@ -1,0 +1,14 @@
+steps:
+  - id: run_child
+    action: dag.run
+    with:
+      dag: spec031_child_human
+
+---
+
+name: spec031_child_human
+steps:
+  - id: child_review
+    action: human.task
+    with:
+      prompt: Review the child run

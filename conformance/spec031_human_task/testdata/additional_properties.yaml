@@ -1,0 +1,21 @@
+name: spec031_additional_properties
+working_dir: .
+steps:
+  - id: collect
+    action: human.task
+    with:
+      prompt: Collect deployment data
+      form:
+        type: object
+        properties:
+          environment:
+            type: string
+        required: [environment]
+        additionalProperties: true
+
+  - id: record
+    depends: collect
+    env:
+      ENVIRONMENT: ${steps.collect.outputs.environment}
+    run: printf '%s\n' "$ENVIRONMENT"
+    stdout: additional.txt

@@ -558,7 +558,8 @@ func (h *Handler) releaseAdmissionToken(ctx context.Context, token string) {
 }
 
 func (h *Handler) finalizeAdmissionForStatus(ctx context.Context, status *exec.DAGRunStatus, attemptID string) {
-	if h.dispatchAdmissionStore == nil || status == nil || !isTerminalRunStatus(status.Status) {
+	if h.dispatchAdmissionStore == nil || status == nil ||
+		(status.Status != core.Waiting && !isTerminalRunStatus(status.Status)) {
 		return
 	}
 	attemptKey := exec.AttemptKeyForStatus(status, attemptID)

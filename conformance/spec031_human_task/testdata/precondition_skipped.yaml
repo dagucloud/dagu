@@ -1,0 +1,14 @@
+name: spec031_precondition_skipped
+working_dir: .
+steps:
+  - id: skipped_review
+    preconditions:
+      - condition: "false"
+    action: human.task
+    with:
+      prompt: This task must be skipped
+
+  - id: finish
+    depends: skipped_review
+    run: printf 'finished\n'
+    stdout: precondition.txt

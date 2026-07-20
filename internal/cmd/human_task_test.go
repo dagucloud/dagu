@@ -88,7 +88,14 @@ func TestParseHumanTaskCompletionInput(t *testing.T) {
 			configure: func(command *cobra.Command) {
 				require.NoError(t, command.Flags().Set(humanTaskFlagInputsJSON, `{"choice":`))
 			},
-			contains: "invalid --inputs-json value",
+			contains: "invalid --inputs-json JSON value",
+		},
+		{
+			name: "NestedDuplicateJSONMember",
+			configure: func(command *cobra.Command) {
+				require.NoError(t, command.Flags().Set(humanTaskFlagInputsJSON, `{"nested":{"choice":"a","choice":"b"}}`))
+			},
+			contains: `duplicate JSON member "choice"`,
 		},
 		{
 			name: "TrailingJSON",
@@ -170,7 +177,7 @@ func TestRunHumanTaskCompleteIsIdempotentForSameCanonicalInput(t *testing.T) {
 		},
 	))
 	require.NoError(t, err)
-	assert.Zero(t, fixture.store.compareAndSwapCalls)
+	assert.Equal(t, 1, fixture.store.compareAndSwapCalls)
 	assert.Equal(t, 1, launchCalls)
 	assert.Contains(t, fixture.output.String(), "already completed")
 	assert.Contains(t, fixture.output.String(), "resume requested")
@@ -204,8 +211,8 @@ func TestRunHumanTaskCompleteConcurrentSameInputDoesNotWriteAgain(t *testing.T) 
 		},
 	))
 	require.NoError(t, err)
-	assert.Equal(t, 1, fixture.store.compareAndSwapCalls)
-	assert.Zero(t, fixture.store.writes)
+	assert.Equal(t, 2, fixture.store.compareAndSwapCalls)
+	assert.Equal(t, 1, fixture.store.writes)
 	assert.Equal(t, 1, launchCalls)
 	assert.Contains(t, fixture.output.String(), "already completed")
 }
@@ -266,16 +273,17 @@ func TestHumanTaskRetryPreservesExplicitPaths(t *testing.T) {
 func TestWaitForHumanTaskCompletionReadyWaitsForAttemptToSettle(t *testing.T) {
 	dag := &core.DAG{Name: "human-task-test"}
 	status := &exec.DAGRunStatus{
-		Name:      dag.Name,
-		DAGRunID:  "run-1",
-		AttemptID: "attempt-1",
-		Status:    core.Waiting,
+		Name:       dag.Name,
+		DAGRunID:   "run-1",
+		AttemptID:  "attempt-1",
+		Status:     core.Waiting,
+		FinishedAt: "2026-07-20T01:00:00Z",
 	}
 	attempt := &humanTaskCompletionAttempt{dag: dag, status: status}
 	procStore := &humanTaskCompletionProcStore{alive: []bool{true, false}}
 	ctx := &Context{Context: t.Context(), ProcStore: procStore}
 
-	latest, err := waitForHumanTaskCompletionReady(ctx, attempt, dag, status)
+	latest, err := waitForHumanTaskCompletionReady(ctx, attempt, dag, status, "review")
 	require.NoError(t, err)
 	assert.Same(t, status, latest)
 	assert.Equal(t, 2, procStore.calls)
@@ -299,7 +307,7 @@ func TestWaitForHumanTaskCompletionReadyWaitsForRemoteFinalStatus(t *testing.T) 
 	attempt := &humanTaskStatusSequenceAttempt{statuses: []*exec.DAGRunStatus{&finalStatus}}
 	ctx := &Context{Context: t.Context()}
 
-	latest, err := waitForHumanTaskCompletionReady(ctx, attempt, dag, status)
+	latest, err := waitForHumanTaskCompletionReady(ctx, attempt, dag, status, "review")
 	require.NoError(t, err)
 	assert.Equal(t, finalStatus.FinishedAt, latest.FinishedAt)
 	assert.Equal(t, 1, attempt.calls)
@@ -358,6 +366,7 @@ func newHumanTaskCompleteFixture(t *testing.T, form json.RawMessage, anotherWait
 		AttemptID:  "attempt-1",
 		AttemptKey: "attempt-key-1",
 		Status:     core.Waiting,
+		FinishedAt: "2026-07-20T01:00:00Z",
 		Nodes: []*exec.Node{{
 			Step:   step,
 			Status: core.NodeWaiting,

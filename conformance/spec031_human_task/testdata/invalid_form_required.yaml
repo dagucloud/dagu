@@ -1,0 +1,11 @@
+steps:
+  - id: review
+    action: human.task
+    with:
+      prompt: Review the release
+      form:
+        type: object
+        properties:
+          environment:
+            type: string
+        required: [region, region]

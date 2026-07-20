@@ -6,11 +6,14 @@ package harness
 import (
 	"bytes"
 	"context"
+	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -29,6 +32,32 @@ type Result struct {
 	exitCode int
 	stdout   string
 	stderr   string
+}
+
+// Process is a running Dagu command.
+type Process struct {
+	t          *testing.T
+	cancel     context.CancelFunc
+	done       chan struct{}
+	stdout     *bytes.Buffer
+	stderr     *bytes.Buffer
+	err        error
+	cancelOnce sync.Once
+}
+
+// ExitCode returns the command's process exit code.
+func (r *Result) ExitCode() int {
+	return r.exitCode
+}
+
+// Stdout returns the command's standard output.
+func (r *Result) Stdout() string {
+	return r.stdout
+}
+
+// Stderr returns the command's standard error.
+func (r *Result) Stderr() string {
+	return r.stderr
 }
 
 const defaultCommandTimeout = 30 * time.Second
@@ -64,6 +93,79 @@ func (r *Runner) Run(args ...string) *Result {
 func (r *Runner) RunWithEnv(env []string, args ...string) *Result {
 	r.t.Helper()
 	return r.run(env, args...)
+}
+
+// StartWithEnv starts the configured Dagu binary and returns without waiting.
+func (r *Runner) StartWithEnv(env []string, args ...string) *Process {
+	r.t.Helper()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	// Binary-level tests intentionally execute the configured Dagu binary.
+	cmd := exec.CommandContext(ctx, daguBinary(r.t), args...) //nolint:gosec
+	cmd.Dir = r.dir
+	cmd.Env = appendEnv(append(isolatedEnv(r.t), "PWD="+r.dir), env...)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	if err := cmd.Start(); err != nil {
+		cancel()
+		r.t.Fatalf("starting dagu %s: %v", strings.Join(args, " "), err)
+	}
+
+	process := &Process{
+		t:      r.t,
+		cancel: cancel,
+		done:   make(chan struct{}),
+		stdout: stdout,
+		stderr: stderr,
+	}
+	go func() {
+		process.err = cmd.Wait()
+		close(process.done)
+	}()
+	r.t.Cleanup(func() {
+		process.Stop()
+	})
+	return process
+}
+
+// FreePort reserves and releases a loopback TCP port for a test service.
+func FreePort(t *testing.T) int {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("reserving TCP port: %v", err)
+	}
+	defer func() {
+		if err := listener.Close(); err != nil {
+			t.Fatalf("releasing TCP port: %v", err)
+		}
+	}()
+	return listener.Addr().(*net.TCPAddr).Port
+}
+
+// Done is closed after the command exits.
+func (p *Process) Done() <-chan struct{} {
+	return p.done
+}
+
+// Stop terminates the command and waits for it to exit.
+func (p *Process) Stop() {
+	p.t.Helper()
+	p.cancelOnce.Do(p.cancel)
+	<-p.done
+}
+
+// FailureOutput returns captured output after the command exits.
+func (p *Process) FailureOutput() string {
+	p.t.Helper()
+	select {
+	case <-p.done:
+		return fmt.Sprintf("error: %v\nstdout:\n%s\nstderr:\n%s", p.err, p.stdout.String(), p.stderr.String())
+	default:
+		return "process is still running"
+	}
 }
 
 func (r *Runner) run(extraEnv []string, args ...string) *Result {

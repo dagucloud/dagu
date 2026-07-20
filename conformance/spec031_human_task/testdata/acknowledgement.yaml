@@ -1,0 +1,12 @@
+name: spec031_acknowledgement
+working_dir: .
+steps:
+  - id: maintenance_started
+    action: human.task
+    with:
+      prompt: Confirm that maintenance has started
+
+  - id: continue_maintenance
+    depends: maintenance_started
+    run: printf 'continued\n'
+    stdout: continued.txt

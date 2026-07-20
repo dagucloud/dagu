@@ -1,0 +1,9 @@
+handler_on:
+  failure:
+    id: review_failure
+    action: human.task
+    with:
+      prompt: Review the failure
+steps:
+  - id: fail
+    run: "false"
