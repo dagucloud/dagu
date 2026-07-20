@@ -427,7 +427,10 @@
         "workspace": {
           "type": "string",
           "description": "Workspace name.",
-          "pattern": "^[A-Za-z0-9_-]+$"
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "not": {
+            "pattern": "^([Aa][Ll][Ll]|[Dd][Ee][Ff][Aa][Uu][Ll][Tt]|[Gg][Ll][Oo][Bb][Aa][Ll])$"
+          }
         },
         "role": {
           "type": "string",

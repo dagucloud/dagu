@@ -186,6 +186,48 @@ auth:
 			wantErr: true,
 		},
 		{
+			name: "ReservedWorkspaceAll",
+			spec: `
+auth:
+  oidc:
+    role_mapping:
+      workspace_mappings:
+        sre-team:
+          - workspace: all
+            role: viewer
+      default_workspace_access: none
+`,
+			wantErr: true,
+		},
+		{
+			name: "ReservedWorkspaceDefaultMixedCase",
+			spec: `
+auth:
+  oidc:
+    role_mapping:
+      workspace_mappings:
+        sre-team:
+          - workspace: DeFaUlT
+            role: viewer
+      default_workspace_access: none
+`,
+			wantErr: true,
+		},
+		{
+			name: "ReservedWorkspaceGlobal",
+			spec: `
+auth:
+  oidc:
+    role_mapping:
+      workspace_mappings:
+        sre-team:
+          - workspace: global
+            role: viewer
+      default_workspace_access: none
+`,
+			wantErr: true,
+		},
+		{
 			name: "InvalidDefault",
 			spec: `
 auth:
