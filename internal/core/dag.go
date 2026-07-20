@@ -412,26 +412,13 @@ func (d *DAG) HasApprovalSteps() bool {
 	return false
 }
 
-// HasHumanTaskSteps returns true if the DAG contains a processless human task.
+// HasHumanTaskSteps reports whether the DAG directly contains a human task.
 func (d *DAG) HasHumanTaskSteps() bool {
-	return d.hasHumanTaskSteps(make(map[*DAG]struct{}))
-}
-
-func (d *DAG) hasHumanTaskSteps(visited map[*DAG]struct{}) bool {
 	if d == nil {
 		return false
 	}
-	if _, ok := visited[d]; ok {
-		return false
-	}
-	visited[d] = struct{}{}
 	for _, step := range d.Steps {
 		if step.HumanTask != nil {
-			return true
-		}
-	}
-	for _, localDAG := range d.LocalDAGs {
-		if localDAG.hasHumanTaskSteps(visited) {
 			return true
 		}
 	}

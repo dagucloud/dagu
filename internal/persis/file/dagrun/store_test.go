@@ -560,22 +560,6 @@ func TestJSONDB(t *testing.T) {
 		require.NoError(t, subAttempt.Write(th.Context, statusToWrite))
 		require.NoError(t, subAttempt.Close(th.Context))
 
-		unchanged, swapped, err := th.Store.CompareAndSwapLatestAttemptStatus(
-			th.Context,
-			subRef,
-			subAttempt.ID(),
-			core.Running,
-			func(status *exec.DAGRunStatus) error {
-				status.Status = core.Failed
-				return nil
-			},
-			exec.WithCompareAndSwapRootDAGRun(rootRef),
-			exec.WithCompareAndSwapExpectedRootStatus(core.Waiting),
-		)
-		require.NoError(t, err)
-		require.False(t, swapped)
-		require.Equal(t, core.Running, unchanged.Status)
-
 		updated, swapped, err := th.Store.CompareAndSwapLatestAttemptStatus(
 			th.Context,
 			subRef,
@@ -589,7 +573,6 @@ func TestJSONDB(t *testing.T) {
 			},
 			exec.WithCompareAndSwapRootDAGRun(rootRef),
 			exec.WithCompareAndSwapExpectedAttemptKey(statusToWrite.AttemptKey),
-			exec.WithCompareAndSwapExpectedRootStatus(core.Running),
 		)
 		require.NoError(t, err)
 		require.True(t, swapped)
@@ -602,7 +585,6 @@ func TestJSONDB(t *testing.T) {
 		require.Equal(t, core.Failed, foundStatus.Status)
 		require.Equal(t, "lease expired", foundStatus.Error)
 		require.Equal(t, core.NodeFailed, foundStatus.Nodes[0].Status)
-
 	})
 	t.Run("CreateSubAttemptEmptyRootID", func(t *testing.T) {
 		th := setupTestStore(t)

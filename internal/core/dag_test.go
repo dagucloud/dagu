@@ -1056,7 +1056,7 @@ func TestDAGHasHumanTaskSteps(t *testing.T) {
 		Name:      "review",
 		HumanTask: &core.HumanTaskConfig{Prompt: "Review"},
 	}}}).HasHumanTaskSteps())
-	assert.True(t, (&core.DAG{LocalDAGs: map[string]*core.DAG{
+	assert.False(t, (&core.DAG{LocalDAGs: map[string]*core.DAG{
 		"child": {Steps: []core.Step{{HumanTask: &core.HumanTaskConfig{Prompt: "Review"}}}},
 	}}).HasHumanTaskSteps())
 }

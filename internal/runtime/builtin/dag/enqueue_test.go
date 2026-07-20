@@ -84,6 +84,64 @@ func TestEnqueueExecutorPersistsInheritedProfile(t *testing.T) {
 	assert.True(t, status.Parent.Zero())
 }
 
+func TestSubDAGExecutorsRejectHumanTasks(t *testing.T) {
+	t.Parallel()
+
+	th := test.Setup(t)
+	parent := &core.DAG{
+		Name: "parent",
+		LocalDAGs: map[string]*core.DAG{
+			"child": {
+				Name: "child",
+				Steps: []core.Step{{
+					ID:        "review",
+					Name:      "review",
+					HumanTask: &core.HumanTaskConfig{Prompt: "Review"},
+				}},
+			},
+		},
+	}
+	root := exec.NewDAGRunRef(parent.Name, "parent-run")
+	ctx := runtime.NewContext(
+		th.Context,
+		parent,
+		root.ID,
+		"",
+		runtime.WithRootDAGRun(root),
+		runtime.WithDAGRunStore(th.DAGRunStore),
+		runtime.WithQueueStore(th.QueueStore),
+	)
+
+	for _, step := range []core.Step{
+		{
+			Name:           "run-child",
+			ExecutorConfig: core.ExecutorConfig{Type: core.ExecutorTypeDAG},
+			SubDAG:         &core.SubDAG{Name: "child"},
+		},
+		{
+			Name:           "run-child-in-parallel",
+			ExecutorConfig: core.ExecutorConfig{Type: core.ExecutorTypeDAG},
+			SubDAG:         &core.SubDAG{Name: "child"},
+			Parallel:       &core.ParallelConfig{Items: []core.ParallelItem{{Value: "one"}}},
+		},
+	} {
+		_, err := executor.NewExecutor(ctx, step)
+		require.ErrorContains(t, err, "human task steps are not allowed in sub-DAGs")
+	}
+
+	enqueueStep := core.Step{
+		Name:           "enqueue-child",
+		ExecutorConfig: core.ExecutorConfig{Type: core.ExecutorTypeDAGEnqueue},
+		SubDAG:         &core.SubDAG{Name: "child"},
+	}
+	enqueueExecutor, err := executor.NewExecutor(ctx, enqueueStep)
+	require.NoError(t, err)
+	dagExecutor := enqueueExecutor.(executor.DAGExecutor)
+	dagExecutor.SetParams(executor.RunParams{RunID: "child-run"})
+	err = enqueueExecutor.Run(ctx)
+	require.ErrorContains(t, err, "human task steps are not allowed in sub-DAGs")
+}
+
 func TestEnqueueExecutorParallelHonorsMaxConcurrent(t *testing.T) {
 	t.Parallel()
 

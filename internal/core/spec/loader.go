@@ -11,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"slices"
 	"strings"
 
 	"dario.cat/mergo"
@@ -417,16 +416,6 @@ func attachLocalDAGs(mainDAG *core.DAG, localDAGs []*core.DAG) error {
 		}
 		mainDAG.LocalDAGs[dag.Name] = dag
 	}
-	if mainDAG.HasHumanTaskSteps() {
-		mainDAG.ForceLocal = true
-		if len(mainDAG.WorkerSelector) > 0 {
-			return core.NewValidationError(
-				"worker_selector",
-				mainDAG.WorkerSelector,
-				fmt.Errorf("DAG with human task steps cannot be dispatched to workers"),
-			)
-		}
-	}
 	return nil
 }
 
@@ -513,48 +502,10 @@ func loadDAGsFromData(ctx BuildContext, data []byte, filePath string, baseDef *d
 		}
 		dags = append(dags, dag)
 	}
-	if ctx.opts.Has(BuildFlagOnlyMetadata) && len(dags) > 0 {
-		for _, doc := range docs {
-			if rawStepsContainHumanTask(doc.data["steps"]) {
-				dags[0].ForceLocal = true
-				break
-			}
-		}
-	}
-
 	if err := validateUniqueNames(dags); err != nil {
 		return nil, err
 	}
 	return dags, nil
-}
-
-func rawStepsContainHumanTask(value any) bool {
-	switch steps := value.(type) {
-	case []any:
-		if slices.ContainsFunc(steps, rawStepContainsHumanTask) {
-			return true
-		}
-	case map[string]any:
-		for _, step := range steps {
-			if rawStepContainsHumanTask(step) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func rawStepContainsHumanTask(value any) bool {
-	switch step := value.(type) {
-	case map[string]any:
-		action, ok := step["action"].(string)
-		return ok && strings.TrimSpace(action) == "human.task"
-	case []any:
-		if slices.ContainsFunc(step, rawStepContainsHumanTask) {
-			return true
-		}
-	}
-	return false
 }
 
 // decodeDocuments splits a YAML stream into non-empty manifest documents.

@@ -20,7 +20,7 @@ Load only the reference file that matches the task.
 - Prefer string-form `output: VAR_NAME` for capturing small stdout values into flat variables.
 - Prefer object-form `output:` when downstream steps need structured values via `${step_id.output.*}`.
 - Prefer declared step `outputs:` with `$DAGU_OUTPUT_FILE` when a step must publish explicit values for `${steps.<step_id>.outputs.<name>}`.
-- Use `action: human.task` when a local operator must provide typed input before downstream steps continue. Human task form outputs use `${steps.<step_id>.outputs.<name>}` without an authored `outputs:` field.
+- Use `action: human.task` when an operator must provide typed input before downstream steps continue. Human task form outputs use `${steps.<step_id>.outputs.<name>}` without an authored `outputs:` field.
 - Prefer `stdout.outputs` or `action: outputs.write` when a DAG or remote action needs to return caller-visible values via `${step_id.outputs.*}`.
 - Prefer `state.*` actions for small persistent JSON state across DAG runs, such as cursors, checkpoints, and previous-value comparisons.
 - Prefer temporary files in the artifacts dir only when downstream steps need file paths; otherwise let commands write large artifact content to stdout and attach it with `stdout.artifact`.
@@ -35,7 +35,7 @@ Load only the reference file that matches the task.
   - string form captures trimmed stdout into an env-scope variable such as `${env.VERSION}`
   - object form publishes structured step-scoped output for `${step_id.output.*}` access
 - Declared step `outputs:` publish explicit values through `${steps.<step_id>.outputs.<name>}`. Write values inside the running step to `$DAGU_OUTPUT_FILE`; Dagu captures them only after the command succeeds.
-- `human.task` is a processless local step with an explicit `id`, a required `with.prompt`, and an optional flat scalar form. Every declared form property is a step output, published when submitted or defaulted, and available as `${steps.<step_id>.outputs.<name>}`.
+- `human.task` is a processless root-DAG step with an explicit `id`, a required `with.prompt`, and an optional flat scalar form. A root DAG containing one can run locally or on a distributed worker. Every declared form property is a step output, published when submitted or defaulted, and available as `${steps.<step_id>.outputs.<name>}`.
 - `stdout.artifact` / `stderr.artifact` store command stdout/stderr directly as relative artifact paths, for example `stdout: {artifact: reports/report.md}`. Artifact outputs auto-enable artifacts unless `artifacts.enabled: false` is explicitly set, which is invalid.
 - `${step_id.stdout}` is a log file path, not stdout content.
 - Use `${context.*}` for run metadata in DAG YAML, for example `${context.dag.name}`, `${context.run.id}`, or `${context.paths.artifacts_dir}`. Unavailable context values remain unresolved text instead of becoming empty strings.
@@ -191,7 +191,7 @@ steps:
     run: ./deploy --environment '${steps.review.outputs.environment}' --note '${steps.review.outputs.note}'
 ```
 
-Complete the task from the local context with `dagu human-task complete --run-id=<run-id> --step=review --input environment=production <dag-name>`. A form is optional for acknowledgement-only tasks.
+Complete the task from a local CLI context with `dagu human-task complete --run-id=<run-id> --step=review --input environment=production <dag-name>`. A form is optional for acknowledgement-only tasks. Human tasks cannot be used in sub-DAGs; a distributed root run is re-queued through the scheduler after completion.
 
 ## Reference Guide
 

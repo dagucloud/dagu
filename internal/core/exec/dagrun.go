@@ -289,7 +289,6 @@ func (e DAGRunRef) Zero() bool {
 type CompareAndSwapStatusOptions struct {
 	RootDAGRun         DAGRunRef
 	ExpectedAttemptKey string
-	ExpectedRootStatus *core.Status
 }
 
 // CompareAndSwapStatusOption configures CompareAndSwapLatestAttemptStatus.
@@ -308,14 +307,6 @@ func WithCompareAndSwapRootDAGRun(root DAGRunRef) CompareAndSwapStatusOption {
 func WithCompareAndSwapExpectedAttemptKey(attemptKey string) CompareAndSwapStatusOption {
 	return func(opts *CompareAndSwapStatusOptions) {
 		opts.ExpectedAttemptKey = attemptKey
-	}
-}
-
-// WithCompareAndSwapExpectedRootStatus requires the root dag-run to have the
-// supplied status while a nested attempt is updated.
-func WithCompareAndSwapExpectedRootStatus(status core.Status) CompareAndSwapStatusOption {
-	return func(opts *CompareAndSwapStatusOptions) {
-		opts.ExpectedRootStatus = &status
 	}
 }
 

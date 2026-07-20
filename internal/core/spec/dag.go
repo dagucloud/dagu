@@ -779,9 +779,6 @@ func (s *dagBuildState) buildActionGraph() {
 
 func (s *dagBuildState) validateResult() {
 	if !s.ctx.opts.Has(BuildFlagOnlyMetadata) {
-		if s.result.HasHumanTaskSteps() {
-			s.result.ForceLocal = true
-		}
 		if err := core.ValidateSteps(s.result); err != nil {
 			s.errs = append(s.errs, err)
 		}
@@ -791,13 +788,6 @@ func (s *dagBuildState) validateResult() {
 				"worker_selector",
 				s.result.WorkerSelector,
 				fmt.Errorf("DAG with approval steps cannot be dispatched to workers"),
-			))
-		}
-		if len(s.result.WorkerSelector) > 0 && s.result.HasHumanTaskSteps() {
-			s.errs = append(s.errs, core.NewValidationError(
-				"worker_selector",
-				s.result.WorkerSelector,
-				fmt.Errorf("DAG with human task steps cannot be dispatched to workers"),
 			))
 		}
 	}

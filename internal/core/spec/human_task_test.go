@@ -48,7 +48,7 @@ steps:
 `))
 	require.NoError(t, err)
 	require.Len(t, dag.Steps, 2)
-	assert.True(t, dag.ForceLocal)
+	assert.False(t, dag.ForceLocal)
 
 	step := dag.Steps[0]
 	require.NotNil(t, step.HumanTask)
@@ -68,7 +68,7 @@ steps:
 	assert.Equal(t, false, form["additionalProperties"])
 }
 
-func TestHumanTaskInLocalDAGForcesParentLocal(t *testing.T) {
+func TestHumanTaskInLocalDAGDoesNotForceParentLocal(t *testing.T) {
 	t.Parallel()
 
 	dag, err := LoadYAML(context.Background(), []byte(`
@@ -87,12 +87,12 @@ steps:
       prompt: Review
 `))
 	require.NoError(t, err)
-	assert.True(t, dag.ForceLocal)
+	assert.False(t, dag.ForceLocal)
 	require.Contains(t, dag.LocalDAGs, "child")
-	assert.True(t, dag.LocalDAGs["child"].ForceLocal)
+	assert.False(t, dag.LocalDAGs["child"].ForceLocal)
 }
 
-func TestHumanTaskMetadataForcesScheduledDAGLocal(t *testing.T) {
+func TestHumanTaskMetadataUsesNormalExecutionRouting(t *testing.T) {
 	t.Parallel()
 
 	tests := map[string]string{
@@ -136,9 +136,26 @@ steps:
 				SkipSchemaValidation(),
 			)
 			require.NoError(t, err)
-			assert.True(t, dag.ForceLocal)
+			assert.False(t, dag.ForceLocal)
 		})
 	}
+}
+
+func TestHumanTaskAllowsDAGWorkerSelector(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+worker_selector:
+  region: remote
+steps:
+  - id: review
+    action: human.task
+    with:
+      prompt: Review
+`))
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"region": "remote"}, dag.WorkerSelector)
+	assert.False(t, dag.ForceLocal)
 }
 
 func TestHumanTaskAllowsAcknowledgementWithoutForm(t *testing.T) {
@@ -334,19 +351,6 @@ steps:
         required: [missing]
 `,
 			message: "is not declared",
-		},
-		{
-			name: "DAGWorkerSelector",
-			yaml: `
-worker_selector:
-  region: remote
-steps:
-  - id: review
-    action: human.task
-    with:
-      prompt: Review
-`,
-			message: "cannot be dispatched to workers",
 		},
 		{
 			name: "LifecycleHandler",

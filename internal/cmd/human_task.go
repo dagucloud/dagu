@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
@@ -38,11 +37,6 @@ var (
 		shorthand: "r",
 		usage:     "DAG-run ID containing the human task",
 		required:  true,
-	}
-	humanTaskSubRunIDFlag = commandLineFlag{
-		name:      "sub-run-id",
-		shorthand: "s",
-		usage:     "Sub DAG-run ID containing the human task",
 	}
 	humanTaskStepFlag = commandLineFlag{
 		name:     "step",
@@ -74,7 +68,6 @@ func humanTaskCompleteCommand() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 	}, []commandLineFlag{
 		humanTaskRunIDFlag,
-		humanTaskSubRunIDFlag,
 		humanTaskStepFlag,
 		humanTaskInputsJSONFlag,
 	}, runHumanTaskComplete)
@@ -90,13 +83,13 @@ type humanTaskCompletionInput struct {
 
 type humanTaskCompleteDeps struct {
 	now    func() time.Time
-	launch func(*Context, *core.DAG, *exec.DAGRunStatus, exec.DAGRunRef, exec.DAGRunRef) error
+	resume func(*Context, *core.DAG, *exec.DAGRunStatus) error
 }
 
 func defaultHumanTaskCompleteDeps() humanTaskCompleteDeps {
 	return humanTaskCompleteDeps{
 		now:    time.Now,
-		launch: launchHumanTaskRetry,
+		resume: resumeHumanTaskRun,
 	}
 }
 
@@ -128,44 +121,43 @@ func runHumanTaskCompleteWith(ctx *Context, args []string, deps humanTaskComplet
 	if err != nil {
 		return err
 	}
-	if result.alreadyCompleted {
-		return reportHumanTaskAlreadyCompleted(
-			ctx,
-			target.dag.Name,
-			result.status,
-			request.stepID,
-			target.rootRef,
-			target.owningRef,
-		)
-	}
 	if hasWaitingNodes(result.status.Nodes) {
+		if result.alreadyCompleted {
+			_, err := fmt.Fprintf(ctx.Command.OutOrStdout(), "Human task %s was already completed.\n", request.stepID)
+			return err
+		}
 		_, err := fmt.Fprintf(ctx.Command.OutOrStdout(), "Completed human task %s; DAG-run remains waiting.\n", request.stepID)
 		return err
 	}
-	if err := deps.launch(ctx, target.dag, result.status, target.rootRef, target.owningRef); err != nil {
+	if result.status.Status != core.Waiting {
+		_, err := fmt.Fprintf(ctx.Command.OutOrStdout(), "Human task %s was already completed.\n", request.stepID)
+		return err
+	}
+	if err := deps.resume(ctx, target.dag, result.status); err != nil {
 		return fmt.Errorf(
-			"human task %q was completed, but the DAG-run could not be resumed: %w; resume it with `%s`",
+			"human task %q was completed, but the DAG-run could not be resumed: %w; run the same completion command again to retry",
 			request.stepID,
 			err,
-			humanTaskRetryCommand(ctx, target.dag.Name, target.rootRef, target.owningRef),
 		)
 	}
-	_, err = fmt.Fprintf(ctx.Command.OutOrStdout(), "Completed human task %s; DAG-run resume started.\n", request.stepID)
+	message := fmt.Sprintf("Completed human task %s", request.stepID)
+	if result.alreadyCompleted {
+		message = fmt.Sprintf("Human task %s was already completed", request.stepID)
+	}
+	_, err = fmt.Fprintf(ctx.Command.OutOrStdout(), "%s; DAG-run resume requested.\n", message)
 	return err
 }
 
 type humanTaskCompletionRequest struct {
 	dagRunID string
-	subRunID string
 	stepID   string
 }
 
 type humanTaskCompletionTarget struct {
-	dag       *core.DAG
-	status    *exec.DAGRunStatus
-	rootRef   exec.DAGRunRef
-	owningRef exec.DAGRunRef
-	request   humanTaskCompletionRequest
+	dag     *core.DAG
+	status  *exec.DAGRunStatus
+	ref     exec.DAGRunRef
+	request humanTaskCompletionRequest
 }
 
 type humanTaskCompletionResult struct {
@@ -175,10 +167,6 @@ type humanTaskCompletionResult struct {
 
 func parseHumanTaskCompletionRequest(ctx *Context) (humanTaskCompletionRequest, error) {
 	dagRunID, err := ctx.StringParam(humanTaskRunIDFlag.name)
-	if err != nil {
-		return humanTaskCompletionRequest{}, err
-	}
-	subRunID, err := ctx.StringParam(humanTaskSubRunIDFlag.name)
 	if err != nil {
 		return humanTaskCompletionRequest{}, err
 	}
@@ -192,7 +180,6 @@ func parseHumanTaskCompletionRequest(ctx *Context) (humanTaskCompletionRequest, 
 	}
 	return humanTaskCompletionRequest{
 		dagRunID: dagRunID,
-		subRunID: subRunID,
 		stepID:   stepID,
 	}, nil
 }
@@ -206,8 +193,8 @@ func loadHumanTaskCompletionTarget(
 	if err != nil {
 		return nil, fmt.Errorf("failed to extract DAG name: %w", err)
 	}
-	rootRef := exec.NewDAGRunRef(dagName, request.dagRunID)
-	attempt, err := extractAttemptForStatus(ctx, dagName, request.dagRunID, request.subRunID)
+	ref := exec.NewDAGRunRef(dagName, request.dagRunID)
+	attempt, err := ctx.DAGRunStore.FindAttempt(ctx, ref)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find DAG-run: %w", err)
 	}
@@ -230,16 +217,18 @@ func loadHumanTaskCompletionTarget(
 		return nil, err
 	}
 
-	owningRef := exec.NewDAGRunRef(status.Name, status.DAGRunID)
-	if owningRef.Name == "" || owningRef.ID == "" {
+	storedRef := status.DAGRun()
+	if storedRef.Zero() {
 		return nil, fmt.Errorf("stored DAG-run identity is incomplete")
 	}
+	if storedRef != ref {
+		return nil, fmt.Errorf("stored DAG-run identity %s does not match requested DAG-run %s", storedRef, ref)
+	}
 	return &humanTaskCompletionTarget{
-		dag:       dag,
-		status:    status,
-		rootRef:   rootRef,
-		owningRef: owningRef,
-		request:   request,
+		dag:     dag,
+		status:  status,
+		ref:     ref,
+		request: request,
 	}, nil
 }
 
@@ -265,21 +254,14 @@ func completeHumanTaskStatus(
 		return &humanTaskCompletionResult{status: target.status, alreadyCompleted: true}, nil
 	}
 	if target.status.Status != core.Waiting {
-		return nil, fmt.Errorf("DAG-run %s is not waiting (status: %s)", target.owningRef, target.status.Status)
+		return nil, fmt.Errorf("DAG-run %s is not waiting (status: %s)", target.ref, target.status.Status)
 	}
 
 	completedAt := deps.now().UTC().Format(time.RFC3339)
 	var concurrentlyCompletedStatus *exec.DAGRunStatus
-	casOptions := []exec.CompareAndSwapStatusOption{
-		exec.WithCompareAndSwapRootDAGRun(target.rootRef),
-		exec.WithCompareAndSwapExpectedAttemptKey(target.status.AttemptKey),
-	}
-	if target.request.subRunID != "" {
-		casOptions = append(casOptions, exec.WithCompareAndSwapExpectedRootStatus(core.Waiting))
-	}
 	updated, swapped, err := ctx.DAGRunStore.CompareAndSwapLatestAttemptStatus(
 		ctx,
-		target.owningRef,
+		target.ref,
 		target.status.AttemptID,
 		core.Waiting,
 		func(latest *exec.DAGRunStatus) error {
@@ -312,7 +294,7 @@ func completeHumanTaskStatus(
 			latestNode.Status = core.NodeSucceeded
 			return nil
 		},
-		casOptions...,
+		exec.WithCompareAndSwapExpectedAttemptKey(target.status.AttemptKey),
 	)
 	if errors.Is(err, errHumanTaskCompletionAlreadyApplied) {
 		return &humanTaskCompletionResult{status: concurrentlyCompletedStatus, alreadyCompleted: true}, nil
@@ -480,34 +462,19 @@ func hasWaitingNodes(nodes []*exec.Node) bool {
 	return false
 }
 
-func reportHumanTaskAlreadyCompleted(
-	ctx *Context,
-	dagName string,
-	status *exec.DAGRunStatus,
-	stepID string,
-	rootRef exec.DAGRunRef,
-	owningRef exec.DAGRunRef,
-) error {
-	if status != nil && status.Status == core.Waiting && !hasWaitingNodes(status.Nodes) {
-		_, err := fmt.Fprintf(
-			ctx.Command.OutOrStdout(),
-			"Human task %s was already completed, but the DAG-run is still waiting; resume it with `%s`.\n",
-			stepID,
-			humanTaskRetryCommand(ctx, dagName, rootRef, owningRef),
-		)
-		return err
-	}
-	_, err := fmt.Fprintf(ctx.Command.OutOrStdout(), "Human task %s was already completed.\n", stepID)
-	return err
-}
-
 func waitForHumanTaskCompletionReady(
 	ctx *Context,
 	attempt exec.DAGRunAttempt,
 	dag *core.DAG,
 	status *exec.DAGRunStatus,
 ) (*exec.DAGRunStatus, error) {
-	if ctx.ProcStore == nil || status.Status != core.Waiting || !isLocalHumanTaskWorker(status.WorkerID) || status.AttemptID == "" {
+	if status.Status != core.Waiting || status.AttemptID == "" {
+		return status, nil
+	}
+	if exec.IsRemoteWorkerID(status.WorkerID) {
+		return waitForRemoteHumanTaskAttempt(ctx, attempt, status)
+	}
+	if ctx.ProcStore == nil {
 		return status, nil
 	}
 
@@ -530,6 +497,35 @@ func waitForHumanTaskCompletionReady(
 		}
 	}
 
+	return reloadHumanTaskStatus(ctx, attempt)
+}
+
+func waitForRemoteHumanTaskAttempt(
+	ctx *Context,
+	attempt exec.DAGRunAttempt,
+	status *exec.DAGRunStatus,
+) (*exec.DAGRunStatus, error) {
+	deadline := time.Now().Add(humanTaskSettleTimeout)
+	latest := status
+	for latest.Status == core.Waiting && latest.AttemptID == status.AttemptID && latest.FinishedAt == "" {
+		if !time.Now().Before(deadline) {
+			return nil, fmt.Errorf("DAG-run attempt %s is still finalizing; retry human-task completion", status.AttemptID)
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(humanTaskSettlePollInterval):
+		}
+		var err error
+		latest, err = reloadHumanTaskStatus(ctx, attempt)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return latest, nil
+}
+
+func reloadHumanTaskStatus(ctx *Context, attempt exec.DAGRunAttempt) (*exec.DAGRunStatus, error) {
 	latest, err := attempt.ReadStatus(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to reload DAG-run status after waiting for the attempt to settle: %w", err)
@@ -540,16 +536,62 @@ func waitForHumanTaskCompletionReady(
 	return latest, nil
 }
 
-func isLocalHumanTaskWorker(workerID string) bool {
-	return workerID == "" || workerID == "local"
+func resumeHumanTaskRun(ctx *Context, dag *core.DAG, status *exec.DAGRunStatus) error {
+	if exec.IsRemoteWorkerID(status.WorkerID) {
+		if ctx.QueueStore == nil {
+			return fmt.Errorf("queue store is not configured")
+		}
+		if err := waitForRemoteHumanTaskDispatch(ctx, dag, status); err != nil {
+			return err
+		}
+		if err := exec.EnqueueRetry(ctx.Context, ctx.DAGRunStore, ctx.QueueStore, dag, status, exec.EnqueueRetryOptions{}); err != nil {
+			return fmt.Errorf("enqueue distributed retry: %w", err)
+		}
+		return nil
+	}
+	return launchHumanTaskRetry(ctx, dag, status)
+}
+
+func waitForRemoteHumanTaskDispatch(ctx *Context, dag *core.DAG, status *exec.DAGRunStatus) error {
+	deadline := time.Now().Add(humanTaskSettleTimeout)
+	queueName := status.ProcGroup
+	if queueName == "" {
+		queueName = dag.ProcGroup()
+	}
+	for {
+		items, err := ctx.QueueStore.ListByDAGName(ctx, queueName, status.Name)
+		if err != nil {
+			return fmt.Errorf("check previous distributed dispatch: %w", err)
+		}
+		pending := false
+		for _, item := range items {
+			ref, err := item.Data()
+			if err != nil {
+				return fmt.Errorf("read previous distributed dispatch: %w", err)
+			}
+			if ref != nil && *ref == status.DAGRun() {
+				pending = true
+				break
+			}
+		}
+		if !pending {
+			return nil
+		}
+		if !time.Now().Before(deadline) {
+			return fmt.Errorf("previous distributed dispatch is still finalizing")
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(humanTaskSettlePollInterval):
+		}
+	}
 }
 
 func launchHumanTaskRetry(
 	ctx *Context,
 	dag *core.DAG,
 	status *exec.DAGRunStatus,
-	rootRef exec.DAGRunRef,
-	owningRef exec.DAGRunRef,
 ) error {
 	if ctx.Config == nil {
 		return fmt.Errorf("configuration is not available")
@@ -564,58 +606,21 @@ func launchHumanTaskRetry(
 	prepared := dag.Clone()
 	prepared.Env = result.Env
 
-	retrySpec := humanTaskRetrySpec(ctx, prepared, rootRef, owningRef)
+	retrySpec := humanTaskRetrySpec(ctx, prepared, status.DAGRunID)
 	if err := launcher.Start(ctx, retrySpec); err != nil {
 		return fmt.Errorf("start retry subprocess: %w", err)
 	}
 	return nil
 }
 
-func humanTaskRetrySpec(ctx *Context, dag *core.DAG, rootRef, owningRef exec.DAGRunRef) launcher.CmdSpec {
-	selectors := newHumanTaskRetrySelectors(ctx, rootRef, owningRef)
+func humanTaskRetrySpec(ctx *Context, dag *core.DAG, dagRunID string) launcher.CmdSpec {
 	builder := launcher.NewSubCmdBuilder(ctx.Config)
-	retrySpec := builder.Retry(dag, selectors.runID, "")
-	if !selectors.rootRef.Zero() {
-		retrySpec = builder.RetryWithRootDAGRun(dag, selectors.runID, "", selectors.rootRef)
-	}
-	if selectors.daguHome != "" {
+	retrySpec := builder.Retry(dag, dagRunID, "")
+	if daguHome := explicitHumanTaskDAGUHome(ctx); daguHome != "" {
 		target := retrySpec.Args[len(retrySpec.Args)-1]
-		retrySpec.Args = append(retrySpec.Args[:len(retrySpec.Args)-1], "--dagu-home="+selectors.daguHome, target)
+		retrySpec.Args = append(retrySpec.Args[:len(retrySpec.Args)-1], "--dagu-home="+daguHome, target)
 	}
 	return retrySpec
-}
-
-func humanTaskRetryCommand(ctx *Context, dagName string, rootRef, owningRef exec.DAGRunRef) string {
-	selectors := newHumanTaskRetrySelectors(ctx, rootRef, owningRef)
-	parts := []string{"dagu", "retry", "--run-id=" + selectors.runID}
-	if !selectors.rootRef.Zero() {
-		parts = append(parts, "--root="+selectors.rootRef.String())
-	}
-	if ctx != nil && ctx.Config != nil && ctx.Config.Paths.ConfigFileUsed != "" {
-		parts = append(parts, "--config", cmdutil.ShellQuote(ctx.Config.Paths.ConfigFileUsed))
-	}
-	if selectors.daguHome != "" {
-		parts = append(parts, "--dagu-home", cmdutil.ShellQuote(selectors.daguHome))
-	}
-	parts = append(parts, cmdutil.ShellQuote(dagName))
-	return strings.Join(parts, " ")
-}
-
-type humanTaskRetrySelectors struct {
-	runID    string
-	rootRef  exec.DAGRunRef
-	daguHome string
-}
-
-func newHumanTaskRetrySelectors(ctx *Context, rootRef, owningRef exec.DAGRunRef) humanTaskRetrySelectors {
-	selectors := humanTaskRetrySelectors{
-		runID:    owningRef.ID,
-		daguHome: explicitHumanTaskDAGUHome(ctx),
-	}
-	if owningRef != rootRef {
-		selectors.rootRef = rootRef
-	}
-	return selectors
 }
 
 func explicitHumanTaskDAGUHome(ctx *Context) string {

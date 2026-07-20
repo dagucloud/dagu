@@ -6376,7 +6376,7 @@
           "description": "Optional inline JSON Schema for typed completion input. Omit for acknowledgement-only tasks."
         }
       },
-      "description": "Configuration for action: human.task."
+      "description": "Configuration for a processless human task in a root DAG. Root DAGs containing human tasks may run locally or on distributed workers; human tasks are not supported in sub-DAGs."
     },
     "humanTaskFormSchema": {
       "type": "object",

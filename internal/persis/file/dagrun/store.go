@@ -274,17 +274,6 @@ func (store *Store) CompareAndSwapLatestAttemptStatus(
 	if err != nil {
 		return nil, false, err
 	}
-	var rootStatus *exec.DAGRunStatus
-	if cfg.ExpectedRootStatus != nil && isSubDAG {
-		rootAttempt, err := run.LatestAttempt(ctx, store.cache)
-		if err != nil {
-			return nil, false, err
-		}
-		rootStatus, err = rootAttempt.ReadStatus(ctx)
-		if err != nil {
-			return nil, false, err
-		}
-	}
 	if isSubDAG {
 		run, err = run.FindSubDAGRun(ctx, dagRun.ID)
 		if err != nil {
@@ -308,9 +297,6 @@ func (store *Store) CompareAndSwapLatestAttemptStatus(
 		return status, false, nil
 	}
 	if status.DAGRunID != "" && status.DAGRunID != dagRun.ID {
-		return status, false, nil
-	}
-	if rootStatus != nil && rootStatus.Status != *cfg.ExpectedRootStatus {
 		return status, false, nil
 	}
 	if status.Status != expectedStatus {

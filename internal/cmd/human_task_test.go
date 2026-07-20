@@ -115,11 +115,9 @@ func TestRunHumanTaskCompletePersistsCanonicalInputAndLaunchesRetry(t *testing.T
 	var launched bool
 	deps := humanTaskCompleteDeps{
 		now: func() time.Time { return time.Date(2026, 7, 20, 1, 2, 3, 0, time.UTC) },
-		launch: func(_ *Context, _ *core.DAG, status *exec.DAGRunStatus, root, owning exec.DAGRunRef) error {
+		resume: func(_ *Context, _ *core.DAG, status *exec.DAGRunStatus) error {
 			launched = true
 			assert.Same(t, fixture.status, status)
-			assert.Equal(t, exec.NewDAGRunRef("human-task-test", "run-1"), root)
-			assert.Equal(t, root, owning)
 			return nil
 		},
 	}
@@ -131,8 +129,7 @@ func TestRunHumanTaskCompletePersistsCanonicalInputAndLaunchesRetry(t *testing.T
 	assert.Equal(t, core.Waiting, fixture.store.expectedStatus)
 	assert.Equal(t, "attempt-1", fixture.store.expectedAttemptID)
 	assert.Equal(t, "attempt-key-1", fixture.store.options.ExpectedAttemptKey)
-	assert.Equal(t, exec.NewDAGRunRef("human-task-test", "run-1"), fixture.store.options.RootDAGRun)
-	assert.Nil(t, fixture.store.options.ExpectedRootStatus)
+	assert.True(t, fixture.store.options.RootDAGRun.Zero())
 
 	node := fixture.status.Nodes[0]
 	assert.Equal(t, core.NodeSucceeded, node.Status)
@@ -141,13 +138,13 @@ func TestRunHumanTaskCompletePersistsCanonicalInputAndLaunchesRetry(t *testing.T
 	assert.JSONEq(t, `{"count":3,"region":"us"}`, string(node.HumanTaskInput))
 	require.NotNil(t, node.StepOutputsValue)
 	assert.JSONEq(t, `{"count":"3","region":"us"}`, *node.StepOutputsValue)
-	assert.Contains(t, fixture.output.String(), "DAG-run resume started")
+	assert.Contains(t, fixture.output.String(), "DAG-run resume requested")
 }
 
 func TestRunHumanTaskCompleteLeavesRunWaitingForAnotherStep(t *testing.T) {
 	fixture := newHumanTaskCompleteFixture(t, nil, true)
 	launchCalls := 0
-	deps := fixture.deps(func(*Context, *core.DAG, *exec.DAGRunStatus, exec.DAGRunRef, exec.DAGRunRef) error {
+	deps := fixture.deps(func(*Context, *core.DAG, *exec.DAGRunStatus) error {
 		launchCalls++
 		return nil
 	})
@@ -167,16 +164,16 @@ func TestRunHumanTaskCompleteIsIdempotentForSameCanonicalInput(t *testing.T) {
 
 	launchCalls := 0
 	err := runHumanTaskCompleteWith(fixture.ctx, []string{"human-task-test"}, fixture.deps(
-		func(*Context, *core.DAG, *exec.DAGRunStatus, exec.DAGRunRef, exec.DAGRunRef) error {
+		func(*Context, *core.DAG, *exec.DAGRunStatus) error {
 			launchCalls++
 			return nil
 		},
 	))
 	require.NoError(t, err)
 	assert.Zero(t, fixture.store.compareAndSwapCalls)
-	assert.Zero(t, launchCalls)
+	assert.Equal(t, 1, launchCalls)
 	assert.Contains(t, fixture.output.String(), "already completed")
-	assert.Contains(t, fixture.output.String(), "dagu retry --run-id=run-1 human-task-test")
+	assert.Contains(t, fixture.output.String(), "resume requested")
 }
 
 func TestRunHumanTaskCompleteRejectsDifferentInputAfterCompletion(t *testing.T) {
@@ -201,7 +198,7 @@ func TestRunHumanTaskCompleteConcurrentSameInputDoesNotWriteAgain(t *testing.T) 
 
 	launchCalls := 0
 	err := runHumanTaskCompleteWith(fixture.ctx, []string{"human-task-test"}, fixture.deps(
-		func(*Context, *core.DAG, *exec.DAGRunStatus, exec.DAGRunRef, exec.DAGRunRef) error {
+		func(*Context, *core.DAG, *exec.DAGRunStatus) error {
 			launchCalls++
 			return nil
 		},
@@ -209,20 +206,20 @@ func TestRunHumanTaskCompleteConcurrentSameInputDoesNotWriteAgain(t *testing.T) 
 	require.NoError(t, err)
 	assert.Equal(t, 1, fixture.store.compareAndSwapCalls)
 	assert.Zero(t, fixture.store.writes)
-	assert.Zero(t, launchCalls)
+	assert.Equal(t, 1, launchCalls)
 	assert.Contains(t, fixture.output.String(), "already completed")
 }
 
 func TestRunHumanTaskCompleteKeepsCompletionWhenRetryLaunchFails(t *testing.T) {
 	fixture := newHumanTaskCompleteFixture(t, nil, false)
 	err := runHumanTaskCompleteWith(fixture.ctx, []string{"human-task-test"}, fixture.deps(
-		func(*Context, *core.DAG, *exec.DAGRunStatus, exec.DAGRunRef, exec.DAGRunRef) error {
+		func(*Context, *core.DAG, *exec.DAGRunStatus) error {
 			return errors.New("executable unavailable")
 		},
 	))
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "was completed")
-	assert.ErrorContains(t, err, "dagu retry --run-id=run-1 human-task-test")
+	assert.ErrorContains(t, err, "same completion command again")
 	assert.Equal(t, core.NodeSucceeded, fixture.status.Nodes[0].Status)
 	assert.JSONEq(t, `{}`, string(fixture.status.Nodes[0].HumanTaskInput))
 	assert.Nil(t, fixture.status.Nodes[0].StepOutputsValue)
@@ -239,31 +236,6 @@ func TestRunHumanTaskCompleteEnforcesSavedDAGOutputSize(t *testing.T) {
 	assert.ErrorContains(t, err, "step outputs exceeded maximum size limit of 12 bytes")
 	assert.Zero(t, fixture.store.compareAndSwapCalls)
 	assert.Equal(t, core.NodeWaiting, fixture.status.Nodes[0].Status)
-}
-
-func TestRunHumanTaskCompleteUsesSubRunRootGuards(t *testing.T) {
-	fixture := newHumanTaskCompleteFixture(t, nil, false)
-	fixture.status.Name = "child-task"
-	fixture.status.DAGRunID = "sub-1"
-	fixture.status.Root = exec.NewDAGRunRef("human-task-test", "run-1")
-	fixture.store.subRunID = "sub-1"
-	require.NoError(t, fixture.command.Flags().Set(humanTaskSubRunIDFlag.name, "sub-1"))
-
-	var launchedRoot, launchedOwning exec.DAGRunRef
-	err := runHumanTaskCompleteWith(fixture.ctx, []string{"human-task-test"}, fixture.deps(
-		func(_ *Context, _ *core.DAG, _ *exec.DAGRunStatus, root, owning exec.DAGRunRef) error {
-			launchedRoot = root
-			launchedOwning = owning
-			return nil
-		},
-	))
-	require.NoError(t, err)
-	assert.Equal(t, exec.NewDAGRunRef("human-task-test", "run-1"), launchedRoot)
-	assert.Equal(t, exec.NewDAGRunRef("child-task", "sub-1"), launchedOwning)
-	require.NotNil(t, fixture.store.options.ExpectedRootStatus)
-	assert.Equal(t, core.Waiting, *fixture.store.options.ExpectedRootStatus)
-	assert.Equal(t, "dagu retry --run-id=sub-1 --root=human-task-test:run-1 child-task",
-		humanTaskRetryCommand(fixture.ctx, "child-task", launchedRoot, launchedOwning))
 }
 
 func TestHumanTaskRetryPreservesExplicitPaths(t *testing.T) {
@@ -283,17 +255,12 @@ func TestHumanTaskRetryPreservesExplicitPaths(t *testing.T) {
 			},
 		},
 	}
-	dag := &core.DAG{Name: "child-task"}
-	rootRef := exec.NewDAGRunRef("root-task", "run-1")
-	owningRef := exec.NewDAGRunRef(dag.Name, "sub-1")
+	dag := &core.DAG{Name: "human-task"}
 
-	retrySpec := humanTaskRetrySpec(ctx, dag, rootRef, owningRef)
+	retrySpec := humanTaskRetrySpec(ctx, dag, "run-1")
 	assert.Contains(t, retrySpec.Args, "--dagu-home="+daguHome)
 	assert.Contains(t, retrySpec.Args, configFile)
-	assert.Equal(t,
-		"dagu retry --run-id=sub-1 --root=root-task:run-1 --config '"+configFile+"' --dagu-home '"+daguHome+"' child-task",
-		humanTaskRetryCommand(ctx, dag.Name, rootRef, owningRef),
-	)
+	assert.Contains(t, retrySpec.Args, "--run-id=run-1")
 }
 
 func TestWaitForHumanTaskCompletionReadyWaitsForAttemptToSettle(t *testing.T) {
@@ -315,6 +282,50 @@ func TestWaitForHumanTaskCompletionReadyWaitsForAttemptToSettle(t *testing.T) {
 	assert.Equal(t, dag.ProcGroup(), procStore.groupName)
 	assert.Equal(t, status.DAGRun(), procStore.dagRun)
 	assert.Equal(t, status.AttemptID, procStore.attemptID)
+}
+
+func TestWaitForHumanTaskCompletionReadyWaitsForRemoteFinalStatus(t *testing.T) {
+	dag := &core.DAG{Name: "human-task-test"}
+	status := &exec.DAGRunStatus{
+		Name:       dag.Name,
+		DAGRunID:   "run-1",
+		AttemptID:  "attempt-1",
+		WorkerID:   "worker-1",
+		Status:     core.Waiting,
+		FinishedAt: "",
+	}
+	finalStatus := *status
+	finalStatus.FinishedAt = "2026-07-20T01:02:03Z"
+	attempt := &humanTaskStatusSequenceAttempt{statuses: []*exec.DAGRunStatus{&finalStatus}}
+	ctx := &Context{Context: t.Context()}
+
+	latest, err := waitForHumanTaskCompletionReady(ctx, attempt, dag, status)
+	require.NoError(t, err)
+	assert.Equal(t, finalStatus.FinishedAt, latest.FinishedAt)
+	assert.Equal(t, 1, attempt.calls)
+}
+
+func TestRunHumanTaskCompleteQueuesRemoteRetry(t *testing.T) {
+	fixture := newHumanTaskCompleteFixture(t, nil, false)
+	fixture.status.WorkerID = "worker-1"
+	fixture.status.FinishedAt = "2026-07-20T01:02:03Z"
+	queueStore := &humanTaskCompletionQueueStore{}
+	queueStore.pendingRuns = []exec.DAGRunRef{fixture.status.DAGRun()}
+	fixture.ctx.QueueStore = queueStore
+
+	err := runHumanTaskCompleteWith(
+		fixture.ctx,
+		[]string{"human-task-test"},
+		fixture.deps(resumeHumanTaskRun),
+	)
+	require.NoError(t, err)
+	assert.Equal(t, core.Queued, fixture.status.Status)
+	assert.Equal(t, core.TriggerTypeRetry, fixture.status.TriggerType)
+	assert.Equal(t, 2, fixture.store.compareAndSwapCalls)
+	assert.Equal(t, fixture.status.DAGRun(), queueStore.dagRun)
+	assert.Equal(t, fixture.dag.ProcGroup(), queueStore.queueName)
+	assert.Equal(t, 2, queueStore.listCalls)
+	assert.Contains(t, fixture.output.String(), "resume requested")
 }
 
 type humanTaskCompleteFixture struct {
@@ -380,16 +391,16 @@ func newHumanTaskCompleteFixture(t *testing.T, form json.RawMessage, anotherWait
 }
 
 func (f *humanTaskCompleteFixture) deps(
-	launch func(*Context, *core.DAG, *exec.DAGRunStatus, exec.DAGRunRef, exec.DAGRunRef) error,
+	resume func(*Context, *core.DAG, *exec.DAGRunStatus) error,
 ) humanTaskCompleteDeps {
-	if launch == nil {
-		launch = func(*Context, *core.DAG, *exec.DAGRunStatus, exec.DAGRunRef, exec.DAGRunRef) error {
+	if resume == nil {
+		resume = func(*Context, *core.DAG, *exec.DAGRunStatus) error {
 			return nil
 		}
 	}
 	return humanTaskCompleteDeps{
 		now:    func() time.Time { return time.Date(2026, 7, 20, 1, 2, 3, 0, time.UTC) },
-		launch: launch,
+		resume: resume,
 	}
 }
 
@@ -411,6 +422,22 @@ type humanTaskCompletionAttempt struct {
 	status *exec.DAGRunStatus
 }
 
+type humanTaskStatusSequenceAttempt struct {
+	exec.DAGRunAttempt
+	statuses []*exec.DAGRunStatus
+	calls    int
+}
+
+func (a *humanTaskStatusSequenceAttempt) ReadStatus(context.Context) (*exec.DAGRunStatus, error) {
+	a.calls++
+	if len(a.statuses) == 0 {
+		return nil, exec.ErrNoStatusData
+	}
+	status := a.statuses[0]
+	a.statuses = a.statuses[1:]
+	return status, nil
+}
+
 func (a *humanTaskCompletionAttempt) ID() string {
 	return a.status.AttemptID
 }
@@ -427,7 +454,6 @@ type humanTaskCompletionStore struct {
 	exec.DAGRunStore
 	attempt             *humanTaskCompletionAttempt
 	status              *exec.DAGRunStatus
-	subRunID            string
 	compareAndSwapCalls int
 	expectedAttemptID   string
 	expectedStatus      core.Status
@@ -443,6 +469,49 @@ type humanTaskCompletionProcStore struct {
 	groupName string
 	dagRun    exec.DAGRunRef
 	attemptID string
+}
+
+type humanTaskCompletionQueueStore struct {
+	exec.QueueStore
+	queueName   string
+	dagRun      exec.DAGRunRef
+	pendingRuns []exec.DAGRunRef
+	listCalls   int
+}
+
+func (s *humanTaskCompletionQueueStore) ListByDAGName(
+	_ context.Context,
+	_ string,
+	_ string,
+) ([]exec.QueuedItemData, error) {
+	s.listCalls++
+	if len(s.pendingRuns) == 0 {
+		return nil, nil
+	}
+	ref := s.pendingRuns[0]
+	s.pendingRuns = s.pendingRuns[1:]
+	return []exec.QueuedItemData{humanTaskQueuedItem{ref: ref}}, nil
+}
+
+func (s *humanTaskCompletionQueueStore) Enqueue(
+	_ context.Context,
+	queueName string,
+	_ exec.QueuePriority,
+	dagRun exec.DAGRunRef,
+) error {
+	s.queueName = queueName
+	s.dagRun = dagRun
+	return nil
+}
+
+type humanTaskQueuedItem struct {
+	ref exec.DAGRunRef
+}
+
+func (i humanTaskQueuedItem) ID() string { return "human-task" }
+
+func (i humanTaskQueuedItem) Data() (*exec.DAGRunRef, error) {
+	return &i.ref, nil
 }
 
 func (s *humanTaskCompletionProcStore) IsAttemptAlive(
@@ -464,13 +533,6 @@ func (s *humanTaskCompletionProcStore) IsAttemptAlive(
 }
 
 func (s *humanTaskCompletionStore) FindAttempt(context.Context, exec.DAGRunRef) (exec.DAGRunAttempt, error) {
-	return s.attempt, nil
-}
-
-func (s *humanTaskCompletionStore) FindSubAttempt(_ context.Context, _ exec.DAGRunRef, subRunID string) (exec.DAGRunAttempt, error) {
-	if subRunID != s.subRunID {
-		return nil, exec.ErrDAGRunIDNotFound
-	}
 	return s.attempt, nil
 }
 
