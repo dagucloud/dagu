@@ -20,6 +20,23 @@ var (
 	errManualStepHumanTask   = errors.New("human-task state requires the human-task completion API")
 )
 
+type manualStatusMutationError struct {
+	cause error
+}
+
+func (e *manualStatusMutationError) Error() string {
+	return e.cause.Error()
+}
+
+func (e *manualStatusMutationError) Unwrap() error {
+	return e.cause
+}
+
+func isManualStatusMutationError(err error) bool {
+	var mutationErr *manualStatusMutationError
+	return errors.As(err, &mutationErr)
+}
+
 func (a *API) compareAndSwapManualStatus(
 	ctx context.Context,
 	mutationRef exec.DAGRunRef,
@@ -39,19 +56,25 @@ func (a *API) compareAndSwapManualStatus(
 	if mutationRef != targetRef {
 		opts = append(opts, exec.WithCompareAndSwapRootDAGRun(mutationRef))
 	}
+	wrappedMutate := func(latest *exec.DAGRunStatus) error {
+		if err := mutate(latest); err != nil {
+			return &manualStatusMutationError{cause: err}
+		}
+		return nil
+	}
 	compareAndSwap := func() (*exec.DAGRunStatus, bool, error) {
 		return a.dagRunStore.CompareAndSwapLatestAttemptStatus(
 			a.withEventContext(ctx),
 			targetRef,
 			status.AttemptID,
 			status.Status,
-			mutate,
+			wrappedMutate,
 			opts...,
 		)
 	}
 
 	updated, swapped, err := compareAndSwap()
-	if err == nil || !isTransientManualStatusUpdateError(err) {
+	if err == nil || isManualStatusMutationError(err) || !isTransientManualStatusUpdateError(err) {
 		return updated, swapped, err
 	}
 
@@ -72,7 +95,7 @@ func (a *API) compareAndSwapManualStatus(
 			return updated, swapped, err
 		case <-ticker.C:
 			updated, swapped, err = compareAndSwap()
-			if err == nil || !isTransientManualStatusUpdateError(err) {
+			if err == nil || isManualStatusMutationError(err) || !isTransientManualStatusUpdateError(err) {
 				return updated, swapped, err
 			}
 		}

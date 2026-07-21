@@ -14,8 +14,11 @@ import (
 
 	openapiv1 "github.com/dagucloud/dagu/api/v1"
 	"github.com/dagucloud/dagu/internal/auth"
+	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/internal/persis/file/dagrun"
+	runtimepkg "github.com/dagucloud/dagu/internal/runtime"
 	"github.com/goccy/go-yaml"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -261,6 +264,22 @@ type manualCASStore struct {
 	calls    int
 }
 
+type failingManualCASStore struct {
+	exec.DAGRunStore
+	err error
+}
+
+func (s *failingManualCASStore) CompareAndSwapLatestAttemptStatus(
+	context.Context,
+	exec.DAGRunRef,
+	string,
+	core.Status,
+	func(*exec.DAGRunStatus) error,
+	...exec.CompareAndSwapStatusOption,
+) (*exec.DAGRunStatus, bool, error) {
+	return nil, false, s.err
+}
+
 func (s *manualCASStore) CompareAndSwapLatestAttemptStatus(
 	_ context.Context,
 	_ exec.DAGRunRef,
@@ -314,6 +333,53 @@ func TestCompareAndSwapManualStatusRetriesTransientWriteFailure(t *testing.T) {
 	assert.True(t, swapped)
 	assert.Same(t, status, updated)
 	assert.Equal(t, 2, store.calls)
+}
+
+func TestApproveDAGRunStepReturnsInternalErrorWhenStatusWriteFails(t *testing.T) {
+	ctx := t.Context()
+	store := dagrun.New(t.TempDir())
+	dag := &core.DAG{
+		Name: "approval-write-failure",
+		Steps: []core.Step{{
+			Name:     "approve",
+			Approval: &core.ApprovalConfig{Prompt: "Approve"},
+		}},
+	}
+	attempt, err := store.CreateAttempt(ctx, dag, time.Now(), "run-1", exec.NewDAGRunAttemptOptions{})
+	require.NoError(t, err)
+	status := exec.InitialStatus(dag)
+	status.DAGRunID = "run-1"
+	status.AttemptID = attempt.ID()
+	status.Status = core.Waiting
+	status.Nodes[0].Status = core.NodeWaiting
+	require.NoError(t, attempt.Open(ctx))
+	require.NoError(t, attempt.Write(ctx, status))
+	require.NoError(t, attempt.Close(ctx))
+
+	writeErr := errors.New("status store unavailable")
+	failingStore := &failingManualCASStore{DAGRunStore: store, err: writeErr}
+	cfg := &config.Config{Server: config.Server{Permissions: map[config.Permission]bool{
+		config.PermissionRunDAGs: true,
+	}}}
+	a := &API{
+		dagRunStore: failingStore,
+		dagRunMgr:   runtimepkg.NewManager(failingStore, nil, cfg),
+		config:      cfg,
+	}
+
+	response, err := a.ApproveDAGRunStep(ctx, openapiv1.ApproveDAGRunStepRequestObject{
+		Name:     dag.Name,
+		DagRunId: status.DAGRunID,
+		StepName: "approve",
+		Body:     &openapiv1.ApproveStepRequest{},
+	})
+
+	assert.Nil(t, response)
+	require.ErrorIs(t, err, writeErr)
+	code, message, statusCode := a.resolveError(err)
+	assert.Equal(t, openapiv1.ErrorCodeInternalError, code)
+	assert.Equal(t, "An unexpected error occurred", message)
+	assert.Equal(t, http.StatusInternalServerError, statusCode)
 }
 
 func TestApplyPushBackAppendsLegacyPushBackInputsToHistory(t *testing.T) {

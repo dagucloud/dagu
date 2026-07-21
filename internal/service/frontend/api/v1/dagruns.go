@@ -1332,6 +1332,9 @@ func (a *API) ApproveDAGRunStep(ctx context.Context, request api.ApproveDAGRunSt
 		return nil
 	})
 	if err != nil {
+		if !isManualStatusMutationError(err) {
+			return nil, fmt.Errorf("error persisting step approval: %w", err)
+		}
 		return &api.ApproveDAGRunStep400JSONResponse{
 			Code:    api.ErrorCodeBadRequest,
 			Message: err.Error(),
@@ -1465,6 +1468,9 @@ func (a *API) ApproveSubDAGRunStep(ctx context.Context, request api.ApproveSubDA
 		return nil
 	})
 	if err != nil {
+		if !isManualStatusMutationError(err) {
+			return nil, fmt.Errorf("error persisting sub-DAG step approval: %w", err)
+		}
 		return &api.ApproveSubDAGRunStep400JSONResponse{
 			Code:    api.ErrorCodeBadRequest,
 			Message: err.Error(),
@@ -1655,6 +1661,9 @@ func (a *API) RejectDAGRunStep(ctx context.Context, request api.RejectDAGRunStep
 		return nil
 	})
 	if err != nil {
+		if !isManualStatusMutationError(err) {
+			return nil, fmt.Errorf("error persisting step rejection: %w", err)
+		}
 		return &api.RejectDAGRunStep400JSONResponse{
 			Code:    api.ErrorCodeBadRequest,
 			Message: err.Error(),
@@ -1749,6 +1758,9 @@ func (a *API) RejectSubDAGRunStep(ctx context.Context, request api.RejectSubDAGR
 		return nil
 	})
 	if err != nil {
+		if !isManualStatusMutationError(err) {
+			return nil, fmt.Errorf("error persisting sub-DAG step rejection: %w", err)
+		}
 		return &api.RejectSubDAGRunStep400JSONResponse{
 			Code:    api.ErrorCodeBadRequest,
 			Message: err.Error(),
@@ -1856,6 +1868,9 @@ func (a *API) PushBackDAGRunStep(ctx context.Context, request api.PushBackDAGRun
 		return applyPushBack(ctx, latestNode, latest, request.Body)
 	})
 	if err != nil {
+		if !isManualStatusMutationError(err) {
+			return nil, fmt.Errorf("error persisting step push-back: %w", err)
+		}
 		return &api.PushBackDAGRunStep400JSONResponse{
 			Code:    api.ErrorCodeBadRequest,
 			Message: err.Error(),
@@ -1983,6 +1998,9 @@ func (a *API) PushBackSubDAGRunStep(ctx context.Context, request api.PushBackSub
 		return applyPushBack(ctx, latestNode, latest, request.Body)
 	})
 	if err != nil {
+		if !isManualStatusMutationError(err) {
+			return nil, fmt.Errorf("error persisting sub-DAG step push-back: %w", err)
+		}
 		return &api.PushBackSubDAGRunStep400JSONResponse{
 			Code:    api.ErrorCodeBadRequest,
 			Message: err.Error(),
