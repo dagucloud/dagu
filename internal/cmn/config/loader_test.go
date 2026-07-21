@@ -1470,6 +1470,8 @@ secrets:
     namespace: "secret-ns"
     kubeconfig: "relative/kubeconfig"
     context: "prod"
+  azure:
+    vault_url: "https://yaml.vault.azure.net"
 `)
 
 		assert.Equal(t, "https://vault.example.com", cfg.Secrets.Vault.Address)
@@ -1477,6 +1479,7 @@ secrets:
 		assert.Equal(t, "secret-ns", cfg.Secrets.Kubernetes.Namespace)
 		assert.Equal(t, resolvedTestPath(t, "relative/kubeconfig"), cfg.Secrets.Kubernetes.Kubeconfig)
 		assert.Equal(t, "prod", cfg.Secrets.Kubernetes.Context)
+		assert.Equal(t, "https://yaml.vault.azure.net", cfg.Secrets.Azure.VaultURL)
 	})
 
 	t.Run("FromEnv", func(t *testing.T) {
@@ -1487,6 +1490,7 @@ secrets:
 			"DAGU_SECRETS_KUBERNETES_NAMESPACE":  "env-ns",
 			"DAGU_SECRETS_KUBERNETES_KUBECONFIG": kubeconfig,
 			"DAGU_SECRETS_KUBERNETES_CONTEXT":    "env-context",
+			"DAGU_SECRETS_AZURE_VAULT_URL":       "https://env.vault.azure.net",
 		})
 
 		assert.Equal(t, "https://vault.example.com", cfg.Secrets.Vault.Address)
@@ -1494,6 +1498,7 @@ secrets:
 		assert.Equal(t, "env-ns", cfg.Secrets.Kubernetes.Namespace)
 		assert.Equal(t, kubeconfig, cfg.Secrets.Kubernetes.Kubeconfig)
 		assert.Equal(t, "env-context", cfg.Secrets.Kubernetes.Context)
+		assert.Equal(t, "https://env.vault.azure.net", cfg.Secrets.Azure.VaultURL)
 	})
 
 	t.Run("OldEnvNamesIgnored", func(t *testing.T) {
@@ -1530,6 +1535,8 @@ secrets:
     namespace: "scoped-ns"
     kubeconfig: "relative/scoped-kubeconfig"
     context: "scoped-context"
+  azure:
+    vault_url: "https://scoped.vault.azure.net"
 `), 0600)
 				require.NoError(t, err)
 
@@ -1540,6 +1547,7 @@ secrets:
 				assert.Equal(t, "scoped-ns", cfg.Secrets.Kubernetes.Namespace)
 				assert.Equal(t, resolvedTestPath(t, "relative/scoped-kubeconfig"), cfg.Secrets.Kubernetes.Kubeconfig)
 				assert.Equal(t, "scoped-context", cfg.Secrets.Kubernetes.Context)
+				assert.Equal(t, "https://scoped.vault.azure.net", cfg.Secrets.Azure.VaultURL)
 			})
 		}
 	})

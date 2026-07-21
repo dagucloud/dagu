@@ -785,6 +785,20 @@
         },
         "kubernetes": {
           "$ref": "#/definitions/KubernetesSecretsDef"
+        },
+        "azure": {
+          "$ref": "#/definitions/AzureSecretsDef"
+        }
+      }
+    },
+    "AzureSecretsDef": {
+      "type": "object",
+      "description": "Global Azure Key Vault client defaults.",
+      "additionalProperties": false,
+      "properties": {
+        "vault_url": {
+          "type": "string",
+          "description": "Default Azure Key Vault URL."
         }
       }
     },

@@ -395,6 +395,12 @@ type PathsConfig struct {
 type SecretsConfig struct {
 	Vault      VaultSecretsConfig
 	Kubernetes KubernetesSecretsConfig
+	Azure      AzureSecretsConfig
+}
+
+// AzureSecretsConfig holds shared Azure Key Vault client defaults.
+type AzureSecretsConfig struct {
+	VaultURL string
 }
 
 // VaultSecretsConfig holds shared HashiCorp Vault client defaults.

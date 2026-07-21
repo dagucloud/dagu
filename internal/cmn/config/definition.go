@@ -239,6 +239,12 @@ type PathsDef struct {
 type SecretsDef struct {
 	Vault      *VaultSecretsDef      `mapstructure:"vault"`
 	Kubernetes *KubernetesSecretsDef `mapstructure:"kubernetes"`
+	Azure      *AzureSecretsDef      `mapstructure:"azure"`
+}
+
+// AzureSecretsDef configures global Azure Key Vault client defaults.
+type AzureSecretsDef struct {
+	VaultURL string `mapstructure:"vault_url"`
 }
 
 // VaultSecretsDef configures global HashiCorp Vault client defaults.
