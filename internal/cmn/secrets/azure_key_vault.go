@@ -82,12 +82,12 @@ func (r *azureKeyVaultResolver) Resolve(ctx context.Context, ref core.SecretRef)
 	if err != nil {
 		var responseErr *azcore.ResponseError
 		if errors.As(err, &responseErr) && responseErr.StatusCode == http.StatusNotFound {
-			return "", fmt.Errorf("azure Key Vault secret %q was not found: %w", parsed.name, err)
+			return "", fmt.Errorf("secret %q was not found in Azure Key Vault: %w", parsed.name, err)
 		}
 		return "", fmt.Errorf("failed to read Azure Key Vault secret %q: %w", parsed.name, err)
 	}
 	if value == nil {
-		return "", fmt.Errorf("azure Key Vault secret %q has no value", parsed.name)
+		return "", fmt.Errorf("secret %q in Azure Key Vault has no value", parsed.name)
 	}
 	return selectJSONField(*value, ref.Options["field"])
 }
@@ -148,7 +148,7 @@ func parseAzureSecretReference(ref core.SecretRef, defaultVaultURL string) (azur
 		return parseAzureSecretURL(key, ref.Options["version"])
 	}
 	if strings.Contains(key, "/") {
-		return azureSecretReference{}, fmt.Errorf("azure Key Vault secret name must not contain slashes")
+		return azureSecretReference{}, fmt.Errorf("secret name for Azure Key Vault must not contain slashes")
 	}
 
 	vaultURL := ref.Options["vault_url"]
@@ -176,11 +176,11 @@ func parseAzureSecretURL(rawURL, optionVersion string) (azureSecretReference, er
 	}
 	segments := strings.Split(strings.Trim(u.EscapedPath(), "/"), "/")
 	if len(segments) < 2 || len(segments) > 3 || segments[0] != "secrets" || segments[1] == "" {
-		return azureSecretReference{}, fmt.Errorf("azure Key Vault secret URL path must be /secrets/{name} or /secrets/{name}/{version}")
+		return azureSecretReference{}, fmt.Errorf("secret URL path for Azure Key Vault must be /secrets/{name} or /secrets/{name}/{version}")
 	}
 	name, err := url.PathUnescape(segments[1])
 	if err != nil || name == "" || strings.Contains(name, "/") {
-		return azureSecretReference{}, fmt.Errorf("azure Key Vault secret URL contains an invalid secret name")
+		return azureSecretReference{}, fmt.Errorf("secret URL for Azure Key Vault contains an invalid secret name")
 	}
 	version := optionVersion
 	if len(segments) == 3 {
@@ -189,7 +189,7 @@ func parseAzureSecretURL(rawURL, optionVersion string) (azureSecretReference, er
 		}
 		version, err = url.PathUnescape(segments[2])
 		if err != nil || version == "" || strings.Contains(version, "/") {
-			return azureSecretReference{}, fmt.Errorf("azure Key Vault secret URL contains an invalid version")
+			return azureSecretReference{}, fmt.Errorf("secret URL for Azure Key Vault contains an invalid version")
 		}
 	}
 	vaultURL := (&url.URL{Scheme: "https", Host: host}).String()
