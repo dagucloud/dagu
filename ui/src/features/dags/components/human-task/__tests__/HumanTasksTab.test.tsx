@@ -213,4 +213,21 @@ describe('HumanTasksTab', () => {
       screen.getByText('Execute permission is required to complete this task.')
     ).toBeVisible();
   });
+
+  it('disables a form-backed task without a step ID', () => {
+    const dagRun = humanTaskRun({
+      type: 'object',
+      properties: {
+        environment: { type: 'string', title: 'Environment' },
+      },
+    });
+    delete dagRun.nodes[0]?.step.id;
+
+    render(<HumanTasksTab dagRun={dagRun} onChanged={vi.fn()} />);
+
+    expect(screen.getByLabelText(/Environment/)).toBeDisabled();
+    expect(
+      screen.getByRole('button', { name: 'Complete task' })
+    ).toBeDisabled();
+  });
 });

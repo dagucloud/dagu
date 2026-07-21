@@ -60,6 +60,7 @@ function HumanTaskCard({
   const task = node.step.humanTask!;
   const schema = (task.form ?? undefined) as JSONSchema | undefined;
   const hasForm = !!schema && Object.keys(schema).length > 0;
+  const completionDisabled = !canExecute || submitting || !node.step.id;
   const uiSchema = React.useMemo<UiSchema<FormData>>(
     () => ({
       ...(schema ? buildParamSchemaUiSchema(schema) : {}),
@@ -126,7 +127,7 @@ function HumanTaskCard({
           uiSchema={uiSchema}
           templates={schemaFormTemplates}
           widgets={schemaFormWidgets}
-          disabled={!canExecute || submitting}
+          disabled={completionDisabled}
           noHtml5Validate
           showErrorList={false}
           onChange={(event: IChangeEvent<FormData>) => {
@@ -146,7 +147,7 @@ function HumanTaskCard({
             <Button
               type="submit"
               variant="primary"
-              disabled={!canExecute || submitting}
+              disabled={completionDisabled}
             >
               <Check className="h-4 w-4" />
               {submitting ? 'Completing…' : 'Complete task'}
@@ -158,7 +159,7 @@ function HumanTaskCard({
           <Button
             type="button"
             variant="primary"
-            disabled={!canExecute || submitting || !node.step.id}
+            disabled={completionDisabled}
             onClick={() => void complete({})}
           >
             <Check className="h-4 w-4" />
