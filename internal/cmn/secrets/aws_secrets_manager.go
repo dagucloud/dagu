@@ -5,6 +5,7 @@ package secrets
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"strings"
@@ -42,14 +43,12 @@ func (r *awsSecretsManagerResolver) Validate(ref core.SecretRef) error {
 	if key == "" {
 		return fmt.Errorf("key (AWS Secrets Manager secret name or ARN) is required")
 	}
-	if strings.HasPrefix(key, "arn:") {
-		parsed, err := awsarn.Parse(key)
-		if err != nil {
-			return fmt.Errorf("invalid AWS Secrets Manager ARN: %w", err)
-		}
-		if parsed.Service != "secretsmanager" || parsed.Region == "" || parsed.AccountID == "" || !strings.HasPrefix(parsed.Resource, "secret:") {
-			return fmt.Errorf("ARN must identify an AWS Secrets Manager secret")
-		}
+	parsed, isARN, err := parseAWSSecretsManagerARN(key)
+	if err != nil {
+		return err
+	}
+	if isARN && ref.Options["region"] != "" && ref.Options["region"] != parsed.Region {
+		return fmt.Errorf("options.region %q conflicts with AWS Secrets Manager ARN region %q", ref.Options["region"], parsed.Region)
 	}
 	return nil
 }
@@ -59,13 +58,17 @@ func (r *awsSecretsManagerResolver) CheckCapability(core.SecretRef) CheckCapabil
 }
 
 func (r *awsSecretsManagerResolver) Resolve(ctx context.Context, ref core.SecretRef) (string, error) {
-	region := resolveAWSRegion(ctx, ref)
+	key := strings.TrimSpace(ref.Key)
+	region, err := resolveAWSRegion(ctx, ref, key)
+	if err != nil {
+		return "", err
+	}
 	client, err := r.getClient(ctx, region)
 	if err != nil {
 		return "", err
 	}
 
-	input := &secretsmanager.GetSecretValueInput{SecretId: aws.String(ref.Key)}
+	input := &secretsmanager.GetSecretValueInput{SecretId: aws.String(key)}
 	if versionID := ref.Options["version_id"]; versionID != "" {
 		input.VersionId = aws.String(versionID)
 	}
@@ -76,12 +79,12 @@ func (r *awsSecretsManagerResolver) Resolve(ctx context.Context, ref core.Secret
 	if err != nil {
 		var notFound *types.ResourceNotFoundException
 		if errors.As(err, &notFound) {
-			return "", fmt.Errorf("AWS Secrets Manager secret %q was not found: %w", ref.Key, err)
+			return "", fmt.Errorf("AWS Secrets Manager secret %q was not found: %w", key, err)
 		}
-		return "", fmt.Errorf("failed to read AWS Secrets Manager secret %q: %w", ref.Key, err)
+		return "", fmt.Errorf("failed to read AWS Secrets Manager secret %q: %w", key, err)
 	}
 	if output == nil {
-		return "", fmt.Errorf("AWS Secrets Manager returned no result for secret %q", ref.Key)
+		return "", fmt.Errorf("AWS Secrets Manager returned no result for secret %q", key)
 	}
 
 	var value string
@@ -89,9 +92,9 @@ func (r *awsSecretsManagerResolver) Resolve(ctx context.Context, ref core.Secret
 	case output.SecretString != nil:
 		value = *output.SecretString
 	case output.SecretBinary != nil:
-		value = string(output.SecretBinary)
+		value = base64.StdEncoding.EncodeToString(output.SecretBinary)
 	default:
-		return "", fmt.Errorf("AWS Secrets Manager secret %q has no value", ref.Key)
+		return "", fmt.Errorf("AWS Secrets Manager secret %q has no value", key)
 	}
 	return selectJSONField(value, ref.Options["field"])
 }
@@ -123,17 +126,38 @@ func (r *awsSecretsManagerResolver) getClient(ctx context.Context, region string
 	return client, nil
 }
 
-func resolveAWSRegion(ctx context.Context, ref core.SecretRef) string {
+func resolveAWSRegion(ctx context.Context, ref core.SecretRef, key string) (string, error) {
+	parsed, isARN, err := parseAWSSecretsManagerARN(key)
+	if err != nil {
+		return "", err
+	}
+	if isARN {
+		if region := ref.Options["region"]; region != "" && region != parsed.Region {
+			return "", fmt.Errorf("options.region %q conflicts with AWS Secrets Manager ARN region %q", region, parsed.Region)
+		}
+		return parsed.Region, nil
+	}
 	if region := ref.Options["region"]; region != "" {
-		return region
+		return region, nil
 	}
 	if region := config.GetConfig(ctx).Secrets.AWS.Region; region != "" {
-		return region
+		return region, nil
 	}
-	if parsed, err := awsarn.Parse(ref.Key); err == nil && parsed.Service == "secretsmanager" {
-		return parsed.Region
+	return "", nil
+}
+
+func parseAWSSecretsManagerARN(key string) (awsarn.ARN, bool, error) {
+	if !strings.HasPrefix(key, "arn:") {
+		return awsarn.ARN{}, false, nil
 	}
-	return ""
+	parsed, err := awsarn.Parse(key)
+	if err != nil {
+		return awsarn.ARN{}, true, fmt.Errorf("invalid AWS Secrets Manager ARN: %w", err)
+	}
+	if parsed.Service != "secretsmanager" || parsed.Region == "" || parsed.AccountID == "" || !strings.HasPrefix(parsed.Resource, "secret:") {
+		return awsarn.ARN{}, true, fmt.Errorf("ARN must identify an AWS Secrets Manager secret")
+	}
+	return parsed, true, nil
 }
 
 type awsSecretsManagerClient interface {

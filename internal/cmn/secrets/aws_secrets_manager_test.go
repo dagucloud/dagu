@@ -30,6 +30,7 @@ func TestAWSSecretsManagerResolverValidate(t *testing.T) {
 	tests := []struct {
 		name    string
 		key     string
+		options map[string]string
 		wantErr string
 	}{
 		{name: "Name", key: "database-password"},
@@ -38,11 +39,12 @@ func TestAWSSecretsManagerResolverValidate(t *testing.T) {
 		{name: "MalformedARN", key: "arn:not-valid", wantErr: "invalid"},
 		{name: "WrongService", key: "arn:aws:ssm:us-east-1:123456789012:parameter/name", wantErr: "Secrets Manager"},
 		{name: "MissingRegion", key: "arn:aws:secretsmanager::123456789012:secret:name", wantErr: "Secrets Manager"},
+		{name: "RegionConflict", key: "arn:aws:secretsmanager:us-east-1:123456789012:secret:name", options: map[string]string{"region": "us-west-2"}, wantErr: "conflicts"},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			err := resolver.Validate(core.SecretRef{Key: tc.key})
+			err := resolver.Validate(core.SecretRef{Key: tc.key, Options: tc.options})
 			if tc.wantErr != "" {
 				require.ErrorContains(t, err, tc.wantErr)
 				return
@@ -50,6 +52,12 @@ func TestAWSSecretsManagerResolverValidate(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
+}
+
+func TestAWSSecretsManagerResolverRegistered(t *testing.T) {
+	resolver := NewRegistry().Get(awsSecretsManagerProvider)
+	require.NotNil(t, resolver)
+	assert.Equal(t, awsSecretsManagerProvider, resolver.Name())
 }
 
 func TestAWSSecretsManagerResolverResolve(t *testing.T) {
@@ -75,7 +83,7 @@ func TestAWSSecretsManagerResolverResolve(t *testing.T) {
 	})
 
 	got, err := resolver.Resolve(ctx, core.SecretRef{
-		Key: "database-password",
+		Key: " database-password ",
 		Options: map[string]string{
 			"version_id":    "version-id",
 			"version_stage": "AWSPREVIOUS",
@@ -93,7 +101,7 @@ func TestAWSSecretsManagerResolverResolve(t *testing.T) {
 	assert.Equal(t, "true", got)
 
 	arn := "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:database-password-AbCdEf"
-	got, err = resolver.Resolve(context.Background(), core.SecretRef{Key: arn})
+	got, err = resolver.Resolve(ctx, core.SecretRef{Key: arn})
 	require.NoError(t, err)
 	assert.Equal(t, value, got)
 
@@ -111,14 +119,14 @@ func TestAWSSecretsManagerResolverBinaryValue(t *testing.T) {
 	resolver := &awsSecretsManagerResolver{
 		clientFactory: func(context.Context, string) (awsSecretsManagerClient, error) {
 			return &awsSecretsManagerTestClient{getSecretValue: func(context.Context, *secretsmanager.GetSecretValueInput) (*secretsmanager.GetSecretValueOutput, error) {
-				return &secretsmanager.GetSecretValueOutput{SecretBinary: []byte("binary-value")}, nil
+				return &secretsmanager.GetSecretValueOutput{SecretBinary: []byte{0xff, 0x00, 0x01}}, nil
 			}}, nil
 		},
 	}
 
 	got, err := resolver.Resolve(context.Background(), core.SecretRef{Key: "name"})
 	require.NoError(t, err)
-	assert.Equal(t, "binary-value", got)
+	assert.Equal(t, "/wAB", got)
 }
 
 func TestAWSSecretsManagerResolverErrors(t *testing.T) {

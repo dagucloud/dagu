@@ -4,6 +4,7 @@
 package secrets
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -28,13 +29,9 @@ func selectJSONField(value, field string) (string, error) {
 		return *text, nil
 	}
 
-	var decoded any
-	if err := json.Unmarshal(raw, &decoded); err != nil {
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, raw); err != nil {
 		return "", fmt.Errorf("field %q contains invalid JSON", field)
 	}
-	encoded, err := json.Marshal(decoded)
-	if err != nil {
-		return "", fmt.Errorf("failed to encode field %q", field)
-	}
-	return string(encoded), nil
+	return compact.String(), nil
 }
