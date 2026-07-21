@@ -68,11 +68,6 @@ func humanTaskCompleteCommand() *cobra.Command {
 	return command
 }
 
-type humanTaskCompletionInput struct {
-	values        map[string]any
-	coerceStrings bool
-}
-
 type humanTaskCompleteDeps struct {
 	now    func() time.Time
 	resume func(*Context, *core.DAG, *exec.DAGRunStatus) error
@@ -142,10 +137,7 @@ func runHumanTaskCompleteWith(ctx *Context, args []string, deps humanTaskComplet
 		DAGName:  dagName,
 		DAGRunID: dagRunID,
 		StepID:   stepID,
-		Input: humantask.Input{
-			Values:        input.values,
-			CoerceStrings: input.coerceStrings,
-		},
+		Input:    input,
 	})
 	if err != nil {
 		return err
@@ -170,32 +162,32 @@ func runHumanTaskCompleteWith(ctx *Context, args []string, deps humanTaskComplet
 	return err
 }
 
-func parseHumanTaskCompletionInput(command *cobra.Command) (humanTaskCompletionInput, error) {
+func parseHumanTaskCompletionInput(command *cobra.Command) (humantask.Input, error) {
 	pairs, err := command.Flags().GetStringArray(humanTaskFlagInput)
 	if err != nil {
-		return humanTaskCompletionInput{}, fmt.Errorf("failed to read --%s: %w", humanTaskFlagInput, err)
+		return humantask.Input{}, fmt.Errorf("failed to read --%s: %w", humanTaskFlagInput, err)
 	}
 	rawJSON, err := command.Flags().GetString(humanTaskFlagInputsJSON)
 	if err != nil {
-		return humanTaskCompletionInput{}, fmt.Errorf("failed to read --%s: %w", humanTaskFlagInputsJSON, err)
+		return humantask.Input{}, fmt.Errorf("failed to read --%s: %w", humanTaskFlagInputsJSON, err)
 	}
 	if len(pairs) > 0 && command.Flags().Changed(humanTaskFlagInputsJSON) {
-		return humanTaskCompletionInput{}, fmt.Errorf("--%s and --%s cannot be used together", humanTaskFlagInput, humanTaskFlagInputsJSON)
+		return humantask.Input{}, fmt.Errorf("--%s and --%s cannot be used together", humanTaskFlagInput, humanTaskFlagInputsJSON)
 	}
 
 	if command.Flags().Changed(humanTaskFlagInputsJSON) {
 		input, err := humantask.ParseJSONInput([]byte(rawJSON))
 		if err != nil {
-			return humanTaskCompletionInput{}, fmt.Errorf("invalid --%s JSON value: %w", humanTaskFlagInputsJSON, err)
+			return humantask.Input{}, fmt.Errorf("invalid --%s JSON value: %w", humanTaskFlagInputsJSON, err)
 		}
-		return humanTaskCompletionInput{values: input.Values}, nil
+		return input, nil
 	}
 	input, err := humantask.ParseInputPairs(pairs)
 	if err != nil {
 		message := strings.Replace(err.Error(), "input ", "--"+humanTaskFlagInput+" ", 1)
-		return humanTaskCompletionInput{}, fmt.Errorf("%s", message)
+		return humantask.Input{}, fmt.Errorf("%s", message)
 	}
-	return humanTaskCompletionInput{values: input.Values, coerceStrings: input.CoerceStrings}, nil
+	return input, nil
 }
 
 func launchHumanTaskRetry(ctx *Context, dag *core.DAG, status *exec.DAGRunStatus) error {

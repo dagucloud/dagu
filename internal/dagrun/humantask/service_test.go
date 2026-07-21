@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -104,6 +105,114 @@ func TestCompleteKeepsCheckpointRecoverableWhenResumeFails(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, result.ResumeRequested)
 	assert.Equal(t, 2, resumeCalls)
+}
+
+func TestCompleteConcurrentDuplicateRequestsStartOneResume(t *testing.T) {
+	fixture := newServiceFixture(t, nil)
+	resumeStarted := make(chan struct{})
+	releaseResume := make(chan struct{})
+	var resumeCalls atomic.Int32
+	fixture.service.LocalResumer = LocalResumeFunc(func(context.Context, *core.DAG, *exec.DAGRunStatus) error {
+		resumeCalls.Add(1)
+		close(resumeStarted)
+		<-releaseResume
+		return nil
+	})
+	request := CompleteRequest{
+		DAGName: fixture.dag.Name, DAGRunID: fixture.status.DAGRunID, StepID: "review", Input: Input{Values: map[string]any{}},
+	}
+	type completionOutcome struct {
+		result Result
+		err    error
+	}
+	firstOutcome := make(chan completionOutcome, 1)
+	go func() {
+		result, err := fixture.service.Complete(t.Context(), request)
+		firstOutcome <- completionOutcome{result: result, err: err}
+	}()
+
+	select {
+	case <-resumeStarted:
+	case first := <-firstOutcome:
+		require.NoError(t, first.err)
+		t.Fatal("first completion returned before starting the resume handoff")
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for the resume handoff")
+	}
+	secondResult, err := fixture.service.Complete(t.Context(), request)
+	require.NoError(t, err)
+	assert.True(t, secondResult.AlreadyCompleted)
+	assert.False(t, secondResult.ResumeRequested)
+
+	close(releaseResume)
+	first := <-firstOutcome
+	require.NoError(t, first.err)
+	assert.True(t, first.result.ResumeRequested)
+	assert.Equal(t, int32(1), resumeCalls.Load())
+}
+
+func TestResumeRejectsRunWithoutCompletedCheckpoint(t *testing.T) {
+	fixture := newServiceFixture(t, nil)
+	fixture.status.Status = core.Succeeded
+	fixture.status.Nodes[0].Status = core.NodeSucceeded
+
+	_, err := fixture.service.Resume(t.Context(), fixture.dag.Name, fixture.status.DAGRunID)
+
+	require.Error(t, err)
+	assert.Equal(t, ErrorConflict, KindOf(err))
+	assert.ErrorContains(t, err, "has no completed human-task checkpoint")
+}
+
+func TestResumeReclaimsStaleClaimAfterLocalHandoffStops(t *testing.T) {
+	fixture := newServiceFixture(t, nil)
+	markCompletedResume(fixture.status, "stale-claim", "2026-07-21T01:00:00Z")
+	var resumedWithToken string
+	fixture.service.LocalResumer = LocalResumeFunc(func(_ context.Context, _ *core.DAG, status *exec.DAGRunStatus) error {
+		resumedWithToken = status.HumanTaskResume.ClaimToken
+		return nil
+	})
+
+	result, err := fixture.service.Resume(t.Context(), fixture.dag.Name, fixture.status.DAGRunID)
+
+	require.NoError(t, err)
+	assert.True(t, result.ResumeRequested)
+	assert.NotEmpty(t, resumedWithToken)
+	assert.NotEqual(t, "stale-claim", resumedWithToken)
+}
+
+func TestResumeLeavesStaleClaimWhenLocalHandoffIsActive(t *testing.T) {
+	fixture := newServiceFixture(t, nil)
+	markCompletedResume(fixture.status, "active-claim", "2026-07-21T01:00:00Z")
+	fixture.service.ProcStore = activeServiceProcStore{}
+	resumeCalls := 0
+	fixture.service.LocalResumer = LocalResumeFunc(func(context.Context, *core.DAG, *exec.DAGRunStatus) error {
+		resumeCalls++
+		return nil
+	})
+
+	result, err := fixture.service.Resume(t.Context(), fixture.dag.Name, fixture.status.DAGRunID)
+
+	require.NoError(t, err)
+	assert.False(t, result.ResumeRequested)
+	assert.Zero(t, resumeCalls)
+	assert.Equal(t, "active-claim", fixture.status.HumanTaskResume.ClaimToken)
+}
+
+func TestResumeLeavesStaleClaimWhenDistributedHandoffIsQueued(t *testing.T) {
+	fixture := newServiceFixture(t, nil)
+	fixture.status.WorkerID = "worker-a"
+	fixture.status.ProcGroup = "distributed"
+	markCompletedResume(fixture.status, "queued-claim", "2026-07-21T01:00:00Z")
+	ref := fixture.status.DAGRun()
+	queue := &serviceQueueStore{items: []exec.QueuedItemData{serviceQueuedItem{ref: &ref}}}
+	fixture.service.QueueStore = queue
+
+	result, err := fixture.service.Resume(t.Context(), fixture.dag.Name, fixture.status.DAGRunID)
+
+	require.NoError(t, err)
+	assert.False(t, result.ResumeRequested)
+	assert.Empty(t, queue.enqueued)
+	assert.Equal(t, "queued-claim", fixture.status.HumanTaskResume.ClaimToken)
 }
 
 func TestCompleteWaitsForEveryManualStepBeforeResuming(t *testing.T) {
@@ -243,6 +352,16 @@ type serviceFixture struct {
 	service *Service
 }
 
+func markCompletedResume(status *exec.DAGRunStatus, token, claimedAt string) {
+	status.Nodes[0].Status = core.NodeSucceeded
+	status.Nodes[0].HumanTaskInput = json.RawMessage(`{}`)
+	status.HumanTaskResume = &exec.HumanTaskResumeState{
+		RequestedAt: "2026-07-21T00:00:00Z",
+		ClaimToken:  token,
+		ClaimedAt:   claimedAt,
+	}
+}
+
 func newServiceFixture(t *testing.T, form json.RawMessage) *serviceFixture {
 	t.Helper()
 	step := core.Step{
@@ -337,6 +456,12 @@ func (serviceProcStore) IsAttemptAlive(context.Context, string, exec.DAGRunRef, 
 	return false, nil
 }
 
+type activeServiceProcStore struct{ serviceProcStore }
+
+func (activeServiceProcStore) IsRunAlive(context.Context, string, exec.DAGRunRef) (bool, error) {
+	return true, nil
+}
+
 type sequenceProcStore struct {
 	exec.ProcStore
 	alive     []bool
@@ -367,6 +492,7 @@ func (s *sequenceProcStore) IsAttemptAlive(
 type serviceQueueStore struct {
 	exec.QueueStore
 	enqueued []exec.DAGRunRef
+	items    []exec.QueuedItemData
 }
 
 func (s *serviceQueueStore) Enqueue(_ context.Context, _ string, _ exec.QueuePriority, ref exec.DAGRunRef) error {
@@ -375,5 +501,13 @@ func (s *serviceQueueStore) Enqueue(_ context.Context, _ string, _ exec.QueuePri
 }
 
 func (s *serviceQueueStore) ListByDAGName(context.Context, string, string) ([]exec.QueuedItemData, error) {
-	return nil, nil
+	return s.items, nil
 }
+
+type serviceQueuedItem struct {
+	ref *exec.DAGRunRef
+}
+
+func (serviceQueuedItem) ID() string { return "item-1" }
+
+func (item serviceQueuedItem) Data() (*exec.DAGRunRef, error) { return item.ref, nil }

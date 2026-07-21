@@ -5,6 +5,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { useCanExecuteForWorkspace } from '@/contexts/AuthContext';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
+import { getManualActionState } from '@/features/dag-runs/lib/manualActionState';
 import { useClient } from '@/hooks/api';
 import type { IChangeEvent } from '@rjsf/core';
 import Form from '@rjsf/shadcn';
@@ -13,7 +14,7 @@ import validator from '@rjsf/validator-ajv8';
 import { AlertTriangle, Check, RefreshCcw } from 'lucide-react';
 import React from 'react';
 
-import { components, NodeStatus } from '../../../../api/v1/schema';
+import { components } from '../../../../api/v1/schema';
 import type { JSONSchema } from '../../../../lib/schema-utils';
 import { buildParamSchemaUiSchema } from '../dag-execution/paramSchemaForm';
 import { schemaFormTemplates } from '../dag-execution/schemaFormTemplates';
@@ -182,11 +183,8 @@ export function HumanTasksTab({ dagRun, onChanged }: HumanTasksTabProps) {
   const canExecute = useCanExecuteForWorkspace(dagRun.workspace);
   const [resuming, setResuming] = React.useState(false);
   const [resumeError, setResumeError] = React.useState<string | null>(null);
-  const waitingTasks =
-    dagRun.nodes?.filter(
-      (node) =>
-        node.status === NodeStatus.Waiting && node.step.humanTask !== undefined
-    ) ?? [];
+  const { waitingHumanTaskNodes: waitingTasks } =
+    getManualActionState(dagRun);
 
   const resume = async () => {
     if (resuming) return;

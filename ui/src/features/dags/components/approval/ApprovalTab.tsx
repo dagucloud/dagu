@@ -3,10 +3,11 @@
 
 import { Button } from '@/components/ui/button';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
+import { getManualActionState } from '@/features/dag-runs/lib/manualActionState';
 import { useClient } from '@/hooks/api';
 import { Check, RotateCcw } from 'lucide-react';
 import React, { useState } from 'react';
-import { components, NodeStatus, Stream } from '../../../../api/v1/schema';
+import { components, Stream } from '../../../../api/v1/schema';
 import { InlineLogViewer } from '../common/InlineLogViewer';
 import PushBackHistory from '../common/PushBackHistory';
 import { StepReviewModal } from '../dag-execution/StepReviewModal';
@@ -105,10 +106,8 @@ export function ApprovalTab({ dagRun, dagName }: ApprovalTabProps) {
     action: 'approve' | 'retry';
   } | null>(null);
 
-  const waitingNodes =
-    dagRun.nodes?.filter(
-      (n) => n.status === NodeStatus.Waiting && n.step.approval !== undefined
-    ) || [];
+  const { waitingApprovalNodes: waitingNodes } =
+    getManualActionState(dagRun);
 
   const isSubRun = !!(
     dagRun.rootDAGRunId &&

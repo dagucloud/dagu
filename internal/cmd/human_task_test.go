@@ -40,8 +40,8 @@ func TestParseHumanTaskCompletionInput(t *testing.T) {
 
 		input, err := parseHumanTaskCompletionInput(command)
 		require.NoError(t, err)
-		assert.True(t, input.coerceStrings)
-		assert.Equal(t, map[string]any{"token": "prefix=suffix", "note": ""}, input.values)
+		assert.True(t, input.CoerceStrings)
+		assert.Equal(t, map[string]any{"token": "prefix=suffix", "note": ""}, input.Values)
 	})
 
 	t.Run("JSONPreservesTypedValues", func(t *testing.T) {
@@ -50,9 +50,9 @@ func TestParseHumanTaskCompletionInput(t *testing.T) {
 
 		input, err := parseHumanTaskCompletionInput(command)
 		require.NoError(t, err)
-		assert.False(t, input.coerceStrings)
-		assert.Equal(t, true, input.values["approved"])
-		assert.Equal(t, json.Number("3"), input.values["count"])
+		assert.False(t, input.CoerceStrings)
+		assert.Equal(t, true, input.Values["approved"])
+		assert.Equal(t, json.Number("3"), input.Values["count"])
 	})
 
 	for _, tc := range []struct {

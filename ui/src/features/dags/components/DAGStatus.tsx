@@ -30,6 +30,7 @@ import { useClient } from '../../../hooks/api';
 import { cn, toMermaidNodeId } from '../../../lib/utils';
 import BorderedBox from '@/components/ui/bordered-box';
 import { DAGRunOutputs } from '../../dag-runs/components/dag-run-details';
+import { getManualActionState } from '../../dag-runs/lib/manualActionState';
 import { DAGContext } from '../contexts/DAGContext';
 import { getEventHandlers } from '../lib/getEventHandlers';
 import { updateDAGRunNodeStatus } from '../lib/nodeStatus';
@@ -396,19 +397,11 @@ function DAGStatus({
     (node) => node.step.executorConfig?.type === 'chat'
   );
 
-  const waitingApprovalCount =
-    displayDAGRun.nodes?.filter(
-      (node) =>
-        node.status === NodeStatus.Waiting && node.step.approval !== undefined
-    ).length || 0;
-  const waitingHumanTaskCount =
-    displayDAGRun.nodes?.filter(
-      (node) =>
-        node.status === NodeStatus.Waiting && node.step.humanTask !== undefined
-    ).length || 0;
+  const { waitingApprovalNodes, waitingHumanTaskNodes, hasHumanTaskWork } =
+    getManualActionState(displayDAGRun);
+  const waitingApprovalCount = waitingApprovalNodes.length;
+  const waitingHumanTaskCount = waitingHumanTaskNodes.length;
   const hasWaitingApprovals = waitingApprovalCount > 0;
-  const hasHumanTaskWork =
-    waitingHumanTaskCount > 0 || !!displayDAGRun.humanTaskResumePending;
   const hasArtifacts = artifactEnabled || !!displayDAGRun.artifactsAvailable;
 
   useEffect(() => {

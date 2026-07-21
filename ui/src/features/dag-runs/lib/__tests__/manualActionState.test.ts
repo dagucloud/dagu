@@ -31,6 +31,8 @@ describe('getManualActionState', () => {
 
     expect(state.isWaiting).toBe(true);
     expect(state.waitingApprovalNodes).toEqual([approval]);
+    expect(state.waitingHumanTaskNodes).toEqual([humanTask]);
+    expect(state.hasHumanTaskWork).toBe(true);
     expect(state.humanTaskBlocksRetry).toBe(true);
   });
 
@@ -50,6 +52,8 @@ describe('getManualActionState', () => {
 
     expect(state.isWaiting).toBe(false);
     expect(state.waitingApprovalNodes).toEqual([]);
+    expect(state.waitingHumanTaskNodes).toEqual([]);
+    expect(state.hasHumanTaskWork).toBe(true);
     expect(state.humanTaskBlocksRetry).toBe(false);
   });
 });

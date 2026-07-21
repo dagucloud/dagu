@@ -25,6 +25,9 @@ func (s *Service) Resume(ctx context.Context, dagName, dagRunID string) (Result,
 		return Result{}, err
 	}
 	if target.status.Status != core.Waiting {
+		if !hasCompletedHumanTask(target.status.Nodes) {
+			return Result{}, errorf(ErrorConflict, "DAG-run %s has no completed human-task checkpoint to resume", target.ref)
+		}
 		return resultFor(target.status, "", true), nil
 	}
 	if hasWaitingNodes(target.status.Nodes) {

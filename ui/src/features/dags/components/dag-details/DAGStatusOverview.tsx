@@ -44,48 +44,16 @@ type NodeStatusConfig = {
 
 // Unified status colors matching the execution graph
 const NODE_STATUS_CONFIG: NodeStatusConfig[] = [
-  {
-    key: 'succeeded',
-    label: 'success',
-    colorClass: 'bg-[var(--status-success)]',
-  },
-  {
-    key: 'running',
-    label: 'running',
-    colorClass: 'bg-[var(--status-running)]',
-  },
-  {
-    key: 'retrying',
-    label: 'retrying',
-    colorClass: 'bg-[var(--status-warning)]',
-  },
+  { key: 'succeeded', label: 'success', colorClass: 'bg-[var(--status-success)]' },
+  { key: 'running', label: 'running', colorClass: 'bg-[var(--status-running)]' },
+  { key: 'retrying', label: 'retrying', colorClass: 'bg-[var(--status-warning)]' },
   { key: 'failed', label: 'failed', colorClass: 'bg-[var(--status-error)]' },
   { key: 'queued', label: 'queued', colorClass: 'bg-[var(--status-neutral)]' },
-  {
-    key: 'not_started',
-    label: 'not started',
-    colorClass: 'bg-[var(--status-neutral)]',
-  },
-  {
-    key: 'skipped',
-    label: 'skipped',
-    colorClass: 'bg-[var(--status-neutral)]',
-  },
-  {
-    key: 'aborted',
-    label: 'aborted',
-    colorClass: 'bg-[var(--status-aborted)]',
-  },
-  {
-    key: 'waiting',
-    label: 'waiting',
-    colorClass: 'bg-[var(--status-warning)]',
-  },
-  {
-    key: 'rejected',
-    label: 'rejected',
-    colorClass: 'bg-[var(--status-error)]',
-  },
+  { key: 'not_started', label: 'not started', colorClass: 'bg-[var(--status-neutral)]' },
+  { key: 'skipped', label: 'skipped', colorClass: 'bg-[var(--status-neutral)]' },
+  { key: 'aborted', label: 'aborted', colorClass: 'bg-[var(--status-aborted)]' },
+  { key: 'waiting', label: 'waiting', colorClass: 'bg-[var(--status-warning)]' },
+  { key: 'rejected', label: 'rejected', colorClass: 'bg-[var(--status-error)]' },
 ];
 
 type ExecutionStatusConfig = {
@@ -152,19 +120,16 @@ type RuntimeConditionsProps = {
   conditions?: components['schemas']['DAGRunCondition'][];
 };
 
-function getRuntimeConditionGroups(
-  conditions: RuntimeCondition[] | undefined
-): {
+function getRuntimeConditionGroups(conditions: RuntimeCondition[] | undefined): {
   summary?: RuntimeCondition;
   details: RuntimeCondition[];
 } {
-  const summary = conditions?.find(
-    (condition) => condition.type === 'Runnable'
-  );
+  const summary = conditions?.find((condition) => condition.type === 'Runnable');
   const details =
     conditions?.filter(
       (condition) =>
-        condition !== summary && condition.status !== DAGRunConditionStatus.True
+        condition !== summary &&
+        condition.status !== DAGRunConditionStatus.True
     ) ?? [];
 
   return { summary, details };
