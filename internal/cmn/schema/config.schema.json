@@ -785,6 +785,24 @@
         },
         "kubernetes": {
           "$ref": "#/definitions/KubernetesSecretsDef"
+        },
+        "gcp": {
+          "$ref": "#/definitions/GCPSecretsDef"
+        }
+      }
+    },
+    "GCPSecretsDef": {
+      "type": "object",
+      "description": "Global GCP Secret Manager client defaults.",
+      "additionalProperties": false,
+      "properties": {
+        "project_id": {
+          "type": "string",
+          "description": "Default GCP project ID for Secret Manager lookups."
+        },
+        "location": {
+          "type": "string",
+          "description": "Default location for regional Secret Manager lookups."
         }
       }
     },

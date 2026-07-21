@@ -239,6 +239,13 @@ type PathsDef struct {
 type SecretsDef struct {
 	Vault      *VaultSecretsDef      `mapstructure:"vault"`
 	Kubernetes *KubernetesSecretsDef `mapstructure:"kubernetes"`
+	GCP        *GCPSecretsDef        `mapstructure:"gcp"`
+}
+
+// GCPSecretsDef configures global GCP Secret Manager client defaults.
+type GCPSecretsDef struct {
+	ProjectID string `mapstructure:"project_id"`
+	Location  string `mapstructure:"location"`
 }
 
 // VaultSecretsDef configures global HashiCorp Vault client defaults.

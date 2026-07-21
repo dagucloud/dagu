@@ -5,6 +5,7 @@ package secrets
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -273,4 +274,22 @@ func (r *Registry) Providers() []string {
 		names = append(names, name)
 	}
 	return names
+}
+
+// Close releases resources held by registered secret providers.
+func (r *Registry) Close() error {
+	r.mu.RLock()
+	resolvers := make([]Resolver, 0, len(r.resolvers))
+	for _, resolver := range r.resolvers {
+		resolvers = append(resolvers, resolver)
+	}
+	r.mu.RUnlock()
+
+	var errs []error
+	for _, resolver := range resolvers {
+		if closer, ok := resolver.(interface{ Close() error }); ok {
+			errs = append(errs, closer.Close())
+		}
+	}
+	return errors.Join(errs...)
 }

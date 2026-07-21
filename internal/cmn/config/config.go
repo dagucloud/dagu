@@ -395,6 +395,13 @@ type PathsConfig struct {
 type SecretsConfig struct {
 	Vault      VaultSecretsConfig
 	Kubernetes KubernetesSecretsConfig
+	GCP        GCPSecretsConfig
+}
+
+// GCPSecretsConfig holds shared GCP Secret Manager client defaults.
+type GCPSecretsConfig struct {
+	ProjectID string
+	Location  string
 }
 
 // VaultSecretsConfig holds shared HashiCorp Vault client defaults.
