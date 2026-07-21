@@ -37,7 +37,9 @@ func humanTaskInputMiddlewareWithLimit(mountedAPIPath string, maxBodyBytes int64
 				next.ServeHTTP(w, r)
 				return
 			}
-			raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBodyBytes))
+			limitedBody := http.MaxBytesReader(w, r.Body, maxBodyBytes)
+			raw, err := io.ReadAll(limitedBody)
+			_ = limitedBody.Close()
 			if err != nil {
 				var maxBytesErr *http.MaxBytesError
 				if errors.As(err, &maxBytesErr) {

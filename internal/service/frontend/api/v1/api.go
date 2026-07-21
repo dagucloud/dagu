@@ -412,8 +412,8 @@ func (a *API) ConfigureRoutes(ctx context.Context, r chi.Router, writeTimeout ti
 		r.Use(frontendauth.LoginRateLimitMiddleware(loginPath))
 		r.Use(frontendauth.Middleware(authOptions))
 		r.Use(a.restAuditSubjectMiddleware())
-		r.Use(WithRemoteNode(a.remoteNodeResolver, mountedAPIPath))
 		r.Use(humanTaskInputMiddleware(mountedAPIPath))
+		r.Use(WithRemoteNode(a.remoteNodeResolver, mountedAPIPath))
 		r.Use(WebhookRequestContextMiddleware(a.webhookMaxPayloadSize()))
 
 		middlewares := []api.StrictMiddlewareFunc{

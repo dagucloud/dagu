@@ -18,6 +18,7 @@ import (
 
 func TestHumanTaskInputMiddlewarePreservesValidatedBody(t *testing.T) {
 	const raw = `{"count":9007199254740993}`
+	originalBody := &trackingReadCloser{Reader: strings.NewReader(raw)}
 	called := false
 	handler := humanTaskInputMiddleware("/base/api/v1")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called = true
@@ -34,12 +35,13 @@ func TestHumanTaskInputMiddlewarePreservesValidatedBody(t *testing.T) {
 	request := httptest.NewRequest(
 		http.MethodPost,
 		"/base/api/v1/dag-runs/deploy/run-1/human-tasks/review/complete",
-		strings.NewReader(raw),
+		originalBody,
 	)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 
 	assert.True(t, called)
+	assert.True(t, originalBody.closed)
 	assert.Equal(t, http.StatusNoContent, response.Code)
 }
 
@@ -91,6 +93,26 @@ func TestHumanTaskInputMiddlewareRejectsOversizedBody(t *testing.T) {
 	assert.Equal(t, "payload_too_large", apiError.Code)
 }
 
+func TestHumanTaskInputMiddlewareValidatesBeforeRemoteProxy(t *testing.T) {
+	called := false
+	handler := humanTaskInputMiddleware("/api/v1")(
+		WithRemoteNode(nil, "/api/v1")(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+			called = true
+		})),
+	)
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/dag-runs/deploy/run-1/human-tasks/review/complete?remoteNode=edge",
+		strings.NewReader(`{"confirmed":true,"confirmed":false}`),
+	)
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	assert.False(t, called)
+	assert.Equal(t, http.StatusBadRequest, response.Code)
+}
+
 func TestHumanTaskInputMiddlewareIgnoresOtherRoutes(t *testing.T) {
 	called := false
 	handler := humanTaskInputMiddleware("/api/v1")(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
@@ -101,4 +123,14 @@ func TestHumanTaskInputMiddlewareIgnoresOtherRoutes(t *testing.T) {
 	handler.ServeHTTP(httptest.NewRecorder(), request)
 
 	assert.True(t, called)
+}
+
+type trackingReadCloser struct {
+	io.Reader
+	closed bool
+}
+
+func (b *trackingReadCloser) Close() error {
+	b.closed = true
+	return nil
 }
