@@ -6,7 +6,6 @@ package secrets
 import (
 	"context"
 	"fmt"
-	"sync"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -61,19 +60,14 @@ func TestAWSSecretsManagerResolverRegistered(t *testing.T) {
 }
 
 func TestAWSSecretsManagerResolverResolve(t *testing.T) {
-	var mu sync.Mutex
 	var regions []string
 	var inputs []*secretsmanager.GetSecretValueInput
 	value := `{"token":"resolved","enabled":true}`
 	resolver := &awsSecretsManagerResolver{
 		clientFactory: func(_ context.Context, region string) (awsSecretsManagerClient, error) {
-			mu.Lock()
 			regions = append(regions, region)
-			mu.Unlock()
 			return &awsSecretsManagerTestClient{getSecretValue: func(_ context.Context, input *secretsmanager.GetSecretValueInput) (*secretsmanager.GetSecretValueOutput, error) {
-				mu.Lock()
 				inputs = append(inputs, input)
-				mu.Unlock()
 				return &secretsmanager.GetSecretValueOutput{SecretString: aws.String(value)}, nil
 			}}, nil
 		},
@@ -105,8 +99,6 @@ func TestAWSSecretsManagerResolverResolve(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, value, got)
 
-	mu.Lock()
-	defer mu.Unlock()
 	assert.Equal(t, []string{"us-west-2", "eu-west-1", "ap-northeast-1"}, regions)
 	require.Len(t, inputs, 3)
 	assert.Equal(t, "database-password", aws.ToString(inputs[0].SecretId))

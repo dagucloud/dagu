@@ -131,19 +131,17 @@ func resolveAWSRegion(ctx context.Context, ref core.SecretRef, key string) (stri
 	if err != nil {
 		return "", err
 	}
+	region := ref.Options["region"]
 	if isARN {
-		if region := ref.Options["region"]; region != "" && region != parsed.Region {
+		if region != "" && region != parsed.Region {
 			return "", fmt.Errorf("options.region %q conflicts with AWS Secrets Manager ARN region %q", region, parsed.Region)
 		}
 		return parsed.Region, nil
 	}
-	if region := ref.Options["region"]; region != "" {
+	if region != "" {
 		return region, nil
 	}
-	if region := config.GetConfig(ctx).Secrets.AWS.Region; region != "" {
-		return region, nil
-	}
-	return "", nil
+	return config.GetConfig(ctx).Secrets.AWS.Region, nil
 }
 
 func parseAWSSecretsManagerARN(key string) (awsarn.ARN, bool, error) {
