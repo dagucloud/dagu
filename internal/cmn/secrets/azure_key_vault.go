@@ -140,6 +140,9 @@ func parseAzureSecretReference(ref core.SecretRef, defaultVaultURL string) (azur
 	if key == "" {
 		return azureSecretReference{}, fmt.Errorf("key (Azure Key Vault secret name or URL) is required")
 	}
+	if strings.Contains(ref.Options["version"], "/") {
+		return azureSecretReference{}, fmt.Errorf("options.version for Azure Key Vault must not contain slashes")
+	}
 
 	if strings.Contains(key, "://") {
 		if ref.Options["vault_url"] != "" {
