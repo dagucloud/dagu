@@ -625,7 +625,7 @@ API keys can be created with independent role assignments. Audit logging tracks 
 
 - TLS for the HTTP server (`DAGU_CERT_FILE`, `DAGU_KEY_FILE`)
 - Mutual TLS for gRPC coordinator/worker communication (`DAGU_PEER_CERT_FILE`, `DAGU_PEER_KEY_FILE`, `DAGU_PEER_CLIENT_CA_FILE`)
-- Secret management with environment variables, files, Kubernetes Secrets, [HashiCorp Vault](https://www.vaultproject.io/), and Azure Key Vault
+- Secret management with environment variables, files, Kubernetes Secrets, [HashiCorp Vault](https://www.vaultproject.io/), and cloud-provider secret stores
 
 ### Production Hardening
 

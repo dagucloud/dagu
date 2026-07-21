@@ -22,7 +22,6 @@ func TestNewRegistry(t *testing.T) {
 	assert.Contains(t, providers, "file")
 	assert.Contains(t, providers, "vault")
 	assert.Contains(t, providers, "kubernetes")
-	assert.Contains(t, providers, "azure-key-vault")
 }
 
 func TestRegistry_Register(t *testing.T) {
@@ -321,7 +320,6 @@ func TestRegistry_Providers(t *testing.T) {
 	assert.Contains(t, providers, "file")
 	assert.Contains(t, providers, "vault")
 	assert.Contains(t, providers, "kubernetes")
-	assert.Contains(t, providers, "azure-key-vault")
 
 	// Add custom provider
 	mock := &mockResolver{mockName: "custom"}

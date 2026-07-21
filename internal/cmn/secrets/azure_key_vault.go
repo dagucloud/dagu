@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"sync"
 
@@ -20,6 +21,15 @@ import (
 )
 
 const azureKeyVaultProvider = "azure-key-vault"
+
+var (
+	azureVaultNamePattern = regexp.MustCompile(`^[a-z0-9-]+$`)
+	azureVaultDNSSuffixes = []string{
+		".vault.azure.net",
+		".vault.azure.cn",
+		".vault.usgovcloudapi.net",
+	}
+)
 
 func init() {
 	registerResolver(azureKeyVaultProvider, func(_ []string) Resolver {
@@ -160,7 +170,8 @@ func parseAzureSecretURL(rawURL, optionVersion string) (azureSecretReference, er
 	if err != nil {
 		return azureSecretReference{}, fmt.Errorf("invalid Azure Key Vault secret URL: %w", err)
 	}
-	if err := validateAzureURL(u); err != nil {
+	host, err := validateAzureURL(u)
+	if err != nil {
 		return azureSecretReference{}, fmt.Errorf("invalid Azure Key Vault secret URL: %w", err)
 	}
 	segments := strings.Split(strings.Trim(u.EscapedPath(), "/"), "/")
@@ -181,7 +192,7 @@ func parseAzureSecretURL(rawURL, optionVersion string) (azureSecretReference, er
 			return azureSecretReference{}, fmt.Errorf("Azure Key Vault secret URL contains an invalid version")
 		}
 	}
-	vaultURL := (&url.URL{Scheme: "https", Host: strings.ToLower(u.Host)}).String()
+	vaultURL := (&url.URL{Scheme: "https", Host: host}).String()
 	return azureSecretReference{vaultURL: vaultURL, name: name, version: version}, nil
 }
 
@@ -190,23 +201,37 @@ func normalizeAzureVaultURL(rawURL string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("invalid Azure Key Vault vault URL: %w", err)
 	}
-	if err := validateAzureURL(u); err != nil {
+	host, err := validateAzureURL(u)
+	if err != nil {
 		return "", fmt.Errorf("invalid Azure Key Vault vault URL: %w", err)
 	}
 	if u.EscapedPath() != "" && u.EscapedPath() != "/" {
 		return "", fmt.Errorf("invalid Azure Key Vault vault URL: path must be empty")
 	}
-	return (&url.URL{Scheme: "https", Host: strings.ToLower(u.Host)}).String(), nil
+	return (&url.URL{Scheme: "https", Host: host}).String(), nil
 }
 
-func validateAzureURL(u *url.URL) error {
+func validateAzureURL(u *url.URL) (string, error) {
 	if !strings.EqualFold(u.Scheme, "https") {
-		return fmt.Errorf("scheme must be HTTPS")
+		return "", fmt.Errorf("scheme must be HTTPS")
 	}
 	if u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" {
-		return fmt.Errorf("URL must contain only an HTTPS host and path")
+		return "", fmt.Errorf("URL must contain only an HTTPS host and path")
 	}
-	return nil
+	if port := u.Port(); port != "" && port != "443" {
+		return "", fmt.Errorf("port must be 443")
+	}
+	host := strings.ToLower(u.Hostname())
+	for _, suffix := range azureVaultDNSSuffixes {
+		if !strings.HasSuffix(host, suffix) {
+			continue
+		}
+		vaultName := strings.TrimSuffix(host, suffix)
+		if vaultName != "" && !strings.Contains(vaultName, ".") && azureVaultNamePattern.MatchString(vaultName) {
+			return host, nil
+		}
+	}
+	return "", fmt.Errorf("host must be an Azure Key Vault endpoint")
 }
 
 type azureSecretClient interface {

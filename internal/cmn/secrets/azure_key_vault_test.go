@@ -51,6 +51,11 @@ func TestAzureKeyVaultResolverValidate(t *testing.T) {
 		{name: "VersionConflict", ref: core.SecretRef{Key: "https://example.vault.azure.net/secrets/name/url-version", Options: map[string]string{"version": "option-version"}}, wantErr: "conflicts"},
 		{name: "VaultConflict", ref: core.SecretRef{Key: "https://example.vault.azure.net/secrets/name", Options: map[string]string{"vault_url": "https://other.vault.azure.net"}}, wantErr: "cannot be used"},
 		{name: "VaultPath", ref: core.SecretRef{Key: "name", Options: map[string]string{"vault_url": "https://example.vault.azure.net/path"}}, wantErr: "path must be empty"},
+		{name: "ArbitraryHost", ref: core.SecretRef{Key: "https://example.com/secrets/name"}, wantErr: "Key Vault endpoint"},
+		{name: "NestedHost", ref: core.SecretRef{Key: "https://attacker.example.vault.azure.net/secrets/name"}, wantErr: "Key Vault endpoint"},
+		{name: "Localhost", ref: core.SecretRef{Key: "https://localhost/secrets/name"}, wantErr: "Key Vault endpoint"},
+		{name: "IPAddress", ref: core.SecretRef{Key: "https://127.0.0.1/secrets/name"}, wantErr: "Key Vault endpoint"},
+		{name: "CustomPort", ref: core.SecretRef{Key: "https://example.vault.azure.net:8443/secrets/name"}, wantErr: "port must be 443"},
 	}
 
 	for _, tc := range tests {
@@ -63,6 +68,12 @@ func TestAzureKeyVaultResolverValidate(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
+}
+
+func TestAzureKeyVaultResolverRegistered(t *testing.T) {
+	resolver := NewRegistry().Get(azureKeyVaultProvider)
+	require.NotNil(t, resolver)
+	assert.Equal(t, azureKeyVaultProvider, resolver.Name())
 }
 
 func TestAzureKeyVaultResolverResolve(t *testing.T) {
