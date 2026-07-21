@@ -90,15 +90,19 @@ func (s *Service) enqueueResume(ctx context.Context, target *target, result Resu
 		return result, &ResumeError{Result: result, Err: errors.New("queue store is not configured")}
 	}
 
-	postCommitCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), s.EnqueueTimeout)
-	defer cancel()
+	postCommitCtx := context.WithoutCancel(ctx)
 	if exec.IsRemoteWorkerID(target.status.WorkerID) {
-		if err := s.waitForRemoteDispatch(postCommitCtx, target.dag, target.status); err != nil {
+		settleCtx, cancel := context.WithTimeout(postCommitCtx, s.SettleTimeout)
+		err := s.waitForRemoteDispatch(settleCtx, target.dag, target.status)
+		cancel()
+		if err != nil {
 			return result, &ResumeError{Result: result, Err: err}
 		}
 	}
+	enqueueCtx, cancel := context.WithTimeout(postCommitCtx, s.EnqueueTimeout)
+	defer cancel()
 	queued := false
-	if err := exec.EnqueueRetry(postCommitCtx, s.DAGRunStore, s.QueueStore, target.dag, target.status, exec.EnqueueRetryOptions{
+	if err := exec.EnqueueRetry(enqueueCtx, s.DAGRunStore, s.QueueStore, target.dag, target.status, exec.EnqueueRetryOptions{
 		OnQueued: func(*exec.DAGRunStatus) error {
 			queued = true
 			return nil
