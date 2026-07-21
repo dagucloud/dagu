@@ -74,4 +74,28 @@ describe('getManualActionState', () => {
     expect(state.hasHumanTaskWork).toBe(true);
     expect(state.humanTaskBlocksRetry).toBe(false);
   });
+
+  it('allows retry while waiting on approval after a human task completed', () => {
+    const approval = node(NodeStatus.Waiting, {
+      name: 'approve',
+      approval: { prompt: 'Approve release' },
+    } as DAGRunNode['step']);
+    const dagRun = {
+      status: Status.Waiting,
+      nodes: [
+        node(NodeStatus.Success, {
+          name: 'review',
+          humanTask: { prompt: 'Choose a region' },
+        } as DAGRunNode['step']),
+        approval,
+      ],
+    } as DAGRunDetails;
+
+    const state = getManualActionState(dagRun);
+
+    expect(state.waitingApprovalNodes).toEqual([approval]);
+    expect(state.waitingHumanTaskNodes).toEqual([]);
+    expect(state.hasHumanTaskWork).toBe(false);
+    expect(state.humanTaskBlocksRetry).toBe(false);
+  });
 });

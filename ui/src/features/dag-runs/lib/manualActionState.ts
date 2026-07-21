@@ -42,15 +42,13 @@ export function getManualActionState(dagRun?: DAGRun): ManualActionState {
       node.status === NodeStatus.Waiting && node.step.humanTask !== undefined
   );
   const resumePending = Boolean(dagRun.humanTaskResumePending);
+  const hasHumanTaskWork = waitingHumanTaskNodes.length > 0 || resumePending;
 
   return {
     isWaiting,
     waitingApprovalNodes,
     waitingHumanTaskNodes,
-    hasHumanTaskWork: waitingHumanTaskNodes.length > 0 || resumePending,
-    humanTaskBlocksRetry:
-      isWaiting &&
-      (resumePending ||
-        dagRun.nodes.some((node) => node.step.humanTask !== undefined)),
+    hasHumanTaskWork,
+    humanTaskBlocksRetry: isWaiting && hasHumanTaskWork,
   };
 }
