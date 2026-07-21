@@ -463,6 +463,12 @@ func (l *ConfigLoader) loadSecretsConfig(cfg *Config, def Definition) {
 			Context:    def.Secrets.Kubernetes.Context,
 		}
 	}
+
+	if def.Secrets.AWS != nil {
+		cfg.Secrets.AWS = AWSSecretsConfig{
+			Region: def.Secrets.AWS.Region,
+		}
+	}
 }
 
 func (l *ConfigLoader) loadEventStoreConfig(cfg *Config, def Definition) {
@@ -1956,6 +1962,7 @@ var envBindings = []envBinding{
 	{key: "secrets.kubernetes.namespace", env: "SECRETS_KUBERNETES_NAMESPACE"},
 	{key: "secrets.kubernetes.kubeconfig", env: "SECRETS_KUBERNETES_KUBECONFIG", isPath: true},
 	{key: "secrets.kubernetes.context", env: "SECRETS_KUBERNETES_CONTEXT"},
+	{key: "secrets.aws.region", env: "SECRETS_AWS_REGION"},
 
 	// Scheduler
 	{key: "scheduler.port", env: "SCHEDULER_PORT"},
