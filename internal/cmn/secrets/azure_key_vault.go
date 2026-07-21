@@ -23,7 +23,7 @@ import (
 const azureKeyVaultProvider = "azure-key-vault"
 
 var (
-	azureVaultNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*[a-z0-9]$`)
+	azureVaultNamePattern = regexp.MustCompile(`^[a-z][a-z0-9-]*[a-z0-9]$`)
 	azureVaultDNSSuffixes = []string{
 		".vault.azure.net",
 		".vault.azure.cn",

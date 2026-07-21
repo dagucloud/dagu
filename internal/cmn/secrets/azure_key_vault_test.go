@@ -55,6 +55,7 @@ func TestAzureKeyVaultResolverValidate(t *testing.T) {
 		{name: "VaultPath", ref: core.SecretRef{Key: "name", Options: map[string]string{"vault_url": "https://example.vault.azure.net/path"}}, wantErr: "path must be empty"},
 		{name: "ArbitraryHost", ref: core.SecretRef{Key: "https://example.com/secrets/name"}, wantErr: "Key Vault endpoint"},
 		{name: "NestedHost", ref: core.SecretRef{Key: "https://attacker.example.vault.azure.net/secrets/name"}, wantErr: "Key Vault endpoint"},
+		{name: "LeadingDigit", ref: core.SecretRef{Key: "https://1example.vault.azure.net/secrets/name"}, wantErr: "Key Vault endpoint"},
 		{name: "LeadingHyphen", ref: core.SecretRef{Key: "https://-example.vault.azure.net/secrets/name"}, wantErr: "Key Vault endpoint"},
 		{name: "TrailingHyphen", ref: core.SecretRef{Key: "https://example-.vault.azure.net/secrets/name"}, wantErr: "Key Vault endpoint"},
 		{name: "ConsecutiveHyphens", ref: core.SecretRef{Key: "https://exam--ple.vault.azure.net/secrets/name"}, wantErr: "Key Vault endpoint"},
