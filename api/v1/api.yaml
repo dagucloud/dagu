@@ -2644,6 +2644,112 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /dag-runs/{name}/{dagRunId}/human-tasks/{stepId}/complete:
+    post:
+      summary: "Complete a waiting human task"
+      description: "Validates typed input against the stored human-task form, completes the step atomically, and resumes the same DAG-run when no manual steps remain waiting."
+      operationId: "completeHumanTask"
+      tags:
+        - "dag-runs"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGName"
+        - $ref: "#/components/parameters/DAGRunConcreteId"
+        - $ref: "#/components/parameters/HumanTaskStepId"
+      requestBody:
+        required: true
+        description: "Typed form input. The JSON request body is limited to 16 MiB."
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HumanTaskInput"
+      responses:
+        "200":
+          description: "Human task completed or an identical prior completion confirmed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HumanTaskCompletionResponse"
+        "400":
+          description: "Malformed or invalid human-task input"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "DAG-run or human task not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "Human task is not actionable or completion conflicts with current state"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "413":
+          description: "Human-task input exceeds the 16 MiB request-body limit"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: "Completion was stored but the DAG-run resume handoff failed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /dag-runs/{name}/{dagRunId}/human-tasks/resume:
+    post:
+      summary: "Resume a completed human-task checkpoint"
+      description: "Retries a pending human-task resume handoff without requiring the previously submitted form values."
+      operationId: "resumeHumanTaskDAGRun"
+      tags:
+        - "dag-runs"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGName"
+        - $ref: "#/components/parameters/DAGRunConcreteId"
+      responses:
+        "200":
+          description: "Resume handoff requested or already in progress"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HumanTaskResumeResponse"
+        "404":
+          description: "DAG-run not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "The DAG-run still has waiting steps or no recoverable human-task checkpoint"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: "The resume handoff failed and remains retryable"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /dag-runs/{name}/{dagRunId}/stop:
     post:
       summary: "Terminate or cancel a DAG-run"
@@ -8636,6 +8742,16 @@ components:
       schema:
         type: string
 
+    HumanTaskStepId:
+      name: stepId
+      in: path
+      description: explicit ID of the human-task step
+      required: true
+      schema:
+        type: string
+        pattern: "^[A-Za-z][A-Za-z0-9_]*$"
+        maxLength: 40
+
     ArtifactPath:
       name: path
       in: query
@@ -9304,6 +9420,66 @@ components:
           type: string
           description: "Optional step name to restart from when the approver pushes the step back. Must reference the step itself or an upstream dependency."
 
+    HumanTaskConfig:
+      type: object
+      description: "Resolved human-task instructions and optional normalized input form"
+      properties:
+        prompt:
+          type: string
+          description: "Instructions displayed to the operator. Run details contain the resolved, secret-masked snapshot."
+        form:
+          type: object
+          additionalProperties: true
+          description: "Normalized flat JSON Schema for typed completion input"
+      required:
+        - prompt
+
+    HumanTaskInput:
+      description: "Typed human-task completion input. An empty object acknowledges a task without a form."
+      oneOf:
+        - type: object
+          additionalProperties: true
+
+    HumanTaskCompletionResponse:
+      type: object
+      description: "Result of completing or confirming one human task"
+      properties:
+        dagName:
+          $ref: "#/components/schemas/DAGName"
+        dagRunId:
+          $ref: "#/components/schemas/DAGRunId"
+        stepId:
+          type: string
+        alreadyCompleted:
+          type: boolean
+        resumeRequested:
+          type: boolean
+        remainingWaitingSteps:
+          type: integer
+          minimum: 0
+      required:
+        - dagName
+        - dagRunId
+        - stepId
+        - alreadyCompleted
+        - resumeRequested
+        - remainingWaitingSteps
+
+    HumanTaskResumeResponse:
+      type: object
+      description: "Result of retrying a pending human-task resume handoff"
+      properties:
+        dagName:
+          $ref: "#/components/schemas/DAGName"
+        dagRunId:
+          $ref: "#/components/schemas/DAGRunId"
+        resumeRequested:
+          type: boolean
+      required:
+        - dagName
+        - dagRunId
+        - resumeRequested
+
     Error:
       type: object
       description: "Generic error response object"
@@ -9353,6 +9529,9 @@ components:
         - "auth.forbidden"
         - "timeout"
         - "rate_limited"
+        - "conflict"
+        - "human_task_resume_failed"
+        - "payload_too_large"
 
     WebhookRequest:
       type: object
@@ -10814,7 +10993,7 @@ components:
         4: "Success"
         5: "Queued"
         6: "Partial Success"
-        7: "Waiting for approval"
+        7: "Waiting for manual action"
         8: "Rejected"
 
     StatusLabel:
@@ -10866,7 +11045,7 @@ components:
         4: "Success"
         5: "Skipped"
         6: "Partial Success"
-        7: "Waiting for approval"
+        7: "Waiting for manual action"
         8: "Rejected"
         9: "Retrying"
 
@@ -11473,6 +11652,9 @@ components:
             sourceFileName:
               $ref: "#/components/schemas/DAGFileName"
               description: "File name of the source DAG definition, derived from the DAG-run's source file path. Only set when the source file still exists on disk. Can be used to navigate to the DAG definition page."
+            humanTaskResumePending:
+              type: boolean
+              description: "Whether completed human-task input is durable but the same DAG-run still needs a resume handoff"
           required:
             - rootDAGRunName
             - rootDAGRunId
@@ -11911,6 +12093,8 @@ components:
                     description: "Step names to route to"
         approval:
           $ref: "#/components/schemas/ApprovalConfig"
+        humanTask:
+          $ref: "#/components/schemas/HumanTaskConfig"
       required:
         - name
 

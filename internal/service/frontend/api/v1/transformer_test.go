@@ -69,6 +69,38 @@ func TestToDAGRunDetailsIncludesScheduleTime(t *testing.T) {
 	assert.True(t, details.ArtifactsAvailable)
 }
 
+func TestToDAGRunDetailsIncludesHumanTaskContract(t *testing.T) {
+	status := exec.DAGRunStatus{
+		Name:     "test-dag",
+		DAGRunID: "run-1",
+		Status:   core.Waiting,
+		Nodes: []*exec.Node{{
+			Step: core.Step{
+				ID:   "review",
+				Name: "Review",
+				HumanTask: &core.HumanTaskConfig{
+					Prompt: "Confirm the release",
+					Form:   json.RawMessage(`{"type":"object","properties":{"count":{"type":"integer","maximum":9007199254740993}}}`),
+				},
+			},
+			Status: core.NodeSucceeded,
+		}},
+		HumanTaskResume: &exec.HumanTaskResumeState{RequestedAt: "2026-07-21T00:00:00Z"},
+	}
+
+	details := ToDAGRunDetails(status)
+	require.Len(t, details.Nodes, 1)
+	require.NotNil(t, details.Nodes[0].Step.HumanTask)
+	assert.Equal(t, "Confirm the release", details.Nodes[0].Step.HumanTask.Prompt)
+	require.NotNil(t, details.Nodes[0].Step.HumanTask.Form)
+	assert.Equal(t, "object", (*details.Nodes[0].Step.HumanTask.Form)["type"])
+	properties := (*details.Nodes[0].Step.HumanTask.Form)["properties"].(map[string]any)
+	count := properties["count"].(map[string]any)
+	assert.Equal(t, json.Number("9007199254740993"), count["maximum"])
+	require.NotNil(t, details.HumanTaskResumePending)
+	assert.True(t, *details.HumanTaskResumePending)
+}
+
 func TestToDAGRunSummaryOmitsAutoRetryLimitWhenUnconfigured(t *testing.T) {
 	status := exec.DAGRunStatus{
 		Name:           "test-dag",

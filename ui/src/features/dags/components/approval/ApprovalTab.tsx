@@ -106,7 +106,9 @@ export function ApprovalTab({ dagRun, dagName }: ApprovalTabProps) {
   } | null>(null);
 
   const waitingNodes =
-    dagRun.nodes?.filter((n) => n.status === NodeStatus.Waiting) || [];
+    dagRun.nodes?.filter(
+      (n) => n.status === NodeStatus.Waiting && n.step.approval !== undefined
+    ) || [];
 
   const isSubRun = !!(
     dagRun.rootDAGRunId &&

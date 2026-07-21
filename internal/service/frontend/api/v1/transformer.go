@@ -4,6 +4,7 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"log/slog"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/internal/dagrun/humantask"
 )
 
 const maxIntValue = int(^uint(0) >> 1)
@@ -172,6 +174,19 @@ func toStep(obj core.Step) api.Step {
 			Required: ptrOf(obj.Approval.Required),
 			RewindTo: ptrOf(obj.Approval.RewindTo),
 		}
+	}
+
+	if obj.HumanTask != nil {
+		humanTask := &api.HumanTaskConfig{Prompt: obj.HumanTask.Prompt}
+		if len(obj.HumanTask.Form) > 0 {
+			var form map[string]any
+			decoder := json.NewDecoder(bytes.NewReader(obj.HumanTask.Form))
+			decoder.UseNumber()
+			if err := decoder.Decode(&form); err == nil {
+				humanTask.Form = &form
+			}
+		}
+		step.HumanTask = humanTask
 	}
 
 	if obj.Router != nil {
@@ -341,38 +356,43 @@ func ToDAGRunDetails(s exec.DAGRunStatus) api.DAGRunDetails {
 		autoRetryLimit = ptrOf(s.AutoRetryLimit)
 	}
 	artifactsAvailable := hasArtifactEntries(s.ArchiveDir)
+	var humanTaskResumePending *bool
+	if humantask.ResumePending(&s) {
+		humanTaskResumePending = ptrOf(true)
+	}
 
 	return api.DAGRunDetails{
-		RootDAGRunName:     s.Root.Name,
-		RootDAGRunId:       s.Root.ID,
-		ParentDAGRunName:   ptrOf(s.Parent.Name),
-		ParentDAGRunId:     ptrOf(s.Parent.ID),
-		ArtifactsAvailable: artifactsAvailable,
-		Log:                s.Log,
-		Name:               s.Name,
-		Params:             ptrOf(s.Params),
-		DagRunId:           s.DAGRunID,
-		Workspace:          workspaceResponseNameFromLabelStrings(s.Labels),
-		ProfileName:        toRuntimeProfileName(s.ProfileName),
-		QueuedAt:           ptrOf(s.QueuedAt),
-		AutoRetryCount:     s.AutoRetryCount,
-		AutoRetryLimit:     autoRetryLimit,
-		Conditions:         toDAGRunConditions(s.Status, s.Conditions),
-		ScheduleTime:       ptrOf(s.ScheduleTime),
-		StartedAt:          s.StartedAt,
-		FinishedAt:         s.FinishedAt,
-		Status:             api.Status(s.Status),
-		StatusLabel:        api.StatusLabel(s.Status.String()),
-		WorkerId:           ptrOf(s.WorkerID),
-		TriggerType:        toTriggerType(s.TriggerType),
-		Preconditions:      ptrOf(preconditions),
-		Nodes:              nodes,
-		OnSuccess:          ptrOf(toNode(s.OnSuccess)),
-		OnFailure:          ptrOf(toNode(s.OnFailure)),
-		OnAbort:            ptrOf(toNode(s.OnAbort)),
-		OnExit:             ptrOf(toNode(s.OnExit)),
-		Labels:             &s.Labels,
-		Tags:               &s.Labels,
+		RootDAGRunName:         s.Root.Name,
+		RootDAGRunId:           s.Root.ID,
+		ParentDAGRunName:       ptrOf(s.Parent.Name),
+		ParentDAGRunId:         ptrOf(s.Parent.ID),
+		ArtifactsAvailable:     artifactsAvailable,
+		Log:                    s.Log,
+		Name:                   s.Name,
+		Params:                 ptrOf(s.Params),
+		DagRunId:               s.DAGRunID,
+		Workspace:              workspaceResponseNameFromLabelStrings(s.Labels),
+		ProfileName:            toRuntimeProfileName(s.ProfileName),
+		QueuedAt:               ptrOf(s.QueuedAt),
+		AutoRetryCount:         s.AutoRetryCount,
+		AutoRetryLimit:         autoRetryLimit,
+		Conditions:             toDAGRunConditions(s.Status, s.Conditions),
+		ScheduleTime:           ptrOf(s.ScheduleTime),
+		StartedAt:              s.StartedAt,
+		FinishedAt:             s.FinishedAt,
+		Status:                 api.Status(s.Status),
+		StatusLabel:            api.StatusLabel(s.Status.String()),
+		WorkerId:               ptrOf(s.WorkerID),
+		HumanTaskResumePending: humanTaskResumePending,
+		TriggerType:            toTriggerType(s.TriggerType),
+		Preconditions:          ptrOf(preconditions),
+		Nodes:                  nodes,
+		OnSuccess:              ptrOf(toNode(s.OnSuccess)),
+		OnFailure:              ptrOf(toNode(s.OnFailure)),
+		OnAbort:                ptrOf(toNode(s.OnAbort)),
+		OnExit:                 ptrOf(toNode(s.OnExit)),
+		Labels:                 &s.Labels,
+		Tags:                   &s.Labels,
 	}
 }
 

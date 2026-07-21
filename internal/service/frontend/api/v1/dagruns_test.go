@@ -742,6 +742,82 @@ steps:
 	})
 }
 
+func TestCompleteHumanTask(t *testing.T) {
+	server := test.SetupServer(t)
+
+	dagSpec := `steps:
+  - id: review
+    action: human.task
+    with:
+      prompt: "Choose the replica count"
+      form:
+        type: object
+        properties:
+          count:
+            type: integer
+            minimum: 1
+        required: [count]
+  - id: deploy
+    depends: review
+    run: test "${steps.review.outputs.count}" = "3"`
+
+	server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
+		Name: "human_task_api_test",
+		Spec: &dagSpec,
+	}).ExpectStatus(http.StatusCreated).Send(t)
+
+	startResp := server.Client().Post("/api/v1/dags/human_task_api_test/start", api.ExecuteDAGJSONRequestBody{}).
+		ExpectStatus(http.StatusOK).Send(t)
+	var startBody api.ExecuteDAG200JSONResponse
+	startResp.Unmarshal(t, &startBody)
+
+	waitForStoredDAGRunStatus(t, server, "human_task_api_test", startBody.DagRunId, 10*time.Second, func(status *exec.DAGRunStatus) bool {
+		return status.Status == core.Waiting && hasNodeWithStatus(status, "review", core.NodeWaiting)
+	})
+
+	detailsResp := server.Client().Get(fmt.Sprintf(
+		"/api/v1/dag-runs/human_task_api_test/%s", startBody.DagRunId,
+	)).ExpectStatus(http.StatusOK).Send(t)
+	var details api.GetDAGRunDetails200JSONResponse
+	detailsResp.Unmarshal(t, &details)
+	require.Len(t, details.DagRunDetails.Nodes, 2)
+	require.NotNil(t, details.DagRunDetails.Nodes[0].Step.HumanTask)
+	require.Equal(t, "Choose the replica count", details.DagRunDetails.Nodes[0].Step.HumanTask.Prompt)
+
+	server.Client().Post(
+		fmt.Sprintf("/api/v1/dag-runs/human_task_api_test/%s/steps/review/approve", startBody.DagRunId),
+		api.ApproveStepRequest{},
+	).ExpectStatus(http.StatusBadRequest).Send(t)
+
+	server.Client().Post(
+		fmt.Sprintf("/api/v1/dag-runs/human_task_api_test/%s/human-tasks/review/complete", startBody.DagRunId),
+		map[string]any{"count": "not-a-number"},
+	).ExpectStatus(http.StatusBadRequest).Send(t)
+
+	completeResp := server.Client().Post(
+		fmt.Sprintf("/api/v1/dag-runs/human_task_api_test/%s/human-tasks/review/complete", startBody.DagRunId),
+		map[string]any{"count": 3},
+	).ExpectStatus(http.StatusOK).Send(t)
+	var completeBody api.CompleteHumanTask200JSONResponse
+	completeResp.Unmarshal(t, &completeBody)
+	require.Equal(t, "review", completeBody.StepId)
+	require.True(t, completeBody.ResumeRequested)
+	require.Zero(t, completeBody.RemainingWaitingSteps)
+
+	completedStatus := waitForStoredDAGRunStatus(t, server, "human_task_api_test", startBody.DagRunId, 10*time.Second, func(status *exec.DAGRunStatus) bool {
+		return status.Status == core.Succeeded && hasNodeWithStatus(status, "deploy", core.NodeSucceeded)
+	})
+	require.Nil(t, completedStatus.HumanTaskResume)
+
+	idempotentResp := server.Client().Post(
+		fmt.Sprintf("/api/v1/dag-runs/human_task_api_test/%s/human-tasks/review/complete", startBody.DagRunId),
+		map[string]any{"count": 3},
+	).ExpectStatus(http.StatusOK).Send(t)
+	idempotentResp.Unmarshal(t, &completeBody)
+	require.True(t, completeBody.AlreadyCompleted)
+	require.False(t, completeBody.ResumeRequested)
+}
+
 func TestApproveDAGRunStepRejectsWhileDAGRunIsRunning(t *testing.T) {
 	server := test.SetupServer(t)
 	release := newHoldFile(t)

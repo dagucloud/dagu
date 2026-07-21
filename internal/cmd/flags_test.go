@@ -20,14 +20,17 @@ func TestInternalHierarchyFlagsHiddenFromUsage(t *testing.T) {
 	require.NotNil(t, startCmd.Flags().Lookup("root"))
 	require.NotNil(t, startCmd.Flags().Lookup("parent"))
 	require.NotNil(t, retryCmd.Flags().Lookup("root"))
+	require.NotNil(t, retryCmd.Flags().Lookup("human-task-resume-token"))
 
 	assert.True(t, startCmd.Flags().Lookup("root").Hidden)
 	assert.True(t, startCmd.Flags().Lookup("parent").Hidden)
 	assert.True(t, retryCmd.Flags().Lookup("root").Hidden)
+	assert.True(t, retryCmd.Flags().Lookup("human-task-resume-token").Hidden)
 
 	assert.NotContains(t, startCmd.UsageString(), "--root")
 	assert.NotContains(t, startCmd.UsageString(), "--parent")
 	assert.NotContains(t, retryCmd.UsageString(), "--root")
+	assert.NotContains(t, retryCmd.UsageString(), "--human-task-resume-token")
 }
 
 func TestHiddenHierarchyFlagsStillParse(t *testing.T) {

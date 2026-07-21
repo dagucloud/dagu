@@ -1,0 +1,156 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package humantask
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"strings"
+
+	"github.com/dagucloud/dagu/internal/core"
+	"github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/internal/core/spec"
+)
+
+// Input contains decoded completion values and the requested coercion policy.
+type Input struct {
+	Values        map[string]any
+	CoerceStrings bool
+}
+
+// ParseJSONInput decodes exactly one non-null JSON object without losing number precision.
+func ParseJSONInput(raw []byte) (Input, error) {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	decoded, err := decodeUniqueJSONValue(decoder)
+	if err != nil {
+		return Input{}, errorf(ErrorInvalid, "invalid JSON value: %v", err)
+	}
+	if err := requireJSONEOF(decoder); err != nil {
+		return Input{}, errorf(ErrorInvalid, "invalid JSON value: %v", err)
+	}
+	values, ok := decoded.(map[string]any)
+	if !ok || values == nil {
+		return Input{}, errorf(ErrorInvalid, "input must be a JSON object")
+	}
+	return Input{Values: values}, nil
+}
+
+// ParseInputPairs parses repeatable key=value arguments for the CLI adapter.
+func ParseInputPairs(pairs []string) (Input, error) {
+	values := make(map[string]any, len(pairs))
+	for _, pair := range pairs {
+		name, value, ok := strings.Cut(pair, "=")
+		name = strings.TrimSpace(name)
+		if !ok || name == "" {
+			return Input{}, errorf(ErrorInvalid, "input must use key=value form")
+		}
+		if _, exists := values[name]; exists {
+			return Input{}, errorf(ErrorInvalid, "input contains duplicate key %q", name)
+		}
+		values[name] = value
+	}
+	return Input{Values: values, CoerceStrings: len(pairs) > 0}, nil
+}
+
+func decodeUniqueJSONValue(decoder *json.Decoder) (any, error) {
+	token, err := decoder.Token()
+	if err != nil {
+		return nil, err
+	}
+	delimiter, ok := token.(json.Delim)
+	if !ok {
+		return token, nil
+	}
+	switch delimiter {
+	case '{':
+		object := make(map[string]any)
+		for decoder.More() {
+			keyToken, err := decoder.Token()
+			if err != nil {
+				return nil, err
+			}
+			key, ok := keyToken.(string)
+			if !ok {
+				return nil, errors.New("JSON object member name must be a string")
+			}
+			if _, exists := object[key]; exists {
+				return nil, fmt.Errorf("duplicate JSON member %q", key)
+			}
+			value, err := decodeUniqueJSONValue(decoder)
+			if err != nil {
+				return nil, err
+			}
+			object[key] = value
+		}
+		if _, err := decoder.Token(); err != nil {
+			return nil, err
+		}
+		return object, nil
+	case '[':
+		var array []any
+		for decoder.More() {
+			value, err := decodeUniqueJSONValue(decoder)
+			if err != nil {
+				return nil, err
+			}
+			array = append(array, value)
+		}
+		if _, err := decoder.Token(); err != nil {
+			return nil, err
+		}
+		return array, nil
+	default:
+		return nil, fmt.Errorf("unexpected JSON delimiter %q", delimiter)
+	}
+}
+
+func requireJSONEOF(decoder *json.Decoder) error {
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return errors.New("must contain exactly one JSON object")
+		}
+		return err
+	}
+	return nil
+}
+
+func prepareCompletion(dag *core.DAG, node *exec.Node, input Input) (*spec.HumanTaskInputResult, string, error) {
+	result, err := spec.ValidateHumanTaskInputs(node.Step.HumanTask.Form, input.Values, input.CoerceStrings)
+	if err != nil {
+		return nil, "", errorf(ErrorInvalid, "invalid input for human task step %q: %v", node.Step.ID, err)
+	}
+	outputs, err := marshalOutputs(dag, result)
+	if err != nil {
+		return nil, "", errorf(ErrorInvalid, "human task step %q: %v", node.Step.ID, err)
+	}
+	return result, outputs, nil
+}
+
+func marshalOutputs(dag *core.DAG, result *spec.HumanTaskInputResult) (string, error) {
+	maxSize := dag.MaxOutputSize
+	if maxSize <= 0 {
+		normalized := dag.Clone()
+		core.InitializeDefaults(normalized)
+		maxSize = normalized.MaxOutputSize
+	}
+	if len(result.Canonical) > maxSize {
+		return "", fmt.Errorf("human task input exceeded maximum size limit of %d bytes", maxSize)
+	}
+	if len(result.Outputs) == 0 {
+		return "", nil
+	}
+	outputsData, err := json.Marshal(result.Outputs)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal human task outputs: %w", err)
+	}
+	if len(outputsData) > maxSize {
+		return "", fmt.Errorf("human task step outputs exceeded maximum size limit of %d bytes", maxSize)
+	}
+	return string(outputsData), nil
+}

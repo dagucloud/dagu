@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/internal/dagrun/humantask"
 	"github.com/dagucloud/dagu/internal/runtime/agent"
 	"github.com/spf13/cobra"
 )
@@ -47,11 +48,18 @@ var retryFlags = []commandLineFlag{
 	defaultWorkingDirFlag,
 	retryWorkerIDFlag,
 	attemptIDFlag,
+	humanTaskResumeTokenFlag,
 }
 
 var retryWorkerIDFlag = commandLineFlag{
 	name:  "worker-id",
 	usage: "Worker ID executing this DAG run (auto-set in distributed mode, defaults to 'local')",
+}
+
+var humanTaskResumeTokenFlag = commandLineFlag{
+	name:   "human-task-resume-token",
+	usage:  "Human-task resume claim token",
+	hidden: true,
 }
 
 const (
@@ -66,6 +74,7 @@ func runRetry(ctx *Context, args []string) error {
 			defaultWorkingDirFlag,
 			retryWorkerIDFlag,
 			attemptIDFlag,
+			humanTaskResumeTokenFlag,
 		} {
 			if ctx.Command.Flags().Changed(flag.name) {
 				return fmt.Errorf("--%s is not supported with --context", flag.name)
@@ -75,6 +84,7 @@ func runRetry(ctx *Context, args []string) error {
 	}
 	dagRunID, _ := ctx.StringParam("run-id")
 	stepName, _ := ctx.StringParam("step")
+	humanTaskResumeToken, _ := ctx.StringParam(humanTaskResumeTokenFlag.name)
 	rootRefStr, _ := ctx.StringParam("root")
 	workerID := getWorkerID(ctx)
 	attemptID, err := requireWorkerAttemptID(ctx, workerID)
@@ -131,6 +141,9 @@ func runRetry(ctx *Context, args []string) error {
 	profileName := status.ProfileName
 	if queueDispatchRetry && status.Status != core.Queued {
 		return newQueueDispatchNotQueuedError(status)
+	}
+	if err := humantask.ValidateRetry(status, stepName, humanTaskResumeToken); err != nil {
+		return err
 	}
 
 	dag, err := attempt.ReadDAG(ctx)

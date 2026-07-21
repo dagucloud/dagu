@@ -31,7 +31,7 @@ import {
 import { AlertTriangle, Ban, Play, RefreshCw, Square, X } from 'lucide-react';
 import React from 'react';
 import { Button } from '@/components/ui/button';
-import { components, NodeStatus, Status } from '../../../../api/v1/schema';
+import { components, Status } from '../../../../api/v1/schema';
 import { useCanManageProfiles } from '../../../../contexts/AuthContext';
 import { useConfig } from '../../../../contexts/ConfigContext';
 import { useRemoteNode } from '../../../../contexts/RemoteNodeContext';
@@ -40,6 +40,7 @@ import { useClient, useQuery } from '../../../../hooks/api';
 import { whenEnabled } from '../../../../hooks/queryUtils';
 import ConfirmModal from '@/components/ui/confirm-dialog';
 import LabeledItem from '@/components/ui/labeled-item';
+import { getManualActionState } from '@/features/dag-runs/lib/manualActionState';
 import { getDAGRunTerminateActionDetails } from '../../../dag-runs/components/common/terminateAction';
 import { DAGContext } from '../../contexts/DAGContext';
 import { StartDAGModal } from '../dag-execution';
@@ -251,11 +252,9 @@ function DAGActions({
     }
   };
 
-  const isWaiting = status?.status === Status.Waiting;
-  const hasNodes =
-    status &&
-    'nodes' in status &&
-    Array.isArray((status as components['schemas']['DAGRunDetails']).nodes);
+  const { isWaiting, waitingApprovalNodes, humanTaskBlocksRetry } =
+    getManualActionState(status);
+  const hasWaitingApprovals = waitingApprovalNodes.length > 0;
   const terminateDetails = getDAGRunTerminateActionDetails(status, {
     copy: {
       stopTooltipText: 'Stop DAG execution',
@@ -273,11 +272,12 @@ function DAGActions({
   const buttonState = {
     enqueue: true,
     terminate: terminateAction !== 'none',
-    reject: isWaiting && hasNodes,
+    reject: isWaiting && hasWaitingApprovals,
     retry:
       Boolean(status?.dagRunId) &&
       status?.status !== Status.Running &&
-      status?.status !== Status.Queued,
+      status?.status !== Status.Queued &&
+      !humanTaskBlocksRetry,
   };
 
   if (!dag || !config.permissions.runDags) {
@@ -314,7 +314,7 @@ function DAGActions({
         </Tooltip>
 
         {/* Stop / Reject Button */}
-        {isWaiting && hasNodes ? (
+        {isWaiting && hasWaitingApprovals ? (
           <Tooltip>
             <TooltipTrigger asChild>
               <ActionButton
@@ -474,13 +474,8 @@ function DAGActions({
                 size="sm"
                 onClick={async () => {
                   setIsRejectModal(false);
-                  const details =
-                    status as components['schemas']['DAGRunDetails'];
-                  const waitingNodes = details.nodes.filter(
-                    (n) => n.status === NodeStatus.Waiting
-                  );
                   const errors: string[] = [];
-                  for (const node of waitingNodes) {
+                  for (const node of waitingApprovalNodes) {
                     const { error } = await client.POST(
                       '/dag-runs/{name}/{dagRunId}/steps/{stepName}/reject',
                       {

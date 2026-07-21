@@ -20,6 +20,7 @@ import DAGStatus from '../DAGStatus';
 
 const patchMock = vi.hoisted(() => vi.fn());
 const approvalTabMock = vi.hoisted(() => vi.fn());
+const humanTasksTabMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@/hooks/api', () => ({
   useClient: vi.fn(),
@@ -106,6 +107,13 @@ vi.mock('../approval', () => ({
   ApprovalTab: (props: unknown) => {
     approvalTabMock(props);
     return null;
+  },
+}));
+
+vi.mock('../human-task', () => ({
+  HumanTasksTab: (props: unknown) => {
+    humanTasksTabMock(props);
+    return <div>Human task panel</div>;
   },
 }));
 
@@ -322,5 +330,56 @@ describe('DAGStatus', () => {
         dagName: 'test_name',
       })
     );
+  });
+
+  it('routes human tasks to their own tab and disables graph status mutation', async () => {
+    vi.mocked(useClient).mockReturnValue({
+      PATCH: patchMock,
+    } as unknown as ReturnType<typeof useClient>);
+    const humanTaskDagRun = {
+      ...dagRun,
+      status: Status.Waiting,
+      statusLabel: StatusLabel.waiting,
+      nodes: [
+        {
+          step: {
+            id: 'review',
+            name: 'step',
+            humanTask: { prompt: 'Confirm deployment' },
+          },
+          status: NodeStatus.Waiting,
+          statusLabel: NodeStatusLabel.waiting,
+        },
+      ],
+    } as components['schemas']['DAGRunDetails'];
+
+    render(
+      <MemoryRouter>
+        <AppBarContext.Provider value={appBarValue}>
+          <DAGContext.Provider
+            value={{
+              refresh: vi.fn(),
+              name: 'example',
+              fileName: 'example.yaml',
+            }}
+          >
+            <DAGStatus dagRun={humanTaskDagRun} fileName="example.yaml" />
+          </DAGContext.Provider>
+        </AppBarContext.Provider>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText('Human task panel')).toBeVisible();
+    expect(humanTasksTabMock).toHaveBeenCalled();
+    expect(
+      screen.queryByRole('button', { name: /Approval/ })
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Status' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open status modal' }));
+    expect(
+      screen.queryByRole('button', { name: 'Mark failed' })
+    ).not.toBeInTheDocument();
+    expect(patchMock).not.toHaveBeenCalled();
   });
 });

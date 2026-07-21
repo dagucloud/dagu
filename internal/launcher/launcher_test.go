@@ -676,6 +676,14 @@ func TestRetry(t *testing.T) {
 		assert.Contains(t, spec.Args, "--root=root-dag:root-run-id")
 	})
 
+	t.Run("HumanTaskRetryIncludesClaimBeforeDAGName", func(t *testing.T) {
+		t.Parallel()
+		spec := builder.HumanTaskRetry(dag, "retry-run-id", "claim-1")
+
+		assert.Equal(t, "--human-task-resume-token=claim-1", spec.Args[len(spec.Args)-2])
+		assert.Equal(t, "test-dag", spec.Args[len(spec.Args)-1])
+	})
+
 	t.Run("RetryWithAllOptions", func(t *testing.T) {
 		t.Parallel()
 		spec := builder.Retry(dag, "full-retry-id", "step-2")

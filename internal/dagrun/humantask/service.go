@@ -1,0 +1,203 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package humantask
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/dagucloud/dagu/internal/core"
+	"github.com/dagucloud/dagu/internal/core/exec"
+)
+
+const (
+	defaultSettleTimeout  = 5 * time.Second
+	defaultPollInterval   = 50 * time.Millisecond
+	defaultClaimLease     = 30 * time.Second
+	defaultHandoffTimeout = 30 * time.Second
+)
+
+var errCompletionAlreadyApplied = errors.New("human task completion already applied")
+
+// ErrorKind classifies failures that callers need to map to their transport.
+type ErrorKind string
+
+const (
+	ErrorInvalid  ErrorKind = "invalid"
+	ErrorNotFound ErrorKind = "not_found"
+	ErrorConflict ErrorKind = "conflict"
+	ErrorInternal ErrorKind = "internal"
+)
+
+// Error is a classified human-task operation failure.
+type Error struct {
+	Kind ErrorKind
+	Err  error
+}
+
+func (e *Error) Error() string { return e.Err.Error() }
+func (e *Error) Unwrap() error { return e.Err }
+
+// KindOf returns the classified kind of err.
+func KindOf(err error) ErrorKind {
+	var target *Error
+	if errors.As(err, &target) {
+		return target.Kind
+	}
+	return ErrorInternal
+}
+
+func errorf(kind ErrorKind, format string, args ...any) error {
+	return &Error{Kind: kind, Err: fmt.Errorf(format, args...)}
+}
+
+// ResumeError reports a durable completion whose resume handoff failed.
+type ResumeError struct {
+	Result Result
+	Err    error
+}
+
+func (e *ResumeError) Error() string {
+	if e.Result.StepID != "" {
+		return fmt.Sprintf(
+			"human task %q was completed, but the DAG-run could not be resumed: %v; run the same completion command again to retry",
+			e.Result.StepID,
+			e.Err,
+		)
+	}
+	return fmt.Sprintf("the DAG-run could not be resumed: %v; retry the resume request", e.Err)
+}
+
+func (e *ResumeError) Unwrap() error { return e.Err }
+
+// LocalResumer starts a local retry for the stored DAG-run snapshot.
+type LocalResumer interface {
+	ResumeHumanTask(context.Context, *core.DAG, *exec.DAGRunStatus) error
+}
+
+// LocalResumeFunc adapts a function to LocalResumer.
+type LocalResumeFunc func(context.Context, *core.DAG, *exec.DAGRunStatus) error
+
+func (f LocalResumeFunc) ResumeHumanTask(ctx context.Context, dag *core.DAG, status *exec.DAGRunStatus) error {
+	return f(ctx, dag, status)
+}
+
+// Service completes human tasks and performs recoverable resume handoffs.
+type Service struct {
+	DAGRunStore    exec.DAGRunStore
+	QueueStore     exec.QueueStore
+	ProcStore      exec.ProcStore
+	LocalResumer   LocalResumer
+	Now            func() time.Time
+	SettleTimeout  time.Duration
+	PollInterval   time.Duration
+	ClaimLease     time.Duration
+	HandoffTimeout time.Duration
+}
+
+// CompleteRequest identifies one human task and its typed input.
+type CompleteRequest struct {
+	DAGName  string
+	DAGRunID string
+	StepID   string
+	Input    Input
+}
+
+// Result describes the observable outcome of a completion or resume request.
+type Result struct {
+	DAGName               string
+	DAGRunID              string
+	StepID                string
+	AlreadyCompleted      bool
+	ResumeRequested       bool
+	RemainingWaitingSteps int
+}
+
+type target struct {
+	dag    *core.DAG
+	status *exec.DAGRunStatus
+	ref    exec.DAGRunRef
+	stepID string
+}
+
+type resumeClaim struct {
+	claimed bool
+	status  *exec.DAGRunStatus
+	token   string
+}
+
+func (s *Service) defaults() {
+	if s.Now == nil {
+		s.Now = time.Now
+	}
+	if s.SettleTimeout <= 0 {
+		s.SettleTimeout = defaultSettleTimeout
+	}
+	if s.PollInterval <= 0 {
+		s.PollInterval = defaultPollInterval
+	}
+	if s.ClaimLease <= 0 {
+		s.ClaimLease = defaultClaimLease
+	}
+	if s.HandoffTimeout <= 0 {
+		s.HandoffTimeout = defaultHandoffTimeout
+	}
+}
+
+func (s *Service) loadTarget(ctx context.Context, dagName, dagRunID, stepID string) (*target, error) {
+	ref := exec.NewDAGRunRef(dagName, dagRunID)
+	attempt, err := s.DAGRunStore.FindAttempt(ctx, ref)
+	if err != nil {
+		return nil, errorf(ErrorNotFound, "failed to find DAG-run %q with run ID %q: %v", dagName, dagRunID, err)
+	}
+	dag, err := attempt.ReadDAG(ctx)
+	if err != nil {
+		return nil, errorf(ErrorInternal, "failed to read DAG from run data: %v", err)
+	}
+	if dag == nil {
+		return nil, errorf(ErrorInternal, "failed to read DAG from run data: DAG data is nil")
+	}
+	status, err := attempt.ReadStatus(ctx)
+	if err != nil {
+		return nil, errorf(ErrorInternal, "failed to read DAG-run status: %v", err)
+	}
+	if status == nil {
+		return nil, errorf(ErrorInternal, "failed to read DAG-run status: status data is nil")
+	}
+	if stepID != "" {
+		status, err = s.waitForCompletionReady(ctx, attempt, dag, status, stepID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	storedRef := status.DAGRun()
+	if storedRef.Zero() {
+		return nil, errorf(ErrorInternal, "stored DAG-run identity is incomplete")
+	}
+	if storedRef != ref {
+		return nil, errorf(ErrorInternal, "stored DAG-run identity %s does not match requested DAG-run %s", storedRef, ref)
+	}
+	return &target{dag: dag, status: status, ref: ref, stepID: stepID}, nil
+}
+
+func (t *target) withStatus(status *exec.DAGRunStatus) *target {
+	copy := *t
+	copy.status = status
+	return &copy
+}
+
+func resultFor(status *exec.DAGRunStatus, stepID string, alreadyCompleted bool) Result {
+	if status == nil {
+		return Result{StepID: stepID, AlreadyCompleted: alreadyCompleted}
+	}
+	return Result{
+		DAGName:               status.Name,
+		DAGRunID:              status.DAGRunID,
+		StepID:                stepID,
+		AlreadyCompleted:      alreadyCompleted,
+		RemainingWaitingSteps: countWaitingNodes(status.Nodes),
+	}
+}

@@ -221,6 +221,64 @@ func TestApplyPushBackRewindToResetsNamedStepAndDependents(t *testing.T) {
 	}
 }
 
+func TestRollbackPushBackPreservesConcurrentUnrelatedNodeChanges(t *testing.T) {
+	t.Parallel()
+
+	approvalStep := core.Step{Name: "approval", Approval: &core.ApprovalConfig{}}
+	humanStep := core.Step{ID: "review", Name: "review", HumanTask: &core.HumanTaskConfig{Prompt: "Review"}}
+	original := &exec.DAGRunStatus{
+		Name: "test", DAGRunID: "run-1", AttemptID: "attempt-1", AttemptKey: "key-1", Status: core.Waiting,
+		Nodes: []*exec.Node{
+			{Step: approvalStep, Status: core.NodeWaiting, StartedAt: "started"},
+			{Step: humanStep, Status: core.NodeWaiting},
+		},
+	}
+	applied, err := cloneManualStatus(original)
+	require.NoError(t, err)
+	require.NoError(t, applyPushBack(context.Background(), applied.Nodes[0], applied, nil))
+	current, err := cloneManualStatus(applied)
+	require.NoError(t, err)
+	current.Nodes[1].Status = core.NodeSucceeded
+	current.Nodes[1].HumanTaskInput = json.RawMessage(`{"confirmed":true}`)
+	current.HumanTaskResume = &exec.HumanTaskResumeState{RequestedAt: "2026-07-21T00:00:00Z"}
+
+	store := &manualCASStore{status: current}
+	a := &API{dagRunStore: store}
+	require.NoError(t, a.rollbackPushBack(t.Context(), current.DAGRun(), applied, original))
+
+	assert.Equal(t, core.NodeWaiting, current.Nodes[0].Status)
+	assert.Equal(t, "started", current.Nodes[0].StartedAt)
+	assert.Equal(t, core.NodeSucceeded, current.Nodes[1].Status)
+	assert.JSONEq(t, `{"confirmed":true}`, string(current.Nodes[1].HumanTaskInput))
+	require.NotNil(t, current.HumanTaskResume)
+}
+
+type manualCASStore struct {
+	exec.DAGRunStore
+	status *exec.DAGRunStatus
+}
+
+func (s *manualCASStore) CompareAndSwapLatestAttemptStatus(
+	_ context.Context,
+	_ exec.DAGRunRef,
+	expectedAttemptID string,
+	expectedStatus core.Status,
+	mutate func(*exec.DAGRunStatus) error,
+	opts ...exec.CompareAndSwapStatusOption,
+) (*exec.DAGRunStatus, bool, error) {
+	options := exec.NewCompareAndSwapStatusOptions(opts...)
+	if s.status.AttemptID != expectedAttemptID || s.status.Status != expectedStatus {
+		return s.status, false, nil
+	}
+	if options.ExpectedAttemptKey != "" && s.status.AttemptKey != options.ExpectedAttemptKey {
+		return s.status, false, nil
+	}
+	if err := mutate(s.status); err != nil {
+		return nil, false, err
+	}
+	return s.status, true, nil
+}
+
 func TestApplyPushBackAppendsLegacyPushBackInputsToHistory(t *testing.T) {
 	t.Parallel()
 

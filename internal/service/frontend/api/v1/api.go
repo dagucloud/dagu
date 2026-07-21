@@ -413,6 +413,7 @@ func (a *API) ConfigureRoutes(ctx context.Context, r chi.Router, writeTimeout ti
 		r.Use(frontendauth.Middleware(authOptions))
 		r.Use(a.restAuditSubjectMiddleware())
 		r.Use(WithRemoteNode(a.remoteNodeResolver, mountedAPIPath))
+		r.Use(humanTaskInputMiddleware(mountedAPIPath))
 		r.Use(WebhookRequestContextMiddleware(a.webhookMaxPayloadSize()))
 
 		middlewares := []api.StrictMiddlewareFunc{
@@ -1059,69 +1060,6 @@ func (a *API) withEventContext(ctx context.Context) context.Context {
 	return eventstore.WithContext(ctx, a.eventService, eventstore.Source{
 		Service: eventstore.SourceServiceServer,
 	})
-}
-
-func (a *API) updateDAGRunStatus(ctx context.Context, ref exec.DAGRunRef, status exec.DAGRunStatus) error {
-	updateStatus := func() error {
-		if a != nil && a.dagRunStore != nil {
-			var (
-				attempt exec.DAGRunAttempt
-				err     error
-			)
-			if ref.ID == status.DAGRunID {
-				attempt, err = a.dagRunStore.FindAttempt(ctx, ref)
-			} else {
-				attempt, err = a.dagRunStore.FindSubAttempt(ctx, ref, status.DAGRunID)
-			}
-			if err != nil {
-				return err
-			}
-			latest, err := attempt.ReadStatus(ctx)
-			if err != nil {
-				return err
-			}
-			if latest != nil && latest.Status == status.Status {
-				return a.dagRunMgr.UpdateStatus(ctx, ref, status)
-			}
-		}
-		return a.dagRunMgr.UpdateStatus(a.withEventContext(ctx), ref, status)
-	}
-
-	err := updateStatus()
-	if err == nil || !isTransientDAGRunStatusUpdateError(err) {
-		return err
-	}
-
-	const (
-		retryWindow   = 3 * time.Second
-		retryInterval = 50 * time.Millisecond
-	)
-	deadline := time.Now().Add(retryWindow)
-	for time.Now().Before(deadline) {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(retryInterval):
-		}
-
-		err = updateStatus()
-		if err == nil || !isTransientDAGRunStatusUpdateError(err) {
-			return err
-		}
-	}
-
-	return err
-}
-
-func isTransientDAGRunStatusUpdateError(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "used by another process") ||
-		strings.Contains(msg, "cannot access the file") ||
-		strings.Contains(msg, "access is denied") ||
-		strings.Contains(msg, "sharing violation")
 }
 
 // ptrOf returns a pointer to v, or nil if v is the zero value for its type.

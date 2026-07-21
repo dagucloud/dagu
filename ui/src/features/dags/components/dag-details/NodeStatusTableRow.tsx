@@ -213,6 +213,7 @@ function NodeStatusTableRow({
   const showStepActions = Boolean(dagRunId && config.permissions.runDags);
   const canRetryStep =
     showStepActions &&
+    !node.step.humanTask &&
     node.status !== NodeStatus.Waiting &&
     node.status !== NodeStatus.Rejected;
 
@@ -733,11 +734,15 @@ function NodeStatusTableRow({
           <TableCell className="text-center">
             <div
               onClick={(e) => {
+                if (node.step.humanTask) return;
                 e.stopPropagation();
                 setShowStatusModal(true);
               }}
-              className="inline-block cursor-pointer"
-              title="Click to update status"
+              className={cn(
+                'inline-block',
+                !node.step.humanTask && 'cursor-pointer'
+              )}
+              title={node.step.humanTask ? undefined : 'Click to update status'}
             >
               <NodeStatusChip status={node.status} size="sm">
                 {node.statusLabel}

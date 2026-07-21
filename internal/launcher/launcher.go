@@ -267,6 +267,16 @@ func (b *SubCmdBuilder) Retry(dag *core.DAG, dagRunID string, stepName string) C
 	return b.retry(dag, dagRunID, stepName, exec1.DAGRunRef{})
 }
 
+// HumanTaskRetry creates a retry command bound to a claimed human-task resume.
+func (b *SubCmdBuilder) HumanTaskRetry(dag *core.DAG, dagRunID, claimToken string) CmdSpec {
+	spec := b.Retry(dag, dagRunID, "")
+	insertAt := len(spec.Args) - 1
+	spec.Args = append(spec.Args, "")
+	copy(spec.Args[insertAt+1:], spec.Args[insertAt:])
+	spec.Args[insertAt] = "--human-task-resume-token=" + claimToken
+	return spec
+}
+
 // RetryWithRootDAGRun creates a retry command spec for a sub DAG-run with an
 // explicit root DAG-run reference.
 func (b *SubCmdBuilder) RetryWithRootDAGRun(dag *core.DAG, dagRunID string, stepName string, root exec1.DAGRunRef) CmdSpec {

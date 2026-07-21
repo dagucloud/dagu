@@ -6,7 +6,6 @@ package api
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -36,6 +35,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/core/spec"
 	spectypes "github.com/dagucloud/dagu/internal/core/spec/types"
+	"github.com/dagucloud/dagu/internal/dagrun/humantask"
 	"github.com/dagucloud/dagu/internal/dagrun/intake"
 	"github.com/dagucloud/dagu/internal/dagwarning"
 	"github.com/dagucloud/dagu/internal/dispatch"
@@ -1205,19 +1205,47 @@ func (a *API) UpdateDAGRunStepStatus(ctx context.Context, request api.UpdateDAGR
 			Message: fmt.Sprintf("step %s not found in DAG %s", request.StepName, request.Name),
 		}, nil
 	}
+	if dagStatus.Nodes[stepIdx].Step.HumanTask != nil {
+		return &api.UpdateDAGRunStepStatus400JSONResponse{
+			Code:    api.ErrorCodeBadRequest,
+			Message: fmt.Sprintf("human task step %s must be completed through the human-task API", request.StepName),
+		}, nil
+	}
 
-	dagStatus.Nodes[stepIdx].Status = nodeStatusMapping[request.Body.Status]
-	dagStatus.Status = deriveManualDAGRunStatus(dagStatus.Nodes, dagStatus.Status)
-
-	if err := a.updateDAGRunStatus(ctx, ref, *dagStatus); err != nil {
+	newStatus := nodeStatusMapping[request.Body.Status]
+	_, swapped, err := a.compareAndSwapManualStatus(ctx, ref, dagStatus, func(latest *exec.DAGRunStatus) error {
+		latestStepIdx := findStepByName(latest.Nodes, request.StepName)
+		if latestStepIdx < 0 {
+			return fmt.Errorf("step %s not found in DAG %s", request.StepName, request.Name)
+		}
+		if latest.Nodes[latestStepIdx].Step.HumanTask != nil {
+			return errManualStepHumanTask
+		}
+		latest.Nodes[latestStepIdx].Status = newStatus
+		latest.Status = deriveManualDAGRunStatus(latest.Nodes, latest.Status)
+		return nil
+	})
+	if err != nil {
+		if errors.Is(err, errManualStepHumanTask) {
+			return &api.UpdateDAGRunStepStatus400JSONResponse{
+				Code:    api.ErrorCodeBadRequest,
+				Message: fmt.Sprintf("human task step %s must be completed through the human-task API", request.StepName),
+			}, nil
+		}
 		return nil, fmt.Errorf("error updating status: %w", err)
+	}
+	if !swapped {
+		return &api.UpdateDAGRunStepStatus400JSONResponse{
+			Code:    api.ErrorCodeBadRequest,
+			Message: "DAG-run state changed before the step status could be updated",
+		}, nil
 	}
 
 	a.logAudit(ctx, audit.CategoryDAG, "dag_step_status_update", map[string]any{
 		"dag_name":   request.Name,
 		"dag_run_id": request.DagRunId,
 		"step_name":  request.StepName,
-		"new_status": nodeStatusMapping[request.Body.Status].String(),
+		"new_status": newStatus.String(),
 	})
 
 	return &api.UpdateDAGRunStepStatus200Response{}, nil
@@ -1271,6 +1299,12 @@ func (a *API) ApproveDAGRunStep(ctx context.Context, request api.ApproveDAGRunSt
 			Message: fmt.Sprintf("step %s is not waiting for approval (status: %s)", request.StepName, dagStatus.Nodes[stepIdx].Status),
 		}, nil
 	}
+	if err := requireApprovalNode(dagStatus.Nodes[stepIdx], request.StepName); err != nil {
+		return &api.ApproveDAGRunStep400JSONResponse{
+			Code:    api.ErrorCodeBadRequest,
+			Message: err.Error(),
+		}, nil
+	}
 
 	if err := validateRequiredInputs(dagStatus.Nodes[stepIdx].Step, request.Body); err != nil {
 		return &api.ApproveDAGRunStep400JSONResponse{
@@ -1279,18 +1313,48 @@ func (a *API) ApproveDAGRunStep(ctx context.Context, request api.ApproveDAGRunSt
 		}, nil
 	}
 
-	// Apply approval to the node
-	applyApproval(ctx, dagStatus.Nodes[stepIdx], request.Body)
-
-	if err := a.updateDAGRunStatus(ctx, ref, *dagStatus); err != nil {
-		return nil, fmt.Errorf("error updating status: %w", err)
+	updated, swapped, err := a.compareAndSwapManualStatus(ctx, ref, dagStatus, func(latest *exec.DAGRunStatus) error {
+		latestStepIdx := findStepByName(latest.Nodes, request.StepName)
+		if latestStepIdx < 0 {
+			return fmt.Errorf("step %s not found in DAG %s", request.StepName, request.Name)
+		}
+		latestNode := latest.Nodes[latestStepIdx]
+		if err := requireApprovalNode(latestNode, request.StepName); err != nil {
+			return err
+		}
+		if latestNode.Status != core.NodeWaiting {
+			return fmt.Errorf("step %s is not waiting for approval (status: %s)", request.StepName, latestNode.Status)
+		}
+		if err := validateRequiredInputs(latestNode.Step, request.Body); err != nil {
+			return err
+		}
+		applyApproval(ctx, latestNode, request.Body)
+		return nil
+	})
+	if err != nil {
+		return &api.ApproveDAGRunStep400JSONResponse{
+			Code:    api.ErrorCodeBadRequest,
+			Message: err.Error(),
+		}, nil
+	}
+	if !swapped {
+		return &api.ApproveDAGRunStep400JSONResponse{
+			Code:    api.ErrorCodeBadRequest,
+			Message: "DAG-run state changed before the step could be approved",
+		}, nil
 	}
 
 	// Resume DAG if no more waiting steps
-	shouldResume := !hasWaitingSteps(dagStatus.Nodes)
+	shouldResume := !hasWaitingSteps(updated.Nodes)
 	if shouldResume {
-		if err := a.resumeDAGRun(ctx, ref, request.DagRunId); err != nil {
-			logger.Error(ctx, "Failed to resume DAG", tag.Error(err))
+		var resumeErr error
+		if humantask.HasCompletedTask(updated) {
+			_, resumeErr = a.humanTaskService().Resume(a.withEventContext(ctx), request.Name, request.DagRunId)
+		} else {
+			resumeErr = a.resumeDAGRun(ctx, ref, request.DagRunId)
+		}
+		if resumeErr != nil {
+			logger.Error(ctx, "Failed to resume DAG", tag.Error(resumeErr))
 			shouldResume = false
 		} else {
 			logger.Info(ctx, "DAG resumed after approval",
@@ -1368,6 +1432,12 @@ func (a *API) ApproveSubDAGRunStep(ctx context.Context, request api.ApproveSubDA
 			Message: fmt.Sprintf("step %s is not waiting for approval (status: %s)", request.StepName, dagStatus.Nodes[stepIdx].Status),
 		}, nil
 	}
+	if err := requireApprovalNode(dagStatus.Nodes[stepIdx], request.StepName); err != nil {
+		return &api.ApproveSubDAGRunStep400JSONResponse{
+			Code:    api.ErrorCodeBadRequest,
+			Message: err.Error(),
+		}, nil
+	}
 
 	if err := validateRequiredInputs(dagStatus.Nodes[stepIdx].Step, request.Body); err != nil {
 		return &api.ApproveSubDAGRunStep400JSONResponse{
@@ -1376,14 +1446,39 @@ func (a *API) ApproveSubDAGRunStep(ctx context.Context, request api.ApproveSubDA
 		}, nil
 	}
 
-	applyApproval(ctx, dagStatus.Nodes[stepIdx], request.Body)
-
-	if err := a.updateDAGRunStatus(ctx, mutationRef, *dagStatus); err != nil {
-		return nil, fmt.Errorf("error updating sub DAG-run status: %w", err)
+	updated, swapped, err := a.compareAndSwapManualStatus(ctx, mutationRef, dagStatus, func(latest *exec.DAGRunStatus) error {
+		latestStepIdx := findStepByName(latest.Nodes, request.StepName)
+		if latestStepIdx < 0 {
+			return fmt.Errorf("step %s not found in sub DAG-run %s", request.StepName, request.SubDAGRunId)
+		}
+		latestNode := latest.Nodes[latestStepIdx]
+		if err := requireApprovalNode(latestNode, request.StepName); err != nil {
+			return err
+		}
+		if latestNode.Status != core.NodeWaiting {
+			return fmt.Errorf("step %s is not waiting for approval (status: %s)", request.StepName, latestNode.Status)
+		}
+		if err := validateRequiredInputs(latestNode.Step, request.Body); err != nil {
+			return err
+		}
+		applyApproval(ctx, latestNode, request.Body)
+		return nil
+	})
+	if err != nil {
+		return &api.ApproveSubDAGRunStep400JSONResponse{
+			Code:    api.ErrorCodeBadRequest,
+			Message: err.Error(),
+		}, nil
+	}
+	if !swapped {
+		return &api.ApproveSubDAGRunStep400JSONResponse{
+			Code:    api.ErrorCodeBadRequest,
+			Message: "sub DAG-run state changed before the step could be approved",
+		}, nil
 	}
 
 	// Resume sub-DAG if no more waiting steps
-	shouldResume := !hasWaitingSteps(dagStatus.Nodes)
+	shouldResume := !hasWaitingSteps(updated.Nodes)
 	if shouldResume {
 		if err := a.resumeSubDAGRun(ctx, rootRef, request.SubDAGRunId); err != nil {
 			logger.Error(ctx, "Failed to resume sub DAG", tag.Error(err))
@@ -1533,15 +1628,43 @@ func (a *API) RejectDAGRunStep(ctx context.Context, request api.RejectDAGRunStep
 			Message: fmt.Sprintf("step %s is not waiting for approval (status: %s)", request.StepName, dagStatus.Nodes[stepIdx].Status),
 		}, nil
 	}
+	if err := requireApprovalNode(dagStatus.Nodes[stepIdx], request.StepName); err != nil {
+		return &api.RejectDAGRunStep400JSONResponse{
+			Code:    api.ErrorCodeBadRequest,
+			Message: err.Error(),
+		}, nil
+	}
 
 	var reason *string
 	if request.Body != nil {
 		reason = request.Body.Reason
 	}
-	applyRejection(ctx, dagStatus.Nodes[stepIdx], dagStatus, reason)
-
-	if err := a.updateDAGRunStatus(ctx, ref, *dagStatus); err != nil {
-		return nil, fmt.Errorf("error updating status: %w", err)
+	_, swapped, err := a.compareAndSwapManualStatus(ctx, ref, dagStatus, func(latest *exec.DAGRunStatus) error {
+		latestStepIdx := findStepByName(latest.Nodes, request.StepName)
+		if latestStepIdx < 0 {
+			return fmt.Errorf("step %s not found in DAG %s", request.StepName, request.Name)
+		}
+		latestNode := latest.Nodes[latestStepIdx]
+		if err := requireApprovalNode(latestNode, request.StepName); err != nil {
+			return err
+		}
+		if latestNode.Status != core.NodeWaiting {
+			return fmt.Errorf("step %s is not waiting for approval (status: %s)", request.StepName, latestNode.Status)
+		}
+		applyRejection(ctx, latestNode, latest, reason)
+		return nil
+	})
+	if err != nil {
+		return &api.RejectDAGRunStep400JSONResponse{
+			Code:    api.ErrorCodeBadRequest,
+			Message: err.Error(),
+		}, nil
+	}
+	if !swapped {
+		return &api.RejectDAGRunStep400JSONResponse{
+			Code:    api.ErrorCodeBadRequest,
+			Message: "DAG-run state changed before the step could be rejected",
+		}, nil
 	}
 
 	logger.Info(ctx, "Step rejected",
@@ -1599,15 +1722,43 @@ func (a *API) RejectSubDAGRunStep(ctx context.Context, request api.RejectSubDAGR
 			Message: fmt.Sprintf("step %s is not waiting for approval (status: %s)", request.StepName, dagStatus.Nodes[stepIdx].Status),
 		}, nil
 	}
+	if err := requireApprovalNode(dagStatus.Nodes[stepIdx], request.StepName); err != nil {
+		return &api.RejectSubDAGRunStep400JSONResponse{
+			Code:    api.ErrorCodeBadRequest,
+			Message: err.Error(),
+		}, nil
+	}
 
 	var reason *string
 	if request.Body != nil {
 		reason = request.Body.Reason
 	}
-	applyRejection(ctx, dagStatus.Nodes[stepIdx], dagStatus, reason)
-
-	if err := a.updateDAGRunStatus(ctx, mutationRef, *dagStatus); err != nil {
-		return nil, fmt.Errorf("error updating sub DAG-run status: %w", err)
+	_, swapped, err := a.compareAndSwapManualStatus(ctx, mutationRef, dagStatus, func(latest *exec.DAGRunStatus) error {
+		latestStepIdx := findStepByName(latest.Nodes, request.StepName)
+		if latestStepIdx < 0 {
+			return fmt.Errorf("step %s not found in sub DAG-run %s", request.StepName, request.SubDAGRunId)
+		}
+		latestNode := latest.Nodes[latestStepIdx]
+		if err := requireApprovalNode(latestNode, request.StepName); err != nil {
+			return err
+		}
+		if latestNode.Status != core.NodeWaiting {
+			return fmt.Errorf("step %s is not waiting for approval (status: %s)", request.StepName, latestNode.Status)
+		}
+		applyRejection(ctx, latestNode, latest, reason)
+		return nil
+	})
+	if err != nil {
+		return &api.RejectSubDAGRunStep400JSONResponse{
+			Code:    api.ErrorCodeBadRequest,
+			Message: err.Error(),
+		}, nil
+	}
+	if !swapped {
+		return &api.RejectSubDAGRunStep400JSONResponse{
+			Code:    api.ErrorCodeBadRequest,
+			Message: "sub DAG-run state changed before the step could be rejected",
+		}, nil
 	}
 
 	logger.Info(ctx, "Sub DAG step rejected",
@@ -1668,10 +1819,10 @@ func (a *API) PushBackDAGRunStep(ctx context.Context, request api.PushBackDAGRun
 		}, nil
 	}
 
-	if node.Step.Approval == nil {
+	if err := requireApprovalNode(node, request.StepName); err != nil {
 		return &api.PushBackDAGRunStep400JSONResponse{
 			Code:    api.ErrorCodeBadRequest,
-			Message: fmt.Sprintf("step %s does not have approval configuration; push-back requires the approval field", request.StepName),
+			Message: err.Error(),
 		}, nil
 	}
 
@@ -1682,30 +1833,54 @@ func (a *API) PushBackDAGRunStep(ctx context.Context, request api.PushBackDAGRun
 		}, nil
 	}
 
-	// Snapshot current state for rollback if resume fails.
-	snapshot, err := json.Marshal(dagStatus)
+	var original *exec.DAGRunStatus
+	updated, swapped, err := a.compareAndSwapManualStatus(ctx, ref, dagStatus, func(latest *exec.DAGRunStatus) error {
+		latestStepIdx := findStepByName(latest.Nodes, request.StepName)
+		if latestStepIdx < 0 {
+			return fmt.Errorf("step %s not found in DAG %s", request.StepName, request.Name)
+		}
+		latestNode := latest.Nodes[latestStepIdx]
+		if err := requireApprovalNode(latestNode, request.StepName); err != nil {
+			return err
+		}
+		if latestNode.Status != core.NodeWaiting {
+			return fmt.Errorf("step %s is not waiting for approval (status: %s)", request.StepName, latestNode.Status)
+		}
+		if err := validatePushBackInputs(latestNode.Step, request.Body); err != nil {
+			return err
+		}
+		original, err = cloneManualStatus(latest)
+		if err != nil {
+			return fmt.Errorf("serialize status for push-back rollback: %w", err)
+		}
+		return applyPushBack(ctx, latestNode, latest, request.Body)
+	})
 	if err != nil {
-		return nil, fmt.Errorf("error serializing status for rollback: %w", err)
-	}
-
-	if err := applyPushBack(ctx, node, dagStatus, request.Body); err != nil {
 		return &api.PushBackDAGRunStep400JSONResponse{
 			Code:    api.ErrorCodeBadRequest,
 			Message: err.Error(),
 		}, nil
 	}
-
-	if err := a.updateDAGRunStatus(ctx, ref, *dagStatus); err != nil {
-		return nil, fmt.Errorf("error updating status: %w", err)
+	if !swapped {
+		return &api.PushBackDAGRunStep400JSONResponse{
+			Code:    api.ErrorCodeBadRequest,
+			Message: "DAG-run state changed before the step could be pushed back",
+		}, nil
 	}
+	applied, err := cloneManualStatus(updated)
+	if err != nil {
+		return nil, fmt.Errorf("error serializing pushed-back status: %w", err)
+	}
+	updatedNode, err := updated.NodeByName(request.StepName)
+	if err != nil {
+		return nil, fmt.Errorf("error reading pushed-back step: %w", err)
+	}
+	approvalIteration := updatedNode.ApprovalIteration
 
 	if err := a.resumeDAGRun(ctx, ref, request.DagRunId); err != nil {
 		logger.Error(ctx, "Failed to resume DAG after push-back, rolling back", tag.Error(err))
-		var original exec.DAGRunStatus
-		if unmarshalErr := json.Unmarshal(snapshot, &original); unmarshalErr == nil {
-			if rollbackErr := a.updateDAGRunStatus(ctx, ref, original); rollbackErr != nil {
-				logger.Error(ctx, "Failed to rollback push-back state", tag.Error(rollbackErr))
-			}
+		if rollbackErr := a.rollbackPushBack(ctx, ref, applied, original); rollbackErr != nil {
+			logger.Error(ctx, "Failed to rollback push-back state", tag.Error(rollbackErr))
 		}
 		return nil, fmt.Errorf("failed to resume DAG after push-back: %w", err)
 	}
@@ -1713,15 +1888,15 @@ func (a *API) PushBackDAGRunStep(ctx context.Context, request api.PushBackDAGRun
 	logger.Info(ctx, "DAG resumed after push-back",
 		slog.String("dagRunId", request.DagRunId),
 		slog.String("step", request.StepName),
-		slog.Int("iteration", node.ApprovalIteration),
+		slog.Int("iteration", approvalIteration),
 	)
 
-	a.logStepPushBack(ctx, request.Name, request.DagRunId, "", request.StepName, node.ApprovalIteration, true)
+	a.logStepPushBack(ctx, request.Name, request.DagRunId, "", request.StepName, approvalIteration, true)
 
 	return &api.PushBackDAGRunStep200JSONResponse{
 		DagRunId:          request.DagRunId,
 		StepName:          request.StepName,
-		ApprovalIteration: node.ApprovalIteration,
+		ApprovalIteration: approvalIteration,
 		Resumed:           true,
 	}, nil
 }
@@ -1771,10 +1946,10 @@ func (a *API) PushBackSubDAGRunStep(ctx context.Context, request api.PushBackSub
 		}, nil
 	}
 
-	if node.Step.Approval == nil {
+	if err := requireApprovalNode(node, request.StepName); err != nil {
 		return &api.PushBackSubDAGRunStep400JSONResponse{
 			Code:    api.ErrorCodeBadRequest,
-			Message: fmt.Sprintf("step %s does not have approval configuration; push-back requires the approval field", request.StepName),
+			Message: err.Error(),
 		}, nil
 	}
 
@@ -1785,30 +1960,54 @@ func (a *API) PushBackSubDAGRunStep(ctx context.Context, request api.PushBackSub
 		}, nil
 	}
 
-	// Snapshot current state for rollback if resume fails.
-	snapshot, err := json.Marshal(dagStatus)
+	var original *exec.DAGRunStatus
+	updated, swapped, err := a.compareAndSwapManualStatus(ctx, mutationRef, dagStatus, func(latest *exec.DAGRunStatus) error {
+		latestStepIdx := findStepByName(latest.Nodes, request.StepName)
+		if latestStepIdx < 0 {
+			return fmt.Errorf("step %s not found in sub DAG-run %s", request.StepName, request.SubDAGRunId)
+		}
+		latestNode := latest.Nodes[latestStepIdx]
+		if err := requireApprovalNode(latestNode, request.StepName); err != nil {
+			return err
+		}
+		if latestNode.Status != core.NodeWaiting {
+			return fmt.Errorf("step %s is not waiting for approval (status: %s)", request.StepName, latestNode.Status)
+		}
+		if err := validatePushBackInputs(latestNode.Step, request.Body); err != nil {
+			return err
+		}
+		original, err = cloneManualStatus(latest)
+		if err != nil {
+			return fmt.Errorf("serialize sub DAG-run status for push-back rollback: %w", err)
+		}
+		return applyPushBack(ctx, latestNode, latest, request.Body)
+	})
 	if err != nil {
-		return nil, fmt.Errorf("error serializing status for rollback: %w", err)
-	}
-
-	if err := applyPushBack(ctx, node, dagStatus, request.Body); err != nil {
 		return &api.PushBackSubDAGRunStep400JSONResponse{
 			Code:    api.ErrorCodeBadRequest,
 			Message: err.Error(),
 		}, nil
 	}
-
-	if err := a.updateDAGRunStatus(ctx, mutationRef, *dagStatus); err != nil {
-		return nil, fmt.Errorf("error updating sub DAG-run status: %w", err)
+	if !swapped {
+		return &api.PushBackSubDAGRunStep400JSONResponse{
+			Code:    api.ErrorCodeBadRequest,
+			Message: "sub DAG-run state changed before the step could be pushed back",
+		}, nil
 	}
+	applied, err := cloneManualStatus(updated)
+	if err != nil {
+		return nil, fmt.Errorf("error serializing pushed-back sub DAG-run status: %w", err)
+	}
+	updatedNode, err := updated.NodeByName(request.StepName)
+	if err != nil {
+		return nil, fmt.Errorf("error reading pushed-back sub DAG-run step: %w", err)
+	}
+	approvalIteration := updatedNode.ApprovalIteration
 
 	if err := a.resumeSubDAGRun(ctx, rootRef, request.SubDAGRunId); err != nil {
 		logger.Error(ctx, "Failed to resume sub DAG after push-back, rolling back", tag.Error(err))
-		var original exec.DAGRunStatus
-		if unmarshalErr := json.Unmarshal(snapshot, &original); unmarshalErr == nil {
-			if rollbackErr := a.updateDAGRunStatus(ctx, mutationRef, original); rollbackErr != nil {
-				logger.Error(ctx, "Failed to rollback push-back state", tag.Error(rollbackErr))
-			}
+		if rollbackErr := a.rollbackPushBack(ctx, mutationRef, applied, original); rollbackErr != nil {
+			logger.Error(ctx, "Failed to rollback push-back state", tag.Error(rollbackErr))
 		}
 		return nil, fmt.Errorf("failed to resume sub DAG after push-back: %w", err)
 	}
@@ -1816,16 +2015,16 @@ func (a *API) PushBackSubDAGRunStep(ctx context.Context, request api.PushBackSub
 	logger.Info(ctx, "Sub DAG resumed after push-back",
 		slog.String("subDagRunId", request.SubDAGRunId),
 		slog.String("step", request.StepName),
-		slog.Int("iteration", node.ApprovalIteration),
+		slog.Int("iteration", approvalIteration),
 	)
 
-	a.logStepPushBack(ctx, request.Name, request.DagRunId, request.SubDAGRunId, request.StepName, node.ApprovalIteration, true)
+	a.logStepPushBack(ctx, request.Name, request.DagRunId, request.SubDAGRunId, request.StepName, approvalIteration, true)
 
 	return &api.PushBackSubDAGRunStep200JSONResponse{
 		DagRunId:          request.SubDAGRunId,
 		SubDAGRunId:       &request.SubDAGRunId,
 		StepName:          request.StepName,
-		ApprovalIteration: node.ApprovalIteration,
+		ApprovalIteration: approvalIteration,
 		Resumed:           true,
 	}, nil
 }
@@ -2455,12 +2654,40 @@ func (a *API) UpdateSubDAGRunStepStatus(ctx context.Context, request api.UpdateS
 			Message: fmt.Sprintf("step %s not found in DAG %s", request.StepName, request.Name),
 		}, nil
 	}
+	if dagStatus.Nodes[stepIdx].Step.HumanTask != nil {
+		return &api.UpdateSubDAGRunStepStatus400JSONResponse{
+			Code:    api.ErrorCodeBadRequest,
+			Message: fmt.Sprintf("human task step %s must be completed through the human-task API", request.StepName),
+		}, nil
+	}
 
-	dagStatus.Nodes[stepIdx].Status = nodeStatusMapping[request.Body.Status]
-	dagStatus.Status = deriveManualDAGRunStatus(dagStatus.Nodes, dagStatus.Status)
-
-	if err := a.updateDAGRunStatus(ctx, mutationRef, *dagStatus); err != nil {
+	newStatus := nodeStatusMapping[request.Body.Status]
+	_, swapped, err := a.compareAndSwapManualStatus(ctx, mutationRef, dagStatus, func(latest *exec.DAGRunStatus) error {
+		latestStepIdx := findStepByName(latest.Nodes, request.StepName)
+		if latestStepIdx < 0 {
+			return fmt.Errorf("step %s not found in sub DAG-run %s", request.StepName, request.SubDAGRunId)
+		}
+		if latest.Nodes[latestStepIdx].Step.HumanTask != nil {
+			return errManualStepHumanTask
+		}
+		latest.Nodes[latestStepIdx].Status = newStatus
+		latest.Status = deriveManualDAGRunStatus(latest.Nodes, latest.Status)
+		return nil
+	})
+	if err != nil {
+		if errors.Is(err, errManualStepHumanTask) {
+			return &api.UpdateSubDAGRunStepStatus400JSONResponse{
+				Code:    api.ErrorCodeBadRequest,
+				Message: fmt.Sprintf("human task step %s must be completed through the human-task API", request.StepName),
+			}, nil
+		}
 		return nil, fmt.Errorf("error updating status: %w", err)
+	}
+	if !swapped {
+		return &api.UpdateSubDAGRunStepStatus400JSONResponse{
+			Code:    api.ErrorCodeBadRequest,
+			Message: "sub DAG-run state changed before the step status could be updated",
+		}, nil
 	}
 
 	a.logAudit(ctx, audit.CategoryDAG, "sub_dag_step_status_update", map[string]any{
@@ -2468,7 +2695,7 @@ func (a *API) UpdateSubDAGRunStepStatus(ctx context.Context, request api.UpdateS
 		"dag_run_id":     request.DagRunId,
 		"sub_dag_run_id": request.SubDAGRunId,
 		"step_name":      request.StepName,
-		"new_status":     nodeStatusMapping[request.Body.Status].String(),
+		"new_status":     newStatus.String(),
 	})
 
 	return &api.UpdateSubDAGRunStepStatus200Response{}, nil
@@ -2671,6 +2898,13 @@ func (a *API) retryDAGRun(ctx context.Context, dagName, dagRunID, retryDagRunID,
 	}
 	if prevStatus == nil {
 		return retryDAGRunResult{}, fmt.Errorf("error reading status: status data is nil")
+	}
+	if err := humantask.ValidateRetry(prevStatus, stepName, ""); err != nil {
+		return retryDAGRunResult{}, &Error{
+			HTTPStatus: http.StatusConflict,
+			Code:       api.ErrorCodeConflict,
+			Message:    err.Error(),
+		}
 	}
 	profileName, err := a.inheritedRunProfileName(ctx, prevStatus.ProfileName)
 	if err != nil {
