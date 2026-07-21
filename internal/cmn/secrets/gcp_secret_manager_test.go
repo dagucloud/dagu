@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 	"hash/crc32"
-	"sync"
 	"testing"
 
 	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
@@ -72,20 +71,15 @@ func TestGCPSecretManagerResolverRegistered(t *testing.T) {
 }
 
 func TestGCPSecretManagerResolverResolve(t *testing.T) {
-	var mu sync.Mutex
 	var locations []string
 	var resources []string
 	data := []byte(`{"token":"resolved","enabled":true}`)
 	checksum := int64(crc32.Checksum(data, crc32.MakeTable(crc32.Castagnoli)))
 	resolver := &gcpSecretManagerResolver{
 		clientFactory: func(_ context.Context, location string) (gcpSecretManagerClient, error) {
-			mu.Lock()
 			locations = append(locations, location)
-			mu.Unlock()
 			return &gcpSecretManagerTestClient{accessSecretVersion: func(_ context.Context, request *secretmanagerpb.AccessSecretVersionRequest) (*secretmanagerpb.AccessSecretVersionResponse, error) {
-				mu.Lock()
 				resources = append(resources, request.Name)
-				mu.Unlock()
 				return &secretmanagerpb.AccessSecretVersionResponse{
 					Payload: &secretmanagerpb.SecretPayload{Data: data, DataCrc32C: &checksum},
 				}, nil
@@ -123,8 +117,6 @@ func TestGCPSecretManagerResolverResolve(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, string(data), got)
 
-	mu.Lock()
-	defer mu.Unlock()
 	assert.Equal(t, []string{"", "us-central1", "europe-west1"}, locations)
 	assert.Equal(t, []string{
 		"projects/config-project/secrets/database-password/versions/latest",

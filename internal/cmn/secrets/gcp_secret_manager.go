@@ -169,16 +169,13 @@ func parseGCPSecretReference(ref core.SecretRef, defaultProject, defaultLocation
 func parseGCPResourceName(key string, options map[string]string) (gcpSecretReference, error) {
 	parts := strings.Split(key, "/")
 	location := ""
-	secretResource := false
 	versionResource := false
 	switch {
 	case len(parts) == 4 && parts[0] == "projects" && parts[2] == "secrets":
-		secretResource = true
 	case len(parts) == 6 && parts[0] == "projects" && parts[2] == "secrets" && parts[4] == "versions":
 		versionResource = true
 	case len(parts) == 6 && parts[0] == "projects" && parts[2] == "locations" && parts[4] == "secrets":
 		location = parts[3]
-		secretResource = true
 	case len(parts) == 8 && parts[0] == "projects" && parts[2] == "locations" && parts[4] == "secrets" && parts[6] == "versions":
 		location = parts[3]
 		versionResource = true
@@ -199,9 +196,6 @@ func parseGCPResourceName(key string, options map[string]string) (gcpSecretRefer
 			return gcpSecretReference{}, fmt.Errorf("options.version conflicts with the GCP Secret Manager version resource name")
 		}
 		return gcpSecretReference{resource: key, location: location}, nil
-	}
-	if !secretResource {
-		return gcpSecretReference{}, fmt.Errorf("invalid GCP Secret Manager resource name")
 	}
 	version := options["version"]
 	if version == "" {
