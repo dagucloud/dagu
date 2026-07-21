@@ -734,8 +734,8 @@ function NodeStatusTableRow({
           <TableCell className="text-center">
             <div
               onClick={(e) => {
-                if (node.step.humanTask) return;
                 e.stopPropagation();
+                if (node.step.humanTask) return;
                 setShowStatusModal(true);
               }}
               className={cn(

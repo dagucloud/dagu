@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -245,5 +245,52 @@ describe('NodeStatusTableRow', () => {
     );
 
     expect(screen.queryByTitle('Retry from this step')).not.toBeInTheDocument();
+  });
+
+  it('does not expand logs when a human-task status chip is clicked', () => {
+    const node = {
+      step: {
+        name: 'review',
+        humanTask: { prompt: 'Review deployment' },
+      },
+      status: NodeStatus.Waiting,
+      statusLabel: NodeStatusLabel.waiting,
+      stdout: '/tmp/review.out',
+      stderr: '',
+      startedAt: '',
+      finishedAt: '',
+      retryCount: 0,
+      doneCount: 0,
+    } as components['schemas']['Node'];
+
+    const { container } = render(
+      <MemoryRouter>
+        <AppBarContext.Provider value={appBarValue}>
+          <DAGContext.Provider
+            value={{
+              refresh: vi.fn(),
+              name: 'example',
+              fileName: 'example.yaml',
+            }}
+          >
+            <table>
+              <tbody>
+                <NodeStatusTableRow
+                  rownum={1}
+                  node={node}
+                  name="example.yaml"
+                  dagRun={dagRun}
+                  view="desktop"
+                />
+              </tbody>
+            </table>
+          </DAGContext.Provider>
+        </AppBarContext.Provider>
+      </MemoryRouter>
+    );
+
+    fireEvent.click(screen.getByText(NodeStatusLabel.waiting));
+
+    expect(container.querySelectorAll('tbody > tr')).toHaveLength(1);
   });
 });
