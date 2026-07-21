@@ -80,8 +80,8 @@ func TestAWSSecretsManagerResolverResolve(t *testing.T) {
 	got, err := resolver.Resolve(ctx, core.SecretRef{
 		Key: " database-password ",
 		Options: map[string]string{
-			"version_id":    " version-id ",
-			"version_stage": " AWSPREVIOUS ",
+			"version_id":    " 0123456789abcdef0123456789abcdef ",
+			"version_stage": " custom-stage ",
 			"field":         "token",
 		},
 	})
@@ -103,8 +103,8 @@ func TestAWSSecretsManagerResolverResolve(t *testing.T) {
 	assert.Equal(t, []string{"us-west-2", "eu-west-1", "ap-northeast-1"}, regions)
 	require.Len(t, inputs, 3)
 	assert.Equal(t, "database-password", aws.ToString(inputs[0].SecretId))
-	assert.Equal(t, "version-id", aws.ToString(inputs[0].VersionId))
-	assert.Equal(t, "AWSPREVIOUS", aws.ToString(inputs[0].VersionStage))
+	assert.Equal(t, " 0123456789abcdef0123456789abcdef ", aws.ToString(inputs[0].VersionId))
+	assert.Equal(t, " custom-stage ", aws.ToString(inputs[0].VersionStage))
 	assert.Equal(t, arn, aws.ToString(inputs[2].SecretId))
 }
 

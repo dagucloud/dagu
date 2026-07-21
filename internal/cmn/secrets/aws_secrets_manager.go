@@ -70,10 +70,10 @@ func (r *awsSecretsManagerResolver) Resolve(ctx context.Context, ref core.Secret
 	}
 
 	input := &secretsmanager.GetSecretValueInput{SecretId: aws.String(key)}
-	if versionID := strings.TrimSpace(ref.Options["version_id"]); versionID != "" {
+	if versionID := ref.Options["version_id"]; versionID != "" {
 		input.VersionId = aws.String(versionID)
 	}
-	if versionStage := strings.TrimSpace(ref.Options["version_stage"]); versionStage != "" {
+	if versionStage := ref.Options["version_stage"]; versionStage != "" {
 		input.VersionStage = aws.String(versionStage)
 	}
 	output, err := client.GetSecretValue(ctx, input)
