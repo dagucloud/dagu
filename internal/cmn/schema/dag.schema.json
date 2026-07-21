@@ -3117,12 +3117,12 @@
             },
             {
               "type": "string",
-              "enum": ["always", "never", "missing"],
-              "description": "String policy: 'always' pulls the image every time, 'never' uses only local images, 'missing' pulls only if not present locally"
+              "enum": ["always", "never", "missing", "fallback"],
+              "description": "String policy: 'always' pulls the image every time, 'never' uses only local images, 'missing' pulls only if not present locally, 'fallback' attempts a pull and falls back to a local image if the pull fails"
             }
           ],
           "default": "missing",
-          "description": "Image pull policy. Accepts boolean (true='always', false='never') or string ('always', 'never', 'missing'). Default is 'missing'. Not applicable in exec mode."
+          "description": "Image pull policy. Accepts boolean (true='always', false='never') or string ('always', 'never', 'missing', 'fallback'). Default is 'missing'. Not applicable in exec mode."
         },
         "env": {
           "oneOf": [
@@ -3726,12 +3726,12 @@
             },
             {
               "type": "string",
-              "enum": ["always", "never", "missing"],
-              "description": "Pull policy string"
+              "enum": ["always", "never", "missing", "fallback"],
+              "description": "Pull policy string: 'always', 'never', 'missing', or 'fallback'"
             }
           ],
           "default": "missing",
-          "description": "Image pull policy. 'always' pulls every time, 'never' uses only local, 'missing' pulls if not present."
+          "description": "Image pull policy. 'always' pulls every time, 'never' uses only local, 'missing' pulls if not present, 'fallback' attempts a pull and falls back to a local image if the pull fails."
         },
         "auto_remove": {
           "oneOf": [{ "type": "boolean" }, { "type": "string" }],

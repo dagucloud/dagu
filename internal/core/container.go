@@ -141,6 +141,8 @@ func (p PullPolicy) String() string {
 		return "never"
 	case PullPolicyMissing:
 		return "missing"
+	case PullPolicyFallback:
+		return "fallback"
 	default:
 		return "unknown"
 	}
@@ -150,12 +152,14 @@ const (
 	PullPolicyAlways PullPolicy = iota
 	PullPolicyNever
 	PullPolicyMissing
+	PullPolicyFallback
 )
 
 var pullPolicyMap = map[string]PullPolicy{
-	"always":  PullPolicyAlways,
-	"missing": PullPolicyMissing,
-	"never":   PullPolicyNever,
+	"always":   PullPolicyAlways,
+	"missing":  PullPolicyMissing,
+	"never":    PullPolicyNever,
+	"fallback": PullPolicyFallback,
 }
 
 // boolToPullPolicy converts a boolean to a PullPolicy.

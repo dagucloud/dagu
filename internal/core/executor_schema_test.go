@@ -83,7 +83,7 @@ func TestValidateExecutorConfig_EnumValidation(t *testing.T) {
 		Properties: map[string]*jsonschema.Schema{
 			"pull": {
 				Type: "string",
-				Enum: []any{"always", "never", "missing"},
+				Enum: []any{"always", "never", "missing", "fallback"},
 			},
 		},
 	}
@@ -91,6 +91,10 @@ func TestValidateExecutorConfig_EnumValidation(t *testing.T) {
 
 	// Valid enum value
 	err := ValidateExecutorConfig("test_enum", map[string]any{"pull": "always"})
+	require.NoError(t, err)
+
+	// Valid fallback enum value
+	err = ValidateExecutorConfig("test_enum", map[string]any{"pull": "fallback"})
 	require.NoError(t, err)
 
 	// Invalid enum value

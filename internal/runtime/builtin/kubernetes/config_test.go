@@ -87,6 +87,16 @@ func TestLoadConfigFromMapValidation(t *testing.T) {
 		require.ErrorIs(t, err, ErrInvalidImagePullPolicy)
 	})
 
+	t.Run("UnsupportedFallbackPolicyReturnsError", func(t *testing.T) {
+		cfg, err := LoadConfigFromMap(map[string]any{
+			"image":             "busybox",
+			"image_pull_policy": "fallback",
+		})
+
+		require.Nil(t, cfg)
+		require.ErrorIs(t, err, ErrUnsupportedFallbackPolicy)
+	})
+
 	t.Run("NegativeNumericFieldsReturnError", func(t *testing.T) {
 		tests := []struct {
 			name string

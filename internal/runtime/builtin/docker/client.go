@@ -6,6 +6,7 @@ package docker
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -759,16 +760,38 @@ func (c *Client) startNewContainer(ctx context.Context, name string, cli *client
 
 		logger.Debug(ctx, "Docker: startNewContainer calling ImagePull")
 		reader, err := cli.ImagePull(ctx, c.cfg.Image, pullOpts)
+
+		// Check for API-level error
 		if err != nil {
 			logger.Error(ctx, "Docker: startNewContainer ImagePull failed", tag.Error(err))
-			return "", err
+		} else {
+			// Check for stream-level error (registry errors reported in JSON)
+			logger.Debug(ctx, "Docker: startNewContainer ImagePull returned, checking stream for errors")
+			err = checkImagePullStream(reader)
+			_ = reader.Close()
+			if err != nil {
+				logger.Error(ctx, "Docker: startNewContainer image pull stream error", tag.Error(err))
+			}
 		}
-		logger.Debug(ctx, "Docker: startNewContainer ImagePull returned, draining reader")
-		// Output pull-image log to stderr instead of stdout
-		_, _ = io.Copy(io.Discard, reader)
-		_ = reader.Close()
-		logger.Debug(ctx, "Docker: startNewContainer image pull completed")
-		logger.Infof(ctx, "Successfully pulled the image %q", c.cfg.Image)
+
+		// Handle pull failure with unified fallback logic
+		if err != nil {
+			if c.cfg.Pull == core.PullPolicyFallback {
+				hasLocal, checkErr := c.hasLocalImage(ctx, cli, &c.platform)
+				if checkErr != nil {
+					return "", fmt.Errorf("image pull failed and local image check failed: %w (original pull error: %v)", checkErr, err)
+				}
+				if !hasLocal {
+					return "", fmt.Errorf("image pull failed and no local image available: %w", err)
+				}
+				logger.Warnf(ctx, "Pull failed for %q, falling back to local image: %v", c.cfg.Image, err)
+			} else {
+				return "", err
+			}
+		} else {
+			logger.Debug(ctx, "Docker: startNewContainer image pull completed")
+			logger.Infof(ctx, "Successfully pulled the image %q", c.cfg.Image)
+		}
 	}
 
 	ctCfg := *c.cfg.Container // Copy to avoid mutating original
@@ -1320,6 +1343,33 @@ func getPlatform(ctx context.Context, cli *client.Client, cfg *Config) (specs.Pl
 	return platform, nil
 }
 
+// checkImagePullStream decodes the Docker image pull JSON stream and checks for errors.
+// Docker's ImagePull can return a successful io.ReadCloser even when the registry reports
+// errors in the JSON stream itself (e.g., authentication failures, not found, etc.).
+func checkImagePullStream(reader io.Reader) error {
+	decoder := json.NewDecoder(reader)
+	type pullMessage struct {
+		Status string `json:"status,omitempty"`
+		Error  string `json:"error,omitempty"`
+	}
+
+	for {
+		var msg pullMessage
+		if err := decoder.Decode(&msg); err != nil {
+			if err == io.EOF {
+				break
+			}
+			return fmt.Errorf("failed to decode stream message: %w", err)
+		}
+
+		if msg.Error != "" {
+			return fmt.Errorf("image pull error: %s", msg.Error)
+		}
+	}
+
+	return nil
+}
+
 func (c *Client) shouldPullImage(ctx context.Context, cli *client.Client, platform *specs.Platform) (bool, error) {
 	if c.cfg.Pull == core.PullPolicyAlways {
 		return true, nil
@@ -1327,9 +1377,16 @@ func (c *Client) shouldPullImage(ctx context.Context, cli *client.Client, platfo
 	if c.cfg.Pull == core.PullPolicyNever {
 		return false, nil
 	}
+	if c.cfg.Pull == core.PullPolicyFallback {
+		// Always attempt pull; fallback to local is handled by the caller.
+		return true, nil
+	}
 
-	// Loop through all locally available images that have the same reference with
-	// the input image to check if we have the correct platform.
+	return c.needsPull(ctx, cli, platform)
+}
+
+// hasLocalImage checks whether a local image matching the given platform exists.
+func (c *Client) hasLocalImage(ctx context.Context, cli *client.Client, platform *specs.Platform) (bool, error) {
 	filters := make(client.Filters).Add("reference", c.cfg.Image)
 
 	images, err := cli.ImageList(ctx, client.ImageListOptions{Filters: filters})
@@ -1343,12 +1400,22 @@ func (c *Client) shouldPullImage(ctx context.Context, cli *client.Client, platfo
 			return false, fmt.Errorf("failed to inspect image %s: %w", summary.ID, err)
 		}
 		if (platform.OS == inspect.Os) && (platform.Architecture == inspect.Architecture) && (platform.Variant == inspect.Variant) {
-			// We have the correct image locally, no need to pull
-			return false, nil
+			return true, nil
 		}
 	}
 
-	// We don't have the correct image
+	return false, nil
+}
+
+// needsPull checks if the image needs to be pulled for PullPolicyMissing.
+func (c *Client) needsPull(ctx context.Context, cli *client.Client, platform *specs.Platform) (bool, error) {
+	hasLocal, err := c.hasLocalImage(ctx, cli, platform)
+	if err != nil {
+		return false, err
+	}
+	if hasLocal {
+		return false, nil
+	}
 	return true, nil
 }
 
