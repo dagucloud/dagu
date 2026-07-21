@@ -23,8 +23,9 @@ import (
 const azureKeyVaultProvider = "azure-key-vault"
 
 var (
-	azureVaultNamePattern = regexp.MustCompile(`^[a-z][a-z0-9-]*[a-z0-9]$`)
-	azureVaultDNSSuffixes = []string{
+	azureVaultNamePattern  = regexp.MustCompile(`^[a-z][a-z0-9-]*[a-z0-9]$`)
+	azureSecretNamePattern = regexp.MustCompile(`^[a-zA-Z0-9-]{1,127}$`)
+	azureVaultDNSSuffixes  = []string{
 		".vault.azure.net",
 		".vault.azure.cn",
 		".vault.usgovcloudapi.net",
@@ -150,8 +151,8 @@ func parseAzureSecretReference(ref core.SecretRef, defaultVaultURL string) (azur
 		}
 		return parseAzureSecretURL(key, ref.Options["version"])
 	}
-	if strings.Contains(key, "/") {
-		return azureSecretReference{}, fmt.Errorf("secret name for Azure Key Vault must not contain slashes")
+	if !isValidAzureSecretName(key) {
+		return azureSecretReference{}, fmt.Errorf("secret name for Azure Key Vault must contain only 1-127 alphanumeric characters or hyphens")
 	}
 
 	vaultURL := ref.Options["vault_url"]
@@ -182,7 +183,7 @@ func parseAzureSecretURL(rawURL, optionVersion string) (azureSecretReference, er
 		return azureSecretReference{}, fmt.Errorf("secret URL path for Azure Key Vault must be /secrets/{name} or /secrets/{name}/{version}")
 	}
 	name, err := url.PathUnescape(segments[1])
-	if err != nil || name == "" || strings.Contains(name, "/") {
+	if err != nil || !isValidAzureSecretName(name) {
 		return azureSecretReference{}, fmt.Errorf("secret URL for Azure Key Vault contains an invalid secret name")
 	}
 	version := optionVersion
@@ -236,6 +237,10 @@ func validateAzureURL(u *url.URL) (string, error) {
 func isValidAzureVaultName(name string) bool {
 	return len(name) >= 3 && len(name) <= 24 &&
 		azureVaultNamePattern.MatchString(name) && !strings.Contains(name, "--")
+}
+
+func isValidAzureSecretName(name string) bool {
+	return azureSecretNamePattern.MatchString(name)
 }
 
 type azureSecretClient interface {
