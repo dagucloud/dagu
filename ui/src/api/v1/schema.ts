@@ -5126,10 +5126,12 @@ export interface components {
         /** @description Response containing list of users */
         UsersListResponse: {
             users: components["schemas"]["User"][];
-            /** @description Whether OIDC role and workspace access are synchronized by this node */
+            /** @description Whether OIDC workspace access is synchronized by this node */
             oidcWorkspaceAccessSyncEnabled?: boolean;
-            /** @description Authentication providers that synchronize role and workspace access at login on this node */
-            managedAuthorizationProviders: components["schemas"]["UserAuthProvider"][];
+            /** @description Authentication providers that synchronize user roles at login on this node */
+            managedRoleProviders: components["schemas"]["UserAuthProvider"][];
+            /** @description Authentication providers that synchronize workspace access at login on this node */
+            managedWorkspaceAccessProviders: components["schemas"]["UserAuthProvider"][];
         };
         /** @description API key information */
         APIKey: {

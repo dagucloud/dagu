@@ -1075,11 +1075,10 @@ func TestProcessLogin_SkipSyncFreezesRoleAndAccess(t *testing.T) {
 		Issuer:      "https://issuer.example.com",
 		DefaultRole: auth.RoleViewer,
 		RoleMapping: RoleMapperConfig{
-			WorkspaceMappings: map[string][]WorkspaceGrantConfig{
-				"team": {{Workspace: "payments", Role: "operator"}},
-			},
-			SkipOrgRoleSync: true,
-			DefaultRole:     auth.RoleViewer,
+			GroupMappings:       map[string]string{"team": "operator"},
+			RoleAttributeStrict: true,
+			SkipOrgRoleSync:     true,
+			DefaultRole:         auth.RoleViewer,
 		},
 	})
 	require.NoError(t, err)
@@ -1093,6 +1092,44 @@ func TestProcessLogin_SkipSyncFreezesRoleAndAccess(t *testing.T) {
 	assert.Equal(t, auth.RoleManager, user.Role)
 	assert.Equal(t, auth.AllWorkspaceAccess(), user.WorkspaceAccess)
 	assert.Zero(t, store.updateCalls)
+}
+
+func TestProcessLogin_SkipSyncStrictMissRejectsExistingUser(t *testing.T) {
+	store := newMockUserStore()
+	existing := &auth.User{
+		ID:              "existing-id",
+		Username:        "existing",
+		Role:            auth.RoleManager,
+		WorkspaceAccess: auth.AllWorkspaceAccess(),
+		AuthProvider:    "oidc",
+		OIDCIssuer:      "https://issuer.example.com",
+		OIDCSubject:     "subject",
+	}
+	require.NoError(t, store.Create(context.Background(), existing))
+
+	svc, err := New(store, Config{
+		Issuer:      "https://issuer.example.com",
+		DefaultRole: auth.RoleViewer,
+		RoleMapping: RoleMapperConfig{
+			GroupMappings:       map[string]string{"team": "operator"},
+			RoleAttributeStrict: true,
+			SkipOrgRoleSync:     true,
+			DefaultRole:         auth.RoleViewer,
+		},
+	})
+	require.NoError(t, err)
+
+	user, isNew, err := svc.ProcessLogin(context.Background(), OIDCClaims{
+		Subject:   "subject",
+		Email:     "existing@example.com",
+		RawClaims: map[string]any{"groups": []any{"other"}},
+	})
+	assert.ErrorIs(t, err, ErrNoRoleFound)
+	assert.Nil(t, user)
+	assert.False(t, isNew)
+	assert.Zero(t, store.updateCalls)
+	assert.Equal(t, auth.RoleManager, existing.Role)
+	assert.Equal(t, auth.AllWorkspaceAccess(), existing.WorkspaceAccess)
 }
 
 func TestProcessLogin_StrictMissRejectsExistingUser(t *testing.T) {

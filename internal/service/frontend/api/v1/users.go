@@ -29,16 +29,17 @@ func (a *API) ListUsers(ctx context.Context, _ api.ListUsersRequestObject) (api.
 	if err != nil {
 		return nil, err
 	}
-	syncEnabled := a.oidcWorkspaceAccessSyncEnabled()
+	workspaceAccessSyncEnabled := a.oidcWorkspaceAccessSyncEnabled()
 
 	return api.ListUsers200JSONResponse{
-		Users:                          toAPIUsers(users),
-		OidcWorkspaceAccessSyncEnabled: &syncEnabled,
-		ManagedAuthorizationProviders:  a.managedAuthorizationProviders(syncEnabled),
+		Users:                           toAPIUsers(users),
+		OidcWorkspaceAccessSyncEnabled:  &workspaceAccessSyncEnabled,
+		ManagedRoleProviders:            a.managedProviders(a.oidcAuthorizationSyncEnabled()),
+		ManagedWorkspaceAccessProviders: a.managedProviders(workspaceAccessSyncEnabled),
 	}, nil
 }
 
-func (a *API) managedAuthorizationProviders(oidcSyncEnabled bool) []api.UserAuthProvider {
+func (a *API) managedProviders(oidcSyncEnabled bool) []api.UserAuthProvider {
 	providers := make([]api.UserAuthProvider, 0, 2)
 	if oidcSyncEnabled {
 		providers = append(providers, api.UserAuthProviderOidc)
@@ -59,6 +60,21 @@ func (a *API) managedAuthorizationProviders(oidcSyncEnabled bool) []api.UserAuth
 }
 
 func (a *API) oidcWorkspaceAccessSyncEnabled() bool {
+	return a.oidcSyncEnabled() &&
+		a.config.Server.Auth.OIDC.RoleMapping.WorkspaceAccessPolicyActive()
+}
+
+func (a *API) oidcAuthorizationSyncEnabled() bool {
+	if !a.oidcSyncEnabled() {
+		return false
+	}
+	mapping := a.config.Server.Auth.OIDC.RoleMapping
+	return len(mapping.GroupMappings) > 0 ||
+		mapping.RoleAttributePath != "" ||
+		mapping.WorkspaceAccessPolicyActive()
+}
+
+func (a *API) oidcSyncEnabled() bool {
 	if a.config == nil {
 		return false
 	}
@@ -68,7 +84,6 @@ func (a *API) oidcWorkspaceAccessSyncEnabled() bool {
 	authConfig := a.config.Server.Auth
 	return authConfig.Mode == config.AuthModeBuiltin &&
 		authConfig.OIDC.IsConfigured() &&
-		authConfig.OIDC.RoleMapping.WorkspaceAccessPolicyActive() &&
 		!authConfig.OIDC.RoleMapping.SkipOrgRoleSync
 }
 

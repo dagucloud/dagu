@@ -41,21 +41,32 @@ type UsersListResponse = components['schemas']['UsersListResponse'];
 
 function AuthProviderBadge({
   user,
-  managedProviders,
+  managedRoleProviders,
+  managedWorkspaceAccessProviders,
 }: {
   user: User;
-  managedProviders: UserAuthProvider[];
+  managedRoleProviders: UserAuthProvider[];
+  managedWorkspaceAccessProviders: UserAuthProvider[];
 }) {
   const provider = user.authProvider ?? UserAuthProvider.builtin;
   if (provider === UserAuthProvider.builtin) {
     return 'Local';
   }
-  const providerLabel =
-    provider === UserAuthProvider.oidc ? 'SSO' : 'Proxy';
-  if (!managedProviders.includes(provider)) {
+  const providerLabel = provider === UserAuthProvider.oidc ? 'SSO' : 'Proxy';
+  const roleManaged = managedRoleProviders.includes(provider);
+  const workspaceAccessManaged =
+    managedWorkspaceAccessProviders.includes(provider);
+  if (!roleManaged && !workspaceAccessManaged) {
     return providerLabel;
   }
-  return <Badge variant="info">Managed by {providerLabel}</Badge>;
+  if (roleManaged && workspaceAccessManaged) {
+    return <Badge variant="info">Managed by {providerLabel}</Badge>;
+  }
+  return (
+    <Badge variant="info">
+      {roleManaged ? 'Role' : 'Workspace access'} managed by {providerLabel}
+    </Badge>
+  );
 }
 
 function canUsePassword(user: User): boolean {
@@ -76,7 +87,10 @@ export default function UsersPage() {
   const hasRbac = useHasFeature('rbac');
   const appBarContext = useContext(AppBarContext);
   const [users, setUsers] = useState<User[]>([]);
-  const [managedAuthorizationProviders, setManagedAuthorizationProviders] =
+  const [managedRoleProviders, setManagedRoleProviders] = useState<
+    UserAuthProvider[]
+  >([]);
+  const [managedWorkspaceAccessProviders, setManagedWorkspaceAccessProviders] =
     useState<UserAuthProvider[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -98,7 +112,8 @@ export default function UsersPage() {
     setIsLoading(true);
     setError(null);
     setUsers([]);
-    setManagedAuthorizationProviders([]);
+    setManagedRoleProviders([]);
+    setManagedWorkspaceAccessProviders([]);
     setShowCreateModal(false);
     setEditingUser(null);
     setResetPasswordUser(null);
@@ -126,9 +141,12 @@ export default function UsersPage() {
         return;
       }
       setUsers(data.users || []);
-      setManagedAuthorizationProviders(
-        data.managedAuthorizationProviders ??
-          (data.oidcWorkspaceAccessSyncEnabled ? [UserAuthProvider.oidc] : [])
+      const roleProviders =
+        data.managedRoleProviders ??
+        (data.oidcWorkspaceAccessSyncEnabled ? [UserAuthProvider.oidc] : []);
+      setManagedRoleProviders(roleProviders);
+      setManagedWorkspaceAccessProviders(
+        data.managedWorkspaceAccessProviders ?? roleProviders
       );
       setError(null);
     } catch (err) {
@@ -307,7 +325,10 @@ export default function UsersPage() {
                   <TableCell className="text-sm text-muted-foreground">
                     <AuthProviderBadge
                       user={user}
-                      managedProviders={managedAuthorizationProviders}
+                      managedRoleProviders={managedRoleProviders}
+                      managedWorkspaceAccessProviders={
+                        managedWorkspaceAccessProviders
+                      }
                     />
                   </TableCell>
                   <TableCell className="text-sm">
@@ -404,7 +425,8 @@ export default function UsersPage() {
       <UserFormModal
         open={!!editingUser}
         user={editingUser || undefined}
-        managedAuthorizationProviders={managedAuthorizationProviders}
+        managedRoleProviders={managedRoleProviders}
+        managedWorkspaceAccessProviders={managedWorkspaceAccessProviders}
         onClose={() => setEditingUser(null)}
         onSuccess={() => {
           setEditingUser(null);

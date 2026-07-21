@@ -102,10 +102,66 @@ func TestListUsersReportsOIDCWorkspaceAccessSyncState(t *testing.T) {
 	require.True(t, ok)
 	require.NotNil(t, response.OidcWorkspaceAccessSyncEnabled)
 	assert.True(t, *response.OidcWorkspaceAccessSyncEnabled)
-	assert.Equal(t, []generatedapi.UserAuthProvider{generatedapi.UserAuthProviderOidc}, response.ManagedAuthorizationProviders)
+	assert.Equal(t, []generatedapi.UserAuthProvider{generatedapi.UserAuthProviderOidc}, response.ManagedRoleProviders)
+	assert.Equal(t, []generatedapi.UserAuthProvider{generatedapi.UserAuthProviderOidc}, response.ManagedWorkspaceAccessProviders)
 }
 
-func TestManagedAuthorizationProvidersIncludesProxySync(t *testing.T) {
+func TestListUsersReportsOIDCRoleOnlySyncAsManaged(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		configure func(*config.OIDCRoleMapping)
+		want      []generatedapi.UserAuthProvider
+	}{
+		{
+			name: "group mapping",
+			configure: func(mapping *config.OIDCRoleMapping) {
+				mapping.GroupMappings = map[string]string{"developers": "developer"}
+			},
+			want: []generatedapi.UserAuthProvider{generatedapi.UserAuthProviderOidc},
+		},
+		{
+			name: "role attribute",
+			configure: func(mapping *config.OIDCRoleMapping) {
+				mapping.RoleAttributePath = ".role"
+			},
+			want: []generatedapi.UserAuthProvider{generatedapi.UserAuthProviderOidc},
+		},
+		{
+			name: "sync skipped",
+			configure: func(mapping *config.OIDCRoleMapping) {
+				mapping.GroupMappings = map[string]string{"developers": "developer"}
+				mapping.SkipOrgRoleSync = true
+			},
+			want: []generatedapi.UserAuthProvider{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := newOIDCWorkspaceSyncConfig()
+			mapping := &cfg.Server.Auth.OIDC.RoleMapping
+			mapping.DefaultWorkspaceAccess = config.OIDCDefaultWorkspaceAccessAll
+			tt.configure(mapping)
+			a := &API{config: cfg, authService: listUsersAuthService{}}
+			ctx := auth.WithUser(context.Background(), &auth.User{Role: auth.RoleAdmin})
+
+			result, err := a.ListUsers(ctx, generatedapi.ListUsersRequestObject{})
+			require.NoError(t, err)
+			response, ok := result.(generatedapi.ListUsers200JSONResponse)
+			require.True(t, ok)
+			require.NotNil(t, response.OidcWorkspaceAccessSyncEnabled)
+			assert.False(t, *response.OidcWorkspaceAccessSyncEnabled)
+			assert.Equal(t, tt.want, response.ManagedRoleProviders)
+			assert.Empty(t, response.ManagedWorkspaceAccessProviders)
+		})
+	}
+}
+
+func TestManagedProvidersIncludesProxySync(t *testing.T) {
 	t.Parallel()
 
 	cfg := &config.Config{Server: config.Server{Auth: config.Auth{
@@ -120,24 +176,24 @@ func TestManagedAuthorizationProvidersIncludesProxySync(t *testing.T) {
 	a := &API{config: cfg}
 	assert.Equal(t,
 		[]generatedapi.UserAuthProvider{generatedapi.UserAuthProviderProxy},
-		a.managedAuthorizationProviders(false),
+		a.managedProviders(false),
 	)
 
 	cfg.Server.Auth.Proxy.RoleMapping.SkipOrgRoleSync = true
-	assert.Empty(t, a.managedAuthorizationProviders(false))
+	assert.Empty(t, a.managedProviders(false))
 
 	cfg.Server.Auth.Proxy.RoleMapping.SkipOrgRoleSync = false
 	a.licenseManager = license.NewTestManager(license.FeatureRBAC)
-	assert.Empty(t, a.managedAuthorizationProviders(false))
+	assert.Empty(t, a.managedProviders(false))
 
 	a.licenseManager = license.NewTestManager(license.FeatureSSO)
 	assert.Equal(t,
 		[]generatedapi.UserAuthProvider{generatedapi.UserAuthProviderProxy},
-		a.managedAuthorizationProviders(false),
+		a.managedProviders(false),
 	)
 
 	cfg.Server.Auth.Mode = config.AuthModeBasic
-	assert.Empty(t, a.managedAuthorizationProviders(false))
+	assert.Empty(t, a.managedProviders(false))
 }
 
 func TestResetUserPasswordRejectsExternalUser(t *testing.T) {

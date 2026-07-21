@@ -121,8 +121,15 @@ func (s *Service) ProcessLogin(ctx context.Context, claims OIDCClaims) (*auth.Us
 			return nil, false, authservice.ErrUserDisabled
 		}
 
-		// Sync mapped authorization on re-login unless synchronization is disabled.
-		if !s.config.RoleMapping.SkipOrgRoleSync {
+		// Synchronize mapped authorization, or enforce strict matching when synchronization is disabled.
+		if s.config.RoleMapping.SkipOrgRoleSync {
+			if err := s.validateStrictMapping(claims); err != nil {
+				s.logger.Warn("OIDC login rejected: authorization mapping failed",
+					slog.String("user_id", user.ID),
+					slog.String("error", err.Error()))
+				return nil, false, err
+			}
+		} else {
 			if err := s.syncUserAccess(ctx, user, claims); err != nil {
 				if s.roleMapper.WorkspaceAccessPolicyActive() ||
 					errors.Is(err, ErrNoRoleFound) ||
@@ -208,6 +215,14 @@ func (s *Service) ProcessLogin(ctx context.Context, claims OIDCClaims) (*auth.Us
 		slog.Any("workspace_access", canonicalWorkspaceAccess(user.WorkspaceAccess)))
 
 	return user, true, nil // New user created
+}
+
+func (s *Service) validateStrictMapping(claims OIDCClaims) error {
+	if !s.config.RoleMapping.RoleAttributeStrict || !s.roleMapper.IsConfigured() {
+		return nil
+	}
+	_, _, err := s.roleMapper.MapAccess(claims.RawClaims)
+	return err
 }
 
 // determineAccess determines authorization for a user based on OIDC claims.

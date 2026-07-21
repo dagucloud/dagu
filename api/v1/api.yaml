@@ -12624,16 +12624,23 @@ components:
             $ref: "#/components/schemas/User"
         oidcWorkspaceAccessSyncEnabled:
           type: boolean
-          description: "Whether OIDC role and workspace access are synchronized by this node"
-        managedAuthorizationProviders:
+          description: "Whether OIDC workspace access is synchronized by this node"
+        managedRoleProviders:
           type: array
-          description: "Authentication providers that synchronize role and workspace access at login on this node"
+          description: "Authentication providers that synchronize user roles at login on this node"
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/UserAuthProvider"
+        managedWorkspaceAccessProviders:
+          type: array
+          description: "Authentication providers that synchronize workspace access at login on this node"
           uniqueItems: true
           items:
             $ref: "#/components/schemas/UserAuthProvider"
       required:
         - users
-        - managedAuthorizationProviders
+        - managedRoleProviders
+        - managedWorkspaceAccessProviders
 
     APIKey:
       type: object

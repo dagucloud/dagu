@@ -18,6 +18,17 @@ vi.mock('@/contexts/AuthContext', () => ({
   useIsAdmin: () => true,
 }));
 
+class ResizeObserverMock {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+
+Object.defineProperty(globalThis, 'ResizeObserver', {
+  configurable: true,
+  value: ResizeObserverMock,
+});
+
 type User = components['schemas']['User'];
 type UsersListResponse = components['schemas']['UsersListResponse'];
 
@@ -140,15 +151,32 @@ describe('UsersPage', () => {
         }),
       ],
       oidcWorkspaceAccessSyncEnabled: true,
-      managedAuthorizationProviders: [UserAuthProvider.oidc],
+      managedRoleProviders: [UserAuthProvider.oidc],
+      managedWorkspaceAccessProviders: [UserAuthProvider.oidc],
     });
 
     expect(await screen.findByText('Managed by SSO')).toBeVisible();
     expect(screen.getByText('Local')).toBeVisible();
   });
 
+  it('marks only the OIDC role as managed for role-only sync', async () => {
+    renderPage({
+      users: [makeUser()],
+      oidcWorkspaceAccessSyncEnabled: false,
+      managedRoleProviders: [UserAuthProvider.oidc],
+      managedWorkspaceAccessProviders: [],
+    });
+
+    expect(await screen.findByText('Role managed by SSO')).toBeVisible();
+    expect(screen.queryByText('Managed by SSO')).not.toBeInTheDocument();
+  });
+
   it('treats an empty managed-provider list as unmanaged', async () => {
-    renderPage({ users: [makeUser()], managedAuthorizationProviders: [] });
+    renderPage({
+      users: [makeUser()],
+      managedRoleProviders: [],
+      managedWorkspaceAccessProviders: [],
+    });
 
     expect(await screen.findByText('SSO')).toBeVisible();
     expect(screen.queryByText('Managed by SSO')).not.toBeInTheDocument();
@@ -168,7 +196,8 @@ describe('UsersPage', () => {
     renderPage({
       users: [makeUser()],
       oidcWorkspaceAccessSyncEnabled: true,
-      managedAuthorizationProviders: [UserAuthProvider.oidc],
+      managedRoleProviders: [UserAuthProvider.oidc],
+      managedWorkspaceAccessProviders: [UserAuthProvider.oidc],
     });
 
     await user.click(
@@ -192,7 +221,8 @@ describe('UsersPage', () => {
           authProvider: UserAuthProvider.proxy,
         }),
       ],
-      managedAuthorizationProviders: [UserAuthProvider.proxy],
+      managedRoleProviders: [UserAuthProvider.proxy],
+      managedWorkspaceAccessProviders: [UserAuthProvider.proxy],
     });
 
     expect(await screen.findByText('Managed by Proxy')).toBeVisible();
@@ -214,7 +244,8 @@ describe('UsersPage', () => {
           authProvider: UserAuthProvider.builtin,
         }),
       ],
-      managedAuthorizationProviders: [],
+      managedRoleProviders: [],
+      managedWorkspaceAccessProviders: [],
     });
 
     await user.click(
@@ -234,7 +265,8 @@ describe('UsersPage', () => {
         json: async () => ({
           users: [makeUser()],
           oidcWorkspaceAccessSyncEnabled: true,
-          managedAuthorizationProviders: [UserAuthProvider.oidc],
+          managedRoleProviders: [UserAuthProvider.oidc],
+          managedWorkspaceAccessProviders: [UserAuthProvider.oidc],
         }),
       })
       .mockResolvedValueOnce({ ok: false });
@@ -288,7 +320,8 @@ describe('UsersPage', () => {
                 ],
               },
             })}
-            managedAuthorizationProviders={[UserAuthProvider.oidc]}
+            managedRoleProviders={[UserAuthProvider.oidc]}
+            managedWorkspaceAccessProviders={[UserAuthProvider.oidc]}
             onClose={() => undefined}
             onSuccess={onSuccess}
           />
@@ -316,6 +349,50 @@ describe('UsersPage', () => {
     expect(onSuccess).toHaveBeenCalledOnce();
   });
 
+  it('keeps workspace access editable when only the OIDC role is managed', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal('fetch', fetchMock);
+    const onSuccess = vi.fn();
+    const user = userEvent.setup();
+
+    render(
+      <ConfigContext.Provider value={makeConfig()}>
+        <AppBarContext.Provider value={appBarValue}>
+          <UserFormModal
+            open
+            user={makeUser()}
+            managedRoleProviders={[UserAuthProvider.oidc]}
+            managedWorkspaceAccessProviders={[]}
+            onClose={() => undefined}
+            onSuccess={onSuccess}
+          />
+        </AppBarContext.Provider>
+      </ConfigContext.Provider>
+    );
+
+    expect(screen.getByLabelText('Role managed by SSO')).toHaveTextContent(
+      'viewer'
+    );
+    expect(screen.getByText('Role managed by SSO')).toBeVisible();
+    expect(screen.getByText('payments')).toBeVisible();
+
+    const username = screen.getByLabelText('Username');
+    await user.clear(username);
+    await user.type(username, 'renamed@example.com');
+    await user.click(screen.getByRole('button', { name: 'Update' }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    const request = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(JSON.parse(request.body as string)).toEqual({
+      username: 'renamed@example.com',
+      workspaceAccess: {
+        all: false,
+        grants: [{ workspace: 'payments', role: UserRole.operator }],
+      },
+    });
+    expect(onSuccess).toHaveBeenCalledOnce();
+  });
+
   it('renders proxy authorization as read-only when managed', () => {
     render(
       <ConfigContext.Provider value={makeConfig()}>
@@ -326,7 +403,8 @@ describe('UsersPage', () => {
               authProvider: UserAuthProvider.proxy,
               username: 'proxy-user',
             })}
-            managedAuthorizationProviders={[UserAuthProvider.proxy]}
+            managedRoleProviders={[UserAuthProvider.proxy]}
+            managedWorkspaceAccessProviders={[UserAuthProvider.proxy]}
             onClose={() => undefined}
             onSuccess={() => undefined}
           />
@@ -334,9 +412,7 @@ describe('UsersPage', () => {
       </ConfigContext.Provider>
     );
 
-    expect(
-      screen.getByLabelText('Role managed by Proxy')
-    ).toBeVisible();
+    expect(screen.getByLabelText('Role managed by Proxy')).toBeVisible();
     expect(screen.getByText('Managed by Proxy')).toBeVisible();
   });
 });

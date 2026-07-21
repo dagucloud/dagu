@@ -37,7 +37,8 @@ type WorkspaceAccess = components['schemas']['WorkspaceAccess'];
 type UserFormModalProps = {
   open: boolean;
   user?: User;
-  managedAuthorizationProviders?: UserAuthProvider[];
+  managedRoleProviders?: UserAuthProvider[];
+  managedWorkspaceAccessProviders?: UserAuthProvider[];
   onClose: () => void;
   onSuccess: () => void;
 };
@@ -74,19 +75,31 @@ const ROLES = [
 export function UserFormModal({
   open,
   user,
-  managedAuthorizationProviders = [],
+  managedRoleProviders = [],
+  managedWorkspaceAccessProviders = [],
   onClose,
   onSuccess,
 }: UserFormModalProps) {
   const config = useConfig();
   const appBarContext = useContext(AppBarContext);
   const isEditing = !!user;
-  const authorizationManaged =
+  const roleManaged =
     isEditing &&
     !!user.authProvider &&
-    managedAuthorizationProviders.includes(user.authProvider);
+    managedRoleProviders.includes(user.authProvider);
+  const workspaceAccessManaged =
+    isEditing &&
+    !!user.authProvider &&
+    managedWorkspaceAccessProviders.includes(user.authProvider);
+  const authorizationManaged = roleManaged || workspaceAccessManaged;
   const managedProviderLabel =
     user?.authProvider === UserAuthProvider.proxy ? 'Proxy' : 'SSO';
+  let managedBadgeLabel = `Workspace access managed by ${managedProviderLabel}`;
+  if (roleManaged) {
+    managedBadgeLabel = workspaceAccessManaged
+      ? `Managed by ${managedProviderLabel}`
+      : `Role managed by ${managedProviderLabel}`;
+  }
 
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -122,7 +135,7 @@ export function UserFormModal({
       return;
     }
     if (
-      !authorizationManaged &&
+      !workspaceAccessManaged &&
       !workspaceAccess.all &&
       workspaceAccess.grants.length === 0
     ) {
@@ -140,9 +153,11 @@ export function UserFormModal({
       const remoteNode = encodeURIComponent(
         appBarContext.selectedRemoteNode || 'local'
       );
-      const payload = authorizationManaged
-        ? { username }
-        : { username, role: effectiveRole, workspaceAccess };
+      const payload = {
+        username,
+        ...(!roleManaged && { role: effectiveRole }),
+        ...(!workspaceAccessManaged && { workspaceAccess }),
+      };
       const endpoint = user
         ? `${config.apiURL}/users/${user.id}?remoteNode=${remoteNode}`
         : `${config.apiURL}/users?remoteNode=${remoteNode}`;
@@ -177,7 +192,7 @@ export function UserFormModal({
           <div className="flex items-center gap-2">
             <DialogTitle>{isEditing ? 'Edit User' : 'Create User'}</DialogTitle>
             {authorizationManaged && (
-              <Badge variant="info">Managed by {managedProviderLabel}</Badge>
+              <Badge variant="info">{managedBadgeLabel}</Badge>
             )}
           </div>
         </DialogHeader>
@@ -227,7 +242,7 @@ export function UserFormModal({
             <Label htmlFor="role" className="text-sm">
               Role
             </Label>
-            {authorizationManaged ? (
+            {roleManaged ? (
               <div
                 aria-label={`Role managed by ${managedProviderLabel}`}
                 className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm capitalize"
@@ -259,7 +274,7 @@ export function UserFormModal({
             )}
           </div>
 
-          {authorizationManaged ? (
+          {workspaceAccessManaged ? (
             <div className="space-y-1.5">
               <Label className="text-sm">Workspace Access</Label>
               <WorkspaceAccessSummary
@@ -267,8 +282,10 @@ export function UserFormModal({
                 workspaces={appBarContext.workspaces}
               />
               <p className="text-xs text-slate-500 dark:text-slate-500">
-                Role and workspace access are updated by {managedProviderLabel}
-                at sign-in.
+                {roleManaged
+                  ? 'Role and workspace access are'
+                  : 'Workspace access is'}{' '}
+                updated by {managedProviderLabel} at sign-in.
               </p>
             </div>
           ) : (
