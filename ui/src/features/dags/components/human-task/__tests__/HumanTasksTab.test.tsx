@@ -161,7 +161,7 @@ describe('HumanTasksTab', () => {
     dagRun.humanTaskResumePending = true;
     render(<HumanTasksTab dagRun={dagRun} onChanged={onChanged} />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Retry resume' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Retry queue' }));
 
     await waitFor(() =>
       expect(postMock).toHaveBeenCalledWith(

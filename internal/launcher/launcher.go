@@ -11,7 +11,6 @@ import (
 	"os"
 	"os/exec"
 	"runtime/debug"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -266,13 +265,6 @@ func (b *SubCmdBuilder) Restart(dag *core.DAG, opts RestartOptions) CmdSpec {
 // Retry creates a retry command spec.
 func (b *SubCmdBuilder) Retry(dag *core.DAG, dagRunID string, stepName string) CmdSpec {
 	return b.retry(dag, dagRunID, stepName, exec1.DAGRunRef{})
-}
-
-// HumanTaskRetry creates a retry command bound to a claimed human-task resume.
-func (b *SubCmdBuilder) HumanTaskRetry(dag *core.DAG, dagRunID, claimToken string) CmdSpec {
-	spec := b.Retry(dag, dagRunID, "")
-	spec.Args = slices.Insert(spec.Args, len(spec.Args)-1, "--human-task-resume-token="+claimToken)
-	return spec
 }
 
 // RetryWithRootDAGRun creates a retry command spec for a sub DAG-run with an

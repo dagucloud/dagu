@@ -87,11 +87,15 @@ func EnqueueRetry(
 	// Enqueue after status is persisted. If this fails, roll back the status.
 	procGroup := retryProcGroup(dag, updatedStatus)
 	if procGroup == "" {
-		rollbackQueuedRetry(ctx, dagRunStore, dagRun, updatedStatus, originalStatus)
+		if err := rollbackQueuedRetry(ctx, dagRunStore, dagRun, updatedStatus, originalStatus); err != nil {
+			return fmt.Errorf("enqueue retry: proc group is empty; rollback queued retry status: %w", err)
+		}
 		return errors.New("enqueue retry: proc group is empty")
 	}
 	if err := queueStore.Enqueue(ctx, procGroup, QueuePriorityLow, dagRun); err != nil {
-		rollbackQueuedRetry(ctx, dagRunStore, dagRun, updatedStatus, originalStatus)
+		if rollbackErr := rollbackQueuedRetry(ctx, dagRunStore, dagRun, updatedStatus, originalStatus); rollbackErr != nil {
+			return fmt.Errorf("enqueue retry: %v; rollback queued retry status: %w", err, rollbackErr)
+		}
 		return fmt.Errorf("enqueue retry: %w", err)
 	}
 
@@ -126,8 +130,8 @@ func rollbackQueuedRetry(
 	dagRun DAGRunRef,
 	queued *DAGRunStatus,
 	original *DAGRunStatus,
-) {
-	_, _, _ = dagRunStore.CompareAndSwapLatestAttemptStatus(
+) error {
+	_, swapped, err := dagRunStore.CompareAndSwapLatestAttemptStatus(
 		ctx,
 		dagRun,
 		queued.AttemptID,
@@ -141,6 +145,13 @@ func rollbackQueuedRetry(
 			return nil
 		},
 	)
+	if err != nil {
+		return err
+	}
+	if !swapped {
+		return errors.New("DAG-run state changed before queued retry status could be rolled back")
+	}
+	return nil
 }
 
 func retryProcGroup(dag *core.DAG, status *DAGRunStatus) string {

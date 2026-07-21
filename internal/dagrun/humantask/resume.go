@@ -11,10 +11,9 @@ import (
 
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/google/uuid"
 )
 
-// Resume retries a pending human-task resume without requiring the submitted form values.
+// Resume retries a pending human-task enqueue without requiring the submitted form values.
 func (s *Service) Resume(ctx context.Context, dagName, dagRunID string) (Result, error) {
 	s.defaults()
 	if s.DAGRunStore == nil {
@@ -36,26 +35,25 @@ func (s *Service) Resume(ctx context.Context, dagName, dagRunID string) (Result,
 	if !hasCompletedHumanTask(target.status.Nodes) {
 		return Result{}, errorf(ErrorConflict, "DAG-run %s has no completed human-task checkpoint to resume", target.ref)
 	}
-	status, adopted, err := s.ensureResumePending(ctx, target)
+	status, err := s.ensureResumePending(ctx, target)
 	if err != nil {
 		return Result{}, err
 	}
 	result := resultFor(status, "", true)
-	return s.resume(ctx, target.withStatus(status), result, adopted)
+	return s.enqueueResume(ctx, target.withStatus(status), result)
 }
 
-func (s *Service) ensureResumePending(ctx context.Context, target *target) (*exec.DAGRunStatus, bool, error) {
+func (s *Service) ensureResumePending(ctx context.Context, target *target) (*exec.DAGRunStatus, error) {
 	if target.status == nil || target.status.Status != core.Waiting || hasWaitingNodes(target.status.Nodes) {
-		return target.status, false, nil
+		return target.status, nil
 	}
 	if target.status.HumanTaskResume != nil {
-		return target.status, false, nil
+		return target.status, nil
 	}
 	if !hasCompletedHumanTask(target.status.Nodes) {
-		return nil, false, errorf(ErrorConflict, "DAG-run %s has no completed human-task checkpoint to resume", target.ref)
+		return nil, errorf(ErrorConflict, "DAG-run %s has no completed human-task checkpoint to resume", target.ref)
 	}
 	requestedAt := s.Now().UTC().Format(time.RFC3339)
-	created := false
 	updated, swapped, err := s.DAGRunStore.CompareAndSwapLatestAttemptStatus(
 		ctx,
 		target.ref,
@@ -67,174 +65,49 @@ func (s *Service) ensureResumePending(ctx context.Context, target *target) (*exe
 			}
 			if latest.HumanTaskResume == nil {
 				latest.HumanTaskResume = &exec.HumanTaskResumeState{RequestedAt: requestedAt}
-				created = true
 			}
 			return nil
 		},
 		exec.WithCompareAndSwapExpectedAttemptKey(target.status.AttemptKey),
 	)
 	if err != nil {
-		return nil, false, classifyMutationError("failed to persist human-task resume state", err)
+		return nil, classifyMutationError("failed to persist human-task resume state", err)
 	}
 	if !swapped {
-		return nil, false, errorf(ErrorConflict, "DAG-run changed while preparing human-task resume")
+		return nil, errorf(ErrorConflict, "DAG-run changed while preparing human-task resume")
 	}
-	return updated, created, nil
+	return updated, nil
 }
 
-func (s *Service) resume(
-	ctx context.Context,
-	target *target,
-	result Result,
-	adoptedLegacyState bool,
-) (Result, error) {
+func (s *Service) enqueueResume(ctx context.Context, target *target, result Result) (Result, error) {
 	if target.status == nil || target.status.Status != core.Waiting || hasWaitingNodes(target.status.Nodes) {
 		return result, nil
 	}
-	postCommitCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), s.HandoffTimeout)
+	if target.status.HumanTaskResume == nil {
+		return result, errorf(ErrorConflict, "DAG-run %s has no pending human-task resume", target.ref)
+	}
+	if s.QueueStore == nil {
+		return result, &ResumeError{Result: result, Err: errors.New("queue store is not configured")}
+	}
+
+	postCommitCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), s.EnqueueTimeout)
 	defer cancel()
-
-	claim, err := s.claimResume(postCommitCtx, target, adoptedLegacyState)
-	if err != nil {
-		return result, err
-	}
-	if !claim.claimed {
-		return result, nil
-	}
-
-	resumeTarget := target.withStatus(claim.status)
-	if err := s.handoff(postCommitCtx, resumeTarget); err != nil {
-		if releaseErr := s.releaseClaim(ctx, resumeTarget, claim.token); releaseErr != nil {
-			err = fmt.Errorf("%w; failed to release resume claim: %v", err, releaseErr)
+	if exec.IsRemoteWorkerID(target.status.WorkerID) {
+		if err := s.waitForRemoteDispatch(postCommitCtx, target.dag, target.status); err != nil {
+			return result, &ResumeError{Result: result, Err: err}
 		}
+	}
+	queued := false
+	if err := exec.EnqueueRetry(postCommitCtx, s.DAGRunStore, s.QueueStore, target.dag, target.status, exec.EnqueueRetryOptions{
+		OnQueued: func(*exec.DAGRunStatus) error {
+			queued = true
+			return nil
+		},
+	}); err != nil {
 		return result, &ResumeError{Result: result, Err: err}
 	}
-	result.ResumeRequested = true
+	result.Queued = queued
 	return result, nil
-}
-
-func (s *Service) claimResume(
-	ctx context.Context,
-	target *target,
-	adoptedLegacyState bool,
-) (resumeClaim, error) {
-	state := target.status.HumanTaskResume
-	if state == nil {
-		return resumeClaim{}, errorf(ErrorConflict, "DAG-run %s has no pending human-task resume", target.ref)
-	}
-	stale := claimExpired(state, s.Now(), s.ClaimLease)
-	if state.ClaimToken != "" && !stale {
-		return resumeClaim{status: target.status}, nil
-	}
-	if adoptedLegacyState || stale {
-		active, err := s.handoffActive(ctx, target)
-		if err != nil {
-			return resumeClaim{}, errorf(ErrorInternal, "failed to check existing human-task resume: %v", err)
-		}
-		if active {
-			return resumeClaim{status: target.status}, nil
-		}
-	}
-
-	token := uuid.NewString()
-	claimedAt := s.Now().UTC().Format(time.RFC3339)
-	claimed := false
-	updated, swapped, err := s.DAGRunStore.CompareAndSwapLatestAttemptStatus(
-		ctx,
-		target.ref,
-		target.status.AttemptID,
-		core.Waiting,
-		func(latest *exec.DAGRunStatus) error {
-			if hasWaitingNodes(latest.Nodes) || latest.HumanTaskResume == nil {
-				return errorf(ErrorConflict, "DAG-run changed while claiming human-task resume")
-			}
-			latestState := latest.HumanTaskResume
-			if latestState.ClaimToken != "" && !claimExpired(latestState, s.Now(), s.ClaimLease) {
-				return nil
-			}
-			latestState.ClaimToken = token
-			latestState.ClaimedAt = claimedAt
-			claimed = true
-			return nil
-		},
-		exec.WithCompareAndSwapExpectedAttemptKey(target.status.AttemptKey),
-	)
-	if err != nil {
-		return resumeClaim{}, classifyMutationError("failed to claim human-task resume", err)
-	}
-	if !swapped {
-		return resumeClaim{}, errorf(ErrorConflict, "DAG-run changed while claiming human-task resume")
-	}
-	return resumeClaim{claimed: claimed, status: updated, token: token}, nil
-}
-
-func claimExpired(state *exec.HumanTaskResumeState, now time.Time, lease time.Duration) bool {
-	if state == nil || state.ClaimToken == "" {
-		return false
-	}
-	claimedAt, err := time.Parse(time.RFC3339, state.ClaimedAt)
-	if err != nil {
-		return true
-	}
-	return !claimedAt.Add(lease).After(now)
-}
-
-func (s *Service) handoff(ctx context.Context, target *target) error {
-	if exec.IsRemoteWorkerID(target.status.WorkerID) {
-		if s.QueueStore == nil {
-			return errors.New("queue store is not configured")
-		}
-		if err := s.waitForRemoteDispatch(ctx, target.dag, target.status); err != nil {
-			return err
-		}
-		if err := exec.EnqueueRetry(ctx, s.DAGRunStore, s.QueueStore, target.dag, target.status, exec.EnqueueRetryOptions{}); err != nil {
-			return fmt.Errorf("enqueue distributed retry: %w", err)
-		}
-		return nil
-	}
-	if s.LocalResumer == nil {
-		return errors.New("local human-task resumer is not configured")
-	}
-	return s.LocalResumer.ResumeHumanTask(ctx, target.dag, target.status)
-}
-
-func (s *Service) handoffActive(ctx context.Context, target *target) (bool, error) {
-	if exec.IsRemoteWorkerID(target.status.WorkerID) {
-		if s.QueueStore == nil {
-			return false, errors.New("queue store is not configured")
-		}
-		return queuedRunExists(ctx, s.QueueStore, target.dag, target.status)
-	}
-	if s.ProcStore == nil {
-		return false, errors.New("process store is not configured")
-	}
-	return s.ProcStore.IsRunAlive(ctx, target.dag.ProcGroup(), target.status.DAGRun())
-}
-
-func (s *Service) releaseClaim(ctx context.Context, target *target, token string) error {
-	rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), s.SettleTimeout)
-	defer cancel()
-	_, swapped, err := s.DAGRunStore.CompareAndSwapLatestAttemptStatus(
-		rollbackCtx,
-		target.ref,
-		target.status.AttemptID,
-		core.Waiting,
-		func(latest *exec.DAGRunStatus) error {
-			if latest.HumanTaskResume != nil && latest.HumanTaskResume.ClaimToken == token {
-				latest.HumanTaskResume.ClaimToken = ""
-				latest.HumanTaskResume.ClaimedAt = ""
-			}
-			return nil
-		},
-		exec.WithCompareAndSwapExpectedAttemptKey(target.status.AttemptKey),
-	)
-	if err != nil {
-		return err
-	}
-	if !swapped {
-		return errors.New("DAG-run state changed before the resume claim could be released")
-	}
-	return nil
 }
 
 func (s *Service) waitForCompletionReady(
@@ -436,20 +309,14 @@ func HasCompletedTask(status *exec.DAGRunStatus) bool {
 	return status != nil && hasCompletedHumanTask(status.Nodes)
 }
 
-// ResumePending reports whether a run is waiting for a human-task resume handoff.
+// ResumePending reports whether a run is waiting for its human-task retry to be queued.
 func ResumePending(status *exec.DAGRunStatus) bool {
 	return status != nil && status.Status == core.Waiting && !hasWaitingNodes(status.Nodes) && status.HumanTaskResume != nil
 }
 
 // ValidateRetry rejects retry operations that would bypass human-task completion state.
-func ValidateRetry(status *exec.DAGRunStatus, stepName, resumeToken string) error {
+func ValidateRetry(status *exec.DAGRunStatus, stepName string) error {
 	if status == nil {
-		return nil
-	}
-	if resumeToken != "" {
-		if stepName != "" || !ResumePending(status) || status.HumanTaskResume.ClaimToken != resumeToken {
-			return errorf(ErrorConflict, "human-task resume claim is not valid for this DAG-run")
-		}
 		return nil
 	}
 	if stepName != "" {

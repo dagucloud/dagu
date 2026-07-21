@@ -201,11 +201,15 @@ export function HumanTasksTab({ dagRun, onChanged }: HumanTasksTabProps) {
         }
       );
       if (error) {
-        setResumeError(errorMessage(error, 'Failed to resume the DAG-run.'));
+        setResumeError(
+          errorMessage(error, 'Failed to queue the DAG-run for resume.')
+        );
       }
       onChanged();
     } catch (error) {
-      setResumeError(errorMessage(error, 'Failed to resume the DAG-run.'));
+      setResumeError(
+        errorMessage(error, 'Failed to queue the DAG-run for resume.')
+      );
     } finally {
       setResuming(false);
     }
@@ -227,7 +231,7 @@ export function HumanTasksTab({ dagRun, onChanged }: HumanTasksTabProps) {
           <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
             <span>
               Task input is safely stored, but the DAG-run still needs to be
-              resumed.
+              queued for resume.
             </span>
             <Button
               type="button"
@@ -237,7 +241,7 @@ export function HumanTasksTab({ dagRun, onChanged }: HumanTasksTabProps) {
               onClick={() => void resume()}
             >
               <RefreshCcw className="h-4 w-4" />
-              {resuming ? 'Resuming…' : 'Retry resume'}
+              {resuming ? 'Queueing…' : 'Retry queue'}
             </Button>
           </AlertDescription>
         </Alert>

@@ -2647,7 +2647,7 @@ paths:
   /dag-runs/{name}/{dagRunId}/human-tasks/{stepId}/complete:
     post:
       summary: "Complete a waiting human task"
-      description: "Validates typed input against the stored human-task form, completes the step atomically, and resumes the same DAG-run when no manual steps remain waiting."
+      description: "Validates typed input against the stored human-task form, completes the step atomically, and queues the same DAG-run when no manual steps remain waiting."
       operationId: "completeHumanTask"
       tags:
         - "dag-runs"
@@ -2695,7 +2695,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "503":
-          description: "Completion was stored but the DAG-run resume handoff failed"
+          description: "Completion was stored but the DAG-run retry could not be queued"
           content:
             application/json:
               schema:
@@ -2709,8 +2709,8 @@ paths:
 
   /dag-runs/{name}/{dagRunId}/human-tasks/resume:
     post:
-      summary: "Resume a completed human-task checkpoint"
-      description: "Retries a pending human-task resume handoff without requiring the previously submitted form values."
+      summary: "Queue a completed human-task checkpoint for resume"
+      description: "Queues a retry for a completed human-task checkpoint without requiring the previously submitted form values."
       operationId: "resumeHumanTaskDAGRun"
       tags:
         - "dag-runs"
@@ -2720,7 +2720,7 @@ paths:
         - $ref: "#/components/parameters/DAGRunConcreteId"
       responses:
         "200":
-          description: "Resume handoff requested or already in progress"
+          description: "The retry was queued or was already queued or running"
           content:
             application/json:
               schema:
@@ -2738,7 +2738,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "503":
-          description: "The resume handoff failed and remains retryable"
+          description: "The retry could not be queued and remains retryable"
           content:
             application/json:
               schema:
@@ -9452,8 +9452,9 @@ components:
           type: string
         alreadyCompleted:
           type: boolean
-        resumeRequested:
+        queued:
           type: boolean
+          description: "Whether this request durably queued the DAG-run retry"
         remainingWaitingSteps:
           type: integer
           minimum: 0
@@ -9462,23 +9463,24 @@ components:
         - dagRunId
         - stepId
         - alreadyCompleted
-        - resumeRequested
+        - queued
         - remainingWaitingSteps
 
     HumanTaskResumeResponse:
       type: object
-      description: "Result of retrying a pending human-task resume handoff"
+      description: "Result of queueing a completed human-task retry"
       properties:
         dagName:
           $ref: "#/components/schemas/DAGName"
         dagRunId:
           $ref: "#/components/schemas/DAGRunId"
-        resumeRequested:
+        queued:
           type: boolean
+          description: "Whether this request durably queued the DAG-run retry"
       required:
         - dagName
         - dagRunId
-        - resumeRequested
+        - queued
 
     Error:
       type: object
@@ -11654,7 +11656,7 @@ components:
               description: "File name of the source DAG definition, derived from the DAG-run's source file path. Only set when the source file still exists on disk. Can be used to navigate to the DAG definition page."
             humanTaskResumePending:
               type: boolean
-              description: "Whether completed human-task input is durable but the same DAG-run still needs a resume handoff"
+              description: "Whether completed human-task input is durable but the same DAG-run still needs its retry queued"
           required:
             - rootDAGRunName
             - rootDAGRunId

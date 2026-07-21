@@ -15,7 +15,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core/exec"
 )
 
-// Complete validates and durably completes one human task, then resumes the run when possible.
+// Complete validates and durably completes one human task, then queues the run when possible.
 func (s *Service) Complete(ctx context.Context, request CompleteRequest) (Result, error) {
 	s.defaults()
 	if s.DAGRunStore == nil {
@@ -47,12 +47,12 @@ func (s *Service) Complete(ctx context.Context, request CompleteRequest) (Result
 		if target.status.Status != core.Waiting || hasWaitingNodes(target.status.Nodes) {
 			return result, nil
 		}
-		status, adopted, err := s.ensureResumePending(ctx, target)
+		status, err := s.ensureResumePending(ctx, target)
 		if err != nil {
 			return Result{}, err
 		}
 		result = resultFor(status, request.StepID, true)
-		return s.resume(ctx, target.withStatus(status), result, adopted)
+		return s.enqueueResume(ctx, target.withStatus(status), result)
 	}
 
 	if target.status.Status != core.Waiting {
@@ -109,12 +109,12 @@ func (s *Service) Complete(ctx context.Context, request CompleteRequest) (Result
 	)
 	if errors.Is(err, errCompletionAlreadyApplied) {
 		latestTarget := target.withStatus(concurrentlyCompleted)
-		status, adopted, ensureErr := s.ensureResumePending(ctx, latestTarget)
+		status, ensureErr := s.ensureResumePending(ctx, latestTarget)
 		if ensureErr != nil {
 			return Result{}, ensureErr
 		}
 		result := resultFor(status, request.StepID, true)
-		return s.resume(ctx, latestTarget.withStatus(status), result, adopted)
+		return s.enqueueResume(ctx, latestTarget.withStatus(status), result)
 	}
 	if err != nil {
 		return Result{}, classifyMutationError("failed to complete human task", err)
@@ -127,7 +127,7 @@ func (s *Service) Complete(ctx context.Context, request CompleteRequest) (Result
 	if result.RemainingWaitingSteps > 0 {
 		return result, nil
 	}
-	return s.resume(ctx, target.withStatus(updated), result, false)
+	return s.enqueueResume(ctx, target.withStatus(updated), result)
 }
 
 func (s *Service) resolveCompletionConflict(
@@ -143,12 +143,12 @@ func (s *Service) resolveCompletionConflict(
 				return Result{}, errorf(ErrorConflict, "human task step %q was already completed with different input", target.stepID)
 			}
 			latestTarget := target.withStatus(updated)
-			status, adopted, ensureErr := s.ensureResumePending(ctx, latestTarget)
+			status, ensureErr := s.ensureResumePending(ctx, latestTarget)
 			if ensureErr != nil {
 				return Result{}, ensureErr
 			}
 			result := resultFor(status, target.stepID, true)
-			return s.resume(ctx, latestTarget.withStatus(status), result, adopted)
+			return s.enqueueResume(ctx, latestTarget.withStatus(status), result)
 		}
 	}
 	return Result{}, errorf(

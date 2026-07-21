@@ -1000,7 +1000,7 @@ export interface paths {
         put?: never;
         /**
          * Complete a waiting human task
-         * @description Validates typed input against the stored human-task form, completes the step atomically, and resumes the same DAG-run when no manual steps remain waiting.
+         * @description Validates typed input against the stored human-task form, completes the step atomically, and queues the same DAG-run when no manual steps remain waiting.
          */
         post: operations["completeHumanTask"];
         delete?: never;
@@ -1019,8 +1019,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Resume a completed human-task checkpoint
-         * @description Retries a pending human-task resume handoff without requiring the previously submitted form values.
+         * Queue a completed human-task checkpoint for resume
+         * @description Queues a retry for a completed human-task checkpoint without requiring the previously submitted form values.
          */
         post: operations["resumeHumanTaskDAGRun"];
         delete?: never;
@@ -3414,14 +3414,16 @@ export interface components {
             dagRunId: components["schemas"]["DAGRunId"];
             stepId: string;
             alreadyCompleted: boolean;
-            resumeRequested: boolean;
+            /** @description Whether this request durably queued the DAG-run retry */
+            queued: boolean;
             remainingWaitingSteps: number;
         };
-        /** @description Result of retrying a pending human-task resume handoff */
+        /** @description Result of queueing a completed human-task retry */
         HumanTaskResumeResponse: {
             dagName: components["schemas"]["DAGName"];
             dagRunId: components["schemas"]["DAGRunId"];
-            resumeRequested: boolean;
+            /** @description Whether this request durably queued the DAG-run retry */
+            queued: boolean;
         };
         /** @description Generic error response object */
         Error: {
@@ -4607,7 +4609,7 @@ export interface components {
             specFromFile?: boolean;
             /** @description File name of the source DAG definition, derived from the DAG-run's source file path. Only set when the source file still exists on disk. Can be used to navigate to the DAG definition page. */
             sourceFileName?: components["schemas"]["DAGFileName"];
-            /** @description Whether completed human-task input is durable but the same DAG-run still needs a resume handoff */
+            /** @description Whether completed human-task input is durable but the same DAG-run still needs its retry queued */
             humanTaskResumePending?: boolean;
         };
         /**
@@ -9042,7 +9044,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Completion was stored but the DAG-run resume handoff failed */
+            /** @description Completion was stored but the DAG-run retry could not be queued */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -9079,7 +9081,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Resume handoff requested or already in progress */
+            /** @description The retry was queued or was already queued or running */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9106,7 +9108,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description The resume handoff failed and remains retryable */
+            /** @description The retry could not be queued and remains retryable */
             503: {
                 headers: {
                     [name: string]: unknown;

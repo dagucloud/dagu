@@ -16,8 +16,7 @@ import (
 const (
 	defaultSettleTimeout  = 5 * time.Second
 	defaultPollInterval   = 50 * time.Millisecond
-	defaultClaimLease     = 30 * time.Second
-	defaultHandoffTimeout = 30 * time.Second
+	defaultEnqueueTimeout = 30 * time.Second
 )
 
 var errCompletionAlreadyApplied = errors.New("human task completion already applied")
@@ -54,7 +53,7 @@ func errorf(kind ErrorKind, format string, args ...any) error {
 	return &Error{Kind: kind, Err: fmt.Errorf(format, args...)}
 }
 
-// ResumeError reports a durable completion whose resume handoff failed.
+// ResumeError reports a durable completion whose retry could not be queued.
 type ResumeError struct {
 	Result Result
 	Err    error
@@ -63,39 +62,25 @@ type ResumeError struct {
 func (e *ResumeError) Error() string {
 	if e.Result.StepID != "" {
 		return fmt.Sprintf(
-			"human task %q was completed, but the DAG-run could not be resumed: %v; run the same completion command again to retry",
+			"human task %q was completed, but the DAG-run could not be queued for resume: %v; run the same completion command again to retry",
 			e.Result.StepID,
 			e.Err,
 		)
 	}
-	return fmt.Sprintf("the DAG-run could not be resumed: %v; retry the resume request", e.Err)
+	return fmt.Sprintf("the DAG-run could not be queued for resume: %v; retry the resume request", e.Err)
 }
 
 func (e *ResumeError) Unwrap() error { return e.Err }
 
-// LocalResumer starts a local retry for the stored DAG-run snapshot.
-type LocalResumer interface {
-	ResumeHumanTask(context.Context, *core.DAG, *exec.DAGRunStatus) error
-}
-
-// LocalResumeFunc adapts a function to LocalResumer.
-type LocalResumeFunc func(context.Context, *core.DAG, *exec.DAGRunStatus) error
-
-func (f LocalResumeFunc) ResumeHumanTask(ctx context.Context, dag *core.DAG, status *exec.DAGRunStatus) error {
-	return f(ctx, dag, status)
-}
-
-// Service completes human tasks and performs recoverable resume handoffs.
+// Service completes human tasks and queues recoverable retries.
 type Service struct {
 	DAGRunStore    exec.DAGRunStore
 	QueueStore     exec.QueueStore
 	ProcStore      exec.ProcStore
-	LocalResumer   LocalResumer
 	Now            func() time.Time
 	SettleTimeout  time.Duration
 	PollInterval   time.Duration
-	ClaimLease     time.Duration
-	HandoffTimeout time.Duration
+	EnqueueTimeout time.Duration
 }
 
 // CompleteRequest identifies one human task and its typed input.
@@ -112,7 +97,7 @@ type Result struct {
 	DAGRunID              string
 	StepID                string
 	AlreadyCompleted      bool
-	ResumeRequested       bool
+	Queued                bool
 	RemainingWaitingSteps int
 }
 
@@ -121,12 +106,6 @@ type target struct {
 	status *exec.DAGRunStatus
 	ref    exec.DAGRunRef
 	stepID string
-}
-
-type resumeClaim struct {
-	claimed bool
-	status  *exec.DAGRunStatus
-	token   string
 }
 
 func (s *Service) defaults() {
@@ -139,11 +118,8 @@ func (s *Service) defaults() {
 	if s.PollInterval <= 0 {
 		s.PollInterval = defaultPollInterval
 	}
-	if s.ClaimLease <= 0 {
-		s.ClaimLease = defaultClaimLease
-	}
-	if s.HandoffTimeout <= 0 {
-		s.HandoffTimeout = defaultHandoffTimeout
+	if s.EnqueueTimeout <= 0 {
+		s.EnqueueTimeout = defaultEnqueueTimeout
 	}
 }
 

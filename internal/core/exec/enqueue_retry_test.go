@@ -275,6 +275,35 @@ func TestEnqueueRetry(t *testing.T) {
 			wantErr: "enqueue retry",
 		},
 		{
+			name: "EnqueueAndRollbackFail",
+			dag:  &core.DAG{Name: "test-dag"},
+			status: &exec.DAGRunStatus{
+				Name:      "test-dag",
+				DAGRunID:  "run-rollback-failure",
+				AttemptID: "att-rollback-failure",
+				Status:    core.Waiting,
+			},
+			store: &stubDAGRunStore{
+				status: &exec.DAGRunStatus{
+					Name:      "test-dag",
+					DAGRunID:  "run-rollback-failure",
+					AttemptID: "att-rollback-failure",
+					Status:    core.Waiting,
+				},
+				secondErr: errors.New("rollback error"),
+			},
+			setupQueue: func(qs *exec.MockQueueStore) {
+				qs.On("Enqueue", mock.Anything, "test-dag", exec.QueuePriorityLow, exec.NewDAGRunRef("test-dag", "run-rollback-failure")).
+					Return(errors.New("enqueue error"))
+			},
+			assertStore: func(t *testing.T, store *stubDAGRunStore) {
+				require.NotNil(t, store.status)
+				assert.Equal(t, core.Queued, store.status.Status)
+				assert.Equal(t, 2, store.casCalls)
+			},
+			wantErr: "enqueue retry: enqueue error; rollback queued retry status: rollback error",
+		},
+		{
 			name: "EmptyProcGroupRollsBackQueuedStatus",
 			status: &exec.DAGRunStatus{
 				DAGRunID:       "run-empty-group",

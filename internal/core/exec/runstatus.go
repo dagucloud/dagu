@@ -211,11 +211,9 @@ type DAGRunStatus struct {
 	HumanTaskResume      *HumanTaskResumeState `json:"humanTaskResume,omitempty"`
 }
 
-// HumanTaskResumeState records a recoverable handoff for a completed human-task checkpoint.
+// HumanTaskResumeState records a recoverable retry request for a completed human-task checkpoint.
 type HumanTaskResumeState struct {
 	RequestedAt string `json:"requestedAt"`
-	ClaimToken  string `json:"claimToken,omitempty"`
-	ClaimedAt   string `json:"claimedAt,omitempty"`
 }
 
 // EffectiveClaimKey returns ClaimKey, falling back to AttemptKey when no claim

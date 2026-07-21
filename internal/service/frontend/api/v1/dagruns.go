@@ -2917,7 +2917,7 @@ func (a *API) retryDAGRun(ctx context.Context, dagName, dagRunID, retryDagRunID,
 	if prevStatus == nil {
 		return retryDAGRunResult{}, fmt.Errorf("error reading status: status data is nil")
 	}
-	if err := humantask.ValidateRetry(prevStatus, stepName, ""); err != nil {
+	if err := humantask.ValidateRetry(prevStatus, stepName); err != nil {
 		return retryDAGRunResult{}, &Error{
 			HTTPStatus: http.StatusConflict,
 			Code:       api.ErrorCodeConflict,

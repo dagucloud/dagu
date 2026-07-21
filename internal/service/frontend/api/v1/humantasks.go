@@ -15,10 +15,8 @@ import (
 
 	api "github.com/dagucloud/dagu/api/v1"
 	"github.com/dagucloud/dagu/internal/cmn/config"
-	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/dagrun/humantask"
-	"github.com/dagucloud/dagu/internal/launcher"
 	"github.com/dagucloud/dagu/internal/service/audit"
 )
 
@@ -137,12 +135,12 @@ func (a *API) CompleteHumanTask(
 		DagRunId:              result.DAGRunID,
 		StepId:                result.StepID,
 		AlreadyCompleted:      result.AlreadyCompleted,
-		ResumeRequested:       result.ResumeRequested,
+		Queued:                result.Queued,
 		RemainingWaitingSteps: result.RemainingWaitingSteps,
 	}, nil
 }
 
-// ResumeHumanTaskDAGRun retries a pending human-task resume handoff.
+// ResumeHumanTaskDAGRun retries a pending human-task enqueue.
 func (a *API) ResumeHumanTaskDAGRun(
 	ctx context.Context,
 	request api.ResumeHumanTaskDAGRunRequestObject,
@@ -171,9 +169,9 @@ func (a *API) ResumeHumanTaskDAGRun(
 	}
 	a.logHumanTaskResume(ctx, request.Name, request.DagRunId, result, nil)
 	return &api.ResumeHumanTaskDAGRun200JSONResponse{
-		DagName:         result.DAGName,
-		DagRunId:        result.DAGRunID,
-		ResumeRequested: result.ResumeRequested,
+		DagName:  result.DAGName,
+		DagRunId: result.DAGRunID,
+		Queued:   result.Queued,
 	}, nil
 }
 
@@ -211,20 +209,6 @@ func (a *API) humanTaskService() *humantask.Service {
 		DAGRunStore: a.dagRunStore,
 		QueueStore:  a.queueStore,
 		ProcStore:   a.procStore,
-		LocalResumer: humantask.LocalResumeFunc(func(
-			ctx context.Context,
-			dag *core.DAG,
-			status *exec.DAGRunStatus,
-		) error {
-			prepared, err := a.prepareRetryDAGForSubprocess(ctx, dag, status)
-			if err != nil {
-				return fmt.Errorf("prepare DAG retry env: %w", err)
-			}
-			if a.subCmdBuilder == nil {
-				return errors.New("retry command builder is not configured")
-			}
-			return launcher.Start(ctx, a.subCmdBuilder.HumanTaskRetry(prepared, status.DAGRunID, status.HumanTaskResume.ClaimToken))
-		}),
 	}
 }
 
@@ -292,7 +276,7 @@ func (a *API) logHumanTaskCompletion(
 		"dag_run_id":              dagRunID,
 		"step_id":                 stepID,
 		"already_completed":       result.AlreadyCompleted,
-		"resume_requested":        result.ResumeRequested,
+		"queued":                  result.Queued,
 		"remaining_waiting_steps": result.RemainingWaitingSteps,
 		"outcome":                 "succeeded",
 	}
@@ -313,10 +297,10 @@ func (a *API) logHumanTaskResume(
 	err error,
 ) {
 	details := map[string]any{
-		"dag_name":         dagName,
-		"dag_run_id":       dagRunID,
-		"resume_requested": result.ResumeRequested,
-		"outcome":          "succeeded",
+		"dag_name":   dagName,
+		"dag_run_id": dagRunID,
+		"queued":     result.Queued,
+		"outcome":    "succeeded",
 	}
 	if err != nil {
 		details["outcome"] = "failed"

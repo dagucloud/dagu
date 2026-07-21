@@ -4,18 +4,11 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"strings"
 	"time"
 
-	"github.com/dagucloud/dagu/internal/cmn/fileutil"
-	"github.com/dagucloud/dagu/internal/core"
-	"github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/dagucloud/dagu/internal/core/spec"
 	"github.com/dagucloud/dagu/internal/dagrun/humantask"
-	"github.com/dagucloud/dagu/internal/dagwarning"
-	"github.com/dagucloud/dagu/internal/launcher"
 	"github.com/spf13/cobra"
 )
 
@@ -69,16 +62,12 @@ func humanTaskCompleteCommand() *cobra.Command {
 }
 
 type humanTaskCompleteDeps struct {
-	now    func() time.Time
-	resume func(*Context, *core.DAG, *exec.DAGRunStatus) error
+	now func() time.Time
 }
 
 func defaultHumanTaskCompleteDeps() humanTaskCompleteDeps {
 	return humanTaskCompleteDeps{
 		now: time.Now,
-		resume: func(ctx *Context, dag *core.DAG, status *exec.DAGRunStatus) error {
-			return launchHumanTaskRetry(ctx, dag, status)
-		},
 	}
 }
 
@@ -120,18 +109,6 @@ func runHumanTaskCompleteWith(ctx *Context, args []string, deps humanTaskComplet
 		QueueStore:  ctx.QueueStore,
 		ProcStore:   ctx.ProcStore,
 		Now:         deps.now,
-		LocalResumer: humantask.LocalResumeFunc(func(
-			resumeCtx context.Context,
-			dag *core.DAG,
-			status *exec.DAGRunStatus,
-		) error {
-			if deps.resume == nil {
-				return fmt.Errorf("local human-task resumer is not configured")
-			}
-			localCtx := *ctx
-			localCtx.Context = resumeCtx
-			return deps.resume(&localCtx, dag, status)
-		}),
 	}
 	result, err := service.Complete(ctx, humantask.CompleteRequest{
 		DAGName:  dagName,
@@ -150,7 +127,7 @@ func runHumanTaskCompleteWith(ctx *Context, args []string, deps humanTaskComplet
 		_, err := fmt.Fprintf(ctx.Command.OutOrStdout(), "Completed human task %s; DAG-run remains waiting.\n", stepID)
 		return err
 	}
-	if !result.ResumeRequested {
+	if !result.Queued {
 		_, err := fmt.Fprintf(ctx.Command.OutOrStdout(), "Human task %s was already completed.\n", stepID)
 		return err
 	}
@@ -158,7 +135,7 @@ func runHumanTaskCompleteWith(ctx *Context, args []string, deps humanTaskComplet
 	if result.AlreadyCompleted {
 		message = fmt.Sprintf("Human task %s was already completed", stepID)
 	}
-	_, err = fmt.Fprintf(ctx.Command.OutOrStdout(), "%s; DAG-run resume requested.\n", message)
+	_, err = fmt.Fprintf(ctx.Command.OutOrStdout(), "%s; DAG-run queued for resume.\n", message)
 	return err
 }
 
@@ -188,54 +165,4 @@ func parseHumanTaskCompletionInput(command *cobra.Command) (humantask.Input, err
 		return humantask.Input{}, fmt.Errorf("%s", message)
 	}
 	return input, nil
-}
-
-func launchHumanTaskRetry(ctx *Context, dag *core.DAG, status *exec.DAGRunStatus) error {
-	if ctx.Config == nil {
-		return fmt.Errorf("configuration is not available")
-	}
-	result, err := spec.ResolveEnvWithWarnings(ctx, dag, status.ParamsList, spec.ResolveEnvOptions{
-		BaseConfig: ctx.Config.Paths.BaseConfig,
-	})
-	if err != nil {
-		return fmt.Errorf("prepare retry environment: %w", err)
-	}
-	dagwarning.Log(ctx, result.BuildWarnings)
-	prepared := dag.Clone()
-	prepared.Env = result.Env
-
-	retrySpec := humanTaskRetrySpec(ctx, prepared, status.DAGRunID, status.HumanTaskResume.ClaimToken)
-	if err := launcher.Start(ctx, retrySpec); err != nil {
-		return fmt.Errorf("start retry subprocess: %w", err)
-	}
-	return nil
-}
-
-func humanTaskRetrySpec(ctx *Context, dag *core.DAG, dagRunID, claimToken string) launcher.CmdSpec {
-	builder := launcher.NewSubCmdBuilder(ctx.Config)
-	retrySpec := builder.HumanTaskRetry(dag, dagRunID, claimToken)
-	if daguHome := explicitHumanTaskDAGUHome(ctx); daguHome != "" {
-		target := retrySpec.Args[len(retrySpec.Args)-1]
-		retrySpec.Args = append(retrySpec.Args[:len(retrySpec.Args)-1], "--dagu-home="+daguHome, target)
-	}
-	return retrySpec
-}
-
-func explicitHumanTaskDAGUHome(ctx *Context) string {
-	if ctx == nil || ctx.Command == nil || !ctx.Command.Flags().Changed(daguHomeFlag.name) {
-		return ""
-	}
-	if ctx.Config != nil {
-		for _, entry := range ctx.Config.Core.BaseEnv.AsSlice() {
-			key, value, found := strings.Cut(entry, "=")
-			if found && key == "DAGU_HOME" {
-				return value
-			}
-		}
-	}
-	value, err := ctx.Command.Flags().GetString(daguHomeFlag.name)
-	if err != nil {
-		return ""
-	}
-	return fileutil.ResolvePathOrBlank(value)
 }

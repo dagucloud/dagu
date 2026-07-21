@@ -801,13 +801,23 @@ func TestCompleteHumanTask(t *testing.T) {
 	var completeBody api.CompleteHumanTask200JSONResponse
 	completeResp.Unmarshal(t, &completeBody)
 	require.Equal(t, "review", completeBody.StepId)
-	require.True(t, completeBody.ResumeRequested)
+	require.True(t, completeBody.Queued)
 	require.Zero(t, completeBody.RemainingWaitingSteps)
 
-	completedStatus := waitForStoredDAGRunStatus(t, server, "human_task_api_test", startBody.DagRunId, 10*time.Second, func(status *exec.DAGRunStatus) bool {
-		return status.Status == core.Succeeded && hasNodeWithStatus(status, "deploy", core.NodeSucceeded)
+	queuedStatus := waitForStoredDAGRunStatus(t, server, "human_task_api_test", startBody.DagRunId, 10*time.Second, func(status *exec.DAGRunStatus) bool {
+		return status.Status == core.Queued && hasNodeWithStatus(status, "review", core.NodeSucceeded)
 	})
-	require.Nil(t, completedStatus.HumanTaskResume)
+	require.NotNil(t, queuedStatus.HumanTaskResume)
+	queueName := queuedStatus.ProcGroup
+	if queueName == "" {
+		queueName = queuedStatus.Name
+	}
+	queuedItems, err := server.QueueStore.ListByDAGName(t.Context(), queueName, queuedStatus.Name)
+	require.NoError(t, err)
+	require.Len(t, queuedItems, 1)
+	queuedRef, err := queuedItems[0].Data()
+	require.NoError(t, err)
+	require.Equal(t, queuedStatus.DAGRun(), *queuedRef)
 
 	idempotentResp := server.Client().Post(
 		fmt.Sprintf("/api/v1/dag-runs/human_task_api_test/%s/human-tasks/review/complete", startBody.DagRunId),
@@ -815,7 +825,7 @@ func TestCompleteHumanTask(t *testing.T) {
 	).ExpectStatus(http.StatusOK).Send(t)
 	idempotentResp.Unmarshal(t, &completeBody)
 	require.True(t, completeBody.AlreadyCompleted)
-	require.False(t, completeBody.ResumeRequested)
+	require.False(t, completeBody.Queued)
 }
 
 func TestApproveDAGRunStepRejectsWhileDAGRunIsRunning(t *testing.T) {
