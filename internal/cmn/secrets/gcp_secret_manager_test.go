@@ -65,6 +65,12 @@ func TestGCPSecretManagerResolverValidate(t *testing.T) {
 	}
 }
 
+func TestGCPSecretManagerResolverRegistered(t *testing.T) {
+	resolver := NewRegistry().Get(gcpSecretManagerProvider)
+	require.NotNil(t, resolver)
+	assert.Equal(t, gcpSecretManagerProvider, resolver.Name())
+}
+
 func TestGCPSecretManagerResolverResolve(t *testing.T) {
 	var mu sync.Mutex
 	var locations []string
@@ -135,6 +141,7 @@ func TestGCPSecretManagerResolverErrors(t *testing.T) {
 		require.ErrorContains(t, err, "project ID is required")
 	})
 
+	badChecksum := int64(1)
 	tests := []struct {
 		name     string
 		response *secretmanagerpb.AccessSecretVersionResponse
@@ -144,7 +151,7 @@ func TestGCPSecretManagerResolverErrors(t *testing.T) {
 		{name: "ReadError", err: fmt.Errorf("permission denied"), wantErr: "failed to read"},
 		{name: "NilResponse", wantErr: "has no payload"},
 		{name: "MissingPayload", response: &secretmanagerpb.AccessSecretVersionResponse{}, wantErr: "has no payload"},
-		{name: "ChecksumMismatch", response: &secretmanagerpb.AccessSecretVersionResponse{Payload: &secretmanagerpb.SecretPayload{Data: []byte("value"), DataCrc32C: new(int64(1))}}, wantErr: "failed CRC32C"},
+		{name: "ChecksumMismatch", response: &secretmanagerpb.AccessSecretVersionResponse{Payload: &secretmanagerpb.SecretPayload{Data: []byte("value"), DataCrc32C: &badChecksum}}, wantErr: "failed CRC32C"},
 	}
 
 	for _, tc := range tests {
