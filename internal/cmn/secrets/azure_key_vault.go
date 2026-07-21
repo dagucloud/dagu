@@ -82,12 +82,12 @@ func (r *azureKeyVaultResolver) Resolve(ctx context.Context, ref core.SecretRef)
 	if err != nil {
 		var responseErr *azcore.ResponseError
 		if errors.As(err, &responseErr) && responseErr.StatusCode == http.StatusNotFound {
-			return "", fmt.Errorf("Azure Key Vault secret %q was not found: %w", parsed.name, err)
+			return "", fmt.Errorf("azure Key Vault secret %q was not found: %w", parsed.name, err)
 		}
 		return "", fmt.Errorf("failed to read Azure Key Vault secret %q: %w", parsed.name, err)
 	}
 	if value == nil {
-		return "", fmt.Errorf("Azure Key Vault secret %q has no value", parsed.name)
+		return "", fmt.Errorf("azure Key Vault secret %q has no value", parsed.name)
 	}
 	return selectJSONField(*value, ref.Options["field"])
 }
@@ -106,25 +106,25 @@ func (r *azureKeyVaultResolver) getClient(vaultURL string) (azureSecretClient, e
 	}
 	credential := r.credential
 	if credential == nil {
-		factory := r.credentialFactory
-		if factory == nil {
-			factory = func() (azcore.TokenCredential, error) {
+		credentialFactory := r.credentialFactory
+		if credentialFactory == nil {
+			credentialFactory = func() (azcore.TokenCredential, error) {
 				return azidentity.NewDefaultAzureCredential(nil)
 			}
 		}
 		var err error
-		credential, err = factory()
+		credential, err = credentialFactory()
 		if err != nil {
 			return nil, fmt.Errorf("failed to create Azure credential: %w", err)
 		}
 		r.credential = credential
 	}
 
-	factory := r.clientFactory
-	if factory == nil {
-		factory = newAzureSecretClient
+	clientFactory := r.clientFactory
+	if clientFactory == nil {
+		clientFactory = newAzureSecretClient
 	}
-	client, err := factory(vaultURL, credential)
+	client, err := clientFactory(vaultURL, credential)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Azure Key Vault client: %w", err)
 	}
@@ -148,7 +148,7 @@ func parseAzureSecretReference(ref core.SecretRef, defaultVaultURL string) (azur
 		return parseAzureSecretURL(key, ref.Options["version"])
 	}
 	if strings.Contains(key, "/") {
-		return azureSecretReference{}, fmt.Errorf("Azure Key Vault secret name must not contain slashes")
+		return azureSecretReference{}, fmt.Errorf("azure Key Vault secret name must not contain slashes")
 	}
 
 	vaultURL := ref.Options["vault_url"]
@@ -176,11 +176,11 @@ func parseAzureSecretURL(rawURL, optionVersion string) (azureSecretReference, er
 	}
 	segments := strings.Split(strings.Trim(u.EscapedPath(), "/"), "/")
 	if len(segments) < 2 || len(segments) > 3 || segments[0] != "secrets" || segments[1] == "" {
-		return azureSecretReference{}, fmt.Errorf("Azure Key Vault secret URL path must be /secrets/{name} or /secrets/{name}/{version}")
+		return azureSecretReference{}, fmt.Errorf("azure Key Vault secret URL path must be /secrets/{name} or /secrets/{name}/{version}")
 	}
 	name, err := url.PathUnescape(segments[1])
 	if err != nil || name == "" || strings.Contains(name, "/") {
-		return azureSecretReference{}, fmt.Errorf("Azure Key Vault secret URL contains an invalid secret name")
+		return azureSecretReference{}, fmt.Errorf("azure Key Vault secret URL contains an invalid secret name")
 	}
 	version := optionVersion
 	if len(segments) == 3 {
@@ -189,7 +189,7 @@ func parseAzureSecretURL(rawURL, optionVersion string) (azureSecretReference, er
 		}
 		version, err = url.PathUnescape(segments[2])
 		if err != nil || version == "" || strings.Contains(version, "/") {
-			return azureSecretReference{}, fmt.Errorf("Azure Key Vault secret URL contains an invalid version")
+			return azureSecretReference{}, fmt.Errorf("azure Key Vault secret URL contains an invalid version")
 		}
 	}
 	vaultURL := (&url.URL{Scheme: "https", Host: host}).String()
@@ -223,11 +223,7 @@ func validateAzureURL(u *url.URL) (string, error) {
 	}
 	host := strings.ToLower(u.Hostname())
 	for _, suffix := range azureVaultDNSSuffixes {
-		if !strings.HasSuffix(host, suffix) {
-			continue
-		}
-		vaultName := strings.TrimSuffix(host, suffix)
-		if vaultName != "" && !strings.Contains(vaultName, ".") && azureVaultNamePattern.MatchString(vaultName) {
+		if vaultName, ok := strings.CutSuffix(host, suffix); ok && azureVaultNamePattern.MatchString(vaultName) {
 			return host, nil
 		}
 	}
