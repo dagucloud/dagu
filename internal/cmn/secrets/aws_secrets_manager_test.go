@@ -38,6 +38,7 @@ func TestAWSSecretsManagerResolverValidate(t *testing.T) {
 		{name: "MalformedARN", key: "arn:not-valid", wantErr: "invalid"},
 		{name: "WrongService", key: "arn:aws:ssm:us-east-1:123456789012:parameter/name", wantErr: "Secrets Manager"},
 		{name: "MissingRegion", key: "arn:aws:secretsmanager::123456789012:secret:name", wantErr: "Secrets Manager"},
+		{name: "RegionWhitespace", key: "arn:aws:secretsmanager:us-east-1:123456789012:secret:name", options: map[string]string{"region": " us-east-1 "}},
 		{name: "RegionConflict", key: "arn:aws:secretsmanager:us-east-1:123456789012:secret:name", options: map[string]string{"region": "us-west-2"}, wantErr: "conflicts"},
 	}
 
@@ -73,14 +74,14 @@ func TestAWSSecretsManagerResolverResolve(t *testing.T) {
 		},
 	}
 	ctx := config.WithConfig(context.Background(), &config.Config{
-		Secrets: config.SecretsConfig{AWS: config.AWSSecretsConfig{Region: "us-west-2"}},
+		Secrets: config.SecretsConfig{AWS: config.AWSSecretsConfig{Region: " us-west-2 "}},
 	})
 
 	got, err := resolver.Resolve(ctx, core.SecretRef{
 		Key: " database-password ",
 		Options: map[string]string{
-			"version_id":    "version-id",
-			"version_stage": "AWSPREVIOUS",
+			"version_id":    " version-id ",
+			"version_stage": " AWSPREVIOUS ",
 			"field":         "token",
 		},
 	})
@@ -89,7 +90,7 @@ func TestAWSSecretsManagerResolverResolve(t *testing.T) {
 
 	got, err = resolver.Resolve(ctx, core.SecretRef{
 		Key:     "database-password",
-		Options: map[string]string{"region": "eu-west-1", "field": "enabled"},
+		Options: map[string]string{"region": " eu-west-1 ", "field": "enabled"},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "true", got)

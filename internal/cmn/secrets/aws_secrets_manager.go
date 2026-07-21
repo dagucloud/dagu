@@ -47,8 +47,9 @@ func (r *awsSecretsManagerResolver) Validate(ref core.SecretRef) error {
 	if err != nil {
 		return err
 	}
-	if isARN && ref.Options["region"] != "" && ref.Options["region"] != parsed.Region {
-		return fmt.Errorf("options.region %q conflicts with AWS Secrets Manager ARN region %q", ref.Options["region"], parsed.Region)
+	region := strings.TrimSpace(ref.Options["region"])
+	if isARN && region != "" && region != parsed.Region {
+		return fmt.Errorf("options.region %q conflicts with AWS Secrets Manager ARN region %q", region, parsed.Region)
 	}
 	return nil
 }
@@ -69,10 +70,10 @@ func (r *awsSecretsManagerResolver) Resolve(ctx context.Context, ref core.Secret
 	}
 
 	input := &secretsmanager.GetSecretValueInput{SecretId: aws.String(key)}
-	if versionID := ref.Options["version_id"]; versionID != "" {
+	if versionID := strings.TrimSpace(ref.Options["version_id"]); versionID != "" {
 		input.VersionId = aws.String(versionID)
 	}
-	if versionStage := ref.Options["version_stage"]; versionStage != "" {
+	if versionStage := strings.TrimSpace(ref.Options["version_stage"]); versionStage != "" {
 		input.VersionStage = aws.String(versionStage)
 	}
 	output, err := client.GetSecretValue(ctx, input)
@@ -138,7 +139,7 @@ func resolveAWSRegion(ctx context.Context, ref core.SecretRef, key string) (stri
 	if err != nil {
 		return "", err
 	}
-	region := ref.Options["region"]
+	region := strings.TrimSpace(ref.Options["region"])
 	if isARN {
 		if region != "" && region != parsed.Region {
 			return "", fmt.Errorf("options.region %q conflicts with AWS Secrets Manager ARN region %q", region, parsed.Region)
@@ -148,7 +149,7 @@ func resolveAWSRegion(ctx context.Context, ref core.SecretRef, key string) (stri
 	if region != "" {
 		return region, nil
 	}
-	return config.GetConfig(ctx).Secrets.AWS.Region, nil
+	return strings.TrimSpace(config.GetConfig(ctx).Secrets.AWS.Region), nil
 }
 
 func parseAWSSecretsManagerARN(key string) (awsarn.ARN, bool, error) {
