@@ -48,6 +48,7 @@ func TestGCPSecretManagerResolverValidate(t *testing.T) {
 		{name: "ShortIDWithSlash", ref: core.SecretRef{Key: "team/database-password"}, wantErr: "must not contain slashes"},
 		{name: "MalformedResource", ref: core.SecretRef{Key: "projects/project-a/locations/us-central1/secrets"}, wantErr: "invalid"},
 		{name: "VersionConflict", ref: core.SecretRef{Key: "projects/project-a/secrets/database-password/versions/5", Options: map[string]string{"version": "6"}}, wantErr: "conflicts"},
+		{name: "ResourceWhitespaceOptions", ref: core.SecretRef{Key: "projects/project-a/secrets/database-password/versions/5", Options: map[string]string{"project_id": " ", "location": " ", "version": " "}}},
 		{name: "ProjectConflict", ref: core.SecretRef{Key: "projects/project-a/secrets/database-password", Options: map[string]string{"project_id": "project-b"}}, wantErr: "cannot be used"},
 		{name: "InvalidLocation", ref: core.SecretRef{Key: "database-password", Options: map[string]string{"location": "evil.example.com:443"}}, wantErr: "invalid characters"},
 	}
@@ -87,7 +88,7 @@ func TestGCPSecretManagerResolverResolve(t *testing.T) {
 		},
 	}
 	ctx := config.WithConfig(context.Background(), &config.Config{
-		Secrets: config.SecretsConfig{GCP: config.GCPSecretsConfig{ProjectID: "config-project"}},
+		Secrets: config.SecretsConfig{GCP: config.GCPSecretsConfig{ProjectID: " config-project "}},
 	})
 
 	got, err := resolver.Resolve(ctx, core.SecretRef{Key: "database-password", Options: map[string]string{"field": "token"}})
@@ -97,9 +98,9 @@ func TestGCPSecretManagerResolverResolve(t *testing.T) {
 	got, err = resolver.Resolve(ctx, core.SecretRef{
 		Key: "database-password",
 		Options: map[string]string{
-			"project_id": "option-project",
-			"location":   "us-central1",
-			"version":    "5",
+			"project_id": " option-project ",
+			"location":   " us-central1 ",
+			"version":    " 5 ",
 			"field":      "enabled",
 		},
 	})
@@ -112,7 +113,7 @@ func TestGCPSecretManagerResolverResolve(t *testing.T) {
 
 	got, err = resolver.Resolve(context.Background(), core.SecretRef{
 		Key:     "projects/full-project/locations/europe-west1/secrets/name",
-		Options: map[string]string{"version": "9"},
+		Options: map[string]string{"version": " 9 "},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, string(data), got)

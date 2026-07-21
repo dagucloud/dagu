@@ -136,15 +136,15 @@ func parseGCPSecretReference(ref core.SecretRef, defaultProject, defaultLocation
 		return gcpSecretReference{}, fmt.Errorf("GCP Secret Manager secret ID must not contain slashes")
 	}
 
-	project := ref.Options["project_id"]
+	project := strings.TrimSpace(ref.Options["project_id"])
 	if project == "" {
-		project = defaultProject
+		project = strings.TrimSpace(defaultProject)
 	}
-	location := ref.Options["location"]
+	location := strings.TrimSpace(ref.Options["location"])
 	if location == "" {
-		location = defaultLocation
+		location = strings.TrimSpace(defaultLocation)
 	}
-	version := ref.Options["version"]
+	version := strings.TrimSpace(ref.Options["version"])
 	if version == "" {
 		version = "latest"
 	}
@@ -188,16 +188,18 @@ func parseGCPResourceName(key string, options map[string]string) (gcpSecretRefer
 	if location != "" && !gcpLocationPattern.MatchString(location) {
 		return gcpSecretReference{}, fmt.Errorf("GCP Secret Manager location contains invalid characters")
 	}
-	if options["project_id"] != "" || options["location"] != "" {
+	projectOption := strings.TrimSpace(options["project_id"])
+	locationOption := strings.TrimSpace(options["location"])
+	if projectOption != "" || locationOption != "" {
 		return gcpSecretReference{}, fmt.Errorf("project_id and location options cannot be used with a GCP Secret Manager resource name")
 	}
 	if versionResource {
-		if options["version"] != "" {
+		if strings.TrimSpace(options["version"]) != "" {
 			return gcpSecretReference{}, fmt.Errorf("options.version conflicts with the GCP Secret Manager version resource name")
 		}
 		return gcpSecretReference{resource: key, location: location}, nil
 	}
-	version := options["version"]
+	version := strings.TrimSpace(options["version"])
 	if version == "" {
 		version = "latest"
 	}
