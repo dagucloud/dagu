@@ -20,6 +20,13 @@ func sharedEnv(t *testing.T) []string {
 
 func startWaiting(t *testing.T, dagu *harness.Runner, env []string, runID, file string, extraArgs ...string) {
 	t.Helper()
+	queueProcessor := dagu.StartWithEnv(env, "scheduler", "--dags="+dagu.ProjectPath("."))
+	select {
+	case <-queueProcessor.Done():
+		t.Fatalf("scheduler exited during startup: %s", queueProcessor.FailureOutput())
+	case <-time.After(100 * time.Millisecond):
+	}
+
 	args := []string{"start", "--run-id=" + runID}
 	args = append(args, extraArgs...)
 	args = append(args, file)

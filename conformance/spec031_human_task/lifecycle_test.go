@@ -27,7 +27,7 @@ func TestAcknowledgementCheckpointAndResume(t *testing.T) {
 
 	result := complete(t, dagu, env, runID, "maintenance_started", "acknowledgement.yaml")
 	result.ExpectExitCode(0)
-	result.ExpectStdout("Completed human task maintenance_started; DAG-run resume requested.\n")
+	result.ExpectStdout("Completed human task maintenance_started; DAG-run queued for resume.\n")
 	result.ExpectStderr("")
 
 	waitForStatus(t, dagu, env, runID, "acknowledgement.yaml", "Succeeded")
@@ -58,7 +58,7 @@ func TestTypedFormDefaultsAndOutputs(t *testing.T) {
 
 	result := complete(t, dagu, env, runID, "release_review", "typed_form.yaml", "--input=environment=production")
 	result.ExpectExitCode(0)
-	result.ExpectStdout("Completed human task release_review; DAG-run resume requested.\n")
+	result.ExpectStdout("Completed human task release_review; DAG-run queued for resume.\n")
 	result.ExpectStderr("")
 
 	waitForStatus(t, dagu, env, runID, "typed_form.yaml", "Succeeded")
@@ -82,7 +82,7 @@ func TestMultipleAndSequentialCheckpoints(t *testing.T) {
 
 		result := complete(t, dagu, env, runID, "review", "independent_branch.yaml")
 		result.ExpectExitCode(0)
-		result.ExpectStdout("Completed human task review; DAG-run resume requested.\n")
+		result.ExpectStdout("Completed human task review; DAG-run queued for resume.\n")
 		result.ExpectStderr("")
 		waitForStatus(t, dagu, env, runID, "independent_branch.yaml", "Succeeded")
 		waitForFileContent(t, dagu.ProjectPath("resumed.txt"), "resumed\n")
@@ -102,7 +102,7 @@ func TestMultipleAndSequentialCheckpoints(t *testing.T) {
 
 		second := complete(t, dagu, env, runID, "review_b", "multiple_waiting.yaml")
 		second.ExpectExitCode(0)
-		second.ExpectStdout("Completed human task review_b; DAG-run resume requested.\n")
+		second.ExpectStdout("Completed human task review_b; DAG-run queued for resume.\n")
 		second.ExpectStderr("")
 		waitForStatus(t, dagu, env, runID, "multiple_waiting.yaml", "Succeeded")
 		waitForFileContent(t, dagu.ProjectPath("deployed.txt"), "deployed\n")
@@ -116,7 +116,7 @@ func TestMultipleAndSequentialCheckpoints(t *testing.T) {
 		startWaiting(t, dagu, env, runID, "sequential_waiting.yaml")
 		first := complete(t, dagu, env, runID, "first_review", "sequential_waiting.yaml")
 		first.ExpectExitCode(0)
-		first.ExpectStdout("Completed human task first_review; DAG-run resume requested.\n")
+		first.ExpectStdout("Completed human task first_review; DAG-run queued for resume.\n")
 		first.ExpectStderr("")
 		status := waitForStatus(t, dagu, env, runID, "sequential_waiting.yaml", "Waiting")
 		require.Contains(t, status.Stdout(), "second_review")
@@ -124,7 +124,7 @@ func TestMultipleAndSequentialCheckpoints(t *testing.T) {
 
 		second := complete(t, dagu, env, runID, "second_review", "sequential_waiting.yaml")
 		second.ExpectExitCode(0)
-		second.ExpectStdout("Completed human task second_review; DAG-run resume requested.\n")
+		second.ExpectStdout("Completed human task second_review; DAG-run queued for resume.\n")
 		second.ExpectStderr("")
 		waitForStatus(t, dagu, env, runID, "sequential_waiting.yaml", "Succeeded")
 		waitForFileContent(t, dagu.ProjectPath("finished.txt"), "finished\n")
@@ -152,7 +152,7 @@ func TestStoredPromptFormAndDAGSnapshot(t *testing.T) {
 
 	result := complete(t, dagu, env, runID, "review", "prompt_snapshot.yaml", "--input=environment=production")
 	result.ExpectExitCode(0)
-	result.ExpectStdout("Completed human task review; DAG-run resume requested.\n")
+	result.ExpectStdout("Completed human task review; DAG-run queued for resume.\n")
 	result.ExpectStderr("")
 	waitForStatus(t, dagu, env, runID, "prompt_snapshot.yaml", "Succeeded")
 	waitForFileContent(t, dagu.ProjectPath("snapshot.txt"), "production\n")
@@ -167,7 +167,7 @@ func TestAdditionalPropertiesDoNotCreateOutputs(t *testing.T) {
 	input := `{"metadata":{"team":"platform","flags":[true,null]},"environment":"staging"}`
 	result := complete(t, dagu, env, runID, "collect", "additional_properties.yaml", "--inputs-json", input)
 	result.ExpectExitCode(0)
-	result.ExpectStdout("Completed human task collect; DAG-run resume requested.\n")
+	result.ExpectStdout("Completed human task collect; DAG-run queued for resume.\n")
 	result.ExpectStderr("")
 	waitForStatus(t, dagu, env, runID, "additional_properties.yaml", "Succeeded")
 	waitForFileContent(t, dagu.ProjectPath("additional.txt"), "staging\n")

@@ -4,7 +4,6 @@
 package spec031_human_task_test
 
 import (
-	"path/filepath"
 	"testing"
 
 	"github.com/dagucloud/dagu/conformance/harness"
@@ -165,26 +164,6 @@ func TestAcknowledgementSizeConflictAndTerminalErrors(t *testing.T) {
 		result := complete(t, dagu, env, "missing-run", "maintenance_started", "acknowledgement.yaml")
 		assertCompletionError(t, result, "spec031_acknowledgement", "missing-run")
 	})
-}
-
-func TestResumeFailureKeepsCompletionAndCanBeRetried(t *testing.T) {
-	dagu := harness.NewRunner(t)
-	env := sharedEnv(t)
-	const runID = "spec031-resume-failure"
-	startWaiting(t, dagu, env, runID, "acknowledgement.yaml")
-
-	brokenEnv := append(append([]string(nil), env...), "DAGU_EXECUTABLE="+filepath.Join(dagu.ProjectPath("missing"), "dagu"))
-	failed := complete(t, dagu, brokenEnv, runID, "maintenance_started", "acknowledgement.yaml")
-	assertCompletionError(t, failed, "maintenance_started", "completed", "could not be resumed")
-	waitForStatus(t, dagu, env, runID, "acknowledgement.yaml", "Waiting")
-	dagu.ExpectNoFile("continued.txt")
-
-	retry := complete(t, dagu, env, runID, "maintenance_started", "acknowledgement.yaml")
-	retry.ExpectExitCode(0)
-	retry.ExpectStdout("Human task maintenance_started was already completed; DAG-run resume requested.\n")
-	retry.ExpectStderr("")
-	waitForStatus(t, dagu, env, runID, "acknowledgement.yaml", "Succeeded")
-	waitForFileContent(t, dagu.ProjectPath("continued.txt"), "continued\n")
 }
 
 func TestCompletionRequiresLocalCLIContext(t *testing.T) {
