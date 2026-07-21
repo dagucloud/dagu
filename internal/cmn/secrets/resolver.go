@@ -288,7 +288,9 @@ func (r *Registry) Close() error {
 	var errs []error
 	for _, resolver := range resolvers {
 		if closer, ok := resolver.(interface{ Close() error }); ok {
-			errs = append(errs, closer.Close())
+			if err := closer.Close(); err != nil {
+				errs = append(errs, err)
+			}
 		}
 	}
 	return errors.Join(errs...)
