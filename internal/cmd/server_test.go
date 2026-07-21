@@ -28,7 +28,7 @@ func TestServerCommand(t *testing.T) {
 	t.Run("StartServerWithConfig", func(t *testing.T) {
 		th := test.SetupCommand(t)
 		listener, port := reserveServerListener(t)
-		configFile := th.TempFile(t, "server-config.yaml", []byte(fmt.Sprintf("host: 127.0.0.1\nport: %s\n", port)))
+		configFile := th.TempFile(t, "server-config.yaml", fmt.Appendf(nil, "host: 127.0.0.1\nport: %s\n", port))
 		cancelWhenLogContains(t, th, port)
 		th.RunCommand(t, cmd.Server(frontend.WithListener(listener)), test.CmdTest{
 			Args:        []string{"server", "--config", configFile},

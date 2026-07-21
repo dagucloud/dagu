@@ -58,7 +58,7 @@ function HumanTaskCard({
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const task = node.step.humanTask!;
-  const schema = task.form as JSONSchema | undefined;
+  const schema = (task.form ?? undefined) as JSONSchema | undefined;
   const hasForm = !!schema && Object.keys(schema).length > 0;
   const uiSchema = React.useMemo<UiSchema<FormData>>(
     () => ({

@@ -101,6 +101,22 @@ func TestToDAGRunDetailsIncludesHumanTaskContract(t *testing.T) {
 	assert.True(t, *details.HumanTaskResumePending)
 }
 
+func TestToDAGRunDetailsTreatsNullHumanTaskFormAsAbsent(t *testing.T) {
+	status := exec.DAGRunStatus{
+		Name:     "test-dag",
+		DAGRunID: "run-1",
+		Nodes: []*exec.Node{{
+			Step: core.Step{HumanTask: &core.HumanTaskConfig{Form: json.RawMessage(`null`)}},
+		}},
+	}
+
+	details := ToDAGRunDetails(status)
+
+	require.Len(t, details.Nodes, 1)
+	require.NotNil(t, details.Nodes[0].Step.HumanTask)
+	assert.Nil(t, details.Nodes[0].Step.HumanTask.Form)
+}
+
 func TestToDAGRunSummaryOmitsAutoRetryLimitWhenUnconfigured(t *testing.T) {
 	status := exec.DAGRunStatus{
 		Name:           "test-dag",

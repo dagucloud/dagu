@@ -27,6 +27,7 @@ func TestHumanTaskInputMiddlewarePreservesValidatedBody(t *testing.T) {
 		body, err := io.ReadAll(r.Body)
 		require.NoError(t, err)
 		assert.Equal(t, raw, string(body))
+		assert.Equal(t, int64(len(raw)), r.ContentLength)
 		w.WriteHeader(http.StatusNoContent)
 	}))
 

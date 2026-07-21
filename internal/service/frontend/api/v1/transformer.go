@@ -182,7 +182,7 @@ func toStep(obj core.Step) api.Step {
 			var form map[string]any
 			decoder := json.NewDecoder(bytes.NewReader(obj.HumanTask.Form))
 			decoder.UseNumber()
-			if err := decoder.Decode(&form); err == nil {
+			if err := decoder.Decode(&form); err == nil && form != nil {
 				humanTask.Form = &form
 			}
 		}

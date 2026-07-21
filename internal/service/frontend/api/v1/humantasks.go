@@ -52,6 +52,7 @@ func humanTaskInputMiddlewareWithLimit(mountedAPIPath string, maxBodyBytes int64
 				return
 			}
 			r.Body = io.NopCloser(bytes.NewReader(raw))
+			r.ContentLength = int64(len(raw))
 			input, err := humantask.ParseJSONInput(raw)
 			if err != nil {
 				WriteErrorResponse(w, &Error{HTTPStatus: http.StatusBadRequest, Code: api.ErrorCodeBadRequest, Message: err.Error()})
