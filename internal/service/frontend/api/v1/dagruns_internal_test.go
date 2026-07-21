@@ -6,6 +6,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -255,7 +256,9 @@ func TestRollbackPushBackPreservesConcurrentUnrelatedNodeChanges(t *testing.T) {
 
 type manualCASStore struct {
 	exec.DAGRunStore
-	status *exec.DAGRunStatus
+	status   *exec.DAGRunStatus
+	failures []error
+	calls    int
 }
 
 func (s *manualCASStore) CompareAndSwapLatestAttemptStatus(
@@ -266,6 +269,14 @@ func (s *manualCASStore) CompareAndSwapLatestAttemptStatus(
 	mutate func(*exec.DAGRunStatus) error,
 	opts ...exec.CompareAndSwapStatusOption,
 ) (*exec.DAGRunStatus, bool, error) {
+	s.calls++
+	if len(s.failures) > 0 {
+		err := s.failures[0]
+		s.failures = s.failures[1:]
+		if err != nil {
+			return nil, false, err
+		}
+	}
 	options := exec.NewCompareAndSwapStatusOptions(opts...)
 	if s.status.AttemptID != expectedAttemptID || s.status.Status != expectedStatus {
 		return s.status, false, nil
@@ -277,6 +288,32 @@ func (s *manualCASStore) CompareAndSwapLatestAttemptStatus(
 		return nil, false, err
 	}
 	return s.status, true, nil
+}
+
+func TestCompareAndSwapManualStatusRetriesTransientWriteFailure(t *testing.T) {
+	status := &exec.DAGRunStatus{
+		Name:       "manual-dag",
+		DAGRunID:   "run-1",
+		AttemptID:  "attempt-1",
+		AttemptKey: "attempt-key-1",
+		Status:     core.Waiting,
+	}
+	store := &manualCASStore{
+		status: status,
+		failures: []error{
+			errors.New("write status: file is used by another process"),
+		},
+	}
+	a := &API{dagRunStore: store}
+
+	updated, swapped, err := a.compareAndSwapManualStatus(t.Context(), status.DAGRun(), status, func(*exec.DAGRunStatus) error {
+		return nil
+	})
+
+	require.NoError(t, err)
+	assert.True(t, swapped)
+	assert.Same(t, status, updated)
+	assert.Equal(t, 2, store.calls)
 }
 
 func TestApplyPushBackAppendsLegacyPushBackInputsToHistory(t *testing.T) {

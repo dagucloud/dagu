@@ -9,6 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
+	"time"
 
 	"github.com/dagucloud/dagu/internal/core/exec"
 )
@@ -37,14 +39,55 @@ func (a *API) compareAndSwapManualStatus(
 	if mutationRef != targetRef {
 		opts = append(opts, exec.WithCompareAndSwapRootDAGRun(mutationRef))
 	}
-	return a.dagRunStore.CompareAndSwapLatestAttemptStatus(
-		a.withEventContext(ctx),
-		targetRef,
-		status.AttemptID,
-		status.Status,
-		mutate,
-		opts...,
+	compareAndSwap := func() (*exec.DAGRunStatus, bool, error) {
+		return a.dagRunStore.CompareAndSwapLatestAttemptStatus(
+			a.withEventContext(ctx),
+			targetRef,
+			status.AttemptID,
+			status.Status,
+			mutate,
+			opts...,
+		)
+	}
+
+	updated, swapped, err := compareAndSwap()
+	if err == nil || !isTransientManualStatusUpdateError(err) {
+		return updated, swapped, err
+	}
+
+	const (
+		retryWindow   = 3 * time.Second
+		retryInterval = 50 * time.Millisecond
 	)
+	deadline := time.NewTimer(retryWindow)
+	defer deadline.Stop()
+	ticker := time.NewTicker(retryInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, false, ctx.Err()
+		case <-deadline.C:
+			return updated, swapped, err
+		case <-ticker.C:
+			updated, swapped, err = compareAndSwap()
+			if err == nil || !isTransientManualStatusUpdateError(err) {
+				return updated, swapped, err
+			}
+		}
+	}
+}
+
+func isTransientManualStatusUpdateError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "used by another process") ||
+		strings.Contains(message, "cannot access the file") ||
+		strings.Contains(message, "access is denied") ||
+		strings.Contains(message, "sharing violation")
 }
 
 func cloneManualStatus(status *exec.DAGRunStatus) (*exec.DAGRunStatus, error) {

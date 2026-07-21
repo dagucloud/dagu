@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { getManualActionState } from '../manualActionState';
 
 type DAGRunDetails = components['schemas']['DAGRunDetails'];
+type DAGRunSummary = components['schemas']['DAGRunSummary'];
 type DAGRunNode = DAGRunDetails['nodes'][number];
 
 function node(status: NodeStatus, step: DAGRunNode['step']): DAGRunNode {
@@ -13,6 +14,23 @@ function node(status: NodeStatus, step: DAGRunNode['step']): DAGRunNode {
 }
 
 describe('getManualActionState', () => {
+  it.each([
+    { name: 'undefined input', dagRun: undefined, isWaiting: false },
+    {
+      name: 'summary without node details',
+      dagRun: { status: Status.Waiting } as DAGRunSummary,
+      isWaiting: true,
+    },
+  ])('returns safe defaults for $name', ({ dagRun, isWaiting }) => {
+    expect(getManualActionState(dagRun)).toEqual({
+      isWaiting,
+      waitingApprovalNodes: [],
+      waitingHumanTaskNodes: [],
+      hasHumanTaskWork: false,
+      humanTaskBlocksRetry: false,
+    });
+  });
+
   it('finds actionable approvals and blocks retry at a human-task checkpoint', () => {
     const approval = node(NodeStatus.Waiting, {
       name: 'approve',
