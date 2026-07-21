@@ -106,11 +106,12 @@ func (r *awsSecretsManagerResolver) CheckAccessibility(ctx context.Context, ref 
 
 func (r *awsSecretsManagerResolver) getClient(ctx context.Context, region string) (awsSecretsManagerClient, error) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	if client := r.clients[region]; client != nil {
+		r.mu.Unlock()
 		return client, nil
 	}
+	r.mu.Unlock()
+
 	factory := r.clientFactory
 	if factory == nil {
 		factory = newAWSSecretsManagerClient
@@ -119,8 +120,14 @@ func (r *awsSecretsManagerResolver) getClient(ctx context.Context, region string
 	if err != nil {
 		return nil, fmt.Errorf("failed to create AWS Secrets Manager client: %w", err)
 	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if r.clients == nil {
 		r.clients = make(map[string]awsSecretsManagerClient)
+	}
+	if existing := r.clients[region]; existing != nil {
+		return existing, nil
 	}
 	r.clients[region] = client
 	return client, nil
