@@ -154,8 +154,6 @@ func TestCompareAndSwapLatestAttemptStatusReturnsNormalizedConditions(t *testing
 }
 
 func TestCompareAndSwapLatestAttemptStatusWaitsForReplacementInitialization(t *testing.T) {
-	t.Parallel()
-
 	ctx := context.Background()
 	baseDir := t.TempDir()
 	store := dagrun.New(baseDir, dagrun.WithLatestStatusToday(false))
@@ -191,7 +189,7 @@ func TestCompareAndSwapLatestAttemptStatusWaitsForReplacementInitialization(t *t
 	replacementStatus.Status = core.Running
 	writeResult := make(chan error, 1)
 	go func() {
-		time.Sleep(50 * time.Millisecond)
+		time.Sleep(250 * time.Millisecond)
 		writeResult <- replacement.Write(ctx, replacementStatus)
 	}()
 
