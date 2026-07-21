@@ -215,7 +215,7 @@ func validateAzureURL(u *url.URL) (string, error) {
 	if !strings.EqualFold(u.Scheme, "https") {
 		return "", fmt.Errorf("scheme must be HTTPS")
 	}
-	if u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" {
+	if u.Host == "" || u.User != nil || u.ForceQuery || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" {
 		return "", fmt.Errorf("URL must contain only an HTTPS host and path")
 	}
 	if port := u.Port(); port != "" && port != "443" {

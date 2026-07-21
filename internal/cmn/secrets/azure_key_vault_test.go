@@ -47,6 +47,7 @@ func TestAzureKeyVaultResolverValidate(t *testing.T) {
 		{name: "ShortNameWithSlash", ref: core.SecretRef{Key: "team/database-password"}, wantErr: "must not contain slashes"},
 		{name: "HTTP", ref: core.SecretRef{Key: "http://example.vault.azure.net/secrets/name"}, wantErr: "HTTPS"},
 		{name: "Query", ref: core.SecretRef{Key: "https://example.vault.azure.net/secrets/name?api-version=1"}, wantErr: "only an HTTPS host and path"},
+		{name: "BareQuery", ref: core.SecretRef{Key: "https://example.vault.azure.net/secrets/name?"}, wantErr: "only an HTTPS host and path"},
 		{name: "ExtraSegment", ref: core.SecretRef{Key: "https://example.vault.azure.net/secrets/name/version/extra"}, wantErr: "URL path"},
 		{name: "VersionConflict", ref: core.SecretRef{Key: "https://example.vault.azure.net/secrets/name/url-version", Options: map[string]string{"version": "option-version"}}, wantErr: "conflicts"},
 		{name: "VaultConflict", ref: core.SecretRef{Key: "https://example.vault.azure.net/secrets/name", Options: map[string]string{"vault_url": "https://other.vault.azure.net"}}, wantErr: "cannot be used"},
