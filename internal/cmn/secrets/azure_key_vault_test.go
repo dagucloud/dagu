@@ -6,6 +6,7 @@ package secrets
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -54,6 +55,11 @@ func TestAzureKeyVaultResolverValidate(t *testing.T) {
 		{name: "VaultPath", ref: core.SecretRef{Key: "name", Options: map[string]string{"vault_url": "https://example.vault.azure.net/path"}}, wantErr: "path must be empty"},
 		{name: "ArbitraryHost", ref: core.SecretRef{Key: "https://example.com/secrets/name"}, wantErr: "Key Vault endpoint"},
 		{name: "NestedHost", ref: core.SecretRef{Key: "https://attacker.example.vault.azure.net/secrets/name"}, wantErr: "Key Vault endpoint"},
+		{name: "LeadingHyphen", ref: core.SecretRef{Key: "https://-example.vault.azure.net/secrets/name"}, wantErr: "Key Vault endpoint"},
+		{name: "TrailingHyphen", ref: core.SecretRef{Key: "https://example-.vault.azure.net/secrets/name"}, wantErr: "Key Vault endpoint"},
+		{name: "ConsecutiveHyphens", ref: core.SecretRef{Key: "https://exam--ple.vault.azure.net/secrets/name"}, wantErr: "Key Vault endpoint"},
+		{name: "VaultNameTooShort", ref: core.SecretRef{Key: "https://ab.vault.azure.net/secrets/name"}, wantErr: "Key Vault endpoint"},
+		{name: "VaultNameTooLong", ref: core.SecretRef{Key: "https://" + strings.Repeat("a", 25) + ".vault.azure.net/secrets/name"}, wantErr: "Key Vault endpoint"},
 		{name: "Localhost", ref: core.SecretRef{Key: "https://localhost/secrets/name"}, wantErr: "Key Vault endpoint"},
 		{name: "IPAddress", ref: core.SecretRef{Key: "https://127.0.0.1/secrets/name"}, wantErr: "Key Vault endpoint"},
 		{name: "CustomPort", ref: core.SecretRef{Key: "https://example.vault.azure.net:8443/secrets/name"}, wantErr: "port must be 443"},

@@ -23,7 +23,7 @@ import (
 const azureKeyVaultProvider = "azure-key-vault"
 
 var (
-	azureVaultNamePattern = regexp.MustCompile(`^[a-z0-9-]+$`)
+	azureVaultNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*[a-z0-9]$`)
 	azureVaultDNSSuffixes = []string{
 		".vault.azure.net",
 		".vault.azure.cn",
@@ -223,11 +223,16 @@ func validateAzureURL(u *url.URL) (string, error) {
 	}
 	host := strings.ToLower(u.Hostname())
 	for _, suffix := range azureVaultDNSSuffixes {
-		if vaultName, ok := strings.CutSuffix(host, suffix); ok && azureVaultNamePattern.MatchString(vaultName) {
+		if vaultName, ok := strings.CutSuffix(host, suffix); ok && isValidAzureVaultName(vaultName) {
 			return host, nil
 		}
 	}
 	return "", fmt.Errorf("host must be an Azure Key Vault endpoint")
+}
+
+func isValidAzureVaultName(name string) bool {
+	return len(name) >= 3 && len(name) <= 24 &&
+		azureVaultNamePattern.MatchString(name) && !strings.Contains(name, "--")
 }
 
 type azureSecretClient interface {
