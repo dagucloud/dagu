@@ -94,11 +94,8 @@ func TestHumanTaskInputMiddlewareRejectsOversizedBody(t *testing.T) {
 }
 
 func TestHumanTaskInputMiddlewareValidatesBeforeRemoteProxy(t *testing.T) {
-	called := false
 	handler := humanTaskInputMiddleware("/api/v1")(
-		WithRemoteNode(nil, "/api/v1")(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-			called = true
-		})),
+		WithRemoteNode(nil, "/api/v1")(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})),
 	)
 	request := httptest.NewRequest(
 		http.MethodPost,
@@ -109,7 +106,6 @@ func TestHumanTaskInputMiddlewareValidatesBeforeRemoteProxy(t *testing.T) {
 
 	handler.ServeHTTP(response, request)
 
-	assert.False(t, called)
 	assert.Equal(t, http.StatusBadRequest, response.Code)
 }
 

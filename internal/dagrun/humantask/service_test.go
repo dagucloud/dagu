@@ -278,8 +278,28 @@ func TestValidateRetryProtectsHumanTaskCheckpoints(t *testing.T) {
 	status.Nodes[0].Status = core.NodeSucceeded
 	status.Nodes[0].HumanTaskInput = json.RawMessage(`{}`)
 	status.HumanTaskResume = &exec.HumanTaskResumeState{RequestedAt: "2026-07-21T00:00:00Z", ClaimToken: "claim-1"}
+	assert.Error(t, ValidateRetry(status, "", ""))
 	assert.NoError(t, ValidateRetry(status, "", "claim-1"))
 	assert.Error(t, ValidateRetry(status, "", "wrong-claim"))
+}
+
+func TestValidateRetryAllowsRunRetryWhileWaitingForApprovalAfterCompletedHumanTask(t *testing.T) {
+	status := &exec.DAGRunStatus{
+		Status: core.Waiting,
+		Nodes: []*exec.Node{
+			{
+				Step:           core.Step{ID: "review", Name: "Review", HumanTask: &core.HumanTaskConfig{Prompt: "Review"}},
+				Status:         core.NodeSucceeded,
+				HumanTaskInput: json.RawMessage(`{}`),
+			},
+			{
+				Step:   core.Step{ID: "approve", Name: "Approve", Approval: &core.ApprovalConfig{Prompt: "Approve"}},
+				Status: core.NodeWaiting,
+			},
+		},
+	}
+
+	assert.NoError(t, ValidateRetry(status, "", ""))
 }
 
 func TestWaitForCompletionReadyWaitsForLocalAttemptExit(t *testing.T) {

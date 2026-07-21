@@ -422,6 +422,15 @@ func hasCompletedHumanTask(nodes []*exec.Node) bool {
 	return false
 }
 
+func hasWaitingHumanTask(nodes []*exec.Node) bool {
+	for _, node := range nodes {
+		if node != nil && node.Status == core.NodeWaiting && node.Step.HumanTask != nil {
+			return true
+		}
+	}
+	return false
+}
+
 // HasCompletedTask reports whether status contains durable human-task completion input.
 func HasCompletedTask(status *exec.DAGRunStatus) bool {
 	return status != nil && hasCompletedHumanTask(status.Nodes)
@@ -454,12 +463,8 @@ func ValidateRetry(status *exec.DAGRunStatus, stepName, resumeToken string) erro
 			break
 		}
 	}
-	if status.Status == core.Waiting {
-		for _, node := range status.Nodes {
-			if node != nil && node.Step.HumanTask != nil {
-				return errorf(ErrorConflict, "DAG-run %s is waiting on a human-task checkpoint; complete or resume it instead", status.DAGRun())
-			}
-		}
+	if status.Status == core.Waiting && (hasWaitingHumanTask(status.Nodes) || ResumePending(status)) {
+		return errorf(ErrorConflict, "DAG-run %s is waiting on a human-task checkpoint; complete or resume it instead", status.DAGRun())
 	}
 	return nil
 }
