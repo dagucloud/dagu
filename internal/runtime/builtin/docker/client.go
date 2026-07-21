@@ -1399,7 +1399,14 @@ func (c *Client) hasLocalImage(ctx context.Context, cli *client.Client, platform
 		if err != nil {
 			return false, fmt.Errorf("failed to inspect image %s: %w", summary.ID, err)
 		}
-		if (platform.OS == inspect.Os) && (platform.Architecture == inspect.Architecture) && (platform.Variant == inspect.Variant) {
+
+		localPlatform := specs.Platform{
+			OS:           inspect.Os,
+			Architecture: inspect.Architecture,
+			Variant:      inspect.Variant,
+		}
+
+		if platforms.OnlyStrict(*platform).Match(localPlatform) {
 			return true, nil
 		}
 	}
