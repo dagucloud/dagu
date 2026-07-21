@@ -91,16 +91,15 @@ function HumanTaskCard({
         setError(
           errorMessage(requestError, 'Failed to complete the human task.')
         );
-        onChanged();
         return;
       }
-      onChanged();
     } catch (requestError) {
       setError(
         errorMessage(requestError, 'Failed to complete the human task.')
       );
     } finally {
       setSubmitting(false);
+      onChanged();
     }
   };
 
@@ -205,13 +204,13 @@ export function HumanTasksTab({ dagRun, onChanged }: HumanTasksTabProps) {
           errorMessage(error, 'Failed to queue the DAG-run for resume.')
         );
       }
-      onChanged();
     } catch (error) {
       setResumeError(
         errorMessage(error, 'Failed to queue the DAG-run for resume.')
       );
     } finally {
       setResuming(false);
+      onChanged();
     }
   };
 

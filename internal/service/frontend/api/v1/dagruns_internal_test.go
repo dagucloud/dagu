@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -309,7 +310,10 @@ func (s *manualCASStore) CompareAndSwapLatestAttemptStatus(
 	return s.status, true, nil
 }
 
-func TestCompareAndSwapManualStatusRetriesTransientWriteFailure(t *testing.T) {
+func TestCompareAndSwapManualStatusRetriesTransientWindowsWriteFailure(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("transient file sharing violations are Windows-specific")
+	}
 	status := &exec.DAGRunStatus{
 		Name:       "manual-dag",
 		DAGRunID:   "run-1",

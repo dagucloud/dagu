@@ -9436,9 +9436,8 @@ components:
 
     HumanTaskInput:
       description: "Typed human-task completion input. An empty object acknowledges a task without a form."
-      oneOf:
-        - type: object
-          additionalProperties: true
+      type: object
+      additionalProperties: true
 
     HumanTaskCompletionResponse:
       type: object

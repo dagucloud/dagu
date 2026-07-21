@@ -9,9 +9,9 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"strings"
 	"time"
 
+	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/core/exec"
 )
 
@@ -74,7 +74,7 @@ func (a *API) compareAndSwapManualStatus(
 	}
 
 	updated, swapped, err := compareAndSwap()
-	if err == nil || isManualStatusMutationError(err) || !isTransientManualStatusUpdateError(err) {
+	if err == nil || isManualStatusMutationError(err) || !fileutil.IsTransientFileError(err) {
 		return updated, swapped, err
 	}
 
@@ -95,22 +95,11 @@ func (a *API) compareAndSwapManualStatus(
 			return updated, swapped, err
 		case <-ticker.C:
 			updated, swapped, err = compareAndSwap()
-			if err == nil || isManualStatusMutationError(err) || !isTransientManualStatusUpdateError(err) {
+			if err == nil || isManualStatusMutationError(err) || !fileutil.IsTransientFileError(err) {
 				return updated, swapped, err
 			}
 		}
 	}
-}
-
-func isTransientManualStatusUpdateError(err error) bool {
-	if err == nil {
-		return false
-	}
-	message := strings.ToLower(err.Error())
-	return strings.Contains(message, "used by another process") ||
-		strings.Contains(message, "cannot access the file") ||
-		strings.Contains(message, "access is denied") ||
-		strings.Contains(message, "sharing violation")
 }
 
 func cloneManualStatus(status *exec.DAGRunStatus) (*exec.DAGRunStatus, error) {

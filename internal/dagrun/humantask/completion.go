@@ -47,12 +47,7 @@ func (s *Service) Complete(ctx context.Context, request CompleteRequest) (Result
 		if target.status.Status != core.Waiting || hasWaitingNodes(target.status.Nodes) {
 			return result, nil
 		}
-		status, err := s.ensureResumePending(ctx, target)
-		if err != nil {
-			return Result{}, err
-		}
-		result = resultFor(status, request.StepID, true)
-		return s.enqueueResume(ctx, target.withStatus(status), result)
+		return s.queueCompletedTaskResume(ctx, target)
 	}
 
 	if target.status.Status != core.Waiting {
@@ -108,13 +103,7 @@ func (s *Service) Complete(ctx context.Context, request CompleteRequest) (Result
 		exec.WithCompareAndSwapExpectedAttemptKey(target.status.AttemptKey),
 	)
 	if errors.Is(err, errCompletionAlreadyApplied) {
-		latestTarget := target.withStatus(concurrentlyCompleted)
-		status, ensureErr := s.ensureResumePending(ctx, latestTarget)
-		if ensureErr != nil {
-			return Result{}, ensureErr
-		}
-		result := resultFor(status, request.StepID, true)
-		return s.enqueueResume(ctx, latestTarget.withStatus(status), result)
+		return s.queueCompletedTaskResume(ctx, target.withStatus(concurrentlyCompleted))
 	}
 	if err != nil {
 		return Result{}, classifyMutationError("failed to complete human task", err)
@@ -130,6 +119,15 @@ func (s *Service) Complete(ctx context.Context, request CompleteRequest) (Result
 	return s.enqueueResume(ctx, target.withStatus(updated), result)
 }
 
+func (s *Service) queueCompletedTaskResume(ctx context.Context, target *target) (Result, error) {
+	status, err := s.ensureResumePending(ctx, target)
+	if err != nil {
+		return Result{}, err
+	}
+	result := resultFor(status, target.stepID, true)
+	return s.enqueueResume(ctx, target.withStatus(status), result)
+}
+
 func (s *Service) resolveCompletionConflict(
 	ctx context.Context,
 	target *target,
@@ -142,13 +140,7 @@ func (s *Service) resolveCompletionConflict(
 			if !bytes.Equal(latestNode.HumanTaskInput, canonical) {
 				return Result{}, errorf(ErrorConflict, "human task step %q was already completed with different input", target.stepID)
 			}
-			latestTarget := target.withStatus(updated)
-			status, ensureErr := s.ensureResumePending(ctx, latestTarget)
-			if ensureErr != nil {
-				return Result{}, ensureErr
-			}
-			result := resultFor(status, target.stepID, true)
-			return s.enqueueResume(ctx, latestTarget.withStatus(status), result)
+			return s.queueCompletedTaskResume(ctx, target.withStatus(updated))
 		}
 	}
 	return Result{}, errorf(

@@ -177,6 +177,31 @@ describe('HumanTasksTab', () => {
     expect(onChanged).toHaveBeenCalledTimes(1);
   });
 
+  it('refreshes the run after a completion transport failure', async () => {
+    postMock.mockRejectedValueOnce(new Error('Network unavailable'));
+    const onChanged = vi.fn();
+    render(<HumanTasksTab dagRun={humanTaskRun()} onChanged={onChanged} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Complete task' }));
+
+    expect(await screen.findByText('Network unavailable')).toBeVisible();
+    expect(onChanged).toHaveBeenCalledTimes(1);
+  });
+
+  it('refreshes the run after a resume transport failure', async () => {
+    postMock.mockRejectedValueOnce(new Error('Network unavailable'));
+    const onChanged = vi.fn();
+    const dagRun = humanTaskRun();
+    dagRun.nodes = [];
+    dagRun.humanTaskResumePending = true;
+    render(<HumanTasksTab dagRun={dagRun} onChanged={onChanged} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry queue' }));
+
+    expect(await screen.findByText('Network unavailable')).toBeVisible();
+    expect(onChanged).toHaveBeenCalledTimes(1);
+  });
+
   it('disables mutations without workspace execute permission', () => {
     vi.mocked(useCanExecuteForWorkspace).mockReturnValue(false);
     render(<HumanTasksTab dagRun={humanTaskRun()} onChanged={vi.fn()} />);
