@@ -23,7 +23,6 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/api/v1"
-	"github.com/dagucloud/dagu/internal/auth"
 	"github.com/dagucloud/dagu/internal/cmn/buildenv"
 	"github.com/dagucloud/dagu/internal/cmn/collections"
 	"github.com/dagucloud/dagu/internal/cmn/config"
@@ -3700,10 +3699,7 @@ func isLocalManualStepWorker(workerID string) bool {
 func applyApproval(ctx context.Context, node *exec.Node, body *api.ApproveStepRequest) {
 	node.Status = core.NodeSucceeded
 	node.ApprovedAt = time.Now().Format(time.RFC3339)
-
-	if user, ok := auth.UserFromContext(ctx); ok && user != nil {
-		node.ApprovedBy = user.Username
-	}
+	node.ApprovedBy, node.ApprovedByID = manualActionSubject(ctx)
 
 	if body != nil && body.Inputs != nil {
 		if node.OutputVariables == nil {
@@ -3721,10 +3717,7 @@ func applyApproval(ctx context.Context, node *exec.Node, body *api.ApproveStepRe
 func applyRejection(ctx context.Context, node *exec.Node, status *exec.DAGRunStatus, reason *string) {
 	node.Status = core.NodeRejected
 	node.RejectedAt = time.Now().Format(time.RFC3339)
-
-	if user, ok := auth.UserFromContext(ctx); ok && user != nil {
-		node.RejectedBy = user.Username
-	}
+	node.RejectedBy, node.RejectedByID = manualActionSubject(ctx)
 
 	if reason != nil {
 		node.RejectionReason = *reason
@@ -3939,13 +3932,11 @@ func applyPushBack(ctx context.Context, node *exec.Node, status *exec.DAGRunStat
 
 func buildPushBackHistory(ctx context.Context, node *exec.Node, allowedInputs []string, nextIteration int, inputs map[string]string) []exec.PushBackEntry {
 	history := exec.NormalizePushBackHistory(allowedInputs, node.ApprovalIteration, node.PushBackInputs, node.PushBackHistory)
-	var actor string
-	if user, ok := auth.UserFromContext(ctx); ok && user != nil {
-		actor = user.Username
-	}
+	actor, actorID := manualActionSubject(ctx)
 	history = append(history, exec.PushBackEntry{
 		Iteration: nextIteration,
 		By:        actor,
+		ByID:      actorID,
 		At:        time.Now().UTC().Format(time.RFC3339),
 		Inputs:    cloneStringMap(inputs),
 	})

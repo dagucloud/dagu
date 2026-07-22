@@ -965,11 +965,15 @@ func skippedEditRetryNodeState(source *exec.Node) runtime.NodeState {
 	state.OutputVariables = cloneSyncMap(source.OutputVariables)
 	state.ChatMessages = append([]exec.LLMMessage(nil), source.ChatMessages...)
 	state.ToolDefinitions = append([]exec.ToolDefinition(nil), source.ToolDefinitions...)
+	state.HumanTaskCompletedBy = source.HumanTaskCompletedBy
+	state.HumanTaskCompletedByID = source.HumanTaskCompletedByID
 	state.ApprovalInputs = cloneStringMap(source.ApprovalInputs)
 	state.ApprovedAt = source.ApprovedAt
 	state.ApprovedBy = source.ApprovedBy
+	state.ApprovedByID = source.ApprovedByID
 	state.RejectedAt = source.RejectedAt
 	state.RejectedBy = source.RejectedBy
+	state.RejectedByID = source.RejectedByID
 	state.RejectionReason = source.RejectionReason
 	state.ApprovalIteration = source.ApprovalIteration
 	state.PushBackInputs = cloneStringMap(source.PushBackInputs)
@@ -1007,6 +1011,7 @@ func clonePushBackHistory(src []exec.PushBackEntry) []exec.PushBackEntry {
 		dst[i] = exec.PushBackEntry{
 			Iteration: entry.Iteration,
 			By:        entry.By,
+			ByID:      entry.ByID,
 			At:        entry.At,
 			Inputs:    cloneStringMap(entry.Inputs),
 		}

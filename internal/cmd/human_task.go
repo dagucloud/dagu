@@ -5,6 +5,7 @@ package cmd
 
 import (
 	"fmt"
+	"os/user"
 	"strings"
 	"time"
 
@@ -62,12 +63,14 @@ func humanTaskCompleteCommand() *cobra.Command {
 }
 
 type humanTaskCompleteDeps struct {
-	now func() time.Time
+	now         func() time.Time
+	currentUser func() (*user.User, error)
 }
 
 func defaultHumanTaskCompleteDeps() humanTaskCompleteDeps {
 	return humanTaskCompleteDeps{
-		now: time.Now,
+		now:         time.Now,
+		currentUser: user.Current,
 	}
 }
 
@@ -110,11 +113,14 @@ func runHumanTaskCompleteWith(ctx *Context, args []string, deps humanTaskComplet
 		ProcStore:   ctx.ProcStore,
 		Now:         deps.now,
 	}
+	completedBy, completedByID := localHumanTaskSubject(deps)
 	result, err := service.Complete(ctx, humantask.CompleteRequest{
-		DAGName:  dagName,
-		DAGRunID: dagRunID,
-		StepID:   stepID,
-		Input:    input,
+		DAGName:       dagName,
+		DAGRunID:      dagRunID,
+		StepID:        stepID,
+		Input:         input,
+		CompletedBy:   completedBy,
+		CompletedByID: completedByID,
 	})
 	if err != nil {
 		return err
@@ -137,6 +143,21 @@ func runHumanTaskCompleteWith(ctx *Context, args []string, deps humanTaskComplet
 	}
 	_, err = fmt.Fprintf(ctx.Command.OutOrStdout(), "%s; DAG-run queued for resume.\n", message)
 	return err
+}
+
+func localHumanTaskSubject(deps humanTaskCompleteDeps) (name, id string) {
+	if deps.currentUser == nil {
+		return "", ""
+	}
+	current, err := deps.currentUser()
+	if err != nil || current == nil {
+		return "", ""
+	}
+	name = strings.TrimSpace(current.Username)
+	if uid := strings.TrimSpace(current.Uid); uid != "" {
+		id = "os:" + uid
+	}
+	return name, id
 }
 
 func parseHumanTaskCompletionInput(command *cobra.Command) (humantask.Input, error) {

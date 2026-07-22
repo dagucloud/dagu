@@ -458,7 +458,7 @@ func TestApplyPushBackRecordsAuthenticatedUserInHistory(t *testing.T) {
 		},
 	}
 
-	ctx := auth.WithUser(context.Background(), &auth.User{Username: "reviewer1"})
+	ctx := auth.WithUser(context.Background(), &auth.User{ID: "user-1", Username: "reviewer1"})
 	err := applyPushBack(ctx, status.Nodes[0], status, &openapiv1.PushBackStepRequest{
 		Inputs: &inputs,
 	})
@@ -466,6 +466,7 @@ func TestApplyPushBackRecordsAuthenticatedUserInHistory(t *testing.T) {
 
 	require.Len(t, status.Nodes[0].PushBackHistory, 1)
 	assert.Equal(t, "reviewer1", status.Nodes[0].PushBackHistory[0].By)
+	assert.Equal(t, "user-1", status.Nodes[0].PushBackHistory[0].ByID)
 
 	rawNode, err := json.Marshal(status.Nodes[0])
 	require.NoError(t, err)
@@ -480,10 +481,27 @@ func TestApplyPushBackRecordsAuthenticatedUserInHistory(t *testing.T) {
 	first, ok := history[0].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "reviewer1", first["by"])
+	assert.Equal(t, "user-1", first["byId"])
 	at, ok := first["at"].(string)
 	require.True(t, ok)
 	_, err = time.Parse(time.RFC3339, at)
 	require.NoError(t, err)
+}
+
+func TestApprovalMutationsRecordAuthenticatedSubjectID(t *testing.T) {
+	t.Parallel()
+
+	ctx := auth.WithUser(context.Background(), &auth.User{ID: "user-1", Username: "reviewer"})
+	approved := &exec.Node{}
+	applyApproval(ctx, approved, nil)
+	assert.Equal(t, "reviewer", approved.ApprovedBy)
+	assert.Equal(t, "user-1", approved.ApprovedByID)
+
+	rejected := &exec.Node{}
+	status := &exec.DAGRunStatus{}
+	applyRejection(ctx, rejected, status, nil)
+	assert.Equal(t, "reviewer", rejected.RejectedBy)
+	assert.Equal(t, "user-1", rejected.RejectedByID)
 }
 
 func TestApplyInlineEnqueueLabels_ArrayLabels(t *testing.T) {

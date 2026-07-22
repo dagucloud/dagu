@@ -318,22 +318,37 @@ func TestToNodeIncludesNormalizedPushBackHistory(t *testing.T) {
 				Input: []string{"FEEDBACK"},
 			},
 		},
-		Status:            core.NodeWaiting,
-		StartedAt:         "2026-04-26T06:00:00Z",
-		FinishedAt:        "2026-04-26T06:01:00Z",
-		Stdout:            "stdout.log",
-		Stderr:            "stderr.log",
-		ApprovalIteration: 1,
-		PushBackInputs:    map[string]string{"FEEDBACK": "revise the summary", "IGNORED": "x"},
+		Status:                 core.NodeWaiting,
+		StartedAt:              "2026-04-26T06:00:00Z",
+		FinishedAt:             "2026-04-26T06:01:00Z",
+		HumanTaskCompletedBy:   "operator",
+		HumanTaskCompletedByID: "user-1",
+		ApprovedBy:             "approver",
+		ApprovedByID:           "user-2",
+		RejectedBy:             "reviewer",
+		RejectedByID:           "user-3",
+		Stdout:                 "stdout.log",
+		Stderr:                 "stderr.log",
+		ApprovalIteration:      1,
+		PushBackInputs:         map[string]string{"FEEDBACK": "revise the summary", "IGNORED": "x"},
 		PushBackHistory: []exec.PushBackEntry{{
 			Iteration: 1,
 			By:        "reviewer",
+			ByID:      "user-3",
 			At:        "2026-04-26T06:02:00Z",
 			Inputs:    map[string]string{"FEEDBACK": "revise the summary", "IGNORED": "x"},
 		}},
 	}
 
 	result := toNode(node)
+	require.NotNil(t, result.HumanTaskCompletedBy)
+	assert.Equal(t, "operator", *result.HumanTaskCompletedBy)
+	require.NotNil(t, result.HumanTaskCompletedById)
+	assert.Equal(t, "user-1", *result.HumanTaskCompletedById)
+	require.NotNil(t, result.ApprovedById)
+	assert.Equal(t, "user-2", *result.ApprovedById)
+	require.NotNil(t, result.RejectedById)
+	assert.Equal(t, "user-3", *result.RejectedById)
 
 	require.NotNil(t, result.PushBackHistory)
 	require.Len(t, *result.PushBackHistory, 1)
@@ -341,6 +356,8 @@ func TestToNodeIncludesNormalizedPushBackHistory(t *testing.T) {
 	assert.Equal(t, 1, entry.Iteration)
 	require.NotNil(t, entry.By)
 	assert.Equal(t, "reviewer", *entry.By)
+	require.NotNil(t, entry.ById)
+	assert.Equal(t, "user-3", *entry.ById)
 	require.NotNil(t, entry.At)
 	assert.Equal(t, "2026-04-26T06:02:00Z", entry.At.UTC().Format(time.RFC3339))
 	require.NotNil(t, entry.Inputs)

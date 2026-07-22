@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/dagucloud/dagu/internal/auth"
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/core/exec"
 )
@@ -35,6 +36,14 @@ func (e *manualStatusMutationError) Unwrap() error {
 func isManualStatusMutationError(err error) bool {
 	var mutationErr *manualStatusMutationError
 	return errors.As(err, &mutationErr)
+}
+
+func manualActionSubject(ctx context.Context) (name, id string) {
+	user, ok := auth.UserFromContext(ctx)
+	if !ok || user == nil {
+		return "", ""
+	}
+	return user.Username, user.ID
 }
 
 func (a *API) compareAndSwapManualStatus(

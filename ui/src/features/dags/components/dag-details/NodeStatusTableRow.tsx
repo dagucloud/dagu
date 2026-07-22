@@ -103,6 +103,28 @@ const formatTimestamp = (timestamp: string | undefined) => {
   }
 };
 
+const ManualActionSubject = ({
+  name,
+  id,
+  className,
+}: {
+  name: string;
+  id?: string;
+  className?: string;
+}) => {
+  const label = <span className={className}>{name}</span>;
+  if (!id) {
+    return label;
+  }
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{label}</TooltipTrigger>
+      <TooltipContent>Subject ID: {id}</TooltipContent>
+    </Tooltip>
+  );
+};
+
 /**
  * Calculate duration between two timestamps
  * If endTime is not provided, calculate duration from startTime to now (for running tasks)
@@ -680,18 +702,39 @@ function NodeStatusTableRow({
                   {currentDuration}
                 </div>
               )}
+              {node.humanTaskCompletedBy || node.humanTaskCompletedById ? (
+                <div className="text-xs text-muted-foreground leading-tight">
+                  <span className="font-medium">Completed by:</span>{' '}
+                  <ManualActionSubject
+                    name={
+                      node.humanTaskCompletedBy || node.humanTaskCompletedById!
+                    }
+                    id={node.humanTaskCompletedById}
+                    className="text-info"
+                  />
+                  {node.finishedAt && (
+                    <span className="ml-1">
+                      at {formatTimestamp(node.finishedAt)}
+                    </span>
+                  )}
+                </div>
+              ) : null}
               {/* Approval info */}
-              {node.approvedBy && (
+              {node.approvedBy || node.approvedById ? (
                 <div className="text-xs text-muted-foreground leading-tight">
                   <span className="font-medium">Approved by:</span>{' '}
-                  <span className="text-info">{node.approvedBy}</span>
+                  <ManualActionSubject
+                    name={node.approvedBy || node.approvedById!}
+                    id={node.approvedById}
+                    className="text-info"
+                  />
                   {node.approvedAt && (
                     <span className="ml-1">
                       at {formatTimestamp(node.approvedAt)}
                     </span>
                   )}
                 </div>
-              )}
+              ) : null}
               {node.approvalInputs &&
                 Object.keys(node.approvalInputs).length > 0 && (
                   <div className="text-xs text-muted-foreground leading-tight">
@@ -708,17 +751,21 @@ function NodeStatusTableRow({
                 />
               )}
               {/* Rejection info */}
-              {node.rejectedBy && (
+              {node.rejectedBy || node.rejectedById ? (
                 <div className="text-xs text-muted-foreground leading-tight">
                   <span className="font-medium">Rejected by:</span>{' '}
-                  <span className="text-error">{node.rejectedBy}</span>
+                  <ManualActionSubject
+                    name={node.rejectedBy || node.rejectedById!}
+                    id={node.rejectedById}
+                    className="text-error"
+                  />
                   {node.rejectedAt && (
                     <span className="ml-1">
                       at {formatTimestamp(node.rejectedAt)}
                     </span>
                   )}
                 </div>
-              )}
+              ) : null}
               {node.rejectionReason && (
                 <div className="text-xs text-muted-foreground leading-tight">
                   <span className="font-medium">Reason:</span>{' '}
@@ -1126,18 +1173,37 @@ function NodeStatusTableRow({
               {currentDuration}
             </div>
           )}
+          {node.humanTaskCompletedBy || node.humanTaskCompletedById ? (
+            <div className="text-xs text-muted-foreground">
+              <span className="font-medium">Completed by:</span>{' '}
+              <ManualActionSubject
+                name={node.humanTaskCompletedBy || node.humanTaskCompletedById!}
+                id={node.humanTaskCompletedById}
+                className="text-info"
+              />
+              {node.finishedAt && (
+                <span className="ml-1">
+                  at {formatTimestamp(node.finishedAt)}
+                </span>
+              )}
+            </div>
+          ) : null}
           {/* Approval info */}
-          {node.approvedBy && (
+          {node.approvedBy || node.approvedById ? (
             <div className="text-xs text-muted-foreground">
               <span className="font-medium">Approved by:</span>{' '}
-              <span className="text-info">{node.approvedBy}</span>
+              <ManualActionSubject
+                name={node.approvedBy || node.approvedById!}
+                id={node.approvedById}
+                className="text-info"
+              />
               {node.approvedAt && (
                 <span className="ml-1">
                   at {formatTimestamp(node.approvedAt)}
                 </span>
               )}
             </div>
-          )}
+          ) : null}
           {node.approvalInputs &&
             Object.keys(node.approvalInputs).length > 0 && (
               <div className="text-xs text-muted-foreground">
@@ -1151,17 +1217,21 @@ function NodeStatusTableRow({
             <PushBackHistory history={node.pushBackHistory} className="pt-1" />
           )}
           {/* Rejection info */}
-          {node.rejectedBy && (
+          {node.rejectedBy || node.rejectedById ? (
             <div className="text-xs text-muted-foreground">
               <span className="font-medium">Rejected by:</span>{' '}
-              <span className="text-error">{node.rejectedBy}</span>
+              <ManualActionSubject
+                name={node.rejectedBy || node.rejectedById!}
+                id={node.rejectedById}
+                className="text-error"
+              />
               {node.rejectedAt && (
                 <span className="ml-1">
                   at {formatTimestamp(node.rejectedAt)}
                 </span>
               )}
             </div>
-          )}
+          ) : null}
           {node.rejectionReason && (
             <div className="text-xs text-muted-foreground">
               <span className="font-medium">Reason:</span>{' '}

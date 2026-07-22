@@ -38,9 +38,11 @@ func TestCompletePersistsTypedInputAndQueuesResume(t *testing.T) {
   "additionalProperties":false
 }`))
 	result, err := fixture.service.Complete(t.Context(), CompleteRequest{
-		DAGName:  fixture.dag.Name,
-		DAGRunID: fixture.status.DAGRunID,
-		StepID:   "review",
+		DAGName:       fixture.dag.Name,
+		DAGRunID:      fixture.status.DAGRunID,
+		StepID:        "review",
+		CompletedBy:   "alice",
+		CompletedByID: "user-1",
 		Input: Input{Values: map[string]any{
 			"count": json.Number("3"),
 		}},
@@ -53,14 +55,18 @@ func TestCompletePersistsTypedInputAndQueuesResume(t *testing.T) {
 	assert.Equal(t, []exec.DAGRunRef{fixture.status.DAGRun()}, fixture.queue.enqueued)
 	assert.Equal(t, core.NodeSucceeded, fixture.status.Nodes[0].Status)
 	assert.JSONEq(t, `{"count":3,"region":"us"}`, string(fixture.status.Nodes[0].HumanTaskInput))
+	assert.Equal(t, "alice", fixture.status.Nodes[0].HumanTaskCompletedBy)
+	assert.Equal(t, "user-1", fixture.status.Nodes[0].HumanTaskCompletedByID)
 	require.NotNil(t, fixture.status.Nodes[0].StepOutputsValue)
 	assert.JSONEq(t, `{"count":"3","region":"us"}`, *fixture.status.Nodes[0].StepOutputsValue)
 	require.NotNil(t, fixture.status.HumanTaskResume)
 
 	result, err = fixture.service.Complete(t.Context(), CompleteRequest{
-		DAGName:  fixture.dag.Name,
-		DAGRunID: fixture.status.DAGRunID,
-		StepID:   "review",
+		DAGName:       fixture.dag.Name,
+		DAGRunID:      fixture.status.DAGRunID,
+		StepID:        "review",
+		CompletedBy:   "bob",
+		CompletedByID: "user-2",
 		Input: Input{Values: map[string]any{
 			"count": json.Number("3"),
 		}},
@@ -69,6 +75,8 @@ func TestCompletePersistsTypedInputAndQueuesResume(t *testing.T) {
 	assert.True(t, result.AlreadyCompleted)
 	assert.False(t, result.Queued)
 	assert.Len(t, fixture.queue.enqueued, 1)
+	assert.Equal(t, "alice", fixture.status.Nodes[0].HumanTaskCompletedBy)
+	assert.Equal(t, "user-1", fixture.status.Nodes[0].HumanTaskCompletedByID)
 }
 
 func TestCompleteKeepsCheckpointRecoverableWhenEnqueueFails(t *testing.T) {

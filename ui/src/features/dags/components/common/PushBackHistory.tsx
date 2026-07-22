@@ -2,6 +2,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import dayjs from '@/lib/dayjs';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { components } from '../../../../api/v1/schema';
 
 type PushBackHistoryEntry = components['schemas']['PushBackHistoryEntry'];
@@ -28,6 +33,20 @@ const formatInputs = (inputs?: Record<string, string>) => {
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([key, value]) => `${key}=${JSON.stringify(value)}`)
     .join(' ');
+};
+
+const PushBackSubject = ({ name, id }: { name: string; id?: string }) => {
+  const label = <span className="text-foreground/80">{name}</span>;
+  if (!id) {
+    return label;
+  }
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{label}</TooltipTrigger>
+      <TooltipContent>Subject ID: {id}</TooltipContent>
+    </Tooltip>
+  );
 };
 
 export default function PushBackHistory({
@@ -58,11 +77,15 @@ export default function PushBackHistory({
                 <span className="font-medium text-foreground/90">
                   Iteration {entry.iteration}
                 </span>
-                {entry.by && (
+                {entry.by || entry.byId ? (
                   <span className="text-muted-foreground">
-                    by <span className="text-foreground/80">{entry.by}</span>
+                    by{' '}
+                    <PushBackSubject
+                      name={entry.by || entry.byId!}
+                      id={entry.byId}
+                    />
                   </span>
-                )}
+                ) : null}
                 {entry.at && (
                   <span className="text-muted-foreground">
                     at {formatTimestamp(entry.at)}

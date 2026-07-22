@@ -4715,10 +4715,16 @@ export interface components {
             subRunsRepeated?: components["schemas"]["SubDAGRun"][];
             /** @description Error message if the step failed */
             error?: string;
+            /** @description Name of the subject that completed the human task */
+            humanTaskCompletedBy?: string;
+            /** @description ID of the subject that completed the human task; local CLI IDs use the os:<uid> form */
+            humanTaskCompletedById?: string;
             /** @description RFC3339 timestamp when the step was approved */
             approvedAt?: string;
             /** @description Username of who approved the step */
             approvedBy?: string;
+            /** @description ID of the subject that approved the step */
+            approvedById?: string;
             /** @description Key-value inputs provided during approval */
             approvalInputs?: {
                 [key: string]: string;
@@ -4727,6 +4733,8 @@ export interface components {
             rejectedAt?: string;
             /** @description Username of who rejected the step */
             rejectedBy?: string;
+            /** @description ID of the subject that rejected the step */
+            rejectedById?: string;
             /** @description Optional reason for rejection */
             rejectionReason?: string;
             /** @description Number of times this step has been pushed back for re-execution */
@@ -4744,6 +4752,8 @@ export interface components {
             iteration: number;
             /** @description Authenticated user who pushed the step back */
             by?: string;
+            /** @description ID of the subject that pushed the step back */
+            byId?: string;
             /**
              * Format: date-time
              * @description RFC3339 timestamp when the push-back was recorded

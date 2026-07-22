@@ -85,10 +85,12 @@ type Service struct {
 
 // CompleteRequest identifies one human task and its typed input.
 type CompleteRequest struct {
-	DAGName  string
-	DAGRunID string
-	StepID   string
-	Input    Input
+	DAGName       string
+	DAGRunID      string
+	StepID        string
+	Input         Input
+	CompletedBy   string
+	CompletedByID string
 }
 
 // Result describes the observable outcome of a completion or resume request.

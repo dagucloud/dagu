@@ -119,11 +119,14 @@ func (a *API) CompleteHumanTask(
 	}
 
 	service := a.humanTaskService()
+	completedBy, completedByID := manualActionSubject(ctx)
 	result, err := service.Complete(a.withEventContext(ctx), humantask.CompleteRequest{
-		DAGName:  request.Name,
-		DAGRunID: request.DagRunId,
-		StepID:   request.StepId,
-		Input:    input,
+		DAGName:       request.Name,
+		DAGRunID:      request.DagRunId,
+		StepID:        request.StepId,
+		Input:         input,
+		CompletedBy:   completedBy,
+		CompletedByID: completedByID,
 	})
 	if err != nil {
 		a.logHumanTaskCompletion(ctx, request.Name, request.DagRunId, request.StepId, result, err)

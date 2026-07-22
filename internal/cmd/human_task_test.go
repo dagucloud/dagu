@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os/user"
 	"path/filepath"
 	"testing"
 	"time"
@@ -134,6 +135,8 @@ func TestRunHumanTaskCompletePersistsCanonicalInputAndQueuesRetry(t *testing.T) 
 	assert.Equal(t, "Deploy the release?", node.Step.HumanTask.Prompt)
 	assert.Equal(t, "2026-07-20T01:02:03Z", node.FinishedAt)
 	assert.JSONEq(t, `{"count":3,"region":"us"}`, string(node.HumanTaskInput))
+	assert.Equal(t, "local-operator", node.HumanTaskCompletedBy)
+	assert.Equal(t, "os:501", node.HumanTaskCompletedByID)
 	require.NotNil(t, node.StepOutputsValue)
 	assert.JSONEq(t, `{"count":"3","region":"us"}`, *node.StepOutputsValue)
 	assert.Contains(t, fixture.output.String(), "DAG-run queued for resume")
@@ -204,6 +207,19 @@ func TestRunHumanTaskCompleteKeepsCompletionWhenEnqueueFails(t *testing.T) {
 	assert.Equal(t, core.Waiting, fixture.status.Status)
 	assert.Equal(t, "2026-07-20T01:00:00Z", fixture.status.FinishedAt)
 	assert.Empty(t, fixture.errorOutput.String())
+}
+
+func TestRunHumanTaskCompleteContinuesWhenOSUserLookupFails(t *testing.T) {
+	fixture := newHumanTaskCompleteFixture(t, nil, true)
+	deps := fixture.deps()
+	deps.currentUser = func() (*user.User, error) {
+		return nil, errors.New("user lookup unavailable")
+	}
+
+	err := runHumanTaskCompleteWith(fixture.ctx, []string{"human-task-test"}, deps)
+	require.NoError(t, err)
+	assert.Empty(t, fixture.status.Nodes[0].HumanTaskCompletedBy)
+	assert.Empty(t, fixture.status.Nodes[0].HumanTaskCompletedByID)
 }
 
 func TestRunHumanTaskCompleteEnforcesSavedDAGOutputSize(t *testing.T) {
@@ -294,6 +310,9 @@ func newHumanTaskCompleteFixture(t *testing.T, form json.RawMessage, anotherWait
 func (*humanTaskCompleteFixture) deps() humanTaskCompleteDeps {
 	return humanTaskCompleteDeps{
 		now: func() time.Time { return time.Date(2026, 7, 20, 1, 2, 3, 0, time.UTC) },
+		currentUser: func() (*user.User, error) {
+			return &user.User{Uid: "501", Username: "local-operator"}, nil
+		},
 	}
 }
 

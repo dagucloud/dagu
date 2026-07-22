@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { fireEvent, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import React from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -293,4 +294,66 @@ describe('NodeStatusTableRow', () => {
 
     expect(container.querySelectorAll('tbody > tr')).toHaveLength(1);
   });
+
+  it.each(['desktop', 'mobile'] as const)(
+    'shows the human-task completer subject ID in the %s view',
+    async (view) => {
+      const user = userEvent.setup();
+      const node = {
+        step: {
+          name: 'review',
+          humanTask: { prompt: 'Review deployment' },
+        },
+        status: NodeStatus.Success,
+        statusLabel: NodeStatusLabel.succeeded,
+        stdout: '',
+        stderr: '',
+        startedAt: '2026-07-22T01:00:00Z',
+        finishedAt: '2026-07-22T01:05:00Z',
+        retryCount: 0,
+        doneCount: 1,
+        humanTaskCompletedBy: 'alice',
+        humanTaskCompletedById: 'user-1',
+      } as components['schemas']['Node'];
+
+      const row = (
+        <NodeStatusTableRow
+          rownum={1}
+          node={node}
+          name="example.yaml"
+          dagRun={dagRun}
+          view={view}
+        />
+      );
+
+      render(
+        <MemoryRouter>
+          <AppBarContext.Provider value={appBarValue}>
+            <DAGContext.Provider
+              value={{
+                refresh: vi.fn(),
+                name: 'example',
+                fileName: 'example.yaml',
+              }}
+            >
+              {view === 'desktop' ? (
+                <table>
+                  <tbody>{row}</tbody>
+                </table>
+              ) : (
+                row
+              )}
+            </DAGContext.Provider>
+          </AppBarContext.Provider>
+        </MemoryRouter>
+      );
+
+      expect(screen.getByText('Completed by:')).toBeInTheDocument();
+      const subject = screen.getByText('alice');
+      await user.hover(subject);
+      expect(await screen.findByRole('tooltip')).toHaveTextContent(
+        'Subject ID: user-1'
+      );
+    }
+  );
 });

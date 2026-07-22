@@ -88,6 +88,8 @@ func (s *Service) Complete(ctx context.Context, request CompleteRequest) (Result
 			}
 
 			latestNode.HumanTaskInput = append(json.RawMessage(nil), completion.Canonical...)
+			latestNode.HumanTaskCompletedBy = request.CompletedBy
+			latestNode.HumanTaskCompletedByID = request.CompletedByID
 			if outputsValue == "" {
 				latestNode.StepOutputsValue = nil
 			} else {

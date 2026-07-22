@@ -11840,12 +11840,21 @@ components:
         error:
           type: string
           description: "Error message if the step failed"
+        humanTaskCompletedBy:
+          type: string
+          description: "Name of the subject that completed the human task"
+        humanTaskCompletedById:
+          type: string
+          description: "ID of the subject that completed the human task; local CLI IDs use the os:<uid> form"
         approvedAt:
           type: string
           description: "RFC3339 timestamp when the step was approved"
         approvedBy:
           type: string
           description: "Username of who approved the step"
+        approvedById:
+          type: string
+          description: "ID of the subject that approved the step"
         approvalInputs:
           type: object
           additionalProperties:
@@ -11857,6 +11866,9 @@ components:
         rejectedBy:
           type: string
           description: "Username of who rejected the step"
+        rejectedById:
+          type: string
+          description: "ID of the subject that rejected the step"
         rejectionReason:
           type: string
           description: "Optional reason for rejection"
@@ -11895,6 +11907,9 @@ components:
         by:
           type: string
           description: "Authenticated user who pushed the step back"
+        byId:
+          type: string
+          description: "ID of the subject that pushed the step back"
         at:
           type: string
           format: date-time

@@ -86,6 +86,10 @@ type NodeState struct {
 	StepOutputsValue *string
 	// HumanTaskInput stores the validated input submitted to complete a human task.
 	HumanTaskInput json.RawMessage
+	// HumanTaskCompletedBy is the name of the subject that completed the human task.
+	HumanTaskCompletedBy string
+	// HumanTaskCompletedByID is the ID of the subject that completed the human task.
+	HumanTaskCompletedByID string
 	// ChatMessages stores the chat session messages for message passing between steps.
 	ChatMessages []exec.LLMMessage
 	// ToolDefinitions stores the tool definitions that were available to the LLM during execution.
@@ -98,10 +102,14 @@ type NodeState struct {
 	ApprovedAt string
 	// ApprovedBy is the username of the user who approved the step.
 	ApprovedBy string
+	// ApprovedByID is the ID of the subject that approved the step.
+	ApprovedByID string
 	// RejectedAt is the time when the step was rejected.
 	RejectedAt string
 	// RejectedBy is the username of the user who rejected the step.
 	RejectedBy string
+	// RejectedByID is the ID of the subject that rejected the step.
+	RejectedByID string
 	// RejectionReason stores the optional reason for rejection.
 	RejectionReason string
 	// ApprovalIteration tracks how many times this step has been pushed back.
