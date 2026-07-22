@@ -154,6 +154,62 @@ describe('HumanTasksTab', () => {
     expect(onChanged).toHaveBeenCalledTimes(1);
   });
 
+  it('blocks unsafe integers before submission', async () => {
+    render(
+      <HumanTasksTab
+        dagRun={humanTaskRun({
+          type: 'object',
+          properties: {
+            count: { type: 'integer', title: 'Exact count' },
+          },
+          required: ['count'],
+          additionalProperties: false,
+        })}
+        onChanged={vi.fn()}
+      />
+    );
+
+    fireEvent.change(screen.getByLabelText(/Exact count/), {
+      target: { value: '9007199254740993' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Complete task' }));
+
+    expect(
+      await screen.findByText(/outside the safe integer range/)
+    ).toBeVisible();
+    expect(postMock).not.toHaveBeenCalled();
+  });
+
+  it('associates labels with the correct task when forms share field names', () => {
+    const form = {
+      type: 'object',
+      properties: {
+        comment: { type: 'string', title: 'Comment' },
+      },
+      additionalProperties: false,
+    };
+    const dagRun = humanTaskRun(form);
+    const firstNode = dagRun.nodes[0];
+    if (!firstNode) throw new Error('expected a human task fixture');
+    dagRun.nodes.push({
+      ...firstNode,
+      step: {
+        ...firstNode.step,
+        id: 'security-review',
+        name: 'Security review',
+      },
+    });
+
+    render(<HumanTasksTab dagRun={dagRun} onChanged={vi.fn()} />);
+
+    const inputs = screen.getAllByRole('textbox', { name: 'Comment' });
+    expect(inputs).toHaveLength(2);
+    expect(inputs[0]).not.toHaveAttribute('id', inputs[1]?.id);
+    const labels = screen.getAllByText('Comment');
+    expect(labels[0]).toHaveAttribute('for', inputs[0]?.id);
+    expect(labels[1]).toHaveAttribute('for', inputs[1]?.id);
+  });
+
   it('retries a pending resume without resubmitting task input', async () => {
     const onChanged = vi.fn();
     const dagRun = humanTaskRun();

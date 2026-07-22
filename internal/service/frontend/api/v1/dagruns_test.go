@@ -893,7 +893,7 @@ steps:
 	require.Empty(t, waitStep.PushBackHistory)
 
 	releaseHoldFile(t, release)
-	waitingStatus := waitForStoredDAGRunStatus(t, server, dagName, startBody.DagRunId, 10*time.Second, func(status *exec.DAGRunStatus) bool {
+	waitForStoredDAGRunStatus(t, server, dagName, startBody.DagRunId, 10*time.Second, func(status *exec.DAGRunStatus) bool {
 		return status.Status == core.Waiting &&
 			hasNodeWithStatus(status, "wait-step", core.NodeWaiting) &&
 			hasNodeWithStatus(status, "long-step", core.NodeSucceeded)
@@ -903,7 +903,7 @@ steps:
 		fmt.Sprintf("/api/v1/dag-runs/%s/%s/steps/wait-step/status", dagName, startBody.DagRunId),
 		api.UpdateDAGRunStepStatusJSONRequestBody{Status: api.NodeStatusSuccess},
 	).ExpectStatus(http.StatusBadRequest).Send(t)
-	waitingStatus = waitForStoredDAGRunStatus(t, server, dagName, startBody.DagRunId, 10*time.Second, func(status *exec.DAGRunStatus) bool {
+	waitingStatus := waitForStoredDAGRunStatus(t, server, dagName, startBody.DagRunId, 10*time.Second, func(status *exec.DAGRunStatus) bool {
 		return status.Status == core.Waiting && hasNodeWithStatus(status, "wait-step", core.NodeWaiting)
 	})
 	require.Equal(t, core.NodeWaiting, requireNodeByName(t, waitingStatus, "wait-step").Status)

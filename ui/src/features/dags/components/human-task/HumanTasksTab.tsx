@@ -41,6 +41,19 @@ function errorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
+function hasUnsafeInteger(value: unknown): boolean {
+  if (typeof value === 'number') {
+    return Number.isInteger(value) && !Number.isSafeInteger(value);
+  }
+  if (Array.isArray(value)) {
+    return value.some(hasUnsafeInteger);
+  }
+  if (typeof value === 'object' && value !== null) {
+    return Object.values(value).some(hasUnsafeInteger);
+  }
+  return false;
+}
+
 function HumanTaskCard({
   node,
   dagRun,
@@ -71,6 +84,12 @@ function HumanTaskCard({
 
   const complete = async (input: FormData) => {
     if (!node.step.id || submitting) return;
+    if (hasUnsafeInteger(input)) {
+      setError(
+        'This form cannot submit integers outside the safe integer range. Use the CLI or a raw API request for larger integers.'
+      );
+      return;
+    }
     setSubmitting(true);
     setError(null);
     try {
@@ -121,6 +140,7 @@ function HumanTaskCard({
       {hasForm ? (
         <Form
           tagName="form"
+          idPrefix={`human-task-${node.step.id ?? node.step.name}`}
           schema={schema as RJSFSchema}
           validator={validator}
           formData={formData}
@@ -183,8 +203,7 @@ export function HumanTasksTab({ dagRun, onChanged }: HumanTasksTabProps) {
   const canExecute = useCanExecuteForWorkspace(dagRun.workspace);
   const [resuming, setResuming] = React.useState(false);
   const [resumeError, setResumeError] = React.useState<string | null>(null);
-  const { waitingHumanTaskNodes: waitingTasks } =
-    getManualActionState(dagRun);
+  const { waitingHumanTaskNodes: waitingTasks } = getManualActionState(dagRun);
 
   const resume = async () => {
     if (resuming) return;

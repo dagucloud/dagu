@@ -121,11 +121,11 @@ func WithRemoteNode(resolver *remotenode.Resolver, apiBasePath string) func(next
 				if len(respData) > 0 {
 					var remoteErr api.Error
 					if err := json.Unmarshal(respData, &remoteErr); err == nil && remoteErr.Code != "" {
-						WriteErrorResponse(w, &Error{
-							Code:       api.ErrorCodeBadGateway,
-							HTTPStatus: resp.StatusCode,
-							Message:    remoteErr.Message,
-						})
+						w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
+						w.WriteHeader(resp.StatusCode)
+						if _, err = w.Write(respData); err != nil {
+							logger.Error(r.Context(), "Failed to write response", tag.Error(err))
+						}
 						return
 					}
 				}

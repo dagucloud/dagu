@@ -248,6 +248,62 @@ describe('NodeStatusTableRow', () => {
     expect(screen.queryByTitle('Retry from this step')).not.toBeInTheDocument();
   });
 
+  it('hides step retry controls while a human task is waiting', () => {
+    const node = {
+      step: { name: 'build' },
+      status: NodeStatus.Success,
+      statusLabel: NodeStatusLabel.succeeded,
+      stdout: '',
+      stderr: '',
+      startedAt: '',
+      finishedAt: '',
+      retryCount: 0,
+      doneCount: 1,
+    } as components['schemas']['Node'];
+    const waitingHumanTask = {
+      ...node,
+      step: {
+        name: 'review',
+        humanTask: { prompt: 'Review deployment' },
+      },
+      status: NodeStatus.Waiting,
+      statusLabel: NodeStatusLabel.waiting,
+      doneCount: 0,
+    } as components['schemas']['Node'];
+
+    render(
+      <MemoryRouter>
+        <AppBarContext.Provider value={appBarValue}>
+          <DAGContext.Provider
+            value={{
+              refresh: vi.fn(),
+              name: 'example',
+              fileName: 'example.yaml',
+            }}
+          >
+            <table>
+              <tbody>
+                <NodeStatusTableRow
+                  rownum={1}
+                  node={node}
+                  name="example.yaml"
+                  dagRun={{
+                    ...dagRun,
+                    status: Status.Waiting,
+                    nodes: [node, waitingHumanTask],
+                  }}
+                  view="desktop"
+                />
+              </tbody>
+            </table>
+          </DAGContext.Provider>
+        </AppBarContext.Provider>
+      </MemoryRouter>
+    );
+
+    expect(screen.queryByTitle('Retry from this step')).not.toBeInTheDocument();
+  });
+
   it.each([
     {
       name: 'human task',

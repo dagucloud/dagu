@@ -49,6 +49,7 @@ import {
 import { useContext, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { buildDAGPageURL } from '../../../dag-runs/lib/dagRunUrls';
+import { getManualActionState } from '../../../dag-runs/lib/manualActionState';
 import {
   components,
   NodeStatus,
@@ -283,6 +284,7 @@ function NodeStatusTableRow({
   }, [defaultLogExpanded, hasLogs, hasStderr]);
 
   const showStepActions = Boolean(dagRunId && config.permissions.runDags);
+  const { humanTaskBlocksRetry } = getManualActionState(dagRun);
   const canUpdateStepStatus =
     showStepActions &&
     !node.step.humanTask &&
@@ -292,6 +294,7 @@ function NodeStatusTableRow({
     dagRun.status !== Status.Waiting;
   const canRetryStep =
     showStepActions &&
+    !humanTaskBlocksRetry &&
     !node.step.humanTask &&
     node.status !== NodeStatus.Waiting &&
     node.status !== NodeStatus.Rejected;

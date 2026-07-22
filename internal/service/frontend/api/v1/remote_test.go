@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/remotenode"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -76,4 +77,38 @@ func TestRemoteNodeProxyPreservesHumanTaskCompletionRequest(t *testing.T) {
 	assert.Equal(t, "application/json", received.contentType)
 	assert.Equal(t, "request-1", received.customHeader)
 	assert.Equal(t, int64(len(rawBody)), received.contentLength)
+}
+
+func TestRemoteNodeProxyPreservesStructuredError(t *testing.T) {
+	const responseBody = `{
+		"code":"human_task_resume_failed",
+		"message":"completion was saved but resume failed",
+		"details":{"completionStored":true,"resumePending":true}
+	}`
+	remoteServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(responseBody))
+	}))
+	t.Cleanup(remoteServer.Close)
+
+	resolver := remotenode.NewResolver([]config.RemoteNode{{
+		Name:       "edge",
+		APIBaseURL: remoteServer.URL + "/api/v1",
+	}}, nil)
+	handler := WithRemoteNode(resolver, "/api/v1")(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "local handler called", http.StatusInternalServerError)
+	}))
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/dag-runs/deploy/run-1/human-tasks/review/complete?remoteNode=edge",
+		strings.NewReader(`{}`),
+	)
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, request)
+
+	assert.Equal(t, http.StatusServiceUnavailable, recorder.Code)
+	assert.Equal(t, "application/json", recorder.Header().Get("Content-Type"))
+	assert.JSONEq(t, responseBody, recorder.Body.String())
 }
