@@ -25,7 +25,7 @@ import (
 )
 
 // Tenki executor runs a command or script inside a Tenki Cloud sandbox; auth and
-// target come from the TENKI_API_KEY and TENKI_PROJECT_ID environment variables.
+// project/workspace settings come from `with:` (api_key/project_id/workspace_id) with TENKI_* environment fallbacks.
 /* Example DAG:
 ```yaml
 steps:
