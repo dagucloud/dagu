@@ -3678,6 +3678,8 @@ export interface components {
             botToken?: string;
             /** @description Telegram chat ID */
             chatId?: string;
+            /** @description Optional Telegram topic ID (message thread ID) for forum groups */
+            topicId?: string;
             /** @description Optional Telegram message template. When omitted, Dagu sends the default notification text. */
             messageTemplate?: string;
         };
@@ -3689,6 +3691,8 @@ export interface components {
             botTokenPreview?: string;
             /** @description Telegram chat ID */
             chatId?: string;
+            /** @description Optional Telegram topic ID (message thread ID) for forum groups */
+            topicId?: string;
             /** @description Optional Telegram message template. When omitted, Dagu sends the default notification text. */
             messageTemplate?: string;
         };

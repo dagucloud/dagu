@@ -547,6 +547,7 @@ type slackTargetForStorage struct {
 type telegramTargetForStorage struct {
 	BotTokenEnc     string `json:"botTokenEnc,omitempty"`
 	ChatID          string `json:"chatId,omitempty"`
+	TopicID         string `json:"topicId,omitempty"`
 	MessageTemplate string `json:"messageTemplate,omitempty"`
 }
 
@@ -693,6 +694,7 @@ func (s *Store) targetToStorage(target notification.Target) (targetForStorage, e
 	if target.Telegram != nil {
 		stored.Telegram = &telegramTargetForStorage{
 			ChatID:          target.Telegram.ChatID,
+			TopicID:         target.Telegram.TopicID,
 			MessageTemplate: target.Telegram.MessageTemplate,
 		}
 		if stored.Telegram.BotTokenEnc, err = s.encryptRequired(target.Telegram.BotToken); err != nil {
@@ -878,6 +880,7 @@ func (s *Store) targetFromStorage(stored targetForStorage) (notification.Target,
 	if stored.Telegram != nil {
 		target.Telegram = &notification.TelegramTarget{
 			ChatID:          stored.Telegram.ChatID,
+			TopicID:         stored.Telegram.TopicID,
 			MessageTemplate: stored.Telegram.MessageTemplate,
 		}
 		if target.Telegram.BotToken, err = s.decryptOptional(stored.Telegram.BotTokenEnc); err != nil {
