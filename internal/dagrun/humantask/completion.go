@@ -44,10 +44,14 @@ func (s *Service) Complete(ctx context.Context, request CompleteRequest) (Result
 			return Result{}, errorf(ErrorConflict, "human task step %q was already completed with different input", request.StepID)
 		}
 		result := resultFor(target.status, request.StepID, true)
-		if target.status.Status != core.Waiting || hasWaitingNodes(target.status.Nodes) {
+		if hasWaitingNodes(target.status.Nodes) {
 			return result, nil
 		}
-		return s.queueCompletedTaskResume(ctx, target)
+		if target.status.Status == core.Waiting ||
+			(target.status.Status == core.Queued && target.status.RetryQueueKey != "") {
+			return s.queueCompletedTaskResume(ctx, target)
+		}
+		return result, nil
 	}
 
 	if target.status.Status != core.Waiting {

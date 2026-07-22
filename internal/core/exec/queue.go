@@ -21,6 +21,9 @@ var (
 type QueueStore interface {
 	// Enqueue adds an item to the queue
 	Enqueue(ctx context.Context, name string, priority QueuePriority, dagRun DAGRunRef) error
+	// EnsureEnqueued adds one item for key. Repeated calls with the same
+	// arguments are idempotent.
+	EnsureEnqueued(ctx context.Context, name string, priority QueuePriority, dagRun DAGRunRef, key string) error
 	// DequeueByName retrieves an item from the queue and removes it
 	DequeueByName(ctx context.Context, name string) (QueuedItemData, error)
 	// DequeueByDAGRunID retrieves items from the queue by dag-run reference and removes them
@@ -79,6 +82,16 @@ type QueuedItemData interface {
 	Data() (*DAGRunRef, error)
 }
 
+// QueuedItemEnqueueKey returns the idempotent enqueue key carried by item.
+// Items created without a key return an empty string.
+func QueuedItemEnqueueKey(item QueuedItemData) string {
+	keyed, ok := item.(interface{ EnqueueKey() string })
+	if !ok {
+		return ""
+	}
+	return keyed.EnqueueKey()
+}
+
 var _ QueueStore = (*MockQueueStore)(nil)
 
 // MockQueueStore is a mock implementation of QueueStore for testing.
@@ -88,6 +101,17 @@ type MockQueueStore struct {
 
 func (m *MockQueueStore) Enqueue(ctx context.Context, name string, priority QueuePriority, dagRun DAGRunRef) error {
 	args := m.Called(ctx, name, priority, dagRun)
+	return args.Error(0)
+}
+
+func (m *MockQueueStore) EnsureEnqueued(
+	ctx context.Context,
+	name string,
+	priority QueuePriority,
+	dagRun DAGRunRef,
+	key string,
+) error {
+	args := m.Called(ctx, name, priority, dagRun, key)
 	return args.Error(0)
 }
 

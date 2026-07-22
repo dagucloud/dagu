@@ -4,6 +4,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os/user"
 	"strings"
@@ -123,6 +124,10 @@ func runHumanTaskCompleteWith(ctx *Context, args []string, deps humanTaskComplet
 		CompletedByID: completedByID,
 	})
 	if err != nil {
+		var resumeErr *humantask.ResumeError
+		if errors.As(err, &resumeErr) {
+			return fmt.Errorf("%w; run the same completion command again to retry", err)
+		}
 		return err
 	}
 	if result.RemainingWaitingSteps > 0 {
@@ -180,10 +185,21 @@ func parseHumanTaskCompletionInput(command *cobra.Command) (humantask.Input, err
 		}
 		return input, nil
 	}
-	input, err := humantask.ParseInputPairs(pairs)
-	if err != nil {
-		message := strings.Replace(err.Error(), "input ", "--"+humanTaskFlagInput+" ", 1)
-		return humantask.Input{}, fmt.Errorf("%s", message)
+	return parseHumanTaskInputPairs(pairs)
+}
+
+func parseHumanTaskInputPairs(pairs []string) (humantask.Input, error) {
+	values := make(map[string]any, len(pairs))
+	for _, pair := range pairs {
+		name, value, ok := strings.Cut(pair, "=")
+		name = strings.TrimSpace(name)
+		if !ok || name == "" {
+			return humantask.Input{}, fmt.Errorf("--%s must use key=value form", humanTaskFlagInput)
+		}
+		if _, exists := values[name]; exists {
+			return humantask.Input{}, fmt.Errorf("--%s contains duplicate key %q", humanTaskFlagInput, name)
+		}
+		values[name] = value
 	}
-	return input, nil
+	return humantask.Input{Values: values, CoerceStrings: len(pairs) > 0}, nil
 }

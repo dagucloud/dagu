@@ -45,6 +45,42 @@ func TestAuthorizeHumanTaskMutationClassifiesLookupErrors(t *testing.T) {
 	}
 }
 
+func TestCompleteHumanTaskResumeFailureResponseIsStable(t *testing.T) {
+	response, err := completeHumanTaskErrorResponse(t.Context(), &humantask.ResumeError{
+		Result: humantask.Result{DAGName: "deploy", DAGRunID: "run-1", StepID: "review"},
+		Err:    errors.New("storage endpoint included sensitive diagnostics"),
+	})
+	require.NoError(t, err)
+
+	typed, ok := response.(*apiv1.CompleteHumanTask503JSONResponse)
+	require.True(t, ok)
+	assert.Equal(t, apiv1.ErrorCodeHumanTaskResumeFailed, typed.Code)
+	assert.Equal(
+		t,
+		"human-task completion was saved, but the DAG-run could not be queued for resume; retry the same completion request",
+		typed.Message,
+	)
+	require.NotNil(t, typed.Details)
+	assert.Equal(t, true, (*typed.Details)["completionStored"])
+	assert.Equal(t, true, (*typed.Details)["resumePending"])
+}
+
+func TestResumeHumanTaskFailureResponseIsStable(t *testing.T) {
+	response, err := resumeHumanTaskErrorResponse(t.Context(), &humantask.ResumeError{
+		Result: humantask.Result{DAGName: "deploy", DAGRunID: "run-1"},
+		Err:    errors.New("storage endpoint included sensitive diagnostics"),
+	})
+	require.NoError(t, err)
+
+	typed, ok := response.(*apiv1.ResumeHumanTaskDAGRun503JSONResponse)
+	require.True(t, ok)
+	assert.Equal(t, apiv1.ErrorCodeHumanTaskResumeFailed, typed.Code)
+	assert.Equal(t, "the DAG-run could not be queued for resume; retry the resume request", typed.Message)
+	require.NotNil(t, typed.Details)
+	assert.Equal(t, true, (*typed.Details)["completionStored"])
+	assert.Equal(t, true, (*typed.Details)["resumePending"])
+}
+
 func TestHumanTaskInputMiddlewarePreservesValidatedBody(t *testing.T) {
 	const raw = `{"count":9007199254740993}`
 	originalBody := &trackingReadCloser{Reader: strings.NewReader(raw)}

@@ -161,33 +161,35 @@ func sortDAGRunConditions(conditions []DAGRunCondition) {
 
 // DAGRunStatus represents the complete execution state of a dag-run.
 type DAGRunStatus struct {
-	Root           DAGRunRef         `json:"root,omitzero"`
-	Parent         DAGRunRef         `json:"parent,omitzero"`
-	Name           string            `json:"name"`
-	DAGRunID       string            `json:"dagRunId"`
-	AttemptID      string            `json:"attemptId"`
-	AttemptKey     string            `json:"attemptKey,omitempty"` // Globally unique attempt identifier
-	ClaimKey       string            `json:"claimKey,omitempty"`   // Worker claim that executes this attempt
-	Status         core.Status       `json:"status"`
-	Conditions     []DAGRunCondition `json:"conditions,omitempty"`
-	TriggerType    core.TriggerType  `json:"triggerType,omitempty"`
-	WorkerID       string            `json:"workerId,omitempty"`
-	PID            PID               `json:"pid,omitempty"`
-	PIDStartedAt   int64             `json:"pidStartedAt,omitempty"`
-	Nodes          []*Node           `json:"nodes,omitempty"`
-	OnInit         *Node             `json:"onInit,omitempty"`
-	OnExit         *Node             `json:"onExit,omitempty"`
-	OnSuccess      *Node             `json:"onSuccess,omitempty"`
-	OnFailure      *Node             `json:"onFailure,omitempty"`
-	OnAbort        *Node             `json:"onAbort,omitempty"`
-	OnWait         *Node             `json:"onWait,omitempty"`
-	CreatedAt      int64             `json:"createdAt,omitempty"`
-	QueuedAt       string            `json:"queuedAt,omitempty"`
-	ScheduleTime   string            `json:"scheduleTime,omitempty"`
-	StartedAt      string            `json:"startedAt,omitempty"`
-	FinishedAt     string            `json:"finishedAt,omitempty"`
-	AutoRetryCount int               `json:"autoRetryCount,omitempty"`
-	AutoRetryLimit int               `json:"autoRetryLimit,omitempty"`
+	Root                DAGRunRef         `json:"root,omitzero"`
+	Parent              DAGRunRef         `json:"parent,omitzero"`
+	Name                string            `json:"name"`
+	DAGRunID            string            `json:"dagRunId"`
+	AttemptID           string            `json:"attemptId"`
+	AttemptKey          string            `json:"attemptKey,omitempty"` // Globally unique attempt identifier
+	ClaimKey            string            `json:"claimKey,omitempty"`   // Worker claim that executes this attempt
+	Status              core.Status       `json:"status"`
+	Conditions          []DAGRunCondition `json:"conditions,omitempty"`
+	TriggerType         core.TriggerType  `json:"triggerType,omitempty"`
+	WorkerID            string            `json:"workerId,omitempty"`
+	PID                 PID               `json:"pid,omitempty"`
+	PIDStartedAt        int64             `json:"pidStartedAt,omitempty"`
+	Nodes               []*Node           `json:"nodes,omitempty"`
+	OnInit              *Node             `json:"onInit,omitempty"`
+	OnExit              *Node             `json:"onExit,omitempty"`
+	OnSuccess           *Node             `json:"onSuccess,omitempty"`
+	OnFailure           *Node             `json:"onFailure,omitempty"`
+	OnAbort             *Node             `json:"onAbort,omitempty"`
+	OnWait              *Node             `json:"onWait,omitempty"`
+	CreatedAt           int64             `json:"createdAt,omitempty"`
+	QueuedAt            string            `json:"queuedAt,omitempty"`
+	RetryQueueKey       string            `json:"retryQueueKey,omitempty"`
+	RetryQueuePublished bool              `json:"retryQueuePublished,omitempty"`
+	ScheduleTime        string            `json:"scheduleTime,omitempty"`
+	StartedAt           string            `json:"startedAt,omitempty"`
+	FinishedAt          string            `json:"finishedAt,omitempty"`
+	AutoRetryCount      int               `json:"autoRetryCount,omitempty"`
+	AutoRetryLimit      int               `json:"autoRetryLimit,omitempty"`
 	// AutoRetryInterval is stored as a duration snapshot for retry scanner decisions.
 	AutoRetryInterval time.Duration `json:"autoRetryInterval,omitempty"`
 	AutoRetryBackoff  float64       `json:"autoRetryBackoff,omitempty"`

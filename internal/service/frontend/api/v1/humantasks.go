@@ -10,11 +10,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 
 	api "github.com/dagucloud/dagu/api/v1"
 	"github.com/dagucloud/dagu/internal/cmn/config"
+	"github.com/dagucloud/dagu/internal/cmn/logger"
+	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/dagrun/humantask"
 	"github.com/dagucloud/dagu/internal/service/audit"
@@ -124,7 +127,7 @@ func (a *API) CompleteHumanTask(
 	})
 	if err != nil {
 		a.logHumanTaskCompletion(ctx, request.Name, request.DagRunId, request.StepId, result, err)
-		return completeHumanTaskErrorResponse(err)
+		return completeHumanTaskErrorResponse(ctx, err)
 	}
 	a.logHumanTaskCompletion(ctx, request.Name, request.DagRunId, request.StepId, result, nil)
 	return &api.CompleteHumanTask200JSONResponse{
@@ -156,7 +159,7 @@ func (a *API) ResumeHumanTaskDAGRun(
 	result, err := a.humanTaskService().Resume(a.withEventContext(ctx), request.Name, request.DagRunId)
 	if err != nil {
 		a.logHumanTaskResume(ctx, request.Name, request.DagRunId, result, err)
-		return resumeHumanTaskErrorResponse(err)
+		return resumeHumanTaskErrorResponse(ctx, err)
 	}
 	a.logHumanTaskResume(ctx, request.Name, request.DagRunId, result, nil)
 	return &api.ResumeHumanTaskDAGRun200JSONResponse{
@@ -203,9 +206,15 @@ func (a *API) humanTaskService() *humantask.Service {
 	}
 }
 
-func completeHumanTaskErrorResponse(err error) (api.CompleteHumanTaskResponseObject, error) {
+func completeHumanTaskErrorResponse(ctx context.Context, err error) (api.CompleteHumanTaskResponseObject, error) {
 	var resumeErr *humantask.ResumeError
 	if errors.As(err, &resumeErr) {
+		logger.Error(ctx, "Failed to queue DAG-run after human-task completion",
+			tag.Error(resumeErr.Err),
+			slog.String("dag", resumeErr.Result.DAGName),
+			slog.String("dagRunId", resumeErr.Result.DAGRunID),
+			slog.String("step", resumeErr.Result.StepID),
+		)
 		details := map[string]any{
 			"completionStored": true,
 			"resumePending":    true,
@@ -214,7 +223,7 @@ func completeHumanTaskErrorResponse(err error) (api.CompleteHumanTaskResponseObj
 		}
 		return &api.CompleteHumanTask503JSONResponse{
 			Code:    api.ErrorCodeHumanTaskResumeFailed,
-			Message: resumeErr.Error(),
+			Message: "human-task completion was saved, but the DAG-run could not be queued for resume; retry the same completion request",
 			Details: &details,
 		}, nil
 	}
@@ -231,9 +240,14 @@ func completeHumanTaskErrorResponse(err error) (api.CompleteHumanTaskResponseObj
 	return nil, err
 }
 
-func resumeHumanTaskErrorResponse(err error) (api.ResumeHumanTaskDAGRunResponseObject, error) {
+func resumeHumanTaskErrorResponse(ctx context.Context, err error) (api.ResumeHumanTaskDAGRunResponseObject, error) {
 	var resumeErr *humantask.ResumeError
 	if errors.As(err, &resumeErr) {
+		logger.Error(ctx, "Failed to queue human-task DAG-run resume",
+			tag.Error(resumeErr.Err),
+			slog.String("dag", resumeErr.Result.DAGName),
+			slog.String("dagRunId", resumeErr.Result.DAGRunID),
+		)
 		details := map[string]any{
 			"completionStored": true,
 			"resumePending":    true,
@@ -241,7 +255,7 @@ func resumeHumanTaskErrorResponse(err error) (api.ResumeHumanTaskDAGRunResponseO
 		}
 		return &api.ResumeHumanTaskDAGRun503JSONResponse{
 			Code:    api.ErrorCodeHumanTaskResumeFailed,
-			Message: resumeErr.Error(),
+			Message: "the DAG-run could not be queued for resume; retry the resume request",
 			Details: &details,
 		}, nil
 	}

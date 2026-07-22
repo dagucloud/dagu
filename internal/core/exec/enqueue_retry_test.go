@@ -33,13 +33,30 @@ func TestEnqueueRetry(t *testing.T) {
 		{
 			name:   "AlreadyQueued",
 			dag:    &core.DAG{Name: "test-dag"},
-			status: &exec.DAGRunStatus{Status: core.Queued},
-			store:  &stubDAGRunStore{},
+			status: &exec.DAGRunStatus{Name: "test-dag", DAGRunID: "run-queued", AttemptID: "att-queued", Status: core.Queued},
+			store: &stubDAGRunStore{status: &exec.DAGRunStatus{
+				Name: "test-dag", DAGRunID: "run-queued", AttemptID: "att-queued", Status: core.Queued,
+			}},
 			setupQueue: func(qs *exec.MockQueueStore) {
-				qs.AssertNotCalled(t, "Enqueue", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+				qs.AssertNotCalled(t, "EnsureEnqueued", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+			},
+		},
+		{
+			name: "QueuedIntentIsPublished",
+			dag:  &core.DAG{Name: "test-dag"},
+			status: &exec.DAGRunStatus{
+				Name: "test-dag", DAGRunID: "run-pending", AttemptID: "att-pending", AttemptKey: "attempt-key-pending",
+				Status: core.Queued, QueuedAt: "2026-07-22T12:00:00.123456789Z", RetryQueueKey: "retry-key-pending",
+			},
+			store: &stubDAGRunStore{status: &exec.DAGRunStatus{
+				Name: "test-dag", DAGRunID: "run-pending", AttemptID: "att-pending", AttemptKey: "attempt-key-pending",
+				Status: core.Queued, QueuedAt: "2026-07-22T12:00:00.123456789Z", RetryQueueKey: "retry-key-pending",
+			}},
+			setupQueue: func(qs *exec.MockQueueStore) {
+				expectRetryEnsure(qs, "test-dag", exec.NewDAGRunRef("test-dag", "run-pending"), nil)
 			},
 			assertStore: func(t *testing.T, store *stubDAGRunStore) {
-				assert.Equal(t, 0, store.casCalls)
+				assert.True(t, store.status.RetryQueuePublished)
 			},
 		},
 		{
@@ -66,17 +83,9 @@ func TestEnqueueRetry(t *testing.T) {
 						2026, 3, 14, 14, 30, 0, 0, time.UTC,
 					).Format(time.RFC3339),
 				},
-				casStatus: &exec.DAGRunStatus{
-					Name:           "test-dag",
-					DAGRunID:       "run-1",
-					AttemptID:      "att-1",
-					Status:         core.Failed,
-					AutoRetryCount: 2,
-				},
 			},
 			setupQueue: func(qs *exec.MockQueueStore) {
-				qs.On("Enqueue", mock.Anything, "test-dag", exec.QueuePriorityLow, exec.NewDAGRunRef("test-dag", "run-1")).
-					Return(nil)
+				expectRetryEnsure(qs, "test-dag", exec.NewDAGRunRef("test-dag", "run-1"), nil)
 			},
 			assertStore: func(t *testing.T, store *stubDAGRunStore) {
 				require.NotNil(t, store.status)
@@ -89,7 +98,8 @@ func TestEnqueueRetry(t *testing.T) {
 				assert.Equal(t, "/tmp/test-dag/run-1.log", store.status.Log)
 				assert.Equal(t, "/tmp/test-dag/run-1", store.status.WorkingDir)
 				assert.NotEmpty(t, store.status.ProfileResolvedAt)
-				assert.Equal(t, 1, store.casCalls)
+				assert.NotEmpty(t, store.status.RetryQueueKey)
+				assert.True(t, store.status.RetryQueuePublished)
 			},
 		},
 		{
@@ -113,8 +123,7 @@ func TestEnqueueRetry(t *testing.T) {
 				},
 			},
 			setupQueue: func(qs *exec.MockQueueStore) {
-				qs.On("Enqueue", mock.Anything, "test-dag", exec.QueuePriorityLow, exec.NewDAGRunRef("test-dag", "run-auto")).
-					Return(nil)
+				expectRetryEnsure(qs, "test-dag", exec.NewDAGRunRef("test-dag", "run-auto"), nil)
 			},
 			assertStore: func(t *testing.T, store *stubDAGRunStore) {
 				require.NotNil(t, store.status)
@@ -141,18 +150,9 @@ func TestEnqueueRetry(t *testing.T) {
 					ProcGroup:      "custom-queue",
 					Log:            "/tmp/test-dag/run-fast-path.log",
 				},
-				casStatus: &exec.DAGRunStatus{
-					Name:           "test-dag",
-					DAGRunID:       "run-fast-path",
-					AttemptID:      "att-fast-path",
-					Status:         core.Failed,
-					AutoRetryCount: 1,
-					ProcGroup:      "input-queue",
-				},
 			},
 			setupQueue: func(qs *exec.MockQueueStore) {
-				qs.On("Enqueue", mock.Anything, "custom-queue", exec.QueuePriorityLow, exec.NewDAGRunRef("test-dag", "run-fast-path")).
-					Return(nil)
+				expectRetryEnsure(qs, "custom-queue", exec.NewDAGRunRef("test-dag", "run-fast-path"), nil)
 			},
 			assertStore: func(t *testing.T, store *stubDAGRunStore) {
 				require.NotNil(t, store.status)
@@ -179,8 +179,7 @@ func TestEnqueueRetry(t *testing.T) {
 				},
 			},
 			setupQueue: func(qs *exec.MockQueueStore) {
-				qs.On("Enqueue", mock.Anything, "child-dag", exec.QueuePriorityLow, exec.NewDAGRunRef("child-dag", "run-root")).
-					Return(nil)
+				expectRetryEnsure(qs, "child-dag", exec.NewDAGRunRef("child-dag", "run-root"), nil)
 			},
 			assertStore: func(t *testing.T, store *stubDAGRunStore) {
 				require.NotNil(t, store.status)
@@ -203,20 +202,44 @@ func TestEnqueueRetry(t *testing.T) {
 			wantErr: "persist queued retry status",
 		},
 		{
-			name: "CompareAndSwapLosesRaceToQueued",
+			name: "CompareAndSwapJoinsSameAttemptQueueIntent",
+			dag:  &core.DAG{Name: "test-dag"},
+			status: &exec.DAGRunStatus{
+				Name:       "test-dag",
+				DAGRunID:   "run-3",
+				AttemptID:  "att-3",
+				AttemptKey: "attempt-key-3",
+				Status:     core.Failed,
+			},
+			store: &stubDAGRunStore{
+				status: &exec.DAGRunStatus{
+					Name: "test-dag", DAGRunID: "run-3", AttemptID: "att-3", AttemptKey: "attempt-key-3",
+					Status: core.Queued, QueuedAt: "2026-07-22T00:00:00Z", RetryQueueKey: "retry-key-3",
+				},
+				firstNotSwapped: true,
+			},
+			setupQueue: func(qs *exec.MockQueueStore) {
+				expectRetryEnsure(qs, "test-dag", exec.NewDAGRunRef("test-dag", "run-3"), nil)
+			},
+			assertStore: func(t *testing.T, store *stubDAGRunStore) {
+				assert.True(t, store.status.RetryQueuePublished)
+			},
+		},
+		{
+			name: "CompareAndSwapLosesRaceToNewQueuedAttempt",
 			dag:  &core.DAG{Name: "test-dag"},
 			status: &exec.DAGRunStatus{
 				Name:      "test-dag",
-				DAGRunID:  "run-3",
-				AttemptID: "att-3",
+				DAGRunID:  "run-new-attempt",
+				AttemptID: "att-old",
 				Status:    core.Failed,
 			},
 			store: &stubDAGRunStore{
-				status:       &exec.DAGRunStatus{Name: "test-dag", DAGRunID: "run-3", AttemptID: "att-new", Status: core.Queued},
-				firstSwapped: false,
+				status:          &exec.DAGRunStatus{Name: "test-dag", DAGRunID: "run-new-attempt", AttemptID: "att-new", Status: core.Queued},
+				firstNotSwapped: true,
 			},
-			assertStore: func(t *testing.T, store *stubDAGRunStore) {
-				assert.Equal(t, 1, store.casCalls)
+			assertErr: func(t *testing.T, err error) {
+				assert.ErrorIs(t, err, exec.ErrRetryStaleLatest)
 			},
 		},
 		{
@@ -229,18 +252,15 @@ func TestEnqueueRetry(t *testing.T) {
 				Status:    core.Failed,
 			},
 			store: &stubDAGRunStore{
-				status:       &exec.DAGRunStatus{Name: "test-dag", DAGRunID: "run-3b", AttemptID: "att-other", Status: core.Running},
-				firstSwapped: false,
+				status:          &exec.DAGRunStatus{Name: "test-dag", DAGRunID: "run-3b", AttemptID: "att-other", Status: core.Running},
+				firstNotSwapped: true,
 			},
 			assertErr: func(t *testing.T, err error) {
 				assert.ErrorIs(t, err, exec.ErrRetryStaleLatest)
 			},
-			assertStore: func(t *testing.T, store *stubDAGRunStore) {
-				assert.Equal(t, 1, store.casCalls)
-			},
 		},
 		{
-			name: "EnqueueFailsAndRollsBack",
+			name: "QueuePublicationFailureLeavesDurableIntent",
 			dag:  &core.DAG{Name: "test-dag"},
 			status: &exec.DAGRunStatus{
 				Name:           "test-dag",
@@ -257,25 +277,24 @@ func TestEnqueueRetry(t *testing.T) {
 					Status:         core.Failed,
 					AutoRetryCount: 1,
 				},
-				secondSwapped: true,
 			},
 			opts: exec.EnqueueRetryOptions{AutoRetry: true},
 			setupQueue: func(qs *exec.MockQueueStore) {
-				qs.On("Enqueue", mock.Anything, "test-dag", exec.QueuePriorityLow, exec.NewDAGRunRef("test-dag", "run-4")).
-					Return(errors.New("enqueue error"))
+				expectRetryEnsure(qs, "test-dag", exec.NewDAGRunRef("test-dag", "run-4"), errors.New("enqueue error"))
 			},
 			assertStore: func(t *testing.T, store *stubDAGRunStore) {
 				require.NotNil(t, store.status)
-				assert.Equal(t, core.Failed, store.status.Status)
-				assert.Empty(t, store.status.QueuedAt)
-				assert.Equal(t, core.TriggerTypeUnknown, store.status.TriggerType)
-				assert.Equal(t, 1, store.status.AutoRetryCount)
-				assert.Equal(t, 2, store.casCalls)
+				assert.Equal(t, core.Queued, store.status.Status)
+				assert.NotEmpty(t, store.status.QueuedAt)
+				assert.Equal(t, core.TriggerTypeRetry, store.status.TriggerType)
+				assert.Equal(t, 2, store.status.AutoRetryCount)
+				assert.NotEmpty(t, store.status.RetryQueueKey)
+				assert.False(t, store.status.RetryQueuePublished)
 			},
 			wantErr: "enqueue retry",
 		},
 		{
-			name: "EnqueueAndRollbackFail",
+			name: "PublicationMarkerFailureLeavesDurableIntent",
 			dag:  &core.DAG{Name: "test-dag"},
 			status: &exec.DAGRunStatus{
 				Name:      "test-dag",
@@ -290,21 +309,21 @@ func TestEnqueueRetry(t *testing.T) {
 					AttemptID: "att-rollback-failure",
 					Status:    core.Waiting,
 				},
-				secondErr: errors.New("rollback error"),
+				secondErr: errors.New("status unavailable"),
 			},
 			setupQueue: func(qs *exec.MockQueueStore) {
-				qs.On("Enqueue", mock.Anything, "test-dag", exec.QueuePriorityLow, exec.NewDAGRunRef("test-dag", "run-rollback-failure")).
-					Return(errors.New("enqueue error"))
+				expectRetryEnsure(qs, "test-dag", exec.NewDAGRunRef("test-dag", "run-rollback-failure"), nil)
 			},
 			assertStore: func(t *testing.T, store *stubDAGRunStore) {
 				require.NotNil(t, store.status)
 				assert.Equal(t, core.Queued, store.status.Status)
-				assert.Equal(t, 2, store.casCalls)
+				assert.NotEmpty(t, store.status.RetryQueueKey)
+				assert.False(t, store.status.RetryQueuePublished)
 			},
-			wantErr: "enqueue retry: enqueue error; rollback queued retry status: rollback error",
+			wantErr: "mark retry queue publication: status unavailable",
 		},
 		{
-			name: "EmptyProcGroupRollsBackQueuedStatus",
+			name: "EmptyProcGroupLeavesDurableIntent",
 			status: &exec.DAGRunStatus{
 				DAGRunID:       "run-empty-group",
 				AttemptID:      "att-empty-group",
@@ -318,15 +337,15 @@ func TestEnqueueRetry(t *testing.T) {
 					Status:         core.Failed,
 					AutoRetryCount: 1,
 				},
-				secondSwapped: true,
 			},
 			assertStore: func(t *testing.T, store *stubDAGRunStore) {
 				require.NotNil(t, store.status)
-				assert.Equal(t, core.Failed, store.status.Status)
-				assert.Empty(t, store.status.QueuedAt)
-				assert.Equal(t, core.TriggerTypeUnknown, store.status.TriggerType)
+				assert.Equal(t, core.Queued, store.status.Status)
+				assert.NotEmpty(t, store.status.QueuedAt)
+				assert.Equal(t, core.TriggerTypeRetry, store.status.TriggerType)
 				assert.Equal(t, 1, store.status.AutoRetryCount)
-				assert.Equal(t, 2, store.casCalls)
+				assert.NotEmpty(t, store.status.RetryQueueKey)
+				assert.False(t, store.status.RetryQueuePublished)
 			},
 			wantErr: "proc group is empty",
 		},
@@ -364,13 +383,11 @@ func TestEnqueueRetry(t *testing.T) {
 }
 
 type stubDAGRunStore struct {
-	status        *exec.DAGRunStatus
-	casStatus     *exec.DAGRunStatus
-	firstErr      error
-	secondErr     error
-	firstSwapped  bool
-	secondSwapped bool
-	casCalls      int
+	status          *exec.DAGRunStatus
+	firstErr        error
+	secondErr       error
+	firstNotSwapped bool
+	casCalls        int
 }
 
 func (s *stubDAGRunStore) CreateAttempt(context.Context, *core.DAG, time.Time, string, exec.NewDAGRunAttemptOptions) (exec.DAGRunAttempt, error) {
@@ -413,25 +430,14 @@ func (s *stubDAGRunStore) CompareAndSwapLatestAttemptStatus(
 		return nil, false, nil
 	}
 
-	swapped := true
-	if s.casCalls == 1 && !s.firstSwapped {
-		swapped = expectedAttemptID == s.status.AttemptID && expectedStatus == s.status.Status
-	}
-
-	if s.casCalls == 1 && !s.firstSwapped && s.status.Status == core.Queued {
+	if s.casCalls == 1 && s.firstNotSwapped {
 		return s.cloneStatus(), false, nil
 	}
-	if s.casCalls == 2 && !s.secondSwapped {
-		swapped = false
-	}
-	if !swapped {
+	if expectedAttemptID != s.status.AttemptID || expectedStatus != s.status.Status {
 		return s.cloneStatus(), false, nil
 	}
 
 	updated := s.cloneStatus()
-	if s.casCalls == 1 && s.casStatus != nil {
-		updated = cloneDAGRunStatus(s.casStatus)
-	}
 	if err := mutate(updated); err != nil {
 		return nil, false, err
 	}
@@ -476,4 +482,15 @@ func cloneDAGRunStatus(status *exec.DAGRunStatus) *exec.DAGRunStatus {
 	}
 	cloned := *status
 	return &cloned
+}
+
+func expectRetryEnsure(qs *exec.MockQueueStore, queueName string, dagRun exec.DAGRunRef, err error) {
+	qs.On(
+		"EnsureEnqueued",
+		mock.Anything,
+		queueName,
+		exec.QueuePriorityLow,
+		dagRun,
+		mock.MatchedBy(func(key string) bool { return key != "" }),
+	).Return(err)
 }

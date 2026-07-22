@@ -271,6 +271,16 @@ func (s *queueStore) Enqueue(_ context.Context, _ string, priority exec.QueuePri
 	return nil
 }
 
+func (s *queueStore) EnsureEnqueued(
+	ctx context.Context,
+	name string,
+	priority exec.QueuePriority,
+	dagRun exec.DAGRunRef,
+	_ string,
+) error {
+	return s.Enqueue(ctx, name, priority, dagRun)
+}
+
 func (s *queueStore) DequeueByName(context.Context, string) (exec.QueuedItemData, error) {
 	return nil, exec.ErrQueueEmpty
 }

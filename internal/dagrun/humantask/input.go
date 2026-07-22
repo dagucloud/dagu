@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strings"
 
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
@@ -38,23 +37,6 @@ func ParseJSONInput(raw []byte) (Input, error) {
 		return Input{}, errorf(ErrorInvalid, "input must be a JSON object")
 	}
 	return Input{Values: values}, nil
-}
-
-// ParseInputPairs parses repeatable key=value arguments for the CLI adapter.
-func ParseInputPairs(pairs []string) (Input, error) {
-	values := make(map[string]any, len(pairs))
-	for _, pair := range pairs {
-		name, value, ok := strings.Cut(pair, "=")
-		name = strings.TrimSpace(name)
-		if !ok || name == "" {
-			return Input{}, errorf(ErrorInvalid, "input must use key=value form")
-		}
-		if _, exists := values[name]; exists {
-			return Input{}, errorf(ErrorInvalid, "input contains duplicate key %q", name)
-		}
-		values[name] = value
-	}
-	return Input{Values: values, CoerceStrings: len(pairs) > 0}, nil
 }
 
 func decodeUniqueJSONValue(decoder *json.Decoder) (any, error) {

@@ -223,6 +223,16 @@ func (s *enqueueObservingQueueStore) Enqueue(context.Context, string, exec.Queue
 	return nil
 }
 
+func (s *enqueueObservingQueueStore) EnsureEnqueued(
+	ctx context.Context,
+	name string,
+	priority exec.QueuePriority,
+	dagRun exec.DAGRunRef,
+	_ string,
+) error {
+	return s.Enqueue(ctx, name, priority, dagRun)
+}
+
 func (s *enqueueObservingQueueStore) DequeueByName(context.Context, string) (exec.QueuedItemData, error) {
 	return nil, exec.ErrQueueEmpty
 }

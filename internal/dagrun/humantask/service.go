@@ -62,12 +62,12 @@ type ResumeError struct {
 func (e *ResumeError) Error() string {
 	if e.Result.StepID != "" {
 		return fmt.Sprintf(
-			"human task %q was completed, but the DAG-run could not be queued for resume: %v; run the same completion command again to retry",
+			"human task %q was completed, but the DAG-run could not be queued for resume: %v",
 			e.Result.StepID,
 			e.Err,
 		)
 	}
-	return fmt.Sprintf("the DAG-run could not be queued for resume: %v; retry the resume request", e.Err)
+	return fmt.Sprintf("the DAG-run could not be queued for resume: %v", e.Err)
 }
 
 func (e *ResumeError) Unwrap() error { return e.Err }

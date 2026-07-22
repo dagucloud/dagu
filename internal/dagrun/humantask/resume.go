@@ -27,7 +27,11 @@ func (s *Service) Resume(ctx context.Context, dagName, dagRunID string) (Result,
 		if !hasCompletedHumanTask(target.status.Nodes) {
 			return Result{}, errorf(ErrorConflict, "DAG-run %s has no completed human-task checkpoint to resume", target.ref)
 		}
-		return resultFor(target.status, "", true), nil
+		result := resultFor(target.status, "", true)
+		if target.status.Status == core.Queued && target.status.RetryQueueKey != "" {
+			return s.enqueueResume(ctx, target, result)
+		}
+		return result, nil
 	}
 	if hasWaitingNodes(target.status.Nodes) {
 		return Result{}, errorf(ErrorConflict, "DAG-run %s still has manual steps waiting for input", target.ref)
@@ -40,7 +44,10 @@ func (s *Service) Resume(ctx context.Context, dagName, dagRunID string) (Result,
 }
 
 func (s *Service) enqueueResume(ctx context.Context, target *target, result Result) (Result, error) {
-	if target.status == nil || target.status.Status != core.Waiting || hasWaitingNodes(target.status.Nodes) {
+	if target.status == nil || hasWaitingNodes(target.status.Nodes) {
+		return result, nil
+	}
+	if target.status.Status != core.Waiting && (target.status.Status != core.Queued || target.status.RetryQueueKey == "") {
 		return result, nil
 	}
 	if s.QueueStore == nil {
@@ -48,7 +55,7 @@ func (s *Service) enqueueResume(ctx context.Context, target *target, result Resu
 	}
 
 	postCommitCtx := context.WithoutCancel(ctx)
-	if exec.IsRemoteWorkerID(target.status.WorkerID) {
+	if target.status.Status == core.Waiting && exec.IsRemoteWorkerID(target.status.WorkerID) {
 		settleCtx, cancel := context.WithTimeout(postCommitCtx, s.SettleTimeout)
 		err := s.waitForRemoteDispatch(settleCtx, target.dag, target.status)
 		cancel()
@@ -270,9 +277,13 @@ func HasCompletedTask(status *exec.DAGRunStatus) bool {
 	return status != nil && hasCompletedHumanTask(status.Nodes)
 }
 
-// ResumePending reports whether a run is waiting for its human-task retry to be queued.
+// ResumePending reports whether a completed human task has an unpublished retry.
 func ResumePending(status *exec.DAGRunStatus) bool {
-	return status != nil && status.Status == core.Waiting && !hasWaitingNodes(status.Nodes) && hasCompletedHumanTask(status.Nodes)
+	if status == nil || hasWaitingNodes(status.Nodes) || !hasCompletedHumanTask(status.Nodes) {
+		return false
+	}
+	return status.Status == core.Waiting ||
+		(status.Status == core.Queued && status.RetryQueueKey != "" && !status.RetryQueuePublished)
 }
 
 // ValidateRetry rejects retry operations that would bypass human-task completion state.
@@ -291,7 +302,7 @@ func ValidateRetry(status *exec.DAGRunStatus, stepName string) error {
 			break
 		}
 	}
-	if status.Status == core.Waiting && (hasWaitingHumanTask(status.Nodes) || ResumePending(status)) {
+	if (status.Status == core.Waiting && hasWaitingHumanTask(status.Nodes)) || ResumePending(status) {
 		return errorf(ErrorConflict, "DAG-run %s is waiting on a human-task checkpoint; complete or resume it instead", status.DAGRun())
 	}
 	return nil
