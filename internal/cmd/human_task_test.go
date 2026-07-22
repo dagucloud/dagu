@@ -154,13 +154,21 @@ func TestRunHumanTaskCompleteLeavesRunWaitingForAnotherStep(t *testing.T) {
 
 func TestRunHumanTaskCompleteIsIdempotentForSameCanonicalInput(t *testing.T) {
 	fixture := newHumanTaskCompleteFixture(t, nil, false)
-	fixture.status.Nodes[0].Status = core.NodeSucceeded
-	fixture.status.Nodes[0].HumanTaskInput = json.RawMessage(`{}`)
+	node := fixture.status.Nodes[0]
+	node.Status = core.NodeSucceeded
+	node.HumanTaskInput = json.RawMessage(`{}`)
+	node.HumanTaskCompletedBy = "first-operator"
+	node.HumanTaskCompletedByID = "os:100"
+	node.FinishedAt = "2026-07-20T00:59:00Z"
 
 	err := runHumanTaskCompleteWith(fixture.ctx, []string{"human-task-test"}, fixture.deps())
 	require.NoError(t, err)
-	assert.Equal(t, 2, fixture.store.compareAndSwapCalls)
+	assert.Equal(t, core.Queued, fixture.status.Status)
 	assert.Len(t, fixture.queue.enqueued, 1)
+	assert.JSONEq(t, `{}`, string(node.HumanTaskInput))
+	assert.Equal(t, "first-operator", node.HumanTaskCompletedBy)
+	assert.Equal(t, "os:100", node.HumanTaskCompletedByID)
+	assert.Equal(t, "2026-07-20T00:59:00Z", node.FinishedAt)
 	assert.Contains(t, fixture.output.String(), "already completed")
 	assert.Contains(t, fixture.output.String(), "queued for resume")
 }
@@ -178,18 +186,26 @@ func TestRunHumanTaskCompleteRejectsDifferentInputAfterCompletion(t *testing.T) 
 	assert.Zero(t, fixture.store.compareAndSwapCalls)
 }
 
-func TestRunHumanTaskCompleteConcurrentSameInputDoesNotWriteAgain(t *testing.T) {
+func TestRunHumanTaskCompleteConcurrentSameInputPreservesFirstCompletion(t *testing.T) {
 	fixture := newHumanTaskCompleteFixture(t, nil, false)
 	fixture.store.beforeMutate = func() {
-		fixture.status.Nodes[0].Status = core.NodeSucceeded
-		fixture.status.Nodes[0].HumanTaskInput = json.RawMessage(`{}`)
+		node := fixture.status.Nodes[0]
+		node.Status = core.NodeSucceeded
+		node.HumanTaskInput = json.RawMessage(`{}`)
+		node.HumanTaskCompletedBy = "concurrent-operator"
+		node.HumanTaskCompletedByID = "os:200"
+		node.FinishedAt = "2026-07-20T01:01:00Z"
 	}
 
 	err := runHumanTaskCompleteWith(fixture.ctx, []string{"human-task-test"}, fixture.deps())
 	require.NoError(t, err)
-	assert.Equal(t, 3, fixture.store.compareAndSwapCalls)
-	assert.Equal(t, 2, fixture.store.writes)
+	assert.Equal(t, core.Queued, fixture.status.Status)
 	assert.Len(t, fixture.queue.enqueued, 1)
+	node := fixture.status.Nodes[0]
+	assert.JSONEq(t, `{}`, string(node.HumanTaskInput))
+	assert.Equal(t, "concurrent-operator", node.HumanTaskCompletedBy)
+	assert.Equal(t, "os:200", node.HumanTaskCompletedByID)
+	assert.Equal(t, "2026-07-20T01:01:00Z", node.FinishedAt)
 	assert.Contains(t, fixture.output.String(), "already completed")
 }
 
@@ -368,7 +384,6 @@ type humanTaskCompletionStore struct {
 	options             exec.CompareAndSwapStatusOptions
 	optionsHistory      []exec.CompareAndSwapStatusOptions
 	beforeMutate        func()
-	writes              int
 }
 
 func (s *humanTaskCompletionStore) FindAttempt(context.Context, exec.DAGRunRef) (exec.DAGRunAttempt, error) {
@@ -400,7 +415,6 @@ func (s *humanTaskCompletionStore) CompareAndSwapLatestAttemptStatus(
 	if err := mutate(s.status); err != nil {
 		return nil, false, err
 	}
-	s.writes++
 	return s.status, true, nil
 }
 
