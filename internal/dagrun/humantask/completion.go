@@ -97,9 +97,6 @@ func (s *Service) Complete(ctx context.Context, request CompleteRequest) (Result
 			}
 			latestNode.FinishedAt = completedAt
 			latestNode.Status = core.NodeSucceeded
-			if !hasWaitingNodes(latest.Nodes) {
-				latest.HumanTaskResume = &exec.HumanTaskResumeState{RequestedAt: completedAt}
-			}
 			return nil
 		},
 		exec.WithCompareAndSwapExpectedAttemptKey(target.status.AttemptKey),
@@ -122,12 +119,8 @@ func (s *Service) Complete(ctx context.Context, request CompleteRequest) (Result
 }
 
 func (s *Service) queueCompletedTaskResume(ctx context.Context, target *target) (Result, error) {
-	status, err := s.ensureResumePending(ctx, target)
-	if err != nil {
-		return Result{}, err
-	}
-	result := resultFor(status, target.stepID, true)
-	return s.enqueueResume(ctx, target.withStatus(status), result)
+	result := resultFor(target.status, target.stepID, true)
+	return s.enqueueResume(ctx, target, result)
 }
 
 func (s *Service) resolveCompletionConflict(

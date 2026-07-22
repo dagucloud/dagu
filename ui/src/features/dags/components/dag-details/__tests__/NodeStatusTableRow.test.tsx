@@ -248,7 +248,7 @@ describe('NodeStatusTableRow', () => {
     expect(screen.queryByTitle('Retry from this step')).not.toBeInTheDocument();
   });
 
-  it('does not expand logs when a human-task status chip is clicked', () => {
+  it('does not open status updates for a human task', () => {
     const node = {
       step: {
         name: 'review',
@@ -264,7 +264,7 @@ describe('NodeStatusTableRow', () => {
       doneCount: 0,
     } as components['schemas']['Node'];
 
-    const { container } = render(
+    render(
       <MemoryRouter>
         <AppBarContext.Provider value={appBarValue}>
           <DAGContext.Provider
@@ -292,7 +292,7 @@ describe('NodeStatusTableRow', () => {
 
     fireEvent.click(screen.getByText(NodeStatusLabel.waiting));
 
-    expect(container.querySelectorAll('tbody > tr')).toHaveLength(1);
+    expect(screen.queryByText('Update Status')).not.toBeInTheDocument();
   });
 
   it.each(['desktop', 'mobile'] as const)(

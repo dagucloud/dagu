@@ -403,10 +403,15 @@ function DAGStatus({
   const waitingHumanTaskCount = waitingHumanTaskNodes.length;
   const hasWaitingApprovals = waitingApprovalCount > 0;
   const hasArtifacts = artifactEnabled || !!displayDAGRun.artifactsAvailable;
+  const displayDAGRunIdentity = JSON.stringify([
+    remoteNode,
+    displayDAGRun.name,
+    displayDAGRun.dagRunId,
+  ]);
 
   useEffect(() => {
     setActiveTab(initialTab);
-  }, [displayDAGRun.dagRunId, initialTab]);
+  }, [displayDAGRunIdentity, initialTab]);
 
   // Reset to status tab if selected tab is not available
   useEffect(() => {
@@ -441,7 +446,7 @@ function DAGStatus({
     } else if (hasWaitingApprovals) {
       setActiveTab('approval');
     }
-  }, [hasHumanTaskWork, hasWaitingApprovals]);
+  }, [displayDAGRunIdentity, hasHumanTaskWork, hasWaitingApprovals]);
 
   const scrollPaneClassName = fillHeight
     ? 'min-h-0 flex-1 overflow-auto pr-1'
@@ -662,10 +667,11 @@ function DAGStatus({
         </div>
       )}
 
-      {/* Approval Tab Content */}
+      {/* Human Tasks Tab Content */}
       {activeTab === 'human-tasks' && hasHumanTaskWork && (
         <div className={scrollPaneClassName}>
           <HumanTasksTab
+            key={displayDAGRunIdentity}
             dagRun={displayDAGRun}
             onChanged={dagContext.refresh}
           />

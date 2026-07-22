@@ -4,17 +4,46 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	apiv1 "github.com/dagucloud/dagu/api/v1"
+	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/dagrun/humantask"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestAuthorizeHumanTaskMutationClassifiesLookupErrors(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		wantCode   apiv1.ErrorCode
+		wantStatus int
+	}{
+		{name: "missing run", err: exec.ErrDAGRunIDNotFound, wantCode: apiv1.ErrorCodeNotFound, wantStatus: http.StatusNotFound},
+		{name: "storage failure", err: errors.New("storage unavailable"), wantCode: apiv1.ErrorCodeInternalError, wantStatus: http.StatusInternalServerError},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			apiServer := &API{dagRunStore: lookupErrorDAGRunStore{err: tc.err}}
+
+			_, err := apiServer.authorizeHumanTaskMutation(t.Context(), "deploy", "run-1")
+
+			require.Error(t, err)
+			code, _, status := apiServer.resolveError(err)
+			assert.Equal(t, tc.wantCode, code)
+			assert.Equal(t, tc.wantStatus, status)
+		})
+	}
+}
 
 func TestHumanTaskInputMiddlewarePreservesValidatedBody(t *testing.T) {
 	const raw = `{"count":9007199254740993}`
@@ -124,6 +153,15 @@ func TestHumanTaskInputMiddlewareIgnoresOtherRoutes(t *testing.T) {
 type trackingReadCloser struct {
 	io.Reader
 	closed bool
+}
+
+type lookupErrorDAGRunStore struct {
+	exec.DAGRunStore
+	err error
+}
+
+func (s lookupErrorDAGRunStore) FindAttempt(context.Context, exec.DAGRunRef) (exec.DAGRunAttempt, error) {
+	return nil, s.err
 }
 
 func (b *trackingReadCloser) Close() error {

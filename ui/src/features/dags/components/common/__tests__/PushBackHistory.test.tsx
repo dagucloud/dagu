@@ -24,7 +24,8 @@ describe('PushBackHistory', () => {
     );
 
     const subject = screen.getByText('bob');
-    await user.hover(subject);
+    await user.tab();
+    expect(subject).toHaveFocus();
     expect(await screen.findByRole('tooltip')).toHaveTextContent(
       'Subject ID: user-2'
     );

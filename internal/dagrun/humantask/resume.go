@@ -35,56 +35,13 @@ func (s *Service) Resume(ctx context.Context, dagName, dagRunID string) (Result,
 	if !hasCompletedHumanTask(target.status.Nodes) {
 		return Result{}, errorf(ErrorConflict, "DAG-run %s has no completed human-task checkpoint to resume", target.ref)
 	}
-	status, err := s.ensureResumePending(ctx, target)
-	if err != nil {
-		return Result{}, err
-	}
-	result := resultFor(status, "", true)
-	return s.enqueueResume(ctx, target.withStatus(status), result)
-}
-
-func (s *Service) ensureResumePending(ctx context.Context, target *target) (*exec.DAGRunStatus, error) {
-	if target.status == nil || target.status.Status != core.Waiting || hasWaitingNodes(target.status.Nodes) {
-		return target.status, nil
-	}
-	if target.status.HumanTaskResume != nil {
-		return target.status, nil
-	}
-	if !hasCompletedHumanTask(target.status.Nodes) {
-		return nil, errorf(ErrorConflict, "DAG-run %s has no completed human-task checkpoint to resume", target.ref)
-	}
-	requestedAt := s.Now().UTC().Format(time.RFC3339)
-	updated, swapped, err := s.DAGRunStore.CompareAndSwapLatestAttemptStatus(
-		ctx,
-		target.ref,
-		target.status.AttemptID,
-		core.Waiting,
-		func(latest *exec.DAGRunStatus) error {
-			if hasWaitingNodes(latest.Nodes) {
-				return errorf(ErrorConflict, "DAG-run %s still has manual steps waiting for input", target.ref)
-			}
-			if latest.HumanTaskResume == nil {
-				latest.HumanTaskResume = &exec.HumanTaskResumeState{RequestedAt: requestedAt}
-			}
-			return nil
-		},
-		exec.WithCompareAndSwapExpectedAttemptKey(target.status.AttemptKey),
-	)
-	if err != nil {
-		return nil, classifyMutationError("failed to persist human-task resume state", err)
-	}
-	if !swapped {
-		return nil, errorf(ErrorConflict, "DAG-run changed while preparing human-task resume")
-	}
-	return updated, nil
+	result := resultFor(target.status, "", true)
+	return s.enqueueResume(ctx, target, result)
 }
 
 func (s *Service) enqueueResume(ctx context.Context, target *target, result Result) (Result, error) {
 	if target.status == nil || target.status.Status != core.Waiting || hasWaitingNodes(target.status.Nodes) {
 		return result, nil
-	}
-	if target.status.HumanTaskResume == nil {
-		return result, errorf(ErrorConflict, "DAG-run %s has no pending human-task resume", target.ref)
 	}
 	if s.QueueStore == nil {
 		return result, &ResumeError{Result: result, Err: errors.New("queue store is not configured")}
@@ -315,7 +272,7 @@ func HasCompletedTask(status *exec.DAGRunStatus) bool {
 
 // ResumePending reports whether a run is waiting for its human-task retry to be queued.
 func ResumePending(status *exec.DAGRunStatus) bool {
-	return status != nil && status.Status == core.Waiting && !hasWaitingNodes(status.Nodes) && status.HumanTaskResume != nil
+	return status != nil && status.Status == core.Waiting && !hasWaitingNodes(status.Nodes) && hasCompletedHumanTask(status.Nodes)
 }
 
 // ValidateRetry rejects retry operations that would bypass human-task completion state.

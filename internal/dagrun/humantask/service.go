@@ -129,7 +129,11 @@ func (s *Service) loadTarget(ctx context.Context, dagName, dagRunID, stepID stri
 	ref := exec.NewDAGRunRef(dagName, dagRunID)
 	attempt, err := s.DAGRunStore.FindAttempt(ctx, ref)
 	if err != nil {
-		return nil, errorf(ErrorNotFound, "failed to find DAG-run %q with run ID %q: %v", dagName, dagRunID, err)
+		kind := ErrorInternal
+		if errors.Is(err, exec.ErrDAGRunIDNotFound) {
+			kind = ErrorNotFound
+		}
+		return nil, errorf(kind, "failed to find DAG-run %q with run ID %q: %v", dagName, dagRunID, err)
 	}
 	dag, err := attempt.ReadDAG(ctx)
 	if err != nil {

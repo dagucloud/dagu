@@ -83,9 +83,9 @@ func TestToDAGRunDetailsIncludesHumanTaskContract(t *testing.T) {
 					Form:   json.RawMessage(`{"type":"object","properties":{"count":{"type":"integer","maximum":9007199254740993}}}`),
 				},
 			},
-			Status: core.NodeSucceeded,
+			Status:         core.NodeSucceeded,
+			HumanTaskInput: json.RawMessage(`{}`),
 		}},
-		HumanTaskResume: &exec.HumanTaskResumeState{RequestedAt: "2026-07-21T00:00:00Z"},
 	}
 
 	details := ToDAGRunDetails(status)

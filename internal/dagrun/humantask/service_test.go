@@ -59,8 +59,6 @@ func TestCompletePersistsTypedInputAndQueuesResume(t *testing.T) {
 	assert.Equal(t, "user-1", fixture.status.Nodes[0].HumanTaskCompletedByID)
 	require.NotNil(t, fixture.status.Nodes[0].StepOutputsValue)
 	assert.JSONEq(t, `{"count":"3","region":"us"}`, *fixture.status.Nodes[0].StepOutputsValue)
-	require.NotNil(t, fixture.status.HumanTaskResume)
-
 	result, err = fixture.service.Complete(t.Context(), CompleteRequest{
 		DAGName:       fixture.dag.Name,
 		DAGRunID:      fixture.status.DAGRunID,
@@ -92,7 +90,6 @@ func TestCompleteKeepsCheckpointRecoverableWhenEnqueueFails(t *testing.T) {
 	assert.False(t, result.Queued)
 	assert.Equal(t, core.NodeSucceeded, fixture.status.Nodes[0].Status)
 	assert.Equal(t, core.Waiting, fixture.status.Status)
-	require.NotNil(t, fixture.status.HumanTaskResume)
 	assert.True(t, ResumePending(fixture.status))
 
 	result, err = fixture.service.Resume(t.Context(), fixture.dag.Name, fixture.status.DAGRunID)
@@ -100,6 +97,34 @@ func TestCompleteKeepsCheckpointRecoverableWhenEnqueueFails(t *testing.T) {
 	assert.True(t, result.Queued)
 	assert.Equal(t, core.Queued, fixture.status.Status)
 	assert.Equal(t, []exec.DAGRunRef{fixture.status.DAGRun()}, fixture.queue.enqueued)
+}
+
+func TestCompleteClassifiesDAGRunLookupErrors(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		kind ErrorKind
+	}{
+		{name: "missing run", err: exec.ErrDAGRunIDNotFound, kind: ErrorNotFound},
+		{name: "storage failure", err: errors.New("storage unavailable"), kind: ErrorInternal},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			fixture := newServiceFixture(t, nil)
+			fixture.store.findErr = tc.err
+
+			_, err := fixture.service.Complete(t.Context(), CompleteRequest{
+				DAGName:  fixture.dag.Name,
+				DAGRunID: fixture.status.DAGRunID,
+				StepID:   "review",
+				Input:    Input{Values: map[string]any{}},
+			})
+
+			require.Error(t, err)
+			assert.Equal(t, tc.kind, KindOf(err))
+		})
+	}
 }
 
 func TestResumeRejectsRunWithoutCompletedCheckpoint(t *testing.T) {
@@ -127,7 +152,6 @@ func TestCompleteWaitsForEveryManualStepBeforeResuming(t *testing.T) {
 	assert.Equal(t, 1, result.RemainingWaitingSteps)
 	assert.False(t, result.Queued)
 	assert.Empty(t, fixture.queue.enqueued)
-	assert.Nil(t, fixture.status.HumanTaskResume)
 }
 
 func TestCompleteEnqueuesRemoteResume(t *testing.T) {
@@ -184,7 +208,6 @@ func TestValidateRetryProtectsHumanTaskCheckpoints(t *testing.T) {
 	status.Status = core.Waiting
 	status.Nodes[0].Status = core.NodeSucceeded
 	status.Nodes[0].HumanTaskInput = json.RawMessage(`{}`)
-	status.HumanTaskResume = &exec.HumanTaskResumeState{RequestedAt: "2026-07-21T00:00:00Z"}
 	assert.Error(t, ValidateRetry(status, ""))
 }
 
@@ -337,9 +360,13 @@ type serviceDAGRunStore struct {
 	exec.DAGRunStore
 	attempt *serviceAttempt
 	status  *exec.DAGRunStatus
+	findErr error
 }
 
 func (s *serviceDAGRunStore) FindAttempt(context.Context, exec.DAGRunRef) (exec.DAGRunAttempt, error) {
+	if s.findErr != nil {
+		return nil, s.findErr
+	}
 	return s.attempt, nil
 }
 

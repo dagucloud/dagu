@@ -64,6 +64,7 @@ import HarnessStepSummary from './HarnessStepSummary';
 import { LogStepMessage } from './LogStepMessage';
 import { SubDAGRunsList } from './SubDAGRunsList';
 import PushBackHistory from '../common/PushBackHistory';
+import { ManualActionSubject } from '../common/ManualActionSubject';
 
 /**
  * Props for the NodeStatusTableRow component
@@ -101,28 +102,6 @@ const formatTimestamp = (timestamp: string | undefined) => {
   } catch {
     return timestamp;
   }
-};
-
-const ManualActionSubject = ({
-  name,
-  id,
-  className,
-}: {
-  name: string;
-  id?: string;
-  className?: string;
-}) => {
-  const label = <span className={className}>{name}</span>;
-  if (!id) {
-    return label;
-  }
-
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>{label}</TooltipTrigger>
-      <TooltipContent>Subject ID: {id}</TooltipContent>
-    </Tooltip>
-  );
 };
 
 /**
@@ -706,9 +685,7 @@ function NodeStatusTableRow({
                 <div className="text-xs text-muted-foreground leading-tight">
                   <span className="font-medium">Completed by:</span>{' '}
                   <ManualActionSubject
-                    name={
-                      node.humanTaskCompletedBy || node.humanTaskCompletedById!
-                    }
+                    name={node.humanTaskCompletedBy}
                     id={node.humanTaskCompletedById}
                     className="text-info"
                   />
@@ -724,7 +701,7 @@ function NodeStatusTableRow({
                 <div className="text-xs text-muted-foreground leading-tight">
                   <span className="font-medium">Approved by:</span>{' '}
                   <ManualActionSubject
-                    name={node.approvedBy || node.approvedById!}
+                    name={node.approvedBy}
                     id={node.approvedById}
                     className="text-info"
                   />
@@ -755,7 +732,7 @@ function NodeStatusTableRow({
                 <div className="text-xs text-muted-foreground leading-tight">
                   <span className="font-medium">Rejected by:</span>{' '}
                   <ManualActionSubject
-                    name={node.rejectedBy || node.rejectedById!}
+                    name={node.rejectedBy}
                     id={node.rejectedById}
                     className="text-error"
                   />
@@ -1177,7 +1154,7 @@ function NodeStatusTableRow({
             <div className="text-xs text-muted-foreground">
               <span className="font-medium">Completed by:</span>{' '}
               <ManualActionSubject
-                name={node.humanTaskCompletedBy || node.humanTaskCompletedById!}
+                name={node.humanTaskCompletedBy}
                 id={node.humanTaskCompletedById}
                 className="text-info"
               />
@@ -1193,7 +1170,7 @@ function NodeStatusTableRow({
             <div className="text-xs text-muted-foreground">
               <span className="font-medium">Approved by:</span>{' '}
               <ManualActionSubject
-                name={node.approvedBy || node.approvedById!}
+                name={node.approvedBy}
                 id={node.approvedById}
                 className="text-info"
               />
@@ -1221,7 +1198,7 @@ function NodeStatusTableRow({
             <div className="text-xs text-muted-foreground">
               <span className="font-medium">Rejected by:</span>{' '}
               <ManualActionSubject
-                name={node.rejectedBy || node.rejectedById!}
+                name={node.rejectedBy}
                 id={node.rejectedById}
                 className="text-error"
               />

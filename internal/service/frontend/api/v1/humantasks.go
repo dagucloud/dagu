@@ -81,15 +81,9 @@ func (a *API) CompleteHumanTask(
 	if err := a.isAllowed(config.PermissionRunDAGs); err != nil {
 		return nil, err
 	}
-	status, response, err := a.authorizeHumanTaskMutation(ctx, request.Name, request.DagRunId)
-	if response != nil || err != nil {
-		if response == nil {
-			return nil, err
-		}
-		return &api.CompleteHumanTask404JSONResponse{
-			Code:    api.ErrorCodeNotFound,
-			Message: response.Message,
-		}, nil
+	status, err := a.authorizeHumanTaskMutation(ctx, request.Name, request.DagRunId)
+	if err != nil {
+		return nil, err
 	}
 	if err := a.requireDAGRunStatusExecute(ctx, status); err != nil {
 		return nil, err
@@ -151,15 +145,9 @@ func (a *API) ResumeHumanTaskDAGRun(
 	if err := a.isAllowed(config.PermissionRunDAGs); err != nil {
 		return nil, err
 	}
-	status, response, err := a.authorizeHumanTaskMutation(ctx, request.Name, request.DagRunId)
-	if response != nil || err != nil {
-		if response == nil {
-			return nil, err
-		}
-		return &api.ResumeHumanTaskDAGRun404JSONResponse{
-			Code:    api.ErrorCodeNotFound,
-			Message: response.Message,
-		}, nil
+	status, err := a.authorizeHumanTaskMutation(ctx, request.Name, request.DagRunId)
+	if err != nil {
+		return nil, err
 	}
 	if err := a.requireDAGRunStatusExecute(ctx, status); err != nil {
 		return nil, err
@@ -182,29 +170,29 @@ func (a *API) authorizeHumanTaskMutation(
 	ctx context.Context,
 	dagName string,
 	dagRunID string,
-) (*exec.DAGRunStatus, *api.Error, error) {
+) (*exec.DAGRunStatus, error) {
 	attempt, err := a.dagRunStore.FindAttempt(ctx, exec.NewDAGRunRef(dagName, dagRunID))
 	if err != nil {
-		return nil, &api.Error{
-			Code:    api.ErrorCodeNotFound,
-			Message: fmt.Sprintf("dag-run ID %s not found for DAG %s", dagRunID, dagName),
-		}, nil
+		if errors.Is(err, exec.ErrDAGRunIDNotFound) {
+			return nil, &Error{
+				HTTPStatus: http.StatusNotFound,
+				Code:       api.ErrorCodeNotFound,
+				Message:    fmt.Sprintf("dag-run ID %s not found for DAG %s", dagRunID, dagName),
+			}
+		}
+		return nil, fmt.Errorf("failed to find DAG-run: %w", err)
 	}
 	status, err := attempt.ReadStatus(ctx)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to read DAG-run status: %w", err)
+		return nil, fmt.Errorf("failed to read DAG-run status: %w", err)
 	}
 	if status == nil {
-		return nil, nil, errors.New("failed to read DAG-run status: status data is nil")
+		return nil, errors.New("failed to read DAG-run status: status data is nil")
 	}
 	if err := a.requireDAGRunStatusVisible(ctx, status); err != nil {
-		var apiErr *Error
-		if errors.As(err, &apiErr) && apiErr.HTTPStatus == 404 {
-			return nil, &api.Error{Code: api.ErrorCodeNotFound, Message: apiErr.Message}, nil
-		}
-		return nil, nil, err
+		return nil, err
 	}
-	return status, nil, nil
+	return status, nil
 }
 
 func (a *API) humanTaskService() *humantask.Service {

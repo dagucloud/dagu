@@ -245,7 +245,6 @@ func TestRollbackPushBackPreservesConcurrentUnrelatedNodeChanges(t *testing.T) {
 	require.NoError(t, err)
 	current.Nodes[1].Status = core.NodeSucceeded
 	current.Nodes[1].HumanTaskInput = json.RawMessage(`{"confirmed":true}`)
-	current.HumanTaskResume = &exec.HumanTaskResumeState{RequestedAt: "2026-07-21T00:00:00Z"}
 
 	store := &manualCASStore{status: current}
 	a := &API{dagRunStore: store}
@@ -255,7 +254,6 @@ func TestRollbackPushBackPreservesConcurrentUnrelatedNodeChanges(t *testing.T) {
 	assert.Equal(t, "started", current.Nodes[0].StartedAt)
 	assert.Equal(t, core.NodeSucceeded, current.Nodes[1].Status)
 	assert.JSONEq(t, `{"confirmed":true}`, string(current.Nodes[1].HumanTaskInput))
-	require.NotNil(t, current.HumanTaskResume)
 }
 
 type manualCASStore struct {

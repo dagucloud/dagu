@@ -807,7 +807,6 @@ func TestCompleteHumanTask(t *testing.T) {
 	queuedStatus := waitForStoredDAGRunStatus(t, server, "human_task_api_test", startBody.DagRunId, 10*time.Second, func(status *exec.DAGRunStatus) bool {
 		return status.Status == core.Queued && hasNodeWithStatus(status, "review", core.NodeSucceeded)
 	})
-	require.NotNil(t, queuedStatus.HumanTaskResume)
 	queueName := queuedStatus.ProcGroup
 	if queueName == "" {
 		queueName = queuedStatus.Name
