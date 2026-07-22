@@ -101,6 +101,7 @@ func (e *tenkiExecutor) Run(ctx context.Context) error {
 
 	// Tail stderr so recent output can be surfaced in error messages.
 	env := runtime.GetEnv(ctx)
+	cleanupTimeout := cleanupTimeoutOf(env)
 	tw := executor.NewTailWriterWithEncoding(e.stderr, 0, env.LogEncodingCharset)
 	e.stderr = tw
 
@@ -113,14 +114,13 @@ func (e *tenkiExecutor) Run(ctx context.Context) error {
 	e.mu.Unlock()
 	defer client.Close()
 
-	session, ownsSession, err := e.resolveSession(ctx, client)
+	session, ownsSession, err := e.resolveSession(ctx, client, cleanupTimeout)
 	if err != nil {
 		if tail := tw.Tail(); tail != "" {
 			return fmt.Errorf("failed to set up tenki sandbox: %w\nrecent stderr (tail):\n%s", err, tail)
 		}
 		return fmt.Errorf("failed to set up tenki sandbox: %w", err)
 	}
-	cleanupTimeout := cleanupTimeoutOf(env)
 	e.mu.Lock()
 	e.session = session
 	e.ownsSession = ownsSession
@@ -141,7 +141,7 @@ func (e *tenkiExecutor) Run(ctx context.Context) error {
 
 // resolveSession returns an existing sandbox when session_id is set, otherwise
 // creates a new one and reports ownership so Run knows whether to terminate it.
-func (e *tenkiExecutor) resolveSession(ctx context.Context, client *sandbox.Client) (*sandbox.Session, bool, error) {
+func (e *tenkiExecutor) resolveSession(ctx context.Context, client *sandbox.Client, cleanupTimeout time.Duration) (*sandbox.Session, bool, error) {
 	if id := strings.TrimSpace(e.cfg.SessionID); id != "" {
 		session, err := client.Get(ctx, id)
 		if err != nil {
@@ -157,7 +157,9 @@ func (e *tenkiExecutor) resolveSession(ctx context.Context, client *sandbox.Clie
 	// Wait for readiness ourselves so a sandbox that was created but never
 	// becomes ready is torn down instead of leaking.
 	if err := session.WaitReady(ctx, e.cfg.CreateTimeout); err != nil {
-		_ = session.CloseIfOpen(context.WithoutCancel(ctx))
+		termCtx, cancel := withCleanupTimeout(context.WithoutCancel(ctx), cleanupTimeout)
+		defer cancel()
+		_ = session.CloseIfOpen(termCtx)
 		return nil, false, fmt.Errorf("sandbox did not become ready: %w", err)
 	}
 	return session, true, nil
