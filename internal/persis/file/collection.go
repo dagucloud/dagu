@@ -418,8 +418,17 @@ func (c *Collection) collectIDs(prefix string) ([]string, error) {
 
 	var ids []string
 	err := filepath.WalkDir(walkRoot, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".json") {
+		if err != nil {
 			return err
+		}
+		if d.IsDir() {
+			if d.Name() == dirlock.LockDirectoryName {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".json") {
+			return nil
 		}
 		rel, _ := filepath.Rel(c.dir, path)
 		id := relPathToID(rel)
@@ -442,8 +451,17 @@ func (c *Collection) collect(prefix string, since, until *time.Time) ([]*persis.
 
 	var recs []*persis.Record
 	err := filepath.WalkDir(walkRoot, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".json") {
+		if err != nil {
 			return err
+		}
+		if d.IsDir() {
+			if d.Name() == dirlock.LockDirectoryName {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".json") {
+			return nil
 		}
 		rel, _ := filepath.Rel(c.dir, path)
 		id := relPathToID(rel)

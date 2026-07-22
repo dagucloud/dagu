@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/dagucloud/dagu/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/internal/persis"
 	"github.com/dagucloud/dagu/internal/persis/file"
 	"github.com/dagucloud/dagu/internal/persis/testutil"
@@ -456,6 +457,38 @@ func TestFileCollectionGetReportsTypedCorruption(t *testing.T) {
 
 	_, err := file.NewCollection(root).Get(context.Background(), "broken")
 	assert.ErrorIs(t, err, persis.ErrCorrupt)
+}
+
+func TestFileCollectionListingIgnoresLockMetadata(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	col := file.NewCollection(root)
+	record := &persis.Record{
+		ID:        "queue/item",
+		Data:      []byte(`{"value":1}`),
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}
+	require.NoError(t, col.Put(ctx, record))
+
+	lockDir := filepath.Join(root, "queue", dirlock.LockDirectoryName)
+	require.NoError(t, os.MkdirAll(lockDir, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(lockDir, "metadata.json"), []byte(`{}`), 0o600))
+
+	recordIDs, ok := col.(interface {
+		RecordIDs(context.Context, string) ([]string, error)
+	})
+	require.True(t, ok)
+	ids, err := recordIDs.RecordIDs(ctx, "queue/")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"queue/item"}, ids)
+
+	page, err := col.List(ctx, persis.ListQuery{Prefix: "queue/"})
+	require.NoError(t, err)
+	require.Len(t, page.Records, 1)
+	assert.Equal(t, record.ID, page.Records[0].ID)
 }
 
 // TestFileCollectionCreateIsAtomicAcrossGoroutines races concurrent creators
