@@ -6,6 +6,7 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"os"
 	"time"
@@ -183,7 +184,10 @@ func toStep(obj core.Step) api.Step {
 			decoder := json.NewDecoder(bytes.NewReader(obj.HumanTask.Form))
 			decoder.UseNumber()
 			if err := decoder.Decode(&form); err == nil && form != nil {
-				humanTask.Form = &form
+				var extra any
+				if err := decoder.Decode(&extra); err == io.EOF {
+					humanTask.Form = &form
+				}
 			}
 		}
 		step.HumanTask = humanTask
