@@ -352,9 +352,10 @@ nothing to stderr:
 | Condition | Stdout |
 | --- | --- |
 | New completion; another node remains waiting | `Completed human task <step>; DAG-run remains waiting.` |
-| New completion; resume accepted | `Completed human task <step>; DAG-run resume requested.` |
+| New completion; resume accepted | `Completed human task <step>; DAG-run queued for resume.` |
+| New completion; a concurrent request already queued resume | `Completed human task <step>; DAG-run was already queued for resume.` |
 | Identical repeat; no resume is needed | `Human task <step> was already completed.` |
-| Identical repeat; the run still needs resume | `Human task <step> was already completed; DAG-run resume requested.` |
+| Identical repeat; the run still needs resume | `Human task <step> was already completed; DAG-run queued for resume.` |
 
 Each line ends with one newline. Success exits zero.
 
@@ -376,7 +377,8 @@ checks occur before any change.
 Completion state must survive the completion process exiting. The persistence
 format and run-store file layout are outside this spec.
 
-Changing or deleting the source DAG after the checkpoint does not change form
+When completion identifies the stored run by its root DAG name and run ID,
+changing or deleting the source DAG after the checkpoint does not change form
 validation, defaults, outputs, or resume behavior for that run.
 
 ### Idempotency And Concurrency
@@ -409,8 +411,8 @@ After completion:
 - A later sequential human task can create another checkpoint in the same
   logical run.
 
-Completion is durable before resume is requested. If resume preparation,
-launch, queueing, or dispatch fails:
+Completion is durable before resume is requested. If synchronous resume
+preparation or queueing fails:
 
 - completion remains successful and is not rolled back
 - the task is not reopened
@@ -420,6 +422,9 @@ launch, queueing, or dispatch fails:
   state
 
 Only one successful resume can result from those retries.
+
+After queueing succeeds, dispatch, launch, and execution follow the same
+asynchronous behavior as any other queued DAG-run.
 
 ### Distributed Root Runs
 
@@ -496,7 +501,7 @@ Completion diagnostics must contain the listed information:
 | Size limit | step ID and `maximum size` |
 | Different prior input | step ID and `different input` |
 | Concurrent run mutation | step ID and `changed` |
-| Resume failure after completion | step ID, `completed`, and `could not be resumed` |
+| Resume queueing failure after completion | step ID, `completed`, and `could not be queued for resume` |
 
 The task and downstream steps remain unchanged for every failure before atomic
 completion.
@@ -533,7 +538,7 @@ With run ID `spec031-ack`, status must expose the waiting step and completion is
 dagu human-task complete \
   --run-id spec031-ack \
   --step maintenance_started \
-  acknowledgement.yaml
+  acknowledgement
 ```
 
 The command requests resume and `continued.txt` eventually contains
@@ -576,7 +581,7 @@ dagu human-task complete \
   --run-id spec031-form \
   --step release_review \
   --input environment=production \
-  typed-form.yaml
+  typed-form
 ```
 
 Canonical input is

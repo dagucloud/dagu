@@ -103,9 +103,9 @@ func runHumanTaskCompleteWith(ctx *Context, args []string, deps humanTaskComplet
 	if err != nil {
 		return err
 	}
-	dagName, err := extractDAGName(ctx, args[0])
-	if err != nil {
-		return fmt.Errorf("failed to extract DAG name: %w", err)
+	dagName := strings.TrimSpace(args[0])
+	if dagName == "" {
+		return fmt.Errorf("DAG name must not be empty")
 	}
 
 	service := humantask.Service{
@@ -139,6 +139,10 @@ func runHumanTaskCompleteWith(ctx *Context, args []string, deps humanTaskComplet
 		return err
 	}
 	if !result.Queued {
+		if !result.AlreadyCompleted {
+			_, err := fmt.Fprintf(ctx.Command.OutOrStdout(), "Completed human task %s; DAG-run was already queued for resume.\n", stepID)
+			return err
+		}
 		_, err := fmt.Fprintf(ctx.Command.OutOrStdout(), "Human task %s was already completed.\n", stepID)
 		return err
 	}

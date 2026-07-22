@@ -396,7 +396,7 @@ func newQueueDispatchNotQueuedError(status *exec.DAGRunStatus) *exec.DAGRunNotQu
 // Retries respect global queue capacity because the queue processor picks them up
 // when capacity is available.
 func enqueueRetry(ctx *Context, _ exec.DAGRunAttempt, dag *core.DAG, status *exec.DAGRunStatus, dagRunID string) error {
-	if err := exec.EnqueueRetry(ctx.Context, ctx.DAGRunStore, ctx.QueueStore, dag, status, exec.EnqueueRetryOptions{}); err != nil {
+	if _, err := exec.EnqueueRetry(ctx.Context, ctx.DAGRunStore, ctx.QueueStore, dag, status, exec.EnqueueRetryOptions{}); err != nil {
 		if errors.Is(err, exec.ErrRetryStaleLatest) {
 			return fmt.Errorf("dag-run state changed before retry could be queued")
 		}

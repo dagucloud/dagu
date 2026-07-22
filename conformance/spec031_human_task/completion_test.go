@@ -177,7 +177,7 @@ func TestCompletionRequiresLocalCLIContext(t *testing.T) {
 
 	result := dagu.RunWithEnv(
 		env,
-		"human-task", "complete", "--run-id=any-run", "--step=any-step", "acknowledgement.yaml",
+		"human-task", "complete", "--run-id=any-run", "--step=any-step", fixtureDAGName("acknowledgement.yaml"),
 	)
 	assertCompletionError(t, result, "human-task complete", "local context")
 }
@@ -185,7 +185,7 @@ func TestCompletionRequiresLocalCLIContext(t *testing.T) {
 func completionArgs(runID, step, file string, inputArgs ...string) []string {
 	args := []string{"human-task", "complete", "--run-id=" + runID, "--step=" + step}
 	args = append(args, inputArgs...)
-	return append(args, file)
+	return append(args, fixtureDAGName(file))
 }
 
 func assertCompletionError(t *testing.T, result *harness.Result, parts ...string) {

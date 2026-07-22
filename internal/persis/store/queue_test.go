@@ -72,42 +72,6 @@ func TestQueueStore_EnqueueListAndDequeue(t *testing.T) {
 	assert.ErrorIs(t, err, exec.ErrQueueEmpty)
 }
 
-func TestQueueStore_EnsureEnqueuedIsIdempotentAndOrdered(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	s := newQueueStore(t)
-	firstRef := queueRef("dag", "run-z")
-	secondRef := queueRef("dag", "run-a")
-	firstKey := "019f89f1-d39b-7000-8000-000000000001"
-	secondKey := "019f89f1-d39b-7001-8000-000000000002"
-
-	require.NoError(t, s.EnsureEnqueued(ctx, "main", exec.QueuePriorityLow, firstRef, firstKey))
-	require.NoError(t, s.EnsureEnqueued(ctx, "main", exec.QueuePriorityLow, firstRef, firstKey))
-	assert.ErrorContains(t,
-		s.EnsureEnqueued(ctx, "main", exec.QueuePriorityLow, secondRef, firstKey),
-		"conflicts with an existing item",
-	)
-	require.NoError(t, s.EnsureEnqueued(ctx, "main", exec.QueuePriorityLow, secondRef, secondKey))
-
-	items, err := s.List(ctx, "main")
-	require.NoError(t, err)
-	require.Len(t, items, 2)
-	assert.Equal(t, firstRef, requireQueuedRef(t, items[0]))
-	assert.Equal(t, firstKey, exec.QueuedItemEnqueueKey(items[0]))
-	assert.Equal(t, secondRef, requireQueuedRef(t, items[1]))
-	assert.Equal(t, secondKey, exec.QueuedItemEnqueueKey(items[1]))
-
-	page, err := s.ListCursor(ctx, "main", "", 1)
-	require.NoError(t, err)
-	require.Len(t, page.Items, 1)
-	assert.Equal(t, firstRef, requireQueuedRef(t, page.Items[0]))
-
-	dequeued, err := s.DequeueByName(ctx, "main")
-	require.NoError(t, err)
-	assert.Equal(t, firstRef, requireQueuedRef(t, dequeued))
-}
-
 func TestQueueStore_EnqueueRejectsInvalidInputs(t *testing.T) {
 	t.Parallel()
 

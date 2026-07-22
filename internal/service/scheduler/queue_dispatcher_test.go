@@ -80,21 +80,3 @@ func TestQueueDispatcher_SelectRunnableQueueItemsSkipsInvalidItems(t *testing.T)
 	require.Len(t, runnable, 1)
 	assert.Equal(t, "ok", runnable[0].ID())
 }
-
-func TestQueueDispatcher_SelectRunnableQueueItemsDeduplicatesDAGRuns(t *testing.T) {
-	t.Parallel()
-
-	dispatcher := newQueueDispatcher(queueDispatchDeps{})
-	firstRef := exec.NewDAGRunRef("dag", "run-1")
-	secondRef := exec.NewDAGRunRef("dag", "run-2")
-
-	runnable, err := dispatcher.selectRunnableQueueItems(t.Context(), []exec.QueuedItemData{
-		testQueuedItem{id: "first", ref: &firstRef},
-		testQueuedItem{id: "duplicate", ref: &firstRef},
-		testQueuedItem{id: "second", ref: &secondRef},
-	}, 2)
-	require.NoError(t, err)
-	require.Len(t, runnable, 2)
-	assert.Equal(t, "first", runnable[0].ID())
-	assert.Equal(t, "second", runnable[1].ID())
-}

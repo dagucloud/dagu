@@ -827,7 +827,7 @@ func TestCompleteHumanTask(t *testing.T) {
 	require.False(t, completeBody.Queued)
 }
 
-func TestApproveDAGRunStepRejectsWhileDAGRunIsRunning(t *testing.T) {
+func TestManualStepActionsRejectWhileDAGRunIsRunning(t *testing.T) {
 	server := test.SetupServer(t)
 	release := newHoldFile(t)
 
@@ -869,6 +869,16 @@ steps:
 	resp.Unmarshal(t, &body)
 	require.Contains(t, body.Message, "dag-run is not waiting for approval")
 
+	server.Client().Post(
+		fmt.Sprintf("/api/v1/dag-runs/%s/%s/steps/wait-step/reject", dagName, startBody.DagRunId),
+		api.RejectStepRequest{},
+	).ExpectStatus(http.StatusBadRequest).Send(t)
+
+	server.Client().Post(
+		fmt.Sprintf("/api/v1/dag-runs/%s/%s/steps/wait-step/push-back", dagName, startBody.DagRunId),
+		api.PushBackStepRequest{},
+	).ExpectStatus(http.StatusBadRequest).Send(t)
+
 	runningStatus := waitForStoredDAGRunStatus(t, server, dagName, startBody.DagRunId, 10*time.Second, func(status *exec.DAGRunStatus) bool {
 		return status.Status == core.Running &&
 			hasNodeWithStatus(status, "wait-step", core.NodeWaiting) &&
@@ -877,13 +887,26 @@ steps:
 	waitStep := requireNodeByName(t, runningStatus, "wait-step")
 	require.Empty(t, waitStep.ApprovedAt)
 	require.Empty(t, waitStep.ApprovedBy)
+	require.Empty(t, waitStep.RejectedBy)
+	require.Empty(t, waitStep.RejectionReason)
+	require.Zero(t, waitStep.ApprovalIteration)
+	require.Empty(t, waitStep.PushBackHistory)
 
 	releaseHoldFile(t, release)
-	waitForStoredDAGRunStatus(t, server, dagName, startBody.DagRunId, 10*time.Second, func(status *exec.DAGRunStatus) bool {
+	waitingStatus := waitForStoredDAGRunStatus(t, server, dagName, startBody.DagRunId, 10*time.Second, func(status *exec.DAGRunStatus) bool {
 		return status.Status == core.Waiting &&
 			hasNodeWithStatus(status, "wait-step", core.NodeWaiting) &&
 			hasNodeWithStatus(status, "long-step", core.NodeSucceeded)
 	})
+
+	server.Client().Patch(
+		fmt.Sprintf("/api/v1/dag-runs/%s/%s/steps/wait-step/status", dagName, startBody.DagRunId),
+		api.UpdateDAGRunStepStatusJSONRequestBody{Status: api.NodeStatusSuccess},
+	).ExpectStatus(http.StatusBadRequest).Send(t)
+	waitingStatus = waitForStoredDAGRunStatus(t, server, dagName, startBody.DagRunId, 10*time.Second, func(status *exec.DAGRunStatus) bool {
+		return status.Status == core.Waiting && hasNodeWithStatus(status, "wait-step", core.NodeWaiting)
+	})
+	require.Equal(t, core.NodeWaiting, requireNodeByName(t, waitingStatus, "wait-step").Status)
 
 	approveResp := server.Client().Post(
 		fmt.Sprintf("/api/v1/dag-runs/%s/%s/steps/wait-step/approve", dagName, startBody.DagRunId),
@@ -899,7 +922,7 @@ steps:
 	})
 }
 
-func TestApproveSubDAGRunStepRejectsWhileRootDAGRunIsRunning(t *testing.T) {
+func TestManualSubDAGStepActionsRejectWhileRootDAGRunIsRunning(t *testing.T) {
 	server := test.SetupServer(t)
 	release := newHoldFile(t)
 
@@ -960,7 +983,17 @@ steps:
 
 	var body api.ApproveSubDAGRunStep400JSONResponse
 	resp.Unmarshal(t, &body)
-	require.Contains(t, body.Message, "root dag-run is still running")
+	require.Contains(t, body.Message, "root dag-run is not waiting for approval")
+
+	server.Client().Post(
+		fmt.Sprintf("/api/v1/dag-runs/%s/%s/sub-dag-runs/%s/steps/child-wait/reject", dagName, startBody.DagRunId, subDAGRunID),
+		api.RejectStepRequest{},
+	).ExpectStatus(http.StatusBadRequest).Send(t)
+
+	server.Client().Post(
+		fmt.Sprintf("/api/v1/dag-runs/%s/%s/sub-dag-runs/%s/steps/child-wait/push-back", dagName, startBody.DagRunId, subDAGRunID),
+		api.PushBackStepRequest{},
+	).ExpectStatus(http.StatusBadRequest).Send(t)
 
 	childStatus := waitForStoredSubDAGRunStatus(t, server, rootRef, subDAGRunID, 10*time.Second, func(status *exec.DAGRunStatus) bool {
 		return status.Status == core.Waiting &&
@@ -969,6 +1002,10 @@ steps:
 	childWait := requireNodeByName(t, childStatus, "child-wait")
 	require.Empty(t, childWait.ApprovedAt)
 	require.Empty(t, childWait.ApprovedBy)
+	require.Empty(t, childWait.RejectedBy)
+	require.Empty(t, childWait.RejectionReason)
+	require.Zero(t, childWait.ApprovalIteration)
+	require.Empty(t, childWait.PushBackHistory)
 
 	releaseHoldFile(t, release)
 	waitForStoredDAGRunStatus(t, server, dagName, rootStatus.DAGRunID, 10*time.Second, func(status *exec.DAGRunStatus) bool {
@@ -976,6 +1013,15 @@ steps:
 			hasNodeWithStatus(status, "call-child", core.NodeWaiting) &&
 			hasNodeWithStatus(status, "parent-long", core.NodeSucceeded)
 	})
+
+	server.Client().Patch(
+		fmt.Sprintf("/api/v1/dag-runs/%s/%s/sub-dag-runs/%s/steps/child-wait/status", dagName, startBody.DagRunId, subDAGRunID),
+		api.UpdateSubDAGRunStepStatusJSONRequestBody{Status: api.NodeStatusSuccess},
+	).ExpectStatus(http.StatusBadRequest).Send(t)
+	waitingChildStatus := waitForStoredSubDAGRunStatus(t, server, rootRef, subDAGRunID, 10*time.Second, func(status *exec.DAGRunStatus) bool {
+		return status.Status == core.Waiting && hasNodeWithStatus(status, "child-wait", core.NodeWaiting)
+	})
+	require.Equal(t, core.NodeWaiting, requireNodeByName(t, waitingChildStatus, "child-wait").Status)
 
 	approveResp := server.Client().Post(
 		fmt.Sprintf("/api/v1/dag-runs/%s/%s/sub-dag-runs/%s/steps/child-wait/approve", dagName, startBody.DagRunId, subDAGRunID),
@@ -2126,7 +2172,7 @@ func seedLatestDAGRunStatus(
 	if opts.profileName != "" {
 		statusOptions = append(statusOptions, transform.WithRuntimeProfile(opts.profileName, "", nil))
 	}
-	if !status.IsActive() && status != core.NotStarted {
+	if (!status.IsActive() && status != core.NotStarted) || status == core.Waiting {
 		statusOptions = append(statusOptions, transform.WithFinishedAt(time.Now().Add(-time.Minute)))
 	}
 

@@ -13,7 +13,6 @@ import (
 
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/persis"
-	"github.com/google/uuid"
 )
 
 var (
@@ -21,21 +20,19 @@ var (
 )
 
 type queueItemPayload struct {
-	FileName   string         `json:"fileName"`
-	DAGRun     exec.DAGRunRef `json:"dagRun"`
-	QueuedAt   time.Time      `json:"queuedAt"`
-	EnqueueKey string         `json:"enqueueKey,omitempty"`
+	FileName string         `json:"fileName"`
+	DAGRun   exec.DAGRunRef `json:"dagRun"`
+	QueuedAt time.Time      `json:"queuedAt"`
 }
 
 type queueItem struct {
-	id         string
-	queue      string
-	priority   exec.QueuePriority
-	queuedAt   time.Time
-	dagRun     exec.DAGRunRef
-	enqueueKey string
-	recordID   string
-	dataErr    error
+	id       string
+	queue    string
+	priority exec.QueuePriority
+	queuedAt time.Time
+	dagRun   exec.DAGRunRef
+	recordID string
+	dataErr  error
 }
 
 var _ exec.QueuedItemData = (*queueItem)(nil)
@@ -56,13 +53,6 @@ func (i *queueItem) Data() (*exec.DAGRunRef, error) {
 	}
 	ref := i.dagRun
 	return &ref, nil
-}
-
-func (i *queueItem) EnqueueKey() string {
-	if i == nil {
-		return ""
-	}
-	return i.enqueueKey
 }
 
 func queueItemFromRecord(rec *persis.Record) (*queueItem, error) {
@@ -99,13 +89,12 @@ func queueItemFromRecord(rec *persis.Record) (*queueItem, error) {
 	}
 
 	return &queueItem{
-		id:         itemID,
-		queue:      queueName,
-		priority:   priority,
-		queuedAt:   queuedAt,
-		dagRun:     payload.DAGRun,
-		enqueueKey: payload.EnqueueKey,
-		recordID:   rec.ID,
+		id:       itemID,
+		queue:    queueName,
+		priority: priority,
+		queuedAt: queuedAt,
+		dagRun:   payload.DAGRun,
+		recordID: rec.ID,
 	}, nil
 }
 
@@ -211,16 +200,6 @@ func newQueueItemID(priority exec.QueuePriority, dagRunID string, t time.Time) s
 		t.Nanosecond(),
 		dagRunID,
 	)
-}
-
-func ensuredQueueItemID(priority exec.QueuePriority, key string) (string, time.Time, error) {
-	id, err := uuid.Parse(key)
-	if err != nil || id.Version() != uuid.Version(7) {
-		return "", time.Time{}, fmt.Errorf("queue store: enqueue key must be a UUIDv7")
-	}
-	seconds, nanoseconds := id.Time().UnixTime()
-	createdAt := time.Unix(seconds, nanoseconds).UTC()
-	return newQueueItemID(priority, key, createdAt), createdAt, nil
 }
 
 func queueItemMetadata(itemID string, fallback time.Time) (exec.QueuePriority, time.Time) {

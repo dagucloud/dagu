@@ -129,6 +129,7 @@ func (a *API) rollbackPushBack(
 	applied *exec.DAGRunStatus,
 	original *exec.DAGRunStatus,
 ) error {
+	ctx = context.WithoutCancel(ctx)
 	if applied == nil || original == nil {
 		return errors.New("push-back rollback status is nil")
 	}

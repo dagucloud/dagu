@@ -141,6 +141,77 @@ const calculateDuration = (
   }
 };
 
+function ManualActionDetails({
+  node,
+  className,
+}: {
+  node: components['schemas']['Node'];
+  className?: string;
+}) {
+  const detailClassName = cn('text-xs text-muted-foreground', className);
+
+  return (
+    <>
+      {node.humanTaskCompletedBy || node.humanTaskCompletedById ? (
+        <div className={detailClassName}>
+          <span className="font-medium">Completed by:</span>{' '}
+          <ManualActionSubject
+            name={node.humanTaskCompletedBy}
+            id={node.humanTaskCompletedById}
+            className="text-info"
+          />
+          {node.finishedAt && (
+            <span className="ml-1">at {formatTimestamp(node.finishedAt)}</span>
+          )}
+        </div>
+      ) : null}
+      {node.approvedBy || node.approvedById ? (
+        <div className={detailClassName}>
+          <span className="font-medium">Approved by:</span>{' '}
+          <ManualActionSubject
+            name={node.approvedBy}
+            id={node.approvedById}
+            className="text-info"
+          />
+          {node.approvedAt && (
+            <span className="ml-1">at {formatTimestamp(node.approvedAt)}</span>
+          )}
+        </div>
+      ) : null}
+      {node.approvalInputs && Object.keys(node.approvalInputs).length > 0 && (
+        <div className={detailClassName}>
+          <span className="font-medium">Inputs:</span>{' '}
+          <span className="font-mono text-foreground/80">
+            {JSON.stringify(node.approvalInputs)}
+          </span>
+        </div>
+      )}
+      {node.pushBackHistory && node.pushBackHistory.length > 0 && (
+        <PushBackHistory history={node.pushBackHistory} className="pt-1" />
+      )}
+      {node.rejectedBy || node.rejectedById ? (
+        <div className={detailClassName}>
+          <span className="font-medium">Rejected by:</span>{' '}
+          <ManualActionSubject
+            name={node.rejectedBy}
+            id={node.rejectedById}
+            className="text-error"
+          />
+          {node.rejectedAt && (
+            <span className="ml-1">at {formatTimestamp(node.rejectedAt)}</span>
+          )}
+        </div>
+      ) : null}
+      {node.rejectionReason && (
+        <div className={detailClassName}>
+          <span className="font-medium">Reason:</span>{' '}
+          <span className="text-foreground/80">{node.rejectionReason}</span>
+        </div>
+      )}
+    </>
+  );
+}
+
 /**
  * NodeStatusTableRow displays information about a single node's execution status
  */
@@ -212,6 +283,13 @@ function NodeStatusTableRow({
   }, [defaultLogExpanded, hasLogs, hasStderr]);
 
   const showStepActions = Boolean(dagRunId && config.permissions.runDags);
+  const canUpdateStepStatus =
+    showStepActions &&
+    !node.step.humanTask &&
+    dagRun.status !== Status.NotStarted &&
+    dagRun.status !== Status.Running &&
+    dagRun.status !== Status.Queued &&
+    dagRun.status !== Status.Waiting;
   const canRetryStep =
     showStepActions &&
     !node.step.humanTask &&
@@ -681,76 +759,7 @@ function NodeStatusTableRow({
                   {currentDuration}
                 </div>
               )}
-              {node.humanTaskCompletedBy || node.humanTaskCompletedById ? (
-                <div className="text-xs text-muted-foreground leading-tight">
-                  <span className="font-medium">Completed by:</span>{' '}
-                  <ManualActionSubject
-                    name={node.humanTaskCompletedBy}
-                    id={node.humanTaskCompletedById}
-                    className="text-info"
-                  />
-                  {node.finishedAt && (
-                    <span className="ml-1">
-                      at {formatTimestamp(node.finishedAt)}
-                    </span>
-                  )}
-                </div>
-              ) : null}
-              {/* Approval info */}
-              {node.approvedBy || node.approvedById ? (
-                <div className="text-xs text-muted-foreground leading-tight">
-                  <span className="font-medium">Approved by:</span>{' '}
-                  <ManualActionSubject
-                    name={node.approvedBy}
-                    id={node.approvedById}
-                    className="text-info"
-                  />
-                  {node.approvedAt && (
-                    <span className="ml-1">
-                      at {formatTimestamp(node.approvedAt)}
-                    </span>
-                  )}
-                </div>
-              ) : null}
-              {node.approvalInputs &&
-                Object.keys(node.approvalInputs).length > 0 && (
-                  <div className="text-xs text-muted-foreground leading-tight">
-                    <span className="font-medium">Inputs:</span>{' '}
-                    <span className="font-mono text-foreground/80">
-                      {JSON.stringify(node.approvalInputs)}
-                    </span>
-                  </div>
-                )}
-              {node.pushBackHistory && node.pushBackHistory.length > 0 && (
-                <PushBackHistory
-                  history={node.pushBackHistory}
-                  className="pt-1"
-                />
-              )}
-              {/* Rejection info */}
-              {node.rejectedBy || node.rejectedById ? (
-                <div className="text-xs text-muted-foreground leading-tight">
-                  <span className="font-medium">Rejected by:</span>{' '}
-                  <ManualActionSubject
-                    name={node.rejectedBy}
-                    id={node.rejectedById}
-                    className="text-error"
-                  />
-                  {node.rejectedAt && (
-                    <span className="ml-1">
-                      at {formatTimestamp(node.rejectedAt)}
-                    </span>
-                  )}
-                </div>
-              ) : null}
-              {node.rejectionReason && (
-                <div className="text-xs text-muted-foreground leading-tight">
-                  <span className="font-medium">Reason:</span>{' '}
-                  <span className="text-foreground/80">
-                    {node.rejectionReason}
-                  </span>
-                </div>
-              )}
+              <ManualActionDetails node={node} className="leading-tight" />
             </div>
           </TableCell>
 
@@ -759,14 +768,14 @@ function NodeStatusTableRow({
             <div
               onClick={(e) => {
                 e.stopPropagation();
-                if (node.step.humanTask) return;
+                if (!canUpdateStepStatus) return;
                 setShowStatusModal(true);
               }}
               className={cn(
                 'inline-block',
-                !node.step.humanTask && 'cursor-pointer'
+                canUpdateStepStatus && 'cursor-pointer'
               )}
-              title={node.step.humanTask ? undefined : 'Click to update status'}
+              title={canUpdateStepStatus ? 'Click to update status' : undefined}
             >
               <NodeStatusChip status={node.status} size="sm">
                 {node.statusLabel}
@@ -1150,71 +1159,7 @@ function NodeStatusTableRow({
               {currentDuration}
             </div>
           )}
-          {node.humanTaskCompletedBy || node.humanTaskCompletedById ? (
-            <div className="text-xs text-muted-foreground">
-              <span className="font-medium">Completed by:</span>{' '}
-              <ManualActionSubject
-                name={node.humanTaskCompletedBy}
-                id={node.humanTaskCompletedById}
-                className="text-info"
-              />
-              {node.finishedAt && (
-                <span className="ml-1">
-                  at {formatTimestamp(node.finishedAt)}
-                </span>
-              )}
-            </div>
-          ) : null}
-          {/* Approval info */}
-          {node.approvedBy || node.approvedById ? (
-            <div className="text-xs text-muted-foreground">
-              <span className="font-medium">Approved by:</span>{' '}
-              <ManualActionSubject
-                name={node.approvedBy}
-                id={node.approvedById}
-                className="text-info"
-              />
-              {node.approvedAt && (
-                <span className="ml-1">
-                  at {formatTimestamp(node.approvedAt)}
-                </span>
-              )}
-            </div>
-          ) : null}
-          {node.approvalInputs &&
-            Object.keys(node.approvalInputs).length > 0 && (
-              <div className="text-xs text-muted-foreground">
-                <span className="font-medium">Inputs:</span>{' '}
-                <span className="font-mono text-foreground/80">
-                  {JSON.stringify(node.approvalInputs)}
-                </span>
-              </div>
-            )}
-          {node.pushBackHistory && node.pushBackHistory.length > 0 && (
-            <PushBackHistory history={node.pushBackHistory} className="pt-1" />
-          )}
-          {/* Rejection info */}
-          {node.rejectedBy || node.rejectedById ? (
-            <div className="text-xs text-muted-foreground">
-              <span className="font-medium">Rejected by:</span>{' '}
-              <ManualActionSubject
-                name={node.rejectedBy}
-                id={node.rejectedById}
-                className="text-error"
-              />
-              {node.rejectedAt && (
-                <span className="ml-1">
-                  at {formatTimestamp(node.rejectedAt)}
-                </span>
-              )}
-            </div>
-          ) : null}
-          {node.rejectionReason && (
-            <div className="text-xs text-muted-foreground">
-              <span className="font-medium">Reason:</span>{' '}
-              <span className="text-foreground/80">{node.rejectionReason}</span>
-            </div>
-          )}
+          <ManualActionDetails node={node} />
         </div>
       </div>
 

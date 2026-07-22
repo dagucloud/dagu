@@ -8,6 +8,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math/big"
+	"reflect"
 	"strings"
 	"time"
 
@@ -40,18 +42,10 @@ func (s *Service) Complete(ctx context.Context, request CompleteRequest) (Result
 	}
 
 	if nodeCompleted(node) {
-		if !bytes.Equal(node.HumanTaskInput, completion.Canonical) {
+		if !canonicalInputsEqual(node.HumanTaskInput, completion.Canonical) {
 			return Result{}, errorf(ErrorConflict, "human task step %q was already completed with different input", request.StepID)
 		}
-		result := resultFor(target.status, request.StepID, true)
-		if hasWaitingNodes(target.status.Nodes) {
-			return result, nil
-		}
-		if target.status.Status == core.Waiting ||
-			(target.status.Status == core.Queued && target.status.RetryQueueKey != "") {
-			return s.queueCompletedTaskResume(ctx, target)
-		}
-		return result, nil
+		return s.queueCompletedTaskResume(ctx, target)
 	}
 
 	if target.status.Status != core.Waiting {
@@ -76,7 +70,7 @@ func (s *Service) Complete(ctx context.Context, request CompleteRequest) (Result
 				return err
 			}
 			if nodeCompleted(latestNode) {
-				if !bytes.Equal(latestNode.HumanTaskInput, completion.Canonical) {
+				if !canonicalInputsEqual(latestNode.HumanTaskInput, completion.Canonical) {
 					return errorf(ErrorConflict, "human task step %q was already completed with different input", request.StepID)
 				}
 				concurrentlyCompleted = latest
@@ -136,7 +130,7 @@ func (s *Service) resolveCompletionConflict(
 	if updated != nil {
 		latestNode, err := findNodeByID(updated.Nodes, target.stepID)
 		if err == nil && nodeCompleted(latestNode) {
-			if !bytes.Equal(latestNode.HumanTaskInput, canonical) {
+			if !canonicalInputsEqual(latestNode.HumanTaskInput, canonical) {
 				return Result{}, errorf(ErrorConflict, "human task step %q was already completed with different input", target.stepID)
 			}
 			return s.queueCompletedTaskResume(ctx, target.withStatus(updated))
@@ -147,4 +141,67 @@ func (s *Service) resolveCompletionConflict(
 		"DAG-run changed while completing human task %q; inspect its current status and retry",
 		target.stepID,
 	)
+}
+
+func canonicalInputsEqual(left, right json.RawMessage) bool {
+	if bytes.Equal(left, right) {
+		return true
+	}
+	leftValue, leftOK := decodeCanonicalInput(left)
+	rightValue, rightOK := decodeCanonicalInput(right)
+	return leftOK && rightOK && canonicalValuesEqual(leftValue, rightValue)
+}
+
+func decodeCanonicalInput(raw json.RawMessage) (any, bool) {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return nil, false
+	}
+	if err := requireJSONEOF(decoder); err != nil {
+		return nil, false
+	}
+	return value, true
+}
+
+func canonicalValuesEqual(left, right any) bool {
+	switch left := left.(type) {
+	case json.Number:
+		right, ok := right.(json.Number)
+		if !ok {
+			return false
+		}
+		leftNumber, leftOK := new(big.Rat).SetString(left.String())
+		rightNumber, rightOK := new(big.Rat).SetString(right.String())
+		if !leftOK || !rightOK {
+			return left == right
+		}
+		return leftNumber.Cmp(rightNumber) == 0
+	case map[string]any:
+		right, ok := right.(map[string]any)
+		if !ok || len(left) != len(right) {
+			return false
+		}
+		for key, leftValue := range left {
+			rightValue, ok := right[key]
+			if !ok || !canonicalValuesEqual(leftValue, rightValue) {
+				return false
+			}
+		}
+		return true
+	case []any:
+		right, ok := right.([]any)
+		if !ok || len(left) != len(right) {
+			return false
+		}
+		for index := range left {
+			if !canonicalValuesEqual(left[index], right[index]) {
+				return false
+			}
+		}
+		return true
+	default:
+		return reflect.DeepEqual(left, right)
+	}
 }

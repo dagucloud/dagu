@@ -409,6 +409,36 @@ describe('DAGStatus', () => {
     expect(patchMock).not.toHaveBeenCalled();
   });
 
+  it('disables graph status mutation while waiting for approval', () => {
+    vi.mocked(useClient).mockReturnValue({
+      PATCH: patchMock,
+    } as unknown as ReturnType<typeof useClient>);
+    const waitingApprovalRun = {
+      ...dagRun,
+      status: Status.Waiting,
+      statusLabel: StatusLabel.waiting,
+      nodes: [
+        {
+          step: {
+            name: 'step',
+            approval: { prompt: 'Approve deployment' },
+          },
+          status: NodeStatus.Waiting,
+          statusLabel: NodeStatusLabel.waiting,
+        },
+      ],
+    } as components['schemas']['DAGRunDetails'];
+
+    render(dagStatusView(waitingApprovalRun));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Status' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open status modal' }));
+    expect(
+      screen.queryByRole('button', { name: 'Mark failed' })
+    ).not.toBeInTheDocument();
+    expect(patchMock).not.toHaveBeenCalled();
+  });
+
   it('selects human tasks after switching between waiting DAG runs', async () => {
     vi.mocked(useClient).mockReturnValue({
       PATCH: patchMock,

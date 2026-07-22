@@ -248,12 +248,26 @@ describe('NodeStatusTableRow', () => {
     expect(screen.queryByTitle('Retry from this step')).not.toBeInTheDocument();
   });
 
-  it('does not open status updates for a human task', () => {
-    const node = {
+  it.each([
+    {
+      name: 'human task',
       step: {
         name: 'review',
         humanTask: { prompt: 'Review deployment' },
       },
+      dagRunStatus: Status.Success,
+    },
+    {
+      name: 'waiting approval',
+      step: {
+        name: 'review',
+        approval: { prompt: 'Review deployment' },
+      },
+      dagRunStatus: Status.Waiting,
+    },
+  ])('does not open status updates for a $name', ({ step, dagRunStatus }) => {
+    const node = {
+      step,
       status: NodeStatus.Waiting,
       statusLabel: NodeStatusLabel.waiting,
       stdout: '/tmp/review.out',
@@ -280,7 +294,7 @@ describe('NodeStatusTableRow', () => {
                   rownum={1}
                   node={node}
                   name="example.yaml"
-                  dagRun={dagRun}
+                  dagRun={{ ...dagRun, status: dagRunStatus }}
                   view="desktop"
                 />
               </tbody>

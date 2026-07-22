@@ -77,6 +77,30 @@ func TestCompletePersistsTypedInputAndQueuesResume(t *testing.T) {
 	assert.Equal(t, "user-1", fixture.status.Nodes[0].HumanTaskCompletedByID)
 }
 
+func TestCompleteTreatsEquivalentAdditionalNumbersAsIdentical(t *testing.T) {
+	fixture := newServiceFixture(t, json.RawMessage(`{
+  "type":"object",
+  "properties":{},
+  "additionalProperties":true
+}`))
+	firstInput, err := ParseJSONInput([]byte(`{"score":1}`))
+	require.NoError(t, err)
+	secondInput, err := ParseJSONInput([]byte(`{"score":1.0}`))
+	require.NoError(t, err)
+
+	_, err = fixture.service.Complete(t.Context(), CompleteRequest{
+		DAGName: fixture.dag.Name, DAGRunID: fixture.status.DAGRunID, StepID: "review", Input: firstInput,
+	})
+	require.NoError(t, err)
+	result, err := fixture.service.Complete(t.Context(), CompleteRequest{
+		DAGName: fixture.dag.Name, DAGRunID: fixture.status.DAGRunID, StepID: "review", Input: secondInput,
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.AlreadyCompleted)
+	assert.Len(t, fixture.queue.enqueued, 1)
+}
+
 func TestCompleteKeepsCheckpointRecoverableWhenEnqueueFails(t *testing.T) {
 	fixture := newServiceFixture(t, nil)
 	queueErr := errors.New("queue unavailable")
@@ -92,17 +116,52 @@ func TestCompleteKeepsCheckpointRecoverableWhenEnqueueFails(t *testing.T) {
 	assert.Equal(t, result, resumeErr.Result)
 	assert.False(t, result.Queued)
 	assert.Equal(t, core.NodeSucceeded, fixture.status.Nodes[0].Status)
-	assert.Equal(t, core.Queued, fixture.status.Status)
-	assert.NotEmpty(t, fixture.status.RetryQueueKey)
-	assert.False(t, fixture.status.RetryQueuePublished)
+	assert.Equal(t, core.Waiting, fixture.status.Status)
 	assert.True(t, ResumePending(fixture.status))
 
 	result, err = fixture.service.Resume(t.Context(), fixture.dag.Name, fixture.status.DAGRunID)
 	require.NoError(t, err)
 	assert.True(t, result.Queued)
 	assert.Equal(t, core.Queued, fixture.status.Status)
-	assert.True(t, fixture.status.RetryQueuePublished)
 	assert.Equal(t, []exec.DAGRunRef{fixture.status.DAGRun()}, fixture.queue.enqueued)
+}
+
+func TestCompleteDoesNotReportRetryableWhenQueueRollbackFails(t *testing.T) {
+	fixture := newServiceFixture(t, nil)
+	fixture.queue.enqueueErrors = []error{errors.New("queue unavailable")}
+	fixture.store.compareAndSwapErrors = []error{nil, nil, errors.New("rollback unavailable")}
+
+	_, err := fixture.service.Complete(t.Context(), CompleteRequest{
+		DAGName: fixture.dag.Name, DAGRunID: fixture.status.DAGRunID, StepID: "review", Input: Input{Values: map[string]any{}},
+	})
+
+	require.Error(t, err)
+	var resumeErr *ResumeError
+	assert.NotErrorAs(t, err, &resumeErr)
+	assert.Equal(t, ErrorInternal, KindOf(err))
+	assert.Equal(t, core.Queued, fixture.status.Status)
+}
+
+func TestCompleteAcceptsConcurrentRetryDispatch(t *testing.T) {
+	fixture := newServiceFixture(t, nil)
+	compareAndSwapCalls := 0
+	fixture.store.beforeCompareAndSwap = func() {
+		compareAndSwapCalls++
+		if compareAndSwapCalls == 2 {
+			fixture.status.Status = core.Running
+			fixture.status.AttemptID = "attempt-2"
+			fixture.status.AttemptKey = "key-2"
+		}
+	}
+
+	result, err := fixture.service.Complete(t.Context(), CompleteRequest{
+		DAGName: fixture.dag.Name, DAGRunID: fixture.status.DAGRunID, StepID: "review", Input: Input{Values: map[string]any{}},
+	})
+
+	require.NoError(t, err)
+	assert.False(t, result.Queued)
+	assert.Equal(t, core.NodeSucceeded, fixture.status.Nodes[0].Status)
+	assert.Empty(t, fixture.queue.enqueued)
 }
 
 func TestCompleteClassifiesDAGRunLookupErrors(t *testing.T) {
@@ -209,6 +268,26 @@ func TestCompleteWaitsForRemoteDispatchBeforeEnqueue(t *testing.T) {
 	assert.True(t, result.Queued)
 	assert.Equal(t, 2, fixture.queue.listCalls)
 	assert.Equal(t, []exec.DAGRunRef{ref}, fixture.queue.enqueued)
+}
+
+func TestCompleteAcceptsConcurrentRemoteResume(t *testing.T) {
+	fixture := newServiceFixture(t, nil)
+	fixture.status.WorkerID = "worker-a"
+	fixture.status.ProcGroup = "distributed"
+	ref := fixture.status.DAGRun()
+	fixture.queue.listResults = [][]exec.QueuedItemData{{serviceQueuedItem{ref: &ref}}}
+	fixture.queue.beforeList = func() {
+		fixture.status.Status = core.Queued
+	}
+
+	result, err := fixture.service.Complete(t.Context(), CompleteRequest{
+		DAGName: fixture.dag.Name, DAGRunID: fixture.status.DAGRunID, StepID: "review", Input: Input{Values: map[string]any{}},
+	})
+
+	require.NoError(t, err)
+	assert.False(t, result.Queued)
+	assert.Equal(t, core.Queued, fixture.status.Status)
+	assert.Empty(t, fixture.queue.enqueued)
 }
 
 func TestValidateRetryProtectsHumanTaskCheckpoints(t *testing.T) {
@@ -388,6 +467,7 @@ type serviceDAGRunStore struct {
 	status               *exec.DAGRunStatus
 	findErr              error
 	beforeCompareAndSwap func()
+	compareAndSwapErrors []error
 }
 
 func (s *serviceDAGRunStore) FindAttempt(context.Context, exec.DAGRunRef) (exec.DAGRunAttempt, error) {
@@ -405,6 +485,13 @@ func (s *serviceDAGRunStore) CompareAndSwapLatestAttemptStatus(
 	mutate func(*exec.DAGRunStatus) error,
 	opts ...exec.CompareAndSwapStatusOption,
 ) (*exec.DAGRunStatus, bool, error) {
+	if len(s.compareAndSwapErrors) > 0 {
+		err := s.compareAndSwapErrors[0]
+		s.compareAndSwapErrors = s.compareAndSwapErrors[1:]
+		if err != nil {
+			return nil, false, err
+		}
+	}
 	options := exec.NewCompareAndSwapStatusOptions(opts...)
 	if s.beforeCompareAndSwap != nil {
 		s.beforeCompareAndSwap()
@@ -462,32 +549,9 @@ type serviceQueueStore struct {
 	exec.QueueStore
 	enqueued      []exec.DAGRunRef
 	enqueueErrors []error
-	enqueueKeys   map[string]struct{}
 	listResults   [][]exec.QueuedItemData
 	listCalls     int
-}
-
-func (s *serviceQueueStore) EnsureEnqueued(
-	_ context.Context,
-	_ string,
-	_ exec.QueuePriority,
-	ref exec.DAGRunRef,
-	key string,
-) error {
-	if len(s.enqueueErrors) > 0 {
-		err := s.enqueueErrors[0]
-		s.enqueueErrors = s.enqueueErrors[1:]
-		return err
-	}
-	if s.enqueueKeys == nil {
-		s.enqueueKeys = make(map[string]struct{})
-	}
-	if _, ok := s.enqueueKeys[key]; ok {
-		return nil
-	}
-	s.enqueueKeys[key] = struct{}{}
-	s.enqueued = append(s.enqueued, ref)
-	return nil
+	beforeList    func()
 }
 
 func (s *serviceQueueStore) Enqueue(_ context.Context, _ string, _ exec.QueuePriority, ref exec.DAGRunRef) error {
@@ -502,6 +566,10 @@ func (s *serviceQueueStore) Enqueue(_ context.Context, _ string, _ exec.QueuePri
 
 func (s *serviceQueueStore) ListByDAGName(context.Context, string, string) ([]exec.QueuedItemData, error) {
 	s.listCalls++
+	if s.beforeList != nil {
+		s.beforeList()
+		s.beforeList = nil
+	}
 	if len(s.listResults) == 0 {
 		return nil, nil
 	}

@@ -226,7 +226,7 @@ func TestApplyPushBackRewindToResetsNamedStepAndDependents(t *testing.T) {
 	}
 }
 
-func TestRollbackPushBackPreservesConcurrentUnrelatedNodeChanges(t *testing.T) {
+func TestRollbackPushBackIgnoresCancellationAndPreservesConcurrentUnrelatedNodeChanges(t *testing.T) {
 	t.Parallel()
 
 	approvalStep := core.Step{Name: "approval", Approval: &core.ApprovalConfig{}}
@@ -248,7 +248,9 @@ func TestRollbackPushBackPreservesConcurrentUnrelatedNodeChanges(t *testing.T) {
 
 	store := &manualCASStore{status: current}
 	a := &API{dagRunStore: store}
-	require.NoError(t, a.rollbackPushBack(t.Context(), current.DAGRun(), applied, original))
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	require.NoError(t, a.rollbackPushBack(ctx, current.DAGRun(), applied, original))
 
 	assert.Equal(t, core.NodeWaiting, current.Nodes[0].Status)
 	assert.Equal(t, "started", current.Nodes[0].StartedAt)
@@ -261,6 +263,36 @@ type manualCASStore struct {
 	status   *exec.DAGRunStatus
 	failures []error
 	calls    int
+}
+
+type manualStepAttempt struct {
+	exec.DAGRunAttempt
+	dag      *core.DAG
+	statuses []*exec.DAGRunStatus
+	reads    int
+}
+
+func (a *manualStepAttempt) ReadDAG(context.Context) (*core.DAG, error) {
+	return a.dag, nil
+}
+
+func (a *manualStepAttempt) ReadStatus(context.Context) (*exec.DAGRunStatus, error) {
+	idx := a.reads
+	if idx >= len(a.statuses) {
+		idx = len(a.statuses) - 1
+	}
+	a.reads++
+	return a.statuses[idx], nil
+}
+
+type manualStepProcStore struct {
+	exec.ProcStore
+	alive bool
+	err   error
+}
+
+func (s *manualStepProcStore) IsAttemptAlive(context.Context, string, exec.DAGRunRef, string) (bool, error) {
+	return s.alive, s.err
 }
 
 type failingManualCASStore struct {
@@ -280,13 +312,16 @@ func (s *failingManualCASStore) CompareAndSwapLatestAttemptStatus(
 }
 
 func (s *manualCASStore) CompareAndSwapLatestAttemptStatus(
-	_ context.Context,
+	ctx context.Context,
 	_ exec.DAGRunRef,
 	expectedAttemptID string,
 	expectedStatus core.Status,
 	mutate func(*exec.DAGRunStatus) error,
 	opts ...exec.CompareAndSwapStatusOption,
 ) (*exec.DAGRunStatus, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, false, err
+	}
 	s.calls++
 	if len(s.failures) > 0 {
 		err := s.failures[0]
@@ -337,6 +372,85 @@ func TestCompareAndSwapManualStatusRetriesTransientWindowsWriteFailure(t *testin
 	assert.Equal(t, 2, store.calls)
 }
 
+func TestWaitForManualStepMutationReadyFailsClosedOnLivenessError(t *testing.T) {
+	status := &exec.DAGRunStatus{
+		Name:      "manual-dag",
+		DAGRunID:  "run-1",
+		AttemptID: "attempt-1",
+		Status:    core.Waiting,
+		WorkerID:  "local",
+	}
+	livenessErr := errors.New("liveness unavailable")
+	a := &API{procStore: &manualStepProcStore{err: livenessErr}}
+	attempt := &manualStepAttempt{dag: &core.DAG{Name: status.Name}}
+
+	updated, err := a.waitForManualStepMutationReady(t.Context(), attempt, status)
+
+	assert.Nil(t, updated)
+	require.ErrorIs(t, err, livenessErr)
+}
+
+func TestWaitForManualStepMutationReadyHonorsCancellation(t *testing.T) {
+	status := &exec.DAGRunStatus{
+		Name:      "manual-dag",
+		DAGRunID:  "run-1",
+		AttemptID: "attempt-1",
+		Status:    core.Waiting,
+		WorkerID:  "local",
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	a := &API{procStore: &manualStepProcStore{alive: true}}
+	attempt := &manualStepAttempt{dag: &core.DAG{Name: status.Name}}
+
+	updated, err := a.waitForManualStepMutationReady(ctx, attempt, status)
+
+	assert.Nil(t, updated)
+	require.ErrorIs(t, err, context.Canceled)
+}
+
+func TestWaitForManualStepMutationReadyWaitsForRemotePersistence(t *testing.T) {
+	status := &exec.DAGRunStatus{
+		Name:      "manual-dag",
+		DAGRunID:  "run-1",
+		AttemptID: "attempt-1",
+		Status:    core.Waiting,
+		WorkerID:  "worker-1",
+	}
+	finalized := *status
+	finalized.FinishedAt = exec.FormatTime(time.Now())
+	attempt := &manualStepAttempt{statuses: []*exec.DAGRunStatus{status, &finalized}}
+
+	updated, err := (&API{}).waitForManualStepMutationReady(t.Context(), attempt, status)
+
+	require.NoError(t, err)
+	assert.Same(t, &finalized, updated)
+	assert.Equal(t, 2, attempt.reads)
+}
+
+func TestWaitForManualStepMutationReadyWaitsForLocalPersistence(t *testing.T) {
+	status := &exec.DAGRunStatus{
+		Name:      "manual-dag",
+		DAGRunID:  "run-1",
+		AttemptID: "attempt-1",
+		Status:    core.Waiting,
+		WorkerID:  "local",
+	}
+	finalized := *status
+	finalized.FinishedAt = exec.FormatTime(time.Now())
+	attempt := &manualStepAttempt{
+		dag:      &core.DAG{Name: status.Name},
+		statuses: []*exec.DAGRunStatus{status, &finalized},
+	}
+	a := &API{procStore: &manualStepProcStore{}}
+
+	updated, err := a.waitForManualStepMutationReady(t.Context(), attempt, status)
+
+	require.NoError(t, err)
+	assert.Same(t, &finalized, updated)
+	assert.Equal(t, 2, attempt.reads)
+}
+
 func TestApproveDAGRunStepReturnsInternalErrorWhenStatusWriteFails(t *testing.T) {
 	ctx := t.Context()
 	store := dagrun.New(t.TempDir())
@@ -353,6 +467,7 @@ func TestApproveDAGRunStepReturnsInternalErrorWhenStatusWriteFails(t *testing.T)
 	status.DAGRunID = "run-1"
 	status.AttemptID = attempt.ID()
 	status.Status = core.Waiting
+	status.FinishedAt = exec.FormatTime(time.Now())
 	status.Nodes[0].Status = core.NodeWaiting
 	require.NoError(t, attempt.Open(ctx))
 	require.NoError(t, attempt.Write(ctx, status))
@@ -366,6 +481,7 @@ func TestApproveDAGRunStepReturnsInternalErrorWhenStatusWriteFails(t *testing.T)
 	a := &API{
 		dagRunStore: failingStore,
 		dagRunMgr:   runtimepkg.NewManager(failingStore, nil, cfg),
+		procStore:   &manualStepProcStore{},
 		config:      cfg,
 	}
 

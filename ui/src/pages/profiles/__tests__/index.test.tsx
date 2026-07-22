@@ -28,17 +28,6 @@ vi.mock('@/hooks/api', () => ({
   useQuery: vi.fn(),
 }));
 
-class ResizeObserverMock {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
-}
-
-Object.defineProperty(globalThis, 'ResizeObserver', {
-  configurable: true,
-  value: ResizeObserverMock,
-});
-
 const useQueryMock = useQuery as unknown as {
   mockImplementation: (fn: (path: string) => unknown) => void;
 };

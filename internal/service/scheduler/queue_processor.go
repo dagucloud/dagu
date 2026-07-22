@@ -14,7 +14,6 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 )
 
@@ -231,9 +230,6 @@ func (p *QueueProcessor) Start(ctx context.Context, notifyCh <-chan struct{}) {
 	p.wg.Go(func() {
 		p.loop(ctx)
 	})
-	p.wg.Go(func() {
-		p.retryQueueReconcileLoop(ctx)
-	})
 
 	p.wg.Go(func() {
 		for {
@@ -406,51 +402,23 @@ func (p *QueueProcessor) ProcessQueueItems(ctx context.Context, queueName string
 					logger.Error(ctx, "Queue item processing panicked", tag.Error(panicToError(r)))
 				}
 			}()
-			result := dispatcher.dispatchQueuedItem(ctx, queuedItem, queueName, batch, q.incInflight, q.decInflight)
-			if result == queueItemKeep {
+			if !dispatcher.dispatchQueuedItem(ctx, queuedItem, queueName, batch, q.incInflight, q.decInflight) {
 				return
 			}
-			if result == queueItemStarted {
-				data, err := queuedItem.Data()
-				if err != nil {
-					logger.Error(ctx, "Failed to get item data", tag.Error(err))
-					return
-				}
-				if p.retryQueueItemActive(ctx, queuedItem, *data) {
-					return
-				}
+			data, err := queuedItem.Data()
+			if err != nil {
+				logger.Error(ctx, "Failed to get item data", tag.Error(err))
+				return
 			}
-			if _, err := p.queueStore.DeleteByItemIDs(ctx, queueName, []string{queuedItem.ID()}); err != nil {
+			if _, err := p.queueStore.DequeueByDAGRunID(ctx, queueName, *data); err != nil {
+				if errors.Is(err, exec.ErrQueueItemNotFound) {
+					return
+				}
 				logger.Error(ctx, "Failed to dequeue item", tag.Error(err))
 			}
 		}(item)
 	}
 	wg.Wait()
-}
-
-func (p *QueueProcessor) retryQueueItemActive(
-	ctx context.Context,
-	item exec.QueuedItemData,
-	dagRun exec.DAGRunRef,
-) bool {
-	key := exec.QueuedItemEnqueueKey(item)
-	if key == "" {
-		return false
-	}
-	attempt, err := p.dagRunStore.FindAttempt(ctx, dagRun)
-	if err != nil {
-		if !errors.Is(err, exec.ErrDAGRunIDNotFound) {
-			logger.Warn(ctx, "Failed to verify retry queue intent", tag.Error(err))
-			return true
-		}
-		return false
-	}
-	status, err := attempt.ReadStatus(ctx)
-	if err != nil {
-		logger.Warn(ctx, "Failed to read retry queue intent", tag.Error(err))
-		return true
-	}
-	return status != nil && status.Status == core.Queued && status.RetryQueueKey == key
 }
 
 func currentStatusString(status *exec.DAGRunStatus) string {

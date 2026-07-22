@@ -510,11 +510,11 @@ func TestQueueDispatcher_DistributedDispatchReservesAdmissionToken(t *testing.T)
 		leaseStaleThreshold:    time.Minute,
 	})
 
-	result := queueDispatcher.dispatchQueuedItem(f.ctx, items[0], f.dag.Name, queueDispatchBatch{
+	dispatched := queueDispatcher.dispatchQueuedItem(f.ctx, items[0], f.dag.Name, queueDispatchBatch{
 		maxConcurrency:        1,
 		nonAdmissionOccupancy: 0,
 	}, func() {}, func() {})
-	require.Equal(t, queueItemStarted, result)
+	require.True(t, dispatched)
 	assert.NotEmpty(t, dispatcher.LastRequest().AdmissionReservationToken)
 	procStore.AssertExpectations(t)
 }
@@ -585,11 +585,11 @@ func TestQueueProcessor_SuspendedManualQueuedRunStillDispatches(t *testing.T) {
 		},
 	})
 
-	result := queueDispatcher.dispatchQueuedItem(f.ctx, items[0], dagName, queueDispatchBatch{
+	dispatched := queueDispatcher.dispatchQueuedItem(f.ctx, items[0], dagName, queueDispatchBatch{
 		maxConcurrency:        1,
 		nonAdmissionOccupancy: 0,
 	}, func() {}, func() {})
-	require.Equal(t, queueItemStarted, result)
+	require.True(t, dispatched)
 	assert.Equal(t, int32(1), dispatcher.callCount.Load())
 
 	attempt, err := f.dagRunStore.FindAttempt(f.ctx, runRef)

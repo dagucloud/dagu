@@ -1124,7 +1124,7 @@ export interface paths {
         head?: never;
         /**
          * Manually update a step's execution status
-         * @description Changes the status of a specific step within a DAG-run
+         * @description Changes the status of a specific step after the DAG-run is no longer active
          */
         patch: operations["updateDAGRunStepStatus"];
         trace?: never;
@@ -1404,7 +1404,7 @@ export interface paths {
         head?: never;
         /**
          * Manually update a step's execution status in a sub DAG-run
-         * @description Changes the status of a specific step within a sub DAG-run
+         * @description Changes the status of a specific step after the sub DAG-run and its embedded root run are no longer active
          */
         patch: operations["updateSubDAGRunStepStatus"];
         trace?: never;

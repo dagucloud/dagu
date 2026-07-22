@@ -965,6 +965,11 @@ func skippedEditRetryNodeState(source *exec.Node) runtime.NodeState {
 	state.OutputVariables = cloneSyncMap(source.OutputVariables)
 	state.ChatMessages = append([]exec.LLMMessage(nil), source.ChatMessages...)
 	state.ToolDefinitions = append([]exec.ToolDefinition(nil), source.ToolDefinitions...)
+	state.HumanTaskInput = append(state.HumanTaskInput, source.HumanTaskInput...)
+	if source.StepOutputsValue != nil {
+		value := *source.StepOutputsValue
+		state.StepOutputsValue = &value
+	}
 	state.HumanTaskCompletedBy = source.HumanTaskCompletedBy
 	state.HumanTaskCompletedByID = source.HumanTaskCompletedByID
 	state.ApprovalInputs = cloneStringMap(source.ApprovalInputs)

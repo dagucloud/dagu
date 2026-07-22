@@ -2881,7 +2881,7 @@ paths:
   /dag-runs/{name}/{dagRunId}/steps/{stepName}/status:
     patch:
       summary: "Manually update a step's execution status"
-      description: "Changes the status of a specific step within a DAG-run"
+      description: "Changes the status of a specific step after the DAG-run is no longer active"
       operationId: "updateDAGRunStepStatus"
       tags:
         - "dag-runs"
@@ -3471,7 +3471,7 @@ paths:
   /dag-runs/{name}/{dagRunId}/sub-dag-runs/{subDAGRunId}/steps/{stepName}/status:
     patch:
       summary: "Manually update a step's execution status in a sub DAG-run"
-      description: "Changes the status of a specific step within a sub DAG-run"
+      description: "Changes the status of a specific step after the sub DAG-run and its embedded root run are no longer active"
       operationId: "updateSubDAGRunStepStatus"
       tags:
         - "dag-runs"

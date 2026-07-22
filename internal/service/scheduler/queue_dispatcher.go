@@ -610,14 +610,6 @@ func (d *queueDispatcher) selectDispatchBatch(
 	}, nil
 }
 
-type queueItemDispatchResult uint8
-
-const (
-	queueItemKeep queueItemDispatchResult = iota
-	queueItemRemove
-	queueItemStarted
-)
-
 func (d *queueDispatcher) dispatchQueuedItem(
 	ctx context.Context,
 	item exec.QueuedItemData,
@@ -625,15 +617,15 @@ func (d *queueDispatcher) dispatchQueuedItem(
 	batch queueDispatchBatch,
 	incInflight,
 	decInflight func(),
-) queueItemDispatchResult {
+) bool {
 	if d.isClosed() {
-		return queueItemKeep
+		return false
 	}
 
 	data, err := item.Data()
 	if err != nil {
 		logger.Error(ctx, "Failed to get item data", tag.Error(err))
-		return queueItemKeep
+		return false
 	}
 
 	runRef := *data
@@ -644,45 +636,41 @@ func (d *queueDispatcher) dispatchQueuedItem(
 	running, err := d.procStore.IsRunAlive(ctx, queueName, runRef)
 	if err != nil {
 		logger.Error(ctx, "Failed to check if run is alive", tag.Error(err))
-		return queueItemKeep
+		return false
 	}
 	if running {
-		logger.Warn(ctx, "DAG run is already running")
-		return queueItemStarted
+		logger.Warn(ctx, "DAG run is already running, discarding")
+		return true
 	}
 
 	attempt, err := d.dagRunStore.FindAttempt(ctx, runRef)
 	if err != nil {
 		if errors.Is(err, exec.ErrDAGRunIDNotFound) {
 			logger.Error(ctx, "DAG run not found, discarding")
-			return queueItemRemove
+			return true
 		}
 		logger.Error(ctx, "Failed to find run", tag.Error(err))
-		return queueItemKeep
+		return false
 	}
 
 	if attempt.Hidden() {
 		logger.Info(ctx, "DAG run is hidden, discarding")
-		return queueItemRemove
+		return true
 	}
 
 	status, err := attempt.ReadStatus(ctx)
 	if err != nil {
 		if errors.Is(err, exec.ErrCorruptedStatusFile) {
 			logger.Error(ctx, "Status file is corrupted, marking as invalid", tag.Error(err))
-			return queueItemRemove
+			return true
 		}
 		logger.Error(ctx, "Failed to read status", tag.Error(err))
-		return queueItemKeep
-	}
-	if queueKey := exec.QueuedItemEnqueueKey(item); queueKey != "" && status.RetryQueueKey != queueKey {
-		logger.Info(ctx, "Retry queue item is stale, discarding")
-		return queueItemRemove
+		return false
 	}
 
 	if status.Status != core.Queued {
 		logger.Info(ctx, "Status is not queued, skipping", tag.Status(status.Status.String()))
-		return queueItemRemove
+		return true
 	}
 
 	conditionStage := d.newQueuedConditionStage(runRef, queueName, item.ID(), attempt, status)
@@ -691,15 +679,14 @@ func (d *queueDispatcher) dispatchQueuedItem(
 		logger.Error(ctx, "Failed to read DAG", tag.Error(err), tag.DAG(runRef.Name))
 		conditionStage.observe(dagSnapshotUnavailableConditionDefs...)
 		conditionStage.flush(ctx)
-		return queueItemKeep
+		return false
 	}
 
 	if isSchedulerManagedTriggerType(status.TriggerType) && isSuspendedDAG(ctx, d.isSuspended, status, dag) {
 		if err := d.dropSuspendedQueuedRun(ctx, queueName, runRef, attempt.ID(), status); err != nil {
 			logger.Error(ctx, "Failed to drop suspended queued DAG run", tag.Error(err))
-			return queueItemKeep
 		}
-		return queueItemRemove
+		return false
 	}
 
 	if schedTime, err := time.Parse(time.RFC3339, status.ScheduleTime); err == nil {
@@ -721,12 +708,9 @@ func (d *queueDispatcher) dispatchQueuedItem(
 			nonAdmissionOccupancy: batch.nonAdmissionOccupancy,
 		}, conditionStage)
 		if !reserved {
-			return queueItemKeep
+			return false
 		}
-		if d.dispatchAndWaitForStartupWithConditions(ctx, queueName, runRef, dag, runID, status, token, conditionStage) {
-			return queueItemStarted
-		}
-		return queueItemKeep
+		return d.dispatchAndWaitForStartupWithConditions(ctx, queueName, runRef, dag, runID, status, token, conditionStage)
 	}
 
 	execErrCh := make(chan error, 1)
@@ -748,7 +732,7 @@ func (d *queueDispatcher) dispatchQueuedItem(
 		}
 	}()
 
-	started := d.waitForStartupWithConditions(ctx, queueName, runRef, startupWaitState{
+	return d.waitForStartupWithConditions(ctx, queueName, runRef, startupWaitState{
 		launchedAt: time.Now(),
 		execErrCh:  execErrCh,
 		execDone: func() (bool, error) {
@@ -760,10 +744,6 @@ func (d *queueDispatcher) dispatchQueuedItem(
 			}
 		},
 	}, conditionStage)
-	if started {
-		return queueItemStarted
-	}
-	return queueItemKeep
 }
 
 func (d *queueDispatcher) dropSuspendedQueuedRun(
@@ -1178,7 +1158,6 @@ func (d *queueDispatcher) selectRunnableQueueItemsInQueue(
 	}
 
 	runnable := make([]exec.QueuedItemData, 0, min(freeSlots, len(items)))
-	seen := make(map[exec.DAGRunRef]struct{}, min(freeSlots, len(items)))
 	for _, item := range items {
 		if len(runnable) >= freeSlots {
 			break
@@ -1188,10 +1167,6 @@ func (d *queueDispatcher) selectRunnableQueueItemsInQueue(
 			logger.Error(ctx, "Failed to get item data while selecting runnable queue items", tag.Error(err))
 			continue
 		}
-		if _, ok := seen[*runRef]; ok {
-			continue
-		}
-		seen[*runRef] = struct{}{}
 		if d.dispatchAdmissionStore == nil && d.dispatchTaskStore != nil {
 			reserved, err := d.hasOutstandingDispatchReservation(ctx, *runRef)
 			if err != nil {

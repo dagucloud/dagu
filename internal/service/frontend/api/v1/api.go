@@ -395,10 +395,6 @@ func (a *API) ConfigureRoutes(ctx context.Context, r chi.Router, writeTimeout ti
 	}
 	mountedAPIPath := a.evaluateMountedAPIPath(ctx)
 
-	if a.config.Server.StrictValidation {
-		r.Use(a.createValidatorMiddleware(swagger))
-	}
-
 	authOptions, err := a.buildAuthOptions(mountedAPIPath)
 	if err != nil {
 		return err
@@ -413,6 +409,9 @@ func (a *API) ConfigureRoutes(ctx context.Context, r chi.Router, writeTimeout ti
 		r.Use(frontendauth.Middleware(authOptions))
 		r.Use(a.restAuditSubjectMiddleware())
 		r.Use(humanTaskInputMiddleware(mountedAPIPath))
+		if a.config.Server.StrictValidation {
+			r.Use(a.createValidatorMiddleware(swagger))
+		}
 		r.Use(WithRemoteNode(a.remoteNodeResolver, mountedAPIPath))
 		r.Use(WebhookRequestContextMiddleware(a.webhookMaxPayloadSize()))
 

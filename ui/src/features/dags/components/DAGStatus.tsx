@@ -351,7 +351,12 @@ function DAGStatus({
       const status = displayDAGRun.status;
 
       // Only allow status updates for completed DAG runs
-      if (status !== Status.Running && status !== Status.NotStarted) {
+      if (
+        status !== Status.NotStarted &&
+        status !== Status.Running &&
+        status !== Status.Queued &&
+        status !== Status.Waiting
+      ) {
         // find the right-clicked step
         const n = displayDAGRun.nodes?.find(
           (n) => toMermaidNodeId(n.step.name) == id

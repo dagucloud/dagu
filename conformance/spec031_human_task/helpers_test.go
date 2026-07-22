@@ -41,8 +41,13 @@ func complete(t *testing.T, dagu *harness.Runner, env []string, runID, step, fil
 	t.Helper()
 	args := []string{"human-task", "complete", "--run-id=" + runID, "--step=" + step}
 	args = append(args, inputs...)
-	args = append(args, file)
+	args = append(args, fixtureDAGName(file))
 	return dagu.RunWithEnv(env, args...)
+}
+
+func fixtureDAGName(file string) string {
+	base := strings.TrimSuffix(filepath.Base(file), filepath.Ext(file))
+	return "spec031_" + base
 }
 
 func waitForStatus(

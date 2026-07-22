@@ -151,6 +151,23 @@ func TestRunHumanTaskCompletePersistsCanonicalInputAndQueuesRetry(t *testing.T) 
 	assert.Contains(t, fixture.output.String(), "DAG-run queued for resume")
 }
 
+func TestRunHumanTaskCompleteReportsConcurrentQueue(t *testing.T) {
+	fixture := newHumanTaskCompleteFixture(t, nil, false)
+	compareAndSwapCalls := 0
+	fixture.store.beforeMutate = func() {
+		compareAndSwapCalls++
+		if compareAndSwapCalls == 2 {
+			fixture.status.Status = core.Queued
+		}
+	}
+
+	err := runHumanTaskCompleteWith(fixture.ctx, []string{"human-task-test"}, fixture.deps())
+
+	require.NoError(t, err)
+	assert.Contains(t, fixture.output.String(), "Completed human task review; DAG-run was already queued for resume.")
+	assert.NotContains(t, fixture.output.String(), "was already completed")
+}
+
 func TestRunHumanTaskCompleteLeavesRunWaitingForAnotherStep(t *testing.T) {
 	fixture := newHumanTaskCompleteFixture(t, nil, true)
 	err := runHumanTaskCompleteWith(fixture.ctx, []string{"human-task-test"}, fixture.deps())
@@ -238,7 +255,7 @@ func TestRunHumanTaskCompleteKeepsCompletionWhenEnqueueFails(t *testing.T) {
 	assert.Equal(t, core.NodeSucceeded, fixture.status.Nodes[0].Status)
 	assert.JSONEq(t, `{}`, string(fixture.status.Nodes[0].HumanTaskInput))
 	assert.Nil(t, fixture.status.Nodes[0].StepOutputsValue)
-	assert.Equal(t, core.Queued, fixture.status.Status)
+	assert.Equal(t, core.Waiting, fixture.status.Status)
 	assert.True(t, humantask.ResumePending(fixture.status))
 	assert.Equal(t, "2026-07-20T01:00:00Z", fixture.status.FinishedAt)
 	assert.Empty(t, fixture.errorOutput.String())
@@ -414,14 +431,14 @@ func (s *humanTaskCompletionStore) CompareAndSwapLatestAttemptStatus(
 	opts ...exec.CompareAndSwapStatusOption,
 ) (*exec.DAGRunStatus, bool, error) {
 	options := exec.NewCompareAndSwapStatusOptions(opts...)
+	if s.beforeMutate != nil {
+		s.beforeMutate()
+	}
 	if s.status.AttemptID != expectedAttemptID || s.status.Status != expectedStatus {
 		return s.status, false, nil
 	}
 	if options.ExpectedAttemptKey != "" && s.status.AttemptKey != options.ExpectedAttemptKey {
 		return s.status, false, nil
-	}
-	if s.beforeMutate != nil {
-		s.beforeMutate()
 	}
 	if err := mutate(s.status); err != nil {
 		return nil, false, err
@@ -433,30 +450,6 @@ type humanTaskCompletionQueueStore struct {
 	exec.QueueStore
 	enqueued      []exec.DAGRunRef
 	enqueueErrors []error
-	enqueueKeys   map[string]struct{}
-}
-
-func (s *humanTaskCompletionQueueStore) EnsureEnqueued(
-	_ context.Context,
-	_ string,
-	_ exec.QueuePriority,
-	ref exec.DAGRunRef,
-	key string,
-) error {
-	if len(s.enqueueErrors) > 0 {
-		err := s.enqueueErrors[0]
-		s.enqueueErrors = s.enqueueErrors[1:]
-		return err
-	}
-	if s.enqueueKeys == nil {
-		s.enqueueKeys = make(map[string]struct{})
-	}
-	if _, ok := s.enqueueKeys[key]; ok {
-		return nil
-	}
-	s.enqueueKeys[key] = struct{}{}
-	s.enqueued = append(s.enqueued, ref)
-	return nil
 }
 
 func (s *humanTaskCompletionQueueStore) Enqueue(

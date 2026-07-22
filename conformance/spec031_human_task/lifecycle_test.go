@@ -149,12 +149,13 @@ func TestStoredPromptFormAndDAGSnapshot(t *testing.T) {
 	stored := waitForStatus(t, dagu, env, runID, "prompt_snapshot.yaml", "Waiting")
 	require.Contains(t, stored.Stdout(), "Review release for production as operator in "+runID)
 	require.NotContains(t, stored.Stdout(), "This prompt must not replace")
+	require.NoError(t, os.Remove(dagu.ProjectPath("prompt_snapshot.yaml")))
 
 	result := complete(t, dagu, env, runID, "review", "prompt_snapshot.yaml", "--input=environment=production")
 	result.ExpectExitCode(0)
 	result.ExpectStdout("Completed human task review; DAG-run queued for resume.\n")
 	result.ExpectStderr("")
-	waitForStatus(t, dagu, env, runID, "prompt_snapshot.yaml", "Succeeded")
+	waitForStatus(t, dagu, env, runID, "spec031_prompt_snapshot", "Succeeded")
 	waitForFileContent(t, dagu.ProjectPath("snapshot.txt"), "production\n")
 }
 

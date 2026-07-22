@@ -247,17 +247,6 @@ func (m *mockQueueStore) Enqueue(ctx context.Context, name string, priority exec
 	return args.Error(0)
 }
 
-func (m *mockQueueStore) EnsureEnqueued(
-	ctx context.Context,
-	name string,
-	priority exec.QueuePriority,
-	dagRun exec.DAGRunRef,
-	key string,
-) error {
-	args := m.Called(ctx, name, priority, dagRun, key)
-	return args.Error(0)
-}
-
 func (m *mockQueueStore) DequeueByName(ctx context.Context, name string) (exec.QueuedItemData, error) {
 	args := m.Called(ctx, name)
 	if args.Get(0) == nil {
