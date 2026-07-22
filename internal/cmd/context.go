@@ -443,6 +443,11 @@ func commandFamilyName(cmd *cobra.Command) string {
 	if isContextCommand(cmd) {
 		return "context"
 	}
+	for current := cmd; current != nil; current = current.Parent() {
+		if current.Name() == "controller" {
+			return "controller"
+		}
+	}
 	return cmd.Name()
 }
 

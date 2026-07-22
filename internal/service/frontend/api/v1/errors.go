@@ -12,8 +12,9 @@ import (
 )
 
 type errorResponse struct {
-	Code    api.ErrorCode `json:"code"`
-	Message string        `json:"message,omitempty"`
+	Code    api.ErrorCode  `json:"code"`
+	Message string         `json:"message,omitempty"`
+	Details map[string]any `json:"details,omitempty"`
 }
 
 // ErrInvalidRequestBody is returned when a request body is missing or invalid.
@@ -32,6 +33,7 @@ func WriteErrorResponse(w http.ResponseWriter, err error) {
 		status = apiErr.HTTPStatus
 		resp.Code = apiErr.Code
 		resp.Message = apiErr.Message
+		resp.Details = apiErr.Details
 	}
 
 	w.WriteHeader(status)
@@ -46,6 +48,8 @@ type Error struct {
 	HTTPStatus int
 	// Message is the error message to return.
 	Message string
+	// Details contains structured client-facing error information.
+	Details map[string]any
 }
 
 // Error returns the error message.

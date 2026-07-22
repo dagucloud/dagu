@@ -58,6 +58,9 @@ type Scheduler struct {
 	eventCollector      eventCollector
 	notificationMonitor backgroundRunner
 	incidentMonitor     backgroundRunner
+	controllerRunner    backgroundRunner
+	controllerCancel    context.CancelFunc
+	controllerWG        sync.WaitGroup
 }
 
 type schedulerHooks struct {
@@ -303,6 +306,15 @@ func (s *Scheduler) SetIncidentMonitor(monitor backgroundRunner) {
 		return
 	}
 	s.incidentMonitor = monitor
+}
+
+// SetControllerRunner configures the scheduler-owned Controller runner.
+// This must be called before Start().
+func (s *Scheduler) SetControllerRunner(runner backgroundRunner) {
+	if s == nil {
+		return
+	}
+	s.controllerRunner = runner
 }
 
 // SetDAGRunLeaseStore configures the shared distributed lease store used for
@@ -613,6 +625,10 @@ func (s *Scheduler) Start(ctx context.Context) error {
 		s.startIncidentMonitor(ctx)
 	})
 
+	if runController := s.prepareControllerRunner(ctx); runController != nil {
+		wg.Go(runController)
+	}
+
 	wg.Go(func() {
 		s.entryReader.Start(ctx)
 	})
@@ -685,6 +701,31 @@ func (s *Scheduler) startIncidentMonitor(ctx context.Context) {
 		return
 	}
 	s.incidentMonitor.Run(ctx)
+}
+
+func (s *Scheduler) prepareControllerRunner(ctx context.Context) func() {
+	if s.controllerRunner == nil {
+		return nil
+	}
+
+	runCtx, cancel := context.WithCancel(ctx)
+	s.lock.Lock()
+	select {
+	case <-s.quit:
+		s.lock.Unlock()
+		cancel()
+		return nil
+	default:
+	}
+	s.controllerCancel = cancel
+	s.controllerWG.Add(1)
+	runner := s.controllerRunner
+	s.lock.Unlock()
+
+	return func() {
+		defer s.controllerWG.Done()
+		runner.Run(runCtx)
+	}
 }
 
 func (s *Scheduler) startHeartbeat(ctx context.Context) {
@@ -806,17 +847,23 @@ func (s *Scheduler) Stop(ctx context.Context) {
 		wg.Add(3)
 
 		var startupCancel context.CancelFunc
+		var controllerCancel context.CancelFunc
 		var zd *ZombieDetector
 		s.lifecycleMu.Lock()
 		startupCancel = s.startupCancel
 		s.lock.Lock()
 		close(s.quit)
 		zd = s.zombieDetector
+		controllerCancel = s.controllerCancel
+		s.controllerCancel = nil
 		s.lock.Unlock()
 		s.lifecycleMu.Unlock()
 
 		if startupCancel != nil {
 			startupCancel()
+		}
+		if controllerCancel != nil {
+			controllerCancel()
 		}
 
 		go func() {
@@ -844,6 +891,10 @@ func (s *Scheduler) Stop(ctx context.Context) {
 		}
 
 		s.planner.Stop(ctx)
+
+		// Controller mutations must drain while this scheduler still owns the
+		// active lock so a replacement scheduler cannot reconcile concurrently.
+		s.controllerWG.Wait()
 
 		s.releaseDirLock(ctx, "Failed to release scheduler lock in Stop")
 

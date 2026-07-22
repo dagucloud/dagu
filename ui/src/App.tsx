@@ -42,7 +42,7 @@ import {
 import { UserRole } from './api/v1/schema';
 import LoginPage from './pages/login';
 import SetupPage from './pages/setup';
-import LoadingIndicator from './components/ui/loading-indicator';
+import LoadingIndicator from '@/components/ui/loading-indicator';
 
 const AdministrationPage = React.lazy(() => import('./pages/administration'));
 const APIKeysPage = React.lazy(() => import('./pages/api-keys'));
@@ -53,6 +53,13 @@ const DAGRuns = React.lazy(() => import('./pages/dag-runs'));
 const DAGRunDetails = React.lazy(() => import('./pages/dag-runs/dag-run'));
 const DAGs = React.lazy(() => import('./pages/dags'));
 const DAGDetails = React.lazy(() => import('./pages/dags/dag'));
+const ControllersPage = React.lazy(() => import('./pages/controllers'));
+const ControllerStatusPage = React.lazy(
+  () => import('./pages/controllers/controller/status')
+);
+const ControllerSpecPage = React.lazy(
+  () => import('./pages/controllers/controller/spec')
+);
 const EventLogsPage = React.lazy(() => import('./pages/event-logs'));
 const GitSyncPage = React.lazy(() => import('./pages/git-sync'));
 const HomePage = React.lazy(() => import('./pages/home'));
@@ -660,6 +667,22 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
                                         }
                                       />
                                       <Route path="/dags/" element={<DAGs />} />
+                                      <Route
+                                        path="/controllers"
+                                        element={<ControllersPage />}
+                                      />
+                                      <Route
+                                        path="/controllers/new/spec"
+                                        element={<ControllerSpecPage isNew />}
+                                      />
+                                      <Route
+                                        path="/controllers/:id/status"
+                                        element={<ControllerStatusPage />}
+                                      />
+                                      <Route
+                                        path="/controllers/:id/spec"
+                                        element={<ControllerSpecPage />}
+                                      />
                                       <Route
                                         path="/dags/:fileName/:tab"
                                         element={<DAGDetails />}

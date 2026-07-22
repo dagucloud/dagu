@@ -94,6 +94,7 @@ type API struct {
 	schedulerStateStore  scheduler.WatermarkStore
 	dagMutationNotifier  func(fileName string)
 	baseConfigFactory    WorkspaceBaseConfigStoreFactory
+	controllerService    ControllerService
 }
 
 type WorkspaceBaseConfigStoreFactory func(dagsDir, workspaceName string) (baseconfig.Store, error)
@@ -300,6 +301,13 @@ func WithDAGMutationNotifier(fn func(fileName string)) APIOption {
 	}
 }
 
+// WithControllerService sets the Controller application service.
+func WithControllerService(service ControllerService) APIOption {
+	return func(a *API) {
+		a.controllerService = service
+	}
+}
+
 // WithDAGRunLeaseStore sets the shared distributed run lease store.
 func WithDAGRunLeaseStore(store exec.DAGRunLeaseStore) APIOption {
 	return func(a *API) {
@@ -359,6 +367,9 @@ func New(
 
 	for _, opt := range opts {
 		opt(a)
+	}
+	if a.controllerService == nil {
+		a.controllerService = newControllerService(cfg.Paths.DataDir, dr)
 	}
 	a.requireValidBaseConfigWiring()
 
@@ -711,7 +722,17 @@ func (a *API) handleError(w http.ResponseWriter, r *http.Request, err error) {
 	_ = json.NewEncoder(w).Encode(api.Error{
 		Code:    code,
 		Message: message,
+		Details: errorDetails(err),
 	})
+}
+
+func errorDetails(err error) *map[string]any {
+	var apiErr *Error
+	if !errors.As(err, &apiErr) || len(apiErr.Details) == 0 {
+		return nil
+	}
+	details := apiErr.Details
+	return &details
 }
 
 func (a *API) resolveError(err error) (api.ErrorCode, string, int) {

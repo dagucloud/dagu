@@ -3083,6 +3083,125 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/controllers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List controllers
+         * @description Returns controllers visible in the selected workspace scope. Runtime context is omitted.
+         */
+        get: operations["listControllers"];
+        put?: never;
+        /**
+         * Create a controller
+         * @description Validates an ID-less Controller YAML specification, assigns an immutable ID, and saves it.
+         */
+        post: operations["createController"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/controllers/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Immutable Controller identifier */
+                id: components["parameters"]["ControllerId"];
+            };
+            cookie?: never;
+        };
+        /** Get a controller */
+        get: operations["getController"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete a controller
+         * @description Deletes an inactive Controller definition and runtime snapshot.
+         */
+        delete: operations["deleteController"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/controllers/{id}/spec": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Update a controller specification
+         * @description Validates and replaces an inactive Controller definition.
+         */
+        put: operations["updateControllerSpec"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/controllers/{id}/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start a controller */
+        post: operations["startController"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/controllers/{id}/prompt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resume a waiting controller with a prompt */
+        post: operations["promptController"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/controllers/{id}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Stop a controller */
+        post: operations["stopController"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/workspaces": {
         parameters: {
             query?: never;
@@ -3354,6 +3473,164 @@ export interface components {
             required?: string[];
             /** @description Optional step name to restart from when the approver pushes the step back. Must reference the step itself or an upstream dependency. */
             rewindTo?: string;
+        };
+        /** @description Immutable server-generated Controller identifier */
+        ControllerId: string;
+        ControllerSpecRequest: {
+            /** @description Controller definition in YAML format */
+            spec: string;
+        };
+        ControllerCreateResponse: {
+            id: components["schemas"]["ControllerId"];
+        };
+        ControllerMutationResponse: {
+            id: components["schemas"]["ControllerId"];
+        };
+        ControllerRouterLLMConfig: {
+            /**
+             * @description Registered LLM provider name
+             * @enum {string}
+             */
+            provider: ControllerRouterLLMConfigProvider;
+            /** @description Provider-specific model identifier */
+            model: string;
+            /** @description Optional Controller Router system prompt template */
+            system?: string;
+        };
+        ControllerTransition: {
+            /** @description Destination state name */
+            to: string;
+            /** @description Natural-language transition condition */
+            when: string;
+        };
+        ControllerState: {
+            /** @description Meaning and routing policy for this state */
+            description: string;
+            /** @description DAGs callable while the Controller is in this state */
+            dags: string[];
+            transitions: components["schemas"]["ControllerTransition"][];
+            /**
+             * @description Optional terminal outcome reached when this state is entered
+             * @enum {string}
+             */
+            terminal?: ControllerStateTerminal;
+        };
+        ControllerDefinition: {
+            /** @enum {string} */
+            type: ControllerDefinitionType;
+            /** @enum {integer} */
+            version: ControllerDefinitionVersion;
+            id: components["schemas"]["ControllerId"];
+            /** @description User-facing Controller name */
+            name: string;
+            description: string;
+            maxTurns: number;
+            labels: string[];
+            llm: components["schemas"]["ControllerRouterLLMConfig"];
+            /** @description Controller-wide DAG allowlist */
+            dags: string[];
+            states: {
+                [key: string]: components["schemas"]["ControllerState"];
+            };
+        };
+        ControllerValidationIssue: {
+            code: string;
+            /** @description Canonical Controller field path */
+            path: string;
+            message: string;
+            line?: number;
+            column?: number;
+        };
+        ControllerToolFunction: {
+            name: string;
+            arguments: string;
+        };
+        ControllerToolCall: {
+            id: string;
+            /** @enum {string} */
+            type: ControllerToolCallType;
+            function: components["schemas"]["ControllerToolFunction"];
+        };
+        /** @description A bounded Controller Router context message */
+        ControllerContextMessage: {
+            /** @enum {string} */
+            role: ControllerContextMessageRole;
+            content?: string;
+            tool_calls?: components["schemas"]["ControllerToolCall"][];
+            tool_call_id?: string;
+            name?: string;
+            metadata?: components["schemas"]["ChatMessageMetadata"];
+        };
+        ControllerDAGRunRef: {
+            state: string;
+            dag: string;
+            dagRunId: components["schemas"]["DAGRunId"];
+        };
+        ControllerListDAGRun: {
+            state: string;
+            dag: string;
+            dagRunId: components["schemas"]["DAGRunId"];
+            status?: components["schemas"]["Status"];
+            statusLabel?: components["schemas"]["StatusLabel"];
+        };
+        ControllerLastError: {
+            code: string;
+            message?: string;
+        };
+        ControllerRuntime: {
+            status: components["schemas"]["Status"];
+            statusLabel: components["schemas"]["StatusLabel"];
+            currentState: string;
+            turnCount: number;
+            waitingQuestion?: string;
+            activeDAGRun?: components["schemas"]["ControllerDAGRunRef"];
+            dagRunRefs: components["schemas"]["ControllerDAGRunRef"][];
+            context: components["schemas"]["ControllerContextMessage"][];
+            /** Format: date-time */
+            startedAt?: string;
+            /** Format: date-time */
+            updatedAt?: string;
+            /** Format: date-time */
+            finishedAt?: string;
+            lastError?: components["schemas"]["ControllerLastError"];
+        };
+        ControllerSummary: {
+            id: components["schemas"]["ControllerId"];
+            name: string;
+            description?: string;
+            /** @description Effective workspace, empty for the default workspace */
+            workspace: string;
+            status: components["schemas"]["Status"];
+            statusLabel: components["schemas"]["StatusLabel"];
+            currentState: string;
+            turnCount: number;
+            maxTurns: number;
+            waitingQuestion?: string;
+            activeDAGRun?: components["schemas"]["ControllerDAGRunRef"];
+            latestDAGRun?: components["schemas"]["ControllerListDAGRun"];
+            lastError?: components["schemas"]["ControllerLastError"];
+            /** Format: date-time */
+            finishedAt?: string;
+            /** Format: date-time */
+            resourceUpdatedAt: string;
+        };
+        ControllerListResponse: {
+            controllers: components["schemas"]["ControllerSummary"][];
+        };
+        ControllerDetail: {
+            id: components["schemas"]["ControllerId"];
+            definition: components["schemas"]["ControllerDefinition"];
+            runtime: components["schemas"]["ControllerRuntime"];
+            dagRuns: components["schemas"]["DAGRunSummary"][];
+            /** @description Persisted Controller YAML specification */
+            spec: string;
+            errors: components["schemas"]["ControllerValidationIssue"][];
+            warnings: components["schemas"]["ControllerValidationIssue"][];
+            /** Format: date-time */
+            resourceUpdatedAt: string;
+        };
+        ControllerPromptRequest: {
+            prompt: string;
         };
         /** @description Generic error response object */
         Error: {
@@ -5727,6 +6004,8 @@ export interface components {
         UserId: string;
         /** @description unique identifier of the API key */
         APIKeyId: string;
+        /** @description Immutable Controller identifier */
+        ControllerId: components["schemas"]["ControllerId"];
         /** @description number of items per page (default is 30, max is 100) */
         PerPage: number;
         /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
@@ -16191,6 +16470,473 @@ export interface operations {
             };
         };
     };
+    listControllers: {
+        parameters: {
+            query?: {
+                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
+                workspace?: components["parameters"]["Workspace"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Visible controllers */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ControllerListResponse"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    createController: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ControllerSpecRequest"];
+            };
+        };
+        responses: {
+            /** @description Controller created */
+            201: {
+                headers: {
+                    /** @description Path of the created Controller resource */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ControllerCreateResponse"];
+                };
+            };
+            /** @description Invalid Controller specification */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Insufficient permission for the target workspace */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Controller conflicts with an existing resource */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getController: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Immutable Controller identifier */
+                id: components["parameters"]["ControllerId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Controller definition and current runtime snapshot */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ControllerDetail"];
+                };
+            };
+            /** @description Controller not found or not visible */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    deleteController: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Immutable Controller identifier */
+                id: components["parameters"]["ControllerId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Controller deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Insufficient permission for the Controller workspace */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Controller not found or not visible */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Controller is active */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    updateControllerSpec: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Immutable Controller identifier */
+                id: components["parameters"]["ControllerId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ControllerSpecRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated Controller */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ControllerDetail"];
+                };
+            };
+            /** @description Invalid Controller specification */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Insufficient permission for the Controller workspace */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Controller not found or not visible */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Controller is active or resource identity changed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    startController: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Immutable Controller identifier */
+                id: components["parameters"]["ControllerId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ControllerPromptRequest"];
+            };
+        };
+        responses: {
+            /** @description Controller start accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ControllerMutationResponse"];
+                };
+            };
+            /** @description Invalid prompt or Controller definition */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Insufficient execution permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Controller not found or not visible */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Controller cannot be started in its current state */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    promptController: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Immutable Controller identifier */
+                id: components["parameters"]["ControllerId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ControllerPromptRequest"];
+            };
+        };
+        responses: {
+            /** @description Controller prompt accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ControllerMutationResponse"];
+                };
+            };
+            /** @description Invalid prompt */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Insufficient execution permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Controller not found or not visible */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Controller is not waiting for a prompt */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    stopController: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Immutable Controller identifier */
+                id: components["parameters"]["ControllerId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Controller stop accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ControllerMutationResponse"];
+                };
+            };
+            /** @description Insufficient execution permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Controller not found or not visible */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Controller cannot be stopped in its current state */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     listWorkspaces: {
         parameters: {
             query?: {
@@ -16396,6 +17142,29 @@ export enum ChatMessageRole {
     assistant = "assistant",
     tool = "tool"
 }
+export enum ControllerRouterLLMConfigProvider {
+    openai = "openai",
+    anthropic = "anthropic",
+    gemini = "gemini"
+}
+export enum ControllerStateTerminal {
+    succeeded = "succeeded",
+    failed = "failed"
+}
+export enum ControllerDefinitionType {
+    controller = "controller"
+}
+export enum ControllerDefinitionVersion {
+    Value1 = 1
+}
+export enum ControllerToolCallType {
+    function = "function"
+}
+export enum ControllerContextMessageRole {
+    user = "user",
+    assistant = "assistant",
+    tool = "tool"
+}
 export enum ErrorCode {
     forbidden = "forbidden",
     bad_request = "bad_request",
@@ -16407,6 +17176,9 @@ export enum ErrorCode {
     max_run_reached = "max_run_reached",
     not_running = "not_running",
     already_exists = "already_exists",
+    conflict = "conflict",
+    controller_validation_failed = "controller_validation_failed",
+    controller_runtime_corrupt = "controller_runtime_corrupt",
     auth_unauthorized = "auth.unauthorized",
     auth_token_invalid = "auth.token_invalid",
     auth_forbidden = "auth.forbidden",

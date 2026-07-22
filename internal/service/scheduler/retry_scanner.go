@@ -310,6 +310,29 @@ func (s *RetryScanner) evaluateRetryDecision(
 	}
 }
 
+func (s *RetryScanner) autoRetryPending(status *exec.DAGRunStatus) bool {
+	if s == nil || s.retryWindow <= 0 || !exec.CanCancelFailedAutoRetryPendingRun(status) {
+		return false
+	}
+	clock := s.clock
+	if clock == nil {
+		clock = time.Now
+	}
+	now := clock().UTC()
+	if status.CreatedAt <= 0 || time.UnixMilli(status.CreatedAt).UTC().Before(now.Add(-s.retryWindow)) {
+		return false
+	}
+	metadata, ok := retryMetadataFromStatus(status)
+	if !ok {
+		return false
+	}
+	if _, ok := retryReferenceTime(status); !ok {
+		return false
+	}
+	decision := s.evaluateRetryDecision(context.Background(), status, metadata, now)
+	return decision.enqueue || decision.reason == "backoff_not_elapsed"
+}
+
 func dagRetryDelay(interval time.Duration, backoff float64, maxInterval time.Duration, retryCount int) time.Duration {
 	return core.CalculateBackoffInterval(interval, backoff, maxInterval, retryCount)
 }

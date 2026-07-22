@@ -33,6 +33,7 @@ const STATIC_ROUTE_LABELS: Record<string, string> = {
   '/incident-providers': 'Incident Connections',
   '/incident-policies': 'Incident Routing',
   '/dags': 'DAGs',
+  '/controllers': 'Controllers',
   '/search': 'Search',
   '/base-config': 'Base Config',
   '/queues': 'Queues',
@@ -86,6 +87,26 @@ export function getBreadcrumbItems(pathname: string): BreadcrumbItemData[] {
       });
     }
     if (segments[2]) {
+      items.push({ label: humanizePathSegment(segments[2]) });
+    }
+    return items;
+  }
+
+  if (segments[0] === 'controllers') {
+    items.push(
+      { label: 'Workflows' },
+      { label: 'Controllers', to: '/controllers' }
+    );
+    if (segments[1] && segments[1] !== 'new') {
+      items.push({
+        label: decodePathSegment(segments[1]),
+        to: `/controllers/${segments[1]}/status`,
+      });
+    }
+    if (segments[1] === 'new') {
+      items.push({ label: 'New' });
+    }
+    if (segments[2] && segments[1] !== 'new') {
       items.push({ label: humanizePathSegment(segments[2]) });
     }
     return items;

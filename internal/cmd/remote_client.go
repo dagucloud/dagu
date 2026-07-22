@@ -88,6 +88,36 @@ func (c *remoteClient) getCurrentUser(ctx context.Context) (*api.UserResponse, e
 	return &out, nil
 }
 
+func (c *remoteClient) listControllers(ctx context.Context) ([]api.ControllerSummary, error) {
+	var out api.ControllerListResponse
+	if err := c.do(ctx, http.MethodGet, "/controllers", nil, &out, nil); err != nil {
+		return nil, err
+	}
+	return out.Controllers, nil
+}
+
+func (c *remoteClient) getController(ctx context.Context, id string) (*api.ControllerDetail, error) {
+	var out api.ControllerDetail
+	if err := c.do(ctx, http.MethodGet, "/controllers/"+url.PathEscape(id), nil, &out, nil); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *remoteClient) startController(ctx context.Context, id, prompt string) error {
+	body := api.ControllerPromptRequest{Prompt: prompt}
+	return c.do(ctx, http.MethodPost, "/controllers/"+url.PathEscape(id)+"/start", body, nil, nil)
+}
+
+func (c *remoteClient) promptController(ctx context.Context, id, prompt string) error {
+	body := api.ControllerPromptRequest{Prompt: prompt}
+	return c.do(ctx, http.MethodPost, "/controllers/"+url.PathEscape(id)+"/prompt", body, nil, nil)
+}
+
+func (c *remoteClient) stopController(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodPost, "/controllers/"+url.PathEscape(id)+"/stop", nil, nil, nil)
+}
+
 func (c *remoteClient) getDAGByFileName(ctx context.Context, fileName string) (*api.DAGFile, error) {
 	var out api.DAGFile
 	err := c.do(ctx, http.MethodGet, "/dags/"+url.PathEscape(fileName), nil, &out, nil)

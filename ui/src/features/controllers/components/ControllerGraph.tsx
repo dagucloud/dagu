@@ -1,0 +1,173 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+import * as React from 'react';
+import { ArrowDownUp, ArrowRightLeft, ZoomIn, ZoomOut } from 'lucide-react';
+
+import Mermaid from '@/components/ui/mermaid';
+import { Button } from '@/components/ui/button';
+import type { ControllerDefinition } from '../types';
+
+type Direction = 'TD' | 'LR';
+
+function mermaidLabel(value: string): string {
+  return value
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, "'")
+    .replace(/\r?\n/g, ' ')
+    .replace(/[<>]/g, '');
+}
+
+function shortCondition(value: string): string {
+  const firstLine = value.split(/\r?\n/, 1)[0] ?? '';
+  return firstLine.length > 64 ? `${firstLine.slice(0, 61)}…` : firstLine;
+}
+
+export function controllerGraphDefinition(
+  definition: ControllerDefinition,
+  currentState: string | undefined,
+  direction: Direction
+): { mermaid: string; edgeConditions: string[] } {
+  const stateEntries = Object.entries(definition.states);
+  const ids = new Map(
+    stateEntries.map(([name], index) => [name, `controller_state_${index}`])
+  );
+  const lines = [`flowchart ${direction}`];
+  const edgeConditions: string[] = [];
+
+  for (const [name, state] of stateEntries) {
+    const id = ids.get(name)!;
+    const markers = [name === 'default' ? '● initial' : ''];
+    if (state.dags.length > 0) markers.push(`DAG: ${state.dags.join(', ')}`);
+    if (state.terminal) markers.push(`Terminal: ${state.terminal}`);
+    const label = mermaidLabel([name, ...markers.filter(Boolean)].join('\\n'));
+    const shape = state.terminal ? `[["${label}"]]` : `["${label}"]`;
+    const classes = [
+      state.terminal === 'succeeded' ? 'terminalSuccess' : '',
+      state.terminal === 'failed' ? 'terminalFailed' : '',
+      name === currentState ? 'current' : '',
+    ].filter(Boolean);
+    lines.push(
+      `${id}${shape}${classes.length ? `:::${classes.join(',')}` : ''};`
+    );
+  }
+
+  for (const [name, state] of stateEntries) {
+    const source = ids.get(name)!;
+    for (const transition of state.transitions) {
+      const target = ids.get(transition.to);
+      if (!target) continue;
+      lines.push(
+        `${source} -->|"${mermaidLabel(shortCondition(transition.when))}"| ${target};`
+      );
+      edgeConditions.push(transition.when);
+    }
+  }
+
+  lines.push(
+    'classDef current fill:#eef2ff,stroke:#7c3aed,stroke-width:4px,color:#111827;'
+  );
+  lines.push('classDef terminalSuccess stroke:#22c55e,stroke-width:3px;');
+  lines.push('classDef terminalFailed stroke:#ef4444,stroke-width:3px;');
+  return { mermaid: lines.join('\n'), edgeConditions };
+}
+
+function addEdgeTitles(
+  container: HTMLDivElement,
+  conditions: readonly string[]
+): void {
+  container
+    .querySelectorAll<SVGGElement>('g.edgePath')
+    .forEach((edge, index) => {
+      const condition = conditions[index];
+      if (!condition) return;
+      edge.querySelector('title')?.remove();
+      const title = document.createElementNS(
+        'http://www.w3.org/2000/svg',
+        'title'
+      );
+      title.textContent = condition;
+      edge.prepend(title);
+    });
+  container.querySelectorAll<SVGGElement>('g.node.current').forEach((node) => {
+    node.classList.add('animate-pulse');
+  });
+}
+
+export function ControllerGraph({
+  definition,
+  currentState,
+}: {
+  definition: ControllerDefinition;
+  currentState?: string;
+}) {
+  const [direction, setDirection] = React.useState<Direction>('TD');
+  const [scale, setScale] = React.useState(1);
+  const graph = React.useMemo(
+    () => controllerGraphDefinition(definition, currentState, direction),
+    [currentState, definition, direction]
+  );
+  const onRender = React.useCallback(
+    (container: HTMLDivElement) =>
+      addEdgeTitles(container, graph.edgeConditions),
+    [graph.edgeConditions]
+  );
+
+  return (
+    <div className="relative min-h-[360px] overflow-hidden rounded-md border border-border bg-card">
+      <div className="absolute right-2 top-2 z-10 flex gap-1 rounded-md border border-border bg-card p-1 shadow-sm">
+        <Button
+          variant={direction === 'TD' ? 'primary' : 'ghost'}
+          size="icon-sm"
+          aria-label="Vertical graph layout"
+          onClick={() => setDirection('TD')}
+        >
+          <ArrowDownUp className="h-4 w-4" />
+        </Button>
+        <Button
+          variant={direction === 'LR' ? 'primary' : 'ghost'}
+          size="icon-sm"
+          aria-label="Horizontal graph layout"
+          onClick={() => setDirection('LR')}
+        >
+          <ArrowRightLeft className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label="Zoom in"
+          onClick={() => setScale((value) => Math.min(2, value + 0.1))}
+        >
+          <ZoomIn className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label="Zoom out"
+          onClick={() => setScale((value) => Math.max(0.4, value - 0.1))}
+        >
+          <ZoomOut className="h-4 w-4" />
+        </Button>
+      </div>
+      <Mermaid
+        def={graph.mermaid}
+        scale={scale}
+        nodeIds={Object.keys(definition.states).map(
+          (_, index) => `controller_state_${index}`
+        )}
+        onRender={onRender}
+        style={{ minHeight: 360, paddingTop: 32 }}
+        fallback={
+          <ol className="space-y-2 p-6 text-sm">
+            {Object.entries(definition.states).map(([name, state]) => (
+              <li key={name}>
+                <strong>{name}</strong>
+                {state.terminal ? ` — terminal ${state.terminal}` : ''}
+              </li>
+            ))}
+          </ol>
+        }
+      />
+    </div>
+  );
+}

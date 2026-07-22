@@ -23,11 +23,24 @@ import (
 	"github.com/dagucloud/dagu/internal/remotenode"
 )
 
-// WithRemoteNode is a middleware that checks if the request has a "remoteNode" query parameter.
-// If it does, it proxies the request to the specified remote node.
+// WithRemoteNode proxies supported API requests that select a remote node.
+// Controller requests are local-only and reject remote-node selection.
 func WithRemoteNode(resolver *remotenode.Resolver, apiBasePath string) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		fn := func(w http.ResponseWriter, r *http.Request) {
+			if isControllerAPIPath(r.URL.Path, apiBasePath) {
+				if _, present := r.URL.Query()["remoteNode"]; present {
+					WriteErrorResponse(w, &Error{
+						HTTPStatus: http.StatusBadRequest,
+						Code:       api.ErrorCodeBadRequest,
+						Message:    "controller endpoints do not support remoteNode",
+					})
+					return
+				}
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			remoteNodeName := r.URL.Query().Get("remoteNode")
 			if remoteNodeName == "" || remoteNodeName == "local" {
 				next.ServeHTTP(w, r)
@@ -148,6 +161,11 @@ func WithRemoteNode(resolver *remotenode.Resolver, apiBasePath string) func(next
 
 		return http.HandlerFunc(fn)
 	}
+}
+
+func isControllerAPIPath(requestPath, apiBasePath string) bool {
+	controllersPath := strings.TrimRight(apiBasePath, "/") + "/controllers"
+	return requestPath == controllersPath || strings.HasPrefix(requestPath, controllersPath+"/")
 }
 
 type remoteNodeProxy struct {

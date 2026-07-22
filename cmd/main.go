@@ -59,6 +59,7 @@ func init() {
 	rootCmd.AddCommand(cmd.ContextCommand())
 	rootCmd.AddCommand(cmd.Profile())
 	rootCmd.AddCommand(cmd.HumanTask())
+	rootCmd.AddCommand(cmd.Controller())
 
 	config.Version = version
 }

@@ -49,6 +49,7 @@ type NavItemProps = {
   to: string;
   icon?: React.ReactNode;
   text: string;
+  badge?: string;
   isOpen: boolean;
   onClick?: () => void;
   customColor?: boolean;
@@ -163,6 +164,7 @@ function NavItem({
   to,
   icon,
   text,
+  badge,
   isOpen,
   onClick,
   customColor = false,
@@ -208,7 +210,7 @@ function NavItem({
         {icon && <div className={iconClassName}>{icon}</div>}
         <span
           className={cn(
-            'text-sm font-medium whitespace-nowrap overflow-hidden',
+            'flex items-center gap-2 text-sm font-medium whitespace-nowrap overflow-hidden',
             isActive ? 'text-sidebar-foreground' : 'text-sidebar-foreground'
           )}
           style={{
@@ -219,7 +221,12 @@ function NavItem({
             transform: isOpen ? 'translateX(0)' : 'translateX(-8px)',
           }}
         >
-          {text}
+          <span>{text}</span>
+          {badge && (
+            <span className="rounded-sm border border-warning/30 bg-warning/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-warning">
+              {badge}
+            </span>
+          )}
         </span>
       </Link>
     </div>
@@ -647,11 +654,25 @@ export const mainListItems = React.forwardRef<
             icon={<Network size={18} />}
             label="Workflows"
             isOpen={isOpen}
-            basePath={['/dags', '/search', '/base-config', '/git-sync']}
+            basePath={[
+              '/dags',
+              '/controllers',
+              '/search',
+              '/base-config',
+              '/git-sync',
+            ]}
             to="/dags"
             onClick={onNavItemClick}
             customColor={customColor}
           >
+            <NavItem
+              to="/controllers"
+              text="Controllers"
+              badge="Experimental"
+              isOpen={isOpen}
+              onClick={onNavItemClick}
+              customColor={customColor}
+            />
             <NavItem
               to="/search"
               text="Search"

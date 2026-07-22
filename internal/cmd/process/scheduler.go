@@ -15,6 +15,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
+	"github.com/dagucloud/dagu/internal/controller"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/license"
@@ -110,6 +111,20 @@ func NewScheduler(cfg SchedulerConfig) (*scheduler.Scheduler, error) {
 
 	sched.SetDAGRunLeaseStore(cfg.DAGRunLeaseStore)
 	sched.SetDispatchTaskStore(cfg.DispatchTaskStore)
+
+	controllerStores := controller.NewFileStores(cfg.Config.Paths.DataDir)
+	controllerValidator := controller.NewValidator(controller.NewDAGStoreResolver(dagStore))
+	controllerRouter := controller.NewRouter(nil, controller.NewRoutingDAGStoreResolver(dagStore))
+	controllerChildren := sched.NewControllerChildRunGateway(dagStore, &schedulerRunManager)
+	sched.SetControllerRunner(controller.NewRunner(
+		controllerStores.Definitions,
+		controllerStores.Runtimes,
+		controllerStores.Locker,
+		controllerValidator,
+		controllerRouter,
+		controllerChildren,
+		controller.DAGRunIDGeneratorFunc(schedulerRunManager.GenDAGRunID),
+	))
 
 	return sched, nil
 }
