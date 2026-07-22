@@ -422,7 +422,7 @@ func (c *Collection) collectIDs(prefix string) ([]string, error) {
 			return err
 		}
 		if d.IsDir() {
-			if d.Name() == dirlock.LockDirectoryName {
+			if dirlock.IsLockDirectoryName(d.Name()) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -455,7 +455,7 @@ func (c *Collection) collect(prefix string, since, until *time.Time) ([]*persis.
 			return err
 		}
 		if d.IsDir() {
-			if d.Name() == dirlock.LockDirectoryName {
+			if dirlock.IsLockDirectoryName(d.Name()) {
 				return filepath.SkipDir
 			}
 			return nil

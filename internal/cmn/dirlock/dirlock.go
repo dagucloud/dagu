@@ -98,9 +98,15 @@ var _ DirLock = (*dirLock)(nil)
 
 const (
 	// LockDirectoryName is the reserved directory name for lock metadata.
-	LockDirectoryName = ".dagu_lock"
-	lockOwnerFileName = "owner"
+	LockDirectoryName           = ".dagu_lock"
+	releasedLockDirectoryPrefix = LockDirectoryName + ".releasing."
+	lockOwnerFileName           = "owner"
 )
+
+// IsLockDirectoryName reports whether name is reserved for lock metadata.
+func IsLockDirectoryName(name string) bool {
+	return name == LockDirectoryName || strings.HasPrefix(name, releasedLockDirectoryPrefix)
+}
 
 // New creates a new directory lock instance
 func New(directory string, opts *LockOptions) DirLock {

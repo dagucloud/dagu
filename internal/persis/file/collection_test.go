@@ -473,9 +473,14 @@ func TestFileCollectionListingIgnoresLockMetadata(t *testing.T) {
 	}
 	require.NoError(t, col.Put(ctx, record))
 
-	lockDir := filepath.Join(root, "queue", dirlock.LockDirectoryName)
-	require.NoError(t, os.MkdirAll(lockDir, 0o750))
-	require.NoError(t, os.WriteFile(filepath.Join(lockDir, "metadata.json"), []byte(`{}`), 0o600))
+	for _, name := range []string{
+		dirlock.LockDirectoryName,
+		dirlock.LockDirectoryName + ".releasing.1234.test",
+	} {
+		lockDir := filepath.Join(root, "queue", name)
+		require.NoError(t, os.MkdirAll(lockDir, 0o750))
+		require.NoError(t, os.WriteFile(filepath.Join(lockDir, "metadata.json"), []byte(`{}`), 0o600))
+	}
 
 	recordIDs, ok := col.(interface {
 		RecordIDs(context.Context, string) ([]string, error)
