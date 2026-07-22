@@ -106,6 +106,7 @@ var builtinStepTypeNames = map[string]struct{}{
 	"state":         {},
 	"subworkflow":   {},
 	"template":      {},
+	"tenki":         {},
 	"wait":          {},
 }
 

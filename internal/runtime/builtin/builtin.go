@@ -32,5 +32,6 @@ import (
 	_ "github.com/dagucloud/dagu/internal/runtime/builtin/ssh"
 	_ "github.com/dagucloud/dagu/internal/runtime/builtin/state"
 	_ "github.com/dagucloud/dagu/internal/runtime/builtin/template"
+	_ "github.com/dagucloud/dagu/internal/runtime/builtin/tenki"
 	_ "github.com/dagucloud/dagu/internal/runtime/builtin/wait"
 )

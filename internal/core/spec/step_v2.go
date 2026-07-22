@@ -91,6 +91,7 @@ var builtinActionNormalizers = map[string]actionNormalizer{
 	"state.list":          operationAction("state", "list"),
 	"state.set":           operationAction("state", "set"),
 	"template.render":     normalizeTemplateAction,
+	"tenki.run":           commandAction("tenki", "command"),
 	"wait.duration":       operationAction("wait", "duration"),
 	"wait.file":           operationAction("wait", "file"),
 	"wait.http":           operationAction("wait", "http"),

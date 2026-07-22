@@ -404,6 +404,31 @@ steps:
       command: cd /var/www && git pull && systemctl restart app
 ```
 
+### Tenki sandbox execution
+
+Run a step inside an ephemeral [Tenki Cloud](https://tenki.cloud) sandbox. Set `TENKI_API_KEY` and `TENKI_PROJECT_ID` in the environment (or pass `api_key` / `project_id` in `with:`); the sandbox is created, the command runs with output streamed back, and the sandbox is terminated when the step finishes.
+
+```yaml
+steps:
+  - name: run-in-sandbox
+    type: tenki
+    with:
+      env:
+        - GREETING=Hello
+    command: echo "$GREETING from Tenki sandboxes"
+```
+
+Reuse an existing sandbox with `session_id` (it is left running):
+
+```yaml
+steps:
+  - name: exec-in-existing
+    action: tenki.run
+    with:
+      session_id: <existing-session-id>
+      command: uname -a
+```
+
 ### Sub-DAG composition
 
 ```yaml

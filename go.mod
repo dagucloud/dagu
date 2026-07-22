@@ -4,6 +4,7 @@ go 1.26.5
 
 require (
 	dario.cat/mergo v1.0.2
+	github.com/TenkiCloud/tenki-sdk-go/sandbox v0.4.0
 	github.com/adrg/xdg v0.5.3
 	github.com/aquaproj/aqua/v2 v2.58.1
 	github.com/bmatcuk/doublestar/v4 v4.8.1
@@ -69,9 +70,11 @@ require (
 
 require (
 	al.essio.dev/pkg/shellescape v1.5.1 // indirect
+	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20260415201107-50325440f8f2.1 // indirect
 	charm.land/lipgloss/v2 v2.0.3 // indirect
 	codeberg.org/chavacava/garif v0.2.0 // indirect
 	codeberg.org/polyfloyd/go-errorlint v1.9.0 // indirect
+	connectrpc.com/connect v1.20.0 // indirect
 	dev.gaijin.team/go/exhaustruct/v4 v4.0.0 // indirect
 	dev.gaijin.team/go/golib v0.6.0 // indirect
 	filippo.io/edwards25519 v1.1.1 // indirect
@@ -156,6 +159,7 @@ require (
 	github.com/google/go-github/v80 v80.0.0 // indirect
 	github.com/google/go-github/v85 v85.0.0 // indirect
 	github.com/google/wire v0.7.0 // indirect
+	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674 // indirect
 	github.com/gostaticanalysis/nilerr v0.1.2 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.28.0 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect

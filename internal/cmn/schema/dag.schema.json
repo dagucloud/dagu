@@ -2370,6 +2370,18 @@
         },
         {
           "if": {
+            "properties": { "action": { "const": "tenki.run" } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/tenkiExecutorConfig" }
+            }
+          }
+        },
+        {
+          "if": {
             "properties": { "action": { "enum": ["archive.create", "archive.extract", "archive.list"] } },
             "required": ["action"]
           },
@@ -2730,6 +2742,19 @@
               "with": { "$ref": "#/definitions/sshExecutorConfig" },
               "config": {
                 "$ref": "#/definitions/sshExecutorConfig",
+                "deprecated": true,
+                "doNotSuggest": true
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "type": { "const": "tenki" } }, "required": ["type"] },
+          "then": {
+            "properties": {
+              "with": { "$ref": "#/definitions/tenkiExecutorConfig" },
+              "config": {
+                "$ref": "#/definitions/tenkiExecutorConfig",
                 "deprecated": true,
                 "doNotSuggest": true
               }
@@ -3599,6 +3624,84 @@
         }
       },
       "description": "SSH executor configuration for remote command execution."
+    },
+    "tenkiExecutorConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Human-readable sandbox session name."
+        },
+        "image": {
+          "type": "string",
+          "description": "Tenki registry image ref to launch the sandbox from. If unset, uses the base image."
+        },
+        "cpu_cores": {
+          "type": "integer",
+          "description": "vCPU cores for a new sandbox (1-16)."
+        },
+        "memory_mb": {
+          "type": "integer",
+          "description": "Memory in MB for a new sandbox."
+        },
+        "session_id": {
+          "type": "string",
+          "description": "Reuse an existing sandbox session instead of creating one. The session is not terminated after the step."
+        },
+        "keep_session": {
+          "type": "boolean",
+          "default": false,
+          "description": "Keep a created sandbox running after the step instead of terminating it."
+        },
+        "create_timeout": {
+          "type": "string",
+          "description": "How long to wait for a new sandbox to become ready (e.g. '3m', '90s')."
+        },
+        "max_duration": {
+          "type": "string",
+          "description": "Lifetime cap for a created sandbox as a leak backstop (e.g. '1h'); '0s' defers to the server default."
+        },
+        "env": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Session environment variables in KEY=VALUE form."
+        },
+        "working_dir": {
+          "type": "string",
+          "description": "Working directory inside the sandbox."
+        },
+        "shell": {
+          "type": "string",
+          "description": "Shell used to run the command/script; defaults to /bin/sh. May embed args, e.g. '/bin/bash -o pipefail'."
+        },
+        "shell_args": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Additional shell arguments (e.g. ['-o', 'pipefail'])."
+        },
+        "api_key": {
+          "type": "string",
+          "description": "Tenki API key. Falls back to the TENKI_API_KEY environment variable."
+        },
+        "api_url": {
+          "type": "string",
+          "description": "Tenki API base URL. Falls back to TENKI_API_URL or the default endpoint."
+        },
+        "project_id": {
+          "type": "string",
+          "description": "Tenki project ID to create the sandbox in. Falls back to the TENKI_PROJECT_ID environment variable."
+        },
+        "workspace_id": {
+          "type": "string",
+          "description": "Tenki workspace ID to create the sandbox in. Falls back to the TENKI_WORKSPACE_ID environment variable."
+        },
+        "command": {
+          "type": "string",
+          "description": "Command to run in the sandbox; used by the tenki.run action form."
+        }
+      },
+      "description": "Tenki sandbox executor configuration for running commands in a Tenki Cloud sandbox."
     },
     "sftpExecutorConfig": {
       "type": "object",
@@ -6021,7 +6124,8 @@
         "action",
         "outputs",
         "sftp",
-        "template"
+        "template",
+        "tenki"
       ],
       "description": "Type of executor to use for this step, including aliases such as k8s / kubernetes."
     },
@@ -6096,6 +6200,7 @@
             "state.list",
             "state.set",
             "template.render",
+            "tenki.run",
             "wait.duration",
             "wait.file",
             "wait.http",
@@ -7428,6 +7533,14 @@
           "then": {
             "properties": {
               "config": { "$ref": "#/definitions/sshExecutorConfig" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "type": { "const": "tenki" } }, "required": ["type"] },
+          "then": {
+            "properties": {
+              "config": { "$ref": "#/definitions/tenkiExecutorConfig" }
             }
           }
         },
