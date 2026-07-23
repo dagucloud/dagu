@@ -60,9 +60,7 @@ func (a *API) compareAndSwapManualStatus(
 	if targetRef.Zero() {
 		return nil, false, errors.New("manual step DAG-run identity is incomplete")
 	}
-	opts := []exec.CompareAndSwapStatusOption{
-		exec.WithCompareAndSwapExpectedAttemptKey(status.AttemptKey),
-	}
+	var opts []exec.CompareAndSwapStatusOption
 	if mutationRef != targetRef {
 		opts = append(opts, exec.WithCompareAndSwapRootDAGRun(mutationRef))
 	}

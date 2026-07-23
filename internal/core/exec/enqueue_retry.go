@@ -72,13 +72,14 @@ func EnqueueRetry(
 			}
 			return nil
 		},
-		WithCompareAndSwapExpectedAttemptKey(status.AttemptKey),
 	)
 	if err != nil {
 		return false, fmt.Errorf("persist queued retry status: %w", err)
 	}
 	if !swapped {
-		if sameAttempt(status, updatedStatus) && updatedStatus.Status == core.Queued {
+		if updatedStatus != nil &&
+			updatedStatus.AttemptID == status.AttemptID &&
+			updatedStatus.Status == core.Queued {
 			return false, nil
 		}
 		return false, ErrRetryStaleLatest
@@ -99,13 +100,6 @@ func EnqueueRetry(
 	}
 
 	return true, nil
-}
-
-func sameAttempt(expected, current *DAGRunStatus) bool {
-	if expected == nil || current == nil || expected.AttemptID != current.AttemptID {
-		return false
-	}
-	return expected.AttemptKey == "" || expected.AttemptKey == current.AttemptKey
 }
 
 func rollbackQueuedRetry(
@@ -131,7 +125,6 @@ func rollbackQueuedRetry(
 			latest.Root = original.Root
 			return nil
 		},
-		WithCompareAndSwapExpectedAttemptKey(queued.AttemptKey),
 	)
 	if err != nil {
 		return err

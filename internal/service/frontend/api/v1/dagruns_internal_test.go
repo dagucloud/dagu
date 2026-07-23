@@ -314,16 +314,12 @@ func (s *manualCASStore) CompareAndSwapLatestAttemptStatus(
 	expectedAttemptID string,
 	expectedStatus core.Status,
 	mutate func(*exec.DAGRunStatus) error,
-	opts ...exec.CompareAndSwapStatusOption,
+	_ ...exec.CompareAndSwapStatusOption,
 ) (*exec.DAGRunStatus, bool, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, false, err
 	}
-	options := exec.NewCompareAndSwapStatusOptions(opts...)
 	if s.status.AttemptID != expectedAttemptID || s.status.Status != expectedStatus {
-		return s.status, false, nil
-	}
-	if options.ExpectedAttemptKey != "" && s.status.AttemptKey != options.ExpectedAttemptKey {
 		return s.status, false, nil
 	}
 	if err := mutate(s.status); err != nil {

@@ -221,29 +221,6 @@ func TestEnqueueRetry(t *testing.T) {
 			},
 		},
 		{
-			name: "CompareAndSwapRejectsReplacementAttemptWithSameID",
-			dag:  &core.DAG{Name: "test-dag"},
-			status: &exec.DAGRunStatus{
-				Name:       "test-dag",
-				DAGRunID:   "run-replaced",
-				AttemptID:  "att-reused",
-				AttemptKey: "key-old",
-				Status:     core.Failed,
-			},
-			store: &stubDAGRunStore{
-				status: &exec.DAGRunStatus{
-					Name:       "test-dag",
-					DAGRunID:   "run-replaced",
-					AttemptID:  "att-reused",
-					AttemptKey: "key-new",
-					Status:     core.Queued,
-				},
-			},
-			assertErr: func(t *testing.T, err error) {
-				assert.ErrorIs(t, err, exec.ErrRetryStaleLatest)
-			},
-		},
-		{
 			name: "EnqueueFailsAndRollsBack",
 			dag:  &core.DAG{Name: "test-dag"},
 			status: &exec.DAGRunStatus{
@@ -396,7 +373,7 @@ func (s *stubDAGRunStore) CompareAndSwapLatestAttemptStatus(
 	expectedAttemptID string,
 	expectedStatus core.Status,
 	mutate func(*exec.DAGRunStatus) error,
-	opts ...exec.CompareAndSwapStatusOption,
+	_ ...exec.CompareAndSwapStatusOption,
 ) (*exec.DAGRunStatus, bool, error) {
 	s.casCalls++
 	if s.casCalls == 1 && s.firstErr != nil {
@@ -410,9 +387,7 @@ func (s *stubDAGRunStore) CompareAndSwapLatestAttemptStatus(
 		return nil, false, nil
 	}
 
-	options := exec.NewCompareAndSwapStatusOptions(opts...)
-	if expectedAttemptID != s.status.AttemptID || expectedStatus != s.status.Status ||
-		(options.ExpectedAttemptKey != "" && options.ExpectedAttemptKey != s.status.AttemptKey) {
+	if expectedAttemptID != s.status.AttemptID || expectedStatus != s.status.Status {
 		return s.cloneStatus(), false, nil
 	}
 

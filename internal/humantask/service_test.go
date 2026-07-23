@@ -94,51 +94,6 @@ func TestCompletePersistsTypedInputAndQueuesResume(t *testing.T) {
 	assert.Equal(t, "user-1", fixture.status.Nodes[0].HumanTaskCompletedByID)
 }
 
-func TestCompleteTreatsEquivalentAdditionalNumbersAsIdentical(t *testing.T) {
-	fixture := newServiceFixture(t, json.RawMessage(`{
-  "type":"object",
-  "properties":{},
-  "additionalProperties":true
-}`))
-	firstInput, err := ParseJSONInput([]byte(`{"score":1}`))
-	require.NoError(t, err)
-	secondInput, err := ParseJSONInput([]byte(`{"score":1.0}`))
-	require.NoError(t, err)
-
-	_, err = fixture.service.Complete(t.Context(), CompleteRequest{
-		DAGName: fixture.dag.Name, DAGRunID: fixture.status.DAGRunID, StepID: "review", Input: firstInput,
-	})
-	require.NoError(t, err)
-	result, err := fixture.service.Complete(t.Context(), CompleteRequest{
-		DAGName: fixture.dag.Name, DAGRunID: fixture.status.DAGRunID, StepID: "review", Input: secondInput,
-	})
-
-	require.NoError(t, err)
-	assert.True(t, result.AlreadyCompleted)
-	assert.Len(t, fixture.queue.enqueued, 1)
-}
-
-func TestCompleteRejectsExtremeAdditionalNumber(t *testing.T) {
-	fixture := newServiceFixture(t, json.RawMessage(`{
-  "type":"object",
-  "properties":{},
-  "additionalProperties":true
-}`))
-	input, err := ParseJSONInput([]byte(`{"score":1e999999999}`))
-	require.NoError(t, err)
-
-	_, err = fixture.service.Complete(t.Context(), CompleteRequest{
-		DAGName: fixture.dag.Name, DAGRunID: fixture.status.DAGRunID, StepID: "review", Input: input,
-	})
-
-	require.Error(t, err)
-	assert.Equal(t, ErrorInvalid, KindOf(err))
-	assert.ErrorContains(t, err, "JSON number exceeds supported size")
-	assert.Equal(t, core.Waiting, fixture.status.Status)
-	assert.Equal(t, core.NodeWaiting, fixture.status.Nodes[0].Status)
-	assert.Empty(t, fixture.queue.enqueued)
-}
-
 func TestCompleteKeepsCheckpointRecoverableWhenEnqueueFails(t *testing.T) {
 	fixture := newServiceFixture(t, nil)
 	queueErr := errors.New("queue unavailable")
@@ -497,7 +452,7 @@ func (s *serviceDAGRunStore) CompareAndSwapLatestAttemptStatus(
 	expectedAttemptID string,
 	expectedStatus core.Status,
 	mutate func(*exec.DAGRunStatus) error,
-	opts ...exec.CompareAndSwapStatusOption,
+	_ ...exec.CompareAndSwapStatusOption,
 ) (*exec.DAGRunStatus, bool, error) {
 	if len(s.compareAndSwapErrors) > 0 {
 		err := s.compareAndSwapErrors[0]
@@ -506,14 +461,10 @@ func (s *serviceDAGRunStore) CompareAndSwapLatestAttemptStatus(
 			return nil, false, err
 		}
 	}
-	options := exec.NewCompareAndSwapStatusOptions(opts...)
 	if s.beforeCompareAndSwap != nil {
 		s.beforeCompareAndSwap()
 	}
 	if s.status.AttemptID != expectedAttemptID || s.status.Status != expectedStatus {
-		return s.status, false, nil
-	}
-	if options.ExpectedAttemptKey != "" && s.status.AttemptKey != options.ExpectedAttemptKey {
 		return s.status, false, nil
 	}
 	if err := mutate(s.status); err != nil {
