@@ -340,6 +340,40 @@ func TestWaitForHumanTaskCompletionReadyWaitsForRemoteFinalStatus(t *testing.T) 
 	assert.Equal(t, status.ClaimKey, leaseStore.attemptKey)
 }
 
+func TestWaitForRemoteHumanTaskAttemptRejectsExpiredSettleDeadline(t *testing.T) {
+	status := &exec.DAGRunStatus{
+		Name:       "human-task-test",
+		DAGRunID:   "run-1",
+		AttemptID:  "attempt-1",
+		AttemptKey: "attempt-key-1",
+		WorkerID:   "worker-1",
+		Status:     core.Waiting,
+		Nodes: []*exec.Node{{
+			Step: core.Step{
+				ID:        "review",
+				HumanTask: &core.HumanTaskConfig{Prompt: "Review"},
+			},
+			Status: core.NodeWaiting,
+		}},
+	}
+	attempt := &humanTaskStatusSequenceAttempt{statuses: []*exec.DAGRunStatus{status}}
+	ctx := &Context{
+		Context:          t.Context(),
+		DAGRunLeaseStore: &humanTaskCompletionLeaseStore{},
+	}
+
+	_, err := waitForRemoteHumanTaskAttempt(
+		ctx,
+		attempt,
+		status,
+		"review",
+		time.Now().Add(-time.Second),
+	)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "is still finalizing")
+	assert.Equal(t, 1, attempt.calls)
+}
+
 func TestWaitForHumanTaskCompletionReadyReturnsStepLookupError(t *testing.T) {
 	dag := &core.DAG{Name: "human-task-test"}
 	status := &exec.DAGRunStatus{

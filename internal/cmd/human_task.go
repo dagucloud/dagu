@@ -616,14 +616,14 @@ func waitForHumanTaskCompletionReady(
 	if status.Status != core.Waiting || status.AttemptID == "" {
 		return status, nil
 	}
+	deadline := time.Now().Add(humanTaskSettleTimeout)
 	if exec.IsRemoteWorkerID(status.WorkerID) {
-		return waitForRemoteHumanTaskAttempt(ctx, attempt, status, stepID)
+		return waitForRemoteHumanTaskAttempt(ctx, attempt, status, stepID, deadline)
 	}
 	if ctx.ProcStore == nil {
 		return status, nil
 	}
 
-	deadline := time.Now().Add(humanTaskSettleTimeout)
 	for {
 		alive, err := ctx.ProcStore.IsAttemptAlive(ctx, dag.ProcGroup(), status.DAGRun(), status.AttemptID)
 		if err != nil {
@@ -644,7 +644,7 @@ func waitForHumanTaskCompletionReady(
 	if err != nil {
 		return nil, err
 	}
-	return waitForHumanTaskAttemptFinalization(ctx, attempt, status.AttemptID, latest, stepID)
+	return waitForHumanTaskAttemptFinalization(ctx, attempt, status.AttemptID, latest, stepID, deadline)
 }
 
 func waitForRemoteHumanTaskAttempt(
@@ -652,6 +652,7 @@ func waitForRemoteHumanTaskAttempt(
 	attempt exec.DAGRunAttempt,
 	status *exec.DAGRunStatus,
 	stepID string,
+	deadline time.Time,
 ) (*exec.DAGRunStatus, error) {
 	if ctx.DAGRunLeaseStore == nil {
 		return nil, fmt.Errorf("DAG-run lease store is not configured")
@@ -664,7 +665,6 @@ func waitForRemoteHumanTaskAttempt(
 		return nil, fmt.Errorf("distributed DAG-run claim key is missing")
 	}
 
-	deadline := time.Now().Add(humanTaskSettleTimeout)
 	for {
 		_, err := ctx.DAGRunLeaseStore.Get(ctx, claimKey)
 		if errors.Is(err, exec.ErrDAGRunLeaseNotFound) {
@@ -685,7 +685,7 @@ func waitForRemoteHumanTaskAttempt(
 	if err != nil {
 		return nil, err
 	}
-	return waitForHumanTaskAttemptFinalization(ctx, attempt, status.AttemptID, latest, stepID)
+	return waitForHumanTaskAttemptFinalization(ctx, attempt, status.AttemptID, latest, stepID, deadline)
 }
 
 func waitForHumanTaskAttemptFinalization(
@@ -694,8 +694,8 @@ func waitForHumanTaskAttemptFinalization(
 	attemptID string,
 	latest *exec.DAGRunStatus,
 	stepID string,
+	deadline time.Time,
 ) (*exec.DAGRunStatus, error) {
-	deadline := time.Now().Add(humanTaskSettleTimeout)
 	for {
 		finalizing, err := humanTaskAttemptIsFinalizing(latest, attemptID, stepID)
 		if err != nil {
