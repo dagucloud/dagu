@@ -209,8 +209,8 @@ func (s *fileDefinitionStore) ModifiedAt(ctx context.Context, id string) (time.T
 }
 
 func (s *fileDefinitionStore) path(id string) (string, error) {
-	if !controllerIDPattern.MatchString(id) {
-		return "", fmt.Errorf("%w: invalid Controller ID %q", ErrInvalidDefinition, id)
+	if err := ValidateID(id); err != nil {
+		return "", err
 	}
 	return filepath.Join(s.dir, id+".yaml"), nil
 }
@@ -338,8 +338,8 @@ type fileResourceLocker struct {
 }
 
 func (l *fileResourceLocker) WithLock(ctx context.Context, id string, fn func(context.Context) error) (err error) {
-	if !controllerIDPattern.MatchString(id) {
-		return fmt.Errorf("%w: invalid Controller ID %q", ErrInvalidDefinition, id)
+	if err := ValidateID(id); err != nil {
+		return err
 	}
 	if fn == nil {
 		return fmt.Errorf("controller lock callback is required")
@@ -692,7 +692,7 @@ func validatePersistedExecutionEvidence(message exec.LLMMessage, route persisted
 	}
 	active := ActiveDAGRun{ToolCallID: route.ToolCallID, DAG: payload.DAG, DAGRunID: payload.DAGRunID}
 	observation := ChildRunObservation{Status: status, Outputs: payload.Outputs, ErrorCategory: payload.ErrorCategory}
-	expected, err := evidenceEnvelope(active, observation, payload.Outputs, payload.Truncated, payload.OmittedCount)
+	expected, err := evidenceEnvelope(active, observation, payload.Outputs, payload.OmittedCount)
 	if err != nil || message.Content != expected || envelope.Source != "dag_run:"+payload.DAGRunID {
 		return persistedToolResult{}, fmt.Errorf("%w: execution evidence is not canonical", ErrRuntimeCorrupt)
 	}

@@ -246,6 +246,8 @@ export default function ControllersPage() {
   const mountedRef = React.useRef(true);
   const locationKeyRef = React.useRef(location.key);
   locationKeyRef.current = location.key;
+  const requestMatchesLocation = (requestLocationKey: string) =>
+    mountedRef.current && locationKeyRef.current === requestLocationKey;
   const workspace = workspaceSelectionQuery(
     appBar.workspaceSelection
   ).workspace;
@@ -397,10 +399,7 @@ export default function ControllersPage() {
                       const requestLocationKey = location.key;
                       try {
                         const detail = await api.get(controller.id);
-                        if (
-                          !mountedRef.current ||
-                          locationKeyRef.current !== requestLocationKey
-                        ) {
+                        if (!requestMatchesLocation(requestLocationKey)) {
                           return;
                         }
                         const definition = {
@@ -415,10 +414,7 @@ export default function ControllersPage() {
                           },
                         });
                       } catch (duplicateError) {
-                        if (
-                          !mountedRef.current ||
-                          locationKeyRef.current !== requestLocationKey
-                        ) {
+                        if (!requestMatchesLocation(requestLocationKey)) {
                           return;
                         }
                         setActionError(
@@ -457,11 +453,7 @@ export default function ControllersPage() {
             () => api.start(target.id, prompt),
             'Controller started'
           );
-          if (
-            started &&
-            mountedRef.current &&
-            locationKeyRef.current === requestLocationKey
-          ) {
+          if (started && requestMatchesLocation(requestLocationKey)) {
             setStartTarget(null);
             navigate(`/controllers/${encodeURIComponent(target.id)}/status`);
           }

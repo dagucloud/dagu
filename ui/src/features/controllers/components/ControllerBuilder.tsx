@@ -113,6 +113,15 @@ function StateCard({
 
   const update = (patch: Partial<ControllerState>) =>
     onChange({ ...state, ...patch });
+  const replaceTransition = (
+    index: number,
+    nextTransition: ControllerState['transitions'][number]
+  ) =>
+    update({
+      transitions: state.transitions.map((transition, transitionIndex) =>
+        transitionIndex === index ? nextTransition : transition
+      ),
+    });
 
   return (
     <Card>
@@ -242,15 +251,12 @@ function StateCard({
                   aria-label={`Transition ${index + 1} destination`}
                   value={transition.to}
                   disabled={readOnly}
-                  onChange={(event) => {
-                    const transitions = state.transitions.map(
-                      (item, itemIndex) =>
-                        itemIndex === index
-                          ? { ...item, to: event.target.value }
-                          : item
-                    );
-                    update({ transitions });
-                  }}
+                  onChange={(event) =>
+                    replaceTransition(index, {
+                      ...transition,
+                      to: event.target.value,
+                    })
+                  }
                   className="h-9 rounded-md border border-input bg-card px-3 text-sm"
                 >
                   {stateNames.map((stateName) => (
@@ -264,15 +270,12 @@ function StateCard({
                   value={transition.when}
                   disabled={readOnly}
                   placeholder="When the incident has been classified"
-                  onChange={(event) => {
-                    const transitions = state.transitions.map(
-                      (item, itemIndex) =>
-                        itemIndex === index
-                          ? { ...item, when: event.target.value }
-                          : item
-                    );
-                    update({ transitions });
-                  }}
+                  onChange={(event) =>
+                    replaceTransition(index, {
+                      ...transition,
+                      when: event.target.value,
+                    })
+                  }
                 />
                 <Button
                   variant="ghost"
@@ -416,7 +419,6 @@ export function ControllerBuilder({
       (dag) =>
         !term ||
         dag.fileName.toLocaleLowerCase().includes(term) ||
-        dag.name.toLocaleLowerCase().includes(term) ||
         dag.description?.toLocaleLowerCase().includes(term)
     );
   }, [availableDAGs, dagSearch]);

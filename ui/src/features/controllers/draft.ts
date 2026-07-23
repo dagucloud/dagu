@@ -53,7 +53,7 @@ const STATE_FIELDS = [
 ] as const;
 const TRANSITION_FIELDS = ['to', 'when'] as const;
 
-export type ControllerDefinitionOperation = 'create' | 'update';
+type ControllerDefinitionOperation = 'create' | 'update';
 
 type ParseResult = {
   definition: ControllerDefinition | null;

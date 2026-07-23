@@ -64,7 +64,6 @@ describe('Controller DAG options', () => {
       })
     ).toEqual({
       fileName: 'classify',
-      name: 'classify',
       description: 'Classify an alert.',
     });
   });

@@ -3,7 +3,6 @@
 
 export type ControllerDAGOption = {
   fileName: string;
-  name: string;
   description?: string;
 };
 
@@ -27,7 +26,6 @@ export function controllerDAGOption(
   }
   return {
     fileName: value.fileName,
-    name: value.dag.name,
     description: value.dag.description,
   };
 }

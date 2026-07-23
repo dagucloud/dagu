@@ -768,7 +768,7 @@ func ExecutionEvidenceMessage(active ActiveDAGRun, observation ChildRunObservati
 	}
 	sort.Strings(keys)
 	selected := make(map[string]string, len(keys))
-	base, err := evidenceEnvelope(active, observation, selected, len(keys) > 0, len(keys))
+	base, err := evidenceEnvelope(active, observation, selected, len(keys))
 	if err != nil {
 		return exec.LLMMessage{}, err
 	}
@@ -800,7 +800,7 @@ func ExecutionEvidenceMessage(active ActiveDAGRun, observation ChildRunObservati
 		selectedBytes += entryBytes
 	}
 	omitted := len(keys) - len(selected)
-	content, err := evidenceEnvelope(active, observation, selected, omitted > 0, omitted)
+	content, err := evidenceEnvelope(active, observation, selected, omitted)
 	if err != nil {
 		return exec.LLMMessage{}, err
 	}
@@ -810,7 +810,7 @@ func ExecutionEvidenceMessage(active ActiveDAGRun, observation ChildRunObservati
 	return exec.LLMMessage{Role: exec.RoleTool, ToolCallID: active.ToolCallID, Content: content}, nil
 }
 
-func evidenceEnvelope(active ActiveDAGRun, observation ChildRunObservation, outputs map[string]string, truncated bool, omitted int) (string, error) {
+func evidenceEnvelope(active ActiveDAGRun, observation ChildRunObservation, outputs map[string]string, omitted int) (string, error) {
 	payload := map[string]any{
 		"dag": active.DAG, "dag_run_id": active.DAGRunID, "status": observation.Status.String(),
 		"outputs": outputs, "untrusted": true,
@@ -818,7 +818,7 @@ func evidenceEnvelope(active ActiveDAGRun, observation ChildRunObservation, outp
 	if observation.ErrorCategory != "" {
 		payload["error_category"] = boundedErrorCode(observation.ErrorCategory)
 	}
-	if truncated {
+	if omitted > 0 {
 		payload["truncated"] = true
 		payload["omitted_count"] = omitted
 	}

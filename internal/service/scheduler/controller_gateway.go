@@ -296,7 +296,10 @@ func (g *controllerChildRunGateway) pendingAutoRetryStatus(
 	if scanner.autoRetryPending(status) {
 		return status, nil
 	}
-	if _, ok := retryMetadataFromStatus(status); ok || status == nil || status.Status != core.Failed || !status.Parent.Zero() {
+	if status == nil || status.Status != core.Failed || !status.Parent.Zero() {
+		return nil, nil
+	}
+	if _, ok := retryMetadataFromStatus(status); ok {
 		return nil, nil
 	}
 	dag, err := attempt.ReadDAG(ctx)

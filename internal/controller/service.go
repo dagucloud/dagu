@@ -138,7 +138,7 @@ func (s *Service) list(ctx context.Context, include func(Definition) bool, skipC
 	}
 	items := make([]Summary, 0, len(ids))
 	for _, id := range ids {
-		data, definition, err := s.loadDefinitionRecord(ctx, id)
+		definition, err := s.loadDefinition(ctx, id)
 		if err != nil {
 			if skipCorruptDefinitions && errors.Is(err, ErrDefinitionCorrupt) {
 				continue
@@ -148,11 +148,18 @@ func (s *Service) list(ctx context.Context, include func(Definition) bool, skipC
 		if include != nil && !include(*definition) {
 			continue
 		}
-		detail, err := s.loadDetail(ctx, data, definition)
+		runtime, err := s.runtimeOrNil(ctx, id)
 		if err != nil {
 			return nil, err
 		}
-		items = append(items, s.summary(detail))
+		if err := validateRuntimeAgainstDefinition(*definition, runtime); err != nil {
+			return nil, err
+		}
+		updatedAt, err := s.resourceUpdatedAt(ctx, id, runtime)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, summaryFromRecords(*definition, runtime, updatedAt))
 	}
 	return items, nil
 }
@@ -220,7 +227,7 @@ func (s *Service) Update(ctx context.Context, id string, data []byte) (*Detail, 
 			return err
 		}
 		detail.Warnings = warnings
-		detail.ResourceUpdatedAt = s.committedResourceUpdatedAt(lockedCtx, id, detail.Runtime)
+		detail.ResourceUpdatedAt = s.committedResourceUpdatedAt(lockedCtx, id, runtime)
 		return nil
 	})
 	if err != nil {
@@ -428,7 +435,7 @@ func (s *Service) loadDetail(ctx context.Context, data []byte, definition *Defin
 	if err != nil {
 		return nil, err
 	}
-	detail.ResourceUpdatedAt, err = s.resourceUpdatedAt(ctx, definition.ID, detail.Runtime)
+	detail.ResourceUpdatedAt, err = s.resourceUpdatedAt(ctx, definition.ID, runtime)
 	if err != nil {
 		return nil, err
 	}
@@ -443,8 +450,7 @@ func (s *Service) runtimeOrNil(ctx context.Context, id string) (*Runtime, error)
 	return runtime, err
 }
 
-func (*Service) summary(detail *Detail) Summary {
-	definition := detail.Definition
+func summaryFromRecords(definition Definition, runtime *Runtime, resourceUpdatedAt time.Time) Summary {
 	item := Summary{
 		ID:                definition.ID,
 		Name:              definition.Name,
@@ -452,23 +458,23 @@ func (*Service) summary(detail *Detail) Summary {
 		Workspace:         definition.Workspace(),
 		Status:            core.NotStarted,
 		MaxTurns:          definition.EffectiveMaxTurns(),
-		ResourceUpdatedAt: detail.ResourceUpdatedAt,
+		ResourceUpdatedAt: resourceUpdatedAt,
 	}
-	if detail.Runtime == nil {
+	if runtime == nil {
 		return item
 	}
-	runtime := detail.Runtime
 	item.Status = runtime.Status
 	item.CurrentState = runtime.CurrentState
 	item.TurnCount = runtime.TurnCount
 	item.WaitingQuestion = cloneStringPointer(runtime.WaitingQuestion)
-	item.ActiveDAGRun = runtime.ActiveDAGRun
 	if runtime.ActiveDAGRun != nil {
-		item.LatestDAGRun = &DAGRunRef{
-			State:    runtime.ActiveDAGRun.State,
+		item.ActiveDAGRun = &DAGRunRef{
+			State:    runtime.CurrentState,
 			DAG:      runtime.ActiveDAGRun.DAG,
 			DAGRunID: runtime.ActiveDAGRun.DAGRunID,
 		}
+		latest := *item.ActiveDAGRun
+		item.LatestDAGRun = &latest
 	} else if len(runtime.DAGRunRefs) > 0 {
 		latest := runtime.DAGRunRefs[len(runtime.DAGRunRefs)-1]
 		item.LatestDAGRun = &latest
@@ -478,7 +484,7 @@ func (*Service) summary(detail *Detail) Summary {
 	return item
 }
 
-func (s *Service) resourceUpdatedAt(ctx context.Context, id string, runtime *RuntimeView) (time.Time, error) {
+func (s *Service) resourceUpdatedAt(ctx context.Context, id string, runtime *Runtime) (time.Time, error) {
 	modifiedAt, err := s.definitions.ModifiedAt(ctx, id)
 	if err != nil {
 		return time.Time{}, fmt.Errorf("read Controller definition timestamp: %w", err)
@@ -489,7 +495,7 @@ func (s *Service) resourceUpdatedAt(ctx context.Context, id string, runtime *Run
 	return modifiedAt, nil
 }
 
-func (s *Service) committedResourceUpdatedAt(ctx context.Context, id string, runtime *RuntimeView) time.Time {
+func (s *Service) committedResourceUpdatedAt(ctx context.Context, id string, runtime *Runtime) time.Time {
 	updatedAt, err := s.resourceUpdatedAt(ctx, id, runtime)
 	if err == nil {
 		return updatedAt

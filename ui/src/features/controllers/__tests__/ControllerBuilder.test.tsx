@@ -49,7 +49,6 @@ function BuilderHarness({
         availableDAGs={[
           {
             fileName: 'triage',
-            name: 'Triage',
             description: 'Classify the incident.',
           },
         ]}

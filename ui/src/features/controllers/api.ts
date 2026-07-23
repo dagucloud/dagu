@@ -52,8 +52,9 @@ export function useControllerDetail(id: string | undefined) {
 
 export function useControllerDAGOptions(workspace: string) {
   const client = useClient();
+  const effectiveWorkspace = workspace || 'default';
   const query = useSWR(
-    ['controllers', 'dag-options', workspace || 'default'],
+    ['controllers', 'dag-options', effectiveWorkspace],
     async () => {
       const options: ControllerDAGOption[] = [];
       let page = 1;
@@ -64,7 +65,7 @@ export function useControllerDAGOptions(workspace: string) {
             params: {
               query: {
                 remoteNode: 'local',
-                workspace: workspace || 'default',
+                workspace: effectiveWorkspace,
                 page,
                 perPage: 200,
                 sort: PathsDagsGetParametersQuerySort.name,
