@@ -111,16 +111,18 @@ export default function ControllerSpecPage({
   const { showToast } = useSimpleToast();
   const detailQuery = useControllerDetail(id);
   const [tab, setTab] = React.useState<EditorTab>('builder');
-  const [source, setSource] = React.useState(() => {
-    if (!isNew) return '';
-    return (
-      routeState.duplicateSpec ??
-      serializeControllerDefinition(
-        createControllerDraft(routeState.workspace ?? '')
-      )
-    );
-  });
-  const [savedSource, setSavedSource] = React.useState('');
+  const initialSource = React.useMemo(
+    () =>
+      isNew
+        ? (routeState.duplicateSpec ??
+          serializeControllerDefinition(
+            createControllerDraft(routeState.workspace ?? '')
+          ))
+        : '',
+    [isNew, routeState.duplicateSpec, routeState.workspace]
+  );
+  const [source, setSource] = React.useState(initialSource);
+  const [savedSource, setSavedSource] = React.useState(initialSource);
   const [builderDraftDirty, setBuilderDraftDirty] = React.useState(false);
   const initializedIDRef = React.useRef<string | null>(isNew ? 'new' : null);
   const [pendingAction, setPendingAction] =
@@ -216,7 +218,11 @@ export default function ControllerSpecPage({
       : []),
   ];
   const canSave =
-    canWrite && mutable && dirty && definition !== null && issues.length === 0;
+    canWrite &&
+    mutable &&
+    (isNew || dirty) &&
+    definition !== null &&
+    issues.length === 0;
   const requestMatchesRoute = (
     requestLocationKey: string,
     requestID: string | undefined

@@ -184,6 +184,26 @@ describe('ControllerSpecPage', () => {
     expect(screen.getByText('Save unavailable')).toBeInTheDocument();
   });
 
+  it.each([
+    ['default draft', undefined],
+    ['duplicate draft', validCreateSpec()],
+  ])(
+    'does not mark an untouched %s as unsaved',
+    async (_name, duplicateSpec) => {
+      const user = userEvent.setup();
+      const confirm = vi.spyOn(window, 'confirm');
+      renderPage(duplicateSpec);
+
+      expect(screen.queryByText('Unsaved changes')).not.toBeInTheDocument();
+      if (duplicateSpec) {
+        expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled();
+      }
+      await user.click(screen.getByRole('link', { name: 'Cancel' }));
+      expect(confirm).not.toHaveBeenCalled();
+      confirm.mockRestore();
+    }
+  );
+
   it('shows structured warnings from the persisted Controller detail', () => {
     const id = 'ctrl_aaaaaaaaaaaaaaaa';
     const detail = persistedDetail(id, 'Incident Controller');

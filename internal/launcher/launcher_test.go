@@ -265,9 +265,10 @@ steps:
 `, test.EnvOutput("EXPORTED_SECRET", "SUBCMD_START_EXPLICIT_ENV")))
 
 	spec := th.SubCmdBuilder.Start(dagFile.DAG, launcher.StartOptions{})
-	started, err := launcher.StartProcess(th.Context, spec)
+	runCtx, cancel := context.WithTimeout(th.Context, statusTimeout)
+	defer cancel()
+	err := launcher.Run(runCtx, spec)
 	require.NoError(t, err, "env=%s", strings.Join(spec.Env, "\n"))
-	requireProcessCompletion(t, started, statusTimeout)
 
 	status, err := th.DAGRunMgr.GetLatestStatus(th.Context, dagFile.DAG)
 	require.NoError(t, err)
@@ -296,25 +297,15 @@ steps:
 		require.False(t, strings.HasPrefix(entry, "_DAGU_PRESOLVED_SECRET_"), "unexpected presolved secret transport env: %s", entry)
 	}
 
-	started, err := launcher.StartProcess(th.Context, spec)
+	runCtx, cancel := context.WithTimeout(th.Context, statusTimeout)
+	defer cancel()
+	err := launcher.Run(runCtx, spec)
 	require.NoError(t, err, "env=%s", strings.Join(spec.Env, "\n"))
-	requireProcessCompletion(t, started, statusTimeout)
 
 	status, err := th.DAGRunMgr.GetLatestStatus(th.Context, dagFile.DAG)
 	require.NoError(t, err)
 	require.Equal(t, core.Succeeded, status.Status)
 	require.Equal(t, masking.DefaultMaskString+"|", test.StatusOutputValue(t, &status, "RESULT"))
-}
-
-func requireProcessCompletion(t *testing.T, result *launcher.StartResult, timeout time.Duration) {
-	t.Helper()
-
-	select {
-	case err := <-result.Done:
-		require.NoError(t, err)
-	case <-time.After(timeout):
-		t.Fatal("started process did not exit")
-	}
 }
 
 func TestStart(t *testing.T) {

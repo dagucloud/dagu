@@ -73,6 +73,9 @@ export function useControllerDAGOptions(workspace: string) {
             },
           })
         );
+        if (result.pagination.currentPage !== page) {
+          throw new Error('DAG pagination is inconsistent');
+        }
         for (const value of result.dags) {
           const option = controllerDAGOption(value);
           if (option) options.push(option);

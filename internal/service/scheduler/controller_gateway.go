@@ -294,9 +294,6 @@ func (g *controllerChildRunGateway) pendingAutoRetryStatus(
 	}
 	scanner := g.scheduler.retryScanner
 	if scanner.autoRetryPending(status) {
-		if isSuspendedDAG(ctx, scanner.isSuspended, status, nil) {
-			return nil, nil
-		}
 		return status, nil
 	}
 	if _, ok := retryMetadataFromStatus(status); ok || status == nil || status.Status != core.Failed || !status.Parent.Zero() {
@@ -305,9 +302,6 @@ func (g *controllerChildRunGateway) pendingAutoRetryStatus(
 	dag, err := attempt.ReadDAG(ctx)
 	if err != nil {
 		return nil, err
-	}
-	if isSuspendedDAG(ctx, scanner.isSuspended, status, dag) {
-		return nil, nil
 	}
 	metadata, ok := retryMetadataFromDAG(dag)
 	if !ok {

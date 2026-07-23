@@ -17,6 +17,7 @@ import (
 
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/internal/persis/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -37,7 +38,9 @@ func TestFileStoresUseDedicatedPathsAndOwnerOnlyFiles(t *testing.T) {
 	for _, path := range []string{definitionPath, runtimePath} {
 		info, err := os.Stat(path)
 		require.NoError(t, err)
-		assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+		if testutil.SupportsPOSIXPermissionBits() {
+			assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+		}
 	}
 
 	definitionIDs, err := stores.Definitions.List(ctx)

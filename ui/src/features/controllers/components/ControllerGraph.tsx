@@ -29,13 +29,13 @@ export function controllerGraphDefinition(
   definition: ControllerDefinition,
   currentState: string | undefined,
   direction: Direction
-): { mermaid: string; edgeConditions: string[] } {
+): { mermaid: string; edgeConditions: ReadonlyMap<string, string> } {
   const stateEntries = Object.entries(definition.states);
   const ids = new Map(
     stateEntries.map(([name], index) => [name, `controller_state_${index}`])
   );
   const lines = [`flowchart ${direction}`];
-  const edgeConditions: string[] = [];
+  const edgeConditions = new Map<string, string>();
 
   for (const [name, state] of stateEntries) {
     const id = ids.get(name)!;
@@ -50,20 +50,24 @@ export function controllerGraphDefinition(
       state.terminal === 'failed' ? 'terminalFailed' : '',
       name === currentState ? 'current' : '',
     ].filter(Boolean);
-    lines.push(
-      `${id}${shape}${classes.length ? `:::${classes.join(',')}` : ''};`
-    );
+    lines.push(`${id}${shape};`);
+    for (const className of classes) {
+      lines.push(`class ${id} ${className};`);
+    }
   }
 
+  let edgeIndex = 0;
   for (const [name, state] of stateEntries) {
     const source = ids.get(name)!;
     for (const transition of state.transitions) {
       const target = ids.get(transition.to);
       if (!target) continue;
+      const edgeID = `controller_edge_${edgeIndex}`;
       lines.push(
-        `${source} -->|"${mermaidText(shortCondition(transition.when))}"| ${target};`
+        `${source} ${edgeID}@-->|"${mermaidText(shortCondition(transition.when))}"| ${target};`
       );
-      edgeConditions.push(transition.when);
+      edgeConditions.set(edgeID, transition.when);
+      edgeIndex += 1;
     }
   }
 
@@ -77,12 +81,12 @@ export function controllerGraphDefinition(
 
 function addEdgeTitles(
   container: HTMLDivElement,
-  conditions: readonly string[]
+  conditions: ReadonlyMap<string, string>
 ): void {
   container
-    .querySelectorAll<SVGGElement>('g.edgePath')
-    .forEach((edge, index) => {
-      const condition = conditions[index];
+    .querySelectorAll<SVGPathElement>('g.edgePaths > path[data-id]')
+    .forEach((edge) => {
+      const condition = conditions.get(edge.dataset.id ?? '');
       if (!condition) return;
       edge.querySelector('title')?.remove();
       const title = document.createElementNS(

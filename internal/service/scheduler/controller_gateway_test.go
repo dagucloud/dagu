@@ -222,7 +222,7 @@ func TestControllerChildRunGatewayWaitsForAndCancelsPendingDAGAutoRetry(t *testi
 	assert.Zero(t, store.attempt.dagReads)
 }
 
-func TestControllerChildRunGatewayTreatsSuspendedPendingAutoRetryAsTerminal(t *testing.T) {
+func TestControllerChildRunGatewayWaitsForAndCancelsSuspendedPendingAutoRetry(t *testing.T) {
 	t.Parallel()
 
 	now := time.Date(2026, time.July, 22, 12, 0, 0, 0, time.UTC)
@@ -258,75 +258,57 @@ func TestControllerChildRunGatewayTreatsSuspendedPendingAutoRetryAsTerminal(t *t
 	observation, err := gateway.Observe(context.Background(), request)
 	require.NoError(t, err)
 	assert.True(t, observation.Exists)
-	assert.Equal(t, core.Failed, observation.Status)
-	assert.Equal(t, "failed", observation.ErrorCategory)
+	assert.Equal(t, core.Running, observation.Status)
 
 	require.NoError(t, gateway.Stop(context.Background(), request))
-	assert.Equal(t, core.Failed, status.Status)
+	assert.Equal(t, core.Aborted, status.Status)
 	assert.Zero(t, attempt.dagReads)
 }
 
-func TestControllerChildRunGatewayHonorsSuspensionForLegacyPendingAutoRetry(t *testing.T) {
+func TestControllerChildRunGatewayWaitsForLegacyPendingAutoRetryWhileSuspended(t *testing.T) {
 	t.Parallel()
 
-	for _, test := range []struct {
-		name           string
-		suspended      bool
-		observedStatus core.Status
-		stoppedStatus  core.Status
-	}{
-		{name: "not suspended", observedStatus: core.Running, stoppedStatus: core.Aborted},
-		{name: "suspended", suspended: true, observedStatus: core.Failed, stoppedStatus: core.Failed},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-
-			now := time.Date(2026, time.July, 22, 12, 0, 0, 0, time.UTC)
-			status := &exec.DAGRunStatus{
-				Name:           "controller-child",
-				DAGRunID:       "controller-run-1",
-				AttemptID:      "attempt-1",
-				Status:         core.Failed,
-				CreatedAt:      now.Add(-time.Minute).UnixMilli(),
-				FinishedAt:     now.Format(time.RFC3339),
-				AutoRetryCount: 0,
-			}
-			attempt := &controllerGatewayAttempt{
-				status: status,
-				dag: &core.DAG{
-					Name:     status.Name,
-					Location: "/dags/controller-child-file.yaml",
-					RetryPolicy: &core.DAGRetryPolicy{
-						Limit:    2,
-						Interval: 5 * time.Minute,
-					},
-				},
-			}
-			store := &controllerGatewayRunStore{attempt: attempt}
-			scheduler := &Scheduler{
-				dagRunStore: store,
-				retryScanner: &RetryScanner{
-					isSuspended: func(_ context.Context, name string) bool {
-						assert.Equal(t, "controller-child-file", name)
-						return test.suspended
-					},
-					retryWindow: time.Hour,
-					clock:       func() time.Time { return now },
-				},
-			}
-			gateway := &controllerChildRunGateway{scheduler: scheduler}
-			request := controller.ChildRunRequest{DAG: status.Name, DAGRunID: status.DAGRunID}
-
-			observation, err := gateway.Observe(context.Background(), request)
-			require.NoError(t, err)
-			assert.True(t, observation.Exists)
-			assert.Equal(t, test.observedStatus, observation.Status)
-
-			require.NoError(t, gateway.Stop(context.Background(), request))
-			assert.Equal(t, test.stoppedStatus, status.Status)
-			assert.Equal(t, 2, attempt.dagReads)
-		})
+	now := time.Date(2026, time.July, 22, 12, 0, 0, 0, time.UTC)
+	status := &exec.DAGRunStatus{
+		Name:           "controller-child",
+		DAGRunID:       "controller-run-1",
+		AttemptID:      "attempt-1",
+		Status:         core.Failed,
+		CreatedAt:      now.Add(-time.Minute).UnixMilli(),
+		FinishedAt:     now.Format(time.RFC3339),
+		AutoRetryCount: 0,
 	}
+	attempt := &controllerGatewayAttempt{
+		status: status,
+		dag: &core.DAG{
+			Name:     status.Name,
+			Location: "/dags/controller-child-file.yaml",
+			RetryPolicy: &core.DAGRetryPolicy{
+				Limit:    2,
+				Interval: 5 * time.Minute,
+			},
+		},
+	}
+	store := &controllerGatewayRunStore{attempt: attempt}
+	scheduler := &Scheduler{
+		dagRunStore: store,
+		retryScanner: &RetryScanner{
+			isSuspended: func(context.Context, string) bool { return true },
+			retryWindow: time.Hour,
+			clock:       func() time.Time { return now },
+		},
+	}
+	gateway := &controllerChildRunGateway{scheduler: scheduler}
+	request := controller.ChildRunRequest{DAG: status.Name, DAGRunID: status.DAGRunID}
+
+	observation, err := gateway.Observe(context.Background(), request)
+	require.NoError(t, err)
+	assert.True(t, observation.Exists)
+	assert.Equal(t, core.Running, observation.Status)
+
+	require.NoError(t, gateway.Stop(context.Background(), request))
+	assert.Equal(t, core.Aborted, status.Status)
+	assert.Equal(t, 2, attempt.dagReads)
 }
 
 func TestControllerChildRunGatewayPreservesAttemptIdentityWhenOutputsFail(t *testing.T) {
