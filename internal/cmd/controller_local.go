@@ -6,6 +6,7 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os/user"
 
 	api "github.com/dagucloud/dagu/api/v1"
@@ -23,13 +24,13 @@ type localControllerCommandClient struct {
 	config  *config.Config
 }
 
-func newLocalControllerCommandClient(ctx *Context) (controllerCommandClient, error) {
+func newLocalControllerCommandClient(ctx *Context) controllerCommandClient {
 	stores := controller.NewFileStores(ctx.Config.Paths.DataDir)
 	validator := controller.NewValidator(controller.NewDAGStoreResolver(ctx.DAGStore))
 	return &localControllerCommandClient{
 		service: controller.NewService(stores.Definitions, stores.Runtimes, stores.Locker, validator),
 		config:  ctx.Config,
-	}, nil
+	}
 }
 
 func (c *localControllerCommandClient) listControllers(ctx context.Context) ([]api.ControllerSummary, error) {
@@ -49,7 +50,10 @@ func (c *localControllerCommandClient) getController(ctx context.Context, id str
 	if err != nil {
 		return nil, err
 	}
-	result := controllerapi.Detail(detail)
+	if detail == nil {
+		return nil, errors.New("controller service returned no detail")
+	}
+	result := controllerapi.Detail(*detail)
 	return &result, nil
 }
 

@@ -5,7 +5,6 @@ package controller
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -58,25 +57,29 @@ func TestServiceLifecycleAndDefinitionMutation(t *testing.T) {
 
 	stored, err := stores.Runtimes.Get(ctx, testControllerID)
 	require.NoError(t, err)
-	question := "Which region?"
-	stored.Status = core.Waiting
-	stored.WaitingQuestion = &question
+	appendTestWait(t, stored, RouteDecision{
+		Action: "wait", NextState: DefaultStateName, Reason: "The region is required.", Question: "Which region?",
+	})
 	stored.DAGRunRefs = []DAGRunRef{{State: "default", DAG: "classify", DAGRunID: "run-1"}}
-	stored.UpdatedAt = now.Add(time.Minute)
+	definitionUpdatedAt, err := stores.Definitions.ModifiedAt(ctx, testControllerID)
+	require.NoError(t, err)
+	stored.UpdatedAt = definitionUpdatedAt.Add(time.Minute)
+	now = stored.UpdatedAt
 	require.NoError(t, stores.Runtimes.Put(ctx, stored))
 	items, err = service.List(ctx)
 	require.NoError(t, err)
 	require.Len(t, items, 1)
 	require.NotNil(t, items[0].LatestDAGRun)
 	assert.Equal(t, "run-1", items[0].LatestDAGRun.DAGRunID)
+	assert.Equal(t, stored.UpdatedAt, items[0].ResourceUpdatedAt)
 
 	now = now.Add(2 * time.Minute)
 	runtime, err = service.Prompt(ctx, testControllerID, "us-east")
 	require.NoError(t, err)
 	assert.Equal(t, core.Running, runtime.Status)
 	assert.Nil(t, runtime.WaitingQuestion)
-	require.Len(t, runtime.Context, 2)
-	assert.Equal(t, "us-east", runtime.Context[1].Content)
+	require.Len(t, runtime.Context, 4)
+	assert.Equal(t, "us-east", runtime.Context[3].Content)
 
 	now = now.Add(time.Minute)
 	runtime, err = service.Stop(ctx, testControllerID)
@@ -166,7 +169,7 @@ func TestServiceDeleteCleansOrphanRuntimeAndReportsMissingResource(t *testing.T)
 	service := NewService(stores.Definitions, stores.Runtimes, stores.Locker, NewValidator(nil))
 	now := time.Now().UTC()
 	runtime := validRunningRuntime(testControllerID, now)
-	runtime.Status = core.Succeeded
+	runtime.Status = core.Aborted
 	runtime.FinishedAt = &now
 	require.NoError(t, stores.Runtimes.Put(ctx, runtime))
 
@@ -190,6 +193,85 @@ func (s *failOnceDefinitionDeleteStore) Delete(ctx context.Context, id string) e
 	return s.DefinitionStore.Delete(ctx, id)
 }
 
+type failingModifiedAtStore struct {
+	DefinitionStore
+	err error
+}
+
+func (s failingModifiedAtStore) ModifiedAt(context.Context, string) (time.Time, error) {
+	return time.Time{}, s.err
+}
+
+func TestServiceReportsDefinitionModifiedAtFailure(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	stores := NewFileStores(t.TempDir())
+	require.NoError(t, stores.Definitions.Create(ctx, testControllerID, validPersistedYAML(testControllerID)))
+	modifiedAtErr := errors.New("definition timestamp unavailable")
+	service := NewService(
+		failingModifiedAtStore{DefinitionStore: stores.Definitions, err: modifiedAtErr},
+		stores.Runtimes,
+		stores.Locker,
+		NewValidator(nil),
+	)
+
+	_, err := service.Get(ctx, testControllerID)
+	assert.ErrorIs(t, err, modifiedAtErr)
+}
+
+func TestServiceCreateSucceedsWhenCommittedDefinitionTimestampIsUnavailable(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	stores := NewFileStores(t.TempDir())
+	now := time.Date(2026, time.July, 22, 10, 0, 0, 0, time.UTC)
+	service := NewService(
+		failingModifiedAtStore{DefinitionStore: stores.Definitions, err: errors.New("definition timestamp unavailable")},
+		stores.Runtimes,
+		stores.Locker,
+		NewValidator(nil),
+		WithClock(func() time.Time { return now }),
+		WithIDGenerator(func() (string, error) { return testControllerID, nil }),
+	)
+
+	detail, err := service.Create(ctx, validCreateYAML())
+	require.NoError(t, err)
+	assert.Equal(t, now, detail.ResourceUpdatedAt)
+	stored, err := stores.Definitions.Get(ctx, testControllerID)
+	require.NoError(t, err)
+	assert.Contains(t, string(stored), "id: "+testControllerID)
+}
+
+func TestServiceUpdateSucceedsWhenCommittedDefinitionTimestampIsUnavailable(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	stores := NewFileStores(t.TempDir())
+	require.NoError(t, stores.Definitions.Create(ctx, testControllerID, validPersistedYAML(testControllerID)))
+	now := time.Date(2026, time.July, 22, 10, 0, 0, 0, time.UTC)
+	service := NewService(
+		failingModifiedAtStore{DefinitionStore: stores.Definitions, err: errors.New("definition timestamp unavailable")},
+		stores.Runtimes,
+		stores.Locker,
+		NewValidator(nil),
+		WithClock(func() time.Time { return now }),
+	)
+	updatedYAML := []byte(strings.Replace(
+		string(validPersistedYAML(testControllerID)),
+		"name: Incident flow",
+		"name: Updated flow",
+		1,
+	))
+
+	detail, err := service.Update(ctx, testControllerID, updatedYAML)
+	require.NoError(t, err)
+	assert.Equal(t, now, detail.ResourceUpdatedAt)
+	stored, err := stores.Definitions.Get(ctx, testControllerID)
+	require.NoError(t, err)
+	assert.Equal(t, updatedYAML, stored)
+}
+
 func TestServiceDeleteCanRetryAfterPartialFailure(t *testing.T) {
 	t.Parallel()
 
@@ -198,7 +280,7 @@ func TestServiceDeleteCanRetryAfterPartialFailure(t *testing.T) {
 	require.NoError(t, stores.Definitions.Create(ctx, testControllerID, validPersistedYAML(testControllerID)))
 	now := time.Now().UTC()
 	runtime := validRunningRuntime(testControllerID, now)
-	runtime.Status = core.Succeeded
+	runtime.Status = core.Aborted
 	runtime.FinishedAt = &now
 	require.NoError(t, stores.Runtimes.Put(ctx, runtime))
 
@@ -218,6 +300,27 @@ func TestServiceDeleteCanRetryAfterPartialFailure(t *testing.T) {
 	assert.ErrorIs(t, err, ErrNotFound)
 }
 
+func TestServiceListsCorruptDefinitionsAccordingToVisibility(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	stores := NewFileStores(t.TempDir())
+	require.NoError(t, stores.Definitions.Create(ctx, testControllerID, validPersistedYAML(testControllerID)))
+	corruptID := "ctrl_bbbbbbbbbbbbbbbb"
+	require.NoError(t, stores.Definitions.Create(ctx, corruptID, []byte("labels: [workspace=ops")))
+	service := NewService(stores.Definitions, stores.Runtimes, stores.Locker, NewValidator(nil))
+
+	_, err := service.List(ctx)
+	assert.ErrorIs(t, err, ErrDefinitionCorrupt)
+
+	items, err := service.ListVisible(ctx, func(definition Definition) bool {
+		return definition.Workspace() == "ops"
+	})
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	assert.Equal(t, testControllerID, items[0].ID)
+}
+
 func TestServiceStartRevalidatesDAGReferences(t *testing.T) {
 	t.Parallel()
 
@@ -228,15 +331,52 @@ func TestServiceStartRevalidatesDAGReferences(t *testing.T) {
 	require.NoError(t, stores.Definitions.Create(ctx, testControllerID, []byte(yaml)))
 
 	missing := errors.New("deleted")
-	validator := NewValidator(DAGResolverFunc(func(context.Context, string) (DAGReference, error) {
-		return DAGReference{}, missing
-	}))
+	validator := NewValidator(func(context.Context, string) (DAGMetadata, error) {
+		return DAGMetadata{}, missing
+	})
 	service := NewService(stores.Definitions, stores.Runtimes, stores.Locker, validator)
 	_, err := service.Start(ctx, testControllerID, "start")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrInvalidDefinition)
 	_, runtimeErr := stores.Runtimes.Get(ctx, testControllerID)
 	assert.ErrorIs(t, runtimeErr, ErrNotFound)
+}
+
+func TestServiceGetAllowsStaleDAGReferences(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	stores := NewFileStores(t.TempDir())
+	yaml := strings.Replace(string(validPersistedYAML(testControllerID)), "dags: []", "dags:\n  - inspect-alert", 1)
+	yaml = strings.Replace(yaml, "    transitions:\n", "    dags:\n      - inspect-alert\n    transitions:\n", 1)
+	require.NoError(t, stores.Definitions.Create(ctx, testControllerID, []byte(yaml)))
+
+	service := NewService(
+		stores.Definitions,
+		stores.Runtimes,
+		stores.Locker,
+		NewValidator(func(context.Context, string) (DAGMetadata, error) {
+			return DAGMetadata{}, errors.New("DAG was deleted")
+		}),
+	)
+	detail, err := service.Get(ctx, testControllerID)
+
+	require.NoError(t, err)
+	assert.Equal(t, testControllerID, detail.Definition.ID)
+}
+
+func TestValidateRuntimeAgainstDefinitionRejectsActiveTerminalState(t *testing.T) {
+	t.Parallel()
+
+	definition := routerTestDefinition()
+	runtime := validRunningRuntime(definition.ID, time.Now().UTC())
+	runtime.Workspace = definition.Workspace()
+	runtime.CurrentState = "done"
+
+	err := validateRuntimeAgainstDefinition(definition, runtime)
+
+	assert.ErrorIs(t, err, ErrRuntimeCorrupt)
+	assert.Contains(t, err.Error(), "terminal State")
 }
 
 func TestServicePromptFailsControllerWhenRuntimeSnapshotWouldOverflow(t *testing.T) {
@@ -247,15 +387,9 @@ func TestServicePromptFailsControllerWhenRuntimeSnapshotWouldOverflow(t *testing
 	require.NoError(t, stores.Definitions.Create(ctx, testControllerID, validPersistedYAML(testControllerID)))
 	now := time.Date(2026, time.July, 22, 10, 0, 0, 0, time.UTC)
 	runtime := validRunningRuntime(testControllerID, now)
-	question := "Need more input"
-	runtime.Status = core.Waiting
-	runtime.WaitingQuestion = &question
-	runtime.Context[0].Content = ""
-	emptySnapshot, err := json.Marshal(runtime)
-	require.NoError(t, err)
-	contentBytes := MaxRuntimeBytes - runtimeTerminalReserve - len(emptySnapshot) - 128
-	require.Positive(t, contentBytes)
-	runtime.Context[0].Content = strings.Repeat("x", contentBytes)
+	targetBytes := MaxRuntimeBytes - runtimeTerminalReserve - 512
+	fillTestRuntimeContext(t, runtime, targetBytes, testContextPromptWait)
+	baseContextLength := len(runtime.Context)
 	require.NoError(t, stores.Runtimes.Put(ctx, runtime))
 
 	service := NewService(
@@ -270,11 +404,11 @@ func TestServicePromptFailsControllerWhenRuntimeSnapshotWouldOverflow(t *testing
 	assert.Equal(t, core.Failed, view.Status)
 	require.NotNil(t, view.LastError)
 	assert.Equal(t, "runtime_snapshot_limit", *view.LastError)
-	require.Len(t, view.Context, 1)
+	require.Len(t, view.Context, baseContextLength)
 
 	stored, err := stores.Runtimes.Get(ctx, testControllerID)
 	require.NoError(t, err)
 	assert.Equal(t, core.Failed, stored.Status)
 	require.NotNil(t, stored.FinishedAt)
-	require.Len(t, stored.Context, 1)
+	require.Len(t, stored.Context, baseContextLength)
 }

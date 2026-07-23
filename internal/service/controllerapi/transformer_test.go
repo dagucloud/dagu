@@ -36,11 +36,10 @@ func TestDetailMapsControllerRuntimeAndContext(t *testing.T) {
 		},
 		Runtime: &controller.RuntimeView{
 			Status:          core.Waiting,
-			StatusLabel:     core.Waiting.String(),
 			CurrentState:    "needs_input",
 			TurnCount:       2,
 			WaitingQuestion: &waitingQuestion,
-			ActiveDAGRun: &controller.PublicActiveDAGRun{
+			ActiveDAGRun: &controller.DAGRunRef{
 				State: "needs_input", DAG: "collect", DAGRunID: "run-1",
 			},
 			DAGRunRefs: []controller.DAGRunRef{{State: "default", DAG: "classify", DAGRunID: "run-0"}},
@@ -56,10 +55,15 @@ func TestDetailMapsControllerRuntimeAndContext(t *testing.T) {
 			UpdatedAt:  now,
 			FinishedAt: &now,
 		},
+		Warnings: []controller.DefinitionWarning{{
+			Code:    "unreachable_state",
+			Path:    "states.orphaned",
+			Message: "State is unreachable from default",
+		}},
 		ResourceUpdatedAt: now,
 	}
 
-	result := Detail(detail)
+	result := Detail(*detail)
 
 	assert.Equal(t, controller.DefaultMaxTurns, result.Definition.MaxTurns)
 	require.NotNil(t, result.Definition.States["done"].Terminal)
@@ -72,8 +76,11 @@ func TestDetailMapsControllerRuntimeAndContext(t *testing.T) {
 	require.NotNil(t, result.Runtime.Context[0].Metadata.TotalTokens)
 	assert.Equal(t, 12, *result.Runtime.Context[0].Metadata.TotalTokens)
 	require.NotNil(t, result.Runtime.LastError)
-	assert.Equal(t, lastError, result.Runtime.LastError.Code)
-	assert.Nil(t, result.Runtime.LastError.Message)
+	assert.Equal(t, lastError, *result.Runtime.LastError)
 	require.NotNil(t, result.Runtime.FinishedAt)
 	assert.Equal(t, now, *result.Runtime.FinishedAt)
+	require.Len(t, result.Warnings, 1)
+	assert.Equal(t, "unreachable_state", result.Warnings[0].Code)
+	assert.Equal(t, "states.orphaned", result.Warnings[0].Path)
+	assert.Equal(t, "State is unreachable from default", result.Warnings[0].Message)
 }

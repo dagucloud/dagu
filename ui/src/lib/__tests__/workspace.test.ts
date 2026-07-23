@@ -11,6 +11,7 @@ import {
   LEGACY_WORKSPACE_SCOPE_STORAGE_KEY,
   WORKSPACE_STORAGE_KEY,
   WorkspaceKind,
+  workspaceNameFromLabels,
   workspaceSelectionLabel,
   workspaceTargetSelectionQuery,
 } from '../workspace';
@@ -27,7 +28,20 @@ describe('workspace labels', () => {
 
   it('detects malformed workspace labels as workspace-labelled', () => {
     expect(hasWorkspaceLabel(['workspace=bad value'])).toBe(true);
+    expect(hasWorkspaceLabel([' WORKSPACE = ops '])).toBe(true);
+    expect(hasWorkspaceLabel(['workspace'])).toBe(true);
     expect(hasWorkspaceLabel(['team=ops'])).toBe(false);
+  });
+
+  it('matches the canonical workspace label parser', () => {
+    expect(workspaceNameFromLabels([' WORKSPACE = OPS '])).toBe('ops');
+    expect(workspaceNameFromLabels(['workspace=OPS', 'workspace=ops'])).toBe(
+      'ops'
+    );
+    expect(
+      workspaceNameFromLabels(['workspace=ops', 'workspace=security'])
+    ).toBe('');
+    expect(workspaceNameFromLabels(['workspace=default'])).toBe('');
   });
 });
 

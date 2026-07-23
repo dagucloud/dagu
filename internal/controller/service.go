@@ -88,15 +88,26 @@ func (s *Service) Create(ctx context.Context, data []byte) (*Detail, error) {
 		}
 		definition := *draft
 		definition.ID = id
-		if err := s.validator.Validate(ctx, &definition); err != nil {
+		warnings, err := s.validator.Validate(ctx, &definition)
+		if err != nil {
 			return nil, err
 		}
 		persisted, err := MarshalDefinition(&definition)
 		if err != nil {
 			return nil, err
 		}
-		err = s.locker.WithLock(ctx, id, func() error {
-			return s.definitions.Create(ctx, id, persisted)
+		var detail *Detail
+		err = s.locker.WithLock(ctx, id, func(lockedCtx context.Context) error {
+			if err := s.definitions.Create(lockedCtx, id, persisted); err != nil {
+				return err
+			}
+			detail = &Detail{
+				RawYAML:    string(persisted),
+				Definition: definition,
+				Warnings:   warnings,
+			}
+			detail.ResourceUpdatedAt = s.committedResourceUpdatedAt(lockedCtx, id, nil)
+			return nil
 		})
 		if errors.Is(err, ErrAlreadyExists) {
 			continue
@@ -104,8 +115,6 @@ func (s *Service) Create(ctx context.Context, data []byte) (*Detail, error) {
 		if err != nil {
 			return nil, err
 		}
-		detail := &Detail{RawYAML: string(persisted), Definition: definition}
-		s.setResourceUpdatedAt(ctx, detail)
 		return detail, nil
 	}
 	return nil, fmt.Errorf("generate unused Controller ID after %d attempts", maxIDGenerationAttempts)
@@ -113,33 +122,25 @@ func (s *Service) Create(ctx context.Context, data []byte) (*Detail, error) {
 
 // List returns all Controller definitions with compact lifecycle projections.
 func (s *Service) List(ctx context.Context) ([]Summary, error) {
-	ids, err := s.definitions.List(ctx)
-	if err != nil {
-		return nil, err
-	}
-	items := make([]Summary, 0, len(ids))
-	for _, id := range ids {
-		detail, err := s.Get(ctx, id)
-		if err != nil {
-			return nil, err
-		}
-		items = append(items, s.summary(detail))
-	}
-	return items, nil
+	return s.list(ctx, nil, false)
 }
 
 // ListVisible returns compact views only for definitions accepted by include.
 // Invalid definitions are omitted because their workspace cannot be trusted.
 func (s *Service) ListVisible(ctx context.Context, include func(Definition) bool) ([]Summary, error) {
+	return s.list(ctx, include, true)
+}
+
+func (s *Service) list(ctx context.Context, include func(Definition) bool, skipCorruptDefinitions bool) ([]Summary, error) {
 	ids, err := s.definitions.List(ctx)
 	if err != nil {
 		return nil, err
 	}
 	items := make([]Summary, 0, len(ids))
 	for _, id := range ids {
-		definition, err := s.GetDefinition(ctx, id)
+		data, definition, err := s.loadDefinitionRecord(ctx, id)
 		if err != nil {
-			if errors.Is(err, ErrDefinitionCorrupt) {
+			if skipCorruptDefinitions && errors.Is(err, ErrDefinitionCorrupt) {
 				continue
 			}
 			return nil, err
@@ -147,7 +148,7 @@ func (s *Service) ListVisible(ctx context.Context, include func(Definition) bool
 		if include != nil && !include(*definition) {
 			continue
 		}
-		detail, err := s.Get(ctx, id)
+		detail, err := s.loadDetail(ctx, data, definition)
 		if err != nil {
 			return nil, err
 		}
@@ -163,26 +164,15 @@ func (s *Service) GetDefinition(ctx context.Context, id string) (*Definition, er
 
 // Get returns one persisted definition and its API-safe runtime snapshot.
 func (s *Service) Get(ctx context.Context, id string) (*Detail, error) {
-	data, err := s.definitions.Get(ctx, id)
+	data, definition, err := s.loadDefinitionRecord(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	definition, err := ParseDefinition(data)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %s: %v", ErrDefinitionCorrupt, id, err)
-	}
-	if definition.ID != id {
-		return nil, fmt.Errorf("%w: definition ID %q does not match resource %q", ErrDefinitionCorrupt, definition.ID, id)
-	}
-	runtime, err := s.runtimes.Get(ctx, id)
-	if err != nil && !errors.Is(err, ErrNotFound) {
-		return nil, err
-	}
-	detail, err := detailFromRecords(data, definition, runtime)
+	detail, err := s.loadDetail(ctx, data, definition)
 	if err != nil {
 		return nil, err
 	}
-	s.setResourceUpdatedAt(ctx, detail)
+	detail.Warnings = s.validator.Warnings(ctx, definition)
 	return detail, nil
 }
 
@@ -196,8 +186,8 @@ func (s *Service) Update(ctx context.Context, id string, data []byte) (*Detail, 
 		return nil, fmt.Errorf("%w: definition ID %q does not match resource %q", ErrInvalidDefinition, next.ID, id)
 	}
 	var detail *Detail
-	err = s.locker.WithLock(ctx, id, func() error {
-		currentData, err := s.definitions.Get(ctx, id)
+	err = s.locker.WithLock(ctx, id, func(lockedCtx context.Context) error {
+		currentData, err := s.definitions.Get(lockedCtx, id)
 		if err != nil {
 			return err
 		}
@@ -205,39 +195,45 @@ func (s *Service) Update(ctx context.Context, id string, data []byte) (*Detail, 
 		if err != nil {
 			return fmt.Errorf("%w: %s: %v", ErrDefinitionCorrupt, id, err)
 		}
-		runtime, err := s.runtimeOrNil(ctx, id)
+		runtime, err := s.runtimeOrNil(lockedCtx, id)
 		if err != nil {
 			return err
 		}
-		if err := validateDefinitionRuntimeIdentity(current, runtime); err != nil {
+		if err := validateRuntimeAgainstDefinition(*current, runtime); err != nil {
 			return err
 		}
-		if !runtimeAllowsDefinitionMutation(runtime) {
+		if !runtimeIsSettled(runtime) {
 			return fmt.Errorf("%w: %s", ErrActiveController, id)
 		}
 		if current.Workspace() != next.Workspace() {
 			return fmt.Errorf("%w: Controller workspace is immutable", ErrInvalidLifecycle)
 		}
-		if err := s.validator.Validate(ctx, next); err != nil {
+		warnings, err := s.validator.Validate(lockedCtx, next)
+		if err != nil {
 			return err
 		}
-		if err := s.definitions.Update(ctx, id, data); err != nil {
+		if err := s.definitions.Update(lockedCtx, id, data); err != nil {
 			return err
 		}
-		detail, err = detailFromRecords(data, next, runtime)
-		return err
+		detail, err = detailFromRecords(data, *next, runtime)
+		if err != nil {
+			return err
+		}
+		detail.Warnings = warnings
+		detail.ResourceUpdatedAt = s.committedResourceUpdatedAt(lockedCtx, id, detail.Runtime)
+		return nil
 	})
-	if detail != nil {
-		s.setResourceUpdatedAt(ctx, detail)
+	if err != nil {
+		return nil, err
 	}
-	return detail, err
+	return detail, nil
 }
 
 // Delete removes an inactive definition and runtime snapshot. Child DAG history is untouched.
 func (s *Service) Delete(ctx context.Context, id string) error {
-	return s.locker.WithLock(ctx, id, func() error {
-		data, definitionErr := s.definitions.Get(ctx, id)
-		runtime, runtimeErr := s.runtimes.Get(ctx, id)
+	return s.locker.WithLock(ctx, id, func(lockedCtx context.Context) error {
+		data, definitionErr := s.definitions.Get(lockedCtx, id)
+		runtime, runtimeErr := s.runtimes.Get(lockedCtx, id)
 		if definitionErr != nil && !errors.Is(definitionErr, ErrNotFound) {
 			return definitionErr
 		}
@@ -255,20 +251,20 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 			if err != nil {
 				return fmt.Errorf("%w: %s: %v", ErrDefinitionCorrupt, id, err)
 			}
-			if err := validateDefinitionRuntimeIdentity(definition, runtime); err != nil {
+			if err := validateRuntimeAgainstDefinition(*definition, runtime); err != nil {
 				return err
 			}
 		}
-		if !runtimeAllowsDefinitionMutation(runtime) {
+		if !runtimeIsSettled(runtime) {
 			return fmt.Errorf("%w: %s", ErrActiveController, id)
 		}
 		if runtime != nil {
-			if err := s.runtimes.Delete(ctx, id); err != nil {
+			if err := s.runtimes.Delete(lockedCtx, id); err != nil {
 				return err
 			}
 		}
 		if definitionErr == nil {
-			if err := s.definitions.Delete(ctx, id); err != nil {
+			if err := s.definitions.Delete(lockedCtx, id); err != nil {
 				return err
 			}
 		}
@@ -277,27 +273,27 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 }
 
 // Start replaces any settled snapshot with a new execution beginning at default.
-func (s *Service) Start(ctx context.Context, id, prompt string) (*RuntimeView, error) {
+func (s *Service) Start(ctx context.Context, id, prompt string) (RuntimeView, error) {
 	if err := ValidatePrompt(prompt); err != nil {
-		return nil, err
+		return RuntimeView{}, err
 	}
-	var view *RuntimeView
-	err := s.locker.WithLock(ctx, id, func() error {
-		definition, err := s.loadDefinition(ctx, id)
+	var view RuntimeView
+	err := s.locker.WithLock(ctx, id, func(lockedCtx context.Context) error {
+		definition, err := s.loadDefinition(lockedCtx, id)
 		if err != nil {
 			return err
 		}
-		if err := s.validator.Validate(ctx, definition); err != nil {
+		if _, err := s.validator.Validate(lockedCtx, definition); err != nil {
 			return err
 		}
-		current, err := s.runtimeOrNil(ctx, id)
+		current, err := s.runtimeOrNil(lockedCtx, id)
 		if err != nil {
 			return err
 		}
-		if err := validateDefinitionRuntimeIdentity(definition, current); err != nil {
+		if err := validateRuntimeAgainstDefinition(*definition, current); err != nil {
 			return err
 		}
-		if !runtimeAllowsStart(current) {
+		if !runtimeIsSettled(current) {
 			return fmt.Errorf("%w: Controller cannot start from its current lifecycle", ErrInvalidLifecycle)
 		}
 		now := s.now().UTC()
@@ -315,35 +311,34 @@ func (s *Service) Start(ctx context.Context, id, prompt string) (*RuntimeView, e
 			StartedAt: now,
 			UpdatedAt: now,
 		}
-		if err := s.runtimes.Put(ctx, next); err != nil {
+		if err := s.runtimes.Put(lockedCtx, next); err != nil {
 			return err
 		}
-		public := next.Public()
-		view = &public
+		view = next.Public()
 		return nil
 	})
 	return view, err
 }
 
 // Prompt resumes a prompt-waiting Controller without changing its State.
-func (s *Service) Prompt(ctx context.Context, id, prompt string) (*RuntimeView, error) {
+func (s *Service) Prompt(ctx context.Context, id, prompt string) (RuntimeView, error) {
 	if err := ValidatePrompt(prompt); err != nil {
-		return nil, err
+		return RuntimeView{}, err
 	}
-	var view *RuntimeView
-	err := s.locker.WithLock(ctx, id, func() error {
-		definition, err := s.loadDefinition(ctx, id)
+	var view RuntimeView
+	err := s.locker.WithLock(ctx, id, func(lockedCtx context.Context) error {
+		definition, err := s.loadDefinition(lockedCtx, id)
 		if err != nil {
 			return err
 		}
-		runtime, err := s.runtimes.Get(ctx, id)
+		runtime, err := s.runtimes.Get(lockedCtx, id)
 		if err != nil {
 			if errors.Is(err, ErrNotFound) {
 				return fmt.Errorf("%w: Controller has not been started", ErrInvalidLifecycle)
 			}
 			return err
 		}
-		if err := validateDefinitionRuntimeIdentity(definition, runtime); err != nil {
+		if err := validateRuntimeAgainstDefinition(*definition, runtime); err != nil {
 			return err
 		}
 		if runtime.Status != core.Waiting || runtime.ActiveDAGRun != nil || runtime.WaitingQuestion == nil || strings.TrimSpace(*runtime.WaitingQuestion) == "" {
@@ -356,38 +351,36 @@ func (s *Service) Prompt(ctx context.Context, id, prompt string) (*RuntimeView, 
 		runtime.FinishedAt = nil
 		now := s.now().UTC()
 		runtime.UpdatedAt = now
-		persisted, _, err := persistRuntimeCandidate(ctx, s.runtimes, base, runtime, now)
+		persisted, _, err := persistRuntimeCandidate(lockedCtx, s.runtimes, base, runtime, now)
 		if err != nil {
 			return err
 		}
-		public := persisted.Public()
-		view = &public
+		view = persisted.Public()
 		return nil
 	})
 	return view, err
 }
 
 // Stop records an idempotent abort request. The runner settles active work and finishedAt.
-func (s *Service) Stop(ctx context.Context, id string) (*RuntimeView, error) {
-	var view *RuntimeView
-	err := s.locker.WithLock(ctx, id, func() error {
-		definition, err := s.loadDefinition(ctx, id)
+func (s *Service) Stop(ctx context.Context, id string) (RuntimeView, error) {
+	var view RuntimeView
+	err := s.locker.WithLock(ctx, id, func(lockedCtx context.Context) error {
+		definition, err := s.loadDefinition(lockedCtx, id)
 		if err != nil {
 			return err
 		}
-		runtime, err := s.runtimes.Get(ctx, id)
+		runtime, err := s.runtimes.Get(lockedCtx, id)
 		if err != nil {
 			if errors.Is(err, ErrNotFound) {
 				return fmt.Errorf("%w: Controller has not been started", ErrInvalidLifecycle)
 			}
 			return err
 		}
-		if err := validateDefinitionRuntimeIdentity(definition, runtime); err != nil {
+		if err := validateRuntimeAgainstDefinition(*definition, runtime); err != nil {
 			return err
 		}
 		if runtime.Status == core.Aborted {
-			public := runtime.Public()
-			view = &public
+			view = runtime.Public()
 			return nil
 		}
 		if runtime.Status != core.Running && runtime.Status != core.Waiting {
@@ -397,29 +390,49 @@ func (s *Service) Stop(ctx context.Context, id string) (*RuntimeView, error) {
 		runtime.WaitingQuestion = nil
 		runtime.FinishedAt = nil
 		runtime.UpdatedAt = s.now().UTC()
-		if err := s.runtimes.Put(ctx, runtime); err != nil {
+		if err := s.runtimes.Put(lockedCtx, runtime); err != nil {
 			return err
 		}
-		public := runtime.Public()
-		view = &public
+		view = runtime.Public()
 		return nil
 	})
 	return view, err
 }
 
 func (s *Service) loadDefinition(ctx context.Context, id string) (*Definition, error) {
+	_, definition, err := s.loadDefinitionRecord(ctx, id)
+	return definition, err
+}
+
+func (s *Service) loadDefinitionRecord(ctx context.Context, id string) ([]byte, *Definition, error) {
 	data, err := s.definitions.Get(ctx, id)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	definition, err := ParseDefinition(data)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s: %v", ErrDefinitionCorrupt, id, err)
+		return nil, nil, fmt.Errorf("%w: %s: %v", ErrDefinitionCorrupt, id, err)
 	}
 	if definition.ID != id {
-		return nil, fmt.Errorf("%w: definition ID %q does not match resource %q", ErrDefinitionCorrupt, definition.ID, id)
+		return nil, nil, fmt.Errorf("%w: definition ID %q does not match resource %q", ErrDefinitionCorrupt, definition.ID, id)
 	}
-	return definition, nil
+	return data, definition, nil
+}
+
+func (s *Service) loadDetail(ctx context.Context, data []byte, definition *Definition) (*Detail, error) {
+	runtime, err := s.runtimeOrNil(ctx, definition.ID)
+	if err != nil {
+		return nil, err
+	}
+	detail, err := detailFromRecords(data, *definition, runtime)
+	if err != nil {
+		return nil, err
+	}
+	detail.ResourceUpdatedAt, err = s.resourceUpdatedAt(ctx, definition.ID, detail.Runtime)
+	if err != nil {
+		return nil, err
+	}
+	return detail, nil
 }
 
 func (s *Service) runtimeOrNil(ctx context.Context, id string) (*Runtime, error) {
@@ -433,25 +446,19 @@ func (s *Service) runtimeOrNil(ctx context.Context, id string) (*Runtime, error)
 func (*Service) summary(detail *Detail) Summary {
 	definition := detail.Definition
 	item := Summary{
-		ID:          definition.ID,
-		Name:        definition.Name,
-		Description: definition.Description,
-		Labels:      append([]string(nil), definition.Labels...),
-		Workspace:   definition.Workspace(),
-		Status:      core.NotStarted,
-		StatusLabel: core.NotStarted.String(),
-		MaxTurns:    definition.EffectiveMaxTurns(),
-	}
-	if !detail.ResourceUpdatedAt.IsZero() {
-		updatedAt := detail.ResourceUpdatedAt
-		item.ResourceUpdatedAt = &updatedAt
+		ID:                definition.ID,
+		Name:              definition.Name,
+		Description:       definition.Description,
+		Workspace:         definition.Workspace(),
+		Status:            core.NotStarted,
+		MaxTurns:          definition.EffectiveMaxTurns(),
+		ResourceUpdatedAt: detail.ResourceUpdatedAt,
 	}
 	if detail.Runtime == nil {
 		return item
 	}
 	runtime := detail.Runtime
 	item.Status = runtime.Status
-	item.StatusLabel = runtime.StatusLabel
 	item.CurrentState = runtime.CurrentState
 	item.TurnCount = runtime.TurnCount
 	item.WaitingQuestion = cloneStringPointer(runtime.WaitingQuestion)
@@ -468,32 +475,37 @@ func (*Service) summary(detail *Detail) Summary {
 	}
 	item.LastError = cloneStringPointer(runtime.LastError)
 	item.FinishedAt = cloneTimePointer(runtime.FinishedAt)
-	if item.ResourceUpdatedAt == nil || runtime.UpdatedAt.After(*item.ResourceUpdatedAt) {
-		updatedAt := runtime.UpdatedAt
-		item.ResourceUpdatedAt = &updatedAt
-	}
 	return item
 }
 
-func (s *Service) setResourceUpdatedAt(ctx context.Context, detail *Detail) {
-	if detail == nil {
-		return
+func (s *Service) resourceUpdatedAt(ctx context.Context, id string, runtime *RuntimeView) (time.Time, error) {
+	modifiedAt, err := s.definitions.ModifiedAt(ctx, id)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("read Controller definition timestamp: %w", err)
 	}
-	if metadataStore, ok := s.definitions.(DefinitionMetadataStore); ok {
-		if modifiedAt, err := metadataStore.ModifiedAt(ctx, detail.Definition.ID); err == nil {
-			detail.ResourceUpdatedAt = modifiedAt
-		}
+	if runtime != nil && runtime.UpdatedAt.After(modifiedAt) {
+		return runtime.UpdatedAt, nil
 	}
-	if detail.Runtime != nil && detail.Runtime.UpdatedAt.After(detail.ResourceUpdatedAt) {
-		detail.ResourceUpdatedAt = detail.Runtime.UpdatedAt
-	}
+	return modifiedAt, nil
 }
 
-func detailFromRecords(data []byte, definition *Definition, runtime *Runtime) (*Detail, error) {
-	if err := validateDefinitionRuntimeIdentity(definition, runtime); err != nil {
+func (s *Service) committedResourceUpdatedAt(ctx context.Context, id string, runtime *RuntimeView) time.Time {
+	updatedAt, err := s.resourceUpdatedAt(ctx, id, runtime)
+	if err == nil {
+		return updatedAt
+	}
+	updatedAt = s.now().UTC()
+	if runtime != nil && runtime.UpdatedAt.After(updatedAt) {
+		return runtime.UpdatedAt
+	}
+	return updatedAt
+}
+
+func detailFromRecords(data []byte, definition Definition, runtime *Runtime) (*Detail, error) {
+	if err := validateRuntimeAgainstDefinition(definition, runtime); err != nil {
 		return nil, err
 	}
-	detail := &Detail{RawYAML: string(data), Definition: *definition}
+	detail := &Detail{RawYAML: string(data), Definition: definition}
 	if runtime != nil {
 		public := runtime.Public()
 		detail.Runtime = &public
@@ -501,19 +513,22 @@ func detailFromRecords(data []byte, definition *Definition, runtime *Runtime) (*
 	return detail, nil
 }
 
-func validateDefinitionRuntimeIdentity(definition *Definition, runtime *Runtime) error {
-	if definition == nil || runtime == nil {
+func validateRuntimeAgainstDefinition(definition Definition, runtime *Runtime) error {
+	if runtime == nil {
 		return nil
 	}
 	if runtime.ID != definition.ID || runtime.Workspace != definition.Workspace() {
 		return fmt.Errorf("%w: definition and runtime identity do not match", ErrRuntimeCorrupt)
 	}
-	if runtimeAllowsDefinitionMutation(runtime) {
+	if runtimeIsSettled(runtime) {
 		return nil
 	}
 	state, ok := definition.States[runtime.CurrentState]
 	if !ok {
 		return fmt.Errorf("%w: current State %q does not exist in the active definition", ErrRuntimeCorrupt, runtime.CurrentState)
+	}
+	if state.Terminal != "" {
+		return fmt.Errorf("%w: active runtime occupies terminal State %q", ErrRuntimeCorrupt, runtime.CurrentState)
 	}
 	if runtime.ActiveDAGRun != nil && (!slices.Contains(definition.DAGs, runtime.ActiveDAGRun.DAG) || !slices.Contains(state.DAGs, runtime.ActiveDAGRun.DAG)) {
 		return fmt.Errorf("%w: active DAG %q is not allowed in current State %q", ErrRuntimeCorrupt, runtime.ActiveDAGRun.DAG, runtime.CurrentState)
@@ -521,26 +536,12 @@ func validateDefinitionRuntimeIdentity(definition *Definition, runtime *Runtime)
 	return nil
 }
 
-func runtimeAllowsDefinitionMutation(runtime *Runtime) bool {
+func runtimeIsSettled(runtime *Runtime) bool {
 	if runtime == nil {
 		return true
 	}
-	if runtime.ActiveDAGRun != nil {
-		return false
-	}
-	switch runtime.Status {
-	case core.Succeeded, core.Failed:
-		return runtime.FinishedAt != nil
-	case core.Aborted:
-		return runtime.FinishedAt != nil
-	case core.NotStarted, core.Running, core.Queued, core.PartiallySucceeded, core.Waiting, core.Rejected:
-		return false
-	}
-	return false
-}
-
-func runtimeAllowsStart(runtime *Runtime) bool {
-	return runtimeAllowsDefinitionMutation(runtime)
+	return runtime.ActiveDAGRun == nil && runtime.FinishedAt != nil &&
+		(runtime.Status == core.Succeeded || runtime.Status == core.Failed || runtime.Status == core.Aborted)
 }
 
 func generateControllerID() (string, error) {

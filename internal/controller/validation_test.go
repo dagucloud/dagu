@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/dagucloud/dagu/internal/core"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -56,13 +57,15 @@ func TestParseCreateDefinitionAppliesEffectiveDefaults(t *testing.T) {
 func TestParseCreateDefinitionRejectsGeneratedIDAndUnknownFields(t *testing.T) {
 	t.Parallel()
 
-	withID := strings.Replace(string(validCreateYAML()), "version: 1\n", "version: 1\nid: "+testControllerID+"\n", 1)
-	_, err := ParseCreateDefinition([]byte(withID))
-	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrInvalidDefinition)
+	for _, value := range []string{testControllerID, `""`, "null"} {
+		withID := strings.Replace(string(validCreateYAML()), "version: 1\n", "version: 1\nid: "+value+"\n", 1)
+		_, err := ParseCreateDefinition([]byte(withID))
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrInvalidDefinition)
+	}
 
 	withUnknown := strings.Replace(string(validCreateYAML()), "name: Incident flow\n", "name: Incident flow\ndisplay_name: wrong\n", 1)
-	_, err = ParseCreateDefinition([]byte(withUnknown))
+	_, err := ParseCreateDefinition([]byte(withUnknown))
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrInvalidDefinition)
 
@@ -122,20 +125,86 @@ func TestValidatorChecksCurrentDAGIdentityWorkspaceAndParams(t *testing.T) {
 	definition, err := ParseDefinition([]byte(yaml))
 	require.NoError(t, err)
 
-	resolver := DAGResolverFunc(func(context.Context, string) (DAGReference, error) {
-		return DAGReference{
-			FileName:            "other-file",
-			Name:                "inspect-alert",
-			Workspace:           "security",
-			HasPositionalParams: true,
+	resolver := func(context.Context, string) (DAGMetadata, error) {
+		return DAGMetadata{
+			FileName:  "other-file",
+			Name:      "inspect-alert",
+			Workspace: "security",
+			ParamDefs: []core.ParamDef{{}},
 		}, nil
-	})
-	err = NewValidator(resolver).Validate(context.Background(), definition)
+	}
+	_, err = NewValidator(resolver).Validate(context.Background(), definition)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrInvalidDefinition)
 	assert.Contains(t, err.Error(), "fileName and name")
 	assert.Contains(t, err.Error(), "different workspace")
 	assert.Contains(t, err.Error(), "positional parameters")
+}
+
+func TestValidatorReportsDefinitionWarnings(t *testing.T) {
+	t.Parallel()
+
+	yaml := strings.Replace(string(validPersistedYAML(testControllerID)), "dags: []", "dags:\n  - inspect-alert\n  - notify-team", 1)
+	yaml = strings.Replace(yaml, `states:
+  default:
+    description: Initial routing state.
+    transitions:
+      - to: completed
+        when: Work is complete.
+  completed:
+    description: Work completed successfully.
+    terminal: succeeded
+`, `states:
+  default:
+    description: Initial routing state.
+    dags:
+      - inspect-alert
+  orphaned:
+    description: Unreachable routing state.
+    transitions:
+      - to: orphaned
+        when: Continue waiting.
+`, 1)
+	definition, err := ParseDefinition([]byte(yaml))
+	require.NoError(t, err)
+
+	resolver := func(_ context.Context, fileName string) (DAGMetadata, error) {
+		description := "Notify the response team."
+		if fileName == "inspect-alert" {
+			description = ""
+		}
+		return DAGMetadata{
+			FileName:    fileName,
+			Name:        fileName,
+			Workspace:   "ops",
+			Description: description,
+		}, nil
+	}
+	warnings, err := NewValidator(resolver).Validate(context.Background(), definition)
+	require.NoError(t, err)
+
+	assert.Equal(t, []DefinitionWarning{
+		{
+			Code:    "unreachable_state",
+			Path:    "states.orphaned",
+			Message: `State "orphaned" is unreachable from default`,
+		},
+		{
+			Code:    "unused_dag",
+			Path:    "dags[1]",
+			Message: `DAG "notify-team" is not referenced by any State`,
+		},
+		{
+			Code:    "dag_description_empty",
+			Path:    "dags[0]",
+			Message: `DAG "inspect-alert" has no description for the Router`,
+		},
+		{
+			Code:    "no_terminal_state",
+			Path:    "states",
+			Message: "Controller has no terminal State and can only finish when stopped or failed",
+		},
+	}, warnings)
 }
 
 func TestValidatePromptPreservesInputAndRejectsInvalidValues(t *testing.T) {
@@ -144,4 +213,20 @@ func TestValidatePromptPreservesInputAndRejectsInvalidValues(t *testing.T) {
 	require.NoError(t, ValidatePrompt("  keep surrounding spaces  "))
 	assert.ErrorIs(t, ValidatePrompt(" \n\t"), ErrInvalidPrompt)
 	assert.ErrorIs(t, ValidatePrompt(strings.Repeat("x", maxPromptBytes+1)), ErrInvalidPrompt)
+}
+
+func TestValidateNameRejectsLineBreaks(t *testing.T) {
+	t.Parallel()
+
+	for _, lineBreak := range []rune{'\n', '\v', '\f', '\r', '\u0085', '\u2028', '\u2029'} {
+		issues := validateName("Incident" + string(lineBreak) + "flow")
+		assert.Contains(t, issues, issue("single_line", "name", "must be a single line"))
+	}
+}
+
+func TestValidateID(t *testing.T) {
+	t.Parallel()
+
+	require.NoError(t, ValidateID(testControllerID))
+	assert.ErrorIs(t, ValidateID("ctrl_invalid"), ErrInvalidDefinition)
 }

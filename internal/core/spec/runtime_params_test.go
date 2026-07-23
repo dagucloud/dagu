@@ -40,6 +40,32 @@ params:
 	assert.JSONEq(t, `{"region":"us-west-2","count":"5"}`, resolved.ParamsJSON)
 }
 
+func TestResolveRuntimeParams_PreservesLargeJSONInteger(t *testing.T) {
+	t.Parallel()
+
+	yaml := []byte(`
+name: runtime-params-large-integer
+params:
+  - name: sequence
+    type: integer
+    required: true
+`)
+
+	dag, err := LoadYAML(context.Background(), yaml, WithoutEval())
+	require.NoError(t, err)
+	dag.YamlData = yaml
+
+	resolved, err := ResolveRuntimeParams(
+		context.Background(),
+		dag,
+		`{"sequence":9007199254740993}`,
+		ResolveRuntimeParamsOptions{},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"sequence=9007199254740993"}, resolved.Params)
+	assert.Equal(t, `{"sequence":9007199254740993}`, resolved.ParamsJSON)
+}
+
 func TestResolveRuntimeParams_ValidatesEmptyRuntimeInput(t *testing.T) {
 	t.Parallel()
 

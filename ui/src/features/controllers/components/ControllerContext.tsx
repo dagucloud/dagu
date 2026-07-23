@@ -6,7 +6,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import type { ControllerContextMessage } from '../types';
 
 const roleVariant = {
-  system: 'default',
   user: 'primary',
   assistant: 'info',
   tool: 'warning',
@@ -34,11 +33,6 @@ export function ControllerContext({
               {message.role}
               <Badge variant={roleVariant[message.role]}>{index + 1}</Badge>
             </CardTitle>
-            {message.name && (
-              <span className="font-mono text-xs text-muted-foreground">
-                {message.name}
-              </span>
-            )}
           </CardHeader>
           <CardContent className="space-y-3">
             {message.content && (

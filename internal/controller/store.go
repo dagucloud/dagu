@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/dagucloud/dagu/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
@@ -25,9 +26,14 @@ import (
 )
 
 const (
-	definitionDirectoryName = "controllers"
-	runtimeDirectoryName    = "controller-runtime"
-	runtimeTerminalReserve  = 2 << 10
+	definitionDirectoryName       = "controllers"
+	runtimeDirectoryName          = "controller-runtime"
+	runtimeTerminalReserve        = 2 << 10
+	maxDAGRunRefs                 = 20
+	maxLastErrorBytes             = 1 << 10
+	resourceLockStaleThreshold    = 30 * time.Second
+	resourceLockHeartbeatInterval = 10 * time.Second
+	resourceLockRetryInterval     = 50 * time.Millisecond
 )
 
 // DefinitionStore persists exact Controller YAML documents.
@@ -37,10 +43,6 @@ type DefinitionStore interface {
 	Update(ctx context.Context, id string, data []byte) error
 	Delete(ctx context.Context, id string) error
 	List(ctx context.Context) ([]string, error)
-}
-
-// DefinitionMetadataStore optionally exposes filesystem definition timestamps.
-type DefinitionMetadataStore interface {
 	ModifiedAt(ctx context.Context, id string) (time.Time, error)
 }
 
@@ -53,8 +55,9 @@ type RuntimeStore interface {
 }
 
 // ResourceLocker serializes all mutations for one Controller across processes.
+// The callback context is canceled if lock ownership cannot be maintained.
 type ResourceLocker interface {
-	WithLock(ctx context.Context, id string, fn func() error) error
+	WithLock(ctx context.Context, id string, fn func(context.Context) error) error
 }
 
 // FileStores contains Controller stores rooted below one DataDir.
@@ -68,29 +71,33 @@ type FileStores struct {
 func NewFileStores(dataDir string) FileStores {
 	runtimeDir := filepath.Join(dataDir, runtimeDirectoryName)
 	return FileStores{
-		Definitions: &FileDefinitionStore{dir: filepath.Join(dataDir, definitionDirectoryName)},
-		Runtimes:    &FileRuntimeStore{dir: runtimeDir},
-		Locker:      &FileResourceLocker{dir: runtimeDir},
+		Definitions: &fileDefinitionStore{dir: filepath.Join(dataDir, definitionDirectoryName)},
+		Runtimes:    &fileRuntimeStore{dir: runtimeDir},
+		Locker: &fileResourceLocker{
+			dir:               runtimeDir,
+			staleThreshold:    resourceLockStaleThreshold,
+			heartbeatInterval: resourceLockHeartbeatInterval,
+		},
 	}
 }
 
-// FileDefinitionStore stores Controller definitions as owner-only YAML files.
-type FileDefinitionStore struct {
+type fileDefinitionStore struct {
 	dir string
 }
 
-// NewFileDefinitionStore creates a definition store below the supplied DataDir.
-func NewFileDefinitionStore(dataDir string) *FileDefinitionStore {
-	return &FileDefinitionStore{dir: filepath.Join(dataDir, definitionDirectoryName)}
-}
-
-func (s *FileDefinitionStore) Create(_ context.Context, id string, data []byte) error {
+func (s *fileDefinitionStore) Create(ctx context.Context, id string, data []byte) error {
 	path, err := s.path(id)
 	if err != nil {
 		return err
 	}
+	if err := context.Cause(ctx); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(s.dir, 0o750); err != nil {
 		return fmt.Errorf("create controller definition directory: %w", err)
+	}
+	if err := context.Cause(ctx); err != nil {
+		return err
 	}
 	if err := fileutil.WriteFileAtomicExclusive(path, data, 0o600); err != nil {
 		if errors.Is(err, fs.ErrExist) {
@@ -101,13 +108,15 @@ func (s *FileDefinitionStore) Create(_ context.Context, id string, data []byte) 
 	return nil
 }
 
-func (s *FileDefinitionStore) Get(_ context.Context, id string) ([]byte, error) {
+func (s *fileDefinitionStore) Get(ctx context.Context, id string) ([]byte, error) {
 	path, err := s.path(id)
 	if err != nil {
 		return nil, err
 	}
-	// #nosec G304 -- path is derived from a validated Controller ID under the fixed store root.
-	data, err := os.ReadFile(path)
+	if err := context.Cause(ctx); err != nil {
+		return nil, err
+	}
+	data, err := fileutil.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, fmt.Errorf("%w: %s", ErrNotFound, id)
@@ -117,9 +126,12 @@ func (s *FileDefinitionStore) Get(_ context.Context, id string) ([]byte, error) 
 	return data, nil
 }
 
-func (s *FileDefinitionStore) Update(_ context.Context, id string, data []byte) error {
+func (s *fileDefinitionStore) Update(ctx context.Context, id string, data []byte) error {
 	path, err := s.path(id)
 	if err != nil {
+		return err
+	}
+	if err := context.Cause(ctx); err != nil {
 		return err
 	}
 	if _, err := os.Stat(path); err != nil {
@@ -128,15 +140,21 @@ func (s *FileDefinitionStore) Update(_ context.Context, id string, data []byte) 
 		}
 		return fmt.Errorf("stat controller definition %s: %w", id, err)
 	}
+	if err := context.Cause(ctx); err != nil {
+		return err
+	}
 	if err := fileutil.WriteFileAtomic(path, data, 0o600); err != nil {
 		return fmt.Errorf("update controller definition %s: %w", id, err)
 	}
 	return nil
 }
 
-func (s *FileDefinitionStore) Delete(_ context.Context, id string) error {
+func (s *fileDefinitionStore) Delete(ctx context.Context, id string) error {
 	path, err := s.path(id)
 	if err != nil {
+		return err
+	}
+	if err := context.Cause(ctx); err != nil {
 		return err
 	}
 	if err := fileutil.RemoveFileDurable(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -145,7 +163,10 @@ func (s *FileDefinitionStore) Delete(_ context.Context, id string) error {
 	return nil
 }
 
-func (s *FileDefinitionStore) List(_ context.Context) ([]string, error) {
+func (s *fileDefinitionStore) List(ctx context.Context) ([]string, error) {
+	if err := context.Cause(ctx); err != nil {
+		return nil, err
+	}
 	entries, err := os.ReadDir(s.dir)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -169,9 +190,12 @@ func (s *FileDefinitionStore) List(_ context.Context) ([]string, error) {
 }
 
 // ModifiedAt returns the persisted definition file timestamp.
-func (s *FileDefinitionStore) ModifiedAt(_ context.Context, id string) (time.Time, error) {
+func (s *fileDefinitionStore) ModifiedAt(ctx context.Context, id string) (time.Time, error) {
 	path, err := s.path(id)
 	if err != nil {
+		return time.Time{}, err
+	}
+	if err := context.Cause(ctx); err != nil {
 		return time.Time{}, err
 	}
 	info, err := os.Stat(path)
@@ -184,29 +208,26 @@ func (s *FileDefinitionStore) ModifiedAt(_ context.Context, id string) (time.Tim
 	return info.ModTime().UTC(), nil
 }
 
-func (s *FileDefinitionStore) path(id string) (string, error) {
+func (s *fileDefinitionStore) path(id string) (string, error) {
 	if !controllerIDPattern.MatchString(id) {
 		return "", fmt.Errorf("%w: invalid Controller ID %q", ErrInvalidDefinition, id)
 	}
 	return filepath.Join(s.dir, id+".yaml"), nil
 }
 
-// FileRuntimeStore stores compact runtime JSON records.
-type FileRuntimeStore struct {
+type fileRuntimeStore struct {
 	dir string
 }
 
-// NewFileRuntimeStore creates a runtime store below the supplied DataDir.
-func NewFileRuntimeStore(dataDir string) *FileRuntimeStore {
-	return &FileRuntimeStore{dir: filepath.Join(dataDir, runtimeDirectoryName)}
-}
-
-func (s *FileRuntimeStore) Get(_ context.Context, id string) (*Runtime, error) {
+func (s *fileRuntimeStore) Get(ctx context.Context, id string) (*Runtime, error) {
 	path, err := s.path(id)
 	if err != nil {
 		return nil, err
 	}
-	data, err := fileutil.ReadFile(path)
+	if err := context.Cause(ctx); err != nil {
+		return nil, err
+	}
+	data, err := fileutil.ReadFileLimit(path, MaxRuntimeBytes+1)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, fmt.Errorf("%w: %s", ErrNotFound, id)
@@ -220,14 +241,17 @@ func (s *FileRuntimeStore) Get(_ context.Context, id string) (*Runtime, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s: %v", ErrRuntimeCorrupt, id, err)
 	}
+	if runtime.FinishedAt == nil && len(data) > MaxRuntimeBytes-runtimeTerminalReserve {
+		return nil, fmt.Errorf("%w: %s: unfinished snapshot exceeds %d bytes", ErrRuntimeCorrupt, id, MaxRuntimeBytes-runtimeTerminalReserve)
+	}
 	if runtime.ID != id {
 		return nil, fmt.Errorf("%w: runtime ID %q does not match record %q", ErrRuntimeCorrupt, runtime.ID, id)
 	}
 	return runtime, nil
 }
 
-func (s *FileRuntimeStore) Put(_ context.Context, runtime *Runtime) error {
-	if err := ValidateRuntime(runtime); err != nil {
+func (s *fileRuntimeStore) Put(ctx context.Context, runtime *Runtime) error {
+	if err := validateRuntime(runtime); err != nil {
 		return err
 	}
 	data, err := json.Marshal(runtime)
@@ -245,8 +269,14 @@ func (s *FileRuntimeStore) Put(_ context.Context, runtime *Runtime) error {
 	if err != nil {
 		return err
 	}
+	if err := context.Cause(ctx); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(s.dir, 0o750); err != nil {
 		return fmt.Errorf("create controller runtime directory: %w", err)
+	}
+	if err := context.Cause(ctx); err != nil {
+		return err
 	}
 	if err := fileutil.WriteFileAtomic(path, data, 0o600); err != nil {
 		return fmt.Errorf("write controller runtime %s: %w", runtime.ID, err)
@@ -254,9 +284,12 @@ func (s *FileRuntimeStore) Put(_ context.Context, runtime *Runtime) error {
 	return nil
 }
 
-func (s *FileRuntimeStore) Delete(_ context.Context, id string) error {
+func (s *fileRuntimeStore) Delete(ctx context.Context, id string) error {
 	path, err := s.path(id)
 	if err != nil {
+		return err
+	}
+	if err := context.Cause(ctx); err != nil {
 		return err
 	}
 	if err := fileutil.RemoveFileDurable(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -265,7 +298,10 @@ func (s *FileRuntimeStore) Delete(_ context.Context, id string) error {
 	return nil
 }
 
-func (s *FileRuntimeStore) List(_ context.Context) ([]string, error) {
+func (s *fileRuntimeStore) List(ctx context.Context) ([]string, error) {
+	if err := context.Cause(ctx); err != nil {
+		return nil, err
+	}
 	entries, err := os.ReadDir(s.dir)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -288,24 +324,20 @@ func (s *FileRuntimeStore) List(_ context.Context) ([]string, error) {
 	return ids, nil
 }
 
-func (s *FileRuntimeStore) path(id string) (string, error) {
+func (s *fileRuntimeStore) path(id string) (string, error) {
 	if !controllerIDPattern.MatchString(id) {
 		return "", fmt.Errorf("%w: invalid Controller ID %q", ErrNotFound, id)
 	}
 	return filepath.Join(s.dir, id+".json"), nil
 }
 
-// FileResourceLocker uses the runtime namespace as the cross-process resource lock.
-type FileResourceLocker struct {
-	dir string
+type fileResourceLocker struct {
+	dir               string
+	staleThreshold    time.Duration
+	heartbeatInterval time.Duration
 }
 
-// NewFileResourceLocker creates the shared Controller lock below the supplied DataDir.
-func NewFileResourceLocker(dataDir string) *FileResourceLocker {
-	return &FileResourceLocker{dir: filepath.Join(dataDir, runtimeDirectoryName)}
-}
-
-func (l *FileResourceLocker) WithLock(ctx context.Context, id string, fn func() error) error {
+func (l *fileResourceLocker) WithLock(ctx context.Context, id string, fn func(context.Context) error) (err error) {
 	if !controllerIDPattern.MatchString(id) {
 		return fmt.Errorf("%w: invalid Controller ID %q", ErrInvalidDefinition, id)
 	}
@@ -313,20 +345,49 @@ func (l *FileResourceLocker) WithLock(ctx context.Context, id string, fn func() 
 		return fmt.Errorf("controller lock callback is required")
 	}
 	lock := dirlock.New(filepath.Join(l.dir, id), &dirlock.LockOptions{
-		StaleThreshold: 30 * time.Second,
-		RetryInterval:  50 * time.Millisecond,
+		StaleThreshold: l.staleThreshold,
+		RetryInterval:  resourceLockRetryInterval,
 	})
 	if err := lock.Lock(ctx); err != nil {
 		return err
 	}
-	defer func() {
-		_ = lock.Unlock()
+
+	lockedCtx, cancelLocked := context.WithCancelCause(ctx)
+	heartbeatCtx, stopHeartbeat := context.WithCancel(context.WithoutCancel(ctx))
+	heartbeatDone := make(chan error, 1)
+	go func() {
+		ticker := time.NewTicker(l.heartbeatInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-heartbeatCtx.Done():
+				heartbeatDone <- nil
+				return
+			case <-ticker.C:
+				if heartbeatErr := lock.Heartbeat(heartbeatCtx); heartbeatErr != nil {
+					heartbeatErr = fmt.Errorf("maintain Controller lock: %w", heartbeatErr)
+					cancelLocked(heartbeatErr)
+					heartbeatDone <- heartbeatErr
+					return
+				}
+			}
+		}
 	}()
-	return fn()
+	defer func() {
+		stopHeartbeat()
+		heartbeatErr := <-heartbeatDone
+		cancelLocked(nil)
+		if heartbeatErr != nil && !errors.Is(err, heartbeatErr) {
+			err = errors.Join(err, heartbeatErr)
+		}
+		if unlockErr := lock.Unlock(); unlockErr != nil {
+			err = errors.Join(err, fmt.Errorf("release Controller lock: %w", unlockErr))
+		}
+	}()
+	return fn(lockedCtx)
 }
 
-// ValidateRuntime verifies the persisted snapshot contract without mutating it.
-func ValidateRuntime(runtime *Runtime) error {
+func validateRuntime(runtime *Runtime) error {
 	if runtime == nil {
 		return fmt.Errorf("%w: runtime is nil", ErrRuntimeCorrupt)
 	}
@@ -353,82 +414,321 @@ func ValidateRuntime(runtime *Runtime) error {
 	if runtime.FinishedAt != nil && (runtime.FinishedAt.IsZero() || runtime.FinishedAt.Before(runtime.StartedAt) || runtime.FinishedAt.After(runtime.UpdatedAt)) {
 		return fmt.Errorf("%w: invalid finishedAt timestamp", ErrRuntimeCorrupt)
 	}
-	if runtime.LastError != nil && len(*runtime.LastError) > 1<<10 {
-		return fmt.Errorf("%w: lastError exceeds 1024 bytes", ErrRuntimeCorrupt)
+	if runtime.LastError != nil && (!utf8.ValidString(*runtime.LastError) || strings.TrimSpace(*runtime.LastError) == "" || len(*runtime.LastError) > maxLastErrorBytes) {
+		return fmt.Errorf("%w: lastError must contain at most %d bytes of non-whitespace UTF-8 text", ErrRuntimeCorrupt, maxLastErrorBytes)
 	}
-	if len(runtime.DAGRunRefs) > 20 {
-		return fmt.Errorf("%w: dagRunRefs exceeds 20 entries", ErrRuntimeCorrupt)
+	if len(runtime.DAGRunRefs) > maxDAGRunRefs {
+		return fmt.Errorf("%w: dagRunRefs exceeds %d entries", ErrRuntimeCorrupt, maxDAGRunRefs)
 	}
-	seenRunIDs := make(map[string]struct{}, len(runtime.DAGRunRefs))
+	refsByRunID := make(map[string]DAGRunRef, len(runtime.DAGRunRefs))
 	for _, ref := range runtime.DAGRunRefs {
 		if !stateNamePattern.MatchString(ref.State) || !validDAGFileName(ref.DAG) || exec.ValidateDAGRunID(ref.DAGRunID) != nil {
 			return fmt.Errorf("%w: incomplete dagRunRef", ErrRuntimeCorrupt)
 		}
-		if _, duplicate := seenRunIDs[ref.DAGRunID]; duplicate {
+		if _, duplicate := refsByRunID[ref.DAGRunID]; duplicate {
 			return fmt.Errorf("%w: duplicate DAG run ID %q", ErrRuntimeCorrupt, ref.DAGRunID)
 		}
-		seenRunIDs[ref.DAGRunID] = struct{}{}
+		refsByRunID[ref.DAGRunID] = ref
 	}
 	if runtime.ActiveDAGRun != nil {
 		active := runtime.ActiveDAGRun
-		if active.ToolCallID == "" || !validDAGFileName(active.DAG) || exec.ValidateDAGRunID(active.DAGRunID) != nil || !validJSONObject(active.Params) {
+		canonicalParams, err := canonicalJSONObject(active.Params)
+		if active.ToolCallID == "" || !validDAGFileName(active.DAG) || exec.ValidateDAGRunID(active.DAGRunID) != nil ||
+			err != nil || !bytes.Equal(active.Params, canonicalParams) {
 			return fmt.Errorf("%w: invalid activeDAGRun", ErrRuntimeCorrupt)
 		}
+		if ref, exists := refsByRunID[active.DAGRunID]; exists && (ref.State != runtime.CurrentState || ref.DAG != active.DAG) {
+			return fmt.Errorf("%w: activeDAGRun does not match its dagRunRef", ErrRuntimeCorrupt)
+		}
 	}
-	pendingToolCallID, err := validateRuntimeContext(runtime.Context)
+	contextState, err := validateRuntimeContext(runtime.Context)
 	if err != nil {
 		return err
 	}
+	return validateRuntimeAgainstContext(runtime, contextState)
+}
+
+func validateRuntimeAgainstContext(runtime *Runtime, contextState persistedContextState) error {
+	expectedState := DefaultStateName
+	if contextState.lastRoute != nil {
+		expectedState = contextState.lastRoute.Decision.NextState
+	}
+	if runtime.CurrentState != expectedState {
+		return fmt.Errorf("%w: currentState does not match the latest route", ErrRuntimeCorrupt)
+	}
+
+	pendingRoute := contextState.pendingRoute
 	if runtime.ActiveDAGRun != nil {
-		if pendingToolCallID == "" || pendingToolCallID != runtime.ActiveDAGRun.ToolCallID {
+		active := runtime.ActiveDAGRun
+		if pendingRoute == nil || pendingRoute.ToolCallID != active.ToolCallID || pendingRoute.Decision.Action != "run" ||
+			pendingRoute.Decision.NextState != runtime.CurrentState || pendingRoute.Decision.DAG != active.DAG ||
+			!bytes.Equal(pendingRoute.Decision.Params, active.Params) {
 			return fmt.Errorf("%w: activeDAGRun does not match the pending route tool call", ErrRuntimeCorrupt)
 		}
-	} else if pendingToolCallID != "" && runtime.Status != core.Failed && runtime.Status != core.Aborted {
-		return fmt.Errorf("%w: unresolved route tool call without an active child", ErrRuntimeCorrupt)
+	} else if pendingRoute != nil {
+		if pendingRoute.Decision.Action != "run" || (runtime.Status != core.Failed && runtime.Status != core.Aborted) {
+			return fmt.Errorf("%w: unresolved route tool call without an active child", ErrRuntimeCorrupt)
+		}
+	}
+	if contextState.phase == persistedContextPromptWait &&
+		runtime.Status != core.Waiting && runtime.Status != core.Failed && runtime.Status != core.Aborted {
+		return fmt.Errorf("%w: prompt wait context does not match runtime lifecycle", ErrRuntimeCorrupt)
+	}
+	if runtime.Status == core.Waiting && runtime.ActiveDAGRun == nil {
+		if contextState.phase != persistedContextPromptWait || contextState.lastRoute == nil ||
+			runtime.WaitingQuestion == nil || *runtime.WaitingQuestion != contextState.lastRoute.Decision.Question {
+			return fmt.Errorf("%w: prompt wait does not match the latest route", ErrRuntimeCorrupt)
+		}
+	}
+	if terminal := contextState.terminal; terminal != nil {
+		if runtime.Status != terminal.Status {
+			return fmt.Errorf("%w: terminal context does not match runtime lifecycle", ErrRuntimeCorrupt)
+		}
+		if terminal.LastError == "" {
+			if runtime.LastError != nil {
+				return fmt.Errorf("%w: completed runtime has lastError", ErrRuntimeCorrupt)
+			}
+		} else if runtime.LastError == nil || *runtime.LastError != terminal.LastError {
+			return fmt.Errorf("%w: terminal context does not match lastError", ErrRuntimeCorrupt)
+		}
+	} else {
+		if runtime.Status == core.Succeeded {
+			return fmt.Errorf("%w: succeeded runtime has no completion outcome", ErrRuntimeCorrupt)
+		}
+		if runtime.Status == core.Failed && runtime.LastError == nil {
+			return fmt.Errorf("%w: operational failure has no lastError", ErrRuntimeCorrupt)
+		}
 	}
 	return validateRuntimeLifecycle(runtime)
 }
 
-func validateRuntimeContext(messages []exec.LLMMessage) (string, error) {
+type persistedRouteCall struct {
+	ToolCallID string
+	Decision   RouteDecision
+}
+
+type persistedContextPhase uint8
+
+const (
+	persistedContextRouteReady persistedContextPhase = iota
+	persistedContextPendingRoute
+	persistedContextPromptWait
+	persistedContextTerminal
+)
+
+type persistedTerminal struct {
+	Status    core.Status
+	LastError string
+}
+
+type persistedContextState struct {
+	pendingRoute *persistedRouteCall
+	lastRoute    *persistedRouteCall
+	terminal     *persistedTerminal
+	phase        persistedContextPhase
+}
+
+type persistedToolResult struct {
+	terminal *persistedTerminal
+	phase    persistedContextPhase
+}
+
+type persistedEnvelope struct {
+	Kind    string          `json:"kind"`
+	Trust   string          `json:"trust"`
+	Source  string          `json:"source"`
+	Payload json.RawMessage `json:"payload"`
+}
+
+type persistedRoutingOutcome struct {
+	Action  string  `json:"action"`
+	Outcome string  `json:"outcome"`
+	State   string  `json:"state"`
+	Status  *string `json:"status,omitempty"`
+}
+
+type persistedExecutionEvidence struct {
+	DAG           string            `json:"dag"`
+	DAGRunID      string            `json:"dag_run_id"`
+	Status        string            `json:"status"`
+	Outputs       map[string]string `json:"outputs"`
+	Untrusted     bool              `json:"untrusted"`
+	ErrorCategory string            `json:"error_category,omitempty"`
+	Truncated     bool              `json:"truncated,omitempty"`
+	OmittedCount  int               `json:"omitted_count,omitempty"`
+}
+
+func validateRuntimeContext(messages []exec.LLMMessage) (persistedContextState, error) {
 	if len(messages) == 0 || messages[0].Role != core.LLMRoleUser {
-		return "", fmt.Errorf("%w: context must begin with a user message", ErrRuntimeCorrupt)
+		return persistedContextState{}, fmt.Errorf("%w: context must begin with a user message", ErrRuntimeCorrupt)
 	}
-	pendingToolCallID := ""
+	phase := persistedContextRouteReady
+	var pending *persistedRouteCall
+	var lastRoute *persistedRouteCall
+	var terminal *persistedTerminal
 	seenToolCallIDs := make(map[string]struct{})
-	for _, message := range messages {
+	for index, message := range messages {
+		if phase == persistedContextTerminal {
+			return persistedContextState{}, fmt.Errorf("%w: context continues after a terminal outcome", ErrRuntimeCorrupt)
+		}
 		switch message.Role {
 		case core.LLMRoleUser:
-			if pendingToolCallID != "" || message.ToolCallID != "" || len(message.ToolCalls) != 0 || message.Metadata != nil {
-				return "", fmt.Errorf("%w: invalid user context message", ErrRuntimeCorrupt)
+			if (index != 0 && phase != persistedContextPromptWait) || message.ToolCallID != "" ||
+				len(message.ToolCalls) != 0 || message.Metadata != nil || ValidatePrompt(message.Content) != nil {
+				return persistedContextState{}, fmt.Errorf("%w: invalid user context message", ErrRuntimeCorrupt)
 			}
+			phase = persistedContextRouteReady
 		case core.LLMRoleAssistant:
-			if pendingToolCallID != "" || message.ToolCallID != "" || message.Content != "" || len(message.ToolCalls) != 1 {
-				return "", fmt.Errorf("%w: invalid assistant context message", ErrRuntimeCorrupt)
+			if phase != persistedContextRouteReady || message.ToolCallID != "" || message.Content != "" || len(message.ToolCalls) != 1 {
+				return persistedContextState{}, fmt.Errorf("%w: invalid assistant context message", ErrRuntimeCorrupt)
 			}
 			call := message.ToolCalls[0]
-			if call.ID == "" || call.Type != "function" || call.Function.Name != routeToolName || !validJSONObject(json.RawMessage(call.Function.Arguments)) {
-				return "", fmt.Errorf("%w: invalid route tool call", ErrRuntimeCorrupt)
+			if call.ID == "" || call.Type != "function" || call.Function.Name != routeToolName {
+				return persistedContextState{}, fmt.Errorf("%w: invalid route tool call", ErrRuntimeCorrupt)
 			}
 			if _, duplicate := seenToolCallIDs[call.ID]; duplicate {
-				return "", fmt.Errorf("%w: duplicate route tool call ID %q", ErrRuntimeCorrupt, call.ID)
+				return persistedContextState{}, fmt.Errorf("%w: duplicate route tool call ID %q", ErrRuntimeCorrupt, call.ID)
+			}
+			arguments, err := decodeRouteArguments(call.Function.Arguments)
+			if err != nil {
+				return persistedContextState{}, fmt.Errorf("%w: invalid route tool arguments", ErrRuntimeCorrupt)
+			}
+			decision, err := normalizeRouteArguments(arguments)
+			if err != nil {
+				return persistedContextState{}, fmt.Errorf("%w: invalid route tool arguments", ErrRuntimeCorrupt)
+			}
+			canonical, err := json.Marshal(routeArgumentsFromDecision(*decision))
+			if err != nil || call.Function.Arguments != string(canonical) {
+				return persistedContextState{}, fmt.Errorf("%w: route tool arguments are not canonical", ErrRuntimeCorrupt)
 			}
 			seenToolCallIDs[call.ID] = struct{}{}
-			pendingToolCallID = call.ID
+			pending = &persistedRouteCall{ToolCallID: call.ID, Decision: *decision}
+			lastRoute = pending
+			phase = persistedContextPendingRoute
 		case core.LLMRoleTool:
-			if pendingToolCallID == "" || message.ToolCallID != pendingToolCallID || len(message.ToolCalls) != 0 || message.Metadata != nil {
-				return "", fmt.Errorf("%w: unmatched route tool result", ErrRuntimeCorrupt)
+			if phase != persistedContextPendingRoute || pending == nil || message.ToolCallID != pending.ToolCallID ||
+				len(message.ToolCalls) != 0 || message.Metadata != nil {
+				return persistedContextState{}, fmt.Errorf("%w: unmatched route tool result", ErrRuntimeCorrupt)
 			}
-			pendingToolCallID = ""
+			result, err := validatePersistedToolResult(message, *pending)
+			if err != nil {
+				return persistedContextState{}, err
+			}
+			phase = result.phase
+			terminal = result.terminal
+			pending = nil
 		case core.LLMRoleSystem:
-			return "", fmt.Errorf("%w: system messages must not be persisted in context", ErrRuntimeCorrupt)
+			return persistedContextState{}, fmt.Errorf("%w: system messages must not be persisted in context", ErrRuntimeCorrupt)
 		default:
-			return "", fmt.Errorf("%w: invalid persisted context role %q", ErrRuntimeCorrupt, message.Role)
+			return persistedContextState{}, fmt.Errorf("%w: invalid persisted context role %q", ErrRuntimeCorrupt, message.Role)
 		}
 	}
-	return pendingToolCallID, nil
+	return persistedContextState{pendingRoute: pending, lastRoute: lastRoute, terminal: terminal, phase: phase}, nil
+}
+
+func validatePersistedToolResult(message exec.LLMMessage, route persistedRouteCall) (persistedToolResult, error) {
+	var envelope persistedEnvelope
+	if err := decodeStrictJSON([]byte(message.Content), &envelope); err != nil {
+		return persistedToolResult{}, fmt.Errorf("%w: invalid route tool result", ErrRuntimeCorrupt)
+	}
+	switch route.Decision.Action {
+	case "run":
+		return validatePersistedExecutionEvidence(message, route, envelope)
+	case "wait", "complete":
+		return validatePersistedRoutingOutcome(message, route, envelope)
+	default:
+		return persistedToolResult{}, fmt.Errorf("%w: invalid persisted route action", ErrRuntimeCorrupt)
+	}
+}
+
+func validatePersistedRoutingOutcome(message exec.LLMMessage, route persistedRouteCall, envelope persistedEnvelope) (persistedToolResult, error) {
+	if envelope.Kind != "routing_outcome" || envelope.Trust != "dagu_generated" || envelope.Source != "controller_runner" {
+		return persistedToolResult{}, fmt.Errorf("%w: invalid routing outcome envelope", ErrRuntimeCorrupt)
+	}
+	var payload persistedRoutingOutcome
+	if err := decodeStrictJSON(envelope.Payload, &payload); err != nil {
+		return persistedToolResult{}, fmt.Errorf("%w: invalid routing outcome payload", ErrRuntimeCorrupt)
+	}
+	terminal := ""
+	if route.Decision.Action == "complete" {
+		if payload.Status == nil || (*payload.Status != "succeeded" && *payload.Status != "failed") {
+			return persistedToolResult{}, fmt.Errorf("%w: invalid completion outcome status", ErrRuntimeCorrupt)
+		}
+		terminal = *payload.Status
+	} else if payload.Status != nil {
+		return persistedToolResult{}, fmt.Errorf("%w: wait outcome contains a terminal status", ErrRuntimeCorrupt)
+	}
+	decision := route.Decision
+	decision.ToolCallID = route.ToolCallID
+	expected, err := RoutingOutcomeMessage(decision, terminal)
+	if err != nil || message.Content != expected.Content {
+		return persistedToolResult{}, fmt.Errorf("%w: routing outcome does not match its route", ErrRuntimeCorrupt)
+	}
+	if route.Decision.Action != "complete" {
+		return persistedToolResult{phase: persistedContextPromptWait}, nil
+	}
+	status := core.Succeeded
+	if terminal == "failed" {
+		status = core.Failed
+	}
+	return persistedToolResult{
+		phase:    persistedContextTerminal,
+		terminal: &persistedTerminal{Status: status},
+	}, nil
+}
+
+func validatePersistedExecutionEvidence(message exec.LLMMessage, route persistedRouteCall, envelope persistedEnvelope) (persistedToolResult, error) {
+	if envelope.Kind != "execution_evidence" || envelope.Trust != "runtime_untrusted" || len(message.Content) > maxEvidenceBytes {
+		return persistedToolResult{}, fmt.Errorf("%w: invalid execution evidence envelope", ErrRuntimeCorrupt)
+	}
+	var payload persistedExecutionEvidence
+	if err := decodeStrictJSON(envelope.Payload, &payload); err != nil {
+		return persistedToolResult{}, fmt.Errorf("%w: invalid execution evidence payload", ErrRuntimeCorrupt)
+	}
+	status, ok := persistedChildStatus(payload.Status)
+	if !ok || payload.DAG != route.Decision.DAG || !validDAGFileName(payload.DAG) || exec.ValidateDAGRunID(payload.DAGRunID) != nil ||
+		payload.Outputs == nil || !payload.Untrusted || payload.OmittedCount < 0 || payload.Truncated != (payload.OmittedCount > 0) {
+		return persistedToolResult{}, fmt.Errorf("%w: execution evidence does not match its route", ErrRuntimeCorrupt)
+	}
+	active := ActiveDAGRun{ToolCallID: route.ToolCallID, DAG: payload.DAG, DAGRunID: payload.DAGRunID}
+	observation := ChildRunObservation{Status: status, Outputs: payload.Outputs, ErrorCategory: payload.ErrorCategory}
+	expected, err := evidenceEnvelope(active, observation, payload.Outputs, payload.Truncated, payload.OmittedCount)
+	if err != nil || message.Content != expected || envelope.Source != "dag_run:"+payload.DAGRunID {
+		return persistedToolResult{}, fmt.Errorf("%w: execution evidence is not canonical", ErrRuntimeCorrupt)
+	}
+	if status == core.Succeeded || status == core.PartiallySucceeded {
+		return persistedToolResult{phase: persistedContextRouteReady}, nil
+	}
+	return persistedToolResult{
+		phase: persistedContextTerminal,
+		terminal: &persistedTerminal{
+			Status:    core.Failed,
+			LastError: "child_dag_failed",
+		},
+	}, nil
+}
+
+func persistedChildStatus(value string) (core.Status, bool) {
+	switch value {
+	case "succeeded":
+		return core.Succeeded, true
+	case "partially_succeeded":
+		return core.PartiallySucceeded, true
+	case "failed":
+		return core.Failed, true
+	case "aborted":
+		return core.Aborted, true
+	case "rejected":
+		return core.Rejected, true
+	default:
+		return core.NotStarted, false
+	}
 }
 
 func validateRuntimeLifecycle(runtime *Runtime) error {
+	if runtime.Status != core.Failed && runtime.LastError != nil {
+		return fmt.Errorf("%w: lastError is only valid for failed runtimes", ErrRuntimeCorrupt)
+	}
 	switch runtime.Status {
 	case core.Running:
 		if runtime.FinishedAt != nil || runtime.WaitingQuestion != nil {
@@ -439,7 +739,7 @@ func validateRuntimeLifecycle(runtime *Runtime) error {
 			return fmt.Errorf("%w: waiting runtime has finishedAt", ErrRuntimeCorrupt)
 		}
 		if runtime.ActiveDAGRun == nil {
-			if runtime.WaitingQuestion == nil || strings.TrimSpace(*runtime.WaitingQuestion) == "" {
+			if runtime.WaitingQuestion == nil || !boundedNonWhitespace(*runtime.WaitingQuestion, maxQuestionRunes) {
 				return fmt.Errorf("%w: prompt wait requires waitingQuestion", ErrRuntimeCorrupt)
 			}
 		} else if runtime.WaitingQuestion != nil {
@@ -465,19 +765,24 @@ func validateRuntimeLifecycle(runtime *Runtime) error {
 }
 
 func decodeRuntime(data []byte) (*Runtime, error) {
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	var runtime Runtime
-	if err := decoder.Decode(&runtime); err != nil {
+	if err := decodeStrictJSON(data, &runtime); err != nil {
 		return nil, err
 	}
-	if err := ensureJSONEOF(decoder); err != nil {
-		return nil, err
-	}
-	if err := ValidateRuntime(&runtime); err != nil {
+	if err := validateRuntime(&runtime); err != nil {
 		return nil, err
 	}
 	return &runtime, nil
+}
+
+func decodeStrictJSON(data []byte, target any) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	decoder.UseNumber()
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	return ensureJSONEOF(decoder)
 }
 
 func ensureJSONEOF(decoder *json.Decoder) error {
@@ -489,12 +794,4 @@ func ensureJSONEOF(decoder *json.Decoder) error {
 		return fmt.Errorf("multiple JSON values are not allowed")
 	}
 	return nil
-}
-
-func validJSONObject(data json.RawMessage) bool {
-	if !json.Valid(data) {
-		return false
-	}
-	var object map[string]any
-	return json.Unmarshal(data, &object) == nil && object != nil
 }

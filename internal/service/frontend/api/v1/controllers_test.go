@@ -5,9 +5,13 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -55,14 +59,14 @@ func (s *stubControllerService) Create(context.Context, []byte) (*controller.Det
 	return s.detail, nil
 }
 
-func (s *stubControllerService) List(context.Context) ([]controller.Summary, error) {
-	return s.items, nil
-}
-
 func (s *stubControllerService) ListVisible(_ context.Context, include func(controller.Definition) bool) ([]controller.Summary, error) {
 	result := make([]controller.Summary, 0, len(s.items))
 	for _, item := range s.items {
-		if include == nil || include(controller.Definition{Labels: item.Labels}) {
+		var labels []string
+		if item.Workspace != "" {
+			labels = []string{"workspace=" + item.Workspace}
+		}
+		if include == nil || include(controller.Definition{Labels: labels}) {
 			result = append(result, item)
 		}
 	}
@@ -90,17 +94,17 @@ func (s *stubControllerService) Update(context.Context, string, []byte) (*contro
 
 func (s *stubControllerService) Delete(context.Context, string) error { return nil }
 
-func (s *stubControllerService) Start(_ context.Context, _ string, prompt string) (*controller.RuntimeView, error) {
+func (s *stubControllerService) Start(_ context.Context, _ string, prompt string) (controller.RuntimeView, error) {
 	s.startPrompt = prompt
-	return &controller.RuntimeView{Status: core.Running, StatusLabel: core.Running.String()}, nil
+	return controller.RuntimeView{Status: core.Running}, nil
 }
 
-func (s *stubControllerService) Prompt(context.Context, string, string) (*controller.RuntimeView, error) {
-	return &controller.RuntimeView{}, nil
+func (s *stubControllerService) Prompt(context.Context, string, string) (controller.RuntimeView, error) {
+	return controller.RuntimeView{}, nil
 }
 
-func (s *stubControllerService) Stop(context.Context, string) (*controller.RuntimeView, error) {
-	return &controller.RuntimeView{}, nil
+func (s *stubControllerService) Stop(context.Context, string) (controller.RuntimeView, error) {
+	return controller.RuntimeView{}, nil
 }
 
 type controllerAuthService struct{ AuthService }
@@ -126,8 +130,8 @@ func TestListControllersFiltersWorkspaceAndReturnsCompactViews(t *testing.T) {
 	now := time.Date(2026, time.July, 22, 12, 0, 0, 0, time.UTC)
 	latestRun := controller.DAGRunRef{State: "default", DAG: "classify", DAGRunID: "run-1"}
 	service := &stubControllerService{items: []controller.Summary{
-		{ID: "ctrl_aaaaaaaaaaaaaaaa", Name: "Ops", Labels: []string{"workspace=ops"}, Workspace: "ops", Status: core.Running, StatusLabel: "running", MaxTurns: 100, LatestDAGRun: &latestRun, ResourceUpdatedAt: &now},
-		{ID: "ctrl_bbbbbbbbbbbbbbbb", Name: "Default", Status: core.NotStarted, StatusLabel: "not_started", MaxTurns: 100, ResourceUpdatedAt: &now},
+		{ID: "ctrl_aaaaaaaaaaaaaaaa", Name: "Ops", Workspace: "ops", Status: core.Running, MaxTurns: 100, LatestDAGRun: &latestRun, ResourceUpdatedAt: now},
+		{ID: "ctrl_bbbbbbbbbbbbbbbb", Name: "Default", Status: core.NotStarted, MaxTurns: 100, ResourceUpdatedAt: now},
 	}}
 	handler := &API{
 		controllerService: service,
@@ -303,8 +307,7 @@ func TestGetControllerHydratesPublicDAGRunSummaries(t *testing.T) {
 
 	detail := controllerDetailForTest()
 	detail.Runtime = &controller.RuntimeView{
-		Status:      core.Succeeded,
-		StatusLabel: core.Succeeded.String(),
+		Status: core.Succeeded,
 		DAGRunRefs: []controller.DAGRunRef{
 			{State: "default", DAG: "classify", DAGRunID: "run-1"},
 			{State: "completed", DAG: "expired", DAGRunID: "run-2"},
@@ -361,9 +364,36 @@ func TestStartControllerPreservesPromptBytes(t *testing.T) {
 	})
 
 	require.NoError(t, err)
-	_, ok := response.(apigen.StartController202JSONResponse)
+	_, ok := response.(apigen.StartController202Response)
 	require.True(t, ok)
 	assert.Equal(t, prompt, service.startPrompt)
+}
+
+func TestStartControllerRejectsMalformedJSON(t *testing.T) {
+	t.Parallel()
+
+	handler := &API{}
+	router := apigen.Handler(apigen.NewStrictHandlerWithOptions(
+		handler,
+		nil,
+		handler.strictHTTPServerOptions(""),
+	))
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/controllers/ctrl_aaaaaaaaaaaaaaaa/start",
+		strings.NewReader(`{"prompt":`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	router.ServeHTTP(response, request)
+
+	assert.Equal(t, http.StatusBadRequest, response.Code)
+	assert.Equal(t, "application/json", response.Header().Get("Content-Type"))
+	var apiError apigen.Error
+	require.NoError(t, json.NewDecoder(response.Body).Decode(&apiError))
+	assert.Equal(t, apigen.ErrorCodeBadRequest, apiError.Code)
+	assert.Equal(t, "Invalid request body", apiError.Message)
 }
 
 func TestStartControllerAuditOmitsPrompt(t *testing.T) {
@@ -399,18 +429,16 @@ func TestControllerServiceErrorIncludesValidationIssues(t *testing.T) {
 	t.Parallel()
 
 	err := controllerServiceError(&controller.ValidationError{Issues: []controller.ValidationIssue{{
-		Code: "required", Path: "states.default", Message: "is required", Line: 4, Column: 2,
+		Code: "required", Path: "states.default", Message: "is required",
 	}}})
 
 	var apiErr *Error
 	require.True(t, errors.As(err, &apiErr))
 	assert.Equal(t, apigen.ErrorCodeControllerValidationFailed, apiErr.Code)
-	issues, ok := apiErr.Details["errors"].([]apigen.ControllerValidationIssue)
+	issues, ok := apiErr.Details["errors"].([]controller.ValidationIssue)
 	require.True(t, ok)
 	require.Len(t, issues, 1)
 	assert.Equal(t, "states.default", issues[0].Path)
-	require.NotNil(t, issues[0].Line)
-	assert.Equal(t, 4, *issues[0].Line)
 }
 
 func controllerDetailForTest() *controller.Detail {

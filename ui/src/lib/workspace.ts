@@ -50,8 +50,21 @@ export function workspaceLabel(name: string): string | undefined {
   return `${WORKSPACE_LABEL_PREFIX}${sanitized}`;
 }
 
+function parseLabel(label: string): { key: string; value: string } {
+  const normalized = label.trim();
+  const separator = normalized.indexOf('=');
+  return {
+    key: (separator < 0 ? normalized : normalized.slice(0, separator))
+      .trim()
+      .toLowerCase(),
+    value: (separator < 0 ? '' : normalized.slice(separator + 1))
+      .trim()
+      .toLowerCase(),
+  };
+}
+
 export function isWorkspaceLabel(label: string): boolean {
-  return label.toLowerCase().startsWith(WORKSPACE_LABEL_PREFIX);
+  return parseLabel(label).key === WORKSPACE_LABEL_KEY;
 }
 
 export function hasWorkspaceLabel(labels: string[] = []): boolean {
@@ -74,13 +87,9 @@ export function withWorkspaceLabel(
 export function workspaceNameFromLabels(labels: string[] = []): string {
   let workspaceName = '';
   for (const label of labels) {
-    if (!isWorkspaceLabel(label)) {
-      continue;
-    }
-    const value = sanitizeWorkspaceName(
-      label.slice(WORKSPACE_LABEL_PREFIX.length)
-    );
-    if (!value) {
+    const { key, value } = parseLabel(label);
+    if (key !== WORKSPACE_LABEL_KEY) continue;
+    if (!isValidWorkspaceName(value)) {
       return '';
     }
     if (workspaceName && workspaceName !== value) {

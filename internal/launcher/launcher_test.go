@@ -265,18 +265,13 @@ steps:
 `, test.EnvOutput("EXPORTED_SECRET", "SUBCMD_START_EXPLICIT_ENV")))
 
 	spec := th.SubCmdBuilder.Start(dagFile.DAG, launcher.StartOptions{})
-	err := launcher.Start(th.Context, spec)
+	started, err := launcher.StartProcess(th.Context, spec)
 	require.NoError(t, err, "env=%s", strings.Join(spec.Env, "\n"))
+	requireProcessCompletion(t, started, statusTimeout)
 
-	var status exec.DAGRunStatus
-	require.Eventually(t, func() bool {
-		latest, err := th.DAGRunMgr.GetLatestStatus(th.Context, dagFile.DAG)
-		if err != nil {
-			return false
-		}
-		status = latest
-		return status.Status == core.Succeeded
-	}, statusTimeout, 100*time.Millisecond)
+	status, err := th.DAGRunMgr.GetLatestStatus(th.Context, dagFile.DAG)
+	require.NoError(t, err)
+	require.Equal(t, core.Succeeded, status.Status)
 	require.Equal(t, "from-host|", test.StatusOutputValue(t, &status, "RESULT"))
 }
 
@@ -301,19 +296,25 @@ steps:
 		require.False(t, strings.HasPrefix(entry, "_DAGU_PRESOLVED_SECRET_"), "unexpected presolved secret transport env: %s", entry)
 	}
 
-	err := launcher.Start(th.Context, spec)
+	started, err := launcher.StartProcess(th.Context, spec)
 	require.NoError(t, err, "env=%s", strings.Join(spec.Env, "\n"))
+	requireProcessCompletion(t, started, statusTimeout)
 
-	var status exec.DAGRunStatus
-	require.Eventually(t, func() bool {
-		latest, err := th.DAGRunMgr.GetLatestStatus(th.Context, dagFile.DAG)
-		if err != nil {
-			return false
-		}
-		status = latest
-		return status.Status == core.Succeeded
-	}, statusTimeout, 100*time.Millisecond)
+	status, err := th.DAGRunMgr.GetLatestStatus(th.Context, dagFile.DAG)
+	require.NoError(t, err)
+	require.Equal(t, core.Succeeded, status.Status)
 	require.Equal(t, masking.DefaultMaskString+"|", test.StatusOutputValue(t, &status, "RESULT"))
+}
+
+func requireProcessCompletion(t *testing.T, result *launcher.StartResult, timeout time.Duration) {
+	t.Helper()
+
+	select {
+	case err := <-result.Done:
+		require.NoError(t, err)
+	case <-time.After(timeout):
+		t.Fatal("started process did not exit")
+	}
 }
 
 func TestStart(t *testing.T) {

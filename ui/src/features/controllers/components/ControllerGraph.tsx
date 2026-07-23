@@ -10,17 +10,19 @@ import type { ControllerDefinition } from '../types';
 
 type Direction = 'TD' | 'LR';
 
-function mermaidLabel(value: string): string {
-  return value
-    .replace(/\\/g, '\\\\')
-    .replace(/"/g, "'")
-    .replace(/\r?\n/g, ' ')
-    .replace(/[<>]/g, '');
+function mermaidText(value: string): string {
+  return Array.from(value, (character) => `#${character.codePointAt(0)};`).join(
+    ''
+  );
 }
 
 function shortCondition(value: string): string {
-  const firstLine = value.split(/\r?\n/, 1)[0] ?? '';
-  return firstLine.length > 64 ? `${firstLine.slice(0, 61)}…` : firstLine;
+  const firstLine =
+    value.split(/\r\n|[\n\v\f\r\u0085\u2028\u2029]/u, 1)[0] ?? '';
+  const characters = Array.from(firstLine);
+  return characters.length > 64
+    ? `${characters.slice(0, 61).join('')}…`
+    : firstLine;
 }
 
 export function controllerGraphDefinition(
@@ -37,10 +39,11 @@ export function controllerGraphDefinition(
 
   for (const [name, state] of stateEntries) {
     const id = ids.get(name)!;
-    const markers = [name === 'default' ? '● initial' : ''];
-    if (state.dags.length > 0) markers.push(`DAG: ${state.dags.join(', ')}`);
-    if (state.terminal) markers.push(`Terminal: ${state.terminal}`);
-    const label = mermaidLabel([name, ...markers.filter(Boolean)].join('\\n'));
+    const labelParts = [name];
+    if (name === 'default') labelParts.push('● initial');
+    if (state.dags.length > 0) labelParts.push(`DAG: ${state.dags.join(', ')}`);
+    if (state.terminal) labelParts.push(`Terminal: ${state.terminal}`);
+    const label = labelParts.map(mermaidText).join('\\n');
     const shape = state.terminal ? `[["${label}"]]` : `["${label}"]`;
     const classes = [
       state.terminal === 'succeeded' ? 'terminalSuccess' : '',
@@ -58,7 +61,7 @@ export function controllerGraphDefinition(
       const target = ids.get(transition.to);
       if (!target) continue;
       lines.push(
-        `${source} -->|"${mermaidLabel(shortCondition(transition.when))}"| ${target};`
+        `${source} -->|"${mermaidText(shortCondition(transition.when))}"| ${target};`
       );
       edgeConditions.push(transition.when);
     }

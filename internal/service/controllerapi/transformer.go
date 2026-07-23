@@ -20,22 +20,19 @@ func Summary(item controller.Summary) api.ControllerSummary {
 		Name:              item.Name,
 		Workspace:         item.Workspace,
 		Status:            api.Status(item.Status),
-		StatusLabel:       api.StatusLabel(item.StatusLabel),
+		StatusLabel:       api.StatusLabel(item.Status.String()),
 		CurrentState:      item.CurrentState,
 		TurnCount:         item.TurnCount,
 		MaxTurns:          item.MaxTurns,
 		WaitingQuestion:   cloneString(item.WaitingQuestion),
 		ActiveDAGRun:      activeDAGRun(item.ActiveDAGRun),
 		LatestDAGRun:      listDAGRun(item.LatestDAGRun),
-		LastError:         lastError(item.LastError),
+		LastError:         cloneString(item.LastError),
 		FinishedAt:        cloneTime(item.FinishedAt),
-		ResourceUpdatedAt: time.Time{},
+		ResourceUpdatedAt: item.ResourceUpdatedAt,
 	}
 	if item.Description != "" {
-		result.Description = stringPointer(item.Description)
-	}
-	if item.ResourceUpdatedAt != nil {
-		result.ResourceUpdatedAt = *item.ResourceUpdatedAt
+		result.Description = new(item.Description)
 	}
 	return result
 }
@@ -52,31 +49,33 @@ func listDAGRun(run *controller.DAGRunRef) *api.ControllerListDAGRun {
 }
 
 // Detail converts a Controller definition and its current-or-last runtime view.
-func Detail(item *controller.Detail) api.ControllerDetail {
-	if item == nil {
-		return api.ControllerDetail{
-			DagRuns:  []api.DAGRunSummary{},
-			Errors:   []api.ControllerValidationIssue{},
-			Warnings: []api.ControllerValidationIssue{},
-		}
-	}
-	runtime := Runtime(item.Runtime)
+func Detail(item controller.Detail) api.ControllerDetail {
 	return api.ControllerDetail{
 		Id:                item.Definition.ID,
-		Definition:        Definition(item.Definition),
-		Runtime:           runtime,
+		Definition:        definition(item.Definition),
+		Runtime:           runtime(item.Runtime),
 		DagRuns:           []api.DAGRunSummary{},
 		Spec:              item.RawYAML,
-		Errors:            []api.ControllerValidationIssue{},
-		Warnings:          []api.ControllerValidationIssue{},
+		Warnings:          warnings(item.Warnings),
 		ResourceUpdatedAt: item.ResourceUpdatedAt,
 	}
 }
 
-// Definition converts the parsed Controller YAML model.
-func Definition(definition controller.Definition) api.ControllerDefinition {
-	states := make(map[string]api.ControllerState, len(definition.States))
-	for name, state := range definition.States {
+func warnings(values []controller.DefinitionWarning) []api.ControllerWarning {
+	result := make([]api.ControllerWarning, 0, len(values))
+	for _, value := range values {
+		result = append(result, api.ControllerWarning{
+			Code:    value.Code,
+			Path:    value.Path,
+			Message: value.Message,
+		})
+	}
+	return result
+}
+
+func definition(value controller.Definition) api.ControllerDefinition {
+	states := make(map[string]api.ControllerState, len(value.States))
+	for name, state := range value.States {
 		transitions := make([]api.ControllerTransition, 0, len(state.Transitions))
 		for _, transition := range state.Transitions {
 			transitions = append(transitions, api.ControllerTransition{
@@ -95,28 +94,26 @@ func Definition(definition controller.Definition) api.ControllerDefinition {
 		}
 		states[name] = converted
 	}
-	result := api.ControllerDefinition{
-		Type:        api.ControllerDefinitionType(definition.Type),
-		Version:     api.ControllerDefinitionVersion(definition.Version),
-		Id:          definition.ID,
-		Name:        definition.Name,
-		Description: definition.Description,
-		MaxTurns:    definition.EffectiveMaxTurns(),
-		Labels:      nonNilStrings(definition.Labels),
+	return api.ControllerDefinition{
+		Type:        api.ControllerDefinitionType(value.Type),
+		Version:     api.ControllerDefinitionVersion(value.Version),
+		Id:          value.ID,
+		Name:        value.Name,
+		Description: value.Description,
+		MaxTurns:    value.EffectiveMaxTurns(),
+		Labels:      nonNilStrings(value.Labels),
 		Llm: api.ControllerRouterLLMConfig{
-			Provider: api.ControllerRouterLLMConfigProvider(definition.LLM.Provider),
-			Model:    definition.LLM.Model,
-			System:   cloneString(definition.LLM.System),
+			Provider: api.ControllerRouterLLMConfigProvider(value.LLM.Provider),
+			Model:    value.LLM.Model,
+			System:   cloneString(value.LLM.System),
 		},
-		Dags:   nonNilStrings(definition.DAGs),
+		Dags:   nonNilStrings(value.DAGs),
 		States: states,
 	}
-	return result
 }
 
-// Runtime converts an API-safe Controller runtime projection.
-func Runtime(runtime *controller.RuntimeView) api.ControllerRuntime {
-	if runtime == nil {
+func runtime(value *controller.RuntimeView) api.ControllerRuntime {
+	if value == nil {
 		return api.ControllerRuntime{
 			Status:       api.Status(core.NotStarted),
 			StatusLabel:  api.StatusLabel(core.NotStarted.String()),
@@ -127,47 +124,27 @@ func Runtime(runtime *controller.RuntimeView) api.ControllerRuntime {
 		}
 	}
 	result := api.ControllerRuntime{
-		Status:          api.Status(runtime.Status),
-		StatusLabel:     api.StatusLabel(runtime.StatusLabel),
-		CurrentState:    runtime.CurrentState,
-		TurnCount:       runtime.TurnCount,
-		WaitingQuestion: cloneString(runtime.WaitingQuestion),
-		ActiveDAGRun:    activeDAGRun(runtime.ActiveDAGRun),
-		DagRunRefs:      dagRunRefs(runtime.DAGRunRefs),
-		Context:         contextMessages(runtime.Context),
-		LastError:       lastError(runtime.LastError),
-		FinishedAt:      cloneTime(runtime.FinishedAt),
+		Status:          api.Status(value.Status),
+		StatusLabel:     api.StatusLabel(value.Status.String()),
+		CurrentState:    value.CurrentState,
+		TurnCount:       value.TurnCount,
+		WaitingQuestion: cloneString(value.WaitingQuestion),
+		ActiveDAGRun:    activeDAGRun(value.ActiveDAGRun),
+		DagRunRefs:      dagRunRefs(value.DAGRunRefs),
+		Context:         contextMessages(value.Context),
+		LastError:       cloneString(value.LastError),
+		FinishedAt:      cloneTime(value.FinishedAt),
 	}
-	if !runtime.StartedAt.IsZero() {
-		result.StartedAt = timePointer(runtime.StartedAt)
+	if !value.StartedAt.IsZero() {
+		result.StartedAt = new(value.StartedAt)
 	}
-	if !runtime.UpdatedAt.IsZero() {
-		result.UpdatedAt = timePointer(runtime.UpdatedAt)
-	}
-	return result
-}
-
-// ValidationIssues converts structured definition errors.
-func ValidationIssues(issues []controller.ValidationIssue) []api.ControllerValidationIssue {
-	result := make([]api.ControllerValidationIssue, 0, len(issues))
-	for _, issue := range issues {
-		converted := api.ControllerValidationIssue{
-			Code:    issue.Code,
-			Path:    issue.Path,
-			Message: issue.Message,
-		}
-		if issue.Line > 0 {
-			converted.Line = intPointer(issue.Line)
-		}
-		if issue.Column > 0 {
-			converted.Column = intPointer(issue.Column)
-		}
-		result = append(result, converted)
+	if !value.UpdatedAt.IsZero() {
+		result.UpdatedAt = new(value.UpdatedAt)
 	}
 	return result
 }
 
-func activeDAGRun(run *controller.PublicActiveDAGRun) *api.ControllerDAGRunRef {
+func activeDAGRun(run *controller.DAGRunRef) *api.ControllerDAGRunRef {
 	if run == nil {
 		return nil
 	}
@@ -197,10 +174,10 @@ func contextMessages(messages []exec.LLMMessage) []api.ControllerContextMessage 
 			Role: api.ControllerContextMessageRole(message.Role),
 		}
 		if message.Content != "" {
-			converted.Content = stringPointer(message.Content)
+			converted.Content = new(message.Content)
 		}
 		if message.ToolCallID != "" {
-			converted.ToolCallId = stringPointer(message.ToolCallID)
+			converted.ToolCallId = new(message.ToolCallID)
 		}
 		if len(message.ToolCalls) > 0 {
 			calls := make([]api.ControllerToolCall, 0, len(message.ToolCalls))
@@ -228,30 +205,21 @@ func messageMetadata(metadata *exec.LLMMessageMetadata) *api.ChatMessageMetadata
 	}
 	result := &api.ChatMessageMetadata{}
 	if metadata.Provider != "" {
-		result.Provider = stringPointer(metadata.Provider)
+		result.Provider = new(metadata.Provider)
 	}
 	if metadata.Model != "" {
-		result.Model = stringPointer(metadata.Model)
+		result.Model = new(metadata.Model)
 	}
 	if metadata.PromptTokens != 0 {
-		result.PromptTokens = intPointer(metadata.PromptTokens)
+		result.PromptTokens = new(metadata.PromptTokens)
 	}
 	if metadata.CompletionTokens != 0 {
-		result.CompletionTokens = intPointer(metadata.CompletionTokens)
+		result.CompletionTokens = new(metadata.CompletionTokens)
 	}
 	if metadata.TotalTokens != 0 {
-		result.TotalTokens = intPointer(metadata.TotalTokens)
+		result.TotalTokens = new(metadata.TotalTokens)
 	}
 	return result
-}
-
-func lastError(code *string) *api.ControllerLastError {
-	if code == nil {
-		return nil
-	}
-	return &api.ControllerLastError{
-		Code: *code,
-	}
 }
 
 func nonNilStrings(values []string) []string {
@@ -265,16 +233,12 @@ func cloneString(value *string) *string {
 	if value == nil {
 		return nil
 	}
-	return stringPointer(*value)
+	return new(*value)
 }
 
 func cloneTime(value *time.Time) *time.Time {
 	if value == nil {
 		return nil
 	}
-	return timePointer(*value)
+	return new(*value)
 }
-
-func stringPointer(value string) *string     { return &value }
-func timePointer(value time.Time) *time.Time { return &value }
-func intPointer(value int) *int              { return &value }

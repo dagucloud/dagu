@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"slices"
 	"strings"
 	"text/template"
@@ -17,9 +16,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/dagucloud/dagu/internal/core/spec"
 	"github.com/dagucloud/dagu/internal/llm"
 	"github.com/google/jsonschema-go/jsonschema"
 )
@@ -113,143 +110,75 @@ REASON CONTRACT
 
 Call route_controller exactly once now.`
 
-// RoutingDAG contains the public metadata supplied to the Router.
-type RoutingDAG struct {
-	FileName    string
-	Description string
-	ParamDefs   []core.ParamDef
-	ParamSchema json.RawMessage
-}
-
-// RoutingDAGResolver resolves current DAG metadata for Router requests.
-type RoutingDAGResolver interface {
-	ResolveRoutingDAG(ctx context.Context, fileName string) (RoutingDAG, error)
-}
-
-// RoutingDAGResolverFunc adapts a function to RoutingDAGResolver.
-type RoutingDAGResolverFunc func(context.Context, string) (RoutingDAG, error)
-
-// ResolveRoutingDAG implements RoutingDAGResolver.
-func (f RoutingDAGResolverFunc) ResolveRoutingDAG(ctx context.Context, fileName string) (RoutingDAG, error) {
-	return f(ctx, fileName)
-}
-
-type routingDAGStoreResolver struct {
-	store exec.DAGStore
-}
-
-// NewRoutingDAGStoreResolver adapts the existing DAG store to Router metadata.
-func NewRoutingDAGStoreResolver(store exec.DAGStore) RoutingDAGResolver {
-	if store == nil {
-		return nil
-	}
-	return &routingDAGStoreResolver{store: store}
-}
-
-func (r *routingDAGStoreResolver) ResolveRoutingDAG(ctx context.Context, fileName string) (RoutingDAG, error) {
-	dag, err := r.store.GetDetails(ctx, fileName, spec.WithoutEval())
-	if err != nil {
-		return RoutingDAG{}, err
-	}
-	if dag == nil {
-		return RoutingDAG{}, fmt.Errorf("DAG %q resolved to nil", fileName)
-	}
-	return RoutingDAG{
-		FileName:    dag.FileName(),
-		Description: dag.Description,
-		ParamDefs:   append([]core.ParamDef(nil), dag.ParamDefs...),
-		ParamSchema: append(json.RawMessage(nil), dag.ParamSchema...),
-	}, nil
-}
-
 // RouterProviderFactory creates a provider for one Controller definition.
-type RouterProviderFactory interface {
-	NewRouterProvider(config ControllerRouterLLMConfig) (llm.Provider, error)
-}
+type RouterProviderFactory func(ControllerRouterLLMConfig) (llm.Provider, error)
 
-// RouterProviderFactoryFunc adapts a function to RouterProviderFactory.
-type RouterProviderFactoryFunc func(ControllerRouterLLMConfig) (llm.Provider, error)
-
-// NewRouterProvider implements RouterProviderFactory.
-func (f RouterProviderFactoryFunc) NewRouterProvider(config ControllerRouterLLMConfig) (llm.Provider, error) {
-	return f(config)
-}
-
-// EnvironmentProviderFactory constructs registered providers using environment credentials.
-type EnvironmentProviderFactory struct{}
-
-// NewRouterProvider implements RouterProviderFactory.
-func (EnvironmentProviderFactory) NewRouterProvider(config ControllerRouterLLMConfig) (llm.Provider, error) {
-	providerType, err := strictProviderType(config.Provider)
-	if err != nil {
-		return nil, err
+func environmentProvider(config ControllerRouterLLMConfig) (llm.Provider, error) {
+	providerType, ok := controllerProviderType(config.Provider)
+	if !ok {
+		return nil, fmt.Errorf("unsupported Controller provider %q", config.Provider)
 	}
 	return llm.NewProvider(providerType, llm.Config{DisableRequestTimeout: true})
 }
 
-func strictProviderType(provider string) (llm.ProviderType, error) {
+func controllerProviderType(provider string) (llm.ProviderType, bool) {
 	switch provider {
 	case "openai":
-		return llm.ProviderOpenAI, nil
+		return llm.ProviderOpenAI, true
 	case "anthropic":
-		return llm.ProviderAnthropic, nil
+		return llm.ProviderAnthropic, true
 	case "gemini":
-		return llm.ProviderGemini, nil
+		return llm.ProviderGemini, true
 	default:
-		return "", fmt.Errorf("unsupported Controller provider %q", provider)
+		return "", false
 	}
 }
 
 // Router produces one validated Controller routing decision.
 type Router struct {
 	providers RouterProviderFactory
-	dags      RoutingDAGResolver
+	dags      DAGResolver
 	timeout   time.Duration
 }
 
 // NewRouter constructs a Controller Router.
-func NewRouter(providers RouterProviderFactory, dags RoutingDAGResolver) *Router {
+func NewRouter(providers RouterProviderFactory, dags DAGResolver) *Router {
 	if providers == nil {
-		providers = EnvironmentProviderFactory{}
+		providers = environmentProvider
 	}
 	return &Router{providers: providers, dags: dags, timeout: defaultRouteTimeout}
 }
 
-// SetTimeout overrides the per-turn timeout. It is intended for tests.
-func (r *Router) SetTimeout(timeout time.Duration) {
-	if timeout > 0 {
-		r.timeout = timeout
-	}
-}
-
-// ValidateCurrentParams checks executable params against the latest DAG metadata.
-func (r *Router) ValidateCurrentParams(ctx context.Context, dag string, params json.RawMessage) error {
+// ValidateCurrentParams resolves and validates executable params against the latest DAG metadata.
+func (r *Router) ValidateCurrentParams(ctx context.Context, definition Definition, dag string, params json.RawMessage) (json.RawMessage, error) {
 	if r == nil || r.dags == nil {
-		return fmt.Errorf("%w: DAG metadata resolver is not configured", ErrRouterDecision)
+		return nil, fmt.Errorf("%w: DAG metadata resolver is not configured", ErrRouterDecision)
 	}
-	metadata, err := r.dags.ResolveRoutingDAG(ctx, dag)
+	metadata, err := r.dags(ctx, dag)
 	if err != nil {
-		return fmt.Errorf("%w: resolve current DAG %q: %v", ErrRouterDecision, dag, err)
+		return nil, fmt.Errorf("%w: resolve current DAG %q: %v", ErrRouterDecision, dag, err)
 	}
-	if metadata.FileName != dag {
-		return fmt.Errorf("%w: DAG %q resolved with inconsistent identity", ErrRouterDecision, dag)
+	if err := validateDAGMetadataIdentity(definition, dag, metadata); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrRouterDecision, err)
 	}
-	if err := validateRoutingParams(metadata, params); err != nil {
-		return fmt.Errorf("%w: invalid current params for DAG %q: %v", ErrRouterDecision, dag, err)
+	resolved, err := validateRoutingParams(metadata, params)
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid current params for DAG %q: %v", ErrRouterDecision, dag, err)
 	}
-	return nil
+	return resolved, nil
 }
 
 // RouteDecision is one server-validated action returned by the Router.
 type RouteDecision struct {
-	Action     string
-	NextState  string
-	Reason     string
-	DAG        string
-	Params     json.RawMessage
-	Question   string
-	ToolCallID string
-	Assistant  exec.LLMMessage
+	Action      string
+	NextState   string
+	Reason      string
+	DAG         string
+	Params      json.RawMessage
+	Question    string
+	ToolCallID  string
+	Assistant   exec.LLMMessage
+	inputParams json.RawMessage
 }
 
 // Decide makes exactly one provider call and validates its tool action.
@@ -257,28 +186,58 @@ func (r *Router) Decide(ctx context.Context, definition Definition, runtime Runt
 	if r == nil || r.providers == nil {
 		return nil, fmt.Errorf("%w: provider factory is not configured", ErrRouterCall)
 	}
-	request, dagMetadata, err := r.buildRequest(ctx, definition, runtime)
+	callCtx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	request, dagMetadata, err := r.buildRequest(callCtx, definition, runtime)
+	if cause := context.Cause(callCtx); cause != nil {
+		return nil, fmt.Errorf("%w: %w", ErrRouterCall, cause)
+	}
 	if err != nil {
 		return nil, err
 	}
-	provider, err := r.providers.NewRouterProvider(definition.LLM)
+	provider, err := r.providers(definition.LLM)
+	if cause := context.Cause(callCtx); cause != nil {
+		return nil, fmt.Errorf("%w: %w", ErrRouterCall, cause)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrRouterCall, err)
 	}
-	callCtx, cancel := context.WithTimeout(ctx, r.timeout)
-	defer cancel()
+	if provider == nil {
+		return nil, fmt.Errorf("%w: provider factory returned nil", ErrRouterCall)
+	}
 	response, err := provider.Chat(callCtx, request)
+	if cause := context.Cause(callCtx); cause != nil {
+		return nil, fmt.Errorf("%w: %w", ErrRouterCall, cause)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrRouterCall, err)
 	}
 	decision, err := validateRouteResponse(definition, runtime, response)
+	if cause := context.Cause(callCtx); cause != nil {
+		return nil, fmt.Errorf("%w: %w", ErrRouterCall, cause)
+	}
 	if err != nil {
 		return nil, err
 	}
 	if decision.Action == "run" {
-		if err := validateRoutingParams(dagMetadata[decision.DAG], decision.Params); err != nil {
+		inputParams := append(json.RawMessage(nil), decision.Params...)
+		resolvedParams, err := validateRoutingParams(dagMetadata[decision.DAG], inputParams)
+		if cause := context.Cause(callCtx); cause != nil {
+			return nil, fmt.Errorf("%w: %w", ErrRouterCall, cause)
+		}
+		if err != nil {
 			return nil, fmt.Errorf("%w: invalid params for DAG %q: %v", ErrRouterDecision, decision.DAG, err)
 		}
+		decision.inputParams = inputParams
+		decision.Params = resolvedParams
+		arguments, err := json.Marshal(routeArgumentsFromDecision(*decision))
+		if err != nil {
+			return nil, fmt.Errorf("%w: encode resolved params: %v", ErrRouterDecision, err)
+		}
+		decision.Assistant.ToolCalls[0].Function.Arguments = string(arguments)
+	}
+	if cause := context.Cause(callCtx); cause != nil {
+		return nil, fmt.Errorf("%w: %w", ErrRouterCall, cause)
 	}
 	return decision, nil
 }
@@ -304,6 +263,7 @@ type candidateAction struct {
 }
 
 type routingControlPayload struct {
+	Status            string             `json:"status"`
 	CurrentState      string             `json:"current_state"`
 	TurnCount         int                `json:"turn_count"`
 	MaxTurns          int                `json:"max_turns"`
@@ -330,14 +290,14 @@ type userDirective struct {
 	Content  string `json:"content"`
 }
 
-func (r *Router) buildRequest(ctx context.Context, definition Definition, runtime Runtime) (*llm.ChatRequest, map[string]RoutingDAG, error) {
+func (r *Router) buildRequest(ctx context.Context, definition Definition, runtime Runtime) (*llm.ChatRequest, map[string]DAGMetadata, error) {
 	system, err := renderRouterSystem(definition.LLM.EffectiveSystem())
 	if err != nil {
 		return nil, nil, fmt.Errorf("%w: render system prompt: %v", ErrRouterCall, err)
 	}
 	dagMetadata, err := r.resolveDAGMetadata(ctx, definition)
 	if err != nil {
-		return nil, nil, fmt.Errorf("%w: resolve DAG metadata: %v", ErrRouterCall, err)
+		return nil, nil, fmt.Errorf("%w: resolve DAG metadata: %w", ErrRouterCall, err)
 	}
 
 	control := buildRoutingControl(definition, runtime, dagMetadata)
@@ -379,28 +339,38 @@ func (r *Router) buildRequest(ctx context.Context, definition Definition, runtim
 	}, dagMetadata, nil
 }
 
-func (r *Router) resolveDAGMetadata(ctx context.Context, definition Definition) (map[string]RoutingDAG, error) {
-	result := make(map[string]RoutingDAG, len(definition.DAGs))
+func (r *Router) resolveDAGMetadata(ctx context.Context, definition Definition) (map[string]DAGMetadata, error) {
+	if r == nil || r.dags == nil {
+		return nil, fmt.Errorf("DAG metadata resolver is not configured")
+	}
+	result := make(map[string]DAGMetadata, len(definition.DAGs))
 	for _, fileName := range definition.DAGs {
-		if r.dags == nil {
-			result[fileName] = RoutingDAG{FileName: fileName}
-			continue
-		}
-		metadata, err := r.dags.ResolveRoutingDAG(ctx, fileName)
+		metadata, err := r.dags(ctx, fileName)
 		if err != nil {
 			return nil, err
 		}
-		if metadata.FileName != fileName {
-			return nil, fmt.Errorf("DAG identity mismatch for %q", fileName)
+		if err := validateDAGMetadataIdentity(definition, fileName, metadata); err != nil {
+			return nil, err
 		}
 		result[fileName] = metadata
 	}
 	return result, nil
 }
 
-func buildRoutingControl(definition Definition, runtime Runtime, dags map[string]RoutingDAG) routingControlPayload {
+func validateDAGMetadataIdentity(definition Definition, fileName string, metadata DAGMetadata) error {
+	if metadata.FileName != fileName || metadata.Name != fileName {
+		return fmt.Errorf("DAG %q resolved with inconsistent identity", fileName)
+	}
+	if metadata.Workspace != definition.Workspace() {
+		return fmt.Errorf("DAG %q is in a different workspace", fileName)
+	}
+	return nil
+}
+
+func buildRoutingControl(definition Definition, runtime Runtime, dags map[string]DAGMetadata) routingControlPayload {
 	destinations := legalDestinationNames(definition, runtime.CurrentState)
 	control := routingControlPayload{
+		Status:            runtime.Status.String(),
 		CurrentState:      runtime.CurrentState,
 		TurnCount:         runtime.TurnCount,
 		MaxTurns:          definition.EffectiveMaxTurns(),
@@ -425,7 +395,7 @@ func buildRoutingControl(definition Definition, runtime Runtime, dags map[string
 	return control
 }
 
-func buildWorkflowMetadata(definition Definition, dags map[string]RoutingDAG) workflowMetadataPayload {
+func buildWorkflowMetadata(definition Definition, dags map[string]DAGMetadata) workflowMetadataPayload {
 	metadata := workflowMetadataPayload{
 		ControllerDescription: definition.Description,
 		StateDescriptions:     make(map[string]string, len(definition.States)),
@@ -476,12 +446,14 @@ func legalDestinationNames(definition Definition, currentState string) []string 
 	return destinations
 }
 
-func parameterSchema(dag RoutingDAG) any {
+func parameterSchema(dag DAGMetadata) any {
 	if len(dag.ParamSchema) > 0 {
-		var schema any
+		var schema map[string]any
 		decoder := json.NewDecoder(bytes.NewReader(dag.ParamSchema))
 		decoder.UseNumber()
-		if decoder.Decode(&schema) == nil {
+		if decoder.Decode(&schema) == nil && ensureJSONEOF(decoder) == nil && schema != nil {
+			schema["type"] = "object"
+			schema["additionalProperties"] = false
 			return schema
 		}
 	}
@@ -531,36 +503,105 @@ func parameterSchema(dag RoutingDAG) any {
 	return schema
 }
 
-func validateRoutingParams(dag RoutingDAG, raw json.RawMessage) error {
+func validateRoutingParams(dag DAGMetadata, raw json.RawMessage) (json.RawMessage, error) {
 	schemaData, err := json.Marshal(parameterSchema(dag))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var schema jsonschema.Schema
 	if err := json.Unmarshal(schemaData, &schema); err != nil {
-		return err
+		return nil, err
 	}
 	resolved, err := schema.Resolve(&jsonschema.ResolveOptions{ValidateDefaults: true})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var params map[string]any
-	if err := json.Unmarshal(raw, &params); err != nil {
-		return err
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(&params); err != nil {
+		return nil, err
+	}
+	if err := ensureJSONEOF(decoder); err != nil {
+		return nil, err
+	}
+	provided := make(map[string]struct{}, len(params))
+	for name := range params {
+		provided[name] = struct{}{}
 	}
 	if err := resolved.ApplyDefaults(&params); err != nil {
-		return err
+		return nil, err
 	}
-	return resolved.Validate(params)
+	for name, property := range resolved.Schema().Properties {
+		if _, ok := provided[name]; ok || property == nil || len(property.Default) == 0 {
+			continue
+		}
+		if _, applied := params[name]; !applied {
+			continue
+		}
+		var value any
+		if err := decodeStrictJSON(property.Default, &value); err != nil {
+			return nil, err
+		}
+		params[name] = value
+	}
+	validationParams, err := schemaValidationValue(params)
+	if err != nil {
+		return nil, err
+	}
+	if err := resolved.Validate(validationParams); err != nil {
+		return nil, err
+	}
+	return json.Marshal(params)
+}
+
+func schemaValidationValue(value any) (any, error) {
+	switch value := value.(type) {
+	case json.Number:
+		if integer, err := value.Int64(); err == nil {
+			return integer, nil
+		}
+		decimal, err := value.Float64()
+		if err != nil {
+			return nil, err
+		}
+		return decimal, nil
+	case map[string]any:
+		converted := make(map[string]any, len(value))
+		for key, item := range value {
+			var err error
+			converted[key], err = schemaValidationValue(item)
+			if err != nil {
+				return nil, err
+			}
+		}
+		return converted, nil
+	case []any:
+		converted := make([]any, len(value))
+		for index, item := range value {
+			var err error
+			converted[index], err = schemaValidationValue(item)
+			if err != nil {
+				return nil, err
+			}
+		}
+		return converted, nil
+	default:
+		return value, nil
+	}
 }
 
 func renderRouterSystem(source string) (string, error) {
+	return renderRouterSystemTemplate(source, RouterInstructionV1)
+}
+
+func renderRouterSystemTemplate(source, routerInstruction string) (string, error) {
 	tmpl, err := template.New("controller-router-system").Delims("${{", "}}").Option("missingkey=error").Parse(source)
 	if err != nil {
 		return "", err
 	}
 	var rendered bytes.Buffer
-	if err := tmpl.Execute(&rendered, struct{ RouterInstruction string }{RouterInstruction: RouterInstructionV1}); err != nil {
+	if err := tmpl.Execute(&rendered, struct{ RouterInstruction string }{RouterInstruction: routerInstruction}); err != nil {
 		return "", err
 	}
 	return rendered.String(), nil
@@ -619,9 +660,9 @@ type routeArguments struct {
 	Action    string          `json:"action"`
 	NextState string          `json:"next_state"`
 	Reason    string          `json:"reason"`
-	DAG       *string         `json:"dag"`
-	Params    json.RawMessage `json:"params"`
-	Question  *string         `json:"question"`
+	DAG       *string         `json:"dag,omitempty"`
+	Params    json.RawMessage `json:"params,omitempty"`
+	Question  *string         `json:"question,omitempty"`
 }
 
 func validateRouteResponse(definition Definition, runtime Runtime, response *llm.ChatResponse) (*RouteDecision, error) {
@@ -638,27 +679,24 @@ func validateRouteResponse(definition Definition, runtime Runtime, response *llm
 	if call.ID == "" || call.Type != "function" || call.Function.Name != routeToolName {
 		return nil, fmt.Errorf("%w: expected %s", ErrRouterDecision, routeToolName)
 	}
-	var arguments routeArguments
-	decoder := json.NewDecoder(strings.NewReader(call.Function.Arguments))
-	decoder.DisallowUnknownFields()
-	decoder.UseNumber()
-	if err := decoder.Decode(&arguments); err != nil {
+	arguments, err := decodeRouteArguments(call.Function.Arguments)
+	if err != nil {
 		return nil, fmt.Errorf("%w: decode tool arguments: %v", ErrRouterDecision, err)
-	}
-	if err := requireJSONEOF(decoder); err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrRouterDecision, err)
 	}
 	decision, err := validateRouteArguments(definition, runtime, arguments)
 	if err != nil {
 		return nil, err
 	}
+	canonicalArguments, err := json.Marshal(routeArgumentsFromDecision(*decision))
+	if err != nil {
+		return nil, fmt.Errorf("%w: encode canonical tool arguments: %v", ErrRouterDecision, err)
+	}
 	decision.ToolCallID = call.ID
 	decision.Assistant = exec.LLMMessage{
-		Role:    exec.RoleAssistant,
-		Content: response.Content,
+		Role: exec.RoleAssistant,
 		ToolCalls: []exec.ToolCall{{
 			ID: call.ID, Type: call.Type,
-			Function: exec.ToolCallFunction{Name: call.Function.Name, Arguments: call.Function.Arguments},
+			Function: exec.ToolCallFunction{Name: call.Function.Name, Arguments: string(canonicalArguments)},
 		}},
 		Metadata: &exec.LLMMessageMetadata{
 			Provider:         definition.LLM.Provider,
@@ -671,70 +709,98 @@ func validateRouteResponse(definition Definition, runtime Runtime, response *llm
 	return decision, nil
 }
 
+func decodeRouteArguments(raw string) (routeArguments, error) {
+	var arguments routeArguments
+	if err := decodeStrictJSON([]byte(raw), &arguments); err != nil {
+		return routeArguments{}, err
+	}
+	return arguments, nil
+}
+
+func routeArgumentsFromDecision(decision RouteDecision) routeArguments {
+	dag := decision.DAG
+	question := decision.Question
+	arguments := routeArguments{Action: decision.Action, NextState: decision.NextState, Reason: decision.Reason}
+	if decision.Action == "run" {
+		arguments.DAG = &dag
+		arguments.Params = decision.Params
+	}
+	if decision.Action == "wait" {
+		arguments.Question = &question
+	}
+	return arguments
+}
+
 func validateRouteArguments(definition Definition, runtime Runtime, arguments routeArguments) (*RouteDecision, error) {
-	if !boundedNonWhitespace(arguments.Reason, maxReasonRunes) {
-		return nil, fmt.Errorf("%w: reason must contain at most %d non-whitespace Unicode characters", ErrRouterDecision, maxReasonRunes)
+	decision, err := normalizeRouteArguments(arguments)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrRouterDecision, err)
 	}
-	if !isLegalDestination(definition, runtime.CurrentState, arguments.NextState) {
-		return nil, fmt.Errorf("%w: State %q is not a legal destination", ErrRouterDecision, arguments.NextState)
+	if !isLegalDestination(definition, runtime.CurrentState, decision.NextState) {
+		return nil, fmt.Errorf("%w: State %q is not a legal destination", ErrRouterDecision, decision.NextState)
 	}
-	destination := definition.States[arguments.NextState]
-	decision := &RouteDecision{Action: arguments.Action, NextState: arguments.NextState, Reason: arguments.Reason}
-	switch arguments.Action {
+	destination := definition.States[decision.NextState]
+	switch decision.Action {
 	case "run":
 		if destination.Terminal != "" {
 			return nil, fmt.Errorf("%w: run destination is terminal", ErrRouterDecision)
 		}
-		if arguments.DAG == nil || *arguments.DAG == "" {
-			return nil, fmt.Errorf("%w: run requires dag", ErrRouterDecision)
+		if !slices.Contains(destination.DAGs, decision.DAG) || !slices.Contains(definition.DAGs, decision.DAG) {
+			return nil, fmt.Errorf("%w: DAG %q is not allowed in State %q", ErrRouterDecision, decision.DAG, decision.NextState)
 		}
-		if arguments.Question != nil {
-			return nil, fmt.Errorf("%w: run forbids question", ErrRouterDecision)
-		}
-		if len(arguments.Params) == 0 || !isJSONObject(arguments.Params) {
-			return nil, fmt.Errorf("%w: run requires an object params value", ErrRouterDecision)
-		}
-		if !slices.Contains(destination.DAGs, *arguments.DAG) || !slices.Contains(definition.DAGs, *arguments.DAG) {
-			return nil, fmt.Errorf("%w: DAG %q is not allowed in State %q", ErrRouterDecision, *arguments.DAG, arguments.NextState)
-		}
-		canonical, err := canonicalJSONObject(arguments.Params)
-		if err != nil {
-			return nil, fmt.Errorf("%w: invalid params: %v", ErrRouterDecision, err)
-		}
-		decision.DAG = *arguments.DAG
-		decision.Params = canonical
 	case "wait":
 		if destination.Terminal != "" {
 			return nil, fmt.Errorf("%w: wait destination is terminal", ErrRouterDecision)
 		}
-		if arguments.DAG != nil || len(arguments.Params) != 0 {
-			return nil, fmt.Errorf("%w: wait forbids dag and params", ErrRouterDecision)
-		}
-		if arguments.Question == nil || !boundedNonWhitespace(*arguments.Question, maxQuestionRunes) {
-			return nil, fmt.Errorf("%w: wait requires a question of at most %d Unicode characters", ErrRouterDecision, maxQuestionRunes)
-		}
-		decision.Question = *arguments.Question
 	case "complete":
 		if destination.Terminal != "succeeded" && destination.Terminal != "failed" {
 			return nil, fmt.Errorf("%w: complete destination is not terminal", ErrRouterDecision)
 		}
-		if arguments.DAG != nil || len(arguments.Params) != 0 || arguments.Question != nil {
-			return nil, fmt.Errorf("%w: complete forbids dag, params, and question", ErrRouterDecision)
-		}
-	default:
-		return nil, fmt.Errorf("%w: unknown action %q", ErrRouterDecision, arguments.Action)
 	}
 	return decision, nil
 }
 
-func requireJSONEOF(decoder *json.Decoder) error {
-	var extra any
-	if err := decoder.Decode(&extra); err == nil {
-		return errors.New("multiple JSON values are not allowed")
-	} else if !errors.Is(err, io.EOF) {
-		return err
+func normalizeRouteArguments(arguments routeArguments) (*RouteDecision, error) {
+	if !boundedNonWhitespace(arguments.Reason, maxReasonRunes) {
+		return nil, fmt.Errorf("reason must contain at most %d non-whitespace Unicode characters", maxReasonRunes)
 	}
-	return nil
+	if !stateNamePattern.MatchString(arguments.NextState) {
+		return nil, fmt.Errorf("invalid next state %q", arguments.NextState)
+	}
+	decision := &RouteDecision{Action: arguments.Action, NextState: arguments.NextState, Reason: arguments.Reason}
+	switch arguments.Action {
+	case "run":
+		if arguments.DAG == nil || !validDAGFileName(*arguments.DAG) {
+			return nil, fmt.Errorf("run requires a valid dag")
+		}
+		if arguments.Question != nil {
+			return nil, fmt.Errorf("run forbids question")
+		}
+		if len(arguments.Params) == 0 || !isJSONObject(arguments.Params) {
+			return nil, fmt.Errorf("run requires an object params value")
+		}
+		canonical, err := canonicalJSONObject(arguments.Params)
+		if err != nil {
+			return nil, fmt.Errorf("invalid params: %v", err)
+		}
+		decision.DAG = *arguments.DAG
+		decision.Params = canonical
+	case "wait":
+		if arguments.DAG != nil || len(arguments.Params) != 0 {
+			return nil, fmt.Errorf("wait forbids dag and params")
+		}
+		if arguments.Question == nil || !boundedNonWhitespace(*arguments.Question, maxQuestionRunes) {
+			return nil, fmt.Errorf("wait requires a question of at most %d Unicode characters", maxQuestionRunes)
+		}
+		decision.Question = *arguments.Question
+	case "complete":
+		if arguments.DAG != nil || len(arguments.Params) != 0 || arguments.Question != nil {
+			return nil, fmt.Errorf("complete forbids dag, params, and question")
+		}
+	default:
+		return nil, fmt.Errorf("unknown action %q", arguments.Action)
+	}
+	return decision, nil
 }
 
 func isLegalDestination(definition Definition, currentState, destination string) bool {
@@ -764,7 +830,7 @@ func canonicalJSONObject(raw json.RawMessage) (json.RawMessage, error) {
 	if value == nil {
 		return nil, errors.New("params must be an object")
 	}
-	if err := requireJSONEOF(decoder); err != nil {
+	if err := ensureJSONEOF(decoder); err != nil {
 		return nil, err
 	}
 	return json.Marshal(value)

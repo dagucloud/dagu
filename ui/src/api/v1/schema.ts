@@ -3483,9 +3483,6 @@ export interface components {
         ControllerCreateResponse: {
             id: components["schemas"]["ControllerId"];
         };
-        ControllerMutationResponse: {
-            id: components["schemas"]["ControllerId"];
-        };
         ControllerRouterLLMConfig: {
             /**
              * @description Registered LLM provider name
@@ -3533,13 +3530,13 @@ export interface components {
                 [key: string]: components["schemas"]["ControllerState"];
             };
         };
-        ControllerValidationIssue: {
+        ControllerWarning: {
+            /** @description Stable warning code */
             code: string;
             /** @description Canonical Controller field path */
             path: string;
+            /** @description Human-readable warning message */
             message: string;
-            line?: number;
-            column?: number;
         };
         ControllerToolFunction: {
             name: string;
@@ -3558,7 +3555,6 @@ export interface components {
             content?: string;
             tool_calls?: components["schemas"]["ControllerToolCall"][];
             tool_call_id?: string;
-            name?: string;
             metadata?: components["schemas"]["ChatMessageMetadata"];
         };
         ControllerDAGRunRef: {
@@ -3572,10 +3568,6 @@ export interface components {
             dagRunId: components["schemas"]["DAGRunId"];
             status?: components["schemas"]["Status"];
             statusLabel?: components["schemas"]["StatusLabel"];
-        };
-        ControllerLastError: {
-            code: string;
-            message?: string;
         };
         ControllerRuntime: {
             status: components["schemas"]["Status"];
@@ -3592,7 +3584,7 @@ export interface components {
             updatedAt?: string;
             /** Format: date-time */
             finishedAt?: string;
-            lastError?: components["schemas"]["ControllerLastError"];
+            lastError?: string;
         };
         ControllerSummary: {
             id: components["schemas"]["ControllerId"];
@@ -3608,7 +3600,7 @@ export interface components {
             waitingQuestion?: string;
             activeDAGRun?: components["schemas"]["ControllerDAGRunRef"];
             latestDAGRun?: components["schemas"]["ControllerListDAGRun"];
-            lastError?: components["schemas"]["ControllerLastError"];
+            lastError?: string;
             /** Format: date-time */
             finishedAt?: string;
             /** Format: date-time */
@@ -3624,12 +3616,13 @@ export interface components {
             dagRuns: components["schemas"]["DAGRunSummary"][];
             /** @description Persisted Controller YAML specification */
             spec: string;
-            errors: components["schemas"]["ControllerValidationIssue"][];
-            warnings: components["schemas"]["ControllerValidationIssue"][];
+            /** @description Non-blocking findings for the current Controller definition */
+            warnings: components["schemas"]["ControllerWarning"][];
             /** Format: date-time */
             resourceUpdatedAt: string;
         };
         ControllerPromptRequest: {
+            /** @description Prompt text containing at least one non-whitespace character; the server enforces a limit of 16,384 UTF-8 bytes. */
             prompt: string;
         };
         /** @description Generic error response object */
@@ -16544,15 +16537,6 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Controller conflicts with an existing resource */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
             /** @description Generic error response */
             default: {
                 headers: {
@@ -16755,9 +16739,7 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": components["schemas"]["ControllerMutationResponse"];
-                };
+                content?: never;
             };
             /** @description Invalid prompt or Controller definition */
             400: {
@@ -16827,9 +16809,7 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": components["schemas"]["ControllerMutationResponse"];
-                };
+                content?: never;
             };
             /** @description Invalid prompt */
             400: {
@@ -16895,9 +16875,7 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": components["schemas"]["ControllerMutationResponse"];
-                };
+                content?: never;
             };
             /** @description Insufficient execution permission */
             403: {

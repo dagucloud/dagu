@@ -60,7 +60,7 @@ type Scheduler struct {
 	incidentMonitor     backgroundRunner
 	controllerRunner    backgroundRunner
 	controllerCancel    context.CancelFunc
-	controllerWG        sync.WaitGroup
+	controllerDone      <-chan struct{}
 }
 
 type schedulerHooks struct {
@@ -242,16 +242,13 @@ func newScheduler(
 		},
 	})
 
-	retryScanner, err := NewRetryScanner(
+	retryScanner := NewRetryScanner(
 		dagRunStore,
 		queueStore,
 		isSuspended,
 		cfg.Scheduler.RetryFailureWindow,
 		defaultClock,
 	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize retry scanner: %w", err)
-	}
 
 	return &Scheduler{
 		quit:            make(chan any),
@@ -625,8 +622,8 @@ func (s *Scheduler) Start(ctx context.Context) error {
 		s.startIncidentMonitor(ctx)
 	})
 
-	if runController := s.prepareControllerRunner(ctx); runController != nil {
-		wg.Go(runController)
+	if waitController := s.startControllerRunner(ctx); waitController != nil {
+		wg.Go(waitController)
 	}
 
 	wg.Go(func() {
@@ -703,12 +700,13 @@ func (s *Scheduler) startIncidentMonitor(ctx context.Context) {
 	s.incidentMonitor.Run(ctx)
 }
 
-func (s *Scheduler) prepareControllerRunner(ctx context.Context) func() {
+func (s *Scheduler) startControllerRunner(ctx context.Context) func() {
 	if s.controllerRunner == nil {
 		return nil
 	}
 
 	runCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
 	s.lock.Lock()
 	select {
 	case <-s.quit:
@@ -718,13 +716,16 @@ func (s *Scheduler) prepareControllerRunner(ctx context.Context) func() {
 	default:
 	}
 	s.controllerCancel = cancel
-	s.controllerWG.Add(1)
+	s.controllerDone = done
 	runner := s.controllerRunner
+	go func() {
+		defer close(done)
+		runner.Run(runCtx)
+	}()
 	s.lock.Unlock()
 
 	return func() {
-		defer s.controllerWG.Done()
-		runner.Run(runCtx)
+		<-done
 	}
 }
 
@@ -848,6 +849,7 @@ func (s *Scheduler) Stop(ctx context.Context) {
 
 		var startupCancel context.CancelFunc
 		var controllerCancel context.CancelFunc
+		var controllerDone <-chan struct{}
 		var zd *ZombieDetector
 		s.lifecycleMu.Lock()
 		startupCancel = s.startupCancel
@@ -855,7 +857,9 @@ func (s *Scheduler) Stop(ctx context.Context) {
 		close(s.quit)
 		zd = s.zombieDetector
 		controllerCancel = s.controllerCancel
+		controllerDone = s.controllerDone
 		s.controllerCancel = nil
+		s.controllerDone = nil
 		s.lock.Unlock()
 		s.lifecycleMu.Unlock()
 
@@ -894,7 +898,9 @@ func (s *Scheduler) Stop(ctx context.Context) {
 
 		// Controller mutations must drain while this scheduler still owns the
 		// active lock so a replacement scheduler cannot reconcile concurrently.
-		s.controllerWG.Wait()
+		if controllerDone != nil {
+			<-controllerDone
+		}
 
 		s.releaseDirLock(ctx, "Failed to release scheduler lock in Stop")
 

@@ -2,6 +2,20 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import type { JSONSchema } from '@/lib/schema-utils';
+import {
+  CONTROLLER_DAG_NAME_PATTERN,
+  CONTROLLER_LLM_PROVIDERS,
+  CONTROLLER_STATE_NAME_PATTERN,
+  DEFAULT_CONTROLLER_MAX_TURNS,
+  MAX_CONTROLLER_DAGS,
+  MAX_CONTROLLER_DESCRIPTION_BYTES,
+  MAX_CONTROLLER_MAX_TURNS,
+  MAX_CONTROLLER_NAME_CODE_POINTS,
+  MAX_CONTROLLER_STATES,
+  MAX_CONTROLLER_SYSTEM_PROMPT_BYTES,
+  MAX_CONTROLLER_TRANSITIONS,
+  MIN_CONTROLLER_MAX_TURNS,
+} from './constraints';
 
 export const controllerSchema: JSONSchema = {
   $id: 'https://dagu.dev/schemas/controller.schema.json',
@@ -17,46 +31,78 @@ export const controllerSchema: JSONSchema = {
       pattern: '^ctrl_[a-z2-7]{16}$',
       description: 'Immutable server-generated ID.',
     },
-    name: { type: 'string', minLength: 1, maxLength: 100 },
-    description: { type: 'string', maxLength: 4096 },
-    maxTurns: { type: 'integer', minimum: 2, maximum: 1000, default: 100 },
+    name: {
+      type: 'string',
+      minLength: 1,
+      maxLength: MAX_CONTROLLER_NAME_CODE_POINTS,
+    },
+    description: {
+      type: 'string',
+      pattern: '\\S',
+      maxLength: MAX_CONTROLLER_DESCRIPTION_BYTES,
+    },
+    maxTurns: {
+      type: 'integer',
+      minimum: MIN_CONTROLLER_MAX_TURNS,
+      maximum: MAX_CONTROLLER_MAX_TURNS,
+      default: DEFAULT_CONTROLLER_MAX_TURNS,
+    },
     labels: { type: 'array', items: { type: 'string' } },
     llm: {
       type: 'object',
       additionalProperties: false,
       required: ['provider', 'model'],
       properties: {
-        provider: { type: 'string', enum: ['openai', 'anthropic', 'gemini'] },
-        model: { type: 'string', minLength: 1 },
+        provider: { type: 'string', enum: CONTROLLER_LLM_PROVIDERS },
+        model: { type: 'string', pattern: '\\S' },
         system: {
           type: 'string',
-          maxLength: 16384,
+          maxLength: MAX_CONTROLLER_SYSTEM_PROMPT_BYTES,
           description:
             'Starts with the reserved Router instruction placeholder.',
         },
       },
     },
-    dags: { type: 'array', maxItems: 64, items: { type: 'string' } },
+    dags: {
+      type: 'array',
+      maxItems: MAX_CONTROLLER_DAGS,
+      items: { type: 'string', pattern: CONTROLLER_DAG_NAME_PATTERN.source },
+    },
     states: {
       type: 'object',
-      maxProperties: 64,
-      propertyNames: { pattern: '^[A-Za-z][A-Za-z0-9_-]{0,63}$' },
+      maxProperties: MAX_CONTROLLER_STATES,
+      propertyNames: { pattern: CONTROLLER_STATE_NAME_PATTERN.source },
       additionalProperties: {
         type: 'object',
         additionalProperties: false,
-        required: ['description', 'dags', 'transitions'],
+        required: ['description'],
         properties: {
-          description: { type: 'string', maxLength: 4096 },
-          dags: { type: 'array', items: { type: 'string' } },
+          description: {
+            type: 'string',
+            pattern: '\\S',
+            maxLength: MAX_CONTROLLER_DESCRIPTION_BYTES,
+          },
+          dags: {
+            type: 'array',
+            items: {
+              type: 'string',
+              pattern: CONTROLLER_DAG_NAME_PATTERN.source,
+            },
+          },
           transitions: {
             type: 'array',
+            maxItems: MAX_CONTROLLER_TRANSITIONS,
             items: {
               type: 'object',
               additionalProperties: false,
               required: ['to', 'when'],
               properties: {
                 to: { type: 'string' },
-                when: { type: 'string', maxLength: 4096 },
+                when: {
+                  type: 'string',
+                  pattern: '\\S',
+                  maxLength: MAX_CONTROLLER_DESCRIPTION_BYTES,
+                },
               },
             },
           },

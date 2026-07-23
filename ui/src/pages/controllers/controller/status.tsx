@@ -10,7 +10,6 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import LoadingIndicator from '@/components/ui/loading-indicator';
 import RelativeTime from '@/components/ui/relative-time';
-import { useSimpleToast } from '@/components/ui/simple-toast';
 import { Textarea } from '@/components/ui/textarea';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import {
@@ -26,15 +25,19 @@ import { ControllerGraph } from '@/features/controllers/components/ControllerGra
 import { ControllerPageHeader } from '@/features/controllers/components/ControllerPageHeader';
 import { ControllerPromptDialog } from '@/features/controllers/components/ControllerPromptDialog';
 import { ControllerStatusChip } from '@/features/controllers/components/ControllerStatusChip';
+import { buildDAGRunPageURL } from '@/features/dag-runs/lib/dagRunUrls';
+import {
+  MAX_CONTROLLER_PROMPT_BYTES,
+  utf8ByteLength,
+  validateControllerPrompt,
+} from '@/features/controllers/constraints';
 import {
   ControllerStatus,
   canStartController,
+  isControllerStatusActive,
 } from '@/features/controllers/types';
-import { workspaceSelectionKey } from '@/lib/workspace';
-
-function dagRunURL(dag: string, dagRunId: string): string {
-  return `/dag-runs/${encodeURIComponent(dag)}/${encodeURIComponent(dagRunId)}?remoteNode=local`;
-}
+import { useControllerMutation } from '@/features/controllers/useControllerMutation';
+import { workspaceNameFromLabels } from '@/lib/workspace';
 
 function Metric({
   label,
@@ -59,34 +62,36 @@ export default function ControllerStatusPage() {
   const { id } = useParams<{ id: string }>();
   const appBar = React.useContext(AppBarContext);
   const api = useControllerAPI();
-  const { showToast } = useSimpleToast();
-  const workspaceKey = workspaceSelectionKey(appBar.workspaceSelection);
-  const {
-    data: detail,
-    error,
-    isLoading,
-    mutate,
-  } = useControllerDetail(id, workspaceKey);
+  const { data: detail, error, isLoading, mutate } = useControllerDetail(id);
   const [startOpen, setStartOpen] = React.useState(false);
   const [prompt, setPrompt] = React.useState('');
-  const [pending, setPending] = React.useState(false);
-  const [actionError, setActionError] = React.useState<string | null>(null);
-  const promptBytes = new TextEncoder().encode(prompt).length;
-  const promptTooLarge = promptBytes > 16_384;
-  const canExecute = useCanExecuteForWorkspace(
-    detail?.definition.labels
-      .find((label) => label.startsWith('workspace='))
-      ?.slice(10) ?? ''
+  const {
+    pending,
+    error: actionError,
+    run: execute,
+  } = useControllerMutation(
+    mutate,
+    'The action succeeded, but the latest Controller status could not be loaded.',
+    id ?? ''
   );
-  const canWrite = useCanWriteForWorkspace(
-    detail?.definition.labels
-      .find((label) => label.startsWith('workspace='))
-      ?.slice(10) ?? ''
-  );
+  const promptBytes = utf8ByteLength(prompt);
+  const promptError = validateControllerPrompt(prompt);
+  const workspace = workspaceNameFromLabels(detail?.definition.labels);
+  const canExecute = useCanExecuteForWorkspace(workspace);
+  const canWrite = useCanWriteForWorkspace(workspace);
 
   React.useEffect(() => {
     if (detail) appBar.setTitle(detail.definition.name);
   }, [appBar, detail]);
+
+  React.useLayoutEffect(() => {
+    setStartOpen(false);
+    setPrompt('');
+  }, [id]);
+
+  React.useEffect(() => {
+    setPrompt('');
+  }, [detail?.runtime.turnCount, detail?.runtime.waitingQuestion]);
 
   if (isLoading && !detail) return <LoadingIndicator />;
   if (error || !detail) {
@@ -101,10 +106,7 @@ export default function ControllerStatusPage() {
   }
 
   const runtime = detail.runtime;
-  const active =
-    runtime.status === ControllerStatus.Running ||
-    runtime.status === ControllerStatus.Waiting ||
-    (runtime.status === ControllerStatus.Aborted && !runtime.finishedAt);
+  const active = isControllerStatusActive(runtime.status, runtime.finishedAt);
   const waitingForPrompt =
     runtime.status === ControllerStatus.Waiting &&
     !runtime.activeDAGRun &&
@@ -122,30 +124,6 @@ export default function ControllerStatusPage() {
       index
   );
   const dagRunsByID = new Map(detail.dagRuns.map((run) => [run.dagRunId, run]));
-
-  const execute = async (action: () => Promise<void>, success: string) => {
-    setPending(true);
-    setActionError(null);
-    try {
-      await action();
-    } catch (failure) {
-      setActionError(
-        failure instanceof Error ? failure.message : 'Controller action failed'
-      );
-      setPending(false);
-      return false;
-    }
-    showToast(success);
-    try {
-      await mutate();
-    } catch {
-      setActionError(
-        'The action succeeded, but the latest Controller status could not be loaded.'
-      );
-    }
-    setPending(false);
-    return true;
-  };
 
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-5 pb-8">
@@ -192,10 +170,8 @@ export default function ControllerStatusPage() {
       )}
       {runtime.lastError && (
         <Alert variant="destructive">
-          <AlertTitle>{runtime.lastError.code}</AlertTitle>
-          <AlertDescription>
-            {runtime.lastError.message ?? 'Controller execution failed.'}
-          </AlertDescription>
+          <AlertTitle>Controller execution failed</AlertTitle>
+          <AlertDescription>{runtime.lastError}</AlertDescription>
         </Alert>
       )}
 
@@ -232,16 +208,18 @@ export default function ControllerStatusPage() {
             </div>
             <Textarea
               value={prompt}
-              maxLength={16_384}
+              maxLength={MAX_CONTROLLER_PROMPT_BYTES}
               onChange={(event) => setPrompt(event.target.value)}
               placeholder="Reply to the Controller…"
               className="min-h-24"
             />
             <div className="flex justify-between text-xs text-muted-foreground">
               <span className="text-destructive">
-                {promptTooLarge ? 'The prompt must be 16 KiB or less.' : ''}
+                {prompt ? promptError : null}
               </span>
-              <span>{promptBytes} / 16,384 bytes</span>
+              <span>
+                {promptBytes} / {MAX_CONTROLLER_PROMPT_BYTES} bytes
+              </span>
             </div>
             <div className="flex items-center justify-between gap-3">
               <p className="text-xs text-muted-foreground">
@@ -250,9 +228,7 @@ export default function ControllerStatusPage() {
               </p>
               <Button
                 variant="primary"
-                disabled={
-                  !canExecute || pending || !prompt.trim() || promptTooLarge
-                }
+                disabled={!canExecute || pending || promptError !== null}
                 onClick={() =>
                   void (async () => {
                     const sent = await execute(
@@ -276,15 +252,22 @@ export default function ControllerStatusPage() {
           <AlertTitle>Child DAG is waiting</AlertTitle>
           <AlertDescription>
             Continue in the{' '}
-            <Link
-              className="font-medium underline"
-              to={dagRunURL(
-                runtime.activeDAGRun.dag,
-                runtime.activeDAGRun.dagRunId
-              )}
-            >
-              {runtime.activeDAGRun.dag} DAG run
-            </Link>
+            {dagRunsByID.has(runtime.activeDAGRun.dagRunId) ? (
+              <Link
+                className="font-medium underline"
+                to={buildDAGRunPageURL({
+                  rootDAGRunName: runtime.activeDAGRun.dag,
+                  rootDAGRunId: runtime.activeDAGRun.dagRunId,
+                  remoteNode: 'local',
+                })}
+              >
+                {runtime.activeDAGRun.dag} DAG run
+              </Link>
+            ) : (
+              <span className="font-medium">
+                {runtime.activeDAGRun.dag} DAG run
+              </span>
+            )}
             . Approval and interaction stay with that run.
           </AlertDescription>
         </Alert>
@@ -314,33 +297,34 @@ export default function ControllerStatusPage() {
                   const summary = dagRunsByID.get(run.dagRunId);
                   const isActive =
                     runtime.activeDAGRun?.dagRunId === run.dagRunId;
-                  const expired = !summary && !isActive;
+                  const runStatusLabel =
+                    summary?.statusLabel ?? (isActive ? 'Pending' : 'Expired');
                   return (
                     <li
                       key={run.dagRunId}
                       className="flex items-center justify-between gap-3 py-3 text-sm"
                     >
                       <div>
-                        {expired ? (
-                          <span className="font-medium">{run.dag}</span>
-                        ) : (
+                        {summary ? (
                           <Link
                             className="font-medium text-primary hover:underline"
-                            to={dagRunURL(run.dag, run.dagRunId)}
+                            to={buildDAGRunPageURL({
+                              rootDAGRunName: run.dag,
+                              rootDAGRunId: run.dagRunId,
+                              remoteNode: 'local',
+                            })}
                           >
                             {run.dag}
                           </Link>
+                        ) : (
+                          <span className="font-medium">{run.dag}</span>
                         )}
                         <div className="font-mono text-xs text-muted-foreground">
                           {run.dagRunId}
                         </div>
                       </div>
                       <div className="text-right text-xs">
-                        <div>
-                          {expired
-                            ? 'Expired'
-                            : (summary?.statusLabel ?? 'Pending')}
-                        </div>
+                        <div>{runStatusLabel}</div>
                         <div className="font-mono text-muted-foreground">
                           {run.state}
                         </div>

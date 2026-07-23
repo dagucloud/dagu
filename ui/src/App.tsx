@@ -43,6 +43,7 @@ import { UserRole } from './api/v1/schema';
 import LoginPage from './pages/login';
 import SetupPage from './pages/setup';
 import LoadingIndicator from '@/components/ui/loading-indicator';
+import { LocalControllerScope } from './features/controllers/components/LocalControllerScope';
 
 const AdministrationPage = React.lazy(() => import('./pages/administration'));
 const APIKeysPage = React.lazy(() => import('./pages/api-keys'));
@@ -669,19 +670,35 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
                                       <Route path="/dags/" element={<DAGs />} />
                                       <Route
                                         path="/controllers"
-                                        element={<ControllersPage />}
+                                        element={
+                                          <LocalControllerScope>
+                                            <ControllersPage />
+                                          </LocalControllerScope>
+                                        }
                                       />
                                       <Route
                                         path="/controllers/new/spec"
-                                        element={<ControllerSpecPage isNew />}
+                                        element={
+                                          <LocalControllerScope>
+                                            <ControllerSpecPage isNew />
+                                          </LocalControllerScope>
+                                        }
                                       />
                                       <Route
                                         path="/controllers/:id/status"
-                                        element={<ControllerStatusPage />}
+                                        element={
+                                          <LocalControllerScope>
+                                            <ControllerStatusPage />
+                                          </LocalControllerScope>
+                                        }
                                       />
                                       <Route
                                         path="/controllers/:id/spec"
-                                        element={<ControllerSpecPage />}
+                                        element={
+                                          <LocalControllerScope>
+                                            <ControllerSpecPage />
+                                          </LocalControllerScope>
+                                        }
                                       />
                                       <Route
                                         path="/dags/:fileName/:tab"

@@ -8,23 +8,21 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"regexp"
+	"net/http"
 	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
-	"unicode/utf8"
+	"unicode"
 
 	api "github.com/dagucloud/dagu/api/v1"
+	"github.com/dagucloud/dagu/internal/controller"
 	"github.com/dagucloud/dagu/internal/core"
 	coreexec "github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/spf13/cobra"
 )
 
-const controllerPromptMaxBytes = 16 << 10
-
 var (
-	controllerIDPattern  = regexp.MustCompile(`^ctrl_[a-z2-7]{16}$`)
 	controllerFormatFlag = commandLineFlag{
 		name:         "format",
 		shorthand:    "f",
@@ -107,10 +105,7 @@ func runControllerList(ctx *Context, _ []string) error {
 	if err != nil {
 		return err
 	}
-	client, err := controllerClientForContext(ctx)
-	if err != nil {
-		return err
-	}
+	client := controllerClientForContext(ctx)
 	controllers, err := client.listControllers(ctx)
 	if err != nil {
 		return err
@@ -127,10 +122,7 @@ func runControllerShow(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	client, err := controllerClientForContext(ctx)
-	if err != nil {
-		return err
-	}
+	client := controllerClientForContext(ctx)
 	detail, err := client.getController(ctx, id)
 	if err != nil {
 		return err
@@ -143,10 +135,7 @@ func runControllerStart(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	client, err := controllerClientForContext(ctx)
-	if err != nil {
-		return err
-	}
+	client := controllerClientForContext(ctx)
 	if err := client.startController(ctx, id, prompt); err != nil {
 		return controllerMutationError(ctx, err)
 	}
@@ -159,10 +148,7 @@ func runControllerPrompt(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	client, err := controllerClientForContext(ctx)
-	if err != nil {
-		return err
-	}
+	client := controllerClientForContext(ctx)
 	if err := client.promptController(ctx, id, prompt); err != nil {
 		return controllerMutationError(ctx, err)
 	}
@@ -175,10 +161,7 @@ func runControllerStop(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	client, err := controllerClientForContext(ctx)
-	if err != nil {
-		return err
-	}
+	client := controllerClientForContext(ctx)
 	if err := client.stopController(ctx, id); err != nil {
 		return controllerMutationError(ctx, err)
 	}
@@ -186,9 +169,9 @@ func runControllerStop(ctx *Context, args []string) error {
 	return err
 }
 
-func controllerClientForContext(ctx *Context) (controllerCommandClient, error) {
+func controllerClientForContext(ctx *Context) controllerCommandClient {
 	if ctx.IsRemote() {
-		return ctx.Remote, nil
+		return ctx.Remote
 	}
 	return newLocalControllerCommandClient(ctx)
 }
@@ -215,27 +198,17 @@ func controllerMutationInput(ctx *Context, args []string) (string, string, error
 	if err != nil {
 		return "", "", fmt.Errorf("read prompt flag: %w", err)
 	}
-	if err := validateControllerPrompt(prompt); err != nil {
+	if err := controller.ValidatePrompt(prompt); err != nil {
 		return "", "", err
 	}
 	return id, prompt, nil
 }
 
 func validateControllerID(id string) (string, error) {
-	if !controllerIDPattern.MatchString(id) {
+	if err := controller.ValidateID(id); err != nil {
 		return "", fmt.Errorf("invalid Controller ID %q; expected ctrl_ followed by 16 lowercase base32 characters", id)
 	}
 	return id, nil
-}
-
-func validateControllerPrompt(prompt string) error {
-	if !utf8.ValidString(prompt) || strings.TrimSpace(prompt) == "" {
-		return fmt.Errorf("prompt must contain non-whitespace UTF-8 text")
-	}
-	if len(prompt) > controllerPromptMaxBytes {
-		return fmt.Errorf("prompt must not exceed %d bytes", controllerPromptMaxBytes)
-	}
-	return nil
 }
 
 func controllerMutationError(ctx *Context, err error) error {
@@ -243,7 +216,9 @@ func controllerMutationError(ctx *Context, err error) error {
 		return err
 	}
 	var responseErr *remoteError
-	if errors.As(err, &responseErr) {
+	if errors.As(err, &responseErr) &&
+		responseErr.StatusCode >= http.StatusBadRequest &&
+		responseErr.StatusCode < http.StatusInternalServerError {
 		return err
 	}
 	return fmt.Errorf("%w; outcome unknown; do not retry automatically", err)
@@ -286,8 +261,13 @@ func renderControllerList(ctx *Context, format string, controllers []api.Control
 			workspace = "default"
 		}
 		if _, err := fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
-			item.Name, item.Id, workspace, item.StatusLabel, item.CurrentState,
-			item.ResourceUpdatedAt.Format(time.RFC3339)); err != nil {
+			terminalSafeControllerText(item.Name),
+			terminalSafeControllerText(item.Id),
+			terminalSafeControllerText(workspace),
+			terminalSafeControllerText(string(item.StatusLabel)),
+			terminalSafeControllerText(item.CurrentState),
+			terminalSafeControllerText(item.ResourceUpdatedAt.Format(time.RFC3339)),
+		); err != nil {
 			return err
 		}
 	}
@@ -305,7 +285,7 @@ type controllerDetailJSON struct {
 	WaitingQuestion   *string                   `json:"waitingQuestion"`
 	ActiveDAGRun      *api.ControllerDAGRunRef  `json:"activeDAGRun"`
 	DAGRuns           []api.ControllerDAGRunRef `json:"dagRuns"`
-	LastError         *api.ControllerLastError  `json:"lastError"`
+	LastError         *string                   `json:"lastError"`
 	ResourceUpdatedAt time.Time                 `json:"resourceUpdatedAt"`
 }
 
@@ -313,15 +293,8 @@ func renderControllerDetail(ctx *Context, format string, detail *api.ControllerD
 	if detail == nil {
 		return fmt.Errorf("Controller response is empty")
 	}
-	for _, warning := range detail.Warnings {
-		if _, err := fmt.Fprintf(ctx.Command.ErrOrStderr(), "warning: %s: %s\n", warning.Path, warning.Message); err != nil {
-			return err
-		}
-	}
-	for _, issue := range detail.Errors {
-		if _, err := fmt.Fprintf(ctx.Command.ErrOrStderr(), "error: %s: %s\n", issue.Path, issue.Message); err != nil {
-			return err
-		}
+	if err := renderControllerWarnings(ctx, detail.Warnings); err != nil {
+		return err
 	}
 
 	summary := controllerDetailJSON{
@@ -356,7 +329,7 @@ func renderControllerDetail(ctx *Context, format string, detail *api.ControllerD
 		{"Active DAG run", formatControllerDAGRun(summary.ActiveDAGRun)},
 		{"Recent DAG runs", formatControllerDAGRuns(summary.DAGRuns)},
 		{"Updated", summary.ResourceUpdatedAt.Format(time.RFC3339)},
-		{"Last error", formatControllerLastError(summary.LastError)},
+		{"Last error", stringValue(summary.LastError)},
 	}
 	for _, row := range rows {
 		if _, err := fmt.Fprintf(w, "%s\t%s\n", row[0], terminalSafeControllerText(row[1])); err != nil {
@@ -366,11 +339,26 @@ func renderControllerDetail(ctx *Context, format string, detail *api.ControllerD
 	return w.Flush()
 }
 
+func renderControllerWarnings(ctx *Context, warnings []api.ControllerWarning) error {
+	for _, warning := range warnings {
+		if _, err := fmt.Fprintf(
+			ctx.Command.ErrOrStderr(),
+			"Warning [%s] %s: %s\n",
+			terminalSafeControllerText(warning.Code),
+			terminalSafeControllerText(warning.Path),
+			terminalSafeControllerText(warning.Message),
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func terminalSafeControllerText(value string) string {
 	var result strings.Builder
 	result.Grow(len(value))
 	for _, r := range value {
-		if r < ' ' || (r >= 0x7f && r <= 0x9f) || r == '\u2028' || r == '\u2029' {
+		if controllerTerminalRuneNeedsEscape(r) {
 			quoted := strconv.QuoteRuneToASCII(r)
 			result.WriteString(quoted[1 : len(quoted)-1])
 			continue
@@ -378,6 +366,13 @@ func terminalSafeControllerText(value string) string {
 		result.WriteRune(r)
 	}
 	return result.String()
+}
+
+func controllerTerminalRuneNeedsEscape(r rune) bool {
+	return r < ' ' ||
+		(r >= '\u007f' && r <= '\u009f') ||
+		(r >= '\u2028' && r <= '\u2029') ||
+		unicode.Is(unicode.Bidi_Control, r)
 }
 
 func controllerWorkspace(labels []string) string {
@@ -415,14 +410,4 @@ func formatControllerDAGRuns(refs []api.ControllerDAGRunRef) string {
 		values = append(values, formatControllerDAGRun(&refs[index]))
 	}
 	return strings.Join(values, ", ")
-}
-
-func formatControllerLastError(lastError *api.ControllerLastError) string {
-	if lastError == nil {
-		return "-"
-	}
-	if lastError.Message == nil || *lastError.Message == "" {
-		return lastError.Code
-	}
-	return lastError.Code + ": " + *lastError.Message
 }

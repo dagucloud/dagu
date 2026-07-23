@@ -94,7 +94,7 @@ type API struct {
 	schedulerStateStore  scheduler.WatermarkStore
 	dagMutationNotifier  func(fileName string)
 	baseConfigFactory    WorkspaceBaseConfigStoreFactory
-	controllerService    ControllerService
+	controllerService    controllerService
 }
 
 type WorkspaceBaseConfigStoreFactory func(dagsDir, workspaceName string) (baseconfig.Store, error)
@@ -301,13 +301,6 @@ func WithDAGMutationNotifier(fn func(fileName string)) APIOption {
 	}
 }
 
-// WithControllerService sets the Controller application service.
-func WithControllerService(service ControllerService) APIOption {
-	return func(a *API) {
-		a.controllerService = service
-	}
-}
-
 // WithDAGRunLeaseStore sets the shared distributed run lease store.
 func WithDAGRunLeaseStore(store exec.DAGRunLeaseStore) APIOption {
 	return func(a *API) {
@@ -430,14 +423,24 @@ func (a *API) ConfigureRoutes(ctx context.Context, r chi.Router, writeTimeout ti
 			validateDAGFileNameMiddleware,
 			resetSyncWriteDeadline(writeTimeout),
 		}
-		options := api.StrictHTTPServerOptions{
-			ResponseErrorHandlerFunc: a.handleError,
-		}
-		handler := api.NewStrictHandlerWithOptions(a, middlewares, options)
+		handler := api.NewStrictHandlerWithOptions(a, middlewares, a.strictHTTPServerOptions(mountedAPIPath))
 		r.Mount("/", api.Handler(handler))
 	})
 
 	return nil
+}
+
+func (a *API) strictHTTPServerOptions(mountedAPIPath string) api.StrictHTTPServerOptions {
+	return api.StrictHTTPServerOptions{
+		RequestErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
+			if isControllerAPIPath(r.URL.Path, mountedAPIPath) {
+				a.handleError(w, r, ErrInvalidRequestBody)
+				return
+			}
+			http.Error(w, err.Error(), http.StatusBadRequest)
+		},
+		ResponseErrorHandlerFunc: a.handleError,
+	}
 }
 
 // TODO: Remove this workaround with the deprecated ExecuteDAGSync API.

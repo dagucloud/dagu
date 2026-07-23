@@ -8442,12 +8442,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        "409":
-          description: "Controller conflicts with an existing resource"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
         default:
           description: "Generic error response"
           content:
@@ -8586,10 +8580,6 @@ paths:
       responses:
         "202":
           description: "Controller start accepted"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ControllerMutationResponse"
         "400":
           description: "Invalid prompt or Controller definition"
           content:
@@ -8638,10 +8628,6 @@ paths:
       responses:
         "202":
           description: "Controller prompt accepted"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ControllerMutationResponse"
         "400":
           description: "Invalid prompt"
           content:
@@ -8684,10 +8670,6 @@ paths:
       responses:
         "202":
           description: "Controller stop accepted"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ControllerMutationResponse"
         "403":
           description: "Insufficient execution permission"
           content:
@@ -9666,14 +9648,6 @@ components:
       required:
         - id
 
-    ControllerMutationResponse:
-      type: object
-      properties:
-        id:
-          $ref: "#/components/schemas/ControllerId"
-      required:
-        - id
-
     ControllerRouterLLMConfig:
       type: object
       additionalProperties: false
@@ -9779,22 +9753,19 @@ components:
         - dags
         - states
 
-    ControllerValidationIssue:
+    ControllerWarning:
       type: object
+      additionalProperties: false
       properties:
         code:
           type: string
+          description: "Stable warning code"
         path:
           type: string
           description: "Canonical Controller field path"
         message:
           type: string
-        line:
-          type: integer
-          minimum: 1
-        column:
-          type: integer
-          minimum: 1
+          description: "Human-readable warning message"
       required:
         - code
         - path
@@ -9841,8 +9812,6 @@ components:
             $ref: "#/components/schemas/ControllerToolCall"
         tool_call_id:
           type: string
-        name:
-          type: string
         metadata:
           $ref: "#/components/schemas/ChatMessageMetadata"
       required:
@@ -9880,16 +9849,6 @@ components:
         - dag
         - dagRunId
 
-    ControllerLastError:
-      type: object
-      properties:
-        code:
-          type: string
-        message:
-          type: string
-      required:
-        - code
-
     ControllerRuntime:
       type: object
       properties:
@@ -9925,7 +9884,7 @@ components:
           type: string
           format: date-time
         lastError:
-          $ref: "#/components/schemas/ControllerLastError"
+          type: string
       required:
         - status
         - statusLabel
@@ -9965,7 +9924,7 @@ components:
         latestDAGRun:
           $ref: "#/components/schemas/ControllerListDAGRun"
         lastError:
-          $ref: "#/components/schemas/ControllerLastError"
+          type: string
         finishedAt:
           type: string
           format: date-time
@@ -10009,14 +9968,11 @@ components:
         spec:
           type: string
           description: "Persisted Controller YAML specification"
-        errors:
-          type: array
-          items:
-            $ref: "#/components/schemas/ControllerValidationIssue"
         warnings:
           type: array
           items:
-            $ref: "#/components/schemas/ControllerValidationIssue"
+            $ref: "#/components/schemas/ControllerWarning"
+          description: "Non-blocking findings for the current Controller definition"
         resourceUpdatedAt:
           type: string
           format: date-time
@@ -10026,7 +9982,6 @@ components:
         - runtime
         - dagRuns
         - spec
-        - errors
         - warnings
         - resourceUpdatedAt
 
@@ -10036,8 +9991,8 @@ components:
       properties:
         prompt:
           type: string
+          description: "Prompt text containing at least one non-whitespace character; the server enforces a limit of 16,384 UTF-8 bytes."
           minLength: 1
-          maxLength: 16384
       required:
         - prompt
 

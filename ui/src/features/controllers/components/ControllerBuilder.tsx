@@ -12,20 +12,25 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { withWorkspaceLabel, withoutWorkspaceLabels } from '@/lib/workspace';
-import type { ControllerDAGOption } from '../api';
+import type { ControllerDAGOption } from '../dagOptions';
 import {
-  DEFAULT_MAX_TURNS,
-  ROUTER_INSTRUCTION,
-  systemSuffix,
-  withSystemSuffix,
-} from '../draft';
+  CONTROLLER_LLM_PROVIDER_OPTIONS,
+  CONTROLLER_STATE_NAME_PATTERN,
+  MAX_CONTROLLER_MAX_TURNS,
+  MIN_CONTROLLER_MAX_TURNS,
+} from '../constraints';
+import { ROUTER_INSTRUCTION, systemSuffix, withSystemSuffix } from '../draft';
 import type { ControllerDefinition, ControllerState } from '../types';
 
 type Props = {
   definition: ControllerDefinition;
   workspace: string;
   availableDAGs?: ControllerDAGOption[];
+  availableDAGsError?: string;
+  availableDAGsLoading?: boolean;
+  onRetryAvailableDAGs?: () => void;
   readOnly?: boolean;
+  onDraftDirtyChange?: (dirty: boolean) => void;
   onChange: (definition: ControllerDefinition) => void;
 };
 
@@ -82,6 +87,7 @@ function StateCard({
   stateNames,
   controllerDAGs,
   readOnly,
+  onDraftDirtyChange,
   onRename,
   onRemove,
   onChange,
@@ -91,10 +97,20 @@ function StateCard({
   stateNames: string[];
   controllerDAGs: string[];
   readOnly: boolean;
-  onRename: (nextName: string) => void;
+  onDraftDirtyChange: (dirty: boolean) => void;
+  onRename: (nextName: string) => boolean;
   onRemove: () => void;
   onChange: (state: ControllerState) => void;
 }) {
+  const serializedStateDAGs = state.dags.join(', ');
+  const [nameDraft, setNameDraft] = React.useState(name);
+  const [dagListDraft, setDAGListDraft] = React.useState(serializedStateDAGs);
+
+  React.useEffect(
+    () => setDAGListDraft(serializedStateDAGs),
+    [serializedStateDAGs]
+  );
+
   const update = (patch: Partial<ControllerState>) =>
     onChange({ ...state, ...patch });
 
@@ -110,9 +126,16 @@ function StateCard({
           ) : (
             <Input
               aria-label={`State name ${name}`}
-              defaultValue={name}
+              value={nameDraft}
               disabled={readOnly}
-              onBlur={(event) => onRename(event.target.value)}
+              onChange={(event) => {
+                setNameDraft(event.target.value);
+                onDraftDirtyChange(event.target.value !== name);
+              }}
+              onBlur={() => {
+                if (!onRename(nameDraft)) setNameDraft(name);
+                onDraftDirtyChange(false);
+              }}
               className="max-w-xs font-semibold"
             />
           )}
@@ -161,14 +184,21 @@ function StateCard({
           </Field>
           <Field label="Callable DAGs">
             <Input
-              defaultValue={state.dags.join(', ')}
+              aria-label={`Callable DAGs for ${name}`}
+              value={dagListDraft}
               disabled={readOnly || Boolean(state.terminal)}
               placeholder="triage, notify"
-              onBlur={(event) => {
-                const requested = parseList(event.target.value);
-                update({
-                  dags: requested.filter((dag) => controllerDAGs.includes(dag)),
-                });
+              onChange={(event) => {
+                setDAGListDraft(event.target.value);
+                onDraftDirtyChange(event.target.value !== serializedStateDAGs);
+              }}
+              onBlur={() => {
+                const nextDAGs = parseList(dagListDraft).filter((dag) =>
+                  controllerDAGs.includes(dag)
+                );
+                setDAGListDraft(nextDAGs.join(', '));
+                update({ dags: nextDAGs });
+                onDraftDirtyChange(false);
               }}
             />
           </Field>
@@ -272,13 +302,19 @@ export function ControllerBuilder({
   definition,
   workspace,
   availableDAGs = [],
+  availableDAGsError,
+  availableDAGsLoading = false,
+  onRetryAvailableDAGs,
   readOnly = false,
+  onDraftDirtyChange = () => {},
   onChange,
 }: Props) {
   const [builderMessage, setBuilderMessage] = React.useState<string | null>(
     null
   );
   const [dagSearch, setDAGSearch] = React.useState('');
+  const serializedLabels = withoutWorkspaceLabels(definition.labels).join(', ');
+  const [labelListDraft, setLabelListDraft] = React.useState(serializedLabels);
   const serializedDAGs = definition.dags.join(', ');
   const [dagListDraft, setDAGListDraft] = React.useState(serializedDAGs);
   const suffix = systemSuffix(definition.llm.system);
@@ -288,12 +324,14 @@ export function ControllerBuilder({
     setDAGListDraft(serializedDAGs);
   }, [serializedDAGs]);
 
+  React.useEffect(() => {
+    setLabelListDraft(serializedLabels);
+  }, [serializedLabels]);
+
   const commit = React.useCallback(
     (mutate: (draft: ControllerDefinition) => void) => {
       const draft = cloneDefinition(definition);
       mutate(draft);
-      draft.maxTurns ||= DEFAULT_MAX_TURNS;
-      draft.llm.system ??= ROUTER_INSTRUCTION;
       onChange(draft);
       setBuilderMessage(null);
     },
@@ -301,16 +339,16 @@ export function ControllerBuilder({
   );
 
   const renameState = (name: string, nextName: string) => {
-    if (nextName === name) return;
-    if (!/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(nextName)) {
+    if (nextName === name) return true;
+    if (!CONTROLLER_STATE_NAME_PATTERN.test(nextName)) {
       setBuilderMessage(
         'State names must start with a letter and use letters, numbers, _ or -.'
       );
-      return;
+      return false;
     }
-    if (definition.states[nextName]) {
+    if (Object.prototype.hasOwnProperty.call(definition.states, nextName)) {
       setBuilderMessage(`State ${nextName} already exists.`);
-      return;
+      return false;
     }
     commit((draft) => {
       const renamed = draft.states[name];
@@ -328,9 +366,17 @@ export function ControllerBuilder({
         ])
       );
     });
+    return true;
   };
 
   const removeState = (name: string) => {
+    const state = definition.states[name];
+    if (state && (state.dags.length > 0 || state.transitions.length > 0)) {
+      setBuilderMessage(
+        `Clear DAGs and transitions from ${name} before deleting the state.`
+      );
+      return;
+    }
     const inbound = Object.entries(definition.states).find(([, state]) =>
       state.transitions.some((transition) => transition.to === name)
     );
@@ -426,8 +472,8 @@ export function ControllerBuilder({
           <Field label="Maximum turns">
             <Input
               type="number"
-              min={2}
-              max={1000}
+              min={MIN_CONTROLLER_MAX_TURNS}
+              max={MAX_CONTROLLER_MAX_TURNS}
               value={definition.maxTurns}
               disabled={builderReadOnly}
               onChange={(event) =>
@@ -442,16 +488,21 @@ export function ControllerBuilder({
           </Field>
           <Field label="Labels (comma separated)">
             <Input
-              value={withoutWorkspaceLabels(definition.labels).join(', ')}
+              aria-label="Controller labels"
+              value={labelListDraft}
               disabled={builderReadOnly}
-              onChange={(event) =>
+              onChange={(event) => {
+                setLabelListDraft(event.target.value);
+                onDraftDirtyChange(event.target.value !== serializedLabels);
+              }}
+              onBlur={() => {
+                const labels = parseList(labelListDraft);
+                setLabelListDraft(labels.join(', '));
                 commit((draft) => {
-                  draft.labels = withWorkspaceLabel(
-                    parseList(event.target.value),
-                    workspace
-                  );
-                })
-              }
+                  draft.labels = withWorkspaceLabel(labels, workspace);
+                });
+                onDraftDirtyChange(false);
+              }}
             />
           </Field>
         </CardContent>
@@ -474,9 +525,11 @@ export function ControllerBuilder({
                 }
                 className="h-9 w-full rounded-md border border-input bg-card px-3 text-sm"
               >
-                <option value="openai">OpenAI</option>
-                <option value="anthropic">Anthropic</option>
-                <option value="gemini">Gemini</option>
+                {CONTROLLER_LLM_PROVIDER_OPTIONS.map(({ value, label }) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
               </select>
             </Field>
             <Field label="Model">
@@ -527,13 +580,39 @@ export function ControllerBuilder({
           <CardTitle>Controller DAG allowlist</CardTitle>
         </CardHeader>
         <CardContent>
+          {availableDAGsError && (
+            <Alert variant="destructive" className="mb-4">
+              <AlertDescription className="flex flex-wrap items-center justify-between gap-2">
+                <span>{availableDAGsError}</span>
+                {onRetryAvailableDAGs && (
+                  <Button
+                    type="button"
+                    size="xs"
+                    variant="outline"
+                    disabled={availableDAGsLoading}
+                    onClick={onRetryAvailableDAGs}
+                  >
+                    Retry
+                  </Button>
+                )}
+              </AlertDescription>
+            </Alert>
+          )}
+          {availableDAGsLoading && (
+            <p className="mb-3 text-xs text-muted-foreground">
+              Loading compatible DAGs…
+            </p>
+          )}
           <Field label="DAG names (comma separated)">
             <Input
               aria-label="Controller DAG allowlist"
               value={dagListDraft}
               disabled={builderReadOnly}
               placeholder="triage, notify"
-              onChange={(event) => setDAGListDraft(event.target.value)}
+              onChange={(event) => {
+                setDAGListDraft(event.target.value);
+                onDraftDirtyChange(event.target.value !== serializedDAGs);
+              }}
               onBlur={() => {
                 const requested = parseList(dagListDraft);
                 if (updateControllerDAGs(requested)) {
@@ -541,6 +620,7 @@ export function ControllerBuilder({
                 } else {
                   setDAGListDraft(serializedDAGs);
                 }
+                onDraftDirtyChange(false);
               }}
             />
           </Field>
@@ -584,12 +664,6 @@ export function ControllerBuilder({
                             {dag.description}
                           </span>
                         )}
-                        <span className="block text-xs text-muted-foreground">
-                          Parameters:{' '}
-                          {dag.params.length > 0
-                            ? dag.params.join(', ')
-                            : 'none'}
-                        </span>
                       </span>
                     </label>
                   );
@@ -640,6 +714,7 @@ export function ControllerBuilder({
           stateNames={Object.keys(definition.states)}
           controllerDAGs={definition.dags}
           readOnly={builderReadOnly}
+          onDraftDirtyChange={onDraftDirtyChange}
           onRename={(nextName) => renameState(name, nextName)}
           onRemove={() => removeState(name)}
           onChange={(nextState) => {

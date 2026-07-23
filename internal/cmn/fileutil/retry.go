@@ -5,6 +5,7 @@ package fileutil
 
 import (
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -25,6 +26,25 @@ func ReadFile(path string) ([]byte, error) {
 	err := retryWindowsFileOp(func() error {
 		readData, err := os.ReadFile(path) //nolint:gosec // caller controls internal path
 		if err != nil {
+			return err
+		}
+		data = readData
+		return nil
+	})
+	return data, err
+}
+
+// ReadFileLimit retries transient Windows sharing violations and reads at most limit bytes.
+func ReadFileLimit(path string, limit int64) ([]byte, error) {
+	var data []byte
+	err := retryWindowsFileOp(func() error {
+		// #nosec G304 -- the caller supplies the file path by design.
+		file, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		readData, readErr := io.ReadAll(io.LimitReader(file, limit))
+		if err := errors.Join(readErr, file.Close()); err != nil {
 			return err
 		}
 		data = readData

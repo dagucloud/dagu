@@ -6,6 +6,7 @@ package controller
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/dagucloud/dagu/internal/core"
@@ -115,39 +116,25 @@ type DAGRunRef struct {
 
 // RuntimeView is the API-safe runtime projection. Executable child parameters are omitted.
 type RuntimeView struct {
-	RuntimeVersion  int                 `json:"runtimeVersion"`
-	ID              string              `json:"id"`
-	Workspace       string              `json:"workspace"`
-	Status          core.Status         `json:"status"`
-	StatusLabel     string              `json:"statusLabel"`
-	CurrentState    string              `json:"currentState"`
-	TurnCount       int                 `json:"turnCount"`
-	WaitingQuestion *string             `json:"waitingQuestion"`
-	ActiveDAGRun    *PublicActiveDAGRun `json:"activeDAGRun"`
-	DAGRunRefs      []DAGRunRef         `json:"dagRunRefs"`
-	Context         []exec.LLMMessage   `json:"context"`
-	LastError       *string             `json:"lastError"`
-	StartedAt       time.Time           `json:"startedAt"`
-	UpdatedAt       time.Time           `json:"updatedAt"`
-	FinishedAt      *time.Time          `json:"finishedAt"`
-}
-
-// PublicActiveDAGRun identifies the child run without exposing executable parameters.
-type PublicActiveDAGRun struct {
-	ToolCallID string `json:"toolCallId"`
-	State      string `json:"state"`
-	DAG        string `json:"dag"`
-	DAGRunID   string `json:"dagRunId"`
+	Workspace       string            `json:"workspace"`
+	Status          core.Status       `json:"status"`
+	CurrentState    string            `json:"currentState"`
+	TurnCount       int               `json:"turnCount"`
+	WaitingQuestion *string           `json:"waitingQuestion"`
+	ActiveDAGRun    *DAGRunRef        `json:"activeDAGRun"`
+	DAGRunRefs      []DAGRunRef       `json:"dagRunRefs"`
+	Context         []exec.LLMMessage `json:"context"`
+	LastError       *string           `json:"lastError"`
+	StartedAt       time.Time         `json:"startedAt"`
+	UpdatedAt       time.Time         `json:"updatedAt"`
+	FinishedAt      *time.Time        `json:"finishedAt"`
 }
 
 // Public returns a detached API-safe runtime projection.
 func (r Runtime) Public() RuntimeView {
 	view := RuntimeView{
-		RuntimeVersion:  r.RuntimeVersion,
-		ID:              r.ID,
 		Workspace:       r.Workspace,
 		Status:          r.Status,
-		StatusLabel:     r.Status.String(),
 		CurrentState:    r.CurrentState,
 		TurnCount:       r.TurnCount,
 		WaitingQuestion: cloneStringPointer(r.WaitingQuestion),
@@ -159,11 +146,10 @@ func (r Runtime) Public() RuntimeView {
 		FinishedAt:      cloneTimePointer(r.FinishedAt),
 	}
 	if r.ActiveDAGRun != nil {
-		view.ActiveDAGRun = &PublicActiveDAGRun{
-			ToolCallID: r.ActiveDAGRun.ToolCallID,
-			State:      r.CurrentState,
-			DAG:        r.ActiveDAGRun.DAG,
-			DAGRunID:   r.ActiveDAGRun.DAGRunID,
+		view.ActiveDAGRun = &DAGRunRef{
+			State:    r.CurrentState,
+			DAG:      r.ActiveDAGRun.DAG,
+			DAGRunID: r.ActiveDAGRun.DAGRunID,
 		}
 	}
 	return view
@@ -171,30 +157,36 @@ func (r Runtime) Public() RuntimeView {
 
 // Summary is the compact list representation for one Controller.
 type Summary struct {
-	ID                string              `json:"id"`
-	Name              string              `json:"name"`
-	Description       string              `json:"description"`
-	Labels            []string            `json:"labels,omitempty"`
-	Workspace         string              `json:"workspace"`
-	Status            core.Status         `json:"status"`
-	StatusLabel       string              `json:"statusLabel"`
-	CurrentState      string              `json:"currentState,omitempty"`
-	TurnCount         int                 `json:"turnCount"`
-	MaxTurns          int                 `json:"maxTurns"`
-	WaitingQuestion   *string             `json:"waitingQuestion"`
-	ActiveDAGRun      *PublicActiveDAGRun `json:"activeDAGRun"`
-	LatestDAGRun      *DAGRunRef          `json:"latestDAGRun"`
-	LastError         *string             `json:"lastError"`
-	FinishedAt        *time.Time          `json:"finishedAt"`
-	ResourceUpdatedAt *time.Time          `json:"resourceUpdatedAt,omitempty"`
+	ID                string      `json:"id"`
+	Name              string      `json:"name"`
+	Description       string      `json:"description"`
+	Workspace         string      `json:"workspace"`
+	Status            core.Status `json:"status"`
+	CurrentState      string      `json:"currentState,omitempty"`
+	TurnCount         int         `json:"turnCount"`
+	MaxTurns          int         `json:"maxTurns"`
+	WaitingQuestion   *string     `json:"waitingQuestion"`
+	ActiveDAGRun      *DAGRunRef  `json:"activeDAGRun"`
+	LatestDAGRun      *DAGRunRef  `json:"latestDAGRun"`
+	LastError         *string     `json:"lastError"`
+	FinishedAt        *time.Time  `json:"finishedAt"`
+	ResourceUpdatedAt time.Time   `json:"resourceUpdatedAt"`
+}
+
+// DefinitionWarning describes a non-blocking issue in a valid Controller definition.
+type DefinitionWarning struct {
+	Code    string `json:"code"`
+	Path    string `json:"path"`
+	Message string `json:"message"`
 }
 
 // Detail contains the persisted definition and an API-safe runtime snapshot.
 type Detail struct {
-	RawYAML           string       `json:"spec"`
-	Definition        Definition   `json:"definition"`
-	Runtime           *RuntimeView `json:"runtime"`
-	ResourceUpdatedAt time.Time    `json:"resourceUpdatedAt"`
+	RawYAML           string              `json:"spec"`
+	Definition        Definition          `json:"definition"`
+	Runtime           *RuntimeView        `json:"runtime"`
+	Warnings          []DefinitionWarning `json:"warnings"`
+	ResourceUpdatedAt time.Time           `json:"resourceUpdatedAt"`
 }
 
 func cloneStringPointer(value *string) *string {
@@ -240,13 +232,19 @@ func redactRouteParams(arguments string) string {
 	if err := json.Unmarshal([]byte(arguments), &values); err != nil {
 		return `{}`
 	}
-	if _, exists := values["params"]; !exists {
+	redacted := false
+	for key := range values {
+		if strings.EqualFold(key, "params") {
+			delete(values, key)
+			redacted = true
+		}
+	}
+	if !redacted {
 		return arguments
 	}
-	delete(values, "params")
-	redacted, err := json.Marshal(values)
+	encoded, err := json.Marshal(values)
 	if err != nil {
 		return `{}`
 	}
-	return string(redacted)
+	return string(encoded)
 }

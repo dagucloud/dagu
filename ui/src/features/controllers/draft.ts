@@ -8,12 +8,53 @@ import type {
   ControllerState,
   ControllerValidationIssue,
 } from './types';
+import {
+  CONTROLLER_DAG_NAME_PATTERN,
+  CONTROLLER_LLM_PROVIDERS,
+  CONTROLLER_STATE_NAME_PATTERN,
+  DEFAULT_CONTROLLER_MAX_TURNS,
+  DEFAULT_CONTROLLER_LLM_PROVIDER,
+  MAX_CONTROLLER_DAGS,
+  MAX_CONTROLLER_DESCRIPTION_BYTES,
+  MAX_CONTROLLER_MAX_TURNS,
+  MAX_CONTROLLER_NAME_BYTES,
+  MAX_CONTROLLER_NAME_CODE_POINTS,
+  MAX_CONTROLLER_STATES,
+  MAX_CONTROLLER_SYSTEM_PROMPT_BYTES,
+  MAX_CONTROLLER_TRANSITIONS,
+  MIN_CONTROLLER_MAX_TURNS,
+  hasNonWhitespace,
+  isControllerLLMProvider,
+  utf8ByteLength,
+  validateControllerLabels,
+} from './constraints';
 
 export const ROUTER_INSTRUCTION = '${{.RouterInstruction}}';
-export const DEFAULT_MAX_TURNS = 100;
 
-const STATE_NAME = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 const CONTROLLER_ID = /^ctrl_[a-z2-7]{16}$/;
+
+const CONTROLLER_FIELDS = [
+  'type',
+  'version',
+  'id',
+  'name',
+  'description',
+  'maxTurns',
+  'labels',
+  'llm',
+  'dags',
+  'states',
+] as const;
+const LLM_FIELDS = ['provider', 'model', 'system'] as const;
+const STATE_FIELDS = [
+  'description',
+  'dags',
+  'transitions',
+  'terminal',
+] as const;
+const TRANSITION_FIELDS = ['to', 'when'] as const;
+
+export type ControllerDefinitionOperation = 'create' | 'update';
 
 type ParseResult = {
   definition: ControllerDefinition | null;
@@ -61,18 +102,7 @@ function hasOnlyFields(
 
 function isBuilderRepresentable(value: Record<string, unknown>): boolean {
   if (
-    !hasOnlyFields(value, [
-      'type',
-      'version',
-      'id',
-      'name',
-      'description',
-      'maxTurns',
-      'labels',
-      'llm',
-      'dags',
-      'states',
-    ]) ||
+    !hasOnlyFields(value, CONTROLLER_FIELDS) ||
     value.type !== 'controller' ||
     value.version !== 1 ||
     (value.id !== undefined && typeof value.id !== 'string') ||
@@ -92,7 +122,7 @@ function isBuilderRepresentable(value: Record<string, unknown>): boolean {
 
   const llm = value.llm;
   if (
-    !hasOnlyFields(llm, ['provider', 'model', 'system']) ||
+    !hasOnlyFields(llm, LLM_FIELDS) ||
     typeof llm.provider !== 'string' ||
     typeof llm.model !== 'string' ||
     (llm.system !== undefined && typeof llm.system !== 'string')
@@ -103,12 +133,7 @@ function isBuilderRepresentable(value: Record<string, unknown>): boolean {
   return Object.values(value.states).every((state) => {
     if (
       !isRecord(state) ||
-      !hasOnlyFields(state, [
-        'description',
-        'dags',
-        'transitions',
-        'terminal',
-      ]) ||
+      !hasOnlyFields(state, STATE_FIELDS) ||
       typeof state.description !== 'string' ||
       (state.dags !== undefined && stringArray(state.dags) === null) ||
       (state.terminal !== undefined &&
@@ -122,7 +147,7 @@ function isBuilderRepresentable(value: Record<string, unknown>): boolean {
     return state.transitions.every(
       (transition) =>
         isRecord(transition) &&
-        hasOnlyFields(transition, ['to', 'when']) &&
+        hasOnlyFields(transition, TRANSITION_FIELDS) &&
         typeof transition.to === 'string' &&
         typeof transition.when === 'string'
     );
@@ -135,10 +160,10 @@ export function createControllerDraft(workspace = ''): ControllerDefinition {
     version: 1,
     name: '',
     description: '',
-    maxTurns: DEFAULT_MAX_TURNS,
+    maxTurns: DEFAULT_CONTROLLER_MAX_TURNS,
     labels: workspace ? [`workspace=${workspace}`] : [],
     llm: {
-      provider: 'openai',
+      provider: DEFAULT_CONTROLLER_LLM_PROVIDER,
       model: '',
       system: ROUTER_INSTRUCTION,
     },
@@ -155,7 +180,7 @@ export function createControllerDraft(workspace = ''): ControllerDefinition {
 
 export function validateControllerDefinition(
   definition: ControllerDefinition,
-  options: { requireId?: boolean } = {}
+  operation: ControllerDefinitionOperation = 'create'
 ): ControllerValidationIssue[] {
   const issues: ControllerValidationIssue[] = [];
   if (definition.type !== 'controller') {
@@ -164,7 +189,10 @@ export function validateControllerDefinition(
   if (definition.version !== 1) {
     issues.push(issue('version', 'Version must be 1'));
   }
-  if (options.requireId && !definition.id) {
+  if (operation === 'create' && definition.id !== undefined) {
+    issues.push(issue('id', 'ID is generated when the Controller is created'));
+  }
+  if (operation === 'update' && !definition.id) {
     issues.push(issue('id', 'ID is required'));
   }
   if (definition.id && !CONTROLLER_ID.test(definition.id)) {
@@ -173,55 +201,130 @@ export function validateControllerDefinition(
   if (!definition.name) {
     issues.push(issue('name', 'Name is required'));
   }
-  if (!definition.description?.trim()) {
+  if (
+    Array.from(definition.name).length > MAX_CONTROLLER_NAME_CODE_POINTS ||
+    utf8ByteLength(definition.name) > MAX_CONTROLLER_NAME_BYTES
+  ) {
+    issues.push(
+      issue(
+        'name',
+        `Name must be at most ${MAX_CONTROLLER_NAME_CODE_POINTS} characters and ${MAX_CONTROLLER_NAME_BYTES} bytes`
+      )
+    );
+  }
+  if (!hasNonWhitespace(definition.description ?? '')) {
     issues.push(issue('description', 'Description is required'));
+  }
+  if (
+    utf8ByteLength(definition.description ?? '') >
+    MAX_CONTROLLER_DESCRIPTION_BYTES
+  ) {
+    issues.push(
+      issue(
+        'description',
+        `Description must be ${MAX_CONTROLLER_DESCRIPTION_BYTES} bytes or less`
+      )
+    );
   }
   if (/^[\p{White_Space}]|[\p{White_Space}]$/u.test(definition.name)) {
     issues.push(issue('name', 'Name cannot start or end with whitespace'));
   }
-  if (definition.name.includes('\n') || definition.name.includes('\r')) {
+  if (/[\n\v\f\r\u0085\u2028\u2029]/u.test(definition.name)) {
     issues.push(issue('name', 'Name must be one line'));
   }
-  if (definition.maxTurns < 2 || definition.maxTurns > 1000) {
-    issues.push(issue('maxTurns', 'Max turns must be between 2 and 1000'));
+  if (/\p{Cc}/u.test(definition.name)) {
+    issues.push(issue('name', 'Name cannot contain control characters'));
   }
+  if (
+    !Number.isInteger(definition.maxTurns) ||
+    definition.maxTurns < MIN_CONTROLLER_MAX_TURNS ||
+    definition.maxTurns > MAX_CONTROLLER_MAX_TURNS
+  ) {
+    issues.push(
+      issue(
+        'maxTurns',
+        `Max turns must be an integer between ${MIN_CONTROLLER_MAX_TURNS} and ${MAX_CONTROLLER_MAX_TURNS}`
+      )
+    );
+  }
+  const labelsIssue = validateControllerLabels(definition.labels);
+  if (labelsIssue) issues.push(issue('labels', labelsIssue));
   if (!definition.llm.provider) {
     issues.push(issue('llm.provider', 'Provider is required'));
+  } else if (!isControllerLLMProvider(definition.llm.provider)) {
+    issues.push(
+      issue(
+        'llm.provider',
+        `Provider must be one of ${CONTROLLER_LLM_PROVIDERS.join(', ')}`
+      )
+    );
   }
-  if (!definition.llm.model) {
-    issues.push(issue('llm.model', 'Model is required'));
+  if (!hasNonWhitespace(definition.llm.model)) {
+    issues.push(issue('llm.model', 'Model must contain non-whitespace text'));
   }
   if (definition.llm.system !== undefined) {
     const systemIssue = validateSystemPrompt(definition.llm.system);
     if (systemIssue) issues.push(issue('llm.system', systemIssue));
   }
-  if (!definition.states.default) {
+  if (!Object.prototype.hasOwnProperty.call(definition.states, 'default')) {
     issues.push(issue('states.default', 'The default state is required'));
   }
-  if (Object.keys(definition.states).length > 64) {
-    issues.push(issue('states', 'At most 64 states are allowed'));
+  if (Object.keys(definition.states).length > MAX_CONTROLLER_STATES) {
+    issues.push(
+      issue('states', `At most ${MAX_CONTROLLER_STATES} states are allowed`)
+    );
   }
-  const allowedDAGs = new Set(definition.dags);
+
+  if (definition.dags.length > MAX_CONTROLLER_DAGS) {
+    issues.push(
+      issue('dags', `At most ${MAX_CONTROLLER_DAGS} DAGs are allowed`)
+    );
+  }
+  const allowedDAGs = new Set<string>();
+  definition.dags.forEach((dag, index) => {
+    const path = `dags[${index}]`;
+    if (!CONTROLLER_DAG_NAME_PATTERN.test(dag)) {
+      issues.push(issue(path, 'DAG name is invalid'));
+    }
+    if (allowedDAGs.has(dag)) {
+      issues.push(issue(path, `DAG ${dag} is listed more than once`));
+    }
+    allowedDAGs.add(dag);
+  });
   let transitionCount = 0;
   for (const [name, state] of Object.entries(definition.states)) {
-    if (!STATE_NAME.test(name)) {
-      issues.push(issue(`states.${name}`, 'State name is invalid'));
+    const statePath = `states.${name}`;
+    if (!CONTROLLER_STATE_NAME_PATTERN.test(name)) {
+      issues.push(issue(statePath, 'State name is invalid'));
     }
-    if (!state.description?.trim()) {
+    if (!hasNonWhitespace(state.description ?? '')) {
       issues.push(
-        issue(`states.${name}.description`, 'State description is required')
+        issue(`${statePath}.description`, 'State description is required')
       );
     }
-    for (const dag of state.dags) {
+    if (
+      utf8ByteLength(state.description ?? '') > MAX_CONTROLLER_DESCRIPTION_BYTES
+    ) {
+      issues.push(
+        issue(
+          `${statePath}.description`,
+          `State description must be ${MAX_CONTROLLER_DESCRIPTION_BYTES} bytes or less`
+        )
+      );
+    }
+    const stateDAGs = new Set<string>();
+    state.dags.forEach((dag, index) => {
+      const path = `${statePath}.dags[${index}]`;
       if (!allowedDAGs.has(dag)) {
         issues.push(
-          issue(
-            `states.${name}.dags`,
-            `${dag} is not in the Controller DAG allowlist`
-          )
+          issue(path, `${dag} is not in the Controller DAG allowlist`)
         );
       }
-    }
+      if (stateDAGs.has(dag)) {
+        issues.push(issue(path, `DAG ${dag} is listed more than once`));
+      }
+      stateDAGs.add(dag);
+    });
     transitionCount += state.transitions.length;
     if (
       state.terminal &&
@@ -229,7 +332,7 @@ export function validateControllerDefinition(
     ) {
       issues.push(
         issue(
-          `states.${name}.terminal`,
+          `${statePath}.terminal`,
           'A terminal state cannot contain DAGs or transitions'
         )
       );
@@ -241,38 +344,65 @@ export function validateControllerDefinition(
     ) {
       issues.push(
         issue(
-          `states.${name}`,
+          statePath,
           'A non-terminal state needs a DAG or an outgoing transition'
         )
       );
     }
-    for (const transition of state.transitions) {
-      if (!definition.states[transition.to]) {
+    const transitionDestinations = new Set<string>();
+    state.transitions.forEach((transition, index) => {
+      const transitionPath = `${statePath}.transitions[${index}]`;
+      if (!CONTROLLER_STATE_NAME_PATTERN.test(transition.to)) {
+        issues.push(
+          issue(`${transitionPath}.to`, 'Transition destination is invalid')
+        );
+      } else if (
+        !Object.prototype.hasOwnProperty.call(definition.states, transition.to)
+      ) {
         issues.push(
           issue(
-            `states.${name}.transitions`,
+            `${transitionPath}.to`,
             `Transition destination ${transition.to} does not exist`
           )
         );
       }
-      if (!transition.when) {
+      if (transitionDestinations.has(transition.to)) {
         issues.push(
           issue(
-            `states.${name}.transitions`,
-            'Transition condition is required'
+            `${transitionPath}.to`,
+            `Transition destination ${transition.to} is listed more than once`
           )
         );
       }
-    }
+      transitionDestinations.add(transition.to);
+      if (!hasNonWhitespace(transition.when)) {
+        issues.push(
+          issue(`${transitionPath}.when`, 'Transition condition is required')
+        );
+      }
+      if (utf8ByteLength(transition.when) > MAX_CONTROLLER_DESCRIPTION_BYTES) {
+        issues.push(
+          issue(
+            `${transitionPath}.when`,
+            `Transition condition must be ${MAX_CONTROLLER_DESCRIPTION_BYTES} bytes or less`
+          )
+        );
+      }
+    });
   }
-  if (transitionCount > 256) {
-    issues.push(issue('states', 'At most 256 transitions are allowed'));
+  if (transitionCount > MAX_CONTROLLER_TRANSITIONS) {
+    issues.push(
+      issue(
+        'states',
+        `At most ${MAX_CONTROLLER_TRANSITIONS} transitions are allowed`
+      )
+    );
   }
   return issues;
 }
 
 export function validateSystemPrompt(value: string): string | null {
-  if (new TextEncoder().encode(value).length > 16_384) {
+  if (utf8ByteLength(value) > MAX_CONTROLLER_SYSTEM_PROMPT_BYTES) {
     return 'System prompt must be 16 KiB or less';
   }
   if (!value.startsWith(ROUTER_INSTRUCTION)) {
@@ -283,7 +413,7 @@ export function validateSystemPrompt(value: string): string | null {
     return 'Custom system instructions must follow one blank line';
   }
   const custom = suffix ? suffix.slice(2) : '';
-  if (custom && custom.trim().length === 0) {
+  if (suffix && !hasNonWhitespace(custom)) {
     return 'Custom system instructions cannot contain only whitespace';
   }
   if (custom.includes('${{')) {
@@ -313,13 +443,7 @@ function parseState(
     issues.push(issue(path, 'State must be an object'));
     return null;
   }
-  issues.push(
-    ...unknownFields(
-      value,
-      ['description', 'dags', 'transitions', 'terminal'],
-      path
-    )
-  );
+  issues.push(...unknownFields(value, STATE_FIELDS, path));
   const dags = stringArray(value.dags ?? []);
   if (!dags) issues.push(issue(`${path}.dags`, 'DAGs must be a list of names'));
   const transitionsValue = value.transitions ?? [];
@@ -328,12 +452,14 @@ function parseState(
     issues.push(issue(`${path}.transitions`, 'Transitions must be a list'));
   } else {
     transitionsValue.forEach((transition, index) => {
-      const transitionPath = `${path}.transitions.${index}`;
+      const transitionPath = `${path}.transitions[${index}]`;
       if (!isRecord(transition)) {
         issues.push(issue(transitionPath, 'Transition must be an object'));
         return;
       }
-      issues.push(...unknownFields(transition, ['to', 'when'], transitionPath));
+      issues.push(
+        ...unknownFields(transition, TRANSITION_FIELDS, transitionPath)
+      );
       if (
         typeof transition.to !== 'string' ||
         typeof transition.when !== 'string'
@@ -366,7 +492,10 @@ function parseState(
   };
 }
 
-export function parseControllerYAML(source: string): ParseResult {
+export function parseControllerYAML(
+  source: string,
+  operation: ControllerDefinitionOperation = 'create'
+): ParseResult {
   const document = parseDocument(source, {
     prettyErrors: true,
     uniqueKeys: true,
@@ -388,27 +517,21 @@ export function parseControllerYAML(source: string): ParseResult {
       builderRepresentable: false,
     };
   }
-  const issues = unknownFields(
-    value,
-    [
-      'type',
-      'version',
-      'id',
-      'name',
-      'description',
-      'maxTurns',
-      'labels',
-      'llm',
-      'dags',
-      'states',
-    ],
-    '$'
-  );
+  const issues = unknownFields(value, CONTROLLER_FIELDS, '$');
+  if (value.id !== undefined && typeof value.id !== 'string') {
+    issues.push(issue('id', 'ID must be a string'));
+  }
+  if (value.maxTurns !== undefined && typeof value.maxTurns !== 'number') {
+    issues.push(issue('maxTurns', 'Max turns must be a number'));
+  }
   const llm = isRecord(value.llm) ? value.llm : {};
   if (!isRecord(value.llm))
     issues.push(issue('llm', 'LLM configuration is required'));
-  issues.push(...unknownFields(llm, ['provider', 'model', 'system'], 'llm'));
-  const states: Record<string, ControllerState> = {};
+  issues.push(...unknownFields(llm, LLM_FIELDS, 'llm'));
+  if (llm.system !== undefined && typeof llm.system !== 'string') {
+    issues.push(issue('llm.system', 'System prompt must be a string'));
+  }
+  const states = Object.create(null) as Record<string, ControllerState>;
   if (!isRecord(value.states)) {
     issues.push(issue('states', 'States must be an object'));
   } else {
@@ -418,9 +541,11 @@ export function parseControllerYAML(source: string): ParseResult {
     }
   }
   const labels = stringArray(value.labels ?? []);
-  const dags = stringArray(value.dags ?? []);
+  const dags = stringArray(value.dags);
   if (!labels) issues.push(issue('labels', 'Labels must be a list of strings'));
-  if (!dags) issues.push(issue('dags', 'DAGs must be a list of names'));
+  if (!dags) {
+    issues.push(issue('dags', 'DAGs must be present as a list of names'));
+  }
   const definition: ControllerDefinition = {
     type:
       value.type === 'controller' ? 'controller' : ('invalid' as 'controller'),
@@ -429,7 +554,9 @@ export function parseControllerYAML(source: string): ParseResult {
     name: typeof value.name === 'string' ? value.name : '',
     description: typeof value.description === 'string' ? value.description : '',
     maxTurns:
-      typeof value.maxTurns === 'number' ? value.maxTurns : DEFAULT_MAX_TURNS,
+      typeof value.maxTurns === 'number'
+        ? value.maxTurns
+        : DEFAULT_CONTROLLER_MAX_TURNS,
     labels: labels ?? [],
     llm: {
       provider: typeof llm.provider === 'string' ? llm.provider : '',
@@ -439,7 +566,7 @@ export function parseControllerYAML(source: string): ParseResult {
     dags: dags ?? [],
     states,
   };
-  issues.push(...validateControllerDefinition(definition));
+  issues.push(...validateControllerDefinition(definition, operation));
   return {
     definition,
     issues,

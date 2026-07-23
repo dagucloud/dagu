@@ -16,7 +16,7 @@ func (f backgroundRunnerFunc) Run(ctx context.Context) {
 	f(ctx)
 }
 
-func TestPrepareControllerRunnerRunsUntilCanceled(t *testing.T) {
+func TestStartControllerRunnerRunsUntilCanceled(t *testing.T) {
 	t.Parallel()
 
 	started := make(chan struct{})
@@ -30,9 +30,9 @@ func TestPrepareControllerRunnerRunsUntilCanceled(t *testing.T) {
 		}),
 	}
 
-	run := s.prepareControllerRunner(context.Background())
-	require.NotNil(t, run)
-	go run()
+	wait := s.startControllerRunner(context.Background())
+	require.NotNil(t, wait)
+	// The runner starts independently of the wait closure returned to Start.
 	<-started
 
 	s.lock.Lock()
@@ -40,19 +40,26 @@ func TestPrepareControllerRunnerRunsUntilCanceled(t *testing.T) {
 	s.lock.Unlock()
 	require.NotNil(t, cancel)
 	cancel()
-	s.controllerWG.Wait()
-
+	wait()
 	<-finished
 }
 
-func TestPrepareControllerRunnerDoesNotStartAfterStop(t *testing.T) {
+func TestStartControllerRunnerDoesNotStartAfterStop(t *testing.T) {
 	t.Parallel()
 
+	started := make(chan struct{})
 	s := &Scheduler{
-		quit:             make(chan any),
-		controllerRunner: backgroundRunnerFunc(func(context.Context) {}),
+		quit: make(chan any),
+		controllerRunner: backgroundRunnerFunc(func(context.Context) {
+			close(started)
+		}),
 	}
 	close(s.quit)
 
-	require.Nil(t, s.prepareControllerRunner(context.Background()))
+	require.Nil(t, s.startControllerRunner(context.Background()))
+	select {
+	case <-started:
+		t.Fatal("controller runner started after shutdown")
+	default:
+	}
 }

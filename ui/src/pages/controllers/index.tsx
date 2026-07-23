@@ -13,7 +13,7 @@ import {
   Square,
   Trash2,
 } from 'lucide-react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -27,7 +27,6 @@ import {
 import { Input } from '@/components/ui/input';
 import { RefreshButton } from '@/components/ui/refresh-button';
 import RelativeTime from '@/components/ui/relative-time';
-import { useSimpleToast } from '@/components/ui/simple-toast';
 import {
   Table,
   TableBody,
@@ -46,14 +45,17 @@ import {
 import { ControllerPromptDialog } from '@/features/controllers/components/ControllerPromptDialog';
 import { ControllerDeleteDialog } from '@/features/controllers/components/ControllerDeleteDialog';
 import { ControllerStatusChip } from '@/features/controllers/components/ControllerStatusChip';
+import { buildDAGRunPageURL } from '@/features/dag-runs/lib/dagRunUrls';
 import {
   useControllerAPI,
   useControllerList,
 } from '@/features/controllers/api';
 import { serializeControllerDefinition } from '@/features/controllers/draft';
+import { useControllerMutation } from '@/features/controllers/useControllerMutation';
 import {
   ControllerStatus,
   canStartController,
+  isControllerStatusActive,
   type ControllerSummary,
 } from '@/features/controllers/types';
 import {
@@ -64,18 +66,16 @@ import {
 
 type ActionTarget = { id: string; name: string };
 
-function controllerRunURL(dag: string, dagRunId: string): string {
-  return `/dag-runs/${encodeURIComponent(dag)}/${encodeURIComponent(dagRunId)}?remoteNode=local`;
-}
-
 function ControllerRow({
   controller,
+  actionsDisabled,
   onStart,
   onStop,
   onDuplicate,
   onDelete,
 }: {
   controller: ControllerSummary;
+  actionsDisabled: boolean;
   onStart: () => void;
   onStop: () => void;
   onDuplicate: () => void;
@@ -83,10 +83,10 @@ function ControllerRow({
 }) {
   const canWrite = useCanWriteForWorkspace(controller.workspace);
   const canExecute = useCanExecuteForWorkspace(controller.workspace);
-  const active =
-    controller.status === ControllerStatus.Running ||
-    controller.status === ControllerStatus.Waiting ||
-    (controller.status === ControllerStatus.Aborted && !controller.finishedAt);
+  const active = isControllerStatusActive(
+    controller.status,
+    controller.finishedAt
+  );
   const startable = canStartController(
     controller.status,
     controller.finishedAt
@@ -96,8 +96,7 @@ function ControllerRow({
   const latestDAGRunIsActive =
     latestDAGRun !== undefined &&
     latestDAGRun.dagRunId === controller.activeDAGRun?.dagRunId;
-  const latestDAGRunAvailable =
-    latestDAGRunIsActive || latestDAGRun?.status !== undefined;
+  const latestDAGRunAvailable = latestDAGRun?.status !== undefined;
 
   return (
     <TableRow>
@@ -142,7 +141,11 @@ function ControllerRow({
             {latestDAGRunAvailable ? (
               <Link
                 className="text-primary hover:underline"
-                to={controllerRunURL(latestDAGRun.dag, latestDAGRun.dagRunId)}
+                to={buildDAGRunPageURL({
+                  rootDAGRunName: latestDAGRun.dag,
+                  rootDAGRunId: latestDAGRun.dagRunId,
+                  remoteNode: 'local',
+                })}
               >
                 {latestDAGRun.dag}
               </Link>
@@ -164,11 +167,21 @@ function ControllerRow({
       <TableCell>
         <div className="flex justify-end gap-2">
           {active && canExecute ? (
-            <Button size="sm" variant="outline" onClick={onStop}>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={actionsDisabled}
+              onClick={onStop}
+            >
               <Square className="h-3.5 w-3.5" /> Stop
             </Button>
           ) : startable && canExecute ? (
-            <Button size="sm" variant="primary" onClick={onStart}>
+            <Button
+              size="sm"
+              variant="primary"
+              disabled={actionsDisabled}
+              onClick={onStart}
+            >
               <Play className="h-3.5 w-3.5" />
               {controller.status === ControllerStatus.NotStarted
                 ? 'Start'
@@ -180,6 +193,7 @@ function ControllerRow({
               <Button
                 variant="ghost"
                 size="icon-sm"
+                disabled={actionsDisabled}
                 aria-label={`Actions for ${controller.name}`}
               >
                 <MoreHorizontal className="h-4 w-4" />
@@ -226,9 +240,12 @@ function ControllerRow({
 
 export default function ControllersPage() {
   const appBar = React.useContext(AppBarContext);
+  const location = useLocation();
   const navigate = useNavigate();
   const api = useControllerAPI();
-  const { showToast } = useSimpleToast();
+  const mountedRef = React.useRef(true);
+  const locationKeyRef = React.useRef(location.key);
+  locationKeyRef.current = location.key;
   const workspace = workspaceSelectionQuery(
     appBar.workspaceSelection
   ).workspace;
@@ -245,12 +262,27 @@ export default function ControllersPage() {
   const [deleteTarget, setDeleteTarget] = React.useState<ActionTarget | null>(
     null
   );
-  const [pending, setPending] = React.useState(false);
-  const [actionError, setActionError] = React.useState<string | null>(null);
+  const {
+    pending,
+    error: actionError,
+    setError: setActionError,
+    run: runAction,
+  } = useControllerMutation(
+    mutate,
+    'The action succeeded, but the Controller list could not be refreshed.',
+    JSON.stringify([location.key, workspace])
+  );
 
   React.useEffect(() => {
     appBar.setTitle('Controllers');
   }, [appBar]);
+
+  React.useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const controllers = React.useMemo(() => {
     const term = search.toLocaleLowerCase();
@@ -266,32 +298,6 @@ export default function ControllersPage() {
           left.name.localeCompare(right.name) || left.id.localeCompare(right.id)
       );
   }, [data?.controllers, search]);
-
-  const runAction = async (action: () => Promise<void>, success: string) => {
-    setPending(true);
-    setActionError(null);
-    try {
-      await action();
-    } catch (actionFailure) {
-      setActionError(
-        actionFailure instanceof Error
-          ? actionFailure.message
-          : 'Controller action failed'
-      );
-      setPending(false);
-      return false;
-    }
-    showToast(success);
-    try {
-      await mutate();
-    } catch {
-      setActionError(
-        'The action succeeded, but the Controller list could not be refreshed.'
-      );
-    }
-    setPending(false);
-    return true;
-  };
 
   return (
     <div className="flex h-full max-w-7xl flex-col gap-4 overflow-hidden">
@@ -376,6 +382,7 @@ export default function ControllersPage() {
                 <ControllerRow
                   key={controller.id}
                   controller={controller}
+                  actionsDisabled={pending}
                   onStart={() =>
                     setStartTarget({ id: controller.id, name: controller.name })
                   }
@@ -387,8 +394,15 @@ export default function ControllersPage() {
                   }
                   onDuplicate={() =>
                     void (async () => {
+                      const requestLocationKey = location.key;
                       try {
                         const detail = await api.get(controller.id);
+                        if (
+                          !mountedRef.current ||
+                          locationKeyRef.current !== requestLocationKey
+                        ) {
+                          return;
+                        }
                         const definition = {
                           ...detail.definition,
                           id: undefined,
@@ -401,6 +415,12 @@ export default function ControllersPage() {
                           },
                         });
                       } catch (duplicateError) {
+                        if (
+                          !mountedRef.current ||
+                          locationKeyRef.current !== requestLocationKey
+                        ) {
+                          return;
+                        }
                         setActionError(
                           duplicateError instanceof Error
                             ? duplicateError.message
@@ -432,11 +452,16 @@ export default function ControllersPage() {
         onSubmit={async (prompt) => {
           if (!startTarget) return;
           const target = startTarget;
+          const requestLocationKey = location.key;
           const started = await runAction(
             () => api.start(target.id, prompt),
             'Controller started'
           );
-          if (started) {
+          if (
+            started &&
+            mountedRef.current &&
+            locationKeyRef.current === requestLocationKey
+          ) {
             setStartTarget(null);
             navigate(`/controllers/${encodeURIComponent(target.id)}/status`);
           }

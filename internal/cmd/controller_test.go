@@ -8,9 +8,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
-	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -103,6 +104,69 @@ func TestRenderControllerListJSONUsesStatusLabel(t *testing.T) {
 	assert.Equal(t, "needs_input", result[0].CurrentState)
 }
 
+func TestRenderControllerListTableEscapesTerminalControls(t *testing.T) {
+	t.Parallel()
+
+	output := new(bytes.Buffer)
+	command := controllerListCommand()
+	command.SetOut(output)
+	ctx := &Context{Command: command}
+
+	err := renderControllerList(ctx, "table", []api.ControllerSummary{{
+		Id:                "ctrl_aaaaaaaaaaaa\taaa",
+		Name:              "Incident\nflow",
+		Workspace:         "ops\x1b[2J",
+		StatusLabel:       api.StatusLabel("running\u0085"),
+		CurrentState:      "needs\u2028input",
+		ResourceUpdatedAt: time.Date(2026, time.July, 22, 12, 0, 0, 0, time.UTC),
+	}})
+
+	require.NoError(t, err)
+	assert.Contains(t, output.String(), `Incident\nflow`)
+	assert.Contains(t, output.String(), `ctrl_aaaaaaaaaaaa\taaa`)
+	assert.Contains(t, output.String(), `ops\x1b[2J`)
+	assert.Contains(t, output.String(), `running\u0085`)
+	assert.Contains(t, output.String(), `needs\u2028input`)
+	assert.NotContains(t, output.String(), "\x1b")
+	assert.NotContains(t, output.String(), "\u0085")
+	assert.NotContains(t, output.String(), "\u2028")
+}
+
+func TestRenderControllerDetailWritesWarningsToStderr(t *testing.T) {
+	t.Parallel()
+
+	stdout := new(bytes.Buffer)
+	stderr := new(bytes.Buffer)
+	command := controllerShowCommand()
+	command.SetOut(stdout)
+	command.SetErr(stderr)
+	ctx := &Context{Command: command}
+
+	err := renderControllerDetail(ctx, "json", &api.ControllerDetail{
+		Id: "ctrl_aaaaaaaaaaaaaaaa",
+		Definition: api.ControllerDefinition{
+			Name:     "Incident flow",
+			MaxTurns: 100,
+			Labels:   []string{},
+		},
+		Runtime: api.ControllerRuntime{
+			StatusLabel: api.StatusLabel("not_started"),
+			DagRunRefs:  []api.ControllerDAGRunRef{},
+			Context:     []api.ControllerContextMessage{},
+		},
+		Warnings: []api.ControllerWarning{{
+			Code:    "unreachable_state",
+			Path:    "states.orphaned",
+			Message: "State is unreachable\nfrom default",
+		}},
+		ResourceUpdatedAt: time.Date(2026, time.July, 22, 12, 0, 0, 0, time.UTC),
+	})
+
+	require.NoError(t, err)
+	assert.Contains(t, stdout.String(), `"id": "ctrl_aaaaaaaaaaaaaaaa"`)
+	assert.Equal(t, "Warning [unreachable_state] states.orphaned: State is unreachable\\nfrom default\n", stderr.String())
+}
+
 func TestRemoteControllerStartUsesDirectControllerEndpoint(t *testing.T) {
 	t.Parallel()
 
@@ -110,22 +174,33 @@ func TestRemoteControllerStartUsesDirectControllerEndpoint(t *testing.T) {
 		Prompt string `json:"prompt"`
 	}
 	var received requestBody
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
-		assert.Equal(t, "/controllers/ctrl_aaaaaaaaaaaaaaaa/start", request.URL.Path)
-		assert.Empty(t, request.URL.Query().Get("remoteNode"))
-		require.NoError(t, json.NewDecoder(request.Body).Decode(&received))
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusAccepted)
-		_, _ = w.Write([]byte(`{"id":"ctrl_aaaaaaaaaaaaaaaa"}`))
-	}))
-	t.Cleanup(server.Close)
-	client := &remoteClient{baseURL: server.URL, apiKey: "test-key", client: server.Client()}
+	client := &remoteClient{
+		baseURL: "http://dagu.test",
+		apiKey:  "test-key",
+		client: &http.Client{Transport: controllerRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+			assert.Equal(t, "/controllers/ctrl_aaaaaaaaaaaaaaaa/start", request.URL.Path)
+			assert.Empty(t, request.URL.Query().Get("remoteNode"))
+			require.NoError(t, json.NewDecoder(request.Body).Decode(&received))
+			return &http.Response{
+				StatusCode: http.StatusAccepted,
+				Header:     make(http.Header),
+				Body:       io.NopCloser(strings.NewReader(`{"id":"ctrl_aaaaaaaaaaaaaaaa"}`)),
+				Request:    request,
+			}, nil
+		})},
+	}
 	prompt := "  literal\\prompt\n  "
 
 	err := client.startController(context.Background(), "ctrl_aaaaaaaaaaaaaaaa", prompt)
 
 	require.NoError(t, err)
 	assert.Equal(t, prompt, received.Prompt)
+}
+
+type controllerRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (fn controllerRoundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return fn(request)
 }
 
 func TestLocalControllerClientUsesSharedApplicationService(t *testing.T) {
@@ -172,8 +247,7 @@ states:
 			},
 		},
 	}
-	client, err := newLocalControllerCommandClient(ctx)
-	require.NoError(t, err)
+	client := newLocalControllerCommandClient(ctx)
 
 	items, err := client.listControllers(context.Background())
 	require.NoError(t, err)
@@ -208,14 +282,21 @@ states:
 func TestControllerTableTextEscapesTerminalControls(t *testing.T) {
 	t.Parallel()
 
-	result := terminalSafeControllerText("Need\nregion\x1b[2J\t\u0085")
+	result := terminalSafeControllerText("Need\nregion\x1b[2J\t\u0085\u061c\u200e\u200f\u202a\u202e\u2066\u2069")
 
-	assert.Equal(t, `Need\nregion\x1b[2J\t\u0085`, result)
+	assert.Equal(t, `Need\nregion\x1b[2J\t\u0085\u061c\u200e\u200f\u202a\u202e\u2066\u2069`, result)
 	assert.NotContains(t, result, "\x1b")
 	assert.NotContains(t, result, "\n")
+	assert.NotContains(t, result, "\u061c")
+	assert.NotContains(t, result, "\u200e")
+	assert.NotContains(t, result, "\u200f")
+	assert.NotContains(t, result, "\u202a")
+	assert.NotContains(t, result, "\u202e")
+	assert.NotContains(t, result, "\u2066")
+	assert.NotContains(t, result, "\u2069")
 }
 
-func TestControllerMutationErrorMarksOnlyAmbiguousTransportFailures(t *testing.T) {
+func TestControllerMutationErrorMarksAmbiguousOutcomes(t *testing.T) {
 	t.Parallel()
 
 	ctx := &Context{
@@ -226,4 +307,5 @@ func TestControllerMutationErrorMarksOnlyAmbiguousTransportFailures(t *testing.T
 
 	assert.Contains(t, controllerMutationError(ctx, errors.New("connection reset")).Error(), "outcome unknown; do not retry automatically")
 	assert.NotContains(t, controllerMutationError(ctx, &remoteError{StatusCode: http.StatusConflict, Message: "conflict"}).Error(), "outcome unknown")
+	assert.Contains(t, controllerMutationError(ctx, &remoteError{StatusCode: http.StatusInternalServerError, Message: "internal error"}).Error(), "outcome unknown; do not retry automatically")
 }

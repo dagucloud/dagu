@@ -45,17 +45,18 @@ func TestRouterDecideBuildsContractAndValidatesRun(t *testing.T) {
 	definition.LLM.System = &customSystem
 	runtime := routerTestRuntime()
 	router := NewRouter(
-		RouterProviderFactoryFunc(func(ControllerRouterLLMConfig) (llm.Provider, error) { return provider, nil }),
-		RoutingDAGResolverFunc(func(_ context.Context, fileName string) (RoutingDAG, error) {
-			return RoutingDAG{
+		func(ControllerRouterLLMConfig) (llm.Provider, error) { return provider, nil },
+		func(_ context.Context, fileName string) (DAGMetadata, error) {
+			return DAGMetadata{
 				FileName:    fileName,
+				Name:        fileName,
 				Description: "Classifies an alert.",
 				ParamDefs: []core.ParamDef{
 					{Name: "a", Type: core.ParamDefTypeString, Required: true, Description: "Alert value"},
 					{Name: "z", Type: core.ParamDefTypeInteger},
 				},
 			}, nil
-		}),
+		},
 	)
 
 	decision, err := router.Decide(context.Background(), definition, runtime)
@@ -69,6 +70,13 @@ func TestRouterDecideBuildsContractAndValidatesRun(t *testing.T) {
 	require.Len(t, provider.request.Messages, 4)
 	assert.Equal(t, RouterInstructionV1+"\n\nPrefer evidence.", provider.request.Messages[0].Content)
 	assertEnvelopeKind(t, provider.request.Messages[1].Content, "routing_control")
+	var control struct {
+		Payload struct {
+			Status string `json:"status"`
+		} `json:"payload"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(provider.request.Messages[1].Content), &control))
+	assert.Equal(t, "running", control.Payload.Status)
 	assertEnvelopeKind(t, provider.request.Messages[2].Content, "workflow_metadata")
 	assertEnvelopeKind(t, provider.request.Messages[3].Content, "user_directives")
 
@@ -86,18 +94,118 @@ func TestRouterRejectsRunParamsOutsideCurrentDAGSchema(t *testing.T) {
 
 	provider := &routerTestProvider{response: routeResponse(`{"action":"run","next_state":"default","reason":"The alert is ready.","dag":"classify","params":{"unknown":"value"}}`)}
 	router := NewRouter(
-		RouterProviderFactoryFunc(func(ControllerRouterLLMConfig) (llm.Provider, error) { return provider, nil }),
-		RoutingDAGResolverFunc(func(_ context.Context, fileName string) (RoutingDAG, error) {
-			return RoutingDAG{
+		func(ControllerRouterLLMConfig) (llm.Provider, error) { return provider, nil },
+		func(_ context.Context, fileName string) (DAGMetadata, error) {
+			return DAGMetadata{
 				FileName:  fileName,
+				Name:      fileName,
 				ParamDefs: []core.ParamDef{{Name: "alert", Type: core.ParamDefTypeString, Required: true}},
 			}, nil
-		}),
+		},
 	)
 
 	_, err := router.Decide(context.Background(), routerTestDefinition(), routerTestRuntime())
 	assert.ErrorIs(t, err, ErrRouterDecision)
 	assert.Equal(t, 1, provider.calls)
+}
+
+func TestRouterRejectsUnknownParamsFromRenderableDAGSchema(t *testing.T) {
+	t.Parallel()
+
+	provider := &routerTestProvider{response: routeResponse(`{"action":"run","next_state":"default","reason":"The alert is ready.","dag":"classify","params":{"alert":"A-123","unknown":"value"}}`)}
+	router := NewRouter(
+		func(ControllerRouterLLMConfig) (llm.Provider, error) { return provider, nil },
+		func(_ context.Context, fileName string) (DAGMetadata, error) {
+			return DAGMetadata{
+				FileName:    fileName,
+				Name:        fileName,
+				ParamSchema: json.RawMessage(`{"type":"object","properties":{"alert":{"type":"string"}},"required":["alert"]}`),
+			}, nil
+		},
+	)
+
+	_, err := router.Decide(context.Background(), routerTestDefinition(), routerTestRuntime())
+
+	assert.ErrorIs(t, err, ErrRouterDecision)
+	assert.Equal(t, 1, provider.calls)
+}
+
+func TestParameterSchemaEnforcesObjectRoot(t *testing.T) {
+	t.Parallel()
+
+	schema, ok := parameterSchema(DAGMetadata{
+		ParamSchema: json.RawMessage(`{"type":"string","properties":{"alert":{"type":"string"}}}`),
+	}).(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "object", schema["type"])
+	assert.Equal(t, false, schema["additionalProperties"])
+}
+
+func TestRouterPersistsCanonicalToolArguments(t *testing.T) {
+	t.Parallel()
+
+	provider := &routerTestProvider{response: routeResponse(`{"Action":"run","Next_State":"default","Reason":"The alert is ready.","DAG":"classify","Params":{"alert":"A-123"}}`)}
+	router := NewRouter(
+		func(ControllerRouterLLMConfig) (llm.Provider, error) { return provider, nil },
+		func(_ context.Context, fileName string) (DAGMetadata, error) {
+			return DAGMetadata{
+				FileName:  fileName,
+				Name:      fileName,
+				ParamDefs: []core.ParamDef{{Name: "alert", Type: core.ParamDefTypeString, Required: true}},
+			}, nil
+		},
+	)
+
+	decision, err := router.Decide(context.Background(), routerTestDefinition(), routerTestRuntime())
+	require.NoError(t, err)
+	require.Len(t, decision.Assistant.ToolCalls, 1)
+	assert.JSONEq(t,
+		`{"action":"run","next_state":"default","reason":"The alert is ready.","dag":"classify","params":{"alert":"A-123"}}`,
+		decision.Assistant.ToolCalls[0].Function.Arguments,
+	)
+}
+
+func TestRouterMaterializesDefaultsWithoutRoundingNumbers(t *testing.T) {
+	t.Parallel()
+
+	provider := &routerTestProvider{response: routeResponse(`{"action":"run","next_state":"default","reason":"The alert is ready.","dag":"classify","params":{}}`)}
+	router := NewRouter(
+		func(ControllerRouterLLMConfig) (llm.Provider, error) { return provider, nil },
+		func(_ context.Context, fileName string) (DAGMetadata, error) {
+			return DAGMetadata{
+				FileName: fileName,
+				Name:     fileName,
+				ParamDefs: []core.ParamDef{
+					{Name: "sequence", Type: core.ParamDefTypeInteger, Default: int64(9007199254740993)},
+					{Name: "region", Type: core.ParamDefTypeString, Default: "us-east"},
+				},
+			}, nil
+		},
+	)
+
+	decision, err := router.Decide(context.Background(), routerTestDefinition(), routerTestRuntime())
+	require.NoError(t, err)
+	assert.Equal(t, `{"region":"us-east","sequence":9007199254740993}`, string(decision.Params))
+	require.Len(t, decision.Assistant.ToolCalls, 1)
+	arguments, err := decodeRouteArguments(decision.Assistant.ToolCalls[0].Function.Arguments)
+	require.NoError(t, err)
+	assert.Equal(t, string(decision.Params), string(arguments.Params))
+}
+
+func TestRouterNormalizesWhitespaceOnlyAssistantContent(t *testing.T) {
+	t.Parallel()
+
+	response := routeResponse(`{"action":"wait","next_state":"default","reason":"Input is missing.","question":"Which region?"}`)
+	response.Content = " \n\t"
+	provider := &routerTestProvider{response: response}
+	router := NewRouter(func(ControllerRouterLLMConfig) (llm.Provider, error) {
+		return provider, nil
+	}, routerTestDAGResolver)
+
+	decision, err := router.Decide(context.Background(), routerTestDefinition(), routerTestRuntime())
+
+	require.NoError(t, err)
+	assert.Empty(t, decision.Assistant.Content)
 }
 
 func TestRouterRejectsUntrustedResponseShapes(t *testing.T) {
@@ -120,9 +228,9 @@ func TestRouterRejectsUntrustedResponseShapes(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			provider := &routerTestProvider{response: test.response}
-			router := NewRouter(RouterProviderFactoryFunc(func(ControllerRouterLLMConfig) (llm.Provider, error) {
+			router := NewRouter(func(ControllerRouterLLMConfig) (llm.Provider, error) {
 				return provider, nil
-			}), nil)
+			}, routerTestDAGResolver)
 			_, err := router.Decide(context.Background(), routerTestDefinition(), routerTestRuntime())
 			assert.ErrorIs(t, err, ErrRouterDecision)
 			assert.Equal(t, 1, provider.calls)
@@ -148,14 +256,101 @@ func TestRouterHonorsPerTurnDeadline(t *testing.T) {
 	t.Parallel()
 
 	provider := &deadlineProvider{}
-	router := NewRouter(RouterProviderFactoryFunc(func(ControllerRouterLLMConfig) (llm.Provider, error) {
+	router := NewRouter(func(ControllerRouterLLMConfig) (llm.Provider, error) {
 		return provider, nil
-	}), nil)
-	router.SetTimeout(time.Millisecond)
+	}, routerTestDAGResolver)
+	router.timeout = time.Millisecond
 
 	_, err := router.Decide(context.Background(), routerTestDefinition(), routerTestRuntime())
 	assert.ErrorIs(t, err, ErrRouterCall)
 	assert.ErrorIs(t, err, context.DeadlineExceeded)
+}
+
+func TestRouterRejectsNilProvider(t *testing.T) {
+	t.Parallel()
+
+	router := NewRouter(func(ControllerRouterLLMConfig) (llm.Provider, error) {
+		return nil, nil
+	}, routerTestDAGResolver)
+
+	_, err := router.Decide(context.Background(), routerTestDefinition(), routerTestRuntime())
+
+	assert.ErrorIs(t, err, ErrRouterCall)
+}
+
+func TestRouterDeadlineIncludesDAGResolution(t *testing.T) {
+	t.Parallel()
+
+	provider := &routerTestProvider{response: routeResponse(`{"action":"wait","next_state":"default","reason":"Input is missing.","question":"Which region?"}`)}
+	router := NewRouter(func(ControllerRouterLLMConfig) (llm.Provider, error) {
+		return provider, nil
+	}, func(ctx context.Context, _ string) (DAGMetadata, error) {
+		<-ctx.Done()
+		return DAGMetadata{}, assert.AnError
+	})
+	router.timeout = time.Millisecond
+
+	_, err := router.Decide(context.Background(), routerTestDefinition(), routerTestRuntime())
+
+	assert.ErrorIs(t, err, ErrRouterCall)
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.Zero(t, provider.calls)
+}
+
+func TestRouterRejectsSuccessfulResponseAfterDeadline(t *testing.T) {
+	t.Parallel()
+
+	router := NewRouter(func(ControllerRouterLLMConfig) (llm.Provider, error) {
+		return &lateSuccessProvider{}, nil
+	}, routerTestDAGResolver)
+	router.timeout = time.Millisecond
+
+	_, err := router.Decide(context.Background(), routerTestDefinition(), routerTestRuntime())
+
+	assert.ErrorIs(t, err, ErrRouterCall)
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
+}
+
+func TestRouterRejectsDAGMetadataDriftBeforeProviderCall(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		metadata DAGMetadata
+	}{
+		{name: "declared name", metadata: DAGMetadata{FileName: "classify", Name: "other"}},
+		{name: "workspace", metadata: DAGMetadata{FileName: "classify", Name: "classify", Workspace: "security"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			provider := &routerTestProvider{response: routeResponse(`{"action":"wait","next_state":"default","reason":"Input is missing.","question":"Which region?"}`)}
+			router := NewRouter(func(ControllerRouterLLMConfig) (llm.Provider, error) {
+				return provider, nil
+			}, func(context.Context, string) (DAGMetadata, error) {
+				return test.metadata, nil
+			})
+
+			_, err := router.Decide(context.Background(), routerTestDefinition(), routerTestRuntime())
+
+			assert.ErrorIs(t, err, ErrRouterCall)
+			assert.Zero(t, provider.calls)
+		})
+	}
+}
+
+func TestRouterValidateCurrentParamsRejectsDAGMetadataDrift(t *testing.T) {
+	t.Parallel()
+
+	definition := routerTestDefinition()
+	router := NewRouter(nil, func(context.Context, string) (DAGMetadata, error) {
+		return DAGMetadata{FileName: "classify", Name: "classify", Workspace: "security"}, nil
+	})
+
+	_, err := router.ValidateCurrentParams(context.Background(), definition, "classify", json.RawMessage(`{}`))
+
+	assert.ErrorIs(t, err, ErrRouterDecision)
+	assert.Contains(t, err.Error(), "different workspace")
 }
 
 type deadlineProvider struct{}
@@ -170,6 +365,38 @@ func (*deadlineProvider) ChatStream(context.Context, *llm.ChatRequest) (<-chan l
 }
 
 func (*deadlineProvider) Name() string { return "deadline" }
+
+type lateSuccessProvider struct{}
+
+func (*lateSuccessProvider) Chat(ctx context.Context, _ *llm.ChatRequest) (*llm.ChatResponse, error) {
+	<-ctx.Done()
+	return routeResponse(`{"action":"wait","next_state":"default","reason":"Input is missing.","question":"Which region?"}`), nil
+}
+
+func (*lateSuccessProvider) ChatStream(context.Context, *llm.ChatRequest) (<-chan llm.StreamEvent, error) {
+	return nil, errors.New("unexpected streaming call")
+}
+
+func (*lateSuccessProvider) Name() string { return "late-success" }
+
+func TestRouterFailsClosedWithoutDAGResolver(t *testing.T) {
+	t.Parallel()
+
+	provider := &routerTestProvider{response: routeResponse(`{"action":"wait","next_state":"default","reason":"Input is missing.","question":"Which region?"}`)}
+	router := NewRouter(func(ControllerRouterLLMConfig) (llm.Provider, error) {
+		return provider, nil
+	}, nil)
+
+	_, err := router.Decide(context.Background(), routerTestDefinition(), routerTestRuntime())
+
+	assert.ErrorIs(t, err, ErrRouterCall)
+	assert.Contains(t, err.Error(), "DAG metadata resolver is not configured")
+	assert.Zero(t, provider.calls)
+}
+
+func routerTestDAGResolver(_ context.Context, fileName string) (DAGMetadata, error) {
+	return DAGMetadata{FileName: fileName, Name: fileName}, nil
+}
 
 func routeResponse(arguments string) *llm.ChatResponse {
 	return &llm.ChatResponse{

@@ -19,21 +19,19 @@ import (
 	"github.com/dagucloud/dagu/internal/service/frontend/api/pathutil"
 )
 
-// ControllerService is the application boundary shared by REST and local CLI surfaces.
-type ControllerService interface {
+type controllerService interface {
 	Create(ctx context.Context, data []byte) (*controller.Detail, error)
-	List(ctx context.Context) ([]controller.Summary, error)
 	ListVisible(ctx context.Context, include func(controller.Definition) bool) ([]controller.Summary, error)
 	GetDefinition(ctx context.Context, id string) (*controller.Definition, error)
 	Get(ctx context.Context, id string) (*controller.Detail, error)
 	Update(ctx context.Context, id string, data []byte) (*controller.Detail, error)
 	Delete(ctx context.Context, id string) error
-	Start(ctx context.Context, id, prompt string) (*controller.RuntimeView, error)
-	Prompt(ctx context.Context, id, prompt string) (*controller.RuntimeView, error)
-	Stop(ctx context.Context, id string) (*controller.RuntimeView, error)
+	Start(ctx context.Context, id, prompt string) (controller.RuntimeView, error)
+	Prompt(ctx context.Context, id, prompt string) (controller.RuntimeView, error)
+	Stop(ctx context.Context, id string) (controller.RuntimeView, error)
 }
 
-func newControllerService(dataDir string, dagStore exec.DAGStore) ControllerService {
+func newControllerService(dataDir string, dagStore exec.DAGStore) controllerService {
 	stores := controller.NewFileStores(dataDir)
 	validator := controller.NewValidator(controller.NewDAGStoreResolver(dagStore))
 	return controller.NewService(stores.Definitions, stores.Runtimes, stores.Locker, validator)
@@ -63,30 +61,45 @@ func (a *API) ListControllers(ctx context.Context, request api.ListControllersRe
 }
 
 func (a *API) hydrateControllerListDAGRun(ctx context.Context, run *api.ControllerListDAGRun) error {
-	if run == nil || a.dagRunStore == nil {
+	if run == nil {
 		return nil
 	}
-	attempt, err := a.dagRunStore.FindAttempt(ctx, exec.NewDAGRunRef(run.Dag, run.DagRunId))
+	summary, err := a.loadControllerDAGRunSummary(ctx, run.Dag, run.DagRunId)
+	if err != nil {
+		return err
+	}
+	if summary == nil {
+		return nil
+	}
+	run.Status = &summary.Status
+	run.StatusLabel = &summary.StatusLabel
+	return nil
+}
+
+func (a *API) loadControllerDAGRunSummary(ctx context.Context, dag, dagRunID string) (*api.DAGRunSummary, error) {
+	if a.dagRunStore == nil {
+		return nil, nil
+	}
+	attempt, err := a.dagRunStore.FindAttempt(ctx, exec.NewDAGRunRef(dag, dagRunID))
 	if err != nil {
 		if isDAGRunLookupNotFound(err) {
-			return nil
+			return nil, nil
 		}
-		return fmt.Errorf("find Controller list DAG run %s/%s: %w", run.Dag, run.DagRunId, err)
+		return nil, fmt.Errorf("find Controller DAG run %s/%s: %w", dag, dagRunID, err)
 	}
 	status, err := attempt.ReadStatus(ctx)
 	if err != nil {
 		if isDAGRunLookupNotFound(err) {
-			return nil
+			return nil, nil
 		}
-		return fmt.Errorf("read Controller list DAG run %s/%s: %w", run.Dag, run.DagRunId, err)
+		return nil, fmt.Errorf("read Controller DAG run %s/%s: %w", dag, dagRunID, err)
 	}
 	if status == nil {
-		return nil
+		return nil, nil
 	}
 	summary := toDAGRunSummary(*status)
-	run.Status = &summary.Status
-	run.StatusLabel = &summary.StatusLabel
-	return nil
+	summary.Params = nil
+	return &summary, nil
 }
 
 // CreateController validates and persists an ID-less Controller specification.
@@ -104,6 +117,9 @@ func (a *API) CreateController(ctx context.Context, request api.CreateController
 	detail, err := a.controllerService.Create(ctx, []byte(request.Body.Spec))
 	if err != nil {
 		return nil, controllerServiceError(err)
+	}
+	if detail == nil {
+		return nil, errors.New("controller service returned no detail")
 	}
 	a.logControllerAudit(ctx, "create", detail.Definition.ID, detail.Definition.Workspace())
 	return api.CreateController201JSONResponse{
@@ -135,18 +151,18 @@ func (a *API) UpdateControllerSpec(ctx context.Context, request api.UpdateContro
 	if request.Body == nil {
 		return nil, ErrInvalidRequestBody
 	}
-	current, err := a.getVisibleController(ctx, request.Id)
+	current, err := a.getVisibleControllerDefinition(ctx, request.Id)
 	if err != nil {
 		return nil, err
 	}
-	if err := a.requireControllerWriteForWorkspace(ctx, current.Definition.Workspace()); err != nil {
+	if err := a.requireControllerWriteForWorkspace(ctx, current.Workspace()); err != nil {
 		return nil, err
 	}
 	next, err := controller.ParseDefinition([]byte(request.Body.Spec))
 	if err != nil {
 		return nil, controllerServiceError(err)
 	}
-	if next.ID != request.Id || next.Workspace() != current.Definition.Workspace() {
+	if next.ID != request.Id || next.Workspace() != current.Workspace() {
 		return nil, &Error{
 			HTTPStatus: http.StatusConflict,
 			Code:       api.ErrorCodeConflict,
@@ -156,6 +172,9 @@ func (a *API) UpdateControllerSpec(ctx context.Context, request api.UpdateContro
 	detail, err := a.controllerService.Update(ctx, request.Id, []byte(request.Body.Spec))
 	if err != nil {
 		return nil, controllerServiceError(err)
+	}
+	if detail == nil {
+		return nil, errors.New("controller service returned no detail")
 	}
 	a.logControllerAudit(ctx, "update", request.Id, detail.Definition.Workspace())
 	response, err := a.controllerDetailResponse(ctx, detail)
@@ -167,11 +186,11 @@ func (a *API) UpdateControllerSpec(ctx context.Context, request api.UpdateContro
 
 // DeleteController removes an inactive Controller definition and runtime snapshot.
 func (a *API) DeleteController(ctx context.Context, request api.DeleteControllerRequestObject) (api.DeleteControllerResponseObject, error) {
-	detail, err := a.getVisibleController(ctx, request.Id)
+	definition, err := a.getVisibleControllerDefinition(ctx, request.Id)
 	if err != nil {
 		return nil, err
 	}
-	workspaceName := detail.Definition.Workspace()
+	workspaceName := definition.Workspace()
 	if err := a.requireControllerWriteForWorkspace(ctx, workspaceName); err != nil {
 		return nil, err
 	}
@@ -187,15 +206,15 @@ func (a *API) StartController(ctx context.Context, request api.StartControllerRe
 	if request.Body == nil {
 		return nil, ErrInvalidRequestBody
 	}
-	detail, err := a.getExecutableController(ctx, request.Id)
+	definition, err := a.getExecutableControllerDefinition(ctx, request.Id)
 	if err != nil {
 		return nil, err
 	}
 	if _, err := a.controllerService.Start(ctx, request.Id, request.Body.Prompt); err != nil {
 		return nil, controllerServiceError(err)
 	}
-	a.logControllerAudit(ctx, "start", request.Id, detail.Definition.Workspace())
-	return api.StartController202JSONResponse{Id: request.Id}, nil
+	a.logControllerAudit(ctx, "start", request.Id, definition.Workspace())
+	return api.StartController202Response{}, nil
 }
 
 // PromptController accepts a prompt for a Controller waiting on user input.
@@ -203,39 +222,34 @@ func (a *API) PromptController(ctx context.Context, request api.PromptController
 	if request.Body == nil {
 		return nil, ErrInvalidRequestBody
 	}
-	detail, err := a.getExecutableController(ctx, request.Id)
+	definition, err := a.getExecutableControllerDefinition(ctx, request.Id)
 	if err != nil {
 		return nil, err
 	}
 	if _, err := a.controllerService.Prompt(ctx, request.Id, request.Body.Prompt); err != nil {
 		return nil, controllerServiceError(err)
 	}
-	a.logControllerAudit(ctx, "prompt", request.Id, detail.Definition.Workspace())
-	return api.PromptController202JSONResponse{Id: request.Id}, nil
+	a.logControllerAudit(ctx, "prompt", request.Id, definition.Workspace())
+	return api.PromptController202Response{}, nil
 }
 
 // StopController accepts a Controller stop request.
 func (a *API) StopController(ctx context.Context, request api.StopControllerRequestObject) (api.StopControllerResponseObject, error) {
-	detail, err := a.getExecutableController(ctx, request.Id)
+	definition, err := a.getExecutableControllerDefinition(ctx, request.Id)
 	if err != nil {
 		return nil, err
 	}
 	if _, err := a.controllerService.Stop(ctx, request.Id); err != nil {
 		return nil, controllerServiceError(err)
 	}
-	a.logControllerAudit(ctx, "stop", request.Id, detail.Definition.Workspace())
-	return api.StopController202JSONResponse(request), nil
+	a.logControllerAudit(ctx, "stop", request.Id, definition.Workspace())
+	return api.StopController202Response{}, nil
 }
 
 func (a *API) getVisibleController(ctx context.Context, id string) (*controller.Detail, error) {
-	definition, err := a.controllerService.GetDefinition(ctx, id)
-	if err != nil {
-		if errors.Is(err, controller.ErrDefinitionCorrupt) {
-			return nil, &Error{HTTPStatus: http.StatusNotFound, Code: api.ErrorCodeNotFound, Message: "Controller not found"}
-		}
-		return nil, controllerServiceError(err)
-	}
-	if err := a.requireWorkspaceVisible(ctx, definition.Workspace()); err != nil {
+	// Authorize from the definition before reading runtime data so hidden
+	// workspaces remain masked even when their runtime snapshot is corrupt.
+	if _, err := a.getVisibleControllerDefinition(ctx, id); err != nil {
 		return nil, err
 	}
 	detail, err := a.controllerService.Get(ctx, id)
@@ -245,18 +259,35 @@ func (a *API) getVisibleController(ctx context.Context, id string) (*controller.
 	return detail, nil
 }
 
-func (a *API) getExecutableController(ctx context.Context, id string) (*controller.Detail, error) {
-	detail, err := a.getVisibleController(ctx, id)
+func (a *API) getVisibleControllerDefinition(ctx context.Context, id string) (*controller.Definition, error) {
+	definition, err := a.controllerService.GetDefinition(ctx, id)
+	if err != nil {
+		if errors.Is(err, controller.ErrDefinitionCorrupt) {
+			return nil, &Error{HTTPStatus: http.StatusNotFound, Code: api.ErrorCodeNotFound, Message: "Controller not found"}
+		}
+		return nil, controllerServiceError(err)
+	}
+	if definition == nil {
+		return nil, errors.New("controller service returned no definition")
+	}
+	if err := a.requireWorkspaceVisible(ctx, definition.Workspace()); err != nil {
+		return nil, err
+	}
+	return definition, nil
+}
+
+func (a *API) getExecutableControllerDefinition(ctx context.Context, id string) (*controller.Definition, error) {
+	definition, err := a.getVisibleControllerDefinition(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 	if err := a.isAllowed(config.PermissionRunDAGs); err != nil {
 		return nil, err
 	}
-	if err := a.requireExecuteForWorkspace(ctx, detail.Definition.Workspace()); err != nil {
+	if err := a.requireExecuteForWorkspace(ctx, definition.Workspace()); err != nil {
 		return nil, err
 	}
-	return detail, nil
+	return definition, nil
 }
 
 func (a *API) requireControllerWriteForWorkspace(ctx context.Context, workspaceName string) error {
@@ -273,32 +304,23 @@ func (a *API) logControllerAudit(ctx context.Context, action, id, workspaceName 
 }
 
 func (a *API) controllerDetailResponse(ctx context.Context, detail *controller.Detail) (api.ControllerDetail, error) {
-	response := controllerapi.Detail(detail)
-	if a.dagRunStore == nil || detail == nil || detail.Runtime == nil {
+	if detail == nil {
+		return api.ControllerDetail{}, errors.New("controller service returned no detail")
+	}
+	response := controllerapi.Detail(*detail)
+	if detail.Runtime == nil {
 		return response, nil
 	}
 
 	for _, ref := range detail.Runtime.DAGRunRefs {
-		attempt, err := a.dagRunStore.FindAttempt(ctx, exec.NewDAGRunRef(ref.DAG, ref.DAGRunID))
+		summary, err := a.loadControllerDAGRunSummary(ctx, ref.DAG, ref.DAGRunID)
 		if err != nil {
-			if isDAGRunLookupNotFound(err) {
-				continue
-			}
-			return api.ControllerDetail{}, fmt.Errorf("find Controller DAG run %s/%s: %w", ref.DAG, ref.DAGRunID, err)
+			return api.ControllerDetail{}, err
 		}
-		status, err := attempt.ReadStatus(ctx)
-		if err != nil {
-			if isDAGRunLookupNotFound(err) {
-				continue
-			}
-			return api.ControllerDetail{}, fmt.Errorf("read Controller DAG run %s/%s: %w", ref.DAG, ref.DAGRunID, err)
-		}
-		if status == nil {
+		if summary == nil {
 			continue
 		}
-		summary := toDAGRunSummary(*status)
-		summary.Params = nil
-		response.DagRuns = append(response.DagRuns, summary)
+		response.DagRuns = append(response.DagRuns, *summary)
 	}
 	return response, nil
 }
@@ -318,7 +340,7 @@ func controllerServiceError(err error) error {
 			Code:       api.ErrorCodeControllerValidationFailed,
 			Message:    validationErr.Error(),
 			Details: map[string]any{
-				"errors": controllerapi.ValidationIssues(validationErr.Issues),
+				"errors": validationErr.Issues,
 			},
 		}
 	}

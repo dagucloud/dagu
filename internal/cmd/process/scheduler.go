@@ -113,8 +113,9 @@ func NewScheduler(cfg SchedulerConfig) (*scheduler.Scheduler, error) {
 	sched.SetDispatchTaskStore(cfg.DispatchTaskStore)
 
 	controllerStores := controller.NewFileStores(cfg.Config.Paths.DataDir)
-	controllerValidator := controller.NewValidator(controller.NewDAGStoreResolver(dagStore))
-	controllerRouter := controller.NewRouter(nil, controller.NewRoutingDAGStoreResolver(dagStore))
+	controllerDAGs := controller.NewDAGStoreResolver(dagStore)
+	controllerValidator := controller.NewValidator(controllerDAGs)
+	controllerRouter := controller.NewRouter(nil, controllerDAGs)
 	controllerChildren := sched.NewControllerChildRunGateway(dagStore, &schedulerRunManager)
 	sched.SetControllerRunner(controller.NewRunner(
 		controllerStores.Definitions,
@@ -123,7 +124,7 @@ func NewScheduler(cfg SchedulerConfig) (*scheduler.Scheduler, error) {
 		controllerValidator,
 		controllerRouter,
 		controllerChildren,
-		controller.DAGRunIDGeneratorFunc(schedulerRunManager.GenDAGRunID),
+		schedulerRunManager.GenDAGRunID,
 	))
 
 	return sched, nil

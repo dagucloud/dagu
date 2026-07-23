@@ -70,6 +70,18 @@ func TestReadRenameAndRemove(t *testing.T) {
 	require.NoFileExists(t, target)
 }
 
+func TestReadFileLimit(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "data.txt")
+	require.NoError(t, os.WriteFile(path, []byte("abcdef"), 0o600))
+
+	data, err := ReadFileLimit(path, 4)
+
+	require.NoError(t, err)
+	require.Equal(t, []byte("abcd"), data)
+}
+
 // TestRemoveAll verifies recursive removal and symlink handling.
 func TestRemoveAll(t *testing.T) {
 	t.Parallel()

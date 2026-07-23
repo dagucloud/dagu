@@ -5,6 +5,7 @@ import * as React from 'react';
 import { AlertTriangle, Check, GitGraph, Save, Trash2 } from 'lucide-react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 
+import type { components } from '@/api/v1/schema';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -28,41 +29,65 @@ import {
   createControllerDraft,
   parseControllerYAML,
   serializeControllerDefinition,
-  validateControllerDefinition,
 } from '@/features/controllers/draft';
-import { canEditController } from '@/features/controllers/types';
 import {
-  isWorkspaceLabel,
-  workspaceNameFromLabels,
-  workspaceSelectionKey,
-} from '@/lib/workspace';
+  canEditController,
+  type ControllerValidationIssue,
+} from '@/features/controllers/types';
+import { useUnsavedChangesWarning } from '@/features/controllers/useUnsavedChangesWarning';
+import { workspaceNameFromLabels } from '@/lib/workspace';
 import DAGEditorWithDocs from '@/features/dags/components/dag-editor/DAGEditorWithDocs';
 
 type EditorTab = 'builder' | 'yaml' | 'graph';
+type PendingAction = 'save' | 'delete';
 
 type DraftRouteState = {
   workspace?: string;
   duplicateSpec?: string;
 };
 
+type ControllerWarning = components['schemas']['ControllerWarning'];
+
 function Issues({
   title,
   issues,
-  variant = 'destructive',
 }: {
   title: string;
-  issues: { code: string; path: string; message: string }[];
-  variant?: 'destructive' | 'warning';
+  issues: ControllerValidationIssue[];
 }) {
   if (issues.length === 0) return null;
   return (
-    <Alert variant={variant}>
+    <Alert variant="destructive">
       <AlertTitle>{title}</AlertTitle>
       <AlertDescription>
         <ul className="list-disc space-y-1 pl-5">
           {issues.map((item, index) => (
             <li key={`${item.path}-${item.code}-${index}`}>
               <code>{item.path}</code>: {item.message}
+            </li>
+          ))}
+        </ul>
+      </AlertDescription>
+    </Alert>
+  );
+}
+
+function Warnings({ warnings }: { warnings: ControllerWarning[] }) {
+  if (warnings.length === 0) return null;
+  return (
+    <Alert variant="warning">
+      <AlertTriangle className="h-4 w-4" />
+      <AlertTitle>Definition warnings</AlertTitle>
+      <AlertDescription>
+        <ul className="list-disc space-y-1 pl-5">
+          {warnings.map((warning, index) => (
+            <li key={`${warning.path}-${warning.code}-${index}`}>
+              {warning.path && (
+                <>
+                  <code>{warning.path}</code>:{' '}
+                </>
+              )}
+              {warning.message}
             </li>
           ))}
         </ul>
@@ -84,8 +109,7 @@ export default function ControllerSpecPage({
   const appBar = React.useContext(AppBarContext);
   const api = useControllerAPI();
   const { showToast } = useSimpleToast();
-  const workspaceKey = workspaceSelectionKey(appBar.workspaceSelection);
-  const detailQuery = useControllerDetail(id, workspaceKey);
+  const detailQuery = useControllerDetail(id);
   const [tab, setTab] = React.useState<EditorTab>('builder');
   const [source, setSource] = React.useState(() => {
     if (!isNew) return '';
@@ -97,13 +121,22 @@ export default function ControllerSpecPage({
     );
   });
   const [savedSource, setSavedSource] = React.useState('');
-  const [initializedID, setInitializedID] = React.useState<string | null>(
-    isNew ? 'new' : null
-  );
-  const [pending, setPending] = React.useState(false);
+  const [builderDraftDirty, setBuilderDraftDirty] = React.useState(false);
+  const initializedIDRef = React.useRef<string | null>(isNew ? 'new' : null);
+  const [pendingAction, setPendingAction] =
+    React.useState<PendingAction | null>(null);
+  const operationInFlight = React.useRef(false);
+  const mountedRef = React.useRef(true);
+  const locationKeyRef = React.useRef(location.key);
+  locationKeyRef.current = location.key;
+  const routeIDRef = React.useRef(id);
+  routeIDRef.current = id;
   const [deleteOpen, setDeleteOpen] = React.useState(false);
   const [saveError, setSaveError] = React.useState<string | null>(null);
-  const parsed = React.useMemo(() => parseControllerYAML(source), [source]);
+  const parsed = React.useMemo(
+    () => parseControllerYAML(source, isNew ? 'create' : 'update'),
+    [isNew, source]
+  );
   const definition = parsed.definition;
   const draftWorkspace = definition
     ? workspaceNameFromLabels(definition.labels)
@@ -114,15 +147,30 @@ export default function ControllerSpecPage({
   const workspace = isNew ? draftWorkspace : persistedWorkspace;
   const canWrite = useCanWriteForWorkspace(workspace);
   const dagOptions = useControllerDAGOptions(workspace);
-  const dirty = source !== savedSource;
+  const dirty = source !== savedSource || builderDraftDirty;
+  const pending = pendingAction !== null;
+  const createPending = isNew && pendingAction === 'save';
+  useUnsavedChangesWarning(
+    dirty,
+    'Discard unsaved Controller changes?',
+    createPending
+  );
+
+  React.useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   React.useEffect(() => {
     const detail = detailQuery.data;
-    if (!detail || initializedID === detail.id) return;
+    if (!detail || initializedIDRef.current === detail.id) return;
+    initializedIDRef.current = detail.id;
     setSource(detail.spec);
     setSavedSource(detail.spec);
-    setInitializedID(detail.id);
-  }, [detailQuery.data, initializedID]);
+    setBuilderDraftDirty(false);
+  }, [detailQuery.data]);
 
   React.useEffect(() => {
     appBar.setTitle(
@@ -131,54 +179,6 @@ export default function ControllerSpecPage({
         : (detailQuery.data?.definition.name ?? 'Controller')
     );
   }, [appBar, detailQuery.data?.definition.name, isNew]);
-
-  React.useEffect(() => {
-    if (!dirty) return;
-    const warn = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-      event.returnValue = '';
-    };
-    window.addEventListener('beforeunload', warn);
-    return () => window.removeEventListener('beforeunload', warn);
-  }, [dirty]);
-
-  React.useEffect(() => {
-    if (!dirty) return;
-    const guardLinkNavigation = (event: MouseEvent) => {
-      if (
-        event.defaultPrevented ||
-        event.button !== 0 ||
-        event.metaKey ||
-        event.ctrlKey ||
-        event.shiftKey ||
-        event.altKey ||
-        !(event.target instanceof Element)
-      ) {
-        return;
-      }
-      const anchor = event.target.closest<HTMLAnchorElement>('a[href]');
-      if (
-        !anchor ||
-        anchor.hasAttribute('download') ||
-        (anchor.target && anchor.target !== '_self')
-      ) {
-        return;
-      }
-      const next = new URL(anchor.href, window.location.href);
-      if (
-        next.origin !== window.location.origin ||
-        next.href === window.location.href
-      ) {
-        return;
-      }
-      if (window.confirm('Discard unsaved Controller changes?')) return;
-      event.preventDefault();
-      event.stopPropagation();
-    };
-    document.addEventListener('click', guardLinkNavigation, true);
-    return () =>
-      document.removeEventListener('click', guardLinkNavigation, true);
-  }, [dirty]);
 
   if (!isNew && detailQuery.isLoading && !detailQuery.data)
     return <LoadingIndicator />;
@@ -194,27 +194,17 @@ export default function ControllerSpecPage({
   }
 
   const detail = detailQuery.data;
+  const warnings = isNew ? [] : (detail?.warnings ?? []);
   const mutable = isNew || canEditController(detail?.runtime);
-  const readOnly = !canWrite || !mutable;
-  const requiredIssues = definition
-    ? validateControllerDefinition(definition, { requireId: !isNew })
-    : [];
+  const readOnly = !mutable || (!isNew && !canWrite);
+  const editorReadOnly = readOnly || pendingAction === 'save';
   const workspaceChanged =
     !isNew &&
     definition !== null &&
     detail !== undefined &&
-    definition.labels.filter(isWorkspaceLabel).join('\n') !==
-      detail.definition.labels.filter(isWorkspaceLabel).join('\n');
+    workspaceNameFromLabels(definition.labels) !== persistedWorkspace;
   const issues = [
     ...parsed.issues,
-    ...requiredIssues.filter(
-      (candidate) =>
-        !parsed.issues.some(
-          (existing) =>
-            existing.path === candidate.path &&
-            existing.message === candidate.message
-        )
-    ),
     ...(workspaceChanged
       ? [
           {
@@ -226,54 +216,81 @@ export default function ControllerSpecPage({
       : []),
   ];
   const canSave =
-    !readOnly && dirty && definition !== null && issues.length === 0;
+    canWrite && mutable && dirty && definition !== null && issues.length === 0;
+  const requestMatchesRoute = (
+    requestLocationKey: string,
+    requestID: string | undefined
+  ) =>
+    mountedRef.current &&
+    locationKeyRef.current === requestLocationKey &&
+    routeIDRef.current === requestID;
 
   const save = async () => {
-    if (!canSave || !definition) return;
-    setPending(true);
+    if (!canSave || !definition || operationInFlight.current) return;
+    operationInFlight.current = true;
+    setDeleteOpen(false);
+    setPendingAction('save');
     setSaveError(null);
+    const requestLocationKey = location.key;
+    const requestID = id;
     try {
       if (isNew) {
-        const createDefinition = { ...definition, id: undefined };
-        const createSource = serializeControllerDefinition(createDefinition);
-        const result = await api.create(createSource);
+        const result = await api.create(source);
         showToast('Controller created');
-        navigate(`/controllers/${encodeURIComponent(result.id)}/spec`, {
-          replace: true,
-        });
+        if (requestMatchesRoute(requestLocationKey, requestID)) {
+          navigate(`/controllers/${encodeURIComponent(result.id)}/spec`, {
+            replace: true,
+          });
+        }
         return;
       }
       if (!id) return;
       const updated = await api.update(id, source);
+      if (!requestMatchesRoute(requestLocationKey, requestID)) {
+        return;
+      }
       setSource(updated.spec);
       setSavedSource(updated.spec);
       await detailQuery.mutate(updated, { revalidate: false });
       showToast('Controller definition saved');
     } catch (failure) {
-      setSaveError(
-        failure instanceof Error ? failure.message : 'Could not save Controller'
-      );
+      if (requestMatchesRoute(requestLocationKey, requestID)) {
+        setSaveError(
+          failure instanceof Error
+            ? failure.message
+            : 'Could not save Controller'
+        );
+      }
     } finally {
-      setPending(false);
+      operationInFlight.current = false;
+      setPendingAction(null);
     }
   };
 
   const deleteController = async () => {
-    if (!id || !detail) return;
-    setPending(true);
+    if (!id || !detail || operationInFlight.current) return;
+    operationInFlight.current = true;
+    setPendingAction('delete');
     setSaveError(null);
+    const requestLocationKey = location.key;
+    const requestID = id;
     try {
       await api.delete(id);
       showToast('Controller deleted');
-      navigate('/controllers', { replace: true });
+      if (requestMatchesRoute(requestLocationKey, requestID)) {
+        navigate('/controllers', { replace: true });
+      }
     } catch (failure) {
-      setSaveError(
-        failure instanceof Error
-          ? failure.message
-          : 'Could not delete Controller'
-      );
+      if (requestMatchesRoute(requestLocationKey, requestID)) {
+        setSaveError(
+          failure instanceof Error
+            ? failure.message
+            : 'Could not delete Controller'
+        );
+      }
     } finally {
-      setPending(false);
+      operationInFlight.current = false;
+      setPendingAction(null);
     }
   };
 
@@ -295,7 +312,7 @@ export default function ControllerSpecPage({
         disabled={!canSave || pending}
         onClick={() => void save()}
       >
-        {pending ? (
+        {pendingAction === 'save' ? (
           <span className="animate-pulse">Saving…</span>
         ) : (
           <>
@@ -327,9 +344,15 @@ export default function ControllerSpecPage({
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Button asChild variant="ghost">
-              <Link to="/controllers">Cancel</Link>
-            </Button>
+            {createPending ? (
+              <Button variant="ghost" disabled>
+                Cancel
+              </Button>
+            ) : (
+              <Button asChild variant="ghost">
+                <Link to="/controllers">Cancel</Link>
+              </Button>
+            )}
             {headerActions}
           </div>
         </div>
@@ -346,18 +369,22 @@ export default function ControllerSpecPage({
           </AlertDescription>
         </Alert>
       )}
+      {isNew && !canWrite && (
+        <Alert variant="warning">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>Save unavailable</AlertTitle>
+          <AlertDescription>
+            Write permission is required to save in this workspace.
+          </AlertDescription>
+        </Alert>
+      )}
       {saveError && (
         <Alert variant="destructive">
           <AlertDescription>{saveError}</AlertDescription>
         </Alert>
       )}
+      <Warnings warnings={warnings} />
       <Issues title="Definition needs attention" issues={issues} />
-      <Issues
-        title="Server warnings"
-        issues={detail?.warnings ?? []}
-        variant="warning"
-      />
-
       <div className="rounded-md border border-border bg-card">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-3">
           <Tabs>
@@ -376,7 +403,7 @@ export default function ControllerSpecPage({
             {issues.length === 0 && definition && (
               <>
                 <Check className="h-3.5 w-3.5 text-success" />
-                Valid locally
+                Basic checks passed
               </>
             )}
             <span>{workspace || 'default'} workspace</span>
@@ -389,7 +416,15 @@ export default function ControllerSpecPage({
                 definition={definition}
                 workspace={workspace}
                 availableDAGs={dagOptions.data}
-                readOnly={readOnly}
+                availableDAGsError={
+                  dagOptions.error
+                    ? `Could not load compatible DAGs: ${dagOptions.error.message}`
+                    : undefined
+                }
+                availableDAGsLoading={dagOptions.isLoading}
+                onRetryAvailableDAGs={() => void dagOptions.mutate()}
+                readOnly={editorReadOnly}
+                onDraftDirtyChange={setBuilderDraftDirty}
                 onChange={(nextDefinition) =>
                   setSource(serializeControllerDefinition(nextDefinition))
                 }
@@ -415,7 +450,7 @@ export default function ControllerSpecPage({
               <DAGEditorWithDocs
                 value={source}
                 onChange={(value) => setSource(value ?? '')}
-                readOnly={readOnly}
+                readOnly={editorReadOnly}
                 schema={controllerSchema}
                 modelUri={`inmemory://dagu/controllers/${id ?? 'new'}.yaml`}
                 className="h-[72vh]"

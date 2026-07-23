@@ -11,14 +11,13 @@ import (
 	"io"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
-	"text/template"
 	"unicode"
 	"unicode/utf8"
 
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/dagucloud/dagu/internal/core/spec"
 	"gopkg.in/yaml.v3"
 )
 
@@ -40,80 +39,6 @@ var (
 	stateNamePattern    = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_-]{0,63}$`)
 )
 
-type createDefinition struct {
-	Type        string                    `yaml:"type"`
-	Version     int                       `yaml:"version"`
-	Name        string                    `yaml:"name"`
-	Description string                    `yaml:"description"`
-	MaxTurns    int                       `yaml:"maxTurns,omitempty"`
-	Labels      []string                  `yaml:"labels,omitempty"`
-	LLM         ControllerRouterLLMConfig `yaml:"llm"`
-	DAGs        []string                  `yaml:"dags"`
-	States      map[string]State          `yaml:"states"`
-}
-
-// DAGReference contains the definition facts required for Controller validation.
-type DAGReference struct {
-	FileName            string
-	Name                string
-	Workspace           string
-	Description         string
-	HasPositionalParams bool
-}
-
-// DAGResolver resolves a Controller DAG fileName using the current DAG definitions.
-type DAGResolver interface {
-	ResolveDAG(ctx context.Context, fileName string) (DAGReference, error)
-}
-
-// DAGResolverFunc adapts a function to DAGResolver.
-type DAGResolverFunc func(ctx context.Context, fileName string) (DAGReference, error)
-
-// ResolveDAG implements DAGResolver.
-func (f DAGResolverFunc) ResolveDAG(ctx context.Context, fileName string) (DAGReference, error) {
-	return f(ctx, fileName)
-}
-
-type dagStoreResolver struct {
-	store exec.DAGStore
-}
-
-// NewDAGStoreResolver adapts the existing DAG store to Controller validation.
-func NewDAGStoreResolver(store exec.DAGStore) DAGResolver {
-	if store == nil {
-		return nil
-	}
-	return &dagStoreResolver{store: store}
-}
-
-func (r *dagStoreResolver) ResolveDAG(ctx context.Context, fileName string) (DAGReference, error) {
-	dag, err := r.store.GetDetails(ctx, fileName, spec.WithoutEval())
-	if err != nil {
-		return DAGReference{}, err
-	}
-	if dag == nil {
-		return DAGReference{}, fmt.Errorf("DAG %q resolved to nil", fileName)
-	}
-	workspaceName, state := exec.WorkspaceLabelFromLabels(dag.Labels)
-	if state == exec.WorkspaceLabelInvalid {
-		return DAGReference{}, fmt.Errorf("DAG %q has invalid workspace labels", fileName)
-	}
-	hasPositional := false
-	for _, param := range dag.ParamDefs {
-		if param.Name == "" {
-			hasPositional = true
-			break
-		}
-	}
-	return DAGReference{
-		FileName:            dag.FileName(),
-		Name:                dag.Name,
-		Workspace:           workspaceName,
-		Description:         dag.Description,
-		HasPositionalParams: hasPositional,
-	}, nil
-}
-
 // Validator performs static and current-DAG validation for Controller definitions.
 type Validator struct {
 	resolver DAGResolver
@@ -126,38 +51,21 @@ func NewValidator(resolver DAGResolver) *Validator {
 
 // ParseCreateDefinition strictly decodes an ID-less create document.
 func ParseCreateDefinition(data []byte) (*Definition, error) {
-	var draft createDefinition
-	if err := decodeStrictYAML(data, &draft); err != nil {
-		return nil, err
-	}
-	definition := &Definition{
-		Type:        draft.Type,
-		Version:     draft.Version,
-		Name:        draft.Name,
-		Description: draft.Description,
-		MaxTurns:    draft.MaxTurns,
-		Labels:      draft.Labels,
-		LLM:         draft.LLM,
-		DAGs:        draft.DAGs,
-		States:      draft.States,
-	}
-	if yamlPathPresent(data, "maxTurns") && definition.MaxTurns == 0 {
-		return nil, &ValidationError{Issues: []ValidationIssue{issue("invalid_range", "maxTurns", fmt.Sprintf("must be between %d and %d", minMaxTurns, maxMaxTurns))}}
-	}
-	if yamlPathPresent(data, "llm", "system") && definition.LLM.System == nil {
-		return nil, &ValidationError{Issues: []ValidationIssue{issue("invalid_system_template", "llm.system", "must be a string when present")}}
-	}
-	if err := validateDefinitionStatic(definition, false); err != nil {
-		return nil, err
-	}
-	return definition, nil
+	return parseDefinition(data, false)
 }
 
 // ParseDefinition strictly decodes and validates a persisted Controller document.
 func ParseDefinition(data []byte) (*Definition, error) {
+	return parseDefinition(data, true)
+}
+
+func parseDefinition(data []byte, requireID bool) (*Definition, error) {
 	var definition Definition
 	if err := decodeStrictYAML(data, &definition); err != nil {
 		return nil, err
+	}
+	if !requireID && yamlPathPresent(data, "id") {
+		return nil, &ValidationError{Issues: []ValidationIssue{issue("generated_field", "id", "must not be supplied when creating a Controller")}}
 	}
 	if yamlPathPresent(data, "maxTurns") && definition.MaxTurns == 0 {
 		return nil, &ValidationError{Issues: []ValidationIssue{issue("invalid_range", "maxTurns", fmt.Sprintf("must be between %d and %d", minMaxTurns, maxMaxTurns))}}
@@ -165,7 +73,7 @@ func ParseDefinition(data []byte) (*Definition, error) {
 	if yamlPathPresent(data, "llm", "system") && definition.LLM.System == nil {
 		return nil, &ValidationError{Issues: []ValidationIssue{issue("invalid_system_template", "llm.system", "must be a string when present")}}
 	}
-	if err := validateDefinitionStatic(&definition, true); err != nil {
+	if err := validateDefinitionStatic(&definition, requireID); err != nil {
 		return nil, err
 	}
 	return &definition, nil
@@ -184,34 +92,135 @@ func MarshalDefinition(definition *Definition) ([]byte, error) {
 }
 
 // Validate verifies a persisted definition and all current DAG references.
-func (v *Validator) Validate(ctx context.Context, definition *Definition) error {
+func (v *Validator) Validate(ctx context.Context, definition *Definition) ([]DefinitionWarning, error) {
 	if err := validateDefinitionStatic(definition, true); err != nil {
-		return err
+		return nil, err
 	}
+	return v.validateDAGs(ctx, *definition)
+}
+
+// Warnings returns the non-blocking findings available for a valid definition.
+// Unavailable DAG metadata does not prevent the definition from being inspected.
+func (v *Validator) Warnings(ctx context.Context, definition *Definition) []DefinitionWarning {
+	if validateDefinitionStatic(definition, true) != nil {
+		return []DefinitionWarning{}
+	}
+	warnings, _ := v.validateDAGs(ctx, *definition)
+	return warnings
+}
+
+func (v *Validator) validateDAGs(ctx context.Context, definition Definition) ([]DefinitionWarning, error) {
+	warnings := definitionWarnings(definition, nil)
 	if v == nil || v.resolver == nil {
-		return nil
+		return warnings, nil
 	}
 
 	workspaceName := definition.Workspace()
 	var issues []ValidationIssue
+	dags := make(map[string]DAGMetadata, len(definition.DAGs))
 	for index, fileName := range definition.DAGs {
-		ref, err := v.resolver.ResolveDAG(ctx, fileName)
+		ref, err := v.resolver(ctx, fileName)
 		path := fmt.Sprintf("dags[%d]", index)
 		if err != nil {
 			issues = append(issues, issue("dag_not_found", path, fmt.Sprintf("DAG %q cannot be loaded: %v", fileName, err)))
 			continue
 		}
+		dags[fileName] = ref
 		if ref.FileName != fileName || ref.Name != fileName {
 			issues = append(issues, issue("dag_identity_mismatch", path, fmt.Sprintf("DAG fileName and name must both equal %q", fileName)))
 		}
 		if ref.Workspace != workspaceName {
 			issues = append(issues, issue("dag_workspace_mismatch", path, fmt.Sprintf("DAG %q is in a different workspace", fileName)))
 		}
-		if ref.HasPositionalParams {
+		hasPositionalParams := false
+		for _, param := range ref.ParamDefs {
+			if param.Name == "" {
+				hasPositionalParams = true
+				break
+			}
+		}
+		if hasPositionalParams {
 			issues = append(issues, issue("dag_positional_params", path, fmt.Sprintf("DAG %q uses unsupported positional parameters", fileName)))
 		}
 	}
-	return validationIssuesError(issues)
+	warnings = definitionWarnings(definition, dags)
+	return warnings, validationIssuesError(issues)
+}
+
+func definitionWarnings(definition Definition, dags map[string]DAGMetadata) []DefinitionWarning {
+	warnings := make([]DefinitionWarning, 0)
+	reachable := map[string]struct{}{DefaultStateName: {}}
+	queue := []string{DefaultStateName}
+	for index := 0; index < len(queue); index++ {
+		name := queue[index]
+		for _, transition := range definition.States[name].Transitions {
+			if _, seen := reachable[transition.To]; seen {
+				continue
+			}
+			reachable[transition.To] = struct{}{}
+			queue = append(queue, transition.To)
+		}
+	}
+	stateNames := make([]string, 0, len(definition.States))
+	usedDAGs := make(map[string]struct{}, len(definition.DAGs))
+	hasTerminal := false
+	for name, state := range definition.States {
+		stateNames = append(stateNames, name)
+		if state.Terminal != "" {
+			hasTerminal = true
+		}
+		for _, fileName := range state.DAGs {
+			usedDAGs[fileName] = struct{}{}
+		}
+	}
+	sort.Strings(stateNames)
+	for _, name := range stateNames {
+		if _, ok := reachable[name]; ok {
+			continue
+		}
+		warnings = append(warnings, DefinitionWarning{
+			Code:    "unreachable_state",
+			Path:    "states." + name,
+			Message: fmt.Sprintf("State %q is unreachable from default", name),
+		})
+	}
+	for index, fileName := range definition.DAGs {
+		path := fmt.Sprintf("dags[%d]", index)
+		if _, used := usedDAGs[fileName]; !used {
+			warnings = append(warnings, DefinitionWarning{
+				Code:    "unused_dag",
+				Path:    path,
+				Message: fmt.Sprintf("DAG %q is not referenced by any State", fileName),
+			})
+		}
+	}
+	for index, fileName := range definition.DAGs {
+		ref, ok := dags[fileName]
+		if !ok || strings.TrimSpace(ref.Description) != "" {
+			continue
+		}
+		warnings = append(warnings, DefinitionWarning{
+			Code:    "dag_description_empty",
+			Path:    fmt.Sprintf("dags[%d]", index),
+			Message: fmt.Sprintf("DAG %q has no description for the Router", fileName),
+		})
+	}
+	if !hasTerminal {
+		warnings = append(warnings, DefinitionWarning{
+			Code:    "no_terminal_state",
+			Path:    "states",
+			Message: "Controller has no terminal State and can only finish when stopped or failed",
+		})
+	}
+	return warnings
+}
+
+// ValidateID verifies a canonical Controller identifier.
+func ValidateID(id string) error {
+	if !controllerIDPattern.MatchString(id) {
+		return fmt.Errorf("%w: invalid Controller ID %q", ErrInvalidDefinition, id)
+	}
+	return nil
 }
 
 // ValidatePrompt enforces the Start and Prompt input contract without normalizing the input.
@@ -281,11 +290,9 @@ func validateDefinitionStatic(definition *Definition, requireID bool) error {
 		issues = append(issues, issue("invalid_value", "version", fmt.Sprintf("must be %d", DefinitionVersion)))
 	}
 	if requireID {
-		if !controllerIDPattern.MatchString(definition.ID) {
+		if ValidateID(definition.ID) != nil {
 			issues = append(issues, issue("invalid_id", "id", "must match ^ctrl_[a-z2-7]{16}$"))
 		}
-	} else if definition.ID != "" {
-		issues = append(issues, issue("generated_field", "id", "must not be supplied when creating a Controller"))
 	}
 	issues = append(issues, validateName(definition.Name)...)
 	if strings.TrimSpace(definition.Description) == "" {
@@ -311,7 +318,14 @@ func validateName(name string) []ValidationIssue {
 	if utf8.RuneCountInString(name) > maxNameRunes || len(name) > maxNameBytes {
 		issues = append(issues, issue("size_limit", "name", fmt.Sprintf("must not exceed %d code points or %d bytes", maxNameRunes, maxNameBytes)))
 	}
-	if strings.ContainsAny(name, "\r\n") {
+	if strings.ContainsFunc(name, func(r rune) bool {
+		switch r {
+		case '\n', '\v', '\f', '\r', '\u0085', '\u2028', '\u2029':
+			return true
+		default:
+			return false
+		}
+	}) {
 		issues = append(issues, issue("single_line", "name", "must be a single line"))
 	}
 	first, _ := utf8.DecodeRuneInString(name)
@@ -354,11 +368,9 @@ func validateLabels(raw []string) []ValidationIssue {
 
 func validateLLM(config ControllerRouterLLMConfig) []ValidationIssue {
 	var issues []ValidationIssue
-	switch config.Provider {
-	case "openai", "anthropic", "gemini":
-	case "":
+	if config.Provider == "" {
 		issues = append(issues, issue("required", "llm.provider", "is required"))
-	default:
+	} else if _, ok := controllerProviderType(config.Provider); !ok {
 		issues = append(issues, issue("unsupported_provider", "llm.provider", "must be one of openai, anthropic, or gemini"))
 	}
 	if strings.TrimSpace(config.Model) == "" {
@@ -383,11 +395,7 @@ func validateLLM(config ControllerRouterLLMConfig) []ValidationIssue {
 			issues = append(issues, issue("invalid_system_template", "llm.system", "literal policy suffix must not contain ${{"))
 		}
 	}
-	tmpl, err := template.New("controller-router-system").Delims("${{", "}}").Option("missingkey=error").Parse(source)
-	if err == nil {
-		var rendered bytes.Buffer
-		err = tmpl.Execute(&rendered, struct{ RouterInstruction string }{RouterInstruction: "router"})
-	}
+	_, err := renderRouterSystemTemplate(source, "router")
 	if err != nil {
 		issues = append(issues, issue("invalid_system_template", "llm.system", err.Error()))
 	}
@@ -406,7 +414,7 @@ func validateGraph(definition *Definition) []ValidationIssue {
 	for index, fileName := range definition.DAGs {
 		path := fmt.Sprintf("dags[%d]", index)
 		if !validDAGFileName(fileName) {
-			issues = append(issues, issue("invalid_dag_name", path, "must be a non-empty extensionless fileName without path separators"))
+			issues = append(issues, issue("invalid_dag_name", path, "must satisfy DAG name length and character constraints and have no extension"))
 		}
 		if _, duplicate := allowedDAGs[fileName]; duplicate {
 			issues = append(issues, issue("duplicate", path, fmt.Sprintf("DAG %q is listed more than once", fileName)))
@@ -424,7 +432,13 @@ func validateGraph(definition *Definition) []ValidationIssue {
 		issues = append(issues, issue("required", "states.default", "default State is required"))
 	}
 	totalTransitions := 0
-	for name, state := range definition.States {
+	stateNames := make([]string, 0, len(definition.States))
+	for name := range definition.States {
+		stateNames = append(stateNames, name)
+	}
+	sort.Strings(stateNames)
+	for _, name := range stateNames {
+		state := definition.States[name]
 		basePath := "states." + name
 		if !stateNamePattern.MatchString(name) {
 			issues = append(issues, issue("invalid_state_name", basePath, "State name must match ^[A-Za-z][A-Za-z0-9_-]{0,63}$"))
@@ -486,7 +500,7 @@ func validateGraph(definition *Definition) []ValidationIssue {
 }
 
 func validDAGFileName(name string) bool {
-	return name != "" && name != "." && name != ".." && filepath.Base(name) == name && filepath.Ext(name) == "" && !strings.ContainsAny(name, `/\\`)
+	return name != "" && core.ValidateDAGName(name) == nil && filepath.Ext(name) == ""
 }
 
 func issue(code, path, message string) ValidationIssue {

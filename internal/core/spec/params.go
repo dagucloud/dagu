@@ -6,6 +6,7 @@ package spec
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"regexp"
 	"sort"
 	"strconv"
@@ -202,19 +203,7 @@ func parseMapParams(ctx BuildContext, input []any) ([]paramPair, error) {
 			sort.Strings(keys)
 
 			for _, name := range keys {
-				value := m[name]
-				var valueStr string
-
-				switch v := value.(type) {
-				case string:
-					valueStr = v
-
-				default:
-					valueStr = fmt.Sprintf("%v", v)
-
-				}
-
-				paramPair := paramPair{name, valueStr}
+				paramPair := paramPair{name, formatParsedParamValue(m[name])}
 				params = append(params, paramPair)
 			}
 
@@ -236,13 +225,13 @@ var paramRegex = regexp.MustCompile(
 func tryParseJSONParams(ctx BuildContext, input string) ([]paramPair, error) {
 	// Try parsing as JSON object first
 	var jsonObj map[string]any
-	if err := json.Unmarshal([]byte(input), &jsonObj); err == nil {
+	if err := decodeJSONParams(input, &jsonObj); err == nil {
 		return parseMapParams(ctx, []any{jsonObj})
 	}
 
 	// Try parsing as JSON array
 	var jsonArr []any
-	if err := json.Unmarshal([]byte(input), &jsonArr); err == nil {
+	if err := decodeJSONParams(input, &jsonArr); err == nil {
 		var params []paramPair
 		for _, item := range jsonArr {
 			switch v := item.(type) {
@@ -256,13 +245,45 @@ func tryParseJSONParams(ctx BuildContext, input string) ([]paramPair, error) {
 				params = append(params, mapParams...)
 			default:
 				// Convert other types (numbers, booleans) to string
-				params = append(params, paramPair{Name: "", Value: fmt.Sprintf("%v", v)})
+				params = append(params, paramPair{Name: "", Value: formatParsedParamValue(v)})
 			}
 		}
 		return params, nil
 	}
 
 	return nil, fmt.Errorf("not valid JSON")
+}
+
+func decodeJSONParams(input string, target any) error {
+	decoder := json.NewDecoder(strings.NewReader(input))
+	decoder.UseNumber()
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("multiple JSON values")
+		}
+		return err
+	}
+	return nil
+}
+
+func formatParsedParamValue(value any) string {
+	number, ok := value.(json.Number)
+	if !ok {
+		if text, ok := value.(string); ok {
+			return text
+		}
+		return fmt.Sprintf("%v", value)
+	}
+	if !strings.ContainsAny(number.String(), ".eE") {
+		return number.String()
+	}
+	if float, err := number.Float64(); err == nil {
+		return fmt.Sprintf("%v", float)
+	}
+	return number.String()
 }
 
 func parseStringParams(ctx BuildContext, input string) ([]paramPair, error) {

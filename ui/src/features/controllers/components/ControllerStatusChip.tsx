@@ -9,11 +9,11 @@ export function ControllerStatusChip({
   status,
   finishedAt,
 }: {
-  status: number;
+  status: Status;
   finishedAt?: string;
 }) {
   return (
-    <StatusChip status={status as Status} size="sm">
+    <StatusChip status={status} size="sm">
       {controllerStatusText(status, finishedAt)}
     </StatusChip>
   );

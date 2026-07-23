@@ -26,8 +26,6 @@ type ValidationIssue struct {
 	Code    string `json:"code"`
 	Path    string `json:"path"`
 	Message string `json:"message"`
-	Line    int    `json:"line,omitempty"`
-	Column  int    `json:"column,omitempty"`
 }
 
 // ValidationError aggregates strict definition validation failures.
