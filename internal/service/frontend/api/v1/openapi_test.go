@@ -37,10 +37,8 @@ func TestOpenapiJSON_StrictValidation(t *testing.T) {
 	require.Contains(t, doc.Paths, "/openapi.json")
 }
 
-func TestHumanTaskCompletionBodyLimitWithStrictValidation(t *testing.T) {
-	server := test.SetupServer(t, test.WithConfigMutator(func(cfg *config.Config) {
-		cfg.Server.StrictValidation = true
-	}))
+func TestHumanTaskCompletionBodyLimit(t *testing.T) {
+	server := test.SetupServer(t)
 
 	response := server.Client().Post(
 		"/api/v1/dag-runs/test/run-1/human-tasks/review/complete",

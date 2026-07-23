@@ -169,6 +169,12 @@ func TestEditRetryDAGRun_DispatchesSeededRetryWithSkippedOutputs(t *testing.T) {
 	raw, ok := status.Nodes[0].OutputVariables.Load("RESULT")
 	require.True(t, ok)
 	require.Equal(t, "RESULT=from-source", raw)
+	require.NotNil(t, status.Nodes[0].OutputValue)
+	require.Equal(t, "from-source", *status.Nodes[0].OutputValue)
+	require.NotNil(t, status.Nodes[0].OutputsValue)
+	require.JSONEq(t, `{"legacy":"from-source"}`, *status.Nodes[0].OutputsValue)
+	require.NotNil(t, status.Nodes[0].StepOutputsValue)
+	require.JSONEq(t, `{"artifact":"from-source"}`, *status.Nodes[0].StepOutputsValue)
 	require.Equal(t, core.NodeNotStarted, status.Nodes[1].Status)
 
 	require.Len(t, recorder.dispatched, 1)
@@ -460,6 +466,9 @@ func seedEditRetrySourceAttemptWithProfileName(
 	status.Nodes[0].FinishedAt = exec.FormatTime(time.Now().Add(-90 * time.Second))
 	status.Nodes[0].OutputVariables = &collections.SyncMap{}
 	status.Nodes[0].OutputVariables.Store("RESULT", "RESULT=from-source")
+	status.Nodes[0].OutputValue = ptrOf("from-source")
+	status.Nodes[0].OutputsValue = ptrOf(`{"legacy":"from-source"}`)
+	status.Nodes[0].StepOutputsValue = ptrOf(`{"artifact":"from-source"}`)
 	status.Nodes[1].Status = core.NodeFailed
 	status.Nodes[1].StartedAt = exec.FormatTime(time.Now().Add(-80 * time.Second))
 	status.Nodes[1].FinishedAt = exec.FormatTime(time.Now().Add(-70 * time.Second))

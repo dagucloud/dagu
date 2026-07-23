@@ -6,7 +6,6 @@ package humantask
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/dagucloud/dagu/internal/core"
@@ -48,17 +47,6 @@ func (s *Service) enqueueResume(ctx context.Context, target *target, result Resu
 	}
 
 	postCommitCtx := context.WithoutCancel(ctx)
-	if exec.IsRemoteWorkerID(target.status.WorkerID) {
-		settleCtx, cancel := context.WithTimeout(postCommitCtx, s.SettleTimeout)
-		ready, err := s.waitForRemoteDispatch(settleCtx, target.dag, target.status)
-		cancel()
-		if err != nil {
-			return result, &ResumeError{Result: result, Err: err}
-		}
-		if !ready {
-			return result, nil
-		}
-	}
 	enqueueCtx, cancel := context.WithTimeout(postCommitCtx, s.EnqueueTimeout)
 	defer cancel()
 	queued, err := exec.EnqueueRetry(
@@ -155,65 +143,6 @@ func (s *Service) waitForCompletionReady(
 			return nil, err
 		}
 	}
-}
-
-func (s *Service) waitForRemoteDispatch(
-	ctx context.Context,
-	dag *core.DAG,
-	status *exec.DAGRunStatus,
-) (bool, error) {
-	deadline := s.Now().Add(s.SettleTimeout)
-	for {
-		pending, err := queuedRunExists(ctx, s.QueueStore, dag, status)
-		if err != nil {
-			return false, fmt.Errorf("check previous distributed dispatch: %w", err)
-		}
-		if !pending {
-			return true, nil
-		}
-		attempt, err := s.DAGRunStore.FindAttempt(ctx, status.DAGRun())
-		if err != nil {
-			return false, fmt.Errorf("reload DAG-run after checking previous distributed dispatch: %w", err)
-		}
-		latest, err := attempt.ReadStatus(ctx)
-		if err != nil {
-			return false, fmt.Errorf("reload DAG-run after checking previous distributed dispatch: %w", err)
-		}
-		if latest == nil {
-			return false, errors.New("reload DAG-run after checking previous distributed dispatch: status data is nil")
-		}
-		if latest.Status != core.Waiting || latest.AttemptID != status.AttemptID ||
-			(status.AttemptKey != "" && latest.AttemptKey != status.AttemptKey) {
-			return false, nil
-		}
-		if !s.Now().Before(deadline) {
-			return false, errors.New("previous distributed dispatch is still finalizing")
-		}
-		if err := s.waitForPoll(ctx); err != nil {
-			return false, err
-		}
-	}
-}
-
-func queuedRunExists(ctx context.Context, queueStore exec.QueueStore, dag *core.DAG, status *exec.DAGRunStatus) (bool, error) {
-	queueName := status.ProcGroup
-	if queueName == "" {
-		queueName = dag.ProcGroup()
-	}
-	items, err := queueStore.ListByDAGName(ctx, queueName, status.Name)
-	if err != nil {
-		return false, err
-	}
-	for _, item := range items {
-		ref, err := item.Data()
-		if err != nil {
-			return false, err
-		}
-		if ref != nil && *ref == status.DAGRun() {
-			return true, nil
-		}
-	}
-	return false, nil
 }
 
 func (s *Service) waitForPoll(ctx context.Context) error {

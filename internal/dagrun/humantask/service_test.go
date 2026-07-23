@@ -118,6 +118,27 @@ func TestCompleteTreatsEquivalentAdditionalNumbersAsIdentical(t *testing.T) {
 	assert.Len(t, fixture.queue.enqueued, 1)
 }
 
+func TestCompleteRejectsExtremeAdditionalNumber(t *testing.T) {
+	fixture := newServiceFixture(t, json.RawMessage(`{
+  "type":"object",
+  "properties":{},
+  "additionalProperties":true
+}`))
+	input, err := ParseJSONInput([]byte(`{"score":1e999999999}`))
+	require.NoError(t, err)
+
+	_, err = fixture.service.Complete(t.Context(), CompleteRequest{
+		DAGName: fixture.dag.Name, DAGRunID: fixture.status.DAGRunID, StepID: "review", Input: input,
+	})
+
+	require.Error(t, err)
+	assert.Equal(t, ErrorInvalid, KindOf(err))
+	assert.ErrorContains(t, err, "JSON number exceeds supported size")
+	assert.Equal(t, core.Waiting, fixture.status.Status)
+	assert.Equal(t, core.NodeWaiting, fixture.status.Nodes[0].Status)
+	assert.Empty(t, fixture.queue.enqueued)
+}
+
 func TestCompleteKeepsCheckpointRecoverableWhenEnqueueFails(t *testing.T) {
 	fixture := newServiceFixture(t, nil)
 	queueErr := errors.New("queue unavailable")
@@ -267,44 +288,6 @@ func TestCompleteEnqueuesRemoteResume(t *testing.T) {
 	assert.True(t, result.Queued)
 	assert.Equal(t, core.Queued, fixture.status.Status)
 	assert.Equal(t, []exec.DAGRunRef{fixture.status.DAGRun()}, fixture.queue.enqueued)
-}
-
-func TestCompleteWaitsForRemoteDispatchBeforeEnqueue(t *testing.T) {
-	fixture := newServiceFixture(t, nil)
-	fixture.status.WorkerID = "worker-a"
-	fixture.status.ProcGroup = "distributed"
-	ref := fixture.status.DAGRun()
-	fixture.queue.listResults = [][]exec.QueuedItemData{{serviceQueuedItem{ref: &ref}}, nil}
-	fixture.service.PollInterval = time.Millisecond
-
-	result, err := fixture.service.Complete(t.Context(), CompleteRequest{
-		DAGName: fixture.dag.Name, DAGRunID: fixture.status.DAGRunID, StepID: "review", Input: Input{Values: map[string]any{}},
-	})
-
-	require.NoError(t, err)
-	assert.True(t, result.Queued)
-	assert.Equal(t, 2, fixture.queue.listCalls)
-	assert.Equal(t, []exec.DAGRunRef{ref}, fixture.queue.enqueued)
-}
-
-func TestCompleteAcceptsConcurrentRemoteResume(t *testing.T) {
-	fixture := newServiceFixture(t, nil)
-	fixture.status.WorkerID = "worker-a"
-	fixture.status.ProcGroup = "distributed"
-	ref := fixture.status.DAGRun()
-	fixture.queue.listResults = [][]exec.QueuedItemData{{serviceQueuedItem{ref: &ref}}}
-	fixture.queue.beforeList = func() {
-		fixture.status.Status = core.Queued
-	}
-
-	result, err := fixture.service.Complete(t.Context(), CompleteRequest{
-		DAGName: fixture.dag.Name, DAGRunID: fixture.status.DAGRunID, StepID: "review", Input: Input{Values: map[string]any{}},
-	})
-
-	require.NoError(t, err)
-	assert.False(t, result.Queued)
-	assert.Equal(t, core.Queued, fixture.status.Status)
-	assert.Empty(t, fixture.queue.enqueued)
 }
 
 func TestValidateRetryProtectsHumanTaskCheckpoints(t *testing.T) {
@@ -566,9 +549,6 @@ type serviceQueueStore struct {
 	exec.QueueStore
 	enqueued      []exec.DAGRunRef
 	enqueueErrors []error
-	listResults   [][]exec.QueuedItemData
-	listCalls     int
-	beforeList    func()
 }
 
 func (s *serviceQueueStore) Enqueue(_ context.Context, _ string, _ exec.QueuePriority, ref exec.DAGRunRef) error {
@@ -580,25 +560,3 @@ func (s *serviceQueueStore) Enqueue(_ context.Context, _ string, _ exec.QueuePri
 	s.enqueued = append(s.enqueued, ref)
 	return nil
 }
-
-func (s *serviceQueueStore) ListByDAGName(context.Context, string, string) ([]exec.QueuedItemData, error) {
-	s.listCalls++
-	if s.beforeList != nil {
-		s.beforeList()
-		s.beforeList = nil
-	}
-	if len(s.listResults) == 0 {
-		return nil, nil
-	}
-	items := s.listResults[0]
-	s.listResults = s.listResults[1:]
-	return items, nil
-}
-
-type serviceQueuedItem struct {
-	ref *exec.DAGRunRef
-}
-
-func (serviceQueuedItem) ID() string { return "item-1" }
-
-func (item serviceQueuedItem) Data() (*exec.DAGRunRef, error) { return item.ref, nil }

@@ -10,11 +10,17 @@ import (
 	"errors"
 	"math/big"
 	"reflect"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
+)
+
+const (
+	maxComparableJSONNumberLength   = 1024
+	maxComparableJSONNumberExponent = 1024
 )
 
 // Complete validates and durably completes one human task, then queues the run when possible.
@@ -35,6 +41,13 @@ func (s *Service) Complete(ctx context.Context, request CompleteRequest) (Result
 	node, err := findNodeByID(target.status.Nodes, request.StepID)
 	if err != nil {
 		return Result{}, err
+	}
+	if !numbersWithinComparisonLimits(request.Input.Values) {
+		return Result{}, errorf(
+			ErrorInvalid,
+			"invalid input for human task step %q: JSON number exceeds supported size",
+			request.StepID,
+		)
 	}
 	completion, outputsValue, err := prepareCompletion(target.dag, node, request.Input)
 	if err != nil {
@@ -172,6 +185,9 @@ func canonicalValuesEqual(left, right any) bool {
 		if !ok {
 			return false
 		}
+		if !numberWithinComparisonLimits(left) || !numberWithinComparisonLimits(right) {
+			return false
+		}
 		leftNumber, leftOK := new(big.Rat).SetString(left.String())
 		rightNumber, rightOK := new(big.Rat).SetString(right.String())
 		if !leftOK || !rightOK {
@@ -204,4 +220,39 @@ func canonicalValuesEqual(left, right any) bool {
 	default:
 		return reflect.DeepEqual(left, right)
 	}
+}
+
+func numbersWithinComparisonLimits(value any) bool {
+	switch value := value.(type) {
+	case json.Number:
+		return numberWithinComparisonLimits(value)
+	case map[string]any:
+		for _, item := range value {
+			if !numbersWithinComparisonLimits(item) {
+				return false
+			}
+		}
+	case []any:
+		for _, item := range value {
+			if !numbersWithinComparisonLimits(item) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func numberWithinComparisonLimits(number json.Number) bool {
+	literal := number.String()
+	if len(literal) > maxComparableJSONNumberLength {
+		return false
+	}
+	index := strings.IndexAny(literal, "eE")
+	if index < 0 {
+		return true
+	}
+	exponent, err := strconv.ParseInt(literal[index+1:], 10, 64)
+	return err == nil &&
+		exponent >= -maxComparableJSONNumberExponent &&
+		exponent <= maxComparableJSONNumberExponent
 }

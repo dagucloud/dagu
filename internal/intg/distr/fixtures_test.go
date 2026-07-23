@@ -329,6 +329,7 @@ func (f *testFixture) startSchedulerWithOptions(
 	)
 	require.NoError(f.t, err)
 	schedulerInst.SetDAGRunLeaseStore(f.coord.DAGRunLeaseStore)
+	schedulerInst.SetDispatchTaskStore(f.coord.DispatchTaskStore)
 	if clock != nil {
 		schedulerInst.SetClock(clock)
 	}

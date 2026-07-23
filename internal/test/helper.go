@@ -285,16 +285,18 @@ func Setup(t *testing.T, opts ...HelperOption) Helper {
 	stateStore := store.NewDAGStateStore(file.NewCollection(cfg.Paths.DAGStateDir))
 	serviceMonitor := file.NewServiceRegistry(cfg)
 	distributedDir := filepath.Join(cfg.Paths.DataDir, "distributed")
-	var dispatchStoreOpts []store.DispatchTaskStoreOption
-	if options.StaleLeaseThreshold > 0 {
-		dispatchStoreOpts = append(dispatchStoreOpts, store.WithDispatchReservationTTL(options.StaleLeaseThreshold))
-	}
-	dispatchTaskStore := store.NewDispatchTaskStore(file.NewCollection(distributedDir), dispatchStoreOpts...)
 	workerHeartbeatStore := store.NewWorkerHeartbeatStore(file.NewCollection(filepath.Join(distributedDir, "workers")))
 	leaseCollection := file.NewCollection(filepath.Join(distributedDir, "leases"))
 	activeRunCollection := file.NewCollection(filepath.Join(distributedDir, "active-runs"))
 	dagRunLeaseStore := store.NewDAGRunLeaseStore(leaseCollection)
 	activeDistributedRunStore := store.NewActiveDistributedRunStore(activeRunCollection)
+	dispatchStoreOpts := []store.DispatchTaskStoreOption{
+		store.WithDispatchAdmissionLiveness(dagRunLeaseStore, activeDistributedRunStore),
+	}
+	if options.StaleLeaseThreshold > 0 {
+		dispatchStoreOpts = append(dispatchStoreOpts, store.WithDispatchReservationTTL(options.StaleLeaseThreshold))
+	}
+	dispatchTaskStore := store.NewDispatchTaskStore(file.NewCollection(distributedDir), dispatchStoreOpts...)
 
 	drm := runtimepkg.NewManager(runStore, procStore, cfg)
 

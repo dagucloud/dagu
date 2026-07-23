@@ -963,12 +963,17 @@ func skippedEditRetryNodeState(source *exec.Node) runtime.NodeState {
 	state.DoneCount = source.DoneCount
 	state.Repeated = source.Repeated
 	state.OutputVariables = cloneSyncMap(source.OutputVariables)
+	if source.OutputValue != nil {
+		state.OutputValue = ptrOf(*source.OutputValue)
+	}
+	if source.OutputsValue != nil {
+		state.OutputsValue = ptrOf(*source.OutputsValue)
+	}
 	state.ChatMessages = append([]exec.LLMMessage(nil), source.ChatMessages...)
 	state.ToolDefinitions = append([]exec.ToolDefinition(nil), source.ToolDefinitions...)
 	state.HumanTaskInput = append(state.HumanTaskInput, source.HumanTaskInput...)
 	if source.StepOutputsValue != nil {
-		value := *source.StepOutputsValue
-		state.StepOutputsValue = &value
+		state.StepOutputsValue = ptrOf(*source.StepOutputsValue)
 	}
 	state.HumanTaskCompletedBy = source.HumanTaskCompletedBy
 	state.HumanTaskCompletedByID = source.HumanTaskCompletedByID
