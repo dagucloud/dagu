@@ -10,9 +10,14 @@ afterEach(() => {
 });
 
 class ResizeObserverMock {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
+  observe(target: Element, options?: ResizeObserverOptions): void {
+    void target;
+    void options;
+  }
+  unobserve(target: Element): void {
+    void target;
+  }
+  disconnect(): void {}
 }
 
 Object.defineProperty(globalThis, 'ResizeObserver', {
