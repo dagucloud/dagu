@@ -181,7 +181,7 @@ function ManualActionDetails({
       {node.approvalInputs && Object.keys(node.approvalInputs).length > 0 && (
         <div className={detailClassName}>
           <span className="font-medium">Inputs:</span>{' '}
-          <span className="font-mono text-foreground/80">
+          <span className="whitespace-normal break-words font-mono text-foreground/80">
             {JSON.stringify(node.approvalInputs)}
           </span>
         </div>
@@ -205,7 +205,9 @@ function ManualActionDetails({
       {node.rejectionReason && (
         <div className={detailClassName}>
           <span className="font-medium">Reason:</span>{' '}
-          <span className="text-foreground/80">{node.rejectionReason}</span>
+          <span className="whitespace-normal break-words text-foreground/80">
+            {node.rejectionReason}
+          </span>
         </div>
       )}
     </>

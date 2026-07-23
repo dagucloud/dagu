@@ -140,7 +140,7 @@ vi.mock('../dag-editor', () => ({
 }));
 
 vi.mock('../../../dag-runs/components/dag-run-details', () => ({
-  DAGRunOutputs: () => null,
+  DAGRunOutputs: () => <div>Outputs panel</div>,
 }));
 
 const appBarValue = {
@@ -452,6 +452,24 @@ describe('DAGStatus', () => {
     rerender(dagStatusView(waitingHumanTaskRun('run-2')));
 
     expect(await screen.findByText('Human task panel')).toBeVisible();
+  });
+
+  it('keeps the selected tab when polling discovers a human task', async () => {
+    vi.mocked(useClient).mockReturnValue({
+      PATCH: patchMock,
+    } as unknown as ReturnType<typeof useClient>);
+    const { rerender } = render(dagStatusView(dagRun));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Outputs' }));
+    expect(screen.getByText('Outputs panel')).toBeVisible();
+
+    rerender(dagStatusView(waitingHumanTaskRun(dagRun.dagRunId)));
+
+    expect(
+      await screen.findByRole('button', { name: 'Human tasks' })
+    ).toBeVisible();
+    expect(screen.getByText('Outputs panel')).toBeVisible();
+    expect(screen.queryByText('Human task panel')).not.toBeInTheDocument();
   });
 
   it.each([

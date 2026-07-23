@@ -444,13 +444,20 @@ function DAGStatus({
     activeTab,
   ]);
 
-  // Surface the manual action that currently needs attention.
+  // Surface a newly available manual action from the default status tab.
   useEffect(() => {
-    if (hasHumanTaskWork) {
-      setActiveTab('human-tasks');
-    } else if (hasWaitingApprovals) {
-      setActiveTab('approval');
-    }
+    setActiveTab((currentTab) => {
+      if (currentTab !== 'status') {
+        return currentTab;
+      }
+      if (hasHumanTaskWork) {
+        return 'human-tasks';
+      }
+      if (hasWaitingApprovals) {
+        return 'approval';
+      }
+      return currentTab;
+    });
   }, [displayDAGRunIdentity, hasHumanTaskWork, hasWaitingApprovals]);
 
   const scrollPaneClassName = fillHeight

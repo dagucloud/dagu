@@ -166,9 +166,9 @@ func (s *Service) loadTarget(ctx context.Context, dagName, dagRunID, stepID stri
 }
 
 func (t *target) withStatus(status *exec.DAGRunStatus) *target {
-	copy := *t
-	copy.status = status
-	return &copy
+	clone := *t
+	clone.status = status
+	return &clone
 }
 
 func resultFor(status *exec.DAGRunStatus, stepID string, alreadyCompleted bool) Result {

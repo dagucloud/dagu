@@ -74,4 +74,14 @@ describe('getManualActionState', () => {
     expect(state.waitingHumanTaskNodes).toEqual([]);
     expect(state.hasHumanTaskWork).toBe(false);
   });
+
+  it('reports resume-pending human task work without a waiting node', () => {
+    const dagRun = {
+      status: Status.Waiting,
+      humanTaskResumePending: true,
+      nodes: [] as DAGRunNode[],
+    } as DAGRunDetails;
+
+    expect(getManualActionState(dagRun).hasHumanTaskWork).toBe(true);
+  });
 });

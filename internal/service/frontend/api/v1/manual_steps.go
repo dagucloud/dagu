@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"time"
 
 	"github.com/dagucloud/dagu/internal/auth"
 	"github.com/dagucloud/dagu/internal/core/exec"
@@ -18,6 +19,8 @@ var (
 	errManualStepNotApproval = errors.New("manual step is not an approval")
 	errManualStepHumanTask   = errors.New("human-task state requires the human-task completion API")
 )
+
+const manualStepRollbackTimeout = 10 * time.Second
 
 type manualStatusMutationError struct {
 	cause error
@@ -97,7 +100,6 @@ func (a *API) rollbackPushBack(
 	applied *exec.DAGRunStatus,
 	original *exec.DAGRunStatus,
 ) error {
-	ctx = context.WithoutCancel(ctx)
 	if applied == nil || original == nil {
 		return errors.New("push-back rollback status is nil")
 	}
@@ -123,7 +125,9 @@ func (a *API) rollbackPushBack(
 		return nil
 	}
 
-	_, swapped, err := a.compareAndSwapManualStatus(ctx, mutationRef, applied, func(latest *exec.DAGRunStatus) error {
+	rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), manualStepRollbackTimeout)
+	defer cancel()
+	_, swapped, err := a.compareAndSwapManualStatus(rollbackCtx, mutationRef, applied, func(latest *exec.DAGRunStatus) error {
 		for stepName, change := range changes {
 			idx := findStepByName(latest.Nodes, stepName)
 			if idx < 0 || !reflect.DeepEqual(latest.Nodes[idx], change.applied) {

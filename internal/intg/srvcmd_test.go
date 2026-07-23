@@ -5,6 +5,7 @@ package intg_test
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -162,7 +163,10 @@ func startServer(t *testing.T, configFile, port, basePath string, listener net.L
 
 	return func() {
 		th.Cancel()
-		require.NoError(t, <-serverErr)
+		err := <-serverErr
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			require.NoError(t, err)
+		}
 	}
 }
 
