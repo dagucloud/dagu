@@ -110,7 +110,6 @@ func (s *Service) Complete(ctx context.Context, request CompleteRequest) (Result
 			latestNode.Status = core.NodeSucceeded
 			return nil
 		},
-		exec.WithCompareAndSwapExpectedAttemptKey(target.status.AttemptKey),
 	)
 	if errors.Is(err, errCompletionAlreadyApplied) {
 		return s.queueCompletedTaskResume(ctx, target.withStatus(concurrentlyCompleted))

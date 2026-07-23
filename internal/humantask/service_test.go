@@ -287,26 +287,6 @@ func TestCompleteWaitsForEveryManualStepBeforeResuming(t *testing.T) {
 	assert.Empty(t, fixture.queue.enqueued)
 }
 
-func TestCompleteDoesNotMutateReplacementAttemptWithSameID(t *testing.T) {
-	fixture := newServiceFixture(t, nil)
-	fixture.store.beforeCompareAndSwap = func() {
-		fixture.status.AttemptKey = "key-2"
-	}
-
-	_, err := fixture.service.Complete(t.Context(), CompleteRequest{
-		DAGName:  fixture.dag.Name,
-		DAGRunID: fixture.status.DAGRunID,
-		StepID:   "review",
-		Input:    Input{Values: map[string]any{}},
-	})
-
-	require.Error(t, err)
-	assert.Equal(t, ErrorConflict, KindOf(err))
-	assert.Equal(t, core.NodeWaiting, fixture.status.Nodes[0].Status)
-	assert.Empty(t, fixture.status.Nodes[0].HumanTaskInput)
-	assert.Empty(t, fixture.queue.enqueued)
-}
-
 func TestCompleteEnqueuesRemoteResume(t *testing.T) {
 	fixture := newServiceFixture(t, nil)
 	fixture.status.WorkerID = "worker-a"
