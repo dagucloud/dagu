@@ -59,9 +59,11 @@ func (s *Service) enqueueResume(ctx context.Context, target *target, result Resu
 	)
 	if err != nil {
 		var latest *exec.DAGRunStatus
-		attempt, readErr := s.DAGRunStore.FindAttempt(postCommitCtx, target.ref)
+		readCtx, readCancel := context.WithTimeout(postCommitCtx, s.EnqueueTimeout)
+		defer readCancel()
+		attempt, readErr := s.DAGRunStore.FindAttempt(readCtx, target.ref)
 		if readErr == nil {
-			latest, readErr = attempt.ReadStatus(postCommitCtx)
+			latest, readErr = attempt.ReadStatus(readCtx)
 			if readErr == nil && latest != nil && ResumePending(latest) {
 				return result, &ResumeError{Result: result, Err: err}
 			}

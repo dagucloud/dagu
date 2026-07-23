@@ -164,6 +164,36 @@ func TestCompleteKeepsCheckpointRecoverableWhenEnqueueFails(t *testing.T) {
 	assert.Equal(t, []exec.DAGRunRef{fixture.status.DAGRun()}, fixture.queue.enqueued)
 }
 
+func TestResumeBoundsStatusVerificationAfterQueueFailure(t *testing.T) {
+	fixture := newServiceFixture(t, nil)
+	fixture.status.Nodes[0].Status = core.NodeSucceeded
+	fixture.status.Nodes[0].HumanTaskInput = json.RawMessage(`{}`)
+	fixture.queue.enqueueErrors = []error{errors.New("queue unavailable")}
+	fixture.service.EnqueueTimeout = 10 * time.Millisecond
+
+	findCalls := 0
+	fixture.store.findAttempt = func(ctx context.Context, _ exec.DAGRunRef) (exec.DAGRunAttempt, error) {
+		findCalls++
+		if findCalls == 1 {
+			return fixture.store.attempt, nil
+		}
+		if _, ok := ctx.Deadline(); !ok {
+			return nil, errors.New("status verification context has no deadline")
+		}
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+
+	result, err := fixture.service.Resume(t.Context(), fixture.dag.Name, fixture.status.DAGRunID)
+
+	require.Error(t, err)
+	assert.Equal(t, ErrorInternal, KindOf(err))
+	assert.ErrorContains(t, err, "failed to verify DAG-run status after queue failure")
+	assert.ErrorContains(t, err, context.DeadlineExceeded.Error())
+	assert.False(t, result.Queued)
+	assert.True(t, ResumePending(fixture.status))
+}
+
 func TestCompleteDoesNotReportRetryableWhenQueueRollbackFails(t *testing.T) {
 	fixture := newServiceFixture(t, nil)
 	fixture.queue.enqueueErrors = []error{errors.New("queue unavailable")}
@@ -466,11 +496,15 @@ type serviceDAGRunStore struct {
 	attempt              *serviceAttempt
 	status               *exec.DAGRunStatus
 	findErr              error
+	findAttempt          func(context.Context, exec.DAGRunRef) (exec.DAGRunAttempt, error)
 	beforeCompareAndSwap func()
 	compareAndSwapErrors []error
 }
 
-func (s *serviceDAGRunStore) FindAttempt(context.Context, exec.DAGRunRef) (exec.DAGRunAttempt, error) {
+func (s *serviceDAGRunStore) FindAttempt(ctx context.Context, ref exec.DAGRunRef) (exec.DAGRunAttempt, error) {
+	if s.findAttempt != nil {
+		return s.findAttempt(ctx, ref)
+	}
 	if s.findErr != nil {
 		return nil, s.findErr
 	}
