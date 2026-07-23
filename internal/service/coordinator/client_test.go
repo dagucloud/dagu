@@ -1027,6 +1027,103 @@ func TestClientHeartbeat(t *testing.T) {
 	assert.Equal(t, int32(2), receivedReq.Stats.BusyPollers)
 }
 
+func TestClientHeartbeatReconnectsAfterDeadline(t *testing.T) {
+	t.Parallel()
+
+	config := coordinator.DefaultConfig()
+	config.MaxRetries = 0
+
+	var oldHeartbeats atomic.Int32
+	oldCoord := &mockCoordinatorService{
+		heartbeatFunc: func(ctx context.Context, _ *coordinatorv1.HeartbeatRequest) (*coordinatorv1.HeartbeatResponse, error) {
+			if oldHeartbeats.Add(1) == 1 {
+				return &coordinatorv1.HeartbeatResponse{}, nil
+			}
+			<-ctx.Done()
+			return nil, ctx.Err()
+		},
+	}
+	oldServer, oldAddr := startMockServer(t, oldCoord)
+	defer oldServer.Stop()
+
+	var newHeartbeats atomic.Int32
+	newCoord := &mockCoordinatorService{
+		heartbeatFunc: func(context.Context, *coordinatorv1.HeartbeatRequest) (*coordinatorv1.HeartbeatResponse, error) {
+			newHeartbeats.Add(1)
+			return &coordinatorv1.HeartbeatResponse{}, nil
+		},
+	}
+	newServer, newAddr := startMockServer(t, newCoord)
+	defer newServer.Stop()
+
+	oldHost, oldPort := parseHostPort(oldAddr)
+	newHost, newPort := parseHostPort(newAddr)
+	monitor := &mockServiceMonitor{
+		members: []exec.HostInfo{
+			{ID: "coord-a", Host: oldHost, Port: oldPort, Status: exec.ServiceStatusActive},
+		},
+	}
+	client := coordinator.New(monitor, config)
+
+	request := &coordinatorv1.HeartbeatRequest{WorkerId: "test-worker"}
+	_, err := client.Heartbeat(context.Background(), request)
+	require.NoError(t, err)
+
+	monitor.members = []exec.HostInfo{
+		{ID: "coord-a", Host: newHost, Port: newPort, Status: exec.ServiceStatusActive},
+	}
+
+	stalledCtx, cancelStalled := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	_, err = client.Heartbeat(stalledCtx, request)
+	cancelStalled()
+	require.Equal(t, codes.DeadlineExceeded, status.Code(err))
+
+	recoveredCtx, cancelRecovered := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancelRecovered()
+	_, err = client.Heartbeat(recoveredCtx, request)
+	require.NoError(t, err)
+	assert.Equal(t, int32(1), newHeartbeats.Load())
+}
+
+func TestClientHeartbeatUsesConfiguredTimeout(t *testing.T) {
+	t.Parallel()
+
+	config := coordinator.DefaultConfig()
+	config.MaxRetries = 0
+	config.HeartbeatTimeout = 50 * time.Millisecond
+
+	mockCoord := &mockCoordinatorService{
+		heartbeatFunc: func(ctx context.Context, _ *coordinatorv1.HeartbeatRequest) (*coordinatorv1.HeartbeatResponse, error) {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		},
+	}
+	server, addr := startMockServer(t, mockCoord)
+	defer server.Stop()
+
+	host, port := parseHostPort(addr)
+	monitor := &mockServiceMonitor{
+		members: []exec.HostInfo{{ID: "coord-a", Host: host, Port: port, Status: exec.ServiceStatusActive}},
+	}
+	client := coordinator.New(monitor, config)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	result := make(chan error, 1)
+	go func() {
+		_, err := client.Heartbeat(ctx, &coordinatorv1.HeartbeatRequest{WorkerId: "test-worker"})
+		result <- err
+	}()
+
+	select {
+	case err := <-result:
+		require.Equal(t, codes.DeadlineExceeded, status.Code(err))
+	case <-time.After(500 * time.Millisecond):
+		cancel()
+		t.Fatal("Heartbeat did not respect its configured timeout")
+	}
+}
+
 func TestClientReportStatus(t *testing.T) {
 	t.Parallel()
 

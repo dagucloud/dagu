@@ -317,12 +317,13 @@ func (cli *clientImpl) attemptCall(ctx context.Context, members []exec.HostInfo,
 		}
 
 		// Check if the coordinator is healthy
-		if err := cli.isHealthy(ctx, member); err != nil {
+		if err := cli.isHealthy(ctx, client); err != nil {
 			logger.Warn(ctx, "Failed to check coordinator health",
 				slog.String("coordinator-id", member.ID),
 				tag.Host(member.Host),
 				tag.Port(member.Port),
 				tag.Error(err))
+			cli.resetClientOnTransientError(member, client, err)
 			cli.recordFailure(err)
 			lastErr = err
 			continue
@@ -341,6 +342,7 @@ func (cli *clientImpl) attemptCall(ctx context.Context, members []exec.HostInfo,
 			if errors.Is(err, backoff.ErrPermanent) {
 				return err
 			}
+			cli.resetClientOnTransientError(member, client, err)
 
 			lastErr = err
 		} else {
@@ -523,13 +525,7 @@ func (cli *clientImpl) callMemberWithTimeout(ctx context.Context, member exec.Ho
 	return cli.callMember(callCtx, member, callback)
 }
 
-func (cli *clientImpl) isHealthy(ctx context.Context, member exec.HostInfo) error {
-	// Get or create client for this coordinator
-	client, err := cli.getOrCreateClient(member)
-	if err != nil {
-		return fmt.Errorf("failed to get coordinator client: %w", err)
-	}
-
+func (cli *clientImpl) isHealthy(ctx context.Context, client *client) error {
 	// Check health
 	req := &grpc_health_v1.HealthCheckRequest{
 		Service: "", // Check overall server health
@@ -605,14 +601,31 @@ func (cli *clientImpl) createClient(member exec.HostInfo) (*client, error) {
 
 // removeClient removes a client from the cache
 func (cli *clientImpl) removeClient(member exec.HostInfo) {
+	cli.removeClientIfCurrent(member, nil)
+}
+
+// removeClientIfCurrent removes the cached client for member. A non-nil
+// failedClient restricts removal to that instance, so a replacement created
+// by a concurrent caller is preserved.
+func (cli *clientImpl) removeClientIfCurrent(member exec.HostInfo, failedClient *client) {
 	key := coordinatorMemberKey(member)
 
 	cli.clientsMu.Lock()
 	defer cli.clientsMu.Unlock()
 
-	if c, exists := cli.clients[key]; exists {
-		_ = c.conn.Close()
-		delete(cli.clients, key)
+	current, exists := cli.clients[key]
+	if !exists || (failedClient != nil && current != failedClient) {
+		return
+	}
+	_ = current.conn.Close()
+	delete(cli.clients, key)
+}
+
+// resetClientOnTransientError drops the cached client so the next call
+// re-dials, when err indicates the connection may be stale.
+func (cli *clientImpl) resetClientOnTransientError(member exec.HostInfo, failedClient *client, err error) {
+	if errors.Is(err, context.DeadlineExceeded) || shouldRefreshPinnedStateCoordinator(err) {
+		cli.removeClientIfCurrent(member, failedClient)
 	}
 }
 
@@ -811,6 +824,12 @@ func selectAuthoritativeWorker(current, candidate *coordinatorv1.WorkerInfo) *co
 
 // Heartbeat sends a heartbeat to coordinators and returns the response
 func (cli *clientImpl) Heartbeat(ctx context.Context, req *coordinatorv1.HeartbeatRequest) (*coordinatorv1.HeartbeatResponse, error) {
+	if cli.config.HeartbeatTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, cli.config.HeartbeatTimeout)
+		defer cancel()
+	}
+
 	members, err := cli.getCoordinatorMembers(ctx)
 	if err != nil {
 		return nil, err
@@ -943,7 +962,7 @@ func openStreamWithFailover[T any](
 			lastErr = err
 			continue
 		}
-		if err := cli.isHealthy(ctx, member); err != nil {
+		if err := cli.isHealthy(ctx, memberClient); err != nil {
 			cli.recordFailure(err)
 			lastErr = err
 			continue
@@ -1105,7 +1124,7 @@ func (cli *clientImpl) PutWorkspaceBundle(ctx context.Context, desc workspacebun
 			errs = append(errs, fmt.Errorf("coordinator %q: %w", member.ID, err))
 			continue
 		}
-		if err := cli.isHealthy(ctx, member); err != nil {
+		if err := cli.isHealthy(ctx, memberClient); err != nil {
 			errs = append(errs, fmt.Errorf("coordinator %q is unhealthy: %w", member.ID, err))
 			continue
 		}
