@@ -31,6 +31,9 @@ const (
 	TypeChain = "chain"
 )
 
+// DefaultMaxOutputSize is the default maximum captured step output size in bytes.
+const DefaultMaxOutputSize = 1024 * 1024
+
 // LogOutputMode represents the mode for log output handling.
 // It determines how stdout and stderr are written to log files.
 type LogOutputMode string
@@ -634,7 +637,6 @@ func (d *DAG) initializeDefaults() {
 		defaultHistRetentionDays = 30
 		defaultMaxCleanUpTime    = 5 * time.Second
 		defaultMaxActiveRuns     = 1
-		defaultMaxOutputSize     = 1024 * 1024 // 1MB
 	)
 
 	if d.Type == "" {
@@ -653,7 +655,7 @@ func (d *DAG) initializeDefaults() {
 		d.MaxActiveRuns = defaultMaxActiveRuns
 	}
 	if d.MaxOutputSize == 0 {
-		d.MaxOutputSize = defaultMaxOutputSize
+		d.MaxOutputSize = DefaultMaxOutputSize
 	}
 }
 

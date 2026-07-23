@@ -6,7 +6,6 @@ package api
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -99,20 +98,7 @@ func (a *API) CompleteHumanTask(
 	}
 	input, ok := ctx.Value(humanTaskInputContextKey{}).(humantask.Input)
 	if !ok {
-		rawInput, marshalErr := json.Marshal(request.Body)
-		if marshalErr != nil {
-			return &api.CompleteHumanTask400JSONResponse{
-				Code:    api.ErrorCodeBadRequest,
-				Message: fmt.Sprintf("invalid human-task completion input: %v", marshalErr),
-			}, nil
-		}
-		input, err = humantask.ParseJSONInput(rawInput)
-		if err != nil {
-			return &api.CompleteHumanTask400JSONResponse{
-				Code:    api.ErrorCodeBadRequest,
-				Message: err.Error(),
-			}, nil
-		}
+		return nil, errors.New("validated human-task input is missing from the request context")
 	}
 
 	service := a.humanTaskService()

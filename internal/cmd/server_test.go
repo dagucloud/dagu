@@ -18,7 +18,7 @@ func TestServerCommand(t *testing.T) {
 	t.Run("StartServer", func(t *testing.T) {
 		th := test.SetupCommand(t)
 		cancelWhenLogContains(t, th, "Server is starting")
-		listener, port := reserveServerListener(t)
+		listener, port := test.ReserveServerListener(t)
 		th.RunCommand(t, cmd.Server(frontend.WithListener(listener)), test.CmdTest{
 			Args:        []string{"server", fmt.Sprintf("--port=%s", port)},
 			ExpectedOut: []string{"Server is starting", port},
@@ -27,7 +27,7 @@ func TestServerCommand(t *testing.T) {
 	})
 	t.Run("StartServerWithConfig", func(t *testing.T) {
 		th := test.SetupCommand(t)
-		listener, port := reserveServerListener(t)
+		listener, port := test.ReserveServerListener(t)
 		configFile := th.TempFile(t, "server-config.yaml", fmt.Appendf(nil, "host: 127.0.0.1\nport: %s\n", port))
 		cancelWhenLogContains(t, th, port)
 		th.RunCommand(t, cmd.Server(frontend.WithListener(listener)), test.CmdTest{
@@ -35,17 +35,6 @@ func TestServerCommand(t *testing.T) {
 			ExpectedOut: []string{port},
 		})
 	})
-}
-
-func reserveServerListener(t *testing.T) (net.Listener, string) {
-	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		_ = listener.Close()
-	})
-	port := listener.Addr().(*net.TCPAddr).Port
-	return listener, fmt.Sprintf("%d", port)
 }
 
 // findPort finds an available port.

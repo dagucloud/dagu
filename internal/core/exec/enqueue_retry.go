@@ -16,6 +16,8 @@ import (
 // ErrRetryStaleLatest indicates the caller tried to retry a non-latest attempt.
 var ErrRetryStaleLatest = errors.New("retry target is no longer the latest attempt")
 
+const retryEnqueueRollbackTimeout = 10 * time.Second
+
 // EnqueueRetryOptions configure a retry enqueue.
 type EnqueueRetryOptions struct {
 	// AutoRetry marks scheduler-issued DAG auto-retries. These consume the
@@ -113,7 +115,8 @@ func rollbackQueuedRetry(
 	queued *DAGRunStatus,
 	original *DAGRunStatus,
 ) error {
-	ctx = context.WithoutCancel(ctx)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), retryEnqueueRollbackTimeout)
+	defer cancel()
 	_, swapped, err := dagRunStore.CompareAndSwapLatestAttemptStatus(
 		ctx,
 		dagRun,

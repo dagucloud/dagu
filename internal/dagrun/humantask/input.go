@@ -121,10 +121,8 @@ func prepareCompletion(dag *core.DAG, node *exec.Node, input Input) (*spec.Human
 
 func marshalOutputs(dag *core.DAG, result *spec.HumanTaskInputResult) (string, error) {
 	maxSize := dag.MaxOutputSize
-	if maxSize <= 0 {
-		normalized := dag.Clone()
-		core.InitializeDefaults(normalized)
-		maxSize = normalized.MaxOutputSize
+	if maxSize == 0 {
+		maxSize = core.DefaultMaxOutputSize
 	}
 	if len(result.Canonical) > maxSize {
 		return "", fmt.Errorf("human task input exceeded maximum size limit of %d bytes", maxSize)

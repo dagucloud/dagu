@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
 	"testing"
 	"time"
 
@@ -92,7 +91,7 @@ steps:
 // TestServer_BasePath verifies that when BasePath is set in the configuration,
 // the API endpoints are served under that base path and not on the root.
 func TestServer_BasePath(t *testing.T) {
-	listener, port := reserveServerListener(t)
+	listener, port := test.ReserveServerListener(t)
 	configFile := writeServerConfig(t, port, "/dagu", false)
 	stopServer := startServer(t, configFile, port, "/dagu", listener)
 
@@ -112,7 +111,7 @@ func TestServer_RemoteNode(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			listener, port := reserveServerListener(t)
+			listener, port := test.ReserveServerListener(t)
 			configFile := writeServerConfig(t, port, tc.basePath, true)
 			stopServer := startServer(t, configFile, port, tc.basePath, listener)
 
@@ -208,15 +207,4 @@ func requireHealthy(t *testing.T, url string) {
 	}
 	require.NoError(t, json.Unmarshal(body, &healthResp))
 	require.Equal(t, "healthy", healthResp.Status)
-}
-
-func reserveServerListener(t *testing.T) (net.Listener, string) {
-	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		_ = listener.Close()
-	})
-	port := listener.Addr().(*net.TCPAddr).Port
-	return listener, strconv.Itoa(port)
 }
