@@ -29,7 +29,7 @@ worker_selector:
   tier: "queue"
 steps:
   - name: step1
-    run: echo "executed"
+    action: noop
 `,
 		withWorkerCount(queuedDispatchWorkerCount()),
 		withWorkerMaxActiveRuns(queuedDispatchWorkerMaxActiveRuns()),
