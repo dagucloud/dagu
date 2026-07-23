@@ -15,6 +15,8 @@ import (
 	"github.com/dagucloud/dagu/internal/core/spec"
 )
 
+const maxJSONNestingDepth = 100
+
 // Input contains decoded completion values and the requested coercion policy.
 type Input struct {
 	Values        map[string]any
@@ -25,7 +27,7 @@ type Input struct {
 func ParseJSONInput(raw []byte) (Input, error) {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()
-	decoded, err := decodeUniqueJSONValue(decoder)
+	decoded, err := decodeUniqueJSONValue(decoder, 0)
 	if err != nil {
 		return Input{}, errorf(ErrorInvalid, "invalid JSON value: %v", err)
 	}
@@ -39,7 +41,7 @@ func ParseJSONInput(raw []byte) (Input, error) {
 	return Input{Values: values}, nil
 }
 
-func decodeUniqueJSONValue(decoder *json.Decoder) (any, error) {
+func decodeUniqueJSONValue(decoder *json.Decoder, depth int) (any, error) {
 	token, err := decoder.Token()
 	if err != nil {
 		return nil, err
@@ -47,6 +49,9 @@ func decodeUniqueJSONValue(decoder *json.Decoder) (any, error) {
 	delimiter, ok := token.(json.Delim)
 	if !ok {
 		return token, nil
+	}
+	if depth >= maxJSONNestingDepth {
+		return nil, fmt.Errorf("JSON nesting depth exceeds %d", maxJSONNestingDepth)
 	}
 	switch delimiter {
 	case '{':
@@ -63,7 +68,7 @@ func decodeUniqueJSONValue(decoder *json.Decoder) (any, error) {
 			if _, exists := object[key]; exists {
 				return nil, fmt.Errorf("duplicate JSON member %q", key)
 			}
-			value, err := decodeUniqueJSONValue(decoder)
+			value, err := decodeUniqueJSONValue(decoder, depth+1)
 			if err != nil {
 				return nil, err
 			}
@@ -76,7 +81,7 @@ func decodeUniqueJSONValue(decoder *json.Decoder) (any, error) {
 	case '[':
 		var array []any
 		for decoder.More() {
-			value, err := decodeUniqueJSONValue(decoder)
+			value, err := decodeUniqueJSONValue(decoder, depth+1)
 			if err != nil {
 				return nil, err
 			}

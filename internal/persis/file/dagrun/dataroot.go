@@ -589,7 +589,7 @@ SCAN:
 				}
 
 				// Try index-accelerated path for this day.
-				dayEntries, readErr := os.ReadDir(dayPath)
+				dayEntries, readErr := fileutil.ReadDir(dayPath)
 				if readErr != nil {
 					continue
 				}

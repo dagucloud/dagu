@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -25,6 +26,22 @@ func TestParseJSONInputPreservesNumbersAndRejectsDuplicateMembers(t *testing.T) 
 	require.Error(t, err)
 	assert.Equal(t, ErrorInvalid, KindOf(err))
 	assert.ErrorContains(t, err, `duplicate JSON member "enabled"`)
+}
+
+func TestParseJSONInputLimitsNestingDepth(t *testing.T) {
+	nestedInput := func(depth int) []byte {
+		arrays := depth - 1
+		return []byte(`{"value":` + strings.Repeat(`[`, arrays) + `null` +
+			strings.Repeat(`]`, arrays) + `}`)
+	}
+
+	_, err := ParseJSONInput(nestedInput(maxJSONNestingDepth))
+	require.NoError(t, err)
+
+	_, err = ParseJSONInput(nestedInput(maxJSONNestingDepth + 1))
+	require.Error(t, err)
+	assert.Equal(t, ErrorInvalid, KindOf(err))
+	assert.ErrorContains(t, err, "JSON nesting depth exceeds")
 }
 
 func TestCompletePersistsTypedInputAndQueuesResume(t *testing.T) {
