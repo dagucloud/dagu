@@ -115,30 +115,19 @@ func WithRemoteNode(resolver *remotenode.Resolver, apiBasePath string) func(next
 				slog.String("content-type", resp.Header.Get("Content-Type")),
 				slog.Int("data-length", len(respData)))
 
-			// If not status 200, try to parse the error response
+			// Preserve structured errors returned by the remote API.
 			if resp.StatusCode < 200 || resp.StatusCode > 299 {
-				// Only try to decode JSON if we actually got some response data
-				if len(respData) > 0 {
-					var remoteErr api.Error
-					if err := json.Unmarshal(respData, &remoteErr); err == nil && remoteErr.Code != "" {
-						w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
-						w.WriteHeader(resp.StatusCode)
-						if _, err = w.Write(respData); err != nil {
-							logger.Error(r.Context(), "Failed to write response", tag.Error(err))
-						}
-						return
-					}
+				var remoteErr api.Error
+				if len(respData) == 0 || json.Unmarshal(respData, &remoteErr) != nil || remoteErr.Code == "" {
+					WriteErrorResponse(w, &Error{
+						Code:       api.ErrorCodeBadGateway,
+						HTTPStatus: resp.StatusCode,
+						Message:    fmt.Sprintf("remote node responded with status %d", resp.StatusCode),
+					})
+					return
 				}
-				// If we can't decode a proper error or have no data, return a generic one
-				WriteErrorResponse(w, &Error{
-					Code:       api.ErrorCodeBadGateway,
-					HTTPStatus: resp.StatusCode,
-					Message:    fmt.Sprintf("remote node responded with status %d", resp.StatusCode),
-				})
-				return
 			}
 
-			// Write the successful response, preserving the upstream status code
 			w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
 			w.WriteHeader(resp.StatusCode)
 			if _, err = w.Write(respData); err != nil {

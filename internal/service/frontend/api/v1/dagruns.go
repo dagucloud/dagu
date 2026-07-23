@@ -2976,6 +2976,13 @@ func (a *API) retryDAGRun(ctx context.Context, dagName, dagRunID, retryDagRunID,
 	if prevStatus == nil {
 		return retryDAGRunResult{}, fmt.Errorf("error reading status: status data is nil")
 	}
+	if prevStatus.Status == core.Waiting {
+		return retryDAGRunResult{}, &Error{
+			HTTPStatus: http.StatusConflict,
+			Code:       api.ErrorCodeConflict,
+			Message:    fmt.Sprintf("DAG-run %s is waiting and cannot be retried", prevStatus.DAGRun()),
+		}
+	}
 	if err := humantask.ValidateRetry(prevStatus, stepName); err != nil {
 		return retryDAGRunResult{}, &Error{
 			HTTPStatus: http.StatusConflict,
@@ -3728,7 +3735,7 @@ func (a *API) waitForManualStepMutationReady(
 	poll := time.NewTicker(manualStepSettlePollInterval)
 	defer poll.Stop()
 
-	if isLocalManualStepWorker(status.WorkerID) {
+	if !exec.IsRemoteWorkerID(status.WorkerID) {
 		if a.procStore == nil {
 			return nil, errors.New("process store is unavailable")
 		}
@@ -3775,10 +3782,6 @@ func (a *API) waitForManualStepMutationReady(
 		case <-poll.C:
 		}
 	}
-}
-
-func isLocalManualStepWorker(workerID string) bool {
-	return workerID == "" || workerID == "local"
 }
 
 func applyApproval(ctx context.Context, node *exec.Node, body *api.ApproveStepRequest) {

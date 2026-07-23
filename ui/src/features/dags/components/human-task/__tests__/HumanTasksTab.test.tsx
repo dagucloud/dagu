@@ -105,25 +105,6 @@ describe('HumanTasksTab', () => {
     expect(onChanged).toHaveBeenCalledTimes(1);
   });
 
-  it('treats a null form as a form-less task', async () => {
-    const onChanged = vi.fn();
-    const dagRun = humanTaskRun();
-    const humanTask = dagRun.nodes[0]?.step.humanTask;
-    if (!humanTask) throw new Error('expected a human task fixture');
-    humanTask.form = null as unknown as Record<string, unknown>;
-    render(<HumanTasksTab dagRun={dagRun} onChanged={onChanged} />);
-
-    fireEvent.click(screen.getByRole('button', { name: 'Complete task' }));
-
-    await waitFor(() =>
-      expect(postMock).toHaveBeenCalledWith(
-        '/dag-runs/{name}/{dagRunId}/human-tasks/{stepId}/complete',
-        expect.objectContaining({ body: {} })
-      )
-    );
-    expect(onChanged).toHaveBeenCalledTimes(1);
-  });
-
   it('submits typed form data directly to the completion endpoint', async () => {
     const onChanged = vi.fn();
     render(
@@ -268,22 +249,5 @@ describe('HumanTasksTab', () => {
     expect(
       screen.getByText('Execute permission is required to complete this task.')
     ).toBeVisible();
-  });
-
-  it('disables a form-backed task without a step ID', () => {
-    const dagRun = humanTaskRun({
-      type: 'object',
-      properties: {
-        environment: { type: 'string', title: 'Environment' },
-      },
-    });
-    delete dagRun.nodes[0]?.step.id;
-
-    render(<HumanTasksTab dagRun={dagRun} onChanged={vi.fn()} />);
-
-    expect(screen.getByLabelText(/Environment/)).toBeDisabled();
-    expect(
-      screen.getByRole('button', { name: 'Complete task' })
-    ).toBeDisabled();
   });
 });

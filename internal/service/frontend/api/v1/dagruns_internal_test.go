@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -260,9 +259,7 @@ func TestRollbackPushBackIgnoresCancellationAndPreservesConcurrentUnrelatedNodeC
 
 type manualCASStore struct {
 	exec.DAGRunStore
-	status   *exec.DAGRunStatus
-	failures []error
-	calls    int
+	status *exec.DAGRunStatus
 }
 
 type manualStepAttempt struct {
@@ -322,14 +319,6 @@ func (s *manualCASStore) CompareAndSwapLatestAttemptStatus(
 	if err := ctx.Err(); err != nil {
 		return nil, false, err
 	}
-	s.calls++
-	if len(s.failures) > 0 {
-		err := s.failures[0]
-		s.failures = s.failures[1:]
-		if err != nil {
-			return nil, false, err
-		}
-	}
 	options := exec.NewCompareAndSwapStatusOptions(opts...)
 	if s.status.AttemptID != expectedAttemptID || s.status.Status != expectedStatus {
 		return s.status, false, nil
@@ -341,35 +330,6 @@ func (s *manualCASStore) CompareAndSwapLatestAttemptStatus(
 		return nil, false, err
 	}
 	return s.status, true, nil
-}
-
-func TestCompareAndSwapManualStatusRetriesTransientWindowsWriteFailure(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("transient file sharing violations are Windows-specific")
-	}
-	status := &exec.DAGRunStatus{
-		Name:       "manual-dag",
-		DAGRunID:   "run-1",
-		AttemptID:  "attempt-1",
-		AttemptKey: "attempt-key-1",
-		Status:     core.Waiting,
-	}
-	store := &manualCASStore{
-		status: status,
-		failures: []error{
-			errors.New("write status: file is used by another process"),
-		},
-	}
-	a := &API{dagRunStore: store}
-
-	updated, swapped, err := a.compareAndSwapManualStatus(t.Context(), status.DAGRun(), status, func(*exec.DAGRunStatus) error {
-		return nil
-	})
-
-	require.NoError(t, err)
-	assert.True(t, swapped)
-	assert.Same(t, status, updated)
-	assert.Equal(t, 2, store.calls)
 }
 
 func TestWaitForManualStepMutationReadyFailsClosedOnLivenessError(t *testing.T) {

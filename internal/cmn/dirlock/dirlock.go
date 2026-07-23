@@ -197,7 +197,7 @@ func (l *dirLock) TryLock() error {
 	}
 
 	// Ensure the target directory exists
-	if err := os.MkdirAll(l.targetDir, 0750); err != nil {
+	if err := fileutil.MkdirAll(l.targetDir, 0750); err != nil {
 		return fmt.Errorf("failed to create target directory: %w", err)
 	}
 
@@ -219,6 +219,9 @@ func (l *dirLock) TryLock() error {
 	tokenPath := filepath.Join(l.lockPath, lockOwnerFileName)
 	if err := os.WriteFile(tokenPath, []byte(token), 0600); err != nil {
 		_ = removeLockDir(l.lockPath)
+		if isRetryableLockStateError(err) {
+			return ErrLockConflict
+		}
 		return fmt.Errorf("failed to write lock token: %w", err)
 	}
 	l.fenceToken = token

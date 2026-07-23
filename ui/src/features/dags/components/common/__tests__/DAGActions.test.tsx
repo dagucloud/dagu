@@ -94,6 +94,30 @@ describe('DAGActions', () => {
     expect(queries.getByRole('button', { name: 'Stop' })).toBeEnabled();
   });
 
+  it('disables retry for waiting DAG executions', () => {
+    const view = render(
+      <DAGActions
+        status={{
+          name: 'waiting-dag',
+          dagRunId: 'run-1',
+          status: Status.Waiting,
+          statusLabel: StatusLabel.waiting,
+          artifactsAvailable: false,
+          autoRetryCount: 0,
+          startedAt: '',
+          finishedAt: '',
+        }}
+        fileName="waiting-dag.yaml"
+        dag={{ name: 'waiting-dag' }}
+        displayMode="full"
+      />
+    );
+
+    expect(
+      within(view.container).getByRole('button', { name: 'Retry' })
+    ).toBeDisabled();
+  });
+
   it('disables retry when there is no DAG run id', () => {
     const view = render(
       <DAGActions

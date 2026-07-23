@@ -27,11 +27,10 @@ describe('getManualActionState', () => {
       waitingApprovalNodes: [],
       waitingHumanTaskNodes: [],
       hasHumanTaskWork: false,
-      humanTaskBlocksRetry: false,
     });
   });
 
-  it('finds actionable approvals and blocks retry at a human-task checkpoint', () => {
+  it('finds actionable approvals and human tasks', () => {
     const approval = node(NodeStatus.Waiting, {
       name: 'approve',
       approval: { prompt: 'Approve release' },
@@ -51,31 +50,9 @@ describe('getManualActionState', () => {
     expect(state.waitingApprovalNodes).toEqual([approval]);
     expect(state.waitingHumanTaskNodes).toEqual([humanTask]);
     expect(state.hasHumanTaskWork).toBe(true);
-    expect(state.humanTaskBlocksRetry).toBe(true);
   });
 
-  it('allows retry after a run has left the human-task checkpoint', () => {
-    const dagRun = {
-      status: Status.Failed,
-      humanTaskResumePending: true,
-      nodes: [
-        node(NodeStatus.Failed, {
-          name: 'review',
-          humanTask: { prompt: 'Choose a region' },
-        } as DAGRunNode['step']),
-      ],
-    } as DAGRunDetails;
-
-    const state = getManualActionState(dagRun);
-
-    expect(state.isWaiting).toBe(false);
-    expect(state.waitingApprovalNodes).toEqual([]);
-    expect(state.waitingHumanTaskNodes).toEqual([]);
-    expect(state.hasHumanTaskWork).toBe(true);
-    expect(state.humanTaskBlocksRetry).toBe(false);
-  });
-
-  it('allows retry while waiting on approval after a human task completed', () => {
+  it('ignores a completed human task while approval is waiting', () => {
     const approval = node(NodeStatus.Waiting, {
       name: 'approve',
       approval: { prompt: 'Approve release' },
@@ -96,6 +73,5 @@ describe('getManualActionState', () => {
     expect(state.waitingApprovalNodes).toEqual([approval]);
     expect(state.waitingHumanTaskNodes).toEqual([]);
     expect(state.hasHumanTaskWork).toBe(false);
-    expect(state.humanTaskBlocksRetry).toBe(false);
   });
 });

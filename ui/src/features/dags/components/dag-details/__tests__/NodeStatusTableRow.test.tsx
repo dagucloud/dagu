@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
 import { MemoryRouter } from 'react-router-dom';
@@ -21,11 +21,12 @@ import NodeStatusTableRow from '../NodeStatusTableRow';
 const configMock = vi.hoisted(() => ({
   runDags: true,
 }));
+const postMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@/hooks/api', () => ({
   useClient: () => ({
     PATCH: vi.fn(),
-    POST: vi.fn(),
+    POST: postMock,
   }),
   useQuery: vi.fn(),
 }));
@@ -72,6 +73,7 @@ const stepLogPath = '/dag-runs/{name}/{dagRunId}/steps/{stepName}/log';
 describe('NodeStatusTableRow', () => {
   beforeEach(() => {
     configMock.runDags = true;
+    postMock.mockReset();
     mockedUseQuery.mockImplementation((path, init) => ({
       data:
         path === stepLogPath && init
@@ -248,7 +250,7 @@ describe('NodeStatusTableRow', () => {
     expect(screen.queryByTitle('Retry from this step')).not.toBeInTheDocument();
   });
 
-  it('hides step retry controls while a human task is waiting', () => {
+  it('hides step retry controls while the DAG run is waiting', () => {
     const node = {
       step: { name: 'build' },
       status: NodeStatus.Success,
@@ -260,17 +262,6 @@ describe('NodeStatusTableRow', () => {
       retryCount: 0,
       doneCount: 1,
     } as components['schemas']['Node'];
-    const waitingHumanTask = {
-      ...node,
-      step: {
-        name: 'review',
-        humanTask: { prompt: 'Review deployment' },
-      },
-      status: NodeStatus.Waiting,
-      statusLabel: NodeStatusLabel.waiting,
-      doneCount: 0,
-    } as components['schemas']['Node'];
-
     render(
       <MemoryRouter>
         <AppBarContext.Provider value={appBarValue}>
@@ -290,7 +281,7 @@ describe('NodeStatusTableRow', () => {
                   dagRun={{
                     ...dagRun,
                     status: Status.Waiting,
-                    nodes: [node, waitingHumanTask],
+                    nodes: [node],
                   }}
                   view="desktop"
                 />
@@ -302,6 +293,65 @@ describe('NodeStatusTableRow', () => {
     );
 
     expect(screen.queryByTitle('Retry from this step')).not.toBeInTheDocument();
+  });
+
+  it('keeps the retry dialog open when the API rejects the request', async () => {
+    postMock.mockResolvedValueOnce({
+      error: { message: 'The DAG run cannot be retried' },
+    });
+    const node = {
+      step: { name: 'build' },
+      status: NodeStatus.Success,
+      statusLabel: NodeStatusLabel.succeeded,
+      stdout: '',
+      stderr: '',
+      startedAt: '',
+      finishedAt: '',
+      retryCount: 0,
+      doneCount: 1,
+    } as components['schemas']['Node'];
+
+    render(
+      <MemoryRouter>
+        <AppBarContext.Provider value={appBarValue}>
+          <DAGContext.Provider
+            value={{
+              refresh: vi.fn(),
+              name: 'example',
+              fileName: 'example.yaml',
+            }}
+          >
+            <table>
+              <tbody>
+                <NodeStatusTableRow
+                  rownum={1}
+                  node={node}
+                  name="example.yaml"
+                  dagRun={dagRun}
+                  view="desktop"
+                />
+              </tbody>
+            </table>
+          </DAGContext.Provider>
+        </AppBarContext.Provider>
+      </MemoryRouter>
+    );
+
+    fireEvent.click(screen.getByTitle('Retry from this step'));
+    const dialog = screen.getByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Retry' }));
+
+    expect(
+      await screen.findByText('The DAG run cannot be retried')
+    ).toBeVisible();
+    expect(screen.getByRole('dialog')).toBeVisible();
+    expect(postMock).toHaveBeenCalledWith('/dag-runs/{name}/{dagRunId}/retry', {
+      params: {
+        path: { name: 'example', dagRunId: 'run-1' },
+        query: { remoteNode: 'local' },
+      },
+      body: { dagRunId: 'run-1', stepName: 'build' },
+    });
   });
 
   it.each([

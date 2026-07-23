@@ -104,7 +104,7 @@ func NewAttempt(file string, cache *fileutil.Cache[*exec.DAGRunStatus], opts ...
 
 // Exists returns true if the status file exists.
 func (att *Attempt) Exists() bool {
-	_, err := os.Stat(att.file)
+	_, err := fileutil.Stat(att.file)
 	return err == nil || !os.IsNotExist(err)
 }
 
@@ -159,7 +159,7 @@ func (att *Attempt) Open(ctx context.Context) error {
 
 	// Ensure the directory exists
 	dir := filepath.Dir(att.file)
-	if err := os.MkdirAll(dir, 0750); err != nil {
+	if err := fileutil.MkdirAll(dir, 0750); err != nil {
 		return fmt.Errorf("failed to create directory %s: %w", dir, err)
 	}
 
@@ -175,7 +175,7 @@ func (att *Attempt) Open(ctx context.Context) error {
 	}
 
 	// Create the per-run work directory so steps can use DAG_RUN_WORK_DIR immediately
-	if err := os.MkdirAll(att.WorkDir(), 0750); err != nil {
+	if err := fileutil.MkdirAll(att.WorkDir(), 0750); err != nil {
 		return fmt.Errorf("failed to create work directory %s: %w", att.WorkDir(), err)
 	}
 

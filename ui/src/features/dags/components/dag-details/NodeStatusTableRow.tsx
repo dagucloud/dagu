@@ -49,7 +49,6 @@ import {
 import { useContext, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { buildDAGPageURL } from '../../../dag-runs/lib/dagRunUrls';
-import { getManualActionState } from '../../../dag-runs/lib/manualActionState';
 import {
   components,
   NodeStatus,
@@ -240,7 +239,6 @@ function NodeStatusTableRow({
   const [showDialog, setShowDialog] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
   // State for inline log expansion
   const [isLogExpanded, setIsLogExpanded] = useState(defaultLogExpanded);
   const [activeLogTab, setActiveLogTab] = useState<'stdout' | 'stderr'>(
@@ -284,7 +282,6 @@ function NodeStatusTableRow({
   }, [defaultLogExpanded, hasLogs, hasStderr]);
 
   const showStepActions = Boolean(dagRunId && config.permissions.runDags);
-  const { humanTaskBlocksRetry } = getManualActionState(dagRun);
   const canUpdateStepStatus =
     showStepActions &&
     !node.step.humanTask &&
@@ -294,10 +291,11 @@ function NodeStatusTableRow({
     dagRun.status !== Status.Waiting;
   const canRetryStep =
     showStepActions &&
-    !humanTaskBlocksRetry &&
+    dagRun.status !== Status.Waiting &&
     !node.step.humanTask &&
     node.status !== NodeStatus.Waiting &&
     node.status !== NodeStatus.Rejected;
+  const retryDisabled = loading || dagRun.status === Status.Running;
 
   const subDAGLogQuery = useQuery(
     '/dag-runs/{name}/{dagRunId}/sub-dag-runs/{subDAGRunId}/steps/{stepName}/log',
@@ -500,18 +498,31 @@ function NodeStatusTableRow({
     setLoading(true);
     setError(null);
     try {
-      await client.POST('/dag-runs/{name}/{dagRunId}/retry', {
-        params: {
-          path: { name: dagName, dagRunId },
-          query: { remoteNode },
-        },
-        body: { dagRunId, stepName: node.step.name },
-      });
-      setSuccess(true);
+      const { error: requestError } = await client.POST(
+        '/dag-runs/{name}/{dagRunId}/retry',
+        {
+          params: {
+            path: { name: dagName, dagRunId },
+            query: { remoteNode },
+          },
+          body: { dagRunId, stepName: node.step.name },
+        }
+      );
+      if (requestError) {
+        setError(requestError.message || 'Failed to retry DAG run');
+        return;
+      }
       setShowDialog(false);
     } catch (e) {
-      const error = e as { data?: { message?: string }; message?: string };
-      setError(error?.data?.message || error.message || 'Retry failed');
+      const requestError = e as {
+        data?: { message?: string };
+        message?: string;
+      };
+      setError(
+        requestError?.data?.message ||
+          requestError.message ||
+          'Failed to retry DAG run'
+      );
     } finally {
       setLoading(false);
     }
@@ -564,6 +575,40 @@ function NodeStatusTableRow({
   // Determine which stream to show based on active tab
   const currentStream: components['schemas']['Stream'] =
     activeLogTab === 'stderr' && hasStderr ? Stream.stderr : Stream.stdout;
+
+  const handleRetryDialogOpenChange = (open: boolean) => {
+    setShowDialog(open);
+    setError(null);
+  };
+
+  const retryDialog = (
+    <Dialog open={showDialog} onOpenChange={handleRetryDialogOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Retry from this step?</DialogTitle>
+        </DialogHeader>
+        <div className="py-2 text-sm">
+          This will re-execute <b>{node.step.name}</b>. Are you sure?
+          {error && <div className="text-error mt-2">{error}</div>}
+        </div>
+        <DialogFooter>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => handleRetryDialogOpenChange(false)}
+            disabled={loading}
+          >
+            <X className="h-4 w-4" />
+            Cancel
+          </Button>
+          <Button size="sm" onClick={handleRetry} disabled={loading}>
+            <Play className="h-4 w-4" />
+            {loading ? 'Retrying...' : 'Retry'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 
   // Render desktop view (table row)
   if (view === 'desktop') {
@@ -872,43 +917,15 @@ function NodeStatusTableRow({
                     title="Retry from this step"
                     onClick={(e) => {
                       e.stopPropagation();
-                      setShowDialog(true);
+                      handleRetryDialogOpenChange(true);
                     }}
-                    disabled={loading || dagRun.status === Status.Running}
+                    disabled={retryDisabled}
                   >
                     <Play className="h-4 w-4 text-success" />
                   </Button>
                 )}
               </div>
-              <Dialog open={showDialog} onOpenChange={setShowDialog}>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Retry from this step?</DialogTitle>
-                  </DialogHeader>
-                  <div className="py-2 text-sm">
-                    This will re-execute <b>{node.step.name}</b>. Are you sure?
-                    {error && <div className="text-error mt-2">{error}</div>}
-                    {success && (
-                      <div className="text-success mt-2">Retry started!</div>
-                    )}
-                  </div>
-                  <DialogFooter>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => setShowDialog(false)}
-                      disabled={loading}
-                    >
-                      <X className="h-4 w-4" />
-                      Cancel
-                    </Button>
-                    <Button size="sm" onClick={handleRetry} disabled={loading}>
-                      <Play className="h-4 w-4" />
-                      {loading ? 'Retrying...' : 'Retry'}
-                    </Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
+              {retryDialog}
             </TableCell>
           )}
         </StyledTableRow>
@@ -1250,41 +1267,13 @@ function NodeStatusTableRow({
             <button
               className="p-2 rounded-full hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed"
               title="Retry from this step"
-              onClick={() => setShowDialog(true)}
-              disabled={loading || dagRun.status === Status.Running}
+              onClick={() => handleRetryDialogOpenChange(true)}
+              disabled={retryDisabled}
             >
               <Play className="h-6 w-6 text-success" />
             </button>
           )}
-          <Dialog open={showDialog} onOpenChange={setShowDialog}>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Retry from this step?</DialogTitle>
-              </DialogHeader>
-              <div className="py-2 text-sm">
-                This will re-execute <b>{node.step.name}</b>. Are you sure?
-                {error && <div className="text-error mt-2">{error}</div>}
-                {success && (
-                  <div className="text-success mt-2">Retry started!</div>
-                )}
-              </div>
-              <DialogFooter>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => setShowDialog(false)}
-                  disabled={loading}
-                >
-                  <X className="h-4 w-4" />
-                  Cancel
-                </Button>
-                <Button size="sm" onClick={handleRetry} disabled={loading}>
-                  <Play className="h-4 w-4" />
-                  {loading ? 'Retrying...' : 'Retry'}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+          {retryDialog}
         </div>
       )}
     </div>

@@ -14,7 +14,6 @@ type ManualActionState = {
   waitingApprovalNodes: DAGRunNode[];
   waitingHumanTaskNodes: DAGRunNode[];
   hasHumanTaskWork: boolean;
-  humanTaskBlocksRetry: boolean;
 };
 
 function hasNodeDetails(dagRun: DAGRun): dagRun is DAGRunDetails {
@@ -29,7 +28,6 @@ export function getManualActionState(dagRun?: DAGRun): ManualActionState {
       waitingApprovalNodes: [],
       waitingHumanTaskNodes: [],
       hasHumanTaskWork: false,
-      humanTaskBlocksRetry: false,
     };
   }
 
@@ -41,14 +39,15 @@ export function getManualActionState(dagRun?: DAGRun): ManualActionState {
     (node) =>
       node.status === NodeStatus.Waiting && node.step.humanTask !== undefined
   );
-  const resumePending = Boolean(dagRun.humanTaskResumePending);
-  const hasHumanTaskWork = waitingHumanTaskNodes.length > 0 || resumePending;
+  const hasHumanTaskWork =
+    isWaiting &&
+    (waitingHumanTaskNodes.length > 0 ||
+      Boolean(dagRun.humanTaskResumePending));
 
   return {
     isWaiting,
     waitingApprovalNodes,
     waitingHumanTaskNodes,
     hasHumanTaskWork,
-    humanTaskBlocksRetry: isWaiting && hasHumanTaskWork,
   };
 }

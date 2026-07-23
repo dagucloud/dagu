@@ -9,10 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"time"
 
 	"github.com/dagucloud/dagu/internal/auth"
-	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/core/exec"
 )
 
@@ -71,44 +69,14 @@ func (a *API) compareAndSwapManualStatus(
 		}
 		return nil
 	}
-	compareAndSwap := func() (*exec.DAGRunStatus, bool, error) {
-		return a.dagRunStore.CompareAndSwapLatestAttemptStatus(
-			a.withEventContext(ctx),
-			targetRef,
-			status.AttemptID,
-			status.Status,
-			wrappedMutate,
-			opts...,
-		)
-	}
-
-	updated, swapped, err := compareAndSwap()
-	if err == nil || isManualStatusMutationError(err) || !fileutil.IsTransientFileError(err) {
-		return updated, swapped, err
-	}
-
-	const (
-		retryWindow   = 3 * time.Second
-		retryInterval = 50 * time.Millisecond
+	return a.dagRunStore.CompareAndSwapLatestAttemptStatus(
+		a.withEventContext(ctx),
+		targetRef,
+		status.AttemptID,
+		status.Status,
+		wrappedMutate,
+		opts...,
 	)
-	deadline := time.NewTimer(retryWindow)
-	defer deadline.Stop()
-	ticker := time.NewTicker(retryInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return nil, false, ctx.Err()
-		case <-deadline.C:
-			return updated, swapped, err
-		case <-ticker.C:
-			updated, swapped, err = compareAndSwap()
-			if err == nil || isManualStatusMutationError(err) || !fileutil.IsTransientFileError(err) {
-				return updated, swapped, err
-			}
-		}
-	}
 }
 
 func cloneManualStatus(status *exec.DAGRunStatus) (*exec.DAGRunStatus, error) {
