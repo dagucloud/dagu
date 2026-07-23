@@ -15,6 +15,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/backoff"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/proto/convert"
+	"github.com/dagucloud/dagu/internal/runtime/workspacebundle"
 	"github.com/dagucloud/dagu/internal/service/coordinator"
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
@@ -1124,6 +1125,80 @@ func TestClientHeartbeatUsesConfiguredTimeout(t *testing.T) {
 	}
 }
 
+func TestClientHealthCheckFailureEvictsStaleClientFromFailoverPaths(t *testing.T) {
+	t.Parallel()
+
+	bundleData := []byte("workspace bundle")
+	bundleDesc := workspacebundle.Descriptor{
+		Digest: workspacebundle.Digest(bundleData),
+		Size:   int64(len(bundleData)),
+	}
+	tests := []struct {
+		name string
+		call func(context.Context, coordinator.Client) error
+	}{
+		{
+			name: "stream logs",
+			call: func(ctx context.Context, client coordinator.Client) error {
+				_, err := client.StreamLogs(ctx)
+				return err
+			},
+		},
+		{
+			name: "put workspace bundle",
+			call: func(ctx context.Context, client coordinator.Client) error {
+				return client.(workspacebundle.Client).PutWorkspaceBundle(ctx, bundleDesc, bundleData)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			oldCoord := &mockCoordinatorService{
+				heartbeatFunc: func(context.Context, *coordinatorv1.HeartbeatRequest) (*coordinatorv1.HeartbeatResponse, error) {
+					return &coordinatorv1.HeartbeatResponse{}, nil
+				},
+			}
+			oldServer, oldAddr := startMockServer(t, oldCoord)
+
+			newCoord := &mockCoordinatorService{
+				hasWorkspaceBundleFunc: func(context.Context, *coordinatorv1.HasWorkspaceBundleRequest) (*coordinatorv1.HasWorkspaceBundleResponse, error) {
+					return &coordinatorv1.HasWorkspaceBundleResponse{Exists: true}, nil
+				},
+			}
+			newServer, newAddr := startMockServer(t, newCoord)
+			defer newServer.Stop()
+
+			oldHost, oldPort := parseHostPort(oldAddr)
+			newHost, newPort := parseHostPort(newAddr)
+			monitor := &mockServiceMonitor{
+				members: []exec.HostInfo{{ID: "coord-a", Host: oldHost, Port: oldPort, Status: exec.ServiceStatusActive}},
+			}
+			client := coordinator.New(monitor, coordinator.DefaultConfig())
+
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			_, err := client.Heartbeat(ctx, &coordinatorv1.HeartbeatRequest{WorkerId: "test-worker"})
+			cancel()
+			require.NoError(t, err)
+
+			oldServer.Stop()
+			monitor.members = []exec.HostInfo{{ID: "coord-a", Host: newHost, Port: newPort, Status: exec.ServiceStatusActive}}
+
+			ctx, cancel = context.WithTimeout(context.Background(), time.Second)
+			err = tt.call(ctx, client)
+			cancel()
+			require.Error(t, err)
+
+			ctx, cancel = context.WithTimeout(context.Background(), time.Second)
+			err = tt.call(ctx, client)
+			cancel()
+			require.NoError(t, err)
+		})
+	}
+}
+
 func TestClientReportStatus(t *testing.T) {
 	t.Parallel()
 
@@ -1417,15 +1492,16 @@ var _ coordinatorv1.CoordinatorServiceServer = (*mockCoordinatorService)(nil)
 type mockCoordinatorService struct {
 	coordinatorv1.UnimplementedCoordinatorServiceServer
 
-	dispatchFunc     func(context.Context, *coordinatorv1.DispatchRequest) (*coordinatorv1.DispatchResponse, error)
-	pollFunc         func(context.Context, *coordinatorv1.PollRequest) (*coordinatorv1.PollResponse, error)
-	getWorkersFunc   func(context.Context, *coordinatorv1.GetWorkersRequest) (*coordinatorv1.GetWorkersResponse, error)
-	heartbeatFunc    func(context.Context, *coordinatorv1.HeartbeatRequest) (*coordinatorv1.HeartbeatResponse, error)
-	reportStatusFunc func(context.Context, *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error)
-	getStateFunc     func(context.Context, *coordinatorv1.GetStateRequest) (*coordinatorv1.GetStateResponse, error)
-	putStateFunc     func(context.Context, *coordinatorv1.PutStateRequest) (*coordinatorv1.PutStateResponse, error)
-	deleteStateFunc  func(context.Context, *coordinatorv1.DeleteStateRequest) (*coordinatorv1.DeleteStateResponse, error)
-	listStateFunc    func(context.Context, *coordinatorv1.ListStateRequest) (*coordinatorv1.ListStateResponse, error)
+	dispatchFunc           func(context.Context, *coordinatorv1.DispatchRequest) (*coordinatorv1.DispatchResponse, error)
+	pollFunc               func(context.Context, *coordinatorv1.PollRequest) (*coordinatorv1.PollResponse, error)
+	getWorkersFunc         func(context.Context, *coordinatorv1.GetWorkersRequest) (*coordinatorv1.GetWorkersResponse, error)
+	heartbeatFunc          func(context.Context, *coordinatorv1.HeartbeatRequest) (*coordinatorv1.HeartbeatResponse, error)
+	reportStatusFunc       func(context.Context, *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error)
+	getStateFunc           func(context.Context, *coordinatorv1.GetStateRequest) (*coordinatorv1.GetStateResponse, error)
+	putStateFunc           func(context.Context, *coordinatorv1.PutStateRequest) (*coordinatorv1.PutStateResponse, error)
+	deleteStateFunc        func(context.Context, *coordinatorv1.DeleteStateRequest) (*coordinatorv1.DeleteStateResponse, error)
+	listStateFunc          func(context.Context, *coordinatorv1.ListStateRequest) (*coordinatorv1.ListStateResponse, error)
+	hasWorkspaceBundleFunc func(context.Context, *coordinatorv1.HasWorkspaceBundleRequest) (*coordinatorv1.HasWorkspaceBundleResponse, error)
 }
 
 func (m *mockCoordinatorService) Dispatch(ctx context.Context, req *coordinatorv1.DispatchRequest) (*coordinatorv1.DispatchResponse, error) {
@@ -1487,6 +1563,13 @@ func (m *mockCoordinatorService) DeleteState(ctx context.Context, req *coordinat
 func (m *mockCoordinatorService) ListState(ctx context.Context, req *coordinatorv1.ListStateRequest) (*coordinatorv1.ListStateResponse, error) {
 	if m.listStateFunc != nil {
 		return m.listStateFunc(ctx, req)
+	}
+	return nil, status.Error(codes.Unimplemented, "not implemented")
+}
+
+func (m *mockCoordinatorService) HasWorkspaceBundle(ctx context.Context, req *coordinatorv1.HasWorkspaceBundleRequest) (*coordinatorv1.HasWorkspaceBundleResponse, error) {
+	if m.hasWorkspaceBundleFunc != nil {
+		return m.hasWorkspaceBundleFunc(ctx, req)
 	}
 	return nil, status.Error(codes.Unimplemented, "not implemented")
 }

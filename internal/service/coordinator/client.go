@@ -317,13 +317,12 @@ func (cli *clientImpl) attemptCall(ctx context.Context, members []exec.HostInfo,
 		}
 
 		// Check if the coordinator is healthy
-		if err := cli.isHealthy(ctx, client); err != nil {
+		if err := cli.checkHealthy(ctx, member, client); err != nil {
 			logger.Warn(ctx, "Failed to check coordinator health",
 				slog.String("coordinator-id", member.ID),
 				tag.Host(member.Host),
 				tag.Port(member.Port),
 				tag.Error(err))
-			cli.resetClientOnTransientError(member, client, err)
 			cli.recordFailure(err)
 			lastErr = err
 			continue
@@ -543,6 +542,16 @@ func (cli *clientImpl) isHealthy(ctx context.Context, client *client) error {
 	return nil
 }
 
+// checkHealthy verifies the coordinator is serving and evicts the cached
+// client when the failure indicates a stale connection.
+func (cli *clientImpl) checkHealthy(ctx context.Context, member exec.HostInfo, client *client) error {
+	if err := cli.isHealthy(ctx, client); err != nil {
+		cli.resetClientOnTransientError(member, client, err)
+		return err
+	}
+	return nil
+}
+
 // getOrCreateClient gets an existing client or creates a new one for the given member
 func (cli *clientImpl) getOrCreateClient(member exec.HostInfo) (*client, error) {
 	key := coordinatorMemberKey(member)
@@ -622,7 +631,10 @@ func (cli *clientImpl) removeClientIfCurrent(member exec.HostInfo, failedClient 
 }
 
 // resetClientOnTransientError drops the cached client so the next call
-// re-dials, when err indicates the connection may be stale.
+// re-dials, when err indicates the connection may be stale. A deadline is a
+// stale signal alongside Unavailable: a coordinator that moved to a new address
+// under the same ID can leave the cached connection dialing an endpoint that
+// hangs rather than refusing, which surfaces as a timeout.
 func (cli *clientImpl) resetClientOnTransientError(member exec.HostInfo, failedClient *client, err error) {
 	if errors.Is(err, context.DeadlineExceeded) || shouldRefreshPinnedStateCoordinator(err) {
 		cli.removeClientIfCurrent(member, failedClient)
@@ -962,7 +974,7 @@ func openStreamWithFailover[T any](
 			lastErr = err
 			continue
 		}
-		if err := cli.isHealthy(ctx, memberClient); err != nil {
+		if err := cli.checkHealthy(ctx, member, memberClient); err != nil {
 			cli.recordFailure(err)
 			lastErr = err
 			continue
@@ -1124,7 +1136,7 @@ func (cli *clientImpl) PutWorkspaceBundle(ctx context.Context, desc workspacebun
 			errs = append(errs, fmt.Errorf("coordinator %q: %w", member.ID, err))
 			continue
 		}
-		if err := cli.isHealthy(ctx, memberClient); err != nil {
+		if err := cli.checkHealthy(ctx, member, memberClient); err != nil {
 			errs = append(errs, fmt.Errorf("coordinator %q is unhealthy: %w", member.ID, err))
 			continue
 		}
