@@ -13,25 +13,24 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 )
 
-// ErrRetryStaleLatest indicates the caller tried to retry a non-latest attempt.
-var ErrRetryStaleLatest = errors.New("retry target is no longer the latest attempt")
+const retryEnqueueRollbackTimeout = 10 * time.Second
 
-// EnqueueRetryOptions control how queued retry metadata is persisted.
+// ErrRetryStaleLatest indicates the retry target changed before it could be enqueued.
+var ErrRetryStaleLatest = errors.New("retry target changed before it could be enqueued")
+
+// EnqueueRetryOptions configure how queued retry metadata is persisted.
 type EnqueueRetryOptions struct {
 	// AutoRetry marks scheduler-issued DAG auto-retries. These consume the
 	// DAG-level retry budget at enqueue time.
 	AutoRetry bool
-	// OnQueued is called after the queued status and queue item are both durably written.
-	// Errors from this callback are returned to the caller but do not roll back the
-	// already-persisted queue item and status.
-	OnQueued func(*DAGRunStatus) error
 }
 
 // EnqueueRetry enqueues a DAG run for retry and persists the Queued status.
 // It persists the Queued status first, then enqueues, so the queue processor
 // always sees the correct status when it picks up the item. If enqueue fails,
 // the status is rolled back. Retries respect global queue capacity because
-// the queue processor picks them up when capacity is available.
+// the queue processor picks them up when capacity is available. Queued retries
+// of sub-DAG attempts are not supported.
 func EnqueueRetry(
 	ctx context.Context,
 	dagRunStore DAGRunStore,
@@ -40,27 +39,33 @@ func EnqueueRetry(
 	status *DAGRunStatus,
 	opts EnqueueRetryOptions,
 ) error {
+	if dagRunStore == nil {
+		return errors.New("enqueue retry: DAG-run store is not configured")
+	}
+	if queueStore == nil {
+		return errors.New("enqueue retry: queue store is not configured")
+	}
+	if status == nil {
+		return errors.New("enqueue retry: DAG-run status is nil")
+	}
 	if status.Status == core.Queued {
-		// Already queued (e.g. duplicate retry), treat as success.
-		return nil
+		return ErrRetryStaleLatest
 	}
 
 	dagRun := status.DAGRun()
-	originalStatus, err := retryStatusSnapshot(ctx, dagRunStore, dagRun)
-	if err != nil {
-		return fmt.Errorf("read retry status snapshot: %w", err)
+	if !status.Root.Zero() && status.Root != dagRun {
+		return errors.New("enqueue retry: queued sub-DAG retries are not supported")
 	}
-
+	var originalStatus DAGRunStatus
 	updatedStatus, swapped, err := dagRunStore.CompareAndSwapLatestAttemptStatus(
 		ctx,
 		dagRun,
 		status.AttemptID,
 		status.Status,
 		func(latest *DAGRunStatus) error {
-			*latest = *originalStatus
-			now := time.Now()
+			originalStatus = *latest
 			latest.Status = core.Queued
-			latest.QueuedAt = stringutil.FormatTime(now)
+			latest.QueuedAt = stringutil.FormatTime(time.Now())
 			latest.Conditions = nil
 			latest.TriggerType = core.TriggerTypeRetry
 			if opts.AutoRetry {
@@ -71,53 +76,32 @@ func EnqueueRetry(
 			}
 			return nil
 		},
+		WithCompareAndSwapExpectedAttemptKey(status.AttemptKey),
 	)
 	if err != nil {
 		return fmt.Errorf("persist queued retry status: %w", err)
 	}
 	if !swapped {
-		// Another actor changed the latest attempt first. Treat an already queued
-		// retry as success; everything else is a no-op.
-		if updatedStatus != nil && updatedStatus.Status == core.Queued {
-			return nil
-		}
 		return ErrRetryStaleLatest
 	}
 
 	// Enqueue after status is persisted. If this fails, roll back the status.
 	procGroup := retryProcGroup(dag, updatedStatus)
+	var enqueueErr error
 	if procGroup == "" {
-		rollbackQueuedRetry(ctx, dagRunStore, dagRun, updatedStatus, originalStatus)
-		return errors.New("enqueue retry: proc group is empty")
+		enqueueErr = errors.New("proc group is empty")
+	} else {
+		enqueueErr = queueStore.Enqueue(ctx, procGroup, QueuePriorityLow, dagRun)
 	}
-	if err := queueStore.Enqueue(ctx, procGroup, QueuePriorityLow, dagRun); err != nil {
-		rollbackQueuedRetry(ctx, dagRunStore, dagRun, updatedStatus, originalStatus)
-		return fmt.Errorf("enqueue retry: %w", err)
-	}
-
-	if opts.OnQueued != nil {
-		if err := opts.OnQueued(updatedStatus); err != nil {
-			return err
+	if enqueueErr != nil {
+		enqueueErr = fmt.Errorf("enqueue retry: %w", enqueueErr)
+		if rollbackErr := rollbackQueuedRetry(ctx, dagRunStore, dagRun, updatedStatus, &originalStatus); rollbackErr != nil {
+			return errors.Join(enqueueErr, rollbackErr)
 		}
+		return enqueueErr
 	}
 
 	return nil
-}
-
-func retryStatusSnapshot(ctx context.Context, dagRunStore DAGRunStore, dagRun DAGRunRef) (*DAGRunStatus, error) {
-	attempt, err := dagRunStore.FindAttempt(ctx, dagRun)
-	if err != nil {
-		return nil, err
-	}
-	status, err := attempt.ReadStatus(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if status == nil {
-		return nil, ErrNoStatusData
-	}
-	snapshot := *status
-	return &snapshot, nil
 }
 
 func rollbackQueuedRetry(
@@ -126,21 +110,32 @@ func rollbackQueuedRetry(
 	dagRun DAGRunRef,
 	queued *DAGRunStatus,
 	original *DAGRunStatus,
-) {
-	_, _, _ = dagRunStore.CompareAndSwapLatestAttemptStatus(
-		ctx,
+) error {
+	rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), retryEnqueueRollbackTimeout)
+	defer cancel()
+
+	_, swapped, err := dagRunStore.CompareAndSwapLatestAttemptStatus(
+		rollbackCtx,
 		dagRun,
 		queued.AttemptID,
 		core.Queued,
 		func(latest *DAGRunStatus) error {
-			*latest = *queued
 			latest.Status = original.Status
 			latest.QueuedAt = original.QueuedAt
 			latest.TriggerType = original.TriggerType
 			latest.AutoRetryCount = original.AutoRetryCount
+			latest.Root = original.Root
 			return nil
 		},
+		WithCompareAndSwapExpectedAttemptKey(queued.AttemptKey),
 	)
+	if err != nil {
+		return fmt.Errorf("rollback queued retry status: %w", err)
+	}
+	if !swapped {
+		return errors.New("rollback queued retry status: DAG-run state changed")
+	}
+	return nil
 }
 
 func retryProcGroup(dag *core.DAG, status *DAGRunStatus) string {

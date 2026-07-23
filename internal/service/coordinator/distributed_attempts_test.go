@@ -5,6 +5,7 @@ package coordinator
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -25,26 +26,48 @@ func TestAttemptOwnershipStatusDecision(t *testing.T) {
 		t.Parallel()
 
 		ownership := newAttemptOwnership(attemptOwnershipConfig{})
-		accepted, reason := ownership.statusDecision(ctx,
+		accepted, reason, err := ownership.statusDecision(ctx,
 			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: core.Running},
 			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: core.Running},
 			statusDecisionOptions{},
 		)
 
+		require.NoError(t, err)
 		assert.True(t, accepted)
 		assert.Empty(t, reason)
+	})
+
+	t.Run("rejects status from a different reporting worker", func(t *testing.T) {
+		t.Parallel()
+
+		ownership := newAttemptOwnership(attemptOwnershipConfig{})
+		accepted, reason, err := ownership.statusDecision(ctx,
+			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: core.Running},
+			&exec.DAGRunStatus{
+				AttemptID:  "attempt-1",
+				AttemptKey: "attempt-key-1",
+				WorkerID:   "worker-1",
+				Status:     core.Running,
+			},
+			statusDecisionOptions{WorkerID: "worker-2"},
+		)
+
+		require.NoError(t, err)
+		assert.False(t, accepted)
+		assert.Equal(t, remoteAttemptRejectedLeaseInactive, reason)
 	})
 
 	t.Run("rejects superseded attempt", func(t *testing.T) {
 		t.Parallel()
 
 		ownership := newAttemptOwnership(attemptOwnershipConfig{})
-		accepted, reason := ownership.statusDecision(ctx,
+		accepted, reason, err := ownership.statusDecision(ctx,
 			&exec.DAGRunStatus{AttemptID: "attempt-2", AttemptKey: "attempt-key-2", Status: core.Running},
 			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: core.Running},
 			statusDecisionOptions{},
 		)
 
+		require.NoError(t, err)
 		assert.False(t, accepted)
 		assert.Equal(t, remoteAttemptRejectedSuperseded, reason)
 	})
@@ -54,17 +77,16 @@ func TestAttemptOwnershipStatusDecision(t *testing.T) {
 
 		leaseStore := newTestDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
 		ownership := newAttemptOwnership(attemptOwnershipConfig{
-			LeaseStore:          leaseStore,
-			StaleLeaseThreshold: time.Minute,
-			Now:                 func() time.Time { return time.Unix(100, 0).UTC() },
+			LeaseStore: leaseStore,
 		})
 
-		accepted, reason := ownership.statusDecision(ctx,
+		accepted, reason, err := ownership.statusDecision(ctx,
 			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: core.Failed},
 			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: core.Running},
 			statusDecisionOptions{},
 		)
 
+		require.NoError(t, err)
 		assert.False(t, accepted)
 		assert.Equal(t, remoteAttemptRejectedLeaseInactive, reason)
 	})
@@ -73,26 +95,52 @@ func TestAttemptOwnershipStatusDecision(t *testing.T) {
 		t.Parallel()
 
 		ownership := newAttemptOwnership(attemptOwnershipConfig{})
-		accepted, reason := ownership.statusDecision(ctx,
+		accepted, reason, err := ownership.statusDecision(ctx,
 			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: core.Succeeded},
 			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: core.Succeeded},
 			statusDecisionOptions{},
 		)
 
+		require.NoError(t, err)
 		assert.True(t, accepted)
 		assert.Empty(t, reason)
+	})
+
+	t.Run("rejects waiting status without a lease", func(t *testing.T) {
+		t.Parallel()
+
+		for _, latestStatus := range []core.Status{core.Running, core.Waiting, core.Queued} {
+			t.Run(latestStatus.String(), func(t *testing.T) {
+				t.Parallel()
+
+				leaseStore := newTestDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
+				ownership := newAttemptOwnership(attemptOwnershipConfig{
+					LeaseStore: leaseStore,
+				})
+				accepted, reason, err := ownership.statusDecision(ctx,
+					&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: latestStatus},
+					&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: core.Waiting},
+					statusDecisionOptions{},
+				)
+
+				require.NoError(t, err)
+				assert.False(t, accepted)
+				assert.Equal(t, remoteAttemptRejectedLeaseInactive, reason)
+			})
+		}
 	})
 
 	t.Run("rejects terminal change without cancellation request", func(t *testing.T) {
 		t.Parallel()
 
 		ownership := newAttemptOwnership(attemptOwnershipConfig{})
-		accepted, reason := ownership.statusDecision(ctx,
+		accepted, reason, err := ownership.statusDecision(ctx,
 			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: core.Failed},
 			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: core.Aborted},
 			statusDecisionOptions{},
 		)
 
+		require.NoError(t, err)
 		assert.False(t, accepted)
 		assert.Equal(t, remoteAttemptRejectedTerminal, reason)
 	})
@@ -101,12 +149,13 @@ func TestAttemptOwnershipStatusDecision(t *testing.T) {
 		t.Parallel()
 
 		ownership := newAttemptOwnership(attemptOwnershipConfig{})
-		accepted, reason := ownership.statusDecision(ctx,
+		accepted, reason, err := ownership.statusDecision(ctx,
 			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: core.Failed},
 			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: core.Aborted},
 			statusDecisionOptions{CancellationRequested: true},
 		)
 
+		require.NoError(t, err)
 		assert.True(t, accepted)
 		assert.Empty(t, reason)
 	})
@@ -123,11 +172,10 @@ func TestAttemptOwnershipSyncFromStatus(t *testing.T) {
 	oldTime := time.Unix(90, 0).UTC()
 	now := time.Unix(100, 0).UTC()
 	ownership := newAttemptOwnership(attemptOwnershipConfig{
-		Owner:               exec.CoordinatorEndpoint{ID: "coord-a", Host: "127.0.0.1", Port: 1234},
-		LeaseStore:          leaseStore,
-		ActiveRunStore:      activeStore,
-		StaleLeaseThreshold: time.Minute,
-		Now:                 func() time.Time { return now },
+		Owner:          exec.CoordinatorEndpoint{ID: "coord-a", Host: "127.0.0.1", Port: 1234},
+		LeaseStore:     leaseStore,
+		ActiveRunStore: activeStore,
+		Now:            func() time.Time { return now },
 	})
 
 	run := exec.NewDAGRunRef("test-dag", "run-1")
@@ -195,6 +243,48 @@ func TestAttemptOwnershipSyncFromStatus(t *testing.T) {
 	assert.ErrorIs(t, err, exec.ErrDAGRunLeaseNotFound)
 	_, err = activeStore.Get(ctx, "attempt-key-1")
 	assert.ErrorIs(t, err, exec.ErrActiveRunNotFound)
+}
+
+func TestAttemptOwnershipSyncFromStatusRetainsLeaseWhenActiveCleanupFails(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	leaseStore := newTestDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
+	ownership := newAttemptOwnership(attemptOwnershipConfig{
+		LeaseStore: leaseStore,
+		ActiveRunStore: failingActiveRunDeleteStore{
+			err: errors.New("delete failed"),
+		},
+	})
+	status := &exec.DAGRunStatus{
+		Name:       "test-dag",
+		DAGRunID:   "run-1",
+		AttemptID:  "attempt-1",
+		AttemptKey: "attempt-key-1",
+		WorkerID:   "worker-1",
+		Status:     core.Waiting,
+	}
+	require.NoError(t, leaseStore.Upsert(ctx, exec.DAGRunLease{
+		AttemptKey: status.AttemptKey,
+		DAGRun:     status.DAGRun(),
+		AttemptID:  status.AttemptID,
+		WorkerID:   status.WorkerID,
+	}))
+
+	ownership.syncFromStatus(ctx, status.WorkerID, status, status.AttemptID)
+
+	lease, err := leaseStore.Get(ctx, status.AttemptKey)
+	require.NoError(t, err)
+	assert.Equal(t, status.AttemptKey, lease.AttemptKey)
+}
+
+type failingActiveRunDeleteStore struct {
+	exec.ActiveDistributedRunStore
+	err error
+}
+
+func (s failingActiveRunDeleteStore) Delete(context.Context, string) error {
+	return s.err
 }
 
 func TestInlineRunSharesClaimLease(t *testing.T) {

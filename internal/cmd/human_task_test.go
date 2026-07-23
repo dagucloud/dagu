@@ -315,6 +315,7 @@ func TestWaitForHumanTaskCompletionReadyWaitsForRemoteFinalStatus(t *testing.T) 
 		Name:       dag.Name,
 		DAGRunID:   "run-1",
 		AttemptID:  "attempt-1",
+		ClaimKey:   "shared-claim",
 		WorkerID:   "worker-1",
 		Status:     core.Waiting,
 		FinishedAt: "",
@@ -329,12 +330,14 @@ func TestWaitForHumanTaskCompletionReadyWaitsForRemoteFinalStatus(t *testing.T) 
 	finalStatus := *status
 	finalStatus.FinishedAt = "2026-07-20T01:02:03Z"
 	attempt := &humanTaskStatusSequenceAttempt{statuses: []*exec.DAGRunStatus{&finalStatus}}
-	ctx := &Context{Context: t.Context()}
+	leaseStore := &humanTaskCompletionLeaseStore{present: true}
+	ctx := &Context{Context: t.Context(), DAGRunLeaseStore: leaseStore}
 
 	latest, err := waitForHumanTaskCompletionReady(ctx, attempt, dag, status, "review")
 	require.NoError(t, err)
 	assert.Equal(t, finalStatus.FinishedAt, latest.FinishedAt)
-	assert.Equal(t, 1, attempt.calls)
+	assert.Equal(t, 2, leaseStore.calls)
+	assert.Equal(t, status.ClaimKey, leaseStore.attemptKey)
 }
 
 func TestWaitForHumanTaskCompletionReadyReturnsStepLookupError(t *testing.T) {
@@ -346,13 +349,15 @@ func TestWaitForHumanTaskCompletionReadyReturnsStepLookupError(t *testing.T) {
 		WorkerID:  "worker-1",
 		Status:    core.Waiting,
 	}
-	attempt := &humanTaskStatusSequenceAttempt{}
-	ctx := &Context{Context: t.Context()}
+	attempt := &humanTaskStatusSequenceAttempt{statuses: []*exec.DAGRunStatus{status}}
+	ctx := &Context{
+		Context:          t.Context(),
+		DAGRunLeaseStore: &humanTaskCompletionLeaseStore{},
+	}
 
 	_, err := waitForHumanTaskCompletionReady(ctx, attempt, dag, status, "missing")
 	require.Error(t, err)
 	assert.ErrorContains(t, err, `human task step ID "missing" was not found`)
-	assert.Zero(t, attempt.calls)
 }
 
 func TestRunHumanTaskCompleteQueuesRemoteRetry(t *testing.T) {
@@ -362,6 +367,7 @@ func TestRunHumanTaskCompleteQueuesRemoteRetry(t *testing.T) {
 	queueStore := &humanTaskCompletionQueueStore{}
 	queueStore.pendingRuns = []exec.DAGRunRef{fixture.status.DAGRun()}
 	fixture.ctx.QueueStore = queueStore
+	fixture.ctx.DAGRunLeaseStore = &humanTaskCompletionLeaseStore{}
 
 	err := runHumanTaskCompleteWith(
 		fixture.ctx,
@@ -534,6 +540,26 @@ type humanTaskCompletionQueueStore struct {
 	dagRun      exec.DAGRunRef
 	pendingRuns []exec.DAGRunRef
 	listCalls   int
+}
+
+type humanTaskCompletionLeaseStore struct {
+	exec.DAGRunLeaseStore
+	present    bool
+	calls      int
+	attemptKey string
+}
+
+func (s *humanTaskCompletionLeaseStore) Get(
+	_ context.Context,
+	attemptKey string,
+) (*exec.DAGRunLease, error) {
+	s.calls++
+	s.attemptKey = attemptKey
+	if !s.present {
+		return nil, exec.ErrDAGRunLeaseNotFound
+	}
+	s.present = false
+	return &exec.DAGRunLease{AttemptKey: attemptKey}, nil
 }
 
 func (s *humanTaskCompletionQueueStore) ListByDAGName(

@@ -653,7 +653,39 @@ func waitForRemoteHumanTaskAttempt(
 	status *exec.DAGRunStatus,
 	stepID string,
 ) (*exec.DAGRunStatus, error) {
-	return waitForHumanTaskAttemptFinalization(ctx, attempt, status.AttemptID, status, stepID)
+	if ctx.DAGRunLeaseStore == nil {
+		return nil, fmt.Errorf("DAG-run lease store is not configured")
+	}
+	claimKey := status.EffectiveClaimKey()
+	if claimKey == "" {
+		claimKey = exec.AttemptKeyForStatus(status, status.AttemptID)
+	}
+	if claimKey == "" {
+		return nil, fmt.Errorf("distributed DAG-run claim key is missing")
+	}
+
+	deadline := time.Now().Add(humanTaskSettleTimeout)
+	for {
+		_, err := ctx.DAGRunLeaseStore.Get(ctx, claimKey)
+		if errors.Is(err, exec.ErrDAGRunLeaseNotFound) {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to check whether distributed DAG-run attempt is still finalizing: %w", err)
+		}
+		if !time.Now().Before(deadline) {
+			return nil, fmt.Errorf("DAG-run attempt %s is still finalizing; retry human-task completion", status.AttemptID)
+		}
+		if err := waitForNextHumanTaskPoll(ctx); err != nil {
+			return nil, err
+		}
+	}
+
+	latest, err := reloadHumanTaskStatus(ctx, attempt)
+	if err != nil {
+		return nil, err
+	}
+	return waitForHumanTaskAttemptFinalization(ctx, attempt, status.AttemptID, latest, stepID)
 }
 
 func waitForHumanTaskAttemptFinalization(
