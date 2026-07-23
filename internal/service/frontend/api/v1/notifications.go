@@ -583,6 +583,7 @@ func notificationChannelFromRequest(id string, input api.NotificationChannelInpu
 		channel.Telegram = &notificationmodel.TelegramTarget{
 			BotToken:        valueOf(input.Telegram.BotToken),
 			ChatID:          valueOf(input.Telegram.ChatId),
+			TopicID:         valueOf(input.Telegram.TopicId),
 			MessageTemplate: valueOf(input.Telegram.MessageTemplate),
 		}
 	}
@@ -642,6 +643,7 @@ func notificationTargetFromRequest(input api.NotificationTargetInput) notificati
 		target.Telegram = &notificationmodel.TelegramTarget{
 			BotToken:        valueOf(input.Telegram.BotToken),
 			ChatID:          valueOf(input.Telegram.ChatId),
+			TopicID:         valueOf(input.Telegram.TopicId),
 			MessageTemplate: valueOf(input.Telegram.MessageTemplate),
 		}
 	}
@@ -806,6 +808,7 @@ func toAPINotificationChannel(channel *notificationmodel.Channel) api.Notificati
 			BotTokenConfigured: pub.Telegram.BotTokenConfigured,
 			BotTokenPreview:    ptrOf(pub.Telegram.BotTokenPreview),
 			ChatId:             ptrOf(pub.Telegram.ChatID),
+			TopicId:            ptrOf(pub.Telegram.TopicID),
 			MessageTemplate:    ptrOf(pub.Telegram.MessageTemplate),
 		}
 	}
@@ -868,6 +871,7 @@ func toAPINotificationTarget(target notificationmodel.PublicTarget) api.Notifica
 			BotTokenConfigured: target.Telegram.BotTokenConfigured,
 			BotTokenPreview:    ptrOf(target.Telegram.BotTokenPreview),
 			ChatId:             ptrOf(target.Telegram.ChatID),
+			TopicId:            ptrOf(target.Telegram.TopicID),
 			MessageTemplate:    ptrOf(target.Telegram.MessageTemplate),
 		}
 	}

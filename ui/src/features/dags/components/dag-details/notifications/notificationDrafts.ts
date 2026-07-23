@@ -60,6 +60,7 @@ export type DeliveryDraft = {
     botTokenPreview?: string;
     botTokenConfigured?: boolean;
     chatId: string;
+    topicId: string;
     messageTemplate: string;
   };
 };
@@ -183,6 +184,7 @@ export function blankDelivery(type: NotificationProviderType): DeliveryDraft {
     telegram: {
       botToken: '',
       chatId: '',
+      topicId: '',
       messageTemplate: DEFAULT_MESSAGE_TEMPLATE,
     },
   };
@@ -310,6 +312,7 @@ function applyTelegramDraft(
   draft.telegram.botTokenPreview = telegram.botTokenPreview;
   draft.telegram.botTokenConfigured = telegram.botTokenConfigured;
   draft.telegram.chatId = telegram.chatId || '';
+  draft.telegram.topicId = telegram.topicId || '';
   draft.telegram.messageTemplate =
     telegram.messageTemplate || DEFAULT_MESSAGE_TEMPLATE;
 }
@@ -413,6 +416,7 @@ function deliveryInput(target: DeliveryDraft) {
     telegram: {
       botToken: target.telegram.botToken.trim() || undefined,
       chatId: target.telegram.chatId.trim() || undefined,
+      topicId: target.telegram.topicId.trim() || undefined,
       messageTemplate: optionalTemplate(target.telegram.messageTemplate),
     },
   };

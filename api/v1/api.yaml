@@ -10065,6 +10065,9 @@ components:
         chatId:
           type: string
           description: "Telegram chat ID"
+        topicId:
+          type: string
+          description: "Optional Telegram topic ID (message thread ID) for forum groups"
         messageTemplate:
           type: string
           description: "Optional Telegram message template. When omitted, Dagu sends the default notification text."
@@ -10084,6 +10087,9 @@ components:
         chatId:
           type: string
           description: "Telegram chat ID"
+        topicId:
+          type: string
+          description: "Optional Telegram topic ID (message thread ID) for forum groups"
         messageTemplate:
           type: string
           description: "Optional Telegram message template. When omitted, Dagu sends the default notification text."

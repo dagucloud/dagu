@@ -322,6 +322,16 @@ function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
           }
         />
       </div>
+      <Input
+        aria-label="Telegram topic ID"
+        value={draft.telegram.topicId}
+        placeholder="Topic ID (optional, for forum groups)"
+        onChange={(event) =>
+          update({
+            telegram: { ...draft.telegram, topicId: event.target.value },
+          })
+        }
+      />
       <Textarea
         className="min-h-24"
         aria-label="Telegram message template"
