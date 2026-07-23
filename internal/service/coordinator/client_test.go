@@ -1125,6 +1125,74 @@ func TestClientHeartbeatUsesConfiguredTimeout(t *testing.T) {
 	}
 }
 
+func TestClientHeartbeatExpiredContextDoesNotEvictUntriedCoordinator(t *testing.T) {
+	t.Parallel()
+
+	healthServer := &blockFirstHealthCheckServer{}
+
+	startStreamCoord := func(id string) (member exec.HostInfo, started, canceled <-chan struct{}) {
+		startedCh := make(chan struct{})
+		canceledCh := make(chan struct{})
+		service := &mockCoordinatorService{
+			streamLogsFunc: func(stream coordinatorv1.CoordinatorService_StreamLogsServer) error {
+				close(startedCh)
+				<-stream.Context().Done()
+				close(canceledCh)
+				return stream.Context().Err()
+			},
+		}
+		server, addr := startMockServerWithHealth(t, service, healthServer)
+		t.Cleanup(server.Stop)
+		host, port := parseHostPort(addr)
+		return exec.HostInfo{ID: id, Host: host, Port: port, Status: exec.ServiceStatusActive}, startedCh, canceledCh
+	}
+
+	memberA, startedA, canceledA := startStreamCoord("coord-a")
+	memberB, startedB, canceledB := startStreamCoord("coord-b")
+
+	monitor := &mockServiceMonitor{members: []exec.HostInfo{memberA, memberB}}
+	config := coordinator.DefaultConfig()
+	config.HeartbeatTimeout = 50 * time.Millisecond
+	client := coordinator.New(monitor, config)
+
+	streamCtxA, cancelStreamA := context.WithCancel(context.Background())
+	defer cancelStreamA()
+	_, err := client.StreamLogsTo(streamCtxA, memberA)
+	require.NoError(t, err)
+	streamCtxB, cancelStreamB := context.WithCancel(context.Background())
+	defer cancelStreamB()
+	_, err = client.StreamLogsTo(streamCtxB, memberB)
+	require.NoError(t, err)
+
+	awaitStart := func(name string, started <-chan struct{}) {
+		select {
+		case <-started:
+		case <-time.After(time.Second):
+			t.Fatalf("%s log stream did not start", name)
+		}
+	}
+	awaitStart("coord-a", startedA)
+	awaitStart("coord-b", startedB)
+
+	_, err = client.Heartbeat(context.Background(), &coordinatorv1.HeartbeatRequest{WorkerId: "test-worker"})
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+
+	isClosed := func(ch <-chan struct{}) bool {
+		select {
+		case <-ch:
+			return true
+		default:
+			return false
+		}
+	}
+	require.Eventually(t, func() bool {
+		return isClosed(canceledA) || isClosed(canceledB)
+	}, time.Second, 10*time.Millisecond)
+	require.Never(t, func() bool {
+		return isClosed(canceledA) && isClosed(canceledB)
+	}, 200*time.Millisecond, 10*time.Millisecond)
+}
+
 func TestClientHealthCheckFailureEvictsStaleClientFromFailoverPaths(t *testing.T) {
 	t.Parallel()
 
@@ -1497,6 +1565,7 @@ type mockCoordinatorService struct {
 	getWorkersFunc         func(context.Context, *coordinatorv1.GetWorkersRequest) (*coordinatorv1.GetWorkersResponse, error)
 	heartbeatFunc          func(context.Context, *coordinatorv1.HeartbeatRequest) (*coordinatorv1.HeartbeatResponse, error)
 	reportStatusFunc       func(context.Context, *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error)
+	streamLogsFunc         func(coordinatorv1.CoordinatorService_StreamLogsServer) error
 	getStateFunc           func(context.Context, *coordinatorv1.GetStateRequest) (*coordinatorv1.GetStateResponse, error)
 	putStateFunc           func(context.Context, *coordinatorv1.PutStateRequest) (*coordinatorv1.PutStateResponse, error)
 	deleteStateFunc        func(context.Context, *coordinatorv1.DeleteStateRequest) (*coordinatorv1.DeleteStateResponse, error)
@@ -1539,6 +1608,13 @@ func (m *mockCoordinatorService) ReportStatus(ctx context.Context, req *coordina
 	return nil, status.Error(codes.Unimplemented, "not implemented")
 }
 
+func (m *mockCoordinatorService) StreamLogs(stream coordinatorv1.CoordinatorService_StreamLogsServer) error {
+	if m.streamLogsFunc != nil {
+		return m.streamLogsFunc(stream)
+	}
+	return m.UnimplementedCoordinatorServiceServer.StreamLogs(stream)
+}
+
 func (m *mockCoordinatorService) GetState(ctx context.Context, req *coordinatorv1.GetStateRequest) (*coordinatorv1.GetStateResponse, error) {
 	if m.getStateFunc != nil {
 		return m.getStateFunc(ctx, req)
@@ -1574,17 +1650,35 @@ func (m *mockCoordinatorService) HasWorkspaceBundle(ctx context.Context, req *co
 	return nil, status.Error(codes.Unimplemented, "not implemented")
 }
 
+type blockFirstHealthCheckServer struct {
+	grpc_health_v1.UnimplementedHealthServer
+	blocked atomic.Bool
+}
+
+func (s *blockFirstHealthCheckServer) Check(ctx context.Context, _ *grpc_health_v1.HealthCheckRequest) (*grpc_health_v1.HealthCheckResponse, error) {
+	if s.blocked.CompareAndSwap(false, true) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	return &grpc_health_v1.HealthCheckResponse{Status: grpc_health_v1.HealthCheckResponse_SERVING}, nil
+}
+
 // Helper to start a mock gRPC server
 func startMockServer(t *testing.T, service coordinatorv1.CoordinatorServiceServer) (*grpc.Server, string) {
+	t.Helper()
+	healthServer := health.NewServer()
+	healthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_SERVING)
+	return startMockServerWithHealth(t, service, healthServer)
+}
+
+func startMockServerWithHealth(t *testing.T, service coordinatorv1.CoordinatorServiceServer, healthServer grpc_health_v1.HealthServer) (*grpc.Server, string) {
 	t.Helper()
 
 	server := grpc.NewServer()
 	coordinatorv1.RegisterCoordinatorServiceServer(server, service)
 
 	// Register health service
-	healthServer := health.NewServer()
 	grpc_health_v1.RegisterHealthServer(server, healthServer)
-	healthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_SERVING)
 
 	// Start server on random port
 	listener, err := net.Listen("tcp", "127.0.0.1:0")

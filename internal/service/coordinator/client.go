@@ -545,6 +545,9 @@ func (cli *clientImpl) isHealthy(ctx context.Context, client *client) error {
 // checkHealthy verifies the coordinator is serving and evicts the cached
 // client when the failure indicates a stale connection.
 func (cli *clientImpl) checkHealthy(ctx context.Context, member exec.HostInfo, client *client) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := cli.isHealthy(ctx, client); err != nil {
 		cli.resetClientOnTransientError(member, client, err)
 		return err
