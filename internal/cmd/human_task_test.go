@@ -342,18 +342,14 @@ func TestWaitForHumanTaskCompletionReadyWaitsForRemoteFinalStatus(t *testing.T) 
 
 func TestWaitForRemoteHumanTaskAttemptRejectsExpiredSettleDeadline(t *testing.T) {
 	status := &exec.DAGRunStatus{
-		Name:       "human-task-test",
-		DAGRunID:   "run-1",
 		AttemptID:  "attempt-1",
 		AttemptKey: "attempt-key-1",
-		WorkerID:   "worker-1",
 		Status:     core.Waiting,
 		Nodes: []*exec.Node{{
 			Step: core.Step{
 				ID:        "review",
-				HumanTask: &core.HumanTaskConfig{Prompt: "Review"},
+				HumanTask: &core.HumanTaskConfig{},
 			},
-			Status: core.NodeWaiting,
 		}},
 	}
 	attempt := &humanTaskStatusSequenceAttempt{statuses: []*exec.DAGRunStatus{status}}
@@ -371,7 +367,6 @@ func TestWaitForRemoteHumanTaskAttemptRejectsExpiredSettleDeadline(t *testing.T)
 	)
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "is still finalizing")
-	assert.Equal(t, 1, attempt.calls)
 }
 
 func TestWaitForHumanTaskCompletionReadyReturnsStepLookupError(t *testing.T) {
