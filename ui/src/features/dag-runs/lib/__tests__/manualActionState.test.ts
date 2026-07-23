@@ -1,8 +1,9 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { components, NodeStatus, Status } from '@/api/v1/schema';
 import { describe, expect, it } from 'vitest';
+
+import { components, NodeStatus, Status } from '@/api/v1/schema';
 import { getManualActionState } from '../manualActionState';
 
 type DAGRunDetails = components['schemas']['DAGRunDetails'];

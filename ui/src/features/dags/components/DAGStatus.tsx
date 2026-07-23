@@ -349,25 +349,24 @@ function DAGStatus({
       }
 
       const status = displayDAGRun.status;
-
-      // Only allow status updates for completed DAG runs
       if (
-        status !== Status.NotStarted &&
-        status !== Status.Running &&
-        status !== Status.Queued &&
-        status !== Status.Waiting
+        status === Status.NotStarted ||
+        status === Status.Running ||
+        status === Status.Queued ||
+        status === Status.Waiting
       ) {
-        // find the right-clicked step
-        const n = displayDAGRun.nodes?.find(
-          (n) => toMermaidNodeId(n.step.name) == id
-        );
-
-        if (n && !n.step.humanTask) {
-          // Show the modal (it will be centered by default)
-          setSelectedStep(n.step);
-          setModal(true);
-        }
+        return;
       }
+
+      const node = displayDAGRun.nodes?.find(
+        (candidate) => toMermaidNodeId(candidate.step.name) === id
+      );
+      if (!node || node.step.humanTask) {
+        return;
+      }
+
+      setSelectedStep(node.step);
+      setModal(true);
     },
     [displayDAGRun, config.permissions.runDags]
   );
