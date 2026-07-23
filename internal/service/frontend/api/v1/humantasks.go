@@ -18,7 +18,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/dagucloud/dagu/internal/dagrun/humantask"
+	"github.com/dagucloud/dagu/internal/humantask"
 	"github.com/dagucloud/dagu/internal/service/audit"
 )
 

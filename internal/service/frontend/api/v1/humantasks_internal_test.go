@@ -15,7 +15,7 @@ import (
 
 	apiv1 "github.com/dagucloud/dagu/api/v1"
 	"github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/dagucloud/dagu/internal/dagrun/humantask"
+	"github.com/dagucloud/dagu/internal/humantask"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

@@ -15,7 +15,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/dagucloud/dagu/internal/dagrun/humantask"
+	"github.com/dagucloud/dagu/internal/humantask"
 )
 
 const maxIntValue = int(^uint(0) >> 1)
