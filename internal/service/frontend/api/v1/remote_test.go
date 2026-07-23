@@ -28,11 +28,11 @@ func TestRemoteNodeProxyPreservesHumanTaskCompletionRequest(t *testing.T) {
 		contentLength int64
 		err           error
 	}
-	var received receivedRequest
+	receivedRequests := make(chan receivedRequest, 1)
 
 	remoteServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
-		received = receivedRequest{
+		receivedRequests <- receivedRequest{
 			path:          r.URL.Path,
 			rawQuery:      r.URL.RawQuery,
 			body:          string(body),
@@ -68,6 +68,7 @@ func TestRemoteNodeProxyPreservesHumanTaskCompletionRequest(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = response.Body.Close() })
 
+	received := <-receivedRequests
 	assert.Equal(t, http.StatusOK, response.StatusCode)
 	require.NoError(t, received.err)
 	assert.Equal(t, "/api/v1/dag-runs/deploy/run-1/human-tasks/review/complete", received.path)
