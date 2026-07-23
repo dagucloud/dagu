@@ -223,7 +223,7 @@ func (h *logHandler) getOrCreateWriter(chunk *coordinatorv1.LogChunk) (*streamLo
 	}
 
 	// Open or create the file
-	file, err := fileutil.OpenOrCreateFile(logPath)
+	file, err := fileutil.OpenOrCreateFileWithoutSync(logPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open log file: %w", err)
 	}

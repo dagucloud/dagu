@@ -610,8 +610,8 @@ func (w *schedulerLogWriter) takePendingData() ([]byte, int64, bool) {
 		return nil, w.localBytes, false
 	}
 
-	data := w.buffer
-	w.buffer = make([]byte, 0, logBufferSize)
+	data := append([]byte(nil), w.buffer...)
+	w.buffer = w.buffer[:0]
 	return data, w.localBytes, false
 }
 
