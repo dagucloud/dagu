@@ -159,9 +159,6 @@ export function ControllerGraph({
       <Mermaid
         def={graph.mermaid}
         scale={scale}
-        nodeIds={Object.keys(definition.states).map(
-          (_, index) => `controller_state_${index}`
-        )}
         onRender={onRender}
         style={{ minHeight: 360, paddingTop: 32 }}
         fallback={

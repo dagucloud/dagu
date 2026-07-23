@@ -110,9 +110,8 @@ func (v *Validator) Warnings(ctx context.Context, definition *Definition) []Defi
 }
 
 func (v *Validator) validateDAGs(ctx context.Context, definition Definition) ([]DefinitionWarning, error) {
-	warnings := definitionWarnings(definition, nil)
 	if v == nil || v.resolver == nil {
-		return warnings, nil
+		return definitionWarnings(definition, nil), nil
 	}
 
 	workspaceName := definition.Workspace()
@@ -143,8 +142,7 @@ func (v *Validator) validateDAGs(ctx context.Context, definition Definition) ([]
 			issues = append(issues, issue("dag_positional_params", path, fmt.Sprintf("DAG %q uses unsupported positional parameters", fileName)))
 		}
 	}
-	warnings = definitionWarnings(definition, dags)
-	return warnings, validationIssuesError(issues)
+	return definitionWarnings(definition, dags), validationIssuesError(issues)
 }
 
 func definitionWarnings(definition Definition, dags map[string]DAGMetadata) []DefinitionWarning {

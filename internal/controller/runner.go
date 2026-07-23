@@ -292,17 +292,16 @@ func (r *Runner) reconcileChild(ctx context.Context, runtime Runtime) error {
 	case childStatusInvalid:
 		return r.failObservedActiveChild(ctx, runtime.ID, request, "child_status_invalid")
 	case childStatusActive:
-		if observation.Status != core.Queued {
-			return r.updateObservedChild(ctx, runtime.ID, request, observation.Status)
-		}
-		if err := r.ensureActiveChildEnqueued(ctx, runtime.ID, request); err != nil {
-			if ctx.Err() != nil {
-				return ctx.Err()
+		if observation.Status == core.Queued {
+			if err := r.ensureActiveChildEnqueued(ctx, runtime.ID, request); err != nil {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				return errors.Join(
+					fmt.Errorf("enqueue Controller child: %w", err),
+					r.failObservedActiveChild(ctx, runtime.ID, request, "child_enqueue_failed"),
+				)
 			}
-			return errors.Join(
-				fmt.Errorf("enqueue Controller child: %w", err),
-				r.failObservedActiveChild(ctx, runtime.ID, request, "child_enqueue_failed"),
-			)
 		}
 		return r.updateObservedChild(ctx, runtime.ID, request, observation.Status)
 	case childStatusTerminal:

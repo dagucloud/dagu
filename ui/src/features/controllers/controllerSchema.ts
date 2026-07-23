@@ -4,6 +4,7 @@
 import type { JSONSchema } from '@/lib/schema-utils';
 import {
   CONTROLLER_DAG_NAME_PATTERN,
+  CONTROLLER_ID_PATTERN,
   CONTROLLER_LLM_PROVIDERS,
   CONTROLLER_STATE_NAME_PATTERN,
   DEFAULT_CONTROLLER_MAX_TURNS,
@@ -28,7 +29,7 @@ export const controllerSchema: JSONSchema = {
     version: { type: 'integer', const: 1 },
     id: {
       type: 'string',
-      pattern: '^ctrl_[a-z2-7]{16}$',
+      pattern: CONTROLLER_ID_PATTERN.source,
       description: 'Immutable server-generated ID.',
     },
     name: {

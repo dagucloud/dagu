@@ -10,6 +10,7 @@ import type {
 } from './types';
 import {
   CONTROLLER_DAG_NAME_PATTERN,
+  CONTROLLER_ID_PATTERN,
   CONTROLLER_LLM_PROVIDERS,
   CONTROLLER_STATE_NAME_PATTERN,
   DEFAULT_CONTROLLER_MAX_TURNS,
@@ -30,8 +31,6 @@ import {
 } from './constraints';
 
 export const ROUTER_INSTRUCTION = '${{.RouterInstruction}}';
-
-const CONTROLLER_ID = /^ctrl_[a-z2-7]{16}$/;
 
 const CONTROLLER_FIELDS = [
   'type',
@@ -195,7 +194,7 @@ export function validateControllerDefinition(
   if (operation === 'update' && !definition.id) {
     issues.push(issue('id', 'ID is required'));
   }
-  if (definition.id && !CONTROLLER_ID.test(definition.id)) {
+  if (definition.id && !CONTROLLER_ID_PATTERN.test(definition.id)) {
     issues.push(issue('id', 'ID is not a valid Controller ID'));
   }
   if (!definition.name) {

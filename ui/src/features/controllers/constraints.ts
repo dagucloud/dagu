@@ -15,6 +15,7 @@ export const MAX_CONTROLLER_STATES = 64;
 export const MAX_CONTROLLER_TRANSITIONS = 256;
 export const MAX_CONTROLLER_PROMPT_BYTES = 16_384;
 export const MAX_CONTROLLER_SYSTEM_PROMPT_BYTES = 16_384;
+export const CONTROLLER_ID_PATTERN = /^ctrl_[a-z2-7]{16}$/;
 export const CONTROLLER_STATE_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 export const CONTROLLER_DAG_NAME_PATTERN = /^[A-Za-z0-9_-]{1,40}$/;
 const CONTROLLER_LABEL_KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/;

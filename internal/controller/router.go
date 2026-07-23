@@ -189,15 +189,15 @@ func (r *Router) Decide(ctx context.Context, definition Definition, runtime Runt
 	callCtx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	request, dagMetadata, err := r.buildRequest(callCtx, definition, runtime)
-	if cause := context.Cause(callCtx); cause != nil {
-		return nil, fmt.Errorf("%w: %w", ErrRouterCall, cause)
+	if err := routerCallContextError(callCtx); err != nil {
+		return nil, err
 	}
 	if err != nil {
 		return nil, err
 	}
 	provider, err := r.providers(definition.LLM)
-	if cause := context.Cause(callCtx); cause != nil {
-		return nil, fmt.Errorf("%w: %w", ErrRouterCall, cause)
+	if err := routerCallContextError(callCtx); err != nil {
+		return nil, err
 	}
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrRouterCall, err)
@@ -206,15 +206,15 @@ func (r *Router) Decide(ctx context.Context, definition Definition, runtime Runt
 		return nil, fmt.Errorf("%w: provider factory returned nil", ErrRouterCall)
 	}
 	response, err := provider.Chat(callCtx, request)
-	if cause := context.Cause(callCtx); cause != nil {
-		return nil, fmt.Errorf("%w: %w", ErrRouterCall, cause)
+	if err := routerCallContextError(callCtx); err != nil {
+		return nil, err
 	}
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrRouterCall, err)
 	}
 	decision, err := validateRouteResponse(definition, runtime, response)
-	if cause := context.Cause(callCtx); cause != nil {
-		return nil, fmt.Errorf("%w: %w", ErrRouterCall, cause)
+	if err := routerCallContextError(callCtx); err != nil {
+		return nil, err
 	}
 	if err != nil {
 		return nil, err
@@ -222,8 +222,8 @@ func (r *Router) Decide(ctx context.Context, definition Definition, runtime Runt
 	if decision.Action == "run" {
 		inputParams := append(json.RawMessage(nil), decision.Params...)
 		resolvedParams, err := validateRoutingParams(dagMetadata[decision.DAG], inputParams)
-		if cause := context.Cause(callCtx); cause != nil {
-			return nil, fmt.Errorf("%w: %w", ErrRouterCall, cause)
+		if err := routerCallContextError(callCtx); err != nil {
+			return nil, err
 		}
 		if err != nil {
 			return nil, fmt.Errorf("%w: invalid params for DAG %q: %v", ErrRouterDecision, decision.DAG, err)
@@ -236,10 +236,17 @@ func (r *Router) Decide(ctx context.Context, definition Definition, runtime Runt
 		}
 		decision.Assistant.ToolCalls[0].Function.Arguments = string(arguments)
 	}
-	if cause := context.Cause(callCtx); cause != nil {
-		return nil, fmt.Errorf("%w: %w", ErrRouterCall, cause)
+	if err := routerCallContextError(callCtx); err != nil {
+		return nil, err
 	}
 	return decision, nil
+}
+
+func routerCallContextError(ctx context.Context) error {
+	if cause := context.Cause(ctx); cause != nil {
+		return fmt.Errorf("%w: %w", ErrRouterCall, cause)
+	}
+	return nil
 }
 
 type canonicalEnvelope struct {
