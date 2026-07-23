@@ -1,6 +1,8 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import { Ban, X } from 'lucide-react';
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -13,8 +15,6 @@ import { useErrorModal } from '@/components/ui/error-modal';
 import { useSimpleToast } from '@/components/ui/simple-toast';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useClient } from '@/hooks/api';
-import { Ban, X } from 'lucide-react';
-import { useState } from 'react';
 
 type Props = {
   open: boolean;
@@ -86,8 +86,12 @@ export function RejectDAGRunDialog({
           <DialogTitle>Reject DAG Run</DialogTitle>
         </DialogHeader>
         <div className="py-2">
+          <label htmlFor="rejection-reason" className="sr-only">
+            Rejection reason (optional)
+          </label>
           <textarea
-            className="w-full px-3 py-2 text-sm border border-border rounded bg-background focus:outline-none focus:border-ring resize-none"
+            id="rejection-reason"
+            className="w-full px-3 py-1 text-sm border border-border rounded bg-background focus:outline-none focus:border-ring resize-none"
             placeholder="Reason (optional)..."
             rows={2}
             value={reason}

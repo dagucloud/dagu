@@ -52,7 +52,7 @@ describe('RejectDAGRunDialog', () => {
     mocks.post.mockResolvedValueOnce({ error: undefined });
     const { onOpenChange, onSettled } = renderDialog();
 
-    fireEvent.change(screen.getByPlaceholderText('Reason (optional)...'), {
+    fireEvent.change(screen.getByLabelText('Rejection reason (optional)'), {
       target: { value: 'Needs revision' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Reject' }));
