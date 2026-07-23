@@ -250,7 +250,7 @@ func TestRunHumanTaskCompleteKeepsCompletionWhenEnqueueFails(t *testing.T) {
 	assert.Equal(t, "review", resumeErr.Result.StepID)
 	assert.Equal(t, "run-1", resumeErr.Result.DAGRunID)
 	assert.ErrorContains(t, err, "was completed")
-	assert.ErrorContains(t, err, "could not be queued")
+	assert.ErrorContains(t, err, "could not be queued for resume")
 	assert.ErrorContains(t, err, "same completion command again")
 	assert.Equal(t, core.NodeSucceeded, fixture.status.Nodes[0].Status)
 	assert.JSONEq(t, `{}`, string(fixture.status.Nodes[0].HumanTaskInput))

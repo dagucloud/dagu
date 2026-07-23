@@ -42,7 +42,7 @@ func TestHumanTaskCompletionBodyLimit(t *testing.T) {
 
 	response := server.Client().Post(
 		"/api/v1/dag-runs/test/run-1/human-tasks/review/complete",
-		strings.Repeat("x", 16<<20),
+		strings.Repeat("x", (16<<20)+1),
 	).ExpectStatus(http.StatusRequestEntityTooLarge).Send(t)
 
 	var apiError struct {

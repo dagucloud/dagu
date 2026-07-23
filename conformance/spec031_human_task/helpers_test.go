@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/conformance/harness"
+	"github.com/stretchr/testify/require"
 )
 
 func sharedEnv(t *testing.T) []string {
@@ -23,7 +24,7 @@ func startWaiting(t *testing.T, dagu *harness.Runner, env []string, runID, file 
 	queueProcessor := dagu.StartWithEnv(env, "scheduler", "--dags="+dagu.ProjectPath("."))
 	select {
 	case <-queueProcessor.Done():
-		t.Fatalf("scheduler exited during startup: %s", queueProcessor.FailureOutput())
+		require.FailNowf(t, "scheduler exited during startup", "%s", queueProcessor.FailureOutput())
 	case <-time.After(100 * time.Millisecond):
 	}
 
