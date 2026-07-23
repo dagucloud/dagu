@@ -108,7 +108,7 @@ func FlushStepLogWriterWithBuffer(w *StepLogWriter, data []byte) StepLogWriterFl
 
 	initialSequence := w.sequence
 	w.buffer = data
-	err := w.flush()
+	err := w.flushLocked()
 
 	return StepLogWriterFlushResult{
 		Err:             err,

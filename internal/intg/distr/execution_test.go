@@ -96,6 +96,21 @@ func artifactWriteCommand(content string, fail bool) string {
 	return test.JoinLines(commands...)
 }
 
+func gatedLogCommand(stdoutMarker, stderrMarker, releasePath string) string {
+	if runtime.GOOS == "windows" {
+		return test.JoinLines(
+			fmt.Sprintf("[Console]::Out.WriteLine(%s)", test.PowerShellQuote(stdoutMarker)),
+			fmt.Sprintf("[Console]::Error.WriteLine(%s)", test.PowerShellQuote(stderrMarker)),
+			fmt.Sprintf("while (-not (Test-Path -LiteralPath %s)) { Start-Sleep -Milliseconds 100 }", test.PowerShellQuote(releasePath)),
+		)
+	}
+	return test.JoinLines(
+		fmt.Sprintf("printf '%%s\\n' %s", test.PosixQuote(stdoutMarker)),
+		fmt.Sprintf("printf '%%s\\n' %s >&2", test.PosixQuote(stderrMarker)),
+		fmt.Sprintf("while [ ! -f %s ]; do sleep 0.1; done", test.PosixQuote(releasePath)),
+	)
+}
+
 func artifactNoWriteCommand() string {
 	if runtime.GOOS == "windows" {
 		return test.JoinLines(
@@ -223,6 +238,81 @@ steps:
 	for _, line := range []string{firstStdout, firstStderr, secondStdout, secondStderr} {
 		assert.Contains(t, runLog, line, "run-level scheduler log should contain distributed step output evidence")
 	}
+}
+
+func TestExecution_SmallDistributedWorkerLogsVisibleBeforeStepCompletes(t *testing.T) {
+	stdoutMarker := "small-running-stdout-marker"
+	stderrMarker := "small-running-stderr-marker"
+	releasePath := filepath.Join(t.TempDir(), "release")
+	releaseStep := func() error {
+		return os.WriteFile(releasePath, []byte("release"), 0600)
+	}
+
+	f := newTestFixture(t, `
+name: small-running-distributed-logs-test
+worker_selector:
+  test: "true"
+steps:
+  - name: gated-step
+`+artifactStepShellYAML()+`    command: |
+`+indentYAMLBlock(gatedLogCommand(stdoutMarker, stderrMarker, releasePath), 6)+`
+`, withLogPersistence())
+	defer f.cleanup()
+	defer func() { _ = releaseStep() }()
+
+	require.NoError(t, f.enqueue())
+	f.waitForQueued()
+	f.startScheduler(30 * time.Second)
+
+	running := f.waitForStatus(core.Running, executionStatusTimeout())
+	require.Equal(t, core.Running, running.Status)
+	require.NotEmpty(t, running.Log)
+
+	f.requireEventuallyNoSchedulerError(
+		"small step logs should be visible on the coordinator while the step is running",
+		executionStatusTimeout(),
+		100*time.Millisecond,
+		func() bool {
+			current, err := f.latestStoredStatus()
+			if err != nil || current.Status != core.Running {
+				return false
+			}
+
+			stdoutFiles := findLogFiles(t, f.logDir(), f.dagWrapper.Name, current.DAGRunID, "gated-step", "stdout")
+			stderrFiles := findLogFiles(t, f.logDir(), f.dagWrapper.Name, current.DAGRunID, "gated-step", "stderr")
+			if len(stdoutFiles) == 0 || len(stderrFiles) == 0 {
+				return false
+			}
+
+			stdout, err := os.ReadFile(stdoutFiles[0])
+			if err != nil || !strings.Contains(string(stdout), stdoutMarker) {
+				return false
+			}
+			stderr, err := os.ReadFile(stderrFiles[0])
+			if err != nil || !strings.Contains(string(stderr), stderrMarker) {
+				return false
+			}
+			combined, err := os.ReadFile(current.Log)
+			return err == nil &&
+				strings.Contains(string(combined), stdoutMarker) &&
+				strings.Contains(string(combined), stderrMarker)
+		},
+	)
+
+	require.NoError(t, releaseStep())
+	status := f.waitForStatus(core.Succeeded, executionStatusTimeout())
+	f.assertAllNodesSucceeded(status)
+
+	stdoutFiles := findLogFiles(t, f.logDir(), f.dagWrapper.Name, status.DAGRunID, "gated-step", "stdout")
+	stderrFiles := findLogFiles(t, f.logDir(), f.dagWrapper.Name, status.DAGRunID, "gated-step", "stderr")
+	require.NotEmpty(t, stdoutFiles)
+	require.NotEmpty(t, stderrFiles)
+	require.Equal(t, 1, strings.Count(getLogContent(t, stdoutFiles[0]), stdoutMarker))
+	require.Equal(t, 1, strings.Count(getLogContent(t, stderrFiles[0]), stderrMarker))
+
+	combined := getLogContent(t, status.Log)
+	require.Equal(t, 1, strings.Count(combined, stdoutMarker))
+	require.Equal(t, 1, strings.Count(combined, stderrMarker))
 }
 
 func TestExecution_LargeOutput(t *testing.T) {
