@@ -564,6 +564,9 @@ func (s *DispatchTaskStore) createAdmissionPendingRecord(
 	task *exec.DispatchTask,
 	taskFingerprint string,
 ) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	now := time.Now().UTC()
 	payload := dispatchTaskPayload{
 		Version:                   dispatchTaskStoreVersion,
@@ -604,9 +607,7 @@ func (s *DispatchTaskStore) createAdmissionPendingRecord(
 		return nil
 	}
 	if s.index != nil {
-		s.mu.Lock()
 		s.index.addPending(rec, payload)
-		s.mu.Unlock()
 	}
 	return nil
 }
