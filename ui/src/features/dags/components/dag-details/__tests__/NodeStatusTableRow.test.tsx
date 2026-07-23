@@ -250,7 +250,10 @@ describe('NodeStatusTableRow', () => {
     expect(screen.queryByTitle('Retry from this step')).not.toBeInTheDocument();
   });
 
-  it('hides step retry controls while the DAG run is waiting', () => {
+  it.each([
+    ['waiting', Status.Waiting],
+    ['queued', Status.Queued],
+  ])('hides step retry controls while the DAG run is %s', (_, status) => {
     const node = {
       step: { name: 'build' },
       status: NodeStatus.Success,
@@ -280,8 +283,7 @@ describe('NodeStatusTableRow', () => {
                   name="example.yaml"
                   dagRun={{
                     ...dagRun,
-                    status: Status.Waiting,
-                    nodes: [node],
+                    status,
                   }}
                   view="desktop"
                 />

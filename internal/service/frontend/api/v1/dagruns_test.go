@@ -1014,10 +1014,13 @@ steps:
 			hasNodeWithStatus(status, "parent-long", core.NodeSucceeded)
 	})
 
-	server.Client().Patch(
+	updateResp := server.Client().Patch(
 		fmt.Sprintf("/api/v1/dag-runs/%s/%s/sub-dag-runs/%s/steps/child-wait/status", dagName, startBody.DagRunId, subDAGRunID),
 		api.UpdateSubDAGRunStepStatusJSONRequestBody{Status: api.NodeStatusSuccess},
 	).ExpectStatus(http.StatusBadRequest).Send(t)
+	var updateBody api.UpdateSubDAGRunStepStatus400JSONResponse
+	updateResp.Unmarshal(t, &updateBody)
+	require.Contains(t, updateBody.Message, subDAGRunID)
 	waitingChildStatus := waitForStoredSubDAGRunStatus(t, server, rootRef, subDAGRunID, 10*time.Second, func(status *exec.DAGRunStatus) bool {
 		return status.Status == core.Waiting && hasNodeWithStatus(status, "child-wait", core.NodeWaiting)
 	})

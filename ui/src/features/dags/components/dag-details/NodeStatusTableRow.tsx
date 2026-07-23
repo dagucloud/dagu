@@ -294,6 +294,7 @@ function NodeStatusTableRow({
   const canRetryStep =
     showStepActions &&
     dagRun.status !== Status.Waiting &&
+    dagRun.status !== Status.Queued &&
     !node.step.humanTask &&
     node.status !== NodeStatus.Waiting &&
     node.status !== NodeStatus.Rejected;
@@ -603,7 +604,11 @@ function NodeStatusTableRow({
             <X className="h-4 w-4" />
             Cancel
           </Button>
-          <Button size="sm" onClick={handleRetry} disabled={loading}>
+          <Button
+            size="sm"
+            onClick={handleRetry}
+            disabled={retryDisabled || !canRetryStep}
+          >
             <Play className="h-4 w-4" />
             {loading ? 'Retrying...' : 'Retry'}
           </Button>

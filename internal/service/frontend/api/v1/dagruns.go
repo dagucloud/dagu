@@ -2708,7 +2708,7 @@ func (a *API) UpdateSubDAGRunStepStatus(ctx context.Context, request api.UpdateS
 	if dagStatus.Status == core.NotStarted || dagStatus.Status.IsActive() {
 		return &api.UpdateSubDAGRunStepStatus400JSONResponse{
 			Code:    api.ErrorCodeBadRequest,
-			Message: fmt.Sprintf("dag-run ID %s for DAG %s is still active", request.DagRunId, request.Name),
+			Message: fmt.Sprintf("dag-run ID %s for DAG %s is still active", request.SubDAGRunId, request.Name),
 		}, nil
 	}
 	if mutationRef == root {

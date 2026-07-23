@@ -306,13 +306,12 @@ function DAGActions({
         </Tooltip>
 
         {/* Stop / Reject Button */}
-        {isWaiting && hasWaitingApprovals ? (
+        {buttonState.reject ? (
           <Tooltip>
             <TooltipTrigger asChild>
               <ActionButton
                 label={displayMode !== 'compact'}
                 icon={<Ban className="h-4 w-4" />}
-                disabled={!buttonState['reject']}
                 onClick={() => setIsRejectModal(true)}
                 className="cursor-pointer"
               >
