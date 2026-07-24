@@ -152,6 +152,57 @@ steps:
 	require.Equal(t, core.Succeeded, result.Status)
 }
 
+func TestLocalRunReusesSucceededChildForExternalStepRetry(t *testing.T) {
+	th := test.Setup(t)
+	rootDAG := th.DAG(t, `name: retry-parent
+steps:
+  - name: child
+    run: echo child
+`)
+	childDAG := th.DAG(t, `name: retry-child
+steps:
+  - name: work
+    run: echo ok
+`)
+
+	const (
+		rootRunID  = "root-run"
+		childRunID = "child-run"
+	)
+	childStatus := localRunStatus(childDAG.DAG, childRunID, core.Succeeded, core.NodeSucceeded)
+	originalAttempt := createStoredRunningChildAttempt(
+		t,
+		th,
+		rootDAG.DAG,
+		childDAG.DAG,
+		rootRunID,
+		childRunID,
+		childStatus,
+	)
+
+	rootRef := exec.NewDAGRunRef(rootDAG.Name, rootRunID)
+	runner := subflow.NewLocal(
+		th.DAGRunMgr,
+		th.DAGStore,
+		subflow.WithLocalDAGRunStore(th.DAGRunStore),
+	)
+	result, err := runner.Run(th.Context, executor.SubWorkflowRequest{
+		DAG:               childDAG.DAG,
+		RootDAGRun:        rootRef,
+		ParentDAGRun:      rootRef,
+		RunID:             childRunID,
+		ExternalStepRetry: true,
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, core.Succeeded, result.Status)
+
+	latestAttempt, err := th.DAGRunStore.FindSubAttempt(th.Context, rootRef, childRunID)
+	require.NoError(t, err)
+	require.Equal(t, originalAttempt.ID(), latestAttempt.ID())
+}
+
 func TestLocalRunRepairsStaleChildBeforeRetry(t *testing.T) {
 	th := test.Setup(t)
 	rootDAG := th.DAG(t, `name: stale-parent

@@ -182,6 +182,9 @@ func (r *Local) Run(ctx context.Context, req executor.SubWorkflowRequest) (*exec
 	if err != nil {
 		return nil, err
 	}
+	if req.ExternalStepRetry && retryTarget != nil && retryTarget.Status == core.Succeeded {
+		return statusToRunStatus(retryTarget, req.RunID), nil
+	}
 
 	dag, cleanup, err := loadInProcessDAG(ctx, req)
 	if err != nil {

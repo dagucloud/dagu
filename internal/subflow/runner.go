@@ -138,6 +138,9 @@ func (r *Runner) Run(ctx context.Context, req executor.SubWorkflowRequest) (*exe
 	if previousStatus, found, err := r.existingStatus(ctx, req); err != nil {
 		return nil, fmt.Errorf("failed to load child workflow status before start: %w", err)
 	} else if found {
+		if req.ExternalStepRetry && previousStatus.Status == core.Succeeded {
+			return statusToRunStatus(previousStatus, req.RunID), nil
+		}
 		if err := r.dispatchRetryWithStatus(ctx, req, "", previousStatus); err != nil {
 			logger.Error(dispatchCtx, "Distributed child workflow retry dispatch failed", tag.Error(err))
 			return nil, fmt.Errorf("distributed retry failed: %w", err)
