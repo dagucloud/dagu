@@ -55,11 +55,12 @@ import (
 // - HandleJob(): Entry point for new scheduled jobs (handles persistence)
 // - ExecuteDAG(): Executes/dispatches already-persisted jobs (no persistence)
 type DAGExecutor struct {
-	coordinatorCli  exec.Dispatcher
-	subCmdBuilder   *launcher.SubCmdBuilder
-	defaultExecMode config.ExecutionMode
-	baseConfigPath  string
-	profileResolver DAGProfileResolver
+	coordinatorCli         exec.Dispatcher
+	subCmdBuilder          *launcher.SubCmdBuilder
+	defaultExecMode        config.ExecutionMode
+	baseConfigPath         string
+	workspaceBaseConfigDir string
+	profileResolver        DAGProfileResolver
 }
 
 type DAGProfileResolver interface {
@@ -71,6 +72,13 @@ type DAGExecutorOption func(*DAGExecutor)
 func WithDAGExecutorProfileResolver(resolver DAGProfileResolver) DAGExecutorOption {
 	return func(e *DAGExecutor) {
 		e.profileResolver = resolver
+	}
+}
+
+// WithDAGExecutorWorkspaceBaseConfigDir sets the directory used to resolve workspace base configs.
+func WithDAGExecutorWorkspaceBaseConfigDir(dir string) DAGExecutorOption {
+	return func(e *DAGExecutor) {
+		e.workspaceBaseConfigDir = dir
 	}
 }
 
@@ -375,7 +383,8 @@ func (e *DAGExecutor) prepareDAGForSubprocess(ctx context.Context, dag *core.DAG
 	}
 
 	result, err := spec.ResolveEnvWithWarnings(ctx, dag, params, spec.ResolveEnvOptions{
-		BaseConfig: e.baseConfigPath,
+		BaseConfig:             e.baseConfigPath,
+		WorkspaceBaseConfigDir: e.workspaceBaseConfigDir,
 	})
 	if err != nil {
 		return nil, err

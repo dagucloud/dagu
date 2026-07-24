@@ -24,6 +24,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/launcher"
 	"github.com/dagucloud/dagu/internal/runtime"
+	"github.com/dagucloud/dagu/internal/workspace"
 )
 
 // Clock is a function that returns the current time.
@@ -149,6 +150,7 @@ func newScheduler(
 		cfg.DefaultExecMode,
 		cfg.Paths.BaseConfig,
 		WithDAGExecutorProfileResolver(options.profileResolver),
+		WithDAGExecutorWorkspaceBaseConfigDir(workspace.BaseConfigDir(cfg.Paths.DAGsDir)),
 	)
 	healthServer := NewHealthServer(cfg.Scheduler.Port)
 
