@@ -1103,6 +1103,95 @@ func TestBuildWorkerSelector(t *testing.T) {
 	}
 }
 
+func TestWorkerSelectorEvaluation(t *testing.T) {
+	t.Parallel()
+
+	t.Run("EnvValue", func(t *testing.T) {
+		t.Parallel()
+		dag, err := LoadYAML(context.Background(), []byte(`
+env:
+  WORKLOAD: intraday
+worker_selector:
+  workload: ${WORKLOAD}
+steps:
+  - name: task
+    run: echo hello
+`))
+		require.NoError(t, err)
+		assert.Equal(t, map[string]string{"workload": "intraday"}, dag.WorkerSelector)
+	})
+
+	t.Run("ParamValue", func(t *testing.T) {
+		t.Parallel()
+		dag, err := LoadYAML(context.Background(), []byte(`
+params: REGION=eu-west
+worker_selector:
+  region: ${REGION}
+steps:
+  - name: task
+    run: echo hello
+`))
+		require.NoError(t, err)
+		assert.Equal(t, map[string]string{"region": "eu-west"}, dag.WorkerSelector)
+	})
+
+	t.Run("KeySubstitution", func(t *testing.T) {
+		t.Parallel()
+		dag, err := LoadYAML(context.Background(), []byte(`
+env:
+  LABEL_KEY: workload
+worker_selector:
+  ${LABEL_KEY}: fast
+steps:
+  - name: task
+    run: echo hello
+`))
+		require.NoError(t, err)
+		assert.Equal(t, map[string]string{"workload": "fast"}, dag.WorkerSelector)
+	})
+
+	t.Run("UndefinedVariableStaysLiteral", func(t *testing.T) {
+		t.Parallel()
+		dag, err := LoadYAML(context.Background(), []byte(`
+worker_selector:
+  workload: ${UNDEFINED_WORKER_SELECTOR_VAR}
+steps:
+  - name: task
+    run: echo hello
+`))
+		require.NoError(t, err)
+		assert.Equal(t, map[string]string{"workload": "${UNDEFINED_WORKER_SELECTOR_VAR}"}, dag.WorkerSelector)
+	})
+
+	t.Run("WithoutEvalLeavesRaw", func(t *testing.T) {
+		t.Parallel()
+		dag, err := LoadYAML(context.Background(), []byte(`
+env:
+  WORKLOAD: intraday
+worker_selector:
+  workload: ${WORKLOAD}
+steps:
+  - name: task
+    run: echo hello
+`), WithoutEval())
+		require.NoError(t, err)
+		assert.Equal(t, map[string]string{"workload": "${WORKLOAD}"}, dag.WorkerSelector)
+	})
+
+	t.Run("LocalStillForcesLocal", func(t *testing.T) {
+		t.Parallel()
+		dag, err := LoadYAML(context.Background(), []byte(`
+worker_selector: local
+steps:
+  - name: task
+    run: echo hello
+`))
+		require.NoError(t, err)
+		assert.True(t, dag.ForceLocal)
+		assert.Empty(t, dag.WorkerSelector)
+	})
+}
+
 func TestBuildWebhookConfig(t *testing.T) {
 	t.Parallel()
 

@@ -102,7 +102,7 @@ Common step fields:
 | `repeat_policy` | Repeat or polling behavior. |
 | `continue_on` | Continue after selected failure, skip, exit-code, or output conditions. |
 | `preconditions` | Conditions that must pass before the step starts. |
-| `worker_selector` | Required worker labels. |
+| `worker_selector` | Required worker labels. Keys and values support variable substitution (e.g. `${VAR}`). |
 | `stdout`, `stderr`, `log_output` | Step log output configuration. `stdout` can also publish DAG/action outputs. |
 | `output` | Captured stdout variable or structured step-scoped output. |
 | `output_schema` | JSON Schema for stdout JSON validation. |

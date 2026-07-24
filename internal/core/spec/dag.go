@@ -4,6 +4,7 @@
 package spec
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -731,6 +732,70 @@ func (s *dagBuildState) composeInheritedContext() {
 	s.result = merged
 }
 
+// resolveWorkerSelector expands variable references in worker_selector keys and
+// values. It must run after composeInheritedContext so labels defined in
+// base-config env resolve correctly (base env is only merged into the result
+// during composition, not during field stages).
+func (s *dagBuildState) resolveWorkerSelector() {
+	if s.ctx.opts.Has(BuildFlagNoEval) || len(s.result.WorkerSelector) == 0 {
+		return
+	}
+
+	scope := cmnvalue.NewEnvScope(nil, true)
+	if len(s.ctx.opts.BuildEnv) > 0 {
+		scope = scope.WithEntries(s.ctx.opts.BuildEnv, cmnvalue.EnvSourceDotEnv)
+	}
+	for _, p := range s.result.Params {
+		if k, v, ok := strings.Cut(p, "="); ok {
+			scope = scope.WithEntry(k, v, cmnvalue.EnvSourceParam)
+		}
+	}
+	// Merged env is ordered base-config entries first, DAG's own entries after,
+	// so the DAG's own values win.
+	for _, e := range s.result.Env {
+		if k, v, ok := strings.Cut(e, "="); ok {
+			scope = scope.WithEntry(k, v, cmnvalue.EnvSourceDAGEnv)
+		}
+	}
+
+	var consts map[string]any
+	var params cmnvalue.Values
+	var paramsJSON string
+	var paramDeclarations cmnvalue.Values
+	if s.ctx.envScope != nil {
+		consts = s.ctx.envScope.consts
+		params = s.ctx.envScope.params
+		paramsJSON = s.ctx.envScope.paramsJSON
+		paramDeclarations = s.ctx.envScope.paramDeclarations
+	}
+	resolver := cmnvalue.NewResolver(
+		cmnvalue.StaticScope{Consts: cmnvalue.Values(consts), Params: paramDeclarations},
+		cmnvalue.RuntimeScope{Consts: cmnvalue.Values(consts), Params: params, ParamsJSON: paramsJSON, Env: scope},
+		cmnvalue.WithValueReferenceNotices(buildNoticeSink(s.ctx.valueReferenceNotices)),
+	)
+
+	evalCtx := s.ctx.ctx
+	if evalCtx == nil {
+		evalCtx = context.Background()
+	}
+	field := cmnvalue.WorkflowField("worker_selector")
+	resolved := make(map[string]string, len(s.result.WorkerSelector))
+	for k, v := range s.result.WorkerSelector {
+		resolvedKey, err := resolver.String(evalCtx, k, field)
+		if err != nil {
+			s.errs = append(s.errs, core.NewValidationError("worker_selector", k, err))
+			return
+		}
+		resolvedVal, err := resolver.String(evalCtx, v, field)
+		if err != nil {
+			s.errs = append(s.errs, core.NewValidationError("worker_selector", v, err))
+			return
+		}
+		resolved[strings.TrimSpace(resolvedKey)] = strings.TrimSpace(resolvedVal)
+	}
+	s.result.WorkerSelector = resolved
+}
+
 func (s *dagBuildState) collectWarnings() {
 	s.result.BuildWarnings = nil
 
@@ -830,6 +895,7 @@ func (d *dag) build(ctx BuildContext) (*core.DAG, error) {
 	state.prepareParamEnvStage()
 	state.runFieldStages()
 	state.composeInheritedContext()
+	state.resolveWorkerSelector()
 	state.markEnvEvaluated()
 	state.collectWarnings()
 	state.buildActionGraph()

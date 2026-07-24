@@ -561,12 +561,20 @@ func (e *parallelExecutor) newChildExecutor(
 		return nil, err
 	}
 
-	if err := validateSubDAG(child.DAG, target, e.step.WorkerSelector); err != nil {
+	// runParams.Params carries the parallel item param (or the child's
+	// effective params when explicit sub-DAG params are configured), exposed
+	// to the selector as ${ITEM}.
+	workerSelector, err := resolveWorkerSelector(ctx, e.step.WorkerSelector, map[string]string{"ITEM": runParams.Params})
+	if err != nil {
+		_ = child.Cleanup(context.WithoutCancel(ctx))
+		return nil, err
+	}
+	if err := validateSubDAG(child.DAG, target, workerSelector); err != nil {
 		_ = child.Cleanup(context.WithoutCancel(ctx))
 		return nil, err
 	}
 
-	child.SetWorkerSelector(e.step.WorkerSelector)
+	child.SetWorkerSelector(workerSelector)
 	child.SetExternalStepRetry(true)
 	return child, nil
 }

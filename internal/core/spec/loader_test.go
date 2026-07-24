@@ -357,6 +357,53 @@ steps:
 	})
 }
 
+func TestLoad_WorkerSelectorFromBaseConfigEnv(t *testing.T) {
+	t.Parallel()
+
+	t.Run("ResolvesBaseConfigEnv", func(t *testing.T) {
+		t.Parallel()
+
+		// The label is defined once in the workspace-level base config and
+		// referenced from the DAG's worker_selector (GitHub issue #2410).
+		base := createTempYAMLFile(t, `env:
+  WORKLOAD: batch-eu
+`)
+		testDAG := createTempYAMLFile(t, `worker_selector:
+  workload: "${WORKLOAD}"
+
+steps:
+  - name: "1"
+    run: "true"
+`)
+		dag, err := spec.Load(context.Background(), testDAG, spec.WithBaseConfig(base))
+		require.NoError(t, err)
+
+		assert.Equal(t, map[string]string{"workload": "batch-eu"}, dag.WorkerSelector)
+	})
+
+	t.Run("ChildEnvOverridesBaseEnv", func(t *testing.T) {
+		t.Parallel()
+
+		base := createTempYAMLFile(t, `env:
+  WORKLOAD: base-pool
+`)
+		testDAG := createTempYAMLFile(t, `env:
+  WORKLOAD: child-pool
+
+worker_selector:
+  workload: "${WORKLOAD}"
+
+steps:
+  - name: "1"
+    run: "true"
+`)
+		dag, err := spec.Load(context.Background(), testDAG, spec.WithBaseConfig(base))
+		require.NoError(t, err)
+
+		assert.Equal(t, map[string]string{"workload": "child-pool"}, dag.WorkerSelector)
+	})
+}
+
 func TestLoad_HarnessDefinitionsBaseConfigMerge(t *testing.T) {
 	t.Parallel()
 

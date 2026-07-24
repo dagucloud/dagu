@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"maps"
 	"os"
 	"strings"
 	"sync"
@@ -216,7 +215,11 @@ func (e *enqueueExecutor) enqueueOne(ctx context.Context, runParams executor.Run
 		}
 	}()
 
-	if err := validateSubDAG(child.DAG, target, e.step.WorkerSelector); err != nil {
+	workerSelector, err := resolveWorkerSelector(ctx, e.step.WorkerSelector, nil)
+	if err != nil {
+		return enqueueRunOutput{}, err
+	}
+	if err := validateSubDAG(child.DAG, target, workerSelector); err != nil {
 		return enqueueRunOutput{}, err
 	}
 
@@ -228,8 +231,8 @@ func (e *enqueueExecutor) enqueueOne(ctx context.Context, runParams executor.Run
 	}
 	dagCopy = dagCopy.Clone()
 	dagCopy.Location = ""
-	if len(e.step.WorkerSelector) > 0 {
-		dagCopy.WorkerSelector = maps.Clone(e.step.WorkerSelector)
+	if len(workerSelector) > 0 {
+		dagCopy.WorkerSelector = workerSelector
 	}
 
 	queueName := dagCopy.ProcGroup()

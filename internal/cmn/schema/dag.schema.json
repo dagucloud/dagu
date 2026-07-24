@@ -746,7 +746,7 @@
           "description": "Set to \"local\" to force this DAG to run locally even when the server default execution mode is distributed."
         }
       ],
-      "description": "Worker selection for this DAG. Use a map of label key-value pairs to target specific workers, or the string \"local\" to force local execution. This setting applies to the entire DAG; individual steps can override this with their own worker_selector."
+      "description": "Worker selection for this DAG. Use a map of label key-value pairs to target specific workers, or the string \"local\" to force local execution. Map keys and values support variable substitution (e.g. ${VAR}) resolved from the DAG environment (including base-config env) and params; the string form \"local\" is literal. This setting applies to the entire DAG; individual steps can override this with their own worker_selector."
     },
     "shell": {
       "oneOf": [
@@ -2067,7 +2067,7 @@
               "description": "Set to \"local\" to force this step to run locally even when the server default execution mode is distributed."
             }
           ],
-          "description": "Worker selection for this step. Use a map of label key-value pairs to target specific workers, or the string \"local\" to force local execution."
+          "description": "Worker selection for this step. Use a map of label key-value pairs to target specific workers, or the string \"local\" to force local execution. Map keys and values support variable substitution (e.g. ${VAR}) resolved from the runtime environment; parallel children can reference the item via ${ITEM}. The string form \"local\" is literal."
         },
         "env": {
           "oneOf": [
