@@ -265,14 +265,18 @@ steps:
 `, test.EnvOutput("EXPORTED_SECRET", "SUBCMD_START_EXPLICIT_ENV")))
 
 	spec := th.SubCmdBuilder.Start(dagFile.DAG, launcher.StartOptions{})
-	runCtx, cancel := context.WithTimeout(th.Context, statusTimeout)
-	defer cancel()
-	err := launcher.Run(runCtx, spec)
+	err := launcher.Start(th.Context, spec)
 	require.NoError(t, err, "env=%s", strings.Join(spec.Env, "\n"))
 
-	status, err := th.DAGRunMgr.GetLatestStatus(th.Context, dagFile.DAG)
-	require.NoError(t, err)
-	require.Equal(t, core.Succeeded, status.Status)
+	var status exec.DAGRunStatus
+	require.Eventually(t, func() bool {
+		latest, err := th.DAGRunMgr.GetLatestStatus(th.Context, dagFile.DAG)
+		if err != nil {
+			return false
+		}
+		status = latest
+		return status.Status == core.Succeeded
+	}, statusTimeout, 100*time.Millisecond)
 	require.Equal(t, "from-host|", test.StatusOutputValue(t, &status, "RESULT"))
 }
 
@@ -297,14 +301,18 @@ steps:
 		require.False(t, strings.HasPrefix(entry, "_DAGU_PRESOLVED_SECRET_"), "unexpected presolved secret transport env: %s", entry)
 	}
 
-	runCtx, cancel := context.WithTimeout(th.Context, statusTimeout)
-	defer cancel()
-	err := launcher.Run(runCtx, spec)
+	err := launcher.Start(th.Context, spec)
 	require.NoError(t, err, "env=%s", strings.Join(spec.Env, "\n"))
 
-	status, err := th.DAGRunMgr.GetLatestStatus(th.Context, dagFile.DAG)
-	require.NoError(t, err)
-	require.Equal(t, core.Succeeded, status.Status)
+	var status exec.DAGRunStatus
+	require.Eventually(t, func() bool {
+		latest, err := th.DAGRunMgr.GetLatestStatus(th.Context, dagFile.DAG)
+		if err != nil {
+			return false
+		}
+		status = latest
+		return status.Status == core.Succeeded
+	}, statusTimeout, 100*time.Millisecond)
 	require.Equal(t, masking.DefaultMaskString+"|", test.StatusOutputValue(t, &status, "RESULT"))
 }
 

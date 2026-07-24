@@ -593,30 +593,6 @@ func (h *Handler) finalizeAdmissionForAttempt(ctx context.Context, attempt exec.
 	h.finalizeAdmissionForStatus(ctx, status, attempt.ID())
 }
 
-func (h *Handler) finalizeReportedStatus(
-	ctx context.Context,
-	ownership *attemptOwnership,
-	workerID string,
-	runStatus *exec.DAGRunStatus,
-	attempt exec.DAGRunAttempt,
-) error {
-	h.finalizeAdmissionForStatus(ctx, runStatus, attempt.ID())
-	storeCtx := context.WithoutCancel(ctx)
-	if runStatus != nil && runStatus.Status == core.Waiting {
-		if err := h.closeCachedAttemptForRun(
-			ctx,
-			storeCtx,
-			runStatus.DAGRunID,
-			attempt.ID(),
-		); err != nil {
-			return err
-		}
-	}
-	// Removing the lease makes a waiting status actionable after its writer is closed.
-	ownership.syncFromStatus(storeCtx, workerID, runStatus, attempt.ID())
-	return nil
-}
-
 func queueDispatchStatusForTask(task *coordinatorv1.Task) (*exec.DAGRunStatus, error) {
 	if task == nil || task.Operation != coordinatorv1.Operation_OPERATION_RETRY || task.PreviousStatus == nil {
 		return nil, nil
@@ -1637,25 +1613,6 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 	runMu.Lock()
 	defer runMu.Unlock()
 
-	ownership := h.attemptOwnership()
-	waitingLeaseRefreshed, err := ownership.refreshWaitingLease(ctx, dagRunStatus, req.WorkerId)
-	if err != nil {
-		return nil, status.Error(codes.Internal, "failed to refresh waiting attempt lease: "+err.Error())
-	}
-	if !waitingLeaseRefreshed {
-		logRejectedRemoteStatusUpdate(
-			ctx,
-			req.WorkerId,
-			dagRunStatus,
-			nil,
-			remoteAttemptRejectedLeaseInactive,
-		)
-		return &coordinatorv1.ReportStatusResponse{
-			Accepted: false,
-			Error:    remoteAttemptRejectedLeaseInactive,
-		}, nil
-	}
-
 	latestAttempt, latestStatus, err := h.resolveLatestAttempt(ctx, dagRunStatus.Name, dagRunStatus.DAGRunID, dagRunStatus.Root)
 	if err != nil {
 		bootstrappedAttempt, bootstrapped, bootstrapErr := h.bootstrapMissingSubAttempt(ctx, req.WorkerId, dagRunStatus, err)
@@ -1673,9 +1630,12 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 
 			h.persistChatMessages(ctx, bootstrappedAttempt, dagRunStatus)
 
-			if err := h.finalizeReportedStatus(ctx, ownership, req.WorkerId, dagRunStatus, bootstrappedAttempt); err != nil {
-				return nil, status.Error(codes.Internal, "failed to finalize waiting attempt: "+err.Error())
-			}
+			ownership := h.attemptOwnership()
+			// Live tracking must complete after the status write even if the
+			// reporting worker disconnects.
+			ownership.syncFromStatus(context.WithoutCancel(ctx), req.WorkerId, dagRunStatus, bootstrappedAttempt.ID())
+			h.finalizeAdmissionForStatus(ctx, dagRunStatus, bootstrappedAttempt.ID())
+			h.closeCachedWaitingAttempt(ctx, dagRunStatus, bootstrappedAttempt)
 
 			return &coordinatorv1.ReportStatusResponse{Accepted: true}, nil
 		}
@@ -1689,14 +1649,11 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 		return nil, status.Error(codes.Internal, "failed to resolve latest attempt: "+err.Error())
 	}
 
-	accepted, rejectReason, decisionErr := ownership.statusDecision(ctx, latestStatus, dagRunStatus, statusDecisionOptions{
+	ownership := h.attemptOwnership()
+	accepted, rejectReason := ownership.statusDecision(ctx, latestStatus, dagRunStatus, statusDecisionOptions{
 		CancellationRequested: h.sameAttemptCancellationRequested(ctx, latestAttempt, latestStatus, dagRunStatus),
 		ClaimKey:              dagRunStatus.EffectiveClaimKey(),
-		WorkerID:              req.WorkerId,
 	})
-	if decisionErr != nil {
-		return nil, status.Error(codes.Internal, "failed to validate distributed attempt ownership: "+decisionErr.Error())
-	}
 	if !accepted {
 		logRejectedRemoteStatusUpdate(ctx, req.WorkerId, dagRunStatus, latestStatus, rejectReason)
 		return &coordinatorv1.ReportStatusResponse{
@@ -1710,14 +1667,7 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 
 	attempt := latestAttempt
 	if dagRunStatus.Status == core.Waiting {
-		if err := h.closeCachedAttemptForRun(
-			ctx,
-			context.WithoutCancel(ctx),
-			dagRunStatus.DAGRunID,
-			latestAttempt.ID(),
-		); err != nil {
-			return nil, status.Error(codes.Internal, "failed to close waiting attempt: "+err.Error())
-		}
+		h.closeCachedAttemptForRun(ctx, context.WithoutCancel(ctx), dagRunStatus.DAGRunID, latestAttempt.ID())
 		persisted, swapped, err := h.dagRunStore.CompareAndSwapLatestAttemptStatus(
 			ctx,
 			dagRunStatus.DAGRun(),
@@ -1764,9 +1714,11 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 	// Persist chat messages for each node.
 	h.persistChatMessages(ctx, attempt, dagRunStatus)
 
-	if err := h.finalizeReportedStatus(ctx, ownership, req.WorkerId, dagRunStatus, attempt); err != nil {
-		return nil, status.Error(codes.Internal, "failed to finalize waiting attempt: "+err.Error())
-	}
+	// Live tracking must complete after the status write even if the reporting
+	// worker disconnects.
+	ownership.syncFromStatus(context.WithoutCancel(ctx), req.WorkerId, dagRunStatus, attempt.ID())
+	h.finalizeAdmissionForStatus(ctx, dagRunStatus, attempt.ID())
+	h.closeCachedWaitingAttempt(ctx, dagRunStatus, attempt)
 
 	// Note: We don't close the attempt immediately on terminal status because
 	// the agent may push the same terminal status multiple times from different
@@ -1841,6 +1793,17 @@ func equalOptionalString(left, right *string) bool {
 		return left == right
 	}
 	return *left == *right
+}
+
+func (h *Handler) closeCachedWaitingAttempt(
+	ctx context.Context,
+	status *exec.DAGRunStatus,
+	attempt exec.DAGRunAttempt,
+) {
+	if status == nil || attempt == nil || status.Status != core.Waiting {
+		return
+	}
+	h.closeCachedAttemptForRun(ctx, context.WithoutCancel(ctx), status.DAGRunID, attempt.ID())
 }
 
 func (h *Handler) bootstrapMissingSubAttempt(
@@ -2541,22 +2504,12 @@ func (h *Handler) reconcileLease(ctx context.Context, lease exec.DAGRunLease, no
 	}
 
 	switch runStatus.Status {
-	case core.Waiting:
-		h.reconcileWaitingTracking(ctx, exec.ActiveDistributedRun{
-			AttemptKey: lease.AttemptKey,
-			DAGRun:     lease.DAGRun,
-			Root:       lease.Root,
-			AttemptID:  attemptID,
-			WorkerID:   workerID,
-			Status:     core.Waiting,
-		}, now)
-		return
 	case core.Running, core.NotStarted, core.Queued:
 		if lease.MatchesClaim(runStatus.EffectiveClaimKey(), workerID) && lease.IsFresh(now, h.staleLeaseThreshold) {
 			ownership.upsertActiveFromStatus(ctx, runStatus, workerID, attemptID)
 			return
 		}
-	case core.Failed, core.Aborted, core.Succeeded, core.PartiallySucceeded, core.Rejected:
+	case core.Failed, core.Aborted, core.Succeeded, core.PartiallySucceeded, core.Waiting, core.Rejected:
 		ownership.deleteTracking(ctx, context.WithoutCancel(ctx), lease.DAGRun, lease.AttemptKey,
 			"Failed to delete inactive distributed lease",
 			"Failed to delete inactive active distributed run",
@@ -2612,77 +2565,6 @@ func (h *Handler) reconcileLease(ctx context.Context, lease exec.DAGRunLease, no
 	}
 }
 
-func (h *Handler) reconcileWaitingTracking(
-	ctx context.Context,
-	record exec.ActiveDistributedRun,
-	now time.Time,
-) {
-	// Local ReportStatus calls hold this mutex through writer close and tracking release.
-	runMu := h.getRunMutex(record.DAGRun.ID)
-	runMu.Lock()
-	defer runMu.Unlock()
-
-	ownership := h.attemptOwnership()
-	_, runStatus, err := h.resolveLatestAttempt(ctx, record.DAGRun.Name, record.DAGRun.ID, record.Root)
-	switch {
-	case err == nil:
-	case errors.Is(err, exec.ErrDAGRunIDNotFound),
-		errors.Is(err, exec.ErrNoStatusData),
-		errors.Is(err, exec.ErrCorruptedStatusFile):
-		ownership.deleteTracking(ctx, context.WithoutCancel(ctx), record.DAGRun, record.AttemptKey,
-			"Failed to delete waiting distributed lease for missing run",
-			"Failed to delete waiting active distributed run for missing run",
-		)
-		return
-	default:
-		logger.Error(ctx, "Failed to resolve waiting distributed run",
-			tag.DAG(record.DAGRun.Name),
-			tag.RunID(record.DAGRun.ID),
-			tag.AttemptKey(record.AttemptKey),
-			tag.Error(err),
-		)
-		return
-	}
-
-	if runStatus == nil {
-		ownership.deleteTracking(ctx, context.WithoutCancel(ctx), record.DAGRun, record.AttemptKey,
-			"Failed to delete waiting distributed lease for empty status",
-			"Failed to delete waiting active distributed run for empty status",
-		)
-		return
-	}
-	if runStatus.Status != core.Waiting {
-		return
-	}
-	if !ownership.indexedRunMatchesStatus(record, runStatus) {
-		ownership.deleteTracking(ctx, context.WithoutCancel(ctx), record.DAGRun, record.AttemptKey,
-			"Failed to delete superseded waiting distributed lease",
-			"Failed to delete superseded waiting active distributed run",
-		)
-		return
-	}
-
-	lease, err := h.dagRunLeaseStore.Get(ctx, record.AttemptKey)
-	switch {
-	case err == nil:
-		if exec.LeaseMatchesStatus(lease, runStatus, record.AttemptID, now, h.staleLeaseThreshold) {
-			return
-		}
-	case errors.Is(err, exec.ErrDAGRunLeaseNotFound):
-	default:
-		logger.Error(ctx, "Failed to read waiting distributed lease",
-			tag.AttemptKey(record.AttemptKey),
-			tag.Error(err),
-		)
-		return
-	}
-
-	ownership.deleteTracking(ctx, context.WithoutCancel(ctx), record.DAGRun, record.AttemptKey,
-		"Failed to delete waiting distributed lease after finalization",
-		"Failed to delete waiting active distributed run after finalization",
-	)
-}
-
 func (h *Handler) repairStaleRun(
 	ctx context.Context,
 	status *exec.DAGRunStatus,
@@ -2699,7 +2581,7 @@ func (h *Handler) repairStaleRun(
 		if attemptID == "" {
 			attemptID = fallbackAttemptID
 		}
-		_ = h.closeCachedAttemptForRun(ctx, repairCtx, status.DAGRunID, attemptID)
+		h.closeCachedAttemptForRun(ctx, repairCtx, status.DAGRunID, attemptID)
 	}
 
 	return runtime.RepairStaleRemoteRun(repairCtx, runtime.StaleRunRepairConfig{
@@ -2816,10 +2698,6 @@ func (h *Handler) reconcileActiveRuns(ctx context.Context, now time.Time) {
 				"Failed to delete superseded distributed lease from active index",
 				"Failed to delete superseded active distributed run",
 			)
-			continue
-		}
-		if runStatus.Status == core.Waiting {
-			h.reconcileWaitingTracking(ctx, record, now)
 			continue
 		}
 
@@ -3000,7 +2878,7 @@ func (h *Handler) failCurrentRemoteAttempt(
 		return
 	}
 
-	_ = h.closeCachedAttemptForRun(ctx, storeCtx, dagRun.ID, attemptID)
+	h.closeCachedAttemptForRun(ctx, storeCtx, dagRun.ID, attemptID)
 
 	mutate := func(status *exec.DAGRunStatus) error {
 		finishedAt := time.Now()
@@ -3091,7 +2969,7 @@ func (h *Handler) failCurrentRemoteAttempt(
 	)
 }
 
-func (h *Handler) closeCachedAttemptForRun(ctx, closeCtx context.Context, dagRunID, attemptID string) error {
+func (h *Handler) closeCachedAttemptForRun(ctx, closeCtx context.Context, dagRunID, attemptID string) {
 	h.attemptsMu.Lock()
 	cachedAttempt, ok := h.openAttempts[dagRunID]
 	if ok && attemptID != "" && cachedAttempt.ID() != attemptID {
@@ -3103,7 +2981,7 @@ func (h *Handler) closeCachedAttemptForRun(ctx, closeCtx context.Context, dagRun
 	h.attemptsMu.Unlock()
 
 	if !ok {
-		return nil
+		return
 	}
 
 	if err := cachedAttempt.Close(closeCtx); err != nil {
@@ -3112,14 +2990,7 @@ func (h *Handler) closeCachedAttemptForRun(ctx, closeCtx context.Context, dagRun
 			tag.AttemptID(cachedAttempt.ID()),
 			tag.Error(err),
 		)
-		h.attemptsMu.Lock()
-		if _, exists := h.openAttempts[dagRunID]; !exists {
-			h.openAttempts[dagRunID] = cachedAttempt
-		}
-		h.attemptsMu.Unlock()
-		return err
 	}
-	return nil
 }
 
 // markRunFailed is kept for compatibility with older tests and non-lease based

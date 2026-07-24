@@ -17,17 +17,19 @@ import (
 )
 
 type attemptOwnershipConfig struct {
-	Owner          exec.CoordinatorEndpoint
-	LeaseStore     exec.DAGRunLeaseStore
-	ActiveRunStore exec.ActiveDistributedRunStore
-	Now            func() time.Time
+	Owner               exec.CoordinatorEndpoint
+	LeaseStore          exec.DAGRunLeaseStore
+	ActiveRunStore      exec.ActiveDistributedRunStore
+	StaleLeaseThreshold time.Duration
+	Now                 func() time.Time
 }
 
 type attemptOwnership struct {
-	owner          exec.CoordinatorEndpoint
-	leaseStore     exec.DAGRunLeaseStore
-	activeRunStore exec.ActiveDistributedRunStore
-	now            func() time.Time
+	owner               exec.CoordinatorEndpoint
+	leaseStore          exec.DAGRunLeaseStore
+	activeRunStore      exec.ActiveDistributedRunStore
+	staleLeaseThreshold time.Duration
+	now                 func() time.Time
 }
 
 func newAttemptOwnership(cfg attemptOwnershipConfig) *attemptOwnership {
@@ -36,18 +38,20 @@ func newAttemptOwnership(cfg attemptOwnershipConfig) *attemptOwnership {
 		now = func() time.Time { return time.Now().UTC() }
 	}
 	return &attemptOwnership{
-		owner:          cfg.Owner,
-		leaseStore:     cfg.LeaseStore,
-		activeRunStore: cfg.ActiveRunStore,
-		now:            now,
+		owner:               cfg.Owner,
+		leaseStore:          cfg.LeaseStore,
+		activeRunStore:      cfg.ActiveRunStore,
+		staleLeaseThreshold: cfg.StaleLeaseThreshold,
+		now:                 now,
 	}
 }
 
 func (h *Handler) attemptOwnership() *attemptOwnership {
 	return newAttemptOwnership(attemptOwnershipConfig{
-		Owner:          h.owner,
-		LeaseStore:     h.dagRunLeaseStore,
-		ActiveRunStore: h.activeDistributedRunStore,
+		Owner:               h.owner,
+		LeaseStore:          h.dagRunLeaseStore,
+		ActiveRunStore:      h.activeDistributedRunStore,
+		StaleLeaseThreshold: h.staleLeaseThreshold,
 	})
 }
 
@@ -56,108 +60,54 @@ func (o *attemptOwnership) statusDecision(
 	latest *exec.DAGRunStatus,
 	incoming *exec.DAGRunStatus,
 	opts statusDecisionOptions,
-) (bool, string, error) {
+) (accepted bool, rejectionReason string) {
 	if latest == nil || incoming == nil {
-		return false, remoteAttemptRejectedLeaseInactive, nil
+		return false, remoteAttemptRejectedLeaseInactive
 	}
 	if !sameAttemptStatus(latest, incoming) {
-		return false, remoteAttemptRejectedSuperseded, nil
+		return false, remoteAttemptRejectedSuperseded
+	}
+	if !isTerminalRunStatus(latest.Status) {
+		return true, ""
 	}
 	claimKey := opts.ClaimKey
 	if claimKey == "" {
 		claimKey = latest.EffectiveClaimKey()
 	}
-	if !isTerminalRunStatus(latest.Status) {
-		leaseRequired := incoming.Status == core.Waiting ||
-			latest.Status == core.Queued ||
-			latest.Status == core.Waiting
-		matches, err := o.leaseMatchesReporter(ctx, claimKey, incoming.WorkerID, opts.WorkerID, leaseRequired)
-		if err != nil {
-			return false, "", err
-		}
-		if !matches {
-			return false, remoteAttemptRejectedLeaseInactive, nil
-		}
-		return true, "", nil
-	}
-	if incoming.Status.IsActive() || incoming.Status == core.NotStarted {
-		return false, remoteAttemptRejectedLeaseInactive, nil
+	if o.leaseInactive(ctx, claimKey) && (incoming.Status.IsActive() || incoming.Status == core.NotStarted) {
+		return false, remoteAttemptRejectedLeaseInactive
 	}
 	if latest.Status == incoming.Status {
-		return true, "", nil
+		return true, ""
 	}
 	if opts.CancellationRequested && latest.Status == core.Failed && incoming.Status == core.Aborted {
-		return true, "", nil
+		return true, ""
 	}
-	return false, remoteAttemptRejectedTerminal, nil
+	return false, remoteAttemptRejectedTerminal
 }
 
 type statusDecisionOptions struct {
 	CancellationRequested bool
 	ClaimKey              string
-	WorkerID              string
 }
 
-func (o *attemptOwnership) leaseMatchesReporter(
-	ctx context.Context,
-	claimKey string,
-	statusWorkerID string,
-	reportingWorkerID string,
-	required bool,
-) (bool, error) {
-	if statusWorkerID != "" && reportingWorkerID != "" && statusWorkerID != reportingWorkerID {
-		return false, nil
+func (o *attemptOwnership) leaseInactive(ctx context.Context, attemptKey string) bool {
+	if o.leaseStore == nil || attemptKey == "" {
+		return false
 	}
-	if o.leaseStore == nil {
-		return true, nil
+	lease, err := o.leaseStore.Get(ctx, attemptKey)
+	switch {
+	case err == nil:
+		return !lease.IsFresh(o.now(), o.staleLeaseThreshold)
+	case errors.Is(err, exec.ErrDAGRunLeaseNotFound):
+		return true
+	default:
+		logger.Warn(ctx, "Failed to read distributed lease for status validation",
+			tag.AttemptKey(attemptKey),
+			tag.Error(err),
+		)
+		return false
 	}
-	if claimKey == "" {
-		return !required, nil
-	}
-	workerID := statusWorkerID
-	if workerID == "" {
-		workerID = reportingWorkerID
-	}
-
-	lease, err := o.leaseStore.Get(ctx, claimKey)
-	if err == nil {
-		return lease.MatchesClaim(claimKey, workerID), nil
-	}
-	if errors.Is(err, exec.ErrDAGRunLeaseNotFound) {
-		return !required, nil
-	}
-	return false, err
-}
-
-func (o *attemptOwnership) refreshWaitingLease(
-	ctx context.Context,
-	status *exec.DAGRunStatus,
-	reportingWorkerID string,
-) (bool, error) {
-	if status == nil || status.Status != core.Waiting || o.leaseStore == nil {
-		return true, nil
-	}
-	claimKey := status.EffectiveClaimKey()
-	if claimKey == "" {
-		claimKey = exec.AttemptKeyForStatus(status, status.AttemptID)
-	}
-	matches, err := o.leaseMatchesReporter(
-		ctx,
-		claimKey,
-		status.WorkerID,
-		reportingWorkerID,
-		true,
-	)
-	if err != nil || !matches {
-		return matches, err
-	}
-	if err := o.leaseStore.Touch(ctx, claimKey, o.now()); err != nil {
-		if errors.Is(err, exec.ErrDAGRunLeaseNotFound) {
-			return false, nil
-		}
-		return false, err
-	}
-	return true, nil
 }
 
 func (o *attemptOwnership) syncFromStatus(
@@ -166,27 +116,35 @@ func (o *attemptOwnership) syncFromStatus(
 	status *exec.DAGRunStatus,
 	fallbackAttemptID string,
 ) {
-	if status == nil {
+	o.syncLeaseFromStatus(ctx, workerID, status, fallbackAttemptID)
+	o.syncActiveRunFromStatus(ctx, workerID, status, fallbackAttemptID)
+}
+
+func (o *attemptOwnership) syncLeaseFromStatus(
+	ctx context.Context,
+	workerID string,
+	status *exec.DAGRunStatus,
+	fallbackAttemptID string,
+) {
+	if o.leaseStore == nil || status == nil {
 		return
 	}
+
 	switch status.Status {
 	case core.Running, core.NotStarted, core.Queued:
 		o.upsertLeaseFromStatus(ctx, workerID, status, fallbackAttemptID)
-		o.upsertActiveFromStatus(ctx, status, workerID, fallbackAttemptID)
 	case core.Failed, core.Aborted, core.Succeeded,
 		core.PartiallySucceeded, core.Waiting, core.Rejected:
 		attemptKey := exec.AttemptKeyForStatus(status, fallbackAttemptID)
 		if attemptKey == "" {
 			return
 		}
-		o.deleteTracking(
-			ctx,
-			context.WithoutCancel(ctx),
-			status.DAGRun(),
-			attemptKey,
-			"Failed to delete distributed run lease",
-			"Failed to delete active distributed run",
-		)
+		if err := o.leaseStore.Delete(ctx, attemptKey); err != nil {
+			logger.Warn(ctx, "Failed to delete distributed run lease",
+				tag.RunID(status.DAGRunID),
+				tag.Error(err),
+			)
+		}
 	}
 }
 
@@ -273,6 +231,36 @@ func (o *attemptOwnership) restoreConfirmedFromStatus(
 		o.upsertActiveFromStatus(ctx, status, workerID, fallbackAttemptID)
 	case core.Failed, core.Aborted, core.Succeeded,
 		core.PartiallySucceeded, core.Waiting, core.Rejected:
+	}
+}
+
+func (o *attemptOwnership) syncActiveRunFromStatus(
+	ctx context.Context,
+	workerID string,
+	status *exec.DAGRunStatus,
+	fallbackAttemptID string,
+) {
+	if o.activeRunStore == nil || status == nil {
+		return
+	}
+
+	attemptKey := exec.AttemptKeyForStatus(status, fallbackAttemptID)
+	if attemptKey == "" {
+		return
+	}
+
+	switch status.Status {
+	case core.Running, core.NotStarted, core.Queued:
+		o.upsertActiveFromStatus(ctx, status, workerID, fallbackAttemptID)
+	case core.Failed, core.Aborted, core.Succeeded,
+		core.PartiallySucceeded, core.Waiting, core.Rejected:
+		if err := o.activeRunStore.Delete(ctx, attemptKey); err != nil {
+			logger.Warn(ctx, "Failed to delete active distributed run",
+				tag.RunID(status.DAGRunID),
+				tag.AttemptKey(attemptKey),
+				tag.Error(err),
+			)
+		}
 	}
 }
 
@@ -409,11 +397,8 @@ func (o *attemptOwnership) deleteTracking(
 	leaseMessage string,
 	activeRunMessage string,
 ) {
-	if !o.deleteActiveRun(ctx, storeCtx, dagRun, attemptKey, activeRunMessage) {
-		return
-	}
-	// Lease removal publishes final attempt release after auxiliary tracking settles.
 	o.deleteLease(ctx, storeCtx, dagRun, attemptKey, leaseMessage)
+	o.deleteActiveRun(ctx, storeCtx, dagRun, attemptKey, activeRunMessage)
 }
 
 func (o *attemptOwnership) deleteLease(
@@ -441,22 +426,18 @@ func (o *attemptOwnership) deleteActiveRun(
 	dagRun exec.DAGRunRef,
 	attemptKey string,
 	message string,
-) bool {
+) {
 	if o.activeRunStore == nil || attemptKey == "" {
-		return true
+		return
 	}
-	if err := o.activeRunStore.Delete(storeCtx, attemptKey); err != nil {
-		if errors.Is(err, exec.ErrActiveRunNotFound) {
-			return true
-		}
+	if err := o.activeRunStore.Delete(storeCtx, attemptKey); err != nil &&
+		!errors.Is(err, exec.ErrActiveRunNotFound) {
 		logger.Warn(ctx, message,
 			tag.RunID(dagRun.ID),
 			tag.AttemptKey(attemptKey),
 			tag.Error(err),
 		)
-		return false
 	}
-	return true
 }
 
 func (o *attemptOwnership) indexedRunMatchesStatus(
@@ -468,8 +449,7 @@ func (o *attemptOwnership) indexedRunMatchesStatus(
 	}
 	if runStatus.Status != core.Running &&
 		runStatus.Status != core.NotStarted &&
-		runStatus.Status != core.Queued &&
-		runStatus.Status != core.Waiting {
+		runStatus.Status != core.Queued {
 		return false
 	}
 

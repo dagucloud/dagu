@@ -13,10 +13,10 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 )
 
-const retryEnqueueRollbackTimeout = 10 * time.Second
+// ErrRetryStaleLatest indicates the caller tried to retry a non-latest attempt.
+var ErrRetryStaleLatest = errors.New("retry target is no longer the latest attempt")
 
-// ErrRetryStaleLatest indicates the retry target changed before it could be enqueued.
-var ErrRetryStaleLatest = errors.New("retry target changed before it could be enqueued")
+const retryEnqueueRollbackTimeout = 10 * time.Second
 
 // EnqueueRetryOptions configure a retry enqueue.
 type EnqueueRetryOptions struct {
@@ -27,7 +27,7 @@ type EnqueueRetryOptions struct {
 
 // EnqueueRetry queues a DAG run for retry and records its Queued status.
 // It restores the previous status if enqueueing fails and reports whether this
-// call added the queue item. Queued sub-DAG retries are not supported.
+// call added the queue item.
 func EnqueueRetry(
 	ctx context.Context,
 	dagRunStore DAGRunStore,
@@ -50,10 +50,6 @@ func EnqueueRetry(
 	}
 
 	dagRun := status.DAGRun()
-	if isSubDAGRetry(status.Root, dagRun) {
-		return false, errors.New("enqueue retry: queued sub-DAG retries are not supported")
-	}
-
 	var originalStatus *DAGRunStatus
 	updatedStatus, swapped, err := dagRunStore.CompareAndSwapLatestAttemptStatus(
 		ctx,
@@ -61,9 +57,6 @@ func EnqueueRetry(
 		status.AttemptID,
 		status.Status,
 		func(latest *DAGRunStatus) error {
-			if isSubDAGRetry(latest.Root, dagRun) {
-				return errors.New("queued sub-DAG retries are not supported")
-			}
 			snapshot := *latest
 			originalStatus = &snapshot
 			now := time.Now()
@@ -79,7 +72,6 @@ func EnqueueRetry(
 			}
 			return nil
 		},
-		WithCompareAndSwapExpectedAttemptKey(status.AttemptKey),
 	)
 	if err != nil {
 		return false, fmt.Errorf("persist queued retry status: %w", err)
@@ -87,7 +79,6 @@ func EnqueueRetry(
 	if !swapped {
 		if updatedStatus != nil &&
 			updatedStatus.AttemptID == status.AttemptID &&
-			updatedStatus.AttemptKey == status.AttemptKey &&
 			updatedStatus.Status == core.Queued {
 			return false, nil
 		}
@@ -95,18 +86,17 @@ func EnqueueRetry(
 	}
 
 	procGroup := retryProcGroup(dag, updatedStatus)
-	var enqueueErr error
 	if procGroup == "" {
-		enqueueErr = errors.New("proc group is empty")
-	} else {
-		enqueueErr = queueStore.Enqueue(ctx, procGroup, QueuePriorityLow, dagRun)
-	}
-	if enqueueErr != nil {
-		enqueueErr = fmt.Errorf("enqueue retry: %w", enqueueErr)
-		if rollbackErr := rollbackQueuedRetry(ctx, dagRunStore, dagRun, updatedStatus, originalStatus); rollbackErr != nil {
-			return false, errors.Join(enqueueErr, rollbackErr)
+		if err := rollbackQueuedRetry(ctx, dagRunStore, dagRun, updatedStatus, originalStatus); err != nil {
+			return false, fmt.Errorf("enqueue retry: proc group is empty; rollback queued retry status: %w", err)
 		}
-		return false, enqueueErr
+		return false, errors.New("enqueue retry: proc group is empty")
+	}
+	if err := queueStore.Enqueue(ctx, procGroup, QueuePriorityLow, dagRun); err != nil {
+		if rollbackErr := rollbackQueuedRetry(ctx, dagRunStore, dagRun, updatedStatus, originalStatus); rollbackErr != nil {
+			return false, fmt.Errorf("enqueue retry: %w; rollback queued retry status: %w", err, rollbackErr)
+		}
+		return false, fmt.Errorf("enqueue retry: %w", err)
 	}
 
 	return true, nil
@@ -119,35 +109,30 @@ func rollbackQueuedRetry(
 	queued *DAGRunStatus,
 	original *DAGRunStatus,
 ) error {
-	rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), retryEnqueueRollbackTimeout)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), retryEnqueueRollbackTimeout)
 	defer cancel()
-
 	_, swapped, err := dagRunStore.CompareAndSwapLatestAttemptStatus(
-		rollbackCtx,
+		ctx,
 		dagRun,
 		queued.AttemptID,
 		core.Queued,
 		func(latest *DAGRunStatus) error {
 			latest.Status = original.Status
 			latest.QueuedAt = original.QueuedAt
+			latest.Conditions = original.Conditions
 			latest.TriggerType = original.TriggerType
 			latest.AutoRetryCount = original.AutoRetryCount
 			latest.Root = original.Root
 			return nil
 		},
-		WithCompareAndSwapExpectedAttemptKey(queued.AttemptKey),
 	)
 	if err != nil {
-		return fmt.Errorf("rollback queued retry status: %w", err)
+		return err
 	}
 	if !swapped {
-		return errors.New("rollback queued retry status: DAG-run state changed")
+		return errors.New("DAG-run state changed before queued retry status could be rolled back")
 	}
 	return nil
-}
-
-func isSubDAGRetry(root, dagRun DAGRunRef) bool {
-	return !root.Zero() && root != dagRun
 }
 
 func retryProcGroup(dag *core.DAG, status *DAGRunStatus) string {

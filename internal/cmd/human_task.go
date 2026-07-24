@@ -10,8 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dagucloud/dagu/internal/core"
-	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/humantask"
 	"github.com/spf13/cobra"
 )
@@ -19,9 +17,6 @@ import (
 const (
 	humanTaskFlagInput      = "input"
 	humanTaskFlagInputsJSON = "inputs-json"
-
-	humanTaskSettleTimeout      = 5 * time.Second
-	humanTaskSettlePollInterval = 50 * time.Millisecond
 )
 
 var (
@@ -112,9 +107,6 @@ func runHumanTaskCompleteWith(ctx *Context, args []string, deps humanTaskComplet
 	if dagName == "" {
 		return fmt.Errorf("DAG name must not be empty")
 	}
-	if err := waitForRemoteHumanTaskCompletionReady(ctx, dagName, dagRunID, stepID); err != nil {
-		return err
-	}
 
 	service := humantask.Service{
 		DAGRunStore: ctx.DAGRunStore,
@@ -160,159 +152,6 @@ func runHumanTaskCompleteWith(ctx *Context, args []string, deps humanTaskComplet
 	}
 	_, err = fmt.Fprintf(ctx.Command.OutOrStdout(), "%s; DAG-run queued for resume.\n", message)
 	return err
-}
-
-func waitForRemoteHumanTaskCompletionReady(
-	ctx *Context,
-	dagName string,
-	dagRunID string,
-	stepID string,
-) error {
-	attempt, err := ctx.DAGRunStore.FindAttempt(ctx, exec.NewDAGRunRef(dagName, dagRunID))
-	if err != nil {
-		return fmt.Errorf("failed to find DAG-run %q with run ID %q: %w", dagName, dagRunID, err)
-	}
-	status, err := attempt.ReadStatus(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to read DAG-run status: %w", err)
-	}
-	if status == nil {
-		return fmt.Errorf("failed to read DAG-run status: status data is nil")
-	}
-	if status.Status != core.Waiting || status.AttemptID == "" || !exec.IsRemoteWorkerID(status.WorkerID) {
-		return nil
-	}
-
-	deadline := time.Now().Add(humanTaskSettleTimeout)
-	_, err = waitForRemoteHumanTaskAttempt(ctx, attempt, status, stepID, deadline)
-	return err
-}
-
-func waitForRemoteHumanTaskAttempt(
-	ctx *Context,
-	attempt exec.DAGRunAttempt,
-	status *exec.DAGRunStatus,
-	stepID string,
-	deadline time.Time,
-) (*exec.DAGRunStatus, error) {
-	if ctx.DAGRunLeaseStore == nil {
-		return nil, fmt.Errorf("DAG-run lease store is not configured")
-	}
-	claimKey := status.EffectiveClaimKey()
-	if claimKey == "" {
-		claimKey = exec.AttemptKeyForStatus(status, status.AttemptID)
-	}
-	if claimKey == "" {
-		return nil, fmt.Errorf("distributed DAG-run claim key is missing")
-	}
-
-	for {
-		_, err := ctx.DAGRunLeaseStore.Get(ctx, claimKey)
-		if errors.Is(err, exec.ErrDAGRunLeaseNotFound) {
-			break
-		}
-		if err != nil {
-			return nil, fmt.Errorf("failed to check whether distributed DAG-run attempt is still finalizing: %w", err)
-		}
-		if !time.Now().Before(deadline) {
-			return nil, humanTaskFinalizingError(status.AttemptID)
-		}
-		if err := waitForNextHumanTaskPoll(ctx); err != nil {
-			return nil, err
-		}
-	}
-
-	latest, err := reloadHumanTaskStatus(ctx, attempt)
-	if err != nil {
-		return nil, err
-	}
-	return waitForHumanTaskAttemptFinalization(ctx, attempt, status.AttemptID, latest, stepID, deadline)
-}
-
-func waitForHumanTaskAttemptFinalization(
-	ctx *Context,
-	attempt exec.DAGRunAttempt,
-	attemptID string,
-	status *exec.DAGRunStatus,
-	stepID string,
-	deadline time.Time,
-) (*exec.DAGRunStatus, error) {
-	for {
-		finalizing, err := humanTaskAttemptIsFinalizing(status, attemptID, stepID)
-		if err != nil {
-			return nil, err
-		}
-		if !finalizing {
-			return status, nil
-		}
-		if !time.Now().Before(deadline) {
-			return nil, humanTaskFinalizingError(attemptID)
-		}
-		if err := waitForNextHumanTaskPoll(ctx); err != nil {
-			return nil, err
-		}
-		status, err = reloadHumanTaskStatus(ctx, attempt)
-		if err != nil {
-			return nil, err
-		}
-	}
-}
-
-func humanTaskAttemptIsFinalizing(status *exec.DAGRunStatus, attemptID, stepID string) (bool, error) {
-	if status.Status != core.Waiting || status.AttemptID != attemptID || status.FinishedAt != "" {
-		return false, nil
-	}
-	node, err := findHumanTaskNodeByID(status.Nodes, stepID)
-	if err != nil {
-		return false, err
-	}
-	return len(node.HumanTaskInput) == 0, nil
-}
-
-func findHumanTaskNodeByID(nodes []*exec.Node, stepID string) (*exec.Node, error) {
-	var found *exec.Node
-	for _, node := range nodes {
-		if node == nil || node.Step.ID != stepID {
-			continue
-		}
-		if found != nil {
-			return nil, fmt.Errorf("human task step ID %q is ambiguous", stepID)
-		}
-		found = node
-	}
-	if found == nil {
-		return nil, fmt.Errorf("human task step ID %q was not found", stepID)
-	}
-	if found.Step.HumanTask == nil {
-		return nil, fmt.Errorf("step %q is not a human task", stepID)
-	}
-	return found, nil
-}
-
-func reloadHumanTaskStatus(ctx *Context, attempt exec.DAGRunAttempt) (*exec.DAGRunStatus, error) {
-	status, err := attempt.ReadStatus(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to reload DAG-run status after waiting for the attempt to settle: %w", err)
-	}
-	if status == nil {
-		return nil, fmt.Errorf("failed to reload DAG-run status after waiting for the attempt to settle: status data is nil")
-	}
-	return status, nil
-}
-
-func waitForNextHumanTaskPoll(ctx *Context) error {
-	timer := time.NewTimer(humanTaskSettlePollInterval)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-timer.C:
-		return nil
-	}
-}
-
-func humanTaskFinalizingError(attemptID string) error {
-	return fmt.Errorf("DAG-run attempt %s is still finalizing; retry human-task completion", attemptID)
 }
 
 func localHumanTaskSubject(deps humanTaskCompleteDeps) (name, id string) {

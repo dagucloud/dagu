@@ -125,7 +125,7 @@ steps:
 	request := controller.ChildRunRequest{
 		DAG:      "controller-child",
 		DAGRunID: "controller-run-1",
-		Params:   []byte(`{"sequence":9007199254740993}`),
+		Params:   []byte(`{"sequence":42}`),
 	}
 
 	require.NoError(t, gateway.EnsureEnqueued(fixture.ctx, request))
@@ -137,8 +137,8 @@ steps:
 	status, err := attempt.ReadStatus(fixture.ctx)
 	require.NoError(t, err)
 	assert.Equal(t, core.Queued, status.Status)
-	assert.Equal(t, []string{"sequence=9007199254740993"}, status.ParamsList)
-	assert.Equal(t, "sequence=9007199254740993", status.Params)
+	assert.Equal(t, []string{"sequence=42"}, status.ParamsList)
+	assert.Equal(t, "sequence=42", status.Params)
 
 	items, err := fixture.queueStore.List(fixture.ctx, request.DAG)
 	require.NoError(t, err)

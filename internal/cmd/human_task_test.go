@@ -288,49 +288,6 @@ func TestRunHumanTaskCompleteEnforcesSavedDAGOutputSize(t *testing.T) {
 	assert.Empty(t, fixture.queue.enqueued)
 }
 
-func TestRunHumanTaskCompleteWaitsForRemoteLeaseRelease(t *testing.T) {
-	fixture := newHumanTaskCompleteFixture(t, nil, false)
-	fixture.status.WorkerID = "worker-1"
-	fixture.status.ClaimKey = "claim-1"
-	fixture.status.FinishedAt = ""
-	leaseStore := &humanTaskCompletionLeaseStore{
-		present: true,
-		onRelease: func() {
-			fixture.status.FinishedAt = "2026-07-20T01:01:00Z"
-		},
-	}
-	fixture.ctx.DAGRunLeaseStore = leaseStore
-
-	err := runHumanTaskCompleteWith(fixture.ctx, []string{"human-task-test"}, fixture.deps())
-
-	require.NoError(t, err)
-	assert.Equal(t, 2, leaseStore.calls)
-	assert.Equal(t, fixture.status.ClaimKey, leaseStore.attemptKey)
-	assert.Equal(t, core.Queued, fixture.status.Status)
-	assert.Len(t, fixture.queue.enqueued, 1)
-}
-
-func TestWaitForRemoteHumanTaskAttemptHonorsExistingSettleDeadline(t *testing.T) {
-	fixture := newHumanTaskCompleteFixture(t, nil, false)
-	fixture.status.WorkerID = "worker-1"
-	fixture.status.ClaimKey = "claim-1"
-	fixture.status.FinishedAt = ""
-	leaseStore := &humanTaskCompletionLeaseStore{}
-	fixture.ctx.DAGRunLeaseStore = leaseStore
-
-	_, err := waitForRemoteHumanTaskAttempt(
-		fixture.ctx,
-		fixture.store.attempt,
-		fixture.status,
-		"review",
-		time.Now().Add(-time.Second),
-	)
-
-	require.Error(t, err)
-	assert.ErrorContains(t, err, "is still finalizing")
-	assert.Equal(t, 1, leaseStore.calls)
-}
-
 type humanTaskCompleteFixture struct {
 	command     *cobra.Command
 	ctx         *Context
@@ -508,29 +465,4 @@ func (s *humanTaskCompletionQueueStore) Enqueue(
 	}
 	s.enqueued = append(s.enqueued, ref)
 	return nil
-}
-
-type humanTaskCompletionLeaseStore struct {
-	exec.DAGRunLeaseStore
-	present    bool
-	calls      int
-	attemptKey string
-	onRelease  func()
-}
-
-func (s *humanTaskCompletionLeaseStore) Get(
-	_ context.Context,
-	attemptKey string,
-) (*exec.DAGRunLease, error) {
-	s.calls++
-	s.attemptKey = attemptKey
-	if s.present {
-		s.present = false
-		return &exec.DAGRunLease{AttemptKey: attemptKey}, nil
-	}
-	if s.onRelease != nil {
-		s.onRelease()
-		s.onRelease = nil
-	}
-	return nil, exec.ErrDAGRunLeaseNotFound
 }

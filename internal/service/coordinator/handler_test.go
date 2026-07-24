@@ -315,7 +315,6 @@ type mockDAGRunAttempt struct {
 	writeError             error
 	writeStarted           chan struct{}
 	releaseWrite           chan struct{}
-	closeFunc              func() error
 	stepMessages           map[string][]exec.LLMMessage // stepName -> messages
 	writeStepMessagesError error                        // injected error for WriteStepMessages
 	mu                     sync.Mutex
@@ -365,18 +364,9 @@ func (m *mockDAGRunAttempt) Write(_ context.Context, s exec.DAGRunStatus) error 
 }
 func (m *mockDAGRunAttempt) Close(_ context.Context) error {
 	m.mu.Lock()
-	closeFunc := m.closeFunc
-	m.mu.Unlock()
-
-	var err error
-	if closeFunc != nil {
-		err = closeFunc()
-	}
-
-	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.closed = true
-	return err
+	return nil
 }
 func (m *mockDAGRunAttempt) ReadStatus(_ context.Context) (*exec.DAGRunStatus, error) {
 	m.mu.Lock()
@@ -2118,83 +2108,6 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		assert.Equal(t, core.Queued, queuedStatus.Status)
 	})
 
-	t.Run("DetectStaleLeasesReconcilesWaitingFinalizationTracking", func(t *testing.T) {
-		t.Parallel()
-
-		testCases := []struct {
-			name         string
-			leaseAge     time.Duration
-			createLease  bool
-			wantTracking bool
-		}{
-			{name: "FreshLeaseRetainsTracking", createLease: true, wantTracking: true},
-			{name: "StaleLeaseDeletesTracking", createLease: true, leaseAge: -2 * time.Minute},
-			{name: "MissingLeaseDeletesTracking"},
-		}
-
-		for _, tc := range testCases {
-			t.Run(tc.name, func(t *testing.T) {
-				t.Parallel()
-
-				ctx := t.Context()
-				store := newMockDAGRunStore()
-				baseDir := filepath.Join(t.TempDir(), "distributed")
-				leaseStore := newTestDAGRunLeaseStore(baseDir)
-				activeStore := newTestActiveDistributedRunStore(baseDir)
-				h := NewHandler(HandlerConfig{
-					DAGRunStore:               store,
-					DAGRunLeaseStore:          leaseStore,
-					ActiveDistributedRunStore: activeStore,
-					StaleLeaseThreshold:       time.Minute,
-				})
-
-				ref := exec.NewDAGRunRef("waiting-dag", "run-waiting")
-				attemptKey := "waiting-attempt-key"
-				attemptID := "waiting-attempt-id"
-				attempt := store.addAttempt(ref, &exec.DAGRunStatus{
-					Name:       ref.Name,
-					DAGRunID:   ref.ID,
-					AttemptID:  attemptID,
-					AttemptKey: attemptKey,
-					Status:     core.Waiting,
-					WorkerID:   "worker-1",
-				})
-				require.NoError(t, activeStore.Upsert(ctx, exec.ActiveDistributedRun{
-					AttemptKey: attemptKey,
-					DAGRun:     ref,
-					AttemptID:  attemptID,
-					WorkerID:   "worker-1",
-					Status:     core.Running,
-				}))
-				if tc.createLease {
-					leaseAt := time.Now().Add(tc.leaseAge).UTC()
-					require.NoError(t, leaseStore.Upsert(ctx, exec.DAGRunLease{
-						AttemptKey:      attemptKey,
-						DAGRun:          ref,
-						AttemptID:       attemptID,
-						WorkerID:        "worker-1",
-						LastHeartbeatAt: leaseAt.UnixMilli(),
-					}))
-				}
-
-				h.detectStaleLeases(ctx)
-
-				runStatus, err := attempt.ReadStatus(ctx)
-				require.NoError(t, err)
-				assert.Equal(t, core.Waiting, runStatus.Status)
-				_, leaseErr := leaseStore.Get(ctx, attemptKey)
-				_, activeErr := activeStore.Get(ctx, attemptKey)
-				if tc.wantTracking {
-					assert.NoError(t, leaseErr)
-					assert.NoError(t, activeErr)
-					return
-				}
-				assert.ErrorIs(t, leaseErr, exec.ErrDAGRunLeaseNotFound)
-				assert.ErrorIs(t, activeErr, exec.ErrActiveRunNotFound)
-			})
-		}
-	})
-
 	t.Run("DetectStaleSharedLeaseFailsLatestMatchingAttemptAndDeletesLease", func(t *testing.T) {
 		t.Parallel()
 
@@ -3056,91 +2969,6 @@ func TestHandler_ZombieDetection(t *testing.T) {
 	})
 }
 
-type waitingStatusReportFixture struct {
-	dagRunStore exec.DAGRunStore
-	handler     *Handler
-	attempt     *mockDAGRunAttempt
-	leaseStore  exec.DAGRunLeaseStore
-	activeStore exec.ActiveDistributedRunStore
-	dagRunID    string
-	attemptKey  string
-	request     *coordinatorv1.ReportStatusRequest
-}
-
-func (f waitingStatusReportFixture) cacheAttempt(t *testing.T) {
-	t.Helper()
-	require.NoError(t, f.attempt.Open(t.Context()))
-	f.handler.attemptsMu.Lock()
-	f.handler.openAttempts[f.dagRunID] = f.attempt
-	f.handler.attemptsMu.Unlock()
-}
-
-func newWaitingStatusReportFixture(t *testing.T) waitingStatusReportFixture {
-	t.Helper()
-
-	ctx := t.Context()
-	store := newMockDAGRunStore()
-	baseDir := filepath.Join(t.TempDir(), "distributed")
-	leaseStore := newTestDAGRunLeaseStore(baseDir)
-	activeStore := newTestActiveDistributedRunStore(baseDir)
-	handler := NewHandler(HandlerConfig{
-		DAGRunStore:               store,
-		DAGRunLeaseStore:          leaseStore,
-		ActiveDistributedRunStore: activeStore,
-		StaleLeaseThreshold:       time.Minute,
-	})
-
-	ref := exec.NewDAGRunRef("test-dag", "run-123")
-	attemptID := "attempt-1"
-	attemptKey := "attempt-key-1"
-	workerID := "worker-1"
-	attempt := store.addAttempt(ref, &exec.DAGRunStatus{
-		Name:       ref.Name,
-		DAGRunID:   ref.ID,
-		AttemptID:  attemptID,
-		AttemptKey: attemptKey,
-		WorkerID:   workerID,
-		Status:     core.Running,
-	})
-	require.NoError(t, activeStore.Upsert(ctx, exec.ActiveDistributedRun{
-		AttemptKey: attemptKey,
-		DAGRun:     ref,
-		AttemptID:  attemptID,
-		WorkerID:   workerID,
-		Status:     core.Running,
-	}))
-	require.NoError(t, leaseStore.Upsert(ctx, exec.DAGRunLease{
-		AttemptKey: attemptKey,
-		DAGRun:     ref,
-		AttemptID:  attemptID,
-		WorkerID:   workerID,
-	}))
-	protoStatus, err := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
-		Name:       ref.Name,
-		DAGRunID:   ref.ID,
-		AttemptID:  attemptID,
-		AttemptKey: attemptKey,
-		WorkerID:   workerID,
-		Status:     core.Waiting,
-		FinishedAt: "2026-07-20T01:02:03Z",
-	})
-	require.NoError(t, err)
-
-	return waitingStatusReportFixture{
-		dagRunStore: store,
-		handler:     handler,
-		attempt:     attempt,
-		leaseStore:  leaseStore,
-		activeStore: activeStore,
-		dagRunID:    ref.ID,
-		attemptKey:  attemptKey,
-		request: &coordinatorv1.ReportStatusRequest{
-			Status:   protoStatus,
-			WorkerId: workerID,
-		},
-	}
-}
-
 func TestHandler_ReportStatus(t *testing.T) {
 	t.Parallel()
 
@@ -3208,50 +3036,6 @@ func TestHandler_ReportStatus(t *testing.T) {
 		assert.WithinDuration(t, time.Now(), time.UnixMilli(status.LeaseAt), 2*time.Second)
 	})
 
-	t.Run("LeaseReadFailureReturnsInternal", func(t *testing.T) {
-		t.Parallel()
-
-		store := newMockDAGRunStore()
-		attemptKey := "attempt-key-1"
-		h := NewHandler(HandlerConfig{
-			DAGRunStore: store,
-			DAGRunLeaseStore: corruptLeaseStore{
-				attemptKey: attemptKey,
-			},
-		})
-		ctx := t.Context()
-
-		ref := exec.NewDAGRunRef("test-dag", "run-123")
-		attempt := store.addAttempt(ref, &exec.DAGRunStatus{
-			Name:       ref.Name,
-			DAGRunID:   ref.ID,
-			AttemptID:  "attempt-1",
-			AttemptKey: attemptKey,
-			WorkerID:   "worker-1",
-			Status:     core.Running,
-		})
-		protoStatus, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
-			Name:       ref.Name,
-			DAGRunID:   ref.ID,
-			AttemptID:  "attempt-1",
-			AttemptKey: attemptKey,
-			WorkerID:   "worker-1",
-			Status:     core.Running,
-		})
-		require.NoError(t, convErr)
-
-		response, err := h.ReportStatus(ctx, &coordinatorv1.ReportStatusRequest{
-			Status:   protoStatus,
-			WorkerId: "worker-1",
-		})
-
-		require.Error(t, err)
-		assert.Nil(t, response)
-		assert.Equal(t, codes.Internal, status.Code(err))
-		assert.ErrorContains(t, err, persis.ErrCorrupt.Error())
-		assert.False(t, attempt.WasWritten())
-	})
-
 	t.Run("WaitingStatusClosesCachedAttemptBeforePersisting", func(t *testing.T) {
 		t.Parallel()
 
@@ -3296,136 +3080,6 @@ func TestHandler_ReportStatus(t *testing.T) {
 		_, cached := h.openAttempts[ref.ID]
 		h.attemptsMu.RUnlock()
 		assert.False(t, cached)
-	})
-
-	t.Run("WaitingStatusRemainsTrackedUntilCachedAttemptCloses", func(t *testing.T) {
-		t.Parallel()
-
-		fixture := newWaitingStatusReportFixture(t)
-		fixture.cacheAttempt(t)
-		ctx := t.Context()
-		attemptKey := fixture.attemptKey
-		require.NoError(t, fixture.leaseStore.Touch(ctx, attemptKey, time.Now().Add(-2*time.Minute)))
-		closeStarted := make(chan struct{})
-		releaseClose := make(chan struct{})
-		release := sync.OnceFunc(func() { close(releaseClose) })
-		fixture.attempt.closeFunc = func() error {
-			close(closeStarted)
-			<-releaseClose
-			return nil
-		}
-
-		type reportResult struct {
-			response *coordinatorv1.ReportStatusResponse
-			err      error
-		}
-		resultCh := make(chan reportResult, 1)
-		reportDone := make(chan struct{})
-		go func() {
-			defer close(reportDone)
-			response, err := fixture.handler.ReportStatus(ctx, fixture.request)
-			resultCh <- reportResult{response: response, err: err}
-		}()
-		t.Cleanup(func() {
-			release()
-			select {
-			case <-reportDone:
-			case <-time.After(coordinatorTestTimeout(time.Second)):
-				t.Error("ReportStatus goroutine did not stop during cleanup")
-			}
-		})
-
-		select {
-		case <-closeStarted:
-		case <-time.After(coordinatorTestTimeout(time.Second)):
-			t.Fatal("ReportStatus did not start closing the waiting attempt")
-		}
-
-		peer := NewHandler(HandlerConfig{
-			DAGRunStore:               fixture.dagRunStore,
-			DAGRunLeaseStore:          fixture.leaseStore,
-			ActiveDistributedRunStore: fixture.activeStore,
-			StaleLeaseThreshold:       time.Minute,
-		})
-		peer.detectStaleLeases(ctx)
-
-		lease, leaseErr := fixture.leaseStore.Get(ctx, attemptKey)
-		record, activeErr := fixture.activeStore.Get(ctx, attemptKey)
-		release()
-
-		select {
-		case result := <-resultCh:
-			require.NoError(t, result.err)
-			require.NotNil(t, result.response)
-			assert.True(t, result.response.Accepted)
-		case <-time.After(coordinatorTestTimeout(time.Second)):
-			t.Fatal("ReportStatus did not return after the waiting attempt closed")
-		}
-
-		require.NoError(t, leaseErr)
-		require.NotNil(t, lease)
-		require.NoError(t, activeErr)
-		require.NotNil(t, record)
-		_, err := fixture.leaseStore.Get(ctx, attemptKey)
-		assert.ErrorIs(t, err, exec.ErrDAGRunLeaseNotFound)
-		_, err = fixture.activeStore.Get(ctx, attemptKey)
-		assert.ErrorIs(t, err, exec.ErrActiveRunNotFound)
-	})
-
-	t.Run("WaitingStatusRetriesFinalizationAfterCachedAttemptCloseFails", func(t *testing.T) {
-		t.Parallel()
-
-		fixture := newWaitingStatusReportFixture(t)
-		fixture.cacheAttempt(t)
-		ctx := t.Context()
-		attemptKey := fixture.attemptKey
-		closeErr := errors.New("close failed")
-		closeCalls := 0
-		fixture.attempt.closeFunc = func() error {
-			closeCalls++
-			if closeCalls == 1 {
-				return closeErr
-			}
-			return nil
-		}
-
-		_, err := fixture.handler.ReportStatus(ctx, fixture.request)
-		require.Error(t, err)
-		assert.ErrorContains(t, err, closeErr.Error())
-
-		lease, err := fixture.leaseStore.Get(ctx, attemptKey)
-		require.NoError(t, err)
-		require.NotNil(t, lease)
-		record, err := fixture.activeStore.Get(ctx, attemptKey)
-		require.NoError(t, err)
-		require.NotNil(t, record)
-
-		response, err := fixture.handler.ReportStatus(ctx, fixture.request)
-		require.NoError(t, err)
-		require.NotNil(t, response)
-		assert.True(t, response.Accepted)
-		assert.Equal(t, 2, closeCalls)
-		_, err = fixture.leaseStore.Get(ctx, attemptKey)
-		assert.ErrorIs(t, err, exec.ErrDAGRunLeaseNotFound)
-		_, err = fixture.activeStore.Get(ctx, attemptKey)
-		assert.ErrorIs(t, err, exec.ErrActiveRunNotFound)
-	})
-
-	t.Run("WaitingStatusIsRejectedWithoutLease", func(t *testing.T) {
-		t.Parallel()
-
-		fixture := newWaitingStatusReportFixture(t)
-		ctx := t.Context()
-		require.NoError(t, fixture.leaseStore.Delete(ctx, fixture.attemptKey))
-
-		response, err := fixture.handler.ReportStatus(ctx, fixture.request)
-
-		require.NoError(t, err)
-		require.NotNil(t, response)
-		assert.False(t, response.Accepted)
-		assert.Equal(t, remoteAttemptRejectedLeaseInactive, response.Error)
-		assert.False(t, fixture.attempt.WasWritten())
-		assert.False(t, fixture.attempt.WasClosed())
 	})
 
 	t.Run("RejectsWaitingStatusThatRegressesCompletedHumanTask", func(t *testing.T) {

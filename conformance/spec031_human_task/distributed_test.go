@@ -33,6 +33,11 @@ func TestDistributedHumanTaskReleasesWorkerAndResumesElsewhere(t *testing.T) {
 
 	workerOne := startWorker(t, dagu, env, coordinatorPort, "worker-1")
 	defer workerOne.Stop()
+	const workerOneProbeRunID = "spec031-worker-one-probe"
+	workerOneProbe := dagu.RunWithEnv(env, "enqueue", "--run-id="+workerOneProbeRunID, "distributed_worker_one_probe.yaml")
+	workerOneProbe.ExpectExitCode(0)
+	waitForStatus(t, dagu, env, workerOneProbeRunID, "distributed_worker_one_probe.yaml", "Succeeded")
+	waitForFileContent(t, dagu.ProjectPath("distributed-worker-one.txt"), "worker-1\n")
 
 	const runID = "spec031-distributed"
 	enqueued := dagu.RunWithEnv(env, "enqueue", "--run-id="+runID, "distributed_root.yaml")
@@ -49,6 +54,11 @@ func TestDistributedHumanTaskReleasesWorkerAndResumesElsewhere(t *testing.T) {
 	workerOne.Stop()
 	workerTwo := startWorker(t, dagu, env, coordinatorPort, "worker-2")
 	defer workerTwo.Stop()
+	const workerTwoProbeRunID = "spec031-worker-two-probe"
+	workerTwoProbe := dagu.RunWithEnv(env, "enqueue", "--run-id="+workerTwoProbeRunID, "distributed_worker_two_probe.yaml")
+	workerTwoProbe.ExpectExitCode(0)
+	waitForStatus(t, dagu, env, workerTwoProbeRunID, "distributed_worker_two_probe.yaml", "Succeeded")
+	waitForFileContent(t, dagu.ProjectPath("distributed-worker-two.txt"), "worker-2\n")
 
 	completed := complete(
 		t,
@@ -81,6 +91,8 @@ func startWorker(
 		"SPEC031_OPENED_FILE="+dagu.ProjectPath("distributed-opened.txt"),
 		"SPEC031_PROBE_FILE="+dagu.ProjectPath("distributed-probe.txt"),
 		"SPEC031_RESULT_FILE="+dagu.ProjectPath("distributed-result.txt"),
+		"SPEC031_WORKER_ONE_FILE="+dagu.ProjectPath("distributed-worker-one.txt"),
+		"SPEC031_WORKER_TWO_FILE="+dagu.ProjectPath("distributed-worker-two.txt"),
 	)
 	process := dagu.StartWithEnv(
 		workerEnv,
