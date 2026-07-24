@@ -244,6 +244,44 @@ func TestRunnerRunDispatchesRetryWhenChildRunExists(t *testing.T) {
 	assert.Equal(t, core.Succeeded, result.Status)
 }
 
+func TestRunnerRunReusesSucceededChildForExternalStepRetry(t *testing.T) {
+	t.Parallel()
+
+	var outputVars collections.SyncMap
+	outputVars.Store("RESULT", "RESULT=ok")
+	previous := &exec.DAGRunStatus{
+		Name:     "child",
+		DAGRunID: "child-1",
+		Status:   core.Succeeded,
+		Nodes: []*exec.Node{
+			{OutputVariables: &outputVars},
+		},
+	}
+	dispatcher := &mockDispatcher{
+		statuses: []*exec.DAGRunStatusResult{
+			{Found: true, Status: previous},
+		},
+	}
+	runner := newFastRunner(dispatcher)
+
+	result, err := runner.Run(context.Background(), runtimeexec.SubWorkflowRequest{
+		DAG: &core.DAG{
+			Name:     "child",
+			YamlData: []byte("name: child"),
+		},
+		RootDAGRun:        exec.NewDAGRunRef("parent", "root-1"),
+		ParentDAGRun:      exec.NewDAGRunRef("parent", "parent-1"),
+		RunID:             "child-1",
+		ExternalStepRetry: true,
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Empty(t, dispatcher.dispatches)
+	assert.Equal(t, core.Succeeded, result.Status)
+	assert.Equal(t, "ok", result.Outputs["RESULT"])
+}
+
 func TestRunnerRetryDispatchesPreviousStatus(t *testing.T) {
 	t.Parallel()
 

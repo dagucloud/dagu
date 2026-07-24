@@ -63,7 +63,17 @@ func IsFile(path string) bool {
 // OpenOrCreateFile opens or creates the named file for appending with synchronous I/O and sets permissions to 0600.
 // It returns the opened *os.File or a non-nil error if the operation fails.
 func OpenOrCreateFile(filepath string) (*os.File, error) {
-	flags := os.O_CREATE | os.O_WRONLY | os.O_APPEND | os.O_SYNC
+	return openOrCreateFile(filepath, os.O_SYNC)
+}
+
+// OpenOrCreateFileWithoutSync opens or creates the named file for appending using OS buffering and sets permissions to 0600.
+// Writes are visible to readers, but callers must call Sync when durable persistence is required.
+func OpenOrCreateFileWithoutSync(filepath string) (*os.File, error) {
+	return openOrCreateFile(filepath, 0)
+}
+
+func openOrCreateFile(filepath string, extraFlags int) (*os.File, error) {
+	flags := os.O_CREATE | os.O_WRONLY | os.O_APPEND | extraFlags
 
 	var file *os.File
 	err := retryWindowsFileOp(func() error {

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import React from 'react';
-import { BrowserRouter, Link, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, Link, Navigate, Route, Routes } from 'react-router-dom';
 import { SWRConfig, mutate as globalMutate } from 'swr';
 
 import { Shield } from 'lucide-react';
@@ -86,7 +86,6 @@ const ProfilesPage = React.lazy(() => import('./pages/profiles'));
 const Queues = React.lazy(() => import('./pages/queues'));
 const QueueDetailsPage = React.lazy(() => import('./pages/queues/queue'));
 const Search = React.lazy(() => import('./pages/search'));
-const SecretsPage = React.lazy(() => import('./pages/secrets'));
 const SystemStatus = React.lazy(() => import('./pages/system-status'));
 const TerminalPage = React.lazy(() => import('./pages/terminal'));
 const RemoteNodesPage = React.lazy(() => import('./pages/remote-nodes'));
@@ -787,9 +786,10 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
                                       <Route
                                         path="/secrets"
                                         element={
-                                          <ManagerElement>
-                                            <SecretsPage />
-                                          </ManagerElement>
+                                          <Navigate
+                                            to="/profiles#secret-refs"
+                                            replace
+                                          />
                                         }
                                       />
                                       <Route

@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -30,7 +33,7 @@ export function BatchDeleteDialog({
   onCancel,
 }: BatchDeleteDialogProps) {
   const count = itemIds.length;
-  const defaultMessage = `Delete ${count} item${count !== 1 ? 's' : ''}`;
+  const defaultMessage = `Delete ${count} DAG${count !== 1 ? 's' : ''}`;
   const [commitMessage, setCommitMessage] = useState('');
 
   useEffect(() => {
@@ -47,17 +50,17 @@ export function BatchDeleteDialog({
     <Dialog open={open} onOpenChange={(o) => !o && onCancel()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="text-base">Delete Selected Items</DialogTitle>
+          <DialogTitle className="text-base">Delete Selected DAGs</DialogTitle>
           <DialogDescription className="text-xs">
-            This will remove {count} item{count !== 1 ? 's' : ''} from the
-            remote repository, local disk, and sync state. This action cannot be
+            This will remove {count} DAG{count !== 1 ? 's' : ''} from the remote
+            repository, local disk, and sync state. This action cannot be
             undone.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           {hasModifiedOrConflict && (
             <p className="text-xs text-amber-600 dark:text-amber-400">
-              Some items have local modifications or conflicts that will be lost.
+              Some DAGs have local modifications or conflicts that will be lost.
             </p>
           )}
           <div className="space-y-1.5">
@@ -97,7 +100,7 @@ export function BatchDeleteDialog({
             ) : (
               <>
                 <Trash2 className="h-3.5 w-3.5 mr-1" />
-                Delete {count} Item{count !== 1 ? 's' : ''}
+                Delete {count} DAG{count !== 1 ? 's' : ''}
               </>
             )}
           </Button>

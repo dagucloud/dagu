@@ -18,6 +18,7 @@ func TestDefaultConfig(t *testing.T) {
 	assert.True(t, config.Insecure)
 	assert.Equal(t, 10*time.Second, config.DialTimeout)
 	assert.Equal(t, 5*time.Minute, config.RequestTimeout)
+	assert.Equal(t, 10*time.Second, config.HeartbeatTimeout)
 	assert.Equal(t, 3, config.MaxRetries)
 	assert.Equal(t, time.Second, config.RetryInterval)
 	assert.Empty(t, config.CertFile)
@@ -179,6 +180,7 @@ func TestConfigValidateDefaults(t *testing.T) {
 
 	assert.Equal(t, 10*time.Second, config.DialTimeout)
 	assert.Equal(t, 5*time.Minute, config.RequestTimeout)
+	assert.Equal(t, 10*time.Second, config.HeartbeatTimeout)
 	assert.Equal(t, 0, config.MaxRetries)
 	assert.Equal(t, time.Second, config.RetryInterval)
 }

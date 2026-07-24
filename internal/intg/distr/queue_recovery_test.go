@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestExecution_QueuedDispatch_ConsumesLargeBacklog(t *testing.T) {
+func TestExecution_QueuedDispatch_ConsumesBulkItems(t *testing.T) {
 	const (
 		queueName = "bulk-q"
 	)
@@ -56,12 +56,20 @@ steps:
 }
 
 func queuedDispatchBulkRunCount() int {
-	const backlogWaves = 2
-	return backlogWaves * queuedDispatchWorkerCount() * queuedDispatchWorkerMaxActiveRuns()
+	if runtime.GOOS == "windows" {
+		return 5
+	}
+	if raceEnabled() {
+		return 20
+	}
+	return 1000
 }
 
 func queuedDispatchWorkerCount() int {
 	if runtime.GOOS == "windows" {
+		return 2
+	}
+	if raceEnabled() {
 		return 2
 	}
 	return 10
@@ -71,12 +79,18 @@ func queuedDispatchWorkerMaxActiveRuns() int {
 	if runtime.GOOS == "windows" {
 		return 1
 	}
+	if raceEnabled() {
+		return 2
+	}
 	return 10
 }
 
 func queuedDispatchBulkTimeout() time.Duration {
 	if runtime.GOOS == "windows" {
 		return 5 * time.Minute
+	}
+	if raceEnabled() {
+		return 2 * time.Minute
 	}
 	return 10 * time.Minute
 }

@@ -41,7 +41,7 @@ func BaseConfigPath(dagsDir, name string) string {
 	return filepath.Join(BaseConfigDir(dagsDir), name, BaseConfigFileName)
 }
 
-// BaseConfigStem returns the sync item name for a base config file without extension.
+// BaseConfigStem returns the base configuration file name without its extension.
 func BaseConfigStem() string {
 	return strings.TrimSuffix(BaseConfigFileName, filepath.Ext(BaseConfigFileName))
 }

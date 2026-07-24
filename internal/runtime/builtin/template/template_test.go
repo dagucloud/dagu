@@ -23,6 +23,56 @@ func TestValidateTemplateRequiresScriptMessage(t *testing.T) {
 	assert.NotContains(t, err.Error(), "executor")
 }
 
+func TestValidateTemplateAcceptsScopedTemplateReference(t *testing.T) {
+	t.Parallel()
+
+	err := validateTemplate(core.Step{
+		ExecutorConfig: core.ExecutorConfig{
+			Config: map[string]any{"template_ref": "${env.TEMPLATE}"},
+		},
+	})
+	require.NoError(t, err)
+}
+
+func TestValidateTemplateRejectsAmbiguousTemplateReference(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		step core.Step
+		err  string
+	}{
+		{
+			name: "script and reference",
+			step: core.Step{
+				Script: "literal",
+				ExecutorConfig: core.ExecutorConfig{
+					Config: map[string]any{"template_ref": "${env.TEMPLATE}"},
+				},
+			},
+			err: "cannot use both script and with.template_ref",
+		},
+		{
+			name: "invalid reference",
+			step: core.Step{
+				ExecutorConfig: core.ExecutorConfig{
+					Config: map[string]any{"template_ref": "TEMPLATE"},
+				},
+			},
+			err: "must be one complete scoped value reference",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := validateTemplate(tt.step)
+			require.ErrorContains(t, err, tt.err)
+		})
+	}
+}
+
 func TestNewTemplateRequiresScriptMessage(t *testing.T) {
 	_, err := newTemplate(context.Background(), core.Step{})
 	require.Error(t, err)

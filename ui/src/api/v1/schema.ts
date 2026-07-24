@@ -2334,7 +2334,7 @@ export interface paths {
         put?: never;
         /**
          * Publish selected DAGs
-         * @description Commits and pushes the specified item IDs. If itemIds is omitted, publishes all modified or untracked items.
+         * @description Commits and pushes the specified DAG IDs. If itemIds is omitted, publishes all modified or untracked DAGs.
          */
         post: operations["syncPublishAll"];
         delete?: never;
@@ -2395,8 +2395,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get diff for a sync item
-         * @description Returns the diff between local and remote versions of a sync item
+         * Get diff for a DAG
+         * @description Returns the diff between local and remote versions of a DAG
          */
         get: operations["getSyncItemDiff"];
         put?: never;
@@ -2417,8 +2417,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Publish a single sync item
-         * @description Commits and pushes a single sync item to the remote repository
+         * Publish a single DAG
+         * @description Commits and pushes a single DAG to the remote repository
          */
         post: operations["publishSyncItem"];
         delete?: never;
@@ -2437,7 +2437,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Discard local changes for a sync item
+         * Discard local changes for a DAG
          * @description Discards local changes and reverts to the version in the remote repository
          */
         post: operations["discardSyncItemChanges"];
@@ -2457,8 +2457,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Forget a sync item
-         * @description Removes the state entry for a missing, untracked, or conflict sync item. Synced and modified items are rejected.
+         * Forget a DAG
+         * @description Removes the state entry for a missing, untracked, or conflicting DAG. Synced and modified DAGs are rejected.
          */
         post: operations["forgetSyncItem"];
         delete?: never;
@@ -2477,8 +2477,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Delete a sync item
-         * @description Removes an item from remote repository (git rm + commit + push), local disk, and sync state
+         * Delete a DAG
+         * @description Removes a DAG from the remote repository (git rm + commit + push), local disk, and sync state
          */
         post: operations["deleteSyncItem"];
         delete?: never;
@@ -2497,8 +2497,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Move a sync item
-         * @description Atomically renames an item across local filesystem, remote repository, and sync state
+         * Move a DAG
+         * @description Atomically renames a DAG across local filesystem, remote repository, and sync state
          */
         post: operations["moveSyncItem"];
         delete?: never;
@@ -2517,8 +2517,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Delete all missing sync items
-         * @description Removes all missing items from remote repository, local disk, and sync state
+         * Delete all missing DAGs
+         * @description Removes all missing DAGs from the remote repository, local disk, and sync state
          */
         post: operations["syncDeleteMissing"];
         delete?: never;
@@ -2537,8 +2537,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Delete selected sync items
-         * @description Removes the specified items from remote repository, local disk, and sync state in a single commit.
+         * Delete selected DAGs
+         * @description Removes the specified DAGs from the remote repository, local disk, and sync state in a single commit.
          */
         post: operations["syncDeleteBatch"];
         delete?: never;
@@ -2557,7 +2557,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Cleanup missing sync items
+         * Cleanup missing DAGs
          * @description Removes all missing entries from sync state
          */
         post: operations["syncCleanup"];
@@ -5606,21 +5606,15 @@ export interface components {
          * @enum {string}
          */
         SyncSummary: SyncSummary;
-        /**
-         * @description Type of sync item
-         * @enum {string}
-         */
-        SyncItemKind: SyncItemKind;
-        /** @description Sync state for a single item */
+        /** @description Sync state for a single DAG */
         SyncItem: {
-            /** @description Stable item identifier (file path without extension) */
+            /** @description Stable DAG identifier (file path without extension) */
             itemId: string;
             /** @description Relative file path with extension */
             filePath: string;
-            /** @description Display-friendly item name */
+            /** @description Display-friendly DAG name */
             displayName: string;
             status: components["schemas"]["SyncStatus"];
-            kind: components["schemas"]["SyncItemKind"];
             /** @description Commit hash when last synced */
             baseCommit?: string;
             /** @description Content hash when last synced */
@@ -5684,7 +5678,7 @@ export interface components {
             lastSyncStatus?: string;
             /** @description Error message from last failed sync */
             lastError?: string;
-            /** @description Sync state for each item */
+            /** @description Sync state for each DAG */
             items: components["schemas"]["SyncItem"][];
             counts: components["schemas"]["SyncStatusCounts"];
         };
@@ -5693,9 +5687,9 @@ export interface components {
             itemId?: string;
             message: string;
         };
-        /** @description Diff between local and remote versions of a sync item */
+        /** @description Diff between local and remote versions of a DAG */
         SyncItemDiffResponse: {
-            /** @description The item identifier */
+            /** @description The DAG identifier */
             itemId: string;
             /** @description Relative file path with extension */
             filePath: string;
@@ -5735,20 +5729,20 @@ export interface components {
              */
             force: boolean;
         };
-        /** @description Request to publish selected items */
+        /** @description Request to publish selected DAGs */
         SyncPublishAllRequest: {
             /** @description Commit message */
             message?: string;
-            /** @description Item IDs to publish. If omitted, all modified or untracked items are published. */
+            /** @description DAG IDs to publish. If omitted, all modified or untracked DAGs are published. */
             itemIds?: string[];
         };
-        /** @description Request to delete selected items */
+        /** @description Request to delete selected DAGs */
         SyncDeleteBatchRequest: {
-            /** @description Item IDs to delete */
+            /** @description DAG IDs to delete */
             itemIds: string[];
             /** @description Commit message for the deletion */
             message?: string;
-            /** @description Force delete items with local modifications or conflicts */
+            /** @description Force delete DAGs with local modifications or conflicts */
             force?: boolean;
         };
         /** @description Response when a conflict is detected */
@@ -13606,7 +13600,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The sync item identifier (file path without extension) */
+                /** @description The DAG identifier (file path without extension) */
                 itemId: string;
             };
             cookie?: never;
@@ -13622,7 +13616,7 @@ export interface operations {
                     "application/json": components["schemas"]["SyncItemDiffResponse"];
                 };
             };
-            /** @description Item not found */
+            /** @description DAG not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -13650,7 +13644,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The sync item identifier (file path without extension) */
+                /** @description The DAG identifier (file path without extension) */
                 itemId: string;
             };
             cookie?: never;
@@ -13661,7 +13655,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Item published successfully */
+            /** @description DAG published successfully */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -13670,7 +13664,7 @@ export interface operations {
                     "application/json": components["schemas"]["SyncResultResponse"];
                 };
             };
-            /** @description Item not found */
+            /** @description DAG not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -13707,7 +13701,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The sync item identifier (file path without extension) */
+                /** @description The DAG identifier (file path without extension) */
                 itemId: string;
             };
             cookie?: never;
@@ -13723,7 +13717,7 @@ export interface operations {
                     "application/json": components["schemas"]["SuccessResponse"];
                 };
             };
-            /** @description Item not found */
+            /** @description DAG not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -13751,14 +13745,14 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The sync item identifier (file path without extension) */
+                /** @description The DAG identifier (file path without extension) */
                 itemId: string;
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Item forgotten successfully */
+            /** @description DAG forgotten successfully */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -13767,7 +13761,7 @@ export interface operations {
                     "application/json": components["schemas"]["SuccessResponse"];
                 };
             };
-            /** @description Item cannot be forgotten */
+            /** @description DAG cannot be forgotten */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -13776,7 +13770,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Item not found */
+            /** @description DAG not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -13804,7 +13798,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The sync item identifier (file path without extension) */
+                /** @description The DAG identifier (file path without extension) */
                 itemId: string;
             };
             cookie?: never;
@@ -13814,13 +13808,13 @@ export interface operations {
                 "application/json": {
                     /** @description Commit message for the deletion */
                     message?: string;
-                    /** @description Force delete even if item has local modifications */
+                    /** @description Force delete even if the DAG has local modifications */
                     force?: boolean;
                 };
             };
         };
         responses: {
-            /** @description Item deleted successfully */
+            /** @description DAG deleted successfully */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -13829,7 +13823,7 @@ export interface operations {
                     "application/json": components["schemas"]["SuccessResponse"];
                 };
             };
-            /** @description Item cannot be deleted */
+            /** @description DAG cannot be deleted */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -13838,7 +13832,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Item not found */
+            /** @description DAG not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -13866,7 +13860,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The current sync item identifier (file path without extension) */
+                /** @description The current DAG identifier (file path without extension) */
                 itemId: string;
             };
             cookie?: never;
@@ -13874,17 +13868,17 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
-                    /** @description The new item identifier to rename to */
+                    /** @description The new DAG identifier */
                     newItemId: string;
                     /** @description Commit message for the move */
                     message?: string;
-                    /** @description Force move even if item has conflicts */
+                    /** @description Force move even if the DAG has conflicts */
                     force?: boolean;
                 };
             };
         };
         responses: {
-            /** @description Item moved successfully */
+            /** @description DAG moved successfully */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -13893,7 +13887,7 @@ export interface operations {
                     "application/json": components["schemas"]["SuccessResponse"];
                 };
             };
-            /** @description Item cannot be moved */
+            /** @description DAG cannot be moved */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -13902,7 +13896,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Item not found */
+            /** @description DAG not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -13950,14 +13944,14 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Missing items deleted successfully */
+            /** @description Missing DAGs deleted successfully */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
-                        /** @description List of deleted item IDs */
+                        /** @description List of deleted DAG IDs */
                         deleted: string[];
                         /** @description Summary message */
                         message: string;
@@ -14000,21 +13994,21 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Items deleted successfully */
+            /** @description DAGs deleted successfully */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
-                        /** @description List of deleted item IDs */
+                        /** @description List of deleted DAG IDs */
                         deleted: string[];
                         /** @description Summary message */
                         message: string;
                     };
                 };
             };
-            /** @description Cannot delete (push disabled, untracked items, validation error) */
+            /** @description Cannot delete (push disabled, untracked DAGs, validation error) */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -14023,7 +14017,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Item not found */
+            /** @description DAG not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -14062,7 +14056,7 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        /** @description List of forgotten item IDs */
+                        /** @description List of forgotten DAG IDs */
                         forgotten: string[];
                         /** @description Summary message */
                         message: string;
@@ -17641,13 +17635,6 @@ export enum SyncSummary {
     conflict = "conflict",
     missing = "missing",
     error = "error"
-}
-export enum SyncItemKind {
-    dag = "dag",
-    config = "config",
-    memory = "memory",
-    skill = "skill",
-    soul = "soul"
 }
 export enum SyncAuthConfigType {
     token = "token",

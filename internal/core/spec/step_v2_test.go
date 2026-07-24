@@ -426,6 +426,79 @@ steps:
 	assert.Contains(t, err.Error(), `jq.filter does not allow both with.data and with.input`)
 }
 
+func TestStepSchemaV2_ActionTemplateReference(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: render
+    action: template.render
+    with:
+      template_ref: ${env.TEMPLATE}
+      data:
+        name: Alice
+`))
+	require.NoError(t, err)
+	require.Len(t, dag.Steps, 1)
+
+	step := dag.Steps[0]
+	assert.Equal(t, "template", step.ExecutorConfig.Type)
+	assert.Empty(t, step.Script)
+	assert.Equal(t, "${env.TEMPLATE}", step.ExecutorConfig.Config["template_ref"])
+	assert.Equal(t, map[string]any{"name": "Alice"}, step.ExecutorConfig.Config["data"])
+}
+
+func TestStepSchemaV2_ActionTemplateRequiresOneUnambiguousSource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		with string
+		err  string
+	}{
+		{
+			name: "missing source",
+			with: "data: {name: Alice}",
+			err:  "requires exactly one of with.template or with.template_ref",
+		},
+		{
+			name: "both sources",
+			with: "template: hello\n      template_ref: ${env.TEMPLATE}",
+			err:  "requires exactly one of with.template or with.template_ref",
+		},
+		{
+			name: "bare name",
+			with: "template_ref: TEMPLATE",
+			err:  "must be one complete scoped value reference",
+		},
+		{
+			name: "mixed reference",
+			with: "template_ref: prefix-${env.TEMPLATE}",
+			err:  "must be one complete scoped value reference",
+		},
+		{
+			name: "legacy alias",
+			with: "template_ref: ${run.id}",
+			err:  "must be one complete scoped value reference",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: render
+    action: template.render
+    with:
+      `+tt.with+`
+`))
+			require.ErrorContains(t, err, tt.err)
+		})
+	}
+}
+
 func TestStepSchemaV2_ActionDataConvert(t *testing.T) {
 	t.Parallel()
 
