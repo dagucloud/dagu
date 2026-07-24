@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -52,6 +53,66 @@ func TestService_GetStatus(t *testing.T) {
 	require.True(t, status.Enabled)
 	require.Equal(t, cfg.Repository, status.Repository)
 	require.Equal(t, cfg.Branch, status.Branch)
+}
+
+func TestService_StatusReadsAreConcurrentSafe(t *testing.T) {
+	t.Parallel()
+
+	impl, dagsDir := newTestService(t, &Config{
+		Enabled:    true,
+		Repository: "host.com/org/repo",
+		Branch:     "main",
+	})
+	content := []byte("steps: []\n")
+	require.NoError(t, os.WriteFile(filepath.Join(dagsDir, "concurrent.yml"), content, 0600))
+	require.NoError(t, impl.stateManager.Save(&State{
+		Version: 1,
+		DAGs: map[string]*DAGState{
+			"concurrent": {
+				Status:         StatusSynced,
+				LastSyncedHash: ComputeContentHash(content),
+				LocalHash:      ComputeContentHash(content),
+			},
+		},
+	}))
+
+	const readerCount = 12
+	errCh := make(chan error, readerCount)
+	var wg sync.WaitGroup
+	for reader := range readerCount {
+		wg.Go(func() {
+			var err error
+			switch reader % 3 {
+			case 0:
+				_, err = impl.GetStatus(context.Background())
+			case 1:
+				_, err = impl.GetDAGStatus(context.Background(), "concurrent")
+			case 2:
+				_, err = impl.GetDAGDiff(context.Background(), "concurrent")
+			}
+			errCh <- err
+		})
+	}
+	wg.Wait()
+	close(errCh)
+
+	for err := range errCh {
+		require.NoError(t, err)
+	}
+
+	dagStatus, err := impl.GetDAGStatus(context.Background(), "concurrent")
+	require.NoError(t, err)
+	dagStatus.Status = StatusConflict
+
+	overallStatus, err := impl.GetStatus(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, StatusSynced, overallStatus.DAGs["concurrent"].Status)
+	overallStatus.DAGs["concurrent"].Status = StatusConflict
+
+	freshStatus, err := impl.GetDAGStatus(context.Background(), "concurrent")
+	require.NoError(t, err)
+	assert.Equal(t, StatusSynced, freshStatus.Status)
+	assert.Equal(t, dagYMLExtension, freshStatus.FileExtension)
 }
 
 func TestService_PathHelpers(t *testing.T) {

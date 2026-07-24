@@ -1448,7 +1448,7 @@ func (s *serviceImpl) GetStatus(_ context.Context) (*OverallStatus, error) {
 	status.LastSyncCommit = state.LastSyncCommit
 	status.LastSyncStatus = state.LastSyncStatus
 	status.LastError = state.LastError
-	status.DAGs = state.DAGs
+	status.DAGs = cloneDAGStates(state.DAGs)
 
 	status.Counts = computeStatusCounts(state.DAGs)
 
@@ -1476,6 +1476,9 @@ func (s *serviceImpl) GetDAGStatus(_ context.Context, dagID string) (*DAGState, 
 		return nil, err
 	}
 
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	state, err := s.stateManager.GetState()
 	if err != nil {
 		return nil, err
@@ -1492,7 +1495,8 @@ func (s *serviceImpl) GetDAGStatus(_ context.Context, dagID string) (*DAGState, 
 		_ = s.stateManager.Save(state)
 	}
 
-	return dagState, nil
+	dagStateCopy := *dagState
+	return &dagStateCopy, nil
 }
 
 // GetDAGDiff returns the diff between local and remote versions of a DAG.
@@ -1500,6 +1504,9 @@ func (s *serviceImpl) GetDAGDiff(_ context.Context, dagID string) (*DAGDiff, err
 	if err := s.validateEnabled(); err != nil {
 		return nil, err
 	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	state, err := s.stateManager.GetState()
 	if err != nil {
@@ -1559,6 +1566,19 @@ func (s *serviceImpl) GetDAGDiff(_ context.Context, dagID string) (*DAGDiff, err
 	}
 
 	return diff, nil
+}
+
+func cloneDAGStates(states map[string]*DAGState) map[string]*DAGState {
+	cloned := make(map[string]*DAGState, len(states))
+	for dagID, dagState := range states {
+		if dagState == nil {
+			cloned[dagID] = nil
+			continue
+		}
+		dagStateCopy := *dagState
+		cloned[dagID] = &dagStateCopy
+	}
+	return cloned
 }
 
 // fetchRemoteContent retrieves the content of a DAG file from a specific commit.
