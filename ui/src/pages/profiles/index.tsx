@@ -41,6 +41,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { Tab, Tabs } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import {
@@ -72,7 +73,7 @@ import React, {
   useMemo,
   useState,
 } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 type RuntimeProfileResponse = components['schemas']['RuntimeProfileResponse'];
 type InheritedRuntimeProfileResponse =
@@ -346,6 +347,9 @@ export default function ProfilesPage(): React.ReactNode {
   const client = useClient();
   const appBarContext = useContext(AppBarContext);
   const location = useLocation();
+  const navigate = useNavigate();
+  const activeTab =
+    location.hash === '#secret-refs' ? 'secret-refs' : 'profiles';
   const remoteNode = appBarContext.selectedRemoteNode || 'local';
   const canManageProfiles = useCanManageProfiles();
   const canManageProtectedProfiles = useIsAdmin();
@@ -373,12 +377,6 @@ export default function ProfilesPage(): React.ReactNode {
   useEffect(() => {
     appBarContext.setTitle('Profiles & Secrets');
   }, [appBarContext]);
-
-  useEffect(() => {
-    if (location.hash === '#secret-refs') {
-      document.getElementById('secret-refs')?.scrollIntoView?.();
-    }
-  }, [location.hash]);
 
   const queryInit = useMemo(
     () =>
@@ -621,9 +619,20 @@ export default function ProfilesPage(): React.ReactNode {
     }
   }
 
+  function selectTab(tab: 'profiles' | 'secret-refs'): void {
+    navigate(
+      {
+        pathname: location.pathname,
+        search: location.search,
+        hash: tab === 'secret-refs' ? '#secret-refs' : '',
+      },
+      { replace: true }
+    );
+  }
+
   return (
-    <div className="flex h-full min-h-0 max-w-7xl flex-col gap-4 overflow-auto">
-      <div>
+    <div className="flex h-full min-h-0 max-w-7xl flex-col gap-4 overflow-hidden">
+      <div className="shrink-0">
         <h1 className="text-lg font-semibold">Profiles &amp; Secrets</h1>
         <p className="text-sm text-muted-foreground">
           Manage environment profiles and individual secret references used by
@@ -631,334 +640,394 @@ export default function ProfilesPage(): React.ReactNode {
         </p>
       </div>
 
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h2 className="text-base font-semibold">Profiles</h2>
-          <p className="text-sm text-muted-foreground">
-            Environment bundles selected when a run starts.
-          </p>
-        </div>
-        <Button
-          size="sm"
-          className="h-8"
-          disabled={!canManageProfiles}
-          onClick={() => {
-            setEditingProfile(null);
-            setProfileFormOpen(true);
-          }}
+      <Tabs
+        role="tablist"
+        aria-label="Profiles and secrets"
+        className="shrink-0"
+      >
+        <Tab
+          id="profiles-tab"
+          role="tab"
+          aria-selected={activeTab === 'profiles'}
+          aria-controls="profiles-panel"
+          isActive={activeTab === 'profiles'}
+          onClick={() => selectTab('profiles')}
+          className="cursor-pointer gap-2"
         >
-          <Plus className="mr-1.5 h-4 w-4" />
-          Add Profile
-        </Button>
-      </div>
+          <SlidersHorizontal className="h-4 w-4" />
+          Profiles
+        </Tab>
+        <Tab
+          id="secret-refs-tab"
+          role="tab"
+          aria-selected={activeTab === 'secret-refs'}
+          aria-controls="secret-refs-panel"
+          isActive={activeTab === 'secret-refs'}
+          onClick={() => selectTab('secret-refs')}
+          className="cursor-pointer gap-2"
+        >
+          <KeyRound className="h-4 w-4" />
+          DAG Secret Refs
+        </Tab>
+      </Tabs>
 
-      {error && (
-        <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
-          {error}
-        </div>
-      )}
-      {success && (
-        <div className="rounded-md bg-success/10 p-3 text-sm text-success">
-          {success}
-        </div>
-      )}
+      {activeTab === 'profiles' && (
+        <section
+          id="profiles-panel"
+          role="tabpanel"
+          aria-labelledby="profiles-tab"
+          className="min-h-0 flex-1 overflow-auto pr-1"
+        >
+          <div className="flex flex-col gap-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-base font-semibold">Profiles</h2>
+                <p className="text-sm text-muted-foreground">
+                  Environment bundles selected when a run starts.
+                </p>
+              </div>
+              <Button
+                size="sm"
+                className="h-8"
+                disabled={!canManageProfiles}
+                onClick={() => {
+                  setEditingProfile(null);
+                  setProfileFormOpen(true);
+                }}
+              >
+                <Plus className="mr-1.5 h-4 w-4" />
+                Add Profile
+              </Button>
+            </div>
 
-      {(canManageProtectedProfiles ||
-        (workspaceTarget && canManageWorkspaceDefaults)) && (
-        <div className="card-obsidian min-h-0 overflow-auto">
-          <Table className="text-xs">
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-[260px]">Default Layer</TableHead>
-                <TableHead className="w-[120px]">Scope</TableHead>
-                <TableHead>Entries</TableHead>
-                <TableHead className="w-[170px]">Updated</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {canManageProtectedProfiles && (
-                <TableRow>
-                  <TableCell>
-                    <div className="flex min-w-0 flex-col gap-1">
-                      <div className="flex min-w-0 items-center gap-2">
-                        <Globe2 className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
-                        <span className="font-medium">
-                          {globalTarget.title}
-                        </span>
-                        <code className="whitespace-normal break-words text-xs text-muted-foreground">
-                          {globalTarget.name}
-                        </code>
-                      </div>
-                      {globalTarget.description && (
-                        <span className="text-xs text-muted-foreground">
-                          {globalTarget.description}
-                        </span>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="outline">Global</Badge>
-                  </TableCell>
-                  <TableCell>
-                    <ProfileEntriesCell
-                      target={globalTarget}
-                      busy={actionProfile === globalTarget.actionKey}
-                      isLoading={isGlobalDefaultsLoading}
-                      onAdd={openEntryDialog}
-                      onEdit={editEntry}
-                      onDelete={confirmDeleteEntry}
-                    />
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {globalTarget.updatedAt
-                      ? dayjs(globalTarget.updatedAt).format(
-                          'MMM D, YYYY HH:mm'
-                        )
-                      : 'Never'}
-                  </TableCell>
-                </TableRow>
-              )}
-              {workspaceTarget && canManageWorkspaceDefaults && (
-                <TableRow>
-                  <TableCell>
-                    <div className="flex min-w-0 flex-col gap-1">
-                      <div className="flex min-w-0 items-center gap-2">
-                        <Building2 className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
-                        <span className="font-medium">
-                          {workspaceTarget.title}
-                        </span>
-                        <code className="whitespace-normal break-words text-xs text-muted-foreground">
-                          {workspaceTarget.name}
-                        </code>
-                      </div>
-                      {workspaceTarget.description && (
-                        <span className="text-xs text-muted-foreground">
-                          {workspaceTarget.description}
-                        </span>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="outline">Workspace</Badge>
-                  </TableCell>
-                  <TableCell>
-                    <ProfileEntriesCell
-                      target={workspaceTarget}
-                      busy={actionProfile === workspaceTarget.actionKey}
-                      isLoading={isWorkspaceDefaultsLoading}
-                      onAdd={openEntryDialog}
-                      onEdit={editEntry}
-                      onDelete={confirmDeleteEntry}
-                    />
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {workspaceTarget.updatedAt
-                      ? dayjs(workspaceTarget.updatedAt).format(
-                          'MMM D, YYYY HH:mm'
-                        )
-                      : 'Never'}
-                  </TableCell>
-                </TableRow>
-              )}
-              {workspaceTarget && canManageWorkspaceDefaults && (
-                <TableRow>
-                  <TableCell>
-                    <div className="flex min-w-0 flex-col gap-1">
-                      <div className="flex min-w-0 items-center gap-2">
-                        <SlidersHorizontal className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
-                        <span className="font-medium">
-                          Workspace default profile
-                        </span>
-                      </div>
-                      <span className="text-xs text-muted-foreground">
-                        Fallback when the run and DAG do not choose a profile.
-                      </span>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="outline">Workspace</Badge>
-                  </TableCell>
-                  <TableCell>
-                    <WorkspaceDefaultProfileCell
-                      profiles={activeProfiles}
-                      value={workspaceDefaults?.defaultProfile || ''}
-                      busy={actionProfile === workspaceDefaultProfileActionKey}
-                      disabled={!canManageProfiles}
-                      isLoading={isLoading || isWorkspaceDefaultsLoading}
-                      onChange={updateWorkspaceDefaultProfile}
-                    />
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {workspaceTarget.updatedAt
-                      ? dayjs(workspaceTarget.updatedAt).format(
-                          'MMM D, YYYY HH:mm'
-                        )
-                      : 'Never'}
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </div>
-      )}
-
-      <div className="card-obsidian min-h-0 overflow-auto">
-        <Table className="text-xs">
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-[260px]">Profile</TableHead>
-              <TableHead className="w-[110px]">Status</TableHead>
-              <TableHead>Entries</TableHead>
-              <TableHead className="w-[170px]">Updated</TableHead>
-              <TableHead className="w-[80px]"></TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {!canManageProfiles ? (
-              <TableRow>
-                <TableCell
-                  colSpan={5}
-                  className="py-8 text-center text-muted-foreground"
-                >
-                  You do not have permission to manage profiles.
-                </TableCell>
-              </TableRow>
-            ) : isLoading ? (
-              <TableRow>
-                <TableCell
-                  colSpan={5}
-                  className="py-8 text-center text-muted-foreground"
-                >
-                  Loading profiles...
-                </TableCell>
-              </TableRow>
-            ) : profiles.length === 0 ? (
-              <TableRow>
-                <TableCell
-                  colSpan={5}
-                  className="py-8 text-center text-muted-foreground"
-                >
-                  No profiles found.
-                </TableCell>
-              </TableRow>
-            ) : (
-              profiles.map((profile) => {
-                const profileManageDisabled = !canManageProfile(profile);
-                const profileBusy = actionProfile === profile.name;
-                const target = targetFromProfile(
-                  profile,
-                  !profileManageDisabled
-                );
-
-                return (
-                  <TableRow key={profile.id}>
-                    <TableCell>
-                      <div className="flex min-w-0 flex-col gap-1">
-                        <div className="flex min-w-0 items-center gap-2">
-                          <SlidersHorizontal className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
-                          <code className="whitespace-normal break-words text-xs">
-                            {profile.name}
-                          </code>
-                          {profile.protected && (
-                            <Badge
-                              variant="outline"
-                              className="h-5 px-1.5 text-[10px]"
-                            >
-                              Protected
-                            </Badge>
-                          )}
-                          {profile.protected && !canManageProtectedProfiles && (
-                            <Badge
-                              variant="secondary"
-                              className="h-5 px-1.5 text-[10px]"
-                            >
-                              Admin
-                            </Badge>
-                          )}
-                        </div>
-                        {profile.description && (
-                          <span className="text-xs text-muted-foreground">
-                            {profile.description}
-                          </span>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge
-                        variant={
-                          profile.status === RuntimeProfileStatus.active
-                            ? 'success'
-                            : 'warning'
-                        }
-                      >
-                        {profile.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <ProfileEntriesCell
-                        target={target}
-                        busy={profileBusy}
-                        onAdd={openEntryDialog}
-                        onEdit={editEntry}
-                        onDelete={confirmDeleteEntry}
-                      />
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {dayjs(profile.updatedAt).format('MMM D, YYYY HH:mm')}
-                    </TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            aria-label={`Actions for ${profile.name}`}
-                            disabled={profileManageDisabled || profileBusy}
-                          >
-                            {profileBusy ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <MoreHorizontal className="h-4 w-4" />
-                            )}
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem
-                            onClick={() => {
-                              setEditingProfile(profile);
-                              setProfileFormOpen(true);
-                            }}
-                          >
-                            <Pencil className="mr-2 h-4 w-4" />
-                            Edit
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => toggleStatus(profile)}
-                          >
-                            <Power className="mr-2 h-4 w-4" />
-                            {profile.status === RuntimeProfileStatus.active
-                              ? 'Disable'
-                              : 'Enable'}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            className="text-destructive"
-                            onClick={() => setDeletingProfile(profile)}
-                          >
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                );
-              })
+            {error && (
+              <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+                {error}
+              </div>
             )}
-          </TableBody>
-        </Table>
-      </div>
+            {success && (
+              <div className="rounded-md bg-success/10 p-3 text-sm text-success">
+                {success}
+              </div>
+            )}
 
-      <SecretRefsSection />
+            {(canManageProtectedProfiles ||
+              (workspaceTarget && canManageWorkspaceDefaults)) && (
+              <div className="card-obsidian min-h-0 overflow-auto">
+                <Table className="text-xs">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-[260px]">Default Layer</TableHead>
+                      <TableHead className="w-[120px]">Scope</TableHead>
+                      <TableHead>Entries</TableHead>
+                      <TableHead className="w-[170px]">Updated</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {canManageProtectedProfiles && (
+                      <TableRow>
+                        <TableCell>
+                          <div className="flex min-w-0 flex-col gap-1">
+                            <div className="flex min-w-0 items-center gap-2">
+                              <Globe2 className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+                              <span className="font-medium">
+                                {globalTarget.title}
+                              </span>
+                              <code className="whitespace-normal break-words text-xs text-muted-foreground">
+                                {globalTarget.name}
+                              </code>
+                            </div>
+                            {globalTarget.description && (
+                              <span className="text-xs text-muted-foreground">
+                                {globalTarget.description}
+                              </span>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline">Global</Badge>
+                        </TableCell>
+                        <TableCell>
+                          <ProfileEntriesCell
+                            target={globalTarget}
+                            busy={actionProfile === globalTarget.actionKey}
+                            isLoading={isGlobalDefaultsLoading}
+                            onAdd={openEntryDialog}
+                            onEdit={editEntry}
+                            onDelete={confirmDeleteEntry}
+                          />
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {globalTarget.updatedAt
+                            ? dayjs(globalTarget.updatedAt).format(
+                                'MMM D, YYYY HH:mm'
+                              )
+                            : 'Never'}
+                        </TableCell>
+                      </TableRow>
+                    )}
+                    {workspaceTarget && canManageWorkspaceDefaults && (
+                      <TableRow>
+                        <TableCell>
+                          <div className="flex min-w-0 flex-col gap-1">
+                            <div className="flex min-w-0 items-center gap-2">
+                              <Building2 className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+                              <span className="font-medium">
+                                {workspaceTarget.title}
+                              </span>
+                              <code className="whitespace-normal break-words text-xs text-muted-foreground">
+                                {workspaceTarget.name}
+                              </code>
+                            </div>
+                            {workspaceTarget.description && (
+                              <span className="text-xs text-muted-foreground">
+                                {workspaceTarget.description}
+                              </span>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline">Workspace</Badge>
+                        </TableCell>
+                        <TableCell>
+                          <ProfileEntriesCell
+                            target={workspaceTarget}
+                            busy={actionProfile === workspaceTarget.actionKey}
+                            isLoading={isWorkspaceDefaultsLoading}
+                            onAdd={openEntryDialog}
+                            onEdit={editEntry}
+                            onDelete={confirmDeleteEntry}
+                          />
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {workspaceTarget.updatedAt
+                            ? dayjs(workspaceTarget.updatedAt).format(
+                                'MMM D, YYYY HH:mm'
+                              )
+                            : 'Never'}
+                        </TableCell>
+                      </TableRow>
+                    )}
+                    {workspaceTarget && canManageWorkspaceDefaults && (
+                      <TableRow>
+                        <TableCell>
+                          <div className="flex min-w-0 flex-col gap-1">
+                            <div className="flex min-w-0 items-center gap-2">
+                              <SlidersHorizontal className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+                              <span className="font-medium">
+                                Workspace default profile
+                              </span>
+                            </div>
+                            <span className="text-xs text-muted-foreground">
+                              Fallback when the run and DAG do not choose a
+                              profile.
+                            </span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline">Workspace</Badge>
+                        </TableCell>
+                        <TableCell>
+                          <WorkspaceDefaultProfileCell
+                            profiles={activeProfiles}
+                            value={workspaceDefaults?.defaultProfile || ''}
+                            busy={
+                              actionProfile === workspaceDefaultProfileActionKey
+                            }
+                            disabled={!canManageProfiles}
+                            isLoading={isLoading || isWorkspaceDefaultsLoading}
+                            onChange={updateWorkspaceDefaultProfile}
+                          />
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {workspaceTarget.updatedAt
+                            ? dayjs(workspaceTarget.updatedAt).format(
+                                'MMM D, YYYY HH:mm'
+                              )
+                            : 'Never'}
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+
+            <div className="card-obsidian min-h-0 overflow-auto">
+              <Table className="text-xs">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-[260px]">Profile</TableHead>
+                    <TableHead className="w-[110px]">Status</TableHead>
+                    <TableHead>Entries</TableHead>
+                    <TableHead className="w-[170px]">Updated</TableHead>
+                    <TableHead className="w-[80px]"></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {!canManageProfiles ? (
+                    <TableRow>
+                      <TableCell
+                        colSpan={5}
+                        className="py-8 text-center text-muted-foreground"
+                      >
+                        You do not have permission to manage profiles.
+                      </TableCell>
+                    </TableRow>
+                  ) : isLoading ? (
+                    <TableRow>
+                      <TableCell
+                        colSpan={5}
+                        className="py-8 text-center text-muted-foreground"
+                      >
+                        Loading profiles...
+                      </TableCell>
+                    </TableRow>
+                  ) : profiles.length === 0 ? (
+                    <TableRow>
+                      <TableCell
+                        colSpan={5}
+                        className="py-8 text-center text-muted-foreground"
+                      >
+                        No profiles found.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    profiles.map((profile) => {
+                      const profileManageDisabled = !canManageProfile(profile);
+                      const profileBusy = actionProfile === profile.name;
+                      const target = targetFromProfile(
+                        profile,
+                        !profileManageDisabled
+                      );
+
+                      return (
+                        <TableRow key={profile.id}>
+                          <TableCell>
+                            <div className="flex min-w-0 flex-col gap-1">
+                              <div className="flex min-w-0 items-center gap-2">
+                                <SlidersHorizontal className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+                                <code className="whitespace-normal break-words text-xs">
+                                  {profile.name}
+                                </code>
+                                {profile.protected && (
+                                  <Badge
+                                    variant="outline"
+                                    className="h-5 px-1.5 text-[10px]"
+                                  >
+                                    Protected
+                                  </Badge>
+                                )}
+                                {profile.protected &&
+                                  !canManageProtectedProfiles && (
+                                    <Badge
+                                      variant="secondary"
+                                      className="h-5 px-1.5 text-[10px]"
+                                    >
+                                      Admin
+                                    </Badge>
+                                  )}
+                              </div>
+                              {profile.description && (
+                                <span className="text-xs text-muted-foreground">
+                                  {profile.description}
+                                </span>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge
+                              variant={
+                                profile.status === RuntimeProfileStatus.active
+                                  ? 'success'
+                                  : 'warning'
+                              }
+                            >
+                              {profile.status}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <ProfileEntriesCell
+                              target={target}
+                              busy={profileBusy}
+                              onAdd={openEntryDialog}
+                              onEdit={editEntry}
+                              onDelete={confirmDeleteEntry}
+                            />
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {dayjs(profile.updatedAt).format(
+                              'MMM D, YYYY HH:mm'
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  aria-label={`Actions for ${profile.name}`}
+                                  disabled={
+                                    profileManageDisabled || profileBusy
+                                  }
+                                >
+                                  {profileBusy ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <MoreHorizontal className="h-4 w-4" />
+                                  )}
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem
+                                  onClick={() => {
+                                    setEditingProfile(profile);
+                                    setProfileFormOpen(true);
+                                  }}
+                                >
+                                  <Pencil className="mr-2 h-4 w-4" />
+                                  Edit
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => toggleStatus(profile)}
+                                >
+                                  <Power className="mr-2 h-4 w-4" />
+                                  {profile.status ===
+                                  RuntimeProfileStatus.active
+                                    ? 'Disable'
+                                    : 'Enable'}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  className="text-destructive"
+                                  onClick={() => setDeletingProfile(profile)}
+                                >
+                                  <Trash2 className="mr-2 h-4 w-4" />
+                                  Delete
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {activeTab === 'secret-refs' && (
+        <div
+          id="secret-refs-panel"
+          role="tabpanel"
+          aria-labelledby="secret-refs-tab"
+          className="min-h-0 flex-1 overflow-hidden"
+        >
+          <SecretRefsSection />
+        </div>
+      )}
 
       <ProfileFormDialog
         open={profileFormOpen}

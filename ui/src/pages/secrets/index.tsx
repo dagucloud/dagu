@@ -287,9 +287,9 @@ export function SecretRefsSection(): React.ReactNode {
     <section
       id="secret-refs"
       aria-labelledby="secret-refs-heading"
-      className="flex min-h-0 scroll-mt-4 flex-col gap-4 border-t pt-6"
+      className="flex h-full min-h-0 flex-col gap-4 overflow-hidden"
     >
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex shrink-0 items-center justify-between gap-3">
         <div>
           <h2 id="secret-refs-heading" className="text-base font-semibold">
             DAG Secret Refs
@@ -329,17 +329,17 @@ export function SecretRefsSection(): React.ReactNode {
       </div>
 
       {error && (
-        <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+        <div className="shrink-0 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
           {error}
         </div>
       )}
       {success && (
-        <div className="rounded-md bg-success/10 p-3 text-sm text-success">
+        <div className="shrink-0 rounded-md bg-success/10 p-3 text-sm text-success">
           {success}
         </div>
       )}
 
-      <div className="card-obsidian min-h-0 overflow-auto">
+      <div className="card-obsidian min-h-0 flex-1 !overflow-auto">
         <Table className="text-xs">
           <TableHeader>
             <TableRow>

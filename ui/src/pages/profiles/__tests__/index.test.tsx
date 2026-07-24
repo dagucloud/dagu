@@ -34,9 +34,9 @@ const useQueryMock = useQuery as unknown as {
   mockImplementation: (fn: (path: string) => unknown) => void;
 };
 
-function renderPage() {
+function renderPage(initialEntry = '/profiles') {
   render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <AppBarContext.Provider
         value={
           {
@@ -91,18 +91,35 @@ describe('ProfilesPage', () => {
     });
   });
 
-  it('separates profiles from DAG secret refs on one page', () => {
+  it('switches between separate profile and secret ref tabs', async () => {
+    const user = userEvent.setup();
     renderPage();
 
     expect(
       screen.getByRole('heading', { name: 'Profiles & Secrets', level: 1 })
     ).toBeVisible();
+    expect(screen.getByRole('tab', { name: 'Profiles' })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
     expect(
       screen.getByRole('heading', { name: 'Profiles', level: 2 })
     ).toBeVisible();
     expect(
+      screen.queryByRole('heading', { name: 'DAG Secret Refs', level: 2 })
+    ).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('tab', { name: 'DAG Secret Refs' }));
+
+    expect(
       screen.getByRole('heading', { name: 'DAG Secret Refs', level: 2 })
     ).toBeVisible();
+    expect(
+      screen.getByRole('tab', { name: 'DAG Secret Refs' })
+    ).toHaveAttribute('aria-selected', 'true');
+    expect(
+      screen.queryByRole('heading', { name: 'Profiles', level: 2 })
+    ).not.toBeInTheDocument();
   });
 
   it('disables protected profile mutations for non-admin managers', async () => {
