@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
+	"github.com/dagucloud/dagu/internal/cmn/collections"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/runtime"
@@ -169,7 +170,10 @@ steps:
 		rootRunID  = "root-run"
 		childRunID = "child-run"
 	)
+	var outputVars collections.SyncMap
+	outputVars.Store("RESULT", "RESULT=ok")
 	childStatus := localRunStatus(childDAG.DAG, childRunID, core.Succeeded, core.NodeSucceeded)
+	childStatus.Nodes[0].OutputVariables = &outputVars
 	originalAttempt := createStoredRunningChildAttempt(
 		t,
 		th,
@@ -197,6 +201,7 @@ steps:
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Equal(t, core.Succeeded, result.Status)
+	require.Equal(t, "ok", result.Outputs["RESULT"])
 
 	latestAttempt, err := th.DAGRunStore.FindSubAttempt(th.Context, rootRef, childRunID)
 	require.NoError(t, err)
