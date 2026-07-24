@@ -22,10 +22,15 @@ import { buildDAGPageURL, buildDAGRunPageURL } from '../../lib/dagRunUrls';
 
 interface DAGRunHeaderProps {
   dagRun: components['schemas']['DAGRunDetails'];
+  rootDAGRun?: components['schemas']['DAGRunDetails'];
   refreshFn: () => void;
 }
 
-const DAGRunHeader: React.FC<DAGRunHeaderProps> = ({ dagRun, refreshFn }) => {
+const DAGRunHeader: React.FC<DAGRunHeaderProps> = ({
+  dagRun,
+  rootDAGRun,
+  refreshFn,
+}) => {
   const navigate = useNavigate();
   const remoteNode = useRemoteNode();
   const [isRefreshing, setIsRefreshing] = React.useState(false);
@@ -125,6 +130,7 @@ const DAGRunHeader: React.FC<DAGRunHeaderProps> = ({ dagRun, refreshFn }) => {
           <nav className="flex flex-wrap items-center gap-1.5 text-sm text-muted-foreground mb-2">
             {dagRun.rootDAGRunId !== dagRun.dagRunId && (
               <>
+                <span className="font-medium">Root:</span>
                 <a
                   href={buildDAGRunPageURL({
                     rootDAGRunName: dagRun.rootDAGRunName,
@@ -136,6 +142,11 @@ const DAGRunHeader: React.FC<DAGRunHeaderProps> = ({ dagRun, refreshFn }) => {
                 >
                   {dagRun.rootDAGRunName}
                 </a>
+                {rootDAGRun && (
+                  <StatusChip status={rootDAGRun.status} size="sm">
+                    {rootDAGRun.statusLabel || ''}
+                  </StatusChip>
+                )}
                 <span className="text-muted-foreground mx-1">/</span>
               </>
             )}

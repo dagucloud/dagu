@@ -49,6 +49,7 @@ import {
 import { useContext, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { buildDAGPageURL } from '../../../dag-runs/lib/dagRunUrls';
+import { DAGRunContext } from '../../../dag-runs/contexts/DAGRunContext';
 import {
   components,
   NodeStatus,
@@ -232,6 +233,7 @@ function NodeStatusTableRow({
   const client = useClient();
   const config = useConfig();
   const dagContext = useContext(DAGContext);
+  const dagRunContext = useContext(DAGRunContext);
   const remoteNode = useRemoteNode();
   const { showError } = useErrorModal();
   // State to store the current duration for running tasks
@@ -298,7 +300,13 @@ function NodeStatusTableRow({
     !node.step.humanTask &&
     node.status !== NodeStatus.Waiting &&
     node.status !== NodeStatus.Rejected;
-  const retryDisabled = loading || dagRun.status === Status.Running;
+  const rootRunning =
+    isSubDAGRun && dagRunContext.rootStatus === Status.Running;
+  const retryDisabled =
+    loading || dagRun.status === Status.Running || rootRunning;
+  const retryTitle = rootRunning
+    ? 'Retry unavailable while the root DAG run is running.'
+    : 'Retry from this step';
 
   const subDAGLogQuery = useQuery(
     '/dag-runs/{name}/{dagRunId}/sub-dag-runs/{subDAGRunId}/steps/{stepName}/log',
@@ -924,18 +932,25 @@ function NodeStatusTableRow({
             <TableCell className="text-center">
               <div className="flex items-center justify-center gap-1">
                 {canRetryStep && (
-                  <Button
-                    size="icon-sm"
-                    variant="secondary"
-                    title="Retry from this step"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleRetryDialogOpenChange(true);
-                    }}
-                    disabled={retryDisabled}
-                  >
-                    <Play className="h-4 w-4 text-success" />
-                  </Button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="inline-flex">
+                        <Button
+                          size="icon-sm"
+                          variant="secondary"
+                          title={retryTitle}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleRetryDialogOpenChange(true);
+                          }}
+                          disabled={retryDisabled}
+                        >
+                          <Play className="h-4 w-4 text-success" />
+                        </Button>
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent>{retryTitle}</TooltipContent>
+                  </Tooltip>
                 )}
               </div>
               {retryDialog}
@@ -1277,14 +1292,21 @@ function NodeStatusTableRow({
       {showStepActions && (
         <div className="flex justify-end mt-4 gap-2">
           {canRetryStep && (
-            <button
-              className="p-2 rounded-full hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Retry from this step"
-              onClick={() => handleRetryDialogOpenChange(true)}
-              disabled={retryDisabled}
-            >
-              <Play className="h-6 w-6 text-success" />
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="inline-flex">
+                  <button
+                    className="p-2 rounded-full hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed"
+                    title={retryTitle}
+                    onClick={() => handleRetryDialogOpenChange(true)}
+                    disabled={retryDisabled}
+                  >
+                    <Play className="h-6 w-6 text-success" />
+                  </button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>{retryTitle}</TooltipContent>
+            </Tooltip>
           )}
           {retryDialog}
         </div>

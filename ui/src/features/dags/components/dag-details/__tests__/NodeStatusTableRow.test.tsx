@@ -14,6 +14,7 @@ import {
   StatusLabel,
 } from '@/api/v1/schema';
 import { AppBarContext } from '@/contexts/AppBarContext';
+import { DAGRunContext } from '@/features/dag-runs/contexts/DAGRunContext';
 import { useQuery } from '@/hooks/api';
 import { DAGContext } from '../../../contexts/DAGContext';
 import NodeStatusTableRow from '../NodeStatusTableRow';
@@ -424,6 +425,75 @@ describe('NodeStatusTableRow', () => {
       );
     });
   });
+
+  it.each(['desktop', 'mobile'] as const)(
+    'disables child step retries while the root run is running in the %s view',
+    (view) => {
+      const node = {
+        step: { name: 'build' },
+        status: NodeStatus.Success,
+        statusLabel: NodeStatusLabel.succeeded,
+        stdout: '',
+        stderr: '',
+        startedAt: '',
+        finishedAt: '',
+        retryCount: 0,
+        doneCount: 1,
+      } as components['schemas']['Node'];
+      const row = (
+        <NodeStatusTableRow
+          rownum={1}
+          node={node}
+          name="child.yaml"
+          dagRun={{
+            ...dagRun,
+            name: 'child',
+            dagRunId: 'child-run',
+            rootDAGRunName: 'root',
+            rootDAGRunId: 'root-run',
+          }}
+          view={view}
+        />
+      );
+
+      render(
+        <MemoryRouter>
+          <AppBarContext.Provider value={appBarValue}>
+            <DAGRunContext.Provider
+              value={{
+                refresh: vi.fn(),
+                name: 'child',
+                dagRunId: 'child-run',
+                rootStatus: Status.Running,
+              }}
+            >
+              <DAGContext.Provider
+                value={{
+                  refresh: vi.fn(),
+                  name: 'child',
+                  fileName: 'child.yaml',
+                }}
+              >
+                {view === 'desktop' ? (
+                  <table>
+                    <tbody>{row}</tbody>
+                  </table>
+                ) : (
+                  row
+                )}
+              </DAGContext.Provider>
+            </DAGRunContext.Provider>
+          </AppBarContext.Provider>
+        </MemoryRouter>
+      );
+
+      expect(
+        screen.getByTitle(
+          'Retry unavailable while the root DAG run is running.'
+        )
+      ).toBeDisabled();
+    }
+  );
 
   it.each([
     {
