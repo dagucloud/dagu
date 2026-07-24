@@ -111,12 +111,5 @@ func TestClientCacheUsesDerivedKeyForEmptyCoordinatorIDs(t *testing.T) {
 	require.Len(t, cli.clients, 2)
 	require.Contains(t, cli.clients, coordinatorMemberKey(member1))
 	require.Contains(t, cli.clients, coordinatorMemberKey(member2))
-
-	cli.removeClientIfCurrent(member1, client1)
-	require.Len(t, cli.clients, 1)
-	require.NotContains(t, cli.clients, coordinatorMemberKey(member1))
-	require.Contains(t, cli.clients, coordinatorMemberKey(member2))
-
-	cli.removeClientIfCurrent(member2, client2)
-	require.Empty(t, cli.clients)
+	require.NoError(t, cli.Cleanup(t.Context()))
 }

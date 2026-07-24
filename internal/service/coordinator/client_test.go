@@ -5,10 +5,10 @@ package coordinator_test
 
 import (
 	"context"
+	"io"
 	"net"
 	"strconv"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -24,7 +24,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
-	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 )
 
@@ -1035,14 +1034,21 @@ func TestClientDiscoveredAddressRemainsAuthoritative(t *testing.T) {
 	config := coordinator.DefaultConfig()
 	config.MaxRetries = 0
 
+	var oldHeartbeats atomic.Int32
 	var oldReports atomic.Int32
+	var oldPuts atomic.Int32
 	oldCoord := &mockCoordinatorService{
 		heartbeatFunc: func(context.Context, *coordinatorv1.HeartbeatRequest) (*coordinatorv1.HeartbeatResponse, error) {
+			oldHeartbeats.Add(1)
 			return &coordinatorv1.HeartbeatResponse{}, nil
 		},
 		reportStatusFunc: func(context.Context, *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
 			oldReports.Add(1)
 			return &coordinatorv1.ReportStatusResponse{}, nil
+		},
+		putStateFunc: func(context.Context, *coordinatorv1.PutStateRequest) (*coordinatorv1.PutStateResponse, error) {
+			oldPuts.Add(1)
+			return &coordinatorv1.PutStateResponse{}, nil
 		},
 	}
 	oldServer, oldAddr := startMockServer(t, oldCoord)
@@ -1050,6 +1056,7 @@ func TestClientDiscoveredAddressRemainsAuthoritative(t *testing.T) {
 
 	var newHeartbeats atomic.Int32
 	var newReports atomic.Int32
+	var newPuts atomic.Int32
 	newCoord := &mockCoordinatorService{
 		heartbeatFunc: func(context.Context, *coordinatorv1.HeartbeatRequest) (*coordinatorv1.HeartbeatResponse, error) {
 			newHeartbeats.Add(1)
@@ -1059,14 +1066,19 @@ func TestClientDiscoveredAddressRemainsAuthoritative(t *testing.T) {
 			newReports.Add(1)
 			return &coordinatorv1.ReportStatusResponse{}, nil
 		},
+		putStateFunc: func(context.Context, *coordinatorv1.PutStateRequest) (*coordinatorv1.PutStateResponse, error) {
+			newPuts.Add(1)
+			return &coordinatorv1.PutStateResponse{}, nil
+		},
 	}
 	newServer, newAddr := startMockServer(t, newCoord)
 	defer newServer.Stop()
 
 	oldHost, oldPort := parseHostPort(oldAddr)
 	newHost, newPort := parseHostPort(newAddr)
-	oldMember := exec.HostInfo{ID: "coord-a", Host: oldHost, Port: oldPort, Status: exec.ServiceStatusActive}
-	newMember := exec.HostInfo{ID: "coord-a", Host: newHost, Port: newPort, Status: exec.ServiceStatusActive}
+	oldStartedAt := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	oldMember := exec.HostInfo{ID: "coord-a", Host: oldHost, Port: oldPort, Status: exec.ServiceStatusActive, StartedAt: oldStartedAt}
+	newMember := exec.HostInfo{ID: "coord-a", Host: newHost, Port: newPort, Status: exec.ServiceStatusActive, StartedAt: oldStartedAt.Add(time.Minute)}
 	monitor := &mockServiceMonitor{
 		members: []exec.HostInfo{oldMember},
 	}
@@ -1076,13 +1088,39 @@ func TestClientDiscoveredAddressRemainsAuthoritative(t *testing.T) {
 	_, err := client.Heartbeat(context.Background(), request)
 	require.NoError(t, err)
 
+	stateClient, ok := client.(coordinator.StateClient)
+	require.True(t, ok)
+	_, err = stateClient.PutState(context.Background(), &coordinatorv1.PutStateRequest{
+		Ref: &coordinatorv1.StateRef{Scope: "dag", Namespace: "test", Key: "state"},
+	})
+	require.NoError(t, err)
+
 	monitor.members = []exec.HostInfo{newMember}
+	_, err = stateClient.PutState(context.Background(), &coordinatorv1.PutStateRequest{
+		Ref: &coordinatorv1.StateRef{Scope: "dag", Namespace: "new", Key: "state"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int32(1), oldPuts.Load())
+	assert.Equal(t, int32(1), newPuts.Load())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	_, err = client.Heartbeat(ctx, request)
 	cancel()
 	require.NoError(t, err)
 	assert.Equal(t, int32(1), newHeartbeats.Load())
+
+	_, err = stateClient.PutState(context.Background(), &coordinatorv1.PutStateRequest{
+		Ref: &coordinatorv1.StateRef{Scope: "dag", Namespace: "test", Key: "state"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int32(1), oldPuts.Load())
+	assert.Equal(t, int32(2), newPuts.Load())
+
+	monitor.members = []exec.HostInfo{oldMember}
+	_, err = client.Heartbeat(context.Background(), request)
+	require.NoError(t, err)
+	assert.Equal(t, int32(1), oldHeartbeats.Load())
+	assert.Equal(t, int32(2), newHeartbeats.Load())
 
 	ctx, cancel = context.WithTimeout(context.Background(), 500*time.Millisecond)
 	_, err = client.ReportStatusTo(ctx, oldMember, &coordinatorv1.ReportStatusRequest{})
@@ -1092,38 +1130,121 @@ func TestClientDiscoveredAddressRemainsAuthoritative(t *testing.T) {
 	assert.Equal(t, int32(1), newReports.Load())
 }
 
-func TestClientHeartbeatReconnectsAfterDeadline(t *testing.T) {
+func TestClientHeartbeatFailsOverWithinConfiguredTimeout(t *testing.T) {
 	t.Parallel()
 
 	config := coordinator.DefaultConfig()
 	config.MaxRetries = 0
+	config.HeartbeatTimeout = time.Second
 
-	var peerMu sync.Mutex
-	var initialPeer string
-	var reconnectedHeartbeats atomic.Int32
+	var heartbeatCalls atomic.Int32
+	heartbeatFunc := func(ctx context.Context, _ *coordinatorv1.HeartbeatRequest) (*coordinatorv1.HeartbeatResponse, error) {
+		if heartbeatCalls.Add(1) == 1 {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}
+		return &coordinatorv1.HeartbeatResponse{}, nil
+	}
+
+	firstServer, firstAddr := startMockServer(t, &mockCoordinatorService{
+		heartbeatFunc: heartbeatFunc,
+	})
+	defer firstServer.Stop()
+	secondServer, secondAddr := startMockServer(t, &mockCoordinatorService{
+		heartbeatFunc: heartbeatFunc,
+	})
+	defer secondServer.Stop()
+
+	firstHost, firstPort := parseHostPort(firstAddr)
+	secondHost, secondPort := parseHostPort(secondAddr)
+	monitor := &mockServiceMonitor{
+		members: []exec.HostInfo{
+			{ID: "coord-a", Host: firstHost, Port: firstPort, Status: exec.ServiceStatusActive},
+			{ID: "coord-b", Host: secondHost, Port: secondPort, Status: exec.ServiceStatusActive},
+		},
+	}
+	client := coordinator.New(monitor, config)
+
+	resp, err := client.Heartbeat(context.Background(), &coordinatorv1.HeartbeatRequest{WorkerId: "test-worker"})
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.Equal(t, int32(2), heartbeatCalls.Load())
+}
+
+func TestClientHeartbeatFailsOverAfterHealthCheckStalls(t *testing.T) {
+	t.Parallel()
+
+	config := coordinator.DefaultConfig()
+	config.MaxRetries = 0
+	config.HeartbeatTimeout = time.Second
+
+	healthServer := &stallFirstHealthCheckServer{}
+	var heartbeatCalls atomic.Int32
+	mockCoord := &mockCoordinatorService{
+		heartbeatFunc: func(context.Context, *coordinatorv1.HeartbeatRequest) (*coordinatorv1.HeartbeatResponse, error) {
+			heartbeatCalls.Add(1)
+			return &coordinatorv1.HeartbeatResponse{}, nil
+		},
+	}
+	firstServer, firstAddr := startMockServerWithHealth(t, mockCoord, healthServer)
+	defer firstServer.Stop()
+	secondServer, secondAddr := startMockServerWithHealth(t, mockCoord, healthServer)
+	defer secondServer.Stop()
+
+	firstHost, firstPort := parseHostPort(firstAddr)
+	secondHost, secondPort := parseHostPort(secondAddr)
+	monitor := &mockServiceMonitor{
+		members: []exec.HostInfo{
+			{ID: "coord-a", Host: firstHost, Port: firstPort, Status: exec.ServiceStatusActive},
+			{ID: "coord-b", Host: secondHost, Port: secondPort, Status: exec.ServiceStatusActive},
+		},
+	}
+	client := coordinator.New(monitor, config)
+
+	resp, err := client.Heartbeat(context.Background(), &coordinatorv1.HeartbeatRequest{WorkerId: "test-worker"})
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.Equal(t, int32(2), healthServer.calls.Load())
+	assert.Equal(t, int32(1), heartbeatCalls.Load())
+}
+
+func TestClientRPCFailuresPreserveActiveLogStream(t *testing.T) {
+	t.Parallel()
+
+	config := coordinator.DefaultConfig()
+	config.MaxRetries = 0
+	config.HeartbeatTimeout = 100 * time.Millisecond
+
+	received := make(chan string, 2)
 	mockCoord := &mockCoordinatorService{
 		heartbeatFunc: func(ctx context.Context, _ *coordinatorv1.HeartbeatRequest) (*coordinatorv1.HeartbeatResponse, error) {
-			peerInfo, ok := peer.FromContext(ctx)
-			if !ok {
-				return nil, status.Error(codes.Internal, "missing peer information")
+			<-ctx.Done()
+			return nil, ctx.Err()
+		},
+		reportStatusFunc: func(context.Context, *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
+			return nil, status.Error(codes.Unavailable, "report unavailable")
+		},
+		getWorkersFunc: func(context.Context, *coordinatorv1.GetWorkersRequest) (*coordinatorv1.GetWorkersResponse, error) {
+			return nil, status.Error(codes.Unavailable, "workers unavailable")
+		},
+		putStateFunc: func(context.Context, *coordinatorv1.PutStateRequest) (*coordinatorv1.PutStateResponse, error) {
+			return nil, status.Error(codes.DeadlineExceeded, "state deadline exceeded")
+		},
+		streamLogsFunc: func(stream coordinatorv1.CoordinatorService_StreamLogsServer) error {
+			var chunksReceived uint64
+			for {
+				chunk, err := stream.Recv()
+				if err == io.EOF {
+					return stream.SendAndClose(&coordinatorv1.StreamLogsResponse{
+						ChunksReceived: chunksReceived,
+					})
+				}
+				if err != nil {
+					return err
+				}
+				chunksReceived++
+				received <- string(chunk.Data)
 			}
-
-			peerMu.Lock()
-			if initialPeer == "" {
-				initialPeer = peerInfo.Addr.String()
-				peerMu.Unlock()
-				return &coordinatorv1.HeartbeatResponse{}, nil
-			}
-			sameConnection := initialPeer == peerInfo.Addr.String()
-			peerMu.Unlock()
-
-			if sameConnection {
-				<-ctx.Done()
-				return nil, ctx.Err()
-			}
-
-			reconnectedHeartbeats.Add(1)
-			return &coordinatorv1.HeartbeatResponse{}, nil
 		},
 	}
 	server, addr := startMockServer(t, mockCoord)
@@ -1135,20 +1256,46 @@ func TestClientHeartbeatReconnectsAfterDeadline(t *testing.T) {
 	}
 	client := coordinator.New(monitor, config)
 
-	request := &coordinatorv1.HeartbeatRequest{WorkerId: "test-worker"}
-	_, err := client.Heartbeat(context.Background(), request)
+	stream, err := client.StreamLogsTo(t.Context(), monitor.members[0])
 	require.NoError(t, err)
 
-	stalledCtx, cancelStalled := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	_, err = client.Heartbeat(stalledCtx, request)
-	cancelStalled()
+	require.NoError(t, stream.Send(&coordinatorv1.LogChunk{Data: []byte("before")}))
+	select {
+	case chunk := <-received:
+		require.Equal(t, "before", chunk)
+	case <-time.After(time.Second):
+		t.Fatal("coordinator did not receive the first log chunk")
+	}
+
+	_, err = client.Heartbeat(context.Background(), &coordinatorv1.HeartbeatRequest{WorkerId: "test-worker"})
 	require.Equal(t, codes.DeadlineExceeded, status.Code(err))
 
-	recoveredCtx, cancelRecovered := context.WithTimeout(context.Background(), 500*time.Millisecond)
-	defer cancelRecovered()
-	_, err = client.Heartbeat(recoveredCtx, request)
+	_, err = client.ReportStatusTo(
+		context.Background(),
+		monitor.members[0],
+		&coordinatorv1.ReportStatusRequest{},
+	)
+	require.Equal(t, codes.Unavailable, status.Code(err))
+
+	_, err = client.GetWorkers(context.Background())
+	require.Error(t, err)
+
+	stateClient, ok := client.(coordinator.StateClient)
+	require.True(t, ok)
+	_, err = stateClient.PutState(context.Background(), &coordinatorv1.PutStateRequest{})
+	require.Equal(t, codes.DeadlineExceeded, status.Code(err))
+
+	require.NoError(t, stream.Send(&coordinatorv1.LogChunk{Data: []byte("after")}))
+	select {
+	case chunk := <-received:
+		require.Equal(t, "after", chunk)
+	case <-time.After(time.Second):
+		t.Fatal("coordinator did not receive the second log chunk")
+	}
+
+	resp, err := stream.CloseAndRecv()
 	require.NoError(t, err)
-	assert.Equal(t, int32(1), reconnectedHeartbeats.Load())
+	assert.Equal(t, uint64(2), resp.ChunksReceived)
 }
 
 func TestClientHeartbeatUsesConfiguredTimeout(t *testing.T) {
@@ -1187,6 +1334,44 @@ func TestClientHeartbeatUsesConfiguredTimeout(t *testing.T) {
 	case <-time.After(500 * time.Millisecond):
 		cancel()
 		t.Fatal("Heartbeat did not respect its configured timeout")
+	}
+}
+
+func TestClientHeartbeatHonorsCallerDeadline(t *testing.T) {
+	t.Parallel()
+
+	config := coordinator.DefaultConfig()
+	config.MaxRetries = 0
+	config.HeartbeatTimeout = time.Second
+
+	mockCoord := &mockCoordinatorService{
+		heartbeatFunc: func(ctx context.Context, _ *coordinatorv1.HeartbeatRequest) (*coordinatorv1.HeartbeatResponse, error) {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		},
+	}
+	server, addr := startMockServer(t, mockCoord)
+	defer server.Stop()
+
+	host, port := parseHostPort(addr)
+	monitor := &mockServiceMonitor{
+		members: []exec.HostInfo{{ID: "coord-a", Host: host, Port: port, Status: exec.ServiceStatusActive}},
+	}
+	client := coordinator.New(monitor, config)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	result := make(chan error, 1)
+	go func() {
+		_, err := client.Heartbeat(ctx, &coordinatorv1.HeartbeatRequest{WorkerId: "test-worker"})
+		result <- err
+	}()
+
+	select {
+	case err := <-result:
+		require.Equal(t, codes.DeadlineExceeded, status.Code(err))
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("Heartbeat did not respect the caller deadline")
 	}
 }
 
@@ -1488,10 +1673,24 @@ type mockCoordinatorService struct {
 	getWorkersFunc   func(context.Context, *coordinatorv1.GetWorkersRequest) (*coordinatorv1.GetWorkersResponse, error)
 	heartbeatFunc    func(context.Context, *coordinatorv1.HeartbeatRequest) (*coordinatorv1.HeartbeatResponse, error)
 	reportStatusFunc func(context.Context, *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error)
+	streamLogsFunc   func(coordinatorv1.CoordinatorService_StreamLogsServer) error
 	getStateFunc     func(context.Context, *coordinatorv1.GetStateRequest) (*coordinatorv1.GetStateResponse, error)
 	putStateFunc     func(context.Context, *coordinatorv1.PutStateRequest) (*coordinatorv1.PutStateResponse, error)
 	deleteStateFunc  func(context.Context, *coordinatorv1.DeleteStateRequest) (*coordinatorv1.DeleteStateResponse, error)
 	listStateFunc    func(context.Context, *coordinatorv1.ListStateRequest) (*coordinatorv1.ListStateResponse, error)
+}
+
+type stallFirstHealthCheckServer struct {
+	grpc_health_v1.UnimplementedHealthServer
+	calls atomic.Int32
+}
+
+func (s *stallFirstHealthCheckServer) Check(ctx context.Context, _ *grpc_health_v1.HealthCheckRequest) (*grpc_health_v1.HealthCheckResponse, error) {
+	if s.calls.Add(1) == 1 {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	return &grpc_health_v1.HealthCheckResponse{Status: grpc_health_v1.HealthCheckResponse_SERVING}, nil
 }
 
 func (m *mockCoordinatorService) Dispatch(ctx context.Context, req *coordinatorv1.DispatchRequest) (*coordinatorv1.DispatchResponse, error) {
@@ -1529,6 +1728,13 @@ func (m *mockCoordinatorService) ReportStatus(ctx context.Context, req *coordina
 	return nil, status.Error(codes.Unimplemented, "not implemented")
 }
 
+func (m *mockCoordinatorService) StreamLogs(stream coordinatorv1.CoordinatorService_StreamLogsServer) error {
+	if m.streamLogsFunc != nil {
+		return m.streamLogsFunc(stream)
+	}
+	return m.UnimplementedCoordinatorServiceServer.StreamLogs(stream)
+}
+
 func (m *mockCoordinatorService) GetState(ctx context.Context, req *coordinatorv1.GetStateRequest) (*coordinatorv1.GetStateResponse, error) {
 	if m.getStateFunc != nil {
 		return m.getStateFunc(ctx, req)
@@ -1560,14 +1766,17 @@ func (m *mockCoordinatorService) ListState(ctx context.Context, req *coordinator
 // Helper to start a mock gRPC server
 func startMockServer(t *testing.T, service coordinatorv1.CoordinatorServiceServer) (*grpc.Server, string) {
 	t.Helper()
+	healthServer := health.NewServer()
+	healthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_SERVING)
+	return startMockServerWithHealth(t, service, healthServer)
+}
 
+func startMockServerWithHealth(t *testing.T, service coordinatorv1.CoordinatorServiceServer, healthServer grpc_health_v1.HealthServer) (*grpc.Server, string) {
+	t.Helper()
 	server := grpc.NewServer()
 	coordinatorv1.RegisterCoordinatorServiceServer(server, service)
 
-	// Register health service
-	healthServer := health.NewServer()
 	grpc_health_v1.RegisterHealthServer(server, healthServer)
-	healthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_SERVING)
 
 	// Start server on random port
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
