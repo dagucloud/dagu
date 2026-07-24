@@ -1,6 +1,0 @@
-name: spec031_distributed_worker_one_probe
-worker_selector:
-  identity: worker-1
-steps:
-  - id: probe
-    run: printf '%s\n' "$SPEC031_WORKER_MARKER" > "$SPEC031_WORKER_ONE_FILE"
