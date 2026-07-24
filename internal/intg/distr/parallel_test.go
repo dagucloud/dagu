@@ -132,6 +132,41 @@ steps:
 	})
 }
 
+func TestParallel_ItemWorkerSelectorWithExplicitParams(t *testing.T) {
+	f := newTestFixture(t, `
+steps:
+  - name: route-item
+    action: dag.run
+    with:
+      dag: child-routed
+      params: "FACILITY=${ITEM}"
+    parallel:
+      items: ["serverA"]
+    worker_selector:
+      host: ${ITEM}
+
+---
+name: child-routed
+params:
+  - name: FACILITY
+    type: string
+    required: true
+steps:
+  - name: process
+    run: echo "$FACILITY"
+`, withLabels(map[string]string{"host": "serverA"}))
+
+	agent := f.dagWrapper.Agent()
+	agent.RunSuccess(t)
+	f.dagWrapper.AssertLatestStatus(t, core.Succeeded)
+
+	status, err := f.latestStatus()
+	require.NoError(t, err)
+	require.Len(t, status.Nodes, 1)
+	require.Len(t, status.Nodes[0].SubRuns, 1)
+	require.Equal(t, `FACILITY="serverA"`, status.Nodes[0].SubRuns[0].Params)
+}
+
 func TestParallel_PartialFailure(t *testing.T) {
 	t.Run("partialFailurePropagatesToParentStep", func(t *testing.T) {
 		childCommand := `      if [ "$1" = "fail" ]; then

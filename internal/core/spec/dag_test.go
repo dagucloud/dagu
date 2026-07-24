@@ -1150,6 +1150,35 @@ steps:
 		assert.Equal(t, map[string]string{"workload": "fast"}, dag.WorkerSelector)
 	})
 
+	t.Run("EmptyResolvedKey", func(t *testing.T) {
+		t.Parallel()
+		_, err := LoadYAML(context.Background(), []byte(`
+env:
+  LABEL_KEY: "  "
+worker_selector:
+  ${LABEL_KEY}: fast
+steps:
+  - name: task
+    run: echo hello
+`))
+		require.ErrorContains(t, err, "resolved to an empty key")
+	})
+
+	t.Run("DuplicateResolvedKeys", func(t *testing.T) {
+		t.Parallel()
+		_, err := LoadYAML(context.Background(), []byte(`
+env:
+  LABEL_KEY: workload
+worker_selector:
+  ${LABEL_KEY}: fast
+  workload: slow
+steps:
+  - name: task
+    run: echo hello
+`))
+		require.ErrorContains(t, err, `duplicate key "workload"`)
+	})
+
 	t.Run("UndefinedVariableStaysLiteral", func(t *testing.T) {
 		t.Parallel()
 		dag, err := LoadYAML(context.Background(), []byte(`

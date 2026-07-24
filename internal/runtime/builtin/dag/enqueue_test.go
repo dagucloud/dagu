@@ -84,6 +84,68 @@ func TestEnqueueExecutorPersistsInheritedProfile(t *testing.T) {
 	assert.True(t, status.Parent.Zero())
 }
 
+func TestEnqueueExecutorResolvesParallelItemWorkerSelector(t *testing.T) {
+	t.Parallel()
+
+	th := test.Setup(t, test.WithConfigMutator(func(cfg *config.Config) {
+		cfg.Queues.Enabled = true
+		cfg.Queues.Config = []config.QueueConfig{{Name: "default", MaxActiveRuns: 1}}
+	}))
+
+	parent := &core.DAG{
+		Name: "parent",
+		LocalDAGs: map[string]*core.DAG{
+			"child": {
+				Name:     "child",
+				YamlData: []byte("name: child\nsteps:\n  - name: step\n    run: echo child\n"),
+				Steps: []core.Step{
+					{Name: "step", ExecutorConfig: core.ExecutorConfig{Type: "noop"}},
+				},
+			},
+		},
+	}
+	parentRun := exec.NewDAGRunRef(parent.Name, "parent-run")
+	ctx := runtime.NewContext(
+		th.Context,
+		parent,
+		parentRun.ID,
+		filepath.Join(th.Config.Paths.LogDir, "parent.log"),
+		runtime.WithRootDAGRun(parentRun),
+		runtime.WithDAGRunStore(th.DAGRunStore),
+		runtime.WithQueueStore(th.QueueStore),
+		runtime.WithDAGRunLogDir(th.Config.Paths.LogDir),
+		runtime.WithDAGRunArtifactDir(th.Config.Paths.ArtifactDir),
+	)
+
+	step := core.Step{
+		Name:           "enqueue-child",
+		ExecutorConfig: core.ExecutorConfig{Type: core.ExecutorTypeDAGEnqueue},
+		SubDAG:         &core.SubDAG{Name: "child"},
+		Parallel:       &core.ParallelConfig{},
+		WorkerSelector: map[string]string{"host": "${ITEM}"},
+	}
+	execImpl, err := executor.NewExecutor(ctx, step)
+	require.NoError(t, err)
+
+	parallelExec, ok := execImpl.(executor.ParallelExecutor)
+	require.True(t, ok)
+	item := "serverA"
+	parallelExec.SetParamsList([]executor.RunParams{{
+		RunID:        "child-run",
+		DAGName:      "child",
+		Params:       "FACILITY=serverA",
+		ParallelItem: &item,
+	}})
+
+	require.NoError(t, execImpl.Run(ctx))
+
+	attempt, err := th.DAGRunStore.FindAttempt(ctx, exec.NewDAGRunRef("child", "child-run"))
+	require.NoError(t, err)
+	child, err := attempt.ReadDAG(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"host": "serverA"}, child.WorkerSelector)
+}
+
 func TestSubDAGExecutorsRejectHumanTasks(t *testing.T) {
 	t.Parallel()
 

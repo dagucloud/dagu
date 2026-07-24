@@ -561,10 +561,7 @@ func (e *parallelExecutor) newChildExecutor(
 		return nil, err
 	}
 
-	// runParams.Params carries the parallel item param (or the child's
-	// effective params when explicit sub-DAG params are configured), exposed
-	// to the selector as ${ITEM}.
-	workerSelector, err := resolveWorkerSelector(ctx, e.step.WorkerSelector, map[string]string{"ITEM": runParams.Params})
+	workerSelector, err := resolveWorkerSelector(ctx, e.step.WorkerSelector, workerSelectorExtra(runParams))
 	if err != nil {
 		_ = child.Cleanup(context.WithoutCancel(ctx))
 		return nil, err

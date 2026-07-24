@@ -945,9 +945,10 @@ func (n *Node) configureSubDAGExecutor(cmd executor.Executor, subRuns []SubDAGRu
 
 func runParams(subRun SubDAGRun) executor.RunParams {
 	return executor.RunParams{
-		RunID:   subRun.DAGRunID,
-		Params:  subRun.Params,
-		DAGName: subRun.DAGName,
+		RunID:        subRun.DAGRunID,
+		Params:       subRun.Params,
+		DAGName:      subRun.DAGName,
+		ParallelItem: subRun.ParallelItem,
 	}
 }
 
@@ -1370,11 +1371,13 @@ func (n *Node) BuildSubDAGRuns(ctx context.Context, subDAG *core.SubDAG) ([]SubD
 		}
 
 		dagRunID := GenerateSubDAGRunIDForTarget(ctx, dagName, finalParams, repeated)
+		parallelItem := param
 		// Use dagRunID as key to deduplicate - same params will generate same ID
 		subRunMap[dagRunID] = SubDAGRun{
-			DAGRunID: dagRunID,
-			Params:   finalParams,
-			DAGName:  dagName,
+			DAGRunID:     dagRunID,
+			Params:       finalParams,
+			DAGName:      dagName,
+			ParallelItem: &parallelItem,
 		}
 	}
 

@@ -113,9 +113,10 @@ type ParallelExecutor interface {
 
 // RunParams holds the parameters for running a sub DAG.
 type RunParams struct {
-	RunID   string
-	Params  string
-	DAGName string
+	RunID        string
+	Params       string
+	DAGName      string
+	ParallelItem *string
 }
 
 // ChatMessageHandler is an interface for executors that handle chat session messages.

@@ -25,11 +25,19 @@ func ToNodeWithStep(n *exec.Node, step core.Step) *runtime.Node {
 	retriedAt, _ := stringutil.ParseTime(n.RetriedAt)
 	children := make([]runtime.SubDAGRun, len(n.SubRuns))
 	for i, r := range n.SubRuns {
-		children[i] = runtime.SubDAGRun(r)
+		children[i] = runtime.SubDAGRun{
+			DAGRunID: r.DAGRunID,
+			Params:   r.Params,
+			DAGName:  r.DAGName,
+		}
 	}
 	childrenRepeated := make([]runtime.SubDAGRun, len(n.SubRunsRepeated))
 	for i, r := range n.SubRunsRepeated {
-		childrenRepeated[i] = runtime.SubDAGRun(r)
+		childrenRepeated[i] = runtime.SubDAGRun{
+			DAGRunID: r.DAGRunID,
+			Params:   r.Params,
+			DAGName:  r.DAGName,
+		}
 	}
 	var err error
 	if n.Error != "" {
@@ -78,7 +86,11 @@ func ToNodeWithStep(n *exec.Node, step core.Step) *runtime.Node {
 func newNode(node runtime.NodeData) *exec.Node {
 	children := make([]exec.SubDAGRun, len(node.State.SubRuns))
 	for i, child := range node.State.SubRuns {
-		children[i] = exec.SubDAGRun(child)
+		children[i] = exec.SubDAGRun{
+			DAGRunID: child.DAGRunID,
+			Params:   child.Params,
+			DAGName:  child.DAGName,
+		}
 	}
 	var errText string
 	if node.State.Error != nil {
@@ -86,7 +98,11 @@ func newNode(node runtime.NodeData) *exec.Node {
 	}
 	childrenRepeated := make([]exec.SubDAGRun, len(node.State.SubRunsRepeated))
 	for i, child := range node.State.SubRunsRepeated {
-		childrenRepeated[i] = exec.SubDAGRun(child)
+		childrenRepeated[i] = exec.SubDAGRun{
+			DAGRunID: child.DAGRunID,
+			Params:   child.Params,
+			DAGName:  child.DAGName,
+		}
 	}
 	return &exec.Node{
 		Step:                   node.Step,

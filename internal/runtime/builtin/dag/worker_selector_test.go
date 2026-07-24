@@ -72,4 +72,21 @@ func TestResolveWorkerSelector(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, selector, resolved)
 	})
+
+	t.Run("RejectsEmptyResolvedKey", func(t *testing.T) {
+		t.Parallel()
+		ctx := envCtx(map[string]string{"LABEL_KEY": "  "})
+		_, err := resolveWorkerSelector(ctx, map[string]string{"${LABEL_KEY}": "value"}, nil)
+		require.ErrorContains(t, err, "resolved to an empty key")
+	})
+
+	t.Run("RejectsDuplicateResolvedKeys", func(t *testing.T) {
+		t.Parallel()
+		ctx := envCtx(map[string]string{"LABEL_KEY": "region"})
+		_, err := resolveWorkerSelector(ctx, map[string]string{
+			"${LABEL_KEY}": "eu-west",
+			"region":       "us-east",
+		}, nil)
+		require.ErrorContains(t, err, `duplicate key "region"`)
+	})
 }

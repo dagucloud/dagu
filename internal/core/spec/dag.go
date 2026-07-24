@@ -791,7 +791,18 @@ func (s *dagBuildState) resolveWorkerSelector() {
 			s.errs = append(s.errs, core.NewValidationError("worker_selector", v, err))
 			return
 		}
-		resolved[strings.TrimSpace(resolvedKey)] = strings.TrimSpace(resolvedVal)
+		key := strings.TrimSpace(resolvedKey)
+		if key == "" {
+			err := fmt.Errorf("key %q resolved to an empty key", k)
+			s.errs = append(s.errs, core.NewValidationError("worker_selector", k, err))
+			return
+		}
+		if _, ok := resolved[key]; ok {
+			err := fmt.Errorf("keys resolve to duplicate key %q", key)
+			s.errs = append(s.errs, core.NewValidationError("worker_selector", k, err))
+			return
+		}
+		resolved[key] = strings.TrimSpace(resolvedVal)
 	}
 	s.result.WorkerSelector = resolved
 }

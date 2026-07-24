@@ -215,7 +215,7 @@ func (e *enqueueExecutor) enqueueOne(ctx context.Context, runParams executor.Run
 		}
 	}()
 
-	workerSelector, err := resolveWorkerSelector(ctx, e.step.WorkerSelector, nil)
+	workerSelector, err := resolveWorkerSelector(ctx, e.step.WorkerSelector, workerSelectorExtra(runParams))
 	if err != nil {
 		return enqueueRunOutput{}, err
 	}

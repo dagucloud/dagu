@@ -166,6 +166,10 @@ type SubDAGRun struct {
 	// For chat tool calls, this is the tool DAG name.
 	// This field enables UI drill-down when step.call is not set.
 	DAGName string
+	// ParallelItem contains the original item for a parallel sub-DAG run.
+	// It is kept separate from Params because explicit sub-DAG parameters may
+	// replace the item-derived parameters.
+	ParallelItem *string
 }
 
 func newSafeData(data NodeData) Data {

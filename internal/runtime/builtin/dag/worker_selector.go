@@ -10,7 +10,15 @@ import (
 
 	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/runtime"
+	"github.com/dagucloud/dagu/internal/runtime/executor"
 )
+
+func workerSelectorExtra(runParams executor.RunParams) map[string]string {
+	if runParams.ParallelItem == nil {
+		return nil
+	}
+	return map[string]string{"ITEM": *runParams.ParallelItem}
+}
 
 // resolveWorkerSelector evaluates selector keys and values against the runtime
 // scope (DAG env, params, step env, step outputs), plus optional extra entries
@@ -41,7 +49,14 @@ func resolveWorkerSelector(ctx context.Context, selector map[string]string, extr
 		if err != nil {
 			return nil, fmt.Errorf("failed to eval worker selector value %q: %w", v, err)
 		}
-		resolved[strings.TrimSpace(resolvedKey)] = strings.TrimSpace(resolvedVal)
+		key := strings.TrimSpace(resolvedKey)
+		if key == "" {
+			return nil, fmt.Errorf("worker selector key %q resolved to an empty key", k)
+		}
+		if _, ok := resolved[key]; ok {
+			return nil, fmt.Errorf("worker selector keys resolve to duplicate key %q", key)
+		}
+		resolved[key] = strings.TrimSpace(resolvedVal)
 	}
 	return resolved, nil
 }
