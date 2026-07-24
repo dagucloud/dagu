@@ -698,7 +698,7 @@ export default function GitSyncPage() {
         </div>
         {selectedCounts > 0 && (
           <span className="text-xs text-muted-foreground">
-            Selected: {selectedCounts} DAGs
+            Selected: {selectedCounts} DAG{selectedCounts !== 1 ? 's' : ''}
           </span>
         )}
       </div>

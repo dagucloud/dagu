@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strings"
 
 	"github.com/dagucloud/dagu/api/v1"
 	"github.com/dagucloud/dagu/internal/gitsync"
@@ -256,7 +257,7 @@ func (a *API) GetSyncItemDiff(ctx context.Context, req api.GetSyncItemDiffReques
 		return nil, internalError(err)
 	}
 
-	filePath := syncItemFilePath(diff.DAGID)
+	filePath := syncItemFilePath(diff.DAGID, diff.FileExtension)
 	return api.GetSyncItemDiff200JSONResponse{
 		ItemId:        diff.DAGID,
 		FilePath:      filePath,
@@ -692,7 +693,10 @@ func toAPISyncStatus(s gitsync.SyncStatus) api.SyncStatus {
 	}
 }
 
-func syncItemFilePath(itemID string) string {
+func syncItemFilePath(itemID, fileExtension string) string {
+	if strings.EqualFold(fileExtension, ".yml") {
+		return itemID + ".yml"
+	}
 	return itemID + ".yaml"
 }
 
@@ -706,7 +710,7 @@ func toAPISyncItems(states map[string]*gitsync.DAGState) []api.SyncItem {
 		if state == nil {
 			continue
 		}
-		filePath := syncItemFilePath(itemID)
+		filePath := syncItemFilePath(itemID, state.FileExtension)
 		item := api.SyncItem{
 			ItemId:             itemID,
 			FilePath:           filePath,

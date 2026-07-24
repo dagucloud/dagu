@@ -759,8 +759,9 @@ func TestToAPISyncItems_IncludesPath(t *testing.T) {
 	now := time.Now()
 	states := map[string]*gitsync.DAGState{
 		"alpha": {
-			Status:     gitsync.StatusModified,
-			ModifiedAt: &now,
+			Status:        gitsync.StatusModified,
+			FileExtension: ".yml",
+			ModifiedAt:    &now,
 		},
 		"reports/monthly": {
 			Status:     gitsync.StatusUntracked,
@@ -772,8 +773,8 @@ func TestToAPISyncItems_IncludesPath(t *testing.T) {
 	require.Len(t, apiItems, 2)
 
 	assert.Equal(t, "alpha", apiItems[0].ItemId)
-	assert.Equal(t, "alpha.yaml", apiItems[0].FilePath)
-	assert.Equal(t, "alpha.yaml", apiItems[0].DisplayName)
+	assert.Equal(t, "alpha.yml", apiItems[0].FilePath)
+	assert.Equal(t, "alpha.yml", apiItems[0].DisplayName)
 
 	assert.Equal(t, "reports/monthly", apiItems[1].ItemId)
 	assert.Equal(t, "reports/monthly.yaml", apiItems[1].FilePath)

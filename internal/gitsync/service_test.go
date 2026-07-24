@@ -151,15 +151,21 @@ func TestSafeDAGIDPathValidation(t *testing.T) {
 	}
 
 	t.Run("valid regular DAG path", func(t *testing.T) {
-		path, err := s.safeDAGIDToFilePath("my-dag")
+		path, err := s.safeDAGIDToFilePath("my-dag", dagYAMLExtension)
 		require.NoError(t, err)
 		assert.Equal(t, filepath.Join("/dags", "my-dag.yaml"), path)
 	})
 
 	t.Run("valid nested DAG path", func(t *testing.T) {
-		path, err := s.safeDAGIDToRepoPath("reports/monthly")
+		path, err := s.safeDAGIDToRepoPath("reports/monthly", dagYAMLExtension)
 		require.NoError(t, err)
 		assert.Equal(t, "subdir/reports/monthly.yaml", path)
+	})
+
+	t.Run("preserves short YAML extension", func(t *testing.T) {
+		path, err := s.safeDAGIDToRepoPath("reports/monthly", dagYMLExtension)
+		require.NoError(t, err)
+		assert.Equal(t, "subdir/reports/monthly.yml", path)
 	})
 
 	t.Run("valid repo file path", func(t *testing.T) {
@@ -169,19 +175,19 @@ func TestSafeDAGIDPathValidation(t *testing.T) {
 	})
 
 	t.Run("normalizes backslash separators", func(t *testing.T) {
-		path, err := s.safeDAGIDToRepoPath(`reports\monthly`)
+		path, err := s.safeDAGIDToRepoPath(`reports\monthly`, dagYAMLExtension)
 		require.NoError(t, err)
 		assert.Equal(t, "subdir/reports/monthly.yaml", path)
 	})
 
 	t.Run("rejects traversal DAG ID", func(t *testing.T) {
-		_, err := s.safeDAGIDToFilePath("../etc/passwd")
+		_, err := s.safeDAGIDToFilePath("../etc/passwd", dagYAMLExtension)
 		require.Error(t, err)
 		assert.ErrorIs(t, err, ErrInvalidDAGID)
 	})
 
 	t.Run("rejects absolute DAG ID", func(t *testing.T) {
-		_, err := s.safeDAGIDToRepoPath("/tmp/file")
+		_, err := s.safeDAGIDToRepoPath("/tmp/file", dagYAMLExtension)
 		require.Error(t, err)
 		assert.ErrorIs(t, err, ErrInvalidDAGID)
 	})

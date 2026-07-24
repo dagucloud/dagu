@@ -100,6 +100,9 @@ type DAGState struct {
 	// Status is the current sync status.
 	Status SyncStatus `json:"status"`
 
+	// FileExtension is the YAML extension used by the DAG file.
+	FileExtension string `json:"fileExtension,omitempty"`
+
 	// BaseCommit is the commit hash when the DAG was last synced.
 	BaseCommit string `json:"baseCommit,omitempty"`
 

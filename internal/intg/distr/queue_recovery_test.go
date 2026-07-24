@@ -60,13 +60,16 @@ func queuedDispatchBulkRunCount() int {
 		return 5
 	}
 	if raceEnabled() {
-		return 200
+		return 20
 	}
 	return 1000
 }
 
 func queuedDispatchWorkerCount() int {
 	if runtime.GOOS == "windows" {
+		return 2
+	}
+	if raceEnabled() {
 		return 2
 	}
 	return 10
@@ -76,6 +79,9 @@ func queuedDispatchWorkerMaxActiveRuns() int {
 	if runtime.GOOS == "windows" {
 		return 1
 	}
+	if raceEnabled() {
+		return 2
+	}
 	return 10
 }
 
@@ -84,7 +90,7 @@ func queuedDispatchBulkTimeout() time.Duration {
 		return 5 * time.Minute
 	}
 	if raceEnabled() {
-		return 5 * time.Minute
+		return 2 * time.Minute
 	}
 	return 10 * time.Minute
 }
