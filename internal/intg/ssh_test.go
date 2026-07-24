@@ -4,8 +4,12 @@
 package intg_test
 
 import (
+	"archive/tar"
+	"bytes"
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"io"
@@ -17,7 +21,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/containerd/errdefs"
 	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/jsonstream"
 	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/client"
 	specs "github.com/opencontainers/image-spec/specs-go/v1"
@@ -29,10 +35,10 @@ import (
 )
 
 const (
-	// Use alpine with openssh for minimal SSH server
-	sshServerImage = "alpine:3"
-	sshTestUser    = "testuser"
-	sshTestPass    = "testpass123"
+	sshServerBaseImage = "alpine:3"
+	sshServerImage     = "dagu-ssh-test:alpine-3-openssh-v1"
+	sshTestUser        = "testuser"
+	sshTestPass        = "testpass123"
 )
 
 // sshServerContainer holds info about a running SSH server container
@@ -553,16 +559,7 @@ func startSSHServer(t *testing.T, th test.Helper, dockerClient *client.Client) *
 
 	ctx := th.Context
 
-	// Get Docker info for platform
-	platform, err := currentDockerPlatform(ctx, dockerClient)
-	require.NoError(t, err, "failed to get docker info")
-
-	// Pull the image
-	pullOpts := client.ImagePullOptions{Platforms: []specs.Platform{platform}}
-	reader, err := dockerClient.ImagePull(ctx, sshServerImage, pullOpts)
-	require.NoError(t, err, "failed to pull ssh server image")
-	_, _ = io.Copy(io.Discard, reader)
-	_ = reader.Close()
+	ensureSSHServerImage(t, ctx, dockerClient)
 
 	// Create temp directory for SSH keys
 	keyDir := t.TempDir()
@@ -644,6 +641,62 @@ exec /usr/sbin/sshd -D -e
 		keyPath:     keyPath,
 		pubKeyPath:  pubKeyPath,
 		workDir:     keyDir,
+	}
+}
+
+func ensureSSHServerImage(t *testing.T, ctx context.Context, dockerClient *client.Client) {
+	t.Helper()
+
+	if _, err := dockerClient.ImageInspect(ctx, sshServerImage); err == nil {
+		return
+	} else if !errdefs.IsNotFound(err) {
+		require.NoError(t, err, "failed to inspect SSH server image")
+	}
+
+	var buildContext bytes.Buffer
+	archive := tar.NewWriter(&buildContext)
+	dockerfile := []byte("FROM " + sshServerBaseImage + "\nRUN apk add --no-cache openssh bash\n")
+	require.NoError(t, archive.WriteHeader(&tar.Header{
+		Name: "Dockerfile",
+		Mode: 0o600,
+		Size: int64(len(dockerfile)),
+	}))
+	_, err := archive.Write(dockerfile)
+	require.NoError(t, err)
+	require.NoError(t, archive.Close())
+
+	platform, err := currentDockerPlatform(ctx, dockerClient)
+	require.NoError(t, err, "failed to get Docker platform")
+	build, err := dockerClient.ImageBuild(ctx, &buildContext, client.ImageBuildOptions{
+		Tags:       []string{sshServerImage},
+		PullParent: true,
+		Remove:     true,
+		Platforms:  []specs.Platform{platform},
+	})
+	require.NoError(t, err, "failed to start SSH server image build")
+	defer func() { _ = build.Body.Close() }()
+
+	var output bytes.Buffer
+	err = readDockerBuildOutput(build.Body, &output)
+	require.NoError(t, err, "failed to build SSH server image:\n%s", output.String())
+}
+
+func readDockerBuildOutput(reader io.Reader, output io.Writer) error {
+	decoder := json.NewDecoder(reader)
+	for {
+		var message jsonstream.Message
+		if err := decoder.Decode(&message); err != nil {
+			if err == io.EOF {
+				return nil
+			}
+			return err
+		}
+		if message.Stream != "" {
+			_, _ = io.WriteString(output, message.Stream)
+		}
+		if message.Error != nil {
+			return message.Error
+		}
 	}
 }
 
