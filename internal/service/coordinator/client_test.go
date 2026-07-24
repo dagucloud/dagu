@@ -1155,12 +1155,10 @@ func TestClientHeartbeatExpiredContextDoesNotEvictUntriedCoordinator(t *testing.
 	config.HeartbeatTimeout = 50 * time.Millisecond
 	client := coordinator.New(monitor, config)
 
-	streamCtxA, cancelStreamA := context.WithCancel(context.Background())
-	defer cancelStreamA()
+	streamCtxA := t.Context()
 	_, err := client.StreamLogsTo(streamCtxA, memberA)
 	require.NoError(t, err)
-	streamCtxB, cancelStreamB := context.WithCancel(context.Background())
-	defer cancelStreamB()
+	streamCtxB := t.Context()
 	_, err = client.StreamLogsTo(streamCtxB, memberB)
 	require.NoError(t, err)
 
