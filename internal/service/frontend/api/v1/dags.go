@@ -1244,6 +1244,7 @@ func (a *API) startDAGRun(ctx context.Context, dag *core.DAG, params, dagRunID, 
 		dagRunID:     dagRunID,
 		nameOverride: nameOverride,
 		triggerType:  core.TriggerTypeManual,
+		triggerActor: triggerActorFromContext(ctx),
 		labels:       labels,
 		profileName:  profileName,
 	})
@@ -1327,6 +1328,7 @@ type startDAGRunOptions struct {
 	fromRunID    string
 	target       string
 	triggerType  core.TriggerType
+	triggerActor string
 	labels       string
 	profileName  string
 }
@@ -1448,7 +1450,7 @@ func localStartProcessStillRunning(started *launcher.StartResult) bool {
 
 // dispatchStartToCoordinator dispatches a DAG start operation to the coordinator
 // and waits for the DAG status to change from NotStarted within the given timeout.
-func (a *API) dispatchStartToCoordinator(ctx context.Context, dag *core.DAG, dagRunID string, timeout time.Duration, params, labels, profileName string) error {
+func (a *API) dispatchStartToCoordinator(ctx context.Context, dag *core.DAG, dagRunID string, timeout time.Duration, params, labels, profileName, triggerActor string) error {
 	var taskOpts []executor.TaskOption
 	if len(dag.WorkerSelector) > 0 {
 		taskOpts = append(taskOpts, executor.WithWorkerSelector(dag.WorkerSelector))
@@ -1461,6 +1463,9 @@ func (a *API) dispatchStartToCoordinator(ctx context.Context, dag *core.DAG, dag
 	}
 	if profileName != "" {
 		taskOpts = append(taskOpts, executor.WithProfileName(profileName))
+	}
+	if triggerActor != "" {
+		taskOpts = append(taskOpts, executor.WithTriggerActor(triggerActor))
 	}
 	taskOpts = append(taskOpts, executor.WithBaseConfig(executor.ResolveBaseConfig(dag.BaseConfigData, a.config.Paths.BaseConfig)))
 	if dag.SourceFile != "" {
@@ -1535,7 +1540,7 @@ func (a *API) startPreparedDAGRunWithOptions(
 		if osrt.GOOS == "windows" {
 			timeout = 20 * time.Second
 		}
-		return a.dispatchStartToCoordinator(ctx, dag, opts.dagRunID, timeout, dispatchParams, opts.labels, opts.profileName)
+		return a.dispatchStartToCoordinator(ctx, dag, opts.dagRunID, timeout, dispatchParams, opts.labels, opts.profileName, opts.triggerActor)
 	}
 
 	// Only pass trigger type if it's a known value (not TriggerTypeUnknown)
@@ -1564,6 +1569,7 @@ func (a *API) startPreparedDAGRunWithOptions(
 		FromRunID:    fromRunID,
 		Target:       target,
 		TriggerType:  triggerTypeStr,
+		TriggerActor: opts.triggerActor,
 		Labels:       opts.labels,
 		ProfileName:  opts.profileName,
 	})
@@ -1733,6 +1739,7 @@ func (a *API) enqueueDAGRun(ctx context.Context, dag *core.DAG, params, dagRunID
 		DAGRunID:     dagRunID,
 		NameOverride: nameOverride,
 		TriggerType:  triggerTypeStr,
+		TriggerActor: triggerActorFromContext(ctx),
 		Labels:       labels,
 		ProfileName:  profileName,
 	}

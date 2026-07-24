@@ -146,6 +146,8 @@ message Task {
   string workspace_bundle_resolved_ref = 31;
   // Runtime profile name. Workers resolve values at attempt start.
   string profile_name = 32;
+  // Attributable actor that initiated the DAG run.
+  string trigger_actor = 33;
 }
 
 enum Operation {

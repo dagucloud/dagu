@@ -381,9 +381,10 @@ func TestStart(t *testing.T) {
 	t.Run("StartWithAllOptions", func(t *testing.T) {
 		t.Parallel()
 		opts := launcher.StartOptions{
-			Params:   "env=prod",
-			Quiet:    true,
-			DAGRunID: "full-test-id",
+			Params:       "env=prod",
+			Quiet:        true,
+			DAGRunID:     "full-test-id",
+			TriggerActor: "alice",
 		}
 		spec := builder.Start(dag, opts)
 
@@ -392,6 +393,7 @@ func TestStart(t *testing.T) {
 		assert.Contains(t, spec.Args, `"env=prod"`)
 		assert.Contains(t, spec.Args, "-q")
 		assert.Contains(t, spec.Args, "--run-id=full-test-id")
+		assert.Contains(t, spec.Args, "--trigger-actor=alice")
 		assert.Contains(t, spec.Args, "--config")
 		assert.Contains(t, spec.Args, "/path/to/dag.yaml")
 	})
@@ -487,10 +489,11 @@ func TestEnqueue(t *testing.T) {
 	t.Run("EnqueueWithAllOptions", func(t *testing.T) {
 		t.Parallel()
 		opts := launcher.EnqueueOptions{
-			Params:   "env=staging",
-			Quiet:    true,
-			DAGRunID: "full-enqueue-id",
-			Queue:    "priority-queue",
+			Params:       "env=staging",
+			Quiet:        true,
+			DAGRunID:     "full-enqueue-id",
+			Queue:        "priority-queue",
+			TriggerActor: "alice",
 		}
 		spec := builder.Enqueue(dag, opts)
 
@@ -501,6 +504,7 @@ func TestEnqueue(t *testing.T) {
 		assert.Contains(t, spec.Args, "--run-id=full-enqueue-id")
 		assert.Contains(t, spec.Args, "--queue")
 		assert.Contains(t, spec.Args, "priority-queue")
+		assert.Contains(t, spec.Args, "--trigger-actor=alice")
 		assert.Contains(t, spec.Args, "/path/to/dag.yaml")
 	})
 }
@@ -666,6 +670,13 @@ func TestRetry(t *testing.T) {
 		spec := builder.Retry(dag, "retry-run-id", "step-1")
 
 		assert.Contains(t, spec.Args, "--step=step-1")
+	})
+
+	t.Run("RetryWithActor", func(t *testing.T) {
+		t.Parallel()
+		spec := builder.RetryWithActor(dag, "retry-run-id", "", "alice")
+
+		assert.Contains(t, spec.Args, "--trigger-actor=alice")
 	})
 
 	t.Run("RetryWithRootDAGRun", func(t *testing.T) {

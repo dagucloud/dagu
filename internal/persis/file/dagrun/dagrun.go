@@ -74,6 +74,7 @@ type DAGRunSummary struct {
 	QueuedAt             string
 	ScheduleTime         string
 	TriggerType          core.TriggerType
+	TriggerActor         string
 	CreatedAt            int64
 	AttemptID            string
 	AutoRetryCount       int

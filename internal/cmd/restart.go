@@ -119,6 +119,7 @@ func handleRestartProcess(ctx *Context, d *core.DAG, oldDagRunID string, schedul
 		exec.NewDAGRunRef(d.Name, newDagRunID),
 		exec.DAGRunRef{},
 		core.TriggerTypeUnknown,
+		"",
 		scheduleTime,
 		"",
 		func(execCtx context.Context) (exec.DAGRunAttempt, error) {

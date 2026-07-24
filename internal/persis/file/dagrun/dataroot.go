@@ -845,6 +845,7 @@ func summaryFromIndexEntry(ie dagrunindex.Entry) *DAGRunSummary {
 		QueuedAt:             ie.QueuedAt,
 		ScheduleTime:         ie.ScheduleTime,
 		TriggerType:          ie.TriggerType,
+		TriggerActor:         ie.TriggerActor,
 		CreatedAt:            ie.CreatedAt,
 		AttemptID:            ie.AttemptID,
 		AutoRetryCount:       ie.AutoRetryCount,

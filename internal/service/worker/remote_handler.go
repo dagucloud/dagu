@@ -152,7 +152,7 @@ func (h *remoteTaskHandler) handleStart(ctx context.Context, task *coordinatorv1
 	}
 
 	statusPusher, logStreamer, artifactUploader := h.createRemoteHandlers(task.DagRunId, dag.Name, task.AttemptId, task.AttemptKey, root, owner)
-	err = h.executeDAGRun(ctx, dag, task.DagRunId, task.AttemptId, task.AttemptKey, task.ScheduleTime, root, parent, owner, statusPusher, logStreamer, artifactUploader, queuedRun, nil, taskExtraEnvs(task), task.ProfileName)
+	err = h.executeDAGRun(ctx, dag, task.DagRunId, task.AttemptId, task.AttemptKey, task.ScheduleTime, root, parent, owner, statusPusher, logStreamer, artifactUploader, queuedRun, nil, taskExtraEnvs(task), task.ProfileName, task.TriggerActor)
 	var initErr *taskInitError
 	if errors.As(err, &initErr) && !initErr.reported {
 		h.reportTaskInitFailure(ctx, task, root, parent, statusPusher, initErr.err, task.ProfileName)
@@ -192,12 +192,13 @@ func (h *remoteTaskHandler) handleRetry(ctx context.Context, task *coordinatorv1
 
 	statusPusher, logStreamer, artifactUploader := h.createRemoteHandlers(task.DagRunId, dag.Name, task.AttemptId, task.AttemptKey, root, owner)
 	triggerType := exec.PreservedQueueTriggerType(status)
+	triggerActor := task.TriggerActor
 
 	err = h.executeDAGRun(ctx, dag, task.DagRunId, task.AttemptId, task.AttemptKey, task.ScheduleTime, root, parent, owner, statusPusher, logStreamer, artifactUploader, false, &retryConfig{
 		target:      status,
 		stepName:    task.Step,
 		triggerType: triggerType,
-	}, taskExtraEnvs(task), profileName)
+	}, taskExtraEnvs(task), profileName, triggerActor)
 	var initErr *taskInitError
 	if errors.As(err, &initErr) && !initErr.reported {
 		h.reportTaskInitFailure(ctx, task, root, parent, statusPusher, initErr.err, profileName)
@@ -221,16 +222,17 @@ func (h *remoteTaskHandler) reportTaskLoadFailure(ctx context.Context, task *coo
 		tag.Error(loadErr),
 	)
 	status := exec.DAGRunStatus{
-		Root:        root,
-		Parent:      parent,
-		Name:        task.Target,
-		DAGRunID:    task.DagRunId,
-		AttemptID:   task.AttemptId,
-		Status:      core.Failed,
-		FinishedAt:  finishedAt,
-		Error:       sanitizeTaskLoadError(task.Target, loadErr),
-		Params:      task.Params,
-		ProfileName: profileName,
+		Root:         root,
+		Parent:       parent,
+		Name:         task.Target,
+		DAGRunID:     task.DagRunId,
+		AttemptID:    task.AttemptId,
+		Status:       core.Failed,
+		FinishedAt:   finishedAt,
+		Error:        sanitizeTaskLoadError(task.Target, loadErr),
+		Params:       task.Params,
+		ProfileName:  profileName,
+		TriggerActor: task.TriggerActor,
 	}
 
 	if err := statusPusher.Push(ctx, status); err != nil {
@@ -255,7 +257,7 @@ func (h *remoteTaskHandler) reportTaskInitFailure(
 		return
 	}
 
-	h.reportDAGRunInitFailure(ctx, task.Target, task.DagRunId, task.AttemptId, task.Params, root, parent, statusPusher, initErr, profileName)
+	h.reportDAGRunInitFailure(ctx, task.Target, task.DagRunId, task.AttemptId, task.Params, root, parent, statusPusher, initErr, profileName, task.TriggerActor)
 }
 
 func (h *remoteTaskHandler) reportDAGRunInitFailure(
@@ -269,6 +271,7 @@ func (h *remoteTaskHandler) reportDAGRunInitFailure(
 	statusPusher runtime.StatusPusher,
 	initErr error,
 	profileName string,
+	triggerActor string,
 ) {
 	if statusPusher == nil || initErr == nil {
 		return
@@ -281,16 +284,17 @@ func (h *remoteTaskHandler) reportDAGRunInitFailure(
 		tag.Error(initErr),
 	)
 	status := exec.DAGRunStatus{
-		Root:        root,
-		Parent:      parent,
-		Name:        target,
-		DAGRunID:    dagRunID,
-		AttemptID:   attemptID,
-		Status:      core.Failed,
-		FinishedAt:  finishedAt,
-		Error:       initErr.Error(),
-		Params:      params,
-		ProfileName: profileName,
+		Root:         root,
+		Parent:       parent,
+		Name:         target,
+		DAGRunID:     dagRunID,
+		AttemptID:    attemptID,
+		Status:       core.Failed,
+		FinishedAt:   finishedAt,
+		Error:        initErr.Error(),
+		Params:       params,
+		ProfileName:  profileName,
+		TriggerActor: triggerActor,
 	}
 
 	if err := statusPusher.Push(ctx, status); err != nil {
@@ -553,6 +557,7 @@ func (h *remoteTaskHandler) executeDAGRun(
 	retry *retryConfig,
 	extraEnvs []string,
 	profileName string,
+	triggerActor string,
 ) error {
 	// Create temporary directory for local operations
 	env, err := h.createAgentEnv(ctx, dag, dagRunID)
@@ -614,7 +619,7 @@ func (h *remoteTaskHandler) executeDAGRun(
 				target = dag.Name
 				params = strings.Join(dag.Params, " ")
 			}
-			h.reportDAGRunInitFailure(ctx, target, dagRunID, attemptID, params, root, parent, statusPusher, err, profileName)
+			h.reportDAGRunInitFailure(ctx, target, dagRunID, attemptID, params, root, parent, statusPusher, err, profileName, triggerActor)
 			return newReportedTaskInitError(err)
 		}
 		return newTaskInitError(err)
@@ -669,6 +674,7 @@ func (h *remoteTaskHandler) executeDAGRun(
 		SecretReferenceResolver:  h.secretReferenceResolver(dag, owner, coordinator.SecretReferenceRun{WorkerID: h.workerID, AttemptKey: attemptKey, AttemptID: attemptID}),
 		ProfileStore:             runtimeStores.ProfileStore,
 		ProfileName:              profileName,
+		TriggerActor:             triggerActor,
 		ServiceRegistry:          h.serviceRegistry,
 		SubWorkflowRunnerFactory: subWorkflowRunnerFactory,
 		RemoteDAGLoader:          remoteDAGLoader,

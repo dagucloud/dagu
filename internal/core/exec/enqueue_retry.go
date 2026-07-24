@@ -23,6 +23,9 @@ type EnqueueRetryOptions struct {
 	// AutoRetry marks scheduler-issued DAG auto-retries. These consume the
 	// DAG-level retry budget at enqueue time.
 	AutoRetry bool
+	// TriggerActor replaces the attributable actor for a user-issued retry.
+	// Nil preserves the actor already recorded on the run.
+	TriggerActor *string
 }
 
 // EnqueueRetry queues a DAG run for retry and records its Queued status.
@@ -64,6 +67,9 @@ func EnqueueRetry(
 			latest.QueuedAt = stringutil.FormatTime(now)
 			latest.Conditions = nil
 			latest.TriggerType = core.TriggerTypeRetry
+			if opts.TriggerActor != nil {
+				latest.TriggerActor = *opts.TriggerActor
+			}
 			if opts.AutoRetry {
 				latest.AutoRetryCount++
 			}
@@ -121,6 +127,7 @@ func rollbackQueuedRetry(
 			latest.QueuedAt = original.QueuedAt
 			latest.Conditions = original.Conditions
 			latest.TriggerType = original.TriggerType
+			latest.TriggerActor = original.TriggerActor
 			latest.AutoRetryCount = original.AutoRetryCount
 			latest.Root = original.Root
 			return nil

@@ -182,6 +182,8 @@ type Agent struct {
 
 	// triggerType indicates how this DAG run was initiated.
 	triggerType core.TriggerType
+	// triggerActor identifies the attributable actor that initiated the DAG run.
+	triggerActor string
 
 	// defaultExecMode is the server-level default execution mode.
 	defaultExecMode config.ExecutionMode
@@ -335,6 +337,8 @@ type Options struct {
 	PeerConfig config.Peer
 	// TriggerType indicates how this DAG run was initiated.
 	TriggerType core.TriggerType
+	// TriggerActor identifies the attributable actor that initiated the DAG run.
+	TriggerActor string
 	// DefaultExecMode is the server-level default execution mode.
 	DefaultExecMode config.ExecutionMode
 	// ScheduleTime is the RFC 3339 timestamp of when this run was scheduled.
@@ -405,6 +409,7 @@ func New(
 		queuedRun:                opts.QueuedRun,
 		attemptID:                opts.AttemptID,
 		triggerType:              opts.TriggerType,
+		triggerActor:             opts.TriggerActor,
 		defaultExecMode:          opts.DefaultExecMode,
 		scheduleTime:             opts.ScheduleTime,
 		dagRunLogDir:             opts.DAGRunLogDir,
@@ -607,6 +612,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		runtime.WithRootDAGRun(a.rootDAGRun),
 		runtime.WithAttemptID(a.dagRunAttemptID),
 		runtime.WithTriggerType(a.triggerType),
+		runtime.WithTriggerActor(a.triggerActor),
 		runtime.WithRunStartedAt(contextTimeString(a.plan.StartAt())),
 		runtime.WithParams(a.dag.Params),
 		runtime.WithDefaultSecrets(profileValues.defaultSecrets),
@@ -1326,6 +1332,7 @@ func (a *Agent) Status(ctx context.Context) exec.DAGRunStatus {
 			transform.WithWorkingDir(a.evaluatedWorkingDir),
 			transform.WithArchiveDir(a.artifactDir),
 			transform.WithTriggerType(a.triggerType),
+			transform.WithTriggerActor(a.triggerActor),
 			transform.WithAutoRetryCount(a.currentAutoRetryCount()),
 			transform.WithPIDStartedAt(currentPIDStartedAt()),
 			transform.WithRuntimeProfile(a.profileName, a.profileResolvedAt, a.profileEntries),
@@ -1372,6 +1379,7 @@ func (a *Agent) Status(ctx context.Context) exec.DAGRunStatus {
 		transform.WithPreconditions(a.dag.Preconditions),
 		transform.WithWorkerID(a.workerID),
 		transform.WithTriggerType(a.triggerType),
+		transform.WithTriggerActor(a.triggerActor),
 		transform.WithAutoRetryCount(a.currentAutoRetryCount()),
 		transform.WithPIDStartedAt(currentPIDStartedAt()),
 		transform.WithRuntimeProfile(a.profileName, a.profileResolvedAt, a.profileEntries),
@@ -2021,6 +2029,7 @@ func (a *Agent) dryRun(ctx context.Context) error {
 		runtime.WithRootDAGRun(a.rootDAGRun),
 		runtime.WithAttemptID(a.dagRunAttemptID),
 		runtime.WithTriggerType(a.triggerType),
+		runtime.WithTriggerActor(a.triggerActor),
 		runtime.WithRunStartedAt(contextTimeString(a.plan.StartAt())),
 		runtime.WithParams(a.dag.Params),
 	}

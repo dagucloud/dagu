@@ -320,6 +320,7 @@ func toDAGRunSummary(s exec.DAGRunStatus) api.DAGRunSummary {
 		StatusLabel:        api.StatusLabel(s.Status.String()),
 		WorkerId:           ptrOf(s.WorkerID),
 		TriggerType:        toTriggerType(s.TriggerType),
+		TriggerActor:       ptrOf(s.TriggerActor),
 		Labels:             &s.Labels,
 		Tags:               &s.Labels,
 	}
@@ -389,6 +390,7 @@ func ToDAGRunDetails(s exec.DAGRunStatus) api.DAGRunDetails {
 		WorkerId:               ptrOf(s.WorkerID),
 		HumanTaskResumePending: humanTaskResumePending,
 		TriggerType:            toTriggerType(s.TriggerType),
+		TriggerActor:           ptrOf(s.TriggerActor),
 		Preconditions:          ptrOf(preconditions),
 		Nodes:                  nodes,
 		OnSuccess:              ptrOf(toNode(s.OnSuccess)),

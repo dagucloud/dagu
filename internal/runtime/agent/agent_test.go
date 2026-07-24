@@ -145,6 +145,20 @@ func TestAgent_Run(t *testing.T) {
 
 		dag.AssertLatestStatus(t, core.Succeeded)
 	})
+	t.Run("RecordsTriggerActor", func(t *testing.T) {
+		th := test.Setup(t)
+		dag := th.DAG(t, `steps:
+  - run: exit 0
+`)
+		dagAgent := dag.Agent(test.WithAgentOptions(agent.Options{
+			TriggerActor: "alice",
+		}))
+
+		dagAgent.RunSuccess(t)
+
+		status := dagAgent.Status(th.Context)
+		require.Equal(t, "alice", status.TriggerActor)
+	})
 	t.Run("HumanTaskAllowedOnRemoteWorker", func(t *testing.T) {
 		th := test.Setup(t)
 		dag := th.DAG(t, `steps:

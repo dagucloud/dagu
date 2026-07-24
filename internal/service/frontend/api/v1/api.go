@@ -912,6 +912,14 @@ func (a *API) logAudit(ctx context.Context, category audit.Category, action stri
 	a.LogAudit(ctx, category, action, details)
 }
 
+func triggerActorFromContext(ctx context.Context) string {
+	user, ok := auth.UserFromContext(ctx)
+	if !ok || user == nil {
+		return ""
+	}
+	return user.Username
+}
+
 // LogAudit logs an audit entry with source/correlation context when present.
 func (a *API) LogAudit(ctx context.Context, category audit.Category, action string, details any) {
 	if !a.isAuditLicensed() {

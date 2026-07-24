@@ -481,6 +481,7 @@ type Task struct {
 	xxx_hidden_WorkspaceBundleOriginalRef string                 `protobuf:"bytes,30,opt,name=workspace_bundle_original_ref,json=workspaceBundleOriginalRef,proto3"`
 	xxx_hidden_WorkspaceBundleResolvedRef string                 `protobuf:"bytes,31,opt,name=workspace_bundle_resolved_ref,json=workspaceBundleResolvedRef,proto3"`
 	xxx_hidden_ProfileName                string                 `protobuf:"bytes,32,opt,name=profile_name,json=profileName,proto3"`
+	xxx_hidden_TriggerActor               string                 `protobuf:"bytes,33,opt,name=trigger_actor,json=triggerActor,proto3"`
 	unknownFields                         protoimpl.UnknownFields
 	sizeCache                             protoimpl.SizeCache
 }
@@ -727,6 +728,13 @@ func (x *Task) GetProfileName() string {
 	return ""
 }
 
+func (x *Task) GetTriggerActor() string {
+	if x != nil {
+		return x.xxx_hidden_TriggerActor
+	}
+	return ""
+}
+
 func (x *Task) SetOperation(v Operation) {
 	x.xxx_hidden_Operation = v
 }
@@ -851,6 +859,10 @@ func (x *Task) SetProfileName(v string) {
 	x.xxx_hidden_ProfileName = v
 }
 
+func (x *Task) SetTriggerActor(v string) {
+	x.xxx_hidden_TriggerActor = v
+}
+
 func (x *Task) HasPreviousStatus() bool {
 	if x == nil {
 		return false
@@ -910,6 +922,8 @@ type Task_builder struct {
 	WorkspaceBundleResolvedRef string
 	// Runtime profile name. Workers resolve values at attempt start.
 	ProfileName string
+	// Attributable actor that initiated the DAG run.
+	TriggerActor string
 }
 
 func (b0 Task_builder) Build() *Task {
@@ -947,6 +961,7 @@ func (b0 Task_builder) Build() *Task {
 	x.xxx_hidden_WorkspaceBundleOriginalRef = b.WorkspaceBundleOriginalRef
 	x.xxx_hidden_WorkspaceBundleResolvedRef = b.WorkspaceBundleResolvedRef
 	x.xxx_hidden_ProfileName = b.ProfileName
+	x.xxx_hidden_TriggerActor = b.TriggerActor
 	return m0
 }
 
@@ -4994,7 +5009,7 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\x0fDispatchRequest\x12(\n" +
 	"\x04task\x18\x01 \x01(\v2\x14.coordinator.v1.TaskR\x04task\x12>\n" +
 	"\x1badmission_reservation_token\x18\x02 \x01(\tR\x19admissionReservationToken\"\x12\n" +
-	"\x10DispatchResponse\"\x89\v\n" +
+	"\x10DispatchResponse\"\xae\v\n" +
 	"\x04Task\x127\n" +
 	"\toperation\x18\x06 \x01(\x0e2\x19.coordinator.v1.OperationR\toperation\x12)\n" +
 	"\x11root_dag_run_name\x18\x01 \x01(\tR\x0erootDagRunName\x12%\n" +
@@ -5036,7 +5051,8 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\x19workspace_bundle_dag_path\x18\x1d \x01(\tR\x16workspaceBundleDagPath\x12A\n" +
 	"\x1dworkspace_bundle_original_ref\x18\x1e \x01(\tR\x1aworkspaceBundleOriginalRef\x12A\n" +
 	"\x1dworkspace_bundle_resolved_ref\x18\x1f \x01(\tR\x1aworkspaceBundleResolvedRef\x12!\n" +
-	"\fprofile_name\x18  \x01(\tR\vprofileName\x1aA\n" +
+	"\fprofile_name\x18  \x01(\tR\vprofileName\x12#\n" +
+	"\rtrigger_actor\x18! \x01(\tR\ftriggerActor\x1aA\n" +
 	"\x13WorkerSelectorEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x13\n" +

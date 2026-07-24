@@ -132,6 +132,33 @@ describe('DAGRunTable', () => {
     expect(screen.getByText('prod')).toBeInTheDocument();
   });
 
+  it('shows the attributable actor with the trigger type', () => {
+    render(
+      <MemoryRouter>
+        <ConfigContext.Provider value={config}>
+          <DAGRunTable
+            dagRuns={[
+              {
+                dagRunId: 'run-1',
+                name: 'manual-dag',
+                status: Status.Success,
+                statusLabel: StatusLabel.succeeded,
+                artifactsAvailable: false,
+                autoRetryCount: 0,
+                triggerType: TriggerType.manual,
+                triggerActor: 'alice',
+                startedAt: '2026-03-13T10:01:00Z',
+                finishedAt: '2026-03-13T10:02:00Z',
+              },
+            ]}
+          />
+        </ConfigContext.Provider>
+      </MemoryRouter>
+    );
+
+    expect(screen.getByText('Manual — alice')).toBeInTheDocument();
+  });
+
   it('omits the profile column when no runs use a runtime profile', () => {
     render(
       <MemoryRouter>

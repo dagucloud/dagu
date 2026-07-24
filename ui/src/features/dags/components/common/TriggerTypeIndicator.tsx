@@ -13,9 +13,13 @@ export const triggerTypeLabels: Record<TriggerType, string> = {
 
 type Props = {
   type?: TriggerType;
+  actor?: string;
 };
 
-export function TriggerTypeIndicator({ type }: Props): ReactElement | null {
+export function TriggerTypeIndicator({
+  type,
+  actor,
+}: Props): ReactElement | null {
   if (!type) {
     return null;
   }
@@ -23,6 +27,7 @@ export function TriggerTypeIndicator({ type }: Props): ReactElement | null {
   return (
     <span className="font-medium text-foreground/90 text-xs">
       {triggerTypeLabels[type] ?? type}
+      {actor && ` — ${actor}`}
     </span>
   );
 }

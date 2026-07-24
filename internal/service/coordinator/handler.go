@@ -707,7 +707,7 @@ func (h *Handler) createAttemptForTask(ctx context.Context, task *coordinatorv1.
 		return nil, fmt.Errorf("failed to open attempt: %w", err)
 	}
 
-	if err := h.writeInitialStatus(ctx, attempt, dag.Name, task.DagRunId, task.AttemptKey, task.ScheduleTime, exec.DAGRunRef{}, labelsForInitialStatus(task, dag)); err != nil {
+	if err := h.writeInitialStatus(ctx, attempt, dag.Name, task.DagRunId, task.AttemptKey, task.TriggerActor, task.ScheduleTime, exec.DAGRunRef{}, labelsForInitialStatus(task, dag)); err != nil {
 		return nil, fmt.Errorf("failed to write initial status: %w", err)
 	}
 
@@ -793,7 +793,7 @@ func (h *Handler) createSubAttemptForTask(ctx context.Context, task *coordinator
 		return nil, fmt.Errorf("failed to open sub-attempt: %w", err)
 	}
 
-	if err := h.writeInitialStatus(ctx, attempt, task.Target, task.DagRunId, task.AttemptKey, task.ScheduleTime, rootRef, labelsForInitialStatus(task, dag)); err != nil {
+	if err := h.writeInitialStatus(ctx, attempt, task.Target, task.DagRunId, task.AttemptKey, task.TriggerActor, task.ScheduleTime, rootRef, labelsForInitialStatus(task, dag)); err != nil {
 		return nil, fmt.Errorf("failed to write initial status: %w", err)
 	}
 
@@ -813,7 +813,7 @@ func (h *Handler) createSubAttemptForTask(ctx context.Context, task *coordinator
 
 // writeInitialStatus writes an initial NotStarted status to the attempt.
 // This ensures the status file is not empty when read before the worker reports its first status.
-func (h *Handler) writeInitialStatus(ctx context.Context, attempt exec.DAGRunAttempt, dagName, dagRunID, attemptKey, scheduleTime string, root exec.DAGRunRef, labels []string) error {
+func (h *Handler) writeInitialStatus(ctx context.Context, attempt exec.DAGRunAttempt, dagName, dagRunID, attemptKey, triggerActor, scheduleTime string, root exec.DAGRunRef, labels []string) error {
 	initialStatus := exec.DAGRunStatus{
 		Name:         dagName,
 		DAGRunID:     dagRunID,
@@ -823,6 +823,7 @@ func (h *Handler) writeInitialStatus(ctx context.Context, attempt exec.DAGRunAtt
 		StartedAt:    time.Now().UTC().Format(time.RFC3339),
 		Root:         root,
 		Labels:       labels,
+		TriggerActor: triggerActor,
 		ScheduleTime: scheduleTime,
 	}
 	return attempt.Write(ctx, initialStatus)

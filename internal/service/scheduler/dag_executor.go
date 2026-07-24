@@ -219,6 +219,9 @@ func (e *DAGExecutor) executeDAG(
 		if profileName != "" {
 			taskOpts = append(taskOpts, executor.WithProfileName(profileName))
 		}
+		if previousStatus != nil && previousStatus.TriggerActor != "" {
+			taskOpts = append(taskOpts, executor.WithTriggerActor(previousStatus.TriggerActor))
+		}
 		if previousStatus != nil && len(previousStatus.ParamsList) == 0 && previousStatus.Params != "" {
 			taskOpts = append(taskOpts, executor.WithTaskParams(previousStatus.Params))
 		}
@@ -260,13 +263,14 @@ func (e *DAGExecutor) executeDAG(
 			DAGRunID:     runID,
 			Quiet:        true,
 			TriggerType:  triggerType.String(),
+			TriggerActor: triggerActorFromStatus(previousStatus),
 			ScheduleTime: scheduleTime,
 			ProfileName:  fallbackProfileName(profileNameFromStatus(previousStatus), defaultProfileName),
 		})
 		return launcher.Start(ctx, spec)
 
 	case exec.DispatchOperationRetry:
-		spec := e.subCmdBuilder.QueueDispatchRetry(dag, runID, "")
+		spec := e.subCmdBuilder.QueueDispatchRetryWithActor(dag, runID, "", triggerActorFromStatus(previousStatus))
 		return launcher.Run(ctx, spec)
 
 	default:
@@ -301,6 +305,13 @@ func profileNameFromStatus(status *exec.DAGRunStatus) string {
 		return ""
 	}
 	return status.ProfileName
+}
+
+func triggerActorFromStatus(status *exec.DAGRunStatus) string {
+	if status == nil {
+		return ""
+	}
+	return status.TriggerActor
 }
 
 func validateDispatchOperation(operation exec.DispatchOperation) error {

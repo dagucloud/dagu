@@ -343,6 +343,7 @@ func (r *Local) newAgent(
 
 	opts.ParentDAGRun = req.ParentDAGRun
 	opts.RootDAGRun = req.RootDAGRun
+	opts.TriggerActor = req.TriggerActor
 	opts.ExtraEnvs = inProcessExtraEnvs(rCtx, req)
 	opts.WorkerID = r.workerID
 	opts.StatusPusher = r.statusPusher

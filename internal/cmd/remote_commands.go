@@ -150,7 +150,7 @@ func mapAPIStepOutputs(outputs *[]api.StepOutputDeclaration) []core.StepOutputDe
 }
 
 func validateRemoteStartLikeFlags(ctx *Context) error {
-	disallowed := []string{"parent", "root", "worker-id", "attempt-id", "schedule-time", "profile"}
+	disallowed := []string{"parent", "root", "worker-id", "attempt-id", "schedule-time", "profile", "trigger-actor"}
 	for _, flag := range disallowed {
 		if ctx.Command.Flags().Changed(flag) {
 			return fmt.Errorf("--%s is only supported in the local context", flag)

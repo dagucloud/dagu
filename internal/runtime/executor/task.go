@@ -118,6 +118,13 @@ func WithProfileName(profileName string) TaskOption {
 	}
 }
 
+// WithTriggerActor sets the attributable trigger actor for a dispatched task.
+func WithTriggerActor(actor string) TaskOption {
+	return func(task *exec.DispatchTask) {
+		task.TriggerActor = actor
+	}
+}
+
 // WithBaseConfig sets the base config YAML content on the task.
 // This allows workers to apply base config without needing local base config files.
 func WithBaseConfig(content string) TaskOption {

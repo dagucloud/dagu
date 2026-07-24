@@ -149,6 +149,9 @@ func (b *SubCmdBuilder) Start(dag *core.DAG, opts StartOptions) CmdSpec {
 	if opts.TriggerType != "" {
 		args = append(args, fmt.Sprintf("--trigger-type=%s", opts.TriggerType))
 	}
+	if opts.TriggerActor != "" {
+		args = append(args, fmt.Sprintf("--trigger-actor=%s", opts.TriggerActor))
+	}
 	if labels := effectiveLabels(opts.Labels, opts.Tags); labels != "" {
 		args = append(args, fmt.Sprintf("--labels=%s", labels))
 	}
@@ -199,6 +202,9 @@ func (b *SubCmdBuilder) Enqueue(dag *core.DAG, opts EnqueueOptions) CmdSpec {
 	}
 	if opts.TriggerType != "" {
 		args = append(args, fmt.Sprintf("--trigger-type=%s", opts.TriggerType))
+	}
+	if opts.TriggerActor != "" {
+		args = append(args, fmt.Sprintf("--trigger-actor=%s", opts.TriggerActor))
 	}
 	if labels := effectiveLabels(opts.Labels, opts.Tags); labels != "" {
 		args = append(args, fmt.Sprintf("--labels=%s", labels))
@@ -264,16 +270,26 @@ func (b *SubCmdBuilder) Restart(dag *core.DAG, opts RestartOptions) CmdSpec {
 
 // Retry creates a retry command spec.
 func (b *SubCmdBuilder) Retry(dag *core.DAG, dagRunID string, stepName string) CmdSpec {
-	return b.retry(dag, dagRunID, stepName, exec1.DAGRunRef{})
+	return b.retry(dag, dagRunID, stepName, exec1.DAGRunRef{}, "")
+}
+
+// RetryWithActor creates a retry command spec with an attributable trigger actor.
+func (b *SubCmdBuilder) RetryWithActor(dag *core.DAG, dagRunID string, stepName string, triggerActor string) CmdSpec {
+	return b.retry(dag, dagRunID, stepName, exec1.DAGRunRef{}, triggerActor)
 }
 
 // RetryWithRootDAGRun creates a retry command spec for a sub DAG-run with an
 // explicit root DAG-run reference.
 func (b *SubCmdBuilder) RetryWithRootDAGRun(dag *core.DAG, dagRunID string, stepName string, root exec1.DAGRunRef) CmdSpec {
-	return b.retry(dag, dagRunID, stepName, root)
+	return b.retry(dag, dagRunID, stepName, root, "")
 }
 
-func (b *SubCmdBuilder) retry(dag *core.DAG, dagRunID string, stepName string, root exec1.DAGRunRef) CmdSpec {
+// RetryWithRootDAGRunAndActor creates a sub-DAG retry command with an attributable trigger actor.
+func (b *SubCmdBuilder) RetryWithRootDAGRunAndActor(dag *core.DAG, dagRunID string, stepName string, root exec1.DAGRunRef, triggerActor string) CmdSpec {
+	return b.retry(dag, dagRunID, stepName, root, triggerActor)
+}
+
+func (b *SubCmdBuilder) retry(dag *core.DAG, dagRunID string, stepName string, root exec1.DAGRunRef, triggerActor string) CmdSpec {
 	args := []string{"retry", fmt.Sprintf("--run-id=%s", dagRunID), "-q"}
 
 	if stepName != "" {
@@ -281,6 +297,9 @@ func (b *SubCmdBuilder) retry(dag *core.DAG, dagRunID string, stepName string, r
 	}
 	if !root.Zero() {
 		args = append(args, fmt.Sprintf("--root=%s", root.String()))
+	}
+	if triggerActor != "" {
+		args = append(args, fmt.Sprintf("--trigger-actor=%s", triggerActor))
 	}
 
 	if b.configFile != "" {
@@ -299,6 +318,13 @@ func (b *SubCmdBuilder) retry(dag *core.DAG, dagRunID string, stepName string, r
 // QueueDispatchRetry creates a retry command spec for a scheduler-consumed queued run.
 func (b *SubCmdBuilder) QueueDispatchRetry(dag *core.DAG, dagRunID string, stepName string) CmdSpec {
 	spec := b.Retry(dag, dagRunID, stepName)
+	spec.Env = append(spec.Env, exec1.EnvKeyQueueDispatchRetry+"=1")
+	return spec
+}
+
+// QueueDispatchRetryWithActor creates a scheduler-consumed retry command with an attributable trigger actor.
+func (b *SubCmdBuilder) QueueDispatchRetryWithActor(dag *core.DAG, dagRunID string, stepName string, triggerActor string) CmdSpec {
+	spec := b.RetryWithActor(dag, dagRunID, stepName, triggerActor)
 	spec.Env = append(spec.Env, exec1.EnvKeyQueueDispatchRetry+"=1")
 	return spec
 }
@@ -323,6 +349,7 @@ type StartOptions struct {
 	FromRunID    string // Historic dag-run ID to use as a template
 	Target       string // Optional CLI argument override (DAG name or file path)
 	TriggerType  string // How this DAG run was initiated (scheduler, manual, webhook, subdag)
+	TriggerActor string // Attributable actor that initiated the DAG run
 	Labels       string // Additional labels (comma-separated)
 	Tags         string // Deprecated: use Labels.
 	ScheduleTime string // RFC 3339 timestamp of when this run was scheduled
@@ -337,6 +364,7 @@ type EnqueueOptions struct {
 	Queue        string // Queue name to enqueue to
 	NameOverride string // Optional DAG name override
 	TriggerType  string // How this DAG run was initiated (scheduler, manual, webhook, subdag)
+	TriggerActor string // Attributable actor that initiated the DAG run
 	Labels       string // Additional labels (comma-separated)
 	Tags         string // Deprecated: use Labels.
 	ScheduleTime string // RFC 3339 timestamp of when this run was scheduled

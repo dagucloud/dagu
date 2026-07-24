@@ -25,7 +25,7 @@ const (
 	// IndexFileName is the name of the DAG run index file.
 	IndexFileName = ".dagrun.index"
 	// IndexVersion is the current index format version.
-	IndexVersion = 7
+	IndexVersion = 8
 	// MinRunsForIndex is the minimum number of runs needed to create an index.
 	MinRunsForIndex = 10
 
@@ -56,6 +56,7 @@ type Entry struct {
 	QueuedAt             string
 	ScheduleTime         string
 	TriggerType          core.TriggerType
+	TriggerActor         string
 	CreatedAt            int64
 	AttemptID            string
 	AutoRetryCount       int
@@ -150,6 +151,7 @@ func RebuildForDay(dayDir string, dagRunDirs []os.DirEntry) ([]Entry, bool, erro
 			QueuedAt:             status.QueuedAt,
 			ScheduleTime:         status.ScheduleTime,
 			TriggerType:          status.TriggerType,
+			TriggerActor:         status.TriggerActor,
 			CreatedAt:            status.CreatedAt,
 			AttemptID:            status.AttemptID,
 			AutoRetryCount:       status.AutoRetryCount,
@@ -270,6 +272,7 @@ func writeIndex(dayDir string, entries []Entry) error {
 			QueuedAt:             e.QueuedAt,
 			ScheduleTime:         e.ScheduleTime,
 			TriggerType:          int32(e.TriggerType), //nolint:gosec
+			TriggerActor:         e.TriggerActor,
 			CreatedAt:            e.CreatedAt,
 			AttemptId:            e.AttemptID,
 			AutoRetryCount:       int32(min(e.AutoRetryCount, math.MaxInt32)), //nolint:gosec
@@ -316,6 +319,7 @@ func protoToEntries(protoEntries []*indexv1.DAGRunIndexEntry) []Entry {
 			QueuedAt:             pe.QueuedAt,
 			ScheduleTime:         pe.ScheduleTime,
 			TriggerType:          core.TriggerType(pe.TriggerType),
+			TriggerActor:         pe.TriggerActor,
 			CreatedAt:            pe.CreatedAt,
 			AttemptID:            pe.AttemptId,
 			AutoRetryCount:       int(pe.AutoRetryCount),
