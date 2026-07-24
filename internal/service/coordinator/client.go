@@ -303,6 +303,10 @@ func (cli *clientImpl) attemptCall(ctx context.Context, members []exec.HostInfo,
 	// Try each coordinator in order (round-robin style)
 	var lastErr error
 	for _, member := range members {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
 		// Get or create client for this coordinator
 		client, err := cli.getOrCreateDiscoveredClient(member)
 		if err != nil {
