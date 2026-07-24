@@ -1027,25 +1027,35 @@ func TestClientHeartbeat(t *testing.T) {
 	assert.Equal(t, int32(2), receivedReq.Stats.BusyPollers)
 }
 
-func TestClientHeartbeatUsesUpdatedCoordinatorAddress(t *testing.T) {
+func TestClientDiscoveredAddressRemainsAuthoritative(t *testing.T) {
 	t.Parallel()
 
 	config := coordinator.DefaultConfig()
 	config.MaxRetries = 0
 
+	var oldReports atomic.Int32
 	oldCoord := &mockCoordinatorService{
 		heartbeatFunc: func(context.Context, *coordinatorv1.HeartbeatRequest) (*coordinatorv1.HeartbeatResponse, error) {
 			return &coordinatorv1.HeartbeatResponse{}, nil
+		},
+		reportStatusFunc: func(context.Context, *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
+			oldReports.Add(1)
+			return &coordinatorv1.ReportStatusResponse{}, nil
 		},
 	}
 	oldServer, oldAddr := startMockServer(t, oldCoord)
 	defer oldServer.Stop()
 
 	var newHeartbeats atomic.Int32
+	var newReports atomic.Int32
 	newCoord := &mockCoordinatorService{
 		heartbeatFunc: func(context.Context, *coordinatorv1.HeartbeatRequest) (*coordinatorv1.HeartbeatResponse, error) {
 			newHeartbeats.Add(1)
 			return &coordinatorv1.HeartbeatResponse{}, nil
+		},
+		reportStatusFunc: func(context.Context, *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
+			newReports.Add(1)
+			return &coordinatorv1.ReportStatusResponse{}, nil
 		},
 	}
 	newServer, newAddr := startMockServer(t, newCoord)
@@ -1053,10 +1063,10 @@ func TestClientHeartbeatUsesUpdatedCoordinatorAddress(t *testing.T) {
 
 	oldHost, oldPort := parseHostPort(oldAddr)
 	newHost, newPort := parseHostPort(newAddr)
+	oldMember := exec.HostInfo{ID: "coord-a", Host: oldHost, Port: oldPort, Status: exec.ServiceStatusActive}
+	newMember := exec.HostInfo{ID: "coord-a", Host: newHost, Port: newPort, Status: exec.ServiceStatusActive}
 	monitor := &mockServiceMonitor{
-		members: []exec.HostInfo{
-			{ID: "coord-a", Host: oldHost, Port: oldPort, Status: exec.ServiceStatusActive},
-		},
+		members: []exec.HostInfo{oldMember},
 	}
 	client := coordinator.New(monitor, config)
 
@@ -1064,15 +1074,20 @@ func TestClientHeartbeatUsesUpdatedCoordinatorAddress(t *testing.T) {
 	_, err := client.Heartbeat(context.Background(), request)
 	require.NoError(t, err)
 
-	monitor.members = []exec.HostInfo{
-		{ID: "coord-a", Host: newHost, Port: newPort, Status: exec.ServiceStatusActive},
-	}
+	monitor.members = []exec.HostInfo{newMember}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-	defer cancel()
 	_, err = client.Heartbeat(ctx, request)
+	cancel()
 	require.NoError(t, err)
 	assert.Equal(t, int32(1), newHeartbeats.Load())
+
+	ctx, cancel = context.WithTimeout(context.Background(), 500*time.Millisecond)
+	_, err = client.ReportStatusTo(ctx, oldMember, &coordinatorv1.ReportStatusRequest{})
+	cancel()
+	require.NoError(t, err)
+	assert.Zero(t, oldReports.Load())
+	assert.Equal(t, int32(1), newReports.Load())
 }
 
 func TestClientHeartbeatUsesConfiguredTimeout(t *testing.T) {

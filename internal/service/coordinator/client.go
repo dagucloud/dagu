@@ -304,7 +304,7 @@ func (cli *clientImpl) attemptCall(ctx context.Context, members []exec.HostInfo,
 	var lastErr error
 	for _, member := range members {
 		// Get or create client for this coordinator
-		client, err := cli.getOrCreateClient(member)
+		client, err := cli.getOrCreateDiscoveredClient(member)
 		if err != nil {
 			logger.Warn(ctx, "Failed to connect to coordinator",
 				slog.String("coordinator-id", member.ID),
@@ -542,14 +542,23 @@ func (cli *clientImpl) isHealthy(ctx context.Context, client *client) error {
 	return nil
 }
 
-// getOrCreateClient gets an existing client or creates a new one for the given member
+// getOrCreateClient gets a client for the member without changing the cached address.
 func (cli *clientImpl) getOrCreateClient(member exec.HostInfo) (*client, error) {
+	return cli.getOrCreateClientWithAddressRefresh(member, false)
+}
+
+// getOrCreateDiscoveredClient treats the discovered address as authoritative.
+func (cli *clientImpl) getOrCreateDiscoveredClient(member exec.HostInfo) (*client, error) {
+	return cli.getOrCreateClientWithAddressRefresh(member, true)
+}
+
+func (cli *clientImpl) getOrCreateClientWithAddressRefresh(member exec.HostInfo, refreshAddress bool) (*client, error) {
 	key := coordinatorMemberKey(member)
 	address := coordinatorAddress(member)
 
 	// Try to get existing client with read lock
 	cli.clientsMu.RLock()
-	if c, exists := cli.clients[key]; exists && c.address == address {
+	if c, exists := cli.clients[key]; exists && (!refreshAddress || c.address == address) {
 		cli.clientsMu.RUnlock()
 		return c, nil
 	}
@@ -560,7 +569,7 @@ func (cli *clientImpl) getOrCreateClient(member exec.HostInfo) (*client, error) 
 	defer cli.clientsMu.Unlock()
 
 	// Double-check after acquiring write lock
-	if c, exists := cli.clients[key]; exists && c.address == address {
+	if c, exists := cli.clients[key]; exists && (!refreshAddress || c.address == address) {
 		return c, nil
 	}
 
@@ -696,7 +705,7 @@ func (cli *clientImpl) GetWorkers(ctx context.Context) ([]*coordinatorv1.WorkerI
 
 	for _, member := range members {
 		// Get or create client for this member
-		c, err := cli.getOrCreateClient(member)
+		c, err := cli.getOrCreateDiscoveredClient(member)
 		if err != nil {
 			logger.Warn(ctx, "Failed to connect to coordinator",
 				tag.ID(member.ID),
@@ -949,7 +958,7 @@ func openStreamWithFailover[T any](
 
 	var lastErr error
 	for _, member := range members {
-		memberClient, err := cli.getOrCreateClient(member)
+		memberClient, err := cli.getOrCreateDiscoveredClient(member)
 		if err != nil {
 			cli.recordFailure(err)
 			lastErr = err
@@ -1112,7 +1121,7 @@ func (cli *clientImpl) PutWorkspaceBundle(ctx context.Context, desc workspacebun
 	var satisfied int
 	errs := make([]error, 0)
 	for _, member := range members {
-		memberClient, err := cli.getOrCreateClient(member)
+		memberClient, err := cli.getOrCreateDiscoveredClient(member)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("coordinator %q: %w", member.ID, err))
 			continue
