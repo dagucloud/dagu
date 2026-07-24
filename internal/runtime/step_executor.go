@@ -185,11 +185,7 @@ func (e *StepExecutor) captureExecutorSideChannels(
 		subRuns := subRunProvider.GetSubRuns()
 		runtimeSubRuns := make([]SubDAGRun, len(subRuns))
 		for i, sr := range subRuns {
-			runtimeSubRuns[i] = SubDAGRun{
-				DAGRunID: sr.DAGRunID,
-				Params:   sr.Params,
-				DAGName:  sr.DAGName,
-			}
+			runtimeSubRuns[i] = SubDAGRun(sr)
 		}
 		node.SetSubRuns(runtimeSubRuns)
 	}

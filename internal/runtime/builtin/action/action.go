@@ -202,9 +202,10 @@ func (e *Executor) runActionDAG(ctx context.Context, bundle *actionBundle, m *ma
 	run.Params = params
 	run.DAGName = dag.Name
 	e.setSubRuns([]coreexec.SubDAGRun{{
-		DAGRunID: run.RunID,
-		Params:   params,
-		DAGName:  dag.Name,
+		DAGRunID:     run.RunID,
+		Params:       params,
+		DAGName:      dag.Name,
+		ParallelItem: run.ParallelItem,
 	}})
 
 	result, execErr := child.Execute(ctx, run, "")

@@ -85,8 +85,8 @@ func (e *enqueueExecutor) Run(ctx context.Context) error {
 	}
 
 	subRuns := make([]exec1.SubDAGRun, 0, len(outputs))
-	for _, output := range outputs {
-		subRuns = append(subRuns, subDAGRunFromEnqueueOutput(output))
+	for i, output := range outputs {
+		subRuns = append(subRuns, subDAGRunFromEnqueueOutput(output, paramsList[i].ParallelItem))
 	}
 
 	e.lock.Lock()
@@ -173,11 +173,12 @@ func (e *enqueueExecutor) enqueueParallel(ctx context.Context, paramsList []exec
 	return outputs, nil
 }
 
-func subDAGRunFromEnqueueOutput(output enqueueRunOutput) exec1.SubDAGRun {
+func subDAGRunFromEnqueueOutput(output enqueueRunOutput, parallelItem *string) exec1.SubDAGRun {
 	return exec1.SubDAGRun{
-		DAGRunID: output.DAGRunID,
-		Params:   output.Params,
-		DAGName:  output.Name,
+		DAGRunID:     output.DAGRunID,
+		Params:       output.Params,
+		DAGName:      output.Name,
+		ParallelItem: parallelItem,
 	}
 }
 

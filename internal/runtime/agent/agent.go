@@ -1138,11 +1138,7 @@ func (a *Agent) shouldDelayTerminalStatus(status core.Status) bool {
 func (a *Agent) nodeToModelNode(nodeData runtime.NodeData) *exec.Node {
 	subRuns := make([]exec.SubDAGRun, len(nodeData.State.SubRuns))
 	for i, child := range nodeData.State.SubRuns {
-		subRuns[i] = exec.SubDAGRun{
-			DAGRunID: child.DAGRunID,
-			Params:   child.Params,
-			DAGName:  child.DAGName,
-		}
+		subRuns[i] = exec.SubDAGRun(child)
 	}
 
 	return &exec.Node{
