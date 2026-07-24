@@ -673,28 +673,24 @@ func validateGitWorktreeOutputOverrides(normalized map[string]any) error {
 }
 
 func normalizeTemplateAction(normalized map[string]any, with map[string]any) error {
-	if with == nil {
-		return core.NewValidationError("with", nil, fmt.Errorf("template.render requires exactly one of with.template or with.template_ref"))
-	}
-
-	templateValue, hasTemplate := with["template"]
-	templateRefValue, hasTemplateRef := with["template_ref"]
-	if hasTemplate == hasTemplateRef {
+	_, hasTemplate := with["template"]
+	refValue, hasRef := with["template_ref"]
+	if hasTemplate == hasRef {
 		return core.NewValidationError("with", with, fmt.Errorf("template.render requires exactly one of with.template or with.template_ref"))
 	}
 
 	if hasTemplate {
-		template, ok := templateValue.(string)
-		if !ok || strings.TrimSpace(template) == "" {
-			return core.NewValidationError("with", with, fmt.Errorf("with.template must be a non-empty string"))
+		template, err := requireActionStringField(with, "template")
+		if err != nil {
+			return err
 		}
 		delete(with, "template")
-		normalized["script"] = strings.TrimSpace(template)
+		normalized["script"] = template
 		return finishAction(normalized, "template", with)
 	}
 
-	templateRef, ok := templateRefValue.(string)
-	if !ok || !cmnvalue.IsScopedReferenceToken(templateRef) {
+	ref, ok := refValue.(string)
+	if !ok || !cmnvalue.IsExactRef(ref) {
 		return core.NewValidationError("with", with, fmt.Errorf("with.template_ref must be one complete scoped value reference such as ${env.NAME}"))
 	}
 	return finishAction(normalized, "template", with)

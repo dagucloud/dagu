@@ -126,19 +126,19 @@ func decodeConfig(dat map[string]any, cfg *templateConfig) error {
 }
 
 func validateTemplate(step core.Step) error {
-	templateRef, hasTemplateRef := step.ExecutorConfig.Config["template_ref"]
-	if step.Script != "" && hasTemplateRef {
-		return core.NewValidationError("with.template_ref", templateRef, fmt.Errorf("template step cannot use both script and with.template_ref"))
+	refValue, hasRef := step.ExecutorConfig.Config["template_ref"]
+	if step.Script != "" && hasRef {
+		return core.NewValidationError("with.template_ref", refValue, fmt.Errorf("template step cannot use both script and with.template_ref"))
 	}
 	if step.Script != "" {
 		return nil
 	}
-	if !hasTemplateRef {
+	if !hasRef {
 		return core.NewValidationError("script", nil, fmt.Errorf("script field is required"))
 	}
-	ref, ok := templateRef.(string)
-	if !ok || !cmnvalue.IsScopedReferenceToken(ref) {
-		return core.NewValidationError("with.template_ref", templateRef, fmt.Errorf("must be one complete scoped value reference such as ${env.NAME}"))
+	ref, ok := refValue.(string)
+	if !ok || !cmnvalue.IsExactRef(ref) {
+		return core.NewValidationError("with.template_ref", refValue, fmt.Errorf("must be one complete scoped value reference such as ${env.NAME}"))
 	}
 	return nil
 }

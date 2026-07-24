@@ -28,7 +28,7 @@ func TestResolverConstLoadResolvesConstsAndPreservesRuntimeBindings(t *testing.T
 	assert.Equal(t, "${params.environment}", got)
 }
 
-func TestResolveScopedReferenceReturnsTemplateTextWithoutFurtherExpansion(t *testing.T) {
+func TestResolveRefSinglePass(t *testing.T) {
 	t.Parallel()
 
 	templateText := "  Hello, {{ .name }}! ${env.NESTED} `command`\n"
@@ -42,7 +42,7 @@ func TestResolveScopedReferenceReturnsTemplateTextWithoutFurtherExpansion(t *tes
 		},
 	)
 
-	got, err := resolver.ResolveScopedReference(
+	got, err := resolver.ResolveRef(
 		context.Background(),
 		"${env.TEMPLATE}",
 		value.TemplateConfigField("with.template_ref"),
@@ -51,7 +51,7 @@ func TestResolveScopedReferenceReturnsTemplateTextWithoutFurtherExpansion(t *tes
 	assert.Equal(t, templateText, got)
 }
 
-func TestResolveScopedReferenceRequiresAvailableNonEmptyString(t *testing.T) {
+func TestResolveRefValidation(t *testing.T) {
 	t.Parallel()
 
 	resolver := value.NewResolver(
@@ -77,7 +77,7 @@ func TestResolveScopedReferenceRequiresAvailableNonEmptyString(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := resolver.ResolveScopedReference(
+			_, err := resolver.ResolveRef(
 				context.Background(),
 				tt.token,
 				value.TemplateConfigField("with.template_ref"),

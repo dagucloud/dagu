@@ -89,14 +89,13 @@ func HasValueReference(raw string) bool {
 	return false
 }
 
-// IsScopedReferenceToken reports whether token is one complete canonical Dagu
-// value reference.
-func IsScopedReferenceToken(token string) bool {
-	_, ok := parseScopedReferenceToken(token)
+// IsExactRef reports whether token is an exact canonical scoped reference.
+func IsExactRef(token string) bool {
+	_, ok := parseExactRef(token)
 	return ok
 }
 
-func parseScopedReferenceToken(token string) (reference, bool) {
+func parseExactRef(token string) (reference, bool) {
 	refs := scanReferences(token)
 	if len(refs) != 1 {
 		return reference{}, false

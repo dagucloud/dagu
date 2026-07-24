@@ -891,51 +891,55 @@ func (n *Node) cleanupStepOutputFile() error {
 }
 
 func evalExecutorConfig(ctx context.Context, step core.Step) (map[string]any, error) {
-	env := GetEnv(ctx)
 	if step.ExecutorConfig.Type == "template" {
-		scope := env.Scope
-		if scope == nil {
-			scope = cmnvalue.NewEnvScope(nil, false)
-		}
-		scope = scope.WithEntries(templateConfigEvalVariables(env), cmnvalue.EnvSourceStepEnv)
-		config := maps.Clone(step.ExecutorConfig.Config)
-		templateRef, hasTemplateRef := config["template_ref"]
-		delete(config, "template_ref")
-
-		got, err := resolveRuntimeObjectWithScope(ctx, env, scope, config, cmnvalue.TemplateConfigField("with"))
-		if err != nil {
-			return nil, err
-		}
-		resolved, err := objectAsConfig(got)
-		if err != nil {
-			return nil, err
-		}
-		if !hasTemplateRef {
-			return resolved, nil
-		}
-
-		ref, ok := templateRef.(string)
-		if !ok {
-			return nil, fmt.Errorf("with.template_ref must be a string")
-		}
-		scopedEnv := env
-		scopedEnv.Scope = scope
-		templateText, err := resolverFromEnv(scopedEnv).ResolveScopedReference(
-			ctx,
-			ref,
-			cmnvalue.TemplateConfigField("with.template_ref"),
-		)
-		if err != nil {
-			return nil, err
-		}
-		resolved["template_ref"] = templateText
-		return resolved, nil
+		return evalTemplateConfig(ctx, step.ExecutorConfig.Config)
 	}
 	got, err := resolveRuntimeObject(ctx, step.ExecutorConfig.Config, cmnvalue.ExecutorConfigField("with"))
 	if err != nil {
 		return nil, err
 	}
 	return objectAsConfig(got)
+}
+
+func evalTemplateConfig(ctx context.Context, config map[string]any) (map[string]any, error) {
+	env := GetEnv(ctx)
+	scope := env.Scope
+	if scope == nil {
+		scope = cmnvalue.NewEnvScope(nil, false)
+	}
+	scope = scope.WithEntries(templateConfigEvalVariables(env), cmnvalue.EnvSourceStepEnv)
+
+	config = maps.Clone(config)
+	rawRef, hasRef := config["template_ref"]
+	delete(config, "template_ref")
+
+	got, err := resolveRuntimeObjectWithScope(ctx, env, scope, config, cmnvalue.TemplateConfigField("with"))
+	if err != nil {
+		return nil, err
+	}
+	resolved, err := objectAsConfig(got)
+	if err != nil {
+		return nil, err
+	}
+	if !hasRef {
+		return resolved, nil
+	}
+
+	ref, ok := rawRef.(string)
+	if !ok {
+		return nil, fmt.Errorf("with.template_ref must be a string")
+	}
+	env.Scope = scope
+	templateText, err := resolverFromEnv(env).ResolveRef(
+		ctx,
+		ref,
+		cmnvalue.TemplateConfigField("with.template_ref"),
+	)
+	if err != nil {
+		return nil, err
+	}
+	resolved["template_ref"] = templateText
+	return resolved, nil
 }
 
 func scriptField(ctx context.Context, step core.Step) cmnvalue.Field {

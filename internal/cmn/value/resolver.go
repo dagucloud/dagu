@@ -52,10 +52,9 @@ func (r Resolver) String(ctx context.Context, raw string, field Field) (string, 
 	return r.resolveString(ctx, raw, field)
 }
 
-// ResolveScopedReference resolves one complete canonical Dagu value reference
-// to non-empty string content.
-func (r Resolver) ResolveScopedReference(ctx context.Context, token string, field Field) (string, error) {
-	ref, ok := parseScopedReferenceToken(token)
+// ResolveRef resolves an exact scoped reference to a non-empty string.
+func (r Resolver) ResolveRef(ctx context.Context, token string, field Field) (string, error) {
+	ref, ok := parseExactRef(token)
 	if !ok {
 		return "", fieldError(field, fmt.Errorf("must be one complete scoped value reference"))
 	}

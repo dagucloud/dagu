@@ -60,7 +60,7 @@ func TestScanReferencesMarksExactStepOutputRefs(t *testing.T) {
 	assert.Equal(t, "${steps.extract.outputs.user}", outputRefs[0].Expression)
 }
 
-func TestIsScopedReferenceToken(t *testing.T) {
+func TestIsExactRef(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -85,7 +85,7 @@ func TestIsScopedReferenceToken(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		assert.Equal(t, tt.want, value.IsScopedReferenceToken(tt.token), tt.token)
+		assert.Equal(t, tt.want, value.IsExactRef(tt.token), tt.token)
 	}
 }
 
