@@ -140,6 +140,7 @@ type pinnedStateCoordinator struct {
 // it should be closed and removed when no longer needed or when the coordinator
 // is unhealthy.
 type client struct {
+	address      string
 	conn         *grpc.ClientConn
 	client       coordinatorv1.CoordinatorServiceClient
 	healthClient grpc_health_v1.HealthClient
@@ -310,14 +311,13 @@ func (cli *clientImpl) attemptCall(ctx context.Context, members []exec.HostInfo,
 				tag.Host(member.Host),
 				tag.Port(member.Port),
 				tag.Error(err))
-			cli.removeClient(member) // Remove failed client
 			cli.recordFailure(err)
 			lastErr = err
 			continue
 		}
 
 		// Check if the coordinator is healthy
-		if err := cli.checkHealthy(ctx, member, client); err != nil {
+		if err := cli.isHealthy(ctx, client); err != nil {
 			logger.Warn(ctx, "Failed to check coordinator health",
 				slog.String("coordinator-id", member.ID),
 				tag.Host(member.Host),
@@ -341,8 +341,6 @@ func (cli *clientImpl) attemptCall(ctx context.Context, members []exec.HostInfo,
 			if errors.Is(err, backoff.ErrPermanent) {
 				return err
 			}
-			cli.resetClientOnTransientError(member, client, err)
-
 			lastErr = err
 		} else {
 			// Success - record and return immediately
@@ -362,11 +360,13 @@ func (cli *clientImpl) callPinnedStateCoordinator(ctx context.Context, routingKe
 		return err
 	}
 
+	var failedClient *client
 	err = cli.callMemberWithTimeout(ctx, member, func(ctx context.Context, client *client) error {
+		failedClient = client
 		return callback(ctx, member, client)
 	})
 	if shouldRefreshPinnedStateCoordinator(err) {
-		cli.removeClient(member)
+		cli.removeClientIfCurrent(member, failedClient)
 		cli.refreshPinnedStateCoordinator(ctx, routingKey, member)
 	}
 	return err
@@ -506,7 +506,7 @@ func (cli *clientImpl) callMember(ctx context.Context, member exec.HostInfo, cal
 	if err := callback(ctx, client); err != nil {
 		cli.recordFailure(err)
 		if st, ok := status.FromError(err); ok && st.Code() == codes.Unavailable {
-			cli.removeClient(member)
+			cli.removeClientIfCurrent(member, client)
 		}
 		return err
 	}
@@ -542,26 +542,14 @@ func (cli *clientImpl) isHealthy(ctx context.Context, client *client) error {
 	return nil
 }
 
-// checkHealthy verifies the coordinator is serving and evicts the cached
-// client when the failure indicates a stale connection.
-func (cli *clientImpl) checkHealthy(ctx context.Context, member exec.HostInfo, client *client) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if err := cli.isHealthy(ctx, client); err != nil {
-		cli.resetClientOnTransientError(member, client, err)
-		return err
-	}
-	return nil
-}
-
 // getOrCreateClient gets an existing client or creates a new one for the given member
 func (cli *clientImpl) getOrCreateClient(member exec.HostInfo) (*client, error) {
 	key := coordinatorMemberKey(member)
+	address := coordinatorAddress(member)
 
 	// Try to get existing client with read lock
 	cli.clientsMu.RLock()
-	if c, exists := cli.clients[key]; exists {
+	if c, exists := cli.clients[key]; exists && c.address == address {
 		cli.clientsMu.RUnlock()
 		return c, nil
 	}
@@ -572,7 +560,7 @@ func (cli *clientImpl) getOrCreateClient(member exec.HostInfo) (*client, error) 
 	defer cli.clientsMu.Unlock()
 
 	// Double-check after acquiring write lock
-	if c, exists := cli.clients[key]; exists {
+	if c, exists := cli.clients[key]; exists && c.address == address {
 		return c, nil
 	}
 
@@ -580,6 +568,10 @@ func (cli *clientImpl) getOrCreateClient(member exec.HostInfo) (*client, error) 
 	c, err := cli.createClient(member)
 	if err != nil {
 		return nil, err
+	}
+
+	if stale, exists := cli.clients[key]; exists {
+		_ = stale.conn.Close()
 	}
 
 	// Cache it
@@ -596,7 +588,7 @@ func (cli *clientImpl) createClient(member exec.HostInfo) (*client, error) {
 	}
 
 	// Construct address from host and port
-	address := net.JoinHostPort(member.Host, strconv.Itoa(member.Port))
+	address := coordinatorAddress(member)
 
 	// Create gRPC connection
 	conn, err := grpc.NewClient(address, dialOpts...)
@@ -605,20 +597,13 @@ func (cli *clientImpl) createClient(member exec.HostInfo) (*client, error) {
 	}
 
 	return &client{
+		address:      address,
 		conn:         conn,
 		client:       coordinatorv1.NewCoordinatorServiceClient(conn),
 		healthClient: grpc_health_v1.NewHealthClient(conn),
 	}, nil
 }
 
-// removeClient removes a client from the cache
-func (cli *clientImpl) removeClient(member exec.HostInfo) {
-	cli.removeClientIfCurrent(member, nil)
-}
-
-// removeClientIfCurrent removes the cached client for member. A non-nil
-// failedClient restricts removal to that instance, so a replacement created
-// by a concurrent caller is preserved.
 func (cli *clientImpl) removeClientIfCurrent(member exec.HostInfo, failedClient *client) {
 	key := coordinatorMemberKey(member)
 
@@ -626,22 +611,11 @@ func (cli *clientImpl) removeClientIfCurrent(member exec.HostInfo, failedClient 
 	defer cli.clientsMu.Unlock()
 
 	current, exists := cli.clients[key]
-	if !exists || (failedClient != nil && current != failedClient) {
+	if !exists || current != failedClient {
 		return
 	}
 	_ = current.conn.Close()
 	delete(cli.clients, key)
-}
-
-// resetClientOnTransientError drops the cached client so the next call
-// re-dials, when err indicates the connection may be stale. A deadline is a
-// stale signal alongside Unavailable: a coordinator that moved to a new address
-// under the same ID can leave the cached connection dialing an endpoint that
-// hangs rather than refusing, which surfaces as a timeout.
-func (cli *clientImpl) resetClientOnTransientError(member exec.HostInfo, failedClient *client, err error) {
-	if errors.Is(err, context.DeadlineExceeded) || shouldRefreshPinnedStateCoordinator(err) {
-		cli.removeClientIfCurrent(member, failedClient)
-	}
 }
 
 // Cleanup cleans up all connections
@@ -745,7 +719,7 @@ func (cli *clientImpl) GetWorkers(ctx context.Context) ([]*coordinatorv1.WorkerI
 
 			// If this is a connection error, remove the client from cache
 			if st, ok := status.FromError(err); ok && st.Code() == codes.Unavailable {
-				cli.removeClient(member)
+				cli.removeClientIfCurrent(member, c)
 			}
 			continue
 		}
@@ -822,6 +796,10 @@ func coordinatorMemberKey(member exec.HostInfo) string {
 		return member.ID
 	}
 	return fmt.Sprintf("%s:%d", member.Host, member.Port)
+}
+
+func coordinatorAddress(member exec.HostInfo) string {
+	return net.JoinHostPort(member.Host, strconv.Itoa(member.Port))
 }
 
 func selectAuthoritativeWorker(current, candidate *coordinatorv1.WorkerInfo) *coordinatorv1.WorkerInfo {
@@ -977,7 +955,7 @@ func openStreamWithFailover[T any](
 			lastErr = err
 			continue
 		}
-		if err := cli.checkHealthy(ctx, member, memberClient); err != nil {
+		if err := cli.isHealthy(ctx, memberClient); err != nil {
 			cli.recordFailure(err)
 			lastErr = err
 			continue
@@ -1139,7 +1117,7 @@ func (cli *clientImpl) PutWorkspaceBundle(ctx context.Context, desc workspacebun
 			errs = append(errs, fmt.Errorf("coordinator %q: %w", member.ID, err))
 			continue
 		}
-		if err := cli.checkHealthy(ctx, member, memberClient); err != nil {
+		if err := cli.isHealthy(ctx, memberClient); err != nil {
 			errs = append(errs, fmt.Errorf("coordinator %q is unhealthy: %w", member.ID, err))
 			continue
 		}
