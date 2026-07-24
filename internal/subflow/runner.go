@@ -155,6 +155,10 @@ func (r *Runner) Run(ctx context.Context, req executor.SubWorkflowRequest) (*exe
 		return r.waitCompletion(ctx, req)
 	}
 
+	if req.Reuse {
+		return nil, fmt.Errorf("persisted child workflow status not found for DAG run %s", req.RunID)
+	}
+
 	if err := r.dispatchStart(ctx, req); err != nil {
 		logger.Error(dispatchCtx, "Distributed child workflow dispatch failed", tag.Error(err))
 		return nil, fmt.Errorf("distributed execution failed: %w", err)

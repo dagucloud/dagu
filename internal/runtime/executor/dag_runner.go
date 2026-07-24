@@ -227,7 +227,15 @@ func (e *SubDAGExecutor) Reuse(ctx context.Context, runParams RunParams, workDir
 	if !e.shouldRunWithSubWorkflowRunner(ctx, req) {
 		return nil, errNoSubWorkflowRunner
 	}
-	return e.subWorkflowRunner.Run(ctx, req)
+
+	runCtx, cancel := context.WithCancel(ctx)
+	e.trackRun(runParams.RunID, cancel)
+	defer e.clearRun(runParams.RunID)
+
+	if err := e.cancellationErr(ctx); err != nil {
+		return nil, err
+	}
+	return e.subWorkflowRunner.Run(runCtx, req)
 }
 
 // Retry executes a parent-managed step retry for a previously started sub DAG.

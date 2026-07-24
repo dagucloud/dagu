@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/dagucloud/dagu/internal/core"
 	exec1 "github.com/dagucloud/dagu/internal/core/exec"
@@ -396,6 +397,50 @@ func TestSubDAGExecutor_ExecuteDoesNotDispatchAfterPreRunKill(t *testing.T) {
 	assert.NotContains(t, executor.activeRuns, "child-789")
 }
 
+func TestSubDAGExecutor_ReuseCanBeKilled(t *testing.T) {
+	t.Parallel()
+
+	dagCtx := exec1.Context{
+		DAG:        &core.DAG{Name: "parent"},
+		RootDAGRun: exec1.NewDAGRunRef("parent", "root-123"),
+		DAGRunID:   "parent-456",
+	}
+	ctx := exec1.WithContext(context.Background(), dagCtx)
+	started := make(chan struct{})
+	runner := &mockSubWorkflowRunner{
+		shouldRun: true,
+		runFunc: func(ctx context.Context, _ SubWorkflowRequest) (*exec1.RunStatus, error) {
+			close(started)
+			<-ctx.Done()
+			return nil, ctx.Err()
+		},
+	}
+	executor := &SubDAGExecutor{
+		DAG:               &core.DAG{Name: "test-child"},
+		subWorkflowRunner: runner,
+		activeRuns:        make(map[string]context.CancelFunc),
+		dagCtx:            dagCtx,
+		killed:            make(chan struct{}),
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := executor.Reuse(ctx, RunParams{RunID: "child-789"}, "")
+		errCh <- err
+	}()
+
+	<-started
+	require.NoError(t, executor.Kill(os.Interrupt))
+	select {
+	case err := <-errCh:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(5 * time.Second):
+		t.Fatal("reuse did not stop after kill")
+	}
+	assert.NotContains(t, executor.activeRuns, "child-789")
+	assert.Equal(t, 1, runner.cancelCalled)
+}
+
 func TestRetry_NoRootDAGRun(t *testing.T) {
 	t.Parallel()
 
@@ -572,6 +617,7 @@ type mockSubWorkflowRunner struct {
 	runErr        error
 	retryResult   *exec1.RunStatus
 	retryErr      error
+	runFunc       func(context.Context, SubWorkflowRequest) (*exec1.RunStatus, error)
 	runRequests   []SubWorkflowRequest
 	retryRequests []SubWorkflowRetryRequest
 	cancelCalled  int
@@ -581,8 +627,11 @@ func (m *mockSubWorkflowRunner) ShouldRun(context.Context, SubWorkflowRequest) b
 	return m.shouldRun
 }
 
-func (m *mockSubWorkflowRunner) Run(_ context.Context, req SubWorkflowRequest) (*exec1.RunStatus, error) {
+func (m *mockSubWorkflowRunner) Run(ctx context.Context, req SubWorkflowRequest) (*exec1.RunStatus, error) {
 	m.runRequests = append(m.runRequests, req)
+	if m.runFunc != nil {
+		return m.runFunc(ctx, req)
+	}
 	return m.runResult, m.runErr
 }
 
