@@ -166,6 +166,25 @@ var (
 		name:  "step",
 		usage: "Retry only the specified step (optional)",
 	}
+
+	childRetryRouteFlag = commandLineFlag{
+		name:   "child-retry-route",
+		usage:  "Internal persisted child DAG retry route",
+		hidden: true,
+	}
+
+	retryReservationFlag = commandLineFlag{
+		name:   "retry-reservation",
+		usage:  "Internal retry reservation attempt ID",
+		hidden: true,
+	}
+
+	manualResumeFlag = commandLineFlag{
+		name:   "manual-resume",
+		usage:  "Internal manual-step resume",
+		isBool: true,
+		hidden: true,
+	}
 )
 
 // Sub DAG run flags

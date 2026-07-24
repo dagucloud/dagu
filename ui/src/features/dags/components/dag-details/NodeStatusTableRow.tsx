@@ -501,14 +501,20 @@ function NodeStatusTableRow({
     setLoading(true);
     setError(null);
     try {
+      const retryDAGName = isSubDAGRun ? dagRun.rootDAGRunName : dagName;
+      const retryDAGRunId = isSubDAGRun ? dagRun.rootDAGRunId : dagRunId;
       const { error: requestError } = await client.POST(
         '/dag-runs/{name}/{dagRunId}/retry',
         {
           params: {
-            path: { name: dagName, dagRunId },
+            path: { name: retryDAGName, dagRunId: retryDAGRunId },
             query: { remoteNode },
           },
-          body: { dagRunId, stepName: node.step.name },
+          body: {
+            dagRunId: retryDAGRunId,
+            stepName: node.step.name,
+            ...(isSubDAGRun ? { subDAGRunId: dagRun.dagRunId } : {}),
+          },
         }
       );
       if (requestError) {

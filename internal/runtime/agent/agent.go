@@ -177,6 +177,9 @@ type Agent struct {
 	// stepRetry is the name of the step to retry, if specified.
 	stepRetry string
 
+	// childRetryRoute identifies the persisted child invocation selected by a root retry.
+	childRetryRoute exec.ChildRetryRoute
+
 	// workerID is the identifier of the worker executing this DAG run.
 	workerID string
 
@@ -287,6 +290,8 @@ type Options struct {
 	ExtraEnvs []string
 	// StepRetry is the name of the step to retry, if specified.
 	StepRetry string
+	// ChildRetryRoute identifies a persisted child DAG step retry.
+	ChildRetryRoute exec.ChildRetryRoute
 	// WorkerID is the identifier of the worker executing this DAG run.
 	// For distributed execution, this is set to the worker's ID.
 	// For local execution, this defaults to "local".
@@ -397,6 +402,7 @@ func New(
 		extraEnvs:                append([]string{}, opts.ExtraEnvs...),
 		profileName:              opts.ProfileName,
 		stepRetry:                opts.StepRetry,
+		childRetryRoute:          opts.ChildRetryRoute,
 		peerConfig:               opts.PeerConfig,
 		workerID:                 opts.WorkerID,
 		statusPusher:             opts.StatusPusher,
@@ -605,6 +611,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	contextOpts := []runtime.ContextOption{
 		runtime.WithDatabase(dbClient),
 		runtime.WithRootDAGRun(a.rootDAGRun),
+		runtime.WithChildRetryRoute(a.childRetryRoute),
 		runtime.WithAttemptID(a.dagRunAttemptID),
 		runtime.WithTriggerType(a.triggerType),
 		runtime.WithRunStartedAt(contextTimeString(a.plan.StartAt())),
@@ -2019,6 +2026,7 @@ func (a *Agent) dryRun(ctx context.Context) error {
 	contextOpts := []runtime.ContextOption{
 		runtime.WithDatabase(db),
 		runtime.WithRootDAGRun(a.rootDAGRun),
+		runtime.WithChildRetryRoute(a.childRetryRoute),
 		runtime.WithAttemptID(a.dagRunAttemptID),
 		runtime.WithTriggerType(a.triggerType),
 		runtime.WithRunStartedAt(contextTimeString(a.plan.StartAt())),

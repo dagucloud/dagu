@@ -356,6 +356,75 @@ describe('NodeStatusTableRow', () => {
     });
   });
 
+  it('retries a child step through its root DAG run', async () => {
+    postMock.mockResolvedValueOnce({});
+    const node = {
+      step: { name: 'build' },
+      status: NodeStatus.Failed,
+      statusLabel: NodeStatusLabel.failed,
+      stdout: '',
+      stderr: '',
+      startedAt: '',
+      finishedAt: '',
+      retryCount: 0,
+      doneCount: 1,
+    } as components['schemas']['Node'];
+
+    render(
+      <MemoryRouter>
+        <AppBarContext.Provider value={appBarValue}>
+          <DAGContext.Provider
+            value={{
+              refresh: vi.fn(),
+              name: 'child',
+              fileName: 'child.yaml',
+            }}
+          >
+            <table>
+              <tbody>
+                <NodeStatusTableRow
+                  rownum={1}
+                  node={node}
+                  name="child.yaml"
+                  dagRun={{
+                    ...dagRun,
+                    name: 'child',
+                    dagRunId: 'child-run',
+                    rootDAGRunName: 'root',
+                    rootDAGRunId: 'root-run',
+                  }}
+                  view="desktop"
+                />
+              </tbody>
+            </table>
+          </DAGContext.Provider>
+        </AppBarContext.Provider>
+      </MemoryRouter>
+    );
+
+    fireEvent.click(screen.getByTitle('Retry from this step'));
+    fireEvent.click(
+      within(screen.getByRole('dialog')).getByRole('button', { name: 'Retry' })
+    );
+
+    await vi.waitFor(() => {
+      expect(postMock).toHaveBeenCalledWith(
+        '/dag-runs/{name}/{dagRunId}/retry',
+        {
+          params: {
+            path: { name: 'root', dagRunId: 'root-run' },
+            query: { remoteNode: 'local' },
+          },
+          body: {
+            dagRunId: 'root-run',
+            stepName: 'build',
+            subDAGRunId: 'child-run',
+          },
+        }
+      );
+    });
+  });
+
   it.each([
     {
       name: 'human task',

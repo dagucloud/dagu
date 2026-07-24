@@ -93,7 +93,16 @@ func (e *dagExecutor) Run(ctx context.Context) error {
 		}
 	}()
 
-	result, execErr := e.child.Execute(ctx, e.runParams, e.workDir)
+	var result *exec.RunStatus
+	var execErr error
+	route := exec.GetContext(ctx).ChildRetryRoute
+	if segment, ok := route.Current(); ok &&
+		segment.ParentStep == e.step.Name && segment.DAGRunID == e.runParams.RunID {
+		e.child.SetChildRetryRoute(route.Advance())
+		result, execErr = e.child.Retry(ctx, e.runParams, route.NextStep(), e.workDir)
+	} else {
+		result, execErr = e.child.Execute(ctx, e.runParams, e.workDir)
+	}
 	if result != nil {
 		e.lock.Lock()
 		e.result = result

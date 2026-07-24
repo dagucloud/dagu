@@ -832,9 +832,15 @@ func (n *Node) setupExecutor(ctx context.Context) (context.Context, executor.Exe
 
 	// Handle sub DAG execution
 	if subDAG := n.Step().SubDAG; subDAG != nil {
-		subRuns, err := n.BuildSubDAGRuns(ctx, subDAG)
+		subRuns, targeted, err := n.childRetrySubRuns(ctx)
 		if err != nil {
 			return ctx, nil, err
+		}
+		if !targeted {
+			subRuns, err = n.BuildSubDAGRuns(ctx, subDAG)
+			if err != nil {
+				return ctx, nil, err
+			}
 		}
 		n.SetSubRuns(subRuns)
 
@@ -844,6 +850,43 @@ func (n *Node) setupExecutor(ctx context.Context) (context.Context, executor.Exe
 	}
 
 	return ctx, cmd, nil
+}
+
+func (n *Node) childRetrySubRuns(ctx context.Context) ([]SubDAGRun, bool, error) {
+	segment, ok := exec.GetContext(ctx).ChildRetryRoute.Current()
+	if !ok || segment.ParentStep != n.Name() {
+		return nil, false, nil
+	}
+	selected := SubDAGRun{
+		DAGRunID: segment.DAGRunID,
+		DAGName:  segment.DAGName,
+		Params:   segment.Params,
+	}
+	if n.Step().Parallel == nil {
+		return []SubDAGRun{selected}, true, nil
+	}
+
+	runs := make([]SubDAGRun, 0, len(segment.Runs))
+	found := false
+	for _, run := range segment.Runs {
+		if run.DAGRunID == "" {
+			continue
+		}
+		if run.DAGRunID == segment.DAGRunID {
+			found = true
+			if run.DAGName == "" {
+				run.DAGName = segment.DAGName
+			}
+		}
+		runs = append(runs, SubDAGRun(run))
+	}
+	if !found {
+		runs = append(runs, selected)
+	}
+	if len(runs) == 0 {
+		return nil, false, fmt.Errorf("child retry route for step %s has no persisted runs", n.Name())
+	}
+	return runs, true, nil
 }
 
 func (n *Node) setupStepOutputFile(ctx context.Context) (context.Context, error) {

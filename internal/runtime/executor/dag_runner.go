@@ -59,6 +59,8 @@ type SubDAGExecutor struct {
 	// externalStepRetry shifts step retry waiting out of the child process and
 	// back to the parent executor.
 	externalStepRetry bool
+
+	childRetryRoute exec.ChildRetryRoute
 }
 
 type WorkspaceSeed struct {
@@ -135,6 +137,11 @@ func newSubDAGExecutor(ctx context.Context, rCtx exec.Context, dag *core.DAG, te
 
 func (e *SubDAGExecutor) SetExternalStepRetry(enabled bool) {
 	e.externalStepRetry = enabled
+}
+
+// SetChildRetryRoute sets the remaining targeted retry route for the child run.
+func (e *SubDAGExecutor) SetChildRetryRoute(route exec.ChildRetryRoute) {
+	e.childRetryRoute = route
 }
 
 // SetWorkerSelector sets a per-invocation worker selector for the sub DAG.
@@ -215,6 +222,21 @@ func (e *SubDAGExecutor) Execute(ctx context.Context, runParams RunParams, workD
 	return e.subWorkflowRunner.Run(runCtx, req)
 }
 
+// Reuse returns the persisted result of a child run without executing it.
+func (e *SubDAGExecutor) Reuse(ctx context.Context, runParams RunParams, workDir string) (*exec.RunStatus, error) {
+	ctx = logger.WithValues(ctx, tag.SubDAG(e.DAG.Name), tag.SubRunID(runParams.RunID))
+
+	req := e.subWorkflowRequest(ctx, runParams, workDir)
+	req.ReuseExisting = true
+	if err := validateSubWorkflowRequest(req); err != nil {
+		return nil, err
+	}
+	if !e.shouldRunWithSubWorkflowRunner(ctx, req) {
+		return nil, errNoSubWorkflowRunner
+	}
+	return e.subWorkflowRunner.Run(ctx, req)
+}
+
 // Retry executes a parent-managed step retry for a previously started sub DAG.
 func (e *SubDAGExecutor) Retry(ctx context.Context, runParams RunParams, stepName, workDir string) (*exec.RunStatus, error) {
 	ctx = logger.WithValues(ctx, tag.SubDAG(e.DAG.Name), tag.SubRunID(runParams.RunID))
@@ -269,6 +291,7 @@ func (e *SubDAGExecutor) subWorkflowRequest(ctx context.Context, runParams RunPa
 		WorkDir:           workDir,
 		WorkerSelector:    cloneWorkerSelector(e.effectiveWorkerSelector()),
 		ExternalStepRetry: e.externalStepRetry,
+		ChildRetryRoute:   e.childRetryRoute,
 	}
 	if e.workspaceSeed != nil {
 		req.Workspace = &SubWorkflowWorkspace{
