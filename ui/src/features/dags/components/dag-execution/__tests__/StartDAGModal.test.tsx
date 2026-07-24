@@ -2,9 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { orderProperties } from '@rjsf/utils';
 import userEvent from '@testing-library/user-event';
-import type { ForwardedRef } from 'react';
+import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { RuntimeProfileStatus } from '@/api/v1/schema';
 import StartDAGModal from '../StartDAGModal';
@@ -23,41 +22,24 @@ vi.mock('@rjsf/shadcn', async () => {
     default: React.forwardRef(function MockSchemaForm(
       props: {
         formData?: Record<string, unknown>;
-        schema?: {
-          properties?: Record<string, unknown>;
-        };
-        uiSchema?: Record<string, unknown>;
+        uiSchema?: Record<string, Record<string, unknown>>;
         onChange?: (event: { formData: Record<string, unknown> }) => void;
       },
-      ref: ForwardedRef<{ validateForm: () => boolean }>
+      ref: any
     ) {
       renderedFormProps(props);
       React.useImperativeHandle(ref, () => ({
         validateForm: () => true,
       }));
-      const messageUiSchema = props.uiSchema?.message as
-        | Record<string, unknown>
-        | undefined;
-      const widget = messageUiSchema?.['ui:widget'];
-      const propertyNames = Object.keys(props.schema?.properties ?? {});
-      const configuredOrder = props.uiSchema?.['ui:order'];
-      const fieldNames = orderProperties(
-        propertyNames,
-        Array.isArray(configuredOrder) ? configuredOrder : undefined
-      );
+      const widget = props.uiSchema?.message?.['ui:widget'];
 
       return (
         <div data-testid="schema-form">
-          {fieldNames.map((name) => (
-            <div key={name} data-testid="schema-field">
-              {name}
-              {name === 'message' && widget === 'textarea' ? (
-                <textarea aria-label={name} defaultValue="" />
-              ) : (
-                <input aria-label={name} defaultValue="" />
-              )}
-            </div>
-          ))}
+          {widget === 'textarea' ? (
+            <textarea aria-label="message" defaultValue="" />
+          ) : (
+            <input aria-label="message" defaultValue="" />
+          )}
           <button
             type="button"
             onClick={() =>
@@ -103,15 +85,19 @@ describe('StartDAGModal', () => {
             paramSchema: {
               type: 'object',
               properties: {
+                count: {
+                  type: 'integer',
+                },
                 region: {
                   type: 'string',
                   enum: ['us-east-1', 'us-west-2'],
                 },
-                count: {
-                  type: 'integer',
-                },
               },
             },
+            paramDefs: [
+              { name: 'region', type: 'string', required: false },
+              { name: 'count', type: 'integer', required: false },
+            ],
             defaultParams: 'region="us-east-1" count="3"',
           } as never
         }
@@ -123,6 +109,7 @@ describe('StartDAGModal', () => {
       expect.objectContaining({
         formData: { region: 'us-east-1', count: 3 },
         uiSchema: expect.objectContaining({
+          'ui:order': ['region', 'count', '*'],
           region: expect.objectContaining({ 'ui:widget': 'radio' }),
         }),
         templates: expect.objectContaining({
@@ -147,40 +134,6 @@ describe('StartDAGModal', () => {
         true
       )
     );
-  });
-
-  it('renders schema-backed parameters in declaration order', () => {
-    render(
-      <StartDAGModal
-        visible={true}
-        dismissModal={vi.fn()}
-        onSubmit={vi.fn()}
-        dag={
-          {
-            name: 'ordered-params-dag',
-            paramSchema: {
-              type: 'object',
-              properties: {
-                end: { type: 'string' },
-                image_tag: { type: 'string' },
-                name: { type: 'string' },
-                start: { type: 'string' },
-              },
-            },
-            paramDefs: [
-              { name: 'image_tag', type: 'string', required: false },
-              { name: 'name', type: 'string', required: false },
-              { name: 'start', type: 'string', required: false },
-              { name: 'end', type: 'string', required: false },
-            ],
-          } as never
-        }
-      />
-    );
-
-    expect(
-      screen.getAllByTestId('schema-field').map((field) => field.textContent)
-    ).toEqual(['image_tag', 'name', 'start', 'end']);
   });
 
   it('does not submit a schema-backed string param when Shift+Enter is pressed', () => {
