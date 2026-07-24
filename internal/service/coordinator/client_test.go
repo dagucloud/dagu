@@ -8,6 +8,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -23,6 +24,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 )
 
@@ -1088,6 +1090,65 @@ func TestClientDiscoveredAddressRemainsAuthoritative(t *testing.T) {
 	require.NoError(t, err)
 	assert.Zero(t, oldReports.Load())
 	assert.Equal(t, int32(1), newReports.Load())
+}
+
+func TestClientHeartbeatReconnectsAfterDeadline(t *testing.T) {
+	t.Parallel()
+
+	config := coordinator.DefaultConfig()
+	config.MaxRetries = 0
+
+	var peerMu sync.Mutex
+	var initialPeer string
+	var reconnectedHeartbeats atomic.Int32
+	mockCoord := &mockCoordinatorService{
+		heartbeatFunc: func(ctx context.Context, _ *coordinatorv1.HeartbeatRequest) (*coordinatorv1.HeartbeatResponse, error) {
+			peerInfo, ok := peer.FromContext(ctx)
+			if !ok {
+				return nil, status.Error(codes.Internal, "missing peer information")
+			}
+
+			peerMu.Lock()
+			if initialPeer == "" {
+				initialPeer = peerInfo.Addr.String()
+				peerMu.Unlock()
+				return &coordinatorv1.HeartbeatResponse{}, nil
+			}
+			sameConnection := initialPeer == peerInfo.Addr.String()
+			peerMu.Unlock()
+
+			if sameConnection {
+				<-ctx.Done()
+				return nil, ctx.Err()
+			}
+
+			reconnectedHeartbeats.Add(1)
+			return &coordinatorv1.HeartbeatResponse{}, nil
+		},
+	}
+	server, addr := startMockServer(t, mockCoord)
+	defer server.Stop()
+
+	host, port := parseHostPort(addr)
+	monitor := &mockServiceMonitor{
+		members: []exec.HostInfo{{ID: "coord-a", Host: host, Port: port, Status: exec.ServiceStatusActive}},
+	}
+	client := coordinator.New(monitor, config)
+
+	request := &coordinatorv1.HeartbeatRequest{WorkerId: "test-worker"}
+	_, err := client.Heartbeat(context.Background(), request)
+	require.NoError(t, err)
+
+	stalledCtx, cancelStalled := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	_, err = client.Heartbeat(stalledCtx, request)
+	cancelStalled()
+	require.Equal(t, codes.DeadlineExceeded, status.Code(err))
+
+	recoveredCtx, cancelRecovered := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancelRecovered()
+	_, err = client.Heartbeat(recoveredCtx, request)
+	require.NoError(t, err)
+	assert.Equal(t, int32(1), reconnectedHeartbeats.Load())
 }
 
 func TestClientHeartbeatUsesConfiguredTimeout(t *testing.T) {

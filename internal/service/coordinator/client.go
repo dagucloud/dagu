@@ -321,7 +321,7 @@ func (cli *clientImpl) attemptCall(ctx context.Context, members []exec.HostInfo,
 		}
 
 		// Check if the coordinator is healthy
-		if err := cli.isHealthy(ctx, client); err != nil {
+		if err := cli.checkHealthy(ctx, member, client); err != nil {
 			logger.Warn(ctx, "Failed to check coordinator health",
 				slog.String("coordinator-id", member.ID),
 				tag.Host(member.Host),
@@ -345,6 +345,7 @@ func (cli *clientImpl) attemptCall(ctx context.Context, members []exec.HostInfo,
 			if errors.Is(err, backoff.ErrPermanent) {
 				return err
 			}
+			cli.resetClientOnTransientError(member, client, err)
 			lastErr = err
 		} else {
 			// Success - record and return immediately
@@ -546,6 +547,17 @@ func (cli *clientImpl) isHealthy(ctx context.Context, client *client) error {
 	return nil
 }
 
+func (cli *clientImpl) checkHealthy(ctx context.Context, member exec.HostInfo, client *client) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := cli.isHealthy(ctx, client); err != nil {
+		cli.resetClientOnTransientError(member, client, err)
+		return err
+	}
+	return nil
+}
+
 // getOrCreateClient gets a client for the member without changing the cached address.
 func (cli *clientImpl) getOrCreateClient(member exec.HostInfo) (*client, error) {
 	return cli.getOrCreateClientWithAddressRefresh(member, false)
@@ -629,6 +641,13 @@ func (cli *clientImpl) removeClientIfCurrent(member exec.HostInfo, failedClient 
 	}
 	_ = current.conn.Close()
 	delete(cli.clients, key)
+}
+
+// resetClientOnTransientError evicts a failed cached client whose transport may be stale.
+func (cli *clientImpl) resetClientOnTransientError(member exec.HostInfo, failedClient *client, err error) {
+	if errors.Is(err, context.DeadlineExceeded) || shouldRefreshPinnedStateCoordinator(err) {
+		cli.removeClientIfCurrent(member, failedClient)
+	}
 }
 
 // Cleanup cleans up all connections
@@ -968,7 +987,7 @@ func openStreamWithFailover[T any](
 			lastErr = err
 			continue
 		}
-		if err := cli.isHealthy(ctx, memberClient); err != nil {
+		if err := cli.checkHealthy(ctx, member, memberClient); err != nil {
 			cli.recordFailure(err)
 			lastErr = err
 			continue
@@ -977,6 +996,7 @@ func openStreamWithFailover[T any](
 		stream, err := open(ctx, memberClient)
 		if err != nil {
 			cli.recordFailure(err)
+			cli.resetClientOnTransientError(member, memberClient, err)
 			lastErr = err
 			continue
 		}
@@ -1130,7 +1150,7 @@ func (cli *clientImpl) PutWorkspaceBundle(ctx context.Context, desc workspacebun
 			errs = append(errs, fmt.Errorf("coordinator %q: %w", member.ID, err))
 			continue
 		}
-		if err := cli.isHealthy(ctx, memberClient); err != nil {
+		if err := cli.checkHealthy(ctx, member, memberClient); err != nil {
 			errs = append(errs, fmt.Errorf("coordinator %q is unhealthy: %w", member.ID, err))
 			continue
 		}
@@ -1138,6 +1158,7 @@ func (cli *clientImpl) PutWorkspaceBundle(ctx context.Context, desc workspacebun
 		exists, err := hasWorkspaceBundleInMember(callCtx, memberClient, desc.Digest)
 		cancel()
 		if err != nil {
+			cli.resetClientOnTransientError(member, memberClient, err)
 			errs = append(errs, fmt.Errorf("check workspace bundle on coordinator %q: %w", member.ID, err))
 			continue
 		}
@@ -1150,6 +1171,7 @@ func (cli *clientImpl) PutWorkspaceBundle(ctx context.Context, desc workspacebun
 		err = putWorkspaceBundleToMember(callCtx, memberClient, desc, data)
 		cancel()
 		if err != nil {
+			cli.resetClientOnTransientError(member, memberClient, err)
 			errs = append(errs, fmt.Errorf("upload workspace bundle to coordinator %q: %w", member.ID, err))
 			continue
 		}
