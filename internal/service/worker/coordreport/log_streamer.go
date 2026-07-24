@@ -31,7 +31,7 @@ const (
 	// Keep below 4MB to leave room for proto overhead and stay within gRPC limits.
 	maxChunkSize = 3 * 1024 * 1024 // 3MB
 
-	logFlushInterval          = 500 * time.Millisecond
+	logFlushInterval          = 2 * time.Second
 	logStreamOperationTimeout = 5 * time.Second
 )
 
@@ -281,6 +281,7 @@ type stepLogWriter struct {
 	mu               sync.Mutex
 	closed           bool
 	streamInitFailed bool // Tracks terminal stream failure
+	pendingSince     time.Time
 }
 
 // Write implements io.Writer
@@ -292,6 +293,9 @@ func (w *stepLogWriter) Write(p []byte) (int, error) {
 		return 0, io.ErrClosedPipe
 	}
 
+	if len(w.buffer) == 0 {
+		w.pendingSince = time.Now()
+	}
 	w.buffer = append(w.buffer, p...)
 
 	// Flush when buffer exceeds threshold
@@ -313,6 +317,17 @@ func (w *stepLogWriter) Flush() error {
 	return w.flushLocked()
 }
 
+// FlushIfDue sends pending log data after the buffering interval has elapsed.
+func (w *stepLogWriter) FlushIfDue() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.closed || len(w.buffer) == 0 || time.Since(w.pendingSince) < logFlushInterval {
+		return nil
+	}
+	return w.flushLocked()
+}
+
 // flushLocked sends buffered data to coordinator.
 // Implements chunk splitting for large buffers to stay within gRPC message size limits.
 // Sequence numbers are only incremented after successful Send to avoid gaps.
@@ -324,6 +339,7 @@ func (w *stepLogWriter) flushLocked() error {
 	// Split buffer into chunks if necessary to stay within gRPC limits
 	data := w.buffer
 	w.buffer = w.buffer[:0]
+	w.pendingSince = time.Time{}
 	streamingDisabled := w.streamInitFailed
 	var firstErr error
 

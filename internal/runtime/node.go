@@ -245,7 +245,7 @@ func (n *Node) startOutputFlusher() *flusherControl {
 			case <-ctrl.done:
 				return
 			case <-ticker.C:
-				_ = n.outputs.flushWriters()
+				_ = n.outputs.flushWritersIfDue()
 			}
 		}
 	}()

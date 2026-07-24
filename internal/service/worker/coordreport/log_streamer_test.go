@@ -313,6 +313,34 @@ func TestFlush_SmallDataBeforeClose(t *testing.T) {
 	assert.True(t, chunks[1].IsFinal)
 }
 
+func TestFlushIfDue_SmallDataWhileOpen(t *testing.T) {
+	t.Parallel()
+
+	mockStream := &mockStreamLogsClient{}
+	client := &logStreamerMockClient{
+		streamLogsFunc: func(_ context.Context) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
+			return mockStream, nil
+		},
+	}
+	streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", exec.DAGRunRef{})
+	writer := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout).(*coordreport.StepLogWriter)
+	defer func() { require.NoError(t, writer.Close()) }()
+
+	data := []byte("small log message")
+	_, err := writer.Write(data)
+	require.NoError(t, err)
+	require.NoError(t, writer.FlushIfDue())
+	assert.Empty(t, mockStream.getSentChunks())
+
+	require.Eventually(t, func() bool {
+		if err := writer.FlushIfDue(); err != nil {
+			return false
+		}
+		chunks := mockStream.getSentChunks()
+		return len(chunks) == 1 && string(chunks[0].Data) == string(data)
+	}, 5*time.Second, 50*time.Millisecond)
+}
+
 func TestWrite_ExactThreshold(t *testing.T) {
 	t.Parallel()
 	mockStream := &mockStreamLogsClient{}
@@ -1599,7 +1627,7 @@ func TestSchedulerLogWriterRetriesSparseDataAfterStreamOpenFailure(t *testing.T)
 			}
 		}
 		return false
-	}, 5*time.Second, 10*time.Millisecond)
+	}, 8*time.Second, 10*time.Millisecond)
 	assert.GreaterOrEqual(t, openCount.Load(), int32(2))
 }
 
