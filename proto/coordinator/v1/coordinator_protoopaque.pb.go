@@ -481,7 +481,7 @@ type Task struct {
 	xxx_hidden_WorkspaceBundleOriginalRef string                 `protobuf:"bytes,30,opt,name=workspace_bundle_original_ref,json=workspaceBundleOriginalRef,proto3"`
 	xxx_hidden_WorkspaceBundleResolvedRef string                 `protobuf:"bytes,31,opt,name=workspace_bundle_resolved_ref,json=workspaceBundleResolvedRef,proto3"`
 	xxx_hidden_ProfileName                string                 `protobuf:"bytes,32,opt,name=profile_name,json=profileName,proto3"`
-	xxx_hidden_ChildRetryRoute            string                 `protobuf:"bytes,33,opt,name=child_retry_route,json=childRetryRoute,proto3"`
+	xxx_hidden_RetryPath                  string                 `protobuf:"bytes,33,opt,name=retry_path,json=retryPath,proto3"`
 	unknownFields                         protoimpl.UnknownFields
 	sizeCache                             protoimpl.SizeCache
 }
@@ -728,9 +728,9 @@ func (x *Task) GetProfileName() string {
 	return ""
 }
 
-func (x *Task) GetChildRetryRoute() string {
+func (x *Task) GetRetryPath() string {
 	if x != nil {
-		return x.xxx_hidden_ChildRetryRoute
+		return x.xxx_hidden_RetryPath
 	}
 	return ""
 }
@@ -859,8 +859,8 @@ func (x *Task) SetProfileName(v string) {
 	x.xxx_hidden_ProfileName = v
 }
 
-func (x *Task) SetChildRetryRoute(v string) {
-	x.xxx_hidden_ChildRetryRoute = v
+func (x *Task) SetRetryPath(v string) {
+	x.xxx_hidden_RetryPath = v
 }
 
 func (x *Task) HasPreviousStatus() bool {
@@ -923,7 +923,7 @@ type Task_builder struct {
 	// Runtime profile name. Workers resolve values at attempt start.
 	ProfileName string
 	// Internal persisted child DAG route for a targeted step retry.
-	ChildRetryRoute string
+	RetryPath string
 }
 
 func (b0 Task_builder) Build() *Task {
@@ -961,7 +961,7 @@ func (b0 Task_builder) Build() *Task {
 	x.xxx_hidden_WorkspaceBundleOriginalRef = b.WorkspaceBundleOriginalRef
 	x.xxx_hidden_WorkspaceBundleResolvedRef = b.WorkspaceBundleResolvedRef
 	x.xxx_hidden_ProfileName = b.ProfileName
-	x.xxx_hidden_ChildRetryRoute = b.ChildRetryRoute
+	x.xxx_hidden_RetryPath = b.RetryPath
 	return m0
 }
 
@@ -5009,7 +5009,7 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\x0fDispatchRequest\x12(\n" +
 	"\x04task\x18\x01 \x01(\v2\x14.coordinator.v1.TaskR\x04task\x12>\n" +
 	"\x1badmission_reservation_token\x18\x02 \x01(\tR\x19admissionReservationToken\"\x12\n" +
-	"\x10DispatchResponse\"\xb5\v\n" +
+	"\x10DispatchResponse\"\xa8\v\n" +
 	"\x04Task\x127\n" +
 	"\toperation\x18\x06 \x01(\x0e2\x19.coordinator.v1.OperationR\toperation\x12)\n" +
 	"\x11root_dag_run_name\x18\x01 \x01(\tR\x0erootDagRunName\x12%\n" +
@@ -5051,8 +5051,9 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\x19workspace_bundle_dag_path\x18\x1d \x01(\tR\x16workspaceBundleDagPath\x12A\n" +
 	"\x1dworkspace_bundle_original_ref\x18\x1e \x01(\tR\x1aworkspaceBundleOriginalRef\x12A\n" +
 	"\x1dworkspace_bundle_resolved_ref\x18\x1f \x01(\tR\x1aworkspaceBundleResolvedRef\x12!\n" +
-	"\fprofile_name\x18  \x01(\tR\vprofileName\x12*\n" +
-	"\x11child_retry_route\x18! \x01(\tR\x0fchildRetryRoute\x1aA\n" +
+	"\fprofile_name\x18  \x01(\tR\vprofileName\x12\x1d\n" +
+	"\n" +
+	"retry_path\x18! \x01(\tR\tretryPath\x1aA\n" +
 	"\x13WorkerSelectorEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x13\n" +

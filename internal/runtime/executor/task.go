@@ -144,13 +144,10 @@ func WithExternalStepRetry(enabled bool) TaskOption {
 	}
 }
 
-// WithChildRetryRoute sets the persisted child DAG route for a retry task.
-func WithChildRetryRoute(route exec.ChildRetryRoute) TaskOption {
+// WithRetryPath sets the persisted child DAG path for a retry task.
+func WithRetryPath(path exec.RetryPath) TaskOption {
 	return func(task *exec.DispatchTask) {
-		data, err := route.MarshalText()
-		if err == nil {
-			task.ChildRetryRoute = string(data)
-		}
+		task.RetryPath = path.Encode()
 	}
 }
 

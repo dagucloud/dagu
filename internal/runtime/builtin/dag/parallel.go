@@ -50,11 +50,11 @@ type parallelExecutor struct {
 }
 
 type scheduledAttempt struct {
-	runParams       executor.RunParams
-	stepName        string
-	readyAt         time.Time
-	reuse           bool
-	childRetryRoute exec1.ChildRetryRoute
+	runParams executor.RunParams
+	stepName  string
+	readyAt   time.Time
+	reuse     bool
+	retryPath exec1.RetryPath
 }
 
 type attemptResult struct {
@@ -129,16 +129,16 @@ func (e *parallelExecutor) Run(ctx context.Context) error {
 	pending := make([]scheduledAttempt, 0, len(e.runParamsList))
 	pendingSet := make(map[string]struct{}, len(e.runParamsList))
 	busyRuns := make(map[string]struct{}, len(e.runParamsList))
-	route := exec1.GetContext(ctx).ChildRetryRoute
-	segment, targeted := route.Current()
-	targeted = targeted && segment.ParentStep == e.step.Name
+	path := exec1.GetContext(ctx).RetryPath
+	hop, targeted := path.Current()
+	targeted = targeted && hop.Step == e.step.Name
 	targetFound := false
 	for _, params := range e.runParamsList {
 		attempt := scheduledAttempt{runParams: params}
 		if targeted {
-			if params.RunID == segment.DAGRunID {
-				attempt.stepName = route.NextStep()
-				attempt.childRetryRoute = route.Advance()
+			if params.RunID == hop.RunID {
+				attempt.stepName = path.NextStep()
+				attempt.retryPath = path.Advance()
 				targetFound = true
 			} else {
 				attempt.reuse = true
@@ -148,7 +148,7 @@ func (e *parallelExecutor) Run(ctx context.Context) error {
 		pendingSet[pendingAttemptKey(attempt)] = struct{}{}
 	}
 	if targeted && !targetFound {
-		return fmt.Errorf("target child DAG run %s is not present in step %s", segment.DAGRunID, e.step.Name)
+		return fmt.Errorf("target child DAG run %s is not present in step %s", hop.RunID, e.step.Name)
 	}
 
 	resultCh := make(chan attemptResult, len(e.runParamsList))
@@ -225,10 +225,10 @@ func (e *parallelExecutor) Run(ctx context.Context) error {
 				scheduledAt := time.Now()
 				for _, retry := range res.result.PendingStepRetries {
 					next := scheduledAttempt{
-						runParams:       res.attempt.runParams,
-						stepName:        retry.StepName,
-						readyAt:         scheduledAt.Add(retry.Interval),
-						childRetryRoute: res.attempt.childRetryRoute,
+						runParams: res.attempt.runParams,
+						stepName:  retry.StepName,
+						readyAt:   scheduledAt.Add(retry.Interval),
+						retryPath: res.attempt.retryPath,
 					}
 					key := pendingAttemptKey(next)
 					if _, exists := pendingSet[key]; exists {
@@ -414,8 +414,7 @@ func (e *parallelExecutor) runAttempt(ctx context.Context, attempt scheduledAtte
 		return child.Reuse(ctx, attempt.runParams, e.workDir)
 	}
 	if attempt.stepName != "" {
-		child.SetChildRetryRoute(attempt.childRetryRoute)
-		return child.Retry(ctx, attempt.runParams, attempt.stepName, e.workDir)
+		return child.Retry(ctx, attempt.runParams, attempt.stepName, e.workDir, attempt.retryPath)
 	}
 	return child.Execute(ctx, attempt.runParams, e.workDir)
 }

@@ -59,8 +59,6 @@ type SubDAGExecutor struct {
 	// externalStepRetry shifts step retry waiting out of the child process and
 	// back to the parent executor.
 	externalStepRetry bool
-
-	childRetryRoute exec.ChildRetryRoute
 }
 
 type WorkspaceSeed struct {
@@ -137,11 +135,6 @@ func newSubDAGExecutor(ctx context.Context, rCtx exec.Context, dag *core.DAG, te
 
 func (e *SubDAGExecutor) SetExternalStepRetry(enabled bool) {
 	e.externalStepRetry = enabled
-}
-
-// SetChildRetryRoute sets the remaining targeted retry route for the child run.
-func (e *SubDAGExecutor) SetChildRetryRoute(route exec.ChildRetryRoute) {
-	e.childRetryRoute = route
 }
 
 // SetWorkerSelector sets a per-invocation worker selector for the sub DAG.
@@ -227,7 +220,7 @@ func (e *SubDAGExecutor) Reuse(ctx context.Context, runParams RunParams, workDir
 	ctx = logger.WithValues(ctx, tag.SubDAG(e.DAG.Name), tag.SubRunID(runParams.RunID))
 
 	req := e.subWorkflowRequest(ctx, runParams, workDir)
-	req.ReuseExisting = true
+	req.Reuse = true
 	if err := validateSubWorkflowRequest(req); err != nil {
 		return nil, err
 	}
@@ -238,10 +231,11 @@ func (e *SubDAGExecutor) Reuse(ctx context.Context, runParams RunParams, workDir
 }
 
 // Retry executes a parent-managed step retry for a previously started sub DAG.
-func (e *SubDAGExecutor) Retry(ctx context.Context, runParams RunParams, stepName, workDir string) (*exec.RunStatus, error) {
+func (e *SubDAGExecutor) Retry(ctx context.Context, runParams RunParams, stepName, workDir string, path exec.RetryPath) (*exec.RunStatus, error) {
 	ctx = logger.WithValues(ctx, tag.SubDAG(e.DAG.Name), tag.SubRunID(runParams.RunID))
 
 	req := e.subWorkflowRequest(ctx, runParams, workDir)
+	req.RetryPath = path
 	if err := validateSubWorkflowRequest(req); err != nil {
 		return nil, err
 	}
@@ -291,7 +285,6 @@ func (e *SubDAGExecutor) subWorkflowRequest(ctx context.Context, runParams RunPa
 		WorkDir:           workDir,
 		WorkerSelector:    cloneWorkerSelector(e.effectiveWorkerSelector()),
 		ExternalStepRetry: e.externalStepRetry,
-		ChildRetryRoute:   e.childRetryRoute,
 	}
 	if e.workspaceSeed != nil {
 		req.Workspace = &SubWorkflowWorkspace{

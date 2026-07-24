@@ -16,26 +16,21 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestParallelChildRetryReusesSiblings(t *testing.T) {
+func TestParallelRetryPathReusesSiblings(t *testing.T) {
 	child := &core.DAG{
 		Name:     "child",
 		YamlData: []byte("name: child\nsteps:\n  - name: target\n    run: echo child\n"),
 		Steps:    []core.Step{{Name: "target"}},
 	}
 	parent := &core.DAG{Name: "root", LocalDAGs: map[string]*core.DAG{child.Name: child}}
-	runner := &recordingChildRetryRunner{}
+	runner := &retryRecorder{}
 	baseCtx := executor.WithSubWorkflowRunner(context.Background(), runner)
 	rootRef := exec.NewDAGRunRef(parent.Name, "root-run")
-	route := exec.ChildRetryRoute{
-		TargetStep: "target",
-		Segments: []exec.ChildRetrySegment{{
-			ParentStep: "parallel-child",
-			DAGRunID:   "child-selected",
-			DAGName:    child.Name,
-			Runs: []exec.SubDAGRun{
-				{DAGRunID: "child-succeeded", DAGName: child.Name, Params: "ITEM=one"},
-				{DAGRunID: "child-selected", DAGName: child.Name, Params: "ITEM=two"},
-			},
+	path := exec.RetryPath{
+		Step: "target",
+		Hops: []exec.RetryHop{{
+			Step:  "parallel-child",
+			RunID: "child-selected",
 		}},
 	}
 	ctx := runtime.NewContext(
@@ -44,7 +39,7 @@ func TestParallelChildRetryReusesSiblings(t *testing.T) {
 		rootRef.ID,
 		"",
 		runtime.WithRootDAGRun(rootRef),
-		runtime.WithChildRetryRoute(route),
+		runtime.WithRetryPath(path),
 	)
 	step := core.Step{
 		Name:           "parallel-child",
@@ -65,43 +60,43 @@ func TestParallelChildRetryReusesSiblings(t *testing.T) {
 	runRequests, retryRequests := runner.requests()
 	require.Len(t, runRequests, 1)
 	require.Equal(t, "child-succeeded", runRequests[0].RunID)
-	require.True(t, runRequests[0].ReuseExisting)
+	require.True(t, runRequests[0].Reuse)
 	require.Len(t, retryRequests, 1)
 	require.Equal(t, "child-selected", retryRequests[0].RunID)
 	require.Equal(t, "target", retryRequests[0].StepName)
-	require.Equal(t, "target", retryRequests[0].ChildRetryRoute.TargetStep)
+	require.Equal(t, "target", retryRequests[0].RetryPath.Step)
 }
 
-type recordingChildRetryRunner struct {
-	mu            sync.Mutex
-	runRequests   []executor.SubWorkflowRequest
-	retryRequests []executor.SubWorkflowRetryRequest
+type retryRecorder struct {
+	mu      sync.Mutex
+	runs    []executor.SubWorkflowRequest
+	retries []executor.SubWorkflowRetryRequest
 }
 
-func (r *recordingChildRetryRunner) ShouldRun(context.Context, executor.SubWorkflowRequest) bool {
+func (r *retryRecorder) ShouldRun(context.Context, executor.SubWorkflowRequest) bool {
 	return true
 }
 
-func (r *recordingChildRetryRunner) Run(_ context.Context, req executor.SubWorkflowRequest) (*exec.RunStatus, error) {
+func (r *retryRecorder) Run(_ context.Context, req executor.SubWorkflowRequest) (*exec.RunStatus, error) {
 	r.mu.Lock()
-	r.runRequests = append(r.runRequests, req)
+	r.runs = append(r.runs, req)
 	r.mu.Unlock()
 	return &exec.RunStatus{Name: req.DAG.Name, DAGRunID: req.RunID, Params: req.Params, Status: core.Succeeded}, nil
 }
 
-func (r *recordingChildRetryRunner) Retry(_ context.Context, req executor.SubWorkflowRetryRequest) (*exec.RunStatus, error) {
+func (r *retryRecorder) Retry(_ context.Context, req executor.SubWorkflowRetryRequest) (*exec.RunStatus, error) {
 	r.mu.Lock()
-	r.retryRequests = append(r.retryRequests, req)
+	r.retries = append(r.retries, req)
 	r.mu.Unlock()
 	return &exec.RunStatus{Name: req.DAG.Name, DAGRunID: req.RunID, Params: req.Params, Status: core.Succeeded}, nil
 }
 
-func (*recordingChildRetryRunner) Cancel(context.Context, executor.SubWorkflowCancelRequest) error {
+func (*retryRecorder) Cancel(context.Context, executor.SubWorkflowCancelRequest) error {
 	return nil
 }
 
-func (r *recordingChildRetryRunner) requests() ([]executor.SubWorkflowRequest, []executor.SubWorkflowRetryRequest) {
+func (r *retryRecorder) requests() ([]executor.SubWorkflowRequest, []executor.SubWorkflowRetryRequest) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return append([]executor.SubWorkflowRequest(nil), r.runRequests...), append([]executor.SubWorkflowRetryRequest(nil), r.retryRequests...)
+	return append([]executor.SubWorkflowRequest(nil), r.runs...), append([]executor.SubWorkflowRetryRequest(nil), r.retries...)
 }

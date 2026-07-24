@@ -832,7 +832,7 @@ func (n *Node) setupExecutor(ctx context.Context) (context.Context, executor.Exe
 
 	// Handle sub DAG execution
 	if subDAG := n.Step().SubDAG; subDAG != nil {
-		subRuns, targeted, err := n.childRetrySubRuns(ctx)
+		subRuns, targeted, err := n.retrySubRuns(ctx)
 		if err != nil {
 			return ctx, nil, err
 		}
@@ -852,39 +852,34 @@ func (n *Node) setupExecutor(ctx context.Context) (context.Context, executor.Exe
 	return ctx, cmd, nil
 }
 
-func (n *Node) childRetrySubRuns(ctx context.Context) ([]SubDAGRun, bool, error) {
-	segment, ok := exec.GetContext(ctx).ChildRetryRoute.Current()
-	if !ok || segment.ParentStep != n.Name() {
+func (n *Node) retrySubRuns(ctx context.Context) ([]SubDAGRun, bool, error) {
+	hop, ok := exec.GetContext(ctx).RetryPath.Current()
+	if !ok || hop.Step != n.Name() {
 		return nil, false, nil
 	}
-	selected := SubDAGRun{
-		DAGRunID: segment.DAGRunID,
-		DAGName:  segment.DAGName,
-		Params:   segment.Params,
-	}
-	if n.Step().Parallel == nil {
-		return []SubDAGRun{selected}, true, nil
-	}
 
-	runs := make([]SubDAGRun, 0, len(segment.Runs))
+	state := n.State()
+	stored := append(append([]SubDAGRun(nil), state.SubRuns...), state.SubRunsRepeated...)
+	runs := make([]SubDAGRun, 0, len(stored))
+	seen := make(map[string]struct{}, len(stored))
 	found := false
-	for _, run := range segment.Runs {
+	for _, run := range stored {
 		if run.DAGRunID == "" {
 			continue
 		}
-		if run.DAGRunID == segment.DAGRunID {
+		if run.DAGRunID == hop.RunID {
 			found = true
-			if run.DAGName == "" {
-				run.DAGName = segment.DAGName
+			if n.Step().Parallel == nil {
+				return []SubDAGRun{run}, true, nil
 			}
 		}
-		runs = append(runs, SubDAGRun(run))
+		if _, ok := seen[run.DAGRunID]; !ok {
+			seen[run.DAGRunID] = struct{}{}
+			runs = append(runs, run)
+		}
 	}
 	if !found {
-		runs = append(runs, selected)
-	}
-	if len(runs) == 0 {
-		return nil, false, fmt.Errorf("child retry route for step %s has no persisted runs", n.Name())
+		return nil, false, fmt.Errorf("retry target %s not found in step %s", hop.RunID, n.Name())
 	}
 	return runs, true, nil
 }

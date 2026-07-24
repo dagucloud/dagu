@@ -347,7 +347,7 @@ func TestRetry_Distributed(t *testing.T) {
 		killed:            make(chan struct{}),
 	}
 
-	result, err := executor.Retry(ctx, RunParams{RunID: "child-789"}, "flaky", "")
+	result, err := executor.Retry(ctx, RunParams{RunID: "child-789"}, "flaky", "", exec1.RetryPath{})
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	assert.Equal(t, core.Succeeded, result.Status)
@@ -414,7 +414,7 @@ func TestRetry_NoRootDAGRun(t *testing.T) {
 		killed: make(chan struct{}),
 	}
 
-	result, err := executor.Retry(ctx, RunParams{RunID: "child-789"}, "flaky", "/work/dir")
+	result, err := executor.Retry(ctx, RunParams{RunID: "child-789"}, "flaky", "/work/dir", exec1.RetryPath{})
 	assert.Error(t, err)
 	assert.Nil(t, result)
 	assert.Contains(t, err.Error(), "root DAG run ID is not set")

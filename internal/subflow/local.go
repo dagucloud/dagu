@@ -182,7 +182,7 @@ func (r *Local) Run(ctx context.Context, req executor.SubWorkflowRequest) (*exec
 	if err != nil {
 		return nil, err
 	}
-	if req.ReuseExisting {
+	if req.Reuse {
 		if retryTarget == nil {
 			return nil, fmt.Errorf("persisted child workflow status not found for DAG run %s", req.RunID)
 		}
@@ -351,7 +351,7 @@ func (r *Local) newAgent(
 
 	opts.ParentDAGRun = req.ParentDAGRun
 	opts.RootDAGRun = req.RootDAGRun
-	opts.ChildRetryRoute = req.ChildRetryRoute
+	opts.RetryPath = req.RetryPath
 	opts.ExtraEnvs = inProcessExtraEnvs(rCtx, req)
 	opts.WorkerID = r.workerID
 	opts.StatusPusher = r.statusPusher

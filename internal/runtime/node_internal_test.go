@@ -230,6 +230,35 @@ func TestSetupExecutor_LogMessageExpandsVariables(t *testing.T) {
 	require.Equal(t, "Deploying production\n", stdout.String())
 }
 
+func TestRetrySubRunsUsesPersistedSiblings(t *testing.T) {
+	t.Parallel()
+
+	step := core.Step{
+		Name:     "children",
+		SubDAG:   &core.SubDAG{Name: "child"},
+		Parallel: &core.ParallelConfig{},
+	}
+	node := NewNode(step, NodeState{
+		SubRuns:         []SubDAGRun{{DAGRunID: "current"}},
+		SubRunsRepeated: []SubDAGRun{{DAGRunID: "target"}},
+	})
+	ctx := exec.NewContext(
+		context.Background(),
+		&core.DAG{Name: "root"},
+		"root-run",
+		"",
+		exec.WithRetryPath(exec.RetryPath{
+			Step: "leaf",
+			Hops: []exec.RetryHop{{Step: step.Name, RunID: "target"}},
+		}),
+	)
+
+	runs, targeted, err := node.retrySubRuns(ctx)
+	require.NoError(t, err)
+	require.True(t, targeted)
+	require.Equal(t, []SubDAGRun{{DAGRunID: "current"}, {DAGRunID: "target"}}, runs)
+}
+
 // TestSetupExecutor_HarnessCommandPreservesLiteralCodeFences verifies that
 // command-backed prompt executors resolve ${VAR} placeholders without treating
 // the resulting prompt text as shell command substitution input.

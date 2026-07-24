@@ -482,7 +482,7 @@ func handleSubDAGRun(ctx *Context, dag *core.DAG, dagRunID string, params string
 			})
 		},
 		func(preparedAttempt exec.DAGRunAttempt) error {
-			return executeRetry(ctx, dag, status, root, "", exec.ChildRetryRoute{}, workerID, attemptID, profileName, preparedAttempt)
+			return executeRetry(ctx, dag, status, root, "", exec.RetryPath{}, workerID, attemptID, profileName, preparedAttempt)
 		},
 	)
 }

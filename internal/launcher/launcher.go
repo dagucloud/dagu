@@ -275,11 +275,9 @@ func (b *SubCmdBuilder) RetryWithRootDAGRun(dag *core.DAG, dagRunID string, step
 
 // RetryOptions configure an internal retry subprocess.
 type RetryOptions struct {
-	StepName           string
-	RootDAGRun         exec1.DAGRunRef
-	ChildRetryRoute    exec1.ChildRetryRoute
-	ReservationAttempt string
-	ManualResume       bool
+	StepName   string
+	RootDAGRun exec1.DAGRunRef
+	RetryPath  exec1.RetryPath
 }
 
 // RetryWithOptions creates a retry command with internal execution metadata.
@@ -292,14 +290,8 @@ func (b *SubCmdBuilder) RetryWithOptions(dag *core.DAG, dagRunID string, opts Re
 	if !opts.RootDAGRun.Zero() {
 		args = append(args, fmt.Sprintf("--root=%s", opts.RootDAGRun.String()))
 	}
-	if route, err := opts.ChildRetryRoute.MarshalText(); err == nil && len(route) > 0 {
-		args = append(args, "--child-retry-route="+string(route))
-	}
-	if opts.ReservationAttempt != "" {
-		args = append(args, "--retry-reservation="+opts.ReservationAttempt)
-	}
-	if opts.ManualResume {
-		args = append(args, "--manual-resume")
+	if path := opts.RetryPath.Encode(); path != "" {
+		args = append(args, "--retry-path="+path)
 	}
 
 	if b.configFile != "" {

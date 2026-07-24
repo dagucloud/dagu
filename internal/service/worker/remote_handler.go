@@ -192,16 +192,16 @@ func (h *remoteTaskHandler) handleRetry(ctx context.Context, task *coordinatorv1
 
 	statusPusher, logStreamer, artifactUploader := h.createRemoteHandlers(task.DagRunId, dag.Name, task.AttemptId, task.AttemptKey, root, owner)
 	triggerType := exec.PreservedQueueTriggerType(status)
-	childRetryRoute, err := exec.ParseChildRetryRoute(task.ChildRetryRoute)
+	retryPath, err := exec.ParseRetryPath(task.RetryPath)
 	if err != nil {
-		return fmt.Errorf("invalid child retry route: %w", err)
+		return fmt.Errorf("invalid retry path: %w", err)
 	}
 
 	err = h.executeDAGRun(ctx, dag, task.DagRunId, task.AttemptId, task.AttemptKey, task.ScheduleTime, root, parent, owner, statusPusher, logStreamer, artifactUploader, false, &retryConfig{
-		target:          status,
-		stepName:        task.Step,
-		triggerType:     triggerType,
-		childRetryRoute: childRetryRoute,
+		target:      status,
+		stepName:    task.Step,
+		triggerType: triggerType,
+		retryPath:   retryPath,
 	}, taskExtraEnvs(task), profileName)
 	var initErr *taskInitError
 	if errors.As(err, &initErr) && !initErr.reported {
@@ -323,10 +323,10 @@ func sanitizeTaskLoadError(target string, loadErr error) string {
 
 // retryConfig holds retry-specific configuration
 type retryConfig struct {
-	target          *exec.DAGRunStatus
-	stepName        string
-	triggerType     core.TriggerType
-	childRetryRoute exec.ChildRetryRoute
+	target      *exec.DAGRunStatus
+	stepName    string
+	triggerType core.TriggerType
+	retryPath   exec.RetryPath
 }
 
 type taskInitError struct {
@@ -690,7 +690,7 @@ func (h *remoteTaskHandler) executeDAGRun(
 		opts.RetryTarget = retry.target
 		opts.StepRetry = retry.stepName
 		opts.TriggerType = retry.triggerType
-		opts.ChildRetryRoute = retry.childRetryRoute
+		opts.RetryPath = retry.retryPath
 	}
 
 	// Create the agent

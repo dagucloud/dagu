@@ -138,7 +138,7 @@ func (r *Runner) Run(ctx context.Context, req executor.SubWorkflowRequest) (*exe
 	if previousStatus, found, err := r.existingStatus(ctx, req); err != nil {
 		return nil, fmt.Errorf("failed to load child workflow status before start: %w", err)
 	} else if found {
-		if req.ReuseExisting {
+		if req.Reuse {
 			result := statusToRunStatus(previousStatus, req.RunID)
 			result.PendingStepRetries = nil
 			return result, nil
@@ -364,8 +364,8 @@ func (r *Runner) taskOptions(
 	if req.ExternalStepRetry {
 		options = append(options, executor.WithExternalStepRetry(true))
 	}
-	if len(req.ChildRetryRoute.Segments) > 0 {
-		options = append(options, executor.WithChildRetryRoute(req.ChildRetryRoute))
+	if len(req.RetryPath.Hops) > 0 {
+		options = append(options, executor.WithRetryPath(req.RetryPath))
 	}
 	if req.ProfileName != "" {
 		options = append(options, executor.WithProfileName(req.ProfileName))

@@ -356,15 +356,9 @@ func TestRetryDAGRun_TargetsPersistedChildStepFromRoot(t *testing.T) {
 	task := coordinatorCli.dispatched[0]
 	require.Equal(t, rootStep.Name, task.Step)
 	require.NotNil(t, task.PreviousStatus)
-	require.True(t, exec.IsRetryReserved(task.PreviousStatus))
-	route, err := exec.ParseChildRetryRoute(task.ChildRetryRoute)
+	require.Equal(t, core.Failed, task.PreviousStatus.Status)
+	path, err := exec.ParseRetryPath(task.RetryPath)
 	require.NoError(t, err)
-	require.Equal(t, childStep.Name, route.TargetStep)
-	require.Equal(t, subRunID, route.Segments[0].DAGRunID)
-
-	resp, err = apiServer.RetryDAGRun(ctx, request)
-	require.Nil(t, resp)
-	var apiErr *Error
-	require.ErrorAs(t, err, &apiErr)
-	require.Equal(t, http.StatusConflict, apiErr.HTTPStatus)
+	require.Equal(t, childStep.Name, path.Step)
+	require.Equal(t, subRunID, path.Hops[0].RunID)
 }
