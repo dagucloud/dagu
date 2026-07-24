@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"reflect"
 	"strconv"
+	"strings"
 
 	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
 )
@@ -49,6 +50,35 @@ func WithoutCommandSubstitution() ResolverOption {
 // String resolves raw according to field.
 func (r Resolver) String(ctx context.Context, raw string, field Field) (string, error) {
 	return r.resolveString(ctx, raw, field)
+}
+
+// ResolveScopedReference resolves one complete canonical Dagu value reference
+// to non-empty string content.
+func (r Resolver) ResolveScopedReference(ctx context.Context, token string, field Field) (string, error) {
+	ref, ok := parseScopedReferenceToken(token)
+	if !ok {
+		return "", fieldError(field, fmt.Errorf("must be one complete scoped value reference"))
+	}
+
+	value, err := bindingValue(ctx, ref.Expr, r.bindingScope(), true)
+	if err != nil {
+		return "", fieldError(field, fmt.Errorf("failed to resolve %s: %w", token, err))
+	}
+	text, ok := value.(string)
+	if !ok {
+		return "", fieldError(field, fmt.Errorf("%s must resolve to a string, got %T", token, value))
+	}
+	if strings.TrimSpace(text) == "" {
+		return "", fieldError(field, fmt.Errorf("%s resolved to an empty string", token))
+	}
+	return text, nil
+}
+
+func fieldError(field Field, err error) error {
+	if field.path == "" {
+		return err
+	}
+	return fmt.Errorf("%s: %w", field.path, err)
 }
 
 // Int resolves raw according to field and converts the result to an integer.

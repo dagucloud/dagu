@@ -507,6 +507,70 @@ steps:
 `,
 		},
 		{
+			name: "TemplateRenderLiteral",
+			spec: `
+steps:
+  - action: template.render
+    with:
+      template: "Hello, {{ .name }}!"
+      data:
+        name: Alice
+`,
+		},
+		{
+			name: "TemplateRenderReference",
+			spec: `
+steps:
+  - action: template.render
+    with:
+      template_ref: ${env.TEMPLATE}
+      data:
+        name: Alice
+`,
+		},
+		{
+			name: "RejectTemplateRenderMissingSource",
+			spec: `
+steps:
+  - action: template.render
+    with:
+      data:
+        name: Alice
+`,
+			wantErr: "did not validate",
+		},
+		{
+			name: "RejectTemplateRenderBothSources",
+			spec: `
+steps:
+  - action: template.render
+    with:
+      template: "Hello"
+      template_ref: ${env.TEMPLATE}
+`,
+			wantErr: "did not validate",
+		},
+		{
+			name: "RejectTemplateRenderBareReference",
+			spec: `
+steps:
+  - action: template.render
+    with:
+      template_ref: TEMPLATE
+`,
+			wantErr: "did not validate",
+		},
+		{
+			name: "RejectTemplateRenderUnknownContextReference",
+			spec: `
+steps:
+  - action: template.render
+    with:
+      template_ref: ${context.unknown.value}
+`,
+			wantErr: "did not validate",
+		},
+		{
 			name: "ArtifactActions",
 			spec: `
 steps:

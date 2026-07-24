@@ -60,6 +60,35 @@ func TestScanReferencesMarksExactStepOutputRefs(t *testing.T) {
 	assert.Equal(t, "${steps.extract.outputs.user}", outputRefs[0].Expression)
 }
 
+func TestIsScopedReferenceToken(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		token string
+		want  bool
+	}{
+		{token: "${consts.template}", want: true},
+		{token: "${params.template}", want: true},
+		{token: "${env.TEMPLATE}", want: true},
+		{token: "${steps.fetch.outputs.template}", want: true},
+		{token: "${foreach.item}", want: true},
+		{token: "${foreach.item.template}", want: true},
+		{token: "${context.run.id}", want: true},
+		{token: "${params}", want: false},
+		{token: "${run.id}", want: false},
+		{token: "${TEMPLATE}", want: false},
+		{token: "$env.TEMPLATE", want: false},
+		{token: "${ env.TEMPLATE }", want: false},
+		{token: "prefix-${env.TEMPLATE}", want: false},
+		{token: "${env.TEMPLATE}-${params.suffix}", want: false},
+		{token: `\${env.TEMPLATE}`, want: false},
+	}
+
+	for _, tt := range tests {
+		assert.Equal(t, tt.want, value.IsScopedReferenceToken(tt.token), tt.token)
+	}
+}
+
 func TestResolverStringResolvesParamsAndPreservesOtherNamespaces(t *testing.T) {
 	t.Parallel()
 

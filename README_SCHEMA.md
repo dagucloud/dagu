@@ -199,7 +199,7 @@ Current builtin actions:
 | `router.route` | Conditional routing | `value`, `routes` |
 | `chat.completion` | LLM chat completion | `prompt` or `messages`, model config |
 | `harness.run` | CLI coding-agent harnesses | `prompt`, provider config, optional `stdin` |
-| `template.render` | Text/template rendering | `template`, optional data/config |
+| `template.render` | Text/template rendering | Exactly one of `template` or `template_ref`, optional data/config |
 | `log.write` | Log messages | `message` |
 | `mail.send` | Email sending | mail executor config |
 | `archive.create`, `archive.extract`, `archive.list` | Archive operations | archive config |

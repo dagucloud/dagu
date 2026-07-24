@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -783,6 +784,16 @@ func (n *Node) setupExecutor(ctx context.Context) (context.Context, executor.Exe
 	if err != nil {
 		return ctx, nil, fmt.Errorf("failed to evaluate step configuration: %w", err)
 	}
+	if execConfig.Type == "template" && n.Step().Script == "" {
+		if templateText, ok := cfg["template_ref"]; ok {
+			resolvedTemplate, ok := templateText.(string)
+			if !ok {
+				return ctx, nil, fmt.Errorf("failed to evaluate step configuration: with.template_ref must resolve to a string")
+			}
+			n.SetScript(resolvedTemplate)
+			delete(cfg, "template_ref")
+		}
+	}
 	execConfig.Config = cfg
 	n.SetExecutorConfig(execConfig)
 
@@ -887,11 +898,38 @@ func evalExecutorConfig(ctx context.Context, step core.Step) (map[string]any, er
 			scope = cmnvalue.NewEnvScope(nil, false)
 		}
 		scope = scope.WithEntries(templateConfigEvalVariables(env), cmnvalue.EnvSourceStepEnv)
-		got, err := resolveRuntimeObjectWithScope(ctx, env, scope, step.ExecutorConfig.Config, cmnvalue.TemplateConfigField("with"))
+		config := maps.Clone(step.ExecutorConfig.Config)
+		templateRef, hasTemplateRef := config["template_ref"]
+		delete(config, "template_ref")
+
+		got, err := resolveRuntimeObjectWithScope(ctx, env, scope, config, cmnvalue.TemplateConfigField("with"))
 		if err != nil {
 			return nil, err
 		}
-		return objectAsConfig(got)
+		resolved, err := objectAsConfig(got)
+		if err != nil {
+			return nil, err
+		}
+		if !hasTemplateRef {
+			return resolved, nil
+		}
+
+		ref, ok := templateRef.(string)
+		if !ok {
+			return nil, fmt.Errorf("with.template_ref must be a string")
+		}
+		scopedEnv := env
+		scopedEnv.Scope = scope
+		templateText, err := resolverFromEnv(scopedEnv).ResolveScopedReference(
+			ctx,
+			ref,
+			cmnvalue.TemplateConfigField("with.template_ref"),
+		)
+		if err != nil {
+			return nil, err
+		}
+		resolved["template_ref"] = templateText
+		return resolved, nil
 	}
 	got, err := resolveRuntimeObject(ctx, step.ExecutorConfig.Config, cmnvalue.ExecutorConfigField("with"))
 	if err != nil {

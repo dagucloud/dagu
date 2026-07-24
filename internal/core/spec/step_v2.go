@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 )
 
@@ -672,12 +673,30 @@ func validateGitWorktreeOutputOverrides(normalized map[string]any) error {
 }
 
 func normalizeTemplateAction(normalized map[string]any, with map[string]any) error {
-	template, err := requireActionStringField(with, "template")
-	if err != nil {
-		return err
+	if with == nil {
+		return core.NewValidationError("with", nil, fmt.Errorf("template.render requires exactly one of with.template or with.template_ref"))
 	}
-	delete(with, "template")
-	normalized["script"] = template
+
+	templateValue, hasTemplate := with["template"]
+	templateRefValue, hasTemplateRef := with["template_ref"]
+	if hasTemplate == hasTemplateRef {
+		return core.NewValidationError("with", with, fmt.Errorf("template.render requires exactly one of with.template or with.template_ref"))
+	}
+
+	if hasTemplate {
+		template, ok := templateValue.(string)
+		if !ok || strings.TrimSpace(template) == "" {
+			return core.NewValidationError("with", with, fmt.Errorf("with.template must be a non-empty string"))
+		}
+		delete(with, "template")
+		normalized["script"] = strings.TrimSpace(template)
+		return finishAction(normalized, "template", with)
+	}
+
+	templateRef, ok := templateRefValue.(string)
+	if !ok || !cmnvalue.IsScopedReferenceToken(templateRef) {
+		return core.NewValidationError("with", with, fmt.Errorf("with.template_ref must be one complete scoped value reference such as ${env.NAME}"))
+	}
 	return finishAction(normalized, "template", with)
 }
 

@@ -91,6 +91,59 @@ func TestEvalExecutorConfig_TemplatePreservesLiteralCodeFencesInData(t *testing.
 	require.Equal(t, "```yaml\nenv:\n  TEST_FILE: ~/dagu-test.txt\n\nsteps:\n  - command: touch $TEST_FILE\n```", data["issue_text"])
 }
 
+func TestEvalExecutorConfig_TemplateReferenceResolvesOnce(t *testing.T) {
+	t.Parallel()
+
+	ctx := exec.NewContext(
+		context.Background(),
+		&core.DAG{Name: "test-dag"},
+		"",
+		"",
+	)
+	env := NewEnv(ctx, core.Step{Name: "render"})
+	env.Scope = env.Scope.WithEntries(map[string]string{
+		"TEMPLATE": "  Hello, {{ .name }}! ${env.NESTED} `command`\n",
+		"NESTED":   "must-not-expand",
+	}, cmnvalue.EnvSourceStepEnv)
+	ctx = WithEnv(ctx, env)
+
+	result, err := evalExecutorConfig(ctx, core.Step{
+		ExecutorConfig: core.ExecutorConfig{
+			Type: "template",
+			Config: map[string]any{
+				"template_ref": "${env.TEMPLATE}",
+				"data":         map[string]any{"name": "Alice"},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "  Hello, {{ .name }}! ${env.NESTED} `command`\n", result["template_ref"])
+	require.Equal(t, map[string]any{"name": "Alice"}, result["data"])
+}
+
+func TestEvalExecutorConfig_TemplateReferenceMustResolve(t *testing.T) {
+	t.Parallel()
+
+	ctx := exec.NewContext(
+		context.Background(),
+		&core.DAG{Name: "test-dag"},
+		"",
+		"",
+	)
+	env := NewEnv(ctx, core.Step{Name: "render"})
+	ctx = WithEnv(ctx, env)
+
+	_, err := evalExecutorConfig(ctx, core.Step{
+		ExecutorConfig: core.ExecutorConfig{
+			Type: "template",
+			Config: map[string]any{
+				"template_ref": "${env.MISSING}",
+			},
+		},
+	})
+	require.ErrorContains(t, err, "unknown env.MISSING binding")
+}
+
 // TestEvalExecutorConfig_DefaultPreservesLiteralCodeFencesInData verifies that
 // non-template executor config is also treated as step data and should not
 // execute backticks while resolving variable references.
