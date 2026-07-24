@@ -2646,6 +2646,112 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /dag-runs/{name}/{dagRunId}/human-tasks/{stepId}/complete:
+    post:
+      summary: "Complete a waiting human task"
+      description: "Validates typed input against the stored human-task form, completes the step atomically, and queues the same DAG-run when no manual steps remain waiting."
+      operationId: "completeHumanTask"
+      tags:
+        - "dag-runs"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGName"
+        - $ref: "#/components/parameters/DAGRunConcreteId"
+        - $ref: "#/components/parameters/HumanTaskStepId"
+      requestBody:
+        required: true
+        description: "Typed form input. The JSON request body is limited to 16 MiB."
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HumanTaskInput"
+      responses:
+        "200":
+          description: "Human task completed or an identical prior completion confirmed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HumanTaskCompletionResponse"
+        "400":
+          description: "Malformed or invalid human-task input"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "DAG-run or human task not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "Human task is not actionable or completion conflicts with current state"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "413":
+          description: "Human-task input exceeds the 16 MiB request-body limit"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: "Completion was stored but the DAG-run retry could not be queued"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /dag-runs/{name}/{dagRunId}/human-tasks/resume:
+    post:
+      summary: "Queue a completed human-task checkpoint for resume"
+      description: "Queues a retry for a completed human-task checkpoint without requiring the previously submitted form values."
+      operationId: "resumeHumanTaskDAGRun"
+      tags:
+        - "dag-runs"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGName"
+        - $ref: "#/components/parameters/DAGRunConcreteId"
+      responses:
+        "200":
+          description: "The retry was queued or was already queued or running"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HumanTaskResumeResponse"
+        "404":
+          description: "DAG-run not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "The DAG-run still has waiting steps or no recoverable human-task checkpoint"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: "The retry could not be queued and remains retryable"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /dag-runs/{name}/{dagRunId}/stop:
     post:
       summary: "Terminate or cancel a DAG-run"
@@ -2777,7 +2883,7 @@ paths:
   /dag-runs/{name}/{dagRunId}/steps/{stepName}/status:
     patch:
       summary: "Manually update a step's execution status"
-      description: "Changes the status of a specific step within a DAG-run"
+      description: "Changes the status of a specific step after the DAG-run is no longer active"
       operationId: "updateDAGRunStepStatus"
       tags:
         - "dag-runs"
@@ -3367,7 +3473,7 @@ paths:
   /dag-runs/{name}/{dagRunId}/sub-dag-runs/{subDAGRunId}/steps/{stepName}/status:
     patch:
       summary: "Manually update a step's execution status in a sub DAG-run"
-      description: "Changes the status of a specific step within a sub DAG-run"
+      description: "Changes the status of a specific step after the sub DAG-run and its embedded root run are no longer active"
       operationId: "updateSubDAGRunStepStatus"
       tags:
         - "dag-runs"
@@ -8957,6 +9063,16 @@ components:
       schema:
         type: string
 
+    HumanTaskStepId:
+      name: stepId
+      in: path
+      description: explicit ID of the human-task step
+      required: true
+      schema:
+        type: string
+        pattern: "^[A-Za-z][A-Za-z0-9_]*$"
+        maxLength: 40
+
     ArtifactPath:
       name: path
       in: query
@@ -9996,6 +10112,67 @@ components:
       required:
         - prompt
 
+    HumanTaskConfig:
+      type: object
+      description: "Resolved human-task instructions and optional normalized input form"
+      properties:
+        prompt:
+          type: string
+          description: "Instructions displayed to the operator. Run details contain the resolved, secret-masked snapshot."
+        form:
+          type: object
+          additionalProperties: true
+          description: "Normalized flat JSON Schema for typed completion input"
+      required:
+        - prompt
+
+    HumanTaskInput:
+      description: "Typed human-task completion input. An empty object acknowledges a task without a form."
+      type: object
+      additionalProperties: true
+
+    HumanTaskCompletionResponse:
+      type: object
+      description: "Result of completing or confirming one human task"
+      properties:
+        dagName:
+          $ref: "#/components/schemas/DAGName"
+        dagRunId:
+          $ref: "#/components/schemas/DAGRunId"
+        stepId:
+          type: string
+        alreadyCompleted:
+          type: boolean
+        queued:
+          type: boolean
+          description: "Whether this request durably queued the DAG-run retry"
+        remainingWaitingSteps:
+          type: integer
+          minimum: 0
+      required:
+        - dagName
+        - dagRunId
+        - stepId
+        - alreadyCompleted
+        - queued
+        - remainingWaitingSteps
+
+    HumanTaskResumeResponse:
+      type: object
+      description: "Result of queueing a completed human-task retry"
+      properties:
+        dagName:
+          $ref: "#/components/schemas/DAGName"
+        dagRunId:
+          $ref: "#/components/schemas/DAGRunId"
+        queued:
+          type: boolean
+          description: "Whether this request durably queued the DAG-run retry"
+      required:
+        - dagName
+        - dagRunId
+        - queued
+
     Error:
       type: object
       description: "Generic error response object"
@@ -10048,6 +10225,8 @@ components:
         - "auth.forbidden"
         - "timeout"
         - "rate_limited"
+        - "human_task_resume_failed"
+        - "payload_too_large"
 
     WebhookRequest:
       type: object
@@ -10580,6 +10759,9 @@ components:
         chatId:
           type: string
           description: "Telegram chat ID"
+        topicId:
+          type: string
+          description: "Optional Telegram topic ID (message thread ID) for forum groups"
         messageTemplate:
           type: string
           description: "Optional Telegram message template. When omitted, Dagu sends the default notification text."
@@ -10599,6 +10781,9 @@ components:
         chatId:
           type: string
           description: "Telegram chat ID"
+        topicId:
+          type: string
+          description: "Optional Telegram topic ID (message thread ID) for forum groups"
         messageTemplate:
           type: string
           description: "Optional Telegram message template. When omitted, Dagu sends the default notification text."
@@ -11509,7 +11694,7 @@ components:
         4: "Success"
         5: "Queued"
         6: "Partial Success"
-        7: "Waiting for approval"
+        7: "Waiting for manual action"
         8: "Rejected"
 
     StatusLabel:
@@ -11561,7 +11746,7 @@ components:
         4: "Success"
         5: "Skipped"
         6: "Partial Success"
-        7: "Waiting for approval"
+        7: "Waiting for manual action"
         8: "Rejected"
         9: "Retrying"
 
@@ -12168,6 +12353,9 @@ components:
             sourceFileName:
               $ref: "#/components/schemas/DAGFileName"
               description: "File name of the source DAG definition, derived from the DAG-run's source file path. Only set when the source file still exists on disk. Can be used to navigate to the DAG definition page."
+            humanTaskResumePending:
+              type: boolean
+              description: "Whether completed human-task input is durable but the same DAG-run still needs its retry queued"
           required:
             - rootDAGRunName
             - rootDAGRunId
@@ -12352,12 +12540,21 @@ components:
         error:
           type: string
           description: "Error message if the step failed"
+        humanTaskCompletedBy:
+          type: string
+          description: "Name of the subject that completed the human task"
+        humanTaskCompletedById:
+          type: string
+          description: "ID of the subject that completed the human task; local CLI IDs use the os:<uid> form"
         approvedAt:
           type: string
           description: "RFC3339 timestamp when the step was approved"
         approvedBy:
           type: string
           description: "Username of who approved the step"
+        approvedById:
+          type: string
+          description: "ID of the subject that approved the step"
         approvalInputs:
           type: object
           additionalProperties:
@@ -12369,6 +12566,9 @@ components:
         rejectedBy:
           type: string
           description: "Username of who rejected the step"
+        rejectedById:
+          type: string
+          description: "ID of the subject that rejected the step"
         rejectionReason:
           type: string
           description: "Optional reason for rejection"
@@ -12407,6 +12607,9 @@ components:
         by:
           type: string
           description: "Authenticated user who pushed the step back"
+        byId:
+          type: string
+          description: "ID of the subject that pushed the step back"
         at:
           type: string
           format: date-time
@@ -12606,6 +12809,8 @@ components:
                     description: "Step names to route to"
         approval:
           $ref: "#/components/schemas/ApprovalConfig"
+        humanTask:
+          $ref: "#/components/schemas/HumanTaskConfig"
       required:
         - name
 

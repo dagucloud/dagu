@@ -143,6 +143,70 @@ func TestRetryDAGRun_RejectsMismatchedBodyDagRunID(t *testing.T) {
 	require.Contains(t, apiErr.Message, "must match the path parameter")
 }
 
+func TestRetryDAGRun_RejectsWaitingDAGAndStepRetry(t *testing.T) {
+	ctx := context.Background()
+	dag := &core.DAG{
+		Name:  "waiting_retry_dag",
+		Steps: []core.Step{{Name: "approve"}},
+	}
+	dagRunStore := dagrun.New(filepath.Join(t.TempDir(), "dag-runs"))
+	attempt, err := dagRunStore.CreateAttempt(
+		ctx,
+		dag,
+		time.Now().Add(-time.Minute),
+		"waiting-run",
+		exec.NewDAGRunAttemptOptions{},
+	)
+	require.NoError(t, err)
+
+	status := transform.NewStatusBuilder(dag).Create(
+		"waiting-run",
+		core.Waiting,
+		0,
+		time.Now().Add(-time.Minute),
+		transform.WithAttemptID(attempt.ID()),
+	)
+	require.Len(t, status.Nodes, 1)
+	status.Nodes[0].Status = core.NodeSucceeded
+	require.NoError(t, attempt.Open(ctx))
+	require.NoError(t, attempt.Write(ctx, status))
+	require.NoError(t, attempt.Close(ctx))
+
+	apiServer := &API{
+		dagRunStore: dagRunStore,
+		config: &config.Config{Server: config.Server{Permissions: map[config.Permission]bool{
+			config.PermissionRunDAGs: true,
+		}}},
+	}
+
+	tests := []struct {
+		name     string
+		stepName string
+	}{
+		{name: "DAG"},
+		{name: "Step", stepName: "approve"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			body := &openapiv1.RetryDAGRunJSONRequestBody{DagRunId: "waiting-run"}
+			if test.stepName != "" {
+				body.StepName = &test.stepName
+			}
+			resp, err := apiServer.RetryDAGRun(ctx, openapiv1.RetryDAGRunRequestObject{
+				Name:     dag.Name,
+				DagRunId: "waiting-run",
+				Body:     body,
+			})
+			require.Nil(t, resp)
+			var apiErr *Error
+			require.ErrorAs(t, err, &apiErr)
+			require.Equal(t, http.StatusConflict, apiErr.HTTPStatus)
+			require.Equal(t, openapiv1.ErrorCodeConflict, apiErr.Code)
+			require.Contains(t, apiErr.Message, "is waiting and cannot be retried")
+		})
+	}
+}
+
 func TestRetryDAGRun_ResolvesLatestPathDagRunID(t *testing.T) {
 	ctx := context.Background()
 	tmpDir := t.TempDir()

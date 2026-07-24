@@ -24,11 +24,6 @@ var (
 	ErrDAGRunIDEmpty = errors.New("dag-run ID is empty")
 )
 
-const (
-	replacementAttemptStatusReadTimeout  = time.Second
-	replacementAttemptStatusPollInterval = 10 * time.Millisecond
-)
-
 var _ exec.DAGRunStore = (*Store)(nil)
 
 // Store manages DAG run status files on the local filesystem.
@@ -291,7 +286,7 @@ func (store *Store) CompareAndSwapLatestAttemptStatus(
 		return nil, false, err
 	}
 
-	status, err := readCompareAndSwapStatus(ctx, attempt, expectedAttemptID)
+	status, err := attempt.ReadStatus(ctx)
 	if err != nil {
 		return nil, false, err
 	}
@@ -321,43 +316,6 @@ func (store *Store) CompareAndSwapLatestAttemptStatus(
 		return nil, false, err
 	}
 	return status, true, nil
-}
-
-// readCompareAndSwapStatus waits for a replacement attempt to publish its initial status.
-func readCompareAndSwapStatus(
-	ctx context.Context,
-	attempt *Attempt,
-	expectedAttemptID string,
-) (*exec.DAGRunStatus, error) {
-	status, err := attempt.ReadStatus(ctx)
-	if !replacementAttemptIsInitializing(attempt, expectedAttemptID, err) {
-		return status, err
-	}
-
-	timeout := time.NewTimer(replacementAttemptStatusReadTimeout)
-	defer timeout.Stop()
-	ticker := time.NewTicker(replacementAttemptStatusPollInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-timeout.C:
-			return nil, err
-		case <-ticker.C:
-			status, err = attempt.ReadStatus(ctx)
-			if !replacementAttemptIsInitializing(attempt, expectedAttemptID, err) {
-				return status, err
-			}
-		}
-	}
-}
-
-func replacementAttemptIsInitializing(attempt *Attempt, expectedAttemptID string, err error) bool {
-	return expectedAttemptID != "" &&
-		attempt.ID() != expectedAttemptID &&
-		errors.Is(err, exec.ErrCorruptedStatusFile)
 }
 
 func formatUnixToRFC3339(unix int64) string {

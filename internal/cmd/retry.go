@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/internal/humantask"
 	"github.com/dagucloud/dagu/internal/runtime/agent"
 	"github.com/spf13/cobra"
 )
@@ -131,6 +132,9 @@ func runRetry(ctx *Context, args []string) error {
 	profileName := status.ProfileName
 	if queueDispatchRetry && status.Status != core.Queued {
 		return newQueueDispatchNotQueuedError(status)
+	}
+	if err := humantask.ValidateRetry(status, stepName); err != nil {
+		return err
 	}
 
 	dag, err := attempt.ReadDAG(ctx)
@@ -392,7 +396,7 @@ func newQueueDispatchNotQueuedError(status *exec.DAGRunStatus) *exec.DAGRunNotQu
 // Retries respect global queue capacity because the queue processor picks them up
 // when capacity is available.
 func enqueueRetry(ctx *Context, _ exec.DAGRunAttempt, dag *core.DAG, status *exec.DAGRunStatus, dagRunID string) error {
-	if err := exec.EnqueueRetry(ctx.Context, ctx.DAGRunStore, ctx.QueueStore, dag, status, exec.EnqueueRetryOptions{}); err != nil {
+	if _, err := exec.EnqueueRetry(ctx.Context, ctx.DAGRunStore, ctx.QueueStore, dag, status, exec.EnqueueRetryOptions{}); err != nil {
 		if errors.Is(err, exec.ErrRetryStaleLatest) {
 			return fmt.Errorf("dag-run state changed before retry could be queued")
 		}

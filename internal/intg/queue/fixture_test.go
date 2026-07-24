@@ -531,7 +531,7 @@ func (f *fixture) RunningRunWithMetadata(opts runStatusOptions) string {
 
 // RetryEnqueue enqueues a previously failed run for retry using exec.EnqueueRetry.
 func (f *fixture) RetryEnqueue(runID string) *fixture {
-	err := exec.EnqueueRetry(
+	_, err := exec.EnqueueRetry(
 		f.th.Context,
 		f.th.DAGRunStore,
 		f.th.QueueStore,

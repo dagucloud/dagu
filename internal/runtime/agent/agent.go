@@ -456,8 +456,10 @@ func (a *Agent) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	runningStatusDone := make(chan struct{})
 	close(runningStatusDone)
+	stopRunningStatus := func() {}
 	defer func() {
 		cancel()
+		stopRunningStatus()
 		<-runningStatusDone
 	}()
 
@@ -947,24 +949,25 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	// Write the first status just after the start to store the running status.
 	// If the DAG is already finished, skip it.
+	runningStatusCtx, stopRunningStatus := context.WithCancel(ctx)
 	runningStatusDone = make(chan struct{})
-	go execWithRecovery(ctx, func() {
+	go execWithRecovery(runningStatusCtx, func() {
 		defer close(runningStatusDone)
 
 		timer := time.NewTimer(waitForRunning)
 		defer timer.Stop()
 
 		select {
-		case <-ctx.Done():
+		case <-runningStatusCtx.Done():
 			return
 		case <-timer.C:
 		}
 
-		status := a.Status(ctx)
+		status := a.Status(runningStatusCtx)
 		if a.finished.Load() || a.shouldDelayTerminalStatus(status.Status) {
 			return
 		}
-		a.writeStatus(ctx, attempt, status)
+		a.writeStatus(runningStatusCtx, attempt, status)
 	})
 
 	// Start the dag-run.
@@ -1024,6 +1027,8 @@ func (a *Agent) Run(ctx context.Context) error {
 	close(progressCh)
 	<-progressDone
 	progressDrained = true
+	stopRunningStatus()
+	<-runningStatusDone
 
 	// Update the finished status to the runstore database.
 	finishedStatus := a.Status(ctx)

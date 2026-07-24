@@ -50,13 +50,24 @@ func TestReplaceFile(t *testing.T) {
 	})
 }
 
-func TestReadRenameAndRemove(t *testing.T) {
+func TestMkdirReadRenameAndRemove(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
+	nested := filepath.Join(dir, "nested", "directory")
 	source := filepath.Join(dir, "source.txt")
 	target := filepath.Join(dir, "target.txt")
+	require.NoError(t, MkdirAll(nested, 0o750))
+	require.DirExists(t, nested)
 	require.NoError(t, os.WriteFile(source, []byte("data"), 0o600))
+
+	entries, err := ReadDir(dir)
+	require.NoError(t, err)
+	require.Len(t, entries, 2)
+
+	info, err := Stat(source)
+	require.NoError(t, err)
+	require.Equal(t, int64(4), info.Size())
 
 	data, err := ReadFile(source)
 	require.NoError(t, err)

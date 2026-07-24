@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/conformance/harness"
+	"github.com/stretchr/testify/require"
 )
 
 func sharedEnv(t *testing.T) []string {
@@ -20,6 +21,13 @@ func sharedEnv(t *testing.T) []string {
 
 func startWaiting(t *testing.T, dagu *harness.Runner, env []string, runID, file string, extraArgs ...string) {
 	t.Helper()
+	queueProcessor := dagu.StartWithEnv(env, "scheduler", "--dags="+dagu.ProjectPath("."))
+	select {
+	case <-queueProcessor.Done():
+		require.FailNowf(t, "scheduler exited during startup", "%s", queueProcessor.FailureOutput())
+	case <-time.After(100 * time.Millisecond):
+	}
+
 	args := []string{"start", "--run-id=" + runID}
 	args = append(args, extraArgs...)
 	args = append(args, file)
@@ -34,8 +42,13 @@ func complete(t *testing.T, dagu *harness.Runner, env []string, runID, step, fil
 	t.Helper()
 	args := []string{"human-task", "complete", "--run-id=" + runID, "--step=" + step}
 	args = append(args, inputs...)
-	args = append(args, file)
+	args = append(args, fixtureDAGName(file))
 	return dagu.RunWithEnv(env, args...)
+}
+
+func fixtureDAGName(file string) string {
+	base := strings.TrimSuffix(filepath.Base(file), filepath.Ext(file))
+	return "spec031_" + base
 }
 
 func waitForStatus(

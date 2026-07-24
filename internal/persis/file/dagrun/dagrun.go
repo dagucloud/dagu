@@ -174,7 +174,7 @@ func (dr DAGRun) FindSubDAGRun(_ context.Context, dagRunID string) (*DAGRun, err
 		filepath.Join(dr.baseDir, SubDAGRunsDir, dagRunID),
 		filepath.Join(dr.baseDir, LegacySubDAGRunsDir, LegacySubDAGRunDirPrefix+dagRunID),
 	} {
-		info, err := os.Stat(dir)
+		info, err := fileutil.Stat(dir)
 		if err == nil && info.IsDir() {
 			return newDAGRun(dir, dr.artifactDir)
 		}
@@ -358,7 +358,7 @@ func (dr DAGRun) removeLogFiles(ctx context.Context) error {
 
 // listAttemptDirs lists all attempt directories including hidden ones.
 func (dr DAGRun) listAttemptDirs() ([]string, error) {
-	entries, err := os.ReadDir(dr.baseDir)
+	entries, err := fileutil.ReadDir(dr.baseDir)
 	// If the directory does not exist, return nil
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil

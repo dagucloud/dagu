@@ -20,6 +20,7 @@ import (
 	"net/url"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -1333,10 +1334,16 @@ func (s *Service) sendTelegram(ctx context.Context, target notificationmodel.Tar
 	if target.Telegram == nil || target.Telegram.BotToken == "" || target.Telegram.ChatID == "" {
 		return errors.New("telegram bot token or chat id is not configured")
 	}
-	body, err := json.Marshal(map[string]string{
+	payload := map[string]any{
 		"chat_id": target.Telegram.ChatID,
 		"text":    messageForEvents(target.Telegram.MessageTemplate, events, s.publicURL()),
-	})
+	}
+	if target.Telegram.TopicID != "" {
+		if topicID, err := strconv.Atoi(target.Telegram.TopicID); err == nil {
+			payload["message_thread_id"] = topicID
+		}
+	}
+	body, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}

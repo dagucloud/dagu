@@ -989,6 +989,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dag-runs/{name}/{dagRunId}/human-tasks/{stepId}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Complete a waiting human task
+         * @description Validates typed input against the stored human-task form, completes the step atomically, and queues the same DAG-run when no manual steps remain waiting.
+         */
+        post: operations["completeHumanTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dag-runs/{name}/{dagRunId}/human-tasks/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Queue a completed human-task checkpoint for resume
+         * @description Queues a retry for a completed human-task checkpoint without requiring the previously submitted form values.
+         */
+        post: operations["resumeHumanTaskDAGRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dag-runs/{name}/{dagRunId}/stop": {
         parameters: {
             query?: never;
@@ -1084,7 +1124,7 @@ export interface paths {
         head?: never;
         /**
          * Manually update a step's execution status
-         * @description Changes the status of a specific step within a DAG-run
+         * @description Changes the status of a specific step after the DAG-run is no longer active
          */
         patch: operations["updateDAGRunStepStatus"];
         trace?: never;
@@ -1364,7 +1404,7 @@ export interface paths {
         head?: never;
         /**
          * Manually update a step's execution status in a sub DAG-run
-         * @description Changes the status of a specific step within a sub DAG-run
+         * @description Changes the status of a specific step after the sub DAG-run and its embedded root run are no longer active
          */
         patch: operations["updateSubDAGRunStepStatus"];
         trace?: never;
@@ -3625,6 +3665,36 @@ export interface components {
             /** @description Prompt text containing at least one non-whitespace character; the server enforces a limit of 16,384 UTF-8 bytes. */
             prompt: string;
         };
+        /** @description Resolved human-task instructions and optional normalized input form */
+        HumanTaskConfig: {
+            /** @description Instructions displayed to the operator. Run details contain the resolved, secret-masked snapshot. */
+            prompt: string;
+            /** @description Normalized flat JSON Schema for typed completion input */
+            form?: {
+                [key: string]: unknown;
+            };
+        };
+        /** @description Typed human-task completion input. An empty object acknowledges a task without a form. */
+        HumanTaskInput: {
+            [key: string]: unknown;
+        };
+        /** @description Result of completing or confirming one human task */
+        HumanTaskCompletionResponse: {
+            dagName: components["schemas"]["DAGName"];
+            dagRunId: components["schemas"]["DAGRunId"];
+            stepId: string;
+            alreadyCompleted: boolean;
+            /** @description Whether this request durably queued the DAG-run retry */
+            queued: boolean;
+            remainingWaitingSteps: number;
+        };
+        /** @description Result of queueing a completed human-task retry */
+        HumanTaskResumeResponse: {
+            dagName: components["schemas"]["DAGName"];
+            dagRunId: components["schemas"]["DAGRunId"];
+            /** @description Whether this request durably queued the DAG-run retry */
+            queued: boolean;
+        };
         /** @description Generic error response object */
         Error: {
             code: components["schemas"]["ErrorCode"];
@@ -3948,6 +4018,8 @@ export interface components {
             botToken?: string;
             /** @description Telegram chat ID */
             chatId?: string;
+            /** @description Optional Telegram topic ID (message thread ID) for forum groups */
+            topicId?: string;
             /** @description Optional Telegram message template. When omitted, Dagu sends the default notification text. */
             messageTemplate?: string;
         };
@@ -3959,6 +4031,8 @@ export interface components {
             botTokenPreview?: string;
             /** @description Telegram chat ID */
             chatId?: string;
+            /** @description Optional Telegram topic ID (message thread ID) for forum groups */
+            topicId?: string;
             /** @description Optional Telegram message template. When omitted, Dagu sends the default notification text. */
             messageTemplate?: string;
         };
@@ -4434,7 +4508,7 @@ export interface components {
          *     4: "Success"
          *     5: "Queued"
          *     6: "Partial Success"
-         *     7: "Waiting for approval"
+         *     7: "Waiting for manual action"
          *     8: "Rejected"
          *
          * @enum {integer}
@@ -4459,7 +4533,7 @@ export interface components {
          *     4: "Success"
          *     5: "Skipped"
          *     6: "Partial Success"
-         *     7: "Waiting for approval"
+         *     7: "Waiting for manual action"
          *     8: "Rejected"
          *     9: "Retrying"
          *
@@ -4809,6 +4883,8 @@ export interface components {
             specFromFile?: boolean;
             /** @description File name of the source DAG definition, derived from the DAG-run's source file path. Only set when the source file still exists on disk. Can be used to navigate to the DAG definition page. */
             sourceFileName?: components["schemas"]["DAGFileName"];
+            /** @description Whether completed human-task input is durable but the same DAG-run still needs its retry queued */
+            humanTaskResumePending?: boolean;
         };
         /**
          * @description Artifact tree node type
@@ -4913,10 +4989,16 @@ export interface components {
             subRunsRepeated?: components["schemas"]["SubDAGRun"][];
             /** @description Error message if the step failed */
             error?: string;
+            /** @description Name of the subject that completed the human task */
+            humanTaskCompletedBy?: string;
+            /** @description ID of the subject that completed the human task; local CLI IDs use the os:<uid> form */
+            humanTaskCompletedById?: string;
             /** @description RFC3339 timestamp when the step was approved */
             approvedAt?: string;
             /** @description Username of who approved the step */
             approvedBy?: string;
+            /** @description ID of the subject that approved the step */
+            approvedById?: string;
             /** @description Key-value inputs provided during approval */
             approvalInputs?: {
                 [key: string]: string;
@@ -4925,6 +5007,8 @@ export interface components {
             rejectedAt?: string;
             /** @description Username of who rejected the step */
             rejectedBy?: string;
+            /** @description ID of the subject that rejected the step */
+            rejectedById?: string;
             /** @description Optional reason for rejection */
             rejectionReason?: string;
             /** @description Number of times this step has been pushed back for re-execution */
@@ -4942,6 +5026,8 @@ export interface components {
             iteration: number;
             /** @description Authenticated user who pushed the step back */
             by?: string;
+            /** @description ID of the subject that pushed the step back */
+            byId?: string;
             /**
              * Format: date-time
              * @description RFC3339 timestamp when the push-back was recorded
@@ -5047,6 +5133,7 @@ export interface components {
                 }[];
             };
             approval?: components["schemas"]["ApprovalConfig"];
+            humanTask?: components["schemas"]["HumanTaskConfig"];
         };
         /** @description Individual search result item for a DAG */
         SearchResultItem: {
@@ -6015,6 +6102,8 @@ export interface components {
         DAGName: components["schemas"]["DAGName"];
         /** @description name of the step */
         StepName: string;
+        /** @description explicit ID of the human-task step */
+        HumanTaskStepId: string;
         /** @description Relative artifact file path within the DAG-run artifact directory. Must not start with '/' or '\' or contain '..'. */
         ArtifactPath: string & unknown & unknown & unknown;
         /** @description Whether to recursively expand nested artifact directories */
@@ -9160,6 +9249,159 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    completeHumanTask: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description name of the DAG */
+                name: components["parameters"]["DAGName"];
+                /** @description ID of the DAG-run; must not be the special 'latest' alias */
+                dagRunId: components["parameters"]["DAGRunConcreteId"];
+                /** @description explicit ID of the human-task step */
+                stepId: components["parameters"]["HumanTaskStepId"];
+            };
+            cookie?: never;
+        };
+        /** @description Typed form input. The JSON request body is limited to 16 MiB. */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HumanTaskInput"];
+            };
+        };
+        responses: {
+            /** @description Human task completed or an identical prior completion confirmed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HumanTaskCompletionResponse"];
+                };
+            };
+            /** @description Malformed or invalid human-task input */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description DAG-run or human task not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Human task is not actionable or completion conflicts with current state */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Human-task input exceeds the 16 MiB request-body limit */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Completion was stored but the DAG-run retry could not be queued */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    resumeHumanTaskDAGRun: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description name of the DAG */
+                name: components["parameters"]["DAGName"];
+                /** @description ID of the DAG-run; must not be the special 'latest' alias */
+                dagRunId: components["parameters"]["DAGRunConcreteId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The retry was queued or was already queued or running */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HumanTaskResumeResponse"];
+                };
+            };
+            /** @description DAG-run not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The DAG-run still has waiting steps or no recoverable human-task checkpoint */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The retry could not be queued and remains retryable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
             };
             /** @description Generic error response */
             default: {
@@ -17161,7 +17403,9 @@ export enum ErrorCode {
     auth_token_invalid = "auth.token_invalid",
     auth_forbidden = "auth.forbidden",
     timeout = "timeout",
-    rate_limited = "rate_limited"
+    rate_limited = "rate_limited",
+    human_task_resume_failed = "human_task_resume_failed",
+    payload_too_large = "payload_too_large"
 }
 export enum WebhookAuthMode {
     token_only = "token_only",

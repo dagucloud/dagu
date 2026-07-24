@@ -158,6 +158,7 @@ func TestRetryPlanWithRejectedNode(t *testing.T) {
 			Status:          core.NodeRejected,
 			RejectedAt:      "2024-01-15T10:00:00Z",
 			RejectedBy:      "test-user",
+			RejectedByID:    "user-1",
 			RejectionReason: "test reason",
 		},
 	})
@@ -179,6 +180,7 @@ func TestRetryPlanWithRejectedNode(t *testing.T) {
 	// Rejection metadata should be cleared
 	require.Empty(t, rejectedNode.State().RejectedAt)
 	require.Empty(t, rejectedNode.State().RejectedBy)
+	require.Empty(t, rejectedNode.State().RejectedByID)
 	require.Empty(t, rejectedNode.State().RejectionReason)
 }
 

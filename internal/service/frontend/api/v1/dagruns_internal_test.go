@@ -6,6 +6,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -13,8 +14,11 @@ import (
 
 	openapiv1 "github.com/dagucloud/dagu/api/v1"
 	"github.com/dagucloud/dagu/internal/auth"
+	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/internal/persis/file/dagrun"
+	runtimepkg "github.com/dagucloud/dagu/internal/runtime"
 	"github.com/goccy/go-yaml"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -221,6 +225,237 @@ func TestApplyPushBackRewindToResetsNamedStepAndDependents(t *testing.T) {
 	}
 }
 
+func TestRollbackPushBackIgnoresCancellationAndPreservesConcurrentUnrelatedNodeChanges(t *testing.T) {
+	t.Parallel()
+
+	approvalStep := core.Step{Name: "approval", Approval: &core.ApprovalConfig{}}
+	humanStep := core.Step{ID: "review", Name: "review", HumanTask: &core.HumanTaskConfig{Prompt: "Review"}}
+	original := &exec.DAGRunStatus{
+		Name: "test", DAGRunID: "run-1", AttemptID: "attempt-1", AttemptKey: "key-1", Status: core.Waiting,
+		Nodes: []*exec.Node{
+			{Step: approvalStep, Status: core.NodeWaiting, StartedAt: "started"},
+			{Step: humanStep, Status: core.NodeWaiting},
+		},
+	}
+	applied, err := cloneManualStatus(original)
+	require.NoError(t, err)
+	require.NoError(t, applyPushBack(context.Background(), applied.Nodes[0], applied, nil))
+	current, err := cloneManualStatus(applied)
+	require.NoError(t, err)
+	current.Nodes[1].Status = core.NodeSucceeded
+	current.Nodes[1].HumanTaskInput = json.RawMessage(`{"confirmed":true}`)
+
+	store := &manualCASStore{status: current}
+	a := &API{dagRunStore: store}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	require.NoError(t, a.rollbackPushBack(ctx, current.DAGRun(), applied, original))
+
+	assert.Equal(t, core.NodeWaiting, current.Nodes[0].Status)
+	assert.Equal(t, "started", current.Nodes[0].StartedAt)
+	assert.Equal(t, core.NodeSucceeded, current.Nodes[1].Status)
+	assert.JSONEq(t, `{"confirmed":true}`, string(current.Nodes[1].HumanTaskInput))
+}
+
+type manualCASStore struct {
+	exec.DAGRunStore
+	status *exec.DAGRunStatus
+}
+
+type manualStepAttempt struct {
+	exec.DAGRunAttempt
+	dag      *core.DAG
+	statuses []*exec.DAGRunStatus
+	reads    int
+}
+
+func (a *manualStepAttempt) ReadDAG(context.Context) (*core.DAG, error) {
+	return a.dag, nil
+}
+
+func (a *manualStepAttempt) ReadStatus(context.Context) (*exec.DAGRunStatus, error) {
+	idx := a.reads
+	if idx >= len(a.statuses) {
+		idx = len(a.statuses) - 1
+	}
+	a.reads++
+	return a.statuses[idx], nil
+}
+
+type manualStepProcStore struct {
+	exec.ProcStore
+	alive bool
+	err   error
+}
+
+func (s *manualStepProcStore) IsAttemptAlive(context.Context, string, exec.DAGRunRef, string) (bool, error) {
+	return s.alive, s.err
+}
+
+type failingManualCASStore struct {
+	exec.DAGRunStore
+	err error
+}
+
+func (s *failingManualCASStore) CompareAndSwapLatestAttemptStatus(
+	context.Context,
+	exec.DAGRunRef,
+	string,
+	core.Status,
+	func(*exec.DAGRunStatus) error,
+	...exec.CompareAndSwapStatusOption,
+) (*exec.DAGRunStatus, bool, error) {
+	return nil, false, s.err
+}
+
+func (s *manualCASStore) CompareAndSwapLatestAttemptStatus(
+	ctx context.Context,
+	_ exec.DAGRunRef,
+	expectedAttemptID string,
+	expectedStatus core.Status,
+	mutate func(*exec.DAGRunStatus) error,
+	_ ...exec.CompareAndSwapStatusOption,
+) (*exec.DAGRunStatus, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, false, err
+	}
+	if s.status.AttemptID != expectedAttemptID || s.status.Status != expectedStatus {
+		return s.status, false, nil
+	}
+	if err := mutate(s.status); err != nil {
+		return nil, false, err
+	}
+	return s.status, true, nil
+}
+
+func TestWaitForManualStepMutationReadyFailsClosedOnLivenessError(t *testing.T) {
+	status := &exec.DAGRunStatus{
+		Name:      "manual-dag",
+		DAGRunID:  "run-1",
+		AttemptID: "attempt-1",
+		Status:    core.Waiting,
+		WorkerID:  "local",
+	}
+	livenessErr := errors.New("liveness unavailable")
+	a := &API{procStore: &manualStepProcStore{err: livenessErr}}
+	attempt := &manualStepAttempt{dag: &core.DAG{Name: status.Name}}
+
+	updated, err := a.waitForManualStepMutationReady(t.Context(), attempt, status)
+
+	assert.Nil(t, updated)
+	require.ErrorIs(t, err, livenessErr)
+}
+
+func TestWaitForManualStepMutationReadyHonorsCancellation(t *testing.T) {
+	status := &exec.DAGRunStatus{
+		Name:      "manual-dag",
+		DAGRunID:  "run-1",
+		AttemptID: "attempt-1",
+		Status:    core.Waiting,
+		WorkerID:  "local",
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	a := &API{procStore: &manualStepProcStore{alive: true}}
+	attempt := &manualStepAttempt{dag: &core.DAG{Name: status.Name}}
+
+	updated, err := a.waitForManualStepMutationReady(ctx, attempt, status)
+
+	assert.Nil(t, updated)
+	require.ErrorIs(t, err, context.Canceled)
+}
+
+func TestWaitForManualStepMutationReadyWaitsForRemotePersistence(t *testing.T) {
+	status := &exec.DAGRunStatus{
+		Name:      "manual-dag",
+		DAGRunID:  "run-1",
+		AttemptID: "attempt-1",
+		Status:    core.Waiting,
+		WorkerID:  "worker-1",
+	}
+	finalized := *status
+	finalized.FinishedAt = exec.FormatTime(time.Now())
+	attempt := &manualStepAttempt{statuses: []*exec.DAGRunStatus{status, &finalized}}
+
+	updated, err := (&API{}).waitForManualStepMutationReady(t.Context(), attempt, status)
+
+	require.NoError(t, err)
+	assert.Same(t, &finalized, updated)
+	assert.Equal(t, 2, attempt.reads)
+}
+
+func TestWaitForManualStepMutationReadyWaitsForLocalPersistence(t *testing.T) {
+	status := &exec.DAGRunStatus{
+		Name:      "manual-dag",
+		DAGRunID:  "run-1",
+		AttemptID: "attempt-1",
+		Status:    core.Waiting,
+		WorkerID:  "local",
+	}
+	finalized := *status
+	finalized.FinishedAt = exec.FormatTime(time.Now())
+	attempt := &manualStepAttempt{
+		dag:      &core.DAG{Name: status.Name},
+		statuses: []*exec.DAGRunStatus{status, &finalized},
+	}
+	a := &API{procStore: &manualStepProcStore{}}
+
+	updated, err := a.waitForManualStepMutationReady(t.Context(), attempt, status)
+
+	require.NoError(t, err)
+	assert.Same(t, &finalized, updated)
+	assert.Equal(t, 2, attempt.reads)
+}
+
+func TestApproveDAGRunStepReturnsInternalErrorWhenStatusWriteFails(t *testing.T) {
+	ctx := t.Context()
+	store := dagrun.New(t.TempDir())
+	dag := &core.DAG{
+		Name: "approval-write-failure",
+		Steps: []core.Step{{
+			Name:     "approve",
+			Approval: &core.ApprovalConfig{Prompt: "Approve"},
+		}},
+	}
+	attempt, err := store.CreateAttempt(ctx, dag, time.Now(), "run-1", exec.NewDAGRunAttemptOptions{})
+	require.NoError(t, err)
+	status := exec.InitialStatus(dag)
+	status.DAGRunID = "run-1"
+	status.AttemptID = attempt.ID()
+	status.Status = core.Waiting
+	status.FinishedAt = exec.FormatTime(time.Now())
+	status.Nodes[0].Status = core.NodeWaiting
+	require.NoError(t, attempt.Open(ctx))
+	require.NoError(t, attempt.Write(ctx, status))
+	require.NoError(t, attempt.Close(ctx))
+
+	writeErr := errors.New("status store unavailable")
+	failingStore := &failingManualCASStore{DAGRunStore: store, err: writeErr}
+	cfg := &config.Config{Server: config.Server{Permissions: map[config.Permission]bool{
+		config.PermissionRunDAGs: true,
+	}}}
+	a := &API{
+		dagRunStore: failingStore,
+		dagRunMgr:   runtimepkg.NewManager(failingStore, nil, cfg),
+		procStore:   &manualStepProcStore{},
+		config:      cfg,
+	}
+
+	response, err := a.ApproveDAGRunStep(ctx, openapiv1.ApproveDAGRunStepRequestObject{
+		Name:     dag.Name,
+		DagRunId: status.DAGRunID,
+		StepName: "approve",
+		Body:     &openapiv1.ApproveStepRequest{},
+	})
+
+	assert.Nil(t, response)
+	require.ErrorIs(t, err, writeErr)
+	code, message, statusCode := a.resolveError(err)
+	assert.Equal(t, openapiv1.ErrorCodeInternalError, code)
+	assert.Equal(t, "An unexpected error occurred", message)
+	assert.Equal(t, http.StatusInternalServerError, statusCode)
+}
+
 func TestApplyPushBackAppendsLegacyPushBackInputsToHistory(t *testing.T) {
 	t.Parallel()
 
@@ -293,7 +528,7 @@ func TestApplyPushBackRecordsAuthenticatedUserInHistory(t *testing.T) {
 		},
 	}
 
-	ctx := auth.WithUser(context.Background(), &auth.User{Username: "reviewer1"})
+	ctx := auth.WithUser(context.Background(), &auth.User{ID: "user-1", Username: "reviewer1"})
 	err := applyPushBack(ctx, status.Nodes[0], status, &openapiv1.PushBackStepRequest{
 		Inputs: &inputs,
 	})
@@ -301,6 +536,7 @@ func TestApplyPushBackRecordsAuthenticatedUserInHistory(t *testing.T) {
 
 	require.Len(t, status.Nodes[0].PushBackHistory, 1)
 	assert.Equal(t, "reviewer1", status.Nodes[0].PushBackHistory[0].By)
+	assert.Equal(t, "user-1", status.Nodes[0].PushBackHistory[0].ByID)
 
 	rawNode, err := json.Marshal(status.Nodes[0])
 	require.NoError(t, err)
@@ -315,10 +551,27 @@ func TestApplyPushBackRecordsAuthenticatedUserInHistory(t *testing.T) {
 	first, ok := history[0].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "reviewer1", first["by"])
+	assert.Equal(t, "user-1", first["byId"])
 	at, ok := first["at"].(string)
 	require.True(t, ok)
 	_, err = time.Parse(time.RFC3339, at)
 	require.NoError(t, err)
+}
+
+func TestApprovalMutationsRecordAuthenticatedSubjectID(t *testing.T) {
+	t.Parallel()
+
+	ctx := auth.WithUser(context.Background(), &auth.User{ID: "user-1", Username: "reviewer"})
+	approved := &exec.Node{}
+	applyApproval(ctx, approved, nil)
+	assert.Equal(t, "reviewer", approved.ApprovedBy)
+	assert.Equal(t, "user-1", approved.ApprovedByID)
+
+	rejected := &exec.Node{}
+	status := &exec.DAGRunStatus{}
+	applyRejection(ctx, rejected, status, nil)
+	assert.Equal(t, "reviewer", rejected.RejectedBy)
+	assert.Equal(t, "user-1", rejected.RejectedByID)
 }
 
 func TestApplyInlineEnqueueLabels_ArrayLabels(t *testing.T) {

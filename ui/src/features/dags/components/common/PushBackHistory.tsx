@@ -3,6 +3,7 @@
 
 import dayjs from '@/lib/dayjs';
 import { components } from '../../../../api/v1/schema';
+import { ManualActionSubject } from './ManualActionSubject';
 
 type PushBackHistoryEntry = components['schemas']['PushBackHistoryEntry'];
 
@@ -58,11 +59,16 @@ export default function PushBackHistory({
                 <span className="font-medium text-foreground/90">
                   Iteration {entry.iteration}
                 </span>
-                {entry.by && (
+                {entry.by || entry.byId ? (
                   <span className="text-muted-foreground">
-                    by <span className="text-foreground/80">{entry.by}</span>
+                    by{' '}
+                    <ManualActionSubject
+                      name={entry.by}
+                      id={entry.byId}
+                      className="text-foreground/80"
+                    />
                   </span>
-                )}
+                ) : null}
                 {entry.at && (
                   <span className="text-muted-foreground">
                     at {formatTimestamp(entry.at)}

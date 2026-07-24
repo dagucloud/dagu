@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="./assets/images/hero-logo.webp" width="480" alt="Dagu Logo">
+  <img src="./assets/images/hero-logo.webp" width="900" alt="Dagu local-first workflow engine for ops automation and AI-assisted workflows">
   <p>
     <a href="https://discord.gg/gpahPUjGRk">Community</a>
   </p>
@@ -7,9 +7,9 @@
 
 <h1>Dagu</h1>
 
-Dagu is a lightweight, self-contained alternative to Airflow or Cron with Web UI. It supports Linux / Mac / Windows. Define [DAGs](https://en.wikipedia.org/wiki/Directed_acyclic_graph) in a simple, declarative YAML format. It natively supports shell commands, Docker containers, Kubernetes Jobs, remote commands via SSH, external coding-agent CLIs through `harness.run`, and more through Dagu Actions.
+Dagu is a local-first workflow engine for ops automation and AI-assisted operations. It is open source and self-hostable: a single binary with a built-in Web UI, no external database or message broker, running on Linux / Mac / Windows. Define [DAGs](https://en.wikipedia.org/wiki/Directed_acyclic_graph) in a declarative YAML format. It natively supports shell commands, Docker containers, Kubernetes Jobs, remote commands via SSH, external coding-agent CLIs through `harness.run`, and more through Dagu Actions.
 
-It was designed to be easy to use, self-contained, and require no coding, making it ideal for small teams.
+Dagu turns existing scripts, runbooks, and agent-driven jobs into production workflows with scheduling, retries, approvals, and run history. It runs where your data and credentials live: on-prem, air-gapped, edge, or cloud, and scales from a single node to a distributed worker fleet.
 
 **Highlights:**
 
@@ -26,7 +26,9 @@ It was designed to be easy to use, self-contained, and require no coding, making
 For a quick look at how workflows are defined, see the examples.
 
 <div align="center">
-  <img src="./assets/images/dagu-demo.gif" width="720" alt="Dagu demo showing the cockpit kanban view and YAML workflow editing">
+  <a href="./assets/images/dagu-demo.mp4?raw=1">
+    <img src="./assets/images/dagu-demo.gif" width="720" alt="Dagu demo showing workflow definitions, the cockpit view, scheduling, built-in actions, and production features">
+  </a>
 </div>
 
 | Run Details | Step Logs |
@@ -52,17 +54,18 @@ For a quick look at how workflows are defined, see the examples.
 
 ## Performance
 
-Dagu stores state in local files. How much it can run depends on the machine and the workload. CPU, memory, disk, workflow characteristics, queue settings, and worker capacity all matter.
+Dagu stores state in local files and reaches production throughput without external services.
 
-- **Throughput:** On one machine, Dagu can run thousands of workflow runs per day when the hardware and workflow shape fit the workload.
-- **Load control:** Use queues, concurrency limits, resource limits, and optional distributed workers to decide how many runs execute at once and where they run.
+- **Throughput:** A single machine can run thousands of workflow runs per day. Actual capacity depends on CPU, memory, disk, and workflow shape.
+- **Load control:** Queues, concurrency limits, and resource limits control how many runs execute at once and where they run.
+- **Scale out:** Distributed workers spread execution across machines when one node is not enough.
 
 ## Real-World Use Cases
 
 | Use Case | How Dagu Helps |
 | --- | --- |
 | ETL and data operations | Turn data extraction scripts, SQL queries, dbt commands, and data-processing runbooks into observable pipelines with durable execution. |
-| Cron and legacy script management | Turn complex jobs with interdependencies into maintainable DAGs with a UI, automatic logging, retries, and notifications instead of opaque cron jobs and bash scripts. |
+| Legacy scripts and scheduled jobs | Turn complex jobs with interdependencies into maintainable DAGs with a UI, automatic logging, retries, and notifications instead of opaque cron jobs and bash scripts. |
 | Media conversion | Run `ffmpeg` for video transcoding and format conversion. Thanks to Dagu's file-backed nature, workers can run heavy conversions in parallel without single machine bottlenecks or external databases. |
 | Infrastructure and server automation | Run any command or script over SSH on remote servers, keeping logs, results, and notifications in one place. |
 | GitHub-driven workflows | Trigger workflows from GitHub events. This is useful for running automation on private infrastructure without exposing your servers to the public internet. |
@@ -179,7 +182,7 @@ Run Dagu on one machine, scale out with distributed workers, or use a managed Da
 
 | Model | Server | Execution | Best for |
 |------|--------|-----------|----------|
-| **Local single-server** | `dagu start-all` on one machine. | Same machine. | Development, small scheduled workloads, edge jobs, and simple internal automation. |
+| **Local single-server** | `dagu start-all` on one machine. | Same machine. | Development, single-machine scheduled workloads, edge jobs, and internal automation. |
 | **Self-hosted** | Dagu server on your infrastructure. | Local execution or distributed workers on your infrastructure. | Teams that need ownership of infrastructure. |
 | **Managed Server** | Full managed Dagu server in a dedicated, isolated gVisor instance on GKE. | Managed instance. | Teams that want Dagu operated for them without running the server themselves. |
 | **Hybrid** | Full managed Dagu server. | Private workers in your infrastructure over mTLS. | Docker steps, private networks, specialized hardware, or data-local work. |
@@ -536,6 +539,7 @@ Dagu includes built-in actions that run within the Dagu process or on the select
 | `jq.filter` | JSON transformation using jq expressions |
 | `archive.create` / `archive.extract` / `archive.list` | Create, extract, and list zip/tar archives |
 | `wait.duration` / `wait.until` / `wait.file` / `wait.http` | Wait for time, file state, or HTTP readiness |
+| `human.task` | Wait for acknowledgement or typed operator input before downstream steps continue |
 | `mail.send` | Send email via SMTP |
 | `template.render` | Text generation with template rendering |
 | `router.route` | Conditional step routing based on values and patterns |

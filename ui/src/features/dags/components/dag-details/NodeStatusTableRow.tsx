@@ -64,6 +64,7 @@ import HarnessStepSummary from './HarnessStepSummary';
 import { LogStepMessage } from './LogStepMessage';
 import { SubDAGRunsList } from './SubDAGRunsList';
 import PushBackHistory from '../common/PushBackHistory';
+import { ManualActionSubject } from '../common/ManualActionSubject';
 
 /**
  * Props for the NodeStatusTableRow component
@@ -140,6 +141,79 @@ const calculateDuration = (
   }
 };
 
+function ManualActionDetails({
+  node,
+  className,
+}: {
+  node: components['schemas']['Node'];
+  className?: string;
+}) {
+  const detailClassName = cn('text-xs text-muted-foreground', className);
+
+  return (
+    <>
+      {node.humanTaskCompletedBy || node.humanTaskCompletedById ? (
+        <div className={detailClassName}>
+          <span className="font-medium">Completed by:</span>{' '}
+          <ManualActionSubject
+            name={node.humanTaskCompletedBy}
+            id={node.humanTaskCompletedById}
+            className="text-info"
+          />
+          {node.finishedAt && (
+            <span className="ml-1">at {formatTimestamp(node.finishedAt)}</span>
+          )}
+        </div>
+      ) : null}
+      {node.approvedBy || node.approvedById ? (
+        <div className={detailClassName}>
+          <span className="font-medium">Approved by:</span>{' '}
+          <ManualActionSubject
+            name={node.approvedBy}
+            id={node.approvedById}
+            className="text-info"
+          />
+          {node.approvedAt && (
+            <span className="ml-1">at {formatTimestamp(node.approvedAt)}</span>
+          )}
+        </div>
+      ) : null}
+      {node.approvalInputs && Object.keys(node.approvalInputs).length > 0 && (
+        <div className={detailClassName}>
+          <span className="font-medium">Inputs:</span>{' '}
+          <span className="whitespace-normal break-words font-mono text-foreground/80">
+            {JSON.stringify(node.approvalInputs)}
+          </span>
+        </div>
+      )}
+      {node.pushBackHistory && node.pushBackHistory.length > 0 && (
+        <PushBackHistory history={node.pushBackHistory} className="pt-1" />
+      )}
+      {node.rejectedBy || node.rejectedById ? (
+        <div className={detailClassName}>
+          <span className="font-medium">Rejected by:</span>{' '}
+          <ManualActionSubject
+            name={node.rejectedBy}
+            id={node.rejectedById}
+            className="text-error"
+          />
+          {node.rejectedAt && (
+            <span className="ml-1">at {formatTimestamp(node.rejectedAt)}</span>
+          )}
+        </div>
+      ) : null}
+      {node.rejectionReason && (
+        <div className={detailClassName}>
+          <span className="font-medium">Reason:</span>{' '}
+          <span className="whitespace-normal break-words text-foreground/80">
+            {node.rejectionReason}
+          </span>
+        </div>
+      )}
+    </>
+  );
+}
+
 /**
  * NodeStatusTableRow displays information about a single node's execution status
  */
@@ -167,7 +241,6 @@ function NodeStatusTableRow({
   const [showDialog, setShowDialog] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
   // State for inline log expansion
   const [isLogExpanded, setIsLogExpanded] = useState(defaultLogExpanded);
   const [activeLogTab, setActiveLogTab] = useState<'stdout' | 'stderr'>(
@@ -211,10 +284,21 @@ function NodeStatusTableRow({
   }, [defaultLogExpanded, hasLogs, hasStderr]);
 
   const showStepActions = Boolean(dagRunId && config.permissions.runDags);
+  const canUpdateStepStatus =
+    showStepActions &&
+    !node.step.humanTask &&
+    dagRun.status !== Status.NotStarted &&
+    dagRun.status !== Status.Running &&
+    dagRun.status !== Status.Queued &&
+    dagRun.status !== Status.Waiting;
   const canRetryStep =
     showStepActions &&
+    dagRun.status !== Status.Waiting &&
+    dagRun.status !== Status.Queued &&
+    !node.step.humanTask &&
     node.status !== NodeStatus.Waiting &&
     node.status !== NodeStatus.Rejected;
+  const retryDisabled = loading || dagRun.status === Status.Running;
 
   const subDAGLogQuery = useQuery(
     '/dag-runs/{name}/{dagRunId}/sub-dag-runs/{subDAGRunId}/steps/{stepName}/log',
@@ -417,18 +501,31 @@ function NodeStatusTableRow({
     setLoading(true);
     setError(null);
     try {
-      await client.POST('/dag-runs/{name}/{dagRunId}/retry', {
-        params: {
-          path: { name: dagName, dagRunId },
-          query: { remoteNode },
-        },
-        body: { dagRunId, stepName: node.step.name },
-      });
-      setSuccess(true);
+      const { error: requestError } = await client.POST(
+        '/dag-runs/{name}/{dagRunId}/retry',
+        {
+          params: {
+            path: { name: dagName, dagRunId },
+            query: { remoteNode },
+          },
+          body: { dagRunId, stepName: node.step.name },
+        }
+      );
+      if (requestError) {
+        setError(requestError.message || 'Failed to retry DAG run');
+        return;
+      }
       setShowDialog(false);
     } catch (e) {
-      const error = e as { data?: { message?: string }; message?: string };
-      setError(error?.data?.message || error.message || 'Retry failed');
+      const requestError = e as {
+        data?: { message?: string };
+        message?: string;
+      };
+      setError(
+        requestError?.data?.message ||
+          requestError.message ||
+          'Failed to retry DAG run'
+      );
     } finally {
       setLoading(false);
     }
@@ -481,6 +578,44 @@ function NodeStatusTableRow({
   // Determine which stream to show based on active tab
   const currentStream: components['schemas']['Stream'] =
     activeLogTab === 'stderr' && hasStderr ? Stream.stderr : Stream.stdout;
+
+  const handleRetryDialogOpenChange = (open: boolean) => {
+    setShowDialog(open);
+    setError(null);
+  };
+
+  const retryDialog = (
+    <Dialog open={showDialog} onOpenChange={handleRetryDialogOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Retry from this step?</DialogTitle>
+        </DialogHeader>
+        <div className="py-2 text-sm">
+          This will re-execute <b>{node.step.name}</b>. Are you sure?
+          {error && <div className="text-error mt-2">{error}</div>}
+        </div>
+        <DialogFooter>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => handleRetryDialogOpenChange(false)}
+            disabled={loading}
+          >
+            <X className="h-4 w-4" />
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            onClick={handleRetry}
+            disabled={retryDisabled || !canRetryStep}
+          >
+            <Play className="h-4 w-4" />
+            {loading ? 'Retrying...' : 'Retry'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 
   // Render desktop view (table row)
   if (view === 'desktop') {
@@ -679,53 +814,7 @@ function NodeStatusTableRow({
                   {currentDuration}
                 </div>
               )}
-              {/* Approval info */}
-              {node.approvedBy && (
-                <div className="text-xs text-muted-foreground leading-tight">
-                  <span className="font-medium">Approved by:</span>{' '}
-                  <span className="text-info">{node.approvedBy}</span>
-                  {node.approvedAt && (
-                    <span className="ml-1">
-                      at {formatTimestamp(node.approvedAt)}
-                    </span>
-                  )}
-                </div>
-              )}
-              {node.approvalInputs &&
-                Object.keys(node.approvalInputs).length > 0 && (
-                  <div className="text-xs text-muted-foreground leading-tight">
-                    <span className="font-medium">Inputs:</span>{' '}
-                    <span className="font-mono text-foreground/80">
-                      {JSON.stringify(node.approvalInputs)}
-                    </span>
-                  </div>
-                )}
-              {node.pushBackHistory && node.pushBackHistory.length > 0 && (
-                <PushBackHistory
-                  history={node.pushBackHistory}
-                  className="pt-1"
-                />
-              )}
-              {/* Rejection info */}
-              {node.rejectedBy && (
-                <div className="text-xs text-muted-foreground leading-tight">
-                  <span className="font-medium">Rejected by:</span>{' '}
-                  <span className="text-error">{node.rejectedBy}</span>
-                  {node.rejectedAt && (
-                    <span className="ml-1">
-                      at {formatTimestamp(node.rejectedAt)}
-                    </span>
-                  )}
-                </div>
-              )}
-              {node.rejectionReason && (
-                <div className="text-xs text-muted-foreground leading-tight">
-                  <span className="font-medium">Reason:</span>{' '}
-                  <span className="text-foreground/80">
-                    {node.rejectionReason}
-                  </span>
-                </div>
-              )}
+              <ManualActionDetails node={node} className="leading-tight" />
             </div>
           </TableCell>
 
@@ -734,10 +823,14 @@ function NodeStatusTableRow({
             <div
               onClick={(e) => {
                 e.stopPropagation();
+                if (!canUpdateStepStatus) return;
                 setShowStatusModal(true);
               }}
-              className="inline-block cursor-pointer"
-              title="Click to update status"
+              className={cn(
+                'inline-block',
+                canUpdateStepStatus && 'cursor-pointer'
+              )}
+              title={canUpdateStepStatus ? 'Click to update status' : undefined}
             >
               <NodeStatusChip status={node.status} size="sm">
                 {node.statusLabel}
@@ -831,43 +924,15 @@ function NodeStatusTableRow({
                     title="Retry from this step"
                     onClick={(e) => {
                       e.stopPropagation();
-                      setShowDialog(true);
+                      handleRetryDialogOpenChange(true);
                     }}
-                    disabled={loading || dagRun.status === Status.Running}
+                    disabled={retryDisabled}
                   >
                     <Play className="h-4 w-4 text-success" />
                   </Button>
                 )}
               </div>
-              <Dialog open={showDialog} onOpenChange={setShowDialog}>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Retry from this step?</DialogTitle>
-                  </DialogHeader>
-                  <div className="py-2 text-sm">
-                    This will re-execute <b>{node.step.name}</b>. Are you sure?
-                    {error && <div className="text-error mt-2">{error}</div>}
-                    {success && (
-                      <div className="text-success mt-2">Retry started!</div>
-                    )}
-                  </div>
-                  <DialogFooter>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => setShowDialog(false)}
-                      disabled={loading}
-                    >
-                      <X className="h-4 w-4" />
-                      Cancel
-                    </Button>
-                    <Button size="sm" onClick={handleRetry} disabled={loading}>
-                      <Play className="h-4 w-4" />
-                      {loading ? 'Retrying...' : 'Retry'}
-                    </Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
+              {retryDialog}
             </TableCell>
           )}
         </StyledTableRow>
@@ -1121,48 +1186,7 @@ function NodeStatusTableRow({
               {currentDuration}
             </div>
           )}
-          {/* Approval info */}
-          {node.approvedBy && (
-            <div className="text-xs text-muted-foreground">
-              <span className="font-medium">Approved by:</span>{' '}
-              <span className="text-info">{node.approvedBy}</span>
-              {node.approvedAt && (
-                <span className="ml-1">
-                  at {formatTimestamp(node.approvedAt)}
-                </span>
-              )}
-            </div>
-          )}
-          {node.approvalInputs &&
-            Object.keys(node.approvalInputs).length > 0 && (
-              <div className="text-xs text-muted-foreground">
-                <span className="font-medium">Inputs:</span>{' '}
-                <span className="font-mono text-foreground/80">
-                  {JSON.stringify(node.approvalInputs)}
-                </span>
-              </div>
-            )}
-          {node.pushBackHistory && node.pushBackHistory.length > 0 && (
-            <PushBackHistory history={node.pushBackHistory} className="pt-1" />
-          )}
-          {/* Rejection info */}
-          {node.rejectedBy && (
-            <div className="text-xs text-muted-foreground">
-              <span className="font-medium">Rejected by:</span>{' '}
-              <span className="text-error">{node.rejectedBy}</span>
-              {node.rejectedAt && (
-                <span className="ml-1">
-                  at {formatTimestamp(node.rejectedAt)}
-                </span>
-              )}
-            </div>
-          )}
-          {node.rejectionReason && (
-            <div className="text-xs text-muted-foreground">
-              <span className="font-medium">Reason:</span>{' '}
-              <span className="text-foreground/80">{node.rejectionReason}</span>
-            </div>
-          )}
+          <ManualActionDetails node={node} />
         </div>
       </div>
 
@@ -1250,41 +1274,13 @@ function NodeStatusTableRow({
             <button
               className="p-2 rounded-full hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed"
               title="Retry from this step"
-              onClick={() => setShowDialog(true)}
-              disabled={loading || dagRun.status === Status.Running}
+              onClick={() => handleRetryDialogOpenChange(true)}
+              disabled={retryDisabled}
             >
               <Play className="h-6 w-6 text-success" />
             </button>
           )}
-          <Dialog open={showDialog} onOpenChange={setShowDialog}>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Retry from this step?</DialogTitle>
-              </DialogHeader>
-              <div className="py-2 text-sm">
-                This will re-execute <b>{node.step.name}</b>. Are you sure?
-                {error && <div className="text-error mt-2">{error}</div>}
-                {success && (
-                  <div className="text-success mt-2">Retry started!</div>
-                )}
-              </div>
-              <DialogFooter>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => setShowDialog(false)}
-                  disabled={loading}
-                >
-                  <X className="h-4 w-4" />
-                  Cancel
-                </Button>
-                <Button size="sm" onClick={handleRetry} disabled={loading}>
-                  <Play className="h-4 w-4" />
-                  {loading ? 'Retrying...' : 'Retry'}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+          {retryDialog}
         </div>
       )}
     </div>

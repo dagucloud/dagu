@@ -19,7 +19,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func Server() *cobra.Command {
+func Server(serverOpts ...frontend.ServerOption) *cobra.Command {
 	return NewCommand(
 		&cobra.Command{
 			Use:   "server [flags]",
@@ -41,7 +41,9 @@ Flags:
 Example:
   dagu server --host=0.0.0.0 --port=8080 --dags=/path/to/dags
 `,
-		}, serverFlags, runServer,
+		}, serverFlags, func(ctx *Context, args []string) error {
+			return runServer(ctx, args, serverOpts...)
+		},
 	)
 }
 
@@ -51,7 +53,7 @@ var serverFlags = []commandLineFlag{dagsFlag, hostFlag, portFlag, tunnelFlag, tu
 // It logs startup info, starts the resource service (deferring its shutdown and logging any stop errors),
 // constructs the server with that resource service, and then begins serving.
 // It returns an error if the resource service fails to start, the server fails to initialize, or serving fails.
-func runServer(ctx *Context, _ []string) error {
+func runServer(ctx *Context, _ []string, serverOpts ...frontend.ServerOption) error {
 	// Create a context that will be cancelled on interrupt signal.
 	// This must be created BEFORE server initialization so auth provider init can be cancelled.
 	signalCtx, stop := signal.NotifyContext(ctx.Context, syscall.SIGINT, syscall.SIGTERM)
@@ -93,8 +95,7 @@ func runServer(ctx *Context, _ []string) error {
 		}
 	}()
 
-	// Build server options
-	var serverOpts []frontend.ServerOption
+	serverOpts = append([]frontend.ServerOption(nil), serverOpts...)
 	if tunnelService != nil {
 		serverOpts = append(serverOpts, frontend.WithTunnelService(tunnelService))
 	}

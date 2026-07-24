@@ -86,7 +86,7 @@ const EXECUTION_STATUS_CONFIG: ExecutionStatusConfig[] = [
     status: Status.Waiting,
     icon: Clock,
     iconClass: 'text-[var(--status-warning)]',
-    message: 'Waiting for approval',
+    message: 'Waiting for manual action',
   },
   {
     status: Status.Rejected,
