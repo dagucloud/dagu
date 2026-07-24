@@ -134,6 +134,18 @@ function createParamFields(paramDefs: ParamDef[] = []): ParamField[] {
   });
 }
 
+function createParamSchemaFieldOrder(
+  schema: JSONSchema,
+  paramDefs: ParamDef[]
+): string[] | undefined {
+  const properties = schema.properties ?? {};
+  const orderedNames = paramDefs.flatMap((def) =>
+    def.name && def.name in properties ? [def.name] : []
+  );
+
+  return orderedNames.length > 0 ? [...orderedNames, '*'] : undefined;
+}
+
 function serializeParamFields(fields: ParamField[]): string {
   const items = fields
     .filter((field) => field.hasValue)
@@ -381,6 +393,13 @@ function StartDAGModal({
 
   const paramsReadOnly = dagWithRunConfig?.runConfig?.disableParamEdit ?? false;
   const runIdReadOnly = dagWithRunConfig?.runConfig?.disableRunIdEdit ?? false;
+  const schemaFieldOrder = React.useMemo(
+    () =>
+      paramSchema
+        ? createParamSchemaFieldOrder(paramSchema, paramDefs)
+        : undefined,
+    [paramDefs, paramSchema]
+  );
   const schemaFormUiSchema = React.useMemo<
     UiSchema<SchemaFormData> | undefined
   >(
@@ -388,15 +407,16 @@ function StartDAGModal({
       paramSchema
         ? ({
             ...buildParamSchemaUiSchema(paramSchema),
+            ...(schemaFieldOrder ? { 'ui:order': schemaFieldOrder } : {}),
             'ui:submitButtonOptions': { norender: true },
           } as UiSchema<SchemaFormData>)
         : undefined,
-    [paramSchema]
+    [paramSchema, schemaFieldOrder]
   );
   const schemaFormRef = React.useRef<RJSFForm<
     SchemaFormData,
     RJSFSchema,
-    any
+    Record<string, unknown>
   > | null>(null);
 
   React.useEffect(() => {
