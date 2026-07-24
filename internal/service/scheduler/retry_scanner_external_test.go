@@ -58,13 +58,14 @@ func TestRetryScannerUsesRetryCandidateListerWhenAvailable(t *testing.T) {
 
 	now := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
 	store := &retryCandidateDAGRunStore{}
-	scanner := scheduler.NewRetryScanner(
+	scanner, err := scheduler.NewRetryScanner(
 		store,
 		nil,
 		nil,
 		time.Hour,
 		func() time.Time { return now },
 	)
+	require.NoError(t, err)
 
 	require.NoError(t, scanner.ScanForTest(context.Background()))
 
@@ -78,13 +79,14 @@ func TestRetryScannerFallsBackToStatusListingWithoutCandidateLister(t *testing.T
 
 	now := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
 	store := &fallbackRetryDAGRunStore{}
-	scanner := scheduler.NewRetryScanner(
+	scanner, err := scheduler.NewRetryScanner(
 		store,
 		nil,
 		nil,
 		time.Hour,
 		func() time.Time { return now },
 	)
+	require.NoError(t, err)
 
 	require.NoError(t, scanner.ScanForTest(context.Background()))
 

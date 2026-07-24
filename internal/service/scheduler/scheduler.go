@@ -242,13 +242,16 @@ func newScheduler(
 		},
 	})
 
-	retryScanner := NewRetryScanner(
+	retryScanner, err := NewRetryScanner(
 		dagRunStore,
 		queueStore,
 		isSuspended,
 		cfg.Scheduler.RetryFailureWindow,
 		defaultClock,
 	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize retry scanner: %w", err)
+	}
 
 	return &Scheduler{
 		quit:            make(chan any),

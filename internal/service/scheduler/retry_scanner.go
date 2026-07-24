@@ -51,7 +51,7 @@ func NewRetryScanner(
 	isSuspended IsSuspendedFunc,
 	retryWindow time.Duration,
 	clock Clock,
-) *RetryScanner {
+) (*RetryScanner, error) {
 	if clock == nil {
 		clock = time.Now
 	}
@@ -64,7 +64,7 @@ func NewRetryScanner(
 		isSuspended: isSuspended,
 		retryWindow: retryWindow,
 		clock:       clock,
-	}
+	}, nil
 }
 
 func (s *RetryScanner) Start(ctx context.Context) {
@@ -158,7 +158,7 @@ func (s *RetryScanner) processFailedRunFromSummary(
 		return nil
 	}
 
-	decision := s.evaluateRetryDecision(listed, metadata, now)
+	decision := s.evaluateRetryDecision(ctx, listed, metadata, now)
 	if !decision.enqueue {
 		if decision.reason != "" {
 			logger.Debug(ctx, "Retry scanner skipped DAG run",
@@ -239,7 +239,7 @@ func (s *RetryScanner) processFailedRunLegacy(
 		return nil
 	}
 
-	decision := s.evaluateRetryDecision(latestStatus, metadata, now)
+	decision := s.evaluateRetryDecision(ctx, latestStatus, metadata, now)
 	if !decision.enqueue {
 		if decision.reason != "" {
 			logger.Debug(ctx, "Retry scanner skipped DAG run",
@@ -276,6 +276,7 @@ func (s *RetryScanner) processFailedRunLegacy(
 }
 
 func (s *RetryScanner) evaluateRetryDecision(
+	_ context.Context,
 	status *exec.DAGRunStatus,
 	metadata dagRetryMetadata,
 	now time.Time,

@@ -631,7 +631,7 @@ export default function ProfilesPage(): React.ReactNode {
   }
 
   function handleTabKeyDown(
-    event: React.KeyboardEvent<HTMLElement>,
+    event: React.KeyboardEvent<HTMLButtonElement>,
     currentTab: 'profiles' | 'secret-refs'
   ): void {
     let nextTab: 'profiles' | 'secret-refs';
