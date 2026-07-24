@@ -825,7 +825,7 @@ export const mainListItems = React.forwardRef<
           {canManageProfiles && (
             <NavItem
               to="/profiles"
-              text="Profiles"
+              text="Profiles & Secrets"
               icon={<SlidersHorizontal size={18} />}
               isOpen={isOpen}
               onClick={onNavItemClick}

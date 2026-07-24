@@ -80,8 +80,8 @@ export default function AdministrationPage(): React.ReactElement {
       links: [
         {
           to: '/profiles',
-          label: 'Profiles',
-          description: 'Manage runtime variables and secrets.',
+          label: 'Profiles & Secrets',
+          description: 'Manage environment profiles and DAG secret refs.',
         },
       ],
     },

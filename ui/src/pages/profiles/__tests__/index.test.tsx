@@ -3,6 +3,7 @@
 
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { RuntimeProfileEntryKind, RuntimeProfileStatus } from '@/api/v1/schema';
@@ -14,6 +15,7 @@ const mutateMock = vi.fn();
 
 vi.mock('@/contexts/AuthContext', () => ({
   useCanManageProfiles: () => true,
+  useCanManageSecrets: () => true,
   useCanWriteForWorkspace: () => false,
   useIsAdmin: () => false,
 }));
@@ -34,16 +36,18 @@ const useQueryMock = useQuery as unknown as {
 
 function renderPage() {
   render(
-    <AppBarContext.Provider
-      value={
-        {
-          setTitle: vi.fn(),
-          selectedRemoteNode: 'local',
-        } as never
-      }
-    >
-      <ProfilesPage />
-    </AppBarContext.Provider>
+    <MemoryRouter>
+      <AppBarContext.Provider
+        value={
+          {
+            setTitle: vi.fn(),
+            selectedRemoteNode: 'local',
+          } as never
+        }
+      >
+        <ProfilesPage />
+      </AppBarContext.Provider>
+    </MemoryRouter>
   );
 }
 
@@ -85,6 +89,20 @@ describe('ProfilesPage', () => {
         isLoading: false,
       };
     });
+  });
+
+  it('separates profiles from DAG secret refs on one page', () => {
+    renderPage();
+
+    expect(
+      screen.getByRole('heading', { name: 'Profiles & Secrets', level: 1 })
+    ).toBeVisible();
+    expect(
+      screen.getByRole('heading', { name: 'Profiles', level: 2 })
+    ).toBeVisible();
+    expect(
+      screen.getByRole('heading', { name: 'DAG Secret Refs', level: 2 })
+    ).toBeVisible();
   });
 
   it('disables protected profile mutations for non-admin managers', async () => {

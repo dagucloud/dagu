@@ -52,6 +52,7 @@ import { useClient, useQuery } from '@/hooks/api';
 import { whenEnabled } from '@/hooks/queryUtils';
 import dayjs from '@/lib/dayjs';
 import { workspaceNameForSelection } from '@/lib/workspace';
+import { SecretRefsSection } from '@/pages/secrets';
 import {
   Building2,
   Globe2,
@@ -71,6 +72,7 @@ import React, {
   useMemo,
   useState,
 } from 'react';
+import { useLocation } from 'react-router-dom';
 
 type RuntimeProfileResponse = components['schemas']['RuntimeProfileResponse'];
 type InheritedRuntimeProfileResponse =
@@ -343,6 +345,7 @@ function targetFromWorkspaceDefaults(
 export default function ProfilesPage(): React.ReactNode {
   const client = useClient();
   const appBarContext = useContext(AppBarContext);
+  const location = useLocation();
   const remoteNode = appBarContext.selectedRemoteNode || 'local';
   const canManageProfiles = useCanManageProfiles();
   const canManageProtectedProfiles = useIsAdmin();
@@ -368,8 +371,14 @@ export default function ProfilesPage(): React.ReactNode {
   const [actionProfile, setActionProfile] = useState<string | null>(null);
 
   useEffect(() => {
-    appBarContext.setTitle('Profiles');
+    appBarContext.setTitle('Profiles & Secrets');
   }, [appBarContext]);
+
+  useEffect(() => {
+    if (location.hash === '#secret-refs') {
+      document.getElementById('secret-refs')?.scrollIntoView?.();
+    }
+  }, [location.hash]);
 
   const queryInit = useMemo(
     () =>
@@ -614,11 +623,19 @@ export default function ProfilesPage(): React.ReactNode {
 
   return (
     <div className="flex h-full min-h-0 max-w-7xl flex-col gap-4 overflow-auto">
+      <div>
+        <h1 className="text-lg font-semibold">Profiles &amp; Secrets</h1>
+        <p className="text-sm text-muted-foreground">
+          Manage environment profiles and individual secret references used by
+          DAG runs.
+        </p>
+      </div>
+
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h1 className="text-lg font-semibold">Profiles</h1>
+          <h2 className="text-base font-semibold">Profiles</h2>
           <p className="text-sm text-muted-foreground">
-            Managed runtime variables and secrets.
+            Environment bundles selected when a run starts.
           </p>
         </div>
         <Button
@@ -940,6 +957,8 @@ export default function ProfilesPage(): React.ReactNode {
           </TableBody>
         </Table>
       </div>
+
+      <SecretRefsSection />
 
       <ProfileFormDialog
         open={profileFormOpen}
