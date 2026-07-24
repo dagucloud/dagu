@@ -8,7 +8,10 @@ interface UseSyncReconcileOptions {
   onSuccess: () => void;
 }
 
-export function useSyncReconcile({ remoteNode, onSuccess }: UseSyncReconcileOptions) {
+export function useSyncReconcile({
+  remoteNode,
+  onSuccess,
+}: UseSyncReconcileOptions) {
   const client = useClient();
   const { showToast } = useSimpleToast();
   const { showError } = useErrorModal();
@@ -63,7 +66,12 @@ export function useSyncReconcile({ remoteNode, onSuccess }: UseSyncReconcileOpti
     }
   };
 
-  const handleMove = async (itemId: string, newItemId: string, message: string, force: boolean) => {
+  const handleMove = async (
+    itemId: string,
+    newItemId: string,
+    message: string,
+    force: boolean
+  ) => {
     setIsMoving(true);
     try {
       const response = await client.POST('/sync/items/{itemId}/move', {
@@ -96,7 +104,7 @@ export function useSyncReconcile({ remoteNode, onSuccess }: UseSyncReconcileOpti
         return false;
       }
       const count = response.data?.forgotten?.length || 0;
-      showToast(`Cleaned up ${count} missing item${count !== 1 ? 's' : ''}`);
+      showToast(`Cleaned up ${count} missing DAG${count !== 1 ? 's' : ''}`);
       onSuccess();
       return true;
     } catch (err) {
@@ -119,7 +127,7 @@ export function useSyncReconcile({ remoteNode, onSuccess }: UseSyncReconcileOpti
         return false;
       }
       const count = response.data?.deleted?.length || 0;
-      showToast(`Deleted ${count} missing item${count !== 1 ? 's' : ''}`);
+      showToast(`Deleted ${count} missing DAG${count !== 1 ? 's' : ''}`);
       onSuccess();
       return true;
     } catch (err) {
@@ -130,7 +138,11 @@ export function useSyncReconcile({ remoteNode, onSuccess }: UseSyncReconcileOpti
     }
   };
 
-  const handleDeleteBatch = async (itemIds: string[], message: string, force: boolean) => {
+  const handleDeleteBatch = async (
+    itemIds: string[],
+    message: string,
+    force: boolean
+  ) => {
     setIsDeletingBatch(true);
     try {
       const response = await client.POST('/sync/delete-batch', {
@@ -142,7 +154,7 @@ export function useSyncReconcile({ remoteNode, onSuccess }: UseSyncReconcileOpti
         return false;
       }
       const count = response.data?.deleted?.length || 0;
-      showToast(`Deleted ${count} item${count !== 1 ? 's' : ''}`);
+      showToast(`Deleted ${count} DAG${count !== 1 ? 's' : ''}`);
       onSuccess();
       return true;
     } catch (err) {

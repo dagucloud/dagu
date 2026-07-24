@@ -17,14 +17,14 @@ export function CleanupDialog({
 }: CleanupDialogProps) {
   return (
     <ConfirmModal
-      title="Cleanup Missing Items"
+      title="Cleanup Missing DAGs"
       buttonText={isCleaningUp ? 'Cleaning up...' : 'Cleanup'}
       visible={open}
       dismissModal={onCancel}
       onSubmit={onConfirm}
     >
       <p className="text-sm text-muted-foreground">
-        Remove {missingCount} missing item{missingCount !== 1 ? 's' : ''} from
+        Remove {missingCount} missing DAG{missingCount !== 1 ? 's' : ''} from
         sync tracking? Files remain in the remote repository.
       </p>
     </ConfirmModal>

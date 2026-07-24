@@ -5914,7 +5914,7 @@ paths:
   /sync/publish-all:
     post:
       summary: "Publish selected DAGs"
-      description: "Commits and pushes the specified item IDs. If itemIds is omitted, publishes all modified or untracked items."
+      description: "Commits and pushes the specified DAG IDs. If itemIds is omitted, publishes all modified or untracked DAGs."
       operationId: "syncPublishAll"
       tags:
         - "sync"
@@ -6015,8 +6015,8 @@ paths:
 
   /sync/items/{itemId}/diff:
     get:
-      summary: "Get diff for a sync item"
-      description: "Returns the diff between local and remote versions of a sync item"
+      summary: "Get diff for a DAG"
+      description: "Returns the diff between local and remote versions of a DAG"
       operationId: "getSyncItemDiff"
       tags:
         - "sync"
@@ -6024,7 +6024,7 @@ paths:
         - $ref: "#/components/parameters/RemoteNode"
         - name: itemId
           in: path
-          description: "The sync item identifier (file path without extension)"
+          description: "The DAG identifier (file path without extension)"
           required: true
           schema:
             type: string
@@ -6036,7 +6036,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/SyncItemDiffResponse"
         "404":
-          description: "Item not found"
+          description: "DAG not found"
           content:
             application/json:
               schema:
@@ -6050,8 +6050,8 @@ paths:
 
   /sync/items/{itemId}/publish:
     post:
-      summary: "Publish a single sync item"
-      description: "Commits and pushes a single sync item to the remote repository"
+      summary: "Publish a single DAG"
+      description: "Commits and pushes a single DAG to the remote repository"
       operationId: "publishSyncItem"
       tags:
         - "sync"
@@ -6059,7 +6059,7 @@ paths:
         - $ref: "#/components/parameters/RemoteNode"
         - name: itemId
           in: path
-          description: "The sync item identifier (file path without extension)"
+          description: "The DAG identifier (file path without extension)"
           required: true
           schema:
             type: string
@@ -6071,13 +6071,13 @@ paths:
               $ref: "#/components/schemas/SyncPublishRequest"
       responses:
         "200":
-          description: "Item published successfully"
+          description: "DAG published successfully"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/SyncResultResponse"
         "404":
-          description: "Item not found"
+          description: "DAG not found"
           content:
             application/json:
               schema:
@@ -6097,7 +6097,7 @@ paths:
 
   /sync/items/{itemId}/discard:
     post:
-      summary: "Discard local changes for a sync item"
+      summary: "Discard local changes for a DAG"
       description: "Discards local changes and reverts to the version in the remote repository"
       operationId: "discardSyncItemChanges"
       tags:
@@ -6106,7 +6106,7 @@ paths:
         - $ref: "#/components/parameters/RemoteNode"
         - name: itemId
           in: path
-          description: "The sync item identifier (file path without extension)"
+          description: "The DAG identifier (file path without extension)"
           required: true
           schema:
             type: string
@@ -6118,7 +6118,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/SuccessResponse"
         "404":
-          description: "Item not found"
+          description: "DAG not found"
           content:
             application/json:
               schema:
@@ -6132,8 +6132,8 @@ paths:
 
   /sync/items/{itemId}/forget:
     post:
-      summary: "Forget a sync item"
-      description: "Removes the state entry for a missing, untracked, or conflict sync item. Synced and modified items are rejected."
+      summary: "Forget a DAG"
+      description: "Removes the state entry for a missing, untracked, or conflicting DAG. Synced and modified DAGs are rejected."
       operationId: "forgetSyncItem"
       tags:
         - "sync"
@@ -6141,25 +6141,25 @@ paths:
         - $ref: "#/components/parameters/RemoteNode"
         - name: itemId
           in: path
-          description: "The sync item identifier (file path without extension)"
+          description: "The DAG identifier (file path without extension)"
           required: true
           schema:
             type: string
       responses:
         "200":
-          description: "Item forgotten successfully"
+          description: "DAG forgotten successfully"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/SuccessResponse"
         "400":
-          description: "Item cannot be forgotten"
+          description: "DAG cannot be forgotten"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         "404":
-          description: "Item not found"
+          description: "DAG not found"
           content:
             application/json:
               schema:
@@ -6173,8 +6173,8 @@ paths:
 
   /sync/items/{itemId}/delete:
     post:
-      summary: "Delete a sync item"
-      description: "Removes an item from remote repository (git rm + commit + push), local disk, and sync state"
+      summary: "Delete a DAG"
+      description: "Removes a DAG from the remote repository (git rm + commit + push), local disk, and sync state"
       operationId: "deleteSyncItem"
       tags:
         - "sync"
@@ -6182,7 +6182,7 @@ paths:
         - $ref: "#/components/parameters/RemoteNode"
         - name: itemId
           in: path
-          description: "The sync item identifier (file path without extension)"
+          description: "The DAG identifier (file path without extension)"
           required: true
           schema:
             type: string
@@ -6198,22 +6198,22 @@ paths:
                   description: "Commit message for the deletion"
                 force:
                   type: boolean
-                  description: "Force delete even if item has local modifications"
+                  description: "Force delete even if the DAG has local modifications"
       responses:
         "200":
-          description: "Item deleted successfully"
+          description: "DAG deleted successfully"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/SuccessResponse"
         "400":
-          description: "Item cannot be deleted"
+          description: "DAG cannot be deleted"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         "404":
-          description: "Item not found"
+          description: "DAG not found"
           content:
             application/json:
               schema:
@@ -6227,8 +6227,8 @@ paths:
 
   /sync/items/{itemId}/move:
     post:
-      summary: "Move a sync item"
-      description: "Atomically renames an item across local filesystem, remote repository, and sync state"
+      summary: "Move a DAG"
+      description: "Atomically renames a DAG across local filesystem, remote repository, and sync state"
       operationId: "moveSyncItem"
       tags:
         - "sync"
@@ -6236,7 +6236,7 @@ paths:
         - $ref: "#/components/parameters/RemoteNode"
         - name: itemId
           in: path
-          description: "The current sync item identifier (file path without extension)"
+          description: "The current DAG identifier (file path without extension)"
           required: true
           schema:
             type: string
@@ -6249,30 +6249,30 @@ paths:
               properties:
                 newItemId:
                   type: string
-                  description: "The new item identifier to rename to"
+                  description: "The new DAG identifier"
                 message:
                   type: string
                   description: "Commit message for the move"
                 force:
                   type: boolean
-                  description: "Force move even if item has conflicts"
+                  description: "Force move even if the DAG has conflicts"
               required:
                 - newItemId
       responses:
         "200":
-          description: "Item moved successfully"
+          description: "DAG moved successfully"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/SuccessResponse"
         "400":
-          description: "Item cannot be moved"
+          description: "DAG cannot be moved"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         "404":
-          description: "Item not found"
+          description: "DAG not found"
           content:
             application/json:
               schema:
@@ -6292,8 +6292,8 @@ paths:
 
   /sync/delete-missing:
     post:
-      summary: "Delete all missing sync items"
-      description: "Removes all missing items from remote repository, local disk, and sync state"
+      summary: "Delete all missing DAGs"
+      description: "Removes all missing DAGs from the remote repository, local disk, and sync state"
       operationId: "syncDeleteMissing"
       tags:
         - "sync"
@@ -6311,7 +6311,7 @@ paths:
                   description: "Commit message for the deletion"
       responses:
         "200":
-          description: "Missing items deleted successfully"
+          description: "Missing DAGs deleted successfully"
           content:
             application/json:
               schema:
@@ -6321,7 +6321,7 @@ paths:
                     type: array
                     items:
                       type: string
-                    description: "List of deleted item IDs"
+                    description: "List of deleted DAG IDs"
                   message:
                     type: string
                     description: "Summary message"
@@ -6343,8 +6343,8 @@ paths:
 
   /sync/delete-batch:
     post:
-      summary: "Delete selected sync items"
-      description: "Removes the specified items from remote repository, local disk, and sync state in a single commit."
+      summary: "Delete selected DAGs"
+      description: "Removes the specified DAGs from the remote repository, local disk, and sync state in a single commit."
       operationId: "syncDeleteBatch"
       tags:
         - "sync"
@@ -6358,7 +6358,7 @@ paths:
               $ref: "#/components/schemas/SyncDeleteBatchRequest"
       responses:
         "200":
-          description: "Items deleted successfully"
+          description: "DAGs deleted successfully"
           content:
             application/json:
               schema:
@@ -6368,7 +6368,7 @@ paths:
                     type: array
                     items:
                       type: string
-                    description: "List of deleted item IDs"
+                    description: "List of deleted DAG IDs"
                   message:
                     type: string
                     description: "Summary message"
@@ -6376,13 +6376,13 @@ paths:
                   - deleted
                   - message
         "400":
-          description: "Cannot delete (push disabled, untracked items, validation error)"
+          description: "Cannot delete (push disabled, untracked DAGs, validation error)"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         "404":
-          description: "Item not found"
+          description: "DAG not found"
           content:
             application/json:
               schema:
@@ -6396,7 +6396,7 @@ paths:
 
   /sync/cleanup:
     post:
-      summary: "Cleanup missing sync items"
+      summary: "Cleanup missing DAGs"
       description: "Removes all missing entries from sync state"
       operationId: "syncCleanup"
       tags:
@@ -6415,7 +6415,7 @@ paths:
                     type: array
                     items:
                       type: string
-                    description: "List of forgotten item IDs"
+                    description: "List of forgotten DAG IDs"
                   message:
                     type: string
                     description: "Summary message"
@@ -13064,33 +13064,21 @@ components:
         - missing
         - error
 
-    SyncItemKind:
-      type: string
-      description: "Type of sync item"
-      enum:
-        - dag
-        - config
-        - memory
-        - skill
-        - soul
-
     SyncItem:
       type: object
-      description: "Sync state for a single item"
+      description: "Sync state for a single DAG"
       properties:
         itemId:
           type: string
-          description: "Stable item identifier (file path without extension)"
+          description: "Stable DAG identifier (file path without extension)"
         filePath:
           type: string
           description: "Relative file path with extension"
         displayName:
           type: string
-          description: "Display-friendly item name"
+          description: "Display-friendly DAG name"
         status:
           $ref: "#/components/schemas/SyncStatus"
-        kind:
-          $ref: "#/components/schemas/SyncItemKind"
         baseCommit:
           type: string
           description: "Commit hash when last synced"
@@ -13133,7 +13121,6 @@ components:
         - filePath
         - displayName
         - status
-        - kind
 
     SyncStatusCounts:
       type: object
@@ -13186,7 +13173,7 @@ components:
           description: "Error message from last failed sync"
         items:
           type: array
-          description: "Sync state for each item"
+          description: "Sync state for each DAG"
           items:
             $ref: "#/components/schemas/SyncItem"
         counts:
@@ -13210,11 +13197,11 @@ components:
 
     SyncItemDiffResponse:
       type: object
-      description: "Diff between local and remote versions of a sync item"
+      description: "Diff between local and remote versions of a DAG"
       properties:
         itemId:
           type: string
-          description: "The item identifier"
+          description: "The DAG identifier"
         filePath:
           type: string
           description: "Relative file path with extension"
@@ -13289,7 +13276,7 @@ components:
 
     SyncPublishAllRequest:
       type: object
-      description: "Request to publish selected items"
+      description: "Request to publish selected DAGs"
       properties:
         message:
           type: string
@@ -13298,11 +13285,11 @@ components:
           type: array
           items:
             type: string
-          description: "Item IDs to publish. If omitted, all modified or untracked items are published."
+          description: "DAG IDs to publish. If omitted, all modified or untracked DAGs are published."
 
     SyncDeleteBatchRequest:
       type: object
-      description: "Request to delete selected items"
+      description: "Request to delete selected DAGs"
       properties:
         itemIds:
           type: array
@@ -13311,13 +13298,13 @@ components:
           items:
             type: string
             minLength: 1
-          description: "Item IDs to delete"
+          description: "DAG IDs to delete"
         message:
           type: string
           description: "Commit message for the deletion"
         force:
           type: boolean
-          description: "Force delete items with local modifications or conflicts"
+          description: "Force delete DAGs with local modifications or conflicts"
       required:
         - itemIds
 

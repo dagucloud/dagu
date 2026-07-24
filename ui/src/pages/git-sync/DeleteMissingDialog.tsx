@@ -27,7 +27,7 @@ export function DeleteMissingDialog({
   onConfirm,
   onCancel,
 }: DeleteMissingDialogProps) {
-  const defaultMessage = `Remove ${missingCount} missing item${missingCount !== 1 ? 's' : ''}`;
+  const defaultMessage = `Remove ${missingCount} missing DAG${missingCount !== 1 ? 's' : ''}`;
   const [commitMessage, setCommitMessage] = useState('');
 
   useEffect(() => {
@@ -41,10 +41,10 @@ export function DeleteMissingDialog({
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="text-base">
-            Delete All Missing Items
+            Delete All Missing DAGs
           </DialogTitle>
           <DialogDescription className="text-xs">
-            This will remove {missingCount} missing item
+            This will remove {missingCount} missing DAG
             {missingCount !== 1 ? 's' : ''} from the remote repository and sync
             state. This action cannot be undone.
           </DialogDescription>
@@ -76,9 +76,7 @@ export function DeleteMissingDialog({
           <Button
             variant="destructive"
             size="sm"
-            onClick={() =>
-              onConfirm(commitMessage.trim() || defaultMessage)
-            }
+            onClick={() => onConfirm(commitMessage.trim() || defaultMessage)}
             disabled={isDeletingMissing}
           >
             {isDeletingMissing ? (

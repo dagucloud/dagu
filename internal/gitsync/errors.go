@@ -40,11 +40,11 @@ var (
 	// ErrNoChanges is returned when there are no changes to publish.
 	ErrNoChanges = errors.New("no changes to publish")
 
-	// ErrCannotForget is returned when an item cannot be forgotten (e.g., synced or modified).
-	ErrCannotForget = errors.New("item cannot be forgotten")
+	// ErrCannotForget is returned when a DAG cannot be forgotten.
+	ErrCannotForget = errors.New("DAG cannot be forgotten")
 
-	// ErrCannotDeleteUntracked is returned when trying to delete an untracked item.
-	ErrCannotDeleteUntracked = errors.New("untracked items cannot be deleted from remote — use forget instead")
+	// ErrCannotDeleteUntracked is returned when trying to delete an untracked DAG.
+	ErrCannotDeleteUntracked = errors.New("untracked DAGs cannot be deleted from remote — use forget instead")
 
 	// ErrNetworkError is returned when a network operation fails.
 	ErrNetworkError = errors.New("network error")
