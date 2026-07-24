@@ -719,6 +719,8 @@ func (s *dagBuildState) runFieldStages() {
 	s.errs = append(s.errs, runTransformers(s.ctx, s.spec, s.result)...)
 }
 
+// composeInheritedContext merges the base-config DAG (env, params, defaults)
+// into the built DAG.
 func (s *dagBuildState) composeInheritedContext() {
 	if s.ctx.baseDAG == nil {
 		return

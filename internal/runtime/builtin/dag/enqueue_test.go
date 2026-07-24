@@ -22,6 +22,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestEnqueueExecutorPersistsInheritedProfile verifies that an enqueued child
+// run inherits the parent's profile.
 func TestEnqueueExecutorPersistsInheritedProfile(t *testing.T) {
 	t.Parallel()
 
@@ -84,6 +86,9 @@ func TestEnqueueExecutorPersistsInheritedProfile(t *testing.T) {
 	assert.True(t, status.Parent.Zero())
 }
 
+// TestEnqueueExecutorResolvesParallelItemWorkerSelector verifies that ${ITEM}
+// in worker_selector resolves before enqueueing and that the recorded sub-run
+// retains the parallel item.
 func TestEnqueueExecutorResolvesParallelItemWorkerSelector(t *testing.T) {
 	t.Parallel()
 

@@ -155,6 +155,8 @@ func (e *Executor) Run(ctx context.Context) error {
 	return e.runActionDAG(ctx, bundle, m)
 }
 
+// runActionDAG loads and executes the DAG referenced by an action manifest,
+// recording it as a sub-run and writing its outputs.
 func (e *Executor) runActionDAG(ctx context.Context, bundle *actionBundle, m *manifest) error {
 	dagPath, err := safeRelativePath(bundle.RootDir, m.DAG)
 	if err != nil {

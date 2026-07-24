@@ -1013,6 +1013,8 @@ func TestBuildMaxCleanUpTime(t *testing.T) {
 	}
 }
 
+// TestBuildWorkerSelector verifies parsing of the worker_selector field,
+// including the string form "local" and invalid value types.
 func TestBuildWorkerSelector(t *testing.T) {
 	t.Parallel()
 
@@ -1103,6 +1105,8 @@ func TestBuildWorkerSelector(t *testing.T) {
 	}
 }
 
+// TestWorkerSelectorEvaluation verifies that DAG-level worker_selector keys
+// and values resolve env and param references at build time.
 func TestWorkerSelectorEvaluation(t *testing.T) {
 	t.Parallel()
 

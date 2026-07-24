@@ -132,6 +132,9 @@ steps:
 	})
 }
 
+// TestParallel_ItemWorkerSelectorWithExplicitParams verifies that ${ITEM} in a
+// parallel step's worker_selector resolves to the original item even when
+// explicit sub-DAG params replace the item-derived params.
 func TestParallel_ItemWorkerSelectorWithExplicitParams(t *testing.T) {
 	f := newTestFixture(t, `
 steps:

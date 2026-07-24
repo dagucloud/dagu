@@ -13,6 +13,8 @@ import (
 	"github.com/dagucloud/dagu/internal/runtime/executor"
 )
 
+// workerSelectorExtra returns the extra scope entries for selector resolution,
+// exposing the parallel item as ITEM when present.
 func workerSelectorExtra(runParams executor.RunParams) map[string]string {
 	if runParams.ParallelItem == nil {
 		return nil

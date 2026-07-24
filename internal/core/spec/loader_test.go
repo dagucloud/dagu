@@ -357,6 +357,8 @@ steps:
 	})
 }
 
+// TestLoad_WorkerSelectorFromBaseConfigEnv verifies that worker_selector
+// values resolve from base-config env after composition.
 func TestLoad_WorkerSelectorFromBaseConfigEnv(t *testing.T) {
 	t.Parallel()
 

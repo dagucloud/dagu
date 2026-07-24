@@ -73,6 +73,8 @@ func newEnqueueExecutor(_ context.Context, step core.Step) (executor.Executor, e
 	return &enqueueExecutor{step: step}, nil
 }
 
+// Run enqueues all configured sub-DAG runs, records them as sub-runs, and
+// writes the enqueue outputs.
 func (e *enqueueExecutor) Run(ctx context.Context) error {
 	paramsList, parallel := e.paramsSnapshot()
 	if len(paramsList) == 0 {
@@ -115,6 +117,8 @@ func (e *enqueueExecutor) enqueueSequential(ctx context.Context, paramsList []ex
 	return outputs, nil
 }
 
+// enqueueParallel enqueues the runs concurrently, bounded by the step's
+// max_concurrent; outputs stay index-aligned with paramsList.
 func (e *enqueueExecutor) enqueueParallel(ctx context.Context, paramsList []executor.RunParams) ([]enqueueRunOutput, error) {
 	limit := core.DefaultMaxConcurrent
 	if e.step.Parallel != nil && e.step.Parallel.MaxConcurrent > 0 {
@@ -173,6 +177,8 @@ func (e *enqueueExecutor) enqueueParallel(ctx context.Context, paramsList []exec
 	return outputs, nil
 }
 
+// subDAGRunFromEnqueueOutput converts an enqueue output into the sub-run
+// record persisted with the node.
 func subDAGRunFromEnqueueOutput(output enqueueRunOutput, parallelItem *string) exec1.SubDAGRun {
 	return exec1.SubDAGRun{
 		DAGRunID:     output.DAGRunID,
@@ -182,6 +188,8 @@ func subDAGRunFromEnqueueOutput(output enqueueRunOutput, parallelItem *string) e
 	}
 }
 
+// enqueueOne resolves the target DAG and worker selector for a single run and
+// places it on the queue.
 func (e *enqueueExecutor) enqueueOne(ctx context.Context, runParams executor.RunParams) (enqueueRunOutput, error) {
 	if runParams.RunID == "" {
 		return enqueueRunOutput{}, fmt.Errorf("DAG run ID is not set")

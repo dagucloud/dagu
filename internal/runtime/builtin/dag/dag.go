@@ -52,6 +52,8 @@ func validateSubDAG(childDAG *core.DAG, name string, workerSelector map[string]s
 	return nil
 }
 
+// newDAGExecutor creates the executor for a single (non-parallel) sub-DAG
+// step, resolving its worker selector before validation.
 func newDAGExecutor(ctx context.Context, step core.Step) (executor.Executor, error) {
 	if step.SubDAG == nil {
 		return nil, fmt.Errorf("sub DAG configuration is missing")

@@ -663,6 +663,8 @@ Line 5: Process completed
 	}
 }
 
+// TestNodeBuildSubDAGRuns verifies sub-run construction for parallel steps,
+// including deduplication and parameter merging.
 func TestNodeBuildSubDAGRuns(t *testing.T) {
 	t.Parallel()
 
@@ -822,6 +824,8 @@ func TestNodeBuildSubDAGRuns(t *testing.T) {
 	}
 }
 
+// TestNodeBuildSubDAGRunsPreservesParallelItemWithExplicitParams verifies that
+// sub-runs keep the original parallel item when explicit params are set.
 func TestNodeBuildSubDAGRunsPreservesParallelItemWithExplicitParams(t *testing.T) {
 	t.Parallel()
 

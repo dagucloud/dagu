@@ -13,6 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestResolveWorkerSelector verifies runtime resolution of worker_selector
+// keys and values, including extra ITEM entries and error cases.
 func TestResolveWorkerSelector(t *testing.T) {
 	t.Parallel()
 

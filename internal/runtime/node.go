@@ -925,6 +925,8 @@ func objectAsConfig(obj any) (map[string]any, error) {
 	return config, nil
 }
 
+// configureSubDAGExecutor passes the prepared sub-run parameters to the
+// executor, choosing the single or parallel interface based on the step.
 func (n *Node) configureSubDAGExecutor(cmd executor.Executor, subRuns []SubDAGRun) error {
 	if n.Step().Parallel == nil {
 		dagExecutor, ok := cmd.(executor.DAGExecutor)
@@ -943,6 +945,7 @@ func (n *Node) configureSubDAGExecutor(cmd executor.Executor, subRuns []SubDAGRu
 	return nil
 }
 
+// runParams converts a sub-run into the executor run parameters.
 func runParams(subRun SubDAGRun) executor.RunParams {
 	return executor.RunParams{
 		RunID:        subRun.DAGRunID,

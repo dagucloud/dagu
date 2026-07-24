@@ -548,6 +548,8 @@ func (e *parallelExecutor) cancelExecution() []*executor.SubDAGExecutor {
 	return children
 }
 
+// newChildExecutor creates the executor for one parallel child run, resolving
+// the worker selector with the item context (${ITEM}).
 func (e *parallelExecutor) newChildExecutor(
 	ctx context.Context, runParams executor.RunParams,
 ) (*executor.SubDAGExecutor, error) {
