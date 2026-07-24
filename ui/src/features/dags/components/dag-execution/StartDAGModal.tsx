@@ -388,10 +388,9 @@ function StartDAGModal({
       paramSchema
         ? ({
             ...buildParamSchemaUiSchema(paramSchema),
-            'ui:order': [
-              ...paramDefs.flatMap(({ name }) => (name ? [name] : [])),
-              '*',
-            ],
+            'ui:order': paramDefs
+              .flatMap(({ name }) => (name ? [name] : []))
+              .concat('*'),
             'ui:submitButtonOptions': { norender: true },
           } as UiSchema<SchemaFormData>)
         : undefined,
