@@ -189,6 +189,14 @@ func (oc *OutputCoordinator) setupExecutorIO(ctx context.Context, cmd executor.E
 }
 
 func (oc *OutputCoordinator) flushWriters() error {
+	return oc.flushWritersWithMode(false)
+}
+
+func (oc *OutputCoordinator) flushWritersIfDue() error {
+	return oc.flushWritersWithMode(true)
+}
+
+func (oc *OutputCoordinator) flushWritersWithMode(ifDue bool) error {
 	oc.mu.Lock()
 	defer oc.mu.Unlock()
 
@@ -200,6 +208,14 @@ func (oc *OutputCoordinator) flushWriters() error {
 	for _, w := range []io.Writer{oc.stdoutWriter, oc.stderrWriter, oc.stdoutRedirectWriter, oc.stderrRedirectWriter} {
 		if w == nil {
 			continue
+		}
+		if ifDue {
+			if v, ok := w.(interface{ FlushIfDue() error }); ok {
+				if err := v.FlushIfDue(); err != nil {
+					lastErr = err
+				}
+				continue
+			}
 		}
 		switch v := w.(type) {
 		case interface{ Flush() error }:

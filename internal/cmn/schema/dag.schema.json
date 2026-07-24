@@ -6679,13 +6679,27 @@
     },
     "templateRenderActionConfig": {
       "type": "object",
-      "required": ["template"],
       "additionalProperties": true,
+      "oneOf": [
+        {
+          "required": ["template"],
+          "not": { "required": ["template_ref"] }
+        },
+        {
+          "required": ["template_ref"],
+          "not": { "required": ["template"] }
+        }
+      ],
       "properties": {
         "template": {
           "type": "string",
           "minLength": 1,
           "description": "Template text rendered by the template executor."
+        },
+        "template_ref": {
+          "type": "string",
+          "pattern": "^\\$\\{(?:consts\\.[A-Za-z][A-Za-z0-9_]*|params\\.[A-Za-z][A-Za-z0-9_]*|env\\.[A-Za-z_][A-Za-z0-9_]*|steps\\.[A-Za-z][A-Za-z0-9_]*\\.outputs\\.[A-Za-z_][A-Za-z0-9_]*|foreach\\.[A-Za-z][A-Za-z0-9_]*(?:\\.[A-Za-z][A-Za-z0-9_]*)?|context\\.(?:dag\\.name|run\\.(?:id|status|scheduled_at|root_name|root_id)|attempt\\.(?:id|started_at)|step\\.(?:id|name)|trigger\\.(?:type|actor)|paths\\.(?:log_file|work_dir|artifacts_dir|step_stdout_file|step_stderr_file|step_output_file)|profile\\.(?:name|resolved_at)|pushback\\.(?:iteration|previous_stdout_file)))\\}$",
+          "description": "One complete scoped Dagu value reference resolved once to template text at runtime."
         }
       },
       "description": "Configuration for action: template.render."
