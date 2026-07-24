@@ -630,6 +630,31 @@ export default function ProfilesPage(): React.ReactNode {
     );
   }
 
+  function handleTabKeyDown(
+    event: React.KeyboardEvent<HTMLButtonElement>,
+    currentTab: 'profiles' | 'secret-refs'
+  ): void {
+    let nextTab: 'profiles' | 'secret-refs';
+    switch (event.key) {
+      case 'ArrowLeft':
+      case 'ArrowRight':
+        nextTab = currentTab === 'profiles' ? 'secret-refs' : 'profiles';
+        break;
+      case 'Home':
+        nextTab = 'profiles';
+        break;
+      case 'End':
+        nextTab = 'secret-refs';
+        break;
+      default:
+        return;
+    }
+
+    event.preventDefault();
+    document.getElementById(`${nextTab}-tab`)?.focus();
+    selectTab(nextTab);
+  }
+
   return (
     <div className="flex h-full min-h-0 max-w-7xl flex-col gap-4 overflow-hidden">
       <div className="shrink-0">
@@ -651,7 +676,9 @@ export default function ProfilesPage(): React.ReactNode {
           aria-selected={activeTab === 'profiles'}
           aria-controls="profiles-panel"
           isActive={activeTab === 'profiles'}
+          tabIndex={activeTab === 'profiles' ? 0 : -1}
           onClick={() => selectTab('profiles')}
+          onKeyDown={(event) => handleTabKeyDown(event, 'profiles')}
           className="cursor-pointer gap-2"
         >
           <SlidersHorizontal className="h-4 w-4" />
@@ -663,7 +690,9 @@ export default function ProfilesPage(): React.ReactNode {
           aria-selected={activeTab === 'secret-refs'}
           aria-controls="secret-refs-panel"
           isActive={activeTab === 'secret-refs'}
+          tabIndex={activeTab === 'secret-refs' ? 0 : -1}
           onClick={() => selectTab('secret-refs')}
+          onKeyDown={(event) => handleTabKeyDown(event, 'secret-refs')}
           className="cursor-pointer gap-2"
         >
           <KeyRound className="h-4 w-4" />
@@ -671,13 +700,14 @@ export default function ProfilesPage(): React.ReactNode {
         </Tab>
       </Tabs>
 
-      {activeTab === 'profiles' && (
-        <section
-          id="profiles-panel"
-          role="tabpanel"
-          aria-labelledby="profiles-tab"
-          className="min-h-0 flex-1 overflow-auto pr-1"
-        >
+      <div
+        id="profiles-panel"
+        role="tabpanel"
+        aria-labelledby="profiles-tab"
+        hidden={activeTab !== 'profiles'}
+        className="min-h-0 flex-1 overflow-hidden"
+      >
+        <section className="h-full min-h-0 overflow-auto pr-1">
           <div className="flex flex-col gap-4">
             <div className="flex items-center justify-between gap-3">
               <div>
@@ -1016,18 +1046,17 @@ export default function ProfilesPage(): React.ReactNode {
             </div>
           </div>
         </section>
-      )}
+      </div>
 
-      {activeTab === 'secret-refs' && (
-        <div
-          id="secret-refs-panel"
-          role="tabpanel"
-          aria-labelledby="secret-refs-tab"
-          className="min-h-0 flex-1 overflow-hidden"
-        >
-          <SecretRefsSection />
-        </div>
-      )}
+      <div
+        id="secret-refs-panel"
+        role="tabpanel"
+        aria-labelledby="secret-refs-tab"
+        hidden={activeTab !== 'secret-refs'}
+        className="min-h-0 flex-1 overflow-hidden"
+      >
+        <SecretRefsSection />
+      </div>
 
       <ProfileFormDialog
         open={profileFormOpen}

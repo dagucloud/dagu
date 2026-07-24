@@ -94,32 +94,52 @@ describe('ProfilesPage', () => {
   it('switches between separate profile and secret ref tabs', async () => {
     const user = userEvent.setup();
     renderPage();
+    const profilesTab = screen.getByRole('tab', { name: 'Profiles' });
+    const secretRefsTab = screen.getByRole('tab', {
+      name: 'DAG Secret Refs',
+    });
+    const profilesPanel = document.getElementById('profiles-panel');
+    const secretRefsPanel = document.getElementById('secret-refs-panel');
 
     expect(
       screen.getByRole('heading', { name: 'Profiles & Secrets', level: 1 })
     ).toBeVisible();
-    expect(screen.getByRole('tab', { name: 'Profiles' })).toHaveAttribute(
-      'aria-selected',
-      'true'
-    );
+    expect(profilesTab).toHaveAttribute('aria-selected', 'true');
+    expect(profilesTab).toHaveAttribute('tabindex', '0');
+    expect(secretRefsTab).toHaveAttribute('tabindex', '-1');
+    expect(profilesPanel).toBeVisible();
+    expect(secretRefsPanel).not.toBeVisible();
     expect(
       screen.getByRole('heading', { name: 'Profiles', level: 2 })
     ).toBeVisible();
     expect(
-      screen.queryByRole('heading', { name: 'DAG Secret Refs', level: 2 })
-    ).not.toBeInTheDocument();
+      screen.getByRole('heading', {
+        name: 'DAG Secret Refs',
+        level: 2,
+        hidden: true,
+      })
+    ).not.toBeVisible();
 
-    await user.click(screen.getByRole('tab', { name: 'DAG Secret Refs' }));
+    profilesTab.focus();
+    await user.keyboard('{ArrowRight}');
 
     expect(
       screen.getByRole('heading', { name: 'DAG Secret Refs', level: 2 })
     ).toBeVisible();
+    expect(secretRefsTab).toHaveAttribute('aria-selected', 'true');
+    expect(secretRefsTab).toHaveAttribute('tabindex', '0');
+    expect(secretRefsTab).toHaveFocus();
+    expect(profilesTab).toHaveAttribute('tabindex', '-1');
+    expect(profilesPanel).not.toBeVisible();
+    expect(secretRefsPanel).toBeVisible();
+
+    await user.keyboard('{ArrowLeft}');
+
+    expect(profilesTab).toHaveAttribute('aria-selected', 'true');
+    expect(profilesTab).toHaveFocus();
     expect(
-      screen.getByRole('tab', { name: 'DAG Secret Refs' })
-    ).toHaveAttribute('aria-selected', 'true');
-    expect(
-      screen.queryByRole('heading', { name: 'Profiles', level: 2 })
-    ).not.toBeInTheDocument();
+      screen.getByRole('heading', { name: 'Profiles', level: 2 })
+    ).toBeVisible();
   });
 
   it('disables protected profile mutations for non-admin managers', async () => {
