@@ -15,9 +15,15 @@ import (
 	"github.com/dagucloud/dagu/internal/llm/toolschema"
 )
 
-// CompleteTaskTool is the name of the tool the controller calls to mark a task
-// complete. It is reserved and cannot name a step.
-const CompleteTaskTool = "complete_task"
+const (
+	// CompleteTaskTool is the name of the tool the controller calls to mark a
+	// task complete. It is reserved and cannot name a step.
+	CompleteTaskTool = "complete_task"
+
+	// ReopenTaskTool is the name of the tool the controller calls to mark a
+	// completed task open again. It is reserved and cannot name a step.
+	ReopenTaskTool = "reopen_task"
+)
 
 // maxToolNameLen is the longest function name accepted across providers.
 const maxToolNameLen = 64
@@ -37,7 +43,7 @@ type Catalog struct {
 func NewCatalog(ctx context.Context, dag *core.DAG) (*Catalog, error) {
 	c := &Catalog{stepByTool: make(map[string]string)}
 
-	used := map[string]struct{}{CompleteTaskTool: {}}
+	used := map[string]struct{}{CompleteTaskTool: {}, ReopenTaskTool: {}}
 	for _, step := range dag.Steps {
 		if step.Name == core.ControllerStepName {
 			continue
@@ -66,6 +72,30 @@ func NewCatalog(ctx context.Context, dag *core.DAG) (*Catalog, error) {
 			},
 		})
 	}
+
+	c.tools = append(c.tools, llmpkg.Tool{
+		Type: "function",
+		Function: llmpkg.ToolFunction{
+			Name: ReopenTaskTool,
+			Description: "Mark a previously completed task as open again. Call this when later " +
+				"work invalidates an earlier task, for example when a review rejects an " +
+				"implementation that was already marked complete.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"task": map[string]any{
+						"type":        "string",
+						"description": "Name of the completed task to reopen.",
+					},
+					"reason": map[string]any{
+						"type":        "string",
+						"description": "Why the task no longer meets its completion criteria.",
+					},
+				},
+				"required": []string{"task", "reason"},
+			},
+		},
+	})
 
 	c.tools = append(c.tools, llmpkg.Tool{
 		Type: "function",

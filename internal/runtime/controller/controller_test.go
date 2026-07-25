@@ -132,7 +132,10 @@ func TestNewCatalog(t *testing.T) {
 	require.NoError(t, err)
 
 	names := catalog.ToolNames()
-	assert.Equal(t, []string{"run_child", "review", "run_child_2", controller.CompleteTaskTool}, names)
+	assert.Equal(t, []string{
+		"run_child", "review", "run_child_2",
+		controller.ReopenTaskTool, controller.CompleteTaskTool,
+	}, names)
 
 	// The controller step is not one of the actions the model may pick.
 	_, ok := catalog.StepFor(core.ControllerStepName)
@@ -143,7 +146,7 @@ func TestNewCatalog(t *testing.T) {
 	assert.Equal(t, "run child", step)
 
 	tools := catalog.Tools()
-	require.Len(t, tools, 4)
+	require.Len(t, tools, 5)
 	assert.Equal(t, "the child workflow", tools[0].Function.Description)
 	assert.Equal(t, []string{"target"}, tools[0].Function.Parameters["required"])
 	assert.Contains(t, tools[1].Function.Description, "ok?")

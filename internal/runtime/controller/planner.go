@@ -22,6 +22,8 @@ const (
 	DecideRunStep DecisionKind = iota
 	// DecideCompleteTask marks a task complete.
 	DecideCompleteTask
+	// DecideReopenTask marks a completed task open again.
+	DecideReopenTask
 	// DecideStop is returned when the model answers without calling a tool.
 	DecideStop
 	// DecideInvalid is returned when the model calls a tool that does not exist
@@ -126,15 +128,19 @@ func (p *Planner) Next(ctx context.Context, st *State) (*Decision, error) {
 		return decision, nil
 	}
 
-	if call.Function.Name == CompleteTaskTool {
+	switch call.Function.Name {
+	case CompleteTaskTool, ReopenTaskTool:
 		task, _ := args["task"].(string)
 		reason, _ := args["reason"].(string)
 		if task == "" {
 			decision.Kind = DecideInvalid
-			decision.Problem = "complete_task requires a task name"
+			decision.Problem = call.Function.Name + " requires a task name"
 			return decision, nil
 		}
 		decision.Kind = DecideCompleteTask
+		if call.Function.Name == ReopenTaskTool {
+			decision.Kind = DecideReopenTask
+		}
 		decision.Task = task
 		decision.Reason = reason
 		return decision, nil
@@ -183,6 +189,8 @@ func (p *Planner) systemPrompt(st *State) string {
 	sb.WriteString("\nRules:\n")
 	sb.WriteString("- Call exactly one tool per turn.\n")
 	fmt.Fprintf(&sb, "- Call %s as soon as a task's criteria are satisfied, and not before.\n", CompleteTaskTool)
+	fmt.Fprintf(&sb, "- Call %s when later work invalidates a task you already completed, "+
+		"then redo the work it covers.\n", ReopenTaskTool)
 	sb.WriteString("- When an action fails, read the error and decide whether to retry it, ")
 	sb.WriteString("run a different action, or give up.\n")
 	sb.WriteString("- Actions may be repeated when earlier work needs redoing, within a per-action limit.\n")

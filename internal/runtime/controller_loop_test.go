@@ -428,3 +428,38 @@ func TestControllerLoop_StallCounterResetsOnAction(t *testing.T) {
 
 	require.Equal(t, core.Succeeded, ch.run(t))
 }
+
+// TestControllerLoop_ReopensTaskAndRedoesWork covers the review-rejects-work
+// cycle: a completed task is reopened and the action behind it runs again.
+func TestControllerLoop_ReopensTaskAndRedoesWork(t *testing.T) {
+	t.Parallel()
+
+	ch := setupController(t, controllerDAG,
+		turn{tool: "alpha"},
+		turn{tool: controller.CompleteTaskTool, args: map[string]any{"task": "first", "reason": "built"}},
+		turn{tool: controller.ReopenTaskTool, args: map[string]any{"task": "first", "reason": "review rejected it"}},
+		turn{tool: "alpha"},
+		turn{tool: controller.CompleteTaskTool, args: map[string]any{"task": "first", "reason": "rebuilt"}},
+		turn{tool: controller.CompleteTaskTool, args: map[string]any{"task": "second", "reason": "ok"}},
+	)
+
+	require.Equal(t, core.Succeeded, ch.run(t))
+	assert.True(t, ch.node(t, "alpha").State().Repeated, "the redone action ran again")
+
+	text := transcript(ch.node(t, core.ControllerStepName).GetChatMessages())
+	assert.Contains(t, text, `Task "first" reopened`)
+}
+
+func TestControllerLoop_RejectsReopeningAnOpenTask(t *testing.T) {
+	t.Parallel()
+
+	ch := setupController(t, controllerDAG,
+		turn{tool: controller.ReopenTaskTool, args: map[string]any{"task": "first", "reason": "oops"}},
+		turn{tool: controller.CompleteTaskTool, args: map[string]any{"task": "first", "reason": "ok"}},
+		turn{tool: controller.CompleteTaskTool, args: map[string]any{"task": "second", "reason": "ok"}},
+	)
+
+	require.Equal(t, core.Succeeded, ch.run(t))
+	assert.Contains(t, transcript(ch.node(t, core.ControllerStepName).GetChatMessages()),
+		`task "first" is already open`)
+}

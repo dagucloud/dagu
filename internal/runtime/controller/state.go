@@ -168,6 +168,24 @@ func (s *State) CompleteTask(name, reason string) error {
 	return fmt.Errorf("unknown task %q; declared tasks are %v", name, s.taskNames())
 }
 
+// ReopenTask marks a completed task open again, which the controller needs when
+// later work invalidates earlier work. Reopening a task that is not complete is
+// reported back as a tool error rather than failing the run.
+func (s *State) ReopenTask(name, reason string) error {
+	for i, task := range s.Tasks {
+		if task.Name != name {
+			continue
+		}
+		if !task.Done {
+			return fmt.Errorf("task %q is already open", name)
+		}
+		s.Tasks[i].Done = false
+		s.Tasks[i].Reason = reason
+		return nil
+	}
+	return fmt.Errorf("unknown task %q; declared tasks are %v", name, s.taskNames())
+}
+
 func (s *State) taskNames() []string {
 	names := make([]string, 0, len(s.Tasks))
 	for _, task := range s.Tasks {

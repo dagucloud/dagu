@@ -142,6 +142,18 @@ func (r *Runner) applyDecision(
 		state.Append(toolResult(decision.ToolCallID, completionAck(state, decision.Task)))
 		return false, nil
 
+	case controller.DecideReopenTask:
+		if err := state.ReopenTask(decision.Task, decision.Reason); err != nil {
+			state.Append(toolResult(decision.ToolCallID, "Error: "+err.Error()))
+			return false, nil
+		}
+		logger.Info(ctx, "Controller reopened a task",
+			slog.String("task", decision.Task), slog.String("reason", decision.Reason))
+		state.Append(toolResult(decision.ToolCallID, fmt.Sprintf(
+			"Task %q reopened. Still open: %s.",
+			decision.Task, strings.Join(state.OpenTaskNames(), ", "))))
+		return false, nil
+
 	case controller.DecideInvalid:
 		state.Append(toolResult(decision.ToolCallID, "Error: "+decision.Problem))
 		return false, nil
@@ -206,6 +218,8 @@ func (r *Runner) runControllerAction(
 	if node.State().Status != core.NodeNotStarted {
 		// Re-running: clear the previous attempt and mark the node repeated so a
 		// child DAG run gets a fresh run ID instead of reusing the earlier one.
+		// The step shows the latest attempt; the controller transcript is the
+		// record of every attempt.
 		node.ClearState(step)
 		node.SetRepeated(true)
 	}
