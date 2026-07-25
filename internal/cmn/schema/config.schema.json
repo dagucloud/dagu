@@ -794,6 +794,9 @@
         },
         "azure": {
           "$ref": "#/definitions/AzureSecretsDef"
+        },
+        "alibaba": {
+          "$ref": "#/definitions/AlibabaSecretsDef"
         }
       }
     },
@@ -831,6 +834,25 @@
         "vault_url": {
           "type": "string",
           "description": "Default Azure Key Vault URL."
+        }
+      }
+    },
+    "AlibabaSecretsDef": {
+      "type": "object",
+      "description": "Global Alibaba Cloud KMS client defaults.",
+      "additionalProperties": false,
+      "properties": {
+        "region": {
+          "type": "string",
+          "description": "Default Alibaba Cloud region for KMS secret lookups."
+        },
+        "endpoint": {
+          "type": "string",
+          "description": "Optional Alibaba Cloud KMS shared or dedicated gateway endpoint."
+        },
+        "ca_file": {
+          "type": "string",
+          "description": "CA certificate file for an Alibaba Cloud KMS dedicated gateway."
         }
       }
     },

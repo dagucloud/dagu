@@ -26,6 +26,7 @@ const (
 	ProviderGCP         ProviderType = "gcp"
 	ProviderAWS         ProviderType = "aws"
 	ProviderAzure       ProviderType = "azure"
+	ProviderAlibaba     ProviderType = "alibaba"
 )
 
 type Status string
@@ -219,7 +220,7 @@ func ValidateRef(ref string) error {
 
 func ValidateProviderType(providerType ProviderType) error {
 	switch providerType {
-	case ProviderDaguManaged, ProviderVault, ProviderKubernetes, ProviderGCP, ProviderAWS, ProviderAzure:
+	case ProviderDaguManaged, ProviderVault, ProviderKubernetes, ProviderGCP, ProviderAWS, ProviderAzure, ProviderAlibaba:
 		return nil
 	default:
 		return fmt.Errorf("%w: %q", ErrInvalidProviderType, providerType)
