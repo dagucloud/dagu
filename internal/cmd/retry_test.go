@@ -477,6 +477,7 @@ steps:
 			th.Config.Paths.LogDir,
 			th.Config.Paths.ArtifactDir,
 			th.Config.Paths.BaseConfig,
+			"",
 			metadataOnly,
 			runID,
 			core.TriggerTypeCatchUp,

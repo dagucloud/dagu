@@ -144,13 +144,14 @@ func newScheduler(
 	dirLock := dirlock.New(lockDir, lockOpts)
 	subCmdBuilder := launcher.NewSubCmdBuilder(cfg)
 	dagStore := er.DAGStore()
+	workspaceBaseConfigDir := workspace.BaseConfigDir(cfg.Paths.DAGsDir)
 	dagExecutor := NewDAGExecutor(
 		coordinatorCli,
 		subCmdBuilder,
 		cfg.DefaultExecMode,
 		cfg.Paths.BaseConfig,
 		WithDAGExecutorProfileResolver(options.profileResolver),
-		WithDAGExecutorWorkspaceBaseConfigDir(workspace.BaseConfigDir(cfg.Paths.DAGsDir)),
+		WithDAGExecutorWorkspaceBaseConfigDir(workspaceBaseConfigDir),
 	)
 	healthServer := NewHealthServer(cfg.Scheduler.Port)
 
@@ -190,7 +191,20 @@ func newScheduler(
 			if err != nil {
 				return fmt.Errorf("failed to resolve DAG profile: %w", err)
 			}
-			return EnqueueCatchupRun(ctx, dagRunStore, queueStore, cfg.Paths.LogDir, cfg.Paths.ArtifactDir, cfg.Paths.BaseConfig, dag, runID, triggerType, scheduleTime, profileName)
+			return EnqueueCatchupRun(
+				ctx,
+				dagRunStore,
+				queueStore,
+				cfg.Paths.LogDir,
+				cfg.Paths.ArtifactDir,
+				cfg.Paths.BaseConfig,
+				workspaceBaseConfigDir,
+				dag,
+				runID,
+				triggerType,
+				scheduleTime,
+				profileName,
+			)
 		}
 	}
 
