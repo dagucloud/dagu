@@ -3074,9 +3074,11 @@ func (a *API) enqueueRetry(ctx context.Context, attempt exec.DAGRunAttempt, dag 
 		return fmt.Errorf("error reading status: %w", err)
 	}
 	eventCtx := a.withEventContext(ctx)
-	if _, err := exec.EnqueueRetry(eventCtx, a.dagRunStore, a.queueStore, dag, status, exec.EnqueueRetryOptions{
-		TriggerActor: ptrOf(triggerActorFromContext(ctx)),
-	}); err != nil {
+	opts := exec.EnqueueRetryOptions{}
+	if actor := triggerActorFromContext(ctx); actor != "" {
+		opts.TriggerActor = &actor
+	}
+	if _, err := exec.EnqueueRetry(eventCtx, a.dagRunStore, a.queueStore, dag, status, opts); err != nil {
 		if errors.Is(err, exec.ErrRetryStaleLatest) {
 			return &Error{
 				HTTPStatus: http.StatusBadRequest,

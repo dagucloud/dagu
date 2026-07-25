@@ -1689,6 +1689,20 @@ steps:
 	dag := th.DAG(t, dagContent)
 
 	client := newMockRemoteCoordinatorClient()
+	var (
+		reportedMu sync.Mutex
+		finalActor string
+	)
+	client.ReportStatusFunc = func(_ context.Context, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
+		status, err := convert.ProtoToDAGRunStatus(req.Status)
+		require.NoError(t, err)
+		if status.Status == core.Succeeded {
+			reportedMu.Lock()
+			finalActor = status.TriggerActor
+			reportedMu.Unlock()
+		}
+		return &coordinatorv1.ReportStatusResponse{Accepted: true}, nil
+	}
 
 	// Create handler with full dependencies from test helper
 	handler := &remoteTaskHandler{
@@ -1713,13 +1727,16 @@ steps:
 	// Call executeDAGRun - this should succeed and log completion
 	// For top-level runs, pass empty parent and ensure root matches dagRunID
 	err := handler.executeDAGRun(th.Context, dag.DAG, remoteRun{
-		task:     &coordinatorv1.Task{DagRunId: dagRunID},
+		task:     &coordinatorv1.Task{DagRunId: dagRunID, TriggerActor: "alice"},
 		root:     root,
 		handlers: handlers,
 	})
 
 	// Should succeed for simple echo command
 	require.NoError(t, err, "executeDAGRun should succeed for simple echo command")
+	reportedMu.Lock()
+	defer reportedMu.Unlock()
+	require.Equal(t, "alice", finalActor)
 }
 
 func TestRemoteRunReporter_FinalizesSchedulerLogByClosingLiveWriterOnce(t *testing.T) {

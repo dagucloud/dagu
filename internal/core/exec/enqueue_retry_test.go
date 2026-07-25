@@ -105,6 +105,7 @@ func TestEnqueueRetry(t *testing.T) {
 					AttemptID:      "att-auto",
 					Status:         core.Failed,
 					AutoRetryCount: 2,
+					TriggerActor:   "bob",
 				},
 			},
 			setupQueue: func(qs *exec.MockQueueStore) {
@@ -114,6 +115,7 @@ func TestEnqueueRetry(t *testing.T) {
 			assertStore: func(t *testing.T, store *stubDAGRunStore) {
 				require.NotNil(t, store.status)
 				assert.Equal(t, 3, store.status.AutoRetryCount)
+				assert.Equal(t, "bob", store.status.TriggerActor)
 			},
 			wantQueued: true,
 		},
@@ -241,9 +243,10 @@ func TestEnqueueRetry(t *testing.T) {
 					AttemptID:      "att-4",
 					Status:         core.Failed,
 					AutoRetryCount: 1,
+					TriggerActor:   "bob",
 				},
 			},
-			opts: exec.EnqueueRetryOptions{AutoRetry: true},
+			opts: exec.EnqueueRetryOptions{AutoRetry: true, TriggerActor: &triggerActor},
 			setupQueue: func(qs *exec.MockQueueStore) {
 				qs.On("Enqueue", mock.Anything, "test-dag", exec.QueuePriorityLow, exec.NewDAGRunRef("test-dag", "run-4")).
 					Return(errors.New("enqueue error"))
@@ -254,6 +257,7 @@ func TestEnqueueRetry(t *testing.T) {
 				assert.Empty(t, store.status.QueuedAt)
 				assert.Equal(t, core.TriggerTypeUnknown, store.status.TriggerType)
 				assert.Equal(t, 1, store.status.AutoRetryCount)
+				assert.Equal(t, "bob", store.status.TriggerActor)
 			},
 			wantErr: "enqueue retry",
 		},
@@ -299,14 +303,17 @@ func TestEnqueueRetry(t *testing.T) {
 					AttemptID:      "att-empty-group",
 					Status:         core.Failed,
 					AutoRetryCount: 1,
+					TriggerActor:   "bob",
 				},
 			},
+			opts: exec.EnqueueRetryOptions{TriggerActor: &triggerActor},
 			assertStore: func(t *testing.T, store *stubDAGRunStore) {
 				require.NotNil(t, store.status)
 				assert.Equal(t, core.Failed, store.status.Status)
 				assert.Empty(t, store.status.QueuedAt)
 				assert.Equal(t, core.TriggerTypeUnknown, store.status.TriggerType)
 				assert.Equal(t, 1, store.status.AutoRetryCount)
+				assert.Equal(t, "bob", store.status.TriggerActor)
 			},
 			wantErr: "proc group is empty",
 		},
