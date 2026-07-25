@@ -13754,7 +13754,7 @@ components:
         - kubernetes
         - gcp
         - aws
-        - azure-key-vault
+        - azure
 
     SecretStatus:
       type: string
