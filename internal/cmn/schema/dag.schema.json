@@ -246,10 +246,12 @@
         "properties": {
           "name": {
             "type": "string",
+            "minLength": 1,
             "description": "Unique task identifier."
           },
           "description": {
             "type": "string",
+            "minLength": 1,
             "description": "States when the task is considered complete. The controller decides against this text."
           }
         }
@@ -463,9 +465,13 @@
         },
         "exit": {
           "$ref": "#/definitions/handlerStep"
+        },
+        "wait": {
+          "$ref": "#/definitions/handlerStep",
+          "description": "Step to execute when the DAG enters the waiting status because a step needs human input."
         }
       },
-      "description": "Lifecycle event hooks that define commands to execute at various points in the DAG lifecycle: init (before steps), success, failure, abort, and exit (always runs last)."
+      "description": "Lifecycle event hooks that define commands to execute at various points in the DAG lifecycle: init (before steps), success, failure, abort, wait (a step is waiting on a person), and exit (always runs last)."
     },
     "step_types": {
       "$ref": "#/definitions/legacyExecutionDefinitions",

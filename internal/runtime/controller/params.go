@@ -27,13 +27,27 @@ func ParamString(args map[string]any) string {
 
 	parts := make([]string, 0, len(keys))
 	for _, key := range keys {
-		value := formatArgValue(args[key])
-		if strings.ContainsAny(value, " \t\n") {
+		raw := args[key]
+		value := formatArgValue(raw)
+		if needsQuoting(raw, value) {
 			value = strconv.Quote(value)
 		}
 		parts = append(parts, key+"="+value)
 	}
 	return strings.Join(parts, " ")
+}
+
+// needsQuoting reports whether a rendered argument must be quoted to survive the
+// child DAG's param splitter. Arguments come from the model, so a plain string
+// may hold whitespace or quote characters the splitter would act on. Structured
+// values are rendered as JSON, which carries its own quoting.
+func needsQuoting(raw any, rendered string) bool {
+	switch raw.(type) {
+	case nil, string:
+		return rendered == "" || strings.ContainsAny(rendered, " \t\n\"'")
+	default:
+		return false
+	}
 }
 
 func formatArgValue(value any) string {

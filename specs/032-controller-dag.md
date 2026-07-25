@@ -12,7 +12,7 @@ This spec defines:
 - the `tasks` root field and its role as the termination condition
 - how declared steps become a catalog of actions offered to a model
 - the decision loop, one action per turn
-- the `complete_task` tool
+- the `set_task_status` and `ask_user` tools
 - failure handling and action repetition
 - suspension for human input and resumption
 - terminal status derivation

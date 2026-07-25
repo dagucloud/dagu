@@ -197,6 +197,23 @@ func TestParamString(t *testing.T) {
 			expected: `msg="hello world"`,
 		},
 		{
+			// The model writes these values, so anything the child DAG's param
+			// splitter would re-interpret has to survive the trip.
+			name:     "ValuesContainingQuotesAreQuoted",
+			args:     map[string]any{"msg": `say"hi`},
+			expected: `msg="say\"hi"`,
+		},
+		{
+			name:     "ValuesContainingApostrophesAreQuoted",
+			args:     map[string]any{"msg": "it's"},
+			expected: `msg="it's"`,
+		},
+		{
+			name:     "EmptyValuesAreQuoted",
+			args:     map[string]any{"msg": ""},
+			expected: `msg=""`,
+		},
+		{
 			name:     "StructuredValuesBecomeJSON",
 			args:     map[string]any{"items": []any{"a", "b"}},
 			expected: `items=["a","b"]`,

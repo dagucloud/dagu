@@ -310,3 +310,18 @@ func TestBuild(t *testing.T) {
 		assert.Contains(t, required, "format")
 	})
 }
+
+// TestInferTypeFromDefault_MalformedQuotes covers default-params a DAG author
+// mistyped: an unterminated quote must not take the process down.
+func TestInferTypeFromDefault_MalformedQuotes(t *testing.T) {
+	t.Parallel()
+
+	for _, value := range []string{`"`, `'`, ``, `"unterminated`, `trailing"`} {
+		t.Run(value, func(t *testing.T) {
+			t.Parallel()
+			decoded, kind := toolschema.InferTypeFromDefault(value)
+			assert.Equal(t, "string", kind)
+			assert.Equal(t, value, decoded, "a value that is not a quoted literal is kept as is")
+		})
+	}
+}

@@ -152,9 +152,11 @@ func SplitParams(s string) []string {
 // InferTypeFromDefault infers a JSON Schema type from a default value literal,
 // returning the decoded value alongside the type name.
 func InferTypeFromDefault(value string) (any, string) {
-	// Remove surrounding quotes if present
-	if (strings.HasPrefix(value, `"`) && strings.HasSuffix(value, `"`)) ||
-		(strings.HasPrefix(value, `'`) && strings.HasSuffix(value, `'`)) {
+	// Strip surrounding quotes. The length guard matters: a lone quote satisfies
+	// both prefix and suffix, and slicing it would panic.
+	if len(value) >= 2 &&
+		((strings.HasPrefix(value, `"`) && strings.HasSuffix(value, `"`)) ||
+			(strings.HasPrefix(value, `'`) && strings.HasSuffix(value, `'`))) {
 		return value[1 : len(value)-1], "string"
 	}
 
