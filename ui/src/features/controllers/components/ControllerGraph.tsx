@@ -6,6 +6,7 @@ import { ArrowDownUp, ArrowRightLeft, ZoomIn, ZoomOut } from 'lucide-react';
 
 import Mermaid from '@/components/ui/mermaid';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import type { ControllerDefinition } from '../types';
 
 type Direction = 'TD' | 'LR';
@@ -40,9 +41,19 @@ export function controllerGraphDefinition(
   for (const [name, state] of stateEntries) {
     const id = ids.get(name)!;
     const labelParts = [name];
-    if (name === 'default') labelParts.push('● initial');
-    if (state.dags.length > 0) labelParts.push(`DAG: ${state.dags.join(', ')}`);
-    if (state.terminal) labelParts.push(`Terminal: ${state.terminal}`);
+    const dagCount = `${state.dags.length} ${
+      state.dags.length === 1 ? 'DAG' : 'DAGs'
+    }`;
+    const transitionCount = `${state.transitions.length} outgoing`;
+    if (name === 'default') {
+      labelParts.push(`INITIAL · ${dagCount} · ${transitionCount}`);
+    } else if (state.terminal) {
+      labelParts.push(
+        `${state.terminal.toUpperCase()} · ${dagCount} · ${transitionCount}`
+      );
+    } else {
+      labelParts.push(`${dagCount} · ${transitionCount}`);
+    }
     const label = labelParts.map(mermaidText).join('\\n');
     const shape = state.terminal ? `[["${label}"]]` : `["${label}"]`;
     const classes = [
@@ -104,9 +115,11 @@ function addEdgeTitles(
 export function ControllerGraph({
   definition,
   currentState,
+  className,
 }: {
   definition: ControllerDefinition;
   currentState?: string;
+  className?: string;
 }) {
   const [direction, setDirection] = React.useState<Direction>('TD');
   const [scale, setScale] = React.useState(1);
@@ -121,7 +134,12 @@ export function ControllerGraph({
   );
 
   return (
-    <div className="relative min-h-[360px] overflow-hidden rounded-md border border-border bg-card">
+    <div
+      className={cn(
+        'relative min-h-[360px] overflow-hidden rounded-md border border-border bg-card',
+        className
+      )}
+    >
       <div className="absolute right-2 top-2 z-10 flex gap-1 rounded-md border border-border bg-card p-1 shadow-sm">
         <Button
           variant={direction === 'TD' ? 'primary' : 'ghost'}

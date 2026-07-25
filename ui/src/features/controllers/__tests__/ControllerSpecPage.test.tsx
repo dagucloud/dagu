@@ -71,6 +71,10 @@ vi.mock('@/components/ui/simple-toast', () => ({
   useSimpleToast: () => ({ showToast: fakes.showToast }),
 }));
 
+vi.mock('@/features/controllers/components/ControllerGraph', () => ({
+  ControllerGraph: () => <div>State graph preview</div>,
+}));
+
 vi.mock('@/features/dags/components/dag-editor/DAGEditorWithDocs', () => ({
   default: () => null,
 }));
@@ -141,6 +145,7 @@ function renderPage(duplicateSpec?: string) {
           path="/controllers/new/spec"
           element={<ControllerSpecPage isNew />}
         />
+        <Route path="/controllers" element={<div>Controller list</div>} />
       </Routes>
     </MemoryRouter>
   );
@@ -173,14 +178,18 @@ describe('ControllerSpecPage', () => {
     fakes.update.mockReset();
   });
 
-  it('keeps a new draft editable when its target workspace is not writable', () => {
+  it('keeps a new draft editable when its target workspace is not writable', async () => {
+    const user = userEvent.setup();
     fakes.canWrite.mockReturnValue(false);
     renderPage();
 
+    await user.click(screen.getByRole('button', { name: 'Basics' }));
     expect(
       screen.getByRole('textbox', { name: 'Controller labels' })
     ).toBeEnabled();
-    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+    expect(
+      screen.getByRole('button', { name: 'Save Controller' })
+    ).toBeDisabled();
     expect(screen.getByText('Save unavailable')).toBeInTheDocument();
   });
 
@@ -194,11 +203,13 @@ describe('ControllerSpecPage', () => {
       const confirm = vi.spyOn(window, 'confirm');
       renderPage(duplicateSpec);
 
-      expect(screen.queryByText('Unsaved changes')).not.toBeInTheDocument();
+      expect(screen.queryByText('Unsaved')).not.toBeInTheDocument();
       if (duplicateSpec) {
-        expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled();
+        expect(
+          screen.getByRole('button', { name: 'Save Controller' })
+        ).toBeEnabled();
       }
-      await user.click(screen.getByRole('link', { name: 'Cancel' }));
+      await user.click(screen.getByRole('link', { name: 'Discard' }));
       expect(confirm).not.toHaveBeenCalled();
       confirm.mockRestore();
     }
@@ -241,7 +252,7 @@ describe('ControllerSpecPage', () => {
     ).toBeVisible();
   });
 
-  it('blocks Cancel during creation and does not redirect after unmount', async () => {
+  it('blocks Discard during creation and does not redirect after unmount', async () => {
     const user = userEvent.setup();
     let resolveCreate!: (value: { id: string }) => void;
     fakes.create.mockImplementation(
@@ -252,9 +263,9 @@ describe('ControllerSpecPage', () => {
     );
     const view = renderPage(validCreateSpec());
 
-    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await user.click(screen.getByRole('button', { name: 'Save Controller' }));
 
-    expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Discard' })).toBeDisabled();
 
     view.unmount();
     await act(async () => {
@@ -281,10 +292,12 @@ describe('ControllerSpecPage', () => {
         })
     );
     renderPersistedPage(firstID);
+    await screen.findByRole('heading', { name: 'First Controller' });
+    await user.click(screen.getByRole('button', { name: 'Basics' }));
     const name = await screen.findByDisplayValue('First Controller');
     await user.clear(name);
     await user.type(name, 'Updated First Controller');
-    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await user.click(screen.getByRole('button', { name: 'Save Controller' }));
 
     act(() => fakes.routeNavigate?.(`/controllers/${secondID}/spec`));
     expect(await screen.findByDisplayValue('Second Controller')).toBeVisible();
@@ -324,7 +337,7 @@ describe('ControllerSpecPage', () => {
         })
     );
     renderPersistedPage(firstID);
-    await screen.findByDisplayValue('First Controller');
+    await screen.findByRole('heading', { name: 'First Controller' });
     await user.click(screen.getByRole('button', { name: 'Delete' }));
     await user.click(
       within(screen.getByRole('dialog')).getByRole('button', {
@@ -333,7 +346,9 @@ describe('ControllerSpecPage', () => {
     );
 
     act(() => fakes.routeNavigate?.(`/controllers/${secondID}/spec`));
-    expect(await screen.findByDisplayValue('Second Controller')).toBeVisible();
+    expect(
+      await screen.findByRole('heading', { name: 'Second Controller' })
+    ).toBeVisible();
 
     await act(async () => {
       resolveDelete();
@@ -343,6 +358,8 @@ describe('ControllerSpecPage', () => {
     expect(screen.getByLabelText('Current route')).toHaveTextContent(
       `/controllers/${secondID}/spec`
     );
-    expect(screen.getByDisplayValue('Second Controller')).toBeVisible();
+    expect(
+      screen.getByRole('heading', { name: 'Second Controller' })
+    ).toBeVisible();
   });
 });

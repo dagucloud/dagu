@@ -13,10 +13,12 @@ import { ControllerStatusChip } from './ControllerStatusChip';
 export function ControllerPageHeader({
   detail,
   activeTab,
+  dirty = false,
   actions,
 }: {
   detail: ControllerDetail;
   activeTab: 'status' | 'spec';
+  dirty?: boolean;
   actions?: React.ReactNode;
 }) {
   return (
@@ -26,6 +28,7 @@ export function ControllerPageHeader({
           <div className="flex flex-wrap items-center gap-2">
             <Title>{detail.definition.name}</Title>
             <Badge variant="warning">Experimental</Badge>
+            {dirty && <Badge variant="warning">Unsaved</Badge>}
             <ControllerStatusChip
               status={detail.runtime.status}
               finishedAt={detail.runtime.finishedAt}

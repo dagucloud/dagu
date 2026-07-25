@@ -10,6 +10,10 @@ import { ControllerBuilder } from '../components/ControllerBuilder';
 import { createControllerDraft } from '../draft';
 import type { ControllerDefinition } from '../types';
 
+vi.mock('../components/ControllerGraph', () => ({
+  ControllerGraph: () => <div>State graph preview</div>,
+}));
+
 function BuilderHarness({
   controllerDAGs = [],
   configuredReview = false,
@@ -44,6 +48,7 @@ function BuilderHarness({
       <output aria-label="Buffered draft state">
         {draftDirty ? 'dirty' : 'clean'}
       </output>
+      <output aria-label="Controller DAGs">{definition.dags.join(',')}</output>
       <ControllerBuilder
         definition={definition}
         workspace="ops"
@@ -69,6 +74,7 @@ describe('ControllerBuilder', () => {
     const user = userEvent.setup();
     render(<BuilderHarness />);
 
+    await user.click(screen.getByRole('button', { name: 'Basics' }));
     const labels = screen.getByRole('textbox', {
       name: 'Controller labels',
     });
@@ -89,6 +95,7 @@ describe('ControllerBuilder', () => {
     const user = userEvent.setup();
     render(<BuilderHarness />);
 
+    await user.click(screen.getByRole('button', { name: 'Basics' }));
     const labels = screen.getByRole('textbox', {
       name: 'Controller labels',
     });
@@ -101,14 +108,11 @@ describe('ControllerBuilder', () => {
     expect(labels).toHaveValue('urgent, customer');
   });
 
-  it('keeps the DAG text field synchronized with checkbox changes', async () => {
+  it('adds a searched DAG to the Controller allowlist', async () => {
     const user = userEvent.setup();
     render(<BuilderHarness />);
 
-    const dagList = screen.getByRole('textbox', {
-      name: 'Controller DAG allowlist',
-    });
-    expect(dagList).toHaveValue('');
+    await user.click(screen.getByRole('button', { name: 'Allowed DAGs 0' }));
     expect(
       screen.queryByRole('checkbox', { name: /triage/i })
     ).not.toBeInTheDocument();
@@ -119,7 +123,11 @@ describe('ControllerBuilder', () => {
     );
     await user.click(screen.getByRole('checkbox', { name: /triage/i }));
 
-    await waitFor(() => expect(dagList).toHaveValue('triage'));
+    await waitFor(() =>
+      expect(screen.getByLabelText('Controller DAGs')).toHaveTextContent(
+        'triage'
+      )
+    );
   });
 
   it('preserves an omitted system prompt during unrelated edits', async () => {
@@ -148,6 +156,7 @@ describe('ControllerBuilder', () => {
     const user = userEvent.setup();
     render(<BuilderHarness />);
 
+    await user.click(screen.getByRole('button', { name: 'review succeeded' }));
     const stateName = screen.getByRole('textbox', {
       name: 'State name review',
     });
@@ -165,6 +174,7 @@ describe('ControllerBuilder', () => {
     const user = userEvent.setup();
     render(<BuilderHarness />);
 
+    await user.click(screen.getByRole('button', { name: 'review succeeded' }));
     const stateName = screen.getByRole('textbox', {
       name: 'State name review',
     });
@@ -177,17 +187,15 @@ describe('ControllerBuilder', () => {
     ).toHaveValue('constructor');
   });
 
-  it('shows the filtered state DAG list after blur', async () => {
-    const user = userEvent.setup();
+  it('shows only Controller-level DAGs in a State inspector', () => {
     render(<BuilderHarness controllerDAGs={['triage']} />);
 
-    const stateDAGs = screen.getByRole('textbox', {
-      name: 'Callable DAGs for default',
-    });
-    await user.type(stateDAGs, 'triage, missing');
-    await user.tab();
-
-    expect(stateDAGs).toHaveValue('triage');
+    expect(
+      screen.getByRole('checkbox', { name: 'triage for default' })
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('checkbox', { name: 'missing for default' })
+    ).not.toBeInTheDocument();
   });
 
   it('requires configured state contents to be cleared before deletion', async () => {
@@ -196,6 +204,7 @@ describe('ControllerBuilder', () => {
       <BuilderHarness controllerDAGs={['triage']} configuredReview={true} />
     );
 
+    await user.click(screen.getByRole('button', { name: 'review' }));
     await user.click(
       screen.getByRole('button', { name: 'Delete state review' })
     );
@@ -220,6 +229,7 @@ describe('ControllerBuilder', () => {
       />
     );
 
+    await user.click(screen.getByRole('button', { name: 'Allowed DAGs 0' }));
     await user.type(
       screen.getByRole('textbox', { name: 'Search compatible DAGs' }),
       'triage'
