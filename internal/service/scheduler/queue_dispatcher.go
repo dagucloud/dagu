@@ -722,13 +722,14 @@ func (d *queueDispatcher) dispatchQueuedItem(
 		execDoneErr = err
 		close(execDoneCh)
 		if err != nil {
-			logger.Error(ctx, "Failed to execute DAG", tag.Error(err))
 			if isPreStartExecutionFailure(err) {
 				select {
 				case execErrCh <- err:
 				default:
 				}
+				return
 			}
+			logger.Error(ctx, "Failed to execute DAG", tag.Error(err))
 		}
 	}()
 
@@ -839,7 +840,6 @@ func (d *queueDispatcher) dispatchAndWaitForStartupWithConditions(
 					return backoff.PermanentError(err)
 				}
 				if errors.Is(err, backoff.ErrPermanent) {
-					logger.Error(ctx, "Permanent dispatch failure", tag.Error(err))
 					return err
 				}
 				logger.Warn(ctx, "Transient dispatch failure, will retry", tag.Error(err))
@@ -880,7 +880,14 @@ func (d *queueDispatcher) dispatchAndWaitForStartupWithConditions(
 			} else {
 				conditionStage.observe(queuedDispatchCondition(err)...)
 			}
-			conditionStage.flush(ctx)
+			if !dispatched && errors.Is(err, backoff.ErrPermanent) {
+				if finalizeErr := d.failQueuedRunBeforeStartup(ctx, queueName, runRef, err, conditionStage); finalizeErr != nil {
+					logger.Error(ctx, "Failed to finalize queued DAG run after dispatch failure", tag.Error(finalizeErr))
+					conditionStage.flush(ctx)
+				}
+			} else {
+				conditionStage.flush(ctx)
+			}
 		}
 	}
 
@@ -1009,11 +1016,67 @@ func (d *queueDispatcher) waitForStartupWithConditions(
 			} else {
 				conditionStage.observe(startupNotObservedConditionDefs...)
 			}
-			conditionStage.flush(ctx)
+			if localStartupFailedPermanently(err) {
+				if finalizeErr := d.failQueuedRunBeforeStartup(ctx, queueName, runRef, err, conditionStage); finalizeErr != nil {
+					logger.Error(ctx, "Failed to finalize queued DAG run after launch failure", tag.Error(finalizeErr))
+					conditionStage.flush(ctx)
+				}
+			} else {
+				conditionStage.flush(ctx)
+			}
 		}
 	}
 
 	return started
+}
+
+func (d *queueDispatcher) failQueuedRunBeforeStartup(
+	ctx context.Context,
+	queueName string,
+	runRef exec.DAGRunRef,
+	failure error,
+	conditionStage *queuedConditionStage,
+) error {
+	attemptID := ""
+	if conditionStage != nil {
+		attemptID = conditionStage.attemptID
+	}
+	if attemptID == "" {
+		attempt, err := d.dagRunStore.FindAttempt(ctx, runRef)
+		if err != nil {
+			return fmt.Errorf("find queued DAG run attempt: %w", err)
+		}
+		attemptID = attempt.ID()
+	}
+
+	finishedAt := stringutil.FormatTime(time.Now().UTC())
+	currentStatus, swapped, err := d.dagRunStore.CompareAndSwapLatestAttemptStatus(
+		ctx,
+		runRef,
+		attemptID,
+		core.Queued,
+		func(latest *exec.DAGRunStatus) error {
+			latest.Status = core.Failed
+			latest.FinishedAt = finishedAt
+			latest.Error = startupFailureMessage(failure)
+			latest.WorkerID = ""
+			latest.PID = 0
+			latest.PIDStartedAt = 0
+			latest.LeaseAt = 0
+			return nil
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("mark queued DAG run as failed: %w", err)
+	}
+	if !swapped && (currentStatus == nil || currentStatus.Status == core.Queued) {
+		return nil
+	}
+
+	if _, err := d.queueStore.DequeueByDAGRunID(ctx, queueName, runRef); err != nil && !errors.Is(err, exec.ErrQueueItemNotFound) {
+		return fmt.Errorf("dequeue failed DAG run: %w", err)
+	}
+	return nil
 }
 
 func shouldRecordStartupCondition(err error) bool {
@@ -1021,6 +1084,22 @@ func shouldRecordStartupCondition(err error) bool {
 		!errors.Is(err, context.Canceled) &&
 		!errors.Is(err, context.DeadlineExceeded) &&
 		!errors.Is(err, errProcessorClosed)
+}
+
+func localStartupFailedPermanently(err error) bool {
+	if !errors.Is(err, backoff.ErrPermanent) {
+		return false
+	}
+	var startupErr startupExecutionError
+	return errors.As(err, &startupErr) || errors.Is(err, errExecutionExitedBeforeStartup)
+}
+
+func startupFailureMessage(err error) string {
+	var startupErr startupExecutionError
+	if errors.As(err, &startupErr) {
+		return startupErr.Error()
+	}
+	return err.Error()
 }
 
 func localLaunchFailed(err error) bool {

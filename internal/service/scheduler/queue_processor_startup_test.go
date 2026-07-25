@@ -435,8 +435,8 @@ func TestQueueDispatcher_DispatchAndWaitForStartup_RawStaleQueueDispatchStopsRet
 
 func TestQueueDispatcher_DispatchAndWaitForStartup_PermanentErrorStopsRetry(t *testing.T) {
 	dagRunStore := &mockDAGRunStore{}
+	queueStore := &exec.MockQueueStore{}
 	procStore := &mockProcStore{}
-	attempt := &exec.MockDAGRunAttempt{}
 
 	// Dispatcher always returns a permanent error (selector mismatch).
 	disp := &mockDispatcher{
@@ -455,9 +455,7 @@ func TestQueueDispatcher_DispatchAndWaitForStartup_PermanentErrorStopsRetry(t *t
 		TriggerType: core.TriggerTypeScheduler,
 	}
 	runRef := exec.NewDAGRunRef("test-dag", "run-1")
-	dagRunStore.On("FindAttempt", mock.Anything, runRef).Return(attempt, nil).Once()
-	attempt.On("Hidden").Return(false).Once()
-	attempt.On("ReadStatus", mock.Anything).Return(status, nil).Once()
+	var finalizedStatus exec.DAGRunStatus
 	dagRunStore.On(
 		"CompareAndSwapLatestAttemptStatus",
 		mock.Anything,
@@ -465,9 +463,17 @@ func TestQueueDispatcher_DispatchAndWaitForStartup_PermanentErrorStopsRetry(t *t
 		"attempt-1",
 		core.Queued,
 		mock.Anything,
-	).Return(status, true, nil).Once()
+	).Run(func(args mock.Arguments) {
+		finalizedStatus = *status
+		mutate := args.Get(4).(func(*exec.DAGRunStatus) error)
+		require.NoError(t, mutate(&finalizedStatus))
+	}).Return(status, true, nil).Once()
+	queueStore.On("DequeueByDAGRunID", mock.Anything, "test-queue", runRef).
+		Return([]exec.QueuedItemData{}, nil).
+		Once()
 
 	dispatcher := newQueueDispatcher(queueDispatchDeps{
+		queueStore:  queueStore,
 		dagRunStore: dagRunStore,
 		procStore:   procStore,
 		dagExecutor: dagExec,
@@ -483,7 +489,10 @@ func TestQueueDispatcher_DispatchAndWaitForStartup_PermanentErrorStopsRetry(t *t
 	require.False(t, started)
 	// Should have been called exactly once (permanent error stops retries).
 	require.Equal(t, int32(1), disp.callCount.Load())
+	require.Equal(t, core.Failed, finalizedStatus.Status)
+	require.NotEmpty(t, finalizedStatus.Error)
+	require.NotEmpty(t, finalizedStatus.FinishedAt)
 	procStore.AssertNotCalled(t, "IsRunAlive", mock.Anything, mock.Anything, mock.Anything)
 	dagRunStore.AssertExpectations(t)
-	attempt.AssertExpectations(t)
+	queueStore.AssertExpectations(t)
 }

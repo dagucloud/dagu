@@ -386,7 +386,7 @@ func TestQueueProcessorSkipsDispatchConditionForShutdownCancellation(t *testing.
 	require.Equal(t, 0, f.casCount("waiting-run"))
 }
 
-func TestQueueProcessorRecordsLaunchFailedCondition(t *testing.T) {
+func TestQueueProcessorFinalizesLaunchFailure(t *testing.T) {
 	t.Parallel()
 
 	f := newQueueConditionFixtureWithConfig(
@@ -409,8 +409,14 @@ func TestQueueProcessorRecordsLaunchFailedCondition(t *testing.T) {
 	f.processor.ProcessQueueItems(f.ctx, f.dag.Name)
 
 	status := f.readStatus("waiting-run")
-	requireQueuedConditions(t, status, launchFailedConditions()...)
+	require.Equal(t, core.Failed, status.Status)
+	require.NotEmpty(t, status.Error)
+	require.NotEmpty(t, status.FinishedAt)
+	require.Empty(t, status.Conditions)
 	require.Equal(t, 1, f.casCount("waiting-run"))
+	items, err := f.queueStore.List(f.ctx, f.dag.Name)
+	require.NoError(t, err)
+	require.Empty(t, items)
 }
 
 func TestQueueProcessorRecordsStartupNotObservedCondition(t *testing.T) {
@@ -829,23 +835,6 @@ func workerDispatchUnavailableConditions() []expectedQueuedCondition {
 			status:        "Unknown",
 			reason:        "WorkerDispatchUnavailable",
 			message:       "Worker dispatch is temporarily unavailable.",
-		},
-	}
-}
-
-func launchFailedConditions() []expectedQueuedCondition {
-	return []expectedQueuedCondition{
-		{
-			conditionType: "Runnable",
-			status:        "False",
-			reason:        "LaunchFailed",
-			message:       "The DAG-run cannot start because local launch failed before startup was observed.",
-		},
-		{
-			conditionType: "StartObserved",
-			status:        "False",
-			reason:        "LaunchFailed",
-			message:       "Local launch failed before any started signal was observed.",
 		},
 	}
 }
