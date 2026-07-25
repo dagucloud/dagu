@@ -6,16 +6,16 @@ package chat
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"regexp"
-	"strconv"
-	"strings"
 
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	llmpkg "github.com/dagucloud/dagu/internal/llm"
+	"github.com/dagucloud/dagu/internal/llm/toolschema"
 )
+
+// toolParam represents a parsed parameter definition.
+type toolParam = toolschema.Param
 
 // ToolRegistry manages tool DAGs and converts them to LLM tool format.
 type ToolRegistry struct {
@@ -31,14 +31,6 @@ type toolInfo struct {
 	Description string
 	DAG         *core.DAG
 	Params      []toolParam
-}
-
-// toolParam represents a parsed parameter definition.
-type toolParam struct {
-	Name     string
-	Type     string // "string", "integer", "boolean", "array", "object"
-	Default  any
-	Required bool
 }
 
 // NewToolRegistry creates a ToolRegistry by loading the specified DAGs.
@@ -85,10 +77,10 @@ func NewToolRegistry(ctx context.Context, dagNames []string) (*ToolRegistry, err
 			toolName = dagName // Fallback to filename-based name
 		}
 
-		params := toolParamsFromParamDefs(dag.ParamDefs)
+		params := toolschema.ParamsFromDefs(dag.ParamDefs)
 		if len(params) == 0 {
 			var err error
-			params, err = parseToolParams(dag.DefaultParams)
+			params, err = toolschema.ParseParams(dag.DefaultParams)
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse params for tool DAG %q: %w", dagName, err)
 			}
@@ -121,7 +113,7 @@ func (r *ToolRegistry) ToLLMTools() []llmpkg.Tool {
 			Function: llmpkg.ToolFunction{
 				Name:        info.Name,
 				Description: info.Description,
-				Parameters:  buildJSONSchema(info.Params),
+				Parameters:  toolschema.Build(info.Params),
 			},
 		})
 	}
@@ -153,190 +145,4 @@ func (r *ToolRegistry) GetDAGName(toolName string) (string, bool) {
 // HasTools returns true if any tools are registered.
 func (r *ToolRegistry) HasTools() bool {
 	return r != nil && len(r.tools) > 0
-}
-
-// paramRegex matches "name" or "name=value" patterns in param strings.
-var toolParamRegex = regexp.MustCompile(`([a-zA-Z_][a-zA-Z0-9_]*)(?:=(.*))?`)
-
-// parseToolParams parses a DefaultParams string into toolParam slice.
-// Format: "param1 param2=default2 param3=10"
-func parseToolParams(defaultParams string) ([]toolParam, error) {
-	if defaultParams == "" {
-		return nil, nil
-	}
-
-	// Split by whitespace, but handle quoted values
-	parts := splitParams(defaultParams)
-	params := make([]toolParam, 0, len(parts))
-
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
-		}
-
-		match := toolParamRegex.FindStringSubmatch(part)
-		if match == nil {
-			continue
-		}
-
-		name := match[1]
-		defaultValue := ""
-		if len(match) > 2 {
-			defaultValue = match[2]
-		}
-
-		param := toolParam{
-			Name:     name,
-			Required: defaultValue == "",
-		}
-
-		if defaultValue != "" {
-			param.Default, param.Type = inferTypeFromDefault(defaultValue)
-		} else {
-			param.Type = "string" // Default to string for required params
-		}
-
-		params = append(params, param)
-	}
-
-	return params, nil
-}
-
-func toolParamsFromParamDefs(defs []core.ParamDef) []toolParam {
-	if len(defs) == 0 {
-		return nil
-	}
-
-	params := make([]toolParam, 0, len(defs))
-	for _, def := range defs {
-		if def.Name == "" {
-			continue
-		}
-		param := toolParam{
-			Name:     def.Name,
-			Type:     def.Type,
-			Required: def.Required,
-			Default:  def.Default,
-		}
-		if param.Type == "" {
-			param.Type = "string"
-		}
-		params = append(params, param)
-	}
-	return params
-}
-
-// splitParams splits a param string by whitespace, respecting quotes.
-func splitParams(s string) []string {
-	var parts []string
-	var current strings.Builder
-	inQuote := false
-	quoteChar := rune(0)
-
-	for _, ch := range s {
-		switch {
-		case (ch == '"' || ch == '\'') && !inQuote:
-			inQuote = true
-			quoteChar = ch
-			current.WriteRune(ch)
-		case ch == quoteChar && inQuote:
-			inQuote = false
-			quoteChar = 0
-			current.WriteRune(ch)
-		case ch == ' ' && !inQuote:
-			if current.Len() > 0 {
-				parts = append(parts, current.String())
-				current.Reset()
-			}
-		default:
-			current.WriteRune(ch)
-		}
-	}
-
-	if current.Len() > 0 {
-		parts = append(parts, current.String())
-	}
-
-	return parts
-}
-
-// inferTypeFromDefault infers the JSON Schema type from a default value string.
-func inferTypeFromDefault(value string) (any, string) {
-	// Remove surrounding quotes if present
-	if (strings.HasPrefix(value, `"`) && strings.HasSuffix(value, `"`)) ||
-		(strings.HasPrefix(value, `'`) && strings.HasSuffix(value, `'`)) {
-		return value[1 : len(value)-1], "string"
-	}
-
-	// Try integer
-	if i, err := strconv.ParseInt(value, 10, 64); err == nil {
-		return i, "integer"
-	}
-
-	// Try float (maps to number in JSON Schema)
-	if f, err := strconv.ParseFloat(value, 64); err == nil {
-		return f, "number"
-	}
-
-	// Try boolean
-	if value == "true" {
-		return true, "boolean"
-	}
-	if value == "false" {
-		return false, "boolean"
-	}
-
-	// Try JSON array
-	if strings.HasPrefix(value, "[") && strings.HasSuffix(value, "]") {
-		var arr []any
-		if err := json.Unmarshal([]byte(value), &arr); err == nil {
-			return arr, "array"
-		}
-	}
-
-	// Try JSON object
-	if strings.HasPrefix(value, "{") && strings.HasSuffix(value, "}") {
-		var obj map[string]any
-		if err := json.Unmarshal([]byte(value), &obj); err == nil {
-			return obj, "object"
-		}
-	}
-
-	// Default to string
-	return value, "string"
-}
-
-// buildJSONSchema builds a JSON Schema from tool parameters.
-func buildJSONSchema(params []toolParam) map[string]any {
-	properties := make(map[string]any)
-	var required []string
-
-	for _, param := range params {
-		prop := map[string]any{
-			"type":        param.Type,
-			"description": fmt.Sprintf("%s parameter", param.Name),
-		}
-
-		if param.Default != nil {
-			prop["default"] = param.Default
-		}
-
-		properties[param.Name] = prop
-
-		if param.Required {
-			required = append(required, param.Name)
-		}
-	}
-
-	schema := map[string]any{
-		"type":       "object",
-		"properties": properties,
-	}
-
-	if len(required) > 0 {
-		schema["required"] = required
-	}
-
-	return schema
 }

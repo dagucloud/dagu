@@ -320,24 +320,6 @@ func toWebSearchRequest(cfg *core.WebSearchConfig) *llmpkg.WebSearchRequest {
 	return result
 }
 
-// normalizeEnvVarExpr converts an environment variable reference to ${VAR} format.
-// Handles: VAR → ${VAR}, $VAR → ${VAR}, ${VAR} → ${VAR}, "" → ""
-func normalizeEnvVarExpr(expr string) string {
-	if expr == "" {
-		return ""
-	}
-	if strings.HasPrefix(expr, "${") {
-		// Already in ${VAR} format, use as-is
-		return expr
-	}
-	if after, ok := strings.CutPrefix(expr, "$"); ok {
-		// Convert $VAR to ${VAR}
-		return "${" + after + "}"
-	}
-	// Plain variable name, wrap in ${...}
-	return "${" + expr + "}"
-}
-
 // evalMessages evaluates variable substitution in message content.
 func evalMessages(ctx context.Context, msgs []exec.LLMMessage) ([]exec.LLMMessage, error) {
 	result := make([]exec.LLMMessage, len(msgs))
@@ -500,61 +482,8 @@ func coalesceStr(override, fallback string) string {
 }
 
 // createProviderForModel creates an LLM provider for a specific model.
-func (e *Executor) createProviderForModel(ctx context.Context, model core.ModelEntry, cfg *core.LLMConfig) (llmpkg.Provider, error) {
-	// Parse provider type for this model
-	providerType, err := llmpkg.ParseProviderType(cfg.Provider)
-	if err != nil {
-		return nil, fmt.Errorf("invalid provider: %w", err)
-	}
-
-	// Determine API key env var
-	apiKeyEnvVar := cfg.APIKeyName
-	if apiKeyEnvVar == "" {
-		apiKeyEnvVar = llmpkg.DefaultAPIKeyEnvVar(providerType)
-	}
-
-	// Evaluate API key from environment variable
-	var apiKey string
-	if apiKeyEnvVar != "" {
-		apiKeyExpr := normalizeEnvVarExpr(apiKeyEnvVar)
-		apiKey, err = runtime.ResolveString(ctx, apiKeyExpr, cmnvalue.WorkflowField("api_key"))
-		if err != nil {
-			return nil, fmt.Errorf("failed to evaluate API key: %w", err)
-		}
-	}
-
-	// Evaluate base URL if specified
-	baseURL := cfg.BaseURL
-	if baseURL != "" {
-		baseURL, err = runtime.ResolveString(ctx, baseURL, cmnvalue.WorkflowField("base_url"))
-		if err != nil {
-			return nil, fmt.Errorf("failed to evaluate baseURL: %w", err)
-		}
-	}
-
-	// Use default base URL if not specified
-	if baseURL == "" {
-		baseURL = llmpkg.DefaultBaseURL(providerType)
-	}
-
-	// Build provider config
-	providerCfg := llmpkg.Config{
-		APIKey:          apiKey,
-		BaseURL:         baseURL,
-		Timeout:         5 * time.Minute,
-		MaxRetries:      3,
-		InitialInterval: 1 * time.Second,
-		MaxInterval:     30 * time.Second,
-		Multiplier:      2.0,
-	}
-
-	// Create provider
-	provider, err := llmpkg.NewProvider(providerType, providerCfg)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create LLM provider: %w", err)
-	}
-
-	return provider, nil
+func (e *Executor) createProviderForModel(ctx context.Context, _ core.ModelEntry, cfg *core.LLMConfig) (llmpkg.Provider, error) {
+	return runtime.NewLLMProvider(ctx, cfg)
 }
 
 // runSimpleForModel executes a chat request without tool calling, using the given config.
