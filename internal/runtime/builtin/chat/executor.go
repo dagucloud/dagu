@@ -364,8 +364,9 @@ func evalMessages(ctx context.Context, msgs []exec.LLMMessage) ([]exec.LLMMessag
 }
 
 // resolveModels evaluates variable substitution in the provider and model name of
-// each entry. Per-entry base_url and api_key_name are evaluated later, in
-// createProviderForModel, once shared config has been merged in.
+// each entry. base_url is resolved later, in createProviderForModel, once shared
+// config has been merged in; api_key_name is not value-resolved at all, since it
+// names an environment variable that createProviderForModel reads.
 func resolveModels(ctx context.Context, models []core.ModelEntry) ([]core.ModelEntry, error) {
 	resolved := make([]core.ModelEntry, len(models))
 	for i, model := range models {

@@ -128,7 +128,7 @@ steps:
         - provider: openai
           name: gpt-4o-${params.environment}
           base_url: https://${params.environment}.example/v1
-          api_key_name: PROD_API_KEY
+          api_key_name: OPENAI_API_KEY
       system: system ${params.environment}
       base_url: https://fallback-${params.environment}.example/v1
       tools:
@@ -197,7 +197,6 @@ steps:
 	assert.Equal(t, "https://prod.example/v1", resolved["steps[5].llm.model[0].base_url"])
 	assert.Equal(t, "openai", resolved["steps[5].llm.model[0].provider"])
 	assert.Equal(t, "gpt-4o-prod", resolved["steps[5].llm.model[0].name"])
-	assert.Equal(t, "PROD_API_KEY", resolved["steps[5].llm.model[0].api_key_name"])
 	assert.Equal(t, "hello prod", resolved["steps[5].messages[0].content"])
 
 	assert.Equal(t, "literal ${params.environment}", resolved["steps[6].run"])
@@ -208,6 +207,7 @@ steps:
 	assertSpec003FieldAbsent(t, resolved, "steps[0].id")
 	assertSpec003FieldAbsent(t, resolved, "steps[0].outputs[0].name")
 	assertSpec003FieldAbsent(t, resolved, "steps[0].outputs[0].type")
+	assertSpec003FieldAbsent(t, resolved, "steps[5].llm.model[0].api_key_name")
 	assertSpec003FieldAbsent(t, resolved, "steps[5].llm.tools[0]")
 }
 
