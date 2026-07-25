@@ -398,6 +398,58 @@ func TestResolveModels(t *testing.T) {
 	})
 }
 
+func TestResolveModelsRejectsEmptyValues(t *testing.T) {
+	t.Parallel()
+
+	ctx := chatRuntimeContext(t, []string{"EMPTY=", "PROVIDER=openai", "MODEL=gpt-4o"})
+
+	tests := []struct {
+		name    string
+		llm     core.LLMConfig
+		wantErr string
+	}{
+		{
+			name:    "string form model resolves to empty",
+			llm:     core.LLMConfig{Provider: "${params.PROVIDER}", Model: "${params.EMPTY}"},
+			wantErr: `llm model "${params.EMPTY}" resolved to an empty value`,
+		},
+		{
+			name:    "string form provider resolves to empty",
+			llm:     core.LLMConfig{Provider: "${params.EMPTY}", Model: "${params.MODEL}"},
+			wantErr: `llm provider "${params.EMPTY}" resolved to an empty value`,
+		},
+		{
+			name: "array form model resolves to empty",
+			llm: core.LLMConfig{Models: []core.ModelEntry{
+				{Provider: "openai", Name: "gpt-4o"},
+				{Provider: "${params.PROVIDER}", Name: "${params.EMPTY}"},
+			}},
+			wantErr: `llm model "${params.EMPTY}" resolved to an empty value`,
+		},
+		{
+			name: "array form provider resolves to empty",
+			llm: core.LLMConfig{Models: []core.ModelEntry{
+				{Provider: "${params.EMPTY}", Name: "${params.MODEL}"},
+			}},
+			wantErr: `llm provider "${params.EMPTY}" resolved to an empty value`,
+		},
+		{
+			name:    "inherited config carries no model",
+			llm:     core.LLMConfig{Provider: "openai"},
+			wantErr: "llm model is required",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := resolveModels(ctx, tt.llm.GetModels())
+			require.EqualError(t, err, tt.wantErr)
+		})
+	}
+}
+
 // chatRuntimeContext builds a runtime context whose DAG declares params.
 func chatRuntimeContext(t *testing.T, params []string) context.Context {
 	t.Helper()

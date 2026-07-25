@@ -374,15 +374,30 @@ func resolveModels(ctx context.Context, models []core.ModelEntry) ([]core.ModelE
 		if err != nil {
 			return nil, fmt.Errorf("failed to evaluate provider: %w", err)
 		}
+		if provider == "" {
+			return nil, emptyAfterResolution("provider", model.Provider)
+		}
 		name, err := runtime.ResolveString(ctx, model.Name, cmnvalue.WorkflowField("llm.model"))
 		if err != nil {
 			return nil, fmt.Errorf("failed to evaluate model: %w", err)
+		}
+		if name == "" {
+			return nil, emptyAfterResolution("model", model.Name)
 		}
 		resolved[i] = model
 		resolved[i].Provider = provider
 		resolved[i].Name = name
 	}
 	return resolved, nil
+}
+
+// emptyAfterResolution reports a required LLM field that has no value, naming the
+// reference that produced nothing when the field carried one.
+func emptyAfterResolution(field, raw string) error {
+	if raw == "" {
+		return fmt.Errorf("llm %s is required", field)
+	}
+	return fmt.Errorf("llm %s %q resolved to an empty value", field, raw)
 }
 
 // maskSecretsForProvider masks secret values in messages before sending to LLM provider.
