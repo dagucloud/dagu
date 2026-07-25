@@ -20,7 +20,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// flushThreshold is the number of bytes after which to flush a writer
+// flushThreshold is the number of buffered bytes after which artifact data is flushed.
 const flushThreshold = 65536
 
 // logHandler handles log streaming from workers
@@ -29,11 +29,44 @@ type logHandler struct {
 	ownerID string
 
 	// Active writers: streamKey -> writer
-	writers   map[string]*logWriter
+	writers   map[string]*streamLogWriter
 	writersMu sync.Mutex
 }
 
-// logWriter manages writing to a single log file
+// streamLogWriter writes streamed logs directly to a single log file.
+type streamLogWriter struct {
+	file *os.File
+	path string
+	mu   sync.Mutex
+}
+
+// write appends data to the log file.
+func (w *streamLogWriter) write(data []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	return w.file.Write(data)
+}
+
+// close syncs and closes the file.
+// Errors are logged but not returned since this is typically called during cleanup.
+func (w *streamLogWriter) close(ctx context.Context) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if err := w.file.Sync(); err != nil {
+		logger.Warn(ctx, "Failed to sync log file",
+			slog.String("path", w.path),
+			slog.String("error", err.Error()))
+	}
+	if err := w.file.Close(); err != nil {
+		logger.Warn(ctx, "Failed to close log file",
+			slog.String("path", w.path),
+			slog.String("error", err.Error()))
+	}
+}
+
+// logWriter manages buffered artifact writes to a single file.
 type logWriter struct {
 	file            *os.File
 	writer          *bufio.Writer
@@ -99,7 +132,7 @@ func newLogHandler(logDir string, ownerID ...string) *logHandler {
 	return &logHandler{
 		logDir:  logDir,
 		ownerID: expectedOwner,
-		writers: make(map[string]*logWriter),
+		writers: make(map[string]*streamLogWriter),
 	}
 }
 
@@ -169,7 +202,7 @@ func (h *logHandler) streamKey(chunk *coordinatorv1.LogChunk) string {
 }
 
 // getOrCreateWriter returns an existing writer or creates a new one
-func (h *logHandler) getOrCreateWriter(chunk *coordinatorv1.LogChunk) (*logWriter, error) {
+func (h *logHandler) getOrCreateWriter(chunk *coordinatorv1.LogChunk) (*streamLogWriter, error) {
 	key := h.streamKey(chunk)
 
 	h.writersMu.Lock()
@@ -190,16 +223,14 @@ func (h *logHandler) getOrCreateWriter(chunk *coordinatorv1.LogChunk) (*logWrite
 	}
 
 	// Open or create the file
-	file, err := fileutil.OpenOrCreateFile(logPath)
+	file, err := fileutil.OpenOrCreateFileWithoutSync(logPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open log file: %w", err)
 	}
 
-	// Create buffered writer
-	w := &logWriter{
-		file:   file,
-		writer: bufio.NewWriterSize(file, 64*1024), // 64KB buffer
-		path:   logPath,
+	w := &streamLogWriter{
+		file: file,
+		path: logPath,
 	}
 
 	h.writers[key] = w
@@ -279,5 +310,5 @@ func (h *logHandler) Close(ctx context.Context) {
 	for _, w := range h.writers {
 		w.close(ctx)
 	}
-	h.writers = make(map[string]*logWriter)
+	h.writers = make(map[string]*streamLogWriter)
 }

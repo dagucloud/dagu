@@ -86,7 +86,7 @@ const EXECUTION_STATUS_CONFIG: ExecutionStatusConfig[] = [
     status: Status.Waiting,
     icon: Clock,
     iconClass: 'text-[var(--status-warning)]',
-    message: 'Waiting for approval',
+    message: 'Waiting for manual action',
   },
   {
     status: Status.Rejected,
@@ -391,6 +391,14 @@ function DAGStatusOverview({
             <span className="text-muted-foreground">Trigger </span>
             <span className="font-medium text-foreground">
               {triggerTypeLabels[status.triggerType] ?? status.triggerType}
+            </span>
+          </span>
+        )}
+        {status.triggerActor && (
+          <span>
+            <span className="text-muted-foreground">Actor </span>
+            <span className="font-medium text-foreground">
+              {status.triggerActor}
             </span>
           </span>
         )}

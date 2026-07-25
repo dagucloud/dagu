@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import { SyncStatus } from '@/api/v1/schema';
 import { Button } from '@/components/ui/button';
 import {
@@ -50,7 +53,7 @@ export function DeleteDialog({
     <Dialog open={open} onOpenChange={(o) => !o && onCancel()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="text-base">Delete Item</DialogTitle>
+          <DialogTitle className="text-base">Delete DAG</DialogTitle>
           <DialogDescription className="text-xs">
             This action cannot be undone.
           </DialogDescription>

@@ -1,12 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {
-  components,
-  SyncItemKind,
-  SyncStatus,
-  SyncSummary,
-} from '@/api/v1/schema';
+import { components, SyncStatus, SyncSummary } from '@/api/v1/schema';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -70,9 +65,7 @@ type SyncConfigResponse = components['schemas']['SyncConfigResponse'];
 type SyncItemDiffResponse = components['schemas']['SyncItemDiffResponse'];
 type SyncItem = components['schemas']['SyncItem'];
 type StatusFilter = 'all' | 'modified' | 'untracked' | 'conflict' | 'missing';
-type TypeFilter = 'dag' | 'config' | 'memory' | 'skill' | 'soul';
-type UISyncKind = 'dag' | 'config' | 'memory' | 'skill' | 'soul';
-type SyncRow = { itemId: string; item: SyncItem; kind: UISyncKind };
+type SyncRow = { itemId: string; item: SyncItem };
 
 const statusFilters: StatusFilter[] = [
   'all',
@@ -81,14 +74,6 @@ const statusFilters: StatusFilter[] = [
   'conflict',
   'missing',
 ];
-const typeFilters: TypeFilter[] = [
-  'dag',
-  'config',
-  'memory',
-  'skill',
-  'soul',
-];
-
 function parseStatusFilter(value: string | null): StatusFilter {
   if (
     value === 'all' ||
@@ -100,27 +85,6 @@ function parseStatusFilter(value: string | null): StatusFilter {
     return value;
   }
   return 'all';
-}
-
-function parseTypeFilter(value: string | null): TypeFilter {
-  if (
-    value === 'dag' ||
-    value === 'config' ||
-    value === 'memory' ||
-    value === 'skill' ||
-    value === 'soul'
-  ) {
-    return value;
-  }
-  return 'dag';
-}
-
-function normalizeSyncItemKind(kind: SyncItemKind): UISyncKind {
-  if (kind === SyncItemKind.config) return 'config';
-  if (kind === SyncItemKind.memory) return 'memory';
-  if (kind === SyncItemKind.skill) return 'skill';
-  if (kind === SyncItemKind.soul) return 'soul';
-  return 'dag';
 }
 
 // Subtle, readable status colors
@@ -256,12 +220,10 @@ export default function GitSyncPage() {
   });
 
   const statusFilter = parseStatusFilter(searchParams.get('status'));
-  const typeFilter = parseTypeFilter(searchParams.get('type'));
 
   const setFilters = useCallback(
-    (next: Partial<{ status: StatusFilter; type: TypeFilter }>) => {
+    (next: Partial<{ status: StatusFilter }>) => {
       const nextStatus = next.status ?? statusFilter;
-      const nextType = next.type ?? typeFilter;
       const params = new URLSearchParams(searchParams);
 
       if (nextStatus === 'all') {
@@ -270,15 +232,9 @@ export default function GitSyncPage() {
         params.set('status', nextStatus);
       }
 
-      if (nextType === 'dag') {
-        params.delete('type');
-      } else {
-        params.set('type', nextType);
-      }
-
       setSearchParams(params, { replace: true });
     },
-    [searchParams, setSearchParams, statusFilter, typeFilter]
+    [searchParams, setSearchParams, statusFilter]
   );
 
   const syncRows = useMemo<SyncRow[]>(
@@ -287,7 +243,6 @@ export default function GitSyncPage() {
         ? status.items.map((item) => ({
             itemId: item.itemId,
             item,
-            kind: normalizeSyncItemKind(item.kind),
           }))
         : [],
     [status?.items]
@@ -317,7 +272,7 @@ export default function GitSyncPage() {
     [syncRows]
   );
 
-  // Auto-select publishable items without overriding user manual choices on polling.
+  // Auto-select publishable DAGs without overriding manual choices on polling.
   useEffect(() => {
     const next = publishableKey ? publishableKey.split(',') : [];
     const prev = prevPublishableRef.current
@@ -330,14 +285,14 @@ export default function GitSyncPage() {
         return new Set(next);
       }
 
-      // Keep any currently selected item that still exists (not just publishable).
+      // Keep any currently selected DAG that still exists.
       const updated = new Set<string>();
       for (const id of current) {
         if (allKnownItemIds.has(id)) {
           updated.add(id);
         }
       }
-      // Auto-add newly publishable items.
+      // Auto-add newly publishable DAGs.
       for (const id of next) {
         if (!prevSet.has(id)) {
           updated.add(id);
@@ -359,7 +314,7 @@ export default function GitSyncPage() {
       if (response.error) {
         showError(response.error.message || 'Pull failed');
       } else {
-        showToast(`Pulled ${response.data?.synced?.length || 0} items`);
+        showToast(`Pulled ${response.data?.synced?.length || 0} DAGs`);
         mutateStatus();
       }
     } catch (err) {
@@ -393,7 +348,7 @@ export default function GitSyncPage() {
       } else {
         const count = itemId
           ? itemId
-          : `${response.data?.synced?.length || 0} items`;
+          : `${response.data?.synced?.length || 0} DAGs`;
         showToast(`Published ${count}`);
         setPublishModal({ open: false });
         setDiffModal({ open: false });
@@ -460,8 +415,7 @@ export default function GitSyncPage() {
 
   const filteredRows = useMemo(
     () =>
-      syncRows.filter(({ itemId, item, kind }) => {
-        const typeMatches = kind === typeFilter;
+      syncRows.filter(({ itemId, item }) => {
         const statusMatches =
           statusFilter === 'all' || item.status === statusFilter;
         const normalizedQuery = deferredSearchQuery.trim().toLowerCase();
@@ -469,9 +423,9 @@ export default function GitSyncPage() {
           normalizedQuery === '' ||
           itemId.toLowerCase().includes(normalizedQuery) ||
           item.displayName.toLowerCase().includes(normalizedQuery);
-        return typeMatches && statusMatches && searchMatches;
+        return statusMatches && searchMatches;
       }),
-    [syncRows, typeFilter, statusFilter, deferredSearchQuery]
+    [syncRows, statusFilter, deferredSearchQuery]
   );
 
   const allVisibleItemIDs = useMemo(
@@ -509,20 +463,6 @@ export default function GitSyncPage() {
     });
   }, []);
 
-  const typeCounts = useMemo(() => {
-    const counts: Record<TypeFilter, number> = {
-      dag: 0,
-      config: 0,
-      memory: 0,
-      skill: 0,
-      soul: 0,
-    };
-    for (const { kind } of syncRows) {
-      counts[kind] += 1;
-    }
-    return counts;
-  }, [syncRows]);
-
   const statusCounts = useMemo(() => {
     const counts: Record<StatusFilter, number> = {
       all: 0,
@@ -532,10 +472,7 @@ export default function GitSyncPage() {
       missing: 0,
     };
 
-    for (const { item, kind } of syncRows) {
-      if (kind !== typeFilter) {
-        continue;
-      }
+    for (const { item } of syncRows) {
       counts.all += 1;
       if (item.status === SyncStatus.modified) counts.modified += 1;
       if (item.status === SyncStatus.untracked) counts.untracked += 1;
@@ -544,14 +481,14 @@ export default function GitSyncPage() {
     }
 
     return counts;
-  }, [syncRows, typeFilter]);
+  }, [syncRows]);
 
   const rowByID = useMemo(
     () => new Map(syncRows.map((row) => [row.itemId, row] as const)),
     [syncRows]
   );
 
-  // Deletable items from current selection (synced, modified, conflict, missing — not untracked)
+  // Deletable DAGs from current selection (synced, modified, conflict, missing — not untracked)
   const deletableSelectedIds = useMemo(
     () =>
       Array.from(selectedDags).filter((id) => {
@@ -574,7 +511,7 @@ export default function GitSyncPage() {
     [deletableSelectedIds, rowByID]
   );
 
-  // Publishable items from current selection
+  // Publishable DAGs from current selection
   const publishableSelectedIds = useMemo(
     () =>
       Array.from(selectedDags).filter((id) => {
@@ -595,50 +532,25 @@ export default function GitSyncPage() {
   const canForcePublish = publishItemStatus === SyncStatus.conflict;
 
   const selectedCounts = useMemo(() => {
-    let dag = 0;
-    let config = 0;
-    let memory = 0;
-    let skill = 0;
-    let soul = 0;
+    let total = 0;
     for (const dagID of selectedDags) {
-      const row = rowByID.get(dagID);
-      if (!row) continue;
-      if (row.kind === 'config') config += 1;
-      else if (row.kind === 'memory') memory += 1;
-      else if (row.kind === 'skill') skill += 1;
-      else if (row.kind === 'soul') soul += 1;
-      else dag += 1;
+      if (rowByID.has(dagID)) total += 1;
     }
-    return {
-      dag,
-      config,
-      memory,
-      skill,
-      soul,
-      total: dag + config + memory + skill + soul,
-    };
+    return total;
   }, [selectedDags, rowByID]);
 
   const emptyStateMessage = useMemo(() => {
-    const typeLabelMap: Record<string, string> = {
-      dag: 'DAG',
-      config: 'config',
-      memory: 'memory',
-      skill: 'skill',
-      soul: 'soul',
-    };
-    const typeLabel = typeLabelMap[typeFilter] || typeFilter;
     if (searchQuery.trim()) {
       if (statusFilter === 'all') {
-        return `No ${typeLabel} items matching "${searchQuery.trim()}"`;
+        return `No DAGs matching "${searchQuery.trim()}"`;
       }
-      return `No ${typeLabel} items with ${statusFilter} status matching "${searchQuery.trim()}"`;
+      return `No DAGs with ${statusFilter} status matching "${searchQuery.trim()}"`;
     }
     if (statusFilter === 'all') {
-      return `No ${typeLabel} items`;
+      return 'No DAGs';
     }
-    return `No ${typeLabel} items with ${statusFilter} status`;
-  }, [searchQuery, statusFilter, typeFilter]);
+    return `No DAGs with ${statusFilter} status`;
+  }, [searchQuery, statusFilter]);
 
   const missingCount = status?.counts?.missing || 0;
 
@@ -731,7 +643,7 @@ export default function GitSyncPage() {
               size="sm"
               className="h-8 px-2 text-xs"
               onClick={() => setCleanupModal(true)}
-              title="Remove missing items from sync tracking"
+              title="Remove missing DAGs from sync tracking"
             >
               <EyeOff className="h-4 w-4 mr-1" />
               Cleanup
@@ -743,7 +655,7 @@ export default function GitSyncPage() {
               size="sm"
               className="h-8 px-2 text-xs text-destructive hover:text-destructive"
               onClick={() => setDeleteMissingModal(true)}
-              title="Delete all missing items from remote repository"
+              title="Delete all missing DAGs from remote repository"
             >
               <Trash2 className="h-4 w-4 mr-1" />
               Delete Missing
@@ -775,54 +687,18 @@ export default function GitSyncPage() {
 
       {/* Filter Controls */}
       <div className="flex items-center justify-between gap-2">
-        <div className="inline-flex items-center rounded-md border border-border/60 bg-card p-0.5 text-xs">
-          {typeFilters.map((f) => (
-            <button
-              key={f}
-              type="button"
-              onClick={() => setFilters({ type: f })}
-              className={cn(
-                'px-2.5 py-1 rounded transition-colors',
-                typeFilter === f
-                  ? 'bg-muted text-foreground'
-                  : 'text-muted-foreground hover:text-foreground'
-              )}
-            >
-              {
-                (
-                  {
-                    dag: 'DAGs',
-                    config: 'Config',
-                    memory: 'Memory',
-                    skill: 'Skills',
-                    soul: 'Souls',
-                  } as Record<string, string>
-                )[f]
-              }{' '}
-              ({typeCounts[f]})
-            </button>
-          ))}
-        </div>
         <div className="w-full max-w-sm">
           <Input
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search items..."
+            placeholder="Search DAGs..."
             className="h-8 text-xs"
-            aria-label="Search git sync items"
+            aria-label="Search synced DAGs"
           />
         </div>
-        {selectedCounts.total > 0 && (
+        {selectedCounts > 0 && (
           <span className="text-xs text-muted-foreground">
-            Selected: {selectedCounts.dag} DAGs
-            {selectedCounts.config > 0
-              ? `, ${selectedCounts.config} config`
-              : ''}
-            {selectedCounts.memory > 0
-              ? `, ${selectedCounts.memory} memory`
-              : ''}
-            {selectedCounts.skill > 0 ? `, ${selectedCounts.skill} skills` : ''}
-            {selectedCounts.soul > 0 ? `, ${selectedCounts.soul} souls` : ''}
+            Selected: {selectedCounts} DAG{selectedCounts !== 1 ? 's' : ''}
           </span>
         )}
       </div>
@@ -830,7 +706,7 @@ export default function GitSyncPage() {
       <div
         className="flex items-center gap-1 text-xs border-b border-border/40"
         role="tablist"
-        aria-label="Filter items by status"
+        aria-label="Filter DAGs by status"
       >
         {statusFilters.map((f, index) => (
           <button
@@ -876,7 +752,7 @@ export default function GitSyncPage() {
                   <Checkbox
                     checked={allVisibleSelected}
                     onCheckedChange={handleToggleSelectAll}
-                    aria-label="Select all items"
+                    aria-label="Select all DAGs"
                   />
                 )}
               </TableHead>
@@ -897,7 +773,7 @@ export default function GitSyncPage() {
                 </TableCell>
               </TableRow>
             ) : (
-              filteredRows.map(({ itemId, item, kind }) => (
+              filteredRows.map(({ itemId, item }) => (
                 <TableRow
                   key={itemId}
                   className="h-9 cursor-pointer hover:bg-muted/50"
@@ -918,21 +794,6 @@ export default function GitSyncPage() {
                       >
                         {item.displayName}
                       </span>
-                      {kind === 'memory' && (
-                        <span className="text-[10px] px-1 py-0 rounded bg-purple-500/10 text-purple-600 dark:text-purple-400">
-                          memory
-                        </span>
-                      )}
-                      {kind === 'skill' && (
-                        <span className="text-[10px] px-1 py-0 rounded bg-pink-500/10 text-pink-600 dark:text-pink-400">
-                          skill
-                        </span>
-                      )}
-                      {kind === 'soul' && (
-                        <span className="text-[10px] px-1 py-0 rounded bg-violet-500/10 text-violet-600 dark:text-violet-400">
-                          soul
-                        </span>
-                      )}
                     </div>
                   </TableCell>
                   <TableCell>
@@ -1003,7 +864,6 @@ export default function GitSyncPage() {
                         )}
                       <RowActionMenu
                         itemId={itemId}
-                        kind={kind}
                         status={item.status}
                         pushEnabled={!!config?.pushEnabled}
                         canWrite={canWrite}
@@ -1280,11 +1140,6 @@ export default function GitSyncPage() {
       <MoveDialog
         open={moveModal.open}
         itemId={moveModal.itemId || ''}
-        itemKind={
-          moveModal.itemId
-            ? rowByID.get(moveModal.itemId)?.kind || 'dag'
-            : 'dag'
-        }
         itemStatus={
           moveModal.itemId
             ? rowByID.get(moveModal.itemId)?.item.status || SyncStatus.synced

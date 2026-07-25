@@ -85,15 +85,19 @@ describe('StartDAGModal', () => {
             paramSchema: {
               type: 'object',
               properties: {
+                count: {
+                  type: 'integer',
+                },
                 region: {
                   type: 'string',
                   enum: ['us-east-1', 'us-west-2'],
                 },
-                count: {
-                  type: 'integer',
-                },
               },
             },
+            paramDefs: [
+              { name: 'region', type: 'string', required: false },
+              { name: 'count', type: 'integer', required: false },
+            ],
             defaultParams: 'region="us-east-1" count="3"',
           } as never
         }
@@ -105,6 +109,7 @@ describe('StartDAGModal', () => {
       expect.objectContaining({
         formData: { region: 'us-east-1', count: 3 },
         uiSchema: expect.objectContaining({
+          'ui:order': ['region', 'count', '*'],
           region: expect.objectContaining({ 'ui:widget': 'radio' }),
         }),
         templates: expect.objectContaining({

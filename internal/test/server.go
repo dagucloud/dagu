@@ -28,6 +28,18 @@ type Server struct {
 	Helper
 }
 
+// ReserveServerListener binds a loopback listener and closes it during test cleanup.
+func ReserveServerListener(t *testing.T) (net.Listener, string) {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = listener.Close()
+	})
+	port := listener.Addr().(*net.TCPAddr).Port
+	return listener, fmt.Sprintf("%d", port)
+}
+
 // SetupServer creates and starts a test server instance
 func SetupServer(t *testing.T, opts ...HelperOption) Server {
 	t.Helper()

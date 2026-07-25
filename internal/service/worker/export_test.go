@@ -47,7 +47,12 @@ func ReportTaskLoadFailureStatusForTest(ctx context.Context, task *coordinatorv1
 		workerID:          "worker-test",
 		coordinatorClient: client,
 	}
-	handler.reportTaskLoadFailure(ctx, task, root, parent, exec.HostInfo{}, loadErr, profileName)
+	handler.reportTaskLoadFailure(ctx, remoteRun{
+		task:        task,
+		root:        root,
+		parent:      parent,
+		profileName: profileName,
+	}, loadErr)
 	if client.err != nil {
 		return nil, client.err
 	}
@@ -61,7 +66,13 @@ func ReportTaskLoadFailureStatusForTest(ctx context.Context, task *coordinatorv1
 func ReportTaskInitFailureStatusForTest(ctx context.Context, task *coordinatorv1.Task, root, parent exec.DAGRunRef, initErr error, profileName string) (*exec.DAGRunStatus, error) {
 	pusher := &captureStatusPusherForTest{}
 	handler := &remoteTaskHandler{}
-	handler.reportTaskInitFailure(ctx, task, root, parent, pusher, initErr, profileName)
+	handler.reportTaskInitFailure(ctx, remoteRun{
+		task:        task,
+		root:        root,
+		parent:      parent,
+		profileName: profileName,
+		handlers:    runHandlers{status: pusher},
+	}, initErr)
 	if pusher.status == nil {
 		return nil, errors.New("init failure status was not reported")
 	}

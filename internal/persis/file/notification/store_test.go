@@ -60,6 +60,7 @@ func TestStore_EncryptsNotificationSecretsAtRest(t *testing.T) {
 				Telegram: &notification.TelegramTarget{
 					BotToken:        "telegram-token",
 					ChatID:          "12345",
+					TopicID:         "67890",
 					MessageTemplate: "Telegram {{dag.name}}",
 				},
 			},
@@ -105,6 +106,8 @@ func TestStore_EncryptsNotificationSecretsAtRest(t *testing.T) {
 	assert.Equal(t, "https://hooks.slack.com/services/test", got.Targets[1].Slack.WebhookURL)
 	assert.Equal(t, "Slack {{dag.name}}", got.Targets[1].Slack.MessageTemplate)
 	assert.Equal(t, "telegram-token", got.Targets[2].Telegram.BotToken)
+	assert.Equal(t, "12345", got.Targets[2].Telegram.ChatID)
+	assert.Equal(t, "67890", got.Targets[2].Telegram.TopicID)
 	assert.Equal(t, "Telegram {{dag.name}}", got.Targets[2].Telegram.MessageTemplate)
 }
 

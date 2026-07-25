@@ -166,6 +166,12 @@ var (
 		name:  "step",
 		usage: "Retry only the specified step (optional)",
 	}
+
+	retryPathFlag = commandLineFlag{
+		name:   "retry-path",
+		usage:  "Internal persisted child DAG retry path",
+		hidden: true,
+	}
 )
 
 // Sub DAG run flags

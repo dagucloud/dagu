@@ -160,6 +160,66 @@ func TestDispatchAdmissionStore_BindAdmissionIsIdempotentForSameToken(t *testing
 	assert.Nil(t, claimedAgain)
 }
 
+func TestDispatchAdmissionStore_BindAndClaimConcurrently(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	stores := newDispatchAdmissionTestStores(t)
+	s := stores.first
+	req := dispatchAdmissionRequest("queue-a", "attempt-key-a", "attempt-a", 1)
+	result := reserveAdmission(ctx, s, req)
+	require.NoError(t, result.err)
+	require.True(t, result.decision.Reserved)
+
+	var (
+		wg       sync.WaitGroup
+		bindErr  error
+		claimed  *exec.ClaimedDispatchTask
+		claimErr error
+	)
+	start := make(chan struct{})
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		<-start
+		bindErr = s.BindAdmission(ctx, exec.DispatchAdmissionBindRequest{
+			ReservationToken: result.decision.ReservationToken,
+			Task:             dispatchAdmissionTask("queue-a", req.AttemptKey, req.AttemptID),
+		})
+	}()
+	go func() {
+		defer wg.Done()
+		<-start
+		claimed, claimErr = s.ClaimNext(ctx, exec.DispatchTaskClaim{
+			WorkerID: "worker-a",
+			PollerID: "poller-a",
+		})
+	}()
+	close(start)
+	wg.Wait()
+
+	require.NoError(t, bindErr)
+	require.NoError(t, claimErr)
+	if claimed == nil {
+		var err error
+		claimed, err = s.ClaimNext(ctx, exec.DispatchTaskClaim{
+			WorkerID: "worker-a",
+			PollerID: "poller-a",
+		})
+		require.NoError(t, err)
+	}
+	require.NotNil(t, claimed)
+	assert.Equal(t, req.AttemptKey, claimed.Task.AttemptKey)
+
+	outstanding, err := s.CountOutstandingByQueue(ctx, req.QueueName, time.Minute)
+	require.NoError(t, err)
+	assert.Equal(t, 1, outstanding)
+
+	next, err := s.ClaimNext(ctx, exec.DispatchTaskClaim{WorkerID: "worker-b", PollerID: "poller-b"})
+	require.NoError(t, err)
+	assert.Nil(t, next)
+}
+
 func TestDispatchAdmissionStore_BindAdmissionRequiresMatchingSlotAndToken(t *testing.T) {
 	t.Parallel()
 

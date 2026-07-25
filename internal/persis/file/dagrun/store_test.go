@@ -1205,7 +1205,7 @@ func TestListStatuses_WithAllHistoryBypassesDefaultTodayWindow(t *testing.T) {
 }
 
 func TestListStatusesPage(t *testing.T) {
-	t.Run("IndexPathPreservesArchiveDir", func(t *testing.T) {
+	t.Run("IndexPathPreservesRunSummary", func(t *testing.T) {
 		th := setupTestStore(t)
 
 		base := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
@@ -1223,6 +1223,7 @@ func TestListStatusesPage(t *testing.T) {
 		status.DAGRunID = "artifact-run"
 		status.Status = core.Succeeded
 		status.ArchiveDir = artifactDir
+		status.TriggerActor = "alice"
 		require.NoError(t, attempt.Write(th.Context, status))
 
 		for i := range 9 {
@@ -1246,6 +1247,7 @@ func TestListStatusesPage(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, page.Items, 1)
 		assert.Equal(t, artifactDir, page.Items[0].ArchiveDir)
+		assert.Equal(t, "alice", page.Items[0].TriggerActor)
 	})
 
 	t.Run("ForwardPaginationHasDeterministicOrderWithoutDuplicates", func(t *testing.T) {

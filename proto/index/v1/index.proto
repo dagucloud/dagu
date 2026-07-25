@@ -66,4 +66,5 @@ message DAGRunIndexEntry {
   string proc_group = 26;
   string suspend_flag_name = 27;
   string archive_dir = 28;
+  string trigger_actor = 29;
 }

@@ -329,6 +329,7 @@ func (f *testFixture) startSchedulerWithOptions(
 	)
 	require.NoError(f.t, err)
 	schedulerInst.SetDAGRunLeaseStore(f.coord.DAGRunLeaseStore)
+	schedulerInst.SetDispatchTaskStore(f.coord.DispatchTaskStore)
 	if clock != nil {
 		schedulerInst.SetClock(clock)
 	}
@@ -472,6 +473,7 @@ func (f *testFixture) enqueueCatchup(scheduleTime time.Time) (string, error) {
 		f.coord.Config.Paths.LogDir,
 		f.coord.Config.Paths.ArtifactDir,
 		f.coord.Config.Paths.BaseConfig,
+		"",
 		f.dagWrapper.DAG,
 		runID,
 		core.TriggerTypeCatchUp,
@@ -500,7 +502,7 @@ func (f *testFixture) startWithLabels(labels string) error {
 func (f *testFixture) retry(dagRunID string) error {
 	f.t.Helper()
 	subCmdBuilder := launcher.NewSubCmdBuilder(f.coord.Config)
-	retrySpec := subCmdBuilder.Retry(f.dagWrapper.DAG, dagRunID, "")
+	retrySpec := subCmdBuilder.Retry(f.dagWrapper.DAG, launcher.RetryOptions{DAGRunID: dagRunID})
 	return launcher.Start(f.coord.Context, retrySpec)
 }
 

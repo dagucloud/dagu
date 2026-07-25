@@ -17,30 +17,18 @@ import { Label } from '@/components/ui/label';
 import { ArrowRightLeft, RefreshCw } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
-type ItemKind = 'dag' | 'config' | 'memory' | 'skill' | 'soul';
-
 interface MoveDialogProps {
   open: boolean;
   itemId: string;
-  itemKind: ItemKind;
   itemStatus: SyncStatus;
   isMoving: boolean;
   onConfirm: (newItemId: string, message: string, force: boolean) => void;
   onCancel: () => void;
 }
 
-function deriveKind(id: string): ItemKind {
-  if (id === 'base' || /^workspaces\/[^/]+\/base$/.test(id)) return 'config';
-  if (id.startsWith('memory/')) return 'memory';
-  if (id.startsWith('skills/')) return 'skill';
-  if (id.startsWith('souls/')) return 'soul';
-  return 'dag';
-}
-
 export function MoveDialog({
   open,
   itemId,
-  itemKind,
   itemStatus,
   isMoving,
   onConfirm,
@@ -62,22 +50,11 @@ export function MoveDialog({
 
   const validate = (): boolean => {
     if (!newItemId.trim()) {
-      setValidationError('New item ID is required');
+      setValidationError('New DAG ID is required');
       return false;
     }
     if (newItemId.trim() === itemId) {
-      setValidationError('New item ID must be different from the current one');
-      return false;
-    }
-    if (itemKind === 'config') {
-      setValidationError('Config items cannot be moved');
-      return false;
-    }
-    const newKind = deriveKind(newItemId.trim());
-    if (newKind !== itemKind) {
-      setValidationError(
-        `Cannot move a ${itemKind} item to a ${newKind} path`
-      );
+      setValidationError('New DAG ID must be different from the current one');
       return false;
     }
     setValidationError('');
@@ -94,17 +71,16 @@ export function MoveDialog({
     <Dialog open={open} onOpenChange={(o) => !o && onCancel()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="text-base">Move Item</DialogTitle>
+          <DialogTitle className="text-base">Move DAG</DialogTitle>
           <DialogDescription className="text-xs">
-            Rename{' '}
-            <span className="font-mono font-medium">{itemId}</span> to a new
-            path.
+            Rename <span className="font-mono font-medium">{itemId}</span> to a
+            new path.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <div className="space-y-1.5">
             <Label htmlFor="new-item-id" className="text-xs">
-              New Item ID
+              New DAG ID
             </Label>
             <Input
               id="new-item-id"
@@ -155,11 +131,7 @@ export function MoveDialog({
           <Button variant="outline" size="sm" onClick={onCancel}>
             Cancel
           </Button>
-          <Button
-            size="sm"
-            onClick={handleSubmit}
-            disabled={isMoving}
-          >
+          <Button size="sm" onClick={handleSubmit} disabled={isMoving}>
             {isMoving ? (
               <>
                 <RefreshCw className="h-3.5 w-3.5 mr-1 animate-spin" />

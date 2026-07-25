@@ -21,17 +21,9 @@ import {
 import dayjs from '@/lib/dayjs';
 import ActionButton from '@/components/ui/action-button';
 import StatusChip from '@/components/ui/status-chip';
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import { AlertTriangle, Ban, Play, RefreshCw, Square, X } from 'lucide-react';
 import React from 'react';
-import { Button } from '@/components/ui/button';
-import { components, NodeStatus, Status } from '../../../../api/v1/schema';
+import { components, Status } from '../../../../api/v1/schema';
 import { useCanManageProfiles } from '../../../../contexts/AuthContext';
 import { useConfig } from '../../../../contexts/ConfigContext';
 import { useRemoteNode } from '../../../../contexts/RemoteNodeContext';
@@ -40,7 +32,9 @@ import { useClient, useQuery } from '../../../../hooks/api';
 import { whenEnabled } from '../../../../hooks/queryUtils';
 import ConfirmModal from '@/components/ui/confirm-dialog';
 import LabeledItem from '@/components/ui/labeled-item';
+import { getManualActionState } from '@/features/dag-runs/lib/manualActionState';
 import { getDAGRunTerminateActionDetails } from '../../../dag-runs/components/common/terminateAction';
+import { RejectDAGRunDialog } from '../../../dag-runs/components/common/RejectDAGRunDialog';
 import { DAGContext } from '../../contexts/DAGContext';
 import { StartDAGModal } from '../dag-execution';
 
@@ -97,7 +91,6 @@ function DAGActions({
   const [retryDagRunId, setRetryDagRunId] = React.useState<string>('');
   const [stopAllRunning, setStopAllRunning] = React.useState(false);
   const [isRejectModal, setIsRejectModal] = React.useState(false);
-  const [rejectReason, setRejectReason] = React.useState('');
 
   // Retry-as-new modal state
   const [retryAsNew, setRetryAsNew] = React.useState(false);
@@ -251,11 +244,9 @@ function DAGActions({
     }
   };
 
-  const isWaiting = status?.status === Status.Waiting;
-  const hasNodes =
-    status &&
-    'nodes' in status &&
-    Array.isArray((status as components['schemas']['DAGRunDetails']).nodes);
+  const { isWaiting, waitingApprovalNodes } = getManualActionState(status);
+  const waitingApprovalStepName = waitingApprovalNodes[0]?.step.name;
+  const hasWaitingApprovals = Boolean(waitingApprovalStepName);
   const terminateDetails = getDAGRunTerminateActionDetails(status, {
     copy: {
       stopTooltipText: 'Stop DAG execution',
@@ -268,16 +259,23 @@ function DAGActions({
     },
   });
   const terminateAction = terminateDetails.action;
+  const isSubDAGRun = Boolean(
+    status &&
+      'rootDAGRunId' in status &&
+      status.rootDAGRunId &&
+      status.rootDAGRunId !== status.dagRunId
+  );
 
   // Determine which buttons should be enabled based on current status
   const buttonState = {
     enqueue: true,
     terminate: terminateAction !== 'none',
-    reject: isWaiting && hasNodes,
+    reject: isWaiting && hasWaitingApprovals,
     retry:
       Boolean(status?.dagRunId) &&
       status?.status !== Status.Running &&
-      status?.status !== Status.Queued,
+      status?.status !== Status.Queued &&
+      !isWaiting,
   };
 
   if (!dag || !config.permissions.runDags) {
@@ -314,13 +312,12 @@ function DAGActions({
         </Tooltip>
 
         {/* Stop / Reject Button */}
-        {isWaiting && hasNodes ? (
+        {buttonState.reject ? (
           <Tooltip>
             <TooltipTrigger asChild>
               <ActionButton
                 label={displayMode !== 'compact'}
                 icon={<Ban className="h-4 w-4" />}
-                disabled={!buttonState['reject']}
                 onClick={() => setIsRejectModal(true)}
                 className="cursor-pointer"
               >
@@ -328,7 +325,7 @@ function DAGActions({
               </ActionButton>
             </TooltipTrigger>
             <TooltipContent>
-              <p>Reject all waiting steps</p>
+              <p>Reject DAG run</p>
             </TooltipContent>
           </Tooltip>
         ) : (
@@ -360,164 +357,93 @@ function DAGActions({
         )}
 
         {/* Retry Button */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <ActionButton
-              label={displayMode !== 'compact'}
-              icon={<RefreshCw className="h-4 w-4" />}
-              disabled={!buttonState['retry']}
-              onClick={async () => {
-                // Get the current URL parameters
-                const urlParams = new URLSearchParams(window.location.search);
-                const idxParam = urlParams.get('idx');
-
-                // Default to current status dagRunId
-                let dagRunIdToUse = status?.dagRunId || '';
-
-                // If we're in the history page or modal history tab with a specific run selected
-                const isInHistoryPage =
-                  window.location.pathname.includes('/history');
-                const isInModalHistoryTab =
-                  document.querySelector(
-                    '.dag-modal-content [data-tab="history"]'
-                  ) !== null;
-
-                if (
-                  (isInHistoryPage || isInModalHistoryTab) &&
-                  idxParam !== null
-                ) {
-                  try {
-                    // Get all dag-runs for this DAG to find the correct dagRunId
-                    const { data } = await client.GET(
-                      '/dags/{fileName}/dag-runs',
-                      {
-                        params: {
-                          path: {
-                            fileName: fileName,
-                          },
-                          query: {
-                            remoteNode,
-                          },
-                        },
-                      }
-                    );
-
-                    if (data?.dagRuns && data.dagRuns.length > 0) {
-                      // Convert idx to integer
-                      const selectedIdx = parseInt(idxParam);
-
-                      // Get the dag-run at the selected index (reversed order)
-                      const selectedDagRun = [...data.dagRuns].reverse()[
-                        selectedIdx
-                      ];
-
-                      if (selectedDagRun && selectedDagRun.dagRunId) {
-                        dagRunIdToUse = selectedDagRun.dagRunId;
-                      }
-                    }
-                  } catch (err) {
-                    console.error('Error fetching dag-runs for retry:', err);
-                  }
-                }
-
-                // Set the dagRunId to use for retry
-                setRetryDagRunId(dagRunIdToUse);
-
-                // Show the modal
-                setIsRetryModal(true);
-              }}
-              className="cursor-pointer"
-            >
-              Retry
-            </ActionButton>
-          </TooltipTrigger>
-          <TooltipContent>
-            <p>Retry DAG execution</p>
-          </TooltipContent>
-        </Tooltip>
-        {/* Reject Modal */}
-        <Dialog
-          open={isRejectModal}
-          onOpenChange={(open) => {
-            if (!open) {
-              setIsRejectModal(false);
-              setRejectReason('');
-            }
-          }}
-        >
-          <DialogContent className="sm:max-w-[450px]">
-            <DialogHeader>
-              <DialogTitle>Reject DAG Run</DialogTitle>
-            </DialogHeader>
-            <div className="py-2">
-              <textarea
-                className="w-full px-3 py-2 text-sm border border-border rounded bg-background focus:outline-none focus:border-ring resize-none"
-                placeholder="Reason (optional)..."
-                rows={2}
-                value={rejectReason}
-                onChange={(e) => setRejectReason(e.target.value)}
-              />
-            </div>
-            <DialogFooter>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  setIsRejectModal(false);
-                  setRejectReason('');
-                }}
-              >
-                <X className="h-4 w-4" /> Cancel
-              </Button>
-              <Button
-                variant="default"
-                size="sm"
+        {!isSubDAGRun && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <ActionButton
+                label={displayMode !== 'compact'}
+                icon={<RefreshCw className="h-4 w-4" />}
+                disabled={!buttonState['retry']}
                 onClick={async () => {
-                  setIsRejectModal(false);
-                  const details =
-                    status as components['schemas']['DAGRunDetails'];
-                  const waitingNodes = details.nodes.filter(
-                    (n) => n.status === NodeStatus.Waiting
-                  );
-                  const errors: string[] = [];
-                  for (const node of waitingNodes) {
-                    const { error } = await client.POST(
-                      '/dag-runs/{name}/{dagRunId}/steps/{stepName}/reject',
-                      {
-                        params: {
-                          path: {
-                            name: status!.name,
-                            dagRunId: status!.dagRunId,
-                            stepName: node.step.name,
+                  // Get the current URL parameters
+                  const urlParams = new URLSearchParams(window.location.search);
+                  const idxParam = urlParams.get('idx');
+
+                  // Default to current status dagRunId
+                  let dagRunIdToUse = status?.dagRunId || '';
+
+                  // If we're in the history page or modal history tab with a specific run selected
+                  const isInHistoryPage =
+                    window.location.pathname.includes('/history');
+                  const isInModalHistoryTab =
+                    document.querySelector(
+                      '.dag-modal-content [data-tab="history"]'
+                    ) !== null;
+
+                  if (
+                    (isInHistoryPage || isInModalHistoryTab) &&
+                    idxParam !== null
+                  ) {
+                    try {
+                      // Get all dag-runs for this DAG to find the correct dagRunId
+                      const { data } = await client.GET(
+                        '/dags/{fileName}/dag-runs',
+                        {
+                          params: {
+                            path: {
+                              fileName: fileName,
+                            },
+                            query: {
+                              remoteNode,
+                            },
                           },
-                          query: {
-                            remoteNode,
-                          },
-                        },
-                        body: { reason: rejectReason || undefined },
+                        }
+                      );
+
+                      if (data?.dagRuns && data.dagRuns.length > 0) {
+                        // Convert idx to integer
+                        const selectedIdx = parseInt(idxParam);
+
+                        // Get the dag-run at the selected index (reversed order)
+                        const selectedDagRun = [...data.dagRuns].reverse()[
+                          selectedIdx
+                        ];
+
+                        if (selectedDagRun && selectedDagRun.dagRunId) {
+                          dagRunIdToUse = selectedDagRun.dagRunId;
+                        }
                       }
-                    );
-                    if (error) {
-                      errors.push(node.step.name);
+                    } catch (err) {
+                      console.error('Error fetching dag-runs for retry:', err);
                     }
                   }
-                  if (errors.length > 0) {
-                    showError(
-                      `Failed to reject ${errors.length} step(s)`,
-                      `Failed to reject: ${errors.join(', ')}`
-                    );
-                  } else {
-                    showToast('DAG run rejected');
-                  }
-                  setRejectReason('');
-                  reloadData();
+
+                  // Set the dagRunId to use for retry
+                  setRetryDagRunId(dagRunIdToUse);
+
+                  // Show the modal
+                  setIsRetryModal(true);
                 }}
+                className="cursor-pointer"
               >
-                <Ban className="h-4 w-4" /> Reject
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+                Retry
+              </ActionButton>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>Retry DAG execution</p>
+            </TooltipContent>
+          </Tooltip>
+        )}
+        {status && waitingApprovalStepName && (
+          <RejectDAGRunDialog
+            open={isRejectModal}
+            onOpenChange={setIsRejectModal}
+            dagName={status.name}
+            dagRunId={status.dagRunId}
+            stepName={waitingApprovalStepName}
+            onSettled={reloadData}
+          />
+        )}
 
         <ConfirmModal
           title="Confirmation"

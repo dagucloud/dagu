@@ -224,6 +224,69 @@ steps:
 	assert.Equal(t, exec.ErrDAGNotFound, err)
 }
 
+func TestGetSpecAllowsNestedPathsWithinConfiguredDirectories(t *testing.T) {
+	baseDir := t.TempDir()
+	nestedDir := filepath.Join(baseDir, "team", "jobs")
+	require.NoError(t, os.MkdirAll(nestedDir, 0750))
+
+	const dagContent = "name: nested-dag\nsteps: []\n"
+	require.NoError(t, os.WriteFile(filepath.Join(nestedDir, "nested-dag.yaml"), []byte(dagContent), 0600))
+
+	store := New(baseDir, WithSkipExamples(true))
+	spec, err := store.GetSpec(context.Background(), "team/jobs/nested-dag")
+
+	require.NoError(t, err)
+	assert.Equal(t, dagContent, spec)
+}
+
+func TestGetSpecRejectsPathsOutsideConfiguredDirectories(t *testing.T) {
+	baseDir := t.TempDir()
+	outsideDir := t.TempDir()
+	outsidePath := filepath.Join(outsideDir, "outside.yaml")
+	require.NoError(t, os.WriteFile(outsidePath, []byte("name: outside\nsteps: []\n"), 0600))
+
+	store := New(baseDir, WithSkipExamples(true))
+	relativePath, err := filepath.Rel(baseDir, outsidePath)
+	require.NoError(t, err)
+
+	for _, path := range []string{outsidePath, relativePath} {
+		_, err := store.GetSpec(context.Background(), path)
+		assert.ErrorIs(t, err, exec.ErrDAGNotFound)
+	}
+}
+
+func TestGetSpecRejectsSymlinkOutsideConfiguredDirectories(t *testing.T) {
+	baseDir := t.TempDir()
+	outsideDir := t.TempDir()
+	require.NoError(t, os.WriteFile(
+		filepath.Join(outsideDir, "outside.yaml"),
+		[]byte("name: outside\nsteps: []\n"),
+		0600,
+	))
+	if err := os.Symlink(outsideDir, filepath.Join(baseDir, "linked")); err != nil {
+		t.Skipf("symlink creation is unavailable: %v", err)
+	}
+
+	store := New(baseDir, WithSkipExamples(true))
+	_, err := store.GetSpec(context.Background(), "linked/outside.yaml")
+
+	assert.ErrorIs(t, err, exec.ErrDAGNotFound)
+}
+
+func TestGetSpecAllowsExplicitSearchPaths(t *testing.T) {
+	baseDir := t.TempDir()
+	searchDir := t.TempDir()
+	const dagContent = "name: searched\nsteps: []\n"
+	searchPath := filepath.Join(searchDir, "searched.yaml")
+	require.NoError(t, os.WriteFile(searchPath, []byte(dagContent), 0600))
+
+	store := New(baseDir, WithSearchPaths([]string{searchDir}), WithSkipExamples(true))
+	spec, err := store.GetSpec(context.Background(), searchPath)
+
+	require.NoError(t, err)
+	assert.Equal(t, dagContent, spec)
+}
+
 func TestCreate(t *testing.T) {
 	tmpDir := fileutil.MustTempDir("test-create")
 	defer func() {

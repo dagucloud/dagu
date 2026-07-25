@@ -19,23 +19,17 @@ import {
 } from '@/components/ui/tooltip';
 import dayjs from '@/lib/dayjs';
 import ActionButton from '@/components/ui/action-button';
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import { Ban, RefreshCw, Square, X } from 'lucide-react';
 import React from 'react';
-import { Button } from '@/components/ui/button';
-import { components, NodeStatus, Status } from '../../../../api/v1/schema';
+import { components, Status } from '../../../../api/v1/schema';
 import { useConfig } from '../../../../contexts/ConfigContext';
 import { useRemoteNode } from '../../../../contexts/RemoteNodeContext';
 import { useClient } from '../../../../hooks/api';
 import ConfirmModal from '@/components/ui/confirm-dialog';
 import LabeledItem from '@/components/ui/labeled-item';
 import StatusChip from '@/components/ui/status-chip';
+import { getManualActionState } from '../../lib/manualActionState';
+import { RejectDAGRunDialog } from './RejectDAGRunDialog';
 import { getDAGRunTerminateActionDetails } from './terminateAction';
 
 /**
@@ -76,7 +70,6 @@ function DAGRunActions({
   const [isRetryModal, setIsRetryModal] = React.useState(false);
   const [isDequeueModal, setIsDequeueModal] = React.useState(false);
   const [isRejectModal, setIsRejectModal] = React.useState(false);
-  const [rejectReason, setRejectReason] = React.useState('');
 
   // Retry-as-new modal state
   const [retryAsNew, setRetryAsNew] = React.useState(false);
@@ -155,11 +148,9 @@ function DAGRunActions({
     };
   }, [client, dagRun?.dagRunId, isRetryModal, name, remoteNode]);
 
-  const isWaiting = dagRun?.status === Status.Waiting;
-  const hasNodes =
-    dagRun &&
-    'nodes' in dagRun &&
-    Array.isArray((dagRun as components['schemas']['DAGRunDetails']).nodes);
+  const { isWaiting, waitingApprovalNodes } = getManualActionState(dagRun);
+  const waitingApprovalStepName = waitingApprovalNodes[0]?.step.name;
+  const hasWaitingApprovals = Boolean(waitingApprovalStepName);
   const terminateDetails = getDAGRunTerminateActionDetails(dagRun, {
     isRootLevel,
   });
@@ -168,11 +159,12 @@ function DAGRunActions({
   // Determine which buttons should be enabled based on current status and root level
   const buttonState = {
     terminate: terminateAction !== 'none',
-    reject: isRootLevel && isWaiting && hasNodes,
+    reject: isRootLevel && isWaiting && hasWaitingApprovals,
     retry:
       isRootLevel &&
       dagRun?.status !== Status.Running &&
       dagRun?.status !== Status.Queued &&
+      !isWaiting &&
       dagRun?.dagRunId !== '',
     dequeue: isRootLevel && dagRun?.status === Status.Queued,
   };
@@ -187,7 +179,7 @@ function DAGRunActions({
         className={`flex items-center ${displayMode === 'compact' ? 'space-x-1' : 'space-x-2'}`}
       >
         {/* Stop / Reject Button */}
-        {isWaiting && hasNodes ? (
+        {isWaiting && hasWaitingApprovals ? (
           <Tooltip>
             <TooltipTrigger asChild>
               <span>
@@ -203,7 +195,7 @@ function DAGRunActions({
               </span>
             </TooltipTrigger>
             <TooltipContent>
-              <p>Reject all waiting steps</p>
+              <p>Reject DAG run</p>
             </TooltipContent>
           </Tooltip>
         ) : (
@@ -515,89 +507,16 @@ function DAGRunActions({
           </div>
         </ConfirmModal>
 
-        {/* Reject Modal */}
-        <Dialog
-          open={isRejectModal}
-          onOpenChange={(open) => {
-            if (!open) {
-              setIsRejectModal(false);
-              setRejectReason('');
-            }
-          }}
-        >
-          <DialogContent className="sm:max-w-[450px]">
-            <DialogHeader>
-              <DialogTitle>Reject DAG Run</DialogTitle>
-            </DialogHeader>
-            <div className="py-2">
-              <textarea
-                className="w-full px-3 py-2 text-sm border border-border rounded bg-background focus:outline-none focus:border-ring resize-none"
-                placeholder="Reason (optional)..."
-                rows={2}
-                value={rejectReason}
-                onChange={(e) => setRejectReason(e.target.value)}
-              />
-            </div>
-            <DialogFooter>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  setIsRejectModal(false);
-                  setRejectReason('');
-                }}
-              >
-                <X className="h-4 w-4" /> Cancel
-              </Button>
-              <Button
-                variant="default"
-                size="sm"
-                onClick={async () => {
-                  setIsRejectModal(false);
-                  const details =
-                    dagRun as components['schemas']['DAGRunDetails'];
-                  const waitingNodes = details.nodes.filter(
-                    (n) => n.status === NodeStatus.Waiting
-                  );
-                  const errors: string[] = [];
-                  for (const node of waitingNodes) {
-                    const { error } = await client.POST(
-                      '/dag-runs/{name}/{dagRunId}/steps/{stepName}/reject',
-                      {
-                        params: {
-                          path: {
-                            name,
-                            dagRunId: dagRun!.dagRunId,
-                            stepName: node.step.name,
-                          },
-                          query: {
-                            remoteNode,
-                          },
-                        },
-                        body: { reason: rejectReason || undefined },
-                      }
-                    );
-                    if (error) {
-                      errors.push(node.step.name);
-                    }
-                  }
-                  if (errors.length > 0) {
-                    showError(
-                      `Failed to reject ${errors.length} step(s)`,
-                      `Failed to reject: ${errors.join(', ')}`
-                    );
-                  } else {
-                    showToast('DAG run rejected');
-                  }
-                  setRejectReason('');
-                  reloadData();
-                }}
-              >
-                <Ban className="h-4 w-4" /> Reject
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        {waitingApprovalStepName && (
+          <RejectDAGRunDialog
+            open={isRejectModal}
+            onOpenChange={setIsRejectModal}
+            dagName={name}
+            dagRunId={dagRun.dagRunId}
+            stepName={waitingApprovalStepName}
+            onSettled={reloadData}
+          />
+        )}
 
         {/* Dequeue Confirmation Modal */}
         <ConfirmModal

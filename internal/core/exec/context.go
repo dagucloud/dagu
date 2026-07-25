@@ -24,6 +24,7 @@ import (
 type Context struct {
 	DAGRunID           string
 	RootDAGRun         DAGRunRef
+	RetryPath          RetryPath
 	AttemptID          string
 	TriggerType        core.TriggerType
 	TriggerActor       string
@@ -200,6 +201,7 @@ func (r *RunStatus) MarshalJSON() ([]byte, error) {
 type contextOptions struct {
 	db                 Database
 	rootDAGRun         DAGRunRef
+	retryPath          RetryPath
 	params             []string
 	defaultEnvs        []string
 	envs               []string
@@ -240,6 +242,13 @@ func WithDatabase(db Database) ContextOption {
 func WithRootDAGRun(ref DAGRunRef) ContextOption {
 	return func(o *contextOptions) {
 		o.rootDAGRun = ref
+	}
+}
+
+// WithRetryPath sets the persisted child DAG path for a targeted retry.
+func WithRetryPath(path RetryPath) ContextOption {
+	return func(o *contextOptions) {
+		o.retryPath = path
 	}
 }
 
@@ -458,6 +467,7 @@ func NewContext(
 
 	return context.WithValue(ctx, dagCtxKey{}, Context{
 		RootDAGRun:         options.rootDAGRun,
+		RetryPath:          options.retryPath,
 		AttemptID:          options.attemptID,
 		TriggerType:        options.triggerType,
 		TriggerActor:       options.triggerActor,

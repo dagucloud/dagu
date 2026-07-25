@@ -137,21 +137,6 @@ function renderChart(
 
 beforeEach(() => {
   vi.clearAllMocks();
-  class ResizeObserverMock {
-    observe() {
-      return;
-    }
-    unobserve() {
-      return;
-    }
-    disconnect() {
-      return;
-    }
-  }
-  Object.defineProperty(globalThis, 'ResizeObserver', {
-    configurable: true,
-    value: ResizeObserverMock,
-  });
   useQueryMock.mockReturnValue({
     data: { subRuns: [] },
     mutate: vi.fn(),
@@ -217,8 +202,11 @@ describe('TimelineChart', () => {
   });
 
   it('queries root timeline details with the root DAG name and run ID', () => {
-    const queryCalls: Array<{ path: string; init?: unknown; config?: unknown }> =
-      [];
+    const queryCalls: Array<{
+      path: string;
+      init?: unknown;
+      config?: unknown;
+    }> = [];
     useQueryMock.mockImplementation((path, init, config) => {
       queryCalls.push({ path, init, config });
       return { data: { subRuns: [] }, mutate: vi.fn() } as never;
@@ -382,9 +370,9 @@ describe('TimelineChart', () => {
 
     await userEvent.hover(screen.getByTestId('timeline-bar-step:failing-step'));
 
-    expect(await screen.findAllByText('Error: parent exploded')).not.toHaveLength(
-      0
-    );
+    expect(
+      await screen.findAllByText('Error: parent exploded')
+    ).not.toHaveLength(0);
   });
 
   it('displays child DAG-run queued status as Queued, not Skipped', async () => {

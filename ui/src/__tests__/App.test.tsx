@@ -93,13 +93,14 @@ vi.mock('../pages/overview', () => {
   return { default: () => <h1>Overview</h1> };
 });
 vi.mock('../pages/views', () => ({ default: () => <h1>View</h1> }));
-vi.mock('../pages/profiles', () => ({ default: () => <h1>Profiles</h1> }));
+vi.mock('../pages/profiles', () => ({
+  default: () => <h1>Profiles &amp; Secrets</h1>,
+}));
 vi.mock('../pages/queues', () => ({ default: () => <h1>Queues</h1> }));
 vi.mock('../pages/queues/queue', () => ({
   default: () => <h1>Queue Details</h1>,
 }));
 vi.mock('../pages/search', () => ({ default: () => <h1>Search</h1> }));
-vi.mock('../pages/secrets', () => ({ default: () => <h1>Secrets</h1> }));
 vi.mock('../pages/setup', () => ({ default: () => <h1>Setup</h1> }));
 vi.mock('../pages/system-status', () => ({
   default: () => <h1>System Status</h1>,
@@ -213,6 +214,16 @@ describe('App license routing', () => {
     expect(
       screen.queryByRole('heading', { name: 'Incidents' })
     ).not.toBeInTheDocument();
+  });
+
+  it('redirects the legacy secrets route to the secret refs section', async () => {
+    renderAt('/secrets');
+
+    expect(
+      await screen.findByRole('heading', { name: 'Profiles & Secrets' })
+    ).toBeVisible();
+    expect(window.location.pathname).toBe('/profiles');
+    expect(window.location.hash).toBe('#secret-refs');
   });
 
   it('offers a reload when a lazy route chunk fails to load', async () => {

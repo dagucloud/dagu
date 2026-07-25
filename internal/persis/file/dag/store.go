@@ -108,10 +108,10 @@ func New(baseDir string, opts ...Option) exec.DAGStore {
 	if options.FlagsBaseDir == "" {
 		options.FlagsBaseDir = filepath.Join(baseDir, "flags")
 	}
-	// Build search paths in deterministic order: baseDir first, then ".", then additional paths.
+	// Build search paths in deterministic order: baseDir first, then additional paths.
 	seen := make(map[string]struct{})
 	var searchPaths []string
-	for _, p := range append([]string{baseDir, "."}, options.SearchPaths...) {
+	for _, p := range append([]string{baseDir}, options.SearchPaths...) {
 		if _, ok := seen[p]; ok {
 			continue
 		}
@@ -1037,29 +1037,41 @@ func (store *Storage) generateFilePath(name string) string {
 	return filePath
 }
 
-// locateDAG locates the DAG file by its name or path.
+// locateDAG resolves a DAG beneath the configured DAG directories.
 func (store *Storage) locateDAG(nameOrPath string) (string, error) {
-	if strings.Contains(nameOrPath, string(filepath.Separator)) {
-		foundPath, err := findDAGFile(nameOrPath)
-		if err == nil {
-			return foundPath, nil
-		}
-	}
-
 	for _, dir := range store.searchPaths {
 		absDir, err := filepath.Abs(dir)
 		if err != nil {
 			continue
 		}
-		candidatePath := filepath.Join(absDir, nameOrPath)
-		foundPath, err := findDAGFile(candidatePath)
-		if err == nil {
-			return foundPath, nil
+
+		relativePath := filepath.FromSlash(nameOrPath)
+		if filepath.IsAbs(relativePath) {
+			relativePath, err = filepath.Rel(absDir, relativePath)
+			if err != nil {
+				continue
+			}
+		}
+
+		for _, candidatePath := range dagFileCandidates(relativePath) {
+			resolvedPath, err := fileutil.ResolveExistingPathWithinBase(absDir, candidatePath)
+			if err == nil {
+				return resolvedPath, nil
+			}
 		}
 	}
 
 	// DAG not found
 	return "", fmt.Errorf("DAG %s not found: %w", nameOrPath, os.ErrNotExist)
+}
+
+func dagFileCandidates(name string) []string {
+	switch filepath.Ext(name) {
+	case ".yaml", ".yml":
+		return []string{name}
+	default:
+		return []string{name + ".yaml", name + ".yml"}
+	}
 }
 
 // LabelList lists all unique labels from the DAGs.
@@ -1231,23 +1243,4 @@ func (store *Storage) createExampleDAGs() error {
 
 	logger.Info(context.Background(), "Example DAGs created successfully. Check the web UI to explore them!")
 	return nil
-}
-
-// findDAGFile finds the DAG file with the given file name.
-func findDAGFile(name string) (string, error) {
-	ext := path.Ext(name)
-	switch ext {
-	case ".yaml", ".yml":
-		if fileutil.FileExists(name) {
-			return filepath.Abs(name)
-		}
-	default:
-		// try all supported extensions
-		for _, ext := range fileutil.ValidYAMLExtensions {
-			if fileutil.FileExists(name + ext) {
-				return filepath.Abs(name + ext)
-			}
-		}
-	}
-	return "", fmt.Errorf("file %s not found: %w", name, os.ErrNotExist)
 }

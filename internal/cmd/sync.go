@@ -340,15 +340,15 @@ func runSyncDiscard(ctx *Context, args []string) error {
 	return nil
 }
 
-// syncForget removes state entries for missing/untracked/conflict items.
+// syncForget removes state entries for missing, untracked, or conflicting DAGs.
 func syncForget() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "forget <item-id> [item-id...]",
-		Short: "Forget sync items",
-		Long: `Remove state entries for missing, untracked, or conflict sync items.
+		Use:   "forget <dag-id> [dag-id...]",
+		Short: "Forget DAG sync state",
+		Long: `Remove state entries for missing, untracked, or conflicting DAGs.
 
-This command removes items from the sync state without deleting them from the
-remote repository. Only missing, untracked, and conflict items can be forgotten.
+This command removes DAGs from the sync state without deleting them from the
+remote repository. Only missing, untracked, and conflicting DAGs can be forgotten.
 
 Example:
   dagu sync forget my_dag
@@ -369,7 +369,7 @@ func runSyncForget(ctx *Context, args []string) error {
 
 	skipConfirm, _ := ctx.Command.Flags().GetBool("yes")
 
-	fmt.Printf("Forgetting %d item(s): %s\n", len(args), strings.Join(args, ", "))
+	fmt.Printf("Forgetting %d DAG(s): %s\n", len(args), strings.Join(args, ", "))
 
 	if !skipConfirm && !confirmAction("Are you sure?") {
 		fmt.Println("Aborted")
@@ -381,19 +381,19 @@ func runSyncForget(ctx *Context, args []string) error {
 		return fmt.Errorf("failed to forget: %w", err)
 	}
 
-	fmt.Printf("Forgotten %d item(s)\n", len(forgotten))
+	fmt.Printf("Forgotten %d DAG(s)\n", len(forgotten))
 	return nil
 }
 
-// syncCleanup removes all missing entries from state.
+// syncCleanup removes all missing DAGs from state.
 func syncCleanup() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "cleanup",
-		Short: "Cleanup missing sync items",
+		Short: "Cleanup missing DAGs",
 		Long: `Remove all missing entries from the sync state.
 
-This command removes all items with "missing" status from the sync state.
-These are items that were previously tracked but whose files have been deleted.
+This command removes all DAGs with "missing" status from the sync state.
+These are DAGs that were previously tracked but whose files have been deleted.
 
 Example:
   dagu sync cleanup
@@ -433,18 +433,18 @@ func runSyncCleanup(ctx *Context, _ []string) error {
 		slices.Sort(missing)
 
 		if len(missing) == 0 {
-			fmt.Println("No missing items to clean up")
+			fmt.Println("No missing DAGs to clean up")
 			return nil
 		}
 
-		fmt.Printf("Would clean up %d missing item(s):\n", len(missing))
+		fmt.Printf("Would clean up %d missing DAG(s):\n", len(missing))
 		for _, id := range missing {
 			fmt.Printf("  - %s\n", id)
 		}
 		return nil
 	}
 
-	fmt.Println("This will remove all missing items from sync state.")
+	fmt.Println("This will remove all missing DAGs from sync state.")
 	if !skipConfirm && !confirmAction("Are you sure?") {
 		fmt.Println("Aborted")
 		return nil
@@ -456,9 +456,9 @@ func runSyncCleanup(ctx *Context, _ []string) error {
 	}
 
 	if len(forgotten) == 0 {
-		fmt.Println("No missing items to clean up")
+		fmt.Println("No missing DAGs to clean up")
 	} else {
-		fmt.Printf("Cleaned up %d missing item(s)\n", len(forgotten))
+		fmt.Printf("Cleaned up %d missing DAG(s)\n", len(forgotten))
 		for _, id := range forgotten {
 			fmt.Printf("  - %s\n", id)
 		}
@@ -466,18 +466,18 @@ func runSyncCleanup(ctx *Context, _ []string) error {
 	return nil
 }
 
-// syncDelete deletes items from remote, local disk, and state.
+// syncDelete deletes DAGs from remote, local disk, and state.
 func syncDelete() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "delete <item-id>",
-		Short: "Delete a sync item from remote",
-		Long: `Delete a sync item from the remote repository, local disk, and sync state.
+		Use:   "delete <dag-id>",
+		Short: "Delete a DAG from remote",
+		Long: `Delete a DAG from the remote repository, local disk, and sync state.
 
-This command performs a git rm + commit + push to remove the item from remote.
-Untracked items cannot be deleted (use 'forget' instead).
-Modified items require --force.
+This command performs a git rm + commit + push to remove the DAG from remote.
+Untracked DAGs cannot be deleted (use 'forget' instead).
+Modified DAGs require --force.
 
-Use --all-missing to delete all missing items at once.
+Use --all-missing to delete all missing DAGs at once.
 
 Examples:
   dagu sync delete my_dag -m "Remove old workflow"
@@ -490,7 +490,7 @@ Examples:
 	cmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
 	cmd.Flags().StringP("message", "m", "", "Commit message")
 	cmd.Flags().Bool("force", false, "Force delete even with local modifications")
-	cmd.Flags().Bool("all-missing", false, "Delete all missing items")
+	cmd.Flags().Bool("all-missing", false, "Delete all missing DAGs")
 	cmd.Flags().Bool("dry-run", false, "Show what would be deleted without making changes")
 
 	return NewCommand(cmd, nil, runSyncDelete)
@@ -510,7 +510,7 @@ func runSyncDelete(ctx *Context, args []string) error {
 
 	if allMissing {
 		if len(args) > 0 {
-			return fmt.Errorf("cannot specify both an item ID and --all-missing")
+			return fmt.Errorf("cannot specify both a DAG ID and --all-missing")
 		}
 
 		if dryRun {
@@ -526,17 +526,17 @@ func runSyncDelete(ctx *Context, args []string) error {
 			}
 			slices.Sort(missing)
 			if len(missing) == 0 {
-				fmt.Println("No missing items to delete")
+				fmt.Println("No missing DAGs to delete")
 				return nil
 			}
-			fmt.Printf("Would delete %d missing item(s) from remote:\n", len(missing))
+			fmt.Printf("Would delete %d missing DAG(s) from remote:\n", len(missing))
 			for _, id := range missing {
 				fmt.Printf("  - %s\n", id)
 			}
 			return nil
 		}
 
-		fmt.Println("This will delete all missing items from the remote repository.")
+		fmt.Println("This will delete all missing DAGs from the remote repository.")
 		if !skipConfirm && !confirmAction("Are you sure?") {
 			fmt.Println("Aborted")
 			return nil
@@ -544,12 +544,12 @@ func runSyncDelete(ctx *Context, args []string) error {
 
 		deleted, err := syncSvc.DeleteAllMissing(ctx, message)
 		if err != nil {
-			return fmt.Errorf("failed to delete missing items: %w", err)
+			return fmt.Errorf("failed to delete missing DAGs: %w", err)
 		}
 		if len(deleted) == 0 {
-			fmt.Println("No missing items to delete")
+			fmt.Println("No missing DAGs to delete")
 		} else {
-			fmt.Printf("Deleted %d missing item(s) from remote\n", len(deleted))
+			fmt.Printf("Deleted %d missing DAG(s) from remote\n", len(deleted))
 			for _, id := range deleted {
 				fmt.Printf("  - %s\n", id)
 			}
@@ -558,7 +558,7 @@ func runSyncDelete(ctx *Context, args []string) error {
 	}
 
 	if len(args) == 0 {
-		return fmt.Errorf("provide an item ID or use --all-missing")
+		return fmt.Errorf("provide a DAG ID or use --all-missing")
 	}
 
 	itemID := args[0]
@@ -569,8 +569,8 @@ func runSyncDelete(ctx *Context, args []string) error {
 		return nil
 	}
 
-	fmt.Printf("Deleting item: %s\n", itemID)
-	fmt.Println("WARNING: This will delete the item from the remote repository!")
+	fmt.Printf("Deleting DAG: %s\n", itemID)
+	fmt.Println("WARNING: This will delete the DAG from the remote repository!")
 
 	if !skipConfirm && !confirmAction("Are you sure?") {
 		fmt.Println("Aborted")
@@ -581,18 +581,16 @@ func runSyncDelete(ctx *Context, args []string) error {
 		return fmt.Errorf("failed to delete: %w", err)
 	}
 
-	fmt.Println("Item deleted successfully")
+	fmt.Println("DAG deleted successfully")
 	return nil
 }
 
-// syncMove atomically renames an item across local, remote, and state.
+// syncMove atomically renames a DAG across local, remote, and state.
 func syncMove() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "mv <old-id> <new-id>",
-		Short: "Move/rename a sync item",
-		Long: `Atomically rename a sync item across local filesystem, remote repository, and sync state.
-
-Both source and destination must be of the same kind (DAG, memory, skill, soul).
+		Short: "Move/rename a DAG",
+		Long: `Atomically rename a DAG across local filesystem, remote repository, and sync state.
 
 Supports two modes:
   - Preemptive: source file exists on disk → reads it, writes to new location,
@@ -602,8 +600,7 @@ Supports two modes:
 
 Examples:
   dagu sync mv old_dag new_dag -m "Rename workflow"
-  dagu sync mv old_dag new_dag --force -y
-  dagu sync mv memory/OLD memory/NEW`,
+  dagu sync mv old_dag new_dag --force -y`,
 		Args: cobra.ExactArgs(2),
 	}
 
@@ -635,7 +632,7 @@ func runSyncMove(ctx *Context, args []string) error {
 		}
 		oldState, exists := status.DAGs[oldID]
 		if !exists {
-			return fmt.Errorf("item not found: %s", oldID)
+			return fmt.Errorf("DAG not found: %s", oldID)
 		}
 		mode := "preemptive"
 		if oldState.Status == gitsync.StatusMissing {
@@ -660,7 +657,7 @@ func runSyncMove(ctx *Context, args []string) error {
 		return fmt.Errorf("failed to move: %w", err)
 	}
 
-	fmt.Println("Item moved successfully")
+	fmt.Println("DAG moved successfully")
 	return nil
 }
 
@@ -670,5 +667,5 @@ func newSyncService(ctx *Context) (gitsync.Service, error) {
 	if !syncCfg.Enabled {
 		return nil, fmt.Errorf("git sync is not enabled, set gitSync.enabled=true in your config")
 	}
-	return gitsync.NewService(syncCfg, ctx.Config.Paths.DAGsDir, ctx.Config.Paths.DataDir, ctx.Config.Paths.BaseConfig), nil
+	return gitsync.NewService(syncCfg, ctx.Config.Paths.DAGsDir, ctx.Config.Paths.DataDir), nil
 }

@@ -43,7 +43,6 @@ steps:
 	require.NotEmpty(t, waiting.FinishedAt)
 	require.Equal(t, "worker-1", waiting.WorkerID)
 	require.Equal(t, core.NodeWaiting, waiting.Nodes[0].Status)
-	f.waitForRunReleasedFromWorkers(waiting.DAGRunID, 5*time.Second)
 
 	root := &cobra.Command{Use: "root"}
 	root.AddCommand(cmd.HumanTask())

@@ -171,6 +171,7 @@ type DAGRunStatus struct {
 	Status         core.Status       `json:"status"`
 	Conditions     []DAGRunCondition `json:"conditions,omitempty"`
 	TriggerType    core.TriggerType  `json:"triggerType,omitempty"`
+	TriggerActor   string            `json:"triggerActor,omitempty"`
 	WorkerID       string            `json:"workerId,omitempty"`
 	PID            PID               `json:"pid,omitempty"`
 	PIDStartedAt   int64             `json:"pidStartedAt,omitempty"`

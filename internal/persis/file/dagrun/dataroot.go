@@ -152,7 +152,7 @@ func (dr *DataRoot) FindByDAGRunID(ctx context.Context, dagRunID string) (*DAGRu
 }
 
 func findDAGRunInDay(ctx context.Context, dayPath, dagRunID, artifactDir string) (*DAGRun, error) {
-	entries, err := os.ReadDir(dayPath)
+	entries, err := fileutil.ReadDir(dayPath)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
@@ -589,7 +589,7 @@ SCAN:
 				}
 
 				// Try index-accelerated path for this day.
-				dayEntries, readErr := os.ReadDir(dayPath)
+				dayEntries, readErr := fileutil.ReadDir(dayPath)
 				if readErr != nil {
 					continue
 				}
@@ -738,7 +738,7 @@ YEAR_LOOP:
 //   - A sorted slice of directory names, or nil if the directory doesn't exist
 //   - An error if the directory couldn't be read
 func listDirsSorted(path string, reverse bool, pattern *regexp.Regexp) ([]string, error) {
-	entries, err := os.ReadDir(path)
+	entries, err := fileutil.ReadDir(path)
 	// If the directory does not exist, return nil
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
@@ -845,6 +845,7 @@ func summaryFromIndexEntry(ie dagrunindex.Entry) *DAGRunSummary {
 		QueuedAt:             ie.QueuedAt,
 		ScheduleTime:         ie.ScheduleTime,
 		TriggerType:          ie.TriggerType,
+		TriggerActor:         ie.TriggerActor,
 		CreatedAt:            ie.CreatedAt,
 		AttemptID:            ie.AttemptID,
 		AutoRetryCount:       ie.AutoRetryCount,

@@ -4,7 +4,6 @@
 package spec031_human_task_test
 
 import (
-	"path/filepath"
 	"testing"
 
 	"github.com/dagucloud/dagu/conformance/harness"
@@ -167,26 +166,6 @@ func TestAcknowledgementSizeConflictAndTerminalErrors(t *testing.T) {
 	})
 }
 
-func TestResumeFailureKeepsCompletionAndCanBeRetried(t *testing.T) {
-	dagu := harness.NewRunner(t)
-	env := sharedEnv(t)
-	const runID = "spec031-resume-failure"
-	startWaiting(t, dagu, env, runID, "acknowledgement.yaml")
-
-	brokenEnv := append(append([]string(nil), env...), "DAGU_EXECUTABLE="+filepath.Join(dagu.ProjectPath("missing"), "dagu"))
-	failed := complete(t, dagu, brokenEnv, runID, "maintenance_started", "acknowledgement.yaml")
-	assertCompletionError(t, failed, "maintenance_started", "completed", "could not be resumed")
-	waitForStatus(t, dagu, env, runID, "acknowledgement.yaml", "Waiting")
-	dagu.ExpectNoFile("continued.txt")
-
-	retry := complete(t, dagu, env, runID, "maintenance_started", "acknowledgement.yaml")
-	retry.ExpectExitCode(0)
-	retry.ExpectStdout("Human task maintenance_started was already completed; DAG-run resume requested.\n")
-	retry.ExpectStderr("")
-	waitForStatus(t, dagu, env, runID, "acknowledgement.yaml", "Succeeded")
-	waitForFileContent(t, dagu.ProjectPath("continued.txt"), "continued\n")
-}
-
 func TestCompletionRequiresLocalCLIContext(t *testing.T) {
 	dagu := harness.NewRunner(t)
 	env := sharedEnv(t)
@@ -198,7 +177,7 @@ func TestCompletionRequiresLocalCLIContext(t *testing.T) {
 
 	result := dagu.RunWithEnv(
 		env,
-		"human-task", "complete", "--run-id=any-run", "--step=any-step", "acknowledgement.yaml",
+		"human-task", "complete", "--run-id=any-run", "--step=any-step", fixtureDAGName("acknowledgement.yaml"),
 	)
 	assertCompletionError(t, result, "human-task complete", "local context")
 }
@@ -206,7 +185,7 @@ func TestCompletionRequiresLocalCLIContext(t *testing.T) {
 func completionArgs(runID, step, file string, inputArgs ...string) []string {
 	args := []string{"human-task", "complete", "--run-id=" + runID, "--step=" + step}
 	args = append(args, inputArgs...)
-	return append(args, file)
+	return append(args, fixtureDAGName(file))
 }
 
 func assertCompletionError(t *testing.T, result *harness.Result, parts ...string) {

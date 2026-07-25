@@ -319,6 +319,7 @@ func retryCandidateStatus(status exec.DAGRunStatus) exec.DAGRunStatus {
 		AttemptID:            status.AttemptID,
 		Status:               status.Status,
 		TriggerType:          status.TriggerType,
+		TriggerActor:         status.TriggerActor,
 		CreatedAt:            status.CreatedAt,
 		QueuedAt:             status.QueuedAt,
 		ScheduleTime:         status.ScheduleTime,

@@ -500,35 +500,27 @@ func TestCache_InvalidateNonExistent(t *testing.T) {
 }
 
 func TestCache_MixedExpirationAndCapacity(t *testing.T) {
-	t.Parallel()
-
-	// Cache with capacity of 3 and short TTL
 	cache := NewCache[string]("test", 3, 100*time.Millisecond)
 
 	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "entry.txt")
+	require.NoError(t, os.WriteFile(filePath, []byte("content"), 0o644))
+	fi, err := os.Stat(filePath)
+	require.NoError(t, err)
 
-	// Add 2 entries that will expire
 	for i := range 2 {
-		filePath := filepath.Join(tmpDir, "expire"+string(rune('0'+i))+".txt")
-		require.NoError(t, os.WriteFile(filePath, []byte("content"), 0644))
-		fi, _ := os.Stat(filePath)
-		cache.Store(filePath, "expires", fi)
+		cache.Store(fmt.Sprintf("expire-%d", i), "expires", fi)
 	}
-	assert.Equal(t, 2, cache.Size())
 
-	// Wait for them to expire
-	time.Sleep(200 * time.Millisecond)
+	require.Eventually(t, func() bool {
+		return cache.Size() == 0
+	}, 5*time.Second, 25*time.Millisecond)
 
-	// Add 4 more entries (capacity is 3, but 2 expired so should fit 3)
 	for i := range 4 {
-		filePath := filepath.Join(tmpDir, "valid"+string(rune('0'+i))+".txt")
-		require.NoError(t, os.WriteFile(filePath, []byte("content"), 0644))
-		fi, _ := os.Stat(filePath)
-		cache.Store(filePath, "valid", fi)
+		cache.Store(fmt.Sprintf("valid-%d", i), "valid", fi)
 	}
 
-	// Should be at most capacity (3)
-	assert.LessOrEqual(t, cache.Size(), 3)
+	assert.Equal(t, 3, cache.Size())
 }
 
 func TestCache_LRUEvictionOrder(t *testing.T) {

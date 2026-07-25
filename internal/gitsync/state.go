@@ -38,51 +38,10 @@ const (
 )
 
 const (
-	agentMemoryDir = "memory"
-	agentSkillsDir = "skills"
-	agentSoulsDir  = "souls"
-	baseConfigID   = "base"
+	baseConfigID = "base"
 )
 
-// DAGKind represents the type of tracked item in git sync.
-type DAGKind string
-
-const (
-	// DAGKindDAG indicates a regular DAG definition file.
-	DAGKindDAG DAGKind = "dag"
-
-	// DAGKindMemory indicates an agent memory file under memory/.
-	DAGKindMemory DAGKind = "memory"
-
-	// DAGKindSkill indicates an agent skill file under skills/.
-	DAGKindSkill DAGKind = "skill"
-
-	// DAGKindSoul indicates an agent soul file under souls/.
-	DAGKindSoul DAGKind = "soul"
-
-	// DAGKindConfig indicates a global or workspace base config file.
-	DAGKindConfig DAGKind = "config"
-)
-
-// KindForDAGID returns the DAG kind derived from a DAG ID.
-func KindForDAGID(id string) DAGKind {
-	id = normalizeDAGIDSeparators(id)
-	if isConfigFile(id) {
-		return DAGKindConfig
-	}
-	if strings.HasPrefix(id, agentMemoryDir+"/") {
-		return DAGKindMemory
-	}
-	if strings.HasPrefix(id, agentSkillsDir+"/") {
-		return DAGKindSkill
-	}
-	if strings.HasPrefix(id, agentSoulsDir+"/") {
-		return DAGKindSoul
-	}
-	return DAGKindDAG
-}
-
-func isConfigFile(id string) bool {
+func isBaseConfigID(id string) bool {
 	id = normalizeDAGIDSeparators(id)
 	if id == baseConfigID {
 		return true
@@ -107,21 +66,6 @@ func workspaceBaseConfigNameFromID(id string) (string, bool) {
 
 func normalizeDAGIDSeparators(id string) string {
 	return strings.ReplaceAll(id, "\\", "/")
-}
-
-// isMemoryFile returns true if the file ID belongs to the memory directory.
-func isMemoryFile(id string) bool {
-	return KindForDAGID(id) == DAGKindMemory
-}
-
-// isSkillFile returns true if the file ID belongs to the skills directory.
-func isSkillFile(id string) bool {
-	return KindForDAGID(id) == DAGKindSkill
-}
-
-// isSoulFile returns true if the file ID belongs to the souls directory.
-func isSoulFile(id string) bool {
-	return KindForDAGID(id) == DAGKindSoul
 }
 
 // State represents the overall sync state.
@@ -156,8 +100,8 @@ type DAGState struct {
 	// Status is the current sync status.
 	Status SyncStatus `json:"status"`
 
-	// Kind identifies whether this item is a DAG or memory file.
-	Kind DAGKind `json:"kind,omitempty"`
+	// FileExtension is the YAML extension used by the DAG file.
+	FileExtension string `json:"fileExtension,omitempty"`
 
 	// BaseCommit is the commit hash when the DAG was last synced.
 	BaseCommit string `json:"baseCommit,omitempty"`
@@ -239,9 +183,26 @@ func (m *StateManager) Load() (*State, error) {
 	if state.DAGs == nil {
 		state.DAGs = make(map[string]*DAGState)
 	}
+	pruneLegacyNonDAGState(data, &state)
 
 	m.state = &state
 	return m.state, nil
+}
+
+func pruneLegacyNonDAGState(data []byte, state *State) {
+	var legacy struct {
+		DAGs map[string]struct {
+			Kind string `json:"kind"`
+		} `json:"dags"`
+	}
+	if err := json.Unmarshal(data, &legacy); err != nil {
+		return
+	}
+	for dagID, dagState := range legacy.DAGs {
+		if dagState.Kind != "" && dagState.Kind != "dag" {
+			delete(state.DAGs, dagID)
+		}
+	}
 }
 
 // Save saves the state to disk.

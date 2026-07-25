@@ -70,7 +70,7 @@ func TestDistributedHumanTaskReleasesWorkerAndResumesElsewhere(t *testing.T) {
 		"--input=environment=production",
 	)
 	completed.ExpectExitCode(0)
-	completed.ExpectStdout("Completed human task review; DAG-run resume requested.\n")
+	completed.ExpectStdout("Completed human task review; DAG-run queued for resume.\n")
 	completed.ExpectStderr("")
 
 	waitForDistributedSuccess(t, dagu, env, runID, workerTwo, services)

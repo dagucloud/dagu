@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
+	"github.com/dagucloud/dagu/internal/cmn/collections"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/runtime"
@@ -150,6 +151,61 @@ steps:
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Equal(t, core.Succeeded, result.Status)
+}
+
+func TestLocalRunReusesSucceededChildForExternalStepRetry(t *testing.T) {
+	th := test.Setup(t)
+	rootDAG := th.DAG(t, `name: retry-parent
+steps:
+  - name: child
+    run: echo child
+`)
+	childDAG := th.DAG(t, `name: retry-child
+steps:
+  - name: work
+    run: echo ok
+`)
+
+	const (
+		rootRunID  = "root-run"
+		childRunID = "child-run"
+	)
+	var outputVars collections.SyncMap
+	outputVars.Store("RESULT", "RESULT=ok")
+	childStatus := localRunStatus(childDAG.DAG, childRunID, core.Succeeded, core.NodeSucceeded)
+	childStatus.Nodes[0].OutputVariables = &outputVars
+	originalAttempt := createStoredRunningChildAttempt(
+		t,
+		th,
+		rootDAG.DAG,
+		childDAG.DAG,
+		rootRunID,
+		childRunID,
+		childStatus,
+	)
+
+	rootRef := exec.NewDAGRunRef(rootDAG.Name, rootRunID)
+	runner := subflow.NewLocal(
+		th.DAGRunMgr,
+		th.DAGStore,
+		subflow.WithLocalDAGRunStore(th.DAGRunStore),
+	)
+	result, err := runner.Run(th.Context, executor.SubWorkflowRequest{
+		DAG:               childDAG.DAG,
+		RootDAGRun:        rootRef,
+		ParentDAGRun:      rootRef,
+		RunID:             childRunID,
+		ExternalStepRetry: true,
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, core.Succeeded, result.Status)
+	require.Equal(t, "ok", result.Outputs["RESULT"])
+
+	latestAttempt, err := th.DAGRunStore.FindSubAttempt(th.Context, rootRef, childRunID)
+	require.NoError(t, err)
+	require.Equal(t, originalAttempt.ID(), latestAttempt.ID())
 }
 
 func TestLocalRunRepairsStaleChildBeforeRetry(t *testing.T) {

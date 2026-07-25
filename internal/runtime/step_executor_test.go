@@ -4,10 +4,13 @@
 package runtime_test
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"os"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
@@ -15,6 +18,8 @@ import (
 	runtimeexec "github.com/dagucloud/dagu/internal/runtime/executor"
 	"github.com/stretchr/testify/require"
 )
+
+const periodicFlushExecutorType = "test-step-executor-periodic-flush"
 
 type sideChannelExecutor struct {
 	inputMessages     []exec.LLMMessage
@@ -61,6 +66,136 @@ func (e *sideChannelExecutor) GetToolDefinitions() []exec.ToolDefinition {
 }
 func (e *sideChannelExecutor) GetOutputs() map[string]any {
 	return e.outputs
+}
+
+type periodicFlushExecutor struct {
+	stdout  io.Writer
+	started chan struct{}
+	release <-chan struct{}
+}
+
+func (e *periodicFlushExecutor) SetStdout(out io.Writer) { e.stdout = out }
+func (e *periodicFlushExecutor) SetStderr(io.Writer)     {}
+func (e *periodicFlushExecutor) Kill(os.Signal) error    { return nil }
+func (e *periodicFlushExecutor) Run(ctx context.Context) error {
+	if _, err := io.WriteString(e.stdout, "small remote output\n"); err != nil {
+		return err
+	}
+	close(e.started)
+	select {
+	case <-e.release:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+type flushObservingWriter struct {
+	mu       sync.Mutex
+	buf      bytes.Buffer
+	expected []byte
+	observed chan struct{}
+}
+
+func (w *flushObservingWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.buf.Write(p)
+}
+
+func (w *flushObservingWriter) Flush() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if bytes.Contains(w.buf.Bytes(), w.expected) {
+		select {
+		case w.observed <- struct{}{}:
+		default:
+		}
+	}
+	return nil
+}
+
+func (w *flushObservingWriter) Close() error { return nil }
+
+type flushObservingLogWriterFactory struct {
+	stdout *flushObservingWriter
+}
+
+func (f *flushObservingLogWriterFactory) NewStepWriter(_ context.Context, _ string, streamType int) io.WriteCloser {
+	if streamType == exec.StreamTypeStdout {
+		return f.stdout
+	}
+	return &flushObservingWriter{}
+}
+
+func TestStepExecutorPeriodicallyFlushesRemoteOutputWhileExecutorRuns(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseExecutor := func() {
+		releaseOnce.Do(func() { close(release) })
+	}
+	defer releaseExecutor()
+
+	runtimeexec.RegisterExecutor(periodicFlushExecutorType, func(context.Context, core.Step) (runtimeexec.Executor, error) {
+		return &periodicFlushExecutor{
+			started: started,
+			release: release,
+		}, nil
+	}, nil, core.ExecutorCapabilities{})
+	t.Cleanup(func() { runtimeexec.UnregisterExecutor(periodicFlushExecutorType) })
+
+	writer := &flushObservingWriter{
+		expected: []byte("small remote output"),
+		observed: make(chan struct{}, 1),
+	}
+	factory := &flushObservingLogWriterFactory{stdout: writer}
+	dag := &core.DAG{Name: "periodic-flush-dag"}
+	ctx := runtime.NewContext(
+		context.Background(),
+		dag,
+		"run-1",
+		"dag.log",
+		runtime.WithLogWriterFactory(factory),
+	)
+	node := runtime.NewNode(core.Step{
+		Name: "periodic-flush-step",
+		ExecutorConfig: core.ExecutorConfig{
+			Type: periodicFlushExecutorType,
+		},
+	}, runtime.NodeState{})
+	require.NoError(t, node.Prepare(ctx, t.TempDir(), "run-1"))
+	defer func() { require.NoError(t, node.Teardown()) }()
+
+	executionDone := make(chan error, 1)
+	go func() {
+		executionDone <- runtime.NewStepExecutor().Execute(ctx, node)
+	}()
+
+	select {
+	case <-started:
+	case err := <-executionDone:
+		require.FailNow(t, "executor completed before blocking", "error: %v", err)
+	case <-time.After(10 * time.Second):
+		require.FailNow(t, "executor did not start")
+	}
+
+	select {
+	case <-writer.observed:
+	case err := <-executionDone:
+		require.FailNow(t, "executor completed before periodic output flush", "error: %v", err)
+	case <-time.After(10 * time.Second):
+		require.FailNow(t, "remote output was not flushed while executor was running")
+	}
+
+	select {
+	case err := <-executionDone:
+		require.FailNow(t, "executor completed before release", "error: %v", err)
+	default:
+	}
+
+	releaseExecutor()
+	require.NoError(t, <-executionDone)
 }
 
 func TestStepExecutorCapturesExecutorSideChannels(t *testing.T) {

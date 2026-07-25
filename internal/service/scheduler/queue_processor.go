@@ -405,16 +405,8 @@ func (p *QueueProcessor) ProcessQueueItems(ctx context.Context, queueName string
 			if !dispatcher.dispatchQueuedItem(ctx, queuedItem, queueName, batch, q.incInflight, q.decInflight) {
 				return
 			}
-			data, err := queuedItem.Data()
-			if err != nil {
-				logger.Error(ctx, "Failed to get item data", tag.Error(err))
-				return
-			}
-			if _, err := p.queueStore.DequeueByDAGRunID(ctx, queueName, *data); err != nil {
-				if errors.Is(err, exec.ErrQueueItemNotFound) {
-					return
-				}
-				logger.Error(ctx, "Failed to dequeue item", tag.Error(err))
+			if _, err := p.queueStore.DeleteByItemIDs(ctx, queueName, []string{queuedItem.ID()}); err != nil {
+				logger.Error(ctx, "Failed to delete processed queue item", tag.Error(err))
 			}
 		}(item)
 	}

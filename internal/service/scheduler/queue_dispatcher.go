@@ -846,6 +846,10 @@ func (d *queueDispatcher) dispatchAndWaitForStartupWithConditions(
 				return err
 			}
 			dispatched = true
+			if admissionReservationToken != "" {
+				started = true
+				return nil
+			}
 		}
 
 		var err error
