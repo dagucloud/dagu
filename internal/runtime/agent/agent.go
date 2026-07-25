@@ -1211,8 +1211,8 @@ func errorString(err error) string {
 func (a *Agent) collectOutputs(ctx context.Context) map[string]string {
 	outputs := make(map[string]string)
 
-	// Get nodes from the plan in execution order
-	nodes := a.plan.Nodes()
+	// Steps and lifecycle handlers both publish to the run's outputs.
+	nodes := a.runner.NodesInRunOrder(a.plan)
 
 	for _, node := range nodes {
 		nodeData := node.NodeData()
