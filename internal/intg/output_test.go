@@ -393,6 +393,49 @@ steps:
 	})
 }
 
+// The wait handler runs after the steps that already finished, so its value for
+// a key a step also published is the one that survives.
+func TestOutputsCollection_WaitHandlerOverridesEarlierStep(t *testing.T) {
+	outputsTestParallel(t)
+
+	th := test.Setup(t)
+	dag := th.DAG(t, `
+handler_on:
+  wait:
+    run: echo '{"value":"from-wait-handler"}'
+    stdout:
+      outputs:
+        fields:
+          shared:
+            decode: json
+            select: .value
+
+steps:
+  - name: emit
+    run: echo '{"value":"from-step"}'
+    stdout:
+      outputs:
+        fields:
+          shared:
+            decode: json
+            select: .value
+  - name: wait-step
+    run: "true"
+    depends: [emit]
+    approval: {}
+`)
+	agent := dag.Agent()
+	_ = agent.Run(agent.Context)
+
+	status := agent.Status(agent.Context)
+	require.Equal(t, core.Waiting, status.Status)
+	require.NotNil(t, status.OnWait, "wait handler should have been executed")
+
+	outputs := readOutputsFile(t, th, dag.DAG)
+	require.NotNil(t, outputs)
+	assert.Equal(t, "from-wait-handler", outputs["shared"])
+}
+
 func TestOutputsCollection_SecretsMasked(t *testing.T) {
 	outputsTestParallel(t)
 
