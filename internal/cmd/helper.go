@@ -6,6 +6,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -188,7 +189,9 @@ func extractDAGName(ctx *Context, name string) (string, error) {
 		return name, nil
 	}
 
-	dagStore, err := ctx.dagStore(dagStoreConfig{})
+	dagStore, err := ctx.dagStore(dagStoreConfig{
+		SearchPaths: []string{filepath.Dir(name)},
+	})
 	if err != nil {
 		return "", fmt.Errorf("failed to initialize DAG store: %w", err)
 	}
