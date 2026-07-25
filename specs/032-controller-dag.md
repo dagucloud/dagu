@@ -198,6 +198,18 @@ Restored state is reconciled against the current DAG: progress on a task that
 still exists is preserved, a task that has been removed does not linger, and a
 newly declared task starts open.
 
+## Decision timeline
+
+A controller run records an ordered timeline of its decisions, persisted
+alongside goal progress and restored on resume. Each entry carries the turn it
+belongs to and one of these kinds: `action`, `task_complete`, `task_reopen`,
+`rejected`, `stalled`. An `action` entry additionally carries the resulting
+status, which attempt of that step it was, and the start and finish times.
+
+The timeline exists because a controller has no dependency edges: execution
+order is a property of the run, not of the DAG, and cannot be recovered from the
+step list.
+
 ## Variable scope
 
 A controller DAG has no dependency edges. Every action that has already

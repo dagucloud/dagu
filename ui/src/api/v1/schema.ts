@@ -4620,6 +4620,8 @@ export interface components {
             preconditions?: components["schemas"]["Condition"][];
             /** @description Goal progress of a controller DAG-run. Absent for other DAG types. */
             controllerTasks?: components["schemas"]["ControllerTask"][];
+            /** @description Ordered decision timeline of a controller DAG-run: what the controller ran, in what order, and when each task was satisfied. Absent for other DAG types. */
+            controllerEvents?: components["schemas"]["ControllerEvent"][];
             /** @description Whether this DAG-run still has a usable source file on disk, so reschedule can load the current spec from that file instead of the stored historical YAML snapshot. */
             specFromFile?: boolean;
             /** @description File name of the source DAG definition, derived from the DAG-run's source file path. Only set when the source file still exists on disk. Can be used to navigate to the DAG definition page. */
@@ -4706,6 +4708,28 @@ export interface components {
             completedAt: string;
             /** @description JSON-serialized parameters passed to the DAG */
             params?: string;
+        };
+        /** @description One entry on a controller DAG-run's decision timeline */
+        ControllerEvent: {
+            /** @description Controller turn this event belongs to, starting at 1 */
+            turn: number;
+            /**
+             * @description What the controller did on this turn
+             * @enum {string}
+             */
+            kind: ControllerEventKind;
+            /** @description Step or task the event concerns */
+            name?: string;
+            /** @description Resulting step status, for action events */
+            status?: string;
+            /** @description Which run of this step it was, starting at 1 */
+            attempt?: number;
+            /** @description Controller's justification, or why the call was rejected */
+            reason?: string;
+            /** @description RFC3339 timestamp when the step started */
+            startedAt?: string;
+            /** @description RFC3339 timestamp when the step finished */
+            finishedAt?: string;
         };
         /** @description A goal a controller DAG must satisfy before the run concludes */
         ControllerTask: {
@@ -16852,6 +16876,13 @@ export enum ArtifactPreviewKind {
     text = "text",
     image = "image",
     binary = "binary"
+}
+export enum ControllerEventKind {
+    action = "action",
+    task_complete = "task_complete",
+    task_reopen = "task_reopen",
+    rejected = "rejected",
+    stalled = "stalled"
 }
 export enum StepOutputDeclarationType {
     string = "string",

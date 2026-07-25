@@ -38,7 +38,7 @@ import { updateDAGRunNodeStatus } from '../lib/nodeStatus';
 import { ApprovalTab } from './approval';
 import ArtifactsTab from './artifacts/ArtifactsTab';
 import { ChatHistoryTab } from './chat-history';
-import { TaskChecklistTab } from './controller';
+import { ControllerTimeline, TaskChecklistTab } from './controller';
 import { DAGStatusOverview, NodeStatusTable } from './dag-details';
 import { DAGSpecReadOnly } from './dag-editor';
 import { StepDetailsDrawer } from './step-details';
@@ -408,6 +408,11 @@ function DAGStatus({
   const controllerTasks = displayDAGRun.controllerTasks ?? [];
   const hasControllerTasks = controllerTasks.length > 0;
 
+  // A controller has no dependency edges, so its graph carries no information.
+  // The decision timeline takes that slot instead.
+  const controllerEvents = displayDAGRun.controllerEvents ?? [];
+  const isControllerRun = hasControllerTasks || controllerEvents.length > 0;
+
   const { waitingApprovalNodes, waitingHumanTaskNodes, hasHumanTaskWork } =
     getManualActionState(displayDAGRun);
   const waitingApprovalCount = waitingApprovalNodes.length;
@@ -600,59 +605,66 @@ function DAGStatus({
       {/* Status Tab Content */}
       {activeTab === 'status' && (
         <div className={cn('space-y-6', scrollPaneClassName)}>
-          {/* DAG Graph Visualization */}
-          {displayDAGRun.nodes && displayDAGRun.nodes.length > 0 && (
-            <div className="flex flex-col">
-              <BorderedBox className="pt-4 px-4 pb-0 flex flex-col items-stretch overflow-hidden">
-                <div className="flex justify-end mb-2">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <div
-                        className="flex h-7 w-7 items-center justify-center rounded bg-muted text-muted-foreground cursor-help"
-                        aria-label="Graph interactions"
-                      >
-                        <MousePointerClick className="h-3.5 w-3.5" />
-                      </div>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <div className="space-y-1">
-                        <p>Click: Inspect step details</p>
-                        <p>Double-click: Navigate to sub dagRun</p>
-                        {config.permissions.runDags && (
-                          <p>Right-click: Update node status</p>
-                        )}
-                      </div>
-                    </TooltipContent>
-                  </Tooltip>
-                </div>
-                <div className="w-full min-w-0 max-w-full overflow-x-auto">
-                  <Graph
-                    steps={displayDAGRun.nodes}
-                    type="status"
-                    flowchart={flowchart}
-                    onChangeFlowchart={onChangeFlowchart}
-                    onClickNode={onInspectStepOnGraph}
-                    selectOnClick
-                    onDoubleClickNode={onSelectStepOnGraph}
-                    onRightClickNode={
-                      config.permissions.runDags
-                        ? onRightClickStepOnGraph
-                        : undefined
-                    }
-                    showIcons={displayDAGRun.status > Status.NotStarted}
-                    animate={displayDAGRun.status == Status.Running}
-                    height={graphHeight}
-                  />
-                </div>
-                <div
-                  className="flex justify-center items-center py-2 cursor-row-resize hover:bg-muted/50 transition-colors w-full select-none"
-                  onMouseDown={handleResizeMouseDown}
-                >
-                  <GripHorizontal className="h-4 w-4 text-muted-foreground/50" />
-                </div>
-              </BorderedBox>
-            </div>
+          {/* Controller runs show execution order instead of a graph */}
+          {isControllerRun && controllerEvents.length > 0 && (
+            <ControllerTimeline events={controllerEvents} />
           )}
+
+          {/* DAG Graph Visualization */}
+          {!isControllerRun &&
+            displayDAGRun.nodes &&
+            displayDAGRun.nodes.length > 0 && (
+              <div className="flex flex-col">
+                <BorderedBox className="pt-4 px-4 pb-0 flex flex-col items-stretch overflow-hidden">
+                  <div className="flex justify-end mb-2">
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div
+                          className="flex h-7 w-7 items-center justify-center rounded bg-muted text-muted-foreground cursor-help"
+                          aria-label="Graph interactions"
+                        >
+                          <MousePointerClick className="h-3.5 w-3.5" />
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <div className="space-y-1">
+                          <p>Click: Inspect step details</p>
+                          <p>Double-click: Navigate to sub dagRun</p>
+                          {config.permissions.runDags && (
+                            <p>Right-click: Update node status</p>
+                          )}
+                        </div>
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
+                  <div className="w-full min-w-0 max-w-full overflow-x-auto">
+                    <Graph
+                      steps={displayDAGRun.nodes}
+                      type="status"
+                      flowchart={flowchart}
+                      onChangeFlowchart={onChangeFlowchart}
+                      onClickNode={onInspectStepOnGraph}
+                      selectOnClick
+                      onDoubleClickNode={onSelectStepOnGraph}
+                      onRightClickNode={
+                        config.permissions.runDags
+                          ? onRightClickStepOnGraph
+                          : undefined
+                      }
+                      showIcons={displayDAGRun.status > Status.NotStarted}
+                      animate={displayDAGRun.status == Status.Running}
+                      height={graphHeight}
+                    />
+                  </div>
+                  <div
+                    className="flex justify-center items-center py-2 cursor-row-resize hover:bg-muted/50 transition-colors w-full select-none"
+                    onMouseDown={handleResizeMouseDown}
+                  >
+                    <GripHorizontal className="h-4 w-4 text-muted-foreground/50" />
+                  </div>
+                </BorderedBox>
+              </div>
+            )}
 
           <DAGContext.Consumer>
             {(props) => (

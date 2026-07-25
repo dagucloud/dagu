@@ -11674,6 +11674,11 @@ components:
               description: "Goal progress of a controller DAG-run. Absent for other DAG types."
               items:
                 $ref: "#/components/schemas/ControllerTask"
+            controllerEvents:
+              type: array
+              description: "Ordered decision timeline of a controller DAG-run: what the controller ran, in what order, and when each task was satisfied. Absent for other DAG types."
+              items:
+                $ref: "#/components/schemas/ControllerEvent"
             specFromFile:
               type: boolean
               description: "Whether this DAG-run still has a usable source file on disk, so reschedule can load the current spec from that file instead of the stored historical YAML snapshot."
@@ -11825,6 +11830,39 @@ components:
         params:
           type: string
           description: "JSON-serialized parameters passed to the DAG"
+
+    ControllerEvent:
+      type: object
+      description: "One entry on a controller DAG-run's decision timeline"
+      required:
+        - turn
+        - kind
+      properties:
+        turn:
+          type: integer
+          description: "Controller turn this event belongs to, starting at 1"
+        kind:
+          type: string
+          enum: [action, task_complete, task_reopen, rejected, stalled]
+          description: "What the controller did on this turn"
+        name:
+          type: string
+          description: "Step or task the event concerns"
+        status:
+          type: string
+          description: "Resulting step status, for action events"
+        attempt:
+          type: integer
+          description: "Which run of this step it was, starting at 1"
+        reason:
+          type: string
+          description: "Controller's justification, or why the call was rejected"
+        startedAt:
+          type: string
+          description: "RFC3339 timestamp when the step started"
+        finishedAt:
+          type: string
+          description: "RFC3339 timestamp when the step finished"
 
     ControllerTask:
       type: object

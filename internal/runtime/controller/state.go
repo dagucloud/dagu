@@ -32,10 +32,44 @@ type PendingAction struct {
 	Step       string `json:"step"`
 }
 
+// Event kinds recorded on the controller's decision timeline.
+const (
+	// EventAction is one run of a declared step.
+	EventAction = "action"
+	// EventTaskComplete marks a task satisfied.
+	EventTaskComplete = "task_complete"
+	// EventTaskReopen marks a completed task open again.
+	EventTaskReopen = "task_reopen"
+	// EventRejected is a tool call the controller could not carry out.
+	EventRejected = "rejected"
+	// EventStalled is a turn where the model declined to act.
+	EventStalled = "stalled"
+)
+
+// Event is one entry on the controller's decision timeline. The timeline is what
+// makes a controller run legible: it records what ran, in what order, and when
+// each task was satisfied, none of which a dependency graph can express.
+type Event struct {
+	Turn int    `json:"turn"`
+	Kind string `json:"kind"`
+	// Name is the step or task the event concerns.
+	Name string `json:"name,omitempty"`
+	// Status is the resulting node status, for action events.
+	Status string `json:"status,omitempty"`
+	// Attempt counts this run of the step, starting at 1.
+	Attempt int `json:"attempt,omitempty"`
+	// Reason carries the controller's justification, or why a call was rejected.
+	Reason     string `json:"reason,omitempty"`
+	StartedAt  string `json:"startedAt,omitempty"`
+	FinishedAt string `json:"finishedAt,omitempty"`
+}
+
 // State is the controller's durable memory. It survives suspension because it is
 // persisted on the controller node and carried into the resumed run.
 type State struct {
 	Tasks []TaskState `json:"tasks"`
+	// Events is the decision timeline, in the order decisions were made.
+	Events []Event `json:"events,omitempty"`
 	// StepRuns counts how many times each step has been started.
 	StepRuns map[string]int `json:"stepRuns,omitempty"`
 	// Turns counts LLM decisions made so far.
@@ -86,6 +120,7 @@ func LoadState(raw json.RawMessage, messages []exec.LLMMessage, dag *core.DAG) (
 		}
 	}
 
+	fresh.Events = stored.Events
 	fresh.Turns = stored.Turns
 	fresh.Nudges = stored.Nudges
 	fresh.Pending = stored.Pending
@@ -94,6 +129,26 @@ func LoadState(raw json.RawMessage, messages []exec.LLMMessage, dag *core.DAG) (
 	}
 	fresh.messages = messages
 	return fresh, nil
+}
+
+// RecordEvent appends an entry to the decision timeline, stamping it with the
+// turn it belongs to.
+func (s *State) RecordEvent(e Event) {
+	e.Turn = s.Turns
+	s.Events = append(s.Events, e)
+}
+
+// EventsFromState decodes the decision timeline persisted on a controller node.
+// Unreadable or absent state yields no events rather than an error.
+func EventsFromState(raw json.RawMessage) []Event {
+	if len(raw) == 0 {
+		return nil
+	}
+	var stored State
+	if err := json.Unmarshal(raw, &stored); err != nil {
+		return nil
+	}
+	return stored.Events
 }
 
 // TasksFromState decodes the task progress persisted on a controller node.

@@ -463,3 +463,51 @@ func TestControllerLoop_RejectsReopeningAnOpenTask(t *testing.T) {
 	assert.Contains(t, transcript(ch.node(t, core.ControllerStepName).GetChatMessages()),
 		`task "first" is already open`)
 }
+
+// TestControllerLoop_RecordsADecisionTimeline covers the ordering record the
+// Status view renders: the dependency graph cannot express what a controller
+// did, so the run keeps its own timeline.
+func TestControllerLoop_RecordsADecisionTimeline(t *testing.T) {
+	t.Parallel()
+
+	ch := setupController(t, controllerDAG,
+		turn{tool: "boom"},
+		turn{tool: "alpha"},
+		turn{tool: controller.CompleteTaskTool, args: map[string]any{"task": "first", "reason": "alpha ran"}},
+		turn{tool: "alpha"},
+		turn{tool: controller.CompleteTaskTool, args: map[string]any{"task": "second", "reason": "again"}},
+	)
+
+	require.Equal(t, core.PartiallySucceeded, ch.run(t))
+
+	events := controller.EventsFromState(ch.node(t, core.ControllerStepName).State().ControllerState)
+	require.Len(t, events, 5)
+
+	type row struct {
+		kind    string
+		name    string
+		status  string
+		attempt int
+	}
+	got := make([]row, 0, len(events))
+	for _, e := range events {
+		got = append(got, row{e.Kind, e.Name, e.Status, e.Attempt})
+	}
+
+	assert.Equal(t, []row{
+		{controller.EventAction, "boom", "failed", 1},
+		{controller.EventAction, "alpha", "succeeded", 1},
+		{controller.EventTaskComplete, "first", "", 0},
+		{controller.EventAction, "alpha", "succeeded", 2},
+		{controller.EventTaskComplete, "second", "", 0},
+	}, got)
+
+	// Turn numbers let the timeline line up with the transcript.
+	assert.Equal(t, 1, events[0].Turn)
+	assert.Equal(t, 5, events[4].Turn)
+
+	// An action carries timing so the view can show how long it took.
+	assert.NotEmpty(t, events[0].StartedAt)
+	assert.NotEmpty(t, events[0].FinishedAt)
+	assert.Contains(t, events[0].Reason, "exit")
+}

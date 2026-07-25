@@ -369,6 +369,7 @@ func ToDAGRunDetails(s exec.DAGRunStatus) api.DAGRunDetails {
 
 	return api.DAGRunDetails{
 		ControllerTasks:        controllerTaskProgress(s.Nodes),
+		ControllerEvents:       controllerTimeline(s.Nodes),
 		RootDAGRunName:         s.Root.Name,
 		RootDAGRunId:           s.Root.ID,
 		ParentDAGRunName:       ptrOf(s.Parent.Name),
@@ -615,6 +616,34 @@ func declaredControllerTasks(dag *core.DAG) *[]api.ControllerTask {
 		})
 	}
 	return &tasks
+}
+
+// controllerTimeline reports the ordered decisions a controller DAG-run made.
+func controllerTimeline(nodes []*exec.Node) *[]api.ControllerEvent {
+	for _, node := range nodes {
+		if node == nil || node.Step.Name != core.ControllerStepName {
+			continue
+		}
+		recorded := controller.EventsFromState(node.ControllerState)
+		if len(recorded) == 0 {
+			return nil
+		}
+		events := make([]api.ControllerEvent, 0, len(recorded))
+		for _, e := range recorded {
+			events = append(events, api.ControllerEvent{
+				Turn:       e.Turn,
+				Kind:       api.ControllerEventKind(e.Kind),
+				Name:       ptrOf(e.Name),
+				Status:     ptrOf(e.Status),
+				Attempt:    ptrOf(e.Attempt),
+				Reason:     ptrOf(e.Reason),
+				StartedAt:  ptrOf(e.StartedAt),
+				FinishedAt: ptrOf(e.FinishedAt),
+			})
+		}
+		return &events
+	}
+	return nil
 }
 
 // controllerTaskProgress reports goal progress recorded by the controller step

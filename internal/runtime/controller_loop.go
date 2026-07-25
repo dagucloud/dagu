@@ -12,6 +12,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
+	"github.com/dagucloud/dagu/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/runtime/controller"
@@ -139,6 +140,11 @@ func (r *Runner) applyDecision(
 		}
 		logger.Info(ctx, "Controller completed a task",
 			slog.String("task", decision.Task), slog.String("reason", decision.Reason))
+		state.RecordEvent(controller.Event{
+			Kind:   controller.EventTaskComplete,
+			Name:   decision.Task,
+			Reason: decision.Reason,
+		})
 		state.Append(toolResult(decision.ToolCallID, completionAck(state, decision.Task)))
 		return false, nil
 
@@ -149,12 +155,22 @@ func (r *Runner) applyDecision(
 		}
 		logger.Info(ctx, "Controller reopened a task",
 			slog.String("task", decision.Task), slog.String("reason", decision.Reason))
+		state.RecordEvent(controller.Event{
+			Kind:   controller.EventTaskReopen,
+			Name:   decision.Task,
+			Reason: decision.Reason,
+		})
 		state.Append(toolResult(decision.ToolCallID, fmt.Sprintf(
 			"Task %q reopened. Still open: %s.",
 			decision.Task, strings.Join(state.OpenTaskNames(), ", "))))
 		return false, nil
 
 	case controller.DecideInvalid:
+		state.RecordEvent(controller.Event{
+			Kind:   controller.EventRejected,
+			Name:   decision.ToolName,
+			Reason: decision.Problem,
+		})
 		state.Append(toolResult(decision.ToolCallID, "Error: "+decision.Problem))
 		return false, nil
 
@@ -177,6 +193,10 @@ func (r *Runner) nudge(ctx context.Context, state *controller.State) error {
 		return fmt.Errorf("controller stopped acting with tasks still open: %s", open)
 	}
 	state.Nudges++
+	state.RecordEvent(controller.Event{
+		Kind:   controller.EventStalled,
+		Reason: "no action chosen while " + open + " remained open",
+	})
 	logger.Warn(ctx, "Controller answered without acting", slog.String("openTasks", open))
 	state.Append(exec.LLMMessage{
 		Role: exec.RoleUser,
@@ -230,7 +250,7 @@ func (r *Runner) runControllerAction(
 		}
 		node.SetSubDAG(core.SubDAG{Name: step.SubDAG.Name, Params: params})
 	}
-	state.RecordStepRun(decision.Step)
+	attempt := state.RecordStepRun(decision.Step)
 
 	logger.Info(ctx, "Controller running action", tag.Step(decision.Step))
 	node.SetStatus(core.NodeRunning)
@@ -239,11 +259,13 @@ func (r *Runner) runControllerAction(
 	if err != nil {
 		node.MarkError(err)
 		r.report(progressCh, node)
+		recordActionEvent(state, decision.Step, attempt, node)
 		state.Append(observe(node, decision.ToolCallID))
 		return false, nil
 	}
 
 	r.executeControllerAction(actionCtx, plan, node, progressCh)
+	recordActionEvent(state, decision.Step, attempt, node)
 
 	// The controller has taken responsibility for the outcome: it is reported as
 	// an observation, not as a run-level error. Leaving the error set would make
@@ -261,6 +283,26 @@ func (r *Runner) runControllerAction(
 
 	state.Append(observe(node, decision.ToolCallID))
 	return false, nil
+}
+
+// recordActionEvent puts one run of a step on the decision timeline, carrying
+// the status and timing the UI needs to render it.
+func recordActionEvent(state *controller.State, step string, attempt int, node *Node) {
+	nodeState := node.State()
+	event := controller.Event{
+		Kind:      controller.EventAction,
+		Name:      step,
+		Status:    nodeState.Status.String(),
+		Attempt:   attempt,
+		StartedAt: stringutil.FormatTime(nodeState.StartedAt),
+	}
+	if !nodeState.FinishedAt.IsZero() {
+		event.FinishedAt = stringutil.FormatTime(nodeState.FinishedAt)
+	}
+	if nodeState.Error != nil {
+		event.Reason = nodeState.Error.Error()
+	}
+	state.RecordEvent(event)
 }
 
 // declaredStep returns the step as written in the DAG, falling back to the
