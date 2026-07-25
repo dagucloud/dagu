@@ -37,10 +37,19 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
   AlertCircle,
   ChevronDown,
   ChevronRight,
+  CircleDot,
   Code,
+  EllipsisVertical,
   GitBranch,
   Play,
   RefreshCw,
@@ -631,6 +640,50 @@ function NodeStatusTableRow({
     </Dialog>
   );
 
+  const stepActionsMenu =
+    canRetryStep || canUpdateStepStatus ? (
+      <DropdownMenu>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <Button
+                aria-label="Step actions"
+                size="icon-sm"
+                title="Step actions"
+                variant="ghost"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <EllipsisVertical className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent>Step actions</TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent
+          align="end"
+          onClick={(event) => event.stopPropagation()}
+        >
+          {canRetryStep && (
+            <DropdownMenuItem
+              disabled={retryDisabled}
+              onSelect={() => handleRetryDialogOpenChange(true)}
+              title={retryTitle}
+            >
+              <Play className="mr-2 h-4 w-4 text-success" />
+              Retry step
+            </DropdownMenuItem>
+          )}
+          {canRetryStep && canUpdateStepStatus && <DropdownMenuSeparator />}
+          {canUpdateStepStatus && (
+            <DropdownMenuItem onSelect={() => setShowStatusModal(true)}>
+              <CircleDot className="mr-2 h-4 w-4" />
+              Change status
+            </DropdownMenuItem>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    ) : null;
+
   // Render desktop view (table row)
   if (view === 'desktop') {
     return (
@@ -931,27 +984,7 @@ function NodeStatusTableRow({
           {showStepActions && (
             <TableCell className="text-center">
               <div className="flex items-center justify-center gap-1">
-                {canRetryStep && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span className="inline-flex">
-                        <Button
-                          size="icon-sm"
-                          variant="secondary"
-                          title={retryTitle}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleRetryDialogOpenChange(true);
-                          }}
-                          disabled={retryDisabled}
-                        >
-                          <Play className="h-4 w-4 text-success" />
-                        </Button>
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent>{retryTitle}</TooltipContent>
-                  </Tooltip>
-                )}
+                {stepActionsMenu}
               </div>
               {retryDialog}
             </TableCell>
@@ -1072,9 +1105,12 @@ function NodeStatusTableRow({
             )}
           </h3>
         </div>
-        <NodeStatusChip status={node.status} size="sm">
-          {node.statusLabel}
-        </NodeStatusChip>
+        <div className="flex items-center gap-1">
+          <NodeStatusChip status={node.status} size="sm">
+            {node.statusLabel}
+          </NodeStatusChip>
+          {stepActionsMenu}
+        </div>
       </div>
 
       {/* Description */}
@@ -1288,29 +1324,13 @@ function NodeStatusTableRow({
           </div>
         </div>
       )}
-
-      {showStepActions && (
-        <div className="flex justify-end mt-4 gap-2">
-          {canRetryStep && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="inline-flex">
-                  <button
-                    className="p-2 rounded-full hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed"
-                    title={retryTitle}
-                    onClick={() => handleRetryDialogOpenChange(true)}
-                    disabled={retryDisabled}
-                  >
-                    <Play className="h-6 w-6 text-success" />
-                  </button>
-                </span>
-              </TooltipTrigger>
-              <TooltipContent>{retryTitle}</TooltipContent>
-            </Tooltip>
-          )}
-          {retryDialog}
-        </div>
-      )}
+      {retryDialog}
+      <StatusUpdateModal
+        visible={showStatusModal}
+        dismissModal={() => setShowStatusModal(false)}
+        step={node.step}
+        onSubmit={handleStatusUpdate}
+      />
     </div>
   );
 }

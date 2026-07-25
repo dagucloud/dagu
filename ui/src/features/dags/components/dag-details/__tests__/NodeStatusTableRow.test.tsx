@@ -248,7 +248,9 @@ describe('NodeStatusTableRow', () => {
       </MemoryRouter>
     );
 
-    expect(screen.queryByTitle('Retry from this step')).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Step actions' })
+    ).not.toBeInTheDocument();
   });
 
   it.each([
@@ -295,10 +297,13 @@ describe('NodeStatusTableRow', () => {
       </MemoryRouter>
     );
 
-    expect(screen.queryByTitle('Retry from this step')).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Step actions' })
+    ).not.toBeInTheDocument();
   });
 
   it('keeps the retry dialog open when the API rejects the request', async () => {
+    const user = userEvent.setup();
     postMock.mockResolvedValueOnce({
       error: { message: 'The DAG run cannot be retried' },
     });
@@ -340,7 +345,8 @@ describe('NodeStatusTableRow', () => {
       </MemoryRouter>
     );
 
-    fireEvent.click(screen.getByTitle('Retry from this step'));
+    await user.click(screen.getByRole('button', { name: 'Step actions' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Retry step' }));
     const dialog = screen.getByRole('dialog');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Retry' }));
 
@@ -358,6 +364,7 @@ describe('NodeStatusTableRow', () => {
   });
 
   it('retries a child step through its root DAG run', async () => {
+    const user = userEvent.setup();
     postMock.mockResolvedValueOnce({});
     const node = {
       step: { name: 'build' },
@@ -403,7 +410,8 @@ describe('NodeStatusTableRow', () => {
       </MemoryRouter>
     );
 
-    fireEvent.click(screen.getByTitle('Retry from this step'));
+    await user.click(screen.getByRole('button', { name: 'Step actions' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Retry step' }));
     fireEvent.click(
       within(screen.getByRole('dialog')).getByRole('button', { name: 'Retry' })
     );
@@ -428,7 +436,8 @@ describe('NodeStatusTableRow', () => {
 
   it.each(['desktop', 'mobile'] as const)(
     'disables child step retries while the root run is running in the %s view',
-    (view) => {
+    async (view) => {
+      const user = userEvent.setup();
       const node = {
         step: { name: 'build' },
         status: NodeStatus.Success,
@@ -487,11 +496,64 @@ describe('NodeStatusTableRow', () => {
         </MemoryRouter>
       );
 
+      await user.click(screen.getByRole('button', { name: 'Step actions' }));
       expect(
-        screen.getByTitle(
-          'Retry unavailable while the root DAG run is running.'
-        )
-      ).toBeDisabled();
+        screen.getByRole('menuitem', { name: 'Retry step' })
+      ).toHaveAttribute('data-disabled');
+    }
+  );
+
+  it.each(['desktop', 'mobile'] as const)(
+    'opens status updates from the visible actions menu in the %s view',
+    async (view) => {
+      const user = userEvent.setup();
+      const node = {
+        step: { name: 'build' },
+        status: NodeStatus.Success,
+        statusLabel: NodeStatusLabel.succeeded,
+        stdout: '',
+        stderr: '',
+        startedAt: '',
+        finishedAt: '',
+        retryCount: 0,
+        doneCount: 1,
+      } as components['schemas']['Node'];
+      const row = (
+        <NodeStatusTableRow
+          rownum={1}
+          node={node}
+          name="example.yaml"
+          dagRun={dagRun}
+          view={view}
+        />
+      );
+
+      render(
+        <MemoryRouter>
+          <AppBarContext.Provider value={appBarValue}>
+            <DAGContext.Provider
+              value={{
+                refresh: vi.fn(),
+                name: 'example',
+                fileName: 'example.yaml',
+              }}
+            >
+              {view === 'desktop' ? (
+                <table>
+                  <tbody>{row}</tbody>
+                </table>
+              ) : (
+                row
+              )}
+            </DAGContext.Provider>
+          </AppBarContext.Provider>
+        </MemoryRouter>
+      );
+
+      await user.click(screen.getByRole('button', { name: 'Step actions' }));
+      await user.click(screen.getByRole('menuitem', { name: 'Change status' }));
+
+      expect(screen.getByText('Update Status')).toBeVisible();
     }
   );
 
