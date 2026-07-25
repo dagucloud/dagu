@@ -156,7 +156,11 @@ describe('DAGRunTable', () => {
       </MemoryRouter>
     );
 
-    expect(screen.getByText('Manual — alice')).toBeInTheDocument();
+    expect(screen.getByText('Manual')).toBeInTheDocument();
+    expect(screen.getByText('(alice)')).toHaveClass(
+      'text-muted-foreground',
+      'font-mono'
+    );
   });
 
   it('omits the profile column when no runs use a runtime profile', () => {

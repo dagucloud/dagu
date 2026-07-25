@@ -10,6 +10,7 @@ import {
   NodeStatusLabel,
   Status,
   StatusLabel,
+  TriggerType,
 } from '@/api/v1/schema';
 import dayjs from '@/lib/dayjs';
 import DAGStatusOverview from '../DAGStatusOverview';
@@ -73,6 +74,35 @@ describe('DAGStatusOverview', () => {
     );
 
     expect(screen.queryByText('Scheduled')).not.toBeInTheDocument();
+  });
+
+  it('renders the trigger actor in the metadata row', () => {
+    render(
+      <DAGStatusOverview
+        status={{
+          dagRunId: 'run-actor',
+          name: 'manual-dag',
+          rootDAGRunName: 'manual-dag',
+          rootDAGRunId: 'run-actor',
+          log: '/tmp/test.log',
+          artifactsAvailable: false,
+          nodes: [],
+          autoRetryCount: 0,
+          autoRetryLimit: 0,
+          startedAt: '2026-03-13T10:01:00Z',
+          finishedAt: '2026-03-13T10:02:00Z',
+          status: Status.Success,
+          statusLabel: StatusLabel.succeeded,
+          triggerType: TriggerType.manual,
+          triggerActor: 'alice',
+        }}
+      />
+    );
+
+    expect(screen.getByText('Trigger')).toBeInTheDocument();
+    expect(screen.getByText('Manual')).toBeInTheDocument();
+    expect(screen.getByText('Actor')).toBeInTheDocument();
+    expect(screen.getByText('alice')).toBeInTheDocument();
   });
 
   it('renders a retrying node segment in the overview bar', () => {

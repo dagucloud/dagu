@@ -27,7 +27,9 @@ export function TriggerTypeIndicator({
   return (
     <span className="whitespace-normal break-words font-medium text-foreground/90 text-xs">
       {triggerTypeLabels[type] ?? type}
-      {actor && ` — ${actor}`}
+      {actor && (
+        <span className="text-muted-foreground font-mono"> ({actor})</span>
+      )}
     </span>
   );
 }
