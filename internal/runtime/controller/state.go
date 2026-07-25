@@ -14,13 +14,49 @@ import (
 	"github.com/dagucloud/dagu/internal/core/exec"
 )
 
+// TaskStatus is where a goal stands. A run ends once no task is open.
+type TaskStatus string
+
+const (
+	// TaskOpen is a goal still to be settled. Tasks start here.
+	TaskOpen TaskStatus = "open"
+	// TaskCompleted is a goal that was achieved.
+	TaskCompleted TaskStatus = "completed"
+	// TaskSkipped is a goal the controller judged unnecessary. It does not fail
+	// the run: nothing went wrong, there was simply nothing to do.
+	TaskSkipped TaskStatus = "skipped"
+	// TaskFailed is a goal that cannot be achieved. It fails the run, because
+	// the goal was neither met nor waived.
+	TaskFailed TaskStatus = "failed"
+)
+
+// ValidTaskStatus reports whether a value names a task status the controller may
+// set. "open" is included: settling a task can be undone.
+func ValidTaskStatus(value string) bool {
+	switch TaskStatus(value) {
+	case TaskOpen, TaskCompleted, TaskSkipped, TaskFailed:
+		return true
+	default:
+		return false
+	}
+}
+
 // TaskState tracks one goal across the lifetime of a controller run.
 type TaskState struct {
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	Done        bool   `json:"done,omitempty"`
-	// Reason is the justification the controller gave when completing the task.
+	Name        string     `json:"name"`
+	Description string     `json:"description,omitempty"`
+	Status      TaskStatus `json:"status,omitempty"`
+	// Reason is the justification the controller gave for the current status.
 	Reason string `json:"reason,omitempty"`
+
+	// Done is the status this field used to carry. It is read when restoring a
+	// run that was suspended by an earlier version, and never written.
+	Done bool `json:"done,omitempty"`
+}
+
+// settled reports whether the task no longer needs the controller's attention.
+func (t TaskState) settled() bool {
+	return t.Status != TaskOpen && t.Status != ""
 }
 
 // PendingAction records the tool call whose observation has not been reported
@@ -36,10 +72,9 @@ type PendingAction struct {
 const (
 	// EventAction is one run of a declared step.
 	EventAction = "action"
-	// EventTaskComplete marks a task satisfied.
-	EventTaskComplete = "task_complete"
-	// EventTaskReopen marks a completed task open again.
-	EventTaskReopen = "task_reopen"
+	// EventTaskStatus records the controller settling, or reopening, a task.
+	// The new status is carried on the event.
+	EventTaskStatus = "task_status"
 	// EventRejected is a tool call the controller could not carry out.
 	EventRejected = "rejected"
 	// EventStalled is a turn where the model declined to act.
@@ -94,7 +129,11 @@ type State struct {
 func NewState(dag *core.DAG) *State {
 	tasks := make([]TaskState, 0, len(dag.Tasks))
 	for _, task := range dag.Tasks {
-		tasks = append(tasks, TaskState{Name: task.Name, Description: task.Description})
+		tasks = append(tasks, TaskState{
+			Name:        task.Name,
+			Description: task.Description,
+			Status:      TaskOpen,
+		})
 	}
 	return &State{Tasks: tasks, StepRuns: map[string]int{}}
 }
@@ -119,9 +158,18 @@ func LoadState(raw json.RawMessage, messages []exec.LLMMessage, dag *core.DAG) (
 		progress[task.Name] = task
 	}
 	for i, task := range fresh.Tasks {
-		if prev, ok := progress[task.Name]; ok {
-			fresh.Tasks[i].Done = prev.Done
-			fresh.Tasks[i].Reason = prev.Reason
+		prev, ok := progress[task.Name]
+		if !ok {
+			continue
+		}
+		fresh.Tasks[i].Status = prev.Status
+		fresh.Tasks[i].Reason = prev.Reason
+		if fresh.Tasks[i].Status == "" {
+			// Restored from a run suspended before statuses existed.
+			fresh.Tasks[i].Status = TaskOpen
+			if prev.Done {
+				fresh.Tasks[i].Status = TaskCompleted
+			}
 		}
 	}
 
@@ -189,57 +237,51 @@ func (s *State) Append(msgs ...exec.LLMMessage) {
 	s.messages = append(s.messages, msgs...)
 }
 
-// AllDone reports whether every task has been completed.
-func (s *State) AllDone() bool {
+// Settled reports whether no task is still open, which is what ends the run.
+func (s *State) Settled() bool {
 	for _, task := range s.Tasks {
-		if !task.Done {
+		if !task.settled() {
 			return false
 		}
 	}
 	return true
 }
 
-// OpenTaskNames lists the tasks still awaiting completion.
+// OpenTaskNames lists the tasks the controller has yet to settle.
 func (s *State) OpenTaskNames() []string {
 	var open []string
 	for _, task := range s.Tasks {
-		if !task.Done {
+		if !task.settled() {
 			open = append(open, task.Name)
 		}
 	}
 	return open
 }
 
-// CompleteTask marks a task done. Completing an unknown task, or one that is
-// already done, is reported back to the controller as a tool error rather than
-// failing the run.
-func (s *State) CompleteTask(name, reason string) error {
-	for i, task := range s.Tasks {
-		if task.Name != name {
-			continue
+// FailedTasks lists the tasks the controller declared unachievable, with the
+// reason it gave. A run with any of these has failed.
+func (s *State) FailedTasks() []TaskState {
+	var failed []TaskState
+	for _, task := range s.Tasks {
+		if task.Status == TaskFailed {
+			failed = append(failed, task)
 		}
-		if task.Done {
-			return fmt.Errorf("task %q is already complete", name)
-		}
-		s.Tasks[i].Done = true
-		s.Tasks[i].Reason = reason
-		return nil
 	}
-	return fmt.Errorf("unknown task %q; declared tasks are %v", name, s.taskNames())
+	return failed
 }
 
-// ReopenTask marks a completed task open again, which the controller needs when
-// later work invalidates earlier work. Reopening a task that is not complete is
-// reported back as a tool error rather than failing the run.
-func (s *State) ReopenTask(name, reason string) error {
+// SetTaskStatus records where a task now stands. Naming an unknown task, or
+// restating the status a task already has, is reported back to the controller as
+// a tool error rather than failing the run.
+func (s *State) SetTaskStatus(name string, status TaskStatus, reason string) error {
 	for i, task := range s.Tasks {
 		if task.Name != name {
 			continue
 		}
-		if !task.Done {
-			return fmt.Errorf("task %q is already open", name)
+		if task.Status == status {
+			return fmt.Errorf("task %q is already %s", name, status)
 		}
-		s.Tasks[i].Done = false
+		s.Tasks[i].Status = status
 		s.Tasks[i].Reason = reason
 		return nil
 	}

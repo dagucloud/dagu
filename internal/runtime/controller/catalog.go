@@ -15,15 +15,9 @@ import (
 	"github.com/dagucloud/dagu/internal/llm/toolschema"
 )
 
-const (
-	// CompleteTaskTool is the name of the tool the controller calls to mark a
-	// task complete. It is reserved and cannot name a step.
-	CompleteTaskTool = "complete_task"
-
-	// ReopenTaskTool is the name of the tool the controller calls to mark a
-	// completed task open again. It is reserved and cannot name a step.
-	ReopenTaskTool = "reopen_task"
-)
+// SetTaskStatusTool is the name of the tool the controller calls to record
+// where a task stands. It is reserved and cannot name a step.
+const SetTaskStatusTool = "set_task_status"
 
 // maxToolNameLen is the longest function name accepted across providers.
 const maxToolNameLen = 64
@@ -43,7 +37,7 @@ type Catalog struct {
 func NewCatalog(ctx context.Context, dag *core.DAG) (*Catalog, error) {
 	c := &Catalog{stepByTool: make(map[string]string)}
 
-	used := map[string]struct{}{CompleteTaskTool: {}, ReopenTaskTool: {}}
+	used := map[string]struct{}{SetTaskStatusTool: {}}
 	for _, step := range dag.Steps {
 		if step.Name == core.ControllerStepName {
 			continue
@@ -76,46 +70,35 @@ func NewCatalog(ctx context.Context, dag *core.DAG) (*Catalog, error) {
 	c.tools = append(c.tools, llmpkg.Tool{
 		Type: "function",
 		Function: llmpkg.ToolFunction{
-			Name: ReopenTaskTool,
-			Description: "Mark a previously completed task as open again. Call this when later " +
-				"work invalidates an earlier task, for example when a review rejects an " +
-				"implementation that was already marked complete.",
+			Name: SetTaskStatusTool,
+			Description: "Record where a task from the task list stands. The run ends once no " +
+				"task is open, and succeeds unless a task is failed.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"task": map[string]any{
 						"type":        "string",
-						"description": "Name of the completed task to reopen.",
+						"description": "Name of the task to update.",
+					},
+					"status": map[string]any{
+						"type": "string",
+						"enum": []string{
+							string(TaskCompleted),
+							string(TaskSkipped),
+							string(TaskFailed),
+							string(TaskOpen),
+						},
+						"description": "completed: the task's criteria are now satisfied. " +
+							"skipped: the task turned out to be unnecessary, so there is nothing to do. " +
+							"failed: the task cannot be achieved, which fails the run. " +
+							"open: undo an earlier decision because later work invalidated it.",
 					},
 					"reason": map[string]any{
 						"type":        "string",
-						"description": "Why the task no longer meets its completion criteria.",
+						"description": "Why the task is in this status.",
 					},
 				},
-				"required": []string{"task", "reason"},
-			},
-		},
-	})
-
-	c.tools = append(c.tools, llmpkg.Tool{
-		Type: "function",
-		Function: llmpkg.ToolFunction{
-			Name: CompleteTaskTool,
-			Description: "Mark a task from the task list as complete. Call this as soon as a task's " +
-				"completion criteria are satisfied. The run succeeds once every task is complete.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"task": map[string]any{
-						"type":        "string",
-						"description": "Name of the task to mark complete.",
-					},
-					"reason": map[string]any{
-						"type":        "string",
-						"description": "Why the task's completion criteria are now satisfied.",
-					},
-				},
-				"required": []string{"task", "reason"},
+				"required": []string{"task", "status", "reason"},
 			},
 		},
 	})

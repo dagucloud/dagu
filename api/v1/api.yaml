@@ -11843,14 +11843,14 @@ components:
           description: "Controller turn this event belongs to, starting at 1"
         kind:
           type: string
-          enum: [action, task_complete, task_reopen, rejected, stalled]
+          enum: [action, task_status, rejected, stalled]
           description: "What the controller did on this turn"
         name:
           type: string
           description: "Step or task the event concerns"
         status:
           type: string
-          description: "Resulting step status, for action events"
+          description: "Resulting step status for an action event, or the new task status for a task_status event"
         attempt:
           type: integer
           description: "Which run of this step it was, starting at 1"
@@ -11875,7 +11875,7 @@ components:
       description: "A goal a controller DAG must satisfy before the run concludes"
       required:
         - name
-        - done
+        - status
       properties:
         name:
           type: string
@@ -11883,12 +11883,13 @@ components:
         description:
           type: string
           description: "Completion criteria the controller decides against"
-        done:
-          type: boolean
-          description: "Whether the controller has marked this task complete"
+        status:
+          type: string
+          enum: [open, completed, skipped, failed]
+          description: "Where the task stands. The run ends once none is open, and fails if any is failed. A skipped task does not fail the run."
         reason:
           type: string
-          description: "Justification the controller gave when completing the task"
+          description: "Justification the controller gave for the current status"
 
     Node:
       type: object

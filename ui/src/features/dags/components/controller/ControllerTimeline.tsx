@@ -4,6 +4,7 @@
 import { components } from '@/api/v1/schema';
 import { cn } from '@/lib/utils';
 import {
+  Ban,
   CircleCheck,
   ExternalLink,
   CircleSlash,
@@ -32,9 +33,16 @@ function durationSeconds(event: ControllerEvent): number | null {
 function icon(event: ControllerEvent) {
   const base = 'mt-0.5 h-4 w-4 shrink-0';
   switch (event.kind) {
-    case 'task_complete':
-      return <CircleCheck className={cn(base, 'text-success')} />;
-    case 'task_reopen':
+    case 'task_status':
+      if (event.status === 'completed') {
+        return <CircleCheck className={cn(base, 'text-success')} />;
+      }
+      if (event.status === 'failed') {
+        return <Ban className={cn(base, 'text-error')} />;
+      }
+      if (event.status === 'skipped') {
+        return <CircleSlash className={cn(base, 'text-muted-foreground')} />;
+      }
       return <RotateCcw className={cn(base, 'text-warning')} />;
     case 'rejected':
       return <CircleSlash className={cn(base, 'text-error')} />;
@@ -57,10 +65,8 @@ function icon(event: ControllerEvent) {
 /** Short label describing what happened, shown to the right of the name. */
 function outcome(event: ControllerEvent): string {
   switch (event.kind) {
-    case 'task_complete':
-      return 'task complete';
-    case 'task_reopen':
-      return 'task reopened';
+    case 'task_status':
+      return event.status === 'open' ? 'task reopened' : `task ${event.status}`;
     case 'rejected':
       return 'rejected';
     case 'stalled':

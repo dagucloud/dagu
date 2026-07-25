@@ -188,9 +188,9 @@ func TestControllerLoop_CompletesEveryTask(t *testing.T) {
 
 	ch := setupController(t, controllerDAG,
 		turn{tool: "alpha"},
-		turn{tool: controller.CompleteTaskTool, args: map[string]any{"task": "first", "reason": "alpha ran"}},
+		turn{tool: controller.SetTaskStatusTool, args: map[string]any{"task": "first", "status": "completed", "reason": "alpha ran"}},
 		turn{tool: "beta"},
-		turn{tool: controller.CompleteTaskTool, args: map[string]any{"task": "second", "reason": "beta ran"}},
+		turn{tool: controller.SetTaskStatusTool, args: map[string]any{"task": "second", "status": "completed", "reason": "beta ran"}},
 	)
 
 	require.Equal(t, core.Succeeded, ch.run(t))
@@ -208,9 +208,9 @@ func TestControllerLoop_RecoversFromFailedAction(t *testing.T) {
 	ch := setupController(t, controllerDAG,
 		turn{tool: "boom"},
 		turn{tool: "alpha"},
-		turn{tool: controller.CompleteTaskTool, args: map[string]any{"task": "first", "reason": "alpha ran"}},
+		turn{tool: controller.SetTaskStatusTool, args: map[string]any{"task": "first", "status": "completed", "reason": "alpha ran"}},
 		turn{tool: "beta"},
-		turn{tool: controller.CompleteTaskTool, args: map[string]any{"task": "second", "reason": "beta ran"}},
+		turn{tool: controller.SetTaskStatusTool, args: map[string]any{"task": "second", "status": "completed", "reason": "beta ran"}},
 	)
 
 	// A failing action is reported to the controller instead of aborting the run.
@@ -233,8 +233,8 @@ func TestControllerLoop_RerunsAnActionWithFreshArguments(t *testing.T) {
 	ch := setupController(t, controllerDAG,
 		turn{tool: "alpha"},
 		turn{tool: "alpha"},
-		turn{tool: controller.CompleteTaskTool, args: map[string]any{"task": "first", "reason": "alpha ran twice"}},
-		turn{tool: controller.CompleteTaskTool, args: map[string]any{"task": "second", "reason": "not needed"}},
+		turn{tool: controller.SetTaskStatusTool, args: map[string]any{"task": "first", "status": "completed", "reason": "alpha ran twice"}},
+		turn{tool: controller.SetTaskStatusTool, args: map[string]any{"task": "second", "status": "completed", "reason": "not needed"}},
 	)
 
 	require.Equal(t, core.Succeeded, ch.run(t))
@@ -248,9 +248,9 @@ func TestControllerLoop_RejectsUnknownToolAndTask(t *testing.T) {
 
 	ch := setupController(t, controllerDAG,
 		turn{tool: "does_not_exist"},
-		turn{tool: controller.CompleteTaskTool, args: map[string]any{"task": "nope", "reason": "wrong"}},
-		turn{tool: controller.CompleteTaskTool, args: map[string]any{"task": "first", "reason": "ok"}},
-		turn{tool: controller.CompleteTaskTool, args: map[string]any{"task": "second", "reason": "ok"}},
+		turn{tool: controller.SetTaskStatusTool, args: map[string]any{"task": "nope", "status": "completed", "reason": "wrong"}},
+		turn{tool: controller.SetTaskStatusTool, args: map[string]any{"task": "first", "status": "completed", "reason": "ok"}},
+		turn{tool: controller.SetTaskStatusTool, args: map[string]any{"task": "second", "status": "completed", "reason": "ok"}},
 	)
 
 	require.Equal(t, core.Succeeded, ch.run(t))
@@ -333,7 +333,7 @@ func TestControllerLoop_SuspendsForHumanTaskAndResumes(t *testing.T) {
 	})
 
 	resumed := resumeController(t, ch, restored,
-		turn{tool: controller.CompleteTaskTool, args: map[string]any{"task": "shipped", "reason": "approved"}},
+		turn{tool: controller.SetTaskStatusTool, args: map[string]any{"task": "shipped", "status": "completed", "reason": "approved"}},
 	)
 
 	require.Equal(t, core.Succeeded, resumed.status)
@@ -421,9 +421,9 @@ func TestControllerLoop_StallCounterResetsOnAction(t *testing.T) {
 
 	ch := setupController(t, controllerDAG,
 		turn{content: "thinking"}, // stall, gets the reminder
-		turn{tool: controller.CompleteTaskTool, args: map[string]any{"task": "first", "reason": "ok"}},
+		turn{tool: controller.SetTaskStatusTool, args: map[string]any{"task": "first", "status": "completed", "reason": "ok"}},
 		turn{content: "thinking again"}, // stall again, must get a fresh reminder
-		turn{tool: controller.CompleteTaskTool, args: map[string]any{"task": "second", "reason": "ok"}},
+		turn{tool: controller.SetTaskStatusTool, args: map[string]any{"task": "second", "status": "completed", "reason": "ok"}},
 	)
 
 	require.Equal(t, core.Succeeded, ch.run(t))
@@ -436,27 +436,27 @@ func TestControllerLoop_ReopensTaskAndRedoesWork(t *testing.T) {
 
 	ch := setupController(t, controllerDAG,
 		turn{tool: "alpha"},
-		turn{tool: controller.CompleteTaskTool, args: map[string]any{"task": "first", "reason": "built"}},
-		turn{tool: controller.ReopenTaskTool, args: map[string]any{"task": "first", "reason": "review rejected it"}},
+		turn{tool: controller.SetTaskStatusTool, args: map[string]any{"task": "first", "status": "completed", "reason": "built"}},
+		turn{tool: controller.SetTaskStatusTool, args: map[string]any{"task": "first", "status": "open", "reason": "review rejected it"}},
 		turn{tool: "alpha"},
-		turn{tool: controller.CompleteTaskTool, args: map[string]any{"task": "first", "reason": "rebuilt"}},
-		turn{tool: controller.CompleteTaskTool, args: map[string]any{"task": "second", "reason": "ok"}},
+		turn{tool: controller.SetTaskStatusTool, args: map[string]any{"task": "first", "status": "completed", "reason": "rebuilt"}},
+		turn{tool: controller.SetTaskStatusTool, args: map[string]any{"task": "second", "status": "completed", "reason": "ok"}},
 	)
 
 	require.Equal(t, core.Succeeded, ch.run(t))
 	assert.True(t, ch.node(t, "alpha").State().Repeated, "the redone action ran again")
 
 	text := transcript(ch.node(t, core.ControllerStepName).GetChatMessages())
-	assert.Contains(t, text, `Task "first" reopened`)
+	assert.Contains(t, text, `Task "first" is now open`)
 }
 
 func TestControllerLoop_RejectsReopeningAnOpenTask(t *testing.T) {
 	t.Parallel()
 
 	ch := setupController(t, controllerDAG,
-		turn{tool: controller.ReopenTaskTool, args: map[string]any{"task": "first", "reason": "oops"}},
-		turn{tool: controller.CompleteTaskTool, args: map[string]any{"task": "first", "reason": "ok"}},
-		turn{tool: controller.CompleteTaskTool, args: map[string]any{"task": "second", "reason": "ok"}},
+		turn{tool: controller.SetTaskStatusTool, args: map[string]any{"task": "first", "status": "open", "reason": "oops"}},
+		turn{tool: controller.SetTaskStatusTool, args: map[string]any{"task": "first", "status": "completed", "reason": "ok"}},
+		turn{tool: controller.SetTaskStatusTool, args: map[string]any{"task": "second", "status": "completed", "reason": "ok"}},
 	)
 
 	require.Equal(t, core.Succeeded, ch.run(t))
@@ -473,9 +473,9 @@ func TestControllerLoop_RecordsADecisionTimeline(t *testing.T) {
 	ch := setupController(t, controllerDAG,
 		turn{tool: "boom"},
 		turn{tool: "alpha"},
-		turn{tool: controller.CompleteTaskTool, args: map[string]any{"task": "first", "reason": "alpha ran"}},
+		turn{tool: controller.SetTaskStatusTool, args: map[string]any{"task": "first", "status": "completed", "reason": "alpha ran"}},
 		turn{tool: "alpha"},
-		turn{tool: controller.CompleteTaskTool, args: map[string]any{"task": "second", "reason": "again"}},
+		turn{tool: controller.SetTaskStatusTool, args: map[string]any{"task": "second", "status": "completed", "reason": "again"}},
 	)
 
 	require.Equal(t, core.PartiallySucceeded, ch.run(t))
@@ -497,9 +497,9 @@ func TestControllerLoop_RecordsADecisionTimeline(t *testing.T) {
 	assert.Equal(t, []row{
 		{controller.EventAction, "boom", "failed", 1},
 		{controller.EventAction, "alpha", "succeeded", 1},
-		{controller.EventTaskComplete, "first", "", 0},
+		{controller.EventTaskStatus, "first", "completed", 0},
 		{controller.EventAction, "alpha", "succeeded", 2},
-		{controller.EventTaskComplete, "second", "", 0},
+		{controller.EventTaskStatus, "second", "completed", 0},
 	}, got)
 
 	// Turn numbers let the timeline line up with the transcript.
@@ -521,8 +521,8 @@ func TestControllerLoop_PreservesChildRunLinksAcrossReruns(t *testing.T) {
 	ch := setupController(t, controllerDAG,
 		turn{tool: "alpha"},
 		turn{tool: "alpha"},
-		turn{tool: controller.CompleteTaskTool, args: map[string]any{"task": "first", "reason": "ok"}},
-		turn{tool: controller.CompleteTaskTool, args: map[string]any{"task": "second", "reason": "ok"}},
+		turn{tool: controller.SetTaskStatusTool, args: map[string]any{"task": "first", "status": "completed", "reason": "ok"}},
+		turn{tool: controller.SetTaskStatusTool, args: map[string]any{"task": "second", "status": "completed", "reason": "ok"}},
 	)
 	require.Equal(t, core.Succeeded, ch.run(t))
 
@@ -538,4 +538,57 @@ func TestControllerLoop_PreservesChildRunLinksAcrossReruns(t *testing.T) {
 	require.Len(t, actions, 2)
 	assert.Equal(t, 1, actions[0].Attempt)
 	assert.Equal(t, 2, actions[1].Attempt)
+}
+
+// TestControllerLoop_SkippedTaskStillSucceeds covers a goal the controller
+// judged unnecessary: nothing went wrong, so the run succeeds.
+func TestControllerLoop_SkippedTaskStillSucceeds(t *testing.T) {
+	t.Parallel()
+
+	ch := setupController(t, controllerDAG,
+		turn{tool: "alpha"},
+		turn{tool: controller.SetTaskStatusTool, args: map[string]any{
+			"task": "first", "status": "completed", "reason": "alpha ran"}},
+		turn{tool: controller.SetTaskStatusTool, args: map[string]any{
+			"task": "second", "status": "skipped", "reason": "nothing to do"}},
+	)
+
+	require.Equal(t, core.Succeeded, ch.run(t))
+	require.NoError(t, ch.runErr)
+}
+
+// TestControllerLoop_FailedTaskFailsTheRun covers a goal the controller could
+// not achieve: it settles the task, but the run must not report success.
+func TestControllerLoop_FailedTaskFailsTheRun(t *testing.T) {
+	t.Parallel()
+
+	ch := setupController(t, controllerDAG,
+		turn{tool: controller.SetTaskStatusTool, args: map[string]any{
+			"task": "first", "status": "completed", "reason": "ok"}},
+		turn{tool: controller.SetTaskStatusTool, args: map[string]any{
+			"task": "second", "status": "failed", "reason": "no such environment"}},
+	)
+
+	require.Equal(t, core.Failed, ch.run(t))
+	require.Error(t, ch.runErr)
+	assert.Contains(t, ch.runErr.Error(), "second (no such environment)")
+}
+
+// TestControllerLoop_RejectsAnUnknownTaskStatus keeps a bad status from ending
+// the run: it is reported back so the controller can correct itself.
+func TestControllerLoop_RejectsAnUnknownTaskStatus(t *testing.T) {
+	t.Parallel()
+
+	ch := setupController(t, controllerDAG,
+		turn{tool: controller.SetTaskStatusTool, args: map[string]any{
+			"task": "first", "status": "done-ish", "reason": "?"}},
+		turn{tool: controller.SetTaskStatusTool, args: map[string]any{
+			"task": "first", "status": "completed", "reason": "ok"}},
+		turn{tool: controller.SetTaskStatusTool, args: map[string]any{
+			"task": "second", "status": "skipped", "reason": "ok"}},
+	)
+
+	require.Equal(t, core.Succeeded, ch.run(t))
+	assert.Contains(t, transcript(ch.node(t, core.ControllerStepName).GetChatMessages()),
+		`"done-ish" is not a task status`)
 }

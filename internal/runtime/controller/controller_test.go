@@ -24,40 +24,60 @@ func testDAG() *core.DAG {
 	}
 }
 
-func TestState_CompletionDrivesTermination(t *testing.T) {
+func TestState_SettlingDrivesTermination(t *testing.T) {
 	t.Parallel()
 
 	state := controller.NewState(testDAG())
-	require.False(t, state.AllDone())
+	require.False(t, state.Settled())
 	assert.Equal(t, []string{"first", "second"}, state.OpenTaskNames())
 
-	require.NoError(t, state.CompleteTask("first", "done"))
+	require.NoError(t, state.SetTaskStatus("first", controller.TaskCompleted, "done"))
 	assert.Equal(t, []string{"second"}, state.OpenTaskNames())
 
-	require.NoError(t, state.CompleteTask("second", "done"))
-	assert.True(t, state.AllDone())
+	// A skipped task settles the goal without claiming it was achieved, and
+	// leaves the run succeeding.
+	require.NoError(t, state.SetTaskStatus("second", controller.TaskSkipped, "not needed"))
+	assert.True(t, state.Settled())
+	assert.Empty(t, state.FailedTasks())
 }
 
-func TestState_RejectsUnknownAndRepeatedCompletion(t *testing.T) {
+func TestState_FailedTaskIsSettledButReported(t *testing.T) {
+	t.Parallel()
+
+	state := controller.NewState(testDAG())
+	require.NoError(t, state.SetTaskStatus("first", controller.TaskCompleted, "done"))
+	require.NoError(t, state.SetTaskStatus("second", controller.TaskFailed, "impossible"))
+
+	assert.True(t, state.Settled(), "a failed task no longer needs attention")
+	failed := state.FailedTasks()
+	require.Len(t, failed, 1)
+	assert.Equal(t, "second", failed[0].Name)
+	assert.Equal(t, "impossible", failed[0].Reason)
+}
+
+func TestState_RejectsUnknownTaskAndRestatedStatus(t *testing.T) {
 	t.Parallel()
 
 	state := controller.NewState(testDAG())
 
-	err := state.CompleteTask("nope", "")
+	err := state.SetTaskStatus("nope", controller.TaskCompleted, "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `unknown task "nope"`)
 
-	require.NoError(t, state.CompleteTask("first", "done"))
-	err = state.CompleteTask("first", "again")
+	require.NoError(t, state.SetTaskStatus("first", controller.TaskCompleted, "done"))
+	err = state.SetTaskStatus("first", controller.TaskCompleted, "again")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "already complete")
+	assert.Contains(t, err.Error(), "already completed")
+
+	// Reopening is a change of status, so it is allowed.
+	require.NoError(t, state.SetTaskStatus("first", controller.TaskOpen, "review rejected it"))
 }
 
 func TestLoadState_PreservesProgressAcrossAttempts(t *testing.T) {
 	t.Parallel()
 
 	state := controller.NewState(testDAG())
-	require.NoError(t, state.CompleteTask("first", "because"))
+	require.NoError(t, state.SetTaskStatus("first", controller.TaskCompleted, "because"))
 	state.RecordStepRun("alpha")
 	state.Turns = 4
 
@@ -68,9 +88,9 @@ func TestLoadState_PreservesProgressAcrossAttempts(t *testing.T) {
 	restored, err := controller.LoadState(raw, messages, testDAG())
 	require.NoError(t, err)
 
-	assert.True(t, restored.Tasks[0].Done)
+	assert.Equal(t, controller.TaskCompleted, restored.Tasks[0].Status)
 	assert.Equal(t, "because", restored.Tasks[0].Reason)
-	assert.False(t, restored.Tasks[1].Done)
+	assert.Equal(t, controller.TaskOpen, restored.Tasks[1].Status)
 	assert.Equal(t, 4, restored.Turns)
 	assert.Equal(t, 1, restored.StepRunCount("alpha"))
 	assert.Equal(t, messages, restored.Messages())
@@ -80,7 +100,7 @@ func TestLoadState_ReconcilesAnEditedTaskList(t *testing.T) {
 	t.Parallel()
 
 	state := controller.NewState(testDAG())
-	require.NoError(t, state.CompleteTask("first", "because"))
+	require.NoError(t, state.SetTaskStatus("first", controller.TaskCompleted, "because"))
 	raw, err := state.Marshal()
 	require.NoError(t, err)
 
@@ -98,9 +118,9 @@ func TestLoadState_ReconcilesAnEditedTaskList(t *testing.T) {
 	// Progress on a surviving task is kept; a removed task does not linger and a
 	// newly declared one starts open.
 	require.Len(t, restored.Tasks, 2)
-	assert.True(t, restored.Tasks[0].Done)
+	assert.Equal(t, controller.TaskCompleted, restored.Tasks[0].Status)
 	assert.Equal(t, "third", restored.Tasks[1].Name)
-	assert.False(t, restored.Tasks[1].Done)
+	assert.Equal(t, controller.TaskOpen, restored.Tasks[1].Status)
 }
 
 func TestTasksFromState_ToleratesUnusableState(t *testing.T) {
@@ -133,8 +153,7 @@ func TestNewCatalog(t *testing.T) {
 
 	names := catalog.ToolNames()
 	assert.Equal(t, []string{
-		"run_child", "review", "run_child_2",
-		controller.ReopenTaskTool, controller.CompleteTaskTool,
+		"run_child", "review", "run_child_2", controller.SetTaskStatusTool,
 	}, names)
 
 	// The controller step is not one of the actions the model may pick.
@@ -146,7 +165,7 @@ func TestNewCatalog(t *testing.T) {
 	assert.Equal(t, "run child", step)
 
 	tools := catalog.Tools()
-	require.Len(t, tools, 5)
+	require.Len(t, tools, 4)
 	assert.Equal(t, "the child workflow", tools[0].Function.Description)
 	assert.Equal(t, []string{"target"}, tools[0].Function.Parameters["required"])
 	assert.Contains(t, tools[1].Function.Description, "ok?")
@@ -194,4 +213,20 @@ func TestParamString(t *testing.T) {
 			assert.Equal(t, tt.expected, controller.ParamString(tt.args))
 		})
 	}
+}
+
+// TestLoadState_RestoresARunSuspendedBeforeStatuses covers a run that was
+// waiting on a person when the task model still carried a boolean.
+func TestLoadState_RestoresARunSuspendedBeforeStatuses(t *testing.T) {
+	t.Parallel()
+
+	legacy := json.RawMessage(
+		`{"tasks":[{"name":"first","done":true},{"name":"second"}],"turns":3}`)
+
+	restored, err := controller.LoadState(legacy, nil, testDAG())
+	require.NoError(t, err)
+
+	assert.Equal(t, controller.TaskCompleted, restored.Tasks[0].Status)
+	assert.Equal(t, controller.TaskOpen, restored.Tasks[1].Status)
+	assert.False(t, restored.Settled())
 }

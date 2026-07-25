@@ -20,10 +20,8 @@ type DecisionKind int
 const (
 	// DecideRunStep runs one declared step.
 	DecideRunStep DecisionKind = iota
-	// DecideCompleteTask marks a task complete.
-	DecideCompleteTask
-	// DecideReopenTask marks a completed task open again.
-	DecideReopenTask
+	// DecideSetTaskStatus records where a task stands.
+	DecideSetTaskStatus
 	// DecideStop is returned when the model answers without calling a tool.
 	DecideStop
 	// DecideInvalid is returned when the model calls a tool that does not exist
@@ -41,9 +39,10 @@ type Decision struct {
 	Step string
 	// Args are the child DAG parameters, set when Kind is DecideRunStep.
 	Args map[string]any
-	// Task and Reason are set when Kind is DecideCompleteTask.
-	Task   string
-	Reason string
+	// Task, TaskStatus and Reason are set when Kind is DecideSetTaskStatus.
+	Task       string
+	TaskStatus TaskStatus
+	Reason     string
 	// Content is the model's prose, set when Kind is DecideStop.
 	Content string
 	// Problem describes why the decision was rejected, set when Kind is DecideInvalid.
@@ -128,20 +127,24 @@ func (p *Planner) Next(ctx context.Context, st *State) (*Decision, error) {
 		return decision, nil
 	}
 
-	switch call.Function.Name {
-	case CompleteTaskTool, ReopenTaskTool:
+	if call.Function.Name == SetTaskStatusTool {
 		task, _ := args["task"].(string)
+		status, _ := args["status"].(string)
 		reason, _ := args["reason"].(string)
 		if task == "" {
 			decision.Kind = DecideInvalid
-			decision.Problem = call.Function.Name + " requires a task name"
+			decision.Problem = SetTaskStatusTool + " requires a task name"
 			return decision, nil
 		}
-		decision.Kind = DecideCompleteTask
-		if call.Function.Name == ReopenTaskTool {
-			decision.Kind = DecideReopenTask
+		if !ValidTaskStatus(status) {
+			decision.Kind = DecideInvalid
+			decision.Problem = fmt.Sprintf(
+				"%q is not a task status; use completed, skipped, failed, or open", status)
+			return decision, nil
 		}
+		decision.Kind = DecideSetTaskStatus
 		decision.Task = task
+		decision.TaskStatus = TaskStatus(status)
 		decision.Reason = reason
 		return decision, nil
 	}
@@ -173,28 +176,31 @@ func (p *Planner) systemPrompt(st *State) string {
 	sb.WriteString("You are the controller of this workflow. Each turn you choose exactly one action ")
 	sb.WriteString("by calling exactly one tool. You observe the result, then choose again.\n\n")
 
-	sb.WriteString("Tasks — the run succeeds only once every task is complete:\n")
+	sb.WriteString("Tasks — the run ends once none is open, and fails if any is failed:\n")
 	for _, task := range st.Tasks {
-		mark := " "
-		if task.Done {
-			mark = "x"
+		status := task.Status
+		if status == "" {
+			status = TaskOpen
 		}
-		fmt.Fprintf(&sb, "- [%s] %s: %s", mark, task.Name, task.Description)
-		if task.Done && task.Reason != "" {
-			fmt.Fprintf(&sb, " (completed: %s)", task.Reason)
+		fmt.Fprintf(&sb, "- [%s] %s: %s", status, task.Name, task.Description)
+		if status != TaskOpen && task.Reason != "" {
+			fmt.Fprintf(&sb, " (%s)", task.Reason)
 		}
 		sb.WriteString("\n")
 	}
 
 	sb.WriteString("\nRules:\n")
 	sb.WriteString("- Call exactly one tool per turn.\n")
-	fmt.Fprintf(&sb, "- Call %s as soon as a task's criteria are satisfied, and not before.\n", CompleteTaskTool)
-	fmt.Fprintf(&sb, "- Call %s when later work invalidates a task you already completed, "+
-		"then redo the work it covers.\n", ReopenTaskTool)
+	fmt.Fprintf(&sb, "- Call %s to settle a task: completed once its criteria are met, "+
+		"skipped when it turns out nothing needs doing, failed when it cannot be achieved.\n",
+		SetTaskStatusTool)
+	fmt.Fprintf(&sb, "- Do not leave a task open because it is unnecessary or impossible. "+
+		"Settle it as skipped or failed and say why. Use %s with status open only to undo a "+
+		"decision that later work invalidated.\n", SetTaskStatusTool)
 	sb.WriteString("- When an action fails, read the error and decide whether to retry it, ")
 	sb.WriteString("run a different action, or give up.\n")
 	sb.WriteString("- Actions may be repeated when earlier work needs redoing, within a per-action limit.\n")
-	sb.WriteString("- When every task is complete, stop calling tools and reply with a short summary.\n")
+	sb.WriteString("- When no task is open, stop calling tools and reply with a short summary.\n")
 
 	return sb.String()
 }

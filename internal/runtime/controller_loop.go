@@ -79,7 +79,7 @@ func (r *Runner) runControllerLoop(ctx context.Context, plan *Plan, progressCh c
 	}
 
 	maxTurns := dag.ControllerMaxIterations()
-	for !state.AllDone() {
+	for !state.Settled() {
 		if r.isCanceled() {
 			ctrlNode.SetStatus(core.NodeAborted)
 			r.report(progressCh, ctrlNode)
@@ -114,10 +114,21 @@ func (r *Runner) runControllerLoop(ctx context.Context, plan *Plan, progressCh c
 		}
 	}
 
+	if failed := state.FailedTasks(); len(failed) > 0 {
+		reasons := make([]string, 0, len(failed))
+		for _, task := range failed {
+			reasons = append(reasons, fmt.Sprintf("%s (%s)", task.Name, task.Reason))
+		}
+		r.failController(ctrlCtx, plan, ctrlNode, fmt.Errorf(
+			"controller could not achieve: %s", strings.Join(reasons, "; ")), progressCh)
+		r.persistController(ctrlCtx, ctrlNode, state, progressCh)
+		return
+	}
+
 	r.skipUnusedActions(ctx, plan)
 	ctrlNode.SetStatus(core.NodeSucceeded)
 	r.persistController(ctrlCtx, ctrlNode, state, progressCh)
-	logger.Info(ctrlCtx, "Controller completed all tasks", slog.Int("turns", state.Turns))
+	logger.Info(ctrlCtx, "Controller settled every task", slog.Int("turns", state.Turns))
 }
 
 // applyDecision carries out one controller decision and appends the resulting
@@ -135,36 +146,22 @@ func (r *Runner) applyDecision(
 	}
 
 	switch decision.Kind {
-	case controller.DecideCompleteTask:
-		if err := state.CompleteTask(decision.Task, decision.Reason); err != nil {
+	case controller.DecideSetTaskStatus:
+		if err := state.SetTaskStatus(decision.Task, decision.TaskStatus, decision.Reason); err != nil {
 			state.Append(toolResult(decision.ToolCallID, "Error: "+err.Error()))
 			return false, nil
 		}
-		logger.Info(ctx, "Controller completed a task",
-			slog.String("task", decision.Task), slog.String("reason", decision.Reason))
+		logger.Info(ctx, "Controller settled a task",
+			slog.String("task", decision.Task),
+			slog.String("status", string(decision.TaskStatus)),
+			slog.String("reason", decision.Reason))
 		state.RecordEvent(controller.Event{
-			Kind:   controller.EventTaskComplete,
+			Kind:   controller.EventTaskStatus,
 			Name:   decision.Task,
+			Status: string(decision.TaskStatus),
 			Reason: decision.Reason,
 		})
-		state.Append(toolResult(decision.ToolCallID, completionAck(state, decision.Task)))
-		return false, nil
-
-	case controller.DecideReopenTask:
-		if err := state.ReopenTask(decision.Task, decision.Reason); err != nil {
-			state.Append(toolResult(decision.ToolCallID, "Error: "+err.Error()))
-			return false, nil
-		}
-		logger.Info(ctx, "Controller reopened a task",
-			slog.String("task", decision.Task), slog.String("reason", decision.Reason))
-		state.RecordEvent(controller.Event{
-			Kind:   controller.EventTaskReopen,
-			Name:   decision.Task,
-			Reason: decision.Reason,
-		})
-		state.Append(toolResult(decision.ToolCallID, fmt.Sprintf(
-			"Task %q reopened. Still open: %s.",
-			decision.Task, strings.Join(state.OpenTaskNames(), ", "))))
+		state.Append(toolResult(decision.ToolCallID, taskStatusAck(state, decision)))
 		return false, nil
 
 	case controller.DecideInvalid:
@@ -204,8 +201,8 @@ func (r *Runner) nudge(ctx context.Context, state *controller.State) error {
 		Role: exec.RoleUser,
 		Content: fmt.Sprintf(
 			"These tasks are still open: %s. Either run an action that advances one of them, "+
-				"or call %s for any whose criteria are already satisfied.",
-			open, controller.CompleteTaskTool),
+				"or settle each one with %s as completed, skipped, or failed.",
+			open, controller.SetTaskStatusTool),
 	})
 	return nil
 }
@@ -514,10 +511,11 @@ func toolResult(toolCallID, content string) exec.LLMMessage {
 	}
 }
 
-func completionAck(state *controller.State, task string) string {
+func taskStatusAck(state *controller.State, decision *controller.Decision) string {
 	open := state.OpenTaskNames()
 	if len(open) == 0 {
-		return fmt.Sprintf("Task %q marked complete. All tasks are now complete.", task)
+		return fmt.Sprintf("Task %q is now %s. No task is open.", decision.Task, decision.TaskStatus)
 	}
-	return fmt.Sprintf("Task %q marked complete. Still open: %s.", task, strings.Join(open, ", "))
+	return fmt.Sprintf("Task %q is now %s. Still open: %s.",
+		decision.Task, decision.TaskStatus, strings.Join(open, ", "))
 }

@@ -121,8 +121,9 @@ Each declared step is advertised to the model as one function-calling tool.
   from the target's parameter definitions, falling back to its default-params
   string. Every other step is a nullary action.
 
-One additional tool, `complete_task`, is always offered. It takes a `task` name
-and a `reason`, and it is reserved: no step tool may take that name.
+One additional tool, `set_task_status`, is always offered. It takes a `task`
+name, a `status`, and a `reason`. It is reserved: no step tool may take that
+name.
 
 ## The decision loop
 
@@ -147,15 +148,27 @@ Each turn:
 
    For every other step, a bounded tail of stdout and stderr is reported.
 
-The loop ends when every task is complete, when an action opens a human task,
-or when a limit is reached.
+The loop ends when no task is open, when an action opens a human task, or when a
+limit is reached.
 
-### Completing tasks
+### Task status
 
-`complete_task` marks one task done and records the stated reason. Completing an
-unknown task, or one already complete, is reported back as a tool error and the
-loop continues; it does not fail the run. The same applies to a call naming a
-tool that does not exist, or arguments that cannot be decoded.
+Every task starts `open`. The controller settles it with `set_task_status`:
+
+| Status | Meaning | Effect on the run |
+|---|---|---|
+| `completed` | The task's criteria are satisfied. | — |
+| `skipped` | The task turned out to be unnecessary. | None: the run still succeeds. |
+| `failed` | The task cannot be achieved. | The run fails. |
+| `open` | Undo an earlier decision that later work invalidated. | Returns the task to the loop. |
+
+`skipped` and `failed` MUST remain distinct: waiving a goal that never needed
+doing is not the same outcome as failing to reach one.
+
+Naming an unknown task, restating the status a task already holds, or passing a
+status outside this set is reported back as a tool error and the loop continues;
+none of these fail the run. The same applies to a call naming a tool that does
+not exist, or arguments that cannot be decoded.
 
 ### Failure
 
@@ -184,7 +197,8 @@ occasional silence between real work is not fatal.
 ### Limits
 
 Reaching the turn limit with tasks still open fails the run, and the error names
-the outstanding tasks.
+the outstanding tasks. A task the controller cannot achieve should be settled as
+`failed` rather than left open to exhaust the limit.
 
 ## Suspension and resumption
 
@@ -226,8 +240,12 @@ in scope.
 
 ## Terminal status
 
-- Every task complete, no action failed → `succeeded`.
-- Every task complete, at least one action failed → `partially succeeded`.
+- No task open and none failed, no action failed → `succeeded`. Skipped tasks do
+  not change this.
+- No task open and none failed, at least one action left failed →
+  `partially succeeded`.
+- Any task settled as `failed` → `failed`, and the error names those tasks with
+  the reasons given.
 - An action is waiting → `waiting`.
 - Turn limit reached with open tasks, a second consecutive reply without a tool
   call, or an unrecoverable controller error → `failed`.

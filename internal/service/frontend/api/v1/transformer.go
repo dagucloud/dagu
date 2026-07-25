@@ -612,7 +612,7 @@ func declaredControllerTasks(dag *core.DAG) *[]api.ControllerTask {
 		tasks = append(tasks, api.ControllerTask{
 			Name:        task.Name,
 			Description: ptrOf(task.Description),
-			Done:        false,
+			Status:      api.ControllerTaskStatusOpen,
 		})
 	}
 	return &tasks
@@ -661,10 +661,14 @@ func controllerTaskProgress(nodes []*exec.Node) *[]api.ControllerTask {
 		}
 		tasks := make([]api.ControllerTask, 0, len(states))
 		for _, state := range states {
+			status := state.Status
+			if status == "" {
+				status = controller.TaskOpen
+			}
 			tasks = append(tasks, api.ControllerTask{
 				Name:        state.Name,
 				Description: ptrOf(state.Description),
-				Done:        state.Done,
+				Status:      api.ControllerTaskStatus(status),
 				Reason:      ptrOf(state.Reason),
 			})
 		}

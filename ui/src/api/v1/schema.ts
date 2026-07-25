@@ -4720,7 +4720,7 @@ export interface components {
             kind: ControllerEventKind;
             /** @description Step or task the event concerns */
             name?: string;
-            /** @description Resulting step status, for action events */
+            /** @description Resulting step status for an action event, or the new task status for a task_status event */
             status?: string;
             /** @description Which run of this step it was, starting at 1 */
             attempt?: number;
@@ -4741,9 +4741,12 @@ export interface components {
             name: string;
             /** @description Completion criteria the controller decides against */
             description?: string;
-            /** @description Whether the controller has marked this task complete */
-            done: boolean;
-            /** @description Justification the controller gave when completing the task */
+            /**
+             * @description Where the task stands. The run ends once none is open, and fails if any is failed. A skipped task does not fail the run.
+             * @enum {string}
+             */
+            status: ControllerTaskStatus;
+            /** @description Justification the controller gave for the current status */
             reason?: string;
         };
         /** @description Status of an individual step within a DAG-run */
@@ -16883,10 +16886,15 @@ export enum ArtifactPreviewKind {
 }
 export enum ControllerEventKind {
     action = "action",
-    task_complete = "task_complete",
-    task_reopen = "task_reopen",
+    task_status = "task_status",
     rejected = "rejected",
     stalled = "stalled"
+}
+export enum ControllerTaskStatus {
+    open = "open",
+    completed = "completed",
+    skipped = "skipped",
+    failed = "failed"
 }
 export enum StepOutputDeclarationType {
     string = "string",
