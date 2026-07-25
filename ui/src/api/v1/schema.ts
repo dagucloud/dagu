@@ -16929,7 +16929,7 @@ export enum SecretProviderType {
     dagu_managed = "dagu-managed",
     vault = "vault",
     kubernetes = "kubernetes",
-    gcp_secret_manager = "gcp-secret-manager",
+    gcp = "gcp",
     aws = "aws",
     azure_key_vault = "azure-key-vault"
 }

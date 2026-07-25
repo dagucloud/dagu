@@ -13752,7 +13752,7 @@ components:
         - dagu-managed
         - vault
         - kubernetes
-        - gcp-secret-manager
+        - gcp
         - aws
         - azure-key-vault
 

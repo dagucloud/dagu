@@ -22,7 +22,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-const gcpSecretManagerProvider = "gcp-secret-manager" // #nosec G101 -- Provider identifier, not a credential.
+const gcpSecretManagerProvider = "gcp"
 
 var gcpLocationPattern = regexp.MustCompile(`^[a-z0-9-]+$`)
 
