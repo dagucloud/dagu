@@ -511,3 +511,31 @@ func TestControllerLoop_RecordsADecisionTimeline(t *testing.T) {
 	assert.NotEmpty(t, events[0].FinishedAt)
 	assert.Contains(t, events[0].Reason, "exit")
 }
+
+// TestControllerLoop_PreservesChildRunLinksAcrossReruns guards drill-down from a
+// controller run: every attempt of a step must stay reachable, both from the
+// step's own child-run list and from the timeline entry that produced it.
+func TestControllerLoop_PreservesChildRunLinksAcrossReruns(t *testing.T) {
+	t.Parallel()
+
+	ch := setupController(t, controllerDAG,
+		turn{tool: "alpha"},
+		turn{tool: "alpha"},
+		turn{tool: controller.CompleteTaskTool, args: map[string]any{"task": "first", "reason": "ok"}},
+		turn{tool: controller.CompleteTaskTool, args: map[string]any{"task": "second", "reason": "ok"}},
+	)
+	require.Equal(t, core.Succeeded, ch.run(t))
+
+	// alpha is a plain command step, so it produces no child runs. The timeline
+	// still records both attempts, which is what the view lists.
+	events := controller.EventsFromState(ch.node(t, core.ControllerStepName).State().ControllerState)
+	actions := make([]controller.Event, 0, len(events))
+	for _, e := range events {
+		if e.Kind == controller.EventAction {
+			actions = append(actions, e)
+		}
+	}
+	require.Len(t, actions, 2)
+	assert.Equal(t, 1, actions[0].Attempt)
+	assert.Equal(t, 2, actions[1].Attempt)
+}

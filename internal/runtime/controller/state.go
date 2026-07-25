@@ -62,6 +62,11 @@ type Event struct {
 	Reason     string `json:"reason,omitempty"`
 	StartedAt  string `json:"startedAt,omitempty"`
 	FinishedAt string `json:"finishedAt,omitempty"`
+	// ChildDAGRunID identifies the child run this action produced, so the
+	// timeline can link straight to it. Empty for steps that run no child DAG.
+	ChildDAGRunID string `json:"childDagRunId,omitempty"`
+	// ChildDAGName is the child DAG that ran.
+	ChildDAGName string `json:"childDagName,omitempty"`
 }
 
 // State is the controller's durable memory. It survives suspension because it is

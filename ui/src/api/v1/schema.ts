@@ -4730,6 +4730,10 @@ export interface components {
             startedAt?: string;
             /** @description RFC3339 timestamp when the step finished */
             finishedAt?: string;
+            /** @description Child DAG-run this action produced, for linking to its run page. Absent for steps that run no child DAG. */
+            childDagRunId?: string;
+            /** @description Name of the child DAG that ran */
+            childDagName?: string;
         };
         /** @description A goal a controller DAG must satisfy before the run concludes */
         ControllerTask: {

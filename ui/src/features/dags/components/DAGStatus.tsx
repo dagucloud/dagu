@@ -343,6 +343,23 @@ function DAGStatus({
     [displayDAGRun, navigate, fileName, remoteNode]
   );
 
+  // A controller timeline row points at the child run its action produced.
+  // Reuse the node-based navigation by locating the node that ran it.
+  const openControllerChildRun = React.useCallback(
+    (event: components['schemas']['ControllerEvent']) => {
+      if (!event.childDagRunId) return;
+      const node = displayDAGRun.nodes?.find((n) => n.step.name === event.name);
+      if (!node) return;
+      const all = [...(node.subRuns || []), ...(node.subRunsRepeated || [])];
+      const childIndex = all.findIndex(
+        (r) => r.dagRunId === event.childDagRunId
+      );
+      if (childIndex < 0) return;
+      navigateToSubDagRun(node, childIndex);
+    },
+    [displayDAGRun, navigateToSubDagRun]
+  );
+
   // Handle right-click on graph node (show status update modal)
   const onRightClickStepOnGraph = React.useCallback(
     (id: string) => {
@@ -607,7 +624,10 @@ function DAGStatus({
         <div className={cn('space-y-6', scrollPaneClassName)}>
           {/* Controller runs show execution order instead of a graph */}
           {isControllerRun && controllerEvents.length > 0 && (
-            <ControllerTimeline events={controllerEvents} />
+            <ControllerTimeline
+              events={controllerEvents}
+              onOpenChildRun={openControllerChildRun}
+            />
           )}
 
           {/* DAG Graph Visualization */}

@@ -5,6 +5,7 @@ import { components } from '@/api/v1/schema';
 import { cn } from '@/lib/utils';
 import {
   CircleCheck,
+  ExternalLink,
   CircleSlash,
   MessageCircleOff,
   Pause,
@@ -16,6 +17,8 @@ type ControllerEvent = components['schemas']['ControllerEvent'];
 
 interface ControllerTimelineProps {
   events: ControllerEvent[];
+  /** Opens the child DAG-run an action produced. */
+  onOpenChildRun?: (event: ControllerEvent) => void;
 }
 
 /** Seconds between two RFC3339 stamps, or null when either is missing. */
@@ -71,15 +74,35 @@ function outcome(event: ControllerEvent): string {
  * Decision timeline of a controller DAG-run. A controller has no dependency
  * edges, so execution order lives here rather than in the graph.
  */
-export function ControllerTimeline({ events }: ControllerTimelineProps) {
+export function ControllerTimeline({
+  events,
+  onOpenChildRun,
+}: ControllerTimelineProps) {
   return (
     <div className="divide-border bg-card divide-y rounded border">
       {events.map((event, index) => {
         const seconds = durationSeconds(event);
+        const linkable = !!event.childDagRunId && !!onOpenChildRun;
         return (
           <div
             key={`${event.turn}-${index}`}
-            className="flex items-start gap-2 px-3 py-1.5 text-sm"
+            role={linkable ? 'button' : undefined}
+            tabIndex={linkable ? 0 : undefined}
+            onClick={linkable ? () => onOpenChildRun(event) : undefined}
+            onKeyDown={
+              linkable
+                ? (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      onOpenChildRun(event);
+                    }
+                  }
+                : undefined
+            }
+            className={cn(
+              'flex items-start gap-2 px-3 py-1.5 text-sm',
+              linkable && 'hover:bg-muted/50 cursor-pointer transition-colors'
+            )}
           >
             <span className="text-muted-foreground w-6 shrink-0 text-right text-xs tabular-nums">
               {event.turn}
@@ -101,6 +124,12 @@ export function ControllerTimeline({ events }: ControllerTimelineProps) {
                 {seconds !== null ? (
                   <span className="text-muted-foreground/70 text-xs tabular-nums">
                     {seconds.toFixed(1)}s
+                  </span>
+                ) : null}
+                {linkable ? (
+                  <span className="text-muted-foreground/70 inline-flex items-center gap-0.5 text-xs">
+                    {event.childDagName}
+                    <ExternalLink className="h-3 w-3" />
                   </span>
                 ) : null}
               </div>

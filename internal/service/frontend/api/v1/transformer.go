@@ -631,14 +631,16 @@ func controllerTimeline(nodes []*exec.Node) *[]api.ControllerEvent {
 		events := make([]api.ControllerEvent, 0, len(recorded))
 		for _, e := range recorded {
 			events = append(events, api.ControllerEvent{
-				Turn:       e.Turn,
-				Kind:       api.ControllerEventKind(e.Kind),
-				Name:       ptrOf(e.Name),
-				Status:     ptrOf(e.Status),
-				Attempt:    ptrOf(e.Attempt),
-				Reason:     ptrOf(e.Reason),
-				StartedAt:  ptrOf(e.StartedAt),
-				FinishedAt: ptrOf(e.FinishedAt),
+				Turn:          e.Turn,
+				Kind:          api.ControllerEventKind(e.Kind),
+				Name:          ptrOf(e.Name),
+				Status:        ptrOf(e.Status),
+				Attempt:       ptrOf(e.Attempt),
+				Reason:        ptrOf(e.Reason),
+				StartedAt:     ptrOf(e.StartedAt),
+				FinishedAt:    ptrOf(e.FinishedAt),
+				ChildDagRunId: ptrOf(e.ChildDAGRunID),
+				ChildDagName:  ptrOf(e.ChildDAGName),
 			})
 		}
 		return &events

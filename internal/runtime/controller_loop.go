@@ -238,10 +238,14 @@ func (r *Runner) runControllerAction(
 	if node.State().Status != core.NodeNotStarted {
 		// Re-running: clear the previous attempt and mark the node repeated so a
 		// child DAG run gets a fresh run ID instead of reusing the earlier one.
-		// The step shows the latest attempt; the controller transcript is the
-		// record of every attempt.
+		// Links to earlier attempts' child runs are carried across the reset, so
+		// every attempt stays reachable from the step.
+		previous := node.State().SubRuns
+		archived := node.State().SubRunsRepeated
 		node.ClearState(step)
 		node.SetRepeated(true)
+		node.AddSubRunsRepeated(archived...)
+		node.SetSubRuns(previous)
 	}
 	if step.SubDAG != nil {
 		params := step.SubDAG.Params
@@ -301,6 +305,11 @@ func recordActionEvent(state *controller.State, step string, attempt int, node *
 	}
 	if nodeState.Error != nil {
 		event.Reason = nodeState.Error.Error()
+	}
+	// The child run this attempt produced, so the timeline can link to it.
+	if len(nodeState.SubRuns) > 0 {
+		event.ChildDAGRunID = nodeState.SubRuns[0].DAGRunID
+		event.ChildDAGName = nodeState.SubRuns[0].DAGName
 	}
 	state.RecordEvent(event)
 }

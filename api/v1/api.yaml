@@ -11863,6 +11863,12 @@ components:
         finishedAt:
           type: string
           description: "RFC3339 timestamp when the step finished"
+        childDagRunId:
+          type: string
+          description: "Child DAG-run this action produced, for linking to its run page. Absent for steps that run no child DAG."
+        childDagName:
+          type: string
+          description: "Name of the child DAG that ran"
 
     ControllerTask:
       type: object
