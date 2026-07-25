@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import ConfirmModal from '@/components/ui/confirm-dialog';
 
 interface ForgetDialogProps {
@@ -17,7 +20,7 @@ export function ForgetDialog({
 }: ForgetDialogProps) {
   return (
     <ConfirmModal
-      title="Forget Item"
+      title="Forget DAG"
       buttonText={isForgetting ? 'Forgetting...' : 'Forget'}
       visible={open}
       dismissModal={onCancel}

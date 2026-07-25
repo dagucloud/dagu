@@ -56,7 +56,7 @@ type DispatchTaskStore struct {
 	admissionActiveRunStore  exec.ActiveDistributedRunStore
 	lastReservationCleanupAt time.Time
 	index                    *dispatchTaskIndex
-	// mu serializes the in-process recycle+scan+claim sequence;
+	// mu protects the in-memory index and serializes dispatch transitions;
 	// per-record CompareAndDelete provides cross-process safety.
 	mu sync.Mutex
 }

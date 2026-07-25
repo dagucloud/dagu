@@ -365,7 +365,10 @@ function DAGRunTable({
               <span className="font-mono text-muted-foreground truncate">
                 {dagRun.dagRunId}
               </span>
-              <TriggerTypeIndicator type={dagRun.triggerType} />
+              <TriggerTypeIndicator
+                type={dagRun.triggerType}
+                actor={dagRun.triggerActor}
+              />
             </div>
 
             {/* Timestamps */}
@@ -564,7 +567,10 @@ function DAGRunTable({
                 </StepDetailsTooltip>
               </TableCell>
               <TableCell className="py-1 px-2">
-                <TriggerTypeIndicator type={dagRun.triggerType} />
+                <TriggerTypeIndicator
+                  type={dagRun.triggerType}
+                  actor={dagRun.triggerActor}
+                />
               </TableCell>
               {showProfileColumn && (
                 <TableCell className="py-1 px-2">

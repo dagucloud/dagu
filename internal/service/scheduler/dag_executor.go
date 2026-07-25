@@ -55,11 +55,12 @@ import (
 // - HandleJob(): Entry point for new scheduled jobs (handles persistence)
 // - ExecuteDAG(): Executes/dispatches already-persisted jobs (no persistence)
 type DAGExecutor struct {
-	coordinatorCli  exec.Dispatcher
-	subCmdBuilder   *launcher.SubCmdBuilder
-	defaultExecMode config.ExecutionMode
-	baseConfigPath  string
-	profileResolver DAGProfileResolver
+	coordinatorCli         exec.Dispatcher
+	subCmdBuilder          *launcher.SubCmdBuilder
+	defaultExecMode        config.ExecutionMode
+	baseConfigPath         string
+	workspaceBaseConfigDir string
+	profileResolver        DAGProfileResolver
 }
 
 type DAGProfileResolver interface {
@@ -71,6 +72,13 @@ type DAGExecutorOption func(*DAGExecutor)
 func WithDAGExecutorProfileResolver(resolver DAGProfileResolver) DAGExecutorOption {
 	return func(e *DAGExecutor) {
 		e.profileResolver = resolver
+	}
+}
+
+// WithDAGExecutorWorkspaceBaseConfigDir sets the directory used to resolve workspace base configs.
+func WithDAGExecutorWorkspaceBaseConfigDir(dir string) DAGExecutorOption {
+	return func(e *DAGExecutor) {
+		e.workspaceBaseConfigDir = dir
 	}
 }
 
@@ -205,6 +213,11 @@ func (e *DAGExecutor) executeDAG(
 		return err
 	}
 
+	triggerActor := ""
+	if previousStatus != nil {
+		triggerActor = previousStatus.TriggerActor
+	}
+
 	if e.shouldUseDistributedExecution(dag) {
 		// Distributed execution: dispatch to coordinator
 		taskOpts := []executor.TaskOption{
@@ -218,6 +231,9 @@ func (e *DAGExecutor) executeDAG(
 		}
 		if profileName != "" {
 			taskOpts = append(taskOpts, executor.WithProfileName(profileName))
+		}
+		if triggerActor != "" {
+			taskOpts = append(taskOpts, executor.WithTriggerActor(triggerActor))
 		}
 		if previousStatus != nil && len(previousStatus.ParamsList) == 0 && previousStatus.Params != "" {
 			taskOpts = append(taskOpts, executor.WithTaskParams(previousStatus.Params))
@@ -260,13 +276,18 @@ func (e *DAGExecutor) executeDAG(
 			DAGRunID:     runID,
 			Quiet:        true,
 			TriggerType:  triggerType.String(),
+			TriggerActor: triggerActor,
 			ScheduleTime: scheduleTime,
 			ProfileName:  fallbackProfileName(profileNameFromStatus(previousStatus), defaultProfileName),
 		})
 		return launcher.Start(ctx, spec)
 
 	case exec.DispatchOperationRetry:
-		spec := e.subCmdBuilder.QueueDispatchRetry(dag, runID, "")
+		spec := e.subCmdBuilder.Retry(dag, launcher.RetryOptions{
+			DAGRunID:      runID,
+			TriggerActor:  triggerActor,
+			QueueDispatch: true,
+		})
 		return launcher.Run(ctx, spec)
 
 	default:
@@ -375,7 +396,8 @@ func (e *DAGExecutor) prepareDAGForSubprocess(ctx context.Context, dag *core.DAG
 	}
 
 	result, err := spec.ResolveEnvWithWarnings(ctx, dag, params, spec.ResolveEnvOptions{
-		BaseConfig: e.baseConfigPath,
+		BaseConfig:             e.baseConfigPath,
+		WorkspaceBaseConfigDir: e.workspaceBaseConfigDir,
 	})
 	if err != nil {
 		return nil, err

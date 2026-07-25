@@ -464,6 +464,12 @@ func (l *ConfigLoader) loadSecretsConfig(cfg *Config, def Definition) {
 		}
 	}
 
+	if def.Secrets.AWS != nil {
+		cfg.Secrets.AWS = AWSSecretsConfig{
+			Region: def.Secrets.AWS.Region,
+		}
+	}
+
 	if def.Secrets.GCP != nil {
 		cfg.Secrets.GCP = GCPSecretsConfig{
 			ProjectID: def.Secrets.GCP.ProjectID,
@@ -1963,6 +1969,7 @@ var envBindings = []envBinding{
 	{key: "secrets.kubernetes.namespace", env: "SECRETS_KUBERNETES_NAMESPACE"},
 	{key: "secrets.kubernetes.kubeconfig", env: "SECRETS_KUBERNETES_KUBECONFIG", isPath: true},
 	{key: "secrets.kubernetes.context", env: "SECRETS_KUBERNETES_CONTEXT"},
+	{key: "secrets.aws.region", env: "SECRETS_AWS_REGION"},
 	{key: "secrets.gcp.project_id", env: "SECRETS_GCP_PROJECT_ID"},
 	{key: "secrets.gcp.location", env: "SECRETS_GCP_LOCATION"},
 

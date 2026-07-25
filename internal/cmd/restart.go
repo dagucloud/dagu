@@ -116,11 +116,11 @@ func handleRestartProcess(ctx *Context, d *core.DAG, oldDagRunID string, schedul
 		ctx,
 		d,
 		newDagRunID,
-		exec.NewDAGRunRef(d.Name, newDagRunID),
-		exec.DAGRunRef{},
-		core.TriggerTypeUnknown,
-		scheduleTime,
-		"",
+		runOptions{
+			root:         exec.NewDAGRunRef(d.Name, newDagRunID),
+			triggerType:  core.TriggerTypeUnknown,
+			scheduleTime: scheduleTime,
+		},
 		func(execCtx context.Context) (exec.DAGRunAttempt, error) {
 			return ctx.DAGRunStore.CreateAttempt(execCtx, d, time.Now(), newDagRunID, exec.NewDAGRunAttemptOptions{})
 		},

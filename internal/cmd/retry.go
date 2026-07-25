@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/internal/humantask"
 	"github.com/dagucloud/dagu/internal/runtime/agent"
 	"github.com/spf13/cobra"
 )
@@ -30,10 +31,12 @@ func Retry() *cobra.Command {
 Flags:
   --run-id string (required) Unique identifier of the DAG-run to retry.
   --step string (optional) Retry only the specified step.
+  --sub-run-id string (optional) Retry the step in this persisted child DAG-run.
 
 Examples:
   dagu retry --run-id=abc123 my_dag
   dagu retry --run-id=abc123 my_dag.yaml
+  dagu retry --run-id=abc123 --sub-run-id=child123 --step=build my_dag
 `,
 			Args: cobra.ExactArgs(1),
 		}, retryFlags, runRetry,
@@ -43,10 +46,13 @@ Examples:
 var retryFlags = []commandLineFlag{
 	dagRunIDFlagRetry,
 	stepNameForRetry,
+	subDAGRunIDFlagStatus,
 	rootDAGRunFlag,
+	retryPathFlag,
 	defaultWorkingDirFlag,
 	retryWorkerIDFlag,
 	attemptIDFlag,
+	triggerActorFlag,
 }
 
 var retryWorkerIDFlag = commandLineFlag{
@@ -63,9 +69,11 @@ func runRetry(ctx *Context, args []string) error {
 	if ctx.IsRemote() {
 		for _, flag := range []commandLineFlag{
 			rootDAGRunFlag,
+			retryPathFlag,
 			defaultWorkingDirFlag,
 			retryWorkerIDFlag,
 			attemptIDFlag,
+			triggerActorFlag,
 		} {
 			if ctx.Command.Flags().Changed(flag.name) {
 				return fmt.Errorf("--%s is not supported with --context", flag.name)
@@ -75,8 +83,24 @@ func runRetry(ctx *Context, args []string) error {
 	}
 	dagRunID, _ := ctx.StringParam("run-id")
 	stepName, _ := ctx.StringParam("step")
+	subDAGRunID, _ := ctx.StringParam("sub-run-id")
 	rootRefStr, _ := ctx.StringParam("root")
+	retryPathValue, _ := ctx.StringParam("retry-path")
+	retryPath, err := exec.ParseRetryPath(retryPathValue)
+	if err != nil {
+		return err
+	}
+	if subDAGRunID != "" && stepName == "" {
+		return fmt.Errorf("--sub-run-id requires --step")
+	}
+	if subDAGRunID != "" && (rootRefStr != "" || len(retryPath.Hops) > 0) {
+		return fmt.Errorf("--sub-run-id cannot be combined with internal child retry flags")
+	}
 	workerID := getWorkerID(ctx)
+	triggerActor, err := ctx.StringParam("trigger-actor")
+	if err != nil {
+		return fmt.Errorf("failed to get trigger actor: %w", err)
+	}
 	attemptID, err := requireWorkerAttemptID(ctx, workerID)
 	if err != nil {
 		return err
@@ -128,9 +152,30 @@ func runRetry(ctx *Context, args []string) error {
 		}
 		return fmt.Errorf("failed to read status: status data is nil")
 	}
+	if queueDispatchRetry && triggerActor == "" {
+		triggerActor = status.TriggerActor
+	}
 	profileName := status.ProfileName
 	if queueDispatchRetry && status.Status != core.Queued {
 		return newQueueDispatchNotQueuedError(status)
+	}
+	if subDAGRunID != "" {
+		var targetStatus *exec.DAGRunStatus
+		retryPath, targetStatus, err = exec.ResolveRetryPath(ctx, ctx.DAGRunStore, ref, subDAGRunID, stepName)
+		if err != nil {
+			return err
+		}
+		if err := humantask.ValidateRetry(targetStatus, retryPath.Step); err != nil {
+			return err
+		}
+		stepName = retryPath.RootStep()
+	} else {
+		if len(retryPath.Hops) > 0 {
+			stepName = retryPath.RootStep()
+		}
+		if err := humantask.ValidateRetry(status, stepName); err != nil {
+			return err
+		}
 	}
 
 	dag, err := attempt.ReadDAG(ctx)
@@ -171,7 +216,7 @@ func runRetry(ctx *Context, args []string) error {
 	// Step retry is not supported via queue (queue processor does not pass step name).
 	queueConfig := ctx.Config.FindQueueConfig(dag.ProcGroup())
 	if stepName == "" && queueConfig != nil && status.Status != core.Queued {
-		return enqueueRetry(ctx, attempt, dag, status, dagRunID)
+		return enqueueRetry(ctx, dag, status, triggerActor)
 	}
 
 	if err := waitForRetrySourceRelease(ctx, dag, status); err != nil {
@@ -179,17 +224,25 @@ func runRetry(ctx *Context, args []string) error {
 	}
 
 	ctx.Context = logger.WithValues(ctx.Context, tag.DAG(dag.Name), tag.RunID(dagRunID))
+	run := runOptions{
+		root:         rootRun,
+		parent:       status.Parent,
+		workerID:     workerID,
+		attemptID:    attemptID,
+		triggerType:  exec.PreservedQueueTriggerType(status),
+		triggerActor: triggerActor,
+		scheduleTime: status.ScheduleTime,
+		profileName:  profileName,
+		step:         stepName,
+		retryPath:    retryPath,
+	}
 
 	if workerID == "local" {
 		return withPreparedLocalExecution(
 			ctx,
 			dag,
 			dagRunID,
-			rootRun,
-			status.Parent,
-			exec.PreservedQueueTriggerType(status),
-			status.ScheduleTime,
-			profileName,
+			run,
 			func(execCtx context.Context) (exec.DAGRunAttempt, error) {
 				if queueDispatchRetry {
 					queuedAttempt, queuedStatus, err := queueDispatchRetryTarget(execCtx, ctx.DAGRunStore, ref, rootRun, attempt.ID())
@@ -207,13 +260,15 @@ func runRetry(ctx *Context, args []string) error {
 				return ctx.DAGRunStore.CreateAttempt(execCtx, dag, time.Now(), dagRunID, opts)
 			},
 			func(preparedAttempt exec.DAGRunAttempt) error {
-				return executeRetry(ctx, dag, status, rootRun, stepName, workerID, attemptID, profileName, preparedAttempt)
+				prepared := run
+				prepared.preparedAttempt = preparedAttempt
+				return executeRetry(ctx, dag, status, prepared)
 			},
 		)
 	}
 
 	if ctx.DAGRunStore == nil {
-		return executeRetry(ctx, dag, status, rootRun, stepName, workerID, attemptID, profileName, nil)
+		return executeRetry(ctx, dag, status, run)
 	}
 
 	if err := validateWorkerAttemptBinding(dagRunID, attemptID, attempt, status); err != nil {
@@ -224,11 +279,7 @@ func runRetry(ctx *Context, args []string) error {
 		ctx,
 		dag,
 		dagRunID,
-		rootRun,
-		status.Parent,
-		exec.PreservedQueueTriggerType(status),
-		status.ScheduleTime,
-		profileName,
+		run,
 		func(execCtx context.Context) (exec.DAGRunAttempt, error) {
 			if queueDispatchRetry {
 				if err := ensureQueueDispatchRetryTarget(execCtx, ctx.DAGRunStore, ref, rootRun); err != nil {
@@ -238,7 +289,9 @@ func runRetry(ctx *Context, args []string) error {
 			return attempt, nil
 		},
 		func(preparedAttempt exec.DAGRunAttempt) error {
-			return executeRetry(ctx, dag, status, rootRun, stepName, workerID, attemptID, profileName, preparedAttempt)
+			prepared := run
+			prepared.preparedAttempt = preparedAttempt
+			return executeRetry(ctx, dag, status, prepared)
 		},
 	)
 }
@@ -391,8 +444,10 @@ func newQueueDispatchNotQueuedError(status *exec.DAGRunStatus) *exec.DAGRunNotQu
 // enqueueRetry enqueues the retry and persists Queued status via exec.EnqueueRetry.
 // Retries respect global queue capacity because the queue processor picks them up
 // when capacity is available.
-func enqueueRetry(ctx *Context, _ exec.DAGRunAttempt, dag *core.DAG, status *exec.DAGRunStatus, dagRunID string) error {
-	if err := exec.EnqueueRetry(ctx.Context, ctx.DAGRunStore, ctx.QueueStore, dag, status, exec.EnqueueRetryOptions{}); err != nil {
+func enqueueRetry(ctx *Context, dag *core.DAG, status *exec.DAGRunStatus, triggerActor string) error {
+	if _, err := exec.EnqueueRetry(ctx.Context, ctx.DAGRunStore, ctx.QueueStore, dag, status, exec.EnqueueRetryOptions{
+		TriggerActor: &triggerActor,
+	}); err != nil {
 		if errors.Is(err, exec.ErrRetryStaleLatest) {
 			return fmt.Errorf("dag-run state changed before retry could be queued")
 		}
@@ -400,7 +455,7 @@ func enqueueRetry(ctx *Context, _ exec.DAGRunAttempt, dag *core.DAG, status *exe
 	}
 	logger.Info(ctx, "Enqueued retry; will run when queue capacity is available",
 		tag.DAG(dag.Name),
-		tag.RunID(dagRunID),
+		tag.RunID(status.DAGRunID),
 	)
 	return nil
 }
@@ -533,9 +588,9 @@ func retrySourceMayStillBeFinalizing(status *exec.DAGRunStatus) bool {
 
 // executeRetry runs a retry of a DAG run using the original run's log file.
 // Queued catchup runs reuse this path but preserve their catchup trigger type.
-func executeRetry(ctx *Context, dag *core.DAG, status *exec.DAGRunStatus, rootRun exec.DAGRunRef, stepName, workerID, attemptID, profileName string, preparedAttempt exec.DAGRunAttempt) error {
-	if stepName != "" {
-		ctx.Context = logger.WithValues(ctx.Context, tag.Step(stepName))
+func executeRetry(ctx *Context, dag *core.DAG, status *exec.DAGRunStatus, opts runOptions) error {
+	if opts.step != "" {
+		ctx.Context = logger.WithValues(ctx.Context, tag.Step(opts.step))
 	}
 	logger.Debug(ctx, "Executing dag-run retry")
 
@@ -560,7 +615,7 @@ func executeRetry(ctx *Context, dag *core.DAG, status *exec.DAGRunStatus, rootRu
 
 	dr, err := ctx.dagStore(dagStoreConfig{
 		SearchPaths:           []string{filepath.Dir(dag.Location)},
-		SkipDirectoryCreation: workerID != "local",
+		SkipDirectoryCreation: opts.workerID != "local",
 	})
 	if err != nil {
 		return fmt.Errorf("failed to initialize DAG store: %w", err)
@@ -588,21 +643,23 @@ func executeRetry(ctx *Context, dag *core.DAG, status *exec.DAGRunStatus, rootRu
 			ParentDAGRun:             status.Parent,
 			ProgressDisplay:          shouldEnableProgress(ctx),
 			ExtraEnvs:                extraEnvs,
-			StepRetry:                stepName,
-			WorkerID:                 workerID,
-			AttemptID:                attemptID,
-			PreparedAttempt:          preparedAttempt,
+			StepRetry:                opts.step,
+			RetryPath:                opts.retryPath,
+			WorkerID:                 opts.workerID,
+			AttemptID:                opts.attemptID,
+			PreparedAttempt:          opts.preparedAttempt,
 			DAGRunStore:              ctx.DAGRunStore,
 			QueueStore:               ctx.QueueStore,
 			StateStore:               ctx.StateStore,
 			SecretStore:              as.SecretStore,
 			ProfileStore:             as.ProfileStore,
-			ProfileName:              profileName,
+			ProfileName:              opts.profileName,
 			ServiceRegistry:          ctx.ServiceRegistry,
 			SubWorkflowRunnerFactory: ctx.SubWorkflowRunnerFactory(),
-			RootDAGRun:               rootRun,
+			RootDAGRun:               opts.root,
 			PeerConfig:               ctx.Config.Core.Peer,
 			TriggerType:              triggerType,
+			TriggerActor:             opts.triggerActor,
 			DefaultExecMode:          ctx.Config.DefaultExecMode,
 			ArtifactDir:              artifactDir,
 			DAGRunLogDir:             ctx.Config.Paths.LogDir,

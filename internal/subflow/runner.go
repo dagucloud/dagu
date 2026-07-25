@@ -138,6 +138,14 @@ func (r *Runner) Run(ctx context.Context, req executor.SubWorkflowRequest) (*exe
 	if previousStatus, found, err := r.existingStatus(ctx, req); err != nil {
 		return nil, fmt.Errorf("failed to load child workflow status before start: %w", err)
 	} else if found {
+		if req.Reuse {
+			result := statusToRunStatus(previousStatus, req.RunID)
+			result.PendingStepRetries = nil
+			return result, nil
+		}
+		if req.ExternalStepRetry && previousStatus.Status == core.Succeeded {
+			return statusToRunStatus(previousStatus, req.RunID), nil
+		}
 		if err := r.dispatchRetryWithStatus(ctx, req, "", previousStatus); err != nil {
 			logger.Error(dispatchCtx, "Distributed child workflow retry dispatch failed", tag.Error(err))
 			return nil, fmt.Errorf("distributed retry failed: %w", err)
@@ -145,6 +153,10 @@ func (r *Runner) Run(ctx context.Context, req executor.SubWorkflowRequest) (*exe
 
 		logger.Info(dispatchCtx, "Distributed child workflow retry dispatched; awaiting completion")
 		return r.waitCompletion(ctx, req)
+	}
+
+	if req.Reuse {
+		return nil, fmt.Errorf("persisted child workflow status not found for DAG run %s", req.RunID)
 	}
 
 	if err := r.dispatchStart(ctx, req); err != nil {
@@ -356,8 +368,14 @@ func (r *Runner) taskOptions(
 	if req.ExternalStepRetry {
 		options = append(options, executor.WithExternalStepRetry(true))
 	}
+	if len(req.RetryPath.Hops) > 0 {
+		options = append(options, executor.WithRetryPath(req.RetryPath))
+	}
 	if req.ProfileName != "" {
 		options = append(options, executor.WithProfileName(req.ProfileName))
+	}
+	if req.TriggerActor != "" {
+		options = append(options, executor.WithTriggerActor(req.TriggerActor))
 	}
 
 	if req.Workspace != nil {

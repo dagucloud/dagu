@@ -579,7 +579,11 @@ func (a *API) launchEditRetryDAGRun(ctx context.Context, plan *editRetryPlan) (q
 		return false, fmt.Errorf("error preparing edit retry DAG env: %w", err)
 	}
 
-	retrySpec := a.subCmdBuilder.QueueDispatchRetry(prepared, plan.newDAGRunID, "")
+	retrySpec := a.subCmdBuilder.Retry(prepared, launcher.RetryOptions{
+		DAGRunID:      plan.newDAGRunID,
+		TriggerActor:  seedStatus.TriggerActor,
+		QueueDispatch: true,
+	})
 	if err := launcher.Start(ctx, retrySpec); err != nil {
 		return false, fmt.Errorf("error starting edit retry DAG: %w", err)
 	}
@@ -661,6 +665,7 @@ func (a *API) seedEditRetryAttempt(
 			exec.DAGRunRef{},
 		),
 		transform.WithTriggerType(core.TriggerTypeRetry),
+		transform.WithTriggerActor(triggerActorFromContext(ctx)),
 		transform.WithRuntimeProfile(profileName, "", nil),
 	}
 	status := transform.NewStatusBuilder(dag).Create(dagRunID, core.Queued, 0, time.Time{}, opts...)
@@ -901,6 +906,9 @@ func (a *API) dispatchEditRetry(ctx context.Context, dag *core.DAG, status *exec
 	if status.ProfileName != "" {
 		opts = append(opts, executor.WithProfileName(status.ProfileName))
 	}
+	if status.TriggerActor != "" {
+		opts = append(opts, executor.WithTriggerActor(status.TriggerActor))
+	}
 	task := executor.CreateTask(
 		dag.Name,
 		string(dag.YamlData),
@@ -963,17 +971,31 @@ func skippedEditRetryNodeState(source *exec.Node) runtime.NodeState {
 	state.DoneCount = source.DoneCount
 	state.Repeated = source.Repeated
 	state.OutputVariables = cloneSyncMap(source.OutputVariables)
+	if source.OutputValue != nil {
+		state.OutputValue = ptrOf(*source.OutputValue)
+	}
+	if source.OutputsValue != nil {
+		state.OutputsValue = ptrOf(*source.OutputsValue)
+	}
 	state.ChatMessages = append([]exec.LLMMessage(nil), source.ChatMessages...)
 	state.ToolDefinitions = append([]exec.ToolDefinition(nil), source.ToolDefinitions...)
+	state.HumanTaskInput = append(state.HumanTaskInput, source.HumanTaskInput...)
+	if source.StepOutputsValue != nil {
+		state.StepOutputsValue = ptrOf(*source.StepOutputsValue)
+	}
+	state.HumanTaskCompletedBy = source.HumanTaskCompletedBy
+	state.HumanTaskCompletedByID = source.HumanTaskCompletedByID
 	state.ApprovalInputs = cloneStringMap(source.ApprovalInputs)
 	state.ApprovedAt = source.ApprovedAt
 	state.ApprovedBy = source.ApprovedBy
+	state.ApprovedByID = source.ApprovedByID
 	state.RejectedAt = source.RejectedAt
 	state.RejectedBy = source.RejectedBy
+	state.RejectedByID = source.RejectedByID
 	state.RejectionReason = source.RejectionReason
 	state.ApprovalIteration = source.ApprovalIteration
 	state.PushBackInputs = cloneStringMap(source.PushBackInputs)
-	state.PushBackHistory = clonePushBackHistory(source.PushBackHistory)
+	state.PushBackHistory = exec.ClonePushBackHistory(source.PushBackHistory)
 	return state
 }
 
@@ -995,22 +1017,6 @@ func cloneStringMap(src map[string]string) map[string]string {
 	}
 	dst := make(map[string]string, len(src))
 	maps.Copy(dst, src)
-	return dst
-}
-
-func clonePushBackHistory(src []exec.PushBackEntry) []exec.PushBackEntry {
-	if len(src) == 0 {
-		return nil
-	}
-	dst := make([]exec.PushBackEntry, len(src))
-	for i, entry := range src {
-		dst[i] = exec.PushBackEntry{
-			Iteration: entry.Iteration,
-			By:        entry.By,
-			At:        entry.At,
-			Inputs:    cloneStringMap(entry.Inputs),
-		}
-	}
 	return dst
 }
 

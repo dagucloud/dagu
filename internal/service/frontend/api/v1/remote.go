@@ -115,30 +115,19 @@ func WithRemoteNode(resolver *remotenode.Resolver, apiBasePath string) func(next
 				slog.String("content-type", resp.Header.Get("Content-Type")),
 				slog.Int("data-length", len(respData)))
 
-			// If not status 200, try to parse the error response
+			// Preserve structured errors returned by the remote API.
 			if resp.StatusCode < 200 || resp.StatusCode > 299 {
-				// Only try to decode JSON if we actually got some response data
-				if len(respData) > 0 {
-					var remoteErr api.Error
-					if err := json.Unmarshal(respData, &remoteErr); err == nil && remoteErr.Code != "" {
-						WriteErrorResponse(w, &Error{
-							Code:       api.ErrorCodeBadGateway,
-							HTTPStatus: resp.StatusCode,
-							Message:    remoteErr.Message,
-						})
-						return
-					}
+				var remoteErr api.Error
+				if len(respData) == 0 || json.Unmarshal(respData, &remoteErr) != nil || remoteErr.Code == "" {
+					WriteErrorResponse(w, &Error{
+						Code:       api.ErrorCodeBadGateway,
+						HTTPStatus: resp.StatusCode,
+						Message:    fmt.Sprintf("remote node responded with status %d", resp.StatusCode),
+					})
+					return
 				}
-				// If we can't decode a proper error or have no data, return a generic one
-				WriteErrorResponse(w, &Error{
-					Code:       api.ErrorCodeBadGateway,
-					HTTPStatus: resp.StatusCode,
-					Message:    fmt.Sprintf("remote node responded with status %d", resp.StatusCode),
-				})
-				return
 			}
 
-			// Write the successful response, preserving the upstream status code
 			w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
 			w.WriteHeader(resp.StatusCode)
 			if _, err = w.Write(respData); err != nil {
@@ -159,29 +148,11 @@ type remoteNodeProxy struct {
 // If yes, it proxies the request to the remote node and returns the remote response.
 // If not, it returns nil, indicating to proceed locally.
 func (h *remoteNodeProxy) proxy(r *http.Request) (*http.Response, error) {
-	// Read the request body if it exists
-	var body any
-	if r.Body != nil {
-		data, err := io.ReadAll(r.Body)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read request body: %w", err)
-		}
-		if len(data) > 0 {
-			if err := json.Unmarshal(data, &body); err != nil {
-				return nil, &Error{
-					HTTPStatus: http.StatusBadRequest,
-					Code:       api.ErrorCodeBadRequest,
-					Message:    fmt.Sprintf("failed to unmarshal request body: %s", err.Error()),
-				}
-			}
-		}
-	}
-	// forward the request to the remote node
-	return h.doRequest(body, r)
+	return h.doRequest(r.Body, r)
 }
 
 // doRequest performs the actual proxying of the request to the remote node.
-func (h *remoteNodeProxy) doRequest(body any, r *http.Request) (*http.Response, error) {
+func (h *remoteNodeProxy) doRequest(body io.Reader, r *http.Request) (*http.Response, error) {
 	q := r.URL.Query()
 	q.Del("remoteNode")
 
@@ -194,20 +165,11 @@ func (h *remoteNodeProxy) doRequest(body any, r *http.Request) (*http.Response, 
 		}
 	}
 
-	method := r.Method
-	var bodyJSON io.Reader
-	if body != nil {
-		data, err := json.Marshal(body)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal request body: %w", err)
-		}
-		bodyJSON = strings.NewReader(string(data))
-	}
-
-	req, err := http.NewRequestWithContext(r.Context(), method, remoteURL, bodyJSON) //nolint:gosec // remoteURL is built from a validated remote-node base URL.
+	req, err := http.NewRequestWithContext(r.Context(), r.Method, remoteURL, body) //nolint:gosec // remoteURL is built from a validated remote-node base URL.
 	if err != nil {
 		return nil, fmt.Errorf("failed to create new request: %w", err)
 	}
+	req.ContentLength = r.ContentLength
 
 	// Apply authentication from node configuration
 	h.remoteNode.ApplyAuth(req)

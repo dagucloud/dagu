@@ -139,6 +139,27 @@ describe('DAGRunActions', () => {
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeEnabled();
   });
 
+  it('disables retry for waiting DAG executions', () => {
+    render(
+      <DAGRunActions
+        dagRun={{
+          name: 'waiting-dag',
+          dagRunId: 'run-1',
+          status: Status.Waiting,
+          statusLabel: StatusLabel.waiting,
+          artifactsAvailable: false,
+          autoRetryCount: 0,
+          startedAt: '',
+          finishedAt: '',
+        }}
+        name="waiting-dag"
+        displayMode="full"
+      />
+    );
+
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeDisabled();
+  });
+
   it('keeps stop disabled with a root-level tooltip for nested runs', () => {
     render(
       <DAGRunActions

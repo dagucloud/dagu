@@ -44,6 +44,91 @@ func TestTemplateExecutor(t *testing.T) {
 		})
 	})
 
+	t.Run("EnvironmentTemplateReference", func(t *testing.T) {
+		t.Parallel()
+
+		th := test.Setup(t)
+		dag := th.DAG(t, `env:
+  - TEMPLATE: "Hello, {{ .name }}!"
+
+steps:
+  - id: render
+    action: template.render
+    with:
+      template_ref: ${env.TEMPLATE}
+      data:
+        name: Alice
+    output: RESULT
+`)
+		agent := dag.Agent()
+		agent.RunSuccess(t)
+
+		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertOutputs(t, map[string]any{
+			"RESULT": "Hello, Alice!",
+		})
+	})
+
+	t.Run("StepOutputTemplateReference", func(t *testing.T) {
+		t.Parallel()
+
+		th := test.Setup(t)
+		dag := th.DAG(t, `steps:
+  - id: produce
+    run: |
+      printf 'template=%s\n' 'Hello, {{ .name }}!' >> "$DAGU_OUTPUT_FILE"
+    outputs:
+      - name: template
+
+  - id: render
+    depends:
+      - produce
+    action: template.render
+    with:
+      template_ref: ${steps.produce.outputs.template}
+      data:
+        name: Bob
+    output: RESULT
+`)
+		agent := dag.Agent()
+		agent.RunSuccess(t)
+
+		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertOutputs(t, map[string]any{
+			"RESULT": "Hello, Bob!",
+		})
+	})
+
+	t.Run("TemplateReferenceUsesSinglePassResolution", func(t *testing.T) {
+		t.Parallel()
+
+		th := test.Setup(t)
+		dag := th.DAG(t, `params:
+  - name: template
+    type: string
+    default: 'Hello, {{ .name }}! ${env.NESTED}'
+
+env:
+  - NESTED: must-not-expand
+
+steps:
+  - id: render
+    action: template.render
+    with:
+      template_ref: ${params.template}
+      data:
+        name: Alice
+    output: RESULT
+`)
+		agent := dag.Agent()
+		agent.RunSuccess(t)
+
+		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertOutputs(t, map[string]any{
+			"RESULT": "Hello, Alice! ${env.NESTED}",
+		})
+	})
+
 	t.Run("FileOnly", func(t *testing.T) {
 		t.Parallel()
 

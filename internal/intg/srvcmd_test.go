@@ -5,17 +5,18 @@ package intg_test
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
 	"testing"
 	"time"
 
 	"github.com/dagucloud/dagu/internal/cmd"
+	"github.com/dagucloud/dagu/internal/service/frontend"
 	"github.com/dagucloud/dagu/internal/test"
 	"github.com/stretchr/testify/require"
 )
@@ -90,9 +91,9 @@ steps:
 // TestServer_BasePath verifies that when BasePath is set in the configuration,
 // the API endpoints are served under that base path and not on the root.
 func TestServer_BasePath(t *testing.T) {
-	port := findPort(t)
+	listener, port := test.ReserveServerListener(t)
 	configFile := writeServerConfig(t, port, "/dagu", false)
-	stopServer := startServer(t, configFile, port, "/dagu")
+	stopServer := startServer(t, configFile, port, "/dagu", listener)
 
 	requireHealthy(t, fmt.Sprintf("http://127.0.0.1:%s/dagu/api/v1/health", port))
 
@@ -110,9 +111,9 @@ func TestServer_RemoteNode(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			port := findPort(t)
+			listener, port := test.ReserveServerListener(t)
 			configFile := writeServerConfig(t, port, tc.basePath, true)
-			stopServer := startServer(t, configFile, port, tc.basePath)
+			stopServer := startServer(t, configFile, port, tc.basePath, listener)
 
 			url := fmt.Sprintf("http://127.0.0.1:%s%s/api/v1/health?remoteNode=dev", port, tc.basePath)
 			requireHealthy(t, url)
@@ -145,24 +146,26 @@ auth:
 	return configFile
 }
 
-func startServer(t *testing.T, configFile, port, basePath string) func() {
+func startServer(t *testing.T, configFile, port, basePath string, listener net.Listener) func() {
 	t.Helper()
 	th := test.SetupCommand(t)
 
-	done := make(chan struct{})
+	serverErr := make(chan error, 1)
 	go func() {
-		th.RunCommand(t, cmd.Server(), test.CmdTest{
+		serverErr <- th.ExecuteCommand(cmd.Server(frontend.WithListener(listener)), test.CmdTest{
 			Args:        []string{"server", "--config", configFile, "--port=" + port},
 			ExpectedOut: []string{"Server is starting"},
 		})
-		close(done)
 	}()
 
 	waitForServer(t, fmt.Sprintf("http://127.0.0.1:%s%s/api/v1/health", port, basePath))
 
 	return func() {
 		th.Cancel()
-		<-done
+		err := <-serverErr
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			require.NoError(t, err)
+		}
 	}
 }
 
@@ -204,14 +207,4 @@ func requireHealthy(t *testing.T, url string) {
 	}
 	require.NoError(t, json.Unmarshal(body, &healthResp))
 	require.Equal(t, "healthy", healthResp.Status)
-}
-
-// findPort finds an available port.
-func findPort(t *testing.T) string {
-	t.Helper()
-	tcpListener, err := net.Listen("tcp", ":0")
-	require.NoError(t, err)
-	port := tcpListener.Addr().(*net.TCPAddr).Port
-	_ = tcpListener.Close()
-	return strconv.Itoa(port)
 }

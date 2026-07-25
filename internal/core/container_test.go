@@ -72,6 +72,12 @@ func TestPullPolicy(t *testing.T) {
 			expectError: false,
 		},
 		{
+			name:        "FallbackString",
+			pull:        "fallback",
+			expected:    core.PullPolicyFallback,
+			expectError: false,
+		},
+		{
 			name:        "Error",
 			pull:        "random pull policy should not exist",
 			expected:    core.PullPolicyMissing,

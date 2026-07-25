@@ -2001,6 +2001,17 @@ func TestBuildStepContainer(t *testing.T) {
 			},
 		},
 		{
+			name: "PullPolicyFallback",
+			input: &container{
+				Image:      "alpine:3.18",
+				PullPolicy: "fallback",
+			},
+			expected: &core.Container{
+				Image:      "alpine:3.18",
+				PullPolicy: core.PullPolicyFallback,
+			},
+		},
+		{
 			name: "RuntimeDefaultsToDocker",
 			input: &container{
 				Image: "alpine:3.18",

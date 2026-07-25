@@ -3,6 +3,7 @@
 
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { RuntimeProfileEntryKind, RuntimeProfileStatus } from '@/api/v1/schema';
@@ -14,6 +15,7 @@ const mutateMock = vi.fn();
 
 vi.mock('@/contexts/AuthContext', () => ({
   useCanManageProfiles: () => true,
+  useCanManageSecrets: () => true,
   useCanWriteForWorkspace: () => false,
   useIsAdmin: () => false,
 }));
@@ -28,33 +30,24 @@ vi.mock('@/hooks/api', () => ({
   useQuery: vi.fn(),
 }));
 
-class ResizeObserverMock {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
-}
-
-Object.defineProperty(globalThis, 'ResizeObserver', {
-  configurable: true,
-  value: ResizeObserverMock,
-});
-
 const useQueryMock = useQuery as unknown as {
   mockImplementation: (fn: (path: string) => unknown) => void;
 };
 
-function renderPage() {
+function renderPage(initialEntry = '/profiles') {
   render(
-    <AppBarContext.Provider
-      value={
-        {
-          setTitle: vi.fn(),
-          selectedRemoteNode: 'local',
-        } as never
-      }
-    >
-      <ProfilesPage />
-    </AppBarContext.Provider>
+    <MemoryRouter initialEntries={[initialEntry]}>
+      <AppBarContext.Provider
+        value={
+          {
+            setTitle: vi.fn(),
+            selectedRemoteNode: 'local',
+          } as never
+        }
+      >
+        <ProfilesPage />
+      </AppBarContext.Provider>
+    </MemoryRouter>
   );
 }
 
@@ -96,6 +89,57 @@ describe('ProfilesPage', () => {
         isLoading: false,
       };
     });
+  });
+
+  it('switches between separate profile and secret ref tabs', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    const profilesTab = screen.getByRole('tab', { name: 'Profiles' });
+    const secretRefsTab = screen.getByRole('tab', {
+      name: 'DAG Secret Refs',
+    });
+    const profilesPanel = document.getElementById('profiles-panel');
+    const secretRefsPanel = document.getElementById('secret-refs-panel');
+
+    expect(
+      screen.getByRole('heading', { name: 'Profiles & Secrets', level: 1 })
+    ).toBeVisible();
+    expect(profilesTab).toHaveAttribute('aria-selected', 'true');
+    expect(profilesTab).toHaveAttribute('tabindex', '0');
+    expect(secretRefsTab).toHaveAttribute('tabindex', '-1');
+    expect(profilesPanel).toBeVisible();
+    expect(secretRefsPanel).not.toBeVisible();
+    expect(
+      screen.getByRole('heading', { name: 'Profiles', level: 2 })
+    ).toBeVisible();
+    expect(
+      screen.getByRole('heading', {
+        name: 'DAG Secret Refs',
+        level: 2,
+        hidden: true,
+      })
+    ).not.toBeVisible();
+
+    profilesTab.focus();
+    await user.keyboard('{ArrowRight}');
+
+    expect(
+      screen.getByRole('heading', { name: 'DAG Secret Refs', level: 2 })
+    ).toBeVisible();
+    expect(secretRefsTab).toHaveAttribute('aria-selected', 'true');
+    expect(secretRefsTab).toHaveAttribute('tabindex', '0');
+    expect(secretRefsTab).toHaveFocus();
+    expect(profilesTab).toHaveAttribute('tabindex', '-1');
+    expect(profilesPanel).not.toBeVisible();
+    expect(secretRefsPanel).toBeVisible();
+
+    await user.keyboard('{ArrowLeft}');
+
+    expect(profilesTab).toHaveAttribute('aria-selected', 'true');
+    expect(profilesTab).toHaveFocus();
+    expect(
+      screen.getByRole('heading', { name: 'Profiles', level: 2 })
+    ).toBeVisible();
   });
 
   it('disables protected profile mutations for non-admin managers', async () => {

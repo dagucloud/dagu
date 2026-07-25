@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import ConfirmModal from '@/components/ui/confirm-dialog';
 
 interface CleanupDialogProps {
@@ -17,14 +20,14 @@ export function CleanupDialog({
 }: CleanupDialogProps) {
   return (
     <ConfirmModal
-      title="Cleanup Missing Items"
+      title="Cleanup Missing DAGs"
       buttonText={isCleaningUp ? 'Cleaning up...' : 'Cleanup'}
       visible={open}
       dismissModal={onCancel}
       onSubmit={onConfirm}
     >
       <p className="text-sm text-muted-foreground">
-        Remove {missingCount} missing item{missingCount !== 1 ? 's' : ''} from
+        Remove {missingCount} missing DAG{missingCount !== 1 ? 's' : ''} from
         sync tracking? Files remain in the remote repository.
       </p>
     </ConfirmModal>

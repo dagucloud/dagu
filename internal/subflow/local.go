@@ -182,6 +182,17 @@ func (r *Local) Run(ctx context.Context, req executor.SubWorkflowRequest) (*exec
 	if err != nil {
 		return nil, err
 	}
+	if req.Reuse {
+		if retryTarget == nil {
+			return nil, fmt.Errorf("persisted child workflow status not found for DAG run %s", req.RunID)
+		}
+		result := statusToRunStatus(retryTarget, req.RunID)
+		result.PendingStepRetries = nil
+		return result, nil
+	}
+	if req.ExternalStepRetry && retryTarget != nil && retryTarget.Status == core.Succeeded {
+		return statusToRunStatus(retryTarget, req.RunID), nil
+	}
 
 	dag, cleanup, err := loadInProcessDAG(ctx, req)
 	if err != nil {
@@ -340,6 +351,8 @@ func (r *Local) newAgent(
 
 	opts.ParentDAGRun = req.ParentDAGRun
 	opts.RootDAGRun = req.RootDAGRun
+	opts.TriggerActor = req.TriggerActor
+	opts.RetryPath = req.RetryPath
 	opts.ExtraEnvs = inProcessExtraEnvs(rCtx, req)
 	opts.WorkerID = r.workerID
 	opts.StatusPusher = r.statusPusher

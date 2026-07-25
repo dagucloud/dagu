@@ -327,6 +327,21 @@ func TestLoadConfigFromMap(t *testing.T) {
 			},
 		},
 		{
+			name: "PullPolicyFallback",
+			input: map[string]any{
+				"image": "alpine",
+				"pull":  "fallback",
+			},
+			expected: &Config{
+				Image:       "alpine",
+				Pull:        core.PullPolicyFallback,
+				Container:   &container.Config{},
+				Host:        &container.HostConfig{},
+				Network:     &network.NetworkingConfig{},
+				ExecOptions: &client.ExecCreateOptions{},
+			},
+		},
+		{
 			name: "PullPolicyAsBooleanTrue",
 			input: map[string]any{
 				"image": "alpine",

@@ -239,7 +239,13 @@ type PathsDef struct {
 type SecretsDef struct {
 	Vault      *VaultSecretsDef      `mapstructure:"vault"`
 	Kubernetes *KubernetesSecretsDef `mapstructure:"kubernetes"`
+	AWS        *AWSSecretsDef        `mapstructure:"aws"`
 	GCP        *GCPSecretsDef        `mapstructure:"gcp"`
+}
+
+// AWSSecretsDef configures global AWS Secrets Manager client defaults.
+type AWSSecretsDef struct {
+	Region string `mapstructure:"region"`
 }
 
 // GCPSecretsDef configures global GCP Secret Manager client defaults.

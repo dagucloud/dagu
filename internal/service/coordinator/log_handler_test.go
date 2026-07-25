@@ -5,9 +5,11 @@ package coordinator
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
@@ -197,7 +199,6 @@ func TestLogHandler_GetOrCreateWriter(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, writer)
 		require.NotNil(t, writer.file)
-		require.NotNil(t, writer.writer)
 	})
 
 	t.Run("ReturnsExistingWriter", func(t *testing.T) {
@@ -393,7 +394,7 @@ func TestLogHandler_Close(t *testing.T) {
 	})
 }
 
-func TestLogWriter_WriteAndFlush(t *testing.T) {
+func TestStreamLogWriter_Write(t *testing.T) {
 	t.Parallel()
 
 	t.Run("WritesDataToFile", func(t *testing.T) {
@@ -530,6 +531,56 @@ func TestLogHandler_HandleStream(t *testing.T) {
 		content, err := os.ReadFile(expectedPath)
 		require.NoError(t, err)
 		assert.Equal(t, "line 1\nline 2\n", string(content))
+	})
+
+	t.Run("MakesTinyChunkVisibleBeforeStreamCompletion", func(t *testing.T) {
+		t.Parallel()
+
+		logDir := t.TempDir()
+		h := newLogHandler(logDir)
+		defer h.Close(context.Background())
+
+		chunk := &coordinatorv1.LogChunk{
+			DagName:    "test-dag",
+			DagRunId:   "run-live",
+			AttemptId:  "attempt-1",
+			StepName:   "step1",
+			StreamType: coordinatorv1.LogStreamType_LOG_STREAM_TYPE_STDOUT,
+			Data:       []byte("live\n"),
+		}
+		stream := &blockingStreamLogsServer{
+			mockStreamLogsServer: mockStreamLogsServer{ctx: context.Background()},
+			chunk:                chunk,
+			waiting:              make(chan struct{}),
+			release:              make(chan struct{}),
+		}
+
+		errCh := make(chan error, 1)
+		go func() {
+			errCh <- h.handleStream(stream)
+		}()
+
+		select {
+		case <-stream.waiting:
+		case <-time.After(5 * time.Second):
+			t.Fatal("stream handler did not process the first chunk")
+		}
+
+		select {
+		case err := <-errCh:
+			t.Fatalf("stream handler completed before stream EOF: %v", err)
+		default:
+		}
+
+		content, err := os.ReadFile(h.logFilePath(chunk))
+		require.NoError(t, err)
+		assert.Equal(t, chunk.Data, content)
+
+		close(stream.release)
+		require.NoError(t, <-errCh)
+		require.NotNil(t, stream.response)
+		assert.Equal(t, uint64(1), stream.response.ChunksReceived)
+		assert.Equal(t, uint64(len(chunk.Data)), stream.response.BytesWritten)
 	})
 
 	t.Run("HandlesEmptyChunks", func(t *testing.T) {
@@ -677,4 +728,23 @@ func TestLogHandler_HandleStream(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "stderr output\n", string(stderrContent))
 	})
+}
+
+type blockingStreamLogsServer struct {
+	mockStreamLogsServer
+	chunk     *coordinatorv1.LogChunk
+	waiting   chan struct{}
+	release   chan struct{}
+	delivered bool
+}
+
+func (s *blockingStreamLogsServer) Recv() (*coordinatorv1.LogChunk, error) {
+	if !s.delivered {
+		s.delivered = true
+		return s.chunk, nil
+	}
+
+	close(s.waiting)
+	<-s.release
+	return nil, io.EOF
 }

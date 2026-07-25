@@ -11,6 +11,7 @@ import {
 import {
   ActivitySquare,
   Archive,
+  ClipboardCheck,
   FileCode,
   GanttChart,
   GripHorizontal,
@@ -29,6 +30,7 @@ import { useClient } from '../../../hooks/api';
 import { cn, toMermaidNodeId } from '../../../lib/utils';
 import BorderedBox from '@/components/ui/bordered-box';
 import { DAGRunOutputs } from '../../dag-runs/components/dag-run-details';
+import { getManualActionState } from '../../dag-runs/lib/manualActionState';
 import { DAGContext } from '../contexts/DAGContext';
 import { getEventHandlers } from '../lib/getEventHandlers';
 import { updateDAGRunNodeStatus } from '../lib/nodeStatus';
@@ -44,6 +46,7 @@ import {
   StatusUpdateModal,
 } from './dag-execution';
 import { FlowchartType, Graph, TimelineChart } from './visualization';
+import { HumanTasksTab } from './human-task';
 
 type Props = {
   dagRun: components['schemas']['DAGRunDetails'];
@@ -60,7 +63,8 @@ export type StatusTab =
   | 'artifacts'
   | 'chat'
   | 'spec'
-  | 'approval';
+  | 'approval'
+  | 'human-tasks';
 
 /** Check if the current DAG run is a sub DAG-run (has a different root) */
 function isSubDAGRun(dagRun: components['schemas']['DAGRunDetails']): boolean {
@@ -345,20 +349,24 @@ function DAGStatus({
       }
 
       const status = displayDAGRun.status;
-
-      // Only allow status updates for completed DAG runs
-      if (status !== Status.Running && status !== Status.NotStarted) {
-        // find the right-clicked step
-        const n = displayDAGRun.nodes?.find(
-          (n) => toMermaidNodeId(n.step.name) == id
-        );
-
-        if (n) {
-          // Show the modal (it will be centered by default)
-          setSelectedStep(n.step);
-          setModal(true);
-        }
+      if (
+        status === Status.NotStarted ||
+        status === Status.Running ||
+        status === Status.Queued ||
+        status === Status.Waiting
+      ) {
+        return;
       }
+
+      const node = displayDAGRun.nodes?.find(
+        (candidate) => toMermaidNodeId(candidate.step.name) === id
+      );
+      if (!node || node.step.humanTask) {
+        return;
+      }
+
+      setSelectedStep(node.step);
+      setModal(true);
     },
     [displayDAGRun, config.permissions.runDags]
   );
@@ -393,16 +401,21 @@ function DAGStatus({
     (node) => node.step.executorConfig?.type === 'chat'
   );
 
-  // Check if there are any steps awaiting approval
-  const waitingStepCount =
-    displayDAGRun.nodes?.filter((node) => node.status === NodeStatus.Waiting)
-      .length || 0;
-  const hasWaitingSteps = waitingStepCount > 0;
+  const { waitingApprovalNodes, waitingHumanTaskNodes, hasHumanTaskWork } =
+    getManualActionState(displayDAGRun);
+  const waitingApprovalCount = waitingApprovalNodes.length;
+  const waitingHumanTaskCount = waitingHumanTaskNodes.length;
+  const hasWaitingApprovals = waitingApprovalCount > 0;
   const hasArtifacts = artifactEnabled || !!displayDAGRun.artifactsAvailable;
+  const displayDAGRunIdentity = JSON.stringify([
+    remoteNode,
+    displayDAGRun.name,
+    displayDAGRun.dagRunId,
+  ]);
 
   useEffect(() => {
     setActiveTab(initialTab);
-  }, [displayDAGRun.dagRunId, initialTab]);
+  }, [displayDAGRunIdentity, initialTab]);
 
   // Reset to status tab if selected tab is not available
   useEffect(() => {
@@ -412,20 +425,39 @@ function DAGStatus({
     if (activeTab === 'chat' && !hasChatSteps) {
       setActiveTab('status');
     }
-    if (activeTab === 'approval' && !hasWaitingSteps) {
+    if (activeTab === 'approval' && !hasWaitingApprovals) {
+      setActiveTab('status');
+    }
+    if (activeTab === 'human-tasks' && !hasHumanTaskWork) {
       setActiveTab('status');
     }
     if (activeTab === 'artifacts' && !hasArtifacts) {
       setActiveTab('status');
     }
-  }, [showTimeline, hasChatSteps, hasWaitingSteps, hasArtifacts, activeTab]);
+  }, [
+    showTimeline,
+    hasChatSteps,
+    hasWaitingApprovals,
+    hasHumanTaskWork,
+    hasArtifacts,
+    activeTab,
+  ]);
 
-  // Auto-switch to approval tab when steps enter waiting state
+  // Surface a newly available manual action from the default status tab.
   useEffect(() => {
-    if (hasWaitingSteps) {
-      setActiveTab('approval');
-    }
-  }, [hasWaitingSteps]);
+    setActiveTab((currentTab) => {
+      if (currentTab !== 'status') {
+        return currentTab;
+      }
+      if (hasHumanTaskWork) {
+        return 'human-tasks';
+      }
+      if (hasWaitingApprovals) {
+        return 'approval';
+      }
+      return currentTab;
+    });
+  }, [displayDAGRunIdentity, hasHumanTaskWork, hasWaitingApprovals]);
 
   const scrollPaneClassName = fillHeight
     ? 'min-h-0 flex-1 overflow-auto pr-1'
@@ -457,7 +489,23 @@ function DAGStatus({
                 <ActivitySquare className="h-4 w-4" />
                 <span className="hidden sm:inline">Status</span>
               </Tab>
-              {hasWaitingSteps && (
+              {hasHumanTaskWork && (
+                <Tab
+                  aria-label="Human tasks"
+                  isActive={activeTab === 'human-tasks'}
+                  onClick={() => setActiveTab('human-tasks')}
+                  className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
+                >
+                  <ClipboardCheck className="h-4 w-4" />
+                  <span className="hidden sm:inline">Human tasks</span>
+                  {waitingHumanTaskCount > 0 && (
+                    <span className="rounded-full bg-warning/15 px-1.5 py-0.5 text-xs font-medium text-warning">
+                      {waitingHumanTaskCount}
+                    </span>
+                  )}
+                </Tab>
+              )}
+              {hasWaitingApprovals && (
                 <Tab
                   aria-label="Approval"
                   isActive={activeTab === 'approval'}
@@ -467,7 +515,7 @@ function DAGStatus({
                   <ShieldCheck className="h-4 w-4" />
                   <span className="hidden sm:inline">Approval</span>
                   <span className="rounded-full bg-warning/15 px-1.5 py-0.5 text-xs font-medium text-warning">
-                    {waitingStepCount}
+                    {waitingApprovalCount}
                   </span>
                 </Tab>
               )}
@@ -630,8 +678,19 @@ function DAGStatus({
         </div>
       )}
 
+      {/* Human Tasks Tab Content */}
+      {activeTab === 'human-tasks' && hasHumanTaskWork && (
+        <div className={scrollPaneClassName}>
+          <HumanTasksTab
+            key={displayDAGRunIdentity}
+            dagRun={displayDAGRun}
+            onChanged={dagContext.refresh}
+          />
+        </div>
+      )}
+
       {/* Approval Tab Content */}
-      {activeTab === 'approval' && hasWaitingSteps && (
+      {activeTab === 'approval' && hasWaitingApprovals && (
         <div className={scrollPaneClassName}>
           <ApprovalTab dagRun={displayDAGRun} dagName={displayDAGRun.name} />
         </div>

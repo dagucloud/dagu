@@ -179,6 +179,7 @@ type SlackTarget struct {
 type TelegramTarget struct {
 	BotToken        string `json:"botToken,omitempty"`
 	ChatID          string `json:"chatId,omitempty"`
+	TopicID         string `json:"topicId,omitempty"`
 	MessageTemplate string `json:"messageTemplate,omitempty"`
 }
 
@@ -285,6 +286,7 @@ type PublicTelegramTarget struct {
 	BotTokenConfigured bool   `json:"botTokenConfigured"`
 	BotTokenPreview    string `json:"botTokenPreview,omitempty"`
 	ChatID             string `json:"chatId,omitempty"`
+	TopicID            string `json:"topicId,omitempty"`
 	MessageTemplate    string `json:"messageTemplate,omitempty"`
 }
 
@@ -599,6 +601,13 @@ func normalizeTarget(target *Target) error {
 		target.Telegram.ChatID = strings.TrimSpace(target.Telegram.ChatID)
 		if target.Telegram.ChatID == "" {
 			return fmt.Errorf("%w: telegram target requires chatId", ErrInvalidSettings)
+		}
+		target.Telegram.TopicID = strings.TrimSpace(target.Telegram.TopicID)
+		if target.Telegram.TopicID != "" {
+			topicID, err := strconv.Atoi(target.Telegram.TopicID)
+			if err != nil || topicID <= 0 {
+				return fmt.Errorf("%w: telegram target topicId must be a positive integer", ErrInvalidSettings)
+			}
 		}
 	default:
 		return fmt.Errorf("%w: %s", ErrUnsupportedTarget, target.Type)
@@ -941,6 +950,7 @@ func (t Target) ToPublic() PublicTarget {
 				BotTokenConfigured: t.Telegram.BotToken != "",
 				BotTokenPreview:    PreviewSecret(t.Telegram.BotToken),
 				ChatID:             t.Telegram.ChatID,
+				TopicID:            t.Telegram.TopicID,
 				MessageTemplate:    t.Telegram.MessageTemplate,
 			}
 		}

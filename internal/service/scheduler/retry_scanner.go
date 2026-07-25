@@ -170,7 +170,7 @@ func (s *RetryScanner) processFailedRunFromSummary(
 		return nil
 	}
 
-	err := exec.EnqueueRetry(ctx, s.dagRunStore, s.queueStore, nil, listed, exec.EnqueueRetryOptions{
+	_, err := exec.EnqueueRetry(ctx, s.dagRunStore, s.queueStore, nil, listed, exec.EnqueueRetryOptions{
 		AutoRetry: true,
 	})
 	if err != nil {
@@ -251,7 +251,7 @@ func (s *RetryScanner) processFailedRunLegacy(
 		return nil
 	}
 
-	err = exec.EnqueueRetry(ctx, s.dagRunStore, s.queueStore, dagSnapshot, latestStatus, exec.EnqueueRetryOptions{
+	_, err = exec.EnqueueRetry(ctx, s.dagRunStore, s.queueStore, dagSnapshot, latestStatus, exec.EnqueueRetryOptions{
 		AutoRetry: true,
 	})
 	if err != nil {

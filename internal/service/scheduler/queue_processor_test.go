@@ -275,6 +275,43 @@ func TestQueueProcessor_ConcurrencyLimit(t *testing.T) {
 	assert.GreaterOrEqual(t, len(items), 2, "Concurrency limit should prevent processing all at once")
 }
 
+func TestQueueProcessor_PreservesSameRunItemEnqueuedDuringDispatch(t *testing.T) {
+	f := newQueueFixture(t).withDAG("same-run-redispatch", 1).enqueueRuns(1).
+		withProcessor(config.Queues{}).simulateQueue(1, false)
+
+	initialItems, err := f.queueStore.List(f.ctx, f.dag.Name)
+	require.NoError(t, err)
+	require.Len(t, initialItems, 1)
+	initialItemID := initialItems[0].ID()
+	runRef := exec.NewDAGRunRef(f.dag.Name, "run-1")
+
+	procStore := &mockProcStore{}
+	procStore.On("CountAlive", mock.Anything, f.dag.Name).Return(0, nil).Once()
+	procStore.On("IsRunAlive", mock.Anything, f.dag.Name, runRef).Return(false, nil).Once()
+	var enqueueErr error
+	procStore.On("IsRunAlive", mock.Anything, f.dag.Name, runRef).
+		Run(func(mock.Arguments) {
+			enqueueErr = f.queueStore.Enqueue(f.ctx, f.dag.Name, exec.QueuePriorityLow, runRef)
+		}).
+		Return(true, nil).
+		Once()
+
+	f.processor.procStore = procStore
+	f.processor.dagExecutor = NewDAGExecutor(&mockDispatcher{}, nil, config.ExecutionModeDistributed, "")
+
+	f.processor.ProcessQueueItems(f.ctx, f.dag.Name)
+
+	require.NoError(t, enqueueErr)
+	items, err := f.queueStore.List(f.ctx, f.dag.Name)
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	assert.NotEqual(t, initialItemID, items[0].ID())
+	remainingRef, err := items[0].Data()
+	require.NoError(t, err)
+	assert.Equal(t, runRef, *remainingRef)
+	procStore.AssertExpectations(t)
+}
+
 func TestQueueProcessor_CountsFreshDistributedRunsAgainstQueueConcurrency(t *testing.T) {
 	f := newQueueFixture(t).withDAG("distributed-conc-dag", 1).
 		withProcessor(config.Queues{}, WithLeaseStaleThreshold(freshDistributedTestThreshold)).
@@ -478,7 +515,7 @@ func TestQueueProcessor_StaleOutstandingDispatchReservationsExpire(t *testing.T)
 	assert.Empty(t, pendingEntries)
 }
 
-func TestQueueDispatcher_DistributedDispatchReservesAdmissionToken(t *testing.T) {
+func TestQueueDispatcher_DistributedDispatchHandsOffWithAdmissionToken(t *testing.T) {
 	f := newQueueFixture(t).withDAG("distributed-admission-dag", 1)
 	f.enqueueRuns(1)
 
@@ -495,7 +532,6 @@ func TestQueueDispatcher_DistributedDispatchReservesAdmissionToken(t *testing.T)
 	runRef := exec.NewDAGRunRef(f.dag.Name, "run-1")
 	procStore := &mockProcStore{}
 	procStore.On("IsRunAlive", mock.Anything, f.dag.Name, runRef).Return(false, nil).Once()
-	procStore.On("IsRunAlive", mock.Anything, f.dag.Name, runRef).Return(true, nil).Once()
 	dispatcher := &mockDispatcher{}
 
 	queueDispatcher := newQueueDispatcher(queueDispatchDeps{

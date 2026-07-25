@@ -294,6 +294,7 @@ type DAGRunIndexEntry struct {
 	ProcGroup            string                 `protobuf:"bytes,26,opt,name=proc_group,json=procGroup,proto3" json:"proc_group,omitempty"`
 	SuspendFlagName      string                 `protobuf:"bytes,27,opt,name=suspend_flag_name,json=suspendFlagName,proto3" json:"suspend_flag_name,omitempty"`
 	ArchiveDir           string                 `protobuf:"bytes,28,opt,name=archive_dir,json=archiveDir,proto3" json:"archive_dir,omitempty"`
+	TriggerActor         string                 `protobuf:"bytes,29,opt,name=trigger_actor,json=triggerActor,proto3" json:"trigger_actor,omitempty"`
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
 }
@@ -524,6 +525,13 @@ func (x *DAGRunIndexEntry) GetArchiveDir() string {
 	return ""
 }
 
+func (x *DAGRunIndexEntry) GetTriggerActor() string {
+	if x != nil {
+		return x.TriggerActor
+	}
+	return ""
+}
+
 var File_proto_index_v1_index_proto protoreflect.FileDescriptor
 
 const file_proto_index_v1_index_proto_rawDesc = "" +
@@ -549,7 +557,7 @@ const file_proto_index_v1_index_proto_rawDesc = "" +
 	"\vDAGRunIndex\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\rR\aversion\x12\"\n" +
 	"\rbuilt_at_unix\x18\x02 \x01(\x03R\vbuiltAtUnix\x124\n" +
-	"\aentries\x18\x03 \x03(\v2\x1a.index.v1.DAGRunIndexEntryR\aentries\"\x95\b\n" +
+	"\aentries\x18\x03 \x03(\v2\x1a.index.v1.DAGRunIndexEntryR\aentries\"\xba\b\n" +
 	"\x10DAGRunIndexEntry\x12\x1e\n" +
 	"\vdag_run_dir\x18\x01 \x01(\tR\tdagRunDir\x12\x1c\n" +
 	"\n" +
@@ -586,7 +594,8 @@ const file_proto_index_v1_index_proto_rawDesc = "" +
 	"proc_group\x18\x1a \x01(\tR\tprocGroup\x12*\n" +
 	"\x11suspend_flag_name\x18\x1b \x01(\tR\x0fsuspendFlagName\x12\x1f\n" +
 	"\varchive_dir\x18\x1c \x01(\tR\n" +
-	"archiveDirB2Z0github.com/dagucloud/dagu/proto/index/v1;indexv1b\x06proto3"
+	"archiveDir\x12#\n" +
+	"\rtrigger_actor\x18\x1d \x01(\tR\ftriggerActorB2Z0github.com/dagucloud/dagu/proto/index/v1;indexv1b\x06proto3"
 
 var (
 	file_proto_index_v1_index_proto_rawDescOnce sync.Once

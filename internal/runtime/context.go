@@ -35,6 +35,8 @@ var (
 	WithDatabase = exec.WithDatabase
 	// WithRootDAGRun sets the root DAG run reference for sub-DAG execution.
 	WithRootDAGRun = exec.WithRootDAGRun
+	// WithRetryPath sets a targeted child DAG retry path.
+	WithRetryPath = exec.WithRetryPath
 	// WithAttemptID sets the DAG-run attempt identifier.
 	WithAttemptID = exec.WithAttemptID
 	// WithTriggerType sets the DAG-run trigger type.
