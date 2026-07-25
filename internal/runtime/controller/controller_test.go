@@ -355,9 +355,9 @@ func TestPlanner_MasksTheOutboundCopy(t *testing.T) {
 }
 
 func transcriptOf(s *controller.State) string {
-	var out string
+	var out strings.Builder
 	for _, m := range s.Messages() {
-		out += m.Content + "\n"
+		out.WriteString(m.Content + "\n")
 	}
-	return out
+	return out.String()
 }
