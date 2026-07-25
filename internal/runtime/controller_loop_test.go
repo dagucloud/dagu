@@ -404,8 +404,9 @@ func roundTripNodes(t *testing.T, ch *controllerHelper, complete func(*exec.Node
 }
 
 type resumeResult struct {
-	status     core.Status
-	transcript string
+	status          core.Status
+	transcript      string
+	controllerState json.RawMessage
 }
 
 func resumeController(t *testing.T, prev *controllerHelper, nodes []*runtime.Node, turns ...turn) resumeResult {
@@ -453,8 +454,9 @@ func resumeControllerWith(
 	ctrl := plan.GetNodeByName(core.ControllerStepName)
 	require.NotNil(t, ctrl)
 	return resumeResult{
-		status:     runner.Status(context.Background(), plan),
-		transcript: transcript(ctrl.GetChatMessages()),
+		status:          runner.Status(context.Background(), plan),
+		transcript:      transcript(ctrl.GetChatMessages()),
+		controllerState: ctrl.State().ControllerState,
 	}
 }
 
@@ -757,4 +759,41 @@ func TestControllerLoop_RefusesToAskTheSameQuestionTwice(t *testing.T) {
 	// The run finishes rather than suspending a second time.
 	require.Equal(t, core.Succeeded, resumed.status)
 	assert.Contains(t, resumed.transcript, "You already asked this and were told: staging")
+}
+
+// TestControllerLoop_FinalizesTheSuspendedActionEvent covers the timeline after a
+// resume: an action recorded as waiting must not stay that way once it finished.
+func TestControllerLoop_FinalizesTheSuspendedActionEvent(t *testing.T) {
+	t.Parallel()
+
+	ch := setupController(t, controllerHumanTaskDAG,
+		turn{tool: "review"},
+	)
+	require.Equal(t, core.Waiting, ch.run(t))
+
+	restored := roundTripNodes(t, ch, func(node *exec.Node) {
+		if node.Step.Name == "review" {
+			node.Status = core.NodeSucceeded
+			node.HumanTaskInput = json.RawMessage(`{"approved":true}`)
+			node.FinishedAt = exec.FormatTime(time.Now())
+		}
+	})
+
+	resumed := resumeControllerWith(t, ch, controllerHumanTaskDAG, restored,
+		turn{tool: controller.SetTaskStatusTool, args: map[string]any{
+			"task": "shipped", "status": "completed", "reason": "approved"}},
+	)
+	require.Equal(t, core.Succeeded, resumed.status)
+
+	events := controller.EventsFromState(resumed.controllerState)
+	var review *controller.Event
+	for i := range events {
+		if events[i].Name == "review" {
+			review = &events[i]
+		}
+	}
+	require.NotNil(t, review)
+	assert.Equal(t, core.NodeSucceeded.String(), review.Status,
+		"the waiting entry is updated once the answer arrives")
+	assert.NotEmpty(t, review.FinishedAt)
 }

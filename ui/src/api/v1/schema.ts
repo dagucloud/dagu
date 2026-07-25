@@ -16887,6 +16887,7 @@ export enum ArtifactPreviewKind {
 export enum ControllerEventKind {
     action = "action",
     task_status = "task_status",
+    ask_user = "ask_user",
     rejected = "rejected",
     stalled = "stalled"
 }

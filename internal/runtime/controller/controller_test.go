@@ -4,14 +4,21 @@
 package controller_test
 
 import (
+	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/internal/core/spec"
+	"github.com/dagucloud/dagu/internal/llm"
 	"github.com/dagucloud/dagu/internal/runtime/controller"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	// Registers the executors the child DAG in the round-trip test needs.
+	_ "github.com/dagucloud/dagu/internal/runtime/builtin"
 )
 
 func testDAG() *core.DAG {
@@ -184,12 +191,12 @@ func TestParamString(t *testing.T) {
 		{
 			name:     "SortedForStableChildRunIDs",
 			args:     map[string]any{"zeta": "z", "alpha": "a"},
-			expected: "alpha=a zeta=z",
+			expected: `alpha="a" zeta="z"`,
 		},
 		{
 			name:     "WholeNumbersLoseTheirFraction",
 			args:     map[string]any{"count": float64(3)},
-			expected: "count=3",
+			expected: `count="3"`,
 		},
 		{
 			name:     "ValuesWithSpacesAreQuoted",
@@ -216,12 +223,12 @@ func TestParamString(t *testing.T) {
 		{
 			name:     "StructuredValuesBecomeJSON",
 			args:     map[string]any{"items": []any{"a", "b"}},
-			expected: `items=["a","b"]`,
+			expected: `items="[\"a\",\"b\"]"`,
 		},
 		{
 			name:     "Booleans",
 			args:     map[string]any{"force": true},
-			expected: "force=true",
+			expected: `force="true"`,
 		},
 	}
 
@@ -247,4 +254,110 @@ func TestLoadState_RestoresARunSuspendedBeforeStatuses(t *testing.T) {
 	assert.Equal(t, controller.TaskCompleted, restored.Tasks[0].Status)
 	assert.Equal(t, controller.TaskOpen, restored.Tasks[1].Status)
 	assert.False(t, restored.Settled())
+}
+
+// TestParamString_SurvivesTheChildParser is the contract that matters: whatever
+// ParamString renders has to come back out of the parser the child DAG actually
+// uses. Reasoning about the wrong parser is how quoting was got wrong before.
+func TestParamString_SurvivesTheChildParser(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		args map[string]any
+		want []string
+	}{
+		{
+			name: "StructuredValueArrivesWhole",
+			args: map[string]any{"items": []any{"a", "b"}},
+			want: []string{`items=["a","b"]`},
+		},
+		{
+			name: "ObjectArrivesWhole",
+			args: map[string]any{"obj": map[string]any{"k": "v"}},
+			want: []string{`obj={"k":"v"}`},
+		},
+		{
+			name: "SpacesStayInOneParameter",
+			args: map[string]any{"msg": "hello world"},
+			want: []string{"msg=hello world"},
+		},
+		{
+			name: "NumbersAndBoolsAreUnchanged",
+			args: map[string]any{"count": float64(3), "force": true},
+			want: []string{"count=3", "force=true"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			dag, err := spec.LoadYAML(t.Context(),
+				[]byte("steps:\n  - name: a\n    run: echo hi\n"),
+				spec.WithParams(controller.ParamString(tt.args)))
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, dag.Params)
+		})
+	}
+}
+
+// stubProvider records the request it was handed and answers with no tool call.
+type stubProvider struct{ got *llm.ChatRequest }
+
+func (p *stubProvider) Name() string { return "stub" }
+func (p *stubProvider) Chat(_ context.Context, req *llm.ChatRequest) (*llm.ChatResponse, error) {
+	p.got = req
+	return &llm.ChatResponse{Content: "done", FinishReason: "stop"}, nil
+}
+func (p *stubProvider) ChatStream(context.Context, *llm.ChatRequest) (<-chan llm.StreamEvent, error) {
+	return nil, nil
+}
+
+// TestPlanner_MasksTheOutboundCopy covers an outbound leak. The system prompt and
+// task descriptions are resolved against the run scope, so a reference to a
+// secret becomes the secret itself. Only the copy sent to the model is masked;
+// the run keeps its transcript readable.
+func TestPlanner_MasksTheOutboundCopy(t *testing.T) {
+	t.Parallel()
+
+	provider := &stubProvider{}
+	catalog, err := controller.NewCatalog(t.Context(), &core.DAG{
+		Type:  core.TypeController,
+		Steps: []core.Step{{Name: "alpha"}},
+	})
+	require.NoError(t, err)
+
+	mask := func(msgs []exec.LLMMessage) []exec.LLMMessage {
+		out := make([]exec.LLMMessage, len(msgs))
+		for i, m := range msgs {
+			out[i] = m
+			out[i].Content = strings.ReplaceAll(m.Content, "super-secret", "***")
+		}
+		return out
+	}
+
+	planner := controller.NewPlanner(provider, &core.LLMConfig{Model: "m"}, catalog,
+		"Authenticate with super-secret.", mask)
+
+	state := controller.NewState(&core.DAG{Tasks: []core.ControllerTask{{Name: "t", Description: "d"}}})
+	state.Append(exec.LLMMessage{Role: exec.RoleUser, Content: "token is super-secret"})
+
+	_, err = planner.Next(t.Context(), state)
+	require.NoError(t, err)
+	require.NotNil(t, provider.got)
+
+	for _, m := range provider.got.Messages {
+		assert.NotContains(t, m.Content, "super-secret", "the model must not receive the raw value")
+	}
+	assert.Contains(t, transcriptOf(state), "super-secret",
+		"the run's own transcript keeps the resolved text")
+}
+
+func transcriptOf(s *controller.State) string {
+	var out string
+	for _, m := range s.Messages() {
+		out += m.Content + "\n"
+	}
+	return out
 }

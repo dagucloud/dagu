@@ -84,16 +84,31 @@ func (r *Runner) runControllerLoop(ctx context.Context, plan *Plan, progressCh c
 		r.failController(ctrlCtx, plan, ctrlNode, err, progressCh)
 		return
 	}
-	planner := controller.NewPlanner(provider, dag.LLM, catalog, system)
+	planner := controller.NewPlanner(provider, dag.LLM, catalog, system, func(msgs []exec.LLMMessage) []exec.LLMMessage {
+		return MaskSecretsForProvider(ctrlCtx, msgs)
+	})
 
 	// A run that suspended mid-action resumes here: report what became of the
 	// action before asking for the next decision.
 	if pending := state.Pending; pending != nil {
 		answered := plan.GetNodeByName(pending.Step)
 		state.Append(observe(ctrlCtx, answered, pending.ToolCallID))
-		if pending.Question != "" && answered != nil {
-			if answer, ok := askUserAnswer(answered, answered.State().HumanTaskInput); ok {
-				state.RecordAnswer(pending.Question, answer)
+		if answered != nil {
+			answeredState := answered.State()
+			finishedAt := ""
+			if !answeredState.FinishedAt.IsZero() {
+				finishedAt = stringutil.FormatTime(answeredState.FinishedAt)
+			}
+			errText := ""
+			if answeredState.Error != nil {
+				errText = answeredState.Error.Error()
+			}
+			state.FinalizeEvent(pending.Step, answeredState.Status.String(), finishedAt, errText)
+
+			if pending.Question != "" {
+				if answer, ok := askUserAnswer(answered, answeredState.HumanTaskInput); ok {
+					state.RecordAnswer(pending.Question, answer)
+				}
 			}
 		}
 		state.Pending = nil
@@ -259,7 +274,7 @@ func (r *Runner) askUser(
 
 	// A later question reuses the same task, so clear the previous answer.
 	if node.State().Status != core.NodeNotStarted {
-		node.ClearState(node.Step())
+		node.ResetForRerun(node.Step())
 	}
 
 	logger.Info(ctx, "Controller is asking a question", slog.String("question", question))
@@ -339,7 +354,7 @@ func (r *Runner) runControllerAction(
 		// every attempt stays reachable from the step.
 		previous := node.State().SubRuns
 		archived := node.State().SubRunsRepeated
-		node.ClearState(step)
+		node.ResetForRerun(step)
 		node.SetRepeated(true)
 		node.AddSubRunsRepeated(archived...)
 		node.SetSubRuns(previous)

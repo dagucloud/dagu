@@ -56,11 +56,16 @@ type Decision struct {
 }
 
 // Planner asks the model which action to take next.
+// MaskFunc hides secret values in the copy of a conversation that leaves for an
+// external model.
+type MaskFunc func([]exec.LLMMessage) []exec.LLMMessage
+
 type Planner struct {
 	provider llmpkg.Provider
 	cfg      *core.LLMConfig
 	catalog  *Catalog
 	system   string
+	mask     MaskFunc
 }
 
 // NewPlanner builds a planner over a provider and an action catalog. The system
@@ -71,12 +76,14 @@ func NewPlanner(
 	cfg *core.LLMConfig,
 	catalog *Catalog,
 	system string,
+	mask MaskFunc,
 ) *Planner {
 	return &Planner{
 		provider: provider,
 		cfg:      cfg,
 		catalog:  catalog,
 		system:   strings.TrimSpace(system),
+		mask:     mask,
 	}
 }
 
@@ -88,9 +95,17 @@ func (p *Planner) Next(ctx context.Context, st *State) (*Decision, error) {
 	msgs = append(msgs, exec.LLMMessage{Role: exec.RoleSystem, Content: p.systemPrompt(st)})
 	msgs = append(msgs, st.Messages()...)
 
+	// The prompt and transcript hold values resolved from the run scope, which
+	// can include secrets. Only the outbound copy is masked; the transcript the
+	// run keeps stays readable.
+	outbound := msgs
+	if p.mask != nil {
+		outbound = p.mask(msgs)
+	}
+
 	req := &llmpkg.ChatRequest{
 		Model:       p.cfg.Model,
-		Messages:    toProviderMessages(msgs),
+		Messages:    toProviderMessages(outbound),
 		Temperature: p.cfg.Temperature,
 		MaxTokens:   p.cfg.MaxTokens,
 		TopP:        p.cfg.TopP,

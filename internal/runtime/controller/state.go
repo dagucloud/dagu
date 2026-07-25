@@ -222,6 +222,23 @@ func (s *State) RecordEvent(e Event) {
 	s.Events = append(s.Events, e)
 }
 
+// FinalizeEvent updates the most recent event for a step with the outcome it
+// reached. An action that suspended was recorded as waiting, and only the run
+// that resumes knows how it ended.
+func (s *State) FinalizeEvent(step, status, finishedAt, reason string) {
+	for i := len(s.Events) - 1; i >= 0; i-- {
+		if s.Events[i].Name != step {
+			continue
+		}
+		s.Events[i].Status = status
+		s.Events[i].FinishedAt = finishedAt
+		if reason != "" {
+			s.Events[i].Reason = reason
+		}
+		return
+	}
+}
+
 // EventsFromState decodes the decision timeline persisted on a controller node.
 // Unreadable or absent state yields no events rather than an error.
 func EventsFromState(raw json.RawMessage) []Event {

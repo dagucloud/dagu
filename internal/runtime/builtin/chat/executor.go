@@ -16,7 +16,6 @@ import (
 
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/internal/cmn/masking"
 	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
@@ -385,34 +384,7 @@ func emptyAfterResolution(field, raw string) error {
 // maskSecretsForProvider masks secret values in messages before sending to LLM provider.
 // This prevents secrets from being leaked to external LLM APIs.
 func maskSecretsForProvider(ctx context.Context, msgs []exec.LLMMessage) []exec.LLMMessage {
-	// Use EnvScope.AllSecrets() for unified source tracking
-	rCtx := runtime.GetDAGContext(ctx)
-	if rCtx.EnvScope == nil {
-		return msgs
-	}
-	secrets := rCtx.EnvScope.AllSecrets()
-	if len(secrets) == 0 {
-		return msgs
-	}
-
-	envPairs := make([]string, 0, len(secrets))
-	for k, v := range secrets {
-		envPairs = append(envPairs, k+"="+v)
-	}
-
-	masker := masking.NewMasker(masking.SourcedEnvVars{Secrets: envPairs})
-
-	result := make([]exec.LLMMessage, len(msgs))
-	for i, msg := range msgs {
-		result[i] = exec.LLMMessage{
-			Role:       msg.Role,
-			Content:    masker.MaskString(msg.Content),
-			ToolCallID: msg.ToolCallID,
-			ToolCalls:  msg.ToolCalls, // Preserve tool calls (no secrets in IDs/names)
-			Metadata:   msg.Metadata,
-		}
-	}
-	return result
+	return runtime.MaskSecretsForProvider(ctx, msgs)
 }
 
 // Run executes the chat request.

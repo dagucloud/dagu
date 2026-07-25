@@ -1196,6 +1196,15 @@ func (n *Node) Prepare(ctx context.Context, logDir string, dagRunID string) erro
 	return nil
 }
 
+// ResetForRerun returns the node to its declared definition so it can execute
+// again. It clears the command-evaluation cache along with the run state, since
+// arguments holding runtime references must be resolved against current values
+// rather than those captured on the first attempt.
+func (n *Node) ResetForRerun(step core.Step) {
+	n.ClearState(step)
+	n.cmdEvaluated.Store(false)
+}
+
 func (n *Node) Teardown() error {
 	// Atomically mark as done to prevent concurrent teardown
 	if !n.done.CompareAndSwap(false, true) {

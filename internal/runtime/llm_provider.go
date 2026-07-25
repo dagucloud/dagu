@@ -9,8 +9,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dagucloud/dagu/internal/cmn/masking"
 	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
+	"github.com/dagucloud/dagu/internal/core/exec"
 	llmpkg "github.com/dagucloud/dagu/internal/llm"
 )
 
@@ -61,6 +63,40 @@ func NewLLMProvider(ctx context.Context, cfg *core.LLMConfig) (llmpkg.Provider, 
 	}
 
 	return provider, nil
+}
+
+// MaskSecretsForProvider replaces secret values in messages with a mask before
+// they leave for an external model. Fields such as an LLM system prompt are
+// resolved against the runtime scope, so a reference to a secret becomes the
+// secret itself; only the copy sent to the provider is masked, and the run's own
+// transcript keeps the resolved text.
+func MaskSecretsForProvider(ctx context.Context, msgs []exec.LLMMessage) []exec.LLMMessage {
+	rCtx := GetDAGContext(ctx)
+	if rCtx.EnvScope == nil {
+		return msgs
+	}
+	secrets := rCtx.EnvScope.AllSecrets()
+	if len(secrets) == 0 {
+		return msgs
+	}
+
+	envPairs := make([]string, 0, len(secrets))
+	for key, value := range secrets {
+		envPairs = append(envPairs, key+"="+value)
+	}
+	masker := masking.NewMasker(masking.SourcedEnvVars{Secrets: envPairs})
+
+	result := make([]exec.LLMMessage, len(msgs))
+	for i, msg := range msgs {
+		result[i] = exec.LLMMessage{
+			Role:       msg.Role,
+			Content:    masker.MaskString(msg.Content),
+			ToolCallID: msg.ToolCallID,
+			ToolCalls:  msg.ToolCalls, // IDs and names carry no secrets
+			Metadata:   msg.Metadata,
+		}
+	}
+	return result
 }
 
 // NormalizeEnvVarExpr converts an environment variable reference to ${VAR} form,

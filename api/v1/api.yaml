@@ -11843,7 +11843,7 @@ components:
           description: "Controller turn this event belongs to, starting at 1"
         kind:
           type: string
-          enum: [action, task_status, rejected, stalled]
+          enum: [action, task_status, ask_user, rejected, stalled]
           description: "What the controller did on this turn"
         name:
           type: string
