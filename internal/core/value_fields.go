@@ -200,9 +200,13 @@ func (w *referenceFieldWalker) walkLLM(path string, llm *LLMConfig, base Referen
 		return
 	}
 	w.add(base.withPathValue(path+".system", llm.System).withField(cmnvalue.WorkflowField(path + ".system")))
+	w.add(base.withPathValue(path+".provider", llm.Provider).withField(cmnvalue.ExecutorConfigField(path + ".provider")))
+	w.add(base.withPathValue(path+".model", llm.Model).withField(cmnvalue.ExecutorConfigField(path + ".model")))
 	w.add(base.withPathValue(path+".base_url", llm.BaseURL).withField(cmnvalue.ExecutorConfigField(path + ".base_url")))
 	for i, model := range llm.Models {
 		modelPath := fmt.Sprintf("%s.model[%d]", path, i)
+		w.add(base.withPathValue(modelPath+".provider", model.Provider).withField(cmnvalue.ExecutorConfigField(modelPath + ".provider")))
+		w.add(base.withPathValue(modelPath+".name", model.Name).withField(cmnvalue.ExecutorConfigField(modelPath + ".name")))
 		w.add(base.withPathValue(modelPath+".base_url", model.BaseURL).withField(cmnvalue.ExecutorConfigField(modelPath + ".base_url")))
 	}
 }

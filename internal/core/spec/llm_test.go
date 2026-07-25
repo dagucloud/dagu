@@ -122,6 +122,23 @@ model:
 `,
 			wantErr: "invalid provider",
 		},
+		{
+			name: "provider reference is resolved at run time",
+			yaml: `
+provider: ${params.PROVIDER}
+model: ${params.MODEL}
+`,
+			wantErr: "",
+		},
+		{
+			name: "provider reference in model entry is resolved at run time",
+			yaml: `
+model:
+  - provider: ${env.LLM_PROVIDER}
+    name: ${params.MODEL}
+`,
+			wantErr: "",
+		},
 	}
 
 	for _, tt := range tests {

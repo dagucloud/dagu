@@ -30,8 +30,8 @@ func init() {
 
 type awsSecretsManagerResolver struct {
 	mu            sync.Mutex
-	clientFactory func(context.Context, string) (awsSecretsManagerClient, error)
-	clients       map[string]awsSecretsManagerClient
+	clientFactory func(context.Context) (awsSecretsManagerClient, error)
+	client        awsSecretsManagerClient
 }
 
 type awsSecretReference struct {
@@ -87,7 +87,7 @@ func (r *awsSecretsManagerResolver) Resolve(ctx context.Context, ref core.Secret
 	if region == "" {
 		region = strings.TrimSpace(config.GetConfig(ctx).Secrets.AWS.Region)
 	}
-	client, err := r.getClient(ctx, region)
+	client, err := r.getClient(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -99,7 +99,13 @@ func (r *awsSecretsManagerResolver) Resolve(ctx context.Context, ref core.Secret
 	if versionStage := ref.Options["version_stage"]; versionStage != "" {
 		input.VersionStage = aws.String(versionStage)
 	}
-	output, err := client.GetSecretValue(ctx, input)
+	var options []func(*secretsmanager.Options)
+	if region != "" {
+		options = append(options, func(options *secretsmanager.Options) {
+			options.Region = region
+		})
+	}
+	output, err := client.GetSecretValue(ctx, input, options...)
 	if err != nil {
 		var notFound *types.ResourceNotFoundException
 		if errors.As(err, &notFound) {
@@ -128,33 +134,23 @@ func (r *awsSecretsManagerResolver) CheckAccessibility(ctx context.Context, ref 
 	return err
 }
 
-func (r *awsSecretsManagerResolver) getClient(ctx context.Context, region string) (awsSecretsManagerClient, error) {
+func (r *awsSecretsManagerResolver) getClient(ctx context.Context) (awsSecretsManagerClient, error) {
 	r.mu.Lock()
-	if client := r.clients[region]; client != nil {
-		r.mu.Unlock()
-		return client, nil
+	defer r.mu.Unlock()
+	if r.client != nil {
+		return r.client, nil
 	}
-	r.mu.Unlock()
 
 	factory := r.clientFactory
 	if factory == nil {
 		factory = newAWSSecretsManagerClient
 	}
-	client, err := factory(ctx, region)
+	client, err := factory(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create AWS Secrets Manager client: %w", err)
 	}
-
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.clients == nil {
-		r.clients = make(map[string]awsSecretsManagerClient)
-	}
-	if existing := r.clients[region]; existing != nil {
-		return existing, nil
-	}
-	r.clients[region] = client
-	return client, nil
+	r.client = client
+	return r.client, nil
 }
 
 func parseAWSSecretsManagerARN(key string) (awsarn.ARN, bool, error) {
@@ -175,12 +171,8 @@ type awsSecretsManagerClient interface {
 	GetSecretValue(context.Context, *secretsmanager.GetSecretValueInput, ...func(*secretsmanager.Options)) (*secretsmanager.GetSecretValueOutput, error)
 }
 
-func newAWSSecretsManagerClient(ctx context.Context, region string) (awsSecretsManagerClient, error) {
-	var options []func(*awsconfig.LoadOptions) error
-	if region != "" {
-		options = append(options, awsconfig.WithRegion(region))
-	}
-	cfg, err := awsconfig.LoadDefaultConfig(ctx, options...)
+func newAWSSecretsManagerClient(ctx context.Context) (awsSecretsManagerClient, error) {
+	cfg, err := awsconfig.LoadDefaultConfig(ctx)
 	if err != nil {
 		return nil, err
 	}

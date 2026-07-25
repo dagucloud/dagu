@@ -19,7 +19,8 @@ import (
 func NewLLMProvider(ctx context.Context, cfg *core.LLMConfig) (llmpkg.Provider, error) {
 	providerType, err := llmpkg.ParseProviderType(cfg.Provider)
 	if err != nil {
-		return nil, fmt.Errorf("invalid provider: %w", err)
+		// ParseProviderType already reports an invalid provider by name.
+		return nil, err
 	}
 
 	apiKeyEnvVar := cfg.APIKeyName

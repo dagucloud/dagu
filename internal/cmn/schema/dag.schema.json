@@ -5846,17 +5846,32 @@
     },
     "llmProvider": {
       "type": "string",
-      "enum": [
-        "openai",
-        "anthropic",
-        "gemini",
-        "google",
-        "openrouter",
-        "local",
-        "ollama",
-        "vllm",
-        "llama"
-      ]
+      "anyOf": [
+        {
+          "enum": [
+            "openai",
+            "openai-codex",
+            "anthropic",
+            "gemini",
+            "google",
+            "openrouter",
+            "local",
+            "ollama",
+            "vllm",
+            "llama",
+            "zai",
+            "zhipu",
+            "zhipuai",
+            "glm",
+            "opencode"
+          ]
+        },
+        {
+          "pattern": "\\$\\{[^}]+\\}",
+          "description": "Value reference resolved at runtime, e.g. ${params.PROVIDER} or ${env.LLM_PROVIDER}."
+        }
+      ],
+      "description": "LLM provider name. Supports value references such as ${params.PROVIDER} resolved when the step runs."
     },
     "llmConfig": {
       "type": "object",

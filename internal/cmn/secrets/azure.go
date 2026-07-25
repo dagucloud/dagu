@@ -211,7 +211,7 @@ func parseAzureSecretURL(rawURL, optionVersion string) (azureSecretReference, er
 		return azureSecretReference{}, fmt.Errorf("invalid Azure Key Vault secret URL: %w", err)
 	}
 	segments := strings.Split(strings.Trim(u.EscapedPath(), "/"), "/")
-	if len(segments) < 2 || len(segments) > 3 || segments[0] != "secrets" || segments[1] == "" {
+	if len(segments) < 2 || len(segments) > 3 || !strings.EqualFold(segments[0], "secrets") || segments[1] == "" {
 		return azureSecretReference{}, fmt.Errorf("secret URL path for Azure Key Vault must be /secrets/{name} or /secrets/{name}/{version}")
 	}
 	name, err := url.PathUnescape(segments[1])

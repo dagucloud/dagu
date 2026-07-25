@@ -126,7 +126,7 @@ steps:
     with:
       model:
         - provider: openai
-          name: gpt-4o
+          name: gpt-4o-${params.environment}
           base_url: https://${params.environment}.example/v1
           api_key_name: OPENAI_API_KEY
       system: system ${params.environment}
@@ -195,6 +195,8 @@ steps:
 	assert.Equal(t, "system prod", resolved["steps[5].llm.system"])
 	assert.Equal(t, "https://fallback-prod.example/v1", resolved["steps[5].llm.base_url"])
 	assert.Equal(t, "https://prod.example/v1", resolved["steps[5].llm.model[0].base_url"])
+	assert.Equal(t, "openai", resolved["steps[5].llm.model[0].provider"])
+	assert.Equal(t, "gpt-4o-prod", resolved["steps[5].llm.model[0].name"])
 	assert.Equal(t, "hello prod", resolved["steps[5].messages[0].content"])
 
 	assert.Equal(t, "literal ${params.environment}", resolved["steps[6].run"])
@@ -205,8 +207,6 @@ steps:
 	assertSpec003FieldAbsent(t, resolved, "steps[0].id")
 	assertSpec003FieldAbsent(t, resolved, "steps[0].outputs[0].name")
 	assertSpec003FieldAbsent(t, resolved, "steps[0].outputs[0].type")
-	assertSpec003FieldAbsent(t, resolved, "steps[5].llm.model[0].provider")
-	assertSpec003FieldAbsent(t, resolved, "steps[5].llm.model[0].name")
 	assertSpec003FieldAbsent(t, resolved, "steps[5].llm.model[0].api_key_name")
 	assertSpec003FieldAbsent(t, resolved, "steps[5].llm.tools[0]")
 }
@@ -242,10 +242,12 @@ name: root-llm
 params:
   - name: environment
     default: prod
+  - name: provider
+    default: openai
 llm:
   model:
-    - provider: openai
-      name: gpt-4o
+    - provider: ${params.provider}
+      name: gpt-4o-${params.environment}
       base_url: https://${params.environment}.example/v1
   system: root system ${params.environment}
   base_url: https://fallback-${params.environment}.example/v1
@@ -258,14 +260,14 @@ steps:
           content: hello ${params.environment}
 `)
 
-	resolved := resolveSpec003Fields(t, dag, cmnvalue.Values{"environment": "prod"})
+	resolved := resolveSpec003Fields(t, dag, cmnvalue.Values{"environment": "prod", "provider": "openai"})
 
 	assert.Equal(t, "root system prod", resolved["steps[0].llm.system"])
 	assert.Equal(t, "https://fallback-prod.example/v1", resolved["steps[0].llm.base_url"])
 	assert.Equal(t, "https://prod.example/v1", resolved["steps[0].llm.model[0].base_url"])
+	assert.Equal(t, "openai", resolved["steps[0].llm.model[0].provider"])
+	assert.Equal(t, "gpt-4o-prod", resolved["steps[0].llm.model[0].name"])
 	assert.Equal(t, "hello prod", resolved["steps[0].messages[0].content"])
-	assertSpec003FieldAbsent(t, resolved, "steps[0].llm.model[0].provider")
-	assertSpec003FieldAbsent(t, resolved, "steps[0].llm.model[0].name")
 }
 
 func TestSpec003ConformanceEscapedDaguReferencesUseBackslashParity(t *testing.T) {
