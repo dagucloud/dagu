@@ -39,6 +39,11 @@ import { ApprovalTab } from './approval';
 import ArtifactsTab from './artifacts/ArtifactsTab';
 import { ChatHistoryTab } from './chat-history';
 import { ControllerTimeline, TaskChecklistTab } from './controller';
+import {
+  SubRunStackModal,
+  useSubRunStackPush,
+  type SubRunStackEntry,
+} from './controller/SubRunStackModal';
 import { DAGStatusOverview, NodeStatusTable } from './dag-details';
 import { DAGSpecReadOnly } from './dag-editor';
 import { StepDetailsDrawer } from './step-details';
@@ -343,21 +348,27 @@ function DAGStatus({
     [displayDAGRun, navigate, fileName, remoteNode]
   );
 
-  // A controller timeline row points at the child run its action produced.
-  // Reuse the node-based navigation by locating the node that ran it.
+  // Child runs open as a stack rather than a navigation, so the run you started
+  // from stays put. A nested DAGStatus pushes onto the stack already open.
+  const [childRunStack, setChildRunStack] = React.useState<SubRunStackEntry[]>(
+    []
+  );
+  const pushOntoOpenStack = useSubRunStackPush();
+
   const openControllerChildRun = React.useCallback(
     (event: components['schemas']['ControllerEvent']) => {
       if (!event.childDagRunId) return;
-      const node = displayDAGRun.nodes?.find((n) => n.step.name === event.name);
-      if (!node) return;
-      const all = [...(node.subRuns || []), ...(node.subRunsRepeated || [])];
-      const childIndex = all.findIndex(
-        (r) => r.dagRunId === event.childDagRunId
-      );
-      if (childIndex < 0) return;
-      navigateToSubDagRun(node, childIndex);
+      const entry: SubRunStackEntry = {
+        name: event.childDagName || event.name || 'child',
+        dagRunId: event.childDagRunId,
+      };
+      if (pushOntoOpenStack) {
+        pushOntoOpenStack(entry);
+        return;
+      }
+      setChildRunStack([entry]);
     },
-    [displayDAGRun, navigateToSubDagRun]
+    [pushOntoOpenStack]
   );
 
   // Handle right-click on graph node (show status update modal)
@@ -620,6 +631,16 @@ function DAGStatus({
       </div>
 
       {/* Status Tab Content */}
+      {childRunStack.length > 0 && (
+        <SubRunStackModal
+          rootName={displayDAGRun.rootDAGRunName || displayDAGRun.name}
+          rootDAGRunId={displayDAGRun.rootDAGRunId || displayDAGRun.dagRunId}
+          rootLabel={displayDAGRun.name}
+          stack={childRunStack}
+          onChange={setChildRunStack}
+        />
+      )}
+
       {activeTab === 'status' && (
         <div className={cn('space-y-6', scrollPaneClassName)}>
           {/* Controller runs show execution order instead of a graph */}
