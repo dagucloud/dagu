@@ -1450,7 +1450,7 @@ func localStartProcessStillRunning(started *launcher.StartResult) bool {
 
 // dispatchStartToCoordinator dispatches a DAG start operation to the coordinator
 // and waits for the DAG status to change from NotStarted within the given timeout.
-func (a *API) dispatchStartToCoordinator(ctx context.Context, dag *core.DAG, dagRunID string, timeout time.Duration, params, labels, profileName, triggerActor string) error {
+func (a *API) dispatchStartToCoordinator(ctx context.Context, dag *core.DAG, opts startDAGRunOptions, params string, timeout time.Duration) error {
 	var taskOpts []executor.TaskOption
 	if len(dag.WorkerSelector) > 0 {
 		taskOpts = append(taskOpts, executor.WithWorkerSelector(dag.WorkerSelector))
@@ -1458,14 +1458,14 @@ func (a *API) dispatchStartToCoordinator(ctx context.Context, dag *core.DAG, dag
 	if params != "" {
 		taskOpts = append(taskOpts, executor.WithTaskParams(params))
 	}
-	if labels != "" {
-		taskOpts = append(taskOpts, executor.WithLabels(labels))
+	if opts.labels != "" {
+		taskOpts = append(taskOpts, executor.WithLabels(opts.labels))
 	}
-	if profileName != "" {
-		taskOpts = append(taskOpts, executor.WithProfileName(profileName))
+	if opts.profileName != "" {
+		taskOpts = append(taskOpts, executor.WithProfileName(opts.profileName))
 	}
-	if triggerActor != "" {
-		taskOpts = append(taskOpts, executor.WithTriggerActor(triggerActor))
+	if opts.triggerActor != "" {
+		taskOpts = append(taskOpts, executor.WithTriggerActor(opts.triggerActor))
 	}
 	taskOpts = append(taskOpts, executor.WithBaseConfig(executor.ResolveBaseConfig(dag.BaseConfigData, a.config.Paths.BaseConfig)))
 	if dag.SourceFile != "" {
@@ -1475,7 +1475,7 @@ func (a *API) dispatchStartToCoordinator(ctx context.Context, dag *core.DAG, dag
 		dag.Name,
 		string(dag.YamlData),
 		exec.DispatchOperationStart,
-		dagRunID,
+		opts.dagRunID,
 		taskOpts...,
 	)
 
@@ -1483,7 +1483,7 @@ func (a *API) dispatchStartToCoordinator(ctx context.Context, dag *core.DAG, dag
 		return fmt.Errorf("error dispatching to coordinator: %w", err)
 	}
 
-	statusChanged, err := a.waitForDAGStatusChange(ctx, dag, dagRunID, timeout)
+	statusChanged, err := a.waitForDAGStatusChange(ctx, dag, opts.dagRunID, timeout)
 	if err != nil {
 		return dagStartWaitContextError(err)
 	}
@@ -1540,7 +1540,7 @@ func (a *API) startPreparedDAGRunWithOptions(
 		if osrt.GOOS == "windows" {
 			timeout = 20 * time.Second
 		}
-		return a.dispatchStartToCoordinator(ctx, dag, opts.dagRunID, timeout, dispatchParams, opts.labels, opts.profileName, opts.triggerActor)
+		return a.dispatchStartToCoordinator(ctx, dag, opts, dispatchParams, timeout)
 	}
 
 	// Only pass trigger type if it's a known value (not TriggerTypeUnknown)

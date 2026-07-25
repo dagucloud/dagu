@@ -686,11 +686,13 @@ func TestHandler_Poll(t *testing.T) {
 		err := h.writeInitialStatus(
 			context.Background(),
 			attempt,
+			&coordinatorv1.Task{
+				DagRunId:     "run-123",
+				AttemptKey:   "attempt-key",
+				TriggerActor: "alice",
+				ScheduleTime: "2026-03-13T10:00:00Z",
+			},
 			"test-dag",
-			"run-123",
-			"attempt-key",
-			"alice",
-			"2026-03-13T10:00:00Z",
 			exec.DAGRunRef{},
 			nil,
 		)

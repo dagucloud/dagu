@@ -13,16 +13,24 @@ import (
 	"github.com/dagucloud/dagu/internal/dagrun/intake"
 )
 
+type runOptions struct {
+	root            exec.DAGRunRef
+	parent          exec.DAGRunRef
+	workerID        string
+	attemptID       string
+	triggerType     core.TriggerType
+	triggerActor    string
+	scheduleTime    string
+	profileName     string
+	step            string
+	preparedAttempt exec.DAGRunAttempt
+}
+
 func withPreparedLocalExecution(
 	ctx *Context,
 	dag *core.DAG,
 	dagRunID string,
-	root exec.DAGRunRef,
-	parent exec.DAGRunRef,
-	triggerType core.TriggerType,
-	triggerActor string,
-	scheduleTime string,
-	profileName string,
+	opts runOptions,
 	buildAttempt func(context.Context) (exec.DAGRunAttempt, error),
 	run func(exec.DAGRunAttempt) error,
 ) error {
@@ -30,12 +38,12 @@ func withPreparedLocalExecution(
 		ProcStore:       ctx.ProcStore,
 		DAG:             dag,
 		DAGRunID:        dagRunID,
-		Root:            root,
-		Parent:          parent,
-		TriggerType:     triggerType,
-		TriggerActor:    triggerActor,
-		ScheduleTime:    scheduleTime,
-		ProfileName:     profileName,
+		Root:            opts.root,
+		Parent:          opts.parent,
+		TriggerType:     opts.triggerType,
+		TriggerActor:    opts.triggerActor,
+		ScheduleTime:    opts.scheduleTime,
+		ProfileName:     opts.profileName,
 		LogBaseDir:      ctx.Config.Paths.LogDir,
 		ArtifactBaseDir: ctx.Config.Paths.ArtifactDir,
 		BuildAttempt:    buildAttempt,

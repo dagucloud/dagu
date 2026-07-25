@@ -88,13 +88,18 @@ func runEnqueue(ctx *Context, args []string) error {
 		return err
 	}
 
-	return enqueueDAGRun(ctx, dag, runID, triggerType, triggerActor, scheduleTime, profileName)
+	return enqueueDAGRun(ctx, dag, runID, runOptions{
+		triggerType:  triggerType,
+		triggerActor: triggerActor,
+		scheduleTime: scheduleTime,
+		profileName:  profileName,
+	})
 }
 
 // enqueueDAGRun enqueues a dag-run to the queue.
 // The DAG location is cleared to allow concurrent queued runs (location is used
 // for unix pipe generation which would prevent parallel execution).
-func enqueueDAGRun(ctx *Context, dag *core.DAG, dagRunID string, triggerType core.TriggerType, triggerActor, scheduleTime, profileName string) error {
+func enqueueDAGRun(ctx *Context, dag *core.DAG, dagRunID string, opts runOptions) error {
 	dag.Location = ""
 
 	if !ctx.Config.Queues.Enabled {
@@ -114,10 +119,10 @@ func enqueueDAGRun(ctx *Context, dag *core.DAG, dagRunID string, triggerType cor
 		DAGRunID:                dagRunID,
 		LogBaseDir:              ctx.Config.Paths.LogDir,
 		ArtifactBaseDir:         ctx.Config.Paths.ArtifactDir,
-		TriggerType:             triggerType,
-		TriggerActor:            triggerActor,
-		ScheduleTime:            scheduleTime,
-		ProfileName:             profileName,
+		TriggerType:             opts.triggerType,
+		TriggerActor:            opts.triggerActor,
+		ScheduleTime:            opts.scheduleTime,
+		ProfileName:             opts.profileName,
 		ProceedOnStatusCloseErr: true,
 	})
 	if err != nil {

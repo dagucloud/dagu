@@ -218,6 +218,16 @@ func runStart(ctx *Context, args []string) error {
 		return err
 	}
 
+	opts := runOptions{
+		root:         root,
+		workerID:     workerID,
+		attemptID:    attemptID,
+		triggerType:  triggerType,
+		triggerActor: triggerActor,
+		scheduleTime: scheduleTime,
+		profileName:  profileName,
+	}
+
 	ctx.Context = logger.WithValues(ctx.Context, tag.DAG(dag.Name), tag.RunID(dagRunID))
 
 	if isSubDAGRun {
@@ -225,7 +235,8 @@ func runStart(ctx *Context, args []string) error {
 		if err != nil {
 			return fmt.Errorf("failed to parse parent dag-run reference: %w", err)
 		}
-		return handleSubDAGRun(ctx, dag, dagRunID, params, root, parent, workerID, attemptID, triggerType, triggerActor, scheduleTime, profileName)
+		opts.parent = parent
+		return handleSubDAGRun(ctx, dag, dagRunID, params, opts)
 	}
 
 	if fromRunID != "" {
@@ -237,37 +248,32 @@ func runStart(ctx *Context, args []string) error {
 		logger.Info(ctx, "Executing root dag-run", slog.String("params", params))
 	}
 
-	return tryExecuteDAG(ctx, dag, dagRunID, root, workerID, attemptID, triggerType, triggerActor, scheduleTime, profileName)
+	return tryExecuteDAG(ctx, dag, dagRunID, opts)
 }
 
 // tryExecuteDAG acquires a process handle and executes the DAG.
-func tryExecuteDAG(ctx *Context, dag *core.DAG, dagRunID string, root exec.DAGRunRef, workerID, attemptID string, triggerType core.TriggerType, triggerActor, scheduleTime, profileName string) error {
+func tryExecuteDAG(ctx *Context, dag *core.DAG, dagRunID string, opts runOptions) error {
 	// Check for dispatch to coordinator for distributed execution.
 	// Skip if already running on a worker (workerID != "local").
-	if workerID == "local" {
+	if opts.workerID == "local" {
 		coordinatorCli := ctx.NewCoordinatorClient()
 		if dispatch.ShouldDispatchToCoordinator(dag, coordinatorCli != nil, ctx.Config.DefaultExecMode) {
-			return dispatchToCoordinatorAndWait(ctx, dag, dagRunID, triggerActor, scheduleTime, profileName, coordinatorCli)
+			return dispatchToCoordinatorAndWait(ctx, dag, dagRunID, opts, coordinatorCli)
 		}
 	}
 
-	if workerID != "local" && ctx.DAGRunStore == nil {
-		return executeDAGRun(ctx, dag, exec.DAGRunRef{}, dagRunID, root, workerID, attemptID, triggerType, triggerActor, scheduleTime, profileName, nil)
+	if opts.workerID != "local" && ctx.DAGRunStore == nil {
+		return executeDAGRun(ctx, dag, dagRunID, opts)
 	}
 
 	return withPreparedLocalExecution(
 		ctx,
 		dag,
 		dagRunID,
-		root,
-		exec.DAGRunRef{},
-		triggerType,
-		triggerActor,
-		scheduleTime,
-		profileName,
+		opts,
 		func(execCtx context.Context) (exec.DAGRunAttempt, error) {
-			if workerID != "local" {
-				attempt, _, err := resolveWorkerPreparedAttempt(execCtx, ctx.DAGRunStore, dag.Name, dagRunID, root, attemptID)
+			if opts.workerID != "local" {
+				attempt, _, err := resolveWorkerPreparedAttempt(execCtx, ctx.DAGRunStore, dag.Name, dagRunID, opts.root, opts.attemptID)
 				if err != nil {
 					return nil, err
 				}
@@ -276,7 +282,9 @@ func tryExecuteDAG(ctx *Context, dag *core.DAG, dagRunID string, root exec.DAGRu
 			return ctx.DAGRunStore.CreateAttempt(execCtx, dag, time.Now(), dagRunID, exec.NewDAGRunAttemptOptions{})
 		},
 		func(preparedAttempt exec.DAGRunAttempt) error {
-			return executeDAGRun(ctx, dag, exec.DAGRunRef{}, dagRunID, root, workerID, attemptID, triggerType, triggerActor, scheduleTime, profileName, preparedAttempt)
+			run := opts
+			run.preparedAttempt = preparedAttempt
+			return executeDAGRun(ctx, dag, dagRunID, run)
 		},
 	)
 }
@@ -402,12 +410,12 @@ func determineRootDAGRun(isSubDAGRun bool, rootDAGRun string, dag *core.DAG, dag
 }
 
 // handleSubDAGRun processes a sub dag-run, checking for previous runs.
-func handleSubDAGRun(ctx *Context, dag *core.DAG, dagRunID string, params string, root exec.DAGRunRef, parent exec.DAGRunRef, workerID, attemptID string, triggerType core.TriggerType, triggerActor, scheduleTime, profileName string) error {
+func handleSubDAGRun(ctx *Context, dag *core.DAG, dagRunID string, params string, opts runOptions) error {
 	logger.Info(ctx, "Executing sub dag-run",
 		slog.String("params", params),
-		slog.Any("root", root),
-		slog.Any("parent", parent),
-		slog.String("workerID", workerID),
+		slog.Any("root", opts.root),
+		slog.Any("parent", opts.parent),
+		slog.String("workerID", opts.workerID),
 	)
 
 	if dagRunID == "" {
@@ -415,54 +423,48 @@ func handleSubDAGRun(ctx *Context, dag *core.DAG, dagRunID string, params string
 	}
 
 	// For distributed execution, the coordinator already created the sub-attempt record.
-	if workerID != "local" {
+	if opts.workerID != "local" {
 		if ctx.DAGRunStore == nil {
-			return executeDAGRun(ctx, dag, parent, dagRunID, root, workerID, attemptID, triggerType, triggerActor, scheduleTime, profileName, nil)
+			return executeDAGRun(ctx, dag, dagRunID, opts)
 		}
 		return withPreparedLocalExecution(
 			ctx,
 			dag,
 			dagRunID,
-			root,
-			parent,
-			triggerType,
-			triggerActor,
-			scheduleTime,
-			profileName,
+			opts,
 			func(execCtx context.Context) (exec.DAGRunAttempt, error) {
-				attempt, _, err := resolveWorkerPreparedAttempt(execCtx, ctx.DAGRunStore, dag.Name, dagRunID, root, attemptID)
+				attempt, _, err := resolveWorkerPreparedAttempt(execCtx, ctx.DAGRunStore, dag.Name, dagRunID, opts.root, opts.attemptID)
 				if err != nil {
 					return nil, err
 				}
 				return attempt, nil
 			},
 			func(preparedAttempt exec.DAGRunAttempt) error {
-				return executeDAGRun(ctx, dag, parent, dagRunID, root, workerID, attemptID, triggerType, triggerActor, scheduleTime, profileName, preparedAttempt)
+				run := opts
+				run.preparedAttempt = preparedAttempt
+				return executeDAGRun(ctx, dag, dagRunID, run)
 			},
 		)
 	}
 
 	logger.Debug(ctx, "Checking for previous sub dag-run with the dag-run ID")
 
-	subAttempt, err := ctx.DAGRunStore.FindSubAttempt(ctx, root, dagRunID)
+	subAttempt, err := ctx.DAGRunStore.FindSubAttempt(ctx, opts.root, dagRunID)
 	if errors.Is(err, exec.ErrDAGRunIDNotFound) {
 		return withPreparedLocalExecution(
 			ctx,
 			dag,
 			dagRunID,
-			root,
-			parent,
-			triggerType,
-			triggerActor,
-			scheduleTime,
-			profileName,
+			opts,
 			func(execCtx context.Context) (exec.DAGRunAttempt, error) {
 				return ctx.DAGRunStore.CreateAttempt(execCtx, dag, time.Now(), dagRunID, exec.NewDAGRunAttemptOptions{
-					RootDAGRun: &root,
+					RootDAGRun: &opts.root,
 				})
 			},
 			func(preparedAttempt exec.DAGRunAttempt) error {
-				return executeDAGRun(ctx, dag, parent, dagRunID, root, workerID, attemptID, triggerType, triggerActor, scheduleTime, profileName, preparedAttempt)
+				run := opts
+				run.preparedAttempt = preparedAttempt
+				return executeDAGRun(ctx, dag, dagRunID, run)
 			},
 		)
 	}
@@ -475,16 +477,17 @@ func handleSubDAGRun(ctx *Context, dag *core.DAG, dagRunID string, params string
 		return fmt.Errorf("failed to read previous run status for dag-run ID %s: %w", dagRunID, err)
 	}
 
+	retry := opts
+	retry.parent = status.Parent
+	retry.triggerType = exec.PreservedQueueTriggerType(status)
+	retry.triggerActor = status.TriggerActor
+	retry.scheduleTime = status.ScheduleTime
+
 	return withPreparedLocalExecution(
 		ctx,
 		dag,
 		dagRunID,
-		root,
-		status.Parent,
-		exec.PreservedQueueTriggerType(status),
-		status.TriggerActor,
-		status.ScheduleTime,
-		profileName,
+		retry,
 		func(execCtx context.Context) (exec.DAGRunAttempt, error) {
 			if status.Status == core.Queued {
 				subAttempt.SetDAG(dag)
@@ -492,17 +495,19 @@ func handleSubDAGRun(ctx *Context, dag *core.DAG, dagRunID string, params string
 			}
 			return ctx.DAGRunStore.CreateAttempt(execCtx, dag, time.Now(), dagRunID, exec.NewDAGRunAttemptOptions{
 				Retry:      true,
-				RootDAGRun: &root,
+				RootDAGRun: &opts.root,
 			})
 		},
 		func(preparedAttempt exec.DAGRunAttempt) error {
-			return executeRetry(ctx, dag, status, root, "", workerID, attemptID, status.TriggerActor, profileName, preparedAttempt)
+			prepared := retry
+			prepared.preparedAttempt = preparedAttempt
+			return executeRetry(ctx, dag, status, prepared)
 		},
 	)
 }
 
 // executeDAGRun initializes execution state for a DAG run and invokes the shared agent executor.
-func executeDAGRun(ctx *Context, d *core.DAG, parent exec.DAGRunRef, dagRunID string, root exec.DAGRunRef, workerID, attemptID string, triggerType core.TriggerType, triggerActor, scheduleTime, profileName string, preparedAttempt exec.DAGRunAttempt) error {
+func executeDAGRun(ctx *Context, d *core.DAG, dagRunID string, opts runOptions) error {
 	logFile, err := ctx.OpenLogFile(d, dagRunID)
 	if err != nil {
 		return fmt.Errorf("failed to initialize log file for DAG %s: %w", d.Name, err)
@@ -520,14 +525,14 @@ func executeDAGRun(ctx *Context, d *core.DAG, parent exec.DAGRunRef, dagRunID st
 
 	dr, err := ctx.dagStore(dagStoreConfig{
 		SearchPaths:           []string{filepath.Dir(d.Location)},
-		SkipDirectoryCreation: workerID != "local",
+		SkipDirectoryCreation: opts.workerID != "local",
 	})
 	if err != nil {
 		return fmt.Errorf("failed to initialize DAG store: %w", err)
 	}
 
 	// When running on a worker, the dag-run was already created by the coordinator.
-	queuedRun := workerID != "local"
+	queuedRun := opts.workerID != "local"
 
 	as := ctx.runtimeStores()
 	extraEnvs, err := prepareDAGTools(ctx, d)
@@ -543,27 +548,27 @@ func executeDAGRun(ctx *Context, d *core.DAG, parent exec.DAGRunRef, dagRunID st
 		ctx.DAGRunMgr,
 		dr,
 		agent.Options{
-			ParentDAGRun:             parent,
+			ParentDAGRun:             opts.parent,
 			ProgressDisplay:          shouldEnableProgress(ctx),
 			ExtraEnvs:                extraEnvs,
-			WorkerID:                 workerID,
-			AttemptID:                attemptID,
+			WorkerID:                 opts.workerID,
+			AttemptID:                opts.attemptID,
 			QueuedRun:                queuedRun,
-			PreparedAttempt:          preparedAttempt,
+			PreparedAttempt:          opts.preparedAttempt,
 			DAGRunStore:              ctx.DAGRunStore,
 			QueueStore:               ctx.QueueStore,
 			StateStore:               ctx.StateStore,
 			SecretStore:              as.SecretStore,
 			ProfileStore:             as.ProfileStore,
-			ProfileName:              profileName,
+			ProfileName:              opts.profileName,
 			ServiceRegistry:          ctx.ServiceRegistry,
 			SubWorkflowRunnerFactory: ctx.SubWorkflowRunnerFactory(),
-			RootDAGRun:               root,
+			RootDAGRun:               opts.root,
 			PeerConfig:               ctx.Config.Core.Peer,
-			TriggerType:              triggerType,
-			TriggerActor:             triggerActor,
+			TriggerType:              opts.triggerType,
+			TriggerActor:             opts.triggerActor,
 			DefaultExecMode:          ctx.Config.DefaultExecMode,
-			ScheduleTime:             scheduleTime,
+			ScheduleTime:             opts.scheduleTime,
 			ArtifactDir:              artifactDir,
 			DAGRunLogDir:             ctx.Config.Paths.LogDir,
 			DAGRunArtifactDir:        ctx.Config.Paths.ArtifactDir,
@@ -574,7 +579,7 @@ func executeDAGRun(ctx *Context, d *core.DAG, parent exec.DAGRunRef, dagRunID st
 }
 
 // dispatchToCoordinatorAndWait dispatches a DAG to coordinator and waits for completion.
-func dispatchToCoordinatorAndWait(ctx *Context, d *core.DAG, dagRunID, triggerActor, scheduleTime, profileName string, coordinatorCli coordinator.Client) error {
+func dispatchToCoordinatorAndWait(ctx *Context, d *core.DAG, dagRunID string, opts runOptions, coordinatorCli coordinator.Client) error {
 	signalCtx, stop := signal.NotifyContext(ctx.Context, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	signalAwareCtx := ctx.WithContext(signalCtx)
@@ -609,14 +614,14 @@ func dispatchToCoordinatorAndWait(ctx *Context, d *core.DAG, dagRunID, triggerAc
 	if d.SourceFile != "" {
 		taskOpts = append(taskOpts, executor.WithSourceFile(d.SourceFile))
 	}
-	if scheduleTime != "" {
-		taskOpts = append(taskOpts, executor.WithScheduleTime(scheduleTime))
+	if opts.scheduleTime != "" {
+		taskOpts = append(taskOpts, executor.WithScheduleTime(opts.scheduleTime))
 	}
-	if profileName != "" {
-		taskOpts = append(taskOpts, executor.WithProfileName(profileName))
+	if opts.profileName != "" {
+		taskOpts = append(taskOpts, executor.WithProfileName(opts.profileName))
 	}
-	if triggerActor != "" {
-		taskOpts = append(taskOpts, executor.WithTriggerActor(triggerActor))
+	if opts.triggerActor != "" {
+		taskOpts = append(taskOpts, executor.WithTriggerActor(opts.triggerActor))
 	}
 
 	task := executor.CreateTask(
