@@ -12,6 +12,7 @@ import (
 	"time"
 
 	openapiv1 "github.com/dagucloud/dagu/api/v1"
+	"github.com/dagucloud/dagu/internal/auth"
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
@@ -36,7 +37,7 @@ func (c *retryCoordinatorRecorder) Dispatch(_ context.Context, req exec.Dispatch
 }
 
 func TestRetryDAGRun_DispatchesRetryToCoordinator(t *testing.T) {
-	ctx := context.Background()
+	ctx := auth.WithUser(context.Background(), &auth.User{Username: "alice"})
 	tmpDir := t.TempDir()
 
 	dagFile := filepath.Join(tmpDir, "distributed-retry.yaml")
@@ -111,6 +112,7 @@ steps:
 	require.Equal(t, dag.Name, task.Target)
 	require.Equal(t, "distributed-run", task.DAGRunID)
 	require.Equal(t, dag.WorkerSelector, task.WorkerSelector)
+	require.Equal(t, "alice", task.TriggerActor)
 	require.NotNil(t, task.PreviousStatus)
 }
 

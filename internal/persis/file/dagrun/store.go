@@ -184,6 +184,7 @@ func (store *Store) resolveStatus(
 			QueuedAt:             s.QueuedAt,
 			ScheduleTime:         s.ScheduleTime,
 			TriggerType:          s.TriggerType,
+			TriggerActor:         s.TriggerActor,
 			CreatedAt:            s.CreatedAt,
 			AutoRetryCount:       s.AutoRetryCount,
 			AutoRetryLimit:       s.AutoRetryLimit,

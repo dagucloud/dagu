@@ -496,7 +496,9 @@ type Task struct {
 	// Runtime profile name. Workers resolve values at attempt start.
 	ProfileName string `protobuf:"bytes,32,opt,name=profile_name,json=profileName,proto3" json:"profile_name,omitempty"`
 	// Internal persisted child DAG route for a targeted step retry.
-	RetryPath     string `protobuf:"bytes,33,opt,name=retry_path,json=retryPath,proto3" json:"retry_path,omitempty"`
+	RetryPath string `protobuf:"bytes,33,opt,name=retry_path,json=retryPath,proto3" json:"retry_path,omitempty"`
+	// Attributable actor that initiated the DAG run.
+	TriggerActor  string `protobuf:"bytes,34,opt,name=trigger_actor,json=triggerActor,proto3" json:"trigger_actor,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -750,6 +752,13 @@ func (x *Task) GetRetryPath() string {
 	return ""
 }
 
+func (x *Task) GetTriggerActor() string {
+	if x != nil {
+		return x.TriggerActor
+	}
+	return ""
+}
+
 func (x *Task) SetOperation(v Operation) {
 	x.Operation = v
 }
@@ -878,6 +887,10 @@ func (x *Task) SetRetryPath(v string) {
 	x.RetryPath = v
 }
 
+func (x *Task) SetTriggerActor(v string) {
+	x.TriggerActor = v
+}
+
 func (x *Task) HasPreviousStatus() bool {
 	if x == nil {
 		return false
@@ -939,6 +952,8 @@ type Task_builder struct {
 	ProfileName string
 	// Internal persisted child DAG route for a targeted step retry.
 	RetryPath string
+	// Attributable actor that initiated the DAG run.
+	TriggerActor string
 }
 
 func (b0 Task_builder) Build() *Task {
@@ -977,6 +992,7 @@ func (b0 Task_builder) Build() *Task {
 	x.WorkspaceBundleResolvedRef = b.WorkspaceBundleResolvedRef
 	x.ProfileName = b.ProfileName
 	x.RetryPath = b.RetryPath
+	x.TriggerActor = b.TriggerActor
 	return m0
 }
 
@@ -5022,7 +5038,7 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\x0fDispatchRequest\x12(\n" +
 	"\x04task\x18\x01 \x01(\v2\x14.coordinator.v1.TaskR\x04task\x12>\n" +
 	"\x1badmission_reservation_token\x18\x02 \x01(\tR\x19admissionReservationToken\"\x12\n" +
-	"\x10DispatchResponse\"\xa8\v\n" +
+	"\x10DispatchResponse\"\xcd\v\n" +
 	"\x04Task\x127\n" +
 	"\toperation\x18\x06 \x01(\x0e2\x19.coordinator.v1.OperationR\toperation\x12)\n" +
 	"\x11root_dag_run_name\x18\x01 \x01(\tR\x0erootDagRunName\x12%\n" +
@@ -5066,7 +5082,8 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\x1dworkspace_bundle_resolved_ref\x18\x1f \x01(\tR\x1aworkspaceBundleResolvedRef\x12!\n" +
 	"\fprofile_name\x18  \x01(\tR\vprofileName\x12\x1d\n" +
 	"\n" +
-	"retry_path\x18! \x01(\tR\tretryPath\x1aA\n" +
+	"retry_path\x18! \x01(\tR\tretryPath\x12#\n" +
+	"\rtrigger_actor\x18\" \x01(\tR\ftriggerActor\x1aA\n" +
 	"\x13WorkerSelectorEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x13\n" +

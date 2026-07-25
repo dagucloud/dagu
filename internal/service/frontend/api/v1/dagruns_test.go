@@ -1683,8 +1683,9 @@ steps:
 	}).ExpectStatus(http.StatusCreated).Send(t)
 
 	seedLatestDAGRunStatus(t, server, dag.DAG, "queued-run", core.Failed, seedDAGRunStatusOptions{
-		errorText:   "queued run failed",
-		profileName: "prod",
+		errorText:    "queued run failed",
+		profileName:  "prod",
+		triggerActor: "alice",
 	})
 
 	server.Client().Post(
@@ -1700,6 +1701,7 @@ steps:
 	require.Equal(t, core.Queued, status.Status)
 	require.Equal(t, core.TriggerTypeRetry, status.TriggerType)
 	require.Equal(t, "prod", status.ProfileName)
+	require.Equal(t, "alice", status.TriggerActor)
 }
 
 func TestGetSubDAGRunsIncludesTopLevelDagEnqueueRun(t *testing.T) {
@@ -2144,6 +2146,7 @@ type seedDAGRunStatusOptions struct {
 	parentRef      exec.DAGRunRef
 	paramsList     []string
 	profileName    string
+	triggerActor   string
 	nodeStatuses   map[string]core.NodeStatus
 	subRuns        map[string][]exec.SubDAGRun
 }
@@ -2176,6 +2179,9 @@ func seedLatestDAGRunStatus(
 	}
 	if opts.profileName != "" {
 		statusOptions = append(statusOptions, transform.WithRuntimeProfile(opts.profileName, "", nil))
+	}
+	if opts.triggerActor != "" {
+		statusOptions = append(statusOptions, transform.WithTriggerActor(opts.triggerActor))
 	}
 	if (!status.IsActive() && status != core.NotStarted) || status == core.Waiting {
 		statusOptions = append(statusOptions, transform.WithFinishedAt(time.Now().Add(-time.Minute)))

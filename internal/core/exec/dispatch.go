@@ -38,17 +38,18 @@ type DispatchTask struct {
 	ParentDAGRunName string
 	ParentDAGRunID   string
 
-	Operation   DispatchOperation
-	DAGRunID    string
-	Target      string
-	Definition  string
-	AttemptID   string
-	AttemptKey  string
-	Step        string
-	Params      string
-	QueueName   string
-	WorkerID    string
-	ProfileName string
+	Operation    DispatchOperation
+	DAGRunID     string
+	Target       string
+	Definition   string
+	AttemptID    string
+	AttemptKey   string
+	Step         string
+	Params       string
+	QueueName    string
+	WorkerID     string
+	ProfileName  string
+	TriggerActor string
 
 	PreviousStatus *DAGRunStatus
 

@@ -3058,6 +3058,9 @@ func (a *API) retryDAGRun(ctx context.Context, dagName, dagRunID, retryDagRunID,
 		if profileName != "" {
 			opts = append(opts, executor.WithProfileName(profileName))
 		}
+		if triggerActor := triggerActorFromContext(ctx); triggerActor != "" {
+			opts = append(opts, executor.WithTriggerActor(triggerActor))
+		}
 		task := executor.CreateTask(
 			dag.Name,
 			string(dag.YamlData),
@@ -3080,9 +3083,12 @@ func (a *API) retryDAGRun(ctx context.Context, dagName, dagRunID, retryDagRunID,
 	if err != nil {
 		return retryDAGRunResult{}, fmt.Errorf("error preparing DAG retry env: %w", err)
 	}
-	spec := a.subCmdBuilder.RetryWithOptions(prepared, retryDagRunID, launcher.RetryOptions{
-		StepName:  stepName,
-		RetryPath: retryPath,
+
+	spec := a.subCmdBuilder.Retry(prepared, launcher.RetryOptions{
+		DAGRunID:     retryDagRunID,
+		Step:         stepName,
+		RetryPath:    retryPath,
+		TriggerActor: triggerActorFromContext(ctx),
 	})
 	if err := launcher.Start(ctx, spec); err != nil {
 		return retryDAGRunResult{}, fmt.Errorf("error retrying DAG: %w", err)
@@ -3116,7 +3122,11 @@ func (a *API) enqueueRetry(ctx context.Context, attempt exec.DAGRunAttempt, dag 
 		return fmt.Errorf("error reading status: %w", err)
 	}
 	eventCtx := a.withEventContext(ctx)
-	if _, err := exec.EnqueueRetry(eventCtx, a.dagRunStore, a.queueStore, dag, status, exec.EnqueueRetryOptions{}); err != nil {
+	opts := exec.EnqueueRetryOptions{}
+	if actor := triggerActorFromContext(ctx); actor != "" {
+		opts.TriggerActor = &actor
+	}
+	if _, err := exec.EnqueueRetry(eventCtx, a.dagRunStore, a.queueStore, dag, status, opts); err != nil {
 		if errors.Is(err, exec.ErrRetryStaleLatest) {
 			return &Error{
 				HTTPStatus: http.StatusBadRequest,
@@ -3585,6 +3595,7 @@ func (a *API) enqueuePreparedDAGRun(
 		LogBaseDir:              a.config.Paths.LogDir,
 		ArtifactBaseDir:         a.config.Paths.ArtifactDir,
 		TriggerType:             triggerType,
+		TriggerActor:            triggerActorFromContext(ctx),
 		ProceedOnStatusCloseErr: true,
 		ProfileName:             profileName,
 	})
@@ -3885,7 +3896,10 @@ func (a *API) resumeDAGRun(ctx context.Context, ref exec.DAGRunRef, dagRunID str
 		return fmt.Errorf("prepare DAG retry env: %w", err)
 	}
 
-	retrySpec := a.subCmdBuilder.Retry(prepared, dagRunID, "")
+	retrySpec := a.subCmdBuilder.Retry(prepared, launcher.RetryOptions{
+		DAGRunID:     dagRunID,
+		TriggerActor: status.TriggerActor,
+	})
 	return launcher.Start(ctx, retrySpec)
 }
 
@@ -3910,11 +3924,14 @@ func (a *API) resumeSubDAGRun(ctx context.Context, rootRef exec.DAGRunRef, subDA
 		return fmt.Errorf("prepare sub-DAG retry env: %w", err)
 	}
 
-	retrySpec := a.subCmdBuilder.Retry(prepared, subDAGRunID, "")
-	if !status.Root.Zero() && status.Root.ID != subDAGRunID {
-		retrySpec = a.subCmdBuilder.RetryWithRootDAGRun(prepared, subDAGRunID, "", status.Root)
+	opts := launcher.RetryOptions{
+		DAGRunID:     subDAGRunID,
+		TriggerActor: status.TriggerActor,
 	}
-	return launcher.Start(ctx, retrySpec)
+	if !status.Root.Zero() && status.Root.ID != subDAGRunID {
+		opts.Root = status.Root
+	}
+	return launcher.Start(ctx, a.subCmdBuilder.Retry(prepared, opts))
 }
 
 func (a *API) prepareRetryDAGForSubprocess(ctx context.Context, dag *core.DAG, status *exec.DAGRunStatus) (*core.DAG, error) {

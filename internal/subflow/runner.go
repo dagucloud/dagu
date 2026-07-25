@@ -374,6 +374,9 @@ func (r *Runner) taskOptions(
 	if req.ProfileName != "" {
 		options = append(options, executor.WithProfileName(req.ProfileName))
 	}
+	if req.TriggerActor != "" {
+		options = append(options, executor.WithTriggerActor(req.TriggerActor))
+	}
 
 	if req.Workspace != nil {
 		options = append(options, executor.WithWorkspaceBundle(req.Workspace.Descriptor))

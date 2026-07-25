@@ -12282,6 +12282,9 @@ components:
           description: "ID of the worker that executed this DAG-run ('local' for local execution)"
         triggerType:
           $ref: "#/components/schemas/TriggerType"
+        triggerActor:
+          type: string
+          description: "Authenticated actor that initiated the DAG-run, when attribution is available"
         conditions:
           type: array
           description: "Type-keyed current-state runtime conditions for the DAG-run. This list reports the latest condition for each type, not a history of queued reasons."

@@ -29,6 +29,7 @@ type SubWorkflowRequest struct {
 	RunID             string
 	Params            string
 	ProfileName       string
+	TriggerActor      string
 	WorkDir           string
 	WorkerSelector    map[string]string
 	ExternalStepRetry bool

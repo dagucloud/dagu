@@ -394,6 +394,14 @@ function DAGStatusOverview({
             </span>
           </span>
         )}
+        {status.triggerActor && (
+          <span>
+            <span className="text-muted-foreground">Actor </span>
+            <span className="font-medium text-foreground">
+              {status.triggerActor}
+            </span>
+          </span>
+        )}
         {status.profileName && (
           <span className="inline-flex max-w-[180px] items-center gap-1 truncate">
             <SlidersHorizontal className="h-3 w-3 text-muted-foreground" />

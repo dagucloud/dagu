@@ -148,6 +148,8 @@ message Task {
   string profile_name = 32;
   // Internal persisted child DAG route for a targeted step retry.
   string retry_path = 33;
+  // Attributable actor that initiated the DAG run.
+  string trigger_actor = 34;
 }
 
 enum Operation {

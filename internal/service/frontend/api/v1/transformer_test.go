@@ -4,6 +4,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	openapi "github.com/dagucloud/dagu/api/v1"
+	"github.com/dagucloud/dagu/internal/auth"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/stretchr/testify/assert"
@@ -35,6 +37,7 @@ func TestToDAGRunSummaryIncludesScheduleTime(t *testing.T) {
 		ArchiveDir:     writeArtifactFile(t),
 		Status:         core.Queued,
 		ScheduleTime:   "2026-03-13T00:00:00Z",
+		TriggerActor:   "alice",
 	}
 
 	summary := toDAGRunSummary(status)
@@ -44,6 +47,8 @@ func TestToDAGRunSummaryIncludesScheduleTime(t *testing.T) {
 	require.NotNil(t, summary.AutoRetryLimit)
 	assert.Equal(t, status.AutoRetryLimit, *summary.AutoRetryLimit)
 	assert.True(t, summary.ArtifactsAvailable)
+	require.NotNil(t, summary.TriggerActor)
+	assert.Equal(t, "alice", *summary.TriggerActor)
 }
 
 func TestToDAGRunDetailsIncludesScheduleTime(t *testing.T) {
@@ -56,6 +61,7 @@ func TestToDAGRunDetailsIncludesScheduleTime(t *testing.T) {
 		Status:         core.Queued,
 		QueuedAt:       "2026-03-13T00:01:00Z",
 		ScheduleTime:   "2026-03-13T00:00:00Z",
+		TriggerActor:   "alice",
 	}
 
 	details := ToDAGRunDetails(status)
@@ -67,6 +73,16 @@ func TestToDAGRunDetailsIncludesScheduleTime(t *testing.T) {
 	require.NotNil(t, details.AutoRetryLimit)
 	assert.Equal(t, status.AutoRetryLimit, *details.AutoRetryLimit)
 	assert.True(t, details.ArtifactsAvailable)
+	require.NotNil(t, details.TriggerActor)
+	assert.Equal(t, "alice", *details.TriggerActor)
+}
+
+func TestTriggerActorFromContext(t *testing.T) {
+	t.Parallel()
+
+	ctx := auth.WithUser(context.Background(), &auth.User{Username: "alice"})
+	assert.Equal(t, "alice", triggerActorFromContext(ctx))
+	assert.Empty(t, triggerActorFromContext(context.Background()))
 }
 
 func TestToDAGRunDetailsIncludesHumanTaskContract(t *testing.T) {

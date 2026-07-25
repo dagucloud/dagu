@@ -213,6 +213,11 @@ func (e *DAGExecutor) executeDAG(
 		return err
 	}
 
+	triggerActor := ""
+	if previousStatus != nil {
+		triggerActor = previousStatus.TriggerActor
+	}
+
 	if e.shouldUseDistributedExecution(dag) {
 		// Distributed execution: dispatch to coordinator
 		taskOpts := []executor.TaskOption{
@@ -226,6 +231,9 @@ func (e *DAGExecutor) executeDAG(
 		}
 		if profileName != "" {
 			taskOpts = append(taskOpts, executor.WithProfileName(profileName))
+		}
+		if triggerActor != "" {
+			taskOpts = append(taskOpts, executor.WithTriggerActor(triggerActor))
 		}
 		if previousStatus != nil && len(previousStatus.ParamsList) == 0 && previousStatus.Params != "" {
 			taskOpts = append(taskOpts, executor.WithTaskParams(previousStatus.Params))
@@ -268,13 +276,18 @@ func (e *DAGExecutor) executeDAG(
 			DAGRunID:     runID,
 			Quiet:        true,
 			TriggerType:  triggerType.String(),
+			TriggerActor: triggerActor,
 			ScheduleTime: scheduleTime,
 			ProfileName:  fallbackProfileName(profileNameFromStatus(previousStatus), defaultProfileName),
 		})
 		return launcher.Start(ctx, spec)
 
 	case exec.DispatchOperationRetry:
-		spec := e.subCmdBuilder.QueueDispatchRetry(dag, runID, "")
+		spec := e.subCmdBuilder.Retry(dag, launcher.RetryOptions{
+			DAGRunID:      runID,
+			TriggerActor:  triggerActor,
+			QueueDispatch: true,
+		})
 		return launcher.Run(ctx, spec)
 
 	default:
