@@ -19,35 +19,35 @@ export function TaskChecklistTab({ tasks }: TaskChecklistTabProps) {
 
   return (
     <div className="flex flex-col gap-2 p-2">
-      <div className="text-xs text-slate-600 dark:text-slate-400">
+      <div className="text-muted-foreground text-xs">
         {doneCount} of {tasks.length} tasks complete
       </div>
 
-      <div className="divide-y divide-slate-200 rounded border border-slate-200 dark:divide-slate-700 dark:border-slate-700">
+      <div className="divide-border bg-card divide-y rounded border">
         {tasks.map((task) => (
-          <div key={task.name} className="flex gap-2 px-2 py-1.5">
+          <div key={task.name} className="flex gap-2 px-3 py-2">
             {task.done ? (
               <CircleCheck
-                className="mt-0.5 h-4 w-4 shrink-0 text-green-600 dark:text-green-500"
+                className="text-success mt-0.5 h-4 w-4 shrink-0"
                 aria-label="complete"
               />
             ) : (
               <CircleDashed
-                className="mt-0.5 h-4 w-4 shrink-0 text-slate-400 dark:text-slate-500"
+                className="text-muted-foreground mt-0.5 h-4 w-4 shrink-0"
                 aria-label="open"
               />
             )}
             <div className="min-w-0 flex-1">
-              <div className="text-sm font-medium whitespace-normal break-words text-slate-800 dark:text-slate-200">
+              <div className="text-foreground text-sm font-medium break-words whitespace-normal">
                 {task.name}
               </div>
               {task.description ? (
-                <div className="text-xs whitespace-normal break-words text-slate-600 dark:text-slate-400">
+                <div className="text-muted-foreground text-xs break-words whitespace-normal">
                   {task.description}
                 </div>
               ) : null}
               {task.done && task.reason ? (
-                <div className="mt-0.5 text-xs whitespace-normal break-words text-slate-500 dark:text-slate-500">
+                <div className="text-muted-foreground/80 mt-0.5 text-xs break-words whitespace-normal italic">
                   {task.reason}
                 </div>
               ) : null}
