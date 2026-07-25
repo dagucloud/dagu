@@ -20,10 +20,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 )
 
-const (
-	azureKeyVaultProvider      = "azure"
-	azureSecretVersionIDLength = 32
-)
+const azureKeyVaultProvider = "azure"
 
 var (
 	azureVaultNamePattern  = regexp.MustCompile(`^[a-z][a-z0-9-]*[a-z0-9]$`)
@@ -176,8 +173,8 @@ func parseAzureSecretReference(ref core.SecretRef, defaultVaultURL string) (azur
 			return azureSecretReference{}, fmt.Errorf("unsupported option %q", option)
 		}
 	}
-	if version := ref.Options["version"]; version != "" && !isValidAzureSecretVersion(version) {
-		return azureSecretReference{}, fmt.Errorf("options.version for Azure Key Vault must be a %d-character identifier", azureSecretVersionIDLength)
+	if version := ref.Options["version"]; version != "" && !isSafeAzureSecretVersion(version) {
+		return azureSecretReference{}, fmt.Errorf("options.version for Azure Key Vault must not contain slashes or relative path segments")
 	}
 
 	if strings.Contains(key, "://") {
@@ -227,7 +224,7 @@ func parseAzureSecretURL(rawURL, optionVersion string) (azureSecretReference, er
 			return azureSecretReference{}, fmt.Errorf("options.version conflicts with the version in the Azure Key Vault secret URL")
 		}
 		version, err = url.PathUnescape(segments[2])
-		if err != nil || !isValidAzureSecretVersion(version) {
+		if err != nil || !isSafeAzureSecretVersion(version) {
 			return azureSecretReference{}, fmt.Errorf("secret URL for Azure Key Vault contains an invalid version")
 		}
 	}
@@ -278,8 +275,8 @@ func isValidAzureSecretName(name string) bool {
 	return azureSecretNamePattern.MatchString(name)
 }
 
-func isValidAzureSecretVersion(version string) bool {
-	return len(version) == azureSecretVersionIDLength && !strings.Contains(version, "/")
+func isSafeAzureSecretVersion(version string) bool {
+	return version != "" && version != "." && version != ".." && !strings.Contains(version, "/")
 }
 
 type azureSecretClient interface {
