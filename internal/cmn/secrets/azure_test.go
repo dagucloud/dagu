@@ -68,6 +68,7 @@ func TestAzureKeyVaultResolverValidate(t *testing.T) {
 		{name: "Localhost", ref: core.SecretRef{Key: "https://localhost/secrets/name"}, wantErr: "Key Vault endpoint"},
 		{name: "IPAddress", ref: core.SecretRef{Key: "https://127.0.0.1/secrets/name"}, wantErr: "Key Vault endpoint"},
 		{name: "CustomPort", ref: core.SecretRef{Key: "https://example.vault.azure.net:8443/secrets/name"}, wantErr: "port must be 443"},
+		{name: "UnsupportedOption", ref: core.SecretRef{Key: "database-password", Options: map[string]string{"profile": "production"}}, wantErr: `unsupported option "profile"`},
 	}
 
 	for _, tc := range tests {

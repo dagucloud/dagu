@@ -20,7 +20,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 )
 
-const azureKeyVaultProvider = "azure-key-vault"
+const azureKeyVaultProvider = "azure"
 
 var (
 	azureVaultNamePattern  = regexp.MustCompile(`^[a-z][a-z0-9-]*[a-z0-9]$`)
@@ -140,6 +140,13 @@ func parseAzureSecretReference(ref core.SecretRef, defaultVaultURL string) (azur
 	key := strings.TrimSpace(ref.Key)
 	if key == "" {
 		return azureSecretReference{}, fmt.Errorf("key (Azure Key Vault secret name or URL) is required")
+	}
+	for option := range ref.Options {
+		switch option {
+		case "field", "vault_url", "version":
+		default:
+			return azureSecretReference{}, fmt.Errorf("unsupported option %q", option)
+		}
 	}
 	if strings.Contains(ref.Options["version"], "/") {
 		return azureSecretReference{}, fmt.Errorf("options.version for Azure Key Vault must not contain slashes")
