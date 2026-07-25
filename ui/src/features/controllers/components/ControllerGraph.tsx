@@ -107,9 +107,6 @@ function addEdgeTitles(
       title.textContent = condition;
       edge.prepend(title);
     });
-  container.querySelectorAll<SVGGElement>('g.node.current').forEach((node) => {
-    node.classList.add('animate-pulse');
-  });
 }
 
 export function ControllerGraph({

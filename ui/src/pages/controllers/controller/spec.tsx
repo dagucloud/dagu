@@ -344,7 +344,7 @@ export default function ControllerSpecPage({
         onClick={() => void save()}
       >
         {pendingAction === 'save' ? (
-          <span className="animate-pulse">Saving…</span>
+          <span>Saving…</span>
         ) : (
           <>
             <Save className="h-4 w-4" />
