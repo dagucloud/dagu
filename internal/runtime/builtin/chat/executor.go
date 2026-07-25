@@ -73,10 +73,16 @@ func newChatExecutor(ctx context.Context, step core.Step) (executor.Executor, er
 		primaryProvider = cfg.Provider
 	}
 
-	// Parse provider type (required field, validated in spec)
-	providerType, err := llmpkg.ParseProviderType(primaryProvider)
-	if err != nil {
-		return nil, fmt.Errorf("invalid provider: %w", err)
+	// Parse provider type. A provider carrying a value reference only has a final
+	// value once the step runs, so leave it unparsed here and let
+	// createProviderForModel reject an unsupported value after resolution.
+	var providerType llmpkg.ProviderType
+	if !cmnvalue.HasValueReference(primaryProvider) {
+		var err error
+		providerType, err = llmpkg.ParseProviderType(primaryProvider)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Determine which environment variable to use for API key
@@ -357,6 +363,27 @@ func evalMessages(ctx context.Context, msgs []exec.LLMMessage) ([]exec.LLMMessag
 	return result, nil
 }
 
+// resolveModels evaluates variable substitution in the provider and model name of
+// each entry. Per-entry base_url and api_key_name are evaluated later, in
+// createProviderForModel, once shared config has been merged in.
+func resolveModels(ctx context.Context, models []core.ModelEntry) ([]core.ModelEntry, error) {
+	resolved := make([]core.ModelEntry, len(models))
+	for i, model := range models {
+		provider, err := runtime.ResolveString(ctx, model.Provider, cmnvalue.WorkflowField("llm.provider"))
+		if err != nil {
+			return nil, fmt.Errorf("failed to evaluate provider: %w", err)
+		}
+		name, err := runtime.ResolveString(ctx, model.Name, cmnvalue.WorkflowField("llm.model"))
+		if err != nil {
+			return nil, fmt.Errorf("failed to evaluate model: %w", err)
+		}
+		resolved[i] = model
+		resolved[i].Provider = provider
+		resolved[i].Name = name
+	}
+	return resolved, nil
+}
+
 // maskSecretsForProvider masks secret values in messages before sending to LLM provider.
 // This prevents secrets from being leaked to external LLM APIs.
 func maskSecretsForProvider(ctx context.Context, msgs []exec.LLMMessage) []exec.LLMMessage {
@@ -397,7 +424,10 @@ func (e *Executor) Run(ctx context.Context) error {
 		return err
 	}
 
-	models := e.step.LLM.GetModels()
+	models, err := resolveModels(ctx, e.step.LLM.GetModels())
+	if err != nil {
+		return err
+	}
 
 	// If only one model, use simple path (no fallback)
 	if len(models) == 1 {
@@ -416,7 +446,7 @@ func (e *Executor) Run(ctx context.Context) error {
 			slog.String("model", model.Name),
 			slog.Int("attemptIndex", i))
 
-		err := e.runWithModel(ctx, model, allMessages)
+		err = e.runWithModel(ctx, model, allMessages)
 		if err == nil {
 			return nil // Success
 		}
@@ -504,7 +534,7 @@ func (e *Executor) createProviderForModel(ctx context.Context, model core.ModelE
 	// Parse provider type for this model
 	providerType, err := llmpkg.ParseProviderType(cfg.Provider)
 	if err != nil {
-		return nil, fmt.Errorf("invalid provider: %w", err)
+		return nil, err
 	}
 
 	// Determine API key env var

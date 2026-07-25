@@ -9,12 +9,14 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"sync/atomic"
 	"testing"
 
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	llmpkg "github.com/dagucloud/dagu/internal/llm"
+	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -347,6 +349,66 @@ func TestNewChatExecutor(t *testing.T) {
 		e := exec.(*Executor)
 		assert.Equal(t, "MY_CUSTOM_KEY", e.apiKeyEnvVar)
 	})
+
+	t.Run("ProviderReferenceIsResolvedAtRunTime", func(t *testing.T) {
+		t.Parallel()
+
+		step := core.Step{
+			Name: "test",
+			LLM: &core.LLMConfig{
+				Provider: "${params.PROVIDER}",
+				Model:    "${params.MODEL}",
+			},
+		}
+		_, err := newChatExecutor(context.Background(), step)
+		require.NoError(t, err)
+	})
+}
+
+func TestResolveModels(t *testing.T) {
+	t.Parallel()
+
+	ctx := chatRuntimeContext(t, []string{"PROVIDER=anthropic", "MODEL=claude-sonnet-4-6"})
+
+	t.Run("ResolvesProviderAndModelReferences", func(t *testing.T) {
+		t.Parallel()
+
+		models, err := resolveModels(ctx, []core.ModelEntry{
+			{Provider: "${params.PROVIDER}", Name: "${params.MODEL}", BaseURL: "https://${params.PROVIDER}.example"},
+		})
+		require.NoError(t, err)
+		require.Len(t, models, 1)
+		assert.Equal(t, "anthropic", models[0].Provider)
+		assert.Equal(t, "claude-sonnet-4-6", models[0].Name)
+		// base_url is resolved later, once shared config has been merged in.
+		assert.Equal(t, "https://${params.PROVIDER}.example", models[0].BaseURL)
+	})
+
+	t.Run("LeavesLiteralEntriesUnchanged", func(t *testing.T) {
+		t.Parallel()
+
+		models, err := resolveModels(ctx, []core.ModelEntry{
+			{Provider: "openai", Name: "gpt-4o"},
+			{Provider: "${params.PROVIDER}", Name: "${params.MODEL}"},
+		})
+		require.NoError(t, err)
+		require.Len(t, models, 2)
+		assert.Equal(t, core.ModelEntry{Provider: "openai", Name: "gpt-4o"}, models[0])
+		assert.Equal(t, core.ModelEntry{Provider: "anthropic", Name: "claude-sonnet-4-6"}, models[1])
+	})
+}
+
+// chatRuntimeContext builds a runtime context whose DAG declares params.
+func chatRuntimeContext(t *testing.T, params []string) context.Context {
+	t.Helper()
+
+	dag := &core.DAG{Name: "test", Params: params}
+	for _, param := range params {
+		name, _, _ := strings.Cut(param, "=")
+		dag.ParamDefs = append(dag.ParamDefs, core.ParamDef{Name: name, Type: core.ParamDefTypeString})
+	}
+	ctx := exec.NewContext(context.Background(), dag, "run-1", "/tmp/log")
+	return runtime.WithEnv(ctx, runtime.NewEnv(ctx, core.Step{Name: "test"}))
 }
 
 func TestExecutor_SetStdout(t *testing.T) {

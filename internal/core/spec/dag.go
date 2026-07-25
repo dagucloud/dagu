@@ -2352,17 +2352,8 @@ func buildLLM(_ BuildContext, d *dag) (*core.LLMConfig, error) {
 	cfg := d.LLM
 
 	// Validate provider if specified (optional at DAG level)
-	if cfg.Provider != "" {
-		validProviders := map[string]bool{
-			"openai": true, "anthropic": true, "gemini": true,
-			"openrouter": true, "local": true,
-			// Aliases for local provider
-			"ollama": true, "vllm": true, "llama": true,
-		}
-		if !validProviders[cfg.Provider] {
-			return nil, core.NewValidationError("llm.provider", cfg.Provider,
-				fmt.Errorf("invalid provider: must be one of openai, anthropic, gemini, openrouter, local (or aliases: ollama, vllm, llama)"))
-		}
+	if err := validateLLMProvider(cfg.Provider); err != nil {
+		return nil, core.NewValidationError("llm.provider", cfg.Provider, err)
 	}
 
 	// Get model string or entries (optional at DAG level)

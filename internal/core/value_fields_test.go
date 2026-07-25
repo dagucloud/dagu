@@ -213,19 +213,19 @@ func TestReferenceFieldsEmitsValidationPathSet(t *testing.T) {
 		"steps[0].container.image",
 		"steps[0].container.working_dir",
 		"steps[0].llm.system",
+		"steps[0].llm.provider",
+		"steps[0].llm.model",
 		"steps[0].llm.base_url",
+		"steps[0].llm.api_key_name",
+		"steps[0].llm.model[0].provider",
+		"steps[0].llm.model[0].name",
 		"steps[0].llm.model[0].base_url",
+		"steps[0].llm.model[0].api_key_name",
 		"steps[0].messages[0].content",
 		"handler_on.init.run",
 	}, got)
 	assert.NotContains(t, got, "steps[0].stdout.outputs.fields.image.select")
 	assert.NotContains(t, got, "steps[0].stdout.outputs.fields.image.path")
 	assert.NotContains(t, got, "steps[0].output.digest.select")
-	assert.NotContains(t, got, "steps[0].llm.provider")
-	assert.NotContains(t, got, "steps[0].llm.model")
-	assert.NotContains(t, got, "steps[0].llm.api_key_name")
-	assert.NotContains(t, got, "steps[0].llm.model[0].provider")
-	assert.NotContains(t, got, "steps[0].llm.model[0].name")
-	assert.NotContains(t, got, "steps[0].llm.model[0].api_key_name")
 	assert.NotContains(t, got, "steps[0].llm.tools[0]")
 }
