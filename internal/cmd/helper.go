@@ -189,14 +189,19 @@ func extractDAGName(ctx *Context, name string) (string, error) {
 		return name, nil
 	}
 
+	absolutePath, err := filepath.Abs(name)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve DAG file path %s: %w", name, err)
+	}
+
 	dagStore, err := ctx.dagStore(dagStoreConfig{
-		SearchPaths: []string{filepath.Dir(name)},
+		SearchPaths: []string{filepath.Dir(absolutePath)},
 	})
 	if err != nil {
 		return "", fmt.Errorf("failed to initialize DAG store: %w", err)
 	}
 
-	dag, err := dagStore.GetMetadata(ctx, name)
+	dag, err := dagStore.GetMetadata(ctx, absolutePath)
 	if err != nil {
 		return "", fmt.Errorf("failed to read DAG metadata from file %s: %w", name, err)
 	}

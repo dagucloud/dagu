@@ -1054,9 +1054,9 @@ func (store *Storage) locateDAG(nameOrPath string) (string, error) {
 		}
 
 		for _, candidatePath := range dagFileCandidates(relativePath) {
-			_, err := fileutil.ResolveExistingPathWithinBase(absDir, candidatePath)
+			resolvedPath, err := fileutil.ResolveExistingPathWithinBase(absDir, candidatePath)
 			if err == nil {
-				return filepath.Clean(filepath.Join(absDir, candidatePath)), nil
+				return resolvedPath, nil
 			}
 		}
 	}
