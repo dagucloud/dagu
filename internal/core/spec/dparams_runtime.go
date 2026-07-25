@@ -21,7 +21,8 @@ const maxSafeFloat64Integer = 1 << 53
 
 // ResolveRuntimeParamsOptions controls how a DAG is reloaded for runtime param validation.
 type ResolveRuntimeParamsOptions struct {
-	BaseConfig string
+	BaseConfig             string
+	WorkspaceBaseConfigDir string
 }
 
 // ResolveRuntimeParams reloads a DAG from its source with runtime params applied.
@@ -66,6 +67,9 @@ func runtimeParamLoadOptions(dag *core.DAG, params any, opts ResolveRuntimeParam
 	}
 	if opts.BaseConfig != "" {
 		loadOpts = append(loadOpts, WithBaseConfig(opts.BaseConfig))
+	}
+	if opts.WorkspaceBaseConfigDir != "" {
+		loadOpts = append(loadOpts, WithWorkspaceBaseConfigDir(opts.WorkspaceBaseConfigDir))
 	}
 	if len(dag.BaseConfigData) > 0 {
 		loadOpts = append(loadOpts, WithBaseConfigContent(dag.BaseConfigData))

@@ -281,6 +281,9 @@ func (b *SubCmdBuilder) Retry(dag *core.DAG, opts RetryOptions) CmdSpec {
 	if opts.TriggerActor != "" {
 		args = append(args, fmt.Sprintf("--trigger-actor=%s", opts.TriggerActor))
 	}
+	if path := opts.RetryPath.Encode(); path != "" {
+		args = append(args, "--retry-path="+path)
+	}
 
 	if b.configFile != "" {
 		args = append(args, "--config", b.configFile)
@@ -346,6 +349,7 @@ type RetryOptions struct {
 	DAGRunID      string
 	Step          string
 	Root          exec1.DAGRunRef
+	RetryPath     exec1.RetryPath
 	TriggerActor  string
 	QueueDispatch bool
 }

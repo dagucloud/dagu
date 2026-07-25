@@ -282,6 +282,26 @@ func TestRunnerRunReusesSucceededChildForExternalStepRetry(t *testing.T) {
 	assert.Equal(t, "ok", result.Outputs["RESULT"])
 }
 
+func TestRunnerRunReuseRequiresPersistedChild(t *testing.T) {
+	t.Parallel()
+
+	dispatcher := &mockDispatcher{
+		statuses: []*exec.DAGRunStatusResult{{Found: false}},
+	}
+	runner := newFastRunner(dispatcher)
+
+	result, err := runner.Run(context.Background(), runtimeexec.SubWorkflowRequest{
+		DAG:        &core.DAG{Name: "child", YamlData: []byte("name: child")},
+		RootDAGRun: exec.NewDAGRunRef("parent", "root-1"),
+		RunID:      "child-1",
+		Reuse:      true,
+	})
+
+	require.ErrorContains(t, err, "persisted child workflow status not found for DAG run child-1")
+	assert.Nil(t, result)
+	assert.Empty(t, dispatcher.dispatches)
+}
+
 func TestRunnerRetryDispatchesPreviousStatus(t *testing.T) {
 	t.Parallel()
 

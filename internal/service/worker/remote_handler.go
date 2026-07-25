@@ -184,6 +184,10 @@ func (h *remoteTaskHandler) handleRetry(ctx context.Context, task *coordinatorv1
 	if convErr != nil {
 		return fmt.Errorf("failed to convert previous status: %w", convErr)
 	}
+	retryPath, err := exec.ParseRetryPath(task.RetryPath)
+	if err != nil {
+		return fmt.Errorf("invalid retry path: %w", err)
+	}
 	profileName := retryTaskProfileName(status)
 	run := remoteRun{
 		task:        task,
@@ -195,6 +199,7 @@ func (h *remoteTaskHandler) handleRetry(ctx context.Context, task *coordinatorv1
 			target:      status,
 			stepName:    task.Step,
 			triggerType: exec.PreservedQueueTriggerType(status),
+			retryPath:   retryPath,
 		},
 	}
 	logger.Info(ctx, "Using previous status from task for retry",
@@ -331,6 +336,7 @@ type retryConfig struct {
 	target      *exec.DAGRunStatus
 	stepName    string
 	triggerType core.TriggerType
+	retryPath   exec.RetryPath
 }
 
 type runHandlers struct {
@@ -709,6 +715,7 @@ func (h *remoteTaskHandler) executeDAGRun(
 		opts.RetryTarget = run.retry.target
 		opts.StepRetry = run.retry.stepName
 		opts.TriggerType = run.retry.triggerType
+		opts.RetryPath = run.retry.retryPath
 	}
 
 	// Create the agent

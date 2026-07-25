@@ -14,6 +14,7 @@ import {
   StatusLabel,
 } from '@/api/v1/schema';
 import { AppBarContext } from '@/contexts/AppBarContext';
+import { DAGRunContext } from '@/features/dag-runs/contexts/DAGRunContext';
 import { useQuery } from '@/hooks/api';
 import { DAGContext } from '../../../contexts/DAGContext';
 import NodeStatusTableRow from '../NodeStatusTableRow';
@@ -247,7 +248,9 @@ describe('NodeStatusTableRow', () => {
       </MemoryRouter>
     );
 
-    expect(screen.queryByTitle('Retry from this step')).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Step actions' })
+    ).not.toBeInTheDocument();
   });
 
   it.each([
@@ -294,10 +297,13 @@ describe('NodeStatusTableRow', () => {
       </MemoryRouter>
     );
 
-    expect(screen.queryByTitle('Retry from this step')).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Step actions' })
+    ).not.toBeInTheDocument();
   });
 
   it('keeps the retry dialog open when the API rejects the request', async () => {
+    const user = userEvent.setup();
     postMock.mockResolvedValueOnce({
       error: { message: 'The DAG run cannot be retried' },
     });
@@ -339,7 +345,8 @@ describe('NodeStatusTableRow', () => {
       </MemoryRouter>
     );
 
-    fireEvent.click(screen.getByTitle('Retry from this step'));
+    await user.click(screen.getByRole('button', { name: 'Step actions' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Retry step' }));
     const dialog = screen.getByRole('dialog');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Retry' }));
 
@@ -355,6 +362,200 @@ describe('NodeStatusTableRow', () => {
       body: { dagRunId: 'run-1', stepName: 'build' },
     });
   });
+
+  it('retries a child step through its root DAG run', async () => {
+    const user = userEvent.setup();
+    postMock.mockResolvedValueOnce({});
+    const node = {
+      step: { name: 'build' },
+      status: NodeStatus.Failed,
+      statusLabel: NodeStatusLabel.failed,
+      stdout: '',
+      stderr: '',
+      startedAt: '',
+      finishedAt: '',
+      retryCount: 0,
+      doneCount: 1,
+    } as components['schemas']['Node'];
+
+    render(
+      <MemoryRouter>
+        <AppBarContext.Provider value={appBarValue}>
+          <DAGContext.Provider
+            value={{
+              refresh: vi.fn(),
+              name: 'child',
+              fileName: 'child.yaml',
+            }}
+          >
+            <table>
+              <tbody>
+                <NodeStatusTableRow
+                  rownum={1}
+                  node={node}
+                  name="child.yaml"
+                  dagRun={{
+                    ...dagRun,
+                    name: 'child',
+                    dagRunId: 'child-run',
+                    rootDAGRunName: 'root',
+                    rootDAGRunId: 'root-run',
+                  }}
+                  view="desktop"
+                />
+              </tbody>
+            </table>
+          </DAGContext.Provider>
+        </AppBarContext.Provider>
+      </MemoryRouter>
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Step actions' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Retry step' }));
+    fireEvent.click(
+      within(screen.getByRole('dialog')).getByRole('button', { name: 'Retry' })
+    );
+
+    await vi.waitFor(() => {
+      expect(postMock).toHaveBeenCalledWith(
+        '/dag-runs/{name}/{dagRunId}/retry',
+        {
+          params: {
+            path: { name: 'root', dagRunId: 'root-run' },
+            query: { remoteNode: 'local' },
+          },
+          body: {
+            dagRunId: 'root-run',
+            stepName: 'build',
+            subDAGRunId: 'child-run',
+          },
+        }
+      );
+    });
+  });
+
+  it.each(['desktop', 'mobile'] as const)(
+    'disables child step retries while the root run is running in the %s view',
+    async (view) => {
+      const user = userEvent.setup();
+      const node = {
+        step: { name: 'build' },
+        status: NodeStatus.Success,
+        statusLabel: NodeStatusLabel.succeeded,
+        stdout: '',
+        stderr: '',
+        startedAt: '',
+        finishedAt: '',
+        retryCount: 0,
+        doneCount: 1,
+      } as components['schemas']['Node'];
+      const row = (
+        <NodeStatusTableRow
+          rownum={1}
+          node={node}
+          name="child.yaml"
+          dagRun={{
+            ...dagRun,
+            name: 'child',
+            dagRunId: 'child-run',
+            rootDAGRunName: 'root',
+            rootDAGRunId: 'root-run',
+          }}
+          view={view}
+        />
+      );
+
+      render(
+        <MemoryRouter>
+          <AppBarContext.Provider value={appBarValue}>
+            <DAGRunContext.Provider
+              value={{
+                refresh: vi.fn(),
+                name: 'child',
+                dagRunId: 'child-run',
+                rootStatus: Status.Running,
+              }}
+            >
+              <DAGContext.Provider
+                value={{
+                  refresh: vi.fn(),
+                  name: 'child',
+                  fileName: 'child.yaml',
+                }}
+              >
+                {view === 'desktop' ? (
+                  <table>
+                    <tbody>{row}</tbody>
+                  </table>
+                ) : (
+                  row
+                )}
+              </DAGContext.Provider>
+            </DAGRunContext.Provider>
+          </AppBarContext.Provider>
+        </MemoryRouter>
+      );
+
+      await user.click(screen.getByRole('button', { name: 'Step actions' }));
+      expect(
+        screen.getByRole('menuitem', { name: 'Retry step' })
+      ).toHaveAttribute('data-disabled');
+    }
+  );
+
+  it.each(['desktop', 'mobile'] as const)(
+    'opens status updates from the visible actions menu in the %s view',
+    async (view) => {
+      const user = userEvent.setup();
+      const node = {
+        step: { name: 'build' },
+        status: NodeStatus.Success,
+        statusLabel: NodeStatusLabel.succeeded,
+        stdout: '',
+        stderr: '',
+        startedAt: '',
+        finishedAt: '',
+        retryCount: 0,
+        doneCount: 1,
+      } as components['schemas']['Node'];
+      const row = (
+        <NodeStatusTableRow
+          rownum={1}
+          node={node}
+          name="example.yaml"
+          dagRun={dagRun}
+          view={view}
+        />
+      );
+
+      render(
+        <MemoryRouter>
+          <AppBarContext.Provider value={appBarValue}>
+            <DAGContext.Provider
+              value={{
+                refresh: vi.fn(),
+                name: 'example',
+                fileName: 'example.yaml',
+              }}
+            >
+              {view === 'desktop' ? (
+                <table>
+                  <tbody>{row}</tbody>
+                </table>
+              ) : (
+                row
+              )}
+            </DAGContext.Provider>
+          </AppBarContext.Provider>
+        </MemoryRouter>
+      );
+
+      await user.click(screen.getByRole('button', { name: 'Step actions' }));
+      await user.click(screen.getByRole('menuitem', { name: 'Change status' }));
+
+      expect(screen.getByText('Update Status')).toBeVisible();
+    }
+  );
 
   it.each([
     {

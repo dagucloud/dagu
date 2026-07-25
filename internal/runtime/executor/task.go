@@ -151,6 +151,13 @@ func WithExternalStepRetry(enabled bool) TaskOption {
 	}
 }
 
+// WithRetryPath sets the persisted child DAG path for a retry task.
+func WithRetryPath(path exec.RetryPath) TaskOption {
+	return func(task *exec.DispatchTask) {
+		task.RetryPath = path.Encode()
+	}
+}
+
 // ResolveBaseConfig returns the base config content for a DAG task.
 // It prefers embedded BaseConfigData from the DAG, falling back to reading the file at fallbackPath.
 func ResolveBaseConfig(baseConfigData []byte, fallbackPath string) string {

@@ -473,6 +473,7 @@ func (f *testFixture) enqueueCatchup(scheduleTime time.Time) (string, error) {
 		f.coord.Config.Paths.LogDir,
 		f.coord.Config.Paths.ArtifactDir,
 		f.coord.Config.Paths.BaseConfig,
+		"",
 		f.dagWrapper.DAG,
 		runID,
 		core.TriggerTypeCatchUp,

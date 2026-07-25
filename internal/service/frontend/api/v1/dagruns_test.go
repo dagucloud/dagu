@@ -1589,10 +1589,12 @@ steps:
   - name: main
     run: echo "${MESSAGE} current file"`
 	dagPath := filepath.Join(server.Config.Paths.DAGsDir, dagName+".yaml")
+	resolvedDAGPath, err := filepath.EvalSymlinks(dagPath)
+	require.NoError(t, err)
 	assertRescheduleSpecSourceFlag(t, server, dagName, startBody.DagRunId, true)
 	originalAttempt, originalDAG := test.WaitForAttemptSnapshotWithDAG(t, server, dagName, startBody.DagRunId)
 	require.NotNil(t, originalAttempt)
-	require.Equal(t, dagPath, originalDAG.SourceFile)
+	require.Equal(t, resolvedDAGPath, originalDAG.SourceFile)
 	require.NoError(t, os.WriteFile(dagPath, []byte(currentSpec), 0o600))
 	useCurrentDagFile := true
 
@@ -1610,7 +1612,7 @@ steps:
 
 	_, dag := test.WaitForAttemptSnapshotWithDAG(t, server, dagName, body.DagRunId)
 	require.Contains(t, string(dag.YamlData), "current file")
-	require.Equal(t, dagPath, dag.SourceFile)
+	require.Equal(t, resolvedDAGPath, dag.SourceFile)
 
 	rescheduledStatus := waitForStoredDAGRunStatus(t, server, dagName, body.DagRunId, 10*time.Second, func(status *exec.DAGRunStatus) bool {
 		return status.Status == core.Succeeded

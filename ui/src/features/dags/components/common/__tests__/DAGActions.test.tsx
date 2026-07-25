@@ -132,4 +132,30 @@ describe('DAGActions', () => {
       within(view.container).getByRole('button', { name: 'Retry' })
     ).toBeDisabled();
   });
+
+  it('hides whole-run retry for child DAG runs', () => {
+    const view = render(
+      <DAGActions
+        status={{
+          name: 'child-dag',
+          dagRunId: 'child-run',
+          rootDAGRunName: 'root-dag',
+          rootDAGRunId: 'root-run',
+          status: Status.Failed,
+          statusLabel: StatusLabel.failed,
+          artifactsAvailable: false,
+          autoRetryCount: 0,
+          startedAt: '',
+          finishedAt: '',
+        }}
+        fileName="child-dag.yaml"
+        dag={{ name: 'child-dag' }}
+        displayMode="full"
+      />
+    );
+
+    expect(
+      within(view.container).queryByRole('button', { name: 'Retry' })
+    ).not.toBeInTheDocument();
+  });
 });

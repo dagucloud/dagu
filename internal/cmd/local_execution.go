@@ -23,6 +23,7 @@ type runOptions struct {
 	scheduleTime    string
 	profileName     string
 	step            string
+	retryPath       exec.RetryPath
 	preparedAttempt exec.DAGRunAttempt
 }
 

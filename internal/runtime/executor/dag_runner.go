@@ -215,11 +215,35 @@ func (e *SubDAGExecutor) Execute(ctx context.Context, runParams RunParams, workD
 	return e.subWorkflowRunner.Run(runCtx, req)
 }
 
-// Retry executes a parent-managed step retry for a previously started sub DAG.
-func (e *SubDAGExecutor) Retry(ctx context.Context, runParams RunParams, stepName, workDir string) (*exec.RunStatus, error) {
+// Reuse returns the persisted result of a child run without executing it.
+func (e *SubDAGExecutor) Reuse(ctx context.Context, runParams RunParams, workDir string) (*exec.RunStatus, error) {
 	ctx = logger.WithValues(ctx, tag.SubDAG(e.DAG.Name), tag.SubRunID(runParams.RunID))
 
 	req := e.subWorkflowRequest(ctx, runParams, workDir)
+	req.Reuse = true
+	if err := validateSubWorkflowRequest(req); err != nil {
+		return nil, err
+	}
+	if !e.shouldRunWithSubWorkflowRunner(ctx, req) {
+		return nil, errNoSubWorkflowRunner
+	}
+
+	runCtx, cancel := context.WithCancel(ctx)
+	e.trackRun(runParams.RunID, cancel)
+	defer e.clearRun(runParams.RunID)
+
+	if err := e.cancellationErr(ctx); err != nil {
+		return nil, err
+	}
+	return e.subWorkflowRunner.Run(runCtx, req)
+}
+
+// Retry executes a parent-managed step retry for a previously started sub DAG.
+func (e *SubDAGExecutor) Retry(ctx context.Context, runParams RunParams, stepName, workDir string, path exec.RetryPath) (*exec.RunStatus, error) {
+	ctx = logger.WithValues(ctx, tag.SubDAG(e.DAG.Name), tag.SubRunID(runParams.RunID))
+
+	req := e.subWorkflowRequest(ctx, runParams, workDir)
+	req.RetryPath = path
 	if err := validateSubWorkflowRequest(req); err != nil {
 		return nil, err
 	}

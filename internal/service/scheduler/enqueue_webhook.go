@@ -42,7 +42,7 @@ func EnqueueWebhookRun(
 		return fmt.Errorf("failed to check existing webhook run: %w", err)
 	}
 
-	fullDAG, err := rehydrateExecutionDAG(ctx, dag, params, baseConfig)
+	fullDAG, err := rehydrateExecutionDAG(ctx, dag, params, baseConfig, "")
 	if err != nil {
 		return fmt.Errorf("failed to load full DAG for webhook enqueue: %w", err)
 	}

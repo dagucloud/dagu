@@ -379,13 +379,18 @@ func remoteRunRetry(ctx *Context, args []string) error {
 		return fmt.Errorf("invalid run-id: %w", err)
 	}
 	stepName, _ := ctx.StringParam("step")
+	subDAGRunID, _ := ctx.StringParam("sub-run-id")
+	if subDAGRunID != "" && stepName == "" {
+		return fmt.Errorf("--sub-run-id requires --step")
+	}
 	dag, err := remoteResolveDAG(ctx, args[0])
 	if err != nil {
 		return err
 	}
 	return ctx.Remote.retryDAGRun(ctx, dag.Dag.Name, runID, api.RetryDAGRunJSONBody{
-		DagRunId: runID,
-		StepName: stringPtrOrNil(stepName),
+		DagRunId:    runID,
+		StepName:    stringPtrOrNil(stepName),
+		SubDAGRunId: stringPtrOrNil(subDAGRunID),
 	})
 }
 

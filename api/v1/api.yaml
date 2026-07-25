@@ -2632,6 +2632,10 @@ paths:
                 stepName:
                   type: string
                   description: "Optional. If provided, only this step will be retried."
+                subDAGRunId:
+                  allOf:
+                    - $ref: "#/components/schemas/DAGRunId"
+                    - description: "Optional. Persisted child DAG-run containing the step. Requires stepName; the path and dagRunId remain the root DAG-run."
               required:
                 - dagRunId
       responses:
