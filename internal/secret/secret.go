@@ -20,12 +20,12 @@ import (
 type ProviderType string
 
 const (
-	ProviderDaguManaged      ProviderType = "dagu-managed"
-	ProviderVault            ProviderType = "vault"
-	ProviderKubernetes       ProviderType = "kubernetes"
-	ProviderGCPSecretManager ProviderType = "gcp-secret-manager" //nolint:gosec // Provider identifier, not a credential.
-	ProviderAWSSecrets       ProviderType = "aws-secrets-manager"
-	ProviderAzureKeyVault    ProviderType = "azure-key-vault"
+	ProviderDaguManaged ProviderType = "dagu-managed"
+	ProviderVault       ProviderType = "vault"
+	ProviderKubernetes  ProviderType = "kubernetes"
+	ProviderGCP         ProviderType = "gcp"
+	ProviderAWS         ProviderType = "aws"
+	ProviderAzure       ProviderType = "azure"
 )
 
 type Status string
@@ -219,7 +219,7 @@ func ValidateRef(ref string) error {
 
 func ValidateProviderType(providerType ProviderType) error {
 	switch providerType {
-	case ProviderDaguManaged, ProviderVault, ProviderKubernetes, ProviderGCPSecretManager, ProviderAWSSecrets, ProviderAzureKeyVault:
+	case ProviderDaguManaged, ProviderVault, ProviderKubernetes, ProviderGCP, ProviderAWS, ProviderAzure:
 		return nil
 	default:
 		return fmt.Errorf("%w: %q", ErrInvalidProviderType, providerType)

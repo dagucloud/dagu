@@ -13831,9 +13831,9 @@ components:
         - dagu-managed
         - vault
         - kubernetes
-        - gcp-secret-manager
-        - aws-secrets-manager
-        - azure-key-vault
+        - gcp
+        - aws
+        - azure
 
     SecretStatus:
       type: string

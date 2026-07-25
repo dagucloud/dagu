@@ -16997,9 +16997,9 @@ export enum SecretProviderType {
     dagu_managed = "dagu-managed",
     vault = "vault",
     kubernetes = "kubernetes",
-    gcp_secret_manager = "gcp-secret-manager",
-    aws_secrets_manager = "aws-secrets-manager",
-    azure_key_vault = "azure-key-vault"
+    gcp = "gcp",
+    aws = "aws",
+    azure = "azure"
 }
 export enum SecretStatus {
     active = "active",

@@ -1839,6 +1839,11 @@ func (a *Agent) resolveSecrets(ctx context.Context) ([]string, error) {
 
 	baseDirs := a.buildSecretBaseDirs(envScope)
 	secretRegistry := secrets.NewRegistryWithReferenceResolver(a.secretReferenceResolver, baseDirs...)
+	defer func() {
+		if err := secretRegistry.Close(); err != nil {
+			logger.Warn(ctx, "Failed to close secret providers", tag.Error(err))
+		}
+	}()
 
 	resolvedSecrets, err := secretRegistry.ResolveAll(secretCtx, a.dag.Secrets)
 	if err != nil {

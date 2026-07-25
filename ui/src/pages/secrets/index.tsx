@@ -87,9 +87,9 @@ const PROVIDER_LABELS: Record<SecretProviderType, string> = {
   [SecretProviderType.dagu_managed]: 'Dagu Managed',
   [SecretProviderType.vault]: 'Vault',
   [SecretProviderType.kubernetes]: 'Kubernetes',
-  [SecretProviderType.gcp_secret_manager]: 'Google Secret Manager',
-  [SecretProviderType.aws_secrets_manager]: 'AWS Secrets Manager',
-  [SecretProviderType.azure_key_vault]: 'Azure Key Vault',
+  [SecretProviderType.gcp]: 'Google Secret Manager',
+  [SecretProviderType.aws]: 'AWS Secrets Manager',
+  [SecretProviderType.azure]: 'Azure Key Vault',
 };
 
 const PROVIDERS = Object.values(SecretProviderType);

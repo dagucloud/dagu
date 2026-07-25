@@ -150,11 +150,11 @@ func (l *loginRateLimiter) releaseSlot(ip string) {
 // cannot all pass the pre-check before any failure is recorded.
 //
 // Rate-limit key: rateLimitKey reads the raw TCP source address stored in
-// context by PreserveRawRemoteAddr (which must run before chi's
-// middleware.RealIP). This prevents clients from rotating X-Forwarded-For
-// values to get new rate-limit buckets. When the raw address is a loopback
-// address and a forwarded-IP header is present, the forwarded IP is used
-// instead (same-host reverse proxy scenario).
+// context by PreserveRawRemoteAddr, which runs first in the middleware chain.
+// This prevents clients from rotating X-Forwarded-For values to get new
+// rate-limit buckets. When the raw address is a loopback address and a
+// forwarded-IP header is present, the forwarded IP is used instead (same-host
+// reverse proxy scenario).
 //
 // Loopback exemption: when the resolved key is a loopback address (no proxy
 // headers present), the request is assumed to be local dev or E2E test traffic
@@ -194,9 +194,9 @@ func LoginRateLimitMiddleware(loginPath string) func(http.Handler) http.Handler 
 
 // rateLimitKey returns the IP address to use as the rate-limit bucket key.
 //
-// It reads the raw TCP RemoteAddr stored in context by PreserveRawRemoteAddr
-// (before chi's middleware.RealIP can overwrite r.RemoteAddr from forwarded
-// headers). This makes the key unspoofable for direct connections.
+// It reads the raw TCP RemoteAddr stored in context by PreserveRawRemoteAddr,
+// which captures it before any later middleware can rewrite it from forwarded
+// headers. This makes the key unspoofable for direct connections.
 //
 // Forwarded headers are consulted only when the raw TCP peer is a loopback
 // address, which reliably identifies a same-host reverse proxy. Private-range
@@ -205,7 +205,7 @@ func LoginRateLimitMiddleware(loginPath string) func(http.Handler) http.Handler 
 // arbitrary forwarded headers to rotate their rate-limit bucket.
 //
 // Header priority (loopback peers only):
-//  1. True-Client-IP – set by some CDN/proxy stacks (chi's RealIP checks this first).
+//  1. True-Client-IP – set by some CDN/proxy stacks.
 //  2. X-Real-IP – set by nginx to the direct upstream address; single, canonical value.
 //  3. X-Forwarded-For (rightmost entry) – the value the last trusted proxy appended.
 //     The rightmost entry is used instead of the leftmost because proxies that append
