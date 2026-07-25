@@ -7,6 +7,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
@@ -71,7 +73,7 @@ func (r *Runner) runControllerLoop(ctx context.Context, plan *Plan, progressCh c
 	// A run that suspended mid-action resumes here: report what became of the
 	// action before asking for the next decision.
 	if pending := state.Pending; pending != nil {
-		state.Append(observe(plan.GetNodeByName(pending.Step), pending.ToolCallID))
+		state.Append(observe(ctrlCtx, plan.GetNodeByName(pending.Step), pending.ToolCallID))
 		state.Pending = nil
 		r.persistController(ctrlCtx, ctrlNode, state, progressCh)
 	}
@@ -264,7 +266,7 @@ func (r *Runner) runControllerAction(
 		node.MarkError(err)
 		r.report(progressCh, node)
 		recordActionEvent(state, decision.Step, attempt, node)
-		state.Append(observe(node, decision.ToolCallID))
+		state.Append(observe(ctx, node, decision.ToolCallID))
 		return false, nil
 	}
 
@@ -285,7 +287,7 @@ func (r *Runner) runControllerAction(
 		return true, nil
 	}
 
-	state.Append(observe(node, decision.ToolCallID))
+	state.Append(observe(ctx, node, decision.ToolCallID))
 	return false, nil
 }
 
@@ -394,7 +396,7 @@ func (r *Runner) report(progressCh chan *Node, node *Node) {
 
 // observe renders the outcome of an action as the tool result the controller
 // sees on its next turn.
-func observe(node *Node, toolCallID string) exec.LLMMessage {
+func observe(ctx context.Context, node *Node, toolCallID string) exec.LLMMessage {
 	if node == nil {
 		return toolResult(toolCallID, "Error: the step disappeared from the workflow")
 	}
@@ -417,6 +419,16 @@ func observe(node *Node, toolCallID string) exec.LLMMessage {
 	} else if state.OutputValue != nil && *state.OutputValue != "" {
 		fmt.Fprintf(&sb, "output: %s\n", *state.OutputValue)
 	}
+	// A step that launched a child DAG is reported from the child run itself.
+	// Its stdout only mirrors the child's status JSON, once per internal retry,
+	// and is empty altogether on a repeated run.
+	if len(state.SubRuns) > 0 {
+		if summary := childRunSummary(ctx, state.SubRuns[0].DAGRunID); summary != "" {
+			sb.WriteString(summary)
+			return toolResult(toolCallID, sb.String())
+		}
+	}
+
 	if tail := logTail(state.Stdout); tail != "" {
 		fmt.Fprintf(&sb, "log:\n%s\n", tail)
 	}
@@ -425,6 +437,62 @@ func observe(node *Node, toolCallID string) exec.LLMMessage {
 	}
 
 	return toolResult(toolCallID, sb.String())
+}
+
+// childRunSummary reports what a child DAG run produced, read from the run
+// itself rather than scraped from the parent step's log.
+func childRunSummary(ctx context.Context, childRunID string) string {
+	rCtx := exec.GetContext(ctx)
+	if childRunID == "" || rCtx.DAGRunStore == nil {
+		return ""
+	}
+	attempt, err := rCtx.DAGRunStore.FindSubAttempt(ctx, rCtx.RootDAGRun, childRunID)
+	if err != nil {
+		return ""
+	}
+	status, err := attempt.ReadStatus(ctx)
+	if err != nil || status == nil {
+		return ""
+	}
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "child run: %s (%s)\n", status.Name, status.Status.String())
+
+	if outputs := childOutputs(status.Nodes); len(outputs) > 0 {
+		sb.WriteString("outputs:\n")
+		for _, key := range slices.Sorted(maps.Keys(outputs)) {
+			fmt.Fprintf(&sb, "  %s=%s\n", key, stringutil.TruncString(outputs[key], 2000))
+		}
+	}
+
+	for _, node := range status.Nodes {
+		if node == nil || node.Status != core.NodeFailed {
+			continue
+		}
+		fmt.Fprintf(&sb, "failed step %s: %s\n", node.Step.Name, node.Error)
+	}
+
+	return sb.String()
+}
+
+// childOutputs flattens the output variables declared by a child run's steps.
+func childOutputs(nodes []*exec.Node) map[string]string {
+	outputs := make(map[string]string)
+	for _, node := range nodes {
+		if node == nil || node.OutputVariables == nil {
+			continue
+		}
+		node.OutputVariables.Range(func(key, value any) bool {
+			k, okKey := key.(string)
+			v, okValue := value.(string)
+			if !okKey || !okValue {
+				return true
+			}
+			outputs[k] = strings.TrimPrefix(v, k+"=")
+			return true
+		})
+	}
+	return outputs
 }
 
 func logTail(path string) string {

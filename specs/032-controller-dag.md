@@ -136,8 +136,16 @@ Each turn:
    tool calls only the first is recorded and executed, so the conversation never
    references a result that was not produced.
 4. The outcome is appended as the tool result: the resulting status, any error,
-   any human task submission, declared outputs, and a bounded tail of the step's
-   logs.
+   and any human task submission.
+
+   For a step that launched a child DAG, the rest of the observation is read
+   from the child run itself: its status, the output variables its steps
+   declared, and the name and error of any step that failed. The parent step's
+   log MUST NOT be used as the source, because it only mirrors the child's
+   status document, repeated once per internal retry, and is empty on a repeated
+   run.
+
+   For every other step, a bounded tail of stdout and stderr is reported.
 
 The loop ends when every task is complete, when an action opens a human task,
 or when a limit is reached.
