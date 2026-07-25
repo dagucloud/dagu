@@ -3048,7 +3048,11 @@ func (a *API) retryDAGRun(ctx context.Context, dagName, dagRunID, retryDagRunID,
 		return retryDAGRunResult{}, fmt.Errorf("error preparing DAG retry env: %w", err)
 	}
 
-	spec := a.subCmdBuilder.RetryWithActor(prepared, retryDagRunID, stepName, triggerActorFromContext(ctx))
+	spec := a.subCmdBuilder.Retry(prepared, launcher.RetryOptions{
+		DAGRunID:     retryDagRunID,
+		Step:         stepName,
+		TriggerActor: triggerActorFromContext(ctx),
+	})
 	if err := launcher.Start(ctx, spec); err != nil {
 		return retryDAGRunResult{}, fmt.Errorf("error retrying DAG: %w", err)
 	}
@@ -3070,9 +3074,8 @@ func (a *API) enqueueRetry(ctx context.Context, attempt exec.DAGRunAttempt, dag 
 		return fmt.Errorf("error reading status: %w", err)
 	}
 	eventCtx := a.withEventContext(ctx)
-	triggerActor := triggerActorFromContext(ctx)
 	if _, err := exec.EnqueueRetry(eventCtx, a.dagRunStore, a.queueStore, dag, status, exec.EnqueueRetryOptions{
-		TriggerActor: &triggerActor,
+		TriggerActor: ptrOf(triggerActorFromContext(ctx)),
 	}); err != nil {
 		if errors.Is(err, exec.ErrRetryStaleLatest) {
 			return &Error{
@@ -3843,7 +3846,10 @@ func (a *API) resumeDAGRun(ctx context.Context, ref exec.DAGRunRef, dagRunID str
 		return fmt.Errorf("prepare DAG retry env: %w", err)
 	}
 
-	retrySpec := a.subCmdBuilder.RetryWithActor(prepared, dagRunID, "", status.TriggerActor)
+	retrySpec := a.subCmdBuilder.Retry(prepared, launcher.RetryOptions{
+		DAGRunID:     dagRunID,
+		TriggerActor: status.TriggerActor,
+	})
 	return launcher.Start(ctx, retrySpec)
 }
 
@@ -3868,11 +3874,14 @@ func (a *API) resumeSubDAGRun(ctx context.Context, rootRef exec.DAGRunRef, subDA
 		return fmt.Errorf("prepare sub-DAG retry env: %w", err)
 	}
 
-	retrySpec := a.subCmdBuilder.RetryWithActor(prepared, subDAGRunID, "", status.TriggerActor)
-	if !status.Root.Zero() && status.Root.ID != subDAGRunID {
-		retrySpec = a.subCmdBuilder.RetryWithRootDAGRunAndActor(prepared, subDAGRunID, "", status.Root, status.TriggerActor)
+	opts := launcher.RetryOptions{
+		DAGRunID:     subDAGRunID,
+		TriggerActor: status.TriggerActor,
 	}
-	return launcher.Start(ctx, retrySpec)
+	if !status.Root.Zero() && status.Root.ID != subDAGRunID {
+		opts.Root = status.Root
+	}
+	return launcher.Start(ctx, a.subCmdBuilder.Retry(prepared, opts))
 }
 
 func (a *API) prepareRetryDAGForSubprocess(ctx context.Context, dag *core.DAG, status *exec.DAGRunStatus) (*core.DAG, error) {

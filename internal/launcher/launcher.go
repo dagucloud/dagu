@@ -269,37 +269,17 @@ func (b *SubCmdBuilder) Restart(dag *core.DAG, opts RestartOptions) CmdSpec {
 }
 
 // Retry creates a retry command spec.
-func (b *SubCmdBuilder) Retry(dag *core.DAG, dagRunID string, stepName string) CmdSpec {
-	return b.retry(dag, dagRunID, stepName, exec1.DAGRunRef{}, "")
-}
+func (b *SubCmdBuilder) Retry(dag *core.DAG, opts RetryOptions) CmdSpec {
+	args := []string{"retry", fmt.Sprintf("--run-id=%s", opts.DAGRunID), "-q"}
 
-// RetryWithActor creates a retry command spec with an attributable trigger actor.
-func (b *SubCmdBuilder) RetryWithActor(dag *core.DAG, dagRunID string, stepName string, triggerActor string) CmdSpec {
-	return b.retry(dag, dagRunID, stepName, exec1.DAGRunRef{}, triggerActor)
-}
-
-// RetryWithRootDAGRun creates a retry command spec for a sub DAG-run with an
-// explicit root DAG-run reference.
-func (b *SubCmdBuilder) RetryWithRootDAGRun(dag *core.DAG, dagRunID string, stepName string, root exec1.DAGRunRef) CmdSpec {
-	return b.retry(dag, dagRunID, stepName, root, "")
-}
-
-// RetryWithRootDAGRunAndActor creates a sub-DAG retry command with an attributable trigger actor.
-func (b *SubCmdBuilder) RetryWithRootDAGRunAndActor(dag *core.DAG, dagRunID string, stepName string, root exec1.DAGRunRef, triggerActor string) CmdSpec {
-	return b.retry(dag, dagRunID, stepName, root, triggerActor)
-}
-
-func (b *SubCmdBuilder) retry(dag *core.DAG, dagRunID string, stepName string, root exec1.DAGRunRef, triggerActor string) CmdSpec {
-	args := []string{"retry", fmt.Sprintf("--run-id=%s", dagRunID), "-q"}
-
-	if stepName != "" {
-		args = append(args, fmt.Sprintf("--step=%s", stepName))
+	if opts.Step != "" {
+		args = append(args, fmt.Sprintf("--step=%s", opts.Step))
 	}
-	if !root.Zero() {
-		args = append(args, fmt.Sprintf("--root=%s", root.String()))
+	if !opts.Root.Zero() {
+		args = append(args, fmt.Sprintf("--root=%s", opts.Root.String()))
 	}
-	if triggerActor != "" {
-		args = append(args, fmt.Sprintf("--trigger-actor=%s", triggerActor))
+	if opts.TriggerActor != "" {
+		args = append(args, fmt.Sprintf("--trigger-actor=%s", opts.TriggerActor))
 	}
 
 	if b.configFile != "" {
@@ -307,25 +287,15 @@ func (b *SubCmdBuilder) retry(dag *core.DAG, dagRunID string, stepName string, r
 	}
 	args = append(args, dag.Name)
 
-	return CmdSpec{
+	spec := CmdSpec{
 		Executable: b.executable,
 		Args:       args,
 		Env:        b.parentEnv(),
 		BuildEnv:   append([]string{}, dag.Env...),
 	}
-}
-
-// QueueDispatchRetry creates a retry command spec for a scheduler-consumed queued run.
-func (b *SubCmdBuilder) QueueDispatchRetry(dag *core.DAG, dagRunID string, stepName string) CmdSpec {
-	spec := b.Retry(dag, dagRunID, stepName)
-	spec.Env = append(spec.Env, exec1.EnvKeyQueueDispatchRetry+"=1")
-	return spec
-}
-
-// QueueDispatchRetryWithActor creates a scheduler-consumed retry command with an attributable trigger actor.
-func (b *SubCmdBuilder) QueueDispatchRetryWithActor(dag *core.DAG, dagRunID string, stepName string, triggerActor string) CmdSpec {
-	spec := b.RetryWithActor(dag, dagRunID, stepName, triggerActor)
-	spec.Env = append(spec.Env, exec1.EnvKeyQueueDispatchRetry+"=1")
+	if opts.QueueDispatch {
+		spec.Env = append(spec.Env, exec1.EnvKeyQueueDispatchRetry+"=1")
+	}
 	return spec
 }
 
@@ -369,6 +339,15 @@ type EnqueueOptions struct {
 	Tags         string // Deprecated: use Labels.
 	ScheduleTime string // RFC 3339 timestamp of when this run was scheduled
 	ProfileName  string // Runtime profile name
+}
+
+// RetryOptions contains options for retrying a dag-run.
+type RetryOptions struct {
+	DAGRunID      string
+	Step          string
+	Root          exec1.DAGRunRef
+	TriggerActor  string
+	QueueDispatch bool
 }
 
 // RestartOptions contains options for restarting a dag-run.

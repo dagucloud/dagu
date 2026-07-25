@@ -192,13 +192,12 @@ func (h *remoteTaskHandler) handleRetry(ctx context.Context, task *coordinatorv1
 
 	statusPusher, logStreamer, artifactUploader := h.createRemoteHandlers(task.DagRunId, dag.Name, task.AttemptId, task.AttemptKey, root, owner)
 	triggerType := exec.PreservedQueueTriggerType(status)
-	triggerActor := task.TriggerActor
 
 	err = h.executeDAGRun(ctx, dag, task.DagRunId, task.AttemptId, task.AttemptKey, task.ScheduleTime, root, parent, owner, statusPusher, logStreamer, artifactUploader, false, &retryConfig{
 		target:      status,
 		stepName:    task.Step,
 		triggerType: triggerType,
-	}, taskExtraEnvs(task), profileName, triggerActor)
+	}, taskExtraEnvs(task), profileName, task.TriggerActor)
 	var initErr *taskInitError
 	if errors.As(err, &initErr) && !initErr.reported {
 		h.reportTaskInitFailure(ctx, task, root, parent, statusPusher, initErr.err, profileName)

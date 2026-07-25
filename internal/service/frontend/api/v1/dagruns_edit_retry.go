@@ -579,7 +579,11 @@ func (a *API) launchEditRetryDAGRun(ctx context.Context, plan *editRetryPlan) (q
 		return false, fmt.Errorf("error preparing edit retry DAG env: %w", err)
 	}
 
-	retrySpec := a.subCmdBuilder.QueueDispatchRetryWithActor(prepared, plan.newDAGRunID, "", seedStatus.TriggerActor)
+	retrySpec := a.subCmdBuilder.Retry(prepared, launcher.RetryOptions{
+		DAGRunID:      plan.newDAGRunID,
+		TriggerActor:  seedStatus.TriggerActor,
+		QueueDispatch: true,
+	})
 	if err := launcher.Start(ctx, retrySpec); err != nil {
 		return false, fmt.Errorf("error starting edit retry DAG: %w", err)
 	}

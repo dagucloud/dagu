@@ -501,7 +501,7 @@ func (f *testFixture) startWithLabels(labels string) error {
 func (f *testFixture) retry(dagRunID string) error {
 	f.t.Helper()
 	subCmdBuilder := launcher.NewSubCmdBuilder(f.coord.Config)
-	retrySpec := subCmdBuilder.Retry(f.dagWrapper.DAG, dagRunID, "")
+	retrySpec := subCmdBuilder.Retry(f.dagWrapper.DAG, launcher.RetryOptions{DAGRunID: dagRunID})
 	return launcher.Start(f.coord.Context, retrySpec)
 }
 
