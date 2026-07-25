@@ -9233,6 +9233,7 @@ export interface operations {
                     dagRunId: components["schemas"]["DAGRunId"] & unknown;
                     /** @description Optional. If provided, only this step will be retried. */
                     stepName?: string;
+                    subDAGRunId?: components["schemas"]["DAGRunId"] & unknown;
                 };
             };
         };

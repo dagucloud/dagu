@@ -192,11 +192,16 @@ func (h *remoteTaskHandler) handleRetry(ctx context.Context, task *coordinatorv1
 
 	statusPusher, logStreamer, artifactUploader := h.createRemoteHandlers(task.DagRunId, dag.Name, task.AttemptId, task.AttemptKey, root, owner)
 	triggerType := exec.PreservedQueueTriggerType(status)
+	retryPath, err := exec.ParseRetryPath(task.RetryPath)
+	if err != nil {
+		return fmt.Errorf("invalid retry path: %w", err)
+	}
 
 	err = h.executeDAGRun(ctx, dag, task.DagRunId, task.AttemptId, task.AttemptKey, task.ScheduleTime, root, parent, owner, statusPusher, logStreamer, artifactUploader, false, &retryConfig{
 		target:      status,
 		stepName:    task.Step,
 		triggerType: triggerType,
+		retryPath:   retryPath,
 	}, taskExtraEnvs(task), profileName)
 	var initErr *taskInitError
 	if errors.As(err, &initErr) && !initErr.reported {
@@ -321,6 +326,7 @@ type retryConfig struct {
 	target      *exec.DAGRunStatus
 	stepName    string
 	triggerType core.TriggerType
+	retryPath   exec.RetryPath
 }
 
 type taskInitError struct {
@@ -684,6 +690,7 @@ func (h *remoteTaskHandler) executeDAGRun(
 		opts.RetryTarget = retry.target
 		opts.StepRetry = retry.stepName
 		opts.TriggerType = retry.triggerType
+		opts.RetryPath = retry.retryPath
 	}
 
 	// Create the agent

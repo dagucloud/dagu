@@ -264,23 +264,34 @@ func (b *SubCmdBuilder) Restart(dag *core.DAG, opts RestartOptions) CmdSpec {
 
 // Retry creates a retry command spec.
 func (b *SubCmdBuilder) Retry(dag *core.DAG, dagRunID string, stepName string) CmdSpec {
-	return b.retry(dag, dagRunID, stepName, exec1.DAGRunRef{})
+	return b.RetryWithOptions(dag, dagRunID, RetryOptions{StepName: stepName})
 }
 
 // RetryWithRootDAGRun creates a retry command spec for a sub DAG-run with an
 // explicit root DAG-run reference.
 func (b *SubCmdBuilder) RetryWithRootDAGRun(dag *core.DAG, dagRunID string, stepName string, root exec1.DAGRunRef) CmdSpec {
-	return b.retry(dag, dagRunID, stepName, root)
+	return b.RetryWithOptions(dag, dagRunID, RetryOptions{StepName: stepName, RootDAGRun: root})
 }
 
-func (b *SubCmdBuilder) retry(dag *core.DAG, dagRunID string, stepName string, root exec1.DAGRunRef) CmdSpec {
+// RetryOptions configure an internal retry subprocess.
+type RetryOptions struct {
+	StepName   string
+	RootDAGRun exec1.DAGRunRef
+	RetryPath  exec1.RetryPath
+}
+
+// RetryWithOptions creates a retry command with internal execution metadata.
+func (b *SubCmdBuilder) RetryWithOptions(dag *core.DAG, dagRunID string, opts RetryOptions) CmdSpec {
 	args := []string{"retry", fmt.Sprintf("--run-id=%s", dagRunID), "-q"}
 
-	if stepName != "" {
-		args = append(args, fmt.Sprintf("--step=%s", stepName))
+	if opts.StepName != "" {
+		args = append(args, fmt.Sprintf("--step=%s", opts.StepName))
 	}
-	if !root.Zero() {
-		args = append(args, fmt.Sprintf("--root=%s", root.String()))
+	if !opts.RootDAGRun.Zero() {
+		args = append(args, fmt.Sprintf("--root=%s", opts.RootDAGRun.String()))
+	}
+	if path := opts.RetryPath.Encode(); path != "" {
+		args = append(args, "--retry-path="+path)
 	}
 
 	if b.configFile != "" {

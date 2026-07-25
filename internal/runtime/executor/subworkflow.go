@@ -32,6 +32,8 @@ type SubWorkflowRequest struct {
 	WorkDir           string
 	WorkerSelector    map[string]string
 	ExternalStepRetry bool
+	Reuse             bool
+	RetryPath         exec.RetryPath
 	Workspace         *SubWorkflowWorkspace
 }
 

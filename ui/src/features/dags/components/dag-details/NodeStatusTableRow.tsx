@@ -37,10 +37,19 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
   AlertCircle,
   ChevronDown,
   ChevronRight,
+  CircleDot,
   Code,
+  EllipsisVertical,
   GitBranch,
   Play,
   RefreshCw,
@@ -49,6 +58,7 @@ import {
 import { useContext, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { buildDAGPageURL } from '../../../dag-runs/lib/dagRunUrls';
+import { DAGRunContext } from '../../../dag-runs/contexts/DAGRunContext';
 import {
   components,
   NodeStatus,
@@ -232,6 +242,7 @@ function NodeStatusTableRow({
   const client = useClient();
   const config = useConfig();
   const dagContext = useContext(DAGContext);
+  const dagRunContext = useContext(DAGRunContext);
   const remoteNode = useRemoteNode();
   const { showError } = useErrorModal();
   // State to store the current duration for running tasks
@@ -298,7 +309,13 @@ function NodeStatusTableRow({
     !node.step.humanTask &&
     node.status !== NodeStatus.Waiting &&
     node.status !== NodeStatus.Rejected;
-  const retryDisabled = loading || dagRun.status === Status.Running;
+  const rootRunning =
+    isSubDAGRun && dagRunContext.rootStatus === Status.Running;
+  const retryDisabled =
+    loading || dagRun.status === Status.Running || rootRunning;
+  const retryTitle = rootRunning
+    ? 'Retry unavailable while the root DAG run is running.'
+    : 'Retry from this step';
 
   const subDAGLogQuery = useQuery(
     '/dag-runs/{name}/{dagRunId}/sub-dag-runs/{subDAGRunId}/steps/{stepName}/log',
@@ -501,14 +518,20 @@ function NodeStatusTableRow({
     setLoading(true);
     setError(null);
     try {
+      const retryDAGName = isSubDAGRun ? dagRun.rootDAGRunName : dagName;
+      const retryDAGRunId = isSubDAGRun ? dagRun.rootDAGRunId : dagRunId;
       const { error: requestError } = await client.POST(
         '/dag-runs/{name}/{dagRunId}/retry',
         {
           params: {
-            path: { name: dagName, dagRunId },
+            path: { name: retryDAGName, dagRunId: retryDAGRunId },
             query: { remoteNode },
           },
-          body: { dagRunId, stepName: node.step.name },
+          body: {
+            dagRunId: retryDAGRunId,
+            stepName: node.step.name,
+            ...(isSubDAGRun ? { subDAGRunId: dagRun.dagRunId } : {}),
+          },
         }
       );
       if (requestError) {
@@ -616,6 +639,50 @@ function NodeStatusTableRow({
       </DialogContent>
     </Dialog>
   );
+
+  const stepActionsMenu =
+    canRetryStep || canUpdateStepStatus ? (
+      <DropdownMenu>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <Button
+                aria-label="Step actions"
+                size="icon-sm"
+                title="Step actions"
+                variant="ghost"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <EllipsisVertical className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent>Step actions</TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent
+          align="end"
+          onClick={(event) => event.stopPropagation()}
+        >
+          {canRetryStep && (
+            <DropdownMenuItem
+              disabled={retryDisabled}
+              onSelect={() => handleRetryDialogOpenChange(true)}
+              title={retryTitle}
+            >
+              <Play className="mr-2 h-4 w-4 text-success" />
+              Retry step
+            </DropdownMenuItem>
+          )}
+          {canRetryStep && canUpdateStepStatus && <DropdownMenuSeparator />}
+          {canUpdateStepStatus && (
+            <DropdownMenuItem onSelect={() => setShowStatusModal(true)}>
+              <CircleDot className="mr-2 h-4 w-4" />
+              Change status
+            </DropdownMenuItem>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    ) : null;
 
   // Render desktop view (table row)
   if (view === 'desktop') {
@@ -917,20 +984,7 @@ function NodeStatusTableRow({
           {showStepActions && (
             <TableCell className="text-center">
               <div className="flex items-center justify-center gap-1">
-                {canRetryStep && (
-                  <Button
-                    size="icon-sm"
-                    variant="secondary"
-                    title="Retry from this step"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleRetryDialogOpenChange(true);
-                    }}
-                    disabled={retryDisabled}
-                  >
-                    <Play className="h-4 w-4 text-success" />
-                  </Button>
-                )}
+                {stepActionsMenu}
               </div>
               {retryDialog}
             </TableCell>
@@ -1051,9 +1105,12 @@ function NodeStatusTableRow({
             )}
           </h3>
         </div>
-        <NodeStatusChip status={node.status} size="sm">
-          {node.statusLabel}
-        </NodeStatusChip>
+        <div className="flex items-center gap-1">
+          <NodeStatusChip status={node.status} size="sm">
+            {node.statusLabel}
+          </NodeStatusChip>
+          {stepActionsMenu}
+        </div>
       </div>
 
       {/* Description */}
@@ -1267,22 +1324,13 @@ function NodeStatusTableRow({
           </div>
         </div>
       )}
-
-      {showStepActions && (
-        <div className="flex justify-end mt-4 gap-2">
-          {canRetryStep && (
-            <button
-              className="p-2 rounded-full hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Retry from this step"
-              onClick={() => handleRetryDialogOpenChange(true)}
-              disabled={retryDisabled}
-            >
-              <Play className="h-6 w-6 text-success" />
-            </button>
-          )}
-          {retryDialog}
-        </div>
-      )}
+      {retryDialog}
+      <StatusUpdateModal
+        visible={showStatusModal}
+        dismissModal={() => setShowStatusModal(false)}
+        step={node.step}
+        onSubmit={handleStatusUpdate}
+      />
     </div>
   );
 }
