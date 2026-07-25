@@ -509,6 +509,58 @@ steps:
     depends: read_review
 ```
 
+### LLM-driven workflow where the model chooses each step
+
+```yaml
+type: controller
+
+env:
+  - ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+
+llm:
+  provider: anthropic
+  model: claude-sonnet-4-20250514
+  system: |
+    If the tests fail, run the fixer and test again. Never ask for sign-off on
+    a red build.
+
+steps:
+  - name: run_tests
+    description: Run the test suite.
+    run: |
+      test -f /tmp/dagu-flaky-cleared || { echo "FAIL: flaky_test timed out"; exit 1; }
+      echo "all green"
+
+  - name: fix_flaky
+    description: Quarantine the known flaky test.
+    run: |
+      touch /tmp/dagu-flaky-cleared
+      echo "quarantined flaky_test"
+
+  - id: sign_off
+    name: sign_off
+    action: human.task
+    with:
+      prompt: Tests are green. Ship it?
+      form:
+        type: object
+        properties:
+          approved: { type: boolean }
+        required: [approved]
+
+tasks:
+  - name: tests_green
+    description: Finished when run_tests succeeded on its most recent run.
+  - name: approved
+    description: Finished when a person answered sign_off with approved=true.
+```
+
+With `type: controller` the steps stop being a plan and become a catalog of
+actions; `tasks` declares the goals and ends the run once all are settled. The
+model decides what runs next, so a failing test can be fixed and retried without
+that path being wired in advance. When it opens the human task the run releases
+its worker slot and resumes on the same run once someone answers.
+
 For more examples, see the Examples documentation.
 
 ## Built-in Actions
