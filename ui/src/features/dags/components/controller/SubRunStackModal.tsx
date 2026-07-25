@@ -45,6 +45,8 @@ export function useSubRunStackPush() {
 const MAX_VISIBLE_EDGES = 3;
 /** Width of each peeking edge, in pixels. */
 const EDGE_WIDTH = 12;
+/** Slide duration in ms. Kept short so drilling in never feels like waiting. */
+const SLIDE_MS = 90;
 
 type SubRunStackModalProps = {
   /** Root DAG-run that owns every child on the stack. */
@@ -97,10 +99,23 @@ export function SubRunStackModal({
   // blanks the panel.
   const shown = fresh ?? previousRef.current;
 
+  const [isVisible, setIsVisible] = React.useState(false);
+  React.useEffect(() => {
+    const frame = requestAnimationFrame(() => setIsVisible(true));
+    return () => cancelAnimationFrame(frame);
+  }, []);
+
   const popTo = React.useCallback(
     (depth: number) => {
       previousRef.current = null;
-      onChange(stack.slice(0, depth));
+      if (depth > 0) {
+        // Popping swaps content in place, which needs no transition.
+        onChange(stack.slice(0, depth));
+        return;
+      }
+      // Closing slides back out before the panel leaves the tree.
+      setIsVisible(false);
+      window.setTimeout(() => onChange([]), SLIDE_MS);
     },
     [onChange, stack]
   );
@@ -134,8 +149,9 @@ export function SubRunStackModal({
 
   return (
     <>
+      {/* Click-away target only: the run underneath stays fully legible. */}
       <div
-        className="fixed inset-0 z-40 h-screen w-screen bg-black/20"
+        className="fixed inset-0 z-40 h-screen w-screen"
         onClick={() => popTo(0)}
       />
 
@@ -148,8 +164,14 @@ export function SubRunStackModal({
             type="button"
             title={`Back to ${stack[level - 1]?.name ?? rootLabel}`}
             onClick={() => popTo(level)}
-            style={{ right: `calc(75% - ${(i + 1) * EDGE_WIDTH}px)` }}
-            className="bg-card hover:bg-muted border-border fixed top-0 bottom-0 z-40 h-screen border-l transition-colors"
+            className={cn(
+              'bg-card hover:bg-muted border-border fixed top-0 bottom-0 z-40 h-screen border-l transition-all ease-out',
+              !isVisible && 'translate-x-full opacity-0'
+            )}
+            style={{
+              right: `calc(75% - ${(i + 1) * EDGE_WIDTH}px)`,
+              transitionDuration: `${SLIDE_MS}ms`,
+            }}
             aria-label={`Back one level`}
           >
             <span className="sr-only">Back</span>
@@ -158,7 +180,13 @@ export function SubRunStackModal({
         );
       })}
 
-      <div className="bg-background fixed top-0 right-0 bottom-0 z-50 flex h-screen w-full flex-col border-l border-indigo-500/30 md:w-3/4">
+      <div
+        className={cn(
+          'bg-background fixed top-0 right-0 bottom-0 z-50 flex h-screen w-full flex-col border-l border-indigo-500/30 transition-transform ease-out md:w-3/4',
+          !isVisible && 'translate-x-full'
+        )}
+        style={{ transitionDuration: `${SLIDE_MS}ms` }}
+      >
         <div className="border-border flex items-center gap-2 border-b px-3 py-2">
           <nav className="flex min-w-0 flex-1 flex-wrap items-center gap-x-1 text-xs">
             <button
