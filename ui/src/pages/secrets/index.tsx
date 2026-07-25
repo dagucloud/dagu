@@ -88,7 +88,7 @@ const PROVIDER_LABELS: Record<SecretProviderType, string> = {
   [SecretProviderType.vault]: 'Vault',
   [SecretProviderType.kubernetes]: 'Kubernetes',
   [SecretProviderType.gcp_secret_manager]: 'Google Secret Manager',
-  [SecretProviderType.aws_secrets_manager]: 'AWS Secrets Manager',
+  [SecretProviderType.aws]: 'AWS Secrets Manager',
   [SecretProviderType.azure_key_vault]: 'Azure Key Vault',
 };
 

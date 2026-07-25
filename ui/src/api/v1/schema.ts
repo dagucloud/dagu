@@ -16695,7 +16695,7 @@ export enum SecretProviderType {
     vault = "vault",
     kubernetes = "kubernetes",
     gcp_secret_manager = "gcp-secret-manager",
-    aws_secrets_manager = "aws-secrets-manager",
+    aws = "aws",
     azure_key_vault = "azure-key-vault"
 }
 export enum SecretStatus {

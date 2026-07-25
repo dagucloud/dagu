@@ -40,6 +40,7 @@ func TestAWSSecretsManagerResolverValidate(t *testing.T) {
 		{name: "MissingRegion", key: "arn:aws:secretsmanager::123456789012:secret:name", wantErr: "Secrets Manager"},
 		{name: "RegionWhitespace", key: "arn:aws:secretsmanager:us-east-1:123456789012:secret:name", options: map[string]string{"region": " us-east-1 "}},
 		{name: "RegionConflict", key: "arn:aws:secretsmanager:us-east-1:123456789012:secret:name", options: map[string]string{"region": "us-west-2"}, wantErr: "conflicts"},
+		{name: "UnsupportedOption", key: "database-password", options: map[string]string{"profile": "production"}, wantErr: `unsupported option "profile"`},
 	}
 
 	for _, tc := range tests {

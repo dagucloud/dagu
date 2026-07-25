@@ -20,7 +20,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 )
 
-const awsSecretsManagerProvider = "aws-secrets-manager"
+const awsSecretsManagerProvider = "aws"
 
 func init() {
 	registerResolver(awsSecretsManagerProvider, func(_ []string) Resolver {
@@ -34,24 +34,44 @@ type awsSecretsManagerResolver struct {
 	clients       map[string]awsSecretsManagerClient
 }
 
+type awsSecretReference struct {
+	key    string
+	region string
+}
+
 func (r *awsSecretsManagerResolver) Name() string {
 	return awsSecretsManagerProvider
 }
 
 func (r *awsSecretsManagerResolver) Validate(ref core.SecretRef) error {
+	_, err := parseAWSSecretReference(ref)
+	return err
+}
+
+func parseAWSSecretReference(ref core.SecretRef) (awsSecretReference, error) {
 	key := strings.TrimSpace(ref.Key)
 	if key == "" {
-		return fmt.Errorf("key (AWS Secrets Manager secret name or ARN) is required")
+		return awsSecretReference{}, fmt.Errorf("key (AWS Secrets Manager secret name or ARN) is required")
 	}
 	parsed, isARN, err := parseAWSSecretsManagerARN(key)
 	if err != nil {
-		return err
+		return awsSecretReference{}, err
 	}
 	region := strings.TrimSpace(ref.Options["region"])
 	if isARN && region != "" && region != parsed.Region {
-		return fmt.Errorf("options.region %q conflicts with AWS Secrets Manager ARN region %q", region, parsed.Region)
+		return awsSecretReference{}, fmt.Errorf("options.region %q conflicts with AWS Secrets Manager ARN region %q", region, parsed.Region)
 	}
-	return nil
+	if isARN {
+		region = parsed.Region
+	}
+	for option := range ref.Options {
+		switch option {
+		case "field", "region", "version_id", "version_stage":
+		default:
+			return awsSecretReference{}, fmt.Errorf("unsupported option %q", option)
+		}
+	}
+	return awsSecretReference{key: key, region: region}, nil
 }
 
 func (r *awsSecretsManagerResolver) CheckCapability(core.SecretRef) CheckCapability {
@@ -59,17 +79,20 @@ func (r *awsSecretsManagerResolver) CheckCapability(core.SecretRef) CheckCapabil
 }
 
 func (r *awsSecretsManagerResolver) Resolve(ctx context.Context, ref core.SecretRef) (string, error) {
-	key := strings.TrimSpace(ref.Key)
-	region, err := resolveAWSRegion(ctx, ref, key)
+	parsed, err := parseAWSSecretReference(ref)
 	if err != nil {
 		return "", err
+	}
+	region := parsed.region
+	if region == "" {
+		region = strings.TrimSpace(config.GetConfig(ctx).Secrets.AWS.Region)
 	}
 	client, err := r.getClient(ctx, region)
 	if err != nil {
 		return "", err
 	}
 
-	input := &secretsmanager.GetSecretValueInput{SecretId: aws.String(key)}
+	input := &secretsmanager.GetSecretValueInput{SecretId: aws.String(parsed.key)}
 	if versionID := ref.Options["version_id"]; versionID != "" {
 		input.VersionId = aws.String(versionID)
 	}
@@ -80,12 +103,12 @@ func (r *awsSecretsManagerResolver) Resolve(ctx context.Context, ref core.Secret
 	if err != nil {
 		var notFound *types.ResourceNotFoundException
 		if errors.As(err, &notFound) {
-			return "", fmt.Errorf("AWS Secrets Manager secret %q was not found: %w", key, err)
+			return "", fmt.Errorf("AWS Secrets Manager secret %q was not found: %w", parsed.key, err)
 		}
-		return "", fmt.Errorf("failed to read AWS Secrets Manager secret %q: %w", key, err)
+		return "", fmt.Errorf("failed to read AWS Secrets Manager secret %q: %w", parsed.key, err)
 	}
 	if output == nil {
-		return "", fmt.Errorf("AWS Secrets Manager returned no result for secret %q", key)
+		return "", fmt.Errorf("AWS Secrets Manager returned no result for secret %q", parsed.key)
 	}
 
 	var value string
@@ -95,7 +118,7 @@ func (r *awsSecretsManagerResolver) Resolve(ctx context.Context, ref core.Secret
 	case output.SecretBinary != nil:
 		value = base64.StdEncoding.EncodeToString(output.SecretBinary)
 	default:
-		return "", fmt.Errorf("AWS Secrets Manager secret %q has no value", key)
+		return "", fmt.Errorf("AWS Secrets Manager secret %q has no value", parsed.key)
 	}
 	return selectJSONField(value, ref.Options["field"])
 }
@@ -132,24 +155,6 @@ func (r *awsSecretsManagerResolver) getClient(ctx context.Context, region string
 	}
 	r.clients[region] = client
 	return client, nil
-}
-
-func resolveAWSRegion(ctx context.Context, ref core.SecretRef, key string) (string, error) {
-	parsed, isARN, err := parseAWSSecretsManagerARN(key)
-	if err != nil {
-		return "", err
-	}
-	region := strings.TrimSpace(ref.Options["region"])
-	if isARN {
-		if region != "" && region != parsed.Region {
-			return "", fmt.Errorf("options.region %q conflicts with AWS Secrets Manager ARN region %q", region, parsed.Region)
-		}
-		return parsed.Region, nil
-	}
-	if region != "" {
-		return region, nil
-	}
-	return strings.TrimSpace(config.GetConfig(ctx).Secrets.AWS.Region), nil
 }
 
 func parseAWSSecretsManagerARN(key string) (awsarn.ARN, bool, error) {

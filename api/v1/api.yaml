@@ -13553,7 +13553,7 @@ components:
         - vault
         - kubernetes
         - gcp-secret-manager
-        - aws-secrets-manager
+        - aws
         - azure-key-vault
 
     SecretStatus:
