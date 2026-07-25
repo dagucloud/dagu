@@ -60,7 +60,7 @@ func (w *Writer) Open() error {
 	}
 
 	dir := filepath.Dir(w.target)
-	if err := os.MkdirAll(dir, 0750); err != nil {
+	if err := fileutil.MkdirAll(dir, 0750); err != nil {
 		return fmt.Errorf("failed to create directory %s: %w", dir, err)
 	}
 

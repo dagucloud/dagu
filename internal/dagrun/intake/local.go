@@ -40,9 +40,10 @@ type LocalRequest struct {
 	DAG       *core.DAG
 	DAGRunID  string
 
-	Root        exec.DAGRunRef
-	Parent      exec.DAGRunRef
-	TriggerType core.TriggerType
+	Root         exec.DAGRunRef
+	Parent       exec.DAGRunRef
+	TriggerType  core.TriggerType
+	TriggerActor string
 
 	ScheduleTime string
 	ProfileName  string
@@ -160,6 +161,7 @@ func recordPreparedAttemptFailure(
 		transform.WithError(runErr.Error()),
 		transform.WithWorkerID("local"),
 		transform.WithTriggerType(req.TriggerType),
+		transform.WithTriggerActor(req.TriggerActor),
 		transform.WithRuntimeProfile(req.ProfileName, "", nil),
 	}
 	if req.ScheduleTime != "" {

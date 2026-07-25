@@ -720,6 +720,7 @@ func TestService_SendTestTelegramUsesCustomMessageTemplate(t *testing.T) {
 				Telegram: &notificationmodel.TelegramTarget{
 					BotToken:        "telegram-token",
 					ChatID:          "12345",
+					TopicID:         "67890",
 					MessageTemplate: "DAG {{dag.name}} {{run.status}}",
 				},
 			}},
@@ -739,6 +740,7 @@ func TestService_SendTestTelegramUsesCustomMessageTemplate(t *testing.T) {
 	assert.True(t, results[0].Delivered)
 	body, _ := receivedBody.Load().(string)
 	assert.Contains(t, body, `"chat_id":"12345"`)
+	assert.Contains(t, body, `"message_thread_id":67890`)
 	assert.Contains(t, body, `"text":"DAG daily-report failed"`)
 }
 

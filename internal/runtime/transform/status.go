@@ -195,6 +195,13 @@ func WithTriggerType(triggerType core.TriggerType) StatusOption {
 	}
 }
 
+// WithTriggerActor returns a StatusOption that sets the attributable trigger actor.
+func WithTriggerActor(actor string) StatusOption {
+	return func(s *exec.DAGRunStatus) {
+		s.TriggerActor = actor
+	}
+}
+
 // WithAutoRetryCount returns a StatusOption that sets the DAG-run auto-retry count.
 func WithAutoRetryCount(autoRetryCount int) StatusOption {
 	return func(s *exec.DAGRunStatus) {

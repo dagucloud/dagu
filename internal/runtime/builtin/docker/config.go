@@ -358,7 +358,7 @@ var configSchema = &jsonschema.Schema{
 		"image":          {Type: "string", Description: "Docker image (for new container mode)"},
 		"container_name": {Type: "string", Description: "Container name (for exec mode or to name new container)"},
 		"platform":       {Type: "string", Description: "Target platform (e.g., linux/amd64)"},
-		"pull":           {Type: "string", Description: "Image pull policy (always, never, missing)"},
+		"pull":           {Type: "string", Description: "Image pull policy (always, never, missing, fallback)"},
 		"auto_remove":    {Type: "boolean", Description: "Remove container after exit"},
 		"working_dir":    {Type: "string", Description: "Working directory inside container"},
 		"volumes":        {Type: "array", Items: &jsonschema.Schema{Type: "string"}, Description: "Volume bindings (host:container)"},

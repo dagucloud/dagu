@@ -58,7 +58,7 @@
     "monaco-editor-webpack-plugin": "7.1.1",
     "null-loader": "4.0.1",
     "openapi-typescript": "7.8.0",
-    "postcss": "8.5.13",
+    "postcss": "8.5.18",
     "postcss-loader": "8.1.1",
     "prettier": "3.6.2",
     "sass-loader": "16.0.7",
@@ -71,7 +71,7 @@
     "webpack": "5.104.1",
     "webpack-bundle-analyzer": "4.10.2",
     "webpack-cli": "6.0.1",
-    "webpack-dev-server": "5.2.5",
+    "webpack-dev-server": "5.2.6",
     "webpack-merge": "6.0.1"
   },
   "dependencies": {
@@ -119,7 +119,7 @@
     "swr-openapi": "5.5.2",
     "tailwind-merge": "3.3.1",
     "tw-animate-css": "1.3.8",
-    "uuid": "14.0.0",
+    "uuid": "14.0.1",
     "vis-data": "8.0.3",
     "vis-timeline": "8.1.2",
     "yaml": "2.8.3"

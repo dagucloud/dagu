@@ -15,8 +15,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/dagucloud/dagu/internal/workspace"
 )
 
 // Service defines the interface for Git sync operations.
@@ -42,22 +40,22 @@ type Service interface {
 	// GetDAGDiff returns the diff between local and remote versions of a DAG.
 	GetDAGDiff(ctx context.Context, dagID string) (*DAGDiff, error)
 
-	// Forget removes state entries for missing/untracked/conflict items.
+	// Forget removes state entries for missing, untracked, or conflicting DAGs.
 	Forget(ctx context.Context, itemIDs []string) ([]string, error)
 
 	// Cleanup removes all missing entries from state.
 	Cleanup(ctx context.Context) ([]string, error)
 
-	// Delete removes an item from remote (git rm + commit + push), local disk, and state.
+	// Delete removes a DAG from remote, local disk, and state.
 	Delete(ctx context.Context, itemID, message string, force bool) error
 
-	// DeleteBatch removes multiple items from remote, local disk, and state in a single commit.
+	// DeleteBatch removes multiple DAGs from remote, local disk, and state in a single commit.
 	DeleteBatch(ctx context.Context, itemIDs []string, message string, force bool) ([]string, error)
 
-	// DeleteAllMissing removes all missing items from remote, local, and state.
+	// DeleteAllMissing removes all missing DAGs from remote, local, and state.
 	DeleteAllMissing(ctx context.Context, message string) ([]string, error)
 
-	// Move atomically renames an item across local filesystem, remote repository, and sync state.
+	// Move atomically renames a DAG across local filesystem, remote repository, and sync state.
 	Move(ctx context.Context, oldID, newID, message string, force bool) error
 
 	// GetConfig returns the current configuration.
@@ -137,6 +135,7 @@ type ConnectionResult struct {
 // DAGDiff represents the diff between local and remote versions of a DAG.
 type DAGDiff struct {
 	DAGID         string     `json:"dagId"`
+	FileExtension string     `json:"fileExtension"`
 	Status        SyncStatus `json:"status"`
 	LocalContent  string     `json:"localContent"`
 	RemoteContent string     `json:"remoteContent,omitempty"`
@@ -145,19 +144,22 @@ type DAGDiff struct {
 	RemoteMessage string     `json:"remoteMessage,omitempty"`
 }
 
-// fileExtensionForID returns the file extension for a given ID.
-func fileExtensionForID(id string) string {
-	if isMemoryFile(id) || isSkillFile(id) || isSoulFile(id) {
-		return ".md"
+const (
+	dagYAMLExtension = ".yaml"
+	dagYMLExtension  = ".yml"
+)
+
+func normalizeDAGFileExtension(extension string) string {
+	if strings.EqualFold(extension, dagYMLExtension) {
+		return dagYMLExtension
 	}
-	return ".yaml"
+	return dagYAMLExtension
 }
 
 // serviceImpl implements the Service interface.
 type serviceImpl struct {
 	cfg          *Config
 	dagsDir      string
-	baseConfig   string
 	dataDir      string
 	stateManager *StateManager
 	gitClient    *GitClient
@@ -167,16 +169,11 @@ type serviceImpl struct {
 }
 
 // NewService creates a new Git sync service.
-func NewService(cfg *Config, dagsDir, dataDir string, baseConfigPath ...string) Service {
+func NewService(cfg *Config, dagsDir, dataDir string) Service {
 	repoPath := filepath.Join(dataDir, "gitsync", "repo")
-	baseConfig := ""
-	if len(baseConfigPath) > 0 {
-		baseConfig = baseConfigPath[0]
-	}
 	return &serviceImpl{
 		cfg:          cfg,
 		dagsDir:      dagsDir,
-		baseConfig:   baseConfig,
 		dataDir:      dataDir,
 		stateManager: NewStateManager(dataDir),
 		gitClient:    NewGitClient(cfg, repoPath),
@@ -240,13 +237,14 @@ func (s *serviceImpl) syncFilesToDAGsDir(_ context.Context, pullResult *PullResu
 	var synced []string
 	var conflicts []string
 
-	extensions := []string{".yaml", ".yml", ".md"}
+	extensions := []string{dagYAMLExtension, dagYMLExtension}
 	files, err := s.gitClient.ListFiles(extensions)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	state, _ := s.stateManager.GetState()
+	s.ensureDAGFileExtensions(state)
 
 	// Reconcile: detect missing/reappeared files before processing
 	s.reconcile(state)
@@ -256,26 +254,47 @@ func (s *serviceImpl) syncFilesToDAGsDir(_ context.Context, pullResult *PullResu
 
 	// Build set of DAG IDs present in remote repo for reconcileAfterPull
 	repoFileSet := make(map[string]struct{}, len(files))
+	repoFileExtensions := make(map[string]string, len(files))
 	for _, file := range files {
 		dagID := s.filePathToDAGID(file)
-		if !isSyncableRepoFile(file, dagID) {
+		if isBaseConfigID(dagID) {
 			continue
 		}
+		fileExtension := normalizeDAGFileExtension(path.Ext(file))
+		if existingExtension, exists := repoFileExtensions[dagID]; exists && existingExtension != fileExtension {
+			return nil, nil, &ValidationError{
+				Field:   dagID,
+				Message: "DAG exists with both .yaml and .yml extensions",
+			}
+		}
 		repoFileSet[dagID] = struct{}{}
+		repoFileExtensions[dagID] = fileExtension
 	}
 
 	for _, file := range files {
 		dagID := s.filePathToDAGID(file)
+		fileExtension := normalizeDAGFileExtension(path.Ext(file))
 
-		// Only allow .md files from memory/, skills/, or souls/ directories.
-		if !isSyncableRepoFile(file, dagID) {
+		if isBaseConfigID(dagID) {
 			continue
 		}
 		repoFilePath, err := s.safeRepoPathToFilePath(file)
 		if err != nil {
 			continue
 		}
-		dagFilePath, err := s.safeDAGIDToFilePath(dagID)
+
+		dagState := state.DAGs[dagID]
+		localExtension := s.dagFileExtension(dagID, dagState)
+		if localExtension != fileExtension {
+			if err := s.migrateLocalDAGExtension(dagID, localExtension, fileExtension); err != nil {
+				return nil, nil, err
+			}
+			if dagState != nil {
+				dagState.FileExtension = fileExtension
+			}
+		}
+
+		dagFilePath, err := s.safeDAGIDToFilePath(dagID, fileExtension)
 		if err != nil {
 			continue
 		}
@@ -288,11 +307,10 @@ func (s *serviceImpl) syncFilesToDAGsDir(_ context.Context, pullResult *PullResu
 
 		// Check if local file exists
 		localContent, err := s.readDAGFile(dagID, dagFilePath)
-		dagState := state.DAGs[dagID]
 
 		if err != nil {
 			// Before creating a new local file, check if this content matches
-			// a missing item's hash (prevents duplicates after move+pull)
+			// a missing DAG's hash (prevents duplicates after move+pull)
 			for otherID, otherState := range state.DAGs {
 				if otherID != dagID && otherState.Status == StatusMissing && otherState.LastSyncedHash == repoHash {
 					// Auto-forget the stale missing entry
@@ -303,12 +321,12 @@ func (s *serviceImpl) syncFilesToDAGsDir(_ context.Context, pullResult *PullResu
 
 			// Local file doesn't exist, create it
 			if err := s.writeDAGFile(dagID, dagFilePath, repoContent); err != nil {
-				return nil, nil, fmt.Errorf("failed to write synced item %q: %w", dagID, err)
+				return nil, nil, fmt.Errorf("failed to write synced DAG %q: %w", dagID, err)
 			}
 			now := time.Now()
 			newState := &DAGState{
 				Status:         StatusSynced,
-				Kind:           KindForDAGID(dagID),
+				FileExtension:  fileExtension,
 				BaseCommit:     pullResult.CurrentCommit,
 				LastSyncedHash: repoHash,
 				LastSyncedAt:   &now,
@@ -331,7 +349,7 @@ func (s *serviceImpl) syncFilesToDAGsDir(_ context.Context, pullResult *PullResu
 				now := time.Now()
 				newState := &DAGState{
 					Status:         StatusSynced,
-					Kind:           KindForDAGID(dagID),
+					FileExtension:  fileExtension,
 					BaseCommit:     pullResult.CurrentCommit,
 					LastSyncedHash: repoHash,
 					LastSyncedAt:   &now,
@@ -359,7 +377,7 @@ func (s *serviceImpl) syncFilesToDAGsDir(_ context.Context, pullResult *PullResu
 				now := time.Now()
 				state.DAGs[dagID] = &DAGState{
 					Status:             StatusConflict,
-					Kind:               KindForDAGID(dagID),
+					FileExtension:      fileExtension,
 					BaseCommit:         dagState.BaseCommit,
 					LastSyncedHash:     dagState.LastSyncedHash,
 					LastSyncedAt:       dagState.LastSyncedAt,
@@ -381,12 +399,12 @@ func (s *serviceImpl) syncFilesToDAGsDir(_ context.Context, pullResult *PullResu
 		// Only update local file if remote changed (and local wasn't modified)
 		if localHash != repoHash {
 			if err := s.writeDAGFile(dagID, dagFilePath, repoContent); err != nil {
-				return nil, nil, fmt.Errorf("failed to write synced item %q: %w", dagID, err)
+				return nil, nil, fmt.Errorf("failed to write synced DAG %q: %w", dagID, err)
 			}
 			now := time.Now()
 			newState := &DAGState{
 				Status:         StatusSynced,
-				Kind:           KindForDAGID(dagID),
+				FileExtension:  fileExtension,
 				BaseCommit:     pullResult.CurrentCommit,
 				LastSyncedHash: repoHash,
 				LastSyncedAt:   &now,
@@ -400,7 +418,7 @@ func (s *serviceImpl) syncFilesToDAGsDir(_ context.Context, pullResult *PullResu
 		}
 	}
 
-	// Auto-forget items absent from both remote and local
+	// Auto-forget DAGs absent from both remote and local
 	s.reconcileAfterPull(state, repoFileSet)
 
 	// Scan for local DAGs not in the repo
@@ -412,23 +430,23 @@ func (s *serviceImpl) syncFilesToDAGsDir(_ context.Context, pullResult *PullResu
 	return synced, conflicts, nil
 }
 
-// reconcileAfterPull removes state entries for items that are absent from both
+// reconcileAfterPull removes state entries for DAGs that are absent from both
 // the remote repository and the local filesystem (auto-forget on pull).
 func (s *serviceImpl) reconcileAfterPull(state *State, repoFileSet map[string]struct{}) {
 	var toDelete []string
 	for dagID, dagState := range state.DAGs {
-		// Skip untracked items — they're local-only by definition
+		// Skip untracked DAGs — they're local-only by definition
 		if dagState.Status == StatusUntracked {
 			continue
 		}
 
-		// Skip items present in remote
+		// Skip DAGs present in remote
 		if _, inRepo := repoFileSet[dagID]; inRepo {
 			continue
 		}
 
 		// Check if local file exists
-		filePath, err := s.safeDAGIDToFilePath(dagID)
+		filePath, err := s.safeDAGIDToFilePath(dagID, dagState.FileExtension)
 		if err != nil {
 			continue
 		}
@@ -436,7 +454,7 @@ func (s *serviceImpl) reconcileAfterPull(state *State, repoFileSet map[string]st
 			continue // file exists locally
 		}
 
-		// Item not in repo AND not on local disk — auto-forget
+		// DAG not in repo AND not on local disk — auto-forget
 		toDelete = append(toDelete, dagID)
 	}
 
@@ -447,7 +465,7 @@ func (s *serviceImpl) reconcileAfterPull(state *State, repoFileSet map[string]st
 
 // scanLocalDAGs scans the local DAGs directory and marks any DAGs not in state as untracked.
 func (s *serviceImpl) scanLocalDAGs(state *State) error {
-	extensions := map[string]bool{".yaml": true, ".yml": true}
+	extensions := map[string]bool{dagYAMLExtension: true, dagYMLExtension: true}
 
 	entries, err := os.ReadDir(s.dagsDir)
 	if err != nil {
@@ -468,7 +486,7 @@ func (s *serviceImpl) scanLocalDAGs(state *State) error {
 		}
 
 		dagID := strings.TrimSuffix(entry.Name(), ext)
-		if isConfigFile(dagID) {
+		if isBaseConfigID(dagID) {
 			continue
 		}
 
@@ -489,200 +507,18 @@ func (s *serviceImpl) scanLocalDAGs(state *State) error {
 
 		now := time.Now()
 		ds := &DAGState{
-			Status:     StatusUntracked,
-			Kind:       DAGKindDAG,
-			LocalHash:  ComputeContentHash(content),
-			ModifiedAt: &now,
+			Status:        StatusUntracked,
+			FileExtension: normalizeDAGFileExtension(ext),
+			LocalHash:     ComputeContentHash(content),
+			ModifiedAt:    &now,
 		}
 		if fi, err := os.Stat(filePath); err == nil {
 			updateStatCache(ds, fi)
 		}
 		state.DAGs[dagID] = ds
 	}
-
-	// Scan memory directory for .md files
-	s.scanMemoryFiles(state)
-
-	// Scan skills directory for SKILL.md files
-	s.scanSkillFiles(state)
-
-	// Scan souls directory for .md files
-	s.scanSoulFiles(state)
-
-	// Scan global and workspace base config files
-	s.scanConfigFiles(state)
 
 	return nil
-}
-
-// scanConfigFiles scans global and workspace base config files and adds them as untracked.
-func (s *serviceImpl) scanConfigFiles(state *State) {
-	s.scanConfigFile(state, baseConfigID, s.resolveBaseConfigPath(), DAGKindConfig)
-
-	workspaceConfigDir := workspace.BaseConfigDir(s.dagsDir)
-	entries, err := os.ReadDir(workspaceConfigDir)
-	if err != nil {
-		return
-	}
-	for _, entry := range entries {
-		if !entry.IsDir() || workspace.ValidateName(entry.Name()) != nil {
-			continue
-		}
-		itemID := path.Join(workspace.BaseConfigDirName, entry.Name(), workspace.BaseConfigStem())
-		s.scanConfigFile(state, itemID, workspace.BaseConfigPath(s.dagsDir, entry.Name()), DAGKindConfig)
-	}
-}
-
-func (s *serviceImpl) scanConfigFile(state *State, itemID, filePath string, kind DAGKind) {
-	if filePath == "" {
-		return
-	}
-	if _, exists := state.DAGs[itemID]; exists {
-		return
-	}
-
-	content, err := os.ReadFile(filePath) //nolint:gosec // path configured by server
-	if err != nil {
-		return
-	}
-
-	now := time.Now()
-	ds := &DAGState{
-		Status:     StatusUntracked,
-		Kind:       kind,
-		LocalHash:  ComputeContentHash(content),
-		ModifiedAt: &now,
-	}
-	if fi, err := os.Stat(filePath); err == nil {
-		updateStatCache(ds, fi)
-	}
-	state.DAGs[itemID] = ds
-}
-
-// scanMemoryFiles scans the memory directory for .md files and adds them as untracked.
-func (s *serviceImpl) scanMemoryFiles(state *State) {
-	memDir := filepath.Join(s.dagsDir, agentMemoryDir)
-
-	_ = filepath.WalkDir(memDir, func(filePath string, d os.DirEntry, err error) error {
-		if err != nil {
-			return nil // skip errors
-		}
-		if d.IsDir() {
-			return nil
-		}
-		if filepath.Ext(filePath) != ".md" {
-			return nil
-		}
-
-		// Compute dagID relative to dagsDir, without extension
-		relPath, err := filepath.Rel(s.dagsDir, filePath)
-		if err != nil {
-			return nil
-		}
-		relPath = filepath.ToSlash(relPath)
-		dagID := strings.TrimSuffix(relPath, path.Ext(relPath))
-
-		// Skip if already tracked
-		if _, exists := state.DAGs[dagID]; exists {
-			return nil
-		}
-
-		content, err := os.ReadFile(filePath) //nolint:gosec // path constructed from internal dagsDir
-		if err != nil {
-			return nil
-		}
-
-		now := time.Now()
-		ds := &DAGState{
-			Status:     StatusUntracked,
-			Kind:       DAGKindMemory,
-			LocalHash:  ComputeContentHash(content),
-			ModifiedAt: &now,
-		}
-		if fi, err := os.Stat(filePath); err == nil {
-			updateStatCache(ds, fi)
-		}
-		state.DAGs[dagID] = ds
-		return nil
-	})
-}
-
-// scanSkillFiles scans the skills directory for SKILL.md files and adds them as untracked.
-func (s *serviceImpl) scanSkillFiles(state *State) {
-	skillDir := filepath.Join(s.dagsDir, agentSkillsDir)
-
-	entries, err := os.ReadDir(skillDir)
-	if err != nil {
-		return // skills directory may not exist yet
-	}
-
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-
-		skillMDPath := filepath.Join(skillDir, entry.Name(), "SKILL.md")
-		content, err := os.ReadFile(skillMDPath) //nolint:gosec // path constructed from internal dagsDir
-		if err != nil {
-			continue
-		}
-
-		dagID := path.Join(agentSkillsDir, entry.Name(), "SKILL")
-		if _, exists := state.DAGs[dagID]; exists {
-			continue
-		}
-
-		now := time.Now()
-		ds := &DAGState{
-			Status:     StatusUntracked,
-			Kind:       DAGKindSkill,
-			LocalHash:  ComputeContentHash(content),
-			ModifiedAt: &now,
-		}
-		if fi, err := os.Stat(skillMDPath); err == nil {
-			updateStatCache(ds, fi)
-		}
-		state.DAGs[dagID] = ds
-	}
-}
-
-// scanSoulFiles scans the souls directory for .md files and adds them as untracked.
-func (s *serviceImpl) scanSoulFiles(state *State) {
-	soulDir := filepath.Join(s.dagsDir, agentSoulsDir)
-
-	entries, err := os.ReadDir(soulDir)
-	if err != nil {
-		return // souls directory may not exist yet
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".md" {
-			continue
-		}
-
-		soulPath := filepath.Join(soulDir, entry.Name())
-		content, err := os.ReadFile(soulPath) //nolint:gosec // path constructed from internal dagsDir
-		if err != nil {
-			continue
-		}
-
-		dagID := path.Join(agentSoulsDir, strings.TrimSuffix(entry.Name(), ".md"))
-		if _, exists := state.DAGs[dagID]; exists {
-			continue
-		}
-
-		now := time.Now()
-		ds := &DAGState{
-			Status:     StatusUntracked,
-			Kind:       DAGKindSoul,
-			LocalHash:  ComputeContentHash(content),
-			ModifiedAt: &now,
-		}
-		if fi, err := os.Stat(soulPath); err == nil {
-			updateStatCache(ds, fi)
-		}
-		state.DAGs[dagID] = ds
-	}
 }
 
 // refreshLocalHashes recalculates hashes for all tracked DAGs and updates status if modified.
@@ -695,7 +531,7 @@ func (s *serviceImpl) refreshLocalHashes(state *State) bool {
 		}
 
 		// Read current local file
-		filePath, err := s.safeDAGIDToFilePath(dagID)
+		filePath, err := s.safeDAGIDToFilePath(dagID, dagState.FileExtension)
 		if err != nil {
 			continue
 		}
@@ -739,19 +575,6 @@ func (s *serviceImpl) refreshLocalHashes(state *State) bool {
 	return changed
 }
 
-// ensureDAGKinds backfills missing kind values for backward-compatible state files.
-func (s *serviceImpl) ensureDAGKinds(state *State) bool {
-	changed := false
-	for dagID, dagState := range state.DAGs {
-		if dagState == nil || dagState.Kind != "" {
-			continue
-		}
-		dagState.Kind = KindForDAGID(dagID)
-		changed = true
-	}
-	return changed
-}
-
 // updateStatCache updates the stat cache fields on a DAGState from file info.
 func updateStatCache(dagState *DAGState, info os.FileInfo) {
 	modTime := info.ModTime()
@@ -775,7 +598,7 @@ func (s *serviceImpl) reconcile(state *State) bool {
 	var toDelete []string
 
 	for dagID, dagState := range state.DAGs {
-		filePath, err := s.safeDAGIDToFilePath(dagID)
+		filePath, err := s.safeDAGIDToFilePath(dagID, dagState.FileExtension)
 		if err != nil {
 			continue
 		}
@@ -856,11 +679,12 @@ func (s *serviceImpl) Publish(ctx context.Context, dagID, message string, force 
 		return nil, err
 	}
 
-	dagFilePath, err := s.safeDAGIDToFilePath(dagID)
+	fileExtension := s.dagFileExtension(dagID, dagState)
+	dagFilePath, err := s.safeDAGIDToFilePath(dagID, fileExtension)
 	if err != nil {
 		return nil, err
 	}
-	repoFilePath, err := s.safeDAGIDToRepoPath(dagID)
+	repoFilePath, err := s.safeDAGIDToRepoPath(dagID, fileExtension)
 	if err != nil {
 		return nil, err
 	}
@@ -894,7 +718,7 @@ func (s *serviceImpl) Publish(ctx context.Context, dagID, message string, force 
 
 	// Update DAG state to synced
 	contentHash := ComputeContentHash(content)
-	newState := s.newSyncedDAGState(dagID, commitHash, contentHash)
+	newState := s.newSyncedDAGState(fileExtension, commitHash, contentHash)
 	if fi, err := os.Stat(dagFilePath); err == nil {
 		updateStatCache(newState, fi)
 	}
@@ -938,11 +762,13 @@ func (s *serviceImpl) PublishAll(ctx context.Context, message string, dagIDs []s
 	stagedFiles := make([]string, 0, len(publishTargets))
 
 	for _, dagID := range publishTargets {
-		dagFilePath, err := s.safeDAGIDToFilePath(dagID)
+		dagState := state.DAGs[dagID]
+		fileExtension := s.dagFileExtension(dagID, dagState)
+		dagFilePath, err := s.safeDAGIDToFilePath(dagID, fileExtension)
 		if err != nil {
 			return nil, err
 		}
-		repoFilePath, err := s.safeDAGIDToRepoPath(dagID)
+		repoFilePath, err := s.safeDAGIDToRepoPath(dagID, fileExtension)
 		if err != nil {
 			return nil, err
 		}
@@ -995,13 +821,14 @@ func (s *serviceImpl) PublishAll(ctx context.Context, message string, dagIDs []s
 
 	// Update state only for successfully published DAGs
 	for _, dagID := range successfulDAGs {
-		dagFilePath, err := s.safeDAGIDToFilePath(dagID)
+		fileExtension := s.dagFileExtension(dagID, state.DAGs[dagID])
+		dagFilePath, err := s.safeDAGIDToFilePath(dagID, fileExtension)
 		if err != nil {
 			return nil, err
 		}
 		content, _ := os.ReadFile(dagFilePath) //nolint:gosec // path constructed from internal dagsDir
 		contentHash := ComputeContentHash(content)
-		newState := s.newSyncedDAGState(dagID, commitHash, contentHash)
+		newState := s.newSyncedDAGState(fileExtension, commitHash, contentHash)
 		if fi, err := os.Stat(dagFilePath); err == nil {
 			updateStatCache(newState, fi)
 		}
@@ -1041,11 +868,12 @@ func (s *serviceImpl) Discard(_ context.Context, dagID string) error {
 		return err
 	}
 
-	repoFilePath, err := s.safeDAGIDToRepoPath(dagID)
+	fileExtension := s.dagFileExtension(dagID, dagState)
+	repoFilePath, err := s.safeDAGIDToRepoPath(dagID, fileExtension)
 	if err != nil {
 		return err
 	}
-	dagFilePath, err := s.safeDAGIDToFilePath(dagID)
+	dagFilePath, err := s.safeDAGIDToFilePath(dagID, fileExtension)
 	if err != nil {
 		return err
 	}
@@ -1066,7 +894,7 @@ func (s *serviceImpl) Discard(_ context.Context, dagID string) error {
 
 	// Update state
 	contentHash := ComputeContentHash(repoContent)
-	newState := s.newSyncedDAGState(dagID, dagState.BaseCommit, contentHash)
+	newState := s.newSyncedDAGState(fileExtension, dagState.BaseCommit, contentHash)
 	if fi, err := os.Stat(dagFilePath); err == nil {
 		updateStatCache(newState, fi)
 	}
@@ -1076,8 +904,8 @@ func (s *serviceImpl) Discard(_ context.Context, dagID string) error {
 	return nil
 }
 
-// Forget removes state entries for missing/untracked/conflict items.
-// Items in synced or modified status are rejected.
+// Forget removes state entries for missing, untracked, or conflicting DAGs.
+// DAGs in synced or modified status are rejected.
 func (s *serviceImpl) Forget(_ context.Context, itemIDs []string) ([]string, error) {
 	if err := s.validateEnabled(); err != nil {
 		return nil, err
@@ -1101,7 +929,7 @@ func (s *serviceImpl) Forget(_ context.Context, itemIDs []string) ([]string, err
 
 		switch dagState.Status {
 		case StatusSynced, StatusModified:
-			return nil, fmt.Errorf("%w: %q is %s — only missing, untracked, or conflict items can be forgotten",
+			return nil, fmt.Errorf("%w: %q is %s — only missing, untracked, or conflicting DAGs can be forgotten",
 				ErrCannotForget, itemID, dagState.Status)
 		case StatusMissing, StatusUntracked, StatusConflict:
 			toForget = append(toForget, itemID)
@@ -1156,7 +984,7 @@ func (s *serviceImpl) Cleanup(_ context.Context) ([]string, error) {
 	return forgotten, nil
 }
 
-// Delete removes an item from remote (git rm + commit + push), local disk, and state.
+// Delete removes a DAG from remote, local disk, and state.
 func (s *serviceImpl) Delete(ctx context.Context, itemID, message string, force bool) error {
 	if err := s.validatePushEnabled(); err != nil {
 		return err
@@ -1184,7 +1012,7 @@ func (s *serviceImpl) Delete(ctx context.Context, itemID, message string, force 
 	if dagState.Status == StatusModified && !force {
 		return &ValidationError{
 			Field:   itemID,
-			Message: "item has local modifications — use force to delete anyway",
+			Message: "DAG has local modifications — use force to delete anyway",
 		}
 	}
 
@@ -1194,7 +1022,8 @@ func (s *serviceImpl) Delete(ctx context.Context, itemID, message string, force 
 	}
 
 	// Delete local file if it exists
-	localPath, err := s.safeDAGIDToFilePath(itemID)
+	fileExtension := s.dagFileExtension(itemID, dagState)
+	localPath, err := s.safeDAGIDToFilePath(itemID, fileExtension)
 	if err != nil {
 		return err
 	}
@@ -1203,12 +1032,12 @@ func (s *serviceImpl) Delete(ctx context.Context, itemID, message string, force 
 	}
 
 	// Stage removal in repo
-	repoPath, err := s.safeDAGIDToRepoPath(itemID)
+	repoPath, err := s.safeDAGIDToRepoPath(itemID, fileExtension)
 	if err != nil {
 		return err
 	}
 
-	// For missing items the file won't exist in the repo — ignore that error.
+	// For missing DAGs the file won't exist in the repo — ignore that error.
 	// For other statuses, a real staging failure should be surfaced.
 	if err := s.gitClient.RemoveFile(repoPath); err != nil && dagState.Status != StatusMissing {
 		return fmt.Errorf("failed to stage removal of %q: %w", itemID, err)
@@ -1235,7 +1064,7 @@ func (s *serviceImpl) Delete(ctx context.Context, itemID, message string, force 
 	return nil
 }
 
-// DeleteBatch removes multiple items from remote, local disk, and state in a single commit.
+// DeleteBatch removes multiple DAGs from remote, local disk, and state in a single commit.
 func (s *serviceImpl) DeleteBatch(ctx context.Context, itemIDs []string, message string, force bool) ([]string, error) {
 	if err := s.validatePushEnabled(); err != nil {
 		return nil, err
@@ -1249,7 +1078,7 @@ func (s *serviceImpl) DeleteBatch(ctx context.Context, itemIDs []string, message
 		return nil, err
 	}
 
-	// Phase 1: validate and de-duplicate all items before any mutation.
+	// Phase 1: validate and de-duplicate all DAGs before any mutation.
 	type deleteTarget struct {
 		itemID    string
 		status    SyncStatus
@@ -1277,15 +1106,16 @@ func (s *serviceImpl) DeleteBatch(ctx context.Context, itemIDs []string, message
 		if (dagState.Status == StatusModified || dagState.Status == StatusConflict) && !force {
 			return nil, &ValidationError{
 				Field:   itemID,
-				Message: "item has local modifications — use force to delete anyway",
+				Message: "DAG has local modifications — use force to delete anyway",
 			}
 		}
 
-		localPath, err := s.safeDAGIDToFilePath(itemID)
+		fileExtension := s.dagFileExtension(itemID, dagState)
+		localPath, err := s.safeDAGIDToFilePath(itemID, fileExtension)
 		if err != nil {
 			return nil, err
 		}
-		repoPath, err := s.safeDAGIDToRepoPath(itemID)
+		repoPath, err := s.safeDAGIDToRepoPath(itemID, fileExtension)
 		if err != nil {
 			return nil, err
 		}
@@ -1322,7 +1152,7 @@ func (s *serviceImpl) DeleteBatch(ctx context.Context, itemIDs []string, message
 	}
 
 	if message == "" {
-		message = fmt.Sprintf("Delete %d item(s)", len(targets))
+		message = fmt.Sprintf("Delete %d DAG(s)", len(targets))
 	}
 	commitHash, err := s.gitClient.CommitStaged(message)
 	if err != nil {
@@ -1345,7 +1175,7 @@ func (s *serviceImpl) DeleteBatch(ctx context.Context, itemIDs []string, message
 	return deleted, nil
 }
 
-// DeleteAllMissing removes all missing items from remote, local, and state.
+// DeleteAllMissing removes all missing DAGs from remote, local, and state.
 func (s *serviceImpl) DeleteAllMissing(ctx context.Context, message string) ([]string, error) {
 	if err := s.validatePushEnabled(); err != nil {
 		return nil, err
@@ -1359,14 +1189,14 @@ func (s *serviceImpl) DeleteAllMissing(ctx context.Context, message string) ([]s
 		return nil, err
 	}
 
-	// Collect missing items
+	// Collect missing DAGs
 	var missingIDs []string
 	var repoPaths []string
 	for dagID, dagState := range state.DAGs {
 		if dagState.Status != StatusMissing {
 			continue
 		}
-		repoPath, err := s.safeDAGIDToRepoPath(dagID)
+		repoPath, err := s.safeDAGIDToRepoPath(dagID, s.dagFileExtension(dagID, dagState))
 		if err != nil {
 			continue
 		}
@@ -1383,12 +1213,12 @@ func (s *serviceImpl) DeleteAllMissing(ctx context.Context, message string) ([]s
 		return nil, err
 	}
 
-	// Stage all removals — all items here are missing by definition,
+	// Stage all removals — all DAGs here are missing by definition,
 	// so files may not exist in the repo. Ignore errors from RemoveFiles.
 	_ = s.gitClient.RemoveFiles(repoPaths)
 
 	if message == "" {
-		message = fmt.Sprintf("Delete %d missing item(s)", len(missingIDs))
+		message = fmt.Sprintf("Delete %d missing DAG(s)", len(missingIDs))
 	}
 	commitHash, err := s.gitClient.CommitStaged(message)
 	if err != nil {
@@ -1408,7 +1238,7 @@ func (s *serviceImpl) DeleteAllMissing(ctx context.Context, message string) ([]s
 	return missingIDs, nil
 }
 
-// Move atomically renames an item across local filesystem, remote repository, and sync state.
+// Move atomically renames a DAG across local filesystem, remote repository, and sync state.
 func (s *serviceImpl) Move(ctx context.Context, oldID, newID, message string, force bool) error {
 	if err := s.validatePushEnabled(); err != nil {
 		return err
@@ -1430,22 +1260,6 @@ func (s *serviceImpl) Move(ctx context.Context, oldID, newID, message string, fo
 		return &InvalidDAGIDError{DAGID: newID, Reason: fmt.Sprintf("must be normalized as %q", normalized)}
 	}
 
-	// Validate same kind
-	oldKind := KindForDAGID(oldID)
-	newKind := KindForDAGID(newID)
-	if oldKind != newKind {
-		return &ValidationError{
-			Field:   "newItemId",
-			Message: fmt.Sprintf("cannot move across kinds: source is %s, destination is %s", oldKind, newKind),
-		}
-	}
-	if oldKind == DAGKindConfig {
-		return &ValidationError{
-			Field:   "itemId",
-			Message: "config items cannot be moved",
-		}
-	}
-
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -1463,7 +1277,7 @@ func (s *serviceImpl) Move(ctx context.Context, oldID, newID, message string, fo
 	if oldState.Status == StatusUntracked {
 		return &ValidationError{
 			Field:   oldID,
-			Message: "untracked items cannot be moved — publish first",
+			Message: "untracked DAGs cannot be moved — publish first",
 		}
 	}
 
@@ -1488,19 +1302,20 @@ func (s *serviceImpl) Move(ctx context.Context, oldID, newID, message string, fo
 	}
 
 	// Resolve file paths
-	oldLocalPath, err := s.safeDAGIDToFilePath(oldID)
+	fileExtension := s.dagFileExtension(oldID, oldState)
+	oldLocalPath, err := s.safeDAGIDToFilePath(oldID, fileExtension)
 	if err != nil {
 		return err
 	}
-	newLocalPath, err := s.safeDAGIDToFilePath(newID)
+	newLocalPath, err := s.safeDAGIDToFilePath(newID, fileExtension)
 	if err != nil {
 		return err
 	}
-	oldRepoPath, err := s.safeDAGIDToRepoPath(oldID)
+	oldRepoPath, err := s.safeDAGIDToRepoPath(oldID, fileExtension)
 	if err != nil {
 		return err
 	}
-	newRepoPath, err := s.safeDAGIDToRepoPath(newID)
+	newRepoPath, err := s.safeDAGIDToRepoPath(newID, fileExtension)
 	if err != nil {
 		return err
 	}
@@ -1528,35 +1343,18 @@ func (s *serviceImpl) Move(ctx context.Context, oldID, newID, message string, fo
 
 	if oldFileExists {
 		// Preemptive mode: source exists on disk
-		if oldKind == DAGKindSkill {
-			// Skills are directories — move entire directory
-			oldDir := filepath.Dir(oldLocalPath)
-			newDir := filepath.Dir(newLocalPath)
-			if err := s.ensureDir(filepath.Dir(newDir)); err != nil {
-				return err
+		content, err = os.ReadFile(oldLocalPath) //nolint:gosec // path constructed from internal dagsDir
+		if err != nil {
+			return fmt.Errorf("failed to read source file: %w", err)
+		}
+		if err := s.writeDAGFile(newID, newLocalPath, content); err != nil {
+			return fmt.Errorf("failed to write destination file: %w", err)
+		}
+		if err := os.Remove(oldLocalPath); err != nil {
+			if rollbackErr := os.Remove(newLocalPath); rollbackErr != nil {
+				return fmt.Errorf("failed to remove source file: %w (destination rollback failed: %v)", err, rollbackErr)
 			}
-			if err := os.Rename(oldDir, newDir); err != nil {
-				return fmt.Errorf("failed to move skill directory: %w", err)
-			}
-			// Read content from new location
-			content, err = os.ReadFile(newLocalPath) //nolint:gosec // path constructed from internal dagsDir
-			if err != nil {
-				// Rollback: move directory back
-				_ = os.Rename(newDir, oldDir)
-				return fmt.Errorf("failed to read moved skill file: %w", err)
-			}
-		} else {
-			// Read old file content
-			content, err = os.ReadFile(oldLocalPath) //nolint:gosec // path constructed from internal dagsDir
-			if err != nil {
-				return fmt.Errorf("failed to read source file: %w", err)
-			}
-			// Write to new location
-			if err := s.writeDAGFile(newID, newLocalPath, content); err != nil {
-				return fmt.Errorf("failed to write destination file: %w", err)
-			}
-			// Remove old file
-			_ = os.Remove(oldLocalPath)
+			return fmt.Errorf("failed to remove source file: %w", err)
 		}
 	} else {
 		// Retroactive mode: old is missing but new file already exists at destination
@@ -1591,7 +1389,7 @@ func (s *serviceImpl) Move(ctx context.Context, oldID, newID, message string, fo
 
 	// On success: update state
 	contentHash := ComputeContentHash(content)
-	newDAGState := s.newSyncedDAGState(newID, commitHash, contentHash)
+	newDAGState := s.newSyncedDAGState(fileExtension, commitHash, contentHash)
 	if fi, err := os.Stat(newLocalPath); err == nil {
 		updateStatCache(newDAGState, fi)
 	}
@@ -1628,6 +1426,7 @@ func (s *serviceImpl) GetStatus(_ context.Context) (*OverallStatus, error) {
 		status.LastError = new(err.Error())
 		return status, nil
 	}
+	extensionsChanged := s.ensureDAGFileExtensions(state)
 
 	// Scan for new local DAGs not yet tracked
 	prevCount := len(state.DAGs)
@@ -1639,10 +1438,9 @@ func (s *serviceImpl) GetStatus(_ context.Context) (*OverallStatus, error) {
 
 	// Refresh hashes for existing DAGs to detect local modifications
 	hashesChanged := s.refreshLocalHashes(state)
-	kindsUpdated := s.ensureDAGKinds(state)
 
 	// Save state if anything changed (best effort - read-only operation)
-	if newDAGs || hashesChanged || kindsUpdated || reconciled {
+	if extensionsChanged || newDAGs || hashesChanged || reconciled {
 		_ = s.stateManager.Save(state)
 	}
 
@@ -1650,7 +1448,7 @@ func (s *serviceImpl) GetStatus(_ context.Context) (*OverallStatus, error) {
 	status.LastSyncCommit = state.LastSyncCommit
 	status.LastSyncStatus = state.LastSyncStatus
 	status.LastError = state.LastError
-	status.DAGs = state.DAGs
+	status.DAGs = cloneDAGStates(state.DAGs)
 
 	status.Counts = computeStatusCounts(state.DAGs)
 
@@ -1678,6 +1476,9 @@ func (s *serviceImpl) GetDAGStatus(_ context.Context, dagID string) (*DAGState, 
 		return nil, err
 	}
 
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	state, err := s.stateManager.GetState()
 	if err != nil {
 		return nil, err
@@ -1687,12 +1488,15 @@ func (s *serviceImpl) GetDAGStatus(_ context.Context, dagID string) (*DAGState, 
 	if dagState == nil {
 		return nil, &DAGNotFoundError{DAGID: dagID}
 	}
-	if dagState.Kind == "" {
-		dagState.Kind = KindForDAGID(dagID)
+
+	previousExtension := dagState.FileExtension
+	s.dagFileExtension(dagID, dagState)
+	if dagState.FileExtension != previousExtension {
 		_ = s.stateManager.Save(state)
 	}
 
-	return dagState, nil
+	dagStateCopy := *dagState
+	return &dagStateCopy, nil
 }
 
 // GetDAGDiff returns the diff between local and remote versions of a DAG.
@@ -1700,6 +1504,9 @@ func (s *serviceImpl) GetDAGDiff(_ context.Context, dagID string) (*DAGDiff, err
 	if err := s.validateEnabled(); err != nil {
 		return nil, err
 	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	state, err := s.stateManager.GetState()
 	if err != nil {
@@ -1712,19 +1519,20 @@ func (s *serviceImpl) GetDAGDiff(_ context.Context, dagID string) (*DAGDiff, err
 	}
 
 	diff := &DAGDiff{
-		DAGID:  dagID,
-		Status: dagState.Status,
+		DAGID:         dagID,
+		FileExtension: s.dagFileExtension(dagID, dagState),
+		Status:        dagState.Status,
 	}
 
-	// Missing items have no local file — handle before os.ReadFile below.
+	// Missing DAGs have no local file — handle before os.ReadFile below.
 	if dagState.Status == StatusMissing {
 		diff.LocalContent = ""
-		diff.RemoteContent = s.fetchRemoteContent(dagID, dagState.BaseCommit)
+		diff.RemoteContent = s.fetchRemoteContent(dagID, diff.FileExtension, dagState.BaseCommit)
 		diff.RemoteCommit = dagState.BaseCommit
 		return diff, nil
 	}
 
-	localPath, err := s.safeDAGIDToFilePath(dagID)
+	localPath, err := s.safeDAGIDToFilePath(dagID, diff.FileExtension)
 	if err != nil {
 		return nil, err
 	}
@@ -1741,11 +1549,11 @@ func (s *serviceImpl) GetDAGDiff(_ context.Context, dagID string) (*DAGDiff, err
 		diff.RemoteCommit = dagState.BaseCommit
 
 	case StatusModified:
-		diff.RemoteContent = s.fetchRemoteContent(dagID, dagState.BaseCommit)
+		diff.RemoteContent = s.fetchRemoteContent(dagID, diff.FileExtension, dagState.BaseCommit)
 		diff.RemoteCommit = dagState.BaseCommit
 
 	case StatusConflict:
-		diff.RemoteContent = s.fetchRemoteContent(dagID, dagState.RemoteCommit)
+		diff.RemoteContent = s.fetchRemoteContent(dagID, diff.FileExtension, dagState.RemoteCommit)
 		diff.RemoteCommit = dagState.RemoteCommit
 		diff.RemoteAuthor = dagState.RemoteAuthor
 		diff.RemoteMessage = dagState.RemoteMessage
@@ -1760,15 +1568,28 @@ func (s *serviceImpl) GetDAGDiff(_ context.Context, dagID string) (*DAGDiff, err
 	return diff, nil
 }
 
+func cloneDAGStates(states map[string]*DAGState) map[string]*DAGState {
+	cloned := make(map[string]*DAGState, len(states))
+	for dagID, dagState := range states {
+		if dagState == nil {
+			cloned[dagID] = nil
+			continue
+		}
+		dagStateCopy := *dagState
+		cloned[dagID] = &dagStateCopy
+	}
+	return cloned
+}
+
 // fetchRemoteContent retrieves the content of a DAG file from a specific commit.
-func (s *serviceImpl) fetchRemoteContent(dagID, commitHash string) string {
+func (s *serviceImpl) fetchRemoteContent(dagID, fileExtension, commitHash string) string {
 	if commitHash == "" {
 		return ""
 	}
 	if err := s.gitClient.Open(); err != nil {
 		return ""
 	}
-	repoPath, err := s.safeDAGIDToRepoPath(dagID)
+	repoPath, err := s.safeDAGIDToRepoPath(dagID, fileExtension)
 	if err != nil {
 		return ""
 	}
@@ -1911,13 +1732,6 @@ func (s *serviceImpl) filePathToDAGID(filePath string) string {
 	return dagID
 }
 
-func isSyncableRepoFile(filePath, dagID string) bool {
-	if filepath.Ext(filePath) != ".md" {
-		return true
-	}
-	return isMemoryFile(dagID) || isSkillFile(dagID) || isSoulFile(dagID)
-}
-
 // resolvePublishTargets validates and canonicalizes DAG IDs for batch publish.
 func (s *serviceImpl) resolvePublishTargets(state *State, dagIDs []string) ([]string, error) {
 	if len(dagIDs) == 0 {
@@ -1998,38 +1812,6 @@ func (s *serviceImpl) resolvePublishTargets(state *State, dagIDs []string) ([]st
 	return resolved, nil
 }
 
-func (s *serviceImpl) dagIDToFilePath(dagID string) string {
-	// Decode if URL encoded
-	decoded, err := url.PathUnescape(dagID)
-	if err == nil {
-		dagID = decoded
-	}
-	dagID = normalizeDAGIDSeparators(dagID)
-	if dagID == baseConfigID {
-		return s.resolveBaseConfigPath()
-	}
-	if workspaceName, ok := workspaceBaseConfigNameFromID(dagID); ok {
-		return workspace.BaseConfigPath(s.dagsDir, workspaceName)
-	}
-	ext := fileExtensionForID(dagID)
-	return filepath.Join(s.dagsDir, filepath.FromSlash(dagID+ext))
-}
-
-func (s *serviceImpl) dagIDToRepoPath(dagID string) string {
-	// Decode if URL encoded
-	decoded, err := url.PathUnescape(dagID)
-	if err == nil {
-		dagID = decoded
-	}
-	dagID = normalizeDAGIDSeparators(dagID)
-	ext := fileExtensionForID(dagID)
-	repoPath := dagID + ext
-	if s.cfg.Path != "" {
-		return path.Join(filepath.ToSlash(s.cfg.Path), repoPath)
-	}
-	return repoPath
-}
-
 func decodeDAGID(dagID string) (string, error) {
 	decoded, err := url.PathUnescape(strings.TrimSpace(dagID))
 	if err != nil {
@@ -2039,13 +1821,6 @@ func decodeDAGID(dagID string) (string, error) {
 		}
 	}
 	return decoded, nil
-}
-
-func (s *serviceImpl) resolveBaseConfigPath() string {
-	if s.baseConfig != "" {
-		return s.baseConfig
-	}
-	return filepath.Join(s.dagsDir, workspace.BaseConfigFileName)
 }
 
 func normalizeDAGID(dagID string) (string, error) {
@@ -2068,6 +1843,9 @@ func normalizeDAGID(dagID string) (string, error) {
 	}
 	if strings.HasPrefix(clean, "../") {
 		return "", &InvalidDAGIDError{DAGID: dagID, Reason: "path traversal is not allowed"}
+	}
+	if isBaseConfigID(clean) {
+		return "", &InvalidDAGIDError{DAGID: dagID, Reason: "base configuration paths are not DAG IDs"}
 	}
 
 	return clean, nil
@@ -2355,57 +2133,39 @@ func rejectUnsafeFileInfo(info os.FileInfo, targetPath, operation string) error 
 }
 
 func (s *serviceImpl) writeDAGFile(dagID, filePath string, content []byte) error {
-	baseDir := s.dagsDir
-	normalized, err := normalizeDAGID(dagID)
-	if err != nil {
+	if _, err := normalizeDAGID(dagID); err != nil {
 		return err
 	}
-	if normalized == baseConfigID && s.baseConfig != "" {
-		baseDir = filepath.Dir(s.baseConfig)
-	}
-	return safeWriteFileWithinBase(baseDir, filePath, content, 0600)
+	return safeWriteFileWithinBase(s.dagsDir, filePath, content, 0600)
 }
 
 func (s *serviceImpl) readDAGFile(dagID, filePath string) ([]byte, error) {
-	baseDir := s.dagsDir
-	normalized, err := normalizeDAGID(dagID)
-	if err != nil {
+	if _, err := normalizeDAGID(dagID); err != nil {
 		return nil, err
 	}
-	if normalized == baseConfigID && s.baseConfig != "" {
-		baseDir = filepath.Dir(s.baseConfig)
-	}
-	return safeReadFileWithinBase(baseDir, filePath)
+	return safeReadFileWithinBase(s.dagsDir, filePath)
 }
 
-func (s *serviceImpl) safeDAGIDToFilePath(dagID string) (string, error) {
+func (s *serviceImpl) safeDAGIDToFilePath(dagID, fileExtension string) (string, error) {
 	normalized, err := normalizeDAGID(dagID)
 	if err != nil {
 		return "", err
 	}
-	if normalized == baseConfigID {
-		return s.resolveBaseConfigPath(), nil
-	}
-	if workspaceName, ok := workspaceBaseConfigNameFromID(normalized); ok {
-		return safeJoinWithinBase(s.dagsDir, filepath.FromSlash(path.Join(workspace.BaseConfigDirName, workspaceName, workspace.BaseConfigFileName)))
-	}
-	ext := fileExtensionForID(normalized)
-	return safeJoinWithinBase(s.dagsDir, filepath.FromSlash(normalized+ext))
+	return safeJoinWithinBase(s.dagsDir, filepath.FromSlash(normalized+normalizeDAGFileExtension(fileExtension)))
 }
 
 func (s *serviceImpl) safeRepoPathToFilePath(repoPath string) (string, error) {
 	return safeJoinWithinBase(s.gitClient.repoPath, filepath.FromSlash(repoPath))
 }
 
-func (s *serviceImpl) safeDAGIDToRepoPath(dagID string) (string, error) {
+func (s *serviceImpl) safeDAGIDToRepoPath(dagID, fileExtension string) (string, error) {
 	normalized, err := normalizeDAGID(dagID)
 	if err != nil {
 		return "", err
 	}
 
-	ext := fileExtensionForID(normalized)
-	repoPath := normalized + ext
-	if s.cfg.Path != "" {
+	repoPath := normalized + normalizeDAGFileExtension(fileExtension)
+	if s.cfg != nil && s.cfg.Path != "" {
 		repoPath = path.Join(filepath.ToSlash(s.cfg.Path), repoPath)
 	}
 
@@ -2423,8 +2183,105 @@ func (s *serviceImpl) safeDAGIDToRepoPath(dagID string) (string, error) {
 	return filepath.ToSlash(relPath), nil
 }
 
-func (s *serviceImpl) ensureDir(dir string) error {
-	return os.MkdirAll(dir, 0750)
+func (s *serviceImpl) dagFileExtension(dagID string, dagState *DAGState) string {
+	if dagState != nil {
+		switch {
+		case strings.EqualFold(dagState.FileExtension, dagYMLExtension):
+			dagState.FileExtension = dagYMLExtension
+			return dagYMLExtension
+		case strings.EqualFold(dagState.FileExtension, dagYAMLExtension):
+			dagState.FileExtension = dagYAMLExtension
+			return dagYAMLExtension
+		}
+	}
+
+	for _, fileExtension := range []string{dagYAMLExtension, dagYMLExtension} {
+		filePath, err := s.safeDAGIDToFilePath(dagID, fileExtension)
+		if err == nil {
+			if _, err := os.Stat(filePath); err == nil {
+				if dagState != nil {
+					dagState.FileExtension = fileExtension
+				}
+				return fileExtension
+			}
+		}
+	}
+
+	for _, fileExtension := range []string{dagYAMLExtension, dagYMLExtension} {
+		repoPath, err := s.safeDAGIDToRepoPath(dagID, fileExtension)
+		if err != nil {
+			continue
+		}
+		filePath, err := s.safeRepoPathToFilePath(repoPath)
+		if err == nil {
+			if _, err := os.Stat(filePath); err == nil {
+				if dagState != nil {
+					dagState.FileExtension = fileExtension
+				}
+				return fileExtension
+			}
+		}
+	}
+
+	if dagState != nil {
+		dagState.FileExtension = dagYAMLExtension
+	}
+	return dagYAMLExtension
+}
+
+func (s *serviceImpl) ensureDAGFileExtensions(state *State) bool {
+	changed := false
+	for dagID, dagState := range state.DAGs {
+		if dagState == nil {
+			continue
+		}
+		previousExtension := dagState.FileExtension
+		s.dagFileExtension(dagID, dagState)
+		if dagState.FileExtension != previousExtension {
+			changed = true
+		}
+	}
+	return changed
+}
+
+func (s *serviceImpl) migrateLocalDAGExtension(dagID, oldExtension, newExtension string) error {
+	oldPath, err := s.safeDAGIDToFilePath(dagID, oldExtension)
+	if err != nil {
+		return err
+	}
+	newPath, err := s.safeDAGIDToFilePath(dagID, newExtension)
+	if err != nil {
+		return err
+	}
+
+	content, err := s.readDAGFile(dagID, oldPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("failed to read DAG %q before changing its file extension: %w", dagID, err)
+	}
+
+	if _, err := os.Stat(newPath); err == nil {
+		return &ValidationError{
+			Field:   dagID,
+			Message: "DAG exists with both .yaml and .yml extensions",
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("failed to inspect DAG %q before changing its file extension: %w", dagID, err)
+	}
+
+	if err := s.writeDAGFile(dagID, newPath, content); err != nil {
+		return fmt.Errorf("failed to write DAG %q with its remote file extension: %w", dagID, err)
+	}
+	if err := os.Remove(oldPath); err != nil {
+		if rollbackErr := os.Remove(newPath); rollbackErr != nil {
+			return fmt.Errorf("failed to remove old DAG file: %w (destination rollback failed: %v)", err, rollbackErr)
+		}
+		return fmt.Errorf("failed to remove old DAG file: %w", err)
+	}
+
+	return nil
 }
 
 // validateEnabled checks if git sync is enabled and configured.
@@ -2454,7 +2311,7 @@ func (s *serviceImpl) validatePublishable(dagState *DAGState, dagID string, forc
 	if dagState.Status == StatusMissing {
 		return &ValidationError{
 			Field:   dagID,
-			Message: "item is missing from disk and cannot be published",
+			Message: "DAG is missing from disk and cannot be published",
 		}
 	}
 	if dagState.Status == StatusConflict && !force {
@@ -2480,11 +2337,11 @@ func (s *serviceImpl) ensureRepoReady(ctx context.Context) error {
 }
 
 // newSyncedDAGState creates a new DAGState in synced status.
-func (s *serviceImpl) newSyncedDAGState(dagID, commitHash, contentHash string) *DAGState {
+func (s *serviceImpl) newSyncedDAGState(fileExtension, commitHash, contentHash string) *DAGState {
 	now := time.Now()
 	return &DAGState{
 		Status:         StatusSynced,
-		Kind:           KindForDAGID(dagID),
+		FileExtension:  normalizeDAGFileExtension(fileExtension),
 		BaseCommit:     commitHash,
 		LastSyncedHash: contentHash,
 		LastSyncedAt:   &now,

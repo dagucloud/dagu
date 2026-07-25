@@ -89,6 +89,36 @@ func HasValueReference(raw string) bool {
 	return false
 }
 
+// IsExactRef reports whether token is an exact canonical scoped reference.
+func IsExactRef(token string) bool {
+	_, ok := parseExactRef(token)
+	return ok
+}
+
+func parseExactRef(token string) (reference, bool) {
+	refs := scanReferences(token)
+	if len(refs) != 1 {
+		return reference{}, false
+	}
+	ref := refs[0]
+	if ref.Kind != referenceStrict || !ref.Braced || ref.Start != 0 || ref.End != len(token) {
+		return reference{}, false
+	}
+	if ref.Raw != "${"+ref.Expr+"}" {
+		return reference{}, false
+	}
+
+	switch ref.Namespace {
+	case "consts", "env", "steps", "foreach", "context":
+		return ref, true
+	case "params":
+		// The aggregate ${params} form is JSON data, not a named value reference.
+		return ref, len(ref.Segments) == 2
+	default:
+		return reference{}, false
+	}
+}
+
 func classifyBracedReference(rawRef, expr string, start, end int) reference {
 	segments := strings.Split(expr, ".")
 	ref := reference{

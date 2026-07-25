@@ -81,7 +81,6 @@ func (h *Server) Start(ctx context.Context) error {
 
 	router := chi.NewRouter()
 	router.Use(middleware.RequestID)
-	router.Use(middleware.RealIP)
 	router.Use(middleware.Recoverer)
 	router.Get("/health", h.healthHandler)
 

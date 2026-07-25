@@ -41,6 +41,36 @@ func ReadFileWithRetry(path string) ([]byte, error) {
 	return ReadFile(path)
 }
 
+// MkdirAll creates a directory tree, retrying transient Windows sharing
+// violations while another process releases a path.
+func MkdirAll(path string, perm os.FileMode) error {
+	return retryWindowsFileOp(func() error {
+		return os.MkdirAll(path, perm)
+	})
+}
+
+// ReadDir reads a directory, retrying transient Windows sharing violations.
+func ReadDir(path string) ([]os.DirEntry, error) {
+	var entries []os.DirEntry
+	err := retryWindowsFileOp(func() error {
+		readEntries, err := os.ReadDir(path)
+		entries = readEntries
+		return err
+	})
+	return entries, err
+}
+
+// Stat returns file information, retrying transient Windows sharing violations.
+func Stat(path string) (os.FileInfo, error) {
+	var info os.FileInfo
+	err := retryWindowsFileOp(func() error {
+		fileInfo, err := os.Stat(path)
+		info = fileInfo
+		return err
+	})
+	return info, err
+}
+
 // Remove retries transient Windows sharing violations while deleting a file.
 func Remove(path string) error {
 	return retryWindowsFileOp(func() error {

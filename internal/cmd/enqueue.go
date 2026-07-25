@@ -32,7 +32,7 @@ Examples:
 	)
 }
 
-var enqueueFlags = []commandLineFlag{paramsFlag, nameFlag, dagRunIDFlag, queueFlag, labelsFlag, tagsFlag, defaultWorkingDirFlag, profileFlag, triggerTypeFlag, scheduleTimeFlag}
+var enqueueFlags = []commandLineFlag{paramsFlag, nameFlag, dagRunIDFlag, queueFlag, labelsFlag, tagsFlag, defaultWorkingDirFlag, profileFlag, triggerTypeFlag, triggerActorFlag, scheduleTimeFlag}
 
 func runEnqueue(ctx *Context, args []string) error {
 	if ctx.IsRemote() {
@@ -74,6 +74,10 @@ func runEnqueue(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	triggerActor, err := ctx.StringParam("trigger-actor")
+	if err != nil {
+		return fmt.Errorf("failed to get trigger actor: %w", err)
+	}
 
 	scheduleTime, err := parseScheduleTimeParam(ctx)
 	if err != nil {
@@ -84,13 +88,18 @@ func runEnqueue(ctx *Context, args []string) error {
 		return err
 	}
 
-	return enqueueDAGRun(ctx, dag, runID, triggerType, scheduleTime, profileName)
+	return enqueueDAGRun(ctx, dag, runID, runOptions{
+		triggerType:  triggerType,
+		triggerActor: triggerActor,
+		scheduleTime: scheduleTime,
+		profileName:  profileName,
+	})
 }
 
 // enqueueDAGRun enqueues a dag-run to the queue.
 // The DAG location is cleared to allow concurrent queued runs (location is used
 // for unix pipe generation which would prevent parallel execution).
-func enqueueDAGRun(ctx *Context, dag *core.DAG, dagRunID string, triggerType core.TriggerType, scheduleTime, profileName string) error {
+func enqueueDAGRun(ctx *Context, dag *core.DAG, dagRunID string, opts runOptions) error {
 	dag.Location = ""
 
 	if !ctx.Config.Queues.Enabled {
@@ -110,9 +119,10 @@ func enqueueDAGRun(ctx *Context, dag *core.DAG, dagRunID string, triggerType cor
 		DAGRunID:                dagRunID,
 		LogBaseDir:              ctx.Config.Paths.LogDir,
 		ArtifactBaseDir:         ctx.Config.Paths.ArtifactDir,
-		TriggerType:             triggerType,
-		ScheduleTime:            scheduleTime,
-		ProfileName:             profileName,
+		TriggerType:             opts.triggerType,
+		TriggerActor:            opts.triggerActor,
+		ScheduleTime:            opts.scheduleTime,
+		ProfileName:             opts.profileName,
 		ProceedOnStatusCloseErr: true,
 	})
 	if err != nil {

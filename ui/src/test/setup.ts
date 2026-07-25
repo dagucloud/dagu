@@ -9,5 +9,21 @@ afterEach(() => {
   cleanup();
 });
 
+class ResizeObserverMock {
+  observe(target: Element, options?: ResizeObserverOptions): void {
+    void target;
+    void options;
+  }
+  unobserve(target: Element): void {
+    void target;
+  }
+  disconnect(): void {}
+}
+
+Object.defineProperty(globalThis, 'ResizeObserver', {
+  configurable: true,
+  value: ResizeObserverMock,
+});
+
 // jsdom doesn't implement scrollIntoView
 Element.prototype.scrollIntoView = () => {};

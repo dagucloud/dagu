@@ -686,10 +686,13 @@ func TestHandler_Poll(t *testing.T) {
 		err := h.writeInitialStatus(
 			context.Background(),
 			attempt,
+			&coordinatorv1.Task{
+				DagRunId:     "run-123",
+				AttemptKey:   "attempt-key",
+				TriggerActor: "alice",
+				ScheduleTime: "2026-03-13T10:00:00Z",
+			},
 			"test-dag",
-			"run-123",
-			"attempt-key",
-			"2026-03-13T10:00:00Z",
 			exec.DAGRunRef{},
 			nil,
 		)
@@ -698,6 +701,7 @@ func TestHandler_Poll(t *testing.T) {
 		status, err := attempt.ReadStatus(context.Background())
 		require.NoError(t, err)
 		require.Equal(t, "2026-03-13T10:00:00Z", status.ScheduleTime)
+		require.Equal(t, "alice", status.TriggerActor)
 	})
 
 	t.Run("DispatchFailsWhenAttemptPreparationFails", func(t *testing.T) {
@@ -3036,7 +3040,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		assert.WithinDuration(t, time.Now(), time.UnixMilli(status.LeaseAt), 2*time.Second)
 	})
 
-	t.Run("WaitingStatusClosesCachedAttempt", func(t *testing.T) {
+	t.Run("WaitingStatusClosesCachedAttemptBeforePersisting", func(t *testing.T) {
 		t.Parallel()
 
 		store := newMockDAGRunStore()
@@ -3050,6 +3054,17 @@ func TestHandler_ReportStatus(t *testing.T) {
 			AttemptID: "attempt-1",
 			Status:    core.Running,
 		})
+		runningProto, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
+			Name:      ref.Name,
+			DAGRunID:  ref.ID,
+			AttemptID: "attempt-1",
+			Status:    core.Running,
+		})
+		require.NoError(t, convErr)
+		runningResp, err := h.ReportStatus(ctx, &coordinatorv1.ReportStatusRequest{Status: runningProto})
+		require.NoError(t, err)
+		require.True(t, runningResp.Accepted)
+
 		protoStatus, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
 			Name:       ref.Name,
 			DAGRunID:   ref.ID,
@@ -3063,11 +3078,285 @@ func TestHandler_ReportStatus(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, resp.Accepted)
 		assert.True(t, attempt.WasClosed())
+		assert.Equal(t, 1, store.CompareAndSwapCallCount())
 
 		h.attemptsMu.RLock()
 		_, cached := h.openAttempts[ref.ID]
 		h.attemptsMu.RUnlock()
 		assert.False(t, cached)
+	})
+
+	t.Run("RejectsWaitingStatusThatRegressesCompletedHumanTask", func(t *testing.T) {
+		t.Parallel()
+
+		store := newMockDAGRunStore()
+		h := NewHandler(HandlerConfig{DAGRunStore: store})
+		ref := exec.NewDAGRunRef("test-dag", "run-123")
+		completedAt := time.Now().UTC().Format(time.RFC3339)
+		outputs := `{"environment":"production"}`
+		attempt := store.addAttempt(ref, &exec.DAGRunStatus{
+			Name:       ref.Name,
+			DAGRunID:   ref.ID,
+			AttemptID:  "attempt-1",
+			AttemptKey: "attempt-key-1",
+			Status:     core.Waiting,
+			Nodes: []*exec.Node{{
+				Step:                   core.Step{ID: "review", HumanTask: &core.HumanTaskConfig{Prompt: "Review"}},
+				Status:                 core.NodeSucceeded,
+				FinishedAt:             completedAt,
+				StepOutputsValue:       &outputs,
+				HumanTaskInput:         []byte(`{"environment":"production"}`),
+				HumanTaskCompletedBy:   "operator",
+				HumanTaskCompletedByID: "user-1",
+			}},
+		})
+		incoming, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
+			Name:       ref.Name,
+			DAGRunID:   ref.ID,
+			AttemptID:  "attempt-1",
+			AttemptKey: "attempt-key-1",
+			Status:     core.Waiting,
+			Nodes: []*exec.Node{{
+				Step:   core.Step{ID: "review", HumanTask: &core.HumanTaskConfig{Prompt: "Review"}},
+				Status: core.NodeWaiting,
+			}},
+		})
+		require.NoError(t, convErr)
+
+		resp, err := h.ReportStatus(t.Context(), &coordinatorv1.ReportStatusRequest{Status: incoming})
+		require.NoError(t, err)
+		require.False(t, resp.Accepted)
+		assert.Equal(t, remoteAttemptRejectedManualAction, resp.Error)
+
+		persisted, err := attempt.ReadStatus(t.Context())
+		require.NoError(t, err)
+		require.Len(t, persisted.Nodes, 1)
+		assert.Equal(t, core.NodeSucceeded, persisted.Nodes[0].Status)
+		assert.JSONEq(t, `{"environment":"production"}`, string(persisted.Nodes[0].HumanTaskInput))
+		assert.Equal(t, "operator", persisted.Nodes[0].HumanTaskCompletedBy)
+		assert.Equal(t, "user-1", persisted.Nodes[0].HumanTaskCompletedByID)
+		require.NotNil(t, persisted.Nodes[0].StepOutputsValue)
+		assert.JSONEq(t, outputs, *persisted.Nodes[0].StepOutputsValue)
+	})
+
+	t.Run("RejectsWaitingStatusThatRegressesCompletedApproval", func(t *testing.T) {
+		t.Parallel()
+
+		store := newMockDAGRunStore()
+		h := NewHandler(HandlerConfig{DAGRunStore: store})
+		ref := exec.NewDAGRunRef("test-dag", "run-123")
+		approvedAt := time.Now().UTC().Format(time.RFC3339)
+		attempt := store.addAttempt(ref, &exec.DAGRunStatus{
+			Name:       ref.Name,
+			DAGRunID:   ref.ID,
+			AttemptID:  "attempt-1",
+			AttemptKey: "attempt-key-1",
+			Status:     core.Waiting,
+			Nodes: []*exec.Node{{
+				Step:         core.Step{Name: "review", Approval: &core.ApprovalConfig{}},
+				Status:       core.NodeSucceeded,
+				ApprovedAt:   approvedAt,
+				ApprovedBy:   "operator",
+				ApprovedByID: "user-1",
+				ApprovalInputs: map[string]string{
+					"environment": "production",
+				},
+			}},
+		})
+		incoming, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
+			Name:       ref.Name,
+			DAGRunID:   ref.ID,
+			AttemptID:  "attempt-1",
+			AttemptKey: "attempt-key-1",
+			Status:     core.Waiting,
+			Nodes: []*exec.Node{{
+				Step:   core.Step{Name: "review", Approval: &core.ApprovalConfig{}},
+				Status: core.NodeWaiting,
+			}},
+		})
+		require.NoError(t, convErr)
+
+		resp, err := h.ReportStatus(t.Context(), &coordinatorv1.ReportStatusRequest{Status: incoming})
+		require.NoError(t, err)
+		require.False(t, resp.Accepted)
+		assert.Equal(t, remoteAttemptRejectedManualAction, resp.Error)
+
+		persisted, err := attempt.ReadStatus(t.Context())
+		require.NoError(t, err)
+		require.Len(t, persisted.Nodes, 1)
+		assert.Equal(t, core.NodeSucceeded, persisted.Nodes[0].Status)
+		assert.Equal(t, approvedAt, persisted.Nodes[0].ApprovedAt)
+		assert.Equal(t, "operator", persisted.Nodes[0].ApprovedBy)
+		assert.Equal(t, "user-1", persisted.Nodes[0].ApprovedByID)
+		assert.Equal(t, map[string]string{"environment": "production"}, persisted.Nodes[0].ApprovalInputs)
+	})
+
+	t.Run("RejectsWaitingStatusThatRegressesPushBack", func(t *testing.T) {
+		t.Parallel()
+
+		store := newMockDAGRunStore()
+		h := NewHandler(HandlerConfig{DAGRunStore: store})
+		ref := exec.NewDAGRunRef("test-dag", "run-123")
+		pushedBackAt := time.Now().UTC().Format(time.RFC3339)
+		attempt := store.addAttempt(ref, &exec.DAGRunStatus{
+			Name:       ref.Name,
+			DAGRunID:   ref.ID,
+			AttemptID:  "attempt-1",
+			AttemptKey: "attempt-key-1",
+			Status:     core.Waiting,
+			Nodes: []*exec.Node{{
+				Step:                   core.Step{ID: "prepare", Name: "prepare"},
+				StartedAt:              "-",
+				FinishedAt:             "-",
+				Status:                 core.NodeNotStarted,
+				ApprovalIteration:      1,
+				PushBackInputs:         map[string]string{"FEEDBACK": "revise"},
+				PushBackPreviousStdout: "/tmp/prepare.out",
+				PushBackHistory: []exec.PushBackEntry{{
+					Iteration: 1,
+					By:        "operator",
+					ByID:      "user-1",
+					At:        pushedBackAt,
+					Inputs:    map[string]string{"FEEDBACK": "revise"},
+				}},
+			}},
+		})
+		incoming, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
+			Name:       ref.Name,
+			DAGRunID:   ref.ID,
+			AttemptID:  "attempt-1",
+			AttemptKey: "attempt-key-1",
+			Status:     core.Waiting,
+			Nodes: []*exec.Node{{
+				Step:       core.Step{ID: "prepare", Name: "prepare"},
+				StartedAt:  pushedBackAt,
+				FinishedAt: pushedBackAt,
+				Status:     core.NodeSucceeded,
+				Stdout:     "/tmp/prepare.out",
+			}},
+		})
+		require.NoError(t, convErr)
+
+		resp, err := h.ReportStatus(t.Context(), &coordinatorv1.ReportStatusRequest{Status: incoming})
+		require.NoError(t, err)
+		require.False(t, resp.Accepted)
+		assert.Equal(t, remoteAttemptRejectedManualAction, resp.Error)
+
+		persisted, err := attempt.ReadStatus(t.Context())
+		require.NoError(t, err)
+		require.Len(t, persisted.Nodes, 1)
+		assert.Equal(t, core.NodeNotStarted, persisted.Nodes[0].Status)
+		assert.Equal(t, 1, persisted.Nodes[0].ApprovalIteration)
+		assert.Equal(t, map[string]string{"FEEDBACK": "revise"}, persisted.Nodes[0].PushBackInputs)
+		assert.Equal(t, "/tmp/prepare.out", persisted.Nodes[0].PushBackPreviousStdout)
+		require.Len(t, persisted.Nodes[0].PushBackHistory, 1)
+		assert.Equal(t, "user-1", persisted.Nodes[0].PushBackHistory[0].ByID)
+	})
+
+	t.Run("AcceptsWaitingStatusThatPreservesPushBack", func(t *testing.T) {
+		t.Parallel()
+
+		store := newMockDAGRunStore()
+		h := NewHandler(HandlerConfig{DAGRunStore: store})
+		ref := exec.NewDAGRunRef("test-dag", "run-123")
+		pushedBackAt := time.Now().UTC().Format(time.RFC3339)
+		history := []exec.PushBackEntry{{
+			Iteration: 1,
+			By:        "operator",
+			ByID:      "user-1",
+			At:        pushedBackAt,
+			Inputs:    map[string]string{"FEEDBACK": "revise"},
+		}}
+		attempt := store.addAttempt(ref, &exec.DAGRunStatus{
+			Name:       ref.Name,
+			DAGRunID:   ref.ID,
+			AttemptID:  "attempt-1",
+			AttemptKey: "attempt-key-1",
+			Status:     core.Running,
+			Nodes: []*exec.Node{{
+				Step:                   core.Step{ID: "prepare", Name: "prepare"},
+				StartedAt:              "-",
+				FinishedAt:             "-",
+				Status:                 core.NodeNotStarted,
+				ApprovalIteration:      1,
+				PushBackInputs:         map[string]string{"FEEDBACK": "revise"},
+				PushBackHistory:        history,
+				PushBackPreviousStdout: "/tmp/prepare.out",
+			}},
+		})
+		incoming, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
+			Name:       ref.Name,
+			DAGRunID:   ref.ID,
+			AttemptID:  "attempt-1",
+			AttemptKey: "attempt-key-1",
+			Status:     core.Waiting,
+			Nodes: []*exec.Node{{
+				Step:                   core.Step{ID: "prepare", Name: "prepare"},
+				StartedAt:              pushedBackAt,
+				FinishedAt:             pushedBackAt,
+				Status:                 core.NodeSucceeded,
+				ApprovalIteration:      1,
+				PushBackInputs:         map[string]string{"FEEDBACK": "revise"},
+				PushBackHistory:        history,
+				PushBackPreviousStdout: "/tmp/prepare.out",
+			}},
+		})
+		require.NoError(t, convErr)
+
+		resp, err := h.ReportStatus(t.Context(), &coordinatorv1.ReportStatusRequest{Status: incoming})
+		require.NoError(t, err)
+		require.True(t, resp.Accepted)
+
+		persisted, err := attempt.ReadStatus(t.Context())
+		require.NoError(t, err)
+		require.Len(t, persisted.Nodes, 1)
+		assert.Equal(t, core.NodeSucceeded, persisted.Nodes[0].Status)
+		assert.Equal(t, 1, persisted.Nodes[0].ApprovalIteration)
+		assert.Equal(t, history, persisted.Nodes[0].PushBackHistory)
+	})
+
+	t.Run("AcceptsWaitingStatusThatPreservesCompletedHumanTask", func(t *testing.T) {
+		t.Parallel()
+
+		store := newMockDAGRunStore()
+		h := NewHandler(HandlerConfig{DAGRunStore: store})
+		ref := exec.NewDAGRunRef("test-dag", "run-123")
+		completedAt := time.Now().UTC().Format(time.RFC3339)
+		completedNode := &exec.Node{
+			Step:                   core.Step{ID: "review", HumanTask: &core.HumanTaskConfig{Prompt: "Review"}},
+			Status:                 core.NodeSucceeded,
+			FinishedAt:             completedAt,
+			HumanTaskInput:         []byte(`{"approved":true}`),
+			HumanTaskCompletedBy:   "operator",
+			HumanTaskCompletedByID: "user-1",
+		}
+		store.addAttempt(ref, &exec.DAGRunStatus{
+			Name:       ref.Name,
+			DAGRunID:   ref.ID,
+			AttemptID:  "attempt-1",
+			AttemptKey: "attempt-key-1",
+			Status:     core.Queued,
+			Nodes:      []*exec.Node{completedNode},
+		})
+		incoming, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
+			Name:       ref.Name,
+			DAGRunID:   ref.ID,
+			AttemptID:  "attempt-1",
+			AttemptKey: "attempt-key-1",
+			Status:     core.Waiting,
+			Nodes: []*exec.Node{
+				completedNode,
+				{
+					Step:   core.Step{ID: "publish", HumanTask: &core.HumanTaskConfig{Prompt: "Publish"}},
+					Status: core.NodeWaiting,
+				},
+			},
+		})
+		require.NoError(t, convErr)
+
+		resp, err := h.ReportStatus(t.Context(), &coordinatorv1.ReportStatusRequest{Status: incoming})
+		require.NoError(t, err)
+		require.True(t, resp.Accepted)
 	})
 
 	t.Run("RejectsLateStatusForLeaseCleanedAttempt", func(t *testing.T) {

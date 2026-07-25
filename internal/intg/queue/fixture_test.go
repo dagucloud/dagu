@@ -219,6 +219,7 @@ func (f *fixture) enqueueCatchup(scheduleTime time.Time) string {
 		f.th.Config.Paths.LogDir,
 		f.th.Config.Paths.ArtifactDir,
 		f.th.Config.Paths.BaseConfig,
+		"",
 		f.dag,
 		runID,
 		core.TriggerTypeCatchUp,
@@ -531,7 +532,7 @@ func (f *fixture) RunningRunWithMetadata(opts runStatusOptions) string {
 
 // RetryEnqueue enqueues a previously failed run for retry using exec.EnqueueRetry.
 func (f *fixture) RetryEnqueue(runID string) *fixture {
-	err := exec.EnqueueRetry(
+	_, err := exec.EnqueueRetry(
 		f.th.Context,
 		f.th.DAGRunStore,
 		f.th.QueueStore,

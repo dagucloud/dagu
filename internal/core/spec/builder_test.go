@@ -2499,6 +2499,7 @@ steps:
 		{"Always", "always", core.PullPolicyAlways},
 		{"Never", "never", core.PullPolicyNever},
 		{"Missing", "missing", core.PullPolicyMissing},
+		{"Fallback", "fallback", core.PullPolicyFallback},
 		{"TrueString", "true", core.PullPolicyAlways},
 		{"FalseString", "false", core.PullPolicyNever},
 	}

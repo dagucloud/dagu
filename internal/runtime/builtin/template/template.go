@@ -14,6 +14,7 @@ import (
 
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/cmn/templatefuncs"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/executor"
@@ -125,8 +126,19 @@ func decodeConfig(dat map[string]any, cfg *templateConfig) error {
 }
 
 func validateTemplate(step core.Step) error {
-	if step.Script == "" {
+	refValue, hasRef := step.ExecutorConfig.Config["template_ref"]
+	if step.Script != "" && hasRef {
+		return core.NewValidationError("with.template_ref", refValue, fmt.Errorf("template step cannot use both script and with.template_ref"))
+	}
+	if step.Script != "" {
+		return nil
+	}
+	if !hasRef {
 		return core.NewValidationError("script", nil, fmt.Errorf("script field is required"))
+	}
+	ref, ok := refValue.(string)
+	if !ok || !cmnvalue.IsExactRef(ref) {
+		return core.NewValidationError("with.template_ref", refValue, fmt.Errorf("must be one complete scoped value reference such as ${env.NAME}"))
 	}
 	return nil
 }

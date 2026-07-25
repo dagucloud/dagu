@@ -94,6 +94,30 @@ describe('DAGActions', () => {
     expect(queries.getByRole('button', { name: 'Stop' })).toBeEnabled();
   });
 
+  it('disables retry for waiting DAG executions', () => {
+    const view = render(
+      <DAGActions
+        status={{
+          name: 'waiting-dag',
+          dagRunId: 'run-1',
+          status: Status.Waiting,
+          statusLabel: StatusLabel.waiting,
+          artifactsAvailable: false,
+          autoRetryCount: 0,
+          startedAt: '',
+          finishedAt: '',
+        }}
+        fileName="waiting-dag.yaml"
+        dag={{ name: 'waiting-dag' }}
+        displayMode="full"
+      />
+    );
+
+    expect(
+      within(view.container).getByRole('button', { name: 'Retry' })
+    ).toBeDisabled();
+  });
+
   it('disables retry when there is no DAG run id', () => {
     const view = render(
       <DAGActions
@@ -107,5 +131,31 @@ describe('DAGActions', () => {
     expect(
       within(view.container).getByRole('button', { name: 'Retry' })
     ).toBeDisabled();
+  });
+
+  it('hides whole-run retry for child DAG runs', () => {
+    const view = render(
+      <DAGActions
+        status={{
+          name: 'child-dag',
+          dagRunId: 'child-run',
+          rootDAGRunName: 'root-dag',
+          rootDAGRunId: 'root-run',
+          status: Status.Failed,
+          statusLabel: StatusLabel.failed,
+          artifactsAvailable: false,
+          autoRetryCount: 0,
+          startedAt: '',
+          finishedAt: '',
+        }}
+        fileName="child-dag.yaml"
+        dag={{ name: 'child-dag' }}
+        displayMode="full"
+      />
+    );
+
+    expect(
+      within(view.container).queryByRole('button', { name: 'Retry' })
+    ).not.toBeInTheDocument();
   });
 });

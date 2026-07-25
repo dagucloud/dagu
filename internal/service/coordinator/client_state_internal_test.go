@@ -54,9 +54,11 @@ func TestPinnedStateCoordinatorUsesDeterministicOwnerWithoutHealthFailover(t *te
 	cli := &clientImpl{
 		config:            DefaultConfig(),
 		registry:          staticStateRegistry{members: members},
+		clients:           make(map[string]*client),
 		stateCoordinators: make(map[string]pinnedStateCoordinator),
 		state:             &Metrics{IsConnected: true},
 	}
+	t.Cleanup(func() { require.NoError(t, cli.Cleanup(t.Context())) })
 
 	pinned, err := cli.pinnedStateCoordinator(context.Background(), key)
 	require.NoError(t, err)

@@ -5,15 +5,24 @@ package runtime
 
 import (
 	"encoding/json"
+
 	"github.com/dagucloud/dagu/internal/core/exec"
 )
 
 type pushBackPayload struct {
-	Iteration int                  `json:"iteration"`
-	By        string               `json:"by,omitempty"`
-	At        string               `json:"at,omitempty"`
-	Inputs    map[string]string    `json:"inputs,omitempty"`
-	History   []exec.PushBackEntry `json:"history,omitempty"`
+	Iteration int                    `json:"iteration"`
+	By        string                 `json:"by,omitempty"`
+	At        string                 `json:"at,omitempty"`
+	Inputs    map[string]string      `json:"inputs,omitempty"`
+	History   []pushBackHistoryEntry `json:"history,omitempty"`
+}
+
+// pushBackHistoryEntry defines the stable workflow-facing DAG_PUSHBACK history contract.
+type pushBackHistoryEntry struct {
+	Iteration int               `json:"iteration"`
+	By        string            `json:"by,omitempty"`
+	At        string            `json:"at,omitempty"`
+	Inputs    map[string]string `json:"inputs,omitempty"`
 }
 
 func marshalPushBackPayload(allowedInputs []string, state NodeState) (string, error) {
@@ -25,7 +34,15 @@ func marshalPushBackPayload(allowedInputs []string, state NodeState) (string, er
 	payload := pushBackPayload{
 		Iteration: state.ApprovalIteration,
 		Inputs:    exec.FilterPushBackInputs(allowedInputs, state.PushBackInputs),
-		History:   history,
+		History:   make([]pushBackHistoryEntry, len(history)),
+	}
+	for i, entry := range history {
+		payload.History[i] = pushBackHistoryEntry{
+			Iteration: entry.Iteration,
+			By:        entry.By,
+			At:        entry.At,
+			Inputs:    entry.Inputs,
+		}
 	}
 	if len(history) > 0 {
 		payload.By = history[len(history)-1].By

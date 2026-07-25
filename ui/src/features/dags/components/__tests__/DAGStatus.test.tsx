@@ -20,6 +20,7 @@ import DAGStatus from '../DAGStatus';
 
 const patchMock = vi.hoisted(() => vi.fn());
 const approvalTabMock = vi.hoisted(() => vi.fn());
+const humanTasksTabMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@/hooks/api', () => ({
   useClient: vi.fn(),
@@ -109,6 +110,23 @@ vi.mock('../approval', () => ({
   },
 }));
 
+vi.mock('../human-task', () => ({
+  HumanTasksTab: (props: {
+    dagRun: components['schemas']['DAGRunDetails'];
+  }) => {
+    humanTasksTabMock(props);
+    return (
+      <div>
+        <div>Human task panel</div>
+        <label>
+          Human task draft
+          <input />
+        </label>
+      </div>
+    );
+  },
+}));
+
 vi.mock('../artifacts/ArtifactsTab', () => ({
   default: () => null,
 }));
@@ -122,7 +140,7 @@ vi.mock('../dag-editor', () => ({
 }));
 
 vi.mock('../../../dag-runs/components/dag-run-details', () => ({
-  DAGRunOutputs: () => null,
+  DAGRunOutputs: () => <div>Outputs panel</div>,
 }));
 
 const appBarValue = {
@@ -153,6 +171,51 @@ const dagRun = {
     },
   ],
 } as components['schemas']['DAGRunDetails'];
+
+function waitingHumanTaskRun(
+  dagRunId: string,
+  name = dagRun.name
+): components['schemas']['DAGRunDetails'] {
+  return {
+    ...dagRun,
+    name,
+    dagRunId,
+    status: Status.Waiting,
+    statusLabel: StatusLabel.waiting,
+    nodes: [
+      {
+        step: {
+          id: 'review',
+          name: 'step',
+          humanTask: { prompt: 'Confirm deployment' },
+        },
+        status: NodeStatus.Waiting,
+        statusLabel: NodeStatusLabel.waiting,
+      },
+    ],
+  } as components['schemas']['DAGRunDetails'];
+}
+
+function dagStatusView(
+  selectedRun: components['schemas']['DAGRunDetails'],
+  selectedRemoteNode = 'local'
+): React.JSX.Element {
+  return (
+    <MemoryRouter>
+      <AppBarContext.Provider value={{ ...appBarValue, selectedRemoteNode }}>
+        <DAGContext.Provider
+          value={{
+            refresh: vi.fn(),
+            name: selectedRun.name,
+            fileName: 'example.yaml',
+          }}
+        >
+          <DAGStatus dagRun={selectedRun} fileName="example.yaml" />
+        </DAGContext.Provider>
+      </AppBarContext.Provider>
+    </MemoryRouter>
+  );
+}
 
 afterEach(() => {
   vi.clearAllMocks();
@@ -323,4 +386,122 @@ describe('DAGStatus', () => {
       })
     );
   });
+
+  it('routes human tasks to their own tab and disables graph status mutation', async () => {
+    vi.mocked(useClient).mockReturnValue({
+      PATCH: patchMock,
+    } as unknown as ReturnType<typeof useClient>);
+    const humanTaskDagRun = waitingHumanTaskRun('run-1');
+
+    render(dagStatusView(humanTaskDagRun));
+
+    expect(await screen.findByText('Human task panel')).toBeVisible();
+    expect(humanTasksTabMock).toHaveBeenCalled();
+    expect(
+      screen.queryByRole('button', { name: /Approval/ })
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Status' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open status modal' }));
+    expect(
+      screen.queryByRole('button', { name: 'Mark failed' })
+    ).not.toBeInTheDocument();
+    expect(patchMock).not.toHaveBeenCalled();
+  });
+
+  it('disables graph status mutation while waiting for approval', () => {
+    vi.mocked(useClient).mockReturnValue({
+      PATCH: patchMock,
+    } as unknown as ReturnType<typeof useClient>);
+    const waitingApprovalRun = {
+      ...dagRun,
+      status: Status.Waiting,
+      statusLabel: StatusLabel.waiting,
+      nodes: [
+        {
+          step: {
+            name: 'step',
+            approval: { prompt: 'Approve deployment' },
+          },
+          status: NodeStatus.Waiting,
+          statusLabel: NodeStatusLabel.waiting,
+        },
+      ],
+    } as components['schemas']['DAGRunDetails'];
+
+    render(dagStatusView(waitingApprovalRun));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Status' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open status modal' }));
+    expect(
+      screen.queryByRole('button', { name: 'Mark failed' })
+    ).not.toBeInTheDocument();
+    expect(patchMock).not.toHaveBeenCalled();
+  });
+
+  it('selects human tasks after switching between waiting DAG runs', async () => {
+    vi.mocked(useClient).mockReturnValue({
+      PATCH: patchMock,
+    } as unknown as ReturnType<typeof useClient>);
+    const { rerender } = render(dagStatusView(waitingHumanTaskRun('run-1')));
+
+    expect(await screen.findByText('Human task panel')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Status' }));
+    expect(screen.queryByText('Human task panel')).not.toBeInTheDocument();
+
+    rerender(dagStatusView(waitingHumanTaskRun('run-2')));
+
+    expect(await screen.findByText('Human task panel')).toBeVisible();
+  });
+
+  it('keeps the selected tab when polling discovers a human task', async () => {
+    vi.mocked(useClient).mockReturnValue({
+      PATCH: patchMock,
+    } as unknown as ReturnType<typeof useClient>);
+    const { rerender } = render(dagStatusView(dagRun));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Outputs' }));
+    expect(screen.getByText('Outputs panel')).toBeVisible();
+
+    rerender(dagStatusView(waitingHumanTaskRun(dagRun.dagRunId)));
+
+    expect(
+      await screen.findByRole('button', { name: 'Human tasks' })
+    ).toBeVisible();
+    expect(screen.getByText('Outputs panel')).toBeVisible();
+    expect(screen.queryByText('Human task panel')).not.toBeInTheDocument();
+  });
+
+  it.each([
+    {
+      dimension: 'DAG name',
+      firstRun: waitingHumanTaskRun('shared-run', 'deploy-a'),
+      firstRemoteNode: 'local',
+      secondRun: waitingHumanTaskRun('shared-run', 'deploy-b'),
+      secondRemoteNode: 'local',
+    },
+    {
+      dimension: 'remote node',
+      firstRun: waitingHumanTaskRun('shared-run'),
+      firstRemoteNode: 'edge-a',
+      secondRun: waitingHumanTaskRun('shared-run'),
+      secondRemoteNode: 'edge-b',
+    },
+  ])(
+    'isolates human-task state when the $dimension changes',
+    async ({ firstRun, firstRemoteNode, secondRun, secondRemoteNode }) => {
+      vi.mocked(useClient).mockReturnValue({
+        PATCH: patchMock,
+      } as unknown as ReturnType<typeof useClient>);
+      const { rerender } = render(dagStatusView(firstRun, firstRemoteNode));
+
+      const draft = await screen.findByLabelText('Human task draft');
+      fireEvent.change(draft, { target: { value: 'first run input' } });
+      expect(draft).toHaveValue('first run input');
+
+      rerender(dagStatusView(secondRun, secondRemoteNode));
+
+      expect(await screen.findByLabelText('Human task draft')).toHaveValue('');
+    }
+  );
 });

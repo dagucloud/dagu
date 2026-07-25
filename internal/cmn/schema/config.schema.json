@@ -786,8 +786,40 @@
         "kubernetes": {
           "$ref": "#/definitions/KubernetesSecretsDef"
         },
+        "aws": {
+          "$ref": "#/definitions/AWSSecretsDef"
+        },
+        "gcp": {
+          "$ref": "#/definitions/GCPSecretsDef"
+        },
         "azure": {
           "$ref": "#/definitions/AzureSecretsDef"
+        }
+      }
+    },
+    "AWSSecretsDef": {
+      "type": "object",
+      "description": "Global AWS Secrets Manager client defaults.",
+      "additionalProperties": false,
+      "properties": {
+        "region": {
+          "type": "string",
+          "description": "Default AWS region for Secrets Manager lookups."
+        }
+      }
+    },
+    "GCPSecretsDef": {
+      "type": "object",
+      "description": "Global GCP Secret Manager client defaults.",
+      "additionalProperties": false,
+      "properties": {
+        "project_id": {
+          "type": "string",
+          "description": "Default GCP project ID for Secret Manager lookups."
+        },
+        "location": {
+          "type": "string",
+          "description": "Default location for regional Secret Manager lookups."
         }
       }
     },

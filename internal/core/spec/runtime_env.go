@@ -15,7 +15,8 @@ import (
 // ResolveEnvOptions controls how a DAG is reloaded to recover resolved env
 // values for subprocess launchers.
 type ResolveEnvOptions struct {
-	BaseConfig string
+	BaseConfig             string
+	WorkspaceBaseConfigDir string
 }
 
 // ResolveEnvResult contains resolved env entries and warnings encountered while

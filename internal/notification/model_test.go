@@ -420,3 +420,37 @@ func TestNormalizeRejectsPrivateWebhookTargetUnlessExplicitlyAllowed(t *testing.
 	}, "tester")
 	require.NoError(t, err)
 }
+
+func TestNormalizeRejectsInvalidTelegramTopicID(t *testing.T) {
+	t.Parallel()
+
+	for _, topicID := range []string{"not-a-number", "0", "-1"} {
+		_, err := Normalize(&Settings{
+			DAGName: "daily-report",
+			Enabled: true,
+			Events:  []eventstore.EventType{eventstore.TypeDAGRunFailed},
+			Targets: []Target{{
+				Type:    ProviderTelegram,
+				Enabled: true,
+				Telegram: &TelegramTarget{
+					BotToken: "12345:secret",
+					ChatID:   "67890",
+					TopicID:  topicID,
+				},
+			}},
+		}, "tester")
+		assert.ErrorIs(t, err, ErrInvalidSettings, "topicID=%q", topicID)
+
+		_, err = NormalizeChannel(&Channel{
+			Name:    "Ops Telegram",
+			Type:    ProviderTelegram,
+			Enabled: true,
+			Telegram: &TelegramTarget{
+				BotToken: "12345:secret",
+				ChatID:   "67890",
+				TopicID:  topicID,
+			},
+		}, "tester")
+		assert.ErrorIs(t, err, ErrInvalidSettings, "topicID=%q", topicID)
+	}
+}

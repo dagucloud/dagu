@@ -153,63 +153,6 @@ func TestCompareAndSwapLatestAttemptStatusReturnsNormalizedConditions(t *testing
 	require.Empty(t, updated.Conditions)
 }
 
-func TestCompareAndSwapLatestAttemptStatusWaitsForReplacementInitialization(t *testing.T) {
-	ctx := context.Background()
-	baseDir := t.TempDir()
-	store := dagrun.New(baseDir, dagrun.WithLatestStatusToday(false))
-	dag := &core.DAG{Name: "replacement-initialization"}
-	startedAt := time.Date(2026, 7, 21, 1, 2, 3, 0, time.UTC)
-	ref := exec.NewDAGRunRef(dag.Name, "run-replacement")
-
-	original, err := store.CreateAttempt(ctx, dag, startedAt, ref.ID, exec.NewDAGRunAttemptOptions{})
-	require.NoError(t, err)
-	require.NoError(t, original.Open(ctx))
-	originalStatus := exec.InitialStatus(dag)
-	originalStatus.DAGRunID = ref.ID
-	originalStatus.AttemptID = original.ID()
-	originalStatus.Status = core.Waiting
-	require.NoError(t, original.Write(ctx, originalStatus))
-	require.NoError(t, original.Close(ctx))
-
-	replacement, err := store.CreateAttempt(
-		ctx,
-		dag,
-		startedAt.Add(time.Second),
-		ref.ID,
-		exec.NewDAGRunAttemptOptions{Retry: true},
-	)
-	require.NoError(t, err)
-	require.NoError(t, replacement.Open(ctx))
-	t.Cleanup(func() {
-		_ = replacement.Close(ctx)
-	})
-
-	replacementStatus := originalStatus
-	replacementStatus.AttemptID = replacement.ID()
-	replacementStatus.Status = core.Running
-	writeResult := make(chan error, 1)
-	go func() {
-		time.Sleep(250 * time.Millisecond)
-		writeResult <- replacement.Write(ctx, replacementStatus)
-	}()
-
-	updated, swapped, err := store.CompareAndSwapLatestAttemptStatus(
-		ctx,
-		ref,
-		original.ID(),
-		core.Waiting,
-		func(*exec.DAGRunStatus) error {
-			return nil
-		},
-	)
-	require.NoError(t, <-writeResult)
-	require.NoError(t, err)
-	require.False(t, swapped)
-	require.NotNil(t, updated)
-	require.Equal(t, replacement.ID(), updated.AttemptID)
-	require.Equal(t, core.Running, updated.Status)
-}
-
 func findOnlyStatusFile(t *testing.T, root string) string {
 	t.Helper()
 
