@@ -410,12 +410,23 @@ type resumeResult struct {
 
 func resumeController(t *testing.T, prev *controllerHelper, nodes []*runtime.Node, turns ...turn) resumeResult {
 	t.Helper()
+	return resumeControllerWith(t, prev, controllerHumanTaskDAG, nodes, turns...)
+}
+
+func resumeControllerWith(
+	t *testing.T,
+	prev *controllerHelper,
+	yamlTemplate string,
+	nodes []*runtime.Node,
+	turns ...turn,
+) resumeResult {
+	t.Helper()
 
 	model := &fakeModel{turns: turns}
 	server := httptest.NewServer(model)
 	t.Cleanup(server.Close)
 
-	dag, err := spec.LoadYAML(prev.Context, fmt.Appendf(nil, controllerHumanTaskDAG, server.URL))
+	dag, err := spec.LoadYAML(prev.Context, fmt.Appendf(nil, yamlTemplate, server.URL))
 	require.NoError(t, err)
 	dag.WorkingDir = t.TempDir()
 
@@ -669,4 +680,81 @@ func TestControllerLoop_ResolvesPromptVariables(t *testing.T) {
 	system := ch.model.lastSystemPrompt()
 	assert.Contains(t, system, "The operator's instruction is shipped.")
 	assert.NotContains(t, system, "${params.GOAL}")
+}
+
+// TestControllerLoop_AsksTheUserAndResumesWithTheAnswer covers a question the
+// DAG author never wrote: the controller composes it, the run waits on a person,
+// and the reply comes back as the next observation.
+func TestControllerLoop_AsksTheUserAndResumesWithTheAnswer(t *testing.T) {
+	t.Parallel()
+
+	ch := setupController(t, controllerDAG,
+		turn{tool: controller.AskUserTool, args: map[string]any{
+			"question": "Which config should alpha use?"}},
+	)
+
+	require.Equal(t, core.Waiting, ch.run(t))
+
+	ask := ch.node(t, core.AskUserStepName)
+	require.Equal(t, core.NodeWaiting, ask.State().Status)
+
+	// The question the controller wrote is what a person is shown.
+	events := controller.EventsFromState(
+		ch.node(t, core.ControllerStepName).State().ControllerState)
+	last := events[len(events)-1]
+	assert.Equal(t, controller.EventAskUser, last.Kind)
+	assert.Equal(t, "Which config should alpha use?", last.Reason)
+
+	// Answering it is an ordinary human task completion.
+	restored := roundTripNodes(t, ch, func(node *exec.Node) {
+		if node.Step.Name == core.AskUserStepName {
+			node.Status = core.NodeSucceeded
+			node.HumanTaskInput = json.RawMessage(`{"answer":"use config-b"}`)
+		}
+	})
+
+	resumed := resumeControllerWith(t, ch, controllerDAG, restored,
+		turn{tool: "alpha"},
+		turn{tool: controller.SetTaskStatusTool, args: map[string]any{
+			"task": "first", "status": "completed", "reason": "ran with config-b"}},
+		turn{tool: controller.SetTaskStatusTool, args: map[string]any{
+			"task": "second", "status": "skipped", "reason": "not needed"}},
+	)
+
+	require.Equal(t, core.Succeeded, resumed.status)
+	assert.Contains(t, resumed.transcript, "answer: use config-b",
+		"the reply reaches the controller as prose, not as a form payload")
+}
+
+// TestControllerLoop_RefusesToAskTheSameQuestionTwice guards the person on the
+// other end: each question suspends the run, so a controller that ignores the
+// answer it was given must not be able to ask again.
+func TestControllerLoop_RefusesToAskTheSameQuestionTwice(t *testing.T) {
+	t.Parallel()
+
+	const question = "Which environment?"
+	ch := setupController(t, controllerDAG,
+		turn{tool: controller.AskUserTool, args: map[string]any{"question": question}},
+	)
+	require.Equal(t, core.Waiting, ch.run(t))
+
+	restored := roundTripNodes(t, ch, func(node *exec.Node) {
+		if node.Step.Name == core.AskUserStepName {
+			node.Status = core.NodeSucceeded
+			node.HumanTaskInput = json.RawMessage(`{"answer":"staging"}`)
+		}
+	})
+
+	resumed := resumeControllerWith(t, ch, controllerDAG, restored,
+		// The model asks again instead of using the answer it was given.
+		turn{tool: controller.AskUserTool, args: map[string]any{"question": question}},
+		turn{tool: controller.SetTaskStatusTool, args: map[string]any{
+			"task": "first", "status": "completed", "reason": "staging it is"}},
+		turn{tool: controller.SetTaskStatusTool, args: map[string]any{
+			"task": "second", "status": "skipped", "reason": "not needed"}},
+	)
+
+	// The run finishes rather than suspending a second time.
+	require.Equal(t, core.Succeeded, resumed.status)
+	assert.Contains(t, resumed.transcript, "You already asked this and were told: staging")
 }

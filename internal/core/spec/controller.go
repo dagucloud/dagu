@@ -46,9 +46,11 @@ func injectControllerStep(result *core.DAG) error {
 	}
 
 	for i, step := range result.Steps {
-		if step.Name == core.ControllerStepName || step.ID == core.ControllerStepName {
-			return core.NewValidationError("steps", step.Name,
-				fmt.Errorf("%q is reserved for the controller step", core.ControllerStepName))
+		for _, reserved := range []string{core.ControllerStepName, core.AskUserStepName} {
+			if step.Name == reserved || step.ID == reserved {
+				return core.NewValidationError("steps", step.Name,
+					fmt.Errorf("%q is reserved by type: controller", reserved))
+			}
 		}
 		// A failed action never aborts a controller run: the failure is reported
 		// to the controller, which decides whether to retry, route elsewhere, or
@@ -56,6 +58,37 @@ func injectControllerStep(result *core.DAG) error {
 		result.Steps[i].ContinueOn.Failure = true
 	}
 
-	result.Steps = append(result.Steps, core.NewControllerStep(result))
+	askUser, err := newAskUserStep()
+	if err != nil {
+		return err
+	}
+	result.Steps = append(result.Steps, core.NewControllerStep(result), askUser)
 	return nil
+}
+
+// newAskUserStep builds the human task a controller opens to ask a question of
+// its own. The prompt is empty here because the controller writes it at runtime;
+// only the shape of the answer is fixed.
+func newAskUserStep() (core.Step, error) {
+	form, outputs, err := buildHumanTaskForm(map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			core.AskUserAnswerField: map[string]any{
+				"type":        "string",
+				"description": "Your answer to the controller's question.",
+			},
+		},
+		"required": []any{core.AskUserAnswerField},
+	})
+	if err != nil {
+		return core.Step{}, fmt.Errorf("failed to build the ask_user form: %w", err)
+	}
+
+	return core.Step{
+		Name:        core.AskUserStepName,
+		ID:          core.AskUserStepName,
+		Description: "Question asked by the controller",
+		HumanTask:   &core.HumanTaskConfig{Form: form},
+		Outputs:     outputs,
+	}, nil
 }

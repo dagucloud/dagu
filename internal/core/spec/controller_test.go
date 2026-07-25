@@ -59,7 +59,7 @@ steps:
 		require.NoError(t, err)
 
 		for _, step := range dag.Steps {
-			if step.Name == core.ControllerStepName {
+			if core.IsSynthesizedControllerStep(step.Name) {
 				continue
 			}
 			assert.True(t, step.ContinueOn.Failure, "step %q should not abort the run", step.Name)
@@ -168,7 +168,21 @@ tasks:
   - name: t
     description: d
 `,
-			errContains: "is reserved for the controller step",
+			errContains: "is reserved by type: controller",
+		},
+		{
+			name: "ReservedAskUserStepName",
+			yaml: `
+type: controller
+llm: { provider: anthropic, model: claude-opus-5 }
+steps:
+  - name: ask_user
+    run: echo a
+tasks:
+  - name: t
+    description: d
+`,
+			errContains: `"ask_user" is reserved by type: controller`,
 		},
 		{
 			name: "TasksRequireControllerType",
@@ -193,4 +207,44 @@ tasks:
 			assert.Contains(t, err.Error(), tt.errContains)
 		})
 	}
+}
+
+// TestControllerDAGStaysComposable guards sub-workflow use: the ask_user task
+// every controller carries must not be mistaken for a declared human task, which
+// would bar the DAG from running as somebody's child.
+func TestControllerDAGStaysComposable(t *testing.T) {
+	t.Parallel()
+
+	dag, err := spec.LoadYAML(t.Context(), []byte(`
+type: controller
+llm: { provider: anthropic, model: claude-opus-5 }
+steps:
+  - name: work
+    run: echo work
+tasks:
+  - name: done
+    description: Finished when work ran.
+`))
+	require.NoError(t, err)
+
+	require.NotNil(t, dag.ControllerStep())
+	assert.False(t, dag.HasHumanTaskSteps(),
+		"the synthesized ask_user task must not count as a declared human task")
+
+	withDeclared, err := spec.LoadYAML(t.Context(), []byte(`
+type: controller
+llm: { provider: anthropic, model: claude-opus-5 }
+steps:
+  - id: review
+    name: review
+    action: human.task
+    with:
+      prompt: ok?
+tasks:
+  - name: done
+    description: Finished when review was answered.
+`))
+	require.NoError(t, err)
+	assert.True(t, withDeclared.HasHumanTaskSteps(),
+		"a declared human task still bars the DAG from being a child")
 }

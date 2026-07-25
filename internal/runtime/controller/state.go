@@ -66,6 +66,9 @@ type PendingAction struct {
 	ToolCallID string `json:"toolCallId"`
 	ToolName   string `json:"toolName"`
 	Step       string `json:"step"`
+	// Question is the text put to a person, set when the pending action is a
+	// question the controller asked.
+	Question string `json:"question,omitempty"`
 }
 
 // Event kinds recorded on the controller's decision timeline.
@@ -75,6 +78,8 @@ const (
 	// EventTaskStatus records the controller settling, or reopening, a task.
 	// The new status is carried on the event.
 	EventTaskStatus = "task_status"
+	// EventAskUser is a question the controller put to a person.
+	EventAskUser = "ask_user"
 	// EventRejected is a tool call the controller could not carry out.
 	EventRejected = "rejected"
 	// EventStalled is a turn where the model declined to act.
@@ -119,6 +124,9 @@ type State struct {
 	// Nudges counts consecutive turns where the LLM declined to act while tasks
 	// were still open.
 	Nudges int `json:"nudges,omitempty"`
+	// Answers records what a person replied to each question, so the controller
+	// is held to an answer it already has.
+	Answers map[string]string `json:"answers,omitempty"`
 
 	// messages is the conversation. It is persisted separately, as the node's
 	// chat transcript, so the UI can render it with the other LLM steps.
@@ -174,6 +182,7 @@ func LoadState(raw json.RawMessage, messages []exec.LLMMessage, dag *core.DAG) (
 	}
 
 	fresh.Events = stored.Events
+	fresh.Answers = stored.Answers
 	fresh.Turns = stored.Turns
 	fresh.Nudges = stored.Nudges
 	fresh.Pending = stored.Pending
@@ -182,6 +191,28 @@ func LoadState(raw json.RawMessage, messages []exec.LLMMessage, dag *core.DAG) (
 	}
 	fresh.messages = messages
 	return fresh, nil
+}
+
+// RecordAnswer stores a reply so the same question is not put to a person twice.
+func (s *State) RecordAnswer(question, answer string) {
+	if question == "" {
+		return
+	}
+	if s.Answers == nil {
+		s.Answers = map[string]string{}
+	}
+	s.Answers[question] = answer
+}
+
+// PriorAnswer returns what a person already said to this exact question.
+func (s *State) PriorAnswer(question string) (string, bool) {
+	answer, ok := s.Answers[question]
+	return answer, ok
+}
+
+// QuestionCount reports how many questions have been answered so far.
+func (s *State) QuestionCount() int {
+	return len(s.Answers)
 }
 
 // RecordEvent appends an entry to the decision timeline, stamping it with the

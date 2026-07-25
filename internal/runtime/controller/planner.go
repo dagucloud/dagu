@@ -7,6 +7,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/dagucloud/dagu/internal/core"
@@ -22,6 +24,8 @@ const (
 	DecideRunStep DecisionKind = iota
 	// DecideSetTaskStatus records where a task stands.
 	DecideSetTaskStatus
+	// DecideAskUser puts a question to a person and waits for the answer.
+	DecideAskUser
 	// DecideStop is returned when the model answers without calling a tool.
 	DecideStop
 	// DecideInvalid is returned when the model calls a tool that does not exist
@@ -43,6 +47,8 @@ type Decision struct {
 	Task       string
 	TaskStatus TaskStatus
 	Reason     string
+	// Question is set when Kind is DecideAskUser.
+	Question string
 	// Content is the model's prose, set when Kind is DecideStop.
 	Content string
 	// Problem describes why the decision was rejected, set when Kind is DecideInvalid.
@@ -134,6 +140,18 @@ func (p *Planner) Next(ctx context.Context, st *State) (*Decision, error) {
 		return decision, nil
 	}
 
+	if call.Function.Name == AskUserTool {
+		question, _ := args["question"].(string)
+		if strings.TrimSpace(question) == "" {
+			decision.Kind = DecideInvalid
+			decision.Problem = AskUserTool + " requires a question"
+			return decision, nil
+		}
+		decision.Kind = DecideAskUser
+		decision.Question = question
+		return decision, nil
+	}
+
 	if call.Function.Name == SetTaskStatusTool {
 		task, _ := args["task"].(string)
 		status, _ := args["status"].(string)
@@ -196,6 +214,16 @@ func (p *Planner) systemPrompt(st *State) string {
 		sb.WriteString("\n")
 	}
 
+	if len(st.Answers) > 0 {
+		// Repeated on every turn rather than left to the conversation: a model
+		// that re-reads its instructions can otherwise ask the same thing again
+		// in different words, and each question stops the run on a person.
+		sb.WriteString("\nAnswers you already have. Use these; do not ask for them again:\n")
+		for _, question := range slices.Sorted(maps.Keys(st.Answers)) {
+			fmt.Fprintf(&sb, "- %s\n  %s\n", question, st.Answers[question])
+		}
+	}
+
 	sb.WriteString("\nRules:\n")
 	sb.WriteString("- Call exactly one tool per turn.\n")
 	fmt.Fprintf(&sb, "- Call %s to settle a task: completed once its criteria are met, "+
@@ -204,6 +232,9 @@ func (p *Planner) systemPrompt(st *State) string {
 	fmt.Fprintf(&sb, "- Do not leave a task open because it is unnecessary or impossible. "+
 		"Settle it as skipped or failed and say why. Use %s with status open only to undo a "+
 		"decision that later work invalidated.\n", SetTaskStatusTool)
+	fmt.Fprintf(&sb, "- Call %s when a decision is genuinely someone else's to make. "+
+		"The run pauses until they answer, so prefer acting and observing where you can.\n",
+		AskUserTool)
 	sb.WriteString("- When an action fails, read the error and decide whether to retry it, ")
 	sb.WriteString("run a different action, or give up.\n")
 	sb.WriteString("- Actions may be repeated when earlier work needs redoing, within a per-action limit.\n")

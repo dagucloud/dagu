@@ -420,13 +420,16 @@ func (d *DAG) HasApprovalSteps() bool {
 	return false
 }
 
-// HasHumanTaskSteps reports whether the DAG directly contains a human task.
+// HasHumanTaskSteps reports whether the DAG declares a human task. A controller
+// DAG's synthesized ask_user task does not count: it is scaffolding every
+// controller carries, and the controller declines to use it outside a root run,
+// so counting it here would bar controllers from being composed as child DAGs.
 func (d *DAG) HasHumanTaskSteps() bool {
 	if d == nil {
 		return false
 	}
 	for _, step := range d.Steps {
-		if step.HumanTask != nil {
+		if step.HumanTask != nil && !IsSynthesizedControllerStep(step.Name) {
 			return true
 		}
 	}

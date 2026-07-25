@@ -15,9 +15,15 @@ import (
 	"github.com/dagucloud/dagu/internal/llm/toolschema"
 )
 
-// SetTaskStatusTool is the name of the tool the controller calls to record
-// where a task stands. It is reserved and cannot name a step.
-const SetTaskStatusTool = "set_task_status"
+const (
+	// SetTaskStatusTool is the name of the tool the controller calls to record
+	// where a task stands. It is reserved and cannot name a step.
+	SetTaskStatusTool = "set_task_status"
+
+	// AskUserTool is the name of the tool the controller calls to put a question
+	// to a person. It is reserved and cannot name a step.
+	AskUserTool = "ask_user"
+)
 
 // maxToolNameLen is the longest function name accepted across providers.
 const maxToolNameLen = 64
@@ -37,9 +43,11 @@ type Catalog struct {
 func NewCatalog(ctx context.Context, dag *core.DAG) (*Catalog, error) {
 	c := &Catalog{stepByTool: make(map[string]string)}
 
-	used := map[string]struct{}{SetTaskStatusTool: {}}
+	used := map[string]struct{}{SetTaskStatusTool: {}, AskUserTool: {}}
 	for _, step := range dag.Steps {
-		if step.Name == core.ControllerStepName {
+		// The controller and its ask_user task are scaffolding, not actions the
+		// model may pick.
+		if core.IsSynthesizedControllerStep(step.Name) {
 			continue
 		}
 
@@ -66,6 +74,27 @@ func NewCatalog(ctx context.Context, dag *core.DAG) (*Catalog, error) {
 			},
 		})
 	}
+
+	c.tools = append(c.tools, llmpkg.Tool{
+		Type: "function",
+		Function: llmpkg.ToolFunction{
+			Name: AskUserTool,
+			Description: "Put a question to a person and wait for their answer. The run pauses " +
+				"until someone replies, so ask only when you genuinely cannot proceed and no " +
+				"action would resolve the doubt.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"question": map[string]any{
+						"type": "string",
+						"description": "What you need to know, with enough context for someone " +
+							"who has not been following the run.",
+					},
+				},
+				"required": []string{"question"},
+			},
+		},
+	})
 
 	c.tools = append(c.tools, llmpkg.Tool{
 		Type: "function",

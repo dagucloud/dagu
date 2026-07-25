@@ -127,7 +127,22 @@ Each declared step is advertised to the model as one function-calling tool.
   from the target's parameter definitions, falling back to its default-params
   string. Every other step is a nullary action.
 
-One additional tool, `set_task_status`, is always offered. It takes a `task`
+Two additional tools are always offered.
+
+`ask_user` puts a question to a person. A controller DAG is built with a
+synthesized human task, named and identified `ask_user`, which the tool opens
+with the question the controller wrote. Answering it is an ordinary human task
+completion, and the reply returns as the next observation.
+
+That task MUST NOT count as a declared human task when deciding whether the DAG
+may run as somebody's child, or every controller would be barred from
+composition. Instead the controller declines to ask when it is not the root run.
+
+A question already answered MUST NOT be put to a person again: the answers so
+far are restated to the controller each turn, an exact repeat is refused with the
+prior answer, and a run may ask at most 5 questions.
+
+`set_task_status` is always offered. It takes a `task`
 name, a `status`, and a `reason`. It is reserved: no step tool may take that
 name.
 
@@ -231,7 +246,7 @@ newly declared task starts open.
 A controller run records an ordered timeline of its decisions, persisted
 alongside goal progress and restored on resume. Each entry carries the turn it
 belongs to and one of these kinds: `action`, `task_complete`, `task_reopen`,
-`rejected`, `stalled`. An `action` entry additionally carries the resulting
+`ask_user`, `rejected`, `stalled`. An `action` entry additionally carries the resulting
 status, which attempt of that step it was, and the start and finish times.
 
 The timeline exists because a controller has no dependency edges: execution

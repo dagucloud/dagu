@@ -10,6 +10,19 @@ const (
 	// a controller DAG. It cannot be used as a step name or ID.
 	ControllerStepName = "__controller__"
 
+	// AskUserStepName is the reserved name and ID of the synthesized human task
+	// a controller opens when it needs to ask a question no declared step
+	// covers. It cannot be used as a step name or ID.
+	//
+	// The name is plain rather than underscore-wrapped because it is what an
+	// operator types to answer:
+	//
+	//	dagu human-task complete --step ask_user --inputs-json '{"answer":"..."}'
+	AskUserStepName = "ask_user"
+
+	// AskUserAnswerField is the single form field an ask_user question collects.
+	AskUserAnswerField = "answer"
+
 	// DefaultControllerMaxIterations bounds the number of controller turns when
 	// llm.max_tool_iterations is not set.
 	DefaultControllerMaxIterations = 50
@@ -17,6 +30,11 @@ const (
 	// DefaultControllerMaxStepRuns caps how many times the controller may run a
 	// single declared step within one DAG run.
 	DefaultControllerMaxStepRuns = 5
+
+	// DefaultControllerMaxQuestions caps how many questions a controller may put
+	// to a person in one run. Each one suspends the run, so an unbounded
+	// controller could pester someone indefinitely.
+	DefaultControllerMaxQuestions = 5
 )
 
 // ControllerTask is a goal the controller must satisfy. A controller DAG run
@@ -32,6 +50,12 @@ type ControllerTask struct {
 // a static dependency graph.
 func (d *DAG) IsController() bool {
 	return d != nil && d.Type == TypeController
+}
+
+// IsSynthesizedControllerStep reports whether a step name belongs to the
+// scaffolding a controller DAG is built with rather than to a declared action.
+func IsSynthesizedControllerStep(name string) bool {
+	return name == ControllerStepName || name == AskUserStepName
 }
 
 // ControllerStep returns the synthesized controller step, or nil when the DAG is
@@ -115,7 +139,7 @@ func ValidateController(d *DAG) error {
 
 	actionable := 0
 	for _, step := range d.Steps {
-		if step.Name == ControllerStepName {
+		if IsSynthesizedControllerStep(step.Name) {
 			continue
 		}
 		actionable++

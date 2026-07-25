@@ -5,11 +5,13 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"maps"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/internal/cmn/logger"
@@ -87,7 +89,13 @@ func (r *Runner) runControllerLoop(ctx context.Context, plan *Plan, progressCh c
 	// A run that suspended mid-action resumes here: report what became of the
 	// action before asking for the next decision.
 	if pending := state.Pending; pending != nil {
-		state.Append(observe(ctrlCtx, plan.GetNodeByName(pending.Step), pending.ToolCallID))
+		answered := plan.GetNodeByName(pending.Step)
+		state.Append(observe(ctrlCtx, answered, pending.ToolCallID))
+		if pending.Question != "" && answered != nil {
+			if answer, ok := askUserAnswer(answered, answered.State().HumanTaskInput); ok {
+				state.RecordAnswer(pending.Question, answer)
+			}
+		}
 		state.Pending = nil
 		r.persistController(ctrlCtx, ctrlNode, state, progressCh)
 	}
@@ -187,6 +195,9 @@ func (r *Runner) applyDecision(
 		state.Append(toolResult(decision.ToolCallID, "Error: "+decision.Problem))
 		return false, nil
 
+	case controller.DecideAskUser:
+		return r.askUser(ctx, plan, state, decision, progressCh)
+
 	case controller.DecideStop:
 		return false, r.nudge(ctx, state)
 
@@ -196,6 +207,79 @@ func (r *Runner) applyDecision(
 	default:
 		return false, fmt.Errorf("unhandled controller decision %v", decision.Kind)
 	}
+}
+
+// askUser opens the controller's own human task with the question it wrote, and
+// suspends the run. Answering it resumes the same run with the reply as the next
+// observation, so the controller keeps its context.
+func (r *Runner) askUser(
+	ctx context.Context,
+	plan *Plan,
+	state *controller.State,
+	decision *controller.Decision,
+	progressCh chan *Node,
+) (suspended bool, err error) {
+	node := plan.GetNodeByName(core.AskUserStepName)
+	if node == nil {
+		state.Append(toolResult(decision.ToolCallID,
+			"Error: this workflow cannot ask questions"))
+		return false, nil
+	}
+
+	// Waiting for a person is a root-run capability. A controller running as
+	// somebody's child says so and carries on rather than stalling the parent.
+	if rCtx := exec.GetContext(ctx); rCtx.RootDAGRun.ID != "" &&
+		rCtx.RootDAGRun.ID != rCtx.DAGRunID {
+		state.Append(toolResult(decision.ToolCallID,
+			"Error: this run is a sub-workflow, so nobody can be asked. "+
+				"Decide with the information you have, or settle the task as failed."))
+		return false, nil
+	}
+
+	question := decision.Question
+	if resolved, rerr := resolveRuntimeString(
+		ctx, question, cmnvalue.WorkflowField("ask_user.question")); rerr == nil {
+		question = resolved
+	}
+
+	// Hold the controller to an answer it already has, rather than putting the
+	// same question to a person twice.
+	if prior, ok := state.PriorAnswer(question); ok {
+		state.Append(toolResult(decision.ToolCallID, fmt.Sprintf(
+			"You already asked this and were told: %s", prior)))
+		return false, nil
+	}
+	if state.QuestionCount() >= core.DefaultControllerMaxQuestions {
+		state.Append(toolResult(decision.ToolCallID, fmt.Sprintf(
+			"Error: this run has already asked %d questions, which is its limit. "+
+				"Decide with what you have, or settle the task as failed.",
+			core.DefaultControllerMaxQuestions)))
+		return false, nil
+	}
+
+	// A later question reuses the same task, so clear the previous answer.
+	if node.State().Status != core.NodeNotStarted {
+		node.ClearState(node.Step())
+	}
+
+	logger.Info(ctx, "Controller is asking a question", slog.String("question", question))
+	node.OpenHumanTask(question, time.Now())
+	state.RecordEvent(controller.Event{
+		Kind:      controller.EventAskUser,
+		Name:      core.AskUserStepName,
+		Status:    core.NodeWaiting.String(),
+		Reason:    question,
+		StartedAt: stringutil.FormatTime(node.State().StartedAt),
+	})
+	r.report(progressCh, node)
+
+	state.Pending = &controller.PendingAction{
+		ToolCallID: decision.ToolCallID,
+		ToolName:   decision.ToolName,
+		Step:       core.AskUserStepName,
+		Question:   question,
+	}
+	return true, nil
 }
 
 // nudge answers a turn where the model stopped calling tools while tasks were
@@ -434,9 +518,13 @@ func observe(ctx context.Context, node *Node, toolCallID string) exec.LLMMessage
 		fmt.Fprintf(&sb, "error: %s\n", state.Error.Error())
 	}
 	if len(state.HumanTaskInput) > 0 {
-		fmt.Fprintf(&sb, "submitted: %s\n", string(state.HumanTaskInput))
+		if answer, ok := askUserAnswer(node, state.HumanTaskInput); ok {
+			fmt.Fprintf(&sb, "answer: %s\n", answer)
+		} else {
+			fmt.Fprintf(&sb, "submitted: %s\n", string(state.HumanTaskInput))
+		}
 		if state.HumanTaskCompletedBy != "" {
-			fmt.Fprintf(&sb, "submitted by: %s\n", state.HumanTaskCompletedBy)
+			fmt.Fprintf(&sb, "answered by: %s\n", state.HumanTaskCompletedBy)
 		}
 	}
 	if state.StepOutputsValue != nil && *state.StepOutputsValue != "" {
@@ -518,6 +606,20 @@ func childOutputs(nodes []*exec.Node) map[string]string {
 		})
 	}
 	return outputs
+}
+
+// askUserAnswer pulls the reply out of an ask_user submission so the controller
+// reads prose rather than a form payload.
+func askUserAnswer(node *Node, input json.RawMessage) (string, bool) {
+	if node.Name() != core.AskUserStepName {
+		return "", false
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(input, &fields); err != nil {
+		return "", false
+	}
+	answer, ok := fields[core.AskUserAnswerField].(string)
+	return answer, ok
 }
 
 func logTail(path string) string {
