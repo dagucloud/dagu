@@ -19,6 +19,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const (
+	azureTestVersion          = "0123456789abcdef0123456789abcdef"
+	azureAlternateTestVersion = "fedcba9876543210fedcba9876543210"
+)
+
 type azureTestCredential struct{}
 
 func (azureTestCredential) GetToken(context.Context, policy.TokenRequestOptions) (azcore.AccessToken, error) {
@@ -43,18 +48,20 @@ func TestAzureKeyVaultResolverValidate(t *testing.T) {
 		{name: "ShortName", ref: core.SecretRef{Key: "database-password"}},
 		{name: "ShortNameWithVault", ref: core.SecretRef{Key: "database-password", Options: map[string]string{"vault_url": "https://example.vault.azure.net/"}}},
 		{name: "FullURL", ref: core.SecretRef{Key: "https://example.vault.azure.net/secrets/database-password"}},
-		{name: "FullVersionURL", ref: core.SecretRef{Key: "https://example.vault.azure.net/secrets/database-password/version-id"}},
+		{name: "FullVersionURL", ref: core.SecretRef{Key: "https://example.vault.azure.net/secrets/database-password/" + azureTestVersion}},
 		{name: "Empty", ref: core.SecretRef{}, wantErr: "key"},
 		{name: "ShortNameWithSlash", ref: core.SecretRef{Key: "team/database-password"}, wantErr: "secret name"},
 		{name: "ShortNameWithSpace", ref: core.SecretRef{Key: "database password"}, wantErr: "secret name"},
 		{name: "ShortNameTooLong", ref: core.SecretRef{Key: strings.Repeat("a", 128)}, wantErr: "secret name"},
-		{name: "OptionVersionWithSlash", ref: core.SecretRef{Key: "database-password", Options: map[string]string{"version": "team/version"}}, wantErr: "options.version"},
+		{name: "OptionVersionTooShort", ref: core.SecretRef{Key: "database-password", Options: map[string]string{"version": "v1"}}, wantErr: "options.version"},
+		{name: "OptionVersionWithSlash", ref: core.SecretRef{Key: "database-password", Options: map[string]string{"version": strings.Repeat("a", 31) + "/"}}, wantErr: "options.version"},
 		{name: "HTTP", ref: core.SecretRef{Key: "http://example.vault.azure.net/secrets/name"}, wantErr: "HTTPS"},
 		{name: "Query", ref: core.SecretRef{Key: "https://example.vault.azure.net/secrets/name?api-version=1"}, wantErr: "only an HTTPS host and path"},
 		{name: "BareQuery", ref: core.SecretRef{Key: "https://example.vault.azure.net/secrets/name?"}, wantErr: "only an HTTPS host and path"},
 		{name: "URLNameWithEncodedSpace", ref: core.SecretRef{Key: "https://example.vault.azure.net/secrets/database%20password"}, wantErr: "invalid secret name"},
-		{name: "ExtraSegment", ref: core.SecretRef{Key: "https://example.vault.azure.net/secrets/name/version/extra"}, wantErr: "URL path"},
-		{name: "VersionConflict", ref: core.SecretRef{Key: "https://example.vault.azure.net/secrets/name/url-version", Options: map[string]string{"version": "option-version"}}, wantErr: "conflicts"},
+		{name: "URLVersionTooShort", ref: core.SecretRef{Key: "https://example.vault.azure.net/secrets/name/v1"}, wantErr: "invalid version"},
+		{name: "ExtraSegment", ref: core.SecretRef{Key: "https://example.vault.azure.net/secrets/name/" + azureTestVersion + "/extra"}, wantErr: "URL path"},
+		{name: "VersionConflict", ref: core.SecretRef{Key: "https://example.vault.azure.net/secrets/name/" + azureTestVersion, Options: map[string]string{"version": azureAlternateTestVersion}}, wantErr: "conflicts"},
 		{name: "VaultConflict", ref: core.SecretRef{Key: "https://example.vault.azure.net/secrets/name", Options: map[string]string{"vault_url": "https://other.vault.azure.net"}}, wantErr: "cannot be used"},
 		{name: "VaultPath", ref: core.SecretRef{Key: "name", Options: map[string]string{"vault_url": "https://example.vault.azure.net/path"}}, wantErr: "path must be empty"},
 		{name: "ArbitraryHost", ref: core.SecretRef{Key: "https://example.com/secrets/name"}, wantErr: "Key Vault endpoint"},
@@ -113,7 +120,7 @@ func TestAzureKeyVaultResolverResolve(t *testing.T) {
 	})
 
 	got, err := resolver.Resolve(ctx, core.SecretRef{
-		Key: "database-password", Options: map[string]string{"version": "v1", "field": "token"},
+		Key: "database-password", Options: map[string]string{"version": azureTestVersion, "field": "token"},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "resolved", got)
@@ -124,7 +131,7 @@ func TestAzureKeyVaultResolverResolve(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "true", got)
 
-	got, err = resolver.Resolve(ctx, core.SecretRef{Key: "https://full.vault.azure.net/secrets/name/v2"})
+	got, err = resolver.Resolve(ctx, core.SecretRef{Key: "https://full.vault.azure.net/secrets/name/" + azureAlternateTestVersion})
 	require.NoError(t, err)
 	assert.Equal(t, value, got)
 
@@ -135,7 +142,7 @@ func TestAzureKeyVaultResolverResolve(t *testing.T) {
 		"https://other.vault.azure.net",
 		"https://full.vault.azure.net",
 	}, vaultURLs)
-	assert.Equal(t, []string{"database-password:v1", "database-password:", "name:v2"}, requests)
+	assert.Equal(t, []string{"database-password:" + azureTestVersion, "database-password:", "name:" + azureAlternateTestVersion}, requests)
 }
 
 func TestAzureKeyVaultResolverErrors(t *testing.T) {

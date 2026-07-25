@@ -20,7 +20,10 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 )
 
-const azureKeyVaultProvider = "azure"
+const (
+	azureKeyVaultProvider      = "azure"
+	azureSecretVersionIDLength = 32
+)
 
 var (
 	azureVaultNamePattern  = regexp.MustCompile(`^[a-z][a-z0-9-]*[a-z0-9]$`)
@@ -100,25 +103,15 @@ func (r *azureKeyVaultResolver) CheckAccessibility(ctx context.Context, ref core
 
 func (r *azureKeyVaultResolver) getClient(vaultURL string) (azureSecretClient, error) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	if client := r.clients[vaultURL]; client != nil {
+		r.mu.Unlock()
 		return client, nil
 	}
-	credential := r.credential
-	if credential == nil {
-		credentialFactory := r.credentialFactory
-		if credentialFactory == nil {
-			credentialFactory = func() (azcore.TokenCredential, error) {
-				return azidentity.NewDefaultAzureCredential(nil)
-			}
-		}
-		var err error
-		credential, err = credentialFactory()
-		if err != nil {
-			return nil, fmt.Errorf("failed to create Azure credential: %w", err)
-		}
-		r.credential = credential
+	r.mu.Unlock()
+
+	credential, err := r.getCredential()
+	if err != nil {
+		return nil, err
 	}
 
 	clientFactory := r.clientFactory
@@ -129,11 +122,46 @@ func (r *azureKeyVaultResolver) getClient(vaultURL string) (azureSecretClient, e
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Azure Key Vault client: %w", err)
 	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if r.clients == nil {
 		r.clients = make(map[string]azureSecretClient)
 	}
+	if existing := r.clients[vaultURL]; existing != nil {
+		return existing, nil
+	}
 	r.clients[vaultURL] = client
 	return client, nil
+}
+
+func (r *azureKeyVaultResolver) getCredential() (azcore.TokenCredential, error) {
+	r.mu.Lock()
+	if r.credential != nil {
+		credential := r.credential
+		r.mu.Unlock()
+		return credential, nil
+	}
+	r.mu.Unlock()
+
+	credentialFactory := r.credentialFactory
+	if credentialFactory == nil {
+		credentialFactory = func() (azcore.TokenCredential, error) {
+			return azidentity.NewDefaultAzureCredential(nil)
+		}
+	}
+	credential, err := credentialFactory()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Azure credential: %w", err)
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.credential != nil {
+		return r.credential, nil
+	}
+	r.credential = credential
+	return credential, nil
 }
 
 func parseAzureSecretReference(ref core.SecretRef, defaultVaultURL string) (azureSecretReference, error) {
@@ -148,8 +176,8 @@ func parseAzureSecretReference(ref core.SecretRef, defaultVaultURL string) (azur
 			return azureSecretReference{}, fmt.Errorf("unsupported option %q", option)
 		}
 	}
-	if strings.Contains(ref.Options["version"], "/") {
-		return azureSecretReference{}, fmt.Errorf("options.version for Azure Key Vault must not contain slashes")
+	if version := ref.Options["version"]; version != "" && !isValidAzureSecretVersion(version) {
+		return azureSecretReference{}, fmt.Errorf("options.version for Azure Key Vault must be a %d-character identifier", azureSecretVersionIDLength)
 	}
 
 	if strings.Contains(key, "://") {
@@ -199,7 +227,7 @@ func parseAzureSecretURL(rawURL, optionVersion string) (azureSecretReference, er
 			return azureSecretReference{}, fmt.Errorf("options.version conflicts with the version in the Azure Key Vault secret URL")
 		}
 		version, err = url.PathUnescape(segments[2])
-		if err != nil || version == "" || strings.Contains(version, "/") {
+		if err != nil || !isValidAzureSecretVersion(version) {
 			return azureSecretReference{}, fmt.Errorf("secret URL for Azure Key Vault contains an invalid version")
 		}
 	}
@@ -248,6 +276,10 @@ func isValidAzureVaultName(name string) bool {
 
 func isValidAzureSecretName(name string) bool {
 	return azureSecretNamePattern.MatchString(name)
+}
+
+func isValidAzureSecretVersion(version string) bool {
+	return len(version) == azureSecretVersionIDLength && !strings.Contains(version, "/")
 }
 
 type azureSecretClient interface {
