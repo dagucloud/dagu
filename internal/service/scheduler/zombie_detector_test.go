@@ -379,10 +379,10 @@ func (m *mockDAGRunStore) CompareAndSwapLatestAttemptStatus(
 	dagRun exec.DAGRunRef,
 	expectedAttemptID string,
 	expectedStatus core.Status,
-	mutate func(*exec.DAGRunStatus) error,
+	_ func(*exec.DAGRunStatus) error,
 	_ ...exec.CompareAndSwapStatusOption,
 ) (*exec.DAGRunStatus, bool, error) {
-	args := m.Called(ctx, dagRun, expectedAttemptID, expectedStatus, mutate)
+	args := m.Called(ctx, dagRun, expectedAttemptID, expectedStatus, mock.Anything)
 	if args.Get(0) == nil {
 		return nil, args.Bool(1), args.Error(2)
 	}

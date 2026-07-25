@@ -840,6 +840,7 @@ func (d *queueDispatcher) dispatchAndWaitForStartupWithConditions(
 					return backoff.PermanentError(err)
 				}
 				if errors.Is(err, backoff.ErrPermanent) {
+					logger.Error(ctx, "Permanent dispatch failure", tag.Error(err))
 					return err
 				}
 				logger.Warn(ctx, "Transient dispatch failure, will retry", tag.Error(err))
@@ -880,14 +881,7 @@ func (d *queueDispatcher) dispatchAndWaitForStartupWithConditions(
 			} else {
 				conditionStage.observe(queuedDispatchCondition(err)...)
 			}
-			if !dispatched && errors.Is(err, backoff.ErrPermanent) {
-				if finalizeErr := d.failQueuedRunBeforeStartup(ctx, queueName, runRef, err, conditionStage); finalizeErr != nil {
-					logger.Error(ctx, "Failed to finalize queued DAG run after dispatch failure", tag.Error(finalizeErr))
-					conditionStage.flush(ctx)
-				}
-			} else {
-				conditionStage.flush(ctx)
-			}
+			conditionStage.flush(ctx)
 		}
 	}
 

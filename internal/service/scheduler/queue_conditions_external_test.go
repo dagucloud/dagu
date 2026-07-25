@@ -404,7 +404,15 @@ func TestQueueProcessorFinalizesLaunchFailure(t *testing.T) {
 			},
 		},
 	)
-	f.enqueueRun("waiting-run", nil)
+	f.enqueueRun("waiting-run", []exec.DAGRunCondition{
+		exec.NewDAGRunCondition(
+			"Runnable",
+			"False",
+			"MaxConcurrencyReached",
+			"The DAG-run cannot start because the queue active-run concurrency limit has been reached.",
+			time.Now().UTC().Add(-time.Minute),
+		),
+	})
 
 	f.processor.ProcessQueueItems(f.ctx, f.dag.Name)
 
