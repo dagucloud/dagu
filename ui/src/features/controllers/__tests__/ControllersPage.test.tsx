@@ -14,7 +14,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { Status, StatusLabel } from '@/api/v1/schema';
 import { AppBarContext } from '@/contexts/AppBarContext';
-import { WorkspaceKind } from '@/lib/workspace';
+import { WorkspaceKind, type WorkspaceSelection } from '@/lib/workspace';
 import ControllersPage from '@/pages/controllers';
 import { createControllerDraft, serializeControllerDefinition } from '../draft';
 import type { ControllerDetail, ControllerSummary } from '../types';
@@ -106,17 +106,26 @@ function NavigationProbe() {
   const navigate = useNavigate();
   const location = useLocation();
   fakes.routeNavigate = (to) => navigate(to);
-  return <output aria-label="Current route">{location.pathname}</output>;
+  return (
+    <>
+      <output aria-label="Current route">{location.pathname}</output>
+      <output aria-label="Navigation state">
+        {JSON.stringify(location.state)}
+      </output>
+    </>
+  );
 }
 
-function renderPage() {
+function renderPage(
+  workspaceSelection: WorkspaceSelection = { kind: WorkspaceKind.default }
+) {
   return render(
     <AppBarContext.Provider
       value={
         {
           selectedRemoteNode: 'local',
           setTitle: vi.fn(),
-          workspaceSelection: { kind: WorkspaceKind.default },
+          workspaceSelection,
         } as never
       }
     >
@@ -140,6 +149,25 @@ describe('ControllersPage', () => {
     fakes.summary = null;
     fakes.showToast.mockReset();
     fakes.start.mockReset();
+  });
+
+  it('creates in the default workspace from the all-workspaces view', async () => {
+    const user = userEvent.setup();
+    renderPage({ kind: WorkspaceKind.all });
+
+    const createButton = screen.getByRole('button', {
+      name: 'New Controller',
+    });
+    expect(createButton).toBeEnabled();
+
+    await user.click(createButton);
+
+    expect(screen.getByLabelText('Current route')).toHaveTextContent(
+      '/controllers/new/spec'
+    );
+    expect(screen.getByLabelText('Navigation state')).toHaveTextContent(
+      '{"workspace":""}'
+    );
   });
 
   it('does not navigate for a late duplicate response after leaving the list', async () => {

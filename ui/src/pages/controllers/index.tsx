@@ -59,7 +59,6 @@ import {
   type ControllerSummary,
 } from '@/features/controllers/types';
 import {
-  isMutableWorkspaceSelection,
   workspaceNameForSelection,
   workspaceSelectionQuery,
 } from '@/lib/workspace';
@@ -253,9 +252,6 @@ export default function ControllersPage() {
   ).workspace;
   const createWorkspace = workspaceNameForSelection(appBar.workspaceSelection);
   const canCreate = useCanWriteForWorkspace(createWorkspace);
-  const canSelectCreateWorkspace = isMutableWorkspaceSelection(
-    appBar.workspaceSelection
-  );
   const { data, error, isLoading, mutate } = useControllerList(workspace);
   const [search, setSearch] = React.useState('');
   const [startTarget, setStartTarget] = React.useState<ActionTarget | null>(
@@ -315,13 +311,11 @@ export default function ControllersPage() {
         </div>
         <Button
           variant="primary"
-          disabled={!canCreate || !canSelectCreateWorkspace}
+          disabled={!canCreate}
           title={
-            !canSelectCreateWorkspace
-              ? 'Select a specific or default workspace to create a Controller.'
-              : !canCreate
-                ? 'Write permission is required for this workspace.'
-                : undefined
+            !canCreate
+              ? 'Write permission is required for this workspace.'
+              : undefined
           }
           onClick={() =>
             navigate('/controllers/new/spec', {
