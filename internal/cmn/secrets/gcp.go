@@ -129,6 +129,13 @@ func parseGCPSecretReference(ref core.SecretRef, defaultProject, defaultLocation
 	if key == "" {
 		return gcpSecretReference{}, fmt.Errorf("key (GCP Secret Manager secret ID or resource name) is required")
 	}
+	for option := range ref.Options {
+		switch option {
+		case "field", "location", "project_id", "version":
+		default:
+			return gcpSecretReference{}, fmt.Errorf("unsupported option %q", option)
+		}
+	}
 	if strings.HasPrefix(key, "projects/") {
 		return parseGCPResourceName(key, ref.Options)
 	}

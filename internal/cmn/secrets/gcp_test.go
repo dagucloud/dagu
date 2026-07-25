@@ -51,6 +51,7 @@ func TestGCPSecretManagerResolverValidate(t *testing.T) {
 		{name: "ResourceWhitespaceOptions", ref: core.SecretRef{Key: "projects/project-a/secrets/database-password/versions/5", Options: map[string]string{"project_id": " ", "location": " ", "version": " "}}},
 		{name: "ProjectConflict", ref: core.SecretRef{Key: "projects/project-a/secrets/database-password", Options: map[string]string{"project_id": "project-b"}}, wantErr: "cannot be used"},
 		{name: "InvalidLocation", ref: core.SecretRef{Key: "database-password", Options: map[string]string{"location": "evil.example.com:443"}}, wantErr: "invalid characters"},
+		{name: "UnsupportedOption", ref: core.SecretRef{Key: "database-password", Options: map[string]string{"profile": "production"}}, wantErr: `unsupported option "profile"`},
 	}
 
 	for _, tc := range tests {

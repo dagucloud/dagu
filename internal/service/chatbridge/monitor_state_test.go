@@ -296,7 +296,7 @@ func TestNotificationMonitor_StateLockAllowsSingleWriterAndTakeover(t *testing.T
 			return false
 		}
 		return true
-	}, notificationMonitorEventuallyTimeout(time.Second), 10*time.Millisecond)
+	}, time.Second, 10*time.Millisecond)
 
 	switch firstOwner {
 	case "monitor-1":
@@ -404,12 +404,12 @@ func TestNotificationMonitor_CorruptStateIsQuarantinedAndOnlyFutureEventsAreDeli
 			return false
 		}
 		return len(matches) == 1
-	}, notificationMonitorEventuallyTimeout(time.Second), 10*time.Millisecond)
+	}, time.Second, 10*time.Millisecond)
 	require.Eventually(t, func() bool {
 		monitor.stateMu.Lock()
 		defer monitor.stateMu.Unlock()
 		return monitor.state.Bootstrapped
-	}, notificationMonitorEventuallyTimeout(time.Second), 10*time.Millisecond)
+	}, time.Second, 10*time.Millisecond)
 
 	newStatus := &exec.DAGRunStatus{
 		Name:       "briefing",
@@ -430,12 +430,12 @@ func TestNotificationMonitor_CorruptStateIsQuarantinedAndOnlyFutureEventsAreDeli
 		mu.Lock()
 		defer mu.Unlock()
 		return len(delivered) == 1 && delivered[0] == "run-new"
-	}, notificationMonitorEventuallyTimeout(time.Second), 10*time.Millisecond)
+	}, time.Second, 10*time.Millisecond)
 
 	assert.False(t, monitor.IsDelivered("dest-1", oldStatus))
 	require.Eventually(t, func() bool {
 		return monitor.IsDelivered("dest-1", newStatus)
-	}, notificationMonitorEventuallyTimeout(time.Second), 10*time.Millisecond)
+	}, time.Second, 10*time.Millisecond)
 }
 
 func TestNotificationStateStore_LoadUnsupportedVersionQuarantinesState(t *testing.T) {
@@ -495,7 +495,7 @@ func TestNotificationMonitor_SaveFailureDoesNotLoseUnreadEvents(t *testing.T) {
 		monitor.stateMu.Lock()
 		defer monitor.stateMu.Unlock()
 		return monitor.state.Bootstrapped
-	}, notificationMonitorEventuallyTimeout(time.Second), 10*time.Millisecond)
+	}, time.Second, 10*time.Millisecond)
 
 	require.NoError(t, os.Chmod(stateDir, 0o500))
 	defer func() {
@@ -529,7 +529,7 @@ func TestNotificationMonitor_SaveFailureDoesNotLoseUnreadEvents(t *testing.T) {
 		mu.Lock()
 		defer mu.Unlock()
 		return len(delivered) == 1 && delivered[0] == "run-save-retry"
-	}, notificationMonitorEventuallyTimeout(time.Second), 10*time.Millisecond)
+	}, time.Second, 10*time.Millisecond)
 
 	require.Never(t, func() bool {
 		mu.Lock()
@@ -682,7 +682,7 @@ func TestNotificationMonitor_RemovedDestinationsArePurgedOnStartup(t *testing.T)
 		_, removedExists := monitor.state.Destinations["removed-dest"]
 		_, keepExists := monitor.state.Destinations["keep-dest"]
 		return !removedExists && keepExists
-	}, notificationMonitorEventuallyTimeout(time.Second), 10*time.Millisecond)
+	}, time.Second, 10*time.Millisecond)
 
 	result := newNotificationStateStore(stateFile).Load(context.Background())
 	require.NoError(t, result.Warning)
