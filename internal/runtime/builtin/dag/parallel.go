@@ -148,7 +148,7 @@ func (e *parallelExecutor) Run(ctx context.Context) error {
 		pendingSet[pendingAttemptKey(attempt)] = struct{}{}
 	}
 	if targeted && !targetFound {
-		return fmt.Errorf("target child DAG run %s is not present in step %s", hop.RunID, e.step.Name)
+		return errTargetRunMissing(hop.RunID, e.step.Name)
 	}
 
 	resultCh := make(chan attemptResult, len(e.runParamsList))

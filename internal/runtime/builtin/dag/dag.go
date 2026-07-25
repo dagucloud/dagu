@@ -42,6 +42,12 @@ var (
 	ErrHumanTaskStepsInSubDAG  = fmt.Errorf("human task steps are not allowed in sub-DAGs")
 )
 
+// errTargetRunMissing reports that a retry targets a child DAG run the step
+// does not produce.
+func errTargetRunMissing(runID, stepName string) error {
+	return fmt.Errorf("target child DAG run %s is not present in step %s", runID, stepName)
+}
+
 func validateSubDAG(childDAG *core.DAG, name string, workerSelector map[string]string) error {
 	if len(workerSelector) > 0 && childDAG.HasApprovalSteps() {
 		return fmt.Errorf("%w: %s", ErrApprovalStepsWithWorker, name)
@@ -96,8 +102,10 @@ func (e *dagExecutor) Run(ctx context.Context) error {
 	var result *exec.RunStatus
 	var execErr error
 	path := exec.GetContext(ctx).RetryPath
-	if hop, ok := path.Current(); ok &&
-		hop.Step == e.step.Name && hop.RunID == e.runParams.RunID {
+	if hop, ok := path.Current(); ok && hop.Step == e.step.Name {
+		if hop.RunID != e.runParams.RunID {
+			return errTargetRunMissing(hop.RunID, e.step.Name)
+		}
 		result, execErr = e.child.Retry(ctx, e.runParams, path.NextStep(), e.workDir, path.Advance())
 	} else {
 		result, execErr = e.child.Execute(ctx, e.runParams, e.workDir)

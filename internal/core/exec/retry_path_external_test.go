@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestResolveRetryPathNestedRepeatedRun(t *testing.T) {
+func TestResolveRetryPathNestedRun(t *testing.T) {
 	ctx := context.Background()
 	store := dagrun.New(filepath.Join(t.TempDir(), "dag-runs"))
 	rootRef := exec.NewDAGRunRef("root", "root-run")
@@ -30,10 +30,12 @@ func TestResolveRetryPathNestedRepeatedRun(t *testing.T) {
 		DAGRunID: rootRef.ID,
 		Status:   core.Failed,
 		Nodes: []*exec.Node{{
-			Step:            rootStep,
-			Status:          core.NodeFailed,
-			SubRuns:         []exec.SubDAGRun{{DAGRunID: "middle-current", DAGName: "middle", Params: "ITEM=current"}},
-			SubRunsRepeated: []exec.SubDAGRun{{DAGRunID: "middle-target", DAGName: "middle", Params: "ITEM=target"}},
+			Step:   rootStep,
+			Status: core.NodeFailed,
+			SubRuns: []exec.SubDAGRun{
+				{DAGRunID: "middle-current", DAGName: "middle", Params: "ITEM=current"},
+				{DAGRunID: "middle-target", DAGName: "middle", Params: "ITEM=target"},
+			},
 		}},
 	})
 
@@ -75,6 +77,70 @@ func TestResolveRetryPathNestedRepeatedRun(t *testing.T) {
 	storedRoot, err := rootAttempt.ReadStatus(ctx)
 	require.NoError(t, err)
 	require.Equal(t, core.Failed, storedRoot.Status)
+}
+
+// TestResolveRetryPathRejectsRepeatingStep asserts that steps inside child DAG
+// runs of a repeating step cannot be retried individually.
+func TestResolveRetryPathRejectsRepeatingStep(t *testing.T) {
+	t.Run("child run from an earlier repeat cycle", func(t *testing.T) {
+		rootStep := core.Step{Name: "run-child", SubDAG: &core.SubDAG{Name: "child"}}
+		_, _, err := resolveRetryPathForChild(t, rootStep, exec.Node{
+			Step:            rootStep,
+			Status:          core.NodeFailed,
+			SubRuns:         []exec.SubDAGRun{{DAGRunID: "child-current", DAGName: "child"}},
+			SubRunsRepeated: []exec.SubDAGRun{{DAGRunID: "child-target", DAGName: "child"}},
+		})
+		require.ErrorIs(t, err, exec.ErrRepeatingStepTarget)
+	})
+
+	t.Run("latest child run of a repeating step", func(t *testing.T) {
+		rootStep := core.Step{
+			Name:         "run-child",
+			SubDAG:       &core.SubDAG{Name: "child"},
+			RepeatPolicy: core.RepeatPolicy{RepeatMode: core.RepeatModeWhile},
+		}
+		_, _, err := resolveRetryPathForChild(t, rootStep, exec.Node{
+			Step:    rootStep,
+			Status:  core.NodeFailed,
+			SubRuns: []exec.SubDAGRun{{DAGRunID: "child-target", DAGName: "child"}},
+		})
+		require.ErrorIs(t, err, exec.ErrRepeatingStepTarget)
+	})
+}
+
+// resolveRetryPathForChild persists a root run holding rootNode plus the
+// "child-target" child run, then resolves the retry path to that child's
+// "target-step".
+func resolveRetryPathForChild(
+	t *testing.T,
+	rootStep core.Step,
+	rootNode exec.Node,
+) (exec.RetryPath, *exec.DAGRunStatus, error) {
+	t.Helper()
+	ctx := context.Background()
+	store := dagrun.New(filepath.Join(t.TempDir(), "dag-runs"))
+	rootRef := exec.NewDAGRunRef("root", "root-run")
+	targetStep := core.Step{Name: "target-step"}
+
+	rootDAG := &core.DAG{Name: rootRef.Name, Steps: []core.Step{rootStep}}
+	createRetryTestAttempt(t, ctx, store, rootDAG, rootRef.ID, nil, exec.DAGRunStatus{
+		Name:     rootRef.Name,
+		DAGRunID: rootRef.ID,
+		Status:   core.Failed,
+		Nodes:    []*exec.Node{&rootNode},
+	})
+
+	childDAG := &core.DAG{Name: "child", Steps: []core.Step{targetStep}}
+	createRetryTestAttempt(t, ctx, store, childDAG, "child-target", &rootRef, exec.DAGRunStatus{
+		Root:     rootRef,
+		Parent:   rootRef,
+		Name:     childDAG.Name,
+		DAGRunID: "child-target",
+		Status:   core.Failed,
+		Nodes:    []*exec.Node{{Step: targetStep, Status: core.NodeFailed}},
+	})
+
+	return exec.ResolveRetryPath(ctx, store, rootRef, "child-target", targetStep.Name)
 }
 
 func createRetryTestAttempt(

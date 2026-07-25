@@ -67,6 +67,50 @@ func TestParallelRetryPathReusesSiblings(t *testing.T) {
 	require.Equal(t, "target", retryRequests[0].RetryPath.Step)
 }
 
+// TestSubDAGRetryPathRejectsUnknownTarget asserts that a retry aimed at a child
+// DAG run the step does not produce fails instead of starting a fresh child run.
+func TestSubDAGRetryPathRejectsUnknownTarget(t *testing.T) {
+	child := &core.DAG{
+		Name:     "child",
+		YamlData: []byte("name: child\nsteps:\n  - name: target\n    run: echo child\n"),
+		Steps:    []core.Step{{Name: "target"}},
+	}
+	parent := &core.DAG{Name: "root", LocalDAGs: map[string]*core.DAG{child.Name: child}}
+	runner := &retryRecorder{}
+	baseCtx := executor.WithSubWorkflowRunner(context.Background(), runner)
+	rootRef := exec.NewDAGRunRef(parent.Name, "root-run")
+	ctx := runtime.NewContext(
+		baseCtx,
+		parent,
+		rootRef.ID,
+		"",
+		runtime.WithRootDAGRun(rootRef),
+		runtime.WithRetryPath(exec.RetryPath{
+			Step: "target",
+			Hops: []exec.RetryHop{{Step: "run-child", RunID: "child-stale"}},
+		}),
+	)
+	step := core.Step{
+		Name:           "run-child",
+		ExecutorConfig: core.ExecutorConfig{Type: core.ExecutorTypeDAG},
+		SubDAG:         &core.SubDAG{Name: child.Name},
+	}
+
+	impl, err := executor.NewExecutor(ctx, step)
+	require.NoError(t, err)
+	impl.(executor.DAGExecutor).SetParams(executor.RunParams{
+		RunID:   "child-rebuilt",
+		DAGName: child.Name,
+	})
+
+	err = impl.Run(ctx)
+	require.ErrorContains(t, err, "target child DAG run child-stale is not present in step run-child")
+
+	runRequests, retryRequests := runner.requests()
+	require.Empty(t, runRequests)
+	require.Empty(t, retryRequests)
+}
+
 type retryRecorder struct {
 	mu      sync.Mutex
 	runs    []executor.SubWorkflowRequest

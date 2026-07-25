@@ -832,15 +832,9 @@ func (n *Node) setupExecutor(ctx context.Context) (context.Context, executor.Exe
 
 	// Handle sub DAG execution
 	if subDAG := n.Step().SubDAG; subDAG != nil {
-		subRuns, targeted, err := n.retrySubRuns(ctx)
+		subRuns, err := n.BuildSubDAGRuns(ctx, subDAG)
 		if err != nil {
 			return ctx, nil, err
-		}
-		if !targeted {
-			subRuns, err = n.BuildSubDAGRuns(ctx, subDAG)
-			if err != nil {
-				return ctx, nil, err
-			}
 		}
 		n.SetSubRuns(subRuns)
 
@@ -850,38 +844,6 @@ func (n *Node) setupExecutor(ctx context.Context) (context.Context, executor.Exe
 	}
 
 	return ctx, cmd, nil
-}
-
-func (n *Node) retrySubRuns(ctx context.Context) ([]SubDAGRun, bool, error) {
-	hop, ok := exec.GetContext(ctx).RetryPath.Current()
-	if !ok || hop.Step != n.Name() {
-		return nil, false, nil
-	}
-
-	state := n.State()
-	stored := append(append([]SubDAGRun(nil), state.SubRuns...), state.SubRunsRepeated...)
-	runs := make([]SubDAGRun, 0, len(stored))
-	seen := make(map[string]struct{}, len(stored))
-	found := false
-	for _, run := range stored {
-		if run.DAGRunID == "" {
-			continue
-		}
-		if run.DAGRunID == hop.RunID {
-			found = true
-			if n.Step().Parallel == nil {
-				return []SubDAGRun{run}, true, nil
-			}
-		}
-		if _, ok := seen[run.DAGRunID]; !ok {
-			seen[run.DAGRunID] = struct{}{}
-			runs = append(runs, run)
-		}
-	}
-	if !found {
-		return nil, false, fmt.Errorf("retry target %s not found in step %s", hop.RunID, n.Name())
-	}
-	return runs, true, nil
 }
 
 func (n *Node) setupStepOutputFile(ctx context.Context) (context.Context, error) {

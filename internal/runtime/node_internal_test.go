@@ -5,6 +5,7 @@ package runtime
 
 import (
 	"context"
+	"sort"
 	"strings"
 	"testing"
 
@@ -230,33 +231,47 @@ func TestSetupExecutor_LogMessageExpandsVariables(t *testing.T) {
 	require.Equal(t, "Deploying production\n", stdout.String())
 }
 
-func TestRetrySubRunsUsesPersistedSiblings(t *testing.T) {
+// TestBuildSubDAGRunsAddressesPreviousAttemptRuns verifies that a manual step
+// retry can address the child DAG runs of the previous attempt: the rebuilt sub
+// run IDs match the ones the first attempt produced, even though the retry
+// starts the step from a cleared state.
+func TestBuildSubDAGRunsAddressesPreviousAttemptRuns(t *testing.T) {
 	t.Parallel()
 
 	step := core.Step{
-		Name:     "children",
-		SubDAG:   &core.SubDAG{Name: "child"},
-		Parallel: &core.ParallelConfig{},
+		Name:   "parallel_2",
+		SubDAG: &core.SubDAG{Name: "child"},
+		Parallel: &core.ParallelConfig{
+			Items: []core.ParallelItem{{Value: "one"}, {Value: "two"}},
+		},
 	}
-	node := NewNode(step, NodeState{
-		SubRuns:         []SubDAGRun{{DAGRunID: "current"}},
-		SubRunsRepeated: []SubDAGRun{{DAGRunID: "target"}},
-	})
-	ctx := exec.NewContext(
-		context.Background(),
-		&core.DAG{Name: "root"},
-		"root-run",
-		"",
-		exec.WithRetryPath(exec.RetryPath{
-			Step: "leaf",
-			Hops: []exec.RetryHop{{Step: step.Name, RunID: "target"}},
-		}),
-	)
+	dag := &core.DAG{Name: "root", Steps: []core.Step{step}}
 
-	runs, targeted, err := node.retrySubRuns(ctx)
+	buildIDs := func(t *testing.T, node *Node) []string {
+		t.Helper()
+		ctx := NewContextForTest(context.Background(), dag, "root-run", "")
+		ctx = WithEnv(ctx, NewEnv(ctx, step))
+		runs, err := node.BuildSubDAGRuns(ctx, step.SubDAG)
+		require.NoError(t, err)
+		ids := make([]string, 0, len(runs))
+		for _, run := range runs {
+			ids = append(ids, run.DAGRunID)
+		}
+		sort.Strings(ids)
+		return ids
+	}
+
+	firstAttempt := buildIDs(t, NewNode(step, NodeState{}))
+	require.Len(t, firstAttempt, 2)
+
+	retried := NewNode(step, NodeState{
+		Status:  core.NodeFailed,
+		SubRuns: []SubDAGRun{{DAGRunID: firstAttempt[0]}, {DAGRunID: firstAttempt[1]}},
+	})
+	_, err := CreateStepRetryPlan(dag, []*Node{retried}, step.Name)
 	require.NoError(t, err)
-	require.True(t, targeted)
-	require.Equal(t, []SubDAGRun{{DAGRunID: "current"}, {DAGRunID: "target"}}, runs)
+
+	require.Equal(t, firstAttempt, buildIDs(t, retried))
 }
 
 // TestSetupExecutor_HarnessCommandPreservesLiteralCodeFences verifies that

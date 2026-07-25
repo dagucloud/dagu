@@ -14,6 +14,10 @@ import (
 var (
 	ErrRetryStepNotFound = errors.New("retry step not found")
 	ErrInvalidRetryPath  = errors.New("retry path is invalid")
+	// ErrRepeatingStepTarget indicates the target child DAG run was invoked by a
+	// repeating step. Such child runs carry non-reproducible IDs, so only the
+	// repeating step itself can be retried.
+	ErrRepeatingStepTarget = errors.New("child DAG runs of a repeating step cannot be retried individually")
 )
 
 // RetryPath identifies a step in a persisted child DAG run.
@@ -161,6 +165,9 @@ func ResolveRetryPath(
 		}
 		if node.Step.SubDAG == nil {
 			return RetryPath{}, nil, fmt.Errorf("%w: step %s in DAG run %s is not a sub-DAG", ErrInvalidRetryPath, node.Step.Name, parentRef.ID)
+		}
+		if node.Step.RepeatPolicy.RepeatMode != "" || len(node.SubRunsRepeated) > 0 {
+			return RetryPath{}, nil, fmt.Errorf("%w: step %s in DAG run %s repeats", ErrRepeatingStepTarget, node.Step.Name, parentRef.ID)
 		}
 		reversed = append(reversed, RetryHop{
 			Step:  node.Step.Name,

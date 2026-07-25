@@ -3100,7 +3100,7 @@ func retryPathRequestError(err error) error {
 	switch {
 	case errors.Is(err, exec.ErrRetryStepNotFound), errors.Is(err, exec.ErrDAGRunIDNotFound):
 		return &Error{HTTPStatus: http.StatusNotFound, Code: api.ErrorCodeNotFound, Message: err.Error()}
-	case errors.Is(err, exec.ErrInvalidRetryPath):
+	case errors.Is(err, exec.ErrInvalidRetryPath), errors.Is(err, exec.ErrRepeatingStepTarget):
 		return &Error{HTTPStatus: http.StatusConflict, Code: api.ErrorCodeConflict, Message: err.Error()}
 	default:
 		return fmt.Errorf("resolve retry target: %w", err)
