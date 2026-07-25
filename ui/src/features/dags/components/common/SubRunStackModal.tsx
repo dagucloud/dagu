@@ -29,17 +29,24 @@ export type SubRunStackEntry = {
 };
 
 /**
- * Lets a nested DAGStatus push onto the stack that is already open, instead of
- * opening a second modal inside the first. The stack stays flat however deep
- * the drill-down goes.
+ * Opens a child DAG-run in the stack. Provided by whichever view owns the
+ * stack, so a step table, a graph node, or a controller timeline all drill down
+ * the same way, and a nested view pushes onto the stack already open rather
+ * than opening a second one.
  */
-const SubRunStackContext = React.createContext<
+const SubRunOpenContext = React.createContext<
   ((entry: SubRunStackEntry) => void) | null
 >(null);
 
-export function useSubRunStackPush() {
-  return React.useContext(SubRunStackContext);
+/**
+ * Returns the opener when a stack is available, or null when the view is not
+ * inside one and should fall back to navigation.
+ */
+export function useOpenSubRun() {
+  return React.useContext(SubRunOpenContext);
 }
+
+export const SubRunOpenProvider = SubRunOpenContext.Provider;
 
 /** How many previous levels show an edge before the count takes over. */
 const MAX_VISIBLE_EDGES = 3;
@@ -246,7 +253,7 @@ export function SubRunStackModal({
         </div>
 
         <div className="min-h-0 flex-1 overflow-auto p-4">
-          <SubRunStackContext.Provider value={push}>
+          <SubRunOpenProvider value={push}>
             <React.Suspense fallback={<LoadingIndicator />}>
               {shown ? (
                 <DAGRunDetailsContent
@@ -260,7 +267,7 @@ export function SubRunStackModal({
                 <LoadingIndicator />
               )}
             </React.Suspense>
-          </SubRunStackContext.Provider>
+          </SubRunOpenProvider>
         </div>
       </div>
     </>

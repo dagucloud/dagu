@@ -68,6 +68,7 @@ import {
 import StyledTableRow from '@/components/ui/styled-table-row';
 import { DAGContext } from '../../contexts/DAGContext';
 import NodeStatusChip from '../common/NodeStatusChip';
+import { useOpenSubRun } from '../common/SubRunStackModal';
 import { InlineLogViewer } from '../common/InlineLogViewer';
 import StatusUpdateModal from '../dag-execution/StatusUpdateModal';
 import HarnessStepSummary from './HarnessStepSummary';
@@ -239,6 +240,7 @@ function NodeStatusTableRow({
 }: Props) {
   const { dagRunId, name: dagName } = dagRun;
   const navigate = useNavigate();
+  const openSubRun = useOpenSubRun();
   const client = useClient();
   const config = useConfig();
   const dagContext = useContext(DAGContext);
@@ -425,6 +427,18 @@ function NodeStatusTableRow({
   ) => {
     if (hasSubDAGRun && allSubRuns[subRunIndex]) {
       const subDAGRunId = allSubRuns[subRunIndex].dagRunId;
+
+      // A plain click stacks the child run over the current view. A modifier
+      // click still opens a real page, so it can go to another tab.
+      const modifierClick = Boolean(e && (e.metaKey || e.ctrlKey));
+      if (openSubRun && !modifierClick) {
+        openSubRun({
+          name:
+            allSubRuns[subRunIndex].dagName || node.step.call || node.step.name,
+          dagRunId: subDAGRunId,
+        });
+        return;
+      }
 
       // Check if we're in a dagRun context or a DAG context
       // More reliable detection by checking the current URL path or the dagRun object

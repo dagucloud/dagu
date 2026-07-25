@@ -12,4 +12,10 @@ export { default as LinkTab } from './LinkTab';
 export { default as LiveSwitch } from './LiveSwitch';
 export { default as NodeStatusChip } from './NodeStatusChip';
 export { StatusDot } from './StatusDot';
+export {
+  SubRunStackModal,
+  SubRunOpenProvider,
+  useOpenSubRun,
+} from './SubRunStackModal';
+export type { SubRunStackEntry } from './SubRunStackModal';
 export { STATUS_DISPLAY_LABELS } from './statusLabels';
