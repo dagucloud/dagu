@@ -44,7 +44,7 @@ func TestAzureKeyVaultResolverValidate(t *testing.T) {
 	}{
 		{name: "ShortName", ref: core.SecretRef{Key: "database-password"}},
 		{name: "ShortNameWithVault", ref: core.SecretRef{Key: "database-password", Options: map[string]string{"vault_url": "https://example.vault.azure.net/"}}},
-		{name: "FullURL", ref: core.SecretRef{Key: "https://example.vault.azure.net/secrets/database-password"}},
+		{name: "FullURLCaseInsensitiveObjectType", ref: core.SecretRef{Key: "https://example.vault.azure.net/SeCrEtS/database-password"}},
 		{name: "FullVersionURL", ref: core.SecretRef{Key: "https://example.vault.azure.net/secrets/database-password/" + azureTestVersion}},
 		{name: "Empty", ref: core.SecretRef{}, wantErr: "key"},
 		{name: "ShortNameWithSlash", ref: core.SecretRef{Key: "team/database-password"}, wantErr: "secret name"},

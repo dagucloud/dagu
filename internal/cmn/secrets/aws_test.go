@@ -17,11 +17,11 @@ import (
 )
 
 type awsSecretsManagerTestClient struct {
-	getSecretValue func(context.Context, *secretsmanager.GetSecretValueInput) (*secretsmanager.GetSecretValueOutput, error)
+	getSecretValue func(context.Context, *secretsmanager.GetSecretValueInput, ...func(*secretsmanager.Options)) (*secretsmanager.GetSecretValueOutput, error)
 }
 
-func (c *awsSecretsManagerTestClient) GetSecretValue(ctx context.Context, input *secretsmanager.GetSecretValueInput, _ ...func(*secretsmanager.Options)) (*secretsmanager.GetSecretValueOutput, error) {
-	return c.getSecretValue(ctx, input)
+func (c *awsSecretsManagerTestClient) GetSecretValue(ctx context.Context, input *secretsmanager.GetSecretValueInput, options ...func(*secretsmanager.Options)) (*secretsmanager.GetSecretValueOutput, error) {
+	return c.getSecretValue(ctx, input, options...)
 }
 
 func TestAWSSecretsManagerResolverValidate(t *testing.T) {
@@ -64,11 +64,17 @@ func TestAWSSecretsManagerResolverRegistered(t *testing.T) {
 func TestAWSSecretsManagerResolverResolve(t *testing.T) {
 	var regions []string
 	var inputs []*secretsmanager.GetSecretValueInput
+	var factoryCalls int
 	value := `{"token":"resolved","enabled":true}`
 	resolver := &awsSecretsManagerResolver{
-		clientFactory: func(_ context.Context, region string) (awsSecretsManagerClient, error) {
-			regions = append(regions, region)
-			return &awsSecretsManagerTestClient{getSecretValue: func(_ context.Context, input *secretsmanager.GetSecretValueInput) (*secretsmanager.GetSecretValueOutput, error) {
+		clientFactory: func(context.Context) (awsSecretsManagerClient, error) {
+			factoryCalls++
+			return &awsSecretsManagerTestClient{getSecretValue: func(_ context.Context, input *secretsmanager.GetSecretValueInput, options ...func(*secretsmanager.Options)) (*secretsmanager.GetSecretValueOutput, error) {
+				requestOptions := secretsmanager.Options{}
+				for _, option := range options {
+					option(&requestOptions)
+				}
+				regions = append(regions, requestOptions.Region)
 				inputs = append(inputs, input)
 				return &secretsmanager.GetSecretValueOutput{SecretString: aws.String(value)}, nil
 			}}, nil
@@ -102,6 +108,7 @@ func TestAWSSecretsManagerResolverResolve(t *testing.T) {
 	assert.Equal(t, value, got)
 
 	assert.Equal(t, []string{"us-west-2", "eu-west-1", "ap-northeast-1"}, regions)
+	assert.Equal(t, 1, factoryCalls)
 	require.Len(t, inputs, 3)
 	assert.Equal(t, "database-password", aws.ToString(inputs[0].SecretId))
 	assert.Equal(t, " 0123456789abcdef0123456789abcdef ", aws.ToString(inputs[0].VersionId))
@@ -111,8 +118,8 @@ func TestAWSSecretsManagerResolverResolve(t *testing.T) {
 
 func TestAWSSecretsManagerResolverBinaryValue(t *testing.T) {
 	resolver := &awsSecretsManagerResolver{
-		clientFactory: func(context.Context, string) (awsSecretsManagerClient, error) {
-			return &awsSecretsManagerTestClient{getSecretValue: func(context.Context, *secretsmanager.GetSecretValueInput) (*secretsmanager.GetSecretValueOutput, error) {
+		clientFactory: func(context.Context) (awsSecretsManagerClient, error) {
+			return &awsSecretsManagerTestClient{getSecretValue: func(context.Context, *secretsmanager.GetSecretValueInput, ...func(*secretsmanager.Options)) (*secretsmanager.GetSecretValueOutput, error) {
 				return &secretsmanager.GetSecretValueOutput{SecretBinary: []byte{0xff, 0x00, 0x01}}, nil
 			}}, nil
 		},
@@ -138,8 +145,8 @@ func TestAWSSecretsManagerResolverErrors(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			resolver := &awsSecretsManagerResolver{
-				clientFactory: func(context.Context, string) (awsSecretsManagerClient, error) {
-					return &awsSecretsManagerTestClient{getSecretValue: func(context.Context, *secretsmanager.GetSecretValueInput) (*secretsmanager.GetSecretValueOutput, error) {
+				clientFactory: func(context.Context) (awsSecretsManagerClient, error) {
+					return &awsSecretsManagerTestClient{getSecretValue: func(context.Context, *secretsmanager.GetSecretValueInput, ...func(*secretsmanager.Options)) (*secretsmanager.GetSecretValueOutput, error) {
 						return tc.output, tc.err
 					}}, nil
 				},
@@ -150,12 +157,12 @@ func TestAWSSecretsManagerResolverErrors(t *testing.T) {
 	}
 }
 
-func TestAWSSecretsManagerResolverCachesClients(t *testing.T) {
+func TestAWSSecretsManagerResolverCachesClient(t *testing.T) {
 	var factoryCalls int
 	resolver := &awsSecretsManagerResolver{
-		clientFactory: func(context.Context, string) (awsSecretsManagerClient, error) {
+		clientFactory: func(context.Context) (awsSecretsManagerClient, error) {
 			factoryCalls++
-			return &awsSecretsManagerTestClient{getSecretValue: func(context.Context, *secretsmanager.GetSecretValueInput) (*secretsmanager.GetSecretValueOutput, error) {
+			return &awsSecretsManagerTestClient{getSecretValue: func(context.Context, *secretsmanager.GetSecretValueInput, ...func(*secretsmanager.Options)) (*secretsmanager.GetSecretValueOutput, error) {
 				return &secretsmanager.GetSecretValueOutput{SecretString: aws.String("value")}, nil
 			}}, nil
 		},
