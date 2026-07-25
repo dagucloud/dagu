@@ -40,6 +40,26 @@ describe('Controller draft model', () => {
     expect(parsed.definition?.id).toBeUndefined();
   });
 
+  it('accepts omitted descriptions and chat.completion providers', () => {
+    const parsed = parseControllerYAML(`
+type: controller
+version: 1
+name: Router
+llm:
+  provider: openrouter
+  model: openai/gpt-5
+dags: []
+states:
+  default:
+    terminal: succeeded
+`);
+
+    expect(parsed.issues).toEqual([]);
+    expect(parsed.builderRepresentable).toBe(true);
+    expect(parsed.definition?.description).toBe('');
+    expect(parsed.definition?.states.default?.description).toBe('');
+  });
+
   it('rejects unknown fields and missing transition destinations', () => {
     const parsed = parseControllerYAML(`
 type: controller
@@ -219,11 +239,11 @@ states:
     );
   });
 
-  it('validates the Router provider and model contract locally', () => {
+  it('validates the required Router provider and model locally', () => {
     const draft = createControllerDraft();
     draft.name = 'Router';
     draft.description = 'Route work.';
-    draft.llm.provider = 'unsupported';
+    draft.llm.provider = '';
     draft.llm.model = '   ';
     const defaultState = draft.states.default;
     if (!defaultState) throw new Error('Expected default state');

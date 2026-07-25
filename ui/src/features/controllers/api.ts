@@ -9,7 +9,8 @@ import {
   PathsDagsGetParametersQuerySort,
 } from '@/api/v1/schema';
 import { useClient, useQuery } from '@/hooks/api';
-import { controllerDAGOption, type ControllerDAGOption } from './dagOptions';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
+import { controllerDAGOption } from './dagOptions';
 import { isControllerActive } from './types';
 
 type ClientResponse<T> = {
@@ -50,46 +51,46 @@ export function useControllerDetail(id: string | undefined) {
   );
 }
 
-export function useControllerDAGOptions(workspace: string) {
+export function useControllerDAGOptions(workspace: string, search: string) {
   const client = useClient();
   const effectiveWorkspace = workspace || 'default';
+  const normalizedSearch = search.trim();
+  const searchTerm = useDebouncedValue(normalizedSearch, 300);
+  const searchPending = normalizedSearch !== searchTerm;
   const query = useSWR(
-    ['controllers', 'dag-options', effectiveWorkspace],
+    searchTerm
+      ? ['controllers', 'dag-options', effectiveWorkspace, searchTerm]
+      : null,
     async () => {
-      const options: ControllerDAGOption[] = [];
-      let page = 1;
-
-      for (;;) {
-        const result = unwrap(
-          await client.GET('/dags', {
-            params: {
-              query: {
-                remoteNode: 'local',
-                workspace: effectiveWorkspace,
-                page,
-                perPage: 200,
-                sort: PathsDagsGetParametersQuerySort.name,
-                order: PathsDagsGetParametersQueryOrder.asc,
-              },
+      const result = unwrap(
+        await client.GET('/dags', {
+          params: {
+            query: {
+              remoteNode: 'local',
+              workspace: effectiveWorkspace,
+              name: searchTerm,
+              page: 1,
+              perPage: 20,
+              sort: PathsDagsGetParametersQuerySort.name,
+              order: PathsDagsGetParametersQueryOrder.asc,
             },
-          })
-        );
-        if (result.pagination.currentPage !== page) {
-          throw new Error('DAG pagination is inconsistent');
-        }
-        for (const value of result.dags) {
-          const option = controllerDAGOption(value);
-          if (option) options.push(option);
-        }
-        if (result.pagination.currentPage >= result.pagination.totalPages) {
-          return options;
-        }
-        page += 1;
-      }
+          },
+        })
+      );
+      return result.dags.flatMap((value) => {
+        const option = controllerDAGOption(value);
+        return option ? [option] : [];
+      });
     },
-    { revalidateOnFocus: true }
+    { revalidateOnFocus: false }
   );
-  return { ...query, data: query.data ?? [] };
+  return {
+    ...query,
+    data: searchPending ? [] : (query.data ?? []),
+    error: searchPending ? undefined : query.error,
+    isLoading:
+      normalizedSearch !== '' && (searchPending || query.isLoading === true),
+  };
 }
 
 export function useControllerAPI() {

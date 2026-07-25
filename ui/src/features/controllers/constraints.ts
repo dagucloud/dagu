@@ -1,7 +1,6 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { ControllerRouterLLMConfigProvider } from '@/api/v1/schema';
 import { isValidWorkspaceName } from '@/lib/workspace';
 
 export const DEFAULT_CONTROLLER_MAX_TURNS = 100;
@@ -22,24 +21,18 @@ const CONTROLLER_LABEL_KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/;
 const CONTROLLER_LABEL_VALUE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_./-]*$/;
 const MAX_CONTROLLER_LABEL_KEY_BYTES = 63;
 const MAX_CONTROLLER_LABEL_VALUE_BYTES = 255;
-export const DEFAULT_CONTROLLER_LLM_PROVIDER =
-  ControllerRouterLLMConfigProvider.openai;
+export const DEFAULT_CONTROLLER_LLM_PROVIDER = 'openai';
 
 export const CONTROLLER_LLM_PROVIDER_OPTIONS = [
   { value: DEFAULT_CONTROLLER_LLM_PROVIDER, label: 'OpenAI' },
-  { value: ControllerRouterLLMConfigProvider.anthropic, label: 'Anthropic' },
-  { value: ControllerRouterLLMConfigProvider.gemini, label: 'Gemini' },
+  { value: 'openai-codex', label: 'OpenAI Codex' },
+  { value: 'anthropic', label: 'Anthropic' },
+  { value: 'gemini', label: 'Gemini' },
+  { value: 'openrouter', label: 'OpenRouter' },
+  { value: 'local', label: 'Local' },
+  { value: 'zai', label: 'Z.AI' },
+  { value: 'opencode', label: 'OpenCode' },
 ] as const;
-
-export const CONTROLLER_LLM_PROVIDERS = CONTROLLER_LLM_PROVIDER_OPTIONS.map(
-  ({ value }) => value
-);
-
-export function isControllerLLMProvider(
-  value: string
-): value is ControllerRouterLLMConfigProvider {
-  return CONTROLLER_LLM_PROVIDERS.some((provider) => provider === value);
-}
 
 export function utf8ByteLength(value: string): number {
   return new TextEncoder().encode(value).length;
@@ -89,7 +82,5 @@ export function validateControllerLabels(labels: string[]): string | null {
       return 'Workspace label is invalid.';
     }
   }
-  return workspaceLabels > 1
-    ? 'At most one workspace label is allowed.'
-    : null;
+  return workspaceLabels > 1 ? 'At most one workspace label is allowed.' : null;
 }

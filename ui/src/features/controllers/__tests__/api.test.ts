@@ -30,17 +30,22 @@ function TestSWRProvider({ children }: React.PropsWithChildren) {
   );
 }
 
-function dagPage(currentPage: number, totalPages: number) {
+function dagPage(
+  dags: Array<{
+    fileName: string;
+    dag: { name: string; description?: string; params?: string[] };
+  }>
+) {
   return {
     data: {
-      dags: [],
+      dags,
       errors: [],
       pagination: {
-        totalRecords: 0,
-        currentPage,
-        totalPages,
-        nextPage: currentPage + 1,
-        prevPage: Math.max(0, currentPage - 1),
+        totalRecords: dags.length,
+        currentPage: 1,
+        totalPages: 8,
+        nextPage: 2,
+        prevPage: 0,
       },
     },
     response: new Response(),
@@ -83,21 +88,55 @@ describe('Controller DAG options', () => {
     ).toBeNull();
   });
 
-  it('fails when paginated DAG responses stop advancing', async () => {
-    fakes.get.mockResolvedValue(dagPage(1, 2));
+  it('searches a bounded DAG page only after a query is entered', async () => {
+    fakes.get.mockResolvedValue(
+      dagPage([
+        {
+          fileName: 'classify',
+          dag: {
+            name: 'classify',
+            description: 'Classify an alert.',
+            params: ['severity=warning'],
+          },
+        },
+      ])
+    );
 
-    const { result } = renderHook(() => useControllerDAGOptions('ops'), {
-      wrapper: TestSWRProvider,
-    });
+    const { result, rerender } = renderHook(
+      ({ search }) => useControllerDAGOptions('ops', search),
+      {
+        initialProps: { search: '' },
+        wrapper: TestSWRProvider,
+      }
+    );
+
+    expect(result.current.data).toEqual([]);
+    expect(fakes.get).not.toHaveBeenCalled();
+
+    rerender({ search: 'class' });
 
     await waitFor(() => {
-      expect(result.current.error).toEqual(
-        new Error('DAG pagination is inconsistent')
-      );
+      expect(result.current.data).toEqual([
+        {
+          fileName: 'classify',
+          description: 'Classify an alert.',
+        },
+      ]);
     });
-    expect(fakes.get).toHaveBeenCalledTimes(2);
-    expect(
-      fakes.get.mock.calls.map((call) => call[1].params.query.page)
-    ).toEqual([1, 2]);
+    expect(fakes.get).toHaveBeenCalledOnce();
+    expect(fakes.get).toHaveBeenCalledWith(
+      '/dags',
+      expect.objectContaining({
+        params: {
+          query: expect.objectContaining({
+            workspace: 'ops',
+            remoteNode: 'local',
+            name: 'class',
+            page: 1,
+            perPage: 20,
+          }),
+        },
+      })
+    );
   });
 });

@@ -3524,11 +3524,8 @@ export interface components {
             id: components["schemas"]["ControllerId"];
         };
         ControllerRouterLLMConfig: {
-            /**
-             * @description Registered LLM provider name
-             * @enum {string}
-             */
-            provider: ControllerRouterLLMConfigProvider;
+            /** @description LLM provider accepted by chat.completion */
+            provider: string;
             /** @description Provider-specific model identifier */
             model: string;
             /** @description Optional Controller Router system prompt template */
@@ -17358,11 +17355,6 @@ export enum ChatMessageRole {
     user = "user",
     assistant = "assistant",
     tool = "tool"
-}
-export enum ControllerRouterLLMConfigProvider {
-    openai = "openai",
-    anthropic = "anthropic",
-    gemini = "gemini"
 }
 export enum ControllerStateTerminal {
     succeeded = "succeeded",

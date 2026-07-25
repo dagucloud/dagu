@@ -54,6 +54,41 @@ func TestParseCreateDefinitionAppliesEffectiveDefaults(t *testing.T) {
 	assert.Equal(t, "ops", definition.Workspace())
 }
 
+func TestParseCreateDefinitionAcceptsOptionalDescriptionsAndChatProviders(t *testing.T) {
+	t.Parallel()
+
+	for _, provider := range []string{
+		"openai",
+		"openai-codex",
+		"anthropic",
+		"gemini",
+		"openrouter",
+		"local",
+		"zai",
+		"opencode",
+		"ollama",
+	} {
+		t.Run(provider, func(t *testing.T) {
+			t.Parallel()
+
+			definition, err := ParseCreateDefinition([]byte(`type: controller
+version: 1
+name: Router
+llm:
+  provider: ` + provider + `
+  model: model
+dags: []
+states:
+  default:
+    terminal: succeeded
+`))
+			require.NoError(t, err)
+			assert.Empty(t, definition.Description)
+			assert.Empty(t, definition.States["default"].Description)
+		})
+	}
+}
+
 func TestParseCreateDefinitionRejectsGeneratedIDAndUnknownFields(t *testing.T) {
 	t.Parallel()
 

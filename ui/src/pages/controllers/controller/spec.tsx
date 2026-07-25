@@ -124,6 +124,7 @@ export default function ControllerSpecPage({
   const [source, setSource] = React.useState(initialSource);
   const [savedSource, setSavedSource] = React.useState(initialSource);
   const [builderDraftDirty, setBuilderDraftDirty] = React.useState(false);
+  const [dagSearch, setDAGSearch] = React.useState('');
   const initializedIDRef = React.useRef<string | null>(isNew ? 'new' : null);
   const [pendingAction, setPendingAction] =
     React.useState<PendingAction | null>(null);
@@ -148,7 +149,7 @@ export default function ControllerSpecPage({
     : (routeState.workspace ?? '');
   const workspace = isNew ? draftWorkspace : persistedWorkspace;
   const canWrite = useCanWriteForWorkspace(workspace);
-  const dagOptions = useControllerDAGOptions(workspace);
+  const dagOptions = useControllerDAGOptions(workspace, dagSearch);
   const dirty = source !== savedSource || builderDraftDirty;
   const pending = pendingAction !== null;
   const createPending = isNew && pendingAction === 'save';
@@ -421,6 +422,8 @@ export default function ControllerSpecPage({
               <ControllerBuilder
                 definition={definition}
                 workspace={workspace}
+                dagSearch={dagSearch}
+                onDAGSearchChange={setDAGSearch}
                 availableDAGs={dagOptions.data}
                 availableDAGsError={
                   dagOptions.error

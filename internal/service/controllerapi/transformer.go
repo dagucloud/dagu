@@ -103,7 +103,7 @@ func definition(value controller.Definition) api.ControllerDefinition {
 		MaxTurns:    value.EffectiveMaxTurns(),
 		Labels:      nonNilStrings(value.Labels),
 		Llm: api.ControllerRouterLLMConfig{
-			Provider: api.ControllerRouterLLMConfigProvider(value.LLM.Provider),
+			Provider: value.LLM.Provider,
 			Model:    value.LLM.Model,
 			System:   cloneString(value.LLM.System),
 		},

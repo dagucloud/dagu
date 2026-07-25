@@ -11,7 +11,6 @@ import type {
 import {
   CONTROLLER_DAG_NAME_PATTERN,
   CONTROLLER_ID_PATTERN,
-  CONTROLLER_LLM_PROVIDERS,
   CONTROLLER_STATE_NAME_PATTERN,
   DEFAULT_CONTROLLER_MAX_TURNS,
   DEFAULT_CONTROLLER_LLM_PROVIDER,
@@ -25,7 +24,6 @@ import {
   MAX_CONTROLLER_TRANSITIONS,
   MIN_CONTROLLER_MAX_TURNS,
   hasNonWhitespace,
-  isControllerLLMProvider,
   utf8ByteLength,
   validateControllerLabels,
 } from './constraints';
@@ -106,7 +104,8 @@ function isBuilderRepresentable(value: Record<string, unknown>): boolean {
     value.version !== 1 ||
     (value.id !== undefined && typeof value.id !== 'string') ||
     typeof value.name !== 'string' ||
-    typeof value.description !== 'string' ||
+    (value.description !== undefined &&
+      typeof value.description !== 'string') ||
     (value.maxTurns !== undefined &&
       (typeof value.maxTurns !== 'number' ||
         !Number.isInteger(value.maxTurns) ||
@@ -133,7 +132,8 @@ function isBuilderRepresentable(value: Record<string, unknown>): boolean {
     if (
       !isRecord(state) ||
       !hasOnlyFields(state, STATE_FIELDS) ||
-      typeof state.description !== 'string' ||
+      (state.description !== undefined &&
+        typeof state.description !== 'string') ||
       (state.dags !== undefined && stringArray(state.dags) === null) ||
       (state.terminal !== undefined &&
         state.terminal !== 'succeeded' &&
@@ -211,9 +211,6 @@ export function validateControllerDefinition(
       )
     );
   }
-  if (!hasNonWhitespace(definition.description ?? '')) {
-    issues.push(issue('description', 'Description is required'));
-  }
   if (
     utf8ByteLength(definition.description ?? '') >
     MAX_CONTROLLER_DESCRIPTION_BYTES
@@ -250,13 +247,6 @@ export function validateControllerDefinition(
   if (labelsIssue) issues.push(issue('labels', labelsIssue));
   if (!definition.llm.provider) {
     issues.push(issue('llm.provider', 'Provider is required'));
-  } else if (!isControllerLLMProvider(definition.llm.provider)) {
-    issues.push(
-      issue(
-        'llm.provider',
-        `Provider must be one of ${CONTROLLER_LLM_PROVIDERS.join(', ')}`
-      )
-    );
   }
   if (!hasNonWhitespace(definition.llm.model)) {
     issues.push(issue('llm.model', 'Model must contain non-whitespace text'));
@@ -295,11 +285,6 @@ export function validateControllerDefinition(
     const statePath = `states.${name}`;
     if (!CONTROLLER_STATE_NAME_PATTERN.test(name)) {
       issues.push(issue(statePath, 'State name is invalid'));
-    }
-    if (!hasNonWhitespace(state.description ?? '')) {
-      issues.push(
-        issue(`${statePath}.description`, 'State description is required')
-      );
     }
     if (
       utf8ByteLength(state.description ?? '') > MAX_CONTROLLER_DESCRIPTION_BYTES

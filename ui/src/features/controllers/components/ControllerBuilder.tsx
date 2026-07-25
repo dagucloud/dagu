@@ -25,6 +25,8 @@ import type { ControllerDefinition, ControllerState } from '../types';
 type Props = {
   definition: ControllerDefinition;
   workspace: string;
+  dagSearch: string;
+  onDAGSearchChange: (value: string) => void;
   availableDAGs?: ControllerDAGOption[];
   availableDAGsError?: string;
   availableDAGsLoading?: boolean;
@@ -304,6 +306,8 @@ function StateCard({
 export function ControllerBuilder({
   definition,
   workspace,
+  dagSearch,
+  onDAGSearchChange,
   availableDAGs = [],
   availableDAGsError,
   availableDAGsLoading = false,
@@ -315,7 +319,6 @@ export function ControllerBuilder({
   const [builderMessage, setBuilderMessage] = React.useState<string | null>(
     null
   );
-  const [dagSearch, setDAGSearch] = React.useState('');
   const serializedLabels = withoutWorkspaceLabels(definition.labels).join(', ');
   const [labelListDraft, setLabelListDraft] = React.useState(serializedLabels);
   const serializedDAGs = definition.dags.join(', ');
@@ -412,16 +415,6 @@ export function ControllerBuilder({
     });
     return true;
   };
-
-  const visibleDAGs = React.useMemo(() => {
-    const term = dagSearch.toLocaleLowerCase();
-    return availableDAGs.filter(
-      (dag) =>
-        !term ||
-        dag.fileName.toLocaleLowerCase().includes(term) ||
-        dag.description?.toLocaleLowerCase().includes(term)
-    );
-  }, [availableDAGs, dagSearch]);
 
   return (
     <div className="space-y-5">
@@ -582,29 +575,6 @@ export function ControllerBuilder({
           <CardTitle>Controller DAG allowlist</CardTitle>
         </CardHeader>
         <CardContent>
-          {availableDAGsError && (
-            <Alert variant="destructive" className="mb-4">
-              <AlertDescription className="flex flex-wrap items-center justify-between gap-2">
-                <span>{availableDAGsError}</span>
-                {onRetryAvailableDAGs && (
-                  <Button
-                    type="button"
-                    size="xs"
-                    variant="outline"
-                    disabled={availableDAGsLoading}
-                    onClick={onRetryAvailableDAGs}
-                  >
-                    Retry
-                  </Button>
-                )}
-              </AlertDescription>
-            </Alert>
-          )}
-          {availableDAGsLoading && (
-            <p className="mb-3 text-xs text-muted-foreground">
-              Loading compatible DAGs…
-            </p>
-          )}
           <Field label="DAG names (comma separated)">
             <Input
               aria-label="Controller DAG allowlist"
@@ -626,58 +596,92 @@ export function ControllerBuilder({
               }}
             />
           </Field>
-          {availableDAGs.length > 0 && (
-            <div className="mt-4 space-y-2">
-              <Input
-                value={dagSearch}
-                onChange={(event) => setDAGSearch(event.target.value)}
-                placeholder="Search DAGs in this workspace…"
-                disabled={builderReadOnly}
-              />
-              <div className="max-h-64 divide-y divide-border overflow-auto rounded-md border border-border">
-                {visibleDAGs.map((dag) => {
-                  const selected = definition.dags.includes(dag.fileName);
-                  return (
-                    <label
-                      key={dag.fileName}
-                      className="flex cursor-pointer items-start gap-3 p-3 hover:bg-muted/50"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selected}
-                        disabled={builderReadOnly}
-                        onChange={() =>
-                          updateControllerDAGs(
-                            selected
-                              ? definition.dags.filter(
-                                  (candidate) => candidate !== dag.fileName
-                                )
-                              : [...definition.dags, dag.fileName]
-                          )
-                        }
-                        className="mt-1"
-                      />
-                      <span className="min-w-0">
-                        <span className="block font-mono text-sm font-medium">
-                          {dag.fileName}
-                        </span>
-                        {dag.description && (
-                          <span className="block truncate text-xs text-muted-foreground">
-                            {dag.description}
-                          </span>
-                        )}
-                      </span>
-                    </label>
-                  );
-                })}
-                {visibleDAGs.length === 0 && (
-                  <p className="p-4 text-center text-xs text-muted-foreground">
-                    No DAGs match this search.
+          <div className="mt-4 space-y-2">
+            <Input
+              aria-label="Search compatible DAGs"
+              value={dagSearch}
+              onChange={(event) => onDAGSearchChange(event.target.value)}
+              placeholder="Search DAGs in this workspace…"
+              disabled={builderReadOnly}
+            />
+            {!dagSearch.trim() ? (
+              <p className="text-xs text-muted-foreground">
+                Search by DAG name to add compatible DAGs.
+              </p>
+            ) : (
+              <>
+                {availableDAGsError && (
+                  <Alert variant="destructive">
+                    <AlertDescription className="flex flex-wrap items-center justify-between gap-2">
+                      <span>{availableDAGsError}</span>
+                      {onRetryAvailableDAGs && (
+                        <Button
+                          type="button"
+                          size="xs"
+                          variant="outline"
+                          disabled={availableDAGsLoading}
+                          onClick={onRetryAvailableDAGs}
+                        >
+                          Retry
+                        </Button>
+                      )}
+                    </AlertDescription>
+                  </Alert>
+                )}
+                {availableDAGsLoading && (
+                  <p className="text-xs text-muted-foreground">
+                    Searching compatible DAGs…
                   </p>
                 )}
-              </div>
-            </div>
-          )}
+              </>
+            )}
+            {dagSearch.trim() &&
+              !availableDAGsLoading &&
+              !availableDAGsError && (
+                <div className="max-h-64 divide-y divide-border overflow-auto rounded-md border border-border">
+                  {availableDAGs.map((dag) => {
+                    const selected = definition.dags.includes(dag.fileName);
+                    return (
+                      <label
+                        key={dag.fileName}
+                        className="flex cursor-pointer items-start gap-3 p-3 hover:bg-muted/50"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selected}
+                          disabled={builderReadOnly}
+                          onChange={() =>
+                            updateControllerDAGs(
+                              selected
+                                ? definition.dags.filter(
+                                    (candidate) => candidate !== dag.fileName
+                                  )
+                                : [...definition.dags, dag.fileName]
+                            )
+                          }
+                          className="mt-1"
+                        />
+                        <span className="min-w-0">
+                          <span className="block font-mono text-sm font-medium">
+                            {dag.fileName}
+                          </span>
+                          {dag.description && (
+                            <span className="block truncate text-xs text-muted-foreground">
+                              {dag.description}
+                            </span>
+                          )}
+                        </span>
+                      </label>
+                    );
+                  })}
+                  {availableDAGs.length === 0 && (
+                    <p className="p-4 text-center text-xs text-muted-foreground">
+                      No compatible DAGs match this search.
+                    </p>
+                  )}
+                </div>
+              )}
+          </div>
         </CardContent>
       </Card>
 

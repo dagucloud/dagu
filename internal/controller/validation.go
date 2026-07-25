@@ -293,9 +293,6 @@ func validateDefinitionStatic(definition *Definition, requireID bool) error {
 		}
 	}
 	issues = append(issues, validateName(definition.Name)...)
-	if strings.TrimSpace(definition.Description) == "" {
-		issues = append(issues, issue("required", "description", "must contain non-whitespace text"))
-	}
 	if len(definition.Description) > maxDescriptionBytes {
 		issues = append(issues, issue("size_limit", "description", fmt.Sprintf("must not exceed %d bytes", maxDescriptionBytes)))
 	}
@@ -369,7 +366,7 @@ func validateLLM(config ControllerRouterLLMConfig) []ValidationIssue {
 	if config.Provider == "" {
 		issues = append(issues, issue("required", "llm.provider", "is required"))
 	} else if _, ok := controllerProviderType(config.Provider); !ok {
-		issues = append(issues, issue("unsupported_provider", "llm.provider", "must be one of openai, anthropic, or gemini"))
+		issues = append(issues, issue("unsupported_provider", "llm.provider", "must be a supported chat.completion provider"))
 	}
 	if strings.TrimSpace(config.Model) == "" {
 		issues = append(issues, issue("required", "llm.model", "must contain non-whitespace text"))
@@ -440,9 +437,6 @@ func validateGraph(definition *Definition) []ValidationIssue {
 		basePath := "states." + name
 		if !stateNamePattern.MatchString(name) {
 			issues = append(issues, issue("invalid_state_name", basePath, "State name must match ^[A-Za-z][A-Za-z0-9_-]{0,63}$"))
-		}
-		if strings.TrimSpace(state.Description) == "" {
-			issues = append(issues, issue("required", basePath+".description", "must contain non-whitespace text"))
 		}
 		if len(state.Description) > maxDescriptionBytes {
 			issues = append(issues, issue("size_limit", basePath+".description", fmt.Sprintf("must not exceed %d bytes", maxDescriptionBytes)))

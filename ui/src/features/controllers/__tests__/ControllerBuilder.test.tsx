@@ -22,6 +22,7 @@ function BuilderHarness({
   onRetryDAGOptions?: () => void;
 }) {
   const [draftDirty, setDraftDirty] = React.useState(false);
+  const [dagSearch, setDAGSearch] = React.useState('');
   const [definition, setDefinition] = React.useState<ControllerDefinition>(
     () => {
       const draft = createControllerDraft('ops');
@@ -46,6 +47,8 @@ function BuilderHarness({
       <ControllerBuilder
         definition={definition}
         workspace="ops"
+        dagSearch={dagSearch}
+        onDAGSearchChange={setDAGSearch}
         availableDAGs={[
           {
             fileName: 'triage',
@@ -106,7 +109,14 @@ describe('ControllerBuilder', () => {
       name: 'Controller DAG allowlist',
     });
     expect(dagList).toHaveValue('');
+    expect(
+      screen.queryByRole('checkbox', { name: /triage/i })
+    ).not.toBeInTheDocument();
 
+    await user.type(
+      screen.getByRole('textbox', { name: 'Search compatible DAGs' }),
+      'triage'
+    );
     await user.click(screen.getByRole('checkbox', { name: /triage/i }));
 
     await waitFor(() => expect(dagList).toHaveValue('triage'));
@@ -122,6 +132,8 @@ describe('ControllerBuilder', () => {
       <ControllerBuilder
         definition={definition}
         workspace="ops"
+        dagSearch=""
+        onDAGSearchChange={() => {}}
         onChange={onChange}
       />
     );
@@ -208,6 +220,10 @@ describe('ControllerBuilder', () => {
       />
     );
 
+    await user.type(
+      screen.getByRole('textbox', { name: 'Search compatible DAGs' }),
+      'triage'
+    );
     expect(screen.getByText('Could not load compatible DAGs')).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Retry' }));
     expect(retry).toHaveBeenCalledOnce();

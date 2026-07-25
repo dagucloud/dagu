@@ -5,7 +5,6 @@ import type { JSONSchema } from '@/lib/schema-utils';
 import {
   CONTROLLER_DAG_NAME_PATTERN,
   CONTROLLER_ID_PATTERN,
-  CONTROLLER_LLM_PROVIDERS,
   CONTROLLER_STATE_NAME_PATTERN,
   DEFAULT_CONTROLLER_MAX_TURNS,
   MAX_CONTROLLER_DAGS,
@@ -23,7 +22,7 @@ export const controllerSchema: JSONSchema = {
   title: 'Controller',
   type: 'object',
   additionalProperties: false,
-  required: ['type', 'version', 'name', 'description', 'llm', 'dags', 'states'],
+  required: ['type', 'version', 'name', 'llm', 'dags', 'states'],
   properties: {
     type: { type: 'string', const: 'controller' },
     version: { type: 'integer', const: 1 },
@@ -39,7 +38,6 @@ export const controllerSchema: JSONSchema = {
     },
     description: {
       type: 'string',
-      pattern: '\\S',
       maxLength: MAX_CONTROLLER_DESCRIPTION_BYTES,
     },
     maxTurns: {
@@ -54,7 +52,7 @@ export const controllerSchema: JSONSchema = {
       additionalProperties: false,
       required: ['provider', 'model'],
       properties: {
-        provider: { type: 'string', enum: CONTROLLER_LLM_PROVIDERS },
+        provider: { type: 'string', pattern: '\\S' },
         model: { type: 'string', pattern: '\\S' },
         system: {
           type: 'string',
@@ -76,11 +74,9 @@ export const controllerSchema: JSONSchema = {
       additionalProperties: {
         type: 'object',
         additionalProperties: false,
-        required: ['description'],
         properties: {
           description: {
             type: 'string',
-            pattern: '\\S',
             maxLength: MAX_CONTROLLER_DESCRIPTION_BYTES,
           },
           dags: {

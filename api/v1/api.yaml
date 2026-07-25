@@ -9774,8 +9774,7 @@ components:
       properties:
         provider:
           type: string
-          enum: [openai, anthropic, gemini]
-          description: "Registered LLM provider name"
+          description: "LLM provider accepted by chat.completion"
         model:
           type: string
           description: "Provider-specific model identifier"

@@ -122,16 +122,8 @@ func environmentProvider(config ControllerRouterLLMConfig) (llm.Provider, error)
 }
 
 func controllerProviderType(provider string) (llm.ProviderType, bool) {
-	switch provider {
-	case "openai":
-		return llm.ProviderOpenAI, true
-	case "anthropic":
-		return llm.ProviderAnthropic, true
-	case "gemini":
-		return llm.ProviderGemini, true
-	default:
-		return "", false
-	}
+	providerType, err := llm.ParseProviderType(provider)
+	return providerType, err == nil
 }
 
 // Router produces one validated Controller routing decision.
