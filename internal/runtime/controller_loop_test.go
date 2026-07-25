@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path"
@@ -41,9 +42,41 @@ type turn struct {
 // fakeModel serves the OpenAI-compatible chat completions API, replying with a
 // fixed script of decisions so the controller loop can be driven deterministically.
 type fakeModel struct {
-	mu    sync.Mutex
-	turns []turn
-	calls int
+	mu     sync.Mutex
+	turns  []turn
+	calls  int
+	system string
+}
+
+// lastSystemPrompt returns the system message of the most recent request.
+func (m *fakeModel) lastSystemPrompt() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.system
+}
+
+// captureSystem records the system message so tests can assert on the prompt.
+func (m *fakeModel) captureSystem(r *http.Request) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		return
+	}
+	var req struct {
+		Messages []struct {
+			Role    string `json:"role"`
+			Content string `json:"content"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, msg := range req.Messages {
+		if msg.Role == "system" {
+			m.system = msg.Content
+		}
+	}
 }
 
 func (m *fakeModel) next() (turn, bool) {
@@ -63,7 +96,8 @@ func (m *fakeModel) callCount() int {
 	return m.calls
 }
 
-func (m *fakeModel) ServeHTTP(w http.ResponseWriter, _ *http.Request) {
+func (m *fakeModel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	m.captureSystem(r)
 	t, ok := m.next()
 	if !ok {
 		// Exhausted script: answer without acting so the loop cannot spin.
@@ -591,4 +625,48 @@ func TestControllerLoop_RejectsAnUnknownTaskStatus(t *testing.T) {
 	require.Equal(t, core.Succeeded, ch.run(t))
 	assert.Contains(t, transcript(ch.node(t, core.ControllerStepName).GetChatMessages()),
 		`"done-ish" is not a task status`)
+}
+
+const controllerParamsDAG = `
+type: controller
+params:
+  - GOAL: shipped
+llm:
+  provider: local
+  model: test-model
+  base_url: %s
+  system: |
+    The operator's instruction is ${params.GOAL}.
+steps:
+  - name: alpha
+    run: echo alpha
+tasks:
+  - name: only
+    description: Finished when ${params.GOAL} is true.
+`
+
+// TestControllerLoop_ResolvesPromptVariables covers parameterised instructions:
+// the system prompt and the task descriptions are author-written prompt text, so
+// a run can be steered by its params rather than by editing the DAG.
+func TestControllerLoop_ResolvesPromptVariables(t *testing.T) {
+	t.Parallel()
+
+	ch := setupController(t, controllerParamsDAG,
+		turn{tool: controller.SetTaskStatusTool, args: map[string]any{
+			"task": "only", "status": "completed", "reason": "ok"}},
+	)
+	require.Equal(t, core.Succeeded, ch.run(t))
+
+	// The description the controller judged against is the resolved one, and it
+	// is what gets persisted.
+	tasks := controller.TasksFromState(
+		ch.node(t, core.ControllerStepName).State().ControllerState)
+	require.Len(t, tasks, 1)
+	assert.Equal(t, "Finished when shipped is true.", tasks[0].Description)
+	assert.NotContains(t, tasks[0].Description, "${")
+
+	// The prompt reached the model with the parameter expanded.
+	system := ch.model.lastSystemPrompt()
+	assert.Contains(t, system, "The operator's instruction is shipped.")
+	assert.NotContains(t, system, "${params.GOAL}")
 }

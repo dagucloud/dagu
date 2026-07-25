@@ -58,13 +58,20 @@ type Planner struct {
 }
 
 // NewPlanner builds a planner over a provider and an action catalog. The system
-// prompt configured on the DAG is prepended to the controller's own framing.
-func NewPlanner(provider llmpkg.Provider, cfg *core.LLMConfig, catalog *Catalog) *Planner {
-	system := ""
-	if cfg != nil {
-		system = strings.TrimSpace(cfg.System)
+// prompt is prepended to the controller's own framing; callers pass it already
+// resolved, so a workflow can parameterise its instructions.
+func NewPlanner(
+	provider llmpkg.Provider,
+	cfg *core.LLMConfig,
+	catalog *Catalog,
+	system string,
+) *Planner {
+	return &Planner{
+		provider: provider,
+		cfg:      cfg,
+		catalog:  catalog,
+		system:   strings.TrimSpace(system),
 	}
-	return &Planner{provider: provider, cfg: cfg, catalog: catalog, system: system}
 }
 
 // Next runs one turn of the decision loop. The conversation in st is extended

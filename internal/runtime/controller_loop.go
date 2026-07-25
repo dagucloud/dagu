@@ -15,6 +15,7 @@ import (
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/cmn/stringutil"
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/runtime/controller"
@@ -68,7 +69,20 @@ func (r *Runner) runControllerLoop(ctx context.Context, plan *Plan, progressCh c
 		r.failController(ctrlCtx, plan, ctrlNode, err, progressCh)
 		return
 	}
-	planner := controller.NewPlanner(provider, dag.LLM, catalog)
+	// The system prompt and the task descriptions are author-written prompt
+	// text, so they take variables the same way any other workflow field does.
+	system, err := resolveRuntimeString(
+		ctrlCtx, dag.LLM.System, cmnvalue.WorkflowField("llm.system"))
+	if err != nil {
+		r.failController(ctrlCtx, plan, ctrlNode, fmt.Errorf(
+			"failed to evaluate llm.system: %w", err), progressCh)
+		return
+	}
+	if err := resolveTaskDescriptions(ctrlCtx, state); err != nil {
+		r.failController(ctrlCtx, plan, ctrlNode, err, progressCh)
+		return
+	}
+	planner := controller.NewPlanner(provider, dag.LLM, catalog, system)
 
 	// A run that suspended mid-action resumes here: report what became of the
 	// action before asking for the next decision.
@@ -311,6 +325,20 @@ func recordActionEvent(state *controller.State, step string, attempt int, node *
 		event.ChildDAGName = nodeState.SubRuns[0].DAGName
 	}
 	state.RecordEvent(event)
+}
+
+// resolveTaskDescriptions expands variables in the completion criteria the
+// controller judges against, so they can be parameterised per run.
+func resolveTaskDescriptions(ctx context.Context, state *controller.State) error {
+	for i, task := range state.Tasks {
+		resolved, err := resolveRuntimeString(
+			ctx, task.Description, cmnvalue.WorkflowField("tasks.description"))
+		if err != nil {
+			return fmt.Errorf("failed to evaluate description of task %q: %w", task.Name, err)
+		}
+		state.Tasks[i].Description = resolved
+	}
+	return nil
 }
 
 // declaredStep returns the step as written in the DAG, falling back to the

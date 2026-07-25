@@ -82,6 +82,12 @@ when `type` is `controller`, and `type: controller` requires it.
 `llm` MUST be present. Its `system` value, when set, is prepended to the
 controller's own framing rather than replacing it.
 
+`llm.system` and every task `description` are author-written prompt text and
+MUST be resolved against the run's variables before the controller sees them, so
+a workflow can be steered by its parameters without editing the DAG. The
+resolved description is what gets persisted, since it is what the controller
+judged against.
+
 `llm.max_tool_iterations` bounds the number of decisions in a single run. When
 unset the bound is 50.
 
