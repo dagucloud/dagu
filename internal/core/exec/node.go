@@ -41,6 +41,9 @@ type Node struct {
 	OutputsValue     *string              `json:"outputsValue,omitempty"`
 	StepOutputsValue *string              `json:"stepOutputsValue,omitempty"`
 	HumanTaskInput   json.RawMessage      `json:"humanTaskInput,omitempty"`
+	// ControllerState stores the goal progress of a controller DAG's controller
+	// step, so a suspended run resumes with its task list intact.
+	ControllerState json.RawMessage `json:"controllerState,omitempty"`
 	// HumanTaskCompletedBy records who completed this human task.
 	HumanTaskCompletedBy string `json:"humanTaskCompletedBy,omitempty"`
 	// HumanTaskCompletedByID records the subject ID that completed this human task.

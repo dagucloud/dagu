@@ -185,6 +185,113 @@ func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan *Node) err
 		}
 	}
 
+	if rCtx.DAG.IsController() {
+		r.runControllerLoop(ctx, plan, progressCh)
+	} else {
+		r.runGraphLoop(ctx, plan, nodes, progressCh)
+	}
+
+	// Collect final metrics
+	r.metrics.totalExecutionTime = time.Since(r.metrics.startTime)
+
+	var eventHandlers []core.HandlerType
+	finalStatus := r.Status(ctx, plan)
+	switch finalStatus {
+	case core.Succeeded:
+		eventHandlers = append(eventHandlers, core.HandlerOnSuccess)
+
+	case core.PartiallySucceeded:
+		// PartialSuccess is treated as success since primary work was completed
+		// despite some non-critical failures that were allowed to continue
+		eventHandlers = append(eventHandlers, core.HandlerOnSuccess)
+
+	case core.Failed:
+		if r.shouldRunFailureHandler(finalStatus) {
+			eventHandlers = append(eventHandlers, core.HandlerOnFailure)
+		} else {
+			logger.Info(ctx, "Skipping failure handler while DAG auto-retry is pending",
+				slog.Int("autoRetryCount", r.dagRunAutoRetryCount),
+				slog.Int("autoRetryLimit", r.dagRunAutoRetryLimit),
+			)
+		}
+
+	case core.Aborted:
+		eventHandlers = append(eventHandlers, core.HandlerOnAbort)
+
+	case core.Rejected:
+		eventHandlers = append(eventHandlers, core.HandlerOnFailure)
+
+	case core.Waiting:
+		// Execute onWait handler before terminating
+		r.handlerMu.RLock()
+		handlerNode := r.handlers[core.HandlerOnWait]
+		r.handlerMu.RUnlock()
+
+		if handlerNode != nil {
+			// Set DAG_WAITING_STEPS environment variable
+			waitingSteps := strings.Join(plan.WaitingStepNames(), ",")
+
+			logger.Info(ctx, "Executing onWait handler",
+				slog.String("waitingSteps", waitingSteps),
+			)
+
+			if err := r.runEventHandler(ctx, plan, handlerNode, map[string]string{
+				exec.EnvKeyDAGWaitingSteps: waitingSteps,
+			}); err != nil {
+				// Log error but don't fail - notification failure shouldn't block Wait status
+				logger.Error(ctx, "onWait handler failed", tag.Error(err))
+			}
+
+			if progressCh != nil {
+				progressCh <- handlerNode
+			}
+		}
+
+		logger.Info(ctx, "DAG waiting for human input")
+		return r.lastError
+
+	case core.Queued:
+		logger.Info(ctx, "DAG queued for pending step retry")
+		return r.lastError
+
+	case core.NotStarted, core.Running:
+		// These states should not occur at this point
+		logger.Warn(ctx, "Unexpected final status",
+			tag.Status(finalStatus.String()),
+		)
+	}
+
+	eventHandlers = append(eventHandlers, core.HandlerOnExit)
+
+	r.handlerMu.RLock()
+	defer r.handlerMu.RUnlock()
+
+	for _, handler := range eventHandlers {
+		if handlerNode := r.handlers[handler]; handlerNode != nil {
+			logger.Debug(ctx, "Handler execution started",
+				tag.Handler(handlerNode.Name()),
+			)
+			if err := r.runEventHandler(ctx, plan, handlerNode, nil); err != nil {
+				r.setLastError(err)
+			}
+
+			if progressCh != nil {
+				progressCh <- handlerNode
+			}
+		}
+	}
+
+	logger.Debug(ctx, "Runner execution complete",
+		tag.Status(r.Status(ctx, plan).String()),
+		tag.Error(r.lastError),
+	)
+
+	return r.lastError
+}
+
+// runGraphLoop runs dependency-ordered execution: every node whose dependencies
+// are satisfied is dispatched, up to the active-run limit.
+func (r *Runner) runGraphLoop(ctx context.Context, plan *Plan, nodes []*Node, progressCh chan *Node) {
 	// Channels for event loop
 	// Buffer size = total nodes to avoid blocking
 	readyCh := make(chan *Node, len(nodes))
@@ -316,103 +423,6 @@ func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan *Node) err
 	}
 
 	wg.Wait()
-
-	// Collect final metrics
-	r.metrics.totalExecutionTime = time.Since(r.metrics.startTime)
-
-	var eventHandlers []core.HandlerType
-	finalStatus := r.Status(ctx, plan)
-	switch finalStatus {
-	case core.Succeeded:
-		eventHandlers = append(eventHandlers, core.HandlerOnSuccess)
-
-	case core.PartiallySucceeded:
-		// PartialSuccess is treated as success since primary work was completed
-		// despite some non-critical failures that were allowed to continue
-		eventHandlers = append(eventHandlers, core.HandlerOnSuccess)
-
-	case core.Failed:
-		if r.shouldRunFailureHandler(finalStatus) {
-			eventHandlers = append(eventHandlers, core.HandlerOnFailure)
-		} else {
-			logger.Info(ctx, "Skipping failure handler while DAG auto-retry is pending",
-				slog.Int("autoRetryCount", r.dagRunAutoRetryCount),
-				slog.Int("autoRetryLimit", r.dagRunAutoRetryLimit),
-			)
-		}
-
-	case core.Aborted:
-		eventHandlers = append(eventHandlers, core.HandlerOnAbort)
-
-	case core.Rejected:
-		eventHandlers = append(eventHandlers, core.HandlerOnFailure)
-
-	case core.Waiting:
-		// Execute onWait handler before terminating
-		r.handlerMu.RLock()
-		handlerNode := r.handlers[core.HandlerOnWait]
-		r.handlerMu.RUnlock()
-
-		if handlerNode != nil {
-			// Set DAG_WAITING_STEPS environment variable
-			waitingSteps := strings.Join(plan.WaitingStepNames(), ",")
-
-			logger.Info(ctx, "Executing onWait handler",
-				slog.String("waitingSteps", waitingSteps),
-			)
-
-			if err := r.runEventHandler(ctx, plan, handlerNode, map[string]string{
-				exec.EnvKeyDAGWaitingSteps: waitingSteps,
-			}); err != nil {
-				// Log error but don't fail - notification failure shouldn't block Wait status
-				logger.Error(ctx, "onWait handler failed", tag.Error(err))
-			}
-
-			if progressCh != nil {
-				progressCh <- handlerNode
-			}
-		}
-
-		logger.Info(ctx, "DAG waiting for human input")
-		return r.lastError
-
-	case core.Queued:
-		logger.Info(ctx, "DAG queued for pending step retry")
-		return r.lastError
-
-	case core.NotStarted, core.Running:
-		// These states should not occur at this point
-		logger.Warn(ctx, "Unexpected final status",
-			tag.Status(finalStatus.String()),
-		)
-	}
-
-	eventHandlers = append(eventHandlers, core.HandlerOnExit)
-
-	r.handlerMu.RLock()
-	defer r.handlerMu.RUnlock()
-
-	for _, handler := range eventHandlers {
-		if handlerNode := r.handlers[handler]; handlerNode != nil {
-			logger.Debug(ctx, "Handler execution started",
-				tag.Handler(handlerNode.Name()),
-			)
-			if err := r.runEventHandler(ctx, plan, handlerNode, nil); err != nil {
-				r.setLastError(err)
-			}
-
-			if progressCh != nil {
-				progressCh <- handlerNode
-			}
-		}
-	}
-
-	logger.Debug(ctx, "Runner execution complete",
-		tag.Status(r.Status(ctx, plan).String()),
-		tag.Error(r.lastError),
-	)
-
-	return r.lastError
 }
 
 func (r *Runner) shouldRunFailureHandler(status core.Status) bool {
@@ -1429,7 +1439,9 @@ func (r *Runner) finishNode(node *Node, wg *sync.WaitGroup) {
 	if node.State().Status != core.NodeWaiting || node.Step().HumanTask == nil {
 		node.Finish()
 	}
-	wg.Done()
+	if wg != nil {
+		wg.Done()
+	}
 }
 
 func externalStepRetryEnabled(ctx context.Context) bool {
@@ -1696,6 +1708,21 @@ func addPlanPredecessorStepsToEnv(env *Env, plan *Plan, node *Node) {
 func planPredecessorNodes(plan *Plan, node *Node) []*Node {
 	if plan == nil || node == nil {
 		return nil
+	}
+
+	// A controller plan has no edges: the controller picks the order, so every
+	// action it has already run is upstream of the one starting now.
+	if plan.IsController() {
+		var nodes []*Node
+		for _, candidate := range plan.Nodes() {
+			if candidate.ID() == node.ID() || candidate.Name() == core.ControllerStepName {
+				continue
+			}
+			if candidate.State().Status.IsDone() {
+				nodes = append(nodes, candidate)
+			}
+		}
+		return nodes
 	}
 
 	visited := make(map[int]struct{})

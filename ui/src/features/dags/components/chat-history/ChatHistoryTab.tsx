@@ -9,6 +9,9 @@ import { StepMessagesTable } from './StepMessagesTable';
 
 type DAGRunDetails = components['schemas']['DAGRunDetails'];
 
+/** Executor types whose steps persist an LLM transcript. */
+const LLM_STEP_TYPES = ['chat', 'controller'];
+
 interface ChatHistoryTabProps {
   dagRun: DAGRunDetails;
 }
@@ -17,8 +20,8 @@ export function ChatHistoryTab({ dagRun }: ChatHistoryTabProps) {
   // Find all LLM-backed steps that persist message history.
   const historySteps = useMemo(() => {
     return (
-      dagRun.nodes?.filter(
-        (node) => node.step.executorConfig?.type === 'chat'
+      dagRun.nodes?.filter((node) =>
+        LLM_STEP_TYPES.includes(node.step.executorConfig?.type ?? '')
       ) || []
     );
   }, [dagRun.nodes]);

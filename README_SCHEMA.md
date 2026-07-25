@@ -50,6 +50,9 @@ The root `type:` controls how the workflow executes:
   parallel.
 - `graph` is the default when `type:` is omitted.
 - `chain` runs steps in order.
+- `controller` turns `steps:` into a catalog of actions and lets the configured
+  LLM choose which one runs next until every entry in `tasks:` is complete. It
+  requires `llm:` and `tasks:`, and forbids `depends:`.
 
 Do not confuse root `type:` with legacy step-level `type:`. Step-level
 `type:` is deprecated; use `action:` for named executors.

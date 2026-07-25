@@ -4354,6 +4354,13 @@ export interface components {
         /** @description Detailed DAG configuration information */
         DAGDetails: {
             /**
+             * @description Execution type. 'graph' resolves dependencies, 'chain' runs steps in order, 'controller' lets an LLM choose each step.
+             * @enum {string}
+             */
+            type?: DAGDetailsType;
+            /** @description Goals a controller DAG must satisfy. Present only for type controller. */
+            tasks?: components["schemas"]["ControllerTask"][];
+            /**
              * Format: date-time
              * @description Scheduler-aware next planned run time. Pending overdue one-offs remain visible until consumed.
              */
@@ -4611,6 +4618,8 @@ export interface components {
             onAbort?: components["schemas"]["Node"];
             /** @description List of preconditions that must be met before the DAG-run can start */
             preconditions?: components["schemas"]["Condition"][];
+            /** @description Goal progress of a controller DAG-run. Absent for other DAG types. */
+            controllerTasks?: components["schemas"]["ControllerTask"][];
             /** @description Whether this DAG-run still has a usable source file on disk, so reschedule can load the current spec from that file instead of the stored historical YAML snapshot. */
             specFromFile?: boolean;
             /** @description File name of the source DAG definition, derived from the DAG-run's source file path. Only set when the source file still exists on disk. Can be used to navigate to the DAG definition page. */
@@ -4697,6 +4706,17 @@ export interface components {
             completedAt: string;
             /** @description JSON-serialized parameters passed to the DAG */
             params?: string;
+        };
+        /** @description A goal a controller DAG must satisfy before the run concludes */
+        ControllerTask: {
+            /** @description Unique task name */
+            name: string;
+            /** @description Completion criteria the controller decides against */
+            description?: string;
+            /** @description Whether the controller has marked this task complete */
+            done: boolean;
+            /** @description Justification the controller gave when completing the task */
+            reason?: string;
         };
         /** @description Status of an individual step within a DAG-run */
         Node: {
@@ -16797,6 +16817,11 @@ export enum WorkerHealthStatus {
     healthy = "healthy",
     warning = "warning",
     unhealthy = "unhealthy"
+}
+export enum DAGDetailsType {
+    graph = "graph",
+    chain = "chain",
+    controller = "controller"
 }
 export enum ValueReferenceNoticeReason {
     unknown_step_id = "unknown_step_id",

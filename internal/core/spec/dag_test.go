@@ -405,6 +405,11 @@ func TestBuildType(t *testing.T) {
 			expected: core.TypeChain,
 		},
 		{
+			name:     "ControllerType",
+			input:    "controller",
+			expected: core.TypeController,
+		},
+		{
 			name:    "InvalidType",
 			input:   "invalid",
 			wantErr: true,

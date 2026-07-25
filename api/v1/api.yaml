@@ -11197,6 +11197,15 @@ components:
       type: object
       description: "Detailed DAG configuration information"
       properties:
+        type:
+          type: string
+          enum: [graph, chain, controller]
+          description: "Execution type. 'graph' resolves dependencies, 'chain' runs steps in order, 'controller' lets an LLM choose each step."
+        tasks:
+          type: array
+          description: "Goals a controller DAG must satisfy. Present only for type controller."
+          items:
+            $ref: "#/components/schemas/ControllerTask"
         nextRun:
           type: string
           format: date-time
@@ -11660,6 +11669,11 @@ components:
               description: "List of preconditions that must be met before the DAG-run can start"
               items:
                 $ref: "#/components/schemas/Condition"
+            controllerTasks:
+              type: array
+              description: "Goal progress of a controller DAG-run. Absent for other DAG types."
+              items:
+                $ref: "#/components/schemas/ControllerTask"
             specFromFile:
               type: boolean
               description: "Whether this DAG-run still has a usable source file on disk, so reschedule can load the current spec from that file instead of the stored historical YAML snapshot."
@@ -11811,6 +11825,26 @@ components:
         params:
           type: string
           description: "JSON-serialized parameters passed to the DAG"
+
+    ControllerTask:
+      type: object
+      description: "A goal a controller DAG must satisfy before the run concludes"
+      required:
+        - name
+        - done
+      properties:
+        name:
+          type: string
+          description: "Unique task name"
+        description:
+          type: string
+          description: "Completion criteria the controller decides against"
+        done:
+          type: boolean
+          description: "Whether the controller has marked this task complete"
+        reason:
+          type: string
+          description: "Justification the controller gave when completing the task"
 
     Node:
       type: object

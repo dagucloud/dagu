@@ -231,9 +231,29 @@
     },
     "type": {
       "type": "string",
-      "enum": ["graph", "chain"],
+      "enum": ["graph", "chain", "controller"],
       "default": "graph",
-      "description": "Execution type for steps. 'graph' (default) uses dependency-based execution where steps run based on their 'depends' field. 'chain' executes steps sequentially in the order they are defined, with each step automatically depending on the previous one."
+      "description": "Execution type for steps. 'graph' (default) uses dependency-based execution where steps run based on their 'depends' field. 'chain' executes steps sequentially in the order they are defined, with each step automatically depending on the previous one. 'controller' turns the steps into a catalog of actions and lets the configured LLM choose which one runs next until every entry in 'tasks' is complete."
+    },
+    "tasks": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Goals a controller DAG must satisfy before it concludes successfully. Requires type: controller.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "description"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Unique task identifier."
+          },
+          "description": {
+            "type": "string",
+            "description": "States when the task is considered complete. The controller decides against this text."
+          }
+        }
+      }
     },
     "env": {
       "oneOf": [

@@ -93,6 +93,8 @@ Accepted root fields:
 | `consts` | No | Immutable literal values. |
 | `defaults` | No | Default step settings. |
 | `steps` | Yes | Executable steps. |
+| `type` | No | Step scheduling mode: `graph`, `chain`, or `controller`. |
+| `tasks` | Only with `type: controller` | Goals a controller run must satisfy. |
 | `handler_on` | No | Lifecycle handler steps. |
 | `preconditions` | No | Workflow start conditions. |
 | `retry_policy` | No | Workflow retry policy. |

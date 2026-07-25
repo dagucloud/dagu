@@ -9,6 +9,7 @@ import (
 	_ "github.com/dagucloud/dagu/internal/runtime/builtin/artifact"
 	_ "github.com/dagucloud/dagu/internal/runtime/builtin/chat"
 	_ "github.com/dagucloud/dagu/internal/runtime/builtin/command"
+	_ "github.com/dagucloud/dagu/internal/runtime/builtin/controller"
 	_ "github.com/dagucloud/dagu/internal/runtime/builtin/dag"
 	_ "github.com/dagucloud/dagu/internal/runtime/builtin/data"
 	_ "github.com/dagucloud/dagu/internal/runtime/builtin/docker"

@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/humantask"
+	"github.com/dagucloud/dagu/internal/runtime/controller"
 )
 
 const maxIntValue = int(^uint(0) >> 1)
@@ -367,6 +368,7 @@ func ToDAGRunDetails(s exec.DAGRunStatus) api.DAGRunDetails {
 	}
 
 	return api.DAGRunDetails{
+		ControllerTasks:        controllerTaskProgress(s.Nodes),
 		RootDAGRunName:         s.Root.Name,
 		RootDAGRunId:           s.Root.ID,
 		ParentDAGRunName:       ptrOf(s.Parent.Name),
@@ -561,6 +563,8 @@ func toDAGDetails(dag *core.DAG) *api.DAGDetails {
 	}
 
 	return &api.DAGDetails{
+		Type:              controllerDAGType(dag.Type),
+		Tasks:             declaredControllerTasks(dag),
 		Artifacts:         artifacts,
 		Name:              dag.Name,
 		Description:       ptrOf(dag.Description),
@@ -585,6 +589,57 @@ func toDAGDetails(dag *core.DAG) *api.DAGDetails {
 		Tags:              ptrOf(dag.Labels.Strings()),
 		RunConfig:         runConfig,
 	}
+}
+
+// controllerDAGType exposes the DAG execution type, which the UI uses to decide
+// whether controller-specific views apply.
+func controllerDAGType(dagType string) *api.DAGDetailsType {
+	if dagType == "" {
+		return nil
+	}
+	return ptrOf(api.DAGDetailsType(dagType))
+}
+
+// declaredControllerTasks lists the goals a controller DAG declares, before any
+// run has made progress against them.
+func declaredControllerTasks(dag *core.DAG) *[]api.ControllerTask {
+	if len(dag.Tasks) == 0 {
+		return nil
+	}
+	tasks := make([]api.ControllerTask, 0, len(dag.Tasks))
+	for _, task := range dag.Tasks {
+		tasks = append(tasks, api.ControllerTask{
+			Name:        task.Name,
+			Description: ptrOf(task.Description),
+			Done:        false,
+		})
+	}
+	return &tasks
+}
+
+// controllerTaskProgress reports goal progress recorded by the controller step
+// of a controller DAG-run.
+func controllerTaskProgress(nodes []*exec.Node) *[]api.ControllerTask {
+	for _, node := range nodes {
+		if node == nil || node.Step.Name != core.ControllerStepName {
+			continue
+		}
+		states := controller.TasksFromState(node.ControllerState)
+		if len(states) == 0 {
+			return nil
+		}
+		tasks := make([]api.ControllerTask, 0, len(states))
+		for _, state := range states {
+			tasks = append(tasks, api.ControllerTask{
+				Name:        state.Name,
+				Description: ptrOf(state.Description),
+				Done:        state.Done,
+				Reason:      ptrOf(state.Reason),
+			})
+		}
+		return &tasks
+	}
+	return nil
 }
 
 func toJSONObject(raw json.RawMessage) *map[string]any {

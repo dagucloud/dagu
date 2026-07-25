@@ -13,6 +13,7 @@ import {
   Archive,
   ClipboardCheck,
   FileCode,
+  ListChecks,
   GanttChart,
   GripHorizontal,
   MessageSquare,
@@ -37,6 +38,7 @@ import { updateDAGRunNodeStatus } from '../lib/nodeStatus';
 import { ApprovalTab } from './approval';
 import ArtifactsTab from './artifacts/ArtifactsTab';
 import { ChatHistoryTab } from './chat-history';
+import { TaskChecklistTab } from './controller';
 import { DAGStatusOverview, NodeStatusTable } from './dag-details';
 import { DAGSpecReadOnly } from './dag-editor';
 import { StepDetailsDrawer } from './step-details';
@@ -62,6 +64,7 @@ export type StatusTab =
   | 'outputs'
   | 'artifacts'
   | 'chat'
+  | 'tasks'
   | 'spec'
   | 'approval'
   | 'human-tasks';
@@ -396,10 +399,14 @@ function DAGStatus({
   // Check if timeline should be shown (any status except not started)
   const showTimeline = displayDAGRun.status !== Status.NotStarted;
 
-  // Check if there are any chat steps
-  const hasChatSteps = !!displayDAGRun.nodes?.some(
-    (node) => node.step.executorConfig?.type === 'chat'
+  // Chat and controller steps both persist an LLM transcript.
+  const hasChatSteps = !!displayDAGRun.nodes?.some((node) =>
+    ['chat', 'controller'].includes(node.step.executorConfig?.type ?? '')
   );
+
+  // Controller DAG-runs track goal progress alongside their steps.
+  const controllerTasks = displayDAGRun.controllerTasks ?? [];
+  const hasControllerTasks = controllerTasks.length > 0;
 
   const { waitingApprovalNodes, waitingHumanTaskNodes, hasHumanTaskWork } =
     getManualActionState(displayDAGRun);
@@ -425,6 +432,9 @@ function DAGStatus({
     if (activeTab === 'chat' && !hasChatSteps) {
       setActiveTab('status');
     }
+    if (activeTab === 'tasks' && !hasControllerTasks) {
+      setActiveTab('status');
+    }
     if (activeTab === 'approval' && !hasWaitingApprovals) {
       setActiveTab('status');
     }
@@ -437,6 +447,7 @@ function DAGStatus({
   }, [
     showTimeline,
     hasChatSteps,
+    hasControllerTasks,
     hasWaitingApprovals,
     hasHumanTaskWork,
     hasArtifacts,
@@ -548,6 +559,17 @@ function DAGStatus({
                 >
                   <Archive className="h-4 w-4" />
                   <span className="hidden sm:inline">Artifacts</span>
+                </Tab>
+              )}
+              {hasControllerTasks && (
+                <Tab
+                  aria-label="Tasks"
+                  isActive={activeTab === 'tasks'}
+                  onClick={() => setActiveTab('tasks')}
+                  className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
+                >
+                  <ListChecks className="h-4 w-4" />
+                  <span className="hidden sm:inline">Tasks</span>
                 </Tab>
               )}
               {hasChatSteps && (
@@ -720,6 +742,13 @@ function DAGStatus({
           className={fillHeight ? 'min-h-0 flex-1' : undefined}
           fillHeight={fillHeight}
         />
+      )}
+
+      {/* Tasks Tab Content */}
+      {activeTab === 'tasks' && hasControllerTasks && (
+        <div className={scrollPaneClassName}>
+          <TaskChecklistTab tasks={controllerTasks} />
+        </div>
       )}
 
       {/* Chat Tab Content */}

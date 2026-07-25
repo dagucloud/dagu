@@ -49,10 +49,13 @@ type dag struct {
 	Group string `yaml:"group,omitempty"`
 	// Description is the description of the DAG.
 	Description string `yaml:"description,omitempty"`
-	// Type is the execution type for steps (graph or chain).
+	// Type is the execution type for steps (graph, chain, or controller).
 	// Default is "graph" which uses dependency-based parallel execution.
 	// "chain" executes steps in the order they are defined.
+	// "controller" lets an LLM decide which step runs next.
 	Type string `yaml:"type,omitempty"`
+	// Tasks are the goals a controller DAG must satisfy before it concludes.
+	Tasks []controllerTask `yaml:"tasks,omitempty"`
 	// Shell is the default shell to use for all steps in this DAG.
 	// If not specified, the system default shell is used.
 	// Can be overridden at the step level.
@@ -625,8 +628,13 @@ var fullNotificationStage = transformStage{
 	{"otel", newTransformer("OTel", buildOTel)},
 }
 
+var fullControllerStage = transformStage{
+	{"tasks", newTransformer("Tasks", buildTasks)},
+}
+
 var fullTransformStages = []transformStage{
 	fullRunOutputStage,
+	fullControllerStage,
 	fullInteractionStage,
 	fullRetentionStage,
 	fullExecutionDefaultsStage,
@@ -775,6 +783,10 @@ func (s *dagBuildState) buildActionGraph() {
 	} else {
 		s.result.Steps = composeSteps(s.result.Steps, steps)
 	}
+
+	if err := injectControllerStep(s.result); err != nil {
+		s.errs = append(s.errs, err)
+	}
 }
 
 func (s *dagBuildState) validateResult() {
@@ -789,6 +801,10 @@ func (s *dagBuildState) validateResult() {
 				s.result.WorkerSelector,
 				fmt.Errorf("DAG with approval steps cannot be dispatched to workers"),
 			))
+		}
+
+		if err := core.ValidateController(s.result); err != nil {
+			s.errs = append(s.errs, err)
 		}
 	}
 
@@ -869,10 +885,10 @@ func buildType(_ BuildContext, d *dag) (string, error) {
 		return core.TypeGraph, nil
 	}
 	switch t {
-	case core.TypeGraph, core.TypeChain:
+	case core.TypeGraph, core.TypeChain, core.TypeController:
 		return t, nil
 	default:
-		return "", core.NewValidationError("type", t, fmt.Errorf("invalid type: %s (must be one of: graph, chain)", t))
+		return "", core.NewValidationError("type", t, fmt.Errorf("invalid type: %s (must be one of: graph, chain, controller)", t))
 	}
 }
 
