@@ -429,7 +429,7 @@ func (d *DAG) HasHumanTaskSteps() bool {
 		return false
 	}
 	for _, step := range d.Steps {
-		if step.HumanTask != nil && !IsSynthesizedControllerStep(step.Name) {
+		if step.HumanTask != nil && (!d.IsController() || !IsSynthesizedControllerStep(step.Name)) {
 			return true
 		}
 	}

@@ -248,3 +248,46 @@ tasks:
 	assert.True(t, withDeclared.HasHumanTaskSteps(),
 		"a declared human task still bars the DAG from being a child")
 }
+
+// TestControllerLLMKnobsReachTheDAG covers root llm fields a controller depends
+// on: a dropped max_tool_iterations silently replaces an author's cost limit
+// with the default.
+func TestControllerLLMKnobsReachTheDAG(t *testing.T) {
+	t.Parallel()
+
+	dag, err := spec.LoadYAML(t.Context(), []byte(`
+type: controller
+llm:
+  provider: anthropic
+  model: claude-opus-5
+  max_tool_iterations: 7
+steps:
+  - name: a
+    run: echo a
+tasks:
+  - name: t
+    description: d
+`))
+	require.NoError(t, err)
+	require.NotNil(t, dag.LLM.MaxToolIterations)
+	assert.Equal(t, 7, *dag.LLM.MaxToolIterations)
+	assert.Equal(t, 7, dag.ControllerMaxIterations())
+}
+
+// TestReservedControllerNamesAreRejectedInGraphDAGs keeps the synthesized names
+// unusable everywhere: the execution plan recognises a controller by them, and a
+// human task carrying one would otherwise slip past the sub-DAG prohibition.
+func TestReservedControllerNamesAreRejectedInGraphDAGs(t *testing.T) {
+	t.Parallel()
+
+	for _, name := range []string{core.ControllerStepName, core.AskUserStepName} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := spec.LoadYAML(t.Context(), []byte(
+				"steps:\n  - name: "+name+"\n    run: echo a\n"))
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "is reserved by type: controller")
+		})
+	}
+}

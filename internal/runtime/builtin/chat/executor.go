@@ -344,43 +344,6 @@ func evalMessages(ctx context.Context, msgs []exec.LLMMessage) ([]exec.LLMMessag
 	return result, nil
 }
 
-// resolveModels evaluates variable substitution in the provider and model name of
-// each entry. base_url is resolved later, in createProviderForModel, once shared
-// config has been merged in; api_key_name is not value-resolved at all, since it
-// names an environment variable that createProviderForModel reads.
-func resolveModels(ctx context.Context, models []core.ModelEntry) ([]core.ModelEntry, error) {
-	resolved := make([]core.ModelEntry, len(models))
-	for i, model := range models {
-		provider, err := runtime.ResolveString(ctx, model.Provider, cmnvalue.WorkflowField("llm.provider"))
-		if err != nil {
-			return nil, fmt.Errorf("failed to evaluate provider: %w", err)
-		}
-		if provider == "" {
-			return nil, emptyAfterResolution("provider", model.Provider)
-		}
-		name, err := runtime.ResolveString(ctx, model.Name, cmnvalue.WorkflowField("llm.model"))
-		if err != nil {
-			return nil, fmt.Errorf("failed to evaluate model: %w", err)
-		}
-		if name == "" {
-			return nil, emptyAfterResolution("model", model.Name)
-		}
-		resolved[i] = model
-		resolved[i].Provider = provider
-		resolved[i].Name = name
-	}
-	return resolved, nil
-}
-
-// emptyAfterResolution reports a required LLM field that has no value, naming the
-// reference that produced nothing when the field carried one.
-func emptyAfterResolution(field, raw string) error {
-	if raw == "" {
-		return fmt.Errorf("llm %s is required", field)
-	}
-	return fmt.Errorf("llm %s %q resolved to an empty value", field, raw)
-}
-
 // maskSecretsForProvider masks secret values in messages before sending to LLM provider.
 // This prevents secrets from being leaked to external LLM APIs.
 func maskSecretsForProvider(ctx context.Context, msgs []exec.LLMMessage) []exec.LLMMessage {
@@ -394,7 +357,7 @@ func (e *Executor) Run(ctx context.Context) error {
 		return err
 	}
 
-	models, err := resolveModels(ctx, e.step.LLM.GetModels())
+	models, err := runtime.ResolveModels(ctx, e.step.LLM.GetModels())
 	if err != nil {
 		return err
 	}
@@ -464,39 +427,7 @@ func (e *Executor) runWithModel(ctx context.Context, model core.ModelEntry, allM
 
 // buildEffectiveConfig merges model-specific overrides with shared config.
 func (e *Executor) buildEffectiveConfig(model core.ModelEntry) *core.LLMConfig {
-	cfg := e.step.LLM
-
-	return &core.LLMConfig{
-		Provider:          model.Provider,
-		Model:             model.Name,
-		System:            cfg.System,
-		Stream:            cfg.Stream,
-		Thinking:          cfg.Thinking,
-		Tools:             cfg.Tools,
-		MaxToolIterations: cfg.MaxToolIterations,
-		WebSearch:         cfg.WebSearch,
-		Temperature:       coalescePtr(model.Temperature, cfg.Temperature),
-		MaxTokens:         coalescePtr(model.MaxTokens, cfg.MaxTokens),
-		TopP:              coalescePtr(model.TopP, cfg.TopP),
-		BaseURL:           coalesceStr(model.BaseURL, cfg.BaseURL),
-		APIKeyName:        coalesceStr(model.APIKeyName, cfg.APIKeyName),
-	}
-}
-
-// coalescePtr returns the first non-nil pointer.
-func coalescePtr[T any](override, fallback *T) *T {
-	if override != nil {
-		return override
-	}
-	return fallback
-}
-
-// coalesceStr returns the first non-empty string.
-func coalesceStr(override, fallback string) string {
-	if override != "" {
-		return override
-	}
-	return fallback
+	return runtime.EffectiveLLMConfig(e.step.LLM, model)
 }
 
 // createProviderForModel creates an LLM provider for a specific model.

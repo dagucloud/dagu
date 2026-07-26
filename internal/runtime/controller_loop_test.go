@@ -797,3 +797,36 @@ func TestControllerLoop_FinalizesTheSuspendedActionEvent(t *testing.T) {
 		"the waiting entry is updated once the answer arrives")
 	assert.NotEmpty(t, review.FinishedAt)
 }
+
+const controllerArrayModelDAG = `
+type: controller
+params:
+  - PROVIDER: local
+llm:
+  model:
+    - provider: ${params.PROVIDER}
+      name: test-model
+      base_url: %s
+  max_tool_iterations: 3
+steps:
+  - name: alpha
+    run: echo alpha
+tasks:
+  - name: only
+    description: Finished immediately.
+`
+
+// TestControllerLoop_UsesArrayFormModel covers llm.model written as a list with
+// value references. The legacy provider and model fields are empty in that shape,
+// so a controller that reads them directly cannot reach a provider at all.
+func TestControllerLoop_UsesArrayFormModel(t *testing.T) {
+	t.Parallel()
+
+	ch := setupController(t, controllerArrayModelDAG,
+		turn{tool: controller.SetTaskStatusTool, args: map[string]any{
+			"task": "only", "status": "completed", "reason": "ok"}},
+	)
+
+	require.Equal(t, core.Succeeded, ch.run(t))
+	require.NoError(t, ch.runErr)
+}

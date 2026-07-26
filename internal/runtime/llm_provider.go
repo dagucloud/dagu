@@ -65,6 +65,77 @@ func NewLLMProvider(ctx context.Context, cfg *core.LLMConfig) (llmpkg.Provider, 
 	return provider, nil
 }
 
+// ResolveModels evaluates variable substitution in the provider and model name of
+// each entry. base_url is resolved later, when the provider is built, once shared
+// config has been merged in; api_key_name is not value-resolved at all, since it
+// names an environment variable the provider construction reads.
+func ResolveModels(ctx context.Context, models []core.ModelEntry) ([]core.ModelEntry, error) {
+	resolved := make([]core.ModelEntry, len(models))
+	for i, model := range models {
+		provider, err := ResolveString(ctx, model.Provider, cmnvalue.WorkflowField("llm.provider"))
+		if err != nil {
+			return nil, fmt.Errorf("failed to evaluate provider: %w", err)
+		}
+		if provider == "" {
+			return nil, emptyAfterResolution("provider", model.Provider)
+		}
+		name, err := ResolveString(ctx, model.Name, cmnvalue.WorkflowField("llm.model"))
+		if err != nil {
+			return nil, fmt.Errorf("failed to evaluate model: %w", err)
+		}
+		if name == "" {
+			return nil, emptyAfterResolution("model", model.Name)
+		}
+		resolved[i] = model
+		resolved[i].Provider = provider
+		resolved[i].Name = name
+	}
+	return resolved, nil
+}
+
+// emptyAfterResolution reports a required LLM field that has no value, naming the
+// reference that produced nothing when the field carried one.
+func emptyAfterResolution(field, raw string) error {
+	if raw == "" {
+		return fmt.Errorf("llm %s is required", field)
+	}
+	return fmt.Errorf("llm %s %q resolved to an empty value", field, raw)
+}
+
+// EffectiveLLMConfig folds one model entry into the shared LLM config, so the
+// entry's own provider, name, and overrides win where it sets them.
+func EffectiveLLMConfig(cfg *core.LLMConfig, model core.ModelEntry) *core.LLMConfig {
+	return &core.LLMConfig{
+		Provider:          model.Provider,
+		Model:             model.Name,
+		System:            cfg.System,
+		Stream:            cfg.Stream,
+		Thinking:          cfg.Thinking,
+		Tools:             cfg.Tools,
+		MaxToolIterations: cfg.MaxToolIterations,
+		WebSearch:         cfg.WebSearch,
+		Temperature:       coalescePtr(model.Temperature, cfg.Temperature),
+		MaxTokens:         coalescePtr(model.MaxTokens, cfg.MaxTokens),
+		TopP:              coalescePtr(model.TopP, cfg.TopP),
+		BaseURL:           coalesceStr(model.BaseURL, cfg.BaseURL),
+		APIKeyName:        coalesceStr(model.APIKeyName, cfg.APIKeyName),
+	}
+}
+
+func coalescePtr[T any](override, fallback *T) *T {
+	if override != nil {
+		return override
+	}
+	return fallback
+}
+
+func coalesceStr(override, fallback string) string {
+	if override != "" {
+		return override
+	}
+	return fallback
+}
+
 // MaskSecretsForProvider replaces secret values in messages with a mask before
 // they leave for an external model. Fields such as an LLM system prompt are
 // resolved against the runtime scope, so a reference to a secret becomes the

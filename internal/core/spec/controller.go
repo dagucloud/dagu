@@ -56,6 +56,9 @@ func injectControllerStep(result *core.DAG) error {
 		// to the controller, which decides whether to retry, route elsewhere, or
 		// give up.
 		result.Steps[i].ContinueOn.Failure = true
+		// mark_success would rewrite a failed action as succeeded, hiding it from
+		// the run status the controller's own decisions are meant to determine.
+		result.Steps[i].ContinueOn.MarkSuccess = false
 	}
 
 	askUser, err := newAskUserStep()

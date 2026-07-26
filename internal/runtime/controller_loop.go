@@ -66,7 +66,17 @@ func (r *Runner) runControllerLoop(ctx context.Context, plan *Plan, progressCh c
 	}
 	ctrlNode.SetToolDefinitions(catalog.Definitions())
 
-	provider, err := NewLLMProvider(ctrlCtx, dag.LLM)
+	// Resolve the model the same way a chat step does, so array-form llm.model
+	// and value references work here too. A controller uses one model; the
+	// fallback list a chat step walks does not apply to a decision loop.
+	models, err := ResolveModels(ctrlCtx, dag.LLM.GetModels())
+	if err != nil {
+		r.failController(ctrlCtx, plan, ctrlNode, err, progressCh)
+		return
+	}
+	llmCfg := EffectiveLLMConfig(dag.LLM, models[0])
+
+	provider, err := NewLLMProvider(ctrlCtx, llmCfg)
 	if err != nil {
 		r.failController(ctrlCtx, plan, ctrlNode, err, progressCh)
 		return
@@ -74,7 +84,7 @@ func (r *Runner) runControllerLoop(ctx context.Context, plan *Plan, progressCh c
 	// The system prompt and the task descriptions are author-written prompt
 	// text, so they take variables the same way any other workflow field does.
 	system, err := resolveRuntimeString(
-		ctrlCtx, dag.LLM.System, cmnvalue.WorkflowField("llm.system"))
+		ctrlCtx, llmCfg.System, cmnvalue.WorkflowField("llm.system"))
 	if err != nil {
 		r.failController(ctrlCtx, plan, ctrlNode, fmt.Errorf(
 			"failed to evaluate llm.system: %w", err), progressCh)
@@ -84,7 +94,7 @@ func (r *Runner) runControllerLoop(ctx context.Context, plan *Plan, progressCh c
 		r.failController(ctrlCtx, plan, ctrlNode, err, progressCh)
 		return
 	}
-	planner := controller.NewPlanner(provider, dag.LLM, catalog, system, func(msgs []exec.LLMMessage) []exec.LLMMessage {
+	planner := controller.NewPlanner(provider, llmCfg, catalog, system, func(msgs []exec.LLMMessage) []exec.LLMMessage {
 		return MaskSecretsForProvider(ctrlCtx, msgs)
 	})
 
@@ -132,6 +142,14 @@ func (r *Runner) runControllerLoop(ctx context.Context, plan *Plan, progressCh c
 		decision, err := planner.Next(ctrlCtx, state)
 		if err != nil {
 			r.failController(ctrlCtx, plan, ctrlNode, err, progressCh)
+			return
+		}
+
+		// A decision can take a while to come back. If the run was stopped in the
+		// meantime, drop it rather than settling a task or opening a question.
+		if r.isCanceled() {
+			ctrlNode.SetStatus(core.NodeAborted)
+			r.report(progressCh, ctrlNode)
 			return
 		}
 
@@ -357,7 +375,7 @@ func (r *Runner) runControllerAction(
 		node.ResetForRerun(step)
 		node.SetRepeated(true)
 		node.AddSubRunsRepeated(archived...)
-		node.SetSubRuns(previous)
+		node.AddSubRunsRepeated(previous...)
 	}
 	if step.SubDAG != nil {
 		params := step.SubDAG.Params

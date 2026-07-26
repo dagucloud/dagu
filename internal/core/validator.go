@@ -109,6 +109,13 @@ func collectNamesAndIDs(dag *DAG, errs *ErrorList) (stepNames, stepIDs map[strin
 			continue
 		}
 
+		// Reserved in every DAG type, not only controllers: the execution plan
+		// recognises a controller by these names.
+		if !dag.IsController() && IsSynthesizedControllerStep(step.Name) {
+			*errs = append(*errs, NewValidationError("steps", step.Name,
+				fmt.Errorf("%q is reserved by type: controller", step.Name)))
+		}
+
 		if _, exists := stepNames[step.Name]; exists {
 			*errs = append(*errs, NewValidationError("steps", step.Name, ErrStepNameDuplicate))
 		} else {

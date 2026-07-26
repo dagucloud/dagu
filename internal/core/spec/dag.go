@@ -2429,6 +2429,8 @@ func buildLLM(_ BuildContext, d *dag) (*core.LLMConfig, error) {
 		APIKeyName:  cfg.APIKeyName,
 		Stream:      cfg.Stream,
 		Thinking:    thinking,
+
+		MaxToolIterations: cfg.MaxToolIterations,
 	}, nil
 }
 
