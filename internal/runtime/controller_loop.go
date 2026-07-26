@@ -560,16 +560,18 @@ func observe(ctx context.Context, node *Node, toolCallID string) exec.LLMMessage
 			fmt.Fprintf(&sb, "answered by: %s\n", state.HumanTaskCompletedBy)
 		}
 	}
-	if state.StepOutputsValue != nil && *state.StepOutputsValue != "" {
-		fmt.Fprintf(&sb, "outputs: %s\n", *state.StepOutputsValue)
+	declared := publishedOutputs(state)
+	if declared != "" {
+		fmt.Fprintf(&sb, "outputs: %s\n", declared)
 	} else if state.OutputValue != nil && *state.OutputValue != "" {
 		fmt.Fprintf(&sb, "output: %s\n", *state.OutputValue)
 	}
 	// A step that launched a child DAG is reported from the child run itself.
 	// Its stdout only mirrors the child's status JSON, once per internal retry,
-	// and is empty altogether on a repeated run.
+	// and is empty altogether on a repeated run. A child that declared its
+	// outputs has already reported them, so only its failures are worth adding.
 	if len(state.SubRuns) > 0 {
-		if summary := childRunSummary(ctx, state.SubRuns[0].DAGRunID); summary != "" {
+		if summary := childRunSummary(ctx, state.SubRuns[0].DAGRunID, declared != ""); summary != "" {
 			sb.WriteString(summary)
 			return toolResult(toolCallID, sb.String())
 		}
@@ -585,9 +587,24 @@ func observe(ctx context.Context, node *Node, toolCallID string) exec.LLMMessage
 	return toolResult(toolCallID, sb.String())
 }
 
+// publishedOutputs returns the outputs a step published explicitly, preferring
+// declared file-based outputs over the general payload. It is empty for a step
+// that published nothing.
+func publishedOutputs(state NodeState) string {
+	if state.StepOutputsValue != nil && *state.StepOutputsValue != "" {
+		return *state.StepOutputsValue
+	}
+	if state.OutputsValue != nil && *state.OutputsValue != "" {
+		return *state.OutputsValue
+	}
+	return ""
+}
+
 // childRunSummary reports what a child DAG run produced, read from the run
-// itself rather than scraped from the parent step's log.
-func childRunSummary(ctx context.Context, childRunID string) string {
+// itself rather than scraped from the parent step's log. When the child
+// declared its outputs, outputsReported suppresses the scraped fallback so
+// intermediate variables stay out of the transcript.
+func childRunSummary(ctx context.Context, childRunID string, outputsReported bool) string {
 	rCtx := exec.GetContext(ctx)
 	if childRunID == "" || rCtx.DAGRunStore == nil {
 		return ""
@@ -604,10 +621,12 @@ func childRunSummary(ctx context.Context, childRunID string) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "child run: %s (%s)\n", status.Name, status.Status.String())
 
-	if outputs := childOutputs(status.Nodes); len(outputs) > 0 {
-		sb.WriteString("outputs:\n")
-		for _, key := range slices.Sorted(maps.Keys(outputs)) {
-			fmt.Fprintf(&sb, "  %s=%s\n", key, stringutil.TruncString(outputs[key], 2000))
+	if !outputsReported {
+		if outputs := childOutputs(status.Nodes); len(outputs) > 0 {
+			sb.WriteString("outputs:\n")
+			for _, key := range slices.Sorted(maps.Keys(outputs)) {
+				fmt.Fprintf(&sb, "  %s=%s\n", key, stringutil.TruncString(outputs[key], 2000))
+			}
 		}
 	}
 

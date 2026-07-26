@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"sync"
 
@@ -22,6 +23,7 @@ import (
 
 var _ executor.DAGExecutor = (*dagExecutor)(nil)
 var _ executor.NodeStatusDeterminer = (*dagExecutor)(nil)
+var _ executor.OutputsProvider = (*dagExecutor)(nil)
 
 type dagExecutor struct {
 	child     *executor.SubDAGExecutor
@@ -32,7 +34,39 @@ type dagExecutor struct {
 	runParams executor.RunParams
 	step      core.Step
 	result    *exec.RunStatus
+	outputs   map[string]any
 	cancel    context.CancelFunc
+}
+
+// declaredChildOutputs returns the outputs a child run published explicitly,
+// through `outputs.write`, `stdout.outputs`, or a step `outputs:` declaration.
+// It returns nil when the child declared nothing, so a step that publishes
+// only flat `output:` variables keeps reporting through the child run itself.
+func declaredChildOutputs(result *exec.RunStatus) map[string]any {
+	if result == nil || len(result.OutputValues) == 0 {
+		return nil
+	}
+	outputs := make(map[string]any, len(result.OutputValues))
+	maps.Copy(outputs, result.OutputValues)
+	return outputs
+}
+
+func (e *dagExecutor) setOutputs(outputs map[string]any) {
+	e.lock.Lock()
+	defer e.lock.Unlock()
+	e.outputs = outputs
+}
+
+// GetOutputs implements executor.OutputsProvider.
+func (e *dagExecutor) GetOutputs() map[string]any {
+	e.lock.Lock()
+	defer e.lock.Unlock()
+	if len(e.outputs) == 0 {
+		return nil
+	}
+	outputs := make(map[string]any, len(e.outputs))
+	maps.Copy(outputs, e.outputs)
+	return outputs
 }
 
 // Errors for DAG executor
@@ -115,6 +149,8 @@ func (e *dagExecutor) Run(ctx context.Context) error {
 		e.result = result
 		e.lock.Unlock()
 	}
+
+	e.setOutputs(declaredChildOutputs(result))
 
 	jsonData, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {

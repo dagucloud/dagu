@@ -505,6 +505,65 @@ steps:
 	assert.Equal(t, "RESULT=42", fullOutputs.Outputs["result"])
 }
 
+func TestSubDAGPublishesDeclaredOutputsToCaller(t *testing.T) {
+	outputsTestParallel(t)
+
+	th := test.Setup(t)
+	dag := th.DAG(t, `
+steps:
+  - name: call
+    action: dag.run
+    with:
+      dag: declaring_child
+---
+name: declaring_child
+steps:
+  - id: load
+    run: echo scratch-value
+    output: SCRATCH
+  - id: publish
+    depends: [load]
+    action: outputs.write
+    with:
+      values:
+        verdict: clean
+`)
+	dag.Agent().RunSuccess(t)
+
+	status, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag.DAG)
+	require.NoError(t, err)
+	require.Len(t, status.Nodes, 1)
+	require.NotNil(t, status.Nodes[0].OutputsValue)
+	// The child declared one output, so that is the whole surface the caller
+	// sees. SCRATCH stays internal to the child run.
+	require.JSONEq(t, `{"verdict":"clean"}`, *status.Nodes[0].OutputsValue)
+}
+
+func TestSubDAGWithoutDeclaredOutputsPublishesNothing(t *testing.T) {
+	outputsTestParallel(t)
+
+	th := test.Setup(t)
+	dag := th.DAG(t, `
+steps:
+  - name: call
+    action: dag.run
+    with:
+      dag: plain_child
+---
+name: plain_child
+steps:
+  - id: load
+    run: echo scratch-value
+    output: SCRATCH
+`)
+	dag.Agent().RunSuccess(t)
+
+	status, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag.DAG)
+	require.NoError(t, err)
+	require.Len(t, status.Nodes, 1)
+	assert.Nil(t, status.Nodes[0].OutputsValue)
+}
+
 // readOutputsFile reads the outputs.json file for a given DAG run
 // Returns just the outputs map for backward compatibility with existing tests
 func readOutputsFile(t *testing.T, th test.Helper, dag *core.DAG) map[string]string {
