@@ -38,4 +38,26 @@ describe('getEventHandlers', () => {
       'onExit',
     ]);
   });
+
+  it('lists every recorded lifecycle hook in run order', () => {
+    const dagRun = {
+      onInit: { step: { name: 'onInit' } },
+      onWait: { step: { name: 'onWait' } },
+      onSuccess: { step: { name: 'onSuccess' } },
+      onFailure: { step: { name: 'onFailure' } },
+      onAbort: { step: { name: 'onAbort' } },
+      onExit: { step: { name: 'onExit' } },
+    } as any;
+
+    const handlers = getEventHandlers(dagRun);
+
+    expect(handlers.map((h: any) => h.step.name)).toEqual([
+      'onInit',
+      'onWait',
+      'onSuccess',
+      'onFailure',
+      'onAbort',
+      'onExit',
+    ]);
+  });
 });

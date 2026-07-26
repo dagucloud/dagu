@@ -68,6 +68,8 @@ export function updateDAGRunNodeStatus(
     nodes: dagRun.nodes?.map((node) =>
       updateRequiredNodeStatus(node, stepName, status)
     ),
+    onInit: updateOptionalNodeStatus(dagRun.onInit, stepName, status),
+    onWait: updateOptionalNodeStatus(dagRun.onWait, stepName, status),
     onSuccess: updateOptionalNodeStatus(dagRun.onSuccess, stepName, status),
     onFailure: updateOptionalNodeStatus(dagRun.onFailure, stepName, status),
     onAbort: updateOptionalNodeStatus(dagRun.onAbort, stepName, status),

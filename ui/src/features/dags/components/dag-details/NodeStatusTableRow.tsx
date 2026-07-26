@@ -99,6 +99,8 @@ type Props = {
   dagRun: components['schemas']['DAGRunDetails'];
   /** View mode: desktop or mobile */
   view?: 'desktop' | 'mobile';
+  /** Hide the actions menu for nodes the step APIs cannot address */
+  hideActions?: boolean;
   /** Whether the inline log starts expanded */
   defaultLogExpanded?: boolean;
 };
@@ -236,6 +238,7 @@ function NodeStatusTableRow({
   onNodeStatusUpdated,
   dagRun,
   view = 'desktop',
+  hideActions = false,
   defaultLogExpanded = false,
 }: Props) {
   const { dagRunId, name: dagName } = dagRun;
@@ -296,7 +299,9 @@ function NodeStatusTableRow({
     setActiveLogTab(hasStderr ? 'stderr' : 'stdout');
   }, [defaultLogExpanded, hasLogs, hasStderr]);
 
-  const showStepActions = Boolean(dagRunId && config.permissions.runDags);
+  const showStepActions = Boolean(
+    !hideActions && dagRunId && config.permissions.runDags
+  );
   const canUpdateStepStatus =
     showStepActions &&
     !node.step.humanTask &&

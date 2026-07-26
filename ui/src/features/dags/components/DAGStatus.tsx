@@ -768,6 +768,7 @@ function DAGStatus({
                       {...props}
                       onViewLog={handleViewLog}
                       onNodeStatusUpdated={applyDisplayNodeStatus}
+                      hideActions
                     />
                   ) : null}
                 </>

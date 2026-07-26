@@ -4612,10 +4612,12 @@ export interface components {
             log: string;
             /** @description Status of individual steps within the DAG-run */
             nodes: components["schemas"]["Node"][];
+            onInit?: components["schemas"]["Node"];
             onExit?: components["schemas"]["Node"];
             onSuccess?: components["schemas"]["Node"];
             onFailure?: components["schemas"]["Node"];
             onAbort?: components["schemas"]["Node"];
+            onWait?: components["schemas"]["Node"];
             /** @description List of preconditions that must be met before the DAG-run can start */
             preconditions?: components["schemas"]["Condition"][];
             /** @description Goal progress of a controller DAG-run. Absent for other DAG types. */

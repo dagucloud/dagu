@@ -344,6 +344,41 @@ func TestToDAGDetailsIncludesArtifactsDir(t *testing.T) {
 	assert.Equal(t, "/var/lib/dagu/artifacts", *details.Artifacts.Dir)
 }
 
+func TestToDAGRunDetailsIncludesLifecycleHandlers(t *testing.T) {
+	handler := func(name string) *exec.Node {
+		return &exec.Node{
+			Step:      core.Step{Name: name},
+			Status:    core.NodeSucceeded,
+			Stdout:    name + ".out",
+			StartedAt: "2026-07-25T12:50:56Z",
+		}
+	}
+
+	status := exec.DAGRunStatus{
+		Name:      "test-dag",
+		DAGRunID:  "run-1",
+		Status:    core.Succeeded,
+		OnInit:    handler("onInit"),
+		OnWait:    handler("onWait"),
+		OnSuccess: handler("onSuccess"),
+		OnFailure: handler("onFailure"),
+		OnAbort:   handler("onAbort"),
+		OnExit:    handler("onExit"),
+	}
+
+	details := ToDAGRunDetails(status)
+
+	require.NotNil(t, details.OnInit)
+	assert.Equal(t, "onInit", details.OnInit.Step.Name)
+	assert.Equal(t, "onInit.out", details.OnInit.Stdout)
+	require.NotNil(t, details.OnWait)
+	assert.Equal(t, "onWait", details.OnWait.Step.Name)
+	require.NotNil(t, details.OnSuccess)
+	require.NotNil(t, details.OnFailure)
+	require.NotNil(t, details.OnAbort)
+	require.NotNil(t, details.OnExit)
+}
+
 func TestToNodeIncludesNormalizedPushBackHistory(t *testing.T) {
 	node := &exec.Node{
 		Step: core.Step{
