@@ -11647,6 +11647,8 @@ components:
               description: "Status of individual steps within the DAG-run"
               items:
                 $ref: "#/components/schemas/Node"
+            onInit:
+              $ref: "#/components/schemas/Node"
             onExit:
               $ref: "#/components/schemas/Node"
             onSuccess:
@@ -11654,6 +11656,8 @@ components:
             onFailure:
               $ref: "#/components/schemas/Node"
             onAbort:
+              $ref: "#/components/schemas/Node"
+            onWait:
               $ref: "#/components/schemas/Node"
             preconditions:
               type: array

@@ -393,10 +393,12 @@ func ToDAGRunDetails(s exec.DAGRunStatus) api.DAGRunDetails {
 		TriggerActor:           ptrOf(s.TriggerActor),
 		Preconditions:          ptrOf(preconditions),
 		Nodes:                  nodes,
+		OnInit:                 ptrOf(toNode(s.OnInit)),
 		OnSuccess:              ptrOf(toNode(s.OnSuccess)),
 		OnFailure:              ptrOf(toNode(s.OnFailure)),
 		OnAbort:                ptrOf(toNode(s.OnAbort)),
 		OnExit:                 ptrOf(toNode(s.OnExit)),
+		OnWait:                 ptrOf(toNode(s.OnWait)),
 		Labels:                 &s.Labels,
 		Tags:                   &s.Labels,
 	}

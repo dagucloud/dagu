@@ -44,10 +44,12 @@ func toExecStatus(detail *api.DAGRunDetails) (*exec.DAGRunStatus, error) {
 	for _, node := range detail.Nodes {
 		status.Nodes = append(status.Nodes, mapAPINode(node))
 	}
+	status.OnInit = mapAPINodePtr(detail.OnInit)
 	status.OnExit = mapAPINodePtr(detail.OnExit)
 	status.OnSuccess = mapAPINodePtr(detail.OnSuccess)
 	status.OnFailure = mapAPINodePtr(detail.OnFailure)
 	status.OnAbort = mapAPINodePtr(detail.OnAbort)
+	status.OnWait = mapAPINodePtr(detail.OnWait)
 	return status, nil
 }
 

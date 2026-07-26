@@ -222,6 +222,54 @@ func TestListLogFiles(t *testing.T) {
 			assert.Contains(t, logFiles, expectedFile, "should contain expected log file: %s", expectedFile)
 		}
 	})
+
+	t.Run("WithLifecycleHandlerLogFiles", func(t *testing.T) {
+		root := setupTestDataRoot(t)
+		run := root.CreateTestDAGRun(t, "test-dag-run", exec.NewUTC(time.Now()))
+
+		dag := &core.DAG{Name: "test-dag"}
+		dagRunStatus := exec.InitialStatus(dag)
+		dagRunStatus.DAGRunID = "test-dag-run"
+		dagRunStatus.Status = core.Succeeded
+		dagRunStatus.Log = "/tmp/test.log"
+		dagRunStatus.OnInit = &exec.Node{
+			Step:   core.Step{Name: "onInit"},
+			Stdout: "/tmp/onInit.out",
+			Stderr: "/tmp/onInit.err",
+		}
+		dagRunStatus.OnWait = &exec.Node{
+			Step:   core.Step{Name: "onWait"},
+			Stdout: "/tmp/onWait.out",
+			Stderr: "/tmp/onWait.err",
+		}
+		dagRunStatus.OnExit = &exec.Node{
+			Step:   core.Step{Name: "onExit"},
+			Stdout: "/tmp/onExit.out",
+			Stderr: "/tmp/onExit.err",
+		}
+
+		ts := exec.NewUTC(time.Now())
+		att, err := run.CreateAttempt(run.Context, ts, nil, "")
+		require.NoError(t, err)
+		require.NoError(t, att.Open(run.Context))
+		require.NoError(t, att.Write(run.Context, dagRunStatus))
+		require.NoError(t, att.Close(run.Context))
+
+		logFiles, err := run.listLogFiles(run.Context)
+		require.NoError(t, err)
+
+		expectedFiles := []string{
+			"/tmp/test.log",
+			"/tmp/onInit.out", "/tmp/onInit.err",
+			"/tmp/onWait.out", "/tmp/onWait.err",
+			"/tmp/onExit.out", "/tmp/onExit.err",
+		}
+
+		assert.Len(t, logFiles, len(expectedFiles), "should return handler log files")
+		for _, expectedFile := range expectedFiles {
+			assert.Contains(t, logFiles, expectedFile, "should contain expected log file: %s", expectedFile)
+		}
+	})
 }
 
 func TestRemoveLogFiles(t *testing.T) {
