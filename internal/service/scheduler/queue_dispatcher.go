@@ -1032,8 +1032,13 @@ func (d *queueDispatcher) failQueuedRunBeforeStartup(
 	conditionStage *queuedConditionStage,
 ) error {
 	attemptID := ""
+	itemID := ""
 	if conditionStage != nil {
 		attemptID = conditionStage.attemptID
+		itemID = conditionStage.itemID
+	}
+	if itemID == "" {
+		return errors.New("delete failed DAG run queue item: missing queue item ID")
 	}
 	if attemptID == "" {
 		attempt, err := d.dagRunStore.FindAttempt(ctx, runRef)
@@ -1067,8 +1072,8 @@ func (d *queueDispatcher) failQueuedRunBeforeStartup(
 		return nil
 	}
 
-	if _, err := d.queueStore.DequeueByDAGRunID(ctx, queueName, runRef); err != nil && !errors.Is(err, exec.ErrQueueItemNotFound) {
-		return fmt.Errorf("dequeue failed DAG run: %w", err)
+	if _, err := d.queueStore.DeleteByItemIDs(ctx, queueName, []string{itemID}); err != nil {
+		return fmt.Errorf("delete failed DAG run queue item: %w", err)
 	}
 	return nil
 }

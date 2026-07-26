@@ -427,6 +427,65 @@ func TestQueueProcessorFinalizesLaunchFailure(t *testing.T) {
 	require.Empty(t, items)
 }
 
+func TestQueueProcessorPreservesRetryPublishedDuringFailureCleanup(t *testing.T) {
+	t.Parallel()
+
+	var hookedQueueStore *queueConditionQueueStore
+	f := newQueueConditionFixtureWithConfig(
+		t,
+		config.ExecutionModeLocal,
+		nil,
+		&queueConditionDispatcher{},
+		queueConditionFixtureConfig{
+			executable: filepath.Join(t.TempDir(), "missing-dagu"),
+			procStore: func(base exec.ProcStore) exec.ProcStore {
+				return &queueConditionProcStore{
+					ProcStore:       base,
+					isRunAliveDelay: 50 * time.Millisecond,
+				}
+			},
+			queueStore: func(base exec.QueueStore) exec.QueueStore {
+				hookedQueueStore = &queueConditionQueueStore{QueueStore: base}
+				return hookedQueueStore
+			},
+		},
+	)
+	f.enqueueRun("waiting-run", nil)
+	items, err := f.queueStore.List(f.ctx, f.dag.Name)
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	originalItemID := items[0].ID()
+
+	runRef := exec.NewDAGRunRef(f.dag.Name, "waiting-run")
+	hookedQueueStore.beforeDelete = func(ctx context.Context) error {
+		attempt, err := f.dagRunStore.FindAttempt(ctx, runRef)
+		if err != nil {
+			return err
+		}
+		status, err := attempt.ReadStatus(ctx)
+		if err != nil {
+			return err
+		}
+		queued, err := exec.EnqueueRetry(ctx, f.dagRunStore, f.queueStore, f.dag, status, exec.EnqueueRetryOptions{})
+		if err != nil {
+			return err
+		}
+		if !queued {
+			return errors.New("retry was not queued")
+		}
+		return nil
+	}
+
+	f.processor.ProcessQueueItems(f.ctx, f.dag.Name)
+
+	status := f.readStatus("waiting-run")
+	require.Equal(t, core.Queued, status.Status)
+	items, err = f.queueStore.List(f.ctx, f.dag.Name)
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	require.NotEqual(t, originalItemID, items[0].ID())
+}
+
 func TestQueueProcessorRecordsStartupNotObservedCondition(t *testing.T) {
 	t.Parallel()
 
@@ -506,6 +565,7 @@ type queueConditionFixture struct {
 type queueConditionFixtureConfig struct {
 	executable string
 	procStore  func(exec.ProcStore) exec.ProcStore
+	queueStore func(exec.QueueStore) exec.QueueStore
 }
 
 func newQueueConditionFixture(
@@ -546,7 +606,10 @@ func newQueueConditionFixtureWithConfig(
 	}
 	core.InitializeDefaults(dag)
 	dagRunStore := newCountingDAGRunStore(dagrun.New(filepath.Join(tmp, "dag-runs"), dagrun.WithLatestStatusToday(false)))
-	queueStore := store.NewQueueStore(file.NewCollection(filepath.Join(tmp, "queue")))
+	var queueStore exec.QueueStore = store.NewQueueStore(file.NewCollection(filepath.Join(tmp, "queue")))
+	if fixtureConfig.queueStore != nil {
+		queueStore = fixtureConfig.queueStore(queueStore)
+	}
 	leaseStore := store.NewDAGRunLeaseStore(file.NewCollection(filepath.Join(tmp, "leases")))
 	dispatchStore := store.NewDispatchTaskStore(
 		file.NewCollection(filepath.Join(tmp, "dispatch")),
@@ -974,6 +1037,26 @@ func (d *queueConditionDispatcher) GetDAGRunStatus(context.Context, string, stri
 
 func (d *queueConditionDispatcher) RequestCancel(context.Context, string, string, *exec.DAGRunRef) error {
 	return nil
+}
+
+type queueConditionQueueStore struct {
+	exec.QueueStore
+
+	once         sync.Once
+	beforeDelete func(context.Context) error
+}
+
+func (s *queueConditionQueueStore) DeleteByItemIDs(ctx context.Context, queueName string, itemIDs []string) (int, error) {
+	var hookErr error
+	s.once.Do(func() {
+		if s.beforeDelete != nil {
+			hookErr = s.beforeDelete(ctx)
+		}
+	})
+	if hookErr != nil {
+		return 0, hookErr
+	}
+	return s.QueueStore.DeleteByItemIDs(ctx, queueName, itemIDs)
 }
 
 type countingDAGRunStore struct {
