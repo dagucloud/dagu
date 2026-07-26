@@ -103,47 +103,97 @@ func Build(
 			break
 		}
 
-		filePath := filepath.Join(dagDir, f.Name)
 		entry := &indexv1.DAGIndexEntry{
 			FilePath: f.Name,
 			FileSize: f.Size,
 			ModTime:  f.ModTime,
 		}
-
-		opts := make([]spec.LoadOption, 0, len(loadOpts)+4)
-		opts = append(opts, loadOpts...)
-		opts = append(opts,
-			spec.OnlyMetadata(),
-			spec.WithoutEval(),
-			spec.SkipSchemaValidation(),
-			spec.WithAllowBuildErrors(),
-		)
-
-		dag, err := spec.Load(ctx, filePath, opts...)
-		if err != nil {
-			entry.Name = strings.TrimSuffix(f.Name, filepath.Ext(f.Name))
-			entry.LoadError = err.Error()
-			idx.Entries = append(idx.Entries, entry)
-			continue
-		}
-
-		entry.Name = dag.Name
-		entry.Group = dag.Group
-		entry.Description = dag.Description
-		entry.Labels = labelsToStrings(dag.Labels)
-		entry.Schedule = scheduleToString(dag.Schedule)
-
-		if len(dag.BuildErrors) > 0 {
-			entry.LoadError = joinErrors(dag.BuildErrors)
-		}
-
-		_, flagged := flags[SuspendFlagName(dag.Name)]
-		entry.Suspended = flagged
-
+		buildEntry(ctx, dagDir, entry, flags, loadOpts...)
 		idx.Entries = append(idx.Entries, entry)
 	}
 
 	return idx
+}
+
+// buildEntry loads one DAG file and fills the entry, recording why it could not
+// be read when that happens.
+func buildEntry(
+	ctx context.Context,
+	dagDir string,
+	entry *indexv1.DAGIndexEntry,
+	flags SuspendFlags,
+	loadOpts ...spec.LoadOption,
+) {
+	entry.LoadError = ""
+
+	opts := make([]spec.LoadOption, 0, len(loadOpts)+4)
+	opts = append(opts, loadOpts...)
+	opts = append(opts,
+		spec.OnlyMetadata(),
+		spec.WithoutEval(),
+		spec.SkipSchemaValidation(),
+		spec.WithAllowBuildErrors(),
+	)
+
+	dag, err := spec.Load(ctx, filepath.Join(dagDir, entry.FilePath), opts...)
+	if err != nil {
+		entry.Name = strings.TrimSuffix(entry.FilePath, filepath.Ext(entry.FilePath))
+		entry.LoadError = err.Error()
+		return
+	}
+
+	entry.Name = dag.Name
+	entry.Group = dag.Group
+	entry.Description = dag.Description
+	entry.Labels = labelsToStrings(dag.Labels)
+	entry.Schedule = scheduleToString(dag.Schedule)
+
+	if len(dag.BuildErrors) > 0 {
+		entry.LoadError = joinErrors(dag.BuildErrors)
+	}
+
+	_, flagged := flags[SuspendFlagName(dag.Name)]
+	entry.Suspended = flagged
+}
+
+// RefreshFailures re-reads the files whose cached entry records a load error and
+// reports whether any of them changed.
+//
+// A cached success stays valid as long as the file is untouched, but a cached
+// failure does not: the error describes the parser that produced it, so a DAG
+// using syntax a newer binary understands would keep showing the old error until
+// its file happened to change.
+func RefreshFailures(
+	ctx context.Context,
+	dagDir string,
+	entries []*indexv1.DAGIndexEntry,
+	flags SuspendFlags,
+	loadOpts ...spec.LoadOption,
+) bool {
+	var changed bool
+	for _, entry := range entries {
+		if entry.LoadError == "" {
+			continue
+		}
+		if ctx.Err() != nil {
+			break
+		}
+		previous := entry.LoadError
+		buildEntry(ctx, dagDir, entry, flags, loadOpts...)
+		if entry.LoadError != previous {
+			changed = true
+		}
+	}
+	return changed
+}
+
+// NewIndex wraps entries in an index ready to be written.
+func NewIndex(entries []*indexv1.DAGIndexEntry) *indexv1.DAGIndex {
+	return &indexv1.DAGIndex{
+		Version:     IndexVersion,
+		BuiltAtUnix: time.Now().Unix(),
+		Entries:     entries,
+	}
 }
 
 // Write atomically writes the index to disk.

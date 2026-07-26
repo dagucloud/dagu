@@ -450,8 +450,15 @@ func (store *Storage) loadOrRebuildIndex(ctx context.Context) []*indexv1.DAGInde
 
 	indexPath := filepath.Join(store.baseDir, dagindex.IndexFileName)
 
-	// Try loading existing index.
+	// Try loading existing index. A cached load error is re-checked against the
+	// current parser before it is served, so upgrading Dagu clears errors that
+	// only an older build produced.
 	if cached := dagindex.Load(indexPath, yamlFiles, flags); cached != nil {
+		if dagindex.RefreshFailures(ctx, store.baseDir, cached, flags, store.defaultLoadOptions()...) {
+			if err := dagindex.Write(indexPath, dagindex.NewIndex(cached)); err != nil {
+				logger.Warn(ctx, "Failed to write DAG definition index", tag.Error(err))
+			}
+		}
 		return cached
 	}
 
