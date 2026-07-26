@@ -115,8 +115,8 @@ func Build(
 	return idx
 }
 
-// buildEntry loads one DAG file and fills the entry, recording why it could not
-// be read when that happens.
+// buildEntry loads one DAG file and fills the rest of a freshly allocated entry,
+// recording why the file could not be read when that happens.
 func buildEntry(
 	ctx context.Context,
 	dagDir string,
@@ -124,8 +124,6 @@ func buildEntry(
 	flags SuspendFlags,
 	loadOpts ...spec.LoadOption,
 ) {
-	entry.LoadError = ""
-
 	opts := make([]spec.LoadOption, 0, len(loadOpts)+4)
 	opts = append(opts, loadOpts...)
 	opts = append(opts,
@@ -171,18 +169,24 @@ func RefreshFailures(
 	loadOpts ...spec.LoadOption,
 ) bool {
 	var changed bool
-	for _, entry := range entries {
+	for i, entry := range entries {
 		if entry.LoadError == "" {
 			continue
 		}
 		if ctx.Err() != nil {
 			break
 		}
-		previous := entry.LoadError
-		buildEntry(ctx, dagDir, entry, flags, loadOpts...)
-		if entry.LoadError != previous {
-			changed = true
+		refreshed := &indexv1.DAGIndexEntry{
+			FilePath: entry.FilePath,
+			FileSize: entry.FileSize,
+			ModTime:  entry.ModTime,
 		}
+		buildEntry(ctx, dagDir, refreshed, flags, loadOpts...)
+		if proto.Equal(entry, refreshed) {
+			continue
+		}
+		entries[i] = refreshed
+		changed = true
 	}
 	return changed
 }

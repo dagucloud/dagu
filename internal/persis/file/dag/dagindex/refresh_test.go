@@ -57,6 +57,30 @@ func TestRefreshFailures_KeepsARealError(t *testing.T) {
 	assert.NotEmpty(t, entries[0].LoadError)
 }
 
+// TestRefreshFailures_ReportsMetadataChangesUnderAnUnchangedError covers a DAG a
+// newer parser reads further into without being able to load it: the error text
+// is the same, but the metadata around it is not, and that correction has to
+// reach the index rather than being recomputed on every listing.
+func TestRefreshFailures_ReportsMetadataChangesUnderAnUnchangedError(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "bad.yaml"),
+		[]byte("type: nonsense\nsteps:\n  - name: a\n    run: echo a\n"), 0o600))
+
+	entries := []*indexv1.DAGIndexEntry{{FilePath: "bad.yaml", LoadError: "placeholder"}}
+	require.True(t, dagindex.RefreshFailures(t.Context(), dir, entries, dagindex.SuspendFlags{}))
+	require.NotEmpty(t, entries[0].LoadError, "the file is expected to stay unloadable")
+
+	// Same error, metadata only the previous parser produced.
+	entries[0].Labels = []string{"team=infra"}
+
+	changed := dagindex.RefreshFailures(t.Context(), dir, entries, dagindex.SuspendFlags{})
+
+	assert.True(t, changed, "a metadata-only correction still has to be persisted")
+	assert.Empty(t, entries[0].Labels)
+}
+
 // TestRefreshFailures_LeavesHealthyEntriesAlone keeps the fast path intact: a
 // cached success is not re-parsed on every listing.
 func TestRefreshFailures_LeavesHealthyEntriesAlone(t *testing.T) {
