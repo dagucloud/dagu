@@ -54,7 +54,7 @@ func configureJobObject(handle windows.Handle, opts Options) error {
 		_, err := windows.SetInformationJobObject(
 			handle,
 			windows.JobObjectExtendedLimitInformation,
-			uintptr(unsafe.Pointer(&info)),
+			uintptr(unsafe.Pointer(&info)), //nolint:gosec // SetInformationJobObject takes the struct address as a uintptr.
 			uint32(unsafe.Sizeof(info)),
 		)
 		if err != nil {
@@ -71,7 +71,7 @@ func configureJobObject(handle windows.Handle, opts Options) error {
 		_, err := windows.SetInformationJobObject(
 			handle,
 			jobObjectCPURateControlInformationClass,
-			uintptr(unsafe.Pointer(&info)),
+			uintptr(unsafe.Pointer(&info)), //nolint:gosec // SetInformationJobObject takes the struct address as a uintptr.
 			uint32(unsafe.Sizeof(info)),
 		)
 		if err != nil {
@@ -86,11 +86,11 @@ func (g *windowsJobGuard) AssignProcess(pid int) error {
 	if g == nil || g.handle == 0 || pid <= 0 {
 		return nil
 	}
-	process, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE, false, uint32(pid))
+	process, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE, false, uint32(pid)) //nolint:gosec // Windows process IDs are DWORDs and always fit in uint32.
 	if err != nil {
 		return fmt.Errorf("open process for job assignment: %w", err)
 	}
-	defer windows.CloseHandle(process)
+	defer func() { _ = windows.CloseHandle(process) }()
 	if err := windows.AssignProcessToJobObject(g.handle, process); err != nil {
 		return fmt.Errorf("assign process to job object: %w", err)
 	}

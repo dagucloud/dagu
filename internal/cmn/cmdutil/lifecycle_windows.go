@@ -38,7 +38,7 @@ func (p *windowsManagedProcess) prepare(*exec.Cmd) error {
 	if _, err := windows.SetInformationJobObject(
 		job,
 		windows.JobObjectExtendedLimitInformation,
-		uintptr(unsafe.Pointer(&info)),
+		uintptr(unsafe.Pointer(&info)), //nolint:gosec // SetInformationJobObject takes the struct address as a uintptr.
 		uint32(unsafe.Sizeof(info)),
 	); err != nil {
 		_ = windows.CloseHandle(job)
@@ -85,12 +85,13 @@ func (p *windowsManagedProcess) stop(cmd *exec.Cmd, req StopRequest) (StopOutcom
 		outcome.Contained = true
 		return outcome, nil
 	}
+	pid := uint32(cmd.Process.Pid) //nolint:gosec // Windows process IDs are DWORDs and always fit in uint32.
 	if p.job != 0 && p.assigned {
 		outcome.Mechanism = StopMechanismJobObject
 		outcome.Contained = true
 		if err := windows.TerminateJobObject(p.job, 1); err == nil {
 			return outcome, nil
-		} else if fallbackErr := killProcessTree(uint32(cmd.Process.Pid)); fallbackErr != nil {
+		} else if fallbackErr := killProcessTree(pid); fallbackErr != nil {
 			outcome.Mechanism = StopMechanismProcessTree
 			outcome.Contained = false
 			outcome.Partial = true
@@ -101,7 +102,7 @@ func (p *windowsManagedProcess) stop(cmd *exec.Cmd, req StopRequest) (StopOutcom
 		outcome.Partial = true
 		return outcome, nil
 	}
-	if err := killProcessTree(uint32(cmd.Process.Pid)); err != nil {
+	if err := killProcessTree(pid); err != nil {
 		return outcome, err
 	}
 	return outcome, nil
