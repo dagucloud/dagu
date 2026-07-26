@@ -734,10 +734,9 @@ func (s *dagBuildState) composeInheritedContext() {
 	s.result = merged
 }
 
-// resolveWorkerSelector expands variable references in worker_selector keys and
-// values. It must run after composeInheritedContext so labels defined in
-// base-config env resolve correctly (base env is only merged into the result
-// during composition, not during field stages).
+// resolveWorkerSelector expands worker_selector keys/values against the composed
+// base+child scope, after composeInheritedContext so inherited env/params resolve and
+// child overrides win (base selectors stay raw until here via BuildFlagSkipWorkerSelectorEval).
 func (s *dagBuildState) resolveWorkerSelector() {
 	if s.ctx.opts.Has(BuildFlagNoEval) ||
 		s.ctx.opts.Has(BuildFlagSkipWorkerSelectorEval) ||
