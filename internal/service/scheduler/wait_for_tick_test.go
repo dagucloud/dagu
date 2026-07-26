@@ -42,17 +42,18 @@ func TestWaitForTickSignalStopsScheduler(t *testing.T) {
 func TestRunTickSafelyRecoversTickPanic(t *testing.T) {
 	t.Parallel()
 
-	sc := newPanickingScheduler(t)
+	sc, panicTriggered := newPanickingScheduler(t)
 
 	require.NotPanics(t, func() {
 		sc.runTickSafely(context.Background(), time.Now())
 	})
+	requirePanicTriggered(t, panicTriggered)
 }
 
 func TestCronLoopRecoversTickPanicAndKeepsRunning(t *testing.T) {
 	t.Parallel()
 
-	sc := newPanickingScheduler(t)
+	sc, panicTriggered := newPanickingScheduler(t)
 	sc.quit = make(chan any)
 	sc.clock = func() time.Time {
 		return time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
@@ -84,6 +85,7 @@ func TestCronLoopRecoversTickPanicAndKeepsRunning(t *testing.T) {
 		}
 	}()
 
+	requirePanicTriggered(t, panicTriggered)
 	requireCronLoopRunning(t, sc, done, panicCh)
 
 	select {
@@ -95,17 +97,29 @@ func TestCronLoopRecoversTickPanicAndKeepsRunning(t *testing.T) {
 	}
 }
 
-func newPanickingScheduler(t *testing.T) *Scheduler {
+func newPanickingScheduler(t *testing.T) (*Scheduler, <-chan struct{}) {
 	t.Helper()
 
+	panicTriggered := make(chan struct{}, 1)
 	planner := NewTickPlanner(TickPlannerConfig{
 		IsSuspended: func(context.Context, string) bool {
+			panicTriggered <- struct{}{}
 			panic("test tick panic")
 		},
 	})
 	require.NoError(t, planner.Init(t.Context(), []*core.DAG{{Name: "panic-dag"}}))
 
-	return &Scheduler{planner: planner}
+	return &Scheduler{planner: planner}, panicTriggered
+}
+
+func requirePanicTriggered(t *testing.T, panicTriggered <-chan struct{}) {
+	t.Helper()
+
+	select {
+	case <-panicTriggered:
+	case <-time.After(time.Second):
+		require.FailNow(t, "scheduler tick did not reach panic dependency")
+	}
 }
 
 func requireCronLoopRunning(t *testing.T, sc *Scheduler, done <-chan struct{}, panicCh <-chan any) {
