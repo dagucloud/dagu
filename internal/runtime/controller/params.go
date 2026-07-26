@@ -35,6 +35,31 @@ func ParamString(args map[string]any) string {
 	return strings.Join(parts, " ")
 }
 
+// MergeParams combines the parameters a step supplies itself with the arguments
+// the controller chose, rendering both as the "key=value" string a child DAG run
+// expects. A pinned parameter is passed through exactly as the step wrote it,
+// and an argument naming one is dropped: it was never offered, so a model that
+// invented it does not get to override the author.
+func MergeParams(stepParams string, args map[string]any, pinned map[string]struct{}) string {
+	chosen := make(map[string]any, len(args))
+	for key, value := range args {
+		if _, ok := pinned[key]; ok {
+			continue
+		}
+		chosen[key] = value
+	}
+
+	rendered := ParamString(chosen)
+	switch {
+	case stepParams == "":
+		return rendered
+	case rendered == "":
+		return stepParams
+	default:
+		return stepParams + " " + rendered
+	}
+}
+
 func formatArgValue(value any) string {
 	switch v := value.(type) {
 	case nil:

@@ -244,6 +244,8 @@ tasks:
 
 Use `type: controller` only when the step order cannot be written down in advance. `steps` become a catalog of actions the model may pick; `tasks` are the goals and the termination condition. `llm` and a non-empty `tasks` are required, `depends` and router steps are rejected, and `__controller__` and `ask_user` are reserved names.
 
+A `dag.run` step advertises its target's parameters as tool arguments. Write a value in `params` for anything the model should not decide: a parameter the step supplies is not advertised and cannot be overridden.
+
 The model settles each task with `set_task_status`, choosing `completed`, `skipped` when nothing needed doing, `failed` when it cannot be achieved, or `open` to undo an earlier decision. The run ends once no task is open, and fails if any is failed. It can also call `ask_user` to put a question of its own to a person, which suspends the run exactly like a declared human task.
 
 Bind API keys with `env:` as shown. Dagu only propagates `DAGU_*`, `DAG_*`, `LC_*`, and `KUBERNETES_*` from the shell, so an exported key alone never reaches the provider.

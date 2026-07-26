@@ -170,16 +170,47 @@ func (c *Catalog) Definitions() []exec.ToolDefinition {
 
 // stepParameters derives the JSON Schema of the arguments a step accepts. Only
 // steps that launch a child DAG take arguments; everything else is a nullary
-// action.
+// action. A parameter the step already supplies a value for is left out: the
+// author has decided it, so it is not the controller's to choose.
 func stepParameters(child *core.DAG, step core.Step) (map[string]any, error) {
 	if child == nil {
 		return toolschema.Build(nil), nil
 	}
-	schema, err := toolschema.ForDAG(child)
+	params, err := toolschema.ParamsForDAG(child)
 	if err != nil {
 		return nil, fmt.Errorf("step %q: %w", step.Name, err)
 	}
-	return schema, nil
+	return toolschema.Build(omitPinned(params, PinnedParams(step))), nil
+}
+
+// PinnedParams lists the parameter names a step supplies itself.
+func PinnedParams(step core.Step) map[string]struct{} {
+	values, err := step.Params.AsStringMap()
+	if err != nil || len(values) == 0 {
+		return nil
+	}
+	pinned := make(map[string]struct{}, len(values))
+	for name := range values {
+		if name != "" {
+			pinned[name] = struct{}{}
+		}
+	}
+	return pinned
+}
+
+// omitPinned drops the parameters the step already decided.
+func omitPinned(params []toolschema.Param, pinned map[string]struct{}) []toolschema.Param {
+	if len(pinned) == 0 {
+		return params
+	}
+	kept := make([]toolschema.Param, 0, len(params))
+	for _, param := range params {
+		if _, ok := pinned[param.Name]; ok {
+			continue
+		}
+		kept = append(kept, param)
+	}
+	return kept
 }
 
 // resolveChildDAG looks up a child DAG by name, preferring DAGs defined inline

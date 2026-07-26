@@ -378,10 +378,8 @@ func (r *Runner) runControllerAction(
 		node.AddSubRunsRepeated(previous...)
 	}
 	if step.SubDAG != nil {
-		params := step.SubDAG.Params
-		if len(decision.Args) > 0 {
-			params = controller.ParamString(decision.Args)
-		}
+		params := controller.MergeParams(
+			step.SubDAG.Params, decision.Args, controller.PinnedParams(step))
 		node.SetSubDAG(core.SubDAG{Name: step.SubDAG.Name, Params: params})
 	}
 	attempt := state.RecordStepRun(decision.Step)

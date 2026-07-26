@@ -30,8 +30,18 @@ var paramRegex = regexp.MustCompile(`([a-zA-Z_][a-zA-Z0-9_]*)(?:=(.*))?`)
 // invoked as a tool. Rich parameter definitions take precedence over the
 // positional default-params string.
 func ForDAG(dag *core.DAG) (map[string]any, error) {
+	params, err := ParamsForDAG(dag)
+	if err != nil {
+		return nil, err
+	}
+	return Build(params), nil
+}
+
+// ParamsForDAG lists the parameters a DAG accepts, preferring its rich
+// definitions and falling back to its default-params string.
+func ParamsForDAG(dag *core.DAG) ([]Param, error) {
 	if dag == nil {
-		return Build(nil), nil
+		return nil, nil
 	}
 
 	params := ParamsFromDefs(dag.ParamDefs)
@@ -42,7 +52,7 @@ func ForDAG(dag *core.DAG) (map[string]any, error) {
 			return nil, err
 		}
 	}
-	return Build(params), nil
+	return params, nil
 }
 
 // ParamsFromDefs converts rich parameter definitions into tool parameters.

@@ -179,6 +179,92 @@ func TestNewCatalog(t *testing.T) {
 	assert.Contains(t, tools[1].Function.Description, "ok?")
 }
 
+// TestNewCatalog_HidesParametersTheStepPins covers the case that let a run pass
+// while doing nothing: a step fixed the aspect to grade, the model saw the
+// parameter anyway, sent an empty string for it, and the check graded against no
+// criteria and reported clean.
+func TestNewCatalog_HidesParametersTheStepPins(t *testing.T) {
+	t.Parallel()
+
+	dag := testDAG()
+	dag.LocalDAGs = map[string]*core.DAG{
+		"check": {
+			Name: "check",
+			ParamDefs: []core.ParamDef{
+				{Name: "aspect", Type: core.ParamDefTypeString, Required: true},
+				{Name: "strict", Type: core.ParamDefTypeString},
+			},
+		},
+	}
+	dag.Steps = []core.Step{
+		{
+			Name:   "check vocabulary",
+			SubDAG: &core.SubDAG{Name: "check", Params: `aspect="vocabulary"`},
+			Params: core.NewSimpleParams(map[string]string{"aspect": "vocabulary"}),
+		},
+		core.NewControllerStep(dag),
+	}
+
+	catalog, err := controller.NewCatalog(t.Context(), dag)
+	require.NoError(t, err)
+
+	params := catalog.Tools()[0].Function.Parameters
+	properties, _ := params["properties"].(map[string]any)
+	assert.NotContains(t, properties, "aspect", "the step decided this one")
+	assert.Contains(t, properties, "strict", "the model still chooses the rest")
+	assert.Empty(t, params["required"], "a pinned parameter is not asked for")
+}
+
+func TestMergeParams(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		stepParams string
+		args       map[string]any
+		pinned     []string
+		want       string
+	}{
+		{
+			name:       "an argument naming a pinned parameter is dropped",
+			stepParams: `aspect="vocabulary"`,
+			args:       map[string]any{"aspect": ""},
+			pinned:     []string{"aspect"},
+			want:       `aspect="vocabulary"`,
+		},
+		{
+			name:       "parameters the step pinned survive alongside chosen ones",
+			stepParams: `aspect="vocabulary" strict="high"`,
+			args:       map[string]any{"depth": 2},
+			pinned:     []string{"aspect", "strict"},
+			want:       `aspect="vocabulary" strict="high" depth="2"`,
+		},
+		{
+			name: "arguments alone render as before",
+			args: map[string]any{"target": "prod"},
+			want: `target="prod"`,
+		},
+		{
+			name:       "a step that pins everything ignores the arguments",
+			stepParams: `aspect="vocabulary"`,
+			pinned:     []string{"aspect"},
+			want:       `aspect="vocabulary"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			pinned := make(map[string]struct{}, len(tt.pinned))
+			for _, name := range tt.pinned {
+				pinned[name] = struct{}{}
+			}
+			assert.Equal(t, tt.want, controller.MergeParams(tt.stepParams, tt.args, pinned))
+		})
+	}
+}
+
 func TestParamString(t *testing.T) {
 	t.Parallel()
 
