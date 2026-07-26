@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path"
 	"strings"
 	"sync"
@@ -275,6 +276,28 @@ func TestControllerLoop_RerunsAnActionWithFreshArguments(t *testing.T) {
 	alpha := ch.node(t, "alpha")
 	assert.Equal(t, core.NodeSucceeded, alpha.State().Status)
 	assert.True(t, alpha.State().Repeated, "a re-run action is marked repeated")
+}
+
+func TestControllerLoop_ObservesTheOutputOfARerunAction(t *testing.T) {
+	t.Parallel()
+
+	ch := setupController(t, controllerDAG,
+		turn{tool: "alpha"},
+		turn{tool: "alpha"},
+		turn{tool: controller.SetTaskStatusTool, args: map[string]any{"task": "first", "status": "completed", "reason": "alpha ran twice"}},
+		turn{tool: controller.SetTaskStatusTool, args: map[string]any{"task": "second", "status": "completed", "reason": "not needed"}},
+	)
+
+	require.Equal(t, core.Succeeded, ch.run(t))
+
+	// Each attempt writes its own log, and the controller decides what to do
+	// next from what it reads there. An attempt whose output never reached the
+	// file leaves the controller guessing.
+	stdout := ch.node(t, "alpha").State().Stdout
+	require.NotEmpty(t, stdout)
+	written, err := os.ReadFile(stdout)
+	require.NoError(t, err)
+	assert.Equal(t, "alpha", strings.TrimSpace(string(written)))
 }
 
 func TestControllerLoop_RejectsUnknownToolAndTask(t *testing.T) {
