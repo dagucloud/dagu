@@ -173,6 +173,11 @@ func (c *Catalog) Definitions() []exec.ToolDefinition {
 // action. A parameter the step already supplies a value for is left out: the
 // author has decided it, so it is not the controller's to choose.
 func stepParameters(child *core.DAG, step core.Step) (map[string]any, error) {
+	if step.SubDAG != nil {
+		if err := validateNamedSubDAGParams(step); err != nil {
+			return nil, err
+		}
+	}
 	if child == nil {
 		return toolschema.Build(nil), nil
 	}
@@ -181,6 +186,17 @@ func stepParameters(child *core.DAG, step core.Step) (map[string]any, error) {
 		return nil, fmt.Errorf("step %q: %w", step.Name, err)
 	}
 	return toolschema.Build(omitPinned(params, PinnedParams(step))), nil
+}
+
+func validateNamedSubDAGParams(step core.Step) error {
+	values, err := step.Params.AsStringMap()
+	if err != nil {
+		return fmt.Errorf("step %q: invalid child DAG parameters: %w", step.Name, err)
+	}
+	if _, positional := values[""]; positional {
+		return fmt.Errorf("step %q: controller child DAG parameters must be named", step.Name)
+	}
+	return nil
 }
 
 // PinnedParams lists the parameter names a step supplies itself.

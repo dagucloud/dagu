@@ -215,6 +215,38 @@ func TestNewCatalog_HidesParametersTheStepPins(t *testing.T) {
 	assert.Empty(t, params["required"], "a pinned parameter is not asked for")
 }
 
+func TestNewCatalog_RejectsPositionalPinnedParameters(t *testing.T) {
+	t.Parallel()
+
+	dag, err := spec.LoadYAML(t.Context(), []byte(`
+type: controller
+llm: {provider: anthropic, model: claude-opus-5}
+steps:
+  - name: check vocabulary
+    action: dag.run
+    with:
+      dag: check
+      params: vocabulary
+tasks:
+  - name: checked
+    description: The check ran.
+---
+name: check
+params:
+  - name: aspect
+    type: string
+    required: true
+steps:
+  - run: echo ${params.aspect}
+`))
+	require.NoError(t, err)
+
+	_, err = controller.NewCatalog(t.Context(), dag)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(),
+		`step "check vocabulary": controller child DAG parameters must be named`)
+}
+
 func TestMergeParams(t *testing.T) {
 	t.Parallel()
 
