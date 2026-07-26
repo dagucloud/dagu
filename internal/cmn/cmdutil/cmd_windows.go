@@ -57,7 +57,9 @@ func killProcessTree(pid uint32) error {
 	for {
 		if entry.ParentProcessID == pid {
 			// Recursively kill children first
-			killProcessTree(entry.ProcessID)
+			if err := killProcessTree(entry.ProcessID); err != nil {
+				return fmt.Errorf("failed to kill child process %d: %w", entry.ProcessID, err)
+			}
 		}
 
 		err = windows.Process32Next(snapshot, (*windows.ProcessEntry32)(unsafe.Pointer(&entry)))
