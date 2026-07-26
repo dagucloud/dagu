@@ -1056,6 +1056,43 @@ func (r *Runner) HandlerNode(name core.HandlerType) *Node {
 	return nil
 }
 
+// handlersBeforeSteps and handlersAfterSteps list the lifecycle handlers by
+// when they run relative to the DAG's steps.
+var (
+	handlersBeforeSteps = []core.HandlerType{core.HandlerOnInit}
+	handlersAfterSteps  = []core.HandlerType{
+		core.HandlerOnWait,
+		core.HandlerOnSuccess,
+		core.HandlerOnFailure,
+		core.HandlerOnAbort,
+		core.HandlerOnExit,
+	}
+)
+
+// NodesInRunOrder returns the plan's step nodes together with the lifecycle
+// handler nodes that were configured, ordered by when they run. Handlers that
+// the DAG does not declare are omitted.
+func (r *Runner) NodesInRunOrder(plan *Plan) []*Node {
+	var steps []*Node
+	if plan != nil {
+		steps = plan.Nodes()
+	}
+
+	nodes := make([]*Node, 0, len(steps)+len(handlersBeforeSteps)+len(handlersAfterSteps))
+	for _, handler := range handlersBeforeSteps {
+		if node := r.HandlerNode(handler); node != nil {
+			nodes = append(nodes, node)
+		}
+	}
+	nodes = append(nodes, steps...)
+	for _, handler := range handlersAfterSteps {
+		if node := r.HandlerNode(handler); node != nil {
+			nodes = append(nodes, node)
+		}
+	}
+	return nodes
+}
+
 // isCanceled returns true if the runner is canceled.
 func (r *Runner) isCanceled() bool {
 	r.mu.RLock()

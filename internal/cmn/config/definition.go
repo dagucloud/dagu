@@ -242,6 +242,7 @@ type SecretsDef struct {
 	AWS        *AWSSecretsDef        `mapstructure:"aws"`
 	GCP        *GCPSecretsDef        `mapstructure:"gcp"`
 	Azure      *AzureSecretsDef      `mapstructure:"azure"`
+	Alibaba    *AlibabaSecretsDef    `mapstructure:"alibaba"`
 }
 
 // AWSSecretsDef configures global AWS Secrets Manager client defaults.
@@ -258,6 +259,13 @@ type GCPSecretsDef struct {
 // AzureSecretsDef configures global Azure Key Vault client defaults.
 type AzureSecretsDef struct {
 	VaultURL string `mapstructure:"vault_url"`
+}
+
+// AlibabaSecretsDef configures global Alibaba Cloud KMS client defaults.
+type AlibabaSecretsDef struct {
+	Region   string `mapstructure:"region"`
+	Endpoint string `mapstructure:"endpoint"`
+	CAFile   string `mapstructure:"ca_file"`
 }
 
 // VaultSecretsDef configures global HashiCorp Vault client defaults.

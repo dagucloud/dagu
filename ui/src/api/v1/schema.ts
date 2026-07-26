@@ -17000,7 +17000,8 @@ export enum SecretProviderType {
     kubernetes = "kubernetes",
     gcp = "gcp",
     aws = "aws",
-    azure = "azure"
+    azure = "azure",
+    alibaba = "alibaba"
 }
 export enum SecretStatus {
     active = "active",

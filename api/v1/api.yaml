@@ -13834,6 +13834,7 @@ components:
         - gcp
         - aws
         - azure
+        - alibaba
 
     SecretStatus:
       type: string

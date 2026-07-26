@@ -1477,6 +1477,10 @@ secrets:
     location: "us-central1"
   azure:
     vault_url: "https://yaml.vault.azure.net"
+  alibaba:
+    region: "cn-hangzhou"
+    endpoint: "kms-vpc.cn-hangzhou.aliyuncs.com"
+    ca_file: "relative/alibaba-ca.pem"
 `)
 
 		assert.Equal(t, "https://vault.example.com", cfg.Secrets.Vault.Address)
@@ -1488,10 +1492,14 @@ secrets:
 		assert.Equal(t, "yaml-project", cfg.Secrets.GCP.ProjectID)
 		assert.Equal(t, "us-central1", cfg.Secrets.GCP.Location)
 		assert.Equal(t, "https://yaml.vault.azure.net", cfg.Secrets.Azure.VaultURL)
+		assert.Equal(t, "cn-hangzhou", cfg.Secrets.Alibaba.Region)
+		assert.Equal(t, "kms-vpc.cn-hangzhou.aliyuncs.com", cfg.Secrets.Alibaba.Endpoint)
+		assert.Equal(t, resolvedTestPath(t, "relative/alibaba-ca.pem"), cfg.Secrets.Alibaba.CAFile)
 	})
 
 	t.Run("FromEnv", func(t *testing.T) {
 		kubeconfig := filepath.Join(t.TempDir(), "kubeconfig")
+		alibabaCAFile := filepath.Join(t.TempDir(), "alibaba-ca.pem")
 		cfg := loadWithEnv(t, "# empty", map[string]string{
 			"DAGU_SECRETS_VAULT_ADDRESS":         "https://vault.example.com",
 			"DAGU_SECRETS_VAULT_TOKEN":           "env-token",
@@ -1502,6 +1510,9 @@ secrets:
 			"DAGU_SECRETS_GCP_PROJECT_ID":        "env-project",
 			"DAGU_SECRETS_GCP_LOCATION":          "europe-west1",
 			"DAGU_SECRETS_AZURE_VAULT_URL":       "https://env.vault.azure.net",
+			"DAGU_SECRETS_ALIBABA_REGION":        "cn-shanghai",
+			"DAGU_SECRETS_ALIBABA_ENDPOINT":      "kms-vpc.cn-shanghai.aliyuncs.com",
+			"DAGU_SECRETS_ALIBABA_CA_FILE":       alibabaCAFile,
 		})
 
 		assert.Equal(t, "https://vault.example.com", cfg.Secrets.Vault.Address)
@@ -1513,6 +1524,9 @@ secrets:
 		assert.Equal(t, "env-project", cfg.Secrets.GCP.ProjectID)
 		assert.Equal(t, "europe-west1", cfg.Secrets.GCP.Location)
 		assert.Equal(t, "https://env.vault.azure.net", cfg.Secrets.Azure.VaultURL)
+		assert.Equal(t, "cn-shanghai", cfg.Secrets.Alibaba.Region)
+		assert.Equal(t, "kms-vpc.cn-shanghai.aliyuncs.com", cfg.Secrets.Alibaba.Endpoint)
+		assert.Equal(t, alibabaCAFile, cfg.Secrets.Alibaba.CAFile)
 	})
 
 	t.Run("OldEnvNamesIgnored", func(t *testing.T) {

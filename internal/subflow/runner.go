@@ -533,12 +533,13 @@ func (r *Runner) getFullStatus(
 }
 
 func statusToRunStatus(status *exec.DAGRunStatus, runID string) *exec.RunStatus {
+	nodes := status.NodesInRunOrder()
 	return &exec.RunStatus{
 		Name:               status.Name,
 		DAGRunID:           runID,
 		Params:             status.Params,
-		Outputs:            outputVariablesFromNodes(status.Nodes),
-		OutputValues:       outputValuesFromNodes(status.Nodes),
+		Outputs:            outputVariablesFromNodes(nodes),
+		OutputValues:       outputValuesFromNodes(nodes),
 		Status:             status.Status,
 		PendingStepRetries: exec.PendingStepRetriesFromStatus(status),
 	}

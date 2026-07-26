@@ -230,16 +230,36 @@ func TestQueueProcessor_GlobalQueue(t *testing.T) {
 	assert.Contains(t, f.logs(), "count=3")
 }
 
-func TestQueueProcessor_ItemsRemainOnFailure(t *testing.T) {
-	f := newQueueFixture(t).withDAG("fifo-dag", 1).enqueueRuns(2).
-		withProcessor(config.Queues{Enabled: true, Config: []config.QueueConfig{{Name: "fifo-dag", MaxActiveRuns: 1}}}).
-		simulateQueue(1, false)
+func TestQueueProcessor_PermanentStartupFailureIsFailedAndDequeued(t *testing.T) {
+	f := newQueueFixture(t).withDAG("fifo-dag", 1)
+	f.enqueueRunWithTrigger("run-1", core.TriggerTypeManual)
+	f.enqueueRunWithTrigger("run-2", core.TriggerTypeManual)
+	f.withProcessor(config.Queues{
+		Enabled: true,
+		Config:  []config.QueueConfig{{Name: "fifo-dag", MaxActiveRuns: 1}},
+	}).simulateQueue(1, false)
+	f.processor.dagExecutor = NewDAGExecutor(
+		nil,
+		launcher.NewSubCmdBuilder(&config.Config{
+			Paths: config.PathsConfig{Executable: filepath.Join(t.TempDir(), "missing-dagu")},
+		}),
+		config.ExecutionModeLocal,
+		"",
+	)
 
 	f.processor.ProcessQueueItems(f.ctx, "fifo-dag")
 
 	items, err := f.queueStore.List(f.ctx, "fifo-dag")
 	require.NoError(t, err)
-	require.Len(t, items, 2, "Both items should still be in queue")
+	require.Len(t, items, 1)
+
+	attempt, err := f.dagRunStore.FindAttempt(f.ctx, exec.NewDAGRunRef("fifo-dag", "run-1"))
+	require.NoError(t, err)
+	status, err := attempt.ReadStatus(f.ctx)
+	require.NoError(t, err)
+	assert.Equal(t, core.Failed, status.Status)
+	assert.NotEmpty(t, status.Error)
+	assert.NotEmpty(t, status.FinishedAt)
 }
 
 func TestQueueProcessor_PriorityOrdering(t *testing.T) {

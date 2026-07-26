@@ -90,8 +90,10 @@ func (o *dbClient) GetSubDAGRunStatus(ctx context.Context, dagRunID string, root
 		return nil, fmt.Errorf("failed to read status: %w", err)
 	}
 
+	nodes := status.NodesInRunOrder()
+
 	outputVariables := make(map[string]string)
-	for _, node := range status.Nodes {
+	for _, node := range nodes {
 		if node.OutputVariables != nil {
 			node.OutputVariables.Range(func(_, value any) bool {
 				// split the value by '=' to get the key and value
@@ -106,7 +108,7 @@ func (o *dbClient) GetSubDAGRunStatus(ctx context.Context, dagRunID string, root
 	return &runtime.RunStatus{
 		Status:             status.Status,
 		Outputs:            outputVariables,
-		OutputValues:       runtime.OutputValuesFromExecNodes(status.Nodes),
+		OutputValues:       runtime.OutputValuesFromExecNodes(nodes),
 		Name:               status.Name,
 		DAGRunID:           status.DAGRunID,
 		Params:             status.Params,

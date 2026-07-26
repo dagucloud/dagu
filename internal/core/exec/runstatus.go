@@ -259,6 +259,25 @@ func (st *DAGRunStatus) DAGRun() DAGRunRef {
 	return NewDAGRunRef(st.Name, st.DAGRunID)
 }
 
+// NodesInRunOrder returns the run's step nodes together with the lifecycle
+// handler nodes that were configured, ordered by when they run. Handlers that
+// the DAG does not declare are omitted.
+func (st *DAGRunStatus) NodesInRunOrder() []*Node {
+	afterSteps := []*Node{st.OnWait, st.OnSuccess, st.OnFailure, st.OnAbort, st.OnExit}
+
+	nodes := make([]*Node, 0, len(st.Nodes)+1+len(afterSteps))
+	if st.OnInit != nil {
+		nodes = append(nodes, st.OnInit)
+	}
+	nodes = append(nodes, st.Nodes...)
+	for _, node := range afterSteps {
+		if node != nil {
+			nodes = append(nodes, node)
+		}
+	}
+	return nodes
+}
+
 // Errors returns a slice of errors for the current status
 func (st *DAGRunStatus) Errors() []error {
 	var errs []error
