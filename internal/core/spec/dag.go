@@ -739,7 +739,9 @@ func (s *dagBuildState) composeInheritedContext() {
 // base-config env resolve correctly (base env is only merged into the result
 // during composition, not during field stages).
 func (s *dagBuildState) resolveWorkerSelector() {
-	if s.ctx.opts.Has(BuildFlagNoEval) || len(s.result.WorkerSelector) == 0 {
+	if s.ctx.opts.Has(BuildFlagNoEval) ||
+		s.ctx.opts.Has(BuildFlagSkipWorkerSelectorEval) ||
+		len(s.result.WorkerSelector) == 0 {
 		return
 	}
 
@@ -761,18 +763,17 @@ func (s *dagBuildState) resolveWorkerSelector() {
 	}
 
 	var consts map[string]any
-	var params cmnvalue.Values
-	var paramsJSON string
-	var paramDeclarations cmnvalue.Values
 	if s.ctx.envScope != nil {
 		consts = s.ctx.envScope.consts
-		params = s.ctx.envScope.params
-		paramsJSON = s.ctx.envScope.paramsJSON
-		paramDeclarations = s.ctx.envScope.paramDeclarations
 	}
 	resolver := cmnvalue.NewResolver(
-		cmnvalue.StaticScope{Consts: cmnvalue.Values(consts), Params: paramDeclarations},
-		cmnvalue.RuntimeScope{Consts: cmnvalue.Values(consts), Params: params, ParamsJSON: paramsJSON, Env: scope},
+		cmnvalue.StaticScope{Consts: cmnvalue.Values(consts), Params: s.result.ParamDeclarations()},
+		cmnvalue.RuntimeScope{
+			Consts:     cmnvalue.Values(consts),
+			Params:     s.result.ParamValues(),
+			ParamsJSON: s.result.ParamsJSON,
+			Env:        scope,
+		},
 		cmnvalue.WithValueReferenceNotices(buildNoticeSink(s.ctx.valueReferenceNotices)),
 	)
 

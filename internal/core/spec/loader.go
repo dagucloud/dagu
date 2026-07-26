@@ -882,6 +882,9 @@ func buildBaseDAG(ctx BuildContext, baseDef *dag) (*core.DAG, error) {
 	buildOpts := ctx.opts
 	buildOpts.Parameters = ""
 	buildOpts.ParametersList = nil
+	// Leave the base config's worker_selector raw so the inheriting DAG resolves
+	// the merged selector against the composed env/params.
+	buildOpts.Flags |= BuildFlagSkipWorkerSelectorEval
 
 	customStepTypes, err := buildCustomStepActionRegistry(stepTypesOf(baseDef), nil, actionsOf(baseDef), nil)
 	if err != nil {

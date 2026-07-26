@@ -406,6 +406,80 @@ steps:
 	})
 }
 
+// TestLoad_WorkerSelectorFromBaseConfig covers selectors that are declared in
+// (or reference values from) the base config, resolved against the composed
+// base+child scope.
+func TestLoad_WorkerSelectorFromBaseConfig(t *testing.T) {
+	t.Parallel()
+
+	t.Run("BaseDeclaredSelectorChildEnvOverride", func(t *testing.T) {
+		t.Parallel()
+
+		// the selector is declared in the base config and references a base
+		// env value. The child overrides that env, and the override must win.
+		base := createTempYAMLFile(t, `env:
+  WORKLOAD: base-pool
+worker_selector:
+  workload: "${WORKLOAD}"
+`)
+		testDAG := createTempYAMLFile(t, `env:
+  WORKLOAD: child-pool
+
+steps:
+  - name: "1"
+    run: "true"
+`)
+		dag, err := spec.Load(context.Background(), testDAG, spec.WithBaseConfig(base))
+		require.NoError(t, err)
+
+		assert.Equal(t, map[string]string{"workload": "child-pool"}, dag.WorkerSelector)
+	})
+
+	t.Run("SelectorReferencesBaseOnlyParam", func(t *testing.T) {
+		t.Parallel()
+
+		// ${params.REGION} references a param declared only in the base
+		// config; it must resolve from the composed params.
+		base := createTempYAMLFile(t, `params:
+  - REGION: us
+`)
+		testDAG := createTempYAMLFile(t, `worker_selector:
+  region: "${params.REGION}"
+
+steps:
+  - name: "1"
+    run: "true"
+`)
+		dag, err := spec.Load(context.Background(), testDAG, spec.WithBaseConfig(base))
+		require.NoError(t, err)
+
+		assert.Equal(t, map[string]string{"region": "us"}, dag.WorkerSelector)
+	})
+
+	t.Run("BaseDeclaredSelectorChildParamOverride", func(t *testing.T) {
+		t.Parallel()
+
+		// base declares both the param and the selector that
+		// references it; the child overrides the param and the override wins.
+		base := createTempYAMLFile(t, `params:
+  - REGION: us
+worker_selector:
+  region: "${params.REGION}"
+`)
+		testDAG := createTempYAMLFile(t, `params:
+  - REGION: eu
+
+steps:
+  - name: "1"
+    run: "true"
+`)
+		dag, err := spec.Load(context.Background(), testDAG, spec.WithBaseConfig(base))
+		require.NoError(t, err)
+
+		assert.Equal(t, map[string]string{"region": "eu"}, dag.WorkerSelector)
+	})
+}
+
 func TestLoad_HarnessDefinitionsBaseConfigMerge(t *testing.T) {
 	t.Parallel()
 
