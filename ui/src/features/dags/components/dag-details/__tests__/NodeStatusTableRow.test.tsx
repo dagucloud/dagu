@@ -302,6 +302,51 @@ describe('NodeStatusTableRow', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('hides step actions for rows the step APIs cannot address', () => {
+    const node = {
+      step: { name: 'onInit' },
+      status: NodeStatus.Failed,
+      statusLabel: NodeStatusLabel.failed,
+      stdout: '',
+      stderr: '',
+      startedAt: '',
+      finishedAt: '',
+      retryCount: 0,
+      doneCount: 1,
+    } as components['schemas']['Node'];
+
+    render(
+      <MemoryRouter>
+        <AppBarContext.Provider value={appBarValue}>
+          <DAGContext.Provider
+            value={{
+              refresh: vi.fn(),
+              name: 'example',
+              fileName: 'example.yaml',
+            }}
+          >
+            <table>
+              <tbody>
+                <NodeStatusTableRow
+                  rownum={1}
+                  node={node}
+                  name="example.yaml"
+                  dagRun={dagRun}
+                  view="desktop"
+                  hideActions
+                />
+              </tbody>
+            </table>
+          </DAGContext.Provider>
+        </AppBarContext.Provider>
+      </MemoryRouter>
+    );
+
+    expect(
+      screen.queryByRole('button', { name: 'Step actions' })
+    ).not.toBeInTheDocument();
+  });
+
   it('keeps the retry dialog open when the API rejects the request', async () => {
     const user = userEvent.setup();
     postMock.mockResolvedValueOnce({

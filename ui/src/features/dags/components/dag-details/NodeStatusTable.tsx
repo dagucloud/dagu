@@ -32,6 +32,8 @@ type Props = {
   ) => void;
   /** Function called after a row status update succeeds */
   onNodeStatusUpdated?: (stepName: string, status: NodeStatus) => void;
+  /** Hide per-row actions for nodes the step APIs cannot address */
+  hideActions?: boolean;
 };
 
 /**
@@ -43,10 +45,11 @@ function NodeStatusTable({
   fileName,
   onViewLog,
   onNodeStatusUpdated,
+  hideActions,
 }: Props) {
   const config = useConfig();
   const showActionsColumn = Boolean(
-    status?.dagRunId && config.permissions.runDags
+    !hideActions && status?.dagRunId && config.permissions.runDags
   );
 
   // Don't render if there are no nodes
@@ -91,6 +94,7 @@ function NodeStatusTable({
                   onNodeStatusUpdated={onNodeStatusUpdated}
                   dagRun={status}
                   view="desktop"
+                  hideActions={hideActions}
                   defaultLogExpanded={n.step.name === firstFailedStepName}
                 />
               ))}
@@ -111,6 +115,7 @@ function NodeStatusTable({
             onNodeStatusUpdated={onNodeStatusUpdated}
             dagRun={status}
             view="mobile"
+            hideActions={hideActions}
             defaultLogExpanded={n.step.name === firstFailedStepName}
           />
         ))}
