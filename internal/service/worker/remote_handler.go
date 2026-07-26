@@ -440,6 +440,9 @@ func (h *remoteTaskHandler) loadDAG(ctx context.Context, task *coordinatorv1.Tas
 	loadOpts := []spec.LoadOption{
 		spec.WithName(task.Target), // Use original DAG name, not temp file path
 	}
+	if task.SourceFile != "" {
+		loadOpts = append(loadOpts, spec.WithSourceFile(task.SourceFile))
+	}
 
 	// Use embedded base config from the task if available (distributed mode).
 	// Fall back to local base config path if the task doesn't include one.

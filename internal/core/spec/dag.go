@@ -1918,7 +1918,7 @@ func buildShellArgs(ctx BuildContext, d *dag) ([]string, error) {
 
 func buildWorkingDir(ctx BuildContext, d *dag) (string, error) {
 	if d.WorkingDir != "" {
-		return resolveWorkingDirPath(d.WorkingDir, ctx.file)
+		return resolveWorkingDirPath(d.WorkingDir, authoredFile(ctx))
 	}
 	if ctx.opts.DefaultWorkingDir != "" {
 		return ctx.opts.DefaultWorkingDir, nil
@@ -1926,6 +1926,17 @@ func buildWorkingDir(ctx BuildContext, d *dag) (string, error) {
 	// Return empty to allow inheritance from base config.
 	// Default is applied post-merge in loadDAG.
 	return "", nil
+}
+
+// authoredFile returns the path the DAG was written at. It differs from the
+// file being read whenever a definition is executed from a copy, which is the
+// case for a sub-workflow defined in the same document and for a task a worker
+// received from the coordinator.
+func authoredFile(ctx BuildContext) string {
+	if ctx.opts.SourceFile != "" {
+		return ctx.opts.SourceFile
+	}
+	return ctx.file
 }
 
 // resolveWorkingDirPath resolves the working directory path at build time.

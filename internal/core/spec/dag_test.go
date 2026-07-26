@@ -1861,6 +1861,21 @@ func TestBuildWorkingDir_Relative(t *testing.T) {
 	assert.Equal(t, filepath.Join(tmpDir, "subdir"), result)
 }
 
+func TestBuildWorkingDir_RelativeToAuthoredFile(t *testing.T) {
+	// A definition executed from a copy, such as a sub-workflow written in the
+	// same document or a task a worker received, still resolves against the file
+	// the author wrote.
+	authored := filepath.Join(t.TempDir(), "workflows", "pipeline.yaml")
+	copied := filepath.Join(t.TempDir(), "local-dags", "child-1234.yaml")
+
+	ctx := BuildContext{file: copied, opts: BuildOpts{SourceFile: authored}}
+	d := &dag{WorkingDir: "checkout"}
+
+	result, err := buildWorkingDir(ctx, d)
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(filepath.Dir(authored), "checkout"), result)
+}
+
 func TestBuildWorkingDir_NoExpansion(t *testing.T) {
 	// WorkingDir is no longer expanded at build time - expansion happens at runtime
 	// See runtime/env.go resolveWorkingDir()

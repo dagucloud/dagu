@@ -124,6 +124,10 @@ type BuildOpts struct {
 	DAGsDir string
 	// DefaultWorkingDir is the default working directory for DAGs without explicit workingDir.
 	DefaultWorkingDir string
+	// SourceFile is the path the DAG was authored at. It is set when the
+	// definition is loaded from a copy, so relative paths keep resolving
+	// against the file the author wrote rather than the copy.
+	SourceFile string
 	// Flags stores all boolean options controlling build behaviour.
 	Flags BuildFlag
 	// BuildEnv provides pre-populated environment variables for the build.

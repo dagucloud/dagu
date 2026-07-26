@@ -507,6 +507,9 @@ func inProcessLoadOptions(
 		spec.WithName(req.DAG.Name),
 		spec.WithSkipBaseHandlers(),
 	}
+	if req.DAG.SourceFile != "" {
+		loadOpts = append(loadOpts, spec.WithSourceFile(req.DAG.SourceFile))
+	}
 	if cfg != nil {
 		loadOpts = append(loadOpts, spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(cfg.Paths.DAGsDir)))
 	}

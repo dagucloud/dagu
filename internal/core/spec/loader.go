@@ -42,6 +42,7 @@ type LoadOptions struct {
 	flags                  BuildFlag
 	dagsDir                string            // Directory containing the core.DAG files.
 	defaultWorkingDir      string            // Default working directory for DAGs without explicit workingDir.
+	sourceFile             string            // Path the DAG was authored at, used to resolve relative paths.
 	buildEnv               map[string]string // Pre-populated env vars for build (used for retry with dotenv).
 }
 
@@ -163,6 +164,16 @@ func WithDefaultWorkingDir(defaultWorkingDir string) LoadOption {
 	}
 }
 
+// WithSourceFile sets the path the DAG was authored at. A definition executed
+// from a temporary copy, such as a sub-workflow or a task dispatched to a
+// worker, resolves its relative paths against this rather than against the
+// copy.
+func WithSourceFile(sourceFile string) LoadOption {
+	return func(o *LoadOptions) {
+		o.sourceFile = strings.TrimSpace(sourceFile)
+	}
+}
+
 // WithBuildEnv provides additional environment variables for the build.
 // These are added to the envScope before building, allowing YAML to
 // reference them via ${VAR}. This is used for retry scenarios where
@@ -253,6 +264,7 @@ func loadBuildOpts(options LoadOptions) BuildOpts {
 		Name:                   options.name,
 		DAGsDir:                options.dagsDir,
 		DefaultWorkingDir:      options.defaultWorkingDir,
+		SourceFile:             options.sourceFile,
 		Flags:                  options.flags,
 		BuildEnv:               options.buildEnv,
 	}
