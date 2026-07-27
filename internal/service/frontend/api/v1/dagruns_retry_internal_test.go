@@ -12,6 +12,7 @@ import (
 	"time"
 
 	openapiv1 "github.com/dagucloud/dagu/api/v1"
+	"github.com/dagucloud/dagu/internal/auth"
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
@@ -36,7 +37,7 @@ func (c *retryCoordinatorRecorder) Dispatch(_ context.Context, req exec.Dispatch
 }
 
 func TestRetryDAGRun_DispatchesRetryToCoordinator(t *testing.T) {
-	ctx := context.Background()
+	ctx := auth.WithUser(context.Background(), &auth.User{Username: "alice"})
 	tmpDir := t.TempDir()
 
 	dagFile := filepath.Join(tmpDir, "distributed-retry.yaml")
@@ -111,6 +112,7 @@ steps:
 	require.Equal(t, dag.Name, task.Target)
 	require.Equal(t, "distributed-run", task.DAGRunID)
 	require.Equal(t, dag.WorkerSelector, task.WorkerSelector)
+	require.Equal(t, "alice", task.TriggerActor)
 	require.NotNil(t, task.PreviousStatus)
 }
 
@@ -271,4 +273,94 @@ steps:
 
 	require.Len(t, coordinatorCli.dispatched, 1)
 	require.Equal(t, "latest-run", coordinatorCli.dispatched[0].DAGRunID)
+}
+
+func TestRetryDAGRun_TargetsPersistedChildStepFromRoot(t *testing.T) {
+	ctx := context.Background()
+	rootRef := exec.NewDAGRunRef("root_retry_dag", "root-run")
+	rootStep := core.Step{
+		Name:           "parallel-children",
+		ExecutorConfig: core.ExecutorConfig{Type: core.ExecutorTypeParallel},
+		SubDAG:         &core.SubDAG{Name: "child_retry_dag"},
+		Parallel:       &core.ParallelConfig{},
+	}
+	rootDAG := &core.DAG{
+		Name:           rootRef.Name,
+		Steps:          []core.Step{rootStep},
+		WorkerSelector: map[string]string{"region": "apac"},
+	}
+	childStep := core.Step{Name: "target-step"}
+	childDAG := &core.DAG{Name: "child_retry_dag", Steps: []core.Step{childStep}}
+	store := dagrun.New(filepath.Join(t.TempDir(), "dag-runs"))
+
+	rootAttempt, err := store.CreateAttempt(ctx, rootDAG, time.Now().Add(-time.Minute), rootRef.ID, exec.NewDAGRunAttemptOptions{})
+	require.NoError(t, err)
+	rootStatus := exec.DAGRunStatus{
+		Root:      rootRef,
+		Name:      rootRef.Name,
+		DAGRunID:  rootRef.ID,
+		AttemptID: rootAttempt.ID(),
+		Status:    core.Failed,
+		Nodes: []*exec.Node{{
+			Step:   rootStep,
+			Status: core.NodeFailed,
+			SubRuns: []exec.SubDAGRun{
+				{DAGRunID: "child-success", DAGName: childDAG.Name, Params: "ITEM=one"},
+				{DAGRunID: "child-target", DAGName: childDAG.Name, Params: "ITEM=two"},
+			},
+		}},
+	}
+	require.NoError(t, rootAttempt.Open(ctx))
+	require.NoError(t, rootAttempt.Write(ctx, rootStatus))
+	require.NoError(t, rootAttempt.Close(ctx))
+
+	childAttempt, err := store.CreateAttempt(ctx, childDAG, time.Now(), "child-target", exec.NewDAGRunAttemptOptions{RootDAGRun: &rootRef})
+	require.NoError(t, err)
+	childStatus := exec.DAGRunStatus{
+		Root:      rootRef,
+		Parent:    rootRef,
+		Name:      childDAG.Name,
+		DAGRunID:  "child-target",
+		AttemptID: childAttempt.ID(),
+		Status:    core.Succeeded,
+		Nodes:     []*exec.Node{{Step: childStep, Status: core.NodeSucceeded}},
+	}
+	require.NoError(t, childAttempt.Open(ctx))
+	require.NoError(t, childAttempt.Write(ctx, childStatus))
+	require.NoError(t, childAttempt.Close(ctx))
+
+	coordinatorCli := &retryCoordinatorRecorder{}
+	apiServer := &API{
+		dagRunStore: store,
+		config: &config.Config{Server: config.Server{Permissions: map[config.Permission]bool{
+			config.PermissionRunDAGs: true,
+		}}},
+		coordinatorCli:  coordinatorCli,
+		defaultExecMode: config.ExecutionModeLocal,
+	}
+	subRunID := "child-target"
+	stepName := childStep.Name
+	request := openapiv1.RetryDAGRunRequestObject{
+		Name:     rootRef.Name,
+		DagRunId: rootRef.ID,
+		Body: &openapiv1.RetryDAGRunJSONRequestBody{
+			DagRunId:    rootRef.ID,
+			SubDAGRunId: &subRunID,
+			StepName:    &stepName,
+		},
+	}
+
+	resp, err := apiServer.RetryDAGRun(ctx, request)
+	require.NoError(t, err)
+	_, ok := resp.(openapiv1.RetryDAGRun200Response)
+	require.True(t, ok)
+	require.Len(t, coordinatorCli.dispatched, 1)
+	task := coordinatorCli.dispatched[0]
+	require.Equal(t, rootStep.Name, task.Step)
+	require.NotNil(t, task.PreviousStatus)
+	require.Equal(t, core.Failed, task.PreviousStatus.Status)
+	path, err := exec.ParseRetryPath(task.RetryPath)
+	require.NoError(t, err)
+	require.Equal(t, childStep.Name, path.Step)
+	require.Equal(t, subRunID, path.Hops[0].RunID)
 }

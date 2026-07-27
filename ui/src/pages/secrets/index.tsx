@@ -87,9 +87,10 @@ const PROVIDER_LABELS: Record<SecretProviderType, string> = {
   [SecretProviderType.dagu_managed]: 'Dagu Managed',
   [SecretProviderType.vault]: 'Vault',
   [SecretProviderType.kubernetes]: 'Kubernetes',
-  [SecretProviderType.gcp_secret_manager]: 'Google Secret Manager',
-  [SecretProviderType.aws_secrets_manager]: 'AWS Secrets Manager',
-  [SecretProviderType.azure_key_vault]: 'Azure Key Vault',
+  [SecretProviderType.gcp]: 'Google Secret Manager',
+  [SecretProviderType.aws]: 'AWS Secrets Manager',
+  [SecretProviderType.azure]: 'Azure Key Vault',
+  [SecretProviderType.alibaba]: 'Alibaba Cloud KMS',
 };
 
 const PROVIDERS = Object.values(SecretProviderType);
@@ -164,7 +165,14 @@ function errorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
-export default function SecretsPage(): React.ReactNode {
+function isProfileBackingSecret(secret: SecretResponse): boolean {
+  return (
+    secret.ref.startsWith('runtime-profiles/') ||
+    secret.ref.startsWith('runtime-profile-defaults/')
+  );
+}
+
+export function SecretRefsSection(): React.ReactNode {
   const client = useClient();
   const appBarContext = useContext(AppBarContext);
   const remoteNode = appBarContext.selectedRemoteNode || 'local';
@@ -194,10 +202,6 @@ export default function SecretsPage(): React.ReactNode {
   const [actionSecretId, setActionSecretId] = useState<string | null>(null);
 
   useEffect(() => {
-    appBarContext.setTitle('Secrets');
-  }, [appBarContext]);
-
-  useEffect(() => {
     setSelectedScope(workspaceSelectionScope);
   }, [workspaceSelectionScope]);
 
@@ -214,7 +218,9 @@ export default function SecretsPage(): React.ReactNode {
     })
   );
 
-  const secrets = data?.secrets || [];
+  const secrets = (data?.secrets || []).filter(
+    (secret) => !isProfileBackingSecret(secret)
+  );
 
   const reload = useCallback(() => {
     void mutate();
@@ -279,12 +285,19 @@ export default function SecretsPage(): React.ReactNode {
   }
 
   return (
-    <div className="flex h-full min-h-0 max-w-7xl flex-col gap-4 overflow-auto">
-      <div className="flex items-center justify-between gap-3">
+    <section
+      id="secret-refs"
+      aria-labelledby="secret-refs-heading"
+      className="flex h-full min-h-0 flex-col gap-4 overflow-hidden"
+    >
+      <div className="flex shrink-0 items-center justify-between gap-3">
         <div>
-          <h1 className="text-lg font-semibold">Secrets</h1>
+          <h2 id="secret-refs-heading" className="text-base font-semibold">
+            DAG Secret Refs
+          </h2>
           <p className="text-sm text-muted-foreground">
-            Manage secret refs and values.
+            Individual secrets that DAGs reference with{' '}
+            <code className="text-xs">secrets[].ref</code>.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -311,23 +324,23 @@ export default function SecretsPage(): React.ReactNode {
             }}
           >
             <Plus className="mr-1.5 h-4 w-4" />
-            Add Secret
+            Add Secret Ref
           </Button>
         </div>
       </div>
 
       {error && (
-        <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+        <div className="shrink-0 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
           {error}
         </div>
       )}
       {success && (
-        <div className="rounded-md bg-success/10 p-3 text-sm text-success">
+        <div className="shrink-0 rounded-md bg-success/10 p-3 text-sm text-success">
           {success}
         </div>
       )}
 
-      <div className="card-obsidian min-h-0 overflow-auto">
+      <div className="card-obsidian min-h-0 flex-1 !overflow-auto">
         <Table className="text-xs">
           <TableHeader>
             <TableRow>
@@ -355,7 +368,7 @@ export default function SecretsPage(): React.ReactNode {
                   colSpan={6}
                   className="py-8 text-center text-muted-foreground"
                 >
-                  Loading secrets...
+                  Loading secret refs...
                 </TableCell>
               </TableRow>
             ) : secrets.length === 0 ? (
@@ -364,7 +377,7 @@ export default function SecretsPage(): React.ReactNode {
                   colSpan={6}
                   className="py-8 text-center text-muted-foreground"
                 >
-                  No secrets found.
+                  No secret refs found.
                 </TableCell>
               </TableRow>
             ) : (
@@ -497,7 +510,7 @@ export default function SecretsPage(): React.ReactNode {
       />
 
       <ConfirmModal
-        title="Delete Secret"
+        title="Delete Secret Ref"
         buttonText="Delete"
         visible={!!deletingSecret}
         dismissModal={() => setDeletingSecret(null)}
@@ -507,7 +520,7 @@ export default function SecretsPage(): React.ReactNode {
           {deletingSecret ? `Delete ${deletingSecret.ref}?` : ''}
         </span>
       </ConfirmModal>
-    </div>
+    </section>
   );
 }
 
@@ -610,7 +623,9 @@ function SecretFormDialog({
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>{isEditing ? 'Edit Secret' : 'Add Secret'}</DialogTitle>
+          <DialogTitle>
+            {isEditing ? 'Edit Secret Ref' : 'Add Secret Ref'}
+          </DialogTitle>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="mt-2 space-y-4">

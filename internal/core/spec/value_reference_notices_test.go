@@ -118,6 +118,28 @@ steps:
 	assert.Empty(t, result.ValueReferenceNotices)
 }
 
+func TestLoadYAMLWithResultUsesRootEnvScopeForStepWorkingDir(t *testing.T) {
+	t.Parallel()
+
+	result, err := spec.LoadYAMLWithResult(context.Background(), []byte(`
+steps:
+  - env:
+      - STEP_DIR=work
+    working_dir: ${env.STEP_DIR}
+    run: echo ${env.STEP_DIR}
+`), spec.WithoutEval())
+
+	require.NoError(t, err)
+	require.NotNil(t, result.DAG)
+	require.Len(t, result.ValueReferenceNotices, 1)
+
+	got := result.ValueReferenceNotices[0]
+	assert.Equal(t, "steps[0].working_dir", got.FieldPath)
+	assert.Equal(t, "${env.STEP_DIR}", got.Token)
+	assert.Equal(t, cmnvalue.ValueReferenceReasonUnknownEnvBinding, got.Reason)
+	assert.Equal(t, cmnvalue.NoticeClassRuntimeOnly, got.Class)
+}
+
 func TestLoadYAMLWithResultReportsStepOutputReferenceReasons(t *testing.T) {
 	t.Parallel()
 

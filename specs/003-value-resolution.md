@@ -254,7 +254,7 @@ Dagu-owned references are supported only in value-resolved fields and dynamic-ev
 | `steps[].output.*` | Value-resolved | Output publication | Literal string values and `path` strings under structured step `output` entries resolve Dagu-owned references. |
 | `steps[].container` | Value-resolved | Step start | Step container string form resolves Dagu-owned references. In object form, `exec`, `image`, `name`, `user`, `working_dir`, `network`, `volumes[]`, `ports[]`, `env` values, `command[]`, and `shell[]` resolve Dagu-owned references. |
 | `steps[].messages[].content` | Value-resolved | Step start | Message content strings resolve Dagu-owned references. |
-| LLM prompt and endpoint text fields | Value-resolved | Step start | For LLM-capable steps, `steps[].llm.system`, `steps[].llm.base_url`, and array-form `steps[].llm.model[].base_url` resolve Dagu-owned references. When a step inherits root LLM settings, inherited `llm.system`, `llm.base_url`, and array-form `llm.model[].base_url` follow the same rule. |
+| LLM prompt, selection, and endpoint text fields | Value-resolved | Step start | For LLM-capable steps, `steps[].llm.system`, `steps[].llm.provider`, string-form `steps[].llm.model`, `steps[].llm.base_url`, and array-form `steps[].llm.model[].provider`, `steps[].llm.model[].name`, and `steps[].llm.model[].base_url` resolve Dagu-owned references. A provider name that carries a reference is checked against the supported provider list after resolution, at step start rather than at load time. When a step inherits root LLM settings, the inherited fields follow the same rule. |
 | `worker_selector` (map form) | Value-resolved | DAG build, after base-config composition | Root worker selector keys and values resolve Dagu-owned references, including references to base-config env entries. The string form `worker_selector: local` stays literal. |
 | `steps[].worker_selector` | Value-resolved | Before the sub-DAG run or enqueue request is created | Step worker selector keys and values resolve Dagu-owned references. Parallel children resolve with the item context available as `${ITEM}`. |
 | `secrets[]` | Literal | Secret resolution | Secret names, provider names, provider keys, and provider options are literal strings. |
@@ -269,7 +269,8 @@ Explicitly literal or excluded field surfaces:
 | `steps[].foreach.as`, `steps[].foreach.max_concurrent`, and body step identity or dependency fields | Dagu does not resolve value references in these fields. A value reference cannot select an item alias, concurrency limit, body step, or body dependency. |
 | Step output declaration contracts, such as `steps[].outputs[].name` and `steps[].outputs[].type` | Dagu does not resolve value references in declaration metadata. Published output values are separate runtime data. |
 | Step control fields not listed in the value-resolution matrix, such as `steps[].timeout_sec`, `steps[].continue_on`, `steps[].mail_on_error`, and `steps[].signal_on_stop` | Dagu does not resolve value references in these fields unless an owning spec later opts in. |
-| LLM selection and credential fields, such as provider names, model names, API key names, and tool-name lists | This spec does not opt these fields into value resolution. They remain literal unless an LLM-owning spec explicitly opts in. |
+| LLM API key names, `steps[].llm.api_key_name` and `steps[].llm.model[].api_key_name` | This spec does not opt these fields into value resolution. The LLM step owns their meaning: the field names an environment variable, and the plain, `$`-prefixed, and braced forms all read that variable. A reference that resolves to a name rather than a key is not supported. |
+| LLM tool-name lists, such as `steps[].llm.tools[]` | This spec does not opt these fields into value resolution. They remain literal unless an LLM-owning spec explicitly opts in. A value reference cannot select a tool DAG. |
 | Template body fields owned by a template action or executor | Dagu does not resolve value references in template body text unless the template-owning spec explicitly opts in. Template data fields that are otherwise covered by `steps[].with` keep the `steps[].with` behavior. |
 | Root executor, provider, and tool configuration fields not listed in the value-resolution matrix, such as `ssh`, `kubernetes`, and `tools` | This spec does not opt these fields into value resolution. They remain literal unless an owning executor, provider, or tool spec explicitly opts in. |
 
@@ -360,7 +361,23 @@ This rule applies only to unescaped supported reference forms.
 Escaped supported-looking text and unsupported braced text must not produce passive notices.
 
 The notice must identify the owning field and the original reference text.
-The notice must not be shown as a normal validation warning.
+
+Each notice must carry a class.
+A notice is a defect when the spec statically cannot resolve the reference. This
+includes a reference that names a step, output, context field, or const the spec
+does not define, and a reference in a field whose owning spec does not provide
+the required lookup scope.
+A notice is runtime-only when the reference is well-formed and its availability
+depends on runtime values or lifecycle scope.
+
+A runtime-only notice must not be shown as a normal validation warning, because
+its availability is a runtime concern rather than a change to the spec.
+`dagu validate` must keep runtime-only notices out of its default output and
+must report them under `--show-unresolved`.
+A defect names something no run can resolve, so `dagu validate` must report it
+by default and may present it at warning level.
+Neither class changes the exit code: a notice is still not a validation error.
+Inspection surfaces that render notices must let a reader tell the two apart.
 Current inspection surfaces are `dagu validate`, the DAG spec inspection API response, and the Web UI spec editor.
 Normal run execution must stay silent.
 Dagu must not write these notices to run logs, workflow events, status files, history files, artifacts, or DAG-run detail responses.

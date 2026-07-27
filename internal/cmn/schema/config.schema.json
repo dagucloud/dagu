@@ -785,6 +785,74 @@
         },
         "kubernetes": {
           "$ref": "#/definitions/KubernetesSecretsDef"
+        },
+        "aws": {
+          "$ref": "#/definitions/AWSSecretsDef"
+        },
+        "gcp": {
+          "$ref": "#/definitions/GCPSecretsDef"
+        },
+        "azure": {
+          "$ref": "#/definitions/AzureSecretsDef"
+        },
+        "alibaba": {
+          "$ref": "#/definitions/AlibabaSecretsDef"
+        }
+      }
+    },
+    "AWSSecretsDef": {
+      "type": "object",
+      "description": "Global AWS Secrets Manager client defaults.",
+      "additionalProperties": false,
+      "properties": {
+        "region": {
+          "type": "string",
+          "description": "Default AWS region for Secrets Manager lookups."
+        }
+      }
+    },
+    "GCPSecretsDef": {
+      "type": "object",
+      "description": "Global GCP Secret Manager client defaults.",
+      "additionalProperties": false,
+      "properties": {
+        "project_id": {
+          "type": "string",
+          "description": "Default GCP project ID for Secret Manager lookups."
+        },
+        "location": {
+          "type": "string",
+          "description": "Default location for regional Secret Manager lookups."
+        }
+      }
+    },
+    "AzureSecretsDef": {
+      "type": "object",
+      "description": "Global Azure Key Vault client defaults.",
+      "additionalProperties": false,
+      "properties": {
+        "vault_url": {
+          "type": "string",
+          "description": "Default Azure Key Vault URL."
+        }
+      }
+    },
+    "AlibabaSecretsDef": {
+      "type": "object",
+      "description": "Global Alibaba Cloud KMS client defaults.",
+      "additionalProperties": false,
+      "properties": {
+        "region": {
+          "type": "string",
+          "description": "Default Alibaba Cloud region for KMS secret lookups."
+        },
+        "endpoint": {
+          "type": "string",
+          "description": "Optional Alibaba Cloud KMS shared or dedicated gateway endpoint."
+        },
+        "ca_file": {
+          "type": "string",
+          "description": "CA certificate file for an Alibaba Cloud KMS dedicated gateway."
         }
       }
     },

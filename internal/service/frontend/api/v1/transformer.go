@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/humantask"
+	"github.com/dagucloud/dagu/internal/runtime/controller"
 )
 
 const maxIntValue = int(^uint(0) >> 1)
@@ -320,6 +321,7 @@ func toDAGRunSummary(s exec.DAGRunStatus) api.DAGRunSummary {
 		StatusLabel:        api.StatusLabel(s.Status.String()),
 		WorkerId:           ptrOf(s.WorkerID),
 		TriggerType:        toTriggerType(s.TriggerType),
+		TriggerActor:       ptrOf(s.TriggerActor),
 		Labels:             &s.Labels,
 		Tags:               &s.Labels,
 	}
@@ -366,6 +368,8 @@ func ToDAGRunDetails(s exec.DAGRunStatus) api.DAGRunDetails {
 	}
 
 	return api.DAGRunDetails{
+		ControllerTasks:        controllerTaskProgress(s.Nodes),
+		ControllerEvents:       controllerTimeline(s.Nodes),
 		RootDAGRunName:         s.Root.Name,
 		RootDAGRunId:           s.Root.ID,
 		ParentDAGRunName:       ptrOf(s.Parent.Name),
@@ -389,12 +393,15 @@ func ToDAGRunDetails(s exec.DAGRunStatus) api.DAGRunDetails {
 		WorkerId:               ptrOf(s.WorkerID),
 		HumanTaskResumePending: humanTaskResumePending,
 		TriggerType:            toTriggerType(s.TriggerType),
+		TriggerActor:           ptrOf(s.TriggerActor),
 		Preconditions:          ptrOf(preconditions),
 		Nodes:                  nodes,
+		OnInit:                 ptrOf(toNode(s.OnInit)),
 		OnSuccess:              ptrOf(toNode(s.OnSuccess)),
 		OnFailure:              ptrOf(toNode(s.OnFailure)),
 		OnAbort:                ptrOf(toNode(s.OnAbort)),
 		OnExit:                 ptrOf(toNode(s.OnExit)),
+		OnWait:                 ptrOf(toNode(s.OnWait)),
 		Labels:                 &s.Labels,
 		Tags:                   &s.Labels,
 	}
@@ -559,6 +566,8 @@ func toDAGDetails(dag *core.DAG) *api.DAGDetails {
 	}
 
 	return &api.DAGDetails{
+		Type:              controllerDAGType(dag.Type),
+		Tasks:             declaredControllerTasks(dag),
 		Artifacts:         artifacts,
 		Name:              dag.Name,
 		Description:       ptrOf(dag.Description),
@@ -583,6 +592,91 @@ func toDAGDetails(dag *core.DAG) *api.DAGDetails {
 		Tags:              ptrOf(dag.Labels.Strings()),
 		RunConfig:         runConfig,
 	}
+}
+
+// controllerDAGType exposes the DAG execution type, which the UI uses to decide
+// whether controller-specific views apply.
+func controllerDAGType(dagType string) *api.DAGDetailsType {
+	if dagType == "" {
+		return nil
+	}
+	return ptrOf(api.DAGDetailsType(dagType))
+}
+
+// declaredControllerTasks lists the goals a controller DAG declares, before any
+// run has made progress against them.
+func declaredControllerTasks(dag *core.DAG) *[]api.ControllerTask {
+	if len(dag.Tasks) == 0 {
+		return nil
+	}
+	tasks := make([]api.ControllerTask, 0, len(dag.Tasks))
+	for _, task := range dag.Tasks {
+		tasks = append(tasks, api.ControllerTask{
+			Name:        task.Name,
+			Description: ptrOf(task.Description),
+			Status:      api.ControllerTaskStatusOpen,
+		})
+	}
+	return &tasks
+}
+
+// controllerTimeline reports the ordered decisions a controller DAG-run made.
+func controllerTimeline(nodes []*exec.Node) *[]api.ControllerEvent {
+	for _, node := range nodes {
+		if node == nil || node.Step.Name != core.ControllerStepName {
+			continue
+		}
+		recorded := controller.EventsFromState(node.ControllerState)
+		if len(recorded) == 0 {
+			return nil
+		}
+		events := make([]api.ControllerEvent, 0, len(recorded))
+		for _, e := range recorded {
+			events = append(events, api.ControllerEvent{
+				Turn:          e.Turn,
+				Kind:          api.ControllerEventKind(e.Kind),
+				Name:          ptrOf(e.Name),
+				Status:        ptrOf(e.Status),
+				Attempt:       ptrOf(e.Attempt),
+				Reason:        ptrOf(e.Reason),
+				StartedAt:     ptrOf(e.StartedAt),
+				FinishedAt:    ptrOf(e.FinishedAt),
+				ChildDagRunId: ptrOf(e.ChildDAGRunID),
+				ChildDagName:  ptrOf(e.ChildDAGName),
+			})
+		}
+		return &events
+	}
+	return nil
+}
+
+// controllerTaskProgress reports goal progress recorded by the controller step
+// of a controller DAG-run.
+func controllerTaskProgress(nodes []*exec.Node) *[]api.ControllerTask {
+	for _, node := range nodes {
+		if node == nil || node.Step.Name != core.ControllerStepName {
+			continue
+		}
+		states := controller.TasksFromState(node.ControllerState)
+		if len(states) == 0 {
+			return nil
+		}
+		tasks := make([]api.ControllerTask, 0, len(states))
+		for _, state := range states {
+			status := state.Status
+			if status == "" {
+				status = controller.TaskOpen
+			}
+			tasks = append(tasks, api.ControllerTask{
+				Name:        state.Name,
+				Description: ptrOf(state.Description),
+				Status:      api.ControllerTaskStatus(status),
+				Reason:      ptrOf(state.Reason),
+			})
+		}
+		return &tasks
+	}
+	return nil
 }
 
 func toJSONObject(raw json.RawMessage) *map[string]any {

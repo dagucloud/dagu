@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 )
 
@@ -672,12 +673,26 @@ func validateGitWorktreeOutputOverrides(normalized map[string]any) error {
 }
 
 func normalizeTemplateAction(normalized map[string]any, with map[string]any) error {
-	template, err := requireActionStringField(with, "template")
-	if err != nil {
-		return err
+	_, hasTemplate := with["template"]
+	refValue, hasRef := with["template_ref"]
+	if hasTemplate == hasRef {
+		return core.NewValidationError("with", with, fmt.Errorf("template.render requires exactly one of with.template or with.template_ref"))
 	}
-	delete(with, "template")
-	normalized["script"] = template
+
+	if hasTemplate {
+		template, err := requireActionStringField(with, "template")
+		if err != nil {
+			return err
+		}
+		delete(with, "template")
+		normalized["script"] = template
+		return finishAction(normalized, "template", with)
+	}
+
+	ref, ok := refValue.(string)
+	if !ok || !cmnvalue.IsExactRef(ref) {
+		return core.NewValidationError("with", with, fmt.Errorf("with.template_ref must be one complete scoped value reference such as ${env.NAME}"))
+	}
 	return finishAction(normalized, "template", with)
 }
 

@@ -87,6 +87,23 @@ steps:
 	}
 }
 
+func TestStartCommandResolvesRelativeNestedDAGPath(t *testing.T) {
+	th := test.SetupCommand(t)
+	relativePath := filepath.Join("nested", "relative.yaml")
+	th.CreateDAGFile(t, relativePath, `
+steps:
+  - name: run
+    run: "true"
+`)
+	t.Chdir(th.Config.Paths.DAGsDir)
+
+	th.RunCommand(t, cmd.Start(), test.CmdTest{
+		Name:        "StartRelativeNestedDAG",
+		Args:        []string{"start", relativePath},
+		ExpectedOut: []string{"Step started"},
+	})
+}
+
 func TestStartCommand_BuiltExecutablePreservesExplicitEnv(t *testing.T) {
 	t.Parallel()
 

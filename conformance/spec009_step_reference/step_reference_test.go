@@ -84,7 +84,7 @@ func TestValidateStepReferences(t *testing.T) {
 			t.Parallel()
 
 			dagu := harness.NewRunner(t)
-			result := dagu.Run("validate", tc.file)
+			result := dagu.Run("validate", "--show-unresolved", tc.file)
 			result.ExpectExitCode(0)
 			result.ExpectStdout("")
 			result.ExpectStderrContains(tc.stderrParts...)

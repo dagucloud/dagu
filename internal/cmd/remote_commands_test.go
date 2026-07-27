@@ -5,6 +5,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -125,6 +126,48 @@ func TestRemoteClientListDAGRunsUsesRepeatedStatusParams(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"1", "5"}, <-statusValues)
+}
+
+func TestRemoteClientRetryDAGRunSendsChildTarget(t *testing.T) {
+	t.Parallel()
+
+	type request struct {
+		path string
+		body api.RetryDAGRunJSONBody
+	}
+	requests := make(chan request, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body api.RetryDAGRunJSONBody
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		requests <- request{path: r.URL.Path, body: body}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client := &remoteClient{
+		baseURL: server.URL,
+		client:  server.Client(),
+	}
+	stepName := "target"
+	childRunID := "child-run"
+	require.NoError(t, client.retryDAGRun(
+		context.Background(),
+		"root",
+		"root-run",
+		api.RetryDAGRunJSONBody{
+			DagRunId:    "root-run",
+			StepName:    &stepName,
+			SubDAGRunId: &childRunID,
+		},
+	))
+
+	got := <-requests
+	assert.Equal(t, "/dag-runs/root/root-run/retry", got.path)
+	assert.Equal(t, "root-run", got.body.DagRunId)
+	require.NotNil(t, got.body.StepName)
+	require.NotNil(t, got.body.SubDAGRunId)
+	assert.Equal(t, "target", *got.body.StepName)
+	assert.Equal(t, "child-run", *got.body.SubDAGRunId)
 }
 
 func TestWaitForRemoteStopHonorsContextCancellation(t *testing.T) {

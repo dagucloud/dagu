@@ -438,6 +438,8 @@ fmt:
 	@printf '%b\n' "${COLOR_GREEN}Running linter with --fix...${COLOR_RESET}"
 	@GOBIN=${LOCAL_BIN_DIR} go install $(PKG_golangci_lint)
 	@${LOCAL_BIN_DIR}/golangci-lint run --fix ./...
+	@printf '%b\n' "${COLOR_GREEN}Running linter with --fix (GOOS=windows)...${COLOR_RESET}"
+	@GOOS=windows ${LOCAL_BIN_DIR}/golangci-lint run --fix ./...
 
 # check verifies code style without modifying files (for CI).
 .PHONY: check
@@ -450,6 +452,8 @@ check:
 	@printf '%b\n' "${COLOR_GREEN}Running linter...${COLOR_RESET}"
 	@GOBIN=${LOCAL_BIN_DIR} go install $(PKG_golangci_lint)
 	@${LOCAL_BIN_DIR}/golangci-lint run --timeout=10m ./...
+	@printf '%b\n' "${COLOR_GREEN}Running linter (GOOS=windows)...${COLOR_RESET}"
+	@GOOS=windows ${LOCAL_BIN_DIR}/golangci-lint run --timeout=10m ./...
 
 # golangci-lint run linting tool.
 .PHONY: golangci-lint
@@ -457,6 +461,8 @@ golangci-lint:
 	@printf '%b\n' "${COLOR_GREEN}Running linter...${COLOR_RESET}"
 	@GOBIN=${LOCAL_BIN_DIR} go install $(PKG_golangci_lint)
 	@${LOCAL_BIN_DIR}/golangci-lint run --fix ./...
+	@printf '%b\n' "${COLOR_GREEN}Running linter (GOOS=windows)...${COLOR_RESET}"
+	@GOOS=windows ${LOCAL_BIN_DIR}/golangci-lint run --fix ./...
 
 # changelog generates a changelog from the releases.
 .PHONY: changelog

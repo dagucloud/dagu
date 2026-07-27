@@ -6,6 +6,7 @@
 package cmdutil
 
 import (
+	"errors"
 	"fmt"
 	"os/exec"
 	"syscall"
@@ -27,51 +28,69 @@ func setupCommand(cmd *exec.Cmd) {
 	cmd.SysProcAttr.CreationFlags |= windows.CREATE_NEW_PROCESS_GROUP
 }
 
-// killProcessTree kills a process and its subprocess tree on Windows
+// killProcessTree terminates pid and its descendant processes on Windows,
+// children before parents. A process that cannot be terminated does not stop the
+// rest of the tree from being killed; all such failures are returned together.
 func killProcessTree(pid uint32) error {
-	var entry struct {
-		Size              uint32
-		CntUsage          uint32
-		ProcessID         uint32
-		DefaultHeapID     uintptr
-		ModuleID          uint32
-		Threads           uint32
-		ParentProcessID   uint32
-		PriorityClassBase int32
-		Flags             uint32
-		ExeFile           [windows.MAX_PATH]uint16
+	// Process ID 0 is the System Idle Process, which is its own parent.
+	if pid == 0 {
+		return nil
 	}
+
 	snapshot, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
 	if err != nil {
 		return fmt.Errorf("CreateToolhelp32Snapshot failed: %w", err)
 	}
-	defer windows.CloseHandle(snapshot)
+	defer func() { _ = windows.CloseHandle(snapshot) }()
+
+	var entry windows.ProcessEntry32
 	entry.Size = uint32(unsafe.Sizeof(entry))
 
 	// Find first process
-	if err := windows.Process32First(snapshot, (*windows.ProcessEntry32)(unsafe.Pointer(&entry))); err != nil {
-		return err
+	if err := windows.Process32First(snapshot, &entry); err != nil {
+		return fmt.Errorf("Process32First failed: %w", err)
 	}
 
 	// Iterate all processes
+	var errs []error
 	for {
-		if entry.ParentProcessID == pid {
+		if entry.ParentProcessID == pid && entry.ProcessID != pid {
 			// Recursively kill children first
-			killProcessTree(entry.ProcessID)
+			if err := killProcessTree(entry.ProcessID); err != nil {
+				errs = append(errs, err)
+			}
 		}
 
-		err = windows.Process32Next(snapshot, (*windows.ProcessEntry32)(unsafe.Pointer(&entry)))
-		if err != nil {
+		if err := windows.Process32Next(snapshot, &entry); err != nil {
 			break
 		}
 	}
 
 	// Finally, kill this process
-	h, err := windows.OpenProcess(windows.PROCESS_TERMINATE, false, pid)
-	if err == nil {
-		defer windows.CloseHandle(h)
-		windows.TerminateProcess(h, 1)
+	if err := terminateProcess(pid); err != nil {
+		errs = append(errs, err)
 	}
 
+	return errors.Join(errs...)
+}
+
+// terminateProcess force-terminates a single process. A process that has already
+// exited is not an error.
+func terminateProcess(pid uint32) error {
+	h, err := windows.OpenProcess(windows.PROCESS_TERMINATE, false, pid)
+	switch {
+	case errors.Is(err, windows.ERROR_INVALID_PARAMETER):
+		// The process exited and its kernel object is already gone.
+		return nil
+	case err != nil:
+		return fmt.Errorf("open process %d: %w", pid, err)
+	}
+	defer func() { _ = windows.CloseHandle(h) }()
+
+	// The handle carries PROCESS_TERMINATE, so ERROR_ACCESS_DENIED here means the
+	// process exited while another open handle kept its kernel object alive.
+	if err := windows.TerminateProcess(h, 1); err != nil && !errors.Is(err, windows.ERROR_ACCESS_DENIED) {
+		return fmt.Errorf("terminate process %d: %w", pid, err)
+	}
 	return nil
 }

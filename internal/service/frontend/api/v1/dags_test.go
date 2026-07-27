@@ -1869,3 +1869,39 @@ steps:
 	require.NotNil(t, notice.Reason)
 	require.Equal(t, api.ValueReferenceNoticeReasonMissingDependency, *notice.Reason)
 }
+
+func TestGetDAGSpecIncludesValueReferenceNoticeClassWithoutReason(t *testing.T) {
+	t.Parallel()
+
+	helper := test.Setup(t, test.WithStatusPersistence())
+	dag := helper.DAG(t, `
+name: spec-runtime-value-resolution-notice
+steps:
+  - run: echo ${params.missing}
+`)
+
+	apiImpl := localapi.New(
+		helper.DAGStore,
+		helper.DAGRunStore,
+		helper.QueueStore,
+		helper.ProcStore,
+		helper.DAGRunMgr,
+		helper.Config,
+		nil,
+		helper.ServiceRegistry,
+		nil,
+		nil,
+	)
+
+	specRespObj, err := apiImpl.GetDAGSpec(context.Background(), api.GetDAGSpecRequestObject{
+		FileName: dag.FileName(),
+	})
+	require.NoError(t, err)
+
+	specResp := asGetDAGSpecResp(t, specRespObj)
+	require.Len(t, specResp.ValueReferenceNotices, 1)
+
+	notice := specResp.ValueReferenceNotices[0]
+	require.NotNil(t, notice.Class)
+	require.Equal(t, api.ValueReferenceNoticeClassRuntimeOnly, *notice.Class)
+}

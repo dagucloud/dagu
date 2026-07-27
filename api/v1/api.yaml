@@ -2632,6 +2632,10 @@ paths:
                 stepName:
                   type: string
                   description: "Optional. If provided, only this step will be retried."
+                subDAGRunId:
+                  allOf:
+                    - $ref: "#/components/schemas/DAGRunId"
+                    - description: "Optional. Persisted child DAG-run containing the step. Requires stepName; the path and dagRunId remain the root DAG-run."
               required:
                 - dagRunId
       responses:
@@ -11193,6 +11197,15 @@ components:
       type: object
       description: "Detailed DAG configuration information"
       properties:
+        type:
+          type: string
+          enum: [graph, chain, controller]
+          description: "Execution type. 'graph' resolves dependencies, 'chain' runs steps in order, 'controller' lets an LLM choose each step."
+        tasks:
+          type: array
+          description: "Goals a controller DAG must satisfy. Present only for type controller."
+          items:
+            $ref: "#/components/schemas/ControllerTask"
         nextRun:
           type: string
           format: date-time
@@ -11311,6 +11324,16 @@ components:
             - self_reference
             - namespace_unavailable
             - unknown_context_field
+            - unknown_env_binding
+            - unknown_const_name
+        class:
+          type: string
+          description: >-
+            Whether the reference is a defect in the spec or its availability
+            depends on runtime values or lifecycle scope.
+          enum:
+            - defect
+            - runtime_only
       required:
         - message
 
@@ -11584,6 +11607,9 @@ components:
           description: "ID of the worker that executed this DAG-run ('local' for local execution)"
         triggerType:
           $ref: "#/components/schemas/TriggerType"
+        triggerActor:
+          type: string
+          description: "Authenticated actor that initiated the DAG-run, when attribution is available"
         conditions:
           type: array
           description: "Type-keyed current-state runtime conditions for the DAG-run. This list reports the latest condition for each type, not a history of queued reasons."
@@ -11640,6 +11666,8 @@ components:
               description: "Status of individual steps within the DAG-run"
               items:
                 $ref: "#/components/schemas/Node"
+            onInit:
+              $ref: "#/components/schemas/Node"
             onExit:
               $ref: "#/components/schemas/Node"
             onSuccess:
@@ -11648,11 +11676,23 @@ components:
               $ref: "#/components/schemas/Node"
             onAbort:
               $ref: "#/components/schemas/Node"
+            onWait:
+              $ref: "#/components/schemas/Node"
             preconditions:
               type: array
               description: "List of preconditions that must be met before the DAG-run can start"
               items:
                 $ref: "#/components/schemas/Condition"
+            controllerTasks:
+              type: array
+              description: "Goal progress of a controller DAG-run. Absent for other DAG types."
+              items:
+                $ref: "#/components/schemas/ControllerTask"
+            controllerEvents:
+              type: array
+              description: "Ordered decision timeline of a controller DAG-run: what the controller ran, in what order, and when each task was satisfied. Absent for other DAG types."
+              items:
+                $ref: "#/components/schemas/ControllerEvent"
             specFromFile:
               type: boolean
               description: "Whether this DAG-run still has a usable source file on disk, so reschedule can load the current spec from that file instead of the stored historical YAML snapshot."
@@ -11804,6 +11844,66 @@ components:
         params:
           type: string
           description: "JSON-serialized parameters passed to the DAG"
+
+    ControllerEvent:
+      type: object
+      description: "One entry on a controller DAG-run's decision timeline"
+      required:
+        - turn
+        - kind
+      properties:
+        turn:
+          type: integer
+          description: "Controller turn this event belongs to, starting at 1"
+        kind:
+          type: string
+          enum: [action, task_status, ask_user, rejected, stalled]
+          description: "What the controller did on this turn"
+        name:
+          type: string
+          description: "Step or task the event concerns"
+        status:
+          type: string
+          description: "Resulting step status for an action event, or the new task status for a task_status event"
+        attempt:
+          type: integer
+          description: "Which run of this step it was, starting at 1"
+        reason:
+          type: string
+          description: "Controller's justification, or why the call was rejected"
+        startedAt:
+          type: string
+          description: "RFC3339 timestamp when the step started"
+        finishedAt:
+          type: string
+          description: "RFC3339 timestamp when the step finished"
+        childDagRunId:
+          type: string
+          description: "Child DAG-run this action produced, for linking to its run page. Absent for steps that run no child DAG."
+        childDagName:
+          type: string
+          description: "Name of the child DAG that ran"
+
+    ControllerTask:
+      type: object
+      description: "A goal a controller DAG must satisfy before the run concludes"
+      required:
+        - name
+        - status
+      properties:
+        name:
+          type: string
+          description: "Unique task name"
+        description:
+          type: string
+          description: "Completion criteria the controller decides against"
+        status:
+          type: string
+          enum: [open, completed, skipped, failed]
+          description: "Where the task stands. The run ends once none is open, and fails if any is failed. A skipped task does not fail the run."
+        reason:
+          type: string
+          description: "Justification the controller gave for the current status"
 
     Node:
       type: object
@@ -13745,9 +13845,10 @@ components:
         - dagu-managed
         - vault
         - kubernetes
-        - gcp-secret-manager
-        - aws-secrets-manager
-        - azure-key-vault
+        - gcp
+        - aws
+        - azure
+        - alibaba
 
     SecretStatus:
       type: string

@@ -502,6 +502,7 @@ function DAGHistoryTable({
                       stream: isStderr ? Stream.stderr : Stream.stdout,
                     });
                   }}
+                  hideActions
                 />
               ) : null}
 

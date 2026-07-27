@@ -388,10 +388,13 @@ function StartDAGModal({
       paramSchema
         ? ({
             ...buildParamSchemaUiSchema(paramSchema),
+            'ui:order': paramDefs
+              .flatMap(({ name }) => (name ? [name] : []))
+              .concat('*'),
             'ui:submitButtonOptions': { norender: true },
           } as UiSchema<SchemaFormData>)
         : undefined,
-    [paramSchema]
+    [paramDefs, paramSchema]
   );
   const schemaFormRef = React.useRef<RJSFForm<
     SchemaFormData,

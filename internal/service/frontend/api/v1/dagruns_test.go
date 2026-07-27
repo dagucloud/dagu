@@ -1589,10 +1589,12 @@ steps:
   - name: main
     run: echo "${MESSAGE} current file"`
 	dagPath := filepath.Join(server.Config.Paths.DAGsDir, dagName+".yaml")
+	resolvedDAGPath, err := filepath.EvalSymlinks(dagPath)
+	require.NoError(t, err)
 	assertRescheduleSpecSourceFlag(t, server, dagName, startBody.DagRunId, true)
 	originalAttempt, originalDAG := test.WaitForAttemptSnapshotWithDAG(t, server, dagName, startBody.DagRunId)
 	require.NotNil(t, originalAttempt)
-	require.Equal(t, dagPath, originalDAG.SourceFile)
+	require.Equal(t, resolvedDAGPath, originalDAG.SourceFile)
 	require.NoError(t, os.WriteFile(dagPath, []byte(currentSpec), 0o600))
 	useCurrentDagFile := true
 
@@ -1610,7 +1612,7 @@ steps:
 
 	_, dag := test.WaitForAttemptSnapshotWithDAG(t, server, dagName, body.DagRunId)
 	require.Contains(t, string(dag.YamlData), "current file")
-	require.Equal(t, dagPath, dag.SourceFile)
+	require.Equal(t, resolvedDAGPath, dag.SourceFile)
 
 	rescheduledStatus := waitForStoredDAGRunStatus(t, server, dagName, body.DagRunId, 10*time.Second, func(status *exec.DAGRunStatus) bool {
 		return status.Status == core.Succeeded
@@ -1681,8 +1683,9 @@ steps:
 	}).ExpectStatus(http.StatusCreated).Send(t)
 
 	seedLatestDAGRunStatus(t, server, dag.DAG, "queued-run", core.Failed, seedDAGRunStatusOptions{
-		errorText:   "queued run failed",
-		profileName: "prod",
+		errorText:    "queued run failed",
+		profileName:  "prod",
+		triggerActor: "alice",
 	})
 
 	server.Client().Post(
@@ -1698,6 +1701,7 @@ steps:
 	require.Equal(t, core.Queued, status.Status)
 	require.Equal(t, core.TriggerTypeRetry, status.TriggerType)
 	require.Equal(t, "prod", status.ProfileName)
+	require.Equal(t, "alice", status.TriggerActor)
 }
 
 func TestGetSubDAGRunsIncludesTopLevelDagEnqueueRun(t *testing.T) {
@@ -2142,6 +2146,7 @@ type seedDAGRunStatusOptions struct {
 	parentRef      exec.DAGRunRef
 	paramsList     []string
 	profileName    string
+	triggerActor   string
 	nodeStatuses   map[string]core.NodeStatus
 	subRuns        map[string][]exec.SubDAGRun
 }
@@ -2174,6 +2179,9 @@ func seedLatestDAGRunStatus(
 	}
 	if opts.profileName != "" {
 		statusOptions = append(statusOptions, transform.WithRuntimeProfile(opts.profileName, "", nil))
+	}
+	if opts.triggerActor != "" {
+		statusOptions = append(statusOptions, transform.WithTriggerActor(opts.triggerActor))
 	}
 	if (!status.IsActive() && status != core.NotStarted) || status == core.Waiting {
 		statusOptions = append(statusOptions, transform.WithFinishedAt(time.Now().Add(-time.Minute)))

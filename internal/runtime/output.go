@@ -101,6 +101,13 @@ func (oc *OutputCoordinator) setupMasker(ctx context.Context, _ NodeData) error 
 }
 
 func (oc *OutputCoordinator) setup(ctx context.Context, data NodeData) error {
+	// This attempt gets its own writers, so the closed latch from the previous
+	// one must not survive: it guards every flush path, and a set latch would
+	// drop this attempt's buffered output on teardown.
+	oc.mu.Lock()
+	oc.closed = false
+	oc.mu.Unlock()
+
 	if err := oc.setupMasker(ctx, data); err != nil {
 		return fmt.Errorf("failed to setup masker: %w", err)
 	}

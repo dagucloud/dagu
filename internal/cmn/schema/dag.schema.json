@@ -231,9 +231,31 @@
     },
     "type": {
       "type": "string",
-      "enum": ["graph", "chain"],
+      "enum": ["graph", "chain", "controller"],
       "default": "graph",
-      "description": "Execution type for steps. 'graph' (default) uses dependency-based execution where steps run based on their 'depends' field. 'chain' executes steps sequentially in the order they are defined, with each step automatically depending on the previous one."
+      "description": "Execution type for steps. 'graph' (default) uses dependency-based execution where steps run based on their 'depends' field. 'chain' executes steps sequentially in the order they are defined, with each step automatically depending on the previous one. 'controller' turns the steps into a catalog of actions and lets the configured LLM choose which one runs next until every entry in 'tasks' is complete."
+    },
+    "tasks": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Goals a controller DAG must satisfy before it concludes successfully. Requires type: controller.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "description"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Unique task identifier."
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "description": "States when the task is considered complete. The controller decides against this text."
+          }
+        }
+      }
     },
     "env": {
       "oneOf": [
@@ -443,9 +465,13 @@
         },
         "exit": {
           "$ref": "#/definitions/handlerStep"
+        },
+        "wait": {
+          "$ref": "#/definitions/handlerStep",
+          "description": "Step to execute when the DAG enters the waiting status because a step needs human input."
         }
       },
-      "description": "Lifecycle event hooks that define commands to execute at various points in the DAG lifecycle: init (before steps), success, failure, abort, and exit (always runs last)."
+      "description": "Lifecycle event hooks that define commands to execute at various points in the DAG lifecycle: init (before steps), success, failure, abort, wait (a step is waiting on a person), and exit (always runs last)."
     },
     "step_types": {
       "$ref": "#/definitions/legacyExecutionDefinitions",
@@ -5820,17 +5846,32 @@
     },
     "llmProvider": {
       "type": "string",
-      "enum": [
-        "openai",
-        "anthropic",
-        "gemini",
-        "google",
-        "openrouter",
-        "local",
-        "ollama",
-        "vllm",
-        "llama"
-      ]
+      "anyOf": [
+        {
+          "enum": [
+            "openai",
+            "openai-codex",
+            "anthropic",
+            "gemini",
+            "google",
+            "openrouter",
+            "local",
+            "ollama",
+            "vllm",
+            "llama",
+            "zai",
+            "zhipu",
+            "zhipuai",
+            "glm",
+            "opencode"
+          ]
+        },
+        {
+          "pattern": "\\$\\{[^}]+\\}",
+          "description": "Value reference resolved at runtime, e.g. ${params.PROVIDER} or ${env.LLM_PROVIDER}."
+        }
+      ],
+      "description": "LLM provider name. Supports value references such as ${params.PROVIDER} resolved when the step runs."
     },
     "llmConfig": {
       "type": "object",
@@ -6679,13 +6720,27 @@
     },
     "templateRenderActionConfig": {
       "type": "object",
-      "required": ["template"],
       "additionalProperties": true,
+      "oneOf": [
+        {
+          "required": ["template"],
+          "not": { "required": ["template_ref"] }
+        },
+        {
+          "required": ["template_ref"],
+          "not": { "required": ["template"] }
+        }
+      ],
       "properties": {
         "template": {
           "type": "string",
           "minLength": 1,
           "description": "Template text rendered by the template executor."
+        },
+        "template_ref": {
+          "type": "string",
+          "pattern": "^\\$\\{(?:consts\\.[A-Za-z][A-Za-z0-9_]*|params\\.[A-Za-z][A-Za-z0-9_]*|env\\.[A-Za-z_][A-Za-z0-9_]*|steps\\.[A-Za-z][A-Za-z0-9_]*\\.outputs\\.[A-Za-z_][A-Za-z0-9_]*|foreach\\.[A-Za-z][A-Za-z0-9_]*(?:\\.[A-Za-z][A-Za-z0-9_]*)?|context\\.(?:dag\\.name|run\\.(?:id|status|scheduled_at|root_name|root_id)|attempt\\.(?:id|started_at)|step\\.(?:id|name)|trigger\\.(?:type|actor)|paths\\.(?:log_file|work_dir|artifacts_dir|step_stdout_file|step_stderr_file|step_output_file)|profile\\.(?:name|resolved_at)|pushback\\.(?:iteration|previous_stdout_file)))\\}$",
+          "description": "One complete scoped Dagu value reference resolved once to template text at runtime."
         }
       },
       "description": "Configuration for action: template.render."

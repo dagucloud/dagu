@@ -15,8 +15,9 @@ type Config struct {
 	SkipTLSVerify bool   // Skip server certificate verification
 
 	// Timeouts
-	DialTimeout    time.Duration // Connection timeout (default: 10s)
-	RequestTimeout time.Duration // Per-request timeout (default: 5m)
+	DialTimeout      time.Duration // Connection timeout (default: 10s)
+	RequestTimeout   time.Duration // Per-request timeout (default: 5m)
+	HeartbeatTimeout time.Duration // Worker heartbeat timeout (default: 10s)
 
 	// Retry configuration
 	MaxRetries    int           // Max dispatch retries (default: 3)
@@ -26,11 +27,12 @@ type Config struct {
 // DefaultConfig returns a Config with default values
 func DefaultConfig() *Config {
 	return &Config{
-		Insecure:       true,
-		DialTimeout:    10 * time.Second,
-		RequestTimeout: 5 * time.Minute,
-		MaxRetries:     3,
-		RetryInterval:  time.Second,
+		Insecure:         true,
+		DialTimeout:      10 * time.Second,
+		RequestTimeout:   5 * time.Minute,
+		HeartbeatTimeout: 10 * time.Second,
+		MaxRetries:       3,
+		RetryInterval:    time.Second,
 	}
 }
 
@@ -44,6 +46,9 @@ func (c *Config) Validate() error {
 	}
 	if c.RequestTimeout <= 0 {
 		c.RequestTimeout = 5 * time.Minute
+	}
+	if c.HeartbeatTimeout <= 0 {
+		c.HeartbeatTimeout = 10 * time.Second
 	}
 	if c.MaxRetries < 0 {
 		c.MaxRetries = 0

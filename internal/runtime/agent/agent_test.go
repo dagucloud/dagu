@@ -145,6 +145,20 @@ func TestAgent_Run(t *testing.T) {
 
 		dag.AssertLatestStatus(t, core.Succeeded)
 	})
+	t.Run("RecordsTriggerActor", func(t *testing.T) {
+		th := test.Setup(t)
+		dag := th.DAG(t, `steps:
+  - run: exit 0
+`)
+		dagAgent := dag.Agent(test.WithAgentOptions(agent.Options{
+			TriggerActor: "alice",
+		}))
+
+		dagAgent.RunSuccess(t)
+
+		status := dagAgent.Status(th.Context)
+		require.Equal(t, "alice", status.TriggerActor)
+	})
 	t.Run("HumanTaskAllowedOnRemoteWorker", func(t *testing.T) {
 		th := test.Setup(t)
 		dag := th.DAG(t, `steps:
@@ -1020,6 +1034,40 @@ steps:
   - name: step1
     run: %q`, "exit 0"),
 			expected: map[string]string{},
+		},
+		{
+			name: "LifecycleHandlerOutputs",
+			dag: `handler_on:
+  exit:
+    run: echo '{"value":"from-handler"}'
+    stdout:
+      outputs:
+        fields:
+          from_handler:
+            decode: json
+            select: .value
+steps:
+  - name: step1
+    run: echo '{"value":"from-step"}'
+    stdout:
+      outputs:
+        fields:
+          from_step:
+            decode: json
+            select: .value`,
+			expected: map[string]string{"from_step": "from-step", "from_handler": "from-handler"},
+		},
+		{
+			name: "LifecycleHandlerOutputVariable",
+			dag: `handler_on:
+  exit:
+    run: echo "done"
+    output: HANDLER_RESULT
+steps:
+  - name: step1
+    run: echo "one"
+    output: OUTPUT_ONE`,
+			expected: map[string]string{"outputOne": "one", "handlerResult": "done"},
 		},
 	}
 

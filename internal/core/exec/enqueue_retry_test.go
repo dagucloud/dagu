@@ -19,6 +19,7 @@ import (
 func TestEnqueueRetry(t *testing.T) {
 	t.Parallel()
 
+	triggerActor := "alice"
 	tests := []struct {
 		name        string
 		dag         *core.DAG
@@ -41,7 +42,7 @@ func TestEnqueueRetry(t *testing.T) {
 			},
 		},
 		{
-			name: "SuccessPreservesProfile",
+			name: "SuccessRecordsTriggerActor",
 			dag:  &core.DAG{Name: "test-dag"},
 			status: &exec.DAGRunStatus{
 				Name:           "test-dag",
@@ -50,6 +51,7 @@ func TestEnqueueRetry(t *testing.T) {
 				Status:         core.Failed,
 				AutoRetryCount: 2,
 			},
+			opts: exec.EnqueueRetryOptions{TriggerActor: &triggerActor},
 			store: &stubDAGRunStore{
 				status: &exec.DAGRunStatus{
 					Name:           "test-dag",
@@ -60,6 +62,7 @@ func TestEnqueueRetry(t *testing.T) {
 					Log:            "/tmp/test-dag/run-1.log",
 					WorkingDir:     "/tmp/test-dag/run-1",
 					ProfileName:    "old-profile",
+					TriggerActor:   "bob",
 					ProfileResolvedAt: time.Date(
 						2026, 3, 14, 14, 30, 0, 0, time.UTC,
 					).Format(time.RFC3339),
@@ -73,6 +76,7 @@ func TestEnqueueRetry(t *testing.T) {
 				require.NotNil(t, store.status)
 				assert.Equal(t, core.Queued, store.status.Status)
 				assert.Equal(t, core.TriggerTypeRetry, store.status.TriggerType)
+				assert.Equal(t, "alice", store.status.TriggerActor)
 				assert.NotEmpty(t, store.status.QueuedAt)
 				assert.Empty(t, store.status.Conditions)
 				assert.Equal(t, 2, store.status.AutoRetryCount)
@@ -101,6 +105,7 @@ func TestEnqueueRetry(t *testing.T) {
 					AttemptID:      "att-auto",
 					Status:         core.Failed,
 					AutoRetryCount: 2,
+					TriggerActor:   "bob",
 				},
 			},
 			setupQueue: func(qs *exec.MockQueueStore) {
@@ -110,6 +115,7 @@ func TestEnqueueRetry(t *testing.T) {
 			assertStore: func(t *testing.T, store *stubDAGRunStore) {
 				require.NotNil(t, store.status)
 				assert.Equal(t, 3, store.status.AutoRetryCount)
+				assert.Equal(t, "bob", store.status.TriggerActor)
 			},
 			wantQueued: true,
 		},
@@ -237,9 +243,10 @@ func TestEnqueueRetry(t *testing.T) {
 					AttemptID:      "att-4",
 					Status:         core.Failed,
 					AutoRetryCount: 1,
+					TriggerActor:   "bob",
 				},
 			},
-			opts: exec.EnqueueRetryOptions{AutoRetry: true},
+			opts: exec.EnqueueRetryOptions{AutoRetry: true, TriggerActor: &triggerActor},
 			setupQueue: func(qs *exec.MockQueueStore) {
 				qs.On("Enqueue", mock.Anything, "test-dag", exec.QueuePriorityLow, exec.NewDAGRunRef("test-dag", "run-4")).
 					Return(errors.New("enqueue error"))
@@ -250,6 +257,7 @@ func TestEnqueueRetry(t *testing.T) {
 				assert.Empty(t, store.status.QueuedAt)
 				assert.Equal(t, core.TriggerTypeUnknown, store.status.TriggerType)
 				assert.Equal(t, 1, store.status.AutoRetryCount)
+				assert.Equal(t, "bob", store.status.TriggerActor)
 			},
 			wantErr: "enqueue retry",
 		},
@@ -295,14 +303,17 @@ func TestEnqueueRetry(t *testing.T) {
 					AttemptID:      "att-empty-group",
 					Status:         core.Failed,
 					AutoRetryCount: 1,
+					TriggerActor:   "bob",
 				},
 			},
+			opts: exec.EnqueueRetryOptions{TriggerActor: &triggerActor},
 			assertStore: func(t *testing.T, store *stubDAGRunStore) {
 				require.NotNil(t, store.status)
 				assert.Equal(t, core.Failed, store.status.Status)
 				assert.Empty(t, store.status.QueuedAt)
 				assert.Equal(t, core.TriggerTypeUnknown, store.status.TriggerType)
 				assert.Equal(t, 1, store.status.AutoRetryCount)
+				assert.Equal(t, "bob", store.status.TriggerActor)
 			},
 			wantErr: "proc group is empty",
 		},

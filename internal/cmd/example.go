@@ -361,8 +361,6 @@ steps:
 		Name:        "template-step",
 		Description: "Render a deployment config artifact with structured data",
 		Content: `type: graph
-artifacts:
-  enabled: true
 params:
   - name: ENV
     type: string
@@ -396,13 +394,10 @@ steps:
 		Name:        "harness-step",
 		Description: "Build a harness prompt with template and write the result as an artifact",
 		Content: `type: graph
-artifacts:
-  enabled: true
 harness:
   # DAG-level defaults for harness steps.
   provider: claude
   model: sonnet
-  bare: true
 steps:
   - id: gather_issue
     output:
@@ -450,8 +445,6 @@ steps:
 		Name:        "named-harnesses",
 		Description: "Define a named harness under harnesses and call it from a step",
 		Content: `type: graph
-artifacts:
-  enabled: true
 harnesses:
   # Named custom harness adapters for CLIs that are not built in.
   gemini:

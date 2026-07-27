@@ -6,6 +6,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -188,12 +189,19 @@ func extractDAGName(ctx *Context, name string) (string, error) {
 		return name, nil
 	}
 
-	dagStore, err := ctx.dagStore(dagStoreConfig{})
+	absolutePath, err := filepath.Abs(name)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve DAG file path %s: %w", name, err)
+	}
+
+	dagStore, err := ctx.dagStore(dagStoreConfig{
+		SearchPaths: []string{filepath.Dir(absolutePath)},
+	})
 	if err != nil {
 		return "", fmt.Errorf("failed to initialize DAG store: %w", err)
 	}
 
-	dag, err := dagStore.GetMetadata(ctx, name)
+	dag, err := dagStore.GetMetadata(ctx, absolutePath)
 	if err != nil {
 		return "", fmt.Errorf("failed to read DAG metadata from file %s: %w", name, err)
 	}

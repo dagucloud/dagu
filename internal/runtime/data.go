@@ -86,6 +86,9 @@ type NodeState struct {
 	StepOutputsValue *string
 	// HumanTaskInput stores the validated input submitted to complete a human task.
 	HumanTaskInput json.RawMessage
+	// ControllerState stores the goal progress of a controller DAG. It is carried
+	// across attempts so a suspended controller resumes where it left off.
+	ControllerState json.RawMessage
 	// HumanTaskCompletedBy is the name of the subject that completed the human task.
 	HumanTaskCompletedBy string
 	// HumanTaskCompletedByID is the ID of the subject that completed the human task.
@@ -758,6 +761,13 @@ func (d *Data) MarkError(err error) {
 
 	d.inner.State.Error = err
 	d.inner.State.Status = core.NodeFailed
+}
+
+// SetControllerState stores the controller's goal progress on the node.
+func (d *Data) SetControllerState(raw json.RawMessage) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.inner.State.ControllerState = raw
 }
 
 // SetChatMessages sets the chat session messages for the node.

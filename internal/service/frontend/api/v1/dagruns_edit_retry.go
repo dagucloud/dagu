@@ -579,7 +579,11 @@ func (a *API) launchEditRetryDAGRun(ctx context.Context, plan *editRetryPlan) (q
 		return false, fmt.Errorf("error preparing edit retry DAG env: %w", err)
 	}
 
-	retrySpec := a.subCmdBuilder.QueueDispatchRetry(prepared, plan.newDAGRunID, "")
+	retrySpec := a.subCmdBuilder.Retry(prepared, launcher.RetryOptions{
+		DAGRunID:      plan.newDAGRunID,
+		TriggerActor:  seedStatus.TriggerActor,
+		QueueDispatch: true,
+	})
 	if err := launcher.Start(ctx, retrySpec); err != nil {
 		return false, fmt.Errorf("error starting edit retry DAG: %w", err)
 	}
@@ -661,6 +665,7 @@ func (a *API) seedEditRetryAttempt(
 			exec.DAGRunRef{},
 		),
 		transform.WithTriggerType(core.TriggerTypeRetry),
+		transform.WithTriggerActor(triggerActorFromContext(ctx)),
 		transform.WithRuntimeProfile(profileName, "", nil),
 	}
 	status := transform.NewStatusBuilder(dag).Create(dagRunID, core.Queued, 0, time.Time{}, opts...)
@@ -900,6 +905,9 @@ func (a *API) dispatchEditRetry(ctx context.Context, dag *core.DAG, status *exec
 	}
 	if status.ProfileName != "" {
 		opts = append(opts, executor.WithProfileName(status.ProfileName))
+	}
+	if status.TriggerActor != "" {
+		opts = append(opts, executor.WithTriggerActor(status.TriggerActor))
 	}
 	task := executor.CreateTask(
 		dag.Name,

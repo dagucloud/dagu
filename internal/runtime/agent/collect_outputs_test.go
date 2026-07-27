@@ -35,7 +35,7 @@ func TestCollectOutputsUsesCanonicalStringOutputValue(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		a := &Agent{plan: plan}
+		a := &Agent{plan: plan, runner: runtime.New(&runtime.Config{})}
 		assert.Equal(t, map[string]string{"result": "canonical"}, a.collectOutputs(context.Background()))
 	})
 
@@ -55,7 +55,7 @@ func TestCollectOutputsUsesCanonicalStringOutputValue(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		a := &Agent{plan: plan}
+		a := &Agent{plan: plan, runner: runtime.New(&runtime.Config{})}
 		assert.Equal(t, map[string]string{"result": "legacy"}, a.collectOutputs(context.Background()))
 	})
 
@@ -73,7 +73,7 @@ func TestCollectOutputsUsesCanonicalStringOutputValue(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		a := &Agent{plan: plan}
+		a := &Agent{plan: plan, runner: runtime.New(&runtime.Config{})}
 		assert.Equal(t, map[string]string{
 			"messageId": "msg-123",
 			"accepted":  "true",

@@ -157,9 +157,6 @@ steps:
 
 description: Render and read a file without external tools
 type: graph
-artifacts:
-  enabled: true
-
 steps:
   - id: render_report
     action: template.render

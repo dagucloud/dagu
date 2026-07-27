@@ -13,6 +13,7 @@ Load only the reference file that matches the task.
 ## Default Approach
 
 - Prefer `type: graph` for new DAGs. It supports both sequential flow via `depends:` and parallel flow.
+- Use `type: controller` only when the step order cannot be written down in advance and an LLM must choose it. It requires `llm:` and a `tasks:` list stating when the run is finished.
 - Prefer `id` on every step. Omit `name` unless the display label must differ from the step ID.
 - Prefer `dagu schema ...` and `dagu validate ...` over guessing field names or shapes.
 - Prefer `action: template.render` when generating text files, prompts, or artifacts instead of assembling them with shell `echo` or heredocs.
@@ -195,6 +196,59 @@ steps:
 ```
 
 Complete the task from a local CLI context with `dagu human-task complete --run-id=<run-id> --step=review --input environment=production <dag-name>`. A form is optional for acknowledgement-only tasks. Human tasks cannot be used in sub-DAGs; a distributed root run is re-queued through the scheduler after completion.
+
+## Example of a Controller Workflow
+
+```yaml
+type: controller
+
+env:
+  - ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+
+llm:
+  provider: anthropic
+  model: claude-sonnet-4-20250514
+  system: |
+    Never ask for sign-off on a red build.
+
+steps:
+  - name: run_tests
+    description: Run the test suite.
+    run: |
+      test -f /tmp/dagu-flaky-cleared || { echo "FAIL: flaky_test timed out"; exit 1; }
+      echo "all green"
+
+  - name: fix_flaky
+    description: Quarantine the known flaky test.
+    run: |
+      touch /tmp/dagu-flaky-cleared
+      echo "quarantined flaky_test"
+
+  - id: sign_off
+    name: sign_off
+    action: human.task
+    with:
+      prompt: Tests are green. Ship it?
+      form:
+        type: object
+        properties:
+          approved: { type: boolean }
+        required: [approved]
+
+tasks:
+  - name: tests_green
+    description: Finished when run_tests succeeded on its most recent run.
+  - name: approved
+    description: Finished when a person answered sign_off with approved=true.
+```
+
+Use `type: controller` only when the step order cannot be written down in advance. `steps` become a catalog of actions the model may pick; `tasks` are the goals and the termination condition. `llm` and a non-empty `tasks` are required, `depends` and router steps are rejected, and `__controller__` and `ask_user` are reserved names.
+
+A `dag.run` step advertises its target's parameters as tool arguments. Write a named value in `params` for anything the model should not decide: a parameter the step supplies is not advertised and cannot be overridden. Positional child parameters are rejected in controller DAGs because tool arguments are identified by name.
+
+The model settles each task with `set_task_status`, choosing `completed`, `skipped` when nothing needed doing, `failed` when it cannot be achieved, or `open` to undo an earlier decision. The run ends once no task is open, and fails if any is failed. It can also call `ask_user` to put a question of its own to a person, which suspends the run exactly like a declared human task.
+
+Bind API keys with `env:` as shown. Dagu only propagates `DAGU_*`, `DAG_*`, `LC_*`, and `KUBERNETES_*` from the shell, so an exported key alone never reaches the provider.
 
 ## Reference Guide
 
@@ -682,7 +736,7 @@ steps:
     output: RESULT
 ```
 
-`with.template` is required and is rendered as a template, not executed as shell. `with.output` writes rendered content to a file; top-level `output:` captures or publishes step output.
+Set exactly one of `with.template` or `with.template_ref`. `with.template` is literal template text. `with.template_ref` must be one complete canonical Dagu reference such as `${env.TEMPLATE}` or `${steps.fetch.outputs.template}`; it resolves once to a non-empty string, and references inside the resulting template remain literal. The selected text is rendered as a template, not executed as shell. `with.output` writes rendered content to a file; top-level `output:` captures or publishes step output.
 
 ## file.stat / file.read / file.write / file.copy / file.move / file.delete / file.mkdir / file.list
 

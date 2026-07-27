@@ -394,6 +394,13 @@ Validation rules:
   unavailable during validation.
 - Explicit inspection surfaces must report passive notices for unresolved
   supported structured context references.
+- A supported structured context reference carries a value only during a run, so
+  its notice is runtime-only. `dagu validate` must keep it out of the default
+  output and print it under `--show-unresolved`.
+- A reference to an unsupported field under `context.` remains a defect and is
+  reported by default, which is what separates a typo such as
+  `${context.paths.artifact_dir}` from the supported
+  `${context.paths.artifacts_dir}`.
 - Explicit inspection surfaces must report passive notices with reason
   `unknown_context_field` for unknown fields under reserved context namespaces.
 - Normal run execution must not emit passive value-reference notices as run

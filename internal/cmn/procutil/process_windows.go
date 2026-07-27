@@ -18,7 +18,7 @@ func isAlive(pid int) bool {
 	if !canUseWindowsPID(pid) {
 		return false
 	}
-	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
+	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid)) //nolint:gosec // canUseWindowsPID bounds pid to the uint32 range.
 	if err != nil {
 		return err == windows.ERROR_ACCESS_DENIED
 	}
@@ -40,7 +40,7 @@ func canUseWindowsPID(pid int) bool {
 }
 
 func startTime(pid int) (int64, bool) {
-	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
+	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid)) //nolint:gosec // callers gate on canLookupStartTime, which bounds pid to the uint32 range.
 	if err != nil {
 		return 0, false
 	}

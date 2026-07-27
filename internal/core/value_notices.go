@@ -57,7 +57,7 @@ func ReportValueReferenceNotices(dag *DAG, sink cmnvalue.ValueReferenceNoticeSin
 			sink,
 		)
 	}
-	reportStepEnvValueReferenceNotices(dag, staticScope, runtimeScope, rootEnvScope, stepOutputNotices, sink)
+	stepEnvScopes := reportStepEnvValueReferenceNotices(dag, staticScope, runtimeScope, rootEnvScope, stepOutputNotices, sink)
 
 	for _, field := range ReferenceFields(dag) {
 		if isEnvReferenceFieldPath(field.Path) {
@@ -72,6 +72,12 @@ func ReportValueReferenceNotices(dag *DAG, sink cmnvalue.ValueReferenceNoticeSin
 		}
 		fieldRuntimeScope := runtimeScope
 		fieldRuntimeScope.BuiltinContext = noticeBuiltinContext(dag.Name, field.OwnerStepName, field.OwnerStepID)
+		// A step's working directory is resolved before its env is added.
+		if field.Path != field.OwnerStepPath+".working_dir" {
+			if scope, ok := stepEnvScopes[field.OwnerStepPath]; ok && scope != nil {
+				fieldRuntimeScope.Env = scope
+			}
+		}
 		resolver := cmnvalue.NewResolver(
 			staticScope,
 			fieldRuntimeScope,
@@ -100,11 +106,13 @@ func reportStepEnvValueReferenceNotices(
 	rootEnvScope *cmnvalue.EnvScope,
 	stepOutputNotices *stepOutputNoticeContext,
 	sink cmnvalue.ValueReferenceNoticeSink,
-) {
-	for i := range dag.Steps {
-		reportSingleStepEnvValueReferenceNotices(
-			fmt.Sprintf("steps[%d]", i),
-			dag.Steps[i],
+) map[string]*cmnvalue.EnvScope {
+	scopes := make(map[string]*cmnvalue.EnvScope)
+	var reportStep func(string, Step)
+	reportStep = func(path string, step Step) {
+		scopes[path] = reportSingleStepEnvValueReferenceNotices(
+			path,
+			step,
 			dag.Name,
 			staticScope,
 			runtimeScope,
@@ -112,29 +120,34 @@ func reportStepEnvValueReferenceNotices(
 			stepOutputNotices,
 			sink,
 		)
+		if step.Foreach == nil {
+			return
+		}
+		for i := range step.Foreach.Steps {
+			reportStep(fmt.Sprintf("%s.foreach.steps[%d]", path, i), step.Foreach.Steps[i])
+		}
 	}
-	reportHandlerStepEnvValueReferenceNotices("handler_on.init", dag.HandlerOn.Init, dag.Name, staticScope, runtimeScope, rootEnvScope, stepOutputNotices, sink)
-	reportHandlerStepEnvValueReferenceNotices("handler_on.success", dag.HandlerOn.Success, dag.Name, staticScope, runtimeScope, rootEnvScope, stepOutputNotices, sink)
-	reportHandlerStepEnvValueReferenceNotices("handler_on.failure", dag.HandlerOn.Failure, dag.Name, staticScope, runtimeScope, rootEnvScope, stepOutputNotices, sink)
-	reportHandlerStepEnvValueReferenceNotices("handler_on.abort", dag.HandlerOn.Abort, dag.Name, staticScope, runtimeScope, rootEnvScope, stepOutputNotices, sink)
-	reportHandlerStepEnvValueReferenceNotices("handler_on.exit", dag.HandlerOn.Exit, dag.Name, staticScope, runtimeScope, rootEnvScope, stepOutputNotices, sink)
-	reportHandlerStepEnvValueReferenceNotices("handler_on.wait", dag.HandlerOn.Wait, dag.Name, staticScope, runtimeScope, rootEnvScope, stepOutputNotices, sink)
-}
-
-func reportHandlerStepEnvValueReferenceNotices(
-	path string,
-	step *Step,
-	dagName string,
-	staticScope cmnvalue.StaticScope,
-	runtimeScope cmnvalue.RuntimeScope,
-	rootEnvScope *cmnvalue.EnvScope,
-	stepOutputNotices *stepOutputNoticeContext,
-	sink cmnvalue.ValueReferenceNoticeSink,
-) {
-	if step == nil {
-		return
+	for i := range dag.Steps {
+		reportStep(fmt.Sprintf("steps[%d]", i), dag.Steps[i])
 	}
-	reportSingleStepEnvValueReferenceNotices(path, *step, dagName, staticScope, runtimeScope, rootEnvScope, stepOutputNotices, sink)
+	handlers := []struct {
+		path string
+		step *Step
+	}{
+		{"handler_on.init", dag.HandlerOn.Init},
+		{"handler_on.success", dag.HandlerOn.Success},
+		{"handler_on.failure", dag.HandlerOn.Failure},
+		{"handler_on.abort", dag.HandlerOn.Abort},
+		{"handler_on.exit", dag.HandlerOn.Exit},
+		{"handler_on.wait", dag.HandlerOn.Wait},
+	}
+	for _, handler := range handlers {
+		if handler.step == nil {
+			continue
+		}
+		reportStep(handler.path, *handler.step)
+	}
+	return scopes
 }
 
 func reportSingleStepEnvValueReferenceNotices(
@@ -146,7 +159,7 @@ func reportSingleStepEnvValueReferenceNotices(
 	rootEnvScope *cmnvalue.EnvScope,
 	stepOutputNotices *stepOutputNoticeContext,
 	sink cmnvalue.ValueReferenceNoticeSink,
-) {
+) *cmnvalue.EnvScope {
 	stepEnvScope := reportEnvValueReferenceNotices(
 		step.Env,
 		path+".env",
@@ -178,6 +191,7 @@ func reportSingleStepEnvValueReferenceNotices(
 			sink,
 		)
 	}
+	return stepEnvScope
 }
 
 func reportEnvValueReferenceNotices(
@@ -201,7 +215,12 @@ func reportEnvValueReferenceNotices(
 		key, value, _ := strings.Cut(entry, "=")
 		fieldPath := fmt.Sprintf("%s[%d]", path, i)
 		stepOutputNotices.report(fieldPath, value, ownerStepName, ownerStepID, sink)
-		fieldSink := valueReferenceNoticeFieldSink{sink: sink, fieldPath: fieldPath, suppressStepOutputReferences: true}
+		fieldSink := valueReferenceNoticeFieldSink{
+			sink:                         sink,
+			fieldPath:                    fieldPath,
+			suppressStepOutputReferences: true,
+			suppressForeachReferences:    isForeachItemScopeFieldPath(fieldPath),
+		}
 		runtimeScope.Env = scope
 		runtimeScope.BuiltinContext = noticeBuiltinContext(dagName, ownerStepName, ownerStepID)
 		resolver := cmnvalue.NewResolver(
@@ -384,6 +403,10 @@ func (s valueReferenceNoticeFieldSink) Report(notice cmnvalue.ValueReferenceNoti
 	}
 	if s.suppressForeachReferences && strings.HasPrefix(notice.Token, "${foreach.") {
 		return
+	}
+	if notice.Reason == cmnvalue.ValueReferenceReasonNamespaceUnavailable &&
+		strings.HasPrefix(notice.Token, "${foreach.") {
+		notice.Class = cmnvalue.NoticeClassDefect
 	}
 	if s.fieldPath != "" {
 		notice.FieldPath = s.fieldPath

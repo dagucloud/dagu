@@ -99,16 +99,18 @@ func (r *Renderer) RenderDAGStatus(dag *core.DAG, status *exec.DAGRunStatus) str
 	buf.WriteString(r.renderDAGLine(dag, status))
 	buf.WriteString("\n")
 
+	nodes := status.NodesInRunOrder()
+
 	if status.Log != "" {
-		buf.WriteString(r.renderSchedulerLog(status.Log, len(status.Nodes) > 0))
+		buf.WriteString(r.renderSchedulerLog(status.Log, len(nodes) > 0))
 	}
 
-	if len(status.Nodes) > 0 {
+	if len(nodes) > 0 {
 		buf.WriteString("│\n")
 	}
 
-	for i, node := range status.Nodes {
-		buf.WriteString(r.renderStep(node, i == len(status.Nodes)-1, ""))
+	for i, node := range nodes {
+		buf.WriteString(r.renderStep(node, i == len(nodes)-1, ""))
 	}
 
 	buf.WriteString(r.renderFinalStatus(status))

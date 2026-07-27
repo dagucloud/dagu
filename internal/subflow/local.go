@@ -22,6 +22,8 @@ import (
 	"github.com/dagucloud/dagu/internal/runtime/executor"
 	"github.com/dagucloud/dagu/internal/runtime/runstate"
 	secretpkg "github.com/dagucloud/dagu/internal/secret"
+	dagutools "github.com/dagucloud/dagu/internal/tools"
+	daguaqua "github.com/dagucloud/dagu/internal/tools/aqua"
 	"github.com/dagucloud/dagu/internal/workspace"
 )
 
@@ -43,6 +45,7 @@ type Local struct {
 	workerID                 string
 	dagRunLogDir             string
 	dagRunArtifactDir        string
+	installer                dagutools.Installer
 
 	mu     sync.Mutex
 	active map[string]*rtagent.Agent
@@ -52,6 +55,13 @@ var _ executor.SubWorkflowRunner = (*Local)(nil)
 
 // LocalOption configures Local.
 type LocalOption func(*Local)
+
+// WithLocalToolInstaller sets the installer used to make child DAG tools available.
+func WithLocalToolInstaller(installer dagutools.Installer) LocalOption {
+	return func(r *Local) {
+		r.installer = installer
+	}
+}
 
 // WithLocalDAGRunStore sets the dag-run store used by child workflow agents.
 func WithLocalDAGRunStore(store exec.DAGRunStore) LocalOption {
@@ -150,6 +160,7 @@ func NewLocal(dagRunMgr runtime.Manager, dagStore exec.DAGStore, opts ...LocalOp
 	r := &Local{
 		dagRunMgr: dagRunMgr,
 		dagStore:  dagStore,
+		installer: daguaqua.New(),
 		active:    make(map[string]*rtagent.Agent),
 	}
 	for _, opt := range opts {
@@ -181,6 +192,17 @@ func (r *Local) Run(ctx context.Context, req executor.SubWorkflowRequest) (*exec
 	retryTarget, err := r.existingChildRetryTarget(ctx, req)
 	if err != nil {
 		return nil, err
+	}
+	if req.Reuse {
+		if retryTarget == nil {
+			return nil, fmt.Errorf("persisted child workflow status not found for DAG run %s", req.RunID)
+		}
+		result := statusToRunStatus(retryTarget, req.RunID)
+		result.PendingStepRetries = nil
+		return result, nil
+	}
+	if req.ExternalStepRetry && retryTarget != nil && retryTarget.Status == core.Succeeded {
+		return statusToRunStatus(retryTarget, req.RunID), nil
 	}
 
 	dag, cleanup, err := loadInProcessDAG(ctx, req)
@@ -337,10 +359,16 @@ func (r *Local) newAgent(
 	if err != nil {
 		return nil, err
 	}
+	toolEnvs, err := r.prepareDAGTools(ctx, rCtx, dag)
+	if err != nil {
+		return nil, err
+	}
 
 	opts.ParentDAGRun = req.ParentDAGRun
 	opts.RootDAGRun = req.RootDAGRun
-	opts.ExtraEnvs = inProcessExtraEnvs(rCtx, req)
+	opts.TriggerActor = req.TriggerActor
+	opts.RetryPath = req.RetryPath
+	opts.ExtraEnvs = append(inProcessExtraEnvs(rCtx, req), toolEnvs...)
 	opts.WorkerID = r.workerID
 	opts.StatusPusher = r.statusPusher
 	opts.SubWorkflowRunnerFactory = r.subWorkflowRunnerFactory
@@ -373,6 +401,19 @@ func (r *Local) newAgent(
 		r.dagStoreFromContext(ctx),
 		opts,
 	), nil
+}
+
+func (r *Local) prepareDAGTools(ctx context.Context, rCtx exec.Context, dag *core.DAG) ([]string, error) {
+	cfg := config.GetConfig(ctx)
+	workDir := ""
+	if dag != nil {
+		workDir = dag.WorkingDir
+	}
+	return dagutools.PrepareDAG(ctx, dag, r.installer, dagutools.InstallOptions{
+		ToolsDir: cfg.Paths.ToolsDir,
+		DataDir:  cfg.Paths.DataDir,
+		WorkDir:  workDir,
+	}, toolsBasePath(rCtx))
 }
 
 func (r *Local) runAgent(ctx context.Context, runID string, child *rtagent.Agent) (*exec.RunStatus, error) {
@@ -493,6 +534,9 @@ func inProcessLoadOptions(
 	loadOpts := []spec.LoadOption{
 		spec.WithName(req.DAG.Name),
 		spec.WithSkipBaseHandlers(),
+	}
+	if req.DAG.SourceFile != "" {
+		loadOpts = append(loadOpts, spec.WithSourceFile(req.DAG.SourceFile))
 	}
 	if cfg != nil {
 		loadOpts = append(loadOpts, spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(cfg.Paths.DAGsDir)))

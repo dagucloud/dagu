@@ -29,6 +29,8 @@ const (
 	TypeGraph = "graph"
 	// TypeChain runs steps strictly in declaration order.
 	TypeChain = "chain"
+	// TypeController lets an LLM choose which step runs next until every task is complete.
+	TypeController = "controller"
 )
 
 // DefaultMaxOutputSize is the default maximum captured step output size in bytes.
@@ -83,8 +85,11 @@ type DAG struct {
 	Group string `json:"group,omitempty"`
 	// Name is the name of the DAG. The default is the filename without the extension.
 	Name string `json:"name,omitempty"`
-	// Type is the execution type (graph or chain). Default is graph.
+	// Type is the execution type (graph, chain, or controller). Default is graph.
 	Type string `json:"type,omitempty"`
+	// Tasks are the goals a controller DAG must satisfy before it concludes.
+	// Only meaningful when Type is TypeController.
+	Tasks []ControllerTask `json:"tasks,omitempty"`
 	// Shell is the default shell to use for all steps in this DAG.
 	// If not specified, the system default shell is used.
 	// Can be overridden at the step level.
@@ -415,13 +420,16 @@ func (d *DAG) HasApprovalSteps() bool {
 	return false
 }
 
-// HasHumanTaskSteps reports whether the DAG directly contains a human task.
+// HasHumanTaskSteps reports whether the DAG declares a human task. A controller
+// DAG's synthesized ask_user task does not count: it is scaffolding every
+// controller carries, and the controller declines to use it outside a root run,
+// so counting it here would bar controllers from being composed as child DAGs.
 func (d *DAG) HasHumanTaskSteps() bool {
 	if d == nil {
 		return false
 	}
 	for _, step := range d.Steps {
-		if step.HumanTask != nil {
+		if step.HumanTask != nil && (!d.IsController() || !IsSynthesizedControllerStep(step.Name)) {
 			return true
 		}
 	}

@@ -2008,9 +2008,11 @@ func buildStepExecutor(ctx StepBuildContext, s *step, result *core.Step) error {
 			result.ExecutorConfig.Type = "ssh"
 		} else if ctx.dag.Redis != nil {
 			result.ExecutorConfig.Type = "redis"
-		} else if ctx.dag.Harness != nil {
-			result.ExecutorConfig.Type = "harness"
 		}
+		// A DAG-level harness: block is not inferred as a step type. Unlike
+		// container and ssh it is not a transport: it reads the step's command
+		// as a prompt, so inferring it turns a command into agent input. A
+		// harness step names itself with action: harness.run.
 	}
 
 	// Merge DAG-level Redis config into step config (step takes precedence)
@@ -2480,10 +2482,8 @@ func buildStepLLM(ctx StepBuildContext, s *step, result *core.Step) error {
 	cfg := s.LLM
 
 	// Validate provider if specified (for single model config)
-	if cfg.Provider != "" {
-		if _, err := llm.ParseProviderType(cfg.Provider); err != nil {
-			return core.NewValidationError("llm.provider", cfg.Provider, err)
-		}
+	if err := validateLLMProvider(cfg.Provider); err != nil {
+		return core.NewValidationError("llm.provider", cfg.Provider, err)
 	}
 
 	// Model is required when llm config is provided
@@ -2581,11 +2581,22 @@ func buildWebSearchConfig(cfg *webSearchConfig) *core.WebSearchConfig {
 	return result
 }
 
+// validateLLMProvider reports whether provider names a supported LLM provider.
+// An empty provider is accepted; so is one carrying a value reference, since its
+// final value is only known once the step runs.
+func validateLLMProvider(provider string) error {
+	if provider == "" || cmnvalue.HasValueReference(provider) {
+		return nil
+	}
+	_, err := llm.ParseProviderType(provider)
+	return err
+}
+
 // convertModelEntries converts types.ModelEntry slice to core.ModelEntry slice with validation.
 func convertModelEntries(entries []types.ModelEntry) ([]core.ModelEntry, error) {
 	models := make([]core.ModelEntry, len(entries))
 	for i, e := range entries {
-		if _, err := llm.ParseProviderType(e.Provider); err != nil {
+		if err := validateLLMProvider(e.Provider); err != nil {
 			return nil, core.NewValidationError(fmt.Sprintf("llm.model[%d].provider", i), e.Provider, err)
 		}
 		models[i] = core.ModelEntry{

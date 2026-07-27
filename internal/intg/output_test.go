@@ -353,6 +353,89 @@ func TestOutputsCollection_CamelCaseConversion_AlreadyCamelCase(t *testing.T) {
 	runOutputsCollectionCamelCaseConversion(t, "ALREADY_CAMEL_Case", "alreadyCamelCase", "ALREADY_CAMEL_Case=test_value")
 }
 
+func TestOutputsCollection_LifecycleHandlerReachesCaller(t *testing.T) {
+	outputsTestParallel(t)
+
+	th := test.Setup(t)
+	dag := th.DAG(t, `steps:
+  - action: dag.run
+    with:
+      dag: handler_outputs_child
+    output: CHILD
+  - run: echo "${CHILD.outputValues.from_step}|${CHILD.outputValues.from_handler}"
+    depends: dag_1
+    output: RESULT
+---
+name: handler_outputs_child
+handler_on:
+  exit:
+    run: echo '{"value":"from-handler"}'
+    stdout:
+      outputs:
+        fields:
+          from_handler:
+            decode: json
+            select: .value
+steps:
+  - name: emit-from-step
+    run: echo '{"value":"from-step"}'
+    stdout:
+      outputs:
+        fields:
+          from_step:
+            decode: json
+            select: .value
+`)
+	dag.Agent().RunSuccess(t)
+
+	dag.AssertOutputs(t, map[string]any{
+		"RESULT": "from-step|from-handler",
+	})
+}
+
+// The wait handler runs after the steps that already finished, so its value for
+// a key a step also published is the one that survives.
+func TestOutputsCollection_WaitHandlerOverridesEarlierStep(t *testing.T) {
+	outputsTestParallel(t)
+
+	th := test.Setup(t)
+	dag := th.DAG(t, `
+handler_on:
+  wait:
+    run: echo '{"value":"from-wait-handler"}'
+    stdout:
+      outputs:
+        fields:
+          shared:
+            decode: json
+            select: .value
+
+steps:
+  - name: emit
+    run: echo '{"value":"from-step"}'
+    stdout:
+      outputs:
+        fields:
+          shared:
+            decode: json
+            select: .value
+  - name: wait-step
+    run: "true"
+    depends: [emit]
+    approval: {}
+`)
+	agent := dag.Agent()
+	_ = agent.Run(agent.Context)
+
+	status := agent.Status(agent.Context)
+	require.Equal(t, core.Waiting, status.Status)
+	require.NotNil(t, status.OnWait, "wait handler should have been executed")
+
+	outputs := readOutputsFile(t, th, dag.DAG)
+	require.NotNil(t, outputs)
+	assert.Equal(t, "from-wait-handler", outputs["shared"])
+}
+
 func TestOutputsCollection_SecretsMasked(t *testing.T) {
 	outputsTestParallel(t)
 
@@ -420,6 +503,65 @@ steps:
 
 	// Validate outputs are still present
 	assert.Equal(t, "RESULT=42", fullOutputs.Outputs["result"])
+}
+
+func TestSubDAGPublishesDeclaredOutputsToCaller(t *testing.T) {
+	outputsTestParallel(t)
+
+	th := test.Setup(t)
+	dag := th.DAG(t, `
+steps:
+  - name: call
+    action: dag.run
+    with:
+      dag: declaring_child
+---
+name: declaring_child
+steps:
+  - id: load
+    run: echo scratch-value
+    output: SCRATCH
+  - id: publish
+    depends: [load]
+    action: outputs.write
+    with:
+      values:
+        verdict: clean
+`)
+	dag.Agent().RunSuccess(t)
+
+	status, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag.DAG)
+	require.NoError(t, err)
+	require.Len(t, status.Nodes, 1)
+	require.NotNil(t, status.Nodes[0].OutputsValue)
+	// The child declared one output, so that is the whole surface the caller
+	// sees. SCRATCH stays internal to the child run.
+	require.JSONEq(t, `{"verdict":"clean"}`, *status.Nodes[0].OutputsValue)
+}
+
+func TestSubDAGWithoutDeclaredOutputsPublishesNothing(t *testing.T) {
+	outputsTestParallel(t)
+
+	th := test.Setup(t)
+	dag := th.DAG(t, `
+steps:
+  - name: call
+    action: dag.run
+    with:
+      dag: plain_child
+---
+name: plain_child
+steps:
+  - id: load
+    run: echo scratch-value
+    output: SCRATCH
+`)
+	dag.Agent().RunSuccess(t)
+
+	status, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag.DAG)
+	require.NoError(t, err)
+	require.Len(t, status.Nodes, 1)
+	assert.Nil(t, status.Nodes[0].OutputsValue)
 }
 
 // readOutputsFile reads the outputs.json file for a given DAG run

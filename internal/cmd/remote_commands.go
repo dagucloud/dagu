@@ -44,10 +44,12 @@ func toExecStatus(detail *api.DAGRunDetails) (*exec.DAGRunStatus, error) {
 	for _, node := range detail.Nodes {
 		status.Nodes = append(status.Nodes, mapAPINode(node))
 	}
+	status.OnInit = mapAPINodePtr(detail.OnInit)
 	status.OnExit = mapAPINodePtr(detail.OnExit)
 	status.OnSuccess = mapAPINodePtr(detail.OnSuccess)
 	status.OnFailure = mapAPINodePtr(detail.OnFailure)
 	status.OnAbort = mapAPINodePtr(detail.OnAbort)
+	status.OnWait = mapAPINodePtr(detail.OnWait)
 	return status, nil
 }
 
@@ -150,7 +152,7 @@ func mapAPIStepOutputs(outputs *[]api.StepOutputDeclaration) []core.StepOutputDe
 }
 
 func validateRemoteStartLikeFlags(ctx *Context) error {
-	disallowed := []string{"parent", "root", "worker-id", "attempt-id", "schedule-time", "profile"}
+	disallowed := []string{"parent", "root", "worker-id", "attempt-id", "schedule-time", "profile", "trigger-actor"}
 	for _, flag := range disallowed {
 		if ctx.Command.Flags().Changed(flag) {
 			return fmt.Errorf("--%s is only supported in the local context", flag)
@@ -379,13 +381,18 @@ func remoteRunRetry(ctx *Context, args []string) error {
 		return fmt.Errorf("invalid run-id: %w", err)
 	}
 	stepName, _ := ctx.StringParam("step")
+	subDAGRunID, _ := ctx.StringParam("sub-run-id")
+	if subDAGRunID != "" && stepName == "" {
+		return fmt.Errorf("--sub-run-id requires --step")
+	}
 	dag, err := remoteResolveDAG(ctx, args[0])
 	if err != nil {
 		return err
 	}
 	return ctx.Remote.retryDAGRun(ctx, dag.Dag.Name, runID, api.RetryDAGRunJSONBody{
-		DagRunId: runID,
-		StepName: stringPtrOrNil(stepName),
+		DagRunId:    runID,
+		StepName:    stringPtrOrNil(stepName),
+		SubDAGRunId: stringPtrOrNil(subDAGRunID),
 	})
 }
 

@@ -347,7 +347,7 @@ func bindingBuiltinContextValue(path string, builtins BuiltinContext, requireVal
 	}
 	return nil, newNoticeReasonError(
 		ValueReferenceReasonNamespaceUnavailable,
-		fmt.Sprintf("%s is unavailable in this context", path),
+		fmt.Sprintf("%s is populated during a DAG run", path),
 	)
 }
 
@@ -374,7 +374,15 @@ func bindingMapValue(namespace, name string, values Values, requireValue bool) (
 	value, ok := values[name]
 	if !ok {
 		if namespace == "params" {
+			// A caller can pass a param the spec never declared, so an absent
+			// one says nothing about the spec being wrong.
 			return nil, fmt.Errorf("unknown params.%s binding", name)
+		}
+		if namespace == "consts" {
+			return nil, newNoticeReasonError(
+				ValueReferenceReasonUnknownConstName,
+				fmt.Sprintf("unknown consts.%s binding", name),
+			)
 		}
 		return nil, fmt.Errorf("unknown %s binding %q", namespace, name)
 	}
@@ -456,7 +464,10 @@ func bindingEnvValue(name string, scope *EnvScope, requireValue bool) (any, erro
 	if !requireValue {
 		return nil, nil
 	}
-	return nil, fmt.Errorf("unknown env.%s binding", name)
+	return nil, newNoticeReasonError(
+		ValueReferenceReasonUnknownEnvBinding,
+		fmt.Sprintf("unknown env.%s binding", name),
+	)
 }
 
 func supportedStrictBinding(segments []string) bool {

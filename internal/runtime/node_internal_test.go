@@ -5,6 +5,7 @@ package runtime
 
 import (
 	"context"
+	"sort"
 	"strings"
 	"testing"
 
@@ -91,6 +92,59 @@ func TestEvalExecutorConfig_TemplatePreservesLiteralCodeFencesInData(t *testing.
 	require.Equal(t, "```yaml\nenv:\n  TEST_FILE: ~/dagu-test.txt\n\nsteps:\n  - command: touch $TEST_FILE\n```", data["issue_text"])
 }
 
+func TestEvalExecutorConfig_TemplateReferenceResolvesOnce(t *testing.T) {
+	t.Parallel()
+
+	ctx := exec.NewContext(
+		context.Background(),
+		&core.DAG{Name: "test-dag"},
+		"",
+		"",
+	)
+	env := NewEnv(ctx, core.Step{Name: "render"})
+	env.Scope = env.Scope.WithEntries(map[string]string{
+		"TEMPLATE": "  Hello, {{ .name }}! ${env.NESTED} `command`\n",
+		"NESTED":   "must-not-expand",
+	}, cmnvalue.EnvSourceStepEnv)
+	ctx = WithEnv(ctx, env)
+
+	result, err := evalExecutorConfig(ctx, core.Step{
+		ExecutorConfig: core.ExecutorConfig{
+			Type: "template",
+			Config: map[string]any{
+				"template_ref": "${env.TEMPLATE}",
+				"data":         map[string]any{"name": "Alice"},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "  Hello, {{ .name }}! ${env.NESTED} `command`\n", result["template_ref"])
+	require.Equal(t, map[string]any{"name": "Alice"}, result["data"])
+}
+
+func TestEvalExecutorConfig_TemplateReferenceMustResolve(t *testing.T) {
+	t.Parallel()
+
+	ctx := exec.NewContext(
+		context.Background(),
+		&core.DAG{Name: "test-dag"},
+		"",
+		"",
+	)
+	env := NewEnv(ctx, core.Step{Name: "render"})
+	ctx = WithEnv(ctx, env)
+
+	_, err := evalExecutorConfig(ctx, core.Step{
+		ExecutorConfig: core.ExecutorConfig{
+			Type: "template",
+			Config: map[string]any{
+				"template_ref": "${env.MISSING}",
+			},
+		},
+	})
+	require.ErrorContains(t, err, "unknown env.MISSING binding")
+}
+
 // TestEvalExecutorConfig_DefaultPreservesLiteralCodeFencesInData verifies that
 // non-template executor config is also treated as step data and should not
 // execute backticks while resolving variable references.
@@ -175,6 +229,49 @@ func TestSetupExecutor_LogMessageExpandsVariables(t *testing.T) {
 	cmd.SetStdout(&stdout)
 	require.NoError(t, cmd.Run(runCtx))
 	require.Equal(t, "Deploying production\n", stdout.String())
+}
+
+// TestBuildSubDAGRunsAddressesPreviousAttemptRuns verifies that a manual step
+// retry can address the child DAG runs of the previous attempt: the rebuilt sub
+// run IDs match the ones the first attempt produced, even though the retry
+// starts the step from a cleared state.
+func TestBuildSubDAGRunsAddressesPreviousAttemptRuns(t *testing.T) {
+	t.Parallel()
+
+	step := core.Step{
+		Name:   "parallel_2",
+		SubDAG: &core.SubDAG{Name: "child"},
+		Parallel: &core.ParallelConfig{
+			Items: []core.ParallelItem{{Value: "one"}, {Value: "two"}},
+		},
+	}
+	dag := &core.DAG{Name: "root", Steps: []core.Step{step}}
+
+	buildIDs := func(t *testing.T, node *Node) []string {
+		t.Helper()
+		ctx := NewContextForTest(context.Background(), dag, "root-run", "")
+		ctx = WithEnv(ctx, NewEnv(ctx, step))
+		runs, err := node.BuildSubDAGRuns(ctx, step.SubDAG)
+		require.NoError(t, err)
+		ids := make([]string, 0, len(runs))
+		for _, run := range runs {
+			ids = append(ids, run.DAGRunID)
+		}
+		sort.Strings(ids)
+		return ids
+	}
+
+	firstAttempt := buildIDs(t, NewNode(step, NodeState{}))
+	require.Len(t, firstAttempt, 2)
+
+	retried := NewNode(step, NodeState{
+		Status:  core.NodeFailed,
+		SubRuns: []SubDAGRun{{DAGRunID: firstAttempt[0]}, {DAGRunID: firstAttempt[1]}},
+	})
+	_, err := CreateStepRetryPlan(dag, []*Node{retried}, step.Name)
+	require.NoError(t, err)
+
+	require.Equal(t, firstAttempt, buildIDs(t, retried))
 }
 
 // TestSetupExecutor_HarnessCommandPreservesLiteralCodeFences verifies that

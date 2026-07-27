@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"sync"
 
@@ -22,6 +23,7 @@ import (
 
 var _ executor.DAGExecutor = (*dagExecutor)(nil)
 var _ executor.NodeStatusDeterminer = (*dagExecutor)(nil)
+var _ executor.OutputsProvider = (*dagExecutor)(nil)
 
 type dagExecutor struct {
 	child     *executor.SubDAGExecutor
@@ -32,7 +34,39 @@ type dagExecutor struct {
 	runParams executor.RunParams
 	step      core.Step
 	result    *exec.RunStatus
+	outputs   map[string]any
 	cancel    context.CancelFunc
+}
+
+// declaredChildOutputs returns the outputs a child run published explicitly,
+// through `outputs.write` or `stdout.outputs`. It returns nil when the child
+// published nothing that way, so a step whose child only sets flat `output:`
+// variables keeps reporting through the child run itself.
+func declaredChildOutputs(result *exec.RunStatus) map[string]any {
+	if result == nil || len(result.OutputValues) == 0 {
+		return nil
+	}
+	outputs := make(map[string]any, len(result.OutputValues))
+	maps.Copy(outputs, result.OutputValues)
+	return outputs
+}
+
+func (e *dagExecutor) setOutputs(outputs map[string]any) {
+	e.lock.Lock()
+	defer e.lock.Unlock()
+	e.outputs = outputs
+}
+
+// GetOutputs implements executor.OutputsProvider.
+func (e *dagExecutor) GetOutputs() map[string]any {
+	e.lock.Lock()
+	defer e.lock.Unlock()
+	if len(e.outputs) == 0 {
+		return nil
+	}
+	outputs := make(map[string]any, len(e.outputs))
+	maps.Copy(outputs, e.outputs)
+	return outputs
 }
 
 // Errors for DAG executor
@@ -41,6 +75,12 @@ var (
 	ErrApprovalStepsWithWorker = fmt.Errorf("sub-DAG with approval steps cannot be dispatched to workers")
 	ErrHumanTaskStepsInSubDAG  = fmt.Errorf("human task steps are not allowed in sub-DAGs")
 )
+
+// errTargetRunMissing reports that a retry targets a child DAG run the step
+// does not produce.
+func errTargetRunMissing(runID, stepName string) error {
+	return fmt.Errorf("target child DAG run %s is not present in step %s", runID, stepName)
+}
 
 func validateSubDAG(childDAG *core.DAG, name string, workerSelector map[string]string) error {
 	if len(workerSelector) > 0 && childDAG.HasApprovalSteps() {
@@ -96,6 +136,8 @@ func (e *dagExecutor) Run(ctx context.Context) error {
 		}
 	}()
 
+	// Resolve the worker selector before dispatch so both Execute and Retry
+	// route to a worker chosen from the effective (params-aware) selector.
 	workerSelector, err := effectiveWorkerSelector(ctx, e.step, e.child.DAG, e.runParams)
 	if err != nil {
 		return err
@@ -105,12 +147,24 @@ func (e *dagExecutor) Run(ctx context.Context) error {
 	}
 	e.child.SetWorkerSelector(workerSelector)
 
-	result, execErr := e.child.Execute(ctx, e.runParams, e.workDir)
+	var result *exec.RunStatus
+	var execErr error
+	path := exec.GetContext(ctx).RetryPath
+	if hop, ok := path.Current(); ok && hop.Step == e.step.Name {
+		if hop.RunID != e.runParams.RunID {
+			return errTargetRunMissing(hop.RunID, e.step.Name)
+		}
+		result, execErr = e.child.Retry(ctx, e.runParams, path.NextStep(), e.workDir, path.Advance())
+	} else {
+		result, execErr = e.child.Execute(ctx, e.runParams, e.workDir)
+	}
 	if result != nil {
 		e.lock.Lock()
 		e.result = result
 		e.lock.Unlock()
 	}
+
+	e.setOutputs(declaredChildOutputs(result))
 
 	jsonData, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {

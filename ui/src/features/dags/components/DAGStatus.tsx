@@ -13,6 +13,7 @@ import {
   Archive,
   ClipboardCheck,
   FileCode,
+  ListChecks,
   GanttChart,
   GripHorizontal,
   MessageSquare,
@@ -37,6 +38,13 @@ import { updateDAGRunNodeStatus } from '../lib/nodeStatus';
 import { ApprovalTab } from './approval';
 import ArtifactsTab from './artifacts/ArtifactsTab';
 import { ChatHistoryTab } from './chat-history';
+import { ControllerTimeline, TaskChecklistTab } from './controller';
+import {
+  SubRunOpenProvider,
+  SubRunStackModal,
+  useOpenSubRun,
+  type SubRunStackEntry,
+} from './common';
 import { DAGStatusOverview, NodeStatusTable } from './dag-details';
 import { DAGSpecReadOnly } from './dag-editor';
 import { StepDetailsDrawer } from './step-details';
@@ -62,6 +70,7 @@ export type StatusTab =
   | 'outputs'
   | 'artifacts'
   | 'chat'
+  | 'tasks'
   | 'spec'
   | 'approval'
   | 'human-tasks';
@@ -248,8 +257,7 @@ function DAGStatus({
             node: n,
           });
         } else {
-          // Single sub dagRun - navigate directly
-          navigateToSubDagRun(n, 0);
+          openSubRunAt(n, 0);
         }
       }
     },
@@ -268,6 +276,39 @@ function DAGStatus({
       setIsStepDetailsOpen(true);
     },
     [displayDAGRun]
+  );
+
+  // Child runs open as a stack rather than a navigation, so the run you started
+  // from stays put. A nested DAGStatus pushes onto the stack already open.
+  const [childRunStack, setChildRunStack] = React.useState<SubRunStackEntry[]>(
+    []
+  );
+  const pushOntoOpenStack = useOpenSubRun();
+
+  const openSubRun = React.useCallback(
+    (entry: SubRunStackEntry) => {
+      if (pushOntoOpenStack) {
+        pushOntoOpenStack(entry);
+        return;
+      }
+      setChildRunStack([entry]);
+    },
+    [pushOntoOpenStack]
+  );
+
+  // Opens one of a node's child runs. A plain click stacks it; callers pass
+  // openInNewTab for a modifier click, which still opens a real page.
+  const openSubRunAt = React.useCallback(
+    (node: components['schemas']['Node'], childIndex: number) => {
+      const all = [...(node.subRuns || []), ...(node.subRunsRepeated || [])];
+      const child = all[childIndex];
+      if (!child?.dagRunId) return;
+      openSubRun({
+        name: child.dagName || node.step.call || node.step.name,
+        dagRunId: child.dagRunId,
+      });
+    },
+    [openSubRun]
   );
 
   // Helper function to navigate to a specific sub DAG run
@@ -340,6 +381,17 @@ function DAGStatus({
     [displayDAGRun, navigate, fileName, remoteNode]
   );
 
+  const openControllerChildRun = React.useCallback(
+    (event: components['schemas']['ControllerEvent']) => {
+      if (!event.childDagRunId) return;
+      openSubRun({
+        name: event.childDagName || event.name || 'child',
+        dagRunId: event.childDagRunId,
+      });
+    },
+    [openSubRun]
+  );
+
   // Handle right-click on graph node (show status update modal)
   const onRightClickStepOnGraph = React.useCallback(
     (id: string) => {
@@ -396,10 +448,19 @@ function DAGStatus({
   // Check if timeline should be shown (any status except not started)
   const showTimeline = displayDAGRun.status !== Status.NotStarted;
 
-  // Check if there are any chat steps
-  const hasChatSteps = !!displayDAGRun.nodes?.some(
-    (node) => node.step.executorConfig?.type === 'chat'
+  // Chat and controller steps both persist an LLM transcript.
+  const hasChatSteps = !!displayDAGRun.nodes?.some((node) =>
+    ['chat', 'controller'].includes(node.step.executorConfig?.type ?? '')
   );
+
+  // Controller DAG-runs track goal progress alongside their steps.
+  const controllerTasks = displayDAGRun.controllerTasks ?? [];
+  const hasControllerTasks = controllerTasks.length > 0;
+
+  // A controller has no dependency edges, so its graph carries no information.
+  // The decision timeline takes that slot instead.
+  const controllerEvents = displayDAGRun.controllerEvents ?? [];
+  const isControllerRun = hasControllerTasks || controllerEvents.length > 0;
 
   const { waitingApprovalNodes, waitingHumanTaskNodes, hasHumanTaskWork } =
     getManualActionState(displayDAGRun);
@@ -425,6 +486,9 @@ function DAGStatus({
     if (activeTab === 'chat' && !hasChatSteps) {
       setActiveTab('status');
     }
+    if (activeTab === 'tasks' && !hasControllerTasks) {
+      setActiveTab('status');
+    }
     if (activeTab === 'approval' && !hasWaitingApprovals) {
       setActiveTab('status');
     }
@@ -437,6 +501,7 @@ function DAGStatus({
   }, [
     showTimeline,
     hasChatSteps,
+    hasControllerTasks,
     hasWaitingApprovals,
     hasHumanTaskWork,
     hasArtifacts,
@@ -464,351 +529,395 @@ function DAGStatus({
     : '';
 
   return (
-    <div
-      className={cn(
-        'w-full min-w-0 max-w-full overflow-hidden space-y-4',
-        fillHeight && 'flex h-full min-h-0 flex-col gap-4 space-y-0'
-      )}
-    >
-      {/* Status Detail Tabs */}
+    // Everything below can drill into a child run through the same stack.
+    <SubRunOpenProvider value={openSubRun}>
       <div
         className={cn(
-          'w-full min-w-0 max-w-full overflow-hidden',
-          fillHeight && 'shrink-0'
+          'w-full min-w-0 max-w-full overflow-hidden space-y-4',
+          fillHeight && 'flex h-full min-h-0 flex-col gap-4 space-y-0'
         )}
       >
-        <div className="flex w-full min-w-0 flex-wrap items-center gap-2">
-          <div className="min-w-0 flex-1 overflow-x-auto">
-            <Tabs className="min-w-max whitespace-nowrap">
-              <Tab
-                aria-label="Status"
-                isActive={activeTab === 'status'}
-                onClick={() => setActiveTab('status')}
-                className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
-              >
-                <ActivitySquare className="h-4 w-4" />
-                <span className="hidden sm:inline">Status</span>
-              </Tab>
-              {hasHumanTaskWork && (
+        {/* Status Detail Tabs */}
+        <div
+          className={cn(
+            'w-full min-w-0 max-w-full overflow-hidden',
+            fillHeight && 'shrink-0'
+          )}
+        >
+          <div className="flex w-full min-w-0 flex-wrap items-center gap-2">
+            <div className="min-w-0 flex-1 overflow-x-auto">
+              <Tabs className="min-w-max whitespace-nowrap">
                 <Tab
-                  aria-label="Human tasks"
-                  isActive={activeTab === 'human-tasks'}
-                  onClick={() => setActiveTab('human-tasks')}
+                  aria-label="Status"
+                  isActive={activeTab === 'status'}
+                  onClick={() => setActiveTab('status')}
                   className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
                 >
-                  <ClipboardCheck className="h-4 w-4" />
-                  <span className="hidden sm:inline">Human tasks</span>
-                  {waitingHumanTaskCount > 0 && (
+                  <ActivitySquare className="h-4 w-4" />
+                  <span className="hidden sm:inline">Status</span>
+                </Tab>
+                {hasHumanTaskWork && (
+                  <Tab
+                    aria-label="Human tasks"
+                    isActive={activeTab === 'human-tasks'}
+                    onClick={() => setActiveTab('human-tasks')}
+                    className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
+                  >
+                    <ClipboardCheck className="h-4 w-4" />
+                    <span className="hidden sm:inline">Human tasks</span>
+                    {waitingHumanTaskCount > 0 && (
+                      <span className="rounded-full bg-warning/15 px-1.5 py-0.5 text-xs font-medium text-warning">
+                        {waitingHumanTaskCount}
+                      </span>
+                    )}
+                  </Tab>
+                )}
+                {hasWaitingApprovals && (
+                  <Tab
+                    aria-label="Approval"
+                    isActive={activeTab === 'approval'}
+                    onClick={() => setActiveTab('approval')}
+                    className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
+                  >
+                    <ShieldCheck className="h-4 w-4" />
+                    <span className="hidden sm:inline">Approval</span>
                     <span className="rounded-full bg-warning/15 px-1.5 py-0.5 text-xs font-medium text-warning">
-                      {waitingHumanTaskCount}
+                      {waitingApprovalCount}
                     </span>
-                  )}
-                </Tab>
-              )}
-              {hasWaitingApprovals && (
+                  </Tab>
+                )}
+                {showTimeline && (
+                  <Tab
+                    aria-label="Timeline"
+                    isActive={activeTab === 'timeline'}
+                    onClick={() => setActiveTab('timeline')}
+                    className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
+                  >
+                    <GanttChart className="h-4 w-4" />
+                    <span className="hidden sm:inline">Timeline</span>
+                  </Tab>
+                )}
                 <Tab
-                  aria-label="Approval"
-                  isActive={activeTab === 'approval'}
-                  onClick={() => setActiveTab('approval')}
+                  aria-label="Outputs"
+                  isActive={activeTab === 'outputs'}
+                  onClick={() => setActiveTab('outputs')}
                   className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
                 >
-                  <ShieldCheck className="h-4 w-4" />
-                  <span className="hidden sm:inline">Approval</span>
-                  <span className="rounded-full bg-warning/15 px-1.5 py-0.5 text-xs font-medium text-warning">
-                    {waitingApprovalCount}
-                  </span>
+                  <Package className="h-4 w-4" />
+                  <span className="hidden sm:inline">Outputs</span>
                 </Tab>
-              )}
-              {showTimeline && (
+                {hasArtifacts && (
+                  <Tab
+                    aria-label="Artifacts"
+                    isActive={activeTab === 'artifacts'}
+                    onClick={() => setActiveTab('artifacts')}
+                    className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
+                  >
+                    <Archive className="h-4 w-4" />
+                    <span className="hidden sm:inline">Artifacts</span>
+                  </Tab>
+                )}
+                {hasControllerTasks && (
+                  <Tab
+                    aria-label="Tasks"
+                    isActive={activeTab === 'tasks'}
+                    onClick={() => setActiveTab('tasks')}
+                    className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
+                  >
+                    <ListChecks className="h-4 w-4" />
+                    <span className="hidden sm:inline">Tasks</span>
+                  </Tab>
+                )}
+                {hasChatSteps && (
+                  <Tab
+                    aria-label="Chat"
+                    isActive={activeTab === 'chat'}
+                    onClick={() => setActiveTab('chat')}
+                    className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
+                  >
+                    <MessageSquare className="h-4 w-4" />
+                    <span className="hidden sm:inline">Chat</span>
+                  </Tab>
+                )}
                 <Tab
-                  aria-label="Timeline"
-                  isActive={activeTab === 'timeline'}
-                  onClick={() => setActiveTab('timeline')}
+                  aria-label="Spec"
+                  isActive={activeTab === 'spec'}
+                  onClick={() => setActiveTab('spec')}
                   className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
                 >
-                  <GanttChart className="h-4 w-4" />
-                  <span className="hidden sm:inline">Timeline</span>
+                  <FileCode className="h-4 w-4" />
+                  <span className="hidden sm:inline">Spec</span>
                 </Tab>
-              )}
-              <Tab
-                aria-label="Outputs"
-                isActive={activeTab === 'outputs'}
-                onClick={() => setActiveTab('outputs')}
-                className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
-              >
-                <Package className="h-4 w-4" />
-                <span className="hidden sm:inline">Outputs</span>
-              </Tab>
-              {hasArtifacts && (
-                <Tab
-                  aria-label="Artifacts"
-                  isActive={activeTab === 'artifacts'}
-                  onClick={() => setActiveTab('artifacts')}
-                  className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
-                >
-                  <Archive className="h-4 w-4" />
-                  <span className="hidden sm:inline">Artifacts</span>
-                </Tab>
-              )}
-              {hasChatSteps && (
-                <Tab
-                  aria-label="Chat"
-                  isActive={activeTab === 'chat'}
-                  onClick={() => setActiveTab('chat')}
-                  className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
-                >
-                  <MessageSquare className="h-4 w-4" />
-                  <span className="hidden sm:inline">Chat</span>
-                </Tab>
-              )}
-              <Tab
-                aria-label="Spec"
-                isActive={activeTab === 'spec'}
-                onClick={() => setActiveTab('spec')}
-                className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
-              >
-                <FileCode className="h-4 w-4" />
-                <span className="hidden sm:inline">Spec</span>
-              </Tab>
-            </Tabs>
+              </Tabs>
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* Status Tab Content */}
-      {activeTab === 'status' && (
-        <div className={cn('space-y-6', scrollPaneClassName)}>
-          {/* DAG Graph Visualization */}
-          {displayDAGRun.nodes && displayDAGRun.nodes.length > 0 && (
-            <div className="flex flex-col">
-              <BorderedBox className="pt-4 px-4 pb-0 flex flex-col items-stretch overflow-hidden">
-                <div className="flex justify-end mb-2">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <div
-                        className="flex h-7 w-7 items-center justify-center rounded bg-muted text-muted-foreground cursor-help"
-                        aria-label="Graph interactions"
-                      >
-                        <MousePointerClick className="h-3.5 w-3.5" />
-                      </div>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <div className="space-y-1">
-                        <p>Click: Inspect step details</p>
-                        <p>Double-click: Navigate to sub dagRun</p>
-                        {config.permissions.runDags && (
-                          <p>Right-click: Update node status</p>
-                        )}
-                      </div>
-                    </TooltipContent>
-                  </Tooltip>
-                </div>
-                <div className="w-full min-w-0 max-w-full overflow-x-auto">
-                  <Graph
-                    steps={displayDAGRun.nodes}
-                    type="status"
-                    flowchart={flowchart}
-                    onChangeFlowchart={onChangeFlowchart}
-                    onClickNode={onInspectStepOnGraph}
-                    selectOnClick
-                    onDoubleClickNode={onSelectStepOnGraph}
-                    onRightClickNode={
-                      config.permissions.runDags
-                        ? onRightClickStepOnGraph
-                        : undefined
-                    }
-                    showIcons={displayDAGRun.status > Status.NotStarted}
-                    animate={displayDAGRun.status == Status.Running}
-                    height={graphHeight}
-                  />
-                </div>
-                <div
-                  className="flex justify-center items-center py-2 cursor-row-resize hover:bg-muted/50 transition-colors w-full select-none"
-                  onMouseDown={handleResizeMouseDown}
-                >
-                  <GripHorizontal className="h-4 w-4 text-muted-foreground/50" />
-                </div>
-              </BorderedBox>
-            </div>
-          )}
+        {/* Status Tab Content */}
+        {childRunStack.length > 0 && (
+          <SubRunStackModal
+            rootName={displayDAGRun.rootDAGRunName || displayDAGRun.name}
+            rootDAGRunId={displayDAGRun.rootDAGRunId || displayDAGRun.dagRunId}
+            rootLabel={displayDAGRun.name}
+            stack={childRunStack}
+            onChange={setChildRunStack}
+          />
+        )}
 
-          <DAGContext.Consumer>
-            {(props) => (
-              <>
-                <div className="grid min-w-0 grid-cols-1 gap-6">
-                  {/* Status Overview */}
-                  <div className="bg-surface border border-border rounded-lg p-4">
-                    <DAGStatusOverview
+        {activeTab === 'status' && (
+          <div className={cn('space-y-6', scrollPaneClassName)}>
+            {/* Controller runs show execution order instead of a graph */}
+            {isControllerRun && controllerEvents.length > 0 && (
+              <ControllerTimeline
+                events={controllerEvents}
+                onOpenChildRun={openControllerChildRun}
+              />
+            )}
+
+            {/* DAG Graph Visualization */}
+            {!isControllerRun &&
+              displayDAGRun.nodes &&
+              displayDAGRun.nodes.length > 0 && (
+                <div className="flex flex-col">
+                  <BorderedBox className="pt-4 px-4 pb-0 flex flex-col items-stretch overflow-hidden">
+                    <div className="flex justify-end mb-2">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div
+                            className="flex h-7 w-7 items-center justify-center rounded bg-muted text-muted-foreground cursor-help"
+                            aria-label="Graph interactions"
+                          >
+                            <MousePointerClick className="h-3.5 w-3.5" />
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <div className="space-y-1">
+                            <p>Click: Inspect step details</p>
+                            <p>Double-click: Navigate to sub dagRun</p>
+                            {config.permissions.runDags && (
+                              <p>Right-click: Update node status</p>
+                            )}
+                          </div>
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
+                    <div className="w-full min-w-0 max-w-full overflow-x-auto">
+                      <Graph
+                        steps={displayDAGRun.nodes}
+                        type="status"
+                        flowchart={flowchart}
+                        onChangeFlowchart={onChangeFlowchart}
+                        onClickNode={onInspectStepOnGraph}
+                        selectOnClick
+                        onDoubleClickNode={onSelectStepOnGraph}
+                        onRightClickNode={
+                          config.permissions.runDags
+                            ? onRightClickStepOnGraph
+                            : undefined
+                        }
+                        showIcons={displayDAGRun.status > Status.NotStarted}
+                        animate={displayDAGRun.status == Status.Running}
+                        height={graphHeight}
+                      />
+                    </div>
+                    <div
+                      className="flex justify-center items-center py-2 cursor-row-resize hover:bg-muted/50 transition-colors w-full select-none"
+                      onMouseDown={handleResizeMouseDown}
+                    >
+                      <GripHorizontal className="h-4 w-4 text-muted-foreground/50" />
+                    </div>
+                  </BorderedBox>
+                </div>
+              )}
+
+            <DAGContext.Consumer>
+              {(props) => (
+                <>
+                  <div className="grid min-w-0 grid-cols-1 gap-6">
+                    {/* Status Overview */}
+                    <div className="bg-surface border border-border rounded-lg p-4">
+                      <DAGStatusOverview
+                        status={displayDAGRun}
+                        onViewLog={(dagRunId) => {
+                          setLogViewer({
+                            isOpen: true,
+                            logType: 'execution',
+                            stepName: '',
+                            dagRunId,
+                            stream: Stream.stdout,
+                          });
+                        }}
+                      />
+                    </div>
+
+                    {/* Steps Table */}
+                    <NodeStatusTable
+                      nodes={displayDAGRun.nodes}
                       status={displayDAGRun}
-                      onViewLog={(dagRunId) => {
-                        setLogViewer({
-                          isOpen: true,
-                          logType: 'execution',
-                          stepName: '',
-                          dagRunId,
-                          stream: Stream.stdout,
-                        });
-                      }}
+                      {...props}
+                      onViewLog={handleViewLog}
+                      onNodeStatusUpdated={applyDisplayNodeStatus}
                     />
                   </div>
 
-                  {/* Steps Table */}
-                  <NodeStatusTable
-                    nodes={displayDAGRun.nodes}
-                    status={displayDAGRun}
-                    {...props}
-                    onViewLog={handleViewLog}
-                    onNodeStatusUpdated={applyDisplayNodeStatus}
-                  />
-                </div>
+                  {/* Lifecycle Hooks */}
+                  {handlers?.length ? (
+                    <NodeStatusTable
+                      nodes={handlers}
+                      status={displayDAGRun}
+                      {...props}
+                      onViewLog={handleViewLog}
+                      onNodeStatusUpdated={applyDisplayNodeStatus}
+                      hideActions
+                    />
+                  ) : null}
+                </>
+              )}
+            </DAGContext.Consumer>
+          </div>
+        )}
 
-                {/* Lifecycle Hooks */}
-                {handlers?.length ? (
-                  <NodeStatusTable
-                    nodes={handlers}
-                    status={displayDAGRun}
-                    {...props}
-                    onViewLog={handleViewLog}
-                    onNodeStatusUpdated={applyDisplayNodeStatus}
-                  />
-                ) : null}
-              </>
-            )}
-          </DAGContext.Consumer>
-        </div>
-      )}
+        {/* Human Tasks Tab Content */}
+        {activeTab === 'human-tasks' && hasHumanTaskWork && (
+          <div className={scrollPaneClassName}>
+            <HumanTasksTab
+              key={displayDAGRunIdentity}
+              dagRun={displayDAGRun}
+              onChanged={dagContext.refresh}
+            />
+          </div>
+        )}
 
-      {/* Human Tasks Tab Content */}
-      {activeTab === 'human-tasks' && hasHumanTaskWork && (
-        <div className={scrollPaneClassName}>
-          <HumanTasksTab
-            key={displayDAGRunIdentity}
+        {/* Approval Tab Content */}
+        {activeTab === 'approval' && hasWaitingApprovals && (
+          <div className={scrollPaneClassName}>
+            <ApprovalTab dagRun={displayDAGRun} dagName={displayDAGRun.name} />
+          </div>
+        )}
+
+        {/* Timeline Tab Content */}
+        {activeTab === 'timeline' && showTimeline && (
+          <div className={scrollPaneClassName}>
+            <TimelineChart status={displayDAGRun} />
+          </div>
+        )}
+
+        {/* Outputs Tab Content */}
+        {activeTab === 'outputs' && (
+          <div className={scrollPaneClassName}>
+            <DAGRunOutputs
+              dagName={displayDAGRun.name}
+              dagRunId={displayDAGRun.dagRunId}
+            />
+          </div>
+        )}
+
+        {activeTab === 'artifacts' && hasArtifacts && (
+          <ArtifactsTab
             dagRun={displayDAGRun}
-            onChanged={dagContext.refresh}
+            artifactEnabled={artifactEnabled}
+            className={fillHeight ? 'min-h-0 flex-1' : undefined}
+            fillHeight={fillHeight}
           />
-        </div>
-      )}
+        )}
 
-      {/* Approval Tab Content */}
-      {activeTab === 'approval' && hasWaitingApprovals && (
-        <div className={scrollPaneClassName}>
-          <ApprovalTab dagRun={displayDAGRun} dagName={displayDAGRun.name} />
-        </div>
-      )}
+        {/* Tasks Tab Content */}
+        {activeTab === 'tasks' && hasControllerTasks && (
+          <div className={scrollPaneClassName}>
+            <TaskChecklistTab tasks={controllerTasks} />
+          </div>
+        )}
 
-      {/* Timeline Tab Content */}
-      {activeTab === 'timeline' && showTimeline && (
-        <div className={scrollPaneClassName}>
-          <TimelineChart status={displayDAGRun} />
-        </div>
-      )}
+        {/* Chat Tab Content */}
+        {activeTab === 'chat' && (
+          <div className={scrollPaneClassName}>
+            <ChatHistoryTab dagRun={displayDAGRun} />
+          </div>
+        )}
 
-      {/* Outputs Tab Content */}
-      {activeTab === 'outputs' && (
-        <div className={scrollPaneClassName}>
-          <DAGRunOutputs
-            dagName={displayDAGRun.name}
-            dagRunId={displayDAGRun.dagRunId}
-          />
-        </div>
-      )}
+        {/* Spec Tab Content */}
+        {activeTab === 'spec' && (
+          <div className={scrollPaneClassName}>
+            <DAGSpecReadOnly
+              dagName={
+                isSubDAGRun(displayDAGRun)
+                  ? displayDAGRun.rootDAGRunName
+                  : displayDAGRun.name
+              }
+              dagRunId={
+                isSubDAGRun(displayDAGRun)
+                  ? displayDAGRun.rootDAGRunId
+                  : displayDAGRun.dagRunId
+              }
+              subDAGRunId={
+                isSubDAGRun(displayDAGRun) ? displayDAGRun.dagRunId : undefined
+              }
+              sourceFileName={
+                isSubDAGRun(displayDAGRun)
+                  ? undefined
+                  : displayDAGRun.sourceFileName
+              }
+            />
+          </div>
+        )}
 
-      {activeTab === 'artifacts' && hasArtifacts && (
-        <ArtifactsTab
+        <StatusUpdateModal
+          visible={modal}
+          step={selectedStep}
+          dismissModal={dismissModal}
+          onSubmit={onUpdateStatus}
+        />
+
+        <StepDetailsDrawer
+          dagName={displayDAGRun.name}
+          isOpen={isStepDetailsOpen}
+          step={selectedDetailStep}
+          onClose={closeStepDetails}
+        />
+
+        {/* Log viewer modal */}
+        <LogViewer
+          isOpen={logViewer.isOpen}
+          onClose={() => setLogViewer((prev) => ({ ...prev, isOpen: false }))}
+          logType={logViewer.logType}
+          dagName={displayDAGRun.name}
+          dagRunId={logViewer.dagRunId}
+          stepName={logViewer.stepName}
           dagRun={displayDAGRun}
-          artifactEnabled={artifactEnabled}
-          className={fillHeight ? 'min-h-0 flex-1' : undefined}
-          fillHeight={fillHeight}
+          stream={logViewer.stream}
+          node={logViewer.node}
         />
-      )}
 
-      {/* Chat Tab Content */}
-      {activeTab === 'chat' && (
-        <div className={scrollPaneClassName}>
-          <ChatHistoryTab dagRun={displayDAGRun} />
-        </div>
-      )}
-
-      {/* Spec Tab Content */}
-      {activeTab === 'spec' && (
-        <div className={scrollPaneClassName}>
-          <DAGSpecReadOnly
-            dagName={
-              isSubDAGRun(displayDAGRun)
-                ? displayDAGRun.rootDAGRunName
-                : displayDAGRun.name
-            }
-            dagRunId={
-              isSubDAGRun(displayDAGRun)
-                ? displayDAGRun.rootDAGRunId
-                : displayDAGRun.dagRunId
-            }
-            subDAGRunId={
-              isSubDAGRun(displayDAGRun) ? displayDAGRun.dagRunId : undefined
-            }
-            sourceFileName={
-              isSubDAGRun(displayDAGRun)
-                ? undefined
-                : displayDAGRun.sourceFileName
-            }
-          />
-        </div>
-      )}
-
-      <StatusUpdateModal
-        visible={modal}
-        step={selectedStep}
-        dismissModal={dismissModal}
-        onSubmit={onUpdateStatus}
-      />
-
-      <StepDetailsDrawer
-        dagName={displayDAGRun.name}
-        isOpen={isStepDetailsOpen}
-        step={selectedDetailStep}
-        onClose={closeStepDetails}
-      />
-
-      {/* Log viewer modal */}
-      <LogViewer
-        isOpen={logViewer.isOpen}
-        onClose={() => setLogViewer((prev) => ({ ...prev, isOpen: false }))}
-        logType={logViewer.logType}
-        dagName={displayDAGRun.name}
-        dagRunId={logViewer.dagRunId}
-        stepName={logViewer.stepName}
-        dagRun={displayDAGRun}
-        stream={logViewer.stream}
-        node={logViewer.node}
-      />
-
-      {/* Parallel execution selection modal */}
-      {parallelExecutionModal.isOpen && parallelExecutionModal.node && (
-        <ParallelExecutionModal
-          isOpen={parallelExecutionModal.isOpen}
-          onClose={() => setParallelExecutionModal({ isOpen: false })}
-          stepName={parallelExecutionModal.node.step.name}
-          subDAGName={parallelExecutionModal.node.step.call || ''}
-          subRuns={[
-            ...(parallelExecutionModal.node.subRuns || []),
-            ...(parallelExecutionModal.node.subRunsRepeated || []),
-          ]}
-          rootDagName={displayDAGRun.rootDAGRunName}
-          rootDagRunId={displayDAGRun.rootDAGRunId}
-          parentDagRunId={displayDAGRun.dagRunId}
-          onSelectSubRun={(subRunIndex, openInNewTab) => {
-            navigateToSubDagRun(
-              parallelExecutionModal.node!,
-              subRunIndex,
-              openInNewTab
-            );
-            if (!openInNewTab) {
+        {/* Parallel execution selection modal */}
+        {parallelExecutionModal.isOpen && parallelExecutionModal.node && (
+          <ParallelExecutionModal
+            isOpen={parallelExecutionModal.isOpen}
+            onClose={() => setParallelExecutionModal({ isOpen: false })}
+            stepName={parallelExecutionModal.node.step.name}
+            subDAGName={parallelExecutionModal.node.step.call || ''}
+            subRuns={[
+              ...(parallelExecutionModal.node.subRuns || []),
+              ...(parallelExecutionModal.node.subRunsRepeated || []),
+            ]}
+            rootDagName={displayDAGRun.rootDAGRunName}
+            rootDagRunId={displayDAGRun.rootDAGRunId}
+            parentDagRunId={displayDAGRun.dagRunId}
+            onSelectSubRun={(subRunIndex, openInNewTab) => {
+              if (openInNewTab) {
+                navigateToSubDagRun(
+                  parallelExecutionModal.node!,
+                  subRunIndex,
+                  true
+                );
+                return;
+              }
+              openSubRunAt(parallelExecutionModal.node!, subRunIndex);
               setParallelExecutionModal({ isOpen: false });
-            }
-          }}
-        />
-      )}
-    </div>
+            }}
+          />
+        )}
+      </div>
+    </SubRunOpenProvider>
   );
 }
 

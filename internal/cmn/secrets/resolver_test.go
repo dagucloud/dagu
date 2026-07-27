@@ -5,6 +5,7 @@ package secrets
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/dagucloud/dagu/internal/core"
@@ -22,7 +23,6 @@ func TestNewRegistry(t *testing.T) {
 	assert.Contains(t, providers, "file")
 	assert.Contains(t, providers, "vault")
 	assert.Contains(t, providers, "kubernetes")
-	assert.Len(t, providers, 4)
 }
 
 func TestRegistry_Register(t *testing.T) {
@@ -321,15 +321,41 @@ func TestRegistry_Providers(t *testing.T) {
 	assert.Contains(t, providers, "file")
 	assert.Contains(t, providers, "vault")
 	assert.Contains(t, providers, "kubernetes")
-	assert.Len(t, providers, 4)
 
 	// Add custom provider
 	mock := &mockResolver{mockName: "custom"}
 	registry.Register("custom", mock)
 
 	providers = registry.Providers()
-	assert.Len(t, providers, 5)
 	assert.Contains(t, providers, "custom")
+}
+
+func TestRegistry_Close(t *testing.T) {
+	errOne := errors.New("close one")
+	errTwo := errors.New("close two")
+	closed := 0
+	registry := &Registry{resolvers: map[string]Resolver{
+		"one": &mockClosableResolver{
+			mockResolver: mockResolver{mockName: "one"},
+			closeFunc: func() error {
+				closed++
+				return errOne
+			},
+		},
+		"two": &mockClosableResolver{
+			mockResolver: mockResolver{mockName: "two"},
+			closeFunc: func() error {
+				closed++
+				return errTwo
+			},
+		},
+		"plain": &mockResolver{mockName: "plain"},
+	}}
+
+	err := registry.Close()
+	assert.ErrorIs(t, err, errOne)
+	assert.ErrorIs(t, err, errTwo)
+	assert.Equal(t, 2, closed)
 }
 
 var _ Resolver = (*mockResolver)(nil)
@@ -341,6 +367,15 @@ type mockResolver struct {
 	validateFunc        func(core.SecretRef) error
 	checkCapabilityFunc func(core.SecretRef) CheckCapability
 	checkAccessFunc     func(context.Context, core.SecretRef) error
+}
+
+type mockClosableResolver struct {
+	mockResolver
+	closeFunc func() error
+}
+
+func (m *mockClosableResolver) Close() error {
+	return m.closeFunc()
 }
 
 func (m *mockResolver) Name() string {

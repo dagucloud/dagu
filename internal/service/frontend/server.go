@@ -789,7 +789,6 @@ func (srv *Server) Serve(ctx context.Context) error {
 	r := chi.NewMux()
 	apiV1BasePath := srv.configureAPIPath(ctx)
 	r.Use(auth.PreserveRawRemoteAddr)
-	r.Use(middleware.RealIP)
 	r.Use(middleware.Compress(5))
 	if srv.config.Server.AccessLog != config.AccessLogNone {
 		logLevel := slog.LevelInfo

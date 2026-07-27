@@ -14,6 +14,8 @@ Use `action: harness.run` to invoke external coding-agent CLIs from DAG steps. D
 
 Codex defaults to `skip_git_repo_check: true`, so its default invocation includes `--skip-git-repo-check`. Set `skip_git_repo_check: false` or `skip-git-repo-check: false` to omit it.
 
+Claude's `bare` flag skips keychain reads among other things, so a subscription login is invisible to the step and the run fails with `Not logged in`. Set it only when the credential comes from `ANTHROPIC_API_KEY` in the step environment.
+
 For host subprocess runs, built-in provider adapters resolve binaries through `PATH`. Host custom harnesses can use a binary name or an explicit path; relative paths with a path separator are resolved from the step working directory. For containerized runs, the binary is executed inside the selected container and must be valid there.
 
 ## Feature Reference
@@ -85,7 +87,6 @@ Use top-level `harness:` to define shared defaults for every harness step in the
 harness:
   provider: claude
   model: sonnet
-  bare: true
   fallback:
     - provider: codex
       full-auto: true
@@ -123,7 +124,8 @@ Merge rules:
 - Step-level `with.fallback` replaces DAG-level `fallback`
 - Step-level `with.fallback: []` disables inherited fallback
 - New DAGs should use `action: harness.run`. Legacy step-level `type: harness` remains loadable for backward compatibility.
-- Compatibility note: a top-level `harness:` config still causes steps without an explicit executor type to infer the harness executor. Do not mix top-level `harness:` with ordinary shell `run:` steps unless prompt inference is intended.
+- A top-level `harness:` config only supplies defaults. It does not set the type of a step that does not name one, so shell `run:` steps can sit alongside harness steps in the same DAG.
+- A step that named its prompt with a bare `command:`, relying on the removed inference, is rejected while loading. Port it to `action: harness.run` with `with.prompt`, and `with.stdin` where it used `script:`.
 
 ## Containerized Harness Steps
 
@@ -195,7 +197,6 @@ params:
 harness:
   provider: claude
   model: sonnet
-  bare: true
 
 steps:
   - id: run_cli
@@ -222,7 +223,6 @@ steps:
       prompt: "Research every approach to: ${params.topic}. List all approaches with pros, cons, and when to use each."
       provider: claude
       model: sonnet
-      bare: true
     output: RESEARCH
 
   - id: review
@@ -252,7 +252,6 @@ steps:
         ${env.REVIEW}
       provider: claude
       model: sonnet
-      bare: true
     depends: [review]
     output: REFINED
 ```
@@ -294,7 +293,6 @@ steps:
       max-budget-usd: 2.00
       permission-mode: auto
       allowed-tools: "Bash,Read,Edit"
-      bare: true
     timeout_sec: 300
     output: RESULT
 ```

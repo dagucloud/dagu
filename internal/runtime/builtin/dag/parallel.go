@@ -53,6 +53,8 @@ type scheduledAttempt struct {
 	runParams executor.RunParams
 	stepName  string
 	readyAt   time.Time
+	reuse     bool
+	retryPath exec1.RetryPath
 }
 
 type attemptResult struct {
@@ -127,10 +129,26 @@ func (e *parallelExecutor) Run(ctx context.Context) error {
 	pending := make([]scheduledAttempt, 0, len(e.runParamsList))
 	pendingSet := make(map[string]struct{}, len(e.runParamsList))
 	busyRuns := make(map[string]struct{}, len(e.runParamsList))
+	path := exec1.GetContext(ctx).RetryPath
+	hop, targeted := path.Current()
+	targeted = targeted && hop.Step == e.step.Name
+	targetFound := false
 	for _, params := range e.runParamsList {
 		attempt := scheduledAttempt{runParams: params}
+		if targeted {
+			if params.RunID == hop.RunID {
+				attempt.stepName = path.NextStep()
+				attempt.retryPath = path.Advance()
+				targetFound = true
+			} else {
+				attempt.reuse = true
+			}
+		}
 		pending = append(pending, attempt)
 		pendingSet[pendingAttemptKey(attempt)] = struct{}{}
+	}
+	if targeted && !targetFound {
+		return errTargetRunMissing(hop.RunID, e.step.Name)
 	}
 
 	resultCh := make(chan attemptResult, len(e.runParamsList))
@@ -210,6 +228,7 @@ func (e *parallelExecutor) Run(ctx context.Context) error {
 						runParams: res.attempt.runParams,
 						stepName:  retry.StepName,
 						readyAt:   scheduledAt.Add(retry.Interval),
+						retryPath: res.attempt.retryPath,
 					}
 					key := pendingAttemptKey(next)
 					if _, exists := pendingSet[key]; exists {
@@ -391,8 +410,11 @@ func (e *parallelExecutor) runAttempt(ctx context.Context, attempt scheduledAtte
 		return nil, errParallelCancelled
 	}
 
+	if attempt.reuse {
+		return child.Reuse(ctx, attempt.runParams, e.workDir)
+	}
 	if attempt.stepName != "" {
-		return child.Retry(ctx, attempt.runParams, attempt.stepName, e.workDir)
+		return child.Retry(ctx, attempt.runParams, attempt.stepName, e.workDir, attempt.retryPath)
 	}
 	return child.Execute(ctx, attempt.runParams, e.workDir)
 }

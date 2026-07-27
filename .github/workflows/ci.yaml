@@ -150,6 +150,16 @@ jobs:
           version: v2.12.2
           args: --timeout=10m
 
+      # Files behind //go:build windows are invisible to a linter running at the
+      # host GOOS, so lint them explicitly.
+      - name: Run golangci-lint (GOOS=windows)
+        uses: golangci/golangci-lint-action@82606bf257cbaff209d206a39f5134f0cfbfd2ee # v9.2.1
+        env:
+          GOOS: windows
+        with:
+          version: v2.12.2
+          args: --timeout=10m
+
   test-ubuntu:
     name: Test on ubuntu-latest (${{ matrix.suite_index }}/${{ matrix.suite_total }})
     needs: changes

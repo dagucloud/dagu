@@ -472,7 +472,7 @@ steps:
     output: RESULT
 ```
 
-`with.template` is required and is rendered as a template, not executed as shell. `with.output` writes rendered content to a file; top-level `output:` captures or publishes step output.
+Set exactly one of `with.template` or `with.template_ref`. `with.template` is literal template text. `with.template_ref` must be one complete canonical Dagu reference such as `${env.TEMPLATE}` or `${steps.fetch.outputs.template}`; it resolves once to a non-empty string, and references inside the resulting template remain literal. The selected text is rendered as a template, not executed as shell. `with.output` writes rendered content to a file; top-level `output:` captures or publishes step output.
 
 ## file.stat / file.read / file.write / file.copy / file.move / file.delete / file.mkdir / file.list
 
@@ -640,7 +640,7 @@ Harness behavior:
 - Built-in provider adapters and custom providers pass non-reserved `with` keys as CLI flags. Built-in adapters normalize `snake_case` keys to kebab-case flags.
 - `fallback` is an ordered list of provider configs. Nested fallback is not supported.
 - Provider value references must resolve to a concrete provider string before execution. Unresolved `${...}` provider values fail at runtime.
-- Prefer `action: harness.run` for new workflows. A top-level `harness:` config still causes steps without an explicit executor type to infer the harness executor for compatibility.
+- A harness step is named with `action: harness.run`. A top-level `harness:` config supplies defaults to those steps and does not set the type of any other step, so a step written with `run:`, `exec:`, or `script:` under one stays a local command.
 
 Container support:
 

@@ -50,10 +50,13 @@ type dag struct {
 	Group string `yaml:"group,omitempty"`
 	// Description is the description of the DAG.
 	Description string `yaml:"description,omitempty"`
-	// Type is the execution type for steps (graph or chain).
+	// Type is the execution type for steps (graph, chain, or controller).
 	// Default is "graph" which uses dependency-based parallel execution.
 	// "chain" executes steps in the order they are defined.
+	// "controller" lets an LLM decide which step runs next.
 	Type string `yaml:"type,omitempty"`
+	// Tasks are the goals a controller DAG must satisfy before it concludes.
+	Tasks []controllerTask `yaml:"tasks,omitempty"`
 	// Shell is the default shell to use for all steps in this DAG.
 	// If not specified, the system default shell is used.
 	// Can be overridden at the step level.
@@ -626,8 +629,13 @@ var fullNotificationStage = transformStage{
 	{"otel", newTransformer("OTel", buildOTel)},
 }
 
+var fullControllerStage = transformStage{
+	{"tasks", newTransformer("Tasks", buildTasks)},
+}
+
 var fullTransformStages = []transformStage{
 	fullRunOutputStage,
+	fullControllerStage,
 	fullInteractionStage,
 	fullRetentionStage,
 	fullExecutionDefaultsStage,
@@ -853,6 +861,10 @@ func (s *dagBuildState) buildActionGraph() {
 	} else {
 		s.result.Steps = composeSteps(s.result.Steps, steps)
 	}
+
+	if err := injectControllerStep(s.result); err != nil {
+		s.errs = append(s.errs, err)
+	}
 }
 
 func (s *dagBuildState) validateResult() {
@@ -867,6 +879,10 @@ func (s *dagBuildState) validateResult() {
 				s.result.WorkerSelector,
 				fmt.Errorf("DAG with approval steps cannot be dispatched to workers"),
 			))
+		}
+
+		if err := core.ValidateController(s.result); err != nil {
+			s.errs = append(s.errs, err)
 		}
 	}
 
@@ -948,10 +964,10 @@ func buildType(_ BuildContext, d *dag) (string, error) {
 		return core.TypeGraph, nil
 	}
 	switch t {
-	case core.TypeGraph, core.TypeChain:
+	case core.TypeGraph, core.TypeChain, core.TypeController:
 		return t, nil
 	default:
-		return "", core.NewValidationError("type", t, fmt.Errorf("invalid type: %s (must be one of: graph, chain)", t))
+		return "", core.NewValidationError("type", t, fmt.Errorf("invalid type: %s (must be one of: graph, chain, controller)", t))
 	}
 }
 
@@ -1981,7 +1997,7 @@ func buildShellArgs(ctx BuildContext, d *dag) ([]string, error) {
 
 func buildWorkingDir(ctx BuildContext, d *dag) (string, error) {
 	if d.WorkingDir != "" {
-		return resolveWorkingDirPath(d.WorkingDir, ctx.file)
+		return resolveWorkingDirPath(d.WorkingDir, authoredFile(ctx))
 	}
 	if ctx.opts.DefaultWorkingDir != "" {
 		return ctx.opts.DefaultWorkingDir, nil
@@ -1989,6 +2005,17 @@ func buildWorkingDir(ctx BuildContext, d *dag) (string, error) {
 	// Return empty to allow inheritance from base config.
 	// Default is applied post-merge in loadDAG.
 	return "", nil
+}
+
+// authoredFile returns the path the DAG was written at. It differs from the
+// file being read whenever a definition is executed from a copy, which is the
+// case for a sub-workflow defined in the same document and for a task a worker
+// received from the coordinator.
+func authoredFile(ctx BuildContext) string {
+	if ctx.opts.SourceFile != "" {
+		return ctx.opts.SourceFile
+	}
+	return ctx.file
 }
 
 // resolveWorkingDirPath resolves the working directory path at build time.
@@ -2431,17 +2458,8 @@ func buildLLM(_ BuildContext, d *dag) (*core.LLMConfig, error) {
 	cfg := d.LLM
 
 	// Validate provider if specified (optional at DAG level)
-	if cfg.Provider != "" {
-		validProviders := map[string]bool{
-			"openai": true, "anthropic": true, "gemini": true,
-			"openrouter": true, "local": true,
-			// Aliases for local provider
-			"ollama": true, "vllm": true, "llama": true,
-		}
-		if !validProviders[cfg.Provider] {
-			return nil, core.NewValidationError("llm.provider", cfg.Provider,
-				fmt.Errorf("invalid provider: must be one of openai, anthropic, gemini, openrouter, local (or aliases: ollama, vllm, llama)"))
-		}
+	if err := validateLLMProvider(cfg.Provider); err != nil {
+		return nil, core.NewValidationError("llm.provider", cfg.Provider, err)
 	}
 
 	// Get model string or entries (optional at DAG level)
@@ -2501,6 +2519,8 @@ func buildLLM(_ BuildContext, d *dag) (*core.LLMConfig, error) {
 		APIKeyName:  cfg.APIKeyName,
 		Stream:      cfg.Stream,
 		Thinking:    thinking,
+
+		MaxToolIterations: cfg.MaxToolIterations,
 	}, nil
 }
 
@@ -3130,7 +3150,11 @@ func buildHandlers(ctx BuildContext, d *dag, result *core.DAG) (core.HandlerOn, 
 		if s == nil {
 			return nil, nil
 		}
-		handler, err := buildStepFromSpec(buildCtx, 0, s, d.rawHandler(name), map[string]struct{}{}, defs, name.String())
+		rawHandler := d.rawHandler(name)
+		if err := validateHarnessPromptCommand(buildCtx, rawHandler); err != nil {
+			return nil, err
+		}
+		handler, err := buildStepFromSpec(buildCtx, 0, s, rawHandler, map[string]struct{}{}, defs, name.String())
 		if err != nil {
 			return nil, err
 		}
@@ -3334,6 +3358,9 @@ func buildSteps(ctx BuildContext, d *dag, result *core.DAG) ([]core.Step, error)
 		var steps []core.Step
 		for name, st := range stepsMap {
 			rawStep, _ := v[name].(map[string]any)
+			if err := validateHarnessPromptCommand(buildCtx, rawStep); err != nil {
+				return nil, err
+			}
 			builtStep, err := buildStepFromSpec(buildCtx, 0, &st, rawStep, names, defs, name)
 			if err != nil {
 				return nil, err

@@ -463,6 +463,40 @@ func (l *ConfigLoader) loadSecretsConfig(cfg *Config, def Definition) {
 			Context:    def.Secrets.Kubernetes.Context,
 		}
 	}
+
+	if def.Secrets.AWS != nil {
+		cfg.Secrets.AWS = AWSSecretsConfig{
+			Region: def.Secrets.AWS.Region,
+		}
+	}
+
+	if def.Secrets.GCP != nil {
+		cfg.Secrets.GCP = GCPSecretsConfig{
+			ProjectID: def.Secrets.GCP.ProjectID,
+			Location:  def.Secrets.GCP.Location,
+		}
+	}
+
+	if def.Secrets.Azure != nil {
+		cfg.Secrets.Azure = AzureSecretsConfig{
+			VaultURL: def.Secrets.Azure.VaultURL,
+		}
+	}
+
+	if def.Secrets.Alibaba != nil {
+		caFile := def.Secrets.Alibaba.CAFile
+		resolved, err := l.resolvePath("secrets.alibaba.ca_file", caFile)
+		if err != nil {
+			l.warnings = append(l.warnings, err.Error())
+		} else {
+			caFile = resolved
+		}
+		cfg.Secrets.Alibaba = AlibabaSecretsConfig{
+			Region:   def.Secrets.Alibaba.Region,
+			Endpoint: def.Secrets.Alibaba.Endpoint,
+			CAFile:   caFile,
+		}
+	}
 }
 
 func (l *ConfigLoader) loadEventStoreConfig(cfg *Config, def Definition) {
@@ -1956,6 +1990,13 @@ var envBindings = []envBinding{
 	{key: "secrets.kubernetes.namespace", env: "SECRETS_KUBERNETES_NAMESPACE"},
 	{key: "secrets.kubernetes.kubeconfig", env: "SECRETS_KUBERNETES_KUBECONFIG", isPath: true},
 	{key: "secrets.kubernetes.context", env: "SECRETS_KUBERNETES_CONTEXT"},
+	{key: "secrets.aws.region", env: "SECRETS_AWS_REGION"},
+	{key: "secrets.gcp.project_id", env: "SECRETS_GCP_PROJECT_ID"},
+	{key: "secrets.gcp.location", env: "SECRETS_GCP_LOCATION"},
+	{key: "secrets.azure.vault_url", env: "SECRETS_AZURE_VAULT_URL"},
+	{key: "secrets.alibaba.region", env: "SECRETS_ALIBABA_REGION"},
+	{key: "secrets.alibaba.endpoint", env: "SECRETS_ALIBABA_ENDPOINT"},
+	{key: "secrets.alibaba.ca_file", env: "SECRETS_ALIBABA_CA_FILE", isPath: true},
 
 	// Scheduler
 	{key: "scheduler.port", env: "SCHEDULER_PORT"},

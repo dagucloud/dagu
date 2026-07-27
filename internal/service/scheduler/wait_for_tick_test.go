@@ -5,12 +5,13 @@ package scheduler
 
 import (
 	"context"
-	"github.com/dagucloud/dagu/internal/cmn/config"
 	"os"
 	"syscall"
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/internal/cmn/config"
+	"github.com/dagucloud/dagu/internal/core"
 	"github.com/stretchr/testify/require"
 )
 
@@ -41,21 +42,21 @@ func TestWaitForTickSignalStopsScheduler(t *testing.T) {
 func TestRunTickSafelyRecoversTickPanic(t *testing.T) {
 	t.Parallel()
 
-	sc := &Scheduler{}
+	sc, panicTriggered := newPanickingScheduler(t)
 
 	require.NotPanics(t, func() {
 		sc.runTickSafely(context.Background(), time.Now())
 	})
+	requirePanicTriggered(t, panicTriggered)
 }
 
 func TestCronLoopRecoversTickPanicAndKeepsRunning(t *testing.T) {
 	t.Parallel()
 
-	sc := &Scheduler{
-		quit: make(chan any),
-		clock: func() time.Time {
-			return time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
-		},
+	sc, panicTriggered := newPanickingScheduler(t)
+	sc.quit = make(chan any)
+	sc.clock = func() time.Time {
+		return time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	}
 	sig := make(chan os.Signal, 1)
 	done := make(chan struct{})
@@ -84,6 +85,7 @@ func TestCronLoopRecoversTickPanicAndKeepsRunning(t *testing.T) {
 		}
 	}()
 
+	requirePanicTriggered(t, panicTriggered)
 	requireCronLoopRunning(t, sc, done, panicCh)
 
 	select {
@@ -92,6 +94,31 @@ func TestCronLoopRecoversTickPanicAndKeepsRunning(t *testing.T) {
 	case <-done:
 		require.FailNow(t, "cronLoop exited after tick panic")
 	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+func newPanickingScheduler(t *testing.T) (*Scheduler, <-chan struct{}) {
+	t.Helper()
+
+	panicTriggered := make(chan struct{}, 1)
+	planner := NewTickPlanner(TickPlannerConfig{
+		IsSuspended: func(context.Context, string) bool {
+			panicTriggered <- struct{}{}
+			panic("test tick panic")
+		},
+	})
+	require.NoError(t, planner.Init(t.Context(), []*core.DAG{{Name: "panic-dag"}}))
+
+	return &Scheduler{planner: planner}, panicTriggered
+}
+
+func requirePanicTriggered(t *testing.T, panicTriggered <-chan struct{}) {
+	t.Helper()
+
+	select {
+	case <-panicTriggered:
+	case <-time.After(time.Second):
+		require.FailNow(t, "scheduler tick did not reach panic dependency")
 	}
 }
 

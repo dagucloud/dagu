@@ -79,7 +79,9 @@ func TestValidate(t *testing.T) {
 
 			dagu := harness.NewRunner(t)
 
-			result := dagu.Run("validate", tc.file)
+			// These references are well formed and only lack a value outside a
+			// run, so validation stays quiet about them by default.
+			result := dagu.Run("validate", "--show-unresolved", tc.file)
 			result.ExpectExitCode(0)
 			result.ExpectStdout("")
 			result.ExpectStderrContains(tc.stderrParts...)

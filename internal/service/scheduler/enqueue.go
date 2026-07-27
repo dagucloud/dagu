@@ -35,6 +35,7 @@ func EnqueueCatchupRun(
 	baseLogDir string,
 	baseArtifactDir string,
 	baseConfig string,
+	workspaceBaseConfigDir string,
 	dag *core.DAG,
 	runID string,
 	triggerType core.TriggerType,
@@ -52,7 +53,7 @@ func EnqueueCatchupRun(
 		return nil
 	}
 
-	fullDAG, err := rehydrateExecutionDAG(ctx, dag, nil, baseConfig)
+	fullDAG, err := rehydrateExecutionDAG(ctx, dag, nil, baseConfig, workspaceBaseConfigDir)
 	if err != nil {
 		return fmt.Errorf("failed to load full DAG for catchup enqueue: %w", err)
 	}

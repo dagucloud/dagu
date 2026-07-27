@@ -535,6 +535,11 @@ Secret-sensitive values:
   references, such as `${env.NAME}` and `${steps.step_id.outputs.name}`, in
   inspected value-resolved fields.
 
+- An unresolved `${env.NAME}` is a runtime-only notice, because the operator
+  supplies the value when the workflow runs. `dagu validate` records it and
+  exposes it through the inspection API, and prints it only under
+  `--show-unresolved`.
+
 - `dagu validate` must report passive notices for unresolved unqualified
   `$NAME` and `${NAME}` references in `env` declarations.
 

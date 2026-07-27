@@ -172,6 +172,13 @@ func CreateStepRetryPlan(dag *core.DAG, nodes []*Node, stepName string) (*Plan, 
 	return p, nil
 }
 
+// IsController reports whether execution order is decided by a controller step
+// rather than by dependency edges.
+func (p *Plan) IsController() bool {
+	_, ok := p.nodeByName[core.ControllerStepName]
+	return ok
+}
+
 // addNode adds a node to the plan structures.
 func (p *Plan) addNode(node *Node) {
 	p.nodeByID[node.id] = node

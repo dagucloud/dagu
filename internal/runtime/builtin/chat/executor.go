@@ -16,7 +16,6 @@ import (
 
 	"github.com/dagucloud/dagu/internal/cmn/logger"
 	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/internal/cmn/masking"
 	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
@@ -73,10 +72,16 @@ func newChatExecutor(ctx context.Context, step core.Step) (executor.Executor, er
 		primaryProvider = cfg.Provider
 	}
 
-	// Parse provider type (required field, validated in spec)
-	providerType, err := llmpkg.ParseProviderType(primaryProvider)
-	if err != nil {
-		return nil, fmt.Errorf("invalid provider: %w", err)
+	// Parse provider type. A provider carrying a value reference only has a final
+	// value once the step runs, so leave it unparsed here and let
+	// createProviderForModel reject an unsupported value after resolution.
+	var providerType llmpkg.ProviderType
+	if !cmnvalue.HasValueReference(primaryProvider) {
+		var err error
+		providerType, err = llmpkg.ParseProviderType(primaryProvider)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Determine which environment variable to use for API key
@@ -320,24 +325,6 @@ func toWebSearchRequest(cfg *core.WebSearchConfig) *llmpkg.WebSearchRequest {
 	return result
 }
 
-// normalizeEnvVarExpr converts an environment variable reference to ${VAR} format.
-// Handles: VAR → ${VAR}, $VAR → ${VAR}, ${VAR} → ${VAR}, "" → ""
-func normalizeEnvVarExpr(expr string) string {
-	if expr == "" {
-		return ""
-	}
-	if strings.HasPrefix(expr, "${") {
-		// Already in ${VAR} format, use as-is
-		return expr
-	}
-	if after, ok := strings.CutPrefix(expr, "$"); ok {
-		// Convert $VAR to ${VAR}
-		return "${" + after + "}"
-	}
-	// Plain variable name, wrap in ${...}
-	return "${" + expr + "}"
-}
-
 // evalMessages evaluates variable substitution in message content.
 func evalMessages(ctx context.Context, msgs []exec.LLMMessage) ([]exec.LLMMessage, error) {
 	result := make([]exec.LLMMessage, len(msgs))
@@ -360,34 +347,7 @@ func evalMessages(ctx context.Context, msgs []exec.LLMMessage) ([]exec.LLMMessag
 // maskSecretsForProvider masks secret values in messages before sending to LLM provider.
 // This prevents secrets from being leaked to external LLM APIs.
 func maskSecretsForProvider(ctx context.Context, msgs []exec.LLMMessage) []exec.LLMMessage {
-	// Use EnvScope.AllSecrets() for unified source tracking
-	rCtx := runtime.GetDAGContext(ctx)
-	if rCtx.EnvScope == nil {
-		return msgs
-	}
-	secrets := rCtx.EnvScope.AllSecrets()
-	if len(secrets) == 0 {
-		return msgs
-	}
-
-	envPairs := make([]string, 0, len(secrets))
-	for k, v := range secrets {
-		envPairs = append(envPairs, k+"="+v)
-	}
-
-	masker := masking.NewMasker(masking.SourcedEnvVars{Secrets: envPairs})
-
-	result := make([]exec.LLMMessage, len(msgs))
-	for i, msg := range msgs {
-		result[i] = exec.LLMMessage{
-			Role:       msg.Role,
-			Content:    masker.MaskString(msg.Content),
-			ToolCallID: msg.ToolCallID,
-			ToolCalls:  msg.ToolCalls, // Preserve tool calls (no secrets in IDs/names)
-			Metadata:   msg.Metadata,
-		}
-	}
-	return result
+	return runtime.MaskSecretsForProvider(ctx, msgs)
 }
 
 // Run executes the chat request.
@@ -397,7 +357,10 @@ func (e *Executor) Run(ctx context.Context) error {
 		return err
 	}
 
-	models := e.step.LLM.GetModels()
+	models, err := runtime.ResolveModels(ctx, e.step.LLM.GetModels())
+	if err != nil {
+		return err
+	}
 
 	// If only one model, use simple path (no fallback)
 	if len(models) == 1 {
@@ -416,7 +379,7 @@ func (e *Executor) Run(ctx context.Context) error {
 			slog.String("model", model.Name),
 			slog.Int("attemptIndex", i))
 
-		err := e.runWithModel(ctx, model, allMessages)
+		err = e.runWithModel(ctx, model, allMessages)
 		if err == nil {
 			return nil // Success
 		}
@@ -464,97 +427,12 @@ func (e *Executor) runWithModel(ctx context.Context, model core.ModelEntry, allM
 
 // buildEffectiveConfig merges model-specific overrides with shared config.
 func (e *Executor) buildEffectiveConfig(model core.ModelEntry) *core.LLMConfig {
-	cfg := e.step.LLM
-
-	return &core.LLMConfig{
-		Provider:          model.Provider,
-		Model:             model.Name,
-		System:            cfg.System,
-		Stream:            cfg.Stream,
-		Thinking:          cfg.Thinking,
-		Tools:             cfg.Tools,
-		MaxToolIterations: cfg.MaxToolIterations,
-		WebSearch:         cfg.WebSearch,
-		Temperature:       coalescePtr(model.Temperature, cfg.Temperature),
-		MaxTokens:         coalescePtr(model.MaxTokens, cfg.MaxTokens),
-		TopP:              coalescePtr(model.TopP, cfg.TopP),
-		BaseURL:           coalesceStr(model.BaseURL, cfg.BaseURL),
-		APIKeyName:        coalesceStr(model.APIKeyName, cfg.APIKeyName),
-	}
-}
-
-// coalescePtr returns the first non-nil pointer.
-func coalescePtr[T any](override, fallback *T) *T {
-	if override != nil {
-		return override
-	}
-	return fallback
-}
-
-// coalesceStr returns the first non-empty string.
-func coalesceStr(override, fallback string) string {
-	if override != "" {
-		return override
-	}
-	return fallback
+	return runtime.EffectiveLLMConfig(e.step.LLM, model)
 }
 
 // createProviderForModel creates an LLM provider for a specific model.
-func (e *Executor) createProviderForModel(ctx context.Context, model core.ModelEntry, cfg *core.LLMConfig) (llmpkg.Provider, error) {
-	// Parse provider type for this model
-	providerType, err := llmpkg.ParseProviderType(cfg.Provider)
-	if err != nil {
-		return nil, fmt.Errorf("invalid provider: %w", err)
-	}
-
-	// Determine API key env var
-	apiKeyEnvVar := cfg.APIKeyName
-	if apiKeyEnvVar == "" {
-		apiKeyEnvVar = llmpkg.DefaultAPIKeyEnvVar(providerType)
-	}
-
-	// Evaluate API key from environment variable
-	var apiKey string
-	if apiKeyEnvVar != "" {
-		apiKeyExpr := normalizeEnvVarExpr(apiKeyEnvVar)
-		apiKey, err = runtime.ResolveString(ctx, apiKeyExpr, cmnvalue.WorkflowField("api_key"))
-		if err != nil {
-			return nil, fmt.Errorf("failed to evaluate API key: %w", err)
-		}
-	}
-
-	// Evaluate base URL if specified
-	baseURL := cfg.BaseURL
-	if baseURL != "" {
-		baseURL, err = runtime.ResolveString(ctx, baseURL, cmnvalue.WorkflowField("base_url"))
-		if err != nil {
-			return nil, fmt.Errorf("failed to evaluate baseURL: %w", err)
-		}
-	}
-
-	// Use default base URL if not specified
-	if baseURL == "" {
-		baseURL = llmpkg.DefaultBaseURL(providerType)
-	}
-
-	// Build provider config
-	providerCfg := llmpkg.Config{
-		APIKey:          apiKey,
-		BaseURL:         baseURL,
-		Timeout:         5 * time.Minute,
-		MaxRetries:      3,
-		InitialInterval: 1 * time.Second,
-		MaxInterval:     30 * time.Second,
-		Multiplier:      2.0,
-	}
-
-	// Create provider
-	provider, err := llmpkg.NewProvider(providerType, providerCfg)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create LLM provider: %w", err)
-	}
-
-	return provider, nil
+func (e *Executor) createProviderForModel(ctx context.Context, _ core.ModelEntry, cfg *core.LLMConfig) (llmpkg.Provider, error) {
+	return runtime.NewLLMProvider(ctx, cfg)
 }
 
 // runSimpleForModel executes a chat request without tool calling, using the given config.

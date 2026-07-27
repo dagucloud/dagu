@@ -6,6 +6,7 @@ package output
 import (
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"unicode/utf8"
 
@@ -111,6 +112,36 @@ func TestRenderDAGStatus_MultipleSteps(t *testing.T) {
 	require.Contains(t, output, "step1")
 	require.Contains(t, output, "step2")
 	require.Contains(t, output, "step3")
+}
+
+func TestRenderDAGStatus_LifecycleHandlers(t *testing.T) {
+	t.Parallel()
+	dag := &core.DAG{Name: "handler-dag"}
+	status := &exec.DAGRunStatus{
+		Status: core.Failed,
+		OnInit: &exec.Node{
+			Step:   core.Step{Name: "onInit", Command: "exit", Args: []string{"1"}},
+			Status: core.NodeFailed,
+			Error:  "init handler failed",
+		},
+		Nodes: []*exec.Node{
+			{Step: core.Step{Name: "step1"}, Status: core.NodeNotStarted},
+		},
+		OnExit: &exec.Node{
+			Step:   core.Step{Name: "onExit"},
+			Status: core.NodeSucceeded,
+		},
+	}
+
+	output := newTestRenderer().RenderDAGStatus(dag, status)
+
+	require.Contains(t, output, "onInit")
+	require.Contains(t, output, "init handler failed")
+	require.Contains(t, output, "onExit")
+	assert.Less(t, strings.Index(output, "onInit"), strings.Index(output, "step1"),
+		"init handler should render before the steps it precedes")
+	assert.Less(t, strings.Index(output, "step1"), strings.Index(output, "onExit"),
+		"exit handler should render after the steps")
 }
 
 func TestRenderDAGStatus_RunningStatus(t *testing.T) {

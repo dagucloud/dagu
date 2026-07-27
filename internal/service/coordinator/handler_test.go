@@ -686,10 +686,13 @@ func TestHandler_Poll(t *testing.T) {
 		err := h.writeInitialStatus(
 			context.Background(),
 			attempt,
+			&coordinatorv1.Task{
+				DagRunId:     "run-123",
+				AttemptKey:   "attempt-key",
+				TriggerActor: "alice",
+				ScheduleTime: "2026-03-13T10:00:00Z",
+			},
 			"test-dag",
-			"run-123",
-			"attempt-key",
-			"2026-03-13T10:00:00Z",
 			exec.DAGRunRef{},
 			nil,
 		)
@@ -698,6 +701,7 @@ func TestHandler_Poll(t *testing.T) {
 		status, err := attempt.ReadStatus(context.Background())
 		require.NoError(t, err)
 		require.Equal(t, "2026-03-13T10:00:00Z", status.ScheduleTime)
+		require.Equal(t, "alice", status.TriggerActor)
 	})
 
 	t.Run("DispatchFailsWhenAttemptPreparationFails", func(t *testing.T) {
