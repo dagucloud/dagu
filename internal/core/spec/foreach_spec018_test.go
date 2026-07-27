@@ -70,6 +70,28 @@ steps:
 	require.Empty(t, result.ValueReferenceNotices)
 }
 
+func TestForeachSpec018StepEnvIsInScope(t *testing.T) {
+	t.Parallel()
+
+	result, err := spec.LoadYAMLWithResult(context.Background(), []byte(strings.TrimSpace(`
+steps:
+  - id: loop
+    foreach:
+      items: [one]
+      steps:
+        - id: call
+          env:
+            - MY_ENDPOINT=https://example.internal/api
+          action: http.request
+          with:
+            method: GET
+            url: ${env.MY_ENDPOINT}
+`)))
+
+	require.NoError(t, err)
+	require.Empty(t, result.ValueReferenceNotices)
+}
+
 func TestForeachSpec018Validation(t *testing.T) {
 	t.Parallel()
 

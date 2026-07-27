@@ -134,6 +134,8 @@ Rules:
 - A step output reference to the owning step must use reason `self_reference`.
 
 - A step output reference in a field with no step-output lookup scope must use reason `namespace_unavailable`.
+- A `namespace_unavailable` step-output notice is a defect because the owning
+  field cannot resolve a step output during a run.
 
 - An unavailable step output value must preserve the original reference text before the owning field is used.
 

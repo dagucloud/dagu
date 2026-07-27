@@ -361,8 +361,9 @@ Escaped supported-looking text and unsupported braced text must not produce pass
 The notice must identify the owning field and the original reference text.
 
 Each notice must carry a class.
-A notice is a defect when the reference names a step, output, context field, or
-const the spec does not define, because no run can resolve it.
+A notice is a defect when no run can resolve the reference. This includes a
+reference that names a step, output, context field, or const the spec does not
+define, and a reference in a field that never has the required lookup scope.
 A notice is runtime-only when the reference is well-formed and the inspecting
 scope simply holds no value for it.
 

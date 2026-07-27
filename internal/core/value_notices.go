@@ -107,11 +107,11 @@ func reportStepEnvValueReferenceNotices(
 	sink cmnvalue.ValueReferenceNoticeSink,
 ) map[string]*cmnvalue.EnvScope {
 	scopes := make(map[string]*cmnvalue.EnvScope)
-	for i := range dag.Steps {
-		path := fmt.Sprintf("steps[%d]", i)
+	var reportStep func(string, Step)
+	reportStep = func(path string, step Step) {
 		scopes[path] = reportSingleStepEnvValueReferenceNotices(
 			path,
-			dag.Steps[i],
+			step,
 			dag.Name,
 			staticScope,
 			runtimeScope,
@@ -119,6 +119,15 @@ func reportStepEnvValueReferenceNotices(
 			stepOutputNotices,
 			sink,
 		)
+		if step.Foreach == nil {
+			return
+		}
+		for i := range step.Foreach.Steps {
+			reportStep(fmt.Sprintf("%s.foreach.steps[%d]", path, i), step.Foreach.Steps[i])
+		}
+	}
+	for i := range dag.Steps {
+		reportStep(fmt.Sprintf("steps[%d]", i), dag.Steps[i])
 	}
 	handlers := []struct {
 		path string
@@ -135,16 +144,7 @@ func reportStepEnvValueReferenceNotices(
 		if handler.step == nil {
 			continue
 		}
-		scopes[handler.path] = reportSingleStepEnvValueReferenceNotices(
-			handler.path,
-			*handler.step,
-			dag.Name,
-			staticScope,
-			runtimeScope,
-			rootEnvScope,
-			stepOutputNotices,
-			sink,
-		)
+		reportStep(handler.path, *handler.step)
 	}
 	return scopes
 }

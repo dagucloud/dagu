@@ -29,11 +29,8 @@ func TestValidateStepOutputReferenceNotices(t *testing.T) {
 	}
 
 	noticeCases := []struct {
-		file string
-		// showUnresolved marks cases whose reference is well-formed and only
-		// lacks a value outside a run, so validation stays quiet by default.
-		showUnresolved bool
-		stderrParts    []string
+		file        string
+		stderrParts []string
 	}{
 		{
 			file:        "missing_dependency.yaml",
@@ -52,14 +49,12 @@ func TestValidateStepOutputReferenceNotices(t *testing.T) {
 			stderrParts: []string{"${steps.build.outputs.tag}", "reason=unknown_output_name", "steps[1].run"},
 		},
 		{
-			file:           "namespace_root_env.yaml",
-			showUnresolved: true,
-			stderrParts:    []string{"${steps.build.outputs.image}", "reason=namespace_unavailable", "env[0]"},
+			file:        "namespace_root_env.yaml",
+			stderrParts: []string{"${steps.build.outputs.image}", "reason=namespace_unavailable", "env[0]"},
 		},
 		{
-			file:           "namespace_handler.yaml",
-			showUnresolved: true,
-			stderrParts:    []string{"${steps.build.outputs.image}", "reason=namespace_unavailable", "handler_on.success.run"},
+			file:        "namespace_handler.yaml",
+			stderrParts: []string{"${steps.build.outputs.image}", "reason=namespace_unavailable", "handler_on.success.run"},
 		},
 		{
 			file:        "legacy_outputs_not_step_outputs.yaml",
@@ -71,11 +66,7 @@ func TestValidateStepOutputReferenceNotices(t *testing.T) {
 			t.Parallel()
 
 			dagu := harness.NewRunner(t)
-			args := []string{"validate"}
-			if tc.showUnresolved {
-				args = append(args, "--show-unresolved")
-			}
-			result := dagu.Run(append(args, tc.file)...)
+			result := dagu.Run("validate", tc.file)
 			result.ExpectExitCode(0)
 			result.ExpectStdout("")
 			result.ExpectStderrContains(tc.stderrParts...)

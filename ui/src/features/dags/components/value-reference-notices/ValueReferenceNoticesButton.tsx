@@ -22,7 +22,7 @@ const REASON_LABELS: Record<string, string> = {
   self_reference: 'Step references its own output',
   unknown_context_field: 'Context field is not defined',
   unknown_const_name: 'Const is not declared',
-  namespace_unavailable: 'Value is supplied by a run',
+  namespace_unavailable: 'Value is unavailable in this context',
   unknown_env_binding: 'Environment variable is supplied by a run',
 };
 
@@ -39,10 +39,16 @@ export const DEFECT_REASONS = new Set([
 
 export { REASON_LABELS };
 
-// Older servers answer without a class, so fall back to the reason.
-function isDefect(notice: ValueReferenceNotice): boolean {
+// Older servers answer without a class, so fall back to the reason and token.
+export function isDefect(notice: ValueReferenceNotice): boolean {
   if (notice.class) {
     return notice.class === 'defect';
+  }
+  if (
+    notice.reason === 'namespace_unavailable' &&
+    notice.token?.startsWith('${steps.')
+  ) {
+    return true;
   }
   return notice.reason ? DEFECT_REASONS.has(notice.reason) : false;
 }
@@ -202,7 +208,9 @@ function NoticeCard({ notice }: { notice: ValueReferenceNotice }) {
         {notice.reason && (
           <>
             <dt>Reason</dt>
-            <dd className="min-w-0 break-words">{reasonLabel(notice.reason)}</dd>
+            <dd className="min-w-0 break-words">
+              {reasonLabel(notice.reason)}
+            </dd>
           </>
         )}
       </dl>

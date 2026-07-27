@@ -194,12 +194,18 @@ func ReportStepOutputReferenceNotice(sink ValueReferenceNoticeSink, field, token
 	case ValueReferenceReasonUnknownEnvBinding, ValueReferenceReasonUnknownConstName:
 		// Not reachable from a step-output reference; keep the generic message.
 	}
+	class := reason.Class()
+	if reason == ValueReferenceReasonNamespaceUnavailable {
+		// A field without step-output lookup scope cannot resolve the reference
+		// during a run.
+		class = NoticeClassDefect
+	}
 	sink.Report(ValueReferenceNotice{
 		Message:   message,
 		FieldPath: field,
 		Token:     token,
 		Reason:    reason,
-		Class:     reason.Class(),
+		Class:     class,
 	})
 }
 
