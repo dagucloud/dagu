@@ -92,7 +92,9 @@ func TestValidate(t *testing.T) {
 
 			dagu := harness.NewRunner(t)
 
-			result := dagu.Run("validate", tc.file)
+			// A caller can pass these at start time, so validation stays quiet
+			// about them by default.
+			result := dagu.Run("validate", "--show-unresolved", tc.file)
 			result.ExpectExitCode(0)
 			result.ExpectStdout("")
 			result.ExpectStderrContains(tc.stderrParts...)

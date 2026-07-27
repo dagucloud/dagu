@@ -118,7 +118,9 @@ func TestValidate(t *testing.T) {
 			t.Parallel()
 
 			dagu := harness.NewRunner(t)
-			result := dagu.Run("validate", tc.file)
+			// The operator supplies these when the workflow runs, so
+			// validation stays quiet about them by default.
+			result := dagu.Run("validate", "--show-unresolved", tc.file)
 			result.ExpectExitCode(0)
 			result.ExpectStdout("")
 			result.ExpectStderrContains(tc.stderrParts...)
