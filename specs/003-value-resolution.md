@@ -359,15 +359,20 @@ This rule applies only to unescaped supported reference forms.
 Escaped supported-looking text and unsupported braced text must not produce passive notices.
 
 The notice must identify the owning field and the original reference text.
-The notice must not be shown as a normal validation warning.
 
 Each notice must carry a class.
 A notice is a defect when the reference names a step, output, context field, or
 const the spec does not define, because no run can resolve it.
-A notice is runtime-only when the reference is well formed and the inspecting
+A notice is runtime-only when the reference is well-formed and the inspecting
 scope simply holds no value for it.
-`dagu validate` must report defects by default and must keep runtime-only
-notices out of its default output; `--show-unresolved` reports both.
+
+A runtime-only notice must not be shown as a normal validation warning, because
+supplying the value is the operator's job rather than a change to the spec.
+`dagu validate` must keep runtime-only notices out of its default output and
+must report them under `--show-unresolved`.
+A defect names something no run can resolve, so `dagu validate` must report it
+by default and may present it at warning level.
+Neither class changes the exit code: a notice is still not a validation error.
 Inspection surfaces that render notices must let a reader tell the two apart.
 Current inspection surfaces are `dagu validate`, the DAG spec inspection API response, and the Web UI spec editor.
 Normal run execution must stay silent.

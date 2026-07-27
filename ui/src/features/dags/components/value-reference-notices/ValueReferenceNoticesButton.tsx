@@ -21,17 +21,23 @@ const REASON_LABELS: Record<string, string> = {
   missing_dependency: 'Producing step is not a dependency',
   self_reference: 'Step references its own output',
   unknown_context_field: 'Context field is not defined',
+  unknown_const_name: 'Const is not declared',
   namespace_unavailable: 'Value is supplied by a run',
   unknown_env_binding: 'Environment variable is supplied by a run',
 };
 
-const DEFECT_REASONS = new Set([
+// Mirrors ValueReferenceNoticeReason.Class() on the server. Only consulted when
+// a response predates the class field.
+export const DEFECT_REASONS = new Set([
   'unknown_step_id',
   'unknown_output_name',
   'missing_dependency',
   'self_reference',
   'unknown_context_field',
+  'unknown_const_name',
 ]);
+
+export { REASON_LABELS };
 
 // Older servers answer without a class, so fall back to the reason.
 function isDefect(notice: ValueReferenceNotice): boolean {
