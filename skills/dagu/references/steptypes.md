@@ -640,7 +640,7 @@ Harness behavior:
 - Built-in provider adapters and custom providers pass non-reserved `with` keys as CLI flags. Built-in adapters normalize `snake_case` keys to kebab-case flags.
 - `fallback` is an ordered list of provider configs. Nested fallback is not supported.
 - Provider value references must resolve to a concrete provider string before execution. Unresolved `${...}` provider values fail at runtime.
-- Prefer `action: harness.run` for new workflows. A top-level `harness:` config still causes steps without an explicit executor type to infer the harness executor for compatibility.
+- A harness step is named with `action: harness.run`. A top-level `harness:` config supplies defaults to those steps and does not set the type of any other step, so a step written with `run:`, `exec:`, or `script:` under one stays a local command.
 
 Container support:
 
