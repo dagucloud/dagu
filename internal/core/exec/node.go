@@ -88,10 +88,6 @@ type SubDAGRun struct {
 	// For chat tool calls, this is the tool DAG name.
 	// This field enables UI drill-down when step.call is not set.
 	DAGName string `json:"dagName,omitempty"`
-	// ParallelItem contains the original item for a parallel sub-DAG run.
-	// It is kept separate from Params because explicit sub-DAG parameters may
-	// replace the item-derived parameters.
-	ParallelItem *string `json:"parallelItem,omitempty"`
 }
 
 // NewNodesFromSteps converts a list of DAG steps to persistence Node objects.

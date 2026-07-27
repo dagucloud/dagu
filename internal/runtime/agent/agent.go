@@ -1138,7 +1138,12 @@ func (a *Agent) shouldDelayTerminalStatus(status core.Status) bool {
 func (a *Agent) nodeToModelNode(nodeData runtime.NodeData) *exec.Node {
 	subRuns := make([]exec.SubDAGRun, len(nodeData.State.SubRuns))
 	for i, child := range nodeData.State.SubRuns {
-		subRuns[i] = exec.SubDAGRun(child)
+		// ParallelItem is runtime-only and intentionally not persisted.
+		subRuns[i] = exec.SubDAGRun{
+			DAGRunID: child.DAGRunID,
+			Params:   child.Params,
+			DAGName:  child.DAGName,
+		}
 	}
 
 	return &exec.Node{

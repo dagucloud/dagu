@@ -149,13 +149,6 @@ func TestEnqueueExecutorResolvesParallelItemWorkerSelector(t *testing.T) {
 	child, err := attempt.ReadDAG(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, map[string]string{"host": "serverA"}, child.WorkerSelector)
-
-	subRunProvider, ok := execImpl.(executor.SubRunProvider)
-	require.True(t, ok)
-	subRuns := subRunProvider.GetSubRuns()
-	require.Len(t, subRuns, 1)
-	require.NotNil(t, subRuns[0].ParallelItem)
-	assert.Equal(t, "serverA", *subRuns[0].ParallelItem)
 }
 
 func TestSubDAGExecutorsRejectHumanTasks(t *testing.T) {
