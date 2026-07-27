@@ -3220,6 +3220,37 @@ steps:
 		assert.Equal(t, "harness", dag.Steps[1].ExecutorConfig.Type)
 	})
 
+	t.Run("PromptShapedCommandStepIsRejected", func(t *testing.T) {
+		yaml := `
+harness:
+  provider: claude
+  model: sonnet
+steps:
+  - name: run_agent
+    command: "Explain the main function in this project"
+`
+		_, err := spec.LoadYAML(context.Background(), []byte(yaml))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "action: harness.run")
+		assert.Contains(t, err.Error(), "run:")
+	})
+
+	t.Run("CommandStepKeepsDAGLevelTransport", func(t *testing.T) {
+		yaml := `
+container:
+  image: alpine
+harness:
+  provider: claude
+steps:
+  - name: prepare
+    command: echo hi
+`
+		dag, err := spec.LoadYAML(context.Background(), []byte(yaml))
+		require.NoError(t, err)
+		require.Len(t, dag.Steps, 1)
+		assert.Equal(t, "container", dag.Steps[0].ExecutorConfig.Type)
+	})
+
 	t.Run("ExecStepKeepsLocalExecutor", func(t *testing.T) {
 		yaml := `
 harness:

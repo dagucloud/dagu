@@ -396,6 +396,32 @@ func normalizeStepData(ctx BuildContext, data []any) []any {
 	return normalized
 }
 
+// validateHarnessPromptCommand rejects a step that names its prompt the way a
+// DAG-level harness: block used to allow. That spelling is indistinguishable
+// from a local command once normalized, so it is refused with the two spellings
+// that say which one was meant.
+func validateHarnessPromptCommand(ctx StepBuildContext, raw map[string]any) error {
+	if raw == nil || ctx.dag == nil || ctx.dag.Harness == nil {
+		return nil
+	}
+	// These are inferred ahead of harness, and each one runs the command.
+	if ctx.dag.Container != nil || ctx.dag.SSH != nil || ctx.dag.Redis != nil {
+		return nil
+	}
+	if _, hasCommand := raw["command"]; !hasCommand {
+		return nil
+	}
+	for _, key := range []string{"action", "type", "exec", "script", "container"} {
+		if _, ok := raw[key]; ok {
+			return nil
+		}
+	}
+	return core.NewValidationError("command", raw["command"],
+		fmt.Errorf("a DAG-level harness: block no longer sets the step type: "+
+			"use `action: harness.run` with `with.prompt` to send this to the agent, "+
+			"or `run:` to execute it locally"))
+}
+
 func decodeStep(raw map[string]any) (*step, error) {
 	if err := validateStepConfigAliasRaw(raw); err != nil {
 		return nil, err
@@ -435,6 +461,9 @@ func buildConcreteStep(ctx StepBuildContext, s *step) (*core.Step, error) {
 
 // buildStepFromRaw build core.Step from give raw data (map[string]any)
 func buildStepFromRaw(ctx StepBuildContext, idx int, raw map[string]any, names map[string]struct{}, defs *defaults) (*core.Step, error) {
+	if err := validateHarnessPromptCommand(ctx, raw); err != nil {
+		return nil, err
+	}
 	normalizedRaw, err := normalizeStepExecutionRaw(raw, ctx.customStepTypes)
 	if err != nil {
 		return nil, err
