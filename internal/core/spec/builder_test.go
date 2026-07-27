@@ -3220,24 +3220,28 @@ steps:
 		assert.Equal(t, "harness", dag.Steps[1].ExecutorConfig.Type)
 	})
 
-	t.Run("LegacyCommandStepStillInfersHarness", func(t *testing.T) {
+	t.Run("ExecStepKeepsLocalExecutor", func(t *testing.T) {
 		yaml := `
-params:
-  - PROMPT: "Explain the main function in this project"
 harness:
   provider: claude
   model: sonnet
 steps:
-  - name: run_agent
-    command: "${PROMPT}"
-    output: RESULT
+  - name: direct
+    action: exec
+    with:
+      command: echo
+      args: [hi]
+  - name: legacy
+    exec:
+      command: echo
+      args: [hi]
 `
 		dag, err := spec.LoadYAML(context.Background(), []byte(yaml))
 		require.NoError(t, err)
-		require.Len(t, dag.Steps, 1)
+		require.Len(t, dag.Steps, 2)
 
-		assert.Equal(t, "harness", dag.Steps[0].ExecutorConfig.Type)
-		assert.Equal(t, "claude", dag.Steps[0].ExecutorConfig.Config["provider"])
+		assert.Empty(t, dag.Steps[0].ExecutorConfig.Type)
+		assert.Empty(t, dag.Steps[1].ExecutorConfig.Type)
 	})
 
 	t.Run("LegacyExplicitTypeOverridesDAGHarness", func(t *testing.T) {

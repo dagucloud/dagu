@@ -1002,7 +1002,6 @@ func buildCustomStepFromSpecWithStack(
 	if err != nil {
 		return nil, fmt.Errorf("%s: failed to decode expanded template: %w", customDefinitionErrorContext(customType), err)
 	}
-	_, expandedSpec.commandFromRun = mergedRaw["run"]
 	applyDefaults(expandedSpec, defs, normalizedRaw)
 	builtStep, err := buildExpandedCustomStep(ctx, expandedSpec, normalizedRaw, defs, stack)
 	if err != nil {

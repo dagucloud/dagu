@@ -142,9 +142,6 @@ type step struct {
 	parsedOutputErr    error
 	parsedOutputCached bool
 	outputsSet         bool
-	// commandFromRun reports that Command was normalized from the v2 run:
-	// field, which names a command to execute rather than an executor payload.
-	commandFromRun bool
 }
 
 type execSpec struct {
@@ -2011,13 +2008,11 @@ func buildStepExecutor(ctx StepBuildContext, s *step, result *core.Step) error {
 			result.ExecutorConfig.Type = "ssh"
 		} else if ctx.dag.Redis != nil {
 			result.ExecutorConfig.Type = "redis"
-		} else if ctx.dag.Harness != nil && !s.commandFromRun {
-			// Unlike container and ssh, the harness executor is not a transport:
-			// it reads the step's command as the prompt it sends an agent CLI,
-			// which is how a command: step names its prompt. A step written
-			// with run: asked for a local command, so it keeps one.
-			result.ExecutorConfig.Type = "harness"
 		}
+		// A DAG-level harness: block is not inferred as a step type. Unlike
+		// container and ssh it is not a transport: it reads the step's command
+		// as a prompt, so inferring it turns a command into agent input. A
+		// harness step names itself with action: harness.run.
 	}
 
 	// Merge DAG-level Redis config into step config (step takes precedence)
@@ -2073,13 +2068,7 @@ func shouldInferNoopStep(s *step, result *core.Step) bool {
 	if s == nil {
 		return false
 	}
-	return !declaresCommand(s)
-}
-
-// declaresCommand reports whether the step spec carries a command to run
-// locally, in any of the forms that reach the command executor.
-func declaresCommand(s *step) bool {
-	return s != nil && (s.Command != nil || s.Exec != nil || strings.TrimSpace(s.Script) != "")
+	return s.Command == nil && s.Exec == nil && strings.TrimSpace(s.Script) == ""
 }
 
 // mergeRedisConfig merges DAG-level Redis defaults into step config.
