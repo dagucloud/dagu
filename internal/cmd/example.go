@@ -402,7 +402,6 @@ harness:
   # DAG-level defaults for harness steps.
   provider: claude
   model: sonnet
-  bare: true
 steps:
   - id: gather_issue
     output:

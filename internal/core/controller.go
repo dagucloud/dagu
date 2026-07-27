@@ -17,7 +17,7 @@ const (
 	// The name is plain rather than underscore-wrapped because it is what an
 	// operator types to answer:
 	//
-	//	dagu human-task complete --step ask_user --inputs-json '{"answer":"..."}'
+	//	dagu human-task complete <dag> --step ask_user --inputs-json '{"answer":"..."}'
 	AskUserStepName = "ask_user"
 
 	// AskUserAnswerField is the single form field an ask_user question collects.
