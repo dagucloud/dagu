@@ -347,7 +347,7 @@ func bindingBuiltinContextValue(path string, builtins BuiltinContext, requireVal
 	}
 	return nil, newNoticeReasonError(
 		ValueReferenceReasonNamespaceUnavailable,
-		fmt.Sprintf("%s is unavailable in this context", path),
+		fmt.Sprintf("%s is populated during a DAG run", path),
 	)
 }
 
