@@ -85,6 +85,67 @@ steps:
 		})
 	})
 
+	t.Run("RuntimeOnlyNoticesAreHiddenByDefault", func(t *testing.T) {
+		th.LoggingOutput.Reset()
+		dagFile := th.CreateDAGFile(t, "runtime_only_notice.yaml", `
+steps:
+  - id: archive
+    run: cp report.csv "${context.paths.artifacts_dir}/"
+`)
+
+		th.RunCommand(t, cmd.Validate(), test.CmdTest{
+			Args: []string{"validate", dagFile},
+		})
+		require.NotContains(t, th.LoggingOutput.String(), "context.paths.artifacts_dir")
+	})
+
+	t.Run("RuntimeOnlyNoticesAreShownOnRequest", func(t *testing.T) {
+		th.LoggingOutput.Reset()
+		dagFile := th.CreateDAGFile(t, "runtime_only_notice_shown.yaml", `
+steps:
+  - id: archive
+    run: cp report.csv "${context.paths.artifacts_dir}/"
+`)
+
+		th.RunCommand(t, cmd.Validate(), test.CmdTest{
+			Args:        []string{"validate", "--show-unresolved", dagFile},
+			ExpectedOut: []string{"${context.paths.artifacts_dir}", "reason=namespace_unavailable"},
+		})
+	})
+
+	t.Run("UnknownContextFieldIsReported", func(t *testing.T) {
+		th.LoggingOutput.Reset()
+		dagFile := th.CreateDAGFile(t, "unknown_context_field.yaml", `
+steps:
+  - id: archive
+    run: cp report.csv "${context.paths.artifact_dir}/"
+`)
+
+		th.RunCommand(t, cmd.Validate(), test.CmdTest{
+			Args:        []string{"validate", dagFile},
+			ExpectedOut: []string{"${context.paths.artifact_dir}", "reason=unknown_context_field"},
+		})
+	})
+
+	t.Run("StepEnvIsInScopeForOtherStepFields", func(t *testing.T) {
+		th.LoggingOutput.Reset()
+		dagFile := th.CreateDAGFile(t, "step_env_scope.yaml", `
+steps:
+  - id: call
+    env:
+      - MY_ENDPOINT: https://example.internal/api
+    action: http.request
+    with:
+      method: GET
+      url: ${env.MY_ENDPOINT}
+`)
+
+		th.RunCommand(t, cmd.Validate(), test.CmdTest{
+			Args: []string{"validate", "--show-unresolved", dagFile},
+		})
+		require.NotContains(t, th.LoggingOutput.String(), "MY_ENDPOINT")
+	})
+
 	t.Run("StepOutputValueReferenceNoticeReason", func(t *testing.T) {
 		th.LoggingOutput.Reset()
 		dagFile := th.CreateDAGFile(t, "step_value_resolution_notice.yaml", `

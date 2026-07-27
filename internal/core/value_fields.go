@@ -20,6 +20,9 @@ type ReferenceField struct {
 	noticePath    string
 	OwnerStepName string
 	OwnerStepID   string
+	// OwnerStepPath is the spec path of the owning step, such as "steps[0]" or
+	// "handler_on.exit". It is empty for DAG-level fields.
+	OwnerStepPath string
 	Field         cmnvalue.Field
 }
 
@@ -88,6 +91,7 @@ func (w *referenceFieldWalker) walkStep(path string, step Step) {
 	base := ReferenceField{
 		OwnerStepName: step.Name,
 		OwnerStepID:   step.ID,
+		OwnerStepPath: path,
 		Field:         cmnvalue.WorkflowField(""),
 	}
 	command := step.CommandResolution(context.Background())

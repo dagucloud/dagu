@@ -15,6 +15,7 @@ type ValueReferenceNotice struct {
 	FieldPath string
 	Token     string
 	Reason    ValueReferenceNoticeReason
+	Class     ValueReferenceNoticeClass
 }
 
 // ValueReferenceNoticeReason explains why a supported reference was preserved.
@@ -27,7 +28,45 @@ const (
 	ValueReferenceReasonSelfReference        ValueReferenceNoticeReason = "self_reference"
 	ValueReferenceReasonNamespaceUnavailable ValueReferenceNoticeReason = "namespace_unavailable"
 	ValueReferenceReasonUnknownContextField  ValueReferenceNoticeReason = "unknown_context_field"
+	ValueReferenceReasonUnknownEnvBinding    ValueReferenceNoticeReason = "unknown_env_binding"
+	ValueReferenceReasonUnknownConstName     ValueReferenceNoticeReason = "unknown_const_name"
 )
+
+// ValueReferenceNoticeClass separates references that no run can resolve from
+// references whose value simply does not exist yet.
+type ValueReferenceNoticeClass string
+
+const (
+	// NoticeClassDefect marks a reference that names something the spec does
+	// not define, so no run can resolve it.
+	NoticeClassDefect ValueReferenceNoticeClass = "defect"
+	// NoticeClassRuntimeOnly marks a well-formed reference whose value only
+	// exists once a run supplies it.
+	NoticeClassRuntimeOnly ValueReferenceNoticeClass = "runtime_only"
+)
+
+// Class reports whether the reason describes a defect or a runtime-only value.
+//
+// Reasons that name a missing step, output, or context field are defects.
+// Reasons that only report an absent value are runtime-only, because a scope
+// built for inspection carries far less than a scope built for a run.
+func (r ValueReferenceNoticeReason) Class() ValueReferenceNoticeClass {
+	switch r {
+	case ValueReferenceReasonUnknownStepID,
+		ValueReferenceReasonUnknownOutputName,
+		ValueReferenceReasonMissingDependency,
+		ValueReferenceReasonSelfReference,
+		ValueReferenceReasonUnknownContextField,
+		ValueReferenceReasonUnknownConstName:
+		return NoticeClassDefect
+	case ValueReferenceReasonNamespaceUnavailable,
+		ValueReferenceReasonUnknownEnvBinding:
+		return NoticeClassRuntimeOnly
+	}
+	// An unclassified reason says nothing about the spec being wrong, so treat
+	// it the same as a value that only a run can supply.
+	return NoticeClassRuntimeOnly
+}
 
 type noticeReasonError struct {
 	reason ValueReferenceNoticeReason
@@ -122,6 +161,7 @@ func addUnresolvedReferenceNotice(sink ValueReferenceNoticeSink, field, token st
 		FieldPath: field,
 		Token:     token,
 		Reason:    reason,
+		Class:     reason.Class(),
 	})
 }
 
@@ -151,12 +191,15 @@ func ReportStepOutputReferenceNotice(sink ValueReferenceNoticeSink, field, token
 		message = fmt.Sprintf("%s was left unchanged because %s has no step-output lookup scope.", token, evaluatedField)
 	case ValueReferenceReasonUnknownContextField:
 		message = fmt.Sprintf("%s was left unchanged because the context field is not defined when %s was evaluated.", token, evaluatedField)
+	case ValueReferenceReasonUnknownEnvBinding, ValueReferenceReasonUnknownConstName:
+		// Not reachable from a step-output reference; keep the generic message.
 	}
 	sink.Report(ValueReferenceNotice{
 		Message:   message,
 		FieldPath: field,
 		Token:     token,
 		Reason:    reason,
+		Class:     reason.Class(),
 	})
 }
 
@@ -179,7 +222,10 @@ func ReportUnresolvedEnvExpansionNotices(input, field string, scope *EnvScope, s
 		if _, found := scope.Get(key); found {
 			continue
 		}
-		addUnresolvedReferenceNotice(sink, field, match, fmt.Errorf("unknown env.%s binding", key))
+		addUnresolvedReferenceNotice(sink, field, match, newNoticeReasonError(
+			ValueReferenceReasonUnknownEnvBinding,
+			fmt.Sprintf("unknown env.%s binding", key),
+		))
 	}
 }
 

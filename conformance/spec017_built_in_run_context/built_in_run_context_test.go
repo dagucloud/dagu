@@ -16,14 +16,8 @@ func TestValidateBuiltInRunContextNotices(t *testing.T) {
 	result := dagu.Run("validate", "validation_notices.yaml")
 	result.ExpectExitCode(0)
 	result.ExpectStdout("")
+	// References to fields the spec does not define are reported by default.
 	result.ExpectStderrContains(
-		"${context.run.id}",
-		"${context.attempt.id}",
-		"${context.run.status}",
-		"${context.trigger.actor}",
-		"${context.profile.name}",
-		"${context.pushback.iteration}",
-		"reason=namespace_unavailable",
 		"${context.paths.context}",
 		"${context.trigger.payload}",
 		"${context.run.foo}",
@@ -31,8 +25,23 @@ func TestValidateBuiltInRunContextNotices(t *testing.T) {
 		"reason=unknown_context_field",
 		"was left unchanged",
 	)
+	// Supported fields carry a value only during a run, so validation stays
+	// quiet about them unless the operator asks.
 	result.ExpectStderrNotContains(
 		"${unrelated.context}",
+		"reason=namespace_unavailable",
+	)
+
+	verbose := dagu.Run("validate", "--show-unresolved", "validation_notices.yaml")
+	verbose.ExpectExitCode(0)
+	verbose.ExpectStderrContains(
+		"${context.run.id}",
+		"${context.attempt.id}",
+		"${context.run.status}",
+		"${context.trigger.actor}",
+		"${context.profile.name}",
+		"${context.pushback.iteration}",
+		"reason=namespace_unavailable",
 	)
 	dagu.ExpectNoFile("validation-notices.txt")
 }

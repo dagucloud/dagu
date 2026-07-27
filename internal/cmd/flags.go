@@ -48,6 +48,12 @@ var (
 		usage:  "Enable CPU profiling (saves to cpu.pprof)",
 		isBool: true,
 	}
+
+	showUnresolvedFlag = commandLineFlag{
+		name:   "show-unresolved",
+		usage:  "Also report references whose value only exists during a run",
+		isBool: true,
+	}
 )
 
 // Server and directory flags

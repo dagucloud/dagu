@@ -4431,6 +4431,11 @@ export interface components {
              * @enum {string}
              */
             reason?: ValueReferenceNoticeReason;
+            /**
+             * @description Whether the reference names something the spec does not define, or is well-formed and only lacks a value until a run supplies one.
+             * @enum {string}
+             */
+            class?: ValueReferenceNoticeClass;
         };
         /** @description Editor-only metadata used to synthesize per-document schema hints */
         DAGEditorHints: {
@@ -16862,7 +16867,13 @@ export enum ValueReferenceNoticeReason {
     missing_dependency = "missing_dependency",
     self_reference = "self_reference",
     namespace_unavailable = "namespace_unavailable",
-    unknown_context_field = "unknown_context_field"
+    unknown_context_field = "unknown_context_field",
+    unknown_env_binding = "unknown_env_binding",
+    unknown_const_name = "unknown_const_name"
+}
+export enum ValueReferenceNoticeClass {
+    defect = "defect",
+    runtime_only = "runtime_only"
 }
 export enum ParamDefType {
     string = "string",

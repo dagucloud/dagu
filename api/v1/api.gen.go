@@ -440,12 +440,20 @@ const (
 	UserRoleViewer    UserRole = "viewer"
 )
 
+// Defines values for ValueReferenceNoticeClass.
+const (
+	ValueReferenceNoticeClassDefect      ValueReferenceNoticeClass = "defect"
+	ValueReferenceNoticeClassRuntimeOnly ValueReferenceNoticeClass = "runtime_only"
+)
+
 // Defines values for ValueReferenceNoticeReason.
 const (
 	ValueReferenceNoticeReasonMissingDependency    ValueReferenceNoticeReason = "missing_dependency"
 	ValueReferenceNoticeReasonNamespaceUnavailable ValueReferenceNoticeReason = "namespace_unavailable"
 	ValueReferenceNoticeReasonSelfReference        ValueReferenceNoticeReason = "self_reference"
 	ValueReferenceNoticeReasonUnknownContextField  ValueReferenceNoticeReason = "unknown_context_field"
+	ValueReferenceNoticeReasonUnknownConstName     ValueReferenceNoticeReason = "unknown_const_name"
+	ValueReferenceNoticeReasonUnknownEnvBinding    ValueReferenceNoticeReason = "unknown_env_binding"
 	ValueReferenceNoticeReasonUnknownOutputName    ValueReferenceNoticeReason = "unknown_output_name"
 	ValueReferenceNoticeReasonUnknownStepId        ValueReferenceNoticeReason = "unknown_step_id"
 )
@@ -3823,6 +3831,9 @@ type UsersListResponse struct {
 
 // ValueReferenceNotice A passive notice for a supported value reference left unresolved while loading a spec.
 type ValueReferenceNotice struct {
+	// Class Whether the reference names something the spec does not define, or is well-formed and only lacks a value until a run supplies one.
+	Class *ValueReferenceNoticeClass `json:"class,omitempty"`
+
 	// FieldPath DAG field path associated with the unresolved reference.
 	FieldPath *string `json:"fieldPath,omitempty"`
 
@@ -3835,6 +3846,9 @@ type ValueReferenceNotice struct {
 	// Token Original value-reference token that was preserved.
 	Token *string `json:"token,omitempty"`
 }
+
+// ValueReferenceNoticeClass Whether the reference names something the spec does not define, or is well-formed and only lacks a value until a run supplies one.
+type ValueReferenceNoticeClass string
 
 // ValueReferenceNoticeReason Machine-readable reason why the reference was preserved.
 type ValueReferenceNoticeReason string

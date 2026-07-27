@@ -11324,6 +11324,16 @@ components:
             - self_reference
             - namespace_unavailable
             - unknown_context_field
+            - unknown_env_binding
+            - unknown_const_name
+        class:
+          type: string
+          description: >-
+            Whether the reference names something the spec does not define, or
+            is well-formed and only lacks a value until a run supplies one.
+          enum:
+            - defect
+            - runtime_only
       required:
         - message
 

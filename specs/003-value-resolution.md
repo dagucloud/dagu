@@ -360,6 +360,15 @@ Escaped supported-looking text and unsupported braced text must not produce pass
 
 The notice must identify the owning field and the original reference text.
 The notice must not be shown as a normal validation warning.
+
+Each notice must carry a class.
+A notice is a defect when the reference names a step, output, context field, or
+const the spec does not define, because no run can resolve it.
+A notice is runtime-only when the reference is well formed and the inspecting
+scope simply holds no value for it.
+`dagu validate` must report defects by default and must keep runtime-only
+notices out of its default output; `--show-unresolved` reports both.
+Inspection surfaces that render notices must let a reader tell the two apart.
 Current inspection surfaces are `dagu validate`, the DAG spec inspection API response, and the Web UI spec editor.
 Normal run execution must stay silent.
 Dagu must not write these notices to run logs, workflow events, status files, history files, artifacts, or DAG-run detail responses.

@@ -6,6 +6,7 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"sort"
 	"strings"
@@ -39,24 +40,32 @@ func Validate() *cobra.Command {
 
 Prints a human-readable result instead of structured logs.
 Checks structural correctness and references (e.g., step dependencies)
-similar to the server-side spec validation.`,
+similar to the server-side spec validation.
+
+References whose value only exists during a run, such as ${context.paths.*}
+or an environment variable supplied by the operator, are not reported by
+default. Pass --show-unresolved to list them as well.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx, err := NewContext(cmd, nil)
 			if err != nil {
 				return fmt.Errorf("initialization error: %w", err)
 			}
-			return runValidate(ctx, args)
+			showUnresolved, err := cmd.Flags().GetBool("show-unresolved")
+			if err != nil {
+				return fmt.Errorf("initialization error: %w", err)
+			}
+			return runValidate(ctx, args, showUnresolved)
 		},
 	}
 
 	// Initialize flags required by NewContext
-	initFlags(cmd)
+	initFlags(cmd, showUnresolvedFlag)
 
 	return cmd
 }
 
-func runValidate(ctx *Context, args []string) error {
+func runValidate(ctx *Context, args []string, showUnresolved bool) error {
 	validatedInput, err := validateWorkflowFile(args[0])
 	if err != nil {
 		return errors.New(formatValidationErrors(args[0], err))
@@ -91,21 +100,35 @@ func runValidate(ctx *Context, args []string) error {
 	}
 
 	logValidationWarnings(ctx, args[0], append(dag.BuildWarnings, collectDeprecatedSyntaxWarnings(dag)...))
-	logValueReferenceNotices(ctx, args[0], loadResult.ValueReferenceNotices)
+	logValueReferenceNotices(ctx, args[0], loadResult.ValueReferenceNotices, showUnresolved)
 
 	return nil
 }
 
-func logValueReferenceNotices(ctx *Context, file string, notices []cmnvalue.ValueReferenceNotice) {
+// logValueReferenceNotices reports value-reference notices, separating the ones
+// that name something the spec does not define from the ones that only lack a
+// value because validation evaluates the spec outside a run.
+func logValueReferenceNotices(ctx *Context, file string, notices []cmnvalue.ValueReferenceNotice, showUnresolved bool) {
 	for _, notice := range notices {
 		if notice.Message == "" {
 			continue
 		}
-		if notice.Reason != "" {
-			logger.Info(ctx, notice.Message, tag.File(file), tag.Reason(string(notice.Reason)))
+		class := notice.Class
+		if class == "" {
+			class = notice.Reason.Class()
+		}
+		if class == cmnvalue.NoticeClassRuntimeOnly && !showUnresolved {
 			continue
 		}
-		logger.Info(ctx, notice.Message, tag.File(file))
+		fields := []slog.Attr{tag.File(file)}
+		if notice.Reason != "" {
+			fields = append(fields, tag.Reason(string(notice.Reason)))
+		}
+		if class == cmnvalue.NoticeClassDefect {
+			logger.Warn(ctx, notice.Message, fields...)
+			continue
+		}
+		logger.Info(ctx, notice.Message, fields...)
 	}
 }
 
