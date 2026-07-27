@@ -3071,7 +3071,11 @@ func buildHandlers(ctx BuildContext, d *dag, result *core.DAG) (core.HandlerOn, 
 		if s == nil {
 			return nil, nil
 		}
-		handler, err := buildStepFromSpec(buildCtx, 0, s, d.rawHandler(name), map[string]struct{}{}, defs, name.String())
+		rawHandler := d.rawHandler(name)
+		if err := validateHarnessPromptCommand(buildCtx, rawHandler); err != nil {
+			return nil, err
+		}
+		handler, err := buildStepFromSpec(buildCtx, 0, s, rawHandler, map[string]struct{}{}, defs, name.String())
 		if err != nil {
 			return nil, err
 		}
@@ -3275,6 +3279,9 @@ func buildSteps(ctx BuildContext, d *dag, result *core.DAG) ([]core.Step, error)
 		var steps []core.Step
 		for name, st := range stepsMap {
 			rawStep, _ := v[name].(map[string]any)
+			if err := validateHarnessPromptCommand(buildCtx, rawStep); err != nil {
+				return nil, err
+			}
 			builtStep, err := buildStepFromSpec(buildCtx, 0, &st, rawStep, names, defs, name)
 			if err != nil {
 				return nil, err

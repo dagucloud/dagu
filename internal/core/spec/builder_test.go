@@ -3235,6 +3235,54 @@ steps:
 		assert.Contains(t, err.Error(), "run:")
 	})
 
+	t.Run("PromptShapedCommandIsRejectedInMapFormAndHandlers", func(t *testing.T) {
+		for name, yaml := range map[string]string{
+			"map form": `
+harness:
+  provider: claude
+steps:
+  review:
+    command: "Explain this codebase"
+`,
+			"handler": `
+harness:
+  provider: claude
+handler_on:
+  success:
+    command: "Explain this codebase"
+steps:
+  - action: harness.run
+    with:
+      prompt: "Write tests"
+`,
+		} {
+			t.Run(name, func(t *testing.T) {
+				_, err := spec.LoadYAML(context.Background(), []byte(yaml))
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "action: harness.run")
+			})
+		}
+	})
+
+	t.Run("RunStepIsAcceptedInMapFormAndHandlers", func(t *testing.T) {
+		yaml := `
+harness:
+  provider: claude
+handler_on:
+  success:
+    run: echo done
+steps:
+  review:
+    run: echo hello
+`
+		dag, err := spec.LoadYAML(context.Background(), []byte(yaml))
+		require.NoError(t, err)
+		require.Len(t, dag.Steps, 1)
+		assert.Empty(t, dag.Steps[0].ExecutorConfig.Type)
+		require.NotNil(t, dag.HandlerOn.Success)
+		assert.Empty(t, dag.HandlerOn.Success.ExecutorConfig.Type)
+	})
+
 	t.Run("CommandStepKeepsDAGLevelTransport", func(t *testing.T) {
 		yaml := `
 container:
