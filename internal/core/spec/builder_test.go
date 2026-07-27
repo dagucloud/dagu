@@ -3197,6 +3197,29 @@ steps:
 		assert.Equal(t, "sonnet", dag.Steps[0].ExecutorConfig.Config["model"])
 	})
 
+	t.Run("StepWithCommandKeepsLocalExecutor", func(t *testing.T) {
+		yaml := `
+harness:
+  provider: claude
+  model: sonnet
+steps:
+  - name: prepare
+    run: echo hello
+  - name: step1
+    action: harness.run
+    with:
+      prompt: "Write tests"
+`
+		dag, err := spec.LoadYAML(context.Background(), []byte(yaml))
+		require.NoError(t, err)
+		require.Len(t, dag.Steps, 2)
+
+		assert.Empty(t, dag.Steps[0].ExecutorConfig.Type)
+		require.NotEmpty(t, dag.Steps[0].Commands)
+		assert.Equal(t, "echo", dag.Steps[0].Commands[0].Command)
+		assert.Equal(t, "harness", dag.Steps[1].ExecutorConfig.Type)
+	})
+
 	t.Run("LegacyExplicitTypeOverridesDAGHarness", func(t *testing.T) {
 		yaml := `
 harness:

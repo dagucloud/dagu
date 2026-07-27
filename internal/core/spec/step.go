@@ -2008,7 +2008,10 @@ func buildStepExecutor(ctx StepBuildContext, s *step, result *core.Step) error {
 			result.ExecutorConfig.Type = "ssh"
 		} else if ctx.dag.Redis != nil {
 			result.ExecutorConfig.Type = "redis"
-		} else if ctx.dag.Harness != nil {
+		} else if ctx.dag.Harness != nil && !declaresCommand(s) {
+			// Unlike container and ssh, the harness executor is not a transport:
+			// it runs an agent CLI from its own prompt and has nowhere to put a
+			// command. A step that declares one keeps the local executor.
 			result.ExecutorConfig.Type = "harness"
 		}
 	}
@@ -2066,7 +2069,13 @@ func shouldInferNoopStep(s *step, result *core.Step) bool {
 	if s == nil {
 		return false
 	}
-	return s.Command == nil && s.Exec == nil && strings.TrimSpace(s.Script) == ""
+	return !declaresCommand(s)
+}
+
+// declaresCommand reports whether the step spec carries a command to run
+// locally, in any of the forms that reach the command executor.
+func declaresCommand(s *step) bool {
+	return s != nil && (s.Command != nil || s.Exec != nil || strings.TrimSpace(s.Script) != "")
 }
 
 // mergeRedisConfig merges DAG-level Redis defaults into step config.
