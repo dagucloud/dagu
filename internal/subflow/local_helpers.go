@@ -69,7 +69,7 @@ func inheritedEnvForLocalRunner(envs []string) []string {
 	return filtered
 }
 
-func dagToolsBasePathForLocalRunner(rCtx coreexec.Context) string {
+func toolsBasePath(rCtx coreexec.Context) string {
 	if rCtx.BaseEnv != nil {
 		for _, env := range rCtx.BaseEnv.AsSlice() {
 			key, value, ok := strings.Cut(env, "=")

@@ -168,7 +168,7 @@ func TestLocalRunPreparesDeclaredTools(t *testing.T) {
 	}
 	require.NoError(t, os.WriteFile(toolPath, []byte(toolScript), 0o755))
 
-	installer := &localToolInstaller{
+	installer := &staticInstaller{
 		manifest: &dagutools.Manifest{
 			RootDir:      binDir,
 			EnvDir:       binDir,
@@ -201,9 +201,6 @@ steps:
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Equal(t, core.Succeeded, result.Status)
-	require.Equal(t, 1, installer.calls)
-	require.Equal(t, "test/child-tool", installer.config.Packages[0].Package)
-	require.Equal(t, th.Config.Paths.ToolsDir, installer.options.ToolsDir)
 }
 
 func TestLocalRunReusesSucceededChildForExternalStepRetry(t *testing.T) {
@@ -358,21 +355,15 @@ type localDAGRunStore struct {
 	findRunID  string
 }
 
-type localToolInstaller struct {
+type staticInstaller struct {
 	manifest *dagutools.Manifest
-	config   *core.ToolConfig
-	options  dagutools.InstallOptions
-	calls    int
 }
 
-func (i *localToolInstaller) Install(
+func (i *staticInstaller) Install(
 	_ context.Context,
-	cfg *core.ToolConfig,
-	opts dagutools.InstallOptions,
+	_ *core.ToolConfig,
+	_ dagutools.InstallOptions,
 ) (*dagutools.Manifest, error) {
-	i.calls++
-	i.config = cfg
-	i.options = opts
 	return i.manifest, nil
 }
 

@@ -45,7 +45,7 @@ type Local struct {
 	workerID                 string
 	dagRunLogDir             string
 	dagRunArtifactDir        string
-	toolInstaller            dagutools.Installer
+	installer                dagutools.Installer
 
 	mu     sync.Mutex
 	active map[string]*rtagent.Agent
@@ -59,7 +59,7 @@ type LocalOption func(*Local)
 // WithLocalToolInstaller sets the installer used to make child DAG tools available.
 func WithLocalToolInstaller(installer dagutools.Installer) LocalOption {
 	return func(r *Local) {
-		r.toolInstaller = installer
+		r.installer = installer
 	}
 }
 
@@ -158,10 +158,10 @@ func WithLocalDAGRunDirs(logDir, artifactDir string) LocalOption {
 // NewLocal creates an in-process child workflow runner.
 func NewLocal(dagRunMgr runtime.Manager, dagStore exec.DAGStore, opts ...LocalOption) *Local {
 	r := &Local{
-		dagRunMgr:     dagRunMgr,
-		dagStore:      dagStore,
-		toolInstaller: daguaqua.New(),
-		active:        make(map[string]*rtagent.Agent),
+		dagRunMgr: dagRunMgr,
+		dagStore:  dagStore,
+		installer: daguaqua.New(),
+		active:    make(map[string]*rtagent.Agent),
 	}
 	for _, opt := range opts {
 		opt(r)
@@ -409,11 +409,11 @@ func (r *Local) prepareDAGTools(ctx context.Context, rCtx exec.Context, dag *cor
 	if dag != nil {
 		workDir = dag.WorkingDir
 	}
-	return dagutools.PrepareDAG(ctx, dag, r.toolInstaller, dagutools.InstallOptions{
+	return dagutools.PrepareDAG(ctx, dag, r.installer, dagutools.InstallOptions{
 		ToolsDir: cfg.Paths.ToolsDir,
 		DataDir:  cfg.Paths.DataDir,
 		WorkDir:  workDir,
-	}, dagToolsBasePathForLocalRunner(rCtx))
+	}, toolsBasePath(rCtx))
 }
 
 func (r *Local) runAgent(ctx context.Context, runID string, child *rtagent.Agent) (*exec.RunStatus, error) {
