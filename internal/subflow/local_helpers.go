@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/dagucloud/dagu/internal/cmn/fileutil"
+	coreexec "github.com/dagucloud/dagu/internal/core/exec"
 	"github.com/dagucloud/dagu/internal/runtime/executor"
 	"github.com/dagucloud/dagu/internal/runtime/workspacebundle"
 	dagutools "github.com/dagucloud/dagu/internal/tools"
@@ -66,6 +67,18 @@ func inheritedEnvForLocalRunner(envs []string) []string {
 		filtered = append(filtered, env)
 	}
 	return filtered
+}
+
+func dagToolsBasePathForLocalRunner(rCtx coreexec.Context) string {
+	if rCtx.BaseEnv != nil {
+		for _, env := range rCtx.BaseEnv.AsSlice() {
+			key, value, ok := strings.Cut(env, "=")
+			if ok && strings.EqualFold(key, "PATH") {
+				return value
+			}
+		}
+	}
+	return os.Getenv("PATH")
 }
 
 func hasDAGToolsEnv(envs []string) bool {
