@@ -563,7 +563,7 @@ func (e *parallelExecutor) newChildExecutor(
 		return nil, err
 	}
 
-	workerSelector, err := resolveWorkerSelector(ctx, e.step.WorkerSelector, workerSelectorExtra(runParams))
+	workerSelector, err := effectiveWorkerSelector(ctx, e.step, child.DAG, runParams)
 	if err != nil {
 		_ = child.Cleanup(context.WithoutCancel(ctx))
 		return nil, err

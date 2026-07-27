@@ -64,16 +64,12 @@ func newDAGExecutor(ctx context.Context, step core.Step) (executor.Executor, err
 		return nil, err
 	}
 
-	workerSelector, err := resolveWorkerSelector(ctx, step.WorkerSelector, nil)
-	if err != nil {
+	// Validate structural constraints up front;
+	// worker selector is resolved in Run once runtime params are available.
+	if err := validateSubDAG(child.DAG, step.SubDAG.Name, nil); err != nil {
 		_ = child.Cleanup(context.WithoutCancel(ctx))
 		return nil, err
 	}
-	if err := validateSubDAG(child.DAG, step.SubDAG.Name, workerSelector); err != nil {
-		_ = child.Cleanup(context.WithoutCancel(ctx))
-		return nil, err
-	}
-	child.SetWorkerSelector(workerSelector)
 
 	dir := runtime.GetEnv(ctx).WorkingDir
 	if dir != "" && !fileutil.FileExists(dir) {
@@ -99,6 +95,15 @@ func (e *dagExecutor) Run(ctx context.Context) error {
 			logger.Error(ctx, "Failed to cleanup sub DAG executor", tag.Error(err))
 		}
 	}()
+
+	workerSelector, err := effectiveWorkerSelector(ctx, e.step, e.child.DAG, e.runParams)
+	if err != nil {
+		return err
+	}
+	if err := validateSubDAG(e.child.DAG, e.child.DAG.Name, workerSelector); err != nil {
+		return err
+	}
+	e.child.SetWorkerSelector(workerSelector)
 
 	result, execErr := e.child.Execute(ctx, e.runParams, e.workDir)
 	if result != nil {
