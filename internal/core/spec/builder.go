@@ -411,15 +411,20 @@ func validateHarnessPromptCommand(ctx StepBuildContext, raw map[string]any) erro
 	if _, hasCommand := raw["command"]; !hasCommand {
 		return nil
 	}
-	for _, key := range []string{"action", "type", "exec", "script", "container"} {
+	for _, key := range []string{"action", "type", "exec", "container"} {
 		if _, ok := raw[key]; ok {
 			return nil
 		}
 	}
+	// script: alongside command: was the way to hand an agent context on stdin,
+	// so name the field that carries it now.
+	agentForm := "`action: harness.run` with `with.prompt`"
+	if _, hasScript := raw["script"]; hasScript {
+		agentForm = "`action: harness.run` with `with.prompt` and `with.stdin`"
+	}
 	return core.NewValidationError("command", raw["command"],
 		fmt.Errorf("a DAG-level harness: block no longer sets the step type: "+
-			"use `action: harness.run` with `with.prompt` to send this to the agent, "+
-			"or `run:` to execute it locally"))
+			"use %s to send this to the agent, or `run:` to execute it locally", agentForm))
 }
 
 func decodeStep(raw map[string]any) (*step, error) {
