@@ -443,6 +443,7 @@ func buildStepFromRaw(ctx StepBuildContext, idx int, raw map[string]any, names m
 	if err != nil {
 		return nil, err
 	}
+	_, st.commandFromRun = raw["run"]
 	builtStep, err := buildStepFromSpec(ctx, idx, st, normalizedRaw, names, defs, "")
 	if err != nil {
 		return nil, err
@@ -471,6 +472,7 @@ func buildStepFromSpec(
 			if err != nil {
 				return nil, err
 			}
+			normalizedSpec.commandFromRun = hasRun
 			st = normalizedSpec
 			raw = normalizedRaw
 		}

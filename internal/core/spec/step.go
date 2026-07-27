@@ -142,6 +142,9 @@ type step struct {
 	parsedOutputErr    error
 	parsedOutputCached bool
 	outputsSet         bool
+	// commandFromRun reports that Command was normalized from the v2 run:
+	// field, which names a command to execute rather than an executor payload.
+	commandFromRun bool
 }
 
 type execSpec struct {
@@ -2008,10 +2011,11 @@ func buildStepExecutor(ctx StepBuildContext, s *step, result *core.Step) error {
 			result.ExecutorConfig.Type = "ssh"
 		} else if ctx.dag.Redis != nil {
 			result.ExecutorConfig.Type = "redis"
-		} else if ctx.dag.Harness != nil && !declaresCommand(s) {
+		} else if ctx.dag.Harness != nil && !s.commandFromRun {
 			// Unlike container and ssh, the harness executor is not a transport:
-			// it runs an agent CLI from its own prompt and has nowhere to put a
-			// command. A step that declares one keeps the local executor.
+			// it reads the step's command as the prompt it sends an agent CLI,
+			// which is how a command: step names its prompt. A step written
+			// with run: asked for a local command, so it keeps one.
 			result.ExecutorConfig.Type = "harness"
 		}
 	}
