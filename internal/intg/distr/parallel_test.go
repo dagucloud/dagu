@@ -132,10 +132,8 @@ steps:
 	})
 }
 
-func TestParallel_WorkerSelectorParams(t *testing.T) {
+func TestParallel_ChildSelectorParams(t *testing.T) {
 	f := newTestFixture(t, `
-env:
-  WORKLOAD: batch
 steps:
   - name: route-item
     action: dag.run
@@ -144,8 +142,6 @@ steps:
       params: "FACILITY=${ITEM}"
     parallel:
       items: ["serverA"]
-    worker_selector:
-      workload: ${WORKLOAD}-${ITEM}
 
 ---
 name: child-routed
@@ -153,10 +149,12 @@ params:
   - name: FACILITY
     type: string
     required: true
+worker_selector:
+  host: ${FACILITY}
 steps:
   - name: process
     run: echo "$FACILITY"
-`, withLabels(map[string]string{"workload": "batch-serverA"}))
+`, withLabels(map[string]string{"host": "serverA"}))
 
 	agent := f.dagWrapper.Agent()
 	agent.RunSuccess(t)
