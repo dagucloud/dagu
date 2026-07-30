@@ -132,11 +132,10 @@ steps:
 	})
 }
 
-// TestParallel_ItemWorkerSelectorWithExplicitParams verifies that ${ITEM} in a
-// parallel step's worker_selector resolves to the original item even when
-// explicit sub-DAG params replace the item-derived params.
 func TestParallel_ItemWorkerSelectorWithExplicitParams(t *testing.T) {
 	f := newTestFixture(t, `
+env:
+  WORKLOAD: batch
 steps:
   - name: route-item
     action: dag.run
@@ -146,7 +145,7 @@ steps:
     parallel:
       items: ["serverA"]
     worker_selector:
-      host: ${ITEM}
+      workload: ${WORKLOAD}-${ITEM}
 
 ---
 name: child-routed
@@ -157,7 +156,7 @@ params:
 steps:
   - name: process
     run: echo "$FACILITY"
-`, withLabels(map[string]string{"host": "serverA"}))
+`, withLabels(map[string]string{"workload": "batch-serverA"}))
 
 	agent := f.dagWrapper.Agent()
 	agent.RunSuccess(t)

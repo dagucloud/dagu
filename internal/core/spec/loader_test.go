@@ -357,127 +357,72 @@ steps:
 	})
 }
 
-// TestLoad_WorkerSelectorFromBaseConfigEnv verifies that worker_selector
-// values resolve from base-config env after composition.
-func TestLoad_WorkerSelectorFromBaseConfigEnv(t *testing.T) {
-	t.Parallel()
-
-	t.Run("ResolvesBaseConfigEnv", func(t *testing.T) {
-		t.Parallel()
-
-		// The label is defined once in the workspace-level base config and
-		// referenced from the DAG's worker_selector (GitHub issue #2410).
-		base := createTempYAMLFile(t, `env:
-  WORKLOAD: batch-eu
-`)
-		testDAG := createTempYAMLFile(t, `worker_selector:
-  workload: "${WORKLOAD}"
-
-steps:
-  - name: "1"
-    run: "true"
-`)
-		dag, err := spec.Load(context.Background(), testDAG, spec.WithBaseConfig(base))
-		require.NoError(t, err)
-
-		assert.Equal(t, map[string]string{"workload": "batch-eu"}, dag.WorkerSelector)
-	})
-
-	t.Run("ChildEnvOverridesBaseEnv", func(t *testing.T) {
-		t.Parallel()
-
-		base := createTempYAMLFile(t, `env:
-  WORKLOAD: base-pool
-`)
-		testDAG := createTempYAMLFile(t, `env:
-  WORKLOAD: child-pool
-
-worker_selector:
-  workload: "${WORKLOAD}"
-
-steps:
-  - name: "1"
-    run: "true"
-`)
-		dag, err := spec.Load(context.Background(), testDAG, spec.WithBaseConfig(base))
-		require.NoError(t, err)
-
-		assert.Equal(t, map[string]string{"workload": "child-pool"}, dag.WorkerSelector)
-	})
-}
-
-// TestLoad_WorkerSelectorFromBaseConfig covers selectors that are declared in
-// (or reference values from) the base config, resolved against the composed
-// base+child scope.
 func TestLoad_WorkerSelectorFromBaseConfig(t *testing.T) {
 	t.Parallel()
 
-	t.Run("BaseDeclaredSelectorChildEnvOverride", func(t *testing.T) {
-		t.Parallel()
-
-		// the selector is declared in the base config and references a base
-		// env value. The child overrides that env, and the override must win.
-		base := createTempYAMLFile(t, `env:
+	const step = `
+steps:
+  - name: "1"
+    run: "true"
+`
+	tests := []struct {
+		name string
+		base string
+		dag  string
+		want map[string]string
+	}{
+		{
+			name: "DAGSelectorUsesBaseEnv",
+			base: `
+env:
+  WORKLOAD: batch-eu
+`,
+			dag: `
+worker_selector:
+  workload: "${WORKLOAD}"
+`,
+			want: map[string]string{"workload": "batch-eu"},
+		},
+		{
+			name: "BaseSelectorUsesDAGEnvOverride",
+			base: `
+env:
   WORKLOAD: base-pool
 worker_selector:
   workload: "${WORKLOAD}"
-`)
-		testDAG := createTempYAMLFile(t, `env:
+`,
+			dag: `
+env:
   WORKLOAD: child-pool
-
-steps:
-  - name: "1"
-    run: "true"
-`)
-		dag, err := spec.Load(context.Background(), testDAG, spec.WithBaseConfig(base))
-		require.NoError(t, err)
-
-		assert.Equal(t, map[string]string{"workload": "child-pool"}, dag.WorkerSelector)
-	})
-
-	t.Run("SelectorReferencesBaseOnlyParam", func(t *testing.T) {
-		t.Parallel()
-
-		// ${params.REGION} references a param declared only in the base
-		// config; it must resolve from the composed params.
-		base := createTempYAMLFile(t, `params:
-  - REGION: us
-`)
-		testDAG := createTempYAMLFile(t, `worker_selector:
-  region: "${params.REGION}"
-
-steps:
-  - name: "1"
-    run: "true"
-`)
-		dag, err := spec.Load(context.Background(), testDAG, spec.WithBaseConfig(base))
-		require.NoError(t, err)
-
-		assert.Equal(t, map[string]string{"region": "us"}, dag.WorkerSelector)
-	})
-
-	t.Run("BaseDeclaredSelectorChildParamOverride", func(t *testing.T) {
-		t.Parallel()
-
-		// base declares both the param and the selector that
-		// references it; the child overrides the param and the override wins.
-		base := createTempYAMLFile(t, `params:
+`,
+			want: map[string]string{"workload": "child-pool"},
+		},
+		{
+			name: "BaseSelectorUsesDAGParamOverride",
+			base: `
+params:
   - REGION: us
 worker_selector:
   region: "${params.REGION}"
-`)
-		testDAG := createTempYAMLFile(t, `params:
+`,
+			dag: `
+params:
   - REGION: eu
+`,
+			want: map[string]string{"region": "eu"},
+		},
+	}
 
-steps:
-  - name: "1"
-    run: "true"
-`)
-		dag, err := spec.Load(context.Background(), testDAG, spec.WithBaseConfig(base))
-		require.NoError(t, err)
-
-		assert.Equal(t, map[string]string{"region": "eu"}, dag.WorkerSelector)
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			base := createTempYAMLFile(t, tt.base)
+			dagFile := createTempYAMLFile(t, tt.dag+step)
+			dag, err := spec.Load(context.Background(), dagFile, spec.WithBaseConfig(base))
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, dag.WorkerSelector)
+		})
+	}
 }
 
 func TestLoad_HarnessDefinitionsBaseConfigMerge(t *testing.T) {

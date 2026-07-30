@@ -1018,8 +1018,6 @@ func TestBuildMaxCleanUpTime(t *testing.T) {
 	}
 }
 
-// TestBuildWorkerSelector verifies parsing of the worker_selector field,
-// including the string form "local" and invalid value types.
 func TestBuildWorkerSelector(t *testing.T) {
 	t.Parallel()
 
@@ -1110,124 +1108,88 @@ func TestBuildWorkerSelector(t *testing.T) {
 	}
 }
 
-// TestWorkerSelectorEvaluation verifies that DAG-level worker_selector keys
-// and values resolve env and param references at build time.
 func TestWorkerSelectorEvaluation(t *testing.T) {
 	t.Parallel()
 
-	t.Run("EnvValue", func(t *testing.T) {
-		t.Parallel()
-		dag, err := LoadYAML(context.Background(), []byte(`
-env:
-  WORKLOAD: intraday
-worker_selector:
-  workload: ${WORKLOAD}
+	const step = `
 steps:
   - name: task
     run: echo hello
-`))
-		require.NoError(t, err)
-		assert.Equal(t, map[string]string{"workload": "intraday"}, dag.WorkerSelector)
-	})
-
-	t.Run("ParamValue", func(t *testing.T) {
-		t.Parallel()
-		dag, err := LoadYAML(context.Background(), []byte(`
-params: REGION=eu-west
-worker_selector:
-  region: ${REGION}
-steps:
-  - name: task
-    run: echo hello
-`))
-		require.NoError(t, err)
-		assert.Equal(t, map[string]string{"region": "eu-west"}, dag.WorkerSelector)
-	})
-
-	t.Run("KeySubstitution", func(t *testing.T) {
-		t.Parallel()
-		dag, err := LoadYAML(context.Background(), []byte(`
+`
+	tests := []struct {
+		name    string
+		yaml    string
+		opts    []LoadOption
+		want    map[string]string
+		wantErr string
+	}{
+		{
+			name: "EnvParamsAndKey",
+			yaml: `
 env:
   LABEL_KEY: workload
+  WORKLOAD: intraday
+params: REGION=eu-west
 worker_selector:
-  ${LABEL_KEY}: fast
-steps:
-  - name: task
-    run: echo hello
-`))
-		require.NoError(t, err)
-		assert.Equal(t, map[string]string{"workload": "fast"}, dag.WorkerSelector)
-	})
-
-	t.Run("EmptyResolvedKey", func(t *testing.T) {
-		t.Parallel()
-		_, err := LoadYAML(context.Background(), []byte(`
+  ${LABEL_KEY}: ${WORKLOAD}
+  region: ${REGION}
+`,
+			want: map[string]string{"workload": "intraday", "region": "eu-west"},
+		},
+		{
+			name: "EmptyResolvedKey",
+			yaml: `
 env:
   LABEL_KEY: "  "
 worker_selector:
   ${LABEL_KEY}: fast
-steps:
-  - name: task
-    run: echo hello
-`))
-		require.ErrorContains(t, err, "resolved to an empty key")
-	})
-
-	t.Run("DuplicateResolvedKeys", func(t *testing.T) {
-		t.Parallel()
-		_, err := LoadYAML(context.Background(), []byte(`
+`,
+			wantErr: "resolved to an empty key",
+		},
+		{
+			name: "DuplicateResolvedKeys",
+			yaml: `
 env:
   LABEL_KEY: workload
 worker_selector:
   ${LABEL_KEY}: fast
   workload: slow
-steps:
-  - name: task
-    run: echo hello
-`))
-		require.ErrorContains(t, err, `duplicate key "workload"`)
-	})
-
-	t.Run("UndefinedVariableStaysLiteral", func(t *testing.T) {
-		t.Parallel()
-		dag, err := LoadYAML(context.Background(), []byte(`
+`,
+			wantErr: `duplicate key "workload"`,
+		},
+		{
+			name: "UndefinedVariableStaysLiteral",
+			yaml: `
 worker_selector:
   workload: ${UNDEFINED_WORKER_SELECTOR_VAR}
-steps:
-  - name: task
-    run: echo hello
-`))
-		require.NoError(t, err)
-		assert.Equal(t, map[string]string{"workload": "${UNDEFINED_WORKER_SELECTOR_VAR}"}, dag.WorkerSelector)
-	})
-
-	t.Run("WithoutEvalLeavesRaw", func(t *testing.T) {
-		t.Parallel()
-		dag, err := LoadYAML(context.Background(), []byte(`
+`,
+			want: map[string]string{"workload": "${UNDEFINED_WORKER_SELECTOR_VAR}"},
+		},
+		{
+			name: "WithoutEvalLeavesRaw",
+			yaml: `
 env:
   WORKLOAD: intraday
 worker_selector:
   workload: ${WORKLOAD}
-steps:
-  - name: task
-    run: echo hello
-`), WithoutEval())
-		require.NoError(t, err)
-		assert.Equal(t, map[string]string{"workload": "${WORKLOAD}"}, dag.WorkerSelector)
-	})
+`,
+			opts: []LoadOption{WithoutEval()},
+			want: map[string]string{"workload": "${WORKLOAD}"},
+		},
+	}
 
-	t.Run("LocalStillForcesLocal", func(t *testing.T) {
-		t.Parallel()
-		dag, err := LoadYAML(context.Background(), []byte(`
-worker_selector: local
-steps:
-  - name: task
-    run: echo hello
-`))
-		require.NoError(t, err)
-		assert.True(t, dag.ForceLocal)
-		assert.Empty(t, dag.WorkerSelector)
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			dag, err := LoadYAML(context.Background(), []byte(tt.yaml+step), tt.opts...)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, dag.WorkerSelector)
+		})
+	}
 }
 
 func TestBuildWebhookConfig(t *testing.T) {

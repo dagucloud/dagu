@@ -274,41 +274,6 @@ func TestBuildSubDAGRunsAddressesPreviousAttemptRuns(t *testing.T) {
 	require.Equal(t, firstAttempt, buildIDs(t, retried))
 }
 
-func TestBuildSubDAGRunParamsResolvesWorkerSelectorWithParallelItem(t *testing.T) {
-	t.Parallel()
-
-	subDAG := &core.SubDAG{
-		Name:   "child",
-		Params: "FACILITY=${ITEM}",
-	}
-	step := core.Step{
-		Name:           "run-child",
-		SubDAG:         subDAG,
-		WorkerSelector: map[string]string{"workload": "${WORKLOAD}-${ITEM}"},
-		Parallel: &core.ParallelConfig{
-			Items: []core.ParallelItem{{Value: "serverA"}, {Value: "serverB"}},
-		},
-	}
-	dag := &core.DAG{Name: "root", Steps: []core.Step{step}}
-	ctx := NewContextForTest(context.Background(), dag, "root-run", "")
-	env := NewEnv(ctx, step)
-	env.Scope = env.Scope.WithEntry("WORKLOAD", "batch", cmnvalue.EnvSourceDAGEnv)
-	ctx = WithEnv(ctx, env)
-
-	runParams, err := NewNode(step, NodeState{}).buildSubDAGRunParams(ctx, subDAG)
-	require.NoError(t, err)
-	require.Len(t, runParams, 2)
-
-	selectorsByParams := make(map[string]map[string]string, len(runParams))
-	for _, params := range runParams {
-		selectorsByParams[params.Params] = params.WorkerSelector
-	}
-	require.Equal(t, map[string]map[string]string{
-		"FACILITY=serverA": {"workload": "batch-serverA"},
-		"FACILITY=serverB": {"workload": "batch-serverB"},
-	}, selectorsByParams)
-}
-
 func TestBuildSubDAGRunParamsRejectsConflictingSelectorsForDeduplicatedRun(t *testing.T) {
 	t.Parallel()
 

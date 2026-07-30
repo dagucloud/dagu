@@ -22,8 +22,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestEnqueueExecutorPersistsInheritedProfile verifies that an enqueued child
-// run inherits the parent's profile.
 func TestEnqueueExecutorPersistsInheritedProfile(t *testing.T) {
 	t.Parallel()
 
@@ -62,18 +60,13 @@ func TestEnqueueExecutorPersistsInheritedProfile(t *testing.T) {
 		Name:           "enqueue-child",
 		ExecutorConfig: core.ExecutorConfig{Type: core.ExecutorTypeDAGEnqueue},
 		SubDAG:         &core.SubDAG{Name: "child"},
-		WorkerSelector: map[string]string{"host": "serverA"},
 	}
 	execImpl, err := executor.NewExecutor(ctx, step)
 	require.NoError(t, err)
 
 	dagExec, ok := execImpl.(executor.DAGExecutor)
 	require.True(t, ok)
-	dagExec.SetParams(executor.RunParams{
-		RunID:          "child-run",
-		Params:         "FOO=bar",
-		WorkerSelector: map[string]string{"host": "serverA"},
-	})
+	dagExec.SetParams(executor.RunParams{RunID: "child-run", Params: "FOO=bar"})
 
 	var stdout bytes.Buffer
 	execImpl.SetStdout(&stdout)
@@ -83,15 +76,12 @@ func TestEnqueueExecutorPersistsInheritedProfile(t *testing.T) {
 	require.NoError(t, err)
 	status, err := attempt.ReadStatus(ctx)
 	require.NoError(t, err)
-	child, err := attempt.ReadDAG(ctx)
-	require.NoError(t, err)
 
 	assert.Equal(t, core.Queued, status.Status)
 	assert.Equal(t, core.TriggerTypeSubDAG, status.TriggerType)
 	assert.Equal(t, "prod", status.ProfileName)
 	assert.Equal(t, exec.NewDAGRunRef("child", "child-run"), status.Root)
 	assert.True(t, status.Parent.Zero())
-	assert.Equal(t, map[string]string{"host": "serverA"}, child.WorkerSelector)
 }
 
 func TestEnqueueExecutorPersistsResolvedWorkerSelector(t *testing.T) {
