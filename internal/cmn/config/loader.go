@@ -202,6 +202,11 @@ func (l *ConfigLoader) Load() (*Config, error) {
 		}
 	}
 
+	var configFilesUsed []string
+	if l.v.ConfigFileUsed() != "" {
+		configFilesUsed = append(configFilesUsed, l.v.ConfigFileUsed())
+	}
+
 	if err := checkForLegacyKeys(l.v); err != nil {
 		return nil, err
 	}
@@ -223,6 +228,7 @@ func (l *ConfigLoader) Load() (*Config, error) {
 			return nil, fmt.Errorf("failed to read admin config: %w", err)
 		}
 	} else if l.requires(SectionServer) {
+		configFilesUsed = append(configFilesUsed, l.v.ConfigFileUsed())
 		if err := l.mergeTrustedProxyMappingsFile(l.v.ConfigFileUsed()); err != nil {
 			return nil, err
 		}
@@ -251,6 +257,13 @@ func (l *ConfigLoader) Load() (*Config, error) {
 	}
 
 	cfg.Paths.ConfigFileUsed = configFileUsed
+	for _, filename := range configFilesUsed {
+		resolved, err := l.resolvePath("config file", filename)
+		if err != nil {
+			return nil, err
+		}
+		cfg.Paths.ConfigFilesUsed = append(cfg.Paths.ConfigFilesUsed, resolved)
+	}
 	l.finalizeBaseEnv(cfg)
 	cfg.Notices = l.notices
 	cfg.Warnings = l.warnings

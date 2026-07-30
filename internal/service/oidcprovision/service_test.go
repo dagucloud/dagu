@@ -576,13 +576,10 @@ func TestIsEmailAllowed(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc := &Service{
-				config: Config{
-					AllowedDomains: tt.allowedDomains,
-					Whitelist:      tt.whitelist,
-				},
-			}
-			result := svc.isEmailAllowed(tt.email)
+			result := isEmailAllowed(ProvisioningPolicy{
+				AllowedDomains: tt.allowedDomains,
+				Whitelist:      tt.whitelist,
+			}, tt.email)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
@@ -831,6 +828,79 @@ func TestProcessLogin_SyncsAuthorizationOnce(t *testing.T) {
 	_, _, err = svc.ProcessLogin(context.Background(), claims)
 	require.NoError(t, err)
 	assert.Equal(t, 1, store.updateCalls)
+}
+
+func TestProcessLoginLoadsCurrentPolicy(t *testing.T) {
+	store := newMockUserStore()
+	currentPolicy := ProvisioningPolicy{
+		AutoSignup: true,
+		RoleMapping: RoleMapperConfig{
+			GroupMappings: map[string]string{"team": "manager"},
+			DefaultRole:   auth.RoleViewer,
+		},
+	}
+	loadCalls := 0
+	svc, err := New(store, Config{
+		Issuer:      "https://issuer.example.com",
+		AutoSignup:  true,
+		DefaultRole: auth.RoleViewer,
+		LoadPolicy: func(context.Context) (ProvisioningPolicy, error) {
+			loadCalls++
+			return currentPolicy, nil
+		},
+	})
+	require.NoError(t, err)
+
+	claims := OIDCClaims{
+		Subject:           "subject",
+		Email:             "user@example.com",
+		PreferredUsername: "user",
+		RawClaims:         map[string]any{"groups": []any{"team"}},
+	}
+	user, created, err := svc.ProcessLogin(context.Background(), claims)
+	require.NoError(t, err)
+	require.True(t, created)
+	require.Equal(t, auth.RoleManager, user.Role)
+
+	currentPolicy.RoleMapping.GroupMappings = map[string]string{"team": "viewer"}
+	user, created, err = svc.ProcessLogin(context.Background(), claims)
+	require.NoError(t, err)
+	require.False(t, created)
+	require.Equal(t, auth.RoleViewer, user.Role)
+	require.Equal(t, 2, loadCalls)
+}
+
+func TestProcessLoginRejectsUnavailablePolicyWithoutChangingAuthorization(t *testing.T) {
+	store := newMockUserStore()
+	existing := &auth.User{
+		ID:              "existing-id",
+		Username:        "existing",
+		Role:            auth.RoleManager,
+		WorkspaceAccess: auth.AllWorkspaceAccess(),
+		AuthProvider:    auth.AuthProviderOIDC,
+		OIDCIssuer:      "https://issuer.example.com",
+		OIDCSubject:     "subject",
+	}
+	require.NoError(t, store.Create(context.Background(), existing))
+
+	svc, err := New(store, Config{
+		Issuer:      "https://issuer.example.com",
+		DefaultRole: auth.RoleViewer,
+		LoadPolicy: func(context.Context) (ProvisioningPolicy, error) {
+			return ProvisioningPolicy{}, errors.New("invalid mapping")
+		},
+	})
+	require.NoError(t, err)
+
+	_, created, err := svc.ProcessLogin(context.Background(), OIDCClaims{
+		Subject:   "subject",
+		Email:     "existing@example.com",
+		RawClaims: map[string]any{"groups": []any{"team"}},
+	})
+	require.ErrorIs(t, err, ErrPolicyUnavailable)
+	require.False(t, created)
+	require.Equal(t, auth.RoleManager, existing.Role)
+	require.Zero(t, store.updateCalls)
 }
 
 type authorizationChangedAfterOIDCLookupStore struct {

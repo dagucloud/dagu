@@ -11,6 +11,8 @@ import (
 	"github.com/dagucloud/dagu/api/v1"
 	"github.com/dagucloud/dagu/internal/auth"
 	"github.com/dagucloud/dagu/internal/cmn/config"
+	"github.com/dagucloud/dagu/internal/cmn/logger"
+	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/license"
 	"github.com/dagucloud/dagu/internal/service/audit"
 	authservice "github.com/dagucloud/dagu/internal/service/auth"
@@ -29,12 +31,13 @@ func (a *API) ListUsers(ctx context.Context, _ api.ListUsersRequestObject) (api.
 	if err != nil {
 		return nil, err
 	}
-	workspaceAccessSyncEnabled := a.oidcWorkspaceAccessSyncEnabled()
+	roleMapping := a.currentOIDCRoleMapping(ctx)
+	workspaceAccessSyncEnabled := a.oidcWorkspaceAccessSyncEnabled(roleMapping)
 
 	return api.ListUsers200JSONResponse{
 		Users:                           toAPIUsers(users),
 		OidcWorkspaceAccessSyncEnabled:  &workspaceAccessSyncEnabled,
-		ManagedRoleProviders:            a.managedProviders(a.oidcAuthorizationSyncEnabled()),
+		ManagedRoleProviders:            a.managedProviders(a.oidcAuthorizationSyncEnabled(roleMapping)),
 		ManagedWorkspaceAccessProviders: a.managedProviders(workspaceAccessSyncEnabled),
 	}, nil
 }
@@ -59,22 +62,35 @@ func (a *API) managedProviders(oidcSyncEnabled bool) []api.UserAuthProvider {
 	return providers
 }
 
-func (a *API) oidcWorkspaceAccessSyncEnabled() bool {
-	return a.oidcSyncEnabled() &&
-		a.config.Server.Auth.OIDC.RoleMapping.WorkspaceAccessPolicyActive()
+func (a *API) currentOIDCRoleMapping(ctx context.Context) config.OIDCRoleMapping {
+	if a.config == nil {
+		return config.OIDCRoleMapping{}
+	}
+	if a.oidcPolicyLoader == nil {
+		return a.config.Server.Auth.OIDC.RoleMapping
+	}
+	policy, err := a.oidcPolicyLoader()
+	if err != nil {
+		logger.Warn(ctx, "Failed to load current OIDC provisioning policy", tag.Error(err))
+		return a.config.Server.Auth.OIDC.RoleMapping
+	}
+	return policy.RoleMapping
 }
 
-func (a *API) oidcAuthorizationSyncEnabled() bool {
-	if !a.oidcSyncEnabled() {
+func (a *API) oidcWorkspaceAccessSyncEnabled(mapping config.OIDCRoleMapping) bool {
+	return a.oidcSyncEnabled(mapping) && mapping.WorkspaceAccessPolicyActive()
+}
+
+func (a *API) oidcAuthorizationSyncEnabled(mapping config.OIDCRoleMapping) bool {
+	if !a.oidcSyncEnabled(mapping) {
 		return false
 	}
-	mapping := a.config.Server.Auth.OIDC.RoleMapping
 	return len(mapping.GroupMappings) > 0 ||
 		mapping.RoleAttributePath != "" ||
 		mapping.WorkspaceAccessPolicyActive()
 }
 
-func (a *API) oidcSyncEnabled() bool {
+func (a *API) oidcSyncEnabled(mapping config.OIDCRoleMapping) bool {
 	if a.config == nil {
 		return false
 	}
@@ -84,7 +100,7 @@ func (a *API) oidcSyncEnabled() bool {
 	authConfig := a.config.Server.Auth
 	return authConfig.Mode == config.AuthModeBuiltin &&
 		authConfig.OIDC.IsConfigured() &&
-		!authConfig.OIDC.RoleMapping.SkipOrgRoleSync
+		!mapping.SkipOrgRoleSync
 }
 
 // CreateUser creates a new user. Requires admin role.

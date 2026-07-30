@@ -183,6 +183,7 @@ func TestLoad_Env(t *testing.T) {
 
 	require.NotEmpty(t, cfg.Paths.ConfigFileUsed)
 	cfg.Paths.ConfigFileUsed = ""
+	cfg.Paths.ConfigFilesUsed = nil
 
 	expected := &Config{
 		Core: Core{
@@ -1201,6 +1202,7 @@ func loadFromYAML(t *testing.T, yamlContent string) *Config {
 
 	cfg := testLoad(t, WithConfigFile(configFile))
 	cfg.Paths.ConfigFileUsed = ""
+	cfg.Paths.ConfigFilesUsed = nil
 	return cfg
 }
 

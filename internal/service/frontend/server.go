@@ -172,6 +172,24 @@ func toOIDCWorkspaceMappings(mappings map[string][]config.OIDCWorkspaceGrant) ma
 	return result
 }
 
+func toOIDCProvisioningPolicy(policy config.OIDCProvisioningPolicy) oidcprovision.ProvisioningPolicy {
+	return oidcprovision.ProvisioningPolicy{
+		AutoSignup:     policy.AutoSignup,
+		AllowedDomains: policy.AllowedDomains,
+		Whitelist:      policy.Whitelist,
+		RoleMapping: oidcprovision.RoleMapperConfig{
+			GroupsClaim:            policy.RoleMapping.GroupsClaim,
+			GroupMappings:          policy.RoleMapping.GroupMappings,
+			WorkspaceMappings:      toOIDCWorkspaceMappings(policy.RoleMapping.WorkspaceMappings),
+			DefaultWorkspaceAccess: policy.RoleMapping.DefaultWorkspaceAccess,
+			RoleAttributePath:      policy.RoleMapping.RoleAttributePath,
+			RoleAttributeStrict:    policy.RoleMapping.RoleAttributeStrict,
+			SkipOrgRoleSync:        policy.RoleMapping.SkipOrgRoleSync,
+			DefaultRole:            authmodel.Role(policy.RoleMapping.DefaultRole),
+		},
+	}
+}
+
 func toTrustedProxyGroupMappings(mappings map[string]string) map[string]authmodel.Role {
 	if len(mappings) == 0 {
 		return nil
@@ -340,22 +358,27 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 		if oidcCfg.IsConfigured() {
 			oidcEnabled = true
 			oidcButtonLabel = oidcCfg.ButtonLabel
+			initialPolicy := oidcCfg.ProvisioningPolicy()
+			initialProvisioningPolicy := toOIDCProvisioningPolicy(initialPolicy)
+			policyLoader := config.NewOIDCProvisioningPolicyLoader(
+				cfg.Paths.ConfigFilesUsed,
+				initialPolicy,
+			)
+			apiOpts = append(apiOpts, apiv1.WithOIDCProvisioningPolicyLoader(policyLoader.Load))
 
 			provisionCfg := oidcprovision.Config{
 				Issuer:         oidcCfg.Issuer,
-				AutoSignup:     oidcCfg.AutoSignup,
-				DefaultRole:    authmodel.Role(oidcCfg.RoleMapping.DefaultRole),
-				AllowedDomains: oidcCfg.AllowedDomains,
-				Whitelist:      oidcCfg.Whitelist,
-				RoleMapping: oidcprovision.RoleMapperConfig{
-					GroupsClaim:            oidcCfg.RoleMapping.GroupsClaim,
-					GroupMappings:          oidcCfg.RoleMapping.GroupMappings,
-					WorkspaceMappings:      toOIDCWorkspaceMappings(oidcCfg.RoleMapping.WorkspaceMappings),
-					DefaultWorkspaceAccess: oidcCfg.RoleMapping.DefaultWorkspaceAccess,
-					RoleAttributePath:      oidcCfg.RoleMapping.RoleAttributePath,
-					RoleAttributeStrict:    oidcCfg.RoleMapping.RoleAttributeStrict,
-					SkipOrgRoleSync:        oidcCfg.RoleMapping.SkipOrgRoleSync,
-					DefaultRole:            authmodel.Role(oidcCfg.RoleMapping.DefaultRole),
+				AutoSignup:     initialProvisioningPolicy.AutoSignup,
+				DefaultRole:    initialProvisioningPolicy.RoleMapping.DefaultRole,
+				AllowedDomains: initialProvisioningPolicy.AllowedDomains,
+				Whitelist:      initialProvisioningPolicy.Whitelist,
+				RoleMapping:    initialProvisioningPolicy.RoleMapping,
+				LoadPolicy: func(context.Context) (oidcprovision.ProvisioningPolicy, error) {
+					policy, err := policyLoader.Load()
+					if err != nil {
+						return oidcprovision.ProvisioningPolicy{}, err
+					}
+					return toOIDCProvisioningPolicy(policy), nil
 				},
 			}
 			provisionCfg.WorkspaceExists = workspaceExists

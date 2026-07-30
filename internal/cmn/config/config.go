@@ -289,6 +289,24 @@ type AuthOIDC struct {
 	RoleMapping    OIDCRoleMapping
 }
 
+// OIDCProvisioningPolicy contains the OIDC settings evaluated for each login.
+type OIDCProvisioningPolicy struct {
+	AutoSignup     bool
+	AllowedDomains []string
+	Whitelist      []string
+	RoleMapping    OIDCRoleMapping
+}
+
+// ProvisioningPolicy returns the login-time policy from the OIDC configuration.
+func (o AuthOIDC) ProvisioningPolicy() OIDCProvisioningPolicy {
+	return OIDCProvisioningPolicy{
+		AutoSignup:     o.AutoSignup,
+		AllowedDomains: o.AllowedDomains,
+		Whitelist:      o.Whitelist,
+		RoleMapping:    o.RoleMapping,
+	}
+}
+
 // IsConfigured returns true if all required OIDC fields are set.
 func (o AuthOIDC) IsConfigured() bool {
 	return o.ClientID != "" && o.ClientSecret != "" && o.ClientURL != "" && o.Issuer != ""
@@ -389,6 +407,7 @@ type PathsConfig struct {
 	WorkspacesDir      string
 	ViewsDir           string
 	ConfigFileUsed     string
+	ConfigFilesUsed    []string
 }
 
 // SecretsConfig holds global defaults for external secret providers.

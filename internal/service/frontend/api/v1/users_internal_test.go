@@ -85,7 +85,8 @@ func TestOIDCWorkspaceAccessSyncEnabled(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			a := &API{config: tt.config, licenseManager: tt.licenseManager}
-			assert.Equal(t, tt.want, a.oidcWorkspaceAccessSyncEnabled())
+			mapping := a.currentOIDCRoleMapping(context.Background())
+			assert.Equal(t, tt.want, a.oidcWorkspaceAccessSyncEnabled(mapping))
 		})
 	}
 }
@@ -94,6 +95,34 @@ func TestListUsersReportsOIDCWorkspaceAccessSyncState(t *testing.T) {
 	t.Parallel()
 
 	a := &API{config: newOIDCWorkspaceSyncConfig(), authService: listUsersAuthService{}}
+	ctx := auth.WithUser(context.Background(), &auth.User{Role: auth.RoleAdmin})
+
+	result, err := a.ListUsers(ctx, generatedapi.ListUsersRequestObject{})
+	require.NoError(t, err)
+	response, ok := result.(generatedapi.ListUsers200JSONResponse)
+	require.True(t, ok)
+	require.NotNil(t, response.OidcWorkspaceAccessSyncEnabled)
+	assert.True(t, *response.OidcWorkspaceAccessSyncEnabled)
+	assert.Equal(t, []generatedapi.UserAuthProvider{generatedapi.UserAuthProviderOidc}, response.ManagedRoleProviders)
+	assert.Equal(t, []generatedapi.UserAuthProvider{generatedapi.UserAuthProviderOidc}, response.ManagedWorkspaceAccessProviders)
+}
+
+func TestListUsersReportsCurrentOIDCPolicy(t *testing.T) {
+	t.Parallel()
+
+	cfg := newOIDCWorkspaceSyncConfig()
+	cfg.Server.Auth.OIDC.RoleMapping.DefaultWorkspaceAccess = config.OIDCDefaultWorkspaceAccessAll
+	a := &API{
+		config:      cfg,
+		authService: listUsersAuthService{},
+		oidcPolicyLoader: func() (config.OIDCProvisioningPolicy, error) {
+			return config.OIDCProvisioningPolicy{
+				RoleMapping: config.OIDCRoleMapping{
+					DefaultWorkspaceAccess: config.OIDCDefaultWorkspaceAccessNone,
+				},
+			}, nil
+		},
+	}
 	ctx := auth.WithUser(context.Background(), &auth.User{Role: auth.RoleAdmin})
 
 	result, err := a.ListUsers(ctx, generatedapi.ListUsersRequestObject{})
