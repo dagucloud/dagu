@@ -23,9 +23,6 @@ func effectiveWorkerSelector(
 	if childDAG == nil || len(childDAG.WorkerSelector) == 0 {
 		return nil
 	}
-	if runParams.Params == "" {
-		return childDAG.WorkerSelector
-	}
 
 	resolved, err := spec.ResolveRuntimeParams(ctx, childDAG, runParams.Params, spec.ResolveRuntimeParamsOptions{
 		BaseConfig: config.GetConfig(ctx).Paths.BaseConfig,

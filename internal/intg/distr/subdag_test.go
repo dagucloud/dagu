@@ -122,6 +122,47 @@ steps:
 	})
 }
 
+func TestSubDAG_DifferentFileWorkerSelectorFromEnv(t *testing.T) {
+	f := newTestFixture(t, `
+steps:
+  - name: run-child
+    action: dag.run
+    with:
+      dag: env-selected-child
+`, withLabels(map[string]string{"host": "serverA"}))
+
+	f.coord.CreateDAGFile(t, f.coord.Config.Paths.DAGsDir, "env-selected-child", []byte(`
+name: env-selected-child
+env:
+  TARGET_HOST: serverA
+worker_selector:
+  host: ${TARGET_HOST}
+steps:
+  - name: child-task
+    run: echo "child executed on selected worker"
+`))
+
+	agent := f.dagWrapper.Agent()
+	agent.RunSuccess(t)
+
+	parentStatus := agent.Status(f.coord.Context)
+	require.Len(t, parentStatus.Nodes, 1)
+	require.Len(t, parentStatus.Nodes[0].SubRuns, 1)
+
+	subRunID := parentStatus.Nodes[0].SubRuns[0].DAGRunID
+	subAttempt, err := f.coord.DAGRunStore.FindSubAttempt(
+		f.coord.Context,
+		exec.NewDAGRunRef(parentStatus.Name, parentStatus.DAGRunID),
+		subRunID,
+	)
+	require.NoError(t, err)
+
+	childStatus, err := subAttempt.ReadStatus(f.coord.Context)
+	require.NoError(t, err)
+	require.Equal(t, core.Succeeded, childStatus.Status)
+	require.Equal(t, "worker-1", childStatus.WorkerID)
+}
+
 func TestSubDAG_CallStepWorkerSelector(t *testing.T) {
 	t.Run("immediateParentDispatchesChildUsingCallStepSelector", func(t *testing.T) {
 		f := newTestFixture(t, `
