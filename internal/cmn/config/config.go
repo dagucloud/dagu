@@ -289,17 +289,17 @@ type AuthOIDC struct {
 	RoleMapping    OIDCRoleMapping
 }
 
-// OIDCProvisioningPolicy contains the OIDC settings evaluated for each login.
-type OIDCProvisioningPolicy struct {
+// OIDCPolicy contains the OIDC settings evaluated for each login.
+type OIDCPolicy struct {
 	AutoSignup     bool
 	AllowedDomains []string
 	Whitelist      []string
 	RoleMapping    OIDCRoleMapping
 }
 
-// ProvisioningPolicy returns the login-time policy from the OIDC configuration.
-func (o AuthOIDC) ProvisioningPolicy() OIDCProvisioningPolicy {
-	return OIDCProvisioningPolicy{
+// Policy returns the login-time policy from the OIDC configuration.
+func (o AuthOIDC) Policy() OIDCPolicy {
+	return OIDCPolicy{
 		AutoSignup:     o.AutoSignup,
 		AllowedDomains: o.AllowedDomains,
 		Whitelist:      o.Whitelist,

@@ -30,16 +30,16 @@ var (
 	ErrEmailRequired = errors.New("email claim is required but not provided by identity provider")
 )
 
-// ProvisioningPolicy contains the OIDC settings evaluated for a login.
-type ProvisioningPolicy struct {
+// Policy contains the OIDC settings evaluated for a login.
+type Policy struct {
 	AutoSignup     bool
 	AllowedDomains []string
 	Whitelist      []string
 	RoleMapping    RoleMapperConfig
 }
 
-// PolicyLoader returns the current OIDC provisioning policy.
-type PolicyLoader func(context.Context) (ProvisioningPolicy, error)
+// PolicyLoader returns the current OIDC policy.
+type PolicyLoader func(context.Context) (Policy, error)
 
 // Config holds the configuration for the OIDC provisioning service.
 type Config struct {
@@ -60,7 +60,7 @@ type Config struct {
 	// WorkspaceExists checks whether a configured workspace currently exists.
 	// Missing workspaces are reported but do not prevent authentication.
 	WorkspaceExists func(context.Context, string) (bool, error)
-	// LoadPolicy resolves the provisioning policy used for each login.
+	// LoadPolicy resolves the policy used for each login.
 	// When unset, the static policy in Config is used.
 	// A failed load leaves the latest valid policy active.
 	LoadPolicy PolicyLoader
@@ -89,7 +89,7 @@ type Service struct {
 }
 
 type policySnapshot struct {
-	ProvisioningPolicy
+	Policy
 	roleMapper *RoleMapper
 }
 
@@ -102,13 +102,13 @@ func New(userStore auth.UserStore, config Config) (*Service, error) {
 	if config.RoleMapping.DefaultRole == auth.RoleNone {
 		config.RoleMapping.DefaultRole = config.DefaultRole
 	}
-	staticPolicy := ProvisioningPolicy{
+	initialPolicy := Policy{
 		AutoSignup:     config.AutoSignup,
 		AllowedDomains: config.AllowedDomains,
 		Whitelist:      config.Whitelist,
 		RoleMapping:    config.RoleMapping,
 	}
-	policy, err := newPolicySnapshot(staticPolicy)
+	policy, err := newPolicySnapshot(initialPolicy)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create role mapper: %w", err)
 	}
@@ -130,10 +130,10 @@ func (s *Service) ProcessLogin(ctx context.Context, claims OIDCClaims) (*auth.Us
 		return nil, false, ErrEmailRequired
 	}
 
-	policy := s.loadPolicy(ctx)
+	snapshot := s.loadPolicy(ctx)
 
 	// 1. Check access control (whitelist + allowedDomains)
-	if !isEmailAllowed(policy.ProvisioningPolicy, claims.Email) {
+	if !isEmailAllowed(snapshot.Policy, claims.Email) {
 		s.logger.Warn("OIDC login rejected: email not allowed",
 			slog.String("email_domain", stringutil.ExtractEmailDomain(claims.Email)),
 			slog.String("subject", claims.Subject))
@@ -152,16 +152,16 @@ func (s *Service) ProcessLogin(ctx context.Context, claims OIDCClaims) (*auth.Us
 		}
 
 		// Synchronize mapped authorization, or enforce strict matching when synchronization is disabled.
-		if policy.RoleMapping.SkipOrgRoleSync {
-			if err := validateStrictMapping(policy, claims); err != nil {
+		if snapshot.RoleMapping.SkipOrgRoleSync {
+			if err := validateStrictMapping(snapshot, claims); err != nil {
 				s.logger.Warn("OIDC login rejected: authorization mapping failed",
 					slog.String("user_id", user.ID),
 					slog.String("error", err.Error()))
 				return nil, false, err
 			}
 		} else {
-			if err := s.syncUserAccess(ctx, policy, user, claims); err != nil {
-				if policy.roleMapper.WorkspaceAccessPolicyActive() ||
+			if err := s.syncUserAccess(ctx, snapshot, user, claims); err != nil {
+				if snapshot.roleMapper.WorkspaceAccessPolicyActive() ||
 					errors.Is(err, ErrNoRoleFound) ||
 					errors.Is(err, auth.ErrUserDisabled) {
 					s.logger.Warn("OIDC login rejected: authorization mapping failed",
@@ -187,7 +187,7 @@ func (s *Service) ProcessLogin(ctx context.Context, claims OIDCClaims) (*auth.Us
 	}
 
 	// 4. Check if auto-signup is enabled
-	if !policy.AutoSignup {
+	if !snapshot.AutoSignup {
 		s.logger.Info("OIDC login rejected: auto-signup disabled",
 			slog.String("email_domain", stringutil.ExtractEmailDomain(claims.Email)),
 			slog.String("subject", claims.Subject))
@@ -195,7 +195,7 @@ func (s *Service) ProcessLogin(ctx context.Context, claims OIDCClaims) (*auth.Us
 	}
 
 	// 5. Determine authorization for the new user.
-	role, workspaceAccess, err := s.determineAccess(ctx, policy, claims)
+	role, workspaceAccess, err := s.determineAccess(ctx, snapshot, claims)
 	if err != nil {
 		s.logger.Warn("OIDC login rejected: authorization mapping failed",
 			slog.String("email_domain", stringutil.ExtractEmailDomain(claims.Email)),
@@ -258,48 +258,48 @@ func (s *Service) loadPolicy(ctx context.Context) *policySnapshot {
 			slog.String("error", err.Error()))
 		return s.policy.Load()
 	}
-	policy, err := newPolicySnapshot(loaded)
+	snapshot, err := newPolicySnapshot(loaded)
 	if err != nil {
 		s.logger.Warn("OIDC authorization policy reload rejected",
 			slog.String("error", err.Error()))
 		return s.policy.Load()
 	}
-	s.policy.Store(policy)
-	return policy
+	s.policy.Store(snapshot)
+	return snapshot
 }
 
-// CurrentPolicy returns the latest successfully loaded provisioning policy.
-func (s *Service) CurrentPolicy() ProvisioningPolicy {
-	return s.policy.Load().ProvisioningPolicy
+// RoleMapping returns the latest successfully loaded role mapping.
+func (s *Service) RoleMapping() RoleMapperConfig {
+	return s.policy.Load().RoleMapping
 }
 
-func newPolicySnapshot(policy ProvisioningPolicy) (*policySnapshot, error) {
+func newPolicySnapshot(policy Policy) (*policySnapshot, error) {
 	roleMapper, err := NewRoleMapper(policy.RoleMapping)
 	if err != nil {
 		return nil, err
 	}
 	return &policySnapshot{
-		ProvisioningPolicy: policy,
-		roleMapper:         roleMapper,
+		Policy:     policy,
+		roleMapper: roleMapper,
 	}, nil
 }
 
-func validateStrictMapping(policy *policySnapshot, claims OIDCClaims) error {
-	if !policy.RoleMapping.RoleAttributeStrict || !policy.roleMapper.IsConfigured() {
+func validateStrictMapping(snapshot *policySnapshot, claims OIDCClaims) error {
+	if !snapshot.RoleMapping.RoleAttributeStrict || !snapshot.roleMapper.IsConfigured() {
 		return nil
 	}
-	_, _, err := policy.roleMapper.MapAccess(claims.RawClaims)
+	_, _, err := snapshot.roleMapper.MapAccess(claims.RawClaims)
 	return err
 }
 
 // determineAccess determines authorization for a user based on OIDC claims.
 func (s *Service) determineAccess(
 	ctx context.Context,
-	policy *policySnapshot,
+	snapshot *policySnapshot,
 	claims OIDCClaims,
 ) (auth.Role, *auth.WorkspaceAccess, error) {
-	if policy.roleMapper.IsConfigured() {
-		role, workspaceAccess, err := policy.roleMapper.MapAccess(claims.RawClaims)
+	if snapshot.roleMapper.IsConfigured() {
+		role, workspaceAccess, err := snapshot.roleMapper.MapAccess(claims.RawClaims)
 		if err != nil {
 			return "", nil, err
 		}
@@ -307,30 +307,30 @@ func (s *Service) determineAccess(
 		return role, workspaceAccess, nil
 	}
 
-	return policy.RoleMapping.DefaultRole, auth.AllWorkspaceAccess(), nil
+	return snapshot.RoleMapping.DefaultRole, auth.AllWorkspaceAccess(), nil
 }
 
 // syncUserAccess updates mapped authorization without exposing unpersisted values.
 func (s *Service) syncUserAccess(
 	ctx context.Context,
-	policy *policySnapshot,
+	snapshot *policySnapshot,
 	user *auth.User,
 	claims OIDCClaims,
 ) error {
-	if !policy.roleMapper.IsConfigured() {
+	if !snapshot.roleMapper.IsConfigured() {
 		return nil
 	}
 
-	accessPolicyActive := policy.roleMapper.WorkspaceAccessPolicyActive()
+	accessPolicyActive := snapshot.roleMapper.WorkspaceAccessPolicyActive()
 	var (
 		newRole   auth.Role
 		newAccess *auth.WorkspaceAccess
 		err       error
 	)
 	if accessPolicyActive {
-		newRole, newAccess, err = s.determineAccess(ctx, policy, claims)
+		newRole, newAccess, err = s.determineAccess(ctx, snapshot, claims)
 	} else {
-		newRole, err = policy.roleMapper.MapRole(claims.RawClaims)
+		newRole, err = snapshot.roleMapper.MapRole(claims.RawClaims)
 	}
 	if err != nil {
 		return err
@@ -418,7 +418,7 @@ func canonicalWorkspaceAccess(workspaceAccess *auth.WorkspaceAccess) auth.Worksp
 //   - If allowedDomains is not empty and email domain is in allowedDomains: ALLOW
 //   - If either whitelist or allowedDomains is configured but email doesn't match: DENY
 //   - If both whitelist and allowedDomains are empty: ALLOW (no restrictions)
-func isEmailAllowed(policy ProvisioningPolicy, email string) bool {
+func isEmailAllowed(policy Policy, email string) bool {
 	email = strings.ToLower(email)
 	hasWhitelist := len(policy.Whitelist) > 0
 	hasAllowedDomains := len(policy.AllowedDomains) > 0

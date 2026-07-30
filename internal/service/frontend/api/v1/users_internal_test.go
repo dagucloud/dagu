@@ -85,8 +85,8 @@ func TestOIDCWorkspaceAccessSyncEnabled(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			a := &API{config: tt.config, licenseManager: tt.licenseManager}
-			mapping := a.currentOIDCRoleMapping(context.Background())
-			assert.Equal(t, tt.want, a.oidcWorkspaceAccessSyncEnabled(mapping))
+			mapping := a.currentOIDCMapping()
+			assert.Equal(t, tt.want, a.oidcWorkspaceSync(mapping))
 		})
 	}
 }
@@ -115,12 +115,10 @@ func TestListUsersReportsCurrentOIDCPolicy(t *testing.T) {
 	a := &API{
 		config:      cfg,
 		authService: listUsersAuthService{},
-		oidcPolicyLoader: func() (config.OIDCProvisioningPolicy, error) {
-			return config.OIDCProvisioningPolicy{
-				RoleMapping: config.OIDCRoleMapping{
-					DefaultWorkspaceAccess: config.OIDCDefaultWorkspaceAccessNone,
-				},
-			}, nil
+		oidcRoleMapping: func() config.OIDCRoleMapping {
+			return config.OIDCRoleMapping{
+				DefaultWorkspaceAccess: config.OIDCDefaultWorkspaceAccessNone,
+			}
 		},
 	}
 	ctx := auth.WithUser(context.Background(), &auth.User{Role: auth.RoleAdmin})

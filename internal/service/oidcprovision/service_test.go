@@ -576,7 +576,7 @@ func TestIsEmailAllowed(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := isEmailAllowed(ProvisioningPolicy{
+			result := isEmailAllowed(Policy{
 				AllowedDomains: tt.allowedDomains,
 				Whitelist:      tt.whitelist,
 			}, tt.email)
@@ -832,7 +832,7 @@ func TestProcessLogin_SyncsAuthorizationOnce(t *testing.T) {
 
 func TestProcessLoginLoadsCurrentPolicy(t *testing.T) {
 	store := newMockUserStore()
-	currentPolicy := ProvisioningPolicy{
+	currentPolicy := Policy{
 		AutoSignup: true,
 		RoleMapping: RoleMapperConfig{
 			GroupMappings: map[string]string{"team": "manager"},
@@ -844,7 +844,7 @@ func TestProcessLoginLoadsCurrentPolicy(t *testing.T) {
 		Issuer:      "https://issuer.example.com",
 		AutoSignup:  true,
 		DefaultRole: auth.RoleViewer,
-		LoadPolicy: func(context.Context) (ProvisioningPolicy, error) {
+		LoadPolicy: func(context.Context) (Policy, error) {
 			loadCalls++
 			return currentPolicy, nil
 		},
@@ -872,7 +872,7 @@ func TestProcessLoginLoadsCurrentPolicy(t *testing.T) {
 
 func TestProcessLoginKeepsLastValidPolicyWhenReloadFails(t *testing.T) {
 	store := newMockUserStore()
-	validPolicy := ProvisioningPolicy{
+	validPolicy := Policy{
 		AutoSignup: true,
 		RoleMapping: RoleMapperConfig{
 			GroupMappings: map[string]string{"team": "manager"},
@@ -885,12 +885,12 @@ func TestProcessLoginKeepsLastValidPolicyWhenReloadFails(t *testing.T) {
 		Issuer:      "https://issuer.example.com",
 		AutoSignup:  true,
 		DefaultRole: auth.RoleViewer,
-		LoadPolicy: func(context.Context) (ProvisioningPolicy, error) {
+		LoadPolicy: func(context.Context) (Policy, error) {
 			loadCalls++
 			if loadCalls == 1 {
 				return validPolicy, nil
 			}
-			return ProvisioningPolicy{}, errors.New("invalid mapping")
+			return Policy{}, errors.New("invalid mapping")
 		},
 	})
 	require.NoError(t, err)

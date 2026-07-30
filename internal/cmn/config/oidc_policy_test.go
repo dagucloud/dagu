@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestOIDCProvisioningPolicyLoaderReadsCurrentMergedPolicy(t *testing.T) {
+func TestOIDCPolicyLoaderReadsCurrentMergedPolicy(t *testing.T) {
 	homeDir := t.TempDir()
 	configFile := filepath.Join(homeDir, "config.yaml")
 	adminFile := filepath.Join(homeDir, "admin.yaml")
@@ -43,9 +43,9 @@ auth:
 	require.NoError(t, err)
 	require.Equal(t, []string{configFile, adminFile}, cfg.Paths.ConfigFilesUsed)
 
-	loader := NewOIDCProvisioningPolicyLoader(
+	loader := NewOIDCPolicyLoader(
 		cfg.Paths.ConfigFilesUsed,
-		cfg.Server.Auth.OIDC.ProvisioningPolicy(),
+		cfg.Server.Auth.OIDC.Policy(),
 	)
 	policy, err := loader.Load()
 	require.NoError(t, err)
@@ -69,7 +69,7 @@ auth:
 	require.Equal(t, "operator", policy.RoleMapping.GroupMappings["team"])
 }
 
-func TestOIDCProvisioningPolicyLoaderRejectsInvalidCurrentMapping(t *testing.T) {
+func TestOIDCPolicyLoaderRejectsInvalidCurrentMapping(t *testing.T) {
 	configFile := filepath.Join(t.TempDir(), "config.yaml")
 	require.NoError(t, os.WriteFile(configFile, []byte(`
 auth:
@@ -82,15 +82,15 @@ auth:
       default_workspace_access: none
 `), 0600))
 
-	loader := NewOIDCProvisioningPolicyLoader(
+	loader := NewOIDCPolicyLoader(
 		[]string{configFile},
-		OIDCProvisioningPolicy{},
+		OIDCPolicy{},
 	)
 	_, err := loader.Load()
 	require.ErrorContains(t, err, "invalid role")
 }
 
-func TestOIDCProvisioningPolicyLoaderAppliesEnvironmentOverrides(t *testing.T) {
+func TestOIDCPolicyLoaderAppliesEnvironmentOverrides(t *testing.T) {
 	configFile := filepath.Join(t.TempDir(), "config.yaml")
 	require.NoError(t, os.WriteFile(configFile, []byte(`
 auth:
@@ -104,9 +104,9 @@ auth:
 	t.Setenv("DAGU_AUTH_OIDC_ALLOWED_DOMAINS", "env.example.com")
 	t.Setenv("DAGU_AUTH_OIDC_DEFAULT_ROLE", "developer")
 
-	policy, err := NewOIDCProvisioningPolicyLoader(
+	policy, err := NewOIDCPolicyLoader(
 		[]string{configFile},
-		OIDCProvisioningPolicy{},
+		OIDCPolicy{},
 	).Load()
 	require.NoError(t, err)
 	require.False(t, policy.AutoSignup)
@@ -114,13 +114,13 @@ auth:
 	require.Equal(t, "developer", policy.RoleMapping.DefaultRole)
 }
 
-func TestOIDCProvisioningPolicyLoaderAppliesPolicyDefaults(t *testing.T) {
+func TestOIDCPolicyLoaderAppliesPolicyDefaults(t *testing.T) {
 	configFile := filepath.Join(t.TempDir(), "config.yaml")
 	require.NoError(t, os.WriteFile(configFile, []byte("# provider configured through environment"), 0600))
 
-	policy, err := NewOIDCProvisioningPolicyLoader(
+	policy, err := NewOIDCPolicyLoader(
 		[]string{configFile},
-		OIDCProvisioningPolicy{},
+		OIDCPolicy{},
 	).Load()
 	require.NoError(t, err)
 	require.True(t, policy.AutoSignup)
@@ -128,8 +128,8 @@ func TestOIDCProvisioningPolicyLoaderAppliesPolicyDefaults(t *testing.T) {
 	require.Equal(t, OIDCDefaultWorkspaceAccessAll, policy.RoleMapping.DefaultWorkspaceAccess)
 }
 
-func TestOIDCProvisioningPolicyLoaderUsesFallbackWithoutConfigFiles(t *testing.T) {
-	fallback := OIDCProvisioningPolicy{
+func TestOIDCPolicyLoaderUsesFallbackWithoutConfigFiles(t *testing.T) {
+	fallback := OIDCPolicy{
 		AutoSignup:     true,
 		AllowedDomains: []string{"example.com"},
 		RoleMapping: OIDCRoleMapping{
@@ -137,7 +137,7 @@ func TestOIDCProvisioningPolicyLoaderUsesFallbackWithoutConfigFiles(t *testing.T
 		},
 	}
 
-	policy, err := NewOIDCProvisioningPolicyLoader(nil, fallback).Load()
+	policy, err := NewOIDCPolicyLoader(nil, fallback).Load()
 	require.NoError(t, err)
 	require.Equal(t, fallback, policy)
 }

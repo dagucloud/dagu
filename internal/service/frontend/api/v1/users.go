@@ -11,8 +11,6 @@ import (
 	"github.com/dagucloud/dagu/api/v1"
 	"github.com/dagucloud/dagu/internal/auth"
 	"github.com/dagucloud/dagu/internal/cmn/config"
-	"github.com/dagucloud/dagu/internal/cmn/logger"
-	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/internal/license"
 	"github.com/dagucloud/dagu/internal/service/audit"
 	authservice "github.com/dagucloud/dagu/internal/service/auth"
@@ -31,14 +29,14 @@ func (a *API) ListUsers(ctx context.Context, _ api.ListUsersRequestObject) (api.
 	if err != nil {
 		return nil, err
 	}
-	roleMapping := a.currentOIDCRoleMapping(ctx)
-	workspaceAccessSyncEnabled := a.oidcWorkspaceAccessSyncEnabled(roleMapping)
+	mapping := a.currentOIDCMapping()
+	workspaceSync := a.oidcWorkspaceSync(mapping)
 
 	return api.ListUsers200JSONResponse{
 		Users:                           toAPIUsers(users),
-		OidcWorkspaceAccessSyncEnabled:  &workspaceAccessSyncEnabled,
-		ManagedRoleProviders:            a.managedProviders(a.oidcAuthorizationSyncEnabled(roleMapping)),
-		ManagedWorkspaceAccessProviders: a.managedProviders(workspaceAccessSyncEnabled),
+		OidcWorkspaceAccessSyncEnabled:  &workspaceSync,
+		ManagedRoleProviders:            a.managedProviders(a.oidcRoleSync(mapping)),
+		ManagedWorkspaceAccessProviders: a.managedProviders(workspaceSync),
 	}, nil
 }
 
@@ -62,26 +60,21 @@ func (a *API) managedProviders(oidcSyncEnabled bool) []api.UserAuthProvider {
 	return providers
 }
 
-func (a *API) currentOIDCRoleMapping(ctx context.Context) config.OIDCRoleMapping {
+func (a *API) currentOIDCMapping() config.OIDCRoleMapping {
 	if a.config == nil {
 		return config.OIDCRoleMapping{}
 	}
-	if a.oidcPolicyLoader == nil {
-		return a.config.Server.Auth.OIDC.RoleMapping
+	if a.oidcRoleMapping != nil {
+		return a.oidcRoleMapping()
 	}
-	policy, err := a.oidcPolicyLoader()
-	if err != nil {
-		logger.Warn(ctx, "Failed to load current OIDC provisioning policy", tag.Error(err))
-		return a.config.Server.Auth.OIDC.RoleMapping
-	}
-	return policy.RoleMapping
+	return a.config.Server.Auth.OIDC.RoleMapping
 }
 
-func (a *API) oidcWorkspaceAccessSyncEnabled(mapping config.OIDCRoleMapping) bool {
+func (a *API) oidcWorkspaceSync(mapping config.OIDCRoleMapping) bool {
 	return a.oidcSyncEnabled(mapping) && mapping.WorkspaceAccessPolicyActive()
 }
 
-func (a *API) oidcAuthorizationSyncEnabled(mapping config.OIDCRoleMapping) bool {
+func (a *API) oidcRoleSync(mapping config.OIDCRoleMapping) bool {
 	if !a.oidcSyncEnabled(mapping) {
 		return false
 	}

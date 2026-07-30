@@ -172,8 +172,8 @@ func toOIDCWorkspaceMappings(mappings map[string][]config.OIDCWorkspaceGrant) ma
 	return result
 }
 
-func toOIDCProvisioningPolicy(policy config.OIDCProvisioningPolicy) oidcprovision.ProvisioningPolicy {
-	return oidcprovision.ProvisioningPolicy{
+func toOIDCPolicy(policy config.OIDCPolicy) oidcprovision.Policy {
+	return oidcprovision.Policy{
 		AutoSignup:     policy.AutoSignup,
 		AllowedDomains: policy.AllowedDomains,
 		Whitelist:      policy.Whitelist,
@@ -208,21 +208,16 @@ func toConfigOIDCWorkspaceMappings(mappings map[string][]oidcprovision.Workspace
 	return result
 }
 
-func toConfigOIDCProvisioningPolicy(policy oidcprovision.ProvisioningPolicy) config.OIDCProvisioningPolicy {
-	return config.OIDCProvisioningPolicy{
-		AutoSignup:     policy.AutoSignup,
-		AllowedDomains: policy.AllowedDomains,
-		Whitelist:      policy.Whitelist,
-		RoleMapping: config.OIDCRoleMapping{
-			GroupsClaim:            policy.RoleMapping.GroupsClaim,
-			GroupMappings:          policy.RoleMapping.GroupMappings,
-			WorkspaceMappings:      toConfigOIDCWorkspaceMappings(policy.RoleMapping.WorkspaceMappings),
-			DefaultWorkspaceAccess: policy.RoleMapping.DefaultWorkspaceAccess,
-			RoleAttributePath:      policy.RoleMapping.RoleAttributePath,
-			RoleAttributeStrict:    policy.RoleMapping.RoleAttributeStrict,
-			SkipOrgRoleSync:        policy.RoleMapping.SkipOrgRoleSync,
-			DefaultRole:            string(policy.RoleMapping.DefaultRole),
-		},
+func toConfigOIDCMapping(mapping oidcprovision.RoleMapperConfig) config.OIDCRoleMapping {
+	return config.OIDCRoleMapping{
+		GroupsClaim:            mapping.GroupsClaim,
+		GroupMappings:          mapping.GroupMappings,
+		WorkspaceMappings:      toConfigOIDCWorkspaceMappings(mapping.WorkspaceMappings),
+		DefaultWorkspaceAccess: mapping.DefaultWorkspaceAccess,
+		RoleAttributePath:      mapping.RoleAttributePath,
+		RoleAttributeStrict:    mapping.RoleAttributeStrict,
+		SkipOrgRoleSync:        mapping.SkipOrgRoleSync,
+		DefaultRole:            string(mapping.DefaultRole),
 	}
 }
 
@@ -394,26 +389,26 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 		if oidcCfg.IsConfigured() {
 			oidcEnabled = true
 			oidcButtonLabel = oidcCfg.ButtonLabel
-			initialPolicy := oidcCfg.ProvisioningPolicy()
-			initialProvisioningPolicy := toOIDCProvisioningPolicy(initialPolicy)
-			policyLoader := config.NewOIDCProvisioningPolicyLoader(
+			configPolicy := oidcCfg.Policy()
+			policy := toOIDCPolicy(configPolicy)
+			loader := config.NewOIDCPolicyLoader(
 				cfg.Paths.ConfigFilesUsed,
-				initialPolicy,
+				configPolicy,
 			)
 
 			provisionCfg := oidcprovision.Config{
 				Issuer:         oidcCfg.Issuer,
-				AutoSignup:     initialProvisioningPolicy.AutoSignup,
-				DefaultRole:    initialProvisioningPolicy.RoleMapping.DefaultRole,
-				AllowedDomains: initialProvisioningPolicy.AllowedDomains,
-				Whitelist:      initialProvisioningPolicy.Whitelist,
-				RoleMapping:    initialProvisioningPolicy.RoleMapping,
-				LoadPolicy: func(context.Context) (oidcprovision.ProvisioningPolicy, error) {
-					policy, err := policyLoader.Load()
+				AutoSignup:     policy.AutoSignup,
+				DefaultRole:    policy.RoleMapping.DefaultRole,
+				AllowedDomains: policy.AllowedDomains,
+				Whitelist:      policy.Whitelist,
+				RoleMapping:    policy.RoleMapping,
+				LoadPolicy: func(context.Context) (oidcprovision.Policy, error) {
+					policy, err := loader.Load()
 					if err != nil {
-						return oidcprovision.ProvisioningPolicy{}, err
+						return oidcprovision.Policy{}, err
 					}
-					return toOIDCProvisioningPolicy(policy), nil
+					return toOIDCPolicy(policy), nil
 				},
 			}
 			provisionCfg.WorkspaceExists = workspaceExists
@@ -421,9 +416,9 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 			if err != nil {
 				return nil, fmt.Errorf("failed to create OIDC provisioning service: %w", err)
 			}
-			apiOpts = append(apiOpts, apiv1.WithOIDCProvisioningPolicyLoader(
-				func() (config.OIDCProvisioningPolicy, error) {
-					return toConfigOIDCProvisioningPolicy(provisionSvc.CurrentPolicy()), nil
+			apiOpts = append(apiOpts, apiv1.WithOIDCRoleMapping(
+				func() config.OIDCRoleMapping {
+					return toConfigOIDCMapping(provisionSvc.RoleMapping())
 				},
 			))
 
