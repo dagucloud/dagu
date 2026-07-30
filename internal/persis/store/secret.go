@@ -175,7 +175,9 @@ func (s *SecretStore) GetByRef(ctx context.Context, workspace, ref string) (*sec
 		return nil, err
 	}
 	s.mu.Lock()
-	s.byRef[rk] = sec.ID
+	if _, exists := s.byRef[rk]; !exists {
+		s.byRef[rk] = sec.ID
+	}
 	s.mu.Unlock()
 	return sec, nil
 }
