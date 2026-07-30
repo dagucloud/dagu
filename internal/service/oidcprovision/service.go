@@ -11,7 +11,7 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
-	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/dagucloud/dagu/internal/auth"
@@ -84,8 +84,7 @@ type OIDCClaims struct {
 type Service struct {
 	userStore auth.AuthorizationSyncUserStore
 	config    Config
-	policyMu  sync.Mutex
-	policy    *policySnapshot
+	policy    atomic.Pointer[policySnapshot]
 	logger    *slog.Logger
 }
 
@@ -114,12 +113,13 @@ func New(userStore auth.UserStore, config Config) (*Service, error) {
 		return nil, fmt.Errorf("failed to create role mapper: %w", err)
 	}
 
-	return &Service{
+	service := &Service{
 		userStore: authorizationStore,
 		config:    config,
-		policy:    policy,
 		logger:    slog.Default().With(slog.String("service", "oidcprovision")),
-	}, nil
+	}
+	service.policy.Store(policy)
+	return service, nil
 }
 
 // ProcessLogin handles OIDC authentication with auto-provisioning.
@@ -248,34 +248,29 @@ func (s *Service) ProcessLogin(ctx context.Context, claims OIDCClaims) (*auth.Us
 }
 
 func (s *Service) loadPolicy(ctx context.Context) *policySnapshot {
-	s.policyMu.Lock()
-	defer s.policyMu.Unlock()
-
 	if s.config.LoadPolicy == nil {
-		return s.policy
+		return s.policy.Load()
 	}
 
 	loaded, err := s.config.LoadPolicy(ctx)
 	if err != nil {
 		s.logger.Warn("OIDC authorization policy reload rejected",
 			slog.String("error", err.Error()))
-		return s.policy
+		return s.policy.Load()
 	}
 	policy, err := newPolicySnapshot(loaded)
 	if err != nil {
 		s.logger.Warn("OIDC authorization policy reload rejected",
 			slog.String("error", err.Error()))
-		return s.policy
+		return s.policy.Load()
 	}
-	s.policy = policy
+	s.policy.Store(policy)
 	return policy
 }
 
 // CurrentPolicy returns the latest successfully loaded provisioning policy.
 func (s *Service) CurrentPolicy() ProvisioningPolicy {
-	s.policyMu.Lock()
-	defer s.policyMu.Unlock()
-	return s.policy.ProvisioningPolicy
+	return s.policy.Load().ProvisioningPolicy
 }
 
 func newPolicySnapshot(policy ProvisioningPolicy) (*policySnapshot, error) {
