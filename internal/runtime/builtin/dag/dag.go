@@ -92,8 +92,6 @@ func validateSubDAG(childDAG *core.DAG, name string, workerSelector map[string]s
 	return nil
 }
 
-// newDAGExecutor creates the executor for a single (non-parallel) sub-DAG
-// step, resolving its worker selector before validation.
 func newDAGExecutor(ctx context.Context, step core.Step) (executor.Executor, error) {
 	if step.SubDAG == nil {
 		return nil, fmt.Errorf("sub DAG configuration is missing")
@@ -104,8 +102,6 @@ func newDAGExecutor(ctx context.Context, step core.Step) (executor.Executor, err
 		return nil, err
 	}
 
-	// Validate structural constraints up front;
-	// worker selector is resolved in Run once runtime params are available.
 	if err := validateSubDAG(child.DAG, step.SubDAG.Name, nil); err != nil {
 		_ = child.Cleanup(context.WithoutCancel(ctx))
 		return nil, err
@@ -138,10 +134,7 @@ func (e *dagExecutor) Run(ctx context.Context) error {
 
 	// Resolve the worker selector before dispatch so both Execute and Retry
 	// route to a worker chosen from the effective (params-aware) selector.
-	workerSelector, err := effectiveWorkerSelector(ctx, e.step, e.child.DAG, e.runParams)
-	if err != nil {
-		return err
-	}
+	workerSelector := effectiveWorkerSelector(ctx, e.child.DAG, e.runParams)
 	if err := validateSubDAG(e.child.DAG, e.child.DAG.Name, workerSelector); err != nil {
 		return err
 	}

@@ -17,8 +17,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestNodeFieldsRoundTrip verifies that persisted node fields survive the
-// persistence round-trip.
 func TestNodeFieldsRoundTrip(t *testing.T) {
 	outputVars := &collections.SyncMap{}
 	outputVars.Store("KEY", "KEY=value")

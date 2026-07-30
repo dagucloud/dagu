@@ -2093,7 +2093,7 @@
               "description": "Set to \"local\" to force this step to run locally even when the server default execution mode is distributed."
             }
           ],
-          "description": "Worker selection for this step. Use a map of label key-value pairs to target specific workers, or the string \"local\" to force local execution. Map keys and values support variable substitution (e.g. ${VAR}) resolved from the runtime environment; parallel dag.run children can reference the item via ${ITEM}. dag.enqueue selectors must be literal. The string form \"local\" is literal."
+          "description": "Worker selection for this step. Use a map of label key-value pairs to target specific workers, or the string \"local\" to force local execution. Map keys and values support variable substitution (e.g. ${VAR}) resolved from the runtime environment; parallel sub-DAG children can reference the item via ${ITEM}. The string form \"local\" is literal."
         },
         "env": {
           "oneOf": [

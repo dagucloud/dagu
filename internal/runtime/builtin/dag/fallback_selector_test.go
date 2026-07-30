@@ -59,8 +59,9 @@ func (r *captureSubWorkflowRunner) selectors() []map[string]string {
 	return out
 }
 
-const fallbackSelectorChildYAML = "name: child\n" +
-	"worker_selector:\n  host: serverA\n" +
+const paramDrivenSelectorChildYAML = "name: child\n" +
+	"params:\n  - FACILITY: serverA\n" +
+	"worker_selector:\n  host: ${FACILITY}\n" +
 	"steps:\n  - name: step\n    command: echo child\n"
 
 func newFallbackContext(t *testing.T, parent *core.DAG, runner executor.SubWorkflowRunner) context.Context {
@@ -81,13 +82,13 @@ func newFallbackContext(t *testing.T, parent *core.DAG, runner executor.SubWorkf
 	return executor.WithSubWorkflowRunner(ctx, runner)
 }
 
-func fallbackSelectorChildParent() *core.DAG {
+func paramDrivenChildParent() *core.DAG {
 	return &core.DAG{
 		Name: "parent",
 		LocalDAGs: map[string]*core.DAG{
 			"child": {
 				Name:           "child",
-				YamlData:       []byte(fallbackSelectorChildYAML),
+				YamlData:       []byte(paramDrivenSelectorChildYAML),
 				WorkerSelector: map[string]string{"host": "serverA"},
 				Steps: []core.Step{
 					{Name: "step", ExecutorConfig: core.ExecutorConfig{Type: "noop"}},
@@ -97,11 +98,11 @@ func fallbackSelectorChildParent() *core.DAG {
 	}
 }
 
-func TestDAGExecutorFallbackUsesChildSelector(t *testing.T) {
+func TestDAGExecutorFallbackReflectsParamOverride(t *testing.T) {
 	t.Parallel()
 
 	runner := &captureSubWorkflowRunner{result: &exec.RunStatus{Name: "child", DAGRunID: "child-run", Status: core.Succeeded}}
-	ctx := newFallbackContext(t, fallbackSelectorChildParent(), runner)
+	ctx := newFallbackContext(t, paramDrivenChildParent(), runner)
 
 	step := core.Step{
 		Name:           "run-child",
@@ -117,14 +118,14 @@ func TestDAGExecutorFallbackUsesChildSelector(t *testing.T) {
 
 	require.NoError(t, execImpl.Run(ctx))
 
-	require.Equal(t, []map[string]string{{"host": "serverA"}}, runner.selectors())
+	require.Equal(t, []map[string]string{{"host": "serverB"}}, runner.selectors())
 }
 
-func TestParallelExecutorFallbackUsesChildSelector(t *testing.T) {
+func TestParallelExecutorFallbackReflectsParamOverride(t *testing.T) {
 	t.Parallel()
 
 	runner := &captureSubWorkflowRunner{result: &exec.RunStatus{Name: "child", DAGRunID: "child-run", Status: core.Succeeded}}
-	ctx := newFallbackContext(t, fallbackSelectorChildParent(), runner)
+	ctx := newFallbackContext(t, paramDrivenChildParent(), runner)
 
 	step := core.Step{
 		Name:           "run-child",
@@ -141,7 +142,7 @@ func TestParallelExecutorFallbackUsesChildSelector(t *testing.T) {
 
 	require.NoError(t, execImpl.Run(ctx))
 
-	require.Equal(t, []map[string]string{{"host": "serverA"}}, runner.selectors())
+	require.Equal(t, []map[string]string{{"host": "serverB"}}, runner.selectors())
 }
 
 func TestDAGExecutorApprovalGuardOnFallback(t *testing.T) {
@@ -152,7 +153,7 @@ func TestDAGExecutorApprovalGuardOnFallback(t *testing.T) {
 		LocalDAGs: map[string]*core.DAG{
 			"child": {
 				Name:           "child",
-				YamlData:       []byte(fallbackSelectorChildYAML),
+				YamlData:       []byte(paramDrivenSelectorChildYAML),
 				WorkerSelector: map[string]string{"host": "serverA"},
 				Steps: []core.Step{
 					{Name: "gate", Approval: &core.ApprovalConfig{Prompt: "approve?"}},

@@ -17,26 +17,6 @@ func ToNode(n *exec.Node) *runtime.Node {
 	return ToNodeWithStep(n, n.Step)
 }
 
-// subDAGRunToRuntime maps a persisted sub-DAG run to its runtime form. The
-// runtime-only ParallelItem is not persisted, so it stays nil on read-back.
-func subDAGRunToRuntime(r exec.SubDAGRun) runtime.SubDAGRun {
-	return runtime.SubDAGRun{
-		DAGRunID: r.DAGRunID,
-		Params:   r.Params,
-		DAGName:  r.DAGName,
-	}
-}
-
-// subDAGRunToExec maps a runtime sub-DAG run to its persisted form, dropping the
-// runtime-only ParallelItem.
-func subDAGRunToExec(r runtime.SubDAGRun) exec.SubDAGRun {
-	return exec.SubDAGRun{
-		DAGRunID: r.DAGRunID,
-		Params:   r.Params,
-		DAGName:  r.DAGName,
-	}
-}
-
 // ToNodeWithStep converts a persistence Node back to a runtime Node using the
 // supplied step definition.
 func ToNodeWithStep(n *exec.Node, step core.Step) *runtime.Node {
@@ -45,11 +25,11 @@ func ToNodeWithStep(n *exec.Node, step core.Step) *runtime.Node {
 	retriedAt, _ := stringutil.ParseTime(n.RetriedAt)
 	children := make([]runtime.SubDAGRun, len(n.SubRuns))
 	for i, r := range n.SubRuns {
-		children[i] = subDAGRunToRuntime(r)
+		children[i] = runtime.SubDAGRun(r)
 	}
 	childrenRepeated := make([]runtime.SubDAGRun, len(n.SubRunsRepeated))
 	for i, r := range n.SubRunsRepeated {
-		childrenRepeated[i] = subDAGRunToRuntime(r)
+		childrenRepeated[i] = runtime.SubDAGRun(r)
 	}
 	var err error
 	if n.Error != "" {
@@ -99,7 +79,7 @@ func ToNodeWithStep(n *exec.Node, step core.Step) *runtime.Node {
 func newNode(node runtime.NodeData) *exec.Node {
 	children := make([]exec.SubDAGRun, len(node.State.SubRuns))
 	for i, child := range node.State.SubRuns {
-		children[i] = subDAGRunToExec(child)
+		children[i] = exec.SubDAGRun(child)
 	}
 	var errText string
 	if node.State.Error != nil {
@@ -107,7 +87,7 @@ func newNode(node runtime.NodeData) *exec.Node {
 	}
 	childrenRepeated := make([]exec.SubDAGRun, len(node.State.SubRunsRepeated))
 	for i, child := range node.State.SubRunsRepeated {
-		childrenRepeated[i] = subDAGRunToExec(child)
+		childrenRepeated[i] = exec.SubDAGRun(child)
 	}
 	return &exec.Node{
 		Step:                   node.Step,

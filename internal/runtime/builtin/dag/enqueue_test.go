@@ -69,7 +69,11 @@ func TestEnqueueExecutorPersistsInheritedProfile(t *testing.T) {
 
 	dagExec, ok := execImpl.(executor.DAGExecutor)
 	require.True(t, ok)
-	dagExec.SetParams(executor.RunParams{RunID: "child-run", Params: "FOO=bar"})
+	dagExec.SetParams(executor.RunParams{
+		RunID:          "child-run",
+		Params:         "FOO=bar",
+		WorkerSelector: map[string]string{"host": "serverA"},
+	})
 
 	var stdout bytes.Buffer
 	execImpl.SetStdout(&stdout)
@@ -90,7 +94,7 @@ func TestEnqueueExecutorPersistsInheritedProfile(t *testing.T) {
 	assert.Equal(t, map[string]string{"host": "serverA"}, child.WorkerSelector)
 }
 
-func TestEnqueueExecutorRejectsDynamicWorkerSelector(t *testing.T) {
+func TestEnqueueExecutorPersistsResolvedWorkerSelector(t *testing.T) {
 	t.Parallel()
 
 	th := test.Setup(t, test.WithConfigMutator(func(cfg *config.Config) {
@@ -135,19 +139,20 @@ func TestEnqueueExecutorRejectsDynamicWorkerSelector(t *testing.T) {
 
 	parallelExec, ok := execImpl.(executor.ParallelExecutor)
 	require.True(t, ok)
-	item := "serverA"
 	parallelExec.SetParamsList([]executor.RunParams{{
-		RunID:        "child-run",
-		DAGName:      "child",
-		Params:       "FACILITY=serverA",
-		ParallelItem: &item,
+		RunID:          "child-run",
+		DAGName:        "child",
+		Params:         "FACILITY=serverA",
+		WorkerSelector: map[string]string{"host": "serverA"},
 	}})
 
-	err = execImpl.Run(ctx)
-	require.ErrorContains(t, err, "dag.enqueue worker_selector must be literal")
+	require.NoError(t, execImpl.Run(ctx))
 
-	_, err = th.DAGRunStore.FindAttempt(ctx, exec.NewDAGRunRef("child", "child-run"))
-	require.ErrorIs(t, err, exec.ErrDAGRunIDNotFound)
+	attempt, err := th.DAGRunStore.FindAttempt(ctx, exec.NewDAGRunRef("child", "child-run"))
+	require.NoError(t, err)
+	child, err := attempt.ReadDAG(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"host": "serverA"}, child.WorkerSelector)
 }
 
 func TestSubDAGExecutorsRejectHumanTasks(t *testing.T) {

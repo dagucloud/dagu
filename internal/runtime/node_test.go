@@ -663,8 +663,6 @@ Line 5: Process completed
 	}
 }
 
-// TestNodeBuildSubDAGRuns verifies sub-run construction for parallel steps,
-// including deduplication and parameter merging.
 func TestNodeBuildSubDAGRuns(t *testing.T) {
 	t.Parallel()
 
@@ -822,73 +820,6 @@ func TestNodeBuildSubDAGRuns(t *testing.T) {
 			}
 		})
 	}
-}
-
-// TestNodeBuildSubDAGRunsPreservesParallelItemWithExplicitParams verifies that
-// sub-runs keep the original parallel item when explicit params are set.
-func TestNodeBuildSubDAGRunsPreservesParallelItemWithExplicitParams(t *testing.T) {
-	t.Parallel()
-
-	ctx := runtime.NewContext(context.Background(), &core.DAG{}, "test-run", "test.log")
-	subDAG := &core.SubDAG{
-		Name:   "sub-dag",
-		Params: "FACILITY=${ITEM}",
-	}
-	step := core.Step{
-		Name:   "test-step",
-		SubDAG: subDAG,
-		Parallel: &core.ParallelConfig{
-			Items: []core.ParallelItem{
-				{Value: "serverA"},
-				{Value: "serverB"},
-			},
-		},
-	}
-
-	runs, err := runtime.NewNode(step, runtime.NodeState{}).BuildSubDAGRuns(ctx, subDAG)
-	require.NoError(t, err)
-	require.Len(t, runs, 2)
-
-	for _, run := range runs {
-		require.NotNil(t, run.ParallelItem)
-		assert.Equal(t, "FACILITY="+*run.ParallelItem, run.Params)
-		assert.Contains(t, []string{"serverA", "serverB"}, *run.ParallelItem)
-	}
-}
-
-func TestNodeBuildSubDAGRunsKeepsItemsWithIdenticalExplicitParams(t *testing.T) {
-	t.Parallel()
-
-	ctx := runtime.NewContext(context.Background(), &core.DAG{}, "test-run", "test.log")
-	subDAG := &core.SubDAG{
-		Name:   "sub-dag",
-		Params: "MODE=batch",
-	}
-	step := core.Step{
-		Name:   "test-step",
-		SubDAG: subDAG,
-		Parallel: &core.ParallelConfig{
-			Items: []core.ParallelItem{
-				{Value: "serverA"},
-				{Value: "serverB"},
-			},
-		},
-	}
-
-	runs, err := runtime.NewNode(step, runtime.NodeState{}).BuildSubDAGRuns(ctx, subDAG)
-	require.NoError(t, err)
-	require.Len(t, runs, 2)
-
-	runIDs := make(map[string]struct{}, len(runs))
-	items := make(map[string]struct{}, len(runs))
-	for _, run := range runs {
-		require.NotNil(t, run.ParallelItem)
-		assert.Equal(t, "MODE=batch", run.Params)
-		runIDs[run.DAGRunID] = struct{}{}
-		items[*run.ParallelItem] = struct{}{}
-	}
-	assert.Len(t, runIDs, 2)
-	assert.Equal(t, map[string]struct{}{"serverA": {}, "serverB": {}}, items)
 }
 
 func TestStepExecutorResolvesMultiCommandExecutableToken(t *testing.T) {

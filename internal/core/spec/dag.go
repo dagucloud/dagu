@@ -727,8 +727,6 @@ func (s *dagBuildState) runFieldStages() {
 	s.errs = append(s.errs, runTransformers(s.ctx, s.spec, s.result)...)
 }
 
-// composeInheritedContext merges the base-config DAG (env, params, defaults)
-// into the built DAG.
 func (s *dagBuildState) composeInheritedContext() {
 	if s.ctx.baseDAG == nil {
 		return
@@ -742,9 +740,6 @@ func (s *dagBuildState) composeInheritedContext() {
 	s.result = merged
 }
 
-// resolveWorkerSelector expands worker_selector keys/values against the composed
-// base+child scope, after composeInheritedContext so inherited env/params resolve and
-// child overrides win (base selectors stay raw until here via BuildFlagSkipWorkerSelectorEval).
 func (s *dagBuildState) resolveWorkerSelector() {
 	if s.ctx.opts.Has(BuildFlagNoEval) ||
 		s.ctx.opts.Has(BuildFlagSkipWorkerSelectorEval) ||

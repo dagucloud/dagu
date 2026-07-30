@@ -74,8 +74,6 @@ func newEnqueueExecutor(_ context.Context, step core.Step) (executor.Executor, e
 	return &enqueueExecutor{step: step}, nil
 }
 
-// Run enqueues all configured sub-DAG runs, records them as sub-runs, and
-// writes the enqueue outputs.
 func (e *enqueueExecutor) Run(ctx context.Context) error {
 	paramsList, parallel := e.paramsSnapshot()
 	if len(paramsList) == 0 {
@@ -118,8 +116,6 @@ func (e *enqueueExecutor) enqueueSequential(ctx context.Context, paramsList []ex
 	return outputs, nil
 }
 
-// enqueueParallel enqueues the runs concurrently, bounded by the step's
-// max_concurrent; outputs stay index-aligned with paramsList.
 func (e *enqueueExecutor) enqueueParallel(ctx context.Context, paramsList []executor.RunParams) ([]enqueueRunOutput, error) {
 	limit := core.DefaultMaxConcurrent
 	if e.step.Parallel != nil && e.step.Parallel.MaxConcurrent > 0 {
@@ -178,8 +174,6 @@ func (e *enqueueExecutor) enqueueParallel(ctx context.Context, paramsList []exec
 	return outputs, nil
 }
 
-// subDAGRunFromEnqueueOutput converts an enqueue output into the sub-run
-// record persisted with the node.
 func subDAGRunFromEnqueueOutput(output enqueueRunOutput) exec1.SubDAGRun {
 	return exec1.SubDAGRun{
 		DAGRunID: output.DAGRunID,
@@ -188,8 +182,6 @@ func subDAGRunFromEnqueueOutput(output enqueueRunOutput) exec1.SubDAGRun {
 	}
 }
 
-// enqueueOne resolves the target DAG and worker selector for a single run and
-// places it on the queue.
 func (e *enqueueExecutor) enqueueOne(ctx context.Context, runParams executor.RunParams) (enqueueRunOutput, error) {
 	if runParams.RunID == "" {
 		return enqueueRunOutput{}, fmt.Errorf("DAG run ID is not set")
@@ -224,14 +216,7 @@ func (e *enqueueExecutor) enqueueOne(ctx context.Context, runParams executor.Run
 		}
 	}()
 
-	workerSelector := e.step.WorkerSelector
-	if len(workerSelector) == 0 {
-		workerSelector = child.DAG.WorkerSelector
-	}
-	if workerSelectorIsDynamic(workerSelector) {
-		return enqueueRunOutput{}, fmt.Errorf("dag.enqueue worker_selector must be literal")
-	}
-	if err := validateSubDAG(child.DAG, target, workerSelector); err != nil {
+	if err := validateSubDAG(child.DAG, target, nil); err != nil {
 		return enqueueRunOutput{}, err
 	}
 
@@ -243,8 +228,16 @@ func (e *enqueueExecutor) enqueueOne(ctx context.Context, runParams executor.Run
 	}
 	dagCopy = dagCopy.Clone()
 	dagCopy.Location = ""
-	if len(e.step.WorkerSelector) > 0 {
-		dagCopy.WorkerSelector = maps.Clone(e.step.WorkerSelector)
+
+	workerSelector := runParams.WorkerSelector
+	if len(workerSelector) == 0 {
+		workerSelector = dagCopy.WorkerSelector
+	}
+	if err := validateSubDAG(dagCopy, target, workerSelector); err != nil {
+		return enqueueRunOutput{}, err
+	}
+	if len(runParams.WorkerSelector) > 0 {
+		dagCopy.WorkerSelector = maps.Clone(runParams.WorkerSelector)
 	}
 
 	queueName := dagCopy.ProcGroup()
