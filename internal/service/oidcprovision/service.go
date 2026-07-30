@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/dagucloud/dagu/internal/auth"
@@ -27,8 +28,6 @@ var (
 	ErrAutoSignupDisabled = errors.New("automatic account creation is disabled, contact administrator")
 	// ErrEmailRequired is returned when the email claim is not provided by the identity provider.
 	ErrEmailRequired = errors.New("email claim is required but not provided by identity provider")
-	// ErrPolicyUnavailable is returned when the current OIDC provisioning policy cannot be loaded.
-	ErrPolicyUnavailable = errors.New("authorization policy is unavailable")
 )
 
 // ProvisioningPolicy contains the OIDC settings evaluated for a login.
@@ -63,6 +62,7 @@ type Config struct {
 	WorkspaceExists func(context.Context, string) (bool, error)
 	// LoadPolicy resolves the provisioning policy used for each login.
 	// When unset, the static policy in Config is used.
+	// A failed load leaves the latest valid policy active.
 	LoadPolicy PolicyLoader
 }
 
@@ -82,10 +82,11 @@ type OIDCClaims struct {
 
 // Service provides OIDC user provisioning functionality.
 type Service struct {
-	userStore    auth.AuthorizationSyncUserStore
-	config       Config
-	staticPolicy ProvisioningPolicy
-	logger       *slog.Logger
+	userStore auth.AuthorizationSyncUserStore
+	config    Config
+	policyMu  sync.Mutex
+	policy    *policySnapshot
+	logger    *slog.Logger
 }
 
 type policySnapshot struct {
@@ -108,16 +109,16 @@ func New(userStore auth.UserStore, config Config) (*Service, error) {
 		Whitelist:      config.Whitelist,
 		RoleMapping:    config.RoleMapping,
 	}
-	_, err := newPolicySnapshot(staticPolicy)
+	policy, err := newPolicySnapshot(staticPolicy)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create role mapper: %w", err)
 	}
 
 	return &Service{
-		userStore:    authorizationStore,
-		config:       config,
-		staticPolicy: staticPolicy,
-		logger:       slog.Default().With(slog.String("service", "oidcprovision")),
+		userStore: authorizationStore,
+		config:    config,
+		policy:    policy,
+		logger:    slog.Default().With(slog.String("service", "oidcprovision")),
 	}, nil
 }
 
@@ -129,12 +130,7 @@ func (s *Service) ProcessLogin(ctx context.Context, claims OIDCClaims) (*auth.Us
 		return nil, false, ErrEmailRequired
 	}
 
-	policy, err := s.loadPolicy(ctx)
-	if err != nil {
-		s.logger.Error("failed to load OIDC authorization policy",
-			slog.String("error", err.Error()))
-		return nil, false, ErrPolicyUnavailable
-	}
+	policy := s.loadPolicy(ctx)
 
 	// 1. Check access control (whitelist + allowedDomains)
 	if !isEmailAllowed(policy.ProvisioningPolicy, claims.Email) {
@@ -251,16 +247,35 @@ func (s *Service) ProcessLogin(ctx context.Context, claims OIDCClaims) (*auth.Us
 	return user, true, nil // New user created
 }
 
-func (s *Service) loadPolicy(ctx context.Context) (*policySnapshot, error) {
-	policy := s.staticPolicy
-	if s.config.LoadPolicy != nil {
-		loaded, err := s.config.LoadPolicy(ctx)
-		if err != nil {
-			return nil, err
-		}
-		policy = loaded
+func (s *Service) loadPolicy(ctx context.Context) *policySnapshot {
+	s.policyMu.Lock()
+	defer s.policyMu.Unlock()
+
+	if s.config.LoadPolicy == nil {
+		return s.policy
 	}
-	return newPolicySnapshot(policy)
+
+	loaded, err := s.config.LoadPolicy(ctx)
+	if err != nil {
+		s.logger.Warn("OIDC authorization policy reload rejected",
+			slog.String("error", err.Error()))
+		return s.policy
+	}
+	policy, err := newPolicySnapshot(loaded)
+	if err != nil {
+		s.logger.Warn("OIDC authorization policy reload rejected",
+			slog.String("error", err.Error()))
+		return s.policy
+	}
+	s.policy = policy
+	return policy
+}
+
+// CurrentPolicy returns the latest successfully loaded provisioning policy.
+func (s *Service) CurrentPolicy() ProvisioningPolicy {
+	s.policyMu.Lock()
+	defer s.policyMu.Unlock()
+	return s.policy.ProvisioningPolicy
 }
 
 func newPolicySnapshot(policy ProvisioningPolicy) (*policySnapshot, error) {

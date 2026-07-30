@@ -870,37 +870,51 @@ func TestProcessLoginLoadsCurrentPolicy(t *testing.T) {
 	require.Equal(t, 2, loadCalls)
 }
 
-func TestProcessLoginRejectsUnavailablePolicyWithoutChangingAuthorization(t *testing.T) {
+func TestProcessLoginKeepsLastValidPolicyWhenReloadFails(t *testing.T) {
 	store := newMockUserStore()
-	existing := &auth.User{
-		ID:              "existing-id",
-		Username:        "existing",
-		Role:            auth.RoleManager,
-		WorkspaceAccess: auth.AllWorkspaceAccess(),
-		AuthProvider:    auth.AuthProviderOIDC,
-		OIDCIssuer:      "https://issuer.example.com",
-		OIDCSubject:     "subject",
+	validPolicy := ProvisioningPolicy{
+		AutoSignup: true,
+		RoleMapping: RoleMapperConfig{
+			GroupMappings: map[string]string{"team": "manager"},
+			DefaultRole:   auth.RoleViewer,
+		},
 	}
-	require.NoError(t, store.Create(context.Background(), existing))
+	loadCalls := 0
 
 	svc, err := New(store, Config{
 		Issuer:      "https://issuer.example.com",
+		AutoSignup:  true,
 		DefaultRole: auth.RoleViewer,
 		LoadPolicy: func(context.Context) (ProvisioningPolicy, error) {
+			loadCalls++
+			if loadCalls == 1 {
+				return validPolicy, nil
+			}
 			return ProvisioningPolicy{}, errors.New("invalid mapping")
 		},
 	})
 	require.NoError(t, err)
 
-	_, created, err := svc.ProcessLogin(context.Background(), OIDCClaims{
-		Subject:   "subject",
-		Email:     "existing@example.com",
-		RawClaims: map[string]any{"groups": []any{"team"}},
+	first, created, err := svc.ProcessLogin(context.Background(), OIDCClaims{
+		Subject:           "first-subject",
+		Email:             "first@example.com",
+		PreferredUsername: "first",
+		RawClaims:         map[string]any{"groups": []any{"team"}},
 	})
-	require.ErrorIs(t, err, ErrPolicyUnavailable)
-	require.False(t, created)
-	require.Equal(t, auth.RoleManager, existing.Role)
-	require.Zero(t, store.updateCalls)
+	require.NoError(t, err)
+	require.True(t, created)
+	require.Equal(t, auth.RoleManager, first.Role)
+
+	second, created, err := svc.ProcessLogin(context.Background(), OIDCClaims{
+		Subject:           "second-subject",
+		Email:             "second@example.com",
+		PreferredUsername: "second",
+		RawClaims:         map[string]any{"groups": []any{"team"}},
+	})
+	require.NoError(t, err)
+	require.True(t, created)
+	require.Equal(t, auth.RoleManager, second.Role)
+	require.Equal(t, 2, loadCalls)
 }
 
 type authorizationChangedAfterOIDCLookupStore struct {
