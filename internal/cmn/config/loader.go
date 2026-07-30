@@ -442,9 +442,30 @@ func (l *ConfigLoader) loadSecretsConfig(cfg *Config, def Definition) {
 	}
 
 	if def.Secrets.Vault != nil {
+		vaultCACert := def.Secrets.Vault.CACert
+		if resolved, err := l.resolvePath("secrets.vault.ca_cert", vaultCACert); err != nil {
+			l.warnings = append(l.warnings, err.Error())
+		} else {
+			vaultCACert = resolved
+		}
+		vaultClientCert := def.Secrets.Vault.ClientCert
+		if resolved, err := l.resolvePath("secrets.vault.client_cert", vaultClientCert); err != nil {
+			l.warnings = append(l.warnings, err.Error())
+		} else {
+			vaultClientCert = resolved
+		}
+		vaultClientKey := def.Secrets.Vault.ClientKey
+		if resolved, err := l.resolvePath("secrets.vault.client_key", vaultClientKey); err != nil {
+			l.warnings = append(l.warnings, err.Error())
+		} else {
+			vaultClientKey = resolved
+		}
 		cfg.Secrets.Vault = VaultSecretsConfig{
-			Address: def.Secrets.Vault.Address,
-			Token:   def.Secrets.Vault.Token,
+			Address:    def.Secrets.Vault.Address,
+			Token:      def.Secrets.Vault.Token,
+			CACert:     vaultCACert,
+			ClientCert: vaultClientCert,
+			ClientKey:  vaultClientKey,
 		}
 	}
 
@@ -1987,6 +2008,9 @@ var envBindings = []envBinding{
 	// Secrets
 	{key: "secrets.vault.address", env: "SECRETS_VAULT_ADDRESS"},
 	{key: "secrets.vault.token", env: "SECRETS_VAULT_TOKEN"},
+	{key: "secrets.vault.ca_cert", env: "SECRETS_VAULT_CA_CERT", isPath: true},
+	{key: "secrets.vault.client_cert", env: "SECRETS_VAULT_CLIENT_CERT", isPath: true},
+	{key: "secrets.vault.client_key", env: "SECRETS_VAULT_CLIENT_KEY", isPath: true},
 	{key: "secrets.kubernetes.namespace", env: "SECRETS_KUBERNETES_NAMESPACE"},
 	{key: "secrets.kubernetes.kubeconfig", env: "SECRETS_KUBERNETES_KUBECONFIG", isPath: true},
 	{key: "secrets.kubernetes.context", env: "SECRETS_KUBERNETES_CONTEXT"},

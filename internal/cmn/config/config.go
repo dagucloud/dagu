@@ -426,8 +426,11 @@ type AlibabaSecretsConfig struct {
 
 // VaultSecretsConfig holds shared HashiCorp Vault client defaults.
 type VaultSecretsConfig struct {
-	Address string
-	Token   string
+	Address    string
+	Token      string
+	CACert     string
+	ClientCert string
+	ClientKey  string
 }
 
 // KubernetesSecretsConfig holds shared Kubernetes client defaults.

@@ -331,6 +331,52 @@ func TestVaultResolver_resolveClientSettings(t *testing.T) {
 		assert.Equal(t, "https://override.example.com", settings.address)
 		assert.Equal(t, "config-token", settings.token)
 	})
+
+	t.Run("TLSFromConfig", func(t *testing.T) {
+		resolver := &vaultResolver{}
+		ctx := config.WithConfig(context.Background(), &config.Config{
+			Secrets: config.SecretsConfig{
+				Vault: config.VaultSecretsConfig{
+					Address:    "https://vault.example.com",
+					Token:      "config-token",
+					CACert:     "/path/to/ca.pem",
+					ClientCert: "/path/to/client.pem",
+					ClientKey:  "/path/to/client-key.pem",
+				},
+			},
+		})
+
+		settings := resolver.resolveClientSettings(ctx, core.SecretRef{})
+
+		assert.Equal(t, "/path/to/ca.pem", settings.caCert)
+		assert.Equal(t, "/path/to/client.pem", settings.clientCert)
+		assert.Equal(t, "/path/to/client-key.pem", settings.clientKey)
+	})
+
+	t.Run("TLSOptionsOverride", func(t *testing.T) {
+		resolver := &vaultResolver{}
+		ctx := config.WithConfig(context.Background(), &config.Config{
+			Secrets: config.SecretsConfig{
+				Vault: config.VaultSecretsConfig{
+					Address: "https://vault.example.com",
+					CACert:  "/path/to/ca.pem",
+				},
+			},
+		})
+		ref := core.SecretRef{
+			Options: map[string]string{
+				"vault_ca_cert":     "/other/ca.pem",
+				"vault_client_cert": "/other/client.pem",
+				"vault_client_key":  "/other/client-key.pem",
+			},
+		}
+
+		settings := resolver.resolveClientSettings(ctx, ref)
+
+		assert.Equal(t, "/other/ca.pem", settings.caCert)
+		assert.Equal(t, "/other/client.pem", settings.clientCert)
+		assert.Equal(t, "/other/client-key.pem", settings.clientKey)
+	})
 }
 
 func TestVaultResolver_getClient_CachesByResolvedSettings(t *testing.T) {

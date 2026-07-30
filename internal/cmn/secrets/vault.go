@@ -37,8 +37,11 @@ type vaultResolver struct {
 }
 
 type vaultClientSettings struct {
-	address string
-	token   string
+	address    string
+	token      string
+	caCert     string
+	clientCert string
+	clientKey  string
 }
 
 // Name returns the provider identifier.
@@ -154,11 +157,29 @@ func (r *vaultResolver) resolveClientSettings(ctx context.Context, ref core.Secr
 	if cfg.Secrets.Vault.Token != "" {
 		settings.token = cfg.Secrets.Vault.Token
 	}
+	if cfg.Secrets.Vault.CACert != "" {
+		settings.caCert = cfg.Secrets.Vault.CACert
+	}
+	if cfg.Secrets.Vault.ClientCert != "" {
+		settings.clientCert = cfg.Secrets.Vault.ClientCert
+	}
+	if cfg.Secrets.Vault.ClientKey != "" {
+		settings.clientKey = cfg.Secrets.Vault.ClientKey
+	}
 	if addr := ref.Options["vault_address"]; addr != "" {
 		settings.address = addr
 	}
 	if token := ref.Options["vault_token"]; token != "" {
 		settings.token = token
+	}
+	if v := ref.Options["vault_ca_cert"]; v != "" {
+		settings.caCert = v
+	}
+	if v := ref.Options["vault_client_cert"]; v != "" {
+		settings.clientCert = v
+	}
+	if v := ref.Options["vault_client_key"]; v != "" {
+		settings.clientKey = v
 	}
 
 	return settings
@@ -171,6 +192,15 @@ func (r *vaultResolver) newClient(settings vaultClientSettings) (vaultClient, er
 
 	cfg := api.DefaultConfig()
 	cfg.Address = settings.address
+
+	tlsConfig := &api.TLSConfig{
+		CACert:     settings.caCert,
+		ClientCert: settings.clientCert,
+		ClientKey:  settings.clientKey,
+	}
+	if err := cfg.ConfigureTLS(tlsConfig); err != nil {
+		return nil, fmt.Errorf("failed to configure vault TLS: %w", err)
+	}
 
 	client, err := api.NewClient(cfg)
 	if err != nil {
