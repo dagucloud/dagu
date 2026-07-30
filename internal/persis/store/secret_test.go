@@ -124,6 +124,25 @@ func TestSecretGetByRef_NotFound(t *testing.T) {
 	assert.ErrorIs(t, err, secret.ErrNotFound)
 }
 
+func TestSecretStoresShareRefLookups(t *testing.T) {
+	ctx := context.Background()
+	col := testutil.NewMemoryBackend().Collection("secrets")
+	enc, err := crypto.NewEncryptor("test-key")
+	require.NoError(t, err)
+
+	writer, err := store.NewSecretStore(col, enc)
+	require.NoError(t, err)
+	reader, err := store.NewSecretStore(col, enc)
+	require.NoError(t, err)
+
+	sec := newSecret("ops", "infra/token")
+	require.NoError(t, writer.Create(ctx, sec, nil))
+
+	got, err := reader.GetByRef(ctx, "ops", "infra/token")
+	require.NoError(t, err)
+	assert.Equal(t, sec.ID, got.ID)
+}
+
 func TestSecretList(t *testing.T) {
 	ctx := context.Background()
 	s := newSecretStore(t)

@@ -20,7 +20,7 @@ var _ secret.Store = (*SecretStore)(nil)
 
 // SecretStore implements [secret.Store].
 // byRef is an in-memory index rebuilt on startup;
-// all writes keep it in sync under mu.
+// misses are resolved from persistence.
 type SecretStore struct {
 	col       persis.Collection
 	encryptor *crypto.Encryptor
@@ -151,13 +151,33 @@ func (s *SecretStore) GetByRef(ctx context.Context, workspace, ref string) (*sec
 		return nil, err
 	}
 
+	rk := secretRefKey(workspace, ref)
 	s.mu.RLock()
-	id, ok := s.byRef[secretRefKey(workspace, ref)]
+	id, ok := s.byRef[rk]
 	s.mu.RUnlock()
-	if !ok {
-		return nil, secret.ErrNotFound
+	if ok {
+		sec, err := s.GetByID(ctx, id)
+		if err == nil && secret.NormalizeWorkspace(sec.Workspace) == workspace && sec.Ref == ref {
+			return sec, nil
+		}
+		if err != nil && !errors.Is(err, secret.ErrNotFound) {
+			return nil, err
+		}
+		s.mu.Lock()
+		if s.byRef[rk] == id {
+			delete(s.byRef, rk)
+		}
+		s.mu.Unlock()
 	}
-	return s.GetByID(ctx, id)
+
+	sec, err := s.findByRef(ctx, workspace, ref)
+	if err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	s.byRef[rk] = sec.ID
+	s.mu.Unlock()
+	return sec, nil
 }
 
 // List returns all secrets, optionally filtered by workspace.
@@ -381,6 +401,23 @@ func (s *SecretStore) ResolveValue(ctx context.Context, id string) (string, *sec
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
+
+func (s *SecretStore) findByRef(ctx context.Context, workspace, ref string) (*secret.Secret, error) {
+	recs, err := listAll(ctx, s.col, persis.ListQuery{})
+	if err != nil {
+		return nil, err
+	}
+	for _, rec := range recs {
+		var sr secretStoredRecord
+		if err := persis.Decode(rec, &sr); err != nil || sr.Secret == nil {
+			continue
+		}
+		if secret.NormalizeWorkspace(sr.Secret.Workspace) == workspace && sr.Secret.Ref == ref {
+			return sr.Secret.Clone(), nil
+		}
+	}
+	return nil, secret.ErrNotFound
+}
 
 func (s *SecretStore) loadByID(ctx context.Context, id string) (*secretStoredRecord, error) {
 	rec, err := s.col.Get(ctx, id)
