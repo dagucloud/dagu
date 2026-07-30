@@ -84,7 +84,7 @@ func TestEnqueueExecutorPersistsInheritedProfile(t *testing.T) {
 	assert.True(t, status.Parent.Zero())
 }
 
-func TestEnqueueExecutorPersistsResolvedWorkerSelector(t *testing.T) {
+func TestEnqueueWorkerSelector(t *testing.T) {
 	t.Parallel()
 
 	th := test.Setup(t, test.WithConfigMutator(func(cfg *config.Config) {

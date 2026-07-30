@@ -111,7 +111,7 @@ func singleRequest(t *testing.T, requests []executor.SubWorkflowRequest) executo
 	return requests[0]
 }
 
-func TestSubDAGExecutorFallbackReflectsParamOverride(t *testing.T) {
+func TestFallbackSelectorParamOverride(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -138,7 +138,7 @@ func TestSubDAGExecutorFallbackReflectsParamOverride(t *testing.T) {
 	}
 }
 
-func TestDAGExecutorFallbackCarriesResolvedParamSnapshot(t *testing.T) {
+func TestFallbackSelectorParamSnapshot(t *testing.T) {
 	t.Setenv("SELECTED_FACILITY", "serverA")
 
 	parent := parentWithChild(t, `
@@ -164,7 +164,7 @@ steps:
 	assert.Equal(t, `FACILITY="serverA"`, request.Params)
 }
 
-func TestDAGExecutorFallbackReturnsParamResolutionError(t *testing.T) {
+func TestFallbackSelectorParamError(t *testing.T) {
 	t.Parallel()
 
 	parent := parentWithChild(t, `
@@ -189,7 +189,7 @@ steps:
 	assert.Empty(t, requests)
 }
 
-func TestDAGExecutorApprovalGuardOnFallback(t *testing.T) {
+func TestFallbackSelectorApprovalGuard(t *testing.T) {
 	t.Parallel()
 
 	parent := &core.DAG{

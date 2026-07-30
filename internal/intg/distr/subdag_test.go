@@ -122,7 +122,7 @@ steps:
 	})
 }
 
-func TestSubDAG_DifferentFileWorkerSelectorFromEnv(t *testing.T) {
+func TestSubDAG_FileWorkerSelectorEnv(t *testing.T) {
 	f := newTestFixture(t, `
 steps:
   - name: run-child

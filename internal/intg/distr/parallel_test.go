@@ -132,7 +132,7 @@ steps:
 	})
 }
 
-func TestParallel_ItemWorkerSelectorWithExplicitParams(t *testing.T) {
+func TestParallel_WorkerSelectorParams(t *testing.T) {
 	f := newTestFixture(t, `
 env:
   WORKLOAD: batch

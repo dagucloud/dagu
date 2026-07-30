@@ -764,10 +764,7 @@ func (s *dagBuildState) resolveWorkerSelector() {
 		}
 	}
 
-	var consts map[string]any
-	if s.ctx.envScope != nil {
-		consts = s.ctx.envScope.consts
-	}
+	consts := s.ctx.envScope.consts
 	resolver := cmnvalue.NewResolver(
 		cmnvalue.StaticScope{Consts: cmnvalue.Values(consts), Params: s.result.ParamDeclarations()},
 		cmnvalue.RuntimeScope{
