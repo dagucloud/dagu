@@ -62,6 +62,7 @@ func TestEnqueueExecutorPersistsInheritedProfile(t *testing.T) {
 		Name:           "enqueue-child",
 		ExecutorConfig: core.ExecutorConfig{Type: core.ExecutorTypeDAGEnqueue},
 		SubDAG:         &core.SubDAG{Name: "child"},
+		WorkerSelector: map[string]string{"host": "serverA"},
 	}
 	execImpl, err := executor.NewExecutor(ctx, step)
 	require.NoError(t, err)
@@ -78,18 +79,18 @@ func TestEnqueueExecutorPersistsInheritedProfile(t *testing.T) {
 	require.NoError(t, err)
 	status, err := attempt.ReadStatus(ctx)
 	require.NoError(t, err)
+	child, err := attempt.ReadDAG(ctx)
+	require.NoError(t, err)
 
 	assert.Equal(t, core.Queued, status.Status)
 	assert.Equal(t, core.TriggerTypeSubDAG, status.TriggerType)
 	assert.Equal(t, "prod", status.ProfileName)
 	assert.Equal(t, exec.NewDAGRunRef("child", "child-run"), status.Root)
 	assert.True(t, status.Parent.Zero())
+	assert.Equal(t, map[string]string{"host": "serverA"}, child.WorkerSelector)
 }
 
-// TestEnqueueExecutorResolvesParallelItemWorkerSelector verifies that ${ITEM}
-// in worker_selector resolves before enqueueing and that the recorded sub-run
-// retains the parallel item.
-func TestEnqueueExecutorResolvesParallelItemWorkerSelector(t *testing.T) {
+func TestEnqueueExecutorRejectsDynamicWorkerSelector(t *testing.T) {
 	t.Parallel()
 
 	th := test.Setup(t, test.WithConfigMutator(func(cfg *config.Config) {
@@ -142,13 +143,11 @@ func TestEnqueueExecutorResolvesParallelItemWorkerSelector(t *testing.T) {
 		ParallelItem: &item,
 	}})
 
-	require.NoError(t, execImpl.Run(ctx))
+	err = execImpl.Run(ctx)
+	require.ErrorContains(t, err, "dag.enqueue worker_selector must be literal")
 
-	attempt, err := th.DAGRunStore.FindAttempt(ctx, exec.NewDAGRunRef("child", "child-run"))
-	require.NoError(t, err)
-	child, err := attempt.ReadDAG(ctx)
-	require.NoError(t, err)
-	assert.Equal(t, map[string]string{"host": "serverA"}, child.WorkerSelector)
+	_, err = th.DAGRunStore.FindAttempt(ctx, exec.NewDAGRunRef("child", "child-run"))
+	require.ErrorIs(t, err, exec.ErrDAGRunIDNotFound)
 }
 
 func TestSubDAGExecutorsRejectHumanTasks(t *testing.T) {

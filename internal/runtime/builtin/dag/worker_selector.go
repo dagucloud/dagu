@@ -8,12 +8,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/dagucloud/dagu/internal/cmn/config"
-	"github.com/dagucloud/dagu/internal/cmn/logger"
-	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
 	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
 	"github.com/dagucloud/dagu/internal/core"
-	"github.com/dagucloud/dagu/internal/core/spec"
 	"github.com/dagucloud/dagu/internal/runtime"
 	"github.com/dagucloud/dagu/internal/runtime/executor"
 )
@@ -27,10 +23,8 @@ func workerSelectorExtra(runParams executor.RunParams) map[string]string {
 	return map[string]string{"ITEM": *runParams.ParallelItem}
 }
 
-// effectiveWorkerSelector returns the worker selector that governs how the sub
-// DAG is dispatched. The step-level selector wins when set; otherwise it falls
-// back to the child DAG's own selector, re-resolved against the runtime params
-// so a parent step's with.params override reaches the routing labels.
+// effectiveWorkerSelector returns the selector for the current sub-DAG
+// invocation. A step selector overrides the child DAG selector.
 func effectiveWorkerSelector(ctx context.Context, step core.Step, childDAG *core.DAG, runParams executor.RunParams) (map[string]string, error) {
 	stepSelector, err := resolveWorkerSelector(ctx, step.WorkerSelector, workerSelectorExtra(runParams))
 	if err != nil {
@@ -39,23 +33,22 @@ func effectiveWorkerSelector(ctx context.Context, step core.Step, childDAG *core
 	if len(stepSelector) > 0 {
 		return stepSelector, nil
 	}
-	// A param override can only substitute keys/values of selector entries that
-	// already exist in the child spec; it can never add an absent selector. So
-	// skip the reload when the child declares none.
-	if childDAG == nil || len(childDAG.WorkerSelector) == 0 {
+	if childDAG == nil {
 		return nil, nil
 	}
-	resolved, err := spec.ResolveRuntimeParams(ctx, childDAG, runParams.Params, spec.ResolveRuntimeParamsOptions{
-		BaseConfig: config.GetConfig(ctx).Paths.BaseConfig,
-	})
-	if err != nil {
-		// Params that fail to build cannot resolve the selector. Fall back to the
-		// build-time selector so the child is still dispatched and surfaces the
-		// param error through its own execution rather than aborting here.
-		logger.Debug(ctx, "Falling back to build-time worker selector; sub DAG params did not resolve", tag.Error(err))
-		return childDAG.WorkerSelector, nil
+	if workerSelectorIsDynamic(childDAG.WorkerSelector) {
+		return nil, fmt.Errorf("sub-DAG worker_selector must be literal when the step has no worker_selector")
 	}
-	return resolved.WorkerSelector, nil
+	return childDAG.WorkerSelector, nil
+}
+
+func workerSelectorIsDynamic(selector map[string]string) bool {
+	for key, value := range selector {
+		if strings.Contains(key, "$") || strings.Contains(value, "$") {
+			return true
+		}
+	}
+	return false
 }
 
 // resolveWorkerSelector evaluates selector keys and values against the runtime

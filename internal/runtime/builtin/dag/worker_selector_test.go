@@ -95,17 +95,11 @@ func TestResolveWorkerSelector(t *testing.T) {
 	})
 }
 
-// TestEffectiveWorkerSelector verifies that the step-level selector wins when
-// set and that the DAG-level fallback is re-resolved against the runtime params
-// so a with.params override reaches the routing labels.
 func TestEffectiveWorkerSelector(t *testing.T) {
 	t.Parallel()
 
-	childYAML := []byte("name: child\nparams:\n  - FACILITY: serverA\nworker_selector:\n  host: ${FACILITY}\nsteps:\n  - name: s\n    run: echo hi\n")
-
 	t.Run("StepSelectorWins", func(t *testing.T) {
 		t.Parallel()
-		// A broken child source proves the reload branch is not taken.
 		childDAG := &core.DAG{Name: "child", YamlData: []byte("::not yaml::"), WorkerSelector: map[string]string{"host": "${FACILITY}"}}
 		sel, err := effectiveWorkerSelector(context.Background(),
 			core.Step{WorkerSelector: map[string]string{"role": "gpu"}}, childDAG, executor.RunParams{})
@@ -120,40 +114,40 @@ func TestEffectiveWorkerSelector(t *testing.T) {
 		assert.Nil(t, sel)
 	})
 
-	t.Run("ChildWithoutSelectorSkipsReload", func(t *testing.T) {
+	t.Run("ChildWithoutSelectorReturnsNil", func(t *testing.T) {
 		t.Parallel()
-		// No DAG-level selector: params cannot add one, so no reload happens
-		// even with an unparseable source.
 		childDAG := &core.DAG{Name: "child", YamlData: []byte("::not yaml::")}
 		sel, err := effectiveWorkerSelector(context.Background(), core.Step{}, childDAG, executor.RunParams{Params: "FACILITY=serverB"})
 		require.NoError(t, err)
 		assert.Nil(t, sel)
 	})
 
-	t.Run("FallbackResolvesDefaultParams", func(t *testing.T) {
+	t.Run("FallbackReturnsChildSelectorWithoutReload", func(t *testing.T) {
 		t.Parallel()
-		childDAG := &core.DAG{Name: "child", YamlData: childYAML, WorkerSelector: map[string]string{"host": "${FACILITY}"}}
-		sel, err := effectiveWorkerSelector(context.Background(), core.Step{}, childDAG, executor.RunParams{})
+		childDAG := &core.DAG{
+			Name:           "child",
+			YamlData:       []byte("::not yaml::"),
+			WorkerSelector: map[string]string{"host": "serverA"},
+		}
+		sel, err := effectiveWorkerSelector(
+			context.Background(),
+			core.Step{},
+			childDAG,
+			executor.RunParams{Params: "FACILITY=serverB"},
+		)
 		require.NoError(t, err)
 		assert.Equal(t, map[string]string{"host": "serverA"}, sel)
 	})
 
-	t.Run("FallbackReflectsParamOverride", func(t *testing.T) {
+	t.Run("DynamicFallbackRequiresStepSelector", func(t *testing.T) {
 		t.Parallel()
-		childDAG := &core.DAG{Name: "child", YamlData: childYAML, WorkerSelector: map[string]string{"host": "${FACILITY}"}}
-		sel, err := effectiveWorkerSelector(context.Background(), core.Step{}, childDAG, executor.RunParams{Params: "FACILITY=serverB"})
-		require.NoError(t, err)
-		assert.Equal(t, map[string]string{"host": "serverB"}, sel)
-	})
-
-	t.Run("FallbackUsesBuildTimeSelectorWhenParamsInvalid", func(t *testing.T) {
-		t.Parallel()
-		// count=abc cannot coerce to integer, so the reload fails; the child must
-		// still be dispatched with its build-time selector and fail on its own.
-		typedYAML := []byte("name: child\nparams:\n  - name: count\n    type: integer\nworker_selector:\n  type: test-worker\nsteps:\n  - name: s\n    command: echo hi\n")
-		childDAG := &core.DAG{Name: "child", YamlData: typedYAML, WorkerSelector: map[string]string{"type": "test-worker"}}
-		sel, err := effectiveWorkerSelector(context.Background(), core.Step{}, childDAG, executor.RunParams{Params: "count=abc"})
-		require.NoError(t, err)
-		assert.Equal(t, map[string]string{"type": "test-worker"}, sel)
+		childDAG := &core.DAG{WorkerSelector: map[string]string{"host": "${FACILITY}"}}
+		_, err := effectiveWorkerSelector(
+			context.Background(),
+			core.Step{},
+			childDAG,
+			executor.RunParams{Params: "FACILITY=serverB"},
+		)
+		require.ErrorContains(t, err, "sub-DAG worker_selector must be literal")
 	})
 }

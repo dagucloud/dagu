@@ -1424,9 +1424,10 @@ func (n *Node) BuildSubDAGRuns(ctx context.Context, subDAG *core.SubDAG) ([]SubD
 			finalParams = evaluatedStepParams
 		}
 
-		dagRunID := GenerateSubDAGRunIDForTarget(ctx, dagName, finalParams, repeated)
+		runIdentity := finalParams + "\x00parallel-item\x00" + param
+		dagRunID := GenerateSubDAGRunIDForTarget(ctx, dagName, runIdentity, repeated)
 		parallelItem := param
-		// Use dagRunID as key to deduplicate - same params will generate same ID
+		// Use dagRunID as key to deduplicate equivalent parallel items.
 		subRunMap[dagRunID] = SubDAGRun{
 			DAGRunID:     dagRunID,
 			Params:       finalParams,

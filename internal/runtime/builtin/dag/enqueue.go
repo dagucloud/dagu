@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"os"
 	"strings"
 	"sync"
@@ -223,9 +224,12 @@ func (e *enqueueExecutor) enqueueOne(ctx context.Context, runParams executor.Run
 		}
 	}()
 
-	workerSelector, err := resolveWorkerSelector(ctx, e.step.WorkerSelector, workerSelectorExtra(runParams))
-	if err != nil {
-		return enqueueRunOutput{}, err
+	workerSelector := e.step.WorkerSelector
+	if len(workerSelector) == 0 {
+		workerSelector = child.DAG.WorkerSelector
+	}
+	if workerSelectorIsDynamic(workerSelector) {
+		return enqueueRunOutput{}, fmt.Errorf("dag.enqueue worker_selector must be literal")
 	}
 	if err := validateSubDAG(child.DAG, target, workerSelector); err != nil {
 		return enqueueRunOutput{}, err
@@ -239,8 +243,8 @@ func (e *enqueueExecutor) enqueueOne(ctx context.Context, runParams executor.Run
 	}
 	dagCopy = dagCopy.Clone()
 	dagCopy.Location = ""
-	if len(workerSelector) > 0 {
-		dagCopy.WorkerSelector = workerSelector
+	if len(e.step.WorkerSelector) > 0 {
+		dagCopy.WorkerSelector = maps.Clone(e.step.WorkerSelector)
 	}
 
 	queueName := dagCopy.ProcGroup()
