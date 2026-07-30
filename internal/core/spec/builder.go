@@ -102,7 +102,7 @@ const (
 	BuildFlagSkipSchemaValidation
 	BuildFlagSkipBaseHandlers // Skip merging handlerOn from base config (for sub-DAG runs)
 	BuildFlagValidateRuntimeParams
-	BuildFlagSkipWorkerSelectorEval
+	BuildFlagDeferWorkerSelector
 )
 
 // BuildOpts is used to control the behavior of the builder.

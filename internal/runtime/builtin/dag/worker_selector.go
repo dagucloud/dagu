@@ -22,7 +22,7 @@ func resolveChildRunParams(
 	if len(runParams.WorkerSelector) > 0 {
 		return runParams, nil
 	}
-	if childDAG == nil || len(childDAG.WorkerSelector) == 0 {
+	if len(childDAG.WorkerSelector) == 0 {
 		return runParams, nil
 	}
 

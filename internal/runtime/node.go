@@ -832,11 +832,11 @@ func (n *Node) setupExecutor(ctx context.Context) (context.Context, executor.Exe
 
 	// Handle sub DAG execution
 	if subDAG := n.Step().SubDAG; subDAG != nil {
-		runParams, err := n.buildSubDAGRunParams(ctx, subDAG)
+		runParams, err := n.buildChildRunParams(ctx, subDAG)
 		if err != nil {
 			return ctx, nil, err
 		}
-		n.SetSubRuns(subDAGRunsFromParams(runParams))
+		n.SetSubRuns(subRunsFromParams(runParams))
 
 		if err := n.configureSubDAGExecutor(cmd, runParams); err != nil {
 			return ctx, nil, err
@@ -985,7 +985,7 @@ func (n *Node) configureSubDAGExecutor(cmd executor.Executor, runParams []execut
 	return nil
 }
 
-func subDAGRunsFromParams(params []executor.RunParams) []SubDAGRun {
+func subRunsFromParams(params []executor.RunParams) []SubDAGRun {
 	subRuns := make([]SubDAGRun, len(params))
 	for i, run := range params {
 		subRuns[i] = SubDAGRun{
@@ -1296,14 +1296,14 @@ func (n *Node) Init() {
 
 // BuildSubDAGRuns constructs the sub DAG runs based on parallel configuration.
 func (n *Node) BuildSubDAGRuns(ctx context.Context, subDAG *core.SubDAG) ([]SubDAGRun, error) {
-	runParams, err := n.buildSubDAGRunParams(ctx, subDAG)
+	runParams, err := n.buildChildRunParams(ctx, subDAG)
 	if err != nil {
 		return nil, err
 	}
-	return subDAGRunsFromParams(runParams), nil
+	return subRunsFromParams(runParams), nil
 }
 
-func (n *Node) buildSubDAGRunParams(ctx context.Context, subDAG *core.SubDAG) ([]executor.RunParams, error) {
+func (n *Node) buildChildRunParams(ctx context.Context, subDAG *core.SubDAG) ([]executor.RunParams, error) {
 	parallel := n.Step().Parallel
 
 	// Single sub DAG execution (non-parallel)
@@ -1392,7 +1392,6 @@ func (n *Node) buildSubDAGRunParams(ctx context.Context, subDAG *core.SubDAG) ([
 		return nil, fmt.Errorf("parallel execution exceeds maximum limit: %d items (max: %d)", len(items), maxParallelItems)
 	}
 
-	// Build sub runs with deduplication
 	runParamsByID := make(map[string]executor.RunParams)
 	repeated := n.IsRepeated()
 
@@ -1446,7 +1445,6 @@ func (n *Node) buildSubDAGRunParams(ctx context.Context, subDAG *core.SubDAG) ([
 				dagRunID,
 			)
 		}
-		// Use dagRunID as key to deduplicate equivalent parameters.
 		runParamsByID[dagRunID] = executor.RunParams{
 			RunID:          dagRunID,
 			Params:         finalParams,
@@ -1455,7 +1453,6 @@ func (n *Node) buildSubDAGRunParams(ctx context.Context, subDAG *core.SubDAG) ([
 		}
 	}
 
-	// Convert map back to slice
 	var runParams []executor.RunParams
 	for _, params := range runParamsByID {
 		runParams = append(runParams, params)

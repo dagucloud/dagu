@@ -18,30 +18,30 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type captureSubWorkflowRunner struct {
+type recordingRunner struct {
 	requests []executor.SubWorkflowRequest
 	result   *exec.RunStatus
 }
 
-func (r *captureSubWorkflowRunner) ShouldRun(context.Context, executor.SubWorkflowRequest) bool {
+func (r *recordingRunner) ShouldRun(context.Context, executor.SubWorkflowRequest) bool {
 	return true
 }
 
-func (r *captureSubWorkflowRunner) Run(_ context.Context, req executor.SubWorkflowRequest) (*exec.RunStatus, error) {
+func (r *recordingRunner) Run(_ context.Context, req executor.SubWorkflowRequest) (*exec.RunStatus, error) {
 	r.requests = append(r.requests, req)
 	return r.result, nil
 }
 
-func (r *captureSubWorkflowRunner) Retry(_ context.Context, req executor.SubWorkflowRetryRequest) (*exec.RunStatus, error) {
+func (r *recordingRunner) Retry(_ context.Context, req executor.SubWorkflowRetryRequest) (*exec.RunStatus, error) {
 	r.requests = append(r.requests, req.SubWorkflowRequest)
 	return r.result, nil
 }
 
-func (r *captureSubWorkflowRunner) Cancel(context.Context, executor.SubWorkflowCancelRequest) error {
+func (r *recordingRunner) Cancel(context.Context, executor.SubWorkflowCancelRequest) error {
 	return nil
 }
 
-const paramDrivenSelectorChildYAML = `
+const paramSelectorYAML = `
 name: child
 params:
   - FACILITY: serverA
@@ -77,7 +77,7 @@ func runFallbackExecutor(
 	runParams executor.RunParams,
 ) ([]executor.SubWorkflowRequest, error) {
 	t.Helper()
-	runner := &captureSubWorkflowRunner{
+	runner := &recordingRunner{
 		result: &exec.RunStatus{Name: "child", DAGRunID: "child-run", Status: core.Succeeded},
 	}
 	ctx := newFallbackContext(t, parent, runner)
@@ -126,7 +126,7 @@ func TestSubDAGExecutorFallbackReflectsParamOverride(t *testing.T) {
 			t.Parallel()
 			requests, err := runFallbackExecutor(
 				t,
-				parentWithChild(t, paramDrivenSelectorChildYAML),
+				parentWithChild(t, paramSelectorYAML),
 				tt.executorType,
 				executor.RunParams{RunID: "child-run", DAGName: "child", Params: "FACILITY=serverB"},
 			)
@@ -197,7 +197,7 @@ func TestDAGExecutorApprovalGuardOnFallback(t *testing.T) {
 		LocalDAGs: map[string]*core.DAG{
 			"child": {
 				Name:           "child",
-				YamlData:       []byte(paramDrivenSelectorChildYAML),
+				YamlData:       []byte(paramSelectorYAML),
 				WorkerSelector: map[string]string{"host": "serverA"},
 				Steps: []core.Step{
 					{Name: "gate", Approval: &core.ApprovalConfig{Prompt: "approve?"}},

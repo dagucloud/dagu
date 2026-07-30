@@ -742,7 +742,7 @@ func (s *dagBuildState) composeInheritedContext() {
 
 func (s *dagBuildState) resolveWorkerSelector() {
 	if s.ctx.opts.Has(BuildFlagNoEval) ||
-		s.ctx.opts.Has(BuildFlagSkipWorkerSelectorEval) ||
+		s.ctx.opts.Has(BuildFlagDeferWorkerSelector) ||
 		len(s.result.WorkerSelector) == 0 {
 		return
 	}

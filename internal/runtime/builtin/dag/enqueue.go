@@ -228,16 +228,11 @@ func (e *enqueueExecutor) enqueueOne(ctx context.Context, runParams executor.Run
 	}
 	dagCopy = dagCopy.Clone()
 	dagCopy.Location = ""
-
-	workerSelector := runParams.WorkerSelector
-	if len(workerSelector) == 0 {
-		workerSelector = dagCopy.WorkerSelector
-	}
-	if err := validateSubDAG(dagCopy, target, workerSelector); err != nil {
-		return enqueueRunOutput{}, err
-	}
 	if len(runParams.WorkerSelector) > 0 {
 		dagCopy.WorkerSelector = maps.Clone(runParams.WorkerSelector)
+	}
+	if err := validateSubDAG(dagCopy, target, dagCopy.WorkerSelector); err != nil {
+		return enqueueRunOutput{}, err
 	}
 
 	queueName := dagCopy.ProcGroup()
