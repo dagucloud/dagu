@@ -11,6 +11,7 @@ import (
 
 	"github.com/dagucloud/dagu/internal/core"
 	"github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/internal/core/spec"
 	"github.com/dagucloud/dagu/internal/runtime"
 	dagbuiltin "github.com/dagucloud/dagu/internal/runtime/builtin/dag"
 	"github.com/dagucloud/dagu/internal/runtime/executor"
@@ -59,6 +60,16 @@ func (r *captureSubWorkflowRunner) selectors() []map[string]string {
 	return out
 }
 
+func (r *captureSubWorkflowRunner) params() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]string, 0, len(r.requests))
+	for _, req := range r.requests {
+		out = append(out, req.Params)
+	}
+	return out
+}
+
 const paramDrivenSelectorChildYAML = "name: child\n" +
 	"params:\n  - FACILITY: serverA\n" +
 	"worker_selector:\n  host: ${FACILITY}\n" +
@@ -98,6 +109,16 @@ func paramDrivenChildParent() *core.DAG {
 	}
 }
 
+func parentWithRawChild(t *testing.T, yaml string) *core.DAG {
+	t.Helper()
+	child, err := spec.LoadYAML(t.Context(), []byte(yaml), spec.WithoutEval())
+	require.NoError(t, err)
+	return &core.DAG{
+		Name:      "parent",
+		LocalDAGs: map[string]*core.DAG{"child": child},
+	}
+}
+
 func TestDAGExecutorFallbackReflectsParamOverride(t *testing.T) {
 	t.Parallel()
 
@@ -119,6 +140,73 @@ func TestDAGExecutorFallbackReflectsParamOverride(t *testing.T) {
 	require.NoError(t, execImpl.Run(ctx))
 
 	require.Equal(t, []map[string]string{{"host": "serverB"}}, runner.selectors())
+}
+
+func TestDAGExecutorFallbackCarriesResolvedParamSnapshot(t *testing.T) {
+	t.Setenv("SELECTED_FACILITY", "serverA")
+
+	parent := parentWithRawChild(t, `
+name: child
+params:
+  - name: FACILITY
+    eval: "$SELECTED_FACILITY"
+worker_selector:
+  host: ${FACILITY}
+steps:
+  - name: step
+    command: echo child
+`)
+	runner := &captureSubWorkflowRunner{result: &exec.RunStatus{Name: "child", DAGRunID: "child-run", Status: core.Succeeded}}
+	ctx := newFallbackContext(t, parent, runner)
+
+	step := core.Step{
+		Name:           "run-child",
+		ExecutorConfig: core.ExecutorConfig{Type: core.ExecutorTypeDAG},
+		SubDAG:         &core.SubDAG{Name: "child"},
+	}
+	execImpl, err := executor.NewExecutor(ctx, step)
+	require.NoError(t, err)
+
+	dagExec := execImpl.(executor.DAGExecutor)
+	dagExec.SetParams(executor.RunParams{RunID: "child-run", DAGName: "child"})
+
+	require.NoError(t, execImpl.Run(ctx))
+	require.Equal(t, []map[string]string{{"host": "serverA"}}, runner.selectors())
+	require.Equal(t, []string{`FACILITY="serverA"`}, runner.params())
+}
+
+func TestDAGExecutorFallbackReturnsParamResolutionError(t *testing.T) {
+	t.Parallel()
+
+	parent := parentWithRawChild(t, `
+name: child
+params:
+  - name: FACILITY
+    type: string
+    required: true
+worker_selector:
+  host: ${FACILITY}
+steps:
+  - name: step
+    command: echo child
+`)
+	runner := &captureSubWorkflowRunner{result: &exec.RunStatus{Name: "child", DAGRunID: "child-run", Status: core.Succeeded}}
+	ctx := newFallbackContext(t, parent, runner)
+
+	step := core.Step{
+		Name:           "run-child",
+		ExecutorConfig: core.ExecutorConfig{Type: core.ExecutorTypeDAG},
+		SubDAG:         &core.SubDAG{Name: "child"},
+	}
+	execImpl, err := executor.NewExecutor(ctx, step)
+	require.NoError(t, err)
+
+	dagExec := execImpl.(executor.DAGExecutor)
+	dagExec.SetParams(executor.RunParams{RunID: "child-run", DAGName: "child"})
+
+	err = execImpl.Run(ctx)
+	require.ErrorContains(t, err, "FACILITY")
+	assert.Empty(t, runner.selectors())
 }
 
 func TestParallelExecutorFallbackReflectsParamOverride(t *testing.T) {
@@ -143,6 +231,7 @@ func TestParallelExecutorFallbackReflectsParamOverride(t *testing.T) {
 	require.NoError(t, execImpl.Run(ctx))
 
 	require.Equal(t, []map[string]string{{"host": "serverB"}}, runner.selectors())
+	require.Equal(t, []string{`FACILITY="serverB"`}, runner.params())
 }
 
 func TestDAGExecutorApprovalGuardOnFallback(t *testing.T) {

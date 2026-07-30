@@ -178,7 +178,7 @@ func (e *parallelExecutor) Run(ctx context.Context) error {
 			inFlight++
 
 			go func(a scheduledAttempt) {
-				res, err := e.runAttempt(runCtx, a)
+				res, err := e.runAttempt(runCtx, &a)
 				select {
 				case resultCh <- attemptResult{attempt: a, result: res, err: err}:
 				case <-runCtx.Done():
@@ -371,20 +371,21 @@ func (e *parallelExecutor) DetermineNodeStatus() (core.NodeStatus, error) {
 	return core.NodeSucceeded, nil
 }
 
-func (e *parallelExecutor) runAttempt(ctx context.Context, attempt scheduledAttempt) (*exec1.RunStatus, error) {
+func (e *parallelExecutor) runAttempt(ctx context.Context, attempt *scheduledAttempt) (*exec1.RunStatus, error) {
 	if e.cancelled() {
 		return nil, errParallelCancelled
 	}
 
-	child, err := e.newChildExecutor(ctx, attempt.runParams)
+	child, runParams, err := e.newChildExecutor(ctx, attempt.runParams)
 	if err != nil {
 		if e.cancelled() || errors.Is(ctx.Err(), context.Canceled) {
 			return nil, errParallelCancelled
 		}
 		return nil, err
 	}
+	attempt.runParams = runParams
 
-	key := pendingAttemptKey(attempt)
+	key := pendingAttemptKey(*attempt)
 	cleanupCtx := context.WithoutCancel(ctx)
 	e.lock.Lock()
 	if e.isCanceled.Load() {
@@ -572,7 +573,7 @@ func (e *parallelExecutor) cancelExecution() []*executor.SubDAGExecutor {
 
 func (e *parallelExecutor) newChildExecutor(
 	ctx context.Context, runParams executor.RunParams,
-) (*executor.SubDAGExecutor, error) {
+) (*executor.SubDAGExecutor, executor.RunParams, error) {
 	target := runParams.DAGName
 	if target == "" && e.step.SubDAG != nil {
 		target = e.step.SubDAG.Name
@@ -580,18 +581,22 @@ func (e *parallelExecutor) newChildExecutor(
 
 	child, err := executor.NewSubDAGExecutor(ctx, target)
 	if err != nil {
-		return nil, err
+		return nil, runParams, err
 	}
 
-	workerSelector := effectiveWorkerSelector(ctx, child.DAG, runParams)
-	if err := validateSubDAG(child.DAG, target, workerSelector); err != nil {
+	runParams, err = resolveChildRunParams(ctx, child.DAG, runParams)
+	if err != nil {
 		_ = child.Cleanup(context.WithoutCancel(ctx))
-		return nil, err
+		return nil, runParams, err
+	}
+	if err := validateSubDAG(child.DAG, target, runParams.WorkerSelector); err != nil {
+		_ = child.Cleanup(context.WithoutCancel(ctx))
+		return nil, runParams, err
 	}
 
-	child.SetWorkerSelector(workerSelector)
+	child.SetWorkerSelector(runParams.WorkerSelector)
 	child.SetExternalStepRetry(true)
-	return child, nil
+	return child, runParams, nil
 }
 
 func init() {

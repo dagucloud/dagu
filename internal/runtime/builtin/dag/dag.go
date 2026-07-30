@@ -132,13 +132,15 @@ func (e *dagExecutor) Run(ctx context.Context) error {
 		}
 	}()
 
-	// Resolve the worker selector before dispatch so both Execute and Retry
-	// route to a worker chosen from the effective (params-aware) selector.
-	workerSelector := effectiveWorkerSelector(ctx, e.child.DAG, e.runParams)
-	if err := validateSubDAG(e.child.DAG, e.child.DAG.Name, workerSelector); err != nil {
+	runParams, err := resolveChildRunParams(ctx, e.child.DAG, e.runParams)
+	if err != nil {
 		return err
 	}
-	e.child.SetWorkerSelector(workerSelector)
+	if err := validateSubDAG(e.child.DAG, e.child.DAG.Name, runParams.WorkerSelector); err != nil {
+		return err
+	}
+	e.runParams = runParams
+	e.child.SetWorkerSelector(runParams.WorkerSelector)
 
 	var result *exec.RunStatus
 	var execErr error

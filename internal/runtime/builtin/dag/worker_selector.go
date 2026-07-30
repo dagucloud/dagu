@@ -5,6 +5,8 @@ package dag
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	"github.com/dagucloud/dagu/internal/cmn/config"
 	"github.com/dagucloud/dagu/internal/core"
@@ -12,24 +14,25 @@ import (
 	"github.com/dagucloud/dagu/internal/runtime/executor"
 )
 
-func effectiveWorkerSelector(
+func resolveChildRunParams(
 	ctx context.Context,
 	childDAG *core.DAG,
 	runParams executor.RunParams,
-) map[string]string {
+) (executor.RunParams, error) {
 	if len(runParams.WorkerSelector) > 0 {
-		return runParams.WorkerSelector
+		return runParams, nil
 	}
 	if childDAG == nil || len(childDAG.WorkerSelector) == 0 {
-		return nil
+		return runParams, nil
 	}
 
 	resolved, err := spec.ResolveRuntimeParams(ctx, childDAG, runParams.Params, spec.ResolveRuntimeParamsOptions{
 		BaseConfig: config.GetConfig(ctx).Paths.BaseConfig,
 	})
 	if err != nil {
-		// Child execution owns runtime parameter validation.
-		return childDAG.WorkerSelector
+		return executor.RunParams{}, fmt.Errorf("resolve sub-DAG routing parameters: %w", err)
 	}
-	return resolved.WorkerSelector
+	runParams.WorkerSelector = resolved.WorkerSelector
+	runParams.Params = strings.Join(spec.QuoteRuntimeParams(resolved.Params, resolved.ParamDefs), " ")
+	return runParams, nil
 }
