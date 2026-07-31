@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dagucloud/dagu/internal/view"
+	"github.com/dagucloud/dagu/v2/internal/view"
 )
 
 func validView() *view.View {

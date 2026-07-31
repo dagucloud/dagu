@@ -3,7 +3,7 @@
 
 package store
 
-import "github.com/dagucloud/dagu/internal/core/exec"
+import "github.com/dagucloud/dagu/v2/internal/core/exec"
 
 type queueReadCursor struct {
 	Version     int    `json:"version"`

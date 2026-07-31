@@ -6,7 +6,7 @@ package cmd
 import (
 	"testing"
 
-	"github.com/dagucloud/dagu/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 )

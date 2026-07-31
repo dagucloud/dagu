@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dagucloud/dagu/internal/dagstate"
-	"github.com/dagucloud/dagu/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/dagstate"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
 var _ dagstate.Store = (*DAGStateStore)(nil)

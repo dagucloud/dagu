@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/internal/core"
-	filedag "github.com/dagucloud/dagu/internal/persis/file/dag"
+	"github.com/dagucloud/dagu/v2/internal/core"
+	filedag "github.com/dagucloud/dagu/v2/internal/persis/file/dag"
 	"github.com/fsnotify/fsnotify"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

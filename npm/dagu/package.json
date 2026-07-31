@@ -36,8 +36,6 @@
   "optionalDependencies": {
     "@dagucloud/dagu-darwin-arm64": "0.0.0-development",
     "@dagucloud/dagu-darwin-x64": "0.0.0-development",
-    "@dagucloud/dagu-freebsd-arm64": "0.0.0-development",
-    "@dagucloud/dagu-freebsd-x64": "0.0.0-development",
     "@dagucloud/dagu-linux-arm64": "0.0.0-development",
     "@dagucloud/dagu-linux-armv6": "0.0.0-development",
     "@dagucloud/dagu-linux-armv7": "0.0.0-development",
@@ -45,8 +43,6 @@
     "@dagucloud/dagu-linux-ppc64": "0.0.0-development",
     "@dagucloud/dagu-linux-s390x": "0.0.0-development",
     "@dagucloud/dagu-linux-x64": "0.0.0-development",
-    "@dagucloud/dagu-openbsd-arm64": "0.0.0-development",
-    "@dagucloud/dagu-openbsd-x64": "0.0.0-development",
     "@dagucloud/dagu-win32-arm64": "0.0.0-development",
     "@dagucloud/dagu-win32-ia32": "0.0.0-development",
     "@dagucloud/dagu-win32-x64": "0.0.0-development"

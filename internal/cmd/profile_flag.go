@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/dagucloud/dagu/internal/profile"
+	"github.com/dagucloud/dagu/v2/internal/profile"
 )
 
 func runtimeProfileNameParam(ctx *Context) (string, error) {

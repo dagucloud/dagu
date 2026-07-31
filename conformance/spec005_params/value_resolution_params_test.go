@@ -6,7 +6,7 @@ package spec005_params_test
 import (
 	"testing"
 
-	"github.com/dagucloud/dagu/conformance/harness"
+	"github.com/dagucloud/dagu/v2/conformance/harness"
 )
 
 const spec005RuntimeParams = "environment=prod"

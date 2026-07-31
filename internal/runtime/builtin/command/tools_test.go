@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	dagutools "github.com/dagucloud/dagu/internal/tools"
+	dagutools "github.com/dagucloud/dagu/v2/internal/tools"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

@@ -8,10 +8,10 @@ import (
 	"net/url"
 	"testing"
 
-	api "github.com/dagucloud/dagu/api/v1"
-	"github.com/dagucloud/dagu/internal/auth"
-	"github.com/dagucloud/dagu/internal/service/audit"
-	authservice "github.com/dagucloud/dagu/internal/service/auth"
+	api "github.com/dagucloud/dagu/v2/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/auth"
+	"github.com/dagucloud/dagu/v2/internal/service/audit"
+	authservice "github.com/dagucloud/dagu/v2/internal/service/auth"
 	"github.com/stretchr/testify/require"
 )
 

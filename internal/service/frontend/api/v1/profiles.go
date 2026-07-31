@@ -12,11 +12,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dagucloud/dagu/api/v1"
-	profilepkg "github.com/dagucloud/dagu/internal/profile"
-	secretpkg "github.com/dagucloud/dagu/internal/secret"
-	"github.com/dagucloud/dagu/internal/service/audit"
-	"github.com/dagucloud/dagu/internal/workspace"
+	"github.com/dagucloud/dagu/v2/api/v1"
+	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
+	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
+	"github.com/dagucloud/dagu/v2/internal/service/audit"
+	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
 func profileStoreUnavailable() *Error {

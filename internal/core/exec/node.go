@@ -6,8 +6,8 @@ package exec
 import (
 	"encoding/json"
 
-	"github.com/dagucloud/dagu/internal/cmn/collections"
-	"github.com/dagucloud/dagu/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/cmn/collections"
+	"github.com/dagucloud/dagu/v2/internal/core"
 )
 
 // PushBackEntry records one push-back event for a step approval cycle.

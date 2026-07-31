@@ -12,8 +12,8 @@ import (
 	"strconv"
 	"strings"
 
-	daguapi "github.com/dagucloud/dagu/api/v1"
-	"github.com/dagucloud/dagu/internal/core/exec"
+	daguapi "github.com/dagucloud/dagu/v2/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

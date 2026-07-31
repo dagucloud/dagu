@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/internal/cmn/sock"
+	"github.com/dagucloud/dagu/v2/internal/cmn/sock"
 	"github.com/stretchr/testify/require"
 )
 

@@ -9,8 +9,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/dagucloud/dagu/internal/dagsettings"
-	"github.com/dagucloud/dagu/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/dagsettings"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
 var _ dagsettings.Store = (*DAGSettingsStore)(nil)

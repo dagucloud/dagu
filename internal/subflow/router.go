@@ -8,8 +8,8 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/dagucloud/dagu/internal/runtime/executor"
+	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 )
 
 var errNoMatchingRunner = errors.New("no child workflow runner matched request")

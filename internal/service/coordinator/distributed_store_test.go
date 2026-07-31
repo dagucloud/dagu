@@ -6,8 +6,8 @@ package coordinator
 import (
 	"path/filepath"
 
-	"github.com/dagucloud/dagu/internal/persis/file"
-	"github.com/dagucloud/dagu/internal/persis/store"
+	"github.com/dagucloud/dagu/v2/internal/persis/file"
+	"github.com/dagucloud/dagu/v2/internal/persis/store"
 )
 
 func newTestDispatchTaskStore(baseDir string) *store.DispatchTaskStore {

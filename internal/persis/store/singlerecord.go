@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/dagucloud/dagu/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
 // ErrCorrupt reports that a record exists but its payload could not be decoded.

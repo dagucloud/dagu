@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/dagucloud/dagu/internal/service/audit"
+	"github.com/dagucloud/dagu/v2/internal/service/audit"
 	"github.com/stretchr/testify/require"
 )
 

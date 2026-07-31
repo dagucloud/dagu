@@ -7,7 +7,7 @@ import (
 	"os"
 	"syscall"
 
-	"github.com/dagucloud/dagu/internal/cmn/signal"
+	"github.com/dagucloud/dagu/v2/internal/cmn/signal"
 )
 
 // TerminationMode describes the lifecycle intent behind a process stop request.

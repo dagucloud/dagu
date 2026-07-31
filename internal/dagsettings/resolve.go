@@ -8,7 +8,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/dagucloud/dagu/internal/profile"
+	"github.com/dagucloud/dagu/v2/internal/profile"
 )
 
 // ErrProfileStoreUnavailable means a selected runtime profile cannot be checked.

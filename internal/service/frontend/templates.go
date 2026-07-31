@@ -19,13 +19,13 @@ import (
 	"text/template"
 	"time"
 
-	apiv1 "github.com/dagucloud/dagu/api/v1"
-	"github.com/dagucloud/dagu/internal/cmn/config"
-	"github.com/dagucloud/dagu/internal/cmn/logger"
-	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/internal/license"
-	"github.com/dagucloud/dagu/internal/service/frontend/api/pathutil"
-	workspacepkg "github.com/dagucloud/dagu/internal/workspace"
+	apiv1 "github.com/dagucloud/dagu/v2/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
+	"github.com/dagucloud/dagu/v2/internal/license"
+	"github.com/dagucloud/dagu/v2/internal/service/frontend/api/pathutil"
+	workspacepkg "github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
 //go:embed templates/* assets/*

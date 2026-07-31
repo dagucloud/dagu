@@ -8,7 +8,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/dagucloud/dagu/internal/cmn/collections"
+	"github.com/dagucloud/dagu/v2/internal/cmn/collections"
 )
 
 func TestSyncMap_MarshalJSON(t *testing.T) {

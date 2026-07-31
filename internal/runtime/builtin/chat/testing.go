@@ -8,9 +8,9 @@ import (
 	"io"
 	"os"
 
-	"github.com/dagucloud/dagu/internal/core"
-	"github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/dagucloud/dagu/internal/runtime/executor"
+	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 )
 
 // MockExecutorType is a test executor type that simulates a successful chat step.

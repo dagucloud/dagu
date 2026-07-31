@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	command "github.com/dagucloud/dagu/internal/runtime/builtin/command"
+	command "github.com/dagucloud/dagu/v2/internal/runtime/builtin/command"
 	"github.com/stretchr/testify/require"
 )
 

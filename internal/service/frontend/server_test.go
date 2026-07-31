@@ -21,13 +21,13 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/oauth2"
 
-	authmodel "github.com/dagucloud/dagu/internal/auth"
-	"github.com/dagucloud/dagu/internal/cmn/config"
-	authservice "github.com/dagucloud/dagu/internal/service/auth"
-	"github.com/dagucloud/dagu/internal/service/eventstore"
-	apiv1 "github.com/dagucloud/dagu/internal/service/frontend/api/v1"
-	frontendauth "github.com/dagucloud/dagu/internal/service/frontend/auth"
-	"github.com/dagucloud/dagu/internal/service/frontend/sse"
+	authmodel "github.com/dagucloud/dagu/v2/internal/auth"
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	authservice "github.com/dagucloud/dagu/v2/internal/service/auth"
+	"github.com/dagucloud/dagu/v2/internal/service/eventstore"
+	apiv1 "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
+	frontendauth "github.com/dagucloud/dagu/v2/internal/service/frontend/auth"
+	"github.com/dagucloud/dagu/v2/internal/service/frontend/sse"
 )
 
 // testContext returns a context that is cancelled when the test ends,

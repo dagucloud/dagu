@@ -30,9 +30,9 @@ import (
 	aquaregistry "github.com/aquaproj/aqua/v2/pkg/install-registry"
 	aquainstallpackage "github.com/aquaproj/aqua/v2/pkg/installpackage"
 	aquaruntime "github.com/aquaproj/aqua/v2/pkg/runtime"
-	"github.com/dagucloud/dagu/internal/cmn/dirlock"
-	"github.com/dagucloud/dagu/internal/core"
-	"github.com/dagucloud/dagu/internal/tools"
+	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
+	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/tools"
 	"github.com/spf13/afero"
 )
 

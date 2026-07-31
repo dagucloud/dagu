@@ -6,7 +6,7 @@ package scheduler
 import (
 	"time"
 
-	"github.com/dagucloud/dagu/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/core"
 )
 
 // DefaultMaxBufferItems is the default maximum number of items a ScheduleBuffer

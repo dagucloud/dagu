@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dagucloud/dagu/internal/core"
-	"github.com/dagucloud/dagu/internal/test"
+	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/test"
 )
 
 // TestSQLExecutor_SQLite_BasicQuery tests basic SQLite query execution.

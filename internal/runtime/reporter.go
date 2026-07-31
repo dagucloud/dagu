@@ -8,7 +8,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/core/exec"
 )
 
 // StatusPusher reports DAG run status outside the current execution process.

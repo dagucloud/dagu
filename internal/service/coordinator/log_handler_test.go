@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
+	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

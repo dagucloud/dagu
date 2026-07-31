@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"os/exec"
 
-	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
+	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 )
 
 // shellCommandBuilder holds the configuration for building shell commands.

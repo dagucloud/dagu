@@ -11,8 +11,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/dagucloud/dagu/internal/auth"
-	"github.com/dagucloud/dagu/internal/service/frontend/api/pathutil"
+	"github.com/dagucloud/dagu/v2/internal/auth"
+	"github.com/dagucloud/dagu/v2/internal/service/frontend/api/pathutil"
 )
 
 // rawRemoteAddrKey is the context key for the unmodified remote address.

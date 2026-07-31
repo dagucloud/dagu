@@ -12,8 +12,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/dagucloud/dagu/internal/cmn/fileutil"
-	"github.com/dagucloud/dagu/internal/workspace"
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
+	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
 // File describes a discovered DAG definition.

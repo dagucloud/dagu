@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	sqlexec "github.com/dagucloud/dagu/internal/runtime/builtin/sql"
+	sqlexec "github.com/dagucloud/dagu/v2/internal/runtime/builtin/sql"
 	"github.com/gofrs/flock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

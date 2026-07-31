@@ -7,7 +7,7 @@ import (
 	"context"
 	"sync"
 
-	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
+	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 )
 
 // ExecutorCapabilities defines what an executor can do.

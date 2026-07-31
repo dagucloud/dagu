@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dagucloud/dagu/internal/workspace"
+	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
 // SyncStatus represents the synchronization status of a DAG.

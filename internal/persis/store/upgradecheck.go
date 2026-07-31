@@ -7,8 +7,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/dagucloud/dagu/internal/persis"
-	"github.com/dagucloud/dagu/internal/upgrade"
+	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/upgrade"
 )
 
 const upgradeCheckRecordID = "upgrade-check"

@@ -10,8 +10,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/dagucloud/dagu/internal/dagdiscovery"
-	indexv1 "github.com/dagucloud/dagu/proto/index/v1"
+	"github.com/dagucloud/dagu/v2/internal/dagdiscovery"
+	indexv1 "github.com/dagucloud/dagu/v2/proto/index/v1"
 )
 
 type catalog struct {

@@ -8,7 +8,7 @@ import (
 	"sort"
 	"testing"
 
-	dagschema "github.com/dagucloud/dagu/internal/cmn/schema"
+	dagschema "github.com/dagucloud/dagu/v2/internal/cmn/schema"
 	"github.com/stretchr/testify/require"
 )
 

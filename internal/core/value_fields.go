@@ -11,7 +11,7 @@ import (
 	"slices"
 	"strings"
 
-	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
+	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 )
 
 type ReferenceField struct {

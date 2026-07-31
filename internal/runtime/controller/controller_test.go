@@ -9,16 +9,16 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dagucloud/dagu/internal/core"
-	"github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/dagucloud/dagu/internal/core/spec"
-	"github.com/dagucloud/dagu/internal/llm"
-	"github.com/dagucloud/dagu/internal/runtime/controller"
+	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/llm"
+	"github.com/dagucloud/dagu/v2/internal/runtime/controller"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	// Registers the executors the child DAG in the round-trip test needs.
-	_ "github.com/dagucloud/dagu/internal/runtime/builtin"
+	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin"
 )
 
 func testDAG() *core.DAG {

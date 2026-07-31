@@ -3,7 +3,7 @@
 These examples show how another Go application can import Dagu as a library:
 
 ```go
-import "github.com/dagucloud/dagu"
+import "github.com/dagucloud/dagu/v2"
 ```
 
 The embedded API is experimental. It is intended for applications that want to

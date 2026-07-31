@@ -7,9 +7,9 @@ import (
 	"context"
 	"os"
 
-	"github.com/dagucloud/dagu/internal/core"
-	"github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/dagucloud/dagu/internal/runtime/workspacebundle"
+	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 )
 
 // SubWorkflowRunner runs child workflows behind a workflow-level interface.

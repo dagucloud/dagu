@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/dagucloud/dagu/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
 const (
@@ -59,7 +59,7 @@ func WithProcHeartbeatSyncInterval(_ time.Duration) ProcStoreOption {
 // liveness from the entry's heartbeat timestamp plus the record's UpdatedAt.
 //
 // It is NOT layout-compatible with the file backend's proc store
-// ([github.com/dagucloud/dagu/internal/persis/file/proc]), which writes the
+// ([github.com/dagucloud/dagu/v2/internal/persis/file/proc]), which writes the
 // released binary ".proc" files. The file backend must use file.NewProcStore;
 // do not point this store at a file backend's ProcDir. See [NewProcStore].
 type ProcStore struct {

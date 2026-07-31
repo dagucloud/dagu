@@ -3,7 +3,7 @@
 
 package value_test
 
-import "github.com/dagucloud/dagu/internal/cmn/value"
+import "github.com/dagucloud/dagu/v2/internal/cmn/value"
 
 func testEnvScope(entries map[string]string) *value.EnvScope {
 	scope := value.NewEnvScope(nil, false)

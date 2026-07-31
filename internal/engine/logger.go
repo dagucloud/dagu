@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/dagucloud/dagu/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 )
 
 type slogAdapter struct {

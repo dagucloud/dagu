@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/internal/core"
-	_ "github.com/dagucloud/dagu/internal/runtime/builtin/foreach"
-	"github.com/dagucloud/dagu/internal/runtime/executor"
+	"github.com/dagucloud/dagu/v2/internal/core"
+	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/foreach"
+	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

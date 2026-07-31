@@ -12,7 +12,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/core/exec"
 )
 
 func artifactOutputFilePath(ctx context.Context, raw string) (string, error) {

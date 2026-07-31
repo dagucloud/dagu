@@ -12,13 +12,13 @@ import (
 	"slices"
 	"time"
 
-	"github.com/dagucloud/dagu/internal/cmn/config"
-	coreexec "github.com/dagucloud/dagu/internal/core/exec"
-	iengine "github.com/dagucloud/dagu/internal/engine"
-	"github.com/dagucloud/dagu/internal/persis/file"
-	"github.com/dagucloud/dagu/internal/persis/store"
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	coreexec "github.com/dagucloud/dagu/v2/internal/core/exec"
+	iengine "github.com/dagucloud/dagu/v2/internal/engine"
+	"github.com/dagucloud/dagu/v2/internal/persis/file"
+	"github.com/dagucloud/dagu/v2/internal/persis/store"
 
-	_ "github.com/dagucloud/dagu/internal/runtime/builtin" // Register built-in executors for embedded use.
+	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin" // Register built-in executors for embedded use.
 )
 
 // ExecutionMode controls how a DAG run is dispatched.

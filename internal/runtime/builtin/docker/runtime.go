@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/dagucloud/dagu/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/core"
 )
 
 // Container runtime selection is a SERVICE-LEVEL setting, not a per-step or

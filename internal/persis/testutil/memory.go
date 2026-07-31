@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dagucloud/dagu/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
 // MemoryBackend is an in-memory [persis.Backend] for use in unit tests.

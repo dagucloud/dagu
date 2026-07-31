@@ -804,7 +804,7 @@ See the [distributed execution documentation](https://docs.dagu.sh/server-admin/
 Go applications can import Dagu and start DAG runs from the host process:
 
 ```go
-import "github.com/dagucloud/dagu"
+import "github.com/dagucloud/dagu/v2"
 ```
 
 ```go
@@ -930,7 +930,7 @@ OIDC variables: `DAGU_AUTH_OIDC_CLIENT_ID`, `DAGU_AUTH_OIDC_CLIENT_SECRET`, `DAG
 
 - [Discord](https://discord.gg/gpahPUjGRk) — Questions and discussion
 - [GitHub Issues](https://github.com/dagucloud/dagu/issues) — Bug reports and feature requests
-- [Bluesky](https://bsky.app/profile/dagu-org.bsky.social)
+- [Bluesky](https://bsky.app/profile/dagu-sh.bsky.social)
 
 ## Development
 
@@ -949,8 +949,8 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for development workflow and code stand
 
 <div align="center">
   <h3>Premium Sponsors</h3>
-  <a href="https://github.com/slashbinlabs">
-    <img src="https://wsrv.nl/?url=https%3A%2F%2Fgithub.com%2Fslashbinlabs.png&w=150&h=150&fit=cover&mask=circle" width="100" height="100" alt="@slashbinlabs">
+  <a href="https://slashbinlabs.com/">
+    <img src="https://wsrv.nl/?url=https%3A%2F%2Fslashbinlabs.com%2Flogo.png&w=150&h=150&fit=cover&mask=circle" width="100" height="100" alt="/bin labs">
   </a>
 
   <h3>Supporters</h3>

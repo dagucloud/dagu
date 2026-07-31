@@ -7,7 +7,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/dagucloud/dagu/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/core"
 )
 
 // ErrNoopAttemptNotSupported is returned when an operation is not supported by a no-op attempt.

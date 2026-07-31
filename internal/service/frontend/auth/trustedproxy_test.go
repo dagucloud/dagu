@@ -13,11 +13,11 @@ import (
 	"testing"
 	"time"
 
-	authmodel "github.com/dagucloud/dagu/internal/auth"
-	cmnlogger "github.com/dagucloud/dagu/internal/cmn/logger"
-	"github.com/dagucloud/dagu/internal/license"
-	authservice "github.com/dagucloud/dagu/internal/service/auth"
-	"github.com/dagucloud/dagu/internal/service/trustedproxyprovision"
+	authmodel "github.com/dagucloud/dagu/v2/internal/auth"
+	cmnlogger "github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/license"
+	authservice "github.com/dagucloud/dagu/v2/internal/service/auth"
+	"github.com/dagucloud/dagu/v2/internal/service/trustedproxyprovision"
 	"github.com/stretchr/testify/assert"
 )
 

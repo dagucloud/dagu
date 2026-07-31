@@ -13,8 +13,8 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/dagucloud/dagu/internal/runtime/runstate"
+	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
 )
 
 // Store records run attempts in memory.

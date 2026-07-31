@@ -16,10 +16,10 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
-	cmnconfig "github.com/dagucloud/dagu/internal/cmn/config"
-	"github.com/dagucloud/dagu/internal/cmn/fileutil"
-	dagutools "github.com/dagucloud/dagu/internal/tools"
+	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
+	cmnconfig "github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
+	dagutools "github.com/dagucloud/dagu/v2/internal/tools"
 )
 
 const (

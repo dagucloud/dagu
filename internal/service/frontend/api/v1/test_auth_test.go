@@ -6,7 +6,7 @@ package api_test
 import (
 	"context"
 
-	"github.com/dagucloud/dagu/internal/auth"
+	"github.com/dagucloud/dagu/v2/internal/auth"
 )
 
 func adminCtx() context.Context {

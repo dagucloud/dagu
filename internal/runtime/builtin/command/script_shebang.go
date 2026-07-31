@@ -11,8 +11,8 @@ import (
 	goruntime "runtime"
 	"strings"
 
-	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
-	"github.com/dagucloud/dagu/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
+	"github.com/dagucloud/dagu/v2/internal/runtime"
 )
 
 func parseScriptShebang(script string) (string, []string, error) {

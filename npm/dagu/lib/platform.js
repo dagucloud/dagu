@@ -18,15 +18,11 @@ const PLATFORM_MAP = {
   // Tier 2 - Common but less frequent
   "linux-ia32": "dagu-linux-ia32",
   "win32-ia32": "dagu-win32-ia32",
-  "freebsd-x64": "dagu-freebsd-x64",
 
   // Tier 3 - Rare platforms
   "win32-arm64": "dagu-win32-arm64",
   "linux-ppc64": "dagu-linux-ppc64",
   "linux-s390x": "dagu-linux-s390x",
-  "freebsd-arm64": "dagu-freebsd-arm64",
-  "openbsd-x64": "dagu-openbsd-x64",
-  "openbsd-arm64": "dagu-openbsd-arm64",
 };
 
 // Cache for binary path

@@ -6,7 +6,7 @@ package types_test
 import (
 	"testing"
 
-	"github.com/dagucloud/dagu/internal/core/spec/types"
+	"github.com/dagucloud/dagu/v2/internal/core/spec/types"
 	"github.com/goccy/go-yaml"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

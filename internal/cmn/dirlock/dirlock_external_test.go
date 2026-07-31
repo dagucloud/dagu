@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/dagucloud/dagu/internal/cmn/dirlock"
+	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/stretchr/testify/require"
 )
 

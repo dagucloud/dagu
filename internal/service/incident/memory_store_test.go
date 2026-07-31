@@ -11,7 +11,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	incidentmodel "github.com/dagucloud/dagu/internal/incident"
+	incidentmodel "github.com/dagucloud/dagu/v2/internal/incident"
 )
 
 type memoryStore struct {

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/internal/cmn/stringutil"
+	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/stretchr/testify/assert"
 )
 

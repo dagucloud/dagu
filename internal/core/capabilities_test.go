@@ -9,7 +9,7 @@ import (
 	"sync"
 	"testing"
 
-	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
+	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/stretchr/testify/assert"
 )
 

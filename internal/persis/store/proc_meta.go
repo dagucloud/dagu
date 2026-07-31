@@ -10,7 +10,7 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/core/exec"
 )
 
 const (

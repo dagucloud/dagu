@@ -7,8 +7,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/dagucloud/dagu/internal/core"
-	"github.com/dagucloud/dagu/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/core/spec"
 )
 
 // rehydrateExecutionDAG reloads a full DAG from source before scheduler-owned

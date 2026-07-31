@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/dagucloud/dagu/api/v1"
-	apiimpl "github.com/dagucloud/dagu/internal/service/frontend/api/v1"
+	"github.com/dagucloud/dagu/v2/api/v1"
+	apiimpl "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

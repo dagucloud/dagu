@@ -7,7 +7,7 @@ import (
 	"context"
 	"log"
 
-	"github.com/dagucloud/dagu"
+	"github.com/dagucloud/dagu/v2"
 )
 
 func Example() {

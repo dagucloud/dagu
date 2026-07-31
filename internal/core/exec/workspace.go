@@ -6,8 +6,8 @@ package exec
 import (
 	"slices"
 
-	"github.com/dagucloud/dagu/internal/core"
-	"github.com/dagucloud/dagu/internal/workspace"
+	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
 const WorkspaceLabelKey = "workspace"

@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dagucloud/dagu/internal/cmn/config"
-	"github.com/dagucloud/dagu/internal/service/scheduler/filenotify"
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/service/scheduler/filenotify"
 	"github.com/fsnotify/fsnotify"
 )
 

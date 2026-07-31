@@ -9,10 +9,10 @@ import (
 	"os"
 
 	"github.com/coder/websocket"
-	"github.com/dagucloud/dagu/internal/license"
-	"github.com/dagucloud/dagu/internal/service/audit"
-	authservice "github.com/dagucloud/dagu/internal/service/auth"
-	frontendauth "github.com/dagucloud/dagu/internal/service/frontend/auth"
+	"github.com/dagucloud/dagu/v2/internal/license"
+	"github.com/dagucloud/dagu/v2/internal/service/audit"
+	authservice "github.com/dagucloud/dagu/v2/internal/service/auth"
+	frontendauth "github.com/dagucloud/dagu/v2/internal/service/frontend/auth"
 )
 
 // Handler handles WebSocket connections for the terminal.

@@ -6,10 +6,10 @@ package file_test
 import (
 	"testing"
 
-	"github.com/dagucloud/dagu/internal/cmn/config"
-	"github.com/dagucloud/dagu/internal/persis/file"
-	"github.com/dagucloud/dagu/internal/persis/file/proc"
-	"github.com/dagucloud/dagu/internal/persis/store"
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/persis/file"
+	"github.com/dagucloud/dagu/v2/internal/persis/file/proc"
+	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/stretchr/testify/require"
 )
 

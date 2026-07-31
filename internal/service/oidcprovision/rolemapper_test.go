@@ -6,7 +6,7 @@ package oidcprovision
 import (
 	"testing"
 
-	"github.com/dagucloud/dagu/internal/auth"
+	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

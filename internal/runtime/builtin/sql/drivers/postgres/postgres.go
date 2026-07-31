@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	sqlexec "github.com/dagucloud/dagu/internal/runtime/builtin/sql"
+	sqlexec "github.com/dagucloud/dagu/v2/internal/runtime/builtin/sql"
 
 	_ "github.com/jackc/pgx/v5/stdlib" // PostgreSQL driver
 )

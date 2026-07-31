@@ -11,11 +11,11 @@ import (
 	"strings"
 	"testing"
 
-	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
-	"github.com/dagucloud/dagu/internal/core"
-	coreexec "github.com/dagucloud/dagu/internal/core/exec"
-	daguruntime "github.com/dagucloud/dagu/internal/runtime"
-	command "github.com/dagucloud/dagu/internal/runtime/builtin/command"
+	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
+	"github.com/dagucloud/dagu/v2/internal/core"
+	coreexec "github.com/dagucloud/dagu/v2/internal/core/exec"
+	daguruntime "github.com/dagucloud/dagu/v2/internal/runtime"
+	command "github.com/dagucloud/dagu/v2/internal/runtime/builtin/command"
 	"github.com/stretchr/testify/require"
 )
 

@@ -8,7 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/dagucloud/dagu/api/v1"
+	"github.com/dagucloud/dagu/v2/api/v1"
 )
 
 func (a *API) GetOpenapiJson(ctx context.Context, _ api.GetOpenapiJsonRequestObject) (api.GetOpenapiJsonResponseObject, error) {

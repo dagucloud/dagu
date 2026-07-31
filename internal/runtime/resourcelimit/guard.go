@@ -7,7 +7,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/dagucloud/dagu/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/core"
 )
 
 // Options describes resource limits for one DAG run.

@@ -6,7 +6,7 @@ package audit
 import (
 	"context"
 
-	"github.com/dagucloud/dagu/internal/auth"
+	"github.com/dagucloud/dagu/v2/internal/auth"
 )
 
 type sourceContextKey struct{}

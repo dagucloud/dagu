@@ -6,8 +6,8 @@ package spec
 import (
 	"strings"
 
-	"github.com/dagucloud/dagu/internal/core"
-	"github.com/dagucloud/dagu/internal/core/spec/types"
+	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/core/spec/types"
 	"github.com/go-viper/mapstructure/v2"
 )
 

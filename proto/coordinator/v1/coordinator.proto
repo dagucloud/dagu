@@ -6,7 +6,7 @@ syntax = "proto3";
 package coordinator.v1;
 
 // protolint:disable:next MAX_LINE_LENGTH
-option go_package = "github.com/dagucloud/dagu/proto/coordinator/v1;coordinatorv1";
+option go_package = "github.com/dagucloud/dagu/v2/proto/coordinator/v1;coordinatorv1";
 
 
 // Service definition for Coordinator Service.

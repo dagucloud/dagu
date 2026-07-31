@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dagucloud/dagu/internal/service/audit"
-	frontendapi "github.com/dagucloud/dagu/internal/service/frontend/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/service/audit"
+	frontendapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	"github.com/google/uuid"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )

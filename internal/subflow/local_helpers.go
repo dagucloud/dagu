@@ -9,11 +9,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/dagucloud/dagu/internal/cmn/fileutil"
-	coreexec "github.com/dagucloud/dagu/internal/core/exec"
-	"github.com/dagucloud/dagu/internal/runtime/executor"
-	"github.com/dagucloud/dagu/internal/runtime/workspacebundle"
-	dagutools "github.com/dagucloud/dagu/internal/tools"
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
+	coreexec "github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
+	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
+	dagutools "github.com/dagucloud/dagu/v2/internal/tools"
 )
 
 func materializeLocalWorkspace(req executor.SubWorkflowRequest) (string, string, func(), error) {

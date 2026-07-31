@@ -6,8 +6,8 @@ package dagwarning
 import (
 	"context"
 
-	"github.com/dagucloud/dagu/internal/cmn/logger"
-	"github.com/dagucloud/dagu/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/core"
 )
 
 // LoadDotEnv loads dotenv files, logs warnings added by that load, and returns new build errors.

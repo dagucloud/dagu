@@ -6,7 +6,7 @@ package spec007_value_resolution_steps_test
 import (
 	"testing"
 
-	"github.com/dagucloud/dagu/conformance/harness"
+	"github.com/dagucloud/dagu/v2/conformance/harness"
 )
 
 func TestValidateStepOutputReferenceNotices(t *testing.T) {

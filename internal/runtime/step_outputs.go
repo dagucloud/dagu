@@ -13,8 +13,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/dagucloud/dagu/internal/core"
-	coreexec "github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/core"
+	coreexec "github.com/dagucloud/dagu/v2/internal/core/exec"
 )
 
 var outputFileDelimiterPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)

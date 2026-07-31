@@ -6,7 +6,7 @@ package exec
 import (
 	"context"
 
-	"github.com/dagucloud/dagu/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/core"
 )
 
 type managedDAGRunEnv struct {

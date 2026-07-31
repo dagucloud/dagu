@@ -6,8 +6,8 @@ package spec022_mcp_change_tool_test
 import (
 	"testing"
 
-	api "github.com/dagucloud/dagu/api/v1"
-	"github.com/dagucloud/dagu/conformance/mcptest"
+	api "github.com/dagucloud/dagu/v2/api/v1"
+	"github.com/dagucloud/dagu/v2/conformance/mcptest"
 	"github.com/stretchr/testify/require"
 )
 

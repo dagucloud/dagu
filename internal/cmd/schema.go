@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	schemapkg "github.com/dagucloud/dagu/internal/cmn/schema"
+	schemapkg "github.com/dagucloud/dagu/v2/internal/cmn/schema"
 	"github.com/spf13/cobra"
 )
 

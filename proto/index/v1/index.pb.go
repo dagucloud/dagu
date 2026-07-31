@@ -595,7 +595,7 @@ const file_proto_index_v1_index_proto_rawDesc = "" +
 	"\x11suspend_flag_name\x18\x1b \x01(\tR\x0fsuspendFlagName\x12\x1f\n" +
 	"\varchive_dir\x18\x1c \x01(\tR\n" +
 	"archiveDir\x12#\n" +
-	"\rtrigger_actor\x18\x1d \x01(\tR\ftriggerActorB2Z0github.com/dagucloud/dagu/proto/index/v1;indexv1b\x06proto3"
+	"\rtrigger_actor\x18\x1d \x01(\tR\ftriggerActorB5Z3github.com/dagucloud/dagu/v2/proto/index/v1;indexv1b\x06proto3"
 
 var (
 	file_proto_index_v1_index_proto_rawDescOnce sync.Once

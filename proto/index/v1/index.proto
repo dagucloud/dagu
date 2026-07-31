@@ -6,7 +6,7 @@ syntax = "proto3";
 package index.v1;
 
 // protolint:disable:next MAX_LINE_LENGTH
-option go_package = "github.com/dagucloud/dagu/proto/index/v1;indexv1";
+option go_package = "github.com/dagucloud/dagu/v2/proto/index/v1;indexv1";
 
 // DAGIndex stores cached metadata for DAG definition files.
 message DAGIndex {

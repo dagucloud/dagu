@@ -4,8 +4,8 @@
 package file
 
 import (
-	"github.com/dagucloud/dagu/internal/cmn/config"
-	"github.com/dagucloud/dagu/internal/persis/file/proc"
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/persis/file/proc"
 )
 
 // NewProcStore wires the file-backed proc store without changing the released

@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
+	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 )
 
 // Resolver resolves workflow values for semantic fields.

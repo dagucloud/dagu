@@ -10,8 +10,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/dagucloud/dagu/internal/auth"
-	authservice "github.com/dagucloud/dagu/internal/service/auth"
+	"github.com/dagucloud/dagu/v2/internal/auth"
+	authservice "github.com/dagucloud/dagu/v2/internal/service/auth"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

@@ -6,7 +6,7 @@ package agent
 import (
 	"strings"
 
-	"github.com/dagucloud/dagu/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/core"
 )
 
 // createProgressReporter creates the progress reporter

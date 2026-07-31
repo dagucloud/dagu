@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/internal/cmn/config"
-	coord "github.com/dagucloud/dagu/internal/service/coordinator"
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	coord "github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/core/exec"
 )
 
 // StaticRegistry is a simple service registry that returns a fixed list of coordinator addresses.

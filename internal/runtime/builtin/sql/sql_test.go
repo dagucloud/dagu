@@ -14,15 +14,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/internal/core"
-	"github.com/dagucloud/dagu/internal/runtime/executor"
+	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	sqlexec "github.com/dagucloud/dagu/internal/runtime/builtin/sql"
+	sqlexec "github.com/dagucloud/dagu/v2/internal/runtime/builtin/sql"
 	// Import drivers for testing
-	_ "github.com/dagucloud/dagu/internal/runtime/builtin/sql/drivers/postgres"
-	_ "github.com/dagucloud/dagu/internal/runtime/builtin/sql/drivers/sqlite"
+	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/sql/drivers/postgres"
+	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/sql/drivers/sqlite"
 )
 
 func TestParseConfig(t *testing.T) {

@@ -6,8 +6,8 @@ package intg_test
 import (
 	"testing"
 
-	"github.com/dagucloud/dagu/internal/core"
-	"github.com/dagucloud/dagu/internal/test"
+	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/test"
 )
 
 func TestJQExecutor(t *testing.T) {

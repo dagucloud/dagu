@@ -7,7 +7,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/dagucloud/dagu/internal/auth"
+	"github.com/dagucloud/dagu/v2/internal/auth"
 )
 
 var _ auth.TokenSecretProvider = (*ChainProvider)(nil)

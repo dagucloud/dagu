@@ -215,8 +215,9 @@ To pin to a specific version instead of `latest`:
 
 ```bash
 # Update both deployments
-kubectl set image deployment/dagu-server -n dagu-dev dagu=ghcr.io/dagucloud/dagu:v1.14.0
-kubectl set image deployment/dagu-worker -n dagu-dev dagu=ghcr.io/dagucloud/dagu:v1.14.0
+export DAGU_VERSION=2.11.1 # Image tags do not include a leading "v"
+kubectl set image deployment/dagu-server -n dagu-dev dagu=ghcr.io/dagucloud/dagu:${DAGU_VERSION}
+kubectl set image deployment/dagu-worker -n dagu-dev dagu=ghcr.io/dagucloud/dagu:${DAGU_VERSION}
 ```
 
 ## Troubleshooting

@@ -11,8 +11,8 @@ import (
 	"reflect"
 	"time"
 
-	"github.com/dagucloud/dagu/internal/auth"
-	"github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/auth"
+	"github.com/dagucloud/dagu/v2/internal/core/exec"
 )
 
 var (

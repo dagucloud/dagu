@@ -3,7 +3,7 @@
 
 package scheduler
 
-import "github.com/dagucloud/dagu/internal/service/healthcheck"
+import "github.com/dagucloud/dagu/v2/internal/service/healthcheck"
 
 // HealthServer represents the scheduler health check server.
 type HealthServer = healthcheck.Server

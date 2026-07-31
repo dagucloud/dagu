@@ -6,7 +6,7 @@ package spec021_mcp_read_tool_test
 import (
 	"testing"
 
-	"github.com/dagucloud/dagu/conformance/mcptest"
+	"github.com/dagucloud/dagu/v2/conformance/mcptest"
 	"github.com/stretchr/testify/require"
 )
 

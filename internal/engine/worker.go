@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/dagucloud/dagu/internal/service/worker"
+	"github.com/dagucloud/dagu/v2/internal/service/worker"
 )
 
 func (e *Engine) NewWorker(opts WorkerOptions) (*Worker, error) {

@@ -10,8 +10,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/dagucloud/dagu/internal/cmn/config"
-	frontendauth "github.com/dagucloud/dagu/internal/service/frontend/auth"
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	frontendauth "github.com/dagucloud/dagu/v2/internal/service/frontend/auth"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/httplog/v2"
 	"github.com/stretchr/testify/assert"

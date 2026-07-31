@@ -6,7 +6,7 @@ package spec012_step_outputs_test
 import (
 	"testing"
 
-	"github.com/dagucloud/dagu/conformance/harness"
+	"github.com/dagucloud/dagu/v2/conformance/harness"
 )
 
 func TestValidateStepOutputs(t *testing.T) {

@@ -7,9 +7,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/dagucloud/dagu/internal/core"
-	dagutools "github.com/dagucloud/dagu/internal/tools"
-	daguaqua "github.com/dagucloud/dagu/internal/tools/aqua"
+	"github.com/dagucloud/dagu/v2/internal/core"
+	dagutools "github.com/dagucloud/dagu/v2/internal/tools"
+	daguaqua "github.com/dagucloud/dagu/v2/internal/tools/aqua"
 )
 
 func prepareDAGTools(ctx *Context, dag *core.DAG) ([]string, error) {

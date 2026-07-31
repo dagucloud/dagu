@@ -10,8 +10,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/dagucloud/dagu/internal/persis"
-	"github.com/dagucloud/dagu/internal/profile"
+	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/profile"
 )
 
 var _ profile.Store = (*ProfileStore)(nil)

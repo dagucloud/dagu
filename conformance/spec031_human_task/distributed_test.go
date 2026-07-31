@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/conformance/harness"
+	"github.com/dagucloud/dagu/v2/conformance/harness"
 )
 
 func TestDistributedHumanTaskReleasesWorkerAndResumesElsewhere(t *testing.T) {

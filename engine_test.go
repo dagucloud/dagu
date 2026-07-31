@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu"
+	"github.com/dagucloud/dagu/v2"
 	"github.com/stretchr/testify/require"
 )
 

@@ -9,7 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/dagucloud/dagu/internal/tools/llmsgen"
+	"github.com/dagucloud/dagu/v2/internal/tools/llmsgen"
 )
 
 func main() {

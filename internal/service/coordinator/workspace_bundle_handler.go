@@ -10,8 +10,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/dagucloud/dagu/internal/runtime/workspacebundle"
-	coordinatorv1 "github.com/dagucloud/dagu/proto/coordinator/v1"
+	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
+	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )

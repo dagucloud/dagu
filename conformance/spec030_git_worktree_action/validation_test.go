@@ -6,7 +6,7 @@ package spec030_git_worktree_action_test
 import (
 	"testing"
 
-	"github.com/dagucloud/dagu/conformance/harness"
+	"github.com/dagucloud/dagu/v2/conformance/harness"
 )
 
 func TestValidateGitWorktreeActions(t *testing.T) {

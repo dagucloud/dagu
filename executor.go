@@ -7,9 +7,9 @@ import (
 	"context"
 	"strings"
 
-	"github.com/dagucloud/dagu/internal/core"
-	"github.com/dagucloud/dagu/internal/core/spec"
-	runtimeexec "github.com/dagucloud/dagu/internal/runtime/executor"
+	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
 )
 
 // Step is the public alias for a Dagu step passed to custom executors.

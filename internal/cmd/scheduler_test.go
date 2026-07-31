@@ -6,8 +6,8 @@ package cmd_test
 import (
 	"testing"
 
-	"github.com/dagucloud/dagu/internal/cmd"
-	"github.com/dagucloud/dagu/internal/test"
+	"github.com/dagucloud/dagu/v2/internal/cmd"
+	"github.com/dagucloud/dagu/v2/internal/test"
 )
 
 func TestSchedulerCommand(t *testing.T) {

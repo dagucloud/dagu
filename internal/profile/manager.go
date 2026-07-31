@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/dagucloud/dagu/internal/secret"
+	"github.com/dagucloud/dagu/v2/internal/secret"
 )
 
 // Manager coordinates profile mutations that span the profile and secret stores.

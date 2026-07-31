@@ -6,7 +6,7 @@ package runtime_test
 import (
 	"testing"
 
-	"github.com/dagucloud/dagu/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/stretchr/testify/assert"
 )
 

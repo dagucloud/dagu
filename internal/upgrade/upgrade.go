@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/Masterminds/semver/v3"
-	"github.com/dagucloud/dagu/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 )
 
 // Options configures the upgrade operation.
@@ -124,7 +124,7 @@ func CanSelfUpgrade() (bool, string) {
 	case InstallMethodDocker:
 		return false, "Running in Docker. Pull the latest image instead."
 	case InstallMethodGoInstall:
-		return false, "Installed via go install. Use 'go install github.com/dagucloud/dagu@latest' instead."
+		return false, "Installed via go install. Use 'go install github.com/dagucloud/dagu/v2/cmd@latest' instead."
 	case InstallMethodUnknown, InstallMethodBinary:
 		return true, ""
 	}

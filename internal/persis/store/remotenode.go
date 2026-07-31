@@ -9,9 +9,9 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/dagucloud/dagu/internal/cmn/crypto"
-	"github.com/dagucloud/dagu/internal/persis"
-	"github.com/dagucloud/dagu/internal/remotenode"
+	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
+	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/remotenode"
 )
 
 var _ remotenode.Store = (*RemoteNodeStore)(nil)

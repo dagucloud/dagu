@@ -10,9 +10,9 @@ import (
 	"log/slog"
 	"reflect"
 
-	"github.com/dagucloud/dagu/internal/cmn/datapath"
-	"github.com/dagucloud/dagu/internal/cmn/logger"
-	"github.com/dagucloud/dagu/internal/cmn/logger/tag"
+	"github.com/dagucloud/dagu/v2/internal/cmn/datapath"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 )
 
 // resolveJSONPath extracts a value from JSON data using a jq-style path.

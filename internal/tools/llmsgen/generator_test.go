@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dagucloud/dagu/internal/tools/llmsgen"
+	"github.com/dagucloud/dagu/v2/internal/tools/llmsgen"
 )
 
 func TestGenerateBuildsLLMsTextFromBundledSkillSources(t *testing.T) {

@@ -13,8 +13,8 @@ import (
 	aquaconfig "github.com/aquaproj/aqua/v2/pkg/config/aqua"
 	aquaregistryconfig "github.com/aquaproj/aqua/v2/pkg/config/registry"
 	aquaruntime "github.com/aquaproj/aqua/v2/pkg/runtime"
-	"github.com/dagucloud/dagu/internal/core"
-	"github.com/dagucloud/dagu/internal/tools"
+	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/tools"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/dagucloud/dagu/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/core"
 )
 
 // CheckCapability describes whether a provider can check access without

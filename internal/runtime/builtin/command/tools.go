@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/dagucloud/dagu/internal/runtime"
-	dagutools "github.com/dagucloud/dagu/internal/tools"
+	"github.com/dagucloud/dagu/v2/internal/runtime"
+	dagutools "github.com/dagucloud/dagu/v2/internal/tools"
 )
 
 func resolveRuntimeToolCommand(ctx context.Context, command string) string {

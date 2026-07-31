@@ -8,7 +8,7 @@ package terminal
 import (
 	"os/exec"
 
-	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
+	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 )
 
 // requestHangup is intentionally a no-op on Windows because there is no

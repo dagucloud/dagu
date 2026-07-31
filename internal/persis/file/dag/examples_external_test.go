@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu"
-	"github.com/dagucloud/dagu/internal/core"
-	"github.com/dagucloud/dagu/internal/core/spec"
-	filedag "github.com/dagucloud/dagu/internal/persis/file/dag"
+	"github.com/dagucloud/dagu/v2"
+	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	filedag "github.com/dagucloud/dagu/v2/internal/persis/file/dag"
 
 	"github.com/stretchr/testify/require"
 )

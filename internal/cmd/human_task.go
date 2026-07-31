@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dagucloud/dagu/internal/humantask"
+	"github.com/dagucloud/dagu/v2/internal/humantask"
 	"github.com/spf13/cobra"
 )
 

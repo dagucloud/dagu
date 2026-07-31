@@ -6,7 +6,7 @@ package spec009_step_reference_test
 import (
 	"testing"
 
-	"github.com/dagucloud/dagu/conformance/harness"
+	"github.com/dagucloud/dagu/v2/conformance/harness"
 )
 
 func TestValidateStepReferences(t *testing.T) {

@@ -6,7 +6,7 @@ This document does not relicense any source file. Files that currently carry `SP
 
 ## Embedded Go API
 
-The Go package `github.com/dagucloud/dagu` exposes an experimental embedded API. Applications that import or link this package and distribute the resulting binary should evaluate GPL obligations for the combined work.
+The Go package `github.com/dagucloud/dagu/v2` exposes an experimental embedded API. Applications that import or link this package and distribute the resulting binary should evaluate GPL obligations for the combined work.
 
 For proprietary products that need to distribute Dagu as part of a non-GPL application, contact `contact@dagu.sh` to discuss a separate commercial embedding license.
 

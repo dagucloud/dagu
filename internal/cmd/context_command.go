@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"text/tabwriter"
 
-	"github.com/dagucloud/dagu/internal/clicontext"
+	"github.com/dagucloud/dagu/v2/internal/clicontext"
 	"golang.org/x/term"
 
 	"github.com/spf13/cobra"

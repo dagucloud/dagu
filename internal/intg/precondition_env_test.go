@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dagucloud/dagu/internal/test"
+	"github.com/dagucloud/dagu/v2/internal/test"
 )
 
 func posixHomeRelativeTempPath(t *testing.T, pattern string) (string, string) {

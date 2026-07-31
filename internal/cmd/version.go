@@ -6,7 +6,7 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/dagucloud/dagu/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/spf13/cobra"
 )
 

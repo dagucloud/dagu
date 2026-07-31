@@ -6,8 +6,8 @@ package coordinator
 import (
 	"fmt"
 
-	"github.com/dagucloud/dagu/internal/cmn/config"
-	"github.com/dagucloud/dagu/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/core/exec"
 )
 
 // NewRuntimeDispatcher creates a coordinator-backed dispatcher for runtime DAG execution.

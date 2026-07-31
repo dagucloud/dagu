@@ -8,7 +8,7 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/dagucloud/dagu/conformance/mcptest"
+	"github.com/dagucloud/dagu/v2/conformance/mcptest"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
 )

@@ -3,7 +3,7 @@
 
 package spec
 
-import cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
+import cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 
 func reportNamespaceUnavailableStepOutputReferences(sink cmnvalue.ValueReferenceNoticeSink, field, raw string) {
 	for _, ref := range cmnvalue.StepOutputReferences(raw) {

@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dagucloud/dagu/internal/remotenode"
+	"github.com/dagucloud/dagu/v2/internal/remotenode"
 )
 
 // TopicMutationRequest updates the topic set for a multiplexed SSE session.

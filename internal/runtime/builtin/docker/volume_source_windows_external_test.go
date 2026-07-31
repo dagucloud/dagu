@@ -8,8 +8,8 @@ package docker_test
 import (
 	"testing"
 
-	"github.com/dagucloud/dagu/internal/core"
-	dockerruntime "github.com/dagucloud/dagu/internal/runtime/builtin/docker"
+	"github.com/dagucloud/dagu/v2/internal/core"
+	dockerruntime "github.com/dagucloud/dagu/v2/internal/runtime/builtin/docker"
 	"github.com/stretchr/testify/require"
 )
 

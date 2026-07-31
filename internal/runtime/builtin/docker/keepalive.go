@@ -9,7 +9,7 @@ import (
 	"io/fs"
 	"os"
 
-	"github.com/dagucloud/dagu/internal/cmn/fileutil"
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	specs "github.com/opencontainers/image-spec/specs-go/v1"
 )
 

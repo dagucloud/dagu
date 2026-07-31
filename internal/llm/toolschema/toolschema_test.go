@@ -6,8 +6,8 @@ package toolschema_test
 import (
 	"testing"
 
-	"github.com/dagucloud/dagu/internal/core"
-	"github.com/dagucloud/dagu/internal/llm/toolschema"
+	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/llm/toolschema"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

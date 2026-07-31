@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"strings"
 
-	cmnvalue "github.com/dagucloud/dagu/internal/cmn/value"
+	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 )
 
 // ReportValueReferenceNotices reports passive notices for value references in dag.

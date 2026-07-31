@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	testutil "github.com/dagucloud/dagu/internal/test"
+	testutil "github.com/dagucloud/dagu/v2/internal/test"
 )
 
 type shellKind int

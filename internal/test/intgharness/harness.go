@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	testutil "github.com/dagucloud/dagu/internal/test"
+	testutil "github.com/dagucloud/dagu/v2/internal/test"
 )
 
 // Harness provides semantic integration-test helpers with platform details hidden behind adapters.

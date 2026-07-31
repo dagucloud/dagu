@@ -10,7 +10,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/dagucloud/dagu/internal/cmn/cmdutil"
+	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 )
 
 // unixShell handles standard Unix shells (sh, bash, zsh, etc.).

@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	dagschema "github.com/dagucloud/dagu/internal/cmn/schema"
+	dagschema "github.com/dagucloud/dagu/v2/internal/cmn/schema"
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"

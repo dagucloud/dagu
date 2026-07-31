@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/dagucloud/dagu/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
 type strictRecordIDsCollection interface {

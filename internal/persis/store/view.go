@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dagucloud/dagu/internal/persis"
-	"github.com/dagucloud/dagu/internal/view"
+	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/view"
 )
 
 var _ view.Store = (*ViewStore)(nil)

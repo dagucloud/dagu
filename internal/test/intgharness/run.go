@@ -8,9 +8,9 @@ import (
 	"slices"
 	"time"
 
-	"github.com/dagucloud/dagu/internal/core"
-	"github.com/dagucloud/dagu/internal/core/exec"
-	testutil "github.com/dagucloud/dagu/internal/test"
+	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	testutil "github.com/dagucloud/dagu/v2/internal/test"
 )
 
 // RunProbe observes a DAG-run through the same stores used by production code.

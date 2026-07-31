@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	openapiv1 "github.com/dagucloud/dagu/api/v1"
-	frontendapi "github.com/dagucloud/dagu/internal/service/frontend/api/v1"
+	openapiv1 "github.com/dagucloud/dagu/v2/api/v1"
+	frontendapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

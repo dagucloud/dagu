@@ -6,7 +6,7 @@ package spec032_controller_test
 import (
 	"testing"
 
-	"github.com/dagucloud/dagu/conformance/harness"
+	"github.com/dagucloud/dagu/v2/conformance/harness"
 )
 
 func TestControllerShapeValidation(t *testing.T) {

@@ -9,7 +9,7 @@ import (
 	"maps"
 	"math"
 
-	"github.com/dagucloud/dagu/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/google/jsonschema-go/jsonschema"
 )
 
