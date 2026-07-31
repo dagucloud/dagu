@@ -80,10 +80,11 @@ func newCatalog(entries []*indexv1.DAGIndexEntry, scanErrors []error, checkConfl
 		result.byStem[entryStem(entry)] = entry
 	}
 	sort.Slice(result.entries, func(i, j int) bool {
-		if checkConflicts {
-			return entryStem(result.entries[i]) < entryStem(result.entries[j])
+		left, right := entryStem(result.entries[i]), entryStem(result.entries[j])
+		if left == right {
+			return result.entries[i].FilePath < result.entries[j].FilePath
 		}
-		return result.entries[i].FilePath < result.entries[j].FilePath
+		return left < right
 	})
 
 	for _, err := range scanErrors {

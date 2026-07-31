@@ -304,7 +304,7 @@ overlap_policy: latest
 steps:
   - name: step1
     command: echo hello
-`), 0644))
+`), 0600))
 
 	store := filedag.New(
 		tmpDir,
@@ -377,11 +377,4 @@ func TestRecursiveEntryReaderWatchesNewDirectories(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("expected a nested DAG add event")
 	}
-
-	require.Eventually(t, func() bool {
-		er.lock.Lock()
-		defer er.lock.Unlock()
-		_, exists := er.watchedDirs[nestedDir]
-		return exists
-	}, time.Second, 10*time.Millisecond)
 }

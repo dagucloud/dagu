@@ -188,6 +188,41 @@ steps:
 	assert.NoFileExists(t, filepath.Join(tmpDir, "team", "services", "renamed.yaml"))
 }
 
+func TestRecursiveSearchCursorPaginatesByFileName(t *testing.T) {
+	tmpDir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "a"), 0750))
+	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "b"), 0750))
+	for path, name := range map[string]string{
+		filepath.Join(tmpDir, "a", "zebra.yaml"): "zebra",
+		filepath.Join(tmpDir, "b", "apple.yaml"): "apple",
+	} {
+		require.NoError(t, os.WriteFile(path, fmt.Appendf(nil, `
+name: %s
+steps:
+  - run: echo needle
+`, name), 0600))
+	}
+
+	store := New(tmpDir, WithSkipExamples(true), WithRecursiveDiscovery(true))
+	opts := exec.SearchDAGsOptions{Query: "needle", Limit: 1, MatchLimit: 1}
+
+	first, errs, err := store.SearchCursor(context.Background(), opts)
+	require.NoError(t, err)
+	require.Empty(t, errs)
+	require.Len(t, first.Items, 1)
+	require.Equal(t, "apple", first.Items[0].FileName)
+	require.True(t, first.HasMore)
+	require.NotEmpty(t, first.NextCursor)
+
+	opts.Cursor = first.NextCursor
+	second, errs, err := store.SearchCursor(context.Background(), opts)
+	require.NoError(t, err)
+	require.Empty(t, errs)
+	require.Len(t, second.Items, 1)
+	require.Equal(t, "zebra", second.Items[0].FileName)
+	require.False(t, second.HasMore)
+}
+
 func TestRecursiveDiscoveryExcludesAndRecoversConflicts(t *testing.T) {
 	tmpDir := t.TempDir()
 	for _, dir := range []string{"a", "b", "c"} {
