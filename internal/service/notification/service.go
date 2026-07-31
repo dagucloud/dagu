@@ -825,24 +825,21 @@ func (s *Service) deliverTestTargets(ctx context.Context, targets []resolvedTarg
 
 func (s *Service) testEvent(ctx context.Context, dagName string, eventType eventstore.EventType) chatbridge.NotificationEvent {
 	status := testStatus(dagName, eventType)
-	event := chatbridge.NotificationEvent{
-		Key:        "notification-test:" + dagName,
-		Type:       eventType,
-		Status:     status,
-		DAGFile:    dagName,
-		DAGLabels:  []string{},
-		ObservedAt: time.Now().UTC(),
-	}
 	if s.dagStore != nil {
 		if dag, err := s.dagStore.GetDetails(ctx, dagName); err == nil && dag != nil {
 			if dag.Name != "" {
 				status.Name = dag.Name
 			}
-			event.DAGLabels = append(event.DAGLabels, dag.Labels.Strings()...)
-			status.Labels = append([]string(nil), event.DAGLabels...)
+			status.Labels = dag.Labels.Strings()
 		}
 	}
-	return event
+	return chatbridge.NotificationEvent{
+		Key:        "notification-test:" + dagName,
+		Type:       eventType,
+		Status:     status,
+		DAGFile:    dagName,
+		ObservedAt: time.Now().UTC(),
+	}
 }
 
 type resolvedTarget struct {
@@ -1117,14 +1114,8 @@ func (s *Service) routeSetDestinationsForEvent(
 }
 
 func (s *Service) effectiveRouteSetForEvent(ctx context.Context, event chatbridge.NotificationEvent) *notificationmodel.RouteSet {
-	workspaceName, workspaceState := eventWorkspace(event)
-	switch workspaceState {
-	case exec.WorkspaceLabelInvalid:
-		s.logger.Warn("Skipping notification routing for invalid workspace labels",
-			slog.String("dag", event.DAGKey()),
-		)
-		return nil
-	case exec.WorkspaceLabelValid:
+	workspaceName := eventWorkspaceName(event)
+	if workspaceName != "" {
 		workspaceRouteSet, err := s.loadRouteSet(ctx, notificationmodel.RouteScopeWorkspace, workspaceName)
 		if err == nil {
 			if !workspaceRouteSet.InheritGlobal {
@@ -1137,9 +1128,6 @@ func (s *Service) effectiveRouteSetForEvent(ctx context.Context, event chatbridg
 			)
 			return nil
 		}
-	case exec.WorkspaceLabelMissing:
-	default:
-		return nil
 	}
 	globalRouteSet, err := s.loadRouteSet(ctx, notificationmodel.RouteScopeGlobal, "")
 	if err == nil {
@@ -1210,15 +1198,14 @@ func (s *Service) matchingRouteEvents(ctx context.Context, routeSet *notificatio
 }
 
 func eventWorkspaceName(event chatbridge.NotificationEvent) string {
-	workspaceName, state := eventWorkspace(event)
+	if event.Status == nil {
+		return ""
+	}
+	workspaceName, state := exec.WorkspaceLabelFromLabels(core.NewLabels(event.Status.Labels))
 	if state == exec.WorkspaceLabelValid {
 		return workspaceName
 	}
 	return ""
-}
-
-func eventWorkspace(event chatbridge.NotificationEvent) (string, exec.WorkspaceLabelState) {
-	return exec.WorkspaceLabelFromLabels(core.NewLabels(event.RoutingLabels()))
 }
 
 func (s *Service) sendEmail(ctx context.Context, target notificationmodel.Target, events []chatbridge.NotificationEvent) error {

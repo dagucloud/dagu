@@ -222,8 +222,6 @@ func (m *NotificationMonitor) NotifyCompletion(status *exec.DAGRunStatus) bool {
 		Key:        NotificationSeenKey(status),
 		Type:       eventType,
 		Status:     cloneNotificationStatus(status),
-		DAGFile:    status.Name,
-		DAGLabels:  append([]string{}, status.Labels...),
 		ObservedAt: time.Now().UTC(),
 	}
 	return m.enqueueEvents(context.Background(), nil, []NotificationEvent{event})
@@ -439,7 +437,6 @@ func (m *NotificationMonitor) pollSource(ctx context.Context) {
 			Type:       event.Type,
 			Status:     status,
 			DAGFile:    snapshot.DAGFile,
-			DAGLabels:  cloneNotificationEventLabels(snapshot.Labels),
 			ObservedAt: observedAt.UTC(),
 		})
 	}

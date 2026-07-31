@@ -294,7 +294,7 @@ func TestService_SendTestWebhookIncludesPayloadHeadersAndSignature(t *testing.T)
 	defer server.Close()
 
 	settings, err := notificationmodel.Normalize(&notificationmodel.Settings{
-		DAGName: "daily-report-file",
+		DAGName: "daily-report",
 		Enabled: true,
 		Events:  []eventstore.EventType{eventstore.TypeDAGRunFailed, eventstore.TypeDAGRunWaiting},
 		Targets: []notificationmodel.Target{{
@@ -315,11 +315,8 @@ func TestService_SendTestWebhookIncludesPayloadHeadersAndSignature(t *testing.T)
 	}, "tester")
 	require.NoError(t, err)
 
-	svc := New(newMemoryStore(settings), testDAGStore{dag: &core.DAG{
-		Name:   "daily-report",
-		Labels: core.NewLabels([]string{"workspace=ops"}),
-	}})
-	results, err := svc.SendTest(context.Background(), "daily-report-file", "webhook-1", eventstore.TypeDAGRunFailed)
+	svc := New(newMemoryStore(settings), nil)
+	results, err := svc.SendTest(context.Background(), "daily-report", "webhook-1", eventstore.TypeDAGRunFailed)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	assert.True(t, results[0].Delivered)
@@ -995,12 +992,11 @@ func TestService_WorkspaceInheritUsesGlobalRoutesOnly(t *testing.T) {
 	require.NoError(t, err)
 
 	destinations := svc.NotificationDestinationsForEvent(chatbridge.NotificationEvent{
-		Type:      eventstore.TypeDAGRunFailed,
-		DAGFile:   "daily-report-file",
-		DAGLabels: []string{"workspace=ops"},
+		Type: eventstore.TypeDAGRunFailed,
 		Status: &exec.DAGRunStatus{
 			Name:   "daily-report",
 			Status: core.Failed,
+			Labels: []string{"workspace=ops"},
 		},
 	})
 	assert.ElementsMatch(t, []string{
@@ -1014,12 +1010,6 @@ func TestService_WorkspaceInheritUsesGlobalRoutesOnly(t *testing.T) {
 	assert.ElementsMatch(t, []string{
 		routeDestinationID(notificationmodel.RouteScopeGlobal, "", "global-route"),
 	}, defaultDestinations)
-
-	assert.Empty(t, svc.NotificationDestinationsForEvent(chatbridge.NotificationEvent{
-		Type:      eventstore.TypeDAGRunFailed,
-		DAGLabels: []string{"workspace=ops", "workspace=engineering"},
-		Status:    &exec.DAGRunStatus{Name: "daily-report", Status: core.Failed},
-	}))
 
 	assert.Empty(t, svc.NotificationDestinationsForEvent(chatbridge.NotificationEvent{
 		Type:   eventstore.TypeDAGRunSucceeded,
@@ -1179,12 +1169,12 @@ func TestService_DAGSettingsOverrideGlobalAndWorkspaceRoutes(t *testing.T) {
 	require.NoError(t, err)
 
 	destinations := svc.NotificationDestinationsForEvent(chatbridge.NotificationEvent{
-		Type:      eventstore.TypeDAGRunFailed,
-		DAGFile:   "daily-report-file",
-		DAGLabels: []string{"workspace=ops"},
+		Type:    eventstore.TypeDAGRunFailed,
+		DAGFile: "daily-report-file",
 		Status: &exec.DAGRunStatus{
 			Name:   "daily-report",
 			Status: core.Failed,
+			Labels: []string{"workspace=ops"},
 		},
 	})
 	assert.ElementsMatch(t, []string{
@@ -1279,11 +1269,11 @@ func TestService_GlobalRouteFlushSkipsWorkspaceWithDisabledInheritance(t *testin
 		context.Background(),
 		routeDestinationID(notificationmodel.RouteScopeGlobal, "", "global-route"),
 		chatbridge.NotificationBatch{Events: []chatbridge.NotificationEvent{{
-			Type:      eventstore.TypeDAGRunFailed,
-			DAGLabels: []string{"workspace=ops"},
+			Type: eventstore.TypeDAGRunFailed,
 			Status: &exec.DAGRunStatus{
 				Name:   "daily-report",
 				Status: core.Failed,
+				Labels: []string{"workspace=ops"},
 			},
 			ObservedAt: time.Now().UTC(),
 		}}},

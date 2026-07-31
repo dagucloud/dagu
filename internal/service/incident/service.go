@@ -649,14 +649,8 @@ func (s *Service) effectivePolicySetForEvent(ctx context.Context, event chatbrid
 			slog.String("error", err.Error()),
 		)
 	}
-	workspaceName, workspaceState := eventWorkspace(event)
-	switch workspaceState {
-	case exec.WorkspaceLabelInvalid:
-		s.logger.Warn("Skipping incident routing for invalid workspace labels",
-			slog.String("dag", dagKey),
-		)
-		return nil
-	case exec.WorkspaceLabelValid:
+	workspaceName := eventWorkspaceName(event)
+	if workspaceName != "" {
 		if policySet, err := s.loadPolicySet(ctx, incidentmodel.PolicyScopeWorkspace, workspaceName, ""); err == nil {
 			if !policySet.InheritParent {
 				return policySet
@@ -667,9 +661,6 @@ func (s *Service) effectivePolicySetForEvent(ctx context.Context, event chatbrid
 				slog.String("error", err.Error()),
 			)
 		}
-	case exec.WorkspaceLabelMissing:
-	default:
-		return nil
 	}
 	policySet, err := s.loadPolicySet(ctx, incidentmodel.PolicyScopeGlobal, "", "")
 	if err != nil {
@@ -755,15 +746,14 @@ func isFinalFailure(status *exec.DAGRunStatus) bool {
 }
 
 func eventWorkspaceName(event chatbridge.NotificationEvent) string {
-	workspaceName, state := eventWorkspace(event)
+	if event.Status == nil {
+		return ""
+	}
+	workspaceName, state := exec.WorkspaceLabelFromLabels(core.NewLabels(event.Status.Labels))
 	if state == exec.WorkspaceLabelValid {
 		return workspaceName
 	}
 	return ""
-}
-
-func eventWorkspace(event chatbridge.NotificationEvent) (string, exec.WorkspaceLabelState) {
-	return exec.WorkspaceLabelFromLabels(core.NewLabels(event.RoutingLabels()))
 }
 
 func findPolicy(policySet *incidentmodel.PolicySet, policyID string) (incidentmodel.Policy, bool) {
@@ -1154,10 +1144,8 @@ func rejectPrivateAddress(addr netip.Addr) error {
 func (s *Service) testEvent() chatbridge.NotificationEvent {
 	now := time.Now().UTC()
 	return chatbridge.NotificationEvent{
-		Key:       "incident-test:" + uuid.NewString(),
-		Type:      eventstore.TypeDAGRunFailed,
-		DAGFile:   "incident-test",
-		DAGLabels: []string{},
+		Key:  "incident-test:" + uuid.NewString(),
+		Type: eventstore.TypeDAGRunFailed,
 		Status: &exec.DAGRunStatus{
 			Name:       "incident-test",
 			DAGRunID:   "incident-test-" + uuid.NewString(),

@@ -59,7 +59,7 @@ func TestServiceNotificationDestinationsUseDAGWorkspaceGlobalInheritance(t *test
 	svc := New(store)
 	event := failedEvent("daily", "run-1")
 	event.DAGFile = "daily-file"
-	event.DAGLabels = []string{"workspace=ops"}
+	event.Status.Labels = []string{"workspace=ops"}
 
 	destinations := svc.NotificationDestinationsForEvent(event)
 	require.Len(t, destinations, 1)
@@ -75,9 +75,6 @@ func TestServiceNotificationDestinationsUseDAGWorkspaceGlobalInheritance(t *test
 	destinations = svc.NotificationDestinationsForEvent(event)
 	require.Len(t, destinations, 1)
 	assert.Equal(t, globalSet.Policies[0].ID, parsePolicyDestinationID(destinations[0]).PolicyID)
-
-	event.DAGLabels = []string{"workspace=ops", "workspace=engineering"}
-	assert.Empty(t, svc.NotificationDestinationsForEvent(event))
 }
 
 func TestServiceSuppressesFailureIncidentUntilAutoRetriesAreExhausted(t *testing.T) {

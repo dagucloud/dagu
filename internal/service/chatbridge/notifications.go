@@ -39,12 +39,10 @@ type NotificationEvent struct {
 	Type       eventstore.EventType
 	Status     *exec.DAGRunStatus
 	DAGFile    string
-	DAGLabels  []string
 	ObservedAt time.Time
 }
 
-// DAGKey returns the file-backed identifier used by DAG-scoped configuration.
-// Events created before the file identifier was captured use the runtime name.
+// DAGKey returns the DAG-scoped configuration key, falling back to the runtime name.
 func (e NotificationEvent) DAGKey() string {
 	if e.DAGFile != "" {
 		return e.DAGFile
@@ -53,17 +51,6 @@ func (e NotificationEvent) DAGKey() string {
 		return e.Status.Name
 	}
 	return ""
-}
-
-// RoutingLabels returns the DAG labels captured with the event.
-func (e NotificationEvent) RoutingLabels() []string {
-	if e.DAGLabels != nil {
-		return e.DAGLabels
-	}
-	if e.Status != nil {
-		return e.Status.Labels
-	}
-	return nil
 }
 
 // NotificationBatch is a flushed batch of buffered notification events.
@@ -776,15 +763,7 @@ func cloneNotificationStatus(status *exec.DAGRunStatus) *exec.DAGRunStatus {
 func cloneNotificationEvent(event NotificationEvent) NotificationEvent {
 	clone := event
 	clone.Status = cloneNotificationStatus(event.Status)
-	clone.DAGLabels = cloneNotificationEventLabels(event.DAGLabels)
 	return clone
-}
-
-func cloneNotificationEventLabels(labels []string) []string {
-	if labels == nil {
-		return nil
-	}
-	return append([]string{}, labels...)
 }
 
 func notificationBatchFromBucket(bucket *notificationBucket, windowEnd time.Time) NotificationBatch {

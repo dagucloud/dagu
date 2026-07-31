@@ -277,6 +277,7 @@ func TestNotificationBatcher_ClonesStatusSnapshot(t *testing.T) {
 
 	status := &exec.DAGRunStatus{
 		Name:      "briefing",
+		Labels:    []string{"workspace=ops"},
 		DAGRunID:  "run-1",
 		AttemptID: "a1",
 		Status:    core.Failed,
@@ -295,23 +296,22 @@ func TestNotificationBatcher_ClonesStatusSnapshot(t *testing.T) {
 	}
 	event := testNotificationEvent(status)
 	event.DAGFile = "briefing-file"
-	event.DAGLabels = []string{"workspace=ops"}
 	require.True(t, batcher.Enqueue("dest-1", event))
 
 	status.Error = "mutated error"
+	status.Labels[0] = "workspace=mutated"
 	status.Nodes[0].Error = "mutated node error"
 	status.Nodes[0].Step.Name = "mutated"
 	status.OnFailure.Error = "mutated handler error"
-	event.DAGLabels[0] = "workspace=mutated"
 
 	ready := waitForReadyBatch(t, batcher)
 	require.Len(t, ready.Batch.Events, 1)
 	gotEvent := ready.Batch.Events[0]
 	assert.Equal(t, "briefing-file", gotEvent.DAGFile)
-	assert.Equal(t, []string{"workspace=ops"}, gotEvent.DAGLabels)
 	got := gotEvent.Status
 	require.NotNil(t, got)
 	assert.Equal(t, "original error", got.Error)
+	assert.Equal(t, []string{"workspace=ops"}, got.Labels)
 	require.Len(t, got.Nodes, 1)
 	assert.Equal(t, "fetch", got.Nodes[0].Step.Name)
 	assert.Equal(t, "node failed", got.Nodes[0].Error)
