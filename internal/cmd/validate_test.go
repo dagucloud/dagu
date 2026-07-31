@@ -26,6 +26,45 @@ steps:
 		})
 	})
 
+	t.Run("MapFormSteps", func(t *testing.T) {
+		dagFile := th.CreateDAGFile(t, "map_form_steps.yaml", `
+steps:
+  first:
+    run: echo first
+  second:
+    run: echo second
+    depends: first
+`)
+
+		th.RunCommand(t, cmd.Validate(), test.CmdTest{
+			Args: []string{"validate", dagFile},
+		})
+	})
+
+	t.Run("StateExpectedVersionExpression", func(t *testing.T) {
+		dagFile := th.CreateDAGFile(t, "state_expected_version.yaml", `
+steps:
+  - id: load
+    action: state.get
+    output: STATE
+    with:
+      key: counters/jobs
+      required: true
+  - id: save
+    action: state.set
+    with:
+      key: counters/jobs
+      expected_version: "${steps.load.outputs.version}"
+      value:
+        count: 1
+    depends: load
+`)
+
+		th.RunCommand(t, cmd.Validate(), test.CmdTest{
+			Args: []string{"validate", dagFile},
+		})
+	})
+
 	t.Run("BaseConfigStepTypes", func(t *testing.T) {
 		require.NoError(t, os.WriteFile(th.Config.Paths.BaseConfig, []byte(`
 step_types:

@@ -114,8 +114,17 @@ func validateStep(step core.Step) error {
 	if step.ExecutorConfig.Type != executorType {
 		return nil
 	}
+	rawConfig := step.ExecutorConfig.Config
+	if _, deferred := rawConfig["expected_version"].(string); deferred {
+		rawConfig = make(map[string]any, len(step.ExecutorConfig.Config)-1)
+		for key, value := range step.ExecutorConfig.Config {
+			if key != "expected_version" {
+				rawConfig[key] = value
+			}
+		}
+	}
 	cfg := config{}
-	if err := decodeConfig(step.ExecutorConfig.Config, &cfg); err != nil {
+	if err := decodeConfig(rawConfig, &cfg); err != nil {
 		return err
 	}
 	return validateConfig(stepOperation(step), cfg)

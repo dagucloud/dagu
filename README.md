@@ -132,7 +132,7 @@ dagu start hello.yaml
 ### Start the server
 
 ```sh
-dagu start-all
+dagu start-all --dags .
 ```
 
 Visit http://localhost:8080
@@ -366,7 +366,7 @@ steps:
 
   - id: audit
     depends: notify
-    run: echo "Notification result: ${notify.outputs.messageId}"
+    run: 'echo "Notification result: ${steps.notify.outputs.messageId}"'
 ```
 
 A third-party Dagu Action package contains a DAG, manifest, schemas, and helper files behind an `action:` reference. See the [Dagu Actions](https://docs.dagu.sh/dagu-actions/) and [Third-Party Actions](https://docs.dagu.sh/dagu-actions/third-party) documentation for details.
@@ -414,33 +414,17 @@ steps:
 
 ```yaml
 steps:
-  - name: extract
+  - id: etl
     action: dag.run
     with:
-      dag: etl/extract
+      dag: etl-pipeline
       params:
         SOURCE: s3://bucket/data.csv
-
-  - name: transform
-    action: dag.run
-    with:
-      dag: etl/transform
-      params:
-        INPUT: ${extract.outputs.result}
-    depends: extract
-
-  - name: load
-    action: dag.run
-    with:
-      dag: etl/load
-      params:
-        DATA: ${transform.outputs.result}
-    depends: transform
 
 ---
 
 # You can include multiple DAGs in the same YAML file, or reference DAGs defined in separate files.
-name: etl/extract
+name: etl-pipeline
 
 params:
   - SOURCE
@@ -449,10 +433,16 @@ tools:
   - aws/aws-cli@2.11.14
 
 steps:
-  - name: download
+  - id: download
     run: aws s3 cp ${params.SOURCE} data.csv
-    outputs:
-      result: data.csv
+
+  - id: transform
+    run: ./transform.sh data.csv
+    depends: download
+
+  - id: load
+    run: ./load.sh transformed.csv
+    depends: transform
 ```
 
 ### Retry and error handling
@@ -624,7 +614,7 @@ actions:
       action: http.request
       with:
         method: POST
-        url: {{ .input.url }}
+        url: '{{ .input.url }}'
         headers:
           Content-Type: application/json
         body: |

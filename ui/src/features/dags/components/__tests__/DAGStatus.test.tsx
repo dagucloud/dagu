@@ -21,6 +21,7 @@ import DAGStatus from '../DAGStatus';
 const patchMock = vi.hoisted(() => vi.fn());
 const approvalTabMock = vi.hoisted(() => vi.fn());
 const humanTasksTabMock = vi.hoisted(() => vi.fn());
+const nodeStatusTableMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@/hooks/api', () => ({
   useClient: vi.fn(),
@@ -100,7 +101,10 @@ vi.mock('../dag-execution', () => ({
 
 vi.mock('../dag-details', () => ({
   DAGStatusOverview: () => <div>Status overview</div>,
-  NodeStatusTable: () => <div>Node status table</div>,
+  NodeStatusTable: (props: unknown) => {
+    nodeStatusTableMock(props);
+    return <div>Node status table</div>;
+  },
 }));
 
 vi.mock('../approval', () => ({
@@ -222,6 +226,26 @@ afterEach(() => {
 });
 
 describe('DAGStatus', () => {
+  it('passes its workflow filename to the step table', () => {
+    vi.mocked(useClient).mockReturnValue({
+      PATCH: patchMock,
+    } as unknown as ReturnType<typeof useClient>);
+
+    render(
+      <MemoryRouter>
+        <AppBarContext.Provider value={appBarValue}>
+          <DAGStatus dagRun={dagRun} fileName="example.yaml" />
+        </AppBarContext.Provider>
+      </MemoryRouter>
+    );
+
+    expect(nodeStatusTableMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fileName: 'example.yaml',
+      })
+    );
+  });
+
   it('opens step details from a status graph click', async () => {
     vi.mocked(useClient).mockReturnValue({
       PATCH: patchMock,

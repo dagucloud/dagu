@@ -242,9 +242,17 @@ func validateDocumentSteps(label string, fields map[string]*ast.MappingValueNode
 		return []error{fmt.Errorf("%s must define steps", label)}
 	}
 
-	steps, ok := stepsField.Value.(*ast.SequenceNode)
-	if !ok || steps == nil || len(steps.Values) == 0 {
-		return []error{fmt.Errorf("%s steps must be a non-empty sequence", label)}
+	switch steps := stepsField.Value.(type) {
+	case *ast.SequenceNode:
+		if steps == nil || len(steps.Values) == 0 {
+			return []error{fmt.Errorf("%s steps must not be empty", label)}
+		}
+	case *ast.MappingNode:
+		if steps == nil || len(steps.Values) == 0 {
+			return []error{fmt.Errorf("%s steps must not be empty", label)}
+		}
+	default:
+		return []error{fmt.Errorf("%s steps must be a sequence or mapping", label)}
 	}
 	return nil
 }

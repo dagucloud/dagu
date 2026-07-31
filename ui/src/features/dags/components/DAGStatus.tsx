@@ -730,50 +730,44 @@ function DAGStatus({
                 </div>
               )}
 
-            <DAGContext.Consumer>
-              {(props) => (
-                <>
-                  <div className="grid min-w-0 grid-cols-1 gap-6">
-                    {/* Status Overview */}
-                    <div className="bg-surface border border-border rounded-lg p-4">
-                      <DAGStatusOverview
-                        status={displayDAGRun}
-                        onViewLog={(dagRunId) => {
-                          setLogViewer({
-                            isOpen: true,
-                            logType: 'execution',
-                            stepName: '',
-                            dagRunId,
-                            stream: Stream.stdout,
-                          });
-                        }}
-                      />
-                    </div>
+            <div className="grid min-w-0 grid-cols-1 gap-6">
+              {/* Status Overview */}
+              <div className="bg-surface border border-border rounded-lg p-4">
+                <DAGStatusOverview
+                  status={displayDAGRun}
+                  onViewLog={(dagRunId) => {
+                    setLogViewer({
+                      isOpen: true,
+                      logType: 'execution',
+                      stepName: '',
+                      dagRunId,
+                      stream: Stream.stdout,
+                    });
+                  }}
+                />
+              </div>
 
-                    {/* Steps Table */}
-                    <NodeStatusTable
-                      nodes={displayDAGRun.nodes}
-                      status={displayDAGRun}
-                      {...props}
-                      onViewLog={handleViewLog}
-                      onNodeStatusUpdated={applyDisplayNodeStatus}
-                    />
-                  </div>
+              {/* Steps Table */}
+              <NodeStatusTable
+                nodes={displayDAGRun.nodes}
+                status={displayDAGRun}
+                fileName={fileName}
+                onViewLog={handleViewLog}
+                onNodeStatusUpdated={applyDisplayNodeStatus}
+              />
+            </div>
 
-                  {/* Lifecycle Hooks */}
-                  {handlers?.length ? (
-                    <NodeStatusTable
-                      nodes={handlers}
-                      status={displayDAGRun}
-                      {...props}
-                      onViewLog={handleViewLog}
-                      onNodeStatusUpdated={applyDisplayNodeStatus}
-                      hideActions
-                    />
-                  ) : null}
-                </>
-              )}
-            </DAGContext.Consumer>
+            {/* Lifecycle Hooks */}
+            {handlers?.length ? (
+              <NodeStatusTable
+                nodes={handlers}
+                status={displayDAGRun}
+                fileName={fileName}
+                onViewLog={handleViewLog}
+                onNodeStatusUpdated={applyDisplayNodeStatus}
+                hideActions
+              />
+            ) : null}
           </div>
         )}
 
