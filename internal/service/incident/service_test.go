@@ -48,7 +48,7 @@ func TestServiceNotificationDestinationsUseDAGWorkspaceGlobalInheritance(t *test
 	})
 	dagSet := store.savePolicySet(t, &incidentmodel.PolicySet{
 		Scope:         incidentmodel.PolicyScopeDAG,
-		DAGName:       "daily",
+		DAGName:       "daily-file",
 		Enabled:       true,
 		InheritParent: false,
 		Policies: []incidentmodel.Policy{{
@@ -58,13 +58,14 @@ func TestServiceNotificationDestinationsUseDAGWorkspaceGlobalInheritance(t *test
 	})
 	svc := New(store)
 	event := failedEvent("daily", "run-1")
-	event.Status.Labels = []string{"workspace=ops"}
+	event.DAGFile = "daily-file"
+	event.DAGLabels = []string{"workspace=ops"}
 
 	destinations := svc.NotificationDestinationsForEvent(event)
 	require.Len(t, destinations, 1)
 	assert.Equal(t, dagSet.Policies[0].ID, parsePolicyDestinationID(destinations[0]).PolicyID)
 
-	require.NoError(t, store.DeletePolicySet(context.Background(), incidentmodel.PolicyScopeDAG, "", "daily"))
+	require.NoError(t, store.DeletePolicySet(context.Background(), incidentmodel.PolicyScopeDAG, "", "daily-file"))
 	destinations = svc.NotificationDestinationsForEvent(event)
 	require.Len(t, destinations, 1)
 	assert.Equal(t, workspaceSet.Policies[0].ID, parsePolicyDestinationID(destinations[0]).PolicyID)
@@ -74,6 +75,9 @@ func TestServiceNotificationDestinationsUseDAGWorkspaceGlobalInheritance(t *test
 	destinations = svc.NotificationDestinationsForEvent(event)
 	require.Len(t, destinations, 1)
 	assert.Equal(t, globalSet.Policies[0].ID, parsePolicyDestinationID(destinations[0]).PolicyID)
+
+	event.DAGLabels = []string{"workspace=ops", "workspace=engineering"}
+	assert.Empty(t, svc.NotificationDestinationsForEvent(event))
 }
 
 func TestServiceSuppressesFailureIncidentUntilAutoRetriesAreExhausted(t *testing.T) {
@@ -117,8 +121,10 @@ func TestServicePagerDutyTriggerAndResolvePayloads(t *testing.T) {
 	store := newMemoryStore(t)
 	provider := store.saveProvider(t, "PagerDuty", incidentmodel.ProviderPagerDuty)
 	policySet := store.savePolicySet(t, &incidentmodel.PolicySet{
-		Scope:   incidentmodel.PolicyScopeGlobal,
-		Enabled: true,
+		Scope:         incidentmodel.PolicyScopeDAG,
+		DAGName:       "daily-file",
+		Enabled:       true,
+		InheritParent: false,
 		Policies: []incidentmodel.Policy{{
 			ProviderID:          provider.ID,
 			Enabled:             true,
@@ -131,6 +137,7 @@ func TestServicePagerDutyTriggerAndResolvePayloads(t *testing.T) {
 	})
 	svc := New(store, WithHTTPClient(client), WithPublicURL("https://dagu.example.com/workflows"))
 	failure := failedEvent("daily", "run-1")
+	failure.DAGFile = "daily-file"
 	destinations := svc.NotificationDestinationsForEvent(failure)
 	require.Len(t, destinations, 1)
 

@@ -75,7 +75,7 @@ func TestNotificationMonitor_BootstrapsFromCurrentHeadAndOnlyDeliversFutureEvent
 
 	var (
 		mu        sync.Mutex
-		delivered []string
+		delivered []NotificationEvent
 	)
 	transport := &fakeNotificationTransport{
 		destinations: []string{"dest-1"},
@@ -84,7 +84,7 @@ func TestNotificationMonitor_BootstrapsFromCurrentHeadAndOnlyDeliversFutureEvent
 			defer mu.Unlock()
 			for _, event := range batch.Events {
 				if event.Status != nil {
-					delivered = append(delivered, event.Status.DAGRunID)
+					delivered = append(delivered, cloneNotificationEvent(event))
 				}
 			}
 			return true
@@ -108,20 +108,28 @@ func TestNotificationMonitor_BootstrapsFromCurrentHeadAndOnlyDeliversFutureEvent
 		AttemptID:  "attempt-new",
 		Status:     core.Failed,
 		Error:      "new failure",
+		Labels:     []string{"workspace=ops", "team=platform"},
 		FinishedAt: time.Now().UTC().Format(time.RFC3339),
 	}
 	require.NoError(t, service.Emit(context.Background(), eventstore.NewDAGRunEvent(
 		eventstore.Source{Service: eventstore.SourceServiceServer, Instance: "test"},
 		eventstore.TypeDAGRunFailed,
 		newStatus,
-		nil,
+		map[string]any{eventstore.DAGFileNameDataKey: "briefing-file"},
 	)))
 
 	require.Eventually(t, func() bool {
 		mu.Lock()
 		defer mu.Unlock()
-		return len(delivered) == 1 && delivered[0] == "run-new"
+		return len(delivered) == 1
 	}, notificationMonitorEventuallyTimeout(time.Second), 10*time.Millisecond)
+	mu.Lock()
+	deliveredEvent := cloneNotificationEvent(delivered[0])
+	mu.Unlock()
+	require.NotNil(t, deliveredEvent.Status)
+	assert.Equal(t, "run-new", deliveredEvent.Status.DAGRunID)
+	assert.Equal(t, "briefing-file", deliveredEvent.DAGFile)
+	assert.Equal(t, []string{"workspace=ops", "team=platform"}, deliveredEvent.DAGLabels)
 
 	require.Eventually(t, func() bool {
 		return !monitor.IsDelivered("dest-1", oldStatus) && monitor.IsDelivered("dest-1", newStatus)
@@ -149,6 +157,8 @@ func TestNotificationMonitor_RestartRequeuesPersistedPending(t *testing.T) {
 			NotificationSeenKey(status): {
 				Key:        NotificationSeenKey(status),
 				Status:     cloneNotificationStatus(status),
+				DAGFile:    "briefing-file",
+				DAGLabels:  []string{"workspace=ops"},
 				ObservedAt: time.Now().UTC(),
 			},
 		},
@@ -168,6 +178,8 @@ func TestNotificationMonitor_RestartRequeuesPersistedPending(t *testing.T) {
 			assert.Equal(t, "dest-1", destination)
 			require.Len(t, batch.Events, 1)
 			assert.Equal(t, "run-1", batch.Events[0].Status.DAGRunID)
+			assert.Equal(t, "briefing-file", batch.Events[0].DAGFile)
+			assert.Equal(t, []string{"workspace=ops"}, batch.Events[0].DAGLabels)
 			calls++
 			return true
 		},

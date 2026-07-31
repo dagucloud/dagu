@@ -906,7 +906,11 @@ func TestAttempt_WriteEmitsLifecycleTransitionsAndStatusUpdates(t *testing.T) {
 	service := eventstore.New(store)
 	ctx := eventstore.WithContext(context.Background(), service, eventstore.Source{Service: eventstore.SourceServiceServer})
 
-	dag := &core.DAG{Name: "TestDAG", Location: filepath.Join(dir, "test-dag.yaml")}
+	dag := &core.DAG{
+		Name:     "TestDAG",
+		Location: filepath.Join(dir, "test-dag.yaml"),
+		Labels:   core.NewLabels([]string{"workspace=ops"}),
+	}
 	att, err := NewAttempt(file, nil, WithDAG(dag))
 	require.NoError(t, err)
 	require.NoError(t, att.Open(ctx))
@@ -914,6 +918,7 @@ func TestAttempt_WriteEmitsLifecycleTransitionsAndStatusUpdates(t *testing.T) {
 	queued := createTestStatus(core.Queued)
 	queued.AttemptID = "attempt-1"
 	queued.QueuedAt = time.Now().UTC().Format(time.RFC3339)
+	queued.Labels = dag.Labels.Strings()
 	require.NoError(t, att.Write(ctx, queued))
 	require.NoError(t, att.Write(ctx, queued))
 
@@ -942,6 +947,7 @@ func TestAttempt_WriteEmitsLifecycleTransitionsAndStatusUpdates(t *testing.T) {
 	snapshot, err := eventstore.DAGRunSnapshotFromEvent(store.events[0])
 	require.NoError(t, err)
 	assert.Equal(t, "test-dag", snapshot.DAGFile)
+	assert.Equal(t, []string{"workspace=ops"}, snapshot.Labels)
 	assert.Equal(t, core.Queued, snapshot.Status)
 }
 

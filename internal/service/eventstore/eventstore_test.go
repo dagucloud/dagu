@@ -86,6 +86,7 @@ func TestNewDAGRunEventEmbedsDAGRunSnapshot(t *testing.T) {
 		Root:           exec.NewDAGRunRef("root-briefing", "root-run"),
 		Parent:         exec.NewDAGRunRef("root-briefing", "parent-run"),
 		Name:           "briefing",
+		Labels:         []string{"workspace=ops", "team=platform"},
 		DAGRunID:       "run-1",
 		AttemptID:      "attempt-1",
 		ProcGroup:      "priority-high",
@@ -125,6 +126,7 @@ func TestNewDAGRunEventEmbedsDAGRunSnapshot(t *testing.T) {
 	assert.Equal(t, status.Root.Name, snapshot.Root.Name)
 	assert.Equal(t, status.Parent.ID, snapshot.Parent.DAGRunID)
 	assert.Equal(t, status.ProcGroup, snapshot.ProcGroup)
+	assert.Equal(t, status.Labels, snapshot.Labels)
 
 	restored, err := DAGRunStatusFromEvent(event)
 	require.NoError(t, err)
@@ -132,6 +134,7 @@ func TestNewDAGRunEventEmbedsDAGRunSnapshot(t *testing.T) {
 	assert.Equal(t, status.Root, restored.Root)
 	assert.Equal(t, status.Parent, restored.Parent)
 	assert.Equal(t, status.Name, restored.Name)
+	assert.Equal(t, status.Labels, restored.Labels)
 	assert.Equal(t, status.DAGRunID, restored.DAGRunID)
 	assert.Equal(t, status.AttemptID, restored.AttemptID)
 	assert.Equal(t, status.ProcGroup, restored.ProcGroup)

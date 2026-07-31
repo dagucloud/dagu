@@ -102,6 +102,7 @@ type DAGRunStatusSnapshot struct {
 	Parent         DAGRunRefSnapshot    `json:"parent"`
 	Name           string               `json:"name"`
 	DAGFile        string               `json:"dag_file,omitempty"`
+	Labels         []string             `json:"labels"`
 	DAGRunID       string               `json:"dag_run_id"`
 	AttemptID      string               `json:"attempt_id"`
 	ProcGroup      string               `json:"proc_group,omitempty"`
@@ -161,6 +162,7 @@ func newDAGRunStatusSnapshot(status *exec.DAGRunStatus, dagFile string) *DAGRunS
 		Parent:         newDAGRunRefSnapshot(status.Parent),
 		Name:           status.Name,
 		DAGFile:        dagFile,
+		Labels:         append([]string{}, status.Labels...),
 		DAGRunID:       status.DAGRunID,
 		AttemptID:      status.AttemptID,
 		ProcGroup:      status.ProcGroup,
@@ -193,6 +195,7 @@ func (s *DAGRunStatusSnapshot) DAGRunStatus() *exec.DAGRunStatus {
 		Root:           s.Root.DAGRunRef(),
 		Parent:         s.Parent.DAGRunRef(),
 		Name:           s.Name,
+		Labels:         append([]string(nil), s.Labels...),
 		DAGRunID:       s.DAGRunID,
 		AttemptID:      s.AttemptID,
 		Status:         s.Status,

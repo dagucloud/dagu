@@ -222,6 +222,8 @@ func (m *NotificationMonitor) NotifyCompletion(status *exec.DAGRunStatus) bool {
 		Key:        NotificationSeenKey(status),
 		Type:       eventType,
 		Status:     cloneNotificationStatus(status),
+		DAGFile:    status.Name,
+		DAGLabels:  append([]string{}, status.Labels...),
 		ObservedAt: time.Now().UTC(),
 	}
 	return m.enqueueEvents(context.Background(), nil, []NotificationEvent{event})
@@ -419,7 +421,7 @@ func (m *NotificationMonitor) pollSource(ctx context.Context) {
 		if event == nil || !m.isInterestedEventType(event.Type) {
 			continue
 		}
-		status, err := eventstore.DAGRunStatusFromEvent(event)
+		snapshot, err := eventstore.DAGRunSnapshotFromEvent(event)
 		if err != nil {
 			m.logger.Warn("Failed to decode DAG-run event payload",
 				slog.String("event_id", event.ID),
@@ -427,6 +429,7 @@ func (m *NotificationMonitor) pollSource(ctx context.Context) {
 			)
 			continue
 		}
+		status := snapshot.DAGRunStatus()
 		observedAt := event.RecordedAt
 		if observedAt.IsZero() {
 			observedAt = time.Now().UTC()
@@ -435,6 +438,8 @@ func (m *NotificationMonitor) pollSource(ctx context.Context) {
 			Key:        NotificationSeenKey(status),
 			Type:       event.Type,
 			Status:     status,
+			DAGFile:    snapshot.DAGFile,
+			DAGLabels:  cloneNotificationEventLabels(snapshot.Labels),
 			ObservedAt: observedAt.UTC(),
 		})
 	}
@@ -1176,12 +1181,7 @@ func cloneNotificationMonitorState(state notificationMonitorState) notificationM
 		}
 		pending := make(map[string]NotificationEvent, len(destState.Pending))
 		for key, event := range destState.Pending {
-			pending[key] = NotificationEvent{
-				Key:        event.Key,
-				Type:       event.Type,
-				Status:     cloneNotificationStatus(event.Status),
-				ObservedAt: event.ObservedAt,
-			}
+			pending[key] = cloneNotificationEvent(event)
 		}
 		clone.Destinations[destination] = &notificationDestinationState{
 			Pending:   pending,
@@ -1303,12 +1303,7 @@ func enqueueNotifications(state *notificationMonitorState, destinations []string
 				delete(destState.Pending, pendingKey)
 			}
 
-			destState.Pending[event.Key] = NotificationEvent{
-				Key:        event.Key,
-				Type:       event.Type,
-				Status:     cloneNotificationStatus(event.Status),
-				ObservedAt: event.ObservedAt,
-			}
+			destState.Pending[event.Key] = cloneNotificationEvent(event)
 			queued = append(queued, queuedNotification{
 				destination: destination,
 				event:       event,

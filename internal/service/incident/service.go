@@ -638,18 +638,25 @@ func (s *Service) effectivePolicySetForEvent(ctx context.Context, event chatbrid
 	if event.Status == nil {
 		return nil
 	}
-	if policySet, err := s.loadPolicySet(ctx, incidentmodel.PolicyScopeDAG, "", event.Status.Name); err == nil {
+	dagKey := event.DAGKey()
+	if policySet, err := s.loadPolicySet(ctx, incidentmodel.PolicyScopeDAG, "", dagKey); err == nil {
 		if !policySet.InheritParent {
 			return policySet
 		}
 	} else if !errors.Is(err, incidentmodel.ErrPolicySetNotFound) {
 		s.logger.Warn("Failed to load DAG incident policy set",
-			slog.String("dag", event.Status.Name),
+			slog.String("dag", dagKey),
 			slog.String("error", err.Error()),
 		)
 	}
-	workspaceName := eventWorkspaceName(event)
-	if workspaceName != "" {
+	workspaceName, workspaceState := eventWorkspace(event)
+	switch workspaceState {
+	case exec.WorkspaceLabelInvalid:
+		s.logger.Warn("Skipping incident routing for invalid workspace labels",
+			slog.String("dag", dagKey),
+		)
+		return nil
+	case exec.WorkspaceLabelValid:
 		if policySet, err := s.loadPolicySet(ctx, incidentmodel.PolicyScopeWorkspace, workspaceName, ""); err == nil {
 			if !policySet.InheritParent {
 				return policySet
@@ -660,6 +667,9 @@ func (s *Service) effectivePolicySetForEvent(ctx context.Context, event chatbrid
 				slog.String("error", err.Error()),
 			)
 		}
+	case exec.WorkspaceLabelMissing:
+	default:
+		return nil
 	}
 	policySet, err := s.loadPolicySet(ctx, incidentmodel.PolicyScopeGlobal, "", "")
 	if err != nil {
@@ -745,14 +755,15 @@ func isFinalFailure(status *exec.DAGRunStatus) bool {
 }
 
 func eventWorkspaceName(event chatbridge.NotificationEvent) string {
-	if event.Status == nil {
-		return ""
-	}
-	workspaceName, state := exec.WorkspaceLabelFromLabels(core.NewLabels(event.Status.Labels))
+	workspaceName, state := eventWorkspace(event)
 	if state == exec.WorkspaceLabelValid {
 		return workspaceName
 	}
 	return ""
+}
+
+func eventWorkspace(event chatbridge.NotificationEvent) (string, exec.WorkspaceLabelState) {
+	return exec.WorkspaceLabelFromLabels(core.NewLabels(event.RoutingLabels()))
 }
 
 func findPolicy(policySet *incidentmodel.PolicySet, policyID string) (incidentmodel.Policy, bool) {
@@ -1143,8 +1154,10 @@ func rejectPrivateAddress(addr netip.Addr) error {
 func (s *Service) testEvent() chatbridge.NotificationEvent {
 	now := time.Now().UTC()
 	return chatbridge.NotificationEvent{
-		Key:  "incident-test:" + uuid.NewString(),
-		Type: eventstore.TypeDAGRunFailed,
+		Key:       "incident-test:" + uuid.NewString(),
+		Type:      eventstore.TypeDAGRunFailed,
+		DAGFile:   "incident-test",
+		DAGLabels: []string{},
 		Status: &exec.DAGRunStatus{
 			Name:       "incident-test",
 			DAGRunID:   "incident-test-" + uuid.NewString(),
