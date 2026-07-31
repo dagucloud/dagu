@@ -141,6 +141,9 @@
     "paths": {
       "$ref": "#/definitions/PathsDef"
     },
+    "dag_discovery": {
+      "$ref": "#/definitions/DAGDiscoveryDef"
+    },
     "secrets": {
       "$ref": "#/definitions/SecretsDef"
     },
@@ -772,6 +775,18 @@
         "remote_nodes_dir": {
           "type": "string",
           "description": "Directory for remote node data storage."
+        }
+      }
+    },
+    "DAGDiscoveryDef": {
+      "type": "object",
+      "description": "DAG definition discovery settings.",
+      "additionalProperties": false,
+      "properties": {
+        "recursive": {
+          "type": "boolean",
+          "description": "Discover DAG definitions in subdirectories.",
+          "default": false
         }
       }
     },
