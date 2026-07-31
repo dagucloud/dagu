@@ -383,7 +383,7 @@ func (s *Service) NotificationDestinationsForEvent(event chatbridge.Notification
 	if !s.incidentsAllowed() || !incidentEventSupported(event) {
 		return nil
 	}
-	if event.Type == eventstore.TypeDAGRunSucceeded || event.Type == eventstore.TypeDAGRunPartiallySucceeded {
+	if isRecoveryEvent(event.Type) {
 		return s.resolveDestinationsForEvent(context.Background(), event)
 	}
 	policySet := s.effectivePolicySetForEvent(context.Background(), event)
@@ -505,26 +505,17 @@ func (s *Service) deliverIncidentEvent(
 		)
 		return true
 	}
-	switch event.Type {
-	case eventstore.TypeDAGRunFailed:
+	if event.Type == eventstore.TypeDAGRunFailed {
 		return s.openIncident(ctx, provider, policy, event, dedupKey)
-	case eventstore.TypeDAGRunSucceeded, eventstore.TypeDAGRunPartiallySucceeded:
-		return s.resolveIncident(ctx, provider, policy, event, dedupKey)
-	case eventstore.TypeDAGRunQueued,
-		eventstore.TypeDAGRunRunning,
-		eventstore.TypeDAGRunUpdated,
-		eventstore.TypeDAGRunWaiting,
-		eventstore.TypeDAGRunAborted,
-		eventstore.TypeDAGRunRejected,
-		eventstore.TypeLLMUsageRecorded:
-		return true
-	default:
-		return true
 	}
+	if isRecoveryEvent(event.Type) {
+		return s.resolveIncident(ctx, provider, policy, event, dedupKey)
+	}
+	return true
 }
 
 func (s *Service) resolveIncidentState(ctx context.Context, providerID, dedupKey string, event chatbridge.NotificationEvent) bool {
-	if (event.Type != eventstore.TypeDAGRunSucceeded && event.Type != eventstore.TypeDAGRunPartiallySucceeded) || event.Status == nil {
+	if event.Status == nil || !isRecoveryEvent(event.Type) {
 		return true
 	}
 	provider, err := s.GetProvider(ctx, providerID)
@@ -713,22 +704,12 @@ func policyMatchesEvent(policy incidentmodel.Policy, eventType eventstore.EventT
 	if !policy.Enabled {
 		return false
 	}
-	switch eventType {
-	case eventstore.TypeDAGRunFailed:
-		return true
-	case eventstore.TypeDAGRunSucceeded, eventstore.TypeDAGRunPartiallySucceeded:
-		return true
-	case eventstore.TypeDAGRunQueued,
-		eventstore.TypeDAGRunRunning,
-		eventstore.TypeDAGRunUpdated,
-		eventstore.TypeDAGRunWaiting,
-		eventstore.TypeDAGRunAborted,
-		eventstore.TypeDAGRunRejected,
-		eventstore.TypeLLMUsageRecorded:
-		return false
-	default:
-		return false
-	}
+	return eventType == eventstore.TypeDAGRunFailed || isRecoveryEvent(eventType)
+}
+
+func isRecoveryEvent(eventType eventstore.EventType) bool {
+	return eventType == eventstore.TypeDAGRunSucceeded ||
+		eventType == eventstore.TypeDAGRunPartiallySucceeded
 }
 
 func incidentEventSupported(event chatbridge.NotificationEvent) bool {
@@ -738,22 +719,10 @@ func incidentEventSupported(event chatbridge.NotificationEvent) bool {
 	if _, state := eventWorkspace(event); state == exec.WorkspaceLabelInvalid {
 		return false
 	}
-	switch event.Type {
-	case eventstore.TypeDAGRunFailed:
+	if event.Type == eventstore.TypeDAGRunFailed {
 		return isFinalFailure(event.Status)
-	case eventstore.TypeDAGRunSucceeded, eventstore.TypeDAGRunPartiallySucceeded:
-		return true
-	case eventstore.TypeDAGRunQueued,
-		eventstore.TypeDAGRunRunning,
-		eventstore.TypeDAGRunUpdated,
-		eventstore.TypeDAGRunWaiting,
-		eventstore.TypeDAGRunAborted,
-		eventstore.TypeDAGRunRejected,
-		eventstore.TypeLLMUsageRecorded:
-		return false
-	default:
-		return false
 	}
+	return isRecoveryEvent(event.Type)
 }
 
 func isFinalFailure(status *exec.DAGRunStatus) bool {

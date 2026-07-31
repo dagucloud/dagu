@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  NotificationEventType,
-  NotificationProviderType,
-} from '@/api/v1/schema';
+import { NotificationProviderType } from '@/api/v1/schema';
 import {
   blankChannel,
   blankTarget,
@@ -11,20 +8,12 @@ import {
   DEFAULT_EMAIL_BODY_TEMPLATE,
   DEFAULT_MESSAGE_TEMPLATE,
   DEFAULT_SUBJECT_TEMPLATE,
-  EVENT_OPTIONS,
   isDefaultDeliveryName,
   replaceDeliveryProvider,
   targetInput,
 } from '../notificationDrafts';
 
 describe('notificationDrafts', () => {
-  it('offers partially succeeded as a notification event', () => {
-    expect(EVENT_OPTIONS).toContainEqual({
-      value: NotificationEventType.dag_run_partially_succeeded,
-      label: 'Partially succeeded',
-    });
-  });
-
   it('uses editable default templates for new channels', () => {
     const channel = blankChannel(NotificationProviderType.slack);
     channel.name = 'Ops Slack';

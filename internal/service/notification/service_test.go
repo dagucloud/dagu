@@ -1422,46 +1422,45 @@ func TestService_NotificationDestinationsForEventFiltersByDAGAndEvent(t *testing
 	}))
 }
 
-func TestService_NotificationDestinationsForPartiallySucceededEvent(t *testing.T) {
+func TestServicePartialSuccessRouting(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name             string
-		configuredEvents []eventstore.EventType
-		actualEvent      eventstore.EventType
-		actualStatus     core.Status
-		wantDestination  bool
+		name   string
+		events []eventstore.EventType
+		event  eventstore.EventType
+		status core.Status
+		want   int
 	}{
 		{
-			name:             "succeeded includes partial success",
-			configuredEvents: []eventstore.EventType{eventstore.TypeDAGRunSucceeded},
-			actualEvent:      eventstore.TypeDAGRunPartiallySucceeded,
-			actualStatus:     core.PartiallySucceeded,
-			wantDestination:  true,
+			name:   "succeeded includes partial success",
+			events: []eventstore.EventType{eventstore.TypeDAGRunSucceeded},
+			event:  eventstore.TypeDAGRunPartiallySucceeded,
+			status: core.PartiallySucceeded,
+			want:   1,
 		},
 		{
-			name:             "partial success matches partial success",
-			configuredEvents: []eventstore.EventType{eventstore.TypeDAGRunPartiallySucceeded},
-			actualEvent:      eventstore.TypeDAGRunPartiallySucceeded,
-			actualStatus:     core.PartiallySucceeded,
-			wantDestination:  true,
+			name:   "partial success matches partial success",
+			events: []eventstore.EventType{eventstore.TypeDAGRunPartiallySucceeded},
+			event:  eventstore.TypeDAGRunPartiallySucceeded,
+			status: core.PartiallySucceeded,
+			want:   1,
 		},
 		{
-			name:             "partial success excludes clean success",
-			configuredEvents: []eventstore.EventType{eventstore.TypeDAGRunPartiallySucceeded},
-			actualEvent:      eventstore.TypeDAGRunSucceeded,
-			actualStatus:     core.Succeeded,
-			wantDestination:  false,
+			name:   "partial success excludes clean success",
+			events: []eventstore.EventType{eventstore.TypeDAGRunPartiallySucceeded},
+			event:  eventstore.TypeDAGRunSucceeded,
+			status: core.Succeeded,
 		},
 		{
 			name: "selecting both produces one destination",
-			configuredEvents: []eventstore.EventType{
+			events: []eventstore.EventType{
 				eventstore.TypeDAGRunSucceeded,
 				eventstore.TypeDAGRunPartiallySucceeded,
 			},
-			actualEvent:     eventstore.TypeDAGRunPartiallySucceeded,
-			actualStatus:    core.PartiallySucceeded,
-			wantDestination: true,
+			event:  eventstore.TypeDAGRunPartiallySucceeded,
+			status: core.PartiallySucceeded,
+			want:   1,
 		},
 	}
 
@@ -1470,7 +1469,7 @@ func TestService_NotificationDestinationsForPartiallySucceededEvent(t *testing.T
 			settings, err := notificationmodel.Normalize(&notificationmodel.Settings{
 				DAGName: "daily-report",
 				Enabled: true,
-				Events:  tt.configuredEvents,
+				Events:  tt.events,
 				Targets: []notificationmodel.Target{{
 					ID:      "webhook-1",
 					Type:    notificationmodel.ProviderWebhook,
@@ -1482,25 +1481,21 @@ func TestService_NotificationDestinationsForPartiallySucceededEvent(t *testing.T
 
 			svc := New(newMemoryStore(settings), nil)
 			destinations := svc.NotificationDestinationsForEvent(chatbridge.NotificationEvent{
-				Type: tt.actualEvent,
+				Type: tt.event,
 				Status: &exec.DAGRunStatus{
 					Name:      "daily-report",
-					Status:    tt.actualStatus,
+					Status:    tt.status,
 					DAGRunID:  "run-1",
 					AttemptID: "attempt-1",
 				},
 			})
 
-			if tt.wantDestination {
-				require.Len(t, destinations, 1)
-				return
-			}
-			assert.Empty(t, destinations)
+			assert.Len(t, destinations, tt.want)
 		})
 	}
 }
 
-func TestTestStatusForPartiallySucceededEvent(t *testing.T) {
+func TestPartialSuccessTestStatus(t *testing.T) {
 	t.Parallel()
 
 	status := testStatus("daily-report", eventstore.TypeDAGRunPartiallySucceeded)
