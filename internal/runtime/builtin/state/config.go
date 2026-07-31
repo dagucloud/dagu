@@ -84,9 +84,9 @@ var configSchema = &jsonschema.Schema{
 		"expected_version": {
 			OneOf: []*jsonschema.Schema{
 				{Type: "integer"},
-				{Type: "string"},
+				{Type: "string", Pattern: `^(-?[0-9]+|\$\{[^{}]+\})$`},
 			},
-			Description: "Optimistic concurrency version required for state.set or state.diff. String values may use runtime expressions.",
+			Description: "Optimistic concurrency version required for state.set or state.diff. String values must be base-10 integers or exact runtime expressions.",
 		},
 		"create_only":    {Type: "boolean", Description: "Fail state.set when the key already exists."},
 		"required":       {Type: "boolean", Description: "Fail state.get when the key is missing."},

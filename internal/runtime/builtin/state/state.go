@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 
+	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
@@ -115,7 +116,7 @@ func validateStep(step core.Step) error {
 		return nil
 	}
 	rawConfig := step.ExecutorConfig.Config
-	if _, deferred := rawConfig["expected_version"].(string); deferred {
+	if expectedVersion, ok := rawConfig["expected_version"].(string); ok && cmnvalue.IsExactRef(expectedVersion) {
 		rawConfig = make(map[string]any, len(step.ExecutorConfig.Config)-1)
 		for key, value := range step.ExecutorConfig.Config {
 			if key != "expected_version" {
