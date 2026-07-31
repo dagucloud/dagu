@@ -137,6 +137,24 @@ func TestStateExecutorRequiresStateStore(t *testing.T) {
 	assert.Contains(t, err.Error(), "state store")
 }
 
+func TestStateConfigSchemaAcceptsExpectedVersionReference(t *testing.T) {
+	t.Parallel()
+
+	err := core.ValidateExecutorConfig(executorType, map[string]any{
+		"key":              "cursors/api",
+		"value":            "next",
+		"expected_version": "${steps.load.outputs.version}",
+	})
+	require.NoError(t, err)
+
+	err = core.ValidateExecutorConfig(executorType, map[string]any{
+		"key":              "cursors/api",
+		"value":            "next",
+		"expected_version": "not-a-version",
+	})
+	require.Error(t, err)
+}
+
 func newStateStoreForTest(t *testing.T) dagstate.Store {
 	t.Helper()
 	return store.NewDAGStateStore(testutil.NewMemoryBackend().Collection("dag_state"))

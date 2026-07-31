@@ -32,6 +32,17 @@ type config struct {
 
 var stateListLimitMinimum = float64(0)
 
+var expectedVersionSchema = &jsonschema.Schema{
+	Description: "Optimistic concurrency version required for state.set or state.diff.",
+	OneOf: []*jsonschema.Schema{
+		{Type: "integer"},
+		{
+			Type:    "string",
+			Pattern: `^\$\{(?:consts|params|env|steps|foreach|context)(?:\.[A-Za-z_][A-Za-z0-9_]*)+\}$`,
+		},
+	},
+}
+
 func decodeConfig(raw map[string]any, cfg *config) error {
 	if raw == nil {
 		raw = map[string]any{}
@@ -81,7 +92,7 @@ var configSchema = &jsonschema.Schema{
 		"prefix":           {Type: "string", Description: "Key prefix for state.list."},
 		"value":            {Description: "JSON-serializable value for state.set and state.diff."},
 		"default":          {Description: "Default JSON-serializable value returned by state.get when the key is missing."},
-		"expected_version": {Type: "integer", Description: "Optimistic concurrency version required for state.set or state.diff."},
+		"expected_version": expectedVersionSchema,
 		"create_only":      {Type: "boolean", Description: "Fail state.set when the key already exists."},
 		"required":         {Type: "boolean", Description: "Fail state.get when the key is missing."},
 		"update":           {Type: "boolean", Description: "Whether state.diff writes the new value when changed. Defaults to true."},
