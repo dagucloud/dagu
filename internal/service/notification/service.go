@@ -856,6 +856,7 @@ func (s *Service) isSupportedEvent(eventType eventstore.EventType) bool {
 	switch eventType {
 	case eventstore.TypeDAGRunWaiting,
 		eventstore.TypeDAGRunSucceeded,
+		eventstore.TypeDAGRunPartiallySucceeded,
 		eventstore.TypeDAGRunFailed,
 		eventstore.TypeDAGRunAborted,
 		eventstore.TypeDAGRunRejected:
@@ -880,6 +881,9 @@ func testStatus(dagName string, eventType eventstore.EventType) *exec.DAGRunStat
 	case eventstore.TypeDAGRunSucceeded:
 		status = core.Succeeded
 		message = ""
+	case eventstore.TypeDAGRunPartiallySucceeded:
+		status = core.PartiallySucceeded
+		message = "This is a test partially succeeded notification from Dagu."
 	case eventstore.TypeDAGRunFailed:
 	case eventstore.TypeDAGRunAborted:
 		status = core.Aborted

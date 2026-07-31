@@ -302,6 +302,8 @@ function eventChipClass(
   switch (value) {
     case NotificationEventType.dag_run_succeeded:
       return 'status-success';
+    case NotificationEventType.dag_run_partially_succeeded:
+      return 'status-warning';
     case NotificationEventType.dag_run_failed:
       return 'status-failed';
     case NotificationEventType.dag_run_aborted:

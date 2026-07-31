@@ -30,6 +30,7 @@ const (
 var defaultInterestedNotificationEventTypes = []eventstore.EventType{
 	eventstore.TypeDAGRunWaiting,
 	eventstore.TypeDAGRunSucceeded,
+	eventstore.TypeDAGRunPartiallySucceeded,
 	eventstore.TypeDAGRunFailed,
 	eventstore.TypeDAGRunAborted,
 	eventstore.TypeDAGRunRejected,

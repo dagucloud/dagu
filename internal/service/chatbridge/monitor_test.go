@@ -692,7 +692,7 @@ func TestNotificationMonitor_SuccessEventsAreAcknowledgedWithoutDelivery(t *test
 	assert.Empty(t, calls, "successful completions should be acknowledged without transport delivery")
 }
 
-func TestNotificationMonitor_SuccessEventsCanBeDeliveredByOptInTransport(t *testing.T) {
+func TestNotificationMonitor_PartiallySucceededEventsCanBeDeliveredByOptInTransport(t *testing.T) {
 	t.Parallel()
 
 	var (
@@ -726,7 +726,7 @@ func TestNotificationMonitor_SuccessEventsCanBeDeliveredByOptInTransport(t *test
 
 	status := &exec.DAGRunStatus{
 		Name:      "briefing",
-		Status:    core.Succeeded,
+		Status:    core.PartiallySucceeded,
 		DAGRunID:  "run-1",
 		AttemptID: "attempt-1",
 	}
@@ -743,7 +743,7 @@ func TestNotificationMonitor_SuccessEventsCanBeDeliveredByOptInTransport(t *test
 	require.Len(t, calls, 1)
 	assert.Equal(t, NotificationClassSuccessDigest, calls[0].Class)
 	require.Len(t, calls[0].Events, 1)
-	assert.Equal(t, eventstore.TypeDAGRunSucceeded, calls[0].Events[0].Type)
+	assert.Equal(t, eventstore.TypeDAGRunPartiallySucceeded, calls[0].Events[0].Type)
 }
 
 func TestNotificationMonitor_PollSourceFiltersInterestedEventTypes(t *testing.T) {

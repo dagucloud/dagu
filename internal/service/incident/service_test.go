@@ -150,13 +150,13 @@ func TestServicePagerDutyTriggerAndResolvePayloads(t *testing.T) {
 	}, false)
 	require.True(t, ok)
 
-	success := failure
-	success.Type = eventstore.TypeDAGRunSucceeded
-	success.Status = cloneStatus(failure.Status)
-	success.Status.Status = core.Succeeded
-	success.Status.Error = ""
+	recovery := failure
+	recovery.Type = eventstore.TypeDAGRunPartiallySucceeded
+	recovery.Status = cloneStatus(failure.Status)
+	recovery.Status.Status = core.PartiallySucceeded
+	recovery.Status.Error = ""
 	ok = svc.FlushNotificationBatch(context.Background(), policyDestinationID(policySet, policySet.Policies[0].ID), chatbridge.NotificationBatch{
-		Events: []chatbridge.NotificationEvent{success},
+		Events: []chatbridge.NotificationEvent{recovery},
 	}, false)
 	require.True(t, ok)
 

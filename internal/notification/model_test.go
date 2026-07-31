@@ -332,10 +332,16 @@ func TestIsRouteEventEnabledDefaultsToOperationalEvents(t *testing.T) {
 	assert.True(t, IsRouteEventEnabled(routeSet, route, eventstore.TypeDAGRunFailed))
 	assert.True(t, IsRouteEventEnabled(routeSet, route, eventstore.TypeDAGRunWaiting))
 	assert.False(t, IsRouteEventEnabled(routeSet, route, eventstore.TypeDAGRunSucceeded))
+	assert.False(t, IsRouteEventEnabled(routeSet, route, eventstore.TypeDAGRunPartiallySucceeded))
 
 	route.Events = []eventstore.EventType{eventstore.TypeDAGRunSucceeded}
 	assert.False(t, IsRouteEventEnabled(routeSet, route, eventstore.TypeDAGRunFailed))
 	assert.True(t, IsRouteEventEnabled(routeSet, route, eventstore.TypeDAGRunSucceeded))
+	assert.True(t, IsRouteEventEnabled(routeSet, route, eventstore.TypeDAGRunPartiallySucceeded))
+
+	route.Events = []eventstore.EventType{eventstore.TypeDAGRunPartiallySucceeded}
+	assert.False(t, IsRouteEventEnabled(routeSet, route, eventstore.TypeDAGRunSucceeded))
+	assert.True(t, IsRouteEventEnabled(routeSet, route, eventstore.TypeDAGRunPartiallySucceeded))
 }
 
 func TestPreserveWorkspaceSecrets(t *testing.T) {

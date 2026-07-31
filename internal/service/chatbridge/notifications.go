@@ -432,7 +432,7 @@ func NotificationClassForEvent(eventType eventstore.EventType, status core.Statu
 	switch eventType {
 	case eventstore.TypeDAGRunFailed, eventstore.TypeDAGRunWaiting:
 		return NotificationClassUrgent, true
-	case eventstore.TypeDAGRunSucceeded:
+	case eventstore.TypeDAGRunSucceeded, eventstore.TypeDAGRunPartiallySucceeded:
 		return NotificationClassSuccessDigest, true
 	case eventstore.TypeDAGRunQueued, eventstore.TypeDAGRunRunning:
 		return NotificationClassInformational, true

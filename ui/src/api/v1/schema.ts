@@ -3557,7 +3557,7 @@ export interface components {
          */
         NotificationProviderType: NotificationProviderType;
         /**
-         * @description DAG run event that can trigger server-side notifications
+         * @description DAG run event that can trigger server-side notifications. Rules configured for dag.run.succeeded also match dag.run.partially_succeeded; rules configured only for dag.run.partially_succeeded do not match clean successes.
          * @enum {string}
          */
         NotificationEventType: NotificationEventType;
@@ -16735,6 +16735,7 @@ export enum NotificationProviderType {
 export enum NotificationEventType {
     dag_run_waiting = "dag.run.waiting",
     dag_run_succeeded = "dag.run.succeeded",
+    dag_run_partially_succeeded = "dag.run.partially_succeeded",
     dag_run_failed = "dag.run.failed",
     dag_run_aborted = "dag.run.aborted",
     dag_run_rejected = "dag.run.rejected"

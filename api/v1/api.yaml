@@ -9734,10 +9734,11 @@ components:
 
     NotificationEventType:
       type: string
-      description: "DAG run event that can trigger server-side notifications"
+      description: "DAG run event that can trigger server-side notifications. Rules configured for dag.run.succeeded also match dag.run.partially_succeeded; rules configured only for dag.run.partially_succeeded do not match clean successes."
       enum:
         - dag.run.waiting
         - dag.run.succeeded
+        - dag.run.partially_succeeded
         - dag.run.failed
         - dag.run.aborted
         - dag.run.rejected

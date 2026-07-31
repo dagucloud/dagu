@@ -34,14 +34,15 @@ const (
 type EventType string
 
 const (
-	TypeDAGRunQueued    EventType = "dag.run.queued"
-	TypeDAGRunRunning   EventType = "dag.run.running"
-	TypeDAGRunUpdated   EventType = "dag.run.updated"
-	TypeDAGRunWaiting   EventType = "dag.run.waiting"
-	TypeDAGRunSucceeded EventType = "dag.run.succeeded"
-	TypeDAGRunFailed    EventType = "dag.run.failed"
-	TypeDAGRunAborted   EventType = "dag.run.aborted"
-	TypeDAGRunRejected  EventType = "dag.run.rejected"
+	TypeDAGRunQueued             EventType = "dag.run.queued"
+	TypeDAGRunRunning            EventType = "dag.run.running"
+	TypeDAGRunUpdated            EventType = "dag.run.updated"
+	TypeDAGRunWaiting            EventType = "dag.run.waiting"
+	TypeDAGRunSucceeded          EventType = "dag.run.succeeded"
+	TypeDAGRunPartiallySucceeded EventType = "dag.run.partially_succeeded"
+	TypeDAGRunFailed             EventType = "dag.run.failed"
+	TypeDAGRunAborted            EventType = "dag.run.aborted"
+	TypeDAGRunRejected           EventType = "dag.run.rejected"
 
 	TypeLLMUsageRecorded EventType = "llm.usage.recorded"
 )
@@ -323,8 +324,10 @@ func PersistedDAGRunEventTypeForStatus(status core.Status) (EventType, bool) {
 		return TypeDAGRunRunning, true
 	case core.Waiting:
 		return TypeDAGRunWaiting, true
-	case core.Succeeded, core.PartiallySucceeded:
+	case core.Succeeded:
 		return TypeDAGRunSucceeded, true
+	case core.PartiallySucceeded:
+		return TypeDAGRunPartiallySucceeded, true
 	case core.Failed:
 		return TypeDAGRunFailed, true
 	case core.Aborted:
@@ -364,7 +367,7 @@ func dagRunOccurredAt(status *exec.DAGRunStatus, eventType EventType) time.Time 
 		}
 	case TypeDAGRunUpdated:
 		return time.Now().UTC()
-	case TypeDAGRunWaiting, TypeDAGRunSucceeded, TypeDAGRunFailed, TypeDAGRunAborted, TypeDAGRunRejected:
+	case TypeDAGRunWaiting, TypeDAGRunSucceeded, TypeDAGRunPartiallySucceeded, TypeDAGRunFailed, TypeDAGRunAborted, TypeDAGRunRejected:
 		if t, err := stringutil.ParseTime(status.FinishedAt); err == nil && !t.IsZero() {
 			return t.UTC()
 		}

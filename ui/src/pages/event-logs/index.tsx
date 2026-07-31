@@ -93,6 +93,10 @@ const EVENT_TYPE_OPTIONS = [
   { value: 'dag.run.queued', label: 'Queued' },
   { value: 'dag.run.running', label: 'Running' },
   { value: 'dag.run.succeeded', label: 'Succeeded' },
+  {
+    value: 'dag.run.partially_succeeded',
+    label: 'Partially succeeded',
+  },
   { value: 'dag.run.failed', label: 'Failed' },
   { value: 'dag.run.aborted', label: 'Aborted' },
   { value: 'dag.run.waiting', label: 'Waiting' },
@@ -107,6 +111,8 @@ function getOutcomeLabel(type: string, status?: string): string {
       return 'Running';
     case 'dag.run.succeeded':
       return 'Succeeded';
+    case 'dag.run.partially_succeeded':
+      return 'Partially succeeded';
     case 'dag.run.failed':
       return 'Failed';
     case 'dag.run.aborted':
@@ -133,6 +139,8 @@ function getOutcomeVariant(
       return 'default';
     case 'dag.run.succeeded':
       return 'success';
+    case 'dag.run.partially_succeeded':
+      return 'warning';
     case 'dag.run.failed':
       return 'error';
     case 'dag.run.aborted':

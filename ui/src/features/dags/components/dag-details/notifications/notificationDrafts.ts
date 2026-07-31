@@ -93,6 +93,10 @@ export const EVENT_OPTIONS = [
   { value: NotificationEventType.dag_run_aborted, label: 'Aborted' },
   { value: NotificationEventType.dag_run_rejected, label: 'Rejected' },
   { value: NotificationEventType.dag_run_waiting, label: 'Waiting' },
+  {
+    value: NotificationEventType.dag_run_partially_succeeded,
+    label: 'Partially succeeded',
+  },
   { value: NotificationEventType.dag_run_succeeded, label: 'Succeeded' },
 ];
 

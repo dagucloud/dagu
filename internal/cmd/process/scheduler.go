@@ -196,6 +196,7 @@ func newIncidentMonitor(
 	monitorConfig.InterestedEventTypes = []eventstore.EventType{
 		eventstore.TypeDAGRunFailed,
 		eventstore.TypeDAGRunSucceeded,
+		eventstore.TypeDAGRunPartiallySucceeded,
 	}
 	return chatbridge.NewNotificationMonitor(
 		eventService,

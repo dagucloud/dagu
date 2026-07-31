@@ -990,6 +990,7 @@ func incidentMonitorConfig() chatbridge.NotificationMonitorConfig {
 	cfg.InterestedEventTypes = []eventstore.EventType{
 		eventstore.TypeDAGRunFailed,
 		eventstore.TypeDAGRunSucceeded,
+		eventstore.TypeDAGRunPartiallySucceeded,
 	}
 	return cfg
 }

@@ -41,6 +41,7 @@ var defaultEvents = []eventstore.EventType{
 var supportedEvents = []eventstore.EventType{
 	eventstore.TypeDAGRunWaiting,
 	eventstore.TypeDAGRunSucceeded,
+	eventstore.TypeDAGRunPartiallySucceeded,
 	eventstore.TypeDAGRunFailed,
 	eventstore.TypeDAGRunAborted,
 	eventstore.TypeDAGRunRejected,
@@ -736,7 +737,7 @@ func IsEventEnabled(settings *Settings, event eventstore.EventType) bool {
 	if settings == nil || !settings.Enabled {
 		return false
 	}
-	return slices.Contains(settings.Events, event)
+	return matchesConfiguredEvent(settings.Events, event)
 }
 
 func IsTargetEventEnabled(settings *Settings, target Target, event eventstore.EventType) bool {
@@ -746,7 +747,7 @@ func IsTargetEventEnabled(settings *Settings, target Target, event eventstore.Ev
 	if len(target.Events) == 0 {
 		return true
 	}
-	return slices.Contains(target.Events, event)
+	return matchesConfiguredEvent(target.Events, event)
 }
 
 func IsSubscriptionEventEnabled(settings *Settings, subscription Subscription, event eventstore.EventType) bool {
@@ -756,7 +757,7 @@ func IsSubscriptionEventEnabled(settings *Settings, subscription Subscription, e
 	if len(subscription.Events) == 0 {
 		return true
 	}
-	return slices.Contains(subscription.Events, event)
+	return matchesConfiguredEvent(subscription.Events, event)
 }
 
 func IsRouteEventEnabled(routeSet *RouteSet, route Route, event eventstore.EventType) bool {
@@ -764,9 +765,17 @@ func IsRouteEventEnabled(routeSet *RouteSet, route Route, event eventstore.Event
 		return false
 	}
 	if len(route.Events) == 0 {
-		return slices.Contains(defaultEvents, event)
+		return matchesConfiguredEvent(defaultEvents, event)
 	}
-	return slices.Contains(route.Events, event)
+	return matchesConfiguredEvent(route.Events, event)
+}
+
+func matchesConfiguredEvent(events []eventstore.EventType, actual eventstore.EventType) bool {
+	if slices.Contains(events, actual) {
+		return true
+	}
+	return actual == eventstore.TypeDAGRunPartiallySucceeded &&
+		slices.Contains(events, eventstore.TypeDAGRunSucceeded)
 }
 
 func ToPublic(settings *Settings) *PublicSettings {

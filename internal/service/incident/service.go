@@ -383,7 +383,7 @@ func (s *Service) NotificationDestinationsForEvent(event chatbridge.Notification
 	if !s.incidentsAllowed() || !incidentEventSupported(event) {
 		return nil
 	}
-	if event.Type == eventstore.TypeDAGRunSucceeded {
+	if event.Type == eventstore.TypeDAGRunSucceeded || event.Type == eventstore.TypeDAGRunPartiallySucceeded {
 		return s.resolveDestinationsForEvent(context.Background(), event)
 	}
 	policySet := s.effectivePolicySetForEvent(context.Background(), event)
@@ -508,7 +508,7 @@ func (s *Service) deliverIncidentEvent(
 	switch event.Type {
 	case eventstore.TypeDAGRunFailed:
 		return s.openIncident(ctx, provider, policy, event, dedupKey)
-	case eventstore.TypeDAGRunSucceeded:
+	case eventstore.TypeDAGRunSucceeded, eventstore.TypeDAGRunPartiallySucceeded:
 		return s.resolveIncident(ctx, provider, policy, event, dedupKey)
 	case eventstore.TypeDAGRunQueued,
 		eventstore.TypeDAGRunRunning,
@@ -524,7 +524,7 @@ func (s *Service) deliverIncidentEvent(
 }
 
 func (s *Service) resolveIncidentState(ctx context.Context, providerID, dedupKey string, event chatbridge.NotificationEvent) bool {
-	if event.Type != eventstore.TypeDAGRunSucceeded || event.Status == nil {
+	if (event.Type != eventstore.TypeDAGRunSucceeded && event.Type != eventstore.TypeDAGRunPartiallySucceeded) || event.Status == nil {
 		return true
 	}
 	provider, err := s.GetProvider(ctx, providerID)
@@ -716,7 +716,7 @@ func policyMatchesEvent(policy incidentmodel.Policy, eventType eventstore.EventT
 	switch eventType {
 	case eventstore.TypeDAGRunFailed:
 		return true
-	case eventstore.TypeDAGRunSucceeded:
+	case eventstore.TypeDAGRunSucceeded, eventstore.TypeDAGRunPartiallySucceeded:
 		return true
 	case eventstore.TypeDAGRunQueued,
 		eventstore.TypeDAGRunRunning,
@@ -741,7 +741,7 @@ func incidentEventSupported(event chatbridge.NotificationEvent) bool {
 	switch event.Type {
 	case eventstore.TypeDAGRunFailed:
 		return isFinalFailure(event.Status)
-	case eventstore.TypeDAGRunSucceeded:
+	case eventstore.TypeDAGRunSucceeded, eventstore.TypeDAGRunPartiallySucceeded:
 		return true
 	case eventstore.TypeDAGRunQueued,
 		eventstore.TypeDAGRunRunning,

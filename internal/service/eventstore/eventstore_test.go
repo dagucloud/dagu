@@ -29,7 +29,7 @@ func TestPersistedDAGRunEventTypeForStatus(t *testing.T) {
 		{name: "Rejected", status: core.Rejected, want: TypeDAGRunRejected, ok: true},
 		{name: "Waiting", status: core.Waiting, want: TypeDAGRunWaiting, ok: true},
 		{name: "Succeeded", status: core.Succeeded, want: TypeDAGRunSucceeded, ok: true},
-		{name: "PartiallySucceeded", status: core.PartiallySucceeded, want: TypeDAGRunSucceeded, ok: true},
+		{name: "PartiallySucceeded", status: core.PartiallySucceeded, want: TypeDAGRunPartiallySucceeded, ok: true},
 		{name: "Failed", status: core.Failed, want: TypeDAGRunFailed, ok: true},
 		{name: "Aborted", status: core.Aborted, want: TypeDAGRunAborted, ok: true},
 	}
@@ -41,6 +41,13 @@ func TestPersistedDAGRunEventTypeForStatus(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func TestPartiallySucceededIsNotificationEventType(t *testing.T) {
+	t.Parallel()
+
+	assert.True(t, IsDAGRunEventType(KindDAGRun, TypeDAGRunPartiallySucceeded))
+	assert.True(t, IsNotificationEventType(KindDAGRun, TypeDAGRunPartiallySucceeded))
 }
 
 func TestServiceEmitDefaultsFieldsWithoutReadTimeRepair(t *testing.T) {

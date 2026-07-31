@@ -174,6 +174,35 @@ describe('EventLogsPage', () => {
     ).toBeInTheDocument();
   });
 
+  it('renders partially succeeded outcomes', async () => {
+    useQueryMock.mockImplementation(() =>
+      mockQueryResult({
+        data: {
+          entries: [
+            {
+              id: 'evt-partial',
+              schemaVersion: 1,
+              occurredAt: '2026-04-01T00:00:00Z',
+              recordedAt: '2026-04-01T00:00:01Z',
+              kind: 'dag_run',
+              type: 'dag.run.partially_succeeded',
+              sourceService: 'scheduler',
+              dagName: 'demo',
+              dagRunId: 'run-partial',
+              attemptId: 'attempt-partial',
+              status: 'partially_succeeded',
+            },
+          ],
+          nextCursor: undefined,
+        },
+      })
+    );
+
+    renderPage();
+
+    expect(await screen.findByText('Partially succeeded')).toBeInTheDocument();
+  });
+
   it('queries event logs with a fixed dag_run kind and the selected remote node', async () => {
     const calls: QueryCall[] = [];
     useQueryMock.mockImplementation((path, init) => {

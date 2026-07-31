@@ -1422,6 +1422,93 @@ func TestService_NotificationDestinationsForEventFiltersByDAGAndEvent(t *testing
 	}))
 }
 
+func TestService_NotificationDestinationsForPartiallySucceededEvent(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		configuredEvents []eventstore.EventType
+		actualEvent      eventstore.EventType
+		actualStatus     core.Status
+		wantDestination  bool
+	}{
+		{
+			name:             "succeeded includes partial success",
+			configuredEvents: []eventstore.EventType{eventstore.TypeDAGRunSucceeded},
+			actualEvent:      eventstore.TypeDAGRunPartiallySucceeded,
+			actualStatus:     core.PartiallySucceeded,
+			wantDestination:  true,
+		},
+		{
+			name:             "partial success matches partial success",
+			configuredEvents: []eventstore.EventType{eventstore.TypeDAGRunPartiallySucceeded},
+			actualEvent:      eventstore.TypeDAGRunPartiallySucceeded,
+			actualStatus:     core.PartiallySucceeded,
+			wantDestination:  true,
+		},
+		{
+			name:             "partial success excludes clean success",
+			configuredEvents: []eventstore.EventType{eventstore.TypeDAGRunPartiallySucceeded},
+			actualEvent:      eventstore.TypeDAGRunSucceeded,
+			actualStatus:     core.Succeeded,
+			wantDestination:  false,
+		},
+		{
+			name: "selecting both produces one destination",
+			configuredEvents: []eventstore.EventType{
+				eventstore.TypeDAGRunSucceeded,
+				eventstore.TypeDAGRunPartiallySucceeded,
+			},
+			actualEvent:     eventstore.TypeDAGRunPartiallySucceeded,
+			actualStatus:    core.PartiallySucceeded,
+			wantDestination: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			settings, err := notificationmodel.Normalize(&notificationmodel.Settings{
+				DAGName: "daily-report",
+				Enabled: true,
+				Events:  tt.configuredEvents,
+				Targets: []notificationmodel.Target{{
+					ID:      "webhook-1",
+					Type:    notificationmodel.ProviderWebhook,
+					Enabled: true,
+					Webhook: &notificationmodel.WebhookTarget{URL: "https://example.com/webhook"},
+				}},
+			}, "tester")
+			require.NoError(t, err)
+
+			svc := New(newMemoryStore(settings), nil)
+			destinations := svc.NotificationDestinationsForEvent(chatbridge.NotificationEvent{
+				Type: tt.actualEvent,
+				Status: &exec.DAGRunStatus{
+					Name:      "daily-report",
+					Status:    tt.actualStatus,
+					DAGRunID:  "run-1",
+					AttemptID: "attempt-1",
+				},
+			})
+
+			if tt.wantDestination {
+				require.Len(t, destinations, 1)
+				return
+			}
+			assert.Empty(t, destinations)
+		})
+	}
+}
+
+func TestTestStatusForPartiallySucceededEvent(t *testing.T) {
+	t.Parallel()
+
+	status := testStatus("daily-report", eventstore.TypeDAGRunPartiallySucceeded)
+
+	assert.Equal(t, core.PartiallySucceeded, status.Status)
+	assert.Contains(t, status.Error, "partially succeeded")
+}
+
 type recordingSMTPServer struct {
 	host     string
 	port     string

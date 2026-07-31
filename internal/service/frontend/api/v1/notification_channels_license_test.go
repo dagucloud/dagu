@@ -82,7 +82,10 @@ func TestNotificationRoutes_GlobalAndWorkspaceRouteSets(t *testing.T) {
 			Id:        new("global-route"),
 			ChannelId: channel.Id,
 			Enabled:   true,
-			Events:    &[]api.NotificationEventType{api.NotificationEventTypeDagRunFailed},
+			Events: &[]api.NotificationEventType{
+				api.NotificationEventTypeDagRunFailed,
+				api.NotificationEventTypeDagRunPartiallySucceeded,
+			},
 		}},
 	}).ExpectStatus(http.StatusOK).Send(t)
 	var globalRoutes api.NotificationRouteSet
@@ -91,6 +94,8 @@ func TestNotificationRoutes_GlobalAndWorkspaceRouteSets(t *testing.T) {
 	assert.True(t, globalRoutes.InheritGlobal)
 	require.Len(t, globalRoutes.Routes, 1)
 	assert.Equal(t, "global-route", globalRoutes.Routes[0].Id)
+	require.NotNil(t, globalRoutes.Routes[0].Events)
+	assert.Contains(t, *globalRoutes.Routes[0].Events, api.NotificationEventTypeDagRunPartiallySucceeded)
 
 	server.Client().Post("/api/v1/workspaces", api.CreateWorkspaceRequest{
 		Name: "ops",
