@@ -30,7 +30,9 @@ func schedulerTestTimeout(base time.Duration) time.Duration {
 
 func setupSchedulerWithoutDAGs(t *testing.T) *test.Scheduler {
 	t.Helper()
-	return test.SetupScheduler(t, test.WithDAGsDir(t.TempDir()))
+	th := test.SetupScheduler(t, test.WithDAGsDir(t.TempDir()))
+	th.ServiceRegistry = nil
+	return th
 }
 
 func TestScheduler(t *testing.T) {

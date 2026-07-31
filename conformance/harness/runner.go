@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 	"github.com/stretchr/testify/require"
 )
 
@@ -36,13 +37,13 @@ type Result struct {
 
 // Process is a running Dagu command.
 type Process struct {
-	t          *testing.T
-	cancel     context.CancelFunc
-	done       chan struct{}
-	stdout     *bytes.Buffer
-	stderr     *bytes.Buffer
-	err        error
-	cancelOnce sync.Once
+	t        *testing.T
+	proc     *cmdutil.ManagedProcess
+	done     chan struct{}
+	stdout   *bytes.Buffer
+	stderr   *bytes.Buffer
+	err      error
+	stopOnce sync.Once
 }
 
 // ExitCode returns the command's process exit code.
@@ -99,29 +100,29 @@ func (r *Runner) RunWithEnv(env []string, args ...string) *Result {
 func (r *Runner) StartWithEnv(env []string, args ...string) *Process {
 	r.t.Helper()
 
-	ctx, cancel := context.WithCancel(context.Background())
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 	// Binary-level tests intentionally execute the configured Dagu binary.
-	cmd := exec.CommandContext(ctx, daguBinary(r.t), args...) //nolint:gosec
+	cmd := exec.Command(daguBinary(r.t), args...) //nolint:gosec
 	cmd.Dir = r.dir
 	cmd.Env = appendEnv(append(isolatedEnv(r.t), "PWD="+r.dir), env...)
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
-	if err := cmd.Start(); err != nil {
-		cancel()
+	proc, err := cmdutil.StartManagedProcess(cmd)
+	if err != nil {
 		r.t.Fatalf("starting dagu %s: %v", strings.Join(args, " "), err)
 	}
 
 	process := &Process{
 		t:      r.t,
-		cancel: cancel,
+		proc:   proc,
 		done:   make(chan struct{}),
 		stdout: stdout,
 		stderr: stderr,
 	}
 	go func() {
-		process.err = cmd.Wait()
+		process.err = proc.Wait()
+		_ = proc.Release()
 		close(process.done)
 	}()
 	r.t.Cleanup(func() {
@@ -153,7 +154,12 @@ func (p *Process) Done() <-chan struct{} {
 // Stop terminates the command and waits for it to exit.
 func (p *Process) Stop() {
 	p.t.Helper()
-	p.cancelOnce.Do(p.cancel)
+	p.stopOnce.Do(func() {
+		_, _ = p.proc.Stop(cmdutil.StopRequest{
+			Intent: cmdutil.ForceTermination(),
+			Reason: cmdutil.StopReasonShutdown,
+		})
+	})
 	<-p.done
 }
 
