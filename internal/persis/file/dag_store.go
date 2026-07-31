@@ -22,7 +22,15 @@ type DAGStoreOptions struct {
 	Cache                 *fileutil.Cache[*core.DAG]
 	SearchPaths           []string
 	SkipExamples          *bool
+	RecursiveDiscovery    *bool
 	SkipDirectoryCreation bool
+}
+
+// WithDAGRecursiveDiscovery controls whether DAG files are discovered recursively.
+func WithDAGRecursiveDiscovery(recursive bool) DAGStoreOption {
+	return func(o *DAGStoreOptions) {
+		o.RecursiveDiscovery = &recursive
+	}
 }
 
 // WithDAGFileCache sets the cache used for loading DAG definitions.
@@ -66,6 +74,10 @@ func NewDAGStore(cfg *config.Config, opts ...DAGStoreOption) (exec.DAGStore, err
 	if options.SkipExamples != nil {
 		skipExamples = *options.SkipExamples
 	}
+	recursiveDiscovery := cfg.DAGDiscovery.Recursive
+	if options.RecursiveDiscovery != nil {
+		recursiveDiscovery = *options.RecursiveDiscovery
+	}
 	store := filedag.New(
 		cfg.Paths.DAGsDir,
 		filedag.WithFlagsBaseDir(cfg.Paths.SuspendFlagsDir),
@@ -74,6 +86,7 @@ func NewDAGStore(cfg *config.Config, opts ...DAGStoreOption) (exec.DAGStore, err
 		filedag.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(cfg.Paths.DAGsDir)),
 		filedag.WithFileCache(options.Cache),
 		filedag.WithSkipExamples(skipExamples),
+		filedag.WithRecursiveDiscovery(recursiveDiscovery),
 		filedag.WithSkipDirectoryCreation(options.SkipDirectoryCreation),
 	)
 	if s, ok := store.(*filedag.Storage); ok {

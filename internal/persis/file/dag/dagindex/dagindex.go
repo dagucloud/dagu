@@ -28,7 +28,7 @@ const (
 
 // YAMLFileMeta holds stat metadata for a single YAML file.
 type YAMLFileMeta struct {
-	Name    string // filename, e.g. "my-dag.yaml"
+	Name    string // Slash-normalized path relative to the DAG directory.
 	Size    int64
 	ModTime int64 // UnixNano
 }
@@ -133,9 +133,10 @@ func buildEntry(
 		spec.WithAllowBuildErrors(),
 	)
 
-	dag, err := spec.Load(ctx, filepath.Join(dagDir, entry.FilePath), opts...)
+	dag, err := spec.Load(ctx, filepath.Join(dagDir, filepath.FromSlash(entry.FilePath)), opts...)
 	if err != nil {
-		entry.Name = strings.TrimSuffix(entry.FilePath, filepath.Ext(entry.FilePath))
+		base := filepath.Base(filepath.FromSlash(entry.FilePath))
+		entry.Name = strings.TrimSuffix(base, filepath.Ext(base))
 		entry.LoadError = err.Error()
 		return
 	}
@@ -214,7 +215,7 @@ func Write(indexPath string, idx *indexv1.DAGIndex) error {
 func DAGFromEntry(entry *indexv1.DAGIndexEntry, baseDir string) *core.DAG {
 	dag := &core.DAG{
 		Name:        entry.Name,
-		Location:    filepath.Join(baseDir, entry.FilePath),
+		Location:    filepath.Join(baseDir, filepath.FromSlash(entry.FilePath)),
 		Group:       entry.Group,
 		Description: entry.Description,
 		Labels:      core.NewLabels(entry.Labels),

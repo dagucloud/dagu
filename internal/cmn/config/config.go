@@ -23,6 +23,7 @@ type Config struct {
 	EventStore      EventStoreConfig
 	Webhooks        WebhooksConfig
 	Paths           PathsConfig
+	DAGDiscovery    DAGDiscoveryConfig
 	Secrets         SecretsConfig
 	UI              UI
 	Queues          Queues
@@ -38,6 +39,11 @@ type Config struct {
 	License         LicenseConfig
 	Notices         []string
 	Warnings        []string
+}
+
+// DAGDiscoveryConfig controls how DAG definitions are discovered.
+type DAGDiscoveryConfig struct {
+	Recursive bool
 }
 
 const DefaultWebhookMaxPayloadSize = 1 * 1024 * 1024

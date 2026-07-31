@@ -373,6 +373,9 @@ func writeHelperConfigFile(t *testing.T, cfg *config.Config, configPath string) 
 		"users_dir":            cfg.Paths.UsersDir,
 		"executable":           cfg.Paths.Executable,
 	}
+	configData["dag_discovery"] = map[string]any{
+		"recursive": cfg.DAGDiscovery.Recursive,
+	}
 
 	if cfg.Queues.Enabled || len(cfg.Queues.Config) > 0 {
 		qcfg := map[string]any{

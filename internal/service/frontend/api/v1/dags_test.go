@@ -900,6 +900,53 @@ steps:
 	require.Equal(t, "test_name", body.Dags[0].Dag.Name)
 }
 
+func TestRecursiveDAGDiscoveryUsesFileNameAPI(t *testing.T) {
+	server := test.SetupServer(t, test.WithConfigMutator(func(cfg *config.Config) {
+		cfg.DAGDiscovery.Recursive = true
+	}))
+
+	nestedDir := filepath.Join(server.Config.Paths.DAGsDir, "team", "services")
+	require.NoError(t, os.MkdirAll(nestedDir, 0750))
+	dagSpec := fmt.Sprintf(`
+name: nested-effective-name
+steps:
+  - %s
+`, test.ShellQuote("exit 0"))
+	require.NoError(t, os.WriteFile(filepath.Join(nestedDir, "nested-file.yaml"), []byte(dagSpec), 0600))
+
+	resp := server.Client().Get("/api/v1/dags?name=nested-file").ExpectStatus(http.StatusOK).Send(t)
+	var listBody api.ListDAGs200JSONResponse
+	resp.Unmarshal(t, &listBody)
+	require.Len(t, listBody.Dags, 1)
+	assert.Equal(t, "nested-file", listBody.Dags[0].FileName)
+	assert.Equal(t, "nested-effective-name", listBody.Dags[0].Dag.Name)
+
+	resp = server.Client().Get("/api/v1/dags/nested-file").ExpectStatus(http.StatusOK).Send(t)
+	var details api.GetDAGDetails200JSONResponse
+	resp.Unmarshal(t, &details)
+	require.NotNil(t, details.Dag)
+	assert.Equal(t, "nested-effective-name", details.Dag.Name)
+	require.NotNil(t, details.FilePath)
+	expectedPath, err := filepath.EvalSymlinks(filepath.Join(nestedDir, "nested-file.yaml"))
+	require.NoError(t, err)
+	assert.Equal(t, expectedPath, *details.FilePath)
+
+	resp = server.Client().Post("/api/v1/dags/nested-file/start", api.ExecuteDAGJSONRequestBody{}).
+		ExpectStatus(http.StatusOK).Send(t)
+	var executeBody api.ExecuteDAG200JSONResponse
+	resp.Unmarshal(t, &executeBody)
+	require.NotEmpty(t, executeBody.DagRunId)
+
+	require.Eventually(t, func() bool {
+		url := fmt.Sprintf("/api/v1/dags/nested-file/dag-runs/%s", executeBody.DagRunId)
+		var status api.GetDAGDAGRunDetails200JSONResponse
+		if !getJSONWhenAvailable(t, server, url, &status) {
+			return false
+		}
+		return status.DagRun.Status == api.Status(core.Succeeded)
+	}, dagRunEventuallyTimeout(5*time.Second), 200*time.Millisecond)
+}
+
 type stubSchedulerStateStore struct {
 	state *scheduler.SchedulerState
 }

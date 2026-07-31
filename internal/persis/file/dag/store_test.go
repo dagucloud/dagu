@@ -105,6 +105,148 @@ steps:
 	require.Equal(t, "root-dag", result.Items[0].Name, "Should only find root-dag")
 }
 
+func TestRecursiveDiscoverySupportsNestedDAGOperations(t *testing.T) {
+	tmpDir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "team", "services"), 0750))
+	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, ".hidden"), 0750))
+	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "workspaces", "ops"), 0750))
+
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "root.yaml"), []byte(`
+name: root
+steps:
+  - run: echo root
+`), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "team", "services", "nested.yaml"), []byte(`
+name: nested-effective-name
+labels:
+  - team=platform
+steps:
+  - run: echo needle
+`), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, ".hidden", "ignored.yaml"), []byte(`
+name: ignored-hidden
+steps:
+  - run: echo needle
+`), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "workspaces", "ops", "ignored.yaml"), []byte(`
+name: ignored-workspace
+steps:
+  - run: echo needle
+`), 0600))
+
+	store := New(tmpDir, WithSkipExamples(true), WithRecursiveDiscovery(true))
+	ctx := context.Background()
+
+	result, errs, err := store.List(ctx, exec.ListDAGsOptions{})
+	require.NoError(t, err)
+	require.Empty(t, errs)
+	require.Len(t, result.Items, 2)
+	assert.ElementsMatch(t, []string{"root", "nested-effective-name"}, []string{
+		result.Items[0].Name,
+		result.Items[1].Name,
+	})
+
+	nestedSpec, err := store.GetSpec(ctx, "nested")
+	require.NoError(t, err)
+	assert.Contains(t, nestedSpec, "nested-effective-name")
+
+	search, errs, err := store.SearchCursor(ctx, exec.SearchDAGsOptions{
+		Query:      "needle",
+		Limit:      10,
+		MatchLimit: 10,
+	})
+	require.NoError(t, err)
+	require.Empty(t, errs)
+	require.Len(t, search.Items, 1)
+	assert.Equal(t, "nested", search.Items[0].FileName)
+
+	labels, errs, err := store.LabelList(ctx)
+	require.NoError(t, err)
+	require.Empty(t, errs)
+	assert.Contains(t, labels, "team=platform")
+
+	require.NoError(t, store.Rename(ctx, "nested", "renamed"))
+	assert.NoFileExists(t, filepath.Join(tmpDir, "renamed.yaml"))
+	assert.FileExists(t, filepath.Join(tmpDir, "team", "services", "renamed.yaml"))
+	require.NoError(t, store.UpdateSpec(ctx, "renamed", []byte(`
+name: nested-effective-name
+steps:
+  - run: echo updated
+`)))
+	updatedSpec, err := store.GetSpec(ctx, "renamed")
+	require.NoError(t, err)
+	assert.Contains(t, updatedSpec, "updated")
+
+	require.NoError(t, store.Create(ctx, "created", []byte(`
+name: created
+steps:
+  - run: echo created
+`)))
+	assert.FileExists(t, filepath.Join(tmpDir, "created.yaml"))
+
+	require.NoError(t, store.Delete(ctx, "renamed"))
+	assert.NoFileExists(t, filepath.Join(tmpDir, "team", "services", "renamed.yaml"))
+}
+
+func TestRecursiveDiscoveryExcludesAndRecoversConflicts(t *testing.T) {
+	tmpDir := t.TempDir()
+	for _, dir := range []string{"a", "b", "c"} {
+		require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, dir), 0750))
+	}
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "a", "shared.yaml"), []byte(`
+name: one
+steps:
+  - run: echo a
+`), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "b", "shared.yml"), []byte(`
+name: two
+steps:
+  - run: echo b
+`), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "c", "unique.yaml"), []byte(`
+name: one
+steps:
+  - run: echo c
+`), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "safe.yaml"), []byte(`
+name: safe
+steps:
+  - run: echo safe
+`), 0600))
+
+	store := New(tmpDir, WithSkipExamples(true), WithRecursiveDiscovery(true))
+	ctx := context.Background()
+
+	result, errs, err := store.List(ctx, exec.ListDAGsOptions{})
+	require.NoError(t, err)
+	require.Len(t, result.Items, 1)
+	assert.Equal(t, "safe", result.Items[0].Name)
+	assert.Equal(t, []string{
+		`duplicate DAG file name "shared": a/shared.yaml, b/shared.yml`,
+		`duplicate DAG name "one": a/shared.yaml, c/unique.yaml`,
+	}, errs)
+
+	_, err = store.GetSpec(ctx, "shared")
+	assert.ErrorIs(t, err, exec.ErrDAGNotFound)
+	_, err = store.GetSpec(ctx, "a/shared")
+	require.NoError(t, err)
+
+	err = store.Create(ctx, "shared", []byte("steps: []\n"))
+	assert.ErrorIs(t, err, exec.ErrDAGAlreadyExists)
+
+	require.NoError(t, store.Delete(ctx, "b/shared"))
+	require.NoError(t, store.Delete(ctx, "c/unique"))
+
+	result, errs, err = store.List(ctx, exec.ListDAGsOptions{})
+	require.NoError(t, err)
+	require.Empty(t, errs)
+	require.Len(t, result.Items, 2)
+	assert.ElementsMatch(t, []string{"one", "safe"}, []string{
+		result.Items[0].Name,
+		result.Items[1].Name,
+	})
+}
+
 func TestGetMetadata(t *testing.T) {
 	tmpDir := fileutil.MustTempDir("test-get-metadata")
 	defer func() {

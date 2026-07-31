@@ -854,10 +854,20 @@ The embedded API is experimental and may change. See the embedded API documentat
 |----------|---------|-------------|
 | `DAGU_HOME` | — | Overrides all path defaults |
 | `DAGU_DAGS_DIR` | `~/.config/dagu/dags` | DAG definitions directory |
+| `DAGU_DAG_DISCOVERY_RECURSIVE` | `false` | Discover DAGs in subdirectories |
 | `DAGU_LOG_DIR` | `~/.local/share/dagu/logs` | Log files |
 | `DAGU_DATA_DIR` | `~/.local/share/dagu/data` | Application state |
 | `DAGU_TOOLS_DIR` | `{DAGU_DATA_DIR}/tools` | Managed DAG tool cache |
 | `DAGU_DAG_STATE_DIR` | `{DAGU_DATA_DIR}/dag-state` | Persistent DAG state files |
+
+Recursive discovery can also be enabled in `config.yaml`:
+
+```yaml
+dag_discovery:
+  recursive: true
+```
+
+It scans `paths.dags_dir`, excluding `workspaces/`, dot-directories, and symlinks. File stems and effective DAG names must each be unique, using case-sensitive comparison; conflicting files are excluded until the conflict is resolved. `paths.alt_dags_dir` remains lookup-only.
 
 ### Authentication
 

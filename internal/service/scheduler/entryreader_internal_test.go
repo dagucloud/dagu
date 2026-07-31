@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/internal/core"
+	filedag "github.com/dagucloud/dagu/internal/persis/file/dag"
 	"github.com/fsnotify/fsnotify"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -291,4 +292,96 @@ func TestHandleFSEvent_NameChangeEmitsDeleteThenAdd(t *testing.T) {
 	assert.Equal(t, "old-name", receivedEvents[0].DAGName)
 	assert.Equal(t, DAGChangeAdded, receivedEvents[1].Type)
 	assert.Equal(t, "new-name", receivedEvents[1].DAGName)
+}
+
+func TestRecursiveEntryReaderRecoversFromNameConflict(t *testing.T) {
+	tmpDir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "team"), 0750))
+	firstPath := writeDAGFile(t, filepath.Join(tmpDir, "team"), "first.yaml", "shared-name")
+	require.NoError(t, os.WriteFile(firstPath, []byte(`
+name: shared-name
+overlap_policy: latest
+steps:
+  - name: step1
+    command: echo hello
+`), 0644))
+
+	store := filedag.New(
+		tmpDir,
+		filedag.WithSkipExamples(true),
+		filedag.WithRecursiveDiscovery(true),
+	)
+	events := make(chan DAGChangeEvent, 10)
+	er := NewEntryReader(tmpDir, store, WithRecursiveDiscovery(true)).(*entryReaderImpl)
+	er.events = events
+	require.NoError(t, er.Init(context.Background()))
+	t.Cleanup(er.Stop)
+
+	require.Len(t, er.DAGs(), 1)
+	assert.Equal(t, core.OverlapPolicyLatest, er.DAGs()[0].OverlapPolicy)
+	assert.Contains(t, er.watchedDirs, filepath.Join(tmpDir, "team"))
+
+	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "other"), 0750))
+	writeDAGFile(t, filepath.Join(tmpDir, "other"), "second.yaml", "shared-name")
+	require.NoError(t, er.refreshRecursive(context.Background(), true, false))
+	require.Empty(t, er.DAGs())
+
+	select {
+	case event := <-events:
+		assert.Equal(t, DAGChangeDeleted, event.Type)
+		assert.Equal(t, "shared-name", event.DAGName)
+	case <-time.After(time.Second):
+		t.Fatal("expected conflict to remove the scheduled DAG")
+	}
+
+	require.NoError(t, os.Remove(filepath.Join(tmpDir, "other", "second.yaml")))
+	require.NoError(t, er.refreshRecursive(context.Background(), true, false))
+	require.Len(t, er.DAGs(), 1)
+
+	select {
+	case event := <-events:
+		assert.Equal(t, DAGChangeAdded, event.Type)
+		assert.Equal(t, "shared-name", event.DAGName)
+	case <-time.After(time.Second):
+		t.Fatal("expected the resolved DAG conflict to recover")
+	}
+}
+
+func TestRecursiveEntryReaderWatchesNewDirectories(t *testing.T) {
+	tmpDir := t.TempDir()
+	store := filedag.New(
+		tmpDir,
+		filedag.WithSkipExamples(true),
+		filedag.WithRecursiveDiscovery(true),
+	)
+	events := make(chan DAGChangeEvent, 10)
+	er := NewEntryReader(tmpDir, store, WithRecursiveDiscovery(true)).(*entryReaderImpl)
+	er.events = events
+
+	ctx, cancel := context.WithCancel(context.Background())
+	require.NoError(t, er.Init(ctx))
+	go er.Start(ctx)
+	t.Cleanup(func() {
+		cancel()
+		er.Stop()
+	})
+
+	nestedDir := filepath.Join(tmpDir, "new", "nested")
+	require.NoError(t, os.MkdirAll(nestedDir, 0750))
+	writeDAGFile(t, nestedDir, "watched.yaml", "watched")
+
+	select {
+	case event := <-events:
+		assert.Equal(t, DAGChangeAdded, event.Type)
+		assert.Equal(t, "watched", event.DAGName)
+	case <-time.After(5 * time.Second):
+		t.Fatal("expected a nested DAG add event")
+	}
+
+	require.Eventually(t, func() bool {
+		er.lock.Lock()
+		defer er.lock.Unlock()
+		_, exists := er.watchedDirs[nestedDir]
+		return exists
+	}, time.Second, 10*time.Millisecond)
 }

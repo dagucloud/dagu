@@ -343,6 +343,9 @@ func (l *ConfigLoader) loadCoreConfig(cfg *Config, def Definition) error {
 		BaseEnv:                baseEnv,
 		Peer:                   l.loadPeerConfig(def.Peer),
 	}
+	cfg.DAGDiscovery = DAGDiscoveryConfig{
+		Recursive: l.v.GetBool("dag_discovery.recursive"),
+	}
 
 	if err := setTimezone(&cfg.Core); err != nil {
 		return fmt.Errorf("failed to set timezone: %w", err)
@@ -1881,6 +1884,7 @@ func (l *ConfigLoader) setupViper(xdgConfig XDGConfig, homeDir, configFile, appH
 func (l *ConfigLoader) setViperDefaultValues(paths Paths) {
 	// Paths
 	l.v.SetDefault("skip_examples", false)
+	l.v.SetDefault("dag_discovery.recursive", false)
 	l.v.SetDefault("paths.dags_dir", paths.DAGsDir)
 	l.v.SetDefault("paths.suspend_flags_dir", paths.SuspendFlagsDir)
 	l.v.SetDefault("paths.data_dir", paths.DataDir)
@@ -2002,6 +2006,7 @@ var envBindings = []envBinding{
 	// Core
 	{key: "default_shell", env: "DEFAULT_SHELL"},
 	{key: "skip_examples", env: "SKIP_EXAMPLES"},
+	{key: "dag_discovery.recursive", env: "DAG_DISCOVERY_RECURSIVE"},
 	{key: "env_passthrough", env: "ENV_PASSTHROUGH"},
 	{key: "env_passthrough_prefixes", env: "ENV_PASSTHROUGH_PREFIXES"},
 
