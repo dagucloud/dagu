@@ -312,7 +312,7 @@ steps:
 		filedag.WithRecursiveDiscovery(true),
 	)
 	events := make(chan DAGChangeEvent, 10)
-	er := NewEntryReader(tmpDir, store, WithRecursiveDiscovery(true)).(*entryReaderImpl)
+	er := NewEntryReader(tmpDir, store, true).(*entryReaderImpl)
 	er.events = events
 	require.NoError(t, er.Init(context.Background()))
 	t.Cleanup(er.Stop)
@@ -323,7 +323,7 @@ steps:
 
 	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "other"), 0750))
 	writeDAGFile(t, filepath.Join(tmpDir, "other"), "second.yaml", "shared-name")
-	require.NoError(t, er.refreshRecursive(context.Background(), true, false))
+	require.NoError(t, er.refreshRecursive(context.Background()))
 	require.Empty(t, er.DAGs())
 
 	select {
@@ -335,7 +335,7 @@ steps:
 	}
 
 	require.NoError(t, os.Remove(filepath.Join(tmpDir, "other", "second.yaml")))
-	require.NoError(t, er.refreshRecursive(context.Background(), true, false))
+	require.NoError(t, er.refreshRecursive(context.Background()))
 	require.Len(t, er.DAGs(), 1)
 
 	select {
@@ -355,7 +355,7 @@ func TestRecursiveEntryReaderWatchesNewDirectories(t *testing.T) {
 		filedag.WithRecursiveDiscovery(true),
 	)
 	events := make(chan DAGChangeEvent, 10)
-	er := NewEntryReader(tmpDir, store, WithRecursiveDiscovery(true)).(*entryReaderImpl)
+	er := NewEntryReader(tmpDir, store, true).(*entryReaderImpl)
 	er.events = events
 
 	ctx, cancel := context.WithCancel(context.Background())

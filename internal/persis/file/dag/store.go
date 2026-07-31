@@ -45,14 +45,14 @@ type Options struct {
 	BaseConfigPath         string                     // Optional base config file applied when loading DAGs
 	WorkspaceBaseConfigDir string                     // Optional directory containing workspace base configs
 	SkipExamples           bool                       // Skip creating example DAGs
-	RecursiveDiscovery     bool                       // Discover DAG definitions in subdirectories
+	Recursive              bool                       // Discover DAG definitions in subdirectories
 	SkipDirectoryCreation  bool                       // Skip creating base directory for execution-scoped stores
 }
 
 // WithRecursiveDiscovery controls whether DAG files are discovered recursively.
 func WithRecursiveDiscovery(recursive bool) Option {
 	return func(o *Options) {
-		o.RecursiveDiscovery = recursive
+		o.Recursive = recursive
 	}
 }
 
@@ -137,7 +137,7 @@ func New(baseDir string, opts ...Option) exec.DAGStore {
 		workspaceBaseConfigDir: options.WorkspaceBaseConfigDir,
 		baseConfigState:        describeBaseConfigStateSet(options.BaseConfigPath, options.WorkspaceBaseConfigDir),
 		skipExamples:           options.SkipExamples,
-		recursiveDiscovery:     options.RecursiveDiscovery,
+		recursive:              options.Recursive,
 		skipDirectoryCreation:  options.SkipDirectoryCreation,
 	}
 }
@@ -152,7 +152,7 @@ type Storage struct {
 	workspaceBaseConfigDir string                     // Optional directory containing workspace base configs
 	baseConfigState        string                     // Last observed base config state for cache/index invalidation
 	skipExamples           bool                       // Skip creating example DAGs
-	recursiveDiscovery     bool                       // Discover DAG definitions in subdirectories
+	recursive              bool                       // Discover DAG definitions in subdirectories
 	skipDirectoryCreation  bool                       // Skip creating base directory for execution-scoped stores
 	baseConfigMu           sync.Mutex                 // Protects base config state refresh and invalidation
 	indexMu                sync.Mutex                 // Protects index load/rebuild/invalidate
@@ -160,10 +160,6 @@ type Storage struct {
 
 func (store *Storage) useCachedLoads() bool {
 	return store.fileCache != nil
-}
-
-func (store *Storage) useIndexedMetadata() bool {
-	return true
 }
 
 func (store *Storage) readSuspendFlags(ctx context.Context) dagindex.SuspendFlags {
@@ -373,7 +369,7 @@ func (store *Storage) Create(_ context.Context, name string, spec []byte) error 
 		return fmt.Errorf("failed to create DAGs directory %s: %w", store.baseDir, err)
 	}
 	filePath := store.generateFilePath(name)
-	if fileExists(filePath) || store.recursiveDiscovery && store.discoveredFileNameExists(name, "") {
+	if fileExists(filePath) || store.recursive && store.stemExists(name, "") {
 		return exec.ErrDAGAlreadyExists
 	}
 	if err := fileutil.WriteFileAtomic(filePath, spec, defaultPerm); err != nil {
@@ -415,27 +411,15 @@ func (store *Storage) ensureDirExist() error {
 		_ = store.createExampleDAGs() // Errors are logged internally
 	} else {
 		// Check if directory is empty and create examples if needed
-		if shouldCreateExamples(store.baseDir, store.recursiveDiscovery) {
+		if shouldCreateExamples(store.baseDir, store.recursive) {
 			_ = store.createExampleDAGs() // Errors are logged internally
 		}
 	}
 	return nil
 }
 
-// loadOrRebuildIndex returns validated index entries, rebuilding if necessary.
-func (store *Storage) loadOrRebuildIndex(ctx context.Context) []*indexv1.DAGIndexEntry {
-	scan, err := dagdiscovery.Scan(store.baseDir, store.recursiveDiscovery)
-	if err != nil {
-		return nil
-	}
-	return store.loadOrRebuildIndexForFiles(ctx, scan.Files)
-}
-
-func (store *Storage) loadOrRebuildIndexForFiles(ctx context.Context, files []dagdiscovery.File) []*indexv1.DAGIndexEntry {
-	if !store.useIndexedMetadata() {
-		return nil
-	}
-
+// loadIndex returns validated index entries, rebuilding the index when needed.
+func (store *Storage) loadIndex(ctx context.Context, files []dagdiscovery.File) []*indexv1.DAGIndexEntry {
 	store.refreshBaseConfigState()
 
 	store.indexMu.Lock()
@@ -444,7 +428,7 @@ func (store *Storage) loadOrRebuildIndexForFiles(ctx context.Context, files []da
 	yamlFiles := make([]dagindex.YAMLFileMeta, 0, len(files))
 	for _, file := range files {
 		yamlFiles = append(yamlFiles, dagindex.YAMLFileMeta{
-			Name:    file.RelativePath,
+			Name:    file.RelPath,
 			Size:    file.Size,
 			ModTime: file.ModTime,
 		})
@@ -498,7 +482,7 @@ func (store *Storage) List(ctx context.Context, opts exec.ListDAGsOptions) (exec
 		errList = append(errList, fmt.Sprintf("failed to discover DAGs in %s: %s", store.baseDir, err))
 		return exec.NewPaginatedResult([]*core.DAG{}, 0, *opts.Paginator), errList, err
 	}
-	errList = append(errList, catalog.discoveryError...)
+	errList = append(errList, catalog.errors...)
 	for _, entry := range catalog.entries {
 		if ctx.Err() != nil {
 			return exec.NewPaginatedResult([]*core.DAG{}, 0, *opts.Paginator), errList, ctx.Err()
@@ -698,10 +682,10 @@ func (store *Storage) Grep(ctx context.Context, pattern string) (
 	if err != nil {
 		return nil, errs, fmt.Errorf("failed to discover DAGs in %s: %w", store.baseDir, err)
 	}
-	errs = append(errs, catalog.discoveryError...)
+	errs = append(errs, catalog.errors...)
 
 	for _, entry := range catalog.entries {
-		filePath := store.catalogEntryPath(entry)
+		filePath := store.entryPath(entry)
 		dat, err := fileutil.ReadFile(filePath)
 		if err != nil {
 			logger.Error(ctx, "Failed to read DAG file",
@@ -727,7 +711,7 @@ func (store *Storage) Grep(ctx context.Context, pattern string) (
 			continue
 		}
 		ret = append(ret, &exec.GrepDAGsResult{
-			Name:    dagEntryFileName(entry),
+			Name:    entryStem(entry),
 			DAG:     dag,
 			Matches: matches,
 		})
@@ -761,7 +745,7 @@ func (store *Storage) SearchCursor(ctx context.Context, opts exec.SearchDAGsOpti
 	matchLimit := max(opts.MatchLimit, 1)
 	results := make([]exec.SearchDAGResult, 0, limit)
 	pattern := dagSearchPattern(opts.Query)
-	errs := append([]string(nil), catalog.discoveryError...)
+	errs := append([]string(nil), catalog.errors...)
 	var hasMore bool
 	var nextCursor string
 
@@ -770,12 +754,12 @@ func (store *Storage) SearchCursor(ctx context.Context, opts exec.SearchDAGsOpti
 			return nil, errs, ctx.Err()
 		}
 
-		fileName := dagEntryFileName(entry)
+		fileName := entryStem(entry)
 		if cursor.FileName != "" && fileName <= cursor.FileName {
 			continue
 		}
 
-		filePath := store.catalogEntryPath(entry)
+		filePath := store.entryPath(entry)
 		var dag *core.DAG
 		if len(opts.Labels) > 0 || opts.WorkspaceFilter != nil {
 			dag, err = spec.Load(ctx, filePath, store.defaultLoadOptions(
@@ -975,10 +959,14 @@ func (store *Storage) Rename(ctx context.Context, oldID, newID string) error {
 		return fmt.Errorf("failed to locate DAG %s: %w", oldID, err)
 	}
 	newFilePath := store.generateFilePath(newID)
-	if store.recursiveDiscovery && pathWithinDirectory(store.baseDir, oldFilePath) {
-		newFilePath = fileutil.EnsureYAMLExtension(filepath.Join(filepath.Dir(oldFilePath), filepath.Base(newID)))
+	exceptPath := ""
+	if store.recursive {
+		if relPath, ok := relativeToBase(store.baseDir, oldFilePath); ok {
+			newFilePath = fileutil.EnsureYAMLExtension(filepath.Join(filepath.Dir(oldFilePath), filepath.Base(newID)))
+			exceptPath = relPath
+		}
 	}
-	if fileExists(newFilePath) || store.recursiveDiscovery && store.discoveredFileNameExists(newID, oldFilePath) {
+	if fileExists(newFilePath) || store.recursive && store.stemExists(newID, exceptPath) {
 		return exec.ErrDAGAlreadyExists
 	}
 	if err := fileutil.Rename(oldFilePath, newFilePath); err != nil {
@@ -1008,13 +996,13 @@ func (store *Storage) locateDAG(ctx context.Context, nameOrPath string) (string,
 	relativePath := filepath.FromSlash(nameOrPath)
 	explicitPath := filepath.IsAbs(relativePath) || strings.ContainsAny(nameOrPath, `/\`)
 
-	if store.recursiveDiscovery && !explicitPath {
+	if store.recursive && !explicitPath {
 		catalog, err := store.loadCatalog(ctx)
 		if err != nil {
 			return "", fmt.Errorf("failed to discover DAGs: %w", err)
 		}
 		fileName := strings.TrimSuffix(filepath.Base(relativePath), filepath.Ext(relativePath))
-		if entry, ok := catalog.byFileName[fileName]; ok {
+		if entry, ok := catalog.byStem[fileName]; ok {
 			resolvedPath, err := fileutil.ResolveExistingPathWithinBase(
 				store.baseDir,
 				filepath.FromSlash(entry.FilePath),
@@ -1059,19 +1047,18 @@ func locateDAGInDirectories(nameOrPath string, directories []string) (string, er
 	return "", fmt.Errorf("DAG %s not found: %w", nameOrPath, os.ErrNotExist)
 }
 
-func (store *Storage) discoveredFileNameExists(name, exceptPath string) bool {
+func (store *Storage) stemExists(name, exceptPath string) bool {
 	scan, err := dagdiscovery.Scan(store.baseDir, true)
 	if err != nil {
 		return false
 	}
 	base := filepath.Base(filepath.FromSlash(name))
 	target := strings.TrimSuffix(base, filepath.Ext(base))
-	exceptPath = filepath.Clean(exceptPath)
 	for _, file := range scan.Files {
-		if exceptPath != "." && filepath.Clean(file.Path) == exceptPath {
+		if exceptPath != "" && file.RelPath == exceptPath {
 			continue
 		}
-		fileBase := filepath.Base(filepath.FromSlash(file.RelativePath))
+		fileBase := filepath.Base(filepath.FromSlash(file.RelPath))
 		if strings.TrimSuffix(fileBase, filepath.Ext(fileBase)) == target {
 			return true
 		}
@@ -1079,25 +1066,28 @@ func (store *Storage) discoveredFileNameExists(name, exceptPath string) bool {
 	return false
 }
 
-func pathWithinDirectory(baseDir, path string) bool {
+func relativeToBase(baseDir, path string) (string, bool) {
 	absBase, err := filepath.Abs(baseDir)
 	if err != nil {
-		return false
+		return "", false
 	}
 	absBase, err = filepath.EvalSymlinks(absBase)
 	if err != nil {
-		return false
+		return "", false
 	}
 	absPath, err := filepath.Abs(path)
 	if err != nil {
-		return false
+		return "", false
 	}
 	absPath, err = filepath.EvalSymlinks(absPath)
 	if err != nil {
-		return false
+		return "", false
 	}
 	rel, err := filepath.Rel(absBase, absPath)
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return filepath.ToSlash(rel), true
 }
 
 func dagFileCandidates(name string) []string {
@@ -1121,7 +1111,7 @@ func (store *Storage) LabelList(ctx context.Context) ([]string, []string, error)
 		errList = append(errList, fmt.Sprintf("failed to discover DAGs in %s: %s", store.baseDir, err))
 		return nil, errList, err
 	}
-	errList = append(errList, catalog.discoveryError...)
+	errList = append(errList, catalog.errors...)
 	for _, entry := range catalog.entries {
 		if entry.LoadError != "" {
 			continue

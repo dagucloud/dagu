@@ -18,17 +18,16 @@ import (
 
 // File describes a discovered DAG definition.
 type File struct {
-	Path         string
-	RelativePath string
-	Size         int64
-	ModTime      int64
+	RelPath string
+	Size    int64
+	ModTime int64
 }
 
 // Result contains discoverable files, directories, and non-fatal traversal errors.
 type Result struct {
-	Files       []File
-	Directories []string
-	Errors      []error
+	Files  []File
+	Dirs   []string
+	Errors []error
 }
 
 // Scan enumerates DAG definitions beneath root.
@@ -52,16 +51,17 @@ func Scan(root string, recursive bool) (Result, error) {
 
 	result := Result{}
 	err = filepath.WalkDir(walkRoot, func(path string, entry fs.DirEntry, walkErr error) error {
-		rel := relativePath(walkRoot, path)
-		discoveredPath := root
-		if rel != "." {
-			discoveredPath = filepath.Join(root, filepath.FromSlash(rel))
+		relPath, err := filepath.Rel(walkRoot, path)
+		if err != nil {
+			return err
 		}
+		relPath = filepath.ToSlash(relPath)
+
 		if walkErr != nil {
 			if path == walkRoot {
 				return walkErr
 			}
-			result.Errors = append(result.Errors, fmt.Errorf("%s: %w", rel, walkErr))
+			result.Errors = append(result.Errors, fmt.Errorf("%s: %w", relPath, walkErr))
 			if entry != nil && entry.IsDir() {
 				return filepath.SkipDir
 			}
@@ -73,10 +73,15 @@ func Scan(root string, recursive bool) (Result, error) {
 		}
 
 		if entry.IsDir() {
-			if path != walkRoot && excludedDirectory(walkRoot, path) {
+			if path != walkRoot &&
+				(strings.HasPrefix(entry.Name(), ".") || relPath == workspace.BaseConfigDirName) {
 				return filepath.SkipDir
 			}
-			result.Directories = append(result.Directories, discoveredPath)
+			dir := root
+			if relPath != "." {
+				dir = filepath.Join(root, filepath.FromSlash(relPath))
+			}
+			result.Dirs = append(result.Dirs, dir)
 			return nil
 		}
 		if !fileutil.IsYAMLFile(entry.Name()) {
@@ -85,17 +90,16 @@ func Scan(root string, recursive bool) (Result, error) {
 
 		info, err := entry.Info()
 		if err != nil {
-			result.Errors = append(result.Errors, fmt.Errorf("%s: %w", rel, err))
+			result.Errors = append(result.Errors, fmt.Errorf("%s: %w", relPath, err))
 			return nil
 		}
 		if !info.Mode().IsRegular() {
 			return nil
 		}
 		result.Files = append(result.Files, File{
-			Path:         discoveredPath,
-			RelativePath: rel,
-			Size:         info.Size(),
-			ModTime:      info.ModTime().UnixNano(),
+			RelPath: relPath,
+			Size:    info.Size(),
+			ModTime: info.ModTime().UnixNano(),
 		})
 		return nil
 	})
@@ -113,7 +117,7 @@ func scanRoot(root string) (Result, error) {
 		return Result{}, err
 	}
 
-	result := Result{Directories: []string{root}}
+	result := Result{Dirs: []string{root}}
 	for _, entry := range entries {
 		if entry.IsDir() || !fileutil.IsYAMLFile(entry.Name()) {
 			continue
@@ -124,10 +128,9 @@ func scanRoot(root string) (Result, error) {
 			continue
 		}
 		result.Files = append(result.Files, File{
-			Path:         filepath.Join(root, entry.Name()),
-			RelativePath: filepath.ToSlash(entry.Name()),
-			Size:         info.Size(),
-			ModTime:      info.ModTime().UnixNano(),
+			RelPath: filepath.ToSlash(entry.Name()),
+			Size:    info.Size(),
+			ModTime: info.ModTime().UnixNano(),
 		})
 	}
 
@@ -135,39 +138,11 @@ func scanRoot(root string) (Result, error) {
 	return result, nil
 }
 
-func excludedDirectory(root, path string) bool {
-	rel, err := filepath.Rel(root, path)
-	if err != nil {
-		return true
-	}
-	parts := strings.Split(filepath.ToSlash(rel), "/")
-	if len(parts) == 0 {
-		return false
-	}
-	if parts[0] == workspace.BaseConfigDirName {
-		return true
-	}
-	for _, part := range parts {
-		if strings.HasPrefix(part, ".") {
-			return true
-		}
-	}
-	return false
-}
-
-func relativePath(root, path string) string {
-	rel, err := filepath.Rel(root, path)
-	if err != nil {
-		return filepath.ToSlash(path)
-	}
-	return filepath.ToSlash(rel)
-}
-
 func sortResult(result *Result) {
 	sort.Slice(result.Files, func(i, j int) bool {
-		return result.Files[i].RelativePath < result.Files[j].RelativePath
+		return result.Files[i].RelPath < result.Files[j].RelPath
 	})
-	sort.Strings(result.Directories)
+	sort.Strings(result.Dirs)
 	sort.Slice(result.Errors, func(i, j int) bool {
 		return result.Errors[i].Error() < result.Errors[j].Error()
 	})

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -44,60 +45,45 @@ type EntryReader interface {
 
 var _ EntryReader = (*entryReaderImpl)(nil)
 
-// EntryReaderOption configures DAG registry discovery.
-type EntryReaderOption func(*entryReaderImpl)
-
-// WithRecursiveDiscovery controls whether the scheduler discovers nested DAG files.
-func WithRecursiveDiscovery(recursive bool) EntryReaderOption {
-	return func(er *entryReaderImpl) {
-		er.recursiveDiscovery = recursive
-	}
-}
-
 type dagFileStamp struct {
 	size    int64
 	modTime int64
 }
 
-type recursiveDAGSnapshot struct {
-	registry        map[string]*core.DAG
-	stamps          map[string]dagFileStamp
-	discoveryErrors []string
+type registryState struct {
+	dags   map[string]*core.DAG
+	stamps map[string]dagFileStamp
+	issues []string
 }
 
 // entryReaderImpl manages DAGs on local filesystem.
 type entryReaderImpl struct {
-	targetDir          string
-	registry           map[string]*core.DAG
-	stamps             map[string]dagFileStamp
-	watchedDirs        map[string]struct{}
-	lock               sync.Mutex
-	dagStore           exec.DAGStore
-	dagSource          *dagFileSource
-	watcher            filenotify.FileWatcher
-	recursiveDiscovery bool
-	quit               chan struct{}
-	closeOnce          sync.Once
-	events             chan DAGChangeEvent
+	targetDir   string
+	registry    map[string]*core.DAG
+	stamps      map[string]dagFileStamp
+	watchedDirs map[string]struct{}
+	lock        sync.Mutex
+	dagStore    exec.DAGStore
+	dagSource   *dagFileSource
+	watcher     filenotify.FileWatcher
+	recursive   bool
+	quit        chan struct{}
+	closeOnce   sync.Once
+	events      chan DAGChangeEvent
 }
 
 // NewEntryReader creates a new DAG manager with the given configuration.
-func NewEntryReader(dir string, dagCli exec.DAGStore, opts ...EntryReaderOption) EntryReader {
-	er := &entryReaderImpl{
+func NewEntryReader(dir string, dagCli exec.DAGStore, recursive bool) EntryReader {
+	return &entryReaderImpl{
 		targetDir:   dir,
 		registry:    make(map[string]*core.DAG),
 		stamps:      make(map[string]dagFileStamp),
 		watchedDirs: make(map[string]struct{}),
 		dagStore:    dagCli,
 		dagSource:   newDAGFileSource(dir),
+		recursive:   recursive,
 		quit:        make(chan struct{}),
 	}
-	for _, opt := range opts {
-		if opt != nil {
-			opt(er)
-		}
-	}
-	return er
 }
 
 // setEvents wires the event channel used to notify the TickPlanner of DAG
@@ -108,7 +94,7 @@ func (er *entryReaderImpl) setEvents(ch chan DAGChangeEvent) {
 
 // Init loads the initial DAG registry and starts watching the target directory.
 func (er *entryReaderImpl) Init(ctx context.Context) error {
-	if er.recursiveDiscovery {
+	if er.recursive {
 		return er.initRecursive(ctx)
 	}
 
@@ -137,7 +123,7 @@ func (er *entryReaderImpl) Start(ctx context.Context) {
 			logger.Error(ctx, "Entry reader watcher panicked", tag.Error(panicToError(r)))
 		}
 	}()
-	if er.recursiveDiscovery {
+	if er.recursive {
 		er.startRecursive(ctx)
 		return
 	}
@@ -206,12 +192,12 @@ func (er *entryReaderImpl) startRecursive(ctx context.Context) {
 			if !ok {
 				return
 			}
-			if recursiveEventMayChangeCatalog(event) {
+			if needsRecursiveRefresh(event) {
 				scheduleRefresh()
 			}
 		case <-refresh:
 			refresh = nil
-			if err := er.refreshRecursive(ctx, true, false); err != nil {
+			if err := er.refreshRecursive(ctx); err != nil {
 				logger.Error(ctx, "Failed to refresh recursive DAG registry", tag.Error(err))
 			}
 		case err, ok := <-er.watcher.Errors():
@@ -223,7 +209,7 @@ func (er *entryReaderImpl) startRecursive(ctx context.Context) {
 	}
 }
 
-func recursiveEventMayChangeCatalog(event fsnotify.Event) bool {
+func needsRecursiveRefresh(event fsnotify.Event) bool {
 	if fileutil.IsYAMLFile(event.Name) {
 		return true
 	}
@@ -367,48 +353,70 @@ func (er *entryReaderImpl) DAGStore() exec.DAGStore {
 
 func (er *entryReaderImpl) initRecursive(ctx context.Context) error {
 	er.watcher = filenotify.New(time.Minute)
-	if err := er.refreshRecursive(ctx, false, true); err != nil {
+
+	scan, err := dagdiscovery.Scan(er.targetDir, true)
+	if err != nil {
 		_ = er.watcher.Close()
 		return fmt.Errorf("failed to initialize recursive DAGs: %w", err)
 	}
+	for _, dir := range scan.Dirs {
+		if err := er.watcher.Add(dir); err != nil {
+			_ = er.watcher.Close()
+			return fmt.Errorf(
+				"failed to initialize recursive DAGs: failed to watch DAG directory %s: %w",
+				dir,
+				err,
+			)
+		}
+		er.watchedDirs[dir] = struct{}{}
+	}
+
+	state, err := er.loadRegistry(ctx)
+	if err != nil {
+		_ = er.watcher.Close()
+		return fmt.Errorf("failed to initialize recursive DAGs: %w", err)
+	}
+	for _, issue := range state.issues {
+		logger.Error(ctx, "DAG excluded from scheduler", tag.Error(errors.New(issue)))
+	}
+
+	er.lock.Lock()
+	er.registry = state.dags
+	er.stamps = state.stamps
+	er.lock.Unlock()
 	return nil
 }
 
-func (er *entryReaderImpl) refreshRecursive(ctx context.Context, emitEvents, strictWatches bool) error {
+func (er *entryReaderImpl) refreshRecursive(ctx context.Context) error {
 	scan, err := dagdiscovery.Scan(er.targetDir, true)
 	if err != nil {
 		return err
 	}
-	if err := er.syncRecursiveWatches(ctx, scan.Directories, strictWatches); err != nil {
-		return err
-	}
+	er.syncWatches(ctx, scan.Dirs)
 
-	snapshot, err := er.recursiveRegistrySnapshot(ctx)
+	state, err := er.loadRegistry(ctx)
 	if err != nil {
 		return err
 	}
-	for _, discoveryErr := range snapshot.discoveryErrors {
-		logger.Error(ctx, "DAG excluded from scheduler", tag.Error(errors.New(discoveryErr)))
+	for _, issue := range state.issues {
+		logger.Error(ctx, "DAG excluded from scheduler", tag.Error(errors.New(issue)))
 	}
 
-	events := er.replaceRecursiveRegistry(snapshot.registry, snapshot.stamps, emitEvents)
+	events := er.replaceRegistry(state)
 	for _, event := range events {
 		er.sendEvent(ctx, event)
 	}
 	return nil
 }
 
-func (er *entryReaderImpl) syncRecursiveWatches(ctx context.Context, directories []string, strict bool) error {
-	next := make(map[string]struct{}, len(directories))
-	for _, dir := range directories {
+func (er *entryReaderImpl) syncWatches(ctx context.Context, dirs []string) {
+	next := make(map[string]struct{}, len(dirs))
+	for _, dir := range dirs {
 		next[dir] = struct{}{}
 		if _, exists := er.watchedDirs[dir]; exists {
 			continue
 		}
 		if err := er.watcher.Add(dir); err != nil {
-			if strict {
-				return fmt.Errorf("failed to watch DAG directory %s: %w", dir, err)
-			}
 			logger.Error(ctx, "Failed to watch DAG directory", tag.Dir(dir), tag.Error(err))
 			continue
 		}
@@ -422,81 +430,66 @@ func (er *entryReaderImpl) syncRecursiveWatches(ctx context.Context, directories
 		_ = er.watcher.Remove(dir)
 		delete(er.watchedDirs, dir)
 	}
-	return nil
 }
 
-func (er *entryReaderImpl) recursiveRegistrySnapshot(
-	ctx context.Context,
-) (recursiveDAGSnapshot, error) {
-	paginator := exec.NewPaginator(1, int(^uint(0)>>1))
-	result, discoveryErrors, err := er.dagStore.List(ctx, exec.ListDAGsOptions{Paginator: &paginator})
+func (er *entryReaderImpl) loadRegistry(ctx context.Context) (registryState, error) {
+	paginator := exec.NewPaginator(1, math.MaxInt)
+	result, issues, err := er.dagStore.List(ctx, exec.ListDAGsOptions{Paginator: &paginator})
 	if err != nil {
-		return recursiveDAGSnapshot{}, err
+		return registryState{}, err
 	}
 
-	registry := make(map[string]*core.DAG, len(result.Items))
+	dags := make(map[string]*core.DAG, len(result.Items))
 	stamps := make(map[string]dagFileStamp, len(result.Items))
 	for _, listedDAG := range result.Items {
 		if len(listedDAG.BuildErrors) > 0 {
-			discoveryErrors = append(discoveryErrors,
+			issues = append(issues,
 				fmt.Sprintf("reading %s failed: %s", listedDAG.FileName(), errors.Join(listedDAG.BuildErrors...)))
 			continue
 		}
 
-		relativePath, err := filepath.Rel(er.targetDir, listedDAG.Location)
-		if err != nil || relativePath == ".." || strings.HasPrefix(relativePath, ".."+string(filepath.Separator)) {
-			discoveryErrors = append(discoveryErrors,
+		relPath, err := filepath.Rel(er.targetDir, listedDAG.Location)
+		if err != nil || relPath == ".." || strings.HasPrefix(relPath, ".."+string(filepath.Separator)) {
+			issues = append(issues,
 				fmt.Sprintf("DAG path is outside the discovery directory: %s", listedDAG.Location))
 			continue
 		}
-		locator := filepath.ToSlash(relativePath)
+		key := filepath.ToSlash(relPath)
+		locator := key
 		if !strings.Contains(locator, "/") {
 			locator = "./" + locator
 		}
 		dag, err := er.dagStore.GetMetadata(ctx, locator)
 		if err != nil {
-			discoveryErrors = append(discoveryErrors,
-				fmt.Sprintf("reading %s failed: %s", filepath.ToSlash(relativePath), err))
+			issues = append(issues, fmt.Sprintf("reading %s failed: %s", key, err))
 			continue
 		}
 		info, err := os.Stat(dag.Location)
 		if err != nil {
-			discoveryErrors = append(discoveryErrors,
-				fmt.Sprintf("reading %s failed: %s", filepath.ToSlash(relativePath), err))
+			issues = append(issues, fmt.Sprintf("reading %s failed: %s", key, err))
 			continue
 		}
 
-		key := filepath.ToSlash(relativePath)
-		registry[key] = dag
+		dags[key] = dag
 		stamps[key] = dagFileStamp{size: info.Size(), modTime: info.ModTime().UnixNano()}
 	}
-	sort.Strings(discoveryErrors)
-	return recursiveDAGSnapshot{
-		registry:        registry,
-		stamps:          stamps,
-		discoveryErrors: discoveryErrors,
+	sort.Strings(issues)
+	return registryState{
+		dags:   dags,
+		stamps: stamps,
+		issues: issues,
 	}, nil
 }
 
-func (er *entryReaderImpl) replaceRecursiveRegistry(
-	registry map[string]*core.DAG,
-	stamps map[string]dagFileStamp,
-	emitEvents bool,
-) []DAGChangeEvent {
+func (er *entryReaderImpl) replaceRegistry(state registryState) []DAGChangeEvent {
 	er.lock.Lock()
 	defer er.lock.Unlock()
 
-	if !emitEvents {
-		er.registry = registry
-		er.stamps = stamps
-		return nil
-	}
-
-	oldKeys := sortedDAGRegistryKeys(er.registry)
-	newKeys := sortedDAGRegistryKeys(registry)
+	oldKeys := sortedRegistryKeys(er.registry)
+	newKeys := sortedRegistryKeys(state.dags)
 	events := make([]DAGChangeEvent, 0)
 	for _, key := range oldKeys {
-		if _, exists := registry[key]; exists {
+		if _, exists := state.dags[key]; exists {
 			continue
 		}
 		if oldDAG := er.registry[key]; oldDAG != nil {
@@ -507,7 +500,7 @@ func (er *entryReaderImpl) replaceRecursiveRegistry(
 		}
 	}
 	for _, key := range newKeys {
-		dag := registry[key]
+		dag := state.dags[key]
 		oldDAG, existed := er.registry[key]
 		if !existed {
 			events = append(events, DAGChangeEvent{
@@ -524,7 +517,7 @@ func (er *entryReaderImpl) replaceRecursiveRegistry(
 			)
 			continue
 		}
-		if er.stamps[key] != stamps[key] {
+		if er.stamps[key] != state.stamps[key] {
 			events = append(events, DAGChangeEvent{
 				Type:    DAGChangeUpdated,
 				DAG:     dag,
@@ -533,12 +526,12 @@ func (er *entryReaderImpl) replaceRecursiveRegistry(
 		}
 	}
 
-	er.registry = registry
-	er.stamps = stamps
+	er.registry = state.dags
+	er.stamps = state.stamps
 	return events
 }
 
-func sortedDAGRegistryKeys(registry map[string]*core.DAG) []string {
+func sortedRegistryKeys(registry map[string]*core.DAG) []string {
 	keys := make([]string, 0, len(registry))
 	for key := range registry {
 		keys = append(keys, key)

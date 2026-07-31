@@ -1980,14 +1980,14 @@ func TestListUsesIndex(t *testing.T) {
 	assert.Equal(t, 3, result3.TotalCount)
 }
 
-func TestLoadOrRebuildIndex_NonExistentDir(t *testing.T) {
-	store := New("/nonexistent/path/that/does/not/exist", WithSkipExamples(true)).(*Storage)
+func TestList_NonExistentDir(t *testing.T) {
+	store := New("/nonexistent/path/that/does/not/exist", WithSkipExamples(true))
 	ctx := context.Background()
-	result := store.loadOrRebuildIndex(ctx)
-	assert.Nil(t, result, "should return nil when baseDir doesn't exist")
+	_, _, err := store.List(ctx, exec.ListDAGsOptions{})
+	require.Error(t, err)
 }
 
-func TestLoadOrRebuildIndex_NonExistentFlagsDir(t *testing.T) {
+func TestList_NonExistentFlagsDir(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Create a valid DAG file so the index can try to build.
@@ -2002,8 +2002,10 @@ steps:
 	store.flagsBaseDir = filepath.Join(tmpDir, "nonexistent-flags-dir")
 
 	ctx := context.Background()
-	result := store.loadOrRebuildIndex(ctx)
-	assert.NotNil(t, result, "should still build index even with missing flags dir")
+	result, errs, err := store.List(ctx, exec.ListDAGsOptions{})
+	require.NoError(t, err)
+	require.Empty(t, errs)
+	assert.Equal(t, 1, result.TotalCount)
 }
 
 func TestInvalidateIndex_RemovesFile(t *testing.T) {
@@ -2018,8 +2020,8 @@ steps:
     run: echo ok`
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "inv-test.yaml"), []byte(dagContent), 0600))
 
-	result := store.loadOrRebuildIndex(ctx)
-	require.NotNil(t, result)
+	_, _, err := store.List(ctx, exec.ListDAGsOptions{})
+	require.NoError(t, err)
 	indexPath := filepath.Join(tmpDir, ".dag.index")
 	assert.True(t, fileExists(indexPath), "index should exist after build")
 

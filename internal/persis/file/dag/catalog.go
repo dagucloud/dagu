@@ -14,36 +14,36 @@ import (
 	indexv1 "github.com/dagucloud/dagu/proto/index/v1"
 )
 
-type dagCatalog struct {
-	entries        []*indexv1.DAGIndexEntry
-	byFileName     map[string]*indexv1.DAGIndexEntry
-	discoveryError []string
+type catalog struct {
+	entries []*indexv1.DAGIndexEntry
+	byStem  map[string]*indexv1.DAGIndexEntry
+	errors  []string
 }
 
-func (store *Storage) loadCatalog(ctx context.Context) (*dagCatalog, error) {
-	scan, err := dagdiscovery.Scan(store.baseDir, store.recursiveDiscovery)
+func (store *Storage) loadCatalog(ctx context.Context) (*catalog, error) {
+	scan, err := dagdiscovery.Scan(store.baseDir, store.recursive)
 	if err != nil {
 		return nil, err
 	}
 
-	entries := store.loadOrRebuildIndexForFiles(ctx, scan.Files)
-	return newDAGCatalog(entries, scan.Errors, store.recursiveDiscovery), nil
+	entries := store.loadIndex(ctx, scan.Files)
+	return newCatalog(entries, scan.Errors, store.recursive), nil
 }
 
-func newDAGCatalog(entries []*indexv1.DAGIndexEntry, scanErrors []error, enforceUniqueness bool) *dagCatalog {
-	catalog := &dagCatalog{
-		byFileName: make(map[string]*indexv1.DAGIndexEntry),
+func newCatalog(entries []*indexv1.DAGIndexEntry, scanErrors []error, checkConflicts bool) *catalog {
+	result := &catalog{
+		byStem: make(map[string]*indexv1.DAGIndexEntry),
 	}
 
-	fileNameGroups := make(map[string][]string)
+	stemGroups := make(map[string][]string)
 	nameGroups := make(map[string][]string)
 	for _, entry := range entries {
 		entry.FilePath = filepath.ToSlash(entry.FilePath)
-		fileName := dagEntryFileName(entry)
+		stem := entryStem(entry)
 		if entry.Name == "" {
-			entry.Name = fileName
+			entry.Name = stem
 		}
-		fileNameGroups[fileName] = append(fileNameGroups[fileName], entry.FilePath)
+		stemGroups[stem] = append(stemGroups[stem], entry.FilePath)
 		nameGroups[entry.Name] = append(nameGroups[entry.Name], entry.FilePath)
 	}
 
@@ -63,12 +63,12 @@ func newDAGCatalog(entries []*indexv1.DAGIndexEntry, scanErrors []error, enforce
 			for _, path := range paths {
 				conflicted[path] = struct{}{}
 			}
-			catalog.discoveryError = append(catalog.discoveryError,
+			result.errors = append(result.errors,
 				fmt.Sprintf("duplicate DAG %s %q: %s", kind, key, strings.Join(paths, ", ")))
 		}
 	}
-	if enforceUniqueness {
-		appendCollisions("file name", fileNameGroups)
+	if checkConflicts {
+		appendCollisions("file name", stemGroups)
 		appendCollisions("name", nameGroups)
 	}
 
@@ -76,28 +76,28 @@ func newDAGCatalog(entries []*indexv1.DAGIndexEntry, scanErrors []error, enforce
 		if _, excluded := conflicted[entry.FilePath]; excluded {
 			continue
 		}
-		catalog.entries = append(catalog.entries, entry)
-		catalog.byFileName[dagEntryFileName(entry)] = entry
+		result.entries = append(result.entries, entry)
+		result.byStem[entryStem(entry)] = entry
 	}
-	sort.Slice(catalog.entries, func(i, j int) bool {
-		if enforceUniqueness {
-			return dagEntryFileName(catalog.entries[i]) < dagEntryFileName(catalog.entries[j])
+	sort.Slice(result.entries, func(i, j int) bool {
+		if checkConflicts {
+			return entryStem(result.entries[i]) < entryStem(result.entries[j])
 		}
-		return catalog.entries[i].FilePath < catalog.entries[j].FilePath
+		return result.entries[i].FilePath < result.entries[j].FilePath
 	})
 
 	for _, err := range scanErrors {
-		catalog.discoveryError = append(catalog.discoveryError, fmt.Sprintf("DAG discovery failed: %s", err))
+		result.errors = append(result.errors, fmt.Sprintf("DAG discovery failed: %s", err))
 	}
-	sort.Strings(catalog.discoveryError)
-	return catalog
+	sort.Strings(result.errors)
+	return result
 }
 
-func dagEntryFileName(entry *indexv1.DAGIndexEntry) string {
+func entryStem(entry *indexv1.DAGIndexEntry) string {
 	base := filepath.Base(filepath.FromSlash(entry.FilePath))
 	return strings.TrimSuffix(base, filepath.Ext(base))
 }
 
-func (store *Storage) catalogEntryPath(entry *indexv1.DAGIndexEntry) string {
+func (store *Storage) entryPath(entry *indexv1.DAGIndexEntry) string {
 	return filepath.Join(store.baseDir, filepath.FromSlash(entry.FilePath))
 }

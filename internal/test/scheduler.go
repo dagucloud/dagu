@@ -72,7 +72,7 @@ func SetupScheduler(t *testing.T, opts ...HelperOption) *Scheduler {
 	em := scheduler.NewEntryReader(
 		helper.Config.Paths.DAGsDir,
 		ds,
-		scheduler.WithRecursiveDiscovery(helper.Config.DAGDiscovery.Recursive),
+		helper.Config.DAGDiscovery.Recursive,
 	)
 
 	// Update helper with scheduler-specific stores

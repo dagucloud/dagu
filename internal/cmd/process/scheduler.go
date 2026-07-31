@@ -60,7 +60,7 @@ func NewScheduler(cfg SchedulerConfig) (*scheduler.Scheduler, error) {
 	entryReader := scheduler.NewEntryReader(
 		cfg.Config.Paths.DAGsDir,
 		dagStore,
-		scheduler.WithRecursiveDiscovery(cfg.Config.DAGDiscovery.Recursive),
+		cfg.Config.DAGDiscovery.Recursive,
 	)
 	watermarkStore := scheduler.NewWatermarkStore(
 		file.NewCollection(filepath.Join(cfg.Config.Paths.DataDir, "scheduler"), file.WithIndentedJSON()),

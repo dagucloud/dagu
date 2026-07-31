@@ -14,7 +14,7 @@ import (
 
 func TestReadEntries(t *testing.T) {
 	t.Run("InvalidDirectory", func(t *testing.T) {
-		manager := scheduler.NewEntryReader("invalid_directory", nil)
+		manager := scheduler.NewEntryReader("invalid_directory", nil, false)
 		err := manager.Init(context.Background())
 		require.Error(t, err)
 	})

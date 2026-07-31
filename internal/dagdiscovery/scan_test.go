@@ -44,7 +44,7 @@ func TestScanRecursive(t *testing.T) {
 
 	var files []string
 	for _, file := range result.Files {
-		files = append(files, file.RelativePath)
+		files = append(files, file.RelPath)
 	}
 	assert.Equal(t, []string{
 		"root.yaml",
@@ -55,7 +55,7 @@ func TestScanRecursive(t *testing.T) {
 		root,
 		filepath.Join(root, "team"),
 		filepath.Join(root, "team", "nested"),
-	}, result.Directories)
+	}, result.Dirs)
 }
 
 func TestScanNonRecursiveOnlyReadsRoot(t *testing.T) {
@@ -68,8 +68,8 @@ func TestScanNonRecursiveOnlyReadsRoot(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, result.Errors)
 	require.Len(t, result.Files, 1)
-	assert.Equal(t, "root.yaml", result.Files[0].RelativePath)
-	assert.Equal(t, []string{root}, result.Directories)
+	assert.Equal(t, "root.yaml", result.Files[0].RelPath)
+	assert.Equal(t, []string{root}, result.Dirs)
 }
 
 func TestScanRecursiveAllowsConfiguredSymlinkRoot(t *testing.T) {
@@ -87,7 +87,6 @@ func TestScanRecursiveAllowsConfiguredSymlinkRoot(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, result.Errors)
 	require.Len(t, result.Files, 1)
-	assert.Equal(t, "nested/child.yaml", result.Files[0].RelativePath)
-	assert.Equal(t, filepath.Join(linkRoot, "nested", "child.yaml"), result.Files[0].Path)
-	assert.Equal(t, []string{linkRoot, filepath.Join(linkRoot, "nested")}, result.Directories)
+	assert.Equal(t, "nested/child.yaml", result.Files[0].RelPath)
+	assert.Equal(t, []string{linkRoot, filepath.Join(linkRoot, "nested")}, result.Dirs)
 }
