@@ -468,6 +468,9 @@ func (s *Service) NotificationDestinationsForEvent(event chatbridge.Notification
 	if event.Status == nil || dagKey == "" {
 		return nil
 	}
+	if _, state := eventWorkspace(event); state == exec.WorkspaceLabelInvalid {
+		return nil
+	}
 	ctx := context.Background()
 	setting, err := s.GetByDAGName(ctx, dagKey)
 	if err != nil {
@@ -1114,7 +1117,10 @@ func (s *Service) routeSetDestinationsForEvent(
 }
 
 func (s *Service) effectiveRouteSetForEvent(ctx context.Context, event chatbridge.NotificationEvent) *notificationmodel.RouteSet {
-	workspaceName := eventWorkspaceName(event)
+	workspaceName, state := eventWorkspace(event)
+	if state == exec.WorkspaceLabelInvalid {
+		return nil
+	}
 	if workspaceName != "" {
 		workspaceRouteSet, err := s.loadRouteSet(ctx, notificationmodel.RouteScopeWorkspace, workspaceName)
 		if err == nil {
@@ -1197,11 +1203,15 @@ func (s *Service) matchingRouteEvents(ctx context.Context, routeSet *notificatio
 	return result
 }
 
-func eventWorkspaceName(event chatbridge.NotificationEvent) string {
+func eventWorkspace(event chatbridge.NotificationEvent) (string, exec.WorkspaceLabelState) {
 	if event.Status == nil {
-		return ""
+		return "", exec.WorkspaceLabelMissing
 	}
-	workspaceName, state := exec.WorkspaceLabelFromLabels(core.NewLabels(event.Status.Labels))
+	return exec.WorkspaceLabelFromLabels(core.NewLabels(event.Status.Labels))
+}
+
+func eventWorkspaceName(event chatbridge.NotificationEvent) string {
+	workspaceName, state := eventWorkspace(event)
 	if state == exec.WorkspaceLabelValid {
 		return workspaceName
 	}

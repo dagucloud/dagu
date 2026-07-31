@@ -1665,6 +1665,9 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 	if err := h.transformArtifactPaths(ctx, latestAttempt, latestStatus, dagRunStatus); err != nil {
 		return nil, status.Error(codes.Internal, "failed to resolve artifact path: "+err.Error())
 	}
+	if len(latestStatus.Labels) > 0 {
+		dagRunStatus.Labels = append([]string(nil), latestStatus.Labels...)
+	}
 
 	attempt := latestAttempt
 	if dagRunStatus.Status == core.Waiting {

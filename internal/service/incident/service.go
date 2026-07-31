@@ -392,13 +392,14 @@ func (s *Service) NotificationDestinationsForEvent(event chatbridge.Notification
 }
 
 func (s *Service) resolveDestinationsForEvent(ctx context.Context, event chatbridge.NotificationEvent) []string {
-	if s.store == nil || event.Status == nil || event.Status.Name == "" {
+	dagKey := event.DAGKey()
+	if s.store == nil || event.Status == nil || dagKey == "" {
 		return nil
 	}
-	states, err := s.store.ListOpenStatesByDAG(ctx, event.Status.Name)
+	states, err := s.store.ListOpenStatesByDAG(ctx, dagKey)
 	if err != nil {
 		s.logger.Warn("Failed to list open incident states",
-			slog.String("dag", event.Status.Name),
+			slog.String("dag", dagKey),
 			slog.String("error", err.Error()),
 		)
 		return nil
@@ -562,7 +563,7 @@ func (s *Service) openIncident(ctx context.Context, provider *incidentmodel.Prov
 		ProviderID:    provider.ID,
 		PolicyID:      policy.ID,
 		Workspace:     eventWorkspaceName(event),
-		DAGName:       event.Status.Name,
+		DAGName:       event.DAGKey(),
 		DedupKey:      dedupKey,
 		Status:        incidentmodel.IncidentStatusOpen,
 		ExternalID:    externalID,
@@ -592,7 +593,7 @@ func (s *Service) resolveIncident(ctx context.Context, provider *incidentmodel.P
 	if state.Status != incidentmodel.IncidentStatusOpen {
 		return true
 	}
-	if event.Status != nil && state.DAGName != "" && state.DAGName != event.Status.Name {
+	if state.DAGName != "" && state.DAGName != event.DAGKey() {
 		return true
 	}
 	delivery, err := s.withRetry(ctx, func() (*providerDeliveryResult, error) {
@@ -622,7 +623,9 @@ func (s *Service) resolveIncident(ctx context.Context, provider *incidentmodel.P
 	if delivery.EventID != "" {
 		state.LastEventID = delivery.EventID
 	}
-	state.PolicyID = policy.ID
+	if policy.ID != "" {
+		state.PolicyID = policy.ID
+	}
 	normalized, err := incidentmodel.NormalizeState(state)
 	if err != nil {
 		s.logger.Warn("Failed to normalize resolved incident state", slog.String("error", err.Error()))
@@ -720,6 +723,9 @@ func incidentEventSupported(event chatbridge.NotificationEvent) bool {
 	if event.Status == nil || event.Status.Name == "" {
 		return false
 	}
+	if _, state := eventWorkspace(event); state == exec.WorkspaceLabelInvalid {
+		return false
+	}
 	switch event.Type {
 	case eventstore.TypeDAGRunFailed:
 		return isFinalFailure(event.Status)
@@ -746,14 +752,18 @@ func isFinalFailure(status *exec.DAGRunStatus) bool {
 }
 
 func eventWorkspaceName(event chatbridge.NotificationEvent) string {
-	if event.Status == nil {
-		return ""
-	}
-	workspaceName, state := exec.WorkspaceLabelFromLabels(core.NewLabels(event.Status.Labels))
+	workspaceName, state := eventWorkspace(event)
 	if state == exec.WorkspaceLabelValid {
 		return workspaceName
 	}
 	return ""
+}
+
+func eventWorkspace(event chatbridge.NotificationEvent) (string, exec.WorkspaceLabelState) {
+	if event.Status == nil {
+		return "", exec.WorkspaceLabelMissing
+	}
+	return exec.WorkspaceLabelFromLabels(core.NewLabels(event.Status.Labels))
 }
 
 func findPolicy(policySet *incidentmodel.PolicySet, policyID string) (incidentmodel.Policy, bool) {
@@ -839,13 +849,14 @@ func parseStateDestinationID(value string) parsedStateDestination {
 }
 
 func systemDedupKey(providerID string, event chatbridge.NotificationEvent) string {
-	if providerID == "" || event.Status == nil || event.Status.Name == "" {
+	dagKey := event.DAGKey()
+	if providerID == "" || event.Status == nil || dagKey == "" {
 		return ""
 	}
 	canonical := strings.Join([]string{
 		"provider", providerID,
 		"workspace", eventWorkspaceName(event),
-		"dag", event.Status.Name,
+		"dag", dagKey,
 	}, "\x00")
 	sum := sha256.Sum256([]byte(canonical))
 	return "dagu:v1:" + hex.EncodeToString(sum[:16])

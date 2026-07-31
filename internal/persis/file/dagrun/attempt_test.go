@@ -972,7 +972,7 @@ func TestAttempt_OpenRestoresLastEmittedLifecycleState(t *testing.T) {
 	require.NoError(t, att.Close(ctx))
 	require.Len(t, store.events, 1)
 
-	reopened, err := NewAttempt(file, nil, WithDAG(dag))
+	reopened, err := NewAttempt(file, nil)
 	require.NoError(t, err)
 	require.NoError(t, reopened.Open(ctx))
 	require.NoError(t, reopened.Write(ctx, queued))
@@ -988,6 +988,9 @@ func TestAttempt_OpenRestoresLastEmittedLifecycleState(t *testing.T) {
 		eventstore.TypeDAGRunUpdated,
 		eventstore.TypeDAGRunRunning,
 	}, captureEventTypes(store.events))
+	snapshot, err := eventstore.DAGRunSnapshotFromEvent(store.events[2])
+	require.NoError(t, err)
+	assert.Equal(t, "test-dag", snapshot.DAGFile)
 }
 
 type captureEventStore struct {

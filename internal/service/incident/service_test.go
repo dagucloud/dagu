@@ -75,6 +75,9 @@ func TestServiceNotificationDestinationsUseDAGWorkspaceGlobalInheritance(t *test
 	destinations = svc.NotificationDestinationsForEvent(event)
 	require.Len(t, destinations, 1)
 	assert.Equal(t, globalSet.Policies[0].ID, parsePolicyDestinationID(destinations[0]).PolicyID)
+
+	event.Status.Labels = []string{"workspace=ops", "workspace=engineering"}
+	assert.Empty(t, svc.NotificationDestinationsForEvent(event))
 }
 
 func TestServiceSuppressesFailureIncidentUntilAutoRetriesAreExhausted(t *testing.T) {
@@ -230,6 +233,65 @@ func TestServiceResolvesOpenIncidentAfterRoutingIsDisabled(t *testing.T) {
 	assert.Equal(t, "trigger", requests[0]["event_action"])
 	assert.Equal(t, "resolve", requests[1]["event_action"])
 	assert.Equal(t, requests[0]["dedup_key"], requests[1]["dedup_key"])
+}
+
+func TestServiceIncidentIdentityUsesDAGFile(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusAccepted,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(`{}`)),
+		}, nil
+	})}
+
+	store := newMemoryStore(t)
+	provider := store.saveProvider(t, "PagerDuty", incidentmodel.ProviderPagerDuty)
+	store.savePolicySet(t, &incidentmodel.PolicySet{
+		Scope:   incidentmodel.PolicyScopeGlobal,
+		Enabled: true,
+		Policies: []incidentmodel.Policy{{
+			ProviderID: provider.ID,
+			Enabled:    true,
+		}},
+	})
+	svc := New(store, WithHTTPClient(client))
+
+	first := failedEvent("daily", "run-1")
+	first.DAGFile = "daily-a"
+	second := failedEvent("daily", "run-2")
+	second.DAGFile = "daily-b"
+	for _, event := range []chatbridge.NotificationEvent{first, second} {
+		destinations := svc.NotificationDestinationsForEvent(event)
+		require.Len(t, destinations, 1)
+		require.True(t, svc.FlushNotificationBatch(context.Background(), destinations[0], chatbridge.NotificationBatch{
+			Events: []chatbridge.NotificationEvent{event},
+		}, false))
+	}
+
+	firstKey := systemDedupKey(provider.ID, first)
+	secondKey := systemDedupKey(provider.ID, second)
+	require.NotEqual(t, firstKey, secondKey)
+
+	success := first
+	success.Type = eventstore.TypeDAGRunSucceeded
+	success.Status = cloneStatus(first.Status)
+	success.Status.Name = "renamed"
+	success.Status.Status = core.Succeeded
+	success.Status.Error = ""
+	destinations := svc.NotificationDestinationsForEvent(success)
+	require.Len(t, destinations, 1)
+	require.True(t, svc.FlushNotificationBatch(context.Background(), destinations[0], chatbridge.NotificationBatch{
+		Events: []chatbridge.NotificationEvent{success},
+	}, false))
+
+	firstState, err := store.GetState(context.Background(), provider.ID, firstKey)
+	require.NoError(t, err)
+	secondState, err := store.GetState(context.Background(), provider.ID, secondKey)
+	require.NoError(t, err)
+	assert.Equal(t, "daily-a", firstState.DAGName)
+	assert.Equal(t, incidentmodel.IncidentStatusResolved, firstState.Status)
+	assert.Equal(t, "daily-b", secondState.DAGName)
+	assert.Equal(t, incidentmodel.IncidentStatusOpen, secondState.Status)
 }
 
 func TestServiceReopenedIncidentUsesFreshOpenedAt(t *testing.T) {

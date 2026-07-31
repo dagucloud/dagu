@@ -1011,6 +1011,16 @@ func TestService_WorkspaceInheritUsesGlobalRoutesOnly(t *testing.T) {
 		routeDestinationID(notificationmodel.RouteScopeGlobal, "", "global-route"),
 	}, defaultDestinations)
 
+	invalidWorkspace := svc.NotificationDestinationsForEvent(chatbridge.NotificationEvent{
+		Type: eventstore.TypeDAGRunFailed,
+		Status: &exec.DAGRunStatus{
+			Name:   "daily-report",
+			Status: core.Failed,
+			Labels: []string{"workspace=ops", "workspace=engineering"},
+		},
+	})
+	assert.Empty(t, invalidWorkspace)
+
 	assert.Empty(t, svc.NotificationDestinationsForEvent(chatbridge.NotificationEvent{
 		Type:   eventstore.TypeDAGRunSucceeded,
 		Status: &exec.DAGRunStatus{Name: "daily-report", Status: core.Succeeded, Labels: []string{"workspace=ops"}},
