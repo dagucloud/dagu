@@ -31,7 +31,7 @@
 {{- end }}
 
 {{- define "dagu.distributedConfigChecksum" -}}
-{{- dict "deploymentMode" .Values.deploymentMode "envPassthrough" .Values.config.envPassthrough "envPassthroughPrefixes" .Values.config.envPassthroughPrefixes "coordinatorHealthPort" .Values.coordinator.healthPort "workerHealthPort" .Values.worker.healthPort | toJson | sha256sum -}}
+{{- dict "deploymentMode" .Values.deploymentMode "publicUrl" .Values.config.publicUrl "envPassthrough" .Values.config.envPassthrough "envPassthroughPrefixes" .Values.config.envPassthroughPrefixes "coordinatorHealthPort" .Values.coordinator.healthPort "workerHealthPort" .Values.worker.healthPort | toJson | sha256sum -}}
 {{- end }}
 
 {{- define "dagu.imageTag" -}}
