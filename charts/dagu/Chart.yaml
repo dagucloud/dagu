@@ -6,7 +6,7 @@ version: 2.0.0
 appVersion: "2.11.1"
 kubeVersion: ">=1.19.0-0"
 home: https://dagu.sh
-icon: https://raw.githubusercontent.com/dagucloud/dagu/main/website/public/icon.png
+icon: https://raw.githubusercontent.com/dagucloud/dagu/main/assets/images/brand-mark.png
 sources:
   - https://github.com/dagucloud/dagu
 maintainers:

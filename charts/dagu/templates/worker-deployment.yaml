@@ -5,8 +5,6 @@
 {{- $nodeSelector := default $.Values.nodeSelector $pool.nodeSelector }}
 {{- $tolerations := default $.Values.tolerations $pool.tolerations }}
 {{- $affinity := default $.Values.affinity $pool.affinity }}
-{{- $podAnnotations := deepCopy $.Values.podAnnotations }}
-{{- $_ := set $podAnnotations "checksum/config" (include (print $.Template.BasePath "/configmap.yaml") $ | sha256sum) }}
 {{- if not (regexMatch "^[a-z]([a-z0-9-]*[a-z0-9])?$" $poolName) }}
 {{- fail (printf "invalid workerPool name %q: use lowercase letters, numbers, and internal hyphens" $poolName) }}
 {{- end }}
@@ -31,8 +29,10 @@ spec:
       dagu.sh/worker-pool: {{ $poolName }}
   template:
     metadata:
+      {{- with $.Values.podAnnotations }}
       annotations:
-        {{- toYaml $podAnnotations | nindent 8 }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       labels:
         {{- include "dagu.labels" $ | nindent 8 }}
         app.kubernetes.io/component: worker

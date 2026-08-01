@@ -13,6 +13,6 @@ helm upgrade --install dagu dagu/dagu \
   --wait
 ```
 
-The default standalone mode uses the cluster's default `ReadWriteOnce` StorageClass. Distributed installations can opt into separate workers and `ReadWriteMany` storage.
+The default standalone mode uses `ReadWriteOnce` access with the cluster's default StorageClass. Distributed installations can opt into separate workers and `ReadWriteMany` storage.
 
 Application releases use separate `vX.Y.Z` tags.

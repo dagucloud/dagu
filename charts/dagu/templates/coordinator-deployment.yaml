@@ -1,6 +1,4 @@
 {{- if eq .Values.deploymentMode "distributed" }}
-{{- $podAnnotations := deepCopy .Values.podAnnotations }}
-{{- $_ := set $podAnnotations "checksum/config" (include (print $.Template.BasePath "/configmap.yaml") . | sha256sum) }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -16,8 +14,10 @@ spec:
       app.kubernetes.io/component: coordinator
   template:
     metadata:
+      {{- with .Values.podAnnotations }}
       annotations:
-        {{- toYaml $podAnnotations | nindent 8 }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       labels:
         {{- include "dagu.labels" . | nindent 8 }}
         app.kubernetes.io/component: coordinator
