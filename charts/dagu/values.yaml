@@ -11,6 +11,9 @@ image:
 config:
   # Absolute external URL of the Dagu UI. Used in notification links.
   publicUrl: ""
+  # Browser origins allowed to make cross-origin API requests.
+  # Empty disables CORS; same-origin UI access continues to work.
+  corsAllowedOrigins: []
   envPassthrough: []
   envPassthroughPrefixes: []
 

@@ -95,6 +95,7 @@ data:
 {{- with .Values.config.publicUrl }}
     public_url: {{ . | quote }}
 {{- end }}
+    cors_allowed_origins: {{ .Values.config.corsAllowedOrigins | toJson }}
     default_execution_mode: "distributed"
 {{- with .Values.config.envPassthrough }}
     env_passthrough:

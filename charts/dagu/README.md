@@ -161,6 +161,19 @@ workerSelector:
   gpu: "true"
 ```
 
+### Cross-Origin Browser Access
+
+Cross-origin browser access is disabled by default. This does not affect the bundled Dagu UI because it uses the same origin as the API. To allow a separate browser application to call Dagu, list its exact origins:
+
+```yaml
+config:
+  corsAllowedOrigins:
+    - https://app.example.com
+    - https://admin.example.com
+```
+
+Set `corsAllowedOrigins: ["*"]` only when any website should be allowed to call the API. Wildcard CORS does not allow credentials and is especially risky with `auth.mode: none`.
+
 ### Environment Passthrough
 
 Dagu filters host/container environment variables before exposing them to workflow steps. To allow additional runtime env vars such as proxy or certificate settings, configure both:

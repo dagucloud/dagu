@@ -7,6 +7,14 @@
       "type": "object",
       "additionalProperties": true,
       "properties": {
+        "corsAllowedOrigins": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
         "envPassthrough": {
           "type": "array",
           "items": {
