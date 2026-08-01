@@ -56,7 +56,7 @@ Replace `<your-rwx-storage-class>` with a StorageClass in your cluster that supp
 
 `charts/dagu/Chart.yaml` defines the chart `version`, which is the version published to the Helm repository.
 
-The deployed container image comes from `values.yaml -> image.repository` and `values.yaml -> image.tag`. With the current defaults, the chart deploys `ghcr.io/dagucloud/dagu:latest`.
+The deployed container image comes from `values.yaml -> image.repository` and `values.yaml -> image.tag`. With the current defaults, the chart deploys `ghcr.io/dagucloud/dagu:latest` and always checks the registry when starting a pod.
 
 For chart publication and repository maintenance, see [`RELEASING.md`](./RELEASING.md).
 
@@ -192,6 +192,33 @@ extraEnv:
 
 `config.envPassthrough` matches exact env var names. `config.envPassthroughPrefixes` matches by prefix. Existing built-in defaults such as Kubernetes discovery env vars still apply automatically.
 
+### License
+
+Store the Dagu license key in a Kubernetes Secret in the same namespace as the Helm release:
+
+```bash
+kubectl create secret generic dagu-license \
+  --from-literal=license-key='<your-license-key>'
+```
+
+Reference that Secret from the chart:
+
+```yaml
+license:
+  existingSecret: dagu-license
+  secretKey: license-key
+```
+
+`license.secretKey` defaults to `license-key`, so an install can also set only the Secret name:
+
+```bash
+helm install dagu dagu/dagu \
+  --set persistence.storageClass=<your-rwx-storage-class> \
+  --set license.existingSecret=dagu-license
+```
+
+The chart exposes the selected Secret value to the UI container as `DAGU_LICENSE_KEY`. It does not copy the license key into the ConfigMap or expose it to the scheduler, coordinator, or workers.
+
 ### Authentication
 
 By default, the chart uses builtin authentication. On first run, visit the UI to create an admin account via the setup page.
@@ -212,6 +239,58 @@ helm install dagu dagu/dagu \
   --set auth.mode=none
 ```
 
+#### OIDC
+
+OIDC runs as part of builtin authentication and requires an active license. Create the first builtin administrator through the setup page before testing OIDC login.
+
+Store the provider's client secret in the release namespace:
+
+```bash
+kubectl create secret generic dagu-oidc \
+  --from-literal=client-secret='<your-oidc-client-secret>'
+```
+
+Configure the provider and authorization policy through Helm values:
+
+```yaml
+auth:
+  mode: builtin
+  oidc:
+    enabled: true
+    clientId: dagu
+    clientUrl: https://dagu.example.com
+    issuer: https://idp.example.com
+    scopes: [openid, profile, email]
+    whitelist: []
+    autoSignup: true
+    allowedDomains:
+      - example.com
+    buttonLabel: Login with SSO
+    clientSecret:
+      existingSecret: dagu-oidc
+      secretKey: client-secret
+    roleMapping:
+      defaultRole: viewer
+      groupsClaim: groups
+      groupMappings:
+        dagu-org-admins: admin
+      workspaceMappings:
+        payments-team:
+          - workspace: payments
+            role: developer
+        sre-team:
+          - workspace: infra
+            role: operator
+      defaultWorkspaceAccess: none
+      roleAttributePath: ""
+      roleAttributeStrict: false
+      skipOrgRoleSync: false
+```
+
+The chart renders the provider settings, access filters, and complete role mapping into `dagu.yaml` in the ConfigMap. Only the client secret stays in a Kubernetes Secret and is exposed to the UI container as `DAGU_AUTH_OIDC_CLIENT_SECRET`.
+
+Global `groupMappings` take precedence over `workspaceMappings`. Workspace roles may be `manager`, `developer`, `operator`, or `viewer`; `admin` is available only for global mappings. Set `defaultWorkspaceAccess` to `none` to deny unmatched users access to named workspaces, or `all` to apply `defaultRole` across all workspaces.
+
 Proxy authentication is available for deployments where an
 authenticating reverse proxy is the only network path to the UI. It requires
 builtin authentication, `auth.proxy.enabled: true`, and one UI replica. See
@@ -230,6 +309,7 @@ every login for existing proxy users unless
 image:
   repository: ghcr.io/dagucloud/dagu
   tag: latest
+  pullPolicy: Always
 
 coordinator:
   replicas: 1

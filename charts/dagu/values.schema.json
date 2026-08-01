@@ -31,6 +31,23 @@
         }
       }
     },
+    "license": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "existingSecret": {
+          "type": "string",
+          "maxLength": 253
+        },
+        "secretKey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 253,
+          "pattern": "^[-._a-zA-Z0-9]+$"
+        }
+      },
+      "required": ["existingSecret", "secretKey"]
+    },
     "auth": {
       "type": "object",
       "additionalProperties": true,
@@ -38,6 +55,153 @@
         "mode": {
           "type": "string",
           "enum": ["none", "basic", "builtin"]
+        },
+        "oidc": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "clientId": {
+              "type": "string"
+            },
+            "clientUrl": {
+              "type": "string"
+            },
+            "issuer": {
+              "type": "string"
+            },
+            "scopes": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "whitelist": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "autoSignup": {
+              "type": "boolean"
+            },
+            "allowedDomains": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "buttonLabel": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "clientSecret": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "existingSecret": {
+                  "type": "string",
+                  "maxLength": 253
+                },
+                "secretKey": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 253,
+                  "pattern": "^[-._a-zA-Z0-9]+$"
+                }
+              },
+              "required": ["existingSecret", "secretKey"]
+            },
+            "roleMapping": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "defaultRole": {
+                  "type": "string",
+                  "enum": ["admin", "manager", "developer", "operator", "viewer"]
+                },
+                "groupsClaim": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "groupMappings": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string",
+                    "enum": ["admin", "manager", "developer", "operator", "viewer"]
+                  }
+                },
+                "workspaceMappings": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "workspace": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "role": {
+                          "type": "string",
+                          "enum": ["manager", "developer", "operator", "viewer"]
+                        }
+                      },
+                      "required": ["workspace", "role"]
+                    }
+                  }
+                },
+                "defaultWorkspaceAccess": {
+                  "type": "string",
+                  "enum": ["all", "none"]
+                },
+                "roleAttributePath": {
+                  "type": "string"
+                },
+                "roleAttributeStrict": {
+                  "type": "boolean"
+                },
+                "skipOrgRoleSync": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "defaultRole",
+                "groupsClaim",
+                "groupMappings",
+                "workspaceMappings",
+                "defaultWorkspaceAccess",
+                "roleAttributePath",
+                "roleAttributeStrict",
+                "skipOrgRoleSync"
+              ]
+            }
+          },
+          "required": [
+            "enabled",
+            "clientId",
+            "clientUrl",
+            "issuer",
+            "scopes",
+            "whitelist",
+            "autoSignup",
+            "allowedDomains",
+            "buttonLabel",
+            "clientSecret",
+            "roleMapping"
+          ]
         },
         "proxy": {
           "type": "object",
@@ -175,6 +339,59 @@
     }
   },
   "allOf": [
+    {
+      "if": {
+        "properties": {
+          "auth": {
+            "properties": {
+              "oidc": {
+                "properties": {
+                  "enabled": {
+                    "const": true
+                  }
+                },
+                "required": ["enabled"]
+              }
+            },
+            "required": ["oidc"]
+          }
+        },
+        "required": ["auth"]
+      },
+      "then": {
+        "properties": {
+          "auth": {
+            "properties": {
+              "mode": {
+                "const": "builtin"
+              },
+              "oidc": {
+                "properties": {
+                  "clientId": {
+                    "minLength": 1
+                  },
+                  "clientUrl": {
+                    "minLength": 1
+                  },
+                  "issuer": {
+                    "minLength": 1
+                  },
+                  "clientSecret": {
+                    "properties": {
+                      "existingSecret": {
+                        "minLength": 1
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "required": ["mode", "oidc"]
+          }
+        },
+        "required": ["auth"]
+      }
+    },
     {
       "if": {
         "properties": {

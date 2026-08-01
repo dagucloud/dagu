@@ -107,6 +107,16 @@ jobs:
       - name: Render chart
         run: helm template dagu ./charts/dagu --set persistence.storageClass=nfs-client >/dev/null
 
+      - name: Render OIDC configuration
+        run: |
+          helm template dagu ./charts/dagu \
+            --set persistence.storageClass=nfs-client \
+            --set auth.oidc.enabled=true \
+            --set-string auth.oidc.clientId=ci-client \
+            --set-string auth.oidc.clientUrl=https://dagu.example.com \
+            --set-string auth.oidc.issuer=https://idp.example.com \
+            --set-string auth.oidc.clientSecret.existingSecret=dagu-oidc >/dev/null
+
       - name: Package chart
         run: |
           mkdir -p /tmp/dagu-chart

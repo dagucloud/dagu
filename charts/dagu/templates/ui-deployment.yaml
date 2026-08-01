@@ -44,6 +44,20 @@ spec:
               value: /data
             - name: DAGU_PORT
               value: {{ .Values.ui.service.port | quote }}
+{{- with .Values.license.existingSecret }}
+            - name: DAGU_LICENSE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . | quote }}
+                  key: {{ $.Values.license.secretKey | quote }}
+{{- end }}
+{{- if .Values.auth.oidc.enabled }}
+            - name: DAGU_AUTH_OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.oidc.clientSecret.existingSecret | quote }}
+                  key: {{ .Values.auth.oidc.clientSecret.secretKey | quote }}
+{{- end }}
 {{- with include "dagu.extraEnv" . }}
 {{ . | nindent 12 }}
 {{- end }}

@@ -12,6 +12,13 @@ Components deployed:
   {{- end }}
   UI: {{ .Values.ui.replicas }} replica(s)
 
+{{ if .Values.auth.oidc.enabled }}
+OIDC authentication is enabled.
+  Register this callback URL with the provider:
+  {{ trimSuffix "/" .Values.auth.oidc.clientUrl }}/oidc-callback
+  Complete builtin administrator setup before the first OIDC login.
+
+{{ end }}
 {{ if .Values.auth.proxy.enabled }}
 Proxy authentication is enabled.
   Route UI traffic only through the authenticating proxy.

@@ -5,7 +5,7 @@
 image:
   repository: ghcr.io/dagucloud/dagu
   tag: latest
-  pullPolicy: IfNotPresent
+  pullPolicy: Always
 
 # Top-level Dagu config additions rendered into dagu.yaml
 config:
@@ -18,6 +18,12 @@ config:
 # Use this together with config.envPassthrough/config.envPassthroughPrefixes
 # when steps need access to runtime env such as proxies or custom CA paths.
 extraEnv: []
+
+# License activation key from an existing Kubernetes Secret.
+# The Secret must exist in the same namespace as the Helm release.
+license:
+  existingSecret: ""
+  secretKey: license-key
 
 # Pod security context applied to all Dagu pods.
 # The image entrypoint starts as root, prepares the runtime environment, then
@@ -95,6 +101,31 @@ auth:
     token:
       secret: ""               # optional: auto-generated at {data_dir}/auth/token_secret
       ttl: "24h"
+  oidc:
+    enabled: false
+    clientId: ""
+    clientUrl: ""
+    issuer: ""
+    scopes:
+      - openid
+      - profile
+      - email
+    whitelist: []
+    autoSignup: true
+    allowedDomains: []
+    buttonLabel: "Login with SSO"
+    clientSecret:
+      existingSecret: ""
+      secretKey: client-secret
+    roleMapping:
+      defaultRole: "viewer"
+      groupsClaim: "groups"
+      groupMappings: {}
+      workspaceMappings: {}
+      defaultWorkspaceAccess: "all"
+      roleAttributePath: ""
+      roleAttributeStrict: false
+      skipOrgRoleSync: false
   proxy:
     enabled: false
     # Optional identity namespace. Changing it makes the same header identity

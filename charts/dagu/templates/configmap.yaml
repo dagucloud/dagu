@@ -3,6 +3,44 @@
 {{- fail (printf "extraEnv entry %q must not configure proxy authentication; use auth.proxy values" .name) }}
 {{- end }}
 {{- end }}
+{{- if and .Values.license.existingSecret (empty .Values.license.secretKey) }}
+{{- fail "license.secretKey is required when license.existingSecret is set" }}
+{{- end }}
+{{- if .Values.license.existingSecret }}
+{{- range .Values.extraEnv }}
+{{- if has .name (list "DAGU_LICENSE" "DAGU_LICENSE_KEY" "DAGU_LICENSE_FILE") }}
+{{- fail (printf "extraEnv entry %q must not configure licensing when license.existingSecret is set" .name) }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- if .Values.auth.oidc.enabled }}
+{{- if ne .Values.auth.mode "builtin" }}
+{{- fail "auth.oidc.enabled requires auth.mode=builtin" }}
+{{- end }}
+{{- if empty .Values.auth.oidc.clientId }}
+{{- fail "auth.oidc.clientId is required when auth.oidc.enabled=true" }}
+{{- end }}
+{{- if empty .Values.auth.oidc.clientUrl }}
+{{- fail "auth.oidc.clientUrl is required when auth.oidc.enabled=true" }}
+{{- end }}
+{{- if empty .Values.auth.oidc.issuer }}
+{{- fail "auth.oidc.issuer is required when auth.oidc.enabled=true" }}
+{{- end }}
+{{- if empty .Values.auth.oidc.scopes }}
+{{- fail "auth.oidc.scopes must not be empty when auth.oidc.enabled=true" }}
+{{- end }}
+{{- if empty .Values.auth.oidc.clientSecret.existingSecret }}
+{{- fail "auth.oidc.clientSecret.existingSecret is required when auth.oidc.enabled=true" }}
+{{- end }}
+{{- if empty .Values.auth.oidc.clientSecret.secretKey }}
+{{- fail "auth.oidc.clientSecret.secretKey is required when auth.oidc.enabled=true" }}
+{{- end }}
+{{- range .Values.extraEnv }}
+{{- if hasPrefix "DAGU_AUTH_OIDC_" .name }}
+{{- fail (printf "extraEnv entry %q must not configure OIDC when auth.oidc.enabled=true" .name) }}
+{{- end }}
+{{- end }}
+{{- end }}
 {{- if and .Values.auth.proxy.enabled (ne .Values.auth.mode "builtin") }}
 {{- fail "auth.proxy.enabled requires auth.mode=builtin" }}
 {{- end }}
@@ -102,6 +140,36 @@ data:
         token:
           secret: {{ .Values.auth.builtin.token.secret | quote }}
           ttl: {{ .Values.auth.builtin.token.ttl | quote }}
+{{- if .Values.auth.oidc.enabled }}
+      oidc:
+        client_id: {{ .Values.auth.oidc.clientId | quote }}
+        client_url: {{ .Values.auth.oidc.clientUrl | quote }}
+        issuer: {{ .Values.auth.oidc.issuer | quote }}
+        scopes: {{ .Values.auth.oidc.scopes | toJson }}
+        whitelist: {{ .Values.auth.oidc.whitelist | toJson }}
+        auto_signup: {{ .Values.auth.oidc.autoSignup }}
+        allowed_domains: {{ .Values.auth.oidc.allowedDomains | toJson }}
+        button_label: {{ .Values.auth.oidc.buttonLabel | quote }}
+        role_mapping:
+          default_role: {{ .Values.auth.oidc.roleMapping.defaultRole | quote }}
+          groups_claim: {{ .Values.auth.oidc.roleMapping.groupsClaim | quote }}
+          default_workspace_access: {{ .Values.auth.oidc.roleMapping.defaultWorkspaceAccess | quote }}
+          role_attribute_path: {{ .Values.auth.oidc.roleMapping.roleAttributePath | quote }}
+          role_attribute_strict: {{ .Values.auth.oidc.roleMapping.roleAttributeStrict }}
+          skip_org_role_sync: {{ .Values.auth.oidc.roleMapping.skipOrgRoleSync }}
+{{- with .Values.auth.oidc.roleMapping.groupMappings }}
+          group_mappings:
+{{ toYaml . | indent 12 }}
+{{- else }}
+          group_mappings: {}
+{{- end }}
+{{- with .Values.auth.oidc.roleMapping.workspaceMappings }}
+          workspace_mappings:
+{{ toYaml . | indent 12 }}
+{{- else }}
+          workspace_mappings: {}
+{{- end }}
+{{- end }}
 {{- if .Values.auth.proxy.enabled }}
       proxy:
         enabled: true
