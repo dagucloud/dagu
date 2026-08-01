@@ -6,6 +6,7 @@ package mcp
 import (
 	_ "embed"
 	"encoding/json"
+	"net/url"
 	"strings"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -14,7 +15,7 @@ import (
 const (
 	mcpAppsExtensionURI  = "io.modelcontextprotocol/ui"
 	mcpAppMIMEType       = "text/html;profile=mcp-app"
-	runInspectorURI      = "ui://dagu/run-inspector/v7"
+	runInspectorURI      = "ui://dagu/run-inspector/v8"
 	runInspectorMetaKey  = "ui/resourceUri"
 	runInspectorResource = "run_inspector"
 )
@@ -37,12 +38,30 @@ func runInspectorToolMeta() mcpsdk.Meta {
 	}
 }
 
-func runInspectorResourceMeta() mcpsdk.Meta {
-	return mcpsdk.Meta{
+func runInspectorResourceMeta(webBaseURL string) mcpsdk.Meta {
+	meta := mcpsdk.Meta{
 		"ui": map[string]any{
 			"prefersBorder": true,
 		},
 	}
+	if origin := webOrigin(webBaseURL); origin != "" {
+		meta["openai/widgetCSP"] = map[string]any{
+			"redirect_domains": []string{origin},
+		}
+	}
+	return meta
+}
+
+func webOrigin(rawURL string) string {
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil || parsed.Host == "" {
+		return ""
+	}
+	scheme := strings.ToLower(parsed.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return ""
+	}
+	return (&url.URL{Scheme: scheme, Host: parsed.Host}).String()
 }
 
 func mcpAppsCapability() map[string]any {

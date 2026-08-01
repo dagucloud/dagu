@@ -193,7 +193,7 @@ func registerTools(server *mcpsdk.Server, svc *Service) {
 
 func registerResources(server *mcpsdk.Server, svc *Service) {
 	server.AddResource(&mcpsdk.Resource{
-		Meta:        runInspectorResourceMeta(),
+		Meta:        runInspectorResourceMeta(""),
 		URI:         runInspectorURI,
 		Name:        runInspectorResource,
 		Title:       "Dagu run inspector",

@@ -371,7 +371,7 @@ func (svc *Service) readResource(ctx context.Context, req *mcpsdk.ReadResourceRe
 		Text:     text,
 	}
 	if req.Params.URI == runInspectorURI {
-		content.Meta = runInspectorResourceMeta()
+		content.Meta = runInspectorResourceMeta(webBaseURLFromContext(ctx))
 	}
 	return &mcpsdk.ReadResourceResult{Contents: []*mcpsdk.ResourceContents{content}}, nil
 }
