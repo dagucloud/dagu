@@ -1,3 +1,16 @@
+{{- $oidcClientURL := "" -}}
+{{- $legacyOIDC := false -}}
+{{- range .Values.extraEnv -}}
+{{- if eq .name "DAGU_AUTH_OIDC_CLIENT_URL" -}}
+{{- $legacyOIDC = true -}}
+{{- with .value -}}
+{{- $oidcClientURL = . -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- if .Values.auth.oidc.enabled -}}
+{{- $oidcClientURL = .Values.auth.oidc.clientUrl -}}
+{{- end -}}
 Dagu has been installed successfully 🎉
 
 IMPORTANT: Dagu requires a shared filesystem (ReadWriteMany) for state persistence.
@@ -12,11 +25,16 @@ Components deployed:
   {{- end }}
   UI: {{ .Values.ui.replicas }} replica(s)
 
-{{ if .Values.auth.oidc.enabled }}
+{{ if or .Values.auth.oidc.enabled $legacyOIDC }}
 OIDC authentication is enabled.
+{{ if $oidcClientURL }}
   Register this callback URL with the provider:
-  {{ trimSuffix "/" .Values.auth.oidc.clientUrl }}/oidc-callback
+  {{ trimSuffix "/" $oidcClientURL }}/oidc-callback
+{{ else }}
+  Register DAGU_AUTH_OIDC_CLIENT_URL plus /oidc-callback with the provider.
+{{ end }}
   Complete builtin administrator setup before the first OIDC login.
+  OIDC/SSO requires an active Dagu license.
 
 {{ end }}
 {{ if .Values.auth.proxy.enabled }}
