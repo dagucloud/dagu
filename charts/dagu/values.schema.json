@@ -266,7 +266,7 @@
           "labels": {
             "type": "object",
             "additionalProperties": {
-              "type": ["string", "number", "boolean"]
+              "type": "string"
             }
           },
           "dataVolume": {
@@ -419,15 +419,13 @@
             },
             "usernameKey": {
               "type": "string",
-              "minLength": 1,
               "maxLength": 253,
-              "pattern": "^[-._a-zA-Z0-9]+$"
+              "pattern": "^$|^[-._a-zA-Z0-9]+$"
             },
             "passwordKey": {
               "type": "string",
-              "minLength": 1,
               "maxLength": 253,
-              "pattern": "^[-._a-zA-Z0-9]+$"
+              "pattern": "^$|^[-._a-zA-Z0-9]+$"
             }
           },
           "required": ["existingSecret", "usernameKey", "passwordKey"]
@@ -834,9 +832,15 @@
                 "properties": {
                   "existingSecret": {
                     "minLength": 1
+                  },
+                  "usernameKey": {
+                    "minLength": 1
+                  },
+                  "passwordKey": {
+                    "minLength": 1
                   }
                 },
-                "required": ["existingSecret"]
+                "required": ["existingSecret", "usernameKey", "passwordKey"]
               }
             },
             "required": ["basic"]

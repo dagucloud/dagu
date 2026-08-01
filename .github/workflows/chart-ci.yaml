@@ -128,7 +128,14 @@ jobs:
             --kube-version 1.35.0 \
             --set deploymentMode=distributed \
             --set persistence.accessMode=ReadWriteMany \
-            --set persistence.storageClass=nfs-client >/dev/null
+            --set persistence.storageClass=nfs-client \
+            >/tmp/dagu-distributed-render.yaml
+
+          grep -Fq 'default_execution_mode: "distributed"' /tmp/dagu-distributed-render.yaml
+          grep -Fq 'name: dagu-coordinator' /tmp/dagu-distributed-render.yaml
+          grep -Fq 'name: dagu-scheduler' /tmp/dagu-distributed-render.yaml
+          grep -Fq 'name: dagu-worker-general' /tmp/dagu-distributed-render.yaml
+          grep -Fq -- '- ReadWriteMany' /tmp/dagu-distributed-render.yaml
 
       - name: Smoke-render optional configurations
         run: |

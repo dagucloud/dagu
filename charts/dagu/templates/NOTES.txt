@@ -23,8 +23,10 @@ IMPORTANT: Dagu requires a shared filesystem (ReadWriteMany) for state persisten
 Make sure your storage class supports RWX access mode (e.g., NFS, EFS, CephFS).
 {{- end }}
 {{- if .Values.persistence.existingClaim }}
+
 Using existing PVC: {{ .Values.persistence.existingClaim }}
 {{- else if .Values.persistence.retain }}
+
 The {{ include "dagu.pvcName" . }} PVC is retained when this release is uninstalled.
 Delete it explicitly when its data is no longer needed.
 {{- end }}
@@ -44,6 +46,7 @@ Components deployed:
 {{- end }}
 
 {{- if or .Values.auth.oidc.enabled $legacyOIDC }}
+
 OIDC authentication is configured.
 {{- if $oidcClientURL }}
   Register this callback URL with the provider:
@@ -55,13 +58,22 @@ OIDC authentication is configured.
   OIDC/SSO requires an active Dagu license.
 
 {{- end }}
-{{- if or (eq .Values.auth.mode "basic") .Values.license.existingSecret .Values.auth.oidc.enabled $legacyOIDC $referencedEnv }}
-Referenced environment values are read when the pod starts.
-  After changing one of these values or its referenced Secret or ConfigMap, restart the Dagu deployments:
+{{- if or (eq .Values.auth.mode "basic") .Values.license.existingSecret .Values.auth.oidc.enabled }}
+
+Chart-managed authentication and license Secret values are read when the UI pod starts.
+  After changing a referenced Secret value, restart the UI deployment:
+  kubectl --namespace {{ .Release.Namespace }} rollout restart deployment {{ include "dagu.componentName" (dict "root" . "component" "ui") }}
+
+{{- end }}
+{{- if $referencedEnv }}
+
+Values referenced through extraEnv are read when each pod starts.
+  After changing a referenced Secret or ConfigMap value, restart all Dagu deployments:
   kubectl --namespace {{ .Release.Namespace }} rollout restart deployment --selector app.kubernetes.io/instance={{ .Release.Name }}
 
 {{- end }}
 {{- if .Values.auth.proxy.enabled }}
+
 Proxy authentication is enabled.
   Route UI traffic only through the authenticating proxy.
   Do not use kubectl port-forward, NodePort, public LoadBalancer, or any other
@@ -69,6 +81,7 @@ Proxy authentication is enabled.
   Keep ingress.enabled=false and configure the authenticated ingress or
   service-mesh route described in PROXY_AUTH.md.
 {{- else }}
+
 Access the UI:
 {{- if .Values.ingress.enabled }}
   kubectl --namespace {{ .Release.Namespace }} get ingress {{ include "dagu.componentName" (dict "root" . "component" "ui") }}
