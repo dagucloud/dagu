@@ -40,7 +40,7 @@ OIDC authentication is configured.
 {{ if or .Values.license.existingSecret .Values.auth.oidc.enabled $legacyOIDC }}
 License and OIDC environment variables are read when the pod starts.
   After changing one of these values or rotating its Secret, restart the UI:
-  kubectl rollout restart deployment/{{ include "dagu.fullname" . }}-ui
+  kubectl --namespace {{ .Release.Namespace }} rollout restart deployment/{{ include "dagu.fullname" . }}-ui
 
 {{ end }}
 {{ if .Values.auth.proxy.enabled }}
@@ -50,30 +50,30 @@ Proxy authentication is enabled.
   path that can reach the Dagu UI service without passing through that proxy.
 {{ if .Values.ingress.enabled }}
   Inspect the configured authenticated ingress:
-  kubectl get ingress {{ include "dagu.fullname" . }}-ui
+  kubectl --namespace {{ .Release.Namespace }} get ingress {{ include "dagu.fullname" . }}-ui
 {{ else }}
   Configure an authenticated ingress or service-mesh route to the UI Service.
 {{ end }}
 {{ else }}
 Access the UI:
 {{ if .Values.ingress.enabled }}
-  kubectl get ingress {{ include "dagu.fullname" . }}-ui
+  kubectl --namespace {{ .Release.Namespace }} get ingress {{ include "dagu.fullname" . }}-ui
   Configured host: {{ .Values.ingress.host }}
 {{ else if eq .Values.ui.service.type "ClusterIP" }}
-  kubectl port-forward svc/{{ include "dagu.fullname" . }}-ui 8080:8080
+  kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "dagu.fullname" . }}-ui 8080:8080
   Then visit http://localhost:8080
 {{ else }}
-  kubectl get svc {{ include "dagu.fullname" . }}-ui
+  kubectl --namespace {{ .Release.Namespace }} get svc {{ include "dagu.fullname" . }}-ui
 {{ end }}
 {{ end }}
 
 Verify installation:
-  kubectl get pods -l app.kubernetes.io/instance={{ .Release.Name }}
-  kubectl get pvc -l app.kubernetes.io/instance={{ .Release.Name }}
+  kubectl --namespace {{ .Release.Namespace }} get pods -l app.kubernetes.io/instance={{ .Release.Name }}
+  kubectl --namespace {{ .Release.Namespace }} get pvc -l app.kubernetes.io/instance={{ .Release.Name }}
 
 Troubleshooting RWX storage:
   If pods cannot start or mount the volume, check:
-  1. Verify PVC was created: kubectl get pvc {{ include "dagu.fullname" . }}-data
-  2. Check PVC status: kubectl describe pvc {{ include "dagu.fullname" . }}-data
+  1. Verify PVC was created: kubectl --namespace {{ .Release.Namespace }} get pvc {{ include "dagu.fullname" . }}-data
+  2. Check PVC status: kubectl --namespace {{ .Release.Namespace }} describe pvc {{ include "dagu.fullname" . }}-data
   3. Ensure storage class supports ReadWriteMany: kubectl get storageclass
   4. If using a custom storage class, set: --set persistence.storageClass=YOUR_STORAGE_CLASS

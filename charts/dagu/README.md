@@ -401,6 +401,8 @@ The bundled UI and API use the same host, so this setup does not require `config
 
 Ingress is disabled by default because the chart cannot know the cluster's ingress class, DNS name, or TLS Secret. The UI Service remains a `ClusterIP`. For clusters without an ingress controller, set `ui.service.type` to `LoadBalancer` or `NodePort`; `ui.service.annotations` supports provider-specific internal load-balancer settings.
 
+When `ingress.tls.enabled` is true, set `ingress.tls.secretName` to a TLS Secret or leave it empty when the ingress controller provides the default certificate.
+
 For temporary access with the defaults:
 
 ```bash

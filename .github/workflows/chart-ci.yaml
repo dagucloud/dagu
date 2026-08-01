@@ -123,7 +123,8 @@ jobs:
             --set ingress.enabled=true \
             --set-string ingress.className=nginx \
             --set-string ingress.host=dagu.example.com \
-            --set auth.proxy.enabled=true >/dev/null
+            --set auth.proxy.enabled=true \
+            --set-string 'config.corsAllowedOrigins[0]=https://app.example.com' >/dev/null
 
       - name: Package chart
         run: |

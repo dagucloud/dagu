@@ -114,6 +114,7 @@ ingress:
   pathType: Prefix
   tls:
     enabled: false
+    # Leave empty to use the ingress controller's default certificate.
     secretName: ""
 
 # Authentication configuration
