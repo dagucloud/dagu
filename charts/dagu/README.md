@@ -172,7 +172,7 @@ config:
     - https://admin.example.com
 ```
 
-Set `corsAllowedOrigins: ["*"]` only when any website should be allowed to call the API. Wildcard CORS does not allow credentials and is especially risky with `auth.mode: none`.
+Set `config.corsAllowedOrigins: ["*"]` only when any website should be allowed to call the API. Wildcard CORS does not allow credentials and is especially risky with `auth.mode: none`.
 
 ### Environment Passthrough
 
