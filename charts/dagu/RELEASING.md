@@ -23,10 +23,11 @@ The publish workflow in this repository assumes the `gh-pages` branch already ex
 
 1. Update `charts/dagu/Chart.yaml -> version`.
    Any change to packaged chart files, including `charts/dagu/README.md` and `charts/dagu/RELEASE.md`, requires a new chart version.
-2. Update `values.yaml -> image.tag` only if you want the chart default image to change from `latest` to a different tag.
+2. Set `Chart.yaml -> appVersion` to the supported Dagu image version. `values.yaml -> image.tag` normally remains empty so it inherits `appVersion`.
 3. Ensure the chart CI workflow passes:
-   - `helm lint ./charts/dagu`
-   - `helm template dagu ./charts/dagu --set persistence.storageClass=nfs-client`
+   - `helm lint --strict ./charts/dagu`
+   - `helm template dagu ./charts/dagu`
+   - `helm template dagu ./charts/dagu --set deploymentMode=distributed --set persistence.accessMode=ReadWriteMany --set persistence.storageClass=nfs-client`
    - `helm package ./charts/dagu`
 
 `charts/dagu/RELEASING.md` is ignored by `.helmignore` and is not part of the packaged chart. `charts/dagu/RELEASE.md` is packaged and becomes the GitHub release body for chart releases.

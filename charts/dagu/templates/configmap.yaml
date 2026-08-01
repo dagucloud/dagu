@@ -3,6 +3,16 @@
 {{- fail (printf "extraEnv entry %q must not configure proxy authentication; use auth.proxy values" .name) }}
 {{- end }}
 {{- end }}
+{{- if eq .Values.auth.mode "basic" }}
+{{- if empty .Values.auth.basic.existingSecret }}
+{{- fail "auth.basic.existingSecret is required when auth.mode=basic" }}
+{{- end }}
+{{- range .Values.extraEnv }}
+{{- if has .name (list "DAGU_AUTH_BASIC_USERNAME" "DAGU_AUTH_BASIC_PASSWORD") }}
+{{- fail (printf "extraEnv entry %q conflicts with auth.basic; use the configured Secret keys" .name) }}
+{{- end }}
+{{- end }}
+{{- end }}
 {{- if and .Values.license.existingSecret (empty .Values.license.secretKey) }}
 {{- fail "license.secretKey is required when license.existingSecret is set" }}
 {{- end }}
@@ -84,25 +94,25 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "dagu.fullname" . }}-config
+  name: {{ include "dagu.componentName" (dict "root" . "component" "config") }}
   labels:
     {{- include "dagu.labels" . | nindent 4 }}
 data:
   dagu.yaml: |
     # Dagu configuration rendered by the Helm chart
     # This file intentionally includes only the minimal,
-    # schema-correct configuration required to run dagu
-    # in a distributed Kubernetes environment.
+    # schema-correct configuration required to run Dagu
+    # in a {{ .Values.deploymentMode }} Kubernetes deployment.
 
     # Server / UI
     host: "0.0.0.0"
-    port: 8080
+    port: {{ .Values.ui.service.port }}
     api_base_path: "/api/v1"
 {{- with .Values.config.publicUrl }}
     public_url: {{ . | quote }}
 {{- end }}
     cors_allowed_origins: {{ .Values.config.corsAllowedOrigins | toJson }}
-    default_execution_mode: "distributed"
+    default_execution_mode: {{ ternary "distributed" "local" (eq .Values.deploymentMode "distributed") | quote }}
 {{- with .Values.config.envPassthrough }}
     env_passthrough:
 {{ toYaml . | indent 6 }}
@@ -112,7 +122,8 @@ data:
 {{ toYaml . | indent 6 }}
 {{- end }}
 
-    # Coordinator (distributed execution)
+{{- if eq .Values.deploymentMode "distributed" }}
+    # Distributed execution
     coordinator:
       host: "0.0.0.0"
       port: 50055
@@ -125,6 +136,7 @@ data:
     # Scheduler
     scheduler:
       port: 8090
+{{- end }}
 
     # Paths (MUST be under `paths`)
     paths:
@@ -210,6 +222,8 @@ data:
 {{- end }}
 {{- end }}
 
-    # Peer communication (required for distributed mode)
+{{- if eq .Values.deploymentMode "distributed" }}
+    # Peer communication
     peer:
       insecure: true
+{{- end }}

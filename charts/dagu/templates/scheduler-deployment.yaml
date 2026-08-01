@@ -1,7 +1,10 @@
+{{- if eq .Values.deploymentMode "distributed" }}
+{{- $podAnnotations := deepCopy .Values.podAnnotations }}
+{{- $_ := set $podAnnotations "checksum/config" (include (print $.Template.BasePath "/configmap.yaml") . | sha256sum) }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "dagu.fullname" . }}-scheduler
+  name: {{ include "dagu.componentName" (dict "root" . "component" "scheduler") }}
   labels:
     {{- include "dagu.labels" . | nindent 4 }}
     app.kubernetes.io/component: scheduler
@@ -9,10 +12,12 @@ spec:
   replicas: {{ .Values.scheduler.replicas }}
   selector:
     matchLabels:
-      {{- include "dagu.labels" . | nindent 6 }}
+      {{- include "dagu.selectorLabels" . | nindent 6 }}
       app.kubernetes.io/component: scheduler
   template:
     metadata:
+      annotations:
+        {{- toYaml $podAnnotations | nindent 8 }}
       labels:
         {{- include "dagu.labels" . | nindent 8 }}
         app.kubernetes.io/component: scheduler
@@ -24,9 +29,13 @@ spec:
       securityContext:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: scheduler
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          image: {{ include "dagu.image" . | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           args:
             - dagu
@@ -62,10 +71,23 @@ spec:
             periodSeconds: 5
           resources:
             {{- toYaml .Values.scheduler.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       volumes:
         - name: data
           persistentVolumeClaim:
-            claimName: {{ include "dagu.fullname" . }}-data
+            claimName: {{ include "dagu.pvcName" . }}
         - name: config
           configMap:
-            name: {{ include "dagu.fullname" . }}-config
+            name: {{ include "dagu.componentName" (dict "root" . "component" "config") }}
+{{- end }}

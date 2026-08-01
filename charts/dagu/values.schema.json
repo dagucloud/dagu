@@ -1,12 +1,124 @@
 {
   "$schema": "https://json-schema.org/draft-07/schema#",
   "type": "object",
-  "additionalProperties": true,
+  "additionalProperties": false,
+  "definitions": {
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "requests": {
+          "type": "object",
+          "additionalProperties": {
+            "type": ["string", "number"]
+          }
+        },
+        "limits": {
+          "type": "object",
+          "additionalProperties": {
+            "type": ["string", "number"]
+          }
+        }
+      }
+    },
+    "nodeSelector": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "tolerations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "affinity": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
   "properties": {
+    "nameOverride": {
+      "type": "string",
+      "maxLength": 63
+    },
+    "fullnameOverride": {
+      "type": "string",
+      "maxLength": 63
+    },
+    "deploymentMode": {
+      "type": "string",
+      "enum": ["standalone", "distributed"]
+    },
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "repository": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tag": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "pullPolicy": {
+          "type": "string",
+          "enum": ["Always", "IfNotPresent", "Never"]
+        }
+      },
+      "required": ["repository", "tag", "pullPolicy"]
+    },
+    "imagePullSecrets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": ["name"]
+      }
+    },
+    "podAnnotations": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "nodeSelector": {
+      "$ref": "#/definitions/nodeSelector"
+    },
+    "tolerations": {
+      "$ref": "#/definitions/tolerations"
+    },
+    "affinity": {
+      "$ref": "#/definitions/affinity"
+    },
+    "podSecurityContext": {
+      "type": "object",
+      "additionalProperties": true
+    },
     "config": {
       "type": "object",
-      "additionalProperties": true,
+      "additionalProperties": false,
       "properties": {
+        "publicUrl": {
+          "type": "string",
+          "anyOf": [
+            {
+              "const": ""
+            },
+            {
+              "format": "uri"
+            }
+          ]
+        },
         "corsAllowedOrigins": {
           "type": "array",
           "uniqueItems": true,
@@ -27,11 +139,144 @@
             "type": "string"
           }
         }
+      },
+      "required": ["publicUrl", "corsAllowedOrigins", "envPassthrough", "envPassthroughPrefixes"]
+    },
+    "persistence": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "const": true
+        },
+        "retain": {
+          "type": "boolean",
+          "description": "Retain the PVC when the Helm release is uninstalled."
+        },
+        "existingClaim": {
+          "type": "string",
+          "maxLength": 253,
+          "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+        },
+        "accessMode": {
+          "type": "string",
+          "enum": ["ReadWriteOnce", "ReadWriteMany"]
+        },
+        "size": {
+          "type": "string",
+          "minLength": 1
+        },
+        "storageClass": {
+          "type": "string",
+          "maxLength": 253
+        },
+        "annotations": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "required": ["enabled", "retain", "existingClaim", "accessMode", "size", "storageClass", "annotations"]
+    },
+    "scheduler": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "replicas": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "resources": {
+          "$ref": "#/definitions/resources"
+        }
+      },
+      "required": ["replicas", "resources"]
+    },
+    "coordinator": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "replicas": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "healthPort": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "resources": {
+          "$ref": "#/definitions/resources"
+        }
+      },
+      "required": ["replicas", "healthPort", "resources"]
+    },
+    "worker": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "healthPort": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "maxActiveRuns": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": ["healthPort", "maxActiveRuns"]
+    },
+    "workerPools": {
+      "type": "object",
+      "propertyNames": {
+        "maxLength": 54,
+        "pattern": "^[a-z]([a-z0-9-]*[a-z0-9])?$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "replicas": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "labels": {
+            "type": "object",
+            "additionalProperties": {
+              "type": ["string", "number", "boolean"]
+            }
+          },
+          "dataVolume": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "sizeLimit": {
+                "type": "string"
+              }
+            },
+            "required": ["sizeLimit"]
+          },
+          "resources": {
+            "$ref": "#/definitions/resources"
+          },
+          "nodeSelector": {
+            "$ref": "#/definitions/nodeSelector"
+          },
+          "tolerations": {
+            "$ref": "#/definitions/tolerations"
+          },
+          "affinity": {
+            "$ref": "#/definitions/affinity"
+          }
+        },
+        "required": ["replicas"]
       }
     },
     "ui": {
       "type": "object",
-      "additionalProperties": true,
+      "additionalProperties": false,
       "properties": {
         "replicas": {
           "type": "integer",
@@ -39,7 +284,7 @@
         },
         "service": {
           "type": "object",
-          "additionalProperties": true,
+          "additionalProperties": false,
           "properties": {
             "type": {
               "type": "string",
@@ -58,8 +303,12 @@
             }
           },
           "required": ["type", "port", "annotations"]
+        },
+        "resources": {
+          "$ref": "#/definitions/resources"
         }
-      }
+      },
+      "required": ["replicas", "service", "resources"]
     },
     "ingress": {
       "type": "object",
@@ -129,11 +378,56 @@
     },
     "auth": {
       "type": "object",
-      "additionalProperties": true,
+      "additionalProperties": false,
       "properties": {
         "mode": {
           "type": "string",
           "enum": ["none", "basic", "builtin"]
+        },
+        "basic": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "existingSecret": {
+              "type": "string",
+              "maxLength": 253,
+              "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+            },
+            "usernameKey": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 253,
+              "pattern": "^[-._a-zA-Z0-9]+$"
+            },
+            "passwordKey": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 253,
+              "pattern": "^[-._a-zA-Z0-9]+$"
+            }
+          },
+          "required": ["existingSecret", "usernameKey", "passwordKey"]
+        },
+        "builtin": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "token": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "secret": {
+                  "type": "string"
+                },
+                "ttl": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": ["secret", "ttl"]
+            }
+          },
+          "required": ["token"]
         },
         "oidc": {
           "type": "object",
@@ -470,16 +764,18 @@
         },
         "trustedProxy": false,
         "trusted_proxy": false
-      }
+      },
+      "required": ["mode", "basic", "builtin", "oidc", "proxy"]
     },
     "extraEnv": {
       "type": "array",
       "items": {
         "type": "object",
-        "additionalProperties": true,
+        "additionalProperties": false,
         "properties": {
           "name": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1
           },
           "value": {
             "type": "string"
@@ -492,9 +788,132 @@
           "name"
         ]
       }
+    },
+    "test": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "repository": {
+              "type": "string",
+              "minLength": 1
+            },
+            "tag": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "pullPolicy": {
+              "type": "string",
+              "enum": ["Always", "IfNotPresent", "Never"]
+            }
+          },
+          "required": ["repository", "tag", "pullPolicy"]
+        }
+      },
+      "required": ["image"]
     }
   },
   "allOf": [
+    {
+      "if": {
+        "properties": {
+          "auth": {
+            "properties": {
+              "mode": {
+                "const": "basic"
+              }
+            },
+            "required": ["mode"]
+          }
+        },
+        "required": ["auth"]
+      },
+      "then": {
+        "properties": {
+          "auth": {
+            "properties": {
+              "basic": {
+                "properties": {
+                  "existingSecret": {
+                    "minLength": 1
+                  }
+                },
+                "required": ["existingSecret"]
+              }
+            },
+            "required": ["basic"]
+          }
+        },
+        "required": ["auth"]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "deploymentMode": {
+            "const": "standalone"
+          }
+        },
+        "required": ["deploymentMode"]
+      },
+      "then": {
+        "properties": {
+          "ui": {
+            "properties": {
+              "replicas": {
+                "const": 1
+              }
+            },
+            "required": ["replicas"]
+          }
+        },
+        "required": ["ui"]
+      }
+    },
+    {
+      "if": {
+        "allOf": [
+          {
+            "properties": {
+              "deploymentMode": {
+                "const": "distributed"
+              }
+            },
+            "required": ["deploymentMode"]
+          },
+          {
+            "properties": {
+              "persistence": {
+                "properties": {
+                  "existingClaim": {
+                    "const": ""
+                  }
+                },
+                "required": ["existingClaim"]
+              }
+            },
+            "required": ["persistence"]
+          }
+        ]
+      },
+      "then": {
+        "properties": {
+          "persistence": {
+            "properties": {
+              "accessMode": {
+                "const": "ReadWriteMany"
+              }
+            },
+            "required": ["accessMode"]
+          }
+        },
+        "required": ["persistence"]
+      }
+    },
     {
       "if": {
         "properties": {

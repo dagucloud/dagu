@@ -1,17 +1,19 @@
+{{- if eq .Values.deploymentMode "distributed" }}
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "dagu.fullname" . }}-scheduler
+  name: {{ include "dagu.componentName" (dict "root" . "component" "scheduler") }}
   labels:
     {{- include "dagu.labels" . | nindent 4 }}
     app.kubernetes.io/component: scheduler
 spec:
   type: ClusterIP
   selector:
-    {{- include "dagu.labels" . | nindent 4 }}
+    {{- include "dagu.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: scheduler
   ports:
     - name: health
       port: 8090
       targetPort: health
       protocol: TCP
+{{- end }}

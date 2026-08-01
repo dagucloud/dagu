@@ -1,24 +1,26 @@
+{{- $podAnnotations := deepCopy .Values.podAnnotations }}
+{{- $_ := set $podAnnotations "checksum/config" (include (print $.Template.BasePath "/configmap.yaml") . | sha256sum) }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "dagu.fullname" . }}-ui
+  name: {{ include "dagu.componentName" (dict "root" . "component" "ui") }}
   labels:
     {{- include "dagu.labels" . | nindent 4 }}
     app.kubernetes.io/component: ui
 spec:
   replicas: {{ .Values.ui.replicas }}
-{{- if .Values.auth.proxy.enabled }}
+{{- if or (eq .Values.deploymentMode "standalone") .Values.auth.proxy.enabled }}
   strategy:
     type: Recreate
 {{- end }}
   selector:
     matchLabels:
-      {{- include "dagu.labels" . | nindent 6 }}
+      {{- include "dagu.selectorLabels" . | nindent 6 }}
       app.kubernetes.io/component: ui
   template:
     metadata:
       annotations:
-        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- toYaml $podAnnotations | nindent 8 }}
       labels:
         {{- include "dagu.labels" . | nindent 8 }}
         app.kubernetes.io/component: ui
@@ -30,13 +32,17 @@ spec:
       securityContext:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: ui
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          image: {{ include "dagu.image" . | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           args:
             - dagu
-            - server
+            - {{ ternary "start-all" "server" (eq .Values.deploymentMode "standalone") }}
             - --config
             - /etc/dagu/dagu.yaml
           env:
@@ -44,6 +50,18 @@ spec:
               value: /data
             - name: DAGU_PORT
               value: {{ .Values.ui.service.port | quote }}
+{{- if eq .Values.auth.mode "basic" }}
+            - name: DAGU_AUTH_BASIC_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.basic.existingSecret | quote }}
+                  key: {{ .Values.auth.basic.usernameKey | quote }}
+            - name: DAGU_AUTH_BASIC_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.basic.existingSecret | quote }}
+                  key: {{ .Values.auth.basic.passwordKey | quote }}
+{{- end }}
 {{- with .Values.license.existingSecret }}
             - name: DAGU_LICENSE_KEY
               valueFrom:
@@ -84,10 +102,22 @@ spec:
             periodSeconds: 5
           resources:
             {{- toYaml .Values.ui.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       volumes:
         - name: data
           persistentVolumeClaim:
-            claimName: {{ include "dagu.fullname" . }}-data
+            claimName: {{ include "dagu.pvcName" . }}
         - name: config
           configMap:
-            name: {{ include "dagu.fullname" . }}-config
+            name: {{ include "dagu.componentName" (dict "root" . "component" "config") }}

@@ -1,5 +1,21 @@
 apiVersion: v2
 name: dagu
-description: A DAG-based workflow engine
+description: A compact, self-contained workflow engine with a web UI
 type: application
-version: 1.0.12
+version: 2.0.0
+appVersion: "2.11.1"
+kubeVersion: ">=1.19.0-0"
+home: https://dagu.sh
+icon: https://raw.githubusercontent.com/dagucloud/dagu/main/website/public/icon.png
+sources:
+  - https://github.com/dagucloud/dagu
+maintainers:
+  - name: Dagu
+    url: https://github.com/dagucloud
+keywords:
+  - workflow
+  - scheduler
+  - dag
+  - automation
+annotations:
+  artifacthub.io/license: GPL-3.0-only

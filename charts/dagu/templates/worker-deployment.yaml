@@ -1,13 +1,23 @@
+{{- if eq .Values.deploymentMode "distributed" }}
 {{- range $poolName, $pool := .Values.workerPools }}
 {{- $dataSizeLimit := dig "dataVolume" "sizeLimit" "" $pool }}
-{{- if not (regexMatch "^[a-z][a-z0-9-]*$" $poolName) }}
-{{- fail (printf "invalid workerPool name %q: must match ^[a-z][a-z0-9-]*$" $poolName) }}
+{{- $resources := default (dict) $pool.resources }}
+{{- $nodeSelector := default $.Values.nodeSelector $pool.nodeSelector }}
+{{- $tolerations := default $.Values.tolerations $pool.tolerations }}
+{{- $affinity := default $.Values.affinity $pool.affinity }}
+{{- $podAnnotations := deepCopy $.Values.podAnnotations }}
+{{- $_ := set $podAnnotations "checksum/config" (include (print $.Template.BasePath "/configmap.yaml") $ | sha256sum) }}
+{{- if not (regexMatch "^[a-z]([a-z0-9-]*[a-z0-9])?$" $poolName) }}
+{{- fail (printf "invalid workerPool name %q: use lowercase letters, numbers, and internal hyphens" $poolName) }}
+{{- end }}
+{{- if gt (len $poolName) 54 }}
+{{- fail (printf "invalid workerPool name %q: must not exceed 54 characters" $poolName) }}
 {{- end }}
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "dagu.fullname" $ }}-worker-{{ $poolName }}
+  name: {{ include "dagu.componentName" (dict "root" $ "component" (printf "worker-%s" $poolName)) }}
   labels:
     {{- include "dagu.labels" $ | nindent 4 }}
     app.kubernetes.io/component: worker
@@ -21,6 +31,8 @@ spec:
       dagu.sh/worker-pool: {{ $poolName }}
   template:
     metadata:
+      annotations:
+        {{- toYaml $podAnnotations | nindent 8 }}
       labels:
         {{- include "dagu.labels" $ | nindent 8 }}
         app.kubernetes.io/component: worker
@@ -33,9 +45,13 @@ spec:
       securityContext:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- with $.Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: worker
-          image: "{{ $.Values.image.repository }}:{{ $.Values.image.tag }}"
+          image: {{ include "dagu.image" $ | quote }}
           imagePullPolicy: {{ $.Values.image.pullPolicy }}
           args:
             - dagu
@@ -43,7 +59,9 @@ spec:
             - --config
             - /etc/dagu/dagu.yaml
             - --worker.coordinators
-            - "{{ include "dagu.fullname" $ }}-coordinator.{{ $.Release.Namespace }}.svc.cluster.local:50055"
+            - "{{ include "dagu.componentName" (dict "root" $ "component" "coordinator") }}:50055"
+            - --worker.max-active-runs
+            - {{ $.Values.worker.maxActiveRuns | quote }}
             {{- if $pool.labels }}
             - --worker.labels
             - {{ include "dagu.workerLabels" $pool.labels | quote }}
@@ -80,16 +98,16 @@ spec:
             initialDelaySeconds: 5
             periodSeconds: 5
           resources:
-            {{- toYaml $pool.resources | nindent 12 }}
-      {{- with $pool.nodeSelector }}
+            {{- toYaml $resources | nindent 12 }}
+      {{- with $nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with $pool.tolerations }}
+      {{- with $tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with $pool.affinity }}
+      {{- with $affinity }}
       affinity:
         {{- toYaml . | nindent 8 }}
       {{- end }}
@@ -103,5 +121,6 @@ spec:
           {{- end }}
         - name: config
           configMap:
-            name: {{ include "dagu.fullname" $ }}-config
+            name: {{ include "dagu.componentName" (dict "root" $ "component" "config") }}
+{{- end }}
 {{- end }}

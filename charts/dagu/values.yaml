@@ -1,11 +1,26 @@
-# Default values for dagu
-# Dagu requires a shared filesystem (ReadWriteMany) for state persistence
+# Default values for Dagu.
+
+# Standalone runs the web UI, scheduler, and workflow executor in one pod and
+# works with a regular ReadWriteOnce volume. Distributed runs separate server,
+# scheduler, coordinator, and worker Deployments and requires ReadWriteMany.
+deploymentMode: standalone
 
 # Image configuration
 image:
   repository: ghcr.io/dagucloud/dagu
-  tag: latest
-  pullPolicy: Always
+  # Empty uses Chart.appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# Registry credentials applied to every Dagu pod.
+imagePullSecrets: []
+
+# Pod settings applied to every Dagu pod. Worker-pool scheduling values take
+# precedence when they are non-empty.
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
 
 # Top-level Dagu config additions rendered into dagu.yaml
 config:
@@ -38,7 +53,7 @@ license:
 podSecurityContext:
   fsGroup: 1000
 
-# Scheduler configuration
+# Scheduler configuration for distributed mode.
 scheduler:
   replicas: 1
   resources:
@@ -49,7 +64,7 @@ scheduler:
       memory: "512Mi"
       cpu: "500m"
 
-# Coordinator configuration (gRPC server for distributed task execution)
+# Coordinator configuration for distributed mode.
 coordinator:
   replicas: 1
   healthPort: 8091
@@ -61,11 +76,13 @@ coordinator:
       memory: "256Mi"
       cpu: "200m"
 
-# Worker pool configuration
+# Worker configuration for distributed mode.
 # Each pool creates a separate Kubernetes Deployment.
 # Pool names become part of the Deployment name: <release>-dagu-worker-<poolName>
 worker:
   healthPort: 8092
+  # Maximum concurrent DAG runs handled by each worker process.
+  maxActiveRuns: 100
 
 workerPools:
   general:
@@ -86,7 +103,8 @@ workerPools:
     tolerations: []
     affinity: {}
 
-# UI configuration
+# Server and UI configuration. In standalone mode this configures the combined
+# start-all pod and replicas must remain 1.
 ui:
   replicas: 1
   service:
@@ -99,9 +117,8 @@ ui:
     requests:
       memory: "256Mi"
       cpu: "250m"
-    limits:
-      memory: "512Mi"
-      cpu: "500m"
+    # Limits are intentionally unset because standalone workflow processes run
+    # inside this container. Set limits to match the workloads in the cluster.
 
 # Optional HTTP ingress for the Dagu UI and API. CORS is not required when
 # browsers load the UI and API through the same ingress host.
@@ -120,6 +137,11 @@ ingress:
 # Authentication configuration
 auth:
   mode: "builtin"  # Options: "none", "basic", "builtin" (default)
+  basic:
+    # Required when mode is basic. The Secret must contain both credential keys.
+    existingSecret: ""
+    usernameKey: username
+    passwordKey: password
   builtin:
     token:
       secret: ""               # optional: auto-generated at {data_dir}/auth/token_secret
@@ -169,14 +191,23 @@ auth:
       groupMappings: {}
       workspaceMappings: {}
 
-# Persistence - REQUIRED: Dagu needs a shared filesystem (RWX)
-# Use NFS, EFS, CephFS, or similar storage that supports ReadWriteMany
+# Persistent Dagu state. Standalone mode uses ReadWriteOnce by default.
+# Distributed mode requires an RWX-capable volume such as NFS, EFS, or CephFS.
 persistence:
   enabled: true
-  accessMode: ReadWriteMany
+  # Keep the PVC and its data when the Helm release is uninstalled.
+  retain: true
+  # Use an existing PVC instead of creating one. It must be in the release namespace.
+  existingClaim: ""
+  accessMode: ReadWriteOnce
   size: 10Gi
-  # Set this to your storage class that supports RWX
-  # Example: "nfs-client", "efs-sc", "cephfs"
+  # Empty uses the cluster's default StorageClass.
   storageClass: ""
-  # Skip RWX validation for local testing (Kind, Docker Desktop)
-  skipValidation: false
+  annotations: {}
+
+# Image used by `helm test`.
+test:
+  image:
+    repository: busybox
+    tag: "1.36.1"
+    pullPolicy: IfNotPresent

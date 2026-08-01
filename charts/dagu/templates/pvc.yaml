@@ -1,17 +1,26 @@
 {{- if not .Values.persistence.enabled }}
-{{- fail "Dagu requires persistence.enabled=true with a shared filesystem (ReadWriteMany)." }}
+{{- fail "Dagu requires persistence.enabled=true." }}
 {{- end }}
 
-{{- if and (ne .Values.persistence.accessMode "ReadWriteMany") (not .Values.persistence.skipValidation) }}
-{{- fail (printf "Dagu requires ReadWriteMany access mode. Current persistence.accessMode is '%s'. Use --set persistence.skipValidation=true for local testing." .Values.persistence.accessMode) }}
+{{- if and (eq .Values.deploymentMode "distributed") (empty .Values.persistence.existingClaim) (ne .Values.persistence.accessMode "ReadWriteMany") }}
+{{- fail (printf "distributed mode requires persistence.accessMode=ReadWriteMany; got %q" .Values.persistence.accessMode) }}
 {{- end }}
 
+{{- if empty .Values.persistence.existingClaim }}
+{{- $annotations := deepCopy .Values.persistence.annotations }}
+{{- if .Values.persistence.retain }}
+{{- $_ := set $annotations "helm.sh/resource-policy" "keep" }}
+{{- end }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: {{ include "dagu.fullname" . }}-data
+  name: {{ include "dagu.pvcName" . }}
   labels:
     {{- include "dagu.labels" . | nindent 4 }}
+  {{- with $annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 spec:
   accessModes:
     - {{ .Values.persistence.accessMode }}
@@ -21,3 +30,4 @@ spec:
   {{- if .Values.persistence.storageClass }}
   storageClassName: {{ .Values.persistence.storageClass }}
   {{- end }}
+{{- end }}

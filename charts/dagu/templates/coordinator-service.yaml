@@ -1,17 +1,19 @@
+{{- if eq .Values.deploymentMode "distributed" }}
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "dagu.fullname" . }}-coordinator
+  name: {{ include "dagu.componentName" (dict "root" . "component" "coordinator") }}
   labels:
     {{- include "dagu.labels" . | nindent 4 }}
     app.kubernetes.io/component: coordinator
 spec:
   type: ClusterIP
   selector:
-    {{- include "dagu.labels" . | nindent 4 }}
+    {{- include "dagu.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: coordinator
   ports:
     - name: grpc
       port: 50055
       targetPort: grpc
       protocol: TCP
+{{- end }}

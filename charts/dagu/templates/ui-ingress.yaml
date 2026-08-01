@@ -2,7 +2,7 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: {{ include "dagu.fullname" . }}-ui
+  name: {{ include "dagu.componentName" (dict "root" . "component" "ui") }}
   labels:
     {{- include "dagu.labels" . | nindent 4 }}
     app.kubernetes.io/component: ui
@@ -30,7 +30,7 @@ spec:
             pathType: {{ .Values.ingress.pathType }}
             backend:
               service:
-                name: {{ include "dagu.fullname" . }}-ui
+                name: {{ include "dagu.componentName" (dict "root" . "component" "ui") }}
                 port:
                   name: http
 {{- end }}

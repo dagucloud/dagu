@@ -17,63 +17,83 @@
 {{- end -}}
 Dagu has been installed successfully 🎉
 
+Deployment mode: {{ .Values.deploymentMode }}
+{{- if eq .Values.deploymentMode "distributed" }}
 IMPORTANT: Dagu requires a shared filesystem (ReadWriteMany) for state persistence.
 Make sure your storage class supports RWX access mode (e.g., NFS, EFS, CephFS).
+{{- end }}
+{{- if .Values.persistence.existingClaim }}
+Using existing PVC: {{ .Values.persistence.existingClaim }}
+{{- else if .Values.persistence.retain }}
+The {{ include "dagu.pvcName" . }} PVC is retained when this release is uninstalled.
+Delete it explicitly when its data is no longer needed.
+{{- end }}
 
 Components deployed:
+{{- if eq .Values.deploymentMode "standalone" }}
+  Dagu server, scheduler, and local executor: {{ .Values.ui.replicas }} replica
+{{- else }}
+  UI: {{ .Values.ui.replicas }} replica(s)
   Scheduler: {{ .Values.scheduler.replicas }} replica(s)
+  Coordinator: {{ .Values.coordinator.replicas }} replica(s)
   Worker Pools:
   {{- range $poolName, $pool := .Values.workerPools }}
     - {{ $poolName }}: {{ $pool.replicas }} replica(s)
       {{- if $pool.labels }} (labels: {{ include "dagu.workerLabels" $pool.labels }}){{- end }}
   {{- end }}
-  UI: {{ .Values.ui.replicas }} replica(s)
+{{- end }}
 
-{{ if or .Values.auth.oidc.enabled $legacyOIDC }}
+{{- if or .Values.auth.oidc.enabled $legacyOIDC }}
 OIDC authentication is configured.
-{{ if $oidcClientURL }}
+{{- if $oidcClientURL }}
   Register this callback URL with the provider:
   {{ trimSuffix "/" $oidcClientURL }}/oidc-callback
-{{ else }}
+{{- else }}
   Register the value of DAGU_AUTH_OIDC_CLIENT_URL plus /oidc-callback with the provider.
-{{ end }}
+{{- end }}
   Complete builtin administrator setup before the first OIDC login.
   OIDC/SSO requires an active Dagu license.
 
-{{ end }}
-{{ if or .Values.license.existingSecret .Values.auth.oidc.enabled $legacyOIDC $legacyReloadRequired }}
-License and OIDC environment variables are read when the pod starts.
+{{- end }}
+{{- if or (eq .Values.auth.mode "basic") .Values.license.existingSecret .Values.auth.oidc.enabled $legacyOIDC $legacyReloadRequired }}
+Secret-backed environment variables are read when the pod starts.
   After changing one of these values or its referenced Secret or ConfigMap, restart the UI:
-  kubectl --namespace {{ .Release.Namespace }} rollout restart deployment/{{ include "dagu.fullname" . }}-ui
+  kubectl --namespace {{ .Release.Namespace }} rollout restart deployment/{{ include "dagu.componentName" (dict "root" . "component" "ui") }}
 
-{{ end }}
-{{ if .Values.auth.proxy.enabled }}
+{{- end }}
+{{- if .Values.auth.proxy.enabled }}
 Proxy authentication is enabled.
   Route UI traffic only through the authenticating proxy.
   Do not use kubectl port-forward, NodePort, public LoadBalancer, or any other
   path that can reach the Dagu UI service without passing through that proxy.
   Keep ingress.enabled=false and configure the authenticated ingress or
   service-mesh route described in PROXY_AUTH.md.
-{{ else }}
+{{- else }}
 Access the UI:
-{{ if .Values.ingress.enabled }}
-  kubectl --namespace {{ .Release.Namespace }} get ingress {{ include "dagu.fullname" . }}-ui
+{{- if .Values.ingress.enabled }}
+  kubectl --namespace {{ .Release.Namespace }} get ingress {{ include "dagu.componentName" (dict "root" . "component" "ui") }}
   Configured host: {{ .Values.ingress.host }}
-{{ else if eq .Values.ui.service.type "ClusterIP" }}
-  kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "dagu.fullname" . }}-ui {{ .Values.ui.service.port }}:{{ .Values.ui.service.port }}
+{{- else if eq .Values.ui.service.type "ClusterIP" }}
+  kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "dagu.componentName" (dict "root" . "component" "ui") }} {{ .Values.ui.service.port }}:{{ .Values.ui.service.port }}
   Then visit http://localhost:{{ .Values.ui.service.port }}
-{{ else }}
-  kubectl --namespace {{ .Release.Namespace }} get svc {{ include "dagu.fullname" . }}-ui
-{{ end }}
-{{ end }}
+{{- else }}
+  kubectl --namespace {{ .Release.Namespace }} get svc {{ include "dagu.componentName" (dict "root" . "component" "ui") }}
+{{- end }}
+{{- end }}
 
 Verify installation:
   kubectl --namespace {{ .Release.Namespace }} get pods -l app.kubernetes.io/instance={{ .Release.Name }}
+{{- if .Values.persistence.existingClaim }}
+  kubectl --namespace {{ .Release.Namespace }} get pvc {{ .Values.persistence.existingClaim }}
+{{- else }}
   kubectl --namespace {{ .Release.Namespace }} get pvc -l app.kubernetes.io/instance={{ .Release.Name }}
+{{- end }}
 
-Troubleshooting RWX storage:
+Troubleshooting storage:
   If pods cannot start or mount the volume, check:
-  1. Verify PVC was created: kubectl --namespace {{ .Release.Namespace }} get pvc {{ include "dagu.fullname" . }}-data
-  2. Check PVC status: kubectl --namespace {{ .Release.Namespace }} describe pvc {{ include "dagu.fullname" . }}-data
-  3. Ensure storage class supports ReadWriteMany: kubectl get storageclass
-  4. If using a custom storage class, set: --set persistence.storageClass=YOUR_STORAGE_CLASS
+  1. Verify PVC status: kubectl --namespace {{ .Release.Namespace }} get pvc {{ include "dagu.pvcName" . }}
+  2. Inspect events: kubectl --namespace {{ .Release.Namespace }} describe pvc {{ include "dagu.pvcName" . }}
+  3. List available storage classes: kubectl get storageclass
+{{- if eq .Values.deploymentMode "distributed" }}
+  4. Confirm the selected storage class supports ReadWriteMany.
+{{- end }}

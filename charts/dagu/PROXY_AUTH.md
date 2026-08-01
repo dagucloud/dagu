@@ -220,8 +220,9 @@ Also verify a valid browser login, group mapping, strict no-match denial, and a
 disabled account before exposing the service broadly.
 
 Chart upgrades briefly interrupt the UI while proxy authentication is enabled
-because the old UI pod is stopped before its replacement starts. Scheduler,
-coordinator, and worker upgrade strategies are unchanged.
+because the old UI pod is stopped before its replacement starts. Standalone
+mode already uses the same `Recreate` strategy for its single PVC-backed pod;
+distributed scheduler, coordinator, and worker strategies are unchanged.
 
 ## Account lifecycle and recovery
 

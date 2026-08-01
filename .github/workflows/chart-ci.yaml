@@ -10,7 +10,9 @@ on:
       - "charts/dagu/values.schema.json"
       - "charts/dagu/.helmignore"
       - "charts/dagu/README.md"
+      - "charts/dagu/PROXY_AUTH.md"
       - "charts/dagu/RELEASE.md"
+      - "charts/dagu/examples/**"
       - "charts/dagu/LICENSE*"
       - "charts/dagu/templates/**"
       - "charts/dagu/charts/**"
@@ -28,7 +30,9 @@ on:
       - "charts/dagu/values.schema.json"
       - "charts/dagu/.helmignore"
       - "charts/dagu/README.md"
+      - "charts/dagu/PROXY_AUTH.md"
       - "charts/dagu/RELEASE.md"
+      - "charts/dagu/examples/**"
       - "charts/dagu/LICENSE*"
       - "charts/dagu/templates/**"
       - "charts/dagu/charts/**"
@@ -73,7 +77,9 @@ jobs:
             charts/dagu/values.schema.json \
             charts/dagu/.helmignore \
             charts/dagu/README.md \
+            charts/dagu/PROXY_AUTH.md \
             charts/dagu/RELEASE.md \
+            charts/dagu/examples \
             charts/dagu/LICENSE* \
             charts/dagu/templates \
             charts/dagu/charts \
@@ -102,15 +108,23 @@ jobs:
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
 
       - name: Lint chart
-        run: helm lint ./charts/dagu
+        run: helm lint --strict ./charts/dagu
 
-      - name: Render chart
-        run: helm template dagu ./charts/dagu --set persistence.storageClass=nfs-client >/dev/null
+      - name: Render standalone defaults
+        run: helm template dagu ./charts/dagu --namespace dagu >/dev/null
+
+      - name: Render distributed mode
+        run: |
+          helm template dagu ./charts/dagu \
+            --namespace dagu \
+            --set deploymentMode=distributed \
+            --set persistence.accessMode=ReadWriteMany \
+            --set persistence.storageClass=nfs-client >/dev/null
 
       - name: Smoke-render optional configurations
         run: |
           helm template dagu ./charts/dagu \
-            --set persistence.storageClass=nfs-client \
+            --namespace dagu \
             --set-string license.existingSecret=dagu-license \
             --set auth.oidc.enabled=true \
             --set-string auth.oidc.clientId=ci-client \
@@ -124,6 +138,22 @@ jobs:
             --set-string ingress.className=nginx \
             --set-string ingress.host=dagu.example.com \
             --set-string 'config.corsAllowedOrigins[0]=https://app.example.com' >/dev/null
+
+          helm template dagu ./charts/dagu \
+            --namespace dagu \
+            --set auth.proxy.enabled=true \
+            --set-string auth.proxy.source=oauth2-proxy >/dev/null
+
+          helm template dagu ./charts/dagu \
+            --namespace dagu \
+            --set auth.mode=basic \
+            --set-string auth.basic.existingSecret=dagu-basic-auth >/dev/null
+
+          helm template dagu ./charts/dagu \
+            --namespace dagu \
+            --set ui.service.port=9000 \
+            --set persistence.retain=false \
+            --set-string persistence.existingClaim=existing-dagu-data >/dev/null
 
       - name: Package chart
         run: |
