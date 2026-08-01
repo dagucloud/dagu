@@ -83,6 +83,11 @@ func (e *Event) Normalize() {
 	if e == nil {
 		return
 	}
+	if e.Kind == KindDAGRun &&
+		e.Type == TypeDAGRunSucceeded &&
+		e.Status == core.PartiallySucceeded.String() {
+		e.Type = TypeDAGRunPartiallySucceeded
+	}
 	if !e.RecordedAt.IsZero() {
 		e.RecordedAt = e.RecordedAt.UTC()
 	}
