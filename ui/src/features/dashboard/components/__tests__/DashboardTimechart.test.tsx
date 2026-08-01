@@ -3,7 +3,7 @@
 
 import { render } from '@testing-library/react';
 import React from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { components, Status, StatusLabel } from '@/api/v1/schema';
 import DashboardTimeChart from '../DashboardTimechart';
 
@@ -59,8 +59,15 @@ beforeEach(() => {
   timelineState.dataSet = null;
 });
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 describe('DashboardTimeChart', () => {
   it('renders a running DAG run without a finished timestamp', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-01T02:00:00Z'));
+
     const runningDAGRun: DAGRunSummary = {
       dagRunId: 'run-1',
       name: 'long-running-dag',
@@ -90,6 +97,8 @@ describe('DashboardTimeChart', () => {
         content: 'long-running-dag',
       })
     );
-    expect(items[0]?.end.getTime()).not.toBeNaN();
+    expect(items[0]?.end.getTime()).toBe(
+      new Date('2026-08-01T02:00:00Z').getTime()
+    );
   });
 });
