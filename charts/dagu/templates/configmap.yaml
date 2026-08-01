@@ -125,6 +125,7 @@ data:
 {{- if eq .Values.deploymentMode "distributed" }}
     # Distributed execution
     coordinator:
+      enabled: true
       host: "0.0.0.0"
       port: 50055
       health_port: {{ .Values.coordinator.healthPort }}
@@ -136,6 +137,9 @@ data:
     # Scheduler
     scheduler:
       port: 8090
+{{- else }}
+    coordinator:
+      enabled: false
 {{- end }}
 
     # Paths (MUST be under `paths`)

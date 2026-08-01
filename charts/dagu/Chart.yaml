@@ -18,4 +18,4 @@ keywords:
   - dag
   - automation
 annotations:
-  artifacthub.io/license: GPL-3.0-only
+  artifacthub.io/license: GPL-3.0-or-later
