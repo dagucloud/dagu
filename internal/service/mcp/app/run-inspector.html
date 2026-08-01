@@ -638,14 +638,21 @@
 
         async function loadRunResource(uri = runIdentity.runUri) {
           if (!uri) return;
-          if (runIdentity.runUri && runIdentity.runUri !== uri) {
+          const previousRunURI = runIdentity.runUri;
+          runIdentity = {};
+          updateResourceURI(uri);
+          if (previousRunURI && previousRunURI !== runIdentity.runUri) {
+            latestRun = null;
             elements.logsSection.classList.add("hidden");
           }
-          runIdentity.runUri = uri;
-          runIdentity.logsUri = `${uri}/logs`;
+          if (!runIdentity.runUri) {
+            setControls(latestRun);
+            setMessage("The selected run did not provide a valid resource URI.", true);
+            return;
+          }
           setBusy(true);
           try {
-            const result = await request("resources/read", { uri });
+            const result = await request("resources/read", { uri: runIdentity.runUri });
             const data = resourceJSON(result);
             renderRun(data?.dagRunDetails || data);
           } catch (error) {
@@ -810,6 +817,12 @@
           }
           if (message.id !== undefined && message.method === "ui/resource-teardown") {
             respond(message.id, {});
+            initialized = false;
+            resizeObserver.disconnect();
+            for (const waiter of pending.values()) {
+              window.clearTimeout(waiter.timer);
+            }
+            pending.clear();
             return;
           }
           if (message.method === "ui/notifications/tool-input") {
