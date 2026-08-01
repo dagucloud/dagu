@@ -170,6 +170,8 @@ Dagu has a built-in MCP endpoint for clients that need to inspect workflows or c
 http://localhost:8080/mcp
 ```
 
+MCP Apps hosts can render run-related `dagu_read` and `dagu_execute` results in an interactive inspector with step status, logs, refresh, stop, and retry controls. Other MCP clients continue to receive the same text and structured results.
+
 For workflow-authoring help in Claude Code, Codex, Gemini CLI, and other coding tools, install the Dagu skill:
 
 ```sh

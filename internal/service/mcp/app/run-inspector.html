@@ -1,0 +1,817 @@
+<!--
+  Copyright (C) 2026 Yota Hamada
+  SPDX-License-Identifier: GPL-3.0-or-later
+-->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Dagu run inspector</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --dagu-bg: var(--color-background-primary, light-dark(#ffffff, #171717));
+        --dagu-bg-subtle: var(--color-background-secondary, light-dark(#f6f7f9, #222326));
+        --dagu-text: var(--color-text-primary, light-dark(#18181b, #f4f4f5));
+        --dagu-muted: var(--color-text-secondary, light-dark(#64646e, #a4a4ad));
+        --dagu-border: var(--color-border-secondary, light-dark(#dedee3, #3a3a40));
+        --dagu-accent: var(--color-text-info, light-dark(#175cd3, #84adff));
+        --dagu-success: var(--color-text-success, light-dark(#067647, #75e0a7));
+        --dagu-danger: var(--color-text-danger, light-dark(#b42318, #fda29b));
+        --dagu-warning: var(--color-text-warning, light-dark(#b54708, #fec84b));
+        --dagu-font: var(--font-sans, ui-sans-serif, system-ui, sans-serif);
+        --dagu-mono: var(--font-mono, ui-monospace, SFMono-Regular, Consolas, monospace);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        min-width: 0;
+        background: transparent;
+        color: var(--dagu-text);
+        font-family: var(--dagu-font);
+        font-size: 14px;
+      }
+
+      button {
+        border: 1px solid var(--dagu-border);
+        border-radius: 7px;
+        background: var(--dagu-bg);
+        color: var(--dagu-text);
+        cursor: pointer;
+        font: inherit;
+        font-size: 12px;
+        font-weight: 600;
+        padding: 6px 10px;
+      }
+
+      button:hover:not(:disabled) {
+        border-color: var(--dagu-accent);
+        color: var(--dagu-accent);
+      }
+
+      button:disabled {
+        cursor: wait;
+        opacity: 0.55;
+      }
+
+      .app {
+        background: var(--dagu-bg);
+        border-radius: 10px;
+        overflow: hidden;
+        width: 100%;
+      }
+
+      .header {
+        align-items: flex-start;
+        display: flex;
+        gap: 12px;
+        justify-content: space-between;
+        padding: 14px 16px 10px;
+      }
+
+      .eyebrow {
+        color: var(--dagu-muted);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        margin-bottom: 4px;
+        text-transform: uppercase;
+      }
+
+      h1 {
+        font-size: 17px;
+        line-height: 1.3;
+        margin: 0;
+        overflow-wrap: anywhere;
+      }
+
+      .run-id {
+        color: var(--dagu-muted);
+        font-family: var(--dagu-mono);
+        font-size: 11px;
+        margin-top: 3px;
+        overflow-wrap: anywhere;
+      }
+
+      .status {
+        background: var(--dagu-bg-subtle);
+        border: 1px solid var(--dagu-border);
+        border-radius: 999px;
+        flex: none;
+        font-size: 11px;
+        font-weight: 700;
+        padding: 4px 8px;
+      }
+
+      .status.success {
+        color: var(--dagu-success);
+      }
+
+      .status.danger {
+        color: var(--dagu-danger);
+      }
+
+      .status.warning {
+        color: var(--dagu-warning);
+      }
+
+      .status.info {
+        color: var(--dagu-accent);
+      }
+
+      .summary {
+        display: grid;
+        gap: 1px;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        background: var(--dagu-border);
+        border-block: 1px solid var(--dagu-border);
+      }
+
+      .metric {
+        background: var(--dagu-bg-subtle);
+        min-width: 0;
+        padding: 9px 12px;
+      }
+
+      .metric-label {
+        color: var(--dagu-muted);
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+      }
+
+      .metric-value {
+        font-size: 12px;
+        margin-top: 3px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 7px;
+        padding: 10px 16px;
+      }
+
+      .section {
+        border-top: 1px solid var(--dagu-border);
+        padding: 12px 16px 14px;
+      }
+
+      .section-title {
+        align-items: center;
+        display: flex;
+        font-size: 12px;
+        font-weight: 700;
+        justify-content: space-between;
+        margin-bottom: 8px;
+      }
+
+      .count {
+        color: var(--dagu-muted);
+        font-weight: 500;
+      }
+
+      .steps,
+      .runs {
+        display: grid;
+        gap: 6px;
+      }
+
+      .step,
+      .run {
+        align-items: center;
+        background: var(--dagu-bg-subtle);
+        border-radius: 7px;
+        display: grid;
+        gap: 8px;
+        grid-template-columns: 8px minmax(0, 1fr) auto;
+        padding: 8px 10px;
+      }
+
+      .dot {
+        background: var(--dagu-muted);
+        border-radius: 999px;
+        height: 8px;
+        width: 8px;
+      }
+
+      .dot.success {
+        background: var(--dagu-success);
+      }
+
+      .dot.danger {
+        background: var(--dagu-danger);
+      }
+
+      .dot.warning {
+        background: var(--dagu-warning);
+      }
+
+      .dot.info {
+        background: var(--dagu-accent);
+      }
+
+      .step-name,
+      .run-name {
+        font-size: 12px;
+        font-weight: 600;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .step-status,
+      .run-status {
+        color: var(--dagu-muted);
+        font-size: 11px;
+      }
+
+      .run {
+        border: 0;
+        color: inherit;
+        grid-template-columns: 8px minmax(0, 1fr) auto;
+        padding: 9px 10px;
+        text-align: left;
+        width: 100%;
+      }
+
+      .run:hover:not(:disabled) {
+        color: inherit;
+        outline: 1px solid var(--dagu-accent);
+      }
+
+      pre {
+        background: var(--dagu-bg-subtle);
+        border-radius: 7px;
+        color: var(--dagu-text);
+        font-family: var(--dagu-mono);
+        font-size: 11px;
+        line-height: 1.55;
+        margin: 0;
+        max-height: 280px;
+        overflow: auto;
+        padding: 10px;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
+      .message {
+        color: var(--dagu-muted);
+        line-height: 1.5;
+        padding: 16px;
+      }
+
+      .message.error {
+        color: var(--dagu-danger);
+      }
+
+      .hidden {
+        display: none;
+      }
+
+      @media (max-width: 420px) {
+        .summary {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="app" aria-live="polite">
+      <div class="header">
+        <div>
+          <div class="eyebrow">Dagu run</div>
+          <h1 id="run-name">Connecting…</h1>
+          <div class="run-id" id="run-id"></div>
+        </div>
+        <div class="status hidden" id="run-status"></div>
+      </div>
+
+      <div class="summary hidden" id="summary">
+        <div class="metric">
+          <div class="metric-label">Started</div>
+          <div class="metric-value" id="started-at">—</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Finished</div>
+          <div class="metric-value" id="finished-at">—</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Steps</div>
+          <div class="metric-value" id="step-count">—</div>
+        </div>
+      </div>
+
+      <div class="actions hidden" id="actions">
+        <button id="refresh" type="button">Refresh</button>
+        <button id="logs" type="button">Logs</button>
+        <button class="hidden" id="stop" type="button">Stop</button>
+        <button class="hidden" id="retry" type="button">Retry</button>
+      </div>
+
+      <div class="section hidden" id="steps-section">
+        <div class="section-title">
+          <span>Steps</span><span class="count" id="steps-count"></span>
+        </div>
+        <div class="steps" id="steps"></div>
+      </div>
+
+      <div class="section hidden" id="runs-section">
+        <div class="section-title"><span>Recent runs</span></div>
+        <div class="runs" id="runs"></div>
+      </div>
+
+      <div class="section hidden" id="logs-section">
+        <div class="section-title"><span>Logs</span></div>
+        <pre id="log-output"></pre>
+      </div>
+
+      <div class="message" id="message">Waiting for the tool result…</div>
+    </main>
+
+    <script>
+      (() => {
+        "use strict";
+
+        const appInfo = { name: "Dagu run inspector", version: "1.0.0" };
+        const protocolVersion = "2026-01-26";
+        const pending = new Map();
+        let nextRequestID = 1;
+        let initialized = false;
+        let hostCapabilities = {};
+        let runIdentity = {};
+        let latestRun = null;
+        let busy = false;
+
+        const elements = {
+          actions: document.getElementById("actions"),
+          finishedAt: document.getElementById("finished-at"),
+          logs: document.getElementById("logs"),
+          logsSection: document.getElementById("logs-section"),
+          logOutput: document.getElementById("log-output"),
+          message: document.getElementById("message"),
+          refresh: document.getElementById("refresh"),
+          retry: document.getElementById("retry"),
+          runID: document.getElementById("run-id"),
+          runName: document.getElementById("run-name"),
+          runs: document.getElementById("runs"),
+          runsSection: document.getElementById("runs-section"),
+          startedAt: document.getElementById("started-at"),
+          status: document.getElementById("run-status"),
+          stepCount: document.getElementById("step-count"),
+          steps: document.getElementById("steps"),
+          stepsCount: document.getElementById("steps-count"),
+          stepsSection: document.getElementById("steps-section"),
+          stop: document.getElementById("stop"),
+          summary: document.getElementById("summary"),
+        };
+
+        function post(message) {
+          window.parent.postMessage(message, "*");
+        }
+
+        function notify(method, params) {
+          const message = { jsonrpc: "2.0", method };
+          if (params !== undefined) message.params = params;
+          post(message);
+        }
+
+        function request(method, params) {
+          const id = nextRequestID++;
+          post({ jsonrpc: "2.0", id, method, params });
+          return new Promise((resolve, reject) => {
+            const timer = window.setTimeout(() => {
+              pending.delete(id);
+              reject(new Error("The host did not respond in time."));
+            }, 30000);
+            pending.set(id, { resolve, reject, timer });
+          });
+        }
+
+        function respond(id, result) {
+          post({ jsonrpc: "2.0", id, result });
+        }
+
+        function text(value, fallback = "") {
+          if (typeof value === "string" && value.trim()) return value;
+          if (typeof value === "number") return String(value);
+          return fallback;
+        }
+
+        function statusClass(label) {
+          const value = text(label).toLowerCase();
+          if (value.includes("success")) return "success";
+          if (value.includes("fail") || value.includes("abort") || value.includes("reject")) return "danger";
+          if (value.includes("running") || value.includes("retry")) return "info";
+          if (value.includes("queue") || value.includes("wait")) return "warning";
+          return "";
+        }
+
+        function formatTime(value) {
+          if (!value) return "—";
+          const date = new Date(value);
+          if (Number.isNaN(date.getTime())) return text(value, "—");
+          return new Intl.DateTimeFormat(undefined, {
+            dateStyle: "short",
+            timeStyle: "medium",
+          }).format(date);
+        }
+
+        function contentText(result) {
+          const item = Array.isArray(result?.content)
+            ? result.content.find((entry) => entry?.type === "text")
+            : null;
+          return text(item?.text, "Dagu returned a result.");
+        }
+
+        function setMessage(message, error = false) {
+          elements.message.textContent = message;
+          elements.message.classList.toggle("error", error);
+          elements.message.classList.remove("hidden");
+        }
+
+        function hideMessage() {
+          elements.message.classList.add("hidden");
+          elements.message.classList.remove("error");
+        }
+
+        function updateIdentity(value) {
+          if (!value || typeof value !== "object") return;
+          const name = text(value.name || value.dagName);
+          const dagRunID = text(value.dagRunId);
+          const runURI = text(value.runUri || value.uri);
+          const logsURI = text(value.logsUri);
+          if (name) runIdentity.name = name;
+          if (dagRunID) runIdentity.dagRunId = dagRunID;
+          if (runURI.startsWith("dagu://runs/")) runIdentity.runUri = runURI;
+          if (logsURI.startsWith("dagu://runs/")) runIdentity.logsUri = logsURI;
+          if (!runIdentity.logsUri && runIdentity.runUri) {
+            runIdentity.logsUri = `${runIdentity.runUri}/logs`;
+          }
+        }
+
+        function updateIdentityFromInput(args) {
+          updateIdentity(args);
+          if (text(args?.uri).startsWith("dagu://runs/")) {
+            const uri = text(args.uri);
+            if (uri.includes("/logs")) runIdentity.logsUri = uri;
+            else runIdentity.runUri = uri;
+          }
+          if (!runIdentity.runUri && runIdentity.name && runIdentity.dagRunId) {
+            runIdentity.runUri = `dagu://runs/${encodeURIComponent(runIdentity.name)}/${encodeURIComponent(runIdentity.dagRunId)}`;
+          }
+          if (!runIdentity.logsUri && runIdentity.runUri) {
+            runIdentity.logsUri = `${runIdentity.runUri}/logs`;
+          }
+        }
+
+        function setControls(run) {
+          const label = text(run?.statusLabel).toLowerCase();
+          const canCallTools = Boolean(hostCapabilities?.serverTools);
+          elements.actions.classList.toggle("hidden", !runIdentity.runUri && !runIdentity.name);
+          elements.refresh.disabled = busy || !runIdentity.runUri || !hostCapabilities?.serverResources;
+          elements.logs.disabled = busy || !runIdentity.logsUri || !hostCapabilities?.serverResources;
+          elements.stop.disabled = busy || !canCallTools;
+          elements.retry.disabled = busy || !canCallTools;
+          elements.stop.classList.toggle(
+            "hidden",
+            !label.includes("running") && !label.includes("queue") && !label.includes("wait"),
+          );
+          elements.retry.classList.toggle(
+            "hidden",
+            !label.includes("fail") && !label.includes("abort") && !label.includes("reject"),
+          );
+        }
+
+        function renderRun(run) {
+          latestRun = run || {};
+          updateIdentity(run);
+          const name = text(run?.name || runIdentity.name, "Dagu run");
+          const id = text(run?.dagRunId || runIdentity.dagRunId);
+          const label = text(run?.statusLabel, "Unknown");
+          const nodes = Array.isArray(run?.nodes) ? run.nodes : [];
+
+          elements.runName.textContent = name;
+          elements.runID.textContent = id;
+          elements.status.textContent = label;
+          elements.status.className = `status ${statusClass(label)}`.trim();
+          elements.summary.classList.remove("hidden");
+          elements.startedAt.textContent = formatTime(run?.startedAt || run?.queuedAt);
+          elements.finishedAt.textContent = formatTime(run?.finishedAt);
+          elements.stepCount.textContent = nodes.length ? String(nodes.length) : "—";
+          setControls(run);
+          elements.runsSection.classList.add("hidden");
+
+          elements.steps.replaceChildren();
+          elements.stepsSection.classList.toggle("hidden", nodes.length === 0);
+          elements.stepsCount.textContent = nodes.length ? String(nodes.length) : "";
+          for (const [index, node] of nodes.entries()) {
+            const row = document.createElement("div");
+            row.className = "step";
+
+            const dot = document.createElement("span");
+            dot.className = `dot ${statusClass(node?.statusLabel)}`.trim();
+
+            const stepName = document.createElement("span");
+            stepName.className = "step-name";
+            stepName.textContent = text(node?.step?.name || node?.step?.id, `Step ${index + 1}`);
+
+            const stepStatus = document.createElement("span");
+            stepStatus.className = "step-status";
+            stepStatus.textContent = text(node?.statusLabel, "Unknown");
+
+            row.append(dot, stepName, stepStatus);
+            elements.steps.append(row);
+          }
+          hideMessage();
+        }
+
+        function renderRunList(items) {
+          const runs = Array.isArray(items) ? items : [];
+          elements.runName.textContent = "Recent runs";
+          elements.runID.textContent = "";
+          elements.status.classList.add("hidden");
+          elements.summary.classList.add("hidden");
+          elements.actions.classList.add("hidden");
+          elements.stepsSection.classList.add("hidden");
+          elements.logsSection.classList.add("hidden");
+          elements.runs.replaceChildren();
+          elements.runsSection.classList.toggle("hidden", runs.length === 0);
+
+          for (const run of runs.slice(0, 20)) {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "run";
+            button.addEventListener("click", () => loadRunResource(text(run?.uri)));
+
+            const dot = document.createElement("span");
+            dot.className = `dot ${statusClass(run?.statusLabel)}`.trim();
+
+            const name = document.createElement("span");
+            name.className = "run-name";
+            name.textContent = text(run?.name, "Unnamed DAG");
+
+            const status = document.createElement("span");
+            status.className = "run-status";
+            status.textContent = text(run?.statusLabel, "Unknown");
+
+            button.append(dot, name, status);
+            elements.runs.append(button);
+          }
+
+          if (runs.length) hideMessage();
+          else setMessage("No runs matched this request.");
+        }
+
+        function logText(data) {
+          if (typeof data === "string") return data;
+          if (typeof data?.content === "string") return data.content;
+          if (typeof data?.log?.content === "string") return data.log.content;
+          if (Array.isArray(data?.logs)) {
+            return data.logs.map((entry) => logText(entry)).filter(Boolean).join("\n");
+          }
+          try {
+            return JSON.stringify(data, null, 2);
+          } catch {
+            return String(data ?? "");
+          }
+        }
+
+        function renderLogs(data) {
+          elements.logsSection.classList.remove("hidden");
+          elements.logOutput.textContent = logText(data) || "No log output is available.";
+          hideMessage();
+        }
+
+        function resourceJSON(result) {
+          const content = Array.isArray(result?.contents)
+            ? result.contents.find((entry) => typeof entry?.text === "string")
+            : null;
+          if (!content) throw new Error("The resource did not contain JSON text.");
+          return JSON.parse(content.text);
+        }
+
+        async function loadRunResource(uri = runIdentity.runUri) {
+          if (!uri) return;
+          if (runIdentity.runUri && runIdentity.runUri !== uri) {
+            elements.logsSection.classList.add("hidden");
+          }
+          runIdentity.runUri = uri;
+          runIdentity.logsUri = `${uri}/logs`;
+          setBusy(true);
+          try {
+            const result = await request("resources/read", { uri });
+            const data = resourceJSON(result);
+            renderRun(data?.dagRunDetails || data);
+          } catch (error) {
+            setMessage(error instanceof Error ? error.message : String(error), true);
+          } finally {
+            setBusy(false);
+          }
+        }
+
+        async function loadLogs() {
+          if (!runIdentity.logsUri) return;
+          setBusy(true);
+          try {
+            const separator = runIdentity.logsUri.includes("?") ? "&" : "?";
+            const result = await request("resources/read", {
+              uri: `${runIdentity.logsUri}${separator}tail=200`,
+            });
+            renderLogs(resourceJSON(result));
+          } catch (error) {
+            setMessage(error instanceof Error ? error.message : String(error), true);
+          } finally {
+            setBusy(false);
+          }
+        }
+
+        async function execute(action) {
+          if (!runIdentity.name || !runIdentity.dagRunId) return;
+          setBusy(true);
+          try {
+            const result = await request("tools/call", {
+              name: "dagu_execute",
+              arguments: {
+                action,
+                targetType: "run",
+                name: runIdentity.name,
+                dagRunId: runIdentity.dagRunId,
+              },
+            });
+            if (result?.isError) throw new Error(contentText(result));
+            await loadRunResource();
+          } catch (error) {
+            setMessage(error instanceof Error ? error.message : String(error), true);
+          } finally {
+            setBusy(false);
+          }
+        }
+
+        function setBusy(value) {
+          busy = value;
+          setControls(latestRun);
+        }
+
+        async function handleToolResult(result) {
+          if (result?.isError) {
+            setMessage(contentText(result), true);
+            return;
+          }
+
+          const output = result?.structuredContent || {};
+          if (output?.target === "runs") {
+            renderRunList(output?.data?.items);
+            return;
+          }
+          if (output?.target === "run_logs") {
+            updateIdentity(output?.data);
+            renderRun({
+              name: runIdentity.name,
+              dagRunId: runIdentity.dagRunId,
+              statusLabel: "Logs",
+            });
+            renderLogs(output?.data);
+            if (hostCapabilities?.serverResources && runIdentity.runUri) {
+              await loadRunResource();
+            }
+            return;
+          }
+          if (output?.target === "run") {
+            updateIdentity(output?.data);
+            renderRun(output?.data);
+            if (hostCapabilities?.serverResources && runIdentity.runUri) {
+              await loadRunResource();
+            }
+            return;
+          }
+          if (output?.dagRunId || output?.runUri) {
+            updateIdentity(output);
+            renderRun({
+              name: output.dagName,
+              dagRunId: output.dagRunId,
+              statusLabel: `${text(output.action, "Execute")} requested`,
+            });
+            if (hostCapabilities?.serverResources && runIdentity.runUri) {
+              await loadRunResource();
+            }
+            return;
+          }
+
+          elements.runName.textContent = "Dagu result";
+          elements.runID.textContent = "";
+          elements.status.classList.add("hidden");
+          elements.summary.classList.add("hidden");
+          elements.actions.classList.add("hidden");
+          elements.stepsSection.classList.add("hidden");
+          elements.runsSection.classList.add("hidden");
+          elements.logsSection.classList.add("hidden");
+          setMessage(contentText(result));
+        }
+
+        function applyHostContext(context) {
+          if (!context || typeof context !== "object") return;
+          if (context.theme === "light" || context.theme === "dark") {
+            document.documentElement.style.colorScheme = context.theme;
+          }
+          const variables = context?.styles?.variables;
+          if (variables && typeof variables === "object") {
+            for (const [name, value] of Object.entries(variables)) {
+              if (name.startsWith("--") && typeof value === "string") {
+                document.documentElement.style.setProperty(name, value);
+              }
+            }
+          }
+        }
+
+        window.addEventListener("message", (event) => {
+          if (event.source !== window.parent) return;
+          const message = event.data;
+          if (!message || message.jsonrpc !== "2.0") return;
+
+          if (message.id !== undefined && !message.method) {
+            const waiter = pending.get(message.id);
+            if (!waiter) return;
+            window.clearTimeout(waiter.timer);
+            pending.delete(message.id);
+            if (message.error) {
+              waiter.reject(new Error(text(message.error.message, "Host request failed.")));
+            } else {
+              waiter.resolve(message.result);
+            }
+            return;
+          }
+
+          if (message.id !== undefined && message.method === "ping") {
+            respond(message.id, {});
+            return;
+          }
+          if (message.id !== undefined && message.method === "ui/resource-teardown") {
+            respond(message.id, {});
+            return;
+          }
+          if (message.method === "ui/notifications/tool-input") {
+            updateIdentityFromInput(message.params?.arguments || {});
+            return;
+          }
+          if (message.method === "ui/notifications/tool-result") {
+            void handleToolResult(message.params);
+            return;
+          }
+          if (message.method === "ui/notifications/tool-cancelled") {
+            setMessage(text(message.params?.reason, "The tool call was cancelled."), true);
+            return;
+          }
+          if (message.method === "ui/notifications/host-context-changed") {
+            applyHostContext(message.params);
+          }
+        });
+
+        elements.refresh.addEventListener("click", () => loadRunResource());
+        elements.logs.addEventListener("click", () => loadLogs());
+        elements.stop.addEventListener("click", () => execute("stop"));
+        elements.retry.addEventListener("click", () => execute("retry"));
+
+        function reportSize() {
+          if (!initialized) return;
+          window.requestAnimationFrame(() => {
+            notify("ui/notifications/size-changed", {
+              width: Math.ceil(document.documentElement.scrollWidth),
+              height: Math.ceil(document.documentElement.scrollHeight),
+            });
+          });
+        }
+
+        const resizeObserver = new ResizeObserver(reportSize);
+        resizeObserver.observe(document.documentElement);
+        resizeObserver.observe(document.body);
+
+        request("ui/initialize", {
+          appCapabilities: { availableDisplayModes: ["inline"] },
+          appInfo,
+          protocolVersion,
+        })
+          .then((result) => {
+            hostCapabilities = result?.hostCapabilities || {};
+            applyHostContext(result?.hostContext);
+            notify("ui/notifications/initialized");
+            initialized = true;
+            reportSize();
+          })
+          .catch((error) => {
+            setMessage(error instanceof Error ? error.message : String(error), true);
+          });
+      })();
+    </script>
+  </body>
+</html>

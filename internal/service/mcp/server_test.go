@@ -39,11 +39,41 @@ func TestServerAdvertisesSupportedCapabilities(t *testing.T) {
 
 	result := session.InitializeResult()
 	require.NotNil(t, result)
-	require.Equal(t, &mcpsdk.ServerCapabilities{
-		Prompts:   &mcpsdk.PromptCapabilities{},
-		Resources: &mcpsdk.ResourceCapabilities{Subscribe: true},
-		Tools:     &mcpsdk.ToolCapabilities{},
-	}, result.Capabilities)
+	require.Equal(t, &mcpsdk.PromptCapabilities{}, result.Capabilities.Prompts)
+	require.Equal(t, &mcpsdk.ResourceCapabilities{Subscribe: true}, result.Capabilities.Resources)
+	require.Equal(t, &mcpsdk.ToolCapabilities{}, result.Capabilities.Tools)
+	apps, ok := result.Capabilities.Extensions[mcpAppsExtensionURI].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, []any{mcpAppMIMEType}, apps["mimeTypes"])
+}
+
+func TestServerExposesMCPAppRunInspector(t *testing.T) {
+	ctx := context.Background()
+	session := connectTestClient(t, ctx, NewServer(nil))
+
+	tools, err := session.ListTools(ctx, nil)
+	require.NoError(t, err)
+	for _, name := range []string{toolRead, toolExecute} {
+		tool := findTool(t, tools.Tools, name)
+		require.Equal(t, runInspectorURI, tool.Meta[runInspectorMetaKey])
+		ui, ok := tool.Meta["ui"].(map[string]any)
+		require.True(t, ok)
+		require.Equal(t, runInspectorURI, ui["resourceUri"])
+		require.Equal(t, []any{"model", "app"}, ui["visibility"])
+	}
+
+	resources, err := session.ListResources(ctx, nil)
+	require.NoError(t, err)
+	resource := findResource(t, resources.Resources, runInspectorURI)
+	require.Equal(t, mcpAppMIMEType, resource.MIMEType)
+	require.NotEmpty(t, resource.Meta)
+
+	result, err := session.ReadResource(ctx, &mcpsdk.ReadResourceParams{URI: runInspectorURI})
+	require.NoError(t, err)
+	require.Len(t, result.Contents, 1)
+	require.Equal(t, mcpAppMIMEType, result.Contents[0].MIMEType)
+	require.Contains(t, result.Contents[0].Text, "<!doctype html>")
+	require.NotEmpty(t, result.Contents[0].Meta)
 }
 
 func TestHTTPHandlerServesStreamableMCP(t *testing.T) {
@@ -184,4 +214,26 @@ func connectTestClient(t *testing.T, ctx context.Context, server *mcpsdk.Server)
 	t.Cleanup(func() { _ = clientSession.Close() })
 
 	return clientSession
+}
+
+func findTool(t *testing.T, tools []*mcpsdk.Tool, name string) *mcpsdk.Tool {
+	t.Helper()
+	for _, tool := range tools {
+		if tool.Name == name {
+			return tool
+		}
+	}
+	t.Fatalf("tool %q not found", name)
+	return nil
+}
+
+func findResource(t *testing.T, resources []*mcpsdk.Resource, uri string) *mcpsdk.Resource {
+	t.Helper()
+	for _, resource := range resources {
+		if resource.URI == uri {
+			return resource
+		}
+	}
+	t.Fatalf("resource %q not found", uri)
+	return nil
 }

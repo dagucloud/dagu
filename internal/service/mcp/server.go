@@ -76,6 +76,9 @@ func NewServer(api *frontendapi.API) *mcpsdk.Server {
 		Version: config.Version,
 	}, &mcpsdk.ServerOptions{
 		Capabilities: &mcpsdk.ServerCapabilities{
+			Extensions: map[string]any{
+				mcpAppsExtensionURI: mcpAppsCapability(),
+			},
 			Prompts:   &mcpsdk.PromptCapabilities{},
 			Resources: &mcpsdk.ResourceCapabilities{Subscribe: true},
 			Tools:     &mcpsdk.ToolCapabilities{},
@@ -118,6 +121,7 @@ func registerTools(server *mcpsdk.Server, svc *Service) {
 	truePtr := new(true)
 
 	server.AddTool(&mcpsdk.Tool{
+		Meta:        runInspectorToolMeta(),
 		Name:        toolRead,
 		Title:       "Read Dagu state",
 		Description: "Read DAG specs, DAG details, DAG-run details, logs, list views, and Dagu MCP reference resources.",
@@ -142,6 +146,7 @@ func registerTools(server *mcpsdk.Server, svc *Service) {
 	}, svc.changeTool)
 
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Meta:        runInspectorToolMeta(),
 		Name:        toolExecute,
 		Title:       "Execute, enqueue, retry, or stop DAG-runs",
 		Description: "Run control entry point. action=start or enqueue launches a DAG or inline spec; action=retry retries a DAG-run; action=stop terminates a DAG-run.",
@@ -154,6 +159,15 @@ func registerTools(server *mcpsdk.Server, svc *Service) {
 }
 
 func registerResources(server *mcpsdk.Server, svc *Service) {
+	server.AddResource(&mcpsdk.Resource{
+		Meta:        runInspectorResourceMeta(),
+		URI:         runInspectorURI,
+		Name:        runInspectorResource,
+		Title:       "Dagu run inspector",
+		Description: "Interactive run status, step, and log view for MCP Apps hosts.",
+		MIMEType:    mcpAppMIMEType,
+	}, svc.readResource)
+
 	for _, ref := range referenceResources() {
 		server.AddResource(&mcpsdk.Resource{
 			URI:         ref.uri,
@@ -572,6 +586,12 @@ func (svc *Service) readResourceText(ctx context.Context, rawURI string) (string
 	parsed, err := url.Parse(rawURI)
 	if err != nil {
 		return "", "", err
+	}
+	if parsed.Scheme == "ui" {
+		if rawURI == runInspectorURI {
+			return runInspectorHTML, mcpAppMIMEType, nil
+		}
+		return "", "", mcpsdk.ResourceNotFoundError(rawURI)
 	}
 	if parsed.Scheme != "dagu" {
 		return "", "", mcpsdk.ResourceNotFoundError(rawURI)

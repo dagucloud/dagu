@@ -15,6 +15,7 @@ const instructions = `Dagu exposes a compact MCP surface for DAG workflow operat
 Use dagu_read for current state and trusted reference resources.
 Use dagu_change with mode=preview before mode=apply when editing DAG YAML.
 Use dagu_execute for start, enqueue, retry, and stop. retry and stop are actions inside dagu_execute.
+MCP Apps hosts can render run-related dagu_read and dagu_execute results in Dagu's interactive run inspector.
 After starting or enqueueing a run, read the returned dagu://runs/... resource or subscribe to it to receive a resource update notification when the run reaches a terminal state.`
 
 type referenceResource struct {
@@ -83,8 +84,23 @@ Detailed tool references:
 - dagu://reference/read-tool: dagu_read inputs, targets, URI mode, query parameters, outputs, and errors.
 - dagu://reference/change-tool: dagu_change preview and apply contract for DAG YAML upsert.
 - dagu://reference/execute-tool: dagu_execute start, enqueue, retry, and stop contract.
+- dagu://reference/apps: interactive run inspector behavior for MCP Apps hosts.
 
 Use dagu_execute action=retry with name and dagRunId for retry. Use action=stop with name and dagRunId for stop. Use action=start or action=enqueue with targetType=dag for a stored DAG, or targetType=inline_spec with spec for an ad hoc run.`,
+		},
+		{
+			topic:       "apps",
+			uri:         "dagu://reference/apps",
+			name:        "dagu_mcp_apps_reference",
+			title:       "Dagu MCP Apps",
+			description: "Interactive run inspector behavior for MCP Apps hosts.",
+			text: `# Dagu MCP Apps
+
+Dagu supports the io.modelcontextprotocol/ui extension with text/html;profile=mcp-app resources.
+
+Hosts that support MCP Apps can render run-related dagu_read and dagu_execute results in an interactive run inspector. The inspector can display recent runs, run status, step status, and logs. Refresh, stop, and retry actions use the existing Dagu MCP resources and tools, so authentication, authorization, and audit attribution are unchanged.
+
+The app is a progressive enhancement. Clients without MCP Apps support continue to receive the same text content, structuredContent, and resource links from dagu_read and dagu_execute.`,
 		},
 		{
 			topic:       "read-tool",

@@ -362,13 +362,15 @@ func (svc *Service) readResource(ctx context.Context, req *mcpsdk.ReadResourceRe
 	successDetails["duration_ms"] = time.Since(start).Milliseconds()
 	successDetails["mime_type"] = mime
 	logMCPAudit(ctx, svc.api, "mcp.resource.read.succeeded", successDetails)
-	return &mcpsdk.ReadResourceResult{
-		Contents: []*mcpsdk.ResourceContents{{
-			URI:      req.Params.URI,
-			MIMEType: mime,
-			Text:     text,
-		}},
-	}, nil
+	content := &mcpsdk.ResourceContents{
+		URI:      req.Params.URI,
+		MIMEType: mime,
+		Text:     text,
+	}
+	if req.Params.URI == runInspectorURI {
+		content.Meta = runInspectorResourceMeta()
+	}
+	return &mcpsdk.ReadResourceResult{Contents: []*mcpsdk.ResourceContents{content}}, nil
 }
 
 func withMCPResourceSourceContext(ctx context.Context, req *mcpsdk.ReadResourceRequest) context.Context {
@@ -401,7 +403,9 @@ func withMCPUnsubscribeSourceContext(ctx context.Context, req *mcpsdk.Unsubscrib
 func resourceAuditDetails(rawURI string) map[string]any {
 	resourceType := "resource"
 	resourceID := sanitizeAuditString(rawURI, 256)
-	if parsed, err := url.Parse(rawURI); err == nil && parsed.Scheme == "dagu" {
+	if parsed, err := url.Parse(rawURI); err == nil && parsed.Scheme == "ui" {
+		resourceType = "mcp_app"
+	} else if err == nil && parsed.Scheme == "dagu" {
 		segments, _ := uriPathSegments(parsed)
 		switch parsed.Host {
 		case "reference":
