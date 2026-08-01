@@ -8,13 +8,14 @@
 
 {{- if empty .Values.persistence.existingClaim }}
 {{- $annotations := deepCopy .Values.persistence.annotations }}
+{{- $_ := unset $annotations "helm.sh/resource-policy" }}
 {{- if .Values.persistence.retain }}
 {{- $_ := set $annotations "helm.sh/resource-policy" "keep" }}
 {{- end }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: {{ include "dagu.pvcName" . }}
+  name: {{ include "dagu.pvcName" . | quote }}
   labels:
     {{- include "dagu.labels" . | nindent 4 }}
   {{- with $annotations }}

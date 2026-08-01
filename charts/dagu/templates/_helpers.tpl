@@ -20,9 +20,18 @@
 {{- if gt (len $component) 61 -}}
 {{- fail (printf "component name %q must not exceed 61 characters" $component) -}}
 {{- end -}}
-{{- $maxBaseLength := int (sub 62 (len $component)) -}}
-{{- $base := include "dagu.fullname" .root | trunc $maxBaseLength | trimSuffix "-" -}}
-{{- printf "%s-%s" $base $component | trunc 63 | trimSuffix "-" -}}
+{{- $base := include "dagu.fullname" .root -}}
+{{- $name := printf "%s-%s" $base $component -}}
+{{- if le (len $name) 63 -}}
+{{- $name -}}
+{{- else -}}
+{{- $hash := $name | sha256sum | trunc 8 -}}
+{{- printf "%s-%s" ($name | trunc 54 | trimSuffix "-") $hash -}}
+{{- end -}}
+{{- end }}
+
+{{- define "dagu.distributedConfigChecksum" -}}
+{{- dict "deploymentMode" .Values.deploymentMode "envPassthrough" .Values.config.envPassthrough "envPassthroughPrefixes" .Values.config.envPassthroughPrefixes "coordinatorHealthPort" .Values.coordinator.healthPort "workerHealthPort" .Values.worker.healthPort | toJson | sha256sum -}}
 {{- end }}
 
 {{- define "dagu.imageTag" -}}

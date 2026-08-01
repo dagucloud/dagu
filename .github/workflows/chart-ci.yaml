@@ -113,7 +113,8 @@ jobs:
       - name: Render standalone defaults
         run: |
           helm template dagu ./charts/dagu \
-            --namespace dagu >/tmp/dagu-default-render.yaml
+            --namespace dagu \
+            --kube-version 1.19.0 >/tmp/dagu-default-render.yaml
 
           grep -Fq 'cors_allowed_origins: []' /tmp/dagu-default-render.yaml
 
@@ -121,6 +122,7 @@ jobs:
         run: |
           helm template dagu ./charts/dagu \
             --namespace dagu \
+            --kube-version 1.35.0 \
             --set deploymentMode=distributed \
             --set persistence.accessMode=ReadWriteMany \
             --set persistence.storageClass=nfs-client >/dev/null

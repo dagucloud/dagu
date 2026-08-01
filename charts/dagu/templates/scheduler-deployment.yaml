@@ -1,4 +1,6 @@
 {{- if eq .Values.deploymentMode "distributed" }}
+{{- $podAnnotations := deepCopy .Values.podAnnotations }}
+{{- $_ := set $podAnnotations "checksum/config" (include "dagu.distributedConfigChecksum" .) }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -14,10 +16,8 @@ spec:
       app.kubernetes.io/component: scheduler
   template:
     metadata:
-      {{- with .Values.podAnnotations }}
       annotations:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
+        {{- toYaml $podAnnotations | nindent 8 }}
       labels:
         {{- include "dagu.labels" . | nindent 8 }}
         app.kubernetes.io/component: scheduler
@@ -86,7 +86,7 @@ spec:
       volumes:
         - name: data
           persistentVolumeClaim:
-            claimName: {{ include "dagu.pvcName" . }}
+            claimName: {{ include "dagu.pvcName" . | quote }}
         - name: config
           configMap:
             name: {{ include "dagu.componentName" (dict "root" . "component" "config") }}

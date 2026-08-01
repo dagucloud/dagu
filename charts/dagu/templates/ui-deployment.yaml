@@ -117,7 +117,7 @@ spec:
       volumes:
         - name: data
           persistentVolumeClaim:
-            claimName: {{ include "dagu.pvcName" . }}
+            claimName: {{ include "dagu.pvcName" . | quote }}
         - name: config
           configMap:
             name: {{ include "dagu.componentName" (dict "root" . "component" "config") }}
