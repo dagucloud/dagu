@@ -36,8 +36,77 @@
         "replicas": {
           "type": "integer",
           "minimum": 0
+        },
+        "service": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["ClusterIP", "NodePort", "LoadBalancer"]
+            },
+            "port": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535
+            },
+            "annotations": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          },
+          "required": ["type", "port", "annotations"]
         }
       }
+    },
+    "ingress": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "className": {
+          "type": "string"
+        },
+        "annotations": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "host": {
+          "type": "string",
+          "minLength": 1,
+          "format": "hostname"
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^/"
+        },
+        "pathType": {
+          "type": "string",
+          "enum": ["Exact", "Prefix", "ImplementationSpecific"]
+        },
+        "tls": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "secretName": {
+              "type": "string",
+              "maxLength": 253,
+              "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+            }
+          },
+          "required": ["enabled", "secretName"]
+        }
+      },
+      "required": ["enabled", "className", "annotations", "host", "path", "pathType", "tls"]
     },
     "license": {
       "type": "object",
@@ -509,9 +578,17 @@
             "properties": {
               "replicas": {
                 "const": 1
+              },
+              "service": {
+                "properties": {
+                  "type": {
+                    "const": "ClusterIP"
+                  }
+                },
+                "required": ["type"]
               }
             },
-            "required": ["replicas"]
+            "required": ["replicas", "service"]
           }
         },
         "required": ["auth", "ui"]

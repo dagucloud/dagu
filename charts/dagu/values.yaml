@@ -90,7 +90,11 @@ workerPools:
 ui:
   replicas: 1
   service:
+    # ClusterIP is recommended with ingress. LoadBalancer and NodePort are also supported.
+    type: ClusterIP
     port: 8080
+    # Use provider-specific annotations for an internal load balancer when needed.
+    annotations: {}
   resources:
     requests:
       memory: "256Mi"
@@ -98,6 +102,19 @@ ui:
     limits:
       memory: "512Mi"
       cpu: "500m"
+
+# Optional HTTP ingress for the Dagu UI and API. CORS is not required when
+# browsers load the UI and API through the same ingress host.
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  host: dagu.local
+  path: /
+  pathType: Prefix
+  tls:
+    enabled: false
+    secretName: ""
 
 # Authentication configuration
 auth:

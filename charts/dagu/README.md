@@ -380,12 +380,33 @@ image:
 
 ## Accessing the UI
 
+For a regular internal deployment, enable the Ingress and point internal DNS at your ingress controller:
+
+```yaml
+ingress:
+  enabled: true
+  className: nginx
+  host: dagu.internal.example.com
+  path: /
+  pathType: Prefix
+  tls:
+    enabled: true
+    secretName: dagu-internal-tls
+
+config:
+  publicUrl: https://dagu.internal.example.com
+```
+
+The bundled UI and API use the same host, so this setup does not require `config.corsAllowedOrigins`. If OIDC is enabled, use the same URL for `auth.oidc.clientUrl` and register its `/oidc-callback` URL with the identity provider.
+
+Ingress is disabled by default because the chart cannot know the cluster's ingress class, DNS name, or TLS Secret. The UI Service remains a `ClusterIP`. For clusters without an ingress controller, set `ui.service.type` to `LoadBalancer` or `NodePort`; `ui.service.annotations` supports provider-specific internal load-balancer settings.
+
+For temporary access with the defaults:
+
 ```bash
-# Port forward to access UI
 kubectl port-forward svc/dagu-ui 8080:8080
 
-# Then visit http://localhost:8080
-# On first run, you'll be prompted to create an admin account
+# Visit http://localhost:8080
 ```
 
 ## Current Constraints

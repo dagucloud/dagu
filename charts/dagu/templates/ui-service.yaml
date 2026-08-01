@@ -5,8 +5,12 @@ metadata:
   labels:
     {{- include "dagu.labels" . | nindent 4 }}
     app.kubernetes.io/component: ui
+{{- with .Values.ui.service.annotations }}
+  annotations:
+{{ toYaml . | indent 4 }}
+{{- end }}
 spec:
-  type: ClusterIP
+  type: {{ .Values.ui.service.type }}
   selector:
     {{- include "dagu.labels" . | nindent 4 }}
     app.kubernetes.io/component: ui

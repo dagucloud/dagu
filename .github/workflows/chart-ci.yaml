@@ -120,6 +120,9 @@ jobs:
             --set-string 'auth.oidc.roleMapping.groupMappings.engineering=developer' \
             --set-string 'auth.oidc.roleMapping.workspaceMappings.engineering[0].workspace=platform' \
             --set-string 'auth.oidc.roleMapping.workspaceMappings.engineering[0].role=developer' \
+            --set ingress.enabled=true \
+            --set-string ingress.className=nginx \
+            --set-string ingress.host=dagu.example.com \
             --set auth.proxy.enabled=true >/dev/null
 
       - name: Package chart

@@ -48,10 +48,23 @@ Proxy authentication is enabled.
   Route UI traffic only through the authenticating proxy.
   Do not use kubectl port-forward, NodePort, public LoadBalancer, or any other
   path that can reach the Dagu UI service without passing through that proxy.
+{{ if .Values.ingress.enabled }}
+  Inspect the configured authenticated ingress:
+  kubectl get ingress {{ include "dagu.fullname" . }}-ui
+{{ else }}
+  Configure an authenticated ingress or service-mesh route to the UI Service.
+{{ end }}
 {{ else }}
 Access the UI:
+{{ if .Values.ingress.enabled }}
+  kubectl get ingress {{ include "dagu.fullname" . }}-ui
+  Configured host: {{ .Values.ingress.host }}
+{{ else if eq .Values.ui.service.type "ClusterIP" }}
   kubectl port-forward svc/{{ include "dagu.fullname" . }}-ui 8080:8080
   Then visit http://localhost:8080
+{{ else }}
+  kubectl get svc {{ include "dagu.fullname" . }}-ui
+{{ end }}
 {{ end }}
 
 Verify installation:

@@ -50,6 +50,9 @@
 {{- if and .Values.auth.proxy.enabled (ne (int .Values.ui.replicas) 1) }}
 {{- fail "auth.proxy.enabled requires ui.replicas=1" }}
 {{- end }}
+{{- if and .Values.auth.proxy.enabled (ne .Values.ui.service.type "ClusterIP") }}
+{{- fail "auth.proxy.enabled requires ui.service.type=ClusterIP so traffic cannot bypass the authenticating proxy" }}
+{{- end }}
 {{- if and .Values.auth.proxy.enabled .Values.auth.proxy.roleMapping.requireMapping (empty .Values.auth.proxy.roleMapping.groupMappings) (empty .Values.auth.proxy.roleMapping.workspaceMappings) }}
 {{- fail "auth.proxy.roleMapping.requireMapping=true requires at least one groupMappings or workspaceMappings entry" }}
 {{- end }}
