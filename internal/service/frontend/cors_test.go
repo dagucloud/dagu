@@ -149,7 +149,10 @@ func TestCORSPolicy_AllowsMCPRequestHeaders(t *testing.T) {
 	handler.ServeHTTP(resp, req)
 
 	require.Equal(t, http.StatusOK, resp.Code)
-	allowedHeaders := strings.ToLower(resp.Header().Get("Access-Control-Allow-Headers"))
+	allowedHeaders := strings.Split(strings.ToLower(resp.Header().Get("Access-Control-Allow-Headers")), ",")
+	for i := range allowedHeaders {
+		allowedHeaders[i] = strings.TrimSpace(allowedHeaders[i])
+	}
 	assert.Contains(t, allowedHeaders, "mcp-method")
 	assert.Contains(t, allowedHeaders, "mcp-name")
 }
