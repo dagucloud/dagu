@@ -5,6 +5,7 @@ package mcp
 
 import (
 	"context"
+	"net/http"
 	"net/http/httptest"
 	"slices"
 	"strings"
@@ -80,7 +81,7 @@ func TestServerExposesMCPAppRunInspector(t *testing.T) {
 func TestHTTPHandlerServesStreamableMCP(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testConnectTimeout)
 	defer cancel()
-	httpServer := httptest.NewServer(NewHTTPHandler(nil))
+	httpServer := httptest.NewServer(NewHTTPHandler(nil, ""))
 	t.Cleanup(httpServer.Close)
 
 	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "dagu-mcp-test", Version: "v0.0.0"}, nil)
@@ -94,6 +95,16 @@ func TestHTTPHandlerServesStreamableMCP(t *testing.T) {
 	result, err := session.ListTools(ctx, nil)
 	require.NoError(t, err)
 	require.Len(t, result.Tools, 3)
+
+	resource, err := session.ReadResource(ctx, &mcpsdk.ReadResourceParams{URI: runInspectorURI})
+	require.NoError(t, err)
+	require.Len(t, resource.Contents, 1)
+	require.Contains(t, resource.Contents[0].Text, `const webBaseURL = "`+httpServer.URL+`"`)
+}
+
+func TestWebBaseURLFromRequestPreservesBasePath(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "https://dagu.example.com/workflows/mcp", nil)
+	require.Equal(t, "https://dagu.example.com/workflows", webBaseURLFromRequest(req))
 }
 
 func TestServerExposesReferenceResourcesAndPrompts(t *testing.T) {

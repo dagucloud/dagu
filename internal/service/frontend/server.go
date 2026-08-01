@@ -1313,7 +1313,11 @@ func (srv *Server) wakeAllMultiplexedFileBackedTopics() {
 
 func (srv *Server) setupMCPRoute(ctx context.Context, r *chi.Mux) {
 	mcpPath := pathutil.BuildPublicEndpointPath(srv.funcsConfig.BasePath, "mcp")
-	mcpHandler := dagumcp.NewHTTPHandler(srv.apiV1)
+	webBaseURL := srv.config.Server.PublicURL
+	if webBaseURL == "" && srv.tunnelService != nil {
+		webBaseURL = publicURLWithBasePath(srv.tunnelService.PublicURL(), srv.funcsConfig.BasePath)
+	}
+	mcpHandler := dagumcp.NewHTTPHandler(srv.apiV1, webBaseURL)
 	authOpts := srv.buildStreamAuthOptions("Dagu MCP")
 	authOpts.RequiredAPIKeySurface = authmodel.APIKeySurfaceMCP
 	authOpts.OnDenied = srv.logMCPAuthDenied

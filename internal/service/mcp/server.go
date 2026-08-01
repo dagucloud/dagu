@@ -55,12 +55,45 @@ type resourceWatcher struct {
 }
 
 // NewHTTPHandler returns a Streamable HTTP MCP handler backed by the Dagu API.
-func NewHTTPHandler(api *frontendapi.API) http.Handler {
+// webBaseURL is the externally reachable Web UI root. When empty, direct
+// requests use the MCP endpoint's origin and base path.
+func NewHTTPHandler(api *frontendapi.API, webBaseURL string) http.Handler {
 	server := NewServer(api)
-	return mcpsdk.NewStreamableHTTPHandler(
+	handler := mcpsdk.NewStreamableHTTPHandler(
 		func(*http.Request) *mcpsdk.Server { return server },
 		&mcpsdk.StreamableHTTPOptions{JSONResponse: true},
 	)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		baseURL := strings.TrimRight(strings.TrimSpace(webBaseURL), "/")
+		if baseURL == "" {
+			baseURL = webBaseURLFromRequest(r)
+		}
+		ctx := context.WithValue(r.Context(), webBaseURLContextKey{}, baseURL)
+		handler.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+type webBaseURLContextKey struct{}
+
+func webBaseURLFromRequest(r *http.Request) string {
+	if r == nil || strings.TrimSpace(r.Host) == "" {
+		return ""
+	}
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	baseURL := &url.URL{Scheme: scheme, Host: r.Host}
+	endpointPath := strings.TrimRight(r.URL.Path, "/")
+	if before, ok := strings.CutSuffix(endpointPath, "/mcp"); ok {
+		baseURL.Path = before
+	}
+	return strings.TrimRight(baseURL.String(), "/")
+}
+
+func webBaseURLFromContext(ctx context.Context) string {
+	value, _ := ctx.Value(webBaseURLContextKey{}).(string)
+	return value
 }
 
 // NewServer builds the MCP server used by the Streamable HTTP transport.
@@ -589,7 +622,7 @@ func (svc *Service) readResourceText(ctx context.Context, rawURI string) (string
 	}
 	if parsed.Scheme == "ui" {
 		if rawURI == runInspectorURI {
-			return runInspectorHTML, mcpAppMIMEType, nil
+			return runInspectorHTMLWithWebBaseURL(webBaseURLFromContext(ctx)), mcpAppMIMEType, nil
 		}
 		return "", "", mcpsdk.ResourceNotFoundError(rawURI)
 	}

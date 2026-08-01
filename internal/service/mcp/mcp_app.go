@@ -5,6 +5,8 @@ package mcp
 
 import (
 	_ "embed"
+	"encoding/json"
+	"strings"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -12,13 +14,21 @@ import (
 const (
 	mcpAppsExtensionURI  = "io.modelcontextprotocol/ui"
 	mcpAppMIMEType       = "text/html;profile=mcp-app"
-	runInspectorURI      = "ui://dagu/run-inspector/v1"
+	runInspectorURI      = "ui://dagu/run-inspector/v2"
 	runInspectorMetaKey  = "ui/resourceUri"
 	runInspectorResource = "run_inspector"
 )
 
 //go:embed app/run-inspector.html
 var runInspectorHTML string
+
+func runInspectorHTMLWithWebBaseURL(webBaseURL string) string {
+	encodedURL, err := json.Marshal(strings.TrimRight(webBaseURL, "/"))
+	if err != nil {
+		encodedURL = []byte(`""`)
+	}
+	return strings.Replace(runInspectorHTML, "__DAGU_WEB_BASE_URL__", string(encodedURL), 1)
+}
 
 func runInspectorToolMeta() mcpsdk.Meta {
 	return mcpsdk.Meta{
