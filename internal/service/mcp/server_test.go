@@ -73,6 +73,7 @@ func TestServerExposesMCPAppRunInspector(t *testing.T) {
 	require.Len(t, result.Contents, 1)
 	require.Equal(t, mcpAppMIMEType, result.Contents[0].MIMEType)
 	require.Contains(t, result.Contents[0].Text, "<!doctype html>")
+	require.Contains(t, result.Contents[0].Text, `name: "`+toolExecute+`"`)
 	require.NotEmpty(t, result.Contents[0].Meta)
 }
 

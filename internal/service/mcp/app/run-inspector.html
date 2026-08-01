@@ -445,16 +445,41 @@
           elements.message.classList.remove("error");
         }
 
+        function updateResourceURI(value) {
+          const uri = text(value);
+          if (!uri.startsWith("dagu://runs/")) return;
+          try {
+            const parsed = new URL(uri);
+            const segments = parsed.pathname.split("/").filter(Boolean);
+            if (parsed.protocol !== "dagu:" || parsed.hostname !== "runs") return;
+            if (segments.length === 2) {
+              parsed.search = "";
+              parsed.hash = "";
+              runIdentity.runUri = parsed.toString();
+              runIdentity.logsUri = `${runIdentity.runUri}/logs`;
+              return;
+            }
+            if (segments.length === 3 && segments[2] === "logs") {
+              runIdentity.logsUri = uri;
+              parsed.pathname = `/${segments[0]}/${segments[1]}`;
+              parsed.search = "";
+              parsed.hash = "";
+              runIdentity.runUri = parsed.toString();
+            }
+          } catch {
+            // Ignore malformed resource hints and keep any established identity.
+          }
+        }
+
         function updateIdentity(value) {
           if (!value || typeof value !== "object") return;
           const name = text(value.name || value.dagName);
           const dagRunID = text(value.dagRunId);
-          const runURI = text(value.runUri || value.uri);
-          const logsURI = text(value.logsUri);
           if (name) runIdentity.name = name;
           if (dagRunID) runIdentity.dagRunId = dagRunID;
-          if (runURI.startsWith("dagu://runs/")) runIdentity.runUri = runURI;
-          if (logsURI.startsWith("dagu://runs/")) runIdentity.logsUri = logsURI;
+          updateResourceURI(value.runUri);
+          updateResourceURI(value.logsUri);
+          updateResourceURI(value.uri);
           if (!runIdentity.logsUri && runIdentity.runUri) {
             runIdentity.logsUri = `${runIdentity.runUri}/logs`;
           }
@@ -462,11 +487,6 @@
 
         function updateIdentityFromInput(args) {
           updateIdentity(args);
-          if (text(args?.uri).startsWith("dagu://runs/")) {
-            const uri = text(args.uri);
-            if (uri.includes("/logs")) runIdentity.logsUri = uri;
-            else runIdentity.runUri = uri;
-          }
           if (!runIdentity.runUri && runIdentity.name && runIdentity.dagRunId) {
             runIdentity.runUri = `dagu://runs/${encodeURIComponent(runIdentity.name)}/${encodeURIComponent(runIdentity.dagRunId)}`;
           }
@@ -650,7 +670,11 @@
               },
             });
             if (result?.isError) throw new Error(contentText(result));
-            await loadRunResource();
+            if (hostCapabilities?.serverResources) {
+              await loadRunResource();
+            } else {
+              setMessage(contentText(result));
+            }
           } catch (error) {
             setMessage(error instanceof Error ? error.message : String(error), true);
           } finally {
