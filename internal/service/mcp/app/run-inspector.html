@@ -648,9 +648,8 @@
           if (!runIdentity.logsUri) return;
           setBusy(true);
           try {
-            const separator = runIdentity.logsUri.includes("?") ? "&" : "?";
             const result = await request("resources/read", {
-              uri: `${runIdentity.logsUri}${separator}tail=200`,
+              uri: runIdentity.logsUri,
             });
             renderLogs(resourceJSON(result));
           } catch (error) {
