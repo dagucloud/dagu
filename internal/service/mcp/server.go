@@ -679,7 +679,11 @@ func (svc *Service) readResourceText(ctx context.Context, rawURI string) (string
 		identifier := segments[0] + "/" + segments[1]
 		var data any
 		if isStepLogResourceSegments(segments) {
-			data, err = svc.api.GetStepLogData(ctx, identifier+"/"+segments[3])
+			data, err = svc.api.GetStepLogDataByRef(
+				ctx,
+				exec.NewDAGRunRef(segments[0], segments[1]),
+				segments[3],
+			)
 		} else if len(segments) == 3 {
 			if parsed.RawQuery != "" {
 				identifier += "?" + parsed.RawQuery

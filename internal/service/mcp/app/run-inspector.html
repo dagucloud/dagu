@@ -553,7 +553,10 @@
           );
           elements.retry.classList.toggle(
             "hidden",
-            !label.includes("fail") && !label.includes("abort") && !label.includes("reject"),
+            !label.includes("fail") &&
+              !label.includes("abort") &&
+              !label.includes("reject") &&
+              !label.includes("partially_succeeded"),
           );
           for (const button of elements.steps.querySelectorAll(".step-log")) {
             button.disabled = busy || !canReadStepLogs;

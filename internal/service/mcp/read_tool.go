@@ -193,7 +193,11 @@ func (svc *Service) readToolImpl(ctx context.Context, input readInput) (*mcpsdk.
 		}
 	case readTargetStepLog:
 		if err = svc.requireAPI(); err == nil {
-			data, err = svc.api.GetStepLogData(ctx, input.Name+"/"+input.DAGRunID+"/"+input.StepName)
+			data, err = svc.api.GetStepLogDataByRef(
+				ctx,
+				exec.NewDAGRunRef(input.Name, input.DAGRunID),
+				input.StepName,
+			)
 		}
 	default:
 		return nil, nil, unsupportedReadTargetError(input.Target)

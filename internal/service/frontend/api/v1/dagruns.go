@@ -4349,24 +4349,28 @@ func (a *API) getDAGRunLogsData(ctx context.Context, identifier string) (DAGRunL
 // GetStepLogData returns step log for SSE.
 // Identifier format: "dagName/dagRunId/stepName"
 func (a *API) GetStepLogData(ctx context.Context, identifier string) (any, error) {
+	parts := strings.SplitN(identifier, "/", 3)
+	if len(parts) != 3 {
+		return nil, fmt.Errorf("invalid identifier format: %s (expected 'dagName/dagRunId/stepName')", identifier)
+	}
+	return a.GetStepLogDataByRef(ctx, exec.NewDAGRunRef(parts[0], parts[1]), parts[2])
+}
+
+// GetStepLogDataByRef returns log output for a step in a DAG run.
+func (a *API) GetStepLogDataByRef(ctx context.Context, ref exec.DAGRunRef, stepName string) (any, error) {
 	return withDAGRunReadTimeout(ctx, dagRunReadRequestInfo{
 		endpoint: "/dag-runs/{name}/{dagRunId}/logs/steps/{stepName}",
+		dagName:  ref.Name,
+		dagRunID: ref.ID,
 	}, func(readCtx context.Context) (StepLogResponse, error) {
-		return a.getStepLogData(readCtx, identifier)
+		return a.getStepLogData(readCtx, ref, stepName)
 	})
 }
 
-func (a *API) getStepLogData(ctx context.Context, identifier string) (StepLogResponse, error) {
-	parts := strings.SplitN(identifier, "/", 3)
-	if len(parts) != 3 {
-		return StepLogResponse{}, fmt.Errorf("invalid identifier format: %s (expected 'dagName/dagRunId/stepName')", identifier)
-	}
-	dagName, dagRunId, stepName := parts[0], parts[1], parts[2]
-
-	ref := exec.NewDAGRunRef(dagName, dagRunId)
+func (a *API) getStepLogData(ctx context.Context, ref exec.DAGRunRef, stepName string) (StepLogResponse, error) {
 	dagStatus, err := a.dagRunMgr.GetSavedStatus(ctx, ref)
 	if err != nil {
-		return StepLogResponse{}, fmt.Errorf("dag-run ID %s not found for DAG %s", dagRunId, dagName)
+		return StepLogResponse{}, fmt.Errorf("dag-run ID %s not found for DAG %s", ref.ID, ref.Name)
 	}
 	if err := a.requireDAGRunStatusVisible(ctx, dagStatus); err != nil {
 		return StepLogResponse{}, err
@@ -4374,7 +4378,7 @@ func (a *API) getStepLogData(ctx context.Context, identifier string) (StepLogRes
 
 	node, err := dagStatus.NodeByName(stepName)
 	if err != nil {
-		return StepLogResponse{}, fmt.Errorf("step %s not found in DAG %s", stepName, dagName)
+		return StepLogResponse{}, fmt.Errorf("step %s not found in DAG %s", stepName, ref.Name)
 	}
 
 	options := fileutil.LogReadOptions{

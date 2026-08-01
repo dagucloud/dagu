@@ -14,7 +14,7 @@ import (
 const (
 	mcpAppsExtensionURI  = "io.modelcontextprotocol/ui"
 	mcpAppMIMEType       = "text/html;profile=mcp-app"
-	runInspectorURI      = "ui://dagu/run-inspector/v6"
+	runInspectorURI      = "ui://dagu/run-inspector/v7"
 	runInspectorMetaKey  = "ui/resourceUri"
 	runInspectorResource = "run_inspector"
 )
@@ -23,10 +23,7 @@ const (
 var runInspectorHTML string
 
 func runInspectorHTMLWithWebBaseURL(webBaseURL string) string {
-	encodedURL, err := json.Marshal(strings.TrimRight(webBaseURL, "/"))
-	if err != nil {
-		encodedURL = []byte(`""`)
-	}
+	encodedURL, _ := json.Marshal(strings.TrimRight(webBaseURL, "/"))
 	return strings.Replace(runInspectorHTML, "__DAGU_WEB_BASE_URL__", string(encodedURL), 1)
 }
 
