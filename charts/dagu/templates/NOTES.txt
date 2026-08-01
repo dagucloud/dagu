@@ -37,6 +37,12 @@ OIDC authentication is enabled.
   OIDC/SSO requires an active Dagu license.
 
 {{ end }}
+{{ if or .Values.license.existingSecret .Values.auth.oidc.enabled }}
+Secret-backed UI settings are read when the pod starts.
+  After rotating a configured license or OIDC Secret, restart the UI:
+  kubectl rollout restart deployment/{{ include "dagu.fullname" . }}-ui
+
+{{ end }}
 {{ if .Values.auth.proxy.enabled }}
 Proxy authentication is enabled.
   Route UI traffic only through the authenticating proxy.

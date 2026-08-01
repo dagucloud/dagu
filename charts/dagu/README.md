@@ -219,6 +219,14 @@ helm install dagu dagu/dagu \
 
 The chart exposes the selected Secret value to the UI container as `DAGU_LICENSE_KEY`. It does not copy the license key into the ConfigMap or expose it to the scheduler, coordinator, or workers.
 
+Secret-backed environment variables are read when the UI pod starts. After rotating the license Secret—or the OIDC client Secret described below—restart the UI Deployment so it reads the new value:
+
+```bash
+kubectl rollout restart deployment/dagu-ui
+```
+
+The command assumes the release name is `dagu`; use `<release-name>-ui` when the release has another name.
+
 ### Authentication
 
 By default, the chart uses builtin authentication. On first run, visit the UI to create an admin account via the setup page.

@@ -68,10 +68,26 @@
               "type": "string"
             },
             "clientUrl": {
-              "type": "string"
+              "type": "string",
+              "anyOf": [
+                {
+                  "const": ""
+                },
+                {
+                  "format": "uri"
+                }
+              ]
             },
             "issuer": {
-              "type": "string"
+              "type": "string",
+              "anyOf": [
+                {
+                  "const": ""
+                },
+                {
+                  "format": "uri"
+                }
+              ]
             },
             "scopes": {
               "type": "array",
@@ -87,7 +103,8 @@
               "uniqueItems": true,
               "items": {
                 "type": "string",
-                "minLength": 1
+                "minLength": 1,
+                "format": "email"
               }
             },
             "autoSignup": {
