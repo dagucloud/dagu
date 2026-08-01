@@ -172,8 +172,14 @@ func (att *Attempt) Open(ctx context.Context) error {
 		if err := fileutil.WriteFileAtomic(filepath.Join(dir, DAGDefinition), dagJSON, 0600); err != nil {
 			return fmt.Errorf("failed to write DAG definition: %w", err)
 		}
-	} else if dag, err := att.ReadDAG(ctx); err == nil {
-		att.dag = dag
+	} else {
+		dag, err := att.ReadDAG(ctx)
+		switch {
+		case err == nil:
+			att.dag = dag
+		case !errors.Is(err, os.ErrNotExist):
+			return fmt.Errorf("failed to restore DAG definition: %w", err)
+		}
 	}
 
 	// Create the per-run work directory so steps can use DAG_RUN_WORK_DIR immediately

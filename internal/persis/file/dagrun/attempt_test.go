@@ -40,6 +40,23 @@ func TestAttempt_Open(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestAttempt_OpenRejectsCorruptDAGDefinition(t *testing.T) {
+	dir := createTempDir(t)
+	file := filepath.Join(dir, "status.dat")
+	ctx := context.Background()
+
+	att, err := NewAttempt(file, nil, WithDAG(&core.DAG{Name: "test"}))
+	require.NoError(t, err)
+	require.NoError(t, att.Open(ctx))
+	require.NoError(t, att.Close(ctx))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, DAGDefinition), []byte("{"), 0600))
+
+	reopened, err := NewAttempt(file, nil)
+	require.NoError(t, err)
+	err = reopened.Open(ctx)
+	require.ErrorContains(t, err, "failed to restore DAG definition")
+}
+
 func TestAttempt_Write(t *testing.T) {
 	dir := createTempDir(t)
 	file := filepath.Join(dir, "status.dat")

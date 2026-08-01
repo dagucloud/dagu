@@ -280,6 +280,7 @@ func TestServiceResolvesRuntimeNameIncidentWithDAGFileRouting(t *testing.T) {
 	state, err = store.GetState(context.Background(), provider.ID, "existing-dedup-key")
 	require.NoError(t, err)
 	assert.Equal(t, incidentmodel.IncidentStatusResolved, state.Status)
+	assert.Equal(t, "existing-policy", state.PolicyID)
 }
 
 func TestServiceReopenedIncidentUsesFreshOpenedAt(t *testing.T) {

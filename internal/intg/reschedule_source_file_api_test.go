@@ -48,7 +48,7 @@ steps:
 	attempt, dag := test.WaitForAttemptSnapshotWithDAG(t, server, dagName, enqBody.DagRunId)
 	require.NotNil(t, attempt)
 	require.Empty(t, dag.Location)
-	require.Equal(t, dagPath, dag.SourceFile)
+	requireSameFile(t, dagPath, dag.SourceFile)
 
 	assertQueuedRunSpecFromFile(t, server, dagName, enqBody.DagRunId, true)
 
@@ -73,7 +73,16 @@ steps:
 
 	_, rescheduledDAG := test.WaitForAttemptSnapshotWithDAG(t, server, dagName, rescheduleBody.DagRunId)
 	require.Contains(t, string(rescheduledDAG.YamlData), "echo current file")
-	require.Equal(t, dagPath, rescheduledDAG.SourceFile)
+	requireSameFile(t, dagPath, rescheduledDAG.SourceFile)
+}
+
+func requireSameFile(t *testing.T, expected, actual string) {
+	t.Helper()
+	expectedInfo, err := os.Stat(expected)
+	require.NoError(t, err)
+	actualInfo, err := os.Stat(actual)
+	require.NoError(t, err)
+	require.True(t, os.SameFile(expectedInfo, actualInfo), "%q and %q do not identify the same file", expected, actual)
 }
 
 func assertQueuedRunSpecFromFile(t *testing.T, server test.Server, dagName, dagRunID string, want bool) {
