@@ -136,6 +136,10 @@ jobs:
               --show-only templates/ui-deployment.yaml \
               "${values[@]}"
           )"
+          all_resources="$(
+            helm template dagu ./charts/dagu \
+              "${values[@]}"
+          )"
 
           ruby -ryaml -e '
             manifest = YAML.safe_load($stdin.read)
@@ -168,6 +172,43 @@ jobs:
             expected_oidc_ref = {"name" => "dagu-oidc", "key" => "client-secret"}
             abort "unexpected OIDC Secret reference" unless oidc_ref == expected_oidc_ref
           ' <<<"${ui_deployment}"
+
+          ruby -ryaml -e '
+            secret_env_names = ["DAGU_LICENSE_KEY", "DAGU_AUTH_OIDC_CLIENT_SECRET"]
+            locations = secret_env_names.each_with_object({}) { |name, result| result[name] = [] }
+            ui_name = nil
+
+            YAML.load_stream($stdin.read).compact.each do |manifest|
+              kind = manifest["kind"]
+              metadata = manifest.fetch("metadata", {})
+              if kind == "Deployment" && metadata.dig("labels", "app.kubernetes.io/component") == "ui"
+                ui_name = metadata["name"]
+              end
+
+              pod_spec = case kind
+                         when "Deployment", "StatefulSet", "DaemonSet", "Job"
+                           manifest.dig("spec", "template", "spec")
+                         when "CronJob"
+                           manifest.dig("spec", "jobTemplate", "spec", "template", "spec")
+                         when "Pod"
+                           manifest["spec"]
+                         end
+              next unless pod_spec
+
+              containers = Array(pod_spec["containers"]) + Array(pod_spec["initContainers"])
+              containers.each do |container|
+                names = Array(container["env"]).map { |entry| entry["name"] }.compact
+                (names & secret_env_names).each do |name|
+                  locations[name] << [metadata["name"], container["name"]]
+                end
+              end
+            end
+
+            secret_env_names.each do |name|
+              expected = [[ui_name, "ui"]]
+              abort "#{name} must be scoped only to the UI container: #{locations[name].inspect}" unless locations[name] == expected
+            end
+          ' <<<"${all_resources}"
 
       - name: Package chart
         run: |

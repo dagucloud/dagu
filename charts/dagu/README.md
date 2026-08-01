@@ -222,10 +222,11 @@ The chart exposes the selected Secret value to the UI container as `DAGU_LICENSE
 Secret-backed environment variables are read when the UI pod starts. After rotating the license Secret—or the OIDC client Secret described below—restart the UI Deployment so it reads the new value:
 
 ```bash
-kubectl rollout restart deployment/dagu-ui
+kubectl rollout restart deployment \
+  --selector app.kubernetes.io/instance=dagu,app.kubernetes.io/component=ui
 ```
 
-The command assumes the release name is `dagu`; use `<release-name>-ui` when the release has another name.
+The example uses the release name `dagu`; replace that instance-label value when the release has another name. The selector also works with `nameOverride` and `fullnameOverride`.
 
 ### Authentication
 
