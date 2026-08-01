@@ -111,7 +111,11 @@ jobs:
         run: helm lint --strict ./charts/dagu
 
       - name: Render standalone defaults
-        run: helm template dagu ./charts/dagu --namespace dagu >/dev/null
+        run: |
+          helm template dagu ./charts/dagu \
+            --namespace dagu >/tmp/dagu-default-render.yaml
+
+          grep -Fq 'cors_allowed_origins: []' /tmp/dagu-default-render.yaml
 
       - name: Render distributed mode
         run: |
@@ -137,6 +141,8 @@ jobs:
             --set ingress.enabled=true \
             --set-string ingress.className=nginx \
             --set-string ingress.host=dagu.example.com \
+            --set ingress.tls.enabled=true \
+            --set-string ingress.tls.secretName=dagu-tls \
             --set-string 'config.corsAllowedOrigins[0]=https://app.example.com' \
             >/tmp/dagu-optional-render.yaml
 
@@ -147,6 +153,16 @@ jobs:
           grep -Fq 'cors_allowed_origins: ["https://app.example.com"]' /tmp/dagu-optional-render.yaml
           grep -Fq 'engineering: developer' /tmp/dagu-optional-render.yaml
           grep -Fq 'workspace: platform' /tmp/dagu-optional-render.yaml
+          grep -Fq 'secretName: "dagu-tls"' /tmp/dagu-optional-render.yaml
+
+          helm template dagu ./charts/dagu \
+            --namespace dagu \
+            --set ui.service.type=LoadBalancer \
+            --set-string 'ui.service.annotations.example\.com/exposure=internal' \
+            >/tmp/dagu-loadbalancer-render.yaml
+
+          grep -Fq 'type: LoadBalancer' /tmp/dagu-loadbalancer-render.yaml
+          grep -Fq 'example.com/exposure: internal' /tmp/dagu-loadbalancer-render.yaml
 
           helm template dagu ./charts/dagu \
             --namespace dagu \
