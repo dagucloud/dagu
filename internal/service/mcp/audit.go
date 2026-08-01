@@ -208,6 +208,9 @@ func readAuditMetadata(input readInput) toolAuditMetadata {
 	if input.DAGRunID != "" {
 		attrs["dag_run_id"] = input.DAGRunID
 	}
+	if input.StepName != "" {
+		attrs["step_name"] = input.StepName
+	}
 	if keys := queryKeys(input.Query); len(keys) > 0 {
 		attrs["query_keys"] = keys
 	}
@@ -417,10 +420,13 @@ func resourceAuditDetails(rawURI string) map[string]any {
 			}
 		case "runs":
 			resourceType = "dag_run"
-			if len(segments) == 3 {
+			if isStepLogResourceSegments(segments) {
+				resourceType = "dag_run_step_log"
+				resourceID = segments[0] + "/" + segments[1] + "/" + segments[3]
+			} else if len(segments) == 3 {
 				resourceType = "dag_run_logs"
 			}
-			if len(segments) >= 2 {
+			if len(segments) >= 2 && !isStepLogResourceSegments(segments) {
 				resourceID = segments[0] + "/" + segments[1]
 			}
 		}

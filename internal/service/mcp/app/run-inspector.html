@@ -197,6 +197,14 @@
         padding: 8px 10px;
       }
 
+      .step {
+        grid-template-columns: 8px minmax(0, 1fr) auto auto;
+      }
+
+      .step-log {
+        padding: 3px 7px;
+      }
+
       .dot {
         background: var(--dagu-muted);
         border-radius: 999px;
@@ -333,7 +341,7 @@
       </div>
 
       <div class="section hidden" id="logs-section">
-        <div class="section-title"><span>Logs</span></div>
+        <div class="section-title"><span id="logs-title">Scheduler log</span></div>
         <pre id="log-output"></pre>
       </div>
 
@@ -360,6 +368,7 @@
           finishedAt: document.getElementById("finished-at"),
           logs: document.getElementById("logs"),
           logsSection: document.getElementById("logs-section"),
+          logsTitle: document.getElementById("logs-title"),
           logOutput: document.getElementById("log-output"),
           message: document.getElementById("message"),
           openRun: document.getElementById("open-run"),
@@ -457,10 +466,21 @@
             if (parsed.protocol !== "dagu:" || parsed.hostname !== "runs") return;
             const runResource = segments.length === 2;
             const logsResource = segments.length === 3 && segments[2] === "logs";
-            if (!runResource && !logsResource) return;
+            const stepLogResource =
+              segments.length === 5 && segments[2] === "steps" && segments[4] === "logs";
+            if (!runResource && !logsResource && !stepLogResource) return;
             runIdentity.name = decodeURIComponent(segments[0]);
             runIdentity.dagRunId = decodeURIComponent(segments[1]);
             if (runResource) {
+              parsed.search = "";
+              parsed.hash = "";
+              runIdentity.runUri = parsed.toString();
+              runIdentity.logsUri = `${runIdentity.runUri}/logs`;
+              return;
+            }
+            if (stepLogResource) {
+              runIdentity.stepName = decodeURIComponent(segments[3]);
+              parsed.pathname = `/${segments[0]}/${segments[1]}`;
               parsed.search = "";
               parsed.hash = "";
               runIdentity.runUri = parsed.toString();
@@ -525,6 +545,9 @@
             "hidden",
             !label.includes("fail") && !label.includes("abort") && !label.includes("reject"),
           );
+          for (const button of elements.steps.querySelectorAll(".step-log")) {
+            button.disabled = busy || !canCallTools;
+          }
         }
 
         function renderRun(run) {
@@ -556,15 +579,25 @@
             const dot = document.createElement("span");
             dot.className = `dot ${statusClass(node?.statusLabel)}`.trim();
 
+            const rawStepName = text(node?.step?.name || node?.step?.id);
             const stepName = document.createElement("span");
             stepName.className = "step-name";
-            stepName.textContent = text(node?.step?.name || node?.step?.id, `Step ${index + 1}`);
+            stepName.textContent = rawStepName || `Step ${index + 1}`;
 
             const stepStatus = document.createElement("span");
             stepStatus.className = "step-status";
             stepStatus.textContent = text(node?.statusLabel, "Unknown");
 
             row.append(dot, stepName, stepStatus);
+            if (rawStepName) {
+              const logs = document.createElement("button");
+              logs.type = "button";
+              logs.className = "step-log";
+              logs.textContent = "Logs";
+              logs.disabled = busy || !hostCapabilities?.serverTools;
+              logs.addEventListener("click", () => loadStepLogs(rawStepName));
+              row.append(logs);
+            }
             elements.steps.append(row);
           }
           hideMessage();
@@ -622,9 +655,19 @@
           }
         }
 
-        function renderLogs(data) {
+        function stepLogText(data) {
+          const stdout = typeof data?.stdoutContent === "string" ? data.stdoutContent : "";
+          const stderr = typeof data?.stderrContent === "string" ? data.stderrContent : "";
+          if (!stdout && !stderr) return "";
+          if (!stderr) return stdout;
+          if (!stdout) return stderr;
+          return `[stdout]\n${stdout}\n\n[stderr]\n${stderr}`;
+        }
+
+        function renderLogs(data, title = "Scheduler log", formatter = logText) {
           elements.logsSection.classList.remove("hidden");
-          elements.logOutput.textContent = logText(data) || "No log output is available.";
+          elements.logsTitle.textContent = title;
+          elements.logOutput.textContent = formatter(data) || "No log output is available.";
           hideMessage();
         }
 
@@ -670,6 +713,28 @@
               uri: runIdentity.logsUri,
             });
             renderLogs(resourceJSON(result));
+          } catch (error) {
+            setMessage(error instanceof Error ? error.message : String(error), true);
+          } finally {
+            setBusy(false);
+          }
+        }
+
+        async function loadStepLogs(stepName) {
+          if (!runIdentity.name || !runIdentity.dagRunId || !stepName) return;
+          setBusy(true);
+          try {
+            const result = await request("tools/call", {
+              name: "dagu_read",
+              arguments: {
+                target: "step_log",
+                name: runIdentity.name,
+                dagRunId: runIdentity.dagRunId,
+                stepName,
+              },
+            });
+            if (result?.isError) throw new Error(contentText(result));
+            renderLogs(result?.structuredContent?.data, `${stepName} log`, stepLogText);
           } catch (error) {
             setMessage(error instanceof Error ? error.message : String(error), true);
           } finally {
@@ -742,6 +807,18 @@
               statusLabel: "Logs",
             });
             renderLogs(output?.data);
+            if (hostCapabilities?.serverResources && runIdentity.runUri) {
+              await loadRunResource();
+            }
+            return;
+          }
+          if (output?.target === "step_log") {
+            renderRun({
+              name: runIdentity.name,
+              dagRunId: runIdentity.dagRunId,
+              statusLabel: "Step log",
+            });
+            renderLogs(output?.data, `${text(output?.stepName, "Step")} log`, stepLogText);
             if (hostCapabilities?.serverResources && runIdentity.runUri) {
               await loadRunResource();
             }

@@ -38,3 +38,10 @@ func TestSanitizeAuditStringTruncatesRunes(t *testing.T) {
 	require.Equal(t, "あい", got)
 	require.True(t, utf8.ValidString(got))
 }
+
+func TestResourceAuditDetailsIdentifiesStepLog(t *testing.T) {
+	details := resourceAuditDetails("dagu://runs/nightly/run-1/steps/build/logs")
+
+	require.Equal(t, "dag_run_step_log", details["resource_type"])
+	require.Equal(t, "nightly/run-1/build", details["resource_id"])
+}

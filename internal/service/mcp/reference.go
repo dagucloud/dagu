@@ -98,7 +98,7 @@ Use dagu_execute action=retry with name and dagRunId for retry. Use action=stop 
 
 Dagu supports the io.modelcontextprotocol/ui extension with text/html;profile=mcp-app resources.
 
-Hosts that support MCP Apps can render run-related dagu_read and dagu_execute results in an interactive run inspector. The inspector can display recent runs, run status, step status, and logs. Refresh, stop, and retry actions use the existing Dagu MCP resources and tools, so authentication, authorization, and audit attribution are unchanged.
+Hosts that support MCP Apps can render run-related dagu_read and dagu_execute results in an interactive run inspector. The inspector can display recent runs, run status, step status, scheduler logs, and individual step logs. Refresh, stop, and retry actions use the existing Dagu MCP resources and tools, so authentication, authorization, and audit attribution are unchanged.
 
 The app is a progressive enhancement. Clients without MCP Apps support continue to receive the same text content, structuredContent, and resource links from dagu_read and dagu_execute.`,
 		},
@@ -115,13 +115,14 @@ Purpose: read Dagu state and built-in reference content. The tool is read-only.
 Addressing:
 
 - Target mode uses target plus target-specific fields.
-- URI mode uses uri and forbids target, name, dagRunId, and query.
+- URI mode uses uri and forbids target, name, dagRunId, stepName, and query.
 
 Fields:
 
-- target: required in target mode. Values are references, reference, dags, dag, dag_spec, runs, run, and run_logs.
-- name: DAG name or reference topic name. Required for dag, dag_spec, run, and run_logs. Optional for reference; defaults to authoring. Forbidden for references, dags, and runs.
-- dagRunId: required for run and run_logs. Forbidden for other targets.
+- target: required in target mode. Values are references, reference, dags, dag, dag_spec, runs, run, run_logs, and step_log.
+- name: DAG name or reference topic name. Required for dag, dag_spec, run, run_logs, and step_log. Optional for reference; defaults to authoring. Forbidden for references, dags, and runs.
+- dagRunId: required for run, run_logs, and step_log. Forbidden for other targets.
+- stepName: required for step_log. Forbidden for other targets.
 - query: URL query string without a leading question mark. Allowed for dags, runs, and run_logs.
 - uri: dagu:// resource URI for URI mode.
 
@@ -135,6 +136,7 @@ Targets:
 - runs lists DAG-runs.
 - run reads one DAG-run.
 - run_logs reads scheduler and step log metadata.
+- step_log reads stdout and stderr for one DAG-run step.
 
 Query parameters:
 

@@ -234,6 +234,14 @@ func registerResources(server *mcpsdk.Server, svc *Service) {
 		Description: "DAG-run logs. Supports query parameters accepted by Dagu log readers, such as tail=100.",
 		MIMEType:    resourceMIMEJSON,
 	}, svc.readResource)
+
+	server.AddResourceTemplate(&mcpsdk.ResourceTemplate{
+		URITemplate: "dagu://runs/{name}/{dagRunId}/steps/{stepName}/logs",
+		Name:        "dag_run_step_log",
+		Title:       "DAG-run step log",
+		Description: "Standard output and standard error for a DAG-run step.",
+		MIMEType:    resourceMIMEJSON,
+	}, svc.readResource)
 }
 
 func registerPrompts(server *mcpsdk.Server) {
@@ -659,7 +667,7 @@ func (svc *Service) readResourceText(ctx context.Context, rawURI string) (string
 		rawSpec, _ := spec["spec"].(string)
 		return rawSpec, resourceMIMEYAML, nil
 	case "runs":
-		if !isRunResourceSegments(segments) {
+		if !isRunResourceSegments(segments) && !isStepLogResourceSegments(segments) {
 			return "", "", mcpsdk.ResourceNotFoundError(rawURI)
 		}
 		if err := svc.requireAPI(); err != nil {
@@ -667,7 +675,9 @@ func (svc *Service) readResourceText(ctx context.Context, rawURI string) (string
 		}
 		identifier := segments[0] + "/" + segments[1]
 		var data any
-		if len(segments) == 3 {
+		if isStepLogResourceSegments(segments) {
+			data, err = svc.api.GetStepLogData(ctx, identifier+"/"+segments[3])
+		} else if len(segments) == 3 {
 			if parsed.RawQuery != "" {
 				identifier += "?" + parsed.RawQuery
 			}
@@ -822,6 +832,10 @@ func isRunResourceSegments(segments []string) bool {
 	return len(segments) == 2 || (len(segments) == 3 && segments[2] == "logs")
 }
 
+func isStepLogResourceSegments(segments []string) bool {
+	return len(segments) == 5 && segments[2] == "steps" && segments[4] == "logs"
+}
+
 func isTerminalStatus(status int) bool {
 	switch status {
 	case 2, 3, 4, 6, 8:
@@ -916,6 +930,10 @@ func runLogsURIWithQuery(name, dagRunID, query string) string {
 		return uri
 	}
 	return uri + "?" + query
+}
+
+func stepLogURI(name, dagRunID, stepName string) string {
+	return runURI(name, dagRunID) + "/steps/" + pathEscape(stepName) + "/logs"
 }
 
 func pathEscape(s string) string {

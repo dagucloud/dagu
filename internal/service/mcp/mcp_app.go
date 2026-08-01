@@ -14,7 +14,7 @@ import (
 const (
 	mcpAppsExtensionURI  = "io.modelcontextprotocol/ui"
 	mcpAppMIMEType       = "text/html;profile=mcp-app"
-	runInspectorURI      = "ui://dagu/run-inspector/v2"
+	runInspectorURI      = "ui://dagu/run-inspector/v3"
 	runInspectorMetaKey  = "ui/resourceUri"
 	runInspectorResource = "run_inspector"
 )

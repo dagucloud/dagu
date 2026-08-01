@@ -26,6 +26,7 @@ const (
 	readTargetRuns       = "runs"
 	readTargetRun        = "run"
 	readTargetRunLogs    = "run_logs"
+	readTargetStepLog    = "step_log"
 
 	readErrorInvalidToolInput      = "invalid_tool_input"
 	readErrorInvalidResourceURI    = "invalid_resource_uri"
@@ -38,6 +39,7 @@ const (
 	readFieldTarget   = "target"
 	readFieldName     = "name"
 	readFieldDAGRunID = "dagRunId"
+	readFieldStepName = "stepName"
 	readFieldQuery    = "query"
 	readFieldURI      = "uri"
 
@@ -49,9 +51,10 @@ const (
 )
 
 type readInput struct {
-	Target   string `json:"target" jsonschema:"Read target: dags, dag, dag_spec, runs, run, run_logs, or reference."`
-	Name     string `json:"name,omitempty" jsonschema:"DAG name for dag, dag_spec, run, and run_logs targets."`
-	DAGRunID string `json:"dagRunId,omitempty" jsonschema:"DAG-run ID for run and run_logs targets. The value latest is accepted where Dagu accepts it."`
+	Target   string `json:"target" jsonschema:"Read target: dags, dag, dag_spec, runs, run, run_logs, step_log, or reference."`
+	Name     string `json:"name,omitempty" jsonschema:"DAG name for dag, dag_spec, run, run_logs, and step_log targets."`
+	DAGRunID string `json:"dagRunId,omitempty" jsonschema:"DAG-run ID for run, run_logs, and step_log targets. The value latest is accepted where Dagu accepts it."`
+	StepName string `json:"stepName,omitempty" jsonschema:"Step name for the step_log target."`
 	Query    string `json:"query,omitempty" jsonschema:"URL query string for list targets, for example page=1&perPage=100 or status=running."`
 	URI      string `json:"uri,omitempty" jsonschema:"Resource URI to read directly, for example dagu://reference/authoring."`
 }
@@ -62,7 +65,7 @@ func readToolInputSchema() json.RawMessage {
 		"properties": {
 			"target": {
 				"type": "string",
-				"description": "Read target: references, reference, dags, dag, dag_spec, runs, run, or run_logs."
+				"description": "Read target: references, reference, dags, dag, dag_spec, runs, run, run_logs, or step_log."
 			},
 			"name": {
 				"type": "string",
@@ -70,7 +73,11 @@ func readToolInputSchema() json.RawMessage {
 			},
 			"dagRunId": {
 				"type": "string",
-				"description": "DAG-run identifier for run and run_logs targets."
+				"description": "DAG-run identifier for run, run_logs, and step_log targets."
+			},
+			"stepName": {
+				"type": "string",
+				"description": "Step name for the step_log target."
 			},
 			"query": {
 				"type": "string",
@@ -184,6 +191,10 @@ func (svc *Service) readToolImpl(ctx context.Context, input readInput) (*mcpsdk.
 			}
 			data, err = svc.api.GetDAGRunLogsData(ctx, identifier)
 		}
+	case readTargetStepLog:
+		if err = svc.requireAPI(); err == nil {
+			data, err = svc.api.GetStepLogData(ctx, input.Name+"/"+input.DAGRunID+"/"+input.StepName)
+		}
 	default:
 		return nil, nil, unsupportedReadTargetError(input.Target)
 	}
@@ -195,6 +206,11 @@ func (svc *Service) readToolImpl(ctx context.Context, input readInput) (*mcpsdk.
 		"target":     input.Target,
 		"data":       data,
 		"references": defaultReferenceURIs(),
+	}
+	if input.Target == readTargetStepLog {
+		output["name"] = input.Name
+		output["dagRunId"] = input.DAGRunID
+		output["stepName"] = input.StepName
 	}
 	if input.URI != "" {
 		output["uri"] = input.URI
@@ -243,7 +259,7 @@ func parseReadToolInput(raw json.RawMessage) (readInput, *readToolError) {
 
 	if values[readFieldURI] != "" {
 		var mixed []string
-		for _, field := range []string{readFieldTarget, readFieldName, readFieldDAGRunID, readFieldQuery} {
+		for _, field := range []string{readFieldTarget, readFieldName, readFieldDAGRunID, readFieldStepName, readFieldQuery} {
 			if values[field] != "" {
 				mixed = append(mixed, field)
 			}
@@ -276,6 +292,7 @@ func parseReadToolInput(raw json.RawMessage) (readInput, *readToolError) {
 		Target:   target,
 		Name:     values[readFieldName],
 		DAGRunID: values[readFieldDAGRunID],
+		StepName: values[readFieldStepName],
 		Query:    values[readFieldQuery],
 	}
 	if err := validateTargetReadInput(&input); err != nil {
@@ -286,7 +303,7 @@ func parseReadToolInput(raw json.RawMessage) (readInput, *readToolError) {
 
 func isReadInputField(field string) bool {
 	switch field {
-	case readFieldTarget, readFieldName, readFieldDAGRunID, readFieldQuery, readFieldURI:
+	case readFieldTarget, readFieldName, readFieldDAGRunID, readFieldStepName, readFieldQuery, readFieldURI:
 		return true
 	default:
 		return false
@@ -371,6 +388,17 @@ func parseReadResourceURI(rawURI string) (readInput, *readToolError) {
 				Query:    resource.query,
 				URI:      runLogsURIWithQuery(resource.segments[0], resource.segments[1], resource.query),
 			}, nil
+		case len(resource.segments) == 5 && resource.segments[2] == "steps" && resource.segments[4] == "logs":
+			if resource.query != "" {
+				return readInput{}, invalidResourceURI(rawURI, "Step log resources do not support query parameters.")
+			}
+			return readInput{
+				Target:   readTargetStepLog,
+				Name:     resource.segments[0],
+				DAGRunID: resource.segments[1],
+				StepName: resource.segments[3],
+				URI:      stepLogURI(resource.segments[0], resource.segments[1], resource.segments[3]),
+			}, nil
 		default:
 			return readInput{}, invalidResourceURI(rawURI, "Unsupported DAG-run resource path.")
 		}
@@ -401,6 +429,9 @@ func parseReadResourcePath(rawURI string) (readResourcePath, *readToolError) {
 }
 
 func validateTargetReadInput(input *readInput) *readToolError {
+	if input.StepName != "" && input.Target != readTargetStepLog {
+		return invalidTargetField(input.Target, readFieldStepName)
+	}
 	switch input.Target {
 	case readTargetReferences:
 		if input.Name != "" {
@@ -486,6 +517,20 @@ func validateTargetReadInput(input *readInput) *readToolError {
 			return err
 		}
 		input.URI = runLogsURIWithQuery(input.Name, input.DAGRunID, input.Query)
+	case readTargetStepLog:
+		if input.Name == "" {
+			return missingTargetField(input.Target, readFieldName)
+		}
+		if input.DAGRunID == "" {
+			return missingTargetField(input.Target, readFieldDAGRunID)
+		}
+		if input.StepName == "" {
+			return missingTargetField(input.Target, readFieldStepName)
+		}
+		if input.Query != "" {
+			return invalidTargetField(input.Target, readFieldQuery)
+		}
+		input.URI = stepLogURI(input.Name, input.DAGRunID, input.StepName)
 	default:
 		return unsupportedReadTargetError(input.Target)
 	}
@@ -955,6 +1000,15 @@ func readResourceLinks(uri string) []resourceLink {
 			}}
 		}
 		if len(resource.segments) >= 2 {
+			if len(resource.segments) == 5 && resource.segments[2] == "steps" && resource.segments[4] == "logs" {
+				return []resourceLink{{
+					uri:         resource.rawURI,
+					name:        "dag_run_step_log",
+					title:       "DAG-run step log",
+					description: "Log output for this DAG-run step.",
+					mimeType:    resourceMIMEJSON,
+				}}
+			}
 			if len(resource.segments) == 3 && resource.segments[2] == "logs" {
 				return []resourceLink{{
 					uri:         resource.rawURI,

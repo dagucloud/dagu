@@ -5,6 +5,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -76,6 +77,35 @@ func TestServerExposesMCPAppRunInspector(t *testing.T) {
 	require.Contains(t, result.Contents[0].Text, "<!doctype html>")
 	require.Contains(t, result.Contents[0].Text, `name: "`+toolExecute+`"`)
 	require.NotEmpty(t, result.Contents[0].Meta)
+}
+
+func TestServerExposesStepLogResource(t *testing.T) {
+	ctx := context.Background()
+	session := connectTestClient(t, ctx, NewServer(nil))
+
+	templates, err := session.ListResourceTemplates(ctx, nil)
+	require.NoError(t, err)
+	require.True(t, slices.ContainsFunc(templates.ResourceTemplates, func(template *mcpsdk.ResourceTemplate) bool {
+		return template.URITemplate == "dagu://runs/{name}/{dagRunId}/steps/{stepName}/logs"
+	}))
+
+	const expectedURI = "dagu://runs/demo%20dag/run%2F1/steps/build%2Foutput/logs"
+	require.Equal(t, expectedURI, stepLogURI("demo dag", "run/1", "build/output"))
+	input, readErr := parseReadResourceURI(expectedURI)
+	require.Nil(t, readErr)
+	require.Equal(t, readTargetStepLog, input.Target)
+	require.Equal(t, "demo dag", input.Name)
+	require.Equal(t, "run/1", input.DAGRunID)
+	require.Equal(t, "build/output", input.StepName)
+
+	input, readErr = parseReadToolInput(json.RawMessage(`{
+		"target":"step_log",
+		"name":"demo dag",
+		"dagRunId":"run/1",
+		"stepName":"build/output"
+	}`))
+	require.Nil(t, readErr)
+	require.Equal(t, expectedURI, input.URI)
 }
 
 func TestHTTPHandlerServesStreamableMCP(t *testing.T) {
