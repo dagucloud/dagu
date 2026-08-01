@@ -392,14 +392,13 @@ func (s *Service) NotificationDestinationsForEvent(event chatbridge.Notification
 }
 
 func (s *Service) resolveDestinationsForEvent(ctx context.Context, event chatbridge.NotificationEvent) []string {
-	dagKey := event.DAGKey()
-	if s.store == nil || event.Status == nil || dagKey == "" {
+	if s.store == nil || event.Status == nil || event.Status.Name == "" {
 		return nil
 	}
-	states, err := s.store.ListOpenStatesByDAG(ctx, dagKey)
+	states, err := s.store.ListOpenStatesByDAG(ctx, event.Status.Name)
 	if err != nil {
 		s.logger.Warn("Failed to list open incident states",
-			slog.String("dag", dagKey),
+			slog.String("dag", event.Status.Name),
 			slog.String("error", err.Error()),
 		)
 		return nil
@@ -563,7 +562,7 @@ func (s *Service) openIncident(ctx context.Context, provider *incidentmodel.Prov
 		ProviderID:    provider.ID,
 		PolicyID:      policy.ID,
 		Workspace:     eventWorkspaceName(event),
-		DAGName:       event.DAGKey(),
+		DAGName:       event.Status.Name,
 		DedupKey:      dedupKey,
 		Status:        incidentmodel.IncidentStatusOpen,
 		ExternalID:    externalID,
@@ -593,7 +592,7 @@ func (s *Service) resolveIncident(ctx context.Context, provider *incidentmodel.P
 	if state.Status != incidentmodel.IncidentStatusOpen {
 		return true
 	}
-	if state.DAGName != "" && state.DAGName != event.DAGKey() {
+	if event.Status != nil && state.DAGName != "" && state.DAGName != event.Status.Name {
 		return true
 	}
 	delivery, err := s.withRetry(ctx, func() (*providerDeliveryResult, error) {
@@ -849,14 +848,13 @@ func parseStateDestinationID(value string) parsedStateDestination {
 }
 
 func systemDedupKey(providerID string, event chatbridge.NotificationEvent) string {
-	dagKey := event.DAGKey()
-	if providerID == "" || event.Status == nil || dagKey == "" {
+	if providerID == "" || event.Status == nil || event.Status.Name == "" {
 		return ""
 	}
 	canonical := strings.Join([]string{
 		"provider", providerID,
 		"workspace", eventWorkspaceName(event),
-		"dag", dagKey,
+		"dag", event.Status.Name,
 	}, "\x00")
 	sum := sha256.Sum256([]byte(canonical))
 	return "dagu:v1:" + hex.EncodeToString(sum[:16])

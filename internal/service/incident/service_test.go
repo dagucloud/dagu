@@ -235,8 +235,13 @@ func TestServiceResolvesOpenIncidentAfterRoutingIsDisabled(t *testing.T) {
 	assert.Equal(t, requests[0]["dedup_key"], requests[1]["dedup_key"])
 }
 
-func TestServiceIncidentIdentityUsesDAGFile(t *testing.T) {
-	client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+func TestServiceResolvesRuntimeNameIncidentWithDAGFileRouting(t *testing.T) {
+	var requests []map[string]any
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		defer func() { _ = req.Body.Close() }()
+		var payload map[string]any
+		require.NoError(t, json.NewDecoder(req.Body).Decode(&payload))
+		requests = append(requests, payload)
 		return &http.Response{
 			StatusCode: http.StatusAccepted,
 			Header:     make(http.Header),
@@ -246,52 +251,35 @@ func TestServiceIncidentIdentityUsesDAGFile(t *testing.T) {
 
 	store := newMemoryStore(t)
 	provider := store.saveProvider(t, "PagerDuty", incidentmodel.ProviderPagerDuty)
-	store.savePolicySet(t, &incidentmodel.PolicySet{
-		Scope:   incidentmodel.PolicyScopeGlobal,
-		Enabled: true,
-		Policies: []incidentmodel.Policy{{
-			ProviderID: provider.ID,
-			Enabled:    true,
-		}},
+	state, err := incidentmodel.NormalizeState(&incidentmodel.IncidentState{
+		ProviderID: provider.ID,
+		PolicyID:   "existing-policy",
+		DAGName:    "daily",
+		DedupKey:   "existing-dedup-key",
+		Status:     incidentmodel.IncidentStatusOpen,
 	})
+	require.NoError(t, err)
+	require.NoError(t, store.SaveState(context.Background(), state))
+
 	svc := New(store, WithHTTPClient(client))
-
-	first := failedEvent("daily", "run-1")
-	first.DAGFile = "daily-a"
-	second := failedEvent("daily", "run-2")
-	second.DAGFile = "daily-b"
-	for _, event := range []chatbridge.NotificationEvent{first, second} {
-		destinations := svc.NotificationDestinationsForEvent(event)
-		require.Len(t, destinations, 1)
-		require.True(t, svc.FlushNotificationBatch(context.Background(), destinations[0], chatbridge.NotificationBatch{
-			Events: []chatbridge.NotificationEvent{event},
-		}, false))
-	}
-
-	firstKey := systemDedupKey(provider.ID, first)
-	secondKey := systemDedupKey(provider.ID, second)
-	require.NotEqual(t, firstKey, secondKey)
-
-	success := first
+	success := failedEvent("daily", "run-1")
 	success.Type = eventstore.TypeDAGRunSucceeded
-	success.Status = cloneStatus(first.Status)
-	success.Status.Name = "renamed"
 	success.Status.Status = core.Succeeded
 	success.Status.Error = ""
+	success.DAGFile = "daily-file"
+
 	destinations := svc.NotificationDestinationsForEvent(success)
 	require.Len(t, destinations, 1)
 	require.True(t, svc.FlushNotificationBatch(context.Background(), destinations[0], chatbridge.NotificationBatch{
 		Events: []chatbridge.NotificationEvent{success},
 	}, false))
 
-	firstState, err := store.GetState(context.Background(), provider.ID, firstKey)
+	require.Len(t, requests, 1)
+	assert.Equal(t, "resolve", requests[0]["event_action"])
+	assert.Equal(t, "existing-dedup-key", requests[0]["dedup_key"])
+	state, err = store.GetState(context.Background(), provider.ID, "existing-dedup-key")
 	require.NoError(t, err)
-	secondState, err := store.GetState(context.Background(), provider.ID, secondKey)
-	require.NoError(t, err)
-	assert.Equal(t, "daily-a", firstState.DAGName)
-	assert.Equal(t, incidentmodel.IncidentStatusResolved, firstState.Status)
-	assert.Equal(t, "daily-b", secondState.DAGName)
-	assert.Equal(t, incidentmodel.IncidentStatusOpen, secondState.Status)
+	assert.Equal(t, incidentmodel.IncidentStatusResolved, state.Status)
 }
 
 func TestServiceReopenedIncidentUsesFreshOpenedAt(t *testing.T) {

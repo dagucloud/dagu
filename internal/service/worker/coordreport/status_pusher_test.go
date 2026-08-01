@@ -133,7 +133,11 @@ func TestPush(t *testing.T) {
 			},
 		}
 
-		pusher := coordreport.NewStatusPusher(client, "worker-1", "claim-key")
+		pusher := coordreport.NewTaskStatusPusher(client, "worker-1", &coordinatorv1.Task{
+			AttemptKey: "claim-key",
+			SourceFile: "/dags/daily-file.yaml",
+			Labels:     "workspace=ops,team=platform",
+		})
 		status := exec.DAGRunStatus{
 			Name:     "test-dag",
 			DAGRunID: "run-123",
@@ -145,6 +149,8 @@ func TestPush(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, capturedReq)
 		assert.Equal(t, "worker-1", capturedReq.WorkerId)
+		assert.Equal(t, "/dags/daily-file.yaml", capturedReq.SourceFile)
+		assert.Equal(t, "workspace=ops,team=platform", capturedReq.Labels)
 		assert.NotNil(t, capturedReq.Status)
 		assert.NotEmpty(t, capturedReq.Status.JsonData)
 		// Verify the JSON contains the expected data

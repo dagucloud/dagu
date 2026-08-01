@@ -558,6 +558,26 @@ func TestTransformArtifactPathsUsesDAGSpecificDirWithoutGlobalArtifactDir(t *tes
 	assert.Equal(t, filepath.Join(baseDir, "test-dag", "dag-run_20260412_000000Z_run-123"), incoming.ArchiveDir)
 }
 
+func TestCreateAttemptForTaskCarriesDAGLabels(t *testing.T) {
+	registerCommandExecutorCapsForCoordinatorTest()
+
+	h := NewHandler(HandlerConfig{DAGRunStore: newMockDAGRunStore()})
+	task := &coordinatorv1.Task{
+		DagRunId:   "run-123",
+		Target:     "daily",
+		SourceFile: "/dags/daily-file.yaml",
+		Definition: "name: daily\nlabels: [workspace=ops, team=platform]\nsteps:\n  - name: step1\n    run: echo hello",
+	}
+	prepared, err := h.createAttemptForTask(context.Background(), task)
+	require.NoError(t, err)
+	require.NotNil(t, prepared)
+
+	assert.Equal(t, "workspace=ops,team=platform", task.Labels)
+	status, err := prepared.attempt.ReadStatus(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, []string{"workspace=ops", "team=platform"}, status.Labels)
+}
+
 // Thread-safe getters for test assertions
 func (m *mockDAGRunAttempt) WasOpened() bool {
 	m.mu.Lock()
@@ -3479,6 +3499,8 @@ func TestHandler_ReportStatus(t *testing.T) {
 			Status:             runningProto,
 			WorkerId:           "worker-1",
 			OwnerCoordinatorId: "coord-a",
+			SourceFile:         "/dags/child-file.yaml",
+			Labels:             "workspace=ops, team=platform",
 		})
 		require.NoError(t, err)
 		require.NotNil(t, resp)
@@ -3497,6 +3519,11 @@ func TestHandler_ReportStatus(t *testing.T) {
 		assert.Equal(t, attemptKey, current.AttemptKey)
 		assert.Equal(t, core.Running, current.Status)
 		assert.Equal(t, "worker-1", current.WorkerID)
+		assert.Equal(t, []string{"workspace=ops", "team=platform"}, current.Labels)
+		dag, err := attempt.ReadDAG(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, "child-dag", dag.Name)
+		assert.Equal(t, "/dags/child-file.yaml", dag.SourceFile)
 
 		lease, err := leaseStore.Get(ctx, attemptKey)
 		require.NoError(t, err)

@@ -233,7 +233,7 @@ func retryTaskProfileName(status *exec.DAGRunStatus) string {
 
 func (h *remoteTaskHandler) reportTaskLoadFailure(ctx context.Context, run remoteRun, loadErr error) {
 	task := run.task
-	statusPusher := coordreport.NewStatusPusher(h.coordinatorClient, h.workerID, task.AttemptKey, run.owner)
+	statusPusher := coordreport.NewTaskStatusPusher(h.coordinatorClient, h.workerID, task, run.owner)
 	finishedAt := stringutil.FormatTime(time.Now())
 	logger.Warn(ctx, "Failed to load DAG on worker",
 		tag.Target(task.Target),
@@ -393,7 +393,7 @@ func taskExtraEnvs(task *coordinatorv1.Task) []string {
 // createRemoteHandlers creates the remote status, log, and artifact transport handlers.
 func (h *remoteTaskHandler) createRemoteHandlers(run remoteRun, dagName string) runHandlers {
 	task := run.task
-	statusPusher := coordreport.NewStatusPusher(h.coordinatorClient, h.workerID, task.AttemptKey, run.owner)
+	statusPusher := coordreport.NewTaskStatusPusher(h.coordinatorClient, h.workerID, task, run.owner)
 	reporter := newRemoteRunReporter(
 		h.coordinatorClient,
 		h.workerID,

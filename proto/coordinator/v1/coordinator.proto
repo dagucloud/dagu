@@ -253,6 +253,8 @@ message ReportStatusRequest {
   string worker_id = 1;
   DAGRunStatusProto status = 2;
   string owner_coordinator_id = 3;
+  string source_file = 4;
+  string labels = 5;
 }
 
 // Response message for reporting DAG run status.

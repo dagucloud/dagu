@@ -629,6 +629,8 @@ func (h *Handler) createAttemptForTask(ctx context.Context, task *coordinatorv1.
 		return nil, fmt.Errorf("failed to parse DAG definition: %w", err)
 	}
 	dag.SourceFile = task.SourceFile
+	labels := labelsForInitialStatus(task, dag)
+	task.Labels = strings.Join(labels, ",")
 
 	ref := exec.DAGRunRef{Name: dag.Name, ID: task.DagRunId}
 	queueDispatchStatus, err := queueDispatchStatusForTask(task)
@@ -707,7 +709,7 @@ func (h *Handler) createAttemptForTask(ctx context.Context, task *coordinatorv1.
 		return nil, fmt.Errorf("failed to open attempt: %w", err)
 	}
 
-	if err := h.writeInitialStatus(ctx, attempt, task, dag.Name, exec.DAGRunRef{}, labelsForInitialStatus(task, dag)); err != nil {
+	if err := h.writeInitialStatus(ctx, attempt, task, dag.Name, exec.DAGRunRef{}, labels); err != nil {
 		return nil, fmt.Errorf("failed to write initial status: %w", err)
 	}
 
@@ -781,6 +783,8 @@ func (h *Handler) createSubAttemptForTask(ctx context.Context, task *coordinator
 		return nil, fmt.Errorf("failed to parse DAG definition: %w", err)
 	}
 	dag.SourceFile = task.SourceFile
+	labels := labelsForInitialStatus(task, dag)
+	task.Labels = strings.Join(labels, ",")
 	attempt.SetDAG(dag)
 
 	task.AttemptId = attempt.ID()
@@ -793,7 +797,7 @@ func (h *Handler) createSubAttemptForTask(ctx context.Context, task *coordinator
 		return nil, fmt.Errorf("failed to open sub-attempt: %w", err)
 	}
 
-	if err := h.writeInitialStatus(ctx, attempt, task, task.Target, rootRef, labelsForInitialStatus(task, dag)); err != nil {
+	if err := h.writeInitialStatus(ctx, attempt, task, task.Target, rootRef, labels); err != nil {
 		return nil, fmt.Errorf("failed to write initial status: %w", err)
 	}
 
@@ -1602,6 +1606,9 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 	if convErr != nil {
 		return nil, status.Error(codes.InvalidArgument, "failed to convert status: "+convErr.Error())
 	}
+	if len(dagRunStatus.Labels) == 0 {
+		dagRunStatus.Labels = splitTaskLabels(req.Labels)
+	}
 
 	// Transform worker-local log paths to coordinator paths.
 	h.transformLogPaths(dagRunStatus)
@@ -1616,7 +1623,7 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 
 	latestAttempt, latestStatus, err := h.resolveLatestAttempt(ctx, dagRunStatus.Name, dagRunStatus.DAGRunID, dagRunStatus.Root)
 	if err != nil {
-		bootstrappedAttempt, bootstrapped, bootstrapErr := h.bootstrapMissingSubAttempt(ctx, req.WorkerId, dagRunStatus, err)
+		bootstrappedAttempt, bootstrapped, bootstrapErr := h.bootstrapMissingSubAttempt(ctx, req.WorkerId, req.SourceFile, dagRunStatus, err)
 		if bootstrapErr != nil {
 			return nil, status.Error(codes.Internal, "failed to bootstrap sub-attempt: "+bootstrapErr.Error())
 		}
@@ -1813,6 +1820,7 @@ func (h *Handler) closeCachedWaitingAttempt(
 func (h *Handler) bootstrapMissingSubAttempt(
 	ctx context.Context,
 	workerID string,
+	sourceFile string,
 	runStatus *exec.DAGRunStatus,
 	resolveErr error,
 ) (exec.DAGRunAttempt, bool, error) {
@@ -1855,7 +1863,7 @@ func (h *Handler) bootstrapMissingSubAttempt(
 	if err != nil {
 		return nil, false, fmt.Errorf("create sub-attempt: %w", err)
 	}
-	attempt.SetDAG(&core.DAG{Name: runStatus.Name})
+	attempt.SetDAG(&core.DAG{Name: runStatus.Name, SourceFile: sourceFile})
 	if err := attempt.Open(ctx); err != nil {
 		return nil, false, fmt.Errorf("open sub-attempt: %w", err)
 	}
