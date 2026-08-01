@@ -107,7 +107,7 @@ jobs:
       - name: Render chart
         run: helm template dagu ./charts/dagu --set persistence.storageClass=nfs-client >/dev/null
 
-      - name: Render OIDC configuration
+      - name: Smoke-render optional configurations
         run: |
           helm template dagu ./charts/dagu \
             --set persistence.storageClass=nfs-client \

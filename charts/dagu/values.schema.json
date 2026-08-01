@@ -423,6 +423,9 @@
                 },
                 "workspaceMappings": {
                   "type": "object",
+                  "propertyNames": {
+                    "pattern": ".*\\S.*"
+                  },
                   "additionalProperties": {
                     "type": "array",
                     "minItems": 1,
