@@ -670,6 +670,9 @@ func (svc *Service) readResourceText(ctx context.Context, rawURI string) (string
 		if !isRunResourceSegments(segments) && !isStepLogResourceSegments(segments) {
 			return "", "", mcpsdk.ResourceNotFoundError(rawURI)
 		}
+		if isStepLogResourceSegments(segments) && parsed.RawQuery != "" {
+			return "", "", mcpsdk.ResourceNotFoundError(rawURI)
+		}
 		if err := svc.requireAPI(); err != nil {
 			return "", "", err
 		}

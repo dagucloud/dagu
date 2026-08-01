@@ -106,6 +106,9 @@ func TestServerExposesStepLogResource(t *testing.T) {
 	}`))
 	require.Nil(t, readErr)
 	require.Equal(t, expectedURI, input.URI)
+
+	_, err = session.ReadResource(ctx, &mcpsdk.ReadResourceParams{URI: expectedURI + "?tail=100"})
+	require.Error(t, err)
 }
 
 func TestHTTPHandlerServesStreamableMCP(t *testing.T) {
