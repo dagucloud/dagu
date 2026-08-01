@@ -433,6 +433,6 @@ func resourceAuditDetails(rawURI string) map[string]any {
 	}
 	return map[string]any{
 		"resource_type": resourceType,
-		"resource_id":   resourceID,
+		"resource_id":   sanitizeAuditString(resourceID, 256),
 	}
 }

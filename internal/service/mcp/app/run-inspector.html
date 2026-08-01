@@ -629,7 +629,11 @@
             const button = document.createElement("button");
             button.type = "button";
             button.className = "run";
-            button.addEventListener("click", () => loadRunResource(text(run?.uri)));
+            button.disabled = busy;
+            button.addEventListener("click", () => {
+              if (busy) return;
+              void loadRunResource(text(run?.uri));
+            });
 
             const dot = document.createElement("span");
             dot.className = `dot ${statusClass(run?.statusLabel)}`.trim();
@@ -811,6 +815,9 @@
         function setBusy(value) {
           busy = value;
           setControls(latestRun);
+          for (const button of elements.runs.querySelectorAll(".run")) {
+            button.disabled = busy;
+          }
         }
 
         async function handleToolResult(result) {
