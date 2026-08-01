@@ -6,7 +6,6 @@ package mcp
 import (
 	"context"
 	"encoding/json"
-	"net/http"
 	"net/http/httptest"
 	"slices"
 	"strings"
@@ -114,7 +113,7 @@ func TestServerExposesStepLogResource(t *testing.T) {
 func TestHTTPHandlerServesStreamableMCP(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testConnectTimeout)
 	defer cancel()
-	httpServer := httptest.NewServer(NewHTTPHandler(nil, ""))
+	httpServer := httptest.NewServer(NewHTTPHandler(nil))
 	t.Cleanup(httpServer.Close)
 
 	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "dagu-mcp-test", Version: "v0.0.0"}, nil)
@@ -132,22 +131,6 @@ func TestHTTPHandlerServesStreamableMCP(t *testing.T) {
 	resource, err := session.ReadResource(ctx, &mcpsdk.ReadResourceParams{URI: runInspectorURI})
 	require.NoError(t, err)
 	require.Len(t, resource.Contents, 1)
-	widgetCSP, ok := resource.Contents[0].Meta["openai/widgetCSP"].(map[string]any)
-	require.True(t, ok)
-	require.Equal(t, []any{httpServer.URL}, widgetCSP["redirect_domains"])
-	require.Contains(t, resource.Contents[0].Text, `const webBaseURL = "`+httpServer.URL+`"`)
-}
-
-func TestWebBaseURLFromRequestPreservesBasePath(t *testing.T) {
-	req := httptest.NewRequest(http.MethodPost, "https://dagu.example.com/workflows/mcp", nil)
-	require.Equal(t, "https://dagu.example.com/workflows", webBaseURLFromRequest(req))
-}
-
-func TestRunInspectorResourceMetaAllowsWebOrigin(t *testing.T) {
-	meta := runInspectorResourceMeta("https://dagu.example.com/workflows")
-	widgetCSP, ok := meta["openai/widgetCSP"].(map[string]any)
-	require.True(t, ok)
-	require.Equal(t, []string{"https://dagu.example.com"}, widgetCSP["redirect_domains"])
 }
 
 func TestServerExposesReferenceResourcesAndPrompts(t *testing.T) {

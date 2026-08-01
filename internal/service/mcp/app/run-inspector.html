@@ -323,7 +323,6 @@
       <div class="actions hidden" id="actions">
         <button id="refresh" type="button">Refresh</button>
         <button id="logs" type="button">Logs</button>
-        <button class="hidden" id="open-run" type="button">Open in Dagu</button>
         <button class="hidden" id="stop" type="button">Stop</button>
         <button class="hidden" id="retry" type="button">Retry</button>
       </div>
@@ -354,7 +353,6 @@
 
         const appInfo = { name: "Dagu run inspector", version: "1.0.0" };
         const protocolVersion = "2026-01-26";
-        const webBaseURL = __DAGU_WEB_BASE_URL__;
         const pending = new Map();
         let nextRequestID = 1;
         let initialized = false;
@@ -371,7 +369,6 @@
           logsTitle: document.getElementById("logs-title"),
           logOutput: document.getElementById("log-output"),
           message: document.getElementById("message"),
-          openRun: document.getElementById("open-run"),
           refresh: document.getElementById("refresh"),
           retry: document.getElementById("retry"),
           runID: document.getElementById("run-id"),
@@ -521,30 +518,18 @@
           }
         }
 
-        function runPageURL() {
-          if (!webBaseURL || !runIdentity.name || !runIdentity.dagRunId) return "";
-          return `${webBaseURL}/dag-runs/${encodeURIComponent(runIdentity.name)}/${encodeURIComponent(runIdentity.dagRunId)}`;
-        }
-
         function stepLogResourceURI(stepName) {
           if (!runIdentity.name || !runIdentity.dagRunId || !stepName) return "";
           return `dagu://runs/${encodeURIComponent(runIdentity.name)}/${encodeURIComponent(runIdentity.dagRunId)}/steps/${encodeURIComponent(stepName)}/logs`;
-        }
-
-        function supportsOpenRunPage() {
-          return Boolean(hostCapabilities?.openLinks || window.openai?.openExternal);
         }
 
         function setControls(run) {
           const label = text(run?.statusLabel).toLowerCase();
           const canCallTools = Boolean(hostCapabilities?.serverTools);
           const canReadStepLogs = Boolean(canCallTools || hostCapabilities?.serverResources);
-          const canOpenRun = Boolean(supportsOpenRunPage() && runPageURL());
           elements.actions.classList.toggle("hidden", !runIdentity.runUri && !runIdentity.name);
           elements.refresh.disabled = busy || !runIdentity.runUri || !hostCapabilities?.serverResources;
           elements.logs.disabled = busy || !runIdentity.logsUri || !hostCapabilities?.serverResources;
-          elements.openRun.disabled = busy || !canOpenRun;
-          elements.openRun.classList.toggle("hidden", !canOpenRun);
           elements.stop.disabled = busy || !canCallTools;
           elements.retry.disabled = busy || !canCallTools;
           elements.stop.classList.toggle(
@@ -771,24 +756,6 @@
           }
         }
 
-        async function openRunPage() {
-          const url = runPageURL();
-          if (!url) return;
-          setBusy(true);
-          try {
-            if (typeof window.openai?.openExternal === "function") {
-              await window.openai.openExternal({ href: url, redirectUrl: false });
-              return;
-            }
-            const result = await request("ui/open-link", { url });
-            if (result?.isError) throw new Error("The host could not open the Dagu run page.");
-          } catch (error) {
-            setMessage(error instanceof Error ? error.message : String(error), true);
-          } finally {
-            setBusy(false);
-          }
-        }
-
         async function execute(action) {
           if (!runIdentity.name || !runIdentity.dagRunId) return;
           setBusy(true);
@@ -957,7 +924,6 @@
 
         elements.refresh.addEventListener("click", () => loadRunResource());
         elements.logs.addEventListener("click", () => loadLogs());
-        elements.openRun.addEventListener("click", () => openRunPage());
         elements.stop.addEventListener("click", () => execute("stop"));
         elements.retry.addEventListener("click", () => execute("retry"));
 
