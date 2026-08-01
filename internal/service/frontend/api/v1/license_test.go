@@ -16,6 +16,41 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestGetLicenseStatus(t *testing.T) {
+	t.Parallel()
+
+	t.Run("community status is available without a license manager", func(t *testing.T) {
+		t.Parallel()
+
+		server := test.SetupServer(t)
+		resp := server.Client().Get("/api/v1/license/status").ExpectStatus(http.StatusOK).Send(t)
+
+		var status api.LicenseStatusResponse
+		resp.Unmarshal(t, &status)
+		assert.True(t, status.Community)
+		assert.False(t, status.Valid)
+		assert.Empty(t, status.Features)
+		assert.Empty(t, status.Error)
+	})
+
+	t.Run("active license exposes its public status", func(t *testing.T) {
+		t.Parallel()
+
+		server := test.SetupServer(t, test.WithServerOptions(
+			frontend.WithLicenseManager(defaultTestLicenseManager()),
+		))
+		resp := server.Client().Get("/api/v1/license/status").ExpectStatus(http.StatusOK).Send(t)
+
+		var status api.LicenseStatusResponse
+		resp.Unmarshal(t, &status)
+		assert.False(t, status.Community)
+		assert.True(t, status.Valid)
+		assert.Equal(t, "pro", status.Plan)
+		assert.ElementsMatch(t, []string{"rbac", "audit"}, status.Features)
+		assert.Empty(t, status.Error)
+	})
+}
+
 // TestActivateLicense_NoLicenseManager verifies that when no license manager is
 // configured (the default in tests), the endpoint returns 400 with the "License
 // management is not available" message, even when a valid-looking key is supplied.

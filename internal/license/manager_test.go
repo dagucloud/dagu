@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -577,6 +578,20 @@ func TestManager_Start_DiscoveryError(t *testing.T) {
 		assert.True(t, m.Checker().IsCommunity())
 		assert.Equal(t, licenseDiscoveryFailure, m.Failure())
 	})
+
+	t.Run("explicit missing license file reports a discovery failure", func(t *testing.T) {
+		pub, _ := testKeyPair(t)
+
+		t.Setenv("DAGU_LICENSE", "")
+		t.Setenv("DAGU_LICENSE_KEY", "")
+		t.Setenv("DAGU_LICENSE_FILE", filepath.Join(t.TempDir(), "missing.jwt"))
+
+		m := NewManager(ManagerConfig{LicenseDir: t.TempDir()}, pub, nil, slog.Default())
+
+		require.NoError(t, m.Start(context.Background()))
+		assert.True(t, m.Checker().IsCommunity())
+		assert.Equal(t, licenseDiscoveryFailure, m.Failure())
+	})
 }
 
 // ---------------------------------------------------------------------------
@@ -689,15 +704,117 @@ func TestManager_ActivateWithKey(t *testing.T) {
 			activateHandler: activateHandlerFn(token, "hb-secret"),
 		})
 
+		store := &mockActivationStore{}
 		m := NewManager(ManagerConfig{
 			LicenseDir: t.TempDir(),
 			CloudURL:   srv.URL,
-		}, pub, nil, slog.Default())
+		}, pub, store, slog.Default())
 
 		result, err := m.ActivateWithKey(context.Background(), "my-key")
 		require.Error(t, err)
 		assert.Nil(t, result)
 		assert.Contains(t, err.Error(), "activated token verification failed")
+		assert.Equal(t, 0, store.saveCalls)
+	})
+
+	t.Run("replacement waits for the previous heartbeat before installing new state", func(t *testing.T) {
+		t.Parallel()
+
+		pub, priv := testKeyPair(t)
+		oldClaims := validClaims()
+		oldClaims.ID = "old-license"
+		oldToken := signToken(t, priv, oldClaims)
+		newClaims := validClaims()
+		newClaims.ID = "new-license"
+		newToken := signToken(t, priv, newClaims)
+
+		oldHeartbeatStarted := make(chan struct{})
+		oldHeartbeatRelease := make(chan struct{})
+		newHeartbeatStarted := make(chan struct{}, 1)
+		var releaseOldHeartbeat sync.Once
+		t.Cleanup(func() {
+			releaseOldHeartbeat.Do(func() { close(oldHeartbeatRelease) })
+		})
+
+		srv := newMockCloudServer(t, mockCloudServerConfig{
+			activateHandler: activateHandlerFn(newToken, "new-secret"),
+			heartbeatHandler: func(w http.ResponseWriter, r *http.Request) {
+				var request HeartbeatRequest
+				if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+				if request.HeartbeatSecret == "old-secret" {
+					close(oldHeartbeatStarted)
+					<-oldHeartbeatRelease
+					_ = json.NewEncoder(w).Encode(HeartbeatResponse{Token: oldToken})
+					return
+				}
+
+				select {
+				case newHeartbeatStarted <- struct{}{}:
+				default:
+				}
+				_ = json.NewEncoder(w).Encode(HeartbeatResponse{Token: newToken})
+			},
+		})
+
+		store := &mockActivationStore{}
+		m := NewManager(ManagerConfig{
+			LicenseDir: t.TempDir(),
+			CloudURL:   srv.URL,
+		}, pub, store, slog.Default())
+		m.state.Update(oldClaims, oldToken)
+		m.setSource(SourceActivationFile)
+		m.startHeartbeat(&ActivationData{
+			Token:           oldToken,
+			HeartbeatSecret: "old-secret",
+			LicenseKey:      "old-key",
+			ServerID:        "server-001",
+		})
+
+		select {
+		case <-oldHeartbeatStarted:
+		case <-time.After(5 * time.Second):
+			t.Fatal("previous heartbeat did not start")
+		}
+
+		type activationOutcome struct {
+			result *ActivationResult
+			err    error
+		}
+		outcome := make(chan activationOutcome, 1)
+		go func() {
+			result, err := m.ActivateWithKey(context.Background(), "new-key")
+			outcome <- activationOutcome{result: result, err: err}
+		}()
+
+		var activated activationOutcome
+		select {
+		case activated = <-outcome:
+		case <-time.After(5 * time.Second):
+			t.Fatal("replacement activation did not complete")
+		}
+		require.NoError(t, activated.err)
+		require.NotNil(t, activated.result)
+		releaseOldHeartbeat.Do(func() { close(oldHeartbeatRelease) })
+
+		select {
+		case <-newHeartbeatStarted:
+		case <-time.After(5 * time.Second):
+			t.Fatal("replacement heartbeat did not start")
+		}
+
+		claims := m.Checker().Claims()
+		require.NotNil(t, claims)
+		assert.Equal(t, "new-license", claims.ID)
+		assert.Empty(t, m.Failure())
+		stored, err := store.Load()
+		require.NoError(t, err)
+		require.NotNil(t, stored)
+		assert.Equal(t, "new-secret", stored.HeartbeatSecret)
+
+		stopWithTimeout(t, m, 5*time.Second)
 	})
 
 	t.Run("nil ExpiresAt in claims yields zero Expiry", func(t *testing.T) {

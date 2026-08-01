@@ -9,7 +9,43 @@ import (
 	"net/http"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
+	"github.com/dagucloud/dagu/v2/internal/license"
 )
+
+// GetLicenseStatus returns the current public license status.
+func (a *API) GetLicenseStatus(_ context.Context, _ api.GetLicenseStatusRequestObject) (api.GetLicenseStatusResponseObject, error) {
+	status := license.StatusFor(nil)
+	if a.licenseManager != nil {
+		status = a.licenseManager.Status()
+	}
+	return api.GetLicenseStatus200JSONResponse(toLicenseStatusResponse(status)), nil
+}
+
+func toLicenseStatusResponse(status license.Status) api.LicenseStatusResponse {
+	return api.LicenseStatusResponse{
+		Valid:       status.Valid,
+		Plan:        status.Plan,
+		Expiry:      stringutil.FormatTime(status.Expiry),
+		Features:    status.Features,
+		GracePeriod: status.GracePeriod,
+		GraceEndsAt: stringutil.FormatTime(status.GraceEndsAt),
+		Community:   status.Community,
+		Source:      publicLicenseSource(status.Source),
+		WarningCode: status.WarningCode,
+		Error:       status.Failure,
+	}
+}
+
+func publicLicenseSource(source license.DiscoverySource) string {
+	if source.IsEnv() {
+		return "env"
+	}
+	if source == license.SourceNone {
+		return ""
+	}
+	return "file"
+}
 
 // ActivateLicense handles license activation from the frontend.
 func (a *API) ActivateLicense(ctx context.Context, request api.ActivateLicenseRequestObject) (api.ActivateLicenseResponseObject, error) {

@@ -17,7 +17,6 @@ import (
 	"strings"
 	"sync"
 	"text/template"
-	"time"
 
 	apiv1 "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
@@ -141,6 +140,12 @@ type funcsConfig struct {
 
 func defaultFunctions(cfg *funcsConfig) template.FuncMap {
 	boolStr := func(b bool) string { return strconv.FormatBool(b) }
+	licenseStatus := func() license.Status {
+		if cfg.LicenseManager != nil {
+			return cfg.LicenseManager.Status()
+		}
+		return license.StatusFor(cfg.LicenseChecker)
+	}
 
 	return template.FuncMap{
 		"defTitle":              func(v any) string { s, _ := v.(string); return s },
@@ -241,86 +246,54 @@ func defaultFunctions(cfg *funcsConfig) template.FuncMap {
 
 		// License functions
 		"licenseValid": func() string {
-			if cfg.LicenseChecker == nil || cfg.LicenseChecker.IsCommunity() {
-				return "false"
-			}
-			claims := cfg.LicenseChecker.Claims()
-			if claims.ExpiresAt == nil {
-				return "true" // perpetual
-			}
-			if claims.ExpiresAt.After(time.Now()) {
-				return "true"
-			}
-			return "false"
+			return boolStr(licenseStatus().Valid)
 		},
 		"licensePlan": func() string {
-			if cfg.LicenseChecker == nil {
-				return ""
-			}
-			return cfg.LicenseChecker.Plan()
+			return licenseStatus().Plan
 		},
 		"licenseExpiry": func() string {
-			if cfg.LicenseChecker == nil {
+			status := licenseStatus()
+			if status.Expiry.IsZero() {
 				return ""
 			}
-			claims := cfg.LicenseChecker.Claims()
-			if claims == nil || claims.ExpiresAt == nil {
-				return ""
-			}
-			return claims.ExpiresAt.Format("2006-01-02T15:04:05Z")
+			return status.Expiry.Format("2006-01-02T15:04:05Z")
 		},
 		"licenseFeatures": func() string {
-			if cfg.LicenseChecker == nil {
+			features := licenseStatus().Features
+			if len(features) == 0 {
 				return "[]"
 			}
-			claims := cfg.LicenseChecker.Claims()
-			if claims == nil || len(claims.Features) == 0 {
-				return "[]"
-			}
-			b, err := json.Marshal(claims.Features)
+			b, err := json.Marshal(features)
 			if err != nil {
 				return "[]"
 			}
 			return string(b)
 		},
 		"licenseGracePeriod": func() string {
-			if cfg.LicenseChecker == nil {
-				return "false"
-			}
-			return boolStr(cfg.LicenseChecker.IsGracePeriod())
+			return boolStr(licenseStatus().GracePeriod)
 		},
 		"licenseGraceEndsAt": func() string {
-			if cfg.LicenseChecker == nil {
+			status := licenseStatus()
+			if status.GraceEndsAt.IsZero() {
 				return ""
 			}
-			return graceEndsAt(cfg.LicenseChecker.Claims())
+			return status.GraceEndsAt.Format("2006-01-02T15:04:05Z")
 		},
 		"licenseCommunity": func() string {
-			if cfg.LicenseChecker == nil {
-				return "true"
-			}
-			return boolStr(cfg.LicenseChecker.IsCommunity())
+			return boolStr(licenseStatus().Community)
 		},
 		"licenseWarningCode": func() string {
-			if cfg.LicenseChecker == nil {
-				return ""
-			}
-			return cfg.LicenseChecker.WarningCode()
+			return licenseStatus().WarningCode
 		},
 		"licenseError": func() string {
-			if cfg.LicenseManager == nil {
-				return ""
-			}
-			return cfg.LicenseManager.Failure()
+			return licenseStatus().Failure
 		},
 		"licenseSource": func() string {
-			if cfg.LicenseManager == nil {
-				return ""
-			}
-			if cfg.LicenseManager.Source().IsEnv() {
+			source := licenseStatus().Source
+			if source.IsEnv() {
 				return "env"
 			}
-			if cfg.LicenseManager.Source() == license.SourceNone {
+			if source == license.SourceNone {
 				return ""
 			}
 			return "file"
@@ -341,17 +314,4 @@ func defaultFunctions(cfg *funcsConfig) template.FuncMap {
 		"pathGitSyncDir":         func() string { return path.Join(cfg.Paths.DataDir, "gitsync") },
 		"pathAuditLogsDir":       func() string { return path.Join(cfg.Paths.AdminLogsDir, "audit") },
 	}
-}
-
-func graceEndsAt(claims *license.LicenseClaims) string {
-	if claims == nil || claims.ExpiresAt == nil {
-		return ""
-	}
-
-	graceDays := 14
-	if claims.GraceDays != nil {
-		graceDays = max(*claims.GraceDays, 0)
-	}
-
-	return claims.ExpiresAt.Time.Add(time.Duration(graceDays) * 24 * time.Hour).Format("2006-01-02T15:04:05Z")
 }

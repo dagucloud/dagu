@@ -280,6 +280,33 @@ func TestDiscover_FileJWT(t *testing.T) {
 		require.NotNil(t, result)
 		assert.Equal(t, SourceNone, result.Source)
 	})
+
+	t.Run("explicit missing file returns an error", func(t *testing.T) {
+		t.Setenv("DAGU_LICENSE", "")
+		t.Setenv("DAGU_LICENSE_KEY", "")
+		t.Setenv("DAGU_LICENSE_FILE", filepath.Join(t.TempDir(), "missing.jwt"))
+
+		result, err := Discover(t.TempDir(), "", nil)
+
+		require.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "failed to read license file")
+	})
+
+	t.Run("explicit empty file returns an error", func(t *testing.T) {
+		t.Setenv("DAGU_LICENSE", "")
+		t.Setenv("DAGU_LICENSE_KEY", "")
+
+		jwtPath := filepath.Join(t.TempDir(), "empty.jwt")
+		require.NoError(t, os.WriteFile(jwtPath, nil, 0600))
+		t.Setenv("DAGU_LICENSE_FILE", jwtPath)
+
+		result, err := Discover(t.TempDir(), "", nil)
+
+		require.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "is empty")
+	})
 }
 
 // TestDiscover_None verifies SourceNone is returned when no source is configured.

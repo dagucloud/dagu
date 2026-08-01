@@ -1,7 +1,11 @@
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { AppBarContext } from '@/contexts/AppBarContext';
-import { useConfig, useUpdateConfig } from '@/contexts/ConfigContext';
+import {
+  type LicenseStatus,
+  useConfig,
+  useUpdateConfig,
+} from '@/contexts/ConfigContext';
 import { useClient } from '@/hooks/api';
 import { LICENSE_CONSOLE_URL } from '@/lib/constants';
 import dayjs from '@/lib/dayjs';
@@ -35,6 +39,19 @@ export default function LicensePage() {
 
   const remoteNode = appBarContext.selectedRemoteNode || 'local';
 
+  async function refreshLicenseStatus() {
+    try {
+      const { data } = await client.GET('/license/status', {
+        params: { query: { remoteNode } },
+      });
+      if (data) {
+        updateConfig({ license: data });
+      }
+    } catch {
+      // Activation state is already applied; status revalidation is best-effort.
+    }
+  }
+
   async function handleActivate(e?: React.FormEvent) {
     if (e) e.preventDefault();
     if (!key.trim()) return;
@@ -49,20 +66,20 @@ export default function LicensePage() {
       if (apiError) {
         throw new Error(apiError.message || 'Activation failed');
       }
-      updateConfig({
-        license: {
-          valid: true,
-          plan: data?.plan || 'pro',
-          features: data?.features || [],
-          expiry: data?.expiry || '',
-          gracePeriod: false,
-          graceEndsAt: '',
-          community: false,
-          source: 'file',
-          warningCode: '',
-          error: '',
-        },
-      });
+      const nextLicense: LicenseStatus = {
+        valid: true,
+        plan: data?.plan || 'pro',
+        features: data?.features || [],
+        expiry: data?.expiry || '',
+        gracePeriod: false,
+        graceEndsAt: '',
+        community: false,
+        source: 'file',
+        warningCode: '',
+        error: '',
+      };
+      updateConfig({ license: nextLicense });
+      void refreshLicenseStatus();
       setKey('');
       setSuccessMessage('License activated successfully.');
     } catch (err) {
@@ -84,20 +101,20 @@ export default function LicensePage() {
       if (apiError) {
         throw new Error(apiError.message || 'Deactivation failed');
       }
-      updateConfig({
-        license: {
-          valid: false,
-          plan: '',
-          features: [],
-          expiry: '',
-          gracePeriod: false,
-          graceEndsAt: '',
-          community: true,
-          source: '',
-          warningCode: '',
-          error: '',
-        },
-      });
+      const nextLicense: LicenseStatus = {
+        valid: false,
+        plan: '',
+        features: [],
+        expiry: '',
+        gracePeriod: false,
+        graceEndsAt: '',
+        community: true,
+        source: '',
+        warningCode: '',
+        error: '',
+      };
+      updateConfig({ license: nextLicense });
+      void refreshLicenseStatus();
       setSuccessMessage('License deactivated. Running in community mode.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Deactivation failed');

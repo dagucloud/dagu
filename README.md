@@ -142,6 +142,54 @@ steps:
 
 Dagu can also run containers, Kubernetes Jobs, SSH commands, SQL, HTTP requests, sub-workflows, human tasks, and reusable actions. Browse the [workflow examples](https://docs.dagu.sh/writing-workflows/examples) or the [YAML reference](https://docs.dagu.sh/writing-workflows/yaml-specification) when you need them.
 
+## LLM-directed workflows
+
+With `type: controller`, steps become a catalog and `tasks` state the goals; an LLM decides which step runs next until the goals are met:
+
+```yaml
+type: controller
+
+env:
+  - ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+
+llm:
+  provider: anthropic
+  model: claude-opus-5
+
+steps:
+  - name: extract
+    description: Pull the raw data.
+    run: python extract.py
+  - name: build-report
+    description: Build the nightly report from the extracted data.
+    run: ./build-report.sh
+  - name: archive
+    description: Archive the finished report.
+    run: tar -czf report.tgz report/
+
+tasks:
+  - name: report-archived
+    description: Finished when the nightly report is built and archived.
+```
+
+Also built in: `chat` steps run LLM calls with tool use inside any workflow.
+
+See [Controller Workflows](https://docs.dagu.sh/writing-workflows/controller).
+
+## Operate Dagu from your AI tools
+
+The direction also reverses: AI tools can run Dagu. The MCP endpoint (`http://localhost:8080/mcp`) lets MCP clients inspect workflows, start and control runs, and read results.
+
+MCP Apps hosts can render run-related `dagu_read` and `dagu_execute` results in an interactive inspector with step status, scheduler and per-step logs, refresh, stop, retry, and a link to the full run page in Dagu. Other MCP clients continue to receive the same text and structured results.
+
+For workflow-authoring help in Claude Code, Codex, Gemini CLI, and other coding tools, install the Dagu skill:
+
+```sh
+gh skill install dagucloud/dagu dagu
+```
+
+See the [MCP guide](https://docs.dagu.sh/mcp/quickstart).
+
 ## Common uses
 
 - Replace fragile cron chains while keeping the underlying scripts.
@@ -161,24 +209,6 @@ Dagu can also run containers, Kubernetes Jobs, SSH commands, SQL, HTTP requests,
 | Managed | A dedicated managed Dagu instance, with optional private workers | Teams that want Dagu operated for them |
 
 The same YAML works across these models. See [deployment models](https://docs.dagu.sh/overview/deployment-models) for the architecture, security boundaries, and setup details.
-
-## AI tools are optional
-
-Dagu has a built-in MCP endpoint for clients that need to inspect workflows or control runs:
-
-```text
-http://localhost:8080/mcp
-```
-
-MCP Apps hosts can render run-related `dagu_read` and `dagu_execute` results in an interactive inspector with step status, scheduler and per-step logs, refresh, stop, retry, and a link to the full run page in Dagu. Other MCP clients continue to receive the same text and structured results.
-
-For workflow-authoring help in Claude Code, Codex, Gemini CLI, and other coding tools, install the Dagu skill:
-
-```sh
-gh skill install dagucloud/dagu dagu
-```
-
-The basic workflow engine does not require an AI provider. Start with the [MCP guide](https://docs.dagu.sh/mcp/quickstart) only if you need that integration.
 
 ## Learn more
 

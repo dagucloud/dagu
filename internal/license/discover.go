@@ -4,6 +4,7 @@
 package license
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -114,17 +115,21 @@ func Discover(licenseDir, configKey string, store ActivationStore) (*DiscoveryRe
 
 	// 5. Offline JWT file
 	filePath := os.Getenv("DAGU_LICENSE_FILE")
+	explicitFile := filePath != ""
 	if filePath == "" && licenseDir != "" {
 		filePath = filepath.Join(licenseDir, "license.jwt")
 	}
 	if filePath != "" {
 		data, err := os.ReadFile(filePath) //nolint:gosec // path from env or config
 		if err != nil {
-			if !errors.Is(err, os.ErrNotExist) {
+			if explicitFile || !errors.Is(err, os.ErrNotExist) {
 				return nil, fmt.Errorf("failed to read license file %s: %w", filePath, err)
 			}
 			// File does not exist — fall through to next source.
 		} else {
+			if explicitFile && len(bytes.TrimSpace(data)) == 0 {
+				return nil, fmt.Errorf("license file %s is empty", filePath)
+			}
 			token := string(data)
 			if token != "" {
 				return &DiscoveryResult{

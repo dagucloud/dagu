@@ -8,18 +8,20 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Config } from '@/contexts/ConfigContext';
 import App from '../App';
 
-const { clientMock, clientGetMock, overviewImportError } = vi.hoisted(() => {
-  const clientGetMock = vi.fn();
-  return {
-    clientGetMock,
-    overviewImportError: { current: false },
-    clientMock: {
-      GET: clientGetMock,
-      POST: vi.fn(),
-      DELETE: vi.fn(),
-    },
-  };
-});
+const { clientMock, clientGetMock, overviewImportError, useQueryMock } =
+  vi.hoisted(() => {
+    const clientGetMock = vi.fn();
+    return {
+      clientGetMock,
+      overviewImportError: { current: false },
+      useQueryMock: vi.fn(),
+      clientMock: {
+        GET: clientGetMock,
+        POST: vi.fn(),
+        DELETE: vi.fn(),
+      },
+    };
+  });
 
 vi.hoisted(() => {
   vi.stubGlobal('getConfig', () => ({
@@ -31,6 +33,7 @@ vi.hoisted(() => {
 
 vi.mock('@/hooks/api', () => ({
   useClient: () => clientMock,
+  useQuery: useQueryMock,
 }));
 
 vi.mock('../layouts/Layout', () => ({
@@ -177,6 +180,8 @@ describe('App license routing', () => {
     sessionStorage.clear();
     clientGetMock.mockReset();
     clientGetMock.mockResolvedValue({ data: { workspaces: [] } });
+    useQueryMock.mockReset();
+    useQueryMock.mockReturnValue({ data: undefined });
     overviewImportError.current = false;
     vi.stubGlobal(
       'fetch',
@@ -214,6 +219,34 @@ describe('App license routing', () => {
     expect(
       screen.queryByRole('heading', { name: 'Incidents' })
     ).not.toBeInTheDocument();
+  });
+
+  it('updates licensed routes from the live license status', async () => {
+    useQueryMock.mockReturnValue({
+      data: {
+        valid: true,
+        plan: 'pro',
+        expiry: '2027-01-01T00:00:00Z',
+        features: ['audit'],
+        gracePeriod: false,
+        graceEndsAt: '',
+        community: false,
+        source: 'file',
+        warningCode: '',
+        error: '',
+      },
+    });
+
+    renderAt('/incidents');
+
+    expect(
+      await screen.findByRole('heading', { name: 'Incidents' })
+    ).toBeVisible();
+    expect(useQueryMock).toHaveBeenCalledWith(
+      '/license/status',
+      { params: { query: { remoteNode: 'local' } } },
+      expect.objectContaining({ refreshInterval: 60_000 })
+    );
   });
 
   it('redirects the legacy secrets route to the secret refs section', async () => {

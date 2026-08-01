@@ -1,4 +1,5 @@
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import * as React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import LicensePage from '@/pages/license';
@@ -73,10 +74,13 @@ function makeConfig(licenseOverrides: Partial<LicenseStatus> = {}): Config {
   };
 }
 
-function renderPage(licenseOverrides: Partial<LicenseStatus> = {}) {
+function renderPage(
+  licenseOverrides: Partial<LicenseStatus> = {},
+  updateConfig: (patch: Partial<Config>) => void = () => undefined
+) {
   return render(
     <ConfigContext.Provider value={makeConfig(licenseOverrides)}>
-      <ConfigUpdateContext.Provider value={() => undefined}>
+      <ConfigUpdateContext.Provider value={updateConfig}>
         <AppBarContext.Provider
           value={{
             title: '',
@@ -164,5 +168,45 @@ describe('LicensePage', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(
       'License token verification failed'
     );
+  });
+
+  it('refreshes the authoritative status after activation', async () => {
+    const user = userEvent.setup();
+    const updateConfig = vi.fn();
+    const status: LicenseStatus = {
+      valid: true,
+      plan: 'enterprise',
+      expiry: '2027-01-01T00:00:00Z',
+      features: ['audit', 'rbac'],
+      gracePeriod: false,
+      graceEndsAt: '',
+      community: false,
+      source: 'file',
+      warningCode: '',
+      error: '',
+    };
+    const post = vi.fn().mockResolvedValue({
+      data: {
+        plan: 'enterprise',
+        expiry: status.expiry,
+        features: status.features,
+      },
+    });
+    const get = vi.fn().mockResolvedValue({ data: status });
+    useClientMock.mockReturnValue({ POST: post, GET: get } as never);
+    renderPage({}, updateConfig);
+
+    await user.type(
+      screen.getByRole('textbox', { name: 'License key' }),
+      'key'
+    );
+    await user.click(screen.getByRole('button', { name: 'Activate' }));
+
+    await waitFor(() => {
+      expect(get).toHaveBeenCalledWith('/license/status', {
+        params: { query: { remoteNode: 'local' } },
+      });
+      expect(updateConfig).toHaveBeenLastCalledWith({ license: status });
+    });
   });
 });

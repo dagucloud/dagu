@@ -54,6 +54,8 @@ type Manager struct {
 	source   DiscoverySource
 	failure  string
 
+	transitionMu sync.Mutex
+
 	cancelMu         sync.Mutex
 	cancel           context.CancelFunc
 	wg               sync.WaitGroup
@@ -119,7 +121,11 @@ func (m *Manager) setFailure(failure string) {
 // It always returns nil for graceful degradation: license errors are logged but never prevent
 // the application from starting.
 func (m *Manager) Start(ctx context.Context) error {
+	m.transitionMu.Lock()
+	defer m.transitionMu.Unlock()
+
 	m.setFailure("")
+	var activationToPersist *ActivationData
 	result, err := Discover(m.cfg.LicenseDir, m.cfg.ConfigKey, m.store)
 	if err != nil {
 		m.logger.Warn("License discovery failed", slog.String("error", err.Error()))
@@ -152,6 +158,7 @@ func (m *Manager) Start(ctx context.Context) error {
 		} else {
 			result.Token = activationResult.Token
 			result.Activation = activationResult
+			activationToPersist = activationResult
 		}
 	}
 
@@ -170,6 +177,9 @@ func (m *Manager) Start(ctx context.Context) error {
 	}
 
 	m.state.Update(claims, result.Token)
+	if activationToPersist != nil {
+		m.saveActivation(activationToPersist)
+	}
 	if tokenExpired {
 		if m.state.IsGracePeriod() {
 			m.logger.Warn("License token is expired, operating in grace period")
@@ -195,6 +205,12 @@ func (m *Manager) Start(ctx context.Context) error {
 
 // Stop cancels the heartbeat goroutine and waits for completion.
 func (m *Manager) Stop() {
+	m.transitionMu.Lock()
+	defer m.transitionMu.Unlock()
+	m.stopHeartbeat()
+}
+
+func (m *Manager) stopHeartbeat() {
 	m.cancelMu.Lock()
 	m.heartbeatRunning = false
 	cancel := m.cancel
@@ -210,6 +226,9 @@ func (m *Manager) Stop() {
 // It returns an error if the license was configured via an environment variable (the user must
 // remove the env var instead) or if there is no active license to deactivate.
 func (m *Manager) Deactivate(_ context.Context) error {
+	m.transitionMu.Lock()
+	defer m.transitionMu.Unlock()
+
 	if m.Source().IsEnv() {
 		return fmt.Errorf("cannot deactivate: license is configured via environment variable; remove DAGU_LICENSE or DAGU_LICENSE_KEY instead")
 	}
@@ -217,7 +236,7 @@ func (m *Manager) Deactivate(_ context.Context) error {
 		return fmt.Errorf("no active license to deactivate")
 	}
 
-	m.Stop()
+	m.stopHeartbeat()
 	m.state.Update(nil, "")
 	m.setSource(SourceNone)
 	m.setFailure("")
@@ -234,6 +253,9 @@ func (m *Manager) Deactivate(_ context.Context) error {
 // ActivateWithKey performs activation with the given key and updates internal state.
 // This is used by the API handler for frontend-initiated activation.
 func (m *Manager) ActivateWithKey(ctx context.Context, key string) (*ActivationResult, error) {
+	m.transitionMu.Lock()
+	defer m.transitionMu.Unlock()
+
 	ad, err := m.activate(ctx, key)
 	if err != nil {
 		return nil, err
@@ -244,11 +266,12 @@ func (m *Manager) ActivateWithKey(ctx context.Context, key string) (*ActivationR
 		return nil, fmt.Errorf("activated token verification failed: %w", verifyErr)
 	}
 
+	m.stopHeartbeat()
+	m.saveActivation(ad)
 	m.setSource(SourceActivationFile)
 	m.state.Update(claims, ad.Token)
 	m.setFailure("")
 
-	// Start heartbeat if not already running
 	m.startHeartbeat(ad)
 
 	result := &ActivationResult{
@@ -290,13 +313,16 @@ func (m *Manager) activate(ctx context.Context, key string) (*ActivationData, er
 		ServerID:        serverID,
 	}
 
-	if m.store != nil {
-		if err := m.store.Save(ad); err != nil {
-			m.logger.Warn("Failed to persist activation data", slog.String("error", err.Error()))
-		}
-	}
-
 	return ad, nil
+}
+
+func (m *Manager) saveActivation(ad *ActivationData) {
+	if m.store == nil {
+		return
+	}
+	if err := m.store.Save(ad); err != nil {
+		m.logger.Warn("Failed to persist activation data", slog.String("error", err.Error()))
+	}
 }
 
 func (m *Manager) loadCachedActivation(licenseKey string) *ActivationData {

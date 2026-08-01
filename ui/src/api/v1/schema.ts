@@ -2615,6 +2615,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/license/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get license status
+         * @description Returns the current public license status without exposing license credentials.
+         */
+        get: operations["getLicenseStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/license/activate": {
         parameters: {
             query?: never;
@@ -5213,6 +5233,29 @@ export interface components {
              */
             expiresAt: string;
             user: components["schemas"]["User"];
+        };
+        /** @description Public status of the current Dagu license */
+        LicenseStatusResponse: {
+            /** @description Whether the loaded license token has not expired */
+            valid: boolean;
+            /** @description License plan name */
+            plan: string;
+            /** @description License expiration timestamp, or empty for a perpetual or absent license */
+            expiry: string;
+            /** @description Feature claims included in the license */
+            features: string[];
+            /** @description Whether the license is expired but still inside its grace period */
+            gracePeriod: boolean;
+            /** @description Grace-period end timestamp, or empty when the license has no expiration */
+            graceEndsAt: string;
+            /** @description Whether no license claims are loaded */
+            community: boolean;
+            /** @description Public license source category */
+            source: string;
+            /** @description Warning code included in the license token */
+            warningCode: string;
+            /** @description User-facing explanation when a configured license is unusable */
+            error: string;
         };
         /** @description Request body for changing password */
         ChangePasswordRequest: {
@@ -14129,6 +14172,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getLicenseStatus: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current license status */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LicenseStatusResponse"];
                 };
             };
             /** @description Unexpected error */

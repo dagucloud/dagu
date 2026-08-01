@@ -6675,6 +6675,29 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /license/status:
+    get:
+      summary: "Get license status"
+      description: "Returns the current public license status without exposing license credentials."
+      operationId: "getLicenseStatus"
+      tags:
+        - "system"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "Current license status"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LicenseStatusResponse"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /license/activate:
     post:
       summary: "Activate a license key"
@@ -12810,6 +12833,54 @@ components:
         - token
         - expiresAt
         - user
+
+    LicenseStatusResponse:
+      type: object
+      description: "Public status of the current Dagu license"
+      properties:
+        valid:
+          type: boolean
+          description: "Whether the loaded license token has not expired"
+        plan:
+          type: string
+          description: "License plan name"
+        expiry:
+          type: string
+          description: "License expiration timestamp, or empty for a perpetual or absent license"
+        features:
+          type: array
+          items:
+            type: string
+          description: "Feature claims included in the license"
+        gracePeriod:
+          type: boolean
+          description: "Whether the license is expired but still inside its grace period"
+        graceEndsAt:
+          type: string
+          description: "Grace-period end timestamp, or empty when the license has no expiration"
+        community:
+          type: boolean
+          description: "Whether no license claims are loaded"
+        source:
+          type: string
+          description: "Public license source category"
+        warningCode:
+          type: string
+          description: "Warning code included in the license token"
+        error:
+          type: string
+          description: "User-facing explanation when a configured license is unusable"
+      required:
+        - valid
+        - plan
+        - expiry
+        - features
+        - gracePeriod
+        - graceEndsAt
+        - community
+        - source
+        - warningCode
+        - error
 
     ChangePasswordRequest:
       type: object

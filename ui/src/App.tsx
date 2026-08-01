@@ -17,6 +17,7 @@ import {
   Config,
   ConfigContext,
   ConfigUpdateContext,
+  useUpdateConfig,
 } from './contexts/ConfigContext';
 import { useHasFeature, useLicense } from './hooks/useLicense';
 import { SchemaProvider } from './contexts/SchemaContext';
@@ -28,7 +29,7 @@ import {
 import Layout from './layouts/Layout';
 import fetchJson from './lib/fetchJson';
 import { fetchWithTimeout, shouldRetryQueryError } from './lib/requestTimeout';
-import { useClient } from './hooks/api';
+import { useClient, useQuery } from './hooks/api';
 import { addAuthSessionListener, getAuthToken } from './lib/authSession';
 import {
   getStoredWorkspaceSelection,
@@ -276,6 +277,35 @@ function LazyRoutes({
       </React.Suspense>
     </LazyRouteErrorBoundary>
   );
+}
+
+function LicenseStatusSync({
+  enabled,
+  remoteNode,
+}: {
+  enabled: boolean;
+  remoteNode: string;
+}): null {
+  const updateConfig = useUpdateConfig();
+  const { data } = useQuery(
+    '/license/status',
+    enabled ? { params: { query: { remoteNode } } } : null,
+    {
+      keepPreviousData: true,
+      refreshInterval: 60_000,
+      revalidateOnFocus: true,
+      revalidateOnReconnect: true,
+      shouldRetryOnError: false,
+    }
+  );
+
+  React.useEffect(() => {
+    if (data) {
+      updateConfig({ license: data });
+    }
+  }, [data, updateConfig]);
+
+  return null;
 }
 
 function AppInner({ config: initialConfig }: Props): React.ReactElement {
@@ -562,6 +592,10 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
       >
         <ConfigContext.Provider value={config}>
           <ConfigUpdateContext.Provider value={updateConfig}>
+            <LicenseStatusSync
+              enabled={canFetchAuthenticatedResources}
+              remoteNode={selectedRemoteNode}
+            />
             <AuthProvider>
               <SearchStateProvider>
                 <SchemaProvider>
