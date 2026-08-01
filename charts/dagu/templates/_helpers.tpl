@@ -25,11 +25,20 @@
 {{- printf "%s-%s" $base $component | trunc 63 | trimSuffix "-" -}}
 {{- end }}
 
+{{- define "dagu.imageTag" -}}
+{{- default .Chart.AppVersion .Values.image.tag -}}
+{{- end }}
+
+{{- define "dagu.versionLabel" -}}
+{{- $version := include "dagu.imageTag" . | replace "+" "_" | trunc 63 | trimAll "._-" -}}
+{{- default "unknown" $version -}}
+{{- end }}
+
 {{- define "dagu.labels" -}}
 app.kubernetes.io/name: {{ include "dagu.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
-app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+app.kubernetes.io/version: {{ include "dagu.versionLabel" . | quote }}
 helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
 {{- end }}
 
@@ -47,8 +56,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{- define "dagu.image" -}}
-{{- $tag := default .Chart.AppVersion .Values.image.tag -}}
-{{- printf "%s:%s" .Values.image.repository $tag -}}
+{{- printf "%s:%s" .Values.image.repository (include "dagu.imageTag" .) -}}
 {{- end }}
 
 {{- define "dagu.pvcName" -}}

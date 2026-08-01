@@ -37,6 +37,24 @@
     "affinity": {
       "type": "object",
       "additionalProperties": true
+    },
+    "workspaceGrant": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "workspace": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "not": {
+            "pattern": "^([Aa][Ll][Ll]|[Dd][Ee][Ff][Aa][Uu][Ll][Tt]|[Gg][Ll][Oo][Bb][Aa][Ll])$"
+          }
+        },
+        "role": {
+          "type": "string",
+          "enum": ["manager", "developer", "operator", "viewer"]
+        }
+      },
+      "required": ["workspace", "role"]
     }
   },
   "properties": {
@@ -62,7 +80,8 @@
         },
         "tag": {
           "type": "string",
-          "maxLength": 128
+          "maxLength": 128,
+          "pattern": "^$|^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$"
         },
         "pullPolicy": {
           "type": "string",
@@ -336,14 +355,6 @@
           "minLength": 1,
           "format": "hostname"
         },
-        "path": {
-          "type": "string",
-          "pattern": "^/"
-        },
-        "pathType": {
-          "type": "string",
-          "enum": ["Exact", "Prefix", "ImplementationSpecific"]
-        },
         "tls": {
           "type": "object",
           "additionalProperties": false,
@@ -360,7 +371,7 @@
           "required": ["enabled", "secretName"]
         }
       },
-      "required": ["enabled", "className", "annotations", "host", "path", "pathType", "tls"]
+      "required": ["enabled", "className", "annotations", "host", "tls"]
     },
     "license": {
       "type": "object",
@@ -547,22 +558,7 @@
                     "type": "array",
                     "minItems": 1,
                     "items": {
-                      "type": "object",
-                      "additionalProperties": false,
-                      "properties": {
-                        "workspace": {
-                          "type": "string",
-                          "pattern": "^[A-Za-z0-9_-]+$",
-                          "not": {
-                            "pattern": "^([Aa][Ll][Ll]|[Dd][Ee][Ff][Aa][Uu][Ll][Tt]|[Gg][Ll][Oo][Bb][Aa][Ll])$"
-                          }
-                        },
-                        "role": {
-                          "type": "string",
-                          "enum": ["manager", "developer", "operator", "viewer"]
-                        }
-                      },
-                      "required": ["workspace", "role"]
+                      "$ref": "#/definitions/workspaceGrant"
                     }
                   }
                 },
@@ -729,22 +725,7 @@
                     "type": "array",
                     "minItems": 1,
                     "items": {
-                      "type": "object",
-                      "additionalProperties": false,
-                      "properties": {
-                        "workspace": {
-                          "type": "string",
-                          "pattern": "^[A-Za-z0-9_-]+$",
-                          "not": {
-                            "pattern": "^([Aa][Ll][Ll]|[Dd][Ee][Ff][Aa][Uu][Ll][Tt]|[Gg][Ll][Oo][Bb][Aa][Ll])$"
-                          }
-                        },
-                        "role": {
-                          "type": "string",
-                          "enum": ["manager", "developer", "operator", "viewer"]
-                        }
-                      },
-                      "required": ["workspace", "role"]
+                      "$ref": "#/definitions/workspaceGrant"
                     }
                   }
                 }

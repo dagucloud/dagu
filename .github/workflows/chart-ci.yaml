@@ -154,18 +154,31 @@ jobs:
             --set-string auth.proxy.source=oauth2-proxy >/dev/null
 
           expect_proxy_render_failure() {
-            if helm template dagu ./charts/dagu \
+            expected_message="$1"
+            shift
+            if output="$(helm template dagu ./charts/dagu \
               --namespace dagu \
               --set auth.proxy.enabled=true \
-              "$@" >/dev/null 2>&1; then
+              "$@" 2>&1)"; then
               echo "::error::Expected proxy-auth rendering to reject: $*"
+              exit 1
+            fi
+            if [[ "${output}" != *"${expected_message}"* ]]; then
+              echo "::error::Proxy-auth rendering failed for an unexpected reason: $*"
+              printf '%s\n' "${output}"
               exit 1
             fi
           }
 
-          expect_proxy_render_failure --set ui.service.type=LoadBalancer
-          expect_proxy_render_failure --set ui.service.type=NodePort
-          expect_proxy_render_failure --set ingress.enabled=true
+          expect_proxy_render_failure \
+            "at '/ui/service/type': value must be 'ClusterIP'" \
+            --set ui.service.type=LoadBalancer
+          expect_proxy_render_failure \
+            "at '/ui/service/type': value must be 'ClusterIP'" \
+            --set ui.service.type=NodePort
+          expect_proxy_render_failure \
+            "at '/ingress/enabled': value must be false" \
+            --set ingress.enabled=true
 
           helm template dagu ./charts/dagu \
             --namespace dagu \

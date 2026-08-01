@@ -351,7 +351,7 @@ auth:
 
 The chart renders the provider settings, access filters, and complete role mapping into `dagu.yaml` in the ConfigMap. Only the client secret stays in a Kubernetes Secret and is exposed to the server container as `DAGU_AUTH_OIDC_CLIENT_SECRET`.
 
-Global `groupMappings` take precedence over `workspaceMappings`. Workspace roles may be `manager`, `developer`, `operator`, or `viewer`; `admin` is available only for global mappings. Set `defaultWorkspaceAccess` to `none` to deny unmatched users access to named workspaces, or `all` to apply `defaultRole` across all workspaces.
+Global `groupMappings` take precedence over `workspaceMappings`. Workspace roles may be `manager`, `developer`, `operator`, or `viewer`; `admin` is available only for global mappings. Set `defaultWorkspaceAccess` to `none` to deny unmatched users access to named workspaces, or `all` to apply `defaultRole` across all workspaces. The chart retains Dagu's runtime-compatible `all` default, which gives every unmatched validated OIDC user viewer access to all named workspaces; set it explicitly to `none` when workspaces must be isolated by default.
 
 #### Proxy
 
@@ -435,10 +435,8 @@ For a regular internal deployment, save these settings as `dagu-values.yaml` and
 ```yaml
 ingress:
   enabled: true
-  className: nginx
+  className: your-ingress-class
   host: dagu.internal.example.com
-  path: /
-  pathType: Prefix
   tls:
     enabled: true
     secretName: dagu-internal-tls
@@ -457,7 +455,7 @@ helm upgrade --install dagu dagu/dagu \
   --wait
 ```
 
-The bundled UI and API use the same host, so this setup does not require `config.corsAllowedOrigins`. If OIDC is enabled, use the same URL for `auth.oidc.clientUrl` and register its `/oidc-callback` URL with the identity provider.
+Replace `your-ingress-class` with a controller installed in the cluster. The bundled UI and API use the same host, so this setup does not require `config.corsAllowedOrigins`. If OIDC is enabled, use the same URL for `auth.oidc.clientUrl` and register its `/oidc-callback` URL with the identity provider.
 
 Proxy-header authentication cannot use the chart-managed Ingress because the chart cannot verify provider-specific external-auth behavior. Keep `ingress.enabled: false` and follow [`PROXY_AUTH.md`](./PROXY_AUTH.md) to create an authenticated Ingress that cannot bypass the proxy.
 

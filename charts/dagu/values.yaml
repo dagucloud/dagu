@@ -130,8 +130,6 @@ ingress:
   className: ""
   annotations: {}
   host: dagu.local
-  path: /
-  pathType: Prefix
   tls:
     enabled: false
     # Leave empty to use the ingress controller's default certificate.
@@ -170,6 +168,9 @@ auth:
       groupsClaim: "groups"
       groupMappings: {}
       workspaceMappings: {}
+      # The runtime-compatible "all" default gives every unmatched OIDC user
+      # viewer access to all named workspaces. Set this to "none" when named
+      # workspaces must be isolated by default.
       defaultWorkspaceAccess: "all"
       roleAttributePath: ""
       roleAttributeStrict: false

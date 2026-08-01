@@ -72,7 +72,7 @@ Proxy authentication is enabled.
 Access the UI:
 {{- if .Values.ingress.enabled }}
   kubectl --namespace {{ .Release.Namespace }} get ingress {{ include "dagu.componentName" (dict "root" . "component" "ui") }}
-  Configured URL: {{ ternary "https" "http" .Values.ingress.tls.enabled }}://{{ .Values.ingress.host }}{{ .Values.ingress.path }}
+  Configured URL: {{ ternary "https" "http" .Values.ingress.tls.enabled }}://{{ .Values.ingress.host }}/
 {{- else if eq .Values.ui.service.type "ClusterIP" }}
   kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "dagu.componentName" (dict "root" . "component" "ui") }} 8080:{{ .Values.ui.service.port }}
   Then visit http://localhost:8080
