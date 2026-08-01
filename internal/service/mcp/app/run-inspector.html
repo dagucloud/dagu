@@ -410,7 +410,7 @@
 
         function statusClass(label) {
           const value = text(label).toLowerCase();
-          if (value.includes("success")) return "success";
+          if (value.includes("success") || value.includes("succeed")) return "success";
           if (value.includes("fail") || value.includes("abort") || value.includes("reject")) return "danger";
           if (value.includes("running") || value.includes("retry")) return "info";
           if (value.includes("queue") || value.includes("wait")) return "warning";
@@ -452,20 +452,23 @@
             const parsed = new URL(uri);
             const segments = parsed.pathname.split("/").filter(Boolean);
             if (parsed.protocol !== "dagu:" || parsed.hostname !== "runs") return;
-            if (segments.length === 2) {
+            const runResource = segments.length === 2;
+            const logsResource = segments.length === 3 && segments[2] === "logs";
+            if (!runResource && !logsResource) return;
+            runIdentity.name = decodeURIComponent(segments[0]);
+            runIdentity.dagRunId = decodeURIComponent(segments[1]);
+            if (runResource) {
               parsed.search = "";
               parsed.hash = "";
               runIdentity.runUri = parsed.toString();
               runIdentity.logsUri = `${runIdentity.runUri}/logs`;
               return;
             }
-            if (segments.length === 3 && segments[2] === "logs") {
-              runIdentity.logsUri = uri;
-              parsed.pathname = `/${segments[0]}/${segments[1]}`;
-              parsed.search = "";
-              parsed.hash = "";
-              runIdentity.runUri = parsed.toString();
-            }
+            runIdentity.logsUri = uri;
+            parsed.pathname = `/${segments[0]}/${segments[1]}`;
+            parsed.search = "";
+            parsed.hash = "";
+            runIdentity.runUri = parsed.toString();
           } catch {
             // Ignore malformed resource hints and keep any established identity.
           }
@@ -597,6 +600,7 @@
           if (typeof data === "string") return data;
           if (typeof data?.content === "string") return data.content;
           if (typeof data?.log?.content === "string") return data.log.content;
+          if (typeof data?.schedulerLog?.content === "string") return data.schedulerLog.content;
           if (Array.isArray(data?.logs)) {
             return data.logs.map((entry) => logText(entry)).filter(Boolean).join("\n");
           }
@@ -694,6 +698,7 @@
           }
 
           const output = result?.structuredContent || {};
+          updateIdentity(output);
           if (output?.target === "runs") {
             renderRunList(output?.data?.items);
             return;
@@ -720,7 +725,6 @@
             return;
           }
           if (output?.dagRunId || output?.runUri) {
-            updateIdentity(output);
             renderRun({
               name: output.dagName,
               dagRunId: output.dagRunId,
