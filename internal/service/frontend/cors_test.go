@@ -6,6 +6,7 @@ package frontend
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -129,6 +130,28 @@ func TestCORSPolicy_ExplicitOrigin(t *testing.T) {
 		assert.Empty(t, resp.Header().Get("Access-Control-Allow-Origin"))
 		assert.Contains(t, resp.Header().Values("Vary"), "Origin")
 	})
+}
+
+func TestCORSPolicy_AllowsMCPRequestHeaders(t *testing.T) {
+	t.Parallel()
+
+	policy := corsPolicy{
+		allowedOrigins: []string{"https://app.example"},
+		setupPath:      "/api/v1/auth/setup",
+	}
+	handler := policy.middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	req := newPreflightRequest("/mcp", "https://app.example")
+	req.Header.Set("Access-Control-Request-Headers", "mcp-method,mcp-name")
+	resp := httptest.NewRecorder()
+
+	handler.ServeHTTP(resp, req)
+
+	require.Equal(t, http.StatusOK, resp.Code)
+	allowedHeaders := strings.ToLower(resp.Header().Get("Access-Control-Allow-Headers"))
+	assert.Contains(t, allowedHeaders, "mcp-method")
+	assert.Contains(t, allowedHeaders, "mcp-name")
 }
 
 func TestCORSPolicy_WildcardPattern(t *testing.T) {

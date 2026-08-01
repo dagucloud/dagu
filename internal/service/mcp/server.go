@@ -75,6 +75,11 @@ func NewServer(api *frontendapi.API) *mcpsdk.Server {
 		Name:    "dagu",
 		Version: config.Version,
 	}, &mcpsdk.ServerOptions{
+		Capabilities: &mcpsdk.ServerCapabilities{
+			Prompts:   &mcpsdk.PromptCapabilities{},
+			Resources: &mcpsdk.ResourceCapabilities{Subscribe: true},
+			Tools:     &mcpsdk.ToolCapabilities{},
+		},
 		Instructions:       instructions,
 		SubscribeHandler:   svc.subscribe,
 		UnsubscribeHandler: svc.unsubscribe,

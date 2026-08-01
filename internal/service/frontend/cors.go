@@ -25,7 +25,7 @@ func (p corsPolicy) middleware(next http.Handler) http.Handler {
 		allowAllOrigins := p.allowsAllOrigins()
 		options := cors.Options{
 			AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-			AllowedHeaders:   []string{"Content-Type", "Authorization", "Content-Encoding", "Accept", "MCP-Protocol-Version", "Mcp-Session-Id", "Last-Event-ID"},
+			AllowedHeaders:   []string{"Content-Type", "Authorization", "Content-Encoding", "Accept", "MCP-Protocol-Version", "Mcp-Method", "Mcp-Name", "Mcp-Session-Id", "Last-Event-ID"},
 			ExposedHeaders:   []string{"Mcp-Session-Id"},
 			AllowCredentials: !allowAllOrigins,
 			MaxAge:           300,

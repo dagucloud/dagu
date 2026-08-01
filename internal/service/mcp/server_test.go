@@ -33,6 +33,19 @@ func TestServerExposesCompactToolSurface(t *testing.T) {
 	require.Equal(t, []string{toolChange, toolExecute, toolRead}, names)
 }
 
+func TestServerAdvertisesSupportedCapabilities(t *testing.T) {
+	ctx := context.Background()
+	session := connectTestClient(t, ctx, NewServer(nil))
+
+	result := session.InitializeResult()
+	require.NotNil(t, result)
+	require.Equal(t, &mcpsdk.ServerCapabilities{
+		Prompts:   &mcpsdk.PromptCapabilities{},
+		Resources: &mcpsdk.ResourceCapabilities{Subscribe: true},
+		Tools:     &mcpsdk.ToolCapabilities{},
+	}, result.Capabilities)
+}
+
 func TestHTTPHandlerServesStreamableMCP(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testConnectTimeout)
 	defer cancel()
