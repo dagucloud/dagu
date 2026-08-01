@@ -349,12 +349,12 @@ func (s *Service) NotificationDestinations() []string {
 	if !s.incidentsAllowed() || s.store == nil {
 		return nil
 	}
-	policySets, err := s.ListPolicySets(context.Background())
+	ctx := context.Background()
+	var destinations []string
+	policySets, err := s.ListPolicySets(ctx)
 	if err != nil {
 		s.logger.Warn("Failed to list incident destinations", slog.String("error", err.Error()))
-		return nil
 	}
-	var destinations []string
 	for _, policySet := range policySets {
 		if !policySetDeliversOwnPolicies(policySet) {
 			continue
@@ -364,6 +364,16 @@ func (s *Service) NotificationDestinations() []string {
 				destinations = append(destinations, policyDestinationID(policySet, policy.ID))
 			}
 		}
+	}
+	states, err := s.store.ListOpenStates(ctx)
+	if err != nil {
+		s.logger.Warn("Failed to list open incident destinations", slog.String("error", err.Error()))
+	}
+	for _, state := range states {
+		if state == nil || state.ProviderID == "" || state.DedupKey == "" {
+			continue
+		}
+		destinations = append(destinations, stateDestinationID(state.ProviderID, state.DedupKey))
 	}
 	slices.Sort(destinations)
 	return destinations
@@ -395,7 +405,7 @@ func (s *Service) resolveDestinationsForEvent(ctx context.Context, event chatbri
 	if s.store == nil || event.Status == nil || event.Status.Name == "" {
 		return nil
 	}
-	states, err := s.store.ListOpenStatesByDAG(ctx, event.Status.Name)
+	states, err := s.store.ListOpenStates(ctx)
 	if err != nil {
 		s.logger.Warn("Failed to list open incident states",
 			slog.String("dag", event.Status.Name),
@@ -405,7 +415,10 @@ func (s *Service) resolveDestinationsForEvent(ctx context.Context, event chatbri
 	}
 	destinations := make([]string, 0, len(states))
 	for _, state := range states {
-		if state == nil || state.ProviderID == "" || state.DedupKey == "" {
+		if state == nil || state.DAGName != event.Status.Name {
+			continue
+		}
+		if state.ProviderID == "" || state.DedupKey == "" {
 			continue
 		}
 		destinations = append(destinations, stateDestinationID(state.ProviderID, state.DedupKey))

@@ -7,9 +7,12 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -21,6 +24,7 @@ import (
 	incidentmodel "github.com/dagucloud/dagu/v2/internal/incident"
 	"github.com/dagucloud/dagu/v2/internal/service/chatbridge"
 	"github.com/dagucloud/dagu/v2/internal/service/eventstore"
+	"github.com/dagucloud/dagu/v2/internal/testutil"
 )
 
 func TestServiceNotificationDestinationsUseDAGWorkspaceGlobalInheritance(t *testing.T) {
@@ -235,13 +239,15 @@ func TestServiceResolvesOpenIncidentAfterRoutingIsDisabled(t *testing.T) {
 	assert.Equal(t, requests[0]["dedup_key"], requests[1]["dedup_key"])
 }
 
-func TestServiceResolvesRuntimeNameIncidentWithDAGFileRouting(t *testing.T) {
-	var requests []map[string]any
+func TestMonitorResolvesRuntimeNameIncidentWithDAGFileRouting(t *testing.T) {
+	requests := make(chan map[string]any, 1)
 	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		defer func() { _ = req.Body.Close() }()
 		var payload map[string]any
-		require.NoError(t, json.NewDecoder(req.Body).Decode(&payload))
-		requests = append(requests, payload)
+		if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
+			return nil, err
+		}
+		requests <- payload
 		return &http.Response{
 			StatusCode: http.StatusAccepted,
 			Header:     make(http.Header),
@@ -262,25 +268,46 @@ func TestServiceResolvesRuntimeNameIncidentWithDAGFileRouting(t *testing.T) {
 	require.NoError(t, store.SaveState(context.Background(), state))
 
 	svc := New(store, WithHTTPClient(client))
-	success := failedEvent("daily", "run-1")
-	success.Type = eventstore.TypeDAGRunSucceeded
-	success.Status.Status = core.Succeeded
-	success.Status.Error = ""
-	success.DAGFile = "daily-file"
+	events := &incidentMonitorEventStore{}
+	eventService := eventstore.New(events)
+	cfg := chatbridge.DefaultNotificationMonitorConfig()
+	cfg.PollInterval = 5 * time.Millisecond
+	cfg.SuccessWindow = 5 * time.Millisecond
+	cfg.UrgentWindow = 5 * time.Millisecond
+	cfg.SeenEvictInterval = time.Hour
+	monitor := chatbridge.NewNotificationMonitor(
+		eventService,
+		filepath.Join(t.TempDir(), "state.json"),
+		svc,
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		cfg,
+	)
+	stopMonitor := testutil.StartContextRunner(t, monitor)
+	defer stopMonitor()
+	require.Eventually(t, events.bootstrapped, time.Second, 10*time.Millisecond)
 
-	destinations := svc.NotificationDestinationsForEvent(success)
-	require.Len(t, destinations, 1)
-	require.True(t, svc.FlushNotificationBatch(context.Background(), destinations[0], chatbridge.NotificationBatch{
-		Events: []chatbridge.NotificationEvent{success},
-	}, false))
+	success := failedEvent("daily", "run-1").Status
+	success.Status = core.Succeeded
+	success.Error = ""
+	require.NoError(t, eventService.Emit(context.Background(), eventstore.NewDAGRunEvent(
+		eventstore.Source{Service: eventstore.SourceServiceServer, Instance: "test"},
+		eventstore.TypeDAGRunSucceeded,
+		success,
+		map[string]any{eventstore.DAGFileNameDataKey: "daily-file"},
+	)))
 
-	require.Len(t, requests, 1)
-	assert.Equal(t, "resolve", requests[0]["event_action"])
-	assert.Equal(t, "existing-dedup-key", requests[0]["dedup_key"])
-	state, err = store.GetState(context.Background(), provider.ID, "existing-dedup-key")
-	require.NoError(t, err)
-	assert.Equal(t, incidentmodel.IncidentStatusResolved, state.Status)
+	require.Eventually(t, func() bool {
+		state, err = store.GetState(context.Background(), provider.ID, "existing-dedup-key")
+		return err == nil && state.Status == incidentmodel.IncidentStatusResolved
+	}, time.Second, 10*time.Millisecond)
 	assert.Equal(t, "existing-policy", state.PolicyID)
+	select {
+	case request := <-requests:
+		assert.Equal(t, "resolve", request["event_action"])
+		assert.Equal(t, "existing-dedup-key", request["dedup_key"])
+	default:
+		t.Fatal("expected PagerDuty resolution request")
+	}
 }
 
 func TestServiceReopenedIncidentUsesFreshOpenedAt(t *testing.T) {
@@ -446,4 +473,50 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (fn roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return fn(req)
+}
+
+type incidentMonitorEventStore struct {
+	mu        sync.Mutex
+	events    []*eventstore.Event
+	headCalls int
+}
+
+var _ eventstore.Store = (*incidentMonitorEventStore)(nil)
+var _ eventstore.NotificationReader = (*incidentMonitorEventStore)(nil)
+
+func (s *incidentMonitorEventStore) Emit(_ context.Context, event *eventstore.Event) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.events = append(s.events, event)
+	return nil
+}
+
+func (s *incidentMonitorEventStore) Query(context.Context, eventstore.QueryFilter) (*eventstore.QueryResult, error) {
+	return &eventstore.QueryResult{}, nil
+}
+
+func (s *incidentMonitorEventStore) NotificationHeadCursor(context.Context) (eventstore.NotificationCursor, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.headCalls++
+	return s.cursor(), nil
+}
+
+func (s *incidentMonitorEventStore) ReadNotificationEvents(_ context.Context, cursor eventstore.NotificationCursor) ([]*eventstore.Event, eventstore.NotificationCursor, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	index := int(cursor.Normalize().CommittedOffsets["events"])
+	return append([]*eventstore.Event(nil), s.events[index:]...), s.cursor(), nil
+}
+
+func (s *incidentMonitorEventStore) bootstrapped() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.headCalls > 0
+}
+
+func (s *incidentMonitorEventStore) cursor() eventstore.NotificationCursor {
+	return eventstore.NotificationCursor{
+		CommittedOffsets: map[string]int64{"events": int64(len(s.events))},
+	}
 }

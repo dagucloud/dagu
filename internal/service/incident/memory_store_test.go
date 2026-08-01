@@ -169,12 +169,12 @@ func (s *memoryStore) GetState(_ context.Context, providerID, dedupKey string) (
 	return &copy, nil
 }
 
-func (s *memoryStore) ListOpenStatesByDAG(_ context.Context, dagName string) ([]*incidentmodel.IncidentState, error) {
+func (s *memoryStore) ListOpenStates(_ context.Context) ([]*incidentmodel.IncidentState, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	states := make([]*incidentmodel.IncidentState, 0)
 	for _, state := range s.states {
-		if state.DAGName != dagName || state.Status != incidentmodel.IncidentStatusOpen {
+		if state.Status != incidentmodel.IncidentStatusOpen {
 			continue
 		}
 		copy := *state
