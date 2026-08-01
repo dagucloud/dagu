@@ -214,5 +214,6 @@ persistence:
 test:
   image:
     repository: busybox
+    # Required because the Helm test image does not use Dagu's appVersion fallback.
     tag: "1.36.1"
     pullPolicy: IfNotPresent

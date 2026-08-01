@@ -1,9 +1,9 @@
 {{- $oidcClientURL := "" -}}
 {{- $legacyOIDC := false -}}
-{{- $legacyReloadRequired := false -}}
+{{- $referencedEnv := false -}}
 {{- range .Values.extraEnv -}}
-{{- if and .valueFrom (or (hasPrefix "DAGU_AUTH_OIDC_" .name) (has .name (list "DAGU_LICENSE" "DAGU_LICENSE_KEY" "DAGU_LICENSE_FILE"))) -}}
-{{- $legacyReloadRequired = true -}}
+{{- if .valueFrom -}}
+{{- $referencedEnv = true -}}
 {{- end -}}
 {{- if eq .name "DAGU_AUTH_OIDC_CLIENT_URL" -}}
 {{- $legacyOIDC = true -}}
@@ -55,10 +55,10 @@ OIDC authentication is configured.
   OIDC/SSO requires an active Dagu license.
 
 {{- end }}
-{{- if or (eq .Values.auth.mode "basic") .Values.license.existingSecret .Values.auth.oidc.enabled $legacyOIDC $legacyReloadRequired }}
+{{- if or (eq .Values.auth.mode "basic") .Values.license.existingSecret .Values.auth.oidc.enabled $legacyOIDC $referencedEnv }}
 Referenced environment values are read when the pod starts.
-  After changing one of these values or its referenced Secret or ConfigMap, restart the UI:
-  kubectl --namespace {{ .Release.Namespace }} rollout restart deployment/{{ include "dagu.componentName" (dict "root" . "component" "ui") }}
+  After changing one of these values or its referenced Secret or ConfigMap, restart the Dagu deployments:
+  kubectl --namespace {{ .Release.Namespace }} rollout restart deployment --selector app.kubernetes.io/instance={{ .Release.Name }}
 
 {{- end }}
 {{- if .Values.auth.proxy.enabled }}

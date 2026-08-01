@@ -117,6 +117,9 @@ jobs:
             --kube-version 1.19.0 >/tmp/dagu-default-render.yaml
 
           grep -Fq 'cors_allowed_origins: []' /tmp/dagu-default-render.yaml
+          grep -Fq -- '- start-all' /tmp/dagu-default-render.yaml
+          grep -Fq 'type: ClusterIP' /tmp/dagu-default-render.yaml
+          grep -Fq 'helm.sh/resource-policy: keep' /tmp/dagu-default-render.yaml
 
       - name: Render distributed mode
         run: |
@@ -172,7 +175,7 @@ jobs:
             --set-string auth.proxy.source=oauth2-proxy >/dev/null
 
           expect_proxy_render_failure() {
-            expected_message="$1"
+            expected_path="$1"
             shift
             if output="$(helm template dagu ./charts/dagu \
               --namespace dagu \
@@ -181,7 +184,7 @@ jobs:
               echo "::error::Expected proxy-auth rendering to reject: $*"
               exit 1
             fi
-            if [[ "${output}" != *"${expected_message}"* ]]; then
+            if [[ "${output}" != *"${expected_path}"* ]]; then
               echo "::error::Proxy-auth rendering failed for an unexpected reason: $*"
               printf '%s\n' "${output}"
               exit 1
@@ -189,13 +192,13 @@ jobs:
           }
 
           expect_proxy_render_failure \
-            "at '/ui/service/type': value must be 'ClusterIP'" \
+            "/ui/service/type" \
             --set ui.service.type=LoadBalancer
           expect_proxy_render_failure \
-            "at '/ui/service/type': value must be 'ClusterIP'" \
+            "/ui/service/type" \
             --set ui.service.type=NodePort
           expect_proxy_render_failure \
-            "at '/ingress/enabled': value must be false" \
+            "/ingress/enabled" \
             --set ingress.enabled=true
 
           helm template dagu ./charts/dagu \

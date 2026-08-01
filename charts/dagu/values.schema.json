@@ -354,8 +354,14 @@
         },
         "host": {
           "type": "string",
-          "minLength": 1,
-          "format": "hostname"
+          "anyOf": [
+            {
+              "const": ""
+            },
+            {
+              "format": "hostname"
+            }
+          ]
         },
         "tls": {
           "type": "object",
@@ -837,6 +843,34 @@
           }
         },
         "required": ["auth"]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "ingress": {
+            "properties": {
+              "enabled": {
+                "const": true
+              }
+            },
+            "required": ["enabled"]
+          }
+        },
+        "required": ["ingress"]
+      },
+      "then": {
+        "properties": {
+          "ingress": {
+            "properties": {
+              "host": {
+                "minLength": 1
+              }
+            },
+            "required": ["host"]
+          }
+        },
+        "required": ["ingress"]
       }
     },
     {
