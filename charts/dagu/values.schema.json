@@ -592,9 +592,17 @@
               }
             },
             "required": ["replicas", "service"]
+          },
+          "ingress": {
+            "properties": {
+              "enabled": {
+                "const": false
+              }
+            },
+            "required": ["enabled"]
           }
         },
-        "required": ["auth", "ui"]
+        "required": ["auth", "ui", "ingress"]
       }
     }
   ]

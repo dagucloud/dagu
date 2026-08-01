@@ -399,6 +399,8 @@ config:
 
 The bundled UI and API use the same host, so this setup does not require `config.corsAllowedOrigins`. If OIDC is enabled, use the same URL for `auth.oidc.clientUrl` and register its `/oidc-callback` URL with the identity provider.
 
+Proxy-header authentication cannot use the chart-managed Ingress because the chart cannot verify provider-specific external-auth behavior. Keep `ingress.enabled: false` and follow [`PROXY_AUTH.md`](./PROXY_AUTH.md) to create an authenticated Ingress that cannot bypass the proxy.
+
 Ingress is disabled by default because the chart cannot know the cluster's ingress class, DNS name, or TLS Secret. The UI Service remains a `ClusterIP`. For clusters without an ingress controller, set `ui.service.type` to `LoadBalancer` or `NodePort`; `ui.service.annotations` supports provider-specific internal load-balancer settings.
 
 When `ingress.tls.enabled` is true, set `ingress.tls.secretName` to a TLS Secret or leave it empty when the ingress controller provides the default certificate.

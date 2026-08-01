@@ -53,6 +53,9 @@
 {{- if and .Values.auth.proxy.enabled (ne .Values.ui.service.type "ClusterIP") }}
 {{- fail "auth.proxy.enabled requires ui.service.type=ClusterIP so traffic cannot bypass the authenticating proxy" }}
 {{- end }}
+{{- if and .Values.auth.proxy.enabled .Values.ingress.enabled }}
+{{- fail "auth.proxy.enabled cannot use the chart-managed ingress; keep ingress.enabled=false and configure an authenticated ingress as documented in PROXY_AUTH.md" }}
+{{- end }}
 {{- if and .Values.auth.proxy.enabled .Values.auth.proxy.roleMapping.requireMapping (empty .Values.auth.proxy.roleMapping.groupMappings) (empty .Values.auth.proxy.roleMapping.workspaceMappings) }}
 {{- fail "auth.proxy.roleMapping.requireMapping=true requires at least one groupMappings or workspaceMappings entry" }}
 {{- end }}
