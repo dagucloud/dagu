@@ -341,7 +341,10 @@ function DashboardTimeChart({ data: input, selectedDate }: Props) {
       const start = dagRun.startedAt;
       if (start && start !== '-') {
         const startMoment = dayjs(start);
-        const end = dagRun.finishedAt !== '-' ? dayjs(dagRun.finishedAt) : now;
+        const end =
+          dagRun.finishedAt && dagRun.finishedAt !== '-'
+            ? dayjs(dagRun.finishedAt)
+            : now;
 
         const startDate = startMoment.tz(validTimezone).toDate();
         const endDate = end.tz(validTimezone).toDate();
