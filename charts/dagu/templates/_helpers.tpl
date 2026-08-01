@@ -15,6 +15,14 @@
 {{- end }}
 {{- end }}
 
+{{- define "dagu.serviceAccountName" -}}
+{{- if .Values.serviceAccount.create -}}
+{{- default (include "dagu.fullname" .) .Values.serviceAccount.name -}}
+{{- else -}}
+{{- default "default" .Values.serviceAccount.name -}}
+{{- end -}}
+{{- end }}
+
 {{- define "dagu.componentName" -}}
 {{- $component := required "component is required" .component -}}
 {{- if gt (len $component) 61 -}}

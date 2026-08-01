@@ -38,6 +38,12 @@
       "type": "object",
       "additionalProperties": true
     },
+    "volumeName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 63,
+      "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+    },
     "workspaceGrant": {
       "type": "object",
       "additionalProperties": false,
@@ -106,6 +112,27 @@
         "required": ["name"]
       }
     },
+    "serviceAccount": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "create": {
+          "type": "boolean"
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 253,
+          "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+        },
+        "annotations": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "required": ["create", "name", "annotations"]
+    },
     "podAnnotations": {
       "type": "object",
       "additionalProperties": {
@@ -120,6 +147,43 @@
     },
     "affinity": {
       "$ref": "#/definitions/affinity"
+    },
+    "extraVolumes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "allOf": [
+              {
+                "$ref": "#/definitions/volumeName"
+              },
+              {
+                "not": {
+                  "enum": ["data", "config"]
+                }
+              }
+            ]
+          }
+        },
+        "required": ["name"]
+      }
+    },
+    "extraVolumeMounts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "$ref": "#/definitions/volumeName"
+          },
+          "mountPath": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": ["name", "mountPath"]
+      }
     },
     "podSecurityContext": {
       "type": "object",

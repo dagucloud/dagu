@@ -100,6 +100,8 @@ helm upgrade --install dagu dagu/dagu \
 
 ## Configuration
 
+Leave `nameOverride` and `fullnameOverride` empty to use release-derived resource names. Set them only when cluster naming conventions require a different prefix.
+
 ### Persistence
 
 The chart creates a PVC using the cluster's default StorageClass when `persistence.storageClass` is empty. Set a StorageClass explicitly when the cluster does not have a suitable default:
@@ -122,6 +124,55 @@ persistence:
 `persistence.enabled` must remain `true`. Distributed mode requires `persistence.accessMode: ReadWriteMany`, including when an existing claim is used; standalone mode accepts either supported access mode. The declared access mode must match the existing PVC. Helm cannot inspect the PVC while rendering the chart.
 
 The chart sets `podSecurityContext.fsGroup: 1000` by default so `/data` remains writable after the image entrypoint switches to the default Dagu user. Match `fsGroup` to custom `PUID` or `PGID` values.
+
+### Service Account
+
+The chart creates a release-scoped Kubernetes ServiceAccount and assigns it to every Dagu pod. Add provider-specific annotations when Dagu should use a workload identity:
+
+```yaml
+serviceAccount:
+  create: true
+  name: ""
+  annotations:
+    example.com/workload-identity: dagu
+```
+
+To use an account managed outside the release, set its name without creating it:
+
+```yaml
+serviceAccount:
+  create: false
+  name: dagu-runtime
+```
+
+When `create: false` is combined with an empty name, pods use the namespace's `default` ServiceAccount. The chart does not grant Kubernetes API permissions. Bind any required Roles or ClusterRoles to the selected account separately, including access used by Dagu's Kubernetes Secret provider.
+
+### Additional Volumes
+
+`extraVolumes` and `extraVolumeMounts` add file-backed configuration to every Dagu container. For example, mount a custom CA bundle and make it available to workflow processes:
+
+```yaml
+extraVolumes:
+  - name: ca-bundle
+    secret:
+      secretName: dagu-ca-bundle
+
+extraVolumeMounts:
+  - name: ca-bundle
+    mountPath: /etc/ssl/certs/dagu-ca-bundle.pem
+    subPath: ca-bundle.pem
+    readOnly: true
+
+extraEnv:
+  - name: SSL_CERT_FILE
+    value: /etc/ssl/certs/dagu-ca-bundle.pem
+
+config:
+  envPassthrough:
+    - SSL_CERT_FILE
+```
+
+Additional volume names must not conflict with the chart-managed `data` and `config` volumes. The referenced Secret, ConfigMap, PVC, or CSI resource must be available in the release namespace where applicable.
 
 ### Worker Pools
 

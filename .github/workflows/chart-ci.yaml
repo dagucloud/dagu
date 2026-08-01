@@ -120,6 +120,8 @@ jobs:
           grep -Fq -- '- start-all' /tmp/dagu-default-render.yaml
           grep -Fq 'type: ClusterIP' /tmp/dagu-default-render.yaml
           grep -Fq 'helm.sh/resource-policy: keep' /tmp/dagu-default-render.yaml
+          grep -Fq 'kind: ServiceAccount' /tmp/dagu-default-render.yaml
+          grep -Fq 'serviceAccountName: dagu' /tmp/dagu-default-render.yaml
 
       - name: Render distributed mode
         run: |
@@ -136,6 +138,7 @@ jobs:
           grep -Fq 'name: dagu-scheduler' /tmp/dagu-distributed-render.yaml
           grep -Fq 'name: dagu-worker-general' /tmp/dagu-distributed-render.yaml
           grep -Fq -- '- ReadWriteMany' /tmp/dagu-distributed-render.yaml
+          test "$(grep -Fc 'serviceAccountName: dagu' /tmp/dagu-distributed-render.yaml)" -eq 4
 
       - name: Smoke-render optional configurations
         run: |
@@ -224,6 +227,39 @@ jobs:
             --set deploymentMode=distributed \
             --set persistence.accessMode=ReadWriteMany \
             --set-string persistence.existingClaim=existing-dagu-data >/dev/null
+
+          helm template dagu ./charts/dagu \
+            --namespace dagu \
+            --set-string serviceAccount.name=dagu-runtime \
+            --set-string 'serviceAccount.annotations.workload\.example\.com/identity=dagu' \
+            >/tmp/dagu-service-account-render.yaml
+
+          grep -Fq 'name: dagu-runtime' /tmp/dagu-service-account-render.yaml
+          grep -Fq 'serviceAccountName: dagu-runtime' /tmp/dagu-service-account-render.yaml
+          grep -Fq 'workload.example.com/identity: dagu' /tmp/dagu-service-account-render.yaml
+
+          helm template dagu ./charts/dagu \
+            --namespace dagu \
+            --set serviceAccount.create=false \
+            --set-string serviceAccount.name=existing-dagu-runtime \
+            >/tmp/dagu-existing-service-account-render.yaml
+
+          grep -Fq 'serviceAccountName: existing-dagu-runtime' /tmp/dagu-existing-service-account-render.yaml
+
+          helm template dagu ./charts/dagu \
+            --namespace dagu \
+            --set deploymentMode=distributed \
+            --set persistence.accessMode=ReadWriteMany \
+            --set-string 'extraVolumes[0].name=ca-bundle' \
+            --set-string 'extraVolumes[0].secret.secretName=dagu-ca-bundle' \
+            --set-string 'extraVolumeMounts[0].name=ca-bundle' \
+            --set-string 'extraVolumeMounts[0].mountPath=/etc/ssl/certs/dagu-ca-bundle.pem' \
+            --set-string 'extraVolumeMounts[0].subPath=ca-bundle.pem' \
+            --set 'extraVolumeMounts[0].readOnly=true' \
+            >/tmp/dagu-extra-volume-render.yaml
+
+          test "$(grep -Fc 'mountPath: /etc/ssl/certs/dagu-ca-bundle.pem' /tmp/dagu-extra-volume-render.yaml)" -eq 4
+          test "$(grep -Fc 'secretName: dagu-ca-bundle' /tmp/dagu-extra-volume-render.yaml)" -eq 4
 
       - name: Package chart
         run: |

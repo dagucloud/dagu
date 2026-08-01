@@ -1,5 +1,9 @@
 # Default values for Dagu.
 
+# Override the chart-derived resource name when required by cluster conventions.
+nameOverride: ""
+fullnameOverride: ""
+
 # Standalone runs the web UI, scheduler, and workflow executor in one pod and
 # works with a regular ReadWriteOnce volume. Distributed runs separate server,
 # scheduler, coordinator, and worker Deployments and requires ReadWriteMany.
@@ -15,12 +19,26 @@ image:
 # Registry credentials applied to every Dagu pod.
 imagePullSecrets: []
 
+# Kubernetes ServiceAccount used by every Dagu pod. The chart creates a
+# release-scoped account by default. Set create=false to use an existing account;
+# an empty name then selects the namespace's default ServiceAccount.
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
 # Pod settings applied to every Dagu pod. Worker-pool scheduling values take
 # precedence when they are non-empty.
 podAnnotations: {}
 nodeSelector: {}
 tolerations: []
 affinity: {}
+
+# Additional Kubernetes volumes and mounts applied to every Dagu container.
+# Use these for file-backed configuration such as custom CA certificates,
+# kubeconfig files, and credentials stored in Secrets or ConfigMaps.
+extraVolumes: []
+extraVolumeMounts: []
 
 # Top-level Dagu config additions rendered into dagu.yaml
 config:

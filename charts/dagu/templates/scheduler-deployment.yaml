@@ -1,6 +1,9 @@
 {{- if eq .Values.deploymentMode "distributed" }}
 {{- $podAnnotations := deepCopy .Values.podAnnotations }}
 {{- $_ := set $podAnnotations "checksum/config" (include "dagu.distributedConfigChecksum" .) }}
+{{- if .Values.serviceAccount.create }}
+{{- $_ = set $podAnnotations "checksum/service-account" (.Values.serviceAccount.annotations | toJson | sha256sum) }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -25,6 +28,7 @@ spec:
       # Disable Kubernetes Service env var injection to avoid overriding
       # dagu config values (e.g., scheduler.port) with Service URLs
       enableServiceLinks: false
+      serviceAccountName: {{ include "dagu.serviceAccountName" . }}
       {{- with .Values.podSecurityContext }}
       securityContext:
         {{- toYaml . | nindent 8 }}
@@ -57,6 +61,9 @@ spec:
               mountPath: /data
             - name: config
               mountPath: /etc/dagu
+{{- with .Values.extraVolumeMounts }}
+{{ toYaml . | nindent 12 }}
+{{- end }}
           livenessProbe:
             httpGet:
               path: /health
@@ -90,4 +97,7 @@ spec:
         - name: config
           configMap:
             name: {{ include "dagu.componentName" (dict "root" . "component" "config") }}
+{{- with .Values.extraVolumes }}
+{{ toYaml . | nindent 8 }}
+{{- end }}
 {{- end }}
