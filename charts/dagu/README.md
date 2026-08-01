@@ -430,7 +430,7 @@ image:
 
 ## Accessing the UI
 
-For a regular internal deployment, enable the Ingress and point internal DNS at your ingress controller:
+For a regular internal deployment, save these settings as `dagu-values.yaml` and point internal DNS at your ingress controller:
 
 ```yaml
 ingress:
@@ -445,6 +445,16 @@ ingress:
 
 config:
   publicUrl: https://dagu.internal.example.com
+```
+
+Apply the values:
+
+```bash
+helm upgrade --install dagu dagu/dagu \
+  --namespace dagu \
+  --create-namespace \
+  --values dagu-values.yaml \
+  --wait
 ```
 
 The bundled UI and API use the same host, so this setup does not require `config.corsAllowedOrigins`. If OIDC is enabled, use the same URL for `auth.oidc.clientUrl` and register its `/oidc-callback` URL with the identity provider.
