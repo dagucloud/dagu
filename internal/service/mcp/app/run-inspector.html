@@ -526,6 +526,11 @@
           return `${webBaseURL}/dag-runs/${encodeURIComponent(runIdentity.name)}/${encodeURIComponent(runIdentity.dagRunId)}`;
         }
 
+        function stepLogResourceURI(stepName) {
+          if (!runIdentity.name || !runIdentity.dagRunId || !stepName) return "";
+          return `dagu://runs/${encodeURIComponent(runIdentity.name)}/${encodeURIComponent(runIdentity.dagRunId)}/steps/${encodeURIComponent(stepName)}/logs`;
+        }
+
         function supportsOpenRunPage() {
           return Boolean(hostCapabilities?.openLinks || window.openai?.openExternal);
         }
@@ -533,6 +538,7 @@
         function setControls(run) {
           const label = text(run?.statusLabel).toLowerCase();
           const canCallTools = Boolean(hostCapabilities?.serverTools);
+          const canReadStepLogs = Boolean(canCallTools || hostCapabilities?.serverResources);
           const canOpenRun = Boolean(supportsOpenRunPage() && runPageURL());
           elements.actions.classList.toggle("hidden", !runIdentity.runUri && !runIdentity.name);
           elements.refresh.disabled = busy || !runIdentity.runUri || !hostCapabilities?.serverResources;
@@ -550,7 +556,7 @@
             !label.includes("fail") && !label.includes("abort") && !label.includes("reject"),
           );
           for (const button of elements.steps.querySelectorAll(".step-log")) {
-            button.disabled = busy || !canCallTools;
+            button.disabled = busy || !canReadStepLogs;
           }
         }
 
@@ -598,7 +604,7 @@
               logs.type = "button";
               logs.className = "step-log";
               logs.textContent = "Logs";
-              logs.disabled = busy || !hostCapabilities?.serverTools;
+              logs.disabled = busy || !(hostCapabilities?.serverTools || hostCapabilities?.serverResources);
               logs.addEventListener("click", () => loadStepLogs(rawStepName));
               row.append(logs);
             }
@@ -728,17 +734,29 @@
           if (!runIdentity.name || !runIdentity.dagRunId || !stepName) return;
           setBusy(true);
           try {
-            const result = await request("tools/call", {
-              name: "dagu_read",
-              arguments: {
-                target: "step_log",
-                name: runIdentity.name,
-                dagRunId: runIdentity.dagRunId,
-                stepName,
-              },
-            });
-            if (result?.isError) throw new Error(contentText(result));
-            renderLogs(result?.structuredContent?.data, `${stepName} log`, stepLogText);
+            let data;
+            if (hostCapabilities?.serverTools) {
+              const result = await request("tools/call", {
+                name: "dagu_read",
+                arguments: {
+                  target: "step_log",
+                  name: runIdentity.name,
+                  dagRunId: runIdentity.dagRunId,
+                  stepName,
+                },
+              });
+              if (result?.isError) throw new Error(contentText(result));
+              data = result?.structuredContent?.data;
+            } else if (hostCapabilities?.serverResources) {
+              data = resourceJSON(
+                await request("resources/read", {
+                  uri: stepLogResourceURI(stepName),
+                }),
+              );
+            } else {
+              return;
+            }
+            renderLogs(data, `${stepName} log`, stepLogText);
           } catch (error) {
             setMessage(error instanceof Error ? error.message : String(error), true);
           } finally {
