@@ -5,8 +5,7 @@
 image:
   repository: ghcr.io/dagucloud/dagu
   tag: latest
-  # Empty selects Always for latest and IfNotPresent for any other tag.
-  pullPolicy: ""
+  pullPolicy: Always
 
 # Top-level Dagu config additions rendered into dagu.yaml
 config:

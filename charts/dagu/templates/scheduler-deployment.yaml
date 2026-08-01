@@ -27,7 +27,7 @@ spec:
       containers:
         - name: scheduler
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
-          imagePullPolicy: {{ include "dagu.imagePullPolicy" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
           args:
             - dagu
             - scheduler

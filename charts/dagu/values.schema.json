@@ -3,25 +3,6 @@
   "type": "object",
   "additionalProperties": true,
   "properties": {
-    "image": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "repository": {
-          "type": "string",
-          "minLength": 1
-        },
-        "tag": {
-          "type": "string",
-          "minLength": 1
-        },
-        "pullPolicy": {
-          "type": "string",
-          "enum": ["", "Always", "IfNotPresent", "Never"]
-        }
-      },
-      "required": ["repository", "tag", "pullPolicy"]
-    },
     "config": {
       "type": "object",
       "additionalProperties": true,

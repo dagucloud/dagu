@@ -27,7 +27,7 @@ spec:
       containers:
         - name: coordinator
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
-          imagePullPolicy: {{ include "dagu.imagePullPolicy" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
           args:
             - dagu
             - coordinator

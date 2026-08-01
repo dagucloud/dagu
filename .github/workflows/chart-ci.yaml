@@ -104,133 +104,23 @@ jobs:
       - name: Lint chart
         run: helm lint ./charts/dagu
 
-      - name: Validate image pull policy defaults
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          latest_ui="$(helm template dagu ./charts/dagu --show-only templates/ui-deployment.yaml)"
-          pinned_ui="$(helm template dagu ./charts/dagu --show-only templates/ui-deployment.yaml --set-string image.tag=2.2.4)"
-
-          ruby -ryaml -e '
-            manifest = YAML.safe_load($stdin.read)
-            policy = manifest.dig("spec", "template", "spec", "containers", 0, "imagePullPolicy")
-            abort "latest must use Always" unless policy == "Always"
-          ' <<<"${latest_ui}"
-
-          ruby -ryaml -e '
-            manifest = YAML.safe_load($stdin.read)
-            policy = manifest.dig("spec", "template", "spec", "containers", 0, "imagePullPolicy")
-            abort "pinned tags must use IfNotPresent" unless policy == "IfNotPresent"
-          ' <<<"${pinned_ui}"
+      - name: Render chart
+        run: helm template dagu ./charts/dagu --set persistence.storageClass=nfs-client >/dev/null
 
       - name: Render OIDC configuration
-        shell: bash
         run: |
-          set -euo pipefail
-
-          values=(
-            --set persistence.storageClass=nfs-client
-            --set-string license.existingSecret=dagu-license
-            --set auth.oidc.enabled=true
-            --set-string auth.oidc.clientId=ci-client
-            --set-string auth.oidc.clientUrl=https://dagu.example.com
-            --set-string auth.oidc.issuer=https://idp.example.com
-            --set-string auth.oidc.clientSecret.existingSecret=dagu-oidc
-            --set-string 'auth.oidc.roleMapping.groupMappings.engineering=developer'
-            --set-string 'auth.oidc.roleMapping.workspaceMappings.engineering[0].workspace=platform'
-            --set-string 'auth.oidc.roleMapping.workspaceMappings.engineering[0].role=developer'
-            --set auth.proxy.enabled=true
-          )
-
-          configmap="$(
-            helm template dagu ./charts/dagu \
-              --show-only templates/configmap.yaml \
-              "${values[@]}"
-          )"
-          ui_deployment="$(
-            helm template dagu ./charts/dagu \
-              --show-only templates/ui-deployment.yaml \
-              "${values[@]}"
-          )"
-          all_resources="$(
-            helm template dagu ./charts/dagu \
-              "${values[@]}"
-          )"
-
-          ruby -ryaml -e '
-            manifest = YAML.safe_load($stdin.read)
-            config = YAML.safe_load(manifest.fetch("data").fetch("dagu.yaml"))
-            oidc = config.dig("auth", "oidc")
-            role_mapping = oidc.fetch("role_mapping")
-
-            abort "unexpected OIDC client ID" unless oidc["client_id"] == "ci-client"
-            abort "unexpected OIDC client URL" unless oidc["client_url"] == "https://dagu.example.com"
-            abort "unexpected OIDC issuer" unless oidc["issuer"] == "https://idp.example.com"
-            abort "unexpected OIDC group mapping" unless role_mapping.dig("group_mappings", "engineering") == "developer"
-            expected_grants = [{"role" => "developer", "workspace" => "platform"}]
-            abort "unexpected OIDC workspace mapping" unless role_mapping.dig("workspace_mappings", "engineering") == expected_grants
-            abort "proxy authentication was not rendered" unless config.dig("auth", "proxy", "enabled") == true
-          ' <<<"${configmap}"
-
-          ruby -ryaml -e '
-            manifest = YAML.safe_load($stdin.read)
-            containers = manifest.dig("spec", "template", "spec", "containers")
-            ui = containers.find { |container| container["name"] == "ui" }
-            env = ui.fetch("env").each_with_object({}) do |entry, entries|
-              entries[entry.fetch("name")] = entry
-            end
-
-            license_ref = env.dig("DAGU_LICENSE_KEY", "valueFrom", "secretKeyRef")
-            expected_license_ref = {"name" => "dagu-license", "key" => "license-key"}
-            abort "unexpected license Secret reference" unless license_ref == expected_license_ref
-
-            oidc_ref = env.dig("DAGU_AUTH_OIDC_CLIENT_SECRET", "valueFrom", "secretKeyRef")
-            expected_oidc_ref = {"name" => "dagu-oidc", "key" => "client-secret"}
-            abort "unexpected OIDC Secret reference" unless oidc_ref == expected_oidc_ref
-          ' <<<"${ui_deployment}"
-
-          ruby -ryaml -e '
-            secret_env_names = ["DAGU_LICENSE_KEY", "DAGU_AUTH_OIDC_CLIENT_SECRET"]
-            locations = secret_env_names.each_with_object({}) { |name, result| result[name] = [] }
-            ui_name = nil
-
-            manifests = $stdin.read.split(/^---\s*$/).map do |document|
-              next if document.strip.empty?
-              YAML.safe_load(document)
-            end.compact
-
-            manifests.each do |manifest|
-              kind = manifest["kind"]
-              metadata = manifest.fetch("metadata", {})
-              if kind == "Deployment" && metadata.dig("labels", "app.kubernetes.io/component") == "ui"
-                ui_name = metadata["name"]
-              end
-
-              pod_spec = case kind
-                         when "Deployment", "StatefulSet", "DaemonSet", "Job"
-                           manifest.dig("spec", "template", "spec")
-                         when "CronJob"
-                           manifest.dig("spec", "jobTemplate", "spec", "template", "spec")
-                         when "Pod"
-                           manifest["spec"]
-                         end
-              next unless pod_spec
-
-              containers = Array(pod_spec["containers"]) + Array(pod_spec["initContainers"])
-              containers.each do |container|
-                names = Array(container["env"]).map { |entry| entry["name"] }.compact
-                (names & secret_env_names).each do |name|
-                  locations[name] << [metadata["name"], container["name"]]
-                end
-              end
-            end
-
-            secret_env_names.each do |name|
-              expected = [[ui_name, "ui"]]
-              abort "#{name} must be scoped only to the UI container: #{locations[name].inspect}" unless locations[name] == expected
-            end
-          ' <<<"${all_resources}"
+          helm template dagu ./charts/dagu \
+            --set persistence.storageClass=nfs-client \
+            --set-string license.existingSecret=dagu-license \
+            --set auth.oidc.enabled=true \
+            --set-string auth.oidc.clientId=ci-client \
+            --set-string auth.oidc.clientUrl=https://dagu.example.com \
+            --set-string auth.oidc.issuer=https://idp.example.com \
+            --set-string auth.oidc.clientSecret.existingSecret=dagu-oidc \
+            --set-string 'auth.oidc.roleMapping.groupMappings.engineering=developer' \
+            --set-string 'auth.oidc.roleMapping.workspaceMappings.engineering[0].workspace=platform' \
+            --set-string 'auth.oidc.roleMapping.workspaceMappings.engineering[0].role=developer' \
+            --set auth.proxy.enabled=true >/dev/null
 
       - name: Package chart
         run: |

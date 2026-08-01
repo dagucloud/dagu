@@ -56,7 +56,7 @@ Replace `<your-rwx-storage-class>` with a StorageClass in your cluster that supp
 
 `charts/dagu/Chart.yaml` defines the chart `version`, which is the version published to the Helm repository.
 
-The deployed container image comes from `values.yaml -> image.repository` and `values.yaml -> image.tag`. With the current defaults, the chart deploys `ghcr.io/dagucloud/dagu:latest` and always checks the registry when starting a pod. When `pullPolicy` is empty, the chart automatically uses `Always` for `latest` and `IfNotPresent` for pinned tags. Set `pullPolicy` explicitly to override that behavior.
+The deployed container image comes from `values.yaml -> image.repository` and `values.yaml -> image.tag`. With the current defaults, the chart deploys `ghcr.io/dagucloud/dagu:latest` and always checks the registry when starting a pod. When pinning `image.tag`, also set `image.pullPolicy: IfNotPresent` if pods should reuse the pinned image without contacting the registry on every start.
 
 For chart publication and repository maintenance, see [`RELEASING.md`](./RELEASING.md).
 
@@ -318,7 +318,7 @@ every login for existing proxy users unless
 image:
   repository: ghcr.io/dagucloud/dagu
   tag: latest
-  pullPolicy: ""  # Always for latest; IfNotPresent for any other tag
+  pullPolicy: Always
 
 coordinator:
   replicas: 1
