@@ -3,6 +3,25 @@
   "type": "object",
   "additionalProperties": true,
   "properties": {
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "repository": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tag": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pullPolicy": {
+          "type": "string",
+          "enum": ["", "Always", "IfNotPresent", "Never"]
+        }
+      },
+      "required": ["repository", "tag", "pullPolicy"]
+    },
     "config": {
       "type": "object",
       "additionalProperties": true,
@@ -37,6 +56,7 @@
       "properties": {
         "existingSecret": {
           "type": "string",
+          "description": "Optional license-key Secret; Dagu also supports license env/file and persisted activation sources.",
           "maxLength": 253,
           "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
         },
@@ -62,7 +82,8 @@
           "additionalProperties": false,
           "properties": {
             "enabled": {
-              "type": "boolean"
+              "type": "boolean",
+              "description": "Enables chart-managed OIDC configuration. Runtime requires an active license from any Dagu-supported source."
             },
             "clientId": {
               "type": "string"

@@ -56,7 +56,7 @@ Replace `<your-rwx-storage-class>` with a StorageClass in your cluster that supp
 
 `charts/dagu/Chart.yaml` defines the chart `version`, which is the version published to the Helm repository.
 
-The deployed container image comes from `values.yaml -> image.repository` and `values.yaml -> image.tag`. With the current defaults, the chart deploys `ghcr.io/dagucloud/dagu:latest` and always checks the registry when starting a pod.
+The deployed container image comes from `values.yaml -> image.repository` and `values.yaml -> image.tag`. With the current defaults, the chart deploys `ghcr.io/dagucloud/dagu:latest` and always checks the registry when starting a pod. When `pullPolicy` is empty, the chart automatically uses `Always` for `latest` and `IfNotPresent` for pinned tags. Set `pullPolicy` explicitly to override that behavior.
 
 For chart publication and repository maintenance, see [`RELEASING.md`](./RELEASING.md).
 
@@ -250,7 +250,7 @@ helm install dagu dagu/dagu \
 
 #### OIDC
 
-OIDC runs as part of builtin authentication and requires an active license. Create the first builtin administrator through the setup page before testing OIDC login.
+OIDC runs as part of builtin authentication and requires an active license. The license may come from `license.existingSecret`, supported license variables in `extraEnv`, an offline license file, or activation data already persisted on the shared volume. Create the first builtin administrator through the setup page before testing OIDC login.
 
 Store the provider's client secret in the release namespace:
 
@@ -318,7 +318,7 @@ every login for existing proxy users unless
 image:
   repository: ghcr.io/dagucloud/dagu
   tag: latest
-  pullPolicy: Always
+  pullPolicy: ""  # Always for latest; IfNotPresent for any other tag
 
 coordinator:
   replicas: 1

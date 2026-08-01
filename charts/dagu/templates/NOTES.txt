@@ -26,7 +26,7 @@ Components deployed:
   UI: {{ .Values.ui.replicas }} replica(s)
 
 {{ if or .Values.auth.oidc.enabled $legacyOIDC }}
-OIDC authentication is enabled.
+OIDC authentication is configured.
 {{ if $oidcClientURL }}
   Register this callback URL with the provider:
   {{ trimSuffix "/" $oidcClientURL }}/oidc-callback

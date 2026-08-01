@@ -33,7 +33,7 @@ spec:
       containers:
         - name: ui
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          imagePullPolicy: {{ include "dagu.imagePullPolicy" . }}
           args:
             - dagu
             - server

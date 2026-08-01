@@ -5,7 +5,8 @@
 image:
   repository: ghcr.io/dagucloud/dagu
   tag: latest
-  pullPolicy: Always
+  # Empty selects Always for latest and IfNotPresent for any other tag.
+  pullPolicy: ""
 
 # Top-level Dagu config additions rendered into dagu.yaml
 config:
@@ -21,6 +22,8 @@ extraEnv: []
 
 # License activation key from an existing Kubernetes Secret.
 # The Secret must exist in the same namespace as the Helm release.
+# This is optional when another supported license env/file or persisted
+# activation source supplies the active license.
 license:
   existingSecret: ""
   secretKey: license-key

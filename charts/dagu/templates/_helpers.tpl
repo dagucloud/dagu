@@ -27,6 +27,10 @@ app.kubernetes.io/name: {{ include "dagu.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
+{{- define "dagu.imagePullPolicy" -}}
+{{- default (ternary "Always" "IfNotPresent" (eq .Values.image.tag "latest")) .Values.image.pullPolicy -}}
+{{- end }}
+
 {{- define "dagu.workerLabels" -}}
 {{- $pairs := list -}}
 {{- range $key, $value := . -}}
