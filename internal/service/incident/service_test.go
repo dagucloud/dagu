@@ -239,7 +239,7 @@ func TestServiceResolvesOpenIncidentAfterRoutingIsDisabled(t *testing.T) {
 	assert.Equal(t, requests[0]["dedup_key"], requests[1]["dedup_key"])
 }
 
-func TestMonitorResolvesRuntimeNameIncidentWithDAGFileRouting(t *testing.T) {
+func TestMonitorKeepsIncidentRecoveryWithinWorkspace(t *testing.T) {
 	requests := make(chan map[string]any, 1)
 	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		defer func() { _ = req.Body.Close() }()
@@ -257,19 +257,36 @@ func TestMonitorResolvesRuntimeNameIncidentWithDAGFileRouting(t *testing.T) {
 
 	store := newMemoryStore(t)
 	provider := store.saveProvider(t, "PagerDuty", incidentmodel.ProviderPagerDuty)
-	state, err := incidentmodel.NormalizeState(&incidentmodel.IncidentState{
-		ProviderID: provider.ID,
-		PolicyID:   "existing-policy",
-		DAGName:    "daily",
-		DedupKey:   "existing-dedup-key",
-		Status:     incidentmodel.IncidentStatusOpen,
-	})
-	require.NoError(t, err)
-	require.NoError(t, store.SaveState(context.Background(), state))
+	const (
+		opsDedupKey         = "ops-dedup-key"
+		engineeringDedupKey = "engineering-dedup-key"
+	)
+	saveOpenState := func(workspace, dedupKey string) {
+		state, err := incidentmodel.NormalizeState(&incidentmodel.IncidentState{
+			ProviderID: provider.ID,
+			PolicyID:   workspace + "-policy",
+			Workspace:  workspace,
+			DAGName:    "daily",
+			DedupKey:   dedupKey,
+			Status:     incidentmodel.IncidentStatusOpen,
+		})
+		require.NoError(t, err)
+		require.NoError(t, store.SaveState(context.Background(), state))
+	}
+	saveOpenState("ops", opsDedupKey)
+	saveOpenState("engineering", engineeringDedupKey)
 
 	svc := New(store, WithHTTPClient(client))
-	events := &incidentMonitorEventStore{}
-	eventService := eventstore.New(events)
+	success := failedEvent("daily", "run-1")
+	success.Type = eventstore.TypeDAGRunSucceeded
+	success.Status.Status = core.Succeeded
+	success.Status.Error = ""
+	success.Status.Labels = []string{"workspace=engineering"}
+	success.DAGFile = "daily-file"
+	require.Equal(t, []string{stateDestinationID(provider.ID, engineeringDedupKey)}, svc.NotificationDestinationsForEvent(success))
+
+	eventStore := &monitorEventStore{}
+	eventService := eventstore.New(eventStore)
 	cfg := chatbridge.DefaultNotificationMonitorConfig()
 	cfg.PollInterval = 5 * time.Millisecond
 	cfg.SuccessWindow = 5 * time.Millisecond
@@ -284,30 +301,40 @@ func TestMonitorResolvesRuntimeNameIncidentWithDAGFileRouting(t *testing.T) {
 	)
 	stopMonitor := testutil.StartContextRunner(t, monitor)
 	defer stopMonitor()
-	require.Eventually(t, events.bootstrapped, time.Second, 10*time.Millisecond)
+	require.Eventually(t, eventStore.bootstrapped, time.Second, 10*time.Millisecond)
 
-	success := failedEvent("daily", "run-1").Status
-	success.Status = core.Succeeded
-	success.Error = ""
 	require.NoError(t, eventService.Emit(context.Background(), eventstore.NewDAGRunEvent(
 		eventstore.Source{Service: eventstore.SourceServiceServer, Instance: "test"},
 		eventstore.TypeDAGRunSucceeded,
-		success,
+		success.Status,
 		map[string]any{eventstore.DAGFileNameDataKey: "daily-file"},
 	)))
 
+	var engineeringState *incidentmodel.IncidentState
 	require.Eventually(t, func() bool {
-		state, err = store.GetState(context.Background(), provider.ID, "existing-dedup-key")
-		return err == nil && state.Status == incidentmodel.IncidentStatusResolved
+		var err error
+		engineeringState, err = store.GetState(context.Background(), provider.ID, engineeringDedupKey)
+		return err == nil && engineeringState.Status == incidentmodel.IncidentStatusResolved
 	}, time.Second, 10*time.Millisecond)
-	assert.Equal(t, "existing-policy", state.PolicyID)
+	assert.Equal(t, "engineering-policy", engineeringState.PolicyID)
+	opsState, err := store.GetState(context.Background(), provider.ID, opsDedupKey)
+	require.NoError(t, err)
+	assert.Equal(t, incidentmodel.IncidentStatusOpen, opsState.Status)
+
 	select {
 	case request := <-requests:
 		assert.Equal(t, "resolve", request["event_action"])
-		assert.Equal(t, "existing-dedup-key", request["dedup_key"])
+		assert.Equal(t, engineeringDedupKey, request["dedup_key"])
 	default:
 		t.Fatal("expected PagerDuty resolution request")
 	}
+
+	require.True(t, svc.FlushNotificationBatch(context.Background(), stateDestinationID(provider.ID, opsDedupKey), chatbridge.NotificationBatch{
+		Events: []chatbridge.NotificationEvent{success},
+	}, false))
+	opsState, err = store.GetState(context.Background(), provider.ID, opsDedupKey)
+	require.NoError(t, err)
+	assert.Equal(t, incidentmodel.IncidentStatusOpen, opsState.Status)
 }
 
 func TestServiceReopenedIncidentUsesFreshOpenedAt(t *testing.T) {
@@ -475,47 +502,47 @@ func (fn roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return fn(req)
 }
 
-type incidentMonitorEventStore struct {
+type monitorEventStore struct {
 	mu        sync.Mutex
 	events    []*eventstore.Event
 	headCalls int
 }
 
-var _ eventstore.Store = (*incidentMonitorEventStore)(nil)
-var _ eventstore.NotificationReader = (*incidentMonitorEventStore)(nil)
+var _ eventstore.Store = (*monitorEventStore)(nil)
+var _ eventstore.NotificationReader = (*monitorEventStore)(nil)
 
-func (s *incidentMonitorEventStore) Emit(_ context.Context, event *eventstore.Event) error {
+func (s *monitorEventStore) Emit(_ context.Context, event *eventstore.Event) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.events = append(s.events, event)
 	return nil
 }
 
-func (s *incidentMonitorEventStore) Query(context.Context, eventstore.QueryFilter) (*eventstore.QueryResult, error) {
+func (s *monitorEventStore) Query(context.Context, eventstore.QueryFilter) (*eventstore.QueryResult, error) {
 	return &eventstore.QueryResult{}, nil
 }
 
-func (s *incidentMonitorEventStore) NotificationHeadCursor(context.Context) (eventstore.NotificationCursor, error) {
+func (s *monitorEventStore) NotificationHeadCursor(context.Context) (eventstore.NotificationCursor, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.headCalls++
 	return s.cursor(), nil
 }
 
-func (s *incidentMonitorEventStore) ReadNotificationEvents(_ context.Context, cursor eventstore.NotificationCursor) ([]*eventstore.Event, eventstore.NotificationCursor, error) {
+func (s *monitorEventStore) ReadNotificationEvents(_ context.Context, cursor eventstore.NotificationCursor) ([]*eventstore.Event, eventstore.NotificationCursor, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	index := int(cursor.Normalize().CommittedOffsets["events"])
 	return append([]*eventstore.Event(nil), s.events[index:]...), s.cursor(), nil
 }
 
-func (s *incidentMonitorEventStore) bootstrapped() bool {
+func (s *monitorEventStore) bootstrapped() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.headCalls > 0
 }
 
-func (s *incidentMonitorEventStore) cursor() eventstore.NotificationCursor {
+func (s *monitorEventStore) cursor() eventstore.NotificationCursor {
 	return eventstore.NotificationCursor{
 		CommittedOffsets: map[string]int64{"events": int64(len(s.events))},
 	}

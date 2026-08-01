@@ -42,8 +42,8 @@ type NotificationEvent struct {
 	ObservedAt time.Time
 }
 
-// DAGKey returns the DAG-scoped configuration key, falling back to the runtime name.
-func (e NotificationEvent) DAGKey() string {
+// DAGRouteKey returns the DAG-scoped configuration key, falling back to the runtime name.
+func (e NotificationEvent) DAGRouteKey() string {
 	if e.DAGFile != "" {
 		return e.DAGFile
 	}

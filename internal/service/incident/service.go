@@ -415,7 +415,7 @@ func (s *Service) resolveDestinationsForEvent(ctx context.Context, event chatbri
 	}
 	destinations := make([]string, 0, len(states))
 	for _, state := range states {
-		if state == nil || state.DAGName != event.Status.Name {
+		if !stateMatchesEvent(state, event) {
 			continue
 		}
 		if state.ProviderID == "" || state.DedupKey == "" {
@@ -605,7 +605,7 @@ func (s *Service) resolveIncident(ctx context.Context, provider *incidentmodel.P
 	if state.Status != incidentmodel.IncidentStatusOpen {
 		return true
 	}
-	if event.Status != nil && state.DAGName != "" && state.DAGName != event.Status.Name {
+	if !stateMatchesEvent(state, event) {
 		return true
 	}
 	delivery, err := s.withRetry(ctx, func() (*providerDeliveryResult, error) {
@@ -653,14 +653,14 @@ func (s *Service) effectivePolicySetForEvent(ctx context.Context, event chatbrid
 	if event.Status == nil {
 		return nil
 	}
-	dagKey := event.DAGKey()
-	if policySet, err := s.loadPolicySet(ctx, incidentmodel.PolicyScopeDAG, "", dagKey); err == nil {
+	routeKey := event.DAGRouteKey()
+	if policySet, err := s.loadPolicySet(ctx, incidentmodel.PolicyScopeDAG, "", routeKey); err == nil {
 		if !policySet.InheritParent {
 			return policySet
 		}
 	} else if !errors.Is(err, incidentmodel.ErrPolicySetNotFound) {
 		s.logger.Warn("Failed to load DAG incident policy set",
-			slog.String("dag", dagKey),
+			slog.String("dag", routeKey),
 			slog.String("error", err.Error()),
 		)
 	}
@@ -776,6 +776,14 @@ func eventWorkspace(event chatbridge.NotificationEvent) (string, exec.WorkspaceL
 		return "", exec.WorkspaceLabelMissing
 	}
 	return exec.WorkspaceLabelFromLabels(core.NewLabels(event.Status.Labels))
+}
+
+func stateMatchesEvent(state *incidentmodel.IncidentState, event chatbridge.NotificationEvent) bool {
+	if state == nil || event.Status == nil || state.DAGName != event.Status.Name {
+		return false
+	}
+	workspaceName, workspaceState := eventWorkspace(event)
+	return workspaceState != exec.WorkspaceLabelInvalid && state.Workspace == workspaceName
 }
 
 func findPolicy(policySet *incidentmodel.PolicySet, policyID string) (incidentmodel.Policy, bool) {
