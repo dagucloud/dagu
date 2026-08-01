@@ -29,6 +29,9 @@
 {{- if empty .Values.auth.oidc.scopes }}
 {{- fail "auth.oidc.scopes must not be empty when auth.oidc.enabled=true" }}
 {{- end }}
+{{- if and (or (not (empty .Values.auth.oidc.whitelist)) (not (empty .Values.auth.oidc.allowedDomains))) (not (has "email" .Values.auth.oidc.scopes)) }}
+{{- fail "auth.oidc.scopes must include email when auth.oidc.whitelist or auth.oidc.allowedDomains is configured" }}
+{{- end }}
 {{- if empty .Values.auth.oidc.clientSecret.existingSecret }}
 {{- fail "auth.oidc.clientSecret.existingSecret is required when auth.oidc.enabled=true" }}
 {{- end }}

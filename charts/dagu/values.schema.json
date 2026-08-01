@@ -208,6 +208,52 @@
               ]
             }
           },
+          "allOf": [
+            {
+              "if": {
+                "allOf": [
+                  {
+                    "properties": {
+                      "enabled": {
+                        "const": true
+                      }
+                    },
+                    "required": ["enabled"]
+                  },
+                  {
+                    "anyOf": [
+                      {
+                        "properties": {
+                          "whitelist": {
+                            "minItems": 1
+                          }
+                        },
+                        "required": ["whitelist"]
+                      },
+                      {
+                        "properties": {
+                          "allowedDomains": {
+                            "minItems": 1
+                          }
+                        },
+                        "required": ["allowedDomains"]
+                      }
+                    ]
+                  }
+                ]
+              },
+              "then": {
+                "properties": {
+                  "scopes": {
+                    "contains": {
+                      "const": "email"
+                    }
+                  }
+                },
+                "required": ["scopes"]
+              }
+            }
+          ],
           "required": [
             "enabled",
             "clientId",

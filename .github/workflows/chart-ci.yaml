@@ -137,36 +137,37 @@ jobs:
               "${values[@]}"
           )"
 
-          for expected in \
-            '      oidc:' \
-            '        client_id: "ci-client"' \
-            '        client_url: "https://dagu.example.com"' \
-            '        issuer: "https://idp.example.com"' \
-            '            engineering: developer' \
-            '            - role: developer' \
-            '              workspace: platform' \
-            '      proxy:' \
-            '        enabled: true'; do
-            if ! grep -Fxq "${expected}" <<<"${configmap}"; then
-              echo "::error::Rendered ConfigMap is missing: ${expected}"
-              printf '%s\n' "${configmap}"
-              exit 1
-            fi
-          done
+          ruby -ryaml -e '
+            manifest = YAML.safe_load($stdin.read)
+            config = YAML.safe_load(manifest.fetch("data").fetch("dagu.yaml"))
+            oidc = config.dig("auth", "oidc")
+            role_mapping = oidc.fetch("role_mapping")
 
-          for expected in \
-            '            - name: DAGU_LICENSE_KEY' \
-            '                  name: "dagu-license"' \
-            '                  key: "license-key"' \
-            '            - name: DAGU_AUTH_OIDC_CLIENT_SECRET' \
-            '                  name: "dagu-oidc"' \
-            '                  key: "client-secret"'; do
-            if ! grep -Fxq "${expected}" <<<"${ui_deployment}"; then
-              echo "::error::Rendered UI Deployment is missing: ${expected}"
-              printf '%s\n' "${ui_deployment}"
-              exit 1
-            fi
-          done
+            abort "unexpected OIDC client ID" unless oidc["client_id"] == "ci-client"
+            abort "unexpected OIDC client URL" unless oidc["client_url"] == "https://dagu.example.com"
+            abort "unexpected OIDC issuer" unless oidc["issuer"] == "https://idp.example.com"
+            abort "unexpected OIDC group mapping" unless role_mapping.dig("group_mappings", "engineering") == "developer"
+            expected_grants = [{"role" => "developer", "workspace" => "platform"}]
+            abort "unexpected OIDC workspace mapping" unless role_mapping.dig("workspace_mappings", "engineering") == expected_grants
+            abort "proxy authentication was not rendered" unless config.dig("auth", "proxy", "enabled") == true
+          ' <<<"${configmap}"
+
+          ruby -ryaml -e '
+            manifest = YAML.safe_load($stdin.read)
+            containers = manifest.dig("spec", "template", "spec", "containers")
+            ui = containers.find { |container| container["name"] == "ui" }
+            env = ui.fetch("env").each_with_object({}) do |entry, entries|
+              entries[entry.fetch("name")] = entry
+            end
+
+            license_ref = env.dig("DAGU_LICENSE_KEY", "valueFrom", "secretKeyRef")
+            expected_license_ref = {"name" => "dagu-license", "key" => "license-key"}
+            abort "unexpected license Secret reference" unless license_ref == expected_license_ref
+
+            oidc_ref = env.dig("DAGU_AUTH_OIDC_CLIENT_SECRET", "valueFrom", "secretKeyRef")
+            expected_oidc_ref = {"name" => "dagu-oidc", "key" => "client-secret"}
+            abort "unexpected OIDC Secret reference" unless oidc_ref == expected_oidc_ref
+          ' <<<"${ui_deployment}"
 
       - name: Package chart
         run: |
