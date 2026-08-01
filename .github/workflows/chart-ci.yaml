@@ -108,14 +108,37 @@ jobs:
         run: helm template dagu ./charts/dagu --set persistence.storageClass=nfs-client >/dev/null
 
       - name: Render OIDC configuration
+        shell: bash
         run: |
-          helm template dagu ./charts/dagu \
-            --set persistence.storageClass=nfs-client \
-            --set auth.oidc.enabled=true \
-            --set-string auth.oidc.clientId=ci-client \
-            --set-string auth.oidc.clientUrl=https://dagu.example.com \
-            --set-string auth.oidc.issuer=https://idp.example.com \
-            --set-string auth.oidc.clientSecret.existingSecret=dagu-oidc >/dev/null
+          set -euo pipefail
+
+          rendered="$(
+            helm template dagu ./charts/dagu \
+              --show-only templates/configmap.yaml \
+              --set persistence.storageClass=nfs-client \
+              --set auth.oidc.enabled=true \
+              --set-string auth.oidc.clientId=ci-client \
+              --set-string auth.oidc.clientUrl=https://dagu.example.com \
+              --set-string auth.oidc.issuer=https://idp.example.com \
+              --set-string auth.oidc.clientSecret.existingSecret=dagu-oidc \
+              --set-string 'auth.oidc.roleMapping.groupMappings.engineering=developer' \
+              --set-string 'auth.oidc.roleMapping.workspaceMappings.engineering[0].workspace=platform' \
+              --set-string 'auth.oidc.roleMapping.workspaceMappings.engineering[0].role=developer' \
+              --set auth.proxy.enabled=true
+          )"
+
+          for expected in \
+            '      oidc:' \
+            '        client_id: "ci-client"' \
+            '            engineering: developer' \
+            '              workspace: platform' \
+            '      proxy:'; do
+            if ! grep -Fq "${expected}" <<<"${rendered}"; then
+              echo "::error::Rendered ConfigMap is missing: ${expected}"
+              printf '%s\n' "${rendered}"
+              exit 1
+            fi
+          done
 
       - name: Package chart
         run: |
