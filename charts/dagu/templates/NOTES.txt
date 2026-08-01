@@ -31,15 +31,15 @@ OIDC authentication is configured.
   Register this callback URL with the provider:
   {{ trimSuffix "/" $oidcClientURL }}/oidc-callback
 {{ else }}
-  Register DAGU_AUTH_OIDC_CLIENT_URL plus /oidc-callback with the provider.
+  Register the value of DAGU_AUTH_OIDC_CLIENT_URL plus /oidc-callback with the provider.
 {{ end }}
   Complete builtin administrator setup before the first OIDC login.
   OIDC/SSO requires an active Dagu license.
 
 {{ end }}
-{{ if or .Values.license.existingSecret .Values.auth.oidc.enabled }}
-Secret-backed UI settings are read when the pod starts.
-  After rotating a configured license or OIDC Secret, restart the UI:
+{{ if or .Values.license.existingSecret .Values.auth.oidc.enabled $legacyOIDC }}
+License and OIDC environment variables are read when the pod starts.
+  After changing one of these values or rotating its Secret, restart the UI:
   kubectl rollout restart deployment/{{ include "dagu.fullname" . }}-ui
 
 {{ end }}
