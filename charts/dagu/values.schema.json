@@ -282,6 +282,11 @@
           "type": "integer",
           "minimum": 0
         },
+        "containerPort": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
         "service": {
           "type": "object",
           "additionalProperties": false,
@@ -308,7 +313,7 @@
           "$ref": "#/definitions/resources"
         }
       },
-      "required": ["replicas", "service", "resources"]
+      "required": ["replicas", "containerPort", "service", "resources"]
     },
     "ingress": {
       "type": "object",
@@ -876,29 +881,12 @@
     },
     {
       "if": {
-        "allOf": [
-          {
-            "properties": {
-              "deploymentMode": {
-                "const": "distributed"
-              }
-            },
-            "required": ["deploymentMode"]
-          },
-          {
-            "properties": {
-              "persistence": {
-                "properties": {
-                  "existingClaim": {
-                    "const": ""
-                  }
-                },
-                "required": ["existingClaim"]
-              }
-            },
-            "required": ["persistence"]
+        "properties": {
+          "deploymentMode": {
+            "const": "distributed"
           }
-        ]
+        },
+        "required": ["deploymentMode"]
       },
       "then": {
         "properties": {

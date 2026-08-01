@@ -2,7 +2,7 @@
 {{- fail "Dagu requires persistence.enabled=true." }}
 {{- end }}
 
-{{- if and (eq .Values.deploymentMode "distributed") (empty .Values.persistence.existingClaim) (ne .Values.persistence.accessMode "ReadWriteMany") }}
+{{- if and (eq .Values.deploymentMode "distributed") (ne .Values.persistence.accessMode "ReadWriteMany") }}
 {{- fail (printf "distributed mode requires persistence.accessMode=ReadWriteMany; got %q" .Values.persistence.accessMode) }}
 {{- end }}
 

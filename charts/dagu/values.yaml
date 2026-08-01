@@ -107,6 +107,9 @@ workerPools:
 # start-all pod and replicas must remain 1.
 ui:
   replicas: 1
+  # Port used by the Dagu process and pod probes. The Service can expose a
+  # different port without changing the container listener.
+  containerPort: 8080
   service:
     # ClusterIP is recommended with ingress. LoadBalancer and NodePort are also supported.
     type: ClusterIP
@@ -197,7 +200,8 @@ persistence:
   enabled: true
   # Keep the PVC and its data when the Helm release is uninstalled.
   retain: true
-  # Use an existing PVC instead of creating one. It must be in the release namespace.
+  # Use an existing PVC instead of creating one. It must be in the release
+  # namespace and its access mode must match this declaration.
   existingClaim: ""
   accessMode: ReadWriteOnce
   size: 10Gi

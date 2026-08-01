@@ -137,12 +137,35 @@ jobs:
             --set ingress.enabled=true \
             --set-string ingress.className=nginx \
             --set-string ingress.host=dagu.example.com \
-            --set-string 'config.corsAllowedOrigins[0]=https://app.example.com' >/dev/null
+            --set-string 'config.corsAllowedOrigins[0]=https://app.example.com' \
+            >/tmp/dagu-optional-render.yaml
+
+          test "$(grep -Fc 'name: DAGU_LICENSE_KEY' /tmp/dagu-optional-render.yaml)" -eq 1
+          test "$(grep -Fc 'name: DAGU_AUTH_OIDC_CLIENT_SECRET' /tmp/dagu-optional-render.yaml)" -eq 1
+          grep -Fq 'name: "dagu-license"' /tmp/dagu-optional-render.yaml
+          grep -Fq 'name: "dagu-oidc"' /tmp/dagu-optional-render.yaml
+          grep -Fq 'cors_allowed_origins: ["https://app.example.com"]' /tmp/dagu-optional-render.yaml
+          grep -Fq 'engineering: developer' /tmp/dagu-optional-render.yaml
+          grep -Fq 'workspace: platform' /tmp/dagu-optional-render.yaml
 
           helm template dagu ./charts/dagu \
             --namespace dagu \
             --set auth.proxy.enabled=true \
             --set-string auth.proxy.source=oauth2-proxy >/dev/null
+
+          expect_proxy_render_failure() {
+            if helm template dagu ./charts/dagu \
+              --namespace dagu \
+              --set auth.proxy.enabled=true \
+              "$@" >/dev/null 2>&1; then
+              echo "::error::Expected proxy-auth rendering to reject: $*"
+              exit 1
+            fi
+          }
+
+          expect_proxy_render_failure --set ui.service.type=LoadBalancer
+          expect_proxy_render_failure --set ui.service.type=NodePort
+          expect_proxy_render_failure --set ingress.enabled=true
 
           helm template dagu ./charts/dagu \
             --namespace dagu \
@@ -151,8 +174,14 @@ jobs:
 
           helm template dagu ./charts/dagu \
             --namespace dagu \
-            --set ui.service.port=9000 \
+            --set ui.service.port=80 \
             --set persistence.retain=false \
+            --set-string persistence.existingClaim=existing-dagu-data >/dev/null
+
+          helm template dagu ./charts/dagu \
+            --namespace dagu \
+            --set deploymentMode=distributed \
+            --set persistence.accessMode=ReadWriteMany \
             --set-string persistence.existingClaim=existing-dagu-data >/dev/null
 
       - name: Package chart

@@ -119,9 +119,7 @@ persistence:
   existingClaim: dagu-data
 ```
 
-`persistence.enabled` must remain `true`. Distributed mode validates that chart-created storage uses `ReadWriteMany`; standalone mode accepts either supported access mode.
-
-When distributed mode uses `persistence.existingClaim`, that claim must already support `ReadWriteMany`; Helm cannot inspect its access modes while rendering the chart.
+`persistence.enabled` must remain `true`. Distributed mode requires `persistence.accessMode: ReadWriteMany`, including when an existing claim is used; standalone mode accepts either supported access mode. The declared access mode must match the existing PVC. Helm cannot inspect the PVC while rendering the chart.
 
 The chart sets `podSecurityContext.fsGroup: 1000` by default so `/data` remains writable after the image entrypoint switches to the default Dagu user. Match `fsGroup` to custom `PUID` or `PGID` values.
 
@@ -454,6 +452,15 @@ The bundled UI and API use the same host, so this setup does not require `config
 Proxy-header authentication cannot use the chart-managed Ingress because the chart cannot verify provider-specific external-auth behavior. Keep `ingress.enabled: false` and follow [`PROXY_AUTH.md`](./PROXY_AUTH.md) to create an authenticated Ingress that cannot bypass the proxy.
 
 Ingress is disabled by default because the chart cannot know the cluster's ingress class, DNS name, or TLS Secret. The UI Service remains a `ClusterIP`. For clusters without an ingress controller, set `ui.service.type` to `LoadBalancer` or `NodePort`; `ui.service.annotations` supports provider-specific internal load-balancer settings.
+
+`ui.service.port` controls the port exposed by the Kubernetes Service. Dagu continues to listen on `ui.containerPort` (8080 by default), so the Service can expose port 80 without requiring the container to bind a privileged port:
+
+```yaml
+ui:
+  containerPort: 8080
+  service:
+    port: 80
+```
 
 When `ingress.tls.enabled` is true, set `ingress.tls.secretName` to a TLS Secret or leave it empty when the ingress controller provides the default certificate.
 

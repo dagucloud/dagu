@@ -49,7 +49,7 @@ spec:
             - name: DAGU_HOME
               value: /data
             - name: DAGU_PORT
-              value: {{ .Values.ui.service.port | quote }}
+              value: {{ .Values.ui.containerPort | quote }}
 {{- if eq .Values.auth.mode "basic" }}
             - name: DAGU_AUTH_BASIC_USERNAME
               valueFrom:
@@ -81,7 +81,7 @@ spec:
 {{- end }}
           ports:
             - name: http
-              containerPort: {{ .Values.ui.service.port }}
+              containerPort: {{ .Values.ui.containerPort }}
               protocol: TCP
           volumeMounts:
             - name: data

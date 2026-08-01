@@ -106,7 +106,7 @@ data:
 
     # Server / UI
     host: "0.0.0.0"
-    port: {{ .Values.ui.service.port }}
+    port: {{ .Values.ui.containerPort }}
     api_base_path: "/api/v1"
 {{- with .Values.config.publicUrl }}
     public_url: {{ . | quote }}
