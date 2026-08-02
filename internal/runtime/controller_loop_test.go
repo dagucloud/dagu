@@ -522,13 +522,10 @@ llm:
   observation_max_bytes: 128
 steps:
   - name: produce
-    run: |
-      i=0
-      while [ "$i" -lt 400 ]; do
-        printf x
-        i=$((i + 1))
-      done
-    output: BIG
+    action: outputs.write
+    with:
+      values:
+        BIG: "0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789"
 tasks:
   - name: produced
     description: done when produce ran
@@ -550,9 +547,11 @@ func TestControllerLoop_LimitsObservationWithoutChangingStoredOutput(t *testing.
 	assert.Contains(t, observations[0], "status: succeeded")
 	assert.Contains(t, observations[0], "[observation truncated]")
 
-	output := ch.node(t, "produce").State().OutputValue
-	require.NotNil(t, output)
-	assert.Len(t, *output, 400)
+	outputs := ch.node(t, "produce").State().OutputsValue
+	require.NotNil(t, outputs)
+	var stored map[string]string
+	require.NoError(t, json.Unmarshal([]byte(*outputs), &stored))
+	assert.Equal(t, strings.Repeat("0123456789", 37), stored["BIG"])
 }
 
 func TestControllerLoop_RejectsUnknownToolAndTask(t *testing.T) {
