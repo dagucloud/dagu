@@ -101,37 +101,35 @@ func TestServiceDecide(t *testing.T) {
 
 	t.Run("NilConfig", func(t *testing.T) {
 		t.Parallel()
-		outcome := NewService(store, func() bool { return true }).Decide(nil, holiday)
-		assert.Equal(t, Outcome{}, outcome)
+		decision := NewService(store, func() bool { return true }).Decide(nil, holiday)
+		assert.Equal(t, Decision{}, decision)
 	})
 
 	t.Run("Unlicensed", func(t *testing.T) {
 		t.Parallel()
-		outcome := NewService(store, func() bool { return false }).Decide(cfg, holiday)
-		assert.False(t, outcome.Skip)
-		assert.True(t, outcome.Unlicensed)
+		decision := NewService(store, func() bool { return false }).Decide(cfg, holiday)
+		assert.Equal(t, DecisionUnlicensed, decision.Kind)
 
-		outcome = NewService(store, nil).Decide(cfg, holiday)
-		assert.False(t, outcome.Skip)
-		assert.True(t, outcome.Unlicensed)
+		decision = NewService(store, nil).Decide(cfg, holiday)
+		assert.Equal(t, DecisionUnlicensed, decision.Kind)
 	})
 
 	t.Run("LicensedSkipsHoliday", func(t *testing.T) {
 		t.Parallel()
 		service := NewService(store, func() bool { return true })
-		outcome := service.Decide(cfg, holiday)
-		assert.True(t, outcome.Skip)
-		assert.Contains(t, outcome.Reason, "holiday")
+		decision := service.Decide(cfg, holiday)
+		assert.Equal(t, DecisionSkip, decision.Kind)
+		assert.Contains(t, decision.Reason, "holiday")
 
-		outcome = service.Decide(cfg, businessDay)
-		assert.False(t, outcome.Skip)
+		decision = service.Decide(cfg, businessDay)
+		assert.Equal(t, DecisionAllow, decision.Kind)
 	})
 
-	t.Run("MissingCalendarSkipsWithError", func(t *testing.T) {
+	t.Run("MissingCalendarErrors", func(t *testing.T) {
 		t.Parallel()
 		service := NewService(store, func() bool { return true })
-		outcome := service.Decide(&core.CalendarConfig{Name: "missing"}, businessDay)
-		assert.True(t, outcome.Skip)
-		assert.ErrorIs(t, outcome.Err, ErrNotFound)
+		decision := service.Decide(&core.CalendarConfig{Name: "missing"}, businessDay)
+		assert.Equal(t, DecisionError, decision.Kind)
+		assert.ErrorIs(t, decision.Err, ErrNotFound)
 	})
 }

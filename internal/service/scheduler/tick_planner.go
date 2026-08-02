@@ -66,7 +66,7 @@ type IsSuspendedFunc func(ctx context.Context, dagName string) bool
 
 // CalendarDecideFunc evaluates a DAG's business calendar config for a
 // scheduled time.
-type CalendarDecideFunc func(cfg *core.CalendarConfig, t time.Time) buscal.Outcome
+type CalendarDecideFunc func(cfg *core.CalendarConfig, t time.Time) buscal.Decision
 
 // StopFunc stops a running DAG.
 type StopFunc func(ctx context.Context, dag *core.DAG) error
@@ -1476,7 +1476,7 @@ func (tp *TickPlanner) DispatchRun(ctx context.Context, run PlannedRun) {
 	}
 
 	switch tp.decideCalendarDispatch(ctx, run) {
-	case calendarDecisionSkip:
+	case buscal.DecisionSkip:
 		// A deliberate skip consumes the schedule slot: catchup watermarks
 		// advance and one-off schedules resolve, so the slot is not
 		// re-planned on the next tick.
@@ -1490,7 +1490,7 @@ func (tp *TickPlanner) DispatchRun(ctx context.Context, run PlannedRun) {
 			}
 		}
 		return
-	case calendarDecisionError:
+	case buscal.DecisionError:
 		// An evaluation failure must not consume a durable slot: catchup
 		// items are re-inserted like a failed dispatch and one-off schedules
 		// stay pending, so those replay once the calendar loads again. Live
@@ -1500,7 +1500,7 @@ func (tp *TickPlanner) DispatchRun(ctx context.Context, run PlannedRun) {
 			tp.reinsertCatchupItem(ctx, run)
 		}
 		return
-	case calendarDecisionAllow:
+	default:
 	}
 
 	if run.ScheduleType == ScheduleTypeStart && run.Schedule.IsOneOff() {
@@ -1628,59 +1628,46 @@ func (tp *TickPlanner) DispatchRun(ctx context.Context, run PlannedRun) {
 	}
 }
 
-// calendarDecision is the dispatch outcome of a business calendar check.
-type calendarDecision int
-
-const (
-	// calendarDecisionAllow dispatches the run normally.
-	calendarDecisionAllow calendarDecision = iota
-	// calendarDecisionSkip drops the run for this schedule slot.
-	calendarDecisionSkip
-	// calendarDecisionError blocks dispatch without consuming the slot: the
-	// calendar could not be evaluated, and firing a run on what may be a
-	// non-business day is worse for calendar users than deferring it.
-	calendarDecisionError
-)
-
 // decideCalendarDispatch evaluates the DAG's business calendar for a
 // scheduler-managed start or restart run. Restart schedules follow the
 // calendar because a restart of a stopped DAG launches a fresh run, which
 // must not fire on a non-runnable date. Stop schedules always dispatch, and
 // so do runs without a calendar config or runs the calendar feature does not
-// apply to. Evaluation errors are surfaced in the scheduler log.
-func (tp *TickPlanner) decideCalendarDispatch(ctx context.Context, run PlannedRun) calendarDecision {
+// apply to. An unlicensed decision is logged and dispatches as allowed;
+// evaluation errors are surfaced in the scheduler log.
+func (tp *TickPlanner) decideCalendarDispatch(ctx context.Context, run PlannedRun) buscal.DecisionKind {
 	if (run.ScheduleType != ScheduleTypeStart && run.ScheduleType != ScheduleTypeRestart) ||
 		!isSchedulerManagedTriggerType(run.TriggerType) ||
 		run.DAG.Calendar == nil || tp.cfg.DecideCalendar == nil {
-		return calendarDecisionAllow
+		return buscal.DecisionAllow
 	}
 
-	outcome := tp.cfg.DecideCalendar(run.DAG.Calendar, run.ScheduledTime)
-	switch {
-	case outcome.Unlicensed:
+	decision := tp.cfg.DecideCalendar(run.DAG.Calendar, run.ScheduledTime)
+	switch decision.Kind {
+	case buscal.DecisionUnlicensed:
 		logger.Warn(ctx, "Business calendars require an active license; ignoring calendar config",
 			tag.DAG(run.DAG.Name),
 			slog.String("calendar", run.DAG.Calendar.Name),
 		)
-		return calendarDecisionAllow
-	case outcome.Err != nil:
+		return buscal.DecisionAllow
+	case buscal.DecisionError:
 		logger.Error(ctx, "Business calendar evaluation failed; deferring run dispatch",
 			tag.DAG(run.DAG.Name),
 			slog.String("calendar", run.DAG.Calendar.Name),
 			slog.String("scheduledTime", run.ScheduledTime.Format(time.RFC3339)),
-			tag.Error(outcome.Err),
+			tag.Error(decision.Err),
 		)
-		return calendarDecisionError
-	case outcome.Skip:
+		return buscal.DecisionError
+	case buscal.DecisionSkip:
 		logger.Info(ctx, "Skipping run dispatch on business calendar",
 			tag.DAG(run.DAG.Name),
 			slog.String("calendar", run.DAG.Calendar.Name),
 			slog.String("scheduledTime", run.ScheduledTime.Format(time.RFC3339)),
-			slog.String("reason", outcome.Reason),
+			slog.String("reason", decision.Reason),
 		)
-		return calendarDecisionSkip
+		return buscal.DecisionSkip
 	default:
-		return calendarDecisionAllow
+		return buscal.DecisionAllow
 	}
 }
 

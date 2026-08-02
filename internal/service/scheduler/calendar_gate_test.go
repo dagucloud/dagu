@@ -6,6 +6,8 @@ package scheduler
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -54,8 +56,8 @@ func TestTickPlanner_DispatchRun_CalendarGate(t *testing.T) {
 	t.Run("SkipBlocksDispatch", func(t *testing.T) {
 		t.Parallel()
 		dispatched := 0
-		tp := newPlanner(t, func(*core.CalendarConfig, time.Time) buscal.Outcome {
-			return buscal.Outcome{Skip: true, Reason: "holiday"}
+		tp := newPlanner(t, func(*core.CalendarConfig, time.Time) buscal.Decision {
+			return buscal.Decision{Kind: buscal.DecisionSkip, Reason: "holiday"}
 		}, &dispatched)
 
 		tp.DispatchRun(context.Background(), plannedRun(calendarDAG(), core.TriggerTypeScheduler))
@@ -65,8 +67,8 @@ func TestTickPlanner_DispatchRun_CalendarGate(t *testing.T) {
 	t.Run("NoSkipDispatches", func(t *testing.T) {
 		t.Parallel()
 		dispatched := 0
-		tp := newPlanner(t, func(*core.CalendarConfig, time.Time) buscal.Outcome {
-			return buscal.Outcome{}
+		tp := newPlanner(t, func(*core.CalendarConfig, time.Time) buscal.Decision {
+			return buscal.Decision{}
 		}, &dispatched)
 
 		tp.DispatchRun(context.Background(), plannedRun(calendarDAG(), core.TriggerTypeScheduler))
@@ -76,8 +78,8 @@ func TestTickPlanner_DispatchRun_CalendarGate(t *testing.T) {
 	t.Run("UnlicensedIgnoresCalendar", func(t *testing.T) {
 		t.Parallel()
 		dispatched := 0
-		tp := newPlanner(t, func(*core.CalendarConfig, time.Time) buscal.Outcome {
-			return buscal.Outcome{Unlicensed: true}
+		tp := newPlanner(t, func(*core.CalendarConfig, time.Time) buscal.Decision {
+			return buscal.Decision{Kind: buscal.DecisionUnlicensed}
 		}, &dispatched)
 
 		tp.DispatchRun(context.Background(), plannedRun(calendarDAG(), core.TriggerTypeScheduler))
@@ -87,8 +89,8 @@ func TestTickPlanner_DispatchRun_CalendarGate(t *testing.T) {
 	t.Run("EvaluationErrorBlocksDispatch", func(t *testing.T) {
 		t.Parallel()
 		dispatched := 0
-		tp := newPlanner(t, func(*core.CalendarConfig, time.Time) buscal.Outcome {
-			return buscal.Outcome{Skip: true, Err: errors.New("calendar not found")}
+		tp := newPlanner(t, func(*core.CalendarConfig, time.Time) buscal.Decision {
+			return buscal.Decision{Kind: buscal.DecisionError, Err: errors.New("calendar not found")}
 		}, &dispatched)
 
 		tp.DispatchRun(context.Background(), plannedRun(calendarDAG(), core.TriggerTypeScheduler))
@@ -98,8 +100,8 @@ func TestTickPlanner_DispatchRun_CalendarGate(t *testing.T) {
 	t.Run("ManualTriggerBypassesCalendar", func(t *testing.T) {
 		t.Parallel()
 		dispatched := 0
-		tp := newPlanner(t, func(*core.CalendarConfig, time.Time) buscal.Outcome {
-			return buscal.Outcome{Skip: true, Reason: "holiday"}
+		tp := newPlanner(t, func(*core.CalendarConfig, time.Time) buscal.Decision {
+			return buscal.Decision{Kind: buscal.DecisionSkip, Reason: "holiday"}
 		}, &dispatched)
 
 		tp.DispatchRun(context.Background(), plannedRun(calendarDAG(), core.TriggerTypeManual))
@@ -109,9 +111,9 @@ func TestTickPlanner_DispatchRun_CalendarGate(t *testing.T) {
 	t.Run("NoCalendarConfigDispatches", func(t *testing.T) {
 		t.Parallel()
 		dispatched := 0
-		tp := newPlanner(t, func(*core.CalendarConfig, time.Time) buscal.Outcome {
+		tp := newPlanner(t, func(*core.CalendarConfig, time.Time) buscal.Decision {
 			t.Error("decide must not be called without a calendar config")
-			return buscal.Outcome{}
+			return buscal.Decision{}
 		}, &dispatched)
 
 		dag := &core.DAG{Name: "plain-dag"}
@@ -122,8 +124,8 @@ func TestTickPlanner_DispatchRun_CalendarGate(t *testing.T) {
 	t.Run("CatchupSkipAdvancesWatermark", func(t *testing.T) {
 		t.Parallel()
 		dispatched := 0
-		tp := newPlanner(t, func(*core.CalendarConfig, time.Time) buscal.Outcome {
-			return buscal.Outcome{Skip: true, Reason: "holiday"}
+		tp := newPlanner(t, func(*core.CalendarConfig, time.Time) buscal.Decision {
+			return buscal.Decision{Kind: buscal.DecisionSkip, Reason: "holiday"}
 		}, &dispatched)
 
 		tp.DispatchRun(context.Background(), plannedRun(calendarDAG(), core.TriggerTypeCatchUp))
@@ -137,8 +139,8 @@ func TestTickPlanner_DispatchRun_CalendarGate(t *testing.T) {
 	t.Run("CatchupErrorReinsertsWithoutAdvancingWatermark", func(t *testing.T) {
 		t.Parallel()
 		dispatched := 0
-		tp := newPlanner(t, func(*core.CalendarConfig, time.Time) buscal.Outcome {
-			return buscal.Outcome{Skip: true, Err: errors.New("calendar unreadable")}
+		tp := newPlanner(t, func(*core.CalendarConfig, time.Time) buscal.Decision {
+			return buscal.Decision{Kind: buscal.DecisionError, Err: errors.New("calendar unreadable")}
 		}, &dispatched)
 
 		tp.DispatchRun(context.Background(), plannedRun(calendarDAG(), core.TriggerTypeCatchUp))
@@ -160,8 +162,8 @@ func TestTickPlanner_DispatchRun_CalendarGate(t *testing.T) {
 	t.Run("RetryTriggerGated", func(t *testing.T) {
 		t.Parallel()
 		dispatched := 0
-		tp := newPlanner(t, func(*core.CalendarConfig, time.Time) buscal.Outcome {
-			return buscal.Outcome{Skip: true, Reason: "holiday"}
+		tp := newPlanner(t, func(*core.CalendarConfig, time.Time) buscal.Decision {
+			return buscal.Decision{Kind: buscal.DecisionSkip, Reason: "holiday"}
 		}, &dispatched)
 
 		// Scheduler-managed retries follow the calendar, matching suspension
@@ -176,8 +178,8 @@ func TestTickPlanner_DispatchRun_CalendarGate(t *testing.T) {
 		dispatched := 0
 		tp := NewTickPlanner(TickPlannerConfig{
 			WatermarkStore: store,
-			DecideCalendar: func(*core.CalendarConfig, time.Time) buscal.Outcome {
-				return buscal.Outcome{Skip: true, Reason: "holiday"}
+			DecideCalendar: func(*core.CalendarConfig, time.Time) buscal.Decision {
+				return buscal.Decision{Kind: buscal.DecisionSkip, Reason: "holiday"}
 			},
 			Dispatch: func(context.Context, *core.DAG, string, core.TriggerType, time.Time) error {
 				dispatched++
@@ -220,8 +222,8 @@ func TestTickPlanner_DispatchRun_CalendarGate(t *testing.T) {
 		t.Parallel()
 		stopped := 0
 		tp := NewTickPlanner(TickPlannerConfig{
-			DecideCalendar: func(*core.CalendarConfig, time.Time) buscal.Outcome {
-				return buscal.Outcome{Skip: true, Reason: "holiday"}
+			DecideCalendar: func(*core.CalendarConfig, time.Time) buscal.Decision {
+				return buscal.Decision{Kind: buscal.DecisionSkip, Reason: "holiday"}
 			},
 			Stop:   func(context.Context, *core.DAG) error { stopped++; return nil },
 			Events: make(chan DAGChangeEvent, 1),
@@ -240,10 +242,10 @@ func TestTickPlanner_DispatchRun_CalendarGate(t *testing.T) {
 	t.Run("RestartScheduleGated", func(t *testing.T) {
 		t.Parallel()
 		restarted := 0
-		skip := true
+		kind := buscal.DecisionSkip
 		tp := NewTickPlanner(TickPlannerConfig{
-			DecideCalendar: func(*core.CalendarConfig, time.Time) buscal.Outcome {
-				return buscal.Outcome{Skip: skip, Reason: "holiday"}
+			DecideCalendar: func(*core.CalendarConfig, time.Time) buscal.Decision {
+				return buscal.Decision{Kind: kind, Reason: "holiday"}
 			},
 			Restart: func(context.Context, *core.DAG, time.Time) error { restarted++; return nil },
 			Events:  make(chan DAGChangeEvent, 1),
@@ -261,8 +263,55 @@ func TestTickPlanner_DispatchRun_CalendarGate(t *testing.T) {
 		tp.DispatchRun(context.Background(), restartRun)
 		assert.Zero(t, restarted)
 
-		skip = false
+		kind = buscal.DecisionAllow
 		tp.DispatchRun(context.Background(), restartRun)
 		assert.Equal(t, 1, restarted)
 	})
+}
+
+// TestTickPlanner_CalendarGate_RealStore exercises the production composition
+// (buscal.Store → buscal.Service → planner gate) against a real calendar file
+// instead of a fake decide func.
+func TestTickPlanner_CalendarGate_RealStore(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "jp-banking.yaml"),
+		[]byte("holidays: [2026-01-01]"),
+		0o600,
+	))
+	service := buscal.NewService(buscal.NewStore(dir), func() bool { return true })
+
+	dispatched := 0
+	tp := NewTickPlanner(TickPlannerConfig{
+		DecideCalendar: service.Decide,
+		Dispatch: func(context.Context, *core.DAG, string, core.TriggerType, time.Time) error {
+			dispatched++
+			return nil
+		},
+		Events: make(chan DAGChangeEvent, 1),
+	})
+	require.NoError(t, tp.Init(context.Background(), nil))
+
+	dag := &core.DAG{
+		Name:     "real-cal-dag",
+		Calendar: &core.CalendarConfig{Name: "jp-banking"},
+	}
+	run := func(scheduled time.Time, runID string) PlannedRun {
+		return PlannedRun{
+			DAG:           dag,
+			ScheduleType:  ScheduleTypeStart,
+			ScheduledTime: scheduled,
+			TriggerType:   core.TriggerTypeScheduler,
+			RunID:         runID,
+		}
+	}
+
+	// The calendar file declares no timezone, so dates evaluate in time.Local.
+	tp.DispatchRun(context.Background(), run(time.Date(2026, 1, 1, 1, 0, 0, 0, time.Local), "r1"))
+	assert.Zero(t, dispatched, "holiday must skip")
+
+	tp.DispatchRun(context.Background(), run(time.Date(2026, 1, 5, 1, 0, 0, 0, time.Local), "r2"))
+	assert.Equal(t, 1, dispatched, "business day must dispatch")
 }

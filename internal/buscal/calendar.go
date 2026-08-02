@@ -158,12 +158,35 @@ func (c *Calendar) FirstBusinessDayOfMonth(t time.Time) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-// Decision is the outcome of evaluating a scheduled time against a calendar.
+// DecisionKind classifies the dispatch outcome of a calendar evaluation.
+type DecisionKind int
+
+const (
+	// DecisionAllow dispatches the run normally.
+	DecisionAllow DecisionKind = iota
+	// DecisionSkip drops the run for this schedule slot.
+	DecisionSkip
+	// DecisionUnlicensed means the calendar config was ignored because the
+	// feature requires an active license; the run dispatches normally.
+	DecisionUnlicensed
+	// DecisionError means the calendar could not be evaluated; the run must
+	// not dispatch, because firing on what may be a non-business day is worse
+	// for calendar users than deferring.
+	DecisionError
+)
+
+// Decision is the outcome of evaluating a scheduled time against a DAG's
+// calendar config. The zero value allows dispatch.
 type Decision struct {
-	// Skip reports whether the scheduled run must not dispatch.
-	Skip bool
-	// Reason is a human-readable explanation when Skip is true.
+	Kind DecisionKind
+	// Reason is a human-readable explanation for DecisionSkip.
 	Reason string
+	// Err is the evaluation failure for DecisionError.
+	Err error
+}
+
+func skipDecision(format string, args ...any) Decision {
+	return Decision{Kind: DecisionSkip, Reason: fmt.Sprintf(format, args...)}
 }
 
 // Evaluate decides whether a run scheduled at t should dispatch under the
@@ -174,27 +197,27 @@ func (c *Calendar) Evaluate(t time.Time, filter core.CalendarDayFilter) Decision
 	switch filter {
 	case core.CalendarDayFilterBusinessDays:
 		if !c.IsBusinessDay(t) {
-			return Decision{Skip: true, Reason: fmt.Sprintf("%s is not a business day in calendar %q", date, c.Name)}
+			return skipDecision("%s is not a business day in calendar %q", date, c.Name)
 		}
 	case core.CalendarDayFilterLastBusinessDay:
 		last, ok := c.LastBusinessDayOfMonth(t)
 		if !ok || !c.sameDate(t, last) {
-			return Decision{Skip: true, Reason: fmt.Sprintf("%s is not the last business day of the month in calendar %q", date, c.Name)}
+			return skipDecision("%s is not the last business day of the month in calendar %q", date, c.Name)
 		}
 	case core.CalendarDayFilterFirstBusinessDay:
 		first, ok := c.FirstBusinessDayOfMonth(t)
 		if !ok || !c.sameDate(t, first) {
-			return Decision{Skip: true, Reason: fmt.Sprintf("%s is not the first business day of the month in calendar %q", date, c.Name)}
+			return skipDecision("%s is not the first business day of the month in calendar %q", date, c.Name)
 		}
 	case core.CalendarDayFilterNone:
 		if c.IsHoliday(t) {
-			return Decision{Skip: true, Reason: fmt.Sprintf("%s is a holiday in calendar %q", date, c.Name)}
+			return skipDecision("%s is a holiday in calendar %q", date, c.Name)
 		}
 	default:
 		// Fail closed: an unrecognized filter (a newer config read by an
 		// older binary, or an unvalidated embed-API config) must not
 		// dispatch as if no filter were set.
-		return Decision{Skip: true, Reason: fmt.Sprintf("unknown day filter %q in calendar %q", string(filter), c.Name)}
+		return skipDecision("unknown day filter %q in calendar %q", string(filter), c.Name)
 	}
 	return Decision{}
 }

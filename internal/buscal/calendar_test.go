@@ -120,43 +120,47 @@ func TestEvaluate(t *testing.T) {
 	calendar := mustParse(t, "jp-banking", testDefinition)
 	tokyo := calendar.Location
 
+	kindAt := func(value string, filter core.CalendarDayFilter) DecisionKind {
+		return calendar.Evaluate(date(t, value, tokyo), filter).Kind
+	}
+
 	t.Run("NoFilterSkipsHolidayOnly", func(t *testing.T) {
 		t.Parallel()
-		assert.True(t, calendar.Evaluate(date(t, "2026-01-01 01:00", tokyo), core.CalendarDayFilterNone).Skip)
+		assert.Equal(t, DecisionSkip, kindAt("2026-01-01 01:00", core.CalendarDayFilterNone))
 		// Weekends pass without a filter: weekday selection belongs to cron.
-		assert.False(t, calendar.Evaluate(date(t, "2026-01-03 01:00", tokyo), core.CalendarDayFilterNone).Skip)
-		assert.False(t, calendar.Evaluate(date(t, "2026-01-05 01:00", tokyo), core.CalendarDayFilterNone).Skip)
+		assert.Equal(t, DecisionAllow, kindAt("2026-01-03 01:00", core.CalendarDayFilterNone))
+		assert.Equal(t, DecisionAllow, kindAt("2026-01-05 01:00", core.CalendarDayFilterNone))
 	})
 
 	t.Run("BusinessDays", func(t *testing.T) {
 		t.Parallel()
-		assert.True(t, calendar.Evaluate(date(t, "2026-01-01 01:00", tokyo), core.CalendarDayFilterBusinessDays).Skip)
-		assert.True(t, calendar.Evaluate(date(t, "2026-01-03 01:00", tokyo), core.CalendarDayFilterBusinessDays).Skip)
-		assert.False(t, calendar.Evaluate(date(t, "2026-01-05 01:00", tokyo), core.CalendarDayFilterBusinessDays).Skip)
+		assert.Equal(t, DecisionSkip, kindAt("2026-01-01 01:00", core.CalendarDayFilterBusinessDays))
+		assert.Equal(t, DecisionSkip, kindAt("2026-01-03 01:00", core.CalendarDayFilterBusinessDays))
+		assert.Equal(t, DecisionAllow, kindAt("2026-01-05 01:00", core.CalendarDayFilterBusinessDays))
 	})
 
 	t.Run("LastBusinessDay", func(t *testing.T) {
 		t.Parallel()
 		// 2026-12-31 is a holiday and 2026-12-27 is a Sunday, so the last
 		// business day of December 2026 is Wednesday 2026-12-30.
-		assert.False(t, calendar.Evaluate(date(t, "2026-12-30 01:00", tokyo), core.CalendarDayFilterLastBusinessDay).Skip)
-		assert.True(t, calendar.Evaluate(date(t, "2026-12-31 01:00", tokyo), core.CalendarDayFilterLastBusinessDay).Skip)
-		assert.True(t, calendar.Evaluate(date(t, "2026-12-29 01:00", tokyo), core.CalendarDayFilterLastBusinessDay).Skip)
+		assert.Equal(t, DecisionAllow, kindAt("2026-12-30 01:00", core.CalendarDayFilterLastBusinessDay))
+		assert.Equal(t, DecisionSkip, kindAt("2026-12-31 01:00", core.CalendarDayFilterLastBusinessDay))
+		assert.Equal(t, DecisionSkip, kindAt("2026-12-29 01:00", core.CalendarDayFilterLastBusinessDay))
 	})
 
 	t.Run("FirstBusinessDay", func(t *testing.T) {
 		t.Parallel()
 		// 2026-01-01 and 01-02 are holidays, 01-03/01-04 are the weekend, so
 		// the first business day of January 2026 is Monday 2026-01-05.
-		assert.False(t, calendar.Evaluate(date(t, "2026-01-05 01:00", tokyo), core.CalendarDayFilterFirstBusinessDay).Skip)
-		assert.True(t, calendar.Evaluate(date(t, "2026-01-01 01:00", tokyo), core.CalendarDayFilterFirstBusinessDay).Skip)
-		assert.True(t, calendar.Evaluate(date(t, "2026-01-06 01:00", tokyo), core.CalendarDayFilterFirstBusinessDay).Skip)
+		assert.Equal(t, DecisionAllow, kindAt("2026-01-05 01:00", core.CalendarDayFilterFirstBusinessDay))
+		assert.Equal(t, DecisionSkip, kindAt("2026-01-01 01:00", core.CalendarDayFilterFirstBusinessDay))
+		assert.Equal(t, DecisionSkip, kindAt("2026-01-06 01:00", core.CalendarDayFilterFirstBusinessDay))
 	})
 
 	t.Run("UnknownFilterFailsClosed", func(t *testing.T) {
 		t.Parallel()
 		decision := calendar.Evaluate(date(t, "2026-01-05 01:00", tokyo), core.CalendarDayFilter("bogus"))
-		assert.True(t, decision.Skip)
+		assert.Equal(t, DecisionSkip, decision.Kind)
 		assert.Contains(t, decision.Reason, "unknown day filter")
 	})
 }

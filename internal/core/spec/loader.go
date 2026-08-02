@@ -1020,53 +1020,27 @@ type mergeTransformer struct{}
 
 var _ mergo.Transformers = (*mergeTransformer)(nil)
 
+// wholesaleReplaceTypes lists the single-object root configs whose base-config
+// inheritance replaces the object entirely instead of field-merging.
+var wholesaleReplaceTypes = map[reflect.Type]bool{
+	reflect.TypeFor[core.MailOn]():         true,
+	reflect.TypeFor[core.DAGRetryPolicy](): true,
+	reflect.TypeFor[core.CalendarConfig](): true,
+	reflect.TypeFor[core.WebhookConfig]():  true,
+}
+
 // Transformer customizes merge behavior for fields that need non-default semantics.
 func (*mergeTransformer) Transformer(
 	typ reflect.Type,
 ) func(dst, src reflect.Value) error {
-	// mergo does not override a value with zero value for a pointer.
-	if typ == reflect.TypeFor[core.MailOn]() {
-		// We need to explicitly override the value for a pointer with a zero
-		// value.
-		return func(dst, src reflect.Value) error {
-			if dst.CanSet() {
-				dst.Set(src)
-			}
-
-			return nil
-		}
-	}
-
-	if typ == reflect.TypeFor[core.DAGRetryPolicy]() {
-		// DAG retry policies are configured as a single root object. Replace the
-		// inherited policy wholesale so limit: 0 can intentionally disable retries.
-		return func(dst, src reflect.Value) error {
-			if dst.CanSet() {
-				dst.Set(src)
-			}
-
-			return nil
-		}
-	}
-
-	if typ == reflect.TypeFor[core.CalendarConfig]() {
-		// The calendar config is a single root object. Replace the inherited
-		// object wholesale so a child DAG's calendar fully overrides the base
-		// one instead of field-merging with it (a child without a days filter
-		// must not inherit the base calendar's filter).
-		return func(dst, src reflect.Value) error {
-			if dst.CanSet() {
-				dst.Set(src)
-			}
-
-			return nil
-		}
-	}
-
-	if typ == reflect.TypeFor[core.WebhookConfig]() {
-		// Webhook forwarding config is a single DAG-level object. Replace the
-		// inherited object wholesale so child DAGs can override or clear the
-		// header allowlist deterministically.
+	// Single-object root configs replace the inherited base-config object
+	// wholesale. Default mergo behavior field-merges nested structs and never
+	// overrides with zero values, which would leak base sub-fields into a
+	// child's override (e.g. a base calendar's days filter merging into a
+	// child's calendar) and make explicit zero values unable to disable
+	// inherited settings (e.g. retry_policy limit: 0). Every new
+	// single-object root config on core.DAG must be listed here.
+	if wholesaleReplaceTypes[typ] {
 		return func(dst, src reflect.Value) error {
 			if dst.CanSet() {
 				dst.Set(src)
