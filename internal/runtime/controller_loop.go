@@ -6,7 +6,6 @@ package runtime
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
@@ -21,7 +20,6 @@ import (
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
-	llmpkg "github.com/dagucloud/dagu/v2/internal/llm"
 	"github.com/dagucloud/dagu/v2/internal/runtime/controller"
 )
 
@@ -68,17 +66,9 @@ func (r *Runner) runControllerLoop(ctx context.Context, plan *Plan, progressCh c
 	}
 	ctrlNode.SetToolDefinitions(catalog.Definitions())
 
-	// Resolve the model the same way a chat step does, so array-form llm.model
-	// and value references work here too. A controller uses one model; the
-	// fallback list a chat step walks does not apply to a decision loop.
+	// Resolve the models the same way a chat step does, so array-form llm.model
+	// and value references work here too.
 	models, err := ResolveModels(ctrlCtx, dag.LLM.GetModels())
-	if err != nil {
-		r.failController(ctrlCtx, plan, ctrlNode, err, progressCh)
-		return
-	}
-	llmCfg := EffectiveLLMConfig(dag.LLM, models[0])
-
-	provider, err := NewLLMProvider(ctrlCtx, llmCfg)
 	if err != nil {
 		r.failController(ctrlCtx, plan, ctrlNode, err, progressCh)
 		return
@@ -86,7 +76,7 @@ func (r *Runner) runControllerLoop(ctx context.Context, plan *Plan, progressCh c
 	// The system prompt and the task descriptions are author-written prompt
 	// text, so they take variables the same way any other workflow field does.
 	system, err := resolveRuntimeString(
-		ctrlCtx, llmCfg.System, cmnvalue.WorkflowField("llm.system"))
+		ctrlCtx, dag.LLM.System, cmnvalue.WorkflowField("llm.system"))
 	if err != nil {
 		r.failController(ctrlCtx, plan, ctrlNode, fmt.Errorf(
 			"failed to evaluate llm.system: %w", err), progressCh)
@@ -96,9 +86,11 @@ func (r *Runner) runControllerLoop(ctx context.Context, plan *Plan, progressCh c
 		r.failController(ctrlCtx, plan, ctrlNode, err, progressCh)
 		return
 	}
-	planner := controller.NewPlanner(provider, llmCfg, catalog, system, func(msgs []exec.LLMMessage) []exec.LLMMessage {
-		return MaskSecretsForProvider(ctrlCtx, msgs)
-	})
+	planner := newControllerModelPlanner(
+		ctrlCtx, dag.LLM, models, catalog, system,
+		func(msgs []exec.LLMMessage) []exec.LLMMessage {
+			return MaskSecretsForProvider(ctrlCtx, msgs)
+		})
 
 	// A run that suspended mid-action resumes here: report what became of the
 	// action before asking for the next decision.
@@ -158,19 +150,8 @@ func (r *Runner) runControllerLoop(ctx context.Context, plan *Plan, progressCh c
 				observationKeepRecent, dag.ControllerObservationMaxBytes())
 		}
 
-		decision, err := planner.Next(ctrlCtx, state)
-		if errors.Is(err, llmpkg.ErrContextTooLong) && observationKeepRecent > 0 {
-			compacted := state.CompactAllObservations(dag.ControllerObservationMaxBytes())
-			if compacted > 0 {
-				state.EnableObservationAging()
-				logger.Warn(ctrlCtx, "Controller context overflowed; retrying with aged observations",
-					slog.Int("compactedObservations", compacted))
-				decision, err = planner.Next(ctrlCtx, state)
-				if err != nil {
-					err = fmt.Errorf("controller decision failed after aging observations: %w", err)
-				}
-			}
-		}
+		decision, err := planner.Next(
+			ctrlCtx, state, observationKeepRecent, dag.ControllerObservationMaxBytes())
 		if err != nil {
 			r.failController(ctrlCtx, plan, ctrlNode, err, progressCh)
 			if state.ObservationAging {

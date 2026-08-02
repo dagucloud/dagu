@@ -19,7 +19,7 @@ This spec defines:
 
 This spec does not define:
 
-- provider selection, model behavior, or prompt engineering beyond the framing
+- provider-specific model behavior or prompt engineering beyond the framing
   the controller supplies
 - `action: human.task` semantics, which are defined in `031-human-task.md`
 - REST, Web UI, MCP, notification, authentication, or authorization behavior
@@ -81,6 +81,11 @@ when `type` is `controller`, and `type: controller` requires it.
 
 `llm` MUST be present. Its `system` value, when set, is prepended to the
 controller's own framing rather than replacing it.
+
+`llm.model` MAY be an ordered array of model entries. The first entry is the
+primary model and each later entry is a fallback. Provider, model name, base
+URL, API-key name, and sampling overrides are taken from the selected entry in
+the same way as for a chat step.
 
 `llm.system` and every task `description` are author-written prompt text and
 MUST be resolved against the run's variables before the controller sees them, so
@@ -203,6 +208,24 @@ Each turn:
 The loop ends when no task is open, when an action opens a human task, or when a
 limit is reached.
 
+### Model fallback
+
+When `llm.model` is an array, every decision starts with the currently selected
+model. If its request still fails after the provider and logical retry budgets
+are exhausted, the controller advances through the remaining entries in order.
+A fallback that succeeds remains selected for later turns in the same controller
+process, so a sustained primary outage is not retried on every decision. A new
+process after suspension starts from the configured primary again.
+
+A failed model request MUST NOT consume a controller turn or append an assistant
+message. The next model receives the existing conversation unchanged, including
+assistant tool calls and tool results produced through earlier models. Every
+successful assistant message records the provider and model that produced it.
+
+Context-length recovery runs against the current model before advancing to a
+fallback. If all configured models fail, the run fails with an error identifying
+the exhausted models and preserving their underlying errors.
+
 ### Observation aging and context recovery
 
 Every successful decision records the provider-reported prompt token count. If
@@ -222,9 +245,11 @@ result whose deterministic summary is smaller, including results normally
 protected by `llm.observation_keep_recent`. It retries the decision once only
 when that compaction changed the transcript. The rejected request does not
 consume a controller turn or add an assistant message. If nothing can be made
-smaller, or if the rebuilt request also fails, the run fails with that error. No
-further overflow retries are made. When aging is disabled, a context-too-long
-response fails the run without a recovery retry.
+smaller, or if the rebuilt request also fails, that model attempt fails and
+ordinary model fallback applies. No further overflow retries are made for that
+decision. When aging is disabled, a context-too-long response advances to the
+next configured model without a recovery retry, or fails the run when no
+fallback remains.
 
 ### Task status
 

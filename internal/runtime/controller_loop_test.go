@@ -48,6 +48,8 @@ type fakeModel struct {
 	calls                  int
 	requests               int
 	contextFailureRequests map[int]bool
+	failureStatus          int
+	failureFromRequest     int
 	promptTokens           int
 	system                 string
 	toolResults            []string
@@ -130,27 +132,45 @@ func (m *fakeModel) failContextOnRequests(requests ...int) {
 	}
 }
 
+func (m *fakeModel) failWithStatusFromRequest(status, request int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.failureStatus = status
+	m.failureFromRequest = request
+}
+
 func (m *fakeModel) setPromptTokens(tokens int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.promptTokens = tokens
 }
 
-func (m *fakeModel) beginRequest() (failContext bool, promptTokens int) {
+func (m *fakeModel) beginRequest() (failureStatus int, failContext bool, promptTokens int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.requests++
+	if m.failureFromRequest > 0 && m.requests >= m.failureFromRequest {
+		failureStatus = m.failureStatus
+	}
 	failContext = m.contextFailureRequests[m.requests]
 	promptTokens = m.promptTokens
 	if promptTokens == 0 {
 		promptTokens = 1
 	}
-	return failContext, promptTokens
+	return failureStatus, failContext, promptTokens
 }
 
 func (m *fakeModel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	m.captureSystem(r)
-	failContext, promptTokens := m.beginRequest()
+	failureStatus, failContext, promptTokens := m.beginRequest()
+	if failureStatus != 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(failureStatus)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error": map[string]any{"message": "injected model failure"},
+		})
+		return
+	}
 	if failContext {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
@@ -208,11 +228,27 @@ func setupController(t *testing.T, yamlTemplate string, turns ...turn) *controll
 	t.Helper()
 
 	model := &fakeModel{turns: turns}
-	server := httptest.NewServer(model)
-	t.Cleanup(server.Close)
+	return setupControllerModels(t, yamlTemplate, model)
+}
+
+func setupControllerModels(
+	t *testing.T,
+	yamlTemplate string,
+	primary *fakeModel,
+	fallbacks ...*fakeModel,
+) *controllerHelper {
+	t.Helper()
+
+	models := append([]*fakeModel{primary}, fallbacks...)
+	formatArgs := make([]any, 0, len(models))
+	for _, model := range models {
+		server := httptest.NewServer(model)
+		t.Cleanup(server.Close)
+		formatArgs = append(formatArgs, server.URL)
+	}
 
 	th := test.Setup(t)
-	dag, err := spec.LoadYAML(th.Context, fmt.Appendf(nil, yamlTemplate, server.URL))
+	dag, err := spec.LoadYAML(th.Context, fmt.Appendf(nil, yamlTemplate, formatArgs...))
 	require.NoError(t, err)
 
 	plan, err := runtime.NewPlan(dag.Steps...)
@@ -229,7 +265,7 @@ func setupController(t *testing.T, yamlTemplate string, turns ...turn) *controll
 		cfg:    cfg,
 		dag:    dag,
 		plan:   plan,
-		model:  model,
+		model:  primary,
 	}
 }
 
@@ -1106,4 +1142,121 @@ func TestControllerLoop_UsesArrayFormModel(t *testing.T) {
 
 	require.Equal(t, core.Succeeded, ch.run(t))
 	require.NoError(t, ch.runErr)
+}
+
+const controllerFallbackModelsDAG = `
+type: controller
+llm:
+  model:
+    - provider: local
+      name: primary-model
+      base_url: %s
+    - provider: local
+      name: fallback-model
+      base_url: %s
+  max_tool_iterations: 5
+steps:
+  - name: alpha
+    run: echo alpha
+  - name: beta
+    run: echo beta
+tasks:
+  - name: finished
+    description: Finished when alpha and beta ran.
+`
+
+const controllerThreeModelsDAG = `
+type: controller
+llm:
+  model:
+    - provider: local
+      name: primary-model
+      base_url: %s
+    - provider: local
+      name: fallback-one
+      base_url: %s
+    - provider: local
+      name: fallback-two
+      base_url: %s
+  max_tool_iterations: 5
+steps:
+  - name: alpha
+    run: echo alpha
+  - name: beta
+    run: echo beta
+tasks:
+  - name: finished
+    description: Finished when alpha and beta ran.
+`
+
+func TestControllerLoop_FallsBackMidConversation(t *testing.T) {
+	t.Parallel()
+
+	primary := &fakeModel{turns: []turn{{tool: "alpha"}}}
+	primary.failWithStatusFromRequest(http.StatusUnauthorized, 2)
+	fallback := &fakeModel{turns: []turn{
+		{tool: "beta"},
+		{tool: controller.SetTaskStatusTool, args: map[string]any{
+			"task": "finished", "status": "completed", "reason": "both ran"}},
+	}}
+	ch := setupControllerModels(t, controllerFallbackModelsDAG, primary, fallback)
+
+	require.Equal(t, core.Succeeded, ch.run(t))
+	require.NoError(t, ch.runErr)
+	assert.Equal(t, 2, primary.requestCount())
+	assert.Equal(t, 2, fallback.requestCount())
+
+	var models []string
+	for _, msg := range ch.node(t, core.ControllerStepName).GetChatMessages() {
+		if msg.Role == exec.RoleAssistant && msg.Metadata != nil {
+			models = append(models, msg.Metadata.Model)
+		}
+	}
+	assert.Equal(t, []string{"primary-model", "fallback-model", "fallback-model"}, models)
+	assert.Contains(t, strings.Join(fallback.observations(), "\n"), "alpha")
+}
+
+func TestControllerLoop_RecoversContextBeforeFallback(t *testing.T) {
+	t.Parallel()
+
+	primary := &fakeModel{turns: []turn{
+		{tool: "alpha"},
+		{tool: "beta"},
+		{tool: controller.SetTaskStatusTool, args: map[string]any{
+			"task": "finished", "status": "completed", "reason": "both ran"}},
+	}}
+	primary.failContextOnRequests(3)
+	fallback := &fakeModel{}
+	ch := setupControllerModels(t, controllerFallbackModelsDAG, primary, fallback)
+
+	require.Equal(t, core.Succeeded, ch.run(t))
+	require.NoError(t, ch.runErr)
+	assert.Equal(t, 4, primary.requestCount())
+	assert.Zero(t, fallback.requestCount())
+}
+
+func TestControllerLoop_FailsAfterAllModelsAreExhausted(t *testing.T) {
+	t.Parallel()
+
+	primary := &fakeModel{turns: []turn{{tool: "alpha"}}}
+	primary.failWithStatusFromRequest(http.StatusUnauthorized, 2)
+	fallbackOne := &fakeModel{turns: []turn{{tool: "beta"}}}
+	fallbackOne.failWithStatusFromRequest(http.StatusUnauthorized, 2)
+	fallbackTwo := &fakeModel{}
+	fallbackTwo.failWithStatusFromRequest(http.StatusUnauthorized, 1)
+	ch := setupControllerModels(
+		t, controllerThreeModelsDAG, primary, fallbackOne, fallbackTwo)
+
+	require.Equal(t, core.Failed, ch.run(t))
+	require.Error(t, ch.runErr)
+	var apiErr *llm.APIError
+	require.ErrorAs(t, ch.runErr, &apiErr)
+	assert.Equal(t, http.StatusUnauthorized, apiErr.StatusCode)
+	assert.ErrorContains(t, ch.runErr, "all 3 controller models exhausted")
+	assert.ErrorContains(t, ch.runErr, "local/primary-model")
+	assert.ErrorContains(t, ch.runErr, "local/fallback-one")
+	assert.ErrorContains(t, ch.runErr, "local/fallback-two")
+	assert.Equal(t, 2, primary.requestCount())
+	assert.Equal(t, 2, fallbackOne.requestCount())
+	assert.Equal(t, 1, fallbackTwo.requestCount())
 }
