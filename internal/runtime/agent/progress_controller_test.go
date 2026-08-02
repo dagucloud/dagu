@@ -78,6 +78,74 @@ func TestControllerProgressDisplay_UpdateNode(t *testing.T) {
 	assert.Contains(t, out.String(), "task triage completed: all good")
 }
 
+// controllerStateNode wraps a controller state into the node update the
+// display receives.
+func controllerStateNode(t *testing.T, state controller.State) *exec.Node {
+	t.Helper()
+	raw, err := json.Marshal(state)
+	require.NoError(t, err)
+	return &exec.Node{
+		Step:            core.Step{Name: core.ControllerStepName},
+		Status:          core.NodeRunning,
+		ControllerState: raw,
+	}
+}
+
+func TestControllerProgressDisplay_HoldsBackUnsettledAction(t *testing.T) {
+	display, out := newTestControllerDisplay(&core.DAG{Name: "triage", Type: core.TypeController})
+
+	// A resumed run first reports the inherited timeline with the suspended
+	// action still waiting.
+	state := controller.State{
+		Events: []controller.Event{
+			{Turn: 1, Kind: controller.EventAction, Name: "disk", Status: "succeeded"},
+			{Turn: 2, Kind: controller.EventAction, Name: "review", Status: "waiting"},
+		},
+		Turns: 2,
+	}
+	display.UpdateNode(controllerStateNode(t, state))
+	assert.Contains(t, out.String(), "disk ✓")
+	assert.NotContains(t, out.String(), "review")
+	assert.Equal(t, 1, display.printedEvents)
+
+	// The action is then finalized in place: same timeline length, new status.
+	state.Events[1].Status = "succeeded"
+	display.UpdateNode(controllerStateNode(t, state))
+	assert.Contains(t, out.String(), "review ✓")
+	assert.Equal(t, 2, display.printedEvents)
+}
+
+func TestControllerProgressDisplay_PrintFinalFlushesUnsettledAction(t *testing.T) {
+	display, out := newTestControllerDisplay(&core.DAG{Name: "triage", Type: core.TypeController})
+
+	state := controller.State{
+		Events: []controller.Event{
+			{Turn: 1, Kind: controller.EventAction, Name: "review", Status: "waiting"},
+		},
+		Turns: 1,
+	}
+	display.UpdateNode(controllerStateNode(t, state))
+	assert.NotContains(t, out.String(), "review")
+
+	// Suspension ends the process with the action still waiting; the final
+	// flush shows it as it stands.
+	display.UpdateStatus(&exec.DAGRunStatus{Status: core.Waiting})
+	display.printFinal()
+	assert.Contains(t, out.String(), "review ⏸")
+	assert.Contains(t, out.String(), "⏸ ")
+}
+
+func TestActionSettled(t *testing.T) {
+	assert.False(t, actionSettled(""))
+	assert.False(t, actionSettled("running"))
+	assert.False(t, actionSettled("waiting"))
+	assert.False(t, actionSettled("retrying"))
+	assert.True(t, actionSettled("succeeded"))
+	assert.True(t, actionSettled("failed"))
+	assert.True(t, actionSettled("aborted"))
+	assert.True(t, actionSettled("rejected"))
+}
+
 func TestControllerProgressDisplay_UpdateNode_TracksRunningAction(t *testing.T) {
 	display, _ := newTestControllerDisplay(&core.DAG{Name: "triage", Type: core.TypeController})
 

@@ -27,6 +27,17 @@ func TestProgressWriter_PrintHeader(t *testing.T) {
 	assert.Equal(t, "▶ unknown (run-2)\n", buf.String())
 }
 
+func TestStatusIcon(t *testing.T) {
+	assert.Equal(t, "✓", statusIcon(core.Succeeded))
+	assert.Equal(t, "✓", statusIcon(core.PartiallySucceeded))
+	assert.Equal(t, "✗", statusIcon(core.Failed))
+	assert.Equal(t, "✗", statusIcon(core.Aborted))
+	assert.Equal(t, "⏸", statusIcon(core.Waiting))
+	assert.Equal(t, "●", statusIcon(core.Rejected))
+	assert.Equal(t, "●", statusIcon(core.Queued))
+	assert.Equal(t, "●", statusIcon(core.Running))
+}
+
 func TestProgressWriter_Gray(t *testing.T) {
 	writer := progressWriter{}
 	assert.Equal(t, "plain", writer.gray("plain"))

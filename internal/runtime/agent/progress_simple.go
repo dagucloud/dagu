@@ -146,13 +146,8 @@ func (p *SimpleProgressDisplay) printFinal() {
 		percent = (p.completed * 100) / p.total
 	}
 
-	icon := "✓"
-	if p.status == core.Failed || p.status == core.Aborted {
-		icon = "✗"
-	}
-
 	elapsed := stringutil.FormatDuration(time.Since(p.startTime))
 
 	// Clear line and print final status
-	fmt.Fprintf(p.out, "\r%s %d%% (%d/%d steps) %s   \n", icon, percent, p.completed, p.total, p.gray(elapsed))
+	fmt.Fprintf(p.out, "\r%s %d%% (%d/%d steps) %s   \n", statusIcon(p.status), percent, p.completed, p.total, p.gray(elapsed))
 }

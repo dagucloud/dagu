@@ -29,6 +29,22 @@ func newProgressWriter() progressWriter {
 	}
 }
 
+// statusIcon maps a run's final status to the mark shown on the closing line.
+// Success is explicit rather than the default, so a status outside the known
+// terminal set is never dressed up as one.
+func statusIcon(status core.Status) string {
+	switch status {
+	case core.Succeeded, core.PartiallySucceeded:
+		return "✓"
+	case core.Failed, core.Aborted:
+		return "✗"
+	case core.Waiting:
+		return "⏸"
+	default:
+		return "●"
+	}
+}
+
 // gray returns text in gray color when writing to a terminal.
 func (w *progressWriter) gray(s string) string {
 	if !w.tty {

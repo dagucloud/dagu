@@ -88,7 +88,7 @@ func (p *ControllerProgressDisplay) UpdateNode(node *exec.Node) {
 			return
 		}
 		p.state = state
-		p.flushEventsLocked()
+		p.flushEventsLocked(false)
 		return
 	}
 
@@ -149,13 +149,30 @@ func (p *ControllerProgressDisplay) run() {
 	}
 }
 
-// flushEventsLocked prints timeline entries that have not been shown yet. The
-// timeline is append-only within one run attempt, so entries are printed in
-// order exactly once.
-func (p *ControllerProgressDisplay) flushEventsLocked() {
+// flushEventsLocked prints timeline entries in order, each exactly once. An
+// action entry is held back until its status is settled: a resumed run
+// finalizes a suspended action in place, so printing it as waiting would
+// freeze a stale mark into the scrollback. The controller runs one action per
+// turn, so at most the newest entry is held back and every entry behind it has
+// settled. With final set, held-back entries print as they stand, because
+// nothing will settle them in this process.
+func (p *ControllerProgressDisplay) flushEventsLocked(final bool) {
 	for ; p.printedEvents < len(p.state.Events); p.printedEvents++ {
-		p.printLineLocked(p.formatEvent(p.state.Events[p.printedEvents]))
+		event := p.state.Events[p.printedEvents]
+		if !final && event.Kind == controller.EventAction && !actionSettled(event.Status) {
+			return
+		}
+		p.printLineLocked(p.formatEvent(event))
 	}
+}
+
+// actionSettled reports whether an action event carries its final outcome.
+func actionSettled(status string) bool {
+	switch status {
+	case "", core.NodeRunning.String(), core.NodeRetrying.String(), core.NodeWaiting.String():
+		return false
+	}
+	return true
 }
 
 // printLineLocked prints one permanent line, clearing the live line first so
@@ -232,19 +249,11 @@ func (p *ControllerProgressDisplay) printFinal() {
 	defer p.mu.Unlock()
 
 	// Show decisions that arrived after the last node update, such as the final
-	// task settlement.
-	p.flushEventsLocked()
+	// task settlement, and any action still unsettled at suspension.
+	p.flushEventsLocked(true)
 	if p.liveLineShown {
 		fmt.Fprint(p.out, "\r\033[K")
 		p.liveLineShown = false
-	}
-
-	icon := "✓"
-	switch p.status {
-	case core.Failed, core.Aborted:
-		icon = "✗"
-	case core.Waiting:
-		icon = "⏸"
 	}
 
 	actions := 0
@@ -255,7 +264,7 @@ func (p *ControllerProgressDisplay) printFinal() {
 	}
 
 	elapsed := stringutil.FormatDuration(time.Since(p.startTime))
-	fmt.Fprintf(p.out, "%s %s\n", icon,
+	fmt.Fprintf(p.out, "%s %s\n", statusIcon(p.status),
 		p.gray(fmt.Sprintf("%d actions, %d turns, %s", actions, p.state.Turns, elapsed)))
 }
 
@@ -293,7 +302,7 @@ func nodeStatusMark(status string) string {
 	switch status {
 	case core.NodeSucceeded.String():
 		return "✓"
-	case core.NodeFailed.String(), core.NodeAborted.String():
+	case core.NodeFailed.String(), core.NodeAborted.String(), core.NodeRejected.String():
 		return "✗"
 	case core.NodeWaiting.String():
 		return "⏸"
