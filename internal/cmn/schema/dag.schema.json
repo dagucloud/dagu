@@ -130,6 +130,38 @@
       "type": "boolean",
       "description": "When true, Dagu checks if this DAG has already succeeded since the last scheduled time. If it has, Dagu will skip the current scheduled run. This is useful for resource-intensive tasks or data processing jobs that shouldn't run twice. Note: Manual triggers always run regardless of this setting."
     },
+    "calendar": {
+      "oneOf": [
+        {
+          "type": "string",
+          "description": "Name of a registered business calendar. Scheduled runs are skipped on the calendar's holidays."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "Name of a registered business calendar (the calendar definition filename stem)."
+            },
+            "days": {
+              "type": "string",
+              "enum": ["business-days", "last-business-day", "first-business-day"],
+              "description": "Restricts dispatch to a business-day pattern. \"business-days\" skips weekends and holidays. \"last-business-day\" and \"first-business-day\" dispatch only on that day of each month; pair them with a daily cron expression."
+            },
+            "on_holiday": {
+              "type": "string",
+              "enum": ["skip"],
+              "default": "skip",
+              "description": "Behavior when the scheduled date is not runnable under the calendar. Only \"skip\" is currently supported."
+            }
+          },
+          "required": ["name"],
+          "additionalProperties": false,
+          "description": "Business calendar configuration for the schedule."
+        }
+      ],
+      "description": "Attaches a registered business calendar that gates scheduled dispatch (holiday skip and business-day filters). Without a days filter, only holidays are skipped; weekday selection is left to the cron expression. Manual triggers always run regardless of the calendar. Requires an active license."
+    },
     "catchup_window": {
       "type": "string",
       "description": "Lookback horizon for replaying missed cron runs when the scheduler restarts. Accepts Go duration syntax with day support (e.g. \"6h\", \"2d12h\", \"30m\"). Must be positive. If omitted, missed runs are not replayed."

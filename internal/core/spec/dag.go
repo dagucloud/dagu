@@ -70,6 +70,9 @@ type dag struct {
 	Dotenv types.StringOrArray `yaml:"dotenv,omitempty"`
 	// Schedule is the cron schedule to run the DAG.
 	Schedule types.ScheduleValue `yaml:"schedule,omitempty"`
+	// Calendar attaches a registered business calendar to the schedule.
+	// Can be a string (calendar name) or an object with name/days/on_holiday.
+	Calendar any `yaml:"calendar,omitempty"`
 	// SkipIfSuccessful is the flag to skip the DAG on schedule when it is
 	// executed manually before the schedule.
 	SkipIfSuccessful bool `yaml:"skip_if_successful,omitempty"`
@@ -557,6 +560,7 @@ var metadataScheduleStage = transformStage{
 	{"schedule", newTransformer("Schedule", buildSchedule)},
 	{"stop_schedule", newTransformer("StopSchedule", buildStopSchedule)},
 	{"restart_schedule", newTransformer("RestartSchedule", buildRestartSchedule)},
+	{"calendar", newTransformer("Calendar", buildCalendar)},
 }
 
 var metadataExecutionPlacementStage = transformStage{
@@ -1587,6 +1591,68 @@ func buildSchedule(_ BuildContext, d *dag) ([]core.Schedule, error) {
 		return nil, nil
 	}
 	return slices.Clone(d.Schedule.Starts()), nil
+}
+
+// calendarConfig is the object form of the calendar field.
+type calendarConfig struct {
+	// Name is the registered calendar name.
+	Name string `yaml:"name,omitempty"`
+	// Days restricts dispatch to a business-day pattern.
+	Days string `yaml:"days,omitempty"`
+	// OnHoliday controls behavior on non-runnable dates.
+	OnHoliday string `yaml:"on_holiday,omitempty"`
+}
+
+func buildCalendar(_ BuildContext, d *dag) (*core.CalendarConfig, error) {
+	if d.Calendar == nil {
+		return nil, nil
+	}
+
+	var spec calendarConfig
+	switch v := d.Calendar.(type) {
+	case string:
+		spec.Name = strings.TrimSpace(v)
+	case map[string]any:
+		decoder, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
+			Result:      &spec,
+			ErrorUnused: true,
+			TagName:     "yaml",
+		})
+		if err != nil {
+			return nil, core.NewValidationError("calendar", nil,
+				fmt.Errorf("failed to create decoder: %w", err))
+		}
+		if err := decoder.Decode(v); err != nil {
+			return nil, core.NewValidationError("calendar", nil,
+				fmt.Errorf("failed to decode calendar: %w", withSnakeCaseKeyHint(err)))
+		}
+	default:
+		return nil, core.NewValidationError("calendar", d.Calendar,
+			fmt.Errorf("must be a string (calendar name) or an object"))
+	}
+
+	if spec.Name == "" {
+		return nil, core.NewValidationError("calendar.name", spec.Name,
+			fmt.Errorf("calendar name is required"))
+	}
+	if !core.ValidCalendarName(spec.Name) {
+		return nil, core.NewValidationError("calendar.name", spec.Name,
+			fmt.Errorf("calendar name may contain only letters, digits, '.', '_', and '-'"))
+	}
+	days, err := core.ParseCalendarDayFilter(spec.Days)
+	if err != nil {
+		return nil, core.NewValidationError("calendar.days", spec.Days, err)
+	}
+	onHoliday, err := core.ParseCalendarHolidayPolicy(spec.OnHoliday)
+	if err != nil {
+		return nil, core.NewValidationError("calendar.on_holiday", spec.OnHoliday, err)
+	}
+
+	return &core.CalendarConfig{
+		Name:      spec.Name,
+		Days:      days,
+		OnHoliday: onHoliday,
+	}, nil
 }
 
 func buildStopSchedule(_ BuildContext, d *dag) ([]core.Schedule, error) {

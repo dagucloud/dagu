@@ -112,6 +112,9 @@ type DAG struct {
 	StopSchedule []Schedule `json:"stopSchedule,omitempty"`
 	// RestartSchedule contains the cron expressions for restarting the DAG.
 	RestartSchedule []Schedule `json:"restartSchedule,omitempty"`
+	// Calendar attaches a registered business calendar that gates scheduled
+	// dispatch (holiday skip and business-day filters).
+	Calendar *CalendarConfig `json:"calendar,omitempty"`
 	// SkipIfSuccessful indicates whether to skip the DAG if it was successful previously.
 	// E.g., when the DAG has already been executed manually before the scheduled time.
 	SkipIfSuccessful bool `json:"skipIfSuccessful,omitempty"`
@@ -387,6 +390,10 @@ func (d *DAG) Clone() *DAG {
 	if d.Artifacts != nil {
 		artifactsCopy := *d.Artifacts
 		clone.Artifacts = &artifactsCopy
+	}
+	if d.Calendar != nil {
+		calendarCopy := *d.Calendar
+		clone.Calendar = &calendarCopy
 	}
 	if d.Resources != nil {
 		clone.Resources = d.Resources.Clone()
