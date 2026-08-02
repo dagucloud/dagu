@@ -18,6 +18,8 @@ type Paths struct {
 	ConfigDir string
 	// DAGsDir is the directory containing DAG definitions.
 	DAGsDir string
+	// CalendarsDir is the directory containing business calendar definitions.
+	CalendarsDir string
 	// SuspendFlagsDir is the directory for storing flags that indicate DAG suspension.
 	SuspendFlagsDir string
 	// DataDir is the directory for persisting application data (e.g., history).
@@ -107,6 +109,7 @@ func setXDGPaths(xdg XDGConfig, configDir string) Paths {
 		EventStoreDir:   filepath.Join(xdg.DataHome, AppSlug, "logs", "admin", "events"),
 		SuspendFlagsDir: filepath.Join(xdg.DataHome, AppSlug, "suspend"),
 		DAGsDir:         filepath.Join(xdg.ConfigHome, AppSlug, "dags"),
+		CalendarsDir:    filepath.Join(xdg.ConfigHome, AppSlug, "calendars"),
 	}
 }
 
@@ -124,5 +127,6 @@ func setUnifiedPaths(configDir string) Paths {
 		EventStoreDir:   filepath.Join(configDir, "logs", "admin", "events"),
 		SuspendFlagsDir: filepath.Join(configDir, "suspend"),
 		DAGsDir:         filepath.Join(configDir, "dags"),
+		CalendarsDir:    filepath.Join(configDir, "calendars"),
 	}
 }

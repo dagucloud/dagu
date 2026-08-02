@@ -417,6 +417,7 @@ func (l *ConfigLoader) loadPathsConfig(cfg *Config, def Definition) error {
 		source string
 	}{
 		{"DAGsDir", &cfg.Paths.DAGsDir, def.Paths.DAGsDir},
+		{"CalendarsDir", &cfg.Paths.CalendarsDir, def.Paths.CalendarsDir},
 		{"AltDAGsDir", &cfg.Paths.AltDAGsDir, def.Paths.AltDagsDir},
 		{"SuspendFlagsDir", &cfg.Paths.SuspendFlagsDir, def.Paths.SuspendFlagsDir},
 		{"DataDir", &cfg.Paths.DataDir, def.Paths.DataDir},
@@ -1899,6 +1900,7 @@ func (l *ConfigLoader) setViperDefaultValues(paths Paths) {
 	l.v.SetDefault("skip_examples", false)
 	l.v.SetDefault("dag_discovery.recursive", false)
 	l.v.SetDefault("paths.dags_dir", paths.DAGsDir)
+	l.v.SetDefault("paths.calendars_dir", paths.CalendarsDir)
 	l.v.SetDefault("paths.suspend_flags_dir", paths.SuspendFlagsDir)
 	l.v.SetDefault("paths.data_dir", paths.DataDir)
 	l.v.SetDefault("paths.log_dir", paths.LogsDir)

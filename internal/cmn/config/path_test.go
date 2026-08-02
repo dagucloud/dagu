@@ -28,6 +28,7 @@ func TestResolver(t *testing.T) {
 		assert.Equal(t, config.Paths{
 			ConfigDir:       filepath.Join(tmpDir, config.AppSlug),
 			DAGsDir:         filepath.Join(tmpDir, config.AppSlug, "dags"),
+			CalendarsDir:    filepath.Join(tmpDir, config.AppSlug, "calendars"),
 			SuspendFlagsDir: filepath.Join(tmpDir, config.AppSlug, "suspend"),
 			DataDir:         filepath.Join(tmpDir, config.AppSlug, "data"),
 			LogsDir:         filepath.Join(tmpDir, config.AppSlug, "logs"),
@@ -69,6 +70,7 @@ func TestResolver(t *testing.T) {
 		assert.Equal(t, config.Paths{
 			ConfigDir:       legacyPath,
 			DAGsDir:         filepath.Join(legacyPath, "dags"),
+			CalendarsDir:    filepath.Join(legacyPath, "calendars"),
 			SuspendFlagsDir: filepath.Join(legacyPath, "suspend"),
 			DataDir:         filepath.Join(legacyPath, "data"),
 			LogsDir:         filepath.Join(legacyPath, "logs"),
@@ -97,6 +99,7 @@ func TestResolver(t *testing.T) {
 		assert.Equal(t, config.Paths{
 			ConfigDir:       filepath.Join(configHome, config.AppSlug),
 			DAGsDir:         filepath.Join(configHome, config.AppSlug, "dags"),
+			CalendarsDir:    filepath.Join(configHome, config.AppSlug, "calendars"),
 			SuspendFlagsDir: filepath.Join(dataHome, config.AppSlug, "suspend"),
 			DataDir:         filepath.Join(dataHome, config.AppSlug, "data"),
 			LogsDir:         filepath.Join(dataHome, config.AppSlug, "logs"),
