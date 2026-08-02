@@ -5,18 +5,18 @@ package agent
 
 import (
 	"fmt"
-	"os"
 	"sync"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
-	"golang.org/x/term"
 )
 
 // SimpleProgressDisplay provides a minimal inline progress display.
 type SimpleProgressDisplay struct {
+	progressWriter
+
 	dag      *core.DAG
 	dagRunID string
 	params   string
@@ -28,7 +28,6 @@ type SimpleProgressDisplay struct {
 	status         core.Status
 	spinnerIndex   int
 	startTime      time.Time
-	colorEnabled   bool
 
 	stopOnce sync.Once
 	stopCh   chan struct{}
@@ -42,10 +41,10 @@ func NewSimpleProgressDisplay(dag *core.DAG) *SimpleProgressDisplay {
 		total = len(dag.Steps)
 	}
 	return &SimpleProgressDisplay{
+		progressWriter: newProgressWriter(),
 		dag:            dag,
 		total:          total,
 		completedNodes: make(map[string]bool),
-		colorEnabled:   term.IsTerminal(int(os.Stderr.Fd())),
 		stopCh:         make(chan struct{}),
 		done:           make(chan struct{}),
 	}
@@ -101,7 +100,10 @@ func (p *SimpleProgressDisplay) run() {
 	p.mu.Unlock()
 
 	// Print header
-	p.printHeader()
+	p.mu.Lock()
+	dag, runID, params := p.dag, p.dagRunID, p.params
+	p.mu.Unlock()
+	p.printHeader(dag, runID, params)
 
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
@@ -115,35 +117,6 @@ func (p *SimpleProgressDisplay) run() {
 			p.render()
 		}
 	}
-}
-
-func (p *SimpleProgressDisplay) printHeader() {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	dagName := "unknown"
-	if p.dag != nil {
-		dagName = p.dag.Name
-	}
-
-	runID := p.dagRunID
-	if runID == "" {
-		runID = "..."
-	}
-
-	if p.params != "" {
-		fmt.Fprintf(os.Stderr, "▶ %s %s %s\n", dagName, p.gray("("+runID+")"), p.gray("["+p.params+"]"))
-	} else {
-		fmt.Fprintf(os.Stderr, "▶ %s %s\n", dagName, p.gray("("+runID+")"))
-	}
-}
-
-// gray returns text in gray color if color is enabled.
-func (p *SimpleProgressDisplay) gray(s string) string {
-	if !p.colorEnabled {
-		return s
-	}
-	return "\033[38;5;245m" + s + "\033[0m"
 }
 
 func (p *SimpleProgressDisplay) render() {
@@ -161,7 +134,7 @@ func (p *SimpleProgressDisplay) render() {
 	elapsed := stringutil.FormatDuration(time.Since(p.startTime))
 
 	// Use \r to overwrite the line, pad with spaces to clear previous content
-	fmt.Fprintf(os.Stderr, "\r%s %d%% (%d/%d steps) %s   ", spinner, percent, p.completed, p.total, p.gray(elapsed))
+	fmt.Fprintf(p.out, "\r%s %d%% (%d/%d steps) %s   ", spinner, percent, p.completed, p.total, p.gray(elapsed))
 }
 
 func (p *SimpleProgressDisplay) printFinal() {
@@ -181,5 +154,5 @@ func (p *SimpleProgressDisplay) printFinal() {
 	elapsed := stringutil.FormatDuration(time.Since(p.startTime))
 
 	// Clear line and print final status
-	fmt.Fprintf(os.Stderr, "\r%s %d%% (%d/%d steps) %s   \n", icon, percent, p.completed, p.total, p.gray(elapsed))
+	fmt.Fprintf(p.out, "\r%s %d%% (%d/%d steps) %s   \n", icon, percent, p.completed, p.total, p.gray(elapsed))
 }

@@ -6,7 +6,6 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -15,7 +14,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/runtime/controller"
-	"golang.org/x/term"
 )
 
 // maxReasonWidth bounds how much of a controller justification is shown on one
@@ -30,6 +28,8 @@ const maxReasonWidth = 120
 // unknown in advance, an action may repeat, and a step the controller never
 // picks was never pending work.
 type ControllerProgressDisplay struct {
+	progressWriter
+
 	dag      *core.DAG
 	dagRunID string
 	params   string
@@ -41,7 +41,6 @@ type ControllerProgressDisplay struct {
 	runningAction string
 	spinnerIndex  int
 	startTime     time.Time
-	isTTY         bool
 	liveLineShown bool
 
 	stopOnce sync.Once
@@ -54,10 +53,10 @@ var _ ProgressReporter = (*ControllerProgressDisplay)(nil)
 // NewControllerProgressDisplay creates a progress display for a controller DAG.
 func NewControllerProgressDisplay(dag *core.DAG) *ControllerProgressDisplay {
 	return &ControllerProgressDisplay{
-		dag:    dag,
-		isTTY:  term.IsTerminal(int(os.Stderr.Fd())),
-		stopCh: make(chan struct{}),
-		done:   make(chan struct{}),
+		progressWriter: newProgressWriter(),
+		dag:            dag,
+		stopCh:         make(chan struct{}),
+		done:           make(chan struct{}),
 	}
 }
 
@@ -123,9 +122,12 @@ func (p *ControllerProgressDisplay) run() {
 	p.startTime = time.Now()
 	p.mu.Unlock()
 
-	p.printHeader()
+	p.mu.Lock()
+	dag, runID, params := p.dag, p.dagRunID, p.params
+	p.mu.Unlock()
+	p.printHeader(dag, runID, params)
 
-	if !p.isTTY {
+	if !p.tty {
 		// Timeline lines are printed as they arrive; there is no live line to
 		// animate.
 		<-p.stopCh
@@ -147,27 +149,6 @@ func (p *ControllerProgressDisplay) run() {
 	}
 }
 
-func (p *ControllerProgressDisplay) printHeader() {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	dagName := "unknown"
-	if p.dag != nil {
-		dagName = p.dag.Name
-	}
-
-	runID := p.dagRunID
-	if runID == "" {
-		runID = "..."
-	}
-
-	if p.params != "" {
-		fmt.Fprintf(os.Stderr, "▶ %s %s %s\n", dagName, p.gray("("+runID+")"), p.gray("["+p.params+"]"))
-	} else {
-		fmt.Fprintf(os.Stderr, "▶ %s %s\n", dagName, p.gray("("+runID+")"))
-	}
-}
-
 // flushEventsLocked prints timeline entries that have not been shown yet. The
 // timeline is append-only within one run attempt, so entries are printed in
 // order exactly once.
@@ -181,10 +162,10 @@ func (p *ControllerProgressDisplay) flushEventsLocked() {
 // the timeline stays intact above it.
 func (p *ControllerProgressDisplay) printLineLocked(line string) {
 	if p.liveLineShown {
-		fmt.Fprint(os.Stderr, "\r\033[K")
+		fmt.Fprint(p.out, "\r\033[K")
 		p.liveLineShown = false
 	}
-	fmt.Fprintln(os.Stderr, line)
+	fmt.Fprintln(p.out, line)
 }
 
 func (p *ControllerProgressDisplay) formatEvent(event controller.Event) string {
@@ -242,7 +223,7 @@ func (p *ControllerProgressDisplay) renderLiveLine() {
 
 	elapsed := stringutil.FormatDuration(time.Since(p.startTime))
 
-	fmt.Fprintf(os.Stderr, "\r\033[K%s %s %s %s", spinner, activity, p.gray(p.openTasksText()), p.gray(elapsed))
+	fmt.Fprintf(p.out, "\r\033[K%s %s %s %s", spinner, activity, p.gray(p.openTasksText()), p.gray(elapsed))
 	p.liveLineShown = true
 }
 
@@ -254,7 +235,7 @@ func (p *ControllerProgressDisplay) printFinal() {
 	// task settlement.
 	p.flushEventsLocked()
 	if p.liveLineShown {
-		fmt.Fprint(os.Stderr, "\r\033[K")
+		fmt.Fprint(p.out, "\r\033[K")
 		p.liveLineShown = false
 	}
 
@@ -274,7 +255,7 @@ func (p *ControllerProgressDisplay) printFinal() {
 	}
 
 	elapsed := stringutil.FormatDuration(time.Since(p.startTime))
-	fmt.Fprintf(os.Stderr, "%s %s\n", icon,
+	fmt.Fprintf(p.out, "%s %s\n", icon,
 		p.gray(fmt.Sprintf("%d actions, %d turns, %s", actions, p.state.Turns, elapsed)))
 }
 
@@ -295,14 +276,6 @@ func (p *ControllerProgressDisplay) openTasksText() string {
 		return "1 task open"
 	}
 	return fmt.Sprintf("%d tasks open", open)
-}
-
-// gray returns text in gray color when writing to a terminal.
-func (p *ControllerProgressDisplay) gray(s string) string {
-	if !p.isTTY {
-		return s
-	}
-	return "\033[38;5;245m" + s + "\033[0m"
 }
 
 // compactReason renders a controller justification as one bounded line.

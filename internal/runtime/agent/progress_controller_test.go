@@ -4,6 +4,7 @@
 package agent
 
 import (
+	"bytes"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -14,6 +15,15 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// newTestControllerDisplay returns a display writing to the returned buffer
+// instead of stderr.
+func newTestControllerDisplay(dag *core.DAG) (*ControllerProgressDisplay, *bytes.Buffer) {
+	display := NewControllerProgressDisplay(dag)
+	var buf bytes.Buffer
+	display.progressWriter = progressWriter{out: &buf}
+	return display, &buf
+}
 
 func TestCreateProgressReporter_ControllerDAG(t *testing.T) {
 	controllerDAG := &core.DAG{Name: "triage", Type: core.TypeController}
@@ -26,7 +36,7 @@ func TestCreateProgressReporter_ControllerDAG(t *testing.T) {
 }
 
 func TestControllerProgressDisplay_UpdateNode(t *testing.T) {
-	display := NewControllerProgressDisplay(&core.DAG{Name: "triage", Type: core.TypeController})
+	display, out := newTestControllerDisplay(&core.DAG{Name: "triage", Type: core.TypeController})
 
 	state := controller.State{
 		Tasks: []controller.TaskState{{Name: "triage", Status: controller.TaskOpen}},
@@ -47,8 +57,11 @@ func TestControllerProgressDisplay_UpdateNode(t *testing.T) {
 
 	assert.Equal(t, 2, display.printedEvents)
 	assert.Equal(t, 2, display.state.Turns)
+	assert.Contains(t, out.String(), "turn 1  disk ✓")
+	assert.Contains(t, out.String(), "turn 2  load ✓")
 
 	// A later update prints only events that were not shown yet.
+	out.Reset()
 	state.Events = append(state.Events, controller.Event{
 		Turn: 3, Kind: controller.EventTaskStatus, Name: "triage",
 		Status: string(controller.TaskCompleted), Reason: "all good",
@@ -61,10 +74,12 @@ func TestControllerProgressDisplay_UpdateNode(t *testing.T) {
 		ControllerState: raw,
 	})
 	assert.Equal(t, 3, display.printedEvents)
+	assert.NotContains(t, out.String(), "disk")
+	assert.Contains(t, out.String(), "task triage completed: all good")
 }
 
 func TestControllerProgressDisplay_UpdateNode_TracksRunningAction(t *testing.T) {
-	display := NewControllerProgressDisplay(&core.DAG{Name: "triage", Type: core.TypeController})
+	display, _ := newTestControllerDisplay(&core.DAG{Name: "triage", Type: core.TypeController})
 
 	display.UpdateNode(&exec.Node{Step: core.Step{Name: "disk"}, Status: core.NodeRunning})
 	assert.Equal(t, "disk", display.runningAction)
@@ -79,7 +94,7 @@ func TestControllerProgressDisplay_UpdateNode_TracksRunningAction(t *testing.T) 
 }
 
 func TestControllerProgressDisplay_UpdateNode_IgnoresBadState(t *testing.T) {
-	display := NewControllerProgressDisplay(&core.DAG{Name: "triage", Type: core.TypeController})
+	display, out := newTestControllerDisplay(&core.DAG{Name: "triage", Type: core.TypeController})
 
 	display.UpdateNode(&exec.Node{
 		Step:            core.Step{Name: core.ControllerStepName},
@@ -93,10 +108,11 @@ func TestControllerProgressDisplay_UpdateNode_IgnoresBadState(t *testing.T) {
 		Status: core.NodeRunning,
 	})
 	assert.Equal(t, 0, display.printedEvents)
+	assert.Equal(t, "", out.String())
 }
 
 func TestControllerProgressDisplay_FormatEvent(t *testing.T) {
-	display := NewControllerProgressDisplay(&core.DAG{Name: "triage", Type: core.TypeController})
+	display, _ := newTestControllerDisplay(&core.DAG{Name: "triage", Type: core.TypeController})
 
 	tests := []struct {
 		name  string
@@ -203,7 +219,7 @@ func TestEventDuration(t *testing.T) {
 
 func TestControllerProgressDisplay_OpenTasksText(t *testing.T) {
 	// Before any controller state arrives, every declared task is open.
-	display := NewControllerProgressDisplay(&core.DAG{
+	display, _ := newTestControllerDisplay(&core.DAG{
 		Name: "triage", Type: core.TypeController,
 		Tasks: []core.ControllerTask{{Name: "a"}, {Name: "b"}},
 	})
