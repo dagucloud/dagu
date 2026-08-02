@@ -6,6 +6,21 @@
   "not": {
     "required": ["hist_retention_days", "hist_retention_runs"]
   },
+  "allOf": [
+    {
+      "if": {
+        "not": {
+          "properties": { "type": { "const": "controller" } },
+          "required": ["type"]
+        }
+      },
+      "then": {
+        "properties": {
+          "llm": { "$ref": "#/definitions/standardLLMConfig" }
+        }
+      }
+    }
+  ],
   "properties": {
     "name": {
       "type": "string",
@@ -2143,7 +2158,7 @@
           "description": "Legacy alias for 'with'. Use 'with' for new DAGs."
         },
         "llm": {
-          "$ref": "#/definitions/llmConfig",
+          "$ref": "#/definitions/standardLLMConfig",
           "deprecated": true,
           "description": "Deprecated LLM configuration for type-based chat steps. Use action: chat.completion with with."
         },
@@ -5965,6 +5980,21 @@
         }
       },
       "description": "LLM configuration. Supports OpenAI, Anthropic, Google Gemini, OpenRouter, and local models (Ollama/vLLM)."
+    },
+    "standardLLMConfig": {
+      "allOf": [
+        { "$ref": "#/definitions/llmConfig" },
+        {
+          "not": {
+            "anyOf": [
+              { "required": ["max_context_tokens"] },
+              { "required": ["observation_max_bytes"] },
+              { "required": ["observation_keep_recent"] }
+            ]
+          }
+        }
+      ],
+      "description": "LLM configuration without controller-only context management settings."
     },
     "webSearchConfig": {
       "type": "object",

@@ -74,10 +74,7 @@ func NewAPIError(provider string, statusCode int, message string) *APIError {
 }
 
 func classifyAPIError(statusCode int, body string) error {
-	if statusCode == 413 {
-		return ErrContextTooLong
-	}
-	if statusCode != 400 && statusCode != 422 {
+	if statusCode != 400 && statusCode != 413 && statusCode != 422 {
 		return nil
 	}
 
@@ -105,37 +102,30 @@ func classifyAPIError(statusCode int, body string) error {
 }
 
 func apiErrorDetails(body string) (codes []string, messages []string) {
-	var value any
-	if err := json.Unmarshal([]byte(body), &value); err != nil {
+	var decoded any
+	if err := json.Unmarshal([]byte(body), &decoded); err != nil {
 		return nil, []string{body}
 	}
-
-	var visit func(any)
-	visit = func(value any) {
-		switch typed := value.(type) {
-		case map[string]any:
-			for key, nested := range typed {
-				switch text := nested.(type) {
-				case string:
-					switch strings.ToLower(key) {
-					case "code", "type", "status":
-						codes = append(codes, text)
-					case "message", "error", "detail", "details", "raw":
-						messages = append(messages, text)
-					}
-				default:
-					visit(nested)
-				}
-			}
-		case []any:
-			for _, nested := range typed {
-				visit(nested)
+	value, ok := decoded.(map[string]any)
+	if !ok {
+		return nil, nil
+	}
+	appendFields := func(fields map[string]any) {
+		for _, key := range []string{"code", "type", "status"} {
+			if text, ok := fields[key].(string); ok {
+				codes = append(codes, text)
 			}
 		}
+		if text, ok := fields["message"].(string); ok {
+			messages = append(messages, text)
+		}
 	}
-	visit(value)
-	if len(messages) == 0 {
-		messages = append(messages, body)
+	appendFields(value)
+	switch apiErr := value["error"].(type) {
+	case map[string]any:
+		appendFields(apiErr)
+	case string:
+		messages = append(messages, apiErr)
 	}
 	return codes, messages
 }

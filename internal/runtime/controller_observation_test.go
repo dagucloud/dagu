@@ -26,3 +26,10 @@ func TestLimitControllerObservationCanBeDisabled(t *testing.T) {
 	content := "status: succeeded\n" + strings.Repeat("x", 1000)
 	assert.Equal(t, content, limitControllerObservation(content, 0))
 }
+
+func TestLimitControllerObservationUsesExactFitMarker(t *testing.T) {
+	t.Parallel()
+
+	const marker = "\n[observation truncated]"
+	assert.Equal(t, marker, limitControllerObservation(strings.Repeat("x", 100), len(marker)))
+}

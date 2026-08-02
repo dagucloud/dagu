@@ -5,6 +5,7 @@ package controller
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
@@ -131,6 +132,9 @@ func observationSummary(ref decisionReference, event Event, content string) stri
 	case EventRejected:
 		return prefix + eventName(event, ref.tool) + " → rejected" + summaryReason(event.Reason)
 	}
+	if isObservationSummary(content) {
+		return content
+	}
 
 	name := ref.tool
 	if name == "" {
@@ -145,6 +149,22 @@ func observationSummary(ref decisionReference, event Event, content string) stri
 		outcome = "completed"
 	}
 	return prefix + name + " → " + compactSummaryText(outcome)
+}
+
+func isObservationSummary(content string) bool {
+	if strings.Contains(content, "\n") {
+		return false
+	}
+	rest, ok := strings.CutPrefix(content, "turn ")
+	if !ok {
+		return false
+	}
+	turn, rest, ok := strings.Cut(rest, ": ")
+	if !ok || !strings.Contains(rest, " → ") {
+		return false
+	}
+	value, err := strconv.Atoi(turn)
+	return err == nil && value >= 0
 }
 
 func eventName(event Event, fallback string) string {

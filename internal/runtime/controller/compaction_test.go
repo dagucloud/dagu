@@ -71,6 +71,10 @@ func TestState_CompactsObservationWithoutTimelineEvent(t *testing.T) {
 	assert.Equal(t, 1, state.CompactObservations(1, core.DefaultControllerObservationMaxBytes))
 	assert.Equal(t, "turn 1: set_task_status → rejected (task is already open)",
 		state.Messages()[1].Content)
+	assert.Zero(t, state.CompactObservations(1, core.DefaultControllerObservationMaxBytes),
+		"compaction is idempotent without a timeline event")
+	assert.Equal(t, "turn 1: set_task_status → rejected (task is already open)",
+		state.Messages()[1].Content)
 }
 
 func TestState_ObservationAgingCanBeDisabled(t *testing.T) {
@@ -86,6 +90,41 @@ func TestState_ObservationAgingCanBeDisabled(t *testing.T) {
 
 	assert.Zero(t, state.CompactObservations(0, core.DefaultControllerObservationMaxBytes))
 	assert.Equal(t, "full first result", state.Messages()[1].Content)
+}
+
+func TestState_CompactionSizeLimitCanBeDisabled(t *testing.T) {
+	t.Parallel()
+
+	state := controller.NewState(&core.DAG{})
+	state.Events = []controller.Event{
+		{Turn: 1, Kind: controller.EventAction, Name: "first", Status: "succeeded"},
+	}
+	state.Append(
+		assistantToolCall("call_1", "first"),
+		toolMessage("call_1", "status: succeeded\nlarge output"),
+		assistantToolCall("call_2", "second"),
+		toolMessage("call_2", "recent output"),
+	)
+
+	assert.Equal(t, 1, state.CompactObservations(1, 0))
+	assert.Equal(t, "turn 1: first → succeeded", state.Messages()[1].Content)
+}
+
+func TestState_FallbackSummaryCountsProseDecisionsAsTurns(t *testing.T) {
+	t.Parallel()
+
+	state := controller.NewState(&core.DAG{})
+	state.Append(
+		exec.LLMMessage{Role: exec.RoleAssistant, Content: "I need another reminder."},
+		exec.LLMMessage{Role: exec.RoleUser, Content: "Choose an action."},
+		assistantToolCall("call_2", "second"),
+		toolMessage("call_2", "status: succeeded\nlarge output"),
+		assistantToolCall("call_3", "third"),
+		toolMessage("call_3", "recent output"),
+	)
+
+	assert.Equal(t, 1, state.CompactObservations(1, core.DefaultControllerObservationMaxBytes))
+	assert.Equal(t, "turn 2: second → succeeded", state.Messages()[3].Content)
 }
 
 func TestState_CompactsAllUsefulObservationsForOverflow(t *testing.T) {

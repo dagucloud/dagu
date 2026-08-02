@@ -737,7 +737,7 @@ func limitControllerObservation(content string, maxBytes int) string {
 	if maxBytes <= 0 || len(content) <= maxBytes {
 		return content
 	}
-	if maxBytes <= len(marker) {
+	if maxBytes < len(marker) {
 		return stringutil.TruncUTF8Bytes(content, maxBytes)
 	}
 	return stringutil.TruncUTF8Bytes(content, maxBytes-len(marker)) + marker
