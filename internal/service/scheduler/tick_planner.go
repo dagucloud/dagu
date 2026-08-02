@@ -1500,7 +1500,7 @@ func (tp *TickPlanner) DispatchRun(ctx context.Context, run PlannedRun) {
 			tp.reinsertCatchupItem(ctx, run)
 		}
 		return
-	default:
+	case buscal.DecisionAllow, buscal.DecisionUnlicensed:
 	}
 
 	if run.ScheduleType == ScheduleTypeStart && run.Schedule.IsOneOff() {
@@ -1666,6 +1666,8 @@ func (tp *TickPlanner) decideCalendarDispatch(ctx context.Context, run PlannedRu
 			slog.String("reason", decision.Reason),
 		)
 		return buscal.DecisionSkip
+	case buscal.DecisionAllow:
+		return buscal.DecisionAllow
 	default:
 		return buscal.DecisionAllow
 	}
