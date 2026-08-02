@@ -6,6 +6,7 @@ package stringutil_test
 import (
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/stretchr/testify/require"
@@ -61,6 +62,15 @@ func TestTruncString(t *testing.T) {
 		// Test string with length equal to limit
 		require.Equal(t, "12345678", stringutil.TruncString("123456789", 8))
 	})
+}
+
+func TestTruncUTF8Bytes(t *testing.T) {
+	t.Parallel()
+
+	got := stringutil.TruncUTF8Bytes("界界界", 7)
+	require.Equal(t, "界界", got)
+	require.LessOrEqual(t, len(got), 7)
+	require.True(t, utf8.ValidString(got))
 }
 
 func TestRemoveQuotes(t *testing.T) {

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 )
 
 const (
@@ -43,6 +44,22 @@ func TruncString(val string, max int) string {
 		return val[:max]
 	}
 	return val
+}
+
+// TruncUTF8Bytes returns at most max bytes without splitting a UTF-8 codepoint.
+func TruncUTF8Bytes(val string, max int) string {
+	if max <= 0 {
+		return ""
+	}
+	val = strings.ToValidUTF8(val, "\uFFFD")
+	if len(val) <= max {
+		return val
+	}
+	cut := max
+	for cut > 0 && !utf8.RuneStart(val[cut]) {
+		cut--
+	}
+	return val[:cut]
 }
 
 // ParseBool parses a boolean value from the given input.

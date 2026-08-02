@@ -127,6 +127,9 @@ type State struct {
 	// Answers records what a person replied to each question, so the controller
 	// is held to an answer it already has.
 	Answers map[string]string `json:"answers,omitempty"`
+	// ObservationAging records that old tool results must remain compacted for
+	// the rest of this run.
+	ObservationAging bool `json:"observationAging,omitempty"`
 
 	// messages is the conversation. It is persisted separately, as the node's
 	// chat transcript, so the UI can render it with the other LLM steps.
@@ -183,6 +186,7 @@ func LoadState(raw json.RawMessage, messages []exec.LLMMessage, dag *core.DAG) (
 
 	fresh.Events = stored.Events
 	fresh.Answers = stored.Answers
+	fresh.ObservationAging = stored.ObservationAging
 	fresh.Turns = stored.Turns
 	fresh.Nudges = stored.Nudges
 	fresh.Pending = stored.Pending

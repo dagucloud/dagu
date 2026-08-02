@@ -5,8 +5,10 @@ package llm
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // Sentinel errors for common LLM error conditions.
@@ -67,7 +69,76 @@ func NewAPIError(provider string, statusCode int, message string) *APIError {
 		StatusCode: statusCode,
 		Message:    message,
 		Retryable:  isRetryableStatusCode(statusCode),
+		Err:        classifyAPIError(statusCode, message),
 	}
+}
+
+func classifyAPIError(statusCode int, body string) error {
+	if statusCode != 400 && statusCode != 413 && statusCode != 422 {
+		return nil
+	}
+
+	codes, messages := apiErrorDetails(body)
+	for _, code := range codes {
+		switch normalizeAPIErrorText(code) {
+		case "context_length_exceeded", "context_window_exceeded", "prompt_too_long", "input_too_long":
+			return ErrContextTooLong
+		}
+	}
+	for _, message := range messages {
+		text := normalizeAPIErrorText(message)
+		switch {
+		case strings.Contains(text, "context length exceeded"),
+			strings.Contains(text, "maximum context length"),
+			strings.Contains(text, "context window") && strings.Contains(text, "exceed"),
+			strings.Contains(text, "prompt is too long"),
+			strings.Contains(text, "input is too long"),
+			strings.Contains(text, "input token count") && strings.Contains(text, "exceed") && strings.Contains(text, "maximum"),
+			strings.Contains(text, "request exceeds the available context"):
+			return ErrContextTooLong
+		}
+	}
+	return nil
+}
+
+func apiErrorDetails(body string) (codes []string, messages []string) {
+	var value any
+	if err := json.Unmarshal([]byte(body), &value); err != nil {
+		return nil, []string{body}
+	}
+
+	var visit func(any)
+	visit = func(value any) {
+		switch typed := value.(type) {
+		case map[string]any:
+			for key, nested := range typed {
+				switch text := nested.(type) {
+				case string:
+					switch strings.ToLower(key) {
+					case "code", "type", "status":
+						codes = append(codes, text)
+					case "message", "error", "detail", "details", "raw":
+						messages = append(messages, text)
+					}
+				default:
+					visit(nested)
+				}
+			}
+		case []any:
+			for _, nested := range typed {
+				visit(nested)
+			}
+		}
+	}
+	visit(value)
+	if len(messages) == 0 {
+		messages = append(messages, body)
+	}
+	return codes, messages
+}
+
+func normalizeAPIErrorText(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
 }
 
 // isRetryableStatusCode determines if an HTTP status code indicates a retryable error.

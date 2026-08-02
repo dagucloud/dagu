@@ -35,6 +35,18 @@ const (
 	// to a person in one run. Each one suspends the run, so an unbounded
 	// controller could pester someone indefinitely.
 	DefaultControllerMaxQuestions = 5
+
+	// DefaultControllerMaxContextTokens is the prompt size at which observation
+	// aging starts.
+	DefaultControllerMaxContextTokens = 200_000
+
+	// DefaultControllerObservationMaxBytes bounds each tool result added to a
+	// controller conversation.
+	DefaultControllerObservationMaxBytes = 512 * 1024
+
+	// DefaultControllerObservationKeepRecent is the number of tool results that
+	// remain complete after observation aging starts.
+	DefaultControllerObservationKeepRecent = 20
 )
 
 // ControllerTask is a goal the controller must satisfy. A controller DAG run
@@ -82,6 +94,33 @@ func (d *DAG) ControllerMaxIterations() int {
 		return n
 	}
 	return DefaultControllerMaxIterations
+}
+
+// ControllerMaxContextTokens returns the prompt size at which observation aging
+// starts. Zero disables proactive aging.
+func (d *DAG) ControllerMaxContextTokens() int {
+	if d == nil || d.LLM == nil || d.LLM.MaxContextTokens == nil {
+		return DefaultControllerMaxContextTokens
+	}
+	return *d.LLM.MaxContextTokens
+}
+
+// ControllerObservationMaxBytes returns the maximum controller-facing size of
+// one observation. Zero disables the size limit.
+func (d *DAG) ControllerObservationMaxBytes() int {
+	if d == nil || d.LLM == nil || d.LLM.ObservationMaxBytes == nil {
+		return DefaultControllerObservationMaxBytes
+	}
+	return *d.LLM.ObservationMaxBytes
+}
+
+// ControllerObservationKeepRecent returns how many recent observations remain
+// complete after aging starts. Zero disables observation aging.
+func (d *DAG) ControllerObservationKeepRecent() int {
+	if d == nil || d.LLM == nil || d.LLM.ObservationKeepRecent == nil {
+		return DefaultControllerObservationKeepRecent
+	}
+	return *d.LLM.ObservationKeepRecent
 }
 
 // NewControllerStep builds the step that carries the controller's LLM config and

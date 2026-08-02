@@ -19,6 +19,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/llm"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/controller"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
@@ -42,11 +43,14 @@ type turn struct {
 // fakeModel serves the OpenAI-compatible chat completions API, replying with a
 // fixed script of decisions so the controller loop can be driven deterministically.
 type fakeModel struct {
-	mu          sync.Mutex
-	turns       []turn
-	calls       int
-	system      string
-	toolResults []string
+	mu                     sync.Mutex
+	turns                  []turn
+	calls                  int
+	requests               int
+	contextFailureRequests map[int]bool
+	promptTokens           int
+	system                 string
+	toolResults            []string
 }
 
 // lastSystemPrompt returns the system message of the most recent request.
@@ -109,8 +113,55 @@ func (m *fakeModel) callCount() int {
 	return m.calls
 }
 
+func (m *fakeModel) requestCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.requests
+}
+
+func (m *fakeModel) failContextOnRequests(requests ...int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.contextFailureRequests == nil {
+		m.contextFailureRequests = make(map[int]bool)
+	}
+	for _, request := range requests {
+		m.contextFailureRequests[request] = true
+	}
+}
+
+func (m *fakeModel) setPromptTokens(tokens int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.promptTokens = tokens
+}
+
+func (m *fakeModel) beginRequest() (failContext bool, promptTokens int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.requests++
+	failContext = m.contextFailureRequests[m.requests]
+	promptTokens = m.promptTokens
+	if promptTokens == 0 {
+		promptTokens = 1
+	}
+	return failContext, promptTokens
+}
+
 func (m *fakeModel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	m.captureSystem(r)
+	failContext, promptTokens := m.beginRequest()
+	if failContext {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error": map[string]any{
+				"code":    "context_length_exceeded",
+				"message": "request exceeded the model context",
+			},
+		})
+		return
+	}
 	t, ok := m.next()
 	if !ok {
 		// Exhausted script: answer without acting so the loop cannot spin.
@@ -135,7 +186,9 @@ func (m *fakeModel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"choices": []map[string]any{{"index": 0, "message": message, "finish_reason": finish}},
-		"usage":   map[string]any{"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+		"usage": map[string]any{
+			"prompt_tokens": promptTokens, "completion_tokens": 1, "total_tokens": promptTokens + 1,
+		},
 	})
 }
 
@@ -312,6 +365,160 @@ func TestControllerLoop_ObservesTheOutputOfARerunAction(t *testing.T) {
 		}
 	}
 	assert.Equal(t, 2, reported, "both attempts report their output")
+}
+
+const controllerContextManagementDAG = `
+type: controller
+llm:
+  provider: local
+  model: test-model
+  base_url: %s
+  max_context_tokens: 10
+  observation_keep_recent: 1
+steps:
+  - name: alpha
+    run: echo alpha
+  - name: beta
+    run: echo beta
+tasks:
+  - name: first
+    description: done when alpha ran
+  - name: second
+    description: done when beta ran
+`
+
+func TestControllerLoop_AgesObservationsAtPromptTokenThreshold(t *testing.T) {
+	t.Parallel()
+
+	ch := setupController(t, controllerContextManagementDAG,
+		turn{tool: "alpha"},
+		turn{tool: "beta"},
+		turn{tool: controller.SetTaskStatusTool, args: map[string]any{
+			"task": "first", "status": "completed", "reason": "alpha ran"}},
+		turn{tool: controller.SetTaskStatusTool, args: map[string]any{
+			"task": "second", "status": "completed", "reason": "beta ran"}},
+	)
+	ch.model.setPromptTokens(10)
+
+	require.Equal(t, core.Succeeded, ch.run(t))
+	observations := ch.model.observations()
+	require.Len(t, observations, 3)
+	assert.Equal(t, "turn 1: alpha → succeeded", observations[0])
+	assert.Equal(t, "turn 2: beta → succeeded", observations[1])
+	assert.Contains(t, observations[2], `Task "first" is now completed`)
+
+	ctrl := ch.node(t, core.ControllerStepName)
+	restored, err := controller.LoadState(ctrl.State().ControllerState, ctrl.GetChatMessages(), ch.dag)
+	require.NoError(t, err)
+	assert.True(t, restored.ObservationAging)
+}
+
+func TestControllerLoop_RecoversOnceFromContextOverflow(t *testing.T) {
+	t.Parallel()
+
+	ch := setupController(t, controllerContextManagementDAG,
+		turn{tool: "alpha"},
+		turn{tool: "beta"},
+		turn{tool: controller.SetTaskStatusTool, args: map[string]any{
+			"task": "first", "status": "completed", "reason": "alpha ran"}},
+		turn{tool: controller.SetTaskStatusTool, args: map[string]any{
+			"task": "second", "status": "completed", "reason": "beta ran"}},
+	)
+	ch.model.failContextOnRequests(3)
+
+	require.Equal(t, core.Succeeded, ch.run(t))
+	assert.Equal(t, 5, ch.model.requestCount())
+	assert.Equal(t, "turn 1: alpha → succeeded", ch.model.observations()[0])
+}
+
+func TestControllerLoop_FailsWhenCompactedRequestStillOverflows(t *testing.T) {
+	t.Parallel()
+
+	ch := setupController(t, controllerContextManagementDAG,
+		turn{tool: "alpha"},
+	)
+	ch.model.failContextOnRequests(1, 2)
+
+	require.Equal(t, core.Failed, ch.run(t))
+	assert.Equal(t, 2, ch.model.requestCount())
+	assert.ErrorContains(t, ch.runErr, "after aging old observations")
+
+	ctrl := ch.node(t, core.ControllerStepName)
+	restored, err := controller.LoadState(ctrl.State().ControllerState, ctrl.GetChatMessages(), ch.dag)
+	require.NoError(t, err)
+	assert.True(t, restored.ObservationAging)
+}
+
+const controllerContextManagementDisabledDAG = `
+type: controller
+llm:
+  provider: local
+  model: test-model
+  base_url: %s
+  max_context_tokens: 0
+  observation_max_bytes: 0
+  observation_keep_recent: 0
+steps:
+  - name: alpha
+    run: echo alpha
+tasks:
+  - name: first
+    description: done when alpha ran
+`
+
+func TestControllerLoop_ContextManagementCanBeDisabled(t *testing.T) {
+	t.Parallel()
+
+	ch := setupController(t, controllerContextManagementDisabledDAG,
+		turn{tool: "alpha"},
+	)
+	ch.model.failContextOnRequests(1)
+
+	require.Equal(t, core.Failed, ch.run(t))
+	assert.Equal(t, 1, ch.model.requestCount())
+	assert.ErrorIs(t, ch.runErr, llm.ErrContextTooLong)
+}
+
+const controllerObservationLimitDAG = `
+type: controller
+llm:
+  provider: local
+  model: test-model
+  base_url: %s
+  observation_max_bytes: 128
+steps:
+  - name: produce
+    run: |
+      i=0
+      while [ "$i" -lt 400 ]; do
+        printf x
+        i=$((i + 1))
+      done
+    output: BIG
+tasks:
+  - name: produced
+    description: done when produce ran
+`
+
+func TestControllerLoop_LimitsObservationWithoutChangingStoredOutput(t *testing.T) {
+	t.Parallel()
+
+	ch := setupController(t, controllerObservationLimitDAG,
+		turn{tool: "produce"},
+		turn{tool: controller.SetTaskStatusTool, args: map[string]any{
+			"task": "produced", "status": "completed", "reason": "produced"}},
+	)
+
+	require.Equal(t, core.Succeeded, ch.run(t))
+	observations := ch.model.observations()
+	require.Len(t, observations, 1)
+	assert.LessOrEqual(t, len(observations[0]), 128)
+	assert.Contains(t, observations[0], "status: succeeded")
+	assert.Contains(t, observations[0], "[observation truncated]")
+
+	output := ch.node(t, "produce").State().OutputValue
+	require.NotNil(t, output)
+	assert.Len(t, *output, 400)
 }
 
 func TestControllerLoop_RejectsUnknownToolAndTask(t *testing.T) {

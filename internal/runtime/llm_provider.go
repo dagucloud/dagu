@@ -106,19 +106,22 @@ func emptyAfterResolution(field, raw string) error {
 // entry's own provider, name, and overrides win where it sets them.
 func EffectiveLLMConfig(cfg *core.LLMConfig, model core.ModelEntry) *core.LLMConfig {
 	return &core.LLMConfig{
-		Provider:          model.Provider,
-		Model:             model.Name,
-		System:            cfg.System,
-		Stream:            cfg.Stream,
-		Thinking:          cfg.Thinking,
-		Tools:             cfg.Tools,
-		MaxToolIterations: cfg.MaxToolIterations,
-		WebSearch:         cfg.WebSearch,
-		Temperature:       coalescePtr(model.Temperature, cfg.Temperature),
-		MaxTokens:         coalescePtr(model.MaxTokens, cfg.MaxTokens),
-		TopP:              coalescePtr(model.TopP, cfg.TopP),
-		BaseURL:           coalesceStr(model.BaseURL, cfg.BaseURL),
-		APIKeyName:        coalesceStr(model.APIKeyName, cfg.APIKeyName),
+		Provider:              model.Provider,
+		Model:                 model.Name,
+		System:                cfg.System,
+		Stream:                cfg.Stream,
+		Thinking:              cfg.Thinking,
+		Tools:                 cfg.Tools,
+		MaxToolIterations:     cfg.MaxToolIterations,
+		MaxContextTokens:      cfg.MaxContextTokens,
+		ObservationMaxBytes:   cfg.ObservationMaxBytes,
+		ObservationKeepRecent: cfg.ObservationKeepRecent,
+		WebSearch:             cfg.WebSearch,
+		Temperature:           coalescePtr(model.Temperature, cfg.Temperature),
+		MaxTokens:             coalescePtr(model.MaxTokens, cfg.MaxTokens),
+		TopP:                  coalescePtr(model.TopP, cfg.TopP),
+		BaseURL:               coalesceStr(model.BaseURL, cfg.BaseURL),
+		APIKeyName:            coalesceStr(model.APIKeyName, cfg.APIKeyName),
 	}
 }
 

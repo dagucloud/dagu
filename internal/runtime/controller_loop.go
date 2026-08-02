@@ -6,6 +6,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
@@ -20,6 +21,7 @@ import (
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	llmpkg "github.com/dagucloud/dagu/v2/internal/llm"
 	"github.com/dagucloud/dagu/v2/internal/runtime/controller"
 )
 
@@ -117,7 +119,8 @@ func (r *Runner) runControllerLoop(ctx context.Context, plan *Plan, progressCh c
 
 			if pending.Question != "" {
 				if answer, ok := askUserAnswer(answered, answeredState.HumanTaskInput); ok {
-					state.RecordAnswer(pending.Question, answer)
+					state.RecordAnswer(pending.Question, limitControllerObservation(
+						answer, dag.ControllerObservationMaxBytes()))
 				}
 			}
 		}
@@ -139,9 +142,39 @@ func (r *Runner) runControllerLoop(ctx context.Context, plan *Plan, progressCh c
 			return
 		}
 
+		observationKeepRecent := dag.ControllerObservationKeepRecent()
+		if !state.ObservationAging && observationKeepRecent > 0 {
+			maxContextTokens := dag.ControllerMaxContextTokens()
+			promptTokens := state.LatestPromptTokens()
+			if maxContextTokens > 0 && promptTokens >= maxContextTokens {
+				state.EnableObservationAging()
+				logger.Info(ctrlCtx, "Controller started aging old observations",
+					slog.Int("promptTokens", promptTokens),
+					slog.Int("maxContextTokens", maxContextTokens))
+			}
+		}
+		if state.ObservationAging {
+			state.CompactObservations(
+				observationKeepRecent, dag.ControllerObservationMaxBytes())
+		}
+
 		decision, err := planner.Next(ctrlCtx, state)
+		if errors.Is(err, llmpkg.ErrContextTooLong) && observationKeepRecent > 0 {
+			state.EnableObservationAging()
+			compacted := state.CompactObservations(
+				observationKeepRecent, dag.ControllerObservationMaxBytes())
+			logger.Warn(ctrlCtx, "Controller context overflowed; retrying with aged observations",
+				slog.Int("compactedObservations", compacted))
+			decision, err = planner.Next(ctrlCtx, state)
+			if err != nil {
+				err = fmt.Errorf("controller decision failed after aging old observations: %w", err)
+			}
+		}
 		if err != nil {
 			r.failController(ctrlCtx, plan, ctrlNode, err, progressCh)
+			if state.ObservationAging {
+				r.persistController(ctrlCtx, ctrlNode, state, progressCh)
+			}
 			return
 		}
 
@@ -203,7 +236,7 @@ func (r *Runner) applyDecision(
 	switch decision.Kind {
 	case controller.DecideSetTaskStatus:
 		if err := state.SetTaskStatus(decision.Task, decision.TaskStatus, decision.Reason); err != nil {
-			state.Append(toolResult(decision.ToolCallID, "Error: "+err.Error()))
+			state.Append(toolResult(ctx, decision.ToolCallID, "Error: "+err.Error()))
 			return false, nil
 		}
 		logger.Info(ctx, "Controller settled a task",
@@ -216,7 +249,7 @@ func (r *Runner) applyDecision(
 			Status: string(decision.TaskStatus),
 			Reason: decision.Reason,
 		})
-		state.Append(toolResult(decision.ToolCallID, taskStatusAck(state, decision)))
+		state.Append(toolResult(ctx, decision.ToolCallID, taskStatusAck(state, decision)))
 		return false, nil
 
 	case controller.DecideInvalid:
@@ -225,7 +258,7 @@ func (r *Runner) applyDecision(
 			Name:   decision.ToolName,
 			Reason: decision.Problem,
 		})
-		state.Append(toolResult(decision.ToolCallID, "Error: "+decision.Problem))
+		state.Append(toolResult(ctx, decision.ToolCallID, "Error: "+decision.Problem))
 		return false, nil
 
 	case controller.DecideAskUser:
@@ -254,7 +287,7 @@ func (r *Runner) askUser(
 ) (suspended bool, err error) {
 	node := plan.GetNodeByName(core.AskUserStepName)
 	if node == nil {
-		state.Append(toolResult(decision.ToolCallID,
+		state.Append(toolResult(ctx, decision.ToolCallID,
 			"Error: this workflow cannot ask questions"))
 		return false, nil
 	}
@@ -263,7 +296,7 @@ func (r *Runner) askUser(
 	// somebody's child says so and carries on rather than stalling the parent.
 	if rCtx := exec.GetContext(ctx); rCtx.RootDAGRun.ID != "" &&
 		rCtx.RootDAGRun.ID != rCtx.DAGRunID {
-		state.Append(toolResult(decision.ToolCallID,
+		state.Append(toolResult(ctx, decision.ToolCallID,
 			"Error: this run is a sub-workflow, so nobody can be asked. "+
 				"Decide with the information you have, or settle the task as failed."))
 		return false, nil
@@ -278,12 +311,12 @@ func (r *Runner) askUser(
 	// Hold the controller to an answer it already has, rather than putting the
 	// same question to a person twice.
 	if prior, ok := state.PriorAnswer(question); ok {
-		state.Append(toolResult(decision.ToolCallID, fmt.Sprintf(
+		state.Append(toolResult(ctx, decision.ToolCallID, fmt.Sprintf(
 			"You already asked this and were told: %s", prior)))
 		return false, nil
 	}
 	if state.QuestionCount() >= core.DefaultControllerMaxQuestions {
-		state.Append(toolResult(decision.ToolCallID, fmt.Sprintf(
+		state.Append(toolResult(ctx, decision.ToolCallID, fmt.Sprintf(
 			"Error: this run has already asked %d questions, which is its limit. "+
 				"Decide with what you have, or settle the task as failed.",
 			core.DefaultControllerMaxQuestions)))
@@ -349,14 +382,14 @@ func (r *Runner) runControllerAction(
 ) (suspended bool, err error) {
 	node := plan.GetNodeByName(decision.Step)
 	if node == nil {
-		state.Append(toolResult(decision.ToolCallID,
+		state.Append(toolResult(ctx, decision.ToolCallID,
 			fmt.Sprintf("Error: step %q is not part of this workflow", decision.Step)))
 		return false, nil
 	}
 
 	runs := state.StepRunCount(decision.Step)
 	if runs >= core.DefaultControllerMaxStepRuns {
-		state.Append(toolResult(decision.ToolCallID, fmt.Sprintf(
+		state.Append(toolResult(ctx, decision.ToolCallID, fmt.Sprintf(
 			"Error: action %q has already run %d times, which is its limit. Choose a different action.",
 			decision.Step, runs)))
 		return false, nil
@@ -538,7 +571,7 @@ func (r *Runner) report(progressCh chan *Node, node *Node) {
 // sees on its next turn.
 func observe(ctx context.Context, node *Node, toolCallID string) exec.LLMMessage {
 	if node == nil {
-		return toolResult(toolCallID, "Error: the step disappeared from the workflow")
+		return toolResult(ctx, toolCallID, "Error: the step disappeared from the workflow")
 	}
 
 	state := node.State()
@@ -571,7 +604,7 @@ func observe(ctx context.Context, node *Node, toolCallID string) exec.LLMMessage
 	if len(state.SubRuns) > 0 {
 		if summary := childRunSummary(ctx, state.SubRuns[0].DAGRunID, declared != ""); summary != "" {
 			sb.WriteString(summary)
-			return toolResult(toolCallID, sb.String())
+			return toolResult(ctx, toolCallID, sb.String())
 		}
 	}
 
@@ -582,7 +615,7 @@ func observe(ctx context.Context, node *Node, toolCallID string) exec.LLMMessage
 		fmt.Fprintf(&sb, "stderr:\n%s\n", tail)
 	}
 
-	return toolResult(toolCallID, sb.String())
+	return toolResult(ctx, toolCallID, sb.String())
 }
 
 // publishedOutputs returns the outputs a step published explicitly, preferring
@@ -683,12 +716,30 @@ func logTail(path string) string {
 	return strings.TrimSpace(strings.Join(result.Lines, "\n"))
 }
 
-func toolResult(toolCallID, content string) exec.LLMMessage {
+func toolResult(ctx context.Context, toolCallID, content string) exec.LLMMessage {
+	dag := GetDAGContext(ctx).DAG
+	maxBytes := core.DefaultControllerObservationMaxBytes
+	if dag != nil {
+		maxBytes = dag.ControllerObservationMaxBytes()
+	}
 	return exec.LLMMessage{
 		Role:       exec.RoleTool,
 		ToolCallID: toolCallID,
-		Content:    content,
+		Content:    limitControllerObservation(content, maxBytes),
 	}
+}
+
+func limitControllerObservation(content string, maxBytes int) string {
+	const marker = "\n[observation truncated]"
+
+	content = strings.ToValidUTF8(content, "\uFFFD")
+	if maxBytes <= 0 || len(content) <= maxBytes {
+		return content
+	}
+	if maxBytes <= len(marker) {
+		return stringutil.TruncUTF8Bytes(content, maxBytes)
+	}
+	return stringutil.TruncUTF8Bytes(content, maxBytes-len(marker)) + marker
 }
 
 func taskStatusAck(state *controller.State, decision *controller.Decision) string {

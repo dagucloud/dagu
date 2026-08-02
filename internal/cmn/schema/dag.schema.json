@@ -5941,6 +5941,24 @@
           "$ref": "#/definitions/thinkingConfig",
           "description": "Extended thinking/reasoning configuration. Enables deeper reasoning for complex tasks."
         },
+        "max_context_tokens": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 200000,
+          "description": "Controller prompt-token threshold that activates deterministic aging of older observations. Set to zero to disable proactive aging."
+        },
+        "observation_max_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 524288,
+          "description": "Maximum UTF-8 byte size of one controller-facing tool observation. Set to zero to disable the limit. The full step output remains stored on the step."
+        },
+        "observation_keep_recent": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 20,
+          "description": "Number of recent controller tool observations kept in full after observation aging starts. Set to zero to disable observation aging."
+        },
         "web_search": {
           "$ref": "#/definitions/webSearchConfig",
           "description": "Provider-native web search configuration. Supported by Anthropic, Gemini, and OpenRouter."

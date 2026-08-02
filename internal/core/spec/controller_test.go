@@ -261,6 +261,9 @@ llm:
   provider: anthropic
   model: claude-opus-5
   max_tool_iterations: 7
+  max_context_tokens: 100000
+  observation_max_bytes: 8192
+  observation_keep_recent: 2
 steps:
   - name: a
     run: echo a
@@ -272,6 +275,72 @@ tasks:
 	require.NotNil(t, dag.LLM.MaxToolIterations)
 	assert.Equal(t, 7, *dag.LLM.MaxToolIterations)
 	assert.Equal(t, 7, dag.ControllerMaxIterations())
+	assert.Equal(t, 100000, dag.ControllerMaxContextTokens())
+	assert.Equal(t, 8192, dag.ControllerObservationMaxBytes())
+	assert.Equal(t, 2, dag.ControllerObservationKeepRecent())
+}
+
+func TestControllerLLMObservationLimitsMustBeNonNegative(t *testing.T) {
+	t.Parallel()
+
+	for _, field := range []string{
+		"max_context_tokens",
+		"observation_max_bytes",
+		"observation_keep_recent",
+	} {
+		t.Run(field, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := spec.LoadYAML(t.Context(), []byte(`
+type: controller
+llm:
+  provider: anthropic
+  model: claude-opus-5
+  `+field+`: -1
+steps:
+  - name: a
+    run: echo a
+tasks:
+  - name: t
+    description: d
+`))
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "llm."+field)
+		})
+	}
+}
+
+func TestControllerContextLimitsCanBeDisabled(t *testing.T) {
+	t.Parallel()
+
+	dag, err := spec.LoadYAML(t.Context(), []byte(`
+type: controller
+llm:
+  provider: anthropic
+  model: claude-opus-5
+  max_context_tokens: 0
+  observation_max_bytes: 0
+  observation_keep_recent: 0
+steps:
+  - name: a
+    run: echo a
+tasks:
+  - name: t
+    description: d
+`))
+	require.NoError(t, err)
+	assert.Zero(t, dag.ControllerMaxContextTokens())
+	assert.Zero(t, dag.ControllerObservationMaxBytes())
+	assert.Zero(t, dag.ControllerObservationKeepRecent())
+}
+
+func TestControllerObservationDefaults(t *testing.T) {
+	t.Parallel()
+
+	dag := &core.DAG{LLM: &core.LLMConfig{}}
+	assert.Equal(t, 200000, dag.ControllerMaxContextTokens())
+	assert.Equal(t, 512*1024, dag.ControllerObservationMaxBytes())
+	assert.Equal(t, 20, dag.ControllerObservationKeepRecent())
 }
 
 // TestReservedControllerNamesAreRejectedInGraphDAGs keeps the synthesized names

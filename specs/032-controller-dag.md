@@ -91,6 +91,21 @@ judged against.
 `llm.max_tool_iterations` bounds the number of decisions in a single run. When
 unset the bound is 50.
 
+`llm.observation_max_bytes` bounds each tool result added to the controller's
+conversation. It defaults to 524288 bytes (512 KiB). The limit applies only to
+the controller-facing copy: the step's output, logs, and human-task submission
+stay complete in their owning records. A truncated result uses an explicit
+marker when the configured limit can hold it and MUST remain valid UTF-8. A
+value of zero disables this size limit.
+
+`llm.max_context_tokens` is the prompt-token threshold for observation aging and
+defaults to 200000. Dagu does not infer it from the model. An author SHOULD
+override the default when needed to leave headroom below the provider's hard
+context limit. Once aging starts, `llm.observation_keep_recent` controls how many
+recent tool results remain complete; it defaults to 20. A zero
+`max_context_tokens` disables proactive aging. A zero
+`observation_keep_recent` disables aging entirely, including overflow recovery.
+
 ### Step constraints
 
 A controller DAG MUST declare at least one step. For every declared step:
@@ -179,8 +194,32 @@ Each turn:
 
    For every other step, a bounded tail of stdout and stderr is reported.
 
+   The complete tool result is then limited by `llm.observation_max_bytes`.
+   Human answers repeated in the controller's system message use the same
+   controller-facing limit.
+
 The loop ends when no task is open, when an action opens a human task, or when a
 limit is reached.
+
+### Observation aging and context recovery
+
+Every successful decision records the provider-reported prompt token count. If
+that count reaches `llm.max_context_tokens`, observation aging starts before the
+next decision and remains active for the rest of the run.
+
+While aging is active, the newest `llm.observation_keep_recent` tool results
+remain complete. Every older tool result is replaced by a deterministic
+one-line summary derived from the matching decision-timeline event. The
+assistant tool call, tool result role, and tool-call ID MUST remain in the
+conversation so provider tool-call protocols remain valid. Compacted results
+are persisted and MUST NOT expand again after suspension or retry.
+
+If observation aging is enabled and a provider rejects a decision because its
+context is too long, Dagu enables aging immediately, compacts old observations,
+and retries that decision once. The rejected request does not consume a
+controller turn or add an assistant message. If the rebuilt request also fails,
+the run fails with that error. No further overflow retries are made. When aging
+is disabled, a context-too-long response fails the run without a recovery retry.
 
 ### Task status
 
@@ -255,8 +294,8 @@ newly declared task starts open.
 
 A controller run records an ordered timeline of its decisions, persisted
 alongside goal progress and restored on resume. Each entry carries the turn it
-belongs to and one of these kinds: `action`, `task_complete`, `task_reopen`,
-`ask_user`, `rejected`, `stalled`. An `action` entry additionally carries the resulting
+belongs to and one of these kinds: `action`, `task_status`, `ask_user`,
+`rejected`, `stalled`. An `action` entry additionally carries the resulting
 status, which attempt of that step it was, and the start and finish times.
 
 The timeline exists because a controller has no dependency edges: execution
