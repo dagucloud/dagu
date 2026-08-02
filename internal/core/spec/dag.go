@@ -2493,7 +2493,7 @@ func buildLLM(_ BuildContext, d *dag) (*core.LLMConfig, error) {
 				fmt.Errorf("max_tokens must be at least 1"))
 		}
 	}
-	if err := validateControllerLLMLimits(cfg); err != nil {
+	if err := validateControllerLLMLimits(cfg, strings.TrimSpace(d.Type) == core.TypeController); err != nil {
 		return nil, err
 	}
 

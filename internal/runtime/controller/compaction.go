@@ -45,7 +45,17 @@ func (s *State) CompactObservations(keepRecent, maxBytes int) int {
 	if keepRecent < 1 {
 		return 0
 	}
+	return s.compactObservations(keepRecent, maxBytes, false)
+}
 
+// CompactAllObservations replaces each tool result whose deterministic summary
+// is smaller. It returns the number replaced so callers can avoid retrying an
+// unchanged request.
+func (s *State) CompactAllObservations(maxBytes int) int {
+	return s.compactObservations(0, maxBytes, true)
+}
+
+func (s *State) compactObservations(keepRecent, maxBytes int, onlyIfSmaller bool) int {
 	var toolIndices []int
 	for i, msg := range s.messages {
 		if msg.Role == exec.RoleTool {
@@ -70,6 +80,9 @@ func (s *State) CompactObservations(keepRecent, maxBytes int) int {
 		summary := observationSummary(ref, events[ref.turn], msg.Content)
 		if maxBytes > 0 {
 			summary = stringutil.TruncUTF8Bytes(summary, maxBytes)
+		}
+		if onlyIfSmaller && len(summary) >= len(msg.Content) {
+			continue
 		}
 		if msg.Content != summary {
 			msg.Content = summary

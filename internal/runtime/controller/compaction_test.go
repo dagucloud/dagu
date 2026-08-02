@@ -4,6 +4,7 @@
 package controller_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/core"
@@ -85,6 +86,26 @@ func TestState_ObservationAgingCanBeDisabled(t *testing.T) {
 
 	assert.Zero(t, state.CompactObservations(0, core.DefaultControllerObservationMaxBytes))
 	assert.Equal(t, "full first result", state.Messages()[1].Content)
+}
+
+func TestState_CompactsAllUsefulObservationsForOverflow(t *testing.T) {
+	t.Parallel()
+
+	state := controller.NewState(&core.DAG{})
+	state.Events = []controller.Event{
+		{Turn: 1, Kind: controller.EventAction, Name: "first", Status: "succeeded"},
+		{Turn: 2, Kind: controller.EventAction, Name: "second", Status: "succeeded"},
+	}
+	state.Append(
+		assistantToolCall("call_1", "first"),
+		toolMessage("call_1", "status: succeeded\n"+strings.Repeat("large output ", 20)),
+		assistantToolCall("call_2", "second"),
+		toolMessage("call_2", "ok"),
+	)
+
+	assert.Equal(t, 1, state.CompactAllObservations(core.DefaultControllerObservationMaxBytes))
+	assert.Equal(t, "turn 1: first → succeeded", state.Messages()[1].Content)
+	assert.Equal(t, "ok", state.Messages()[3].Content)
 }
 
 func TestState_LatestPromptTokens(t *testing.T) {

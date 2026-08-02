@@ -75,6 +75,9 @@ func TestNewAPIError_ClassifiesContextOverflow(t *testing.T) {
 		require.ErrorIs(t, err, ErrContextTooLong)
 		assert.False(t, err.Retryable)
 	}
+
+	err := NewAPIError("test", 413, "request payload too large")
+	require.ErrorIs(t, err, ErrContextTooLong)
 }
 
 func TestNewAPIError_DoesNotClassifyOtherInvalidRequestsAsContextOverflow(t *testing.T) {

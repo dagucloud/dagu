@@ -105,6 +105,8 @@ context limit. Once aging starts, `llm.observation_keep_recent` controls how man
 recent tool results remain complete; it defaults to 20. A zero
 `max_context_tokens` disables proactive aging. A zero
 `observation_keep_recent` disables aging entirely, including overflow recovery.
+These context-management fields are valid only in a controller DAG's root
+`llm` configuration and MUST NOT be set on an individual step.
 
 ### Step constraints
 
@@ -215,11 +217,14 @@ conversation so provider tool-call protocols remain valid. Compacted results
 are persisted and MUST NOT expand again after suspension or retry.
 
 If observation aging is enabled and a provider rejects a decision because its
-context is too long, Dagu enables aging immediately, compacts old observations,
-and retries that decision once. The rejected request does not consume a
-controller turn or add an assistant message. If the rebuilt request also fails,
-the run fails with that error. No further overflow retries are made. When aging
-is disabled, a context-too-long response fails the run without a recovery retry.
+context is too long, Dagu enables aging immediately and replaces every tool
+result whose deterministic summary is smaller, including results normally
+protected by `llm.observation_keep_recent`. It retries the decision once only
+when that compaction changed the transcript. The rejected request does not
+consume a controller turn or add an assistant message. If nothing can be made
+smaller, or if the rebuilt request also fails, the run fails with that error. No
+further overflow retries are made. When aging is disabled, a context-too-long
+response fails the run without a recovery retry.
 
 ### Task status
 

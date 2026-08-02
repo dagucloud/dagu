@@ -74,7 +74,10 @@ func NewAPIError(provider string, statusCode int, message string) *APIError {
 }
 
 func classifyAPIError(statusCode int, body string) error {
-	if statusCode != 400 && statusCode != 413 && statusCode != 422 {
+	if statusCode == 413 {
+		return ErrContextTooLong
+	}
+	if statusCode != 400 && statusCode != 422 {
 		return nil
 	}
 

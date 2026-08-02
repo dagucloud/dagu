@@ -2534,7 +2534,7 @@ func buildStepLLM(ctx StepBuildContext, s *step, result *core.Step) error {
 				fmt.Errorf("max_tokens must be at least 1"))
 		}
 	}
-	if err := validateControllerLLMLimits(cfg); err != nil {
+	if err := validateControllerLLMLimits(cfg, false); err != nil {
 		return err
 	}
 
@@ -2552,29 +2552,26 @@ func buildStepLLM(ctx StepBuildContext, s *step, result *core.Step) error {
 	}
 
 	result.LLM = &core.LLMConfig{
-		Provider:              cfg.Provider,
-		Model:                 modelString,
-		Models:                models,
-		System:                cfg.System,
-		Temperature:           cfg.Temperature,
-		MaxTokens:             cfg.MaxTokens,
-		TopP:                  cfg.TopP,
-		BaseURL:               cfg.BaseURL,
-		APIKeyName:            cfg.APIKeyName,
-		Stream:                cfg.Stream,
-		Thinking:              thinking,
-		Tools:                 cfg.Tools,
-		MaxToolIterations:     cfg.MaxToolIterations,
-		MaxContextTokens:      cfg.MaxContextTokens,
-		ObservationMaxBytes:   cfg.ObservationMaxBytes,
-		ObservationKeepRecent: cfg.ObservationKeepRecent,
-		WebSearch:             buildWebSearchConfig(cfg.WebSearch),
+		Provider:          cfg.Provider,
+		Model:             modelString,
+		Models:            models,
+		System:            cfg.System,
+		Temperature:       cfg.Temperature,
+		MaxTokens:         cfg.MaxTokens,
+		TopP:              cfg.TopP,
+		BaseURL:           cfg.BaseURL,
+		APIKeyName:        cfg.APIKeyName,
+		Stream:            cfg.Stream,
+		Thinking:          thinking,
+		Tools:             cfg.Tools,
+		MaxToolIterations: cfg.MaxToolIterations,
+		WebSearch:         buildWebSearchConfig(cfg.WebSearch),
 	}
 
 	return nil
 }
 
-func validateControllerLLMLimits(cfg *llmConfig) error {
+func validateControllerLLMLimits(cfg *llmConfig, controllerRoot bool) error {
 	limits := []struct {
 		path  string
 		value *int
@@ -2584,7 +2581,14 @@ func validateControllerLLMLimits(cfg *llmConfig) error {
 		{path: "llm.observation_keep_recent", value: cfg.ObservationKeepRecent},
 	}
 	for _, limit := range limits {
-		if limit.value != nil && *limit.value < 0 {
+		if limit.value == nil {
+			continue
+		}
+		if !controllerRoot {
+			return core.NewValidationError(limit.path, *limit.value,
+				fmt.Errorf("field is only valid in a controller DAG's root llm configuration"))
+		}
+		if *limit.value < 0 {
 			return core.NewValidationError(limit.path, *limit.value,
 				fmt.Errorf("value must be non-negative"))
 		}

@@ -160,14 +160,15 @@ func (r *Runner) runControllerLoop(ctx context.Context, plan *Plan, progressCh c
 
 		decision, err := planner.Next(ctrlCtx, state)
 		if errors.Is(err, llmpkg.ErrContextTooLong) && observationKeepRecent > 0 {
-			state.EnableObservationAging()
-			compacted := state.CompactObservations(
-				observationKeepRecent, dag.ControllerObservationMaxBytes())
-			logger.Warn(ctrlCtx, "Controller context overflowed; retrying with aged observations",
-				slog.Int("compactedObservations", compacted))
-			decision, err = planner.Next(ctrlCtx, state)
-			if err != nil {
-				err = fmt.Errorf("controller decision failed after aging old observations: %w", err)
+			compacted := state.CompactAllObservations(dag.ControllerObservationMaxBytes())
+			if compacted > 0 {
+				state.EnableObservationAging()
+				logger.Warn(ctrlCtx, "Controller context overflowed; retrying with aged observations",
+					slog.Int("compactedObservations", compacted))
+				decision, err = planner.Next(ctrlCtx, state)
+				if err != nil {
+					err = fmt.Errorf("controller decision failed after aging observations: %w", err)
+				}
 			}
 		}
 		if err != nil {

@@ -387,6 +387,24 @@ tasks:
     description: done when beta ran
 `
 
+const controllerOverflowRecoveryDAG = `
+type: controller
+llm:
+  provider: local
+  model: test-model
+  base_url: %s
+steps:
+  - name: alpha
+    run: echo alpha
+  - name: beta
+    run: echo beta
+tasks:
+  - name: first
+    description: done when alpha ran
+  - name: second
+    description: done when beta ran
+`
+
 func TestControllerLoop_AgesObservationsAtPromptTokenThreshold(t *testing.T) {
 	t.Parallel()
 
@@ -416,7 +434,7 @@ func TestControllerLoop_AgesObservationsAtPromptTokenThreshold(t *testing.T) {
 func TestControllerLoop_RecoversOnceFromContextOverflow(t *testing.T) {
 	t.Parallel()
 
-	ch := setupController(t, controllerContextManagementDAG,
+	ch := setupController(t, controllerOverflowRecoveryDAG,
 		turn{tool: "alpha"},
 		turn{tool: "beta"},
 		turn{tool: controller.SetTaskStatusTool, args: map[string]any{
@@ -428,25 +446,41 @@ func TestControllerLoop_RecoversOnceFromContextOverflow(t *testing.T) {
 
 	require.Equal(t, core.Succeeded, ch.run(t))
 	assert.Equal(t, 5, ch.model.requestCount())
-	assert.Equal(t, "turn 1: alpha → succeeded", ch.model.observations()[0])
+	observations := ch.model.observations()
+	require.Len(t, observations, 3)
+	assert.Equal(t, "turn 1: alpha → succeeded", observations[0])
+	assert.Equal(t, "turn 2: beta → succeeded", observations[1])
 }
 
 func TestControllerLoop_FailsWhenCompactedRequestStillOverflows(t *testing.T) {
 	t.Parallel()
 
-	ch := setupController(t, controllerContextManagementDAG,
+	ch := setupController(t, controllerOverflowRecoveryDAG,
 		turn{tool: "alpha"},
 	)
-	ch.model.failContextOnRequests(1, 2)
+	ch.model.failContextOnRequests(2, 3)
 
 	require.Equal(t, core.Failed, ch.run(t))
-	assert.Equal(t, 2, ch.model.requestCount())
-	assert.ErrorContains(t, ch.runErr, "after aging old observations")
+	assert.Equal(t, 3, ch.model.requestCount())
+	assert.ErrorContains(t, ch.runErr, "after aging observations")
 
 	ctrl := ch.node(t, core.ControllerStepName)
 	restored, err := controller.LoadState(ctrl.State().ControllerState, ctrl.GetChatMessages(), ch.dag)
 	require.NoError(t, err)
 	assert.True(t, restored.ObservationAging)
+}
+
+func TestControllerLoop_DoesNotRetryUnchangedOverflowRequest(t *testing.T) {
+	t.Parallel()
+
+	ch := setupController(t, controllerOverflowRecoveryDAG,
+		turn{tool: "alpha"},
+	)
+	ch.model.failContextOnRequests(1)
+
+	require.Equal(t, core.Failed, ch.run(t))
+	assert.Equal(t, 1, ch.model.requestCount())
+	assert.ErrorIs(t, ch.runErr, llm.ErrContextTooLong)
 }
 
 const controllerContextManagementDisabledDAG = `

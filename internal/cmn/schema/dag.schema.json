@@ -5945,19 +5945,19 @@
           "type": "integer",
           "minimum": 0,
           "default": 200000,
-          "description": "Controller prompt-token threshold that activates deterministic aging of older observations. Set to zero to disable proactive aging."
+          "description": "Controller prompt-token threshold that activates deterministic aging of older observations. Only valid in a controller DAG's root llm configuration. Set to zero to disable proactive aging."
         },
         "observation_max_bytes": {
           "type": "integer",
           "minimum": 0,
           "default": 524288,
-          "description": "Maximum UTF-8 byte size of one controller-facing tool observation. Set to zero to disable the limit. The full step output remains stored on the step."
+          "description": "Maximum UTF-8 byte size of one controller-facing tool observation. Only valid in a controller DAG's root llm configuration. Set to zero to disable the limit. The full step output remains stored on the step."
         },
         "observation_keep_recent": {
           "type": "integer",
           "minimum": 0,
           "default": 20,
-          "description": "Number of recent controller tool observations kept in full after observation aging starts. Set to zero to disable observation aging."
+          "description": "Number of recent controller tool observations kept in full after observation aging starts. Only valid in a controller DAG's root llm configuration. Set to zero to disable observation aging."
         },
         "web_search": {
           "$ref": "#/definitions/webSearchConfig",

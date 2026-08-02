@@ -334,6 +334,48 @@ tasks:
 	assert.Zero(t, dag.ControllerObservationKeepRecent())
 }
 
+func TestControllerContextLimitsAreRestrictedToControllerRoot(t *testing.T) {
+	t.Parallel()
+
+	for _, field := range []string{
+		"max_context_tokens",
+		"observation_max_bytes",
+		"observation_keep_recent",
+	} {
+		t.Run("dag_"+field, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := spec.LoadYAML(t.Context(), []byte(`
+llm:
+  provider: anthropic
+  model: claude-opus-5
+  `+field+`: 1
+steps:
+  - name: a
+    run: echo a
+`))
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "controller DAG's root llm configuration")
+		})
+
+		t.Run("step_"+field, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := spec.LoadYAML(t.Context(), []byte(`
+steps:
+  - name: chat
+    type: chat
+    llm:
+      provider: anthropic
+      model: claude-opus-5
+      `+field+`: 1
+`))
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "controller DAG's root llm configuration")
+		})
+	}
+}
+
 func TestControllerObservationDefaults(t *testing.T) {
 	t.Parallel()
 
