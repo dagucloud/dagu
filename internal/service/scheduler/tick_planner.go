@@ -1477,14 +1477,23 @@ func (tp *TickPlanner) DispatchRun(ctx context.Context, run PlannedRun) {
 
 	switch tp.decideCalendarDispatch(ctx, run) {
 	case calendarDecisionSkip:
+		// A deliberate skip consumes the schedule slot: catchup watermarks
+		// advance and one-off schedules resolve, so the slot is not
+		// re-planned on the next tick.
 		if run.TriggerType == core.TriggerTypeCatchUp {
 			tp.advanceDAGWatermark(run.DAG.Name, run.ScheduledTime)
 		}
+		if run.Schedule.IsOneOff() {
+			if tp.markOneOffConsumed(run.DAG.Name, run.Fingerprint, run.ScheduledTime) {
+				tp.recomputeDAGProjection(ctx, run.DAG)
+				tp.Flush(ctx)
+			}
+		}
 		return
 	case calendarDecisionError:
-		// An evaluation failure must not consume the catchup slot: re-insert
-		// like a failed dispatch so the run replays once the calendar loads
-		// again.
+		// An evaluation failure must not consume the slot: catchup items are
+		// re-inserted like a failed dispatch, and one-off schedules stay
+		// pending, so the run replays once the calendar loads again.
 		if run.TriggerType == core.TriggerTypeCatchUp {
 			tp.reinsertCatchupItem(ctx, run)
 		}

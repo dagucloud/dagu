@@ -170,6 +170,52 @@ func TestTickPlanner_DispatchRun_CalendarGate(t *testing.T) {
 		assert.Zero(t, dispatched)
 	})
 
+	t.Run("OneOffSkipConsumesState", func(t *testing.T) {
+		t.Parallel()
+		store := &mockWatermarkStore{}
+		dispatched := 0
+		tp := NewTickPlanner(TickPlannerConfig{
+			WatermarkStore: store,
+			DecideCalendar: func(*core.CalendarConfig, time.Time) buscal.Outcome {
+				return buscal.Outcome{Skip: true, Reason: "holiday"}
+			},
+			Dispatch: func(context.Context, *core.DAG, string, core.TriggerType, time.Time) error {
+				dispatched++
+				return nil
+			},
+			Events: make(chan DAGChangeEvent, 1),
+			Clock:  func() time.Time { return scheduledTime },
+		})
+
+		schedule := mustOneOffSchedule(t, "2026-01-01T01:00:00Z")
+		dag := calendarDAG()
+		dag.Schedule = []core.Schedule{schedule}
+		store.state = &SchedulerState{
+			Version: SchedulerStateVersion,
+			DAGs: map[string]DAGWatermark{
+				dag.Name: {
+					OneOffs: map[string]OneOffScheduleState{
+						schedule.Fingerprint(): {
+							ScheduledTime: scheduledTime,
+							Status:        OneOffStatusPending,
+						},
+					},
+				},
+			},
+		}
+		require.NoError(t, tp.Init(context.Background(), []*core.DAG{dag}))
+
+		run, ok := tp.createPlannedRun(context.Background(), dag, schedule, scheduledTime, core.TriggerTypeScheduler)
+		require.True(t, ok)
+		tp.DispatchRun(context.Background(), run)
+
+		assert.Zero(t, dispatched)
+		state := store.lastSaved()
+		require.NotNil(t, state)
+		assert.Equal(t, OneOffStatusConsumed, state.DAGs[dag.Name].OneOffs[schedule.Fingerprint()].Status,
+			"a calendar-skipped one-off must resolve instead of re-planning every tick")
+	})
+
 	t.Run("StopScheduleBypassesCalendar", func(t *testing.T) {
 		t.Parallel()
 		stopped := 0
