@@ -1491,9 +1491,11 @@ func (tp *TickPlanner) DispatchRun(ctx context.Context, run PlannedRun) {
 		}
 		return
 	case calendarDecisionError:
-		// An evaluation failure must not consume the slot: catchup items are
-		// re-inserted like a failed dispatch, and one-off schedules stay
-		// pending, so the run replays once the calendar loads again.
+		// An evaluation failure must not consume a durable slot: catchup
+		// items are re-inserted like a failed dispatch and one-off schedules
+		// stay pending, so those replay once the calendar loads again. Live
+		// cron slots are not replayed; the error is surfaced in the
+		// scheduler log and the next cron slot evaluates normally.
 		if run.TriggerType == core.TriggerTypeCatchUp {
 			tp.reinsertCatchupItem(ctx, run)
 		}
@@ -1641,11 +1643,13 @@ const (
 )
 
 // decideCalendarDispatch evaluates the DAG's business calendar for a
-// scheduler-managed start run. Runs without a calendar config, and runs the
-// calendar feature does not apply to, always dispatch. Evaluation errors are
-// surfaced in the scheduler log.
+// scheduler-managed start or restart run. Restart schedules follow the
+// calendar because a restart of a stopped DAG launches a fresh run, which
+// must not fire on a non-runnable date. Stop schedules always dispatch, and
+// so do runs without a calendar config or runs the calendar feature does not
+// apply to. Evaluation errors are surfaced in the scheduler log.
 func (tp *TickPlanner) decideCalendarDispatch(ctx context.Context, run PlannedRun) calendarDecision {
-	if run.ScheduleType != ScheduleTypeStart ||
+	if (run.ScheduleType != ScheduleTypeStart && run.ScheduleType != ScheduleTypeRestart) ||
 		!isSchedulerManagedTriggerType(run.TriggerType) ||
 		run.DAG.Calendar == nil || tp.cfg.DecideCalendar == nil {
 		return calendarDecisionAllow

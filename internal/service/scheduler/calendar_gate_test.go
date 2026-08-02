@@ -236,4 +236,33 @@ func TestTickPlanner_DispatchRun_CalendarGate(t *testing.T) {
 		})
 		assert.Equal(t, 1, stopped)
 	})
+
+	t.Run("RestartScheduleGated", func(t *testing.T) {
+		t.Parallel()
+		restarted := 0
+		skip := true
+		tp := NewTickPlanner(TickPlannerConfig{
+			DecideCalendar: func(*core.CalendarConfig, time.Time) buscal.Outcome {
+				return buscal.Outcome{Skip: skip, Reason: "holiday"}
+			},
+			Restart: func(context.Context, *core.DAG, time.Time) error { restarted++; return nil },
+			Events:  make(chan DAGChangeEvent, 1),
+		})
+		require.NoError(t, tp.Init(context.Background(), nil))
+
+		restartRun := PlannedRun{
+			DAG:           calendarDAG(),
+			ScheduleType:  ScheduleTypeRestart,
+			ScheduledTime: scheduledTime,
+			TriggerType:   core.TriggerTypeScheduler,
+		}
+
+		// A restart launches a fresh run, so it follows the calendar.
+		tp.DispatchRun(context.Background(), restartRun)
+		assert.Zero(t, restarted)
+
+		skip = false
+		tp.DispatchRun(context.Background(), restartRun)
+		assert.Equal(t, 1, restarted)
+	})
 }

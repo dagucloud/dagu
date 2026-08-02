@@ -2648,6 +2648,48 @@ steps:
 		require.Equal(t, time.Hour, dag.RetryPolicy.MaxInterval)
 	})
 
+	t.Run("BaseConfigCalendarInherited", func(t *testing.T) {
+		t.Parallel()
+
+		base := createTempYAMLFile(t, `
+calendar:
+  name: corp
+  days: business-days
+`)
+		child := createTempYAMLFile(t, `
+steps:
+  - name: step1
+    run: echo "test"
+`)
+		dag, err := spec.Load(context.Background(), child, spec.WithBaseConfig(base))
+		require.NoError(t, err)
+		require.NotNil(t, dag.Calendar)
+		require.Equal(t, "corp", dag.Calendar.Name)
+		require.Equal(t, core.CalendarDayFilterBusinessDays, dag.Calendar.Days)
+	})
+
+	t.Run("BaseConfigCalendarReplacedWholesaleByChild", func(t *testing.T) {
+		t.Parallel()
+
+		base := createTempYAMLFile(t, `
+calendar:
+  name: corp
+  days: business-days
+`)
+		child := createTempYAMLFile(t, `
+calendar: jp-banking
+steps:
+  - name: step1
+    run: echo "test"
+`)
+		dag, err := spec.Load(context.Background(), child, spec.WithBaseConfig(base))
+		require.NoError(t, err)
+		require.NotNil(t, dag.Calendar)
+		require.Equal(t, "jp-banking", dag.Calendar.Name)
+		require.Equal(t, core.CalendarDayFilterNone, dag.Calendar.Days,
+			"the base calendar's days filter must not merge into the child's calendar")
+	})
+
 	t.Run("DAGRetryPolicyNormalization", func(t *testing.T) {
 		t.Parallel()
 

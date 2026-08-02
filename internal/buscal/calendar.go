@@ -87,11 +87,13 @@ func Parse(name string, data []byte) (*Calendar, error) {
 
 	holidays := make(map[string]bool, len(def.Holidays))
 	for _, holidayDate := range def.Holidays {
-		parsedDate, err := time.ParseInLocation(dateLayout, holidayDate, loc)
-		if err != nil {
+		// Validate without a location: in zones where midnight does not
+		// exist on a DST transition day, location-aware parsing normalizes
+		// the instant and can shift the date key by one day.
+		if _, err := time.Parse(dateLayout, holidayDate); err != nil {
 			return nil, fmt.Errorf("invalid holiday date %q in calendar %q: must be YYYY-MM-DD", holidayDate, name)
 		}
-		holidays[parsedDate.Format(dateLayout)] = true
+		holidays[holidayDate] = true
 	}
 
 	return &Calendar{

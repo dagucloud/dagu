@@ -1049,6 +1049,20 @@ func (*mergeTransformer) Transformer(
 		}
 	}
 
+	if typ == reflect.TypeFor[core.CalendarConfig]() {
+		// The calendar config is a single root object. Replace the inherited
+		// object wholesale so a child DAG's calendar fully overrides the base
+		// one instead of field-merging with it (a child without a days filter
+		// must not inherit the base calendar's filter).
+		return func(dst, src reflect.Value) error {
+			if dst.CanSet() {
+				dst.Set(src)
+			}
+
+			return nil
+		}
+	}
+
 	if typ == reflect.TypeFor[core.WebhookConfig]() {
 		// Webhook forwarding config is a single DAG-level object. Replace the
 		// inherited object wholesale so child DAGs can override or clear the
