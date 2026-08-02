@@ -1170,6 +1170,7 @@ func (a *Agent) nodeToModelNode(nodeData runtime.NodeData) *exec.Node {
 		OutputVariables:  nodeData.State.OutputVariables,
 		OutputsValue:     nodeData.State.OutputsValue,
 		StepOutputsValue: nodeData.State.StepOutputsValue,
+		ControllerState:  nodeData.State.ControllerState,
 	}
 }
 
