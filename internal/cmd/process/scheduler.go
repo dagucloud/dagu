@@ -81,6 +81,11 @@ func NewScheduler(cfg SchedulerConfig) (*scheduler.Scheduler, error) {
 	}
 	profileStore := file.NewProfileStore(ctx, cfg.Config)
 
+	var licenseChecker license.Checker
+	if cfg.LicenseManager != nil {
+		licenseChecker = cfg.LicenseManager.Checker()
+	}
+
 	sched, err := scheduler.New(
 		cfg.Config,
 		entryReader,
@@ -92,6 +97,9 @@ func NewScheduler(cfg SchedulerConfig) (*scheduler.Scheduler, error) {
 		coordinatorClient,
 		watermarkStore,
 		scheduler.WithDAGProfileResolver(scheduler.NewDAGProfileResolver(dagSettingsStore, profileStore)),
+		scheduler.WithBusinessCalendarLicensed(func() bool {
+			return license.HasActiveLicense(licenseChecker)
+		}),
 	)
 	if err != nil {
 		return nil, err

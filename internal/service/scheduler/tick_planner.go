@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/buscal"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
@@ -63,6 +64,10 @@ type GetLatestStatusFunc func(ctx context.Context, dag *core.DAG) (exec.DAGRunSt
 // IsSuspendedFunc checks whether a DAG is currently suspended.
 type IsSuspendedFunc func(ctx context.Context, dagName string) bool
 
+// CalendarDecideFunc evaluates a DAG's business calendar config for a
+// scheduled time.
+type CalendarDecideFunc func(cfg *core.CalendarConfig, t time.Time) buscal.Outcome
+
 // StopFunc stops a running DAG.
 type StopFunc func(ctx context.Context, dag *core.DAG) error
 
@@ -82,6 +87,7 @@ type RunExistsFunc func(ctx context.Context, dag *core.DAG, runID string) (bool,
 type TickPlannerConfig struct {
 	WatermarkStore  WatermarkStore
 	IsSuspended     IsSuspendedFunc
+	DecideCalendar  CalendarDecideFunc
 	GetLatestStatus GetLatestStatusFunc
 	IsRunning       IsRunningFunc
 	GenRunID        RunIDFunc
@@ -1469,6 +1475,13 @@ func (tp *TickPlanner) DispatchRun(ctx context.Context, run PlannedRun) {
 		return
 	}
 
+	if !tp.calendarAllowsDispatch(ctx, run) {
+		if run.TriggerType == core.TriggerTypeCatchUp {
+			tp.advanceDAGWatermark(run.DAG.Name, run.ScheduledTime)
+		}
+		return
+	}
+
 	if run.ScheduleType == ScheduleTypeStart && run.Schedule.IsOneOff() {
 		exists, err := tp.cfg.RunExists(ctx, run.DAG, run.RunID)
 		if err != nil {
@@ -1591,6 +1604,48 @@ func (tp *TickPlanner) DispatchRun(ctx context.Context, run PlannedRun) {
 			tp.recomputeDAGProjection(ctx, run.DAG)
 			tp.Flush(ctx)
 		}
+	}
+}
+
+// calendarAllowsDispatch evaluates the DAG's business calendar for a
+// scheduler-managed start run. Runs without a calendar config, and runs the
+// calendar feature does not apply to, always dispatch. A calendar that cannot
+// be evaluated blocks dispatch: firing a run on what may be a non-business day
+// is worse for calendar users than skipping it, and the error is surfaced in
+// the scheduler log.
+func (tp *TickPlanner) calendarAllowsDispatch(ctx context.Context, run PlannedRun) bool {
+	if run.ScheduleType != ScheduleTypeStart ||
+		!isSchedulerManagedTriggerType(run.TriggerType) ||
+		run.DAG.Calendar == nil || tp.cfg.DecideCalendar == nil {
+		return true
+	}
+
+	outcome := tp.cfg.DecideCalendar(run.DAG.Calendar, run.ScheduledTime)
+	switch {
+	case outcome.Unlicensed:
+		logger.Warn(ctx, "Business calendars require an active license; ignoring calendar config",
+			tag.DAG(run.DAG.Name),
+			slog.String("calendar", run.DAG.Calendar.Name),
+		)
+		return true
+	case outcome.Err != nil:
+		logger.Error(ctx, "Business calendar evaluation failed; skipping run dispatch",
+			tag.DAG(run.DAG.Name),
+			slog.String("calendar", run.DAG.Calendar.Name),
+			slog.String("scheduledTime", run.ScheduledTime.Format(time.RFC3339)),
+			tag.Error(outcome.Err),
+		)
+		return false
+	case outcome.Skip:
+		logger.Info(ctx, "Skipping run dispatch on business calendar",
+			tag.DAG(run.DAG.Name),
+			slog.String("calendar", run.DAG.Calendar.Name),
+			slog.String("scheduledTime", run.ScheduledTime.Format(time.RFC3339)),
+			slog.String("reason", outcome.Reason),
+		)
+		return false
+	default:
+		return true
 	}
 }
 

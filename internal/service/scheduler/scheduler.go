@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/buscal"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
@@ -66,7 +67,8 @@ type schedulerHooks struct {
 }
 
 type schedulerOptions struct {
-	profileResolver DAGProfileResolver
+	profileResolver  DAGProfileResolver
+	calendarLicensed func() bool
 }
 
 type Option func(*schedulerOptions)
@@ -74,6 +76,15 @@ type Option func(*schedulerOptions)
 func WithDAGProfileResolver(resolver DAGProfileResolver) Option {
 	return func(opts *schedulerOptions) {
 		opts.profileResolver = resolver
+	}
+}
+
+// WithBusinessCalendarLicensed wires the license gate for the business
+// calendar feature. Without it, DAG calendar configs are ignored with a
+// warning.
+func WithBusinessCalendarLicensed(licensed func() bool) Option {
+	return func(opts *schedulerOptions) {
+		opts.calendarLicensed = licensed
 	}
 }
 
@@ -208,9 +219,15 @@ func newScheduler(
 		}
 	}
 
+	calendarService := buscal.NewService(
+		buscal.NewStore(cfg.Paths.CalendarsDir),
+		options.calendarLicensed,
+	)
+
 	planner := NewTickPlanner(TickPlannerConfig{
 		WatermarkStore:  watermarkStore,
 		IsSuspended:     isSuspended,
+		DecideCalendar:  calendarService.Decide,
 		GetLatestStatus: drm.GetLatestStatus,
 		IsRunning: func(ctx context.Context, dag *core.DAG) (bool, error) {
 			count, err := procStore.CountAliveByDAGName(ctx, dag.ProcGroup(), dag.Name)
