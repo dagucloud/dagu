@@ -147,12 +147,6 @@
               "type": "string",
               "enum": ["business-days", "last-business-day", "first-business-day"],
               "description": "Restricts dispatch to a business-day pattern. \"business-days\" skips weekends and holidays. \"last-business-day\" and \"first-business-day\" dispatch only on that day of each month; pair them with a daily cron expression."
-            },
-            "on_holiday": {
-              "type": "string",
-              "enum": ["skip"],
-              "default": "skip",
-              "description": "Behavior when the scheduled date is not runnable under the calendar. Only \"skip\" is currently supported."
             }
           },
           "required": ["name"],
@@ -160,7 +154,7 @@
           "description": "Business calendar configuration for the schedule."
         }
       ],
-      "description": "Attaches a registered business calendar that gates scheduled dispatch (holiday skip and business-day filters). Without a days filter, only holidays are skipped; weekday selection is left to the cron expression. Manual triggers always run regardless of the calendar. Requires an active license."
+      "description": "Attaches a registered business calendar that gates scheduled dispatch. Scheduled runs on non-runnable dates are skipped. Without a days filter, only holidays are skipped; weekday selection is left to the cron expression. Manual triggers always run regardless of the calendar. Requires an active license."
     },
     "catchup_window": {
       "type": "string",

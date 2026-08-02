@@ -188,6 +188,11 @@ func (c *Calendar) Evaluate(t time.Time, filter core.CalendarDayFilter) Decision
 		if c.IsHoliday(t) {
 			return Decision{Skip: true, Reason: fmt.Sprintf("%s is a holiday in calendar %q", date, c.Name)}
 		}
+	default:
+		// Fail closed: an unrecognized filter (a newer config read by an
+		// older binary, or an unvalidated embed-API config) must not
+		// dispatch as if no filter were set.
+		return Decision{Skip: true, Reason: fmt.Sprintf("unknown day filter %q in calendar %q", string(filter), c.Name)}
 	}
 	return Decision{}
 }

@@ -133,4 +133,61 @@ func TestTickPlanner_DispatchRun_CalendarGate(t *testing.T) {
 		defer tp.mu.RUnlock()
 		assert.Equal(t, scheduledTime, tp.watermarkState.DAGs["calendar-dag"].LastScheduledTime)
 	})
+
+	t.Run("CatchupErrorReinsertsWithoutAdvancingWatermark", func(t *testing.T) {
+		t.Parallel()
+		dispatched := 0
+		tp := newPlanner(t, func(*core.CalendarConfig, time.Time) buscal.Outcome {
+			return buscal.Outcome{Skip: true, Err: errors.New("calendar unreadable")}
+		}, &dispatched)
+
+		tp.DispatchRun(context.Background(), plannedRun(calendarDAG(), core.TriggerTypeCatchUp))
+		assert.Zero(t, dispatched)
+
+		buf := tp.buffers["calendar-dag"]
+		if assert.NotNil(t, buf, "catchup item must be re-inserted for retry") {
+			item, ok := buf.Peek()
+			assert.True(t, ok)
+			assert.Equal(t, scheduledTime, item.ScheduledTime)
+		}
+
+		tp.mu.RLock()
+		defer tp.mu.RUnlock()
+		assert.True(t, tp.watermarkState.DAGs["calendar-dag"].LastScheduledTime.IsZero(),
+			"evaluation error must not consume the catchup slot")
+	})
+
+	t.Run("RetryTriggerGated", func(t *testing.T) {
+		t.Parallel()
+		dispatched := 0
+		tp := newPlanner(t, func(*core.CalendarConfig, time.Time) buscal.Outcome {
+			return buscal.Outcome{Skip: true, Reason: "holiday"}
+		}, &dispatched)
+
+		// Scheduler-managed retries follow the calendar, matching suspension
+		// behavior.
+		tp.DispatchRun(context.Background(), plannedRun(calendarDAG(), core.TriggerTypeRetry))
+		assert.Zero(t, dispatched)
+	})
+
+	t.Run("StopScheduleBypassesCalendar", func(t *testing.T) {
+		t.Parallel()
+		stopped := 0
+		tp := NewTickPlanner(TickPlannerConfig{
+			DecideCalendar: func(*core.CalendarConfig, time.Time) buscal.Outcome {
+				return buscal.Outcome{Skip: true, Reason: "holiday"}
+			},
+			Stop:   func(context.Context, *core.DAG) error { stopped++; return nil },
+			Events: make(chan DAGChangeEvent, 1),
+		})
+		require.NoError(t, tp.Init(context.Background(), nil))
+
+		tp.DispatchRun(context.Background(), PlannedRun{
+			DAG:           calendarDAG(),
+			ScheduleType:  ScheduleTypeStop,
+			ScheduledTime: scheduledTime,
+			TriggerType:   core.TriggerTypeScheduler,
+		})
+		assert.Equal(t, 1, stopped)
+	})
 }

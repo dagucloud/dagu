@@ -152,6 +152,13 @@ func TestEvaluate(t *testing.T) {
 		assert.True(t, calendar.Evaluate(date(t, "2026-01-01 01:00", tokyo), core.CalendarDayFilterFirstBusinessDay).Skip)
 		assert.True(t, calendar.Evaluate(date(t, "2026-01-06 01:00", tokyo), core.CalendarDayFilterFirstBusinessDay).Skip)
 	})
+
+	t.Run("UnknownFilterFailsClosed", func(t *testing.T) {
+		t.Parallel()
+		decision := calendar.Evaluate(date(t, "2026-01-05 01:00", tokyo), core.CalendarDayFilter("bogus"))
+		assert.True(t, decision.Skip)
+		assert.Contains(t, decision.Reason, "unknown day filter")
+	})
 }
 
 func TestBusinessDayEdges(t *testing.T) {

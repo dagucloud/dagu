@@ -71,7 +71,7 @@ type dag struct {
 	// Schedule is the cron schedule to run the DAG.
 	Schedule types.ScheduleValue `yaml:"schedule,omitempty"`
 	// Calendar attaches a registered business calendar to the schedule.
-	// Can be a string (calendar name) or an object with name/days/on_holiday.
+	// Can be a string (calendar name) or an object with name and days.
 	Calendar any `yaml:"calendar,omitempty"`
 	// SkipIfSuccessful is the flag to skip the DAG on schedule when it is
 	// executed manually before the schedule.
@@ -1599,8 +1599,6 @@ type calendarConfig struct {
 	Name string `yaml:"name,omitempty"`
 	// Days restricts dispatch to a business-day pattern.
 	Days string `yaml:"days,omitempty"`
-	// OnHoliday controls behavior on non-runnable dates.
-	OnHoliday string `yaml:"on_holiday,omitempty"`
 }
 
 func buildCalendar(_ BuildContext, d *dag) (*core.CalendarConfig, error) {
@@ -1637,21 +1635,16 @@ func buildCalendar(_ BuildContext, d *dag) (*core.CalendarConfig, error) {
 	}
 	if !core.ValidCalendarName(spec.Name) {
 		return nil, core.NewValidationError("calendar.name", spec.Name,
-			fmt.Errorf("calendar name may contain only letters, digits, '.', '_', and '-'"))
+			fmt.Errorf("calendar name must start with a letter or digit and may contain only letters, digits, '.', '_', and '-'"))
 	}
 	days, err := core.ParseCalendarDayFilter(spec.Days)
 	if err != nil {
 		return nil, core.NewValidationError("calendar.days", spec.Days, err)
 	}
-	onHoliday, err := core.ParseCalendarHolidayPolicy(spec.OnHoliday)
-	if err != nil {
-		return nil, core.NewValidationError("calendar.on_holiday", spec.OnHoliday, err)
-	}
 
 	return &core.CalendarConfig{
-		Name:      spec.Name,
-		Days:      days,
-		OnHoliday: onHoliday,
+		Name: spec.Name,
+		Days: days,
 	}, nil
 }
 

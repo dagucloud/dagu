@@ -4,6 +4,7 @@
 package spec
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -27,33 +28,25 @@ func TestBuildCalendar(t *testing.T) {
 			expected: nil,
 		},
 		{
-			name:  "StringForm",
-			input: "jp-banking",
-			expected: &core.CalendarConfig{
-				Name:      "jp-banking",
-				OnHoliday: core.CalendarHolidaySkip,
-			},
+			name:     "StringForm",
+			input:    "jp-banking",
+			expected: &core.CalendarConfig{Name: "jp-banking"},
 		},
 		{
 			name: "ObjectForm",
 			input: map[string]any{
-				"name":       "jp-banking",
-				"days":       "last-business-day",
-				"on_holiday": "skip",
+				"name": "jp-banking",
+				"days": "last-business-day",
 			},
 			expected: &core.CalendarConfig{
-				Name:      "jp-banking",
-				Days:      core.CalendarDayFilterLastBusinessDay,
-				OnHoliday: core.CalendarHolidaySkip,
+				Name: "jp-banking",
+				Days: core.CalendarDayFilterLastBusinessDay,
 			},
 		},
 		{
-			name:  "ObjectFormNameOnly",
-			input: map[string]any{"name": "ops"},
-			expected: &core.CalendarConfig{
-				Name:      "ops",
-				OnHoliday: core.CalendarHolidaySkip,
-			},
+			name:     "ObjectFormNameOnly",
+			input:    map[string]any{"name": "ops"},
+			expected: &core.CalendarConfig{Name: "ops"},
 		},
 		{
 			name:    "EmptyStringName",
@@ -68,17 +61,12 @@ func TestBuildCalendar(t *testing.T) {
 		{
 			name:    "InvalidName",
 			input:   "../escape",
-			wantErr: "calendar name may contain only",
+			wantErr: "calendar name must start with",
 		},
 		{
 			name:    "InvalidDays",
 			input:   map[string]any{"name": "ops", "days": "weekdays"},
 			wantErr: "invalid calendar day filter",
-		},
-		{
-			name:    "InvalidHolidayPolicy",
-			input:   map[string]any{"name": "ops", "on_holiday": "next-business-day"},
-			wantErr: "invalid calendar holiday policy",
 		},
 		{
 			name:    "UnknownKey",
@@ -109,4 +97,54 @@ func TestBuildCalendar(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestLoadYAMLCalendar(t *testing.T) {
+	t.Parallel()
+
+	t.Run("StringForm", func(t *testing.T) {
+		t.Parallel()
+		dag, err := LoadYAML(context.Background(), []byte(`
+schedule: "0 1 * * *"
+calendar: jp-banking
+steps:
+  - name: s1
+    command: "true"
+`))
+		require.NoError(t, err)
+		require.NotNil(t, dag.Calendar)
+		assert.Equal(t, "jp-banking", dag.Calendar.Name)
+		assert.Equal(t, core.CalendarDayFilterNone, dag.Calendar.Days)
+	})
+
+	t.Run("ObjectForm", func(t *testing.T) {
+		t.Parallel()
+		dag, err := LoadYAML(context.Background(), []byte(`
+schedule: "0 1 * * *"
+calendar:
+  name: jp-banking
+  days: business-days
+steps:
+  - name: s1
+    command: "true"
+`))
+		require.NoError(t, err)
+		require.NotNil(t, dag.Calendar)
+		assert.Equal(t, "jp-banking", dag.Calendar.Name)
+		assert.Equal(t, core.CalendarDayFilterBusinessDays, dag.Calendar.Days)
+	})
+
+	t.Run("InvalidDays", func(t *testing.T) {
+		t.Parallel()
+		_, err := LoadYAML(context.Background(), []byte(`
+calendar:
+  name: jp-banking
+  days: weekdays
+steps:
+  - name: s1
+    command: "true"
+`))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid calendar day filter")
+	})
 }

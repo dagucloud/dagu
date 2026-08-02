@@ -1475,11 +1475,21 @@ func (tp *TickPlanner) DispatchRun(ctx context.Context, run PlannedRun) {
 		return
 	}
 
-	if !tp.calendarAllowsDispatch(ctx, run) {
+	switch tp.decideCalendarDispatch(ctx, run) {
+	case calendarDecisionSkip:
 		if run.TriggerType == core.TriggerTypeCatchUp {
 			tp.advanceDAGWatermark(run.DAG.Name, run.ScheduledTime)
 		}
 		return
+	case calendarDecisionError:
+		// An evaluation failure must not consume the catchup slot: re-insert
+		// like a failed dispatch so the run replays once the calendar loads
+		// again.
+		if run.TriggerType == core.TriggerTypeCatchUp {
+			tp.reinsertCatchupItem(ctx, run)
+		}
+		return
+	case calendarDecisionAllow:
 	}
 
 	if run.ScheduleType == ScheduleTypeStart && run.Schedule.IsOneOff() {
@@ -1607,17 +1617,29 @@ func (tp *TickPlanner) DispatchRun(ctx context.Context, run PlannedRun) {
 	}
 }
 
-// calendarAllowsDispatch evaluates the DAG's business calendar for a
+// calendarDecision is the dispatch outcome of a business calendar check.
+type calendarDecision int
+
+const (
+	// calendarDecisionAllow dispatches the run normally.
+	calendarDecisionAllow calendarDecision = iota
+	// calendarDecisionSkip drops the run for this schedule slot.
+	calendarDecisionSkip
+	// calendarDecisionError blocks dispatch without consuming the slot: the
+	// calendar could not be evaluated, and firing a run on what may be a
+	// non-business day is worse for calendar users than deferring it.
+	calendarDecisionError
+)
+
+// decideCalendarDispatch evaluates the DAG's business calendar for a
 // scheduler-managed start run. Runs without a calendar config, and runs the
-// calendar feature does not apply to, always dispatch. A calendar that cannot
-// be evaluated blocks dispatch: firing a run on what may be a non-business day
-// is worse for calendar users than skipping it, and the error is surfaced in
-// the scheduler log.
-func (tp *TickPlanner) calendarAllowsDispatch(ctx context.Context, run PlannedRun) bool {
+// calendar feature does not apply to, always dispatch. Evaluation errors are
+// surfaced in the scheduler log.
+func (tp *TickPlanner) decideCalendarDispatch(ctx context.Context, run PlannedRun) calendarDecision {
 	if run.ScheduleType != ScheduleTypeStart ||
 		!isSchedulerManagedTriggerType(run.TriggerType) ||
 		run.DAG.Calendar == nil || tp.cfg.DecideCalendar == nil {
-		return true
+		return calendarDecisionAllow
 	}
 
 	outcome := tp.cfg.DecideCalendar(run.DAG.Calendar, run.ScheduledTime)
@@ -1627,15 +1649,15 @@ func (tp *TickPlanner) calendarAllowsDispatch(ctx context.Context, run PlannedRu
 			tag.DAG(run.DAG.Name),
 			slog.String("calendar", run.DAG.Calendar.Name),
 		)
-		return true
+		return calendarDecisionAllow
 	case outcome.Err != nil:
-		logger.Error(ctx, "Business calendar evaluation failed; skipping run dispatch",
+		logger.Error(ctx, "Business calendar evaluation failed; deferring run dispatch",
 			tag.DAG(run.DAG.Name),
 			slog.String("calendar", run.DAG.Calendar.Name),
 			slog.String("scheduledTime", run.ScheduledTime.Format(time.RFC3339)),
 			tag.Error(outcome.Err),
 		)
-		return false
+		return calendarDecisionError
 	case outcome.Skip:
 		logger.Info(ctx, "Skipping run dispatch on business calendar",
 			tag.DAG(run.DAG.Name),
@@ -1643,9 +1665,9 @@ func (tp *TickPlanner) calendarAllowsDispatch(ctx context.Context, run PlannedRu
 			slog.String("scheduledTime", run.ScheduledTime.Format(time.RFC3339)),
 			slog.String("reason", outcome.Reason),
 		)
-		return false
+		return calendarDecisionSkip
 	default:
-		return true
+		return calendarDecisionAllow
 	}
 }
 

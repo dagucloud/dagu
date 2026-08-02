@@ -419,11 +419,24 @@ worker:
 	assert.Zero(t, cfg.Worker.HealthPort)
 }
 
+func TestLoad_CalendarsDirOverride(t *testing.T) {
+	tempDir := t.TempDir()
+	configFile := filepath.Join(tempDir, "config.yaml")
+	customDir := filepath.Join(tempDir, "custom-calendars")
+	err := os.WriteFile(configFile, []byte("paths:\n  calendars_dir: "+customDir+"\n"), 0600)
+	require.NoError(t, err)
+
+	cfg := testLoad(t, WithConfigFile(configFile))
+
+	assert.Equal(t, customDir, cfg.Paths.CalendarsDir)
+}
+
 func TestLoad_WithAppHomeDir(t *testing.T) {
 	tempDir := t.TempDir()
 	cfg := testLoad(t, WithAppHomeDir(tempDir))
 
 	assert.Equal(t, filepath.Join(tempDir, "dags"), cfg.Paths.DAGsDir)
+	assert.Equal(t, filepath.Join(tempDir, "calendars"), cfg.Paths.CalendarsDir)
 	assert.Equal(t, filepath.Join(tempDir, "data"), cfg.Paths.DataDir)
 	assert.Equal(t, filepath.Join(tempDir, "logs"), cfg.Paths.LogDir)
 	assert.Equal(t, filepath.Join(tempDir, "data", "artifacts"), cfg.Paths.ArtifactDir)

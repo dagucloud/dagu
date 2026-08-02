@@ -1486,6 +1486,89 @@ steps:
 	}
 }
 
+func TestDAGSchemaCalendar(t *testing.T) {
+	t.Parallel()
+
+	resolved := mustResolveDAGSchema(t)
+
+	tests := []struct {
+		name    string
+		spec    string
+		wantErr string
+	}{
+		{
+			name: "ValidStringForm",
+			spec: `
+name: cal-dag
+calendar: jp-banking
+steps:
+  - run: echo hi
+`,
+		},
+		{
+			name: "ValidObjectForm",
+			spec: `
+name: cal-dag
+calendar:
+  name: jp-banking
+  days: last-business-day
+steps:
+  - run: echo hi
+`,
+		},
+		{
+			name: "RejectsMissingName",
+			spec: `
+name: cal-dag
+calendar:
+  days: business-days
+steps:
+  - run: echo hi
+`,
+			wantErr: "calendar",
+		},
+		{
+			name: "RejectsInvalidDays",
+			spec: `
+name: cal-dag
+calendar:
+  name: jp-banking
+  days: weekdays
+steps:
+  - run: echo hi
+`,
+			wantErr: "calendar",
+		},
+		{
+			name: "RejectsUnknownField",
+			spec: `
+name: cal-dag
+calendar:
+  name: jp-banking
+  shift: next
+steps:
+  - run: echo hi
+`,
+			wantErr: "calendar",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			doc := mustParseYAMLDocument(t, tt.spec)
+			err := resolved.Validate(doc)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}
+
 func TestDAGSchemaStepRetryPolicyRejectsUnknownField(t *testing.T) {
 	t.Parallel()
 
