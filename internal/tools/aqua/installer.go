@@ -149,6 +149,7 @@ func (i *Installer) installResolved(ctx context.Context, cfg *core.ToolConfig, o
 	if err != nil {
 		return nil, err
 	}
+	paths = applyDigestIsolation(paths, cfg)
 	if manifest, err := readyManifest(paths, platform, hash); err != nil {
 		return nil, err
 	} else if manifest != nil {
@@ -164,6 +165,14 @@ func (i *Installer) installResolved(ctx context.Context, cfg *core.ToolConfig, o
 		return nil, err
 	} else if manifest != nil {
 		return manifest, nil
+	}
+	if hasPackageDigests(cfg) {
+		// Digest-pinned toolsets install into a clean room: leftovers from an
+		// interrupted install could otherwise satisfy aqua's exists-check with
+		// bytes the recorded checksums no longer describe.
+		if err := os.RemoveAll(paths.EnvDir); err != nil {
+			return nil, fmt.Errorf("reset digest-pinned aqua env dir: %w", err)
+		}
 	}
 
 	// Tool caches live under the worker-local data dir and are owned by the
@@ -217,8 +226,14 @@ func (i *Installer) installResolved(ctx context.Context, cfg *core.ToolConfig, o
 	if err := installController.Install(ctx, i.logger, param); err != nil {
 		return nil, &registryResolutionError{err: fmt.Errorf("install aqua tools: %w", err)}
 	}
-	if err := verifyPackageDigests(paths.ChecksumFile, cfg.Packages); err != nil {
-		return nil, err
+	if hasPackageDigests(cfg) {
+		checksumIDs, err := i.packageChecksumIDs(ctx, cfg, param, paths, rt)
+		if err != nil {
+			return nil, &registryResolutionError{err: err}
+		}
+		if err := verifyPackageDigests(paths.ChecksumFile, cfg.Packages, checksumIDs); err != nil {
+			return nil, err
+		}
 	}
 
 	commandSets, err := i.packageCommands(ctx, cfg, param, paths, rt)
@@ -389,6 +404,87 @@ func (i *Installer) packageCommands(ctx context.Context, cfg *core.ToolConfig, p
 		commandSets[idx] = commands
 	}
 	return commandSets, nil
+}
+
+// applyDigestIsolation moves the aqua root under the toolset env dir when any
+// package declares a digest. Digest verification compares against checksums
+// recorded for this install, and aqua skips downloading packages that already
+// exist under the root; a shared root could therefore hold bytes the recorded
+// checksums do not describe.
+func applyDigestIsolation(paths tools.CacheLayout, cfg *core.ToolConfig) tools.CacheLayout {
+	if !hasPackageDigests(cfg) {
+		return paths
+	}
+	paths.RootDir = filepath.Join(paths.EnvDir, "root")
+	return paths
+}
+
+func hasPackageDigests(cfg *core.ToolConfig) bool {
+	for _, pkg := range cfg.Packages {
+		if strings.TrimSpace(pkg.Digest) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// packageChecksumIDs resolves the aqua checksum-file ID for every package that
+// declares a digest, keyed by package index. The ID identifies the artifact
+// aqua verified for the run platform.
+func (i *Installer) packageChecksumIDs(ctx context.Context, cfg *core.ToolConfig, param *aquaparam.Param, paths tools.CacheLayout, rt *aquaruntime.Runtime) (map[int]string, error) {
+	aquaCfg, err := i.readRenderedConfig(param, paths.ConfigFile)
+	if err != nil {
+		return nil, err
+	}
+	if len(aquaCfg.Packages) != len(cfg.Packages) {
+		return nil, fmt.Errorf("resolve aqua checksum IDs: rendered package count mismatch")
+	}
+
+	fs := afero.NewOsFs()
+	checksums, updateChecksum, err := aquachecksum.Open(i.logger, fs, paths.ConfigFile, param.ChecksumEnabled(aquaCfg))
+	if err != nil {
+		return nil, fmt.Errorf("read aqua checksum file: %w", err)
+	}
+	defer updateChecksum()
+
+	httpDownloader := aquadownload.NewHTTPDownloader(i.logger, i.httpClient)
+	registryDownloader := aquadownload.NewGitHubContentFileDownloader(aquagithub.New(ctx, i.logger), httpDownloader)
+	registryInstaller := aquaregistry.New(param, registryDownloader, fs, rt, nil, nil)
+	registryContents := make(map[string]*aquaregistryconfig.Config, len(aquaCfg.Registries))
+
+	ids := make(map[int]string, len(cfg.Packages))
+	for idx, pkg := range cfg.Packages {
+		if strings.TrimSpace(pkg.Digest) == "" {
+			continue
+		}
+		aquaPkg := aquaCfg.Packages[idx]
+		registryContent, err := i.registryContent(ctx, registryInstaller, registryContents, aquaCfg, aquaPkg, paths.ConfigFile, checksums)
+		if err != nil {
+			return nil, err
+		}
+		pkgInfo := registryContent.Package(i.logger, aquaPkg.Name)
+		if pkgInfo == nil {
+			return nil, fmt.Errorf("resolve aqua checksum ID for %s@%s: package is not found in registry %q", pkg.Package, pkg.Version, aquaPkg.Registry)
+		}
+		pkgInfo, err = pkgInfo.Override(i.logger, aquaPkg.Version, rt)
+		if err != nil {
+			return nil, fmt.Errorf("resolve aqua checksum ID for %s@%s: apply version/runtime overrides: %w", pkg.Package, pkg.Version, err)
+		}
+		composite := &aquaparam.Package{
+			Package:     aquaPkg,
+			PackageInfo: pkgInfo,
+			Registry:    aquaCfg.Registries[aquaPkg.Registry],
+		}
+		id, err := composite.ChecksumID(rt)
+		if err != nil {
+			return nil, fmt.Errorf("resolve aqua checksum ID for %s@%s: %w", pkg.Package, pkg.Version, err)
+		}
+		if id == "" {
+			return nil, fmt.Errorf("digest pinning is not supported for %s@%s: package type %q records no artifact checksum", pkg.Package, pkg.Version, pkgInfo.Type)
+		}
+		ids[idx] = id
+	}
+	return ids, nil
 }
 
 func (i *Installer) readRenderedConfig(param *aquaparam.Param, configFile string) (*aquaconfig.Config, error) {

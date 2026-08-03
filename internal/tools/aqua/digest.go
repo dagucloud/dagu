@@ -23,16 +23,19 @@ type checksumFileContent struct {
 }
 
 // verifyPackageDigests compares declared package digests against the artifact
-// checksums aqua recorded during the install. Packages without a digest are
+// checksums aqua recorded during the install. checksumIDs maps a package index
+// to the aqua checksum-file ID resolved for the run platform; every package
+// that declares a digest must have an entry. Packages without a digest are
 // skipped.
-func verifyPackageDigests(checksumFile string, packages []core.ToolPackage) error {
-	declared := 0
+func verifyPackageDigests(checksumFile string, packages []core.ToolPackage, checksumIDs map[int]string) error {
+	declared := false
 	for _, pkg := range packages {
 		if strings.TrimSpace(pkg.Digest) != "" {
-			declared++
+			declared = true
+			break
 		}
 	}
-	if declared == 0 {
+	if !declared {
 		return nil
 	}
 
@@ -45,27 +48,28 @@ func verifyPackageDigests(checksumFile string, packages []core.ToolPackage) erro
 		return fmt.Errorf("parse aqua checksum file for digest verification: %w", err)
 	}
 
-	for _, pkg := range packages {
+	for idx, pkg := range packages {
 		digest := strings.TrimSpace(pkg.Digest)
 		if digest == "" {
 			continue
 		}
-		if err := verifyPackageDigest(content.Checksums, pkg, digest); err != nil {
+		id, ok := checksumIDs[idx]
+		if !ok || id == "" {
+			return fmt.Errorf("digest verification for %s@%s: no checksum ID was resolved", pkg.Package, pkg.Version)
+		}
+		if err := verifyPackageDigest(content.Checksums, pkg, digest, id); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func verifyPackageDigest(entries []checksumFileEntry, pkg core.ToolPackage, digest string) error {
+func verifyPackageDigest(entries []checksumFileEntry, pkg core.ToolPackage, digest, id string) error {
 	want, _ := strings.CutPrefix(digest, "sha256:")
-	marker := "/" + pkg.Package + "/" + pkg.Version + "/"
-	matched := 0
 	for _, entry := range entries {
-		if strings.HasPrefix(entry.ID, "registries/") || !strings.Contains(entry.ID, marker) {
+		if entry.ID != id {
 			continue
 		}
-		matched++
 		if !strings.EqualFold(strings.TrimSpace(entry.Algorithm), "sha256") {
 			return fmt.Errorf("digest verification for %s@%s: recorded checksum uses algorithm %q, expected sha256",
 				pkg.Package, pkg.Version, entry.Algorithm)
@@ -74,10 +78,7 @@ func verifyPackageDigest(entries []checksumFileEntry, pkg core.ToolPackage, dige
 			return fmt.Errorf("digest mismatch for %s@%s: declared sha256:%s, downloaded artifact is sha256:%s (%s)",
 				pkg.Package, pkg.Version, want, strings.ToLower(strings.TrimSpace(entry.Checksum)), entry.ID)
 		}
+		return nil
 	}
-	if matched == 0 {
-		return fmt.Errorf("digest verification for %s@%s: no recorded artifact checksum matched; digest pinning requires a package type whose artifact checksum aqua records (e.g. github_release)",
-			pkg.Package, pkg.Version)
-	}
-	return nil
+	return fmt.Errorf("digest verification for %s@%s: no recorded checksum entry has ID %q", pkg.Package, pkg.Version, id)
 }
