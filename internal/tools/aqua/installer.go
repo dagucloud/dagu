@@ -113,7 +113,7 @@ func (i *Installer) Install(ctx context.Context, cfg *core.ToolConfig, opts tool
 		return manifest, nil
 	}
 	err = describeInstallError(resolvedCfg, err)
-	if resolved.Source == registryRefSourceLive {
+	if resolved.Source == registryRefSourceLive || ctx.Err() != nil || !isRegistryResolutionError(err) {
 		return nil, err
 	}
 
@@ -189,7 +189,7 @@ func (i *Installer) installResolved(ctx context.Context, cfg *core.ToolConfig, o
 		return nil, err
 	}
 	if err := i.ensureRegistriesInstalled(ctx, param, paths, rt, aquaCfg); err != nil {
-		return nil, err
+		return nil, &registryResolutionError{err: err}
 	}
 	unlockProxy, err := i.lockColdProxyInstall(ctx, paths, rt)
 	if err != nil {
@@ -215,7 +215,7 @@ func (i *Installer) installResolved(ctx context.Context, cfg *core.ToolConfig, o
 		return nil, fmt.Errorf("initialize aqua install controller: %w", err)
 	}
 	if err := installController.Install(ctx, i.logger, param); err != nil {
-		return nil, fmt.Errorf("install aqua tools: %w", err)
+		return nil, &registryResolutionError{err: fmt.Errorf("install aqua tools: %w", err)}
 	}
 	if err := verifyPackageDigests(paths.ChecksumFile, cfg.Packages); err != nil {
 		return nil, err
@@ -223,7 +223,7 @@ func (i *Installer) installResolved(ctx context.Context, cfg *core.ToolConfig, o
 
 	commandSets, err := i.packageCommands(ctx, cfg, param, paths, rt)
 	if err != nil {
-		return nil, err
+		return nil, &registryResolutionError{err: err}
 	}
 	whichController := aquacontroller.InitializeWhichCommandController(ctx, i.logger, param, i.httpClient, rt)
 	manifest := &tools.Manifest{
@@ -611,6 +611,24 @@ func (i *Installer) lockResource(ctx context.Context, paths tools.CacheLayout, k
 func lockHash(value string) string {
 	sum := sha256.Sum256([]byte(value))
 	return hex.EncodeToString(sum[:])
+}
+
+// registryResolutionError marks install failures that a newer standard
+// registry release could plausibly fix: registry download, package install,
+// and package metadata resolution. Local failures (cache setup, locks, file
+// writes, digest mismatches) are never marked and are returned directly
+// without a registry refresh.
+type registryResolutionError struct {
+	err error
+}
+
+func (e *registryResolutionError) Error() string { return e.err.Error() }
+
+func (e *registryResolutionError) Unwrap() error { return e.err }
+
+func isRegistryResolutionError(err error) bool {
+	var resolutionErr *registryResolutionError
+	return errors.As(err, &resolutionErr)
 }
 
 func describeInstallError(cfg *core.ToolConfig, err error) error {

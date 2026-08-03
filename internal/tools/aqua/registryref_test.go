@@ -7,6 +7,8 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -130,6 +132,64 @@ func TestResolveStandardRegistryRefFallsBackToBootstrap(t *testing.T) {
 	assert.Equal(t, registryRefSourceBootstrap, resolved.Source)
 	assert.Equal(t, core.DefaultAquaStandardRegistryRef, resolved.SHA)
 	assert.Empty(t, resolved.Tag)
+}
+
+func seedFreshRefCache(t *testing.T, installer *Installer, opts tools.InstallOptions) {
+	t.Helper()
+	installer.writeLatestRefCache(installer.latestRefCachePath(opts), latestRegistryRef{
+		Tag:       "v4.999.0",
+		SHA:       testLatestSHA,
+		FetchedAt: installer.now(),
+	})
+}
+
+func TestInstallDoesNotRefreshRegistryOnLocalFailure(t *testing.T) {
+	t.Parallel()
+
+	calls := 0
+	server := newLatestRefServer(t, &calls)
+
+	// A file where the env tree lives makes the install fail locally before
+	// any registry or package work starts, while the ref cache stays writable.
+	toolsDir := filepath.Join(t.TempDir(), "tools")
+	require.NoError(t, os.MkdirAll(filepath.Join(toolsDir, "aqua"), 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(toolsDir, "aqua", "envs"), []byte("not a dir"), 0o600))
+
+	installer := New()
+	installer.githubAPIBase = server.URL
+	opts := tools.InstallOptions{ToolsDir: toolsDir}
+	seedFreshRefCache(t, installer, opts)
+	callsAfterSeed := calls
+
+	_, err := installer.Install(context.Background(), &core.ToolConfig{
+		Packages: []core.ToolPackage{{Package: "jqlang/jq", Version: "jq-1.7.1"}},
+	}, opts)
+
+	require.Error(t, err)
+	assert.False(t, isRegistryResolutionError(err))
+	assert.Equal(t, callsAfterSeed, calls, "a local failure must not trigger a registry refresh")
+}
+
+func TestInstallDoesNotRefreshRegistryOnCanceledContext(t *testing.T) {
+	t.Parallel()
+
+	calls := 0
+	server := newLatestRefServer(t, &calls)
+
+	installer := New()
+	installer.githubAPIBase = server.URL
+	opts := tools.InstallOptions{ToolsDir: filepath.Join(t.TempDir(), "tools")}
+	seedFreshRefCache(t, installer, opts)
+	callsAfterSeed := calls
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := installer.Install(ctx, &core.ToolConfig{
+		Packages: []core.ToolPackage{{Package: "jqlang/jq", Version: "jq-1.7.1"}},
+	}, opts)
+
+	require.Error(t, err)
+	assert.Equal(t, callsAfterSeed, calls, "a canceled context must not trigger a registry refresh")
 }
 
 func TestReadLatestRefCacheRejectsStaleAndInvalid(t *testing.T) {
