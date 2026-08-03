@@ -22,8 +22,9 @@ RUN if ! command -v g++ >/dev/null; then \
       rm -rf /var/lib/apt/lists/*; \
     fi
 WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
 COPY . .
-RUN go mod download && rm -rf frontend/assets
 COPY --from=ui-builder /app/dist/ ./internal/service/frontend/assets/
 COPY schemas/dag.schema.json ./internal/service/frontend/assets/
 RUN CGO_ENABLED=1 GOOS=$TARGETOS GOARCH=$TARGETARCH \
