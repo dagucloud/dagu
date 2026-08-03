@@ -45,17 +45,15 @@ func TestInstallerInstallIntegration(t *testing.T) {
 	require.FileExists(t, manifest.Commands["jq"].Path)
 }
 
-func TestInstallerFallbackToLatestRegistryIntegration(t *testing.T) {
+func TestInstallerLatestRegistryIntegration(t *testing.T) {
 	if os.Getenv("DAGU_AQUA_INTEGRATION") != "1" {
 		t.Skip("set DAGU_AQUA_INTEGRATION=1 to run aqua network integration test")
 	}
 
-	installer := New()
-	// A snapshot that predates the earendil-works/pi registry entry, so the
-	// pinned attempt misses and resolution falls back to the latest release.
-	installer.standardRegistryRef = "5e2f56743d66abe9dfc7c56d35086511b7dc92d8"
-
-	manifest, err := installer.Install(context.Background(), &core.ToolConfig{
+	// earendil-works/pi entered the aqua registry on 2026-05-11, after the
+	// compiled-in bootstrap ref; installing it proves resolution runs against
+	// the latest registry release rather than the bootstrap snapshot.
+	manifest, err := New().Install(context.Background(), &core.ToolConfig{
 		Provider: "aqua",
 		Packages: []core.ToolPackage{{
 			Package: "earendil-works/pi",

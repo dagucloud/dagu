@@ -49,9 +49,8 @@ type Installer struct {
 	logger     *slog.Logger
 	httpClient *http.Client
 
-	githubAPIBase       string
-	standardRegistryRef string
-	now                 func() time.Time
+	githubAPIBase string
+	now           func() time.Time
 }
 
 // Option configures an Installer.
@@ -74,11 +73,10 @@ func WithHTTPClient(client *http.Client) Option {
 // New returns an aqua-backed Dagu tool installer.
 func New(opts ...Option) *Installer {
 	installer := &Installer{
-		logger:              slog.New(slog.NewTextHandler(io.Discard, nil)),
-		httpClient:          http.DefaultClient,
-		githubAPIBase:       defaultGitHubAPIBase,
-		standardRegistryRef: core.DefaultAquaStandardRegistryRef,
-		now:                 time.Now,
+		logger:        slog.New(slog.NewTextHandler(io.Discard, nil)),
+		httpClient:    http.DefaultClient,
+		githubAPIBase: defaultGitHubAPIBase,
+		now:           time.Now,
 	}
 	for _, opt := range opts {
 		opt(installer)
@@ -88,10 +86,9 @@ func New(opts ...Option) *Installer {
 
 // Install installs declared tools and returns resolved command paths.
 //
-// Resolution runs against the pinned standard registry snapshot first. When
-// that snapshot cannot provide the declared packages and the DAG neither pins
-// tools.registry.ref nor sets tools.registry.policy to "pinned", resolution is
-// retried once against the latest aqua standard registry release.
+// The standard registry resolves to the latest aqua-registry release, cached
+// on disk for a day, unless the DAG pins tools.registry.ref. When the latest
+// release cannot be resolved, the most recent cached release is used.
 func (i *Installer) Install(ctx context.Context, cfg *core.ToolConfig, opts tools.InstallOptions) (*tools.Manifest, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("tools config is required")
@@ -100,39 +97,41 @@ func (i *Installer) Install(ctx context.Context, cfg *core.ToolConfig, opts tool
 		return nil, fmt.Errorf("unsupported tools provider %q", cfg.Provider)
 	}
 
-	pinned := effectiveToolConfigWithRef(cfg, i.standardRegistryRef)
-	manifest, pinnedErr := i.installResolved(ctx, pinned, opts)
-	if pinnedErr == nil {
+	if !standardRefDefaulted(cfg) {
+		effective := effectiveToolConfig(cfg)
+		manifest, err := i.installResolved(ctx, effective, opts)
+		if err != nil {
+			return nil, describeInstallError(effective, err)
+		}
 		return manifest, nil
 	}
-	pinnedErr = describeInstallError(pinned, pinnedErr)
-	if !fallbackToLatestEnabled(cfg) {
-		if standardRefDefaulted(cfg) {
-			return nil, fmt.Errorf(
-				"%w (tools.registry.policy is %q; packages newer than the pinned registry snapshot need tools.registry.ref or a newer Dagu)",
-				pinnedErr, core.ToolRegistryPolicyPinned,
-			)
-		}
-		return nil, pinnedErr
+
+	resolved := i.resolveStandardRegistryRef(ctx, opts, false)
+	resolvedCfg := effectiveToolConfigWithRef(cfg, resolved.SHA)
+	manifest, err := i.installResolved(ctx, resolvedCfg, opts)
+	if err == nil {
+		return manifest, nil
 	}
-	latest, resolveErr := i.latestStandardRegistryRef(ctx, opts)
-	if resolveErr != nil {
-		return nil, errors.Join(pinnedErr, fmt.Errorf("resolve latest aqua standard registry release: %w", resolveErr))
+	err = describeInstallError(resolvedCfg, err)
+	if resolved.Source == registryRefSourceLive {
+		return nil, err
 	}
-	if latest.SHA == pinned.Registry.Ref {
-		return nil, pinnedErr
+
+	// The failed attempt used a cached or bootstrap ref; a newer registry
+	// release may already carry the missing package, so refresh and retry once.
+	refreshed := i.resolveStandardRegistryRef(ctx, opts, true)
+	if refreshed.Source != registryRefSourceLive || refreshed.SHA == resolved.SHA {
+		return nil, err
 	}
 	logger.Info(ctx, "Retrying DAG tools with the latest aqua registry release",
-		slog.String("pinned", shortRef(pinned.Registry.Ref)),
-		slog.String("latest", latest.Tag),
-		slog.String("latestRef", shortRef(latest.SHA)))
-	fallback := effectiveToolConfigWithRef(cfg, latest.SHA)
-	manifest, fallbackErr := i.installResolved(ctx, fallback, opts)
-	if fallbackErr != nil {
-		return nil, errors.Join(pinnedErr, describeInstallError(fallback, fallbackErr))
+		slog.String("previous", shortRef(resolved.SHA)),
+		slog.String("latest", refreshed.Tag),
+		slog.String("latestRef", shortRef(refreshed.SHA)))
+	refreshedCfg := effectiveToolConfigWithRef(cfg, refreshed.SHA)
+	manifest, retryErr := i.installResolved(ctx, refreshedCfg, opts)
+	if retryErr != nil {
+		return nil, errors.Join(err, describeInstallError(refreshedCfg, retryErr))
 	}
-	logger.Info(ctx, "DAG tools resolved with the latest aqua registry release",
-		slog.String("registry", latest.Tag))
 	return manifest, nil
 }
 

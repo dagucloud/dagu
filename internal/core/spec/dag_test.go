@@ -104,13 +104,13 @@ steps:
 	assert.Empty(t, dag.Tools.Packages[1].Commands)
 }
 
-func TestLoadDAGToolsRegistryPolicyPinned(t *testing.T) {
+func TestLoadDAGToolsStandardRegistryLeavesRefUnpinned(t *testing.T) {
 	t.Parallel()
 
 	dag, err := LoadYAML(context.Background(), []byte(`
 tools:
   registry:
-    policy: PINNED
+    type: standard
   packages:
     - jqlang/jq@jq-1.7.1
 steps:
@@ -123,48 +123,6 @@ steps:
 	require.NotNil(t, dag.Tools.Registry)
 	assert.Equal(t, "standard", dag.Tools.Registry.Type)
 	assert.Empty(t, dag.Tools.Registry.Ref)
-	assert.Equal(t, core.ToolRegistryPolicyPinned, dag.Tools.Registry.Policy)
-}
-
-func TestLoadDAGToolsRejectsUnknownRegistryPolicy(t *testing.T) {
-	t.Parallel()
-
-	_, err := LoadYAML(context.Background(), []byte(`
-tools:
-  registry:
-    policy: sometimes
-  packages:
-    - jqlang/jq@jq-1.7.1
-steps:
-  - id: check
-    run: jq --version
-`))
-
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), `unsupported tools registry policy "sometimes"`)
-}
-
-func TestLoadDAGToolsRejectsPolicyForGitHubContentRegistry(t *testing.T) {
-	t.Parallel()
-
-	_, err := LoadYAML(context.Background(), []byte(`
-tools:
-  registry:
-    type: github_content
-    repo_owner: example
-    repo_name: aqua-registry
-    path: registry.yaml
-    ref: 9f73f3c0b6a3b2f6f8f2db3c77d8f2f79e420f5a
-    policy: pinned
-  packages:
-    - jqlang/jq@jq-1.7.1
-steps:
-  - id: check
-    run: jq --version
-`))
-
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "registry.policy is only supported for the standard registry")
 }
 
 func TestLoadDAGToolsPackagesAcceptMixedShorthandAndObject(t *testing.T) {

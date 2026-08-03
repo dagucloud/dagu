@@ -125,24 +125,6 @@ func TestStandardRefDefaulted(t *testing.T) {
 	}}))
 }
 
-func TestFallbackToLatestEnabled(t *testing.T) {
-	t.Parallel()
-
-	assert.True(t, fallbackToLatestEnabled(&core.ToolConfig{}))
-	assert.True(t, fallbackToLatestEnabled(&core.ToolConfig{Registry: &core.ToolRegistry{
-		Type: "standard", Policy: core.ToolRegistryPolicyFallback,
-	}}))
-	assert.False(t, fallbackToLatestEnabled(&core.ToolConfig{Registry: &core.ToolRegistry{
-		Type: "standard", Policy: core.ToolRegistryPolicyPinned,
-	}}))
-	assert.False(t, fallbackToLatestEnabled(&core.ToolConfig{Registry: &core.ToolRegistry{
-		Type: "standard", Ref: "v4.233.0",
-	}}))
-	assert.False(t, fallbackToLatestEnabled(&core.ToolConfig{Registry: &core.ToolRegistry{
-		Type: "github_content", RepoOwner: "example", RepoName: "aqua-registry", Ref: "abc", Path: "registry.yaml",
-	}}))
-}
-
 func TestEffectiveToolConfigWithRef(t *testing.T) {
 	t.Parallel()
 

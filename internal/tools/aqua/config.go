@@ -69,18 +69,6 @@ func standardRefDefaulted(cfg *core.ToolConfig) bool {
 	return strings.TrimSpace(cfg.Registry.Ref) == ""
 }
 
-// fallbackToLatestEnabled reports whether a failed resolution against the
-// pinned standard registry snapshot may be retried with the latest release.
-func fallbackToLatestEnabled(cfg *core.ToolConfig) bool {
-	if !standardRefDefaulted(cfg) {
-		return false
-	}
-	if cfg == nil || cfg.Registry == nil {
-		return true
-	}
-	return !strings.EqualFold(strings.TrimSpace(cfg.Registry.Policy), core.ToolRegistryPolicyPinned)
-}
-
 type configFile struct {
 	Checksum   checksumEntry   `yaml:"checksum"`
 	Registries []registryEntry `yaml:"registries"`

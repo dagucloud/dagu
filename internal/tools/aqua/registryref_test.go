@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/tools"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -35,7 +36,16 @@ func newLatestRefServer(t *testing.T, calls *int) *httptest.Server {
 	return server
 }
 
-func TestLatestStandardRegistryRefResolvesAndCaches(t *testing.T) {
+func newFailingRefServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+func TestResolveStandardRegistryRefResolvesAndCaches(t *testing.T) {
 	t.Parallel()
 
 	calls := 0
@@ -47,25 +57,25 @@ func TestLatestStandardRegistryRefResolvesAndCaches(t *testing.T) {
 	installer.now = func() time.Time { return base }
 	opts := tools.InstallOptions{ToolsDir: t.TempDir()}
 
-	ref, err := installer.latestStandardRegistryRef(context.Background(), opts)
-	require.NoError(t, err)
-	assert.Equal(t, "v4.999.0", ref.Tag)
-	assert.Equal(t, testLatestSHA, ref.SHA)
+	resolved := installer.resolveStandardRegistryRef(context.Background(), opts, false)
+	assert.Equal(t, registryRefSourceLive, resolved.Source)
+	assert.Equal(t, "v4.999.0", resolved.Tag)
+	assert.Equal(t, testLatestSHA, resolved.SHA)
 	callsAfterFirst := calls
 	require.Positive(t, callsAfterFirst)
 
-	cached, err := installer.latestStandardRegistryRef(context.Background(), opts)
-	require.NoError(t, err)
-	assert.Equal(t, ref, cached)
+	cached := installer.resolveStandardRegistryRef(context.Background(), opts, false)
+	assert.Equal(t, registryRefSourceCache, cached.Source)
+	assert.Equal(t, resolved.SHA, cached.SHA)
 	assert.Equal(t, callsAfterFirst, calls)
 
 	installer.now = func() time.Time { return base.Add(latestRefCacheTTL + time.Hour) }
-	_, err = installer.latestStandardRegistryRef(context.Background(), opts)
-	require.NoError(t, err)
+	expired := installer.resolveStandardRegistryRef(context.Background(), opts, false)
+	assert.Equal(t, registryRefSourceLive, expired.Source)
 	assert.Greater(t, calls, callsAfterFirst)
 }
 
-func TestLatestStandardRegistryRefWithoutToolsDirSkipsCache(t *testing.T) {
+func TestResolveStandardRegistryRefForceRefreshSkipsFreshCache(t *testing.T) {
 	t.Parallel()
 
 	calls := 0
@@ -73,14 +83,53 @@ func TestLatestStandardRegistryRefWithoutToolsDirSkipsCache(t *testing.T) {
 
 	installer := New()
 	installer.githubAPIBase = server.URL
+	opts := tools.InstallOptions{ToolsDir: t.TempDir()}
 
-	ref, err := installer.latestStandardRegistryRef(context.Background(), tools.InstallOptions{})
-	require.NoError(t, err)
-	assert.Equal(t, testLatestSHA, ref.SHA)
+	first := installer.resolveStandardRegistryRef(context.Background(), opts, false)
+	require.Equal(t, registryRefSourceLive, first.Source)
+	callsAfterFirst := calls
 
-	_, err = installer.latestStandardRegistryRef(context.Background(), tools.InstallOptions{})
-	require.NoError(t, err)
-	assert.Equal(t, 4, calls)
+	refreshed := installer.resolveStandardRegistryRef(context.Background(), opts, true)
+	assert.Equal(t, registryRefSourceLive, refreshed.Source)
+	assert.Greater(t, calls, callsAfterFirst)
+}
+
+func TestResolveStandardRegistryRefFallsBackToStaleCache(t *testing.T) {
+	t.Parallel()
+
+	base := time.Date(2026, 8, 3, 0, 0, 0, 0, time.UTC)
+	opts := tools.InstallOptions{ToolsDir: t.TempDir()}
+
+	stale := New()
+	stale.now = func() time.Time { return base }
+	stale.writeLatestRefCache(stale.latestRefCachePath(opts), latestRegistryRef{
+		Tag:       "v4.900.0",
+		SHA:       testLatestSHA,
+		FetchedAt: base.Add(-48 * time.Hour),
+	})
+
+	server := newFailingRefServer(t)
+	installer := New()
+	installer.githubAPIBase = server.URL
+	installer.now = func() time.Time { return base }
+
+	resolved := installer.resolveStandardRegistryRef(context.Background(), opts, false)
+	assert.Equal(t, registryRefSourceStaleCache, resolved.Source)
+	assert.Equal(t, "v4.900.0", resolved.Tag)
+	assert.Equal(t, testLatestSHA, resolved.SHA)
+}
+
+func TestResolveStandardRegistryRefFallsBackToBootstrap(t *testing.T) {
+	t.Parallel()
+
+	server := newFailingRefServer(t)
+	installer := New()
+	installer.githubAPIBase = server.URL
+
+	resolved := installer.resolveStandardRegistryRef(context.Background(), tools.InstallOptions{ToolsDir: t.TempDir()}, false)
+	assert.Equal(t, registryRefSourceBootstrap, resolved.Source)
+	assert.Equal(t, core.DefaultAquaStandardRegistryRef, resolved.SHA)
+	assert.Empty(t, resolved.Tag)
 }
 
 func TestReadLatestRefCacheRejectsStaleAndInvalid(t *testing.T) {
@@ -105,9 +154,14 @@ func TestReadLatestRefCacheRejectsStaleAndInvalid(t *testing.T) {
 	}
 	_, ok := readLatestRefCache(writeCase(t, stale), now)
 	assert.False(t, ok)
+	if cached, ok := readLatestRefCacheAnyAge(writeCase(t, stale)); assert.True(t, ok) {
+		assert.Equal(t, stale.SHA, cached.SHA)
+	}
 	_, ok = readLatestRefCache(writeCase(t, future), now)
 	assert.False(t, ok)
 	_, ok = readLatestRefCache(writeCase(t, badSHA), now)
+	assert.False(t, ok)
+	_, ok = readLatestRefCacheAnyAge(writeCase(t, badSHA))
 	assert.False(t, ok)
 	_, ok = readLatestRefCache("", now)
 	assert.False(t, ok)

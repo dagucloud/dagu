@@ -8,12 +8,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/tools"
 )
 
@@ -32,14 +35,54 @@ type latestRegistryRef struct {
 	FetchedAt time.Time `json:"fetchedAt"`
 }
 
-// latestStandardRegistryRef resolves the newest aqua standard registry release
-// tag and its commit SHA. Results are cached on disk for latestRefCacheTTL so
-// repeated runs stay off the GitHub API.
-func (i *Installer) latestStandardRegistryRef(ctx context.Context, opts tools.InstallOptions) (latestRegistryRef, error) {
+type registryRefSource int
+
+const (
+	registryRefSourceCache registryRefSource = iota
+	registryRefSourceLive
+	registryRefSourceStaleCache
+	registryRefSourceBootstrap
+)
+
+type resolvedRegistryRef struct {
+	latestRegistryRef
+	Source registryRefSource
+}
+
+// resolveStandardRegistryRef returns the standard registry ref to use when the
+// DAG does not pin one: the latest aqua-registry release, served from a fresh
+// disk cache when available. When the latest release cannot be resolved, a
+// previously cached ref of any age is used, then the compiled-in bootstrap
+// ref, so resolution never fails.
+func (i *Installer) resolveStandardRegistryRef(ctx context.Context, opts tools.InstallOptions, forceRefresh bool) resolvedRegistryRef {
 	cachePath := i.latestRefCachePath(opts)
-	if cached, ok := readLatestRefCache(cachePath, i.now()); ok {
-		return cached, nil
+	if !forceRefresh {
+		if cached, ok := readLatestRefCache(cachePath, i.now()); ok {
+			return resolvedRegistryRef{cached, registryRefSourceCache}
+		}
 	}
+
+	ref, err := i.fetchLatestRegistryRef(ctx)
+	if err == nil {
+		i.writeLatestRefCache(cachePath, ref)
+		return resolvedRegistryRef{ref, registryRefSourceLive}
+	}
+
+	if cached, ok := readLatestRefCacheAnyAge(cachePath); ok {
+		logger.Info(ctx, "Using the cached aqua registry release; latest release resolution failed",
+			slog.String("registry", cached.Tag), slog.Any("err", err))
+		return resolvedRegistryRef{cached, registryRefSourceStaleCache}
+	}
+
+	logger.Info(ctx, "Using the bootstrap aqua registry ref; latest release resolution failed",
+		slog.Any("err", err))
+	return resolvedRegistryRef{
+		latestRegistryRef{SHA: core.DefaultAquaStandardRegistryRef},
+		registryRefSourceBootstrap,
+	}
+}
+
+func (i *Installer) fetchLatestRegistryRef(ctx context.Context) (latestRegistryRef, error) {
 	tag, err := i.fetchLatestRegistryTag(ctx)
 	if err != nil {
 		return latestRegistryRef{}, err
@@ -48,9 +91,7 @@ func (i *Installer) latestStandardRegistryRef(ctx context.Context, opts tools.In
 	if err != nil {
 		return latestRegistryRef{}, err
 	}
-	ref := latestRegistryRef{Tag: tag, SHA: sha, FetchedAt: i.now()}
-	i.writeLatestRefCache(cachePath, ref)
-	return ref, nil
+	return latestRegistryRef{Tag: tag, SHA: sha, FetchedAt: i.now()}, nil
 }
 
 func (i *Installer) latestRefCachePath(opts tools.InstallOptions) string {
@@ -62,6 +103,17 @@ func (i *Installer) latestRefCachePath(opts tools.InstallOptions) string {
 }
 
 func readLatestRefCache(path string, now time.Time) (latestRegistryRef, bool) {
+	cached, ok := readLatestRefCacheAnyAge(path)
+	if !ok {
+		return latestRegistryRef{}, false
+	}
+	if cached.FetchedAt.IsZero() || now.Before(cached.FetchedAt) || now.Sub(cached.FetchedAt) > latestRefCacheTTL {
+		return latestRegistryRef{}, false
+	}
+	return cached, true
+}
+
+func readLatestRefCacheAnyAge(path string) (latestRegistryRef, bool) {
 	if path == "" {
 		return latestRegistryRef{}, false
 	}
@@ -74,9 +126,6 @@ func readLatestRefCache(path string, now time.Time) (latestRegistryRef, bool) {
 		return latestRegistryRef{}, false
 	}
 	if cached.Tag == "" || !isCommitSHA(cached.SHA) {
-		return latestRegistryRef{}, false
-	}
-	if cached.FetchedAt.IsZero() || now.Before(cached.FetchedAt) || now.Sub(cached.FetchedAt) > latestRefCacheTTL {
 		return latestRegistryRef{}, false
 	}
 	return cached, true
