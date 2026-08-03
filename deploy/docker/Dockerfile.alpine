@@ -1,40 +1,47 @@
 # syntax=docker/dockerfile:1.4
 # Stage 1: UI Builder
-FROM --platform=$BUILDPLATFORM node:24-alpine AS ui-builder
+FROM --platform=$BUILDPLATFORM node:26-alpine AS ui-builder
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
 RUN rm -f /usr/local/bin/yarn /usr/local/bin/yarnpkg && \
     npm install -g corepack@latest && corepack enable
 
 WORKDIR /app
+COPY ui/package.json ui/pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
 COPY ui/ ./
-RUN rm -rf node_modules; \
-  pnpm install --frozen-lockfile; \
-  pnpm build
+RUN pnpm build
 
 # Stage 2: Go Builder
-FROM --platform=$TARGETPLATFORM golang:1.26-alpine AS go-builder
+FROM --platform=$TARGETPLATFORM golang:1.26 AS go-builder
 ARG LDFLAGS
 ARG TARGETOS
 ARG TARGETARCH
+RUN if ! command -v g++ >/dev/null; then \
+      apt-get update && \
+      apt-get install -y --no-install-recommends g++ && \
+      rm -rf /var/lib/apt/lists/*; \
+    fi
 WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
 COPY . .
-RUN go mod download && rm -rf frontend/assets
 COPY --from=ui-builder /app/dist/ ./internal/service/frontend/assets/
-RUN GOOS=$TARGETOS GOARCH=$TARGETARCH go build -ldflags="${LDFLAGS}" -o ./bin/dagu ./cmd
+COPY schemas/dag.schema.json ./internal/service/frontend/assets/
+RUN CGO_ENABLED=1 GOOS=$TARGETOS GOARCH=$TARGETARCH \
+    go build -tags netgo,osusergo -ldflags="${LDFLAGS} -linkmode=external -extldflags=-static" -o ./bin/dagu ./cmd
 
 # Stage 3: Final Image
-FROM --platform=$TARGETPLATFORM alpine:3.22.1
+FROM --platform=$TARGETPLATFORM alpine:3.24
 ARG USER="dagu"
 ARG USER_UID=1000
 ARG USER_GID=$USER_UID
 ARG DAGU_HOME="/var/lib/dagu"
 
 # Install common tools
-RUN apk update && \
-    apk add jq tzdata sudo shadow bash tini && \
-    ln -sf /sbin/tini /usr/local/bin/tini && \
-    rm -rf /var/cache/apk/*
+RUN apk upgrade --no-cache && \
+    apk add --no-cache jq tzdata sudo shadow bash tini && \
+    ln -sf /sbin/tini /usr/local/bin/tini
 
 COPY --from=go-builder /app/bin/dagu /usr/local/bin/
 COPY ./entrypoint.sh /entrypoint.sh
