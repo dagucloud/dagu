@@ -144,6 +144,7 @@ func newNotificationMonitor(
 	notificationService := notificationservice.New(
 		store,
 		dagStore,
+		notificationservice.WithPublicURL(cfg.Server.PublicURL),
 	)
 	stateFile := file.NotificationMonitorStateFile(cfg)
 	return chatbridge.NewNotificationMonitor(
