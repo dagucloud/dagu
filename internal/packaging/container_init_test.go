@@ -131,6 +131,27 @@ func TestDockerComposeDAGMountsStayWritable(t *testing.T) {
 	}
 }
 
+func TestDeployDockerfilesStayInSyncWithRoot(t *testing.T) {
+	t.Parallel()
+
+	root := repoRoot(t)
+	pairs := [][2]string{
+		{"Dockerfile.alpine", "deploy/docker/Dockerfile.alpine"},
+		{"Dockerfile.dev", "deploy/docker/Dockerfile.dev"},
+	}
+
+	for _, pair := range pairs {
+		t.Run(pair[0], func(t *testing.T) {
+			t.Parallel()
+
+			rootContent := readFile(t, filepath.Join(root, pair[0]))
+			deployContent := readFile(t, filepath.Join(root, pair[1]))
+			require.Equal(t, rootContent, deployContent,
+				"%s and %s must be identical; update both when changing either", pair[0], pair[1])
+		})
+	}
+}
+
 func repoRoot(t *testing.T) string {
 	t.Helper()
 
