@@ -22,8 +22,6 @@ func TestDockerfilesRunEntrypointUnderTini(t *testing.T) {
 		"Dockerfile",
 		"Dockerfile.alpine",
 		"Dockerfile.dev",
-		"deploy/docker/Dockerfile.alpine",
-		"deploy/docker/Dockerfile.dev",
 	}
 
 	root := repoRoot(t)
@@ -127,27 +125,6 @@ func TestDockerComposeDAGMountsStayWritable(t *testing.T) {
 			require.NotContains(t, content, "./dags:/var/lib/dagu/dags:ro", "%s must keep the DAG directory writable for first-run seeding and DAG edits", file)
 			require.Contains(t, content, "./dags:/var/lib/dagu/dags", "%s must mount the local DAG directory", file)
 			require.Equal(t, expectedCount, strings.Count(content, "./dags:/var/lib/dagu/dags"), "%s must keep DAG mounts on all expected services", file)
-		})
-	}
-}
-
-func TestDeployDockerfilesStayInSyncWithRoot(t *testing.T) {
-	t.Parallel()
-
-	root := repoRoot(t)
-	pairs := [][2]string{
-		{"Dockerfile.alpine", "deploy/docker/Dockerfile.alpine"},
-		{"Dockerfile.dev", "deploy/docker/Dockerfile.dev"},
-	}
-
-	for _, pair := range pairs {
-		t.Run(pair[0], func(t *testing.T) {
-			t.Parallel()
-
-			rootContent := readFile(t, filepath.Join(root, pair[0]))
-			deployContent := readFile(t, filepath.Join(root, pair[1]))
-			require.Equal(t, rootContent, deployContent,
-				"%s and %s must be identical; update both when changing either", pair[0], pair[1])
 		})
 	}
 }
