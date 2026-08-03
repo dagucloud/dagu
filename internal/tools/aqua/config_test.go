@@ -113,6 +113,58 @@ func TestRenderConfigAcceptsPackageCommitSHA(t *testing.T) {
 	assert.Equal(t, "d04f2422c8a17569c14e84da0fae252d9529826b", parsed.Packages[0].Version)
 }
 
+func TestStandardRefDefaulted(t *testing.T) {
+	t.Parallel()
+
+	assert.True(t, standardRefDefaulted(nil))
+	assert.True(t, standardRefDefaulted(&core.ToolConfig{}))
+	assert.True(t, standardRefDefaulted(&core.ToolConfig{Registry: &core.ToolRegistry{Type: "standard"}}))
+	assert.False(t, standardRefDefaulted(&core.ToolConfig{Registry: &core.ToolRegistry{Type: "standard", Ref: "v4.233.0"}}))
+	assert.False(t, standardRefDefaulted(&core.ToolConfig{Registry: &core.ToolRegistry{
+		Type: "github_content", RepoOwner: "example", RepoName: "aqua-registry", Ref: "abc", Path: "registry.yaml",
+	}}))
+}
+
+func TestFallbackToLatestEnabled(t *testing.T) {
+	t.Parallel()
+
+	assert.True(t, fallbackToLatestEnabled(&core.ToolConfig{}))
+	assert.True(t, fallbackToLatestEnabled(&core.ToolConfig{Registry: &core.ToolRegistry{
+		Type: "standard", Policy: core.ToolRegistryPolicyFallback,
+	}}))
+	assert.False(t, fallbackToLatestEnabled(&core.ToolConfig{Registry: &core.ToolRegistry{
+		Type: "standard", Policy: core.ToolRegistryPolicyPinned,
+	}}))
+	assert.False(t, fallbackToLatestEnabled(&core.ToolConfig{Registry: &core.ToolRegistry{
+		Type: "standard", Ref: "v4.233.0",
+	}}))
+	assert.False(t, fallbackToLatestEnabled(&core.ToolConfig{Registry: &core.ToolRegistry{
+		Type: "github_content", RepoOwner: "example", RepoName: "aqua-registry", Ref: "abc", Path: "registry.yaml",
+	}}))
+}
+
+func TestEffectiveToolConfigWithRef(t *testing.T) {
+	t.Parallel()
+
+	base := &core.ToolConfig{Packages: []core.ToolPackage{{Package: "jqlang/jq", Version: "jq-1.7.1"}}}
+
+	defaulted := effectiveToolConfigWithRef(base, "1111111111111111111111111111111111111111")
+	require.NotNil(t, defaulted.Registry)
+	assert.Equal(t, "1111111111111111111111111111111111111111", defaulted.Registry.Ref)
+
+	unset := effectiveToolConfigWithRef(base, "")
+	require.NotNil(t, unset.Registry)
+	assert.Equal(t, core.DefaultAquaStandardRegistryRef, unset.Registry.Ref)
+
+	pinnedCfg := &core.ToolConfig{
+		Registry: &core.ToolRegistry{Type: "standard", Ref: "v4.233.0"},
+		Packages: base.Packages,
+	}
+	pinned := effectiveToolConfigWithRef(pinnedCfg, "1111111111111111111111111111111111111111")
+	require.NotNil(t, pinned.Registry)
+	assert.Equal(t, "v4.233.0", pinned.Registry.Ref)
+}
+
 func TestAquaParamEnforcesChecksums(t *testing.T) {
 	t.Parallel()
 

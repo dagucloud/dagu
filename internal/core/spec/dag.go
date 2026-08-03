@@ -478,6 +478,7 @@ type toolRegistry struct {
 	RepoName  string `yaml:"repo_name,omitempty"`
 	Ref       string `yaml:"ref,omitempty"`
 	Path      string `yaml:"path,omitempty"`
+	Policy    string `yaml:"policy,omitempty"`
 }
 
 type toolPackage struct {
@@ -2868,34 +2869,39 @@ func buildTools(_ BuildContext, d *dag) (*core.ToolConfig, error) {
 
 func buildToolRegistry(registry *toolRegistry) (*core.ToolRegistry, error) {
 	if registry == nil {
-		return &core.ToolRegistry{
-			Name: "standard",
-			Type: "standard",
-			Ref:  core.DefaultAquaStandardRegistryRef,
-		}, nil
+		return nil, nil
 	}
 
 	name := strings.TrimSpace(registry.Name)
 	typ := strings.TrimSpace(registry.Type)
 	ref := strings.TrimSpace(registry.Ref)
+	policy := strings.ToLower(strings.TrimSpace(registry.Policy))
 	if typ == "" {
 		typ = "standard"
 	}
 	if name == "" {
 		name = "standard"
 	}
+	switch policy {
+	case "", core.ToolRegistryPolicyPinned, core.ToolRegistryPolicyFallback:
+	default:
+		return nil, fmt.Errorf("unsupported tools registry policy %q", registry.Policy)
+	}
 
 	switch typ {
 	case "standard":
-		if ref == "" {
-			ref = core.DefaultAquaStandardRegistryRef
-		}
+		// The ref stays empty when the DAG does not pin one; the installer
+		// resolves the effective standard registry ref at install time.
 		return &core.ToolRegistry{
-			Name: name,
-			Type: typ,
-			Ref:  ref,
+			Name:   name,
+			Type:   typ,
+			Ref:    ref,
+			Policy: policy,
 		}, nil
 	case "github_content":
+		if policy != "" {
+			return nil, fmt.Errorf("registry.policy is only supported for the standard registry")
+		}
 		if ref == "" {
 			return nil, fmt.Errorf("registry.ref is required")
 		}

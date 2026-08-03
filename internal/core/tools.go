@@ -5,8 +5,18 @@ package core
 
 const (
 	// DefaultAquaStandardRegistryRef is the aqua standard registry commit Dagu
-	// uses when a DAG does not specify tools.registry.
-	DefaultAquaStandardRegistryRef = "5e2f56743d66abe9dfc7c56d35086511b7dc92d8"
+	// uses when a DAG does not pin tools.registry.ref.
+	// aqua-registry v4.547.0
+	DefaultAquaStandardRegistryRef = "080d723b75cd0ea7c2b2059bf6266d3ab39aa792"
+
+	// ToolRegistryPolicyPinned restricts tool resolution to the pinned standard
+	// registry snapshot; no newer registry release is tried on failure.
+	ToolRegistryPolicyPinned = "pinned"
+
+	// ToolRegistryPolicyFallback names the default resolution behavior: when
+	// the pinned standard registry snapshot cannot resolve the declared
+	// packages, resolution is retried once against the latest registry release.
+	ToolRegistryPolicyFallback = "fallback"
 )
 
 // ToolConfig declares external CLI tools required by a DAG run.
@@ -24,6 +34,10 @@ type ToolRegistry struct {
 	RepoName  string `json:"repoName,omitempty"`
 	Ref       string `json:"ref,omitempty"`
 	Path      string `json:"path,omitempty"`
+	// Policy selects how the standard registry ref is resolved when the DAG
+	// does not pin one: ToolRegistryPolicyFallback (default) or
+	// ToolRegistryPolicyPinned.
+	Policy string `json:"policy,omitempty"`
 }
 
 // ToolPackage declares one aqua package and optional command names Dagu should expose.

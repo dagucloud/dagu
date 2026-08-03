@@ -41,6 +41,46 @@ func effectiveToolConfig(cfg *core.ToolConfig) *core.ToolConfig {
 	return &effective
 }
 
+// effectiveToolConfigWithRef returns cfg with defaults applied and, when cfg
+// leaves the standard registry ref unpinned, the given ref injected.
+func effectiveToolConfigWithRef(cfg *core.ToolConfig, standardRef string) *core.ToolConfig {
+	effective := effectiveToolConfig(cfg)
+	if effective == nil || effective.Registry == nil || strings.TrimSpace(standardRef) == "" {
+		return effective
+	}
+	if !standardRefDefaulted(cfg) {
+		return effective
+	}
+	registry := *effective.Registry
+	registry.Ref = standardRef
+	effective.Registry = &registry
+	return effective
+}
+
+// standardRefDefaulted reports whether cfg leaves the standard registry ref
+// unpinned, so the installer chooses the effective ref.
+func standardRefDefaulted(cfg *core.ToolConfig) bool {
+	if cfg == nil || cfg.Registry == nil {
+		return true
+	}
+	if emptyDefault(strings.TrimSpace(cfg.Registry.Type), "standard") != "standard" {
+		return false
+	}
+	return strings.TrimSpace(cfg.Registry.Ref) == ""
+}
+
+// fallbackToLatestEnabled reports whether a failed resolution against the
+// pinned standard registry snapshot may be retried with the latest release.
+func fallbackToLatestEnabled(cfg *core.ToolConfig) bool {
+	if !standardRefDefaulted(cfg) {
+		return false
+	}
+	if cfg == nil || cfg.Registry == nil {
+		return true
+	}
+	return !strings.EqualFold(strings.TrimSpace(cfg.Registry.Policy), core.ToolRegistryPolicyPinned)
+}
+
 type configFile struct {
 	Checksum   checksumEntry   `yaml:"checksum"`
 	Registries []registryEntry `yaml:"registries"`

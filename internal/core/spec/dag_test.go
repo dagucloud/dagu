@@ -69,11 +69,7 @@ steps:
 	require.NoError(t, err)
 	require.NotNil(t, dag.Tools)
 	assert.Equal(t, "aqua", dag.Tools.Provider)
-	require.NotNil(t, dag.Tools.Registry)
-	assert.Equal(t, "standard", dag.Tools.Registry.Name)
-	assert.Equal(t, "standard", dag.Tools.Registry.Type)
-	assert.Equal(t, core.DefaultAquaStandardRegistryRef, dag.Tools.Registry.Ref)
-	assert.Regexp(t, `^[0-9a-f]{40}$`, dag.Tools.Registry.Ref)
+	require.Nil(t, dag.Tools.Registry)
 	require.Len(t, dag.Tools.Packages, 1)
 	assert.Equal(t, "jq", dag.Tools.Packages[0].Name)
 	assert.Equal(t, "jqlang/jq", dag.Tools.Packages[0].Package)
@@ -96,8 +92,7 @@ steps:
 	require.NoError(t, err)
 	require.NotNil(t, dag.Tools)
 	assert.Equal(t, "aqua", dag.Tools.Provider)
-	require.NotNil(t, dag.Tools.Registry)
-	assert.Equal(t, core.DefaultAquaStandardRegistryRef, dag.Tools.Registry.Ref)
+	require.Nil(t, dag.Tools.Registry)
 	require.Len(t, dag.Tools.Packages, 2)
 	assert.Equal(t, "jq", dag.Tools.Packages[0].Name)
 	assert.Equal(t, "jqlang/jq", dag.Tools.Packages[0].Package)
@@ -107,6 +102,69 @@ steps:
 	assert.Equal(t, "google/pprof", dag.Tools.Packages[1].Package)
 	assert.Equal(t, "d04f2422c8a17569c14e84da0fae252d9529826b", dag.Tools.Packages[1].Version)
 	assert.Empty(t, dag.Tools.Packages[1].Commands)
+}
+
+func TestLoadDAGToolsRegistryPolicyPinned(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+tools:
+  registry:
+    policy: PINNED
+  packages:
+    - jqlang/jq@jq-1.7.1
+steps:
+  - id: check
+    run: jq --version
+`))
+
+	require.NoError(t, err)
+	require.NotNil(t, dag.Tools)
+	require.NotNil(t, dag.Tools.Registry)
+	assert.Equal(t, "standard", dag.Tools.Registry.Type)
+	assert.Empty(t, dag.Tools.Registry.Ref)
+	assert.Equal(t, core.ToolRegistryPolicyPinned, dag.Tools.Registry.Policy)
+}
+
+func TestLoadDAGToolsRejectsUnknownRegistryPolicy(t *testing.T) {
+	t.Parallel()
+
+	_, err := LoadYAML(context.Background(), []byte(`
+tools:
+  registry:
+    policy: sometimes
+  packages:
+    - jqlang/jq@jq-1.7.1
+steps:
+  - id: check
+    run: jq --version
+`))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `unsupported tools registry policy "sometimes"`)
+}
+
+func TestLoadDAGToolsRejectsPolicyForGitHubContentRegistry(t *testing.T) {
+	t.Parallel()
+
+	_, err := LoadYAML(context.Background(), []byte(`
+tools:
+  registry:
+    type: github_content
+    repo_owner: example
+    repo_name: aqua-registry
+    path: registry.yaml
+    ref: 9f73f3c0b6a3b2f6f8f2db3c77d8f2f79e420f5a
+    policy: pinned
+  packages:
+    - jqlang/jq@jq-1.7.1
+steps:
+  - id: check
+    run: jq --version
+`))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "registry.policy is only supported for the standard registry")
 }
 
 func TestLoadDAGToolsPackagesAcceptMixedShorthandAndObject(t *testing.T) {
@@ -191,6 +249,8 @@ steps:
 	require.Len(t, dag.Tools.Packages, 1)
 	assert.Equal(t, "jq", dag.Tools.Packages[0].Name)
 	assert.Empty(t, dag.Tools.Packages[0].Commands)
+	require.NotNil(t, dag.Tools.Registry)
+	assert.Equal(t, "v4.233.0", dag.Tools.Registry.Ref)
 }
 
 func TestLoadDAGToolsRejectsMissingGitHubContentRegistryRef(t *testing.T) {

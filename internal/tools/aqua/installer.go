@@ -31,6 +31,7 @@ import (
 	aquainstallpackage "github.com/aquaproj/aqua/v2/pkg/installpackage"
 	aquaruntime "github.com/aquaproj/aqua/v2/pkg/runtime"
 	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/tools"
 	"github.com/spf13/afero"
@@ -47,6 +48,10 @@ const (
 type Installer struct {
 	logger     *slog.Logger
 	httpClient *http.Client
+
+	githubAPIBase       string
+	standardRegistryRef string
+	now                 func() time.Time
 }
 
 // Option configures an Installer.
@@ -69,8 +74,11 @@ func WithHTTPClient(client *http.Client) Option {
 // New returns an aqua-backed Dagu tool installer.
 func New(opts ...Option) *Installer {
 	installer := &Installer{
-		logger:     slog.New(slog.NewTextHandler(io.Discard, nil)),
-		httpClient: http.DefaultClient,
+		logger:              slog.New(slog.NewTextHandler(io.Discard, nil)),
+		httpClient:          http.DefaultClient,
+		githubAPIBase:       defaultGitHubAPIBase,
+		standardRegistryRef: core.DefaultAquaStandardRegistryRef,
+		now:                 time.Now,
 	}
 	for _, opt := range opts {
 		opt(installer)
@@ -79,6 +87,11 @@ func New(opts ...Option) *Installer {
 }
 
 // Install installs declared tools and returns resolved command paths.
+//
+// Resolution runs against the pinned standard registry snapshot first. When
+// that snapshot cannot provide the declared packages and the DAG neither pins
+// tools.registry.ref nor sets tools.registry.policy to "pinned", resolution is
+// retried once against the latest aqua standard registry release.
 func (i *Installer) Install(ctx context.Context, cfg *core.ToolConfig, opts tools.InstallOptions) (*tools.Manifest, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("tools config is required")
@@ -86,8 +99,44 @@ func (i *Installer) Install(ctx context.Context, cfg *core.ToolConfig, opts tool
 	if cfg.Provider != "" && cfg.Provider != providerAqua {
 		return nil, fmt.Errorf("unsupported tools provider %q", cfg.Provider)
 	}
-	cfg = effectiveToolConfig(cfg)
 
+	pinned := effectiveToolConfigWithRef(cfg, i.standardRegistryRef)
+	manifest, pinnedErr := i.installResolved(ctx, pinned, opts)
+	if pinnedErr == nil {
+		return manifest, nil
+	}
+	pinnedErr = describeInstallError(pinned, pinnedErr)
+	if !fallbackToLatestEnabled(cfg) {
+		if standardRefDefaulted(cfg) {
+			return nil, fmt.Errorf(
+				"%w (tools.registry.policy is %q; packages newer than the pinned registry snapshot need tools.registry.ref or a newer Dagu)",
+				pinnedErr, core.ToolRegistryPolicyPinned,
+			)
+		}
+		return nil, pinnedErr
+	}
+	latest, resolveErr := i.latestStandardRegistryRef(ctx, opts)
+	if resolveErr != nil {
+		return nil, errors.Join(pinnedErr, fmt.Errorf("resolve latest aqua standard registry release: %w", resolveErr))
+	}
+	if latest.SHA == pinned.Registry.Ref {
+		return nil, pinnedErr
+	}
+	logger.Info(ctx, "Retrying DAG tools with the latest aqua registry release",
+		slog.String("pinned", shortRef(pinned.Registry.Ref)),
+		slog.String("latest", latest.Tag),
+		slog.String("latestRef", shortRef(latest.SHA)))
+	fallback := effectiveToolConfigWithRef(cfg, latest.SHA)
+	manifest, fallbackErr := i.installResolved(ctx, fallback, opts)
+	if fallbackErr != nil {
+		return nil, errors.Join(pinnedErr, describeInstallError(fallback, fallbackErr))
+	}
+	logger.Info(ctx, "DAG tools resolved with the latest aqua registry release",
+		slog.String("registry", latest.Tag))
+	return manifest, nil
+}
+
+func (i *Installer) installResolved(ctx context.Context, cfg *core.ToolConfig, opts tools.InstallOptions) (*tools.Manifest, error) {
 	rt := aquaruntime.NewR(ctx)
 	platform := opts.Platform
 	if platform == "" {
@@ -560,6 +609,32 @@ func (i *Installer) lockResource(ctx context.Context, paths tools.CacheLayout, k
 func lockHash(value string) string {
 	sum := sha256.Sum256([]byte(value))
 	return hex.EncodeToString(sum[:])
+}
+
+func describeInstallError(cfg *core.ToolConfig, err error) error {
+	packages := make([]string, 0, len(cfg.Packages))
+	for _, pkg := range cfg.Packages {
+		packages = append(packages, pkg.Package+"@"+pkg.Version)
+	}
+	return fmt.Errorf("aqua registry %s could not provide packages [%s]: %w",
+		describeRegistry(cfg.Registry), strings.Join(packages, ", "), err)
+}
+
+func describeRegistry(registry *core.ToolRegistry) string {
+	if registry == nil {
+		return "standard"
+	}
+	if strings.TrimSpace(registry.Type) == "github_content" {
+		return fmt.Sprintf("%s/%s@%s", registry.RepoOwner, registry.RepoName, shortRef(registry.Ref))
+	}
+	return "standard@" + shortRef(registry.Ref)
+}
+
+func shortRef(ref string) string {
+	if isCommitSHA(ref) {
+		return ref[:12]
+	}
+	return ref
 }
 
 func toolsDir(opts tools.InstallOptions) string {
