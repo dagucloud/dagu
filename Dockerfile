@@ -7,9 +7,10 @@ RUN rm -f /usr/local/bin/yarn /usr/local/bin/yarnpkg && \
     npm install -g corepack@latest && corepack enable
 
 WORKDIR /app
+COPY ui/package.json ui/pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
 COPY ui/ ./
-RUN pnpm install --frozen-lockfile; \
-  pnpm build
+RUN pnpm build
 
 # Stage 2: Go Builder
 FROM --platform=$TARGETPLATFORM golang:1.26 AS go-builder
