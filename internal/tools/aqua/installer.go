@@ -217,6 +217,9 @@ func (i *Installer) installResolved(ctx context.Context, cfg *core.ToolConfig, o
 	if err := installController.Install(ctx, i.logger, param); err != nil {
 		return nil, fmt.Errorf("install aqua tools: %w", err)
 	}
+	if err := verifyPackageDigests(paths.ChecksumFile, cfg.Packages); err != nil {
+		return nil, err
+	}
 
 	commandSets, err := i.packageCommands(ctx, cfg, param, paths, rt)
 	if err != nil {

@@ -34,4 +34,8 @@ type ToolPackage struct {
 	Version  string   `json:"version"`
 	Commands []string `json:"commands,omitempty"`
 	Registry string   `json:"registry,omitempty"`
+	// Digest pins the sha256 of the downloaded artifact for the platform the
+	// DAG runs on, in "sha256:<64 hex>" form. The install fails when the
+	// artifact hash recorded for this package does not match.
+	Digest string `json:"digest,omitempty"`
 }

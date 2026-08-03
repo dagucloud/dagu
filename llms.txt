@@ -29,7 +29,7 @@ Load only the reference file that matches the task.
 - Prefer `state.*` actions for small persistent JSON state across DAG runs, such as cursors, checkpoints, and previous-value comparisons.
 - Prefer temporary files in the artifacts dir only when downstream steps need file paths; otherwise let commands write large artifact content to stdout and attach it with `stdout.artifact`.
 - Prefer scoped Dagu references for named values: `${consts.NAME}`, `${params.NAME}`, and `${env.NAME}`. Avoid unscoped braced names in examples unless the example is intentionally showing shell syntax.
-- Declare portable external CLI dependencies in top-level `tools` using aqua shorthand when the binary version affects reproducibility, for example `tools: ["jqlang/jq@jq-1.7.1"]`.
+- Declare portable external CLI dependencies in top-level `tools` using aqua shorthand when the binary version affects reproducibility, for example `tools: ["jqlang/jq@jq-1.7.1"]`. Append `#sha256:<64 hex>` to also pin the downloaded artifact content for the run platform, for example `jqlang/jq@jq-1.7.1#sha256:<hex>`.
 - For remote actions, put `tools` in the referenced action DAG file, not in `dagu-action.yaml`; caller DAG tools are not inherited across the action boundary.
 - Use remote action packages (`dagu-action.yaml`) when reusable logic needs helper files, its own DAG, versioning, or an input/output schema contract.
 

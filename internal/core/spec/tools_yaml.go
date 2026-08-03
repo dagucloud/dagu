@@ -75,15 +75,24 @@ func (p *toolPackage) UnmarshalYAML(data []byte) error {
 
 func parseToolPackageShorthand(ref string) (toolPackage, error) {
 	ref = strings.TrimSpace(ref)
+	digest := ""
+	if idx := strings.Index(ref, "#"); idx >= 0 {
+		digest = strings.TrimSpace(ref[idx+1:])
+		ref = strings.TrimSpace(ref[:idx])
+		if digest == "" {
+			return toolPackage{}, fmt.Errorf(`tool package digest must be "sha256:<64 hex>", got %q`, digest)
+		}
+	}
 	if strings.IndexFunc(ref, unicode.IsSpace) >= 0 || strings.Count(ref, "@") != 1 {
-		return toolPackage{}, fmt.Errorf(`tool package shorthand must be "package@version", got %q`, ref)
+		return toolPackage{}, fmt.Errorf(`tool package shorthand must be "package@version[#sha256:<hex>]", got %q`, ref)
 	}
 	idx := strings.LastIndex(ref, "@")
 	if idx <= 0 || idx == len(ref)-1 {
-		return toolPackage{}, fmt.Errorf(`tool package shorthand must be "package@version", got %q`, ref)
+		return toolPackage{}, fmt.Errorf(`tool package shorthand must be "package@version[#sha256:<hex>]", got %q`, ref)
 	}
 	return toolPackage{
 		Package: strings.TrimSpace(ref[:idx]),
 		Version: strings.TrimSpace(ref[idx+1:]),
+		Digest:  digest,
 	}, nil
 }

@@ -486,6 +486,7 @@ type toolPackage struct {
 	Version  string   `yaml:"version,omitempty"`
 	Commands []string `yaml:"commands,omitempty"`
 	Registry string   `yaml:"registry,omitempty"`
+	Digest   string   `yaml:"digest,omitempty"`
 }
 
 // Transformer transforms a spec field into output field(s).
@@ -2951,13 +2952,38 @@ func buildToolPackage(pkg toolPackage, seenCommands map[string]struct{}) (core.T
 	if name == "" {
 		name = toolPackageDisplayName(packageName, commands)
 	}
+	digest, err := normalizeToolDigest(pkg.Digest)
+	if err != nil {
+		return core.ToolPackage{}, err
+	}
 	return core.ToolPackage{
 		Name:     name,
 		Package:  packageName,
 		Version:  version,
 		Commands: commands,
 		Registry: registry,
+		Digest:   digest,
 	}, nil
+}
+
+func normalizeToolDigest(digest string) (string, error) {
+	digest = strings.ToLower(strings.TrimSpace(digest))
+	if digest == "" {
+		return "", nil
+	}
+	hex, ok := strings.CutPrefix(digest, "sha256:")
+	if !ok || len(hex) != 64 {
+		return "", fmt.Errorf(`digest must be "sha256:<64 hex>", got %q`, digest)
+	}
+	for _, r := range hex {
+		switch {
+		case r >= '0' && r <= '9':
+		case r >= 'a' && r <= 'f':
+		default:
+			return "", fmt.Errorf(`digest must be "sha256:<64 hex>", got %q`, digest)
+		}
+	}
+	return digest, nil
 }
 
 func toolPackageDisplayName(packageName string, commands []string) string {
