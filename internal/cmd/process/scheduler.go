@@ -18,6 +18,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/license"
+	notificationmodel "github.com/dagucloud/dagu/v2/internal/notification"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/service/chatbridge"
@@ -141,11 +142,7 @@ func newNotificationMonitor(
 		logger.Warn(ctx, "Failed to create notification settings store", tag.Error(err))
 		return nil
 	}
-	notificationService := notificationservice.New(
-		store,
-		dagStore,
-		notificationservice.WithPublicURL(cfg.Server.PublicURL),
-	)
+	notificationService := newSchedulerNotificationService(cfg, store, dagStore)
 	stateFile := file.NotificationMonitorStateFile(cfg)
 	return chatbridge.NewNotificationMonitor(
 		eventService,
@@ -153,6 +150,22 @@ func newNotificationMonitor(
 		notificationService,
 		slog.Default(),
 		chatbridge.DefaultNotificationMonitorConfig(),
+	)
+}
+
+func newSchedulerNotificationService(
+	cfg *config.Config,
+	store notificationmodel.Store,
+	dagStore exec.DAGStore,
+	opts ...notificationservice.Option,
+) *notificationservice.Service {
+	opts = append([]notificationservice.Option{
+		notificationservice.WithPublicURL(cfg.Server.PublicURL),
+	}, opts...)
+	return notificationservice.New(
+		store,
+		dagStore,
+		opts...,
 	)
 }
 
