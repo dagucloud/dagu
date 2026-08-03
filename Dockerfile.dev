@@ -8,8 +8,7 @@ RUN rm -f /usr/local/bin/yarn /usr/local/bin/yarnpkg && \
 
 WORKDIR /app
 COPY ui/ ./
-RUN rm -rf node_modules; \
-  pnpm install --frozen-lockfile; \
+RUN pnpm install --frozen-lockfile; \
   pnpm build
 
 # Stage 2: Go Builder
