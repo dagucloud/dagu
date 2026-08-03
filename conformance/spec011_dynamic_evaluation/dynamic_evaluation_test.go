@@ -4,11 +4,39 @@
 package spec011_dynamic_evaluation_test
 
 import (
+	"os"
+	"os/exec"
 	"runtime"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/conformance/harness"
 )
+
+// TestMain warms up PowerShell before the substitution cases run. First-touch
+// PowerShell on a cold Windows runner pays .NET JIT and antivirus scanning
+// costs that can exceed the substitution timeout inside the dagu process under
+// test; one untimed invocation absorbs that cost so the cases exercise
+// substitution behavior, not machine state.
+func TestMain(m *testing.M) {
+	warmUpPowerShell()
+	os.Exit(m.Run())
+}
+
+// warmUpPowerShell runs a no-op through the same shell dagu selects on
+// Windows: pwsh when present, otherwise powershell.
+func warmUpPowerShell() {
+	if runtime.GOOS != "windows" {
+		return
+	}
+	for _, shell := range []string{"pwsh", "powershell"} {
+		path, err := exec.LookPath(shell)
+		if err != nil {
+			continue
+		}
+		_ = exec.Command(path, "-NoProfile", "-NonInteractive", "-Command", "exit").Run()
+		return
+	}
+}
 
 type runtimeCase struct {
 	name    string
