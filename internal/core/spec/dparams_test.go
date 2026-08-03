@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
@@ -16,6 +17,28 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestInlineParamDefs_EvalFailureReportedOnce(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("fixture uses a POSIX shell snippet")
+	}
+
+	yaml := []byte(`
+params:
+  - name: v
+    type: string
+    eval: "` + "`exit 3`" + `"
+steps:
+  - name: ok
+    command: "true"
+`)
+
+	_, err := LoadYAML(context.Background(), yaml)
+	require.Error(t, err)
+	assert.Equal(t, 1, strings.Count(err.Error(), "field 'params'"),
+		"one failing eval must be reported exactly once, got: %s", err)
+}
 
 func TestInlineParamDefs_MetadataAndExecution(t *testing.T) {
 	t.Parallel()

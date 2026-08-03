@@ -51,6 +51,47 @@ func TestErrorList_Error(t *testing.T) {
 	}
 }
 
+func TestErrorList_Dedupe(t *testing.T) {
+	t.Parallel()
+
+	shared := NewValidationError("params", "x", errors.New("eval failed"))
+
+	t.Run("identical instances collapse to one", func(t *testing.T) {
+		t.Parallel()
+		deduped := ErrorList{shared, shared, shared}.Dedupe()
+		require.Len(t, deduped, 1)
+		assert.Same(t, shared, deduped[0])
+	})
+
+	t.Run("distinct errors with equal messages are kept", func(t *testing.T) {
+		t.Parallel()
+		deduped := ErrorList{errors.New("same text"), errors.New("same text")}.Dedupe()
+		assert.Len(t, deduped, 2)
+	})
+
+	t.Run("non-comparable members pass through", func(t *testing.T) {
+		t.Parallel()
+		nested := ErrorList{errors.New("inner")}
+		deduped := ErrorList{nested, nested, shared}.Dedupe()
+		assert.Len(t, deduped, 3)
+	})
+
+	t.Run("order of first occurrences is preserved", func(t *testing.T) {
+		t.Parallel()
+		other := errors.New("other")
+		deduped := ErrorList{shared, other, shared}.Dedupe()
+		require.Len(t, deduped, 2)
+		assert.Same(t, shared, deduped[0])
+		assert.Equal(t, other, deduped[1])
+	})
+
+	t.Run("empty and single stay unchanged", func(t *testing.T) {
+		t.Parallel()
+		assert.Empty(t, ErrorList{}.Dedupe())
+		assert.Len(t, ErrorList{shared}.Dedupe(), 1)
+	})
+}
+
 func TestErrorList_ToStringList(t *testing.T) {
 	t.Parallel()
 

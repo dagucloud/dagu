@@ -899,11 +899,15 @@ func (s *dagBuildState) markEnvEvaluated() {
 }
 
 func (s *dagBuildState) finish() (*core.DAG, error) {
-	if len(s.errs) > 0 {
+	// Field builders sharing one memoized result (params) surface the same
+	// error instance once per consumer; collapse identical instances so the
+	// reported list has one entry per distinct failure.
+	errs := s.errs.Dedupe()
+	if len(errs) > 0 {
 		if s.ctx.opts.Has(BuildFlagAllowBuildErrors) {
-			s.result.BuildErrors = s.errs
+			s.result.BuildErrors = errs
 		} else {
-			return nil, fmt.Errorf("failed to build DAG: %w", s.errs)
+			return nil, fmt.Errorf("failed to build DAG: %w", errs)
 		}
 	}
 	return s.result, nil

@@ -6,6 +6,7 @@ package core
 import (
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 )
 
@@ -72,6 +73,28 @@ func (e ErrorList) Error() string {
 		errStrings[i] = err.Error()
 	}
 	return strings.Join(errStrings, "; ")
+}
+
+// Dedupe returns the list with repeated occurrences of the same error
+// value removed, keeping first positions. Distinct errors with equal
+// messages are preserved; only identical instances collapse. Values of
+// non-comparable dynamic types are kept as-is.
+func (e ErrorList) Dedupe() ErrorList {
+	if len(e) < 2 {
+		return e
+	}
+	result := make(ErrorList, 0, len(e))
+	seen := make(map[error]struct{}, len(e))
+	for _, err := range e {
+		if t := reflect.TypeOf(err); t != nil && t.Comparable() {
+			if _, dup := seen[err]; dup {
+				continue
+			}
+			seen[err] = struct{}{}
+		}
+		result = append(result, err)
+	}
+	return result
 }
 
 // Unwrap implements the errors.Unwrap interface.
