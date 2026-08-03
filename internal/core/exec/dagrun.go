@@ -89,10 +89,6 @@ type DAGRunStore interface {
 	// But it will not delete the records with non-final statuses (e.g., running, queued).
 	// Returns a list of dag-run IDs that were removed (or would be removed in dry-run mode).
 	RemoveOldDAGRuns(ctx context.Context, name string, retentionDays int, opts ...RemoveOldDAGRunsOption) ([]string, error)
-	// RenameDAGRuns renames all run data from oldName to newName
-	// The name means the DAG name, renaming it will allow user to manage those runs
-	// with the new DAG name.
-	RenameDAGRuns(ctx context.Context, oldName, newName string) error
 	// RemoveDAGRun removes a dag-run record by its reference.
 	RemoveDAGRun(ctx context.Context, dagRun DAGRunRef, opts ...RemoveDAGRunOption) error
 }

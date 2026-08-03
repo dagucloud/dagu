@@ -932,10 +932,6 @@ func (s *managerDAGRunStore) RemoveOldDAGRuns(context.Context, string, int, ...e
 	panic("unexpected call: RemoveOldDAGRuns")
 }
 
-func (s *managerDAGRunStore) RenameDAGRuns(context.Context, string, string) error {
-	panic("unexpected call: RenameDAGRuns")
-}
-
 func (s *managerDAGRunStore) RemoveDAGRun(context.Context, exec.DAGRunRef, ...exec.RemoveDAGRunOption) error {
 	panic("unexpected call: RemoveDAGRun")
 }

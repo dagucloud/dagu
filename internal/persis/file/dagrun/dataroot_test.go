@@ -577,28 +577,6 @@ func TestDataRootRemoveOld(t *testing.T) {
 	})
 }
 
-func TestDataRootRename(t *testing.T) {
-	root := setupTestDataRoot(t)
-
-	for date := 1; date <= 3; date++ {
-		ts := exec.NewUTC(time.Date(2021, 1, date, 0, 0, 0, 0, time.UTC))
-		_ = root.CreateTestDAGRun(t, fmt.Sprintf("test-id-%d", date), ts)
-	}
-
-	newRoot := NewDataRoot(root.baseDir, "new-dag")
-	err := root.Rename(root.Context, newRoot)
-	require.NoError(t, err)
-
-	// Check that the old directory is removed
-	assert.False(t, root.Exists(), "Old directory should be removed")
-	// Check files are moved to the new directory
-	assert.True(t, newRoot.Exists(), "New directory should exist")
-
-	matches, err := filepath.Glob(newRoot.globPattern)
-	require.NoError(t, err)
-	assert.Len(t, matches, 3, "All files should be moved to the new directory")
-}
-
 func TestDataRootUtils(t *testing.T) {
 	t.Parallel()
 
@@ -608,7 +586,7 @@ func TestDataRootUtils(t *testing.T) {
 	assert.False(t, root.Exists(), "Exists should return false when directory does not exist")
 
 	// Create the directory
-	err := root.Create()
+	err := os.MkdirAll(root.dagRunsDir, 0o750)
 	require.NoError(t, err)
 
 	// Directory exists
@@ -770,7 +748,7 @@ type DataRootTest struct {
 func (drt *DataRootTest) CreateTestDAGRun(t *testing.T, dagRunID string, ts exec.TimeInUTC) DAGRunTest {
 	t.Helper()
 
-	err := drt.Create()
+	err := os.MkdirAll(drt.dagRunsDir, 0o750)
 	require.NoError(t, err)
 
 	run, err := drt.CreateDAGRun(ts, dagRunID)

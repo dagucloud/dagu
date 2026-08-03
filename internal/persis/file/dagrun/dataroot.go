@@ -254,18 +254,6 @@ func (dr DataRoot) Exists() bool {
 	return !os.IsNotExist(err)
 }
 
-// Create creates the dag-runs directory if it doesn't already exist.
-// Returns nil if the directory already exists or is successfully created.
-func (dr DataRoot) Create() error {
-	if dr.Exists() {
-		return nil
-	}
-	if err := os.MkdirAll(dr.dagRunsDir, 0750); err != nil {
-		return fmt.Errorf("failed to create directory %s: %w", dr.dagRunsDir, err)
-	}
-	return nil
-}
-
 // IsEmpty checks if the dag-runs directory exists and contains no dag-run directories.
 // Returns true if the directory doesn't exist or contains no dag-runs.
 func (dr DataRoot) IsEmpty() bool {
@@ -288,70 +276,6 @@ func (dr DataRoot) IsEmpty() bool {
 func (dr DataRoot) Remove() error {
 	if err := fileutil.RemoveAll(dr.dagRunsDir); err != nil {
 		return fmt.Errorf("failed to remove directory %s: %w", dr.dagRunsDir, err)
-	}
-	return nil
-}
-
-// Rename moves all dag-run directories from this DataRoot to a new DataRoot location.
-// This operation preserves the hierarchical structure and removes empty directories.
-// Both DataRoots must share the same base directory.
-func (dr DataRoot) Rename(ctx context.Context, newRoot DataRoot) error {
-	if !dr.Exists() {
-		return nil
-	}
-	if dr.baseDir != newRoot.baseDir {
-		return fmt.Errorf("cannot rename to a different base directory: %s -> %s", dr.baseDir, newRoot.baseDir)
-	}
-	if !newRoot.Exists() {
-		if err := newRoot.Create(); err != nil {
-			return err
-		}
-	}
-
-	matches, err := filepath.Glob(dr.globPattern)
-	if err != nil {
-		return fmt.Errorf("failed to glob pattern: %w", err)
-	}
-
-	// Process files in parallel
-	errs := processFilesParallel(matches, func(targetDir string) error {
-		// Construct the new directory path
-		day := filepath.Base(filepath.Dir(targetDir))
-		month := filepath.Base(filepath.Dir(filepath.Dir(targetDir)))
-		year := filepath.Base(filepath.Dir(filepath.Dir(filepath.Dir(targetDir))))
-		newDir := filepath.Join(newRoot.dagRunsDir, year, month, day, filepath.Base(targetDir))
-
-		// Enrich context with directory information for error logging
-		dirCtx := logger.WithValues(ctx,
-			slog.String("oldDir", targetDir),
-			slog.String("newDir", newDir))
-
-		// Make sure the new directory exists
-		if err := os.MkdirAll(filepath.Dir(newDir), 0750); err != nil {
-			logger.Error(dirCtx, "Failed to create new directory",
-				tag.Error(err))
-			return fmt.Errorf("failed to create directory %s: %w", newDir, err)
-		}
-
-		// Rename the file
-		if err := fileutil.Rename(targetDir, newDir); err != nil {
-			logger.Error(dirCtx, "Failed to rename directory", tag.Error(err))
-			return fmt.Errorf("failed to rename %s to %s: %w", targetDir, newDir, err)
-		}
-
-		dr.removeEmptyDir(ctx, filepath.Dir(targetDir))
-
-		return nil
-	})
-
-	if len(errs) > 0 {
-		return fmt.Errorf("failed to rename files: %w", errors.Join(errs...))
-	}
-
-	if dr.IsEmpty() {
-		if err := dr.Remove(); err != nil {
-			return err
-		}
 	}
 	return nil
 }

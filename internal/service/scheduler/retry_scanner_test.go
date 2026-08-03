@@ -774,7 +774,6 @@ func (s *retryScannerStore) RemoveOldDAGRuns(context.Context, string, int, ...ex
 	return nil, nil
 }
 
-func (s *retryScannerStore) RenameDAGRuns(context.Context, string, string) error { return nil }
 func (s *retryScannerStore) RemoveDAGRun(context.Context, exec.DAGRunRef, ...exec.RemoveDAGRunOption) error {
 	return nil
 }

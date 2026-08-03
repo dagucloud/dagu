@@ -261,10 +261,6 @@ func (s *recordingDAGRunStore) RemoveOldDAGRuns(_ context.Context, _ string, ret
 	return nil, s.removeOldErr
 }
 
-func (s *recordingDAGRunStore) RenameDAGRuns(context.Context, string, string) error {
-	return nil
-}
-
 func (s *recordingDAGRunStore) RemoveDAGRun(context.Context, exec.DAGRunRef, ...exec.RemoveDAGRunOption) error {
 	return nil
 }

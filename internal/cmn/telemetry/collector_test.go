@@ -216,11 +216,6 @@ func (m *mockDAGRunStore) RemoveOldDAGRuns(ctx context.Context, name string, ret
 	return args.Get(0).([]string), args.Error(1)
 }
 
-func (m *mockDAGRunStore) RenameDAGRuns(ctx context.Context, oldName, newName string) error {
-	args := m.Called(ctx, oldName, newName)
-	return args.Error(0)
-}
-
 type mockQueueStore struct {
 	mock.Mock
 }

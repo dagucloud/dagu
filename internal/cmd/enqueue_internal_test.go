@@ -118,10 +118,6 @@ func (s *enqueueTrackingDAGRunStore) RemoveOldDAGRuns(context.Context, string, i
 	return nil, nil
 }
 
-func (s *enqueueTrackingDAGRunStore) RenameDAGRuns(context.Context, string, string) error {
-	return nil
-}
-
 func (s *enqueueTrackingDAGRunStore) RemoveDAGRun(context.Context, exec.DAGRunRef, ...exec.RemoveDAGRunOption) error {
 	return nil
 }

@@ -655,13 +655,6 @@ func (store *Store) RemoveDAGRun(ctx context.Context, dagRun exec.DAGRunRef, opt
 	return nil
 }
 
-// RenameDAGRuns renames all history records for the specified DAG name.
-func (store *Store) RenameDAGRuns(ctx context.Context, oldNameOrPath, newNameOrPath string) error {
-	root := NewDataRoot(store.baseDir, oldNameOrPath)
-	newRoot := NewDataRoot(store.baseDir, newNameOrPath)
-	return root.Rename(ctx, newRoot)
-}
-
 // listRoot lists all root directories in the base directory.
 func (store *Store) listRoot(_ context.Context, include string) ([]DataRoot, error) {
 	rootDirs, err := listDirsSorted(store.baseDir, false, nil)

@@ -181,10 +181,6 @@ func (s *queueRunStore) RemoveOldDAGRuns(context.Context, string, int, ...exec.R
 	return nil, nil
 }
 
-func (s *queueRunStore) RenameDAGRuns(context.Context, string, string) error {
-	return nil
-}
-
 func (s *queueRunStore) RemoveDAGRun(_ context.Context, ref exec.DAGRunRef, _ ...exec.RemoveDAGRunOption) error {
 	s.removed = true
 	s.removedRef = ref

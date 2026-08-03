@@ -422,10 +422,6 @@ func (s *localDAGRunStore) RemoveOldDAGRuns(context.Context, string, int, ...exe
 	return nil, nil
 }
 
-func (s *localDAGRunStore) RenameDAGRuns(context.Context, string, string) error {
-	return nil
-}
-
 func (s *localDAGRunStore) RemoveDAGRun(context.Context, exec.DAGRunRef, ...exec.RemoveDAGRunOption) error {
 	return nil
 }

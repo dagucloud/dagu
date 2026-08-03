@@ -5,7 +5,6 @@ package dagrun
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -133,27 +132,4 @@ func TestWriterErrorHandling(t *testing.T) {
 
 		assert.Equal(t, byte('\n'), data[len(data)-1])
 	})
-}
-
-// TestWriterRename verifies status files follow DAG rename operations.
-func TestWriterRename(t *testing.T) {
-	th := setupTestStore(t)
-
-	// Create a status file with old path
-	dag := th.DAG("test_rename_old")
-	writer := dag.Writer(t, "dag-run-id-1", time.Now())
-	dagRunID := uuid.Must(uuid.NewV7()).String()
-	dagRunStatus := transform.NewStatusBuilder(dag.DAG).Create(dagRunID, core.Running, 1, time.Now())
-	writer.Write(t, dagRunStatus)
-	writer.Close(t)
-	require.FileExists(t, writer.FilePath)
-
-	// Rename and verify the file
-	newDAG := th.DAG("test_rename_new")
-	err := th.Store.RenameDAGRuns(context.Background(), dag.Location, newDAG.Location)
-	require.NoError(t, err)
-	newWriter := newDAG.Writer(t, "dag-run-id-2", time.Now())
-
-	require.NoFileExists(t, writer.FilePath)
-	require.FileExists(t, newWriter.FilePath)
 }
