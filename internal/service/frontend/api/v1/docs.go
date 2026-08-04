@@ -46,6 +46,12 @@ var (
 		Message:    "Document already exists",
 		HTTPStatus: http.StatusConflict,
 	}
+
+	errDocPathConflict = &Error{
+		Code:       api.ErrorCodeConflict,
+		Message:    "Document path conflicts with an existing file or directory",
+		HTTPStatus: http.StatusConflict,
+	}
 )
 
 func (a *API) requireDocManagement() error {
@@ -319,6 +325,8 @@ func (a *API) ListDocs(ctx context.Context, request api.ListDocsRequestObject) (
 	if err := a.requireDocManagement(); err != nil {
 		return nil, err
 	}
+	a.workspaceDocMu.RLock()
+	defer a.workspaceDocMu.RUnlock()
 	workspaceName, visibility, err := a.docReadScopeForParams(ctx, request.Params.Workspace)
 	if err != nil {
 		return nil, err
@@ -379,6 +387,8 @@ func (a *API) CreateDoc(ctx context.Context, request api.CreateDocRequestObject)
 	if err := a.requireDocManagement(); err != nil {
 		return nil, err
 	}
+	a.workspaceDocMu.RLock()
+	defer a.workspaceDocMu.RUnlock()
 	if request.Body == nil {
 		return nil, ErrInvalidRequestBody
 	}
@@ -400,6 +410,9 @@ func (a *API) CreateDoc(ctx context.Context, request api.CreateDocRequestObject)
 		if errors.Is(err, docs.ErrDocAlreadyExists) {
 			return nil, errDocAlreadyExists
 		}
+		if errors.Is(err, docs.ErrDocPathConflict) {
+			return nil, errDocPathConflict
+		}
 		logger.Error(ctx, "Failed to create doc", tag.Error(err))
 		return nil, internalError(err)
 	}
@@ -419,6 +432,8 @@ func (a *API) GetDoc(ctx context.Context, request api.GetDocRequestObject) (api.
 	if err := a.requireDocManagement(); err != nil {
 		return nil, err
 	}
+	a.workspaceDocMu.RLock()
+	defer a.workspaceDocMu.RUnlock()
 	workspaceName, visibility, err := a.docPointReadScopeForParams(ctx, request.Params.Workspace)
 	if err != nil {
 		return nil, err
@@ -452,6 +467,8 @@ func (a *API) SearchDocs(ctx context.Context, request api.SearchDocsRequestObjec
 	if err := a.requireDocManagement(); err != nil {
 		return nil, err
 	}
+	a.workspaceDocMu.RLock()
+	defer a.workspaceDocMu.RUnlock()
 
 	query, err := validateSearchQuery(request.Params.Q)
 	if err != nil {
@@ -510,6 +527,8 @@ func (a *API) UpdateDoc(ctx context.Context, request api.UpdateDocRequestObject)
 	if err := a.requireDocManagement(); err != nil {
 		return nil, err
 	}
+	a.workspaceDocMu.RLock()
+	defer a.workspaceDocMu.RUnlock()
 	if request.Body == nil {
 		return nil, ErrInvalidRequestBody
 	}
@@ -547,6 +566,8 @@ func (a *API) DeleteDoc(ctx context.Context, request api.DeleteDocRequestObject)
 	if err := a.requireDocManagement(); err != nil {
 		return nil, err
 	}
+	a.workspaceDocMu.RLock()
+	defer a.workspaceDocMu.RUnlock()
 	workspaceName, err := docMutationScopeForParams(request.Params.Workspace)
 	if err != nil {
 		return nil, err
@@ -562,6 +583,9 @@ func (a *API) DeleteDoc(ctx context.Context, request api.DeleteDocRequestObject)
 	if err := a.docStore.Delete(ctx, docID); err != nil {
 		if errors.Is(err, docs.ErrDocNotFound) {
 			return nil, errDocNotFound
+		}
+		if errors.Is(err, docs.ErrDocPathConflict) {
+			return nil, errDocPathConflict
 		}
 		logger.Error(ctx, "Failed to delete doc", tag.Error(err))
 		return nil, internalError(err)
@@ -581,6 +605,8 @@ func (a *API) RenameDoc(ctx context.Context, request api.RenameDocRequestObject)
 	if err := a.requireDocManagement(); err != nil {
 		return nil, err
 	}
+	a.workspaceDocMu.RLock()
+	defer a.workspaceDocMu.RUnlock()
 	if request.Body == nil {
 		return nil, ErrInvalidRequestBody
 	}
@@ -607,6 +633,9 @@ func (a *API) RenameDoc(ctx context.Context, request api.RenameDocRequestObject)
 		if errors.Is(err, docs.ErrDocAlreadyExists) {
 			return nil, errDocAlreadyExists
 		}
+		if errors.Is(err, docs.ErrDocPathConflict) {
+			return nil, errDocPathConflict
+		}
 		logger.Error(ctx, "Failed to rename doc", tag.Error(err))
 		return nil, internalError(err)
 	}
@@ -627,6 +656,8 @@ func (a *API) DeleteDocBatch(ctx context.Context, request api.DeleteDocBatchRequ
 	if err := a.requireDocManagement(); err != nil {
 		return nil, err
 	}
+	a.workspaceDocMu.RLock()
+	defer a.workspaceDocMu.RUnlock()
 	if request.Body == nil || len(request.Body.Paths) == 0 {
 		return nil, &Error{
 			Code:       api.ErrorCodeBadRequest,
@@ -698,6 +729,8 @@ func (a *API) GetDocTreeData(ctx context.Context, queryString string) (any, erro
 	return withDAGRunReadTimeout(ctx, dagRunReadRequestInfo{
 		endpoint: "/docs/tree",
 	}, func(readCtx context.Context) (any, error) {
+		a.workspaceDocMu.RLock()
+		defer a.workspaceDocMu.RUnlock()
 		if a.docStore == nil {
 			return nil, errDocStoreNotAvailable
 		}
@@ -746,6 +779,8 @@ func (a *API) GetDocContentData(ctx context.Context, docID string) (any, error) 
 	return withDAGRunReadTimeout(ctx, dagRunReadRequestInfo{
 		endpoint: "/docs/{docID}",
 	}, func(readCtx context.Context) (any, error) {
+		a.workspaceDocMu.RLock()
+		defer a.workspaceDocMu.RUnlock()
 		if a.docStore == nil {
 			return nil, errDocStoreNotAvailable
 		}

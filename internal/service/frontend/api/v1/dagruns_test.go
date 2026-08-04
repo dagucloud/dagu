@@ -250,32 +250,24 @@ func syncSuccessDagSpec() string {
 
 func TestGetDAGRunSpec(t *testing.T) {
 	server := test.SetupServer(t)
+	const dagName = "spec_test_dag"
+	const dagRunID = "spec-test-run"
 
 	dagSpec := `steps:
   - name: main
     run: "echo spec_test"`
 
-	// Create a new DAG
 	_ = server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
-		Name: "spec_test_dag",
+		Name: dagName,
 		Spec: &dagSpec,
 	}).ExpectStatus(http.StatusCreated).Send(t)
 
-	// Start a DAG run
-	startResp := server.Client().Post("/api/v1/dags/spec_test_dag/start", api.ExecuteDAGJSONRequestBody{}).
-		ExpectStatus(http.StatusOK).Send(t)
+	dag, err := server.DAGStore.GetDetails(server.Context, dagName)
+	require.NoError(t, err)
+	seedLatestDAGRunStatus(t, server, dag, dagRunID, core.Succeeded, seedDAGRunStatusOptions{})
 
-	var startBody api.ExecuteDAG200JSONResponse
-	startResp.Unmarshal(t, &startBody)
-	require.NotEmpty(t, startBody.DagRunId)
-
-	waitForDAGRunStatus(t, server, "spec_test_dag", startBody.DagRunId, 10*time.Second, func(status *exec.DAGRunStatus) bool {
-		return status.Status == core.Succeeded
-	})
-
-	// Fetch the DAG spec for the DAG run
 	specResp := server.Client().Get(
-		fmt.Sprintf("/api/v1/dag-runs/%s/%s/spec", "spec_test_dag", startBody.DagRunId),
+		fmt.Sprintf("/api/v1/dag-runs/%s/%s/spec", dagName, dagRunID),
 	).ExpectStatus(http.StatusOK).Send(t)
 
 	var specBody api.GetDAGRunSpec200JSONResponse
@@ -283,9 +275,8 @@ func TestGetDAGRunSpec(t *testing.T) {
 	require.NotEmpty(t, specBody.Spec)
 	require.Contains(t, specBody.Spec, "echo spec_test")
 
-	// Test 404 for non-existent DAG
 	_ = server.Client().Get(
-		fmt.Sprintf("/api/v1/dag-runs/%s/%s/spec", "non_existent_dag", startBody.DagRunId),
+		fmt.Sprintf("/api/v1/dag-runs/%s/%s/spec", "non_existent_dag", dagRunID),
 	).ExpectStatus(http.StatusNotFound).Send(t)
 }
 

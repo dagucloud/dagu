@@ -187,6 +187,8 @@ func (a *API) SearchDocFeed(ctx context.Context, request api.SearchDocFeedReques
 	if err := a.requireDocManagement(); err != nil {
 		return nil, err
 	}
+	a.workspaceDocMu.RLock()
+	defer a.workspaceDocMu.RUnlock()
 
 	query, err := validateSearchQuery(request.Params.Q)
 	if err != nil {
@@ -268,6 +270,8 @@ func (a *API) SearchDocMatches(ctx context.Context, request api.SearchDocMatches
 	if err := a.requireDocManagement(); err != nil {
 		return nil, err
 	}
+	a.workspaceDocMu.RLock()
+	defer a.workspaceDocMu.RUnlock()
 	if err := validateDocPath(request.Params.Path); err != nil {
 		return nil, err
 	}

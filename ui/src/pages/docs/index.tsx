@@ -17,7 +17,7 @@ import {
 import SplitLayout from '@/components/SplitLayout';
 import { useSimpleToast } from '@/components/ui/simple-toast';
 import { AppBarContext } from '@/contexts/AppBarContext';
-import { useCanWrite } from '@/contexts/AuthContext';
+import { useAuth, useCanWrite } from '@/contexts/AuthContext';
 import { DocTabProvider, useDocTabContext } from '@/contexts/DocTabContext';
 import { UnsavedChangesProvider } from '@/contexts/UnsavedChangesContext';
 import { useUserPreferences } from '@/contexts/UserPreference';
@@ -44,7 +44,10 @@ import DocTreeSidebar from './components/DocTreeSidebar';
 import { RenameDocModal } from './components/RenameDocModal';
 import { DOC_SSE_FALLBACK_INTERVAL_MS } from './lib/doc-polling';
 import { normalizeDocPathFromURL } from './lib/doc-url';
-import type { DocMutationTarget } from './lib/doc-mutation';
+import {
+  docMutationHasUnsavedTabs,
+  type DocMutationTarget,
+} from './lib/doc-mutation';
 import type { ContextAction } from './components/DocArboristNode';
 
 function titleFromPath(docPath: string): string {
@@ -122,6 +125,7 @@ function DocsContent() {
     updateTab,
     clearDraft,
     markTabSaved,
+    unsavedTabIds,
   } = useDocTabContext();
 
   // Mobile view state
@@ -349,6 +353,17 @@ function DocsContent() {
         setRenameError('You do not have permission to rename documents');
         return;
       }
+      if (
+        docMutationHasUnsavedTabs(
+          tabs,
+          unsavedTabIds,
+          renameDocPath,
+          renameWorkspace
+        )
+      ) {
+        setRenameError('Save open changes before renaming this path');
+        return;
+      }
       setRenameLoading(true);
       setRenameError(null);
       try {
@@ -398,6 +413,7 @@ function DocsContent() {
       renameWorkspace,
       mutate,
       tabs,
+      unsavedTabIds,
       updateTab,
       showToast,
     ]
@@ -416,6 +432,17 @@ function DocsContent() {
         return;
       }
       const mutationWorkspace = normalizedDocWorkspace(workspace);
+      if (
+        docMutationHasUnsavedTabs(
+          tabs,
+          unsavedTabIds,
+          oldPath,
+          mutationWorkspace
+        )
+      ) {
+        showToast('Save open changes before renaming or moving this path');
+        return;
+      }
       try {
         const mutationQuery =
           workspaceTargetQueryForWorkspace(mutationWorkspace);
@@ -455,7 +482,16 @@ function DocsContent() {
         mutate();
       }
     },
-    [canWrite, client, remoteNode, mutate, tabs, updateTab, showToast]
+    [
+      canWrite,
+      client,
+      remoteNode,
+      mutate,
+      tabs,
+      unsavedTabIds,
+      updateTab,
+      showToast,
+    ]
   );
 
   const handleInlineRename = useCallback(
@@ -773,8 +809,10 @@ function DocsContent() {
 
 function DocsPage() {
   const appBarContext = useContext(AppBarContext);
+  const { user } = useAuth();
   const remoteNode = appBarContext.selectedRemoteNode || 'local';
   const docTabStorageKey = `dagu_doc_tabs:${JSON.stringify({
+    userId: user?.id ?? 'anonymous',
     remoteNode,
     workspace: workspaceSelectionKey(appBarContext.workspaceSelection),
   })}`;

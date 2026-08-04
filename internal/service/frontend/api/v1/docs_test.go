@@ -41,9 +41,18 @@ type mockDocStore struct {
 type mockWorkspaceStore struct {
 	workspaces []*workspacepkg.Workspace
 	err        error
+	updateErr  error
+	deleteErr  error
 }
 
-func (m *mockWorkspaceStore) Create(context.Context, *workspacepkg.Workspace) error {
+func (m *mockWorkspaceStore) Create(_ context.Context, ws *workspacepkg.Workspace) error {
+	for _, existing := range m.workspaces {
+		if existing.Name == ws.Name {
+			return workspacepkg.ErrWorkspaceAlreadyExists
+		}
+	}
+	cp := *ws
+	m.workspaces = append(m.workspaces, &cp)
 	return nil
 }
 
@@ -72,12 +81,36 @@ func (m *mockWorkspaceStore) List(context.Context) ([]*workspacepkg.Workspace, e
 	return m.workspaces, nil
 }
 
-func (m *mockWorkspaceStore) Update(context.Context, *workspacepkg.Workspace) error {
-	return nil
+func (m *mockWorkspaceStore) Update(_ context.Context, ws *workspacepkg.Workspace) error {
+	if m.updateErr != nil {
+		return m.updateErr
+	}
+	for _, existing := range m.workspaces {
+		if existing.Name == ws.Name && existing.ID != ws.ID {
+			return workspacepkg.ErrWorkspaceAlreadyExists
+		}
+	}
+	for i, existing := range m.workspaces {
+		if existing.ID == ws.ID {
+			cp := *ws
+			m.workspaces[i] = &cp
+			return nil
+		}
+	}
+	return workspacepkg.ErrWorkspaceNotFound
 }
 
-func (m *mockWorkspaceStore) Delete(context.Context, string) error {
-	return nil
+func (m *mockWorkspaceStore) Delete(_ context.Context, id string) error {
+	if m.deleteErr != nil {
+		return m.deleteErr
+	}
+	for i, existing := range m.workspaces {
+		if existing.ID == id {
+			m.workspaces = append(m.workspaces[:i], m.workspaces[i+1:]...)
+			return nil
+		}
+	}
+	return workspacepkg.ErrWorkspaceNotFound
 }
 
 func (m *mockDocStore) Get(_ context.Context, id string) (*docs.Doc, error) {
@@ -186,6 +219,53 @@ func (m *mockDocStore) Rename(_ context.Context, oldID, newID string) error {
 	}
 
 	// Move all matching docs.
+	for _, id := range toMove {
+		doc := m.docs[id]
+		delete(m.docs, id)
+		newDocID := newID + strings.TrimPrefix(id, oldID)
+		doc.ID = newDocID
+		doc.Title = path.Base(newDocID)
+		m.docs[newDocID] = doc
+	}
+	return nil
+}
+
+func (m *mockDocStore) PathExists(_ context.Context, id string) (fileExists, directoryExists bool, err error) {
+	if m.failAll {
+		return false, false, errForced
+	}
+	if err := docs.ValidateDocID(id); err != nil {
+		return false, false, err
+	}
+	_, fileExists = m.docs[id]
+	prefix := id + "/"
+	for docID := range m.docs {
+		if strings.HasPrefix(docID, prefix) {
+			directoryExists = true
+			break
+		}
+	}
+	return fileExists, directoryExists, nil
+}
+
+func (m *mockDocStore) RenameDirectory(_ context.Context, oldID, newID string) error {
+	if m.failAll {
+		return errForced
+	}
+	oldPrefix := oldID + "/"
+	newPrefix := newID + "/"
+	toMove := make([]string, 0)
+	for id := range m.docs {
+		if strings.HasPrefix(id, oldPrefix) {
+			toMove = append(toMove, id)
+		}
+		if id == newID || strings.HasPrefix(id, newPrefix) {
+			return docs.ErrDocAlreadyExists
+		}
+	}
+	if len(toMove) == 0 {
+		return docs.ErrDocNotFound
+	}
 	for _, id := range toMove {
 		doc := m.docs[id]
 		delete(m.docs, id)

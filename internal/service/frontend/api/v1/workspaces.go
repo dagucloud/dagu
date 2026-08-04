@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/core/docs"
 	"github.com/dagucloud/dagu/v2/internal/service/audit"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
@@ -21,6 +22,22 @@ func workspaceStoreUnavailable() *Error {
 		Code:       api.ErrorCodeInternalError,
 		Message:    "Workspace store not configured",
 	}
+}
+
+type workspaceDocStore interface {
+	PathExists(ctx context.Context, id string) (fileExists, directoryExists bool, err error)
+	RenameDirectory(ctx context.Context, oldID, newID string) error
+}
+
+func (a *API) workspaceDocumentStore() (workspaceDocStore, error) {
+	if a.docStore == nil {
+		return nil, nil
+	}
+	store, ok := a.docStore.(workspaceDocStore)
+	if !ok {
+		return nil, errors.New("document store does not support workspace lifecycle operations")
+	}
+	return store, nil
 }
 
 // ListWorkspaces returns all workspaces.
@@ -66,6 +83,26 @@ func (a *API) CreateWorkspace(ctx context.Context, request api.CreateWorkspaceRe
 			Code:    api.ErrorCodeBadRequest,
 			Message: "Workspace name must contain only letters, numbers, underscores, and hyphens",
 		}, nil
+	}
+
+	a.workspaceDocMu.Lock()
+	defer a.workspaceDocMu.Unlock()
+
+	docStore, err := a.workspaceDocumentStore()
+	if err != nil {
+		return nil, err
+	}
+	if docStore != nil {
+		fileExists, directoryExists, err := docStore.PathExists(ctx, body.Name)
+		if err != nil {
+			return nil, fmt.Errorf("failed to inspect workspace document path: %w", err)
+		}
+		if fileExists || directoryExists {
+			return api.CreateWorkspace409JSONResponse{
+				Code:    api.ErrorCodeAlreadyExists,
+				Message: "Workspace name conflicts with an existing document path",
+			}, nil
+		}
 	}
 
 	ws := workspace.NewWorkspace(body.Name, valueOf(body.Description))
@@ -122,6 +159,9 @@ func (a *API) UpdateWorkspace(ctx context.Context, request api.UpdateWorkspaceRe
 		return nil, workspaceStoreUnavailable()
 	}
 
+	a.workspaceDocMu.Lock()
+	defer a.workspaceDocMu.Unlock()
+
 	existing, err := a.workspaceStore.GetByID(ctx, request.WorkspaceId)
 	if err != nil {
 		if errors.Is(err, workspace.ErrWorkspaceNotFound) {
@@ -139,6 +179,7 @@ func (a *API) UpdateWorkspace(ctx context.Context, request api.UpdateWorkspaceRe
 		}, nil
 	}
 
+	updated := *existing
 	body := request.Body
 	if body.Name != nil {
 		if err := workspace.ValidateName(*body.Name); err != nil {
@@ -148,15 +189,57 @@ func (a *API) UpdateWorkspace(ctx context.Context, request api.UpdateWorkspaceRe
 				HTTPStatus: http.StatusBadRequest,
 			}
 		}
-		existing.Name = *body.Name
+		updated.Name = *body.Name
 	}
 	if body.Description != nil {
-		existing.Description = *body.Description
+		updated.Description = *body.Description
 	}
 
-	existing.UpdatedAt = time.Now().UTC()
+	updated.UpdatedAt = time.Now().UTC()
 
-	if err := a.workspaceStore.Update(ctx, existing); err != nil {
+	docStore, err := a.workspaceDocumentStore()
+	if err != nil {
+		return nil, err
+	}
+	docsMoved := false
+	if docStore != nil && updated.Name != existing.Name {
+		oldFileExists, oldDirectoryExists, err := docStore.PathExists(ctx, existing.Name)
+		if err != nil {
+			return nil, fmt.Errorf("failed to inspect current workspace document path: %w", err)
+		}
+		newFileExists, newDirectoryExists, err := docStore.PathExists(ctx, updated.Name)
+		if err != nil {
+			return nil, fmt.Errorf("failed to inspect new workspace document path: %w", err)
+		}
+		if oldFileExists || newFileExists || newDirectoryExists {
+			return api.UpdateWorkspace409JSONResponse{
+				Code:    api.ErrorCodeAlreadyExists,
+				Message: "Workspace rename conflicts with an existing document path",
+			}, nil
+		}
+		if oldDirectoryExists {
+			if err := docStore.RenameDirectory(ctx, existing.Name, updated.Name); err != nil {
+				if errors.Is(err, docs.ErrDocAlreadyExists) || errors.Is(err, docs.ErrDocPathConflict) {
+					return api.UpdateWorkspace409JSONResponse{
+						Code:    api.ErrorCodeAlreadyExists,
+						Message: "Workspace rename conflicts with an existing document path",
+					}, nil
+				}
+				return nil, fmt.Errorf("failed to rename workspace documents: %w", err)
+			}
+			docsMoved = true
+		}
+	}
+
+	if err := a.workspaceStore.Update(ctx, &updated); err != nil {
+		if docsMoved {
+			if rollbackErr := docStore.RenameDirectory(ctx, updated.Name, existing.Name); rollbackErr != nil {
+				return nil, errors.Join(
+					fmt.Errorf("failed to update workspace: %w", err),
+					fmt.Errorf("failed to restore workspace documents: %w", rollbackErr),
+				)
+			}
+		}
 		if errors.Is(err, workspace.ErrWorkspaceAlreadyExists) {
 			return api.UpdateWorkspace409JSONResponse{
 				Code:    api.ErrorCodeAlreadyExists,
@@ -167,11 +250,11 @@ func (a *API) UpdateWorkspace(ctx context.Context, request api.UpdateWorkspaceRe
 	}
 
 	a.logAudit(ctx, audit.CategoryWorkspace, "workspace_update", map[string]string{
-		"id":   existing.ID,
-		"name": existing.Name,
+		"id":   updated.ID,
+		"name": updated.Name,
 	})
 
-	return api.UpdateWorkspace200JSONResponse(toWorkspaceResponse(existing)), nil
+	return api.UpdateWorkspace200JSONResponse(toWorkspaceResponse(&updated)), nil
 }
 
 // DeleteWorkspace deletes a workspace by ID.
@@ -182,6 +265,9 @@ func (a *API) DeleteWorkspace(ctx context.Context, request api.DeleteWorkspaceRe
 	if a.workspaceStore == nil {
 		return nil, workspaceStoreUnavailable()
 	}
+
+	a.workspaceDocMu.Lock()
+	defer a.workspaceDocMu.Unlock()
 
 	ws, err := a.workspaceStore.GetByID(ctx, request.WorkspaceId)
 	if err != nil {
@@ -198,6 +284,23 @@ func (a *API) DeleteWorkspace(ctx context.Context, request api.DeleteWorkspaceRe
 			Code:    api.ErrorCodeNotFound,
 			Message: "Workspace not found",
 		}, nil
+	}
+
+	docStore, err := a.workspaceDocumentStore()
+	if err != nil {
+		return nil, err
+	}
+	if docStore != nil {
+		fileExists, directoryExists, err := docStore.PathExists(ctx, ws.Name)
+		if err != nil {
+			return nil, fmt.Errorf("failed to inspect workspace document path: %w", err)
+		}
+		if fileExists || directoryExists {
+			return api.DeleteWorkspace409JSONResponse{
+				Code:    api.ErrorCodeConflict,
+				Message: "Delete workspace documents before deleting the workspace",
+			}, nil
+		}
 	}
 
 	if err := a.workspaceStore.Delete(ctx, request.WorkspaceId); err != nil {

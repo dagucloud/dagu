@@ -86,6 +86,7 @@ type API struct {
 	baseConfigStore      baseconfig.Store
 	dagSettingsStore     dagsettings.Store
 	docStore             docs.DocStore
+	workspaceDocMu       sync.RWMutex
 	secretStore          secretpkg.Store
 	profileStore         profilepkg.Store
 	viewStore            view.Store

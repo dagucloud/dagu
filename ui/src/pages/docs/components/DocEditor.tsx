@@ -169,15 +169,17 @@ function DocEditor({
       }),
     [remoteNode, tabId, workspaceQueryKey]
   );
+  const draftPersistenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
 
   // Restore drafts by document tab and selected workspace.
   useEffect(() => {
     const draft = getDraft(scopedDraftKey);
     if (draft !== undefined) {
       setCurrentValue(draft);
-      clearDraft(scopedDraftKey);
     }
-  }, [clearDraft, getDraft, scopedDraftKey, setCurrentValue]);
+  }, [getDraft, scopedDraftKey, setCurrentValue]);
 
   // Save draft on unmount or scope change.
   useEffect(() => {
@@ -186,6 +188,34 @@ function DocEditor({
         setDraft(scopedDraftKey, currentValueRef.current ?? '');
       }
     };
+  }, [scopedDraftKey, setDraft]);
+
+  useEffect(() => {
+    if (!hasUnsavedChanges) return;
+
+    const timer = setTimeout(() => {
+      setDraft(scopedDraftKey, currentValue ?? '');
+      if (draftPersistenceTimerRef.current === timer) {
+        draftPersistenceTimerRef.current = null;
+      }
+    }, 300);
+    draftPersistenceTimerRef.current = timer;
+    return () => {
+      clearTimeout(timer);
+      if (draftPersistenceTimerRef.current === timer) {
+        draftPersistenceTimerRef.current = null;
+      }
+    };
+  }, [currentValue, hasUnsavedChanges, scopedDraftKey, setDraft]);
+
+  useEffect(() => {
+    const persistDraft = () => {
+      if (hasUnsavedChangesRef.current) {
+        setDraft(scopedDraftKey, currentValueRef.current ?? '');
+      }
+    };
+    window.addEventListener('pagehide', persistDraft);
+    return () => window.removeEventListener('pagehide', persistDraft);
   }, [scopedDraftKey, setDraft]);
 
   // Sync unsaved state to tab context
@@ -251,6 +281,10 @@ function DocEditor({
         // Revalidate SWR cache from server as safety net
         mutateDoc();
         if (!hasNewerEdits) {
+          if (draftPersistenceTimerRef.current) {
+            clearTimeout(draftPersistenceTimerRef.current);
+            draftPersistenceTimerRef.current = null;
+          }
           markTabSaved(tabId);
           clearDraft(scopedDraftKey);
         }
@@ -401,6 +435,10 @@ function DocEditor({
           <button
             type="button"
             onClick={() => {
+              if (draftPersistenceTimerRef.current) {
+                clearTimeout(draftPersistenceTimerRef.current);
+                draftPersistenceTimerRef.current = null;
+              }
               discardChanges();
               clearDraft(scopedDraftKey);
               markTabSaved(tabId);

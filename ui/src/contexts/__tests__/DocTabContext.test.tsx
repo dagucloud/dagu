@@ -45,6 +45,9 @@ describe('DocTabProvider', () => {
       result.current.setDraft(draftKey, 'unsaved content');
     });
     expect(result.current.drafts.get(draftKey)).toBe('unsaved content');
+    expect(JSON.parse(localStorage.getItem(storageKey) ?? '{}').drafts).toEqual(
+      [[draftKey, 'unsaved content']]
+    );
 
     act(() => {
       result.current.closeTab(tabId!);
@@ -56,5 +59,55 @@ describe('DocTabProvider', () => {
     expect(JSON.parse(localStorage.getItem(storageKey) ?? '{}').drafts).toEqual(
       []
     );
+  });
+
+  it('keeps scoped tab state isolated from legacy storage', () => {
+    localStorage.setItem(
+      'dagu_doc_tabs',
+      JSON.stringify({
+        tabs: [{ id: 'legacy', docPath: 'secret', title: 'Secret' }],
+        activeTabId: 'legacy',
+        drafts: [['legacy', 'legacy draft']],
+        unsavedTabIds: ['legacy'],
+      })
+    );
+
+    const { result } = renderHook(() => useDocTabContext(), {
+      wrapper: wrapperFor('dagu_doc_tabs:user-a'),
+    });
+
+    expect(result.current.tabs).toHaveLength(0);
+    expect(result.current.drafts).toHaveLength(0);
+  });
+
+  it('does not restore another user storage scope', () => {
+    const userAKey = 'dagu_doc_tabs:{"userId":"user-a"}';
+    const userBKey = 'dagu_doc_tabs:{"userId":"user-b"}';
+    const userA = renderHook(() => useDocTabContext(), {
+      wrapper: wrapperFor(userAKey),
+    });
+
+    act(() => {
+      userA.result.current.openDoc('runbook', 'Runbook');
+    });
+    const tabId = userA.result.current.tabs[0]!.id;
+    act(() => {
+      userA.result.current.setDraft(tabId, 'user A draft');
+      userA.result.current.markTabUnsaved(tabId);
+    });
+    userA.unmount();
+
+    const userB = renderHook(() => useDocTabContext(), {
+      wrapper: wrapperFor(userBKey),
+    });
+    expect(userB.result.current.tabs).toHaveLength(0);
+    expect(userB.result.current.drafts).toHaveLength(0);
+    userB.unmount();
+
+    const restoredUserA = renderHook(() => useDocTabContext(), {
+      wrapper: wrapperFor(userAKey),
+    });
+    expect(restoredUserA.result.current.tabs).toHaveLength(1);
+    expect(restoredUserA.result.current.getDraft(tabId)).toBe('user A draft');
   });
 });

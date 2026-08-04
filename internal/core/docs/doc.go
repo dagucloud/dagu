@@ -18,6 +18,7 @@ import (
 var (
 	ErrDocNotFound      = errors.New("doc not found")
 	ErrDocAlreadyExists = errors.New("doc already exists")
+	ErrDocPathConflict  = errors.New("doc path conflicts with another node")
 	ErrInvalidDocID     = errors.New("invalid doc ID")
 )
 

@@ -93,24 +93,51 @@ func New(baseDir string) *Store {
 // path traversal, including via symlinks) and returns the cleaned absolute path.
 func (s *Store) safePath(p string, id string) (string, error) {
 	cleaned := filepath.Clean(p)
+	baseDir := filepath.Clean(s.baseDir)
+	if !pathWithinDir(baseDir, cleaned) {
+		return "", fmt.Errorf("filedoc: path traversal detected for id %q", id)
+	}
 
-	resolvedBase, err := filepath.EvalSymlinks(s.baseDir)
+	resolvedBase, err := filepath.EvalSymlinks(baseDir)
 	if err != nil {
 		return "", fmt.Errorf("filedoc: cannot resolve base dir: %w", err)
 	}
-	resolvedDir, err := filepath.EvalSymlinks(filepath.Dir(cleaned))
-	if err != nil {
-		// Parent dir may not exist yet (e.g. during Create); fall back to lexical check.
-		if !strings.HasPrefix(cleaned, filepath.Clean(s.baseDir)+string(filepath.Separator)) {
-			return "", fmt.Errorf("filedoc: path traversal detected for id %q", id)
+
+	existing := filepath.Dir(cleaned)
+	missing := []string{filepath.Base(cleaned)}
+	for {
+		_, statErr := os.Lstat(existing)
+		if statErr == nil {
+			resolved, resolveErr := filepath.EvalSymlinks(existing)
+			if resolveErr != nil {
+				return "", fmt.Errorf("filedoc: cannot resolve path for id %q: %w", id, resolveErr)
+			}
+			for i := len(missing) - 1; i >= 0; i-- {
+				resolved = filepath.Join(resolved, missing[i])
+			}
+			if !pathWithinDir(resolvedBase, resolved) {
+				return "", fmt.Errorf("filedoc: path traversal detected for id %q", id)
+			}
+			return cleaned, nil
 		}
-		return cleaned, nil
+		if !os.IsNotExist(statErr) {
+			return "", fmt.Errorf("filedoc: cannot inspect path for id %q: %w", id, statErr)
+		}
+		parent := filepath.Dir(existing)
+		if parent == existing {
+			return "", fmt.Errorf("filedoc: cannot resolve path for id %q", id)
+		}
+		missing = append(missing, filepath.Base(existing))
+		existing = parent
 	}
-	fullResolved := filepath.Join(resolvedDir, filepath.Base(cleaned))
-	if !strings.HasPrefix(fullResolved, resolvedBase+string(filepath.Separator)) {
-		return "", fmt.Errorf("filedoc: path traversal detected for id %q", id)
+}
+
+func pathWithinDir(baseDir, path string) bool {
+	rel, err := filepath.Rel(baseDir, path)
+	if err != nil || filepath.IsAbs(rel) {
+		return false
 	}
-	return cleaned, nil
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // docFilePath returns the .md file path for a doc ID with path-traversal validation.
@@ -205,6 +232,51 @@ func pathExistsNoFollow(path string) (bool, error) {
 		return false, nil
 	}
 	return false, err
+}
+
+func (s *Store) pathExists(id string) (fileExists, directoryExists bool, err error) {
+	filePath, err := s.docFilePath(id)
+	if err != nil {
+		return false, false, err
+	}
+	fileExists, err = pathExistsNoFollow(filePath)
+	if err != nil {
+		return false, false, err
+	}
+	dirPath, err := s.dirPath(id)
+	if err != nil {
+		return false, false, err
+	}
+	directoryExists, err = pathExistsNoFollow(dirPath)
+	if err != nil {
+		return false, false, err
+	}
+	return fileExists, directoryExists, nil
+}
+
+func (s *Store) ensureTargetAvailable(id string) error {
+	fileExists, directoryExists, err := s.pathExists(id)
+	if err != nil {
+		return err
+	}
+	if fileExists || directoryExists {
+		return docs.ErrDocAlreadyExists
+	}
+
+	for parent := parentDocID(id); parent != ""; parent = parentDocID(parent) {
+		parentFilePath, err := s.docFilePath(parent)
+		if err != nil {
+			return err
+		}
+		exists, err := pathExistsNoFollow(parentFilePath)
+		if err != nil {
+			return err
+		}
+		if exists {
+			return docs.ErrDocPathConflict
+		}
+	}
+	return nil
 }
 
 func readRegularDocFile(path string) ([]byte, os.FileInfo, error) {
@@ -837,6 +909,9 @@ func (s *Store) Create(ctx context.Context, id, content string) error {
 	if err != nil {
 		return err
 	}
+	if err := s.ensureTargetAvailable(id); err != nil {
+		return err
+	}
 
 	// Ensure parent directories exist.
 	if err := os.MkdirAll(filepath.Dir(filePath), docDirPermissions); err != nil {
@@ -910,7 +985,6 @@ func (s *Store) Update(ctx context.Context, id, content string) error {
 }
 
 // Delete removes a doc file or directory and cleans up empty parent directories.
-// File takes precedence: if both foo.md and foo/ exist, Delete("foo") deletes the file.
 func (s *Store) Delete(ctx context.Context, id string) error {
 	if err := docs.ValidateDocID(id); err != nil {
 		return err
@@ -919,12 +993,20 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 	s.mutationMu.Lock()
 	defer s.mutationMu.Unlock()
 
-	// Try a file before falling back to a directory.
 	filePath, err := s.docFilePath(id)
 	if err != nil {
 		return err
 	}
-	if _, err := statRegularDocFile(filePath); err == nil {
+	dirPath, err := s.dirPath(id)
+	if err != nil {
+		return err
+	}
+	_, fileErr := statRegularDocFile(filePath)
+	_, dirErr := statDocDir(dirPath)
+	if fileErr == nil && dirErr == nil {
+		return docs.ErrDocPathConflict
+	}
+	if fileErr == nil {
 		if err := fileutil.Remove(filePath); err != nil {
 			return fmt.Errorf("filedoc: failed to delete file: %w", err)
 		}
@@ -934,17 +1016,14 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 		s.cleanEmptyParents(filepath.Dir(filePath))
 		s.removeDocIndexAfterDelete(ctx, id)
 		return nil
-	} else if err != nil && !os.IsNotExist(err) && !errors.Is(err, docs.ErrDocNotFound) {
-		return fmt.Errorf("filedoc: failed to stat file %s: %w", filePath, err)
 	}
-
-	// Try as directory.
-	dirPath, err := s.dirPath(id)
-	if err != nil {
-		return err
+	if fileErr != nil && !os.IsNotExist(fileErr) && !errors.Is(fileErr, docs.ErrDocNotFound) {
+		return fmt.Errorf("filedoc: failed to stat file %s: %w", filePath, fileErr)
 	}
-	_, err = statDocDir(dirPath)
-	if err != nil {
+	if dirErr != nil {
+		if !os.IsNotExist(dirErr) && !errors.Is(dirErr, docs.ErrDocNotFound) {
+			return fmt.Errorf("filedoc: failed to stat directory %s: %w", dirPath, dirErr)
+		}
 		return docs.ErrDocNotFound
 	}
 	if err := s.safeDeleteDir(dirPath); err != nil {
@@ -1019,13 +1098,23 @@ func (s *Store) DeleteBatch(ctx context.Context, ids []string) ([]string, []docs
 			continue
 		}
 
-		// Try as file first.
 		filePath, err := s.docFilePath(id)
 		if err != nil {
 			failed = append(failed, docs.DeleteError{ID: id, Error: err.Error()})
 			continue
 		}
-		if _, err := statRegularDocFile(filePath); err == nil {
+		dirPath, err := s.dirPath(id)
+		if err != nil {
+			failed = append(failed, docs.DeleteError{ID: id, Error: err.Error()})
+			continue
+		}
+		_, fileErr := statRegularDocFile(filePath)
+		_, dirErr := statDocDir(dirPath)
+		if fileErr == nil && dirErr == nil {
+			failed = append(failed, docs.DeleteError{ID: id, Error: docs.ErrDocPathConflict.Error()})
+			continue
+		}
+		if fileErr == nil {
 			if err := fileutil.Remove(filePath); err != nil {
 				failed = append(failed, docs.DeleteError{ID: id, Error: err.Error()})
 				continue
@@ -1037,27 +1126,21 @@ func (s *Store) DeleteBatch(ctx context.Context, ids []string) ([]string, []docs
 			s.removeDocIndexAfterDelete(ctx, id)
 			deleted = append(deleted, id)
 			continue
-		} else if !os.IsNotExist(err) && !errors.Is(err, docs.ErrDocNotFound) {
-			failed = append(failed, docs.DeleteError{ID: id, Error: err.Error()})
+		}
+		if !os.IsNotExist(fileErr) && !errors.Is(fileErr, docs.ErrDocNotFound) {
+			failed = append(failed, docs.DeleteError{ID: id, Error: fileErr.Error()})
 			continue
 		}
 
-		// Try as directory.
-		dirPath, err := s.dirPath(id)
-		if err != nil {
-			failed = append(failed, docs.DeleteError{ID: id, Error: err.Error()})
-			continue
-		}
-		_, err = statDocDir(dirPath)
-		if os.IsNotExist(err) || errors.Is(err, docs.ErrDocNotFound) {
+		if os.IsNotExist(dirErr) || errors.Is(dirErr, docs.ErrDocNotFound) {
 			// Not found → treat as success (idempotency).
 			s.removeDocIndexAfterDelete(ctx, id)
 			s.removeDirIndexAfterDelete(ctx, id)
 			deleted = append(deleted, id)
 			continue
 		}
-		if err != nil {
-			failed = append(failed, docs.DeleteError{ID: id, Error: err.Error()})
+		if dirErr != nil {
+			failed = append(failed, docs.DeleteError{ID: id, Error: dirErr.Error()})
 			continue
 		}
 		if err := s.safeDeleteDir(dirPath); err != nil {
@@ -1091,6 +1174,18 @@ func (s *Store) dirPath(id string) (string, error) {
 	return s.safePath(filepath.Join(s.baseDir, id), id)
 }
 
+// PathExists reports whether the file or directory path for id is occupied.
+func (s *Store) PathExists(_ context.Context, id string) (fileExists, directoryExists bool, err error) {
+	if err := docs.ValidateDocID(id); err != nil {
+		return false, false, err
+	}
+
+	s.mutationMu.Lock()
+	defer s.mutationMu.Unlock()
+
+	return s.pathExists(id)
+}
+
 // Rename moves a doc (file or directory) from oldID to newID.
 func (s *Store) Rename(ctx context.Context, oldID, newID string) error {
 	if err := docs.ValidateDocID(oldID); err != nil {
@@ -1103,74 +1198,93 @@ func (s *Store) Rename(ctx context.Context, oldID, newID string) error {
 	s.mutationMu.Lock()
 	defer s.mutationMu.Unlock()
 
-	// Try a file before falling back to a directory.
 	oldFilePath, err := s.docFilePath(oldID)
 	if err != nil {
+		return err
+	}
+	oldDirPath, err := s.dirPath(oldID)
+	if err != nil {
+		return err
+	}
+	_, fileErr := statRegularDocFile(oldFilePath)
+	_, dirErr := statDocDir(oldDirPath)
+	if fileErr == nil && dirErr == nil {
+		return docs.ErrDocPathConflict
+	}
+	if fileErr == nil {
+		return s.renameFileLocked(ctx, oldID, newID, oldFilePath)
+	}
+	if fileErr != nil && !os.IsNotExist(fileErr) && !errors.Is(fileErr, docs.ErrDocNotFound) {
+		return fileErr
+	}
+	if dirErr == nil {
+		return s.renameDirectoryLocked(ctx, oldID, newID, oldDirPath)
+	}
+	if dirErr != nil && !os.IsNotExist(dirErr) && !errors.Is(dirErr, docs.ErrDocNotFound) {
+		return dirErr
+	}
+	return docs.ErrDocNotFound
+}
+
+func (s *Store) renameFileLocked(ctx context.Context, oldID, newID, oldFilePath string) error {
+	if err := s.ensureTargetAvailable(newID); err != nil {
 		return err
 	}
 	newFilePath, err := s.docFilePath(newID)
 	if err != nil {
 		return err
 	}
-
-	if _, err := statRegularDocFile(oldFilePath); err == nil {
-		// Old file exists — rename as file.
-		exists, err := pathExistsNoFollow(newFilePath)
-		if err != nil {
-			return err
-		}
-		if exists {
+	if err := os.MkdirAll(filepath.Dir(newFilePath), docDirPermissions); err != nil {
+		return fmt.Errorf("filedoc: failed to create target directories: %w", err)
+	}
+	if err := renameNoReplace(oldFilePath, newFilePath); err != nil {
+		if errors.Is(err, docs.ErrDocAlreadyExists) {
 			return docs.ErrDocAlreadyExists
 		}
-		if err := os.MkdirAll(filepath.Dir(newFilePath), docDirPermissions); err != nil {
-			return fmt.Errorf("filedoc: failed to create target directories: %w", err)
-		}
-		if err := renameNoReplace(oldFilePath, newFilePath); err != nil {
-			if errors.Is(err, docs.ErrDocAlreadyExists) {
-				return docs.ErrDocAlreadyExists
-			}
-			return fmt.Errorf("filedoc: failed to rename file: %w", err)
-		}
-		if err := s.renameDocCreatedAt(oldID, newID); err != nil {
-			logger.Warn(ctx, "Failed to rename doc metadata", tag.File(newFilePath), tag.Error(err))
-		}
-		s.cleanEmptyParents(filepath.Dir(oldFilePath))
-		s.removeDocIndexAfterDelete(ctx, oldID)
-		s.upsertDocIndexAfterMutation(ctx, newID)
-		return nil
-	} else if err != nil && !os.IsNotExist(err) && !errors.Is(err, docs.ErrDocNotFound) {
+		return fmt.Errorf("filedoc: failed to rename file: %w", err)
+	}
+	if err := s.renameDocCreatedAt(oldID, newID); err != nil {
+		logger.Warn(ctx, "Failed to rename doc metadata", tag.File(newFilePath), tag.Error(err))
+	}
+	s.cleanEmptyParents(filepath.Dir(oldFilePath))
+	s.removeDocIndexAfterDelete(ctx, oldID)
+	s.upsertDocIndexAfterMutation(ctx, newID)
+	return nil
+}
+
+// RenameDirectory moves the directory at oldID to newID.
+func (s *Store) RenameDirectory(ctx context.Context, oldID, newID string) error {
+	if err := docs.ValidateDocID(oldID); err != nil {
+		return err
+	}
+	if err := docs.ValidateDocID(newID); err != nil {
 		return err
 	}
 
-	// Try as directory.
+	s.mutationMu.Lock()
+	defer s.mutationMu.Unlock()
+
 	oldDirPath, err := s.dirPath(oldID)
 	if err != nil {
 		return err
 	}
 	if _, err := statDocDir(oldDirPath); err != nil {
-		return docs.ErrDocNotFound
+		if os.IsNotExist(err) || errors.Is(err, docs.ErrDocNotFound) {
+			return docs.ErrDocNotFound
+		}
+		return err
 	}
+	return s.renameDirectoryLocked(ctx, oldID, newID, oldDirPath)
+}
 
+func (s *Store) renameDirectoryLocked(ctx context.Context, oldID, newID, oldDirPath string) error {
+	if err := s.ensureTargetAvailable(newID); err != nil {
+		return err
+	}
 	newDirPath, err := s.dirPath(newID)
 	if err != nil {
 		return err
 	}
-	// Check that neither a directory nor a file with the target name exists.
-	exists, err := pathExistsNoFollow(newDirPath)
-	if err != nil {
-		return err
-	}
-	if exists {
-		return docs.ErrDocAlreadyExists
-	}
-	exists, err = pathExistsNoFollow(newFilePath)
-	if err != nil {
-		return err
-	}
-	if exists {
-		return docs.ErrDocAlreadyExists
-	}
-
 	if err := os.MkdirAll(filepath.Dir(newDirPath), docDirPermissions); err != nil {
 		return fmt.Errorf("filedoc: failed to create target directories: %w", err)
 	}

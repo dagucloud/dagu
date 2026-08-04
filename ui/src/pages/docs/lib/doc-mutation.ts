@@ -11,6 +11,12 @@ export type DocMutationTarget = {
   workspace?: string | null;
 };
 
+type OpenDocTab = {
+  id: string;
+  docPath: string;
+  workspace?: string | null;
+};
+
 type ResolveMoveInput = {
   dragId: string;
   dragWorkspace?: string | null;
@@ -52,6 +58,22 @@ export function docMutationTargetForTreeNode(
     path: docMutationPathForTreeNode(id, workspace),
     workspace: normalizedDocMutationWorkspace(workspace),
   };
+}
+
+export function docMutationHasUnsavedTabs(
+  tabs: readonly OpenDocTab[],
+  unsavedTabIds: ReadonlySet<string>,
+  targetPath: string,
+  workspace?: string | null
+): boolean {
+  const normalizedWorkspace = normalizedDocMutationWorkspace(workspace);
+  return tabs.some(
+    (tab) =>
+      normalizedDocMutationWorkspace(tab.workspace) === normalizedWorkspace &&
+      (tab.docPath === targetPath ||
+        tab.docPath.startsWith(`${targetPath}/`)) &&
+      unsavedTabIds.has(tab.id)
+  );
 }
 
 export function resolveDocTreeMove({

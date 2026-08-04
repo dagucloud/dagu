@@ -4,6 +4,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  docMutationHasUnsavedTabs,
   docMutationPathForTreeNode,
   docMutationTargetForTreeNode,
   isWorkspaceRootTreeNode,
@@ -79,5 +80,25 @@ describe('doc mutation path helpers', () => {
       newPath: 'deploy',
       workspace: 'ops',
     });
+  });
+
+  it('detects unsaved tabs affected by file and directory mutations', () => {
+    const tabs = [
+      { id: 'default', docPath: 'runbook', workspace: null },
+      { id: 'ops-child', docPath: 'guides/deploy', workspace: 'ops' },
+      { id: 'ops-other', docPath: 'notes', workspace: 'ops' },
+    ];
+    const unsaved = new Set(['default', 'ops-child']);
+
+    expect(docMutationHasUnsavedTabs(tabs, unsaved, 'runbook')).toBe(true);
+    expect(docMutationHasUnsavedTabs(tabs, unsaved, 'guides', 'ops')).toBe(
+      true
+    );
+    expect(docMutationHasUnsavedTabs(tabs, unsaved, 'notes', 'ops')).toBe(
+      false
+    );
+    expect(docMutationHasUnsavedTabs(tabs, unsaved, 'guides', 'other')).toBe(
+      false
+    );
   });
 });

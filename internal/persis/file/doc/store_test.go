@@ -97,6 +97,26 @@ func TestCreateNested(t *testing.T) {
 	assert.Equal(t, "# Deploy Prod", doc.Content)
 }
 
+func TestCreateRejectsFileDirectoryNameCollisions(t *testing.T) {
+	t.Run("file blocks child document", func(t *testing.T) {
+		store := newTestStore(t)
+		ctx := context.Background()
+
+		require.NoError(t, store.Create(ctx, "foo", "file content"))
+		err := store.Create(ctx, "foo/child", "child content")
+		assert.ErrorIs(t, err, docs.ErrDocPathConflict)
+	})
+
+	t.Run("directory blocks document", func(t *testing.T) {
+		store := newTestStore(t)
+		ctx := context.Background()
+
+		require.NoError(t, store.Create(ctx, "foo/child", "child content"))
+		err := store.Create(ctx, "foo", "file content")
+		assert.ErrorIs(t, err, docs.ErrDocAlreadyExists)
+	})
+}
+
 func TestCreateInvalidID(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
@@ -145,6 +165,22 @@ func TestSymlinkDocFileIsIgnored(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Empty(t, cursorSearch.Items)
+}
+
+func TestCreateRejectsSymlinkedExistingAncestor(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	outsideDir := t.TempDir()
+
+	linkPath := filepath.Join(store.baseDir, "linked")
+	if err := os.Symlink(outsideDir, linkPath); err != nil {
+		t.Skipf("symlink creation is unavailable: %v", err)
+	}
+
+	err := store.Create(ctx, "linked/new/doc", "content")
+	require.Error(t, err)
+	_, statErr := os.Stat(filepath.Join(outsideDir, "new", "doc.md"))
+	assert.True(t, os.IsNotExist(statErr))
 }
 
 func TestUpdate(t *testing.T) {
@@ -268,6 +304,21 @@ func TestRenameNested(t *testing.T) {
 	// Old parent should be cleaned up.
 	_, err = os.Stat(filepath.Join(store.baseDir, "old"))
 	assert.True(t, os.IsNotExist(err))
+}
+
+func TestRenameRejectsAncestorDocumentCollision(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	require.NoError(t, store.Create(ctx, "destination", "content"))
+	require.NoError(t, store.Create(ctx, "source", "source content"))
+
+	err := store.Rename(ctx, "source", "destination/child")
+	assert.ErrorIs(t, err, docs.ErrDocPathConflict)
+
+	doc, getErr := store.Get(ctx, "source")
+	require.NoError(t, getErr)
+	assert.Equal(t, "source content", doc.Content)
 }
 
 func TestListFlat(t *testing.T) {
@@ -1351,8 +1402,8 @@ func TestSearchCursorUsesStableSortedIDsAcrossNestedDocs(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 
-	require.NoError(t, store.Create(ctx, "a", "needle"))
-	require.NoError(t, store.Create(ctx, "a/b", "needle"))
+	require.NoError(t, store.Create(ctx, "a/child", "needle"))
+	require.NoError(t, store.Create(ctx, "b", "needle"))
 
 	firstPage, err := store.SearchCursor(ctx, docs.SearchDocsOptions{
 		Query:      "needle",
@@ -1363,7 +1414,7 @@ func TestSearchCursorUsesStableSortedIDsAcrossNestedDocs(t *testing.T) {
 	require.Len(t, firstPage.Items, 1)
 	require.True(t, firstPage.HasMore)
 	require.NotEmpty(t, firstPage.NextCursor)
-	assert.Equal(t, "a", firstPage.Items[0].ID)
+	assert.Equal(t, "a/child", firstPage.Items[0].ID)
 
 	secondPage, err := store.SearchCursor(ctx, docs.SearchDocsOptions{
 		Query:      "needle",
@@ -1373,7 +1424,7 @@ func TestSearchCursorUsesStableSortedIDsAcrossNestedDocs(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, secondPage.Items, 1)
-	assert.Equal(t, "a/b", secondPage.Items[0].ID)
+	assert.Equal(t, "b", secondPage.Items[0].ID)
 	assert.False(t, secondPage.HasMore)
 }
 
@@ -1695,24 +1746,26 @@ func TestDeleteDirectoryNested(t *testing.T) {
 	assert.True(t, os.IsNotExist(err))
 }
 
-func TestDeleteDirectoryVsFileSameName(t *testing.T) {
+func TestMutationRejectsAmbiguousFileAndDirectoryID(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 
-	// Create both foo.md (file) and foo/ (directory with child).
-	require.NoError(t, store.Create(ctx, "foo", "file content"))
-	require.NoError(t, store.Create(ctx, "foo/child", "child content"))
+	require.NoError(t, os.MkdirAll(filepath.Join(store.baseDir, "foo"), docDirPermissions))
+	require.NoError(t, os.WriteFile(filepath.Join(store.baseDir, "foo.md"), []byte("file content\n"), filePermissions))
+	require.NoError(t, os.WriteFile(filepath.Join(store.baseDir, "foo", "child.md"), []byte("child content\n"), filePermissions))
 
-	// Delete("foo") should delete the file (foo.md), not the directory.
-	err := store.Delete(ctx, "foo")
+	assert.ErrorIs(t, store.Delete(ctx, "foo"), docs.ErrDocPathConflict)
+	assert.ErrorIs(t, store.Rename(ctx, "foo", "renamed"), docs.ErrDocPathConflict)
+	deleted, failed, err := store.DeleteBatch(ctx, []string{"foo"})
 	require.NoError(t, err)
+	assert.Empty(t, deleted)
+	require.Len(t, failed, 1)
+	assert.Equal(t, "foo", failed[0].ID)
 
-	// File should be gone.
-	_, err = store.Get(ctx, "foo")
-	assert.ErrorIs(t, err, docs.ErrDocNotFound)
-
-	// Directory child should still exist.
-	doc, err := store.Get(ctx, "foo/child")
+	doc, err := store.Get(ctx, "foo")
+	require.NoError(t, err)
+	assert.Equal(t, "file content", doc.Content)
+	doc, err = store.Get(ctx, "foo/child")
 	require.NoError(t, err)
 	assert.Equal(t, "child content", doc.Content)
 }

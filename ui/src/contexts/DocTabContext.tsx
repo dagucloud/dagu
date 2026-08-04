@@ -70,9 +70,7 @@ function generateTabId(): string {
 
 function readStoredTabState(storageKey: string): StoredTabState | null {
   try {
-    const stored =
-      localStorage.getItem(storageKey) ||
-      (storageKey !== STORAGE_KEY ? localStorage.getItem(STORAGE_KEY) : null);
+    const stored = localStorage.getItem(storageKey);
     if (stored) {
       return JSON.parse(stored) as StoredTabState;
     }
@@ -136,6 +134,19 @@ export function DocTabProvider({
   tabsRef.current = tabs;
   const activeTabIdRef = useRef(activeTabId);
   activeTabIdRef.current = activeTabId;
+  const draftsRef = useRef(drafts);
+  draftsRef.current = drafts;
+  const unsavedTabIdsRef = useRef(unsavedTabIds);
+  unsavedTabIdsRef.current = unsavedTabIds;
+
+  const persistStoredState = useCallback(() => {
+    writeStoredTabState(storageKey, {
+      tabs: tabsRef.current,
+      activeTabId: activeTabIdRef.current,
+      drafts: Array.from(draftsRef.current.entries()),
+      unsavedTabIds: Array.from(unsavedTabIdsRef.current),
+    });
+  }, [storageKey]);
 
   // Persist to localStorage
   useEffect(() => {
@@ -166,6 +177,7 @@ export function DocTabProvider({
       if (existingTab) {
         activeTabIdRef.current = existingTab.id;
         setActiveTabId(existingTab.id);
+        persistStoredState();
         return;
       }
 
@@ -181,42 +193,46 @@ export function DocTabProvider({
       activeTabIdRef.current = newTab.id;
       setTabs(nextTabs);
       setActiveTabId(newTab.id);
+      persistStoredState();
     },
-    []
+    [persistStoredState]
   );
 
-  const closeTab = useCallback((tabId: string) => {
-    const currentTabs = tabsRef.current;
-    const nextTabs = currentTabs.filter((t) => t.id !== tabId);
-    tabsRef.current = nextTabs;
-    setTabs(nextTabs);
+  const closeTab = useCallback(
+    (tabId: string) => {
+      const currentTabs = tabsRef.current;
+      const nextTabs = currentTabs.filter((t) => t.id !== tabId);
+      tabsRef.current = nextTabs;
+      setTabs(nextTabs);
 
-    if (activeTabIdRef.current === tabId) {
-      const closedIndex = currentTabs.findIndex((t) => t.id === tabId);
-      const nextActiveIndex = Math.min(closedIndex, nextTabs.length - 1);
-      const nextActiveTabId = nextTabs[nextActiveIndex]?.id ?? null;
-      activeTabIdRef.current = nextActiveTabId;
-      setActiveTabId(nextActiveTabId);
-    } else if (nextTabs.length === 0) {
-      activeTabIdRef.current = null;
-      setActiveTabId(null);
-    }
+      if (activeTabIdRef.current === tabId) {
+        const closedIndex = currentTabs.findIndex((t) => t.id === tabId);
+        const nextActiveIndex = Math.min(closedIndex, nextTabs.length - 1);
+        const nextActiveTabId = nextTabs[nextActiveIndex]?.id ?? null;
+        activeTabIdRef.current = nextActiveTabId;
+        setActiveTabId(nextActiveTabId);
+      } else if (nextTabs.length === 0) {
+        activeTabIdRef.current = null;
+        setActiveTabId(null);
+      }
 
-    setDrafts((prev) => {
-      const next = new Map(prev);
-      for (const key of next.keys()) {
+      const nextDrafts = new Map(draftsRef.current);
+      for (const key of nextDrafts.keys()) {
         if (draftKeyMatchesTabId(key, tabId)) {
-          next.delete(key);
+          nextDrafts.delete(key);
         }
       }
-      return next;
-    });
-    setUnsavedTabIds((prev) => {
-      const next = new Set(prev);
-      next.delete(tabId);
-      return next;
-    });
-  }, []);
+      draftsRef.current = nextDrafts;
+      setDrafts(nextDrafts);
+
+      const nextUnsavedTabIds = new Set(unsavedTabIdsRef.current);
+      nextUnsavedTabIds.delete(tabId);
+      unsavedTabIdsRef.current = nextUnsavedTabIds;
+      setUnsavedTabIds(nextUnsavedTabIds);
+      persistStoredState();
+    },
+    [persistStoredState]
+  );
 
   const closeAllTabs = useCallback(() => {
     setTabs([]);
@@ -225,36 +241,46 @@ export function DocTabProvider({
     setUnsavedTabIds(new Set());
     tabsRef.current = [];
     activeTabIdRef.current = null;
-  }, []);
+    draftsRef.current = new Map();
+    unsavedTabIdsRef.current = new Set();
+    persistStoredState();
+  }, [persistStoredState]);
 
-  const closeOtherTabs = useCallback((keepTabId: string) => {
-    const nextTabs = tabsRef.current.filter((t) => t.id === keepTabId);
-    tabsRef.current = nextTabs;
-    activeTabIdRef.current = keepTabId;
-    setTabs(nextTabs);
-    setActiveTabId(keepTabId);
-    setDrafts((prev) => {
-      const draft = prev.get(keepTabId);
-      const next = new Map<string, string>();
-      if (draft !== undefined) next.set(keepTabId, draft);
-      for (const [key, value] of prev.entries()) {
+  const closeOtherTabs = useCallback(
+    (keepTabId: string) => {
+      const nextTabs = tabsRef.current.filter((t) => t.id === keepTabId);
+      tabsRef.current = nextTabs;
+      activeTabIdRef.current = keepTabId;
+      setTabs(nextTabs);
+      setActiveTabId(keepTabId);
+      const nextDrafts = new Map<string, string>();
+      for (const [key, value] of draftsRef.current.entries()) {
         if (draftKeyMatchesTabId(key, keepTabId)) {
-          next.set(key, value);
+          nextDrafts.set(key, value);
         }
       }
-      return next;
-    });
-    setUnsavedTabIds((prev) => {
-      const next = new Set<string>();
-      if (prev.has(keepTabId)) next.add(keepTabId);
-      return next;
-    });
-  }, []);
+      draftsRef.current = nextDrafts;
+      setDrafts(nextDrafts);
 
-  const setActiveTab = useCallback((tabId: string) => {
-    activeTabIdRef.current = tabId;
-    setActiveTabId(tabId);
-  }, []);
+      const nextUnsavedTabIds = new Set<string>();
+      if (unsavedTabIdsRef.current.has(keepTabId)) {
+        nextUnsavedTabIds.add(keepTabId);
+      }
+      unsavedTabIdsRef.current = nextUnsavedTabIds;
+      setUnsavedTabIds(nextUnsavedTabIds);
+      persistStoredState();
+    },
+    [persistStoredState]
+  );
+
+  const setActiveTab = useCallback(
+    (tabId: string) => {
+      activeTabIdRef.current = tabId;
+      setActiveTabId(tabId);
+      persistStoredState();
+    },
+    [persistStoredState]
+  );
 
   const getActiveDocPath = useCallback(() => {
     if (!activeTabIdRef.current) return null;
@@ -274,66 +300,80 @@ export function DocTabProvider({
       );
       tabsRef.current = nextTabs;
       setTabs(nextTabs);
+      persistStoredState();
     },
-    []
+    [persistStoredState]
   );
 
-  const setDraft = useCallback((draftKey: string, content: string) => {
-    const matchesOpenTab = tabsRef.current.some((tab) =>
-      draftKeyMatchesTabId(draftKey, tab.id)
-    );
-    if (!matchesOpenTab) return;
+  const setDraft = useCallback(
+    (draftKey: string, content: string) => {
+      const matchingTab = tabsRef.current.find((tab) =>
+        draftKeyMatchesTabId(draftKey, tab.id)
+      );
+      if (!matchingTab) return;
 
-    setDrafts((prev) => {
-      const next = new Map(prev);
-      next.set(draftKey, content);
-      return next;
-    });
-  }, []);
+      const nextDrafts = new Map(draftsRef.current);
+      nextDrafts.set(draftKey, content);
+      draftsRef.current = nextDrafts;
+      setDrafts(nextDrafts);
 
-  const clearDraft = useCallback((tabId: string) => {
-    setDrafts((prev) => {
-      const next = new Map(prev);
-      for (const key of next.keys()) {
+      if (!unsavedTabIdsRef.current.has(matchingTab.id)) {
+        const nextUnsavedTabIds = new Set(unsavedTabIdsRef.current);
+        nextUnsavedTabIds.add(matchingTab.id);
+        unsavedTabIdsRef.current = nextUnsavedTabIds;
+        setUnsavedTabIds(nextUnsavedTabIds);
+      }
+      persistStoredState();
+    },
+    [persistStoredState]
+  );
+
+  const clearDraft = useCallback(
+    (tabId: string) => {
+      const nextDrafts = new Map(draftsRef.current);
+      for (const key of nextDrafts.keys()) {
         if (draftKeyMatchesTabId(key, tabId)) {
-          next.delete(key);
+          nextDrafts.delete(key);
         }
       }
-      return next;
-    });
-  }, []);
-
-  const getDraft = useCallback(
-    (tabId: string) => {
-      return drafts.get(tabId);
+      draftsRef.current = nextDrafts;
+      setDrafts(nextDrafts);
+      persistStoredState();
     },
-    [drafts]
+    [persistStoredState]
   );
 
-  const markTabUnsaved = useCallback((tabId: string) => {
-    setUnsavedTabIds((prev) => {
-      if (prev.has(tabId)) return prev;
-      const next = new Set(prev);
-      next.add(tabId);
-      return next;
-    });
+  const getDraft = useCallback((tabId: string) => {
+    return draftsRef.current.get(tabId);
   }, []);
 
-  const markTabSaved = useCallback((tabId: string) => {
-    setUnsavedTabIds((prev) => {
-      if (!prev.has(tabId)) return prev;
-      const next = new Set(prev);
-      next.delete(tabId);
-      return next;
-    });
-  }, []);
-
-  const isTabUnsaved = useCallback(
+  const markTabUnsaved = useCallback(
     (tabId: string) => {
-      return unsavedTabIds.has(tabId);
+      if (unsavedTabIdsRef.current.has(tabId)) return;
+      const nextUnsavedTabIds = new Set(unsavedTabIdsRef.current);
+      nextUnsavedTabIds.add(tabId);
+      unsavedTabIdsRef.current = nextUnsavedTabIds;
+      setUnsavedTabIds(nextUnsavedTabIds);
+      persistStoredState();
     },
-    [unsavedTabIds]
+    [persistStoredState]
   );
+
+  const markTabSaved = useCallback(
+    (tabId: string) => {
+      if (!unsavedTabIdsRef.current.has(tabId)) return;
+      const nextUnsavedTabIds = new Set(unsavedTabIdsRef.current);
+      nextUnsavedTabIds.delete(tabId);
+      unsavedTabIdsRef.current = nextUnsavedTabIds;
+      setUnsavedTabIds(nextUnsavedTabIds);
+      persistStoredState();
+    },
+    [persistStoredState]
+  );
+
+  const isTabUnsaved = useCallback((tabId: string) => {
+    return unsavedTabIdsRef.current.has(tabId);
+  }, []);
 
   const value: DocTabContextType = {
     tabs,
