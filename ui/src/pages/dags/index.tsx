@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import React from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { v4 as uuidv4 } from 'uuid';
 import {
   components,
   PathsDagsGetParametersQueryOrder,
@@ -11,7 +12,13 @@ import {
 import { Button } from '@/components/ui/button';
 import { AppBarContext } from '../../contexts/AppBarContext';
 import { useSearchState } from '../../contexts/SearchStateContext';
-import { useUserPreferences } from '../../contexts/UserPreference';
+import {
+  useUserPreferences,
+  type WorkflowFilterSet,
+  type WorkflowFilterView,
+  type WorkflowFilterViewPreferences,
+  type WorkflowFilterViewScope,
+} from '../../contexts/UserPreference';
 import { DAGDetailsModal } from '../../features/dags/components/dag-details';
 import { DAGErrors } from '../../features/dags/components/dag-editor';
 import { DAGTable } from '../../features/dags/components/dag-list';
@@ -30,12 +37,7 @@ import {
 import LoadingIndicator from '@/components/ui/loading-indicator';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 
-type DAGDefinitionsFilters = {
-  searchText: string;
-  searchLabels: string[];
-  sortField: string;
-  sortOrder: string;
-};
+type DAGDefinitionsFilters = WorkflowFilterSet;
 
 type DAGsPageResponse = {
   dags: components['schemas']['DAGFile'][];
@@ -58,6 +60,46 @@ const areDAGDefinitionsFiltersEqual = (
   areLabelsEqual(a.searchLabels, b.searchLabels) &&
   a.sortField === b.sortField &&
   a.sortOrder === b.sortOrder;
+
+const ALL_WORKFLOWS_VIEW_PARAM = 'all';
+const EMPTY_WORKFLOW_VIEW_SCOPE: WorkflowFilterViewScope = { views: [] };
+const EMPTY_WORKFLOW_VIEW_PREFERENCES: WorkflowFilterViewPreferences = {};
+
+const cloneFilters = (
+  filters: DAGDefinitionsFilters
+): DAGDefinitionsFilters => ({
+  ...filters,
+  searchLabels: [...filters.searchLabels],
+});
+
+function buildWorkflowFilterSearch(
+  currentSearch: string,
+  filters: DAGDefinitionsFilters,
+  viewId: string | null
+): string {
+  const params = new URLSearchParams(currentSearch);
+  params.delete('view');
+  params.delete('search');
+  params.delete('labels');
+  params.delete('tags');
+  params.delete('sort');
+  params.delete('order');
+
+  if (viewId === ALL_WORKFLOWS_VIEW_PARAM) {
+    params.set('view', ALL_WORKFLOWS_VIEW_PARAM);
+  } else {
+    if (viewId) {
+      params.set('view', viewId);
+    }
+    params.set('search', filters.searchText);
+    params.set('labels', filters.searchLabels.join(','));
+    params.set('sort', filters.sortField);
+    params.set('order', filters.sortOrder);
+  }
+
+  const search = params.toString();
+  return search ? `?${search}` : '';
+}
 
 function mergeUniqueDAGFiles(
   head: components['schemas']['DAGFile'][],
@@ -136,6 +178,7 @@ function supportsIntersectionObserver(): boolean {
 
 function DAGsContent() {
   const location = useLocation();
+  const navigate = useNavigate();
   const query = React.useMemo(
     () => new URLSearchParams(location.search),
     [location.search]
@@ -155,7 +198,7 @@ function DAGsContent() {
     remoteNode,
     workspace: workspaceKey,
   });
-  const { preferences } = useUserPreferences();
+  const { preferences, updatePreference } = useUserPreferences();
   const previousWorkspaceKeyRef = React.useRef(workspaceKey);
   const [selectedDAG, setSelectedDAG] = React.useState<string | null>(null);
   const [olderDAGFiles, setOlderDAGFiles] = React.useState<
@@ -165,6 +208,9 @@ function DAGsContent() {
     React.useState<number | null | undefined>(undefined);
   const [isLoadingMore, setIsLoadingMore] = React.useState(false);
   const [loadMoreError, setLoadMoreError] = React.useState<string | null>(null);
+  const [activeWorkflowViewId, setActiveWorkflowViewId] = React.useState<
+    string | null
+  >(null);
   const loadMoreSentinelRef = React.useRef<HTMLDivElement>(null);
   const autoLoadPendingRef = React.useRef(false);
   const loadMoreControllerRef = React.useRef<AbortController | null>(null);
@@ -179,6 +225,14 @@ function DAGsContent() {
     }),
     []
   );
+  const workflowViewScopes =
+    preferences.workflowFilterViews ?? EMPTY_WORKFLOW_VIEW_PREFERENCES;
+  const workflowViewScope =
+    workflowViewScopes[searchStateScope] ?? EMPTY_WORKFLOW_VIEW_SCOPE;
+  const workflowViewScopeRef = React.useRef(workflowViewScope);
+  React.useEffect(() => {
+    workflowViewScopeRef.current = workflowViewScope;
+  }, [workflowViewScope]);
 
   const [searchText, setSearchText] = React.useState(defaultFilters.searchText);
   const [searchLabels, setSearchLabels] = React.useState<string[]>(
@@ -225,6 +279,7 @@ function DAGsContent() {
   const lastPersistedFiltersRef = React.useRef<DAGDefinitionsFilters | null>(
     null
   );
+  const previousFilterScopeRef = React.useRef(searchStateScope);
 
   React.useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -232,11 +287,6 @@ function DAGsContent() {
       'dagDefinitions',
       searchStateScope
     );
-    const base: DAGDefinitionsFilters = {
-      ...defaultFilters,
-      ...(stored ?? {}),
-    };
-
     const urlFilters: Partial<DAGDefinitionsFilters> = {};
     let hasUrlFilters = false;
 
@@ -267,14 +317,61 @@ function DAGsContent() {
       hasUrlFilters = true;
     }
 
-    const next = hasUrlFilters ? { ...base, ...urlFilters } : base;
+    const scopeChanged = previousFilterScopeRef.current !== searchStateScope;
+    previousFilterScopeRef.current = searchStateScope;
+    const viewScope = workflowViewScopeRef.current;
+    const requestedViewId = scopeChanged ? null : params.get('view');
+    const requestedView = viewScope.views.find(
+      (view) => view.id === requestedViewId
+    );
+    const defaultView = viewScope.views.find(
+      (view) => view.id === viewScope.defaultViewId
+    );
+
+    let base = defaultFilters;
+    let nextActiveViewId: string | null = null;
+
+    if (scopeChanged) {
+      hasUrlFilters = false;
+    }
+
+    if (requestedViewId === ALL_WORKFLOWS_VIEW_PARAM) {
+      hasUrlFilters = false;
+    } else if (requestedView) {
+      base = requestedView.filters;
+      nextActiveViewId = requestedView.id;
+    } else if (!hasUrlFilters && defaultView) {
+      base = defaultView.filters;
+      nextActiveViewId = defaultView.id;
+    } else if (!hasUrlFilters && stored) {
+      base = { ...defaultFilters, ...stored };
+    }
+
+    const next = hasUrlFilters
+      ? { ...cloneFilters(base), ...urlFilters }
+      : cloneFilters(base);
+
+    if (scopeChanged) {
+      const nextSearch = buildWorkflowFilterSearch(
+        location.search,
+        next,
+        nextActiveViewId ?? ALL_WORKFLOWS_VIEW_PARAM
+      );
+      if (nextSearch !== location.search) {
+        navigate(
+          { pathname: location.pathname, search: nextSearch },
+          { replace: true }
+        );
+      }
+    }
+
     const current = currentFiltersRef.current;
 
+    setActiveWorkflowViewId(nextActiveViewId);
+
     if (current && areDAGDefinitionsFiltersEqual(current, next)) {
-      if (hasUrlFilters) {
-        lastPersistedFiltersRef.current = next;
-        searchState.writeState('dagDefinitions', searchStateScope, next);
-      }
+      lastPersistedFiltersRef.current = next;
+      searchState.writeState('dagDefinitions', searchStateScope, next);
       return;
     }
 
@@ -285,7 +382,14 @@ function DAGsContent() {
 
     lastPersistedFiltersRef.current = next;
     searchState.writeState('dagDefinitions', searchStateScope, next);
-  }, [defaultFilters, location.search, searchState, searchStateScope]);
+  }, [
+    defaultFilters,
+    location.pathname,
+    location.search,
+    navigate,
+    searchState,
+    searchStateScope,
+  ]);
 
   React.useEffect(() => {
     const persisted = lastPersistedFiltersRef.current;
@@ -352,30 +456,47 @@ function DAGsContent() {
     resetLoadedPages();
   }, [queryKey, resetLoadedPages]);
 
-  const addSearchParam = (key: string, value: string | string[]) => {
-    const locationQuery = new URLSearchParams(window.location.search);
-    if (key === 'labels') {
-      locationQuery.delete('tags');
-    }
-    if (Array.isArray(value)) {
-      if (value.length > 0) {
-        locationQuery.set(key, value.join(','));
-      } else {
-        // Explicitly set to empty string to indicate empty list was processed
-        // This is needed so that the URL sync logic knows to clear the state
-        locationQuery.delete(key);
-      }
-    } else if (value && value.length > 0) {
-      locationQuery.set(key, value);
-    } else {
-      locationQuery.delete(key);
-    }
-    window.history.pushState(
-      {},
-      '',
-      `${window.location.pathname}?${locationQuery.toString()}`
-    );
-  };
+  const updateFilterLocation = React.useCallback(
+    (filters: DAGDefinitionsFilters, viewId: string | null, replace = true) => {
+      const search = buildWorkflowFilterSearch(
+        location.search,
+        filters,
+        viewId
+      );
+      navigate({ pathname: location.pathname, search }, { replace });
+    },
+    [location.pathname, location.search, navigate]
+  );
+
+  const applyFilters = React.useCallback(
+    (
+      filters: DAGDefinitionsFilters,
+      viewId: string | null,
+      replace = false
+    ) => {
+      const next = cloneFilters(filters);
+      currentFiltersRef.current = next;
+      setSearchText(next.searchText);
+      setSearchLabels(next.searchLabels);
+      setSortField(next.sortField);
+      setSortOrder(next.sortOrder);
+      setActiveWorkflowViewId(
+        viewId === ALL_WORKFLOWS_VIEW_PARAM ? null : viewId
+      );
+      updateFilterLocation(next, viewId, replace);
+    },
+    [updateFilterLocation]
+  );
+
+  const persistWorkflowViewScope = React.useCallback(
+    (nextScope: WorkflowFilterViewScope) => {
+      updatePreference('workflowFilterViews', {
+        ...workflowViewScopes,
+        [searchStateScope]: nextScope,
+      });
+    },
+    [searchStateScope, updatePreference, workflowViewScopes]
+  );
 
   const refreshFn = React.useCallback(() => {
     resetLoadedPages();
@@ -390,22 +511,118 @@ function DAGsContent() {
     appBarContext.setTitle('Workflows');
   }, [appBarContext]);
 
-  const searchTextChange = (searchText: string) => {
-    addSearchParam('search', searchText);
-    setSearchText(searchText);
+  const searchTextChange = (nextSearchText: string) => {
+    const next = {
+      ...currentFiltersRef.current,
+      searchText: nextSearchText,
+    };
+    currentFiltersRef.current = next;
+    setSearchText(nextSearchText);
+    updateFilterLocation(next, activeWorkflowViewId);
   };
 
   const searchLabelsChange = (labels: string[]) => {
-    addSearchParam('labels', labels);
+    const next = {
+      ...currentFiltersRef.current,
+      searchLabels: [...labels],
+    };
+    currentFiltersRef.current = next;
     setSearchLabels(labels);
+    updateFilterLocation(next, activeWorkflowViewId);
   };
 
   const handleSortChange = (field: string, order: string) => {
-    addSearchParam('sort', field);
-    addSearchParam('order', order);
+    const next = {
+      ...currentFiltersRef.current,
+      sortField: field,
+      sortOrder: order,
+    };
+    currentFiltersRef.current = next;
     setSortField(field);
     setSortOrder(order);
+    updateFilterLocation(next, activeWorkflowViewId);
   };
+
+  const handleSelectWorkflowView = (viewId: string) => {
+    const view = workflowViewScope.views.find((item) => item.id === viewId);
+    if (view) {
+      applyFilters(view.filters, view.id);
+    }
+  };
+
+  const handleShowAllWorkflows = () => {
+    applyFilters(defaultFilters, ALL_WORKFLOWS_VIEW_PARAM);
+  };
+
+  const handleResetWorkflowView = () => {
+    const view = workflowViewScope.views.find(
+      (item) => item.id === activeWorkflowViewId
+    );
+    if (view) {
+      applyFilters(view.filters, view.id, true);
+    }
+  };
+
+  const handleSaveWorkflowView = (name: string, makeDefault: boolean) => {
+    const view: WorkflowFilterView = {
+      id: uuidv4(),
+      name,
+      filters: cloneFilters(currentFiltersRef.current),
+    };
+    persistWorkflowViewScope({
+      views: [...workflowViewScope.views, view],
+      defaultViewId: makeDefault ? view.id : workflowViewScope.defaultViewId,
+    });
+    applyFilters(view.filters, view.id, true);
+  };
+
+  const handleUpdateWorkflowView = () => {
+    const view = workflowViewScope.views.find(
+      (item) => item.id === activeWorkflowViewId
+    );
+    if (!view) {
+      return;
+    }
+    const filters = cloneFilters(currentFiltersRef.current);
+    persistWorkflowViewScope({
+      ...workflowViewScope,
+      views: workflowViewScope.views.map((item) =>
+        item.id === view.id ? { ...item, filters } : item
+      ),
+    });
+    applyFilters(filters, view.id, true);
+  };
+
+  const handleSetDefaultWorkflowView = (viewId: string | undefined) => {
+    persistWorkflowViewScope({
+      ...workflowViewScope,
+      defaultViewId: viewId,
+    });
+  };
+
+  const handleDeleteWorkflowView = (viewId: string) => {
+    const deletingActiveView = viewId === activeWorkflowViewId;
+    persistWorkflowViewScope({
+      views: workflowViewScope.views.filter((view) => view.id !== viewId),
+      defaultViewId:
+        workflowViewScope.defaultViewId === viewId
+          ? undefined
+          : workflowViewScope.defaultViewId,
+    });
+    if (deletingActiveView) {
+      applyFilters(defaultFilters, ALL_WORKFLOWS_VIEW_PARAM, true);
+    }
+  };
+
+  const activeWorkflowView = workflowViewScope.views.find(
+    (view) => view.id === activeWorkflowViewId
+  );
+  const isWorkflowViewEdited = activeWorkflowView
+    ? !areDAGDefinitionsFiltersEqual(activeWorkflowView.filters, currentFilters)
+    : false;
+  const isAllWorkflowsView =
+    activeWorkflowViewId === null &&
+    areDAGDefinitionsFiltersEqual(currentFilters, defaultFilters);
 
   const nextPage =
     continuationPageOverride === undefined
@@ -539,6 +756,19 @@ function DAGsContent() {
             sortField={sortField}
             sortOrder={sortOrder}
             onSortChange={handleSortChange}
+            workflowViews={workflowViewScope.views}
+            activeWorkflowViewId={activeWorkflowViewId}
+            defaultWorkflowViewId={workflowViewScope.defaultViewId}
+            isAllWorkflowsView={isAllWorkflowsView}
+            isWorkflowViewEdited={isWorkflowViewEdited}
+            onSelectWorkflowView={handleSelectWorkflowView}
+            onShowAllWorkflows={handleShowAllWorkflows}
+            onResetWorkflowView={handleResetWorkflowView}
+            onSaveWorkflowView={handleSaveWorkflowView}
+            onUpdateWorkflowView={handleUpdateWorkflowView}
+            onSetDefaultWorkflowView={handleSetDefaultWorkflowView}
+            onDeleteWorkflowView={handleDeleteWorkflowView}
+            resultCount={data.pagination.totalRecords}
             selectedDAG={selectedDAG}
             onSelectDAG={handleSelectDAG}
           />

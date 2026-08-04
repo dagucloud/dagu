@@ -15,19 +15,24 @@ import { AppBarContext } from '@/contexts/AppBarContext';
 import { ConfigContext, type Config } from '@/contexts/ConfigContext';
 import { SearchStateProvider } from '@/contexts/SearchStateContext';
 import { useQuery } from '@/hooks/api';
-import { WorkspaceKind } from '@/lib/workspace';
+import { WorkspaceKind, workspaceSelectionKey } from '@/lib/workspace';
 import DagsPage from '../index';
 
-const { clientGetMock } = vi.hoisted(() => ({
-  clientGetMock: vi.fn(),
-}));
+const { clientGetMock, updatePreferenceMock, userPreferences } = vi.hoisted(
+  () => ({
+    clientGetMock: vi.fn(),
+    updatePreferenceMock: vi.fn(),
+    userPreferences: {
+      pageLimit: 200,
+      workflowFilterViews: {} as Record<string, unknown>,
+    },
+  })
+);
 
 vi.mock('@/contexts/UserPreference', () => ({
   useUserPreferences: () => ({
-    preferences: {
-      pageLimit: 200,
-    },
-    updatePreference: vi.fn(),
+    preferences: userPreferences,
+    updatePreference: updatePreferenceMock,
   }),
 }));
 
@@ -48,12 +53,18 @@ vi.mock('@/features/dags/components/dag-list', () => ({
     handleSearchTextChange,
     selectedDAG,
     onSelectDAG,
+    activeWorkflowViewId,
+    onSaveWorkflowView,
+    onShowAllWorkflows,
   }: {
     dags: Array<{ fileName: string; dag: { name: string } }>;
     searchText: string;
     handleSearchTextChange: (value: string) => void;
     selectedDAG?: string | null;
     onSelectDAG?: (fileName: string, title: string) => void;
+    activeWorkflowViewId: string | null;
+    onSaveWorkflowView: (name: string, makeDefault: boolean) => void;
+    onShowAllWorkflows: () => void;
   }) => (
     <div>
       <input
@@ -67,6 +78,18 @@ vi.mock('@/features/dags/components/dag-list', () => ({
         onClick={() => onSelectDAG?.('demo.yaml', 'demo')}
       >
         Open demo workflow
+      </button>
+      <span data-testid="active-workflow-view">
+        {activeWorkflowViewId ?? 'none'}
+      </span>
+      <button
+        type="button"
+        onClick={() => onSaveWorkflowView('Production operations', true)}
+      >
+        Save production view
+      </button>
+      <button type="button" onClick={onShowAllWorkflows}>
+        Show all workflows
       </button>
       <ul>
         {dags.map((dag) => (
@@ -184,9 +207,9 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
   };
 }
 
-function renderPage(setTitle = vi.fn()) {
+function renderPage(setTitle = vi.fn(), initialEntry = '/dags') {
   return render(
-    <MemoryRouter initialEntries={['/dags']}>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <ConfigContext.Provider value={makeConfig()}>
         <SearchStateProvider>
           <AppBarContext.Provider
@@ -210,6 +233,13 @@ function renderPage(setTitle = vi.fn()) {
   );
 }
 
+function workflowViewScopeKey() {
+  return JSON.stringify({
+    remoteNode: 'remote-a',
+    workspace: workspaceSelectionKey({ kind: WorkspaceKind.all }),
+  });
+}
+
 describe('DagsPage', () => {
   const calls: QueryCall[] = [];
   let dagsPageResponse: DagsPageResponse;
@@ -220,6 +250,8 @@ describe('DagsPage', () => {
     sessionStorage.clear();
     calls.length = 0;
     clientGetMock.mockReset();
+    updatePreferenceMock.mockReset();
+    userPreferences.workflowFilterViews = {};
     dagsPageResponse = {
       dags: [
         {
@@ -320,6 +352,149 @@ describe('DagsPage', () => {
     renderPage(setTitle);
 
     expect(setTitle).toHaveBeenCalledWith('Workflows');
+  });
+
+  it('opens the default workflow view when the URL has no filters', () => {
+    userPreferences.workflowFilterViews = {
+      [workflowViewScopeKey()]: {
+        views: [
+          {
+            id: 'production',
+            name: 'Production operations',
+            filters: {
+              searchText: 'deploy',
+              searchLabels: ['env=prod'],
+              sortField: 'name',
+              sortOrder: 'asc',
+            },
+          },
+        ],
+        defaultViewId: 'production',
+      },
+    };
+
+    renderPage();
+
+    expect(screen.getByRole('textbox', { name: 'Search DAGs' })).toHaveValue(
+      'deploy'
+    );
+    expect(screen.getByTestId('active-workflow-view')).toHaveTextContent(
+      'production'
+    );
+  });
+
+  it('gives explicit URL filters precedence over the default view', () => {
+    userPreferences.workflowFilterViews = {
+      [workflowViewScopeKey()]: {
+        views: [
+          {
+            id: 'production',
+            name: 'Production operations',
+            filters: {
+              searchText: 'deploy',
+              searchLabels: ['env=prod'],
+              sortField: 'name',
+              sortOrder: 'asc',
+            },
+          },
+        ],
+        defaultViewId: 'production',
+      },
+    };
+
+    renderPage(
+      vi.fn(),
+      '/dags?search=adhoc&labels=env%3Dstage&sort=name&order=desc'
+    );
+
+    expect(screen.getByRole('textbox', { name: 'Search DAGs' })).toHaveValue(
+      'adhoc'
+    );
+    expect(screen.getByTestId('active-workflow-view')).toHaveTextContent(
+      'none'
+    );
+  });
+
+  it('restores the existing session filters when no default view is set', () => {
+    sessionStorage.setItem(
+      'dagu.searchState',
+      JSON.stringify({
+        [`dagDefinitions:${workflowViewScopeKey()}`]: {
+          searchText: 'remembered',
+          searchLabels: ['team=ops'],
+          sortField: 'name',
+          sortOrder: 'desc',
+        },
+      })
+    );
+
+    renderPage();
+
+    expect(screen.getByRole('textbox', { name: 'Search DAGs' })).toHaveValue(
+      'remembered'
+    );
+    expect(screen.getByTestId('active-workflow-view')).toHaveTextContent(
+      'none'
+    );
+  });
+
+  it('lets users leave the default view and show all workflows', () => {
+    userPreferences.workflowFilterViews = {
+      [workflowViewScopeKey()]: {
+        views: [
+          {
+            id: 'production',
+            name: 'Production operations',
+            filters: {
+              searchText: 'deploy',
+              searchLabels: ['env=prod'],
+              sortField: 'name',
+              sortOrder: 'asc',
+            },
+          },
+        ],
+        defaultViewId: 'production',
+      },
+    };
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show all workflows' }));
+
+    expect(screen.getByRole('textbox', { name: 'Search DAGs' })).toHaveValue(
+      ''
+    );
+    expect(screen.getByTestId('active-workflow-view')).toHaveTextContent(
+      'none'
+    );
+  });
+
+  it('saves the current filters and can make the new view the default', () => {
+    renderPage();
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search DAGs' }), {
+      target: { value: 'deploy' },
+    });
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Save production view' })
+    );
+
+    const lastPreferenceCall =
+      updatePreferenceMock.mock.calls[
+        updatePreferenceMock.mock.calls.length - 1
+      ] ?? [];
+    const [, storedPreferences] = lastPreferenceCall;
+    const scope = storedPreferences[workflowViewScopeKey()];
+    expect(scope.views).toHaveLength(1);
+    expect(scope.views[0]).toMatchObject({
+      name: 'Production operations',
+      filters: {
+        searchText: 'deploy',
+        searchLabels: [],
+        sortField: 'name',
+        sortOrder: 'asc',
+      },
+    });
+    expect(scope.defaultViewId).toBe(scope.views[0].id);
   });
 
   it('opens workflow details in the page-level modal when a table row is selected', () => {

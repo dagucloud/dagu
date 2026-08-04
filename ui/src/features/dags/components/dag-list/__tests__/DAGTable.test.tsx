@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -26,8 +26,22 @@ vi.mock('@/features/dags/components/common/LiveSwitch', () => ({
   default: () => null,
 }));
 
-function renderTable(searchText = '') {
-  return render(
+vi.mock('@/features/dags/components/common', () => ({
+  CreateDAGModal: () => null,
+  DAGPagination: () => null,
+}));
+
+function renderTable(
+  searchText = '',
+  options: {
+    dags?: React.ComponentProps<typeof DAGTable>['dags'];
+    workflowViews?: React.ComponentProps<typeof DAGTable>['workflowViews'];
+    activeWorkflowViewId?: string | null;
+    isAllWorkflowsView?: boolean;
+  } = {}
+) {
+  const onShowAllWorkflows = vi.fn();
+  const result = render(
     <MemoryRouter>
       <AppBarContext.Provider
         value={
@@ -38,20 +52,22 @@ function renderTable(searchText = '') {
         }
       >
         <DAGTable
-          dags={[
-            {
-              fileName: 'example.yaml',
-              dag: {
-                name: searchText || 'example',
-              },
-              latestDAGRun: {
-                status: Status.Success,
-                statusLabel: 'Success',
-              },
-              suspended: false,
-              errors: [],
-            } as never,
-          ]}
+          dags={
+            options.dags ?? [
+              {
+                fileName: 'example.yaml',
+                dag: {
+                  name: searchText || 'example',
+                },
+                latestDAGRun: {
+                  status: Status.Success,
+                  statusLabel: 'Success',
+                },
+                suspended: false,
+                errors: [],
+              } as never,
+            ]
+          }
           group=""
           refreshFn={vi.fn()}
           searchText={searchText}
@@ -61,10 +77,22 @@ function renderTable(searchText = '') {
           sortField="name"
           sortOrder="asc"
           onSortChange={vi.fn()}
+          workflowViews={options.workflowViews ?? []}
+          activeWorkflowViewId={options.activeWorkflowViewId ?? null}
+          isAllWorkflowsView={options.isAllWorkflowsView ?? true}
+          isWorkflowViewEdited={false}
+          onSelectWorkflowView={vi.fn()}
+          onShowAllWorkflows={onShowAllWorkflows}
+          onResetWorkflowView={vi.fn()}
+          onSaveWorkflowView={vi.fn()}
+          onUpdateWorkflowView={vi.fn()}
+          onSetDefaultWorkflowView={vi.fn()}
+          onDeleteWorkflowView={vi.fn()}
         />
       </AppBarContext.Provider>
     </MemoryRouter>
   );
+  return { ...result, onShowAllWorkflows };
 }
 
 describe('DAGTable', () => {
@@ -111,5 +139,36 @@ describe('DAGTable', () => {
       'href',
       '/search?q=daily+backup&scope=dags'
     );
+  });
+
+  it('explains an empty saved view and offers to show all workflows', () => {
+    const { onShowAllWorkflows } = renderTable('', {
+      dags: [],
+      workflowViews: [
+        {
+          id: 'production',
+          name: 'Production operations',
+          filters: {
+            searchText: '',
+            searchLabels: ['env=prod'],
+            sortField: 'name',
+            sortOrder: 'asc',
+          },
+        },
+      ],
+      activeWorkflowViewId: 'production',
+      isAllWorkflowsView: false,
+    });
+
+    expect(screen.getAllByText('No workflows found').length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText(/No workflows match the “Production operations” view/)
+        .length
+    ).toBeGreaterThan(0);
+
+    fireEvent.click(
+      screen.getAllByRole('button', { name: 'Show all workflows' })[0]!
+    );
+    expect(onShowAllWorkflows).toHaveBeenCalledOnce();
   });
 });

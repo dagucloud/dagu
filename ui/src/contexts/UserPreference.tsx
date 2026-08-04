@@ -5,6 +5,29 @@ export type DAGRunsViewMode = 'list' | 'grouped';
 export type DocSortField = 'name' | 'type' | 'mtime';
 export type DocSortOrder = 'asc' | 'desc';
 
+export type WorkflowFilterSet = {
+  searchText: string;
+  searchLabels: string[];
+  sortField: string;
+  sortOrder: string;
+};
+
+export type WorkflowFilterView = {
+  id: string;
+  name: string;
+  filters: WorkflowFilterSet;
+};
+
+export type WorkflowFilterViewScope = {
+  views: WorkflowFilterView[];
+  defaultViewId?: string;
+};
+
+export type WorkflowFilterViewPreferences = Record<
+  string,
+  WorkflowFilterViewScope
+>;
+
 export type UserPreferences = {
   pageLimit: number;
   dagRunsViewMode: DAGRunsViewMode;
@@ -13,6 +36,7 @@ export type UserPreferences = {
   safeMode: boolean;
   docSortField: DocSortField;
   docSortOrder: DocSortOrder;
+  workflowFilterViews: WorkflowFilterViewPreferences;
 };
 
 const UserPreferencesContext = createContext<{
@@ -31,6 +55,7 @@ const defaultPreferences: UserPreferences = {
   safeMode: false,
   docSortField: 'type',
   docSortOrder: 'asc',
+  workflowFilterViews: {},
 };
 
 function loadPreferences(): UserPreferences {
@@ -50,7 +75,8 @@ export function UserPreferencesProvider({
 }: {
   children: React.ReactNode;
 }) {
-  const [preferences, setPreferences] = useState<UserPreferences>(loadPreferences);
+  const [preferences, setPreferences] =
+    useState<UserPreferences>(loadPreferences);
 
   const updatePreference = useCallback(
     <K extends keyof UserPreferences>(key: K, value: UserPreferences[K]) => {
