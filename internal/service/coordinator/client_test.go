@@ -1052,14 +1052,16 @@ func TestClientHeartbeatWithSkipTLSVerify(t *testing.T) {
 	monitor := &mockServiceMonitor{
 		members: []exec.HostInfo{{Host: host, Port: port, Status: exec.ServiceStatusActive}},
 	}
-	client := coordinator.New(monitor, config)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
+	client := coordinator.New(monitor, config)
+	defer func() {
+		require.NoError(t, client.Cleanup(ctx))
+	}()
 
 	_, err := client.Heartbeat(ctx, &coordinatorv1.HeartbeatRequest{WorkerId: "test-worker"})
 	require.NoError(t, err)
-	require.NoError(t, client.Cleanup(ctx))
 }
 
 func TestClientDiscoveredAddressRemainsAuthoritative(t *testing.T) {
