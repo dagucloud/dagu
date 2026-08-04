@@ -25,11 +25,14 @@ import (
 
 var errForeachItemFailed = errors.New("one or more foreach item bodies failed")
 
+var _ executor.StatusDetailsProvider = (*foreachExecutor)(nil)
+
 type foreachExecutor struct {
-	step   core.Step
-	stdout io.Writer
-	stderr io.Writer
-	cancel context.CancelFunc
+	step          core.Step
+	stdout        io.Writer
+	stderr        io.Writer
+	cancel        context.CancelFunc
+	statusDetails []coreexec.NodeStatusDetail
 }
 
 type expandedItem struct {
@@ -79,6 +82,7 @@ func (e *foreachExecutor) Kill(_ os.Signal) error {
 }
 
 func (e *foreachExecutor) Run(ctx context.Context) error {
+	e.statusDetails = nil
 	ctx, cancel := context.WithCancel(ctx)
 	e.cancel = cancel
 	defer cancel()
@@ -89,10 +93,57 @@ func (e *foreachExecutor) Run(ctx context.Context) error {
 	}
 
 	results, runErr := e.runItems(ctx, items)
+	e.statusDetails = foreachStatusDetails(items, results, e.step.Foreach.Key != "")
 	if err := e.writeAggregate(results); err != nil {
 		return err
 	}
 	return runErr
+}
+
+func (e *foreachExecutor) GetStatusDetails() []coreexec.NodeStatusDetail {
+	return append([]coreexec.NodeStatusDetail(nil), e.statusDetails...)
+}
+
+func foreachStatusDetails(items []expandedItem, results []itemResult, useKey bool) []coreexec.NodeStatusDetail {
+	details := make([]coreexec.NodeStatusDetail, 0, len(results))
+	for i, result := range results {
+		if i >= len(items) {
+			break
+		}
+		details = append(details, coreexec.NodeStatusDetail{
+			Label:  foreachItemLabel(items[i], useKey),
+			Status: foreachItemStatus(result.Status),
+		})
+	}
+	return details
+}
+
+func foreachItemLabel(item expandedItem, useKey bool) string {
+	if useKey {
+		return item.key
+	}
+	if value, ok := item.value.(string); ok {
+		return value
+	}
+	if value, err := json.Marshal(item.value); err == nil {
+		return string(value)
+	}
+	return item.key
+}
+
+func foreachItemStatus(status string) core.NodeStatus {
+	switch status {
+	case core.NodeSucceeded.String():
+		return core.NodeSucceeded
+	case core.NodeFailed.String():
+		return core.NodeFailed
+	case core.NodeAborted.String():
+		return core.NodeAborted
+	case core.NodePartiallySucceeded.String():
+		return core.NodePartiallySucceeded
+	default:
+		return core.NodeNotStarted
+	}
 }
 
 func (e *foreachExecutor) expandItems(ctx context.Context) ([]expandedItem, error) {

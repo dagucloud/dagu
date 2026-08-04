@@ -19,6 +19,12 @@ type PushBackEntry struct {
 	Inputs    map[string]string `json:"inputs,omitempty"`
 }
 
+// NodeStatusDetail identifies an independently tracked execution within a node.
+type NodeStatusDetail struct {
+	Label  string          `json:"label"`
+	Status core.NodeStatus `json:"status"`
+}
+
 // Node represents a DAG step with its execution state for persistence
 type Node struct {
 	Step             core.Step            `json:"step,omitzero"`
@@ -34,6 +40,7 @@ type Node struct {
 	Repeated         bool                 `json:"repeated,omitempty"` // indicates if the node has been repeated
 	SkippedByRetry   bool                 `json:"skippedByRetry,omitempty"`
 	Error            string               `json:"error,omitempty"`
+	StatusDetails    []NodeStatusDetail   `json:"statusDetails,omitempty"`
 	SubRuns          []SubDAGRun          `json:"children,omitempty"`
 	SubRunsRepeated  []SubDAGRun          `json:"childrenRepeated,omitempty"` // repeated sub DAG runs
 	OutputVariables  *collections.SyncMap `json:"outputVariables,omitempty"`

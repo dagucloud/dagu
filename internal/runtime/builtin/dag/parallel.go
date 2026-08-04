@@ -28,6 +28,7 @@ var errParallelCancelled = errors.New("parallel execution cancelled")
 
 var _ executor.ParallelExecutor = (*parallelExecutor)(nil)
 var _ executor.NodeStatusDeterminer = (*parallelExecutor)(nil)
+var _ executor.StatusDetailsProvider = (*parallelExecutor)(nil)
 
 type parallelExecutor struct {
 	step          core.Step
@@ -303,6 +304,73 @@ func (e *parallelExecutor) SetParamsList(paramsList []executor.RunParams) {
 	e.lock.Lock()
 	defer e.lock.Unlock()
 	e.runParamsList = paramsList
+}
+
+func (e *parallelExecutor) GetStatusDetails() []exec1.NodeStatusDetail {
+	e.lock.Lock()
+	defer e.lock.Unlock()
+
+	details := make([]exec1.NodeStatusDetail, 0, len(e.runParamsList))
+	for _, params := range e.runParamsList {
+		result := e.results[params.RunID]
+		status := core.NodeFailed
+		if e.cancelled() {
+			status = core.NodeAborted
+		} else if result != nil {
+			status = parallelNodeStatus(result.Status)
+		}
+		details = append(details, exec1.NodeStatusDetail{
+			Label:  parallelRunLabel(params, result),
+			Status: status,
+		})
+	}
+	return details
+}
+
+func parallelNodeStatus(status core.Status) core.NodeStatus {
+	switch status {
+	case core.Succeeded:
+		return core.NodeSucceeded
+	case core.PartiallySucceeded:
+		return core.NodePartiallySucceeded
+	case core.Aborted:
+		return core.NodeAborted
+	case core.Failed:
+		return core.NodeFailed
+	case core.Waiting:
+		return core.NodeWaiting
+	case core.Rejected:
+		return core.NodeRejected
+	case core.Running:
+		return core.NodeRunning
+	case core.Queued, core.NotStarted:
+		return core.NodeNotStarted
+	default:
+		return core.NodeNotStarted
+	}
+}
+
+func parallelRunLabel(params executor.RunParams, result *exec1.RunStatus) string {
+	name := params.DAGName
+	values := params.Params
+	if result != nil {
+		if result.Name != "" {
+			name = result.Name
+		}
+		if result.Params != "" {
+			values = result.Params
+		}
+	}
+	if name != "" && values != "" {
+		return fmt.Sprintf("%s (%s)", name, values)
+	}
+	if name != "" {
+		return name
+	}
+	if values != "" {
+		return values
+	}
+	return params.RunID
 }
 
 func (e *parallelExecutor) SetStdout(out io.Writer) {

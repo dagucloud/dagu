@@ -144,6 +144,11 @@ type SubRunProvider interface {
 	GetSubRuns() []exec.SubDAGRun
 }
 
+// StatusDetailsProvider reports independently tracked executions within a node.
+type StatusDetailsProvider interface {
+	GetStatusDetails() []exec.NodeStatusDetail
+}
+
 // ToolDefinitionProvider is an interface for executors that provide tool definitions.
 // This is used by chat executors to report what tools were available to the LLM
 // for debugging and visibility purposes.

@@ -28,3 +28,18 @@ func TestMaskNodeSecretsMasksHumanTaskPrompt(t *testing.T) {
 	require.NotNil(t, node.Step.HumanTask)
 	assert.NotContains(t, node.Step.HumanTask.Prompt, "very-secret-token")
 }
+
+func TestMaskNodeSecretsMasksStatusDetailLabels(t *testing.T) {
+	t.Parallel()
+
+	masker := newStatusSecretMasker([]string{"CUSTOMER_TOKEN=very-secret-token"})
+	require.NotNil(t, masker)
+	node := &exec.Node{StatusDetails: []exec.NodeStatusDetail{
+		{Label: "customer (TOKEN=very-secret-token)", Status: core.NodeFailed},
+	}}
+
+	maskNodeSecrets(masker, node)
+
+	require.Len(t, node.StatusDetails, 1)
+	assert.NotContains(t, node.StatusDetails[0].Label, "very-secret-token")
+}

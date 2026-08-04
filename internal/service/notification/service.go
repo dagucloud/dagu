@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net"
 	"net/http"
 	"net/netip"
@@ -1635,6 +1636,7 @@ func notificationTemplateValues(event chatbridge.NotificationEvent, publicURL st
 	values["status"] = status.Status.String()
 	values["run.error"] = status.Error
 	values["error"] = status.Error
+	maps.Copy(values, notificationStepStatusValues(status))
 	values["run.startedAt"] = notificationTemplateTime(status.StartedAt)
 	values["run.finishedAt"] = notificationTemplateTime(status.FinishedAt)
 	values["run.attemptId"] = status.AttemptID
@@ -1656,6 +1658,55 @@ func notificationTemplateValues(event chatbridge.NotificationEvent, publicURL st
 	values["run.link"] = runLink
 	values["runLink"] = runLink
 	return values
+}
+
+func notificationStepStatusValues(status *exec.DAGRunStatus) map[string]string {
+	labels := map[core.NodeStatus][]string{
+		core.NodeFailed:             nil,
+		core.NodePartiallySucceeded: nil,
+		core.NodeAborted:            nil,
+		core.NodeSucceeded:          nil,
+	}
+	for _, node := range status.Nodes {
+		if node == nil {
+			continue
+		}
+		if len(node.StatusDetails) == 0 {
+			if _, ok := labels[node.Status]; ok {
+				labels[node.Status] = append(labels[node.Status], node.Step.Name)
+			}
+			continue
+		}
+		detailMatchesNodeStatus := false
+		for _, detail := range node.StatusDetails {
+			if _, ok := labels[detail.Status]; !ok {
+				continue
+			}
+			labels[detail.Status] = append(labels[detail.Status], notificationStatusDetailLabel(node.Step.Name, detail.Label))
+			detailMatchesNodeStatus = detailMatchesNodeStatus || detail.Status == node.Status
+		}
+		if _, ok := labels[node.Status]; ok && !detailMatchesNodeStatus {
+			labels[node.Status] = append(labels[node.Status], node.Step.Name)
+		}
+	}
+
+	return map[string]string{
+		"run.failed_steps":              strings.Join(labels[core.NodeFailed], ", "),
+		"run.partially_succeeded_steps": strings.Join(labels[core.NodePartiallySucceeded], ", "),
+		"run.aborted_steps":             strings.Join(labels[core.NodeAborted], ", "),
+		"run.succeeded_steps":           strings.Join(labels[core.NodeSucceeded], ", "),
+	}
+}
+
+func notificationStatusDetailLabel(stepName, detail string) string {
+	switch {
+	case stepName == "":
+		return detail
+	case detail == "":
+		return stepName
+	default:
+		return fmt.Sprintf("%s[%s]", stepName, detail)
+	}
 }
 
 func notificationTemplateTime(value string) string {

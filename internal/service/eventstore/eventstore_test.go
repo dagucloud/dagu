@@ -110,6 +110,9 @@ func TestNewDAGRunEventEmbedsDAGRunSnapshot(t *testing.T) {
 				Step:   core.Step{Name: "fetch"},
 				Status: core.NodeFailed,
 				Error:  "node boom",
+				StatusDetails: []exec.NodeStatusDetail{
+					{Label: "customer-a", Status: core.NodeFailed},
+				},
 			},
 		},
 		OnFailure: &exec.Node{
@@ -156,6 +159,7 @@ func TestNewDAGRunEventEmbedsDAGRunSnapshot(t *testing.T) {
 	assert.Equal(t, "fetch", restored.Nodes[0].Step.Name)
 	assert.Equal(t, core.NodeFailed, restored.Nodes[0].Status)
 	assert.Equal(t, "node boom", restored.Nodes[0].Error)
+	assert.Equal(t, status.Nodes[0].StatusDetails, restored.Nodes[0].StatusDetails)
 	require.NotNil(t, restored.OnFailure)
 	assert.Equal(t, "notify", restored.OnFailure.Step.Name)
 	assert.Equal(t, "handler boom", restored.OnFailure.Error)

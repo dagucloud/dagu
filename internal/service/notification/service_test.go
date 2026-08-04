@@ -703,6 +703,59 @@ func TestNotificationTemplateRunPathSupportsSubDAGRun(t *testing.T) {
 	assert.Contains(t, rendered, "Run: https://dagu.example.com/workflows/dag-runs/root%20dag/root%20run?")
 }
 
+func TestNotificationTemplateIncludesStepStatusLists(t *testing.T) {
+	t.Parallel()
+
+	event := chatbridge.NotificationEvent{
+		Type: eventstore.TypeDAGRunFailed,
+		Status: &exec.DAGRunStatus{
+			Name:     "daily-report",
+			DAGRunID: "run-1",
+			Status:   core.Failed,
+			Nodes: []*exec.Node{
+				{Step: core.Step{Name: "fetch"}, Status: core.NodeFailed},
+				{Step: core.Step{Name: "publish"}, Status: core.NodePartiallySucceeded},
+				{Step: core.Step{Name: "cleanup"}, Status: core.NodeAborted},
+				{Step: core.Step{Name: "prepare"}, Status: core.NodeSucceeded},
+				{
+					Step:   core.Step{Name: "process"},
+					Status: core.NodeFailed,
+					StatusDetails: []exec.NodeStatusDetail{
+						{Label: "customer-a", Status: core.NodeFailed},
+						{Label: "customer-b", Status: core.NodeSucceeded},
+					},
+				},
+				{
+					Step:   core.Step{Name: "children"},
+					Status: core.NodePartiallySucceeded,
+					StatusDetails: []exec.NodeStatusDetail{
+						{Label: "child-a", Status: core.NodePartiallySucceeded},
+						{Label: "child-b", Status: core.NodeAborted},
+					},
+				},
+			},
+		},
+	}
+
+	rendered := renderNotificationTemplate(
+		"Failed: {{run.failed_steps}}\nPartial: {{run.partially_succeeded_steps}}\nAborted: {{run.aborted_steps}}\nSucceeded: {{run.succeeded_steps}}",
+		event,
+		"",
+	)
+
+	assert.Equal(t, strings.Join([]string{
+		"Failed: fetch, process[customer-a]",
+		"Partial: publish, children[child-a]",
+		"Aborted: cleanup, children[child-b]",
+		"Succeeded: prepare, process[customer-b]",
+	}, "\n"), rendered)
+
+	emptyEvent := chatbridge.NotificationEvent{Status: &exec.DAGRunStatus{
+		Nodes: []*exec.Node{{Step: core.Step{Name: "fetch"}, Status: core.NodeFailed}},
+	}}
+	assert.Empty(t, renderNotificationTemplate("{{run.succeeded_steps}}", emptyEvent, ""))
+}
+
 func TestService_SendTestTelegramUsesCustomMessageTemplate(t *testing.T) {
 	t.Parallel()
 

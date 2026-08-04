@@ -30,6 +30,7 @@ type sideChannelExecutor struct {
 	toolDefinitions   []exec.ToolDefinition
 	messages          []exec.LLMMessage
 	subRuns           []exec.SubDAGRun
+	statusDetails     []exec.NodeStatusDetail
 	outputs           map[string]any
 	stdout            io.Writer
 	stderr            io.Writer
@@ -60,6 +61,9 @@ func (e *sideChannelExecutor) SetPushBackPreviousStdout(path string) {
 }
 func (e *sideChannelExecutor) GetSubRuns() []exec.SubDAGRun {
 	return append([]exec.SubDAGRun(nil), e.subRuns...)
+}
+func (e *sideChannelExecutor) GetStatusDetails() []exec.NodeStatusDetail {
+	return append([]exec.NodeStatusDetail(nil), e.statusDetails...)
 }
 func (e *sideChannelExecutor) GetToolDefinitions() []exec.ToolDefinition {
 	return append([]exec.ToolDefinition(nil), e.toolDefinitions...)
@@ -209,6 +213,9 @@ func TestStepExecutorCapturesExecutorSideChannels(t *testing.T) {
 			subRuns: []exec.SubDAGRun{
 				{DAGRunID: "new-run", DAGName: "new-dag", Params: "NEW=1"},
 			},
+			statusDetails: []exec.NodeStatusDetail{
+				{Label: "customer-a", Status: core.NodeFailed},
+			},
 			toolDefinitions: []exec.ToolDefinition{
 				{Name: "lookup", Description: "look up data"},
 			},
@@ -252,6 +259,7 @@ func TestStepExecutorCapturesExecutorSideChannels(t *testing.T) {
 	state := node.State()
 	require.Equal(t, []runtime.SubDAGRun{{DAGRunID: "new-run", DAGName: "new-dag", Params: "NEW=1"}}, state.SubRuns)
 	require.Equal(t, []runtime.SubDAGRun{{DAGRunID: "old-run", DAGName: "old-dag", Params: "OLD=1"}}, state.SubRunsRepeated)
+	require.Equal(t, []exec.NodeStatusDetail{{Label: "customer-a", Status: core.NodeFailed}}, state.StatusDetails)
 	require.Equal(t, []exec.ToolDefinition{{Name: "lookup", Description: "look up data"}}, node.GetToolDefinitions())
 	require.NotNil(t, state.OutputsValue)
 	require.JSONEq(t, `{"answer":42}`, *state.OutputsValue)

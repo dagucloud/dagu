@@ -42,9 +42,21 @@ func maskNodeSecrets(masker *masking.Masker, node *exec.Node) {
 	}
 	node.Step = maskStepSecrets(masker, node.Step)
 	node.Error = masker.MaskString(node.Error)
+	node.StatusDetails = maskNodeStatusDetails(masker, node.StatusDetails)
 	node.OutputVariables = maskOutputVariables(masker, node.OutputVariables)
 	node.OutputValue = maskStringPointer(masker, node.OutputValue)
 	node.OutputsValue = maskStringPointer(masker, node.OutputsValue)
+}
+
+func maskNodeStatusDetails(masker *masking.Masker, details []exec.NodeStatusDetail) []exec.NodeStatusDetail {
+	if len(details) == 0 {
+		return details
+	}
+	masked := append([]exec.NodeStatusDetail(nil), details...)
+	for i := range masked {
+		masked[i].Label = masker.MaskString(masked[i].Label)
+	}
+	return masked
 }
 
 func maskOutputVariables(masker *masking.Masker, values *collections.SyncMap) *collections.SyncMap {
