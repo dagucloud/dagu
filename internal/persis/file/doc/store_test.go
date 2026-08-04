@@ -980,17 +980,15 @@ func TestListFlatEmpty(t *testing.T) {
 	assert.Empty(t, result.Items)
 }
 
-func TestSearchCaseDifferenceDoesNotError(t *testing.T) {
+func TestSearchIsCaseSensitive(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 
 	require.NoError(t, store.Create(ctx, "doc1", "Hello World"))
 
-	// Search with different case — verify no error even if no match.
 	results, err := store.Search(ctx, "hello")
 	require.NoError(t, err)
-	// Grep may or may not be case-insensitive depending on implementation.
-	_ = results
+	assert.Empty(t, results)
 }
 
 func TestSearchWithFrontmatter(t *testing.T) {
