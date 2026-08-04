@@ -36,6 +36,7 @@ import React, {
 } from 'react';
 import DocExternalChangeDialog from './DocExternalChangeDialog';
 import { DOC_SSE_FALLBACK_INTERVAL_MS } from '../lib/doc-polling';
+import { useDocDraftPersistence } from '../hooks/useDocDraftPersistence';
 
 type Props = {
   tabId: string;
@@ -107,8 +108,7 @@ function DocEditor({
   const canEditRef = useRef(canEdit);
   canEditRef.current = canEdit;
   const { showToast } = useSimpleToast();
-  const { getDraft, setDraft, clearDraft, markTabUnsaved, markTabSaved } =
-    useDocTabContext();
+  const { markTabUnsaved, markTabSaved } = useDocTabContext();
 
   const docSSE = useDocSSE(docPath, !!docPath, workspaceQuery, remoteNode);
 
@@ -155,11 +155,6 @@ function DocEditor({
   });
   const [isSaving, setIsSaving] = useState(false);
 
-  // Use refs for cleanup and to avoid stale closures / unnecessary callback recreation
-  const currentValueRef = useRef(currentValue);
-  currentValueRef.current = currentValue;
-  const hasUnsavedChangesRef = useRef(hasUnsavedChanges);
-  hasUnsavedChangesRef.current = hasUnsavedChanges;
   const scopedDraftKey = useMemo(
     () =>
       JSON.stringify({
@@ -169,54 +164,13 @@ function DocEditor({
       }),
     [remoteNode, tabId, workspaceQueryKey]
   );
-  const draftPersistenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null
-  );
-
-  // Restore drafts by document tab and selected workspace.
-  useEffect(() => {
-    const draft = getDraft(scopedDraftKey);
-    if (draft !== undefined) {
-      setCurrentValue(draft);
-    }
-  }, [getDraft, scopedDraftKey, setCurrentValue]);
-
-  // Save draft on unmount or scope change.
-  useEffect(() => {
-    return () => {
-      if (hasUnsavedChangesRef.current) {
-        setDraft(scopedDraftKey, currentValueRef.current ?? '');
-      }
-    };
-  }, [scopedDraftKey, setDraft]);
-
-  useEffect(() => {
-    if (!hasUnsavedChanges) return;
-
-    const timer = setTimeout(() => {
-      setDraft(scopedDraftKey, currentValue ?? '');
-      if (draftPersistenceTimerRef.current === timer) {
-        draftPersistenceTimerRef.current = null;
-      }
-    }, 300);
-    draftPersistenceTimerRef.current = timer;
-    return () => {
-      clearTimeout(timer);
-      if (draftPersistenceTimerRef.current === timer) {
-        draftPersistenceTimerRef.current = null;
-      }
-    };
-  }, [currentValue, hasUnsavedChanges, scopedDraftKey, setDraft]);
-
-  useEffect(() => {
-    const persistDraft = () => {
-      if (hasUnsavedChangesRef.current) {
-        setDraft(scopedDraftKey, currentValueRef.current ?? '');
-      }
-    };
-    window.addEventListener('pagehide', persistDraft);
-    return () => window.removeEventListener('pagehide', persistDraft);
-  }, [scopedDraftKey, setDraft]);
+  const { clearPersistedDraft, currentValueRef, hasUnsavedChangesRef } =
+    useDocDraftPersistence({
+      draftKey: scopedDraftKey,
+      currentValue,
+      hasUnsavedChanges,
+      setCurrentValue,
+    });
 
   // Sync unsaved state to tab context
   useEffect(() => {
@@ -281,12 +235,8 @@ function DocEditor({
         // Revalidate SWR cache from server as safety net
         mutateDoc();
         if (!hasNewerEdits) {
-          if (draftPersistenceTimerRef.current) {
-            clearTimeout(draftPersistenceTimerRef.current);
-            draftPersistenceTimerRef.current = null;
-          }
           markTabSaved(tabId);
-          clearDraft(scopedDraftKey);
+          clearPersistedDraft();
         }
         showToast('Document saved');
       }
@@ -309,9 +259,8 @@ function DocEditor({
     markAsSaved,
     mutateDoc,
     markTabSaved,
-    clearDraft,
+    clearPersistedDraft,
     tabId,
-    scopedDraftKey,
     showToast,
   ]);
 
@@ -435,12 +384,8 @@ function DocEditor({
           <button
             type="button"
             onClick={() => {
-              if (draftPersistenceTimerRef.current) {
-                clearTimeout(draftPersistenceTimerRef.current);
-                draftPersistenceTimerRef.current = null;
-              }
               discardChanges();
-              clearDraft(scopedDraftKey);
+              clearPersistedDraft();
               markTabSaved(tabId);
             }}
             className="flex items-center gap-1 px-2 py-1 text-xs rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
@@ -500,12 +445,8 @@ function DocEditor({
       <DocExternalChangeDialog
         visible={conflict.hasConflict}
         onDiscard={() => {
-          if (draftPersistenceTimerRef.current) {
-            clearTimeout(draftPersistenceTimerRef.current);
-            draftPersistenceTimerRef.current = null;
-          }
           resolveConflict('discard');
-          clearDraft(scopedDraftKey);
+          clearPersistedDraft();
           markTabSaved(tabId);
         }}
         onIgnore={() => resolveConflict('ignore')}

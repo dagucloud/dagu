@@ -64,6 +64,13 @@ interface StoredTabState {
   unsavedTabIds?: string[];
 }
 
+interface DocTabState {
+  tabs: DocTab[];
+  activeTabId: string | null;
+  drafts: Map<string, string>;
+  unsavedTabIds: Set<string>;
+}
+
 function generateTabId(): string {
   return `doc-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
 }
@@ -88,6 +95,30 @@ function writeStoredTabState(storageKey: string, state: StoredTabState): void {
   }
 }
 
+function restoreDocTabState(storageKey: string): DocTabState {
+  const stored = readStoredTabState(storageKey);
+  const tabs = stored?.tabs ?? [];
+  const activeTabId =
+    stored?.activeTabId && tabs.some((tab) => tab.id === stored.activeTabId)
+      ? stored.activeTabId
+      : null;
+  return {
+    tabs,
+    activeTabId,
+    drafts: new Map(stored?.drafts ?? []),
+    unsavedTabIds: new Set(stored?.unsavedTabIds ?? []),
+  };
+}
+
+function storeDocTabState(storageKey: string, state: DocTabState): void {
+  writeStoredTabState(storageKey, {
+    tabs: state.tabs,
+    activeTabId: state.activeTabId,
+    drafts: Array.from(state.drafts.entries()),
+    unsavedTabIds: Array.from(state.unsavedTabIds),
+  });
+}
+
 function draftTabIdFromKey(key: string): string {
   try {
     const parsed = JSON.parse(key) as { tabId?: unknown };
@@ -109,186 +140,132 @@ export function DocTabProvider({
   storageKey?: string;
 }) {
   const { setHasUnsavedChanges } = useUnsavedChanges();
+  const [state, setState] = useState<DocTabState>(() =>
+    restoreDocTabState(storageKey)
+  );
+  const stateRef = useRef(state);
+  stateRef.current = state;
 
-  const [tabs, setTabs] = useState<DocTab[]>(() => {
-    return readStoredTabState(storageKey)?.tabs || [];
-  });
+  const commitState = useCallback(
+    (nextState: DocTabState) => {
+      stateRef.current = nextState;
+      setState(nextState);
+      storeDocTabState(storageKey, nextState);
+    },
+    [storageKey]
+  );
 
-  const [activeTabId, setActiveTabId] = useState<string | null>(() => {
-    const parsed = readStoredTabState(storageKey);
-    if (
-      parsed?.activeTabId &&
-      parsed.tabs?.some((t) => t.id === parsed.activeTabId)
-    ) {
-      return parsed.activeTabId;
-    }
-    return null;
-  });
-
-  const [drafts, setDrafts] = useState<Map<string, string>>(() => {
-    return new Map(readStoredTabState(storageKey)?.drafts ?? []);
-  });
-  const [unsavedTabIds, setUnsavedTabIds] = useState<Set<string>>(() => {
-    return new Set(readStoredTabState(storageKey)?.unsavedTabIds ?? []);
-  });
-
-  // Use ref to track tabs for use in callbacks without stale closures
-  const tabsRef = useRef(tabs);
-  tabsRef.current = tabs;
-  const activeTabIdRef = useRef(activeTabId);
-  activeTabIdRef.current = activeTabId;
-  const draftsRef = useRef(drafts);
-  draftsRef.current = drafts;
-  const unsavedTabIdsRef = useRef(unsavedTabIds);
-  unsavedTabIdsRef.current = unsavedTabIds;
-
-  const persistStoredState = useCallback(() => {
-    writeStoredTabState(storageKey, {
-      tabs: tabsRef.current,
-      activeTabId: activeTabIdRef.current,
-      drafts: Array.from(draftsRef.current.entries()),
-      unsavedTabIds: Array.from(unsavedTabIdsRef.current),
-    });
-  }, [storageKey]);
-
-  // Persist to localStorage
   useEffect(() => {
-    writeStoredTabState(storageKey, {
-      tabs,
-      activeTabId,
-      drafts: Array.from(drafts.entries()),
-      unsavedTabIds: Array.from(unsavedTabIds),
-    });
-  }, [storageKey, tabs, activeTabId, drafts, unsavedTabIds]);
-
-  // Sync unsavedTabIds to UnsavedChangesContext
-  useEffect(() => {
-    setHasUnsavedChanges(unsavedTabIds.size > 0);
+    setHasUnsavedChanges(state.unsavedTabIds.size > 0);
     return () => {
       setHasUnsavedChanges(false);
     };
-  }, [unsavedTabIds, setHasUnsavedChanges]);
+  }, [state.unsavedTabIds, setHasUnsavedChanges]);
 
   const openDoc = useCallback(
     (docPath: string, title: string, workspace?: string | null) => {
-      // Check if already open
+      const current = stateRef.current;
       const normalizedWorkspace = workspace ?? null;
-      const existingTab = tabsRef.current.find(
+      const existingTab = current.tabs.find(
         (t) =>
           t.docPath === docPath && (t.workspace ?? null) === normalizedWorkspace
       );
       if (existingTab) {
-        activeTabIdRef.current = existingTab.id;
-        setActiveTabId(existingTab.id);
-        persistStoredState();
+        commitState({ ...current, activeTabId: existingTab.id });
         return;
       }
 
-      // Create new tab
       const newTab: DocTab = {
         id: generateTabId(),
         docPath,
         title,
         workspace: normalizedWorkspace,
       };
-      const nextTabs = [...tabsRef.current, newTab];
-      tabsRef.current = nextTabs;
-      activeTabIdRef.current = newTab.id;
-      setTabs(nextTabs);
-      setActiveTabId(newTab.id);
-      persistStoredState();
+      commitState({
+        ...current,
+        tabs: [...current.tabs, newTab],
+        activeTabId: newTab.id,
+      });
     },
-    [persistStoredState]
+    [commitState]
   );
 
   const closeTab = useCallback(
     (tabId: string) => {
-      const currentTabs = tabsRef.current;
-      const nextTabs = currentTabs.filter((t) => t.id !== tabId);
-      tabsRef.current = nextTabs;
-      setTabs(nextTabs);
-
-      if (activeTabIdRef.current === tabId) {
-        const closedIndex = currentTabs.findIndex((t) => t.id === tabId);
+      const current = stateRef.current;
+      const nextTabs = current.tabs.filter((tab) => tab.id !== tabId);
+      let nextActiveTabId = current.activeTabId;
+      if (current.activeTabId === tabId) {
+        const closedIndex = current.tabs.findIndex((tab) => tab.id === tabId);
         const nextActiveIndex = Math.min(closedIndex, nextTabs.length - 1);
-        const nextActiveTabId = nextTabs[nextActiveIndex]?.id ?? null;
-        activeTabIdRef.current = nextActiveTabId;
-        setActiveTabId(nextActiveTabId);
+        nextActiveTabId = nextTabs[nextActiveIndex]?.id ?? null;
       } else if (nextTabs.length === 0) {
-        activeTabIdRef.current = null;
-        setActiveTabId(null);
+        nextActiveTabId = null;
       }
 
-      const nextDrafts = new Map(draftsRef.current);
+      const nextDrafts = new Map(current.drafts);
       for (const key of nextDrafts.keys()) {
         if (draftKeyMatchesTabId(key, tabId)) {
           nextDrafts.delete(key);
         }
       }
-      draftsRef.current = nextDrafts;
-      setDrafts(nextDrafts);
-
-      const nextUnsavedTabIds = new Set(unsavedTabIdsRef.current);
+      const nextUnsavedTabIds = new Set(current.unsavedTabIds);
       nextUnsavedTabIds.delete(tabId);
-      unsavedTabIdsRef.current = nextUnsavedTabIds;
-      setUnsavedTabIds(nextUnsavedTabIds);
-      persistStoredState();
+      commitState({
+        tabs: nextTabs,
+        activeTabId: nextActiveTabId,
+        drafts: nextDrafts,
+        unsavedTabIds: nextUnsavedTabIds,
+      });
     },
-    [persistStoredState]
+    [commitState]
   );
 
   const closeAllTabs = useCallback(() => {
-    setTabs([]);
-    setActiveTabId(null);
-    setDrafts(new Map());
-    setUnsavedTabIds(new Set());
-    tabsRef.current = [];
-    activeTabIdRef.current = null;
-    draftsRef.current = new Map();
-    unsavedTabIdsRef.current = new Set();
-    persistStoredState();
-  }, [persistStoredState]);
+    commitState({
+      tabs: [],
+      activeTabId: null,
+      drafts: new Map(),
+      unsavedTabIds: new Set(),
+    });
+  }, [commitState]);
 
   const closeOtherTabs = useCallback(
     (keepTabId: string) => {
-      const nextTabs = tabsRef.current.filter((t) => t.id === keepTabId);
-      tabsRef.current = nextTabs;
-      activeTabIdRef.current = keepTabId;
-      setTabs(nextTabs);
-      setActiveTabId(keepTabId);
+      const current = stateRef.current;
+      const nextTabs = current.tabs.filter((tab) => tab.id === keepTabId);
       const nextDrafts = new Map<string, string>();
-      for (const [key, value] of draftsRef.current.entries()) {
+      for (const [key, value] of current.drafts) {
         if (draftKeyMatchesTabId(key, keepTabId)) {
           nextDrafts.set(key, value);
         }
       }
-      draftsRef.current = nextDrafts;
-      setDrafts(nextDrafts);
-
       const nextUnsavedTabIds = new Set<string>();
-      if (unsavedTabIdsRef.current.has(keepTabId)) {
+      if (current.unsavedTabIds.has(keepTabId)) {
         nextUnsavedTabIds.add(keepTabId);
       }
-      unsavedTabIdsRef.current = nextUnsavedTabIds;
-      setUnsavedTabIds(nextUnsavedTabIds);
-      persistStoredState();
+      commitState({
+        tabs: nextTabs,
+        activeTabId: keepTabId,
+        drafts: nextDrafts,
+        unsavedTabIds: nextUnsavedTabIds,
+      });
     },
-    [persistStoredState]
+    [commitState]
   );
 
   const setActiveTab = useCallback(
     (tabId: string) => {
-      activeTabIdRef.current = tabId;
-      setActiveTabId(tabId);
-      persistStoredState();
+      commitState({ ...stateRef.current, activeTabId: tabId });
     },
-    [persistStoredState]
+    [commitState]
   );
 
   const getActiveDocPath = useCallback(() => {
-    if (!activeTabIdRef.current) return null;
-    const activeTab = tabsRef.current.find(
-      (t) => t.id === activeTabIdRef.current
+    const current = stateRef.current;
+    if (!current.activeTabId) return null;
+    const activeTab = current.tabs.find(
+      (tab) => tab.id === current.activeTabId
     );
     return activeTab?.docPath || null;
   }, []);
@@ -298,64 +275,64 @@ export function DocTabProvider({
       tabId: string,
       updates: Partial<Pick<DocTab, 'docPath' | 'title' | 'workspace'>>
     ) => {
-      const nextTabs = tabsRef.current.map((tab) =>
+      const current = stateRef.current;
+      const nextTabs = current.tabs.map((tab) =>
         tab.id === tabId ? { ...tab, ...updates } : tab
       );
-      tabsRef.current = nextTabs;
-      setTabs(nextTabs);
-      persistStoredState();
+      commitState({ ...current, tabs: nextTabs });
     },
-    [persistStoredState]
+    [commitState]
   );
 
   const setDraft = useCallback(
     (draftKey: string, content: string) => {
-      const matchingTab = tabsRef.current.find((tab) =>
+      const current = stateRef.current;
+      const matchingTab = current.tabs.find((tab) =>
         draftKeyMatchesTabId(draftKey, tab.id)
       );
       if (!matchingTab) return;
 
-      const nextDrafts = new Map(draftsRef.current);
+      const nextDrafts = new Map(current.drafts);
       nextDrafts.set(draftKey, content);
-      draftsRef.current = nextDrafts;
-      setDrafts(nextDrafts);
-
-      if (!unsavedTabIdsRef.current.has(matchingTab.id)) {
-        const nextUnsavedTabIds = new Set(unsavedTabIdsRef.current);
+      let nextUnsavedTabIds = current.unsavedTabIds;
+      if (!nextUnsavedTabIds.has(matchingTab.id)) {
+        nextUnsavedTabIds = new Set(nextUnsavedTabIds);
         nextUnsavedTabIds.add(matchingTab.id);
-        unsavedTabIdsRef.current = nextUnsavedTabIds;
-        setUnsavedTabIds(nextUnsavedTabIds);
       }
-      persistStoredState();
+      commitState({
+        ...current,
+        drafts: nextDrafts,
+        unsavedTabIds: nextUnsavedTabIds,
+      });
     },
-    [persistStoredState]
+    [commitState]
   );
 
   const clearDraft = useCallback(
     (draftKey: string) => {
+      const current = stateRef.current;
       const tabId = draftTabIdFromKey(draftKey);
-      const nextDrafts = new Map(draftsRef.current);
+      const nextDrafts = new Map(current.drafts);
       for (const key of nextDrafts.keys()) {
         if (draftKeyMatchesTabId(key, tabId)) {
           nextDrafts.delete(key);
         }
       }
-      draftsRef.current = nextDrafts;
-      setDrafts(nextDrafts);
-      persistStoredState();
+      commitState({ ...current, drafts: nextDrafts });
     },
-    [persistStoredState]
+    [commitState]
   );
 
   const getDraft = useCallback((draftKey: string) => {
-    const exactDraft = draftsRef.current.get(draftKey);
+    const drafts = stateRef.current.drafts;
+    const exactDraft = drafts.get(draftKey);
     if (exactDraft !== undefined) return exactDraft;
 
     const tabId = draftTabIdFromKey(draftKey);
-    const directDraft = draftsRef.current.get(tabId);
+    const directDraft = drafts.get(tabId);
     if (directDraft !== undefined) return directDraft;
 
-    for (const [key, draft] of draftsRef.current) {
+    for (const [key, draft] of drafts) {
       if (draftKeyMatchesTabId(key, tabId)) return draft;
     }
     return undefined;
@@ -363,35 +340,33 @@ export function DocTabProvider({
 
   const markTabUnsaved = useCallback(
     (tabId: string) => {
-      if (unsavedTabIdsRef.current.has(tabId)) return;
-      const nextUnsavedTabIds = new Set(unsavedTabIdsRef.current);
+      const current = stateRef.current;
+      if (current.unsavedTabIds.has(tabId)) return;
+      const nextUnsavedTabIds = new Set(current.unsavedTabIds);
       nextUnsavedTabIds.add(tabId);
-      unsavedTabIdsRef.current = nextUnsavedTabIds;
-      setUnsavedTabIds(nextUnsavedTabIds);
-      persistStoredState();
+      commitState({ ...current, unsavedTabIds: nextUnsavedTabIds });
     },
-    [persistStoredState]
+    [commitState]
   );
 
   const markTabSaved = useCallback(
     (tabId: string) => {
-      if (!unsavedTabIdsRef.current.has(tabId)) return;
-      const nextUnsavedTabIds = new Set(unsavedTabIdsRef.current);
+      const current = stateRef.current;
+      if (!current.unsavedTabIds.has(tabId)) return;
+      const nextUnsavedTabIds = new Set(current.unsavedTabIds);
       nextUnsavedTabIds.delete(tabId);
-      unsavedTabIdsRef.current = nextUnsavedTabIds;
-      setUnsavedTabIds(nextUnsavedTabIds);
-      persistStoredState();
+      commitState({ ...current, unsavedTabIds: nextUnsavedTabIds });
     },
-    [persistStoredState]
+    [commitState]
   );
 
   const isTabUnsaved = useCallback((tabId: string) => {
-    return unsavedTabIdsRef.current.has(tabId);
+    return stateRef.current.unsavedTabIds.has(tabId);
   }, []);
 
   const value: DocTabContextType = {
-    tabs,
-    activeTabId,
+    tabs: state.tabs,
+    activeTabId: state.activeTabId,
     openDoc,
     closeTab,
     closeAllTabs,
@@ -399,11 +374,11 @@ export function DocTabProvider({
     setActiveTab,
     getActiveDocPath,
     updateTab,
-    drafts,
+    drafts: state.drafts,
     setDraft,
     clearDraft,
     getDraft,
-    unsavedTabIds,
+    unsavedTabIds: state.unsavedTabIds,
     markTabUnsaved,
     markTabSaved,
     isTabUnsaved,
