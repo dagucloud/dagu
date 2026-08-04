@@ -17,11 +17,13 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
+	"github.com/dagucloud/dagu/v2/internal/test"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/status"
@@ -1028,6 +1030,38 @@ func TestClientHeartbeat(t *testing.T) {
 	assert.Equal(t, int32(2), receivedReq.Stats.BusyPollers)
 }
 
+func TestClientHeartbeatWithSkipTLSVerify(t *testing.T) {
+	t.Parallel()
+
+	config := coordinator.DefaultConfig()
+	config.Insecure = false
+	config.SkipTLSVerify = true
+	config.MaxRetries = 0
+	require.NoError(t, config.Validate())
+
+	mockCoord := &mockCoordinatorService{
+		heartbeatFunc: func(_ context.Context, _ *coordinatorv1.HeartbeatRequest) (*coordinatorv1.HeartbeatResponse, error) {
+			return &coordinatorv1.HeartbeatResponse{}, nil
+		},
+	}
+
+	server, addr := startMockTLSServer(t, mockCoord)
+	defer server.Stop()
+
+	host, port := parseHostPort(addr)
+	monitor := &mockServiceMonitor{
+		members: []exec.HostInfo{{Host: host, Port: port, Status: exec.ServiceStatusActive}},
+	}
+	client := coordinator.New(monitor, config)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	_, err := client.Heartbeat(ctx, &coordinatorv1.HeartbeatRequest{WorkerId: "test-worker"})
+	require.NoError(t, err)
+	require.NoError(t, client.Cleanup(ctx))
+}
+
 func TestClientDiscoveredAddressRemainsAuthoritative(t *testing.T) {
 	t.Parallel()
 
@@ -1771,9 +1805,9 @@ func startMockServer(t *testing.T, service coordinatorv1.CoordinatorServiceServe
 	return startMockServerWithHealth(t, service, healthServer)
 }
 
-func startMockServerWithHealth(t *testing.T, service coordinatorv1.CoordinatorServiceServer, healthServer grpc_health_v1.HealthServer) (*grpc.Server, string) {
+func startMockServerWithHealth(t *testing.T, service coordinatorv1.CoordinatorServiceServer, healthServer grpc_health_v1.HealthServer, opts ...grpc.ServerOption) (*grpc.Server, string) {
 	t.Helper()
-	server := grpc.NewServer()
+	server := grpc.NewServer(opts...)
 	coordinatorv1.RegisterCoordinatorServiceServer(server, service)
 
 	grpc_health_v1.RegisterHealthServer(server, healthServer)
@@ -1787,4 +1821,18 @@ func startMockServerWithHealth(t *testing.T, service coordinatorv1.CoordinatorSe
 	}()
 
 	return server, listener.Addr().String()
+}
+
+func startMockTLSServer(t *testing.T, service coordinatorv1.CoordinatorServiceServer) (*grpc.Server, string) {
+	t.Helper()
+
+	creds, err := credentials.NewServerTLSFromFile(
+		test.TestdataPath(t, "certs/cert.pem"),
+		test.TestdataPath(t, "certs/key.pem"),
+	)
+	require.NoError(t, err)
+
+	healthServer := health.NewServer()
+	healthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_SERVING)
+	return startMockServerWithHealth(t, service, healthServer, grpc.Creds(creds))
 }
