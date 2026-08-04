@@ -6,6 +6,7 @@ package doc
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -146,8 +147,6 @@ func (s *Store) renameDocCreatedAtPrefix(oldID, newID string) error {
 			delete(metadata.CreatedAt, key)
 		}
 	}
-	for key, createdAt := range renamed {
-		metadata.CreatedAt[key] = createdAt
-	}
+	maps.Copy(metadata.CreatedAt, renamed)
 	return s.saveMetadata(metadata)
 }
