@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/core/docs"
 	"github.com/dagucloud/dagu/v2/internal/service/audit"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
@@ -234,6 +236,11 @@ func (a *API) UpdateWorkspace(ctx context.Context, request api.UpdateWorkspaceRe
 	if err := a.workspaceStore.Update(ctx, &updated); err != nil {
 		if docsMoved {
 			if rollbackErr := docStore.RenameDirectory(ctx, updated.Name, existing.Name); rollbackErr != nil {
+				logger.Error(ctx, "Failed to restore workspace documents after update failure",
+					tag.String("current-doc-id", updated.Name),
+					tag.String("restore-doc-id", existing.Name),
+					tag.Error(rollbackErr),
+				)
 				return nil, errors.Join(
 					fmt.Errorf("failed to update workspace: %w", err),
 					fmt.Errorf("failed to restore workspace documents: %w", rollbackErr),

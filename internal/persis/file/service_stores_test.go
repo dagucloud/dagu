@@ -4,6 +4,8 @@
 package file_test
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -33,4 +35,30 @@ func TestNewEventCollectorDisabledWhenConfigNilOrEventStoreDisabled(t *testing.T
 	collector, err = file.NewEventCollector(&config.Config{})
 	require.NoError(t, err)
 	assert.Nil(t, collector)
+}
+
+func TestNewDocStoreCreatesDocumentDirectory(t *testing.T) {
+	t.Parallel()
+
+	docsDir := filepath.Join(t.TempDir(), "nested", "docs")
+	store, err := file.NewDocStore(&config.Config{Paths: config.PathsConfig{DocsDir: docsDir}})
+
+	require.NoError(t, err)
+	assert.NotNil(t, store)
+	info, statErr := os.Stat(docsDir)
+	require.NoError(t, statErr)
+	assert.True(t, info.IsDir())
+}
+
+func TestNewDocStoreReturnsDirectoryCreationError(t *testing.T) {
+	t.Parallel()
+
+	blockingFile := filepath.Join(t.TempDir(), "file")
+	require.NoError(t, os.WriteFile(blockingFile, []byte("content"), 0o600))
+	store, err := file.NewDocStore(&config.Config{
+		Paths: config.PathsConfig{DocsDir: filepath.Join(blockingFile, "docs")},
+	})
+
+	require.Error(t, err)
+	assert.Nil(t, store)
 }

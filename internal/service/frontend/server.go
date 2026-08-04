@@ -499,7 +499,11 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 	}
 
 	if stores.DocStoreFactory != nil {
-		if docStore := stores.DocStoreFactory(cfg); docStore != nil {
+		docStore, err := stores.DocStoreFactory(cfg)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create document store: %w", err)
+		}
+		if docStore != nil {
 			apiOpts = append(apiOpts, apiv1.WithDocStore(docStore))
 		}
 	}

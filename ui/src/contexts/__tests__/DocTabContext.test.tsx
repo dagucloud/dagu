@@ -110,4 +110,32 @@ describe('DocTabProvider', () => {
     expect(restoredUserA.result.current.tabs).toHaveLength(1);
     expect(restoredUserA.result.current.getDraft(tabId)).toBe('user A draft');
   });
+
+  it('reads and clears a direct-key draft through its scoped key', () => {
+    const storageKey = 'dagu_doc_tabs:user-a';
+    const { result } = renderHook(() => useDocTabContext(), {
+      wrapper: wrapperFor(storageKey),
+    });
+
+    act(() => {
+      result.current.openDoc('runbook', 'Runbook');
+    });
+    const tabId = result.current.tabs[0]!.id;
+    const scopedKey = JSON.stringify({
+      tabId,
+      remoteNode: 'local',
+      workspace: 'default',
+    });
+
+    act(() => {
+      result.current.setDraft(tabId, 'direct draft');
+    });
+    expect(result.current.getDraft(scopedKey)).toBe('direct draft');
+
+    act(() => {
+      result.current.clearDraft(scopedKey);
+    });
+    expect(result.current.getDraft(tabId)).toBeUndefined();
+    expect(result.current.getDraft(scopedKey)).toBeUndefined();
+  });
 });

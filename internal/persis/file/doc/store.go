@@ -1278,6 +1278,9 @@ func (s *Store) RenameDirectory(ctx context.Context, oldID, newID string) error 
 }
 
 func (s *Store) renameDirectoryLocked(ctx context.Context, oldID, newID, oldDirPath string) error {
+	if newID == oldID || strings.HasPrefix(newID, oldID+"/") {
+		return docs.ErrDocPathConflict
+	}
 	if err := s.ensureTargetAvailable(newID); err != nil {
 		return err
 	}

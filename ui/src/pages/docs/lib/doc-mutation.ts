@@ -97,6 +97,9 @@ export function resolveDocTreeMove({
   if (isWorkspaceRootTreeNode(dragId, workspace)) {
     return null;
   }
+  if (parentId && (parentId === dragId || parentId.startsWith(`${dragId}/`))) {
+    return null;
+  }
 
   const nodeName = dragId.split('/').pop() || dragId;
   const newTreePath = parentId ? `${parentId}/${nodeName}` : nodeName;

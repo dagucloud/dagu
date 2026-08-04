@@ -88,14 +88,17 @@ function writeStoredTabState(storageKey: string, state: StoredTabState): void {
   }
 }
 
-function draftKeyMatchesTabId(key: string, tabId: string): boolean {
-  if (key === tabId) return true;
+function draftTabIdFromKey(key: string): string {
   try {
     const parsed = JSON.parse(key) as { tabId?: unknown };
-    return parsed.tabId === tabId;
+    return typeof parsed.tabId === 'string' ? parsed.tabId : key;
   } catch {
-    return false;
+    return key;
   }
+}
+
+function draftKeyMatchesTabId(key: string, tabId: string): boolean {
+  return draftTabIdFromKey(key) === tabId;
 }
 
 export function DocTabProvider({
@@ -329,7 +332,8 @@ export function DocTabProvider({
   );
 
   const clearDraft = useCallback(
-    (tabId: string) => {
+    (draftKey: string) => {
+      const tabId = draftTabIdFromKey(draftKey);
       const nextDrafts = new Map(draftsRef.current);
       for (const key of nextDrafts.keys()) {
         if (draftKeyMatchesTabId(key, tabId)) {
@@ -343,8 +347,18 @@ export function DocTabProvider({
     [persistStoredState]
   );
 
-  const getDraft = useCallback((tabId: string) => {
-    return draftsRef.current.get(tabId);
+  const getDraft = useCallback((draftKey: string) => {
+    const exactDraft = draftsRef.current.get(draftKey);
+    if (exactDraft !== undefined) return exactDraft;
+
+    const tabId = draftTabIdFromKey(draftKey);
+    const directDraft = draftsRef.current.get(tabId);
+    if (directDraft !== undefined) return directDraft;
+
+    for (const [key, draft] of draftsRef.current) {
+      if (draftKeyMatchesTabId(key, tabId)) return draft;
+    }
+    return undefined;
   }, []);
 
   const markTabUnsaved = useCallback(

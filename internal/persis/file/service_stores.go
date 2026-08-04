@@ -154,11 +154,14 @@ func NewDAGSettingsStore(cfg *config.Config) (dagsettings.Store, error) {
 	return store.NewDAGSettingsStore(NewCollection(dir, WithIndentedJSON()))
 }
 
-func NewDocStore(cfg *config.Config) docs.DocStore {
+func NewDocStore(cfg *config.Config) (docs.DocStore, error) {
 	if cfg == nil || cfg.Paths.DocsDir == "" {
-		return nil
+		return nil, nil
 	}
-	return filedoc.New(cfg.Paths.DocsDir)
+	if err := os.MkdirAll(cfg.Paths.DocsDir, 0o750); err != nil {
+		return nil, fmt.Errorf("document store: create directory %s: %w", cfg.Paths.DocsDir, err)
+	}
+	return filedoc.New(cfg.Paths.DocsDir), nil
 }
 
 func NewIncidentStore(cfg *config.Config, enc *crypto.Encryptor) (incident.Store, error) {

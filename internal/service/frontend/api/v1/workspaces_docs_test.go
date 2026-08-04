@@ -55,6 +55,29 @@ func TestUpdateWorkspaceRestoresDocumentsWhenUpdateFails(t *testing.T) {
 	assert.NotContains(t, docStore.docs, "platform/runbook")
 }
 
+func TestUpdateWorkspaceRejectsOccupiedDocumentPath(t *testing.T) {
+	docStore := &mockDocStore{docs: map[string]*docs.Doc{
+		"ops/runbook":     {ID: "ops/runbook", Title: "runbook", Content: "source content"},
+		"platform/readme": {ID: "platform/readme", Title: "readme", Content: "target content"},
+	}}
+	workspaceStore := &mockWorkspaceStore{workspaces: []*workspacepkg.Workspace{
+		{ID: "workspace-id", Name: "ops"},
+	}}
+	setup := newDocTestSetupWithStore(t, docStore, workspaceStore)
+	newName := apigen.WorkspaceName("platform")
+
+	response, err := setup.api.UpdateWorkspace(adminCtx(), apigen.UpdateWorkspaceRequestObject{
+		WorkspaceId: "workspace-id",
+		Body:        &apigen.UpdateWorkspaceRequest{Name: &newName},
+	})
+	require.NoError(t, err)
+	assert.IsType(t, apigen.UpdateWorkspace409JSONResponse{}, response)
+	assert.Equal(t, "source content", docStore.docs["ops/runbook"].Content)
+	assert.Equal(t, "target content", docStore.docs["platform/readme"].Content)
+	require.Len(t, workspaceStore.workspaces, 1)
+	assert.Equal(t, "ops", workspaceStore.workspaces[0].Name)
+}
+
 func TestDeleteWorkspaceRequiresDocumentsToBeRemoved(t *testing.T) {
 	docStore := &mockDocStore{docs: map[string]*docs.Doc{
 		"ops/runbook": {ID: "ops/runbook", Title: "runbook", Content: "content"},

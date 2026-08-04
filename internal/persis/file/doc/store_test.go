@@ -321,6 +321,24 @@ func TestRenameRejectsAncestorDocumentCollision(t *testing.T) {
 	assert.Equal(t, "source content", doc.Content)
 }
 
+func TestRenameRejectsDirectoryMoveIntoOwnSubtree(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	require.NoError(t, store.Create(ctx, "guides/intro/start", "start content"))
+	require.NoError(t, store.Create(ctx, "guides/reference", "reference content"))
+
+	err := store.Rename(ctx, "guides", "guides/intro/guides")
+	assert.ErrorIs(t, err, docs.ErrDocPathConflict)
+
+	start, getErr := store.Get(ctx, "guides/intro/start")
+	require.NoError(t, getErr)
+	assert.Equal(t, "start content", start.Content)
+	reference, getErr := store.Get(ctx, "guides/reference")
+	require.NoError(t, getErr)
+	assert.Equal(t, "reference content", reference.Content)
+}
+
 func TestListFlat(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
@@ -1761,6 +1779,7 @@ func TestMutationRejectsAmbiguousFileAndDirectoryID(t *testing.T) {
 	assert.Empty(t, deleted)
 	require.Len(t, failed, 1)
 	assert.Equal(t, "foo", failed[0].ID)
+	assert.Equal(t, docs.ErrDocPathConflict.Error(), failed[0].Error)
 
 	doc, err := store.Get(ctx, "foo")
 	require.NoError(t, err)

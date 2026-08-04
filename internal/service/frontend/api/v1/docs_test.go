@@ -185,6 +185,9 @@ func (m *mockDocStore) Rename(_ context.Context, oldID, newID string) error {
 	if err := docs.ValidateDocID(newID); err != nil {
 		return docs.ErrInvalidDocID
 	}
+	if newID == oldID || strings.HasPrefix(newID, oldID+"/") {
+		return docs.ErrDocPathConflict
+	}
 
 	// Try exact match first (file rename).
 	if doc, ok := m.docs[oldID]; ok {
@@ -251,6 +254,9 @@ func (m *mockDocStore) PathExists(_ context.Context, id string) (fileExists, dir
 func (m *mockDocStore) RenameDirectory(_ context.Context, oldID, newID string) error {
 	if m.failAll {
 		return errForced
+	}
+	if newID == oldID || strings.HasPrefix(newID, oldID+"/") {
+		return docs.ErrDocPathConflict
 	}
 	oldPrefix := oldID + "/"
 	newPrefix := newID + "/"
@@ -1307,6 +1313,29 @@ func TestRenameDoc(t *testing.T) {
 			Body:   &apigen.RenameDocJSONRequestBody{NewPath: "dst"},
 		})
 		require.Error(t, err)
+	})
+
+	t.Run("directory rename into own subtree", func(t *testing.T) {
+		t.Parallel()
+
+		setup := newDocTestSetup(t)
+		setup.store.docs["guides/intro/start"] = &docs.Doc{
+			ID: "guides/intro/start", Title: "start", Content: "start content",
+		}
+		setup.store.docs["guides/reference"] = &docs.Doc{
+			ID: "guides/reference", Title: "reference", Content: "reference content",
+		}
+
+		_, err := setup.api.RenameDoc(adminCtx(), apigen.RenameDocRequestObject{
+			Params: apigen.RenameDocParams{Path: "guides"},
+			Body:   &apigen.RenameDocJSONRequestBody{NewPath: "guides/intro/guides"},
+		})
+		var apiErr *apiv1.Error
+		require.ErrorAs(t, err, &apiErr)
+		assert.Equal(t, http.StatusConflict, apiErr.HTTPStatus)
+		assert.Equal(t, "start content", setup.store.docs["guides/intro/start"].Content)
+		assert.Equal(t, "reference content", setup.store.docs["guides/reference"].Content)
+		assert.Len(t, setup.store.docs, 2)
 	})
 
 	t.Run("directory not found", func(t *testing.T) {

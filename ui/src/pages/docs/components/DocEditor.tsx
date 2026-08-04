@@ -339,9 +339,9 @@ function DocEditor({
   const [copiedContent, setCopiedContent] = useState(false);
 
   const copyFilePath = useCallback(async () => {
-    const fp = doc?.filePath;
-    if (!fp) return;
-    await copyTextToClipboard(fp);
+    const filePath = doc?.filePath;
+    if (!filePath) return;
+    await copyTextToClipboard(filePath);
     setCopiedPath(true);
     setTimeout(() => setCopiedPath(false), 2000);
   }, [doc?.filePath]);
@@ -499,7 +499,15 @@ function DocEditor({
       {/* Conflict dialog */}
       <DocExternalChangeDialog
         visible={conflict.hasConflict}
-        onDiscard={() => resolveConflict('discard')}
+        onDiscard={() => {
+          if (draftPersistenceTimerRef.current) {
+            clearTimeout(draftPersistenceTimerRef.current);
+            draftPersistenceTimerRef.current = null;
+          }
+          resolveConflict('discard');
+          clearDraft(scopedDraftKey);
+          markTabSaved(tabId);
+        }}
         onIgnore={() => resolveConflict('ignore')}
       />
     </div>

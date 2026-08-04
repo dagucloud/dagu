@@ -67,6 +67,21 @@ describe('doc mutation path helpers', () => {
     ).toBeNull();
   });
 
+  it('rejects directory moves into their own subtree', () => {
+    expect(
+      resolveDocTreeMove({
+        dragId: 'guides',
+        parentId: 'guides/intro',
+      })
+    ).toBeNull();
+    expect(
+      resolveDocTreeMove({
+        dragId: 'guides',
+        parentId: 'guides',
+      })
+    ).toBeNull();
+  });
+
   it('resolves root drops inside the selected workspace', () => {
     expect(
       resolveDocTreeMove({

@@ -59,7 +59,7 @@ type RemoteNodeStoreFactory func(*config.Config, *crypto.Encryptor) (remotenode.
 
 type DAGSettingsStoreFactory func(*config.Config) (dagsettings.Store, error)
 
-type DocStoreFactory func(*config.Config) docs.DocStore
+type DocStoreFactory func(*config.Config) (docs.DocStore, error)
 
 type NotificationStoreFactory func(*config.Config, *crypto.Encryptor) (notification.Store, error)
 
