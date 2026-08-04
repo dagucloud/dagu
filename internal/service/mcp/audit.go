@@ -211,6 +211,12 @@ func readAuditMetadata(input readInput) toolAuditMetadata {
 	if input.StepName != "" {
 		attrs["step_name"] = input.StepName
 	}
+	if input.Path != "" {
+		attrs["doc_path"] = input.Path
+	}
+	if input.Search != "" {
+		attrs["has_search"] = true
+	}
 	if keys := queryKeys(input.Query); len(keys) > 0 {
 		attrs["query_keys"] = keys
 	}
@@ -218,6 +224,7 @@ func readAuditMetadata(input readInput) toolAuditMetadata {
 		Action:       "read",
 		ResourceType: target,
 		ResourceID:   resourceID,
+		Workspace:    input.Workspace,
 		Attributes:   attrs,
 	}
 }
@@ -231,16 +238,34 @@ func changeAuditMetadata(input changeInput) toolAuditMetadata {
 	if changeType == "" {
 		changeType = "upsert_dag"
 	}
+	resourceType := "dag"
+	resourceID := input.Name
+	attributes := map[string]any{
+		"mode": mode,
+		"type": changeType,
+	}
+	workspace := ""
+	if changeType == changeTypeUpsertDAG {
+		attributes["dag_name"] = input.Name
+		attributes["spec_bytes"] = len(input.Spec)
+	} else {
+		resourceType = "doc"
+		resourceID = input.Path
+		workspace = input.Workspace
+		attributes["doc_path"] = input.Path
+		if input.NewPath != "" {
+			attributes["new_path"] = input.NewPath
+		}
+		if changeType == changeTypeUpsertDoc {
+			attributes["content_bytes"] = len(input.Content)
+		}
+	}
 	return toolAuditMetadata{
 		Action:       mode,
-		ResourceType: "dag",
-		ResourceID:   input.Name,
-		Attributes: map[string]any{
-			"mode":       mode,
-			"type":       changeType,
-			"dag_name":   input.Name,
-			"spec_bytes": len(input.Spec),
-		},
+		ResourceType: resourceType,
+		ResourceID:   resourceID,
+		Workspace:    workspace,
+		Attributes:   attributes,
 	}
 }
 
@@ -381,6 +406,14 @@ func withMCPResourceSourceContext(ctx context.Context, req *mcpsdk.ReadResourceR
 	source.MCPAction = "read_resource"
 	if req != nil {
 		applyMCPRequestMetadata(source, req.Session, req.Extra)
+		if parsed, err := url.Parse(req.Params.URI); err == nil && parsed.Scheme == "dagu" && parsed.Host == "docs" {
+			segments, _ := uriPathSegments(parsed)
+			if len(segments) > 0 {
+				source.ResolvedWorkspace = segments[0]
+			} else {
+				source.ResolvedWorkspace = "all"
+			}
+		}
 	}
 	return audit.WithSourceContext(ctx, source)
 }
@@ -427,6 +460,16 @@ func resourceAuditDetails(rawURI string) map[string]any {
 				resourceType = "dag_run_logs"
 			}
 			if len(segments) >= 2 && !isStepLogResourceSegments(segments) {
+				resourceID = segments[0] + "/" + segments[1]
+			}
+		case "docs":
+			resourceType = "documents"
+			if len(segments) == 0 {
+				resourceID = "all"
+			} else if len(segments) == 1 {
+				resourceID = segments[0]
+			} else {
+				resourceType = "document"
 				resourceID = segments[0] + "/" + segments[1]
 			}
 		}

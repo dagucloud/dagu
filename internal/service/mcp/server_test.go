@@ -162,6 +162,8 @@ func TestServerExposesReferenceResourcesAndPrompts(t *testing.T) {
 	}
 	require.Contains(t, names, "dagu_create_dag")
 	require.Contains(t, names, "dagu_edit_dag")
+	require.Contains(t, names, "dagu_create_doc")
+	require.Contains(t, names, "dagu_edit_doc")
 	require.Contains(t, names, "dagu_debug_failed_run")
 }
 

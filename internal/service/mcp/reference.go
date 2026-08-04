@@ -12,8 +12,8 @@ import (
 
 const instructions = `Dagu exposes a compact MCP surface for DAG workflow operations.
 
-Use dagu_read for current state and trusted reference resources.
-Use dagu_change with mode=preview before mode=apply when editing DAG YAML.
+Use dagu_read for current state, Markdown documents, and trusted reference resources.
+Use dagu_change with mode=preview before mode=apply when editing DAG YAML or Markdown documents.
 Use dagu_execute for start, enqueue, retry, and stop. retry and stop are actions inside dagu_execute.
 MCP Apps hosts can render run-related dagu_read and dagu_execute results in Dagu's interactive run inspector.
 After starting or enqueueing a run, read the returned dagu://runs/... resource or subscribe to it to receive a resource update notification when the run reaches a terminal state.`
@@ -75,14 +75,14 @@ Authoring rules:
 
 The server intentionally exposes three tools.
 
-- dagu_read: read DAGs, DAG specs, DAG-runs, logs, list views, and reference resources.
-- dagu_change: preview or apply a DAG YAML upsert.
+- dagu_read: read DAGs, DAG specs, Markdown documents, DAG-runs, logs, list views, and reference resources.
+- dagu_change: preview or apply DAG YAML and workspace-aware document changes.
 - dagu_execute: start, enqueue, retry, or stop a DAG-run.
 
 Detailed tool references:
 
 - dagu://reference/read-tool: dagu_read inputs, targets, URI mode, query parameters, outputs, and errors.
-- dagu://reference/change-tool: dagu_change preview and apply contract for DAG YAML upsert.
+- dagu://reference/change-tool: dagu_change preview and apply contract for DAG YAML and document changes.
 - dagu://reference/execute-tool: dagu_execute start, enqueue, retry, and stop contract.
 - dagu://reference/apps: interactive run inspector behavior for MCP Apps hosts.
 
@@ -115,15 +115,18 @@ Purpose: read Dagu state and built-in reference content. The tool is read-only.
 Addressing:
 
 - Target mode uses target plus target-specific fields.
-- URI mode uses uri and forbids target, name, dagRunId, stepName, and query.
+- URI mode uses uri and forbids all target-mode fields.
 
 Fields:
 
-- target: required in target mode. Values are references, reference, dags, dag, dag_spec, runs, run, run_logs, and step_log.
+- target: required in target mode. Values are references, reference, dags, dag, dag_spec, docs, doc, doc_search, runs, run, run_logs, and step_log.
 - name: DAG name or reference topic name. Required for dag, dag_spec, run, run_logs, and step_log. Optional for reference; defaults to authoring. Forbidden for references, dags, and runs.
 - dagRunId: required for run, run_logs, and step_log. Forbidden for other targets.
 - stepName: required for step_log. Forbidden for other targets.
-- query: URL query string without a leading question mark. Allowed for dags, runs, and run_logs.
+- query: URL query string without a leading question mark. Allowed for dags, docs, runs, and run_logs.
+- workspace: all, default, or a workspace name. Optional for docs and doc_search; omitted means all accessible workspaces. Required for doc, where all is not allowed.
+- path: document path without .md. Required for doc.
+- search: search text. Required for doc_search.
 - uri: dagu:// resource URI for URI mode.
 
 Targets:
@@ -133,6 +136,9 @@ Targets:
 - dags lists DAGs.
 - dag reads DAG details.
 - dag_spec reads the current DAG YAML.
+- docs lists the document tree or a flat document list.
+- doc reads one Markdown document.
+- doc_search searches Markdown content in accessible documents.
 - runs lists DAG-runs.
 - run reads one DAG-run.
 - run_logs reads scheduler and step log metadata.
@@ -141,6 +147,7 @@ Targets:
 Query parameters:
 
 - dags: page, perPage, name, labels, sort, order.
+- docs: page, perPage, flat, sort, order.
 - runs: name, dagRunId, status, fromDate, toDate, limit, cursor, labels. status may repeat.
 - run_logs: tail.
 
@@ -149,6 +156,7 @@ Output:
 - Successful result text is Dagu read completed.
 - Structured output has target, data, references, and uri when the read has a canonical resource URI.
 - Reference URIs in references point to built-in guidance resources.
+- Document list and search entries include canonical dagu://docs/{workspace}/{path} URIs. Nested document paths are encoded as one URI segment.
 
 Errors:
 
@@ -166,31 +174,37 @@ Errors:
 			description: "Detailed dagu_change input, output, and error reference.",
 			text: `# dagu_change reference
 
-Purpose: validate or write a DAG YAML upsert.
+Purpose: validate or write DAG YAML and Markdown document changes.
 
 Fields:
 
 - mode: preview or apply. Defaults to preview.
-- type: change type. The supported value is upsert_dag. Defaults to upsert_dag.
-- name: target DAG name. Required.
-- spec: DAG YAML document. Required.
+- type: upsert_dag, upsert_doc, rename_doc, or delete_doc. Defaults to upsert_dag.
+- name and spec: required for upsert_dag.
+- workspace: default or a named workspace. Required for document changes; all is not allowed.
+- path: document or directory path without .md. Required for document changes.
+- content: full Markdown content. Required for upsert_doc; empty content is allowed.
+- newPath: destination document or directory path. Required for rename_doc.
 
 Mode behavior:
 
-- preview validates the spec and returns validation output without writing a DAG.
-- apply validates the spec and writes the DAG only when validation succeeds.
-- apply returns whether the DAG was created or updated.
+- preview validates the requested operation and reads enough current state to report whether it can target a file or directory, without writing.
+- apply repeats validation and performs the requested operation through Dagu's existing workspace-aware Documents API.
+- upsert_doc creates a missing document or updates an existing document.
+- rename_doc and delete_doc support both documents and directories.
 
 Output:
 
 - Successful result text is Dagu change completed.
-- Structured output has mode, type, dagName, valid, errors, applied, references, and DAG data when validation succeeds.
-- dagUri is present when the DAG spec resource can be identified.
+- DAG output has dagName, valid, errors, applied, and dagUri.
+- Document output has workspace, path, valid, applied, and docUri when the target is a document.
 
 Errors:
 
-- invalid_tool_input for missing fields, unknown mode, unknown type, malformed input, or validation failure shape that cannot be represented.
+- invalid_tool_input for missing or incompatible fields, invalid paths, unknown mode, unknown type, or malformed input.
 - unauthorized when the caller cannot perform the requested write.
+- resource_not_found when a rename or delete source does not exist.
+- conflict when a document path conflicts with another file or directory.
 - internal_error for unexpected failures.`,
 		},
 		{
@@ -289,6 +303,32 @@ func promptEditDAG(_ context.Context, req *mcpsdk.GetPromptRequest) (*mcpsdk.Get
 		change = "Apply the requested DAG edit."
 	}
 	return promptResult("Edit a Dagu DAG", "Read dagu://dags/"+pathEscape(name)+"/spec, make only this change: "+change+"\n\nValidate with dagu_change mode=preview. Apply only when the user wants the edit written."), nil
+}
+
+func promptCreateDoc(_ context.Context, req *mcpsdk.GetPromptRequest) (*mcpsdk.GetPromptResult, error) {
+	workspace := strings.TrimSpace(req.Params.Arguments["workspace"])
+	path := strings.TrimSpace(req.Params.Arguments["path"])
+	goal := strings.TrimSpace(req.Params.Arguments["goal"])
+	if goal == "" {
+		goal = "Create the Markdown document requested by the user."
+	}
+	return promptResult(
+		"Create a Dagu document",
+		"Draft Markdown for this goal: "+goal+"\n\nCall dagu_change with mode=preview, type=upsert_doc, workspace="+workspace+", and path="+path+". Apply only when the user wants the document written.",
+	), nil
+}
+
+func promptEditDoc(_ context.Context, req *mcpsdk.GetPromptRequest) (*mcpsdk.GetPromptResult, error) {
+	workspace := strings.TrimSpace(req.Params.Arguments["workspace"])
+	path := strings.TrimSpace(req.Params.Arguments["path"])
+	change := strings.TrimSpace(req.Params.Arguments["change"])
+	if change == "" {
+		change = "Apply the requested document edit."
+	}
+	return promptResult(
+		"Edit a Dagu document",
+		"Read "+docURI(workspace, path)+", preserve unrelated content, and make only this change: "+change+"\n\nCall dagu_change with mode=preview and type=upsert_doc. Apply only when the user wants the edit written.",
+	), nil
 }
 
 func promptDebugRun(_ context.Context, req *mcpsdk.GetPromptRequest) (*mcpsdk.GetPromptResult, error) {
