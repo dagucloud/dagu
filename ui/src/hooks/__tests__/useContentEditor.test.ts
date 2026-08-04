@@ -82,6 +82,11 @@ describe('useContentEditor', () => {
 
       expect(result.current.currentValue).toBe(serverContent);
 
+      act(() => {
+        result.current.setCurrentValue('# First document edit');
+      });
+      expect(result.current.hasUnsavedChanges).toBe(true);
+
       rerender({ editorKey: 'second', serverContent });
 
       expect(result.current.currentValue).toBe(serverContent);
