@@ -341,6 +341,7 @@ func (m *mockDocStore) Search(_ context.Context, query string) ([]*docs.DocSearc
 				ID:          doc.ID,
 				Title:       doc.Title,
 				Description: doc.Description,
+				ModTime:     time.Unix(1700000000, 0),
 				Matches:     matches,
 			})
 		}
@@ -350,10 +351,11 @@ func (m *mockDocStore) Search(_ context.Context, query string) ([]*docs.DocSearc
 }
 
 type mockDocSearchCursor struct {
-	Version    int    `json:"v"`
-	Query      string `json:"q"`
-	PathPrefix string `json:"prefix,omitempty"`
-	ID         string `json:"id,omitempty"`
+	Version      int    `json:"v"`
+	Query        string `json:"q"`
+	PathPrefix   string `json:"prefix,omitempty"`
+	FilterPrefix string `json:"filter,omitempty"`
+	ID           string `json:"id,omitempty"`
 }
 
 type mockDocMatchCursor struct {
@@ -383,8 +385,11 @@ func (m *mockDocStore) SearchCursor(_ context.Context, opts docs.SearchDocsOptio
 	}
 	results := make([]*docs.DocSearchResult, 0, len(allResults))
 	for _, item := range allResults {
+		if mockDocPathRootExcluded(item.ID, opts.ExcludePathRoots) {
+			continue
+		}
 		id, ok := mockRelativeDocID(item.ID, opts.PathPrefix)
-		if !ok || mockDocPathRootExcluded(id, opts.ExcludePathRoots) {
+		if !ok || !docPathHasPrefixForTest(id, opts.FilterPrefix) {
 			continue
 		}
 		cp := *item
@@ -410,7 +415,10 @@ func (m *mockDocStore) SearchCursor(_ context.Context, opts docs.SearchDocsOptio
 		if err := exec.DecodeSearchCursor(opts.Cursor, &cursor); err != nil {
 			return nil, err
 		}
-		if cursor.Version != 1 || cursor.Query != opts.Query || cursor.PathPrefix != opts.PathPrefix {
+		if cursor.Version != 1 ||
+			cursor.Query != opts.Query ||
+			cursor.PathPrefix != opts.PathPrefix ||
+			cursor.FilterPrefix != opts.FilterPrefix {
 			return nil, exec.ErrInvalidCursor
 		}
 		for i, item := range results {
@@ -432,10 +440,11 @@ func (m *mockDocStore) SearchCursor(_ context.Context, opts docs.SearchDocsOptio
 	}
 	if result.HasMore && len(pageItems) > 0 {
 		result.NextCursor = exec.EncodeSearchCursor(mockDocSearchCursor{
-			Version:    1,
-			Query:      opts.Query,
-			PathPrefix: opts.PathPrefix,
-			ID:         pageItems[len(pageItems)-1].ID,
+			Version:      1,
+			Query:        opts.Query,
+			PathPrefix:   opts.PathPrefix,
+			FilterPrefix: opts.FilterPrefix,
+			ID:           pageItems[len(pageItems)-1].ID,
 		})
 	}
 	return result, nil
@@ -509,6 +518,10 @@ func mockDocPathRootExcluded(id string, excludedRoots []string) bool {
 	return slices.Contains(excludedRoots, root)
 }
 
+func docPathHasPrefixForTest(id, prefix string) bool {
+	return prefix == "" || id == prefix || strings.HasPrefix(id, prefix+"/")
+}
+
 func (m *mockDocStore) List(_ context.Context, opts docs.ListDocsOptions) (*exec.PaginatedResult[*docs.DocTreeNode], error) {
 	m.lastListOpts = opts
 	if m.failAll {
@@ -519,9 +532,13 @@ func (m *mockDocStore) List(_ context.Context, opts docs.ListDocsOptions) (*exec
 		if mockDocPathRootExcluded(doc.ID, opts.ExcludePathRoots) {
 			continue
 		}
+		id, ok := mockRelativeDocID(doc.ID, opts.PathPrefix)
+		if !ok {
+			continue
+		}
 		nodes = append(nodes, &docs.DocTreeNode{
-			ID:    doc.ID,
-			Name:  path.Base(doc.ID),
+			ID:    id,
+			Name:  path.Base(id),
 			Title: doc.Title,
 			Type:  "file",
 		})
@@ -545,8 +562,12 @@ func (m *mockDocStore) ListFlat(_ context.Context, opts docs.ListDocsOptions) (*
 		if mockDocPathRootExcluded(doc.ID, opts.ExcludePathRoots) {
 			continue
 		}
+		id, ok := mockRelativeDocID(doc.ID, opts.PathPrefix)
+		if !ok {
+			continue
+		}
 		items = append(items, docs.DocMetadata{
-			ID:          doc.ID,
+			ID:          id,
 			Title:       doc.Title,
 			Description: doc.Description,
 			ModTime:     time.Unix(1700000000, 0),
@@ -661,6 +682,37 @@ func TestListDocs(t *testing.T) {
 		assert.Len(t, *listResp.Tree, 2)
 	})
 
+	t.Run("prefix scopes a named workspace and preserves visible paths", func(t *testing.T) {
+		t.Parallel()
+
+		setup := newDocTestSetupWithWorkspaces(t, "ops")
+		setup.store.docs["ops/guides/deploy"] = &docs.Doc{ID: "ops/guides/deploy", Title: "deploy", Content: "deploy"}
+		setup.store.docs["ops/runbooks/restart"] = &docs.Doc{ID: "ops/runbooks/restart", Title: "restart", Content: "restart"}
+		workspace := apigen.Workspace("ops")
+		prefix := apigen.DocPrefix("guides")
+		flat := true
+
+		resp, err := setup.api.ListDocs(adminCtx(), apigen.ListDocsRequestObject{
+			Params: apigen.ListDocsParams{
+				Workspace: &workspace,
+				Prefix:    &prefix,
+				Flat:      &flat,
+				Page:      new(1),
+				PerPage:   new(10),
+			},
+		})
+		require.NoError(t, err)
+
+		listResp, ok := resp.(apigen.ListDocs200JSONResponse)
+		require.True(t, ok)
+		require.NotNil(t, listResp.Items)
+		require.Len(t, *listResp.Items, 1)
+		assert.Equal(t, "guides/deploy", (*listResp.Items)[0].Id)
+		require.NotNil(t, (*listResp.Items)[0].Workspace)
+		assert.Equal(t, "ops", *(*listResp.Items)[0].Workspace)
+		assert.Equal(t, "ops/guides", setup.store.lastListOpts.PathPrefix)
+	})
+
 	t.Run("no workspace scope filters known workspace roots before pagination", func(t *testing.T) {
 		t.Parallel()
 
@@ -736,6 +788,23 @@ func TestGetDocTreeDataRejectsMalformedQuery(t *testing.T) {
 	_, err := setup.api.GetDocTreeData(adminCtx(), "page=%zz")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid doc tree query")
+}
+
+func TestGetDocTreeDataSupportsPrefix(t *testing.T) {
+	t.Parallel()
+
+	setup := newDocTestSetup(t)
+	setup.store.docs["guides/deploy"] = &docs.Doc{ID: "guides/deploy", Title: "deploy", Content: "deploy"}
+	setup.store.docs["runbooks/restart"] = &docs.Doc{ID: "runbooks/restart", Title: "restart", Content: "restart"}
+
+	data, err := setup.api.GetDocTreeData(adminCtx(), "prefix=guides&page=1&perPage=10")
+	require.NoError(t, err)
+	resp, ok := data.(apigen.ListDocs200JSONResponse)
+	require.True(t, ok)
+	require.NotNil(t, resp.Tree)
+	require.Len(t, *resp.Tree, 1)
+	assert.Equal(t, "guides/deploy", (*resp.Tree)[0].Id)
+	assert.Equal(t, "guides", setup.store.lastListOpts.PathPrefix)
 }
 
 func TestListDocsSortParamsForwarded(t *testing.T) {

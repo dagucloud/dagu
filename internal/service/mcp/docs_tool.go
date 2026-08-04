@@ -42,6 +42,10 @@ func (svc *Service) listDocsResponse(
 		return daguapi.ListDocs200JSONResponse{}, err
 	}
 	params := daguapi.ListDocsParams{Workspace: docWorkspaceParam(workspace)}
+	if value := values.Get("prefix"); value != "" {
+		prefix := daguapi.DocPrefix(value)
+		params.Prefix = &prefix
+	}
 	if value := values.Get("page"); value != "" {
 		page, err := strconv.Atoi(value)
 		if err != nil {
@@ -106,22 +110,43 @@ func (svc *Service) getDoc(ctx context.Context, workspace, path string) (daguapi
 	}
 }
 
-func (svc *Service) searchDocs(ctx context.Context, workspace, search string) (map[string]any, error) {
-	resp, err := svc.api.SearchDocs(ctx, daguapi.SearchDocsRequestObject{
-		Params: daguapi.SearchDocsParams{
-			Workspace: docWorkspaceParam(workspace),
-			Q:         search,
-		},
+func (svc *Service) searchDocs(
+	ctx context.Context,
+	workspace string,
+	search string,
+	prefix string,
+	cursor string,
+	limit int,
+) (map[string]any, error) {
+	params := daguapi.SearchDocFeedParams{
+		Workspace: docWorkspaceParam(workspace),
+		Q:         search,
+	}
+	if prefix != "" {
+		value := daguapi.DocPrefix(prefix)
+		params.Prefix = &value
+	}
+	if cursor != "" {
+		value := daguapi.SearchCursor(cursor)
+		params.Cursor = &value
+	}
+	if limit != 0 {
+		value := daguapi.SearchLimit(limit)
+		params.Limit = &value
+	}
+
+	resp, err := svc.api.SearchDocFeed(ctx, daguapi.SearchDocFeedRequestObject{
+		Params: params,
 	})
 	if err != nil {
 		return nil, err
 	}
-	var data daguapi.DocSearchResponse
+	var data daguapi.DocSearchFeedResponse
 	switch result := resp.(type) {
-	case daguapi.SearchDocs200JSONResponse:
-		data = daguapi.DocSearchResponse(result)
-	case *daguapi.SearchDocs200JSONResponse:
-		data = daguapi.DocSearchResponse(*result)
+	case daguapi.SearchDocFeed200JSONResponse:
+		data = daguapi.DocSearchFeedResponse(result)
+	case *daguapi.SearchDocFeed200JSONResponse:
+		data = daguapi.DocSearchFeedResponse(*result)
 	default:
 		return nil, fmt.Errorf("unexpected search docs response %T", resp)
 	}
@@ -130,18 +155,32 @@ func (svc *Service) searchDocs(ctx context.Context, workspace, search string) (m
 	for _, item := range data.Results {
 		itemWorkspace, path := addressableDocPath(workspace, item.Workspace, item.Id)
 		entry := map[string]any{
-			"id":          item.Id,
-			"title":       item.Title,
-			"description": item.Description,
-			"matches":     item.Matches,
-			"uri":         docURI(itemWorkspace, path),
+			"id":             item.Id,
+			"title":          item.Title,
+			"description":    item.Description,
+			"matches":        item.Matches,
+			"hasMoreMatches": item.HasMoreMatches,
+			"uri":            docURI(itemWorkspace, path),
+		}
+		if item.ModifiedAt != nil {
+			entry["modifiedAt"] = item.ModifiedAt
+		}
+		if item.NextMatchesCursor != nil {
+			entry["nextMatchesCursor"] = *item.NextMatchesCursor
 		}
 		if item.Workspace != nil {
 			entry["workspace"] = *item.Workspace
 		}
 		items = append(items, entry)
 	}
-	return map[string]any{"results": items}, nil
+	output := map[string]any{
+		"results": items,
+		"hasMore": data.HasMore,
+	}
+	if data.NextCursor != nil {
+		output["nextCursor"] = *data.NextCursor
+	}
+	return output, nil
 }
 
 func normalizeDocList(resp daguapi.ListDocs200JSONResponse, selectedWorkspace string) map[string]any {

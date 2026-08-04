@@ -12,6 +12,8 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strings"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
@@ -24,7 +26,7 @@ import (
 func (s *Store) Search(ctx context.Context, query string) ([]*docs.DocSearchResult, error) {
 	var results []*docs.DocSearchResult
 
-	candidates, err := s.listSearchCandidates(ctx, "")
+	candidates, err := s.listSearchCandidates(ctx, "", "", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -55,6 +57,7 @@ func (s *Store) Search(ctx context.Context, query string) ([]*docs.DocSearchResu
 			ID:          candidate.ID,
 			Title:       title,
 			Description: description,
+			ModTime:     candidate.ModTime,
 			Matches:     matches,
 		})
 	}
@@ -74,6 +77,7 @@ type docSearchCursor struct {
 	Version       int      `json:"v"`
 	Query         string   `json:"q"`
 	PathPrefix    string   `json:"prefix,omitempty"`
+	FilterPrefix  string   `json:"filter,omitempty"`
 	ExcludedRoots []string `json:"exclude,omitempty"`
 	ID            string   `json:"id,omitempty"`
 }
@@ -90,9 +94,15 @@ type docSearchCandidate struct {
 	ID      string
 	RelPath string
 	AbsPath string
+	ModTime time.Time
 }
 
-func (s *Store) listSearchCandidates(ctx context.Context, pathPrefix string) ([]docSearchCandidate, error) {
+func (s *Store) listSearchCandidates(
+	ctx context.Context,
+	pathPrefix string,
+	filterPrefix string,
+	excludedRoots []string,
+) ([]docSearchCandidate, error) {
 	if err := s.ensureFreshIndex(ctx); err != nil {
 		return nil, err
 	}
@@ -100,17 +110,18 @@ func (s *Store) listSearchCandidates(ctx context.Context, pathPrefix string) ([]
 	s.mu.RLock()
 	candidates := make([]docSearchCandidate, 0, len(s.docs))
 	for _, doc := range s.docs {
-		if !doc.Readable {
+		if !doc.Readable || docPathRootExcluded(doc.ID, excludedRoots) {
 			continue
 		}
 		id, ok := relativeDocID(doc.ID, pathPrefix)
-		if !ok {
+		if !ok || !docPathHasPrefix(id, filterPrefix) {
 			continue
 		}
 		candidates = append(candidates, docSearchCandidate{
 			ID:      id,
 			RelPath: filepath.ToSlash(id + ".md"),
 			AbsPath: doc.AbsPath,
+			ModTime: doc.ModTime,
 		})
 	}
 	s.mu.RUnlock()
@@ -119,6 +130,10 @@ func (s *Store) listSearchCandidates(ctx context.Context, pathPrefix string) ([]
 		return candidates[i].ID < candidates[j].ID
 	})
 	return candidates, nil
+}
+
+func docPathHasPrefix(id, prefix string) bool {
+	return prefix == "" || id == prefix || strings.HasPrefix(id, prefix+"/")
 }
 
 func normalizeExcludedPathRoots(roots []string) []string {
@@ -130,7 +145,13 @@ func normalizeExcludedPathRoots(roots []string) []string {
 	return slices.Compact(normalized)
 }
 
-func decodeDocSearchCursor(raw, query, pathPrefix string, excludedRoots []string) (docSearchCursor, error) {
+func decodeDocSearchCursor(
+	raw string,
+	query string,
+	pathPrefix string,
+	filterPrefix string,
+	excludedRoots []string,
+) (docSearchCursor, error) {
 	if raw == "" {
 		return docSearchCursor{}, nil
 	}
@@ -141,6 +162,7 @@ func decodeDocSearchCursor(raw, query, pathPrefix string, excludedRoots []string
 	if cursor.Version != docSearchCursorVersion ||
 		cursor.Query != query ||
 		cursor.PathPrefix != pathPrefix ||
+		cursor.FilterPrefix != filterPrefix ||
 		!slices.Equal(cursor.ExcludedRoots, excludedRoots) {
 		return docSearchCursor{}, exec.ErrInvalidCursor
 	}
@@ -170,9 +192,13 @@ func (s *Store) SearchCursor(ctx context.Context, opts docs.SearchDocsOptions) (
 	if err != nil {
 		return nil, err
 	}
+	filterPrefix, err := cleanDocPathPrefix(opts.FilterPrefix)
+	if err != nil {
+		return nil, err
+	}
 	excludedRoots := normalizeExcludedPathRoots(opts.ExcludePathRoots)
 
-	cursor, err := decodeDocSearchCursor(opts.Cursor, opts.Query, pathPrefix, excludedRoots)
+	cursor, err := decodeDocSearchCursor(opts.Cursor, opts.Query, pathPrefix, filterPrefix, excludedRoots)
 	if err != nil {
 		return nil, err
 	}
@@ -184,7 +210,7 @@ func (s *Store) SearchCursor(ctx context.Context, opts docs.SearchDocsOptions) (
 	var hasMore bool
 	var nextCursor string
 
-	candidates, err := s.listSearchCandidates(ctx, pathPrefix)
+	candidates, err := s.listSearchCandidates(ctx, pathPrefix, filterPrefix, excludedRoots)
 	if err != nil {
 		return nil, err
 	}
@@ -196,10 +222,6 @@ func (s *Store) SearchCursor(ctx context.Context, opts docs.SearchDocsOptions) (
 		if cursor.ID != "" && candidate.ID <= cursor.ID {
 			continue
 		}
-		if docPathRootExcluded(candidate.ID, excludedRoots) {
-			continue
-		}
-
 		data, _, err := readRegularDocFile(candidate.AbsPath)
 		if err != nil {
 			logger.Warn(ctx, "Failed to read doc while searching", tag.File(candidate.RelPath), tag.Error(err))
@@ -226,6 +248,7 @@ func (s *Store) SearchCursor(ctx context.Context, opts docs.SearchDocsOptions) (
 				Version:       docSearchCursorVersion,
 				Query:         opts.Query,
 				PathPrefix:    pathPrefix,
+				FilterPrefix:  filterPrefix,
 				ExcludedRoots: excludedRoots,
 				ID:            results[len(results)-1].ID,
 			})
@@ -243,6 +266,7 @@ func (s *Store) SearchCursor(ctx context.Context, opts docs.SearchDocsOptions) (
 			ID:             candidate.ID,
 			Title:          title,
 			Description:    description,
+			ModTime:        candidate.ModTime,
 			Matches:        window.Matches,
 			HasMoreMatches: window.HasMore,
 		}

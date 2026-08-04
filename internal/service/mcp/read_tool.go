@@ -50,6 +50,9 @@ const (
 	readFieldWorkspace = "workspace"
 	readFieldPath      = "path"
 	readFieldSearch    = "search"
+	readFieldPrefix    = "prefix"
+	readFieldCursor    = "cursor"
+	readFieldLimit     = "limit"
 	readFieldURI       = "uri"
 
 	readResourceScheme = "dagu"
@@ -58,6 +61,8 @@ const (
 	readResourceDAGsCollectionURI      = "dagu://dags"
 	readResourceDocsCollectionURI      = "dagu://docs"
 	readResourceRunsCollectionURI      = "dagu://runs"
+
+	readDocSearchMaxLimit = 50
 )
 
 type readInput struct {
@@ -69,6 +74,9 @@ type readInput struct {
 	Workspace string `json:"workspace,omitempty" jsonschema:"Document workspace: all, default, or a workspace name. Required for doc and optional for docs and doc_search."`
 	Path      string `json:"path,omitempty" jsonschema:"Document path without the .md extension. Required for doc."`
 	Search    string `json:"search,omitempty" jsonschema:"Document search text. Required for doc_search."`
+	Prefix    string `json:"prefix,omitempty" jsonschema:"Document path prefix. Optional for docs and doc_search."`
+	Cursor    string `json:"cursor,omitempty" jsonschema:"Opaque cursor returned by doc_search."`
+	Limit     int    `json:"limit,omitempty" jsonschema:"Maximum doc_search results to return, from 1 to 50."`
 	URI       string `json:"uri,omitempty" jsonschema:"Resource URI to read directly, for example dagu://reference/authoring."`
 }
 
@@ -107,6 +115,20 @@ func readToolInputSchema() json.RawMessage {
 			"search": {
 				"type": "string",
 				"description": "Document search text. Required for doc_search."
+			},
+			"prefix": {
+				"type": "string",
+				"description": "Document path prefix. Optional for docs and doc_search."
+			},
+			"cursor": {
+				"type": "string",
+				"description": "Opaque cursor returned by doc_search."
+			},
+			"limit": {
+				"type": "integer",
+				"minimum": 1,
+				"maximum": 50,
+				"description": "Maximum number of doc_search results to return."
 			},
 			"uri": {
 				"type": "string",
@@ -206,7 +228,7 @@ func (svc *Service) readToolImpl(ctx context.Context, input readInput) (*mcpsdk.
 		}
 	case readTargetDocSearch:
 		if err = svc.requireAPI(); err == nil {
-			data, err = svc.searchDocs(ctx, input.Workspace, input.Search)
+			data, err = svc.searchDocs(ctx, input.Workspace, input.Search, input.Prefix, input.Cursor, input.Limit)
 		}
 	case readTargetRuns:
 		if err = svc.requireAPI(); err == nil {
@@ -263,6 +285,9 @@ func (svc *Service) readToolImpl(ctx context.Context, input readInput) (*mcpsdk.
 	if input.Path != "" {
 		output["path"] = input.Path
 	}
+	if input.Prefix != "" {
+		output["prefix"] = input.Prefix
+	}
 	if input.URI != "" {
 		output["uri"] = input.URI
 	}
@@ -281,6 +306,7 @@ func parseReadToolInput(raw json.RawMessage) (readInput, *readToolError) {
 	}
 
 	values := make(map[string]string, len(fields))
+	limit := 0
 	emptyTarget := false
 	for field, value := range fields {
 		if !isReadInputField(field) {
@@ -292,6 +318,15 @@ func parseReadToolInput(raw json.RawMessage) (readInput, *readToolError) {
 		}
 
 		if string(value) == "null" {
+			continue
+		}
+		if field == readFieldLimit {
+			if err := json.Unmarshal(value, &limit); err != nil {
+				return readInput{}, invalidToolInput("Field limit must be an integer.", readFieldLimit)
+			}
+			if limit < 1 || limit > readDocSearchMaxLimit {
+				return readInput{}, invalidToolInput("Field limit must be between 1 and 50.", readFieldLimit)
+			}
 			continue
 		}
 		var text string
@@ -319,6 +354,8 @@ func parseReadToolInput(raw json.RawMessage) (readInput, *readToolError) {
 			readFieldWorkspace,
 			readFieldPath,
 			readFieldSearch,
+			readFieldPrefix,
+			readFieldCursor,
 		} {
 			if values[field] != "" {
 				mixed = append(mixed, field)
@@ -336,6 +373,9 @@ func parseReadToolInput(raw json.RawMessage) (readInput, *readToolError) {
 				readErr.Field = mixed[0]
 			}
 			return readInput{}, readErr
+		}
+		if limit != 0 {
+			return readInput{}, invalidToolInput("URI mode cannot be combined with target-mode fields.", readFieldLimit)
 		}
 		return parseReadResourceURI(values[readFieldURI])
 	}
@@ -357,6 +397,9 @@ func parseReadToolInput(raw json.RawMessage) (readInput, *readToolError) {
 		Workspace: values[readFieldWorkspace],
 		Path:      values[readFieldPath],
 		Search:    values[readFieldSearch],
+		Prefix:    values[readFieldPrefix],
+		Cursor:    values[readFieldCursor],
+		Limit:     limit,
 	}
 	if err := validateTargetReadInput(&input); err != nil {
 		return readInput{}, err
@@ -374,6 +417,9 @@ func isReadInputField(field string) bool {
 		readFieldWorkspace,
 		readFieldPath,
 		readFieldSearch,
+		readFieldPrefix,
+		readFieldCursor,
+		readFieldLimit,
 		readFieldURI:
 		return true
 	default:
@@ -561,6 +607,20 @@ func validateTargetReadInput(input *readInput) *readToolError {
 	if input.Search != "" && input.Target != readTargetDocSearch {
 		return invalidTargetField(input.Target, readFieldSearch)
 	}
+	if input.Prefix != "" && input.Target != readTargetDocs && input.Target != readTargetDocSearch {
+		return invalidTargetField(input.Target, readFieldPrefix)
+	}
+	if input.Cursor != "" && input.Target != readTargetDocSearch {
+		return invalidTargetField(input.Target, readFieldCursor)
+	}
+	if input.Limit != 0 && input.Target != readTargetDocSearch {
+		return invalidTargetField(input.Target, readFieldLimit)
+	}
+	if input.Prefix != "" {
+		if err := docs.ValidateDocID(input.Prefix); err != nil {
+			return invalidTargetValue(input.Target, readFieldPrefix, err.Error())
+		}
+	}
 	switch input.Target {
 	case readTargetReferences:
 		if input.Name != "" {
@@ -623,6 +683,17 @@ func validateTargetReadInput(input *readInput) *readToolError {
 		}
 		if input.Workspace == "" {
 			input.Workspace = "all"
+		}
+		if input.Prefix != "" {
+			values, err := url.ParseQuery(input.Query)
+			if err != nil {
+				return readQueryError(input.Target, false, "", "Query contains malformed URL encoding.")
+			}
+			if values.Has(readFieldPrefix) {
+				return invalidTargetValue(input.Target, readFieldPrefix, "The prefix field and query parameter cannot both be set.")
+			}
+			values.Set(readFieldPrefix, input.Prefix)
+			input.Query = values.Encode()
 		}
 		if err := validateReadQuery(input.Target, input.Query, false, ""); err != nil {
 			return err
@@ -762,7 +833,7 @@ func isAllowedReadQueryParam(target, key string) bool {
 		}
 	case readTargetDocs:
 		switch key {
-		case "page", "perPage", "flat", "sort", "order":
+		case "page", "perPage", "flat", "sort", "order", "prefix":
 			return true
 		}
 	case readTargetRuns:
@@ -801,13 +872,15 @@ func validReadQueryValue(target, key, value string) bool {
 		case "page":
 			return validIntRange(value, 1, 0)
 		case "perPage":
-			return validIntRange(value, 1, 100)
+			return validIntRange(value, 1, 200)
 		case "flat":
 			return value == "true" || value == "false"
 		case "sort":
 			return value == "name" || value == "type" || value == "mtime"
 		case "order":
 			return value == "asc" || value == "desc"
+		case "prefix":
+			return docs.ValidateDocID(value) == nil
 		}
 	case readTargetRuns:
 		switch key {

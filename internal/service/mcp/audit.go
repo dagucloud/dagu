@@ -214,8 +214,17 @@ func readAuditMetadata(input readInput) toolAuditMetadata {
 	if input.Path != "" {
 		attrs["doc_path"] = input.Path
 	}
+	if input.Prefix != "" {
+		attrs["doc_prefix"] = input.Prefix
+	}
 	if input.Search != "" {
 		attrs["has_search"] = true
+	}
+	if input.Cursor != "" {
+		attrs["has_cursor"] = true
+	}
+	if input.Limit != 0 {
+		attrs["limit"] = input.Limit
 	}
 	if keys := queryKeys(input.Query); len(keys) > 0 {
 		attrs["query_keys"] = keys

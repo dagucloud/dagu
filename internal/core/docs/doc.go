@@ -85,6 +85,7 @@ type SearchDocsOptions struct {
 	Query            string
 	MatchLimit       int
 	PathPrefix       string
+	FilterPrefix     string
 	ExcludePathRoots []string
 }
 
@@ -101,6 +102,7 @@ type DocSearchResult struct {
 	ID                string        `json:"id"`
 	Title             string        `json:"title"`
 	Description       string        `json:"description,omitempty"`
+	ModTime           time.Time     `json:"modTime"`
 	Matches           []*exec.Match `json:"matches"`
 	HasMoreMatches    bool          `json:"hasMoreMatches"`
 	NextMatchesCursor string        `json:"nextMatchesCursor,omitempty"`

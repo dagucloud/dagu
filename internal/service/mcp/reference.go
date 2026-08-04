@@ -127,6 +127,9 @@ Fields:
 - workspace: all, default, or a workspace name. Optional for docs and doc_search; omitted means all accessible workspaces. Required for doc, where all is not allowed.
 - path: document path without .md. Required for doc.
 - search: search text. Required for doc_search.
+- prefix: document path prefix without .md. Optional for docs and doc_search.
+- cursor: opaque cursor returned by doc_search. Optional for doc_search only.
+- limit: maximum number of results from 1 to 50. Optional for doc_search; defaults to 20.
 - uri: dagu:// resource URI for URI mode.
 
 Targets:
@@ -136,9 +139,9 @@ Targets:
 - dags lists DAGs.
 - dag reads DAG details.
 - dag_spec reads the current DAG YAML.
-- docs lists the document tree or a flat document list.
+- docs lists the document tree or a flat document list. In tree mode, page and perPage select direct children of the workspace or prefix, and each returned directory includes its descendants. In flat mode, they select individual documents.
 - doc reads one Markdown document.
-- doc_search searches Markdown content in accessible documents.
+- doc_search searches Markdown content in accessible documents in stable path order. Continue with nextCursor while keeping search, workspace, and prefix unchanged.
 - runs lists DAG-runs.
 - run reads one DAG-run.
 - run_logs reads scheduler and step log metadata.
@@ -147,7 +150,7 @@ Targets:
 Query parameters:
 
 - dags: page, perPage, name, labels, sort, order.
-- docs: page, perPage, flat, sort, order.
+- docs: page, perPage, flat, sort, order, prefix. perPage accepts 1 to 200.
 - runs: name, dagRunId, status, fromDate, toDate, limit, cursor, labels. status may repeat.
 - run_logs: tail.
 
@@ -157,6 +160,7 @@ Output:
 - Structured output has target, data, references, and uri when the read has a canonical resource URI.
 - Reference URIs in references point to built-in guidance resources.
 - Document list and search entries include canonical dagu://docs/{workspace}/{path} URIs. Nested document paths are encoded as one URI segment.
+- Document search output includes result snippets, modification times, hasMore, and nextCursor when another page is available.
 
 Errors:
 

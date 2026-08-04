@@ -48,16 +48,20 @@ func TestDocumentResourceSupportsWorkspaceAndNestedPath(t *testing.T) {
 func TestReadToolListsReadsAndSearchesDocuments(t *testing.T) {
 	ctx := context.Background()
 	api, store := newDocsMCPTestAPI(t)
+	require.NoError(t, store.Create(ctx, "guides/debug", "# Debug\n\nneedle"))
 	require.NoError(t, store.Create(ctx, "guides/deploy", "# Deploy\n\nneedle"))
+	require.NoError(t, store.Create(ctx, "runbooks/restart", "# Restart\n\nneedle"))
 	session := connectTestClient(t, ctx, NewServer(api))
 
 	list := callTool(t, ctx, session, toolRead, readInput{
 		Target:    readTargetDocs,
 		Workspace: defaultDocWorkspace,
 		Query:     "flat=true&perPage=100",
+		Prefix:    "guides",
 	})
 	require.False(t, list.IsError)
 	require.Contains(t, structuredJSON(t, list), "dagu://docs/default/guides%2Fdeploy")
+	require.NotContains(t, structuredJSON(t, list), "runbooks")
 
 	read := callTool(t, ctx, session, toolRead, readInput{
 		Target:    readTargetDoc,
@@ -71,9 +75,64 @@ func TestReadToolListsReadsAndSearchesDocuments(t *testing.T) {
 		Target:    readTargetDocSearch,
 		Workspace: defaultDocWorkspace,
 		Search:    "needle",
+		Prefix:    "guides",
+		Limit:     1,
 	})
 	require.False(t, search.IsError)
-	require.Contains(t, structuredJSON(t, search), "dagu://docs/default/guides%2Fdeploy")
+	var firstPage struct {
+		Data struct {
+			Results []struct {
+				ID         string `json:"id"`
+				ModifiedAt any    `json:"modifiedAt"`
+			} `json:"results"`
+			HasMore    bool   `json:"hasMore"`
+			NextCursor string `json:"nextCursor"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(structuredJSON(t, search)), &firstPage))
+	require.Len(t, firstPage.Data.Results, 1)
+	require.Equal(t, "guides/debug", firstPage.Data.Results[0].ID)
+	require.NotNil(t, firstPage.Data.Results[0].ModifiedAt)
+	require.True(t, firstPage.Data.HasMore)
+	require.NotEmpty(t, firstPage.Data.NextCursor)
+
+	next := callTool(t, ctx, session, toolRead, readInput{
+		Target:    readTargetDocSearch,
+		Workspace: defaultDocWorkspace,
+		Search:    "needle",
+		Prefix:    "guides",
+		Cursor:    firstPage.Data.NextCursor,
+		Limit:     1,
+	})
+	require.False(t, next.IsError)
+	require.Contains(t, structuredJSON(t, next), "dagu://docs/default/guides%2Fdeploy")
+	require.NotContains(t, structuredJSON(t, next), "runbooks")
+}
+
+func TestReadToolRejectsInvalidDocumentDiscoveryInput(t *testing.T) {
+	_, readErr := parseReadToolInput(json.RawMessage(`{
+		"target":"doc_search",
+		"search":"needle",
+		"limit":"1"
+	}`))
+	require.NotNil(t, readErr)
+	require.Equal(t, readFieldLimit, readErr.Field)
+
+	_, readErr = parseReadToolInput(json.RawMessage(`{
+		"target":"doc_search",
+		"search":"needle",
+		"limit":51
+	}`))
+	require.NotNil(t, readErr)
+	require.Equal(t, readFieldLimit, readErr.Field)
+
+	_, readErr = parseReadToolInput(json.RawMessage(`{
+		"target":"docs",
+		"prefix":"guides",
+		"query":"page=%zz"
+	}`))
+	require.NotNil(t, readErr)
+	require.Equal(t, readErrorInvalidToolInput, readErr.Code)
 }
 
 func TestChangeToolPreviewsAndAppliesDocumentUpsert(t *testing.T) {
