@@ -121,12 +121,10 @@ func TestConfigValidate(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "TLSWithSkipVerify",
+			name: "TLSWithSkipVerifyWithoutCerts",
 			config: &coordinator.Config{
 				Insecure:       false,
 				SkipTLSVerify:  true,
-				CertFile:       "/path/to/cert.pem",
-				KeyFile:        "/path/to/key.pem",
 				DialTimeout:    10 * time.Second,
 				RequestTimeout: 5 * time.Minute,
 				MaxRetries:     3,

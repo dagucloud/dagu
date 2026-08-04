@@ -38,7 +38,7 @@ func DefaultConfig() *Config {
 
 // Validate checks if the configuration is valid
 func (c *Config) Validate() error {
-	if !c.Insecure && c.CertFile == "" && c.KeyFile == "" && c.CAFile == "" {
+	if !c.Insecure && !c.SkipTLSVerify && c.CertFile == "" && c.KeyFile == "" && c.CAFile == "" {
 		return ErrMissingTLSConfig
 	}
 	if c.DialTimeout <= 0 {
