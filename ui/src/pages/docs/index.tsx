@@ -44,10 +44,8 @@ import DocTreeSidebar from './components/DocTreeSidebar';
 import { RenameDocModal } from './components/RenameDocModal';
 import { DOC_SSE_FALLBACK_INTERVAL_MS } from './lib/doc-polling';
 import { normalizeDocPathFromURL } from './lib/doc-url';
-import {
-  docMutationHasUnsavedTabs,
-  type DocMutationTarget,
-} from './lib/doc-mutation';
+import type { DocMutationTarget } from './lib/doc-mutation';
+import { useDocMutations } from './hooks/useDocMutations';
 import type { ContextAction } from './components/DocArboristNode';
 
 function titleFromPath(docPath: string): string {
@@ -79,17 +77,6 @@ function normalizedDocWorkspace(workspace?: string | null): string | null {
   return sanitizeWorkspaceName(workspace ?? '') || null;
 }
 
-function docWorkspaceMatches(
-  left?: string | null,
-  right?: string | null
-): boolean {
-  return normalizedDocWorkspace(left) === normalizedDocWorkspace(right);
-}
-
-function docPathMatches(docPath: string, targetPath: string): boolean {
-  return docPath === targetPath || docPath.startsWith(targetPath + '/');
-}
-
 function DocsContent() {
   const appBarContext = useContext(AppBarContext);
   const { setTitle } = appBarContext;
@@ -117,16 +104,7 @@ function DocsContent() {
   );
   const canWrite = useCanWrite();
 
-  const {
-    tabs,
-    activeTabId,
-    openDoc,
-    closeTab,
-    updateTab,
-    clearDraft,
-    markTabSaved,
-    unsavedTabIds,
-  } = useDocTabContext();
+  const { tabs, activeTabId, openDoc } = useDocTabContext();
 
   // Mobile view state
   const [mobileView, setMobileView] = useState<'tree' | 'editor'>('tree');
@@ -203,6 +181,11 @@ function DocsContent() {
     }
   );
   useSSECacheSync(docTreeSSE, mutate);
+  const revalidateTree = useCallback(() => {
+    void mutate();
+  }, [mutate]);
+  const { changePath, deleteBatch, deletePath, hasUnsavedTabs } =
+    useDocMutations({ remoteNode, revalidateTree });
 
   // Set page title
   useEffect(() => {
@@ -353,68 +336,35 @@ function DocsContent() {
         setRenameError('You do not have permission to rename documents');
         return;
       }
-      if (
-        docMutationHasUnsavedTabs(
-          tabs,
-          unsavedTabIds,
-          renameDocPath,
-          renameWorkspace
-        )
-      ) {
+      if (hasUnsavedTabs(renameDocPath, renameWorkspace)) {
         setRenameError('Save open changes before renaming this path');
         return;
       }
       setRenameLoading(true);
       setRenameError(null);
       try {
-        const mutationQuery = workspaceTargetQueryForWorkspace(renameWorkspace);
-        const { error } = await client.POST('/docs/doc/rename', {
-          params: {
-            query: {
-              remoteNode,
-              path: renameDocPath,
-              ...mutationQuery,
-            },
-          },
-          body: { newPath },
+        const error = await changePath({
+          oldPath: renameDocPath,
+          newPath,
+          workspace: renameWorkspace,
+          failureMessage: 'Failed to rename document',
         });
         if (error) {
-          setRenameError(error?.message || 'Failed to rename document');
+          setRenameError(error);
           return;
-        }
-        mutate();
-        // Update tabs under the renamed path in the mutated workspace only.
-        for (const tab of tabs) {
-          if (
-            docWorkspaceMatches(tab.workspace, renameWorkspace) &&
-            docPathMatches(tab.docPath, renameDocPath)
-          ) {
-            const updatedPath =
-              newPath + tab.docPath.slice(renameDocPath.length);
-            updateTab(tab.id, {
-              docPath: updatedPath,
-              title: titleFromPath(updatedPath),
-            });
-          }
         }
         showToast('Document renamed');
         setRenameModalOpen(false);
-      } catch {
-        setRenameError('Failed to rename document');
       } finally {
         setRenameLoading(false);
       }
     },
     [
-      client,
       canWrite,
-      remoteNode,
       renameDocPath,
       renameWorkspace,
-      mutate,
-      tabs,
-      unsavedTabIds,
-      updateTab,
+      changePath,
+      hasUnsavedTabs,
       showToast,
     ]
   );
@@ -432,66 +382,27 @@ function DocsContent() {
         return;
       }
       const mutationWorkspace = normalizedDocWorkspace(workspace);
-      if (
-        docMutationHasUnsavedTabs(
-          tabs,
-          unsavedTabIds,
-          oldPath,
-          mutationWorkspace
-        )
-      ) {
+      if (hasUnsavedTabs(oldPath, mutationWorkspace)) {
         showToast('Save open changes before renaming or moving this path');
         return;
       }
-      try {
-        const mutationQuery =
-          workspaceTargetQueryForWorkspace(mutationWorkspace);
-        const { error } = await client.POST('/docs/doc/rename', {
-          params: {
-            query: { remoteNode, path: oldPath, ...mutationQuery },
-          },
-          body: { newPath },
-        });
-        if (error) {
-          showToast(
-            error?.message ||
-              `Failed to ${action === 'renamed' ? 'rename' : 'move'} document`
-          );
-          mutate();
-          return;
-        }
-        mutate();
-        // Update tabs under the moved path in the mutated workspace only.
-        for (const tab of tabs) {
-          if (
-            docWorkspaceMatches(tab.workspace, mutationWorkspace) &&
-            docPathMatches(tab.docPath, oldPath)
-          ) {
-            const updatedPath = newPath + tab.docPath.slice(oldPath.length);
-            updateTab(tab.id, {
-              docPath: updatedPath,
-              title: titleFromPath(updatedPath),
-            });
-          }
-        }
-        showToast(`Document ${action}`);
-      } catch {
-        showToast(
-          `Failed to ${action === 'renamed' ? 'rename' : 'move'} document`
-        );
-        mutate();
+      const failureMessage = `Failed to ${
+        action === 'renamed' ? 'rename' : 'move'
+      } document`;
+      const error = await changePath({
+        oldPath,
+        newPath,
+        workspace: mutationWorkspace,
+        failureMessage,
+        revalidateOnFailure: true,
+      });
+      if (error) {
+        showToast(error);
+        return;
       }
+      showToast(`Document ${action}`);
     },
-    [
-      canWrite,
-      client,
-      remoteNode,
-      mutate,
-      tabs,
-      unsavedTabIds,
-      updateTab,
-      showToast,
-    ]
+    [canWrite, changePath, hasUnsavedTabs, showToast]
   );
 
   const handleInlineRename = useCallback(
@@ -523,47 +434,16 @@ function DocsContent() {
       return;
     }
     try {
-      const mutationQuery = workspaceTargetQueryForWorkspace(deleteWorkspace);
-      const { error } = await client.DELETE('/docs/doc', {
-        params: {
-          query: { remoteNode, path: deleteDocPath, ...mutationQuery },
-        },
-      });
+      const error = await deletePath(deleteDocPath, deleteWorkspace);
       if (error) {
-        showToast(error?.message || 'Failed to delete document');
+        showToast(error);
         return;
       }
-      mutate();
-      // Close tabs for deleted path (exact match + prefix for directories)
-      for (const tab of tabs) {
-        if (
-          docWorkspaceMatches(tab.workspace, deleteWorkspace) &&
-          docPathMatches(tab.docPath, deleteDocPath)
-        ) {
-          clearDraft(tab.id);
-          markTabSaved(tab.id);
-          closeTab(tab.id);
-        }
-      }
       showToast('Document deleted');
-    } catch {
-      showToast('Failed to delete document');
     } finally {
       setDeleteConfirmOpen(false);
     }
-  }, [
-    client,
-    canWrite,
-    remoteNode,
-    deleteDocPath,
-    deleteWorkspace,
-    mutate,
-    tabs,
-    closeTab,
-    clearDraft,
-    markTabSaved,
-    showToast,
-  ]);
+  }, [canWrite, deleteDocPath, deleteWorkspace, deletePath, showToast]);
 
   // Batch delete handler
   const handleBatchDelete = useCallback(async () => {
@@ -574,47 +454,8 @@ function DocsContent() {
       return;
     }
     try {
-      const grouped = new Map<string, DocMutationTarget[]>();
-      for (const target of batchDeleteTargets) {
-        const workspace = normalizedDocWorkspace(target.workspace);
-        const key = workspace ?? '';
-        grouped.set(key, [...(grouped.get(key) ?? []), target]);
-      }
-
-      let deletedCount = 0;
-      let failedCount = 0;
-      const deletedByWorkspace = new Map<string, Set<string>>();
-
-      for (const [workspaceKey, targets] of grouped.entries()) {
-        const workspace = workspaceKey || null;
-        const mutationQuery = workspaceTargetQueryForWorkspace(workspace);
-        const { data, error } = await client.POST('/docs/delete-batch', {
-          params: { query: { remoteNode, ...mutationQuery } },
-          body: { paths: targets.map((target) => target.path) },
-        });
-        if (error) {
-          failedCount += targets.length;
-          continue;
-        }
-        deletedCount += data.deleted.length;
-        failedCount += data.failed?.length || 0;
-        deletedByWorkspace.set(workspaceKey, new Set(data.deleted));
-      }
-      mutate();
-
-      for (const tab of tabs) {
-        const workspaceKey = normalizedDocWorkspace(tab.workspace) ?? '';
-        const deletedSet = deletedByWorkspace.get(workspaceKey);
-        if (!deletedSet) continue;
-        const shouldClose =
-          deletedSet.has(tab.docPath) ||
-          [...deletedSet].some((dp) => tab.docPath.startsWith(dp + '/'));
-        if (shouldClose) {
-          clearDraft(tab.id);
-          markTabSaved(tab.id);
-          closeTab(tab.id);
-        }
-      }
+      const { deletedCount, failedCount } =
+        await deleteBatch(batchDeleteTargets);
       if (failedCount > 0) {
         showToast(`Deleted ${deletedCount}, ${failedCount} failed`);
       } else {
@@ -626,18 +467,7 @@ function DocsContent() {
       setBatchDeleteConfirmOpen(false);
       setBatchDeleteTargets([]);
     }
-  }, [
-    batchDeleteTargets,
-    canWrite,
-    client,
-    remoteNode,
-    mutate,
-    tabs,
-    closeTab,
-    clearDraft,
-    markTabSaved,
-    showToast,
-  ]);
+  }, [batchDeleteTargets, canWrite, deleteBatch, showToast]);
 
   // Batch delete from selection bar
   const handleBatchDeleteFromBar = useCallback(
