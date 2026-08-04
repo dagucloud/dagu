@@ -91,8 +91,12 @@ function buildWorkflowFilterSearch(
     if (viewId) {
       params.set('view', viewId);
     }
-    params.set('search', filters.searchText);
-    params.set('labels', filters.searchLabels.join(','));
+    if (filters.searchText) {
+      params.set('search', filters.searchText);
+    }
+    if (filters.searchLabels.length > 0) {
+      params.set('labels', filters.searchLabels.join(','));
+    }
     params.set('sort', filters.sortField);
     params.set('order', filters.sortOrder);
   }
@@ -335,6 +339,15 @@ function DAGsContent() {
       hasUrlFilters = false;
     }
 
+    if (requestedView && hasUrlFilters) {
+      if (!params.has('search')) {
+        urlFilters.searchText = '';
+      }
+      if (!params.has('labels') && !params.has('tags')) {
+        urlFilters.searchLabels = [];
+      }
+    }
+
     if (requestedViewId === ALL_WORKFLOWS_VIEW_PARAM) {
       hasUrlFilters = false;
     } else if (requestedView) {
@@ -511,36 +524,29 @@ function DAGsContent() {
     appBarContext.setTitle('Workflows');
   }, [appBarContext]);
 
+  const patchFilters = React.useCallback(
+    (patch: Partial<DAGDefinitionsFilters>) => {
+      const next = cloneFilters({ ...currentFiltersRef.current, ...patch });
+      currentFiltersRef.current = next;
+      setSearchText(next.searchText);
+      setSearchLabels(next.searchLabels);
+      setSortField(next.sortField);
+      setSortOrder(next.sortOrder);
+      updateFilterLocation(next, activeWorkflowViewId);
+    },
+    [activeWorkflowViewId, updateFilterLocation]
+  );
+
   const searchTextChange = (nextSearchText: string) => {
-    const next = {
-      ...currentFiltersRef.current,
-      searchText: nextSearchText,
-    };
-    currentFiltersRef.current = next;
-    setSearchText(nextSearchText);
-    updateFilterLocation(next, activeWorkflowViewId);
+    patchFilters({ searchText: nextSearchText });
   };
 
   const searchLabelsChange = (labels: string[]) => {
-    const next = {
-      ...currentFiltersRef.current,
-      searchLabels: [...labels],
-    };
-    currentFiltersRef.current = next;
-    setSearchLabels(labels);
-    updateFilterLocation(next, activeWorkflowViewId);
+    patchFilters({ searchLabels: labels });
   };
 
   const handleSortChange = (field: string, order: string) => {
-    const next = {
-      ...currentFiltersRef.current,
-      sortField: field,
-      sortOrder: order,
-    };
-    currentFiltersRef.current = next;
-    setSortField(field);
-    setSortOrder(order);
-    updateFilterLocation(next, activeWorkflowViewId);
+    patchFilters({ sortField: field, sortOrder: order });
   };
 
   const handleSelectWorkflowView = (viewId: string) => {

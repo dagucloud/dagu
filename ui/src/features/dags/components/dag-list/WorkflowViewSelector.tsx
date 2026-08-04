@@ -170,7 +170,9 @@ export function WorkflowViewSelector({
                         <Star className="fill-current text-primary" />
                       ) : null}
                     </span>
-                    <span className="min-w-0 flex-1 truncate">{view.name}</span>
+                    <span className="min-w-0 flex-1 whitespace-normal break-words">
+                      {view.name}
+                    </span>
                     {view.id === defaultViewId && (
                       <Badge variant="primary">Default</Badge>
                     )}
@@ -300,7 +302,7 @@ export function WorkflowViewSelector({
                         }
                       />
                     </Button>
-                    <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                    <span className="min-w-0 flex-1 whitespace-normal break-words text-sm font-medium">
                       {view.name}
                     </span>
                     {isDefault && <Badge variant="primary">Default</Badge>}

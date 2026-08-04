@@ -9,11 +9,12 @@ import {
   screen,
 } from '@testing-library/react';
 import * as React from 'react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { ConfigContext, type Config } from '@/contexts/ConfigContext';
 import { SearchStateProvider } from '@/contexts/SearchStateContext';
+import type { WorkflowFilterViewPreferences } from '@/contexts/UserPreference';
 import { useQuery } from '@/hooks/api';
 import { WorkspaceKind, workspaceSelectionKey } from '@/lib/workspace';
 import DagsPage from '../index';
@@ -24,7 +25,7 @@ const { clientGetMock, updatePreferenceMock, userPreferences } = vi.hoisted(
     updatePreferenceMock: vi.fn(),
     userPreferences: {
       pageLimit: 200,
-      workflowFilterViews: {} as Record<string, unknown>,
+      workflowFilterViews: {} as WorkflowFilterViewPreferences,
     },
   })
 );
@@ -56,6 +57,10 @@ vi.mock('@/features/dags/components/dag-list', () => ({
     activeWorkflowViewId,
     onSaveWorkflowView,
     onShowAllWorkflows,
+    onUpdateWorkflowView,
+    onResetWorkflowView,
+    onSetDefaultWorkflowView,
+    onDeleteWorkflowView,
   }: {
     dags: Array<{ fileName: string; dag: { name: string } }>;
     searchText: string;
@@ -65,6 +70,10 @@ vi.mock('@/features/dags/components/dag-list', () => ({
     activeWorkflowViewId: string | null;
     onSaveWorkflowView: (name: string, makeDefault: boolean) => void;
     onShowAllWorkflows: () => void;
+    onUpdateWorkflowView: () => void;
+    onResetWorkflowView: () => void;
+    onSetDefaultWorkflowView: (viewId: string | undefined) => void;
+    onDeleteWorkflowView: (viewId: string) => void;
   }) => (
     <div>
       <input
@@ -90,6 +99,21 @@ vi.mock('@/features/dags/components/dag-list', () => ({
       </button>
       <button type="button" onClick={onShowAllWorkflows}>
         Show all workflows
+      </button>
+      <button type="button" onClick={onUpdateWorkflowView}>
+        Update workflow view
+      </button>
+      <button type="button" onClick={onResetWorkflowView}>
+        Reset workflow view
+      </button>
+      <button
+        type="button"
+        onClick={() => onSetDefaultWorkflowView('production')}
+      >
+        Set production view as default
+      </button>
+      <button type="button" onClick={() => onDeleteWorkflowView('production')}>
+        Delete production view
       </button>
       <ul>
         {dags.map((dag) => (
@@ -207,9 +231,15 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
   };
 }
 
+function LocationProbe() {
+  const location = useLocation();
+  return <output data-testid="location-search">{location.search}</output>;
+}
+
 function renderPage(setTitle = vi.fn(), initialEntry = '/dags') {
   return render(
     <MemoryRouter initialEntries={[initialEntry]}>
+      <LocationProbe />
       <ConfigContext.Provider value={makeConfig()}>
         <SearchStateProvider>
           <AppBarContext.Provider
@@ -240,6 +270,13 @@ function workflowViewScopeKey() {
   });
 }
 
+function lastStoredWorkflowViews(): WorkflowFilterViewPreferences {
+  const lastCall =
+    updatePreferenceMock.mock.calls[updatePreferenceMock.mock.calls.length - 1];
+  expect(lastCall?.[0]).toBe('workflowFilterViews');
+  return lastCall?.[1] as WorkflowFilterViewPreferences;
+}
+
 describe('DagsPage', () => {
   const calls: QueryCall[] = [];
   let dagsPageResponse: DagsPageResponse;
@@ -252,6 +289,13 @@ describe('DagsPage', () => {
     clientGetMock.mockReset();
     updatePreferenceMock.mockReset();
     userPreferences.workflowFilterViews = {};
+    updatePreferenceMock.mockImplementation(
+      (key: string, value: WorkflowFilterViewPreferences) => {
+        if (key === 'workflowFilterViews') {
+          userPreferences.workflowFilterViews = value;
+        }
+      }
+    );
     dagsPageResponse = {
       dags: [
         {
@@ -478,12 +522,8 @@ describe('DagsPage', () => {
       screen.getByRole('button', { name: 'Save production view' })
     );
 
-    const lastPreferenceCall =
-      updatePreferenceMock.mock.calls[
-        updatePreferenceMock.mock.calls.length - 1
-      ] ?? [];
-    const [, storedPreferences] = lastPreferenceCall;
-    const scope = storedPreferences[workflowViewScopeKey()];
+    const storedPreferences = lastStoredWorkflowViews();
+    const scope = storedPreferences[workflowViewScopeKey()]!;
     expect(scope.views).toHaveLength(1);
     expect(scope.views[0]).toMatchObject({
       name: 'Production operations',
@@ -494,7 +534,193 @@ describe('DagsPage', () => {
         sortOrder: 'asc',
       },
     });
-    expect(scope.defaultViewId).toBe(scope.views[0].id);
+    expect(scope.defaultViewId).toBe(scope.views[0]!.id);
+    expect(screen.getByTestId('active-workflow-view')).toHaveTextContent(
+      scope.views[0]!.id
+    );
+  });
+
+  it('updates and resets an active workflow view', () => {
+    userPreferences.workflowFilterViews = {
+      [workflowViewScopeKey()]: {
+        views: [
+          {
+            id: 'production',
+            name: 'Production operations',
+            filters: {
+              searchText: 'deploy',
+              searchLabels: ['env=prod'],
+              sortField: 'name',
+              sortOrder: 'asc',
+            },
+          },
+        ],
+      },
+    };
+    renderPage(
+      vi.fn(),
+      '/dags?view=production&search=changed&labels=env%3Dprod&sort=name&order=desc'
+    );
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Reset workflow view' })
+    );
+    expect(screen.getByRole('textbox', { name: 'Search DAGs' })).toHaveValue(
+      'deploy'
+    );
+    expect(screen.getByTestId('active-workflow-view')).toHaveTextContent(
+      'production'
+    );
+    expect(screen.getByTestId('location-search')).toHaveTextContent(
+      '?view=production&search=deploy&labels=env%3Dprod&sort=name&order=asc'
+    );
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search DAGs' }), {
+      target: { value: 'changed' },
+    });
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Update workflow view' })
+    );
+
+    const storedPreferences = lastStoredWorkflowViews();
+    expect(
+      storedPreferences[workflowViewScopeKey()]!.views[0]!.filters
+    ).toEqual({
+      searchText: 'changed',
+      searchLabels: ['env=prod'],
+      sortField: 'name',
+      sortOrder: 'asc',
+    });
+  });
+
+  it('omits empty workflow filters from saved-view URLs', () => {
+    userPreferences.workflowFilterViews = {
+      [workflowViewScopeKey()]: {
+        views: [
+          {
+            id: 'production',
+            name: 'Production operations',
+            filters: {
+              searchText: '',
+              searchLabels: [],
+              sortField: 'name',
+              sortOrder: 'asc',
+            },
+          },
+        ],
+      },
+    };
+    renderPage(
+      vi.fn(),
+      '/dags?view=production&search=temporary&sort=name&order=asc'
+    );
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Reset workflow view' })
+    );
+
+    expect(screen.getByTestId('location-search')).toHaveTextContent(
+      '?view=production&sort=name&order=asc'
+    );
+  });
+
+  it('keeps a saved workflow filter cleared when its URL parameter is omitted', () => {
+    userPreferences.workflowFilterViews = {
+      [workflowViewScopeKey()]: {
+        views: [
+          {
+            id: 'production',
+            name: 'Production operations',
+            filters: {
+              searchText: 'deploy',
+              searchLabels: [],
+              sortField: 'name',
+              sortOrder: 'asc',
+            },
+          },
+        ],
+      },
+    };
+    renderPage(vi.fn(), '/dags?view=production');
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search DAGs' }), {
+      target: { value: '' },
+    });
+
+    expect(screen.getByRole('textbox', { name: 'Search DAGs' })).toHaveValue(
+      ''
+    );
+    expect(screen.getByTestId('location-search')).toHaveTextContent(
+      '?view=production&sort=name&order=asc'
+    );
+  });
+
+  it('sets a saved workflow view as the default', () => {
+    userPreferences.workflowFilterViews = {
+      [workflowViewScopeKey()]: {
+        views: [
+          {
+            id: 'production',
+            name: 'Production operations',
+            filters: {
+              searchText: 'deploy',
+              searchLabels: [],
+              sortField: 'name',
+              sortOrder: 'asc',
+            },
+          },
+        ],
+      },
+    };
+    renderPage(vi.fn(), '/dags?view=production');
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Set production view as default',
+      })
+    );
+
+    const storedPreferences = lastStoredWorkflowViews();
+    expect(storedPreferences[workflowViewScopeKey()]!.defaultViewId).toBe(
+      'production'
+    );
+  });
+
+  it('deletes the active workflow view and shows all workflows', () => {
+    userPreferences.workflowFilterViews = {
+      [workflowViewScopeKey()]: {
+        views: [
+          {
+            id: 'production',
+            name: 'Production operations',
+            filters: {
+              searchText: 'deploy',
+              searchLabels: ['env=prod'],
+              sortField: 'name',
+              sortOrder: 'asc',
+            },
+          },
+        ],
+        defaultViewId: 'production',
+      },
+    };
+    renderPage();
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Delete production view' })
+    );
+
+    const storedPreferences = lastStoredWorkflowViews();
+    expect(storedPreferences[workflowViewScopeKey()]!).toEqual({
+      views: [],
+      defaultViewId: undefined,
+    });
+    expect(screen.getByRole('textbox', { name: 'Search DAGs' })).toHaveValue(
+      ''
+    );
+    expect(screen.getByTestId('active-workflow-view')).toHaveTextContent(
+      'none'
+    );
   });
 
   it('opens workflow details in the page-level modal when a table row is selected', () => {

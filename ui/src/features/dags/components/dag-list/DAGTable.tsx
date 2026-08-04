@@ -1479,7 +1479,7 @@ function DAGTable({
                     <h3 className="text-lg font-medium text-foreground mb-2">
                       No workflows found
                     </h3>
-                    <p className="text-sm text-muted-foreground text-center max-w-md mb-4">
+                    <p className="text-sm text-muted-foreground text-center max-w-md mb-4 whitespace-normal break-words">
                       {emptyStateDescription}
                     </p>
                     <div className="flex flex-wrap items-center justify-center gap-2">
@@ -1503,7 +1503,10 @@ function DAGTable({
       </div>
 
       {/* Card View - Visible on mobile or when panel is narrow */}
-      <div className={`space-y-2 ${useCardView ? 'block' : 'md:hidden'}`}>
+      <div
+        data-testid="workflow-card-view"
+        className={`space-y-2 ${useCardView ? 'block' : 'md:hidden'}`}
+      >
         {instance.getRowModel().rows.length ? (
           instance.getRowModel().rows.map((row) => {
             // Render group rows with collapsible header
@@ -1593,7 +1596,7 @@ function DAGTable({
           <div className="flex flex-col items-center justify-center py-12 px-4 border rounded-md bg-card">
             <div className="text-6xl mb-4">🔍</div>
             <h3 className="text-lg font-medium mb-2">No workflows found</h3>
-            <p className="text-sm text-muted-foreground text-center max-w-md mb-4">
+            <p className="text-sm text-muted-foreground text-center max-w-md mb-4 whitespace-normal break-words">
               {emptyStateDescription}
             </p>
             <div className="flex flex-wrap items-center justify-center gap-2">
