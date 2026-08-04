@@ -59,7 +59,9 @@ func marshalDocFile(title, content string) []byte {
 func newTestStore(t *testing.T) *Store {
 	t.Helper()
 	dir := t.TempDir()
-	return New(dir)
+	store, err := New(dir)
+	require.NoError(t, err)
+	return store
 }
 
 func TestCreate(t *testing.T) {
@@ -1275,11 +1277,10 @@ func TestRenameMkdirPermissionError(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestNewWithInvalidBaseDir(t *testing.T) {
-	// Trigger the MkdirAll error path in New by using an invalid path.
-	store := New("/dev/null/impossible")
-	// Store is still created even if MkdirAll fails (best effort).
-	assert.NotNil(t, store)
+func TestNewReturnsBaseDirCreationError(t *testing.T) {
+	store, err := New("/dev/null/impossible")
+	require.Error(t, err)
+	assert.Nil(t, store)
 }
 
 func TestListFlatWithUnreadableFile(t *testing.T) {
@@ -1369,7 +1370,8 @@ func TestListFlatEmptyStore(t *testing.T) {
 
 func TestListFlatMissingBaseDir(t *testing.T) {
 	// When base dir doesn't exist, ListFlat returns empty results (WalkDir error is swallowed).
-	store := New(filepath.Join(t.TempDir(), "nonexistent"))
+	store, err := New(filepath.Join(t.TempDir(), "nonexistent"))
+	require.NoError(t, err)
 	_ = os.RemoveAll(store.baseDir)
 	ctx := context.Background()
 
@@ -1380,7 +1382,8 @@ func TestListFlatMissingBaseDir(t *testing.T) {
 
 func TestListTreeMissingBaseDir(t *testing.T) {
 	// When base dir doesn't exist, List returns empty results.
-	store := New(filepath.Join(t.TempDir(), "nonexistent"))
+	store, err := New(filepath.Join(t.TempDir(), "nonexistent"))
+	require.NoError(t, err)
 	_ = os.RemoveAll(store.baseDir)
 	ctx := context.Background()
 
@@ -1391,7 +1394,8 @@ func TestListTreeMissingBaseDir(t *testing.T) {
 
 func TestSearchMissingBaseDir(t *testing.T) {
 	// When base dir doesn't exist, Search returns empty results.
-	store := New(filepath.Join(t.TempDir(), "nonexistent"))
+	store, err := New(filepath.Join(t.TempDir(), "nonexistent"))
+	require.NoError(t, err)
 	_ = os.RemoveAll(store.baseDir)
 	ctx := context.Background()
 
@@ -1401,10 +1405,11 @@ func TestSearchMissingBaseDir(t *testing.T) {
 }
 
 func TestSearchCursorFailsWhenBaseDirIsNotDirectory(t *testing.T) {
-	basePath := filepath.Join(t.TempDir(), "not-a-directory")
+	basePath := filepath.Join(t.TempDir(), "docs")
+	store, err := New(basePath)
+	require.NoError(t, err)
+	require.NoError(t, os.Remove(basePath))
 	require.NoError(t, os.WriteFile(basePath, []byte("x"), 0600))
-
-	store := New(basePath)
 
 	result, err := store.SearchCursor(context.Background(), docs.SearchDocsOptions{
 		Query:      "needle",

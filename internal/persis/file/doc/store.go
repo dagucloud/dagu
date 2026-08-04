@@ -78,15 +78,17 @@ type docDirIndexEntry struct {
 }
 
 // New creates a new file-based doc store.
-func New(baseDir string) *Store {
+func New(baseDir string) (*Store, error) {
 	baseDir = filepath.Clean(baseDir)
-	_ = os.MkdirAll(baseDir, docDirPermissions) // best effort
+	if err := os.MkdirAll(baseDir, docDirPermissions); err != nil {
+		return nil, fmt.Errorf("filedoc: create base directory %s: %w", baseDir, err)
+	}
 	return &Store{
 		baseDir:            baseDir,
 		indexCheckInterval: docIndexCheckInterval,
 		docs:               make(map[string]docIndexEntry),
 		dirs:               make(map[string]docDirIndexEntry),
-	}
+	}, nil
 }
 
 // safePath validates that the given path stays within baseDir (preventing

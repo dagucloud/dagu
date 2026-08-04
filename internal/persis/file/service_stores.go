@@ -158,10 +158,11 @@ func NewDocStore(cfg *config.Config) (docs.DocStore, error) {
 	if cfg == nil || cfg.Paths.DocsDir == "" {
 		return nil, nil
 	}
-	if err := os.MkdirAll(cfg.Paths.DocsDir, 0o750); err != nil {
-		return nil, fmt.Errorf("document store: create directory %s: %w", cfg.Paths.DocsDir, err)
+	store, err := filedoc.New(cfg.Paths.DocsDir)
+	if err != nil {
+		return nil, fmt.Errorf("document store: %w", err)
 	}
-	return filedoc.New(cfg.Paths.DocsDir), nil
+	return store, nil
 }
 
 func NewIncidentStore(cfg *config.Config, enc *crypto.Encryptor) (incident.Store, error) {
