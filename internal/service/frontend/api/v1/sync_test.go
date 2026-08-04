@@ -91,11 +91,11 @@ func (m *mockSyncService) GetStatus(ctx context.Context) (*gitsync.OverallStatus
 	return nil, nil
 }
 
-func (m *mockSyncService) GetDAGStatus(_ context.Context, _ string) (*gitsync.DAGState, error) {
+func (m *mockSyncService) GetSyncItemStatus(_ context.Context, _ string) (*gitsync.SyncItemState, error) {
 	return nil, nil
 }
 
-func (m *mockSyncService) GetDAGDiff(_ context.Context, _ string) (*gitsync.DAGDiff, error) {
+func (m *mockSyncService) GetSyncItemDiff(_ context.Context, _ string) (*gitsync.SyncItemDiff, error) {
 	return nil, nil
 }
 
@@ -152,7 +152,7 @@ func TestSyncPublishAll_Validation(t *testing.T) {
 		assert.Contains(t, apiErr.Message, "No modified or untracked")
 	})
 
-	t.Run("defaults missing dagIds to publishable DAGs from status", func(t *testing.T) {
+	t.Run("defaults missing item IDs to publishable items from status", func(t *testing.T) {
 		t.Parallel()
 
 		var gotIDs []string
@@ -160,7 +160,7 @@ func TestSyncPublishAll_Validation(t *testing.T) {
 			getStatusFn: func(_ context.Context) (*gitsync.OverallStatus, error) {
 				now := time.Now()
 				return &gitsync.OverallStatus{
-					DAGs: map[string]*gitsync.DAGState{
+					Items: map[string]*gitsync.SyncItemState{
 						"zeta":    {Status: gitsync.StatusModified, ModifiedAt: &now},
 						"alpha":   {Status: gitsync.StatusUntracked, ModifiedAt: &now},
 						"ignored": {Status: gitsync.StatusSynced, LastSyncedAt: &now},
@@ -757,7 +757,7 @@ func TestToAPISyncItems_IncludesPath(t *testing.T) {
 	t.Parallel()
 
 	now := time.Now()
-	states := map[string]*gitsync.DAGState{
+	states := map[string]*gitsync.SyncItemState{
 		"alpha": {
 			Status:        gitsync.StatusModified,
 			FileExtension: ".yml",
@@ -769,7 +769,7 @@ func TestToAPISyncItems_IncludesPath(t *testing.T) {
 		},
 		"docs/operations/deploy": {
 			Status:        gitsync.StatusSynced,
-			Kind:          gitsync.DAGKindDoc,
+			Kind:          gitsync.SyncItemKindDoc,
 			FileExtension: ".md",
 			ModifiedAt:    &now,
 		},

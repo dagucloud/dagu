@@ -58,9 +58,9 @@ func TestPullCreatesMissingDAGsDirOnInitialSync(t *testing.T) {
 
 	status, err := svc.GetStatus(ctx)
 	require.NoError(t, err)
-	require.Contains(t, status.DAGs, "initial")
-	assert.Equal(t, gitsync.StatusSynced, status.DAGs["initial"].Status)
-	assert.Equal(t, commitHash.String(), status.DAGs["initial"].BaseCommit)
+	require.Contains(t, status.Items, "initial")
+	assert.Equal(t, gitsync.StatusSynced, status.Items["initial"].Status)
+	assert.Equal(t, commitHash.String(), status.Items["initial"].BaseCommit)
 }
 
 func TestPullPreservesShortYAMLExtension(t *testing.T) {
@@ -101,8 +101,8 @@ func TestPullPreservesShortYAMLExtension(t *testing.T) {
 
 	status, err := svc.GetStatus(ctx)
 	require.NoError(t, err)
-	require.Contains(t, status.DAGs, "short")
-	assert.Equal(t, ".yml", status.DAGs["short"].FileExtension)
+	require.Contains(t, status.Items, "short")
+	assert.Equal(t, ".yml", status.Items["short"].FileExtension)
 }
 
 func TestPullWritesDocumentsToConfiguredDocsDir(t *testing.T) {

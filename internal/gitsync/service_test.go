@@ -67,7 +67,7 @@ func TestService_StatusReadsAreConcurrentSafe(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dagsDir, "concurrent.yml"), content, 0600))
 	require.NoError(t, impl.stateManager.Save(&State{
 		Version: 1,
-		DAGs: map[string]*DAGState{
+		Items: map[string]*SyncItemState{
 			"concurrent": {
 				Status:         StatusSynced,
 				LastSyncedHash: ComputeContentHash(content),
@@ -86,9 +86,9 @@ func TestService_StatusReadsAreConcurrentSafe(t *testing.T) {
 			case 0:
 				_, err = impl.GetStatus(context.Background())
 			case 1:
-				_, err = impl.GetDAGStatus(context.Background(), "concurrent")
+				_, err = impl.GetSyncItemStatus(context.Background(), "concurrent")
 			case 2:
-				_, err = impl.GetDAGDiff(context.Background(), "concurrent")
+				_, err = impl.GetSyncItemDiff(context.Background(), "concurrent")
 			}
 			errCh <- err
 		})
@@ -100,16 +100,16 @@ func TestService_StatusReadsAreConcurrentSafe(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	dagStatus, err := impl.GetDAGStatus(context.Background(), "concurrent")
+	dagStatus, err := impl.GetSyncItemStatus(context.Background(), "concurrent")
 	require.NoError(t, err)
 	dagStatus.Status = StatusConflict
 
 	overallStatus, err := impl.GetStatus(context.Background())
 	require.NoError(t, err)
-	assert.Equal(t, StatusSynced, overallStatus.DAGs["concurrent"].Status)
-	overallStatus.DAGs["concurrent"].Status = StatusConflict
+	assert.Equal(t, StatusSynced, overallStatus.Items["concurrent"].Status)
+	overallStatus.Items["concurrent"].Status = StatusConflict
 
-	freshStatus, err := impl.GetDAGStatus(context.Background(), "concurrent")
+	freshStatus, err := impl.GetSyncItemStatus(context.Background(), "concurrent")
 	require.NoError(t, err)
 	assert.Equal(t, StatusSynced, freshStatus.Status)
 	assert.Equal(t, dagYMLExtension, freshStatus.FileExtension)
@@ -142,14 +142,14 @@ func TestScanLocalDAGs(t *testing.T) {
 		cfg:     &Config{},
 	}
 
-	state := &State{DAGs: make(map[string]*DAGState)}
-	err := s.scanLocalDAGs(state)
+	state := &State{Items: make(map[string]*SyncItemState)}
+	err := s.scanLocalItems(state)
 	require.NoError(t, err)
 
-	require.Len(t, state.DAGs, 2)
-	assert.Contains(t, state.DAGs, "my-dag")
-	assert.Equal(t, DAGKindDoc, state.DAGs["docs/operations/deploy"].Kind)
-	assert.Equal(t, ".MD", state.DAGs["docs/operations/deploy"].FileExtension)
+	require.Len(t, state.Items, 2)
+	assert.Contains(t, state.Items, "my-dag")
+	assert.Equal(t, SyncItemKindDoc, state.Items["docs/operations/deploy"].Kind)
+	assert.Equal(t, ".MD", state.Items["docs/operations/deploy"].FileExtension)
 
 	localPath, err := s.safeDAGIDToFilePath("docs/operations/deploy", ".MD")
 	require.NoError(t, err)
@@ -169,7 +169,7 @@ func TestResolvePublishTargets(t *testing.T) {
 
 	now := time.Now()
 	baseState := &State{
-		DAGs: map[string]*DAGState{
+		Items: map[string]*SyncItemState{
 			"alpha":    {Status: StatusModified, ModifiedAt: &now},
 			"beta":     {Status: StatusUntracked, ModifiedAt: &now},
 			"synced":   {Status: StatusSynced, LastSyncedAt: &now},
@@ -285,7 +285,7 @@ func TestSafeDAGIDPathValidation(t *testing.T) {
 
 	t.Run("rejects non-canonical DAG ID", func(t *testing.T) {
 		_, err := s.resolvePublishTargets(
-			&State{DAGs: map[string]*DAGState{"a/b": {Status: StatusModified}}},
+			&State{Items: map[string]*SyncItemState{"a/b": {Status: StatusModified}}},
 			[]string{"a/./b"},
 		)
 		require.Error(t, err)
@@ -303,7 +303,7 @@ func TestReconcile_SyncedFileDeleted(t *testing.T) {
 
 	s := &serviceImpl{dagsDir: dagsDir, cfg: &Config{}}
 	now := time.Now()
-	state := &State{DAGs: map[string]*DAGState{
+	state := &State{Items: map[string]*SyncItemState{
 		"my-dag": {
 			Status:         StatusSynced,
 			BaseCommit:     "abc123",
@@ -317,7 +317,7 @@ func TestReconcile_SyncedFileDeleted(t *testing.T) {
 	changed := s.reconcile(state)
 	require.True(t, changed)
 
-	ds := state.DAGs["my-dag"]
+	ds := state.Items["my-dag"]
 	assert.Equal(t, StatusMissing, ds.Status)
 	assert.Equal(t, "synced", ds.PreviousStatus)
 	assert.NotNil(t, ds.MissingAt)
@@ -331,7 +331,7 @@ func TestReconcile_ModifiedFileDeleted(t *testing.T) {
 
 	s := &serviceImpl{dagsDir: dagsDir, cfg: &Config{}}
 	now := time.Now()
-	state := &State{DAGs: map[string]*DAGState{
+	state := &State{Items: map[string]*SyncItemState{
 		"my-dag": {
 			Status:         StatusModified,
 			BaseCommit:     "abc123",
@@ -344,7 +344,7 @@ func TestReconcile_ModifiedFileDeleted(t *testing.T) {
 	changed := s.reconcile(state)
 	require.True(t, changed)
 
-	ds := state.DAGs["my-dag"]
+	ds := state.Items["my-dag"]
 	assert.Equal(t, StatusMissing, ds.Status)
 	assert.Equal(t, "modified", ds.PreviousStatus)
 	assert.NotNil(t, ds.MissingAt)
@@ -358,7 +358,7 @@ func TestReconcile_ConflictFileDeleted(t *testing.T) {
 
 	s := &serviceImpl{dagsDir: dagsDir, cfg: &Config{}}
 	now := time.Now()
-	state := &State{DAGs: map[string]*DAGState{
+	state := &State{Items: map[string]*SyncItemState{
 		"my-dag": {
 			Status:             StatusConflict,
 			BaseCommit:         "abc123",
@@ -371,7 +371,7 @@ func TestReconcile_ConflictFileDeleted(t *testing.T) {
 	changed := s.reconcile(state)
 	require.True(t, changed)
 
-	ds := state.DAGs["my-dag"]
+	ds := state.Items["my-dag"]
 	assert.Equal(t, StatusMissing, ds.Status)
 	assert.Equal(t, "conflict", ds.PreviousStatus)
 	assert.NotNil(t, ds.MissingAt)
@@ -390,7 +390,7 @@ func TestReconcile_MissingFileReappears_Synced(t *testing.T) {
 
 	s := &serviceImpl{dagsDir: dagsDir, cfg: &Config{}}
 	missingAt := time.Now().Add(-time.Hour)
-	state := &State{DAGs: map[string]*DAGState{
+	state := &State{Items: map[string]*SyncItemState{
 		"my-dag": {
 			Status:         StatusMissing,
 			BaseCommit:     "abc123",
@@ -404,7 +404,7 @@ func TestReconcile_MissingFileReappears_Synced(t *testing.T) {
 	changed := s.reconcile(state)
 	require.True(t, changed)
 
-	ds := state.DAGs["my-dag"]
+	ds := state.Items["my-dag"]
 	assert.Equal(t, StatusSynced, ds.Status)
 	assert.Equal(t, hash, ds.LocalHash)
 	assert.Empty(t, ds.PreviousStatus)
@@ -423,7 +423,7 @@ func TestReconcile_MissingFileReappears_Modified(t *testing.T) {
 
 	s := &serviceImpl{dagsDir: dagsDir, cfg: &Config{}}
 	missingAt := time.Now().Add(-time.Hour)
-	state := &State{DAGs: map[string]*DAGState{
+	state := &State{Items: map[string]*SyncItemState{
 		"my-dag": {
 			Status:         StatusMissing,
 			BaseCommit:     "abc123",
@@ -437,7 +437,7 @@ func TestReconcile_MissingFileReappears_Modified(t *testing.T) {
 	changed := s.reconcile(state)
 	require.True(t, changed)
 
-	ds := state.DAGs["my-dag"]
+	ds := state.Items["my-dag"]
 	assert.Equal(t, StatusModified, ds.Status)
 	assert.Equal(t, ComputeContentHash(content), ds.LocalHash)
 	assert.NotNil(t, ds.ModifiedAt)
@@ -453,7 +453,7 @@ func TestReconcile_UntrackedFileDeleted(t *testing.T) {
 
 	s := &serviceImpl{dagsDir: dagsDir, cfg: &Config{}}
 	now := time.Now()
-	state := &State{DAGs: map[string]*DAGState{
+	state := &State{Items: map[string]*SyncItemState{
 		"my-dag": {
 			Status:     StatusUntracked,
 			LocalHash:  "sha256:aaa",
@@ -465,7 +465,7 @@ func TestReconcile_UntrackedFileDeleted(t *testing.T) {
 	require.True(t, changed)
 
 	// Entry should be removed entirely
-	assert.NotContains(t, state.DAGs, "my-dag")
+	assert.NotContains(t, state.Items, "my-dag")
 }
 
 func TestReconcile_SyncedFileStillExists(t *testing.T) {
@@ -479,7 +479,7 @@ func TestReconcile_SyncedFileStillExists(t *testing.T) {
 
 	s := &serviceImpl{dagsDir: dagsDir, cfg: &Config{}}
 	now := time.Now()
-	state := &State{DAGs: map[string]*DAGState{
+	state := &State{Items: map[string]*SyncItemState{
 		"my-dag": {
 			Status:         StatusSynced,
 			BaseCommit:     "abc123",
@@ -492,7 +492,7 @@ func TestReconcile_SyncedFileStillExists(t *testing.T) {
 	changed := s.reconcile(state)
 	require.False(t, changed)
 
-	ds := state.DAGs["my-dag"]
+	ds := state.Items["my-dag"]
 	assert.Equal(t, StatusSynced, ds.Status)
 }
 
@@ -519,7 +519,7 @@ func TestReconcile_BackwardCompatibility(t *testing.T) {
 	now := time.Now()
 	oldState := &State{
 		Version: 1,
-		DAGs: map[string]*DAGState{
+		Items: map[string]*SyncItemState{
 			"my-dag": {
 				Status:         StatusSynced,
 				BaseCommit:     "abc123",
@@ -534,7 +534,7 @@ func TestReconcile_BackwardCompatibility(t *testing.T) {
 	// Load and verify — no fields should be populated
 	loaded, err := impl.stateManager.Load()
 	require.NoError(t, err)
-	ds := loaded.DAGs["my-dag"]
+	ds := loaded.Items["my-dag"]
 	assert.Empty(t, ds.PreviousStatus)
 	assert.Nil(t, ds.MissingAt)
 }
@@ -542,7 +542,7 @@ func TestReconcile_BackwardCompatibility(t *testing.T) {
 func TestStatusCounts_IncludesMissing(t *testing.T) {
 	t.Parallel()
 
-	dags := map[string]*DAGState{
+	dags := map[string]*SyncItemState{
 		"a": {Status: StatusSynced},
 		"b": {Status: StatusModified},
 		"c": {Status: StatusUntracked},
@@ -581,7 +581,7 @@ func TestSummaryPriority_MissingBetweenConflictAndPending(t *testing.T) {
 		now := time.Now()
 		state := &State{
 			Version: 1,
-			DAGs: map[string]*DAGState{
+			Items: map[string]*SyncItemState{
 				"a": {Status: StatusMissing, PreviousStatus: "synced", MissingAt: &now},
 			},
 		}
@@ -599,7 +599,7 @@ func TestSummaryPriority_MissingBetweenConflictAndPending(t *testing.T) {
 		now := time.Now()
 		state := &State{
 			Version: 1,
-			DAGs: map[string]*DAGState{
+			Items: map[string]*SyncItemState{
 				"a": {Status: StatusMissing, PreviousStatus: "synced", MissingAt: &now},
 				"b": {Status: StatusConflict, ConflictDetectedAt: &now},
 			},
@@ -632,7 +632,7 @@ func TestStatBeforeHash_SkipsUnchangedFile(t *testing.T) {
 	size := fi.Size()
 
 	s := &serviceImpl{dagsDir: dagsDir, cfg: &Config{}}
-	state := &State{DAGs: map[string]*DAGState{
+	state := &State{Items: map[string]*SyncItemState{
 		"my-dag": {
 			Status:          StatusSynced,
 			LastSyncedHash:  hash,
@@ -645,7 +645,7 @@ func TestStatBeforeHash_SkipsUnchangedFile(t *testing.T) {
 	// File hasn't changed — refreshLocalHashes should skip it
 	changed := s.refreshLocalHashes(state)
 	require.False(t, changed)
-	assert.Equal(t, StatusSynced, state.DAGs["my-dag"].Status)
+	assert.Equal(t, StatusSynced, state.Items["my-dag"].Status)
 }
 
 func TestStatBeforeHash_DetectsChangedFile(t *testing.T) {
@@ -670,7 +670,7 @@ func TestStatBeforeHash_DetectsChangedFile(t *testing.T) {
 	require.NoError(t, os.WriteFile(filePath, newContent, 0600))
 
 	s := &serviceImpl{dagsDir: dagsDir, cfg: &Config{}}
-	state := &State{DAGs: map[string]*DAGState{
+	state := &State{Items: map[string]*SyncItemState{
 		"my-dag": {
 			Status:          StatusSynced,
 			LastSyncedHash:  oldHash,
@@ -682,11 +682,11 @@ func TestStatBeforeHash_DetectsChangedFile(t *testing.T) {
 
 	changed := s.refreshLocalHashes(state)
 	require.True(t, changed)
-	assert.Equal(t, StatusModified, state.DAGs["my-dag"].Status)
-	assert.Equal(t, ComputeContentHash(newContent), state.DAGs["my-dag"].LocalHash)
+	assert.Equal(t, StatusModified, state.Items["my-dag"].Status)
+	assert.Equal(t, ComputeContentHash(newContent), state.Items["my-dag"].LocalHash)
 	// Stat cache should be updated
-	assert.NotNil(t, state.DAGs["my-dag"].LastStatModTime)
-	assert.NotNil(t, state.DAGs["my-dag"].LastStatSize)
+	assert.NotNil(t, state.Items["my-dag"].LastStatModTime)
+	assert.NotNil(t, state.Items["my-dag"].LastStatSize)
 }
 
 func TestStatBeforeHash_BackwardCompatibility(t *testing.T) {
@@ -702,7 +702,7 @@ func TestStatBeforeHash_BackwardCompatibility(t *testing.T) {
 	hash := ComputeContentHash(content)
 
 	s := &serviceImpl{dagsDir: dagsDir, cfg: &Config{}}
-	state := &State{DAGs: map[string]*DAGState{
+	state := &State{Items: map[string]*SyncItemState{
 		"my-dag": {
 			Status:         StatusSynced,
 			LastSyncedHash: hash,
@@ -716,8 +716,8 @@ func TestStatBeforeHash_BackwardCompatibility(t *testing.T) {
 	// No status change since content matches
 	require.False(t, changed)
 	// But stat cache should now be populated
-	assert.NotNil(t, state.DAGs["my-dag"].LastStatModTime)
-	assert.NotNil(t, state.DAGs["my-dag"].LastStatSize)
+	assert.NotNil(t, state.Items["my-dag"].LastStatModTime)
+	assert.NotNil(t, state.Items["my-dag"].LastStatSize)
 }
 
 func TestStatBeforeHash_PopulatedDuringScan(t *testing.T) {
@@ -729,12 +729,12 @@ func TestStatBeforeHash_PopulatedDuringScan(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dagsDir, "new-dag.yaml"), []byte("steps: []"), 0600))
 
 	s := &serviceImpl{dagsDir: dagsDir, cfg: &Config{}}
-	state := &State{DAGs: make(map[string]*DAGState)}
+	state := &State{Items: make(map[string]*SyncItemState)}
 
-	err := s.scanLocalDAGs(state)
+	err := s.scanLocalItems(state)
 	require.NoError(t, err)
 
-	ds := state.DAGs["new-dag"]
+	ds := state.Items["new-dag"]
 	require.NotNil(t, ds)
 	assert.NotNil(t, ds.LastStatModTime)
 	assert.NotNil(t, ds.LastStatSize)
@@ -745,7 +745,7 @@ func TestResolvePublishTargets_RejectsMissing(t *testing.T) {
 
 	now := time.Now()
 	state := &State{
-		DAGs: map[string]*DAGState{
+		Items: map[string]*SyncItemState{
 			"missing-dag": {Status: StatusMissing, PreviousStatus: "synced", MissingAt: &now},
 		},
 	}
@@ -764,7 +764,7 @@ func TestForget_MissingItem(t *testing.T) {
 	t.Parallel()
 	impl, _ := newTestService(t, testCfgReadOnly)
 	now := time.Now()
-	require.NoError(t, impl.stateManager.Save(&State{Version: 1, DAGs: map[string]*DAGState{
+	require.NoError(t, impl.stateManager.Save(&State{Version: 1, Items: map[string]*SyncItemState{
 		"my-dag": {Status: StatusMissing, PreviousStatus: "synced", MissingAt: &now},
 	}}))
 
@@ -773,14 +773,14 @@ func TestForget_MissingItem(t *testing.T) {
 	assert.Equal(t, []string{"my-dag"}, forgotten)
 
 	state, _ := impl.stateManager.GetState()
-	assert.NotContains(t, state.DAGs, "my-dag")
+	assert.NotContains(t, state.Items, "my-dag")
 }
 
 func TestForget_UntrackedItem(t *testing.T) {
 	t.Parallel()
 	impl, _ := newTestService(t, testCfgReadOnly)
 	now := time.Now()
-	require.NoError(t, impl.stateManager.Save(&State{Version: 1, DAGs: map[string]*DAGState{
+	require.NoError(t, impl.stateManager.Save(&State{Version: 1, Items: map[string]*SyncItemState{
 		"my-dag": {Status: StatusUntracked, ModifiedAt: &now},
 	}}))
 
@@ -793,7 +793,7 @@ func TestForget_ConflictItem(t *testing.T) {
 	t.Parallel()
 	impl, _ := newTestService(t, testCfgReadOnly)
 	now := time.Now()
-	require.NoError(t, impl.stateManager.Save(&State{Version: 1, DAGs: map[string]*DAGState{
+	require.NoError(t, impl.stateManager.Save(&State{Version: 1, Items: map[string]*SyncItemState{
 		"my-dag": {Status: StatusConflict, ConflictDetectedAt: &now},
 	}}))
 
@@ -806,7 +806,7 @@ func TestForget_SyncedItem_Rejected(t *testing.T) {
 	t.Parallel()
 	impl, _ := newTestService(t, testCfgReadOnly)
 	now := time.Now()
-	require.NoError(t, impl.stateManager.Save(&State{Version: 1, DAGs: map[string]*DAGState{
+	require.NoError(t, impl.stateManager.Save(&State{Version: 1, Items: map[string]*SyncItemState{
 		"my-dag": {Status: StatusSynced, LastSyncedAt: &now},
 	}}))
 
@@ -819,7 +819,7 @@ func TestForget_ModifiedItem_Rejected(t *testing.T) {
 	t.Parallel()
 	impl, _ := newTestService(t, testCfgReadOnly)
 	now := time.Now()
-	require.NoError(t, impl.stateManager.Save(&State{Version: 1, DAGs: map[string]*DAGState{
+	require.NoError(t, impl.stateManager.Save(&State{Version: 1, Items: map[string]*SyncItemState{
 		"my-dag": {Status: StatusModified, ModifiedAt: &now},
 	}}))
 
@@ -831,7 +831,7 @@ func TestForget_ModifiedItem_Rejected(t *testing.T) {
 func TestForget_NotFound(t *testing.T) {
 	t.Parallel()
 	impl, _ := newTestService(t, testCfgReadOnly)
-	require.NoError(t, impl.stateManager.Save(&State{Version: 1, DAGs: map[string]*DAGState{}}))
+	require.NoError(t, impl.stateManager.Save(&State{Version: 1, Items: map[string]*SyncItemState{}}))
 
 	_, err := impl.Forget(context.Background(), []string{"nonexistent"})
 	require.Error(t, err)
@@ -846,7 +846,7 @@ func TestCleanup_RemovesAllMissing(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dagsDir, "synced-dag.yaml"), []byte("ok"), 0600))
 
 	now := time.Now()
-	require.NoError(t, impl.stateManager.Save(&State{Version: 1, DAGs: map[string]*DAGState{
+	require.NoError(t, impl.stateManager.Save(&State{Version: 1, Items: map[string]*SyncItemState{
 		"missing-a":  {Status: StatusMissing, PreviousStatus: "synced", MissingAt: &now},
 		"missing-b":  {Status: StatusMissing, PreviousStatus: "modified", MissingAt: &now},
 		"synced-dag": {Status: StatusSynced, LastSyncedAt: &now},
@@ -859,15 +859,15 @@ func TestCleanup_RemovesAllMissing(t *testing.T) {
 	assert.Contains(t, forgotten, "missing-b")
 
 	state, _ := impl.stateManager.GetState()
-	assert.NotContains(t, state.DAGs, "missing-a")
-	assert.NotContains(t, state.DAGs, "missing-b")
-	assert.Contains(t, state.DAGs, "synced-dag")
+	assert.NotContains(t, state.Items, "missing-a")
+	assert.NotContains(t, state.Items, "missing-b")
+	assert.Contains(t, state.Items, "synced-dag")
 }
 
 func TestCleanup_NoMissingItems(t *testing.T) {
 	t.Parallel()
 	impl, _ := newTestService(t, testCfgReadOnly)
-	require.NoError(t, impl.stateManager.Save(&State{Version: 1, DAGs: map[string]*DAGState{}}))
+	require.NoError(t, impl.stateManager.Save(&State{Version: 1, Items: map[string]*SyncItemState{}}))
 
 	forgotten, err := impl.Cleanup(context.Background())
 	require.NoError(t, err)
@@ -884,7 +884,7 @@ func TestReconcileAfterPull_AutoForget_BothAbsent(t *testing.T) {
 
 	s := &serviceImpl{dagsDir: dagsDir, cfg: &Config{}}
 	now := time.Now()
-	state := &State{DAGs: map[string]*DAGState{
+	state := &State{Items: map[string]*SyncItemState{
 		"deleted-dag": {
 			Status:         StatusMissing,
 			PreviousStatus: "synced",
@@ -897,7 +897,7 @@ func TestReconcileAfterPull_AutoForget_BothAbsent(t *testing.T) {
 	repoFileSet := map[string]struct{}{}
 	s.reconcileAfterPull(state, repoFileSet)
 
-	assert.NotContains(t, state.DAGs, "deleted-dag")
+	assert.NotContains(t, state.Items, "deleted-dag")
 }
 
 func TestReconcileAfterPull_NoAutoForget_LocalPresent(t *testing.T) {
@@ -911,7 +911,7 @@ func TestReconcileAfterPull_NoAutoForget_LocalPresent(t *testing.T) {
 
 	s := &serviceImpl{dagsDir: dagsDir, cfg: &Config{}}
 	now := time.Now()
-	state := &State{DAGs: map[string]*DAGState{
+	state := &State{Items: map[string]*SyncItemState{
 		"my-dag": {
 			Status:         StatusModified,
 			LastSyncedHash: "sha256:aaa",
@@ -923,7 +923,7 @@ func TestReconcileAfterPull_NoAutoForget_LocalPresent(t *testing.T) {
 	repoFileSet := map[string]struct{}{}
 	s.reconcileAfterPull(state, repoFileSet)
 
-	assert.Contains(t, state.DAGs, "my-dag")
+	assert.Contains(t, state.Items, "my-dag")
 }
 
 func TestPull_DuplicatePrevention(t *testing.T) {
@@ -933,7 +933,7 @@ func TestPull_DuplicatePrevention(t *testing.T) {
 	repoHash := ComputeContentHash(repoContent)
 
 	now := time.Now()
-	state := &State{DAGs: map[string]*DAGState{
+	state := &State{Items: map[string]*SyncItemState{
 		"old-name": {
 			Status:         StatusMissing,
 			PreviousStatus: "synced",
@@ -946,14 +946,14 @@ func TestPull_DuplicatePrevention(t *testing.T) {
 	// "old-name" is missing with matching hash — should be auto-forgotten.
 	// We test the duplicate-prevention logic directly.
 	dagID := "new-name"
-	for otherID, otherState := range state.DAGs {
+	for otherID, otherState := range state.Items {
 		if otherID != dagID && otherState.Status == StatusMissing && otherState.LastSyncedHash == repoHash {
-			delete(state.DAGs, otherID)
+			delete(state.Items, otherID)
 			break
 		}
 	}
 
-	assert.NotContains(t, state.DAGs, "old-name")
+	assert.NotContains(t, state.Items, "old-name")
 }
 
 // --- Phase 5: Delete tests ---
@@ -962,7 +962,7 @@ func TestDelete_UntrackedItem_Rejected(t *testing.T) {
 	t.Parallel()
 	impl, _ := newTestService(t, testCfgReadWrite)
 	now := time.Now()
-	require.NoError(t, impl.stateManager.Save(&State{Version: 1, DAGs: map[string]*DAGState{
+	require.NoError(t, impl.stateManager.Save(&State{Version: 1, Items: map[string]*SyncItemState{
 		"my-dag": {Status: StatusUntracked, ModifiedAt: &now},
 	}}))
 
@@ -984,7 +984,7 @@ func TestDelete_ModifiedItem_WithoutForce_Rejected(t *testing.T) {
 	t.Parallel()
 	impl, _ := newTestService(t, testCfgReadWrite)
 	now := time.Now()
-	require.NoError(t, impl.stateManager.Save(&State{Version: 1, DAGs: map[string]*DAGState{
+	require.NoError(t, impl.stateManager.Save(&State{Version: 1, Items: map[string]*SyncItemState{
 		"my-dag": {Status: StatusModified, ModifiedAt: &now},
 	}}))
 
@@ -997,7 +997,7 @@ func TestDelete_ModifiedItem_WithoutForce_Rejected(t *testing.T) {
 func TestDelete_NotFound(t *testing.T) {
 	t.Parallel()
 	impl, _ := newTestService(t, testCfgReadWrite)
-	require.NoError(t, impl.stateManager.Save(&State{Version: 1, DAGs: map[string]*DAGState{}}))
+	require.NoError(t, impl.stateManager.Save(&State{Version: 1, Items: map[string]*SyncItemState{}}))
 
 	err := impl.Delete(context.Background(), "nonexistent", "", false)
 	require.Error(t, err)
@@ -1016,7 +1016,7 @@ func TestDeleteAllMissing_PushDisabled_Rejected(t *testing.T) {
 func TestDeleteAllMissing_NoMissingItems(t *testing.T) {
 	t.Parallel()
 	impl, _ := newTestService(t, testCfgReadWrite)
-	require.NoError(t, impl.stateManager.Save(&State{Version: 1, DAGs: map[string]*DAGState{
+	require.NoError(t, impl.stateManager.Save(&State{Version: 1, Items: map[string]*SyncItemState{
 		"synced-dag": {Status: StatusSynced},
 	}}))
 
@@ -1039,7 +1039,7 @@ func TestDeleteBatch_PushDisabled_Rejected(t *testing.T) {
 func TestDeleteBatch_NotFound(t *testing.T) {
 	t.Parallel()
 	impl, _ := newTestService(t, testCfgReadWrite)
-	require.NoError(t, impl.stateManager.Save(&State{Version: 1, DAGs: map[string]*DAGState{}}))
+	require.NoError(t, impl.stateManager.Save(&State{Version: 1, Items: map[string]*SyncItemState{}}))
 
 	_, err := impl.DeleteBatch(context.Background(), []string{"nonexistent"}, "", false)
 	require.Error(t, err)
@@ -1050,7 +1050,7 @@ func TestDeleteBatch_UntrackedItem_Rejected(t *testing.T) {
 	t.Parallel()
 	impl, _ := newTestService(t, testCfgReadWrite)
 	now := time.Now()
-	require.NoError(t, impl.stateManager.Save(&State{Version: 1, DAGs: map[string]*DAGState{
+	require.NoError(t, impl.stateManager.Save(&State{Version: 1, Items: map[string]*SyncItemState{
 		"dag-a": {Status: StatusSynced},
 		"dag-b": {Status: StatusUntracked, ModifiedAt: &now},
 	}}))
@@ -1064,7 +1064,7 @@ func TestDeleteBatch_ModifiedWithoutForce_Rejected(t *testing.T) {
 	t.Parallel()
 	impl, _ := newTestService(t, testCfgReadWrite)
 	now := time.Now()
-	require.NoError(t, impl.stateManager.Save(&State{Version: 1, DAGs: map[string]*DAGState{
+	require.NoError(t, impl.stateManager.Save(&State{Version: 1, Items: map[string]*SyncItemState{
 		"dag-a": {Status: StatusSynced},
 		"dag-b": {Status: StatusModified, ModifiedAt: &now},
 	}}))
@@ -1099,7 +1099,7 @@ func TestMove_UntrackedSource_Rejected(t *testing.T) {
 	t.Parallel()
 	impl, _ := newTestService(t, testCfgReadWrite)
 	now := time.Now()
-	require.NoError(t, impl.stateManager.Save(&State{Version: 1, DAGs: map[string]*DAGState{
+	require.NoError(t, impl.stateManager.Save(&State{Version: 1, Items: map[string]*SyncItemState{
 		"my-dag": {Status: StatusUntracked, ModifiedAt: &now},
 	}}))
 
@@ -1113,7 +1113,7 @@ func TestMove_UntrackedSource_Rejected(t *testing.T) {
 func TestMove_NotFound(t *testing.T) {
 	t.Parallel()
 	impl, _ := newTestService(t, testCfgReadWrite)
-	require.NoError(t, impl.stateManager.Save(&State{Version: 1, DAGs: map[string]*DAGState{}}))
+	require.NoError(t, impl.stateManager.Save(&State{Version: 1, Items: map[string]*SyncItemState{}}))
 
 	err := impl.Move(context.Background(), "nonexistent", "new-dag", "", false)
 	require.Error(t, err)
@@ -1148,7 +1148,7 @@ func TestMove_ConflictSource_WithoutForce_Rejected(t *testing.T) {
 	t.Parallel()
 	impl, _ := newTestService(t, testCfgReadWrite)
 	now := time.Now()
-	require.NoError(t, impl.stateManager.Save(&State{Version: 1, DAGs: map[string]*DAGState{
+	require.NoError(t, impl.stateManager.Save(&State{Version: 1, Items: map[string]*SyncItemState{
 		"my-dag": {
 			Status:             StatusConflict,
 			ConflictDetectedAt: &now,
@@ -1168,7 +1168,7 @@ func TestMove_DestinationAlreadyTracked_Rejected(t *testing.T) {
 	t.Parallel()
 	impl, _ := newTestService(t, testCfgReadWrite)
 	now := time.Now()
-	require.NoError(t, impl.stateManager.Save(&State{Version: 1, DAGs: map[string]*DAGState{
+	require.NoError(t, impl.stateManager.Save(&State{Version: 1, Items: map[string]*SyncItemState{
 		"old-dag": {Status: StatusSynced, ModifiedAt: &now},
 		"new-dag": {Status: StatusSynced, ModifiedAt: &now},
 	}}))
@@ -1184,7 +1184,7 @@ func TestMove_SourceNoFileAndNoDestFile_Rejected(t *testing.T) {
 	t.Parallel()
 	impl, _ := newTestService(t, testCfgReadWrite)
 	now := time.Now()
-	require.NoError(t, impl.stateManager.Save(&State{Version: 1, DAGs: map[string]*DAGState{
+	require.NoError(t, impl.stateManager.Save(&State{Version: 1, Items: map[string]*SyncItemState{
 		"my-dag": {Status: StatusSynced, ModifiedAt: &now},
 	}}))
 
@@ -1200,7 +1200,7 @@ func TestMove_DestinationUntracked_Allowed(t *testing.T) {
 	t.Parallel()
 	impl, dagsDir := newTestService(t, testCfgReadWrite)
 	now := time.Now()
-	require.NoError(t, impl.stateManager.Save(&State{Version: 1, DAGs: map[string]*DAGState{
+	require.NoError(t, impl.stateManager.Save(&State{Version: 1, Items: map[string]*SyncItemState{
 		"old-dag": {Status: StatusMissing, MissingAt: &now, PreviousStatus: "synced"},
 		"new-dag": {Status: StatusUntracked, ModifiedAt: &now},
 	}}))
