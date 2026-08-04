@@ -229,9 +229,8 @@ function DocEditor({
       return;
     }
     setIsSaving(true);
-    const contentToSave = normalizeDocContentForSave(
-      currentValueRef.current ?? ''
-    );
+    const valueAtSaveStart = currentValueRef.current ?? '';
+    const contentToSave = normalizeDocContentForSave(valueAtSaveStart);
     beginSave(contentToSave);
     try {
       const { error } = await client.PATCH('/docs/doc', {
@@ -244,12 +243,17 @@ function DocEditor({
         cancelSave();
         showToast('Failed to save document');
       } else {
-        setCurrentValue(contentToSave);
+        const hasNewerEdits = currentValueRef.current !== valueAtSaveStart;
+        if (!hasNewerEdits) {
+          setCurrentValue(contentToSave);
+        }
         markAsSaved(contentToSave);
         // Revalidate SWR cache from server as safety net
         mutateDoc();
-        markTabSaved(tabId);
-        clearDraft(scopedDraftKey);
+        if (!hasNewerEdits) {
+          markTabSaved(tabId);
+          clearDraft(scopedDraftKey);
+        }
         showToast('Document saved');
       }
     } catch {

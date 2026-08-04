@@ -119,7 +119,7 @@ export function useContentEditor({
       setCurrentValueState(serverContent);
       hasUserEditedRef.current = false;
     }
-  }, [serverContent, setLastServerContent]);
+  }, [key, serverContent, setLastServerContent]);
 
   // Handle user edits
   const setCurrentValue = useCallback((value: string) => {
@@ -173,7 +173,7 @@ export function useContentEditor({
     (savedContent: string) => {
       pendingSaveContentRef.current = savedContent;
       setLastServerContent(savedContent);
-      hasUserEditedRef.current = false;
+      hasUserEditedRef.current = currentValueRef.current !== savedContent;
     },
     [setLastServerContent]
   );
