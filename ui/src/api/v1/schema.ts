@@ -572,6 +572,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/search/docs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search documents
+         * @description Returns cursor-based, lightweight document search results for the global search page.
+         */
+        get: operations["searchDocFeed"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/search/dags/{fileName}/matches": {
         parameters: {
             query?: never;
@@ -584,6 +604,26 @@ export interface paths {
          * @description Returns cursor-based snippets for one matching DAG definition.
          */
         get: operations["searchDagMatches"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/search/docs/matches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search document match snippets
+         * @description Returns cursor-based snippets for one matching document.
+         */
+        get: operations["searchDocMatches"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2292,7 +2332,7 @@ export interface paths {
         };
         /**
          * Get Git sync status
-         * @description Returns the overall Git sync status including status of all DAGs
+         * @description Returns the overall Git sync status including all supported sync items
          */
         get: operations["getSyncStatus"];
         put?: never;
@@ -2333,8 +2373,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Publish selected DAGs
-         * @description Commits and pushes the specified DAG IDs. If itemIds is omitted, publishes all modified or untracked DAGs.
+         * Publish selected sync items
+         * @description Commits and pushes the specified sync item IDs. If itemIds is omitted, publishes all modified or untracked items.
          */
         post: operations["syncPublishAll"];
         delete?: never;
@@ -2395,8 +2435,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get diff for a DAG
-         * @description Returns the diff between local and remote versions of a DAG
+         * Get diff for a sync item
+         * @description Returns the diff between local and remote versions of a sync item
          */
         get: operations["getSyncItemDiff"];
         put?: never;
@@ -2417,8 +2457,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Publish a single DAG
-         * @description Commits and pushes a single DAG to the remote repository
+         * Publish a single sync item
+         * @description Commits and pushes a single sync item to the remote repository
          */
         post: operations["publishSyncItem"];
         delete?: never;
@@ -2437,7 +2477,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Discard local changes for a DAG
+         * Discard local changes for a sync item
          * @description Discards local changes and reverts to the version in the remote repository
          */
         post: operations["discardSyncItemChanges"];
@@ -2457,8 +2497,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Forget a DAG
-         * @description Removes the state entry for a missing, untracked, or conflicting DAG. Synced and modified DAGs are rejected.
+         * Forget a sync item
+         * @description Removes the state entry for a missing, untracked, or conflicting sync item. Synced and modified items are rejected.
          */
         post: operations["forgetSyncItem"];
         delete?: never;
@@ -2477,8 +2517,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Delete a DAG
-         * @description Removes a DAG from the remote repository (git rm + commit + push), local disk, and sync state
+         * Delete a sync item
+         * @description Removes a sync item from the remote repository (git rm + commit + push), local disk, and sync state
          */
         post: operations["deleteSyncItem"];
         delete?: never;
@@ -2497,8 +2537,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Move a DAG
-         * @description Atomically renames a DAG across local filesystem, remote repository, and sync state
+         * Move a sync item
+         * @description Atomically renames a sync item across local filesystem, remote repository, and sync state
          */
         post: operations["moveSyncItem"];
         delete?: never;
@@ -2517,8 +2557,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Delete all missing DAGs
-         * @description Removes all missing DAGs from the remote repository, local disk, and sync state
+         * Delete all missing sync items
+         * @description Removes all missing sync items from the remote repository, local disk, and sync state
          */
         post: operations["syncDeleteMissing"];
         delete?: never;
@@ -2537,8 +2577,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Delete selected DAGs
-         * @description Removes the specified DAGs from the remote repository, local disk, and sync state in a single commit.
+         * Delete selected sync items
+         * @description Removes the specified sync items from the remote repository, local disk, and sync state in a single commit.
          */
         post: operations["syncDeleteBatch"];
         delete?: never;
@@ -2557,7 +2597,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Cleanup missing DAGs
+         * Cleanup missing sync items
          * @description Removes all missing entries from sync state
          */
         post: operations["syncCleanup"];
@@ -2669,6 +2709,118 @@ export interface paths {
          * @description Removes local activation data and returns to community mode. Admin only.
          */
         post: operations["deactivateLicense"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/docs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List documents
+         * @description Returns documents as a tree structure or flat list. All authenticated users can browse.
+         */
+        get: operations["listDocs"];
+        put?: never;
+        /**
+         * Create document
+         * @description Creates a new document. Requires DAG write permission.
+         */
+        post: operations["createDoc"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/docs/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search documents
+         * @description Searches document content for the given query.
+         */
+        get: operations["searchDocs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/docs/doc": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get document
+         * @description Returns a single document by path.
+         */
+        get: operations["getDoc"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete document
+         * @description Deletes a document. Requires DAG write permission.
+         */
+        delete: operations["deleteDoc"];
+        options?: never;
+        head?: never;
+        /**
+         * Update document
+         * @description Updates an existing document's content. Requires DAG write permission.
+         */
+        patch: operations["updateDoc"];
+        trace?: never;
+    };
+    "/docs/doc/rename": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rename document or directory
+         * @description Renames/moves a document or directory to a new path. When a directory path is given, all documents under it are moved atomically. Requires DAG write permission.
+         */
+        post: operations["renameDoc"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/docs/delete-batch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Delete multiple documents or directories
+         * @description Deletes multiple documents and/or directories in a single operation. Supports recursive directory deletion. Not-found items are treated as successful deletes for idempotency. Requires DAG write permission.
+         */
+        post: operations["deleteDocBatch"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4974,6 +5126,27 @@ export interface components {
             hasMore: boolean;
             nextCursor?: string;
         };
+        /** @description Lightweight cursor-based search result item for a document */
+        DocSearchPageItem: {
+            id: string;
+            title: string;
+            /** @description Short document description from YAML frontmatter */
+            description: string;
+            /** @description Workspace that owns this document. Omitted for default documents. */
+            workspace?: string;
+            /** @description Whether additional snippets are available beyond the preview */
+            hasMoreMatches: boolean;
+            /** @description Opaque cursor for loading more snippets for this document result */
+            nextMatchesCursor?: string;
+            /** @description Preview snippets for the result */
+            matches: components["schemas"]["SearchMatchItem"][];
+        };
+        /** @description Cursor-based document search results */
+        DocSearchFeedResponse: {
+            results: components["schemas"]["DocSearchPageItem"][];
+            hasMore: boolean;
+            nextCursor?: string;
+        };
         /** @description Details of a search match within a search result */
         SearchMatchItem: {
             /** @description Matching line content */
@@ -4988,6 +5161,113 @@ export interface components {
             matches: components["schemas"]["SearchMatchItem"][];
             hasMore: boolean;
             nextCursor?: string;
+        };
+        /** @description Full document with content */
+        DocResponse: {
+            id: string;
+            title: string;
+            /** @description Short document description from YAML frontmatter */
+            description: string;
+            /** @description Workspace that owns this document. Omitted for default documents. */
+            workspace?: string;
+            /** @description Full file content including YAML frontmatter */
+            content: string;
+            /** @description Absolute file path of the document on disk */
+            filePath?: string;
+            /**
+             * Format: date-time
+             * @description RFC3339 timestamp when the document was created
+             */
+            createdAt?: string;
+            /**
+             * Format: date-time
+             * @description RFC3339 timestamp when the document was last updated
+             */
+            updatedAt?: string;
+        };
+        /** @description Lightweight document metadata */
+        DocMetadataResponse: {
+            id: string;
+            title: string;
+            /** @description Short document description from YAML frontmatter */
+            description: string;
+            /** @description Workspace that owns this document. Omitted for default documents. */
+            workspace?: string;
+            /**
+             * Format: date-time
+             * @description Last modification time of the document file
+             */
+            modifiedAt?: string;
+        };
+        /** @description A file or directory node in the doc tree */
+        DocTreeNodeResponse: {
+            id: string;
+            name: string;
+            title?: string;
+            /** @description Workspace that owns this node. Omitted for default nodes. */
+            workspace?: string;
+            /** @enum {string} */
+            type: DocTreeNodeResponseType;
+            children?: components["schemas"]["DocTreeNodeResponse"][];
+            /**
+             * Format: date-time
+             * @description Last modification time. For files: file mtime. For directories: most recent descendant mtime.
+             */
+            modifiedAt?: string;
+        };
+        /** @description Paginated document list (tree or flat) */
+        DocListResponse: {
+            tree?: components["schemas"]["DocTreeNodeResponse"][];
+            items?: components["schemas"]["DocMetadataResponse"][];
+            pagination: components["schemas"]["Pagination"];
+        };
+        /** @description A search result for a single document */
+        DocSearchResultItem: {
+            id: string;
+            title: string;
+            /** @description Short document description from YAML frontmatter */
+            description: string;
+            /** @description Workspace that owns this document. Omitted for default documents. */
+            workspace?: string;
+            matches?: components["schemas"]["SearchMatchItem"][];
+        };
+        /** @description Search results */
+        DocSearchResponse: {
+            results: components["schemas"]["DocSearchResultItem"][];
+        };
+        /** @description Relative document path without extension, for example docs/deploy-guide. Must not start with / or contain .. */
+        DocPath: string;
+        /** @description Request to create a new document */
+        CreateDocRequest: {
+            id: components["schemas"]["DocPath"];
+            /** @description Full file content including optional YAML frontmatter */
+            content: string;
+        };
+        /** @description Request to update document content */
+        UpdateDocRequest: {
+            /** @description Full file content including optional YAML frontmatter */
+            content: string;
+        };
+        /** @description Request to rename/move a document or directory */
+        RenameDocRequest: {
+            newPath: components["schemas"]["DocPath"];
+        };
+        /** @description Request to delete multiple documents or directories */
+        DocDeleteBatchRequest: {
+            /** @description Document or directory paths to delete (max 100) */
+            paths: components["schemas"]["DocPath"][];
+        };
+        DocDeleteBatchResponse: {
+            /** @description Successfully deleted paths */
+            deleted: string[];
+            /** @description Paths that failed to delete with error details */
+            failed: components["schemas"]["DocDeleteBatchFailedItem"][];
+            /** @description Human-readable summary */
+            message: string;
+        };
+        DocDeleteBatchFailedItem: {
+            path: string;
+            error: string;
         };
         /** @description Log information for the execution */
         Log: {
@@ -5430,7 +5710,7 @@ export interface components {
             message: string;
         };
         /**
-         * @description Sync status of a DAG
+         * @description Sync status of an item
          * @enum {string}
          */
         SyncStatus: SyncStatus;
@@ -5439,27 +5719,33 @@ export interface components {
          * @enum {string}
          */
         SyncSummary: SyncSummary;
-        /** @description Sync state for a single DAG */
+        /**
+         * @description Type of sync item
+         * @enum {string}
+         */
+        SyncItemKind: SyncItemKind;
+        /** @description Sync state for a single item */
         SyncItem: {
-            /** @description Stable DAG identifier (file path without extension) */
+            /** @description Stable sync item identifier (file path without extension) */
             itemId: string;
             /** @description Relative file path with extension */
             filePath: string;
-            /** @description Display-friendly DAG name */
+            /** @description Display-friendly item name */
             displayName: string;
             status: components["schemas"]["SyncStatus"];
+            kind: components["schemas"]["SyncItemKind"];
             /** @description Commit hash when last synced */
             baseCommit?: string;
             /** @description Content hash when last synced */
             lastSyncedHash?: string;
             /**
              * Format: date-time
-             * @description When the DAG was last synced
+             * @description When the item was last synced
              */
             lastSyncedAt?: string;
             /**
              * Format: date-time
-             * @description When the DAG was last modified locally
+             * @description When the item was last modified locally
              */
             modifiedAt?: string;
             /** @description Current local content hash */
@@ -5483,7 +5769,7 @@ export interface components {
              */
             missingAt?: string;
         };
-        /** @description Counts of DAGs in each sync status */
+        /** @description Counts of items in each sync status */
         SyncStatusCounts: {
             synced: number;
             modified: number;
@@ -5511,7 +5797,7 @@ export interface components {
             lastSyncStatus?: string;
             /** @description Error message from last failed sync */
             lastError?: string;
-            /** @description Sync state for each DAG */
+            /** @description Sync state for each item */
             items: components["schemas"]["SyncItem"][];
             counts: components["schemas"]["SyncStatusCounts"];
         };
@@ -5520,9 +5806,9 @@ export interface components {
             itemId?: string;
             message: string;
         };
-        /** @description Diff between local and remote versions of a DAG */
+        /** @description Diff between local and remote versions of a sync item */
         SyncItemDiffResponse: {
-            /** @description The DAG identifier */
+            /** @description The sync item identifier */
             itemId: string;
             /** @description Relative file path with extension */
             filePath: string;
@@ -5542,17 +5828,17 @@ export interface components {
         SyncResultResponse: {
             success: boolean;
             message?: string;
-            /** @description DAG IDs that were synced */
+            /** @description Sync item IDs that were synced */
             synced?: string[];
-            /** @description DAG IDs that were modified */
+            /** @description Sync item IDs that were modified */
             modified?: string[];
-            /** @description DAG IDs with conflicts */
+            /** @description Sync item IDs with conflicts */
             conflicts?: string[];
             errors?: components["schemas"]["SyncError"][];
             /** Format: date-time */
             timestamp: string;
         };
-        /** @description Request to publish a DAG */
+        /** @description Request to publish a sync item */
         SyncPublishRequest: {
             /** @description Commit message */
             message?: string;
@@ -5562,20 +5848,20 @@ export interface components {
              */
             force: boolean;
         };
-        /** @description Request to publish selected DAGs */
+        /** @description Request to publish selected sync items */
         SyncPublishAllRequest: {
             /** @description Commit message */
             message?: string;
-            /** @description DAG IDs to publish. If omitted, all modified or untracked DAGs are published. */
+            /** @description Sync item IDs to publish. If omitted, all modified or untracked items are published. */
             itemIds?: string[];
         };
-        /** @description Request to delete selected DAGs */
+        /** @description Request to delete selected sync items */
         SyncDeleteBatchRequest: {
-            /** @description DAG IDs to delete */
+            /** @description Sync item IDs to delete */
             itemIds: string[];
             /** @description Commit message for the deletion */
             message?: string;
-            /** @description Force delete DAGs with local modifications or conflicts */
+            /** @description Force delete items with local modifications or conflicts */
             force?: boolean;
         };
         /** @description Response when a conflict is detected */
@@ -7903,6 +8189,55 @@ export interface operations {
             };
         };
     };
+    searchDocFeed: {
+        parameters: {
+            query: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
+                workspace?: components["parameters"]["Workspace"];
+                /** @description A search query string */
+                q: string;
+                /** @description Opaque cursor returned by the previous search response */
+                cursor?: components["parameters"]["SearchCursor"];
+                /** @description Number of search results to return (default 20, max 50) */
+                limit?: components["parameters"]["SearchLimit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cursor-based document search results */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocSearchFeedResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     searchDagMatches: {
         parameters: {
             query: {
@@ -7947,6 +8282,66 @@ export interface operations {
                 };
             };
             /** @description DAG not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    searchDocMatches: {
+        parameters: {
+            query: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
+                workspace?: components["parameters"]["Workspace"];
+                /** @description Document path (may include slashes for nested docs) */
+                path: components["schemas"]["DocPath"];
+                /** @description A search query string */
+                q: string;
+                /** @description Opaque cursor returned by the previous search response */
+                cursor?: components["parameters"]["SearchCursor"];
+                /** @description Number of search match snippets to return (default 5, max 50) */
+                limit?: components["parameters"]["SearchMatchLimit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cursor-based document match snippets */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchMatchesResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Document not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -13432,7 +13827,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The DAG identifier (file path without extension) */
+                /** @description The sync item identifier (file path without extension) */
                 itemId: string;
             };
             cookie?: never;
@@ -13448,7 +13843,7 @@ export interface operations {
                     "application/json": components["schemas"]["SyncItemDiffResponse"];
                 };
             };
-            /** @description DAG not found */
+            /** @description Sync item not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -13476,7 +13871,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The DAG identifier (file path without extension) */
+                /** @description The sync item identifier (file path without extension) */
                 itemId: string;
             };
             cookie?: never;
@@ -13487,7 +13882,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description DAG published successfully */
+            /** @description Sync item published successfully */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -13496,7 +13891,7 @@ export interface operations {
                     "application/json": components["schemas"]["SyncResultResponse"];
                 };
             };
-            /** @description DAG not found */
+            /** @description Sync item not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -13533,7 +13928,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The DAG identifier (file path without extension) */
+                /** @description The sync item identifier (file path without extension) */
                 itemId: string;
             };
             cookie?: never;
@@ -13549,7 +13944,7 @@ export interface operations {
                     "application/json": components["schemas"]["SuccessResponse"];
                 };
             };
-            /** @description DAG not found */
+            /** @description Sync item not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -13577,14 +13972,14 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The DAG identifier (file path without extension) */
+                /** @description The sync item identifier (file path without extension) */
                 itemId: string;
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description DAG forgotten successfully */
+            /** @description Sync item forgotten successfully */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -13593,7 +13988,7 @@ export interface operations {
                     "application/json": components["schemas"]["SuccessResponse"];
                 };
             };
-            /** @description DAG cannot be forgotten */
+            /** @description Sync item cannot be forgotten */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -13602,7 +13997,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description DAG not found */
+            /** @description Sync item not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -13630,7 +14025,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The DAG identifier (file path without extension) */
+                /** @description The sync item identifier (file path without extension) */
                 itemId: string;
             };
             cookie?: never;
@@ -13640,13 +14035,13 @@ export interface operations {
                 "application/json": {
                     /** @description Commit message for the deletion */
                     message?: string;
-                    /** @description Force delete even if the DAG has local modifications */
+                    /** @description Force delete even if the sync item has local modifications */
                     force?: boolean;
                 };
             };
         };
         responses: {
-            /** @description DAG deleted successfully */
+            /** @description Sync item deleted successfully */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -13655,7 +14050,7 @@ export interface operations {
                     "application/json": components["schemas"]["SuccessResponse"];
                 };
             };
-            /** @description DAG cannot be deleted */
+            /** @description Sync item cannot be deleted */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -13664,7 +14059,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description DAG not found */
+            /** @description Sync item not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -13692,7 +14087,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The current DAG identifier (file path without extension) */
+                /** @description The current sync item identifier (file path without extension) */
                 itemId: string;
             };
             cookie?: never;
@@ -13700,17 +14095,17 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
-                    /** @description The new DAG identifier */
+                    /** @description The new sync item identifier */
                     newItemId: string;
                     /** @description Commit message for the move */
                     message?: string;
-                    /** @description Force move even if the DAG has conflicts */
+                    /** @description Force move even if the sync item has conflicts */
                     force?: boolean;
                 };
             };
         };
         responses: {
-            /** @description DAG moved successfully */
+            /** @description Sync item moved successfully */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -13719,7 +14114,7 @@ export interface operations {
                     "application/json": components["schemas"]["SuccessResponse"];
                 };
             };
-            /** @description DAG cannot be moved */
+            /** @description Sync item cannot be moved */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -13728,7 +14123,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description DAG not found */
+            /** @description Sync item not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -13776,14 +14171,14 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Missing DAGs deleted successfully */
+            /** @description Missing sync items deleted successfully */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
-                        /** @description List of deleted DAG IDs */
+                        /** @description List of deleted sync item IDs */
                         deleted: string[];
                         /** @description Summary message */
                         message: string;
@@ -13826,21 +14221,21 @@ export interface operations {
             };
         };
         responses: {
-            /** @description DAGs deleted successfully */
+            /** @description Sync items deleted successfully */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
-                        /** @description List of deleted DAG IDs */
+                        /** @description List of deleted sync item IDs */
                         deleted: string[];
                         /** @description Summary message */
                         message: string;
                     };
                 };
             };
-            /** @description Cannot delete (push disabled, untracked DAGs, validation error) */
+            /** @description Cannot delete (push disabled, untracked items, validation error) */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -13849,7 +14244,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description DAG not found */
+            /** @description Sync item not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -13888,7 +14283,7 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        /** @description List of forgotten DAG IDs */
+                        /** @description List of forgotten sync item IDs */
                         forgotten: string[];
                         /** @description Summary message */
                         message: string;
@@ -14317,6 +14712,394 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listDocs: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
+                workspace?: components["parameters"]["Workspace"];
+                /** @description page number of items to fetch (default is 1) */
+                page?: components["parameters"]["Page"];
+                /** @description number of items per page (default is 30, max is 100) */
+                perPage?: components["parameters"]["PerPage"];
+                /** @description If true, returns flat list instead of tree */
+                flat?: boolean;
+                /** @description Field to sort by:
+                 *     - `name`: Alphabetically by display name (case-insensitive)
+                 *     - `type`: By node type (dirs vs files), then alphabetically within each group
+                 *     - `mtime`: By last modification time
+                 *      */
+                sort?: PathsDocsGetParametersQuerySort;
+                /** @description Sort order. For type: asc=folders first. For mtime: desc=newest first. */
+                order?: PathsDocsGetParametersQueryOrder;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of documents */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocListResponse"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    createDoc: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
+                workspace?: components["parameters"]["Workspace"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateDocRequest"];
+            };
+        };
+        responses: {
+            /** @description Document created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message?: string;
+                    };
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Document already exists */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    searchDocs: {
+        parameters: {
+            query: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
+                workspace?: components["parameters"]["Workspace"];
+                /** @description Search query */
+                q: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Search results */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocSearchResponse"];
+                };
+            };
+            /** @description Missing query parameter */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getDoc: {
+        parameters: {
+            query: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
+                workspace?: components["parameters"]["Workspace"];
+                /** @description Document path (may include slashes for nested docs) */
+                path: components["schemas"]["DocPath"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Document details */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocResponse"];
+                };
+            };
+            /** @description Document not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    deleteDoc: {
+        parameters: {
+            query: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
+                workspace?: components["parameters"]["Workspace"];
+                /** @description Document path (may include slashes for nested docs) */
+                path: components["schemas"]["DocPath"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Document deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Document not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    updateDoc: {
+        parameters: {
+            query: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
+                workspace?: components["parameters"]["Workspace"];
+                /** @description Document path (may include slashes for nested docs) */
+                path: components["schemas"]["DocPath"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateDocRequest"];
+            };
+        };
+        responses: {
+            /** @description Document updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message?: string;
+                    };
+                };
+            };
+            /** @description Document not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    renameDoc: {
+        parameters: {
+            query: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
+                workspace?: components["parameters"]["Workspace"];
+                /** @description Current document or directory path (may include slashes for nested docs) */
+                path: components["schemas"]["DocPath"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RenameDocRequest"];
+            };
+        };
+        responses: {
+            /** @description Document or directory renamed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message?: string;
+                    };
+                };
+            };
+            /** @description Document or directory not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Target path already exists */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    deleteDocBatch: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
+                workspace?: components["parameters"]["Workspace"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DocDeleteBatchRequest"];
+            };
+        };
+        responses: {
+            /** @description Batch delete completed (may include partial failures) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocDeleteBatchResponse"];
                 };
             };
             /** @description Unexpected error */
@@ -16762,6 +17545,15 @@ export enum PathsDagsGetParametersQueryOrder {
     asc = "asc",
     desc = "desc"
 }
+export enum PathsDocsGetParametersQuerySort {
+    name = "name",
+    type = "type",
+    mtime = "mtime"
+}
+export enum PathsDocsGetParametersQueryOrder {
+    asc = "asc",
+    desc = "desc"
+}
 export enum ChatMessageRole {
     system = "system",
     user = "user",
@@ -16990,6 +17782,10 @@ export enum StepOutputDeclarationType {
     string = "string",
     json = "json"
 }
+export enum DocTreeNodeResponseType {
+    file = "file",
+    directory = "directory"
+}
 export enum RepeatMode {
     While = "while",
     Until = "until"
@@ -17047,6 +17843,10 @@ export enum SyncSummary {
     conflict = "conflict",
     missing = "missing",
     error = "error"
+}
+export enum SyncItemKind {
+    dag = "dag",
+    doc = "doc"
 }
 export enum SyncAuthConfigType {
     token = "token",

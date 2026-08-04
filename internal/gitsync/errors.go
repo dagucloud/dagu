@@ -28,11 +28,11 @@ var (
 	// ErrOperationInProgress is returned when another sync operation is in progress.
 	ErrOperationInProgress = errors.New("another sync operation is in progress")
 
-	// ErrDAGNotFound is returned when the specified DAG is not found.
-	ErrDAGNotFound = errors.New("DAG not found")
+	// ErrDAGNotFound is returned when the specified sync item is not found.
+	ErrDAGNotFound = errors.New("sync item not found")
 
-	// ErrInvalidDAGID is returned when the DAG ID format is invalid.
-	ErrInvalidDAGID = errors.New("invalid DAG ID format")
+	// ErrInvalidDAGID is returned when the sync item ID format is invalid.
+	ErrInvalidDAGID = errors.New("invalid sync item ID format")
 
 	// ErrPushDisabled is returned when push operations are disabled.
 	ErrPushDisabled = errors.New("push operations are disabled")
@@ -40,11 +40,11 @@ var (
 	// ErrNoChanges is returned when there are no changes to publish.
 	ErrNoChanges = errors.New("no changes to publish")
 
-	// ErrCannotForget is returned when a DAG cannot be forgotten.
-	ErrCannotForget = errors.New("DAG cannot be forgotten")
+	// ErrCannotForget is returned when a sync item cannot be forgotten.
+	ErrCannotForget = errors.New("sync item cannot be forgotten")
 
-	// ErrCannotDeleteUntracked is returned when trying to delete an untracked DAG.
-	ErrCannotDeleteUntracked = errors.New("untracked DAGs cannot be deleted from remote — use forget instead")
+	// ErrCannotDeleteUntracked is returned when deleting an untracked sync item.
+	ErrCannotDeleteUntracked = errors.New("untracked sync items cannot be deleted from remote — use forget instead")
 
 	// ErrNetworkError is returned when a network operation fails.
 	ErrNetworkError = errors.New("network error")
@@ -63,7 +63,7 @@ func (e *ConflictError) Error() string {
 	if len(commit) > 8 {
 		commit = commit[:8]
 	}
-	return fmt.Sprintf("conflict detected for DAG %q: remote commit %s by %s",
+	return fmt.Sprintf("conflict detected for sync item %q: remote commit %s by %s",
 		e.DAGID, commit, e.RemoteAuthor)
 }
 
@@ -81,13 +81,13 @@ func (e *ValidationError) Error() string {
 	return fmt.Sprintf("validation error for %s: %s", e.Field, e.Message)
 }
 
-// DAGNotFoundError represents a DAG not found error with the ID.
+// DAGNotFoundError represents a sync item not found error with the ID.
 type DAGNotFoundError struct {
 	DAGID string
 }
 
 func (e *DAGNotFoundError) Error() string {
-	return fmt.Sprintf("DAG not found: %s", e.DAGID)
+	return fmt.Sprintf("sync item not found: %s", e.DAGID)
 }
 
 func (e *DAGNotFoundError) Unwrap() error {
@@ -108,7 +108,7 @@ func (e *NetworkError) Unwrap() error {
 	return errors.Join(ErrNetworkError, e.Cause)
 }
 
-// InvalidDAGIDError represents an invalid DAG identifier.
+// InvalidDAGIDError represents an invalid sync item identifier.
 type InvalidDAGIDError struct {
 	DAGID  string
 	Reason string
@@ -116,9 +116,9 @@ type InvalidDAGIDError struct {
 
 func (e *InvalidDAGIDError) Error() string {
 	if e.Reason == "" {
-		return fmt.Sprintf("invalid DAG ID %q", e.DAGID)
+		return fmt.Sprintf("invalid sync item ID %q", e.DAGID)
 	}
-	return fmt.Sprintf("invalid DAG ID %q: %s", e.DAGID, e.Reason)
+	return fmt.Sprintf("invalid sync item ID %q: %s", e.DAGID, e.Reason)
 }
 
 func (e *InvalidDAGIDError) Unwrap() error {
@@ -135,12 +135,12 @@ func IsNotEnabled(err error) bool {
 	return errors.Is(err, ErrNotEnabled)
 }
 
-// IsDAGNotFound checks if the error indicates DAG was not found.
+// IsDAGNotFound checks if the error indicates a sync item was not found.
 func IsDAGNotFound(err error) bool {
 	return errors.Is(err, ErrDAGNotFound)
 }
 
-// IsInvalidDAGID checks if the error indicates DAG ID is invalid.
+// IsInvalidDAGID checks if the error indicates a sync item ID is invalid.
 func IsInvalidDAGID(err error) bool {
 	return errors.Is(err, ErrInvalidDAGID)
 }

@@ -91,6 +91,11 @@ describe('endpointToTopic', () => {
       ],
       ['/events/queues?status=active&page=3', 'queues:page=3&status=active'],
       ['/events/queues/default/items', 'queueitems:default'],
+      ['/events/docs-tree?prefix=docs', 'doctree:prefix=docs'],
+      [
+        '/events/docs/docs/deploy?workspace=ops',
+        'doc:docs/deploy?workspace=ops',
+      ],
     ];
 
     for (const [endpoint, topic] of cases) {

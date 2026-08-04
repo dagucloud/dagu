@@ -305,6 +305,7 @@ func defaultFunctions(cfg *funcsConfig) template.FuncMap {
 		"pathSuspendFlagsDir":    func() string { return cfg.Paths.SuspendFlagsDir },
 		"pathAdminLogsDir":       func() string { return cfg.Paths.AdminLogsDir },
 		"pathBaseConfig":         func() string { return cfg.Paths.BaseConfig },
+		"pathDocsDir":            func() string { return cfg.Paths.DocsDir },
 		"pathDAGRunsDir":         func() string { return cfg.Paths.DAGRunsDir },
 		"pathQueueDir":           func() string { return cfg.Paths.QueueDir },
 		"pathProcDir":            func() string { return cfg.Paths.ProcDir },

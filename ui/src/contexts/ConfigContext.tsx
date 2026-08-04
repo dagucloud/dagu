@@ -7,6 +7,7 @@ export type PathsConfig = {
   suspendFlagsDir: string;
   adminLogsDir: string;
   baseConfig: string;
+  docsDir?: string;
   dagRunsDir: string;
   queueDir: string;
   procDir: string;

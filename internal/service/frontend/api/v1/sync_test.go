@@ -235,7 +235,7 @@ func TestSyncPublishAll_Validation(t *testing.T) {
 		var apiErr *Error
 		require.ErrorAs(t, err, &apiErr)
 		assert.Equal(t, http.StatusBadRequest, apiErr.HTTPStatus)
-		assert.Contains(t, apiErr.Message, "invalid DAG ID")
+		assert.Contains(t, apiErr.Message, "invalid sync item ID")
 	})
 
 	t.Run("passes dag IDs to service and returns 200", func(t *testing.T) {
@@ -767,16 +767,26 @@ func TestToAPISyncItems_IncludesPath(t *testing.T) {
 			Status:     gitsync.StatusUntracked,
 			ModifiedAt: &now,
 		},
+		"docs/operations/deploy": {
+			Status:        gitsync.StatusSynced,
+			Kind:          gitsync.DAGKindDoc,
+			FileExtension: ".md",
+			ModifiedAt:    &now,
+		},
 	}
 
 	apiItems := toAPISyncItems(states)
-	require.Len(t, apiItems, 2)
+	require.Len(t, apiItems, 3)
 
 	assert.Equal(t, "alpha", apiItems[0].ItemId)
 	assert.Equal(t, "alpha.yml", apiItems[0].FilePath)
 	assert.Equal(t, "alpha.yml", apiItems[0].DisplayName)
 
-	assert.Equal(t, "reports/monthly", apiItems[1].ItemId)
-	assert.Equal(t, "reports/monthly.yaml", apiItems[1].FilePath)
-	assert.Equal(t, "reports/monthly.yaml", apiItems[1].DisplayName)
+	assert.Equal(t, "docs/operations/deploy", apiItems[1].ItemId)
+	assert.Equal(t, "docs/operations/deploy.md", apiItems[1].FilePath)
+	assert.Equal(t, apigen.SyncItemKindDoc, apiItems[1].Kind)
+
+	assert.Equal(t, "reports/monthly", apiItems[2].ItemId)
+	assert.Equal(t, "reports/monthly.yaml", apiItems[2].FilePath)
+	assert.Equal(t, apigen.SyncItemKindDag, apiItems[2].Kind)
 }

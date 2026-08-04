@@ -38,8 +38,30 @@ const (
 )
 
 const (
+	docsDir      = "docs"
 	baseConfigID = "base"
 )
+
+// DAGKind identifies a supported Git Sync item type.
+type DAGKind string
+
+const (
+	DAGKindDAG DAGKind = "dag"
+	DAGKindDoc DAGKind = "doc"
+)
+
+// KindForDAGID derives the item type from its normalized ID.
+func KindForDAGID(id string) DAGKind {
+	id = normalizeDAGIDSeparators(id)
+	if strings.HasPrefix(id, docsDir+"/") {
+		return DAGKindDoc
+	}
+	return DAGKindDAG
+}
+
+func isDocFile(id string) bool {
+	return KindForDAGID(id) == DAGKindDoc
+}
 
 func isBaseConfigID(id string) bool {
 	id = normalizeDAGIDSeparators(id)
@@ -95,12 +117,15 @@ type State struct {
 	DAGs map[string]*DAGState `json:"dags"`
 }
 
-// DAGState represents the sync state for a single DAG.
+// DAGState represents the sync state for a single item.
 type DAGState struct {
 	// Status is the current sync status.
 	Status SyncStatus `json:"status"`
 
-	// FileExtension is the YAML extension used by the DAG file.
+	// Kind identifies the tracked item type.
+	Kind DAGKind `json:"kind,omitempty"`
+
+	// FileExtension is the extension used by the tracked file.
 	FileExtension string `json:"fileExtension,omitempty"`
 
 	// BaseCommit is the commit hash when the DAG was last synced.
@@ -183,25 +208,22 @@ func (m *StateManager) Load() (*State, error) {
 	if state.DAGs == nil {
 		state.DAGs = make(map[string]*DAGState)
 	}
-	pruneLegacyNonDAGState(data, &state)
+	normalizeTrackedItems(&state)
 
 	m.state = &state
 	return m.state, nil
 }
 
-func pruneLegacyNonDAGState(data []byte, state *State) {
-	var legacy struct {
-		DAGs map[string]struct {
-			Kind string `json:"kind"`
-		} `json:"dags"`
-	}
-	if err := json.Unmarshal(data, &legacy); err != nil {
-		return
-	}
-	for dagID, dagState := range legacy.DAGs {
-		if dagState.Kind != "" && dagState.Kind != "dag" {
-			delete(state.DAGs, dagID)
+func normalizeTrackedItems(state *State) {
+	for itemID, itemState := range state.DAGs {
+		if itemState == nil {
+			continue
 		}
+		if itemState.Kind != "" && itemState.Kind != DAGKindDAG && itemState.Kind != DAGKindDoc {
+			delete(state.DAGs, itemID)
+			continue
+		}
+		itemState.Kind = KindForDAGID(itemID)
 	}
 }
 

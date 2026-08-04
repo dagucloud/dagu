@@ -21,6 +21,7 @@ import (
 const (
 	defaultAppStreamBufferSize = 32
 	appStreamDebounceInterval  = 200 * time.Millisecond
+	docsPollingInterval        = 30 * time.Second
 )
 
 type AppEventType string
@@ -29,6 +30,7 @@ const (
 	AppEventTypeReset      AppEventType = "reset"
 	AppEventTypeDAGChanged AppEventType = "dag.changed"
 	AppEventTypeQueue      AppEventType = "queue.changed"
+	AppEventTypeDoc        AppEventType = "doc.changed"
 )
 
 // AppEvent carries low-volume invalidations that tell the UI what to revalidate.
@@ -169,15 +171,16 @@ func (c *appEventCoalescer) flush() {
 }
 
 type directoryWatcher struct {
-	root       string
-	createRoot bool
-	scope      watchScope
-	watcher    filenotify.FileWatcher
-	onEvent    func(root, relPath string, op fsnotify.Op)
-	onReset    func(reason string)
-	done       chan struct{}
-	stopOnce   sync.Once
-	wg         sync.WaitGroup
+	root           string
+	createRoot     bool
+	scope          watchScope
+	newFileWatcher fileWatcherFactory
+	watcher        filenotify.FileWatcher
+	onEvent        func(root, relPath string, op fsnotify.Op)
+	onReset        func(reason string)
+	done           chan struct{}
+	stopOnce       sync.Once
+	wg             sync.WaitGroup
 }
 
 type appWatcher interface {
@@ -190,7 +193,10 @@ type watchScope int
 const (
 	watchScopeRootOnly watchScope = iota
 	watchScopeOneLevel
+	watchScopeRecursive
 )
+
+type fileWatcherFactory func() (filenotify.FileWatcher, error)
 
 func newDirectoryWatcher(root string, createRoot bool, onEvent func(root, relPath string, op fsnotify.Op), onReset func(reason string)) *directoryWatcher {
 	return newWatcher(root, createRoot, watchScopeRootOnly, onEvent, onReset)
@@ -200,15 +206,33 @@ func newOneLevelDirectoryWatcher(root string, createRoot bool, onEvent func(root
 	return newWatcher(root, createRoot, watchScopeOneLevel, onEvent, onReset)
 }
 
-func newWatcher(root string, createRoot bool, scope watchScope, onEvent func(root, relPath string, op fsnotify.Op), onReset func(reason string)) *directoryWatcher {
-	return &directoryWatcher{
+func newRecursiveDirectoryWatcher(root string, createRoot bool, onEvent func(root, relPath string, op fsnotify.Op), onReset func(reason string)) *directoryWatcher {
+	return newWatcher(root, createRoot, watchScopeRecursive, onEvent, onReset)
+}
+
+func newDocsDirectoryWatcher(root string, createRoot bool, onEvent func(root, relPath string, op fsnotify.Op), onReset func(reason string)) appWatcher {
+	return &docsDirectoryWatcher{
 		root:       root,
 		createRoot: createRoot,
-		scope:      scope,
 		onEvent:    onEvent,
 		onReset:    onReset,
-		done:       make(chan struct{}),
 	}
+}
+
+func newWatcher(root string, createRoot bool, scope watchScope, onEvent func(root, relPath string, op fsnotify.Op), onReset func(reason string)) *directoryWatcher {
+	return &directoryWatcher{
+		root:           root,
+		createRoot:     createRoot,
+		scope:          scope,
+		newFileWatcher: defaultFileWatcherFactory,
+		onEvent:        onEvent,
+		onReset:        onReset,
+		done:           make(chan struct{}),
+	}
+}
+
+func defaultFileWatcherFactory() (filenotify.FileWatcher, error) {
+	return filenotify.New(time.Second), nil
 }
 
 func (w *directoryWatcher) Start(ctx context.Context) error {
@@ -217,13 +241,16 @@ func (w *directoryWatcher) Start(ctx context.Context) error {
 		return err
 	}
 
-	w.watcher = filenotify.New(time.Second)
+	w.watcher, err = w.newFileWatcher()
+	if err != nil {
+		return err
+	}
 	if err := w.addWatch(w.root); err != nil {
 		return err
 	}
 
-	if w.scope == watchScopeOneLevel {
-		paths, err := oneLevelWatchPaths(w.root)
+	if w.scope == watchScopeOneLevel || w.scope == watchScopeRecursive {
+		paths, err := watchPathsForScope(w.root, w.scope)
 		if err != nil {
 			_ = w.watcher.Close()
 			return err
@@ -288,8 +315,8 @@ func (w *directoryWatcher) handleEvent(event fsnotify.Event) {
 		return
 	}
 
-	if event.Op&fsnotify.Create != 0 && w.scope == watchScopeOneLevel {
-		if err := w.addCreatedChildDir(event.Name); err != nil {
+	if event.Op&fsnotify.Create != 0 && (w.scope == watchScopeOneLevel || w.scope == watchScopeRecursive) {
+		if err := w.addCreatedDirWatches(event.Name); err != nil {
 			w.onReset(fmt.Sprintf("failed to register watcher for %s: %v", event.Name, err))
 		}
 	}
@@ -301,16 +328,219 @@ func (w *directoryWatcher) handleEvent(event fsnotify.Event) {
 	w.onEvent(w.root, filepath.ToSlash(relPath), event.Op)
 }
 
-func (w *directoryWatcher) addCreatedChildDir(path string) error {
+func (w *directoryWatcher) addCreatedDirWatches(path string) error {
 	info, err := os.Lstat(path)
 	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 		return nil
 	}
 	parent := filepath.Clean(filepath.Dir(path))
-	if parent != filepath.Clean(w.root) {
+	if w.scope == watchScopeOneLevel && parent != filepath.Clean(w.root) {
 		return nil
 	}
-	return w.watcher.Add(path)
+	if w.scope != watchScopeRecursive {
+		return w.watcher.Add(path)
+	}
+	return filepath.WalkDir(path, func(childPath string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !entry.IsDir() {
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return nil
+		}
+		return w.watcher.Add(childPath)
+	})
+}
+
+type docsDirectoryWatcher struct {
+	root       string
+	createRoot bool
+	onEvent    func(root, relPath string, op fsnotify.Op)
+	onReset    func(reason string)
+	active     appWatcher
+}
+
+func (w *docsDirectoryWatcher) Start(ctx context.Context) error {
+	ready, err := prepareWatchRoot(w.root, w.createRoot)
+	if err != nil || !ready {
+		return err
+	}
+
+	eventWatcher := newRecursiveDirectoryWatcher(w.root, false, w.onEvent, w.onReset)
+	eventWatcher.newFileWatcher = filenotify.NewEventWatcher
+	eventErr := eventWatcher.Start(ctx)
+	if eventErr == nil {
+		w.active = eventWatcher
+		return nil
+	}
+	eventWatcher.Stop()
+
+	pollingWatcher := newMarkdownPollingWatcher(w.root, false, docsPollingInterval, w.onEvent, w.onReset)
+	if pollingErr := pollingWatcher.Start(ctx); pollingErr != nil {
+		return fmt.Errorf("start docs watcher: event watcher: %w; markdown poller: %v", eventErr, pollingErr)
+	}
+	w.active = pollingWatcher
+	return nil
+}
+
+func (w *docsDirectoryWatcher) Stop() {
+	if w.active != nil {
+		w.active.Stop()
+	}
+}
+
+type markdownPollingWatcher struct {
+	root       string
+	createRoot bool
+	interval   time.Duration
+	onEvent    func(root, relPath string, op fsnotify.Op)
+	onReset    func(reason string)
+	snapshot   map[string]markdownFileState
+	done       chan struct{}
+	stopOnce   sync.Once
+	wg         sync.WaitGroup
+}
+
+type markdownFileState struct {
+	size    int64
+	mode    os.FileMode
+	modTime time.Time
+}
+
+func newMarkdownPollingWatcher(root string, createRoot bool, interval time.Duration, onEvent func(root, relPath string, op fsnotify.Op), onReset func(reason string)) *markdownPollingWatcher {
+	return &markdownPollingWatcher{
+		root:       root,
+		createRoot: createRoot,
+		interval:   interval,
+		onEvent:    onEvent,
+		onReset:    onReset,
+		done:       make(chan struct{}),
+	}
+}
+
+func (w *markdownPollingWatcher) Start(ctx context.Context) error {
+	ready, err := prepareWatchRoot(w.root, w.createRoot)
+	if err != nil || !ready {
+		return err
+	}
+	snapshot, err := snapshotMarkdownFiles(w.root)
+	if err != nil {
+		return err
+	}
+	w.snapshot = snapshot
+	w.wg.Go(func() {
+		w.loop(ctx)
+	})
+	return nil
+}
+
+func (w *markdownPollingWatcher) Stop() {
+	w.stopOnce.Do(func() {
+		close(w.done)
+	})
+	w.wg.Wait()
+}
+
+func (w *markdownPollingWatcher) loop(ctx context.Context) {
+	ticker := time.NewTicker(w.interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-w.done:
+			return
+		case <-ticker.C:
+			w.check()
+		}
+	}
+}
+
+func (w *markdownPollingWatcher) check() {
+	next, err := snapshotMarkdownFiles(w.root)
+	if err != nil {
+		w.onReset(fmt.Sprintf("docs polling scan failed for %s: %v", w.root, err))
+		return
+	}
+
+	for relPath, state := range next {
+		prev, ok := w.snapshot[relPath]
+		if !ok {
+			w.onEvent(w.root, relPath, fsnotify.Create)
+			continue
+		}
+		if !prev.equal(state) {
+			w.onEvent(w.root, relPath, fsnotify.Write)
+		}
+	}
+	for relPath := range w.snapshot {
+		if _, ok := next[relPath]; !ok {
+			w.onEvent(w.root, relPath, fsnotify.Remove)
+		}
+	}
+	w.snapshot = next
+}
+
+func (s markdownFileState) equal(other markdownFileState) bool {
+	return s.size == other.size &&
+		s.mode == other.mode &&
+		s.modTime.Equal(other.modTime)
+}
+
+func snapshotMarkdownFiles(root string) (map[string]markdownFileState, error) {
+	files := map[string]markdownFileState{}
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry == nil || path == root {
+			return nil
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			return nil
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		if filepath.Ext(entry.Name()) != ".md" {
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return nil
+		}
+		relPath, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		files[filepath.ToSlash(relPath)] = markdownFileState{
+			size:    info.Size(),
+			mode:    info.Mode(),
+			modTime: info.ModTime(),
+		}
+		return nil
+	})
+	if errors.Is(err, os.ErrNotExist) {
+		return files, nil
+	}
+	return files, err
+}
+
+func watchPathsForScope(root string, scope watchScope) ([]string, error) {
+	if scope == watchScopeRecursive {
+		return recursiveWatchPaths(root)
+	}
+	return oneLevelWatchPaths(root)
 }
 
 func oneLevelWatchPaths(root string) ([]string, error) {
@@ -325,6 +555,28 @@ func oneLevelWatchPaths(root string) ([]string, error) {
 		}
 	}
 	return paths, nil
+}
+
+func recursiveWatchPaths(root string) ([]string, error) {
+	paths := []string{}
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !entry.IsDir() {
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return nil
+		}
+		paths = append(paths, path)
+		return nil
+	})
+	return paths, err
 }
 
 func prepareWatchRoot(root string, createRoot bool) (bool, error) {
@@ -384,6 +636,7 @@ func NewAppStreamService(cfg AppStreamConfig) (*AppStreamService, error) {
 		))
 	}
 	service.watchers = append(service.watchers,
+		newDocsDirectoryWatcher(cfg.Paths.DocsDir, true, service.handleDocEvent, service.publishReset),
 		newDirectoryWatcher(cfg.Paths.SuspendFlagsDir, true, service.handleSuspendFlagEvent, service.publishReset),
 		newOneLevelDirectoryWatcher(cfg.Paths.QueueDir, true, service.handleQueueEvent, service.publishReset),
 	)
@@ -472,6 +725,17 @@ func (s *AppStreamService) handleQueueEvent(_, relPath string, op fsnotify.Op) {
 		Type:      AppEventTypeQueue,
 		QueueName: parts[0],
 		Reason:    fileEventReason(op),
+	})
+}
+
+func (s *AppStreamService) handleDocEvent(_, relPath string, op fsnotify.Op) {
+	if filepath.Ext(relPath) != ".md" {
+		return
+	}
+	s.coalescer.Enqueue(AppEvent{
+		Type:   AppEventTypeDoc,
+		Path:   strings.TrimSuffix(filepath.ToSlash(relPath), ".md"),
+		Reason: fileEventReason(op),
 	})
 }
 

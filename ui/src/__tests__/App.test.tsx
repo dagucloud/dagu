@@ -61,6 +61,7 @@ vi.mock('../pages/dags', () => ({ default: () => <h1>DAGs</h1> }));
 vi.mock('../pages/dags/dag', () => ({
   default: () => <h1>DAG Details</h1>,
 }));
+vi.mock('../pages/docs', () => ({ default: () => <h1>Docs</h1> }));
 vi.mock('../pages/event-logs', () => ({
   default: () => <h1>Event Logs</h1>,
 }));
@@ -164,6 +165,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
       configFileUsed: '',
       gitSyncDir: '',
       auditLogsDir: '',
+      docsDir: '',
     },
     ...overrides,
   };

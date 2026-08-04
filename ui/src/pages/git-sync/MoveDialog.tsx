@@ -16,10 +16,12 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ArrowRightLeft, RefreshCw } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { deriveSyncKindFromItemId, type SyncKind } from './sync-kind';
 
 interface MoveDialogProps {
   open: boolean;
   itemId: string;
+  itemKind: SyncKind;
   itemStatus: SyncStatus;
   isMoving: boolean;
   onConfirm: (newItemId: string, message: string, force: boolean) => void;
@@ -29,6 +31,7 @@ interface MoveDialogProps {
 export function MoveDialog({
   open,
   itemId,
+  itemKind,
   itemStatus,
   isMoving,
   onConfirm,
@@ -50,11 +53,16 @@ export function MoveDialog({
 
   const validate = (): boolean => {
     if (!newItemId.trim()) {
-      setValidationError('New DAG ID is required');
+      setValidationError('New item ID is required');
       return false;
     }
     if (newItemId.trim() === itemId) {
-      setValidationError('New DAG ID must be different from the current one');
+      setValidationError('New item ID must be different from the current one');
+      return false;
+    }
+    const newKind = deriveSyncKindFromItemId(newItemId.trim());
+    if (newKind !== itemKind) {
+      setValidationError(`Cannot move a ${itemKind} item to a ${newKind} path`);
       return false;
     }
     setValidationError('');
@@ -71,7 +79,7 @@ export function MoveDialog({
     <Dialog open={open} onOpenChange={(o) => !o && onCancel()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="text-base">Move DAG</DialogTitle>
+          <DialogTitle className="text-base">Move Item</DialogTitle>
           <DialogDescription className="text-xs">
             Rename <span className="font-mono font-medium">{itemId}</span> to a
             new path.
@@ -80,7 +88,7 @@ export function MoveDialog({
         <div className="space-y-3">
           <div className="space-y-1.5">
             <Label htmlFor="new-item-id" className="text-xs">
-              New DAG ID
+              New Item ID
             </Label>
             <Input
               id="new-item-id"

@@ -107,7 +107,7 @@ export function useSyncReconcile({
         return false;
       }
       const count = response.data?.forgotten?.length || 0;
-      showToast(`Cleaned up ${count} missing DAG${count !== 1 ? 's' : ''}`);
+      showToast(`Cleaned up ${count} missing item${count !== 1 ? 's' : ''}`);
       onSuccess();
       return true;
     } catch (err) {
@@ -130,7 +130,7 @@ export function useSyncReconcile({
         return false;
       }
       const count = response.data?.deleted?.length || 0;
-      showToast(`Deleted ${count} missing DAG${count !== 1 ? 's' : ''}`);
+      showToast(`Deleted ${count} missing item${count !== 1 ? 's' : ''}`);
       onSuccess();
       return true;
     } catch (err) {
@@ -157,7 +157,7 @@ export function useSyncReconcile({
         return false;
       }
       const count = response.data?.deleted?.length || 0;
-      showToast(`Deleted ${count} DAG${count !== 1 ? 's' : ''}`);
+      showToast(`Deleted ${count} item${count !== 1 ? 's' : ''}`);
       onSuccess();
       return true;
     } catch (err) {

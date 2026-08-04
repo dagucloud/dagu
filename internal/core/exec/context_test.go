@@ -134,6 +134,78 @@ func TestNewContext_DAGParamsJSON(t *testing.T) {
 	}
 }
 
+func TestNewContext_DAGDocsDir(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		docsDir   string
+		labels    []string
+		expected  string
+		expectSet bool
+	}{
+		{
+			name:      "ConfigHasDocsDir",
+			docsDir:   "/tmp/docs",
+			expected:  filepath.Join("/tmp/docs", "test-dag"),
+			expectSet: true,
+		},
+		{
+			name:      "WorkspaceLabelUsesWorkspaceScopedDocsDir",
+			docsDir:   "/tmp/docs",
+			labels:    []string{"workspace=ops"},
+			expected:  filepath.Join("/tmp/docs", "ops", "test-dag"),
+			expectSet: true,
+		},
+		{
+			name:      "ConflictingWorkspaceLabelsUseUnscopedDocsDir",
+			docsDir:   "/tmp/docs",
+			labels:    []string{"workspace=ops", "workspace=prod"},
+			expected:  filepath.Join("/tmp/docs", "test-dag"),
+			expectSet: true,
+		},
+		{
+			name:      "DocsDirEmpty",
+			docsDir:   "",
+			expectSet: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := &config.Config{}
+			cfg.Paths.DocsDir = tt.docsDir
+			ctx := config.WithConfig(context.Background(), cfg)
+			dag := &core.DAG{Name: "test-dag", Labels: core.NewLabels(tt.labels)}
+			ctx = exec.NewContext(ctx, dag, "run-1", "test.log")
+			rCtx := exec.GetContext(ctx)
+			result := rCtx.UserEnvsMap()
+
+			if tt.expectSet {
+				assert.Equal(t, tt.expected, result[exec.EnvKeyDAGDocsDir])
+			} else {
+				_, ok := result[exec.EnvKeyDAGDocsDir]
+				assert.False(t, ok, "DAG_DOCS_DIR should not be set")
+			}
+		})
+	}
+}
+
+func TestNewContext_DAGDocsDirRequiresConfig(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dag := &core.DAG{Name: "test-dag"}
+	ctx = exec.NewContext(ctx, dag, "run-1", "test.log")
+	rCtx := exec.GetContext(ctx)
+	result := rCtx.UserEnvsMap()
+
+	_, ok := result[exec.EnvKeyDAGDocsDir]
+	assert.False(t, ok, "DAG_DOCS_DIR should not be set when no config is in context")
+}
+
 func TestNewContext_DAGRunWorkDir(t *testing.T) {
 	t.Parallel()
 

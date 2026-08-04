@@ -50,7 +50,9 @@ tags:
   - name: "events"
     description: "Centralized operational event log operations (manager or admin only)"
   - name: "sync"
-    description: "Git synchronization operations for DAGs"
+    description: "Git synchronization operations for workflow definitions and documents"
+  - name: "docs"
+    description: "Document management operations"
   - name: "remote-nodes"
     description: "Remote node management operations (admin only)"
   - name: "secrets"
@@ -1648,6 +1650,44 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /search/docs:
+    get:
+      summary: "Search documents"
+      description: "Returns cursor-based, lightweight document search results for the global search page."
+      operationId: "searchDocFeed"
+      tags:
+        - "search"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/Workspace"
+        - name: "q"
+          in: "query"
+          required: true
+          schema:
+            type: "string"
+          description: "A search query string"
+        - $ref: "#/components/parameters/SearchCursor"
+        - $ref: "#/components/parameters/SearchLimit"
+      responses:
+        "200":
+          description: "Cursor-based document search results"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocSearchFeedResponse"
+        "400":
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /search/dags/{fileName}/matches:
     get:
       summary: "Search DAG match snippets"
@@ -1688,6 +1728,56 @@ paths:
                 $ref: "#/components/schemas/Error"
         "404":
           description: "DAG not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /search/docs/matches:
+    get:
+      summary: "Search document match snippets"
+      description: "Returns cursor-based snippets for one matching document."
+      operationId: "searchDocMatches"
+      tags:
+        - "search"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/Workspace"
+        - name: "path"
+          in: "query"
+          description: "Document path (may include slashes for nested docs)"
+          required: true
+          schema:
+            $ref: "#/components/schemas/DocPath"
+        - name: "q"
+          in: "query"
+          required: true
+          schema:
+            type: "string"
+          description: "A search query string"
+        - $ref: "#/components/parameters/SearchCursor"
+        - $ref: "#/components/parameters/SearchMatchLimit"
+      responses:
+        "200":
+          description: "Cursor-based document match snippets"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SearchMatchesResponse"
+        "400":
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Document not found"
           content:
             application/json:
               schema:
@@ -5872,7 +5962,7 @@ paths:
   /sync/status:
     get:
       summary: "Get Git sync status"
-      description: "Returns the overall Git sync status including status of all DAGs"
+      description: "Returns the overall Git sync status including all supported sync items"
       operationId: "getSyncStatus"
       tags:
         - "sync"
@@ -5917,8 +6007,8 @@ paths:
 
   /sync/publish-all:
     post:
-      summary: "Publish selected DAGs"
-      description: "Commits and pushes the specified DAG IDs. If itemIds is omitted, publishes all modified or untracked DAGs."
+      summary: "Publish selected sync items"
+      description: "Commits and pushes the specified sync item IDs. If itemIds is omitted, publishes all modified or untracked items."
       operationId: "syncPublishAll"
       tags:
         - "sync"
@@ -6019,8 +6109,8 @@ paths:
 
   /sync/items/{itemId}/diff:
     get:
-      summary: "Get diff for a DAG"
-      description: "Returns the diff between local and remote versions of a DAG"
+      summary: "Get diff for a sync item"
+      description: "Returns the diff between local and remote versions of a sync item"
       operationId: "getSyncItemDiff"
       tags:
         - "sync"
@@ -6028,7 +6118,7 @@ paths:
         - $ref: "#/components/parameters/RemoteNode"
         - name: itemId
           in: path
-          description: "The DAG identifier (file path without extension)"
+          description: "The sync item identifier (file path without extension)"
           required: true
           schema:
             type: string
@@ -6040,7 +6130,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/SyncItemDiffResponse"
         "404":
-          description: "DAG not found"
+          description: "Sync item not found"
           content:
             application/json:
               schema:
@@ -6054,8 +6144,8 @@ paths:
 
   /sync/items/{itemId}/publish:
     post:
-      summary: "Publish a single DAG"
-      description: "Commits and pushes a single DAG to the remote repository"
+      summary: "Publish a single sync item"
+      description: "Commits and pushes a single sync item to the remote repository"
       operationId: "publishSyncItem"
       tags:
         - "sync"
@@ -6063,7 +6153,7 @@ paths:
         - $ref: "#/components/parameters/RemoteNode"
         - name: itemId
           in: path
-          description: "The DAG identifier (file path without extension)"
+          description: "The sync item identifier (file path without extension)"
           required: true
           schema:
             type: string
@@ -6075,13 +6165,13 @@ paths:
               $ref: "#/components/schemas/SyncPublishRequest"
       responses:
         "200":
-          description: "DAG published successfully"
+          description: "Sync item published successfully"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/SyncResultResponse"
         "404":
-          description: "DAG not found"
+          description: "Sync item not found"
           content:
             application/json:
               schema:
@@ -6101,7 +6191,7 @@ paths:
 
   /sync/items/{itemId}/discard:
     post:
-      summary: "Discard local changes for a DAG"
+      summary: "Discard local changes for a sync item"
       description: "Discards local changes and reverts to the version in the remote repository"
       operationId: "discardSyncItemChanges"
       tags:
@@ -6110,7 +6200,7 @@ paths:
         - $ref: "#/components/parameters/RemoteNode"
         - name: itemId
           in: path
-          description: "The DAG identifier (file path without extension)"
+          description: "The sync item identifier (file path without extension)"
           required: true
           schema:
             type: string
@@ -6122,7 +6212,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/SuccessResponse"
         "404":
-          description: "DAG not found"
+          description: "Sync item not found"
           content:
             application/json:
               schema:
@@ -6136,8 +6226,8 @@ paths:
 
   /sync/items/{itemId}/forget:
     post:
-      summary: "Forget a DAG"
-      description: "Removes the state entry for a missing, untracked, or conflicting DAG. Synced and modified DAGs are rejected."
+      summary: "Forget a sync item"
+      description: "Removes the state entry for a missing, untracked, or conflicting sync item. Synced and modified items are rejected."
       operationId: "forgetSyncItem"
       tags:
         - "sync"
@@ -6145,25 +6235,25 @@ paths:
         - $ref: "#/components/parameters/RemoteNode"
         - name: itemId
           in: path
-          description: "The DAG identifier (file path without extension)"
+          description: "The sync item identifier (file path without extension)"
           required: true
           schema:
             type: string
       responses:
         "200":
-          description: "DAG forgotten successfully"
+          description: "Sync item forgotten successfully"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/SuccessResponse"
         "400":
-          description: "DAG cannot be forgotten"
+          description: "Sync item cannot be forgotten"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         "404":
-          description: "DAG not found"
+          description: "Sync item not found"
           content:
             application/json:
               schema:
@@ -6177,8 +6267,8 @@ paths:
 
   /sync/items/{itemId}/delete:
     post:
-      summary: "Delete a DAG"
-      description: "Removes a DAG from the remote repository (git rm + commit + push), local disk, and sync state"
+      summary: "Delete a sync item"
+      description: "Removes a sync item from the remote repository (git rm + commit + push), local disk, and sync state"
       operationId: "deleteSyncItem"
       tags:
         - "sync"
@@ -6186,7 +6276,7 @@ paths:
         - $ref: "#/components/parameters/RemoteNode"
         - name: itemId
           in: path
-          description: "The DAG identifier (file path without extension)"
+          description: "The sync item identifier (file path without extension)"
           required: true
           schema:
             type: string
@@ -6202,22 +6292,22 @@ paths:
                   description: "Commit message for the deletion"
                 force:
                   type: boolean
-                  description: "Force delete even if the DAG has local modifications"
+                  description: "Force delete even if the sync item has local modifications"
       responses:
         "200":
-          description: "DAG deleted successfully"
+          description: "Sync item deleted successfully"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/SuccessResponse"
         "400":
-          description: "DAG cannot be deleted"
+          description: "Sync item cannot be deleted"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         "404":
-          description: "DAG not found"
+          description: "Sync item not found"
           content:
             application/json:
               schema:
@@ -6231,8 +6321,8 @@ paths:
 
   /sync/items/{itemId}/move:
     post:
-      summary: "Move a DAG"
-      description: "Atomically renames a DAG across local filesystem, remote repository, and sync state"
+      summary: "Move a sync item"
+      description: "Atomically renames a sync item across local filesystem, remote repository, and sync state"
       operationId: "moveSyncItem"
       tags:
         - "sync"
@@ -6240,7 +6330,7 @@ paths:
         - $ref: "#/components/parameters/RemoteNode"
         - name: itemId
           in: path
-          description: "The current DAG identifier (file path without extension)"
+          description: "The current sync item identifier (file path without extension)"
           required: true
           schema:
             type: string
@@ -6253,30 +6343,30 @@ paths:
               properties:
                 newItemId:
                   type: string
-                  description: "The new DAG identifier"
+                  description: "The new sync item identifier"
                 message:
                   type: string
                   description: "Commit message for the move"
                 force:
                   type: boolean
-                  description: "Force move even if the DAG has conflicts"
+                  description: "Force move even if the sync item has conflicts"
               required:
                 - newItemId
       responses:
         "200":
-          description: "DAG moved successfully"
+          description: "Sync item moved successfully"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/SuccessResponse"
         "400":
-          description: "DAG cannot be moved"
+          description: "Sync item cannot be moved"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         "404":
-          description: "DAG not found"
+          description: "Sync item not found"
           content:
             application/json:
               schema:
@@ -6296,8 +6386,8 @@ paths:
 
   /sync/delete-missing:
     post:
-      summary: "Delete all missing DAGs"
-      description: "Removes all missing DAGs from the remote repository, local disk, and sync state"
+      summary: "Delete all missing sync items"
+      description: "Removes all missing sync items from the remote repository, local disk, and sync state"
       operationId: "syncDeleteMissing"
       tags:
         - "sync"
@@ -6315,7 +6405,7 @@ paths:
                   description: "Commit message for the deletion"
       responses:
         "200":
-          description: "Missing DAGs deleted successfully"
+          description: "Missing sync items deleted successfully"
           content:
             application/json:
               schema:
@@ -6325,7 +6415,7 @@ paths:
                     type: array
                     items:
                       type: string
-                    description: "List of deleted DAG IDs"
+                    description: "List of deleted sync item IDs"
                   message:
                     type: string
                     description: "Summary message"
@@ -6347,8 +6437,8 @@ paths:
 
   /sync/delete-batch:
     post:
-      summary: "Delete selected DAGs"
-      description: "Removes the specified DAGs from the remote repository, local disk, and sync state in a single commit."
+      summary: "Delete selected sync items"
+      description: "Removes the specified sync items from the remote repository, local disk, and sync state in a single commit."
       operationId: "syncDeleteBatch"
       tags:
         - "sync"
@@ -6362,7 +6452,7 @@ paths:
               $ref: "#/components/schemas/SyncDeleteBatchRequest"
       responses:
         "200":
-          description: "DAGs deleted successfully"
+          description: "Sync items deleted successfully"
           content:
             application/json:
               schema:
@@ -6372,7 +6462,7 @@ paths:
                     type: array
                     items:
                       type: string
-                    description: "List of deleted DAG IDs"
+                    description: "List of deleted sync item IDs"
                   message:
                     type: string
                     description: "Summary message"
@@ -6380,13 +6470,13 @@ paths:
                   - deleted
                   - message
         "400":
-          description: "Cannot delete (push disabled, untracked DAGs, validation error)"
+          description: "Cannot delete (push disabled, untracked items, validation error)"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         "404":
-          description: "DAG not found"
+          description: "Sync item not found"
           content:
             application/json:
               schema:
@@ -6400,7 +6490,7 @@ paths:
 
   /sync/cleanup:
     post:
-      summary: "Cleanup missing DAGs"
+      summary: "Cleanup missing sync items"
       description: "Removes all missing entries from sync state"
       operationId: "syncCleanup"
       tags:
@@ -6419,7 +6509,7 @@ paths:
                     type: array
                     items:
                       type: string
-                    description: "List of forgotten DAG IDs"
+                    description: "List of forgotten sync item IDs"
                   message:
                     type: string
                     description: "Summary message"
@@ -6785,6 +6875,330 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /docs:
+    get:
+      summary: "List documents"
+      description: "Returns documents as a tree structure or flat list. All authenticated users can browse."
+      operationId: "listDocs"
+      tags:
+        - "docs"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/Workspace"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - name: flat
+          in: query
+          description: "If true, returns flat list instead of tree"
+          required: false
+          schema:
+            type: boolean
+        - name: sort
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [name, type, mtime]
+            default: type
+          description: |
+            Field to sort by:
+            - `name`: Alphabetically by display name (case-insensitive)
+            - `type`: By node type (dirs vs files), then alphabetically within each group
+            - `mtime`: By last modification time
+        - name: order
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: asc
+          description: "Sort order. For type: asc=folders first. For mtime: desc=newest first."
+      responses:
+        "200":
+          description: "List of documents"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocListResponse"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    post:
+      summary: "Create document"
+      description: "Creates a new document. Requires DAG write permission."
+      operationId: "createDoc"
+      tags:
+        - "docs"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/Workspace"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateDocRequest"
+      responses:
+        "201":
+          description: "Document created"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        "400":
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "Document already exists"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /docs/search:
+    get:
+      summary: "Search documents"
+      description: "Searches document content for the given query."
+      operationId: "searchDocs"
+      tags:
+        - "docs"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/Workspace"
+        - name: q
+          in: query
+          description: "Search query"
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "Search results"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocSearchResponse"
+        "400":
+          description: "Missing query parameter"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /docs/doc:
+    get:
+      summary: "Get document"
+      description: "Returns a single document by path."
+      operationId: "getDoc"
+      tags:
+        - "docs"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/Workspace"
+        - name: path
+          in: query
+          description: "Document path (may include slashes for nested docs)"
+          required: true
+          schema:
+            $ref: "#/components/schemas/DocPath"
+      responses:
+        "200":
+          description: "Document details"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocResponse"
+        "404":
+          description: "Document not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    patch:
+      summary: "Update document"
+      description: "Updates an existing document's content. Requires DAG write permission."
+      operationId: "updateDoc"
+      tags:
+        - "docs"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/Workspace"
+        - name: path
+          in: query
+          description: "Document path (may include slashes for nested docs)"
+          required: true
+          schema:
+            $ref: "#/components/schemas/DocPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateDocRequest"
+      responses:
+        "200":
+          description: "Document updated"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        "404":
+          description: "Document not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    delete:
+      summary: "Delete document"
+      description: "Deletes a document. Requires DAG write permission."
+      operationId: "deleteDoc"
+      tags:
+        - "docs"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/Workspace"
+        - name: path
+          in: query
+          description: "Document path (may include slashes for nested docs)"
+          required: true
+          schema:
+            $ref: "#/components/schemas/DocPath"
+      responses:
+        "204":
+          description: "Document deleted"
+        "404":
+          description: "Document not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /docs/doc/rename:
+    post:
+      summary: "Rename document or directory"
+      description: "Renames/moves a document or directory to a new path. When a directory path is given, all documents under it are moved atomically. Requires DAG write permission."
+      operationId: "renameDoc"
+      tags:
+        - "docs"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/Workspace"
+        - name: path
+          in: query
+          description: "Current document or directory path (may include slashes for nested docs)"
+          required: true
+          schema:
+            $ref: "#/components/schemas/DocPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RenameDocRequest"
+      responses:
+        "200":
+          description: "Document or directory renamed"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        "404":
+          description: "Document or directory not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "Target path already exists"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /docs/delete-batch:
+    post:
+      summary: "Delete multiple documents or directories"
+      description: "Deletes multiple documents and/or directories in a single operation. Supports recursive directory deletion. Not-found items are treated as successful deletes for idempotency. Requires DAG write permission."
+      operationId: "deleteDocBatch"
+      tags:
+        - "docs"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/Workspace"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DocDeleteBatchRequest"
+      responses:
+        "200":
+          description: "Batch delete completed (may include partial failures)"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocDeleteBatchResponse"
         default:
           description: "Unexpected error"
           content:
@@ -12309,6 +12723,54 @@ components:
         - results
         - hasMore
 
+    DocSearchPageItem:
+      type: object
+      description: "Lightweight cursor-based search result item for a document"
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+          description: "Short document description from YAML frontmatter"
+        workspace:
+          type: string
+          description: "Workspace that owns this document. Omitted for default documents."
+        hasMoreMatches:
+          type: boolean
+          description: "Whether additional snippets are available beyond the preview"
+        nextMatchesCursor:
+          type: string
+          description: "Opaque cursor for loading more snippets for this document result"
+        matches:
+          type: array
+          description: "Preview snippets for the result"
+          items:
+            $ref: "#/components/schemas/SearchMatchItem"
+      required:
+        - id
+        - title
+        - description
+        - hasMoreMatches
+        - matches
+
+    DocSearchFeedResponse:
+      type: object
+      description: "Cursor-based document search results"
+      properties:
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/DocSearchPageItem"
+        hasMore:
+          type: boolean
+        nextCursor:
+          type: string
+      required:
+        - results
+        - hasMore
+
     SearchMatchItem:
       type: object
       description: "Details of a search match within a search result"
@@ -12342,6 +12804,231 @@ components:
       required:
         - matches
         - hasMore
+
+    DocResponse:
+      type: object
+      description: "Full document with content"
+      required:
+        - id
+        - title
+        - description
+        - content
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+          description: "Short document description from YAML frontmatter"
+        workspace:
+          type: string
+          description: "Workspace that owns this document. Omitted for default documents."
+        content:
+          type: string
+          description: "Full file content including YAML frontmatter"
+        filePath:
+          type: string
+          description: "Absolute file path of the document on disk"
+        createdAt:
+          type: string
+          format: date-time
+          description: "RFC3339 timestamp when the document was created"
+        updatedAt:
+          type: string
+          format: date-time
+          description: "RFC3339 timestamp when the document was last updated"
+
+    DocMetadataResponse:
+      type: object
+      description: "Lightweight document metadata"
+      required:
+        - id
+        - title
+        - description
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+          description: "Short document description from YAML frontmatter"
+        workspace:
+          type: string
+          description: "Workspace that owns this document. Omitted for default documents."
+        modifiedAt:
+          type: string
+          format: date-time
+          description: "Last modification time of the document file"
+
+    DocTreeNodeResponse:
+      type: object
+      description: "A file or directory node in the doc tree"
+      required:
+        - id
+        - name
+        - type
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        title:
+          type: string
+        workspace:
+          type: string
+          description: "Workspace that owns this node. Omitted for default nodes."
+        type:
+          type: string
+          enum:
+            - file
+            - directory
+        children:
+          type: array
+          items:
+            $ref: "#/components/schemas/DocTreeNodeResponse"
+        modifiedAt:
+          type: string
+          format: date-time
+          description: "Last modification time. For files: file mtime. For directories: most recent descendant mtime."
+
+    DocListResponse:
+      type: object
+      description: "Paginated document list (tree or flat)"
+      required:
+        - pagination
+      properties:
+        tree:
+          type: array
+          items:
+            $ref: "#/components/schemas/DocTreeNodeResponse"
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/DocMetadataResponse"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+
+    DocSearchResultItem:
+      type: object
+      description: "A search result for a single document"
+      required:
+        - id
+        - title
+        - description
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+          description: "Short document description from YAML frontmatter"
+        workspace:
+          type: string
+          description: "Workspace that owns this document. Omitted for default documents."
+        matches:
+          type: array
+          items:
+            $ref: "#/components/schemas/SearchMatchItem"
+
+    DocSearchResponse:
+      type: object
+      description: "Search results"
+      required:
+        - results
+      properties:
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/DocSearchResultItem"
+
+    DocPath:
+      type: string
+      minLength: 1
+      maxLength: 256
+      description: "Relative document path without extension, for example docs/deploy-guide. Must not start with / or contain .."
+      pattern: '^[A-Za-z0-9_][A-Za-z0-9_. -]*(/[A-Za-z0-9_][A-Za-z0-9_. -]*)*$'
+
+    CreateDocRequest:
+      type: object
+      required:
+        - id
+        - content
+      description: "Request to create a new document"
+      properties:
+        id:
+          $ref: "#/components/schemas/DocPath"
+        content:
+          type: string
+          description: "Full file content including optional YAML frontmatter"
+
+    UpdateDocRequest:
+      type: object
+      required:
+        - content
+      description: "Request to update document content"
+      properties:
+        content:
+          type: string
+          description: "Full file content including optional YAML frontmatter"
+
+    RenameDocRequest:
+      type: object
+      required:
+        - newPath
+      description: "Request to rename/move a document or directory"
+      properties:
+        newPath:
+          $ref: "#/components/schemas/DocPath"
+
+    DocDeleteBatchRequest:
+      type: object
+      required:
+        - paths
+      description: "Request to delete multiple documents or directories"
+      properties:
+        paths:
+          type: array
+          minItems: 1
+          maxItems: 100
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/DocPath"
+          description: "Document or directory paths to delete (max 100)"
+
+    DocDeleteBatchResponse:
+      type: object
+      required:
+        - deleted
+        - failed
+        - message
+      properties:
+        deleted:
+          type: array
+          items:
+            type: string
+          description: "Successfully deleted paths"
+        failed:
+          type: array
+          items:
+            $ref: "#/components/schemas/DocDeleteBatchFailedItem"
+          description: "Paths that failed to delete with error details"
+        message:
+          type: string
+          description: "Human-readable summary"
+
+    DocDeleteBatchFailedItem:
+      type: object
+      required:
+        - path
+        - error
+      properties:
+        path:
+          type: string
+        error:
+          type: string
 
     Log:
       type: object
@@ -13218,7 +13905,7 @@ components:
     # Git Sync schemas
     SyncStatus:
       type: string
-      description: "Sync status of a DAG"
+      description: "Sync status of an item"
       enum:
         - synced
         - modified
@@ -13236,21 +13923,30 @@ components:
         - missing
         - error
 
+    SyncItemKind:
+      type: string
+      description: "Type of sync item"
+      enum:
+        - dag
+        - doc
+
     SyncItem:
       type: object
-      description: "Sync state for a single DAG"
+      description: "Sync state for a single item"
       properties:
         itemId:
           type: string
-          description: "Stable DAG identifier (file path without extension)"
+          description: "Stable sync item identifier (file path without extension)"
         filePath:
           type: string
           description: "Relative file path with extension"
         displayName:
           type: string
-          description: "Display-friendly DAG name"
+          description: "Display-friendly item name"
         status:
           $ref: "#/components/schemas/SyncStatus"
+        kind:
+          $ref: "#/components/schemas/SyncItemKind"
         baseCommit:
           type: string
           description: "Commit hash when last synced"
@@ -13260,11 +13956,11 @@ components:
         lastSyncedAt:
           type: string
           format: date-time
-          description: "When the DAG was last synced"
+          description: "When the item was last synced"
         modifiedAt:
           type: string
           format: date-time
-          description: "When the DAG was last modified locally"
+          description: "When the item was last modified locally"
         localHash:
           type: string
           description: "Current local content hash"
@@ -13293,10 +13989,11 @@ components:
         - filePath
         - displayName
         - status
+        - kind
 
     SyncStatusCounts:
       type: object
-      description: "Counts of DAGs in each sync status"
+      description: "Counts of items in each sync status"
       properties:
         synced:
           type: integer
@@ -13345,7 +14042,7 @@ components:
           description: "Error message from last failed sync"
         items:
           type: array
-          description: "Sync state for each DAG"
+          description: "Sync state for each item"
           items:
             $ref: "#/components/schemas/SyncItem"
         counts:
@@ -13369,11 +14066,11 @@ components:
 
     SyncItemDiffResponse:
       type: object
-      description: "Diff between local and remote versions of a DAG"
+      description: "Diff between local and remote versions of a sync item"
       properties:
         itemId:
           type: string
-          description: "The DAG identifier"
+          description: "The sync item identifier"
         filePath:
           type: string
           description: "Relative file path with extension"
@@ -13412,17 +14109,17 @@ components:
           type: array
           items:
             type: string
-          description: "DAG IDs that were synced"
+          description: "Sync item IDs that were synced"
         modified:
           type: array
           items:
             type: string
-          description: "DAG IDs that were modified"
+          description: "Sync item IDs that were modified"
         conflicts:
           type: array
           items:
             type: string
-          description: "DAG IDs with conflicts"
+          description: "Sync item IDs with conflicts"
         errors:
           type: array
           items:
@@ -13436,7 +14133,7 @@ components:
 
     SyncPublishRequest:
       type: object
-      description: "Request to publish a DAG"
+      description: "Request to publish a sync item"
       properties:
         message:
           type: string
@@ -13448,7 +14145,7 @@ components:
 
     SyncPublishAllRequest:
       type: object
-      description: "Request to publish selected DAGs"
+      description: "Request to publish selected sync items"
       properties:
         message:
           type: string
@@ -13457,11 +14154,11 @@ components:
           type: array
           items:
             type: string
-          description: "DAG IDs to publish. If omitted, all modified or untracked DAGs are published."
+          description: "Sync item IDs to publish. If omitted, all modified or untracked items are published."
 
     SyncDeleteBatchRequest:
       type: object
-      description: "Request to delete selected DAGs"
+      description: "Request to delete selected sync items"
       properties:
         itemIds:
           type: array
@@ -13470,13 +14167,13 @@ components:
           items:
             type: string
             minLength: 1
-          description: "DAG IDs to delete"
+          description: "Sync item IDs to delete"
         message:
           type: string
           description: "Commit message for the deletion"
         force:
           type: boolean
-          description: "Force delete DAGs with local modifications or conflicts"
+          description: "Force delete items with local modifications or conflicts"
       required:
         - itemIds
 

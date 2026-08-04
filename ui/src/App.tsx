@@ -54,6 +54,7 @@ const DAGRuns = React.lazy(() => import('./pages/dag-runs'));
 const DAGRunDetails = React.lazy(() => import('./pages/dag-runs/dag-run'));
 const DAGs = React.lazy(() => import('./pages/dags'));
 const DAGDetails = React.lazy(() => import('./pages/dags/dag'));
+const DocsPage = React.lazy(() => import('./pages/docs'));
 const EventLogsPage = React.lazy(() => import('./pages/event-logs'));
 const GitSyncPage = React.lazy(() => import('./pages/git-sync'));
 const HomePage = React.lazy(() => import('./pages/home'));
@@ -704,6 +705,10 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
                                       <Route
                                         path="/search/"
                                         element={<Search />}
+                                      />
+                                      <Route
+                                        path="/docs/*"
+                                        element={<DocsPage />}
                                       />
                                       <Route
                                         path="/queues"

@@ -147,9 +147,13 @@ type DAGDiff struct {
 const (
 	dagYAMLExtension = ".yaml"
 	dagYMLExtension  = ".yml"
+	docExtension     = ".md"
 )
 
 func normalizeDAGFileExtension(extension string) string {
+	if strings.EqualFold(extension, docExtension) {
+		return docExtension
+	}
 	if strings.EqualFold(extension, dagYMLExtension) {
 		return dagYMLExtension
 	}
@@ -237,7 +241,7 @@ func (s *serviceImpl) syncFilesToDAGsDir(_ context.Context, pullResult *PullResu
 	var synced []string
 	var conflicts []string
 
-	extensions := []string{dagYAMLExtension, dagYMLExtension}
+	extensions := []string{dagYAMLExtension, dagYMLExtension, docExtension}
 	files, err := s.gitClient.ListFiles(extensions)
 	if err != nil {
 		return nil, nil, err
@@ -257,7 +261,7 @@ func (s *serviceImpl) syncFilesToDAGsDir(_ context.Context, pullResult *PullResu
 	repoFileExtensions := make(map[string]string, len(files))
 	for _, file := range files {
 		dagID := s.filePathToDAGID(file)
-		if isBaseConfigID(dagID) {
+		if !isSyncableRepoFile(file, dagID) {
 			continue
 		}
 		fileExtension := normalizeDAGFileExtension(path.Ext(file))
@@ -275,7 +279,7 @@ func (s *serviceImpl) syncFilesToDAGsDir(_ context.Context, pullResult *PullResu
 		dagID := s.filePathToDAGID(file)
 		fileExtension := normalizeDAGFileExtension(path.Ext(file))
 
-		if isBaseConfigID(dagID) {
+		if !isSyncableRepoFile(file, dagID) {
 			continue
 		}
 		repoFilePath, err := s.safeRepoPathToFilePath(file)
@@ -321,11 +325,12 @@ func (s *serviceImpl) syncFilesToDAGsDir(_ context.Context, pullResult *PullResu
 
 			// Local file doesn't exist, create it
 			if err := s.writeDAGFile(dagID, dagFilePath, repoContent); err != nil {
-				return nil, nil, fmt.Errorf("failed to write synced DAG %q: %w", dagID, err)
+				return nil, nil, fmt.Errorf("failed to write synced item %q: %w", dagID, err)
 			}
 			now := time.Now()
 			newState := &DAGState{
 				Status:         StatusSynced,
+				Kind:           KindForDAGID(dagID),
 				FileExtension:  fileExtension,
 				BaseCommit:     pullResult.CurrentCommit,
 				LastSyncedHash: repoHash,
@@ -349,6 +354,7 @@ func (s *serviceImpl) syncFilesToDAGsDir(_ context.Context, pullResult *PullResu
 				now := time.Now()
 				newState := &DAGState{
 					Status:         StatusSynced,
+					Kind:           KindForDAGID(dagID),
 					FileExtension:  fileExtension,
 					BaseCommit:     pullResult.CurrentCommit,
 					LastSyncedHash: repoHash,
@@ -377,6 +383,7 @@ func (s *serviceImpl) syncFilesToDAGsDir(_ context.Context, pullResult *PullResu
 				now := time.Now()
 				state.DAGs[dagID] = &DAGState{
 					Status:             StatusConflict,
+					Kind:               KindForDAGID(dagID),
 					FileExtension:      fileExtension,
 					BaseCommit:         dagState.BaseCommit,
 					LastSyncedHash:     dagState.LastSyncedHash,
@@ -399,11 +406,12 @@ func (s *serviceImpl) syncFilesToDAGsDir(_ context.Context, pullResult *PullResu
 		// Only update local file if remote changed (and local wasn't modified)
 		if localHash != repoHash {
 			if err := s.writeDAGFile(dagID, dagFilePath, repoContent); err != nil {
-				return nil, nil, fmt.Errorf("failed to write synced DAG %q: %w", dagID, err)
+				return nil, nil, fmt.Errorf("failed to write synced item %q: %w", dagID, err)
 			}
 			now := time.Now()
 			newState := &DAGState{
 				Status:         StatusSynced,
+				Kind:           KindForDAGID(dagID),
 				FileExtension:  fileExtension,
 				BaseCommit:     pullResult.CurrentCommit,
 				LastSyncedHash: repoHash,
@@ -508,6 +516,7 @@ func (s *serviceImpl) scanLocalDAGs(state *State) error {
 		now := time.Now()
 		ds := &DAGState{
 			Status:        StatusUntracked,
+			Kind:          DAGKindDAG,
 			FileExtension: normalizeDAGFileExtension(ext),
 			LocalHash:     ComputeContentHash(content),
 			ModifiedAt:    &now,
@@ -518,7 +527,43 @@ func (s *serviceImpl) scanLocalDAGs(state *State) error {
 		state.DAGs[dagID] = ds
 	}
 
+	s.scanDocFiles(state)
+
 	return nil
+}
+
+func (s *serviceImpl) scanDocFiles(state *State) {
+	docDir := filepath.Join(s.dagsDir, docsDir)
+	_ = filepath.WalkDir(docDir, func(filePath string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil || entry.IsDir() || !strings.EqualFold(filepath.Ext(filePath), docExtension) {
+			return nil
+		}
+		relPath, err := filepath.Rel(s.dagsDir, filePath)
+		if err != nil {
+			return nil
+		}
+		itemID := strings.TrimSuffix(filepath.ToSlash(relPath), docExtension)
+		if _, exists := state.DAGs[itemID]; exists {
+			return nil
+		}
+		content, err := safeReadFileWithinBase(s.dagsDir, filePath)
+		if err != nil {
+			return nil
+		}
+		now := time.Now()
+		itemState := &DAGState{
+			Status:        StatusUntracked,
+			Kind:          DAGKindDoc,
+			FileExtension: docExtension,
+			LocalHash:     ComputeContentHash(content),
+			ModifiedAt:    &now,
+		}
+		if info, err := os.Stat(filePath); err == nil {
+			updateStatCache(itemState, info)
+		}
+		state.DAGs[itemID] = itemState
+		return nil
+	})
 }
 
 // refreshLocalHashes recalculates hashes for all tracked DAGs and updates status if modified.
@@ -696,7 +741,7 @@ func (s *serviceImpl) Publish(ctx context.Context, dagID, message string, force 
 
 	content, err := os.ReadFile(dagFilePath) //nolint:gosec // path constructed from internal dagsDir
 	if err != nil {
-		return nil, fmt.Errorf("failed to read DAG file: %w", err)
+		return nil, fmt.Errorf("failed to read sync item file: %w", err)
 	}
 
 	if err := safeWriteFileWithinBase(s.gitClient.repoPath, repoAbsPath, content, 0600); err != nil {
@@ -718,7 +763,7 @@ func (s *serviceImpl) Publish(ctx context.Context, dagID, message string, force 
 
 	// Update DAG state to synced
 	contentHash := ComputeContentHash(content)
-	newState := s.newSyncedDAGState(fileExtension, commitHash, contentHash)
+	newState := s.newSyncedDAGState(dagID, fileExtension, commitHash, contentHash)
 	if fi, err := os.Stat(dagFilePath); err == nil {
 		updateStatCache(newState, fi)
 	}
@@ -807,7 +852,7 @@ func (s *serviceImpl) PublishAll(ctx context.Context, message string, dagIDs []s
 
 	// Commit staged files only (do not restage ".")
 	if message == "" {
-		message = fmt.Sprintf("Update %d DAG(s)", len(successfulDAGs))
+		message = fmt.Sprintf("Update %d sync item(s)", len(successfulDAGs))
 	}
 	commitHash, err := s.gitClient.CommitStaged(message)
 	if err != nil {
@@ -828,7 +873,7 @@ func (s *serviceImpl) PublishAll(ctx context.Context, message string, dagIDs []s
 		}
 		content, _ := os.ReadFile(dagFilePath) //nolint:gosec // path constructed from internal dagsDir
 		contentHash := ComputeContentHash(content)
-		newState := s.newSyncedDAGState(fileExtension, commitHash, contentHash)
+		newState := s.newSyncedDAGState(dagID, fileExtension, commitHash, contentHash)
 		if fi, err := os.Stat(dagFilePath); err == nil {
 			updateStatCache(newState, fi)
 		}
@@ -839,7 +884,7 @@ func (s *serviceImpl) PublishAll(ctx context.Context, message string, dagIDs []s
 	s.updateSuccessStateWithCommit(state, commitHash)
 
 	result.Success = true
-	result.Message = fmt.Sprintf("Published %d DAG(s)", len(result.Synced))
+	result.Message = fmt.Sprintf("Published %d sync item(s)", len(result.Synced))
 
 	return result, nil
 }
@@ -889,12 +934,12 @@ func (s *serviceImpl) Discard(_ context.Context, dagID string) error {
 
 	// Write to DAGs directory
 	if err := s.writeDAGFile(dagID, dagFilePath, repoContent); err != nil {
-		return fmt.Errorf("failed to write DAG file: %w", err)
+		return fmt.Errorf("failed to write sync item file: %w", err)
 	}
 
 	// Update state
 	contentHash := ComputeContentHash(repoContent)
-	newState := s.newSyncedDAGState(fileExtension, dagState.BaseCommit, contentHash)
+	newState := s.newSyncedDAGState(dagID, fileExtension, dagState.BaseCommit, contentHash)
 	if fi, err := os.Stat(dagFilePath); err == nil {
 		updateStatCache(newState, fi)
 	}
@@ -929,7 +974,7 @@ func (s *serviceImpl) Forget(_ context.Context, itemIDs []string) ([]string, err
 
 		switch dagState.Status {
 		case StatusSynced, StatusModified:
-			return nil, fmt.Errorf("%w: %q is %s — only missing, untracked, or conflicting DAGs can be forgotten",
+			return nil, fmt.Errorf("%w: %q is %s — only missing, untracked, or conflicting sync items can be forgotten",
 				ErrCannotForget, itemID, dagState.Status)
 		case StatusMissing, StatusUntracked, StatusConflict:
 			toForget = append(toForget, itemID)
@@ -1012,7 +1057,7 @@ func (s *serviceImpl) Delete(ctx context.Context, itemID, message string, force 
 	if dagState.Status == StatusModified && !force {
 		return &ValidationError{
 			Field:   itemID,
-			Message: "DAG has local modifications — use force to delete anyway",
+			Message: "sync item has local modifications — use force to delete anyway",
 		}
 	}
 
@@ -1106,7 +1151,7 @@ func (s *serviceImpl) DeleteBatch(ctx context.Context, itemIDs []string, message
 		if (dagState.Status == StatusModified || dagState.Status == StatusConflict) && !force {
 			return nil, &ValidationError{
 				Field:   itemID,
-				Message: "DAG has local modifications — use force to delete anyway",
+				Message: "sync item has local modifications — use force to delete anyway",
 			}
 		}
 
@@ -1152,7 +1197,7 @@ func (s *serviceImpl) DeleteBatch(ctx context.Context, itemIDs []string, message
 	}
 
 	if message == "" {
-		message = fmt.Sprintf("Delete %d DAG(s)", len(targets))
+		message = fmt.Sprintf("Delete %d sync item(s)", len(targets))
 	}
 	commitHash, err := s.gitClient.CommitStaged(message)
 	if err != nil {
@@ -1218,7 +1263,7 @@ func (s *serviceImpl) DeleteAllMissing(ctx context.Context, message string) ([]s
 	_ = s.gitClient.RemoveFiles(repoPaths)
 
 	if message == "" {
-		message = fmt.Sprintf("Delete %d missing DAG(s)", len(missingIDs))
+		message = fmt.Sprintf("Delete %d missing sync item(s)", len(missingIDs))
 	}
 	commitHash, err := s.gitClient.CommitStaged(message)
 	if err != nil {
@@ -1259,6 +1304,9 @@ func (s *serviceImpl) Move(ctx context.Context, oldID, newID, message string, fo
 	if normalized != newID {
 		return &InvalidDAGIDError{DAGID: newID, Reason: fmt.Sprintf("must be normalized as %q", normalized)}
 	}
+	if KindForDAGID(oldID) != KindForDAGID(newID) {
+		return &ValidationError{Field: "newItemId", Message: "source and destination must have the same item type"}
+	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1277,7 +1325,7 @@ func (s *serviceImpl) Move(ctx context.Context, oldID, newID, message string, fo
 	if oldState.Status == StatusUntracked {
 		return &ValidationError{
 			Field:   oldID,
-			Message: "untracked DAGs cannot be moved — publish first",
+			Message: "untracked sync items cannot be moved — publish first",
 		}
 	}
 
@@ -1389,7 +1437,7 @@ func (s *serviceImpl) Move(ctx context.Context, oldID, newID, message string, fo
 
 	// On success: update state
 	contentHash := ComputeContentHash(content)
-	newDAGState := s.newSyncedDAGState(fileExtension, commitHash, contentHash)
+	newDAGState := s.newSyncedDAGState(newID, fileExtension, commitHash, contentHash)
 	if fi, err := os.Stat(newLocalPath); err == nil {
 		updateStatCache(newDAGState, fi)
 	}
@@ -1732,12 +1780,26 @@ func (s *serviceImpl) filePathToDAGID(filePath string) string {
 	return dagID
 }
 
+func isSyncableRepoFile(filePath, itemID string) bool {
+	if isBaseConfigID(itemID) {
+		return false
+	}
+	switch strings.ToLower(path.Ext(filePath)) {
+	case docExtension:
+		return isDocFile(itemID)
+	case dagYAMLExtension, dagYMLExtension:
+		return !isDocFile(itemID)
+	default:
+		return false
+	}
+}
+
 // resolvePublishTargets validates and canonicalizes DAG IDs for batch publish.
 func (s *serviceImpl) resolvePublishTargets(state *State, dagIDs []string) ([]string, error) {
 	if len(dagIDs) == 0 {
 		return nil, &ValidationError{
 			Field:   "dagIds",
-			Message: "at least one DAG ID is required",
+			Message: "at least one sync item ID is required",
 		}
 	}
 
@@ -1747,7 +1809,7 @@ func (s *serviceImpl) resolvePublishTargets(state *State, dagIDs []string) ([]st
 		if strings.TrimSpace(dagID) == "" {
 			return nil, &ValidationError{
 				Field:   fmt.Sprintf("dagIds[%d]", i),
-				Message: "DAG ID cannot be empty",
+				Message: "sync item ID cannot be empty",
 			}
 		}
 
@@ -1771,7 +1833,7 @@ func (s *serviceImpl) resolvePublishTargets(state *State, dagIDs []string) ([]st
 		if !exists {
 			return nil, &ValidationError{
 				Field:   "dagIds",
-				Message: fmt.Sprintf("DAG %q is not tracked by git sync", dagID),
+				Message: fmt.Sprintf("sync item %q is not tracked by git sync", dagID),
 			}
 		}
 
@@ -1781,22 +1843,22 @@ func (s *serviceImpl) resolvePublishTargets(state *State, dagIDs []string) ([]st
 		case StatusConflict:
 			return nil, &ValidationError{
 				Field:   "dagIds",
-				Message: fmt.Sprintf("DAG %q has conflicts and cannot be batch-published", dagID),
+				Message: fmt.Sprintf("sync item %q has conflicts and cannot be batch-published", dagID),
 			}
 		case StatusSynced:
 			return nil, &ValidationError{
 				Field:   "dagIds",
-				Message: fmt.Sprintf("DAG %q has no local changes", dagID),
+				Message: fmt.Sprintf("sync item %q has no local changes", dagID),
 			}
 		case StatusMissing:
 			return nil, &ValidationError{
 				Field:   "dagIds",
-				Message: fmt.Sprintf("DAG %q is missing from disk and cannot be published", dagID),
+				Message: fmt.Sprintf("sync item %q is missing from disk and cannot be published", dagID),
 			}
 		default:
 			return nil, &ValidationError{
 				Field:   "dagIds",
-				Message: fmt.Sprintf("DAG %q is in unsupported status %q", dagID, dagState.Status),
+				Message: fmt.Sprintf("sync item %q is in unsupported status %q", dagID, dagState.Status),
 			}
 		}
 	}
@@ -1804,7 +1866,7 @@ func (s *serviceImpl) resolvePublishTargets(state *State, dagIDs []string) ([]st
 	if len(resolved) == 0 {
 		return nil, &ValidationError{
 			Field:   "dagIds",
-			Message: "no publishable DAG IDs provided",
+			Message: "no publishable sync item IDs provided",
 		}
 	}
 
@@ -1839,13 +1901,13 @@ func normalizeDAGID(dagID string) (string, error) {
 
 	clean := path.Clean(normalized)
 	if clean == "." || clean == ".." {
-		return "", &InvalidDAGIDError{DAGID: dagID, Reason: "must point to a DAG ID, not current/parent directory"}
+		return "", &InvalidDAGIDError{DAGID: dagID, Reason: "must point to a sync item ID, not current/parent directory"}
 	}
 	if strings.HasPrefix(clean, "../") {
 		return "", &InvalidDAGIDError{DAGID: dagID, Reason: "path traversal is not allowed"}
 	}
 	if isBaseConfigID(clean) {
-		return "", &InvalidDAGIDError{DAGID: dagID, Reason: "base configuration paths are not DAG IDs"}
+		return "", &InvalidDAGIDError{DAGID: dagID, Reason: "base configuration paths are not sync item IDs"}
 	}
 
 	return clean, nil
@@ -2184,7 +2246,15 @@ func (s *serviceImpl) safeDAGIDToRepoPath(dagID, fileExtension string) (string, 
 }
 
 func (s *serviceImpl) dagFileExtension(dagID string, dagState *DAGState) string {
+	if isDocFile(dagID) {
+		if dagState != nil {
+			dagState.Kind = DAGKindDoc
+			dagState.FileExtension = docExtension
+		}
+		return docExtension
+	}
 	if dagState != nil {
+		dagState.Kind = DAGKindDAG
 		switch {
 		case strings.EqualFold(dagState.FileExtension, dagYMLExtension):
 			dagState.FileExtension = dagYMLExtension
@@ -2236,8 +2306,9 @@ func (s *serviceImpl) ensureDAGFileExtensions(state *State) bool {
 			continue
 		}
 		previousExtension := dagState.FileExtension
+		previousKind := dagState.Kind
 		s.dagFileExtension(dagID, dagState)
-		if dagState.FileExtension != previousExtension {
+		if dagState.FileExtension != previousExtension || dagState.Kind != previousKind {
 			changed = true
 		}
 	}
@@ -2311,7 +2382,7 @@ func (s *serviceImpl) validatePublishable(dagState *DAGState, dagID string, forc
 	if dagState.Status == StatusMissing {
 		return &ValidationError{
 			Field:   dagID,
-			Message: "DAG is missing from disk and cannot be published",
+			Message: "sync item is missing from disk and cannot be published",
 		}
 	}
 	if dagState.Status == StatusConflict && !force {
@@ -2337,10 +2408,11 @@ func (s *serviceImpl) ensureRepoReady(ctx context.Context) error {
 }
 
 // newSyncedDAGState creates a new DAGState in synced status.
-func (s *serviceImpl) newSyncedDAGState(fileExtension, commitHash, contentHash string) *DAGState {
+func (s *serviceImpl) newSyncedDAGState(dagID, fileExtension, commitHash, contentHash string) *DAGState {
 	now := time.Now()
 	return &DAGState{
 		Status:         StatusSynced,
+		Kind:           KindForDAGID(dagID),
 		FileExtension:  normalizeDAGFileExtension(fileExtension),
 		BaseCommit:     commitHash,
 		LastSyncedHash: contentHash,
@@ -2368,7 +2440,7 @@ func (s *serviceImpl) buildPullMessage(alreadyUpToDate bool, synced, conflicts [
 	if alreadyUpToDate {
 		return "Already up to date"
 	}
-	return fmt.Sprintf("Synced %d DAG(s)", len(synced))
+	return fmt.Sprintf("Synced %d sync item(s)", len(synced))
 }
 
 // computeStatusCounts computes the counts for each DAG status.

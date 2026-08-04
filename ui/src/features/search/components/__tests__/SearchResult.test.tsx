@@ -32,6 +32,7 @@ describe('SearchResult', () => {
     render(
       <MemoryRouter>
         <SearchResult
+          type="dag"
           query="needle"
           results={[
             {
@@ -76,6 +77,7 @@ describe('SearchResult', () => {
     render(
       <MemoryRouter>
         <SearchResult
+          type="dag"
           query="needle"
           workspaceQuery={{
             workspace: 'team-a',
@@ -125,6 +127,7 @@ describe('SearchResult', () => {
     render(
       <MemoryRouter>
         <SearchResult
+          type="dag"
           query="needle"
           results={[
             {
@@ -147,5 +150,53 @@ describe('SearchResult', () => {
 
     const link = screen.getByRole('link', { name: /build/i });
     expect(link.getAttribute('href')).toBe('/dags/build/spec?workspace=team-a');
+  });
+
+  it('loads more document matches with document workspace query', async () => {
+    render(
+      <MemoryRouter>
+        <SearchResult
+          type="doc"
+          query="needle"
+          results={[
+            {
+              id: 'team-a/docs/deploy',
+              title: 'deploy',
+              description: '',
+              workspace: 'team-a',
+              matches: [
+                {
+                  line: 'needle',
+                  lineNumber: 3,
+                  startLine: 3,
+                },
+              ],
+              hasMoreMatches: true,
+              nextMatchesCursor: 'cursor-1',
+            },
+          ]}
+        />
+      </MemoryRouter>
+    );
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Show more matches' })
+    );
+
+    await waitFor(() => {
+      expect(getMock).toHaveBeenCalledTimes(1);
+    });
+
+    expect(getMock).toHaveBeenCalledWith('/search/docs/matches', {
+      params: {
+        query: {
+          remoteNode: 'local',
+          path: 'docs/deploy',
+          q: 'needle',
+          cursor: 'cursor-1',
+          workspace: 'team-a',
+        },
+      },
+    });
   });
 });

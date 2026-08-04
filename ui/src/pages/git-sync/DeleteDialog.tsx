@@ -53,7 +53,7 @@ export function DeleteDialog({
     <Dialog open={open} onOpenChange={(o) => !o && onCancel()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="text-base">Delete DAG</DialogTitle>
+          <DialogTitle className="text-base">Delete Sync Item</DialogTitle>
           <DialogDescription className="text-xs">
             This action cannot be undone.
           </DialogDescription>

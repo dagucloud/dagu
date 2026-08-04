@@ -132,6 +132,8 @@ func TestScanLocalDAGs(t *testing.T) {
 
 	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "README.md"), []byte("# readme"), 0600))
 	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "my-dag.yaml"), []byte("steps: []"), 0600))
+	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "docs", "operations"), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "docs", "operations", "deploy.md"), []byte("# Deploy"), 0600))
 
 	s := &serviceImpl{
 		dagsDir: tempDir,
@@ -142,8 +144,18 @@ func TestScanLocalDAGs(t *testing.T) {
 	err := s.scanLocalDAGs(state)
 	require.NoError(t, err)
 
-	require.Len(t, state.DAGs, 1)
+	require.Len(t, state.DAGs, 2)
 	assert.Contains(t, state.DAGs, "my-dag")
+	assert.Equal(t, DAGKindDoc, state.DAGs["docs/operations/deploy"].Kind)
+	assert.Equal(t, docExtension, state.DAGs["docs/operations/deploy"].FileExtension)
+}
+
+func TestIsSyncableRepoFile(t *testing.T) {
+	t.Parallel()
+
+	assert.True(t, isSyncableRepoFile("workflow.yml", "workflow"))
+	assert.True(t, isSyncableRepoFile("docs/operations/deploy.md", "docs/operations/deploy"))
+	assert.False(t, isSyncableRepoFile("README.md", "README"))
 }
 
 func TestResolvePublishTargets(t *testing.T) {
@@ -227,6 +239,12 @@ func TestSafeDAGIDPathValidation(t *testing.T) {
 		path, err := s.safeDAGIDToRepoPath("reports/monthly", dagYMLExtension)
 		require.NoError(t, err)
 		assert.Equal(t, "subdir/reports/monthly.yml", path)
+	})
+
+	t.Run("uses markdown extension for documents", func(t *testing.T) {
+		path, err := s.safeDAGIDToRepoPath("docs/operations/deploy", docExtension)
+		require.NoError(t, err)
+		assert.Equal(t, "subdir/docs/operations/deploy.md", path)
 	})
 
 	t.Run("valid repo file path", func(t *testing.T) {
@@ -1107,6 +1125,17 @@ func TestMove_NonCanonicalID_Rejected(t *testing.T) {
 	err = impl.Move(context.Background(), "my-dag", "a/../b", "", false)
 	require.Error(t, err)
 	assert.True(t, IsInvalidDAGID(err))
+}
+
+func TestMove_RequiresMatchingItemKinds(t *testing.T) {
+	t.Parallel()
+	impl, _ := newTestService(t, testCfgReadWrite)
+
+	err := impl.Move(context.Background(), "workflow", "docs/workflow", "", false)
+	require.Error(t, err)
+	var validationErr *ValidationError
+	require.ErrorAs(t, err, &validationErr)
+	assert.Equal(t, "newItemId", validationErr.Field)
 }
 
 func TestMove_ConflictSource_WithoutForce_Rejected(t *testing.T) {

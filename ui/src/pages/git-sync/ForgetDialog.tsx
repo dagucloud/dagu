@@ -20,7 +20,7 @@ export function ForgetDialog({
 }: ForgetDialogProps) {
   return (
     <ConfirmModal
-      title="Forget DAG"
+      title="Forget Sync Item"
       buttonText={isForgetting ? 'Forgetting...' : 'Forget'}
       visible={open}
       dismissModal={onCancel}

@@ -23,6 +23,7 @@ import (
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/baseconfig"
+	"github.com/dagucloud/dagu/v2/internal/core/docs"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagsettings"
 	incidentmodel "github.com/dagucloud/dagu/v2/internal/incident"
@@ -84,6 +85,7 @@ type API struct {
 	dagWritesDisabled    bool // True when git sync read-only mode is active
 	baseConfigStore      baseconfig.Store
 	dagSettingsStore     dagsettings.Store
+	docStore             docs.DocStore
 	secretStore          secretpkg.Store
 	profileStore         profilepkg.Store
 	viewStore            view.Store
@@ -93,6 +95,7 @@ type API struct {
 	leaseStaleThreshold  time.Duration
 	schedulerStateStore  scheduler.WatermarkStore
 	dagMutationNotifier  func(fileName string)
+	docMutationNotifier  func()
 	baseConfigFactory    WorkspaceBaseConfigStoreFactory
 	oidcRoleMapping      func() config.OIDCRoleMapping
 }
@@ -258,6 +261,13 @@ func WithDAGSettingsStore(store dagsettings.Store) APIOption {
 	}
 }
 
+// WithDocStore returns an APIOption that sets the API's doc store.
+func WithDocStore(store docs.DocStore) APIOption {
+	return func(a *API) {
+		a.docStore = store
+	}
+}
+
 // WithLicenseManager returns an APIOption that sets the API's license manager.
 func WithLicenseManager(m *license.Manager) APIOption {
 	return func(a *API) {
@@ -305,6 +315,14 @@ func WithSchedulerStateStore(store scheduler.WatermarkStore) APIOption {
 func WithDAGMutationNotifier(fn func(fileName string)) APIOption {
 	return func(a *API) {
 		a.dagMutationNotifier = fn
+	}
+}
+
+// WithDocMutationNotifier returns an APIOption that is called after successful
+// document mutations that should invalidate live document views.
+func WithDocMutationNotifier(fn func()) APIOption {
+	return func(a *API) {
+		a.docMutationNotifier = fn
 	}
 }
 
@@ -386,6 +404,12 @@ func (a *API) requireValidBaseConfigWiring() {
 func (a *API) notifyDAGMutation(fileName string) {
 	if a.dagMutationNotifier != nil {
 		a.dagMutationNotifier(fileName)
+	}
+}
+
+func (a *API) notifyDocMutation() {
+	if a.docMutationNotifier != nil {
+		a.docMutationNotifier()
 	}
 }
 

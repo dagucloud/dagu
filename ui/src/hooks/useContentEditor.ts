@@ -19,6 +19,8 @@ interface UseContentEditorResult {
   hasUnsavedChanges: boolean;
   conflict: ConflictState;
   resolveConflict: (action: 'discard' | 'ignore') => void;
+  beginSave: (content: string) => void;
+  cancelSave: () => void;
   markAsSaved: (savedContent: string) => void;
   /** Revert editor to the last known server content, discarding all local edits. */
   discardChanges: () => void;
@@ -42,7 +44,7 @@ export function useContentEditor({
   // Track if user has started editing
   const hasUserEditedRef = useRef<boolean>(false);
 
-  // Track pending save content (to ignore our own saves coming back)
+  // Track pending save content so its server echo is not treated as external.
   const pendingSaveContentRef = useRef<string | null>(null);
 
   // Ref for currentValue to avoid effect re-runs on every keystroke
@@ -80,7 +82,7 @@ export function useContentEditor({
       return;
     }
 
-    // Check if this is our own save coming back
+    // Check if this is the pending save coming back.
     if (pendingSaveContentRef.current === serverContent) {
       lastServerContentRef.current = serverContent;
       pendingSaveContentRef.current = null;
@@ -151,6 +153,14 @@ export function useContentEditor({
     }
   }, []);
 
+  const beginSave = useCallback((content: string) => {
+    pendingSaveContentRef.current = content;
+  }, []);
+
+  const cancelSave = useCallback(() => {
+    pendingSaveContentRef.current = null;
+  }, []);
+
   // Called after successful save
   const markAsSaved = useCallback((savedContent: string) => {
     pendingSaveContentRef.current = savedContent;
@@ -170,6 +180,8 @@ export function useContentEditor({
     hasUnsavedChanges,
     conflict,
     resolveConflict,
+    beginSave,
+    cancelSave,
     markAsSaved,
     discardChanges,
   };

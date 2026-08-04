@@ -58,6 +58,15 @@ import { DiffModal } from './DiffModal';
 import { ForgetDialog } from './ForgetDialog';
 import { MoveDialog } from './MoveDialog';
 import { RowActionMenu } from './RowActionMenu';
+import {
+  createSyncKindCounts,
+  normalizeSyncItemKind,
+  parseSyncKind,
+  syncKindBadgeClass,
+  syncKindFilters,
+  syncKindLabels,
+  type SyncKind,
+} from './sync-kind';
 import { useSyncReconcile } from './useSyncReconcile';
 
 type SyncStatusResponse = components['schemas']['SyncStatusResponse'];
@@ -65,7 +74,7 @@ type SyncConfigResponse = components['schemas']['SyncConfigResponse'];
 type SyncItemDiffResponse = components['schemas']['SyncItemDiffResponse'];
 type SyncItem = components['schemas']['SyncItem'];
 type StatusFilter = 'all' | 'modified' | 'untracked' | 'conflict' | 'missing';
-type SyncRow = { itemId: string; item: SyncItem };
+type SyncRow = { itemId: string; item: SyncItem; kind: SyncKind };
 
 const statusFilters: StatusFilter[] = [
   'all',
@@ -220,10 +229,12 @@ export default function GitSyncPage() {
   });
 
   const statusFilter = parseStatusFilter(searchParams.get('status'));
+  const typeFilter = parseSyncKind(searchParams.get('type'));
 
   const setFilters = useCallback(
-    (next: Partial<{ status: StatusFilter }>) => {
+    (next: Partial<{ status: StatusFilter; type: SyncKind }>) => {
       const nextStatus = next.status ?? statusFilter;
+      const nextType = next.type ?? typeFilter;
       const params = new URLSearchParams(searchParams);
 
       if (nextStatus === 'all') {
@@ -232,9 +243,15 @@ export default function GitSyncPage() {
         params.set('status', nextStatus);
       }
 
+      if (nextType === 'dag') {
+        params.delete('type');
+      } else {
+        params.set('type', nextType);
+      }
+
       setSearchParams(params, { replace: true });
     },
-    [searchParams, setSearchParams, statusFilter]
+    [searchParams, setSearchParams, statusFilter, typeFilter]
   );
 
   const syncRows = useMemo<SyncRow[]>(
@@ -243,6 +260,7 @@ export default function GitSyncPage() {
         ? status.items.map((item) => ({
             itemId: item.itemId,
             item,
+            kind: normalizeSyncItemKind(item.kind),
           }))
         : [],
     [status?.items]
@@ -272,7 +290,7 @@ export default function GitSyncPage() {
     [syncRows]
   );
 
-  // Auto-select publishable DAGs without overriding manual choices on polling.
+  // Auto-select publishable items without overriding manual choices on polling.
   useEffect(() => {
     const next = publishableKey ? publishableKey.split(',') : [];
     const prev = prevPublishableRef.current
@@ -285,14 +303,14 @@ export default function GitSyncPage() {
         return new Set(next);
       }
 
-      // Keep any currently selected DAG that still exists.
+      // Keep any currently selected item that still exists.
       const updated = new Set<string>();
       for (const id of current) {
         if (allKnownItemIds.has(id)) {
           updated.add(id);
         }
       }
-      // Auto-add newly publishable DAGs.
+      // Auto-add newly publishable items.
       for (const id of next) {
         if (!prevSet.has(id)) {
           updated.add(id);
@@ -314,7 +332,7 @@ export default function GitSyncPage() {
       if (response.error) {
         showError(response.error.message || 'Pull failed');
       } else {
-        showToast(`Pulled ${response.data?.synced?.length || 0} DAGs`);
+        showToast(`Pulled ${response.data?.synced?.length || 0} items`);
         mutateStatus();
       }
     } catch (err) {
@@ -348,7 +366,7 @@ export default function GitSyncPage() {
       } else {
         const count = itemId
           ? itemId
-          : `${response.data?.synced?.length || 0} DAGs`;
+          : `${response.data?.synced?.length || 0} items`;
         showToast(`Published ${count}`);
         setPublishModal({ open: false });
         setDiffModal({ open: false });
@@ -415,7 +433,8 @@ export default function GitSyncPage() {
 
   const filteredRows = useMemo(
     () =>
-      syncRows.filter(({ itemId, item }) => {
+      syncRows.filter(({ itemId, item, kind }) => {
+        const typeMatches = kind === typeFilter;
         const statusMatches =
           statusFilter === 'all' || item.status === statusFilter;
         const normalizedQuery = deferredSearchQuery.trim().toLowerCase();
@@ -423,9 +442,9 @@ export default function GitSyncPage() {
           normalizedQuery === '' ||
           itemId.toLowerCase().includes(normalizedQuery) ||
           item.displayName.toLowerCase().includes(normalizedQuery);
-        return statusMatches && searchMatches;
+        return typeMatches && statusMatches && searchMatches;
       }),
-    [syncRows, statusFilter, deferredSearchQuery]
+    [syncRows, typeFilter, statusFilter, deferredSearchQuery]
   );
 
   const allVisibleItemIDs = useMemo(
@@ -463,6 +482,14 @@ export default function GitSyncPage() {
     });
   }, []);
 
+  const typeCounts = useMemo(() => {
+    const counts = createSyncKindCounts();
+    for (const { kind } of syncRows) {
+      counts[kind] += 1;
+    }
+    return counts;
+  }, [syncRows]);
+
   const statusCounts = useMemo(() => {
     const counts: Record<StatusFilter, number> = {
       all: 0,
@@ -472,7 +499,8 @@ export default function GitSyncPage() {
       missing: 0,
     };
 
-    for (const { item } of syncRows) {
+    for (const { item, kind } of syncRows) {
+      if (kind !== typeFilter) continue;
       counts.all += 1;
       if (item.status === SyncStatus.modified) counts.modified += 1;
       if (item.status === SyncStatus.untracked) counts.untracked += 1;
@@ -481,14 +509,14 @@ export default function GitSyncPage() {
     }
 
     return counts;
-  }, [syncRows]);
+  }, [syncRows, typeFilter]);
 
   const rowByID = useMemo(
     () => new Map(syncRows.map((row) => [row.itemId, row] as const)),
     [syncRows]
   );
 
-  // Deletable DAGs from current selection (synced, modified, conflict, missing — not untracked)
+  // Deletable items from the current selection exclude untracked entries.
   const deletableSelectedIds = useMemo(
     () =>
       Array.from(selectedDags).filter((id) => {
@@ -511,7 +539,7 @@ export default function GitSyncPage() {
     [deletableSelectedIds, rowByID]
   );
 
-  // Publishable DAGs from current selection
+  // Publishable items from the current selection.
   const publishableSelectedIds = useMemo(
     () =>
       Array.from(selectedDags).filter((id) => {
@@ -532,25 +560,46 @@ export default function GitSyncPage() {
   const canForcePublish = publishItemStatus === SyncStatus.conflict;
 
   const selectedCounts = useMemo(() => {
-    let total = 0;
-    for (const dagID of selectedDags) {
-      if (rowByID.has(dagID)) total += 1;
+    const counts = createSyncKindCounts();
+    for (const itemID of selectedDags) {
+      const row = rowByID.get(itemID);
+      if (row) counts[row.kind] += 1;
     }
-    return total;
+    return {
+      ...counts,
+      total: syncKindFilters.reduce((sum, kind) => sum + counts[kind], 0),
+    };
   }, [selectedDags, rowByID]);
 
   const emptyStateMessage = useMemo(() => {
+    const typeLabel = syncKindLabels[typeFilter].plural;
     if (searchQuery.trim()) {
       if (statusFilter === 'all') {
-        return `No DAGs matching "${searchQuery.trim()}"`;
+        return `No ${typeLabel} matching "${searchQuery.trim()}"`;
       }
-      return `No DAGs with ${statusFilter} status matching "${searchQuery.trim()}"`;
+      return `No ${typeLabel} with ${statusFilter} status matching "${searchQuery.trim()}"`;
     }
     if (statusFilter === 'all') {
-      return 'No DAGs';
+      return `No ${typeLabel}`;
     }
-    return `No DAGs with ${statusFilter} status`;
-  }, [searchQuery, statusFilter]);
+    return `No ${typeLabel} with ${statusFilter} status`;
+  }, [searchQuery, statusFilter, typeFilter]);
+
+  const selectedCountText = useMemo(
+    () =>
+      syncKindFilters
+        .filter((kind) => selectedCounts[kind] > 0)
+        .map((kind) => {
+          const count = selectedCounts[kind];
+          const label =
+            count === 1
+              ? syncKindLabels[kind].selectionSingular
+              : syncKindLabels[kind].selectionPlural;
+          return `${count} ${label}`;
+        })
+        .join(', '),
+    [selectedCounts]
+  );
 
   const missingCount = status?.counts?.missing || 0;
 
@@ -561,8 +610,9 @@ export default function GitSyncPage() {
         <GitBranch className="h-16 w-16 text-muted-foreground/30 mb-4" />
         <h2 className="text-xl font-semibold mb-2">Git Sync Not Configured</h2>
         <p className="text-muted-foreground max-w-md">
-          Git sync allows you to synchronize DAG definitions with a remote Git
-          repository. Configure it in your server settings.
+          Git sync allows you to synchronize workflow definitions and Markdown
+          documents with a remote Git repository. Configure it in your server
+          settings.
         </p>
       </div>
     );
@@ -643,7 +693,7 @@ export default function GitSyncPage() {
               size="sm"
               className="h-8 px-2 text-xs"
               onClick={() => setCleanupModal(true)}
-              title="Remove missing DAGs from sync tracking"
+              title="Remove missing items from sync tracking"
             >
               <EyeOff className="h-4 w-4 mr-1" />
               Cleanup
@@ -655,7 +705,7 @@ export default function GitSyncPage() {
               size="sm"
               className="h-8 px-2 text-xs text-destructive hover:text-destructive"
               onClick={() => setDeleteMissingModal(true)}
-              title="Delete all missing DAGs from remote repository"
+              title="Delete all missing items from remote repository"
             >
               <Trash2 className="h-4 w-4 mr-1" />
               Delete Missing
@@ -687,18 +737,35 @@ export default function GitSyncPage() {
 
       {/* Filter Controls */}
       <div className="flex items-center justify-between gap-2">
+        <div className="inline-flex items-center rounded-md border border-border/60 bg-card p-0.5 text-xs">
+          {syncKindFilters.map((kind) => (
+            <button
+              key={kind}
+              type="button"
+              onClick={() => setFilters({ type: kind })}
+              className={cn(
+                'px-2.5 py-1 rounded transition-colors',
+                typeFilter === kind
+                  ? 'bg-muted text-foreground'
+                  : 'text-muted-foreground hover:text-foreground'
+              )}
+            >
+              {syncKindLabels[kind].plural} ({typeCounts[kind]})
+            </button>
+          ))}
+        </div>
         <div className="w-full max-w-sm">
           <Input
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search DAGs..."
+            placeholder="Search items..."
             className="h-8 text-xs"
-            aria-label="Search synced DAGs"
+            aria-label="Search git sync items"
           />
         </div>
-        {selectedCounts > 0 && (
+        {selectedCounts.total > 0 && (
           <span className="text-xs text-muted-foreground">
-            Selected: {selectedCounts} DAG{selectedCounts !== 1 ? 's' : ''}
+            Selected: {selectedCountText}
           </span>
         )}
       </div>
@@ -706,7 +773,7 @@ export default function GitSyncPage() {
       <div
         className="flex items-center gap-1 text-xs border-b border-border/40"
         role="tablist"
-        aria-label="Filter DAGs by status"
+        aria-label="Filter items by status"
       >
         {statusFilters.map((f, index) => (
           <button
@@ -752,7 +819,7 @@ export default function GitSyncPage() {
                   <Checkbox
                     checked={allVisibleSelected}
                     onCheckedChange={handleToggleSelectAll}
-                    aria-label="Select all DAGs"
+                    aria-label={`Select all ${syncKindLabels[typeFilter].plural}`}
                   />
                 )}
               </TableHead>
@@ -773,7 +840,7 @@ export default function GitSyncPage() {
                 </TableCell>
               </TableRow>
             ) : (
-              filteredRows.map(({ itemId, item }) => (
+              filteredRows.map(({ itemId, item, kind }) => (
                 <TableRow
                   key={itemId}
                   className="h-9 cursor-pointer hover:bg-muted/50"
@@ -794,6 +861,16 @@ export default function GitSyncPage() {
                       >
                         {item.displayName}
                       </span>
+                      {syncKindBadgeClass[kind] && (
+                        <span
+                          className={cn(
+                            'text-[10px] px-1 py-0 rounded',
+                            syncKindBadgeClass[kind]
+                          )}
+                        >
+                          {syncKindLabels[kind].badge}
+                        </span>
+                      )}
                     </div>
                   </TableCell>
                   <TableCell>
@@ -1140,6 +1217,11 @@ export default function GitSyncPage() {
       <MoveDialog
         open={moveModal.open}
         itemId={moveModal.itemId || ''}
+        itemKind={
+          moveModal.itemId
+            ? rowByID.get(moveModal.itemId)?.kind || 'dag'
+            : 'dag'
+        }
         itemStatus={
           moveModal.itemId
             ? rowByID.get(moveModal.itemId)?.item.status || SyncStatus.synced

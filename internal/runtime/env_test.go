@@ -1015,6 +1015,23 @@ func TestEnv_SpecialEnvVars_DAGParamsJSON(t *testing.T) {
 	assert.Equal(t, `{"a":"b"}`, result[exec.EnvKeyDAGParamsJSONCompat])
 }
 
+func TestEnv_SpecialEnvVars_DAGDocsDir(t *testing.T) {
+	t.Parallel()
+
+	docsDir := filepath.Join(t.TempDir(), "docs")
+	cfg := &config.Config{}
+	cfg.Paths.DocsDir = docsDir
+	ctx := config.WithConfig(context.Background(), cfg)
+	dag := &core.DAG{Name: "test-dag", WorkingDir: t.TempDir()}
+	ctx = runtime.NewContext(ctx, dag, "run-1", "test.log")
+
+	env := runtime.NewEnv(ctx, core.Step{Name: "step1"})
+	ctx = runtime.WithEnv(ctx, env)
+	result := runtime.AllEnvsMap(ctx)
+
+	assert.Equal(t, filepath.Join(docsDir, dag.Name), result[exec.EnvKeyDAGDocsDir])
+}
+
 func TestEnv_SpecialEnvVars_DAGRunWorkDir(t *testing.T) {
 	t.Parallel()
 

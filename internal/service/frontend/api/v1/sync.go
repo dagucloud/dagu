@@ -124,7 +124,7 @@ func (a *API) SyncPull(ctx context.Context, _ api.SyncPullRequestObject) (api.Sy
 	return api.SyncPull200JSONResponse(toAPISyncResult(result)), nil
 }
 
-// SyncPublishAll publishes selected DAGs.
+// SyncPublishAll publishes selected sync items.
 func (a *API) SyncPublishAll(ctx context.Context, req api.SyncPublishAllRequestObject) (api.SyncPublishAllResponseObject, error) {
 	if err := a.requireSyncService(); err != nil {
 		return nil, err
@@ -149,7 +149,7 @@ func (a *API) SyncPublishAll(ctx context.Context, req api.SyncPublishAllRequestO
 	if len(itemIDs) == 0 {
 		return nil, &Error{
 			Code:       api.ErrorCodeBadRequest,
-			Message:    "No modified or untracked DAGs to publish",
+			Message:    "No modified or untracked sync items to publish",
 			HTTPStatus: http.StatusBadRequest,
 		}
 	}
@@ -413,14 +413,14 @@ func (a *API) SyncCleanup(ctx context.Context, _ api.SyncCleanupRequestObject) (
 		"forgotten": forgotten,
 	})
 
-	message := fmt.Sprintf("Cleaned up %d missing DAG(s)", len(forgotten))
+	message := fmt.Sprintf("Cleaned up %d missing sync item(s)", len(forgotten))
 	return api.SyncCleanup200JSONResponse{
 		Forgotten: forgotten,
 		Message:   message,
 	}, nil
 }
 
-// DeleteSyncItem deletes a DAG from remote, local, and state.
+// DeleteSyncItem deletes a sync item from remote, local, and state.
 func (a *API) DeleteSyncItem(ctx context.Context, req api.DeleteSyncItemRequestObject) (api.DeleteSyncItemResponseObject, error) {
 	if err := a.requireSyncService(); err != nil {
 		return nil, err
@@ -474,7 +474,7 @@ func (a *API) DeleteSyncItem(ctx context.Context, req api.DeleteSyncItemRequestO
 	}, nil
 }
 
-// SyncDeleteMissing deletes all missing DAGs from remote, local, and state.
+// SyncDeleteMissing deletes all missing sync items from remote, local, and state.
 func (a *API) SyncDeleteMissing(ctx context.Context, req api.SyncDeleteMissingRequestObject) (api.SyncDeleteMissingResponseObject, error) {
 	if err := a.requireSyncService(); err != nil {
 		return nil, err
@@ -509,11 +509,11 @@ func (a *API) SyncDeleteMissing(ctx context.Context, req api.SyncDeleteMissingRe
 
 	return api.SyncDeleteMissing200JSONResponse{
 		Deleted: deleted,
-		Message: fmt.Sprintf("Deleted %d missing DAG(s)", len(deleted)),
+		Message: fmt.Sprintf("Deleted %d missing sync item(s)", len(deleted)),
 	}, nil
 }
 
-// SyncDeleteBatch deletes multiple DAGs from remote, local, and state in a single commit.
+// SyncDeleteBatch deletes multiple sync items in a single commit.
 func (a *API) SyncDeleteBatch(ctx context.Context, req api.SyncDeleteBatchRequestObject) (api.SyncDeleteBatchResponseObject, error) {
 	if err := a.requireSyncService(); err != nil {
 		return nil, err
@@ -581,11 +581,11 @@ func (a *API) SyncDeleteBatch(ctx context.Context, req api.SyncDeleteBatchReques
 
 	return api.SyncDeleteBatch200JSONResponse{
 		Deleted: deleted,
-		Message: fmt.Sprintf("Deleted %d DAG(s)", len(deleted)),
+		Message: fmt.Sprintf("Deleted %d sync item(s)", len(deleted)),
 	}, nil
 }
 
-// MoveSyncItem atomically renames a DAG across local, remote, and state.
+// MoveSyncItem atomically renames a sync item across local, remote, and state.
 func (a *API) MoveSyncItem(ctx context.Context, req api.MoveSyncItemRequestObject) (api.MoveSyncItemResponseObject, error) {
 	if err := a.requireSyncService(); err != nil {
 		return nil, err
@@ -694,6 +694,9 @@ func toAPISyncStatus(s gitsync.SyncStatus) api.SyncStatus {
 }
 
 func syncItemFilePath(itemID, fileExtension string) string {
+	if gitsync.KindForDAGID(itemID) == gitsync.DAGKindDoc {
+		return itemID + ".md"
+	}
 	if strings.EqualFold(fileExtension, ".yml") {
 		return itemID + ".yml"
 	}
@@ -716,6 +719,7 @@ func toAPISyncItems(states map[string]*gitsync.DAGState) []api.SyncItem {
 			FilePath:           filePath,
 			DisplayName:        filePath,
 			Status:             toAPISyncStatus(state.Status),
+			Kind:               toAPISyncItemKind(itemID),
 			BaseCommit:         ptrOf(state.BaseCommit),
 			LastSyncedHash:     ptrOf(state.LastSyncedHash),
 			LastSyncedAt:       state.LastSyncedAt,
@@ -738,6 +742,13 @@ func toAPISyncItems(states map[string]*gitsync.DAGState) []api.SyncItem {
 	})
 
 	return result
+}
+
+func toAPISyncItemKind(itemID string) api.SyncItemKind {
+	if gitsync.KindForDAGID(itemID) == gitsync.DAGKindDoc {
+		return api.SyncItemKindDoc
+	}
+	return api.SyncItemKindDag
 }
 
 func toAPISyncCounts(counts gitsync.StatusCounts) api.SyncStatusCounts {

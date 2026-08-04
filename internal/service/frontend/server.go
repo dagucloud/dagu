@@ -498,6 +498,12 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 		}
 	}
 
+	if stores.DocStoreFactory != nil {
+		if docStore := stores.DocStoreFactory(cfg); docStore != nil {
+			apiOpts = append(apiOpts, apiv1.WithDocStore(docStore))
+		}
+	}
+
 	if stores.ViewStoreFactory != nil {
 		store, err := stores.ViewStoreFactory(cfg)
 		if err != nil {
@@ -659,6 +665,13 @@ func NewServer(ctx context.Context, cfg *config.Config, dr exec.DAGStore, drs ex
 		}
 		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGsList)
 		srv.sseMultiplexer.WakeTopic(sse.TopicTypeDAG, fileName)
+	}))
+	apiOpts = append(apiOpts, apiv1.WithDocMutationNotifier(func() {
+		if srv.sseMultiplexer == nil {
+			return
+		}
+		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDocTree)
+		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDoc)
 	}))
 	// Pass license manager to API
 	if srv.licenseManager != nil {
@@ -1295,6 +1308,9 @@ func (srv *Server) wakeMultiplexedTopicsForAppEvent(event sse.AppEvent) {
 		} else {
 			srv.sseMultiplexer.WakeTopicType(sse.TopicTypeQueueItems)
 		}
+	case sse.AppEventTypeDoc:
+		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDocTree)
+		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDoc)
 	case sse.AppEventTypeReset:
 		srv.wakeAllMultiplexedFileBackedTopics()
 	}
@@ -1309,6 +1325,8 @@ func (srv *Server) wakeAllMultiplexedFileBackedTopics() {
 	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeQueueItems)
 	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeQueues)
 	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGsList)
+	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDoc)
+	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDocTree)
 }
 
 func (srv *Server) setupMCPRoute(ctx context.Context, r *chi.Mux) {
@@ -1355,8 +1373,15 @@ func (srv *Server) registerDedicatedSSEFetchers(registrar *sse.Multiplexer) {
 	registrar.RegisterFetcher(sse.TopicTypeDAGRuns, srv.apiV1.GetDAGRunsListData)
 	registrar.RegisterFetcher(sse.TopicTypeQueues, srv.apiV1.GetQueuesListData)
 	registrar.RegisterFetcher(sse.TopicTypeDAGsList, srv.apiV1.GetDAGsListData)
+	registrar.RegisterFetcher(sse.TopicTypeDoc, srv.apiV1.GetDocContentData)
+	registrar.RegisterFetcher(sse.TopicTypeDocTree, srv.apiV1.GetDocTreeData)
 
 	appStreamAvailable := srv.appStream != nil
+	if appStreamAvailable {
+		registrar.SetRefreshMode(sse.TopicTypeDoc, sse.TopicRefreshModeOnDemand)
+		registrar.SetRefreshMode(sse.TopicTypeDocTree, sse.TopicRefreshModeOnDemand)
+		registrar.SetPublishOnWake(sse.TopicTypeDocTree, true)
+	}
 
 	// Run-driven topics have an event-store invalidation path. Keeping them on
 	// demand avoids repeated history and run-list reads while browsers are
