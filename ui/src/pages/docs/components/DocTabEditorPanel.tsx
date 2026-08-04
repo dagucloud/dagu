@@ -135,23 +135,30 @@ function DocTabEditorPanel({ onDeleteDoc, toolbar, onContentChange }: Props) {
       </div>
       <div className="flex-1 overflow-hidden min-h-0">
         {activeTab ? (
-          <DocEditor
+          <div
             key={activeTab.id}
-            tabId={activeTab.id}
-            docPath={activeTab.docPath}
-            workspace={activeTab.workspace}
-            onDeleteDoc={
-              onDeleteDoc
-                ? () =>
-                    onDeleteDoc(
-                      activeTab.docPath,
-                      activeTab.title,
-                      activeTab.workspace
-                    )
-                : undefined
-            }
-            onContentChange={onContentChange}
-          />
+            id={`doc-tabpanel-${activeTab.id}`}
+            role="tabpanel"
+            aria-labelledby={`doc-tab-${activeTab.id}`}
+            className="h-full"
+          >
+            <DocEditor
+              tabId={activeTab.id}
+              docPath={activeTab.docPath}
+              workspace={activeTab.workspace}
+              onDeleteDoc={
+                onDeleteDoc
+                  ? () =>
+                      onDeleteDoc(
+                        activeTab.docPath,
+                        activeTab.title,
+                        activeTab.workspace
+                      )
+                  : undefined
+              }
+              onContentChange={onContentChange}
+            />
+          </div>
         ) : (
           <div className="flex items-center justify-center h-full">
             <p className="text-sm text-muted-foreground">

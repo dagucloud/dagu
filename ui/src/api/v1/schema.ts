@@ -15102,6 +15102,15 @@ export interface operations {
                     "application/json": components["schemas"]["DocDeleteBatchResponse"];
                 };
             };
+            /** @description Invalid batch delete request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             /** @description Unexpected error */
             default: {
                 headers: {

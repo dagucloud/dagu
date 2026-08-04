@@ -17,5 +17,8 @@ func renameNoReplace(oldPath, newPath string) error {
 	if errors.Is(err, unix.EEXIST) {
 		return docs.ErrDocAlreadyExists
 	}
+	if errors.Is(err, unix.ENOTSUP) || errors.Is(err, unix.ENOSYS) || errors.Is(err, unix.EINVAL) {
+		return renameNoReplaceFallback(oldPath, newPath)
+	}
 	return err
 }

@@ -164,6 +164,7 @@ func normalizeDAGFileExtension(extension string) string {
 type serviceImpl struct {
 	cfg          *Config
 	dagsDir      string
+	docsDir      string
 	dataDir      string
 	stateManager *StateManager
 	gitClient    *GitClient
@@ -173,11 +174,15 @@ type serviceImpl struct {
 }
 
 // NewService creates a new Git sync service.
-func NewService(cfg *Config, dagsDir, dataDir string) Service {
+func NewService(cfg *Config, dagsDir, docsPath, dataDir string) Service {
 	repoPath := filepath.Join(dataDir, "gitsync", "repo")
+	if docsPath == "" {
+		docsPath = filepath.Join(dagsDir, docsDir)
+	}
 	return &serviceImpl{
 		cfg:          cfg,
 		dagsDir:      dagsDir,
+		docsDir:      docsPath,
 		dataDir:      dataDir,
 		stateManager: NewStateManager(dataDir),
 		gitClient:    NewGitClient(cfg, repoPath),
@@ -289,7 +294,10 @@ func (s *serviceImpl) syncFilesToDAGsDir(_ context.Context, pullResult *PullResu
 
 		dagState := state.DAGs[dagID]
 		localExtension := s.dagFileExtension(dagID, dagState)
-		if localExtension != fileExtension {
+		localFileExtension := fileExtension
+		if isDocFile(dagID) && strings.EqualFold(localExtension, fileExtension) {
+			localFileExtension = localExtension
+		} else if localExtension != fileExtension {
 			if err := s.migrateLocalDAGExtension(dagID, localExtension, fileExtension); err != nil {
 				return nil, nil, err
 			}
@@ -298,7 +306,7 @@ func (s *serviceImpl) syncFilesToDAGsDir(_ context.Context, pullResult *PullResu
 			}
 		}
 
-		dagFilePath, err := s.safeDAGIDToFilePath(dagID, fileExtension)
+		dagFilePath, err := s.safeDAGIDToFilePath(dagID, localFileExtension)
 		if err != nil {
 			continue
 		}
@@ -331,7 +339,7 @@ func (s *serviceImpl) syncFilesToDAGsDir(_ context.Context, pullResult *PullResu
 			newState := &DAGState{
 				Status:         StatusSynced,
 				Kind:           KindForDAGID(dagID),
-				FileExtension:  fileExtension,
+				FileExtension:  localFileExtension,
 				BaseCommit:     pullResult.CurrentCommit,
 				LastSyncedHash: repoHash,
 				LastSyncedAt:   &now,
@@ -355,7 +363,7 @@ func (s *serviceImpl) syncFilesToDAGsDir(_ context.Context, pullResult *PullResu
 				newState := &DAGState{
 					Status:         StatusSynced,
 					Kind:           KindForDAGID(dagID),
-					FileExtension:  fileExtension,
+					FileExtension:  localFileExtension,
 					BaseCommit:     pullResult.CurrentCommit,
 					LastSyncedHash: repoHash,
 					LastSyncedAt:   &now,
@@ -384,7 +392,7 @@ func (s *serviceImpl) syncFilesToDAGsDir(_ context.Context, pullResult *PullResu
 				state.DAGs[dagID] = &DAGState{
 					Status:             StatusConflict,
 					Kind:               KindForDAGID(dagID),
-					FileExtension:      fileExtension,
+					FileExtension:      localFileExtension,
 					BaseCommit:         dagState.BaseCommit,
 					LastSyncedHash:     dagState.LastSyncedHash,
 					LastSyncedAt:       dagState.LastSyncedAt,
@@ -412,7 +420,7 @@ func (s *serviceImpl) syncFilesToDAGsDir(_ context.Context, pullResult *PullResu
 			newState := &DAGState{
 				Status:         StatusSynced,
 				Kind:           KindForDAGID(dagID),
-				FileExtension:  fileExtension,
+				FileExtension:  localFileExtension,
 				BaseCommit:     pullResult.CurrentCommit,
 				LastSyncedHash: repoHash,
 				LastSyncedAt:   &now,
@@ -533,20 +541,21 @@ func (s *serviceImpl) scanLocalDAGs(state *State) error {
 }
 
 func (s *serviceImpl) scanDocFiles(state *State) {
-	docDir := filepath.Join(s.dagsDir, docsDir)
+	docDir := s.localDocsDir()
 	_ = filepath.WalkDir(docDir, func(filePath string, entry os.DirEntry, walkErr error) error {
-		if walkErr != nil || entry.IsDir() || !strings.EqualFold(filepath.Ext(filePath), docExtension) {
+		ext := filepath.Ext(filePath)
+		if walkErr != nil || entry.IsDir() || !strings.EqualFold(ext, docExtension) {
 			return nil
 		}
-		relPath, err := filepath.Rel(s.dagsDir, filePath)
+		relPath, err := filepath.Rel(docDir, filePath)
 		if err != nil {
 			return nil
 		}
-		itemID := strings.TrimSuffix(filepath.ToSlash(relPath), docExtension)
+		itemID := path.Join(docsDir, strings.TrimSuffix(filepath.ToSlash(relPath), ext))
 		if _, exists := state.DAGs[itemID]; exists {
 			return nil
 		}
-		content, err := safeReadFileWithinBase(s.dagsDir, filePath)
+		content, err := safeReadFileWithinBase(docDir, filePath)
 		if err != nil {
 			return nil
 		}
@@ -554,7 +563,7 @@ func (s *serviceImpl) scanDocFiles(state *State) {
 		itemState := &DAGState{
 			Status:        StatusUntracked,
 			Kind:          DAGKindDoc,
-			FileExtension: docExtension,
+			FileExtension: ext,
 			LocalHash:     ComputeContentHash(content),
 			ModifiedAt:    &now,
 		}
@@ -2198,14 +2207,14 @@ func (s *serviceImpl) writeDAGFile(dagID, filePath string, content []byte) error
 	if _, err := normalizeDAGID(dagID); err != nil {
 		return err
 	}
-	return safeWriteFileWithinBase(s.dagsDir, filePath, content, 0600)
+	return safeWriteFileWithinBase(s.localBaseDir(dagID), filePath, content, 0600)
 }
 
 func (s *serviceImpl) readDAGFile(dagID, filePath string) ([]byte, error) {
 	if _, err := normalizeDAGID(dagID); err != nil {
 		return nil, err
 	}
-	return safeReadFileWithinBase(s.dagsDir, filePath)
+	return safeReadFileWithinBase(s.localBaseDir(dagID), filePath)
 }
 
 func (s *serviceImpl) safeDAGIDToFilePath(dagID, fileExtension string) (string, error) {
@@ -2213,7 +2222,37 @@ func (s *serviceImpl) safeDAGIDToFilePath(dagID, fileExtension string) (string, 
 	if err != nil {
 		return "", err
 	}
-	return safeJoinWithinBase(s.dagsDir, filepath.FromSlash(normalized+normalizeDAGFileExtension(fileExtension)))
+	baseDir := s.dagsDir
+	localID := normalized
+	if isDocFile(normalized) {
+		baseDir = s.localDocsDir()
+		localID = strings.TrimPrefix(normalized, docsDir+"/")
+	}
+	return safeJoinWithinBase(baseDir, filepath.FromSlash(localID+normalizeLocalFileExtension(normalized, fileExtension)))
+}
+
+func (s *serviceImpl) localDocsDir() string {
+	if s.docsDir != "" {
+		return s.docsDir
+	}
+	return filepath.Join(s.dagsDir, docsDir)
+}
+
+func (s *serviceImpl) localBaseDir(itemID string) string {
+	if isDocFile(itemID) {
+		return s.localDocsDir()
+	}
+	return s.dagsDir
+}
+
+func normalizeLocalFileExtension(itemID, extension string) string {
+	if isDocFile(itemID) {
+		if strings.EqualFold(extension, docExtension) {
+			return extension
+		}
+		return docExtension
+	}
+	return normalizeDAGFileExtension(extension)
 }
 
 func (s *serviceImpl) safeRepoPathToFilePath(repoPath string) (string, error) {
@@ -2249,6 +2288,9 @@ func (s *serviceImpl) dagFileExtension(dagID string, dagState *DAGState) string 
 	if isDocFile(dagID) {
 		if dagState != nil {
 			dagState.Kind = DAGKindDoc
+			if strings.EqualFold(dagState.FileExtension, docExtension) {
+				return dagState.FileExtension
+			}
 			dagState.FileExtension = docExtension
 		}
 		return docExtension
@@ -2413,7 +2455,7 @@ func (s *serviceImpl) newSyncedDAGState(dagID, fileExtension, commitHash, conten
 	return &DAGState{
 		Status:         StatusSynced,
 		Kind:           KindForDAGID(dagID),
-		FileExtension:  normalizeDAGFileExtension(fileExtension),
+		FileExtension:  normalizeLocalFileExtension(dagID, fileExtension),
 		BaseCommit:     commitHash,
 		LastSyncedHash: contentHash,
 		LastSyncedAt:   &now,

@@ -161,6 +161,24 @@ func TestUpdate(t *testing.T) {
 	assert.Equal(t, "updated content", doc.Content)
 }
 
+func TestUpdateSucceedsWhenMetadataIsCorrupt(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	require.NoError(t, store.Create(ctx, "test-doc", "original"))
+	require.NoError(t, os.WriteFile(store.metadataPath(), []byte("not json"), filePermissions))
+
+	require.NoError(t, store.Update(ctx, "test-doc", "updated content"))
+	doc, err := store.Get(ctx, "test-doc")
+	require.NoError(t, err)
+	assert.Equal(t, "updated content", doc.Content)
+
+	result, err := store.ListFlat(ctx, defaultFlatOpts(1, 10))
+	require.NoError(t, err)
+	require.Len(t, result.Items, 1)
+	assert.Equal(t, "test-doc", result.Items[0].ID)
+}
+
 func TestUpdateNotFound(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
@@ -774,6 +792,16 @@ func TestValidateDocIDBoundary(t *testing.T) {
 	assert.ErrorIs(t, docs.ValidateDocID(strings.Repeat("a", 253)), docs.ErrInvalidDocID)
 }
 
+func TestValidateDocIDRejectsReservedDeviceNames(t *testing.T) {
+	for _, id := range []string{"CON", "guides/prn", "aux.txt", "COM1", "lpt9.log"} {
+		t.Run(id, func(t *testing.T) {
+			assert.ErrorIs(t, docs.ValidateDocID(id), docs.ErrInvalidDocID)
+		})
+	}
+	assert.NoError(t, docs.ValidateDocID("console"))
+	assert.NoError(t, docs.ValidateDocID("com10"))
+}
+
 func TestTimestamps(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
@@ -1266,7 +1294,6 @@ func TestListFlatEmptyStore(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 
-	// Out-of-range page on empty store.
 	result, err := store.ListFlat(ctx, defaultFlatOpts(5, 10))
 	require.NoError(t, err)
 	assert.Equal(t, 0, result.TotalCount)

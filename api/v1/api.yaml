@@ -7199,6 +7199,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/DocDeleteBatchResponse"
+        "400":
+          description: "Invalid batch delete request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         default:
           description: "Unexpected error"
           content:

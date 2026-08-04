@@ -295,6 +295,8 @@ func (a *API) SearchDocMatches(ctx context.Context, request api.SearchDocMatches
 	}
 	result, err := a.docStore.SearchMatches(ctx, request.Params.Path, matchOpts)
 	if err != nil && errors.Is(err, exec.ErrInvalidCursor) && workspaceName != "" && cursor != "" {
+		// Aggregate-search cursors encode an empty path prefix. Replaying the
+		// workspace-qualified ID preserves the authorized document scope.
 		aggregatePath, scopeErr := scopedDocPath(workspaceName, request.Params.Path)
 		if scopeErr == nil {
 			aggregateOpts := matchOpts

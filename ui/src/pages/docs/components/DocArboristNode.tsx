@@ -183,6 +183,7 @@ function DocArboristNode({
             onKeyDown={handleKeyDown}
             onBlur={submitOrReset}
             className="w-full text-sm bg-background border border-border rounded px-1 py-0 outline-none focus:ring-1 focus:ring-primary"
+            aria-label={`Rename ${displayTitle}`}
           />
         </form>
       ) : (

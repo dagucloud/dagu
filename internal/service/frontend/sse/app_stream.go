@@ -342,6 +342,9 @@ func (w *directoryWatcher) addCreatedDirWatches(path string) error {
 	}
 	return filepath.WalkDir(path, func(childPath string, entry os.DirEntry, err error) error {
 		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return nil
+			}
 			return err
 		}
 		if !entry.IsDir() {
@@ -349,6 +352,9 @@ func (w *directoryWatcher) addCreatedDirWatches(path string) error {
 		}
 		info, err := entry.Info()
 		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return nil
+			}
 			return err
 		}
 		if info.Mode()&os.ModeSymlink != 0 {

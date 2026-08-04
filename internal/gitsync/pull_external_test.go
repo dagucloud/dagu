@@ -44,7 +44,7 @@ func TestPullCreatesMissingDAGsDirOnInitialSync(t *testing.T) {
 		Enabled:    true,
 		Repository: remotePath,
 		Branch:     "main",
-	}, dagsDir, dataDir)
+	}, dagsDir, filepath.Join(dagsDir, "docs"), dataDir)
 
 	result, err := svc.Pull(ctx)
 
@@ -87,7 +87,7 @@ func TestPullPreservesShortYAMLExtension(t *testing.T) {
 		Enabled:    true,
 		Repository: remotePath,
 		Branch:     "main",
-	}, dagsDir, dataDir)
+	}, dagsDir, filepath.Join(dagsDir, "docs"), dataDir)
 
 	result, err := svc.Pull(ctx)
 
@@ -103,6 +103,46 @@ func TestPullPreservesShortYAMLExtension(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, status.DAGs, "short")
 	assert.Equal(t, ".yml", status.DAGs["short"].FileExtension)
+}
+
+func TestPullWritesDocumentsToConfiguredDocsDir(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	remotePath := filepath.Join(root, "remote")
+	remoteRepo := initPullExternalTestRepo(t, remotePath)
+	commitPullExternalTestFile(t, remoteRepo, remotePath, "docs/operations/deploy.md", "# Deploy\n", "initial")
+
+	dataDir := filepath.Join(root, "data")
+	repoPath := filepath.Join(dataDir, "gitsync", "repo")
+	_, err := git.PlainCloneContext(ctx, repoPath, false, &git.CloneOptions{
+		URL:           remotePath,
+		ReferenceName: plumbing.NewBranchReferenceName("main"),
+		SingleBranch:  true,
+		Depth:         1,
+	})
+	require.NoError(t, err)
+
+	dagsDir := filepath.Join(root, "dags")
+	docsPath := filepath.Join(root, "content")
+	svc := gitsync.NewService(&gitsync.Config{
+		Enabled:    true,
+		Repository: remotePath,
+		Branch:     "main",
+	}, dagsDir, docsPath, dataDir)
+
+	result, err := svc.Pull(ctx)
+
+	require.NoError(t, err)
+	require.True(t, result.Success)
+	assert.Contains(t, result.Synced, "docs/operations/deploy")
+
+	content, err := os.ReadFile(filepath.Join(docsPath, "operations", "deploy.md"))
+	require.NoError(t, err)
+	assert.Equal(t, "# Deploy\n", string(content))
+	_, err = os.Stat(filepath.Join(dagsDir, "docs", "operations", "deploy.md"))
+	assert.ErrorIs(t, err, os.ErrNotExist)
 }
 
 func TestPullReturnsErrorWhenMissingDAGsDirCannotBeCreated(t *testing.T) {
@@ -131,7 +171,7 @@ func TestPullReturnsErrorWhenMissingDAGsDirCannotBeCreated(t *testing.T) {
 		Enabled:    true,
 		Repository: remotePath,
 		Branch:     "main",
-	}, dagsDir, dataDir)
+	}, dagsDir, filepath.Join(dagsDir, "docs"), dataDir)
 
 	result, err := svc.Pull(ctx)
 
@@ -160,6 +200,7 @@ func commitPullExternalTestFile(t *testing.T, repo *git.Repository, repoPath, fi
 	t.Helper()
 
 	fullPath := filepath.Join(repoPath, filePath)
+	require.NoError(t, os.MkdirAll(filepath.Dir(fullPath), 0755))
 	require.NoError(t, os.WriteFile(fullPath, []byte(content), 0644))
 
 	wt, err := repo.Worktree()

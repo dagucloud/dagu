@@ -22,5 +22,5 @@ export function useDocSSE(
   }
   const query = params.toString();
   const endpoint = `/events/docs/${encodedPath}${query ? `?${query}` : ''}`;
-  return useSSE<DocResponse>(endpoint, enabled && !!docPath);
+  return useSSE<DocResponse>(endpoint, enabled && !!docPath, remoteNode);
 }

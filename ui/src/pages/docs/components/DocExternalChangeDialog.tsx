@@ -10,7 +10,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { AlertTriangle, RefreshCw, X } from 'lucide-react';
-import React from 'react';
 
 type Props = {
   visible: boolean;
@@ -19,36 +18,6 @@ type Props = {
 };
 
 function DocExternalChangeDialog({ visible, onDiscard, onIgnore }: Props) {
-  const ignoreButtonRef = React.useRef<HTMLButtonElement>(null);
-  const discardButtonRef = React.useRef<HTMLButtonElement>(null);
-
-  React.useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (!visible) return;
-
-      if (e.key === 'Enter') {
-        const activeElement = document.activeElement;
-
-        if (activeElement === ignoreButtonRef.current) {
-          e.preventDefault();
-          onIgnore();
-          return;
-        }
-
-        if (activeElement === discardButtonRef.current) {
-          e.preventDefault();
-          onDiscard();
-          return;
-        }
-
-        // No default action — Enter only triggers when a specific button is focused
-      }
-    };
-
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [visible, onDiscard, onIgnore]);
-
   return (
     <Dialog open={visible} onOpenChange={(open) => !open && onIgnore()}>
       <DialogContent className="sm:max-w-[500px]">
@@ -80,11 +49,11 @@ function DocExternalChangeDialog({ visible, onDiscard, onIgnore }: Props) {
         </div>
 
         <DialogFooter>
-          <Button ref={ignoreButtonRef} variant="ghost" onClick={onIgnore}>
+          <Button variant="ghost" onClick={onIgnore}>
             <X className="h-4 w-4" />
             Ignore
           </Button>
-          <Button ref={discardButtonRef} variant="primary" onClick={onDiscard}>
+          <Button variant="primary" onClick={onDiscard}>
             <RefreshCw className="h-4 w-4" />
             Discard & Reload
           </Button>

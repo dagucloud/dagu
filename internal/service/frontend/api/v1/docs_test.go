@@ -643,6 +643,15 @@ func TestListDocs(t *testing.T) {
 	})
 }
 
+func TestGetDocTreeDataRejectsMalformedQuery(t *testing.T) {
+	t.Parallel()
+
+	setup := newDocTestSetup(t)
+	_, err := setup.api.GetDocTreeData(adminCtx(), "page=%zz")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid doc tree query")
+}
+
 func TestListDocsSortParamsForwarded(t *testing.T) {
 	t.Parallel()
 

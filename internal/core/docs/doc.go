@@ -130,7 +130,10 @@ type DocStore interface {
 // Each segment starts with alphanumeric or underscore and can contain alphanumeric, underscore, dot, hyphen, or space.
 const validDocIDPattern = `^[a-zA-Z0-9_][a-zA-Z0-9_. -]*(/[a-zA-Z0-9_][a-zA-Z0-9_. -]*)*$`
 
-var validDocIDRegexp = regexp.MustCompile(validDocIDPattern)
+var (
+	validDocIDRegexp       = regexp.MustCompile(validDocIDPattern)
+	windowsReservedSegment = regexp.MustCompile(`(?i)^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$`)
+)
 
 // maxDocIDLength is the maximum allowed length for a doc ID.
 const maxDocIDLength = 252
@@ -149,6 +152,9 @@ func ValidateDocID(id string) error {
 	for segment := range strings.SplitSeq(id, "/") {
 		if strings.HasSuffix(segment, " ") || strings.HasSuffix(segment, ".") {
 			return fmt.Errorf("%w: path segments must not end with spaces or dots", ErrInvalidDocID)
+		}
+		if windowsReservedSegment.MatchString(segment) {
+			return fmt.Errorf("%w: path segments must not use reserved device names", ErrInvalidDocID)
 		}
 	}
 	return nil

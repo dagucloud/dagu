@@ -7,7 +7,6 @@ package doc
 
 import (
 	"os"
-	"syscall"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -20,9 +19,6 @@ func fileCreationTime(path string, info os.FileInfo) time.Time {
 		if statx.Mask&unix.STATX_BTIME != 0 && statx.Btime.Sec > 0 {
 			return time.Unix(statx.Btime.Sec, int64(statx.Btime.Nsec))
 		}
-	}
-	if stat, ok := info.Sys().(*syscall.Stat_t); ok {
-		return time.Unix(int64(stat.Ctim.Sec), int64(stat.Ctim.Nsec))
 	}
 	return info.ModTime()
 }

@@ -11,7 +11,7 @@ import {
 import { useDocTabContext } from '@/contexts/DocTabContext';
 import { cn } from '@/lib/utils';
 import { MoreHorizontal, Trash2, X, XCircle } from 'lucide-react';
-import React, { useCallback } from 'react';
+import React, { useCallback, useRef } from 'react';
 
 type Props = {
   className?: string;
@@ -34,6 +34,7 @@ function DocTabBar({
 }: Props) {
   const { tabs, activeTabId, closeTab, setActiveTab, isTabUnsaved } =
     useDocTabContext();
+  const tabRefs = useRef(new Map<string, HTMLDivElement>());
 
   const handleTabClick = (tabId: string) => {
     setActiveTab(tabId);
@@ -77,6 +78,7 @@ function DocTabBar({
       const nextTab = tabs[nextIndex];
       if (nextTab) {
         setActiveTab(nextTab.id);
+        tabRefs.current.get(nextTab.id)?.focus();
       }
     }
   };
@@ -97,8 +99,17 @@ function DocTabBar({
         return (
           <div
             key={tab.id}
+            ref={(element) => {
+              if (element) {
+                tabRefs.current.set(tab.id, element);
+              } else {
+                tabRefs.current.delete(tab.id);
+              }
+            }}
+            id={`doc-tab-${tab.id}`}
             role="tab"
             aria-selected={isActive}
+            aria-controls={`doc-tabpanel-${tab.id}`}
             tabIndex={isActive ? 0 : -1}
             onClick={() => handleTabClick(tab.id)}
             onKeyDown={(e) => handleKeyDown(e, tab.id)}

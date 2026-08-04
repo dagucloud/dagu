@@ -79,6 +79,7 @@ type docDirIndexEntry struct {
 
 // New creates a new file-based doc store.
 func New(baseDir string) *Store {
+	baseDir = filepath.Clean(baseDir)
 	_ = os.MkdirAll(baseDir, docDirPermissions) // best effort
 	return &Store{
 		baseDir:            baseDir,
@@ -863,7 +864,7 @@ func (s *Store) Create(ctx context.Context, id, content string) error {
 		return fmt.Errorf("filedoc: failed to close file: %w", err)
 	}
 	if err := s.setDocCreatedAt(id, createdAtNow()); err != nil {
-		return err
+		logger.Warn(ctx, "Failed to record doc metadata", tag.File(filePath), tag.Error(err))
 	}
 
 	s.upsertDocIndexAfterMutation(ctx, id)
@@ -901,7 +902,7 @@ func (s *Store) Update(ctx context.Context, id, content string) error {
 		return fmt.Errorf("filedoc: failed to write file: %w", err)
 	}
 	if err := s.setDocCreatedAt(id, createdAt); err != nil {
-		return err
+		logger.Warn(ctx, "Failed to preserve doc metadata", tag.File(filePath), tag.Error(err))
 	}
 
 	s.upsertDocIndexAfterMutation(ctx, id)
@@ -1131,7 +1132,7 @@ func (s *Store) Rename(ctx context.Context, oldID, newID string) error {
 			return fmt.Errorf("filedoc: failed to rename file: %w", err)
 		}
 		if err := s.renameDocCreatedAt(oldID, newID); err != nil {
-			return err
+			logger.Warn(ctx, "Failed to rename doc metadata", tag.File(newFilePath), tag.Error(err))
 		}
 		s.cleanEmptyParents(filepath.Dir(oldFilePath))
 		s.removeDocIndexAfterDelete(ctx, oldID)
@@ -1180,7 +1181,7 @@ func (s *Store) Rename(ctx context.Context, oldID, newID string) error {
 		return fmt.Errorf("filedoc: failed to rename directory: %w", err)
 	}
 	if err := s.renameDocCreatedAtPrefix(oldID, newID); err != nil {
-		return err
+		logger.Warn(ctx, "Failed to rename doc metadata", tag.File(newDirPath), tag.Error(err))
 	}
 	s.cleanEmptyParents(filepath.Dir(oldDirPath))
 	s.rebuildIndexAfterMutation(ctx)

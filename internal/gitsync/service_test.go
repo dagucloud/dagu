@@ -32,7 +32,7 @@ func newTestService(t *testing.T, cfg *Config) (*serviceImpl, string) {
 	dataDir := filepath.Join(tempDir, "data")
 	require.NoError(t, os.MkdirAll(dagsDir, 0755))
 	require.NoError(t, os.MkdirAll(dataDir, 0755))
-	svc := NewService(cfg, dagsDir, dataDir)
+	svc := NewService(cfg, dagsDir, filepath.Join(dagsDir, docsDir), dataDir)
 	return svc.(*serviceImpl), dagsDir
 }
 
@@ -129,14 +129,16 @@ func TestService_PathHelpers(t *testing.T) {
 
 func TestScanLocalDAGs(t *testing.T) {
 	tempDir := t.TempDir()
+	docsPath := filepath.Join(tempDir, "document-root")
 
 	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "README.md"), []byte("# readme"), 0600))
 	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "my-dag.yaml"), []byte("steps: []"), 0600))
-	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "docs", "operations"), 0755))
-	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "docs", "operations", "deploy.md"), []byte("# Deploy"), 0600))
+	require.NoError(t, os.MkdirAll(filepath.Join(docsPath, "operations"), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(docsPath, "operations", "deploy.MD"), []byte("# Deploy"), 0600))
 
 	s := &serviceImpl{
 		dagsDir: tempDir,
+		docsDir: docsPath,
 		cfg:     &Config{},
 	}
 
@@ -147,7 +149,11 @@ func TestScanLocalDAGs(t *testing.T) {
 	require.Len(t, state.DAGs, 2)
 	assert.Contains(t, state.DAGs, "my-dag")
 	assert.Equal(t, DAGKindDoc, state.DAGs["docs/operations/deploy"].Kind)
-	assert.Equal(t, docExtension, state.DAGs["docs/operations/deploy"].FileExtension)
+	assert.Equal(t, ".MD", state.DAGs["docs/operations/deploy"].FileExtension)
+
+	localPath, err := s.safeDAGIDToFilePath("docs/operations/deploy", ".MD")
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(docsPath, "operations", "deploy.MD"), localPath)
 }
 
 func TestIsSyncableRepoFile(t *testing.T) {
@@ -506,7 +512,7 @@ func TestReconcile_BackwardCompatibility(t *testing.T) {
 		Enabled:    true,
 		Repository: "host.com/org/repo",
 		Branch:     "main",
-	}, dagsDir, dataDir)
+	}, dagsDir, filepath.Join(dagsDir, docsDir), dataDir)
 	impl := svc.(*serviceImpl)
 
 	// Save old state without PreviousStatus/MissingAt fields
@@ -568,7 +574,7 @@ func TestSummaryPriority_MissingBetweenConflictAndPending(t *testing.T) {
 	require.NoError(t, os.MkdirAll(dagsDir, 0755))
 	require.NoError(t, os.MkdirAll(dataDir, 0755))
 
-	svc := NewService(cfg, dagsDir, dataDir)
+	svc := NewService(cfg, dagsDir, filepath.Join(dagsDir, docsDir), dataDir)
 	impl := svc.(*serviceImpl)
 
 	t.Run("missing overrides pending", func(t *testing.T) {

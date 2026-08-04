@@ -89,6 +89,7 @@ function docPathMatches(docPath: string, targetPath: string): boolean {
 
 function DocsContent() {
   const appBarContext = useContext(AppBarContext);
+  const { setTitle } = appBarContext;
   const remoteNode = appBarContext.selectedRemoteNode || 'local';
   const navigate = useNavigate();
   const location = useLocation();
@@ -201,8 +202,8 @@ function DocsContent() {
 
   // Set page title
   useEffect(() => {
-    appBarContext.setTitle('Docs');
-  }, [appBarContext]);
+    setTitle('Docs');
+  }, [setTitle]);
 
   // URL ↔ Tab sync with loop prevention
   const isNavigatingRef = useRef(false);
@@ -493,7 +494,7 @@ function DocsContent() {
         },
       });
       if (error) {
-        showToast('Failed to delete document');
+        showToast(error?.message || 'Failed to delete document');
         return;
       }
       mutate();
@@ -674,93 +675,8 @@ function DocsContent() {
       />
     ) : null;
 
-  // Mobile layout
-  if (isMobile) {
-    return (
-      <div className="-m-4 w-[calc(100%+2rem)] h-[calc(100%+2rem)]">
-        {mobileView === 'tree' ? (
-          <div className="h-full">{leftPanel}</div>
-        ) : (
-          <div className="flex flex-col h-full">
-            <button
-              type="button"
-              className="flex items-center gap-1 px-3 py-2 text-sm text-muted-foreground hover:text-foreground border-b border-border"
-              onClick={() => setMobileView('tree')}
-            >
-              <ChevronLeft className="h-4 w-4" />
-              Docs
-            </button>
-            <div className="flex-1 overflow-hidden min-h-0">
-              {rightPanel || (
-                <div className="flex items-center justify-center h-full">
-                  <p className="text-sm text-muted-foreground">
-                    Select a document to start editing.
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Modals */}
-        <CreateDocModal
-          isOpen={createModalOpen}
-          onClose={() => setCreateModalOpen(false)}
-          onSubmit={handleCreate}
-          parentDir={createParentDir}
-          isLoading={createLoading}
-          externalError={createError}
-        />
-        <RenameDocModal
-          isOpen={renameModalOpen}
-          onClose={() => setRenameModalOpen(false)}
-          onSubmit={handleRenameModal}
-          currentPath={renameDocPath}
-          isLoading={renameLoading}
-          externalError={renameError}
-        />
-        <ConfirmModal
-          title="Delete Document"
-          buttonText="Delete"
-          visible={deleteConfirmOpen}
-          dismissModal={() => setDeleteConfirmOpen(false)}
-          onSubmit={handleDelete}
-        >
-          <p className="text-sm text-muted-foreground">
-            Are you sure you want to delete <strong>{deleteDocTitle}</strong>?
-            This action cannot be undone.
-          </p>
-        </ConfirmModal>
-        <ConfirmModal
-          title="Delete Docs"
-          buttonText={`Delete ${batchDeleteTargets.length} items`}
-          visible={batchDeleteConfirmOpen}
-          dismissModal={() => setBatchDeleteConfirmOpen(false)}
-          onSubmit={handleBatchDelete}
-        >
-          <p className="text-sm text-muted-foreground">
-            Are you sure you want to delete {batchDeleteTargets.length} items?
-            This cannot be undone.
-          </p>
-        </ConfirmModal>
-      </div>
-    );
-  }
-
-  // Desktop layout
-  return (
-    <div className="-m-4 md:-m-6 w-[calc(100%+2rem)] md:w-[calc(100%+3rem)] h-[calc(100%+2rem)] md:h-[calc(100%+3rem)]">
-      <SplitLayout
-        leftPanel={leftPanel}
-        rightPanel={rightPanel}
-        defaultLeftWidth={25}
-        minLeftWidth={15}
-        maxLeftWidth={40}
-        storageKey="docTreeWidth"
-        emptyRightMessage="Select a document to start editing"
-      />
-
-      {/* Modals */}
+  const modals = (
+    <>
       <CreateDocModal
         isOpen={createModalOpen}
         onClose={() => setCreateModalOpen(false)}
@@ -801,6 +717,56 @@ function DocsContent() {
           This cannot be undone.
         </p>
       </ConfirmModal>
+    </>
+  );
+
+  // Mobile layout
+  if (isMobile) {
+    return (
+      <div className="-m-4 w-[calc(100%+2rem)] h-[calc(100%+2rem)]">
+        {mobileView === 'tree' ? (
+          <div className="h-full">{leftPanel}</div>
+        ) : (
+          <div className="flex flex-col h-full">
+            <button
+              type="button"
+              className="flex items-center gap-1 px-3 py-2 text-sm text-muted-foreground hover:text-foreground border-b border-border"
+              onClick={() => setMobileView('tree')}
+            >
+              <ChevronLeft className="h-4 w-4" />
+              Docs
+            </button>
+            <div className="flex-1 overflow-hidden min-h-0">
+              {rightPanel || (
+                <div className="flex items-center justify-center h-full">
+                  <p className="text-sm text-muted-foreground">
+                    Select a document to start editing.
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {modals}
+      </div>
+    );
+  }
+
+  // Desktop layout
+  return (
+    <div className="-m-4 md:-m-6 w-[calc(100%+2rem)] md:w-[calc(100%+3rem)] h-[calc(100%+2rem)] md:h-[calc(100%+3rem)]">
+      <SplitLayout
+        leftPanel={leftPanel}
+        rightPanel={rightPanel}
+        defaultLeftWidth={25}
+        minLeftWidth={15}
+        maxLeftWidth={40}
+        storageKey="docTreeWidth"
+        emptyRightMessage="Select a document to start editing"
+      />
+
+      {modals}
     </div>
   );
 }

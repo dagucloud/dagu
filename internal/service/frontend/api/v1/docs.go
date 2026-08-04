@@ -704,7 +704,7 @@ func (a *API) GetDocTreeData(ctx context.Context, queryString string) (any, erro
 
 		params, err := url.ParseQuery(queryString)
 		if err != nil {
-			params = url.Values{}
+			return nil, fmt.Errorf("invalid doc tree query: %w", err)
 		}
 
 		page := parseIntParam(params.Get("page"), 1)

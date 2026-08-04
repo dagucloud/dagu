@@ -20,7 +20,7 @@ describe('validateDocPath', () => {
   });
 
   it('rejects segments ending in a space or dot', () => {
-    expect(validateDocPath('guide ')).toEqual({
+    expect(validateDocPath('guides /intro')).toEqual({
       isValid: false,
       error: 'Path segments cannot end with a space or dot.',
     });
@@ -39,5 +39,15 @@ describe('validateDocPath', () => {
       isValid: false,
       error: 'Path should not include the .md extension.',
     });
+  });
+
+  it('rejects Windows reserved device names', () => {
+    expect(validateDocPath('CON')).toEqual({
+      isValid: false,
+      error: 'Path segments cannot use reserved device names.',
+    });
+    expect(validateDocPath('guides/lpt9.txt').isValid).toBe(false);
+    expect(validateDocPath('console').isValid).toBe(true);
+    expect(validateDocPath('com10').isValid).toBe(true);
   });
 });

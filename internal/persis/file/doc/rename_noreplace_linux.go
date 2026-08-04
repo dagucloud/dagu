@@ -8,7 +8,6 @@ package doc
 import (
 	"errors"
 
-	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/core/docs"
 	"golang.org/x/sys/unix"
 )
@@ -21,8 +20,8 @@ func renameNoReplace(oldPath, newPath string) error {
 	if errors.Is(err, unix.EEXIST) {
 		return docs.ErrDocAlreadyExists
 	}
-	if errors.Is(err, unix.ENOSYS) || errors.Is(err, unix.EINVAL) {
-		return fileutil.Rename(oldPath, newPath)
+	if errors.Is(err, unix.ENOSYS) || errors.Is(err, unix.EINVAL) || errors.Is(err, unix.ENOTSUP) {
+		return renameNoReplaceFallback(oldPath, newPath)
 	}
 	return err
 }

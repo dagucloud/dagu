@@ -135,15 +135,19 @@ func (s *Store) renameDocCreatedAtPrefix(oldID, newID string) error {
 		return err
 	}
 	prefix := oldID + "/"
+	renamed := make(map[string]string)
 	for key, createdAt := range metadata.CreatedAt {
 		switch {
 		case key == oldID:
-			metadata.CreatedAt[newID] = createdAt
+			renamed[newID] = createdAt
 			delete(metadata.CreatedAt, key)
 		case strings.HasPrefix(key, prefix):
-			metadata.CreatedAt[newID+"/"+strings.TrimPrefix(key, prefix)] = createdAt
+			renamed[newID+"/"+strings.TrimPrefix(key, prefix)] = createdAt
 			delete(metadata.CreatedAt, key)
 		}
+	}
+	for key, createdAt := range renamed {
+		metadata.CreatedAt[key] = createdAt
 	}
 	return s.saveMetadata(metadata)
 }

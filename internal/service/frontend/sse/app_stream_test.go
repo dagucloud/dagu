@@ -4,7 +4,6 @@
 package sse
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -105,8 +104,9 @@ func TestMarkdownPollingWatcherEmitsOnlyMarkdownEvents(t *testing.T) {
 			t.Fatalf("unexpected reset: %s", reason)
 		},
 	)
-	require.NoError(t, watcher.Start(context.Background()))
-	t.Cleanup(watcher.Stop)
+	snapshot, err := snapshotMarkdownFiles(root)
+	require.NoError(t, err)
+	watcher.snapshot = snapshot
 
 	require.NoError(t, os.WriteFile(filepath.Join(root, "ignore.txt"), []byte("ignore\n"), 0600))
 	watcher.check()

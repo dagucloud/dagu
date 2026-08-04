@@ -28,4 +28,25 @@ describe('useContentEditor', () => {
 
     expect(result.current.hasUnsavedChanges).toBe(false);
   });
+
+  it('detects an external change after a pending save is cancelled', () => {
+    const { result, rerender } = renderHook(
+      ({ serverContent }) => useContentEditor({ key: 'doc', serverContent }),
+      { initialProps: { serverContent: '# Original' } }
+    );
+
+    act(() => {
+      result.current.setCurrentValue('# Local edit');
+      result.current.beginSave('# Local edit');
+      result.current.cancelSave();
+    });
+
+    rerender({ serverContent: '# External edit' });
+
+    expect(result.current.currentValue).toBe('# Local edit');
+    expect(result.current.conflict).toEqual({
+      hasConflict: true,
+      externalContent: '# External edit',
+    });
+  });
 });

@@ -49,6 +49,19 @@ function normalizeDocContentForSave(content: string): string {
   return content.replace(/\r\n/g, '\n').replace(/\n+$/, '');
 }
 
+async function copyTextToClipboard(text: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const textArea = document.createElement('textarea');
+    textArea.value = text;
+    document.body.appendChild(textArea);
+    textArea.select();
+    document.execCommand('copy');
+    document.body.removeChild(textArea);
+  }
+}
+
 function DocEditor({
   tabId,
   docPath,
@@ -91,6 +104,8 @@ function DocEditor({
     !!workspaceTargetQuery &&
     (workspace !== undefined ||
       isMutableWorkspaceSelection(workspaceSelection));
+  const canEditRef = useRef(canEdit);
+  canEditRef.current = canEdit;
   const { showToast } = useSimpleToast();
   const { getDraft, setDraft, clearDraft, markTabUnsaved, markTabSaved } =
     useDocTabContext();
@@ -269,7 +284,11 @@ function DocEditor({
   // Ctrl+S / Cmd+S
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+      if (
+        (e.ctrlKey || e.metaKey) &&
+        e.key.toLowerCase() === 's' &&
+        canEditRef.current
+      ) {
         e.preventDefault();
         handleSaveRef.current();
       }
@@ -284,39 +303,17 @@ function DocEditor({
   const copyFilePath = useCallback(async () => {
     const fp = doc?.filePath;
     if (!fp) return;
-    try {
-      await navigator.clipboard.writeText(fp);
-      setCopiedPath(true);
-      setTimeout(() => setCopiedPath(false), 2000);
-    } catch {
-      const textArea = document.createElement('textarea');
-      textArea.value = fp;
-      document.body.appendChild(textArea);
-      textArea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textArea);
-      setCopiedPath(true);
-      setTimeout(() => setCopiedPath(false), 2000);
-    }
+    await copyTextToClipboard(fp);
+    setCopiedPath(true);
+    setTimeout(() => setCopiedPath(false), 2000);
   }, [doc?.filePath]);
 
   const copyContent = useCallback(async () => {
     const text = currentValue ?? '';
     if (!text) return;
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopiedContent(true);
-      setTimeout(() => setCopiedContent(false), 2000);
-    } catch {
-      const textArea = document.createElement('textarea');
-      textArea.value = text;
-      document.body.appendChild(textArea);
-      textArea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textArea);
-      setCopiedContent(true);
-      setTimeout(() => setCopiedContent(false), 2000);
-    }
+    await copyTextToClipboard(text);
+    setCopiedContent(true);
+    setTimeout(() => setCopiedContent(false), 2000);
   }, [currentValue]);
 
   const title = doc?.title || docPath.split('/').pop() || docPath;
@@ -337,6 +334,7 @@ function DocEditor({
             onClick={copyFilePath}
             className="inline-flex items-center gap-1 px-1.5 py-0.5 text-xs rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-all shrink-0"
             title={`Copy file path: ${doc.filePath}`}
+            aria-label="Copy file path"
           >
             {copiedPath ? (
               <Check className="h-3.5 w-3.5 text-green-500" />
@@ -375,6 +373,7 @@ function DocEditor({
                 : 'text-muted-foreground hover:text-foreground'
             )}
             onClick={() => setMode('edit')}
+            aria-pressed={mode === 'edit'}
           >
             Edit
           </button>
@@ -387,6 +386,7 @@ function DocEditor({
                 : 'text-muted-foreground hover:text-foreground'
             )}
             onClick={() => setMode('preview')}
+            aria-pressed={mode === 'preview'}
           >
             Preview
           </button>

@@ -1,21 +1,10 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//go:build !darwin && !linux
+//go:build !darwin && !linux && !windows
 
 package doc
 
-import (
-	"os"
-
-	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
-	"github.com/dagucloud/dagu/v2/internal/core/docs"
-)
-
 func renameNoReplace(oldPath, newPath string) error {
-	err := fileutil.Rename(oldPath, newPath)
-	if os.IsExist(err) {
-		return docs.ErrDocAlreadyExists
-	}
-	return err
+	return renameNoReplaceFallback(oldPath, newPath)
 }
