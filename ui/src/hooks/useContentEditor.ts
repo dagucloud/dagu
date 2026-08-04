@@ -38,8 +38,15 @@ export function useContentEditor({
   // Track local edits (null = not yet initialized)
   const [currentValue, setCurrentValueState] = useState<string | null>(null);
 
-  // Track the last known server content (for change detection)
+  // Track the last known server content for rendering and change detection.
+  const [lastServerContent, setLastServerContentState] = useState<
+    string | null
+  >(null);
   const lastServerContentRef = useRef<string | null>(null);
+  const setLastServerContent = useCallback((content: string | null) => {
+    lastServerContentRef.current = content;
+    setLastServerContentState(content);
+  }, []);
 
   // Track if user has started editing
   const hasUserEditedRef = useRef<boolean>(false);
@@ -58,13 +65,13 @@ export function useContentEditor({
 
   // Reset all state when key changes (navigating to different item)
   useEffect(() => {
-    lastServerContentRef.current = null;
+    setLastServerContent(null);
     hasUserEditedRef.current = false;
     pendingSaveContentRef.current = null;
     currentValueRef.current = null;
     setCurrentValueState(null);
     setConflict({ hasConflict: false, externalContent: null });
-  }, [key]);
+  }, [key, setLastServerContent]);
 
   // Process incoming server content changes
   useEffect(() => {
@@ -74,7 +81,7 @@ export function useContentEditor({
 
     // First load - initialize everything
     if (lastServerContentRef.current === null) {
-      lastServerContentRef.current = serverContent;
+      setLastServerContent(serverContent);
       if (!hasUserEditedRef.current) {
         currentValueRef.current = serverContent;
         setCurrentValueState(serverContent);
@@ -84,7 +91,7 @@ export function useContentEditor({
 
     // Check if this is the pending save coming back.
     if (pendingSaveContentRef.current === serverContent) {
-      lastServerContentRef.current = serverContent;
+      setLastServerContent(serverContent);
       pendingSaveContentRef.current = null;
       return;
     }
@@ -107,12 +114,12 @@ export function useContentEditor({
       });
     } else {
       // No local edits - update silently
-      lastServerContentRef.current = serverContent;
+      setLastServerContent(serverContent);
       currentValueRef.current = serverContent;
       setCurrentValueState(serverContent);
       hasUserEditedRef.current = false;
     }
-  }, [serverContent]);
+  }, [serverContent, setLastServerContent]);
 
   // Handle user edits
   const setCurrentValue = useCallback((value: string) => {
@@ -127,7 +134,7 @@ export function useContentEditor({
       if (action === 'discard') {
         // Discard local changes, accept external
         if (conflict.externalContent !== null) {
-          lastServerContentRef.current = conflict.externalContent;
+          setLastServerContent(conflict.externalContent);
           currentValueRef.current = conflict.externalContent;
           setCurrentValueState(conflict.externalContent);
           hasUserEditedRef.current = false;
@@ -136,12 +143,12 @@ export function useContentEditor({
         // Ignore external changes, keep local
         // Just update the server ref to prevent repeated dialogs
         if (conflict.externalContent !== null) {
-          lastServerContentRef.current = conflict.externalContent;
+          setLastServerContent(conflict.externalContent);
         }
       }
       setConflict({ hasConflict: false, externalContent: null });
     },
-    [conflict.externalContent]
+    [conflict.externalContent, setLastServerContent]
   );
 
   // Discard local edits and revert to last known server content
@@ -162,17 +169,20 @@ export function useContentEditor({
   }, []);
 
   // Called after successful save
-  const markAsSaved = useCallback((savedContent: string) => {
-    pendingSaveContentRef.current = savedContent;
-    lastServerContentRef.current = savedContent;
-    hasUserEditedRef.current = false;
-  }, []);
+  const markAsSaved = useCallback(
+    (savedContent: string) => {
+      pendingSaveContentRef.current = savedContent;
+      setLastServerContent(savedContent);
+      hasUserEditedRef.current = false;
+    },
+    [setLastServerContent]
+  );
 
   // Calculate unsaved changes
   const hasUnsavedChanges =
-    lastServerContentRef.current !== null &&
+    lastServerContent !== null &&
     currentValue !== null &&
-    currentValue !== lastServerContentRef.current;
+    currentValue !== lastServerContent;
 
   return {
     currentValue,

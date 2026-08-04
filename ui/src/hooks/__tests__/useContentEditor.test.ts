@@ -5,10 +5,15 @@ import { act, renderHook } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { useContentEditor } from '../useContentEditor';
 
+interface HookProps {
+  serverContent: string;
+}
+
 describe('useContentEditor', () => {
   it('accepts the server echo of a pending save without a conflict', () => {
     const { result, rerender } = renderHook(
-      ({ serverContent }) => useContentEditor({ key: 'doc', serverContent }),
+      ({ serverContent }: HookProps) =>
+        useContentEditor({ key: 'doc', serverContent }),
       { initialProps: { serverContent: '' } }
     );
 
@@ -20,9 +25,15 @@ describe('useContentEditor', () => {
     rerender({ serverContent: '# Saved' });
 
     expect(result.current.conflict.hasConflict).toBe(false);
+    expect(result.current.hasUnsavedChanges).toBe(false);
 
     act(() => {
-      result.current.markAsSaved('# Saved');
+      result.current.setCurrentValue('# Saved again');
+    });
+    expect(result.current.hasUnsavedChanges).toBe(true);
+
+    act(() => {
+      result.current.markAsSaved('# Saved again');
     });
     rerender({ serverContent: '# Saved' });
 
@@ -31,7 +42,8 @@ describe('useContentEditor', () => {
 
   it('detects an external change after a pending save is cancelled', () => {
     const { result, rerender } = renderHook(
-      ({ serverContent }) => useContentEditor({ key: 'doc', serverContent }),
+      ({ serverContent }: HookProps) =>
+        useContentEditor({ key: 'doc', serverContent }),
       { initialProps: { serverContent: '# Original' } }
     );
 
