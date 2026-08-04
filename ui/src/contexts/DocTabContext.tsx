@@ -278,10 +278,15 @@ export function DocTabProvider({
     []
   );
 
-  const setDraft = useCallback((tabId: string, content: string) => {
+  const setDraft = useCallback((draftKey: string, content: string) => {
+    const matchesOpenTab = tabsRef.current.some((tab) =>
+      draftKeyMatchesTabId(draftKey, tab.id)
+    );
+    if (!matchesOpenTab) return;
+
     setDrafts((prev) => {
       const next = new Map(prev);
-      next.set(tabId, content);
+      next.set(draftKey, content);
       return next;
     });
   }, []);
