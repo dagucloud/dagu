@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"slices"
-	"sort"
 	"strings"
 	"text/tabwriter"
 
@@ -100,7 +99,7 @@ func runSyncStatus(ctx *Context, _ []string) error {
 	}
 
 	// Print counts
-	fmt.Printf("\nDAG Status Counts:\n")
+	fmt.Printf("\nSync Item Status Counts:\n")
 	fmt.Printf("  Synced:    %d\n", status.Counts.Synced)
 	fmt.Printf("  Modified:  %d\n", status.Counts.Modified)
 	fmt.Printf("  Untracked: %d\n", status.Counts.Untracked)
@@ -249,7 +248,7 @@ func runSyncPublish(ctx *Context, args []string) error {
 				itemIDs = append(itemIDs, id)
 			}
 		}
-		sort.Strings(itemIDs)
+		slices.Sort(itemIDs)
 		if len(itemIDs) == 0 {
 			fmt.Println("No modified or untracked sync items to publish")
 			return nil
@@ -657,7 +656,7 @@ func runSyncMove(ctx *Context, args []string) error {
 		return fmt.Errorf("failed to move: %w", err)
 	}
 
-	fmt.Println("sync item moved successfully")
+	fmt.Println("Sync item moved successfully")
 	return nil
 }
 

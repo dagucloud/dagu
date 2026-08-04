@@ -127,7 +127,7 @@ func TestService_PathHelpers(t *testing.T) {
 	require.Equal(t, "my_dag", dagID)
 }
 
-func TestScanLocalDAGs(t *testing.T) {
+func TestScanLocalItems(t *testing.T) {
 	tempDir := t.TempDir()
 	docsPath := filepath.Join(tempDir, "document-root")
 
@@ -537,6 +537,23 @@ func TestReconcile_BackwardCompatibility(t *testing.T) {
 	ds := loaded.Items["my-dag"]
 	assert.Empty(t, ds.PreviousStatus)
 	assert.Nil(t, ds.MissingAt)
+}
+
+func TestStateManagerLoadIgnoresNullItems(t *testing.T) {
+	t.Parallel()
+
+	dataDir := t.TempDir()
+	stateDir := filepath.Join(dataDir, "gitsync")
+	require.NoError(t, os.MkdirAll(stateDir, 0755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(stateDir, "state.json"),
+		[]byte(`{"version":1,"dags":{"invalid":null}}`),
+		0600,
+	))
+
+	state, err := NewStateManager(dataDir).Load()
+	require.NoError(t, err)
+	assert.NotContains(t, state.Items, "invalid")
 }
 
 func TestStatusCounts_IncludesMissing(t *testing.T) {

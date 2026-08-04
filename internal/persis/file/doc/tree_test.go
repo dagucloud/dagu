@@ -123,23 +123,32 @@ func TestListTreeSortMtimeAsc(t *testing.T) {
 	assert.Equal(t, "new", result.Items[2].ID)
 }
 
-func TestListTreeSortMtimeWithDirectories(t *testing.T) {
+func TestListTreePropagatesDirectoryMtime(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 
-	require.NoError(t, store.Create(ctx, "dir-old/child", "old child"))
-	require.NoError(t, store.Create(ctx, "dir-new/child", "new child"))
+	require.NoError(t, store.Create(ctx, "a-dir/child", "old child"))
+	require.NoError(t, store.Create(ctx, "b-dir/child", "new child"))
 
 	now := time.Now()
-	setModTime(t, filepath.Join(store.baseDir, "dir-old", "child.md"), now.Add(-2*time.Hour))
-	setModTime(t, filepath.Join(store.baseDir, "dir-new", "child.md"), now)
+	oldTime := now.Add(-2 * time.Hour)
+	setModTime(t, filepath.Join(store.baseDir, "a-dir", "child.md"), oldTime)
+	setModTime(t, filepath.Join(store.baseDir, "b-dir", "child.md"), now)
+	setModTime(t, filepath.Join(store.baseDir, "a-dir"), now.Add(-4*time.Hour))
+	setModTime(t, filepath.Join(store.baseDir, "b-dir"), now.Add(-4*time.Hour))
 
 	result, err := store.List(ctx, docs.ListDocsOptions{Page: 1, PerPage: 50, Sort: docs.DocSortFieldMTime, Order: docs.DocSortOrderDesc})
 	require.NoError(t, err)
 	require.Len(t, result.Items, 2)
-	assert.Equal(t, "dir-new", result.Items[0].ID)
-	assert.Equal(t, "dir-old", result.Items[1].ID)
-	assert.False(t, result.Items[0].ModTime.Before(result.Items[1].ModTime))
+
+	nodes := make(map[string]*docs.DocTreeNode, len(result.Items))
+	for _, node := range result.Items {
+		nodes[node.ID] = node
+	}
+	require.Contains(t, nodes, "a-dir")
+	require.Contains(t, nodes, "b-dir")
+	assert.Equal(t, oldTime.Unix(), nodes["a-dir"].ModTime.Unix())
+	assert.Equal(t, now.Unix(), nodes["b-dir"].ModTime.Unix())
 }
 
 func TestListTreeSortMtimeStable(t *testing.T) {

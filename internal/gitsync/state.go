@@ -217,6 +217,7 @@ func (m *StateManager) Load() (*State, error) {
 func normalizeTrackedItems(state *State) {
 	for itemID, itemState := range state.Items {
 		if itemState == nil {
+			delete(state.Items, itemID)
 			continue
 		}
 		if itemState.Kind != "" && itemState.Kind != SyncItemKindDAG && itemState.Kind != SyncItemKindDoc {

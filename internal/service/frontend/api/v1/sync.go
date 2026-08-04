@@ -695,6 +695,9 @@ func toAPISyncStatus(s gitsync.SyncStatus) api.SyncStatus {
 
 func syncItemFilePath(itemID, fileExtension string) string {
 	if gitsync.SyncItemKindForID(itemID) == gitsync.SyncItemKindDoc {
+		if strings.EqualFold(fileExtension, ".md") {
+			return itemID + fileExtension
+		}
 		return itemID + ".md"
 	}
 	if strings.EqualFold(fileExtension, ".yml") {

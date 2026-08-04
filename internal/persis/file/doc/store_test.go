@@ -1278,7 +1278,10 @@ func TestRenameMkdirPermissionError(t *testing.T) {
 }
 
 func TestNewReturnsBaseDirCreationError(t *testing.T) {
-	store, err := New("/dev/null/impossible")
+	blocker := filepath.Join(t.TempDir(), "blocker")
+	require.NoError(t, os.WriteFile(blocker, []byte("x"), 0600))
+
+	store, err := New(filepath.Join(blocker, "impossible"))
 	require.Error(t, err)
 	assert.Nil(t, store)
 }

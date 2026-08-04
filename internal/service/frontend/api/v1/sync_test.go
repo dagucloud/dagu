@@ -770,7 +770,7 @@ func TestToAPISyncItems_IncludesPath(t *testing.T) {
 		"docs/operations/deploy": {
 			Status:        gitsync.StatusSynced,
 			Kind:          gitsync.SyncItemKindDoc,
-			FileExtension: ".md",
+			FileExtension: ".MD",
 			ModifiedAt:    &now,
 		},
 	}
@@ -783,7 +783,7 @@ func TestToAPISyncItems_IncludesPath(t *testing.T) {
 	assert.Equal(t, "alpha.yml", apiItems[0].DisplayName)
 
 	assert.Equal(t, "docs/operations/deploy", apiItems[1].ItemId)
-	assert.Equal(t, "docs/operations/deploy.md", apiItems[1].FilePath)
+	assert.Equal(t, "docs/operations/deploy.MD", apiItems[1].FilePath)
 	assert.Equal(t, apigen.SyncItemKindDoc, apiItems[1].Kind)
 
 	assert.Equal(t, "reports/monthly", apiItems[2].ItemId)

@@ -17,7 +17,7 @@ vi.mock('@/contexts/DocTabContext', () => ({
 
 describe('useDocDraftPersistence', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
     vi.useFakeTimers();
   });
 

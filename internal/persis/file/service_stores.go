@@ -158,11 +158,11 @@ func NewDocStore(cfg *config.Config) (docs.DocStore, error) {
 	if cfg == nil || cfg.Paths.DocsDir == "" {
 		return nil, nil
 	}
-	store, err := filedoc.New(cfg.Paths.DocsDir)
+	docStore, err := filedoc.New(cfg.Paths.DocsDir)
 	if err != nil {
 		return nil, fmt.Errorf("document store: %w", err)
 	}
-	return store, nil
+	return docStore, nil
 }
 
 func NewIncidentStore(cfg *config.Config, enc *crypto.Encryptor) (incident.Store, error) {

@@ -38,7 +38,7 @@ describe('useDocMutations', () => {
   const revalidateTree = vi.fn();
 
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
     mocks.tabs = [];
     mocks.unsavedTabIds = new Set();
   });
