@@ -111,7 +111,8 @@ func (v *View) Normalize() {
 	if v.Type == "" {
 		v.Type = TypeKanban
 	}
-	if v.Type == TypeKanban {
+	switch v.Type {
+	case TypeKanban:
 		v.WorkspaceScope = ""
 		v.SortField = ""
 		v.SortOrder = ""
@@ -119,7 +120,7 @@ func (v *View) Normalize() {
 		if len(v.Columns) == 0 {
 			v.Columns = DefaultColumns()
 		}
-	} else if v.Type == TypeWorkflow {
+	case TypeWorkflow:
 		v.WorkspaceScope = strings.TrimSpace(v.WorkspaceScope)
 		if v.WorkspaceScope == "" {
 			if v.Workspace == "" {
