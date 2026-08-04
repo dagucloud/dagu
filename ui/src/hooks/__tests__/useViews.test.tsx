@@ -40,6 +40,14 @@ beforeEach(() => {
           createdAt: '',
           updatedAt: '',
         },
+        {
+          id: 'workflow-v1',
+          name: 'Production workflows',
+          type: 'workflow',
+          intervalDays: 1,
+          createdAt: '',
+          updatedAt: '',
+        },
       ],
     },
     error: null,
@@ -55,6 +63,13 @@ describe('useViews', () => {
   it('derives the views list from the response', () => {
     const { result } = renderHook(() => useViews());
     expect(result.current.views.map((v) => v.id)).toEqual(['v1']);
+  });
+
+  it('selects workflow views without exposing them to Kanban consumers', () => {
+    const { result } = renderHook(() => useViews(ViewSpecType.workflow));
+    expect(result.current.views.map((view) => view.id)).toEqual([
+      'workflow-v1',
+    ]);
   });
 
   it('creates a view with the remote node and refreshes', async () => {

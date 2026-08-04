@@ -5,8 +5,8 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ComponentProps } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import type { WorkflowFilterView } from '@/contexts/UserPreference';
 import { WorkflowViewSelector } from '../WorkflowViewSelector';
+import type { WorkflowFilterView } from '../workflowViews';
 
 const views: WorkflowFilterView[] = [
   {
@@ -30,13 +30,14 @@ function renderSelector(
     defaultViewId: 'production',
     isAllView: true,
     isActiveViewEdited: false,
+    canManageViews: true,
     onSelectView: vi.fn(),
     onShowAll: vi.fn(),
     onResetView: vi.fn(),
-    onSaveView: vi.fn(),
-    onUpdateView: vi.fn(),
-    onSetDefault: vi.fn(),
-    onDeleteView: vi.fn(),
+    onSaveView: vi.fn().mockResolvedValue(undefined),
+    onUpdateView: vi.fn().mockResolvedValue(undefined),
+    onSetDefault: vi.fn().mockResolvedValue(undefined),
+    onDeleteView: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };
   render(<WorkflowViewSelector {...props} />);
@@ -81,7 +82,7 @@ describe('WorkflowViewSelector', () => {
     );
     await user.click(
       screen.getByRole('checkbox', {
-        name: 'Make this my default view',
+        name: 'Make this the default view for everyone',
       })
     );
     await user.click(screen.getByRole('button', { name: 'Save view' }));
@@ -90,6 +91,23 @@ describe('WorkflowViewSelector', () => {
       'Production operations',
       true
     );
+  });
+
+  it('lets read-only users select shared views without mutation actions', async () => {
+    const user = userEvent.setup();
+    const props = renderSelector({ canManageViews: false });
+
+    await user.click(
+      screen.getByRole('button', { name: 'Workflow view: All workflows' })
+    );
+    await user.click(
+      screen.getByRole('menuitem', { name: /production operations/i })
+    );
+
+    expect(props.onSelectView).toHaveBeenCalledWith('production');
+    expect(
+      screen.queryByRole('menuitem', { name: 'Save current filters as view…' })
+    ).not.toBeInTheDocument();
   });
 
   it('offers update and reset actions when a saved view is edited', async () => {

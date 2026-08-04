@@ -92,7 +92,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { AppBarContext } from '../../../../contexts/AppBarContext';
-import type { WorkflowFilterView } from '../../../../contexts/UserPreference';
+import type { WorkflowFilterView } from './workflowViews';
 import { useQuery } from '../../../../hooks/api';
 import { parseLabelParts } from '../../../../lib/utils';
 import {
@@ -300,13 +300,17 @@ type Props = {
   isAllWorkflowsView: boolean;
   /** Whether the selected saved view differs from its stored filters */
   isWorkflowViewEdited: boolean;
+  /** Whether the current user can mutate shared views in this scope */
+  canManageWorkflowViews: boolean;
+  /** Latest shared-view mutation error */
+  workflowViewError?: string | null;
   onSelectWorkflowView: (viewId: string) => void;
   onShowAllWorkflows: () => void;
   onResetWorkflowView: () => void;
-  onSaveWorkflowView: (name: string, makeDefault: boolean) => void;
-  onUpdateWorkflowView: () => void;
-  onSetDefaultWorkflowView: (viewId: string | undefined) => void;
-  onDeleteWorkflowView: (viewId: string) => void;
+  onSaveWorkflowView: (name: string, makeDefault: boolean) => Promise<void>;
+  onUpdateWorkflowView: () => Promise<void>;
+  onSetDefaultWorkflowView: (viewId: string | undefined) => Promise<void>;
+  onDeleteWorkflowView: (viewId: string) => Promise<void>;
   /** Total workflows matching the server-side filters */
   resultCount?: number;
   /** Currently selected DAG file name */
@@ -936,6 +940,8 @@ function DAGTable({
   defaultWorkflowViewId,
   isAllWorkflowsView,
   isWorkflowViewEdited,
+  canManageWorkflowViews,
+  workflowViewError,
   onSelectWorkflowView,
   onShowAllWorkflows,
   onResetWorkflowView,
@@ -1237,6 +1243,8 @@ function DAGTable({
             defaultViewId={defaultWorkflowViewId}
             isAllView={isAllWorkflowsView}
             isActiveViewEdited={isWorkflowViewEdited}
+            canManageViews={canManageWorkflowViews}
+            error={workflowViewError}
             onSelectView={onSelectWorkflowView}
             onShowAll={onShowAllWorkflows}
             onResetView={onResetWorkflowView}
@@ -1283,6 +1291,12 @@ function DAGTable({
             </div>
           )}
         </div>
+
+        {workflowViewError && (
+          <p role="alert" className="text-xs text-destructive">
+            {workflowViewError}
+          </p>
+        )}
 
         {resultCount !== undefined && (
           <div className="text-xs text-muted-foreground">

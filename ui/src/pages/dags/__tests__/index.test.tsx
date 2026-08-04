@@ -14,26 +14,55 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { ConfigContext, type Config } from '@/contexts/ConfigContext';
 import { SearchStateProvider } from '@/contexts/SearchStateContext';
-import type { WorkflowFilterViewPreferences } from '@/contexts/UserPreference';
+import {
+  ViewSortField,
+  ViewSortOrder,
+  ViewSpecType,
+  ViewWorkspaceScope,
+} from '@/api/v1/schema';
 import { useQuery } from '@/hooks/api';
+import type { View, ViewSpec } from '@/hooks/useViews';
 import { WorkspaceKind, workspaceSelectionKey } from '@/lib/workspace';
 import DagsPage from '../index';
 
-const { clientGetMock, updatePreferenceMock, userPreferences } = vi.hoisted(
-  () => ({
-    clientGetMock: vi.fn(),
-    updatePreferenceMock: vi.fn(),
-    userPreferences: {
-      pageLimit: 200,
-      workflowFilterViews: {} as WorkflowFilterViewPreferences,
-    },
-  })
-);
+const {
+  clientGetMock,
+  createViewMock,
+  deleteViewMock,
+  sharedWorkflowViewState,
+  updateViewMock,
+  userPreferences,
+} = vi.hoisted(() => ({
+  clientGetMock: vi.fn(),
+  createViewMock: vi.fn(),
+  deleteViewMock: vi.fn(),
+  sharedWorkflowViewState: { views: [] as View[] },
+  updateViewMock: vi.fn(),
+  userPreferences: {
+    pageLimit: 200,
+  },
+}));
 
 vi.mock('@/contexts/UserPreference', () => ({
   useUserPreferences: () => ({
     preferences: userPreferences,
-    updatePreference: updatePreferenceMock,
+    updatePreference: vi.fn(),
+  }),
+}));
+
+vi.mock('@/contexts/AuthContext', () => ({
+  useCanWriteForWorkspace: () => true,
+}));
+
+vi.mock('@/hooks/useViews', () => ({
+  useViews: () => ({
+    views: sharedWorkflowViewState.views,
+    isLoading: false,
+    error: undefined,
+    createView: createViewMock,
+    updateView: updateViewMock,
+    deleteView: deleteViewMock,
+    refresh: vi.fn(),
   }),
 }));
 
@@ -68,12 +97,12 @@ vi.mock('@/features/dags/components/dag-list', () => ({
     selectedDAG?: string | null;
     onSelectDAG?: (fileName: string, title: string) => void;
     activeWorkflowViewId: string | null;
-    onSaveWorkflowView: (name: string, makeDefault: boolean) => void;
+    onSaveWorkflowView: (name: string, makeDefault: boolean) => Promise<void>;
     onShowAllWorkflows: () => void;
-    onUpdateWorkflowView: () => void;
+    onUpdateWorkflowView: () => Promise<void>;
     onResetWorkflowView: () => void;
-    onSetDefaultWorkflowView: (viewId: string | undefined) => void;
-    onDeleteWorkflowView: (viewId: string) => void;
+    onSetDefaultWorkflowView: (viewId: string | undefined) => Promise<void>;
+    onDeleteWorkflowView: (viewId: string) => Promise<void>;
   }) => (
     <div>
       <input
@@ -93,14 +122,14 @@ vi.mock('@/features/dags/components/dag-list', () => ({
       </span>
       <button
         type="button"
-        onClick={() => onSaveWorkflowView('Production operations', true)}
+        onClick={() => void onSaveWorkflowView('Production operations', true)}
       >
         Save production view
       </button>
       <button type="button" onClick={onShowAllWorkflows}>
         Show all workflows
       </button>
-      <button type="button" onClick={onUpdateWorkflowView}>
+      <button type="button" onClick={() => void onUpdateWorkflowView()}>
         Update workflow view
       </button>
       <button type="button" onClick={onResetWorkflowView}>
@@ -108,11 +137,14 @@ vi.mock('@/features/dags/components/dag-list', () => ({
       </button>
       <button
         type="button"
-        onClick={() => onSetDefaultWorkflowView('production')}
+        onClick={() => void onSetDefaultWorkflowView('production')}
       >
         Set production view as default
       </button>
-      <button type="button" onClick={() => onDeleteWorkflowView('production')}>
+      <button
+        type="button"
+        onClick={() => void onDeleteWorkflowView('production')}
+      >
         Delete production view
       </button>
       <ul>
@@ -270,11 +302,23 @@ function workflowViewScopeKey() {
   });
 }
 
-function lastStoredWorkflowViews(): WorkflowFilterViewPreferences {
-  const lastCall =
-    updatePreferenceMock.mock.calls[updatePreferenceMock.mock.calls.length - 1];
-  expect(lastCall?.[0]).toBe('workflowFilterViews');
-  return lastCall?.[1] as WorkflowFilterViewPreferences;
+function makeWorkflowView(overrides: Partial<View> = {}): View {
+  return {
+    id: 'production',
+    name: 'Production operations',
+    type: ViewSpecType.workflow,
+    workspace: '',
+    workspaceScope: ViewWorkspaceScope.all,
+    labels: ['env=prod'],
+    dagName: 'deploy',
+    intervalDays: 1,
+    sortField: ViewSortField.name,
+    sortOrder: ViewSortOrder.asc,
+    isDefault: false,
+    createdAt: '2026-08-05T00:00:00Z',
+    updatedAt: '2026-08-05T00:00:00Z',
+    ...overrides,
+  };
 }
 
 describe('DagsPage', () => {
@@ -287,15 +331,56 @@ describe('DagsPage', () => {
     sessionStorage.clear();
     calls.length = 0;
     clientGetMock.mockReset();
-    updatePreferenceMock.mockReset();
-    userPreferences.workflowFilterViews = {};
-    updatePreferenceMock.mockImplementation(
-      (key: string, value: WorkflowFilterViewPreferences) => {
-        if (key === 'workflowFilterViews') {
-          userPreferences.workflowFilterViews = value;
-        }
+    sharedWorkflowViewState.views = [];
+    createViewMock.mockReset();
+    updateViewMock.mockReset();
+    deleteViewMock.mockReset();
+    createViewMock.mockImplementation(async (spec: ViewSpec) => {
+      const created = makeWorkflowView({
+        id: 'created-view',
+        name: spec.name,
+        workspace: spec.workspace,
+        workspaceScope: spec.workspaceScope,
+        labels: spec.labels,
+        dagName: spec.dagName,
+        sortField: spec.sortField,
+        sortOrder: spec.sortOrder,
+        isDefault: spec.isDefault,
+      });
+      sharedWorkflowViewState.views = [
+        ...sharedWorkflowViewState.views,
+        created,
+      ];
+      return created;
+    });
+    updateViewMock.mockImplementation(async (id: string, spec: ViewSpec) => {
+      const index = sharedWorkflowViewState.views.findIndex(
+        (view) => view.id === id
+      );
+      const updated = makeWorkflowView({
+        ...(index >= 0 ? sharedWorkflowViewState.views[index] : {}),
+        id,
+        name: spec.name,
+        workspace: spec.workspace,
+        workspaceScope: spec.workspaceScope,
+        labels: spec.labels,
+        dagName: spec.dagName,
+        sortField: spec.sortField,
+        sortOrder: spec.sortOrder,
+        isDefault: spec.isDefault,
+      });
+      if (index >= 0) {
+        sharedWorkflowViewState.views = sharedWorkflowViewState.views.map(
+          (view) => (view.id === id ? updated : view)
+        );
       }
-    );
+      return updated;
+    });
+    deleteViewMock.mockImplementation(async (id: string) => {
+      sharedWorkflowViewState.views = sharedWorkflowViewState.views.filter(
+        (view) => view.id !== id
+      );
+    });
     dagsPageResponse = {
       dags: [
         {
@@ -399,23 +484,15 @@ describe('DagsPage', () => {
   });
 
   it('opens the default workflow view when the URL has no filters', () => {
-    userPreferences.workflowFilterViews = {
-      [workflowViewScopeKey()]: {
-        views: [
-          {
-            id: 'production',
-            name: 'Production operations',
-            filters: {
-              searchText: 'deploy',
-              searchLabels: ['env=prod'],
-              sortField: 'name',
-              sortOrder: 'asc',
-            },
-          },
-        ],
-        defaultViewId: 'production',
-      },
-    };
+    sharedWorkflowViewState.views.push(makeWorkflowView({ isDefault: true }));
+    sharedWorkflowViewState.views.push(
+      makeWorkflowView({
+        id: 'default-workspace',
+        dagName: 'wrong-scope',
+        workspaceScope: ViewWorkspaceScope.default,
+        isDefault: true,
+      })
+    );
 
     renderPage();
 
@@ -428,23 +505,7 @@ describe('DagsPage', () => {
   });
 
   it('gives explicit URL filters precedence over the default view', () => {
-    userPreferences.workflowFilterViews = {
-      [workflowViewScopeKey()]: {
-        views: [
-          {
-            id: 'production',
-            name: 'Production operations',
-            filters: {
-              searchText: 'deploy',
-              searchLabels: ['env=prod'],
-              sortField: 'name',
-              sortOrder: 'asc',
-            },
-          },
-        ],
-        defaultViewId: 'production',
-      },
-    };
+    sharedWorkflowViewState.views.push(makeWorkflowView({ isDefault: true }));
 
     renderPage(
       vi.fn(),
@@ -483,23 +544,7 @@ describe('DagsPage', () => {
   });
 
   it('lets users leave the default view and show all workflows', () => {
-    userPreferences.workflowFilterViews = {
-      [workflowViewScopeKey()]: {
-        views: [
-          {
-            id: 'production',
-            name: 'Production operations',
-            filters: {
-              searchText: 'deploy',
-              searchLabels: ['env=prod'],
-              sortField: 'name',
-              sortOrder: 'asc',
-            },
-          },
-        ],
-        defaultViewId: 'production',
-      },
-    };
+    sharedWorkflowViewState.views.push(makeWorkflowView({ isDefault: true }));
     renderPage();
 
     fireEvent.click(screen.getByRole('button', { name: 'Show all workflows' }));
@@ -512,51 +557,38 @@ describe('DagsPage', () => {
     );
   });
 
-  it('saves the current filters and can make the new view the default', () => {
+  it('saves the current filters as a shared default view', async () => {
     renderPage();
 
     fireEvent.change(screen.getByRole('textbox', { name: 'Search DAGs' }), {
       target: { value: 'deploy' },
     });
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Save production view' })
-    );
-
-    const storedPreferences = lastStoredWorkflowViews();
-    const scope = storedPreferences[workflowViewScopeKey()]!;
-    expect(scope.views).toHaveLength(1);
-    expect(scope.views[0]).toMatchObject({
-      name: 'Production operations',
-      filters: {
-        searchText: 'deploy',
-        searchLabels: [],
-        sortField: 'name',
-        sortOrder: 'asc',
-      },
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Save production view' })
+      );
     });
-    expect(scope.defaultViewId).toBe(scope.views[0]!.id);
+
+    expect(createViewMock).toHaveBeenCalledWith({
+      name: 'Production operations',
+      type: ViewSpecType.workflow,
+      workspace: '',
+      workspaceScope: ViewWorkspaceScope.all,
+      labels: [],
+      dagName: 'deploy',
+      intervalDays: 1,
+      pinned: false,
+      sortField: ViewSortField.name,
+      sortOrder: ViewSortOrder.asc,
+      isDefault: true,
+    });
     expect(screen.getByTestId('active-workflow-view')).toHaveTextContent(
-      scope.views[0]!.id
+      'created-view'
     );
   });
 
-  it('updates and resets an active workflow view', () => {
-    userPreferences.workflowFilterViews = {
-      [workflowViewScopeKey()]: {
-        views: [
-          {
-            id: 'production',
-            name: 'Production operations',
-            filters: {
-              searchText: 'deploy',
-              searchLabels: ['env=prod'],
-              sortField: 'name',
-              sortOrder: 'asc',
-            },
-          },
-        ],
-      },
-    };
+  it('updates and resets an active workflow view', async () => {
+    sharedWorkflowViewState.views.push(makeWorkflowView());
     renderPage(
       vi.fn(),
       '/dags?view=production&search=changed&labels=env%3Dprod&sort=name&order=desc'
@@ -578,38 +610,28 @@ describe('DagsPage', () => {
     fireEvent.change(screen.getByRole('textbox', { name: 'Search DAGs' }), {
       target: { value: 'changed' },
     });
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Update workflow view' })
-    );
-
-    const storedPreferences = lastStoredWorkflowViews();
-    expect(
-      storedPreferences[workflowViewScopeKey()]!.views[0]!.filters
-    ).toEqual({
-      searchText: 'changed',
-      searchLabels: ['env=prod'],
-      sortField: 'name',
-      sortOrder: 'asc',
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Update workflow view' })
+      );
     });
+
+    expect(updateViewMock).toHaveBeenCalledWith(
+      'production',
+      expect.objectContaining({
+        dagName: 'changed',
+        labels: ['env=prod'],
+        sortField: ViewSortField.name,
+        sortOrder: ViewSortOrder.asc,
+        isDefault: false,
+      })
+    );
   });
 
   it('omits empty workflow filters from saved-view URLs', () => {
-    userPreferences.workflowFilterViews = {
-      [workflowViewScopeKey()]: {
-        views: [
-          {
-            id: 'production',
-            name: 'Production operations',
-            filters: {
-              searchText: '',
-              searchLabels: [],
-              sortField: 'name',
-              sortOrder: 'asc',
-            },
-          },
-        ],
-      },
-    };
+    sharedWorkflowViewState.views.push(
+      makeWorkflowView({ dagName: '', labels: [] })
+    );
     renderPage(
       vi.fn(),
       '/dags?view=production&search=temporary&sort=name&order=asc'
@@ -625,22 +647,7 @@ describe('DagsPage', () => {
   });
 
   it('keeps a saved workflow filter cleared when its URL parameter is omitted', () => {
-    userPreferences.workflowFilterViews = {
-      [workflowViewScopeKey()]: {
-        views: [
-          {
-            id: 'production',
-            name: 'Production operations',
-            filters: {
-              searchText: 'deploy',
-              searchLabels: [],
-              sortField: 'name',
-              sortOrder: 'asc',
-            },
-          },
-        ],
-      },
-    };
+    sharedWorkflowViewState.views.push(makeWorkflowView({ labels: [] }));
     renderPage(vi.fn(), '/dags?view=production');
 
     fireEvent.change(screen.getByRole('textbox', { name: 'Search DAGs' }), {
@@ -655,66 +662,35 @@ describe('DagsPage', () => {
     );
   });
 
-  it('sets a saved workflow view as the default', () => {
-    userPreferences.workflowFilterViews = {
-      [workflowViewScopeKey()]: {
-        views: [
-          {
-            id: 'production',
-            name: 'Production operations',
-            filters: {
-              searchText: 'deploy',
-              searchLabels: [],
-              sortField: 'name',
-              sortOrder: 'asc',
-            },
-          },
-        ],
-      },
-    };
+  it('sets a shared workflow view as the default', async () => {
+    sharedWorkflowViewState.views.push(makeWorkflowView({ labels: [] }));
     renderPage(vi.fn(), '/dags?view=production');
 
-    fireEvent.click(
-      screen.getByRole('button', {
-        name: 'Set production view as default',
-      })
-    );
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole('button', {
+          name: 'Set production view as default',
+        })
+      );
+    });
 
-    const storedPreferences = lastStoredWorkflowViews();
-    expect(storedPreferences[workflowViewScopeKey()]!.defaultViewId).toBe(
-      'production'
+    expect(updateViewMock).toHaveBeenCalledWith(
+      'production',
+      expect.objectContaining({ isDefault: true })
     );
   });
 
-  it('deletes the active workflow view and shows all workflows', () => {
-    userPreferences.workflowFilterViews = {
-      [workflowViewScopeKey()]: {
-        views: [
-          {
-            id: 'production',
-            name: 'Production operations',
-            filters: {
-              searchText: 'deploy',
-              searchLabels: ['env=prod'],
-              sortField: 'name',
-              sortOrder: 'asc',
-            },
-          },
-        ],
-        defaultViewId: 'production',
-      },
-    };
+  it('deletes the active shared workflow view and shows all workflows', async () => {
+    sharedWorkflowViewState.views.push(makeWorkflowView({ isDefault: true }));
     renderPage();
 
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Delete production view' })
-    );
-
-    const storedPreferences = lastStoredWorkflowViews();
-    expect(storedPreferences[workflowViewScopeKey()]!).toEqual({
-      views: [],
-      defaultViewId: undefined,
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Delete production view' })
+      );
     });
+
+    expect(deleteViewMock).toHaveBeenCalledWith('production');
     expect(screen.getByRole('textbox', { name: 'Search DAGs' })).toHaveValue(
       ''
     );

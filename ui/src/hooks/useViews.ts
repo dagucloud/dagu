@@ -1,8 +1,8 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useCallback, useContext } from 'react';
-import { components } from '@/api/v1/schema';
+import { useCallback, useContext, useMemo } from 'react';
+import { components, ViewSpecType } from '@/api/v1/schema';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { useClient, useQuery } from '@/hooks/api';
 
@@ -23,7 +23,7 @@ async function refreshViews(mutate: () => Promise<unknown>): Promise<void> {
  * yields an empty list rather than throwing, so it can be called from the
  * sidebar and overview tabs unconditionally.
  */
-export function useViews() {
+export function useViews(type: ViewSpecType = ViewSpecType.kanban) {
   const client = useClient();
   const appBar = useContext(AppBarContext);
   const remoteNode = appBar.selectedRemoteNode || 'local';
@@ -32,7 +32,10 @@ export function useViews() {
     params: { query: { remoteNode } },
   });
 
-  const views: View[] = data?.views ?? [];
+  const views = useMemo<View[]>(
+    () => (data?.views ?? []).filter((view) => view.type === type),
+    [data?.views, type]
+  );
 
   const createView = useCallback(
     async (spec: ViewSpec): Promise<View> => {

@@ -60,7 +60,7 @@ tags:
   - name: "profiles"
     description: "Runtime profile operations for managed environment variables and secrets"
   - name: "views"
-    description: "Saved Overview view configurations (custom Kanban boards)"
+    description: "Shared saved view configurations"
 
 paths:
   /health:
@@ -8337,7 +8337,7 @@ paths:
   /views:
     get:
       summary: "List saved views"
-      description: "Lists all saved Overview view configurations, ordered by creation time."
+      description: "Lists all shared saved view configurations visible to the caller, ordered by creation time."
       operationId: "listViews"
       tags:
         - "views"
@@ -8364,7 +8364,7 @@ paths:
                 $ref: "#/components/schemas/Error"
     post:
       summary: "Create a view"
-      description: "Creates a saved Overview view configuration. Views are global and shared across users."
+      description: "Creates a saved view configuration. Views are shared across users with access to their workspace scope."
       operationId: "createView"
       tags:
         - "views"
@@ -14756,6 +14756,28 @@ components:
         - failed
       description: "A status column available in a Kanban view."
 
+    ViewWorkspaceScope:
+      type: string
+      enum:
+        - all
+        - default
+        - workspace
+      description: "Workflows page workspace selection represented by the view."
+
+    ViewSortField:
+      type: string
+      enum:
+        - name
+        - nextRun
+      description: "Field used to sort workflows."
+
+    ViewSortOrder:
+      type: string
+      enum:
+        - asc
+        - desc
+      description: "Direction used to sort workflows."
+
     ViewSpec:
       type: object
       required:
@@ -14771,8 +14793,9 @@ components:
           type: string
           enum:
             - kanban
+            - workflow
           default: kanban
-          description: "Render type. Currently only kanban is supported."
+          description: "Saved view type."
         workspace:
           type: string
           maxLength: 64
@@ -14811,6 +14834,15 @@ components:
           type: boolean
           default: false
           description: "Whether the view is pinned to the left sidebar."
+        workspaceScope:
+          $ref: "#/components/schemas/ViewWorkspaceScope"
+        sortField:
+          $ref: "#/components/schemas/ViewSortField"
+        sortOrder:
+          $ref: "#/components/schemas/ViewSortOrder"
+        isDefault:
+          type: boolean
+          description: "Whether this is the default workflow view for its workspace scope."
 
     View:
       type: object
@@ -14844,6 +14876,14 @@ components:
             $ref: "#/components/schemas/ViewColumn"
           description: "Visible status columns in left-to-right display order."
         pinned:
+          type: boolean
+        workspaceScope:
+          $ref: "#/components/schemas/ViewWorkspaceScope"
+        sortField:
+          $ref: "#/components/schemas/ViewSortField"
+        sortOrder:
+          $ref: "#/components/schemas/ViewSortOrder"
+        isDefault:
           type: boolean
         createdBy:
           type: string

@@ -3164,13 +3164,13 @@ export interface paths {
         };
         /**
          * List saved views
-         * @description Lists all saved Overview view configurations, ordered by creation time.
+         * @description Lists all shared saved view configurations visible to the caller, ordered by creation time.
          */
         get: operations["listViews"];
         put?: never;
         /**
          * Create a view
-         * @description Creates a saved Overview view configuration. Views are global and shared across users.
+         * @description Creates a saved view configuration. Views are shared across users with access to their workspace scope.
          */
         post: operations["createView"];
         delete?: never;
@@ -6122,11 +6122,26 @@ export interface components {
          * @enum {string}
          */
         ViewColumn: ViewColumn;
+        /**
+         * @description Workflows page workspace selection represented by the view.
+         * @enum {string}
+         */
+        ViewWorkspaceScope: ViewWorkspaceScope;
+        /**
+         * @description Field used to sort workflows.
+         * @enum {string}
+         */
+        ViewSortField: ViewSortField;
+        /**
+         * @description Direction used to sort workflows.
+         * @enum {string}
+         */
+        ViewSortOrder: ViewSortOrder;
         ViewSpec: {
             /** @description Display name for the view. */
             name: string;
             /**
-             * @description Render type. Currently only kanban is supported.
+             * @description Saved view type.
              * @default kanban
              * @enum {string}
              */
@@ -6146,6 +6161,11 @@ export interface components {
              * @default false
              */
             pinned: boolean;
+            workspaceScope?: components["schemas"]["ViewWorkspaceScope"];
+            sortField?: components["schemas"]["ViewSortField"];
+            sortOrder?: components["schemas"]["ViewSortOrder"];
+            /** @description Whether this is the default workflow view for its workspace scope. */
+            isDefault?: boolean;
         };
         View: {
             id: string;
@@ -6158,6 +6178,10 @@ export interface components {
             /** @description Visible status columns in left-to-right display order. */
             columns?: components["schemas"]["ViewColumn"][];
             pinned?: boolean;
+            workspaceScope?: components["schemas"]["ViewWorkspaceScope"];
+            sortField?: components["schemas"]["ViewSortField"];
+            sortOrder?: components["schemas"]["ViewSortOrder"];
+            isDefault?: boolean;
             /** @description Username of the creator, for display only. */
             createdBy?: string;
             /** Format: date-time */
@@ -17924,8 +17948,22 @@ export enum ViewColumn {
     done = "done",
     failed = "failed"
 }
+export enum ViewWorkspaceScope {
+    all = "all",
+    default = "default",
+    workspace = "workspace"
+}
+export enum ViewSortField {
+    name = "name",
+    nextRun = "nextRun"
+}
+export enum ViewSortOrder {
+    asc = "asc",
+    desc = "desc"
+}
 export enum ViewSpecType {
-    kanban = "kanban"
+    kanban = "kanban",
+    workflow = "workflow"
 }
 export enum ComponentsParametersEventLogPaginationMode {
     offset = "offset",

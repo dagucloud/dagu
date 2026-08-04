@@ -81,6 +81,67 @@ func TestViewsAPI_CreatePreservesColumnVisibilityAndOrder(t *testing.T) {
 	assert.Equal(t, columns, *created.Columns)
 }
 
+func TestViewsAPI_CreateWorkflowView(t *testing.T) {
+	viewType := apigen.ViewSpecTypeWorkflow
+	workspaceScope := apigen.ViewWorkspaceScopeAll
+	sortField := apigen.ViewSortFieldNextRun
+	sortOrder := apigen.ViewSortOrderDesc
+	isDefault := true
+	created := mustCreateView(t, newViewsTestAPI(t), context.Background(), apigen.ViewSpec{
+		Name:           "Production workflows",
+		Type:           &viewType,
+		IntervalDays:   1,
+		WorkspaceScope: &workspaceScope,
+		SortField:      &sortField,
+		SortOrder:      &sortOrder,
+		IsDefault:      &isDefault,
+	})
+
+	assert.Equal(t, "workflow", created.Type)
+	require.NotNil(t, created.WorkspaceScope)
+	assert.Equal(t, workspaceScope, *created.WorkspaceScope)
+	require.NotNil(t, created.SortField)
+	assert.Equal(t, sortField, *created.SortField)
+	require.NotNil(t, created.SortOrder)
+	assert.Equal(t, sortOrder, *created.SortOrder)
+	require.NotNil(t, created.IsDefault)
+	assert.True(t, *created.IsDefault)
+}
+
+func TestViewsAPI_WorkflowDefaultIsSharedPerScope(t *testing.T) {
+	ctx := context.Background()
+	api := newViewsTestAPI(t)
+	viewType := apigen.ViewSpecTypeWorkflow
+	workspaceScope := apigen.ViewWorkspaceScopeAll
+	isDefault := true
+	first := mustCreateView(t, api, ctx, apigen.ViewSpec{
+		Name:           "First",
+		Type:           &viewType,
+		IntervalDays:   1,
+		WorkspaceScope: &workspaceScope,
+		IsDefault:      &isDefault,
+	})
+	second := mustCreateView(t, api, ctx, apigen.ViewSpec{
+		Name:           "Second",
+		Type:           &viewType,
+		IntervalDays:   1,
+		WorkspaceScope: &workspaceScope,
+		IsDefault:      &isDefault,
+	})
+
+	listResp, err := api.ListViews(ctx, apigen.ListViewsRequestObject{})
+	require.NoError(t, err)
+	listed := listResp.(apigen.ListViews200JSONResponse)
+	defaults := make([]string, 0, 1)
+	for _, item := range listed.Views {
+		if item.IsDefault != nil && *item.IsDefault {
+			defaults = append(defaults, item.Id)
+		}
+	}
+	assert.Equal(t, []string{second.Id}, defaults)
+	assert.NotEqual(t, first.Id, second.Id)
+}
+
 func TestViewsAPI_CreateValidation(t *testing.T) {
 	ctx := context.Background()
 	api := newViewsTestAPI(t)

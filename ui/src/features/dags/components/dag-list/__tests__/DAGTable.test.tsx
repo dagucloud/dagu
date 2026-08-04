@@ -84,6 +84,7 @@ function renderTable(
             activeWorkflowViewId={options.activeWorkflowViewId ?? null}
             isAllWorkflowsView={options.isAllWorkflowsView ?? true}
             isWorkflowViewEdited={false}
+            canManageWorkflowViews={true}
             onSelectWorkflowView={vi.fn()}
             onShowAllWorkflows={onShowAllWorkflows}
             onResetWorkflowView={vi.fn()}

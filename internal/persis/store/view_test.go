@@ -66,6 +66,45 @@ func TestViewStore_CreateDuplicate(t *testing.T) {
 	assert.ErrorIs(t, s.Create(ctx, newView("dup", time.Now().UTC())), view.ErrViewExists)
 }
 
+func TestViewStore_WorkflowDefaultIsUniquePerScope(t *testing.T) {
+	ctx := context.Background()
+	s := newViewStore(t)
+	now := time.Now().UTC()
+	first := newView("first", now)
+	first.Type = view.TypeWorkflow
+	first.WorkspaceScope = view.WorkspaceScopeAll
+	first.Default = true
+	second := newView("second", now.Add(time.Second))
+	second.Type = view.TypeWorkflow
+	second.WorkspaceScope = view.WorkspaceScopeAll
+	second.Default = true
+	workspaceDefault := newView("workspace", now.Add(2*time.Second))
+	workspaceDefault.Type = view.TypeWorkflow
+	workspaceDefault.WorkspaceScope = view.WorkspaceScopeWorkspace
+	workspaceDefault.Workspace = "production"
+	workspaceDefault.Default = true
+
+	require.NoError(t, s.Create(ctx, first))
+	require.NoError(t, s.Create(ctx, workspaceDefault))
+	require.NoError(t, s.Create(ctx, second))
+
+	gotFirst, err := s.GetByID(ctx, first.ID)
+	require.NoError(t, err)
+	gotSecond, err := s.GetByID(ctx, second.ID)
+	require.NoError(t, err)
+	gotWorkspace, err := s.GetByID(ctx, workspaceDefault.ID)
+	require.NoError(t, err)
+	assert.False(t, gotFirst.Default)
+	assert.True(t, gotSecond.Default)
+	assert.True(t, gotWorkspace.Default)
+
+	first.Default = true
+	require.NoError(t, s.Update(ctx, first, ""))
+	gotSecond, err = s.GetByID(ctx, second.ID)
+	require.NoError(t, err)
+	assert.False(t, gotSecond.Default)
+}
+
 func TestViewStore_GetNotFound(t *testing.T) {
 	_, err := newViewStore(t).GetByID(context.Background(), "missing")
 	assert.ErrorIs(t, err, view.ErrViewNotFound)

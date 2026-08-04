@@ -3,26 +3,28 @@
 
 import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { v4 as uuidv4 } from 'uuid';
 import {
   components,
   PathsDagsGetParametersQueryOrder,
   PathsDagsGetParametersQuerySort,
+  ViewSortField,
+  ViewSortOrder,
+  ViewSpecType,
+  ViewWorkspaceScope,
 } from '../../api/v1/schema';
 import { Button } from '@/components/ui/button';
 import { AppBarContext } from '../../contexts/AppBarContext';
+import { useCanWriteForWorkspace } from '../../contexts/AuthContext';
 import { useSearchState } from '../../contexts/SearchStateContext';
-import {
-  useUserPreferences,
-  type WorkflowFilterSet,
-  type WorkflowFilterView,
-  type WorkflowFilterViewPreferences,
-  type WorkflowFilterViewScope,
-} from '../../contexts/UserPreference';
+import { useUserPreferences } from '../../contexts/UserPreference';
 import { DAGDetailsModal } from '../../features/dags/components/dag-details';
 import { DAGErrors } from '../../features/dags/components/dag-editor';
 import { DAGTable } from '../../features/dags/components/dag-list';
 import DAGListHeader from '../../features/dags/components/dag-list/DAGListHeader';
+import type {
+  WorkflowFilterSet,
+  WorkflowFilterView,
+} from '../../features/dags/components/dag-list/workflowViews';
 import { useClient, useQuery } from '../../hooks/api';
 import { useDAGsListSSE } from '../../hooks/useDAGsListSSE';
 import {
@@ -30,12 +32,15 @@ import {
   useSSECacheSync,
 } from '../../hooks/useSSECacheSync';
 import {
+  sanitizeWorkspaceSelection,
   withoutWorkspaceLabels,
+  WorkspaceKind,
   workspaceSelectionKey,
   workspaceSelectionQuery,
 } from '../../lib/workspace';
 import LoadingIndicator from '@/components/ui/loading-indicator';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
+import { useViews, type View, type ViewSpec } from '@/hooks/useViews';
 
 type DAGDefinitionsFilters = WorkflowFilterSet;
 
@@ -62,8 +67,43 @@ const areDAGDefinitionsFiltersEqual = (
   a.sortOrder === b.sortOrder;
 
 const ALL_WORKFLOWS_VIEW_PARAM = 'all';
-const EMPTY_WORKFLOW_VIEW_SCOPE: WorkflowFilterViewScope = { views: [] };
-const EMPTY_WORKFLOW_VIEW_PREFERENCES: WorkflowFilterViewPreferences = {};
+
+type WorkflowViewScope = {
+  workspace: string;
+  workspaceScope: ViewWorkspaceScope;
+};
+
+function workflowViewScopeForSelection(
+  selection: Parameters<typeof sanitizeWorkspaceSelection>[0]
+): WorkflowViewScope {
+  const sanitized = sanitizeWorkspaceSelection(selection);
+  if (sanitized.kind === WorkspaceKind.workspace) {
+    return {
+      workspace: sanitized.workspace ?? '',
+      workspaceScope: ViewWorkspaceScope.workspace,
+    };
+  }
+  return {
+    workspace: '',
+    workspaceScope:
+      sanitized.kind === WorkspaceKind.default
+        ? ViewWorkspaceScope.default
+        : ViewWorkspaceScope.all,
+  };
+}
+
+function workflowFilterViewFromView(view: View): WorkflowFilterView {
+  return {
+    id: view.id,
+    name: view.name,
+    filters: {
+      searchText: view.dagName ?? '',
+      searchLabels: view.labels ?? [],
+      sortField: view.sortField ?? ViewSortField.name,
+      sortOrder: view.sortOrder ?? ViewSortOrder.asc,
+    },
+  };
+}
 
 const cloneFilters = (
   filters: DAGDefinitionsFilters
@@ -202,7 +242,38 @@ function DAGsContent() {
     remoteNode,
     workspace: workspaceKey,
   });
-  const { preferences, updatePreference } = useUserPreferences();
+  const { preferences } = useUserPreferences();
+  const workflowViewScope = React.useMemo(
+    () => workflowViewScopeForSelection(workspaceSelection),
+    [workspaceSelection]
+  );
+  const canManageWorkflowViews = useCanWriteForWorkspace(
+    workflowViewScope.workspace
+  );
+  const {
+    views: sharedWorkflowViews,
+    isLoading: workflowViewsLoading,
+    createView,
+    updateView,
+    deleteView,
+  } = useViews(ViewSpecType.workflow);
+  const scopedWorkflowViews = React.useMemo(
+    () =>
+      sharedWorkflowViews.filter(
+        (view) =>
+          view.workspaceScope === workflowViewScope.workspaceScope &&
+          (workflowViewScope.workspaceScope !== ViewWorkspaceScope.workspace ||
+            view.workspace === workflowViewScope.workspace)
+      ),
+    [sharedWorkflowViews, workflowViewScope]
+  );
+  const workflowViews = React.useMemo(
+    () => scopedWorkflowViews.map(workflowFilterViewFromView),
+    [scopedWorkflowViews]
+  );
+  const defaultWorkflowViewId = scopedWorkflowViews.find(
+    (view) => view.isDefault
+  )?.id;
   const previousWorkspaceKeyRef = React.useRef(workspaceKey);
   const [selectedDAG, setSelectedDAG] = React.useState<string | null>(null);
   const [olderDAGFiles, setOlderDAGFiles] = React.useState<
@@ -213,6 +284,9 @@ function DAGsContent() {
   const [isLoadingMore, setIsLoadingMore] = React.useState(false);
   const [loadMoreError, setLoadMoreError] = React.useState<string | null>(null);
   const [activeWorkflowViewId, setActiveWorkflowViewId] = React.useState<
+    string | null
+  >(null);
+  const [workflowViewError, setWorkflowViewError] = React.useState<
     string | null
   >(null);
   const loadMoreSentinelRef = React.useRef<HTMLDivElement>(null);
@@ -229,15 +303,6 @@ function DAGsContent() {
     }),
     []
   );
-  const workflowViewScopes =
-    preferences.workflowFilterViews ?? EMPTY_WORKFLOW_VIEW_PREFERENCES;
-  const workflowViewScope =
-    workflowViewScopes[searchStateScope] ?? EMPTY_WORKFLOW_VIEW_SCOPE;
-  const workflowViewScopeRef = React.useRef(workflowViewScope);
-  React.useEffect(() => {
-    workflowViewScopeRef.current = workflowViewScope;
-  }, [workflowViewScope]);
-
   const [searchText, setSearchText] = React.useState(defaultFilters.searchText);
   const [searchLabels, setSearchLabels] = React.useState<string[]>(
     defaultFilters.searchLabels
@@ -286,6 +351,9 @@ function DAGsContent() {
   const previousFilterScopeRef = React.useRef(searchStateScope);
 
   React.useEffect(() => {
+    if (workflowViewsLoading) {
+      return;
+    }
     const params = new URLSearchParams(location.search);
     const stored = searchState.readState<DAGDefinitionsFilters>(
       'dagDefinitions',
@@ -323,13 +391,12 @@ function DAGsContent() {
 
     const scopeChanged = previousFilterScopeRef.current !== searchStateScope;
     previousFilterScopeRef.current = searchStateScope;
-    const viewScope = workflowViewScopeRef.current;
     const requestedViewId = scopeChanged ? null : params.get('view');
-    const requestedView = viewScope.views.find(
+    const requestedView = workflowViews.find(
       (view) => view.id === requestedViewId
     );
-    const defaultView = viewScope.views.find(
-      (view) => view.id === viewScope.defaultViewId
+    const defaultView = workflowViews.find(
+      (view) => view.id === defaultWorkflowViewId
     );
 
     let base = defaultFilters;
@@ -402,6 +469,9 @@ function DAGsContent() {
     navigate,
     searchState,
     searchStateScope,
+    workflowViews,
+    workflowViewsLoading,
+    defaultWorkflowViewId,
   ]);
 
   React.useEffect(() => {
@@ -489,6 +559,7 @@ function DAGsContent() {
     ) => {
       const next = cloneFilters(filters);
       currentFiltersRef.current = next;
+      updateFilterLocation(next, viewId, replace);
       setSearchText(next.searchText);
       setSearchLabels(next.searchLabels);
       setSortField(next.sortField);
@@ -496,19 +567,29 @@ function DAGsContent() {
       setActiveWorkflowViewId(
         viewId === ALL_WORKFLOWS_VIEW_PARAM ? null : viewId
       );
-      updateFilterLocation(next, viewId, replace);
     },
     [updateFilterLocation]
   );
 
-  const persistWorkflowViewScope = React.useCallback(
-    (nextScope: WorkflowFilterViewScope) => {
-      updatePreference('workflowFilterViews', {
-        ...workflowViewScopes,
-        [searchStateScope]: nextScope,
-      });
-    },
-    [searchStateScope, updatePreference, workflowViewScopes]
+  const buildWorkflowViewSpec = React.useCallback(
+    (
+      name: string,
+      filters: DAGDefinitionsFilters,
+      isDefault: boolean
+    ): ViewSpec => ({
+      name,
+      type: ViewSpecType.workflow,
+      workspace: workflowViewScope.workspace,
+      workspaceScope: workflowViewScope.workspaceScope,
+      labels: [...filters.searchLabels],
+      dagName: filters.searchText,
+      intervalDays: 1,
+      pinned: false,
+      sortField: filters.sortField as ViewSortField,
+      sortOrder: filters.sortOrder as ViewSortOrder,
+      isDefault,
+    }),
+    [workflowViewScope]
   );
 
   const refreshFn = React.useCallback(() => {
@@ -550,77 +631,118 @@ function DAGsContent() {
   };
 
   const handleSelectWorkflowView = (viewId: string) => {
-    const view = workflowViewScope.views.find((item) => item.id === viewId);
+    const view = workflowViews.find((item) => item.id === viewId);
     if (view) {
+      setWorkflowViewError(null);
       applyFilters(view.filters, view.id);
     }
   };
 
   const handleShowAllWorkflows = () => {
+    setWorkflowViewError(null);
     applyFilters(defaultFilters, ALL_WORKFLOWS_VIEW_PARAM);
   };
 
   const handleResetWorkflowView = () => {
-    const view = workflowViewScope.views.find(
-      (item) => item.id === activeWorkflowViewId
-    );
+    const view = workflowViews.find((item) => item.id === activeWorkflowViewId);
     if (view) {
+      setWorkflowViewError(null);
       applyFilters(view.filters, view.id, true);
     }
   };
 
-  const handleSaveWorkflowView = (name: string, makeDefault: boolean) => {
-    const view: WorkflowFilterView = {
-      id: uuidv4(),
-      name,
-      filters: cloneFilters(currentFiltersRef.current),
-    };
-    persistWorkflowViewScope({
-      views: [...workflowViewScope.views, view],
-      defaultViewId: makeDefault ? view.id : workflowViewScope.defaultViewId,
-    });
-    applyFilters(view.filters, view.id, true);
+  const handleSaveWorkflowView = async (
+    name: string,
+    makeDefault: boolean
+  ): Promise<void> => {
+    const filters = cloneFilters(currentFiltersRef.current);
+    setWorkflowViewError(null);
+    try {
+      const view = await createView(
+        buildWorkflowViewSpec(name, filters, makeDefault)
+      );
+      applyFilters(filters, view.id, true);
+    } catch (error) {
+      setWorkflowViewError(
+        error instanceof Error ? error.message : 'Failed to save workflow view'
+      );
+      throw error;
+    }
   };
 
-  const handleUpdateWorkflowView = () => {
-    const view = workflowViewScope.views.find(
+  const handleUpdateWorkflowView = async (): Promise<void> => {
+    const view = scopedWorkflowViews.find(
       (item) => item.id === activeWorkflowViewId
     );
     if (!view) {
       return;
     }
     const filters = cloneFilters(currentFiltersRef.current);
-    persistWorkflowViewScope({
-      ...workflowViewScope,
-      views: workflowViewScope.views.map((item) =>
-        item.id === view.id ? { ...item, filters } : item
-      ),
-    });
-    applyFilters(filters, view.id, true);
-  };
-
-  const handleSetDefaultWorkflowView = (viewId: string | undefined) => {
-    persistWorkflowViewScope({
-      ...workflowViewScope,
-      defaultViewId: viewId,
-    });
-  };
-
-  const handleDeleteWorkflowView = (viewId: string) => {
-    const deletingActiveView = viewId === activeWorkflowViewId;
-    persistWorkflowViewScope({
-      views: workflowViewScope.views.filter((view) => view.id !== viewId),
-      defaultViewId:
-        workflowViewScope.defaultViewId === viewId
-          ? undefined
-          : workflowViewScope.defaultViewId,
-    });
-    if (deletingActiveView) {
-      applyFilters(defaultFilters, ALL_WORKFLOWS_VIEW_PARAM, true);
+    setWorkflowViewError(null);
+    try {
+      await updateView(
+        view.id,
+        buildWorkflowViewSpec(view.name, filters, view.isDefault ?? false)
+      );
+      applyFilters(filters, view.id, true);
+    } catch (error) {
+      setWorkflowViewError(
+        error instanceof Error
+          ? error.message
+          : 'Failed to update workflow view'
+      );
+      throw error;
     }
   };
 
-  const activeWorkflowView = workflowViewScope.views.find(
+  const handleSetDefaultWorkflowView = async (
+    viewId: string | undefined
+  ): Promise<void> => {
+    const target = scopedWorkflowViews.find(
+      (view) => view.id === (viewId ?? defaultWorkflowViewId)
+    );
+    if (!target) {
+      return;
+    }
+    setWorkflowViewError(null);
+    try {
+      await updateView(
+        target.id,
+        buildWorkflowViewSpec(
+          target.name,
+          workflowFilterViewFromView(target).filters,
+          viewId !== undefined
+        )
+      );
+    } catch (error) {
+      setWorkflowViewError(
+        error instanceof Error
+          ? error.message
+          : 'Failed to update the default workflow view'
+      );
+      throw error;
+    }
+  };
+
+  const handleDeleteWorkflowView = async (viewId: string): Promise<void> => {
+    const deletingActiveView = viewId === activeWorkflowViewId;
+    setWorkflowViewError(null);
+    try {
+      await deleteView(viewId);
+      if (deletingActiveView) {
+        applyFilters(defaultFilters, ALL_WORKFLOWS_VIEW_PARAM, true);
+      }
+    } catch (error) {
+      setWorkflowViewError(
+        error instanceof Error
+          ? error.message
+          : 'Failed to delete workflow view'
+      );
+      throw error;
+    }
+  };
+
+  const activeWorkflowView = workflowViews.find(
     (view) => view.id === activeWorkflowViewId
   );
   const isWorkflowViewEdited = activeWorkflowView
@@ -762,11 +884,13 @@ function DAGsContent() {
             sortField={sortField}
             sortOrder={sortOrder}
             onSortChange={handleSortChange}
-            workflowViews={workflowViewScope.views}
+            workflowViews={workflowViews}
             activeWorkflowViewId={activeWorkflowViewId}
-            defaultWorkflowViewId={workflowViewScope.defaultViewId}
+            defaultWorkflowViewId={defaultWorkflowViewId}
             isAllWorkflowsView={isAllWorkflowsView}
             isWorkflowViewEdited={isWorkflowViewEdited}
+            canManageWorkflowViews={canManageWorkflowViews}
+            workflowViewError={workflowViewError}
             onSelectWorkflowView={handleSelectWorkflowView}
             onShowAllWorkflows={handleShowAllWorkflows}
             onResetWorkflowView={handleResetWorkflowView}

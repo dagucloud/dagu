@@ -28,6 +28,22 @@ func TestView_Validate_OK(t *testing.T) {
 	require.NoError(t, validView().Validate())
 }
 
+func TestView_ValidateWorkflow(t *testing.T) {
+	v := &view.View{
+		Name:           "Production workflows",
+		Type:           view.TypeWorkflow,
+		WorkspaceScope: view.WorkspaceScopeWorkspace,
+		Workspace:      "production",
+		SortField:      view.WorkflowSortNextRun,
+		SortOrder:      view.SortOrderDescending,
+	}
+	v.Normalize()
+
+	require.NoError(t, v.Validate())
+	assert.Equal(t, view.MinIntervalDays, v.IntervalDays)
+	assert.Nil(t, v.Columns)
+}
+
 func TestView_Validate_Errors(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -92,6 +108,23 @@ func TestView_StorageRoundTrip(t *testing.T) {
 
 	got := original.ToStorage().ToView()
 	assert.Equal(t, original, got)
+}
+
+func TestView_WorkflowStorageRoundTrip(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	original := &view.View{
+		ID:             "workflow-id",
+		Name:           "Production workflows",
+		Type:           view.TypeWorkflow,
+		WorkspaceScope: view.WorkspaceScopeDefault,
+		SortField:      view.WorkflowSortName,
+		SortOrder:      view.SortOrderAscending,
+		Default:        true,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+
+	assert.Equal(t, original, original.ToStorage().ToView())
 }
 
 func TestView_StoredViewWithoutColumnsUsesDefaultLayout(t *testing.T) {

@@ -242,6 +242,7 @@ func viewFromSpec(spec api.ViewSpec) *view.View {
 		Workspace:    valueOf(spec.Workspace),
 		DAGName:      valueOf(spec.DagName),
 		Pinned:       valueOf(spec.Pinned),
+		Default:      valueOf(spec.IsDefault),
 	}
 	if spec.Type != nil {
 		v.Type = string(*spec.Type)
@@ -254,6 +255,15 @@ func viewFromSpec(spec api.ViewSpec) *view.View {
 		for i, column := range *spec.Columns {
 			v.Columns[i] = string(column)
 		}
+	}
+	if spec.WorkspaceScope != nil {
+		v.WorkspaceScope = string(*spec.WorkspaceScope)
+	}
+	if spec.SortField != nil {
+		v.SortField = string(*spec.SortField)
+	}
+	if spec.SortOrder != nil {
+		v.SortOrder = string(*spec.SortOrder)
 	}
 	return v
 }
@@ -279,6 +289,15 @@ func toViewResponse(v *view.View) api.View {
 	if len(v.Labels) > 0 {
 		labels := slices.Clone(v.Labels)
 		resp.Labels = &labels
+	}
+	if v.Type == view.TypeWorkflow {
+		workspaceScope := api.ViewWorkspaceScope(v.WorkspaceScope)
+		sortField := api.ViewSortField(v.SortField)
+		sortOrder := api.ViewSortOrder(v.SortOrder)
+		resp.WorkspaceScope = &workspaceScope
+		resp.SortField = &sortField
+		resp.SortOrder = &sortOrder
+		resp.IsDefault = ptrOf(v.Default)
 	}
 	return resp
 }

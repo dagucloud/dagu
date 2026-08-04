@@ -5,29 +5,6 @@ export type DAGRunsViewMode = 'list' | 'grouped';
 export type DocSortField = 'name' | 'type' | 'mtime';
 export type DocSortOrder = 'asc' | 'desc';
 
-export type WorkflowFilterSet = {
-  searchText: string;
-  searchLabels: string[];
-  sortField: string;
-  sortOrder: string;
-};
-
-export type WorkflowFilterView = {
-  id: string;
-  name: string;
-  filters: WorkflowFilterSet;
-};
-
-export type WorkflowFilterViewScope = {
-  views: WorkflowFilterView[];
-  defaultViewId?: string;
-};
-
-export type WorkflowFilterViewPreferences = Record<
-  string,
-  WorkflowFilterViewScope
->;
-
 export type UserPreferences = {
   pageLimit: number;
   dagRunsViewMode: DAGRunsViewMode;
@@ -36,7 +13,6 @@ export type UserPreferences = {
   safeMode: boolean;
   docSortField: DocSortField;
   docSortOrder: DocSortOrder;
-  workflowFilterViews: WorkflowFilterViewPreferences;
 };
 
 const UserPreferencesContext = createContext<{
@@ -55,7 +31,6 @@ const defaultPreferences: UserPreferences = {
   safeMode: false,
   docSortField: 'type',
   docSortOrder: 'asc',
-  workflowFilterViews: {},
 };
 
 function loadPreferences(): UserPreferences {
@@ -64,7 +39,9 @@ function loadPreferences(): UserPreferences {
     if (!saved) {
       return defaultPreferences;
     }
-    return { ...defaultPreferences, ...JSON.parse(saved) };
+    const preferences = JSON.parse(saved);
+    delete preferences.workflowFilterViews;
+    return { ...defaultPreferences, ...preferences };
   } catch {
     return defaultPreferences;
   }

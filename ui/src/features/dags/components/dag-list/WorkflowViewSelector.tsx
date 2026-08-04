@@ -34,7 +34,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import type { WorkflowFilterView } from '@/contexts/UserPreference';
+import type { WorkflowFilterView } from './workflowViews';
 
 type Props = {
   views: WorkflowFilterView[];
@@ -42,13 +42,15 @@ type Props = {
   defaultViewId?: string;
   isAllView: boolean;
   isActiveViewEdited: boolean;
+  canManageViews: boolean;
+  error?: string | null;
   onSelectView: (viewId: string) => void;
   onShowAll: () => void;
   onResetView: () => void;
-  onSaveView: (name: string, makeDefault: boolean) => void;
-  onUpdateView: () => void;
-  onSetDefault: (viewId: string | undefined) => void;
-  onDeleteView: (viewId: string) => void;
+  onSaveView: (name: string, makeDefault: boolean) => Promise<void>;
+  onUpdateView: () => Promise<void>;
+  onSetDefault: (viewId: string | undefined) => Promise<void>;
+  onDeleteView: (viewId: string) => Promise<void>;
 };
 
 export function WorkflowViewSelector({
@@ -57,6 +59,8 @@ export function WorkflowViewSelector({
   defaultViewId,
   isAllView,
   isActiveViewEdited,
+  canManageViews,
+  error,
   onSelectView,
   onShowAll,
   onResetView,
@@ -69,6 +73,7 @@ export function WorkflowViewSelector({
   const [manageDialogOpen, setManageDialogOpen] = React.useState(false);
   const [viewName, setViewName] = React.useState('');
   const [makeDefault, setMakeDefault] = React.useState(false);
+  const [isMutating, setIsMutating] = React.useState(false);
   const [pendingDelete, setPendingDelete] =
     React.useState<WorkflowFilterView | null>(null);
 
@@ -80,7 +85,11 @@ export function WorkflowViewSelector({
   const duplicateName = views.some(
     (view) => view.name.toLowerCase() === normalizedName.toLowerCase()
   );
-  const canSave = normalizedName.length > 0 && !duplicateName;
+  const canSave =
+    canManageViews &&
+    normalizedName.length > 0 &&
+    !duplicateName &&
+    !isMutating;
 
   const openSaveDialog = () => {
     setViewName('');
@@ -88,13 +97,26 @@ export function WorkflowViewSelector({
     setSaveDialogOpen(true);
   };
 
-  const saveView = (event: React.FormEvent) => {
+  const runMutation = async (action: () => Promise<void>): Promise<void> => {
+    setIsMutating(true);
+    try {
+      await action();
+    } finally {
+      setIsMutating(false);
+    }
+  };
+
+  const saveView = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!canSave) {
       return;
     }
-    onSaveView(normalizedName, makeDefault);
-    setSaveDialogOpen(false);
+    try {
+      await runMutation(() => onSaveView(normalizedName, makeDefault));
+      setSaveDialogOpen(false);
+    } catch {
+      // The page displays the server error alongside the workflow controls.
+    }
   };
 
   const requestDelete = (view: WorkflowFilterView) => {
@@ -107,12 +129,17 @@ export function WorkflowViewSelector({
     setManageDialogOpen(true);
   };
 
-  const confirmDelete = () => {
-    if (pendingDelete) {
-      onDeleteView(pendingDelete.id);
+  const confirmDelete = async () => {
+    if (!pendingDelete) {
+      return;
     }
-    setPendingDelete(null);
-    setManageDialogOpen(true);
+    try {
+      await runMutation(() => onDeleteView(pendingDelete.id));
+      setPendingDelete(null);
+      setManageDialogOpen(true);
+    } catch {
+      // Keep the confirmation open so the operation can be retried.
+    }
   };
 
   return (
@@ -156,7 +183,7 @@ export function WorkflowViewSelector({
               <>
                 <DropdownMenuSeparator />
                 <DropdownMenuLabel className="text-[11px] uppercase tracking-wide text-muted-foreground">
-                  My views
+                  Shared views
                 </DropdownMenuLabel>
                 {views.map((view) => (
                   <DropdownMenuItem
@@ -184,10 +211,17 @@ export function WorkflowViewSelector({
             {activeView && isActiveViewEdited && (
               <>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onSelect={onUpdateView}>
-                  <Save className="mr-2" />
-                  Update “{activeView.name}”
-                </DropdownMenuItem>
+                {canManageViews && (
+                  <DropdownMenuItem
+                    onSelect={() =>
+                      void runMutation(onUpdateView).catch(() => undefined)
+                    }
+                    disabled={isMutating}
+                  >
+                    <Save className="mr-2" />
+                    Update “{activeView.name}”
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem onSelect={onResetView}>
                   <RotateCcw className="mr-2" />
                   Reset changes
@@ -195,15 +229,19 @@ export function WorkflowViewSelector({
               </>
             )}
 
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={openSaveDialog}>
-              <Save className="mr-2" />
-              Save current filters as view…
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => setManageDialogOpen(true)}>
-              <Settings2 className="mr-2" />
-              Manage views…
-            </DropdownMenuItem>
+            {canManageViews && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={openSaveDialog}>
+                  <Save className="mr-2" />
+                  Save current filters as view…
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setManageDialogOpen(true)}>
+                  <Settings2 className="mr-2" />
+                  Manage views…
+                </DropdownMenuItem>
+              </>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -244,9 +282,14 @@ export function WorkflowViewSelector({
                   }
                 />
                 <Label htmlFor="workflow-view-default" className="font-normal">
-                  Make this my default view
+                  Make this the default view for everyone
                 </Label>
               </div>
+              {error && (
+                <p role="alert" className="text-xs text-destructive">
+                  {error}
+                </p>
+              )}
             </div>
             <DialogFooter>
               <Button
@@ -269,8 +312,8 @@ export function WorkflowViewSelector({
           <DialogHeader>
             <DialogTitle>Manage workflow views</DialogTitle>
             <DialogDescription>
-              Choose the view that opens by default, or remove views saved for
-              this remote and workspace.
+              Choose the shared default, or remove views saved for this remote
+              and workspace.
             </DialogDescription>
           </DialogHeader>
           <div className="max-h-[360px] space-y-2 overflow-y-auto py-2">
@@ -292,8 +335,11 @@ export function WorkflowViewSelector({
                           ? `Remove ${view.name} as the default view`
                           : `Make ${view.name} the default view`
                       }
+                      disabled={isMutating}
                       onClick={() =>
-                        onSetDefault(isDefault ? undefined : view.id)
+                        void runMutation(() =>
+                          onSetDefault(isDefault ? undefined : view.id)
+                        ).catch(() => undefined)
                       }
                     >
                       <Star
@@ -311,6 +357,7 @@ export function WorkflowViewSelector({
                       variant="ghost"
                       size="icon-sm"
                       aria-label={`Delete ${view.name}`}
+                      disabled={isMutating}
                       onClick={() => requestDelete(view)}
                     >
                       <Trash2 />
@@ -324,6 +371,11 @@ export function WorkflowViewSelector({
               </div>
             )}
           </div>
+          {error && (
+            <p role="alert" className="text-xs text-destructive">
+              {error}
+            </p>
+          )}
           <DialogFooter>
             <Button type="button" onClick={() => setManageDialogOpen(false)}>
               Done
@@ -340,9 +392,14 @@ export function WorkflowViewSelector({
         onSubmit={confirmDelete}
       >
         <p className="text-sm text-muted-foreground">
-          “{pendingDelete?.name}” will be removed from this browser. Workflows
-          are not affected.
+          “{pendingDelete?.name}” will be removed for everyone with access to
+          this workspace scope. Workflows are not affected.
         </p>
+        {error && (
+          <p role="alert" className="mt-2 text-xs text-destructive">
+            {error}
+          </p>
+        )}
       </ConfirmDialog>
     </>
   );
