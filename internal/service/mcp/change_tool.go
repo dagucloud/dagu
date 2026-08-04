@@ -99,6 +99,24 @@ func changeToolInputSchema() json.RawMessage {
 				"description": "Destination document or directory path for rename_doc."
 			}
 		},
+		"oneOf": [
+			{
+				"properties": {"type": {"enum": ["upsert_dag"]}},
+				"required": ["name", "spec"]
+			},
+			{
+				"properties": {"type": {"enum": ["upsert_doc"]}},
+				"required": ["type", "workspace", "path", "content"]
+			},
+			{
+				"properties": {"type": {"enum": ["rename_doc"]}},
+				"required": ["type", "workspace", "path", "newPath"]
+			},
+			{
+				"properties": {"type": {"enum": ["delete_doc"]}},
+				"required": ["type", "workspace", "path"]
+			}
+		],
 		"additionalProperties": false
 	}`)
 }
