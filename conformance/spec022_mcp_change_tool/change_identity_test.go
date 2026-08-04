@@ -63,7 +63,9 @@ func TestChangeToolIdentityAndInputSchema(t *testing.T) {
 		require.Len(t, typeValues, 1)
 		changeType, ok := typeValues[0].(string)
 		require.True(t, ok)
-		require.ElementsMatch(t, expectedRequired[changeType], requireArray(t, branch, "required"))
+		requiredFields, ok := expectedRequired[changeType]
+		require.True(t, ok, "unexpected change type %q", changeType)
+		require.ElementsMatch(t, requiredFields, requireArray(t, branch, "required"))
 		delete(expectedRequired, changeType)
 	}
 	require.Empty(t, expectedRequired)

@@ -204,8 +204,10 @@ func TestDocumentPromptsIncludeRequiredUpsertFields(t *testing.T) {
 	session := connectTestClient(t, ctx, NewServer(nil))
 
 	tests := []struct {
-		name      string
-		arguments map[string]string
+		name           string
+		arguments      map[string]string
+		request        string
+		wantFieldBlock string
 	}{
 		{
 			name: "dagu_create_doc",
@@ -214,6 +216,8 @@ func TestDocumentPromptsIncludeRequiredUpsertFields(t *testing.T) {
 				"path":      "runbooks/restart",
 				"goal":      "Document a safe restart.",
 			},
+			request:        "Document a safe restart.",
+			wantFieldBlock: "mode=preview, type=upsert_doc, workspace=operations, path=runbooks/restart, and content set to the complete drafted Markdown",
 		},
 		{
 			name: "dagu_edit_doc",
@@ -222,23 +226,33 @@ func TestDocumentPromptsIncludeRequiredUpsertFields(t *testing.T) {
 				"path":      "runbooks/restart",
 				"change":    "Add the rollback steps.",
 			},
+			request:        "Add the rollback steps.",
+			wantFieldBlock: "mode=preview, type=upsert_doc, workspace=operations, path=runbooks/restart, and content set to the complete edited Markdown",
 		},
 	}
 	for _, test := range tests {
-		result, err := session.GetPrompt(ctx, &mcpsdk.GetPromptParams{
-			Name:      test.name,
-			Arguments: test.arguments,
-		})
-		require.NoError(t, err)
-		require.Len(t, result.Messages, 1)
+		t.Run(test.name, func(t *testing.T) {
+			result, err := session.GetPrompt(ctx, &mcpsdk.GetPromptParams{
+				Name:      test.name,
+				Arguments: test.arguments,
+			})
+			require.NoError(t, err)
+			require.Len(t, result.Messages, 1)
 
-		data, err := result.Messages[0].Content.MarshalJSON()
-		require.NoError(t, err)
-		text := string(data)
-		require.Contains(t, text, "type=upsert_doc")
-		require.Contains(t, text, "workspace=operations")
-		require.Contains(t, text, "path=runbooks/restart")
-		require.Contains(t, text, "content")
+			data, err := result.Messages[0].Content.MarshalJSON()
+			require.NoError(t, err)
+			var content struct {
+				Text string `json:"text"`
+			}
+			require.NoError(t, json.Unmarshal(data, &content))
+
+			requestText, instruction, ok := strings.Cut(content.Text, "\n\nCall dagu_change with ")
+			require.True(t, ok)
+			require.Contains(t, requestText, test.request)
+			fieldBlock, _, ok := strings.Cut(instruction, ". Apply only ")
+			require.True(t, ok)
+			require.Equal(t, test.wantFieldBlock, fieldBlock)
+		})
 	}
 }
 
