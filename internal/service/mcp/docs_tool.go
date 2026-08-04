@@ -238,11 +238,7 @@ func normalizeDoc(doc daguapi.DocResponse, workspace string) map[string]any {
 	return output
 }
 
-func (svc *Service) inspectDocPath(ctx context.Context, workspace, path string) (docNodeInfo, error) {
-	nodes, err := svc.docNodes(ctx, workspace)
-	if err != nil {
-		return docNodeInfo{}, err
-	}
+func inspectDocPath(nodes map[string]docNodeInfo, path string) (docNodeInfo, error) {
 	if node, ok := nodes[path]; ok {
 		return node, nil
 	}
@@ -253,7 +249,7 @@ func (svc *Service) docNodes(ctx context.Context, workspace string) (map[string]
 	const perPage = 100
 	nodes := make(map[string]docNodeInfo)
 	for page := 1; ; page++ {
-		resp, err := svc.listDocsResponse(ctx, workspace, fmt.Sprintf("page=%d&perPage=%d", page, perPage))
+		resp, err := svc.listDocsResponse(ctx, workspace, fmt.Sprintf("page=%d&perPage=%d&flat=false", page, perPage))
 		if err != nil {
 			return nil, err
 		}
@@ -275,11 +271,7 @@ func docPathNotFoundError() error {
 	})
 }
 
-func (svc *Service) ensureDocPathAvailable(ctx context.Context, workspace, path string) error {
-	nodes, err := svc.docNodes(ctx, workspace)
-	if err != nil {
-		return err
-	}
+func ensureDocPathAvailable(nodes map[string]docNodeInfo, path string) error {
 	if _, ok := nodes[path]; ok {
 		return docPathConflict("Document destination already exists")
 	}

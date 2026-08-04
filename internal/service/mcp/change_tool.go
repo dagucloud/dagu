@@ -184,13 +184,17 @@ func (svc *Service) changeDAG(ctx context.Context, input changeInput) (*mcpsdk.C
 }
 
 func (svc *Service) changeUpsertDoc(ctx context.Context, input changeInput) (*mcpsdk.CallToolResult, map[string]any, error) {
+	nodes, err := svc.docNodes(ctx, input.Workspace)
+	if err != nil {
+		return nil, nil, err
+	}
 	created := false
-	node, err := svc.inspectDocPath(ctx, input.Workspace, input.Path)
+	node, err := inspectDocPath(nodes, input.Path)
 	if err != nil {
 		if !errors.Is(err, errDocPathNotFound) {
 			return nil, nil, err
 		}
-		if err := svc.ensureDocPathAvailable(ctx, input.Workspace, input.Path); err != nil {
+		if err := ensureDocPathAvailable(nodes, input.Path); err != nil {
 			return nil, nil, err
 		}
 		created = true
@@ -219,11 +223,15 @@ func (svc *Service) changeUpsertDoc(ctx context.Context, input changeInput) (*mc
 }
 
 func (svc *Service) changeRenameDoc(ctx context.Context, input changeInput) (*mcpsdk.CallToolResult, map[string]any, error) {
-	node, err := svc.inspectDocPath(ctx, input.Workspace, input.Path)
+	nodes, err := svc.docNodes(ctx, input.Workspace)
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := svc.ensureDocPathAvailable(ctx, input.Workspace, input.NewPath); err != nil {
+	node, err := inspectDocPath(nodes, input.Path)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := ensureDocPathAvailable(nodes, input.NewPath); err != nil {
 		return nil, nil, err
 	}
 
@@ -248,7 +256,11 @@ func (svc *Service) changeRenameDoc(ctx context.Context, input changeInput) (*mc
 }
 
 func (svc *Service) changeDeleteDoc(ctx context.Context, input changeInput) (*mcpsdk.CallToolResult, map[string]any, error) {
-	node, err := svc.inspectDocPath(ctx, input.Workspace, input.Path)
+	nodes, err := svc.docNodes(ctx, input.Workspace)
+	if err != nil {
+		return nil, nil, err
+	}
+	node, err := inspectDocPath(nodes, input.Path)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -267,6 +279,7 @@ func (svc *Service) changeDeleteDoc(ctx context.Context, input changeInput) (*mc
 		return nil, nil, err
 	}
 	output["applied"] = true
+	delete(output, "docUri")
 	return resultWithLinks("Document deletion applied."), output, nil
 }
 

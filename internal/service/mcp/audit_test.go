@@ -53,6 +53,14 @@ func TestResourceAuditDetailsIdentifiesDocument(t *testing.T) {
 	require.Equal(t, "operations/runbooks/restart", details["resource_id"])
 }
 
+func TestResourceAuditDetailsPreservesInvalidDocumentURI(t *testing.T) {
+	const uri = "dagu://docs/operations/runbooks/restart"
+	details := resourceAuditDetails(uri)
+
+	require.Equal(t, "resource", details["resource_type"])
+	require.Equal(t, uri, details["resource_id"])
+}
+
 func TestDocumentChangeAuditMetadataUsesWorkspaceAndContentSize(t *testing.T) {
 	metadata := changeAuditMetadata(changeInput{
 		Mode:      changeModeApply,

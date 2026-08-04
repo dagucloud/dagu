@@ -314,7 +314,7 @@ func promptCreateDoc(_ context.Context, req *mcpsdk.GetPromptRequest) (*mcpsdk.G
 	}
 	return promptResult(
 		"Create a Dagu document",
-		"Draft Markdown for this goal: "+goal+"\n\nCall dagu_change with mode=preview, type=upsert_doc, workspace="+workspace+", and path="+path+". Apply only when the user wants the document written.",
+		"Draft Markdown for this goal: "+goal+"\n\nCall dagu_change with mode=preview, type=upsert_doc, workspace="+workspace+", path="+path+", and content set to the complete drafted Markdown. Apply only when the user wants the document written.",
 	), nil
 }
 
@@ -327,7 +327,7 @@ func promptEditDoc(_ context.Context, req *mcpsdk.GetPromptRequest) (*mcpsdk.Get
 	}
 	return promptResult(
 		"Edit a Dagu document",
-		"Read "+docURI(workspace, path)+", preserve unrelated content, and make only this change: "+change+"\n\nCall dagu_change with mode=preview and type=upsert_doc. Apply only when the user wants the edit written.",
+		"Read "+docURI(workspace, path)+", preserve unrelated content, and make only this change: "+change+"\n\nCall dagu_change with mode=preview, type=upsert_doc, workspace="+workspace+", path="+path+", and content set to the complete edited Markdown. Apply only when the user wants the edit written.",
 	), nil
 }
 

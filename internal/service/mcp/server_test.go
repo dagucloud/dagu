@@ -199,6 +199,49 @@ func TestPromptMentionsPreviewBeforeApply(t *testing.T) {
 	require.True(t, strings.Contains(text, "dagu_change"))
 }
 
+func TestDocumentPromptsIncludeRequiredUpsertFields(t *testing.T) {
+	ctx := context.Background()
+	session := connectTestClient(t, ctx, NewServer(nil))
+
+	tests := []struct {
+		name      string
+		arguments map[string]string
+	}{
+		{
+			name: "dagu_create_doc",
+			arguments: map[string]string{
+				"workspace": "operations",
+				"path":      "runbooks/restart",
+				"goal":      "Document a safe restart.",
+			},
+		},
+		{
+			name: "dagu_edit_doc",
+			arguments: map[string]string{
+				"workspace": "operations",
+				"path":      "runbooks/restart",
+				"change":    "Add the rollback steps.",
+			},
+		},
+	}
+	for _, test := range tests {
+		result, err := session.GetPrompt(ctx, &mcpsdk.GetPromptParams{
+			Name:      test.name,
+			Arguments: test.arguments,
+		})
+		require.NoError(t, err)
+		require.Len(t, result.Messages, 1)
+
+		data, err := result.Messages[0].Content.MarshalJSON()
+		require.NoError(t, err)
+		text := string(data)
+		require.Contains(t, text, "type=upsert_doc")
+		require.Contains(t, text, "workspace=operations")
+		require.Contains(t, text, "path=runbooks/restart")
+		require.Contains(t, text, "content")
+	}
+}
+
 func TestRunLogsURIWithQueryPreservesQuery(t *testing.T) {
 	require.Equal(t,
 		"dagu://runs/demo%20dag/run%2F1/logs?node=step%201&tail=true",

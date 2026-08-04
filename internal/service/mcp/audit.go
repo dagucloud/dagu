@@ -463,12 +463,14 @@ func resourceAuditDetails(rawURI string) map[string]any {
 				resourceID = segments[0] + "/" + segments[1]
 			}
 		case "docs":
-			resourceType = "documents"
-			if len(segments) == 0 {
+			switch len(segments) {
+			case 0:
+				resourceType = "documents"
 				resourceID = "all"
-			} else if len(segments) == 1 {
+			case 1:
+				resourceType = "documents"
 				resourceID = segments[0]
-			} else {
+			case 2:
 				resourceType = "document"
 				resourceID = segments[0] + "/" + segments[1]
 			}
