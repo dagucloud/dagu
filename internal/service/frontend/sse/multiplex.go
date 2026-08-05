@@ -780,10 +780,30 @@ func (s *streamSession) topicKeys() []string {
 }
 
 func (s *streamSession) bootstrapTopics(ctx context.Context, lastEventID uint64, topics []*multiplexTopic) {
+	eligible := make([]*multiplexTopic, 0, len(topics))
 	for _, topic := range topics {
 		if lastEventID > 0 && !topic.changedSince(lastEventID) {
 			continue
 		}
+		eligible = append(eligible, topic)
+	}
+
+	// A list-only bootstrap can share one day load; mixed topic batches retain their ordering.
+	allDAGRuns := len(eligible) > 1 && !slices.ContainsFunc(eligible, func(topic *multiplexTopic) bool {
+		return topic.topicType != TopicTypeDAGRuns
+	})
+	if allDAGRuns {
+		var wg sync.WaitGroup
+		for _, topic := range eligible {
+			wg.Go(func() {
+				_ = topic.sendSnapshot(ctx, s, s.mux.nextID())
+			})
+		}
+		wg.Wait()
+		return
+	}
+
+	for _, topic := range eligible {
 		if err := topic.sendSnapshot(ctx, s, s.mux.nextID()); err != nil {
 			continue
 		}

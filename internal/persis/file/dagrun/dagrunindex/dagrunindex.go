@@ -18,6 +18,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	indexv1 "github.com/dagucloud/dagu/v2/proto/index/v1"
+	"golang.org/x/sync/singleflight"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -38,7 +39,13 @@ const (
 var (
 	reDAGRunDir  = regexp.MustCompile(`^` + dagRunDirPrefix + `(\d{8}_\d{6}Z)_(.*)$`)
 	reAttemptDir = regexp.MustCompile(`^(?:` + regexp.QuoteMeta(attemptDirPrefix) + `|` + regexp.QuoteMeta(legacyAttemptDirPrefix) + `)(\d{8}_\d{6}_\d{3}Z)_(.*)$`)
+	dayLoadGroup singleflight.Group
 )
+
+type dayLoadResult struct {
+	entries   []Entry
+	fromIndex bool
+}
 
 // Entry holds a cached summary for a single DAG run.
 type Entry struct {
@@ -85,15 +92,34 @@ func TryLoadForDay(dayDir string, dagRunDirs []os.DirEntry) ([]Entry, bool, erro
 		return nil, false, nil
 	}
 
-	indexPath := filepath.Join(dayDir, IndexFileName)
-	idx, err := readIndex(indexPath)
-	if err == nil && validateIndex(dayDir, idx, runDirs) {
-		entries := protoToEntries(idx.Entries)
-		return entries, true, nil
+	var loadKey strings.Builder
+	loadKey.WriteString(filepath.Join(dayDir, IndexFileName))
+	for _, runDir := range runDirs {
+		loadKey.WriteByte(0)
+		loadKey.WriteString(runDir.Name())
+	}
+	value, err, _ := dayLoadGroup.Do(loadKey.String(), func() (any, error) {
+		indexPath := filepath.Join(dayDir, IndexFileName)
+		idx, readErr := readIndex(indexPath)
+		if readErr == nil && validateIndex(dayDir, idx, runDirs) {
+			return dayLoadResult{
+				entries:   protoToEntries(idx.Entries),
+				fromIndex: true,
+			}, nil
+		}
+
+		entries, fromIndex, rebuildErr := RebuildForDay(dayDir, dagRunDirs)
+		if rebuildErr != nil {
+			return nil, rebuildErr
+		}
+		return dayLoadResult{entries: entries, fromIndex: fromIndex}, nil
+	})
+	if err != nil {
+		return nil, false, err
 	}
 
-	// Rebuild.
-	return RebuildForDay(dayDir, dagRunDirs)
+	result := value.(dayLoadResult)
+	return result.entries, result.fromIndex, nil
 }
 
 // RebuildForDay scans a day directory, discovers latest attempts, reads statuses,

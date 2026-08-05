@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -100,6 +101,60 @@ func TestMultiplexerCreateSessionFiltersUnauthorizedTopics(t *testing.T) {
 	assert.Equal(t, []string{"dag:test.yaml"}, result.control.Subscribed)
 	require.Len(t, result.control.Errors, 1)
 	assert.Equal(t, "queueitems:default", result.control.Errors[0].Topic)
+}
+
+func TestStreamSessionBootstrapsDAGRunsTogether(t *testing.T) {
+	const timeout = 5 * time.Second
+
+	mux := NewMultiplexer(StreamConfig{}, nil)
+	t.Cleanup(mux.Shutdown)
+
+	started := make(chan string, 2)
+	releaseCh := make(chan struct{})
+	release := sync.OnceFunc(func() { close(releaseCh) })
+	t.Cleanup(release)
+
+	mux.RegisterFetcher(TopicTypeDAGRuns, func(ctx context.Context, identifier string) (any, error) {
+		started <- identifier
+		select {
+		case <-releaseCh:
+			return map[string]string{"id": identifier}, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	})
+	mux.SetRefreshMode(TopicTypeDAGRuns, TopicRefreshModeOnDemand)
+
+	result, err := mux.createSession(
+		context.Background(),
+		httptest.NewRecorder(),
+		[]string{"dagruns:status=1", "dagruns:status=4"},
+		0,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, result.session)
+	defer mux.removeSession(result.session)
+
+	done := make(chan struct{})
+	go func() {
+		result.session.bootstrapTopics(context.Background(), 0, result.topics)
+		close(done)
+	}()
+
+	for range 2 {
+		select {
+		case <-started:
+		case <-time.After(timeout):
+			require.FailNow(t, "DAG-run snapshots did not start together")
+		}
+	}
+	release()
+
+	select {
+	case <-done:
+	case <-time.After(timeout):
+		require.FailNow(t, "DAG-run snapshot bootstrap did not finish")
+	}
 }
 
 func TestMultiplexerCreateSessionFiltersUnsupportedTopics(t *testing.T) {
