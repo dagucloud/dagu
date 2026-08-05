@@ -89,6 +89,7 @@ vi.mock('@/features/dags/components/dag-list', () => ({
     onUpdateWorkflowView,
     onResetWorkflowView,
     onSetDefaultWorkflowView,
+    onSetPinnedWorkflowView,
     onDeleteWorkflowView,
   }: {
     dags: Array<{ fileName: string; dag: { name: string } }>;
@@ -97,11 +98,16 @@ vi.mock('@/features/dags/components/dag-list', () => ({
     selectedDAG?: string | null;
     onSelectDAG?: (fileName: string, title: string) => void;
     activeWorkflowViewId: string | null;
-    onSaveWorkflowView: (name: string, makeDefault: boolean) => Promise<void>;
+    onSaveWorkflowView: (
+      name: string,
+      makeDefault: boolean,
+      pinned: boolean
+    ) => Promise<void>;
     onShowAllWorkflows: () => void;
     onUpdateWorkflowView: () => Promise<void>;
     onResetWorkflowView: () => void;
     onSetDefaultWorkflowView: (viewId: string | undefined) => Promise<void>;
+    onSetPinnedWorkflowView: (viewId: string, pinned: boolean) => Promise<void>;
     onDeleteWorkflowView: (viewId: string) => Promise<void>;
   }) => (
     <div>
@@ -122,7 +128,9 @@ vi.mock('@/features/dags/components/dag-list', () => ({
       </span>
       <button
         type="button"
-        onClick={() => void onSaveWorkflowView('Production operations', true)}
+        onClick={() =>
+          void onSaveWorkflowView('Production operations', true, false)
+        }
       >
         Save production view
       </button>
@@ -140,6 +148,12 @@ vi.mock('@/features/dags/components/dag-list', () => ({
         onClick={() => void onSetDefaultWorkflowView('production')}
       >
         Set production view as default
+      </button>
+      <button
+        type="button"
+        onClick={() => void onSetPinnedWorkflowView('production', true)}
+      >
+        Star production view
       </button>
       <button
         type="button"
@@ -315,6 +329,7 @@ function makeWorkflowView(overrides: Partial<View> = {}): View {
     sortField: ViewSortField.name,
     sortOrder: ViewSortOrder.asc,
     isDefault: false,
+    pinned: false,
     createdAt: '2026-08-05T00:00:00Z',
     updatedAt: '2026-08-05T00:00:00Z',
     ...overrides,
@@ -346,6 +361,7 @@ describe('DagsPage', () => {
         sortField: spec.sortField,
         sortOrder: spec.sortOrder,
         isDefault: spec.isDefault,
+        pinned: spec.pinned,
       });
       sharedWorkflowViewState.views = [
         ...sharedWorkflowViewState.views,
@@ -368,6 +384,7 @@ describe('DagsPage', () => {
         sortField: spec.sortField,
         sortOrder: spec.sortOrder,
         isDefault: spec.isDefault,
+        pinned: spec.pinned,
       });
       if (index >= 0) {
         sharedWorkflowViewState.views = sharedWorkflowViewState.views.map(
@@ -676,7 +693,23 @@ describe('DagsPage', () => {
 
     expect(updateViewMock).toHaveBeenCalledWith(
       'production',
-      expect.objectContaining({ isDefault: true })
+      expect.objectContaining({ isDefault: true, pinned: false })
+    );
+  });
+
+  it('stars a shared workflow view without making it the default', async () => {
+    sharedWorkflowViewState.views.push(makeWorkflowView({ labels: [] }));
+    renderPage(vi.fn(), '/dags?view=production');
+
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Star production view' })
+      );
+    });
+
+    expect(updateViewMock).toHaveBeenCalledWith(
+      'production',
+      expect.objectContaining({ isDefault: false, pinned: true })
     );
   });
 

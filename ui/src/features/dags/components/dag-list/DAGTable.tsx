@@ -307,9 +307,14 @@ type Props = {
   onSelectWorkflowView: (viewId: string) => void;
   onShowAllWorkflows: () => void;
   onResetWorkflowView: () => void;
-  onSaveWorkflowView: (name: string, makeDefault: boolean) => Promise<void>;
+  onSaveWorkflowView: (
+    name: string,
+    makeDefault: boolean,
+    pinned: boolean
+  ) => Promise<void>;
   onUpdateWorkflowView: () => Promise<void>;
   onSetDefaultWorkflowView: (viewId: string | undefined) => Promise<void>;
+  onSetPinnedWorkflowView: (viewId: string, pinned: boolean) => Promise<void>;
   onDeleteWorkflowView: (viewId: string) => Promise<void>;
   /** Total workflows matching the server-side filters */
   resultCount?: number;
@@ -948,6 +953,7 @@ function DAGTable({
   onSaveWorkflowView,
   onUpdateWorkflowView,
   onSetDefaultWorkflowView,
+  onSetPinnedWorkflowView,
   onDeleteWorkflowView,
   resultCount,
   selectedDAG = null,
@@ -1251,6 +1257,7 @@ function DAGTable({
             onSaveView={onSaveWorkflowView}
             onUpdateView={onUpdateWorkflowView}
             onSetDefault={onSetDefaultWorkflowView}
+            onSetPinned={onSetPinnedWorkflowView}
             onDeleteView={onDeleteWorkflowView}
           />
 

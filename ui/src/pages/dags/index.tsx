@@ -10,7 +10,6 @@ import {
   ViewSortField,
   ViewSortOrder,
   ViewSpecType,
-  ViewWorkspaceScope,
 } from '../../api/v1/schema';
 import { Button } from '@/components/ui/button';
 import { AppBarContext } from '../../contexts/AppBarContext';
@@ -25,6 +24,10 @@ import type {
   WorkflowFilterSet,
   WorkflowFilterView,
 } from '../../features/dags/components/dag-list/workflowViews';
+import {
+  workflowViewMatchesScope,
+  workflowViewScopeForSelection,
+} from '../../features/dags/components/dag-list/workflowViews';
 import { useClient, useQuery } from '../../hooks/api';
 import { useDAGsListSSE } from '../../hooks/useDAGsListSSE';
 import {
@@ -32,9 +35,7 @@ import {
   useSSECacheSync,
 } from '../../hooks/useSSECacheSync';
 import {
-  sanitizeWorkspaceSelection,
   withoutWorkspaceLabels,
-  WorkspaceKind,
   workspaceSelectionKey,
   workspaceSelectionQuery,
 } from '../../lib/workspace';
@@ -68,34 +69,11 @@ const areDAGDefinitionsFiltersEqual = (
 
 const ALL_WORKFLOWS_VIEW_PARAM = 'all';
 
-type WorkflowViewScope = {
-  workspace: string;
-  workspaceScope: ViewWorkspaceScope;
-};
-
-function workflowViewScopeForSelection(
-  selection: Parameters<typeof sanitizeWorkspaceSelection>[0]
-): WorkflowViewScope {
-  const sanitized = sanitizeWorkspaceSelection(selection);
-  if (sanitized.kind === WorkspaceKind.workspace) {
-    return {
-      workspace: sanitized.workspace ?? '',
-      workspaceScope: ViewWorkspaceScope.workspace,
-    };
-  }
-  return {
-    workspace: '',
-    workspaceScope:
-      sanitized.kind === WorkspaceKind.default
-        ? ViewWorkspaceScope.default
-        : ViewWorkspaceScope.all,
-  };
-}
-
 function workflowFilterViewFromView(view: View): WorkflowFilterView {
   return {
     id: view.id,
     name: view.name,
+    pinned: view.pinned ?? false,
     filters: {
       searchText: view.dagName ?? '',
       searchLabels: view.labels ?? [],
@@ -259,11 +237,8 @@ function DAGsContent() {
   } = useViews(ViewSpecType.workflow);
   const scopedWorkflowViews = React.useMemo(
     () =>
-      sharedWorkflowViews.filter(
-        (view) =>
-          view.workspaceScope === workflowViewScope.workspaceScope &&
-          (workflowViewScope.workspaceScope !== ViewWorkspaceScope.workspace ||
-            view.workspace === workflowViewScope.workspace)
+      sharedWorkflowViews.filter((view) =>
+        workflowViewMatchesScope(view, workflowViewScope)
       ),
     [sharedWorkflowViews, workflowViewScope]
   );
@@ -575,7 +550,8 @@ function DAGsContent() {
     (
       name: string,
       filters: DAGDefinitionsFilters,
-      isDefault: boolean
+      isDefault: boolean,
+      pinned: boolean
     ): ViewSpec => ({
       name,
       type: ViewSpecType.workflow,
@@ -584,7 +560,7 @@ function DAGsContent() {
       labels: [...filters.searchLabels],
       dagName: filters.searchText,
       intervalDays: 1,
-      pinned: false,
+      pinned,
       sortField: filters.sortField as ViewSortField,
       sortOrder: filters.sortOrder as ViewSortOrder,
       isDefault,
@@ -653,13 +629,14 @@ function DAGsContent() {
 
   const handleSaveWorkflowView = async (
     name: string,
-    makeDefault: boolean
+    makeDefault: boolean,
+    pinned: boolean
   ): Promise<void> => {
     const filters = cloneFilters(currentFiltersRef.current);
     setWorkflowViewError(null);
     try {
       const view = await createView(
-        buildWorkflowViewSpec(name, filters, makeDefault)
+        buildWorkflowViewSpec(name, filters, makeDefault, pinned)
       );
       applyFilters(filters, view.id, true);
     } catch (error) {
@@ -682,7 +659,12 @@ function DAGsContent() {
     try {
       await updateView(
         view.id,
-        buildWorkflowViewSpec(view.name, filters, view.isDefault ?? false)
+        buildWorkflowViewSpec(
+          view.name,
+          filters,
+          view.isDefault ?? false,
+          view.pinned ?? false
+        )
       );
       applyFilters(filters, view.id, true);
     } catch (error) {
@@ -711,7 +693,8 @@ function DAGsContent() {
         buildWorkflowViewSpec(
           target.name,
           workflowFilterViewFromView(target).filters,
-          viewId !== undefined
+          viewId !== undefined,
+          target.pinned ?? false
         )
       );
     } catch (error) {
@@ -719,6 +702,35 @@ function DAGsContent() {
         error instanceof Error
           ? error.message
           : 'Failed to update the default workflow view'
+      );
+      throw error;
+    }
+  };
+
+  const handleSetPinnedWorkflowView = async (
+    viewId: string,
+    pinned: boolean
+  ): Promise<void> => {
+    const target = scopedWorkflowViews.find((view) => view.id === viewId);
+    if (!target) {
+      return;
+    }
+    setWorkflowViewError(null);
+    try {
+      await updateView(
+        target.id,
+        buildWorkflowViewSpec(
+          target.name,
+          workflowFilterViewFromView(target).filters,
+          target.isDefault ?? false,
+          pinned
+        )
+      );
+    } catch (error) {
+      setWorkflowViewError(
+        error instanceof Error
+          ? error.message
+          : 'Failed to update the starred workflow view'
       );
       throw error;
     }
@@ -897,6 +909,7 @@ function DAGsContent() {
             onSaveWorkflowView={handleSaveWorkflowView}
             onUpdateWorkflowView={handleUpdateWorkflowView}
             onSetDefaultWorkflowView={handleSetDefaultWorkflowView}
+            onSetPinnedWorkflowView={handleSetPinnedWorkflowView}
             onDeleteWorkflowView={handleDeleteWorkflowView}
             resultCount={data.pagination.totalRecords}
             selectedDAG={selectedDAG}

@@ -87,6 +87,7 @@ func TestViewsAPI_CreateWorkflowView(t *testing.T) {
 	sortField := apigen.ViewSortFieldNextRun
 	sortOrder := apigen.ViewSortOrderDesc
 	isDefault := true
+	pinned := true
 	created := mustCreateView(t, newViewsTestAPI(t), context.Background(), apigen.ViewSpec{
 		Name:           "Production workflows",
 		Type:           &viewType,
@@ -95,6 +96,7 @@ func TestViewsAPI_CreateWorkflowView(t *testing.T) {
 		SortField:      &sortField,
 		SortOrder:      &sortOrder,
 		IsDefault:      &isDefault,
+		Pinned:         &pinned,
 	})
 
 	assert.Equal(t, "workflow", created.Type)
@@ -106,6 +108,8 @@ func TestViewsAPI_CreateWorkflowView(t *testing.T) {
 	assert.Equal(t, sortOrder, *created.SortOrder)
 	require.NotNil(t, created.IsDefault)
 	assert.True(t, *created.IsDefault)
+	require.NotNil(t, created.Pinned)
+	assert.True(t, *created.Pinned)
 }
 
 func TestViewsAPI_WorkflowDefaultIsSharedPerScope(t *testing.T) {

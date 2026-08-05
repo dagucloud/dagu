@@ -91,6 +91,7 @@ function renderTable(
             onSaveWorkflowView={vi.fn()}
             onUpdateWorkflowView={vi.fn()}
             onSetDefaultWorkflowView={vi.fn()}
+            onSetPinnedWorkflowView={vi.fn()}
             onDeleteWorkflowView={vi.fn()}
           />
         </PanelWidthContext.Provider>
@@ -153,6 +154,7 @@ describe('DAGTable', () => {
         {
           id: 'production',
           name: 'Production operations',
+          pinned: false,
           filters: {
             searchText: '',
             searchLabels: ['env=prod'],

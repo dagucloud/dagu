@@ -5,7 +5,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { UserRole } from '@/api/v1/schema';
+import { UserRole, ViewSpecType, ViewWorkspaceScope } from '@/api/v1/schema';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { ConfigContext, type Config } from '@/contexts/ConfigContext';
 import { mainListItems as MainListItems } from '../menu';
@@ -54,7 +54,7 @@ vi.mock('../contexts/UserPreference', () => ({
 }));
 
 vi.mock('@/hooks/useViews', () => ({
-  useViews: () => useViewsMock(),
+  useViews: (type?: ViewSpecType) => useViewsMock(type),
 }));
 
 const config: Config = {
@@ -142,6 +142,7 @@ function renderMenu(
 
 beforeEach(() => {
   localStorage.clear();
+  useViewsMock.mockReset();
   useViewsMock.mockReturnValue({ views: [] });
   useAuthMock.mockReturnValue({
     user: { id: '1', username: 'admin', role: UserRole.admin },
@@ -363,9 +364,12 @@ describe('sidebar menu', () => {
   });
 
   it('renders pinned views as standalone sidebar links', () => {
-    useViewsMock.mockReturnValue({
-      views: [{ id: 'v1', name: 'Prod board', pinned: true }],
-    });
+    useViewsMock.mockImplementation((type?: ViewSpecType) => ({
+      views:
+        type === ViewSpecType.workflow
+          ? []
+          : [{ id: 'v1', name: 'Prod board', pinned: true }],
+    }));
 
     renderMenu('/');
 
@@ -382,6 +386,42 @@ describe('sidebar menu', () => {
       'href',
       '/views/v1'
     );
+  });
+
+  it('renders starred workflow views for the current scope in the sidebar', () => {
+    useViewsMock.mockImplementation((type?: ViewSpecType) => ({
+      views:
+        type === ViewSpecType.workflow
+          ? [
+              {
+                id: 'workflow-1',
+                name: 'Production workflows',
+                pinned: true,
+                workspace: '',
+                workspaceScope: ViewWorkspaceScope.all,
+              },
+              {
+                id: 'other-scope',
+                name: 'Default workspace workflows',
+                pinned: true,
+                workspace: '',
+                workspaceScope: ViewWorkspaceScope.default,
+              },
+            ]
+          : [],
+    }));
+
+    renderMenu('/dags?view=workflow-1');
+
+    expect(
+      screen.getByRole('link', { name: 'Production workflows' })
+    ).toHaveAttribute('href', '/dags?view=workflow-1');
+    expect(
+      screen.getByRole('link', { name: 'Production workflows' })
+    ).toHaveAttribute('aria-current', 'page');
+    expect(
+      screen.queryByRole('link', { name: 'Default workspace workflows' })
+    ).not.toBeInTheDocument();
   });
 
   it('uses Workflows as the selectable Definitions entry', () => {

@@ -139,7 +139,6 @@ func (v *View) Normalize() {
 		}
 		v.IntervalDays = MinIntervalDays
 		v.Columns = nil
-		v.Pinned = false
 	}
 	labels := make([]string, 0, len(v.Labels))
 	for _, l := range v.Labels {

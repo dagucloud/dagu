@@ -36,12 +36,14 @@ func TestView_ValidateWorkflow(t *testing.T) {
 		Workspace:      "production",
 		SortField:      view.WorkflowSortNextRun,
 		SortOrder:      view.SortOrderDescending,
+		Pinned:         true,
 	}
 	v.Normalize()
 
 	require.NoError(t, v.Validate())
 	assert.Equal(t, view.MinIntervalDays, v.IntervalDays)
 	assert.Nil(t, v.Columns)
+	assert.True(t, v.Pinned)
 }
 
 func TestView_Validate_Errors(t *testing.T) {
@@ -120,6 +122,7 @@ func TestView_WorkflowStorageRoundTrip(t *testing.T) {
 		SortField:      view.WorkflowSortName,
 		SortOrder:      view.SortOrderAscending,
 		Default:        true,
+		Pinned:         true,
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	}

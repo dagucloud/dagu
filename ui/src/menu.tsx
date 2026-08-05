@@ -20,7 +20,11 @@ import { cn } from '@/lib/utils';
 import { getResponsiveTitleClass } from '@/lib/text-utils';
 import { roleAtLeast } from '@/lib/workspaceAccess';
 import { defaultWorkspaceSelection } from '@/lib/workspace';
-import { UserRole } from '@/api/v1/schema';
+import { UserRole, ViewSpecType } from '@/api/v1/schema';
+import {
+  workflowViewMatchesScope,
+  workflowViewScopeForSelection,
+} from '@/features/dags/components/dag-list/workflowViews';
 import {
   Activity,
   AlertTriangle,
@@ -245,16 +249,28 @@ function isNavTargetActive(
   location: ReturnType<typeof useLocation>,
   target: string
 ): boolean {
-  const [targetPath, targetHash] = target.split('#');
+  const [targetWithoutHash = '', targetHash] = target.split('#');
+  const [targetPath, targetSearch] = targetWithoutHash.split('?');
   if (targetHash) {
     return (
       location.pathname === targetPath && location.hash === `#${targetHash}`
     );
   }
-  return (
+  const pathMatches =
     location.pathname === targetPath ||
-    (targetPath !== '/' && location.pathname.startsWith(targetPath + '/'))
-  );
+    (targetPath !== '/' && location.pathname.startsWith(targetPath + '/'));
+  if (!pathMatches) {
+    return false;
+  }
+  if (targetSearch) {
+    if (location.pathname !== targetPath) {
+      return false;
+    }
+    const expected = new URLSearchParams(targetSearch);
+    const actual = new URLSearchParams(location.search);
+    return [...expected].every(([key, value]) => actual.get(key) === value);
+  }
+  return true;
 }
 
 function isBasePathActive(
@@ -454,8 +470,16 @@ export const mainListItems = React.forwardRef<
   const config = useConfig();
   const isAdmin = useIsAdmin();
   const { user } = useAuth();
-  const { views } = useViews();
-  const pinnedViews = views.filter((view) => view.pinned);
+  const appBar = React.useContext(AppBarContext);
+  const { views: kanbanViews } = useViews();
+  const { views: workflowViews } = useViews(ViewSpecType.workflow);
+  const workflowViewScope = workflowViewScopeForSelection(
+    appBar.workspaceSelection
+  );
+  const pinnedKanbanViews = kanbanViews.filter((view) => view.pinned);
+  const pinnedWorkflowViews = workflowViews.filter(
+    (view) => view.pinned && workflowViewMatchesScope(view, workflowViewScope)
+  );
   const canWrite =
     config.authMode !== 'builtin'
       ? config.permissions.writeDags
@@ -620,12 +644,23 @@ export const mainListItems = React.forwardRef<
         </AppBarContext.Consumer>
 
         <div className="space-y-1">
-          {pinnedViews.map((view) => (
+          {pinnedKanbanViews.map((view) => (
             <NavItem
-              key={view.id}
+              key={`kanban-${view.id}`}
               to={`/views/${view.id}`}
               text={view.name}
               icon={<LayoutGrid size={18} />}
+              isOpen={isOpen}
+              onClick={onNavItemClick}
+              customColor={customColor}
+            />
+          ))}
+          {pinnedWorkflowViews.map((view) => (
+            <NavItem
+              key={`workflow-${view.id}`}
+              to={`/dags?view=${encodeURIComponent(view.id)}`}
+              text={view.name}
+              icon={<Network size={18} />}
               isOpen={isOpen}
               onClick={onNavItemClick}
               customColor={customColor}

@@ -12,6 +12,7 @@ const views: WorkflowFilterView[] = [
   {
     id: 'production',
     name: 'Production operations',
+    pinned: false,
     filters: {
       searchText: '',
       searchLabels: ['env=prod'],
@@ -37,6 +38,7 @@ function renderSelector(
     onSaveView: vi.fn().mockResolvedValue(undefined),
     onUpdateView: vi.fn().mockResolvedValue(undefined),
     onSetDefault: vi.fn().mockResolvedValue(undefined),
+    onSetPinned: vi.fn().mockResolvedValue(undefined),
     onDeleteView: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };
@@ -89,7 +91,8 @@ describe('WorkflowViewSelector', () => {
 
     expect(props.onSaveView).toHaveBeenCalledWith(
       'Production operations',
-      true
+      true,
+      false
     );
   });
 
@@ -140,7 +143,7 @@ describe('WorkflowViewSelector', () => {
     expect(props.onResetView).toHaveBeenCalledOnce();
   });
 
-  it('lets users choose a default and delete a saved view', async () => {
+  it('keeps starring, default selection, and deletion independent', async () => {
     const user = userEvent.setup();
     const props = renderSelector({ defaultViewId: undefined });
 
@@ -148,6 +151,14 @@ describe('WorkflowViewSelector', () => {
       screen.getByRole('button', { name: 'Workflow view: All workflows' })
     );
     await user.click(screen.getByRole('menuitem', { name: 'Manage views…' }));
+    await user.click(
+      screen.getByRole('button', {
+        name: 'Add Production operations to the sidebar',
+      })
+    );
+    expect(props.onSetPinned).toHaveBeenCalledWith('production', true);
+    expect(props.onSetDefault).not.toHaveBeenCalled();
+
     await user.click(
       screen.getByRole('button', {
         name: 'Make Production operations the default view',

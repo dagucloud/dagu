@@ -47,9 +47,14 @@ type Props = {
   onSelectView: (viewId: string) => void;
   onShowAll: () => void;
   onResetView: () => void;
-  onSaveView: (name: string, makeDefault: boolean) => Promise<void>;
+  onSaveView: (
+    name: string,
+    makeDefault: boolean,
+    pinned: boolean
+  ) => Promise<void>;
   onUpdateView: () => Promise<void>;
   onSetDefault: (viewId: string | undefined) => Promise<void>;
+  onSetPinned: (viewId: string, pinned: boolean) => Promise<void>;
   onDeleteView: (viewId: string) => Promise<void>;
 };
 
@@ -67,12 +72,14 @@ export function WorkflowViewSelector({
   onSaveView,
   onUpdateView,
   onSetDefault,
+  onSetPinned,
   onDeleteView,
 }: Props): React.ReactElement {
   const [saveDialogOpen, setSaveDialogOpen] = React.useState(false);
   const [manageDialogOpen, setManageDialogOpen] = React.useState(false);
   const [viewName, setViewName] = React.useState('');
   const [makeDefault, setMakeDefault] = React.useState(false);
+  const [pinToSidebar, setPinToSidebar] = React.useState(false);
   const [isMutating, setIsMutating] = React.useState(false);
   const [pendingDelete, setPendingDelete] =
     React.useState<WorkflowFilterView | null>(null);
@@ -94,6 +101,7 @@ export function WorkflowViewSelector({
   const openSaveDialog = () => {
     setViewName('');
     setMakeDefault(false);
+    setPinToSidebar(false);
     setSaveDialogOpen(true);
   };
 
@@ -112,7 +120,9 @@ export function WorkflowViewSelector({
       return;
     }
     try {
-      await runMutation(() => onSaveView(normalizedName, makeDefault));
+      await runMutation(() =>
+        onSaveView(normalizedName, makeDefault, pinToSidebar)
+      );
       setSaveDialogOpen(false);
     } catch {
       // The page displays the server error alongside the workflow controls.
@@ -154,7 +164,7 @@ export function WorkflowViewSelector({
               className="h-9 min-w-[190px] max-w-[280px] justify-start px-3"
               aria-label={`Workflow view: ${selectedLabel}`}
             >
-              {activeViewId === defaultViewId ? (
+              {activeView?.pinned ? (
                 <Star className="fill-current text-primary" />
               ) : (
                 <Bookmark />
@@ -191,15 +201,14 @@ export function WorkflowViewSelector({
                     onSelect={() => onSelectView(view.id)}
                   >
                     <span className="mr-2 flex size-4 items-center justify-center">
-                      {view.id === activeViewId ? (
-                        <Check />
-                      ) : view.id === defaultViewId ? (
-                        <Star className="fill-current text-primary" />
-                      ) : null}
+                      {view.id === activeViewId && <Check />}
                     </span>
                     <span className="min-w-0 flex-1 whitespace-normal break-words">
                       {view.name}
                     </span>
+                    {view.pinned && (
+                      <Star className="fill-current text-primary" />
+                    )}
                     {view.id === defaultViewId && (
                       <Badge variant="primary">Default</Badge>
                     )}
@@ -275,6 +284,18 @@ export function WorkflowViewSelector({
               </div>
               <div className="flex items-center gap-2">
                 <Checkbox
+                  id="workflow-view-pinned"
+                  checked={pinToSidebar}
+                  onCheckedChange={(checked) =>
+                    setPinToSidebar(checked === true)
+                  }
+                />
+                <Label htmlFor="workflow-view-pinned" className="font-normal">
+                  Star and add to the sidebar for everyone
+                </Label>
+              </div>
+              <div className="flex items-center gap-2">
+                <Checkbox
                   id="workflow-view-default"
                   checked={makeDefault}
                   onCheckedChange={(checked) =>
@@ -312,8 +333,8 @@ export function WorkflowViewSelector({
           <DialogHeader>
             <DialogTitle>Manage workflow views</DialogTitle>
             <DialogDescription>
-              Choose the shared default, or remove views saved for this remote
-              and workspace.
+              Star shared sidebar shortcuts, choose the shared default, or
+              remove views saved for this remote and workspace.
             </DialogDescription>
           </DialogHeader>
           <div className="max-h-[360px] space-y-2 overflow-y-auto py-2">
@@ -329,6 +350,32 @@ export function WorkflowViewSelector({
                       type="button"
                       variant="ghost"
                       size="icon-sm"
+                      aria-pressed={view.pinned}
+                      aria-label={
+                        view.pinned
+                          ? `Remove ${view.name} from the sidebar`
+                          : `Add ${view.name} to the sidebar`
+                      }
+                      disabled={isMutating}
+                      onClick={() =>
+                        void runMutation(() =>
+                          onSetPinned(view.id, !view.pinned)
+                        ).catch(() => undefined)
+                      }
+                    >
+                      <Star
+                        className={
+                          view.pinned ? 'fill-current text-primary' : undefined
+                        }
+                      />
+                    </Button>
+                    <span className="min-w-0 flex-1 whitespace-normal break-words text-sm font-medium">
+                      {view.name}
+                    </span>
+                    <Button
+                      type="button"
+                      variant={isDefault ? 'secondary' : 'ghost'}
+                      size="sm"
                       aria-pressed={isDefault}
                       aria-label={
                         isDefault
@@ -342,16 +389,8 @@ export function WorkflowViewSelector({
                         ).catch(() => undefined)
                       }
                     >
-                      <Star
-                        className={
-                          isDefault ? 'fill-current text-primary' : undefined
-                        }
-                      />
+                      {isDefault ? 'Default' : 'Make default'}
                     </Button>
-                    <span className="min-w-0 flex-1 whitespace-normal break-words text-sm font-medium">
-                      {view.name}
-                    </span>
-                    {isDefault && <Badge variant="primary">Default</Badge>}
                     <Button
                       type="button"
                       variant="ghost"
