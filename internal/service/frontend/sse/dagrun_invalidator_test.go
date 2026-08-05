@@ -6,6 +6,7 @@ package sse
 import (
 	"context"
 	"net/http/httptest"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -76,7 +77,7 @@ func TestDAGRunInvalidatorRefreshesListsOnlyForLifecycleEvents(t *testing.T) {
 				nil,
 			)
 
-			wakeTopicsForDAGRunEvent(mux, event)
+			wakeTopicsForDAGRunEvents(mux, []*eventstore.Event{event})
 
 			require.Eventually(t, func() bool {
 				return detailRefreshes.Load() == 1 && listRefreshes.Load() == tt.wantListRefreshes
@@ -88,4 +89,69 @@ func TestDAGRunInvalidatorRefreshesListsOnlyForLifecycleEvents(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDAGRunInvalidatorBatchesAndTargetsLifecycleListRefreshes(t *testing.T) {
+	mux := NewMultiplexer(StreamConfig{}, nil)
+	t.Cleanup(mux.Shutdown)
+
+	var counts sync.Map
+	mux.RegisterFetcher(TopicTypeDAGRuns, func(_ context.Context, identifier string) (any, error) {
+		counter, _ := counts.LoadOrStore(identifier, &atomic.Int64{})
+		counter.(*atomic.Int64).Add(1)
+		return nil, nil
+	})
+	mux.SetRefreshMode(TopicTypeDAGRuns, TopicRefreshModeOnDemand)
+
+	topics := []string{
+		"dagruns:status=0&status=5",
+		"dagruns:status=1",
+		"dagruns:status=7",
+		"dagruns:status=4&status=6",
+		"dagruns:status=2&status=3&status=8",
+		"dagruns:workspace=all",
+	}
+	result, err := mux.createSession(context.Background(), httptest.NewRecorder(), topics, 0)
+	require.NoError(t, err)
+	require.NotNil(t, result.session)
+	defer mux.removeSession(result.session)
+
+	events := make([]*eventstore.Event, 0, 2)
+	for _, runID := range []string{"run-1", "run-2"} {
+		events = append(events, eventstore.NewDAGRunEvent(
+			eventstore.Source{Service: eventstore.SourceServiceServer},
+			eventstore.TypeDAGRunRunning,
+			&exec.DAGRunStatus{
+				Name:      "test",
+				DAGRunID:  runID,
+				AttemptID: "attempt-1",
+				Status:    core.Running,
+			},
+			nil,
+		))
+	}
+
+	wakeTopicsForDAGRunEvents(mux, events)
+
+	count := func(identifier string) int64 {
+		counter, ok := counts.Load(identifier)
+		if !ok {
+			return 0
+		}
+		return counter.(*atomic.Int64).Load()
+	}
+	require.Eventually(t, func() bool {
+		return count("status=0&status=5") == 1 &&
+			count("status=1") == 1 &&
+			count("status=7") == 1 &&
+			count("workspace=all") == 1
+	}, time.Second, 10*time.Millisecond)
+	require.Never(t, func() bool {
+		return count("status=0&status=5") > 1 ||
+			count("status=1") > 1 ||
+			count("status=7") > 1 ||
+			count("workspace=all") > 1 ||
+			count("status=4&status=6") != 0 ||
+			count("status=2&status=3&status=8") != 0
+	}, 200*time.Millisecond, 20*time.Millisecond)
 }
