@@ -97,7 +97,9 @@ func wakeTopicsForDAGRunEvent(mux *Multiplexer, event *eventstore.Event) {
 		}
 	}
 
-	mux.WakeTopicType(TopicTypeDAGRuns)
+	if event.Type != eventstore.TypeDAGRunUpdated {
+		mux.WakeTopicType(TopicTypeDAGRuns)
+	}
 	mux.WakeTopicType(TopicTypeQueues)
 	mux.WakeTopicType(TopicTypeDAGsList)
 
