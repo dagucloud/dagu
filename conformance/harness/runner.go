@@ -70,6 +70,12 @@ func defaultCommandTimeoutForPlatform() time.Duration {
 	return defaultCommandTimeout
 }
 
+// WaitTimeout returns the budget for polling until an expected state is
+// observed, scaled up on platforms with slow process startup.
+func WaitTimeout() time.Duration {
+	return defaultCommandTimeoutForPlatform()
+}
+
 // NewRunner creates an isolated project seeded with package-local testdata.
 func NewRunner(t *testing.T) *Runner {
 	t.Helper()

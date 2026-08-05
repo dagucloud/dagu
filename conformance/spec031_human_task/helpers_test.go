@@ -60,7 +60,7 @@ func waitForStatus(
 	status string,
 ) *harness.Result {
 	t.Helper()
-	deadline := time.Now().Add(20 * time.Second)
+	deadline := time.Now().Add(harness.WaitTimeout())
 	var result *harness.Result
 	for time.Now().Before(deadline) {
 		result = dagu.RunWithEnv(env, "status", "--run-id="+runID, file)
@@ -78,7 +78,7 @@ func waitForStatus(
 
 func waitForFileContent(t *testing.T, path, expected string) {
 	t.Helper()
-	deadline := time.Now().Add(20 * time.Second)
+	deadline := time.Now().Add(harness.WaitTimeout())
 	for time.Now().Before(deadline) {
 		actual, err := os.ReadFile(path) // #nosec G304 -- the caller supplies a test-project path.
 		if err == nil && string(actual) == expected {
