@@ -198,7 +198,11 @@ func dagRunListTopicMatchesStatuses(identifier string, affectedStatuses map[core
 			if err != nil {
 				return true
 			}
-			if _, ok := affectedStatuses[core.Status(value)]; ok {
+			status := core.Status(value)
+			if status < core.NotStarted || status > core.Rejected {
+				return true
+			}
+			if _, ok := affectedStatuses[status]; ok {
 				return true
 			}
 		}

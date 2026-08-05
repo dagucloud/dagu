@@ -103,13 +103,29 @@ func TestDAGRunInvalidatorBatchesAndTargetsLifecycleListRefreshes(t *testing.T) 
 	})
 	mux.SetRefreshMode(TopicTypeDAGRuns, TopicRefreshModeOnDemand)
 
-	topics := []string{
-		"dagruns:status=0&status=5",
-		"dagruns:status=1",
-		"dagruns:status=7",
-		"dagruns:status=4&status=6",
-		"dagruns:status=2&status=3&status=8",
-		"dagruns:workspace=all",
+	tests := []struct {
+		topic         string
+		wantRefreshes int64
+	}{
+		{topic: "dagruns:status=0&status=5", wantRefreshes: 1},
+		{topic: "dagruns:status=1", wantRefreshes: 1},
+		{topic: "dagruns:status=7", wantRefreshes: 1},
+		{topic: "dagruns:status=4&status=6"},
+		{topic: "dagruns:status=2&status=3&status=8"},
+		{topic: "dagruns:status=1%2C4", wantRefreshes: 1},
+		{topic: "dagruns:status=4%2C6"},
+		{topic: "dagruns:status=+1+", wantRefreshes: 1},
+		{topic: "dagruns:status=running", wantRefreshes: 1},
+		{topic: "dagruns:status=999", wantRefreshes: 1},
+		{topic: "dagruns:workspace=all", wantRefreshes: 1},
+	}
+	topics := make([]string, 0, len(tests))
+	identifiers := make([]string, 0, len(tests))
+	for _, tt := range tests {
+		topics = append(topics, tt.topic)
+		parsed, err := ParseTopic(tt.topic)
+		require.NoError(t, err)
+		identifiers = append(identifiers, parsed.Identifier)
 	}
 	result, err := mux.createSession(context.Background(), httptest.NewRecorder(), topics, 0)
 	require.NoError(t, err)
@@ -141,17 +157,19 @@ func TestDAGRunInvalidatorBatchesAndTargetsLifecycleListRefreshes(t *testing.T) 
 		return counter.(*atomic.Int64).Load()
 	}
 	require.Eventually(t, func() bool {
-		return count("status=0&status=5") == 1 &&
-			count("status=1") == 1 &&
-			count("status=7") == 1 &&
-			count("workspace=all") == 1
+		for i, tt := range tests {
+			if tt.wantRefreshes > 0 && count(identifiers[i]) != tt.wantRefreshes {
+				return false
+			}
+		}
+		return true
 	}, time.Second, 10*time.Millisecond)
 	require.Never(t, func() bool {
-		return count("status=0&status=5") > 1 ||
-			count("status=1") > 1 ||
-			count("status=7") > 1 ||
-			count("workspace=all") > 1 ||
-			count("status=4&status=6") != 0 ||
-			count("status=2&status=3&status=8") != 0
+		for i, tt := range tests {
+			if count(identifiers[i]) != tt.wantRefreshes {
+				return true
+			}
+		}
+		return false
 	}, 200*time.Millisecond, 20*time.Millisecond)
 }
