@@ -113,7 +113,7 @@ func startWorker(
 
 func waitForTCPService(t *testing.T, process *harness.Process, address string) {
 	t.Helper()
-	deadline := time.Now().Add(harness.WaitTimeout())
+	deadline := time.Now().Add(harness.WaitTimeout(t))
 	for time.Now().Before(deadline) {
 		select {
 		case <-process.Done():
@@ -139,7 +139,7 @@ func waitForDistributedSuccess(
 	services *harness.Process,
 ) {
 	t.Helper()
-	deadline := time.Now().Add(harness.WaitTimeout())
+	deadline := time.Now().Add(harness.WaitTimeout(t))
 	var status *harness.Result
 	for time.Now().Before(deadline) {
 		select {
