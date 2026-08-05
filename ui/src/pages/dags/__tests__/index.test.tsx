@@ -698,6 +698,23 @@ describe('DagsPage', () => {
     );
   });
 
+  it('normalizes invalid URL sort values before saving a workflow view', async () => {
+    renderPage(vi.fn(), '/dags?sort=created&order=descending');
+
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Save production view' })
+      );
+    });
+
+    expect(createViewMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sortField: ViewSortField.name,
+        sortOrder: ViewSortOrder.asc,
+      })
+    );
+  });
+
   it('sets a shared workflow view as the default', async () => {
     sharedWorkflowViewState.views.push(makeWorkflowView({ labels: [] }));
     renderPage(vi.fn(), '/dags?view=production');

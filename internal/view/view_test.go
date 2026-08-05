@@ -46,6 +46,28 @@ func TestView_ValidateWorkflow(t *testing.T) {
 	assert.True(t, v.Pinned)
 }
 
+func TestView_ValidateWorkflowRejectsInvalidFields(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*view.View)
+		want   error
+	}{
+		{"all scope with workspace", func(v *view.View) { v.Workspace = "production" }, view.ErrInvalidWorkspaceScope},
+		{"workspace scope without workspace", func(v *view.View) { v.WorkspaceScope = view.WorkspaceScopeWorkspace }, view.ErrInvalidWorkspaceScope},
+		{"unknown sort field", func(v *view.View) { v.SortField = "created" }, view.ErrInvalidSortField},
+		{"unknown sort order", func(v *view.View) { v.SortOrder = "descending" }, view.ErrInvalidSortOrder},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := &view.View{Name: "workflow", Type: view.TypeWorkflow}
+			v.Normalize()
+			tt.mutate(v)
+			assert.ErrorIs(t, v.Validate(), tt.want)
+		})
+	}
+}
+
 func TestView_Validate_Errors(t *testing.T) {
 	tests := []struct {
 		name   string

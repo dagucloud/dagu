@@ -111,6 +111,11 @@ func TestViewStore_DefaultCleanupFailureDoesNotMaskCommittedWrite(t *testing.T) 
 
 	t.Run("create", func(t *testing.T) {
 		s, col := newViewStoreWithCollection(t)
+		competing := newView("competing", now.Add(time.Second))
+		competing.Type = view.TypeWorkflow
+		competing.WorkspaceScope = view.WorkspaceScopeAll
+		competing.Default = true
+		require.NoError(t, s.Create(ctx, competing))
 		require.NoError(t, col.Put(ctx, &persis.Record{
 			ID:        "corrupt",
 			Data:      []byte("{"),
@@ -118,7 +123,7 @@ func TestViewStore_DefaultCleanupFailureDoesNotMaskCommittedWrite(t *testing.T) 
 			UpdatedAt: now,
 		}))
 
-		created := newView("created", now)
+		created := newView("created", now.Add(2*time.Second))
 		created.Type = view.TypeWorkflow
 		created.WorkspaceScope = view.WorkspaceScopeAll
 		created.Default = true
@@ -127,14 +132,22 @@ func TestViewStore_DefaultCleanupFailureDoesNotMaskCommittedWrite(t *testing.T) 
 		stored, err := s.GetByID(ctx, created.ID)
 		require.NoError(t, err)
 		assert.True(t, stored.Default)
+		storedCompeting, err := s.GetByID(ctx, competing.ID)
+		require.NoError(t, err)
+		assert.False(t, storedCompeting.Default)
 	})
 
 	t.Run("update", func(t *testing.T) {
 		s, col := newViewStoreWithCollection(t)
-		existing := newView("updated", now)
+		existing := newView("updated", now.Add(2*time.Second))
 		existing.Type = view.TypeWorkflow
 		existing.WorkspaceScope = view.WorkspaceScopeAll
 		require.NoError(t, s.Create(ctx, existing))
+		competing := newView("competing", now.Add(time.Second))
+		competing.Type = view.TypeWorkflow
+		competing.WorkspaceScope = view.WorkspaceScopeAll
+		competing.Default = true
+		require.NoError(t, s.Create(ctx, competing))
 		require.NoError(t, col.Put(ctx, &persis.Record{
 			ID:        "corrupt",
 			Data:      []byte("{"),
@@ -153,6 +166,9 @@ func TestViewStore_DefaultCleanupFailureDoesNotMaskCommittedWrite(t *testing.T) 
 		require.NoError(t, err)
 		assert.Equal(t, "committed update", stored.Name)
 		assert.True(t, stored.Default)
+		storedCompeting, err := s.GetByID(ctx, competing.ID)
+		require.NoError(t, err)
+		assert.False(t, storedCompeting.Default)
 	})
 }
 

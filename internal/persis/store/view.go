@@ -207,7 +207,8 @@ func (s *ViewStore) clearOtherDefaultsLocked(ctx context.Context, selected *view
 		}
 		candidate, err := viewFromRecord(record)
 		if err != nil {
-			return err
+			logger.Warn(ctx, "Skipped unreadable view while clearing competing defaults", tag.Name(record.ID), tag.Error(err))
+			continue
 		}
 		if !candidate.Default || !sameDefaultScope(candidate, selected) {
 			continue

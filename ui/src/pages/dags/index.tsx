@@ -69,6 +69,16 @@ const areDAGDefinitionsFiltersEqual = (
 
 const ALL_WORKFLOWS_VIEW_PARAM = 'all';
 
+function normalizeWorkflowSortField(value?: string | null): ViewSortField {
+  return value === ViewSortField.nextRun
+    ? ViewSortField.nextRun
+    : ViewSortField.name;
+}
+
+function normalizeWorkflowSortOrder(value?: string | null): ViewSortOrder {
+  return value === ViewSortOrder.desc ? ViewSortOrder.desc : ViewSortOrder.asc;
+}
+
 function workflowFilterViewFromView(view: View): WorkflowFilterView {
   return {
     id: view.id,
@@ -77,8 +87,8 @@ function workflowFilterViewFromView(view: View): WorkflowFilterView {
     filters: {
       searchText: view.dagName ?? '',
       searchLabels: view.labels ?? [],
-      sortField: view.sortField ?? ViewSortField.name,
-      sortOrder: view.sortOrder ?? ViewSortOrder.asc,
+      sortField: normalizeWorkflowSortField(view.sortField),
+      sortOrder: normalizeWorkflowSortOrder(view.sortOrder),
     },
   };
 }
@@ -402,9 +412,14 @@ function DAGsContent() {
       base = { ...defaultFilters, ...stored };
     }
 
-    const next = hasUrlFilters
+    const nextFilters = hasUrlFilters
       ? { ...cloneFilters(base), ...urlFilters }
       : cloneFilters(base);
+    const next = {
+      ...nextFilters,
+      sortField: normalizeWorkflowSortField(nextFilters.sortField),
+      sortOrder: normalizeWorkflowSortOrder(nextFilters.sortOrder),
+    };
 
     if (scopeChanged) {
       const nextSearch = buildWorkflowFilterSearch(
@@ -561,8 +576,8 @@ function DAGsContent() {
       dagName: filters.searchText,
       intervalDays: 1,
       pinned,
-      sortField: filters.sortField as ViewSortField,
-      sortOrder: filters.sortOrder as ViewSortOrder,
+      sortField: normalizeWorkflowSortField(filters.sortField),
+      sortOrder: normalizeWorkflowSortOrder(filters.sortOrder),
       isDefault,
     }),
     [workflowViewScope]
