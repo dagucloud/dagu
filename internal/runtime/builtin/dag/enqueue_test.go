@@ -257,7 +257,7 @@ func TestEnqueueExecutorParallelHonorsMaxConcurrent(t *testing.T) {
 	var stdout bytes.Buffer
 	execImpl.SetStdout(&stdout)
 
-	runCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	runCtx, cancel := context.WithTimeout(ctx, enqueueConcurrencyWaitTimeout(t))
 	defer cancel()
 
 	done := make(chan error, 1)
@@ -278,6 +278,23 @@ func TestEnqueueExecutorParallelHonorsMaxConcurrent(t *testing.T) {
 	require.NoError(t, <-done)
 
 	assert.Equal(t, 2, queueStore.MaxActive())
+}
+
+// enqueueConcurrencyWaitTimeout bounds the wait for the executor to reach the
+// queue store. Each child run performs filesystem setup before it gets there,
+// and that cost varies widely with host load and platform, so the budget is
+// generous and shrinks only to stay inside the test deadline.
+func enqueueConcurrencyWaitTimeout(t *testing.T) time.Duration {
+	t.Helper()
+
+	timeout := time.Minute
+	if deadline, ok := t.Deadline(); ok {
+		remaining := time.Until(deadline) - 15*time.Second
+		if remaining > 0 && remaining < timeout {
+			return remaining
+		}
+	}
+	return timeout
 }
 
 type recordingQueueStore struct {
