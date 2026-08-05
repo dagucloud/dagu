@@ -105,15 +105,8 @@ func (s *Store) ValidateContext(ctx *Context) error {
 		return errors.New("context is required")
 	}
 	normalizeContext(ctx)
-	name := ctx.Name
-	if name == "" {
-		return errors.New("context name is required")
-	}
-	if name == LocalContextName || name == currentFileName {
-		return fmt.Errorf("%q and %q are reserved", LocalContextName, currentFileName)
-	}
-	if strings.ContainsAny(name, `/\`) {
-		return errors.New("context name cannot contain path separators")
+	if err := validateStoredName(ctx.Name); err != nil {
+		return err
 	}
 	if !strings.HasPrefix(ctx.APIKey, "dagu_") {
 		return errors.New("api key must use the dagu_ prefix")
@@ -168,26 +161,42 @@ func (s *Store) Delete(_ context.Context, name string) error {
 	if name == "" || name == LocalContextName {
 		return ErrNotFound
 	}
+	if err := validateStoredName(name); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := os.Remove(s.contextPath(name)); errors.Is(err, os.ErrNotExist) {
+	path := s.contextPath(name)
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
 		return ErrNotFound
 	} else if err != nil {
 		return err
 	}
+	// Move the current marker off the context before the file disappears, so a
+	// failure to update the marker cannot leave it naming a deleted context.
 	current, err := s.currentLocked()
-	if err == nil && current == name {
-		return s.writeCurrentLocked(LocalContextName)
+	switch {
+	case err == nil && current == name:
+		if err := s.writeCurrentLocked(LocalContextName); err != nil {
+			return err
+		}
+	case err != nil && !errors.Is(err, os.ErrNotExist):
+		return err
 	}
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
+	if err := os.Remove(path); errors.Is(err, os.ErrNotExist) {
+		return ErrNotFound
+	} else if err != nil {
+		return err
 	}
-	return err
+	return nil
 }
 
 func (s *Store) Get(_ context.Context, name string) (*Context, error) {
 	if name == LocalContextName {
 		return &Context{Name: LocalContextName}, nil
+	}
+	if err := validateStoredName(name); err != nil {
+		return nil, err
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -212,7 +221,7 @@ func (s *Store) List(_ context.Context) ([]*Context, error) {
 		}
 		ctx, err := s.readContext(filepath.Join(s.baseDir, entry.Name()))
 		if err != nil {
-			readErrs = append(readErrs, fmt.Errorf("read %s: %w", entry.Name(), err))
+			readErrs = append(readErrs, err)
 			continue
 		}
 		contexts = append(contexts, ctx)
@@ -234,20 +243,43 @@ func (s *Store) Current(_ context.Context) (string, error) {
 	return current, err
 }
 
-func (s *Store) Use(ctx context.Context, name string) error {
-	switch name {
-	case "", LocalContextName:
+func (s *Store) Use(_ context.Context, name string) error {
+	if name == "" || name == LocalContextName {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		return s.writeCurrentLocked(LocalContextName)
-	default:
-		if _, err := s.Get(ctx, name); err != nil {
-			return err
-		}
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		return s.writeCurrentLocked(name)
 	}
+	if err := validateStoredName(name); err != nil {
+		return err
+	}
+	// Read the context and write the marker under one exclusive lock so the
+	// marker cannot end up naming a context removed after the check.
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, err := s.readContext(s.contextPath(name)); err != nil {
+		return err
+	}
+	return s.writeCurrentLocked(name)
+}
+
+// validateStoredName reports whether name may address a context file in the
+// store directory. Reserved names and anything that does not resolve to a flat
+// file name directly inside the directory are rejected. Every caller must pass
+// a name through this before building a path with contextPath.
+func validateStoredName(name string) error {
+	if name == "" {
+		return errors.New("context name is required")
+	}
+	if name == LocalContextName || name == currentFileName {
+		return fmt.Errorf("%q and %q are reserved", LocalContextName, currentFileName)
+	}
+	if strings.ContainsAny(name, `/\`) {
+		return errors.New("context name cannot contain path separators")
+	}
+	if !filepath.IsLocal(name) {
+		return fmt.Errorf("invalid context name %q", name)
+	}
+	return nil
 }
 
 func (s *Store) contextPath(name string) string {
@@ -263,18 +295,23 @@ func (s *Store) writeContext(path string, ctx *Context) error {
 }
 
 func (s *Store) readContext(path string) (*Context, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // internal path
+	data, err := os.ReadFile(path) //nolint:gosec // path is built from a validated context name
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, ErrNotFound
 	}
+	file := filepath.Base(path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read %s: %w", file, err)
 	}
 	var stored storedContext
 	if err := json.Unmarshal(data, &stored); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("decode %s: %w", file, err)
 	}
-	return stored.toContext(s.encryptor)
+	ctx, err := stored.toContext(s.encryptor)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", file, err)
+	}
+	return ctx, nil
 }
 
 func normalizeContext(ctx *Context) {

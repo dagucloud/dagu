@@ -186,3 +186,71 @@ func TestStore_ListReturnsPartialResultsAndErrorOnCorruptEntry(t *testing.T) {
 	assert.Equal(t, "prod", items[0].Name)
 	assert.Contains(t, err.Error(), "broken.json")
 }
+
+func TestStore_RejectsNamesOutsideStoreDir(t *testing.T) {
+	t.Parallel()
+
+	enc, err := crypto.NewEncryptor("test-key")
+	require.NoError(t, err)
+
+	root := t.TempDir()
+	store, err := NewStore(filepath.Join(root, "contexts"), enc)
+	require.NoError(t, err)
+
+	outside := filepath.Join(root, "outside.json")
+	require.NoError(t, os.WriteFile(outside, []byte(`{"name":"outside"}`), 0o600))
+
+	const escaping = "../outside"
+
+	_, err = store.Get(context.Background(), escaping)
+	require.Error(t, err)
+
+	require.Error(t, store.Delete(context.Background(), escaping))
+	assert.FileExists(t, outside)
+
+	require.Error(t, store.Use(context.Background(), escaping))
+	current, err := store.Current(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, LocalContextName, current)
+}
+
+func TestStore_DeleteKeepsUnrelatedCurrentMarker(t *testing.T) {
+	t.Parallel()
+
+	enc, err := crypto.NewEncryptor("test-key")
+	require.NoError(t, err)
+
+	store, err := NewStore(t.TempDir(), enc)
+	require.NoError(t, err)
+
+	for _, name := range []string{"prod", "staging"} {
+		require.NoError(t, store.Create(context.Background(), &Context{
+			Name:      name,
+			ServerURL: "https://example.com",
+			APIKey:    "dagu_test",
+		}))
+	}
+	require.NoError(t, store.Use(context.Background(), "prod"))
+
+	require.NoError(t, store.Delete(context.Background(), "staging"))
+
+	current, err := store.Current(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "prod", current)
+}
+
+func TestStore_GetReportsCorruptFile(t *testing.T) {
+	t.Parallel()
+
+	enc, err := crypto.NewEncryptor("test-key")
+	require.NoError(t, err)
+
+	baseDir := t.TempDir()
+	store, err := NewStore(baseDir, enc)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(baseDir, "prod.json"), []byte("not-json"), 0o600))
+
+	_, err = store.Get(context.Background(), "prod")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "prod.json")
+}
