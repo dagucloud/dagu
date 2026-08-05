@@ -11,6 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/view"
 )
@@ -62,7 +64,10 @@ func (s *ViewStore) Create(ctx context.Context, v *view.View) error {
 	}); err != nil {
 		return err
 	}
-	return s.clearOtherDefaultsLocked(ctx, v)
+	if err := s.clearOtherDefaultsLocked(ctx, v); err != nil {
+		logger.Warn(ctx, "Failed to clear competing defaults after creating view", tag.Name(v.ID), tag.Error(err))
+	}
+	return nil
 }
 
 // GetByID retrieves a view by ID. Returns [view.ErrViewNotFound] if absent.
@@ -142,7 +147,10 @@ func (s *ViewStore) Update(ctx context.Context, v *view.View, expectedWorkspace 
 		}
 		return err
 	}
-	return s.clearOtherDefaultsLocked(ctx, v)
+	if err := s.clearOtherDefaultsLocked(ctx, v); err != nil {
+		logger.Warn(ctx, "Failed to clear competing defaults after updating view", tag.Name(v.ID), tag.Error(err))
+	}
+	return nil
 }
 
 // Delete removes a view by ID. Returns [view.ErrViewNotFound] if absent.

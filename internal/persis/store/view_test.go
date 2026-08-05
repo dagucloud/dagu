@@ -105,6 +105,57 @@ func TestViewStore_WorkflowDefaultIsUniquePerScope(t *testing.T) {
 	assert.False(t, gotSecond.Default)
 }
 
+func TestViewStore_DefaultCleanupFailureDoesNotMaskCommittedWrite(t *testing.T) {
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	t.Run("create", func(t *testing.T) {
+		s, col := newViewStoreWithCollection(t)
+		require.NoError(t, col.Put(ctx, &persis.Record{
+			ID:        "corrupt",
+			Data:      []byte("{"),
+			CreatedAt: now,
+			UpdatedAt: now,
+		}))
+
+		created := newView("created", now)
+		created.Type = view.TypeWorkflow
+		created.WorkspaceScope = view.WorkspaceScopeAll
+		created.Default = true
+		require.NoError(t, s.Create(ctx, created))
+
+		stored, err := s.GetByID(ctx, created.ID)
+		require.NoError(t, err)
+		assert.True(t, stored.Default)
+	})
+
+	t.Run("update", func(t *testing.T) {
+		s, col := newViewStoreWithCollection(t)
+		existing := newView("updated", now)
+		existing.Type = view.TypeWorkflow
+		existing.WorkspaceScope = view.WorkspaceScopeAll
+		require.NoError(t, s.Create(ctx, existing))
+		require.NoError(t, col.Put(ctx, &persis.Record{
+			ID:        "corrupt",
+			Data:      []byte("{"),
+			CreatedAt: now,
+			UpdatedAt: now,
+		}))
+
+		updated := newView(existing.ID, now)
+		updated.Name = "committed update"
+		updated.Type = view.TypeWorkflow
+		updated.WorkspaceScope = view.WorkspaceScopeAll
+		updated.Default = true
+		require.NoError(t, s.Update(ctx, updated, ""))
+
+		stored, err := s.GetByID(ctx, updated.ID)
+		require.NoError(t, err)
+		assert.Equal(t, "committed update", stored.Name)
+		assert.True(t, stored.Default)
+	})
+}
+
 func TestViewStore_GetNotFound(t *testing.T) {
 	_, err := newViewStore(t).GetByID(context.Background(), "missing")
 	assert.ErrorIs(t, err, view.ErrViewNotFound)

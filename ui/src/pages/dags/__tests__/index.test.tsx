@@ -575,10 +575,20 @@ describe('DagsPage', () => {
   });
 
   it('saves the current filters as a shared default view', async () => {
+    createViewMock.mockImplementationOnce(async () => {
+      const created = makeWorkflowView({
+        id: 'created-view',
+        dagName: 'deploy',
+        labels: [],
+        isDefault: true,
+      });
+      sharedWorkflowViewState.views = [created];
+      return created;
+    });
     renderPage();
 
     fireEvent.change(screen.getByRole('textbox', { name: 'Search DAGs' }), {
-      target: { value: 'deploy' },
+      target: { value: ' deploy ' },
     });
     await act(async () => {
       fireEvent.click(
@@ -592,7 +602,7 @@ describe('DagsPage', () => {
       workspace: '',
       workspaceScope: ViewWorkspaceScope.all,
       labels: [],
-      dagName: 'deploy',
+      dagName: ' deploy ',
       intervalDays: 1,
       pinned: false,
       sortField: ViewSortField.name,
@@ -601,6 +611,9 @@ describe('DagsPage', () => {
     });
     expect(screen.getByTestId('active-workflow-view')).toHaveTextContent(
       'created-view'
+    );
+    expect(screen.getByRole('textbox', { name: 'Search DAGs' })).toHaveValue(
+      'deploy'
     );
   });
 
@@ -625,8 +638,11 @@ describe('DagsPage', () => {
     );
 
     fireEvent.change(screen.getByRole('textbox', { name: 'Search DAGs' }), {
-      target: { value: 'changed' },
+      target: { value: ' changed ' },
     });
+    updateViewMock.mockResolvedValueOnce(
+      makeWorkflowView({ dagName: 'changed' })
+    );
     await act(async () => {
       fireEvent.click(
         screen.getByRole('button', { name: 'Update workflow view' })
@@ -636,12 +652,15 @@ describe('DagsPage', () => {
     expect(updateViewMock).toHaveBeenCalledWith(
       'production',
       expect.objectContaining({
-        dagName: 'changed',
+        dagName: ' changed ',
         labels: ['env=prod'],
         sortField: ViewSortField.name,
         sortOrder: ViewSortOrder.asc,
         isDefault: false,
       })
+    );
+    expect(screen.getByRole('textbox', { name: 'Search DAGs' })).toHaveValue(
+      'changed'
     );
   });
 

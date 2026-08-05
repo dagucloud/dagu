@@ -638,7 +638,7 @@ function DAGsContent() {
       const view = await createView(
         buildWorkflowViewSpec(name, filters, makeDefault, pinned)
       );
-      applyFilters(filters, view.id, true);
+      applyFilters(workflowFilterViewFromView(view).filters, view.id, true);
     } catch (error) {
       setWorkflowViewError(
         error instanceof Error ? error.message : 'Failed to save workflow view'
@@ -657,7 +657,7 @@ function DAGsContent() {
     const filters = cloneFilters(currentFiltersRef.current);
     setWorkflowViewError(null);
     try {
-      await updateView(
+      const updated = await updateView(
         view.id,
         buildWorkflowViewSpec(
           view.name,
@@ -666,7 +666,11 @@ function DAGsContent() {
           view.pinned ?? false
         )
       );
-      applyFilters(filters, view.id, true);
+      applyFilters(
+        workflowFilterViewFromView(updated).filters,
+        updated.id,
+        true
+      );
     } catch (error) {
       setWorkflowViewError(
         error instanceof Error
