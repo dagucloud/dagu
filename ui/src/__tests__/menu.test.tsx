@@ -398,7 +398,6 @@ describe('sidebar menu', () => {
                 name: 'Production workflows',
                 pinned: true,
                 workspace: '',
-                workspaceScope: ViewWorkspaceScope.all,
               },
               {
                 id: 'other-scope',

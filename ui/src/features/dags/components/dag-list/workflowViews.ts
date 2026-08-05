@@ -54,8 +54,13 @@ export function workflowViewMatchesScope(
   view: { workspace?: string; workspaceScope?: ViewWorkspaceScope },
   scope: WorkflowViewScope
 ): boolean {
+  const workspaceScope =
+    view.workspaceScope ||
+    (view.workspace
+      ? ViewWorkspaceScope.workspace
+      : ViewWorkspaceScope.all);
   return (
-    view.workspaceScope === scope.workspaceScope &&
+    workspaceScope === scope.workspaceScope &&
     (scope.workspaceScope !== ViewWorkspaceScope.workspace ||
       view.workspace === scope.workspace)
   );
