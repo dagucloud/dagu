@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/core/docs"
+	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
 	"github.com/goccy/go-yaml"
 	"github.com/stretchr/testify/assert"
@@ -372,6 +373,37 @@ func TestListFlatWithPathPrefix(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, result.Items, 1)
 	assert.Equal(t, "doc", result.Items[0].ID)
+}
+
+func TestPathPrefixRespectsExcludedRoots(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	require.NoError(t, store.Create(ctx, "ops/doc", "needle"))
+	opts := docs.ListDocsOptions{
+		Page:             1,
+		PerPage:          50,
+		PathPrefix:       "ops",
+		ExcludePathRoots: []string{"ops"},
+	}
+
+	flat, err := store.ListFlat(ctx, opts)
+	require.NoError(t, err)
+	assert.Empty(t, flat.Items)
+
+	tree, err := store.List(ctx, opts)
+	require.NoError(t, err)
+	assert.Empty(t, tree.Items)
+
+	search, err := store.SearchCursor(ctx, docs.SearchDocsOptions{
+		Query:            "needle",
+		Limit:            10,
+		MatchLimit:       1,
+		PathPrefix:       "ops",
+		ExcludePathRoots: []string{"ops"},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, search.Items)
 }
 
 func TestListFlatExcludePathRootsBeforePagination(t *testing.T) {
@@ -1478,6 +1510,50 @@ func TestSearchCursorWithPathPrefix(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, matches.Items, 1)
+}
+
+func TestSearchCursorWithFilterPrefix(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	require.NoError(t, store.Create(ctx, "guides/a", "needle"))
+	require.NoError(t, store.Create(ctx, "guides/b", "needle"))
+	require.NoError(t, store.Create(ctx, "runbooks/c", "needle"))
+
+	firstPage, err := store.SearchCursor(ctx, docs.SearchDocsOptions{
+		Query:        "needle",
+		Limit:        1,
+		MatchLimit:   1,
+		FilterPrefix: "guides",
+	})
+	require.NoError(t, err)
+	require.Len(t, firstPage.Items, 1)
+	assert.Equal(t, "guides/a", firstPage.Items[0].ID)
+	assert.False(t, firstPage.Items[0].ModTime.IsZero())
+	assert.True(t, firstPage.HasMore)
+	require.NotEmpty(t, firstPage.NextCursor)
+
+	secondPage, err := store.SearchCursor(ctx, docs.SearchDocsOptions{
+		Query:        "needle",
+		Limit:        1,
+		MatchLimit:   1,
+		FilterPrefix: "guides",
+		Cursor:       firstPage.NextCursor,
+	})
+	require.NoError(t, err)
+	require.Len(t, secondPage.Items, 1)
+	assert.Equal(t, "guides/b", secondPage.Items[0].ID)
+	assert.False(t, secondPage.HasMore)
+
+	result, err := store.SearchCursor(ctx, docs.SearchDocsOptions{
+		Query:        "needle",
+		Limit:        1,
+		MatchLimit:   1,
+		FilterPrefix: "runbooks",
+		Cursor:       firstPage.NextCursor,
+	})
+	require.Nil(t, result)
+	assert.ErrorIs(t, err, exec.ErrInvalidCursor)
 }
 
 func TestSearchMatchesRejectsInvalidDocID(t *testing.T) {

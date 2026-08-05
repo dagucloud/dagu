@@ -63,6 +63,8 @@ type NodeState struct {
 	SkippedByRetry bool
 	// Error is the error that the executor encountered.
 	Error error
+	// StatusDetails tracks independently executed items within the node.
+	StatusDetails []exec.NodeStatusDetail
 	// ExitCode is the exit code that the command exited with.
 	// It only makes sense when the node is a command executor.
 	ExitCode int
@@ -256,6 +258,14 @@ func (d *Data) SetSubRuns(subRuns []SubDAGRun) {
 	// Clear the existing sub runs and set the new ones.
 	d.inner.State.SubRuns = make([]SubDAGRun, len(subRuns))
 	copy(d.inner.State.SubRuns, subRuns)
+}
+
+// SetStatusDetails replaces the independently tracked execution statuses.
+func (d *Data) SetStatusDetails(details []exec.NodeStatusDetail) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	d.inner.State.StatusDetails = append([]exec.NodeStatusDetail(nil), details...)
 }
 
 // AddSubRunsRepeated appends repeated sub DAG runs to the node.

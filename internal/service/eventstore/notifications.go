@@ -49,9 +49,10 @@ type NotificationReader interface {
 }
 
 type DAGRunNodeSnapshot struct {
-	StepName string          `json:"step_name,omitempty"`
-	Status   core.NodeStatus `json:"status,omitempty"`
-	Error    string          `json:"error,omitempty"`
+	StepName      string                  `json:"step_name,omitempty"`
+	Status        core.NodeStatus         `json:"status,omitempty"`
+	Error         string                  `json:"error,omitempty"`
+	StatusDetails []exec.NodeStatusDetail `json:"status_details,omitempty"`
 }
 
 type NotificationNodeSnapshot = DAGRunNodeSnapshot
@@ -61,9 +62,10 @@ func newDAGRunNodeSnapshot(node *exec.Node) *DAGRunNodeSnapshot {
 		return nil
 	}
 	return &DAGRunNodeSnapshot{
-		StepName: node.Step.Name,
-		Status:   node.Status,
-		Error:    node.Error,
+		StepName:      node.Step.Name,
+		Status:        node.Status,
+		Error:         node.Error,
+		StatusDetails: append([]exec.NodeStatusDetail(nil), node.StatusDetails...),
 	}
 }
 
@@ -72,9 +74,10 @@ func (s *DAGRunNodeSnapshot) Node() *exec.Node {
 		return nil
 	}
 	return &exec.Node{
-		Step:   core.Step{Name: s.StepName},
-		Status: s.Status,
-		Error:  s.Error,
+		Step:          core.Step{Name: s.StepName},
+		Status:        s.Status,
+		Error:         s.Error,
+		StatusDetails: append([]exec.NodeStatusDetail(nil), s.StatusDetails...),
 	}
 }
 

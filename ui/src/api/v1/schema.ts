@@ -581,7 +581,7 @@ export interface paths {
         };
         /**
          * Search documents
-         * @description Returns cursor-based, lightweight document search results for the global search page.
+         * @description Returns cursor-based document search results in stable path order. Use nextCursor only with the same query, workspace, and prefix.
          */
         get: operations["searchDocFeed"];
         put?: never;
@@ -2725,6 +2725,9 @@ export interface paths {
         /**
          * List documents
          * @description Returns documents as a tree structure or flat list. All authenticated users can browse.
+         *     In tree mode, page and perPage apply to direct children of the selected workspace or prefix;
+         *     each returned directory includes its descendants. In flat mode, they apply to individual documents.
+         *
          */
         get: operations["listDocs"];
         put?: never;
@@ -5134,6 +5137,11 @@ export interface components {
             description: string;
             /** @description Workspace that owns this document. Omitted for default documents. */
             workspace?: string;
+            /**
+             * Format: date-time
+             * @description Last modification time of the document file
+             */
+            modifiedAt?: string;
             /** @description Whether additional snippets are available beyond the preview */
             hasMoreMatches: boolean;
             /** @description Opaque cursor for loading more snippets for this document result */
@@ -5229,6 +5237,11 @@ export interface components {
             description: string;
             /** @description Workspace that owns this document. Omitted for default documents. */
             workspace?: string;
+            /**
+             * Format: date-time
+             * @description Last modification time of the document file
+             */
+            modifiedAt?: string;
             matches?: components["schemas"]["SearchMatchItem"][];
         };
         /** @description Search results */
@@ -6223,8 +6236,12 @@ export interface components {
         APIKeyId: string;
         /** @description number of items per page (default is 30, max is 100) */
         PerPage: number;
+        /** @description Number of document entries per page (default 50, max 200) */
+        DocsPerPage: number;
         /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
         Workspace: string;
+        /** @description Optional document path prefix within the selected workspace */
+        DocPrefix: components["schemas"]["DocPath"];
         /** @description Opaque cursor returned by the previous search response */
         SearchCursor: string;
         /** @description Number of search results to return (default 20, max 50) */
@@ -8220,6 +8237,8 @@ export interface operations {
                 remoteNode?: components["parameters"]["RemoteNode"];
                 /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
                 workspace?: components["parameters"]["Workspace"];
+                /** @description Optional document path prefix within the selected workspace */
+                prefix?: components["parameters"]["DocPrefix"];
                 /** @description A search query string */
                 q: string;
                 /** @description Opaque cursor returned by the previous search response */
@@ -14756,10 +14775,12 @@ export interface operations {
                 remoteNode?: components["parameters"]["RemoteNode"];
                 /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
                 workspace?: components["parameters"]["Workspace"];
+                /** @description Optional document path prefix within the selected workspace */
+                prefix?: components["parameters"]["DocPrefix"];
                 /** @description page number of items to fetch (default is 1) */
                 page?: components["parameters"]["Page"];
-                /** @description number of items per page (default is 30, max is 100) */
-                perPage?: components["parameters"]["PerPage"];
+                /** @description Number of document entries per page (default 50, max 200) */
+                perPage?: components["parameters"]["DocsPerPage"];
                 /** @description If true, returns flat list instead of tree */
                 flat?: boolean;
                 /** @description Field to sort by:

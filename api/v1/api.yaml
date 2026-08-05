@@ -1653,13 +1653,14 @@ paths:
   /search/docs:
     get:
       summary: "Search documents"
-      description: "Returns cursor-based, lightweight document search results for the global search page."
+      description: "Returns cursor-based document search results in stable path order. Use nextCursor only with the same query, workspace, and prefix."
       operationId: "searchDocFeed"
       tags:
         - "search"
       parameters:
         - $ref: "#/components/parameters/RemoteNode"
         - $ref: "#/components/parameters/Workspace"
+        - $ref: "#/components/parameters/DocPrefix"
         - name: "q"
           in: "query"
           required: true
@@ -6885,15 +6886,19 @@ paths:
   /docs:
     get:
       summary: "List documents"
-      description: "Returns documents as a tree structure or flat list. All authenticated users can browse."
+      description: |
+        Returns documents as a tree structure or flat list. All authenticated users can browse.
+        In tree mode, page and perPage apply to direct children of the selected workspace or prefix;
+        each returned directory includes its descendants. In flat mode, they apply to individual documents.
       operationId: "listDocs"
       tags:
         - "docs"
       parameters:
         - $ref: "#/components/parameters/RemoteNode"
         - $ref: "#/components/parameters/Workspace"
+        - $ref: "#/components/parameters/DocPrefix"
         - $ref: "#/components/parameters/Page"
-        - $ref: "#/components/parameters/PerPage"
+        - $ref: "#/components/parameters/DocsPerPage"
         - name: flat
           in: query
           description: "If true, returns flat list instead of tree"
@@ -9130,6 +9135,17 @@ components:
         maximum: 1000
         default: 50
 
+    DocsPerPage:
+      name: perPage
+      in: query
+      description: "Number of document entries per page (default 50, max 200)"
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+
     Workspace:
       name: workspace
       in: query
@@ -9140,6 +9156,14 @@ components:
         minLength: 1
         maxLength: 64
         pattern: "^[A-Za-z0-9_-]+$"
+
+    DocPrefix:
+      name: prefix
+      in: query
+      description: "Optional document path prefix within the selected workspace"
+      required: false
+      schema:
+        $ref: "#/components/schemas/DocPath"
 
     SearchCursor:
       name: cursor
@@ -12749,6 +12773,10 @@ components:
         workspace:
           type: string
           description: "Workspace that owns this document. Omitted for default documents."
+        modifiedAt:
+          type: string
+          format: date-time
+          description: "Last modification time of the document file"
         hasMoreMatches:
           type: boolean
           description: "Whether additional snippets are available beyond the preview"
@@ -12940,6 +12968,10 @@ components:
         workspace:
           type: string
           description: "Workspace that owns this document. Omitted for default documents."
+        modifiedAt:
+          type: string
+          format: date-time
+          description: "Last modification time of the document file"
         matches:
           type: array
           items:

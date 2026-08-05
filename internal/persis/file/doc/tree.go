@@ -68,8 +68,11 @@ func (s *Store) buildTreeFromIndexLocked(pathPrefix, sortField, sortOrder string
 	}
 	sort.Strings(dirIDs)
 	for _, fullID := range dirIDs {
+		if docPathRootExcluded(fullID, excludedRoots) {
+			continue
+		}
 		id, ok := relativeDocID(fullID, pathPrefix)
-		if !ok || docPathRootExcluded(id, excludedRoots) {
+		if !ok {
 			continue
 		}
 		if id != "" {
@@ -85,8 +88,11 @@ func (s *Store) buildTreeFromIndexLocked(pathPrefix, sortField, sortOrder string
 	sort.Strings(docIDs)
 	for _, fullID := range docIDs {
 		doc := s.docs[fullID]
+		if docPathRootExcluded(fullID, excludedRoots) {
+			continue
+		}
 		id, ok := relativeDocID(fullID, pathPrefix)
-		if !ok || docPathRootExcluded(id, excludedRoots) {
+		if !ok {
 			continue
 		}
 		node := &docs.DocTreeNode{

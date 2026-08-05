@@ -36,6 +36,7 @@ func TestSearchDocs(t *testing.T) {
 		require.True(t, ok)
 		assert.Len(t, searchResp.Results, 2)
 		assert.Equal(t, "World doc", searchResp.Results[0].Description)
+		require.NotNil(t, searchResp.Results[0].ModifiedAt)
 	})
 
 	t.Run("empty query", func(t *testing.T) {
@@ -154,4 +155,57 @@ func TestSearchDocMatchesAcceptsAggregateCursorForWorkspaceResult(t *testing.T) 
 	assert.False(t, matchesPage.HasMore)
 	assert.Equal(t, 2, matchesPage.Matches[0].LineNumber)
 	assert.Equal(t, 3, matchesPage.Matches[1].LineNumber)
+}
+
+func TestSearchDocFeedSupportsPrefixAndCursor(t *testing.T) {
+	t.Parallel()
+
+	setup := newDocTestSetup(t)
+	setup.store.docs["guides/a"] = &docs.Doc{ID: "guides/a", Title: "a", Content: "needle"}
+	setup.store.docs["guides/b"] = &docs.Doc{ID: "guides/b", Title: "b", Content: "needle"}
+	setup.store.docs["runbooks/c"] = &docs.Doc{ID: "runbooks/c", Title: "c", Content: "needle"}
+	prefix := apigen.DocPrefix("guides")
+	limit := apigen.SearchLimit(1)
+
+	firstResp, err := setup.api.SearchDocFeed(adminCtx(), apigen.SearchDocFeedRequestObject{
+		Params: apigen.SearchDocFeedParams{
+			Q:      "needle",
+			Prefix: &prefix,
+			Limit:  &limit,
+		},
+	})
+	require.NoError(t, err)
+	firstPage, ok := firstResp.(apigen.SearchDocFeed200JSONResponse)
+	require.True(t, ok)
+	require.Len(t, firstPage.Results, 1)
+	assert.Equal(t, "guides/a", firstPage.Results[0].Id)
+	require.NotNil(t, firstPage.Results[0].ModifiedAt)
+	assert.True(t, firstPage.HasMore)
+	require.NotNil(t, firstPage.NextCursor)
+
+	secondResp, err := setup.api.SearchDocFeed(adminCtx(), apigen.SearchDocFeedRequestObject{
+		Params: apigen.SearchDocFeedParams{
+			Q:      "needle",
+			Prefix: &prefix,
+			Limit:  &limit,
+			Cursor: firstPage.NextCursor,
+		},
+	})
+	require.NoError(t, err)
+	secondPage, ok := secondResp.(apigen.SearchDocFeed200JSONResponse)
+	require.True(t, ok)
+	require.Len(t, secondPage.Results, 1)
+	assert.Equal(t, "guides/b", secondPage.Results[0].Id)
+	assert.False(t, secondPage.HasMore)
+
+	otherPrefix := apigen.DocPrefix("runbooks")
+	_, err = setup.api.SearchDocFeed(adminCtx(), apigen.SearchDocFeedRequestObject{
+		Params: apigen.SearchDocFeedParams{
+			Q:      "needle",
+			Prefix: &otherPrefix,
+			Limit:  &limit,
+			Cursor: firstPage.NextCursor,
+		},
+	})
+	require.Error(t, err)
 }

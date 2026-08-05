@@ -69,6 +69,11 @@ func (a *API) ListDocs(ctx context.Context, request api.ListDocsRequestObject) (
 	if err != nil {
 		return nil, err
 	}
+	visiblePrefix := string(valueOf(request.Params.Prefix))
+	pathPrefix, err := scopedDocListPrefix(workspaceName, visiblePrefix)
+	if err != nil {
+		return nil, err
+	}
 
 	sortField, sortOrder := docSortParams(request.Params.Sort, request.Params.Order)
 
@@ -77,7 +82,7 @@ func (a *API) ListDocs(ctx context.Context, request api.ListDocsRequestObject) (
 		PerPage:          valueOf(request.Params.PerPage),
 		Sort:             sortField,
 		Order:            sortOrder,
-		PathPrefix:       workspaceName,
+		PathPrefix:       pathPrefix,
 		ExcludePathRoots: visibility.excludedPathRoots(),
 	}
 
@@ -92,6 +97,7 @@ func (a *API) ListDocs(ctx context.Context, request api.ListDocsRequestObject) (
 
 		items := make([]api.DocMetadataResponse, 0, len(result.Items))
 		for _, m := range result.Items {
+			m.ID = visibleDocListPath(visiblePrefix, m.ID)
 			item := toDocMetadataResponse(m)
 			item.Workspace = docWorkspaceValue(workspaceName, m.ID, visibility, false)
 			items = append(items, item)
@@ -111,6 +117,7 @@ func (a *API) ListDocs(ctx context.Context, request api.ListDocsRequestObject) (
 
 	tree := make([]api.DocTreeNodeResponse, 0, len(result.Items))
 	for _, node := range result.Items {
+		restoreDocTreePrefix(node, visiblePrefix)
 		tree = append(tree, toDocTreeResponseWithWorkspace(node, workspaceName, visibility))
 	}
 
@@ -240,6 +247,9 @@ func (a *API) SearchDocs(ctx context.Context, request api.SearchDocsRequestObjec
 			Title:       r.Title,
 			Description: r.Description,
 			Workspace:   docWorkspaceValue(workspaceName, rawID, visibility, false),
+		}
+		if !r.ModTime.IsZero() {
+			item.ModifiedAt = ptrOf(r.ModTime)
 		}
 		if len(r.Matches) > 0 {
 			matches := make([]api.SearchMatchItem, 0, len(r.Matches))
@@ -479,9 +489,14 @@ func (a *API) GetDocTreeData(ctx context.Context, queryString string) (any, erro
 		}
 
 		page := parseIntParam(params.Get("page"), 1)
-		perPage := min(parseIntParam(params.Get("perPage"), 200), 200)
+		perPage := max(1, min(parseIntParam(params.Get("perPage"), 200), 200))
 		workspaceParam := workspaceParamFromValues(params)
 		workspaceName, visibility, err := a.docReadScopeForParams(readCtx, workspaceParam)
+		if err != nil {
+			return nil, err
+		}
+		visiblePrefix := params.Get("prefix")
+		pathPrefix, err := scopedDocListPrefix(workspaceName, visiblePrefix)
 		if err != nil {
 			return nil, err
 		}
@@ -493,7 +508,7 @@ func (a *API) GetDocTreeData(ctx context.Context, queryString string) (any, erro
 			PerPage:          perPage,
 			Sort:             sortField,
 			Order:            sortOrder,
-			PathPrefix:       workspaceName,
+			PathPrefix:       pathPrefix,
 			ExcludePathRoots: visibility.excludedPathRoots(),
 		})
 		if err != nil {
@@ -502,6 +517,7 @@ func (a *API) GetDocTreeData(ctx context.Context, queryString string) (any, erro
 
 		tree := make([]api.DocTreeNodeResponse, 0, len(result.Items))
 		for _, node := range result.Items {
+			restoreDocTreePrefix(node, visiblePrefix)
 			tree = append(tree, toDocTreeResponseWithWorkspace(node, workspaceName, visibility))
 		}
 

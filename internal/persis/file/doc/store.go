@@ -801,11 +801,11 @@ func (s *Store) ListFlat(ctx context.Context, opts docs.ListDocsOptions) (*exec.
 	s.mu.RLock()
 	items := make([]flatDocItem, 0, len(s.docs))
 	for _, doc := range s.docs {
-		if !doc.Readable {
+		if !doc.Readable || docPathRootExcluded(doc.ID, opts.ExcludePathRoots) {
 			continue
 		}
 		id, ok := relativeDocID(doc.ID, pathPrefix)
-		if !ok || docPathRootExcluded(id, opts.ExcludePathRoots) {
+		if !ok {
 			continue
 		}
 		items = append(items, flatDocItem{
@@ -820,23 +820,29 @@ func (s *Store) ListFlat(ctx context.Context, opts docs.ListDocsOptions) (*exec.
 	s.mu.RUnlock()
 
 	sort.Slice(items, func(i, j int) bool {
-		var less bool
+		var cmp int
 		switch sortField {
 		case "mtime":
-			if items[i].meta.ModTime.Equal(items[j].meta.ModTime) {
-				less = items[i].meta.ID < items[j].meta.ID
-			} else {
-				less = items[i].meta.ModTime.Before(items[j].meta.ModTime)
+			switch {
+			case items[i].meta.ModTime.Before(items[j].meta.ModTime):
+				cmp = -1
+			case items[i].meta.ModTime.After(items[j].meta.ModTime):
+				cmp = 1
+			default:
+				cmp = strings.Compare(items[i].meta.ID, items[j].meta.ID)
 			}
 		case "type":
-			less = items[i].meta.ID < items[j].meta.ID
+			cmp = strings.Compare(items[i].meta.ID, items[j].meta.ID)
 		default: // "name"
-			less = strings.ToLower(items[i].meta.ID) < strings.ToLower(items[j].meta.ID)
+			cmp = strings.Compare(strings.ToLower(items[i].meta.ID), strings.ToLower(items[j].meta.ID))
+			if cmp == 0 {
+				cmp = strings.Compare(items[i].meta.ID, items[j].meta.ID)
+			}
 		}
 		if sortOrder == "desc" {
-			return !less
+			return cmp > 0
 		}
-		return less
+		return cmp < 0
 	})
 
 	metadata := make([]docs.DocMetadata, len(items))

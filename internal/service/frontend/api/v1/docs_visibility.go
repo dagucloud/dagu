@@ -40,6 +40,27 @@ func scopedDocPath(workspaceName, path string) (string, error) {
 	return scoped, nil
 }
 
+func scopedDocListPrefix(workspaceName, prefix string) (string, error) {
+	if prefix == "" {
+		return workspaceName, nil
+	}
+	return scopedDocPath(workspaceName, prefix)
+}
+
+func visibleDocListPath(prefix, path string) string {
+	if prefix == "" {
+		return path
+	}
+	return prefix + "/" + path
+}
+
+func restoreDocTreePrefix(node *docs.DocTreeNode, prefix string) {
+	node.ID = visibleDocListPath(prefix, node.ID)
+	for _, child := range node.Children {
+		restoreDocTreePrefix(child, prefix)
+	}
+}
+
 func visibleDocPath(workspaceName, path string) string {
 	if workspaceName == "" {
 		return path

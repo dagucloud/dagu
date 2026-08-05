@@ -45,3 +45,33 @@ func TestResourceAuditDetailsIdentifiesStepLog(t *testing.T) {
 	require.Equal(t, "dag_run_step_log", details["resource_type"])
 	require.Equal(t, "nightly/run-1/build", details["resource_id"])
 }
+
+func TestResourceAuditDetailsIdentifiesDocument(t *testing.T) {
+	details := resourceAuditDetails("dagu://docs/operations/runbooks%2Frestart")
+
+	require.Equal(t, "document", details["resource_type"])
+	require.Equal(t, "operations/runbooks/restart", details["resource_id"])
+}
+
+func TestResourceAuditDetailsPreservesInvalidDocumentURI(t *testing.T) {
+	const uri = "dagu://docs/operations/runbooks/restart"
+	details := resourceAuditDetails(uri)
+
+	require.Equal(t, "resource", details["resource_type"])
+	require.Equal(t, uri, details["resource_id"])
+}
+
+func TestDocumentChangeAuditMetadataUsesWorkspaceAndContentSize(t *testing.T) {
+	metadata := changeAuditMetadata(changeInput{
+		Mode:      changeModeApply,
+		Type:      changeTypeUpsertDoc,
+		Workspace: "operations",
+		Path:      "runbooks/restart",
+		Content:   "# Restart",
+	})
+
+	require.Equal(t, "doc", metadata.ResourceType)
+	require.Equal(t, "runbooks/restart", metadata.ResourceID)
+	require.Equal(t, "operations", metadata.Workspace)
+	require.Equal(t, len("# Restart"), metadata.Attributes["content_bytes"])
+}

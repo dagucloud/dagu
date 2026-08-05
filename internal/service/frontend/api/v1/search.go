@@ -114,7 +114,7 @@ func toDocSearchPageItem(
 	workspaceName string,
 	visibility docWorkspaceVisibility,
 ) api.DocSearchPageItem {
-	return api.DocSearchPageItem{
+	result := api.DocSearchPageItem{
 		Id:                item.ID,
 		Title:             item.Title,
 		Description:       item.Description,
@@ -123,6 +123,10 @@ func toDocSearchPageItem(
 		NextMatchesCursor: optionalString(item.NextMatchesCursor),
 		Matches:           toSearchMatchItems(item.Matches),
 	}
+	if !item.ModTime.IsZero() {
+		result.ModifiedAt = ptrOf(item.ModTime)
+	}
+	return result
 }
 
 func toDocSearchFeedResponse(
@@ -198,6 +202,12 @@ func (a *API) SearchDocFeed(ctx context.Context, request api.SearchDocFeedReques
 	if err != nil {
 		return nil, err
 	}
+	filterPrefix := string(valueOf(request.Params.Prefix))
+	if filterPrefix != "" {
+		if err := validateDocPath(filterPrefix); err != nil {
+			return nil, err
+		}
+	}
 
 	result, err := a.docStore.SearchCursor(ctx, docs.SearchDocsOptions{
 		Cursor:           valueOf(request.Params.Cursor),
@@ -205,6 +215,7 @@ func (a *API) SearchDocFeed(ctx context.Context, request api.SearchDocFeedReques
 		Query:            query,
 		MatchLimit:       searchPreviewMatchesLimit,
 		PathPrefix:       workspaceName,
+		FilterPrefix:     filterPrefix,
 		ExcludePathRoots: visibility.excludedPathRoots(),
 	})
 	if err != nil {

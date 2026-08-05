@@ -169,7 +169,7 @@ Dagu exposes a built-in MCP server from the running HTTP server. Start Dagu, the
 http://localhost:8080/mcp
 ```
 
-Use MCP when you want an AI agent to read Dagu state, preview or apply workflow changes, and start, enqueue, retry, or stop runs through `dagu_read`, `dagu_change`, and `dagu_execute`. See the [MCP setup guide](https://docs.dagu.sh/mcp/quickstart).
+Use MCP when you want an AI agent to read Dagu state and Markdown documents, preview or apply workflow and document changes, and start, enqueue, retry, or stop runs through `dagu_read`, `dagu_change`, and `dagu_execute`. See the [MCP setup guide](https://docs.dagu.sh/mcp/quickstart).
 
 For authoring-only help in Claude Code, Codex, Gemini CLI, and other AI coding tools, install the Dagu workflow authoring skill:
 

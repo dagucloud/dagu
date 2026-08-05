@@ -162,6 +162,8 @@ func TestServerExposesReferenceResourcesAndPrompts(t *testing.T) {
 	}
 	require.Contains(t, names, "dagu_create_dag")
 	require.Contains(t, names, "dagu_edit_dag")
+	require.Contains(t, names, "dagu_create_doc")
+	require.Contains(t, names, "dagu_edit_doc")
 	require.Contains(t, names, "dagu_debug_failed_run")
 }
 
@@ -195,6 +197,63 @@ func TestPromptMentionsPreviewBeforeApply(t *testing.T) {
 	text := string(data)
 	require.True(t, strings.Contains(text, "mode=preview"))
 	require.True(t, strings.Contains(text, "dagu_change"))
+}
+
+func TestDocumentPromptsIncludeRequiredUpsertFields(t *testing.T) {
+	ctx := context.Background()
+	session := connectTestClient(t, ctx, NewServer(nil))
+
+	tests := []struct {
+		name           string
+		arguments      map[string]string
+		request        string
+		wantFieldBlock string
+	}{
+		{
+			name: "dagu_create_doc",
+			arguments: map[string]string{
+				"workspace": "operations",
+				"path":      "runbooks/restart",
+				"goal":      "Document a safe restart.",
+			},
+			request:        "Document a safe restart.",
+			wantFieldBlock: "mode=preview, type=upsert_doc, workspace=operations, path=runbooks/restart, and content set to the complete drafted Markdown",
+		},
+		{
+			name: "dagu_edit_doc",
+			arguments: map[string]string{
+				"workspace": "operations",
+				"path":      "runbooks/restart",
+				"change":    "Add the rollback steps.",
+			},
+			request:        "Add the rollback steps.",
+			wantFieldBlock: "mode=preview, type=upsert_doc, workspace=operations, path=runbooks/restart, and content set to the complete edited Markdown",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := session.GetPrompt(ctx, &mcpsdk.GetPromptParams{
+				Name:      test.name,
+				Arguments: test.arguments,
+			})
+			require.NoError(t, err)
+			require.Len(t, result.Messages, 1)
+
+			data, err := result.Messages[0].Content.MarshalJSON()
+			require.NoError(t, err)
+			var content struct {
+				Text string `json:"text"`
+			}
+			require.NoError(t, json.Unmarshal(data, &content))
+
+			requestText, instruction, ok := strings.Cut(content.Text, "\n\nCall dagu_change with ")
+			require.True(t, ok)
+			require.Contains(t, requestText, test.request)
+			fieldBlock, _, ok := strings.Cut(instruction, ". Apply only ")
+			require.True(t, ok)
+			require.Equal(t, test.wantFieldBlock, fieldBlock)
+		})
+	}
 }
 
 func TestRunLogsURIWithQueryPreservesQuery(t *testing.T) {
