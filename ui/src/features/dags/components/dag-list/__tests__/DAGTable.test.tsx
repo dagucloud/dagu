@@ -5,7 +5,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import React from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Status } from '@/api/v1/schema';
+import { Status, ViewSortField, ViewSortOrder } from '@/api/v1/schema';
 import { PanelWidthContext } from '@/components/SplitLayout';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { WorkspaceKind } from '@/lib/workspace';
@@ -158,8 +158,8 @@ describe('DAGTable', () => {
           filters: {
             searchText: '',
             searchLabels: ['env=prod'],
-            sortField: 'name',
-            sortOrder: 'asc',
+            sortField: ViewSortField.name,
+            sortOrder: ViewSortOrder.asc,
           },
         },
       ],

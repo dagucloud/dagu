@@ -79,6 +79,22 @@ function normalizeWorkflowSortOrder(value?: string | null): ViewSortOrder {
   return value === ViewSortOrder.desc ? ViewSortOrder.desc : ViewSortOrder.asc;
 }
 
+function workflowSortFieldQuery(
+  value: ViewSortField
+): PathsDagsGetParametersQuerySort {
+  return value === ViewSortField.nextRun
+    ? PathsDagsGetParametersQuerySort.nextRun
+    : PathsDagsGetParametersQuerySort.name;
+}
+
+function workflowSortOrderQuery(
+  value: ViewSortOrder
+): PathsDagsGetParametersQueryOrder {
+  return value === ViewSortOrder.desc
+    ? PathsDagsGetParametersQueryOrder.desc
+    : PathsDagsGetParametersQueryOrder.asc;
+}
+
 function workflowFilterViewFromView(view: View): WorkflowFilterView {
   return {
     id: view.id,
@@ -283,8 +299,8 @@ function DAGsContent() {
     () => ({
       searchText: '',
       searchLabels: [],
-      sortField: 'name',
-      sortOrder: 'asc',
+      sortField: ViewSortField.name,
+      sortOrder: ViewSortOrder.asc,
     }),
     []
   );
@@ -365,12 +381,12 @@ function DAGsContent() {
     }
 
     if (params.has('sort')) {
-      urlFilters.sortField = params.get('sort') || defaultFilters.sortField;
+      urlFilters.sortField = normalizeWorkflowSortField(params.get('sort'));
       hasUrlFilters = true;
     }
 
     if (params.has('order')) {
-      urlFilters.sortOrder = params.get('order') || defaultFilters.sortOrder;
+      urlFilters.sortOrder = normalizeWorkflowSortOrder(params.get('order'));
       hasUrlFilters = true;
     }
 
@@ -510,8 +526,8 @@ function DAGsContent() {
       params: {
         query: {
           ...queryParams,
-          sort: sortField as PathsDagsGetParametersQuerySort,
-          order: sortOrder as PathsDagsGetParametersQueryOrder,
+          sort: workflowSortFieldQuery(sortField),
+          order: workflowSortOrderQuery(sortOrder),
         },
       },
     },
@@ -618,7 +634,10 @@ function DAGsContent() {
   };
 
   const handleSortChange = (field: string, order: string) => {
-    patchFilters({ sortField: field, sortOrder: order });
+    patchFilters({
+      sortField: normalizeWorkflowSortField(field),
+      sortOrder: normalizeWorkflowSortOrder(order),
+    });
   };
 
   const handleSelectWorkflowView = (viewId: string) => {
@@ -815,8 +834,8 @@ function DAGsContent() {
           query: {
             ...queryParams,
             page: nextPage,
-            sort: sortField as PathsDagsGetParametersQuerySort,
-            order: sortOrder as PathsDagsGetParametersQueryOrder,
+            sort: workflowSortFieldQuery(sortField),
+            order: workflowSortOrderQuery(sortOrder),
           },
         },
         signal: controller.signal,

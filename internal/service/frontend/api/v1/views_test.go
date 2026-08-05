@@ -135,7 +135,8 @@ func TestViewsAPI_WorkflowDefaultIsSharedPerScope(t *testing.T) {
 
 	listResp, err := api.ListViews(ctx, apigen.ListViewsRequestObject{})
 	require.NoError(t, err)
-	listed := listResp.(apigen.ListViews200JSONResponse)
+	listed, ok := listResp.(apigen.ListViews200JSONResponse)
+	require.True(t, ok, "expected 200, got %T", listResp)
 	defaults := make([]string, 0, 1)
 	for _, item := range listed.Views {
 		if item.IsDefault != nil && *item.IsDefault {
@@ -251,6 +252,45 @@ func TestViewsAPI_UpdateWithoutColumnsPreservesExistingLayout(t *testing.T) {
 	require.True(t, ok)
 	require.NotNil(t, updated.Columns)
 	assert.Equal(t, columns, *updated.Columns)
+}
+
+func TestViewsAPI_UpdatePreservesOmittedWorkflowSettings(t *testing.T) {
+	ctx := context.Background()
+	api := newViewsTestAPI(t)
+	viewType := apigen.ViewSpecTypeWorkflow
+	workspaceScope := apigen.ViewWorkspaceScopeAll
+	sortField := apigen.ViewSortFieldNextRun
+	sortOrder := apigen.ViewSortOrderDesc
+	isDefault := true
+	created := mustCreateView(t, api, ctx, apigen.ViewSpec{
+		Name:           "Before",
+		Type:           &viewType,
+		IntervalDays:   1,
+		WorkspaceScope: &workspaceScope,
+		SortField:      &sortField,
+		SortOrder:      &sortOrder,
+		IsDefault:      &isDefault,
+	})
+
+	resp, err := api.UpdateView(ctx, apigen.UpdateViewRequestObject{
+		ViewId: created.Id,
+		Body: &apigen.ViewSpec{
+			Name:         "After",
+			Type:         &viewType,
+			IntervalDays: 1,
+		},
+	})
+	require.NoError(t, err)
+	updated, ok := resp.(apigen.UpdateView200JSONResponse)
+	require.True(t, ok, "expected 200, got %T", resp)
+	require.NotNil(t, updated.WorkspaceScope)
+	assert.Equal(t, workspaceScope, *updated.WorkspaceScope)
+	require.NotNil(t, updated.SortField)
+	assert.Equal(t, sortField, *updated.SortField)
+	require.NotNil(t, updated.SortOrder)
+	assert.Equal(t, sortOrder, *updated.SortOrder)
+	require.NotNil(t, updated.IsDefault)
+	assert.True(t, *updated.IsDefault)
 }
 
 func TestViewsAPI_UpdateNotFound(t *testing.T) {

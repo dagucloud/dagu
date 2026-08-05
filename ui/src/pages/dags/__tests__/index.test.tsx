@@ -84,6 +84,7 @@ vi.mock('@/features/dags/components/dag-list', () => ({
     selectedDAG,
     onSelectDAG,
     activeWorkflowViewId,
+    workflowViewError,
     onSaveWorkflowView,
     onShowAllWorkflows,
     onUpdateWorkflowView,
@@ -98,6 +99,7 @@ vi.mock('@/features/dags/components/dag-list', () => ({
     selectedDAG?: string | null;
     onSelectDAG?: (fileName: string, title: string) => void;
     activeWorkflowViewId: string | null;
+    workflowViewError?: string | null;
     onSaveWorkflowView: (
       name: string,
       makeDefault: boolean,
@@ -126,10 +128,13 @@ vi.mock('@/features/dags/components/dag-list', () => ({
       <span data-testid="active-workflow-view">
         {activeWorkflowViewId ?? 'none'}
       </span>
+      {workflowViewError && <div role="alert">{workflowViewError}</div>}
       <button
         type="button"
         onClick={() =>
-          void onSaveWorkflowView('Production operations', true, false)
+          void onSaveWorkflowView('Production operations', true, false).catch(
+            () => undefined
+          )
         }
       >
         Save production view
@@ -615,6 +620,19 @@ describe('DagsPage', () => {
     expect(screen.getByRole('textbox', { name: 'Search DAGs' })).toHaveValue(
       'deploy'
     );
+  });
+
+  it('shows a failed workflow-view mutation', async () => {
+    createViewMock.mockRejectedValueOnce(new Error('Unable to save view'));
+    renderPage();
+
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Save production view' })
+      );
+    });
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Unable to save view');
   });
 
   it('updates and resets an active workflow view', async () => {

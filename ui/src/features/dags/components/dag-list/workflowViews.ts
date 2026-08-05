@@ -1,7 +1,11 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { ViewWorkspaceScope } from '@/api/v1/schema';
+import {
+  ViewSortField,
+  ViewSortOrder,
+  ViewWorkspaceScope,
+} from '@/api/v1/schema';
 import {
   sanitizeWorkspaceSelection,
   WorkspaceKind,
@@ -11,8 +15,8 @@ import {
 export type WorkflowFilterSet = {
   searchText: string;
   searchLabels: string[];
-  sortField: string;
-  sortOrder: string;
+  sortField: ViewSortField;
+  sortOrder: ViewSortOrder;
 };
 
 export type WorkflowFilterView = {

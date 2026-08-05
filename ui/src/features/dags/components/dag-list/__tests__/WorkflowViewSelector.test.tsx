@@ -5,6 +5,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ComponentProps } from 'react';
 import { describe, expect, it, vi } from 'vitest';
+import { ViewSortField, ViewSortOrder } from '@/api/v1/schema';
 import { WorkflowViewSelector } from '../WorkflowViewSelector';
 import type { WorkflowFilterView } from '../workflowViews';
 
@@ -16,8 +17,8 @@ const views: WorkflowFilterView[] = [
     filters: {
       searchText: '',
       searchLabels: ['env=prod'],
-      sortField: 'name',
-      sortOrder: 'asc',
+      sortField: ViewSortField.name,
+      sortOrder: ViewSortOrder.asc,
     },
   },
 ];

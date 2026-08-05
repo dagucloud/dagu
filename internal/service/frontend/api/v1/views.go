@@ -152,6 +152,18 @@ func (a *API) UpdateView(ctx context.Context, request api.UpdateViewRequestObjec
 	if request.Body.Columns == nil {
 		updated.Columns = slices.Clone(existing.Columns)
 	}
+	if request.Body.WorkspaceScope == nil {
+		updated.WorkspaceScope = existing.WorkspaceScope
+	}
+	if request.Body.SortField == nil {
+		updated.SortField = existing.SortField
+	}
+	if request.Body.SortOrder == nil {
+		updated.SortOrder = existing.SortOrder
+	}
+	if request.Body.IsDefault == nil {
+		updated.Default = existing.Default
+	}
 	updated.ID = existing.ID
 	updated.CreatedBy = existing.CreatedBy
 	updated.CreatedAt = existing.CreatedAt
