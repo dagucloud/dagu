@@ -239,6 +239,34 @@ func TestStore_DeleteKeepsUnrelatedCurrentMarker(t *testing.T) {
 	assert.Equal(t, "prod", current)
 }
 
+func TestStore_DeleteIgnoresNonRegularEntries(t *testing.T) {
+	t.Parallel()
+
+	enc, err := crypto.NewEncryptor("test-key")
+	require.NoError(t, err)
+
+	baseDir := t.TempDir()
+	store, err := NewStore(baseDir, enc)
+	require.NoError(t, err)
+
+	require.NoError(t, store.Create(context.Background(), &Context{
+		Name:      "prod",
+		ServerURL: "https://example.com",
+		APIKey:    "dagu_test",
+	}))
+	require.NoError(t, store.Use(context.Background(), "prod"))
+
+	strayDir := filepath.Join(baseDir, "staging"+fileExtension)
+	require.NoError(t, os.Mkdir(strayDir, 0o750))
+
+	require.ErrorIs(t, store.Delete(context.Background(), "staging"), ErrNotFound)
+	assert.DirExists(t, strayDir)
+
+	current, err := store.Current(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "prod", current)
+}
+
 func TestStore_GetReportsCorruptFile(t *testing.T) {
 	t.Parallel()
 

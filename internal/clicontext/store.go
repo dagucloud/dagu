@@ -167,10 +167,16 @@ func (s *Store) Delete(_ context.Context, name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	path := s.contextPath(name)
-	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+	info, err := os.Stat(path)
+	if errors.Is(err, os.ErrNotExist) {
 		return ErrNotFound
 	} else if err != nil {
 		return err
+	}
+	// A directory or other non-regular entry at this path is not a stored
+	// context, so it must not be removed or drive a marker change.
+	if !info.Mode().IsRegular() {
+		return ErrNotFound
 	}
 	// Move the current marker off the context before the file disappears, so a
 	// failure to update the marker cannot leave it naming a deleted context.
