@@ -416,12 +416,44 @@ describe('sidebar menu', () => {
     expect(
       screen.getByRole('link', { name: 'Production workflows' })
     ).toHaveAttribute('href', '/dags?view=workflow-1');
-    expect(
-      screen.getByRole('link', { name: 'Production workflows' })
-    ).toHaveAttribute('aria-current', 'page');
+    const starredViewLink = screen.getByRole('link', {
+      name: 'Production workflows',
+    });
+    expect(starredViewLink).toHaveAttribute('aria-current', 'page');
+    expect(starredViewLink.querySelector('svg')).toHaveClass('lucide-star');
+    const workflowsLink = screen.getByRole('link', { name: 'Workflows' });
+    expect(workflowsLink).not.toHaveAttribute('aria-current');
+    expect(workflowsLink.querySelector('svg')).toHaveClass('lucide-network');
     expect(
       screen.queryByRole('link', { name: 'Default workspace workflows' })
     ).not.toBeInTheDocument();
+  });
+
+  it('keeps Workflows selected when the active view is not starred', () => {
+    useViewsMock.mockImplementation((type?: ViewSpecType) => ({
+      views:
+        type === ViewSpecType.workflow
+          ? [
+              {
+                id: 'workflow-1',
+                name: 'Production workflows',
+                pinned: false,
+                workspace: '',
+                workspaceScope: ViewWorkspaceScope.all,
+              },
+            ]
+          : [],
+    }));
+
+    renderMenu('/dags?view=workflow-1');
+
+    expect(
+      screen.queryByRole('link', { name: 'Production workflows' })
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Workflows' })).toHaveAttribute(
+      'aria-current',
+      'page'
+    );
   });
 
   it('uses Workflows as the selectable Definitions entry', () => {

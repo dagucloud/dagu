@@ -39,6 +39,7 @@ import {
   Network,
   PanelLeft,
   SlidersHorizontal,
+  Star,
   Sun,
   Webhook,
 } from 'lucide-react';
@@ -242,6 +243,7 @@ type NavGroupProps = {
   defaultExpanded?: boolean;
   persistExpanded?: boolean;
   unmountChildrenWhenCollapsed?: boolean;
+  suppressActive?: boolean;
   children: React.ReactNode;
 };
 
@@ -305,11 +307,14 @@ function NavGroup({
   defaultExpanded = false,
   persistExpanded = true,
   unmountChildrenWhenCollapsed = false,
+  suppressActive = false,
   children,
 }: NavGroupProps): React.ReactElement {
   const location = useLocation();
-  const isChildActive = isBasePathActive(location, basePath);
-  const isGroupTargetActive = to ? isNavTargetActive(location, to) : false;
+  const isChildActive =
+    !suppressActive && isBasePathActive(location, basePath);
+  const isGroupTargetActive =
+    !suppressActive && to ? isNavTargetActive(location, to) : false;
 
   const [isExpanded, setIsExpanded] = React.useState(() => {
     try {
@@ -471,6 +476,7 @@ export const mainListItems = React.forwardRef<
   const isAdmin = useIsAdmin();
   const { user } = useAuth();
   const appBar = React.useContext(AppBarContext);
+  const location = useLocation();
   const { views: kanbanViews } = useViews();
   const { views: workflowViews } = useViews(ViewSpecType.workflow);
   const workflowViewScope = workflowViewScopeForSelection(
@@ -480,6 +486,10 @@ export const mainListItems = React.forwardRef<
   const pinnedWorkflowViews = workflowViews.filter(
     (view) => view.pinned && workflowViewMatchesScope(view, workflowViewScope)
   );
+  const activeWorkflowViewId = new URLSearchParams(location.search).get('view');
+  const isPinnedWorkflowViewActive =
+    location.pathname === '/dags' &&
+    pinnedWorkflowViews.some((view) => view.id === activeWorkflowViewId);
   const canWrite =
     config.authMode !== 'builtin'
       ? config.permissions.writeDags
@@ -660,7 +670,7 @@ export const mainListItems = React.forwardRef<
               key={`workflow-${view.id}`}
               to={`/dags?view=${encodeURIComponent(view.id)}`}
               text={view.name}
-              icon={<Network size={18} />}
+              icon={<Star size={18} />}
               isOpen={isOpen}
               onClick={onNavItemClick}
               customColor={customColor}
@@ -692,6 +702,7 @@ export const mainListItems = React.forwardRef<
             to="/dags"
             onClick={onNavItemClick}
             customColor={customColor}
+            suppressActive={isPinnedWorkflowViewActive}
           >
             <NavItem
               to="/search"
