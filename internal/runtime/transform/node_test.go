@@ -20,6 +20,7 @@ import (
 func TestNodeFieldsRoundTrip(t *testing.T) {
 	outputVars := &collections.SyncMap{}
 	outputVars.Store("KEY", "KEY=value")
+	statusDetails := []exec.NodeStatusDetail{{Label: "customer-a", Status: core.NodeFailed}}
 
 	original := &exec.Node{
 		Step: core.Step{
@@ -37,6 +38,7 @@ func TestNodeFieldsRoundTrip(t *testing.T) {
 		DoneCount:              3,
 		Repeated:               true,
 		Error:                  "test error",
+		StatusDetails:          statusDetails,
 		SubRuns:                []exec.SubDAGRun{{DAGRunID: "sub-1", Params: "p1"}},
 		SubRunsRepeated:        []exec.SubDAGRun{{DAGRunID: "sub-2", Params: "p2"}},
 		OutputVariables:        outputVars,
@@ -56,6 +58,9 @@ func TestNodeFieldsRoundTrip(t *testing.T) {
 	// Round-trip: execution.Node -> runtime.Node -> execution.Node
 	runtimeNode := transform.ToNode(original)
 	state := runtimeNode.State()
+	require.Len(t, state.StatusDetails, 1)
+	assert.Equal(t, "customer-a", state.StatusDetails[0].Label)
+	assert.Equal(t, core.NodeFailed, state.StatusDetails[0].Status)
 
 	dag := &core.DAG{Name: "test", Steps: []core.Step{original.Step}}
 	status := transform.NewStatusBuilder(dag).Create("run-1", core.Succeeded, 0, time.Now(),

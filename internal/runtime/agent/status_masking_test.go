@@ -41,5 +41,7 @@ func TestMaskNodeSecretsMasksStatusDetailLabels(t *testing.T) {
 	maskNodeSecrets(masker, node)
 
 	require.Len(t, node.StatusDetails, 1)
+	assert.Contains(t, node.StatusDetails[0].Label, "customer")
 	assert.NotContains(t, node.StatusDetails[0].Label, "very-secret-token")
+	assert.Equal(t, core.NodeFailed, node.StatusDetails[0].Status)
 }
