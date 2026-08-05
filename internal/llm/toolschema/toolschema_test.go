@@ -106,6 +106,38 @@ func TestParamsFromDefs_PreservesRequiredWithDefault(t *testing.T) {
 	assert.Equal(t, "latest", params[0].Default)
 }
 
+func TestParamsFromDefs_CarriesConstraints(t *testing.T) {
+	t.Parallel()
+
+	minimum := 1.0
+	maximum := 10.0
+	minLength := 2
+	maxLength := 32
+	pattern := "^[a-z-]+$"
+	params := toolschema.ParamsFromDefs([]core.ParamDef{
+		{
+			Name:        "angle",
+			Type:        core.ParamDefTypeString,
+			Description: "Review lens for this pass.",
+			Enum:        []any{"duplication", "complexity"},
+			Minimum:     &minimum,
+			Maximum:     &maximum,
+			MinLength:   &minLength,
+			MaxLength:   &maxLength,
+			Pattern:     &pattern,
+		},
+	})
+
+	require.Len(t, params, 1)
+	assert.Equal(t, "Review lens for this pass.", params[0].Description)
+	assert.Equal(t, []any{"duplication", "complexity"}, params[0].Enum)
+	assert.Equal(t, &minimum, params[0].Minimum)
+	assert.Equal(t, &maximum, params[0].Maximum)
+	assert.Equal(t, &minLength, params[0].MinLength)
+	assert.Equal(t, &maxLength, params[0].MaxLength)
+	assert.Equal(t, &pattern, params[0].Pattern)
+}
+
 func TestInferTypeFromDefault(t *testing.T) {
 	t.Parallel()
 
@@ -289,6 +321,40 @@ func TestBuild(t *testing.T) {
 		assert.Equal(t, int64(10), limitProp["default"])
 
 		assert.Nil(t, result["required"])
+	})
+
+	t.Run("ConstrainedParam", func(t *testing.T) {
+		t.Parallel()
+
+		minimum := 1.0
+		maximum := 10.0
+		minLength := 2
+		maxLength := 32
+		pattern := "^[a-z-]+$"
+		params := []toolschema.Param{
+			{
+				Name:        "angle",
+				Type:        "string",
+				Description: "Review lens for this pass.",
+				Enum:        []any{"duplication", "complexity"},
+				Minimum:     &minimum,
+				Maximum:     &maximum,
+				MinLength:   &minLength,
+				MaxLength:   &maxLength,
+				Pattern:     &pattern,
+			},
+		}
+		result := toolschema.Build(params)
+
+		props := result["properties"].(map[string]any)
+		angleProp := props["angle"].(map[string]any)
+		assert.Equal(t, "Review lens for this pass.", angleProp["description"])
+		assert.Equal(t, []any{"duplication", "complexity"}, angleProp["enum"])
+		assert.Equal(t, 1.0, angleProp["minimum"])
+		assert.Equal(t, 10.0, angleProp["maximum"])
+		assert.Equal(t, 2, angleProp["minLength"])
+		assert.Equal(t, 32, angleProp["maxLength"])
+		assert.Equal(t, "^[a-z-]+$", angleProp["pattern"])
 	})
 
 	t.Run("MixedParams", func(t *testing.T) {

@@ -17,10 +17,17 @@ import (
 
 // Param is a single tool parameter.
 type Param struct {
-	Name     string
-	Type     string // "string", "integer", "number", "boolean", "array", "object"
-	Default  any
-	Required bool
+	Name        string
+	Type        string // "string", "integer", "number", "boolean", "array", "object"
+	Default     any
+	Description string
+	Required    bool
+	Enum        []any
+	Minimum     *float64
+	Maximum     *float64
+	MinLength   *int
+	MaxLength   *int
+	Pattern     *string
 }
 
 // paramRegex matches "name" or "name=value" patterns in param strings.
@@ -67,10 +74,17 @@ func ParamsFromDefs(defs []core.ParamDef) []Param {
 			continue
 		}
 		param := Param{
-			Name:     def.Name,
-			Type:     def.Type,
-			Required: def.Required,
-			Default:  def.Default,
+			Name:        def.Name,
+			Type:        def.Type,
+			Required:    def.Required,
+			Default:     def.Default,
+			Description: def.Description,
+			Enum:        def.Enum,
+			Minimum:     def.Minimum,
+			Maximum:     def.Maximum,
+			MinLength:   def.MinLength,
+			MaxLength:   def.MaxLength,
+			Pattern:     def.Pattern,
 		}
 		if param.Type == "" {
 			param.Type = "string"
@@ -208,13 +222,35 @@ func Build(params []Param) map[string]any {
 	var required []string
 
 	for _, param := range params {
+		description := param.Description
+		if description == "" {
+			description = fmt.Sprintf("%s parameter", param.Name)
+		}
 		prop := map[string]any{
 			"type":        param.Type,
-			"description": fmt.Sprintf("%s parameter", param.Name),
+			"description": description,
 		}
 
 		if param.Default != nil {
 			prop["default"] = param.Default
+		}
+		if len(param.Enum) > 0 {
+			prop["enum"] = param.Enum
+		}
+		if param.Minimum != nil {
+			prop["minimum"] = *param.Minimum
+		}
+		if param.Maximum != nil {
+			prop["maximum"] = *param.Maximum
+		}
+		if param.MinLength != nil {
+			prop["minLength"] = *param.MinLength
+		}
+		if param.MaxLength != nil {
+			prop["maxLength"] = *param.MaxLength
+		}
+		if param.Pattern != nil && *param.Pattern != "" {
+			prop["pattern"] = *param.Pattern
 		}
 
 		properties[param.Name] = prop
