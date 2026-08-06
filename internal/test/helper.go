@@ -32,11 +32,11 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
-	"github.com/dagucloud/dagu/v2/internal/node"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	runtimepkg "github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
+	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/frontend"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 	"github.com/google/uuid"
@@ -789,7 +789,7 @@ func (d *DAG) Agent(opts ...AgentOption) *Agent {
 	helper.opts.DAGRunLogDir = d.Config.Paths.LogDir
 	helper.opts.DAGRunArtifactDir = d.Config.Paths.ArtifactDir
 	if helper.opts.SubWorkflowRunnerFactory == nil {
-		helper.opts.SubWorkflowRunnerFactory = node.NewSubWorkflowRunnerFactory(node.SubWorkflowRunnerConfig{
+		helper.opts.SubWorkflowRunnerFactory = coordinator.NewSubWorkflowRunnerFactory(coordinator.SubWorkflowRunnerConfig{
 			DAGRunMgr:         d.DAGRunMgr,
 			DAGStore:          d.DAGStore,
 			DAGRunStore:       d.DAGRunStore,

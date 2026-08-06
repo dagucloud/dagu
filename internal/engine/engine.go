@@ -16,7 +16,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/core"
 	coreexec "github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
-	"github.com/dagucloud/dagu/v2/internal/node"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
@@ -205,7 +204,7 @@ func (e *Engine) coordinatorClient(opts DistributedOptions) (coordinator.Client,
 }
 
 func (e *Engine) subWorkflowRunnerFactory(stores RuntimeStores) func(context.Context) (runtimeexec.SubWorkflowRunner, error) {
-	return node.NewSubWorkflowRunnerFactory(node.SubWorkflowRunnerConfig{
+	return coordinator.NewSubWorkflowRunnerFactory(coordinator.SubWorkflowRunnerConfig{
 		DAGRunMgr:         e.dagRunMgr,
 		DAGStore:          e.dagStore,
 		DAGRunStore:       e.dagRunStore,

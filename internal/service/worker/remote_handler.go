@@ -25,7 +25,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
-	"github.com/dagucloud/dagu/v2/internal/node"
 	"github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
@@ -654,7 +653,7 @@ func (h *remoteTaskHandler) executeDAGRun(
 	}
 	extraEnvs := append(taskExtraEnvs(task), toolEnvs...)
 
-	subWorkflowRunnerFactory := node.NewSubWorkflowRunnerFactory(node.SubWorkflowRunnerConfig{
+	subWorkflowRunnerFactory := coordinator.NewSubWorkflowRunnerFactory(coordinator.SubWorkflowRunnerConfig{
 		DAGRunMgr:         h.dagRunMgr,
 		DAGStore:          h.dagStore,
 		StateStore:        h.stateStore,

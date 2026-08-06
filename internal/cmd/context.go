@@ -32,7 +32,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
 	"github.com/dagucloud/dagu/v2/internal/license"
-	"github.com/dagucloud/dagu/v2/internal/node"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
@@ -580,7 +579,7 @@ func (c *Context) NewCoordinatorClient() coordinator.Client {
 
 func (c *Context) SubWorkflowRunnerFactory() func(context.Context) (runtimeexec.SubWorkflowRunner, error) {
 	stores := c.runtimeStores()
-	return node.NewSubWorkflowRunnerFactory(node.SubWorkflowRunnerConfig{
+	return coordinator.NewSubWorkflowRunnerFactory(coordinator.SubWorkflowRunnerConfig{
 		DAGRunMgr: c.DAGRunMgr,
 		DAGStoreFactory: func(context.Context) (exec.DAGStore, error) {
 			return c.dagStore(dagStoreConfig{})
