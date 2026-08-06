@@ -151,6 +151,29 @@ func TestStoreDoesNotUndercountWhileDamagedProcFileLooksActive(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestStoreLatestHeartbeatDoesNotReportExitWhileDamagedProcFileLooksActive(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	s := New(root, WithStaleThreshold(time.Minute))
+	ref := exec.NewDAGRunRef("healthy-dag", "run-1")
+
+	// Callers read a nil heartbeat as the run having exited, so damage that may
+	// still belong to it must not be reported as an absence.
+	damaged := writeDamagedProcFile(t, root, "queue-a", "healthy-dag", 0)
+
+	_, err := s.LatestHeartbeat(ctx, "queue-a", ref)
+	require.ErrorIs(t, err, errInvalidProcFile)
+
+	at := time.Now().Add(-time.Hour)
+	require.NoError(t, os.Chtimes(damaged, at, at))
+
+	heartbeat, err := s.LatestHeartbeat(ctx, "queue-a", ref)
+	require.NoError(t, err)
+	assert.Nil(t, heartbeat)
+}
+
 func TestStoreValidateIgnoresDamagedProcFiles(t *testing.T) {
 	t.Parallel()
 

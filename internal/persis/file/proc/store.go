@@ -581,11 +581,15 @@ func (s *Store) LatestHeartbeat(_ context.Context, groupName string, dagRun exec
 	for _, file := range files {
 		observed, err := readProcEntryWithRetry(file, groupName, s.staleTime, now)
 		if err != nil {
-			if errors.Is(err, os.ErrNotExist) || errors.Is(err, errInvalidProcFile) {
-				// Heartbeat observation should not fail because an unrelated
-				// proc file is concurrently removed or corrupt.
+			if errors.Is(err, os.ErrNotExist) {
 				continue
 			}
+			if errors.Is(err, errInvalidProcFile) && s.abandoned(file, now) {
+				continue
+			}
+			// Which run a damaged file belongs to cannot be known without
+			// decoding it, so one that is still being written may be this run's.
+			// Report that rather than an absence the caller reads as an exit.
 			return nil, err
 		}
 		entry := observed.entry
