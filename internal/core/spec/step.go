@@ -2045,7 +2045,7 @@ func buildStepExecutor(ctx stepBuildContext, s *step, result *core.Step) error {
 		if err := validateHarnessProviderConfig(defs, result.ExecutorConfig.Config); err != nil {
 			return err
 		}
-		fallbacks, err := extractHarnessFallback(cloneHarnessSpecMap(result.ExecutorConfig.Config))
+		fallbacks, err := extractHarnessFallback(cloneMap(result.ExecutorConfig.Config))
 		if err != nil {
 			return err
 		}
@@ -2109,7 +2109,7 @@ func mergeHarnessConfig(dagHarness *core.HarnessConfig, stepConfig map[string]an
 		stepConfig = core.NormalizeBuiltinHarnessFlagKeys(stepConfig)
 	}
 
-	merged := cloneHarnessSpecMap(stepConfig)
+	merged := cloneMap(stepConfig)
 	if merged == nil {
 		merged = make(map[string]any)
 	}
@@ -2125,14 +2125,14 @@ func mergeHarnessConfig(dagHarness *core.HarnessConfig, stepConfig map[string]an
 
 	for key, value := range dagConfig {
 		if _, exists := merged[key]; !exists {
-			merged[key] = cloneHarnessSpecValue(value)
+			merged[key] = cloneAny(value)
 		}
 	}
 
 	if _, exists := stepConfig["fallback"]; exists {
-		merged["fallback"] = cloneHarnessSpecValue(stepConfig["fallback"])
+		merged["fallback"] = cloneAny(stepConfig["fallback"])
 	} else if dagHarness.Fallback != nil {
-		merged["fallback"] = cloneHarnessSpecValue(dagHarness.Fallback)
+		merged["fallback"] = cloneAny(dagHarness.Fallback)
 	}
 
 	return merged

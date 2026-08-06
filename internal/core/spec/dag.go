@@ -1180,7 +1180,19 @@ func referencesArtifactsEnvVar(s string) bool {
 	return dagRunArtifactsDirReferencePattern.MatchString(s)
 }
 
-func valueReferencesRunArtifactsDir(v reflect.Value) bool {
+// specVisitor searches a decoded spec tree for a condition. A nil callback
+// never matches. Traversal stops at the first match.
+type specVisitor struct {
+	// expandValueProviders unwraps types exposing Value() any before matching.
+	expandValueProviders bool
+	// matchString reports whether a scalar string satisfies the search.
+	matchString func(string) bool
+	// matchNamed reports whether a map entry or exported struct field
+	// satisfies the search. skip suppresses recursion into that value.
+	matchNamed func(name string, value reflect.Value) (match, skip bool)
+}
+
+func (vis specVisitor) visit(v reflect.Value) bool {
 	if !v.IsValid() {
 		return false
 	}
@@ -1192,35 +1204,54 @@ func valueReferencesRunArtifactsDir(v reflect.Value) bool {
 		v = v.Elem()
 	}
 
-	if v.CanInterface() {
+	if vis.expandValueProviders && v.CanInterface() {
 		if provider, ok := v.Interface().(interface{ Value() any }); ok {
-			return valueReferencesRunArtifactsDir(reflect.ValueOf(provider.Value()))
+			return vis.visit(reflect.ValueOf(provider.Value()))
 		}
 	}
 
 	switch v.Kind() {
 	case reflect.String:
-		return referencesArtifactsEnvVar(v.String())
+		return vis.matchString != nil && vis.matchString(v.String())
 	case reflect.Array, reflect.Slice:
-		for i := 0; i < v.Len(); i++ {
-			if valueReferencesRunArtifactsDir(v.Index(i)) {
+		for i := range v.Len() {
+			if vis.visit(v.Index(i)) {
 				return true
 			}
 		}
 	case reflect.Map:
 		iter := v.MapRange()
 		for iter.Next() {
-			if valueReferencesRunArtifactsDir(iter.Key()) || valueReferencesRunArtifactsDir(iter.Value()) {
+			key, value := iter.Key(), iter.Value()
+			if key.Kind() == reflect.String {
+				match, skip := vis.named(key.String(), value)
+				if match {
+					return true
+				}
+				if skip {
+					continue
+				}
+			}
+			if vis.visit(key) || vis.visit(value) {
 				return true
 			}
 		}
 	case reflect.Struct:
 		t := v.Type()
 		for i := range v.NumField() {
-			if t.Field(i).PkgPath != "" {
+			fieldInfo := t.Field(i)
+			if fieldInfo.PkgPath != "" {
 				continue
 			}
-			if valueReferencesRunArtifactsDir(v.Field(i)) {
+			field := v.Field(i)
+			match, skip := vis.named(fieldInfo.Name, field)
+			if match {
+				return true
+			}
+			if skip {
+				continue
+			}
+			if vis.visit(field) {
 				return true
 			}
 		}
@@ -1252,171 +1283,55 @@ func valueReferencesRunArtifactsDir(v reflect.Value) bool {
 	}
 
 	return false
+}
+
+func (vis specVisitor) named(name string, value reflect.Value) (match, skip bool) {
+	if vis.matchNamed == nil {
+		return false, false
+	}
+	return vis.matchNamed(name, value)
+}
+
+// runArtifactsDirVisitor finds a reference to the run artifacts directory
+// anywhere in the spec, including free-form data.
+var runArtifactsDirVisitor = specVisitor{
+	expandValueProviders: true,
+	matchString:          referencesArtifactsEnvVar,
+}
+
+// builtinArtifactActionVisitor finds a step declaring a builtin artifact
+// action. Parameter payloads are data handed to a child DAG, not step syntax.
+var builtinArtifactActionVisitor = specVisitor{
+	matchNamed: func(name string, value reflect.Value) (bool, bool) {
+		switch name {
+		case "action", "Action":
+			action, ok := reflectString(value)
+			return ok && strings.HasPrefix(action, "artifact."), false
+		case "params", "Params":
+			return false, true
+		}
+		return false, false
+	},
+}
+
+// artifactOutputVisitor finds a step redirecting an output stream to an
+// artifact.
+var artifactOutputVisitor = specVisitor{
+	matchNamed: func(name string, value reflect.Value) (bool, bool) {
+		return isArtifactOutputField(name) && valueIsArtifactOutputConfig(value), false
+	},
+}
+
+func valueReferencesRunArtifactsDir(v reflect.Value) bool {
+	return runArtifactsDirVisitor.visit(v)
 }
 
 func valueUsesBuiltinArtifactAction(v reflect.Value) bool {
-	if !v.IsValid() {
-		return false
-	}
-
-	for v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
-		if v.IsNil() {
-			return false
-		}
-		v = v.Elem()
-	}
-
-	switch v.Kind() {
-	case reflect.String:
-		return false
-	case reflect.Map:
-		iter := v.MapRange()
-		for iter.Next() {
-			key := iter.Key()
-			value := iter.Value()
-			if key.Kind() == reflect.String && key.String() == "action" {
-				if action, ok := reflectString(value); ok && strings.HasPrefix(action, "artifact.") {
-					return true
-				}
-			}
-			// Parameter payloads are data handed to a child DAG, not step syntax.
-			if key.Kind() == reflect.String && key.String() == "params" {
-				continue
-			}
-			if valueUsesBuiltinArtifactAction(key) || valueUsesBuiltinArtifactAction(value) {
-				return true
-			}
-		}
-	case reflect.Slice, reflect.Array:
-		for i := range v.Len() {
-			if valueUsesBuiltinArtifactAction(v.Index(i)) {
-				return true
-			}
-		}
-	case reflect.Struct:
-		t := v.Type()
-		for i := range v.NumField() {
-			fieldInfo := t.Field(i)
-			if fieldInfo.PkgPath != "" {
-				continue
-			}
-			field := v.Field(i)
-			if fieldInfo.Name == "Action" {
-				if action, ok := reflectString(field); ok && strings.HasPrefix(action, "artifact.") {
-					return true
-				}
-			}
-			// Parameter payloads are data handed to a child DAG, not step syntax.
-			if fieldInfo.Name == "Params" {
-				continue
-			}
-			if valueUsesBuiltinArtifactAction(field) {
-				return true
-			}
-		}
-	case reflect.Invalid,
-		reflect.Bool,
-		reflect.Int,
-		reflect.Int8,
-		reflect.Int16,
-		reflect.Int32,
-		reflect.Int64,
-		reflect.Uint,
-		reflect.Uint8,
-		reflect.Uint16,
-		reflect.Uint32,
-		reflect.Uint64,
-		reflect.Uintptr,
-		reflect.Float32,
-		reflect.Float64,
-		reflect.Complex64,
-		reflect.Complex128,
-		reflect.Chan,
-		reflect.Func,
-		reflect.Interface,
-		reflect.Pointer,
-		reflect.UnsafePointer:
-		return false
-	default:
-		return false
-	}
-	return false
+	return builtinArtifactActionVisitor.visit(v)
 }
 
 func valueUsesArtifactOutput(v reflect.Value) bool {
-	if !v.IsValid() {
-		return false
-	}
-
-	for v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
-		if v.IsNil() {
-			return false
-		}
-		v = v.Elem()
-	}
-
-	switch v.Kind() {
-	case reflect.Map:
-		iter := v.MapRange()
-		for iter.Next() {
-			key := iter.Key()
-			value := iter.Value()
-			if key.Kind() == reflect.String && isArtifactOutputField(key.String()) && valueIsArtifactOutputConfig(value) {
-				return true
-			}
-			if valueUsesArtifactOutput(key) || valueUsesArtifactOutput(value) {
-				return true
-			}
-		}
-	case reflect.Slice, reflect.Array:
-		for i := range v.Len() {
-			if valueUsesArtifactOutput(v.Index(i)) {
-				return true
-			}
-		}
-	case reflect.Struct:
-		t := v.Type()
-		for i := range v.NumField() {
-			fieldInfo := t.Field(i)
-			if fieldInfo.PkgPath != "" {
-				continue
-			}
-			field := v.Field(i)
-			if isArtifactOutputField(fieldInfo.Name) && valueIsArtifactOutputConfig(field) {
-				return true
-			}
-			if valueUsesArtifactOutput(field) {
-				return true
-			}
-		}
-	case reflect.String,
-		reflect.Invalid,
-		reflect.Bool,
-		reflect.Int,
-		reflect.Int8,
-		reflect.Int16,
-		reflect.Int32,
-		reflect.Int64,
-		reflect.Uint,
-		reflect.Uint8,
-		reflect.Uint16,
-		reflect.Uint32,
-		reflect.Uint64,
-		reflect.Uintptr,
-		reflect.Float32,
-		reflect.Float64,
-		reflect.Complex64,
-		reflect.Complex128,
-		reflect.Chan,
-		reflect.Func,
-		reflect.Interface,
-		reflect.Pointer,
-		reflect.UnsafePointer:
-		return false
-	default:
-		return false
-	}
-	return false
+	return artifactOutputVisitor.visit(v)
 }
 
 func isArtifactOutputField(name string) bool {
@@ -2777,7 +2692,7 @@ func buildHarness(ctx buildContext, d *dag) (*core.HarnessConfig, error) {
 		return nil, nil
 	}
 
-	config := cloneHarnessSpecMap(d.Harness)
+	config := cloneMap(d.Harness)
 	fallbacks, err := extractHarnessFallback(config)
 	if err != nil {
 		return nil, core.NewValidationError("harness", d.Harness, err)
@@ -3018,7 +2933,7 @@ func extractHarnessFallback(config map[string]any) ([]map[string]any, error) {
 	case nil:
 		return nil, nil
 	case []map[string]any:
-		return cloneHarnessSpecFallback(v), nil
+		return cloneMapSlice(v), nil
 	case []any:
 		fallbacks := make([]map[string]any, len(v))
 		for i := range v {
@@ -3026,7 +2941,7 @@ func extractHarnessFallback(config map[string]any) ([]map[string]any, error) {
 			if !ok {
 				return nil, fmt.Errorf("harness: fallback[%d] must be an object", i)
 			}
-			fallbacks[i] = cloneHarnessSpecMap(item)
+			fallbacks[i] = cloneMap(item)
 		}
 		return fallbacks, nil
 	default:
@@ -3061,49 +2976,6 @@ func validateHarnessProviderConfig(defs core.HarnessDefinitions, cfg map[string]
 		}
 	}
 	return fmt.Errorf("harness: unknown provider %q", providerName)
-}
-
-func cloneHarnessSpecMap(cfg map[string]any) map[string]any {
-	if cfg == nil {
-		return nil
-	}
-
-	cloned := make(map[string]any, len(cfg))
-	for key, value := range cfg {
-		cloned[key] = cloneHarnessSpecValue(value)
-	}
-	return cloned
-}
-
-func cloneHarnessSpecFallback(cfgs []map[string]any) []map[string]any {
-	if cfgs == nil {
-		return nil
-	}
-
-	cloned := make([]map[string]any, len(cfgs))
-	for i := range cfgs {
-		cloned[i] = cloneHarnessSpecMap(cfgs[i])
-	}
-	return cloned
-}
-
-func cloneHarnessSpecValue(value any) any {
-	switch v := value.(type) {
-	case map[string]any:
-		return cloneHarnessSpecMap(v)
-	case []any:
-		cloned := make([]any, len(v))
-		for i := range v {
-			cloned[i] = cloneHarnessSpecValue(v[i])
-		}
-		return cloned
-	case []string:
-		return append([]string(nil), v...)
-	case []map[string]any:
-		return cloneHarnessSpecFallback(v)
-	default:
-		return value
-	}
 }
 
 func buildDotenv(_ buildContext, d *dag) ([]string, error) {

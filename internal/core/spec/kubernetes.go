@@ -4,7 +4,6 @@
 package spec
 
 import (
-	"slices"
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/core"
@@ -76,28 +75,10 @@ func cloneKubernetesConfigMap(cfg map[string]any) map[string]any {
 }
 
 func cloneKubernetesValue(value any) any {
-	switch v := value.(type) {
-	case core.KubernetesConfig:
-		return core.KubernetesConfig(cloneKubernetesConfigMap(map[string]any(v)))
-	case map[string]any:
-		return cloneKubernetesConfigMap(v)
-	case []any:
-		cloned := make([]any, len(v))
-		for i := range v {
-			cloned[i] = cloneKubernetesValue(v[i])
-		}
-		return cloned
-	case []string:
-		return slices.Clone(v)
-	case []map[string]any:
-		cloned := make([]map[string]any, len(v))
-		for i := range v {
-			cloned[i] = cloneKubernetesConfigMap(v[i])
-		}
-		return cloned
-	default:
-		return value
+	if cfg, ok := value.(core.KubernetesConfig); ok {
+		return core.KubernetesConfig(cloneMap(map[string]any(cfg)))
 	}
+	return cloneAny(value)
 }
 
 func asKubernetesConfigMap(value any) (map[string]any, bool) {

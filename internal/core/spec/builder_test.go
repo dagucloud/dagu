@@ -4288,3 +4288,81 @@ steps:
 		assert.Empty(t, dag.BuildWarnings)
 	})
 }
+
+func TestBuildDAGLevelLLMInheritance(t *testing.T) {
+	t.Parallel()
+
+	t.Run("ChatStepInheritsToolsAndWebSearch", func(t *testing.T) {
+		t.Parallel()
+
+		data := []byte(`
+llm:
+  provider: openai
+  model: gpt-4o
+  tools:
+    - helper-dag
+  web_search:
+    enabled: true
+    max_uses: 3
+steps:
+  - name: ask
+    type: chat
+    messages:
+      - role: user
+        content: hello
+`)
+		dag, err := spec.LoadYAML(context.Background(), data)
+		require.NoError(t, err)
+
+		require.NotNil(t, dag.LLM)
+		assert.Equal(t, []string{"helper-dag"}, dag.LLM.Tools)
+		require.NotNil(t, dag.LLM.WebSearch)
+		assert.True(t, dag.LLM.WebSearch.Enabled)
+
+		require.Len(t, dag.Steps, 1)
+		require.NotNil(t, dag.Steps[0].LLM)
+		assert.Equal(t, []string{"helper-dag"}, dag.Steps[0].LLM.Tools)
+		require.NotNil(t, dag.Steps[0].LLM.WebSearch)
+		assert.True(t, dag.Steps[0].LLM.WebSearch.Enabled)
+	})
+}
+
+func TestBuildArtifactActionDetection(t *testing.T) {
+	t.Parallel()
+
+	t.Run("ParamValueIsNotAnArtifactAction", func(t *testing.T) {
+		t.Parallel()
+
+		data := []byte(`
+artifacts:
+  enabled: false
+params:
+  - action: artifact.write
+steps:
+  - name: step1
+    command: echo hello
+`)
+		dag, err := spec.LoadYAML(context.Background(), data)
+		require.NoError(t, err)
+		require.NotNil(t, dag.Artifacts)
+		assert.False(t, dag.Artifacts.Enabled)
+	})
+
+	t.Run("StepArtifactActionRequiresArtifactsEnabled", func(t *testing.T) {
+		t.Parallel()
+
+		data := []byte(`
+artifacts:
+  enabled: false
+steps:
+  - name: step1
+    action: artifact.write
+    with:
+      path: out.txt
+      content: hello
+`)
+		_, err := spec.LoadYAML(context.Background(), data)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "artifact actions require artifacts.enabled to be true")
+	})
+}

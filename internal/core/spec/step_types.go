@@ -909,6 +909,8 @@ func cloneMap(src map[string]any) map[string]any {
 	return dst
 }
 
+// cloneAny deep-copies the composite shapes a decoded manifest can hold.
+// Values of any other type are returned as-is.
 func cloneAny(value any) any {
 	switch typed := value.(type) {
 	case map[string]any:
@@ -919,9 +921,24 @@ func cloneAny(value any) any {
 			dst[i] = cloneAny(item)
 		}
 		return dst
+	case []string:
+		return slices.Clone(typed)
+	case []map[string]any:
+		return cloneMapSlice(typed)
 	default:
 		return typed
 	}
+}
+
+func cloneMapSlice(src []map[string]any) []map[string]any {
+	if src == nil {
+		return nil
+	}
+	dst := make([]map[string]any, len(src))
+	for i, item := range src {
+		dst[i] = cloneMap(item)
+	}
+	return dst
 }
 
 func buildCustomStepFromSpec(
