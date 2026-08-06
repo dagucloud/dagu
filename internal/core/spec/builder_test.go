@@ -4344,12 +4344,16 @@ steps:
 		assert.Equal(t, []string{"helper-dag"}, dag.LLM.Tools)
 		require.NotNil(t, dag.LLM.WebSearch)
 		assert.True(t, dag.LLM.WebSearch.Enabled)
+		require.NotNil(t, dag.LLM.WebSearch.MaxUses)
+		assert.Equal(t, 3, *dag.LLM.WebSearch.MaxUses)
 
 		require.Len(t, dag.Steps, 1)
 		require.NotNil(t, dag.Steps[0].LLM)
 		assert.Equal(t, []string{"helper-dag"}, dag.Steps[0].LLM.Tools)
 		require.NotNil(t, dag.Steps[0].LLM.WebSearch)
 		assert.True(t, dag.Steps[0].LLM.WebSearch.Enabled)
+		require.NotNil(t, dag.Steps[0].LLM.WebSearch.MaxUses)
+		assert.Equal(t, 3, *dag.Steps[0].LLM.WebSearch.MaxUses)
 	})
 }
 
