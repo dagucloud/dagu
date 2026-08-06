@@ -895,7 +895,6 @@ func (s *Store) Get(_ context.Context, id string) (*docs.Doc, error) {
 		return nil, fmt.Errorf("filedoc: failed to parse doc %s: %w", id, err)
 	}
 
-	doc.FilePath = filePath
 	doc.CreatedAt = s.docCreatedAt(id, filePath, info)
 	doc.UpdatedAt = info.ModTime().UTC().Format(time.RFC3339)
 
