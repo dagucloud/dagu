@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -20,20 +21,20 @@ var (
 	ErrMissingNode = errors.New("missing node in execution plan")
 )
 
-// Plan represents a plan of execution for a set of steps.
-// It encapsulates the graph structure and ensures thread-safe access.
+// Plan represents a plan of execution for a set of steps. Graph mutation is
+// confined to planning before execution starts.
 type Plan struct {
 	startedAt       time.Time
 	finishedAt      time.Time
 	cancelRequested bool
 
-	// Graph structure (immutable after construction)
+	// Graph structure (immutable after planning)
 	nodes         []*Node
 	nodeByID      map[int]*Node
 	nodeByName    map[string]*Node
 	inferredEdges map[[2]int]struct{}
 
-	// Immutable adjacency lists (exposing for unit tests)
+	// Adjacency lists (immutable after planning; exposed for unit tests)
 	DependencyMap map[int][]int // node ID -> list of dependency node IDs (upstream)
 	DependantMap  map[int][]int // node ID -> list of dependent node IDs (downstream)
 
@@ -236,14 +237,13 @@ func retryStepForNode(node *Node, steps map[string]core.Step) (core.Step, error)
 }
 
 // addEdge adds a directed edge from 'from' to 'to'.
-func (p *Plan) addEdge(from, to *Node) {
-	for _, id := range p.DependencyMap[to.id] {
-		if id == from.id {
-			return
-		}
+func (p *Plan) addEdge(from, to *Node) bool {
+	if slices.Contains(p.DependencyMap[to.id], from.id) {
+		return false
 	}
 	p.DependantMap[from.id] = append(p.DependantMap[from.id], to.id)
 	p.DependencyMap[to.id] = append(p.DependencyMap[to.id], from.id)
+	return true
 }
 
 // AddInferredDependency adds one file-derived dependency before execution starts.
@@ -256,15 +256,31 @@ func (p *Plan) AddInferredDependency(producerName, consumerName string) error {
 	if consumer == nil {
 		return fmt.Errorf("%w: %s", ErrMissingNode, consumerName)
 	}
-	p.inferredEdges[[2]int{producer.id, consumer.id}] = struct{}{}
-	p.addEdge(producer, consumer)
+	edge := [2]int{producer.id, consumer.id}
+	p.inferredEdges[edge] = struct{}{}
+	added := p.addEdge(producer, consumer)
 	if p.isCyclic() {
+		delete(p.inferredEdges, edge)
+		if added {
+			p.DependantMap[producer.id] = removeNodeID(p.DependantMap[producer.id], consumer.id)
+			p.DependencyMap[consumer.id] = removeNodeID(p.DependencyMap[consumer.id], producer.id)
+		}
 		return ErrCyclicPlan
 	}
 	return nil
 }
 
+func removeNodeID(ids []int, target int) []int {
+	for idx, id := range ids {
+		if id == target {
+			return append(ids[:idx], ids[idx+1:]...)
+		}
+	}
+	return ids
+}
+
 // IsInferredDependency reports whether an edge was derived from matching paths.
+// It may be called concurrently after planning is complete.
 func (p *Plan) IsInferredDependency(producerID, consumerID int) bool {
 	_, ok := p.inferredEdges[[2]int{producerID, consumerID}]
 	return ok

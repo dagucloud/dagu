@@ -257,4 +257,12 @@ func TestPrepareIncrementalPlanRejectsInferredCycle(t *testing.T) {
 
 	err = prepareIncrementalPlan(ctx, plan)
 	require.ErrorIs(t, err, ErrCyclicPlan)
+	firstNode := plan.GetNodeByName("first")
+	secondNode := plan.GetNodeByName("second")
+	require.NotNil(t, firstNode)
+	require.NotNil(t, secondNode)
+	assert.True(t, plan.IsInferredDependency(secondNode.ID(), firstNode.ID()))
+	assert.False(t, plan.IsInferredDependency(firstNode.ID(), secondNode.ID()))
+	assert.Empty(t, plan.Dependents(firstNode.ID()))
+	assert.Equal(t, []int{secondNode.ID()}, plan.Dependencies(firstNode.ID()))
 }

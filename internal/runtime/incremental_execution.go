@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/core"
@@ -66,12 +67,8 @@ func (r *Runner) startIncrementalSession(ctx context.Context, plan *Plan, node *
 	})
 	if session != nil {
 		node.setIncremental(session.Metadata())
-		var outputs map[string]string
-		if !session.HasPathOutput() {
-			outputs = map[string]string{}
-		}
 		var pathErr error
-		ctx, pathErr = withIncrementalPaths(ctx, node, session.InputPaths(), outputs)
+		ctx, pathErr = withIncrementalPaths(ctx, node, session.InputPaths(), nil, !session.HasPathOutput())
 		if pathErr != nil {
 			_ = session.Close("")
 			return ctx, nil, pathErr
@@ -160,7 +157,7 @@ func prepareIncrementalAttempt(
 		return ctx, "", err
 	}
 	node.resetForIncrementalAttempt(declaredStep)
-	attemptCtx, err := withIncrementalPaths(ctx, node, session.InputPaths(), outputs)
+	attemptCtx, err := withIncrementalPaths(ctx, node, session.InputPaths(), outputs, true)
 	if err != nil {
 		return ctx, stagingPath, err
 	}
@@ -184,11 +181,16 @@ func commitIncrementalAttempt(
 	return true, publishIncrementalOutputs(ctx, node, session.PublishedOutputs())
 }
 
-func withIncrementalPaths(ctx context.Context, node *Node, inputs, outputs map[string]string) (context.Context, error) {
+func withIncrementalPaths(
+	ctx context.Context,
+	node *Node,
+	inputs, outputs map[string]string,
+	resolveEnv bool,
+) (context.Context, error) {
 	env := GetEnv(ctx)
 	env.Inputs = cmnvalue.ValuesFromStrings(inputs)
 	env.Outputs = cmnvalue.ValuesFromStrings(outputs)
-	if outputs == nil {
+	if !resolveEnv {
 		return WithEnv(ctx, env), nil
 	}
 	if err := addResolvedEnvVars(ctx, &env, node.Step().Env, "env.", cmnvalue.StepEnvField); err != nil {
@@ -207,9 +209,7 @@ func publishIncrementalOutputs(ctx context.Context, node *Node, outputs map[stri
 			return fmt.Errorf("decode step outputs before publishing materialization: %w", err)
 		}
 	}
-	for name, value := range outputs {
-		merged[name] = value
-	}
+	maps.Copy(merged, outputs)
 	serialized, err := serializeDeclaredStepOutputs(ctx, merged)
 	if err != nil {
 		return err

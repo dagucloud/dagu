@@ -107,42 +107,35 @@ func validateIncrementalSteps(dag *DAG, errs *ErrorList) {
 		}
 	}
 	for _, step := range dag.Steps {
-		pathOutputs := 0
-		for _, output := range step.Outputs {
-			if output.Path != "" {
-				pathOutputs++
-				if containsCommandSubstitution(output.Path) {
-					*errs = append(*errs, NewValidationError("outputs", output.Path,
-						fmt.Errorf("incremental paths cannot use command substitution")))
-				}
-				if containsStepReference(output.Path) {
-					*errs = append(*errs, NewValidationError("outputs", output.Path,
-						fmt.Errorf("incremental paths must resolve before step execution")))
-				}
-				if containsAttemptOutputReference(output.Path) {
-					*errs = append(*errs, NewValidationError("outputs", output.Path,
-						fmt.Errorf("path output references are available only during executor attempts")))
-				}
-			}
+		validateIncrementalStep(dag, step, errs)
+	}
+	for _, handler := range []*Step{
+		dag.HandlerOn.Init,
+		dag.HandlerOn.Failure,
+		dag.HandlerOn.Success,
+		dag.HandlerOn.Abort,
+		dag.HandlerOn.Exit,
+		dag.HandlerOn.Wait,
+	} {
+		if handler != nil {
+			validateIncrementalStep(dag, *handler, errs)
 		}
-		for _, input := range step.Inputs {
-			if containsCommandSubstitution(input.Path) {
-				*errs = append(*errs, NewValidationError("inputs", input.Path,
-					fmt.Errorf("incremental paths cannot use command substitution")))
-			}
-			if containsStepReference(input.Path) {
-				*errs = append(*errs, NewValidationError("inputs", input.Path,
-					fmt.Errorf("incremental paths must resolve before step execution")))
-			}
-			if containsAttemptOutputReference(input.Path) {
-				*errs = append(*errs, NewValidationError("inputs", input.Path,
-					fmt.Errorf("path output references are available only during executor attempts")))
-			}
+	}
+}
+
+func validateIncrementalStep(dag *DAG, step Step, errs *ErrorList) {
+	pathOutputs := 0
+	for _, output := range step.Outputs {
+		if output.Path != "" {
+			pathOutputs++
+			validateIncrementalPathExpression(errs, "outputs", output.Path)
 		}
-		hasPaths := len(step.Inputs) > 0 || pathOutputs > 0
-		if !hasPaths {
-			continue
-		}
+	}
+	for _, input := range step.Inputs {
+		validateIncrementalPathExpression(errs, "inputs", input.Path)
+	}
+	hasPaths := len(step.Inputs) > 0 || pathOutputs > 0
+	if hasPaths {
 		if dag.Type != TypeIncremental {
 			*errs = append(*errs, NewValidationError("type", dag.Type,
 				fmt.Errorf("step %s declares incremental paths but DAG type is not %q", step.Name, TypeIncremental)))
@@ -179,6 +172,26 @@ func validateIncrementalSteps(dag *DAG, errs *ErrorList) {
 		for _, condition := range step.Preconditions {
 			validateNoAttemptOutputCondition(errs, "preconditions", condition)
 		}
+	}
+	if step.Foreach != nil {
+		for _, child := range step.Foreach.Steps {
+			validateIncrementalStep(dag, child, errs)
+		}
+	}
+}
+
+func validateIncrementalPathExpression(errs *ErrorList, field, path string) {
+	if containsCommandSubstitution(path) {
+		*errs = append(*errs, NewValidationError(field, path,
+			fmt.Errorf("incremental paths cannot use command substitution")))
+	}
+	if containsStepReference(path) {
+		*errs = append(*errs, NewValidationError(field, path,
+			fmt.Errorf("incremental paths must resolve before step execution")))
+	}
+	if containsAttemptOutputReference(path) {
+		*errs = append(*errs, NewValidationError(field, path,
+			fmt.Errorf("path output references are available only during executor attempts")))
 	}
 }
 

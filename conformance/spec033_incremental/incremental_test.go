@@ -77,3 +77,10 @@ func TestIncrementalWorkflowMaterializationLifecycle(t *testing.T) {
 	dagu.ExpectFileContent("intermediate.txt", "beta\n")
 	dagu.ExpectFileContent("result.txt", "beta\n")
 }
+
+func TestIncrementalWorkflowRejectsDuplicateOutputProducers(t *testing.T) {
+	dagu := harness.NewRunner(t)
+	result := dagu.Run("dry", "duplicate-output.yaml")
+	result.ExpectNonZeroExitCode()
+	result.ExpectStderrContains("multiple producers", "shared.txt")
+}

@@ -26,6 +26,7 @@ func prepareIncrementalPlan(ctx context.Context, plan *Plan) error {
 	if dag.WorkingDirExplicit {
 		base = baseEnv.WorkingDir
 	}
+	pathKeys := incremental.NewPathKeyResolver()
 	producers := make(map[string]string)
 
 	for _, node := range plan.Nodes() {
@@ -63,7 +64,7 @@ func prepareIncrementalPlan(ctx context.Context, plan *Plan) error {
 			if err != nil {
 				return fmt.Errorf("step %s output %s: %w", step.Name, step.Outputs[idx].Name, err)
 			}
-			key := incremental.ComparisonKey(step.Outputs[idx].Path)
+			key := pathKeys.ComparisonKey(step.Outputs[idx].Path)
 			if previous, exists := producers[key]; exists {
 				return fmt.Errorf("incremental output path %s has multiple producers: %s and %s", step.Outputs[idx].Path, previous, step.Name)
 			}
@@ -71,7 +72,7 @@ func prepareIncrementalPlan(ctx context.Context, plan *Plan) error {
 		}
 		for _, input := range step.Inputs {
 			for _, output := range step.Outputs {
-				if output.Path != "" && incremental.ComparisonKey(input.Path) == incremental.ComparisonKey(output.Path) {
+				if output.Path != "" && pathKeys.ComparisonKey(input.Path) == pathKeys.ComparisonKey(output.Path) {
 					return fmt.Errorf("step %s declares the same path as input and output: %s", step.Name, input.Path)
 				}
 			}
@@ -81,7 +82,7 @@ func prepareIncrementalPlan(ctx context.Context, plan *Plan) error {
 
 	for _, node := range plan.Nodes() {
 		for _, input := range node.Step().Inputs {
-			if producer, ok := producers[incremental.ComparisonKey(input.Path)]; ok {
+			if producer, ok := producers[pathKeys.ComparisonKey(input.Path)]; ok {
 				if err := plan.AddInferredDependency(producer, node.Name()); err != nil {
 					return fmt.Errorf("infer dependency %s -> %s: %w", producer, node.Name(), err)
 				}

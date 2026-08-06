@@ -3697,6 +3697,68 @@ steps:
 			wantDetail: "relative incremental paths",
 		},
 		{
+			name: "handler paths use the same expression rules",
+			yaml: `
+type: incremental
+working_dir: .
+handler_on:
+  success:
+    id: cleanup
+    run: echo cleanup
+    inputs:
+      - name: source
+        path: $(find-source)
+steps:
+  - name: build
+    run: echo build
+`,
+			wantDetail: "cannot use command substitution",
+		},
+		{
+			name: "foreach body paths use the same expression rules",
+			yaml: `
+type: incremental
+working_dir: .
+steps:
+  - name: batches
+    foreach:
+      items: [one]
+      steps:
+        - id: build
+          run: echo build
+          inputs:
+            - name: source
+              path: ${steps.fetch.outputs.path}
+`,
+			wantDetail: "must resolve before step execution",
+		},
+		{
+			name: "missing input name reports required field",
+			yaml: `
+type: incremental
+working_dir: .
+steps:
+  - id: build
+    run: echo build
+    inputs:
+      - path: source.txt
+`,
+			wantDetail: "name is required",
+		},
+		{
+			name: "missing input path reports required field",
+			yaml: `
+type: incremental
+working_dir: .
+steps:
+  - id: build
+    run: echo build
+    inputs:
+      - name: source
+`,
+			wantDetail: "path is required",
+		},
+		{
 			name: "step output references are too late for paths",
 			yaml: `
 type: incremental

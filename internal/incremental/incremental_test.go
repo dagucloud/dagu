@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -221,6 +222,21 @@ func TestPrepareDryRunDoesNotAcquirePathLocks(t *testing.T) {
 	assert.Equal(t, exec.IncrementalReasonManifestMissing, session.Metadata().Reason)
 }
 
+func TestCommitRejectsUnavailableStore(t *testing.T) {
+	t.Parallel()
+
+	workingDir := t.TempDir()
+	inputPath := filepath.Join(workingDir, "input.txt")
+	outputPath := filepath.Join(workingDir, "output.txt")
+	require.NoError(t, os.WriteFile(inputPath, []byte("input"), 0o600))
+	session, err := incremental.Prepare(context.Background(), nil, prepareRequest(workingDir, inputPath, outputPath))
+	require.ErrorContains(t, err, "store is unavailable")
+	require.NotNil(t, session)
+
+	err = session.Commit(context.Background(), filepath.Join(workingDir, ".output.tmp"))
+	require.ErrorContains(t, err, "store is unavailable")
+}
+
 func TestComparisonKeyUsesFilesystemCaseSemantics(t *testing.T) {
 	t.Parallel()
 
@@ -255,6 +271,38 @@ func TestComparisonKeyResolvesExistingAncestorAliases(t *testing.T) {
 		incremental.ComparisonKey(filepath.Join(realDir, "artifact.txt")),
 		incremental.ComparisonKey(filepath.Join(aliasDir, "artifact.txt")),
 	)
+	assert.Equal(t,
+		incremental.IdentityKey(filepath.Join(realDir, "artifact.txt")),
+		incremental.IdentityKey(filepath.Join(aliasDir, "artifact.txt")),
+	)
+}
+
+func TestIdentityKeyPreservesAuthoredCase(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	assert.NotEqual(t,
+		incremental.IdentityKey(filepath.Join(dir, "Artifact.txt")),
+		incremental.IdentityKey(filepath.Join(dir, "artifact.txt")),
+	)
+}
+
+func TestNewAttemptBoundsStagingFilename(t *testing.T) {
+	t.Parallel()
+
+	workingDir := t.TempDir()
+	inputPath := filepath.Join(workingDir, "input.txt")
+	outputPath := filepath.Join(workingDir, strings.Repeat("a", 240)+".txt")
+	require.NoError(t, os.WriteFile(inputPath, []byte("input"), 0o600))
+	store := materialization.New(filepath.Join(t.TempDir(), "materializations"))
+	session, err := incremental.Prepare(context.Background(), store, prepareRequest(workingDir, inputPath, outputPath))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, session.Close("")) })
+
+	_, staging, err := session.NewAttempt(0)
+	require.NoError(t, err)
+	require.LessOrEqual(t, len(filepath.Base(staging)), 255)
+	require.NoError(t, os.WriteFile(staging, []byte("output"), 0o600))
 }
 
 func TestResolvePathRejectsExistingOutputDirectory(t *testing.T) {

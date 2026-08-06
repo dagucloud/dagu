@@ -1545,6 +1545,35 @@ steps:
 	assert.Equal(t, core.TypeGraph, childDAG.Type)
 }
 
+func TestLoadYAMLIncrementalLocalDAGUsesParentWorkingDirAsStableBase(t *testing.T) {
+	t.Parallel()
+
+	dag, err := spec.LoadYAML(context.Background(), []byte(`
+type: incremental
+working_dir: .
+steps:
+  - name: call-child
+    action: dag.run
+    with:
+      dag: child-task
+
+---
+name: child-task
+type: incremental
+steps:
+  - id: build
+    run: echo build
+    inputs:
+      - name: source
+        path: source.txt
+    outputs:
+      - name: artifact
+        path: artifact.txt
+`), spec.WithName("parent-task"), spec.WithoutEval())
+	require.NoError(t, err)
+	require.Contains(t, dag.LocalDAGs, "child-task")
+}
+
 func TestLoad_MultiDocumentFilePreservesDocumentProvenance(t *testing.T) {
 	t.Parallel()
 

@@ -1,0 +1,18 @@
+# Copyright (C) 2026 Yota Hamada
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+type: incremental
+working_dir: .
+
+steps:
+  - id: first
+    run: printf first > "${outputs.result}"
+    outputs:
+      - name: result
+        path: shared.txt
+
+  - id: second
+    run: printf second > "${outputs.result}"
+    outputs:
+      - name: result
+        path: ./shared.txt

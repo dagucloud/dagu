@@ -109,8 +109,10 @@ type IncrementalExecution = components['schemas']['IncrementalExecution'];
 
 function IncrementalDecisionBadge({
   incremental,
+  remoteNode,
 }: {
   incremental?: IncrementalExecution;
+  remoteNode: string;
 }) {
   if (!incremental) return null;
 
@@ -145,7 +147,7 @@ function IncrementalDecisionBadge({
         {producer?.name && producer.id && (
           <Link
             className="block underline underline-offset-2"
-            to={`/dag-runs/${encodeURIComponent(producer.name)}/${encodeURIComponent(producer.id)}`}
+            to={`/dag-runs/${encodeURIComponent(producer.name)}/${encodeURIComponent(producer.id)}?remoteNode=${encodeURIComponent(remoteNode)}`}
             onClick={(event) => event.stopPropagation()}
           >
             Produced by {producer.name}:{producer.id}
@@ -973,7 +975,10 @@ function NodeStatusTableRow({
                   {node.statusLabel}
                 </NodeStatusChip>
               </div>
-              <IncrementalDecisionBadge incremental={node.incremental} />
+              <IncrementalDecisionBadge
+                incremental={node.incremental}
+                remoteNode={remoteNode}
+              />
             </div>
           </TableCell>
 
@@ -1181,7 +1186,10 @@ function NodeStatusTableRow({
           <NodeStatusChip status={node.status} size="sm">
             {node.statusLabel}
           </NodeStatusChip>
-          <IncrementalDecisionBadge incremental={node.incremental} />
+          <IncrementalDecisionBadge
+            incremental={node.incremental}
+            remoteNode={remoteNode}
+          />
           {stepActionsMenu}
         </div>
       </div>

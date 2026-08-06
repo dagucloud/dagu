@@ -45,7 +45,9 @@ step-level containers and other executor types are invalid for those steps.
 
 Paths are canonicalized before execution. If an input path matches another
 step's output path, the plan gains a producer-to-consumer dependency. Explicit
-and inferred edges are combined and the resulting graph must be acyclic.
+and inferred edges are combined and the resulting graph must be acyclic. Two
+steps may not declare the same canonical output path, including equivalent path
+spellings such as `artifact.bin` and `./artifact.bin`.
 
 `${inputs.<name>}` resolves to the final absolute input path inside its owning
 step. `${outputs.<name>}` resolves to a fresh, absent sibling staging path for

@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -20,7 +21,10 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 )
 
-const schemaVersion = 1
+const (
+	schemaVersion        = 1
+	maxStagingBaseLength = 128
+)
 
 // PrepareRequest contains resolved runtime information used before execution.
 type PrepareRequest struct {
@@ -43,6 +47,7 @@ type PrepareRequest struct {
 type Session struct {
 	store        exec.MaterializationStore
 	lock         exec.MaterializationLock
+	pathKeys     *PathKeyResolver
 	request      PrepareRequest
 	inputs       []exec.FileSnapshot
 	inputPaths   map[string]string
@@ -65,6 +70,7 @@ func Prepare(ctx context.Context, store exec.MaterializationStore, request Prepa
 	}
 	session := &Session{
 		store:      store,
+		pathKeys:   NewPathKeyResolver(),
 		request:    request,
 		inputPaths: make(map[string]string, len(request.Step.Inputs)),
 		metadata: exec.IncrementalExecution{
@@ -98,10 +104,10 @@ func Prepare(ctx context.Context, store exec.MaterializationStore, request Prepa
 
 	locks := make([]exec.PathLockRequest, 0, len(request.Step.Inputs)+1)
 	for _, input := range request.Step.Inputs {
-		locks = append(locks, exec.PathLockRequest{Key: ComparisonKey(input.Path), Mode: exec.PathLockShared})
+		locks = append(locks, exec.PathLockRequest{Key: session.pathKeys.ComparisonKey(input.Path), Mode: exec.PathLockShared})
 	}
 	if hasPathOutput {
-		session.outputKey = ComparisonKey(output.Path)
+		session.outputKey = session.pathKeys.ComparisonKey(output.Path)
 		locks = append(locks, exec.PathLockRequest{Key: session.outputKey, Mode: exec.PathLockExclusive})
 	}
 	if !request.Dry {
@@ -141,14 +147,14 @@ func (s *Session) Evaluate(ctx context.Context) error {
 
 	for _, input := range s.request.Step.Inputs {
 		resolved, err := ResolvePath(input.Path, "", false)
-		if err != nil || ComparisonKey(resolved) != ComparisonKey(input.Path) {
+		if err != nil || s.pathKeys.ComparisonKey(resolved) != s.pathKeys.ComparisonKey(input.Path) {
 			s.metadata.Reason = exec.IncrementalReasonEvaluationFailed
 			return fmt.Errorf("input path identity changed before evaluation: %s", input.Path)
 		}
 	}
 	if s.pathBacked {
 		resolved, err := ResolvePath(s.output.Path, "", true)
-		if err != nil || ComparisonKey(resolved) != ComparisonKey(s.output.Path) {
+		if err != nil || s.pathKeys.ComparisonKey(resolved) != s.pathKeys.ComparisonKey(s.output.Path) {
 			s.metadata.Reason = exec.IncrementalReasonEvaluationFailed
 			return fmt.Errorf("output path identity changed before evaluation: %s", s.output.Path)
 		}
@@ -165,7 +171,7 @@ func (s *Session) Evaluate(ctx context.Context) error {
 	}
 	sort.Slice(s.inputs, func(i, j int) bool { return s.inputs[i].Name < s.inputs[j].Name })
 	if s.pathBacked {
-		s.materialKey = materializationKey(s.request.DAG.Name, s.request.Step.ID, s.outputKey)
+		s.materialKey = materializationKey(s.request.DAG.Name, s.request.Step.ID, IdentityKey(s.outputPath))
 		s.metadata.MaterializationKey = s.materialKey
 	}
 
@@ -257,9 +263,7 @@ func (s *Session) HasPathOutput() bool { return s.pathBacked }
 // InputPaths returns final input paths scoped to the step.
 func (s *Session) InputPaths() map[string]string {
 	result := make(map[string]string, len(s.inputPaths))
-	for name, path := range s.inputPaths {
-		result[name] = path
-	}
+	maps.Copy(result, s.inputPaths)
 	return result
 }
 
@@ -280,7 +284,7 @@ func (s *Session) NewAttempt(retry int) (map[string]string, string, error) {
 	if _, err := rand.Read(nonce[:]); err != nil {
 		return nil, "", err
 	}
-	base := filepath.Base(s.outputPath)
+	base := truncateToken(filepath.Base(s.outputPath), maxStagingBaseLength)
 	staging := filepath.Join(filepath.Dir(s.outputPath), fmt.Sprintf(".%s.dagu-%s-%d-%s.tmp",
 		base, safeToken(s.request.AttemptID), retry, hex.EncodeToString(nonce[:])))
 	if _, err := os.Lstat(staging); err == nil || !errors.Is(err, os.ErrNotExist) {
@@ -294,6 +298,9 @@ func (s *Session) Commit(ctx context.Context, staging string) error {
 	if !s.pathBacked {
 		s.metadata.Phase = exec.IncrementalPhaseComplete
 		return nil
+	}
+	if s.store == nil {
+		return fmt.Errorf("incremental materialization store is unavailable")
 	}
 	s.metadata.Phase = exec.IncrementalPhaseVerify
 	output, err := Snapshot(s.output.Name, staging)
@@ -395,9 +402,16 @@ func safeToken(value string) string {
 	if value == "" {
 		return "attempt"
 	}
-	value = strings.ReplaceAll(value, string(filepath.Separator), "_")
-	if len(value) > 24 {
-		return value[:24]
+	value = strings.NewReplacer("/", "_", `\`, "_").Replace(value)
+	return truncateToken(value, 24)
+}
+
+func truncateToken(value string, limit int) string {
+	if len(value) <= limit {
+		return value
 	}
-	return value
+	for limit > 0 && value[limit]&0xc0 == 0x80 {
+		limit--
+	}
+	return value[:limit]
 }

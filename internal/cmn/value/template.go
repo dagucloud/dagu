@@ -338,6 +338,9 @@ func bindingScopedPathValue(namespace, name string, values Values, requireValue 
 	if !requireValue {
 		return nil, nil
 	}
+	if len(values) > 0 {
+		return nil, fmt.Errorf("unknown %s.%s binding", namespace, name)
+	}
 	return nil, newNoticeReasonError(
 		ValueReferenceReasonNamespaceUnavailable,
 		fmt.Sprintf("%s.%s is unavailable in this context", namespace, name),

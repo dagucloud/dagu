@@ -542,9 +542,7 @@ func (r *Runner) runNodeExecution(ctx context.Context, plan *Plan, node *Node, p
 		r.setLastError(err)
 		node.MarkError(err)
 		node.SetStatus(core.NodeFailed)
-		if progressCh != nil {
-			progressCh <- node
-		}
+		reportPreparedNode()
 		return
 	}
 

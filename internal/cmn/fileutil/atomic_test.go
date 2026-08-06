@@ -103,6 +103,7 @@ func TestReplaceFileDurable(t *testing.T) {
 	require.NoError(t, os.WriteFile(target, []byte("old"), 0o600))
 
 	require.NoError(t, ReplaceFileDurable(source, target))
+	require.NoFileExists(t, source)
 	content, err := os.ReadFile(target)
 	require.NoError(t, err)
 	assert.Equal(t, []byte("new"), content)

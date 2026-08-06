@@ -1221,18 +1221,32 @@ func buildStepDeclaredInputs(_ stepBuildContext, s *step) ([]core.StepInputDecla
 				return nil, fmt.Errorf("inputs[%d]: unknown field %q", idx, key)
 			}
 		}
-		name, nameOK := obj["name"].(string)
-		pathValue, pathOK := obj["path"].(string)
+		nameRaw, ok := obj["name"]
+		if !ok {
+			return nil, fmt.Errorf("inputs[%d]: name is required", idx)
+		}
+		name, nameOK := nameRaw.(string)
+		if !nameOK {
+			return nil, fmt.Errorf("inputs[%d]: name must be a string", idx)
+		}
 		name = strings.TrimSpace(name)
-		pathValue = strings.TrimSpace(pathValue)
-		if !nameOK || !declaredOutputNamePattern.MatchString(name) {
+		if !declaredOutputNamePattern.MatchString(name) {
 			return nil, fmt.Errorf("inputs[%d]: name must match %q", idx, declaredOutputNamePattern.String())
 		}
 		if _, exists := seen[name]; exists {
 			return nil, fmt.Errorf("inputs[%d]: duplicate input name %q", idx, name)
 		}
-		if !pathOK || pathValue == "" {
-			return nil, fmt.Errorf("inputs[%d]: path must be a non-empty string", idx)
+		pathRaw, ok := obj["path"]
+		if !ok {
+			return nil, fmt.Errorf("inputs[%d]: path is required", idx)
+		}
+		pathValue, pathOK := pathRaw.(string)
+		if !pathOK {
+			return nil, fmt.Errorf("inputs[%d]: path must be a string", idx)
+		}
+		pathValue = strings.TrimSpace(pathValue)
+		if pathValue == "" {
+			return nil, fmt.Errorf("inputs[%d]: path must not be empty", idx)
 		}
 		seen[name] = struct{}{}
 		result = append(result, core.StepInputDeclaration{Name: name, Path: pathValue})

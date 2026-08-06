@@ -87,6 +87,63 @@ describe('NodeStatusTableRow', () => {
     }));
   });
 
+  it('keeps the selected remote node in producer run links', async () => {
+    const user = userEvent.setup();
+    const node = {
+      step: { name: 'build' },
+      status: NodeStatus.Success,
+      statusLabel: NodeStatusLabel.succeeded,
+      stdout: '',
+      stderr: '',
+      startedAt: '',
+      finishedAt: '',
+      retryCount: 0,
+      doneCount: 1,
+      incremental: {
+        decision: 'reuse',
+        phase: 'complete',
+        reason: 'matched',
+        producerRun: { name: 'producer', id: 'run-2' },
+      },
+    } as components['schemas']['Node'];
+
+    render(
+      <MemoryRouter>
+        <AppBarContext.Provider
+          value={{
+            ...appBarValue,
+            remoteNodes: ['worker-a'],
+            selectedRemoteNode: 'worker-a',
+          }}
+        >
+          <table>
+            <tbody>
+              <NodeStatusTableRow
+                rownum={1}
+                node={node}
+                name="example.yaml"
+                dagRun={dagRun}
+                view="desktop"
+              />
+            </tbody>
+          </table>
+        </AppBarContext.Provider>
+      </MemoryRouter>
+    );
+
+    await user.hover(screen.getByText('reused'));
+    const links = await screen.findAllByRole('link', {
+      name: 'Produced by producer:run-2',
+    });
+    expect(links.length).toBeGreaterThan(0);
+    for (const link of links) {
+      expect(link).toHaveAttribute(
+        'href',
+        '/dag-runs/producer/run-2?remoteNode=worker-a'
+      );
+    }
+  });
+
   it('shows log step messages in the status table without opening step logs', () => {
     const node = {
       step: {

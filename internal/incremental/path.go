@@ -126,17 +126,45 @@ func resolveExistingAncestor(path string) (string, error) {
 	}
 }
 
-// ComparisonKey returns the canonical lock and ownership key for a path.
-func ComparisonKey(path string) string {
+// IdentityKey returns the canonical path used to identify one materialization.
+func IdentityKey(path string) string {
 	path = filepath.Clean(path)
 	if resolved, err := resolveExistingAncestor(path); err == nil {
 		path = resolved
 	}
-	if filesystemIsCaseInsensitive(path) {
-		path = strings.ToLower(path)
-	}
 	if runtime.GOOS == "windows" {
 		path = filepath.ToSlash(path)
+	}
+	return path
+}
+
+// ComparisonKey returns the canonical path used for equality and locking.
+func ComparisonKey(path string) string {
+	return NewPathKeyResolver().ComparisonKey(path)
+}
+
+// PathKeyResolver caches filesystem comparison behavior for one planning or
+// evaluation pass.
+type PathKeyResolver struct {
+	caseInsensitive map[string]bool
+}
+
+// NewPathKeyResolver creates a path comparison key resolver.
+func NewPathKeyResolver() *PathKeyResolver {
+	return &PathKeyResolver{caseInsensitive: make(map[string]bool)}
+}
+
+// ComparisonKey returns the canonical path used for equality and locking.
+func (r *PathKeyResolver) ComparisonKey(path string) string {
+	path = IdentityKey(path)
+	dir := filepath.Dir(path)
+	caseInsensitive, ok := r.caseInsensitive[dir]
+	if !ok {
+		caseInsensitive = filesystemIsCaseInsensitive(path)
+		r.caseInsensitive[dir] = caseInsensitive
+	}
+	if caseInsensitive {
+		path = strings.ToLower(path)
 	}
 	return path
 }

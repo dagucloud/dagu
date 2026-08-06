@@ -79,6 +79,9 @@ func (s *Store) AcquirePaths(ctx context.Context, requests []exec.PathLockReques
 	}
 	requests = normalizeRequests(requests)
 	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		held := &heldLock{store: s, requests: requests}
 		restart := false
 		for _, request := range requests {
@@ -146,15 +149,16 @@ func (s *Store) Commit(_ context.Context, lock exec.MaterializationLock, req exe
 	if !ok || held.store != s || held.released {
 		return fmt.Errorf("invalid materialization lock")
 	}
-	outputKey := ""
+	outputKey := incremental.ComparisonKey(req.FinalPath)
+	hasOutputLock := false
 	for _, request := range held.requests {
-		if request.Mode == exec.PathLockExclusive {
-			outputKey = request.Key
+		if request.Mode == exec.PathLockExclusive && request.Key == outputKey {
+			hasOutputLock = true
 			break
 		}
 	}
-	if outputKey == "" {
-		return fmt.Errorf("materialization commit requires an exclusive output lock")
+	if !hasOutputLock {
+		return fmt.Errorf("materialization commit requires an exclusive lock for the final output")
 	}
 	if filepath.Dir(req.StagingPath) != filepath.Dir(req.FinalPath) {
 		return fmt.Errorf("staging and final output must be on the same filesystem directory")

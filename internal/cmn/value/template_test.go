@@ -130,6 +130,46 @@ func TestExpandStringPreservesUnavailableForeachBinding(t *testing.T) {
 	assert.Equal(t, value.ValueReferenceReasonNamespaceUnavailable, collector.Notices()[0].Reason)
 }
 
+func TestExpandStringDistinguishesUnknownScopedPathFromUnavailableNamespace(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		inputs      value.Values
+		wantMessage string
+		wantReason  value.ValueReferenceNoticeReason
+	}{
+		{
+			name:        "unknown input in populated namespace",
+			inputs:      value.Values{"source": "/tmp/source.txt"},
+			wantMessage: "unknown inputs.missing binding",
+		},
+		{
+			name:        "input namespace unavailable",
+			wantMessage: "inputs.missing is unavailable in this context",
+			wantReason:  value.ValueReferenceReasonNamespaceUnavailable,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var collector value.ValueReferenceNoticeCollector
+			resolver := value.NewResolver(
+				value.StaticScope{},
+				value.RuntimeScope{Inputs: tt.inputs},
+				value.WithValueReferenceNotices(&collector),
+			)
+			got, err := resolver.String(context.Background(), "${inputs.missing}", value.WorkflowField("run"))
+			require.NoError(t, err)
+			assert.Equal(t, "${inputs.missing}", got)
+			notices := collector.Notices()
+			require.Len(t, notices, 1)
+			assert.Contains(t, notices[0].Message, tt.wantMessage)
+			assert.Equal(t, tt.wantReason, notices[0].Reason)
+		})
+	}
+}
+
 func TestExpandStringDoesNotRejectFutureNamespaceShorthand(t *testing.T) {
 	t.Parallel()
 

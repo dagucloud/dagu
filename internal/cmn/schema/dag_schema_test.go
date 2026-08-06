@@ -2278,6 +2278,51 @@ func TestDAGSchemaRepoCopyMatchesEmbeddedSchema(t *testing.T) {
 	require.Equal(t, string(DAGSchemaJSON), string(repoSchemaJSON))
 }
 
+func TestDAGSchemaRequiresIDForIncrementalDeclarations(t *testing.T) {
+	t.Parallel()
+
+	resolved := mustResolveDAGSchema(t)
+	tests := []struct {
+		name    string
+		spec    string
+		wantErr bool
+	}{
+		{
+			name: "inputs require id",
+			spec: `
+steps:
+  - run: echo build
+    inputs:
+      - name: source
+        path: source.txt
+`,
+			wantErr: true,
+		},
+		{
+			name: "inputs with id are valid schema",
+			spec: `
+steps:
+  - id: build
+    run: echo build
+    inputs:
+      - name: source
+        path: source.txt
+`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := resolved.Validate(mustParseYAMLDocument(t, tt.spec))
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
 func mustResolveDAGSchema(t *testing.T) *jsonschema.Resolved {
 	t.Helper()
 
