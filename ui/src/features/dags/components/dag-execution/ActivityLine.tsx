@@ -41,30 +41,29 @@ export function ActivityLine({
   return (
     <div
       data-line-number={lineNumber}
-      className="flex items-start gap-3 border-b border-border px-3 py-2 last:border-b-0"
+      className="grid grid-cols-[5.5rem_3rem_minmax(0,1fr)] items-start gap-x-3 gap-y-1 border-b border-border px-3 py-2 last:border-b-0 sm:grid-cols-[5.5rem_3rem_minmax(8rem,12rem)_minmax(0,1fr)]"
     >
       <time
-        className="w-[5.5rem] shrink-0 pt-0.5 font-mono text-xs text-muted-foreground"
+        className="pt-0.5 font-mono text-xs text-muted-foreground"
         title={line.timestamp}
       >
         {shortTimestamp(line.timestamp)}
       </time>
       <span
-        className={`w-12 shrink-0 rounded px-1.5 py-0.5 text-center text-[10px] font-semibold ${levelClass(line.level)}`}
+        className={`rounded px-1.5 py-0.5 text-center text-[10px] font-semibold ${levelClass(line.level)}`}
       >
         {line.level}
       </span>
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-baseline gap-2">
-          <span className="whitespace-normal break-words font-medium text-foreground">
-            <AnsiLine text={line.message} />
-          </span>
-          {line.step && (
-            <span className="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-xs text-primary">
-              {line.step}
-            </span>
-          )}
-        </div>
+      <span
+        className="min-w-0 truncate pt-0.5 font-mono text-sm font-semibold text-foreground"
+        title={line.step}
+      >
+        {line.step}
+      </span>
+      <div className="col-span-3 min-w-0 sm:col-span-1">
+        <span className="whitespace-normal break-words text-sm text-foreground">
+          <AnsiLine text={line.message} />
+        </span>
         {line.details && (
           <details className="mt-1 text-xs text-muted-foreground">
             <summary className="w-fit cursor-pointer select-none">
