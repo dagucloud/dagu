@@ -50,12 +50,12 @@ func InitialStatus(dag *core.DAG) DAGRunStatus {
 		Status:               core.NotStarted,
 		PID:                  PID(0),
 		Nodes:                NewNodesFromSteps(dag.Steps),
-		OnInit:               NewNodeOrNil(dag.HandlerOn.Init),
-		OnExit:               NewNodeOrNil(dag.HandlerOn.Exit),
-		OnSuccess:            NewNodeOrNil(dag.HandlerOn.Success),
-		OnFailure:            NewNodeOrNil(dag.HandlerOn.Failure),
-		OnAbort:              NewNodeOrNil(dag.HandlerOn.Abort),
-		OnWait:               NewNodeOrNil(dag.HandlerOn.Wait),
+		OnInit:               newNodeOrNil(dag.HandlerOn.Init),
+		OnExit:               newNodeOrNil(dag.HandlerOn.Exit),
+		OnSuccess:            newNodeOrNil(dag.HandlerOn.Success),
+		OnFailure:            newNodeOrNil(dag.HandlerOn.Failure),
+		OnAbort:              newNodeOrNil(dag.HandlerOn.Abort),
+		OnWait:               newNodeOrNil(dag.HandlerOn.Wait),
 		Params:               strings.Join(dag.Params, " "),
 		ParamsList:           dag.Params,
 		AutoRetryCount:       0,
@@ -286,9 +286,9 @@ func (st *DAGRunStatus) Errors() []error {
 	return errs
 }
 
-// PendingStepRetriesFromNodes extracts pending parent-managed step retries from
+// pendingStepRetriesFromNodes extracts pending parent-managed step retries from
 // a DAG status snapshot.
-func PendingStepRetriesFromNodes(nodes []*Node) []PendingStepRetry {
+func pendingStepRetriesFromNodes(nodes []*Node) []PendingStepRetry {
 	var retries []PendingStepRetry
 	for _, node := range nodes {
 		if retry, ok := pendingStepRetryForNode(node.Step.Name, node); ok {
@@ -309,7 +309,7 @@ func PendingStepRetriesFromStatus(status *DAGRunStatus) []PendingStepRetry {
 		return status.PendingStepRetries
 	}
 
-	retries := PendingStepRetriesFromNodes(status.Nodes)
+	retries := pendingStepRetriesFromNodes(status.Nodes)
 	for _, handler := range status.handlerNodes() {
 		stepName := handler.name
 		if handler.node != nil && handler.node.Step.Name != "" {

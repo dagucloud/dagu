@@ -10,7 +10,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
-const WorkspaceLabelKey = "workspace"
+const workspaceLabelKey = "workspace"
 
 // WorkspaceLabelState describes whether labels contain a usable workspace.
 type WorkspaceLabelState int
@@ -36,7 +36,7 @@ func WorkspaceNameFromLabels(labels core.Labels) (string, bool) {
 
 func WorkspaceLabelFromLabels(labels core.Labels) (string, WorkspaceLabelState) {
 	var workspaceName string
-	for _, value := range labels.Get(WorkspaceLabelKey) {
+	for _, value := range labels.Get(workspaceLabelKey) {
 		if value == "" {
 			return "", WorkspaceLabelInvalid
 		}

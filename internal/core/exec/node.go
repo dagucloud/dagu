@@ -119,8 +119,8 @@ func NewNodeFromStep(step core.Step) *Node {
 	}
 }
 
-// NewNodeOrNil creates a Node from a Step or returns nil if the step is nil.
-func NewNodeOrNil(s *core.Step) *Node {
+// newNodeOrNil creates a Node from a Step or returns nil if the step is nil.
+func newNodeOrNil(s *core.Step) *Node {
 	if s == nil {
 		return nil
 	}
