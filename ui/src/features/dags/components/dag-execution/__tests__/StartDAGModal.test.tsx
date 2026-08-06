@@ -356,4 +356,35 @@ describe('StartDAGModal', () => {
       expect(onSubmit).toHaveBeenCalledWith('', undefined, true, '')
     );
   });
+
+  it('can disable reuse for an incremental run', async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <StartDAGModal
+        visible={true}
+        dismissModal={vi.fn()}
+        onSubmit={onSubmit}
+        dag={{ name: 'incremental-dag', type: 'incremental' } as never}
+      />
+    );
+
+    await user.click(
+      screen.getByRole('checkbox', {
+        name: /disable reuse for this run/i,
+      })
+    );
+    await user.click(screen.getByRole('button', { name: 'Start' }));
+
+    await waitFor(() =>
+      expect(onSubmit).toHaveBeenCalledWith(
+        '',
+        undefined,
+        true,
+        undefined,
+        true
+      )
+    );
+  });
 });

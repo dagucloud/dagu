@@ -25,6 +25,7 @@ type runOptions struct {
 	step            string
 	retryPath       exec.RetryPath
 	preparedAttempt exec.DAGRunAttempt
+	noReuse         bool
 }
 
 func withPreparedLocalExecution(

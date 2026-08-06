@@ -22,31 +22,33 @@ import (
 
 // Context contains the execution metadata for a dag-run.
 type Context struct {
-	DAGRunID           string
-	RootDAGRun         DAGRunRef
-	RetryPath          RetryPath
-	AttemptID          string
-	TriggerType        core.TriggerType
-	TriggerActor       string
-	RunStartedAt       string
-	ScheduleTime       string
-	DAG                *core.DAG
-	DB                 Database
-	BaseEnv            *config.BaseEnv
-	EnvScope           *cmnvalue.EnvScope // Unified environment scope for runtime variables
-	CoordinatorCli     Dispatcher
-	DAGRunStore        DAGRunStore
-	QueueStore         QueueStore
-	StateStore         dagstate.Store
-	DAGRunLogDir       string
-	DAGRunArtifactDir  string
-	ProfileName        string
-	ProfileResolvedAt  string
-	ProfileEntries     []RuntimeProfileEntry
-	Shell              string               // Default shell for this DAG (from DAG.Shell)
-	LogEncodingCharset string               // Character encoding for log files (e.g., "utf-8", "shift_jis", "euc-jp")
-	LogWriterFactory   LogWriterFactory     // For remote log streaming (nil = use local files)
-	DefaultExecMode    config.ExecutionMode // Server-level default execution mode (local or distributed)
+	DAGRunID             string
+	RootDAGRun           DAGRunRef
+	RetryPath            RetryPath
+	AttemptID            string
+	TriggerType          core.TriggerType
+	TriggerActor         string
+	RunStartedAt         string
+	ScheduleTime         string
+	DAG                  *core.DAG
+	DB                   Database
+	BaseEnv              *config.BaseEnv
+	EnvScope             *cmnvalue.EnvScope // Unified environment scope for runtime variables
+	CoordinatorCli       Dispatcher
+	DAGRunStore          DAGRunStore
+	QueueStore           QueueStore
+	StateStore           dagstate.Store
+	MaterializationStore MaterializationStore
+	DAGRunLogDir         string
+	DAGRunArtifactDir    string
+	ProfileName          string
+	ProfileResolvedAt    string
+	ProfileEntries       []RuntimeProfileEntry
+	Shell                string               // Default shell for this DAG (from DAG.Shell)
+	LogEncodingCharset   string               // Character encoding for log files (e.g., "utf-8", "shift_jis", "euc-jp")
+	LogWriterFactory     LogWriterFactory     // For remote log streaming (nil = use local files)
+	DefaultExecMode      config.ExecutionMode // Server-level default execution mode (local or distributed)
+	NoReuse              bool
 }
 
 // RuntimeProfileEntry is non-secret metadata about a profile key injected into a run.
@@ -352,6 +354,20 @@ func WithQueueStore(store QueueStore) ContextOption {
 func WithStateStore(store dagstate.Store) ContextOption {
 	return func(o *contextOptions) {
 		o.StateStore = store
+	}
+}
+
+// WithMaterializationStore sets the incremental materialization store.
+func WithMaterializationStore(store MaterializationStore) ContextOption {
+	return func(o *contextOptions) {
+		o.MaterializationStore = store
+	}
+}
+
+// WithNoReuse records that manifest hits are disabled for the run.
+func WithNoReuse(disabled bool) ContextOption {
+	return func(o *contextOptions) {
+		o.NoReuse = disabled
 	}
 }
 

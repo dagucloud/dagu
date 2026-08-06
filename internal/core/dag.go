@@ -31,6 +31,8 @@ const (
 	TypeChain = "chain"
 	// TypeController lets an LLM choose which step runs next until every task is complete.
 	TypeController = "controller"
+	// TypeIncremental runs a graph while reusing verified file materializations.
+	TypeIncremental = "incremental"
 )
 
 // DefaultMaxOutputSize is the default maximum captured step output size in bytes.
@@ -85,7 +87,7 @@ type DAG struct {
 	Group string `json:"group,omitempty"`
 	// Name is the name of the DAG. The default is the filename without the extension.
 	Name string `json:"name,omitempty"`
-	// Type is the execution type (graph, chain, or controller). Default is graph.
+	// Type is the execution type. Default is graph.
 	Type string `json:"type,omitempty"`
 	// Tasks are the goals a controller DAG must satisfy before it concludes.
 	// Only meaningful when Type is TypeController.

@@ -72,7 +72,8 @@ type Agent struct {
 	lock sync.RWMutex
 
 	// dry indicates if the agent is running in dry-run mode.
-	dry bool
+	dry     bool
+	noReuse bool
 
 	// retryTarget is the target status to retry the DAG.
 	// It is nil if it's not a retry execution.
@@ -92,6 +93,9 @@ type Agent struct {
 
 	// stateStore is the persistent state store shared across DAG runs.
 	stateStore dagstate.Store
+
+	// materializationStore coordinates incremental file materializations.
+	materializationStore exec.MaterializationStore
 
 	// secretStore resolves workspace-local team-managed secret references.
 	secretStore secretpkg.Store
@@ -278,6 +282,8 @@ type Options struct {
 	// Dry is a dry-run mode. It does not execute the actual command.
 	// Dry run does not create runstore data.
 	Dry bool
+	// NoReuse bypasses manifest hits while retaining staged commits.
+	NoReuse bool
 	// RetryTarget is the target status (runstore of execution) to retry.
 	// If it's specified the agent will execute the DAG with the same
 	// configuration as the specified history.
@@ -325,6 +331,8 @@ type Options struct {
 	QueueStore exec.QueueStore
 	// StateStore is the persistent state store shared across DAG runs.
 	StateStore dagstate.Store
+	// MaterializationStore coordinates incremental file materializations.
+	MaterializationStore exec.MaterializationStore
 	// SecretStore resolves local registry refs and runtime profile secrets.
 	SecretStore secretpkg.Store
 	// SecretReferenceResolver resolves DAG-level registry refs.
@@ -388,6 +396,7 @@ func New(
 		dagRunID:                 dagRunID,
 		dag:                      dag,
 		dry:                      opts.Dry,
+		noReuse:                  opts.NoReuse,
 		retryTarget:              opts.RetryTarget,
 		logDir:                   logDir,
 		logFile:                  logFile,
@@ -399,6 +408,7 @@ func New(
 		runStateStore:            runStateStore,
 		queueStore:               opts.QueueStore,
 		stateStore:               opts.StateStore,
+		materializationStore:     opts.MaterializationStore,
 		secretStore:              opts.SecretStore,
 		secretReferenceResolver:  secretReferenceResolverForDAG(dag, opts),
 		profileStore:             opts.ProfileStore,
@@ -670,6 +680,12 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 	if a.stateStore != nil {
 		contextOpts = append(contextOpts, runtime.WithStateStore(a.stateStore))
+	}
+	if a.materializationStore != nil {
+		contextOpts = append(contextOpts, runtime.WithMaterializationStore(a.materializationStore))
+	}
+	if a.noReuse {
+		contextOpts = append(contextOpts, runtime.WithNoReuse(true))
 	}
 	if a.dagRunLogDir != "" {
 		contextOpts = append(contextOpts, runtime.WithDAGRunLogDir(a.dagRunLogDir))
@@ -1187,6 +1203,7 @@ func (a *Agent) nodeToModelNode(nodeData runtime.NodeData) *exec.Node {
 		RetryCount:       nodeData.State.RetryCount,
 		DoneCount:        nodeData.State.DoneCount,
 		Error:            errorString(nodeData.State.Error),
+		Incremental:      nodeData.State.Incremental,
 		SubRuns:          subRuns,
 		OutputVariables:  nodeData.State.OutputVariables,
 		OutputsValue:     nodeData.State.OutputsValue,
@@ -1363,6 +1380,7 @@ func (a *Agent) Status(ctx context.Context) exec.DAGRunStatus {
 			transform.WithAutoRetryCount(a.currentAutoRetryCount()),
 			transform.WithPIDStartedAt(currentPIDStartedAt()),
 			transform.WithRuntimeProfile(a.profileName, a.profileResolvedAt, a.profileEntries),
+			transform.WithNoReuse(a.noReuse),
 		}
 		if source != nil {
 			statusOpts = append(statusOpts,
@@ -1410,6 +1428,7 @@ func (a *Agent) Status(ctx context.Context) exec.DAGRunStatus {
 		transform.WithAutoRetryCount(a.currentAutoRetryCount()),
 		transform.WithPIDStartedAt(currentPIDStartedAt()),
 		transform.WithRuntimeProfile(a.profileName, a.profileResolvedAt, a.profileEntries),
+		transform.WithNoReuse(a.noReuse),
 	}
 
 	// If the current execution is based on a persisted target, copy timing data
@@ -1688,6 +1707,8 @@ func (a *Agent) newRunner(attempt runstate.Attempt) *runtime.Runner {
 		OnFailure:            a.dag.HandlerOn.Failure,
 		OnAbort:              a.dag.HandlerOn.Abort,
 		OnWait:               a.dag.HandlerOn.Wait,
+		MaterializationStore: a.materializationStore,
+		NoReuse:              a.noReuse,
 		DAGRunAutoRetryCount: a.currentAutoRetryCount(),
 		DAGRunAutoRetryLimit: autoRetryLimit,
 		DAGRunIsRoot:         a.parentDAGRun.Zero(),
@@ -2079,6 +2100,12 @@ func (a *Agent) dryRun(ctx context.Context) error {
 	}
 	if a.stateStore != nil {
 		contextOpts = append(contextOpts, runtime.WithStateStore(a.stateStore))
+	}
+	if a.materializationStore != nil {
+		contextOpts = append(contextOpts, runtime.WithMaterializationStore(a.materializationStore))
+	}
+	if a.noReuse {
+		contextOpts = append(contextOpts, runtime.WithNoReuse(true))
 	}
 	if a.dagRunLogDir != "" {
 		contextOpts = append(contextOpts, runtime.WithDAGRunLogDir(a.dagRunLogDir))

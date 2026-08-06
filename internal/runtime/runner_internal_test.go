@@ -12,6 +12,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	filematerialization "github.com/dagucloud/dagu/v2/internal/persis/file/materialization"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -150,4 +151,107 @@ func TestSetupVariables_StepEnvEvaluatesSequentiallyWithRuntimeVars(t *testing.T
 			assert.Equal(t, filepath.Join(artifactDir, "current_idea.md"), filepath.Clean(result["CURRENT_IDEA_PATH"]))
 		})
 	}
+}
+
+func TestPrepareIncrementalPlanInfersFileDependency(t *testing.T) {
+	t.Parallel()
+
+	workingDir := t.TempDir()
+	runWorkDir := t.TempDir()
+	producer := core.Step{
+		ID:      "producer",
+		Name:    "producer",
+		Outputs: []core.StepOutputDeclaration{{Name: "artifact", Path: "artifact.txt"}},
+	}
+	consumer := core.Step{
+		ID:     "consumer",
+		Name:   "consumer",
+		Inputs: []core.StepInputDeclaration{{Name: "artifact", Path: "./artifact.txt"}},
+	}
+	plan, err := NewPlan(producer, consumer)
+	require.NoError(t, err)
+	ctx := NewContext(context.Background(), &core.DAG{
+		Name:       "incremental-test",
+		Type:       core.TypeIncremental,
+		WorkingDir: workingDir,
+	}, "run-1", filepath.Join(workingDir, "dag.log"), WithWorkDir(runWorkDir))
+
+	require.NoError(t, prepareIncrementalPlan(ctx, plan))
+	producerNode := plan.GetNodeByName("producer")
+	consumerNode := plan.GetNodeByName("consumer")
+	require.NotNil(t, producerNode)
+	require.NotNil(t, consumerNode)
+	assert.True(t, plan.IsInferredDependency(producerNode.ID(), consumerNode.ID()))
+	assert.Equal(t, filepath.Join(workingDir, "artifact.txt"), producerNode.Step().Outputs[0].Path)
+	assert.Equal(t, producerNode.Step().Outputs[0].Path, consumerNode.Step().Inputs[0].Path)
+}
+
+func TestIncrementalInputIsAvailableToStepPrecondition(t *testing.T) {
+	t.Parallel()
+
+	workingDir := t.TempDir()
+	inputPath := filepath.Join(workingDir, "source.txt")
+	require.NoError(t, os.WriteFile(inputPath, []byte("source"), 0o600))
+	step := core.Step{
+		ID:            "build",
+		Name:          "build",
+		Inputs:        []core.StepInputDeclaration{{Name: "source", Path: inputPath}},
+		Outputs:       []core.StepOutputDeclaration{{Name: "artifact", Path: filepath.Join(workingDir, "artifact.txt")}},
+		Preconditions: []*core.Condition{{Condition: `test -f "${inputs.source}"`}},
+	}
+	plan, err := NewPlan(step)
+	require.NoError(t, err)
+	dag := &core.DAG{
+		Name:               "incremental-test",
+		Type:               core.TypeIncremental,
+		WorkingDir:         workingDir,
+		WorkingDirExplicit: true,
+		Shell:              "sh",
+	}
+	ctx := NewContext(context.Background(), dag, "run-1", filepath.Join(workingDir, "dag.log"))
+	runner := New(&Config{
+		DAGRunID:             "run-1",
+		MaterializationStore: filematerialization.New(filepath.Join(t.TempDir(), "materializations")),
+	})
+	node := plan.GetNodeByName(step.Name)
+	require.NotNil(t, node)
+
+	ctx, err = runner.setupVariables(ctx, plan, node)
+	require.NoError(t, err)
+	ctx = runner.setupNodeExecutionEnv(ctx, node)
+	ctx, session, err := runner.startIncrementalSession(ctx, plan, node)
+	require.NoError(t, err)
+	require.NotNil(t, session)
+	t.Cleanup(func() { require.NoError(t, session.Close("")) })
+
+	assert.Equal(t, inputPath, GetEnv(ctx).Inputs["source"])
+	require.NoError(t, node.evalPreconditions(ctx))
+}
+
+func TestPrepareIncrementalPlanRejectsInferredCycle(t *testing.T) {
+	t.Parallel()
+
+	workingDir := t.TempDir()
+	first := core.Step{
+		ID:      "first",
+		Name:    "first",
+		Inputs:  []core.StepInputDeclaration{{Name: "second", Path: "second.txt"}},
+		Outputs: []core.StepOutputDeclaration{{Name: "first", Path: "first.txt"}},
+	}
+	second := core.Step{
+		ID:      "second",
+		Name:    "second",
+		Inputs:  []core.StepInputDeclaration{{Name: "first", Path: "first.txt"}},
+		Outputs: []core.StepOutputDeclaration{{Name: "second", Path: "second.txt"}},
+	}
+	plan, err := NewPlan(first, second)
+	require.NoError(t, err)
+	ctx := NewContext(context.Background(), &core.DAG{
+		Name:       "incremental-test",
+		Type:       core.TypeIncremental,
+		WorkingDir: workingDir,
+	}, "run-1", filepath.Join(workingDir, "dag.log"))
+
+	err = prepareIncrementalPlan(ctx, plan)
+	require.ErrorIs(t, err, ErrCyclicPlan)
 }

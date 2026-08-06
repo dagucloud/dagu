@@ -320,11 +320,28 @@ func bindingValue(ctx context.Context, path string, scope RuntimeScope, requireV
 		return bindingStepOutputValue(ctx, segments, scope.Steps, requireValue)
 	case "foreach":
 		return bindingForeachValue(path, segments, scope.Foreach, requireValue)
+	case "inputs":
+		return bindingScopedPathValue("inputs", segments[1], scope.Inputs, requireValue)
+	case "outputs":
+		return bindingScopedPathValue("outputs", segments[1], scope.Outputs, requireValue)
 	case "context", "dag", "run", "attempt", "step", "trigger", "paths", "profile", "pushback":
 		return bindingBuiltinContextValue(path, scope.BuiltinContext, requireValue)
 	default:
 		return nil, nil
 	}
+}
+
+func bindingScopedPathValue(namespace, name string, values Values, requireValue bool) (any, error) {
+	if value, ok := values[name]; ok {
+		return value, nil
+	}
+	if !requireValue {
+		return nil, nil
+	}
+	return nil, newNoticeReasonError(
+		ValueReferenceReasonNamespaceUnavailable,
+		fmt.Sprintf("%s.%s is unavailable in this context", namespace, name),
+	)
 }
 
 func bindingParamsJSONValue(value string, requireValue bool) (any, error) {
@@ -501,6 +518,8 @@ func supportedStrictBinding(segments []string) bool {
 			}
 		}
 		return true
+	case "inputs", "outputs":
+		return len(segments) == 2 && bindingNamePattern.MatchString(segments[1])
 	case "context":
 		if len(segments) != 3 {
 			return false

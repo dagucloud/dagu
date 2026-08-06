@@ -48,6 +48,11 @@ type Env struct {
 	// Foreach contains the current item scope for foreach body evaluation.
 	Foreach cmnvalue.Values
 
+	// Inputs contains final materialization paths scoped to the current step.
+	Inputs cmnvalue.Values
+	// Outputs contains attempt staging paths scoped to the current step.
+	Outputs cmnvalue.Values
+
 	// Resolved absolute path for the step's working directory, determined by:
 	// 1. Step's Dir field if specified (resolved to absolute path)
 	// 2. Current working directory if Dir is not specified

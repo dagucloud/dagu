@@ -61,7 +61,7 @@ This command parses the DAG definition, resolves parameters, and initiates the D
 }
 
 // Command line flags for the start command
-var startFlags = []commandLineFlag{paramsFlag, nameFlag, dagRunIDFlag, fromRunIDFlag, parentDAGRunFlag, rootDAGRunFlag, labelsFlag, tagsFlag, defaultWorkingDirFlag, profileFlag, startWorkerIDFlag, attemptIDFlag, triggerTypeFlag, triggerActorFlag, scheduleTimeFlag, sourceFileFlag}
+var startFlags = []commandLineFlag{paramsFlag, nameFlag, dagRunIDFlag, fromRunIDFlag, parentDAGRunFlag, rootDAGRunFlag, labelsFlag, tagsFlag, defaultWorkingDirFlag, profileFlag, startWorkerIDFlag, attemptIDFlag, triggerTypeFlag, triggerActorFlag, scheduleTimeFlag, sourceFileFlag, noReuseFlag}
 
 var fromRunIDFlag = commandLineFlag{
 	name:  "from-run-id",
@@ -142,8 +142,9 @@ func runStart(ctx *Context, args []string) error {
 	}
 
 	var (
-		dag    *core.DAG
-		params string
+		dag             *core.DAG
+		params          string
+		historicNoReuse bool
 	)
 
 	if fromRunID != "" {
@@ -171,6 +172,7 @@ func runStart(ctx *Context, args []string) error {
 		if profileName == "" {
 			profileName = status.ProfileName
 		}
+		historicNoReuse = status.NoReuse
 
 		snapshot, err := attempt.ReadDAG(ctx)
 		if err != nil {
@@ -217,6 +219,13 @@ func runStart(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	noReuse, err := ctx.Command.Flags().GetBool("no-reuse")
+	if err != nil {
+		return fmt.Errorf("failed to read no-reuse: %w", err)
+	}
+	if fromRunID != "" && !ctx.Command.Flags().Changed("no-reuse") {
+		noReuse = historicNoReuse
+	}
 
 	opts := runOptions{
 		root:         root,
@@ -226,6 +235,7 @@ func runStart(ctx *Context, args []string) error {
 		triggerActor: triggerActor,
 		scheduleTime: scheduleTime,
 		profileName:  profileName,
+		noReuse:      noReuse,
 	}
 
 	ctx.Context = logger.WithValues(ctx.Context, tag.DAG(dag.Name), tag.RunID(dagRunID))
@@ -253,11 +263,17 @@ func runStart(ctx *Context, args []string) error {
 
 // tryExecuteDAG acquires a process handle and executes the DAG.
 func tryExecuteDAG(ctx *Context, dag *core.DAG, dagRunID string, opts runOptions) error {
+	if dag.Type == core.TypeIncremental && opts.workerID != "local" {
+		return fmt.Errorf("incremental workflows require local execution; distributed fencing is not implemented")
+	}
 	// Check for dispatch to coordinator for distributed execution.
 	// Skip if already running on a worker (workerID != "local").
 	if opts.workerID == "local" {
 		coordinatorCli := ctx.NewCoordinatorClient()
 		if dispatch.ShouldDispatchToCoordinator(dag, coordinatorCli != nil, ctx.Config.DefaultExecMode) {
+			if dag.Type == core.TypeIncremental {
+				return fmt.Errorf("incremental workflows require local execution; distributed fencing is not implemented")
+			}
 			return dispatchToCoordinatorAndWait(ctx, dag, dagRunID, opts, coordinatorCli)
 		}
 	}
@@ -558,6 +574,8 @@ func executeDAGRun(ctx *Context, d *core.DAG, dagRunID string, opts runOptions) 
 			DAGRunStore:              ctx.DAGRunStore,
 			QueueStore:               ctx.QueueStore,
 			StateStore:               ctx.StateStore,
+			MaterializationStore:     localMaterializationStore(ctx),
+			NoReuse:                  opts.noReuse,
 			SecretStore:              as.SecretStore,
 			ProfileStore:             as.ProfileStore,
 			ProfileName:              opts.profileName,

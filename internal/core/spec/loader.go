@@ -302,8 +302,39 @@ func loadYAMLWithOptsAndNotices(
 
 	mainDAG.YamlData = data
 	markConfiguredWorkingDirsExplicit(mainDAG)
+	if err := validateIncrementalPathBase(mainDAG); err != nil {
+		return loadYAMLFailure(opts, err)
+	}
 
 	return mainDAG, nil
+}
+
+func validateIncrementalPathBase(dag *core.DAG) error {
+	if dag == nil {
+		return nil
+	}
+	if dag.Type == core.TypeIncremental && dag.WorkingDir == "" {
+		for _, step := range dag.Steps {
+			for _, input := range step.Inputs {
+				if !filepath.IsAbs(input.Path) {
+					return core.NewValidationError("working_dir", dag.WorkingDir,
+						fmt.Errorf("relative incremental paths require an authored or caller-supplied working_dir"))
+				}
+			}
+			for _, output := range step.Outputs {
+				if output.Path != "" && !filepath.IsAbs(output.Path) {
+					return core.NewValidationError("working_dir", dag.WorkingDir,
+						fmt.Errorf("relative incremental paths require an authored or caller-supplied working_dir"))
+				}
+			}
+		}
+	}
+	for _, localDAG := range dag.LocalDAGs {
+		if err := validateIncrementalPathBase(localDAG); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // loadYAMLFailure returns a placeholder DAG when YAML loading is allowed to fail.

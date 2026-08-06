@@ -1200,6 +1200,11 @@ func (n *Node) ResetForRerun(step core.Step) {
 	n.cmdEvaluated.Store(false)
 }
 
+func (n *Node) resetForIncrementalAttempt(step core.Step) {
+	n.SetStep(step)
+	n.cmdEvaluated.Store(false)
+}
+
 func (n *Node) Teardown() error {
 	// Atomically mark as done to prevent concurrent teardown
 	if !n.done.CompareAndSwap(false, true) {

@@ -90,14 +90,14 @@ func runRestart(ctx *Context, args []string) error {
 		return fmt.Errorf("failed to restore DAG from status: %w", err)
 	}
 
-	if err := handleRestartProcess(ctx, dag, dagRunID, scheduleTime); err != nil {
+	if err := handleRestartProcess(ctx, dag, dagRunID, scheduleTime, dagStatus.NoReuse); err != nil {
 		return fmt.Errorf("restart process failed for DAG %s: %w", dag.Name, err)
 	}
 
 	return nil
 }
 
-func handleRestartProcess(ctx *Context, d *core.DAG, oldDagRunID string, scheduleTime string) error {
+func handleRestartProcess(ctx *Context, d *core.DAG, oldDagRunID string, scheduleTime string, noReuse bool) error {
 	if err := stopDAGIfRunning(ctx, ctx.DAGRunMgr, d, oldDagRunID); err != nil {
 		return err
 	}
@@ -120,18 +120,19 @@ func handleRestartProcess(ctx *Context, d *core.DAG, oldDagRunID string, schedul
 			root:         exec.NewDAGRunRef(d.Name, newDagRunID),
 			triggerType:  core.TriggerTypeUnknown,
 			scheduleTime: scheduleTime,
+			noReuse:      noReuse,
 		},
 		func(execCtx context.Context) (exec.DAGRunAttempt, error) {
 			return ctx.DAGRunStore.CreateAttempt(execCtx, d, time.Now(), newDagRunID, exec.NewDAGRunAttemptOptions{})
 		},
 		func(preparedAttempt exec.DAGRunAttempt) error {
-			return executeDAGWithRunID(ctx, ctx.DAGRunMgr, d, newDagRunID, scheduleTime, preparedAttempt)
+			return executeDAGWithRunID(ctx, ctx.DAGRunMgr, d, newDagRunID, scheduleTime, noReuse, preparedAttempt)
 		},
 	)
 }
 
 // executeDAGWithRunID executes a DAG with a pre-generated run ID.
-func executeDAGWithRunID(ctx *Context, cli runtime.Manager, dag *core.DAG, dagRunID string, scheduleTime string, preparedAttempt exec.DAGRunAttempt) error {
+func executeDAGWithRunID(ctx *Context, cli runtime.Manager, dag *core.DAG, dagRunID string, scheduleTime string, noReuse bool, preparedAttempt exec.DAGRunAttempt) error {
 	logFile, err := ctx.OpenLogFile(dag, dagRunID)
 	if err != nil {
 		return fmt.Errorf("failed to initialize log file: %w", err)
@@ -178,6 +179,8 @@ func executeDAGWithRunID(ctx *Context, cli runtime.Manager, dag *core.DAG, dagRu
 			DAGRunStore:              ctx.DAGRunStore,
 			QueueStore:               ctx.QueueStore,
 			StateStore:               ctx.StateStore,
+			MaterializationStore:     localMaterializationStore(ctx),
+			NoReuse:                  noReuse,
 			SecretStore:              as.SecretStore,
 			ProfileStore:             as.ProfileStore,
 			ServiceRegistry:          ctx.ServiceRegistry,

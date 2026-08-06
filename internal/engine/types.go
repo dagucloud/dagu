@@ -68,6 +68,7 @@ type RunOptions struct {
 	WorkerSelector    map[string]string
 	Labels            []string
 	DryRun            bool
+	NoReuse           bool
 }
 
 type RunRef struct {

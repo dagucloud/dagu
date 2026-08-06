@@ -246,9 +246,9 @@
     },
     "type": {
       "type": "string",
-      "enum": ["graph", "chain", "controller"],
+      "enum": ["graph", "chain", "controller", "incremental"],
       "default": "graph",
-      "description": "Execution type for steps. 'graph' (default) uses dependency-based execution where steps run based on their 'depends' field. 'chain' executes steps sequentially in the order they are defined, with each step automatically depending on the previous one. 'controller' turns the steps into a catalog of actions and lets the configured LLM choose which one runs next until every entry in 'tasks' is complete."
+      "description": "Execution type for steps. 'graph' (default) uses dependency-based execution, 'chain' executes steps sequentially, 'controller' lets the configured LLM choose steps, and 'incremental' adds file-derived dependencies and materialization reuse."
     },
     "tasks": {
       "type": "array",
@@ -1745,7 +1745,15 @@
           "items": {
             "$ref": "#/definitions/stepDeclaredOutput"
           },
-          "description": "Declared file-based step outputs published through DAGU_OUTPUT_FILE for ${steps.<id>.outputs.<name>} references."
+          "description": "Declared step outputs. Value outputs are published through DAGU_OUTPUT_FILE; path outputs publish a verified materialized file."
+        },
+        "inputs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/definitions/stepDeclaredInput"
+          },
+          "description": "Named regular-file inputs for incremental execution."
         },
         "depends": {
           "oneOf": [
@@ -7222,6 +7230,11 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["name"],
+      "oneOf": [
+        { "required": ["type"] },
+        { "required": ["path"] },
+        { "not": { "anyOf": [{ "required": ["type"] }, { "required": ["path"] }] } }
+      ],
       "properties": {
         "name": {
           "type": "string",
@@ -7233,9 +7246,32 @@
           "enum": ["string", "json"],
           "default": "string",
           "description": "Output value type. JSON outputs must contain valid JSON text."
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Final regular-file path for an incremental materialization."
         }
       },
-      "description": "One top-level step output declaration for DAGU_OUTPUT_FILE publication."
+      "description": "One value or path-backed step output declaration."
+    },
+    "stepDeclaredInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "path"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+          "description": "Input name scoped to the declaring step."
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Regular-file path used as an incremental input."
+        }
+      },
+      "description": "One named regular-file input declaration."
     },
     "outputsActionConfig": {
       "type": "object",

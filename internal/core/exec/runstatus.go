@@ -200,6 +200,7 @@ type DAGRunStatus struct {
 	ProfileName          string                `json:"profileName,omitempty"`
 	ProfileResolvedAt    string                `json:"profileResolvedAt,omitempty"`
 	ProfileEntries       []RuntimeProfileEntry `json:"profileEntries,omitempty"`
+	NoReuse              bool                  `json:"noReuse,omitempty"`
 	PendingStepRetries   []PendingStepRetry    `json:"pendingStepRetries"`
 	Preconditions        []*core.Condition     `json:"preconditions,omitempty"`
 	Labels               []string              `json:"labels,omitempty"`

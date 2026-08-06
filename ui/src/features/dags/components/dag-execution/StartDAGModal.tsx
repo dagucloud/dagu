@@ -87,7 +87,8 @@ type Props = {
     params: string,
     dagRunId?: string,
     immediate?: boolean,
-    profile?: string
+    profile?: string,
+    noReuse?: boolean
   ) => Promise<void> | void;
   action?: 'start' | 'enqueue';
   profiles?: components['schemas']['RuntimeProfileResponse'][];
@@ -337,6 +338,8 @@ function StartDAGModal({
   );
   const forceEnqueue = action === 'enqueue';
   const [enqueue, setEnqueue] = React.useState(forceEnqueue);
+  const [noReuse, setNoReuse] = React.useState(false);
+  const isIncremental = dagDetails?.type === 'incremental';
   const activeProfiles = React.useMemo(
     () =>
       profiles.filter(
@@ -417,6 +420,7 @@ function StartDAGModal({
       defaultProfile ? DAG_DEFAULT_PROFILE_VALUE : NO_PROFILE_VALUE
     );
     setEnqueue(forceEnqueue);
+    setNoReuse(false);
   }, [
     defaultProfile,
     visible,
@@ -489,7 +493,15 @@ function StartDAGModal({
         profileSelection,
         hasDefaultProfile
       );
-      if (profileOverride === undefined) {
+      if (isIncremental) {
+        await onSubmit(
+          paramsPayload,
+          dagRunId || undefined,
+          !enqueue,
+          profileOverride,
+          noReuse
+        );
+      } else if (profileOverride === undefined) {
         await onSubmit(paramsPayload, dagRunId || undefined, !enqueue);
       } else {
         await onSubmit(
@@ -515,6 +527,8 @@ function StartDAGModal({
     hasDefaultProfile,
     loadError,
     loading,
+    isIncremental,
+    noReuse,
     onSubmit,
     rawParams,
     schemaFormData,
@@ -611,6 +625,26 @@ function StartDAGModal({
               <Label htmlFor="enqueue" className="cursor-pointer">
                 Enqueue
               </Label>
+            </div>
+          )}
+
+          {isIncremental && (
+            <div className="flex items-start space-x-2">
+              <Checkbox
+                id="no-reuse"
+                checked={noReuse}
+                onCheckedChange={(checked) => setNoReuse(checked as boolean)}
+                disabled={loading || submitting}
+              />
+              <div className="space-y-0.5">
+                <Label htmlFor="no-reuse" className="cursor-pointer">
+                  Disable reuse for this run
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Eligible steps execute and replace their materializations only
+                  after success.
+                </p>
+              </div>
             </div>
           )}
 

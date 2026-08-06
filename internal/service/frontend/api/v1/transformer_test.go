@@ -535,6 +535,46 @@ func TestToNodeMapsStatuses(t *testing.T) {
 	}
 }
 
+func TestToDAGRunDetailsIncludesIncrementalMetadata(t *testing.T) {
+	t.Parallel()
+
+	status := exec.DAGRunStatus{
+		Name:     "incremental-dag",
+		DAGRunID: "run-2",
+		Status:   core.Succeeded,
+		NoReuse:  true,
+		Nodes: []*exec.Node{{
+			Step: core.Step{
+				ID:      "build",
+				Name:    "build",
+				Inputs:  []core.StepInputDeclaration{{Name: "source", Path: "/data/source.txt"}},
+				Outputs: []core.StepOutputDeclaration{{Name: "artifact", Path: "/data/artifact.txt"}},
+			},
+			Status: core.NodeSucceeded,
+			Incremental: &exec.IncrementalExecution{
+				Decision:    "reuse",
+				Phase:       "complete",
+				Reason:      "matched",
+				ProducerRun: exec.NewDAGRunRef("incremental-dag", "run-1"),
+			},
+		}},
+	}
+
+	details := ToDAGRunDetails(status)
+	require.NotNil(t, details.NoReuse)
+	assert.True(t, *details.NoReuse)
+	require.Len(t, details.Nodes, 1)
+	require.NotNil(t, details.Nodes[0].Incremental)
+	assert.Equal(t, openapi.IncrementalExecutionDecision("reuse"), details.Nodes[0].Incremental.Decision)
+	require.NotNil(t, details.Nodes[0].Incremental.ProducerRun)
+	assert.Equal(t, "run-1", *details.Nodes[0].Incremental.ProducerRun.Id)
+	require.NotNil(t, details.Nodes[0].Step.Inputs)
+	assert.Equal(t, "/data/source.txt", (*details.Nodes[0].Step.Inputs)[0].Path)
+	require.NotNil(t, details.Nodes[0].Step.Outputs)
+	require.NotNil(t, (*details.Nodes[0].Step.Outputs)[0].Path)
+	assert.Equal(t, "/data/artifact.txt", *(*details.Nodes[0].Step.Outputs)[0].Path)
+}
+
 func TestNodeStatusMappingIsExhaustive(t *testing.T) {
 	t.Parallel()
 

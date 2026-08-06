@@ -36,7 +36,8 @@ type EnqueueHandler = (
   params: string,
   dagRunId?: string,
   immediate?: boolean,
-  profile?: string
+  profile?: string,
+  noReuse?: boolean
 ) => string | void | Promise<string | void>;
 
 type Props = {
@@ -232,12 +233,18 @@ function DAGDetailsSidePanel({
   }, [mutate]);
 
   const handleEnqueue = React.useCallback<EnqueueHandler>(
-    async (params, dagRunId, immediate, profile) => {
+    async (params, dagRunId, immediate, profile, noReuse) => {
       if (!onEnqueue) {
         return;
       }
 
-      const result = await onEnqueue(params, dagRunId, immediate, profile);
+      const result = await onEnqueue(
+        params,
+        dagRunId,
+        immediate,
+        profile,
+        noReuse
+      );
       setActiveTab('status');
       if (typeof result === 'string' && result) {
         setTrackedDagRunId(result);

@@ -1088,6 +1088,10 @@ paths:
                   type: boolean
                   description: "If true, prevent starting if DAG is already running (returns 409 conflict)"
                   default: false
+                noReuse:
+                  type: boolean
+                  description: "If true, execute eligible incremental steps without reusing prior materializations"
+                  default: false
                 labels:
                   $ref: "#/components/schemas/Labels"
                   description: "Additional labels to apply to the DAG-run. Mutually exclusive with `tags`; the server returns HTTP 400 if both are set."
@@ -1168,6 +1172,10 @@ paths:
                 singleton:
                   type: boolean
                   description: "If true, prevent starting if DAG is already running (returns 409 conflict)"
+                  default: false
+                noReuse:
+                  type: boolean
+                  description: "If true, execute eligible incremental steps without reusing prior materializations"
                   default: false
                 labels:
                   $ref: "#/components/schemas/Labels"
@@ -1253,6 +1261,10 @@ paths:
                 singleton:
                   type: boolean
                   description: "If true, prevent enqueuing if DAG is already running or queued (returns 409 conflict)"
+                  default: false
+                noReuse:
+                  type: boolean
+                  description: "If true, execute eligible incremental steps without reusing prior materializations"
                   default: false
                 labels:
                   $ref: "#/components/schemas/Labels"
@@ -1937,6 +1949,10 @@ paths:
                   type: boolean
                   description: "If true, prevent starting if a DAG with the same name is already running (returns 409)"
                   default: false
+                noReuse:
+                  type: boolean
+                  description: "If true, execute eligible incremental steps without reusing prior materializations"
+                  default: false
                 labels:
                   $ref: "#/components/schemas/Labels"
                   description: "Additional labels to apply to the DAG-run. Mutually exclusive with `tags`; the server returns HTTP 400 if both are set."
@@ -2018,6 +2034,10 @@ paths:
                 singleton:
                   type: boolean
                   description: "If true, prevent enqueuing if DAG is already running or queued (returns 409 conflict)"
+                  default: false
+                noReuse:
+                  type: boolean
+                  description: "If true, execute eligible incremental steps without reusing prior materializations"
                   default: false
                 labels:
                   $ref: "#/components/schemas/Labels"
@@ -11674,8 +11694,8 @@ components:
       properties:
         type:
           type: string
-          enum: [graph, chain, controller]
-          description: "Execution type. 'graph' resolves dependencies, 'chain' runs steps in order, 'controller' lets an LLM choose each step."
+          enum: [graph, chain, controller, incremental]
+          description: "Execution type. 'graph' resolves dependencies, 'chain' runs steps in order, 'controller' lets an LLM choose each step, and 'incremental' adds file-derived dependencies and materialization reuse."
         tasks:
           type: array
           description: "Goals a controller DAG must satisfy. Present only for type controller."
@@ -12071,6 +12091,9 @@ components:
         artifactsAvailable:
           type: boolean
           description: "Whether artifact files are available for this DAG-run"
+        noReuse:
+          type: boolean
+          description: "Whether reuse of prior incremental materializations was disabled for this DAG-run"
         params:
           type: string
           description: "Runtime parameters passed to the DAG-run in JSON format"
@@ -12380,6 +12403,44 @@ components:
           type: string
           description: "Justification the controller gave for the current status"
 
+    IncrementalProducer:
+      type: object
+      description: "DAG-run that produced a reused materialization"
+      properties:
+        name:
+          type: string
+        id:
+          type: string
+
+    IncrementalExecution:
+      type: object
+      description: "Incremental execution decision and its explanation"
+      properties:
+        decision:
+          type: string
+          enum: [none, always, execute, reuse, deferred]
+        phase:
+          type: string
+          enum: [precondition, evaluate, execute, verify, commit, complete]
+        reason:
+          type: string
+          description: "Stable machine-readable reason for the decision"
+        detail:
+          type: string
+          description: "Human-readable explanation of the decision"
+        fingerprint:
+          type: string
+        materializationKey:
+          type: string
+        producerRun:
+          $ref: "#/components/schemas/IncrementalProducer"
+        producerAttemptId:
+          type: string
+      required:
+        - decision
+        - phase
+        - reason
+
     Node:
       type: object
       description: "Status of an individual step within a DAG-run"
@@ -12421,6 +12482,8 @@ components:
         error:
           type: string
           description: "Error message if the step failed"
+        incremental:
+          $ref: "#/components/schemas/IncrementalExecution"
         humanTaskCompletedBy:
           type: string
           description: "Name of the subject that completed the human task"
@@ -12548,8 +12611,12 @@ components:
 
     StepOutputDeclaration:
       type: object
-      description: "One file-based step output declaration published through DAGU_OUTPUT_FILE"
+      description: "One named value output or incremental file output"
       additionalProperties: false
+      not:
+        required:
+          - type
+          - path
       required:
         - name
       properties:
@@ -12563,12 +12630,31 @@ components:
             - string
             - json
           description: "Output value type. JSON outputs must contain valid JSON text."
+        path:
+          type: string
+          description: "Regular-file path published atomically by an incremental step"
+
+    StepInputDeclaration:
+      type: object
+      description: "One named regular-file input for incremental execution"
+      additionalProperties: false
+      required:
+        - name
+        - path
+      properties:
+        name:
+          type: string
+          pattern: "^[A-Za-z][A-Za-z0-9_]*$"
+        path:
+          type: string
 
     Step:
       type: object
       description: "Individual task definition that performs a specific operation in a DAG-run"
       x-dagu-required-with:
         outputs:
+          - id
+        inputs:
           - id
       properties:
         name:
@@ -12606,6 +12692,12 @@ components:
           description: "Declared file-based step outputs published through DAGU_OUTPUT_FILE for ${steps.<id>.outputs.<name>} references. Steps that declare outputs must also define id."
           items:
             $ref: "#/components/schemas/StepOutputDeclaration"
+        inputs:
+          type: array
+          minItems: 1
+          description: "Named regular-file inputs used for incremental fingerprints and inferred dependencies. Steps that declare inputs must also define id."
+          items:
+            $ref: "#/components/schemas/StepInputDeclaration"
         call:
           type: string
           description: "The name of the DAG to execute as a sub DAG-run"

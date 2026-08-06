@@ -32,7 +32,7 @@ Examples:
 	)
 }
 
-var enqueueFlags = []commandLineFlag{paramsFlag, nameFlag, dagRunIDFlag, queueFlag, labelsFlag, tagsFlag, defaultWorkingDirFlag, profileFlag, triggerTypeFlag, triggerActorFlag, scheduleTimeFlag}
+var enqueueFlags = []commandLineFlag{paramsFlag, nameFlag, dagRunIDFlag, queueFlag, labelsFlag, tagsFlag, defaultWorkingDirFlag, profileFlag, triggerTypeFlag, triggerActorFlag, scheduleTimeFlag, noReuseFlag}
 
 func runEnqueue(ctx *Context, args []string) error {
 	if ctx.IsRemote() {
@@ -87,12 +87,17 @@ func runEnqueue(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	noReuse, err := ctx.Command.Flags().GetBool("no-reuse")
+	if err != nil {
+		return fmt.Errorf("failed to read no-reuse: %w", err)
+	}
 
 	return enqueueDAGRun(ctx, dag, runID, runOptions{
 		triggerType:  triggerType,
 		triggerActor: triggerActor,
 		scheduleTime: scheduleTime,
 		profileName:  profileName,
+		noReuse:      noReuse,
 	})
 }
 
@@ -123,6 +128,7 @@ func enqueueDAGRun(ctx *Context, dag *core.DAG, dagRunID string, opts runOptions
 		TriggerActor:            opts.triggerActor,
 		ScheduleTime:            opts.scheduleTime,
 		ProfileName:             opts.profileName,
+		NoReuse:                 opts.noReuse,
 		ProceedOnStatusCloseErr: true,
 	})
 	if err != nil {

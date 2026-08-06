@@ -142,8 +142,13 @@ func (r *Renderer) renderStep(node *exec.Node, isLast bool, prefix string) strin
 
 	buf.WriteString(r.renderStepHeader(node, isLast, prefix))
 
-	// Skip details for non-executed steps
+	// A skipped incremental node still has a decision explaining why execution
+	// did not begin.
 	if isSkippedStatus(node.Status) {
+		if node.Incremental != nil {
+			cPrefix := childPrefix(prefix, isLast)
+			buf.WriteString(r.renderIncremental(node.Incremental, true, cPrefix))
+		}
 		if !isLast {
 			buf.WriteString(prefix + TreePipe + "\n")
 		}
@@ -185,9 +190,16 @@ func (r *Renderer) renderStepContent(node *exec.Node, isLast bool, prefix string
 	hasError := node.Error != "" && node.Status == core.NodeFailed
 	hasSubRuns := len(node.SubRuns) > 0
 	hasHumanTask := node.Status == core.NodeWaiting && node.Step.HumanTask != nil
+	hasIncremental := node.Incremental != nil
 
-	hasFollowingContent := hasOutput || hasError || hasSubRuns || hasHumanTask
+	hasFollowingContent := hasOutput || hasError || hasSubRuns || hasHumanTask || hasIncremental
 	wroteField := r.renderCommands(&buf, node, cPrefix, hasFollowingContent)
+
+	if hasIncremental {
+		r.addFieldSpacing(&buf, wroteField, cPrefix)
+		buf.WriteString(r.renderIncremental(node.Incremental, !hasOutput && !hasError && !hasSubRuns && !hasHumanTask, cPrefix))
+		wroteField = true
+	}
 
 	if hasHumanTask {
 		r.addFieldSpacing(&buf, wroteField, cPrefix)
@@ -213,6 +225,17 @@ func (r *Renderer) renderStepContent(node *exec.Node, isLast bool, prefix string
 	}
 
 	return buf.String()
+}
+
+func (r *Renderer) renderIncremental(value *exec.IncrementalExecution, isLast bool, prefix string) string {
+	line := fmt.Sprintf("incremental: %s (%s)", value.Decision, value.Reason)
+	if value.Detail != "" {
+		line += " - " + value.Detail
+	}
+	if !value.ProducerRun.Zero() {
+		line += "; producer: " + value.ProducerRun.String()
+	}
+	return r.renderCommandLine(line, isLast, prefix)
 }
 
 // renderCommands renders step commands and returns true if any were written.

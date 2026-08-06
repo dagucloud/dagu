@@ -226,7 +226,7 @@ func (a *API) ExecuteDAGRunFromSpec(ctx context.Context, request api.ExecuteDAGR
 		return nil, err
 	}
 
-	if err := a.startDAGRun(ctx, dag, params, dagRunId, valueOf(request.Body.Name), labels, profileName); err != nil {
+	if err := a.startDAGRun(ctx, dag, params, dagRunId, valueOf(request.Body.Name), labels, profileName, valueOf(request.Body.NoReuse)); err != nil {
 		return nil, &Error{
 			HTTPStatus: http.StatusInternalServerError,
 			Code:       api.ErrorCodeInternalError,
@@ -336,7 +336,7 @@ func (a *API) EnqueueDAGRunFromSpec(ctx context.Context, request api.EnqueueDAGR
 		}
 	}
 
-	if err := a.enqueueDAGRun(ctx, dag, params, dagRunId, valueOf(request.Body.Name), core.TriggerTypeManual, "", profileName); err != nil {
+	if err := a.enqueueDAGRun(ctx, dag, params, dagRunId, valueOf(request.Body.Name), core.TriggerTypeManual, "", profileName, valueOf(request.Body.NoReuse)); err != nil {
 		return nil, fmt.Errorf("error enqueuing dag-run: %w", err)
 	}
 
@@ -3528,9 +3528,9 @@ func (a *API) rescheduleDAGRun(ctx context.Context, dagName, dagRunID string, op
 	}
 	var enqueueErr error
 	if opts.useCurrentDAGFile {
-		enqueueErr = a.enqueueDAGRun(ctx, dag, paramsToUse, newDagRunID, "", core.TriggerTypeManual, "", profileName)
+		enqueueErr = a.enqueueDAGRun(ctx, dag, paramsToUse, newDagRunID, "", core.TriggerTypeManual, "", profileName, status.NoReuse)
 	} else {
-		enqueueErr = a.enqueuePreparedDAGRun(ctx, dag, paramsToUse, newDagRunID, core.TriggerTypeManual, profileName)
+		enqueueErr = a.enqueuePreparedDAGRun(ctx, dag, paramsToUse, newDagRunID, core.TriggerTypeManual, profileName, status.NoReuse)
 	}
 	if enqueueErr != nil {
 		return rescheduleDAGRunResult{}, fmt.Errorf("failed to enqueue dag-run: %w", enqueueErr)
@@ -3562,6 +3562,7 @@ func (a *API) enqueuePreparedDAGRun(
 	dagRunID string,
 	triggerType core.TriggerType,
 	profileName string,
+	noReuse bool,
 ) error {
 	resolvedDAG, err := spec.ResolveRuntimeParams(ctx, dag, params, spec.ResolveRuntimeParamsOptions{
 		BaseConfig: a.config.Paths.BaseConfig,
@@ -3602,6 +3603,7 @@ func (a *API) enqueuePreparedDAGRun(
 		TriggerActor:            triggerActorFromContext(ctx),
 		ProceedOnStatusCloseErr: true,
 		ProfileName:             profileName,
+		NoReuse:                 noReuse,
 	})
 	if err != nil {
 		return err

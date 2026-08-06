@@ -71,6 +71,10 @@ var (
 	WithQueueStore = exec.WithQueueStore
 	// WithStateStore sets the persistent DAG state store.
 	WithStateStore = exec.WithStateStore
+	// WithMaterializationStore sets the incremental materialization store.
+	WithMaterializationStore = exec.WithMaterializationStore
+	// WithNoReuse records that manifest hits are disabled for the run.
+	WithNoReuse = exec.WithNoReuse
 	// WithDAGRunLogDir sets the base log directory for newly persisted DAG runs.
 	WithDAGRunLogDir = exec.WithDAGRunLogDir
 	// WithDAGRunArtifactDir sets the base artifact directory for newly persisted DAG runs.

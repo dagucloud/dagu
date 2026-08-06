@@ -233,6 +233,13 @@ func WithRuntimeProfile(name, resolvedAt string, entries []exec.RuntimeProfileEn
 	}
 }
 
+// WithNoReuse records that manifest reuse is disabled for the run.
+func WithNoReuse(disabled bool) StatusOption {
+	return func(s *exec.DAGRunStatus) {
+		s.NoReuse = disabled
+	}
+}
+
 // Create builds a Status object for a dag-run with the specified parameters
 func (f *StatusBuilder) Create(
 	dagRunID string,

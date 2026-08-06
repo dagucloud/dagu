@@ -28,9 +28,10 @@ type Plan struct {
 	cancelRequested bool
 
 	// Graph structure (immutable after construction)
-	nodes      []*Node
-	nodeByID   map[int]*Node
-	nodeByName map[string]*Node
+	nodes         []*Node
+	nodeByID      map[int]*Node
+	nodeByName    map[string]*Node
+	inferredEdges map[[2]int]struct{}
 
 	// Immutable adjacency lists (exposing for unit tests)
 	DependencyMap map[int][]int // node ID -> list of dependency node IDs (upstream)
@@ -45,6 +46,7 @@ func NewPlan(steps ...core.Step) (*Plan, error) {
 	p := &Plan{
 		nodeByID:      make(map[int]*Node),
 		nodeByName:    make(map[string]*Node),
+		inferredEdges: make(map[[2]int]struct{}),
 		DependencyMap: make(map[int][]int),
 		DependantMap:  make(map[int][]int),
 		nodes:         make([]*Node, 0, len(steps)),
@@ -71,6 +73,7 @@ func CreateRetryPlan(ctx context.Context, dag *core.DAG, nodes ...*Node) (*Plan,
 	p := &Plan{
 		nodeByID:      make(map[int]*Node),
 		nodeByName:    make(map[string]*Node),
+		inferredEdges: make(map[[2]int]struct{}),
 		DependencyMap: make(map[int][]int),
 		DependantMap:  make(map[int][]int),
 		nodes:         make([]*Node, 0, len(nodes)),
@@ -107,6 +110,7 @@ func NewPlanFromNodes(nodes ...*Node) (*Plan, error) {
 	p := &Plan{
 		nodeByID:      make(map[int]*Node),
 		nodeByName:    make(map[string]*Node),
+		inferredEdges: make(map[[2]int]struct{}),
 		DependencyMap: make(map[int][]int),
 		DependantMap:  make(map[int][]int),
 		nodes:         make([]*Node, 0, len(nodes)),
@@ -130,6 +134,7 @@ func CreateStepRetryPlan(dag *core.DAG, nodes []*Node, stepName string) (*Plan, 
 	p := &Plan{
 		nodeByID:      make(map[int]*Node),
 		nodeByName:    make(map[string]*Node),
+		inferredEdges: make(map[[2]int]struct{}),
 		DependencyMap: make(map[int][]int),
 		DependantMap:  make(map[int][]int),
 		nodes:         make([]*Node, 0, len(nodes)),
@@ -232,8 +237,37 @@ func retryStepForNode(node *Node, steps map[string]core.Step) (core.Step, error)
 
 // addEdge adds a directed edge from 'from' to 'to'.
 func (p *Plan) addEdge(from, to *Node) {
+	for _, id := range p.DependencyMap[to.id] {
+		if id == from.id {
+			return
+		}
+	}
 	p.DependantMap[from.id] = append(p.DependantMap[from.id], to.id)
 	p.DependencyMap[to.id] = append(p.DependencyMap[to.id], from.id)
+}
+
+// AddInferredDependency adds one file-derived dependency before execution starts.
+func (p *Plan) AddInferredDependency(producerName, consumerName string) error {
+	producer := p.GetNodeByName(producerName)
+	consumer := p.GetNodeByName(consumerName)
+	if producer == nil {
+		return fmt.Errorf("%w: %s", ErrMissingNode, producerName)
+	}
+	if consumer == nil {
+		return fmt.Errorf("%w: %s", ErrMissingNode, consumerName)
+	}
+	p.inferredEdges[[2]int{producer.id, consumer.id}] = struct{}{}
+	p.addEdge(producer, consumer)
+	if p.isCyclic() {
+		return ErrCyclicPlan
+	}
+	return nil
+}
+
+// IsInferredDependency reports whether an edge was derived from matching paths.
+func (p *Plan) IsInferredDependency(producerID, consumerID int) bool {
+	_, ok := p.inferredEdges[[2]int{producerID, consumerID}]
+	return ok
 }
 
 // isCyclic checks for cycles in the graph using Kahn's algorithm.

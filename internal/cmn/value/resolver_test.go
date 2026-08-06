@@ -429,6 +429,27 @@ func TestResolverPowerShellCommandFieldPreservesEnvMemberAccess(t *testing.T) {
 	assert.Equal(t, "if ([int]($env:DEV_PCENT) -ge [int]($env:DEV_ALERT)) { exit 0 } else { exit 1 }", got)
 }
 
+func TestResolverConditionCommandResolvesIncrementalInput(t *testing.T) {
+	ctx := context.Background()
+	resolver := value.NewResolver(value.StaticScope{}, value.RuntimeScope{
+		Inputs: value.Values{"source": "/tmp/source.txt"},
+	})
+	command := value.CommandContext{
+		Target:          value.CommandTargetLocal,
+		Shell:           []string{"sh"},
+		ShellConfigured: true,
+	}
+
+	got, err := resolver.String(
+		ctx,
+		`test -f "${inputs.source}"`,
+		value.ConditionCommandField("preconditions[0].condition", command),
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, `test -f "/tmp/source.txt"`, got)
+}
+
 func TestResolverHostConfigObjectUsesScopedEnvWithoutOSFallback(t *testing.T) {
 	type config struct {
 		Name string

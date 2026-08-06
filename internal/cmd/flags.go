@@ -54,6 +54,12 @@ var (
 		usage:  "Also report references whose value only exists during a run",
 		isBool: true,
 	}
+
+	noReuseFlag = commandLineFlag{
+		name:   "no-reuse",
+		usage:  "Recompute incremental steps instead of reusing prior materializations",
+		isBool: true,
+	}
 )
 
 // Server and directory flags

@@ -25,7 +25,8 @@ export function DAGPreviewModal({
       params: string,
       dagRunId?: string,
       _immediate?: boolean,
-      profile?: string
+      profile?: string,
+      noReuse?: boolean
     ): Promise<string | void> => {
       const labels: string[] = [];
       if (selectedWorkspace) {
@@ -45,6 +46,7 @@ export function DAGPreviewModal({
           dagRunId: dagRunId || undefined,
           profile,
           labels: labels.length > 0 ? labels : undefined,
+          noReuse,
         },
       });
 

@@ -86,6 +86,7 @@ func ValidateSteps(dag *DAG) error {
 	resolveForeachStepDependencies(dag.Steps)
 	validateDependenciesExist(dag, stepNames, &errs)
 	validateApprovalRewindTargets(dag, stepNames, &errs)
+	validateIncrementalSteps(dag, &errs)
 
 	for _, step := range dag.Steps {
 		errs = append(errs, validateStep(step)...)
@@ -96,6 +97,142 @@ func ValidateSteps(dag *DAG) error {
 		return nil
 	}
 	return errs
+}
+
+func validateIncrementalSteps(dag *DAG, errs *ErrorList) {
+	if dag.Type == TypeIncremental {
+		validateNoAttemptOutputReference(errs, "working_dir", dag.WorkingDir)
+		for _, condition := range dag.Preconditions {
+			validateNoIncrementalPathCondition(errs, "preconditions", condition)
+		}
+	}
+	for _, step := range dag.Steps {
+		pathOutputs := 0
+		for _, output := range step.Outputs {
+			if output.Path != "" {
+				pathOutputs++
+				if containsCommandSubstitution(output.Path) {
+					*errs = append(*errs, NewValidationError("outputs", output.Path,
+						fmt.Errorf("incremental paths cannot use command substitution")))
+				}
+				if containsStepReference(output.Path) {
+					*errs = append(*errs, NewValidationError("outputs", output.Path,
+						fmt.Errorf("incremental paths must resolve before step execution")))
+				}
+				if containsAttemptOutputReference(output.Path) {
+					*errs = append(*errs, NewValidationError("outputs", output.Path,
+						fmt.Errorf("path output references are available only during executor attempts")))
+				}
+			}
+		}
+		for _, input := range step.Inputs {
+			if containsCommandSubstitution(input.Path) {
+				*errs = append(*errs, NewValidationError("inputs", input.Path,
+					fmt.Errorf("incremental paths cannot use command substitution")))
+			}
+			if containsStepReference(input.Path) {
+				*errs = append(*errs, NewValidationError("inputs", input.Path,
+					fmt.Errorf("incremental paths must resolve before step execution")))
+			}
+			if containsAttemptOutputReference(input.Path) {
+				*errs = append(*errs, NewValidationError("inputs", input.Path,
+					fmt.Errorf("path output references are available only during executor attempts")))
+			}
+		}
+		hasPaths := len(step.Inputs) > 0 || pathOutputs > 0
+		if !hasPaths {
+			continue
+		}
+		if dag.Type != TypeIncremental {
+			*errs = append(*errs, NewValidationError("type", dag.Type,
+				fmt.Errorf("step %s declares incremental paths but DAG type is not %q", step.Name, TypeIncremental)))
+		}
+		if pathOutputs > 1 {
+			*errs = append(*errs, NewValidationError("outputs", step.Outputs,
+				fmt.Errorf("step %s declares more than one path output", step.Name)))
+		}
+		if dag.Container != nil || step.Container != nil {
+			*errs = append(*errs, NewValidationError("container", step.Name,
+				fmt.Errorf("incremental paths require host command or shell execution")))
+		}
+		executorType := step.ExecutorConfig.Type
+		if executorType != "" && executorType != "command" && executorType != "shell" {
+			*errs = append(*errs, NewValidationError("type", executorType,
+				fmt.Errorf("incremental paths are not supported by executor %q", executorType)))
+		}
+		validateNoAttemptOutputReference(errs, "working_dir", step.Dir)
+		validateNoAttemptOutputReference(errs, "stdout", step.Stdout)
+		validateNoAttemptOutputReference(errs, "stdout.artifact", step.StdoutArtifact)
+		validateNoAttemptOutputReference(errs, "stderr", step.Stderr)
+		validateNoAttemptOutputReference(errs, "stderr.artifact", step.StderrArtifact)
+		validateNoAttemptOutputReference(errs, "shell", step.Shell)
+		validateNoAttemptOutputReferences(errs, "shell_args", step.ShellArgs)
+		validateNoAttemptOutputReferences(errs, "shell_packages", step.ShellPackages)
+		validateNoAttemptOutputReferences(errs, "continue_on.output", step.ContinueOn.Output)
+		validateNoAttemptOutputReference(errs, "signal_on_stop", step.SignalOnStop)
+		validateNoAttemptOutputReference(errs, "retry_policy.limit", step.RetryPolicy.LimitStr)
+		validateNoAttemptOutputReference(errs, "retry_policy.interval_sec", step.RetryPolicy.IntervalSecStr)
+		validateNoAttemptOutputReference(errs, "repeat_policy.limit", step.RepeatPolicy.LimitStr)
+		validateNoAttemptOutputReference(errs, "repeat_policy.interval_sec", step.RepeatPolicy.IntervalStr)
+		validateNoAttemptOutputReference(errs, "repeat_policy.max_interval_sec", step.RepeatPolicy.MaxIntervalStr)
+		validateNoAttemptOutputCondition(errs, "repeat_policy.condition", step.RepeatPolicy.Condition)
+		for _, condition := range step.Preconditions {
+			validateNoAttemptOutputCondition(errs, "preconditions", condition)
+		}
+	}
+}
+
+func containsStepReference(value string) bool {
+	return strings.Contains(value, "${steps.")
+}
+
+func containsCommandSubstitution(value string) bool {
+	return strings.Contains(value, "$(") || strings.Contains(value, "`")
+}
+
+func containsAttemptOutputReference(value string) bool {
+	return strings.Contains(value, "${outputs.")
+}
+
+func validateNoAttemptOutputReference(errs *ErrorList, field, value string) {
+	if !containsAttemptOutputReference(value) {
+		return
+	}
+	*errs = append(*errs, NewValidationError(field, value,
+		fmt.Errorf("path output references are available only during executor attempts")))
+}
+
+func validateNoAttemptOutputReferences(errs *ErrorList, field string, values []string) {
+	for _, value := range values {
+		validateNoAttemptOutputReference(errs, field, value)
+	}
+}
+
+func validateNoAttemptOutputCondition(errs *ErrorList, field string, condition *Condition) {
+	if condition == nil {
+		return
+	}
+	if containsAttemptOutputReference(condition.Condition) ||
+		containsAttemptOutputReference(condition.Eval) ||
+		containsAttemptOutputReference(condition.Expected) {
+		*errs = append(*errs, NewValidationError(field, condition,
+			fmt.Errorf("path output references are available only during executor attempts")))
+	}
+}
+
+func validateNoIncrementalPathCondition(errs *ErrorList, field string, condition *Condition) {
+	if condition == nil {
+		return
+	}
+	if containsAttemptOutputReference(condition.Condition) ||
+		containsAttemptOutputReference(condition.Eval) ||
+		containsAttemptOutputReference(condition.Expected) ||
+		strings.Contains(condition.Condition, "${inputs.") ||
+		strings.Contains(condition.Eval, "${inputs.") ||
+		strings.Contains(condition.Expected, "${inputs.") {
+		*errs = append(*errs, NewValidationError(field, condition,
+			fmt.Errorf("incremental path references are unavailable to DAG preconditions")))
+	}
 }
 
 // collectNamesAndIDs collects all step names and IDs, validating uniqueness and format.

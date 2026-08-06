@@ -16,7 +16,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var dryFlags = []commandLineFlag{paramsFlag, nameFlag, profileFlag}
+var dryFlags = []commandLineFlag{paramsFlag, nameFlag, profileFlag, noReuseFlag}
 
 // Dry returns the cobra command for dry-run simulation.
 func Dry() *cobra.Command {
@@ -77,6 +77,10 @@ func runDry(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	noReuse, err := ctx.Command.Flags().GetBool("no-reuse")
+	if err != nil {
+		return err
+	}
 
 	ag := agent.New(
 		dagRunID,
@@ -90,6 +94,8 @@ func runDry(ctx *Context, args []string) error {
 			DAGRunStore:              ctx.DAGRunStore,
 			QueueStore:               ctx.QueueStore,
 			StateStore:               ctx.StateStore,
+			MaterializationStore:     localMaterializationStore(ctx),
+			NoReuse:                  noReuse,
 			SecretStore:              as.SecretStore,
 			ProfileStore:             as.ProfileStore,
 			ProfileName:              profileName,

@@ -34,6 +34,7 @@ func toExecStatus(detail *api.DAGRunDetails) (*exec.DAGRunStatus, error) {
 		Log:          detail.Log,
 		Params:       derefString(detail.Params),
 		WorkerID:     derefString(detail.WorkerId),
+		NoReuse:      derefBool(detail.NoReuse),
 		Labels:       labelsFromAPI(detail.Labels, detail.Tags),
 		Nodes:        make([]*exec.Node, 0, len(detail.Nodes)),
 	}
@@ -61,7 +62,7 @@ func mapAPINodePtr(node *api.Node) *exec.Node {
 }
 
 func mapAPINode(node api.Node) *exec.Node {
-	return &exec.Node{
+	mapped := &exec.Node{
 		Step:       mapAPIStep(node.Step),
 		Stdout:     node.Stdout,
 		Stderr:     node.Stderr,
@@ -73,6 +74,24 @@ func mapAPINode(node api.Node) *exec.Node {
 		Error:      derefString(node.Error),
 		SubRuns:    mapAPISubRuns(node.SubRuns),
 	}
+	if node.Incremental != nil {
+		mapped.Incremental = &exec.IncrementalExecution{
+			Decision:           string(node.Incremental.Decision),
+			Phase:              string(node.Incremental.Phase),
+			Reason:             node.Incremental.Reason,
+			Detail:             derefString(node.Incremental.Detail),
+			Fingerprint:        derefString(node.Incremental.Fingerprint),
+			MaterializationKey: derefString(node.Incremental.MaterializationKey),
+			ProducerAttemptID:  derefString(node.Incremental.ProducerAttemptId),
+		}
+		if node.Incremental.ProducerRun != nil {
+			mapped.Incremental.ProducerRun = exec.NewDAGRunRef(
+				derefString(node.Incremental.ProducerRun.Name),
+				derefString(node.Incremental.ProducerRun.Id),
+			)
+		}
+	}
+	return mapped
 }
 
 func mapAPISubRuns(subRuns *[]api.SubDAGRun) []exec.SubDAGRun {
@@ -101,6 +120,7 @@ func mapAPIStep(step api.Step) core.Step {
 		Output:      derefString(step.Output),
 		Depends:     derefStringSlice(step.Depends),
 		MailOnError: derefBool(step.MailOnError),
+		Inputs:      mapAPIStepInputs(step.Inputs),
 		Outputs:     mapAPIStepOutputs(step.Outputs),
 	}
 	if step.Id != nil {
@@ -139,14 +159,28 @@ func mapAPIStepOutputs(outputs *[]api.StepOutputDeclaration) []core.StepOutputDe
 	}
 	mapped := make([]core.StepOutputDeclaration, 0, len(*outputs))
 	for _, output := range *outputs {
-		outputType := core.StepDeclaredOutputTypeString
+		outputType := ""
 		if output.Type != nil {
 			outputType = string(*output.Type)
+		} else if output.Path == nil {
+			outputType = core.StepDeclaredOutputTypeString
 		}
 		mapped = append(mapped, core.StepOutputDeclaration{
 			Name: output.Name,
 			Type: outputType,
+			Path: derefString(output.Path),
 		})
+	}
+	return mapped
+}
+
+func mapAPIStepInputs(inputs *[]api.StepInputDeclaration) []core.StepInputDeclaration {
+	if inputs == nil || len(*inputs) == 0 {
+		return nil
+	}
+	mapped := make([]core.StepInputDeclaration, 0, len(*inputs))
+	for _, input := range *inputs {
+		mapped = append(mapped, core.StepInputDeclaration{Name: input.Name, Path: input.Path})
 	}
 	return mapped
 }
@@ -230,11 +264,16 @@ func remoteRunStart(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	noReuse, err := ctx.Command.Flags().GetBool("no-reuse")
+	if err != nil {
+		return err
+	}
 	resp, err := ctx.Remote.startDAG(ctx, dag.FileName, api.ExecuteDAGJSONBody{
 		DagName:  stringPtrOrNil(nameOverride),
 		DagRunId: stringPtrOrNil(runID),
 		Params:   stringPtrOrNil(params),
 		Labels:   labels,
+		NoReuse:  &noReuse,
 	})
 	if err != nil {
 		return err
@@ -270,12 +309,17 @@ func remoteRunEnqueue(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	noReuse, err := ctx.Command.Flags().GetBool("no-reuse")
+	if err != nil {
+		return err
+	}
 	resp, err := ctx.Remote.enqueueDAG(ctx, dag.FileName, api.EnqueueDAGDAGRunJSONBody{
 		DagName:  stringPtrOrNil(nameOverride),
 		DagRunId: stringPtrOrNil(runID),
 		Params:   stringPtrOrNil(params),
 		Queue:    stringPtrOrNil(queueOverride),
 		Labels:   labels,
+		NoReuse:  &noReuse,
 	})
 	if err != nil {
 		return err

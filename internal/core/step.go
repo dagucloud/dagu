@@ -70,8 +70,10 @@ type Step struct {
 	StructuredOutput map[string]StepOutputEntry `json:"structuredOutput,omitempty"`
 	// OutputSchema validates stdout JSON before publishing step-scoped output.
 	OutputSchema map[string]any `json:"outputSchema,omitzero"`
-	// Outputs declares file-based step outputs published through DAGU_OUTPUT_FILE.
+	// Outputs declares named step outputs.
 	Outputs []StepOutputDeclaration `json:"outputs,omitempty"`
+	// Inputs declares named regular-file inputs for incremental execution.
+	Inputs []StepInputDeclaration `json:"inputs,omitempty"`
 	// Depends contains the list of step names to depend on.
 	Depends []string `json:"depends,omitempty"`
 	// ExplicitlyNoDeps indicates the depends field was explicitly set to empty
@@ -168,6 +170,38 @@ type StepOutputsConfig struct {
 type StepOutputDeclaration struct {
 	Name string `json:"name"`
 	Type string `json:"type,omitempty"`
+	Path string `json:"path,omitempty"`
+}
+
+// StepInputDeclaration defines one named regular-file input.
+type StepInputDeclaration struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+}
+
+// PathOutput returns the path-backed output and whether exactly one exists.
+func (s Step) PathOutput() (StepOutputDeclaration, bool) {
+	var found StepOutputDeclaration
+	count := 0
+	for _, output := range s.Outputs {
+		if output.Path == "" {
+			continue
+		}
+		found = output
+		count++
+	}
+	return found, count == 1
+}
+
+// ValueOutputs returns declarations published through DAGU_OUTPUT_FILE.
+func (s Step) ValueOutputs() []StepOutputDeclaration {
+	outputs := make([]StepOutputDeclaration, 0, len(s.Outputs))
+	for _, output := range s.Outputs {
+		if output.Path == "" {
+			outputs = append(outputs, output)
+		}
+	}
+	return outputs
 }
 
 // String returns a formatted string representation of the step

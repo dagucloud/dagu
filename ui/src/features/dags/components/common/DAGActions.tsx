@@ -774,17 +774,25 @@ function DAGActions({
           profilesLoading={profilesLoading}
           defaultProfile={dagSettingsData?.profile}
           defaultProfileLoading={dagSettingsLoading}
-          onSubmit={async (params, dagRunId, immediate, profile) => {
+          onSubmit={async (params, dagRunId, immediate, profile, noReuse) => {
             if (dagContext.onEnqueue) {
               const result =
-                profile !== undefined
+                noReuse !== undefined
                   ? await dagContext.onEnqueue(
                       params,
                       dagRunId,
                       immediate,
-                      profile
+                      profile,
+                      noReuse
                     )
-                  : await dagContext.onEnqueue(params, dagRunId, immediate);
+                  : profile !== undefined
+                    ? await dagContext.onEnqueue(
+                        params,
+                        dagRunId,
+                        immediate,
+                        profile
+                      )
+                    : await dagContext.onEnqueue(params, dagRunId, immediate);
               const startedRunId =
                 typeof result === 'string' && result ? result : dagRunId;
               if (startedRunId) {
@@ -798,12 +806,16 @@ function DAGActions({
               params: string;
               dagRunId?: string;
               profile?: string;
+              noReuse?: boolean;
             } = { params };
             if (dagRunId) {
               body.dagRunId = dagRunId;
             }
             if (profile !== undefined) {
               body.profile = profile;
+            }
+            if (noReuse !== undefined) {
+              body.noReuse = noReuse;
             }
 
             // Use /start endpoint if immediate is true, otherwise use /enqueue

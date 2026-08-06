@@ -165,12 +165,13 @@ func serializeDeclaredStepOutputs(ctx context.Context, values map[string]string)
 }
 
 func (n *Node) captureDeclaredStepOutputs(ctx context.Context) error {
+	declarations := n.Step().ValueOutputs()
 	path := n.stepOutputFile()
 	if path == "" {
 		return fmt.Errorf("%s was not set", coreexec.EnvKeyDAGUOutputFile)
 	}
 
-	values, err := readDeclaredStepOutputs(ctx, path, n.Step().Outputs)
+	values, err := readDeclaredStepOutputs(ctx, path, declarations)
 	if err != nil {
 		return fmt.Errorf("failed to parse %s: %w", coreexec.EnvKeyDAGUOutputFile, err)
 	}

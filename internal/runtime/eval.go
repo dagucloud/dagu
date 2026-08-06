@@ -58,6 +58,8 @@ func resolverFromEnv(env Env) cmnvalue.Resolver {
 		Env:            env.Scope,
 		Steps:          env.StepMap,
 		Foreach:        env.Foreach,
+		Inputs:         env.Inputs,
+		Outputs:        env.Outputs,
 		BuiltinContext: builtinContextFromEnv(env),
 	}
 	return cmnvalue.NewResolver(cmnvalue.StaticScope{Consts: consts, Params: paramDeclarations}, scope)

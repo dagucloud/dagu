@@ -57,6 +57,8 @@ type RuntimeScope struct {
 	Env            *EnvScope
 	Steps          map[string]StepInfo
 	Foreach        Values
+	Inputs         Values
+	Outputs        Values
 	BuiltinContext BuiltinContext
 }
 

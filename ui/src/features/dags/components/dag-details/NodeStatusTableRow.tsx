@@ -56,7 +56,7 @@ import {
   X,
 } from 'lucide-react';
 import { useContext, useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { buildDAGPageURL } from '../../../dag-runs/lib/dagRunUrls';
 import { DAGRunContext } from '../../../dag-runs/contexts/DAGRunContext';
 import {
@@ -104,6 +104,57 @@ type Props = {
   /** Whether the inline log starts expanded */
   defaultLogExpanded?: boolean;
 };
+
+type IncrementalExecution = components['schemas']['IncrementalExecution'];
+
+function IncrementalDecisionBadge({
+  incremental,
+}: {
+  incremental?: IncrementalExecution;
+}) {
+  if (!incremental) return null;
+
+  const label =
+    incremental.decision === 'reuse'
+      ? 'reused'
+      : incremental.decision === 'always'
+        ? 'always run'
+        : incremental.decision;
+  const producer = incremental.producerRun;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          className={cn(
+            'inline-flex rounded-full border px-2 py-0.5 text-[11px] font-medium',
+            incremental.decision === 'reuse'
+              ? 'border-success/30 bg-success/10 text-success'
+              : 'border-border bg-muted text-muted-foreground'
+          )}
+        >
+          {label}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-80 space-y-1 text-xs">
+        <div className="font-medium">
+          {incremental.reason.replace(/_/g, ' ')}
+        </div>
+        {incremental.decision === 'reuse' && <div>No executor ran.</div>}
+        {incremental.detail && <div>{incremental.detail}</div>}
+        {producer?.name && producer.id && (
+          <Link
+            className="block underline underline-offset-2"
+            to={`/dag-runs/${encodeURIComponent(producer.name)}/${encodeURIComponent(producer.id)}`}
+            onClick={(event) => event.stopPropagation()}
+          >
+            Produced by {producer.name}:{producer.id}
+          </Link>
+        )}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
 
 /**
  * Format timestamp for better readability
@@ -906,21 +957,23 @@ function NodeStatusTableRow({
 
           {/* Status */}
           <TableCell className="text-center">
-            <div
-              onClick={(e) => {
-                e.stopPropagation();
-                if (!canUpdateStepStatus) return;
-                setShowStatusModal(true);
-              }}
-              className={cn(
-                'inline-block',
-                canUpdateStepStatus && 'cursor-pointer'
-              )}
-              title={canUpdateStepStatus ? 'Click to update status' : undefined}
-            >
-              <NodeStatusChip status={node.status} size="sm">
-                {node.statusLabel}
-              </NodeStatusChip>
+            <div className="inline-flex flex-col items-center gap-1">
+              <div
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!canUpdateStepStatus) return;
+                  setShowStatusModal(true);
+                }}
+                className={cn(canUpdateStepStatus && 'cursor-pointer')}
+                title={
+                  canUpdateStepStatus ? 'Click to update status' : undefined
+                }
+              >
+                <NodeStatusChip status={node.status} size="sm">
+                  {node.statusLabel}
+                </NodeStatusChip>
+              </div>
+              <IncrementalDecisionBadge incremental={node.incremental} />
             </div>
           </TableCell>
 
@@ -1128,6 +1181,7 @@ function NodeStatusTableRow({
           <NodeStatusChip status={node.status} size="sm">
             {node.statusLabel}
           </NodeStatusChip>
+          <IncrementalDecisionBadge incremental={node.incremental} />
           {stepActionsMenu}
         </div>
       </div>

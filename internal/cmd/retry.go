@@ -191,6 +191,9 @@ func runRetry(ctx *Context, args []string) error {
 	if err := applyRetryDefaultWorkingDir(ctx, dag, status); err != nil {
 		return err
 	}
+	if dag.Type == core.TypeIncremental && workerID != "local" {
+		return fmt.Errorf("incremental workflows require local execution; distributed fencing is not implemented")
+	}
 
 	if err := prepareQueuedCatchupRetry(ctx, attempt, dag, status); err != nil {
 		return err
@@ -233,6 +236,7 @@ func runRetry(ctx *Context, args []string) error {
 		triggerActor: triggerActor,
 		scheduleTime: status.ScheduleTime,
 		profileName:  profileName,
+		noReuse:      status.NoReuse,
 		step:         stepName,
 		retryPath:    retryPath,
 	}
@@ -651,6 +655,8 @@ func executeRetry(ctx *Context, dag *core.DAG, status *exec.DAGRunStatus, opts r
 			DAGRunStore:              ctx.DAGRunStore,
 			QueueStore:               ctx.QueueStore,
 			StateStore:               ctx.StateStore,
+			MaterializationStore:     localMaterializationStore(ctx),
+			NoReuse:                  opts.noReuse,
 			SecretStore:              as.SecretStore,
 			ProfileStore:             as.ProfileStore,
 			ProfileName:              opts.profileName,

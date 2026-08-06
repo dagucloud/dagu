@@ -306,6 +306,19 @@ func WriteFileAtomic(filePath string, data []byte, perm os.FileMode) error {
 	return nil
 }
 
+// ReplaceFileDurable replaces target with source and persists the directory entry change.
+func ReplaceFileDurable(source, target string) error {
+	if err := ReplaceFile(source, target); err != nil {
+		return err
+	}
+	return syncDir(filepath.Dir(target))
+}
+
+// SyncDir persists directory entry changes where the platform requires it.
+func SyncDir(path string) error {
+	return syncDir(path)
+}
+
 // WriteFileAtomicExclusive durably creates filePath without replacing an
 // existing file. It returns an error satisfying fs.ErrExist when the
 // destination already exists.

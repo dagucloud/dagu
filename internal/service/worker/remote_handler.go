@@ -578,6 +578,9 @@ func (h *remoteTaskHandler) executeDAGRun(
 	dag *core.DAG,
 	run remoteRun,
 ) error {
+	if dag != nil && dag.Type == core.TypeIncremental {
+		return newTaskInitError(fmt.Errorf("incremental workflows require local execution; distributed fencing is not implemented"))
+	}
 	task := run.task
 	dagRunID := task.DagRunId
 	attemptID := task.AttemptId

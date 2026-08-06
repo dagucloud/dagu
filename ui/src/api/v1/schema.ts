@@ -4527,7 +4527,7 @@ export interface components {
         /** @description Detailed DAG configuration information */
         DAGDetails: {
             /**
-             * @description Execution type. 'graph' resolves dependencies, 'chain' runs steps in order, 'controller' lets an LLM choose each step.
+             * @description Execution type. 'graph' resolves dependencies, 'chain' runs steps in order, 'controller' lets an LLM choose each step, and 'incremental' adds file-derived dependencies and materialization reuse.
              * @enum {string}
              */
             type?: DAGDetailsType;
@@ -4759,6 +4759,8 @@ export interface components {
             finishedAt: string;
             /** @description Whether artifact files are available for this DAG-run */
             artifactsAvailable: boolean;
+            /** @description Whether reuse of prior incremental materializations was disabled for this DAG-run */
+            noReuse?: boolean;
             /** @description Runtime parameters passed to the DAG-run in JSON format */
             params?: string;
             /** @description Runtime profile selected for this DAG-run. */
@@ -4929,6 +4931,26 @@ export interface components {
             /** @description Justification the controller gave for the current status */
             reason?: string;
         };
+        /** @description DAG-run that produced a reused materialization */
+        IncrementalProducer: {
+            name?: string;
+            id?: string;
+        };
+        /** @description Incremental execution decision and its explanation */
+        IncrementalExecution: {
+            /** @enum {string} */
+            decision: IncrementalExecutionDecision;
+            /** @enum {string} */
+            phase: IncrementalExecutionPhase;
+            /** @description Stable machine-readable reason for the decision */
+            reason: string;
+            /** @description Human-readable explanation of the decision */
+            detail?: string;
+            fingerprint?: string;
+            materializationKey?: string;
+            producerRun?: components["schemas"]["IncrementalProducer"];
+            producerAttemptId?: string;
+        };
         /** @description Status of an individual step within a DAG-run */
         Node: {
             step: components["schemas"]["Step"];
@@ -4952,6 +4974,7 @@ export interface components {
             subRunsRepeated?: components["schemas"]["SubDAGRun"][];
             /** @description Error message if the step failed */
             error?: string;
+            incremental?: components["schemas"]["IncrementalExecution"];
             /** @description Name of the subject that completed the human task */
             humanTaskCompletedBy?: string;
             /** @description ID of the subject that completed the human task; local CLI IDs use the os:<uid> form */
@@ -5023,7 +5046,7 @@ export interface components {
             /** @description RFC 3339 timestamp when the sub DAG-run finished */
             finishedAt?: string;
         };
-        /** @description One file-based step output declaration published through DAGU_OUTPUT_FILE */
+        /** @description One named value output or incremental file output */
         StepOutputDeclaration: {
             /** @description Published output name scoped to the declaring step */
             name: string;
@@ -5032,6 +5055,13 @@ export interface components {
              * @enum {string}
              */
             type?: StepOutputDeclarationType;
+            /** @description Regular-file path published atomically by an incremental step */
+            path?: string;
+        };
+        /** @description One named regular-file input for incremental execution */
+        StepInputDeclaration: {
+            name: string;
+            path: string;
         };
         /** @description Individual task definition that performs a specific operation in a DAG-run */
         Step: {
@@ -5055,6 +5085,8 @@ export interface components {
             output?: string;
             /** @description Declared file-based step outputs published through DAGU_OUTPUT_FILE for ${steps.<id>.outputs.<name>} references. Steps that declare outputs must also define id. */
             outputs?: components["schemas"]["StepOutputDeclaration"][];
+            /** @description Named regular-file inputs used for incremental fingerprints and inferred dependencies. Steps that declare inputs must also define id. */
+            inputs?: components["schemas"]["StepInputDeclaration"][];
             /** @description The name of the DAG to execute as a sub DAG-run */
             call?: string;
             /** @description Parameters to pass to the sub DAG-run in JSON format */
@@ -7606,6 +7638,11 @@ export interface operations {
                      * @default false
                      */
                     singleton?: boolean;
+                    /**
+                     * @description If true, execute eligible incremental steps without reusing prior materializations
+                     * @default false
+                     */
+                    noReuse?: boolean;
                     /** @description Additional labels to apply to the DAG-run. Mutually exclusive with `tags`; the server returns HTTP 400 if both are set. */
                     labels?: components["schemas"]["Labels"];
                     /** @description Deprecated alias for `labels`; mutually exclusive with `labels`. */
@@ -7682,6 +7719,11 @@ export interface operations {
                      * @default false
                      */
                     singleton?: boolean;
+                    /**
+                     * @description If true, execute eligible incremental steps without reusing prior materializations
+                     * @default false
+                     */
+                    noReuse?: boolean;
                     /** @description Additional labels to apply to the DAG-run. Mutually exclusive with `tags`; the server returns HTTP 400 if both are set. */
                     labels?: components["schemas"]["Labels"];
                     /** @description Deprecated alias for `labels`; mutually exclusive with `labels`. */
@@ -7771,6 +7813,11 @@ export interface operations {
                      * @default false
                      */
                     singleton?: boolean;
+                    /**
+                     * @description If true, execute eligible incremental steps without reusing prior materializations
+                     * @default false
+                     */
+                    noReuse?: boolean;
                     /** @description Additional labels to apply to the DAG-run. Mutually exclusive with `tags`; the server returns HTTP 400 if both are set. */
                     labels?: components["schemas"]["Labels"];
                     /** @description Deprecated alias for `labels`; mutually exclusive with `labels`. */
@@ -8563,6 +8610,11 @@ export interface operations {
                      * @default false
                      */
                     singleton?: boolean;
+                    /**
+                     * @description If true, execute eligible incremental steps without reusing prior materializations
+                     * @default false
+                     */
+                    noReuse?: boolean;
                     /** @description Additional labels to apply to the DAG-run. Mutually exclusive with `tags`; the server returns HTTP 400 if both are set. */
                     labels?: components["schemas"]["Labels"];
                     /** @description Deprecated alias for `labels`; mutually exclusive with `labels`. */
@@ -8640,6 +8692,11 @@ export interface operations {
                      * @default false
                      */
                     singleton?: boolean;
+                    /**
+                     * @description If true, execute eligible incremental steps without reusing prior materializations
+                     * @default false
+                     */
+                    noReuse?: boolean;
                     /** @description Additional labels to apply to the DAG-run. Mutually exclusive with `tags`; the server returns HTTP 400 if both are set. */
                     labels?: components["schemas"]["Labels"];
                     /** @description Deprecated alias for `labels`; mutually exclusive with `labels`. */
@@ -17790,7 +17847,8 @@ export enum WorkerHealthStatus {
 export enum DAGDetailsType {
     graph = "graph",
     chain = "chain",
-    controller = "controller"
+    controller = "controller",
+    incremental = "incremental"
 }
 export enum ValueReferenceNoticeReason {
     unknown_step_id = "unknown_step_id",
@@ -17840,6 +17898,21 @@ export enum ControllerTaskStatus {
     completed = "completed",
     skipped = "skipped",
     failed = "failed"
+}
+export enum IncrementalExecutionDecision {
+    none = "none",
+    always = "always",
+    execute = "execute",
+    reuse = "reuse",
+    deferred = "deferred"
+}
+export enum IncrementalExecutionPhase {
+    precondition = "precondition",
+    evaluate = "evaluate",
+    execute = "execute",
+    verify = "verify",
+    commit = "commit",
+    complete = "complete"
 }
 export enum StepOutputDeclarationType {
     string = "string",

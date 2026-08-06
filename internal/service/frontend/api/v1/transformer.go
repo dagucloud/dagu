@@ -123,6 +123,27 @@ func toStep(obj core.Step) api.Step {
 		RepeatPolicy:  ptrOf(repeatPolicy),
 		Script:        ptrOf(obj.Script),
 	}
+	if len(obj.Inputs) > 0 {
+		inputs := make([]api.StepInputDeclaration, len(obj.Inputs))
+		for i, input := range obj.Inputs {
+			inputs[i] = api.StepInputDeclaration{Name: input.Name, Path: input.Path}
+		}
+		step.Inputs = &inputs
+	}
+	if len(obj.Outputs) > 0 {
+		outputs := make([]api.StepOutputDeclaration, len(obj.Outputs))
+		for i, output := range obj.Outputs {
+			outputs[i].Name = output.Name
+			if output.Type != "" {
+				outputType := api.StepOutputDeclarationType(output.Type)
+				outputs[i].Type = &outputType
+			}
+			if output.Path != "" {
+				outputs[i].Path = &output.Path
+			}
+		}
+		step.Outputs = &outputs
+	}
 
 	if obj.Timeout > 0 {
 		step.TimeoutSec = new(int(obj.Timeout.Seconds()))
@@ -317,6 +338,7 @@ func toDAGRunSummary(s exec.DAGRunStatus) api.DAGRunSummary {
 		StartedAt:          s.StartedAt,
 		FinishedAt:         s.FinishedAt,
 		ArtifactsAvailable: artifactsAvailable,
+		NoReuse:            ptrOf(s.NoReuse),
 		Status:             api.Status(s.Status),
 		StatusLabel:        api.StatusLabel(s.Status.String()),
 		WorkerId:           ptrOf(s.WorkerID),
@@ -375,6 +397,7 @@ func ToDAGRunDetails(s exec.DAGRunStatus) api.DAGRunDetails {
 		ParentDAGRunName:       ptrOf(s.Parent.Name),
 		ParentDAGRunId:         ptrOf(s.Parent.ID),
 		ArtifactsAvailable:     artifactsAvailable,
+		NoReuse:                ptrOf(s.NoReuse),
 		Log:                    s.Log,
 		Name:                   s.Name,
 		Params:                 ptrOf(s.Params),
@@ -434,7 +457,7 @@ func toNode(node *exec.Node) api.Node {
 	if node == nil {
 		return api.Node{}
 	}
-	return api.Node{
+	result := api.Node{
 		DoneCount:              node.DoneCount,
 		FinishedAt:             node.FinishedAt,
 		Stdout:                 node.Stdout,
@@ -461,6 +484,24 @@ func toNode(node *exec.Node) api.Node {
 		RejectionReason:        ptrOf(node.RejectionReason),
 		ApprovalIteration:      ptrOf(node.ApprovalIteration),
 	}
+	if node.Incremental != nil {
+		result.Incremental = &api.IncrementalExecution{
+			Decision:           api.IncrementalExecutionDecision(node.Incremental.Decision),
+			Phase:              api.IncrementalExecutionPhase(node.Incremental.Phase),
+			Reason:             node.Incremental.Reason,
+			Detail:             ptrOf(node.Incremental.Detail),
+			Fingerprint:        ptrOf(node.Incremental.Fingerprint),
+			MaterializationKey: ptrOf(node.Incremental.MaterializationKey),
+			ProducerAttemptId:  ptrOf(node.Incremental.ProducerAttemptID),
+		}
+		if !node.Incremental.ProducerRun.Zero() {
+			result.Incremental.ProducerRun = &api.IncrementalProducer{
+				Name: ptrOf(node.Incremental.ProducerRun.Name),
+				Id:   ptrOf(node.Incremental.ProducerRun.ID),
+			}
+		}
+	}
+	return result
 }
 
 func toPushBackHistory(node *exec.Node) []api.PushBackHistoryEntry {

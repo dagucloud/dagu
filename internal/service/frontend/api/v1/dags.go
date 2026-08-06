@@ -1045,7 +1045,7 @@ func (a *API) ExecuteDAG(ctx context.Context, request api.ExecuteDAGRequestObjec
 		return nil, err
 	}
 
-	if err := a.startDAGRun(ctx, dag, params, dagRunId, nameOverride, labels, profileName); err != nil {
+	if err := a.startDAGRun(ctx, dag, params, dagRunId, nameOverride, labels, profileName, valueOf(request.Body.NoReuse)); err != nil {
 		return nil, fmt.Errorf("error starting dag-run: %w", err)
 	}
 
@@ -1142,7 +1142,7 @@ func (a *API) ExecuteDAGSync(ctx context.Context, request api.ExecuteDAGSyncRequ
 		return nil, err
 	}
 
-	if err := a.startDAGRun(ctx, dag, params, dagRunId, nameOverride, labels, profileName); err != nil {
+	if err := a.startDAGRun(ctx, dag, params, dagRunId, nameOverride, labels, profileName, valueOf(request.Body.NoReuse)); err != nil {
 		return nil, fmt.Errorf("error starting dag-run: %w", err)
 	}
 
@@ -1243,7 +1243,7 @@ func (a *API) readDAGRunStatusForSync(ctx context.Context, dag *core.DAG, dagRun
 	return status, nil
 }
 
-func (a *API) startDAGRun(ctx context.Context, dag *core.DAG, params, dagRunID, nameOverride, labels, profileName string) error {
+func (a *API) startDAGRun(ctx context.Context, dag *core.DAG, params, dagRunID, nameOverride, labels, profileName string, noReuse bool) error {
 	return a.startDAGRunWithOptions(ctx, dag, startDAGRunOptions{
 		params:       params,
 		dagRunID:     dagRunID,
@@ -1252,6 +1252,7 @@ func (a *API) startDAGRun(ctx context.Context, dag *core.DAG, params, dagRunID, 
 		triggerActor: triggerActorFromContext(ctx),
 		labels:       labels,
 		profileName:  profileName,
+		noReuse:      noReuse,
 	})
 }
 
@@ -1336,6 +1337,7 @@ type startDAGRunOptions struct {
 	triggerActor string
 	labels       string
 	profileName  string
+	noReuse      bool
 }
 
 // waitForDAGStatusChange waits until the DAG status transitions from NotStarted.
@@ -1541,6 +1543,13 @@ func (a *API) startPreparedDAGRunWithOptions(
 ) error {
 	// Check if this DAG should be dispatched to the coordinator for distributed execution
 	if dispatch.ShouldDispatchToCoordinator(dag, a.coordinatorCli != nil, a.defaultExecMode) {
+		if dag.Type == core.TypeIncremental {
+			return &Error{
+				HTTPStatus: http.StatusBadRequest,
+				Code:       api.ErrorCodeBadRequest,
+				Message:    "incremental workflows require local execution; distributed fencing is not implemented",
+			}
+		}
 		timeout := 10 * time.Second
 		if osrt.GOOS == "windows" {
 			timeout = 20 * time.Second
@@ -1577,6 +1586,7 @@ func (a *API) startPreparedDAGRunWithOptions(
 		TriggerActor: opts.triggerActor,
 		Labels:       opts.labels,
 		ProfileName:  opts.profileName,
+		NoReuse:      opts.noReuse,
 	})
 	started, err := launcher.StartProcess(ctx, spec)
 	if err != nil {
@@ -1689,7 +1699,7 @@ func (a *API) EnqueueDAGDAGRun(ctx context.Context, request api.EnqueueDAGDAGRun
 		return nil, err
 	}
 
-	if err := a.enqueueDAGRun(ctx, dag, valueOf(request.Body.Params), dagRunId, nameOverride, core.TriggerTypeManual, labels, profileName); err != nil {
+	if err := a.enqueueDAGRun(ctx, dag, valueOf(request.Body.Params), dagRunId, nameOverride, core.TriggerTypeManual, labels, profileName, valueOf(request.Body.NoReuse)); err != nil {
 		return nil, fmt.Errorf("error enqueuing dag-run: %w", err)
 	}
 
@@ -1707,7 +1717,7 @@ func (a *API) EnqueueDAGDAGRun(ctx context.Context, request api.EnqueueDAGDAGRun
 	}, nil
 }
 
-func (a *API) enqueueDAGRun(ctx context.Context, dag *core.DAG, params, dagRunID, nameOverride string, triggerType core.TriggerType, labels, profileName string) error {
+func (a *API) enqueueDAGRun(ctx context.Context, dag *core.DAG, params, dagRunID, nameOverride string, triggerType core.TriggerType, labels, profileName string, noReuse bool) error {
 	resolvedDAG, err := spec.ResolveRuntimeParams(ctx, dag, params, spec.ResolveRuntimeParamsOptions{
 		BaseConfig: a.config.Paths.BaseConfig,
 	})
@@ -1747,6 +1757,7 @@ func (a *API) enqueueDAGRun(ctx context.Context, dag *core.DAG, params, dagRunID
 		TriggerActor: triggerActorFromContext(ctx),
 		Labels:       labels,
 		ProfileName:  profileName,
+		NoReuse:      noReuse,
 	}
 	if dag.Queue != "" {
 		opts.Queue = dag.Queue

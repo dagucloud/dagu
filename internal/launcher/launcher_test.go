@@ -385,6 +385,7 @@ func TestStart(t *testing.T) {
 			Quiet:        true,
 			DAGRunID:     "full-test-id",
 			TriggerActor: "alice",
+			NoReuse:      true,
 		}
 		spec := builder.Start(dag, opts)
 
@@ -394,6 +395,7 @@ func TestStart(t *testing.T) {
 		assert.Contains(t, spec.Args, "-q")
 		assert.Contains(t, spec.Args, "--run-id=full-test-id")
 		assert.Contains(t, spec.Args, "--trigger-actor=alice")
+		assert.Contains(t, spec.Args, "--no-reuse")
 		assert.Contains(t, spec.Args, "--config")
 		assert.Contains(t, spec.Args, "/path/to/dag.yaml")
 	})
@@ -494,6 +496,7 @@ func TestEnqueue(t *testing.T) {
 			DAGRunID:     "full-enqueue-id",
 			Queue:        "priority-queue",
 			TriggerActor: "alice",
+			NoReuse:      true,
 		}
 		spec := builder.Enqueue(dag, opts)
 
@@ -505,6 +508,7 @@ func TestEnqueue(t *testing.T) {
 		assert.Contains(t, spec.Args, "--queue")
 		assert.Contains(t, spec.Args, "priority-queue")
 		assert.Contains(t, spec.Args, "--trigger-actor=alice")
+		assert.Contains(t, spec.Args, "--no-reuse")
 		assert.Contains(t, spec.Args, "/path/to/dag.yaml")
 	})
 }

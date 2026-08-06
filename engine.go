@@ -152,6 +152,7 @@ type runOptions struct {
 	workerSelector    map[string]string
 	labels            []string
 	dryRun            bool
+	noReuse           bool
 }
 
 // New creates an embedded Dagu engine.
@@ -398,6 +399,13 @@ func WithDryRun(enabled bool) RunOption {
 	}
 }
 
+// WithNoReuse forces incremental steps to recompute for this run.
+func WithNoReuse(enabled bool) RunOption {
+	return func(o *runOptions) {
+		o.noReuse = enabled
+	}
+}
+
 func internalOptions(opts Options) iengine.Options {
 	out := iengine.Options{
 		HomeDir:            opts.HomeDir,
@@ -490,6 +498,7 @@ func internalRunOptions(opts runOptions) iengine.RunOptions {
 		WorkerSelector:    opts.workerSelector,
 		Labels:            opts.labels,
 		DryRun:            opts.dryRun,
+		NoReuse:           opts.noReuse,
 	}
 }
 

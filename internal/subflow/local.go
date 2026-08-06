@@ -377,6 +377,8 @@ func (r *Local) newAgent(
 	opts.DAGRunStore = r.dagRunStoreFromContext(ctx)
 	opts.QueueStore = r.queueStoreFromContext(ctx)
 	opts.StateStore = r.stateStoreFromContext(ctx)
+	opts.MaterializationStore = rCtx.MaterializationStore
+	opts.NoReuse = rCtx.NoReuse
 	opts.SecretStore = r.secretStore
 	opts.ProfileStore = r.profileStore
 	opts.ProfileName = req.ProfileName
