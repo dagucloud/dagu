@@ -57,7 +57,10 @@ import {
 } from 'lucide-react';
 import { useContext, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { buildDAGPageURL } from '../../../dag-runs/lib/dagRunUrls';
+import {
+  buildDAGPageURL,
+  buildDAGRunPageURL,
+} from '../../../dag-runs/lib/dagRunUrls';
 import { DAGRunContext } from '../../../dag-runs/contexts/DAGRunContext';
 import {
   components,
@@ -147,7 +150,11 @@ function IncrementalDecisionBadge({
         {producer?.name && producer.id && (
           <Link
             className="block underline underline-offset-2"
-            to={`/dag-runs/${encodeURIComponent(producer.name)}/${encodeURIComponent(producer.id)}?remoteNode=${encodeURIComponent(remoteNode)}`}
+            to={buildDAGRunPageURL({
+              rootDAGRunName: producer.name,
+              rootDAGRunId: producer.id,
+              remoteNode,
+            })}
             onClick={(event) => event.stopPropagation()}
           >
             Produced by {producer.name}:{producer.id}
