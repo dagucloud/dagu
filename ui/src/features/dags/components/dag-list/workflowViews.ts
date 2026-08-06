@@ -15,6 +15,7 @@ import {
 export type WorkflowFilterSet = {
   searchText: string;
   searchLabels: string[];
+  activeOnly: boolean;
   sortField: ViewSortField;
   sortOrder: ViewSortOrder;
 };
@@ -56,9 +57,7 @@ export function workflowViewMatchesScope(
 ): boolean {
   const workspaceScope =
     view.workspaceScope ||
-    (view.workspace
-      ? ViewWorkspaceScope.workspace
-      : ViewWorkspaceScope.all);
+    (view.workspace ? ViewWorkspaceScope.workspace : ViewWorkspaceScope.all);
   return (
     workspaceScope === scope.workspaceScope &&
     (scope.workspaceScope !== ViewWorkspaceScope.workspace ||

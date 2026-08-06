@@ -828,7 +828,7 @@ func isAllowedReadQueryParam(target, key string) bool {
 	switch target {
 	case readTargetDAGs:
 		switch key {
-		case "page", "perPage", "name", "labels", "sort", "order":
+		case "page", "perPage", "name", "labels", "active", "sort", "order":
 			return true
 		}
 	case readTargetDocs:
@@ -862,6 +862,8 @@ func validReadQueryValue(target, key, value string) bool {
 			return value != ""
 		case "labels":
 			return validCommaList(value)
+		case "active":
+			return value == "true" || value == "false"
 		case "sort":
 			return value == "name" || value == "nextRun"
 		case "order":

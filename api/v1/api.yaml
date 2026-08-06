@@ -810,6 +810,13 @@ paths:
           schema:
             type: "string"
           description: "Filter DAGs by labels (comma-separated). Returns DAGs that have ALL specified labels. Mutually exclusive with `tags`; the server returns HTTP 400 if both are set."
+        - name: "active"
+          in: "query"
+          required: false
+          schema:
+            type: "boolean"
+            default: false
+          description: "Filter to DAGs that have a schedule and are not suspended."
         - name: "tags"
           in: "query"
           required: false
@@ -14872,6 +14879,9 @@ components:
           $ref: "#/components/schemas/ViewSortField"
         sortOrder:
           $ref: "#/components/schemas/ViewSortOrder"
+        activeOnly:
+          type: boolean
+          description: "Whether the view only includes scheduled, unsuspended workflows."
         isDefault:
           type: boolean
           description: "Whether this is the default workflow view for its workspace scope."
@@ -14915,6 +14925,9 @@ components:
           $ref: "#/components/schemas/ViewSortField"
         sortOrder:
           $ref: "#/components/schemas/ViewSortOrder"
+        activeOnly:
+          type: boolean
+          description: "Whether the view only includes scheduled, unsuspended workflows."
         isDefault:
           type: boolean
         createdBy:

@@ -161,6 +161,9 @@ func (a *API) UpdateView(ctx context.Context, request api.UpdateViewRequestObjec
 	if request.Body.SortOrder == nil {
 		updated.SortOrder = existing.SortOrder
 	}
+	if request.Body.ActiveOnly == nil {
+		updated.ActiveOnly = existing.ActiveOnly
+	}
 	if request.Body.IsDefault == nil {
 		updated.Default = existing.Default
 	}
@@ -254,6 +257,7 @@ func viewFromSpec(spec api.ViewSpec) *view.View {
 		Workspace:    valueOf(spec.Workspace),
 		DAGName:      valueOf(spec.DagName),
 		Pinned:       valueOf(spec.Pinned),
+		ActiveOnly:   valueOf(spec.ActiveOnly),
 		Default:      valueOf(spec.IsDefault),
 	}
 	if spec.Type != nil {
@@ -309,6 +313,7 @@ func toViewResponse(v *view.View) api.View {
 		resp.WorkspaceScope = &workspaceScope
 		resp.SortField = &sortField
 		resp.SortOrder = &sortOrder
+		resp.ActiveOnly = ptrOf(v.ActiveOnly)
 		resp.IsDefault = ptrOf(v.Default)
 	}
 	return resp

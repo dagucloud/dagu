@@ -1216,6 +1216,62 @@ steps:
 	require.Equal(t, listResp.Dags[1].Dag.Name, sseResp.Dags[1].Dag.Name)
 }
 
+func TestListDAGsActiveFilterMatchesSSEPath(t *testing.T) {
+	t.Parallel()
+
+	helper := test.Setup(t, test.WithStatusPersistence())
+	helper.DAG(t, `
+name: active-filter-live
+schedule: "0 * * * *"
+steps:
+  - run: echo live
+`)
+	suspended := helper.DAG(t, `
+name: active-filter-suspended
+schedule: "0 * * * *"
+steps:
+  - run: echo suspended
+`)
+	helper.DAG(t, `
+name: active-filter-unscheduled
+steps:
+  - run: echo unscheduled
+`)
+	require.NoError(t, helper.DAGStore.ToggleSuspend(context.Background(), suspended.FileName(), true))
+
+	apiImpl := localapi.New(
+		helper.DAGStore,
+		helper.DAGRunStore,
+		helper.QueueStore,
+		helper.ProcStore,
+		helper.DAGRunMgr,
+		helper.Config,
+		nil,
+		helper.ServiceRegistry,
+		nil,
+		nil,
+	)
+
+	active := true
+	listRespObj, err := apiImpl.ListDAGs(context.Background(), api.ListDAGsRequestObject{
+		Params: api.ListDAGsParams{Active: &active},
+	})
+	require.NoError(t, err)
+	listResp, ok := listRespObj.(*api.ListDAGs200JSONResponse)
+	require.True(t, ok)
+	require.Len(t, listResp.Dags, 1)
+	assert.Equal(t, "active-filter-live", listResp.Dags[0].Dag.Name)
+	assert.Equal(t, 1, listResp.Pagination.TotalRecords)
+
+	sseRespAny, err := apiImpl.GetDAGsListData(context.Background(), "active=true")
+	require.NoError(t, err)
+	sseResp, ok := sseRespAny.(api.ListDAGs200JSONResponse)
+	require.True(t, ok)
+	require.Len(t, sseResp.Dags, 1)
+	assert.Equal(t, listResp.Dags[0].Dag.Name, sseResp.Dags[0].Dag.Name)
+	assert.Equal(t, listResp.Pagination.TotalRecords, sseResp.Pagination.TotalRecords)
+}
+
 func TestGetDAGDetails_InvalidYAML_Returns200WithErrors(t *testing.T) {
 	t.Parallel()
 

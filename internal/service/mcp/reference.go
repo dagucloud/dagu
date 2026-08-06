@@ -149,7 +149,7 @@ Targets:
 
 Query parameters:
 
-- dags: page, perPage, name, labels, sort, order.
+- dags: page, perPage, name, labels, active, sort, order.
 - docs: page, perPage, flat, sort, order, prefix. perPage accepts 1 to 200.
 - runs: name, dagRunId, status, fromDate, toDate, limit, cursor, labels. status may repeat.
 - run_logs: tail.

@@ -18,6 +18,7 @@ import {
   ArrowDown,
   ArrowUp,
   Calendar,
+  CalendarCheck,
   ChevronDown,
   ChevronUp,
   Search,
@@ -269,6 +270,10 @@ type Props = {
   searchLabels: string[];
   /** Handler for label filter changes */
   handleSearchLabelsChange: (labels: string[]) => void;
+  /** Whether only scheduled, unsuspended workflows are shown */
+  activeOnly: boolean;
+  /** Handler for the active workflow filter */
+  handleActiveOnlyChange: (activeOnly: boolean) => void;
   /** Loading state */
   isLoading?: boolean;
   /** Pagination props */
@@ -935,6 +940,8 @@ function DAGTable({
   handleSearchTextChange,
   searchLabels,
   handleSearchLabelsChange,
+  activeOnly,
+  handleActiveOnlyChange,
   isLoading = false,
   pagination,
   sortField = 'name',
@@ -1284,6 +1291,17 @@ function DAGTable({
             placeholder="Filter by labels..."
             className="h-9 min-w-[170px] max-w-[220px]"
           />
+
+          <Button
+            type="button"
+            variant={activeOnly ? 'secondary' : 'outline'}
+            aria-pressed={activeOnly}
+            onClick={() => handleActiveOnlyChange(!activeOnly)}
+            className="h-9 px-3"
+          >
+            <CalendarCheck className="mr-1.5 h-4 w-4" />
+            Active only
+          </Button>
 
           {/* Pagination - pushed to right */}
           {pagination && (

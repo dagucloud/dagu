@@ -18,6 +18,7 @@ interface DAGsListParams {
   perPage?: number;
   name?: string;
   labels?: string;
+  active?: boolean;
   sort?: string;
   order?: string;
   remoteNode?: string;

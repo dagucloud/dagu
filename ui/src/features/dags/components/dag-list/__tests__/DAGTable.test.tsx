@@ -38,11 +38,13 @@ function renderTable(
     dags?: React.ComponentProps<typeof DAGTable>['dags'];
     workflowViews?: React.ComponentProps<typeof DAGTable>['workflowViews'];
     activeWorkflowViewId?: string | null;
+    activeOnly?: boolean;
     isAllWorkflowsView?: boolean;
     panelWidth?: number | null;
   } = {}
 ) {
   const onShowAllWorkflows = vi.fn();
+  const handleActiveOnlyChange = vi.fn();
   const result = render(
     <MemoryRouter>
       <AppBarContext.Provider
@@ -77,6 +79,8 @@ function renderTable(
             handleSearchTextChange={vi.fn()}
             searchLabels={[]}
             handleSearchLabelsChange={vi.fn()}
+            activeOnly={options.activeOnly ?? false}
+            handleActiveOnlyChange={handleActiveOnlyChange}
             sortField="name"
             sortOrder="asc"
             onSortChange={vi.fn()}
@@ -98,7 +102,7 @@ function renderTable(
       </AppBarContext.Provider>
     </MemoryRouter>
   );
-  return { ...result, onShowAllWorkflows };
+  return { ...result, handleActiveOnlyChange, onShowAllWorkflows };
 }
 
 describe('DAGTable', () => {
@@ -147,6 +151,15 @@ describe('DAGTable', () => {
     );
   });
 
+  it('toggles the active workflow filter', () => {
+    const { handleActiveOnlyChange } = renderTable();
+
+    const button = screen.getByRole('button', { name: 'Active only' });
+    expect(button).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(button);
+    expect(handleActiveOnlyChange).toHaveBeenCalledWith(true);
+  });
+
   it('explains an empty saved view and offers to show all workflows', () => {
     const { onShowAllWorkflows } = renderTable('', {
       dags: [],
@@ -158,6 +171,7 @@ describe('DAGTable', () => {
           filters: {
             searchText: '',
             searchLabels: ['env=prod'],
+            activeOnly: false,
             sortField: ViewSortField.name,
             sortOrder: ViewSortOrder.asc,
           },

@@ -143,6 +143,7 @@ func TestView_WorkflowStorageRoundTrip(t *testing.T) {
 		WorkspaceScope: view.WorkspaceScopeDefault,
 		SortField:      view.WorkflowSortName,
 		SortOrder:      view.SortOrderAscending,
+		ActiveOnly:     true,
 		Default:        true,
 		Pinned:         true,
 		CreatedAt:      now,
