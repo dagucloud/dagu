@@ -277,7 +277,7 @@ export interface paths {
         };
         /**
          * List all available DAGs
-         * @description Retrieves DAG definitions with optional filtering by name and labels
+         * @description Retrieves DAG definitions with optional filtering by name, labels, and active status (scheduled and not suspended).
          */
         get: operations["listDAGs"];
         put?: never;

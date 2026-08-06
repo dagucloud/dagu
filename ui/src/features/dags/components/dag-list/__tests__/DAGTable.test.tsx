@@ -152,12 +152,19 @@ describe('DAGTable', () => {
   });
 
   it('toggles the active workflow filter', () => {
-    const { handleActiveOnlyChange } = renderTable();
+    const { handleActiveOnlyChange, unmount } = renderTable();
 
     const button = screen.getByRole('button', { name: 'Active only' });
     expect(button).toHaveAttribute('aria-pressed', 'false');
     fireEvent.click(button);
     expect(handleActiveOnlyChange).toHaveBeenCalledWith(true);
+
+    unmount();
+    renderTable('', { activeOnly: true });
+    expect(screen.getByRole('button', { name: 'Active only' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
   });
 
   it('explains an empty saved view and offers to show all workflows', () => {

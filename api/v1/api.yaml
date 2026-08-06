@@ -789,7 +789,7 @@ paths:
   /dags:
     get:
       summary: "List all available DAGs"
-      description: "Retrieves DAG definitions with optional filtering by name and labels"
+      description: "Retrieves DAG definitions with optional filtering by name, labels, and active status (scheduled and not suspended)."
       operationId: "listDAGs"
       tags:
         - "dags"
