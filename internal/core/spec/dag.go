@@ -3165,121 +3165,152 @@ func buildSteps(ctx buildContext, d *dag, result *core.DAG) ([]core.Step, error)
 		return nil, nil
 
 	case []any:
-		normalized := normalizeStepData(ctx, v)
-
-		var builtSteps []*core.Step
-		var prevSteps []*core.Step
-		for i, raw := range normalized {
-			switch v := raw.(type) {
-			case map[string]any:
-				st, err := buildStepFromRaw(buildCtx, i, v, names, defs)
-				if err != nil {
-					return nil, err
-				}
-
-				if err := validateNoDependsForChainType(result, st); err != nil {
-					return nil, err
-				}
-
-				if err := validateNoRouterForChainType(result, st); err != nil {
-					return nil, err
-				}
-
-				injectChainDependencies(result, prevSteps, st)
-				builtSteps = append(builtSteps, st)
-				prevSteps = []*core.Step{st}
-
-			case []any:
-				var tempSteps []*core.Step
-				var normalizedNested = normalizeStepData(ctx, v)
-				for _, nested := range normalizedNested {
-					switch vv := nested.(type) {
-					case map[string]any:
-						st, err := buildStepFromRaw(buildCtx, i, vv, names, defs)
-						if err != nil {
-							return nil, err
-						}
-
-						if err := validateNoDependsForChainType(result, st); err != nil {
-							return nil, err
-						}
-
-						if err := validateNoRouterForChainType(result, st); err != nil {
-							return nil, err
-						}
-
-						injectChainDependencies(result, prevSteps, st)
-						builtSteps = append(builtSteps, st)
-						tempSteps = append(tempSteps, st)
-
-					default:
-						return nil, core.NewValidationError("steps", raw, ErrInvalidStepData)
-					}
-				}
-				prevSteps = tempSteps
-
-			default:
-				return nil, core.NewValidationError("steps", raw, ErrInvalidStepData)
-			}
-		}
-
-		var steps []core.Step
-		for _, st := range builtSteps {
-			steps = append(steps, *st)
-		}
-		// Transform router steps: inject preconditions into targets
-		if err := transformRouterSteps(steps); err != nil {
+		steps, err := buildStepsFromArray(buildCtx, ctx, v, result, names, defs)
+		if err != nil {
 			return nil, err
 		}
-		return steps, nil
+		return finishBuiltSteps(steps)
 
 	case map[string]any:
-		stepsMap := make(map[string]step)
-		md, _ := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
-			ErrorUnused: true,
-			Result:      &stepsMap,
-			DecodeHook:  TypedUnionDecodeHook(),
-		})
-		if err := md.Decode(v); err != nil {
-			return nil, core.NewValidationError("steps", v, err)
-		}
-
-		var steps []core.Step
-		for name, st := range stepsMap {
-			rawStep, _ := v[name].(map[string]any)
-			if err := validateHarnessPromptCommand(buildCtx, rawStep); err != nil {
-				return nil, err
-			}
-			builtStep, err := buildStepFromSpec(buildCtx, 0, &st, rawStep, names, defs, name)
-			if err != nil {
-				return nil, err
-			}
-
-			if err := validateNoDependsForChainType(result, builtStep); err != nil {
-				return nil, err
-			}
-
-			if err := validateNoRouterForChainType(result, builtStep); err != nil {
-				return nil, err
-			}
-
-			steps = append(steps, *builtStep)
-		}
-		// Sort steps by name for deterministic output when built from a map.
-		// Go map iteration is non-deterministic, which causes the SSE watcher's
-		// JSON hash to change on every poll, triggering unnecessary broadcasts.
-		slices.SortFunc(steps, func(a, b core.Step) int {
-			return strings.Compare(a.Name, b.Name)
-		})
-		// Transform router steps: inject preconditions into targets
-		if err := transformRouterSteps(steps); err != nil {
+		steps, err := buildStepsFromMap(buildCtx, v, result, names, defs)
+		if err != nil {
 			return nil, err
 		}
-		return steps, nil
+		return finishBuiltSteps(steps)
 
 	default:
 		return nil, core.NewValidationError("steps", v, ErrStepsMustBeArrayOrMap)
 	}
+}
+
+// validateBuiltStepForDAG applies the post-build rules a step must satisfy
+// whichever syntax declared it.
+func validateBuiltStepForDAG(result *core.DAG, st *core.Step) error {
+	if err := validateNoDependsForChainType(result, st); err != nil {
+		return err
+	}
+	return validateNoRouterForChainType(result, st)
+}
+
+// finishBuiltSteps applies the transformations that close out a step list.
+func finishBuiltSteps(steps []core.Step) ([]core.Step, error) {
+	// Transform router steps: inject preconditions into targets
+	if err := transformRouterSteps(steps); err != nil {
+		return nil, err
+	}
+	return steps, nil
+}
+
+// buildStepsFromArray builds the array syntax, in which each entry is either a
+// single step or a nested array whose steps share the previous entry as their
+// chain dependency.
+func buildStepsFromArray(
+	buildCtx stepBuildContext,
+	ctx buildContext,
+	entries []any,
+	result *core.DAG,
+	names map[string]struct{},
+	defs *defaults,
+) ([]core.Step, error) {
+	var builtSteps []*core.Step
+	var prevSteps []*core.Step
+
+	for i, raw := range normalizeStepData(ctx, entries) {
+		group, err := stepGroupFromRaw(ctx, raw)
+		if err != nil {
+			return nil, err
+		}
+
+		var current []*core.Step
+		for _, item := range group {
+			st, err := buildStepFromRaw(buildCtx, i, item, names, defs)
+			if err != nil {
+				return nil, err
+			}
+			if err := validateBuiltStepForDAG(result, st); err != nil {
+				return nil, err
+			}
+
+			injectChainDependencies(result, prevSteps, st)
+			builtSteps = append(builtSteps, st)
+			current = append(current, st)
+		}
+		prevSteps = current
+	}
+
+	var steps []core.Step
+	for _, st := range builtSteps {
+		steps = append(steps, *st)
+	}
+	return steps, nil
+}
+
+// stepGroupFromRaw returns the raw steps declared at one position of the steps
+// array. A nested array yields every step it declares.
+func stepGroupFromRaw(ctx buildContext, raw any) ([]map[string]any, error) {
+	switch v := raw.(type) {
+	case map[string]any:
+		return []map[string]any{v}, nil
+
+	case []any:
+		nested := normalizeStepData(ctx, v)
+		group := make([]map[string]any, 0, len(nested))
+		for _, item := range nested {
+			step, ok := item.(map[string]any)
+			if !ok {
+				return nil, core.NewValidationError("steps", raw, ErrInvalidStepData)
+			}
+			group = append(group, step)
+		}
+		return group, nil
+
+	default:
+		return nil, core.NewValidationError("steps", raw, ErrInvalidStepData)
+	}
+}
+
+// buildStepsFromMap builds the map syntax, in which each key names its step.
+func buildStepsFromMap(
+	buildCtx stepBuildContext,
+	entries map[string]any,
+	result *core.DAG,
+	names map[string]struct{},
+	defs *defaults,
+) ([]core.Step, error) {
+	stepsMap := make(map[string]step)
+	md, _ := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
+		ErrorUnused: true,
+		Result:      &stepsMap,
+		DecodeHook:  typedUnionDecodeHook(),
+	})
+	if err := md.Decode(entries); err != nil {
+		return nil, core.NewValidationError("steps", entries, err)
+	}
+
+	var steps []core.Step
+	for name, st := range stepsMap {
+		rawStep, _ := entries[name].(map[string]any)
+		if err := validateHarnessPromptCommand(buildCtx, rawStep); err != nil {
+			return nil, err
+		}
+		builtStep, err := buildStepFromSpec(buildCtx, 0, &st, rawStep, names, defs, name)
+		if err != nil {
+			return nil, err
+		}
+		if err := validateBuiltStepForDAG(result, builtStep); err != nil {
+			return nil, err
+		}
+
+		steps = append(steps, *builtStep)
+	}
+
+	// Sort steps by name for deterministic output when built from a map.
+	// Go map iteration is non-deterministic, which causes the SSE watcher's
+	// JSON hash to change on every poll, triggering unnecessary broadcasts.
+	slices.SortFunc(steps, func(a, b core.Step) int {
+		return strings.Compare(a.Name, b.Name)
+	})
+	return steps, nil
 }
 
 // buildMailConfigInternal builds a core.MailConfig from the mail configuration.

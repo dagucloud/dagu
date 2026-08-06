@@ -437,7 +437,7 @@ func decodeStep(raw map[string]any) (*step, error) {
 		ErrorUnused: true,
 		Result:      &st,
 		TagName:     "yaml",
-		DecodeHook:  TypedUnionDecodeHook(),
+		DecodeHook:  typedUnionDecodeHook(),
 	})
 	if err := md.Decode(raw); err != nil {
 		return nil, core.NewValidationError("steps", raw, withSnakeCaseKeyHint(err))

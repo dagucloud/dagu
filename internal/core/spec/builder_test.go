@@ -511,8 +511,9 @@ steps:
 	}
 }
 
-func TestBuildStep(t *testing.T) {
+func TestBuildStepCommandsAndExecutors(t *testing.T) {
 	t.Parallel()
+
 	t.Run("ValidCommand", func(t *testing.T) {
 		t.Parallel()
 
@@ -679,6 +680,11 @@ steps:
 		assert.Equal(t, "param1=\"value1\" param2=\"value2\"", th.Steps[0].SubDAG.Params)
 		assert.Empty(t, dag.BuildWarnings)
 	})
+}
+
+func TestBuildStepContinueOn(t *testing.T) {
+	t.Parallel()
+
 	// ContinueOn success cases
 	continueOnTests := []struct {
 		name            string
@@ -817,6 +823,11 @@ steps:
 			}
 		})
 	}
+}
+
+func TestBuildStepRetryPolicy(t *testing.T) {
+	t.Parallel()
+
 	// RetryPolicy success tests
 	retryPolicyTests := []struct {
 		name            string
@@ -944,6 +955,11 @@ steps:
 			assert.Contains(t, err.Error(), tt.errContains)
 		})
 	}
+}
+
+func TestBuildStepRepeatPolicy(t *testing.T) {
+	t.Parallel()
+
 	// RepeatPolicy success tests
 	repeatPolicyTests := []struct {
 		name            string
@@ -1176,107 +1192,6 @@ steps:
 			}
 		})
 	}
-	t.Run("SignalOnStop", func(t *testing.T) {
-		t.Parallel()
-
-		data := []byte(`
-steps:
-  - run: echo 1
-    name: step1
-    signal_on_stop: SIGINT
-`)
-		dag, err := spec.LoadYAML(context.Background(), data)
-		require.NoError(t, err)
-		th := DAG{t: t, DAG: dag}
-		assert.Len(t, th.Steps, 1)
-		assert.Equal(t, "SIGINT", th.Steps[0].SignalOnStop)
-	})
-	t.Run("StepWithID", func(t *testing.T) {
-		t.Parallel()
-
-		data := []byte(`
-steps:
-  - name: step1
-    id: unique_step_1
-    run: echo "Step with ID"
-  - name: step2
-    run: echo "Step without ID"
-  - name: step3
-    id: custom_id_123
-    run: echo "Another step with ID"
-`)
-		dag, err := spec.LoadYAML(context.Background(), data)
-		require.NoError(t, err)
-		th := DAG{t: t, DAG: dag}
-		assert.Len(t, th.Steps, 3)
-
-		// First step has ID
-		assert.Equal(t, "step1", th.Steps[0].Name)
-		assert.Equal(t, "unique_step_1", th.Steps[0].ID)
-
-		// Second step has no ID
-		assert.Equal(t, "step2", th.Steps[1].Name)
-		assert.Equal(t, "", th.Steps[1].ID)
-
-		// Third step has ID
-		assert.Equal(t, "step3", th.Steps[2].Name)
-		assert.Equal(t, "custom_id_123", th.Steps[2].ID)
-	})
-	t.Run("Preconditions", func(t *testing.T) {
-		t.Parallel()
-
-		data := []byte(`
-steps:
-  - name: "2"
-    run: "echo 2"
-    preconditions:
-      - condition: "test -f file.txt"
-        expected: "true"
-`)
-		dag, err := spec.LoadYAML(context.Background(), data)
-		require.NoError(t, err)
-		th := DAG{t: t, DAG: dag}
-		assert.Len(t, th.Steps, 1)
-		assert.Len(t, th.Steps[0].Preconditions, 1)
-		assert.Equal(t, &core.Condition{Condition: "test -f file.txt", Expected: "true"}, th.Steps[0].Preconditions[0])
-	})
-	t.Run("PreconditionEval", func(t *testing.T) {
-		t.Parallel()
-
-		data := []byte(`
-steps:
-  - name: "eval_gate"
-    run: "echo eval"
-    preconditions:
-      - eval: "$(printf ready)"
-        expected: "ready"
-`)
-		dag, err := spec.LoadYAML(context.Background(), data)
-		require.NoError(t, err)
-		th := DAG{t: t, DAG: dag}
-		assert.Len(t, th.Steps, 1)
-		assert.Len(t, th.Steps[0].Preconditions, 1)
-		assert.Equal(t, &core.Condition{Eval: "$(printf ready)", Expected: "ready"}, th.Steps[0].Preconditions[0])
-	})
-	t.Run("StepPreconditionsWithNegate", func(t *testing.T) {
-		t.Parallel()
-
-		data := []byte(`
-steps:
-  - name: "step_with_negate"
-    run: "echo hello"
-    preconditions:
-      - condition: "${STATUS}"
-        expected: "success"
-        negate: true
-`)
-		dag, err := spec.LoadYAML(context.Background(), data)
-		require.NoError(t, err)
-		th := DAG{t: t, DAG: dag}
-		assert.Len(t, th.Steps, 1)
-		assert.Len(t, th.Steps[0].Preconditions, 1)
-		assert.Equal(t, &core.Condition{Condition: "${STATUS}", Expected: "success", Negate: true}, th.Steps[0].Preconditions[0])
-	})
 	// RepeatPolicy error tests
 	repeatPolicyErrorTests := []struct {
 		name        string
@@ -1370,6 +1285,117 @@ steps:
 			assert.Contains(t, err.Error(), tt.errContains)
 		})
 	}
+}
+
+func TestBuildStepSignalAndID(t *testing.T) {
+	t.Parallel()
+
+	t.Run("SignalOnStop", func(t *testing.T) {
+		t.Parallel()
+
+		data := []byte(`
+steps:
+  - run: echo 1
+    name: step1
+    signal_on_stop: SIGINT
+`)
+		dag, err := spec.LoadYAML(context.Background(), data)
+		require.NoError(t, err)
+		th := DAG{t: t, DAG: dag}
+		assert.Len(t, th.Steps, 1)
+		assert.Equal(t, "SIGINT", th.Steps[0].SignalOnStop)
+	})
+	t.Run("StepWithID", func(t *testing.T) {
+		t.Parallel()
+
+		data := []byte(`
+steps:
+  - name: step1
+    id: unique_step_1
+    run: echo "Step with ID"
+  - name: step2
+    run: echo "Step without ID"
+  - name: step3
+    id: custom_id_123
+    run: echo "Another step with ID"
+`)
+		dag, err := spec.LoadYAML(context.Background(), data)
+		require.NoError(t, err)
+		th := DAG{t: t, DAG: dag}
+		assert.Len(t, th.Steps, 3)
+
+		// First step has ID
+		assert.Equal(t, "step1", th.Steps[0].Name)
+		assert.Equal(t, "unique_step_1", th.Steps[0].ID)
+
+		// Second step has no ID
+		assert.Equal(t, "step2", th.Steps[1].Name)
+		assert.Equal(t, "", th.Steps[1].ID)
+
+		// Third step has ID
+		assert.Equal(t, "step3", th.Steps[2].Name)
+		assert.Equal(t, "custom_id_123", th.Steps[2].ID)
+	})
+}
+
+func TestBuildStepPreconditions(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Preconditions", func(t *testing.T) {
+		t.Parallel()
+
+		data := []byte(`
+steps:
+  - name: "2"
+    run: "echo 2"
+    preconditions:
+      - condition: "test -f file.txt"
+        expected: "true"
+`)
+		dag, err := spec.LoadYAML(context.Background(), data)
+		require.NoError(t, err)
+		th := DAG{t: t, DAG: dag}
+		assert.Len(t, th.Steps, 1)
+		assert.Len(t, th.Steps[0].Preconditions, 1)
+		assert.Equal(t, &core.Condition{Condition: "test -f file.txt", Expected: "true"}, th.Steps[0].Preconditions[0])
+	})
+	t.Run("PreconditionEval", func(t *testing.T) {
+		t.Parallel()
+
+		data := []byte(`
+steps:
+  - name: "eval_gate"
+    run: "echo eval"
+    preconditions:
+      - eval: "$(printf ready)"
+        expected: "ready"
+`)
+		dag, err := spec.LoadYAML(context.Background(), data)
+		require.NoError(t, err)
+		th := DAG{t: t, DAG: dag}
+		assert.Len(t, th.Steps, 1)
+		assert.Len(t, th.Steps[0].Preconditions, 1)
+		assert.Equal(t, &core.Condition{Eval: "$(printf ready)", Expected: "ready"}, th.Steps[0].Preconditions[0])
+	})
+	t.Run("StepPreconditionsWithNegate", func(t *testing.T) {
+		t.Parallel()
+
+		data := []byte(`
+steps:
+  - name: "step_with_negate"
+    run: "echo hello"
+    preconditions:
+      - condition: "${STATUS}"
+        expected: "success"
+        negate: true
+`)
+		dag, err := spec.LoadYAML(context.Background(), data)
+		require.NoError(t, err)
+		th := DAG{t: t, DAG: dag}
+		assert.Len(t, th.Steps, 1)
+		assert.Len(t, th.Steps[0].Preconditions, 1)
+		assert.Equal(t, &core.Condition{Condition: "${STATUS}", Expected: "success", Negate: true}, th.Steps[0].Preconditions[0])
+	})
 }
 
 func TestNestedArrayParallelSyntax(t *testing.T) {

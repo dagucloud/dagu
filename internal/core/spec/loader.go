@@ -296,33 +296,6 @@ func buildLoadErrorDAG(opts buildOpts, filePath string, err error) *core.DAG {
 	}
 }
 
-// loadBaseConfig loads the global configuration from the given file.
-// The global configuration can be overridden by the core.DAG configuration.
-func loadBaseConfig(ctx buildContext, file string) (*core.DAG, error) {
-	// The base config is optional.
-	if !fileutil.FileExists(file) {
-		return nil, nil
-	}
-
-	// Load the raw data from the file.
-	raw, err := readYAMLFile(file)
-	if err != nil {
-		return nil, err
-	}
-
-	// Decode the raw data into a manifest.
-	def, err := decode(raw)
-	if err != nil {
-		return nil, core.ErrorList{err}
-	}
-
-	ctx = ctx.WithOpts(buildOpts{
-		Flags: ctx.opts.Flags,
-	}).WithFile(file)
-
-	return def.build(ctx)
-}
-
 // loadDAG loads the core.DAG from the given file.
 func loadDAG(ctx buildContext, nameOrPath string) (*core.DAG, error) {
 	filePath, err := resolveYamlFilePath(ctx, nameOrPath)
@@ -1120,16 +1093,6 @@ func (*mergeTransformer) Transformer(
 	return nil
 }
 
-// readYAMLFile reads the contents of the file into a map.
-func readYAMLFile(file string) (map[string]any, error) {
-	data, err := fileutil.ReadFile(file)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read file %q: %w", file, err)
-	}
-
-	return unmarshalData(data)
-}
-
 // unmarshalData unmarshals the data into a map.
 func unmarshalData(data []byte) (map[string]any, error) {
 	return newManifestDecoder().Unmarshal(data)
@@ -1170,9 +1133,9 @@ func extractRawDefaults(cm map[string]any) map[string]any {
 	return cloneMap(rawDefaults)
 }
 
-// TypedUnionDecodeHook returns a decode hook that handles our typed union types.
-// It converts raw map[string]any values to the appropriate typed values.
-func TypedUnionDecodeHook() mapstructure.DecodeHookFunc {
+// typedUnionDecodeHook returns a decode hook for the package typed union
+// types. It converts raw map[string]any values to the appropriate typed values.
+func typedUnionDecodeHook() mapstructure.DecodeHookFunc {
 	return func(_ reflect.Type, to reflect.Type, data any) (any, error) {
 		if to == reflect.TypeFor[toolsConfig]() {
 			return decodeViaYAML[toolsConfig](data)
