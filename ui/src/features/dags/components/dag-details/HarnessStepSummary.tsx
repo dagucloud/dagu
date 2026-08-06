@@ -1,3 +1,4 @@
+import { Bot } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import {
   Tooltip,
@@ -10,7 +11,6 @@ import {
   type HarnessStepSummary as HarnessSummary,
 } from '@/lib/harness-step';
 import { cn } from '@/lib/utils';
-import { Bot } from 'lucide-react';
 import { components } from '../../../../api/v1/schema';
 
 type Props = {

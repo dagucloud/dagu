@@ -43,11 +43,11 @@ export function ControllerSpecOverview({ dag }: Props) {
             {tasks.map((task) => (
               <div key={task.name} className="py-2.5 first:pt-1 last:pb-0">
                 <div className="min-w-0">
-                  <div className="text-sm font-medium text-foreground">
+                  <div className="whitespace-normal break-words text-sm font-medium text-foreground">
                     {task.name}
                   </div>
                   {task.description ? (
-                    <div className="mt-1 text-sm leading-relaxed text-foreground">
+                    <div className="mt-1 whitespace-normal break-words text-sm leading-relaxed text-foreground">
                       {task.description}
                     </div>
                   ) : null}
@@ -87,7 +87,7 @@ export function ControllerSpecOverview({ dag }: Props) {
                   >
                     <div className="min-w-0">
                       <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                        <span className="text-sm font-semibold text-foreground">
+                        <span className="whitespace-normal break-words text-sm font-semibold text-foreground">
                           {step.name}
                         </span>
                         {step.id && step.id !== step.name ? (
@@ -97,7 +97,7 @@ export function ControllerSpecOverview({ dag }: Props) {
                         ) : null}
                       </div>
                       {step.description ? (
-                        <p className="mt-1 line-clamp-1 text-sm leading-5 text-foreground">
+                        <p className="mt-1 line-clamp-1 whitespace-normal break-words text-sm leading-5 text-foreground">
                           {step.description}
                         </p>
                       ) : null}
