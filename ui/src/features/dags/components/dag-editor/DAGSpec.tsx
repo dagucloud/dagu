@@ -19,7 +19,6 @@ import { Button } from '@/components/ui/button';
 import { useErrorModal } from '@/components/ui/error-modal';
 import { useSimpleToast } from '@/components/ui/simple-toast';
 import { Tab, Tabs } from '@/components/ui/tabs';
-import { ToggleButton, ToggleGroup } from '@/components/ui/toggle-group';
 import {
   Tooltip,
   TooltipContent,
@@ -83,9 +82,6 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
 
   const [scrollPosition, setScrollPosition] = React.useState(0);
   const [activeTab, setActiveTab] = React.useState('parent');
-  const [specView, setSpecView] = React.useState<'overview' | 'yaml'>(
-    'overview'
-  );
   const [selectedSpecStepName, setSelectedSpecStepName] = React.useState<
     string | null
   >(null);
@@ -101,16 +97,6 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
       setActiveTab(tab);
       setSelectedSpecStepName(null);
       closeSpecStepDetails();
-    },
-    [closeSpecStepDetails]
-  );
-
-  const handleSpecViewChange = React.useCallback(
-    (view: 'overview' | 'yaml') => {
-      setSpecView(view);
-      if (view === 'yaml') {
-        closeSpecStepDetails();
-      }
     },
     [closeSpecStepDetails]
   );
@@ -477,11 +463,7 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
         ) : null}
 
         {dag.type === 'controller' ? (
-          <ControllerSpecOverview
-            dag={dag}
-            onEditYAML={() => handleSpecViewChange('yaml')}
-            yamlActionLabel={editable ? 'Edit YAML' : 'View YAML'}
-          />
+          <ControllerSpecOverview dag={dag} />
         ) : (
           <>
             {errors?.length || !dag.steps || dag.steps.length === 0 ? (
@@ -606,7 +588,7 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
               />
 
               <div
-                className="flex flex-col flex-1 min-h-0 space-y-6 mb-6"
+                className="flex min-h-0 flex-1 flex-col space-y-6 pb-8"
                 ref={containerRef}
               >
                 {hasLocalDags && (
@@ -639,66 +621,36 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
                   </div>
                 )}
 
-                <div className="flex flex-shrink-0 justify-end">
-                  <ToggleGroup aria-label="Spec view">
-                    <ToggleButton
-                      value="overview"
-                      groupValue={specView}
-                      onClick={() => handleSpecViewChange('overview')}
-                      aria-label="Overview"
-                    >
-                      Overview
-                    </ToggleButton>
-                    <ToggleButton
-                      value="yaml"
-                      groupValue={specView}
-                      onClick={() => handleSpecViewChange('yaml')}
-                      aria-label={
-                        localHasUnsavedChanges
-                          ? 'YAML editor, unsaved changes'
-                          : 'YAML editor'
-                      }
-                    >
-                      YAML
-                      {localHasUnsavedChanges ? (
-                        <span
-                          className="ml-2 h-1.5 w-1.5 rounded-full bg-current"
-                          aria-hidden="true"
-                        />
-                      ) : null}
-                    </ToggleButton>
-                  </ToggleGroup>
-                </div>
+                {(() => {
+                  if (activeTab === 'parent') {
+                    return (
+                      data?.dag && (
+                        <div className="flex-shrink-0">
+                          {renderDAGContent(data.dag, data?.errors)}
+                        </div>
+                      )
+                    );
+                  }
+                  const selectedLocalDag = localDags?.find(
+                    (ld: components['schemas']['LocalDag']) =>
+                      ld.name === activeTab
+                  );
+                  return (
+                    selectedLocalDag?.dag && (
+                      <div className="flex-shrink-0">
+                        {renderDAGContent(
+                          selectedLocalDag.dag,
+                          selectedLocalDag.errors
+                        )}
+                      </div>
+                    )
+                  );
+                })()}
 
-                {specView === 'overview'
-                  ? (() => {
-                      if (activeTab === 'parent') {
-                        return (
-                          data?.dag && (
-                            <div className="flex-shrink-0">
-                              {renderDAGContent(data.dag, data?.errors)}
-                            </div>
-                          )
-                        );
-                      }
-                      const selectedLocalDag = localDags?.find(
-                        (ld: components['schemas']['LocalDag']) =>
-                          ld.name === activeTab
-                      );
-                      return (
-                        selectedLocalDag?.dag && (
-                          <div className="flex-shrink-0">
-                            {renderDAGContent(
-                              selectedLocalDag.dag,
-                              selectedLocalDag.errors
-                            )}
-                          </div>
-                        )
-                      );
-                    })()
-                  : null}
-
-                {specView === 'yaml' ? (
+                <section className="flex-shrink-0 space-y-3">
+                  <h2 className="text-lg font-semibold text-foreground">
+                    YAML
+                  </h2>
                   <DAGEditorWithDocs
                     value={
                       editable
@@ -713,12 +665,12 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
                           }
                         : undefined
                     }
-                    className="min-h-[640px] flex-1"
+                    className="min-h-[640px]"
                     modelUri={editorModelUri}
                     schema={editorSchema}
                     headerActions={editorHeaderActions}
                   />
-                ) : null}
+                </section>
               </div>
             </React.Fragment>
           )

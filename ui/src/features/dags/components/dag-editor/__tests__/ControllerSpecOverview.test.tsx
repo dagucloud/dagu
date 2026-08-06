@@ -9,13 +9,12 @@ import {
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { ControllerSpecOverview } from '../ControllerSpecOverview';
 
 describe('ControllerSpecOverview', () => {
   it('shows compact actions and the selected action configuration', async () => {
     const user = userEvent.setup();
-    const onEditYAML = vi.fn();
     const dag = {
       name: 'code-quality-audit',
       type: DAGDetailsType.controller,
@@ -55,11 +54,15 @@ describe('ControllerSpecOverview', () => {
       ],
     } satisfies components['schemas']['DAGDetails'];
 
-    render(<ControllerSpecOverview dag={dag} onEditYAML={onEditYAML} />);
+    render(<ControllerSpecOverview dag={dag} />);
 
+    expect(screen.getByRole('heading', { name: 'Tasks' })).toBeInTheDocument();
     expect(screen.getByText('confirmed-findings')).toBeInTheDocument();
-    expect(screen.getByText('Can ask user')).toBeInTheDocument();
-    expect(screen.queryByText('LLM controller')).not.toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Every reported finding has been independently verified.'
+      )
+    ).toBeInTheDocument();
 
     const inspectButton = screen.getByRole('button', { name: /inspect/i });
     const reviewButton = screen.getByRole('button', { name: /review/i });
@@ -82,8 +85,5 @@ describe('ControllerSpecOverview', () => {
     expect(within(parameters!).getByText('complexity')).toBeInTheDocument();
     expect(within(parameters!).getByText('repo')).toBeInTheDocument();
     expect(within(parameters!).getByText('${params.repo}')).toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', { name: 'Edit YAML' }));
-    expect(onEditYAML).toHaveBeenCalledOnce();
   });
 });

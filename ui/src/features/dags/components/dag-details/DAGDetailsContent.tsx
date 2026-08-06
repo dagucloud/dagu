@@ -164,7 +164,7 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
             buildScopedUrl={buildScopedUrl}
           />
         )}
-        <div className="mb-4 mt-3 flex min-w-0 flex-col items-center justify-between gap-3 2xl:flex-row 2xl:gap-0">
+        <div className="mb-4 mt-3 flex min-w-0 flex-col items-center justify-between gap-3 lg:flex-row 2xl:gap-0">
           {/* Desktop Tabs */}
           <div className="hidden min-w-0 flex-1 overflow-x-auto 2xl:block">
             <Tabs className="whitespace-nowrap">
@@ -308,7 +308,7 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
           </div>
 
           {/* Compact Tabs */}
-          <div className="w-full min-w-0 overflow-x-auto 2xl:hidden">
+          <div className="w-full min-w-0 overflow-x-auto lg:flex-1 2xl:hidden">
             <div className="flex min-w-max space-x-1">
               {isModal ? (
                 <ModalLinkTab
