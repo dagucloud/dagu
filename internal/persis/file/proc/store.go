@@ -364,10 +364,10 @@ func (s *Store) ListAllAlive(ctx context.Context) (map[string][]exec.DAGRunRef, 
 	return result, nil
 }
 
-// Validate fails if any proc entry cannot be decoded.
-func (s *Store) Validate(ctx context.Context) error {
-	_, err := s.ListAllEntries(ctx)
-	if err != nil {
+// Validate fails if the proc directory cannot be read. Individual proc files
+// are not decoded here, so a damaged one does not make the store unusable.
+func (s *Store) Validate(_ context.Context) error {
+	if _, err := os.ReadDir(s.root); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("validate proc store: %w", err)
 	}
 	return nil
@@ -525,7 +525,7 @@ func removeEmptyProcDirs(dir string) {
 }
 
 // ListEntries returns proc entries for a group.
-func (s *Store) ListEntries(ctx context.Context, groupName string) ([]exec.ProcEntry, error) {
+func (s *Store) ListEntries(_ context.Context, groupName string) ([]exec.ProcEntry, error) {
 	groupDir := filepath.Join(s.root, groupName)
 	if _, err := os.Stat(groupDir); errors.Is(err, os.ErrNotExist) {
 		return nil, nil
@@ -534,11 +534,11 @@ func (s *Store) ListEntries(ctx context.Context, groupName string) ([]exec.ProcE
 	if err != nil {
 		return nil, err
 	}
-	return s.entriesFromFiles(ctx, groupName, files)
+	return s.entriesFromFiles(groupName, files)
 }
 
 // ListAllEntries returns all proc entries under the store root.
-func (s *Store) ListAllEntries(ctx context.Context) ([]exec.ProcEntry, error) {
+func (s *Store) ListAllEntries(_ context.Context) ([]exec.ProcEntry, error) {
 	dirEntries, err := os.ReadDir(s.root)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -557,7 +557,7 @@ func (s *Store) ListAllEntries(ctx context.Context) ([]exec.ProcEntry, error) {
 		if err != nil {
 			return nil, err
 		}
-		groupEntries, err := s.entriesFromFiles(ctx, groupName, files)
+		groupEntries, err := s.entriesFromFiles(groupName, files)
 		if err != nil {
 			return nil, err
 		}
@@ -631,7 +631,7 @@ func procFilesInGroup(groupDir string) ([]string, error) {
 	return files, nil
 }
 
-func (s *Store) entriesFromFiles(ctx context.Context, groupName string, files []string) ([]exec.ProcEntry, error) {
+func (s *Store) entriesFromFiles(groupName string, files []string) ([]exec.ProcEntry, error) {
 	now := time.Now().UTC()
 	entries := make([]exec.ProcEntry, 0, len(files))
 	for _, file := range files {
@@ -640,10 +640,7 @@ func (s *Store) entriesFromFiles(ctx context.Context, groupName string, files []
 			if errors.Is(err, os.ErrNotExist) {
 				continue
 			}
-			if errors.Is(err, errInvalidProcFile) {
-				// An undecodable file describes no live run. Skipping it keeps a
-				// single damaged file from hiding every run in the group.
-				logger.Warn(ctx, "Skipping undecodable proc file", tag.File(file), tag.Error(err))
+			if errors.Is(err, errInvalidProcFile) && s.abandoned(file, now) {
 				continue
 			}
 			return nil, err
@@ -651,6 +648,14 @@ func (s *Store) entriesFromFiles(ctx context.Context, groupName string, files []
 		entries = append(entries, observed.entry)
 	}
 	return entries, nil
+}
+
+// abandoned reports whether path has gone untouched for at least the stale
+// threshold. A damaged file that is still being written may belong to a run
+// that is alive, and reporting the group without it would undercount.
+func (s *Store) abandoned(path string, now time.Time) bool {
+	info, err := os.Stat(path)
+	return err == nil && now.Sub(info.ModTime()) >= s.staleTime
 }
 
 // RemoveIfStale deletes entry when the on-disk proc file is still stale.

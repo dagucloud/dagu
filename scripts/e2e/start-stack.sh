@@ -380,7 +380,6 @@ scheduler:
   zombie_detection_interval: 500ms
 proc:
   heartbeat_interval: 500ms
-  heartbeat_sync_interval: 500ms
   stale_threshold: 3s
 queues:
   enabled: true

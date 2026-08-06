@@ -91,12 +91,25 @@ func TestStoreReadsAndRemovesReleasedProcFiles(t *testing.T) {
 	assert.ErrorIs(t, err, os.ErrNotExist)
 }
 
-func TestStoreKeepsGroupReadableWhenAProcFileIsDamaged(t *testing.T) {
+// writeDamagedProcFile drops an undecodable proc file into a group and stamps
+// it as last written modifiedAgo in the past.
+func writeDamagedProcFile(t *testing.T, root, groupName, dagName string, modifiedAgo time.Duration) string {
+	t.Helper()
+
+	path := filepath.Join(root, groupName, dagName, "proc_20260101_000000Z_6161_6262.proc")
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
+	require.NoError(t, os.WriteFile(path, []byte{0x00, 0x01}, 0o600))
+	at := time.Now().Add(-modifiedAgo)
+	require.NoError(t, os.Chtimes(path, at, at))
+	return path
+}
+
+func TestStoreSkipsAbandonedDamagedProcFile(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
 	root := t.TempDir()
-	s := New(root, WithHeartbeatInterval(10*time.Millisecond))
+	s := New(root, WithHeartbeatInterval(10*time.Millisecond), WithStaleThreshold(time.Second))
 	ref := exec.NewDAGRunRef("healthy-dag", "run-1")
 
 	handle, err := s.Acquire(ctx, "queue-a", testProcMeta(ref))
@@ -104,8 +117,7 @@ func TestStoreKeepsGroupReadableWhenAProcFileIsDamaged(t *testing.T) {
 	defer func() { _ = handle.Stop(ctx) }()
 	require.NotEmpty(t, waitForProcFile(t, root, "queue-a", "healthy-dag"))
 
-	damaged := filepath.Join(root, "queue-a", "healthy-dag", "proc_20260101_000000Z_6161_6262.proc")
-	require.NoError(t, os.WriteFile(damaged, []byte{0x00, 0x01}, 0o600))
+	writeDamagedProcFile(t, root, "queue-a", "healthy-dag", time.Hour)
 
 	entries, err := s.ListEntries(ctx, "queue-a")
 	require.NoError(t, err)
@@ -119,7 +131,36 @@ func TestStoreKeepsGroupReadableWhenAProcFileIsDamaged(t *testing.T) {
 	alive, err := s.IsRunAlive(ctx, "queue-a", ref)
 	require.NoError(t, err)
 	assert.True(t, alive)
+}
 
+func TestStoreDoesNotUndercountWhileDamagedProcFileLooksActive(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	s := New(root, WithStaleThreshold(time.Minute))
+
+	// A damaged file that is still being written may belong to a live run, so
+	// the group must not be reported as if that run were gone.
+	writeDamagedProcFile(t, root, "queue-a", "healthy-dag", 0)
+
+	_, err := s.ListEntries(ctx, "queue-a")
+	require.ErrorIs(t, err, errInvalidProcFile)
+
+	_, err = s.CountAlive(ctx, "queue-a")
+	require.Error(t, err)
+}
+
+func TestStoreValidateIgnoresDamagedProcFiles(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	s := New(root, WithStaleThreshold(time.Minute))
+	writeDamagedProcFile(t, root, "queue-a", "healthy-dag", 0)
+
+	// Every command validates the proc directory, so a damaged file must not
+	// make the store unusable.
 	require.NoError(t, s.Validate(ctx))
 }
 
