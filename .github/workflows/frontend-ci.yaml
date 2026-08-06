@@ -17,6 +17,7 @@ on:
     paths:
       - "ui/**"
       - ".github/workflows/frontend-ci.yaml"
+  workflow_dispatch:
 
 # Restrict to read-only: this workflow only runs tests and builds the frontend,
 # it never pushes or deploys anything. An explicit block prevents the default
