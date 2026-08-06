@@ -6,22 +6,16 @@ import {
   ControllerTaskStatus,
   DAGDetailsType,
 } from '@/api/v1/schema';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { ControllerSpecOverview } from '../ControllerSpecOverview';
 
 describe('ControllerSpecOverview', () => {
-  it('presents controller goals and selectable declared actions', async () => {
+  it('shows compact actions and the selected action configuration', async () => {
     const user = userEvent.setup();
-    const onSelectStep = vi.fn();
-    const reviewStep = {
-      name: 'review',
-      description: 'Review the package from one focused angle.',
-      call: 'quality-review-pass',
-      params: 'angle=complexity repo=${params.repo}',
-    } satisfies components['schemas']['Step'];
+    const onEditYAML = vi.fn();
     const dag = {
       name: 'code-quality-audit',
       type: DAGDetailsType.controller,
@@ -36,10 +30,18 @@ describe('ControllerSpecOverview', () => {
       steps: [
         {
           name: 'inspect',
+          id: 'inspect',
           description: 'Build the deterministic package inventory.',
           script: 'go list ./...',
+          dir: '${params.repo}',
         },
-        reviewStep,
+        {
+          name: 'review',
+          id: 'review',
+          description: 'Review the package from one focused angle.',
+          call: 'quality-review-pass',
+          params: 'angle=complexity repo=${params.repo}',
+        },
         {
           name: '__controller__',
           description: 'LLM controller',
@@ -53,16 +55,35 @@ describe('ControllerSpecOverview', () => {
       ],
     } satisfies components['schemas']['DAGDetails'];
 
-    render(<ControllerSpecOverview dag={dag} onSelectStep={onSelectStep} />);
+    render(<ControllerSpecOverview dag={dag} onEditYAML={onEditYAML} />);
 
     expect(screen.getByText('confirmed-findings')).toBeInTheDocument();
-    expect(
-      screen.getByRole('button', { name: /inspect/i })
-    ).toBeInTheDocument();
     expect(screen.getByText('Can ask user')).toBeInTheDocument();
+    expect(screen.queryByText('LLM controller')).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: /review/i }));
+    const inspectButton = screen.getByRole('button', { name: /inspect/i });
+    const reviewButton = screen.getByRole('button', { name: /review/i });
+    expect(inspectButton).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText('go list ./...')).toBeInTheDocument();
 
-    expect(onSelectStep).toHaveBeenCalledWith(reviewStep);
+    await user.click(reviewButton);
+
+    expect(reviewButton).toHaveAttribute('aria-pressed', 'true');
+    expect(inspectButton).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByText('quality-review-pass')).toBeInTheDocument();
+
+    const parameters = screen
+      .getByRole('heading', {
+        name: 'Parameters',
+      })
+      .closest('section');
+    expect(parameters).not.toBeNull();
+    expect(within(parameters!).getByText('angle')).toBeInTheDocument();
+    expect(within(parameters!).getByText('complexity')).toBeInTheDocument();
+    expect(within(parameters!).getByText('repo')).toBeInTheDocument();
+    expect(within(parameters!).getByText('${params.repo}')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Edit YAML' }));
+    expect(onEditYAML).toHaveBeenCalledOnce();
   });
 });

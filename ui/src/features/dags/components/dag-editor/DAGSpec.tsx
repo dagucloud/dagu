@@ -477,7 +477,11 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
         ) : null}
 
         {dag.type === 'controller' ? (
-          <ControllerSpecOverview dag={dag} onSelectStep={handleStepSelect} />
+          <ControllerSpecOverview
+            dag={dag}
+            onEditYAML={() => handleSpecViewChange('yaml')}
+            yamlActionLabel={editable ? 'Edit YAML' : 'View YAML'}
+          />
         ) : (
           <>
             {errors?.length || !dag.steps || dag.steps.length === 0 ? (
