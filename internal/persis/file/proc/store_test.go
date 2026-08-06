@@ -123,7 +123,7 @@ func TestStoreKeepsGroupReadableWhenAProcFileIsDamaged(t *testing.T) {
 	require.NoError(t, s.Validate(ctx))
 }
 
-func TestStoreTreatsFutureHeartbeatAsStale(t *testing.T) {
+func TestStoreTreatsAbandonedFutureHeartbeatAsStale(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -132,7 +132,8 @@ func TestStoreTreatsFutureHeartbeatAsStale(t *testing.T) {
 	ref := exec.NewDAGRunRef("skewed-dag", "run-1")
 	meta := testProcMeta(ref)
 
-	// A writer whose clock runs ahead must not keep the entry alive forever.
+	// Nothing has written the file recently, so a heartbeat stamped in the
+	// future must not keep the entry alive forever.
 	writtenAt := time.Now().Add(-time.Hour).UTC()
 	procFile := s.filePath("queue-a", meta, writtenAt)
 	require.NoError(t, writeProcFile(procFile, time.Now().Add(time.Hour).UTC().Unix(), meta))
@@ -146,6 +147,29 @@ func TestStoreTreatsFutureHeartbeatAsStale(t *testing.T) {
 	require.NoError(t, s.RemoveIfStale(ctx, entries[0]))
 	_, err = os.Stat(procFile)
 	assert.ErrorIs(t, err, os.ErrNotExist)
+}
+
+func TestStoreKeepsRecentlyWrittenProcFileFreshDespiteClockSkew(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	s := New(root, WithStaleThreshold(time.Minute))
+	ref := exec.NewDAGRunRef("skewed-dag", "run-1")
+	meta := testProcMeta(ref)
+
+	// A process whose clock runs ahead is still alive, and the write time proves
+	// it. Freshness must follow the file, not the timestamp the writer recorded.
+	procFile := s.filePath("queue-a", meta, time.Now().UTC())
+	require.NoError(t, writeProcFile(procFile, time.Now().Add(time.Hour).UTC().Unix(), meta))
+
+	entries, err := s.ListEntries(ctx, "queue-a")
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	assert.True(t, entries[0].Fresh)
+
+	require.NoError(t, s.RemoveIfStale(ctx, entries[0]))
+	assert.FileExists(t, procFile)
 }
 
 func waitForProcFile(t *testing.T, root, groupName, dagName string) string {
