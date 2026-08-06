@@ -103,10 +103,6 @@ func (e Context) AllEnvs() []string {
 type Database interface {
 	// GetDAG retrieves a DAG by its name.
 	GetDAG(ctx context.Context, name string) (*core.DAG, error)
-	// GetSubDAGRunStatus retrieves the status of a sub dag-run by its ID and the root dag-run reference.
-	GetSubDAGRunStatus(ctx context.Context, dagRunID string, rootDAGRun DAGRunRef) (*RunStatus, error)
-	// IsSubDAGRunCompleted checks if a sub dag-run has completed.
-	IsSubDAGRunCompleted(ctx context.Context, dagRunID string, rootDAGRun DAGRunRef) (bool, error)
 	// RequestChildCancel requests cancellation of a sub dag-run.
 	RequestChildCancel(ctx context.Context, dagRunID string, rootDAGRun DAGRunRef) error
 }
@@ -198,34 +194,21 @@ func (r *RunStatus) MarshalJSON() ([]byte, error) {
 }
 
 // contextOptions holds optional configuration for NewContext.
+//
+// The embedded Context carries every option that reaches the final dag-run
+// context unchanged. The remaining fields are construction inputs: environment
+// layers that NewContext folds into EnvScope, and per-run paths that reach the
+// context as managed environment variables.
 type contextOptions struct {
-	db                 Database
-	rootDAGRun         DAGRunRef
-	retryPath          RetryPath
-	params             []string
-	defaultEnvs        []string
-	envs               []string
-	coordinator        Dispatcher
-	defaultSecretEnvs  []string
-	secretEnvs         []string
-	logEncodingCharset string
-	logWriterFactory   LogWriterFactory
-	defaultExecMode    config.ExecutionMode
-	dagRunStore        DAGRunStore
-	queueStore         QueueStore
-	stateStore         dagstate.Store
-	dagRunLogDir       string
-	dagRunArtifactDir  string
-	profileName        string
-	profileResolvedAt  string
-	profileEntries     []RuntimeProfileEntry
-	workDir            string
-	artifactDir        string
-	attemptID          string
-	triggerType        core.TriggerType
-	triggerActor       string
-	runStartedAt       string
-	scheduleTime       string
+	Context
+
+	params            []string
+	defaultEnvs       []string
+	envs              []string
+	defaultSecretEnvs []string
+	secretEnvs        []string
+	workDir           string
+	artifactDir       string
 }
 
 // ContextOption configures optional parameters for NewContext.
@@ -234,56 +217,56 @@ type ContextOption func(*contextOptions)
 // WithDatabase sets the database interface.
 func WithDatabase(db Database) ContextOption {
 	return func(o *contextOptions) {
-		o.db = db
+		o.DB = db
 	}
 }
 
 // WithRootDAGRun sets the root DAG run reference for sub-DAG execution.
 func WithRootDAGRun(ref DAGRunRef) ContextOption {
 	return func(o *contextOptions) {
-		o.rootDAGRun = ref
+		o.RootDAGRun = ref
 	}
 }
 
 // WithRetryPath sets the persisted child DAG path for a targeted retry.
 func WithRetryPath(path RetryPath) ContextOption {
 	return func(o *contextOptions) {
-		o.retryPath = path
+		o.RetryPath = path
 	}
 }
 
 // WithAttemptID sets the DAG-run attempt identifier for value resolution.
 func WithAttemptID(attemptID string) ContextOption {
 	return func(o *contextOptions) {
-		o.attemptID = attemptID
+		o.AttemptID = attemptID
 	}
 }
 
 // WithTriggerType sets the DAG-run trigger type for value resolution.
 func WithTriggerType(triggerType core.TriggerType) ContextOption {
 	return func(o *contextOptions) {
-		o.triggerType = triggerType
+		o.TriggerType = triggerType
 	}
 }
 
 // WithTriggerActor sets the attributable trigger actor for value resolution.
 func WithTriggerActor(actor string) ContextOption {
 	return func(o *contextOptions) {
-		o.triggerActor = actor
+		o.TriggerActor = actor
 	}
 }
 
 // WithRunStartedAt sets the recorded DAG-run start timestamp for value resolution.
 func WithRunStartedAt(startedAt string) ContextOption {
 	return func(o *contextOptions) {
-		o.runStartedAt = startedAt
+		o.RunStartedAt = startedAt
 	}
 }
 
 // WithScheduleTime sets the logical schedule time for value resolution.
 func WithScheduleTime(scheduleTime string) ContextOption {
 	return func(o *contextOptions) {
-		o.scheduleTime = scheduleTime
+		o.ScheduleTime = scheduleTime
 	}
 }
 
@@ -311,7 +294,7 @@ func WithEnvVars(envs ...string) ContextOption {
 // WithCoordinator sets the coordinator dispatcher for distributed execution.
 func WithCoordinator(cli Dispatcher) ContextOption {
 	return func(o *contextOptions) {
-		o.coordinator = cli
+		o.CoordinatorCli = cli
 	}
 }
 
@@ -332,7 +315,7 @@ func WithSecrets(secrets []string) ContextOption {
 // WithLogEncoding sets the log file character encoding.
 func WithLogEncoding(charset string) ContextOption {
 	return func(o *contextOptions) {
-		o.logEncodingCharset = charset
+		o.LogEncodingCharset = charset
 	}
 }
 
@@ -340,49 +323,49 @@ func WithLogEncoding(charset string) ContextOption {
 // When set, logs are streamed to the coordinator instead of written to local files.
 func WithLogWriterFactory(factory LogWriterFactory) ContextOption {
 	return func(o *contextOptions) {
-		o.logWriterFactory = factory
+		o.LogWriterFactory = factory
 	}
 }
 
 // WithDefaultExecMode sets the server-level default execution mode.
 func WithDefaultExecMode(mode config.ExecutionMode) ContextOption {
 	return func(o *contextOptions) {
-		o.defaultExecMode = mode
+		o.DefaultExecMode = mode
 	}
 }
 
 // WithDAGRunStore sets the dag-run store for executors that persist DAG runs.
 func WithDAGRunStore(store DAGRunStore) ContextOption {
 	return func(o *contextOptions) {
-		o.dagRunStore = store
+		o.DAGRunStore = store
 	}
 }
 
 // WithQueueStore sets the queue store for executors that enqueue DAG runs.
 func WithQueueStore(store QueueStore) ContextOption {
 	return func(o *contextOptions) {
-		o.queueStore = store
+		o.QueueStore = store
 	}
 }
 
 // WithStateStore sets the persistent DAG state store for state actions.
 func WithStateStore(store dagstate.Store) ContextOption {
 	return func(o *contextOptions) {
-		o.stateStore = store
+		o.StateStore = store
 	}
 }
 
 // WithDAGRunLogDir sets the base log directory for newly persisted DAG runs.
 func WithDAGRunLogDir(dir string) ContextOption {
 	return func(o *contextOptions) {
-		o.dagRunLogDir = dir
+		o.DAGRunLogDir = dir
 	}
 }
 
 // WithDAGRunArtifactDir sets the base artifact directory for newly persisted DAG runs.
 func WithDAGRunArtifactDir(dir string) ContextOption {
 	return func(o *contextOptions) {
-		o.dagRunArtifactDir = dir
+		o.DAGRunArtifactDir = dir
 	}
 }
 
@@ -403,9 +386,9 @@ func WithArtifactDir(dir string) ContextOption {
 // WithRuntimeProfile sets the selected profile metadata for this run context.
 func WithRuntimeProfile(name, resolvedAt string, entries []RuntimeProfileEntry) ContextOption {
 	return func(o *contextOptions) {
-		o.profileName = name
-		o.profileResolvedAt = resolvedAt
-		o.profileEntries = append([]RuntimeProfileEntry(nil), entries...)
+		o.ProfileName = name
+		o.ProfileResolvedAt = resolvedAt
+		o.ProfileEntries = append([]RuntimeProfileEntry(nil), entries...)
 	}
 }
 
@@ -465,33 +448,15 @@ func NewContext(
 		scope = scope.WithEntries(secretEnvs, cmnvalue.EnvSourceSecret)
 	}
 
-	return context.WithValue(ctx, dagCtxKey{}, Context{
-		RootDAGRun:         options.rootDAGRun,
-		RetryPath:          options.retryPath,
-		AttemptID:          options.attemptID,
-		TriggerType:        options.triggerType,
-		TriggerActor:       options.triggerActor,
-		RunStartedAt:       options.runStartedAt,
-		ScheduleTime:       options.scheduleTime,
-		DAG:                dag,
-		DB:                 options.db,
-		EnvScope:           scope,
-		DAGRunID:           dagRunID,
-		BaseEnv:            config.GetBaseEnv(ctx),
-		CoordinatorCli:     options.coordinator,
-		DAGRunStore:        options.dagRunStore,
-		QueueStore:         options.queueStore,
-		StateStore:         options.stateStore,
-		DAGRunLogDir:       options.dagRunLogDir,
-		DAGRunArtifactDir:  options.dagRunArtifactDir,
-		ProfileName:        options.profileName,
-		ProfileResolvedAt:  options.profileResolvedAt,
-		ProfileEntries:     append([]RuntimeProfileEntry(nil), options.profileEntries...),
-		Shell:              dag.Shell,
-		LogEncodingCharset: options.logEncodingCharset,
-		LogWriterFactory:   options.logWriterFactory,
-		DefaultExecMode:    options.defaultExecMode,
-	})
+	// Fields the caller cannot set through an option, because they are derived
+	// from the required arguments or from the environment layering above.
+	options.DAG = dag
+	options.DAGRunID = dagRunID
+	options.Shell = dag.Shell
+	options.BaseEnv = config.GetBaseEnv(ctx)
+	options.EnvScope = scope
+
+	return context.WithValue(ctx, dagCtxKey{}, options.Context)
 }
 
 func evaluateDAGEnvRuntime(
@@ -566,21 +531,21 @@ func buildDAGRunBuiltinContext(
 		values["context.dag.name"] = dag.Name
 	}
 	addDAGRunBuiltinValue(values, "context.run.id", dagRunID)
-	addDAGRunBuiltinValue(values, "context.attempt.started_at", options.runStartedAt)
-	addDAGRunBuiltinValue(values, "context.run.scheduled_at", options.scheduleTime)
-	if rootDAGRunContextAvailable(options.rootDAGRun, dag, dagRunID) {
-		addDAGRunBuiltinValue(values, "context.run.root_name", options.rootDAGRun.Name)
-		addDAGRunBuiltinValue(values, "context.run.root_id", options.rootDAGRun.ID)
+	addDAGRunBuiltinValue(values, "context.attempt.started_at", options.RunStartedAt)
+	addDAGRunBuiltinValue(values, "context.run.scheduled_at", options.ScheduleTime)
+	if rootDAGRunContextAvailable(options.RootDAGRun, dag, dagRunID) {
+		addDAGRunBuiltinValue(values, "context.run.root_name", options.RootDAGRun.Name)
+		addDAGRunBuiltinValue(values, "context.run.root_id", options.RootDAGRun.ID)
 	}
-	addDAGRunBuiltinValue(values, "context.attempt.id", options.attemptID)
-	addDAGRunBuiltinValue(values, "context.trigger.type", options.triggerType.String())
-	addDAGRunBuiltinValue(values, "context.trigger.actor", options.triggerActor)
+	addDAGRunBuiltinValue(values, "context.attempt.id", options.AttemptID)
+	addDAGRunBuiltinValue(values, "context.trigger.type", options.TriggerType.String())
+	addDAGRunBuiltinValue(values, "context.trigger.actor", options.TriggerActor)
 	addDAGRunBuiltinValue(values, "context.paths.log_file", managedEnvs[EnvKeyDAGRunLogFile])
 	addDAGRunBuiltinValue(values, "context.paths.work_dir", managedEnvs[EnvKeyDAGRunWorkDir])
 	addDAGRunBuiltinValue(values, "context.paths.artifacts_dir", managedEnvs[EnvKeyDAGRunArtifactsDir])
 	addDAGRunBuiltinValue(values, "context.paths.docs_dir", managedEnvs[EnvKeyDAGDocsDir])
-	addDAGRunBuiltinValue(values, "context.profile.name", options.profileName)
-	addDAGRunBuiltinValue(values, "context.profile.resolved_at", options.profileResolvedAt)
+	addDAGRunBuiltinValue(values, "context.profile.name", options.ProfileName)
+	addDAGRunBuiltinValue(values, "context.profile.resolved_at", options.ProfileResolvedAt)
 	return cmnvalue.NewBuiltinContext(values)
 }
 
@@ -620,6 +585,17 @@ func GetContext(ctx context.Context) Context {
 		return Context{}
 	}
 	return execEnv
+}
+
+// MustContext returns the DAGContext from the context and panics when one is
+// not present. Use it where a fully initialized dag-run context is a caller
+// invariant; use LookupContext where absence is valid.
+func MustContext(ctx context.Context) Context {
+	rCtx, ok := LookupContext(ctx)
+	if !ok {
+		panic("exec: no dag-run Context is installed in the context")
+	}
+	return rCtx
 }
 
 // LookupContext returns the DAGContext when one is present in ctx.

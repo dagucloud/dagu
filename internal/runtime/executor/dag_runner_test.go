@@ -653,20 +653,6 @@ func (m *mockDatabase) GetDAG(ctx context.Context, name string) (*core.DAG, erro
 	return args.Get(0).(*core.DAG), args.Error(1)
 }
 
-func (m *mockDatabase) GetSubDAGRunStatus(ctx context.Context, dagRunID string, rootDAGRun exec1.DAGRunRef) (*exec1.RunStatus, error) {
-	args := m.Called(ctx, dagRunID, rootDAGRun)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*exec1.RunStatus), args.Error(1)
-}
-
-// IsSubDAGRunCompleted implements core.Database.
-func (m *mockDatabase) IsSubDAGRunCompleted(ctx context.Context, dagRunID string, rootDAGRun exec1.DAGRunRef) (bool, error) {
-	args := m.Called(ctx, dagRunID, rootDAGRun)
-	return args.Bool(0), args.Error(1)
-}
-
 // RequestChildCancel implements core.Database.
 func (m *mockDatabase) RequestChildCancel(ctx context.Context, dagRunID string, rootDAGRun exec1.DAGRunRef) error {
 	args := m.Called(ctx, dagRunID, rootDAGRun)

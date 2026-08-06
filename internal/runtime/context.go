@@ -92,6 +92,13 @@ func GetDAGContext(ctx context.Context) Context {
 	return exec.GetContext(ctx)
 }
 
+// MustDAGContext retrieves the DAGContext from the context and panics when one
+// is not present.
+// This is a convenience wrapper for execution.MustContext.
+func MustDAGContext(ctx context.Context) Context {
+	return exec.MustContext(ctx)
+}
+
 // WithDAGContext returns a new context with the given DAGContext.
 // This is a convenience wrapper for execution.WithContext.
 func WithDAGContext(ctx context.Context, rCtx Context) context.Context {

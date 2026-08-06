@@ -219,10 +219,6 @@ func (s *enqueueObservingQueueStore) Enqueue(context.Context, string, exec.Queue
 	return nil
 }
 
-func (s *enqueueObservingQueueStore) DequeueByName(context.Context, string) (exec.QueuedItemData, error) {
-	return nil, exec.ErrQueueEmpty
-}
-
 func (s *enqueueObservingQueueStore) DequeueByDAGRunID(context.Context, string, exec.DAGRunRef) ([]exec.QueuedItemData, error) {
 	return nil, exec.ErrQueueItemNotFound
 }

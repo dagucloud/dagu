@@ -326,14 +326,22 @@ func NewCompareAndSwapStatusOptions(opts ...CompareAndSwapStatusOption) CompareA
 }
 
 // ParseDAGRunRef parses a string into a DAGRunRef.
-// The expected format is "name:runId".
-// If the format is invalid, it returns an error.
+// The expected format is "name:runId", where the run ID satisfies
+// ValidateDAGRunID. Malformed input returns an error wrapping
+// ErrInvalidRunRefFormat. The name is only required to be non-empty, since
+// file-backed references may carry a DAG path.
 func ParseDAGRunRef(s string) (DAGRunRef, error) {
-	parts := strings.SplitN(s, ":", 2)
-	if len(parts) != 2 {
+	name, dagRunID, found := strings.Cut(s, ":")
+	if !found {
 		return DAGRunRef{}, ErrInvalidRunRefFormat
 	}
-	return NewDAGRunRef(parts[0], parts[1]), nil
+	if name == "" {
+		return DAGRunRef{}, fmt.Errorf("%w: DAG name must not be empty", ErrInvalidRunRefFormat)
+	}
+	if err := ValidateDAGRunID(dagRunID); err != nil {
+		return DAGRunRef{}, fmt.Errorf("%w: %w", ErrInvalidRunRefFormat, err)
+	}
+	return NewDAGRunRef(name, dagRunID), nil
 }
 
 // zeroRef is a zero value for DAGRunRef.

@@ -726,7 +726,7 @@ func (n *Node) evaluateStructuredLiteral(ctx context.Context, value any) (any, e
 
 func maxOutputSize(ctx context.Context) int64 {
 	maxSize := int64(defaultMaxOutputSizeBytes)
-	if rCtx := GetDAGContext(ctx); rCtx.DAG != nil && rCtx.DAG.MaxOutputSize > 0 {
+	if rCtx, ok := LookupDAGContext(ctx); ok && rCtx.DAG != nil && rCtx.DAG.MaxOutputSize > 0 {
 		maxSize = int64(rCtx.DAG.MaxOutputSize)
 	}
 	return maxSize
@@ -1248,7 +1248,7 @@ func (n *Node) LogContainsPattern(ctx context.Context, patterns []string) (bool,
 
 	// Get maxOutputSize from DAG configuration
 	var maxOutputSize = defaultMaxOutputSizeBytes
-	if rCtx := GetDAGContext(ctx); rCtx.DAG != nil && rCtx.DAG.MaxOutputSize > 0 {
+	if rCtx, ok := LookupDAGContext(ctx); ok && rCtx.DAG != nil && rCtx.DAG.MaxOutputSize > 0 {
 		maxOutputSize = rCtx.DAG.MaxOutputSize
 	}
 

@@ -151,7 +151,7 @@ func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan *Node) err
 	r.metrics.totalNodes = len(nodes)
 
 	// If one of the conditions does not met, cancel the execution.
-	rCtx := GetDAGContext(ctx)
+	rCtx := MustDAGContext(ctx)
 	if len(rCtx.DAG.Preconditions) > 0 {
 		shell, err := ResolveDAGShell(ctx)
 		if err != nil {

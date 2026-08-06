@@ -21,8 +21,6 @@ var (
 type QueueStore interface {
 	// Enqueue adds an item to the queue
 	Enqueue(ctx context.Context, name string, priority QueuePriority, dagRun DAGRunRef) error
-	// DequeueByName retrieves an item from the queue and removes it
-	DequeueByName(ctx context.Context, name string) (QueuedItemData, error)
 	// DequeueByDAGRunID retrieves items from the queue by dag-run reference and removes them
 	DequeueByDAGRunID(ctx context.Context, name string, dagRun DAGRunRef) ([]QueuedItemData, error)
 	// DeleteByItemIDs removes the exact queued items identified by their queue item IDs.
@@ -77,14 +75,6 @@ type MockQueueStore struct {
 func (m *MockQueueStore) Enqueue(ctx context.Context, name string, priority QueuePriority, dagRun DAGRunRef) error {
 	args := m.Called(ctx, name, priority, dagRun)
 	return args.Error(0)
-}
-
-func (m *MockQueueStore) DequeueByName(ctx context.Context, name string) (QueuedItemData, error) {
-	args := m.Called(ctx, name)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(QueuedItemData), args.Error(1)
 }
 
 func (m *MockQueueStore) DequeueByDAGRunID(ctx context.Context, name string, dagRun DAGRunRef) ([]QueuedItemData, error) {

@@ -55,7 +55,7 @@ type queueFixture struct {
 	leaseStore     exec.DAGRunLeaseStore
 	dispatchStore  exec.DispatchTaskStore
 	distributedDir string
-	queueStore     exec.QueueStore
+	queueStore     *store.QueueStore
 	procStore      exec.ProcStore
 	processor      *QueueProcessor
 	dag            *core.DAG

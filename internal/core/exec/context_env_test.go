@@ -5,7 +5,9 @@ package exec
 
 import (
 	"context"
+	"maps"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/core"
@@ -33,23 +35,14 @@ func TestNewContext_ManagedDAGRunEnvsAreProtectedAndAvailableToDAGEnv(t *testing
 	require.NotEmpty(t, expected)
 
 	var optionEnvs []string
-	seen := make(map[string]struct{}, len(managedDAGRunEnvs))
-	for _, env := range managedDAGRunEnvs {
-		require.NotEmpty(t, env.key)
-		require.NotContains(t, seen, env.key)
-		seen[env.key] = struct{}{}
-
-		value, ok := expected[env.key]
-		if !ok {
-			continue
-		}
-		require.NotEmpty(t, value, "test setup should populate %s", env.key)
+	for _, key := range slices.Sorted(maps.Keys(expected)) {
+		require.NotEmpty(t, expected[key], "test setup should populate %s", key)
 
 		dag.Env = append(dag.Env,
-			env.key+"=wrong-from-dag-env",
-			"REF_"+env.key+"=${"+env.key+"}",
+			key+"=wrong-from-dag-env",
+			"REF_"+key+"=${"+key+"}",
 		)
-		optionEnvs = append(optionEnvs, env.key+"=wrong-from-options")
+		optionEnvs = append(optionEnvs, key+"=wrong-from-options")
 	}
 
 	ctx = NewContext(ctx, dag, dagRunID, logFile,

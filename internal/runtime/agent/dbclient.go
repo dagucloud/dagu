@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
@@ -78,55 +77,6 @@ func (o *dbClient) GetDAG(ctx context.Context, name string) (*core.DAG, error) {
 		tag.DAG(name),
 	)
 	return remoteDAG, nil
-}
-
-func (o *dbClient) GetSubDAGRunStatus(ctx context.Context, dagRunID string, rootDAGRun exec.DAGRunRef) (*runtime.RunStatus, error) {
-	subAttempt, err := o.drs.FindSubAttempt(ctx, rootDAGRun, dagRunID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to find run for dag-run ID %s: %w", dagRunID, err)
-	}
-	status, err := subAttempt.ReadStatus(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read status: %w", err)
-	}
-
-	nodes := status.NodesInRunOrder()
-
-	outputVariables := make(map[string]string)
-	for _, node := range nodes {
-		if node.OutputVariables != nil {
-			node.OutputVariables.Range(func(_, value any) bool {
-				// split the value by '=' to get the key and value
-				key, val, found := strings.Cut(value.(string), "=")
-				if found {
-					outputVariables[key] = val
-				}
-				return true
-			})
-		}
-	}
-	return &runtime.RunStatus{
-		Status:             status.Status,
-		Outputs:            outputVariables,
-		OutputValues:       runtime.OutputValuesFromExecNodes(nodes),
-		Name:               status.Name,
-		DAGRunID:           status.DAGRunID,
-		Params:             status.Params,
-		PendingStepRetries: exec.PendingStepRetriesFromStatus(status),
-	}, nil
-}
-
-func (o *dbClient) IsSubDAGRunCompleted(ctx context.Context, dagRunID string, rootDAGRun exec.DAGRunRef) (bool, error) {
-	subAttempt, err := o.drs.FindSubAttempt(ctx, rootDAGRun, dagRunID)
-	if err != nil {
-		return false, fmt.Errorf("failed to find run for dag-run ID %s: %w", dagRunID, err)
-	}
-	status, err := subAttempt.ReadStatus(ctx)
-	if err != nil {
-		return false, fmt.Errorf("failed to read status: %w", err)
-	}
-
-	return !status.Status.IsActive(), nil
 }
 
 func (o *dbClient) RequestChildCancel(ctx context.Context, dagRunID string, rootDAGRun exec.DAGRunRef) error {

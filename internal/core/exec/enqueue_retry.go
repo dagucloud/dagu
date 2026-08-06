@@ -91,21 +91,22 @@ func EnqueueRetry(
 		return false, ErrRetryStaleLatest
 	}
 
-	procGroup := retryProcGroup(dag, updatedStatus)
-	if procGroup == "" {
-		if err := rollbackQueuedRetry(ctx, dagRunStore, dagRun, updatedStatus, originalStatus); err != nil {
-			return false, fmt.Errorf("enqueue retry: proc group is empty; rollback queued retry status: %w", err)
-		}
-		return false, errors.New("enqueue retry: proc group is empty")
+	var enqueueErr error
+	if procGroup := retryProcGroup(dag, updatedStatus); procGroup == "" {
+		enqueueErr = errors.New("proc group is empty")
+	} else {
+		enqueueErr = queueStore.Enqueue(ctx, procGroup, QueuePriorityLow, dagRun)
 	}
-	if err := queueStore.Enqueue(ctx, procGroup, QueuePriorityLow, dagRun); err != nil {
-		if rollbackErr := rollbackQueuedRetry(ctx, dagRunStore, dagRun, updatedStatus, originalStatus); rollbackErr != nil {
-			return false, fmt.Errorf("enqueue retry: %w; rollback queued retry status: %w", err, rollbackErr)
-		}
-		return false, fmt.Errorf("enqueue retry: %w", err)
+	if enqueueErr == nil {
+		return true, nil
 	}
 
-	return true, nil
+	// The status swap above already published Queued, so every failure past
+	// this point must restore the prior status.
+	if rollbackErr := rollbackQueuedRetry(ctx, dagRunStore, dagRun, updatedStatus, originalStatus); rollbackErr != nil {
+		return false, fmt.Errorf("enqueue retry: %w; rollback queued retry status: %w", enqueueErr, rollbackErr)
+	}
+	return false, fmt.Errorf("enqueue retry: %w", enqueueErr)
 }
 
 func rollbackQueuedRetry(

@@ -46,8 +46,6 @@ type ProcStore interface {
 type ProcHandle interface {
 	// Stop stops the heartbeat for the process.
 	Stop(ctx context.Context) error
-	// GetMeta retrieves the metadata for the process.
-	GetMeta() ProcMeta
 }
 
 // ProcMeta is a struct that holds metadata for a process.

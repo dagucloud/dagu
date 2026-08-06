@@ -11,80 +11,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/core"
 )
 
-type managedDAGRunEnv struct {
-	key   string
-	value func(context.Context, *core.DAG, string, string, *contextOptions) (string, bool)
-}
-
-var managedDAGRunEnvs = []managedDAGRunEnv{
-	{
-		key: EnvKeyDAGRunLogFile,
-		value: func(_ context.Context, _ *core.DAG, _ string, logFile string, _ *contextOptions) (string, bool) {
-			return logFile, true
-		},
-	},
-	{
-		key: EnvKeyDAGRunID,
-		value: func(_ context.Context, _ *core.DAG, dagRunID string, _ string, _ *contextOptions) (string, bool) {
-			return dagRunID, true
-		},
-	},
-	{
-		key: EnvKeyDAGName,
-		value: func(_ context.Context, dag *core.DAG, _ string, _ string, _ *contextOptions) (string, bool) {
-			return dag.Name, true
-		},
-	},
-	{
-		key: EnvKeyDAGDocsDir,
-		value: func(ctx context.Context, dag *core.DAG, _ string, _ string, _ *contextOptions) (string, bool) {
-			cfg := config.GetConfig(ctx)
-			if cfg.Paths.DocsDir == "" {
-				return "", false
-			}
-
-			docsDir := filepath.Join(cfg.Paths.DocsDir, dag.Name)
-			if workspaceName, ok := WorkspaceNameFromLabels(dag.Labels); ok {
-				docsDir = filepath.Join(cfg.Paths.DocsDir, workspaceName, dag.Name)
-			}
-			return docsDir, true
-		},
-	},
-	{
-		key: EnvKeyDAGRunWorkDir,
-		value: func(_ context.Context, _ *core.DAG, _ string, _ string, options *contextOptions) (string, bool) {
-			if options.workDir == "" {
-				return "", false
-			}
-			return options.workDir, true
-		},
-	},
-	{
-		key: EnvKeyDAGRunArtifactsDir,
-		value: func(_ context.Context, _ *core.DAG, _ string, _ string, options *contextOptions) (string, bool) {
-			if options.artifactDir == "" {
-				return "", false
-			}
-			return options.artifactDir, true
-		},
-	},
-	{
-		key:   EnvKeyDAGParamsJSON,
-		value: dagParamsJSONEnvValue,
-	},
-	{
-		key:   EnvKeyDAGParamsJSONCompat,
-		value: dagParamsJSONEnvValue,
-	},
-}
-
-func dagParamsJSONEnvValue(_ context.Context, dag *core.DAG, _ string, _ string, _ *contextOptions) (string, bool) {
-	if dag.ParamsJSON == "" {
-		return "", false
-	}
-	return dag.ParamsJSON, true
-}
-
+// buildManagedDAGRunEnvs returns the environment variables Dagu generates for a
+// dag-run. Keys whose value is unavailable are omitted rather than set empty.
 func buildManagedDAGRunEnvs(
 	ctx context.Context,
 	dag *core.DAG,
@@ -92,12 +20,36 @@ func buildManagedDAGRunEnvs(
 	logFile string,
 	options *contextOptions,
 ) map[string]string {
-	envs := make(map[string]string, len(managedDAGRunEnvs))
-	for _, env := range managedDAGRunEnvs {
-		value, ok := env.value(ctx, dag, dagRunID, logFile, options)
-		if ok {
-			envs[env.key] = value
-		}
+	envs := map[string]string{
+		EnvKeyDAGRunLogFile: logFile,
+		EnvKeyDAGRunID:      dagRunID,
+		EnvKeyDAGName:       dag.Name,
+	}
+	if docsDir := dagDocsDir(ctx, dag); docsDir != "" {
+		envs[EnvKeyDAGDocsDir] = docsDir
+	}
+	if options.workDir != "" {
+		envs[EnvKeyDAGRunWorkDir] = options.workDir
+	}
+	if options.artifactDir != "" {
+		envs[EnvKeyDAGRunArtifactsDir] = options.artifactDir
+	}
+	if dag.ParamsJSON != "" {
+		envs[EnvKeyDAGParamsJSON] = dag.ParamsJSON
+		envs[EnvKeyDAGParamsJSONCompat] = dag.ParamsJSON
 	}
 	return envs
+}
+
+// dagDocsDir returns the documents directory for the DAG, or an empty string
+// when no documents root is configured.
+func dagDocsDir(ctx context.Context, dag *core.DAG) string {
+	cfg := config.GetConfig(ctx)
+	if cfg.Paths.DocsDir == "" {
+		return ""
+	}
+	if workspaceName, ok := WorkspaceNameFromLabels(dag.Labels); ok {
+		return filepath.Join(cfg.Paths.DocsDir, workspaceName, dag.Name)
+	}
+	return filepath.Join(cfg.Paths.DocsDir, dag.Name)
 }

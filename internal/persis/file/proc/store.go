@@ -133,13 +133,6 @@ type ProcHandle struct {
 	wg                sync.WaitGroup
 }
 
-// GetMeta returns this process metadata.
-func (p *ProcHandle) GetMeta() exec.ProcMeta {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.meta
-}
-
 // Stop stops the heartbeat and removes the proc file.
 func (p *ProcHandle) Stop(_ context.Context) error {
 	if p.canceled.CompareAndSwap(false, true) {

@@ -141,9 +141,6 @@ func (s *localProcStore) Acquire(_ context.Context, groupName string, meta exec.
 	return s.handle, nil
 }
 
-type localProcHandle struct {
-	meta exec.ProcMeta
-}
+type localProcHandle struct{}
 
 func (h *localProcHandle) Stop(context.Context) error { return nil }
-func (h *localProcHandle) GetMeta() exec.ProcMeta     { return h.meta }

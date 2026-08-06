@@ -34,13 +34,6 @@ type ProcHandle struct {
 
 var _ exec.ProcHandle = (*ProcHandle)(nil)
 
-// GetMeta returns this process metadata.
-func (p *ProcHandle) GetMeta() exec.ProcMeta {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.meta
-}
-
 // Stop stops the heartbeat and removes the proc entry.
 func (p *ProcHandle) Stop(ctx context.Context) error {
 	if p.canceled.CompareAndSwap(false, true) {
