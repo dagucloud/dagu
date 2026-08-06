@@ -10,7 +10,6 @@ import (
 	"math"
 	"path"
 	"path/filepath"
-	"reflect"
 	"regexp"
 	"slices"
 	"sort"
@@ -331,85 +330,128 @@ type llmMessage struct {
 	Content string `yaml:"content,omitempty"`
 }
 
-// stepTransformer is a generic implementation for step field transformations
-type stepTransformer[T any] struct {
-	fieldName string
-	builder   func(ctx stepBuildContext, s *step) (T, error)
-}
-
-func (t *stepTransformer[T]) Transform(ctx stepBuildContext, in *step, out reflect.Value) error {
-	v, err := t.builder(ctx, in)
-	if err != nil {
-		return err
-	}
-	field := out.FieldByName(t.fieldName)
-	if field.IsValid() && field.CanSet() {
-		field.Set(reflect.ValueOf(v))
-	}
-	return nil
-}
-
-// newStepTransformer creates a step transformer for a single field
-func newStepTransformer[T any](fieldName string, builder func(stepBuildContext, *step) (T, error)) Transformer[stepBuildContext, *step] {
-	return &stepTransformer[T]{
-		fieldName: fieldName,
-		builder:   builder,
-	}
-}
-
-// stepTransform wraps a step transformer with its name for error reporting
+// stepTransform builds one part of a step and applies it to the result. name
+// identifies the spec field in build errors.
 type stepTransform struct {
-	name        string
-	transformer Transformer[stepBuildContext, *step]
+	name  string
+	apply func(ctx stepBuildContext, in *step, out *core.Step) error
+}
+
+// stepField describes a spec field whose built value is assigned to a single
+// field of the result.
+func stepField[T any](
+	name string,
+	build func(stepBuildContext, *step) (T, error),
+	assign func(*core.Step, T),
+) stepTransform {
+	return stepTransform{
+		name: name,
+		apply: func(ctx stepBuildContext, in *step, out *core.Step) error {
+			v, err := build(ctx, in)
+			if err != nil {
+				return err
+			}
+			assign(out, v)
+			return nil
+		},
+	}
+}
+
+// stepOutputRedirectField parses one output redirect declaration and assigns
+// every result field derived from it. Parsing once keeps a malformed
+// declaration to a single error.
+func stepOutputRedirectField(
+	name string,
+	raw func(*step) any,
+	allowOutputs bool,
+	assign func(*core.Step, stepOutputRedirect),
+) stepTransform {
+	return stepTransform{
+		name: name,
+		apply: func(_ stepBuildContext, in *step, out *core.Step) error {
+			redirect, err := buildStepOutputRedirect(name, raw(in), allowOutputs)
+			if err != nil {
+				return err
+			}
+			assign(out, redirect)
+			return nil
+		},
+	}
+}
+
+// stepShellField parses the shell declaration once and assigns both the shell
+// and its arguments.
+func stepShellField() stepTransform {
+	return stepTransform{
+		name: "shell",
+		apply: func(ctx stepBuildContext, in *step, out *core.Step) error {
+			result, err := parseStepShellInternal(ctx, in)
+			if err != nil {
+				return err
+			}
+			out.Shell = result.Shell
+			out.ShellArgs = result.Args
+			if in.ShellArgs != nil {
+				args := append([]string{}, result.Args...)
+				out.ShellArgs = append(args, in.ShellArgs...)
+			}
+			return nil
+		},
+	}
 }
 
 type stepTransformStage []stepTransform
 
 var stepIdentityStage = stepTransformStage{
-	{"name", newStepTransformer("Name", buildStepName)},
-	{"id", newStepTransformer("ID", buildStepID)},
-	{"description", newStepTransformer("Description", buildStepDescription)},
+	stepField("name", buildStepName, func(out *core.Step, v string) { out.Name = v }),
+	stepField("id", buildStepID, func(out *core.Step, v string) { out.ID = v }),
+	stepField("description", buildStepDescription, func(out *core.Step, v string) { out.Description = v }),
 }
 
 var stepScriptStage = stepTransformStage{
-	{"shell_packages", newStepTransformer("ShellPackages", buildStepShellPackages)},
-	{"script", newStepTransformer("Script", buildStepScript)},
+	stepField("shell_packages", buildStepShellPackages, func(out *core.Step, v []string) { out.ShellPackages = v }),
+	stepField("script", buildStepScript, func(out *core.Step, v string) { out.Script = v }),
 }
 
 var stepLogOutputStage = stepTransformStage{
-	{"stdout", newStepTransformer("Stdout", buildStepStdout)},
-	{"stdout.artifact", newStepTransformer("StdoutArtifact", buildStepStdoutArtifact)},
-	{"stdout.outputs", newStepTransformer("StdoutOutputs", buildStepStdoutOutputs)},
-	{"stderr", newStepTransformer("Stderr", buildStepStderr)},
-	{"stderr.artifact", newStepTransformer("StderrArtifact", buildStepStderrArtifact)},
-	{"log_output", newStepTransformer("LogOutput", buildStepLogOutput)},
+	stepOutputRedirectField("stdout", func(s *step) any { return s.Stdout }, true,
+		func(out *core.Step, v stepOutputRedirect) {
+			out.Stdout = v.filePath
+			out.StdoutArtifact = v.artifactPath
+			out.StdoutOutputs = v.outputs
+		}),
+	stepOutputRedirectField("stderr", func(s *step) any { return s.Stderr }, false,
+		func(out *core.Step, v stepOutputRedirect) {
+			out.Stderr = v.filePath
+			out.StderrArtifact = v.artifactPath
+		}),
+	stepField("log_output", buildStepLogOutput, func(out *core.Step, v core.LogOutputMode) { out.LogOutput = v }),
 }
 
 var stepExecutionPlacementStage = stepTransformStage{
-	{"mail_on_error", newStepTransformer("MailOnError", buildStepMailOnError)},
-	{"worker_selector", newStepTransformer("WorkerSelector", buildStepWorkerSelector)},
-	{"working_dir", newStepTransformer("Dir", buildStepWorkingDir)},
-	{"shell", newStepTransformer("Shell", buildStepShell)},
-	{"shell_args", newStepTransformer("ShellArgs", buildStepShellArgs)},
-	{"timeout", newStepTransformer("Timeout", buildStepTimeout)},
-	{"depends", newStepTransformer("Depends", buildStepDepends)},
-	{"explicitly_no_deps", newStepTransformer("ExplicitlyNoDeps", buildStepExplicitlyNoDeps)},
-	{"continue_on", newStepTransformer("ContinueOn", buildStepContinueOn)},
-	{"retry_policy", newStepTransformer("RetryPolicy", buildStepRetryPolicy)},
-	{"repeat_policy", newStepTransformer("RepeatPolicy", buildStepRepeatPolicy)},
-	{"signal_on_stop", newStepTransformer("SignalOnStop", buildStepSignalOnStop)},
+	stepField("mail_on_error", buildStepMailOnError, func(out *core.Step, v bool) { out.MailOnError = v }),
+	stepField("worker_selector", buildStepWorkerSelector, func(out *core.Step, v map[string]string) { out.WorkerSelector = v }),
+	stepField("working_dir", buildStepWorkingDir, func(out *core.Step, v string) { out.Dir = v }),
+	stepShellField(),
+	stepField("timeout", buildStepTimeout, func(out *core.Step, v time.Duration) { out.Timeout = v }),
+	stepField("depends", buildStepDepends, func(out *core.Step, v []string) { out.Depends = v }),
+	stepField("explicitly_no_deps", buildStepExplicitlyNoDeps, func(out *core.Step, v bool) { out.ExplicitlyNoDeps = v }),
+	stepField("continue_on", buildStepContinueOn, func(out *core.Step, v core.ContinueOn) { out.ContinueOn = v }),
+	stepField("retry_policy", buildStepRetryPolicy, func(out *core.Step, v core.RetryPolicy) { out.RetryPolicy = v }),
+	stepField("repeat_policy", buildStepRepeatPolicy, func(out *core.Step, v core.RepeatPolicy) { out.RepeatPolicy = v }),
+	stepField("signal_on_stop", buildStepSignalOnStop, func(out *core.Step, v string) { out.SignalOnStop = v }),
 }
 
 var stepStructuredOutputStage = stepTransformStage{
-	{"output", newStepTransformer("Output", buildStepOutput)},
-	{"structured_output", newStepTransformer("StructuredOutput", buildStepStructuredOutput)},
-	{"output_schema", newStepTransformer("OutputSchema", buildStepOutputSchema)},
-	{"outputs", newStepTransformer("Outputs", buildStepDeclaredOutputs)},
+	stepField("output", buildStepOutput, func(out *core.Step, v string) { out.Output = v }),
+	stepField("structured_output", buildStepStructuredOutput, func(out *core.Step, v map[string]core.StepOutputEntry) { out.StructuredOutput = v }),
+	stepField("output_schema", buildStepOutputSchema, func(out *core.Step, v map[string]any) { out.OutputSchema = v }),
+	stepField("outputs", buildStepDeclaredOutputs, func(out *core.Step, v []core.StepOutputDeclaration) { out.Outputs = v }),
 }
 
 var stepEnvConditionStage = stepTransformStage{
-	{"env", newStepTransformer("Env", buildStepEnvs)},
-	{"preconditions", newStepTransformer("Preconditions", buildStepPreconditions)},
+	stepField("env", buildStepEnvs, func(out *core.Step, v []string) { out.Env = v }),
+	stepField("preconditions", buildStepPreconditions, func(out *core.Step, v []*core.Condition) { out.Preconditions = v }),
 }
 
 var stepTransformStages = []stepTransformStage{
@@ -424,11 +466,10 @@ var stepTransformStages = []stepTransformStage{
 // runStepTransformers executes all step transformers
 func runStepTransformers(ctx stepBuildContext, spec *step, result *core.Step) core.ErrorList {
 	var errs core.ErrorList
-	out := reflect.ValueOf(result).Elem()
 
 	for _, stage := range stepTransformStages {
 		for _, t := range stage {
-			if err := t.transformer.Transform(ctx, spec, out); err != nil {
+			if err := t.apply(ctx, spec, result); err != nil {
 				errs = append(errs, wrapTransformError(t.name, err))
 			}
 		}
@@ -619,31 +660,6 @@ func buildStepScript(_ stepBuildContext, s *step) (string, error) {
 	return strings.TrimSpace(s.Script), nil
 }
 
-func buildStepStdout(_ stepBuildContext, s *step) (string, error) {
-	redirect, err := buildStepOutputRedirect("stdout", s.Stdout, true)
-	return redirect.filePath, err
-}
-
-func buildStepStdoutArtifact(_ stepBuildContext, s *step) (string, error) {
-	redirect, err := buildStepOutputRedirect("stdout", s.Stdout, true)
-	return redirect.artifactPath, err
-}
-
-func buildStepStdoutOutputs(_ stepBuildContext, s *step) (*core.StepOutputsConfig, error) {
-	redirect, err := buildStepOutputRedirect("stdout", s.Stdout, true)
-	return redirect.outputs, err
-}
-
-func buildStepStderr(_ stepBuildContext, s *step) (string, error) {
-	redirect, err := buildStepOutputRedirect("stderr", s.Stderr, false)
-	return redirect.filePath, err
-}
-
-func buildStepStderrArtifact(_ stepBuildContext, s *step) (string, error) {
-	redirect, err := buildStepOutputRedirect("stderr", s.Stderr, false)
-	return redirect.artifactPath, err
-}
-
 type stepOutputRedirect struct {
 	filePath     string
 	artifactPath string
@@ -809,26 +825,6 @@ func parseStepShellInternal(_ stepBuildContext, s *step) (*stepShellResult, erro
 		Shell: strings.TrimSpace(shell),
 		Args:  args,
 	}, nil
-}
-
-func buildStepShell(ctx stepBuildContext, s *step) (string, error) {
-	result, err := parseStepShellInternal(ctx, s)
-	if err != nil {
-		return "", err
-	}
-	return result.Shell, nil
-}
-
-func buildStepShellArgs(ctx stepBuildContext, s *step) ([]string, error) {
-	result, err := parseStepShellInternal(ctx, s)
-	if err != nil {
-		return nil, err
-	}
-	if s.ShellArgs != nil {
-		args := append([]string{}, result.Args...)
-		return append(args, s.ShellArgs...), nil
-	}
-	return result.Args, nil
 }
 
 func buildStepTimeout(_ stepBuildContext, s *step) (time.Duration, error) {

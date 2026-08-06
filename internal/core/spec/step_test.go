@@ -282,9 +282,9 @@ func TestBuildStepStdout(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := &step{Stdout: tt.input}
-			result, err := buildStepStdout(testStepBuildContext(), s)
+			redirect, err := buildStepOutputRedirect("stdout", s.Stdout, true)
 			require.NoError(t, err)
-			assert.Equal(t, tt.expected, result)
+			assert.Equal(t, tt.expected, redirect.filePath)
 		})
 	}
 }
@@ -304,7 +304,7 @@ func TestBuildStepStdoutRejectsInvalidArtifactPath(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := &step{Stdout: map[string]any{"artifact": tt.path}}
-			_, err := buildStepStdout(testStepBuildContext(), s)
+			_, err := buildStepOutputRedirect("stdout", s.Stdout, true)
 			require.Error(t, err)
 		})
 	}
@@ -314,9 +314,9 @@ func TestBuildStepStdoutArtifact(t *testing.T) {
 	t.Parallel()
 
 	s := &step{Stdout: map[string]any{"artifact": " reports/report.md "}}
-	result, err := buildStepStdoutArtifact(testStepBuildContext(), s)
+	redirect, err := buildStepOutputRedirect("stdout", s.Stdout, true)
 	require.NoError(t, err)
-	assert.Equal(t, "reports/report.md", result)
+	assert.Equal(t, "reports/report.md", redirect.artifactPath)
 }
 
 func TestBuildStepStderr(t *testing.T) {
@@ -336,9 +336,9 @@ func TestBuildStepStderr(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := &step{Stderr: tt.input}
-			result, err := buildStepStderr(testStepBuildContext(), s)
+			redirect, err := buildStepOutputRedirect("stderr", s.Stderr, false)
 			require.NoError(t, err)
-			assert.Equal(t, tt.expected, result)
+			assert.Equal(t, tt.expected, redirect.filePath)
 		})
 	}
 }
@@ -347,9 +347,9 @@ func TestBuildStepStderrArtifact(t *testing.T) {
 	t.Parallel()
 
 	s := &step{Stderr: map[string]any{"artifact": " reports/report.err "}}
-	result, err := buildStepStderrArtifact(testStepBuildContext(), s)
+	redirect, err := buildStepOutputRedirect("stderr", s.Stderr, false)
 	require.NoError(t, err)
-	assert.Equal(t, "reports/report.err", result)
+	assert.Equal(t, "reports/report.err", redirect.artifactPath)
 }
 
 func TestBuildStepMailOnError(t *testing.T) {
@@ -437,9 +437,9 @@ func TestBuildStepShell(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := &step{Shell: tt.shell}
-			result, err := buildStepShell(testStepBuildContext(), s)
-			require.NoError(t, err)
-			assert.Equal(t, tt.expected, result)
+			var out core.Step
+			require.NoError(t, stepShellField().apply(testStepBuildContext(), s, &out))
+			assert.Equal(t, tt.expected, out.Shell)
 		})
 	}
 }
@@ -461,9 +461,9 @@ func TestBuildStepShellArgs(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := &step{Shell: tt.shell}
-			result, err := buildStepShellArgs(testStepBuildContext(), s)
-			require.NoError(t, err)
-			assert.Equal(t, tt.expected, result)
+			var out core.Step
+			require.NoError(t, stepShellField().apply(testStepBuildContext(), s, &out))
+			assert.Equal(t, tt.expected, out.ShellArgs)
 		})
 	}
 }

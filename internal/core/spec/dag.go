@@ -488,90 +488,77 @@ type toolPackage struct {
 	Digest   string   `yaml:"digest,omitempty"`
 }
 
-// Transformer transforms a spec field into output field(s).
-// C is the context type, T is the input type.
-type Transformer[C any, T any] interface {
-	// Transform performs the transformation and sets field(s) on out
-	Transform(ctx C, in T, out reflect.Value) error
-}
-
-// dagTransformer is a generic implementation that provides type safety
-// for the builder function while satisfying the DAGTransformer interface.
-type dagTransformer[T any] struct {
-	fieldName string
-	builder   func(ctx buildContext, d *dag) (T, error)
-}
-
-func (t *dagTransformer[T]) Transform(ctx buildContext, in *dag, out reflect.Value) error {
-	v, err := t.builder(ctx, in)
-	if err != nil {
-		return err
-	}
-	field := out.FieldByName(t.fieldName)
-	if field.IsValid() && field.CanSet() {
-		field.Set(reflect.ValueOf(v))
-	}
-	return nil
-}
-
-// newTransformer creates a DAGTransformer for a single field transformation
-func newTransformer[T any](fieldName string, builder func(buildContext, *dag) (T, error)) Transformer[buildContext, *dag] {
-	return &dagTransformer[T]{
-		fieldName: fieldName,
-		builder:   builder,
-	}
-}
-
-// transform wraps a DAGTransformer with its name for error reporting
+// transform builds one part of a DAG and applies it to the result. name
+// identifies the spec field in build errors.
 type transform struct {
-	name        string
-	transformer Transformer[buildContext, *dag]
+	name  string
+	apply func(ctx buildContext, in *dag, out *core.DAG) error
+}
+
+// dagField describes a spec field whose built value is assigned to a single
+// field of the result.
+func dagField[T any](
+	name string,
+	build func(buildContext, *dag) (T, error),
+	assign func(*core.DAG, T),
+) transform {
+	return transform{
+		name: name,
+		apply: func(ctx buildContext, in *dag, out *core.DAG) error {
+			v, err := build(ctx, in)
+			if err != nil {
+				return err
+			}
+			assign(out, v)
+			return nil
+		},
+	}
 }
 
 type transformStage []transform
 
 // Metadata stages are always run (for listing, scheduling, etc.).
 var metadataIdentityStage = transformStage{
-	{"name", newTransformer("Name", buildName)},
-	{"group", newTransformer("Group", buildGroup)},
-	{"description", newTransformer("Description", buildDescription)},
-	{"type", newTransformer("Type", buildType)},
-	{"labels", newTransformer("Labels", buildLabels)},
+	dagField("name", buildName, func(out *core.DAG, v string) { out.Name = v }),
+	dagField("group", buildGroup, func(out *core.DAG, v string) { out.Group = v }),
+	dagField("description", buildDescription, func(out *core.DAG, v string) { out.Description = v }),
+	dagField("type", buildType, func(out *core.DAG, v string) { out.Type = v }),
+	dagField("labels", buildLabels, func(out *core.DAG, v core.Labels) { out.Labels = v }),
 }
 
 var metadataConstsStage = transformStage{
-	{"consts", newTransformer("Consts", buildConsts)},
+	dagField("consts", buildConsts, func(out *core.DAG, v map[string]any) { out.Consts = v }),
 }
 
 // Params must run before env so that env: values can reference ${param_name}.
 var metadataParamsEnvStage = transformStage{
-	{"params", newTransformer("Params", buildParams)},
-	{"default_params", newTransformer("DefaultParams", buildDefaultParams)},
-	{"param_defs", newTransformer("ParamDefs", buildParamDefs)},
-	{"param_schema", newTransformer("ParamSchema", buildParamSchema)},
-	{"params_json", newTransformer("ParamsJSON", buildParamsJSON)},
-	{"env", newTransformer("Env", buildEnvs)},
+	dagField("params", buildParams, func(out *core.DAG, v []string) { out.Params = v }),
+	dagField("default_params", buildDefaultParams, func(out *core.DAG, v string) { out.DefaultParams = v }),
+	dagField("param_defs", buildParamDefs, func(out *core.DAG, v []core.ParamDef) { out.ParamDefs = v }),
+	dagField("param_schema", buildParamSchema, func(out *core.DAG, v json.RawMessage) { out.ParamSchema = v }),
+	dagField("params_json", buildParamsJSON, func(out *core.DAG, v string) { out.ParamsJSON = v }),
+	dagField("env", buildEnvs, func(out *core.DAG, v []string) { out.Env = v }),
 }
 
 var metadataScheduleStage = transformStage{
-	{"schedule", newTransformer("Schedule", buildSchedule)},
-	{"stop_schedule", newTransformer("StopSchedule", buildStopSchedule)},
-	{"restart_schedule", newTransformer("RestartSchedule", buildRestartSchedule)},
+	dagField("schedule", buildSchedule, func(out *core.DAG, v []core.Schedule) { out.Schedule = v }),
+	dagField("stop_schedule", buildStopSchedule, func(out *core.DAG, v []core.Schedule) { out.StopSchedule = v }),
+	dagField("restart_schedule", buildRestartSchedule, func(out *core.DAG, v []core.Schedule) { out.RestartSchedule = v }),
 }
 
 var metadataExecutionPlacementStage = transformStage{
-	{"worker_selector", &workerSelectorTransformer{}},
-	{"timeout", newTransformer("Timeout", buildTimeout)},
-	{"delay", newTransformer("Delay", buildDelay)},
-	{"restart_wait", newTransformer("RestartWait", buildRestartWait)},
-	{"max_active_runs", newTransformer("MaxActiveRuns", buildMaxActiveRuns)},
-	{"max_active_steps", newTransformer("MaxActiveSteps", buildMaxActiveSteps)},
-	{"queue", newTransformer("Queue", buildQueue)},
-	{"retry_policy", newTransformer("RetryPolicy", buildDAGRetryPolicy)},
-	{"max_output_size", newTransformer("MaxOutputSize", buildMaxOutputSize)},
-	{"skip_if_successful", newTransformer("SkipIfSuccessful", buildSkipIfSuccessful)},
-	{"catchup_window", newTransformer("CatchupWindow", buildCatchupWindow)},
-	{"overlap_policy", newTransformer("OverlapPolicy", buildOverlapPolicy)},
+	{"worker_selector", applyWorkerSelector},
+	dagField("timeout", buildTimeout, func(out *core.DAG, v time.Duration) { out.Timeout = v }),
+	dagField("delay", buildDelay, func(out *core.DAG, v time.Duration) { out.Delay = v }),
+	dagField("restart_wait", buildRestartWait, func(out *core.DAG, v time.Duration) { out.RestartWait = v }),
+	dagField("max_active_runs", buildMaxActiveRuns, func(out *core.DAG, v int) { out.MaxActiveRuns = v }),
+	dagField("max_active_steps", buildMaxActiveSteps, func(out *core.DAG, v int) { out.MaxActiveSteps = v }),
+	dagField("queue", buildQueue, func(out *core.DAG, v string) { out.Queue = v }),
+	dagField("retry_policy", buildDAGRetryPolicy, func(out *core.DAG, v *core.DAGRetryPolicy) { out.RetryPolicy = v }),
+	dagField("max_output_size", buildMaxOutputSize, func(out *core.DAG, v int) { out.MaxOutputSize = v }),
+	dagField("skip_if_successful", buildSkipIfSuccessful, func(out *core.DAG, v bool) { out.SkipIfSuccessful = v }),
+	dagField("catchup_window", buildCatchupWindow, func(out *core.DAG, v time.Duration) { out.CatchupWindow = v }),
+	dagField("overlap_policy", buildOverlapPolicy, func(out *core.DAG, v core.OverlapPolicy) { out.OverlapPolicy = v }),
 }
 
 var metadataTransformStages = []transformStage{
@@ -584,53 +571,53 @@ var metadataTransformStages = []transformStage{
 
 // Full stages are only run when building the full DAG (not metadata-only).
 var fullRunOutputStage = transformStage{
-	{"log_dir", newTransformer("LogDir", buildLogDir)},
-	{"artifacts", newTransformer("Artifacts", buildArtifacts)},
-	{"log_output", newTransformer("LogOutput", buildLogOutput)},
+	dagField("log_dir", buildLogDir, func(out *core.DAG, v string) { out.LogDir = v }),
+	dagField("artifacts", buildArtifacts, func(out *core.DAG, v *core.ArtifactsConfig) { out.Artifacts = v }),
+	dagField("log_output", buildLogOutput, func(out *core.DAG, v core.LogOutputMode) { out.LogOutput = v }),
 }
 
 var fullInteractionStage = transformStage{
-	{"mail_on", newTransformer("MailOn", buildMailOn)},
-	{"run_config", newTransformer("RunConfig", buildRunConfig)},
-	{"resources", newTransformer("Resources", buildResources)},
-	{"webhook", newTransformer("Webhook", buildWebhookConfig)},
+	dagField("mail_on", buildMailOn, func(out *core.DAG, v *core.MailOn) { out.MailOn = v }),
+	dagField("run_config", buildRunConfig, func(out *core.DAG, v *core.RunConfig) { out.RunConfig = v }),
+	dagField("resources", buildResources, func(out *core.DAG, v *core.Resources) { out.Resources = v }),
+	dagField("webhook", buildWebhookConfig, func(out *core.DAG, v *core.WebhookConfig) { out.Webhook = v }),
 }
 
 var fullRetentionStage = transformStage{
-	{"hist_retention_days", newTransformer("HistRetentionDays", buildHistRetentionDays)},
-	{"hist_retention_runs", newTransformer("HistRetentionRuns", buildHistRetentionRuns)},
-	{"max_clean_up_time_sec", newTransformer("MaxCleanUpTime", buildMaxCleanUpTime)},
+	dagField("hist_retention_days", buildHistRetentionDays, func(out *core.DAG, v int) { out.HistRetentionDays = v }),
+	dagField("hist_retention_runs", buildHistRetentionRuns, func(out *core.DAG, v int) { out.HistRetentionRuns = v }),
+	dagField("max_clean_up_time_sec", buildMaxCleanUpTime, func(out *core.DAG, v time.Duration) { out.MaxCleanUpTime = v }),
 }
 
 var fullExecutionDefaultsStage = transformStage{
-	{"shell", newTransformer("Shell", buildShell)},
-	{"shell_args", newTransformer("ShellArgs", buildShellArgs)},
-	{"working_dir", newTransformer("WorkingDir", buildWorkingDir)},
-	{"container", newTransformer("Container", buildContainer)},
-	{"registry_auths", newTransformer("RegistryAuths", buildRegistryAuths)},
-	{"ssh", newTransformer("SSH", buildSSH)},
-	{"s3", newTransformer("S3", buildS3)},
-	{"llm", newTransformer("LLM", buildLLM)},
-	{"redis", newTransformer("Redis", buildRedis)},
-	{"harnesses", newTransformer("Harnesses", buildHarnesses)},
-	{"harness", newTransformer("Harness", buildHarness)},
-	{"kubernetes", newTransformer("Kubernetes", buildKubernetes)},
-	{"secrets", newTransformer("Secrets", buildSecrets)},
-	{"tools", newTransformer("Tools", buildTools)},
-	{"dotenv", newTransformer("Dotenv", buildDotenv)},
+	dagField("shell", buildShell, func(out *core.DAG, v string) { out.Shell = v }),
+	dagField("shell_args", buildShellArgs, func(out *core.DAG, v []string) { out.ShellArgs = v }),
+	dagField("working_dir", buildWorkingDir, func(out *core.DAG, v string) { out.WorkingDir = v }),
+	dagField("container", buildContainer, func(out *core.DAG, v *core.Container) { out.Container = v }),
+	dagField("registry_auths", buildRegistryAuths, func(out *core.DAG, v map[string]*core.AuthConfig) { out.RegistryAuths = v }),
+	dagField("ssh", buildSSH, func(out *core.DAG, v *core.SSHConfig) { out.SSH = v }),
+	dagField("s3", buildS3, func(out *core.DAG, v *core.S3Config) { out.S3 = v }),
+	dagField("llm", buildLLM, func(out *core.DAG, v *core.LLMConfig) { out.LLM = v }),
+	dagField("redis", buildRedis, func(out *core.DAG, v *core.RedisConfig) { out.Redis = v }),
+	dagField("harnesses", buildHarnesses, func(out *core.DAG, v core.HarnessDefinitions) { out.Harnesses = v }),
+	dagField("harness", buildHarness, func(out *core.DAG, v *core.HarnessConfig) { out.Harness = v }),
+	dagField("kubernetes", buildKubernetes, func(out *core.DAG, v core.KubernetesConfig) { out.Kubernetes = v }),
+	dagField("secrets", buildSecrets, func(out *core.DAG, v []core.SecretRef) { out.Secrets = v }),
+	dagField("tools", buildTools, func(out *core.DAG, v *core.ToolConfig) { out.Tools = v }),
+	dagField("dotenv", buildDotenv, func(out *core.DAG, v []string) { out.Dotenv = v }),
 }
 
 var fullNotificationStage = transformStage{
-	{"smtp", newTransformer("SMTP", buildSMTPConfig)},
-	{"error_mail", newTransformer("ErrorMail", buildErrMailConfig)},
-	{"info_mail", newTransformer("InfoMail", buildInfoMailConfig)},
-	{"wait_mail", newTransformer("WaitMail", buildWaitMailConfig)},
-	{"preconditions", newTransformer("Preconditions", buildPreconditions)},
-	{"otel", newTransformer("OTel", buildOTel)},
+	dagField("smtp", buildSMTPConfig, func(out *core.DAG, v *core.SMTPConfig) { out.SMTP = v }),
+	dagField("error_mail", buildErrMailConfig, func(out *core.DAG, v *core.MailConfig) { out.ErrorMail = v }),
+	dagField("info_mail", buildInfoMailConfig, func(out *core.DAG, v *core.MailConfig) { out.InfoMail = v }),
+	dagField("wait_mail", buildWaitMailConfig, func(out *core.DAG, v *core.MailConfig) { out.WaitMail = v }),
+	dagField("preconditions", buildPreconditions, func(out *core.DAG, v []*core.Condition) { out.Preconditions = v }),
+	dagField("otel", buildOTel, func(out *core.DAG, v *core.OTelConfig) { out.OTel = v }),
 }
 
 var fullControllerStage = transformStage{
-	{"tasks", newTransformer("Tasks", buildTasks)},
+	dagField("tasks", buildTasks, func(out *core.DAG, v []core.ControllerTask) { out.Tasks = v }),
 }
 
 var fullTransformStages = []transformStage{
@@ -645,23 +632,22 @@ var fullTransformStages = []transformStage{
 // runTransformers executes all transformers in the pipeline
 func runTransformers(ctx buildContext, spec *dag, result *core.DAG) core.ErrorList {
 	var errs core.ErrorList
-	out := reflect.ValueOf(result).Elem()
 
-	errs = append(errs, runTransformerStages(ctx, spec, out, metadataTransformStages)...)
+	errs = append(errs, runTransformerStages(ctx, spec, result, metadataTransformStages)...)
 
 	// Run full transformers only when not in metadata-only mode
 	if !ctx.opts.Has(buildFlagOnlyMetadata) {
-		errs = append(errs, runTransformerStages(ctx, spec, out, fullTransformStages)...)
+		errs = append(errs, runTransformerStages(ctx, spec, result, fullTransformStages)...)
 	}
 
 	return errs
 }
 
-func runTransformerStages(ctx buildContext, spec *dag, out reflect.Value, stages []transformStage) core.ErrorList {
+func runTransformerStages(ctx buildContext, spec *dag, out *core.DAG, stages []transformStage) core.ErrorList {
 	var errs core.ErrorList
 	for _, stage := range stages {
 		for _, t := range stage {
-			if err := t.transformer.Transform(ctx, spec, out); err != nil {
+			if err := t.apply(ctx, spec, out); err != nil {
 				errs = append(errs, wrapTransformError(t.name, err))
 			}
 		}
@@ -1887,27 +1873,19 @@ func parseParamsInternal(ctx buildContext, d *dag) (*paramsResult, error) {
 	return result, err
 }
 
-// workerSelectorTransformer is a custom transformer that sets both WorkerSelector and ForceLocal fields.
-type workerSelectorTransformer struct{}
-
-func (t *workerSelectorTransformer) Transform(ctx buildContext, in *dag, out reflect.Value) error {
+// applyWorkerSelector sets both WorkerSelector and ForceLocal, leaving each
+// field untouched when the spec does not select a value for it.
+func applyWorkerSelector(ctx buildContext, in *dag, out *core.DAG) error {
 	ws, forceLocal, err := buildWorkerSelector(ctx, in)
 	if err != nil {
 		return err
 	}
 
 	if ws != nil {
-		wsField := out.FieldByName("WorkerSelector")
-		if wsField.IsValid() && wsField.CanSet() {
-			wsField.Set(reflect.ValueOf(ws))
-		}
+		out.WorkerSelector = ws
 	}
-
 	if forceLocal {
-		flField := out.FieldByName("ForceLocal")
-		if flField.IsValid() && flField.CanSet() {
-			flField.SetBool(true)
-		}
+		out.ForceLocal = true
 	}
 
 	return nil

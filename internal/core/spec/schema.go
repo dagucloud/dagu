@@ -5,6 +5,7 @@ package spec
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -162,6 +163,7 @@ func loadSchemaFromFile(workingDir string, dagLocation string, filePath string) 
 	// 3) Directory of the DAG file (where it was loaded from)
 
 	var tried []string
+	var causes []error
 
 	// Attempts a candidate by joining base and filePath (if base provided),
 	// resolving env/tilde + absolute path, checking existence, and reading.
@@ -175,15 +177,18 @@ func loadSchemaFromFile(workingDir string, dagLocation string, filePath string) 
 		resolved, err := fileutil.ResolvePath(candidate)
 		if err != nil {
 			tried = append(tried, fmt.Sprintf("%s: resolve error: %v", label, err))
+			causes = append(causes, fmt.Errorf("%s: %w", label, err))
 			return nil, "", err
 		}
 		if !fileutil.FileExists(resolved) {
 			tried = append(tried, fmt.Sprintf("%s: %s", label, resolved))
+			causes = append(causes, fmt.Errorf("%s: %s: %w", label, resolved, os.ErrNotExist))
 			return nil, resolved, os.ErrNotExist
 		}
 		data, err := fileutil.ReadFile(resolved)
 		if err != nil {
 			tried = append(tried, fmt.Sprintf("%s: %s (read error: %v)", label, resolved, err))
+			causes = append(causes, fmt.Errorf("%s: %s: %w", label, resolved, err))
 			return nil, resolved, err
 		}
 		return data, resolved, nil
@@ -209,10 +214,26 @@ func loadSchemaFromFile(workingDir string, dagLocation string, filePath string) 
 		}
 	}
 
-	if len(tried) == 0 {
+	if len(causes) == 0 {
 		return nil, fmt.Errorf("failed to resolve schema file path: %s (no candidates)", filePath)
 	}
-	return nil, fmt.Errorf("schema file not found for %q; tried %s", filePath, strings.Join(tried, ", "))
+
+	// A candidate that failed for a reason other than absence is reported as a
+	// load failure carrying only those causes, so that absence of the earlier
+	// candidates cannot mask it.
+	var blocking []error
+	for _, cause := range causes {
+		if !errors.Is(cause, os.ErrNotExist) {
+			blocking = append(blocking, cause)
+		}
+	}
+	if len(blocking) > 0 {
+		return nil, fmt.Errorf("failed to load schema file %q; tried %s: %w",
+			filePath, strings.Join(tried, ", "), errors.Join(blocking...))
+	}
+
+	return nil, fmt.Errorf("schema file not found for %q; tried %s: %w",
+		filePath, strings.Join(tried, ", "), errors.Join(causes...))
 }
 
 // extractParamsSchemaDeclaration extracts the schema declaration from a params map.
