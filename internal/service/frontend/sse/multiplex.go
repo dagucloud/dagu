@@ -707,6 +707,7 @@ type streamSession struct {
 	slowClientTimeout time.Duration
 
 	mutationMu      sync.Mutex
+	publishMu       sync.Mutex
 	mu              sync.Mutex
 	closed          bool
 	topics          map[string]*multiplexTopic
@@ -809,13 +810,13 @@ func (s *streamSession) bootstrapTopics(ctx context.Context, lastEventID uint64,
 			if result.err != nil {
 				continue
 			}
-			_ = eligible[i].sendSnapshotPayload(s, s.mux.nextID(), result.payload)
+			_ = eligible[i].sendSnapshotPayload(s, result.payload)
 		}
 		return
 	}
 
 	for _, topic := range eligible {
-		if err := topic.sendSnapshot(ctx, s, s.mux.nextID()); err != nil {
+		if err := topic.sendSnapshot(ctx, s); err != nil {
 			continue
 		}
 	}
@@ -854,6 +855,14 @@ func (s *streamSession) enqueueMessage(topic string, eventID uint64, data []byte
 		existing.data = data
 		existing.size = size
 		s.queuedBytes += size
+		for i, msg := range s.queue {
+			if msg != existing {
+				continue
+			}
+			copy(s.queue[i:], s.queue[i+1:])
+			s.queue[len(s.queue)-1] = existing
+			break
+		}
 		for s.queuedBytes > s.writeBufferSize {
 			if !s.dropOldestExcept(topic) {
 				s.closed = true
@@ -1258,25 +1267,29 @@ func (t *multiplexTopic) poll(forcePublish bool) {
 		}
 
 		hash := computeHash(payload)
+		data, err := buildMessageData(t.key, payload)
+		if err != nil {
+			continue
+		}
+
+		session.publishMu.Lock()
 		t.clientsMu.Lock()
 		if _, ok := t.sessions[session]; !ok {
 			t.clientsMu.Unlock()
+			session.publishMu.Unlock()
 			continue
 		}
 		if hash == t.lastHashBySession[session] && !forcePublish {
 			t.clientsMu.Unlock()
+			session.publishMu.Unlock()
 			continue
 		}
 		t.lastHashBySession[session] = hash
 		eventID := t.mux.nextID()
 		t.lastChangeEventID = eventID
 		t.clientsMu.Unlock()
-
-		data, err := buildMessageData(t.key, payload)
-		if err != nil {
-			continue
-		}
 		session.enqueueMessage(t.key, eventID, data)
+		session.publishMu.Unlock()
 	}
 
 	if firstErr != nil && t.mux.metrics != nil {
@@ -1300,30 +1313,35 @@ func (t *multiplexTopic) poll(forcePublish bool) {
 	)
 }
 
-func (t *multiplexTopic) sendSnapshot(ctx context.Context, session *streamSession, eventID uint64) error {
+func (t *multiplexTopic) sendSnapshot(ctx context.Context, session *streamSession) error {
 	payload, err := t.fetchPayload(ctx)
 	if err != nil {
 		return err
 	}
-	return t.sendSnapshotPayload(session, eventID, payload)
+	return t.sendSnapshotPayload(session, payload)
 }
 
-func (t *multiplexTopic) sendSnapshotPayload(session *streamSession, eventID uint64, payload []byte) error {
+func (t *multiplexTopic) sendSnapshotPayload(session *streamSession, payload []byte) error {
 	hash := computeHash(payload)
+	data, err := buildMessageData(t.key, payload)
+	if err != nil {
+		return err
+	}
+
+	session.publishMu.Lock()
+	defer session.publishMu.Unlock()
+
 	t.clientsMu.Lock()
 	if _, ok := t.sessions[session]; !ok {
 		t.clientsMu.Unlock()
 		return nil
 	}
 	t.lastHashBySession[session] = hash
+	eventID := t.mux.nextID()
 	if t.lastChangeEventID == 0 {
 		t.lastChangeEventID = eventID
 	}
 	t.clientsMu.Unlock()
-	data, err := buildMessageData(t.key, payload)
-	if err != nil {
-		return err
-	}
 	session.enqueueMessage(t.key, eventID, data)
 	return nil
 }
