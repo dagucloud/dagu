@@ -1178,6 +1178,10 @@
           "type": "string",
           "description": "Deprecated: use proc.heartbeat_interval. Heartbeat write interval for process liveness. Default: '5s'."
         },
+        "heartbeat_sync_interval": {
+          "type": "string",
+          "description": "Deprecated and ignored. Accepted so existing configuration files remain valid."
+        },
         "stale_threshold": {
           "type": "string",
           "description": "Deprecated: use proc.stale_threshold. Duration after which a process heartbeat is considered stale. Default: '90s'."
@@ -1192,6 +1196,10 @@
         "heartbeat_interval": {
           "type": "string",
           "description": "Heartbeat write interval for process liveness. Default: '5s'."
+        },
+        "heartbeat_sync_interval": {
+          "type": "string",
+          "description": "Deprecated and ignored. Accepted so existing configuration files remain valid."
         },
         "stale_threshold": {
           "type": "string",

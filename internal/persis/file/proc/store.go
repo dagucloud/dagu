@@ -579,6 +579,9 @@ func (s *Store) LatestHeartbeat(_ context.Context, groupName string, dagRun exec
 	now := time.Now().UTC()
 	var latest *exec.ProcHeartbeat
 	for _, file := range files {
+		if !procFileMayBelongTo(file, dagRun) {
+			continue
+		}
 		observed, err := readProcEntryWithRetry(file, groupName, s.staleTime, now)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
@@ -587,9 +590,8 @@ func (s *Store) LatestHeartbeat(_ context.Context, groupName string, dagRun exec
 			if errors.Is(err, errInvalidProcFile) && s.abandoned(file, now) {
 				continue
 			}
-			// Which run a damaged file belongs to cannot be known without
-			// decoding it, so one that is still being written may be this run's.
-			// Report that rather than an absence the caller reads as an exit.
+			// The file may be this run's and is still being written, so report
+			// that rather than an absence the caller reads as an exit.
 			return nil, err
 		}
 		entry := observed.entry
@@ -652,6 +654,21 @@ func (s *Store) entriesFromFiles(groupName string, files []string) ([]exec.ProcE
 		entries = append(entries, observed.entry)
 	}
 	return entries, nil
+}
+
+// procFileMayBelongTo reports whether path can hold an entry for dagRun,
+// judging by the DAG directory and the identifiers carried in the file name.
+// A name that cannot be parsed is a possible match, because attributing such a
+// file needs its contents.
+func procFileMayBelongTo(path string, dagRun exec.DAGRunRef) bool {
+	if filepath.Base(filepath.Dir(path)) != dagRun.Name {
+		return false
+	}
+	parsed, err := parseProcFileName(filepath.Base(path))
+	if err != nil {
+		return true
+	}
+	return parsed.dagRunID == dagRun.ID
 }
 
 // abandoned reports whether path has gone untouched for at least the stale
