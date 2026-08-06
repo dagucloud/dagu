@@ -16,6 +16,7 @@ import {
   workspaceDocumentSelectionQuery,
 } from '@/lib/workspace';
 import { cn } from '@/lib/utils';
+import { copyText } from '@/lib/clipboard';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import {
   Check,
@@ -48,19 +49,6 @@ type Props = {
 
 function normalizeDocContentForSave(content: string): string {
   return content.replace(/\r\n/g, '\n').replace(/\n+$/, '');
-}
-
-async function copyTextToClipboard(text: string): Promise<void> {
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch {
-    const textArea = document.createElement('textarea');
-    textArea.value = text;
-    document.body.appendChild(textArea);
-    textArea.select();
-    document.execCommand('copy');
-    document.body.removeChild(textArea);
-  }
 }
 
 function DocEditor({
@@ -284,25 +272,49 @@ function DocEditor({
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  const [copiedName, setCopiedName] = useState(false);
+  const [copiedName, setCopiedName] = useState<string | null>(null);
   const [copiedContent, setCopiedContent] = useState(false);
+  const copiedNameResetRef = useRef<ReturnType<typeof setTimeout>>(null);
+  const copiedContentResetRef = useRef<ReturnType<typeof setTimeout>>(null);
 
   const title = doc?.title || docPath.split('/').pop() || docPath;
+  const nameCopied = copiedName !== null && copiedName === title;
 
   const copyName = useCallback(async () => {
     if (!title) return;
-    await copyTextToClipboard(title);
-    setCopiedName(true);
-    setTimeout(() => setCopiedName(false), 2000);
+    if (!(await copyText(title))) return;
+    setCopiedName(title);
+    if (copiedNameResetRef.current) {
+      clearTimeout(copiedNameResetRef.current);
+    }
+    copiedNameResetRef.current = setTimeout(() => setCopiedName(null), 2000);
   }, [title]);
 
   const copyContent = useCallback(async () => {
     const text = currentValue ?? '';
     if (!text) return;
-    await copyTextToClipboard(text);
+    if (!(await copyText(text))) return;
     setCopiedContent(true);
-    setTimeout(() => setCopiedContent(false), 2000);
+    if (copiedContentResetRef.current) {
+      clearTimeout(copiedContentResetRef.current);
+    }
+    copiedContentResetRef.current = setTimeout(
+      () => setCopiedContent(false),
+      2000
+    );
   }, [currentValue]);
+
+  useEffect(
+    () => () => {
+      if (copiedNameResetRef.current) {
+        clearTimeout(copiedNameResetRef.current);
+      }
+      if (copiedContentResetRef.current) {
+        clearTimeout(copiedContentResetRef.current);
+      }
+    },
+    []
+  );
 
   return (
     <div className="flex flex-col h-full">
@@ -319,16 +331,19 @@ function DocEditor({
             type="button"
             onClick={copyName}
             className="inline-flex items-center gap-1 px-1.5 py-0.5 text-xs rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-all shrink-0"
-            title={`Copy name: ${title}`}
-            aria-label="Copy name"
+            title={nameCopied ? 'Name copied' : `Copy name: ${title}`}
+            aria-label={nameCopied ? 'Name copied' : 'Copy name'}
           >
-            {copiedName ? (
+            {nameCopied ? (
               <Check className="h-3.5 w-3.5 text-green-500" />
             ) : (
               <Copy className="h-3.5 w-3.5" />
             )}
           </button>
         )}
+        <span className="sr-only" aria-live="polite">
+          {nameCopied ? `Copied name ${title}` : ''}
+        </span>
 
         <div className="flex-1" />
 
