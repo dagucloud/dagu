@@ -4378,6 +4378,26 @@ steps:
 		assert.False(t, dag.Artifacts.Enabled)
 	})
 
+	t.Run("MapFormStepNamedParamsIsStillDetected", func(t *testing.T) {
+		t.Parallel()
+
+		// The step name is the map key, so a step named "params" must be
+		// detected like any other step.
+		data := []byte(`
+artifacts:
+  enabled: false
+steps:
+  params:
+    action: artifact.write
+    with:
+      path: out.txt
+      content: hello
+`)
+		_, err := spec.LoadYAML(context.Background(), data)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "artifact actions require artifacts.enabled to be true")
+	})
+
 	t.Run("StepArtifactActionRequiresArtifactsEnabled", func(t *testing.T) {
 		t.Parallel()
 

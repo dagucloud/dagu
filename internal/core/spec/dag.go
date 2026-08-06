@@ -1138,6 +1138,9 @@ func dagReferencesRunArtifactsDir(d *dag) bool {
 // artifact action. Only executable roots are searched: free-form data such as
 // DAG parameters may legitimately carry an "action" key without describing a
 // step to run.
+//
+// Step names are searched like any other map key, so a step is detected
+// whichever name it is declared under.
 func dagUsesBuiltinArtifactAction(d *dag) bool {
 	if d == nil {
 		return false
@@ -1188,8 +1191,8 @@ type specVisitor struct {
 	// matchString reports whether a scalar string satisfies the search.
 	matchString func(string) bool
 	// matchNamed reports whether a map entry or exported struct field
-	// satisfies the search. skip suppresses recursion into that value.
-	matchNamed func(name string, value reflect.Value) (match, skip bool)
+	// satisfies the search.
+	matchNamed func(name string, value reflect.Value) bool
 }
 
 func (vis specVisitor) visit(v reflect.Value) bool {
@@ -1223,14 +1226,8 @@ func (vis specVisitor) visit(v reflect.Value) bool {
 		iter := v.MapRange()
 		for iter.Next() {
 			key, value := iter.Key(), iter.Value()
-			if key.Kind() == reflect.String {
-				match, skip := vis.named(key.String(), value)
-				if match {
-					return true
-				}
-				if skip {
-					continue
-				}
+			if key.Kind() == reflect.String && vis.named(key.String(), value) {
+				return true
 			}
 			if vis.visit(key) || vis.visit(value) {
 				return true
@@ -1244,12 +1241,8 @@ func (vis specVisitor) visit(v reflect.Value) bool {
 				continue
 			}
 			field := v.Field(i)
-			match, skip := vis.named(fieldInfo.Name, field)
-			if match {
+			if vis.named(fieldInfo.Name, field) {
 				return true
-			}
-			if skip {
-				continue
 			}
 			if vis.visit(field) {
 				return true
@@ -1285,11 +1278,8 @@ func (vis specVisitor) visit(v reflect.Value) bool {
 	return false
 }
 
-func (vis specVisitor) named(name string, value reflect.Value) (match, skip bool) {
-	if vis.matchNamed == nil {
-		return false, false
-	}
-	return vis.matchNamed(name, value)
+func (vis specVisitor) named(name string, value reflect.Value) bool {
+	return vis.matchNamed != nil && vis.matchNamed(name, value)
 }
 
 // runArtifactsDirVisitor finds a reference to the run artifacts directory
@@ -1300,25 +1290,22 @@ var runArtifactsDirVisitor = specVisitor{
 }
 
 // builtinArtifactActionVisitor finds a step declaring a builtin artifact
-// action. Parameter payloads are data handed to a child DAG, not step syntax.
+// action.
 var builtinArtifactActionVisitor = specVisitor{
-	matchNamed: func(name string, value reflect.Value) (bool, bool) {
-		switch name {
-		case "action", "Action":
-			action, ok := reflectString(value)
-			return ok && strings.HasPrefix(action, "artifact."), false
-		case "params", "Params":
-			return false, true
+	matchNamed: func(name string, value reflect.Value) bool {
+		if name != "action" && name != "Action" {
+			return false
 		}
-		return false, false
+		action, ok := reflectString(value)
+		return ok && strings.HasPrefix(action, "artifact.")
 	},
 }
 
 // artifactOutputVisitor finds a step redirecting an output stream to an
 // artifact.
 var artifactOutputVisitor = specVisitor{
-	matchNamed: func(name string, value reflect.Value) (bool, bool) {
-		return isArtifactOutputField(name) && valueIsArtifactOutputConfig(value), false
+	matchNamed: func(name string, value reflect.Value) bool {
+		return isArtifactOutputField(name) && valueIsArtifactOutputConfig(value)
 	},
 }
 
