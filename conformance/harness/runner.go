@@ -281,6 +281,22 @@ func (r *Runner) ExpectFileContent(name string, content string) {
 	require.Equal(r.t, content, string(actual))
 }
 
+// ExpectTextFileContent fails the test when content differs after CRLF normalization.
+func (r *Runner) ExpectTextFileContent(name string, content string) {
+	r.t.Helper()
+
+	path := r.projectPath(name)
+	actual, err := os.ReadFile(path) // #nosec G304 -- projectPath confines test fixture paths to the temp project.
+	if err != nil {
+		r.t.Fatalf("reading %s: %v", name, err)
+	}
+	require.Equal(r.t, normalizeText(content), normalizeText(string(actual)))
+}
+
+func normalizeText(content string) string {
+	return strings.ReplaceAll(content, "\r\n", "\n")
+}
+
 // ExpectFileContains fails the test when name lacks any required text.
 func (r *Runner) ExpectFileContains(name string, parts ...string) {
 	r.t.Helper()
