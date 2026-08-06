@@ -795,13 +795,15 @@ func (s *streamSession) bootstrapTopics(ctx context.Context, lastEventID uint64,
 	})
 	if allDAGRuns {
 		type snapshotResult struct {
-			payload []byte
-			err     error
+			payload         []byte
+			lastPublishedID uint64
+			err             error
 		}
 		results := make([]snapshotResult, len(eligible))
 		var wg sync.WaitGroup
 		for i, topic := range eligible {
 			wg.Go(func() {
+				results[i].lastPublishedID = topic.lastPublishedID(s)
 				results[i].payload, results[i].err = topic.fetchPayload(ctx)
 			})
 		}
@@ -810,7 +812,7 @@ func (s *streamSession) bootstrapTopics(ctx context.Context, lastEventID uint64,
 			if result.err != nil {
 				continue
 			}
-			_ = eligible[i].sendSnapshotPayload(s, result.payload)
+			_ = eligible[i].sendSnapshotPayload(s, result.payload, result.lastPublishedID)
 		}
 		return
 	}
@@ -1050,24 +1052,25 @@ func (s *streamSession) Serve(ctx context.Context) error {
 }
 
 type multiplexTopic struct {
-	mux               *Multiplexer
-	key               string
-	topicType         TopicType
-	identifier        string
-	fetcher           FetchFunc
-	refreshMode       TopicRefreshMode
-	publishOnWake     bool
-	clientsMu         sync.RWMutex
-	sessions          map[*streamSession]struct{}
-	retiring          bool
-	lastHashBySession map[*streamSession]string
-	lastChangeEventID uint64
-	stopCh            chan struct{}
-	notifyCh          chan struct{}
-	wg                sync.WaitGroup
-	errorBackoff      backoff.Retrier
-	backoffUntil      time.Time
-	currentInterval   time.Duration
+	mux                      *Multiplexer
+	key                      string
+	topicType                TopicType
+	identifier               string
+	fetcher                  FetchFunc
+	refreshMode              TopicRefreshMode
+	publishOnWake            bool
+	clientsMu                sync.RWMutex
+	sessions                 map[*streamSession]struct{}
+	retiring                 bool
+	lastHashBySession        map[*streamSession]string
+	lastPublishedIDBySession map[*streamSession]uint64
+	lastChangeEventID        uint64
+	stopCh                   chan struct{}
+	notifyCh                 chan struct{}
+	wg                       sync.WaitGroup
+	errorBackoff             backoff.Retrier
+	backoffUntil             time.Time
+	currentInterval          time.Duration
 }
 
 func newMultiplexTopic(
@@ -1081,19 +1084,20 @@ func newMultiplexTopic(
 	policy.MaxInterval = 30 * time.Second
 
 	return &multiplexTopic{
-		mux:               mux,
-		key:               parsed.Key,
-		topicType:         parsed.Type,
-		identifier:        parsed.Identifier,
-		fetcher:           fetcher,
-		refreshMode:       refreshMode,
-		publishOnWake:     publishOnWake,
-		sessions:          make(map[*streamSession]struct{}),
-		lastHashBySession: make(map[*streamSession]string),
-		stopCh:            make(chan struct{}),
-		notifyCh:          make(chan struct{}, 1),
-		errorBackoff:      backoff.NewRetrier(policy),
-		currentInterval:   mux.watcherBaseInterval,
+		mux:                      mux,
+		key:                      parsed.Key,
+		topicType:                parsed.Type,
+		identifier:               parsed.Identifier,
+		fetcher:                  fetcher,
+		refreshMode:              refreshMode,
+		publishOnWake:            publishOnWake,
+		sessions:                 make(map[*streamSession]struct{}),
+		lastHashBySession:        make(map[*streamSession]string),
+		lastPublishedIDBySession: make(map[*streamSession]uint64),
+		stopCh:                   make(chan struct{}),
+		notifyCh:                 make(chan struct{}, 1),
+		errorBackoff:             backoff.NewRetrier(policy),
+		currentInterval:          mux.watcherBaseInterval,
 	}
 }
 
@@ -1119,6 +1123,13 @@ func (t *multiplexTopic) removeSession(session *streamSession) {
 	defer t.clientsMu.Unlock()
 	delete(t.sessions, session)
 	delete(t.lastHashBySession, session)
+	delete(t.lastPublishedIDBySession, session)
+}
+
+func (t *multiplexTopic) lastPublishedID(session *streamSession) uint64 {
+	t.clientsMu.RLock()
+	defer t.clientsMu.RUnlock()
+	return t.lastPublishedIDBySession[session]
 }
 
 func (t *multiplexTopic) sessionCount() int {
@@ -1286,6 +1297,7 @@ func (t *multiplexTopic) poll(forcePublish bool) {
 		}
 		t.lastHashBySession[session] = hash
 		eventID := t.mux.nextID()
+		t.lastPublishedIDBySession[session] = eventID
 		t.lastChangeEventID = eventID
 		t.clientsMu.Unlock()
 		session.enqueueMessage(t.key, eventID, data)
@@ -1314,14 +1326,15 @@ func (t *multiplexTopic) poll(forcePublish bool) {
 }
 
 func (t *multiplexTopic) sendSnapshot(ctx context.Context, session *streamSession) error {
+	lastPublishedID := t.lastPublishedID(session)
 	payload, err := t.fetchPayload(ctx)
 	if err != nil {
 		return err
 	}
-	return t.sendSnapshotPayload(session, payload)
+	return t.sendSnapshotPayload(session, payload, lastPublishedID)
 }
 
-func (t *multiplexTopic) sendSnapshotPayload(session *streamSession, payload []byte) error {
+func (t *multiplexTopic) sendSnapshotPayload(session *streamSession, payload []byte, lastPublishedID uint64) error {
 	hash := computeHash(payload)
 	data, err := buildMessageData(t.key, payload)
 	if err != nil {
@@ -1336,8 +1349,13 @@ func (t *multiplexTopic) sendSnapshotPayload(session *streamSession, payload []b
 		t.clientsMu.Unlock()
 		return nil
 	}
+	if t.lastPublishedIDBySession[session] != lastPublishedID {
+		t.clientsMu.Unlock()
+		return nil
+	}
 	t.lastHashBySession[session] = hash
 	eventID := t.mux.nextID()
+	t.lastPublishedIDBySession[session] = eventID
 	if t.lastChangeEventID == 0 {
 		t.lastChangeEventID = eventID
 	}

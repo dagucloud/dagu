@@ -102,7 +102,7 @@ func TestMultiplexerCreateSessionFiltersUnauthorizedTopics(t *testing.T) {
 	assert.Equal(t, "queueitems:default", result.control.Errors[0].Topic)
 }
 
-func TestStreamSessionPublishesConcurrentDAGRunBootstrapInOrder(t *testing.T) {
+func TestStreamSessionKeepsWakeNewerThanConcurrentDAGRunBootstrap(t *testing.T) {
 	const timeout = 5 * time.Second
 
 	mux := NewMultiplexer(StreamConfig{}, nil)
@@ -169,9 +169,22 @@ func TestStreamSessionPublishesConcurrentDAGRunBootstrapInOrder(t *testing.T) {
 	second := result.session.popNext()
 	require.NotNil(t, first)
 	require.NotNil(t, second)
-	assert.Equal(t, "dagruns:status=1", first.topic)
-	assert.Equal(t, "dagruns:status=4", second.topic)
 	assert.Less(t, first.eventID, second.eventID)
+
+	messages := map[string]*queuedMessage{
+		first.topic:  first,
+		second.topic: second,
+	}
+	require.Contains(t, messages, "dagruns:status=1")
+	require.Contains(t, messages, "dagruns:status=4")
+	status4Message := messages["dagruns:status=4"]
+	var envelope struct {
+		Payload struct {
+			Revision int `json:"revision"`
+		} `json:"payload"`
+	}
+	require.NoError(t, json.Unmarshal(status4Message.data, &envelope))
+	assert.Equal(t, 2, envelope.Payload.Revision)
 }
 
 func TestMultiplexerCreateSessionFiltersUnsupportedTopics(t *testing.T) {
