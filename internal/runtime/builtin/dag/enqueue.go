@@ -265,8 +265,8 @@ func (e *enqueueExecutor) enqueueOne(ctx context.Context, runParams executor.Run
 	}
 
 	logger.Info(ctx, "Enqueued sub DAG run",
-		tag.DAG(dagCopy.Name),
-		tag.RunID(runParams.RunID),
+		tag.SubDAG(dagCopy.Name),
+		tag.SubRunID(runParams.RunID),
 		tag.Queue(queueName),
 		slog.Any("params", dagCopy.Params),
 	)

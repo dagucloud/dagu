@@ -64,7 +64,7 @@ type Manager struct {
 // still pending DAG-level auto-retry when dagRunID is provided.
 func (m *Manager) Stop(ctx context.Context, dag *core.DAG, dagRunID string) error {
 	// Set DAG name in context for all logs in this function
-	ctx = logger.WithValues(ctx, tag.Name(dag.Name))
+	ctx = logger.WithValues(ctx, tag.DAG(dag.Name))
 	logger.Info(ctx, "Stopping DAG")
 
 	if dagRunID == "" {
@@ -344,7 +344,7 @@ func (m *Manager) FindSubDAGRunStatus(ctx context.Context, rootDAGRun exec.DAGRu
 	dag, err := attempt.ReadDAG(ctx)
 	if err != nil {
 		logger.Error(ctx, "Failed to read sub DAG for stale status check",
-			tag.RunID(subRunID),
+			tag.SubRunID(subRunID),
 			tag.Error(err),
 		)
 		return status, nil

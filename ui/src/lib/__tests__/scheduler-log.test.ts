@@ -8,7 +8,7 @@ describe('parseSchedulerLogLine', () => {
   it('extracts the readable fields from text scheduler logs', () => {
     expect(
       parseSchedulerLogLine(
-        'time=2026-04-23T23:58:52.652+09:00 level=INFO msg="Step started" dag=daily-report run-id=run-1 attempt-id=attempt-1 step=collect_metrics'
+        'time=2026-04-23T23:58:52.652+09:00 level=INFO msg="Step started" dag=daily-report run-id=run-1 attempt-id=attempt-1 worker-id=worker-1 trace-id=trace-1 span-id=span-1 trace-flags=01 step=collect_metrics'
       )
     ).toEqual({
       timestamp: '2026-04-23T23:58:52.652+09:00',

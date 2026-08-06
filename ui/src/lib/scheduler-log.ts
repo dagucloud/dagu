@@ -19,6 +19,10 @@ const HIDDEN_FIELDS = new Set([
   'dag',
   'run-id',
   'attempt-id',
+  'worker-id',
+  'trace-id',
+  'span-id',
+  'trace-flags',
   'step',
 ]);
 

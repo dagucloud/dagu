@@ -543,8 +543,8 @@ func (a *API) TriggerWebhook(ctx context.Context, request api.TriggerWebhookRequ
 		if err == nil && len(statuses) > 0 {
 			// DAG run already exists - return 409 Conflict
 			logger.Info(ctx, "Webhook: DAG run already exists (idempotency)",
-				tag.Name(dag.Name),
-				tag.Key("dagRunID"), tag.Value(dagRunID),
+				tag.DAG(dag.Name),
+				tag.RunID(dagRunID),
 			)
 			return api.TriggerWebhook409JSONResponse{
 				Code:    api.ErrorCodeAlreadyExists,
@@ -565,7 +565,7 @@ func (a *API) TriggerWebhook(ctx context.Context, request api.TriggerWebhookRequ
 	// need to fit in a subprocess command line.
 	if err := a.enqueuePreparedDAGRun(ctx, dag, params, dagRunID, core.TriggerTypeWebhook, profileName); err != nil {
 		logger.Error(ctx, "Webhook: failed to enqueue DAG run",
-			tag.Name(dag.Name),
+			tag.DAG(dag.Name),
 			tag.Error(err),
 		)
 		return nil, &Error{
@@ -576,8 +576,8 @@ func (a *API) TriggerWebhook(ctx context.Context, request api.TriggerWebhookRequ
 	}
 
 	logger.Info(ctx, "Webhook: DAG run enqueued",
-		tag.Name(dag.Name),
-		tag.Key("dagRunID"), tag.Value(dagRunID),
+		tag.DAG(dag.Name),
+		tag.RunID(dagRunID),
 		tag.Key("webhookID"), tag.Value(webhook.ID),
 	)
 
@@ -596,7 +596,7 @@ func buildWebhookRequestRuntimeParams(
 	payload, err := marshalWebhookPayload(ctx, body)
 	if err != nil {
 		logger.Warn(ctx, "Webhook: failed to marshal payload",
-			tag.Name(dag.Name),
+			tag.DAG(dag.Name),
 			tag.Error(err),
 		)
 		return "", &Error{
@@ -607,7 +607,7 @@ func buildWebhookRequestRuntimeParams(
 	}
 	if len(payload) > maxPayloadSize {
 		logger.Warn(ctx, "Webhook: payload too large",
-			tag.Name(dag.Name),
+			tag.DAG(dag.Name),
 			tag.Key("size"), tag.Value(len(payload)),
 			tag.Key("maxSize"), tag.Value(maxPayloadSize),
 		)
@@ -626,7 +626,7 @@ func buildWebhookRequestRuntimeParams(
 	headers, err := marshalWebhookHeaders(ctx, headerAllowList)
 	if err != nil {
 		logger.Warn(ctx, "Webhook: failed to marshal headers",
-			tag.Name(dag.Name),
+			tag.DAG(dag.Name),
 			tag.Error(err),
 		)
 		return "", &Error{

@@ -355,7 +355,7 @@ func (a *API) listVisibleQueuedItems(ctx context.Context, queueName string, limi
 				logger.Warn(ctx, "Failed to fetch queued DAG run summary",
 					tag.Queue(queueName),
 					tag.Error(err),
-					slog.String("dagRunId", dagRunRef.ID),
+					tag.RunID(dagRunRef.ID),
 				)
 				continue
 			}

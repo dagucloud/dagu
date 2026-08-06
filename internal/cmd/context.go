@@ -136,7 +136,7 @@ func (c *Context) LogToFile(f *os.File) {
 		opts = append(opts, logger.WithFormat(c.Config.Core.LogFormat))
 	}
 	if f != nil {
-		opts = append(opts, logger.WithWriter(f))
+		opts = append(opts, logger.WithRunWriter(f))
 	}
 	c.Context = logger.WithLogger(c.Context, logger.NewLogger(opts...))
 }

@@ -32,9 +32,8 @@ func ExecuteAgent(ctx *Context, agentInstance *agent.Agent, dag *core.DAG, dagRu
 
 	// Run the DAG
 	if err := agentInstance.Run(ctx); err != nil {
-		logger.Error(ctx, "Failed to execute dag-run",
-			tag.DAG(dag.Name),
-			tag.RunID(dagRunID),
+		logCtx := logger.WithValues(ctx, tag.DAG(dag.Name), tag.RunID(dagRunID))
+		logger.Error(logCtx, "Failed to execute dag-run",
 			tag.Error(err),
 		)
 		if ctx.Proc != nil {
@@ -81,7 +80,7 @@ func configureLoggerForProgress(ctx *Context, logFile *os.File) {
 		opts = append(opts, logger.WithFormat(ctx.Config.Core.LogFormat))
 	}
 	if logFile != nil {
-		opts = append(opts, logger.WithWriter(logFile))
+		opts = append(opts, logger.WithRunWriter(logFile))
 	}
 	ctx.Context = logger.WithLogger(ctx.Context, logger.NewLogger(opts...))
 }

@@ -474,12 +474,15 @@ func (a *Agent) Run(ctx context.Context) error {
 		<-runningStatusDone
 	}()
 
-	// Set DAG context for all logs in this function
-	ctx = logger.WithValues(ctx,
-		tag.Name(a.dag.Name),
+	// Set DAG context for all logs in this function.
+	centralLogFields := []slog.Attr{
+		tag.DAG(a.dag.Name),
 		tag.RunID(a.dagRunID),
-		tag.AttemptID(a.dagRunAttemptID),
-	)
+	}
+	if a.workerID != "" {
+		centralLogFields = append(centralLogFields, tag.WorkerID(a.workerID))
+	}
+	ctx = logger.WithValues(ctx, centralLogFields...)
 	if !a.parentDAGRun.Zero() && a.dag.HasHumanTaskSteps() {
 		return fmt.Errorf("DAG %q contains human task steps and cannot run as a sub-DAG", a.dag.Name)
 	}
@@ -527,6 +530,9 @@ func (a *Agent) Run(ctx context.Context) error {
 			attribute.String("dag.name", a.dag.Name),
 			attribute.String("dag.run_id", a.dagRunID),
 		}
+		if a.workerID != "" {
+			spanAttrs = append(spanAttrs, attribute.String("dag.worker_id", a.workerID))
+		}
 		if a.parentDAGRun.Name != "" {
 			spanAttrs = append(spanAttrs, attribute.String("dag.parent_run_id", a.parentDAGRun.ID))
 			spanAttrs = append(spanAttrs, attribute.String("dag.parent_name", a.parentDAGRun.Name))
@@ -541,6 +547,15 @@ func (a *Agent) Run(ctx context.Context) error {
 			span.SetAttributes(attribute.String("dag.status", status.Status.String()))
 			span.End()
 		}()
+	}
+	if spanContext := trace.SpanContextFromContext(ctx); spanContext.IsValid() {
+		traceLogFields := []slog.Attr{
+			tag.TraceID(spanContext.TraceID().String()),
+			tag.SpanID(spanContext.SpanID().String()),
+			tag.TraceFlags(spanContext.TraceFlags().String()),
+		}
+		centralLogFields = append(centralLogFields, traceLogFields...)
+		ctx = logger.WithValues(ctx, traceLogFields...)
 	}
 
 	if a.rootDAGRun.ID != a.dagRunID {
@@ -571,6 +586,9 @@ func (a *Agent) Run(ctx context.Context) error {
 		}
 		attempt = att
 		a.dagRunAttemptID = attempt.ID()
+		if span != nil {
+			span.SetAttributes(attribute.String("dag.attempt_id", a.dagRunAttemptID))
+		}
 
 		// Set the attemptID on the log writer factory if it supports it
 		if a.logWriterFactory != nil {
@@ -664,21 +682,22 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 	ctx = runtime.NewContext(ctx, a.dag, a.dagRunID, a.logFile, contextOpts...)
 	ctx = runtimeexec.WithSubWorkflowRunner(ctx, subWorkflowRunner)
-	ctx, closeSubDAGRunSchedulerLog := a.withSubDAGRunSchedulerLogWriter(ctx)
+	ctx, closeSubDAGRunSchedulerLog, replacedLogger := a.withSubDAGRunSchedulerLogWriter(ctx)
 	defer closeSubDAGRunSchedulerLog()
 
-	// Add structured logging context
-	logFields := []slog.Attr{
-		tag.DAG(a.dag.Name),
-		tag.RunID(a.dagRunID),
+	if replacedLogger {
+		ctx = logger.WithValues(ctx, centralLogFields...)
 	}
 	if a.isSubDAGRun.Load() {
-		logFields = append(logFields,
+		ctx = logger.WithValues(ctx,
 			slog.String("root", a.rootDAGRun.String()),
 			slog.String("parent", a.parentDAGRun.String()),
 		)
 	}
-	ctx = logger.WithValues(ctx, logFields...)
+	attemptBoundaryLogger := logger.FromContext(ctx)
+	if a.dagRunAttemptID != "" {
+		ctx = logger.WithValues(ctx, tag.AttemptID(a.dagRunAttemptID))
+	}
 
 	if cleaner, ok := subWorkflowRunner.(interface{ Cleanup(context.Context) error }); ok {
 		defer func() {
@@ -984,12 +1003,17 @@ func (a *Agent) Run(ctx context.Context) error {
 	})
 
 	// Start the dag-run.
+	attemptBoundaryCtx := logger.WithLogger(ctx, attemptBoundaryLogger)
 	if a.retryTarget != nil {
-		logger.Info(ctx, "DAG run retry started",
+		logger.Info(attemptBoundaryCtx, "DAG run retry started",
+			tag.AttemptID(a.dagRunAttemptID),
 			slog.String("retry-target-attempt-id", a.retryTarget.AttemptID),
 		)
 	} else {
-		logger.Info(ctx, "DAG run started", slog.Any("params", a.dag.Params))
+		logger.Info(attemptBoundaryCtx, "DAG run started",
+			tag.AttemptID(a.dagRunAttemptID),
+			slog.Any("params", a.dag.Params),
+		)
 	}
 
 	go execWithRecovery(ctx, func() {
@@ -1049,7 +1073,6 @@ func (a *Agent) Run(ctx context.Context) error {
 	if a.artifactFinalizer != nil && a.artifactDir != "" {
 		artifactFinalizeStartedAt := time.Now()
 		logger.Info(ctx, "Finalizing DAG run artifacts before writing terminal status",
-			slog.String("attempt-id", finishedStatus.AttemptID),
 			slog.String("artifact-dir", a.artifactDir),
 		)
 		finalizeCtx, cancelFinalize := context.WithTimeout(context.WithoutCancel(ctx), artifactFinalizeTimeout)
@@ -1057,7 +1080,6 @@ func (a *Agent) Run(ctx context.Context) error {
 		if err := a.artifactFinalizer.Finalize(finalizeCtx, finishedStatus.AttemptID, a.artifactDir); err != nil {
 			logger.Error(ctx, "Failed to finalize DAG run artifacts before writing terminal status",
 				tag.Error(err),
-				slog.String("attempt-id", finishedStatus.AttemptID),
 				slog.String("artifact-dir", a.artifactDir),
 				slog.Duration("elapsed", time.Since(artifactFinalizeStartedAt)),
 			)
@@ -1077,7 +1099,6 @@ func (a *Agent) Run(ctx context.Context) error {
 			}
 		} else {
 			logger.Info(ctx, "Finished DAG run artifact finalization; terminal status can be written",
-				slog.String("attempt-id", finishedStatus.AttemptID),
 				slog.String("artifact-dir", a.artifactDir),
 				slog.Duration("elapsed", time.Since(artifactFinalizeStartedAt)),
 			)
@@ -1243,8 +1264,6 @@ func (a *Agent) collectOutputs(ctx context.Context) map[string]string {
 		}
 		if totalSize > 1024*1024 {
 			logger.Warn(ctx, "Outputs size exceeds 1MB",
-				slog.String("dag", a.dag.Name),
-				slog.String("dagRunId", a.dagRunID),
 				slog.Int("size", totalSize),
 				slog.Int("count", len(outputs)),
 			)
@@ -1524,7 +1543,6 @@ func (a *Agent) pushStatus(ctx context.Context, status exec.DAGRunStatus) {
 		var rejectedErr runtime.AttemptRejected
 		if errors.As(err, &rejectedErr) && !a.finished.Load() {
 			logger.Warn(ctx, "Coordinator rejected the worker attempt; stopping execution",
-				tag.AttemptID(a.dagRunAttemptID),
 				slog.String("reason", rejectedErr.AttemptRejectedReason()),
 			)
 			a.stopChildren(context.Background(), syscall.SIGTERM, true)
@@ -1688,23 +1706,23 @@ func (a *Agent) createSubWorkflowRunner(ctx context.Context) (runtimeexec.SubWor
 	return a.subWorkflowRunnerFactory(ctx)
 }
 
-func (a *Agent) withSubDAGRunSchedulerLogWriter(ctx context.Context) (context.Context, func()) {
+func (a *Agent) withSubDAGRunSchedulerLogWriter(ctx context.Context) (context.Context, func(), bool) {
 	if !a.isSubDAGRun.Load() || a.logFile == "" {
-		return ctx, func() {}
+		return ctx, func() {}, false
 	}
 	streamer, ok := a.logWriterFactory.(runtime.SchedulerLogStreamer)
 	if !ok || streamer == nil {
-		return ctx, func() {}
+		return ctx, func() {}, false
 	}
 
 	file, err := os.OpenFile(a.logFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		logger.Warn(ctx, "Failed to open sub DAG scheduler log file", tag.File(a.logFile), tag.Error(err))
-		return ctx, func() {}
+		return ctx, func() {}, false
 	}
 
 	writer := streamer.NewSchedulerLogWriter(ctx, file)
-	ctx = logger.WithLogger(ctx, logger.NewLogger(logger.WithWriter(writer)))
+	ctx = logger.WithLogger(ctx, logger.NewLogger(logger.WithRunWriter(writer)))
 	return ctx, func() {
 		if err := writer.Close(); err != nil {
 			logger.Warn(ctx, "Failed to close sub DAG scheduler log streamer", tag.Error(err))
@@ -1712,7 +1730,7 @@ func (a *Agent) withSubDAGRunSchedulerLogWriter(ctx context.Context) (context.Co
 		if err := file.Close(); err != nil {
 			logger.Warn(ctx, "Failed to close sub DAG scheduler log file", tag.File(a.logFile), tag.Error(err))
 		}
-	}
+	}, true
 }
 
 type resolvedProfileValues struct {

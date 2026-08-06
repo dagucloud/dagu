@@ -160,7 +160,7 @@ func (z *ZombieDetector) detectAndCleanZombies(ctx context.Context) {
 
 		if err := z.checkAndCleanZombie(ctx, entry, freshByRunScope); err != nil {
 			logger.Error(ctx, "Failed to check zombie status",
-				tag.Name(entry.Meta.Name),
+				tag.DAG(entry.Meta.Name),
 				tag.RunID(entry.Meta.DAGRunID),
 				tag.AttemptID(entry.Meta.AttemptID),
 				tag.Error(err))

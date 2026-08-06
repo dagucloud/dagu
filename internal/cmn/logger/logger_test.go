@@ -300,6 +300,57 @@ func TestLogger_SourceLocationWithGroup(t *testing.T) {
 	}
 }
 
+func TestLogger_RunWriterOmitsAmbientRunContext(t *testing.T) {
+	baseContext := []slog.Attr{
+		slog.String("dag", "daily-report"),
+		slog.String("run-id", "run-1"),
+		slog.String("worker-id", "worker-1"),
+		slog.String("trace-id", "trace-1"),
+		slog.String("span-id", "span-1"),
+		slog.String("trace-flags", "01"),
+	}
+	runContext := append([]slog.Attr{}, baseContext...)
+	runContext = append(runContext, slog.String("attempt-id", "attempt-1"))
+
+	var runOutput bytes.Buffer
+	runLogger := NewLogger(
+		WithFormat("text"),
+		WithRunWriter(&runOutput),
+		WithQuiet(),
+	)
+	runLogger.With(runContext...).Info("Step started", slog.String("step", "collect_metrics"))
+	runLogger.With(baseContext...).Info("DAG run started", slog.String("attempt-id", "attempt-1"))
+
+	runLines := strings.Split(strings.TrimSpace(runOutput.String()), "\n")
+	if len(runLines) != 2 {
+		t.Fatalf("expected 2 run log lines, got %d: %s", len(runLines), runOutput.String())
+	}
+	for _, key := range []string{"dag=", "run-id=", "attempt-id=", "worker-id=", "trace-id=", "span-id=", "trace-flags="} {
+		if strings.Contains(runLines[0], key) {
+			t.Errorf("step log contains ambient %s: %s", key, runLines[0])
+		}
+	}
+	if !strings.Contains(runLines[0], "step=collect_metrics") {
+		t.Errorf("step log is missing event context: %s", runLines[0])
+	}
+	if !strings.Contains(runLines[1], "attempt-id=attempt-1") {
+		t.Errorf("attempt boundary is missing its attempt ID: %s", runLines[1])
+	}
+
+	var centralOutput bytes.Buffer
+	centralLogger := NewLogger(
+		WithFormat("text"),
+		WithWriter(&centralOutput),
+		WithQuiet(),
+	)
+	centralLogger.With(runContext...).Info("Step started", slog.String("step", "collect_metrics"))
+	for _, key := range []string{"dag=daily-report", "run-id=run-1", "attempt-id=attempt-1", "worker-id=worker-1", "trace-id=trace-1", "span-id=span-1", "trace-flags=01"} {
+		if !strings.Contains(centralOutput.String(), key) {
+			t.Errorf("central log is missing %s: %s", key, centralOutput.String())
+		}
+	}
+}
+
 func TestLogger_SourceLocationDisabledInProduction(t *testing.T) {
 	var buf bytes.Buffer
 	logger := NewLogger(

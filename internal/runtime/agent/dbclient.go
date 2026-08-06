@@ -32,19 +32,19 @@ func newDBClient(drs exec.DAGRunStore, ds exec.DAGStore, remoteDAGLoader RemoteD
 func (o *dbClient) GetDAG(ctx context.Context, name string) (*core.DAG, error) {
 	// Guard against nil DAG store
 	if o.ds == nil {
-		logger.Info(ctx, "No local DAG store, trying remote fallback", tag.DAG(name))
+		logger.Info(ctx, "No local DAG store, trying remote fallback", tag.SubDAG(name))
 		if o.remoteDAGLoader == nil {
 			return nil, fmt.Errorf("no local DAG store and no remote loader configured for DAG %s", name)
 		}
 		remoteDAG, remoteErr := o.remoteDAGLoader(ctx, name)
 		if remoteErr != nil {
-			logger.Warn(ctx, "Remote DAG fallback failed", tag.DAG(name), tag.Error(remoteErr))
+			logger.Warn(ctx, "Remote DAG fallback failed", tag.SubDAG(name), tag.Error(remoteErr))
 			return nil, fmt.Errorf("remote DAG load failed for %s: %w", name, remoteErr)
 		}
 		if remoteDAG == nil {
 			return nil, fmt.Errorf("DAG %s not found locally or remotely", name)
 		}
-		logger.Info(ctx, "DAG loaded from remote fallback", tag.DAG(name))
+		logger.Info(ctx, "DAG loaded from remote fallback", tag.SubDAG(name))
 		return remoteDAG, nil
 	}
 
@@ -61,12 +61,12 @@ func (o *dbClient) GetDAG(ctx context.Context, name string) (*core.DAG, error) {
 		return nil, err
 	}
 	logger.Info(ctx, "DAG not found locally, trying remote fallback",
-		tag.DAG(name),
+		tag.SubDAG(name),
 	)
 	remoteDAG, remoteErr := o.remoteDAGLoader(ctx, name)
 	if remoteErr != nil {
 		logger.Warn(ctx, "Remote DAG fallback failed",
-			tag.DAG(name),
+			tag.SubDAG(name),
 			tag.Error(remoteErr),
 		)
 		return nil, err // Return the original local error
@@ -75,7 +75,7 @@ func (o *dbClient) GetDAG(ctx context.Context, name string) (*core.DAG, error) {
 		return nil, err // Return the original local error
 	}
 	logger.Info(ctx, "DAG loaded from remote fallback",
-		tag.DAG(name),
+		tag.SubDAG(name),
 	)
 	return remoteDAG, nil
 }

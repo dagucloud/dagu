@@ -437,7 +437,7 @@ func (r *Runner) waitCompletion(ctx context.Context, req executor.SubWorkflowReq
 				continue
 			}
 
-			logger.Info(waitCtx, "Distributed child workflow completed", tag.Name(result.Name))
+			logger.Info(waitCtx, "Distributed child workflow completed", tag.SubDAG(result.Name))
 			return result, nil
 
 		case <-logTicker.C:

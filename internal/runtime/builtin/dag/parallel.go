@@ -124,7 +124,7 @@ func (e *parallelExecutor) Run(ctx context.Context) error {
 	logger.Info(ctx, "Starting parallel execution",
 		slog.Int("total", len(e.runParamsList)),
 		slog.Int("max-concurrent", e.maxConcurrent),
-		tag.DAG(e.step.SubDAG.Name),
+		tag.SubDAG(e.step.SubDAG.Name),
 	)
 
 	pending := make([]scheduledAttempt, 0, len(e.runParamsList))
@@ -213,7 +213,7 @@ func (e *parallelExecutor) Run(ctx context.Context) error {
 
 			if res.err != nil && !e.cancelled() {
 				logger.Error(ctx, "Sub DAG execution failed",
-					tag.RunID(res.attempt.runParams.RunID),
+					tag.SubRunID(res.attempt.runParams.RunID),
 					tag.Error(res.err),
 				)
 			}

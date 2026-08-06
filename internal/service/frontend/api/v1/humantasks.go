@@ -197,8 +197,8 @@ func completeHumanTaskErrorResponse(ctx context.Context, err error) (api.Complet
 	if errors.As(err, &resumeErr) {
 		logger.Error(ctx, "Failed to queue DAG-run after human-task completion",
 			tag.Error(resumeErr.Err),
-			slog.String("dag", resumeErr.Result.DAGName),
-			slog.String("dagRunId", resumeErr.Result.DAGRunID),
+			tag.DAG(resumeErr.Result.DAGName),
+			tag.RunID(resumeErr.Result.DAGRunID),
 			slog.String("step", resumeErr.Result.StepID),
 		)
 		details := map[string]any{
@@ -231,8 +231,8 @@ func resumeHumanTaskErrorResponse(ctx context.Context, err error) (api.ResumeHum
 	if errors.As(err, &resumeErr) {
 		logger.Error(ctx, "Failed to queue human-task DAG-run resume",
 			tag.Error(resumeErr.Err),
-			slog.String("dag", resumeErr.Result.DAGName),
-			slog.String("dagRunId", resumeErr.Result.DAGRunID),
+			tag.DAG(resumeErr.Result.DAGName),
+			tag.RunID(resumeErr.Result.DAGRunID),
 		)
 		details := map[string]any{
 			"completionStored": true,

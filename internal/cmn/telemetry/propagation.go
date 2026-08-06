@@ -85,10 +85,7 @@ func InjectTraceContext(ctx context.Context) []string {
 	spanCtx := span.SpanContext()
 
 	logger.Debug(ctx, "InjectTraceContext called",
-		slog.Bool("has_active_span", spanCtx.IsValid()),
-		tag.TraceID(spanCtx.TraceID().String()),
-		tag.SpanID(spanCtx.SpanID().String()),
-		tag.TraceFlags(spanCtx.TraceFlags()))
+		slog.Bool("has_active_span", spanCtx.IsValid()))
 
 	// Get the global propagator
 	prop := otel.GetTextMapPropagator()

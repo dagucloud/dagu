@@ -631,7 +631,7 @@ func (d *queueDispatcher) dispatchQueuedItem(
 	runRef := *data
 	runID := runRef.ID
 	ctx = logger.WithValues(ctx, tag.RunID(runID))
-	logger.Debug(ctx, "Processing queue item", tag.Name(runRef.Name))
+	logger.Debug(ctx, "Processing queue item", tag.DAG(runRef.Name))
 
 	running, err := d.procStore.IsRunAlive(ctx, queueName, runRef)
 	if err != nil {

@@ -1052,8 +1052,8 @@ func (a *API) GetDAGRunOutputs(ctx context.Context, request api.GetDAGRunOutputs
 	if err != nil {
 		logger.Error(ctx, "Failed to read outputs",
 			tag.Error(err),
-			slog.String("dag", request.Name),
-			slog.String("dagRunId", request.DagRunId),
+			tag.DAG(request.Name),
+			tag.RunID(request.DagRunId),
 		)
 		return nil, fmt.Errorf("error reading outputs: %w", err)
 	}
@@ -1360,7 +1360,7 @@ func (a *API) ApproveDAGRunStep(ctx context.Context, request api.ApproveDAGRunSt
 			shouldResume = false
 		} else {
 			logger.Info(ctx, "DAG resumed after approval",
-				slog.String("dagRunId", request.DagRunId),
+				tag.RunID(request.DagRunId),
 				slog.String("step", request.StepName),
 			)
 		}
@@ -1490,7 +1490,7 @@ func (a *API) ApproveSubDAGRunStep(ctx context.Context, request api.ApproveSubDA
 			shouldResume = false
 		} else {
 			logger.Info(ctx, "Sub DAG resumed after approval",
-				slog.String("subDagRunId", request.SubDAGRunId),
+				tag.SubRunID(request.SubDAGRunId),
 				slog.String("step", request.StepName),
 			)
 		}
@@ -1682,7 +1682,7 @@ func (a *API) RejectDAGRunStep(ctx context.Context, request api.RejectDAGRunStep
 	}
 
 	logger.Info(ctx, "Step rejected",
-		slog.String("dagRunId", request.DagRunId),
+		tag.RunID(request.DagRunId),
 		slog.String("step", request.StepName),
 	)
 
@@ -1797,7 +1797,7 @@ func (a *API) RejectSubDAGRunStep(ctx context.Context, request api.RejectSubDAGR
 	}
 
 	logger.Info(ctx, "Sub DAG step rejected",
-		slog.String("subDagRunId", request.SubDAGRunId),
+		tag.SubRunID(request.SubDAGRunId),
 		slog.String("step", request.StepName),
 	)
 
@@ -1930,7 +1930,7 @@ func (a *API) PushBackDAGRunStep(ctx context.Context, request api.PushBackDAGRun
 	}
 
 	logger.Info(ctx, "DAG resumed after push-back",
-		slog.String("dagRunId", request.DagRunId),
+		tag.RunID(request.DagRunId),
 		slog.String("step", request.StepName),
 		slog.Int("iteration", approvalIteration),
 	)
@@ -2078,7 +2078,7 @@ func (a *API) PushBackSubDAGRunStep(ctx context.Context, request api.PushBackSub
 	}
 
 	logger.Info(ctx, "Sub DAG resumed after push-back",
-		slog.String("subDagRunId", request.SubDAGRunId),
+		tag.SubRunID(request.SubDAGRunId),
 		slog.String("step", request.StepName),
 		slog.Int("iteration", approvalIteration),
 	)

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/service/eventstore"
 )
@@ -214,9 +215,9 @@ func (m *NotificationMonitor) NotifyCompletion(status *exec.DAGRunStatus) bool {
 	}
 
 	m.logger.Info("DAG run notification queued",
-		slog.String("dag", status.Name),
+		tag.DAG(status.Name),
 		slog.String("status", status.Status.String()),
-		slog.String("dag_run_id", status.DAGRunID),
+		tag.RunID(status.DAGRunID),
 	)
 
 	event := NotificationEvent{

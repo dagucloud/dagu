@@ -191,6 +191,7 @@ func executeDAGWithRunID(ctx *Context, cli runtime.Manager, dag *core.DAG, dagRu
 			DAGRunArtifactDir:        ctx.Config.Paths.ArtifactDir,
 		})
 
+	ctx.LogToFile(logFile)
 	listenSignals(ctx, agentInstance)
 	if err := agentInstance.Run(ctx); err != nil {
 		if !ctx.Quiet {

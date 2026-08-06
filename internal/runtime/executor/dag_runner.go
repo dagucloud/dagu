@@ -376,14 +376,14 @@ func (e *SubDAGExecutor) Stop(intent cmdutil.TerminationIntent) error {
 			}); err != nil {
 				errs = append(errs, err)
 				logger.Warn(ctx, "Failed to request sub DAG cancellation",
-					tag.RunID(run.runID),
-					tag.DAG(e.DAG.Name),
+					tag.SubRunID(run.runID),
+					tag.SubDAG(e.DAG.Name),
 					tag.Error(err),
 				)
 			} else {
 				logger.Info(ctx, "Requested sub DAG cancellation",
-					tag.RunID(run.runID),
-					tag.DAG(e.DAG.Name),
+					tag.SubRunID(run.runID),
+					tag.SubDAG(e.DAG.Name),
 				)
 			}
 		} else if e.dagCtx.DB != nil {
@@ -391,15 +391,15 @@ func (e *SubDAGExecutor) Stop(intent cmdutil.TerminationIntent) error {
 				if !errors.Is(err, exec.ErrDAGRunIDNotFound) {
 					errs = append(errs, err)
 					logger.Warn(ctx, "Failed to request child cancel via local DB",
-						tag.RunID(run.runID),
-						tag.DAG(e.DAG.Name),
+						tag.SubRunID(run.runID),
+						tag.SubDAG(e.DAG.Name),
 						tag.Error(err),
 					)
 				}
 			} else {
 				logger.Info(ctx, "Requested sub DAG cancellation via local DB",
-					tag.RunID(run.runID),
-					tag.DAG(e.DAG.Name),
+					tag.SubRunID(run.runID),
+					tag.SubDAG(e.DAG.Name),
 				)
 			}
 		}

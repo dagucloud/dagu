@@ -46,10 +46,11 @@ type appLogger struct {
 }
 
 type Config struct {
-	debug  bool
-	format string
-	writer io.Writer
-	quiet  bool
+	debug     bool
+	format    string
+	writer    io.Writer
+	quiet     bool
+	runWriter bool
 }
 
 type Option func(*Config)
@@ -72,6 +73,14 @@ func WithFormat(format string) Option {
 func WithWriter(w io.Writer) Option {
 	return func(o *Config) {
 		o.writer = w
+	}
+}
+
+// WithRunWriter writes logs without context already identified by the run stream.
+func WithRunWriter(w io.Writer) Option {
+	return func(o *Config) {
+		o.writer = w
+		o.runWriter = true
 	}
 }
 
@@ -123,6 +132,9 @@ func NewLogger(opts ...Option) Logger {
 
 	if cfg.writer != nil {
 		handler := newHandler(cfg.writer, cfg.format, handlerOpts)
+		if cfg.runWriter {
+			handler = newRunWriterHandler(handler)
+		}
 		guardedHandler = newGuardedHandler(handler, cfg.writer)
 		handlers = append(handlers, guardedHandler)
 	}
@@ -133,6 +145,39 @@ func NewLogger(opts ...Option) Logger {
 		quiet:          cfg.quiet,
 		debug:          cfg.debug,
 	}
+}
+
+func isRunContext(key string) bool {
+	switch key {
+	case "dag", "run-id", "attempt-id", "worker-id", "trace-id", "span-id", "trace-flags":
+		return true
+	default:
+		return false
+	}
+}
+
+type runWriterHandler struct {
+	slog.Handler
+}
+
+var _ slog.Handler = (*runWriterHandler)(nil)
+
+func newRunWriterHandler(handler slog.Handler) slog.Handler {
+	return &runWriterHandler{Handler: handler}
+}
+
+func (h *runWriterHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	filtered := make([]slog.Attr, 0, len(attrs))
+	for _, attr := range attrs {
+		if !isRunContext(attr.Key) {
+			filtered = append(filtered, attr)
+		}
+	}
+	return &runWriterHandler{Handler: h.Handler.WithAttrs(filtered)}
+}
+
+func (h *runWriterHandler) WithGroup(name string) slog.Handler {
+	return &runWriterHandler{Handler: h.Handler.WithGroup(name)}
 }
 
 var _ slog.Handler = (*guardedHandler)(nil)

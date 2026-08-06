@@ -144,8 +144,8 @@ func (e *ToolExecutor) executeToolCall(ctx context.Context, tc llmpkg.ToolCall) 
 	}
 
 	logger.Info(ctx, "Starting tool DAG execution",
-		tag.RunID(runID),
-		tag.DAG(dag.Name),
+		tag.SubRunID(runID),
+		tag.SubDAG(dag.Name),
 		slog.String("params", params),
 	)
 
@@ -171,7 +171,7 @@ func (e *ToolExecutor) executeToolCall(ctx context.Context, tc llmpkg.ToolCall) 
 	content := formatToolResult(result)
 
 	logger.Info(ctx, "Tool execution completed successfully",
-		tag.RunID(runID),
+		tag.SubRunID(runID),
 		slog.Int("output_length", len(content)),
 	)
 

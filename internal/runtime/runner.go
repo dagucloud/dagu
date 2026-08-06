@@ -1250,7 +1250,6 @@ func (r *Runner) setup(ctx context.Context) (err error) {
 	r.metrics.startTime = time.Now()
 
 	logger.Debug(ctx, "Runner setup complete",
-		slog.String("dagRunId", r.dagRunID),
 		slog.Int("maxActiveRuns", r.maxActiveRuns),
 		slog.Duration("timeout", r.timeout),
 		slog.Bool("dry", r.dry),
@@ -1437,7 +1436,6 @@ func (r *Runner) recoverNodePanic(ctx context.Context, node *Node, progressCh ch
 		logger.Error(ctx, "Panic occurred",
 			tag.Error(err),
 			slog.String("stack", stack),
-			tag.RunID(r.dagRunID),
 		)
 		node.MarkError(err)
 		r.setLastError(err)
