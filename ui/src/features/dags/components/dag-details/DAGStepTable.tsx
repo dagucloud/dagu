@@ -33,25 +33,23 @@ function DAGStepTable({ steps }: Props) {
   }
 
   return (
-    <div className="w-full overflow-x-auto">
-      <Table>
-        <TableHeader>
-          <TableRow className="h-8">
-            <TableHead className="w-[4%] text-center">No</TableHead>
-            <TableHead className="w-[20%]">Step Details</TableHead>
-            <TableHead className="w-[22%]">Execution</TableHead>
-            <TableHead className="w-[18%]">Dependencies</TableHead>
-            <TableHead className="w-[18%]">Configuration</TableHead>
-            <TableHead className="w-[18%]">Conditions</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {steps.map((step, idx) => (
-            <DAGStepTableRow key={idx} step={step} index={idx} />
-          ))}
-        </TableBody>
-      </Table>
-    </div>
+    <Table className="min-w-[960px] table-fixed">
+      <TableHeader>
+        <TableRow className="h-8">
+          <TableHead className="w-[4%] text-center">No</TableHead>
+          <TableHead className="w-[28%]">Step Details</TableHead>
+          <TableHead className="w-[22%]">Execution</TableHead>
+          <TableHead className="w-[14%]">Dependencies</TableHead>
+          <TableHead className="w-[18%]">Configuration</TableHead>
+          <TableHead className="w-[14%]">Conditions</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {steps.map((step, idx) => (
+          <DAGStepTableRow key={idx} step={step} index={idx} />
+        ))}
+      </TableBody>
+    </Table>
   );
 }
 

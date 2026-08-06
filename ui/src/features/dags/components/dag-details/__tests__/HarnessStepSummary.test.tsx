@@ -67,4 +67,38 @@ describe('HarnessStepSummary', () => {
 
     expect(container).toBeEmptyDOMElement();
   });
+
+  it('renders a compact summary for step tables', () => {
+    const step = {
+      name: 'review',
+      commands: [
+        {
+          command: 'Review',
+          args: ['this', 'repository'],
+        },
+      ],
+      executorConfig: {
+        type: 'harness',
+        config: {
+          provider: 'claude',
+          model: 'sonnet',
+          bare: true,
+          fallback: [
+            {
+              provider: 'codex',
+              'full-auto': true,
+            },
+          ],
+        },
+      },
+    } as components['schemas']['Step'];
+
+    render(<HarnessStepSummary step={step} compact />);
+
+    expect(screen.getByText('Harness')).toBeInTheDocument();
+    expect(screen.getByText('claude')).toBeInTheDocument();
+    expect(screen.getByText('3 options')).toBeInTheDocument();
+    expect(screen.getByText('1 fallback')).toBeInTheDocument();
+    expect(screen.getByText('Review this repository')).toBeInTheDocument();
+  });
 });

@@ -4,7 +4,11 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { getHarnessStepSummary, type HarnessAttemptSummary } from '@/lib/harness-step';
+import {
+  getHarnessStepSummary,
+  type HarnessAttemptSummary,
+  type HarnessStepSummary as HarnessSummary,
+} from '@/lib/harness-step';
 import { cn } from '@/lib/utils';
 import { Bot } from 'lucide-react';
 import { components } from '../../../../api/v1/schema';
@@ -12,16 +16,21 @@ import { components } from '../../../../api/v1/schema';
 type Props = {
   step: components['schemas']['Step'];
   className?: string;
+  compact?: boolean;
 };
 
 const visibleOptionCount = 3;
 const promptTooltipThreshold = 120;
 
-function HarnessStepSummary({ step, className }: Props) {
+function HarnessStepSummary({ step, className, compact = false }: Props) {
   const summary = getHarnessStepSummary(step);
 
   if (!summary) {
     return null;
+  }
+
+  if (compact) {
+    return <CompactHarnessSummary summary={summary} className={className} />;
   }
 
   const promptContent = summary.prompt ? (
@@ -60,8 +69,7 @@ function HarnessStepSummary({ step, className }: Props) {
         />
       ))}
 
-      {summary.prompt &&
-      summary.prompt.length > promptTooltipThreshold ? (
+      {summary.prompt && summary.prompt.length > promptTooltipThreshold ? (
         <Tooltip>
           <TooltipTrigger asChild>
             <div className="cursor-help">{promptContent}</div>
@@ -75,6 +83,59 @@ function HarnessStepSummary({ step, className }: Props) {
       ) : (
         promptContent
       )}
+    </div>
+  );
+}
+
+function CompactHarnessSummary({
+  summary,
+  className,
+}: {
+  summary: HarnessSummary;
+  className?: string;
+}) {
+  const primary = summary.attempts[0];
+  const fallbackCount = Math.max(summary.attempts.length - 1, 0);
+  const optionCount = summary.attempts.reduce(
+    (count, attempt) => count + attempt.options.length,
+    0
+  );
+
+  return (
+    <div className={cn('min-w-0 space-y-1.5', className)}>
+      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+        <Badge variant="info" className="normal-case tracking-normal">
+          <Bot className="h-3 w-3" />
+          Harness
+        </Badge>
+        {primary?.provider ? (
+          <Badge
+            variant="secondary"
+            className="font-mono normal-case tracking-normal"
+            title="Primary provider"
+          >
+            {primary.provider}
+          </Badge>
+        ) : null}
+        {optionCount > 0 ? (
+          <Badge variant="outline" className="normal-case tracking-normal">
+            {optionCount} option{optionCount === 1 ? '' : 's'}
+          </Badge>
+        ) : null}
+        {fallbackCount > 0 ? (
+          <Badge variant="outline" className="normal-case tracking-normal">
+            {fallbackCount} fallback{fallbackCount === 1 ? '' : 's'}
+          </Badge>
+        ) : null}
+      </div>
+      {summary.prompt ? (
+        <div
+          className="truncate text-xs text-muted-foreground"
+          title={summary.prompt}
+        >
+          {summary.prompt}
+        </div>
+      ) : null}
     </div>
   );
 }
