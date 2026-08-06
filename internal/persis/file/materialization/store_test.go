@@ -5,11 +5,13 @@ package materialization
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/stretchr/testify/require"
 )
@@ -42,30 +44,128 @@ func TestAcquirePathsAllowsReadersAndExcludesWriter(t *testing.T) {
 	require.NoError(t, writer.Release())
 }
 
-func TestRestorePreviousBeforeBackupExists(t *testing.T) {
+func TestRecoverIncompleteCommit(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
-	finalPath := filepath.Join(dir, "output.txt")
-	manifestPath := filepath.Join(dir, "manifest.json")
-	require.NoError(t, os.WriteFile(finalPath, []byte("known-good"), 0o600))
-	previous, err := snapshotFile(finalPath)
-	require.NoError(t, err)
+	tests := []struct {
+		name             string
+		previous         bool
+		backupContent    string
+		finalContent     string
+		manifest         string
+		wantFinalContent string
+		wantManifest     string
+	}{
+		{
+			name:             "prepared journal before backup",
+			previous:         true,
+			finalContent:     "known-good",
+			manifest:         "previous",
+			wantFinalContent: "known-good",
+			wantManifest:     "previous",
+		},
+		{
+			name:             "final replaced before manifest",
+			previous:         true,
+			backupContent:    "known-good",
+			finalContent:     "proposed",
+			manifest:         "previous",
+			wantFinalContent: "known-good",
+			wantManifest:     "previous",
+		},
+		{
+			name:             "manifest and final committed",
+			previous:         true,
+			backupContent:    "known-good",
+			finalContent:     "proposed",
+			manifest:         "proposed",
+			wantFinalContent: "proposed",
+			wantManifest:     "proposed",
+		},
+		{
+			name:         "first materialization before manifest",
+			finalContent: "proposed",
+		},
+	}
 
-	err = restorePrevious(commitJournal{
-		FinalPath:        finalPath,
-		BackupPath:       filepath.Join(dir, "missing-backup"),
-		ManifestPath:     manifestPath,
-		PreviousFinal:    &previous,
-		PreviousManifest: []byte(`{"commitId":"previous"}`),
-	})
-	require.NoError(t, err)
-	content, err := os.ReadFile(finalPath)
-	require.NoError(t, err)
-	require.Equal(t, "known-good", string(content))
-	manifest, err := os.ReadFile(manifestPath)
-	require.NoError(t, err)
-	require.JSONEq(t, `{"commitId":"previous"}`, string(manifest))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			store := New(filepath.Join(dir, "store"))
+			require.NoError(t, store.ensureDirs())
+			finalPath := filepath.Join(dir, "output.txt")
+			backupPath := filepath.Join(dir, "output.backup")
+			manifestPath := store.manifestPath("materialization")
+			journalPath := store.journalPath("output-key")
+
+			previousSource := filepath.Join(dir, "previous.txt")
+			require.NoError(t, os.WriteFile(previousSource, []byte("known-good"), fileMode))
+			previousSnapshot, err := snapshotFile(previousSource)
+			require.NoError(t, err)
+			previousSnapshot.Path = finalPath
+
+			proposedSource := filepath.Join(dir, "proposed.txt")
+			require.NoError(t, os.WriteFile(proposedSource, []byte("proposed"), fileMode))
+			proposedSnapshot, err := snapshotFile(proposedSource)
+			require.NoError(t, err)
+			proposedSnapshot.Path = finalPath
+			proposed := exec.Materialization{CommitID: "proposed", Output: proposedSnapshot}
+
+			if tt.finalContent != "" {
+				require.NoError(t, os.WriteFile(finalPath, []byte(tt.finalContent), fileMode))
+			}
+			if tt.backupContent != "" {
+				require.NoError(t, os.WriteFile(backupPath, []byte(tt.backupContent), fileMode))
+			}
+			previousManifest := json.RawMessage(nil)
+			if tt.previous {
+				previousManifest = json.RawMessage(`{"commitId":"previous"}`)
+			}
+			switch tt.manifest {
+			case "previous":
+				require.NoError(t, fileutil.WriteFileAtomic(manifestPath, previousManifest, fileMode))
+			case "proposed":
+				require.NoError(t, fileutil.WriteJSONAtomic(manifestPath, proposed, fileMode))
+			}
+
+			journal := commitJournal{
+				FinalPath:        finalPath,
+				BackupPath:       backupPath,
+				ManifestPath:     manifestPath,
+				PreviousManifest: previousManifest,
+				Proposed:         proposed,
+			}
+			if tt.previous {
+				journal.PreviousFinal = &previousSnapshot
+			}
+			require.NoError(t, fileutil.WriteJSONAtomic(journalPath, journal, fileMode))
+
+			require.NoError(t, store.recover("output-key"))
+			require.NoFileExists(t, journalPath)
+			require.NoFileExists(t, backupPath)
+			if tt.wantFinalContent == "" {
+				require.NoFileExists(t, finalPath)
+			} else {
+				content, err := os.ReadFile(finalPath)
+				require.NoError(t, err)
+				require.Equal(t, tt.wantFinalContent, string(content))
+			}
+			switch tt.wantManifest {
+			case "previous":
+				manifest, err := os.ReadFile(manifestPath)
+				require.NoError(t, err)
+				require.JSONEq(t, string(previousManifest), string(manifest))
+			case "proposed":
+				manifest, err := os.ReadFile(manifestPath)
+				require.NoError(t, err)
+				var recovered exec.Materialization
+				require.NoError(t, json.Unmarshal(manifest, &recovered))
+				require.Equal(t, proposed.CommitID, recovered.CommitID)
+			default:
+				require.NoFileExists(t, manifestPath)
+			}
+		})
+	}
 }
 
 func TestRestorePreviousPreservesUnknownFinal(t *testing.T) {

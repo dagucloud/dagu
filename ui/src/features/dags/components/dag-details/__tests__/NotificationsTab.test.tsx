@@ -162,7 +162,7 @@ describe('NotificationsTab', () => {
     expect(await screen.findByText('Inherited')).toBeVisible();
     expect(screen.getByText('This DAG inherits Global rules.')).toBeVisible();
     expect(screen.getByText('Effective Inherited Routes')).toBeVisible();
-    expect(screen.getByText('Slack Ops')).toBeVisible();
+    expect(await screen.findByText('Slack Ops')).toBeVisible();
     expect(
       screen.getByRole('button', { name: /configure dag override/i })
     ).toBeVisible();

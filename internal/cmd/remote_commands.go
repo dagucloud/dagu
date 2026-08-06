@@ -76,9 +76,9 @@ func mapAPINode(node api.Node) *exec.Node {
 	}
 	if node.Incremental != nil {
 		mapped.Incremental = &exec.IncrementalExecution{
-			Decision:           string(node.Incremental.Decision),
-			Phase:              string(node.Incremental.Phase),
-			Reason:             node.Incremental.Reason,
+			Decision:           exec.IncrementalDecision(node.Incremental.Decision),
+			Phase:              exec.IncrementalPhase(node.Incremental.Phase),
+			Reason:             exec.IncrementalReason(node.Incremental.Reason),
 			Detail:             derefString(node.Incremental.Detail),
 			Fingerprint:        derefString(node.Incremental.Fingerprint),
 			MaterializationKey: derefString(node.Incremental.MaterializationKey),

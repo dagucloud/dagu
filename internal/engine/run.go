@@ -24,6 +24,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/core"
 	coreexec "github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	filematerialization "github.com/dagucloud/dagu/v2/internal/persis/file/materialization"
 	rtagent "github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -505,7 +506,7 @@ func (e *Engine) runLocal(ctx context.Context, dag *core.DAG, runID string, opts
 
 func (e *Engine) runDistributed(ctx context.Context, dag *core.DAG, runID string, opts RunOptions) (*Run, error) {
 	if dag.Type == core.TypeIncremental {
-		return nil, fmt.Errorf("incremental workflows require local execution; distributed fencing is not implemented")
+		return nil, dispatch.ErrIncrementalRequiresLocal
 	}
 	dist := e.distributed
 	if len(opts.WorkerSelector) > 0 {

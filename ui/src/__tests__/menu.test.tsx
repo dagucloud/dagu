@@ -261,7 +261,7 @@ describe('sidebar menu', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('expands workflow, execution, monitor, and notifications sections', () => {
+  it('expands the workflows section', () => {
     renderMenu();
 
     fireEvent.click(screen.getByRole('link', { name: 'Workflows' }));
@@ -275,7 +275,19 @@ describe('sidebar menu', () => {
       screen.getByRole('button', { name: 'Toggle Workflows section' })
     ).toHaveAttribute('aria-expanded', 'true');
     expect(screen.queryByRole('link', { name: 'Definitions' })).toBeNull();
-    expect(screen.getByRole('link', { name: 'Git Sync' })).toBeVisible();
+    const submenuItems = [
+      screen.getByRole('link', { name: 'Search' }),
+      screen.getByRole('link', { name: 'Base Config' }),
+      screen.getByRole('link', { name: 'Git Sync' }),
+    ];
+    for (const item of submenuItems) {
+      expect(item).toBeVisible();
+      expect(item.querySelector('svg')).toBeNull();
+    }
+  });
+
+  it('expands the executions section', () => {
+    renderMenu();
 
     fireEvent.click(
       screen.getByRole('button', { name: 'Toggle Executions section' })
@@ -284,6 +296,10 @@ describe('sidebar menu', () => {
     const queueLink = screen.getByRole('link', { name: 'Queues' });
     expect(queueLink).toBeVisible();
     expect(queueLink.querySelector('svg')).toBeNull();
+  });
+
+  it('expands the monitor section', () => {
+    renderMenu();
 
     fireEvent.click(
       screen.getByRole('button', { name: 'Toggle Monitor section' })
@@ -291,24 +307,18 @@ describe('sidebar menu', () => {
     expect(
       screen.queryByRole('link', { name: 'System Status' })
     ).not.toBeInTheDocument();
-    const monitorSubmenuItems = [
+    const submenuItems = [
       screen.getByRole('link', { name: 'Events' }),
       screen.getByRole('link', { name: 'Audit Logs' }),
     ];
-    for (const item of monitorSubmenuItems) {
+    for (const item of submenuItems) {
       expect(item).toBeVisible();
       expect(item.querySelector('svg')).toBeNull();
     }
+  });
 
-    const workflowSubmenuItems = [
-      screen.getByRole('link', { name: 'Search' }),
-      screen.getByRole('link', { name: 'Base Config' }),
-      screen.getByRole('link', { name: 'Git Sync' }),
-    ];
-    for (const item of workflowSubmenuItems) {
-      expect(item).toBeVisible();
-      expect(item.querySelector('svg')).toBeNull();
-    }
+  it('expands the notifications section', () => {
+    renderMenu();
 
     fireEvent.click(
       screen.getByRole('button', { name: 'Toggle Notifications section' })

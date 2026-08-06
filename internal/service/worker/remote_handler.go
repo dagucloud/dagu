@@ -25,6 +25,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/node"
 	"github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
@@ -579,7 +580,7 @@ func (h *remoteTaskHandler) executeDAGRun(
 	run remoteRun,
 ) error {
 	if dag != nil && dag.Type == core.TypeIncremental {
-		return newTaskInitError(fmt.Errorf("incremental workflows require local execution; distributed fencing is not implemented"))
+		return newTaskInitError(dispatch.ErrIncrementalRequiresLocal)
 	}
 	task := run.task
 	dagRunID := task.DagRunId

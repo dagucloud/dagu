@@ -5083,7 +5083,7 @@ export interface components {
             stderr?: string;
             /** @description Variable name to store the step's output */
             output?: string;
-            /** @description Declared file-based step outputs published through DAGU_OUTPUT_FILE for ${steps.<id>.outputs.<name>} references. Steps that declare outputs must also define id. */
+            /** @description Declared named outputs. Value outputs are published through DAGU_OUTPUT_FILE; path outputs publish a verified materialized file. Steps that declare outputs must also define id. */
             outputs?: components["schemas"]["StepOutputDeclaration"][];
             /** @description Named regular-file inputs used for incremental fingerprints and inferred dependencies. Steps that declare inputs must also define id. */
             inputs?: components["schemas"]["StepInputDeclaration"][];

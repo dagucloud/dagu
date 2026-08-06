@@ -12689,7 +12689,7 @@ components:
         outputs:
           type: array
           minItems: 1
-          description: "Declared file-based step outputs published through DAGU_OUTPUT_FILE for ${steps.<id>.outputs.<name>} references. Steps that declare outputs must also define id."
+          description: "Declared named outputs. Value outputs are published through DAGU_OUTPUT_FILE; path outputs publish a verified materialized file. Steps that declare outputs must also define id."
           items:
             $ref: "#/components/schemas/StepOutputDeclaration"
         inputs:

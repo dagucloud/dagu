@@ -22,7 +22,6 @@ import (
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
-	"github.com/dagucloud/dagu/v2/internal/incremental"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -557,64 +556,17 @@ func (r *Runner) runNodeExecution(ctx context.Context, plan *Plan, node *Node, p
 	}
 	met, err := meetsPreconditions(ctx, node, preconditionProgress)
 	if err != nil {
-		if incrementalSession != nil {
-			metadata := incrementalSession.Metadata()
-			metadata.Decision = incremental.DecisionNone
-			metadata.Phase = "precondition"
-			metadata.Reason = "precondition_error"
-			node.setIncremental(metadata)
-			if progressCh != nil {
-				progressCh <- node
-			}
-		}
+		markIncrementalPrecondition(incrementalSession, node, exec.IncrementalReasonPreconditionError, "", progressCh)
 		r.setLastError(err)
 		r.Cancel(plan)
 		return
 	}
 	if !met {
-		if incrementalSession != nil {
-			metadata := incrementalSession.Metadata()
-			metadata.Decision = incremental.DecisionNone
-			metadata.Phase = "precondition"
-			metadata.Reason = "precondition_not_met"
-			metadata.Detail = "step precondition was not met"
-			node.setIncremental(metadata)
-			if progressCh != nil {
-				progressCh <- node
-			}
-		}
+		markIncrementalPrecondition(incrementalSession, node, exec.IncrementalReasonPreconditionNotMet,
+			"step precondition was not met", progressCh)
 		return
 	}
-	if incrementalSession != nil {
-		if err := incrementalSession.Evaluate(ctx); err != nil {
-			node.setIncremental(incrementalSession.Metadata())
-			r.setLastError(err)
-			node.MarkError(err)
-			node.SetStatus(core.NodeFailed)
-			if progressCh != nil {
-				progressCh <- node
-			}
-			return
-		}
-		node.setIncremental(incrementalSession.Metadata())
-	}
-	if r.dry && incrementalSession != nil {
-		node.IncDoneCount()
-		node.SetStatus(core.NodeSucceeded)
-		reportPreparedNode()
-		return
-	}
-	if incrementalSession != nil && incrementalSession.Reused() {
-		if err := publishIncrementalOutputs(ctx, node, incrementalSession.PublishedOutputs()); err != nil {
-			r.setLastError(err)
-			node.MarkError(err)
-			node.SetStatus(core.NodeFailed)
-			return
-		}
-		node.setIncremental(incrementalSession.Metadata())
-		node.IncDoneCount()
-		node.SetStatus(core.NodeSucceeded)
-		reportPreparedNode()
+	if r.evaluateIncrementalNode(ctx, node, incrementalSession, progressCh, reportPreparedNode) {
 		return
 	}
 
@@ -626,33 +578,21 @@ func (r *Runner) runNodeExecution(ctx context.Context, plan *Plan, node *Node, p
 ExecRepeat: // repeat execution
 	for !r.isCanceled() {
 		logger.Debug(ctx, "Executing node loop")
-		attemptCtx := ctx
-		if incrementalSession != nil && incrementalSession.HasPathOutput() {
-			outputs, path, attemptErr := incrementalSession.NewAttempt(node.GetRetryCount())
-			if attemptErr != nil {
-				r.setLastError(attemptErr)
-				node.MarkError(attemptErr)
-				node.SetStatus(core.NodeFailed)
-				return
-			}
-			stagingPath = path
-			node.resetForIncrementalAttempt(declaredStep)
-			attemptCtx, attemptErr = withIncrementalPaths(ctx, node, incrementalSession.InputPaths(), outputs)
-			if attemptErr != nil {
-				r.setLastError(attemptErr)
-				node.MarkError(attemptErr)
-				node.SetStatus(core.NodeFailed)
-				return
-			}
+		attemptCtx, nextStagingPath, attemptErr := prepareIncrementalAttempt(ctx, node, incrementalSession, declaredStep)
+		stagingPath = nextStagingPath
+		if attemptErr != nil {
+			r.setLastError(attemptErr)
+			node.MarkError(attemptErr)
+			node.SetStatus(core.NodeFailed)
+			return
 		}
 		execErr := r.execNode(attemptCtx, node, progressCh)
-		if execErr == nil && incrementalSession != nil && incrementalSession.HasPathOutput() {
-			execErr = incrementalSession.Commit(attemptCtx, stagingPath)
-			node.setIncremental(incrementalSession.Metadata())
-			if execErr == nil {
+		if execErr == nil {
+			committed, commitErr := commitIncrementalAttempt(attemptCtx, node, incrementalSession, stagingPath)
+			if committed {
 				stagingPath = ""
-				execErr = publishIncrementalOutputs(attemptCtx, node, incrementalSession.PublishedOutputs())
 			}
+			execErr = commitErr
 		}
 		isRetriable := r.handleNodeExecutionError(ctx, plan, node, execErr)
 		if isRetriable {
@@ -709,7 +649,7 @@ ExecRepeat: // repeat execution
 	}
 	if node.State().Status == core.NodeSucceeded && incrementalSession != nil {
 		metadata := incrementalSession.Metadata()
-		metadata.Phase = "complete"
+		metadata.Phase = exec.IncrementalPhaseComplete
 		node.setIncremental(metadata)
 	}
 

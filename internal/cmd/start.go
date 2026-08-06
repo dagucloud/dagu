@@ -264,7 +264,7 @@ func runStart(ctx *Context, args []string) error {
 // tryExecuteDAG acquires a process handle and executes the DAG.
 func tryExecuteDAG(ctx *Context, dag *core.DAG, dagRunID string, opts runOptions) error {
 	if dag.Type == core.TypeIncremental && opts.workerID != "local" {
-		return fmt.Errorf("incremental workflows require local execution; distributed fencing is not implemented")
+		return dispatch.ErrIncrementalRequiresLocal
 	}
 	// Check for dispatch to coordinator for distributed execution.
 	// Skip if already running on a worker (workerID != "local").
@@ -272,7 +272,7 @@ func tryExecuteDAG(ctx *Context, dag *core.DAG, dagRunID string, opts runOptions
 		coordinatorCli := ctx.NewCoordinatorClient()
 		if dispatch.ShouldDispatchToCoordinator(dag, coordinatorCli != nil, ctx.Config.DefaultExecMode) {
 			if dag.Type == core.TypeIncremental {
-				return fmt.Errorf("incremental workflows require local execution; distributed fencing is not implemented")
+				return dispatch.ErrIncrementalRequiresLocal
 			}
 			return dispatchToCoordinatorAndWait(ctx, dag, dagRunID, opts, coordinatorCli)
 		}

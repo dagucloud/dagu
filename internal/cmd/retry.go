@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/humantask"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	"github.com/spf13/cobra"
@@ -192,7 +193,7 @@ func runRetry(ctx *Context, args []string) error {
 		return err
 	}
 	if dag.Type == core.TypeIncremental && workerID != "local" {
-		return fmt.Errorf("incremental workflows require local execution; distributed fencing is not implemented")
+		return dispatch.ErrIncrementalRequiresLocal
 	}
 
 	if err := prepareQueuedCatchupRetry(ctx, attempt, dag, status); err != nil {

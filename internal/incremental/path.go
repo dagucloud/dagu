@@ -1,0 +1,190 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package incremental
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+
+	"github.com/dagucloud/dagu/v2/internal/core/exec"
+)
+
+// Snapshot hashes a stable regular-file snapshot.
+func Snapshot(name, path string) (exec.FileSnapshot, error) {
+	for range 3 {
+		before, err := os.Lstat(path)
+		if err != nil {
+			return exec.FileSnapshot{}, err
+		}
+		if !before.Mode().IsRegular() {
+			return exec.FileSnapshot{}, fmt.Errorf("%s is not a regular non-symlink file", path)
+		}
+		file, err := os.Open(path) //nolint:gosec
+		if err != nil {
+			return exec.FileSnapshot{}, err
+		}
+		hash := sha256.New()
+		_, copyErr := io.Copy(hash, file)
+		closeErr := file.Close()
+		if copyErr != nil {
+			return exec.FileSnapshot{}, copyErr
+		}
+		if closeErr != nil {
+			return exec.FileSnapshot{}, closeErr
+		}
+		after, err := os.Lstat(path)
+		if err != nil {
+			return exec.FileSnapshot{}, err
+		}
+		if os.SameFile(before, after) && before.Size() == after.Size() && before.ModTime().Equal(after.ModTime()) {
+			return exec.FileSnapshot{
+				Name: name, Path: path, Size: after.Size(), Digest: "sha256:" + hex.EncodeToString(hash.Sum(nil)),
+			}, nil
+		}
+	}
+	return exec.FileSnapshot{}, fmt.Errorf("file changed while hashing: %s", path)
+}
+
+func snapshotsEqual(left, right []exec.FileSnapshot) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for idx := range left {
+		if !snapshotEqual(left[idx], right[idx]) {
+			return false
+		}
+	}
+	return true
+}
+
+func snapshotEqual(left, right exec.FileSnapshot) bool {
+	return left.Name == right.Name && left.Path == right.Path && left.Size == right.Size && left.Digest == right.Digest
+}
+
+// ResolvePath returns an absolute path with existing ancestors resolved.
+func ResolvePath(raw, base string, output bool) (string, error) {
+	if strings.TrimSpace(raw) == "" {
+		return "", fmt.Errorf("materialization path is empty")
+	}
+	path := raw
+	if !filepath.IsAbs(path) {
+		if base == "" {
+			return "", fmt.Errorf("relative materialization path %q has no stable working directory", raw)
+		}
+		path = filepath.Join(base, path)
+	}
+	path = filepath.Clean(path)
+	if output {
+		parent, err := filepath.EvalSymlinks(filepath.Dir(path))
+		if err != nil {
+			return "", fmt.Errorf("resolve output parent for %s: %w", path, err)
+		}
+		path = filepath.Join(parent, filepath.Base(path))
+		if info, err := os.Lstat(path); err == nil {
+			if info.Mode()&os.ModeSymlink != 0 {
+				return "", fmt.Errorf("output path must not be a symlink: %s", path)
+			}
+			if !info.Mode().IsRegular() {
+				return "", fmt.Errorf("output path must be a regular file: %s", path)
+			}
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return "", err
+		}
+		return path, nil
+	}
+	return resolveExistingAncestor(path)
+}
+
+func resolveExistingAncestor(path string) (string, error) {
+	suffix := make([]string, 0)
+	current := path
+	for {
+		resolved, err := filepath.EvalSymlinks(current)
+		if err == nil {
+			for idx := len(suffix) - 1; idx >= 0; idx-- {
+				resolved = filepath.Join(resolved, suffix[idx])
+			}
+			return filepath.Clean(resolved), nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return "", err
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return "", err
+		}
+		suffix = append(suffix, filepath.Base(current))
+		current = parent
+	}
+}
+
+// ComparisonKey returns the canonical lock and ownership key for a path.
+func ComparisonKey(path string) string {
+	path = filepath.Clean(path)
+	if resolved, err := resolveExistingAncestor(path); err == nil {
+		path = resolved
+	}
+	if filesystemIsCaseInsensitive(path) {
+		path = strings.ToLower(path)
+	}
+	if runtime.GOOS == "windows" {
+		path = filepath.ToSlash(path)
+	}
+	return path
+}
+
+func filesystemIsCaseInsensitive(path string) bool {
+	dir := filepath.Dir(path)
+	for {
+		info, err := os.Lstat(dir)
+		if errors.Is(err, os.ErrNotExist) {
+			parent := filepath.Dir(dir)
+			if parent == dir {
+				break
+			}
+			dir = parent
+			continue
+		}
+		if err == nil {
+			name := filepath.Base(dir)
+			if alternate, ok := alternateASCIICase(name); ok {
+				alternateInfo, alternateErr := os.Lstat(filepath.Join(filepath.Dir(dir), alternate))
+				switch {
+				case alternateErr == nil:
+					return os.SameFile(info, alternateInfo)
+				case errors.Is(alternateErr, os.ErrNotExist):
+					return false
+				}
+			}
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return runtime.GOOS == "windows" || runtime.GOOS == "darwin"
+}
+
+func alternateASCIICase(value string) (string, bool) {
+	bytes := []byte(value)
+	for idx, ch := range bytes {
+		switch {
+		case ch >= 'a' && ch <= 'z':
+			bytes[idx] = ch - ('a' - 'A')
+			return string(bytes), true
+		case ch >= 'A' && ch <= 'Z':
+			bytes[idx] = ch + ('a' - 'A')
+			return string(bytes), true
+		}
+	}
+	return value, false
+}

@@ -1547,7 +1547,7 @@ func (a *API) startPreparedDAGRunWithOptions(
 			return &Error{
 				HTTPStatus: http.StatusBadRequest,
 				Code:       api.ErrorCodeBadRequest,
-				Message:    "incremental workflows require local execution; distributed fencing is not implemented",
+				Message:    dispatch.ErrIncrementalRequiresLocal.Error(),
 			}
 		}
 		timeout := 10 * time.Second

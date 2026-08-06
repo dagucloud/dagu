@@ -10,6 +10,7 @@ import (
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/incremental"
 )
 
@@ -35,7 +36,7 @@ func (r *Runner) startIncrementalSession(ctx context.Context, plan *Plan, node *
 		dependency := plan.GetNode(dependencyID)
 		state := dependency.State()
 		if plan.IsInferredDependency(dependencyID, node.ID()) {
-			if r.dry && (state.Incremental == nil || state.Incremental.Decision != incremental.DecisionReuse) {
+			if r.dry && (state.Incremental == nil || state.Incremental.Decision != exec.IncrementalDecisionReuse) {
 				deferred = true
 			}
 			continue
@@ -43,7 +44,7 @@ func (r *Runner) startIncrementalSession(ctx context.Context, plan *Plan, node *
 		if state.Incremental != nil && state.Incremental.Fingerprint != "" {
 			controlTokens[dependency.Name()] = state.Incremental.Fingerprint
 		}
-		if state.Incremental != nil && state.Incremental.Decision == incremental.DecisionReuse {
+		if state.Incremental != nil && state.Incremental.Decision == exec.IncrementalDecisionReuse {
 			continue
 		}
 		controlDependencyRan = true
@@ -80,6 +81,107 @@ func (r *Runner) startIncrementalSession(ctx context.Context, plan *Plan, node *
 		}
 	}
 	return ctx, session, err
+}
+
+func markIncrementalPrecondition(
+	session *incremental.Session,
+	node *Node,
+	reason exec.IncrementalReason,
+	detail string,
+	progressCh chan *Node,
+) {
+	if session == nil {
+		return
+	}
+	metadata := session.Metadata()
+	metadata.Decision = exec.IncrementalDecisionNone
+	metadata.Phase = exec.IncrementalPhasePrecondition
+	metadata.Reason = reason
+	metadata.Detail = detail
+	node.setIncremental(metadata)
+	if progressCh != nil {
+		progressCh <- node
+	}
+}
+
+func (r *Runner) evaluateIncrementalNode(
+	ctx context.Context,
+	node *Node,
+	session *incremental.Session,
+	progressCh chan *Node,
+	reportPreparedNode func(),
+) bool {
+	if session == nil {
+		return false
+	}
+	if err := session.Evaluate(ctx); err != nil {
+		node.setIncremental(session.Metadata())
+		r.setLastError(err)
+		node.MarkError(err)
+		node.SetStatus(core.NodeFailed)
+		if progressCh != nil {
+			progressCh <- node
+		}
+		return true
+	}
+	node.setIncremental(session.Metadata())
+	if r.dry {
+		node.IncDoneCount()
+		node.SetStatus(core.NodeSucceeded)
+		reportPreparedNode()
+		return true
+	}
+	if !session.Reused() {
+		return false
+	}
+	if err := publishIncrementalOutputs(ctx, node, session.PublishedOutputs()); err != nil {
+		r.setLastError(err)
+		node.MarkError(err)
+		node.SetStatus(core.NodeFailed)
+		return true
+	}
+	node.IncDoneCount()
+	node.SetStatus(core.NodeSucceeded)
+	reportPreparedNode()
+	return true
+}
+
+func prepareIncrementalAttempt(
+	ctx context.Context,
+	node *Node,
+	session *incremental.Session,
+	declaredStep core.Step,
+) (context.Context, string, error) {
+	if session == nil || !session.HasPathOutput() {
+		return ctx, "", nil
+	}
+	outputs, stagingPath, err := session.NewAttempt(node.GetRetryCount())
+	if err != nil {
+		return ctx, "", err
+	}
+	node.resetForIncrementalAttempt(declaredStep)
+	attemptCtx, err := withIncrementalPaths(ctx, node, session.InputPaths(), outputs)
+	if err != nil {
+		return ctx, stagingPath, err
+	}
+	return attemptCtx, stagingPath, nil
+}
+
+func commitIncrementalAttempt(
+	ctx context.Context,
+	node *Node,
+	session *incremental.Session,
+	stagingPath string,
+) (bool, error) {
+	if session == nil || !session.HasPathOutput() {
+		return false, nil
+	}
+	if err := session.Commit(ctx, stagingPath); err != nil {
+		node.setIncremental(session.Metadata())
+		return false, err
+	}
+	node.setIncremental(session.Metadata())
+	return true, publishIncrementalOutputs(ctx, node, session.PublishedOutputs())
 }
 
 func withIncrementalPaths(ctx context.Context, node *Node, inputs, outputs map[string]string) (context.Context, error) {

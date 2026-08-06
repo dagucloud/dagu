@@ -136,7 +136,7 @@ func (e *DAGExecutor) HandleJob(
 	// For distributed execution with START operation, enqueue for persistence
 	if e.shouldUseDistributedExecution(dag) && operation == exec.DispatchOperationStart {
 		if dag.Type == core.TypeIncremental {
-			return fmt.Errorf("incremental workflows require local execution; distributed fencing is not implemented")
+			return dispatch.ErrIncrementalRequiresLocal
 		}
 		ctx = logger.WithValues(ctx,
 			tag.DAG(dag.Name),
@@ -223,7 +223,7 @@ func (e *DAGExecutor) executeDAG(
 
 	if e.shouldUseDistributedExecution(dag) {
 		if dag.Type == core.TypeIncremental {
-			return fmt.Errorf("incremental workflows require local execution; distributed fencing is not implemented")
+			return dispatch.ErrIncrementalRequiresLocal
 		}
 		// Distributed execution: dispatch to coordinator
 		taskOpts := []executor.TaskOption{

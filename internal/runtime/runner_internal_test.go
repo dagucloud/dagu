@@ -12,6 +12,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/incremental"
 	filematerialization "github.com/dagucloud/dagu/v2/internal/persis/file/materialization"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -182,7 +183,9 @@ func TestPrepareIncrementalPlanInfersFileDependency(t *testing.T) {
 	require.NotNil(t, producerNode)
 	require.NotNil(t, consumerNode)
 	assert.True(t, plan.IsInferredDependency(producerNode.ID(), consumerNode.ID()))
-	assert.Equal(t, filepath.Join(workingDir, "artifact.txt"), producerNode.Step().Outputs[0].Path)
+	expectedOutput, err := incremental.ResolvePath(filepath.Join(workingDir, "artifact.txt"), "", true)
+	require.NoError(t, err)
+	assert.Equal(t, expectedOutput, producerNode.Step().Outputs[0].Path)
 	assert.Equal(t, producerNode.Step().Outputs[0].Path, consumerNode.Step().Inputs[0].Path)
 }
 

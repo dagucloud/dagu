@@ -25,16 +25,63 @@ type NodeStatusDetail struct {
 	Status core.NodeStatus `json:"status"`
 }
 
+// IncrementalDecision records how an incremental node was satisfied.
+type IncrementalDecision string
+
+const (
+	IncrementalDecisionNone     IncrementalDecision = "none"
+	IncrementalDecisionAlways   IncrementalDecision = "always"
+	IncrementalDecisionExecute  IncrementalDecision = "execute"
+	IncrementalDecisionReuse    IncrementalDecision = "reuse"
+	IncrementalDecisionDeferred IncrementalDecision = "deferred"
+)
+
+// IncrementalPhase records the latest incremental lifecycle phase.
+type IncrementalPhase string
+
+const (
+	IncrementalPhasePrecondition IncrementalPhase = "precondition"
+	IncrementalPhaseEvaluate     IncrementalPhase = "evaluate"
+	IncrementalPhaseExecute      IncrementalPhase = "execute"
+	IncrementalPhaseVerify       IncrementalPhase = "verify"
+	IncrementalPhaseCommit       IncrementalPhase = "commit"
+	IncrementalPhaseComplete     IncrementalPhase = "complete"
+)
+
+// IncrementalReason is a stable machine-readable explanation of a decision.
+type IncrementalReason string
+
+const (
+	IncrementalReasonIneligible                  IncrementalReason = "ineligible"
+	IncrementalReasonStoreUnavailable            IncrementalReason = "store_unavailable"
+	IncrementalReasonEvaluationFailed            IncrementalReason = "evaluation_failed"
+	IncrementalReasonCancelledBeforeDecision     IncrementalReason = "cancelled_before_decision"
+	IncrementalReasonRecoveryFailed              IncrementalReason = "recovery_failed"
+	IncrementalReasonUpstreamWouldExecute        IncrementalReason = "upstream_would_execute"
+	IncrementalReasonInputMissing                IncrementalReason = "input_missing"
+	IncrementalReasonControlDependencyRan        IncrementalReason = "control_dependency_ran"
+	IncrementalReasonReuseDisabled               IncrementalReason = "reuse_disabled"
+	IncrementalReasonManifestMissing             IncrementalReason = "manifest_missing"
+	IncrementalReasonRecipeChanged               IncrementalReason = "recipe_changed"
+	IncrementalReasonInputChanged                IncrementalReason = "input_changed"
+	IncrementalReasonOutputMissing               IncrementalReason = "output_missing"
+	IncrementalReasonOutputChanged               IncrementalReason = "output_changed"
+	IncrementalReasonMatched                     IncrementalReason = "matched"
+	IncrementalReasonInputChangedDuringExecution IncrementalReason = "input_changed_during_execution"
+	IncrementalReasonPreconditionError           IncrementalReason = "precondition_error"
+	IncrementalReasonPreconditionNotMet          IncrementalReason = "precondition_not_met"
+)
+
 // IncrementalExecution explains how an incremental node was satisfied.
 type IncrementalExecution struct {
-	Decision           string    `json:"decision"`
-	Phase              string    `json:"phase"`
-	Reason             string    `json:"reason"`
-	Detail             string    `json:"detail,omitempty"`
-	Fingerprint        string    `json:"fingerprint,omitempty"`
-	MaterializationKey string    `json:"materializationKey,omitempty"`
-	ProducerRun        DAGRunRef `json:"producerRun,omitzero"`
-	ProducerAttemptID  string    `json:"producerAttemptId,omitempty"`
+	Decision           IncrementalDecision `json:"decision"`
+	Phase              IncrementalPhase    `json:"phase"`
+	Reason             IncrementalReason   `json:"reason"`
+	Detail             string              `json:"detail,omitempty"`
+	Fingerprint        string              `json:"fingerprint,omitempty"`
+	MaterializationKey string              `json:"materializationKey,omitempty"`
+	ProducerRun        DAGRunRef           `json:"producerRun,omitzero"`
+	ProducerAttemptID  string              `json:"producerAttemptId,omitempty"`
 }
 
 // Node represents a DAG step with its execution state for persistence

@@ -488,7 +488,7 @@ func toNode(node *exec.Node) api.Node {
 		result.Incremental = &api.IncrementalExecution{
 			Decision:           api.IncrementalExecutionDecision(node.Incremental.Decision),
 			Phase:              api.IncrementalExecutionPhase(node.Incremental.Phase),
-			Reason:             node.Incremental.Reason,
+			Reason:             string(node.Incremental.Reason),
 			Detail:             ptrOf(node.Incremental.Detail),
 			Fingerprint:        ptrOf(node.Incremental.Fingerprint),
 			MaterializationKey: ptrOf(node.Incremental.MaterializationKey),

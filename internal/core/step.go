@@ -166,7 +166,7 @@ type StepOutputsConfig struct {
 	Fields map[string]StepOutputEntry `json:"fields,omitempty"`
 }
 
-// StepOutputDeclaration defines one top-level file-based step output.
+// StepOutputDeclaration defines one named value or path-backed output.
 type StepOutputDeclaration struct {
 	Name string `json:"name"`
 	Type string `json:"type,omitempty"`
@@ -261,7 +261,7 @@ func (s Step) HasStdoutOutputs() bool {
 	return s.StdoutOutputs != nil
 }
 
-// HasDeclaredOutputs reports whether the step declares file-based outputs.
+// HasDeclaredOutputs reports whether the step declares named outputs.
 func (s Step) HasDeclaredOutputs() bool {
 	return len(s.Outputs) > 0
 }
