@@ -68,6 +68,7 @@ const areDAGDefinitionsFiltersEqual = (
 ) =>
   a.searchText === b.searchText &&
   areLabelsEqual(a.searchLabels, b.searchLabels) &&
+  a.activeOnly === b.activeOnly &&
   a.sortField === b.sortField &&
   a.sortOrder === b.sortOrder;
 
@@ -107,6 +108,7 @@ function workflowFilterViewFromView(view: View): WorkflowFilterView {
     filters: {
       searchText: view.dagName ?? '',
       searchLabels: view.labels ?? [],
+      activeOnly: view.activeOnly ?? false,
       sortField: normalizeWorkflowSortField(view.sortField),
       sortOrder: normalizeWorkflowSortOrder(view.sortOrder),
     },
@@ -130,6 +132,7 @@ function buildWorkflowFilterSearch(
   params.delete('search');
   params.delete('labels');
   params.delete('tags');
+  params.delete('active');
   params.delete('sort');
   params.delete('order');
 
@@ -144,6 +147,9 @@ function buildWorkflowFilterSearch(
     }
     if (filters.searchLabels.length > 0) {
       params.set('labels', filters.searchLabels.join(','));
+    }
+    if (filters.activeOnly) {
+      params.set('active', 'true');
     }
     params.set('sort', filters.sortField);
     params.set('order', filters.sortOrder);
@@ -303,6 +309,7 @@ function DAGsContent() {
     () => ({
       searchText: '',
       searchLabels: [],
+      activeOnly: false,
       sortField: ViewSortField.name,
       sortOrder: ViewSortOrder.asc,
     }),
@@ -312,6 +319,7 @@ function DAGsContent() {
   const [searchLabels, setSearchLabels] = React.useState<string[]>(
     defaultFilters.searchLabels
   );
+  const [activeOnly, setActiveOnly] = React.useState(defaultFilters.activeOnly);
   const [sortField, setSortField] = React.useState(defaultFilters.sortField);
   const [sortOrder, setSortOrder] = React.useState(defaultFilters.sortOrder);
   const [appliedFilters, setAppliedFilters] =
@@ -342,10 +350,11 @@ function DAGsContent() {
     () => ({
       searchText,
       searchLabels,
+      activeOnly,
       sortField,
       sortOrder,
     }),
-    [searchText, searchLabels, sortField, sortOrder]
+    [searchText, searchLabels, activeOnly, sortField, sortOrder]
   );
 
   const currentFiltersRef = React.useRef(currentFilters);
@@ -399,6 +408,11 @@ function DAGsContent() {
       hasUrlFilters = true;
     }
 
+    if (params.has('active')) {
+      urlFilters.activeOnly = params.get('active') === 'true';
+      hasUrlFilters = true;
+    }
+
     if (params.has('sort')) {
       urlFilters.sortField = normalizeWorkflowSortField(params.get('sort'));
       hasUrlFilters = true;
@@ -432,6 +446,9 @@ function DAGsContent() {
       }
       if (!params.has('labels') && !params.has('tags')) {
         urlFilters.searchLabels = [];
+      }
+      if (!params.has('active')) {
+        urlFilters.activeOnly = false;
       }
     }
 
@@ -490,6 +507,7 @@ function DAGsContent() {
     currentFiltersRef.current = next;
     setSearchText(next.searchText);
     setSearchLabels(next.searchLabels);
+    setActiveOnly(next.activeOnly);
     setSortField(next.sortField);
     setSortOrder(next.sortOrder);
 
@@ -554,6 +572,7 @@ function DAGsContent() {
         requestFilters.searchLabels.length > 0
           ? requestFilters.searchLabels.join(',')
           : undefined,
+      active: requestFilters.activeOnly || undefined,
       sort: workflowSortFieldQuery(requestFilters.sortField),
       order: workflowSortOrderQuery(requestFilters.sortOrder),
       ...workspaceQuery,
@@ -613,6 +632,7 @@ function DAGsContent() {
       updateFilterLocation(next, viewId, replace);
       setSearchText(next.searchText);
       setSearchLabels(next.searchLabels);
+      setActiveOnly(next.activeOnly);
       setSortField(next.sortField);
       setSortOrder(next.sortOrder);
       setActiveWorkflowViewId(
@@ -635,6 +655,7 @@ function DAGsContent() {
       workspaceScope: workflowViewScope.workspaceScope,
       labels: [...filters.searchLabels],
       dagName: filters.searchText,
+      activeOnly: filters.activeOnly,
       intervalDays: 1,
       pinned,
       sortField: normalizeWorkflowSortField(filters.sortField),
@@ -666,6 +687,7 @@ function DAGsContent() {
       }
       setSearchText(next.searchText);
       setSearchLabels(next.searchLabels);
+      setActiveOnly(next.activeOnly);
       setSortField(next.sortField);
       setSortOrder(next.sortOrder);
       updateFilterLocation(next, activeWorkflowViewId);
@@ -679,6 +701,10 @@ function DAGsContent() {
 
   const searchLabelsChange = (labels: string[]) => {
     patchFilters({ searchLabels: labels });
+  };
+
+  const handleActiveOnlyChange = (checked: boolean) => {
+    patchFilters({ activeOnly: checked }, true);
   };
 
   const handleSortChange = (field: string, order: string) => {
@@ -983,6 +1009,8 @@ function DAGsContent() {
             handleSearchTextChange={searchTextChange}
             searchLabels={searchLabels}
             handleSearchLabelsChange={searchLabelsChange}
+            activeOnly={activeOnly}
+            handleActiveOnlyChange={handleActiveOnlyChange}
             isLoading={isLoading}
             sortField={sortField}
             sortOrder={sortOrder}

@@ -58,6 +58,7 @@ type ListDAGsOptions struct {
 	Paginator         *Paginator
 	Name              string                               // Optional search filter for DAG name or file name
 	Labels            []string                             // Optional labels filter (AND logic - all labels must match)
+	ActiveOnly        bool                                 // Include only scheduled DAGs that are not suspended
 	Sort              string                               // Optional sort field (name, updated_at, created_at, nextRun)
 	Order             string                               // Optional sort order (asc, desc)
 	Time              *time.Time                           // Optional reference time for nextRun sorting/projection (defaults to time.Now())

@@ -75,7 +75,7 @@ func Load(indexPath string, yamlFiles []YAMLFileMeta, flags SuspendFlags) []*ind
 
 	// Validate suspend flags.
 	for _, e := range idx.Entries {
-		_, flagged := flags[SuspendFlagName(e.Name)]
+		_, flagged := flags[SuspendFlagName(entryFileName(e.FilePath))]
 		if e.Suspended != flagged {
 			return nil
 		}
@@ -151,7 +151,7 @@ func buildEntry(
 		entry.LoadError = joinErrors(dag.BuildErrors)
 	}
 
-	_, flagged := flags[SuspendFlagName(dag.Name)]
+	_, flagged := flags[SuspendFlagName(entryFileName(entry.FilePath))]
 	entry.Suspended = flagged
 }
 
@@ -235,6 +235,11 @@ func DAGFromEntry(entry *indexv1.DAGIndexEntry, baseDir string) *core.DAG {
 // SuspendFlagName returns the flag filename for a DAG name.
 func SuspendFlagName(dagName string) string {
 	return fileutil.NormalizeFilename(dagName, "-") + ".suspend"
+}
+
+func entryFileName(filePath string) string {
+	base := filepath.Base(filepath.FromSlash(filePath))
+	return strings.TrimSuffix(base, filepath.Ext(base))
 }
 
 func labelsToStrings(labels core.Labels) []string {

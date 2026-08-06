@@ -487,6 +487,9 @@ func (store *Storage) List(ctx context.Context, opts exec.ListDAGsOptions) (exec
 		if ctx.Err() != nil {
 			return exec.NewPaginatedResult([]*core.DAG{}, 0, *opts.Paginator), errList, ctx.Err()
 		}
+		if opts.ActiveOnly && (entry.Schedule == "" || entry.Suspended) {
+			continue
+		}
 
 		dag := dagindex.DAGFromEntry(entry, store.baseDir)
 		if opts.Name != "" && !matchesDAGListSearch(dag.Name, dag.FileName(), opts.Name) {

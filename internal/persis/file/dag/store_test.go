@@ -1439,6 +1439,41 @@ steps:
 	require.NoError(t, err)
 	require.Empty(t, errList)
 	require.Len(t, result.Items, 0)
+
+	for _, name := range []string{"active-alpha", "active-beta", "active-suspended"} {
+		content := fmt.Sprintf(`name: %s
+schedule: "0 * * * *"
+steps:
+  - name: step1
+    run: echo "active"`, name)
+		require.NoError(t, store.Create(ctx, name, []byte(content)))
+	}
+	require.NoError(t, store.ToggleSuspend(ctx, "active-suspended", true))
+
+	paginator := exec.NewPaginator(1, 1)
+	result, errList, err = store.List(ctx, exec.ListDAGsOptions{
+		Paginator:  &paginator,
+		ActiveOnly: true,
+		Sort:       "name",
+		Order:      "asc",
+	})
+	require.NoError(t, err)
+	require.Empty(t, errList)
+	assert.Equal(t, 2, result.TotalCount)
+	require.Len(t, result.Items, 1)
+	assert.Equal(t, "active-alpha", result.Items[0].Name)
+
+	paginator = exec.NewPaginator(2, 1)
+	result, errList, err = store.List(ctx, exec.ListDAGsOptions{
+		Paginator:  &paginator,
+		ActiveOnly: true,
+		Sort:       "name",
+		Order:      "asc",
+	})
+	require.NoError(t, err)
+	require.Empty(t, errList)
+	require.Len(t, result.Items, 1)
+	assert.Equal(t, "active-beta", result.Items[0].Name)
 }
 
 func TestListWithSortAndOrder(t *testing.T) {

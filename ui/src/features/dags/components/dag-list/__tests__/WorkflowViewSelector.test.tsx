@@ -17,6 +17,7 @@ const views: WorkflowFilterView[] = [
     filters: {
       searchText: '',
       searchLabels: ['env=prod'],
+      activeOnly: false,
       sortField: ViewSortField.name,
       sortOrder: ViewSortOrder.asc,
     },

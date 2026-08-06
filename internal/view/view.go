@@ -95,6 +95,7 @@ type View struct {
 	WorkspaceScope string
 	SortField      string
 	SortOrder      string
+	ActiveOnly     bool
 	Default        bool
 	CreatedBy      string
 	CreatedAt      time.Time
@@ -116,6 +117,7 @@ func (v *View) Normalize() {
 		v.WorkspaceScope = ""
 		v.SortField = ""
 		v.SortOrder = ""
+		v.ActiveOnly = false
 		v.Default = false
 		if len(v.Columns) == 0 {
 			v.Columns = DefaultColumns()
@@ -255,6 +257,7 @@ type ViewForStorage struct {
 	WorkspaceScope string    `json:"workspace_scope,omitempty"`
 	SortField      string    `json:"sort_field,omitempty"`
 	SortOrder      string    `json:"sort_order,omitempty"`
+	ActiveOnly     bool      `json:"active_only,omitempty"`
 	Default        bool      `json:"default,omitempty"`
 	CreatedBy      string    `json:"created_by,omitempty"`
 	CreatedAt      time.Time `json:"created_at"`
@@ -276,6 +279,7 @@ func (v *View) ToStorage() *ViewForStorage {
 		WorkspaceScope: v.WorkspaceScope,
 		SortField:      v.SortField,
 		SortOrder:      v.SortOrder,
+		ActiveOnly:     v.ActiveOnly,
 		Default:        v.Default,
 		CreatedBy:      v.CreatedBy,
 		CreatedAt:      v.CreatedAt,
@@ -302,6 +306,7 @@ func (s *ViewForStorage) ToView() *View {
 		WorkspaceScope: s.WorkspaceScope,
 		SortField:      s.SortField,
 		SortOrder:      s.SortOrder,
+		ActiveOnly:     s.ActiveOnly,
 		Default:        s.Default,
 		CreatedBy:      s.CreatedBy,
 		CreatedAt:      s.CreatedAt,

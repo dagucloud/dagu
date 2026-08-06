@@ -348,7 +348,7 @@ func TestBuild_WithSuspendFlags(t *testing.T) {
 		{Name: "flagged.yaml", Size: info.Size(), ModTime: info.ModTime().UnixNano()},
 	}
 
-	flags := SuspendFlags{"flagged-dag.suspend": {}}
+	flags := SuspendFlags{"flagged.suspend": {}}
 	idx := Build(context.Background(), dir, files, flags)
 	require.Len(t, idx.Entries, 1)
 	assert.True(t, idx.Entries[0].Suspended)

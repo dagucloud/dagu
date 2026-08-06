@@ -110,6 +110,37 @@ func TestServerExposesStepLogResource(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestReadToolValidatesDAGQuery(t *testing.T) {
+	tests := []struct {
+		name      string
+		query     string
+		wantError bool
+	}{
+		{name: "active true", query: "active=true"},
+		{name: "active false", query: "active=false"},
+		{name: "numeric active", query: "active=1", wantError: true},
+		{name: "uppercase active", query: "active=TRUE", wantError: true},
+		{name: "unsupported parameter", query: "unknown=value", wantError: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			payload, err := json.Marshal(readInput{Target: readTargetDAGs, Query: test.query})
+			require.NoError(t, err)
+
+			input, readErr := parseReadToolInput(payload)
+			if test.wantError {
+				require.NotNil(t, readErr)
+				require.Equal(t, readErrorInvalidToolInput, readErr.Code)
+				require.Equal(t, readFieldQuery, readErr.Field)
+				return
+			}
+			require.Nil(t, readErr)
+			require.Equal(t, test.query, input.Query)
+		})
+	}
+}
+
 func TestHTTPHandlerServesStreamableMCP(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testConnectTimeout)
 	defer cancel()

@@ -277,7 +277,7 @@ export interface paths {
         };
         /**
          * List all available DAGs
-         * @description Retrieves DAG definitions with optional filtering by name and labels
+         * @description Retrieves DAG definitions with optional filtering by name, labels, and active status (scheduled and not suspended).
          */
         get: operations["listDAGs"];
         put?: never;
@@ -6173,6 +6173,8 @@ export interface components {
             workspaceScope?: components["schemas"]["ViewWorkspaceScope"];
             sortField?: components["schemas"]["ViewSortField"];
             sortOrder?: components["schemas"]["ViewSortOrder"];
+            /** @description Whether the view only includes scheduled, unsuspended workflows. */
+            activeOnly?: boolean;
             /** @description Whether this is the default workflow view for its workspace scope. */
             isDefault?: boolean;
         };
@@ -6190,6 +6192,8 @@ export interface components {
             workspaceScope?: components["schemas"]["ViewWorkspaceScope"];
             sortField?: components["schemas"]["ViewSortField"];
             sortOrder?: components["schemas"]["ViewSortOrder"];
+            /** @description Whether the view only includes scheduled, unsuspended workflows. */
+            activeOnly?: boolean;
             isDefault?: boolean;
             /** @description Username of the creator, for display only. */
             createdBy?: string;
@@ -7339,6 +7343,8 @@ export interface operations {
                 name?: string;
                 /** @description Filter DAGs by labels (comma-separated). Returns DAGs that have ALL specified labels. Mutually exclusive with `tags`; the server returns HTTP 400 if both are set. */
                 labels?: string;
+                /** @description Filter to DAGs that have a schedule and are not suspended. */
+                active?: boolean;
                 /**
                  * @deprecated
                  * @description Deprecated alias for `labels`; mutually exclusive with `labels`. Filter DAGs by labels (comma-separated).

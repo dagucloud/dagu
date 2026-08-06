@@ -81,6 +81,8 @@ vi.mock('@/features/dags/components/dag-list', () => ({
     dags,
     searchText,
     handleSearchTextChange,
+    activeOnly,
+    handleActiveOnlyChange,
     selectedDAG,
     onSelectDAG,
     activeWorkflowViewId,
@@ -96,6 +98,8 @@ vi.mock('@/features/dags/components/dag-list', () => ({
     dags: Array<{ fileName: string; dag: { name: string } }>;
     searchText: string;
     handleSearchTextChange: (value: string) => void;
+    activeOnly: boolean;
+    handleActiveOnlyChange: (value: boolean) => void;
     selectedDAG?: string | null;
     onSelectDAG?: (fileName: string, title: string) => void;
     activeWorkflowViewId: string | null;
@@ -118,6 +122,13 @@ vi.mock('@/features/dags/components/dag-list', () => ({
         value={searchText}
         onChange={(event) => handleSearchTextChange(event.target.value)}
       />
+      <button
+        type="button"
+        aria-pressed={activeOnly}
+        onClick={() => handleActiveOnlyChange(!activeOnly)}
+      >
+        Active only
+      </button>
       <button
         type="button"
         aria-pressed={selectedDAG === 'demo.yaml'}
@@ -330,6 +341,7 @@ function makeWorkflowView(overrides: Partial<View> = {}): View {
     workspaceScope: ViewWorkspaceScope.all,
     labels: ['env=prod'],
     dagName: 'deploy',
+    activeOnly: false,
     intervalDays: 1,
     sortField: ViewSortField.name,
     sortOrder: ViewSortOrder.asc,
@@ -363,6 +375,7 @@ describe('DagsPage', () => {
         workspaceScope: spec.workspaceScope,
         labels: spec.labels,
         dagName: spec.dagName,
+        activeOnly: spec.activeOnly,
         sortField: spec.sortField,
         sortOrder: spec.sortOrder,
         isDefault: spec.isDefault,
@@ -386,6 +399,7 @@ describe('DagsPage', () => {
         workspaceScope: spec.workspaceScope,
         labels: spec.labels,
         dagName: spec.dagName,
+        activeOnly: spec.activeOnly,
         sortField: spec.sortField,
         sortOrder: spec.sortOrder,
         isDefault: spec.isDefault,
@@ -541,7 +555,7 @@ describe('DagsPage', () => {
   });
 
   it('uses bookmarked workflow filters for the first workflow request', () => {
-    sharedWorkflowViewState.views.push(makeWorkflowView());
+    sharedWorkflowViewState.views.push(makeWorkflowView({ activeOnly: true }));
 
     renderPage(vi.fn(), '/dags?view=production');
 
@@ -554,12 +568,35 @@ describe('DagsPage', () => {
           query: expect.objectContaining({
             name: 'deploy',
             labels: 'env=prod',
+            active: true,
           }),
         },
       })
     );
     expect(screen.getByTestId('active-workflow-view')).toHaveTextContent(
       'production'
+    );
+  });
+
+  it('applies the active workflow filter immediately', () => {
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Active only' }));
+
+    const latestWorkflowRequest = [...calls]
+      .reverse()
+      .find((call) => call.path === '/dags' && call.init !== null);
+    expect(latestWorkflowRequest?.init).toEqual(
+      expect.objectContaining({
+        params: {
+          query: expect.objectContaining({
+            active: true,
+          }),
+        },
+      })
+    );
+    expect(screen.getByTestId('location-search')).toHaveTextContent(
+      '?active=true&sort=name&order=asc'
     );
   });
 
@@ -622,12 +659,15 @@ describe('DagsPage', () => {
         id: 'created-view',
         dagName: 'deploy',
         labels: [],
+        activeOnly: true,
         isDefault: true,
       });
       sharedWorkflowViewState.views = [created];
       return created;
     });
     renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Active only' }));
 
     fireEvent.change(screen.getByRole('textbox', { name: 'Search DAGs' }), {
       target: { value: ' deploy ' },
@@ -645,6 +685,7 @@ describe('DagsPage', () => {
       workspaceScope: ViewWorkspaceScope.all,
       labels: [],
       dagName: ' deploy ',
+      activeOnly: true,
       intervalDays: 1,
       pinned: false,
       sortField: ViewSortField.name,
