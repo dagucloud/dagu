@@ -171,6 +171,11 @@ func TestAgent_SubDAGSchedulerLogContext(t *testing.T) {
 		if _, ok := record["attempt-id"]; ok {
 			attemptCount++
 		}
+		if _, ok := record["step"]; ok {
+			for _, key := range []string{"dag", "run-id", "attempt-id", "worker-id", "trace-id", "span-id", "trace-flags", "root", "parent"} {
+				require.NotContains(t, record, key)
+			}
+		}
 		switch record["msg"] {
 		case "DAG run started":
 			boundary = record
@@ -181,9 +186,6 @@ func TestAgent_SubDAGSchedulerLogContext(t *testing.T) {
 	require.Equal(t, attemptID, boundary["attempt-id"])
 	require.Equal(t, 1, attemptCount)
 	require.Equal(t, "collect_metrics", step["step"])
-	for _, key := range []string{"dag", "run-id", "attempt-id", "worker-id", "trace-id", "span-id", "trace-flags", "root", "parent"} {
-		require.NotContains(t, step, key)
-	}
 }
 
 type schedulerLogCapture struct {
