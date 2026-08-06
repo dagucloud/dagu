@@ -1050,10 +1050,14 @@ func (a *API) GetDAGRunOutputs(ctx context.Context, request api.GetDAGRunOutputs
 
 	outputs, err := attempt.ReadOutputs(ctx)
 	if err != nil {
+		resolvedRunID := request.DagRunId
+		if status, statusErr := attempt.ReadStatus(ctx); statusErr == nil && status != nil && status.DAGRunID != "" {
+			resolvedRunID = status.DAGRunID
+		}
 		logger.Error(ctx, "Failed to read outputs",
 			tag.Error(err),
 			tag.DAG(request.Name),
-			tag.RunID(request.DagRunId),
+			tag.RunID(resolvedRunID),
 		)
 		return nil, fmt.Errorf("error reading outputs: %w", err)
 	}

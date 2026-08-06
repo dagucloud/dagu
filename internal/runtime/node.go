@@ -1156,7 +1156,6 @@ func (n *Node) SetupEnv(ctx context.Context) context.Context {
 	).WithEntry(
 		exec.EnvKeyDAGRunStepStderrFile, n.GetStderr(), cmnvalue.EnvSourceStepEnv,
 	)
-	ctx = logger.WithValues(ctx, tag.Step(n.Name()))
 	return WithEnv(ctx, env)
 }
 

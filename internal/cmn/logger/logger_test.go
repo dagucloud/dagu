@@ -308,6 +308,8 @@ func TestLogger_RunWriterOmitsAmbientRunContext(t *testing.T) {
 		slog.String("trace-id", "trace-1"),
 		slog.String("span-id", "span-1"),
 		slog.String("trace-flags", "01"),
+		slog.String("root", "root-run"),
+		slog.String("parent", "parent-run"),
 	}
 	runContext := append([]slog.Attr{}, baseContext...)
 	runContext = append(runContext, slog.String("attempt-id", "attempt-1"))
@@ -325,7 +327,7 @@ func TestLogger_RunWriterOmitsAmbientRunContext(t *testing.T) {
 	if len(runLines) != 2 {
 		t.Fatalf("expected 2 run log lines, got %d: %s", len(runLines), runOutput.String())
 	}
-	for _, key := range []string{"dag=", "run-id=", "attempt-id=", "worker-id=", "trace-id=", "span-id=", "trace-flags="} {
+	for _, key := range []string{"dag=", "run-id=", "attempt-id=", "worker-id=", "trace-id=", "span-id=", "trace-flags=", "root=", "parent="} {
 		if strings.Contains(runLines[0], key) {
 			t.Errorf("step log contains ambient %s: %s", key, runLines[0])
 		}
@@ -344,7 +346,7 @@ func TestLogger_RunWriterOmitsAmbientRunContext(t *testing.T) {
 		WithQuiet(),
 	)
 	centralLogger.With(runContext...).Info("Step started", slog.String("step", "collect_metrics"))
-	for _, key := range []string{"dag=daily-report", "run-id=run-1", "attempt-id=attempt-1", "worker-id=worker-1", "trace-id=trace-1", "span-id=span-1", "trace-flags=01"} {
+	for _, key := range []string{"dag=daily-report", "run-id=run-1", "attempt-id=attempt-1", "worker-id=worker-1", "trace-id=trace-1", "span-id=span-1", "trace-flags=01", "root=root-run", "parent=parent-run"} {
 		if !strings.Contains(centralOutput.String(), key) {
 			t.Errorf("central log is missing %s: %s", key, centralOutput.String())
 		}

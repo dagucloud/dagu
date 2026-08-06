@@ -21,11 +21,9 @@ import { useQuery } from '../../../../hooks/api';
 import { whenEnabled } from '../../../../hooks/queryUtils';
 import { useDAGRunLogsSSE } from '../../../../hooks/useDAGRunLogsSSE';
 import { AnsiLine } from '@/lib/ansi';
-import {
-  parseSchedulerLogLine,
-  type SchedulerLogLine,
-} from '@/lib/scheduler-log';
+import { parseSchedulerLogLine } from '@/lib/scheduler-log';
 import LoadingIndicator from '@/components/ui/loading-indicator';
+import { ActivityLine } from './ActivityLine';
 
 // Extended Log type with pagination fields
 interface LogWithPagination {
@@ -38,69 +36,6 @@ interface LogWithPagination {
 
 function calculateTotalPages(totalLines: number, pageSize: number): number {
   return Math.ceil(totalLines / pageSize);
-}
-
-function shortTimestamp(timestamp?: string): string {
-  return timestamp?.match(/T(\d{2}:\d{2}:\d{2}(?:\.\d{3})?)/)?.[1] || '';
-}
-
-function levelClass(level?: string): string {
-  switch (level) {
-    case 'ERROR':
-      return 'bg-error/10 text-error';
-    case 'WARN':
-      return 'bg-warning/10 text-warning';
-    default:
-      return 'bg-muted text-muted-foreground';
-  }
-}
-
-function ActivityLine({ line }: { line: SchedulerLogLine }) {
-  if (!line.structured) {
-    return (
-      <div className="border-b border-border px-3 py-2 font-mono text-sm last:border-b-0">
-        <AnsiLine text={line.message} />
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex items-start gap-3 border-b border-border px-3 py-2 last:border-b-0">
-      <time
-        className="w-[5.5rem] shrink-0 pt-0.5 font-mono text-xs text-muted-foreground"
-        title={line.timestamp}
-      >
-        {shortTimestamp(line.timestamp)}
-      </time>
-      <span
-        className={`w-12 shrink-0 rounded px-1.5 py-0.5 text-center text-[10px] font-semibold ${levelClass(line.level)}`}
-      >
-        {line.level}
-      </span>
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-baseline gap-2">
-          <span className="font-medium text-foreground">
-            <AnsiLine text={line.message} />
-          </span>
-          {line.step && (
-            <span className="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-xs text-primary">
-              {line.step}
-            </span>
-          )}
-        </div>
-        {line.details && (
-          <details className="mt-1 text-xs text-muted-foreground">
-            <summary className="w-fit cursor-pointer select-none">
-              Details
-            </summary>
-            <code className="mt-1 block whitespace-pre-wrap break-words font-mono">
-              {line.details}
-            </code>
-          </details>
-        )}
-      </div>
-    </div>
-  );
 }
 
 /**
@@ -636,7 +571,11 @@ function ExecutionLog({ name, dagRunId, dagRun }: Props) {
         {displayMode === 'activity' ? (
           <div>
             {activityLines.map((line, index) => (
-              <ActivityLine key={index} line={line} />
+              <ActivityLine
+                key={index}
+                line={line}
+                lineNumber={getLineNumber(index)}
+              />
             ))}
           </div>
         ) : (

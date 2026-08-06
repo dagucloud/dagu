@@ -149,7 +149,7 @@ func NewLogger(opts ...Option) Logger {
 
 func isRunContext(key string) bool {
 	switch key {
-	case "dag", "run-id", "attempt-id", "worker-id", "trace-id", "span-id", "trace-flags":
+	case "dag", "run-id", "attempt-id", "worker-id", "trace-id", "span-id", "trace-flags", "root", "parent":
 		return true
 	default:
 		return false
