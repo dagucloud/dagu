@@ -12,7 +12,6 @@ import DocEditor from '../DocEditor';
 const testState = vi.hoisted(() => ({
   doc: {
     content: 'server content',
-    filePath: '/docs/runbook.md',
     title: 'Runbook',
   },
   mutate: vi.fn(),
@@ -104,7 +103,6 @@ describe('DocEditor draft persistence', () => {
     localStorage.clear();
     testState.doc = {
       content: 'server content',
-      filePath: '/docs/runbook.md',
       title: 'Runbook',
     };
     testState.mutate.mockReset();

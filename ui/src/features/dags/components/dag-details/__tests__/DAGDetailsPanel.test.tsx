@@ -107,7 +107,6 @@ describe('DAGDetailsPanel', () => {
         return {
           data: {
             dag: { name: 'example-dag' },
-            filePath: '/tmp/example.yaml',
             latestDAGRun: undefined,
             localDags: [],
             editorHints: {
@@ -148,7 +147,6 @@ describe('DAGDetailsPanel', () => {
         return {
           data: {
             dag: { name: 'example-dag' },
-            filePath: '/tmp/example.yaml',
             latestDAGRun: undefined,
             localDags: [],
           },
@@ -180,7 +178,6 @@ describe('DAGDetailsPanel', () => {
   it('tracks a just-started DAG-run and reads its exact live status', async () => {
     const dagData = {
       dag: { name: 'example-dag' },
-      filePath: '/tmp/example.yaml',
       latestDAGRun: undefined,
       localDags: [],
     };

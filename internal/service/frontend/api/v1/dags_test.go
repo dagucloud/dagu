@@ -926,10 +926,6 @@ steps:
 	resp.Unmarshal(t, &details)
 	require.NotNil(t, details.Dag)
 	assert.Equal(t, "nested-effective-name", details.Dag.Name)
-	require.NotNil(t, details.FilePath)
-	expectedPath, err := filepath.EvalSymlinks(filepath.Join(nestedDir, "nested-file.yaml"))
-	require.NoError(t, err)
-	assert.Equal(t, expectedPath, *details.FilePath)
 
 	resp = server.Client().Post("/api/v1/dags/nested-file/start", api.ExecuteDAGJSONRequestBody{}).
 		ExpectStatus(http.StatusOK).Send(t)
@@ -1252,10 +1248,6 @@ func TestGetDAGDetails_InvalidYAML_Returns200WithErrors(t *testing.T) {
 
 	// Should contain build errors describing the YAML parse failure
 	require.NotEmpty(t, resp.Errors, "expected build errors for invalid YAML")
-
-	// File path should still be set
-	require.NotNil(t, resp.FilePath)
-	require.NotEmpty(t, *resp.FilePath)
 }
 
 func TestUpdateDAGSpec_AllowsLegacyDefinitionRuntimeVariableInput(t *testing.T) {

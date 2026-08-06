@@ -284,16 +284,17 @@ function DocEditor({
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  const [copiedPath, setCopiedPath] = useState(false);
+  const [copiedName, setCopiedName] = useState(false);
   const [copiedContent, setCopiedContent] = useState(false);
 
-  const copyFilePath = useCallback(async () => {
-    const filePath = doc?.filePath;
-    if (!filePath) return;
-    await copyTextToClipboard(filePath);
-    setCopiedPath(true);
-    setTimeout(() => setCopiedPath(false), 2000);
-  }, [doc?.filePath]);
+  const title = doc?.title || docPath.split('/').pop() || docPath;
+
+  const copyName = useCallback(async () => {
+    if (!title) return;
+    await copyTextToClipboard(title);
+    setCopiedName(true);
+    setTimeout(() => setCopiedName(false), 2000);
+  }, [title]);
 
   const copyContent = useCallback(async () => {
     const text = currentValue ?? '';
@@ -302,8 +303,6 @@ function DocEditor({
     setCopiedContent(true);
     setTimeout(() => setCopiedContent(false), 2000);
   }, [currentValue]);
-
-  const title = doc?.title || docPath.split('/').pop() || docPath;
 
   return (
     <div className="flex flex-col h-full">
@@ -315,15 +314,15 @@ function DocEditor({
           <span className="h-1.5 w-1.5 rounded-full bg-amber-500 shrink-0" />
         )}
 
-        {doc?.filePath && (
+        {title && (
           <button
             type="button"
-            onClick={copyFilePath}
+            onClick={copyName}
             className="inline-flex items-center gap-1 px-1.5 py-0.5 text-xs rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-all shrink-0"
-            title={`Copy file path: ${doc.filePath}`}
-            aria-label="Copy file path"
+            title={`Copy name: ${title}`}
+            aria-label="Copy name"
           >
-            {copiedPath ? (
+            {copiedName ? (
               <Check className="h-3.5 w-3.5 text-green-500" />
             ) : (
               <Copy className="h-3.5 w-3.5" />

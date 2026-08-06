@@ -4340,8 +4340,6 @@ export interface components {
         DAGFile: {
             /** @description File ID of the DAG file */
             fileName: string;
-            /** @description Absolute file path of the DAG file on disk */
-            filePath?: string;
             dag: components["schemas"]["DAG"];
             latestDAGRun: components["schemas"]["DAGRunSummary"];
             /**
@@ -5180,8 +5178,6 @@ export interface components {
             workspace?: string;
             /** @description Full file content including YAML frontmatter */
             content: string;
-            /** @description Absolute file path of the document on disk */
-            filePath?: string;
             /**
              * Format: date-time
              * @description RFC3339 timestamp when the document was created
@@ -7509,8 +7505,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        /** @description Absolute file path of the DAG file on disk */
-                        filePath?: string;
                         dag?: components["schemas"]["DAGDetails"];
                         /** @description List of local DAGs that are part of this DAG */
                         localDags: components["schemas"]["LocalDag"][];

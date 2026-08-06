@@ -281,7 +281,6 @@ function DAGDetailsPanel({
               <div className={contentClassName}>
                 <DAGDetailsContent
                   fileName={fileName}
-                  filePath={data.filePath}
                   dag={data.dag}
                   currentDAGRun={displayDAGRun}
                   refreshFn={refreshFn}

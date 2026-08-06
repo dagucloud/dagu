@@ -26,7 +26,6 @@ import DAGDetailsContent from './DAGDetailsContent';
 
 type DAGDetailsResponse = {
   dag?: components['schemas']['DAGDetails'];
-  filePath?: string;
   latestDAGRun?: components['schemas']['DAGRunDetails'];
   localDags?: components['schemas']['LocalDag'][];
 };
@@ -418,7 +417,6 @@ function DAGDetailsSidePanel({
                   {loadState.state === 'ready' && data?.dag && (
                     <DAGDetailsContent
                       fileName={stableFileName}
-                      filePath={data.filePath}
                       dag={data.dag}
                       currentDAGRun={currentDAGRun}
                       dagRunId={trackedDagRunId ?? 'latest'}

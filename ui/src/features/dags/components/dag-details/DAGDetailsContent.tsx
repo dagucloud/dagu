@@ -35,7 +35,6 @@ import WebhookTab from './WebhookTab';
 
 type DAGDetailsContentProps = {
   fileName: string;
-  filePath?: string;
   dag: components['schemas']['DAGDetails'];
   currentDAGRun?: components['schemas']['DAGRunDetails'];
   refreshFn: () => void;
@@ -73,7 +72,6 @@ type LogViewerState = {
 
 const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
   fileName,
-  filePath,
   dag,
   currentDAGRun,
   refreshFn,
@@ -157,7 +155,6 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
             dag={dag}
             currentDAGRun={currentDAGRun}
             fileName={fileName || ''}
-            filePath={filePath}
             refreshFn={refreshFn}
             formatDuration={formatDuration}
             navigateToStatusTab={navigateToStatusTab}

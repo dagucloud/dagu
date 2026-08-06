@@ -504,7 +504,6 @@ func (a *API) getDAGDetailsData(ctx context.Context, fileName string) (api.GetDA
 	})
 
 	return api.GetDAGDetails200JSONResponse{
-		FilePath:     ptrOf(dag.Location),
 		Dag:          details,
 		LatestDAGRun: ToDAGRunDetails(dagStatus),
 		Suspended:    a.dagStore.IsSuspended(ctx, fileName),
@@ -2022,7 +2021,6 @@ func (a *API) listDAGsData(ctx context.Context, listOpts exec.ListDAGsOptions) (
 
 		dagFile := api.DAGFile{
 			FileName:     item.FileName(),
-			FilePath:     ptrOf(item.Location),
 			LatestDAGRun: toDAGRunSummary(dagStatus),
 			Suspended:    a.dagStore.IsSuspended(ctx, item.FileName()),
 			Dag:          toDAG(item),

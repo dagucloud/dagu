@@ -214,7 +214,6 @@ describe('DAGDetailsSidePanel', () => {
         return {
           data: {
             dag: { name: 'example-dag' },
-            filePath: '/tmp/example.yaml',
             latestDAGRun: undefined,
             localDags: [],
           },
@@ -243,7 +242,6 @@ describe('DAGDetailsSidePanel', () => {
         return {
           data: {
             dag: { name: 'example-dag' },
-            filePath: '/tmp/example.yaml',
             latestDAGRun: undefined,
             localDags: [],
             editorHints: {
@@ -276,7 +274,6 @@ describe('DAGDetailsSidePanel', () => {
         return {
           data: {
             dag: { name: 'example-dag' },
-            filePath: '/tmp/example.yaml',
             latestDAGRun: undefined,
             localDags: [],
           },

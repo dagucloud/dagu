@@ -330,7 +330,6 @@ function DAGDetails() {
                     dag={dagData.dag}
                     currentDAGRun={displayDAGRun}
                     fileName={fileName}
-                    filePath={dagData.filePath}
                     refreshFn={refreshData}
                     formatDuration={formatDuration}
                     navigateToStatusTab={navigateToStatusTab}
@@ -339,7 +338,6 @@ function DAGDetails() {
                   <div className="min-h-0 flex-1">
                     <DAGDetailsContent
                       fileName={fileName}
-                      filePath={dagData.filePath}
                       dag={dagData.dag}
                       currentDAGRun={displayDAGRun}
                       refreshFn={refreshData}

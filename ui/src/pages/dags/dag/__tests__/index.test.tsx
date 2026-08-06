@@ -55,7 +55,6 @@ const dagData = {
     name: 'release-notes',
     artifacts: { enabled: true },
   },
-  filePath: '/tmp/release-notes.yaml',
   latestDAGRun: {
     name: 'release-notes',
     dagRunId: 'run-1',
