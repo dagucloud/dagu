@@ -14,11 +14,11 @@ import (
 	"github.com/go-viper/mapstructure/v2"
 )
 
-// BuildContext is the context for building a DAG.
-type BuildContext struct {
+// buildContext is the context for building a DAG.
+type buildContext struct {
 	ctx   context.Context
 	file  string
-	opts  BuildOpts
+	opts  buildOpts
 	index int
 
 	customStepTypes *customStepTypeRegistry
@@ -49,7 +49,7 @@ type BuildContext struct {
 }
 
 // envScopeState holds mutable state that needs to be shared across transformers.
-// Using a pointer allows value-passed BuildContext to share state.
+// Using a pointer allows value-passed buildContext to share state.
 type envScopeState struct {
 	scope             *cmnvalue.EnvScope
 	buildEnv          map[string]string // Also store as map for WithVariables
@@ -65,48 +65,46 @@ type paramsState struct {
 	err    error
 }
 
-// StepBuildContext is the context for building a step.
-type StepBuildContext struct {
-	BuildContext
+// stepBuildContext is the context for building a step.
+type stepBuildContext struct {
+	buildContext
 	dag *core.DAG
 }
 
-func (c BuildContext) WithOpts(opts BuildOpts) BuildContext {
+func (c buildContext) WithOpts(opts buildOpts) buildContext {
 	copy := c
 	copy.opts = opts
 	copy.paramsState = nil
 	return copy
 }
 
-func (c BuildContext) WithFile(file string) BuildContext {
+func (c buildContext) WithFile(file string) buildContext {
 	copy := c
 	copy.file = file
 	return copy
 }
 
-func (c BuildContext) WithCustomStepTypes(registry *customStepTypeRegistry) BuildContext {
+func (c buildContext) WithCustomStepTypes(registry *customStepTypeRegistry) buildContext {
 	copy := c
 	copy.customStepTypes = registry
 	return copy
 }
 
-// BuildFlag represents a bitmask option that influences DAG building behaviour.
-type BuildFlag uint32
+// buildFlag represents a bitmask option that influences DAG building behaviour.
+type buildFlag uint32
 
 const (
-	BuildFlagNone BuildFlag = 0
-
-	BuildFlagNoEval BuildFlag = 1 << iota
-	BuildFlagOnlyMetadata
-	BuildFlagAllowBuildErrors
-	BuildFlagSkipSchemaValidation
-	BuildFlagSkipBaseHandlers // Skip merging handlerOn from base config (for sub-DAG runs)
-	BuildFlagValidateRuntimeParams
-	BuildFlagDeferWorkerSelector
+	buildFlagNoEval buildFlag = 1 << iota
+	buildFlagOnlyMetadata
+	buildFlagAllowBuildErrors
+	buildFlagSkipSchemaValidation
+	buildFlagSkipBaseHandlers // Skip merging handlerOn from base config (for sub-DAG runs)
+	buildFlagValidateRuntimeParams
+	buildFlagDeferWorkerSelector
 )
 
-// BuildOpts is used to control the behavior of the builder.
-type BuildOpts struct {
+// buildOpts is used to control the behavior of the builder.
+type buildOpts struct {
 	// Base specifies the Base configuration file for the DAG.
 	Base string
 	// BaseConfigContent is the raw base config YAML content.
@@ -130,7 +128,7 @@ type BuildOpts struct {
 	// against the file the author wrote rather than the copy.
 	SourceFile string
 	// Flags stores all boolean options controlling build behaviour.
-	Flags BuildFlag
+	Flags buildFlag
 	// BuildEnv provides pre-populated environment variables for the build.
 	// These are added to envScope before building, allowing YAML to reference
 	// them via ${VAR}. Used for retry/restart where dotenv values need to be
@@ -138,13 +136,13 @@ type BuildOpts struct {
 	BuildEnv map[string]string
 }
 
-// Has reports whether the flag is enabled on the current BuildOpts.
-func (o BuildOpts) Has(flag BuildFlag) bool {
+// Has reports whether the flag is enabled on the current buildOpts.
+func (o buildOpts) Has(flag buildFlag) bool {
 	return o.Flags&flag != 0
 }
 
 // parsePrecondition parses the precondition field.
-func parsePrecondition(ctx BuildContext, precondition any) ([]*core.Condition, error) {
+func parsePrecondition(ctx buildContext, precondition any) ([]*core.Condition, error) {
 	switch v := precondition.(type) {
 	case nil:
 		return nil, nil
@@ -168,7 +166,7 @@ func parsePrecondition(ctx BuildContext, precondition any) ([]*core.Condition, e
 	}
 }
 
-func parsePreconditionEntry(_ BuildContext, precondition any) ([]*core.Condition, error) {
+func parsePreconditionEntry(_ buildContext, precondition any) ([]*core.Condition, error) {
 	switch v := precondition.(type) {
 	case string:
 		if strings.TrimSpace(v) == "" {
@@ -279,7 +277,7 @@ var reservedSecretEnvNames = []string{
 }
 
 // parseSecretRefs parses secret references from the YAML definition.
-func parseSecretRefs(ctx BuildContext, d *dag) ([]core.SecretRef, error) {
+func parseSecretRefs(ctx buildContext, d *dag) ([]core.SecretRef, error) {
 	secretRefs := d.Secrets
 
 	// Convert secretRef to core.SecretRef and validate
@@ -382,7 +380,7 @@ func generateTypedStepName(existingNames map[string]struct{}, step *core.Step, i
 }
 
 // normalizedStepData converts string to map[string]any for subsequent process
-func normalizeStepData(ctx BuildContext, data []any) []any {
+func normalizeStepData(ctx buildContext, data []any) []any {
 	// Convert string steps to map format for shorthand syntax support
 	normalized := make([]any, len(data))
 	for i, item := range data {
@@ -402,7 +400,7 @@ func normalizeStepData(ctx BuildContext, data []any) []any {
 // DAG-level harness: block used to allow. That spelling is indistinguishable
 // from a local command once normalized, so it is refused with the two spellings
 // that say which one was meant.
-func validateHarnessPromptCommand(ctx StepBuildContext, raw map[string]any) error {
+func validateHarnessPromptCommand(ctx stepBuildContext, raw map[string]any) error {
 	if raw == nil || ctx.dag == nil || ctx.dag.Harness == nil {
 		return nil
 	}
@@ -439,7 +437,7 @@ func decodeStep(raw map[string]any) (*step, error) {
 		ErrorUnused: true,
 		Result:      &st,
 		TagName:     "yaml",
-		DecodeHook:  TypedUnionDecodeHook(),
+		DecodeHook:  typedUnionDecodeHook(),
 	})
 	if err := md.Decode(raw); err != nil {
 		return nil, core.NewValidationError("steps", raw, withSnakeCaseKeyHint(err))
@@ -463,12 +461,12 @@ func finalizeBuiltStepName(names map[string]struct{}, builtStep *core.Step, idx 
 	names[builtStep.Name] = struct{}{}
 }
 
-func buildConcreteStep(ctx StepBuildContext, s *step) (*core.Step, error) {
+func buildConcreteStep(ctx stepBuildContext, s *step) (*core.Step, error) {
 	return s.build(ctx)
 }
 
 // buildStepFromRaw build core.Step from give raw data (map[string]any)
-func buildStepFromRaw(ctx StepBuildContext, idx int, raw map[string]any, names map[string]struct{}, defs *defaults) (*core.Step, error) {
+func buildStepFromRaw(ctx stepBuildContext, idx int, raw map[string]any, names map[string]struct{}, defs *defaults) (*core.Step, error) {
 	if err := validateHarnessPromptCommand(ctx, raw); err != nil {
 		return nil, err
 	}
@@ -488,7 +486,7 @@ func buildStepFromRaw(ctx StepBuildContext, idx int, raw map[string]any, names m
 }
 
 func buildStepFromSpec(
-	ctx StepBuildContext,
+	ctx stepBuildContext,
 	idx int,
 	st *step,
 	raw map[string]any,

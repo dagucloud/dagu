@@ -12,8 +12,8 @@ import (
 )
 
 func TestBuildLLM_Validation(t *testing.T) {
-	ctx := BuildContext{
-		opts: BuildOpts{},
+	ctx := buildContext{
+		opts: buildOpts{},
 	}
 
 	tests := []struct {

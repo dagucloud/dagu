@@ -35,7 +35,7 @@ func decodeDefaults(raw any) (*defaults, error) {
 		ErrorUnused: true,
 		Result:      d,
 		TagName:     "yaml",
-		DecodeHook:  TypedUnionDecodeHook(),
+		DecodeHook:  typedUnionDecodeHook(),
 	})
 	if err != nil {
 		return nil, core.NewValidationError("defaults", raw, err)

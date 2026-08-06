@@ -586,7 +586,7 @@ func TestLoadBaseConfig(t *testing.T) {
 	t.Run("LoadBaseConfigFile", func(t *testing.T) {
 		t.Parallel()
 
-		testDAG := createTempYAMLFile(t, `env:
+		baseDAG := createTempYAMLFile(t, `env:
   LOG_DIR: "${HOME}/logs"
 log_dir: "${LOG_DIR}"
 smtp:
@@ -603,9 +603,26 @@ info_mail:
 mail_on:
   failure: true
 `)
-		dag, err := spec.LoadBaseConfig(spec.BuildContext{}, testDAG)
-		require.NotNil(t, dag)
+		childDAG := createTempYAMLFile(t, `
+steps:
+  - name: "step1"
+    run: echo "step1"
+`)
+
+		dag, err := spec.Load(context.Background(), childDAG, spec.WithBaseConfig(baseDAG))
 		require.NoError(t, err)
+		require.NotNil(t, dag)
+
+		require.NotNil(t, dag.SMTP)
+		assert.Equal(t, "smtp.host", dag.SMTP.Host)
+		assert.Equal(t, "25", dag.SMTP.Port)
+
+		require.NotNil(t, dag.ErrorMail)
+		assert.Equal(t, "error@mail.com", dag.ErrorMail.To[0])
+		assert.Equal(t, "[ERROR]", dag.ErrorMail.Prefix)
+
+		require.NotNil(t, dag.MailOn)
+		assert.True(t, dag.MailOn.Failure)
 	})
 	t.Run("InheritBaseConfig", func(t *testing.T) {
 		t.Parallel()
@@ -1296,7 +1313,7 @@ func TestLoadYAML(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			ret, err := spec.LoadYAMLWithOpts(context.Background(), []byte(tt.input), spec.BuildOpts{})
+			ret, err := spec.LoadYAML(context.Background(), []byte(tt.input))
 			if tt.wantErr {
 				require.Error(t, err)
 				return
@@ -1332,12 +1349,12 @@ func TestLoadYAMLWithOpts_MarksConfiguredWorkingDirExplicit(t *testing.T) {
 		t.Parallel()
 
 		workDir := t.TempDir()
-		dag, err := spec.LoadYAMLWithOpts(context.Background(), fmt.Appendf(nil, `
+		dag, err := spec.LoadYAML(context.Background(), fmt.Appendf(nil, `
 working_dir: %q
 steps:
   - name: step1
     run: echo hello
-`, workDir), spec.BuildOpts{})
+`, workDir))
 		require.NoError(t, err)
 		assert.Equal(t, workDir, dag.WorkingDir)
 		assert.True(t, dag.WorkingDirExplicit)
@@ -1347,13 +1364,11 @@ steps:
 		t.Parallel()
 
 		workDir := t.TempDir()
-		dag, err := spec.LoadYAMLWithOpts(context.Background(), []byte(`
+		dag, err := spec.LoadYAML(context.Background(), []byte(`
 steps:
   - name: step1
     run: echo hello
-`), spec.BuildOpts{
-			BaseConfigContent: fmt.Appendf(nil, "working_dir: %q", workDir),
-		})
+`), spec.WithBaseConfigContent(fmt.Appendf(nil, "working_dir: %q", workDir)))
 		require.NoError(t, err)
 		assert.Equal(t, workDir, dag.WorkingDir)
 		assert.True(t, dag.WorkingDirExplicit)
@@ -1363,13 +1378,11 @@ steps:
 		t.Parallel()
 
 		workDir := t.TempDir()
-		dag, err := spec.LoadYAMLWithOpts(context.Background(), []byte(`
+		dag, err := spec.LoadYAML(context.Background(), []byte(`
 steps:
   - name: step1
     run: echo hello
-`), spec.BuildOpts{
-			DefaultWorkingDir: workDir,
-		})
+`), spec.WithDefaultWorkingDir(workDir))
 		require.NoError(t, err)
 		assert.Equal(t, workDir, dag.WorkingDir)
 		assert.True(t, dag.WorkingDirExplicit)
@@ -1382,12 +1395,12 @@ func TestLoadYAMLWithOpts_PreservesLegacyContract(t *testing.T) {
 	t.Run("DoesNotInitializeDefaults", func(t *testing.T) {
 		t.Parallel()
 
-		dag, err := spec.LoadYAMLWithOpts(context.Background(), []byte(`
+		dag, err := spec.LoadYAML(context.Background(), []byte(`
 name: test-dag
 steps:
   - name: step1
     run: echo hello
-`), spec.BuildOpts{})
+`))
 		require.NoError(t, err)
 		assert.Equal(t, core.LogOutputMode(""), dag.LogOutput)
 	})
@@ -1395,11 +1408,11 @@ steps:
 	t.Run("DoesNotSynthesizeWorkingDirWithoutContext", func(t *testing.T) {
 		t.Parallel()
 
-		dag, err := spec.LoadYAMLWithOpts(context.Background(), []byte(`
+		dag, err := spec.LoadYAML(context.Background(), []byte(`
 steps:
   - name: step1
     run: echo hello
-`), spec.BuildOpts{})
+`))
 		require.NoError(t, err)
 		assert.Empty(t, dag.WorkingDir)
 		assert.False(t, dag.WorkingDirExplicit)
@@ -1408,13 +1421,13 @@ steps:
 	t.Run("WithoutBaseConfigDefaultsTypeToGraph", func(t *testing.T) {
 		t.Parallel()
 
-		dag, err := spec.LoadYAMLWithOpts(context.Background(), []byte(`
+		dag, err := spec.LoadYAML(context.Background(), []byte(`
 steps:
   - name: step1
     run: echo one
   - name: step2
     run: echo two
-`), spec.BuildOpts{})
+`))
 		require.NoError(t, err)
 		assert.Equal(t, core.TypeGraph, dag.Type)
 		require.Len(t, dag.Steps, 2)
@@ -1492,9 +1505,7 @@ steps:
     run: "true"
 `
 
-	ret, err := spec.LoadYAMLWithOpts(context.Background(), []byte(testDAG), spec.BuildOpts{
-		Name: "testDAG",
-	})
+	ret, err := spec.LoadYAML(context.Background(), []byte(testDAG), spec.WithName("testDAG"))
 	require.NoError(t, err)
 	require.Equal(t, "testDAG", ret.Name)
 
@@ -1507,7 +1518,7 @@ steps:
 func TestLoadYAMLWithOpts_PreservesLocalDAGsFromMultiDocumentYAML(t *testing.T) {
 	t.Parallel()
 
-	dag, err := spec.LoadYAMLWithOpts(context.Background(), []byte(`
+	dag, err := spec.LoadYAML(context.Background(), []byte(`
 steps:
   - name: call-child
     action: dag.run
@@ -1519,7 +1530,7 @@ name: child-task
 steps:
   - name: work
     run: echo "child"
-`), spec.BuildOpts{Name: "parent-task"})
+`), spec.WithName("parent-task"))
 	require.NoError(t, err)
 
 	require.NotNil(t, dag.LocalDAGs)
@@ -1664,7 +1675,7 @@ func TestLoadYAMLWithOpts_TypeInheritanceInMultiDocumentYAML(t *testing.T) {
 		t.Parallel()
 
 		base := createTempYAMLFile(t, "type: graph\n")
-		dag, err := spec.LoadYAMLWithOpts(context.Background(), []byte(`
+		dag, err := spec.LoadYAML(context.Background(), []byte(`
 steps:
   - name: call-child
     action: dag.run
@@ -1680,7 +1691,7 @@ steps:
     run: echo child
   - name: finish
     run: echo done
-`), spec.BuildOpts{Name: "parent-task", Base: base})
+`), spec.WithName("parent-task"), spec.WithBaseConfig(base))
 		require.NoError(t, err)
 
 		assert.Equal(t, core.TypeGraph, dag.Type)
@@ -1698,7 +1709,7 @@ steps:
 		t.Parallel()
 
 		base := createTempYAMLFile(t, "type: graph\n")
-		dag, err := spec.LoadYAMLWithOpts(context.Background(), []byte(`
+		dag, err := spec.LoadYAML(context.Background(), []byte(`
 steps:
   - name: call-child
     action: dag.run
@@ -1713,7 +1724,7 @@ steps:
     run: echo child
   - name: finish
     run: echo done
-`), spec.BuildOpts{Name: "parent-task", Base: base})
+`), spec.WithName("parent-task"), spec.WithBaseConfig(base))
 		require.NoError(t, err)
 
 		assert.Equal(t, core.TypeGraph, dag.Type)

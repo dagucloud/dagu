@@ -143,9 +143,9 @@ func TestParamPairSmartEscape(t *testing.T) {
 func TestParseStringParams(t *testing.T) {
 	t.Parallel()
 
-	ctx := BuildContext{
+	ctx := buildContext{
 		ctx:  context.Background(),
-		opts: BuildOpts{Flags: BuildFlagNoEval},
+		opts: buildOpts{Flags: buildFlagNoEval},
 	}
 
 	tests := []struct {
@@ -253,9 +253,9 @@ func TestParseStringParams(t *testing.T) {
 func TestParseStringParams_NoEval_Matrix(t *testing.T) {
 	t.Parallel()
 
-	ctx := BuildContext{
+	ctx := buildContext{
 		ctx:  context.Background(),
-		opts: BuildOpts{Flags: BuildFlagNoEval},
+		opts: buildOpts{Flags: buildFlagNoEval},
 	}
 
 	tests := []struct {
@@ -329,9 +329,9 @@ func TestParseStringParams_NoEval_Matrix(t *testing.T) {
 func TestParseStringParamsWithJSON(t *testing.T) {
 	t.Parallel()
 
-	ctx := BuildContext{
+	ctx := buildContext{
 		ctx:  context.Background(),
-		opts: BuildOpts{Flags: BuildFlagNoEval},
+		opts: buildOpts{Flags: buildFlagNoEval},
 	}
 
 	tests := []struct {
@@ -391,9 +391,9 @@ func TestParseStringParamsWithJSON(t *testing.T) {
 
 func TestParseStringParamsBackticksLiteral(t *testing.T) {
 	t.Run("BacktickValuesPreservedLiterally", func(t *testing.T) {
-		ctx := BuildContext{
+		ctx := buildContext{
 			ctx:  context.Background(),
-			opts: BuildOpts{},
+			opts: buildOpts{},
 		}
 
 		result, err := parseStringParams(ctx, "val=`echo hello`")
@@ -407,9 +407,9 @@ func TestParseStringParamsBackticksLiteral(t *testing.T) {
 func TestParseListParams(t *testing.T) {
 	t.Parallel()
 
-	ctx := BuildContext{
+	ctx := buildContext{
 		ctx:  context.Background(),
-		opts: BuildOpts{Flags: BuildFlagNoEval},
+		opts: buildOpts{Flags: buildFlagNoEval},
 	}
 
 	tests := []struct {
@@ -459,9 +459,9 @@ func TestParseListParams(t *testing.T) {
 func TestParseMapParams(t *testing.T) {
 	t.Parallel()
 
-	ctx := BuildContext{
+	ctx := buildContext{
 		ctx:  context.Background(),
-		opts: BuildOpts{Flags: BuildFlagNoEval},
+		opts: buildOpts{Flags: buildFlagNoEval},
 	}
 
 	t.Run("EmptySlice", func(t *testing.T) {
@@ -555,9 +555,9 @@ func TestParseMapParams(t *testing.T) {
 func TestParseParamValue(t *testing.T) {
 	t.Parallel()
 
-	ctx := BuildContext{
+	ctx := buildContext{
 		ctx:  context.Background(),
-		opts: BuildOpts{Flags: BuildFlagNoEval},
+		opts: buildOpts{Flags: buildFlagNoEval},
 	}
 
 	t.Run("Nil", func(t *testing.T) {
@@ -838,7 +838,7 @@ func TestMultilineParamRoundTrip(t *testing.T) {
 	t.Parallel()
 	pair := paramPair{Name: "MSG", Value: "line1\nline2"}
 	escaped := pair.Escaped() // MSG="line1\nline2" with \n escape
-	ctx := BuildContext{ctx: context.Background(), opts: BuildOpts{Flags: BuildFlagNoEval}}
+	ctx := buildContext{ctx: context.Background(), opts: buildOpts{Flags: buildFlagNoEval}}
 	result, err := parseStringParams(ctx, escaped)
 	require.NoError(t, err)
 	require.Len(t, result, 1)
@@ -850,9 +850,9 @@ func TestJSONParamsSkipBacktickSubstitution(t *testing.T) {
 	t.Parallel()
 
 	// JSON params from the UI should not execute backtick commands.
-	ctx := BuildContext{
+	ctx := buildContext{
 		ctx:  context.Background(),
-		opts: BuildOpts{},
+		opts: buildOpts{},
 	}
 
 	// Value containing backticks — should be treated as literal, not executed.

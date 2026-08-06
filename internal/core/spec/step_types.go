@@ -156,21 +156,6 @@ func isRegisteredExecutorTypeName(name string) bool {
 	return ok
 }
 
-// StepTypeNames returns the currently accepted builtin and runtime-registered
-// executor type names in sorted order. It excludes the implicit empty command
-// executor type; callers should mention omitted type handling separately.
-func StepTypeNames() []string {
-	stepTypeNamesMu.RLock()
-	defer stepTypeNamesMu.RUnlock()
-
-	names := make([]string, 0, len(builtinStepTypeNames))
-	for name := range builtinStepTypeNames {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
-}
-
 var customStepForbiddenCallSiteFields = map[string]struct{}{
 	"call":           {},
 	"command":        {},
@@ -924,6 +909,8 @@ func cloneMap(src map[string]any) map[string]any {
 	return dst
 }
 
+// cloneAny deep-copies the composite shapes a decoded manifest can hold.
+// Values of any other type are returned as-is.
 func cloneAny(value any) any {
 	switch typed := value.(type) {
 	case map[string]any:
@@ -934,13 +921,28 @@ func cloneAny(value any) any {
 			dst[i] = cloneAny(item)
 		}
 		return dst
+	case []string:
+		return slices.Clone(typed)
+	case []map[string]any:
+		return cloneMapSlice(typed)
 	default:
 		return typed
 	}
 }
 
+func cloneMapSlice(src []map[string]any) []map[string]any {
+	if src == nil {
+		return nil
+	}
+	dst := make([]map[string]any, len(src))
+	for i, item := range src {
+		dst[i] = cloneMap(item)
+	}
+	return dst
+}
+
 func buildCustomStepFromSpec(
-	ctx StepBuildContext,
+	ctx stepBuildContext,
 	callSite *step,
 	raw map[string]any,
 	defs *defaults,
@@ -951,7 +953,7 @@ func buildCustomStepFromSpec(
 }
 
 func buildCustomStepFromSpecWithStack(
-	ctx StepBuildContext,
+	ctx stepBuildContext,
 	callSite *step,
 	raw map[string]any,
 	defs *defaults,
@@ -1035,7 +1037,7 @@ func customStepStackContains(stack []string, name string) bool {
 }
 
 func buildExpandedCustomStep(
-	ctx StepBuildContext,
+	ctx stepBuildContext,
 	expandedSpec *step,
 	normalizedRaw map[string]any,
 	defs *defaults,

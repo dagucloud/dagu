@@ -122,7 +122,7 @@ func TestEnvParams(t *testing.T) {
 	paramTests := []struct {
 		name       string
 		yaml       string
-		opts       *spec.BuildOpts
+		opts       []spec.LoadOption
 		wantParams []string
 	}{
 		{
@@ -157,7 +157,7 @@ params:
   - BAR: bar
   - BAZ: "` + "`echo baz`" + `"
 `,
-			opts:       &spec.BuildOpts{Parameters: "FOO=X BAZ=Y"},
+			opts:       []spec.LoadOption{spec.WithParams("FOO=X BAZ=Y")},
 			wantParams: []string{"FOO=X", "BAR=bar", "BAZ=Y"},
 		},
 		{
@@ -191,7 +191,7 @@ params:
   - BASE: ${SOURCE_ID}
   - PREFIX: ${BASE:0:5}
 `,
-			opts:       &spec.BuildOpts{Flags: spec.BuildFlagNoEval},
+			opts:       []spec.LoadOption{spec.WithoutEval()},
 			wantParams: []string{"BASE=${SOURCE_ID}", "PREFIX=${BASE:0:5}"},
 		},
 	}
@@ -199,13 +199,7 @@ params:
 	for _, tt := range paramTests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			var dag *core.DAG
-			var err error
-			if tt.opts != nil {
-				dag, err = spec.LoadYAMLWithOpts(context.Background(), []byte(tt.yaml), *tt.opts)
-			} else {
-				dag, err = spec.LoadYAML(context.Background(), []byte(tt.yaml))
-			}
+			dag, err := spec.LoadYAML(context.Background(), []byte(tt.yaml), tt.opts...)
 			require.NoError(t, err)
 			th := DAG{t: t, DAG: dag}
 			th.AssertParam(t, tt.wantParams...)
@@ -517,8 +511,9 @@ steps:
 	}
 }
 
-func TestBuildStep(t *testing.T) {
+func TestBuildStepCommandsAndExecutors(t *testing.T) {
 	t.Parallel()
+
 	t.Run("ValidCommand", func(t *testing.T) {
 		t.Parallel()
 
@@ -685,6 +680,11 @@ steps:
 		assert.Equal(t, "param1=\"value1\" param2=\"value2\"", th.Steps[0].SubDAG.Params)
 		assert.Empty(t, dag.BuildWarnings)
 	})
+}
+
+func TestBuildStepContinueOn(t *testing.T) {
+	t.Parallel()
+
 	// ContinueOn success cases
 	continueOnTests := []struct {
 		name            string
@@ -823,6 +823,11 @@ steps:
 			}
 		})
 	}
+}
+
+func TestBuildStepRetryPolicy(t *testing.T) {
+	t.Parallel()
+
 	// RetryPolicy success tests
 	retryPolicyTests := []struct {
 		name            string
@@ -950,6 +955,11 @@ steps:
 			assert.Contains(t, err.Error(), tt.errContains)
 		})
 	}
+}
+
+func TestBuildStepRepeatPolicy(t *testing.T) {
+	t.Parallel()
+
 	// RepeatPolicy success tests
 	repeatPolicyTests := []struct {
 		name            string
@@ -1182,107 +1192,6 @@ steps:
 			}
 		})
 	}
-	t.Run("SignalOnStop", func(t *testing.T) {
-		t.Parallel()
-
-		data := []byte(`
-steps:
-  - run: echo 1
-    name: step1
-    signal_on_stop: SIGINT
-`)
-		dag, err := spec.LoadYAML(context.Background(), data)
-		require.NoError(t, err)
-		th := DAG{t: t, DAG: dag}
-		assert.Len(t, th.Steps, 1)
-		assert.Equal(t, "SIGINT", th.Steps[0].SignalOnStop)
-	})
-	t.Run("StepWithID", func(t *testing.T) {
-		t.Parallel()
-
-		data := []byte(`
-steps:
-  - name: step1
-    id: unique_step_1
-    run: echo "Step with ID"
-  - name: step2
-    run: echo "Step without ID"
-  - name: step3
-    id: custom_id_123
-    run: echo "Another step with ID"
-`)
-		dag, err := spec.LoadYAML(context.Background(), data)
-		require.NoError(t, err)
-		th := DAG{t: t, DAG: dag}
-		assert.Len(t, th.Steps, 3)
-
-		// First step has ID
-		assert.Equal(t, "step1", th.Steps[0].Name)
-		assert.Equal(t, "unique_step_1", th.Steps[0].ID)
-
-		// Second step has no ID
-		assert.Equal(t, "step2", th.Steps[1].Name)
-		assert.Equal(t, "", th.Steps[1].ID)
-
-		// Third step has ID
-		assert.Equal(t, "step3", th.Steps[2].Name)
-		assert.Equal(t, "custom_id_123", th.Steps[2].ID)
-	})
-	t.Run("Preconditions", func(t *testing.T) {
-		t.Parallel()
-
-		data := []byte(`
-steps:
-  - name: "2"
-    run: "echo 2"
-    preconditions:
-      - condition: "test -f file.txt"
-        expected: "true"
-`)
-		dag, err := spec.LoadYAML(context.Background(), data)
-		require.NoError(t, err)
-		th := DAG{t: t, DAG: dag}
-		assert.Len(t, th.Steps, 1)
-		assert.Len(t, th.Steps[0].Preconditions, 1)
-		assert.Equal(t, &core.Condition{Condition: "test -f file.txt", Expected: "true"}, th.Steps[0].Preconditions[0])
-	})
-	t.Run("PreconditionEval", func(t *testing.T) {
-		t.Parallel()
-
-		data := []byte(`
-steps:
-  - name: "eval_gate"
-    run: "echo eval"
-    preconditions:
-      - eval: "$(printf ready)"
-        expected: "ready"
-`)
-		dag, err := spec.LoadYAML(context.Background(), data)
-		require.NoError(t, err)
-		th := DAG{t: t, DAG: dag}
-		assert.Len(t, th.Steps, 1)
-		assert.Len(t, th.Steps[0].Preconditions, 1)
-		assert.Equal(t, &core.Condition{Eval: "$(printf ready)", Expected: "ready"}, th.Steps[0].Preconditions[0])
-	})
-	t.Run("StepPreconditionsWithNegate", func(t *testing.T) {
-		t.Parallel()
-
-		data := []byte(`
-steps:
-  - name: "step_with_negate"
-    run: "echo hello"
-    preconditions:
-      - condition: "${STATUS}"
-        expected: "success"
-        negate: true
-`)
-		dag, err := spec.LoadYAML(context.Background(), data)
-		require.NoError(t, err)
-		th := DAG{t: t, DAG: dag}
-		assert.Len(t, th.Steps, 1)
-		assert.Len(t, th.Steps[0].Preconditions, 1)
-		assert.Equal(t, &core.Condition{Condition: "${STATUS}", Expected: "success", Negate: true}, th.Steps[0].Preconditions[0])
-	})
 	// RepeatPolicy error tests
 	repeatPolicyErrorTests := []struct {
 		name        string
@@ -1376,6 +1285,117 @@ steps:
 			assert.Contains(t, err.Error(), tt.errContains)
 		})
 	}
+}
+
+func TestBuildStepSignalAndID(t *testing.T) {
+	t.Parallel()
+
+	t.Run("SignalOnStop", func(t *testing.T) {
+		t.Parallel()
+
+		data := []byte(`
+steps:
+  - run: echo 1
+    name: step1
+    signal_on_stop: SIGINT
+`)
+		dag, err := spec.LoadYAML(context.Background(), data)
+		require.NoError(t, err)
+		th := DAG{t: t, DAG: dag}
+		assert.Len(t, th.Steps, 1)
+		assert.Equal(t, "SIGINT", th.Steps[0].SignalOnStop)
+	})
+	t.Run("StepWithID", func(t *testing.T) {
+		t.Parallel()
+
+		data := []byte(`
+steps:
+  - name: step1
+    id: unique_step_1
+    run: echo "Step with ID"
+  - name: step2
+    run: echo "Step without ID"
+  - name: step3
+    id: custom_id_123
+    run: echo "Another step with ID"
+`)
+		dag, err := spec.LoadYAML(context.Background(), data)
+		require.NoError(t, err)
+		th := DAG{t: t, DAG: dag}
+		assert.Len(t, th.Steps, 3)
+
+		// First step has ID
+		assert.Equal(t, "step1", th.Steps[0].Name)
+		assert.Equal(t, "unique_step_1", th.Steps[0].ID)
+
+		// Second step has no ID
+		assert.Equal(t, "step2", th.Steps[1].Name)
+		assert.Equal(t, "", th.Steps[1].ID)
+
+		// Third step has ID
+		assert.Equal(t, "step3", th.Steps[2].Name)
+		assert.Equal(t, "custom_id_123", th.Steps[2].ID)
+	})
+}
+
+func TestBuildStepPreconditions(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Preconditions", func(t *testing.T) {
+		t.Parallel()
+
+		data := []byte(`
+steps:
+  - name: "2"
+    run: "echo 2"
+    preconditions:
+      - condition: "test -f file.txt"
+        expected: "true"
+`)
+		dag, err := spec.LoadYAML(context.Background(), data)
+		require.NoError(t, err)
+		th := DAG{t: t, DAG: dag}
+		assert.Len(t, th.Steps, 1)
+		assert.Len(t, th.Steps[0].Preconditions, 1)
+		assert.Equal(t, &core.Condition{Condition: "test -f file.txt", Expected: "true"}, th.Steps[0].Preconditions[0])
+	})
+	t.Run("PreconditionEval", func(t *testing.T) {
+		t.Parallel()
+
+		data := []byte(`
+steps:
+  - name: "eval_gate"
+    run: "echo eval"
+    preconditions:
+      - eval: "$(printf ready)"
+        expected: "ready"
+`)
+		dag, err := spec.LoadYAML(context.Background(), data)
+		require.NoError(t, err)
+		th := DAG{t: t, DAG: dag}
+		assert.Len(t, th.Steps, 1)
+		assert.Len(t, th.Steps[0].Preconditions, 1)
+		assert.Equal(t, &core.Condition{Eval: "$(printf ready)", Expected: "ready"}, th.Steps[0].Preconditions[0])
+	})
+	t.Run("StepPreconditionsWithNegate", func(t *testing.T) {
+		t.Parallel()
+
+		data := []byte(`
+steps:
+  - name: "step_with_negate"
+    run: "echo hello"
+    preconditions:
+      - condition: "${STATUS}"
+        expected: "success"
+        negate: true
+`)
+		dag, err := spec.LoadYAML(context.Background(), data)
+		require.NoError(t, err)
+		th := DAG{t: t, DAG: dag}
+		assert.Len(t, th.Steps, 1)
+		assert.Len(t, th.Steps[0].Preconditions, 1)
+		assert.Equal(t, &core.Condition{Condition: "${STATUS}", Expected: "success", Negate: true}, th.Steps[0].Preconditions[0])
+	})
 }
 
 func TestNestedArrayParallelSyntax(t *testing.T) {
@@ -3692,7 +3712,7 @@ steps:
   - run: echo hello
 `, tempDir)
 
-		dag, err := spec.LoadYAMLWithOpts(context.Background(), []byte(yaml), spec.BuildOpts{Flags: spec.BuildFlagNoEval})
+		dag, err := spec.LoadYAML(context.Background(), []byte(yaml), spec.WithoutEval())
 		require.NoError(t, err)
 		require.NotNil(t, dag)
 
@@ -3721,7 +3741,7 @@ env:
 steps:
   - run: echo hello
 `
-		dag, err := spec.LoadYAMLWithOpts(context.Background(), []byte(yaml), spec.BuildOpts{Flags: spec.BuildFlagNoEval})
+		dag, err := spec.LoadYAML(context.Background(), []byte(yaml), spec.WithoutEval())
 		require.NoError(t, err)
 		require.NotNil(t, dag)
 
@@ -3751,7 +3771,7 @@ steps:
   - run: echo hello
 `, tempDir)
 
-		dag, err := spec.LoadYAMLWithOpts(context.Background(), []byte(yaml), spec.BuildOpts{Flags: spec.BuildFlagNoEval})
+		dag, err := spec.LoadYAML(context.Background(), []byte(yaml), spec.WithoutEval())
 		require.NoError(t, err)
 		require.NotNil(t, dag)
 
@@ -3878,7 +3898,7 @@ shell: $MY_SHELL -e
 steps:
   - run: echo hello
 `)
-		dag, err := spec.LoadYAMLWithOpts(context.Background(), data, spec.BuildOpts{Flags: spec.BuildFlagNoEval})
+		dag, err := spec.LoadYAML(context.Background(), data, spec.WithoutEval())
 		require.NoError(t, err)
 		assert.Equal(t, "$MY_SHELL", dag.Shell)
 		assert.Equal(t, []string{"-e"}, dag.ShellArgs)
@@ -3893,7 +3913,7 @@ shell:
 steps:
   - run: echo hello
 `)
-		dag, err := spec.LoadYAMLWithOpts(context.Background(), data, spec.BuildOpts{Flags: spec.BuildFlagNoEval})
+		dag, err := spec.LoadYAML(context.Background(), data, spec.WithoutEval())
 		require.NoError(t, err)
 		assert.Equal(t, "bash", dag.Shell)
 		assert.Equal(t, []string{"$SHELL_ARG"}, dag.ShellArgs)
@@ -4017,7 +4037,7 @@ steps:
   - name: test
     run: echo test
 `)
-		dag, err := spec.LoadYAMLWithOpts(context.Background(), data, spec.BuildOpts{Flags: spec.BuildFlagNoEval})
+		dag, err := spec.LoadYAML(context.Background(), data, spec.WithoutEval())
 		require.NoError(t, err)
 
 		// When NoEval is set, the variable should not be expanded
@@ -4034,7 +4054,7 @@ steps:
     depends:
       - nonexistent
 `)
-		dag, err := spec.LoadYAMLWithOpts(context.Background(), data, spec.BuildOpts{Flags: spec.BuildFlagAllowBuildErrors})
+		dag, err := spec.LoadYAML(context.Background(), data, spec.WithAllowBuildErrors())
 		require.NoError(t, err)
 		require.NotNil(t, dag)
 		assert.NotEmpty(t, dag.BuildErrors)
@@ -4042,7 +4062,7 @@ steps:
 
 	t.Run("SkipSchemaValidation_SkipsParamsSchema", func(t *testing.T) {
 		t.Parallel()
-		// BuildFlagSkipSchemaValidation skips JSON schema validation for params,
+		// SkipSchemaValidation skips JSON schema validation for params,
 		// not YAML structure validation
 		data := []byte(`
 params:
@@ -4058,7 +4078,7 @@ steps:
 		require.Error(t, err)
 
 		// With schema validation skipped, it succeeds
-		dag, err := spec.LoadYAMLWithOpts(context.Background(), data, spec.BuildOpts{Flags: spec.BuildFlagSkipSchemaValidation})
+		dag, err := spec.LoadYAML(context.Background(), data, spec.SkipSchemaValidation())
 		require.NoError(t, err)
 		require.NotNil(t, dag)
 	})
@@ -4292,5 +4312,216 @@ steps:
 		require.NoError(t, err)
 		// No warning when using a global queue (queue field is set)
 		assert.Empty(t, dag.BuildWarnings)
+	})
+}
+
+func TestBuildDAGLevelLLMInheritance(t *testing.T) {
+	t.Parallel()
+
+	t.Run("ChatStepInheritsToolsAndWebSearch", func(t *testing.T) {
+		t.Parallel()
+
+		data := []byte(`
+llm:
+  provider: openai
+  model: gpt-4o
+  tools:
+    - helper-dag
+  web_search:
+    enabled: true
+    max_uses: 3
+steps:
+  - name: ask
+    type: chat
+    messages:
+      - role: user
+        content: hello
+`)
+		dag, err := spec.LoadYAML(context.Background(), data)
+		require.NoError(t, err)
+
+		require.NotNil(t, dag.LLM)
+		assert.Equal(t, []string{"helper-dag"}, dag.LLM.Tools)
+		require.NotNil(t, dag.LLM.WebSearch)
+		assert.True(t, dag.LLM.WebSearch.Enabled)
+		require.NotNil(t, dag.LLM.WebSearch.MaxUses)
+		assert.Equal(t, 3, *dag.LLM.WebSearch.MaxUses)
+
+		require.Len(t, dag.Steps, 1)
+		require.NotNil(t, dag.Steps[0].LLM)
+		assert.Equal(t, []string{"helper-dag"}, dag.Steps[0].LLM.Tools)
+		require.NotNil(t, dag.Steps[0].LLM.WebSearch)
+		assert.True(t, dag.Steps[0].LLM.WebSearch.Enabled)
+		require.NotNil(t, dag.Steps[0].LLM.WebSearch.MaxUses)
+		assert.Equal(t, 3, *dag.Steps[0].LLM.WebSearch.MaxUses)
+	})
+}
+
+func TestBuildArtifactActionDetection(t *testing.T) {
+	t.Parallel()
+
+	t.Run("ParamValueIsNotAnArtifactAction", func(t *testing.T) {
+		t.Parallel()
+
+		data := []byte(`
+artifacts:
+  enabled: false
+params:
+  - action: artifact.write
+steps:
+  - name: step1
+    command: echo hello
+`)
+		dag, err := spec.LoadYAML(context.Background(), data)
+		require.NoError(t, err)
+		require.NotNil(t, dag.Artifacts)
+		assert.False(t, dag.Artifacts.Enabled)
+	})
+
+	t.Run("ParamsPayloadPassedToChildDAGIsNotAnArtifactAction", func(t *testing.T) {
+		t.Parallel()
+
+		// with.params is data handed to the child DAG, not step syntax.
+		for name, data := range map[string]string{
+			"step": `
+artifacts:
+  enabled: false
+steps:
+  - name: s1
+    action: dag.run
+    with:
+      dag: child
+      params:
+        action: artifact.write
+`,
+			"handler": `
+artifacts:
+  enabled: false
+handler_on:
+  success:
+    action: dag.run
+    with:
+      dag: child
+      params:
+        action: artifact.write
+steps:
+  - name: s1
+    command: echo hello
+`,
+			"custom action template": `
+artifacts:
+  enabled: false
+actions:
+  myact:
+    input_schema: {type: object}
+    template:
+      action: dag.run
+      with:
+        dag: child
+        params:
+          action: artifact.write
+steps:
+  - name: s1
+    command: echo hello
+`,
+		} {
+			t.Run(name, func(t *testing.T) {
+				t.Parallel()
+
+				dag, err := spec.LoadYAML(context.Background(), []byte(data))
+				require.NoError(t, err)
+				require.NotNil(t, dag.Artifacts)
+				assert.False(t, dag.Artifacts.Enabled)
+			})
+		}
+	})
+
+	t.Run("NestedAndHandlerArtifactActionsAreDetected", func(t *testing.T) {
+		t.Parallel()
+
+		for name, data := range map[string]string{
+			"handler": `
+artifacts:
+  enabled: false
+handler_on:
+  success:
+    action: artifact.write
+    with: {path: out.txt, content: hello}
+steps:
+  - name: s1
+    command: echo hello
+`,
+			"foreach": `
+artifacts:
+  enabled: false
+steps:
+  - name: s1
+    foreach:
+      items: [1]
+      steps:
+        - name: inner
+          action: artifact.write
+          with: {path: out.txt, content: hello}
+`,
+			"custom action template": `
+artifacts:
+  enabled: false
+actions:
+  myact:
+    input_schema: {type: object}
+    template:
+      action: artifact.write
+      with: {path: out.txt, content: hello}
+steps:
+  - name: s1
+    command: echo hello
+`,
+		} {
+			t.Run(name, func(t *testing.T) {
+				t.Parallel()
+
+				_, err := spec.LoadYAML(context.Background(), []byte(data))
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "artifact actions require artifacts.enabled to be true")
+			})
+		}
+	})
+
+	t.Run("MapFormStepNamedParamsIsStillDetected", func(t *testing.T) {
+		t.Parallel()
+
+		// The step name is the map key, so a step named "params" must be
+		// detected like any other step.
+		data := []byte(`
+artifacts:
+  enabled: false
+steps:
+  params:
+    action: artifact.write
+    with:
+      path: out.txt
+      content: hello
+`)
+		_, err := spec.LoadYAML(context.Background(), data)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "artifact actions require artifacts.enabled to be true")
+	})
+
+	t.Run("StepArtifactActionRequiresArtifactsEnabled", func(t *testing.T) {
+		t.Parallel()
+
+		data := []byte(`
+artifacts:
+  enabled: false
+steps:
+  - name: step1
+    action: artifact.write
+    with:
+      path: out.txt
+      content: hello
+`)
+		_, err := spec.LoadYAML(context.Background(), data)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "artifact actions require artifacts.enabled to be true")
 	})
 }

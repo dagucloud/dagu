@@ -19,7 +19,7 @@ import (
 
 var constNamePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*$`)
 
-func buildConsts(ctx BuildContext, d *dag) (map[string]any, error) {
+func buildConsts(ctx buildContext, d *dag) (map[string]any, error) {
 	inherited := inheritedConsts(ctx)
 	if d.Consts == nil {
 		return inherited, nil
@@ -55,7 +55,7 @@ func buildConsts(ctx BuildContext, d *dag) (map[string]any, error) {
 	return resolved, nil
 }
 
-func inheritedConsts(ctx BuildContext) map[string]any {
+func inheritedConsts(ctx buildContext) map[string]any {
 	if ctx.envScope != nil && len(ctx.envScope.consts) > 0 {
 		return maps.Clone(ctx.envScope.consts)
 	}
@@ -94,7 +94,7 @@ func constEntry(idx int, item any) (string, any, error) {
 	return "", nil, core.NewValidationError(fmt.Sprintf("consts[%d]", idx), item, fmt.Errorf("consts entries must contain exactly one key"))
 }
 
-func resolveConstValue(ctx BuildContext, key string, value any, consts map[string]any) (any, error) {
+func resolveConstValue(ctx buildContext, key string, value any, consts map[string]any) (any, error) {
 	if value == nil {
 		return nil, fmt.Errorf("const %q must be a literal string, number, or boolean", key)
 	}

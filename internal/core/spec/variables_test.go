@@ -116,9 +116,9 @@ func TestLoadVariables(t *testing.T) {
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				t.Parallel()
-				ctx := BuildContext{
+				ctx := buildContext{
 					ctx:  context.Background(),
-					opts: BuildOpts{Flags: BuildFlagNoEval},
+					opts: buildOpts{Flags: buildFlagNoEval},
 				}
 				result, err := loadVariables(ctx, tt.input)
 				require.NoError(t, err)
@@ -164,9 +164,9 @@ func TestLoadVariables(t *testing.T) {
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				t.Parallel()
-				ctx := BuildContext{
+				ctx := buildContext{
 					ctx:  context.Background(),
-					opts: BuildOpts{Flags: BuildFlagNoEval},
+					opts: buildOpts{Flags: buildFlagNoEval},
 				}
 				result, err := loadVariables(ctx, tt.input)
 				require.NoError(t, err)
@@ -198,9 +198,9 @@ func TestLoadVariables(t *testing.T) {
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				t.Parallel()
-				ctx := BuildContext{
+				ctx := buildContext{
 					ctx:  context.Background(),
-					opts: BuildOpts{Flags: BuildFlagNoEval},
+					opts: buildOpts{Flags: buildFlagNoEval},
 				}
 				_, err := loadVariables(ctx, tt.input)
 				require.Error(t, err)
@@ -210,9 +210,9 @@ func TestLoadVariables(t *testing.T) {
 	})
 
 	t.Run("WithEvaluation", func(t *testing.T) {
-		ctx := BuildContext{
+		ctx := buildContext{
 			ctx:  context.Background(),
-			opts: BuildOpts{},
+			opts: buildOpts{},
 		}
 
 		input := map[string]any{"GREETING": "hello"}
@@ -222,9 +222,9 @@ func TestLoadVariables(t *testing.T) {
 	})
 
 	t.Run("PreservesBacktickSubstitution", func(t *testing.T) {
-		ctx := BuildContext{
+		ctx := buildContext{
 			ctx:  context.Background(),
-			opts: BuildOpts{},
+			opts: buildOpts{},
 		}
 
 		input := map[string]any{"CMD": "`echo hello`"}
@@ -236,9 +236,9 @@ func TestLoadVariables(t *testing.T) {
 	t.Run("NoEvalFlag", func(t *testing.T) {
 		t.Parallel()
 
-		ctx := BuildContext{
+		ctx := buildContext{
 			ctx:  context.Background(),
-			opts: BuildOpts{Flags: BuildFlagNoEval},
+			opts: buildOpts{Flags: buildFlagNoEval},
 		}
 
 		// With NoEval, command-like text is preserved.
@@ -249,9 +249,9 @@ func TestLoadVariables(t *testing.T) {
 	})
 
 	t.Run("VariableReference", func(t *testing.T) {
-		ctx := BuildContext{
+		ctx := buildContext{
 			ctx:  context.Background(),
-			opts: BuildOpts{},
+			opts: buildOpts{},
 		}
 
 		// Test that later variables can reference earlier ones
@@ -268,9 +268,9 @@ func TestLoadVariables(t *testing.T) {
 	t.Run("EmptyValue", func(t *testing.T) {
 		t.Parallel()
 
-		ctx := BuildContext{
+		ctx := buildContext{
 			ctx:  context.Background(),
-			opts: BuildOpts{Flags: BuildFlagNoEval},
+			opts: buildOpts{Flags: buildFlagNoEval},
 		}
 
 		input := map[string]any{"EMPTY": ""}
@@ -282,9 +282,9 @@ func TestLoadVariables(t *testing.T) {
 	t.Run("ValueWithEqualsSign", func(t *testing.T) {
 		t.Parallel()
 
-		ctx := BuildContext{
+		ctx := buildContext{
 			ctx:  context.Background(),
-			opts: BuildOpts{Flags: BuildFlagNoEval},
+			opts: buildOpts{Flags: buildFlagNoEval},
 		}
 
 		input := []any{"KEY=value=with=equals"}
@@ -309,9 +309,9 @@ func TestLoadVariablesFromEnvValue(t *testing.T) {
 	t.Run("EmptyEnvValue", func(t *testing.T) {
 		t.Parallel()
 
-		ctx := BuildContext{
+		ctx := buildContext{
 			ctx:  context.Background(),
-			opts: BuildOpts{Flags: BuildFlagNoEval},
+			opts: buildOpts{Flags: buildFlagNoEval},
 		}
 
 		var env types.EnvValue
@@ -323,9 +323,9 @@ func TestLoadVariablesFromEnvValue(t *testing.T) {
 	t.Run("MapFormat", func(t *testing.T) {
 		t.Parallel()
 
-		ctx := BuildContext{
+		ctx := buildContext{
 			ctx:  context.Background(),
-			opts: BuildOpts{Flags: BuildFlagNoEval},
+			opts: buildOpts{Flags: buildFlagNoEval},
 		}
 
 		env := envValueFromYAML(t, `
@@ -341,9 +341,9 @@ BAZ: qux
 	t.Run("ArrayFormat", func(t *testing.T) {
 		t.Parallel()
 
-		ctx := BuildContext{
+		ctx := buildContext{
 			ctx:  context.Background(),
-			opts: BuildOpts{Flags: BuildFlagNoEval},
+			opts: buildOpts{Flags: buildFlagNoEval},
 		}
 
 		env := envValueFromYAML(t, `
@@ -357,9 +357,9 @@ BAZ: qux
 	})
 
 	t.Run("WithEvaluation", func(t *testing.T) {
-		ctx := BuildContext{
+		ctx := buildContext{
 			ctx:  context.Background(),
-			opts: BuildOpts{},
+			opts: buildOpts{},
 		}
 
 		env := envValueFromYAML(t, `
@@ -371,9 +371,9 @@ GREETING: hello
 	})
 
 	t.Run("PreservesBacktickSubstitution", func(t *testing.T) {
-		ctx := BuildContext{
+		ctx := buildContext{
 			ctx:  context.Background(),
-			opts: BuildOpts{},
+			opts: buildOpts{},
 		}
 
 		env := envValueFromYAML(t, `
@@ -387,9 +387,9 @@ CMD: "`+"`echo hello`"+`"
 	t.Run("NoEvalFlag", func(t *testing.T) {
 		t.Parallel()
 
-		ctx := BuildContext{
+		ctx := buildContext{
 			ctx:  context.Background(),
-			opts: BuildOpts{Flags: BuildFlagNoEval},
+			opts: buildOpts{Flags: buildFlagNoEval},
 		}
 
 		env := envValueFromYAML(t, `
@@ -401,9 +401,9 @@ CMD: "$(echo hello)"
 	})
 
 	t.Run("VariableReference", func(t *testing.T) {
-		ctx := BuildContext{
+		ctx := buildContext{
 			ctx:  context.Background(),
-			opts: BuildOpts{},
+			opts: buildOpts{},
 		}
 
 		env := envValueFromYAML(t, `
@@ -417,7 +417,7 @@ CMD: "$(echo hello)"
 	})
 
 	t.Run("ParamReference", func(t *testing.T) {
-		ctx := BuildContext{
+		ctx := buildContext{
 			ctx: context.Background(),
 			envScope: &envScopeState{
 				scope:             cmnvalue.NewEnvScope(nil, false),
@@ -437,9 +437,9 @@ ENVIRONMENT: ${params.environment}
 	t.Run("IntegerValue", func(t *testing.T) {
 		t.Parallel()
 
-		ctx := BuildContext{
+		ctx := buildContext{
 			ctx:  context.Background(),
-			opts: BuildOpts{Flags: BuildFlagNoEval},
+			opts: buildOpts{Flags: buildFlagNoEval},
 		}
 
 		env := envValueFromYAML(t, `
@@ -453,9 +453,9 @@ PORT: 8080
 	t.Run("BooleanValue", func(t *testing.T) {
 		t.Parallel()
 
-		ctx := BuildContext{
+		ctx := buildContext{
 			ctx:  context.Background(),
-			opts: BuildOpts{Flags: BuildFlagNoEval},
+			opts: buildOpts{Flags: buildFlagNoEval},
 		}
 
 		env := envValueFromYAML(t, `

@@ -18,7 +18,7 @@ type controllerTask struct {
 	Description string `yaml:"description,omitempty"`
 }
 
-func buildTasks(_ BuildContext, d *dag) ([]core.ControllerTask, error) {
+func buildTasks(_ buildContext, d *dag) ([]core.ControllerTask, error) {
 	if len(d.Tasks) == 0 {
 		return nil, nil
 	}

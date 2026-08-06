@@ -120,7 +120,7 @@ func parseRuntimeLegacyOverrideInput(value any) ([]paramPair, error) {
 	return pairs, nil
 }
 
-func resolveLegacyEntries(ctx BuildContext, plan *dagParamPlan, rawParams string, paramsList []string, metadataMode bool) ([]dagParamEntry, error) {
+func resolveLegacyEntries(ctx buildContext, plan *dagParamPlan, rawParams string, paramsList []string, metadataMode bool) ([]dagParamEntry, error) {
 	overridePairs, err := parseOverridePairs(rawParams, paramsList)
 	if err != nil {
 		return nil, err
@@ -159,7 +159,7 @@ func resolveLegacyEntries(ctx BuildContext, plan *dagParamPlan, rawParams string
 }
 
 func parseOverridePairs(rawParams string, paramsList []string) ([]paramPair, error) {
-	noEvalCtx := BuildContext{opts: BuildOpts{Flags: BuildFlagNoEval}}
+	noEvalCtx := buildContext{opts: buildOpts{Flags: buildFlagNoEval}}
 	var pairs []paramPair
 	if rawParams != "" {
 		parsed, err := parseParamValue(noEvalCtx, rawParams)
@@ -388,7 +388,7 @@ func runtimePairsFromEntries(entries []dagParamEntry) []paramPair {
 	return pairs
 }
 
-func buildParamEvalScope(ctx BuildContext) *cmnvalue.EnvScope {
+func buildParamEvalScope(ctx buildContext) *cmnvalue.EnvScope {
 	if ctx.envScope != nil && ctx.envScope.scope != nil {
 		return ctx.envScope.scope
 	}
@@ -401,7 +401,7 @@ func buildParamEvalScope(ctx BuildContext) *cmnvalue.EnvScope {
 }
 
 func resolveLegacyEntry(
-	ctx BuildContext,
+	ctx buildContext,
 	entry *dagParamEntry,
 	base dagParamEntry,
 	overridden bool,
@@ -410,7 +410,7 @@ func resolveLegacyEntry(
 	paramDeclarations cmnvalue.Values,
 	index int,
 ) error {
-	if overridden || strings.TrimSpace(base.Eval) == "" || ctx.opts.Has(BuildFlagNoEval) {
+	if overridden || strings.TrimSpace(base.Eval) == "" || ctx.opts.Has(buildFlagNoEval) {
 		addEntryToParamScope(scope, *entry, index)
 		addEntryToParamValues(params, *entry)
 		return nil

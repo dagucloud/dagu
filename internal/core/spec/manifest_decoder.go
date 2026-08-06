@@ -21,7 +21,7 @@ type manifestDecoder struct {
 }
 
 var defaultManifestDecoder = &manifestDecoder{
-	decodeHook: TypedUnionDecodeHook(),
+	decodeHook: typedUnionDecodeHook(),
 }
 
 // newManifestDecoder returns the shared manifest decoder instance.

@@ -80,12 +80,12 @@ func TestResolveEnvWithWarningsReturnsDotenvWarnings(t *testing.T) {
 	root := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(root, ".env"), []byte("INVALID LINE\n"), 0o600))
 
-	dag, err := spec.LoadYAMLWithOpts(context.Background(), fmt.Appendf(nil, `
+	dag, err := spec.LoadYAML(context.Background(), fmt.Appendf(nil, `
 working_dir: %s
 dotenv: .env
 steps:
   - run: echo hello
-`, root), spec.BuildOpts{Flags: spec.BuildFlagNoEval})
+`, root), spec.WithoutEval())
 	require.NoError(t, err)
 
 	result, err := spec.ResolveEnvWithWarnings(context.Background(), dag, nil, spec.ResolveEnvOptions{})
@@ -207,12 +207,12 @@ func TestResolveEnvWithWarningsDoesNotMutateDAGBackingSlices(t *testing.T) {
 		root := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(root, ".env"), []byte("DOTENV_VALUE=ready\n"), 0o600))
 
-		dag, err := spec.LoadYAMLWithOpts(context.Background(), fmt.Appendf(nil, `
+		dag, err := spec.LoadYAML(context.Background(), fmt.Appendf(nil, `
 working_dir: %s
 dotenv: .env
 steps:
   - run: echo hello
-`, root), spec.BuildOpts{Flags: spec.BuildFlagNoEval})
+`, root), spec.WithoutEval())
 		require.NoError(t, err)
 
 		dag.Env = make([]string, 0, 1)
@@ -230,12 +230,12 @@ steps:
 		root := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(root, ".env"), []byte("INVALID LINE\n"), 0o600))
 
-		dag, err := spec.LoadYAMLWithOpts(context.Background(), fmt.Appendf(nil, `
+		dag, err := spec.LoadYAML(context.Background(), fmt.Appendf(nil, `
 working_dir: %s
 dotenv: .env
 steps:
   - run: echo hello
-`, root), spec.BuildOpts{Flags: spec.BuildFlagNoEval})
+`, root), spec.WithoutEval())
 		require.NoError(t, err)
 
 		dag.BuildWarnings = make([]string, 1, 2)
