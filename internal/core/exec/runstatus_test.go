@@ -263,9 +263,9 @@ func TestMergeDAGRunConditionsUpsertsByTypeAndOrdersConditions(t *testing.T) {
 	)
 
 	conditions := exec.MergeDAGRunConditions(nil, concurrencyReadyOlder, workerReady)
-	conditions = exec.UpsertDAGRunCondition(conditions, runnable)
-	conditions = exec.UpsertDAGRunCondition(conditions, concurrencyReadyNewer)
-	conditions = exec.UpsertDAGRunCondition(
+	conditions = exec.MergeDAGRunConditions(conditions, runnable)
+	conditions = exec.MergeDAGRunConditions(conditions, concurrencyReadyNewer)
+	conditions = exec.MergeDAGRunConditions(
 		conditions,
 		exec.NewDAGRunCondition(
 			"ConcurrencyReady",

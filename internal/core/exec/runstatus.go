@@ -93,11 +93,6 @@ func NewDAGRunCondition(conditionType, status, reason, message string, checkedAt
 	}
 }
 
-// UpsertDAGRunCondition merges a condition into a type-keyed current-state list.
-func UpsertDAGRunCondition(conditions []DAGRunCondition, condition DAGRunCondition) []DAGRunCondition {
-	return MergeDAGRunConditions(conditions, condition)
-}
-
 // MergeDAGRunConditions merges observations into a type-keyed current-state list.
 func MergeDAGRunConditions(conditions []DAGRunCondition, observations ...DAGRunCondition) []DAGRunCondition {
 	merged := make([]DAGRunCondition, 0, len(conditions)+len(observations))
@@ -219,12 +214,6 @@ func (s DAGRunStatus) EffectiveClaimKey() string {
 	}
 	// TODO: Remove the AttemptKey fallback in the next major version.
 	return s.AttemptKey
-}
-
-// Tags returns labels under their deprecated name.
-// Deprecated: use Labels directly.
-func (s DAGRunStatus) Tags() []string {
-	return s.Labels
 }
 
 // IsLeaseActive reports whether the run's lease is fresh (i.e. a worker is

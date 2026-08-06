@@ -168,12 +168,6 @@ func WithWorkspaceFilter(filter *WorkspaceFilter) ListDAGRunStatusesOption {
 	}
 }
 
-// WithTags sets the labels filter for listing dag-runs.
-// Deprecated: use WithLabels.
-func WithTags(tags []string) ListDAGRunStatusesOption {
-	return WithLabels(tags)
-}
-
 // WithLimit sets the maximum number of results to return when listing dag-runs
 func WithLimit(limit int) ListDAGRunStatusesOption {
 	return func(o *ListDAGRunStatusesOptions) {

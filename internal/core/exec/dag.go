@@ -66,13 +66,6 @@ type ListDAGsOptions struct {
 	WorkspaceFilter   *WorkspaceFilter                     // Optional workspace visibility filter
 }
 
-// ListDAGsResult contains the result of a paginated DAG listing operation
-type ListDAGsResult struct {
-	DAGs   []*core.DAG // The list of DAGs for the current page
-	Count  int         // Total count of DAGs matching the filter
-	Errors []string    // Any errors encountered during listing
-}
-
 // SearchDAGsOptions contains parameters for cursor-based DAG search.
 type SearchDAGsOptions struct {
 	Cursor          string

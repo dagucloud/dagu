@@ -59,18 +59,6 @@ const (
 	QueuePriorityLow
 )
 
-// QueuedItem is a wrapper for QueuedItemData
-type QueuedItem struct {
-	QueuedItemData
-}
-
-// NewQueuedItem creates a new QueuedItem
-func NewQueuedItem(data QueuedItemData) *QueuedItem {
-	return &QueuedItem{
-		QueuedItemData: data,
-	}
-}
-
 // QueuedItemData represents a dag-run reference that is queued for execution.
 type QueuedItemData interface {
 	// ID returns the ID of the queued item

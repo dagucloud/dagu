@@ -30,24 +30,6 @@ type CoordinatorEndpoint struct {
 	Port int    `json:"port,omitempty"`
 }
 
-// HostInfo converts the endpoint to the existing service registry host shape.
-func (e CoordinatorEndpoint) HostInfo() HostInfo {
-	return HostInfo{
-		ID:   e.ID,
-		Host: e.Host,
-		Port: e.Port,
-	}
-}
-
-// CoordinatorEndpointFromHostInfo converts a host record to an endpoint.
-func CoordinatorEndpointFromHostInfo(info HostInfo) CoordinatorEndpoint {
-	return CoordinatorEndpoint{
-		ID:   info.ID,
-		Host: info.Host,
-		Port: info.Port,
-	}
-}
-
 // DispatchTaskClaim describes a worker poller's attempt to claim a shared
 // distributed task.
 type DispatchTaskClaim struct {
@@ -193,14 +175,6 @@ func (l DAGRunLease) LastHeartbeatTime() time.Time {
 		return time.Time{}
 	}
 	return time.UnixMilli(l.LastHeartbeatAt).UTC()
-}
-
-// ClaimedTime returns the lease creation time.
-func (l DAGRunLease) ClaimedTime() time.Time {
-	if l.ClaimedAt == 0 {
-		return time.Time{}
-	}
-	return time.UnixMilli(l.ClaimedAt).UTC()
 }
 
 // IsFresh reports whether the lease is still alive.
