@@ -187,6 +187,78 @@ func TestStreamSessionKeepsWakeNewerThanConcurrentDAGRunBootstrap(t *testing.T) 
 	assert.Equal(t, 2, envelope.Payload.Revision)
 }
 
+func TestStreamSessionIgnoresBootstrapFromPreviousTopicAttachment(t *testing.T) {
+	const timeout = 5 * time.Second
+	const topicKey = "dagruns:status=4"
+
+	mux := NewMultiplexer(StreamConfig{}, nil)
+	t.Cleanup(mux.Shutdown)
+
+	started := make(chan struct{})
+	releaseBootstrap := make(chan struct{})
+	var calls atomic.Int32
+	mux.RegisterFetcher(TopicTypeDAGRuns, func(ctx context.Context, _ string) (any, error) {
+		revision := calls.Add(1)
+		if revision == 1 {
+			close(started)
+			select {
+			case <-releaseBootstrap:
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+		return map[string]any{"revision": revision}, nil
+	})
+	mux.SetRefreshMode(TopicTypeDAGRuns, TopicRefreshModeOnDemand)
+
+	result, err := mux.createSession(context.Background(), httptest.NewRecorder(), []string{topicKey}, 0)
+	require.NoError(t, err)
+	defer mux.removeSession(result.session)
+
+	holder, err := mux.createSession(context.Background(), httptest.NewRecorder(), []string{topicKey}, 0)
+	require.NoError(t, err)
+	defer mux.removeSession(holder.session)
+
+	done := make(chan struct{})
+	go func() {
+		result.session.bootstrapTopics(t.Context(), 0, result.topics)
+		close(done)
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(timeout):
+		require.FailNow(t, "initial snapshot did not start")
+	}
+
+	_, err = mux.mutateSession(t.Context(), result.session.id, nil, []string{topicKey})
+	require.NoError(t, err)
+	mutation, err := mux.mutateSession(t.Context(), result.session.id, []string{topicKey}, nil)
+	require.NoError(t, err)
+	require.Len(t, mutation.added, 1)
+	result.session.bootstrapTopics(t.Context(), 0, mutation.added)
+
+	close(releaseBootstrap)
+	select {
+	case <-done:
+	case <-time.After(timeout):
+		require.FailNow(t, "initial snapshot did not finish")
+	}
+
+	message := result.session.popNext()
+	require.NotNil(t, message)
+	assert.Equal(t, topicKey, message.topic)
+	assert.Nil(t, result.session.popNext())
+
+	var envelope struct {
+		Payload struct {
+			Revision int `json:"revision"`
+		} `json:"payload"`
+	}
+	require.NoError(t, json.Unmarshal(message.data, &envelope))
+	assert.Equal(t, 2, envelope.Payload.Revision)
+}
+
 func TestMultiplexerCreateSessionFiltersUnsupportedTopics(t *testing.T) {
 	mux := NewMultiplexer(StreamConfig{}, nil)
 	t.Cleanup(mux.Shutdown)

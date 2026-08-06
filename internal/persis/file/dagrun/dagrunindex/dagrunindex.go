@@ -91,6 +91,9 @@ func TryLoadForDay(dayDir string, dagRunDirs []os.DirEntry) ([]Entry, bool, erro
 	if len(runDirs) < MinRunsForIndex {
 		return nil, false, nil
 	}
+	sort.Slice(runDirs, func(i, j int) bool {
+		return runDirs[i].Name() < runDirs[j].Name()
+	})
 
 	var loadKey strings.Builder
 	loadKey.WriteString(filepath.Join(dayDir, IndexFileName))

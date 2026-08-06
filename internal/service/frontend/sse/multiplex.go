@@ -796,6 +796,7 @@ func (s *streamSession) bootstrapTopics(ctx context.Context, lastEventID uint64,
 	if allDAGRuns {
 		type snapshotResult struct {
 			payload         []byte
+			attachmentID    uint64
 			lastPublishedID uint64
 			err             error
 		}
@@ -803,7 +804,7 @@ func (s *streamSession) bootstrapTopics(ctx context.Context, lastEventID uint64,
 		var wg sync.WaitGroup
 		for i, topic := range eligible {
 			wg.Go(func() {
-				results[i].lastPublishedID = topic.lastPublishedID(s)
+				results[i].attachmentID, results[i].lastPublishedID = topic.snapshotState(s)
 				results[i].payload, results[i].err = topic.fetchPayload(ctx)
 			})
 		}
@@ -812,7 +813,12 @@ func (s *streamSession) bootstrapTopics(ctx context.Context, lastEventID uint64,
 			if result.err != nil {
 				continue
 			}
-			_ = eligible[i].sendSnapshotPayload(s, result.payload, result.lastPublishedID)
+			_ = eligible[i].sendSnapshotPayload(
+				s,
+				result.payload,
+				result.attachmentID,
+				result.lastPublishedID,
+			)
 		}
 		return
 	}
@@ -1064,6 +1070,8 @@ type multiplexTopic struct {
 	retiring                 bool
 	lastHashBySession        map[*streamSession]string
 	lastPublishedIDBySession map[*streamSession]uint64
+	attachmentIDBySession    map[*streamSession]uint64
+	nextAttachmentID         uint64
 	lastChangeEventID        uint64
 	stopCh                   chan struct{}
 	notifyCh                 chan struct{}
@@ -1094,6 +1102,7 @@ func newMultiplexTopic(
 		sessions:                 make(map[*streamSession]struct{}),
 		lastHashBySession:        make(map[*streamSession]string),
 		lastPublishedIDBySession: make(map[*streamSession]uint64),
+		attachmentIDBySession:    make(map[*streamSession]uint64),
 		stopCh:                   make(chan struct{}),
 		notifyCh:                 make(chan struct{}, 1),
 		errorBackoff:             backoff.NewRetrier(policy),
@@ -1111,7 +1120,9 @@ func (t *multiplexTopic) addSession(session *streamSession) bool {
 	if _, exists := t.sessions[session]; exists {
 		return true
 	}
+	t.nextAttachmentID++
 	t.sessions[session] = struct{}{}
+	t.attachmentIDBySession[session] = t.nextAttachmentID
 	if len(t.sessions) == 1 {
 		t.start()
 	}
@@ -1124,12 +1135,13 @@ func (t *multiplexTopic) removeSession(session *streamSession) {
 	delete(t.sessions, session)
 	delete(t.lastHashBySession, session)
 	delete(t.lastPublishedIDBySession, session)
+	delete(t.attachmentIDBySession, session)
 }
 
-func (t *multiplexTopic) lastPublishedID(session *streamSession) uint64 {
+func (t *multiplexTopic) snapshotState(session *streamSession) (uint64, uint64) {
 	t.clientsMu.RLock()
 	defer t.clientsMu.RUnlock()
-	return t.lastPublishedIDBySession[session]
+	return t.attachmentIDBySession[session], t.lastPublishedIDBySession[session]
 }
 
 func (t *multiplexTopic) sessionCount() int {
@@ -1326,15 +1338,20 @@ func (t *multiplexTopic) poll(forcePublish bool) {
 }
 
 func (t *multiplexTopic) sendSnapshot(ctx context.Context, session *streamSession) error {
-	lastPublishedID := t.lastPublishedID(session)
+	attachmentID, lastPublishedID := t.snapshotState(session)
 	payload, err := t.fetchPayload(ctx)
 	if err != nil {
 		return err
 	}
-	return t.sendSnapshotPayload(session, payload, lastPublishedID)
+	return t.sendSnapshotPayload(session, payload, attachmentID, lastPublishedID)
 }
 
-func (t *multiplexTopic) sendSnapshotPayload(session *streamSession, payload []byte, lastPublishedID uint64) error {
+func (t *multiplexTopic) sendSnapshotPayload(
+	session *streamSession,
+	payload []byte,
+	attachmentID uint64,
+	lastPublishedID uint64,
+) error {
 	hash := computeHash(payload)
 	data, err := buildMessageData(t.key, payload)
 	if err != nil {
@@ -1346,6 +1363,10 @@ func (t *multiplexTopic) sendSnapshotPayload(session *streamSession, payload []b
 
 	t.clientsMu.Lock()
 	if _, ok := t.sessions[session]; !ok {
+		t.clientsMu.Unlock()
+		return nil
+	}
+	if t.attachmentIDBySession[session] != attachmentID {
 		t.clientsMu.Unlock()
 		return nil
 	}
