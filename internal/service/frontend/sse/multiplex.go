@@ -811,10 +811,13 @@ func (s *streamSession) bootstrapTopics(ctx context.Context, lastEventID uint64,
 			err             error
 		}
 		results := make([]snapshotResult, len(eligible))
+		for i, topic := range eligible {
+			results[i].attachmentID, results[i].lastPublishedID = topic.snapshotState(s)
+		}
+
 		var wg sync.WaitGroup
 		for i, topic := range eligible {
 			wg.Go(func() {
-				results[i].attachmentID, results[i].lastPublishedID = topic.snapshotState(s)
 				results[i].payload, results[i].err = topic.fetchPayload(ctx)
 			})
 		}
