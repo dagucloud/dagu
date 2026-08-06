@@ -137,7 +137,7 @@ func affectedDAGRunListStatuses(eventType eventstore.EventType, current core.Sta
 	switch eventType {
 	case eventstore.TypeDAGRunQueued:
 		return []core.Status{
-			core.NotStarted, core.Queued,
+			core.NotStarted, core.Queued, core.Waiting,
 			core.Succeeded, core.PartiallySucceeded, core.Failed, core.Aborted, core.Rejected,
 		}
 	case eventstore.TypeDAGRunRunning:
@@ -146,8 +146,10 @@ func affectedDAGRunListStatuses(eventType eventstore.EventType, current core.Sta
 		return []core.Status{core.Running, core.Waiting}
 	case eventstore.TypeDAGRunSucceeded, eventstore.TypeDAGRunPartiallySucceeded:
 		return []core.Status{core.Running, core.Waiting, current}
-	case eventstore.TypeDAGRunFailed, eventstore.TypeDAGRunAborted:
+	case eventstore.TypeDAGRunFailed:
 		return []core.Status{core.NotStarted, core.Queued, core.Running, core.Waiting, current}
+	case eventstore.TypeDAGRunAborted:
+		return []core.Status{core.NotStarted, core.Queued, core.Running, core.Waiting, core.Failed, current}
 	case eventstore.TypeDAGRunRejected:
 		return []core.Status{core.Waiting, current}
 	case eventstore.TypeDAGRunUpdated, eventstore.TypeLLMUsageRecorded:

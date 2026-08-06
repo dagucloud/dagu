@@ -6,6 +6,7 @@ package sse
 import (
 	"context"
 	"net/http/httptest"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -21,16 +22,36 @@ func TestDAGRunInvalidatorRefreshesListsOnlyForLifecycleEvents(t *testing.T) {
 	tests := []struct {
 		name              string
 		eventType         eventstore.EventType
+		currentStatus     core.Status
+		filterStatus      core.Status
 		wantListRefreshes int64
 	}{
 		{
 			name:              "progress update",
 			eventType:         eventstore.TypeDAGRunUpdated,
+			currentStatus:     core.Running,
+			filterStatus:      core.Running,
 			wantListRefreshes: 0,
 		},
 		{
 			name:              "lifecycle update",
 			eventType:         eventstore.TypeDAGRunRunning,
+			currentStatus:     core.Running,
+			filterStatus:      core.Running,
+			wantListRefreshes: 1,
+		},
+		{
+			name:              "human task resumed",
+			eventType:         eventstore.TypeDAGRunQueued,
+			currentStatus:     core.Queued,
+			filterStatus:      core.Waiting,
+			wantListRefreshes: 1,
+		},
+		{
+			name:              "failed auto retry canceled",
+			eventType:         eventstore.TypeDAGRunAborted,
+			currentStatus:     core.Aborted,
+			filterStatus:      core.Failed,
 			wantListRefreshes: 1,
 		},
 	}
@@ -57,7 +78,7 @@ func TestDAGRunInvalidatorRefreshesListsOnlyForLifecycleEvents(t *testing.T) {
 			result, err := mux.createSession(
 				context.Background(),
 				httptest.NewRecorder(),
-				[]string{"dagrun:test/run-1", "dagruns:status=running"},
+				[]string{"dagrun:test/run-1", "dagruns:status=" + strconv.Itoa(int(tt.filterStatus))},
 				0,
 			)
 			require.NoError(t, err)
@@ -68,7 +89,7 @@ func TestDAGRunInvalidatorRefreshesListsOnlyForLifecycleEvents(t *testing.T) {
 				Name:      "test",
 				DAGRunID:  "run-1",
 				AttemptID: "attempt-1",
-				Status:    core.Running,
+				Status:    tt.currentStatus,
 			}
 			event := eventstore.NewDAGRunEvent(
 				eventstore.Source{Service: eventstore.SourceServiceServer},

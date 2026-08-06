@@ -793,13 +793,24 @@ func (s *streamSession) bootstrapTopics(ctx context.Context, lastEventID uint64,
 		return topic.topicType != TopicTypeDAGRuns
 	})
 	if allDAGRuns {
+		type snapshotResult struct {
+			payload []byte
+			err     error
+		}
+		results := make([]snapshotResult, len(eligible))
 		var wg sync.WaitGroup
-		for _, topic := range eligible {
+		for i, topic := range eligible {
 			wg.Go(func() {
-				_ = topic.sendSnapshot(ctx, s, s.mux.nextID())
+				results[i].payload, results[i].err = topic.fetchPayload(ctx)
 			})
 		}
 		wg.Wait()
+		for i, result := range results {
+			if result.err != nil {
+				continue
+			}
+			_ = eligible[i].sendSnapshotPayload(s, s.mux.nextID(), result.payload)
+		}
 		return
 	}
 
@@ -1294,6 +1305,10 @@ func (t *multiplexTopic) sendSnapshot(ctx context.Context, session *streamSessio
 	if err != nil {
 		return err
 	}
+	return t.sendSnapshotPayload(session, eventID, payload)
+}
+
+func (t *multiplexTopic) sendSnapshotPayload(session *streamSession, eventID uint64, payload []byte) error {
 	hash := computeHash(payload)
 	t.clientsMu.Lock()
 	if _, ok := t.sessions[session]; !ok {

@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -110,18 +109,19 @@ func TestStreamSessionBootstrapsDAGRunsTogether(t *testing.T) {
 	t.Cleanup(mux.Shutdown)
 
 	started := make(chan string, 2)
-	releaseCh := make(chan struct{})
-	release := sync.OnceFunc(func() { close(releaseCh) })
-	t.Cleanup(release)
-
+	fastDone := make(chan struct{})
 	mux.RegisterFetcher(TopicTypeDAGRuns, func(ctx context.Context, identifier string) (any, error) {
 		started <- identifier
-		select {
-		case <-releaseCh:
-			return map[string]string{"id": identifier}, nil
-		case <-ctx.Done():
-			return nil, ctx.Err()
+		if identifier == "status=1" {
+			select {
+			case <-fastDone:
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		} else {
+			close(fastDone)
 		}
+		return map[string]string{"id": identifier}, nil
 	})
 	mux.SetRefreshMode(TopicTypeDAGRuns, TopicRefreshModeOnDemand)
 
@@ -137,7 +137,7 @@ func TestStreamSessionBootstrapsDAGRunsTogether(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		result.session.bootstrapTopics(context.Background(), 0, result.topics)
+		result.session.bootstrapTopics(t.Context(), 0, result.topics)
 		close(done)
 	}()
 
@@ -148,13 +148,20 @@ func TestStreamSessionBootstrapsDAGRunsTogether(t *testing.T) {
 			require.FailNow(t, "DAG-run snapshots did not start together")
 		}
 	}
-	release()
 
 	select {
 	case <-done:
 	case <-time.After(timeout):
 		require.FailNow(t, "DAG-run snapshot bootstrap did not finish")
 	}
+
+	first := result.session.popNext()
+	second := result.session.popNext()
+	require.NotNil(t, first)
+	require.NotNil(t, second)
+	assert.Equal(t, "dagruns:status=1", first.topic)
+	assert.Equal(t, "dagruns:status=4", second.topic)
+	assert.Less(t, first.eventID, second.eventID)
 }
 
 func TestMultiplexerCreateSessionFiltersUnsupportedTopics(t *testing.T) {
