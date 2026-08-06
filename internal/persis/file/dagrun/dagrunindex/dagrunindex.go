@@ -4,12 +4,14 @@
 package dagrunindex
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -76,6 +78,9 @@ type Entry struct {
 	ProcGroup            string
 	SuspendFlagName      string
 	ArchiveDir           string
+	latestStatusSize     int64
+	latestStatusModTime  int64
+	runDirModTime        int64
 }
 
 // TryLoadForDay attempts to load and validate the index for a day directory.
@@ -86,7 +91,7 @@ type Entry struct {
 //   - (entries, false, nil) if entries were computed but no index was written (active runs or <10 runs)
 //   - (nil, false, nil) if the day has fewer than MinRunsForIndex runs
 //   - (nil, false, err) on unexpected I/O errors during rebuild
-func TryLoadForDay(dayDir string, dagRunDirs []os.DirEntry) ([]Entry, bool, error) {
+func TryLoadForDay(ctx context.Context, dayDir string, dagRunDirs []os.DirEntry) ([]Entry, bool, error) {
 	runDirs := filterDAGRunDirs(dagRunDirs)
 	if len(runDirs) < MinRunsForIndex {
 		return nil, false, nil
@@ -95,13 +100,7 @@ func TryLoadForDay(dayDir string, dagRunDirs []os.DirEntry) ([]Entry, bool, erro
 		return runDirs[i].Name() < runDirs[j].Name()
 	})
 
-	var loadKey strings.Builder
-	loadKey.WriteString(filepath.Join(dayDir, IndexFileName))
-	for _, runDir := range runDirs {
-		loadKey.WriteByte(0)
-		loadKey.WriteString(runDir.Name())
-	}
-	value, err, _ := dayLoadGroup.Do(loadKey.String(), func() (any, error) {
+	load := func() (dayLoadResult, error) {
 		indexPath := filepath.Join(dayDir, IndexFileName)
 		idx, readErr := readIndex(indexPath)
 		if readErr == nil && validateIndex(dayDir, idx, runDirs) {
@@ -113,9 +112,27 @@ func TryLoadForDay(dayDir string, dagRunDirs []os.DirEntry) ([]Entry, bool, erro
 
 		entries, fromIndex, rebuildErr := RebuildForDay(dayDir, dagRunDirs)
 		if rebuildErr != nil {
-			return nil, rebuildErr
+			return dayLoadResult{}, rebuildErr
 		}
 		return dayLoadResult{entries: entries, fromIndex: fromIndex}, nil
+	}
+
+	batchID, batched := exec.DAGRunListReadBatchID(ctx)
+	if !batched {
+		result, err := load()
+		return result.entries, result.fromIndex, err
+	}
+
+	var loadKey strings.Builder
+	loadKey.WriteString(strconv.FormatUint(batchID, 10))
+	loadKey.WriteByte(0)
+	loadKey.WriteString(filepath.Join(dayDir, IndexFileName))
+	for _, runDir := range runDirs {
+		loadKey.WriteByte(0)
+		loadKey.WriteString(runDir.Name())
+	}
+	value, err, _ := dayLoadGroup.Do(loadKey.String(), func() (any, error) {
+		return load()
 	})
 	if err != nil {
 		return nil, false, err
@@ -138,6 +155,10 @@ func RebuildForDay(dayDir string, dagRunDirs []os.DirEntry) ([]Entry, bool, erro
 
 	for _, rd := range runDirs {
 		runDir := filepath.Join(dayDir, rd.Name())
+		runDirInfo, err := os.Stat(runDir)
+		if err != nil {
+			continue
+		}
 
 		latestAttemptDir, err := findLatestAttempt(runDir)
 		if err != nil {
@@ -148,6 +169,10 @@ func RebuildForDay(dayDir string, dagRunDirs []os.DirEntry) ([]Entry, bool, erro
 		}
 
 		statusPath := filepath.Join(runDir, latestAttemptDir, statusFile)
+		statusInfo, err := os.Stat(statusPath)
+		if err != nil {
+			continue
+		}
 		status, err := parseStatusFile(statusPath)
 		if err != nil {
 			// Skip runs with unreadable status files; they'll be served from filesystem.
@@ -193,6 +218,9 @@ func RebuildForDay(dayDir string, dagRunDirs []os.DirEntry) ([]Entry, bool, erro
 			ProcGroup:            status.ProcGroup,
 			SuspendFlagName:      status.SuspendFlagName,
 			ArchiveDir:           status.ArchiveDir,
+			latestStatusSize:     statusInfo.Size(),
+			latestStatusModTime:  statusInfo.ModTime().UnixNano(),
+			runDirModTime:        runDirInfo.ModTime().UnixNano(),
 		})
 	}
 
@@ -269,28 +297,15 @@ func validateIndex(dayDir string, idx *indexv1.DAGRunIndex, runDirs []os.DirEntr
 }
 
 func writeIndex(dayDir string, entries []Entry) error {
-	// Stat the run dirs and status files to capture metadata for index validation.
 	protoEntries := make([]*indexv1.DAGRunIndexEntry, 0, len(entries))
 	for _, e := range entries {
-		runDir := filepath.Join(dayDir, e.DagRunDir)
-		runDirInfo, err := os.Stat(runDir)
-		if err != nil {
-			return err
-		}
-
-		statusPath := filepath.Join(runDir, e.LatestAttemptDir, statusFile)
-		info, err := os.Stat(statusPath)
-		if err != nil {
-			return err
-		}
-
 		protoEntries = append(protoEntries, &indexv1.DAGRunIndexEntry{
 			DagRunDir:            e.DagRunDir,
 			DagRunId:             e.DagRunID,
 			LatestAttemptDir:     e.LatestAttemptDir,
-			LatestStatusSize:     info.Size(),
-			LatestStatusModTime:  info.ModTime().UnixNano(),
-			RunDirModTime:        runDirInfo.ModTime().UnixNano(),
+			LatestStatusSize:     e.latestStatusSize,
+			LatestStatusModTime:  e.latestStatusModTime,
+			RunDirModTime:        e.runDirModTime,
 			Status:               int32(e.Status), //nolint:gosec
 			StartedAt:            e.StartedAtUnix,
 			FinishedAt:           e.FinishedAtUnix,
@@ -361,6 +376,9 @@ func protoToEntries(protoEntries []*indexv1.DAGRunIndexEntry) []Entry {
 			ProcGroup:            pe.ProcGroup,
 			SuspendFlagName:      pe.SuspendFlagName,
 			ArchiveDir:           pe.ArchiveDir,
+			latestStatusSize:     pe.LatestStatusSize,
+			latestStatusModTime:  pe.LatestStatusModTime,
+			runDirModTime:        pe.RunDirModTime,
 		}
 	}
 	return entries

@@ -10,15 +10,18 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/remotenode"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sync/singleflight"
 )
 
 func TestParseTopicCanonicalizesQuery(t *testing.T) {
@@ -108,20 +111,31 @@ func TestStreamSessionKeepsWakeNewerThanConcurrentDAGRunBootstrap(t *testing.T) 
 	mux := NewMultiplexer(StreamConfig{}, nil)
 	t.Cleanup(mux.Shutdown)
 
-	started := make(chan string, 2)
-	releaseBootstrap := make(chan struct{}, 2)
-	var status4Calls atomic.Int32
+	started := make(chan struct{})
+	releaseBootstrap := make(chan struct{})
+	var dayLoads atomic.Int32
+	var dayLoadGroup singleflight.Group
 	mux.RegisterFetcher(TopicTypeDAGRuns, func(ctx context.Context, identifier string) (any, error) {
-		if identifier == "status=4" && status4Calls.Add(1) > 1 {
-			return map[string]any{"id": identifier, "revision": 2}, nil
+		batchID, ok := exec.DAGRunListReadBatchID(ctx)
+		if !ok {
+			return nil, errors.New("missing DAG-run list read batch")
 		}
-		started <- identifier
-		select {
-		case <-releaseBootstrap:
-		case <-ctx.Done():
-			return nil, ctx.Err()
+		value, err, _ := dayLoadGroup.Do(strconv.FormatUint(batchID, 10), func() (any, error) {
+			revision := dayLoads.Add(1)
+			if revision == 1 {
+				close(started)
+				select {
+				case <-releaseBootstrap:
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				}
+			}
+			return revision, nil
+		})
+		if err != nil {
+			return nil, err
 		}
-		return map[string]any{"id": identifier, "revision": 1}, nil
+		return map[string]any{"id": identifier, "revision": value}, nil
 	})
 	mux.SetRefreshMode(TopicTypeDAGRuns, TopicRefreshModeOnDemand)
 
@@ -141,12 +155,10 @@ func TestStreamSessionKeepsWakeNewerThanConcurrentDAGRunBootstrap(t *testing.T) 
 		close(done)
 	}()
 
-	for range 2 {
-		select {
-		case <-started:
-		case <-time.After(timeout):
-			require.FailNow(t, "DAG-run snapshots did not start together")
-		}
+	select {
+	case <-started:
+	case <-time.After(timeout):
+		require.FailNow(t, "DAG-run snapshot bootstrap did not start")
 	}
 
 	mux.WakeTopic(TopicTypeDAGRuns, "status=4")
@@ -156,8 +168,7 @@ func TestStreamSessionKeepsWakeNewerThanConcurrentDAGRunBootstrap(t *testing.T) 
 		return len(result.session.queue) == 1 && result.session.queue[0].topic == "dagruns:status=4"
 	}, timeout, 10*time.Millisecond)
 
-	releaseBootstrap <- struct{}{}
-	releaseBootstrap <- struct{}{}
+	close(releaseBootstrap)
 
 	select {
 	case <-done:
@@ -185,6 +196,7 @@ func TestStreamSessionKeepsWakeNewerThanConcurrentDAGRunBootstrap(t *testing.T) 
 	}
 	require.NoError(t, json.Unmarshal(status4Message.data, &envelope))
 	assert.Equal(t, 2, envelope.Payload.Revision)
+	assert.EqualValues(t, 2, dayLoads.Load())
 }
 
 func TestStreamSessionIgnoresBootstrapFromPreviousTopicAttachment(t *testing.T) {

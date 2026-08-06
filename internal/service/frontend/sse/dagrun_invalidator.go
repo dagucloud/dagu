@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/service/eventstore"
 )
 
@@ -173,8 +174,9 @@ func wakeDAGRunListTopics(mux *Multiplexer, affectedStatuses map[core.Status]str
 	}
 	mux.mu.RUnlock()
 
+	batch := exec.NewDAGRunListReadBatch()
 	for _, topic := range topics {
-		topic.requestPoll()
+		topic.requestPoll(batch)
 	}
 }
 

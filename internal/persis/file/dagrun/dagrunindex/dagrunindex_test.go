@@ -55,7 +55,7 @@ func TestTryLoadForDay_FewRuns(t *testing.T) {
 	dayDir := t.TempDir()
 	createDayDir(t, dayDir, 5, core.Succeeded) // < 10
 
-	entries, fromIndex, err := TryLoadForDay(dayDir, readDayDir(t, dayDir))
+	entries, fromIndex, err := TryLoadForDay(t.Context(), dayDir, readDayDir(t, dayDir))
 	require.NoError(t, err)
 	assert.Nil(t, entries)
 	assert.False(t, fromIndex)
@@ -65,7 +65,7 @@ func TestTryLoadForDay_NoIndex_AllTerminal(t *testing.T) {
 	dayDir := t.TempDir()
 	createDayDir(t, dayDir, 12, core.Succeeded)
 
-	entries, fromIndex, err := TryLoadForDay(dayDir, readDayDir(t, dayDir))
+	entries, fromIndex, err := TryLoadForDay(t.Context(), dayDir, readDayDir(t, dayDir))
 	require.NoError(t, err)
 	require.Len(t, entries, 12)
 	assert.True(t, fromIndex)
@@ -99,7 +99,7 @@ func TestTryLoadForDay_NoIndex_ActiveRun(t *testing.T) {
 		}
 	}
 
-	entries, fromIndex, err := TryLoadForDay(dayDir, readDayDir(t, dayDir))
+	entries, fromIndex, err := TryLoadForDay(t.Context(), dayDir, readDayDir(t, dayDir))
 	require.NoError(t, err)
 	assert.Len(t, entries, 10)
 	assert.False(t, fromIndex) // No index written because one run is active.
@@ -124,13 +124,13 @@ func TestTryLoadForDay_ValidIndex(t *testing.T) {
 	createDayDir(t, dayDir, 10, core.Succeeded)
 
 	// First call: builds index.
-	entries1, fromIndex1, err := TryLoadForDay(dayDir, readDayDir(t, dayDir))
+	entries1, fromIndex1, err := TryLoadForDay(t.Context(), dayDir, readDayDir(t, dayDir))
 	require.NoError(t, err)
 	require.Len(t, entries1, 10)
 	assert.True(t, fromIndex1)
 
 	// Second call: loads from index.
-	entries2, fromIndex2, err := TryLoadForDay(dayDir, readDayDir(t, dayDir))
+	entries2, fromIndex2, err := TryLoadForDay(t.Context(), dayDir, readDayDir(t, dayDir))
 	require.NoError(t, err)
 	require.Len(t, entries2, 10)
 	assert.True(t, fromIndex2)
@@ -165,7 +165,7 @@ func TestTryLoadForDay_PreservesRetryMetadata(t *testing.T) {
 	// Add enough runs for the index to be written.
 	createDayDir(t, dayDir, 9, core.Succeeded)
 
-	entries, fromIndex, err := TryLoadForDay(dayDir, readDayDir(t, dayDir))
+	entries, fromIndex, err := TryLoadForDay(t.Context(), dayDir, readDayDir(t, dayDir))
 	require.NoError(t, err)
 	require.True(t, fromIndex)
 	require.Len(t, entries, 10)
@@ -194,7 +194,7 @@ func TestTryLoadForDay_StaleIndex_NewRun(t *testing.T) {
 	createDayDir(t, dayDir, 10, core.Succeeded)
 
 	// Build index.
-	_, _, err := TryLoadForDay(dayDir, readDayDir(t, dayDir))
+	_, _, err := TryLoadForDay(t.Context(), dayDir, readDayDir(t, dayDir))
 	require.NoError(t, err)
 
 	// Add another run.
@@ -206,7 +206,7 @@ func TestTryLoadForDay_StaleIndex_NewRun(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(attemptDir, "status.jsonl"), append(data, '\n'), 0600))
 
 	// Should detect new run and rebuild.
-	entries, fromIndex, err := TryLoadForDay(dayDir, readDayDir(t, dayDir))
+	entries, fromIndex, err := TryLoadForDay(t.Context(), dayDir, readDayDir(t, dayDir))
 	require.NoError(t, err)
 	assert.Len(t, entries, 11)
 	assert.True(t, fromIndex)
@@ -217,7 +217,7 @@ func TestTryLoadForDay_StaleIndex_NewAttempt(t *testing.T) {
 	createDayDir(t, dayDir, 10, core.Succeeded)
 
 	// Build index.
-	_, _, err := TryLoadForDay(dayDir, readDayDir(t, dayDir))
+	_, _, err := TryLoadForDay(t.Context(), dayDir, readDayDir(t, dayDir))
 	require.NoError(t, err)
 
 	// Add a new attempt to an existing run (simulating a retry).
@@ -234,7 +234,7 @@ func TestTryLoadForDay_StaleIndex_NewAttempt(t *testing.T) {
 	}
 
 	// Should detect new attempt and rebuild.
-	entries, fromIndex, err := TryLoadForDay(dayDir, readDayDir(t, dayDir))
+	entries, fromIndex, err := TryLoadForDay(t.Context(), dayDir, readDayDir(t, dayDir))
 	require.NoError(t, err)
 	assert.Len(t, entries, 10)
 	assert.True(t, fromIndex)
@@ -257,7 +257,7 @@ func TestTryLoadForDay_CorruptIndex(t *testing.T) {
 	// Write corrupt data to index file.
 	require.NoError(t, os.WriteFile(filepath.Join(dayDir, IndexFileName), []byte("garbage"), 0600))
 
-	entries, fromIndex, err := TryLoadForDay(dayDir, readDayDir(t, dayDir))
+	entries, fromIndex, err := TryLoadForDay(t.Context(), dayDir, readDayDir(t, dayDir))
 	require.NoError(t, err)
 	assert.Len(t, entries, 10)
 	assert.True(t, fromIndex) // Rebuilt and wrote new index.
@@ -273,7 +273,7 @@ func TestTryLoadForDay_VersionMismatch(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(dayDir, IndexFileName), data, 0600))
 
-	entries, fromIndex, err := TryLoadForDay(dayDir, readDayDir(t, dayDir))
+	entries, fromIndex, err := TryLoadForDay(t.Context(), dayDir, readDayDir(t, dayDir))
 	require.NoError(t, err)
 	assert.Len(t, entries, 10)
 	assert.True(t, fromIndex)
@@ -364,7 +364,7 @@ func TestRebuildForDay_MixedStatuses(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(attemptDir, "status.jsonl"), append(data, '\n'), 0600))
 	}
 
-	entries, fromIndex, err := TryLoadForDay(dayDir, readDayDir(t, dayDir))
+	entries, fromIndex, err := TryLoadForDay(t.Context(), dayDir, readDayDir(t, dayDir))
 	require.NoError(t, err)
 	assert.Len(t, entries, 12)
 	assert.False(t, fromIndex) // Not all terminal, so no index written.
@@ -479,7 +479,7 @@ func TestValidateIndex_RunDirDeleted(t *testing.T) {
 	createDayDir(t, dayDir, 12, core.Succeeded) // 12 so after deleting 1 we still have 11 >= MinRunsForIndex
 
 	// Build index.
-	_, fromIndex, err := TryLoadForDay(dayDir, readDayDir(t, dayDir))
+	_, fromIndex, err := TryLoadForDay(t.Context(), dayDir, readDayDir(t, dayDir))
 	require.NoError(t, err)
 	require.True(t, fromIndex)
 
@@ -493,7 +493,7 @@ func TestValidateIndex_RunDirDeleted(t *testing.T) {
 	}
 
 	// Should detect missing dir and rebuild.
-	entries, fromIndex, err := TryLoadForDay(dayDir, readDayDir(t, dayDir))
+	entries, fromIndex, err := TryLoadForDay(t.Context(), dayDir, readDayDir(t, dayDir))
 	require.NoError(t, err)
 	assert.Len(t, entries, 11)
 	assert.True(t, fromIndex, "should rebuild and write new index")
@@ -504,30 +504,43 @@ func TestValidateIndex_StatusFileModified(t *testing.T) {
 	createDayDir(t, dayDir, 10, core.Succeeded)
 
 	// Build index.
-	_, fromIndex, err := TryLoadForDay(dayDir, readDayDir(t, dayDir))
+	snapshot, fromIndex, err := TryLoadForDay(t.Context(), dayDir, readDayDir(t, dayDir))
 	require.NoError(t, err)
 	require.True(t, fromIndex)
 
 	// Modify a status file (append data to change size).
 	dirEntries := readDayDir(t, dayDir)
+	modifiedRunDir := ""
 	for _, de := range dirEntries {
 		if de.IsDir() {
+			modifiedRunDir = de.Name()
 			attemptDir := filepath.Join(dayDir, de.Name(), "attempt_20240115_120000_001Z_abc123")
 			statusPath := filepath.Join(attemptDir, "status.jsonl")
 			f, err := os.OpenFile(statusPath, os.O_APPEND|os.O_WRONLY, 0600)
 			require.NoError(t, err)
-			_, err = f.WriteString(`{"status":4}` + "\n")
+			_, err = f.WriteString(`{"status":3}` + "\n")
 			require.NoError(t, err)
 			require.NoError(t, f.Close())
 			break
 		}
 	}
+	require.NotEmpty(t, modifiedRunDir)
+
+	// Simulate an older rebuild finishing after the status update.
+	require.NoError(t, writeIndex(dayDir, snapshot))
 
 	// Should detect modified status and rebuild.
-	entries, fromIndex, err := TryLoadForDay(dayDir, readDayDir(t, dayDir))
+	entries, fromIndex, err := TryLoadForDay(t.Context(), dayDir, readDayDir(t, dayDir))
 	require.NoError(t, err)
 	assert.Len(t, entries, 10)
 	assert.True(t, fromIndex, "should rebuild and write new index")
+	for _, entry := range entries {
+		if entry.DagRunDir == modifiedRunDir {
+			assert.Equal(t, core.Aborted, entry.Status)
+			return
+		}
+	}
+	t.Fatalf("modified DAG run %q not found", modifiedRunDir)
 }
 
 func TestRebuildForDay_EmptyAttempts(t *testing.T) {

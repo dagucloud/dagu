@@ -532,7 +532,7 @@ SCAN:
 					continue
 				}
 
-				indexEntries, _, indexErr := dagrunindex.TryLoadForDay(dayPath, dayEntries)
+				indexEntries, _, indexErr := dagrunindex.TryLoadForDay(ctx, dayPath, dayEntries)
 				if indexErr != nil {
 					logger.Debug(ctx, "Failed to load day index, falling back to filesystem scan",
 						tag.Dir(dayPath),

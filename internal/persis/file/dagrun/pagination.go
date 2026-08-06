@@ -250,7 +250,7 @@ func (it *dagRunStatusIterator) loadDay(ctx context.Context, dayPath string) ([]
 		return nil, fmt.Errorf("read day directory %s: %w", dayPath, err)
 	}
 
-	runs, err := loadDayRuns(dayPath, entries, it.statusesFilter, it.hasStatusFilter)
+	runs, err := loadDayRuns(ctx, dayPath, entries, it.statusesFilter, it.hasStatusFilter)
 	if err != nil {
 		return nil, err
 	}
@@ -352,8 +352,8 @@ func listDayPathsInRange(root DataRoot, from, to exec.TimeInUTC) ([]string, erro
 	return dayPaths, nil
 }
 
-func loadDayRuns(dayPath string, dayEntries []os.DirEntry, statusesFilter map[core.Status]struct{}, hasStatusFilter bool) ([]*DAGRun, error) {
-	indexEntries, _, indexErr := dagrunindex.TryLoadForDay(dayPath, dayEntries)
+func loadDayRuns(ctx context.Context, dayPath string, dayEntries []os.DirEntry, statusesFilter map[core.Status]struct{}, hasStatusFilter bool) ([]*DAGRun, error) {
+	indexEntries, _, indexErr := dagrunindex.TryLoadForDay(ctx, dayPath, dayEntries)
 	if indexErr == nil && indexEntries != nil && len(indexEntries) == countDAGRunDirs(dayEntries) {
 		runs := make([]*DAGRun, 0, len(indexEntries))
 		for _, indexEntry := range indexEntries {
