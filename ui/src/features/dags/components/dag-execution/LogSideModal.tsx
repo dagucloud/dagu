@@ -1,6 +1,4 @@
 import { Button } from '@/components/ui/button';
-import { Switch } from '@/components/ui/switch';
-import { useUserPreferences } from '@/contexts/UserPreference';
 import { ExternalLink, Maximize2, Minimize2, X } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 
@@ -31,8 +29,6 @@ const LogSideModal: React.FC<LogSideModalProps> = ({
   stepName = '',
   logType = 'execution',
 }) => {
-  const { preferences, updatePreference } = useUserPreferences();
-
   // State to track whether the modal is expanded
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -165,14 +161,6 @@ const LogSideModal: React.FC<LogSideModalProps> = ({
         <div className={`flex justify-between items-center ${isMobile ? 'p-3' : 'p-4'} border-b`}>
           <h2 className={`${isMobile ? 'text-base' : 'text-lg'} font-semibold`}>{title}</h2>
           <div className="flex items-center gap-2">
-            {/* Wrap toggle */}
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs text-muted-foreground">Wrap</span>
-              <Switch
-                checked={preferences.logWrap}
-                onCheckedChange={(checked) => updatePreference('logWrap', checked)}
-              />
-            </div>
             <div className="flex gap-1">
               {/* Hide expand/minimize button on mobile since it's always full screen */}
               {!isMobile && (

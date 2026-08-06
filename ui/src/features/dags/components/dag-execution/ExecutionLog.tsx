@@ -21,6 +21,10 @@ import { useQuery } from '../../../../hooks/api';
 import { whenEnabled } from '../../../../hooks/queryUtils';
 import { useDAGRunLogsSSE } from '../../../../hooks/useDAGRunLogsSSE';
 import { AnsiLine } from '@/lib/ansi';
+import {
+  parseSchedulerLogLine,
+  type SchedulerLogLine,
+} from '@/lib/scheduler-log';
 import LoadingIndicator from '@/components/ui/loading-indicator';
 
 // Extended Log type with pagination fields
@@ -34,6 +38,69 @@ interface LogWithPagination {
 
 function calculateTotalPages(totalLines: number, pageSize: number): number {
   return Math.ceil(totalLines / pageSize);
+}
+
+function shortTimestamp(timestamp?: string): string {
+  return timestamp?.match(/T(\d{2}:\d{2}:\d{2}(?:\.\d{3})?)/)?.[1] || '';
+}
+
+function levelClass(level?: string): string {
+  switch (level) {
+    case 'ERROR':
+      return 'bg-error/10 text-error';
+    case 'WARN':
+      return 'bg-warning/10 text-warning';
+    default:
+      return 'bg-muted text-muted-foreground';
+  }
+}
+
+function ActivityLine({ line }: { line: SchedulerLogLine }) {
+  if (!line.structured) {
+    return (
+      <div className="border-b border-border px-3 py-2 font-mono text-sm last:border-b-0">
+        <AnsiLine text={line.message} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-start gap-3 border-b border-border px-3 py-2 last:border-b-0">
+      <time
+        className="w-[5.5rem] shrink-0 pt-0.5 font-mono text-xs text-muted-foreground"
+        title={line.timestamp}
+      >
+        {shortTimestamp(line.timestamp)}
+      </time>
+      <span
+        className={`w-12 shrink-0 rounded px-1.5 py-0.5 text-center text-[10px] font-semibold ${levelClass(line.level)}`}
+      >
+        {line.level}
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-baseline gap-2">
+          <span className="font-medium text-foreground">
+            <AnsiLine text={line.message} />
+          </span>
+          {line.step && (
+            <span className="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-xs text-primary">
+              {line.step}
+            </span>
+          )}
+        </div>
+        {line.details && (
+          <details className="mt-1 text-xs text-muted-foreground">
+            <summary className="w-fit cursor-pointer select-none">
+              Details
+            </summary>
+            <code className="mt-1 block whitespace-pre-wrap break-words font-mono">
+              {line.details}
+            </code>
+          </details>
+        )}
+      </div>
+    </div>
+  );
 }
 
 /**
@@ -60,6 +127,9 @@ function ExecutionLog({ name, dagRunId, dagRun }: Props) {
   const [pageSize, setPageSize] = useState(1000);
   const [currentPage, setCurrentPage] = useState(1);
   const [jumpToLine, setJumpToLine] = useState<number | ''>('');
+  const [displayMode, setDisplayMode] = useState<'activity' | 'raw'>(
+    'activity'
+  );
 
   const isRunning = dagRun?.status === Status.Running;
   const [isLiveMode, setIsLiveMode] = useState(isRunning);
@@ -343,6 +413,8 @@ function ExecutionLog({ name, dagRunId, dagRun }: Props) {
     totalLines - lines.length <= 1 ? lines.length : totalLines;
 
   const totalPages = calculateTotalPages(effectiveTotalLines, pageSize);
+  const showNavigation = effectiveTotalLines > lines.length || hasMore;
+  const activityLines = lines.map(parseSchedulerLogLine);
 
   function getLineNumber(index: number): number {
     switch (viewMode) {
@@ -358,61 +430,83 @@ function ExecutionLog({ name, dagRunId, dagRun }: Props) {
   return (
     <div className="w-full h-full flex flex-col">
       {/* Controls for log navigation */}
-      <div className="flex flex-col gap-2 mb-2 p-4 bg-muted rounded">
+      <div className="mb-2 flex flex-col gap-2 rounded bg-muted p-3">
         <div className="flex flex-wrap items-center gap-2">
-          {/* Responsive button container */}
-          <div className="flex flex-wrap gap-1">
+          <div className="flex gap-1">
             <Button
               size="sm"
-              variant={viewMode === 'tail' ? 'primary' : 'default'}
-              onClick={() => handleViewModeChange('tail')}
-              disabled={isNavigating}
+              variant={displayMode === 'activity' ? 'primary' : 'default'}
+              onClick={() => setDisplayMode('activity')}
+              aria-pressed={displayMode === 'activity'}
             >
-              Show End
+              Activity
             </Button>
             <Button
               size="sm"
-              variant={viewMode === 'head' ? 'primary' : 'default'}
-              onClick={() => handleViewModeChange('head')}
-              disabled={isNavigating}
+              variant={displayMode === 'raw' ? 'primary' : 'default'}
+              onClick={() => setDisplayMode('raw')}
+              aria-pressed={displayMode === 'raw'}
             >
-              Show Beginning
-            </Button>
-            <Button
-              size="sm"
-              variant={viewMode === 'page' ? 'primary' : 'default'}
-              onClick={() => handleViewModeChange('page')}
-              disabled={isNavigating}
-            >
-              Page View
+              Raw
             </Button>
           </div>
 
-          <select
-            className="h-7 px-2 text-xs border border-border rounded-md bg-surface text-foreground flex-shrink-0 focus:outline-none focus:border-ring"
-            value={pageSize}
-            onChange={(e) => setPageSize(Number(e.target.value))}
-            disabled={isNavigating}
-          >
-            <option value="100">100 lines</option>
-            <option value="500">500 lines</option>
-            <option value="1000">1000 lines</option>
-            <option value="5000">5000 lines</option>
-            <option value="10000">10000 lines</option>
-          </select>
+          {showNavigation && (
+            <>
+              <div className="flex flex-wrap gap-1">
+                <Button
+                  size="sm"
+                  variant={viewMode === 'tail' ? 'primary' : 'default'}
+                  onClick={() => handleViewModeChange('tail')}
+                  disabled={isNavigating}
+                >
+                  Show End
+                </Button>
+                <Button
+                  size="sm"
+                  variant={viewMode === 'head' ? 'primary' : 'default'}
+                  onClick={() => handleViewModeChange('head')}
+                  disabled={isNavigating}
+                >
+                  Show Beginning
+                </Button>
+                <Button
+                  size="sm"
+                  variant={viewMode === 'page' ? 'primary' : 'default'}
+                  onClick={() => handleViewModeChange('page')}
+                  disabled={isNavigating}
+                >
+                  Page View
+                </Button>
+              </div>
 
-          {/* Wrap toggle, Live mode toggle and reload button */}
-          <div className="flex items-center gap-2 ml-auto">
-            {/* Wrap toggle */}
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs text-muted-foreground">Wrap</span>
-              <Switch
-                checked={preferences.logWrap}
-                onCheckedChange={(checked) =>
-                  updatePreference('logWrap', checked)
-                }
-              />
-            </div>
+              <select
+                className="h-7 flex-shrink-0 rounded-md border border-border bg-surface px-2 text-xs text-foreground focus:border-ring focus:outline-none"
+                value={pageSize}
+                onChange={(e) => setPageSize(Number(e.target.value))}
+                disabled={isNavigating}
+              >
+                <option value="100">100 lines</option>
+                <option value="500">500 lines</option>
+                <option value="1000">1000 lines</option>
+                <option value="5000">5000 lines</option>
+                <option value="10000">10000 lines</option>
+              </select>
+            </>
+          )}
+
+          <div className="ml-auto flex items-center gap-2">
+            {displayMode === 'raw' && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-muted-foreground">Wrap</span>
+                <Switch
+                  checked={preferences.logWrap}
+                  onCheckedChange={(checked) =>
+                    updatePreference('logWrap', checked)
+                  }
+                />
+              </div>
+            )}
 
             {/* Reload button */}
             <ReloadButton
@@ -452,14 +546,15 @@ function ExecutionLog({ name, dagRunId, dagRun }: Props) {
           </div>
         </div>
 
-        {/* Stats line - full width on mobile */}
         <div className="text-xs text-muted-foreground flex items-center">
-          Showing {lines.length} of {effectiveTotalLines} lines{' '}
+          {showNavigation
+            ? `Showing ${lines.length} of ${effectiveTotalLines} lines`
+            : `${effectiveTotalLines} ${effectiveTotalLines === 1 ? 'line' : 'lines'}`}{' '}
           {isEstimate ? '(estimated)' : ''} {hasMore ? '(more available)' : ''}
         </div>
 
         {/* Page navigation controls */}
-        {viewMode === 'page' && totalLines > 0 && (
+        {showNavigation && viewMode === 'page' && totalLines > 0 && (
           <div className="flex items-center gap-2 mt-2">
             <Button
               size="sm"
@@ -483,51 +578,53 @@ function ExecutionLog({ name, dagRunId, dagRun }: Props) {
           </div>
         )}
 
-        {/* Jump to line controls */}
-        <div className="flex items-center gap-2 mt-2">
-          <span className="text-xs text-muted-foreground">Jump to line:</span>
-          <Input
-            type="number"
-            min={1}
-            max={effectiveTotalLines}
-            value={jumpToLine}
-            onChange={(e) =>
-              setJumpToLine(e.target.value === '' ? '' : Number(e.target.value))
-            }
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                if (
-                  !isNavigating &&
-                  jumpToLine !== '' &&
-                  (jumpToLine as number) >= 1 &&
-                  (jumpToLine as number) <= effectiveTotalLines
-                ) {
-                  handleJumpToLine();
-                }
+        {showNavigation && (
+          <div className="flex items-center gap-2 mt-2">
+            <span className="text-xs text-muted-foreground">Jump to line:</span>
+            <Input
+              type="number"
+              min={1}
+              max={effectiveTotalLines}
+              value={jumpToLine}
+              onChange={(e) =>
+                setJumpToLine(
+                  e.target.value === '' ? '' : Number(e.target.value)
+                )
               }
-            }}
-            className="w-20 h-7 text-xs"
-            disabled={isNavigating}
-          />
-          <Button
-            size="sm"
-            onClick={handleJumpToLine}
-            disabled={
-              isNavigating ||
-              jumpToLine === '' ||
-              (jumpToLine as number) < 1 ||
-              (jumpToLine as number) > effectiveTotalLines
-            }
-          >
-            Go
-          </Button>
-        </div>
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  if (
+                    !isNavigating &&
+                    jumpToLine !== '' &&
+                    (jumpToLine as number) >= 1 &&
+                    (jumpToLine as number) <= effectiveTotalLines
+                  ) {
+                    handleJumpToLine();
+                  }
+                }
+              }}
+              className="w-20 h-7 text-xs"
+              disabled={isNavigating}
+            />
+            <Button
+              size="sm"
+              onClick={handleJumpToLine}
+              disabled={
+                isNavigating ||
+                jumpToLine === '' ||
+                (jumpToLine as number) < 1 ||
+                (jumpToLine as number) > effectiveTotalLines
+              }
+            >
+              Go
+            </Button>
+          </div>
+        )}
       </div>
 
-      {/* Log content with overlay loading indicator when navigating */}
       <div
         ref={logContainerRef}
-        className={`flex-1 rounded-lg bg-muted pt-4 pr-4 pb-4 relative ${preferences.logWrap ? 'overflow-auto' : 'overflow-x-auto overflow-y-auto'}`}
+        className={`relative flex-1 overflow-auto rounded-lg ${displayMode === 'raw' ? `bg-muted pb-4 pr-4 pt-4 ${preferences.logWrap ? '' : 'overflow-x-auto'}` : 'border border-border bg-card'}`}
       >
         {isNavigating && (
           <div className="absolute inset-0 bg-black/20 flex items-center justify-center z-10 pointer-events-none">
@@ -536,25 +633,33 @@ function ExecutionLog({ name, dagRunId, dagRun }: Props) {
             </div>
           </div>
         )}
-        <pre
-          className={`h-full font-mono text-sm text-foreground log-content ${preferences.logWrap ? '' : 'min-w-max'}`}
-        >
-          {lines.map((line, index) => (
-            <div key={index} className="flex pr-2 py-0.5">
-              <span
-                className="text-muted-foreground mr-4 select-none w-14 text-right flex-shrink-0 self-start sticky left-0 bg-muted pl-4 pr-2 z-10"
-                data-line-number={getLineNumber(index)}
-              >
-                {getLineNumber(index)}
-              </span>
-              <span
-                className={`flex-grow select-text cursor-text ${preferences.logWrap ? 'whitespace-pre-wrap break-all' : 'whitespace-pre'}`}
-              >
-                {line ? <AnsiLine text={line} /> : ' '}
-              </span>
-            </div>
-          ))}
-        </pre>
+        {displayMode === 'activity' ? (
+          <div>
+            {activityLines.map((line, index) => (
+              <ActivityLine key={index} line={line} />
+            ))}
+          </div>
+        ) : (
+          <pre
+            className={`h-full font-mono text-sm text-foreground log-content ${preferences.logWrap ? '' : 'min-w-max'}`}
+          >
+            {lines.map((line, index) => (
+              <div key={index} className="flex pr-2 py-0.5">
+                <span
+                  className="text-muted-foreground mr-4 select-none w-14 text-right flex-shrink-0 self-start sticky left-0 bg-muted pl-4 pr-2 z-10"
+                  data-line-number={getLineNumber(index)}
+                >
+                  {getLineNumber(index)}
+                </span>
+                <span
+                  className={`flex-grow select-text cursor-text ${preferences.logWrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'}`}
+                >
+                  {line ? <AnsiLine text={line} /> : ' '}
+                </span>
+              </div>
+            ))}
+          </pre>
+        )}
       </div>
     </div>
   );
