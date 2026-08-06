@@ -26,7 +26,7 @@ worker_selector:
 steps:
   - name: sleep
     run: sleep 2
-`, withProcConfig(distrTestProcHeartbeatInterval, distrTestProcHeartbeatInterval, distrTestProcStaleThreshold))
+`, withProcConfig(distrTestProcHeartbeatInterval, distrTestProcStaleThreshold))
 	defer f.cleanup()
 
 	f.startScheduler(30 * time.Second)
@@ -45,7 +45,7 @@ worker_selector:
 steps:
   - name: sleep
     run: sleep 2
-`, withProcConfig(distrTestProcHeartbeatInterval, distrTestProcHeartbeatInterval, distrTestProcStaleThreshold))
+`, withProcConfig(distrTestProcHeartbeatInterval, distrTestProcStaleThreshold))
 	defer f.cleanup()
 
 	require.NoError(t, f.enqueue())

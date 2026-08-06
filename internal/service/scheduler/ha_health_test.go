@@ -85,9 +85,8 @@ func newHASchedulerFixture(t *testing.T) *haSchedulerFixture {
 			LogDir:             filepath.Join(tmpDir, "logs"),
 		},
 		Proc: config.Proc{
-			HeartbeatInterval:     5 * time.Second,
-			HeartbeatSyncInterval: 10 * time.Second,
-			StaleThreshold:        90 * time.Second,
+			HeartbeatInterval: 5 * time.Second,
+			StaleThreshold:    90 * time.Second,
 		},
 		Scheduler: config.Scheduler{
 			Port:               0,

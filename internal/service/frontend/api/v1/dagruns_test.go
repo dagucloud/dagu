@@ -1039,7 +1039,6 @@ func TestApproveDAGRunStepResumeRefreshesProcessIdentity(t *testing.T) {
 
 	server := test.SetupServer(t, test.WithConfigMutator(func(cfg *config.Config) {
 		cfg.Proc.HeartbeatInterval = procHeartbeatInterval
-		cfg.Proc.HeartbeatSyncInterval = procHeartbeatInterval
 		cfg.Proc.StaleThreshold = procStaleThreshold
 	}))
 	release := newHoldFile(t)

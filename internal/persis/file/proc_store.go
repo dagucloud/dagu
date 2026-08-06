@@ -14,7 +14,6 @@ func NewProcStore(cfg *config.Config, opts ...proc.StoreOption) *proc.Store {
 	storeOpts := []proc.StoreOption{
 		proc.WithStaleThreshold(cfg.Proc.StaleThreshold),
 		proc.WithHeartbeatInterval(cfg.Proc.HeartbeatInterval),
-		proc.WithHeartbeatSyncInterval(cfg.Proc.HeartbeatSyncInterval),
 	}
 	storeOpts = append(storeOpts, opts...)
 	return proc.New(cfg.Paths.ProcDir, storeOpts...)

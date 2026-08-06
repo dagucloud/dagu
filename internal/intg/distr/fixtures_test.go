@@ -47,9 +47,8 @@ type fixtureConfig struct {
 }
 
 type procConfig struct {
-	heartbeatInterval     time.Duration
-	heartbeatSyncInterval time.Duration
-	staleThreshold        time.Duration
+	heartbeatInterval time.Duration
+	staleThreshold    time.Duration
 }
 
 type fixtureOption func(*fixtureConfig)
@@ -105,12 +104,11 @@ func withWorkerBaseConfigPath(path string) fixtureOption {
 	return func(c *fixtureConfig) { c.workerBaseConfigPath = path }
 }
 
-func withProcConfig(heartbeatInterval, heartbeatSyncInterval, staleThreshold time.Duration) fixtureOption {
+func withProcConfig(heartbeatInterval, staleThreshold time.Duration) fixtureOption {
 	return func(c *fixtureConfig) {
 		c.procConfig = &procConfig{
-			heartbeatInterval:     heartbeatInterval,
-			heartbeatSyncInterval: heartbeatSyncInterval,
-			staleThreshold:        staleThreshold,
+			heartbeatInterval: heartbeatInterval,
+			staleThreshold:    staleThreshold,
 		}
 	}
 }
@@ -163,7 +161,6 @@ func newTestFixture(t *testing.T, yaml string, opts ...fixtureOption) *testFixtu
 		c.Scheduler.Port = 0
 		if cfg.procConfig != nil {
 			c.Proc.HeartbeatInterval = cfg.procConfig.heartbeatInterval
-			c.Proc.HeartbeatSyncInterval = cfg.procConfig.heartbeatSyncInterval
 			c.Proc.StaleThreshold = cfg.procConfig.staleThreshold
 		}
 		if cfg.zombieDetectionInterval > 0 {

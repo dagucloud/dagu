@@ -378,9 +378,8 @@ type PostgresPoolDef struct {
 
 // ProcDef configures local proc-file heartbeat behavior.
 type ProcDef struct {
-	HeartbeatInterval     string `mapstructure:"heartbeat_interval"`      // Default: 5s
-	HeartbeatSyncInterval string `mapstructure:"heartbeat_sync_interval"` // Default: 10s
-	StaleThreshold        string `mapstructure:"stale_threshold"`         // Default: 90s
+	HeartbeatInterval string `mapstructure:"heartbeat_interval"` // Default: 5s
+	StaleThreshold    string `mapstructure:"stale_threshold"`    // Default: 90s
 }
 
 // SchedulerDef configures the scheduler.
@@ -391,7 +390,6 @@ type SchedulerDef struct {
 	ZombieDetectionInterval string `mapstructure:"zombie_detection_interval"` // Default: 45s, 0 to disable
 	RetryFailureWindow      string `mapstructure:"retry_failure_window"`      // Default: 24h, 0 to disable retry scanning. Current limitation: the window is evaluated from the original DAG-run timestamp/day bucket, not the latest failed attempt timestamp.
 	HeartbeatInterval       string `mapstructure:"heartbeat_interval"`        // Deprecated: use proc.heartbeat_interval
-	HeartbeatSyncInterval   string `mapstructure:"heartbeat_sync_interval"`   // Deprecated: use proc.heartbeat_sync_interval
 	StaleThreshold          string `mapstructure:"stale_threshold"`           // Deprecated: use proc.stale_threshold
 	FailureThreshold        int    `mapstructure:"failure_threshold"`         // Default: 3
 }

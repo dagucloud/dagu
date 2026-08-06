@@ -73,7 +73,6 @@ func TestProcStoreHeartbeatAdvances(t *testing.T) {
 	ctx := context.Background()
 	s := newProcStore(t,
 		store.WithProcHeartbeatInterval(10*time.Millisecond),
-		store.WithProcHeartbeatSyncInterval(10*time.Millisecond),
 	)
 	ref := exec.NewDAGRunRef("heartbeat-dag", "run-1")
 

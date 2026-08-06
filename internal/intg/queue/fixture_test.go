@@ -44,9 +44,8 @@ type fixture struct {
 }
 
 type procConfig struct {
-	heartbeatInterval     time.Duration
-	heartbeatSyncInterval time.Duration
-	staleThreshold        time.Duration
+	heartbeatInterval time.Duration
+	staleThreshold    time.Duration
 }
 
 type schedulerConfig struct {
@@ -80,7 +79,6 @@ func newFixture(t *testing.T, dagYAML string, opts ...func(*fixture)) *fixture {
 			c.Scheduler.Port = 0
 			if f.procConfig != nil {
 				c.Proc.HeartbeatInterval = f.procConfig.heartbeatInterval
-				c.Proc.HeartbeatSyncInterval = f.procConfig.heartbeatSyncInterval
 				c.Proc.StaleThreshold = f.procConfig.staleThreshold
 			}
 			if f.schedConfig != nil {
@@ -159,12 +157,11 @@ func WithRetryWindow(window time.Duration) func(*fixture) {
 	return func(f *fixture) { f.retryWindow = window }
 }
 
-func WithProcConfig(heartbeatInterval, heartbeatSyncInterval, staleThreshold time.Duration) func(*fixture) {
+func WithProcConfig(heartbeatInterval, staleThreshold time.Duration) func(*fixture) {
 	return func(f *fixture) {
 		f.procConfig = &procConfig{
-			heartbeatInterval:     heartbeatInterval,
-			heartbeatSyncInterval: heartbeatSyncInterval,
-			staleThreshold:        staleThreshold,
+			heartbeatInterval: heartbeatInterval,
+			staleThreshold:    staleThreshold,
 		}
 	}
 }

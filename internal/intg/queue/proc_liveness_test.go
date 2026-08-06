@@ -32,7 +32,7 @@ steps:
   - name: sleep
     run: |
 %s
-`, indentQueueTestScript(intgharness.PortableCommands().WaitForFile(releaseFile), 6)), WithProcConfig(queueTestProcHeartbeatInterval, queueTestProcHeartbeatInterval, queueTestProcStaleThreshold)).
+`, indentQueueTestScript(intgharness.PortableCommands().WaitForFile(releaseFile), 6)), WithProcConfig(queueTestProcHeartbeatInterval, queueTestProcStaleThreshold)).
 		Enqueue(1).
 		StartScheduler(60 * time.Second)
 	defer f.Stop()
@@ -59,7 +59,7 @@ name: scheduler-stale-repair
 steps:
   - name: step1
     run: echo never
-`, WithProcConfig(50*time.Millisecond, 50*time.Millisecond, 100*time.Millisecond), WithZombieConfig(50*time.Millisecond, 1))
+`, WithProcConfig(50*time.Millisecond, 100*time.Millisecond), WithZombieConfig(50*time.Millisecond, 1))
 	defer f.Stop()
 
 	dagRunID := uuid.Must(uuid.NewV7()).String()
@@ -110,7 +110,7 @@ max_active_runs: 1
 steps:
   - name: echo
     run: echo hello
-`, WithProcConfig(queueTestProcHeartbeatInterval, queueTestProcHeartbeatInterval, queueTestProcStaleThreshold), WithZombieConfig(50*time.Millisecond, 3)).
+`, WithProcConfig(queueTestProcHeartbeatInterval, queueTestProcStaleThreshold), WithZombieConfig(50*time.Millisecond, 3)).
 		Enqueue(1)
 	defer f.Stop()
 

@@ -43,15 +43,6 @@ func WithProcHeartbeatInterval(d time.Duration) ProcStoreOption {
 	}
 }
 
-// WithProcHeartbeatSyncInterval keeps configuration parity with the legacy
-// proc store option.
-// Collection-backed proc heartbeats are complete writes, so there is no
-// separate sync loop to configure.
-func WithProcHeartbeatSyncInterval(_ time.Duration) ProcStoreOption {
-	return func(_ *ProcStore) {
-	}
-}
-
 // ProcStore implements [exec.ProcStore] on top of a [persis.Collection].
 //
 // This is the backend-neutral proc store, intended for non-file backends

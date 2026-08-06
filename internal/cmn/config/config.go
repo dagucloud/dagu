@@ -549,9 +549,8 @@ type Worker struct {
 
 // Proc represents local proc-file heartbeat configuration.
 type Proc struct {
-	HeartbeatInterval     time.Duration // Default: 5s
-	HeartbeatSyncInterval time.Duration // Default: 10s
-	StaleThreshold        time.Duration // Default: 90s
+	HeartbeatInterval time.Duration // Default: 5s
+	StaleThreshold    time.Duration // Default: 90s
 }
 
 // Scheduler represents the scheduler configuration.
@@ -645,12 +644,6 @@ func (c *Config) validateProc() error {
 		return fmt.Errorf(
 			"proc.heartbeat_interval (%s) must be less than proc.stale_threshold (%s)",
 			p.HeartbeatInterval, p.StaleThreshold,
-		)
-	}
-	if p.HeartbeatSyncInterval > 0 && p.StaleThreshold > 0 && p.HeartbeatSyncInterval >= p.StaleThreshold {
-		return fmt.Errorf(
-			"proc.heartbeat_sync_interval (%s) must be less than proc.stale_threshold (%s)",
-			p.HeartbeatSyncInterval, p.StaleThreshold,
 		)
 	}
 	return nil

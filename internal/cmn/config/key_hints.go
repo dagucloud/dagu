@@ -142,14 +142,12 @@ var legacyToSnakeCaseKey = map[string]string{
 	"scheduler.lockretryinterval":       "scheduler.lock_retry_interval",
 	"scheduler.zombiedetectioninterval": "scheduler.zombie_detection_interval",
 	"scheduler.heartbeatinterval":       "scheduler.heartbeat_interval",
-	"scheduler.heartbeatsyncinterval":   "scheduler.heartbeat_sync_interval",
 	"scheduler.stalethreshold":          "scheduler.stale_threshold",
 	"scheduler.failurethreshold":        "scheduler.failure_threshold",
 
 	// Proc
-	"proc.heartbeatinterval":     "proc.heartbeat_interval",
-	"proc.heartbeatsyncinterval": "proc.heartbeat_sync_interval",
-	"proc.stalethreshold":        "proc.stale_threshold",
+	"proc.heartbeatinterval": "proc.heartbeat_interval",
+	"proc.stalethreshold":    "proc.stale_threshold",
 
 	// Queue
 	"queues.config.maxactiveruns":  "queues.config.max_active_runs",

@@ -44,7 +44,6 @@ type staleLocalRunFixture struct {
 func TestServerProcHeartbeat_StartAPI(t *testing.T) {
 	server := test.SetupServer(t, test.WithConfigMutator(func(cfg *config.Config) {
 		cfg.Proc.HeartbeatInterval = apiTestProcHeartbeatInterval
-		cfg.Proc.HeartbeatSyncInterval = apiTestProcHeartbeatInterval
 		cfg.Proc.StaleThreshold = apiTestProcStaleThreshold
 	}))
 
@@ -141,7 +140,6 @@ func setupStaleLocalRun(t *testing.T, dagName string) staleLocalRunFixture {
 
 	server := test.SetupServer(t, test.WithConfigMutator(func(cfg *config.Config) {
 		cfg.Proc.HeartbeatInterval = 50 * time.Millisecond
-		cfg.Proc.HeartbeatSyncInterval = 50 * time.Millisecond
 		cfg.Proc.StaleThreshold = 100 * time.Millisecond
 	}))
 

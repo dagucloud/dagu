@@ -32,7 +32,6 @@ func TestProcHeartbeat_StartCommand(t *testing.T) {
 
 	th := test.SetupCommand(t, test.WithConfigMutator(func(cfg *config.Config) {
 		cfg.Proc.HeartbeatInterval = testProcHeartbeatInterval
-		cfg.Proc.HeartbeatSyncInterval = testProcHeartbeatInterval
 		cfg.Proc.StaleThreshold = testProcStaleThreshold
 	}))
 	h := intgharness.New(t, th.Helper)
@@ -68,7 +67,6 @@ func TestProcHeartbeat_RetryCommand(t *testing.T) {
 
 	th := test.SetupCommand(t, test.WithConfigMutator(func(cfg *config.Config) {
 		cfg.Proc.HeartbeatInterval = testProcHeartbeatInterval
-		cfg.Proc.HeartbeatSyncInterval = testProcHeartbeatInterval
 		cfg.Proc.StaleThreshold = testProcStaleThreshold
 	}))
 	h := intgharness.New(t, th.Helper)

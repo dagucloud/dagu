@@ -398,9 +398,8 @@ func writeHelperConfigFile(t *testing.T, cfg *config.Config, configPath string) 
 	}
 
 	configData["proc"] = map[string]any{
-		"heartbeat_interval":      cfg.Proc.HeartbeatInterval.String(),
-		"heartbeat_sync_interval": cfg.Proc.HeartbeatSyncInterval.String(),
-		"stale_threshold":         cfg.Proc.StaleThreshold.String(),
+		"heartbeat_interval": cfg.Proc.HeartbeatInterval.String(),
+		"stale_threshold":    cfg.Proc.StaleThreshold.String(),
 	}
 
 	scheduler := map[string]any{}

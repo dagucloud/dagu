@@ -89,7 +89,6 @@ func newSchedulerTestProcStore(procDir string, cfg *config.Config) exec.ProcStor
 	if cfg != nil {
 		opts = append(opts,
 			proc.WithHeartbeatInterval(cfg.Proc.HeartbeatInterval),
-			proc.WithHeartbeatSyncInterval(cfg.Proc.HeartbeatSyncInterval),
 			proc.WithStaleThreshold(cfg.Proc.StaleThreshold),
 		)
 	}

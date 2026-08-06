@@ -1444,11 +1444,6 @@ func (l *ConfigLoader) loadProcConfig(cfg *Config, def Definition) {
 			"proc.heartbeat_interval", l.v.GetString("proc.heartbeat_interval"),
 		)
 	}
-	if l.v.IsSet("proc.heartbeat_sync_interval") {
-		cfg.Proc.HeartbeatSyncInterval = l.parseDuration(
-			"proc.heartbeat_sync_interval", l.v.GetString("proc.heartbeat_sync_interval"),
-		)
-	}
 	if l.v.IsSet("proc.stale_threshold") {
 		cfg.Proc.StaleThreshold = l.parseDuration(
 			"proc.stale_threshold", l.v.GetString("proc.stale_threshold"),
@@ -1465,12 +1460,6 @@ func (l *ConfigLoader) loadLegacySchedulerProcConfig(cfg *Config, def Definition
 		"proc.heartbeat_interval",
 		"scheduler.heartbeat_interval",
 		l.schedulerLegacyValue(def, "scheduler.heartbeat_interval", func(sd *SchedulerDef) string { return sd.HeartbeatInterval }),
-	)
-	l.applyDeprecatedProcAlias(
-		&cfg.Proc.HeartbeatSyncInterval,
-		"proc.heartbeat_sync_interval",
-		"scheduler.heartbeat_sync_interval",
-		l.schedulerLegacyValue(def, "scheduler.heartbeat_sync_interval", func(sd *SchedulerDef) string { return sd.HeartbeatSyncInterval }),
 	)
 	l.applyDeprecatedProcAlias(
 		&cfg.Proc.StaleThreshold,
@@ -1511,9 +1500,6 @@ func (l *ConfigLoader) applyDeprecatedProcAlias(
 func (l *ConfigLoader) setProcDefaults(cfg *Config) {
 	if cfg.Proc.HeartbeatInterval <= 0 {
 		cfg.Proc.HeartbeatInterval = 5 * time.Second
-	}
-	if cfg.Proc.HeartbeatSyncInterval <= 0 {
-		cfg.Proc.HeartbeatSyncInterval = 10 * time.Second
 	}
 	if cfg.Proc.StaleThreshold <= 0 {
 		cfg.Proc.StaleThreshold = 90 * time.Second
@@ -2054,11 +2040,9 @@ var envBindings = []envBinding{
 
 	// Proc
 	{key: "proc.heartbeat_interval", env: "PROC_HEARTBEAT_INTERVAL"},
-	{key: "proc.heartbeat_sync_interval", env: "PROC_HEARTBEAT_SYNC_INTERVAL"},
 	{key: "proc.stale_threshold", env: "PROC_STALE_THRESHOLD"},
 	// Proc (legacy scheduler aliases)
 	{key: "scheduler.heartbeat_interval", env: "SCHEDULER_HEARTBEAT_INTERVAL"},
-	{key: "scheduler.heartbeat_sync_interval", env: "SCHEDULER_HEARTBEAT_SYNC_INTERVAL"},
 	{key: "scheduler.stale_threshold", env: "SCHEDULER_STALE_THRESHOLD"},
 
 	// UI
