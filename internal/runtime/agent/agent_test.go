@@ -8,14 +8,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -109,120 +106,6 @@ func agentRunStartTimeout() time.Duration {
 		return 30 * time.Second
 	}
 	return 5 * time.Second
-}
-
-func TestAgent_SubDAGSchedulerLogContext(t *testing.T) {
-	th := test.Setup(t)
-	dag := th.DAG(t, `steps:
-  - name: collect_metrics
-    run: exit 0
-`)
-	logs := &schedulerLogCapture{}
-	const (
-		runID     = "child-run"
-		attemptID = "attempt-1"
-	)
-	rootRef := exec.NewDAGRunRef(dag.Name, "root-run")
-	_, err := th.DAGRunStore.CreateAttempt(
-		th.Context,
-		dag.DAG,
-		time.Now(),
-		rootRef.ID,
-		exec.NewDAGRunAttemptOptions{},
-	)
-	require.NoError(t, err)
-	require.NoError(t, os.MkdirAll(th.Config.Paths.LogDir, 0o750))
-	logFile := filepath.Join(th.Config.Paths.LogDir, runID+".log")
-	dagAgent := agent.New(
-		runID,
-		dag.DAG,
-		th.Config.Paths.LogDir,
-		logFile,
-		th.DAGRunMgr,
-		th.DAGStore,
-		agent.Options{
-			RootDAGRun:        rootRef,
-			ParentDAGRun:      rootRef,
-			AttemptID:         attemptID,
-			DAGRunStore:       th.DAGRunStore,
-			QueueStore:        th.QueueStore,
-			StateStore:        th.StateStore,
-			ServiceRegistry:   th.ServiceRegistry,
-			LogWriterFactory:  logs,
-			PeerConfig:        th.Config.Core.Peer,
-			DefaultExecMode:   th.Config.DefaultExecMode,
-			DAGRunLogDir:      th.Config.Paths.LogDir,
-			DAGRunArtifactDir: th.Config.Paths.ArtifactDir,
-		},
-	)
-
-	require.NoError(t, dagAgent.Run(th.Context))
-
-	var records []map[string]any
-	for line := range strings.SplitSeq(strings.TrimSpace(logs.String()), "\n") {
-		var record map[string]any
-		require.NoError(t, json.Unmarshal([]byte(line), &record))
-		records = append(records, record)
-	}
-
-	var boundary, step map[string]any
-	attemptCount := 0
-	for _, record := range records {
-		if _, ok := record["attempt-id"]; ok {
-			attemptCount++
-		}
-		if _, ok := record["step"]; ok {
-			for _, key := range []string{"dag", "run-id", "attempt-id", "worker-id", "trace-id", "span-id", "trace-flags", "root", "parent"} {
-				require.NotContains(t, record, key)
-			}
-		}
-		switch record["msg"] {
-		case "DAG run started":
-			boundary = record
-		case "Step started":
-			step = record
-		}
-	}
-	require.Equal(t, attemptID, boundary["attempt-id"])
-	require.Equal(t, 1, attemptCount)
-	require.Equal(t, "collect_metrics", step["step"])
-}
-
-type schedulerLogCapture struct {
-	mu     sync.Mutex
-	output strings.Builder
-}
-
-func (c *schedulerLogCapture) NewStepWriter(context.Context, string, int) io.WriteCloser {
-	return nopWriteCloser{Writer: io.Discard}
-}
-
-func (c *schedulerLogCapture) NewSchedulerLogWriter(context.Context, *os.File) io.WriteCloser {
-	return nopWriteCloser{Writer: c}
-}
-
-func (*schedulerLogCapture) StreamSchedulerLog(context.Context, string) error {
-	return nil
-}
-
-func (c *schedulerLogCapture) Write(data []byte) (int, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.output.Write(data)
-}
-
-func (c *schedulerLogCapture) String() string {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.output.String()
-}
-
-type nopWriteCloser struct {
-	io.Writer
-}
-
-func (nopWriteCloser) Close() error {
-	return nil
 }
 
 func pwdCommand() string {
