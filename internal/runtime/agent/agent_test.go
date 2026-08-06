@@ -159,7 +159,7 @@ func TestAgent_SubDAGSchedulerLogContext(t *testing.T) {
 	require.NoError(t, dagAgent.Run(th.Context))
 
 	var records []map[string]any
-	for _, line := range strings.Split(strings.TrimSpace(logs.String()), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(logs.String()), "\n") {
 		var record map[string]any
 		require.NoError(t, json.Unmarshal([]byte(line), &record))
 		records = append(records, record)
