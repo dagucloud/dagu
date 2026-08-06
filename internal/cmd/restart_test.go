@@ -117,12 +117,5 @@ steps:
 func builtExecutableRestartWaitTimeout(t *testing.T) time.Duration {
 	t.Helper()
 
-	timeout := 6 * commandLogWaitTimeout()
-	if deadline, ok := t.Deadline(); ok {
-		remaining := time.Until(deadline) - 15*time.Second
-		if remaining > 0 && remaining < timeout {
-			return remaining
-		}
-	}
-	return timeout
+	return boundedWaitTimeout(t, 6*commandLogWaitTimeout())
 }

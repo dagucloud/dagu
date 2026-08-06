@@ -30,7 +30,23 @@ func executeCommand(ctx context.Context, c *cobra.Command, args []string) error 
 	return c.Execute()
 }
 
-// waitForDAGRunning waits until the DAG is in running state.
+// boundedWaitTimeout returns want, shortened when needed to stay inside the
+// test deadline.
+func boundedWaitTimeout(t *testing.T, want time.Duration) time.Duration {
+	t.Helper()
+
+	if deadline, ok := t.Deadline(); ok {
+		remaining := time.Until(deadline) - 15*time.Second
+		if remaining > 0 && remaining < want {
+			return remaining
+		}
+	}
+	return want
+}
+
+// waitForDAGRunning waits until the DAG is in running state. Reaching it means
+// spawning a process and writing the first status file, and that cost varies
+// widely with host load, so the budget is generous rather than fixed.
 func waitForDAGRunning(t *testing.T, th test.Command, dagLocation string) {
 	t.Helper()
 	require.Eventually(t, func() bool {
@@ -43,7 +59,7 @@ func waitForDAGRunning(t *testing.T, th test.Command, dagLocation string) {
 			return false
 		}
 		return status.Status == core.Running
-	}, time.Second*3, time.Millisecond*50)
+	}, boundedWaitTimeout(t, time.Minute), time.Millisecond*50)
 }
 
 func TestStatusCommand(t *testing.T) {
