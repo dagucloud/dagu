@@ -81,13 +81,13 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// testStepBuildContext creates a StepBuildContext for testing
-func testStepBuildContext() StepBuildContext {
-	return StepBuildContext{
-		BuildContext: BuildContext{
+// testStepBuildContext creates a stepBuildContext for testing
+func testStepBuildContext() stepBuildContext {
+	return stepBuildContext{
+		buildContext: buildContext{
 			ctx:   context.Background(),
 			file:  "/test/dag.yaml",
-			opts:  BuildOpts{},
+			opts:  buildOpts{},
 			index: 0,
 		},
 	}
@@ -1409,7 +1409,7 @@ func TestBuildStepExecutor(t *testing.T) {
 	tests := []struct {
 		name     string
 		step     *step
-		ctx      StepBuildContext
+		ctx      stepBuildContext
 		expected core.ExecutorConfig
 		wantErr  bool
 	}{
@@ -1484,8 +1484,8 @@ func TestBuildStepExecutor(t *testing.T) {
 		{
 			name: "InheritsContainerExecutor",
 			step: &step{},
-			ctx: StepBuildContext{
-				BuildContext: testBuildContext(),
+			ctx: stepBuildContext{
+				buildContext: testBuildContext(),
 				dag:          &core.DAG{Container: &core.Container{Image: "alpine"}},
 			},
 			expected: core.ExecutorConfig{Type: "container", Config: make(map[string]any)},
@@ -1493,8 +1493,8 @@ func TestBuildStepExecutor(t *testing.T) {
 		{
 			name: "InheritsSSHExecutor",
 			step: &step{},
-			ctx: StepBuildContext{
-				BuildContext: testBuildContext(),
+			ctx: stepBuildContext{
+				buildContext: testBuildContext(),
 				dag:          &core.DAG{SSH: &core.SSHConfig{Host: "example.com"}},
 			},
 			expected: core.ExecutorConfig{Type: "ssh", Config: make(map[string]any)},
@@ -3051,7 +3051,7 @@ func TestBuildStepExecutorNewFormat(t *testing.T) {
 	tests := []struct {
 		name     string
 		step     *step
-		ctx      StepBuildContext
+		ctx      stepBuildContext
 		expected core.ExecutorConfig
 		wantErr  bool
 	}{
@@ -3102,8 +3102,8 @@ func TestBuildStepExecutorNewFormat(t *testing.T) {
 			step: &step{
 				Type: "http",
 			},
-			ctx: StepBuildContext{
-				BuildContext: testBuildContext(),
+			ctx: stepBuildContext{
+				buildContext: testBuildContext(),
 				dag:          &core.DAG{Container: &core.Container{Image: "alpine"}},
 			},
 			expected: core.ExecutorConfig{
@@ -3478,8 +3478,8 @@ func TestBuildStepLLM(t *testing.T) {
 			result := &core.Step{ExecutorConfig: core.ExecutorConfig{Config: make(map[string]any)}}
 
 			// Build executor first to set the type
-			ctx := StepBuildContext{
-				BuildContext: BuildContext{ctx: context.Background()},
+			ctx := stepBuildContext{
+				buildContext: buildContext{ctx: context.Background()},
 				dag:          tt.dag,
 			}
 			_ = buildStepExecutor(ctx, tt.step, result)

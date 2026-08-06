@@ -60,7 +60,7 @@ func normalizeHumanTaskAction(normalized map[string]any, with map[string]any) er
 	return nil
 }
 
-func buildStepHumanTask(_ StepBuildContext, s *step, result *core.Step) error {
+func buildStepHumanTask(_ stepBuildContext, s *step, result *core.Step) error {
 	if strings.TrimSpace(s.Action) != "human.task" {
 		return nil
 	}

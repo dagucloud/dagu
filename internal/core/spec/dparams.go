@@ -38,7 +38,7 @@ type dagParamEntry struct {
 	Eval     string
 }
 
-func buildDAGParamsResult(ctx BuildContext, d *dag) (*paramsResult, error) {
+func buildDAGParamsResult(ctx buildContext, d *dag) (*paramsResult, error) {
 	plan, err := buildDAGParamPlan(ctx, d)
 	if err != nil {
 		return nil, err
@@ -75,7 +75,7 @@ func buildDAGParamsResult(ctx BuildContext, d *dag) (*paramsResult, error) {
 			// Eval-backed inline params may depend on mutable state or perform command
 			// execution, so reuse the execution-time resolution instead of running
 			// the same expressions again just to populate DefaultParams.
-			if paramPlanHasEval(plan) && !ctx.opts.Has(BuildFlagNoEval) {
+			if paramPlanHasEval(plan) && !ctx.opts.Has(buildFlagNoEval) {
 				defaultPairs = finalPairs
 				break
 			}
@@ -143,8 +143,8 @@ func buildDAGParamsResult(ctx BuildContext, d *dag) (*paramsResult, error) {
 	}, nil
 }
 
-func shouldResolveRuntimeParams(ctx BuildContext) bool {
-	return ctx.opts.Has(BuildFlagValidateRuntimeParams) || ctx.opts.Parameters != "" || len(ctx.opts.ParametersList) > 0
+func shouldResolveRuntimeParams(ctx buildContext) bool {
+	return ctx.opts.Has(buildFlagValidateRuntimeParams) || ctx.opts.Parameters != "" || len(ctx.opts.ParametersList) > 0
 }
 
 func finalizeDAGParamPlan(plan *dagParamPlan) error {
@@ -199,9 +199,9 @@ func paramPlanHasEval(plan *dagParamPlan) bool {
 	return false
 }
 
-func buildDAGParamPlan(ctx BuildContext, d *dag) (*dagParamPlan, error) {
+func buildDAGParamPlan(ctx buildContext, d *dag) (*dagParamPlan, error) {
 	if _, ok := extractParamsSchemaDeclaration(d.Params); ok {
-		if ctx.opts.Has(BuildFlagSkipSchemaValidation) {
+		if ctx.opts.Has(buildFlagSkipSchemaValidation) {
 			return buildLegacyParamPlan(extractSchemaValues(d.Params))
 		}
 		return buildExternalSchemaParamPlan(d.Params, d.WorkingDir, ctx.file)
@@ -210,13 +210,13 @@ func buildDAGParamPlan(ctx BuildContext, d *dag) (*dagParamPlan, error) {
 		return nil, err
 	}
 	if isInlineJSONSchema(d.Params) {
-		return buildInlineSchemaParamPlan(d.Params, ctx.opts.Has(BuildFlagSkipSchemaValidation))
+		return buildInlineSchemaParamPlan(d.Params, ctx.opts.Has(buildFlagSkipSchemaValidation))
 	}
 	return buildLegacyParamPlan(d.Params)
 }
 
 func buildLegacyParamPlan(input any) (*dagParamPlan, error) {
-	noEvalCtx := BuildContext{opts: BuildOpts{Flags: BuildFlagNoEval}}
+	noEvalCtx := buildContext{opts: buildOpts{Flags: buildFlagNoEval}}
 	plan := &dagParamPlan{kind: dagParamKindLegacy}
 	seenNames := map[string]struct{}{}
 
@@ -330,7 +330,7 @@ func buildExternalSchemaParamPlan(input any, workingDir, dagLocation string) (*d
 	}
 
 	values := extractSchemaValues(input)
-	noEvalCtx := BuildContext{opts: BuildOpts{Flags: BuildFlagNoEval}}
+	noEvalCtx := buildContext{opts: buildOpts{Flags: buildFlagNoEval}}
 	basePairs, err := parseParamValue(noEvalCtx, values)
 	if err != nil {
 		return nil, core.NewValidationError("params", values, fmt.Errorf("%w: %s", ErrInvalidParamValue, err))

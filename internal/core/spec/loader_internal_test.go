@@ -20,13 +20,21 @@ func TestExpandHomeDir(t *testing.T) {
 	homeDir, err := os.UserHomeDir()
 	require.NoError(t, err)
 
-	assert.Equal(t, homeDir, expandHomeDir("~"))
+	expanded, err := expandHomeDir("~")
+	require.NoError(t, err)
+	assert.Equal(t, homeDir, expanded)
+
+	expanded, err = expandHomeDir("~/dags/test.yaml")
+	require.NoError(t, err)
 	assert.Equal(
 		t,
 		filepath.Clean(filepath.Join(homeDir, "dags", "test.yaml")),
-		filepath.Clean(expandHomeDir("~/dags/test.yaml")),
+		filepath.Clean(expanded),
 	)
-	assert.Equal(t, "~alice/dags/test.yaml", expandHomeDir("~alice/dags/test.yaml"))
+
+	expanded, err = expandHomeDir("~alice/dags/test.yaml")
+	require.NoError(t, err)
+	assert.Equal(t, "~alice/dags/test.yaml", expanded)
 }
 
 // TestUnmarshalData verifies manifest decoding handles empty and malformed YAML inputs.

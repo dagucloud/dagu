@@ -12,7 +12,7 @@ import (
 
 const kubernetesDefaultsSchemaType = "kubernetes_defaults"
 
-func buildKubernetes(_ BuildContext, d *dag) (core.KubernetesConfig, error) {
+func buildKubernetes(_ buildContext, d *dag) (core.KubernetesConfig, error) {
 	if d.Kubernetes == nil {
 		return nil, nil
 	}

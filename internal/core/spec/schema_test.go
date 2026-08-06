@@ -857,9 +857,7 @@ params:
 		_, err := LoadYAML(context.Background(), data)
 		require.Error(t, err)
 
-		dag, err := LoadYAMLWithOpts(context.Background(), data, BuildOpts{
-			Flags: BuildFlagSkipSchemaValidation,
-		})
+		dag, err := LoadYAML(context.Background(), data, SkipSchemaValidation())
 		require.NoError(t, err)
 
 		require.Len(t, dag.Params, 1)

@@ -15,7 +15,7 @@ import (
 func TestStepOutputsDeclarationBuilds(t *testing.T) {
 	t.Parallel()
 
-	dag, err := spec.LoadYAMLWithOpts(context.Background(), []byte(`
+	dag, err := spec.LoadYAML(context.Background(), []byte(`
 name: test
 steps:
   - id: build
@@ -24,7 +24,7 @@ steps:
       - name: image_tag
       - name: metadata
         type: json
-`), spec.BuildOpts{Flags: spec.BuildFlagNoEval})
+`), spec.WithoutEval())
 	require.NoError(t, err)
 	require.Len(t, dag.Steps, 1)
 	require.Equal(t, []core.StepOutputDeclaration{
@@ -144,10 +144,10 @@ steps:
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := spec.LoadYAMLWithOpts(
+			_, err := spec.LoadYAML(
 				context.Background(),
 				[]byte(tc.yaml),
-				spec.BuildOpts{Flags: spec.BuildFlagNoEval},
+				spec.WithoutEval(),
 			)
 			require.Error(t, err)
 			require.Contains(t, err.Error(), tc.message)

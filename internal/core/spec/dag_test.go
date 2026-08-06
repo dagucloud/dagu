@@ -18,16 +18,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// testBuildContext creates a BuildContext for testing
-func testBuildContext() BuildContext {
-	return BuildContext{
+// testBuildContext creates a buildContext for testing
+func testBuildContext() buildContext {
+	return buildContext{
 		file:  "/test/dag.yaml",
-		opts:  BuildOpts{},
+		opts:  buildOpts{},
 		index: 0,
 	}
 }
 
-func testBuildContextWithOpts(opts BuildOpts) BuildContext {
+func testBuildContextWithOpts(opts buildOpts) buildContext {
 	ctx := testBuildContext()
 	ctx.opts = opts
 	return ctx
@@ -40,12 +40,12 @@ func TestBuildContextWithOpts_InvalidatesParamsState(t *testing.T) {
 		cached: true,
 		result: &paramsResult{Params: []string{"name=old"}},
 	}
-	ctx := BuildContext{
-		opts:        BuildOpts{Parameters: "name=old"},
+	ctx := buildContext{
+		opts:        buildOpts{Parameters: "name=old"},
 		paramsState: cached,
 	}
 
-	next := ctx.WithOpts(BuildOpts{Parameters: "name=new"})
+	next := ctx.WithOpts(buildOpts{Parameters: "name=new"})
 
 	require.Nil(t, next.paramsState)
 	require.Same(t, cached, ctx.paramsState)
@@ -405,7 +405,7 @@ func TestBuildParamsJSON(t *testing.T) {
 
 	tests := []struct {
 		name string
-		ctx  BuildContext
+		ctx  buildContext
 		dag  *dag
 		want string
 	}{
@@ -417,13 +417,13 @@ func TestBuildParamsJSON(t *testing.T) {
 		},
 		{
 			name: "OverridesMergedAndSerialized",
-			ctx:  testBuildContextWithOpts(BuildOpts{Parameters: "FOO=baz COUNT=2"}),
+			ctx:  testBuildContextWithOpts(buildOpts{Parameters: "FOO=baz COUNT=2"}),
 			dag:  &dag{Params: "FOO=bar COUNT=1"},
 			want: `{"FOO":"baz","COUNT":"2"}`,
 		},
 		{
 			name: "PreservesRawJSONInput",
-			ctx:  testBuildContextWithOpts(BuildOpts{Parameters: `{"alpha":"one","beta":2}`}),
+			ctx:  testBuildContextWithOpts(buildOpts{Parameters: `{"alpha":"one","beta":2}`}),
 			dag:  &dag{},
 			want: `{"alpha":"one","beta":2}`,
 		},
@@ -454,9 +454,9 @@ func TestBuildParamsJSON(t *testing.T) {
 func TestBuildParamsJSON_JSONOverrideSkipsEval(t *testing.T) {
 	t.Parallel()
 
-	// JSON-formatted override params should skip eval (BuildFlagNoEval).
+	// JSON-formatted override params should skip eval (buildFlagNoEval).
 	// Values containing backticks should NOT be executed.
-	ctx := testBuildContextWithOpts(BuildOpts{
+	ctx := testBuildContextWithOpts(buildOpts{
 		Parameters: `[{"topic":"` + "`echo pwned`" + `"}]`,
 	})
 	d := &dag{Params: `topic="default"`}
@@ -531,7 +531,7 @@ func TestBuildName(t *testing.T) {
 	tests := []struct {
 		name     string
 		dag      *dag
-		ctx      BuildContext
+		ctx      buildContext
 		expected string
 	}{
 		{
@@ -543,9 +543,9 @@ func TestBuildName(t *testing.T) {
 		{
 			name: "FromOptionsNameOverridesDAGName",
 			dag:  &dag{Name: "dag-name"},
-			ctx: BuildContext{
+			ctx: buildContext{
 				file:  "/test/dag.yaml",
-				opts:  BuildOpts{Name: "override-name"},
+				opts:  buildOpts{Name: "override-name"},
 				index: 0,
 			},
 			expected: "override-name",
@@ -553,13 +553,13 @@ func TestBuildName(t *testing.T) {
 		{
 			name:     "FallbackToFilenameForIndex0",
 			dag:      &dag{},
-			ctx:      BuildContext{file: "/path/to/my-workflow.yaml", index: 0},
+			ctx:      buildContext{file: "/path/to/my-workflow.yaml", index: 0},
 			expected: "my-workflow",
 		},
 		{
 			name:     "NoFallbackForIndexGreaterThan0",
 			dag:      &dag{},
-			ctx:      BuildContext{file: "/path/to/my-workflow.yaml", index: 1},
+			ctx:      buildContext{file: "/path/to/my-workflow.yaml", index: 1},
 			expected: "",
 		},
 	}
@@ -1953,9 +1953,9 @@ func TestBuildRegistryAuths_NoExpansion(t *testing.T) {
 func TestBuildRegistryAuths_NoEval(t *testing.T) {
 	t.Setenv("TEST_USER", "testuser")
 
-	ctx := BuildContext{
+	ctx := buildContext{
 		file: "/test/dag.yaml",
-		opts: BuildOpts{Flags: BuildFlagNoEval},
+		opts: buildOpts{Flags: buildFlagNoEval},
 	}
 
 	d := &dag{
@@ -1984,7 +1984,7 @@ func TestBuildWorkingDir(t *testing.T) {
 	tests := []struct {
 		name     string
 		dag      *dag
-		ctx      BuildContext
+		ctx      buildContext
 		expected string
 	}{
 		{
@@ -1996,22 +1996,22 @@ func TestBuildWorkingDir(t *testing.T) {
 		{
 			name:     "EmptyWhenNoExplicitValue",
 			dag:      &dag{},
-			ctx:      BuildContext{file: "/path/to/dag.yaml"},
+			ctx:      buildContext{file: "/path/to/dag.yaml"},
 			expected: "",
 		},
 		{
 			name: "FromOptionsDefault",
 			dag:  &dag{},
-			ctx: BuildContext{
+			ctx: buildContext{
 				file: "",
-				opts: BuildOpts{DefaultWorkingDir: "/default/dir"},
+				opts: buildOpts{DefaultWorkingDir: "/default/dir"},
 			},
 			expected: "/default/dir",
 		},
 		{
 			name:     "EmptyWithNoFileOrDefault",
 			dag:      &dag{},
-			ctx:      BuildContext{},
+			ctx:      buildContext{},
 			expected: "",
 		},
 	}
@@ -2030,7 +2030,7 @@ func TestBuildWorkingDir_Relative(t *testing.T) {
 	tmpDir := t.TempDir()
 	dagFile := filepath.Join(tmpDir, "dag.yaml")
 
-	ctx := BuildContext{file: dagFile}
+	ctx := buildContext{file: dagFile}
 	d := &dag{WorkingDir: "subdir"}
 
 	result, err := buildWorkingDir(ctx, d)
@@ -2045,7 +2045,7 @@ func TestBuildWorkingDir_RelativeToAuthoredFile(t *testing.T) {
 	authored := filepath.Join(t.TempDir(), "workflows", "pipeline.yaml")
 	copied := filepath.Join(t.TempDir(), "local-dags", "child-1234.yaml")
 
-	ctx := BuildContext{file: copied, opts: BuildOpts{SourceFile: authored}}
+	ctx := buildContext{file: copied, opts: buildOpts{SourceFile: authored}}
 	d := &dag{WorkingDir: "checkout"}
 
 	result, err := buildWorkingDir(ctx, d)
@@ -2070,9 +2070,9 @@ func TestBuildWorkingDir_NoExpansion(t *testing.T) {
 func TestBuildWorkingDir_NoEval(t *testing.T) {
 	t.Setenv("TEST_PATH", "/expanded/path")
 
-	ctx := BuildContext{
+	ctx := buildContext{
 		file: "/test/dag.yaml",
-		opts: BuildOpts{Flags: BuildFlagNoEval},
+		opts: buildOpts{Flags: buildFlagNoEval},
 	}
 	d := &dag{WorkingDir: "$TEST_PATH/subdir"}
 
@@ -2098,8 +2098,8 @@ func TestBuildWorkingDir_TildePreserved(t *testing.T) {
 func TestBuildWorkingDir_DefaultWorkingDir(t *testing.T) {
 	t.Parallel()
 
-	ctx := BuildContext{
-		opts: BuildOpts{DefaultWorkingDir: "/default/work/dir"},
+	ctx := buildContext{
+		opts: buildOpts{DefaultWorkingDir: "/default/work/dir"},
 	}
 	d := &dag{} // No WorkingDir specified
 
@@ -2113,7 +2113,7 @@ func TestBuildWorkingDir_RelativeNoFileContext(t *testing.T) {
 
 	// Relative path without file context is stored as-is
 	// (no file context means we can't resolve the relative path at build time)
-	ctx := BuildContext{} // No file
+	ctx := buildContext{} // No file
 	d := &dag{WorkingDir: "subdir"}
 
 	result, err := buildWorkingDir(ctx, d)
@@ -2209,9 +2209,9 @@ func TestBuildShell_ArrayFormNoEval(t *testing.T) {
 	// With NoEval, env var references should be preserved as-is
 	d := &dag{Shell: shellValueArray([]string{"$SHELL_CMD", "$SHELL_ARG", "-x"})}
 
-	ctx := BuildContext{
+	ctx := buildContext{
 		file: "/test/dag.yaml",
-		opts: BuildOpts{Flags: BuildFlagNoEval},
+		opts: buildOpts{Flags: buildFlagNoEval},
 	}
 	shell, err := buildShell(ctx, d)
 	require.NoError(t, err)

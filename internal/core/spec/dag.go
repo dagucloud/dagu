@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"maps"
 	"math"
-	"os"
 	"path/filepath"
 	"reflect"
 	"regexp"
@@ -500,10 +499,10 @@ type Transformer[C any, T any] interface {
 // for the builder function while satisfying the DAGTransformer interface.
 type dagTransformer[T any] struct {
 	fieldName string
-	builder   func(ctx BuildContext, d *dag) (T, error)
+	builder   func(ctx buildContext, d *dag) (T, error)
 }
 
-func (t *dagTransformer[T]) Transform(ctx BuildContext, in *dag, out reflect.Value) error {
+func (t *dagTransformer[T]) Transform(ctx buildContext, in *dag, out reflect.Value) error {
 	v, err := t.builder(ctx, in)
 	if err != nil {
 		return err
@@ -516,7 +515,7 @@ func (t *dagTransformer[T]) Transform(ctx BuildContext, in *dag, out reflect.Val
 }
 
 // newTransformer creates a DAGTransformer for a single field transformation
-func newTransformer[T any](fieldName string, builder func(BuildContext, *dag) (T, error)) Transformer[BuildContext, *dag] {
+func newTransformer[T any](fieldName string, builder func(buildContext, *dag) (T, error)) Transformer[buildContext, *dag] {
 	return &dagTransformer[T]{
 		fieldName: fieldName,
 		builder:   builder,
@@ -526,7 +525,7 @@ func newTransformer[T any](fieldName string, builder func(BuildContext, *dag) (T
 // transform wraps a DAGTransformer with its name for error reporting
 type transform struct {
 	name        string
-	transformer Transformer[BuildContext, *dag]
+	transformer Transformer[buildContext, *dag]
 }
 
 type transformStage []transform
@@ -644,21 +643,21 @@ var fullTransformStages = []transformStage{
 }
 
 // runTransformers executes all transformers in the pipeline
-func runTransformers(ctx BuildContext, spec *dag, result *core.DAG) core.ErrorList {
+func runTransformers(ctx buildContext, spec *dag, result *core.DAG) core.ErrorList {
 	var errs core.ErrorList
 	out := reflect.ValueOf(result).Elem()
 
 	errs = append(errs, runTransformerStages(ctx, spec, out, metadataTransformStages)...)
 
 	// Run full transformers only when not in metadata-only mode
-	if !ctx.opts.Has(BuildFlagOnlyMetadata) {
+	if !ctx.opts.Has(buildFlagOnlyMetadata) {
 		errs = append(errs, runTransformerStages(ctx, spec, out, fullTransformStages)...)
 	}
 
 	return errs
 }
 
-func runTransformerStages(ctx BuildContext, spec *dag, out reflect.Value, stages []transformStage) core.ErrorList {
+func runTransformerStages(ctx buildContext, spec *dag, out reflect.Value, stages []transformStage) core.ErrorList {
 	var errs core.ErrorList
 	for _, stage := range stages {
 		for _, t := range stage {
@@ -680,13 +679,13 @@ func wrapTransformError(name string, err error) error {
 }
 
 type dagBuildState struct {
-	ctx    BuildContext
+	ctx    buildContext
 	spec   *dag
 	result *core.DAG
 	errs   core.ErrorList
 }
 
-func newDAGBuildState(ctx BuildContext, spec *dag) *dagBuildState {
+func newDAGBuildState(ctx buildContext, spec *dag) *dagBuildState {
 	result := &core.DAG{
 		Location: ctx.file,
 	}
@@ -742,8 +741,8 @@ func (s *dagBuildState) composeInheritedContext() {
 }
 
 func (s *dagBuildState) resolveWorkerSelector() {
-	if s.ctx.opts.Has(BuildFlagNoEval) ||
-		s.ctx.opts.Has(BuildFlagDeferWorkerSelector) ||
+	if s.ctx.opts.Has(buildFlagNoEval) ||
+		s.ctx.opts.Has(buildFlagDeferWorkerSelector) ||
 		len(s.result.WorkerSelector) == 0 {
 		return
 	}
@@ -834,7 +833,7 @@ func (s *dagBuildState) collectWarnings() {
 }
 
 func (s *dagBuildState) buildActionGraph() {
-	if s.ctx.opts.Has(BuildFlagOnlyMetadata) {
+	if s.ctx.opts.Has(buildFlagOnlyMetadata) {
 		return
 	}
 
@@ -861,7 +860,7 @@ func (s *dagBuildState) buildActionGraph() {
 }
 
 func (s *dagBuildState) validateResult() {
-	if !s.ctx.opts.Has(BuildFlagOnlyMetadata) {
+	if !s.ctx.opts.Has(buildFlagOnlyMetadata) {
 		if err := core.ValidateSteps(s.result); err != nil {
 			s.errs = append(s.errs, err)
 		}
@@ -887,7 +886,7 @@ func (s *dagBuildState) validateResult() {
 }
 
 func (s *dagBuildState) capturePresolvedBuildEnv() {
-	if s.ctx.opts.Has(BuildFlagNoEval) {
+	if s.ctx.opts.Has(buildFlagNoEval) {
 		return
 	}
 	if len(s.ctx.envScope.buildEnv) > 0 {
@@ -896,7 +895,7 @@ func (s *dagBuildState) capturePresolvedBuildEnv() {
 }
 
 func (s *dagBuildState) markEnvEvaluated() {
-	s.result.EnvEvaluated = !s.ctx.opts.Has(BuildFlagNoEval)
+	s.result.EnvEvaluated = !s.ctx.opts.Has(buildFlagNoEval)
 }
 
 func (s *dagBuildState) finish() (*core.DAG, error) {
@@ -905,7 +904,7 @@ func (s *dagBuildState) finish() (*core.DAG, error) {
 	// reported list has one entry per distinct failure.
 	errs := s.errs.Dedupe()
 	if len(errs) > 0 {
-		if s.ctx.opts.Has(BuildFlagAllowBuildErrors) {
+		if s.ctx.opts.Has(buildFlagAllowBuildErrors) {
 			s.result.BuildErrors = errs
 		} else {
 			return nil, fmt.Errorf("failed to build DAG: %w", errs)
@@ -915,7 +914,7 @@ func (s *dagBuildState) finish() (*core.DAG, error) {
 }
 
 // build transforms the dag specification into a core.DAG.
-func (d *dag) build(ctx BuildContext) (*core.DAG, error) {
+func (d *dag) build(ctx buildContext) (*core.DAG, error) {
 	state := newDAGBuildState(ctx, d)
 	state.validateSpecShape()
 	state.prepareParamEnvStage()
@@ -955,7 +954,7 @@ func applyHistoryRetentionOverride(effective *core.DAG, authoredDays, authoredRu
 
 // Builder functions - each returns a value instead of modifying result
 
-func buildType(_ BuildContext, d *dag) (string, error) {
+func buildType(_ buildContext, d *dag) (string, error) {
 	t := strings.TrimSpace(d.Type)
 	if t == "" {
 		return core.TypeGraph, nil
@@ -970,7 +969,7 @@ func buildType(_ BuildContext, d *dag) (string, error) {
 
 // Builder functions - all return values instead of modifying result
 
-func buildName(ctx BuildContext, d *dag) (string, error) {
+func buildName(ctx buildContext, d *dag) (string, error) {
 	if ctx.opts.Name != "" && ctx.index == 0 {
 		return strings.TrimSpace(ctx.opts.Name), nil
 	}
@@ -985,27 +984,27 @@ func buildName(ctx BuildContext, d *dag) (string, error) {
 	return "", nil
 }
 
-func buildGroup(_ BuildContext, d *dag) (string, error) {
+func buildGroup(_ buildContext, d *dag) (string, error) {
 	return strings.TrimSpace(d.Group), nil
 }
 
-func buildDescription(_ BuildContext, d *dag) (string, error) {
+func buildDescription(_ buildContext, d *dag) (string, error) {
 	return strings.TrimSpace(d.Description), nil
 }
 
-func buildTimeout(_ BuildContext, d *dag) (time.Duration, error) {
+func buildTimeout(_ buildContext, d *dag) (time.Duration, error) {
 	return time.Second * time.Duration(d.TimeoutSec), nil
 }
 
-func buildDelay(_ BuildContext, d *dag) (time.Duration, error) {
+func buildDelay(_ buildContext, d *dag) (time.Duration, error) {
 	return time.Second * time.Duration(d.DelaySec), nil
 }
 
-func buildRestartWait(_ BuildContext, d *dag) (time.Duration, error) {
+func buildRestartWait(_ buildContext, d *dag) (time.Duration, error) {
 	return time.Second * time.Duration(d.RestartWaitSec), nil
 }
 
-func buildLabels(_ BuildContext, d *dag) (core.Labels, error) {
+func buildLabels(_ buildContext, d *dag) (core.Labels, error) {
 	labelsValue := d.Labels
 	if labelsValue.IsZero() {
 		labelsValue = d.DeprecatedTags
@@ -1027,22 +1026,22 @@ func buildLabels(_ BuildContext, d *dag) (core.Labels, error) {
 	return labels, nil
 }
 
-func buildMaxActiveRuns(_ BuildContext, d *dag) (int, error) {
+func buildMaxActiveRuns(_ buildContext, d *dag) (int, error) {
 	if d.MaxActiveRuns != 0 {
 		return d.MaxActiveRuns, nil
 	}
 	return 1, nil // Default
 }
 
-func buildMaxActiveSteps(_ BuildContext, d *dag) (int, error) {
+func buildMaxActiveSteps(_ buildContext, d *dag) (int, error) {
 	return d.MaxActiveSteps, nil
 }
 
-func buildQueue(_ BuildContext, d *dag) (string, error) {
+func buildQueue(_ buildContext, d *dag) (string, error) {
 	return strings.TrimSpace(d.Queue), nil
 }
 
-func buildDAGRetryPolicy(_ BuildContext, d *dag) (*core.DAGRetryPolicy, error) {
+func buildDAGRetryPolicy(_ buildContext, d *dag) (*core.DAGRetryPolicy, error) {
 	if d.RetryPolicy == nil {
 		return nil, nil
 	}
@@ -1079,30 +1078,30 @@ func buildDAGRetryPolicy(_ BuildContext, d *dag) (*core.DAGRetryPolicy, error) {
 	}, nil
 }
 
-func buildMaxOutputSize(_ BuildContext, d *dag) (int, error) {
+func buildMaxOutputSize(_ buildContext, d *dag) (int, error) {
 	return d.MaxOutputSize, nil
 }
 
-func buildSkipIfSuccessful(_ BuildContext, d *dag) (bool, error) {
+func buildSkipIfSuccessful(_ buildContext, d *dag) (bool, error) {
 	return d.SkipIfSuccessful, nil
 }
 
-func buildCatchupWindow(_ BuildContext, d *dag) (time.Duration, error) {
+func buildCatchupWindow(_ buildContext, d *dag) (time.Duration, error) {
 	if d.CatchupWindow == "" {
 		return 0, nil
 	}
 	return core.ParseDuration(d.CatchupWindow)
 }
 
-func buildOverlapPolicy(_ BuildContext, d *dag) (core.OverlapPolicy, error) {
+func buildOverlapPolicy(_ buildContext, d *dag) (core.OverlapPolicy, error) {
 	return core.ParseOverlapPolicy(d.OverlapPolicy)
 }
 
-func buildLogDir(_ BuildContext, d *dag) (string, error) {
+func buildLogDir(_ buildContext, d *dag) (string, error) {
 	return d.LogDir, nil
 }
 
-func buildArtifacts(_ BuildContext, d *dag) (*core.ArtifactsConfig, error) {
+func buildArtifacts(_ buildContext, d *dag) (*core.ArtifactsConfig, error) {
 	usesArtifactAction := dagUsesBuiltinArtifactAction(d)
 	usesArtifactOutput := dagUsesArtifactOutput(d)
 	autoEnable := dagReferencesRunArtifactsDir(d) || usesArtifactAction || usesArtifactOutput
@@ -1149,8 +1148,27 @@ func dagReferencesRunArtifactsDir(d *dag) bool {
 	return valueReferencesRunArtifactsDir(reflect.ValueOf(d))
 }
 
+// dagUsesBuiltinArtifactAction reports whether the spec declares a builtin
+// artifact action. Only executable roots are searched: free-form data such as
+// DAG parameters may legitimately carry an "action" key without describing a
+// step to run.
 func dagUsesBuiltinArtifactAction(d *dag) bool {
-	return valueUsesBuiltinArtifactAction(reflect.ValueOf(d))
+	if d == nil {
+		return false
+	}
+	return valueUsesBuiltinArtifactAction(reflect.ValueOf(d.Steps)) ||
+		valueUsesBuiltinArtifactAction(reflect.ValueOf(d.HandlerOn)) ||
+		customStepSpecsUseBuiltinArtifactAction(d.StepTypes) ||
+		customStepSpecsUseBuiltinArtifactAction(d.Actions)
+}
+
+func customStepSpecsUseBuiltinArtifactAction(specs map[string]customStepTypeSpec) bool {
+	for _, spec := range specs {
+		if valueUsesBuiltinArtifactAction(reflect.ValueOf(spec.Template)) {
+			return true
+		}
+	}
+	return false
 }
 
 func dagUsesArtifactOutput(d *dag) bool {
@@ -1275,6 +1293,10 @@ func valueUsesBuiltinArtifactAction(v reflect.Value) bool {
 					return true
 				}
 			}
+			// Parameter payloads are data handed to a child DAG, not step syntax.
+			if key.Kind() == reflect.String && key.String() == "params" {
+				continue
+			}
 			if valueUsesBuiltinArtifactAction(key) || valueUsesBuiltinArtifactAction(value) {
 				return true
 			}
@@ -1297,6 +1319,10 @@ func valueUsesBuiltinArtifactAction(v reflect.Value) bool {
 				if action, ok := reflectString(field); ok && strings.HasPrefix(action, "artifact.") {
 					return true
 				}
+			}
+			// Parameter payloads are data handed to a child DAG, not step syntax.
+			if fieldInfo.Name == "Params" {
+				continue
 			}
 			if valueUsesBuiltinArtifactAction(field) {
 				return true
@@ -1450,7 +1476,7 @@ func reflectString(v reflect.Value) (string, bool) {
 	return strings.TrimSpace(v.String()), true
 }
 
-func buildLogOutput(_ BuildContext, d *dag) (core.LogOutputMode, error) {
+func buildLogOutput(_ buildContext, d *dag) (core.LogOutputMode, error) {
 	if d.LogOutput.IsZero() {
 		// Return empty to allow inheritance from base config.
 		// Default is applied in core.InitializeDefaults.
@@ -1459,7 +1485,7 @@ func buildLogOutput(_ BuildContext, d *dag) (core.LogOutputMode, error) {
 	return d.LogOutput.Mode(), nil
 }
 
-func buildMailOn(_ BuildContext, d *dag) (*core.MailOn, error) {
+func buildMailOn(_ buildContext, d *dag) (*core.MailOn, error) {
 	if d.MailOn == nil {
 		return nil, nil
 	}
@@ -1470,7 +1496,7 @@ func buildMailOn(_ BuildContext, d *dag) (*core.MailOn, error) {
 	}, nil
 }
 
-func buildRunConfig(_ BuildContext, d *dag) (*core.RunConfig, error) {
+func buildRunConfig(_ buildContext, d *dag) (*core.RunConfig, error) {
 	if d.RunConfig == nil {
 		return nil, nil
 	}
@@ -1480,7 +1506,7 @@ func buildRunConfig(_ BuildContext, d *dag) (*core.RunConfig, error) {
 	}, nil
 }
 
-func buildResources(_ BuildContext, d *dag) (*core.Resources, error) {
+func buildResources(_ buildContext, d *dag) (*core.Resources, error) {
 	if d.Resources == nil || d.Resources.Limits == nil {
 		return nil, nil
 	}
@@ -1494,7 +1520,7 @@ func buildResources(_ BuildContext, d *dag) (*core.Resources, error) {
 	return &core.Resources{Limits: limits}, nil
 }
 
-func buildWebhookConfig(_ BuildContext, d *dag) (*core.WebhookConfig, error) {
+func buildWebhookConfig(_ buildContext, d *dag) (*core.WebhookConfig, error) {
 	if d.Webhook == nil {
 		return nil, nil
 	}
@@ -1529,7 +1555,7 @@ func buildWebhookConfig(_ BuildContext, d *dag) (*core.WebhookConfig, error) {
 	return &core.WebhookConfig{ForwardHeaders: headers}, nil
 }
 
-func buildHistRetentionDays(_ BuildContext, d *dag) (int, error) {
+func buildHistRetentionDays(_ buildContext, d *dag) (int, error) {
 	if d.HistRetentionDays != nil {
 		if *d.HistRetentionDays < 0 {
 			return 0, fmt.Errorf("hist_retention_days must be >= 0")
@@ -1539,7 +1565,7 @@ func buildHistRetentionDays(_ BuildContext, d *dag) (int, error) {
 	return 0, nil
 }
 
-func buildHistRetentionRuns(_ BuildContext, d *dag) (int, error) {
+func buildHistRetentionRuns(_ buildContext, d *dag) (int, error) {
 	if d.HistRetentionRuns != nil {
 		if *d.HistRetentionRuns <= 0 {
 			return 0, fmt.Errorf("hist_retention_runs must be > 0")
@@ -1560,14 +1586,14 @@ func validateHistoryRetentionConfig(d *dag) error {
 	)
 }
 
-func buildMaxCleanUpTime(_ BuildContext, d *dag) (time.Duration, error) {
+func buildMaxCleanUpTime(_ buildContext, d *dag) (time.Duration, error) {
 	if d.MaxCleanUpTimeSec != nil {
 		return time.Second * time.Duration(*d.MaxCleanUpTimeSec), nil
 	}
 	return 0, nil
 }
 
-func buildEnvs(ctx BuildContext, d *dag) ([]string, error) {
+func buildEnvs(ctx buildContext, d *dag) ([]string, error) {
 	entries, vars, err := loadEnvEntriesFromEnvValue(ctx, d.Env)
 	if err != nil {
 		return nil, err
@@ -1587,21 +1613,21 @@ func buildEnvs(ctx BuildContext, d *dag) ([]string, error) {
 	return envs, nil
 }
 
-func buildSchedule(_ BuildContext, d *dag) ([]core.Schedule, error) {
+func buildSchedule(_ buildContext, d *dag) ([]core.Schedule, error) {
 	if d.Schedule.IsZero() {
 		return nil, nil
 	}
 	return slices.Clone(d.Schedule.Starts()), nil
 }
 
-func buildStopSchedule(_ BuildContext, d *dag) ([]core.Schedule, error) {
+func buildStopSchedule(_ buildContext, d *dag) ([]core.Schedule, error) {
 	if d.Schedule.IsZero() {
 		return nil, nil
 	}
 	return slices.Clone(d.Schedule.Stops()), nil
 }
 
-func buildRestartSchedule(_ BuildContext, d *dag) ([]core.Schedule, error) {
+func buildRestartSchedule(_ buildContext, d *dag) ([]core.Schedule, error) {
 	if d.Schedule.IsZero() {
 		return nil, nil
 	}
@@ -1617,7 +1643,7 @@ type paramsResult struct {
 	ParamsJSON    string // JSON representation of resolved params (original payload when provided as JSON)
 }
 
-func buildParams(ctx BuildContext, d *dag) ([]string, error) {
+func buildParams(ctx buildContext, d *dag) ([]string, error) {
 	result, err := parseParamsInternal(ctx, d)
 	if err != nil {
 		return nil, err
@@ -1673,7 +1699,7 @@ func paramValuesFromResult(result *paramsResult) cmnvalue.Values {
 	return params
 }
 
-func buildDefaultParams(ctx BuildContext, d *dag) (string, error) {
+func buildDefaultParams(ctx buildContext, d *dag) (string, error) {
 	result, err := parseParamsInternal(ctx, d)
 	if err != nil {
 		return "", err
@@ -1681,7 +1707,7 @@ func buildDefaultParams(ctx BuildContext, d *dag) (string, error) {
 	return result.DefaultParams, nil
 }
 
-func buildParamDefs(ctx BuildContext, d *dag) ([]core.ParamDef, error) {
+func buildParamDefs(ctx buildContext, d *dag) ([]core.ParamDef, error) {
 	result, err := parseParamsInternal(ctx, d)
 	if err != nil {
 		return nil, err
@@ -1689,7 +1715,7 @@ func buildParamDefs(ctx BuildContext, d *dag) ([]core.ParamDef, error) {
 	return result.ParamDefs, nil
 }
 
-func buildParamsJSON(ctx BuildContext, d *dag) (string, error) {
+func buildParamsJSON(ctx buildContext, d *dag) (string, error) {
 	result, err := parseParamsInternal(ctx, d)
 	if err != nil {
 		return "", err
@@ -1697,7 +1723,7 @@ func buildParamsJSON(ctx BuildContext, d *dag) (string, error) {
 	return result.ParamsJSON, nil
 }
 
-func buildParamSchema(ctx BuildContext, d *dag) (json.RawMessage, error) {
+func buildParamSchema(ctx buildContext, d *dag) (json.RawMessage, error) {
 	result, err := parseParamsInternal(ctx, d)
 	if err != nil {
 		return nil, err
@@ -1847,7 +1873,7 @@ func marshalParamPairs(paramPairs []paramPair) (string, error) {
 	return string(data), nil
 }
 
-func parseParamsInternal(ctx BuildContext, d *dag) (*paramsResult, error) {
+func parseParamsInternal(ctx buildContext, d *dag) (*paramsResult, error) {
 	if ctx.paramsState != nil && ctx.paramsState.cached {
 		return ctx.paramsState.result, ctx.paramsState.err
 	}
@@ -1864,7 +1890,7 @@ func parseParamsInternal(ctx BuildContext, d *dag) (*paramsResult, error) {
 // workerSelectorTransformer is a custom transformer that sets both WorkerSelector and ForceLocal fields.
 type workerSelectorTransformer struct{}
 
-func (t *workerSelectorTransformer) Transform(ctx BuildContext, in *dag, out reflect.Value) error {
+func (t *workerSelectorTransformer) Transform(ctx buildContext, in *dag, out reflect.Value) error {
 	ws, forceLocal, err := buildWorkerSelector(ctx, in)
 	if err != nil {
 		return err
@@ -1887,7 +1913,7 @@ func (t *workerSelectorTransformer) Transform(ctx BuildContext, in *dag, out ref
 	return nil
 }
 
-func buildWorkerSelector(_ BuildContext, d *dag) (map[string]string, bool, error) {
+func buildWorkerSelector(_ buildContext, d *dag) (map[string]string, bool, error) {
 	if d.WorkerSelector == nil {
 		return nil, false, nil
 	}
@@ -1945,7 +1971,7 @@ type shellResult struct {
 	Args  []string
 }
 
-func parseShellInternal(_ BuildContext, d *dag) (*shellResult, error) {
+func parseShellInternal(_ buildContext, d *dag) (*shellResult, error) {
 	if d.Shell.IsZero() {
 		return &shellResult{Shell: cmdutil.GetShellCommand(""), Args: nil}, nil
 	}
@@ -1976,7 +2002,7 @@ func parseShellInternal(_ BuildContext, d *dag) (*shellResult, error) {
 	return &shellResult{Shell: strings.TrimSpace(shell), Args: args}, nil
 }
 
-func buildShell(ctx BuildContext, d *dag) (string, error) {
+func buildShell(ctx buildContext, d *dag) (string, error) {
 	result, err := parseShellInternal(ctx, d)
 	if err != nil {
 		return "", err
@@ -1984,7 +2010,7 @@ func buildShell(ctx BuildContext, d *dag) (string, error) {
 	return result.Shell, nil
 }
 
-func buildShellArgs(ctx BuildContext, d *dag) ([]string, error) {
+func buildShellArgs(ctx buildContext, d *dag) ([]string, error) {
 	result, err := parseShellInternal(ctx, d)
 	if err != nil {
 		return nil, err
@@ -1992,7 +2018,7 @@ func buildShellArgs(ctx BuildContext, d *dag) ([]string, error) {
 	return append(result.Args, d.ShellArgs...), nil
 }
 
-func buildWorkingDir(ctx BuildContext, d *dag) (string, error) {
+func buildWorkingDir(ctx buildContext, d *dag) (string, error) {
 	if d.WorkingDir != "" {
 		return resolveWorkingDirPath(d.WorkingDir, authoredFile(ctx))
 	}
@@ -2008,7 +2034,7 @@ func buildWorkingDir(ctx BuildContext, d *dag) (string, error) {
 // file being read whenever a definition is executed from a copy, which is the
 // case for a sub-workflow defined in the same document and for a task a worker
 // received from the coordinator.
-func authoredFile(ctx BuildContext) string {
+func authoredFile(ctx buildContext) string {
 	if ctx.opts.SourceFile != "" {
 		return ctx.opts.SourceFile
 	}
@@ -2028,26 +2054,14 @@ func resolveWorkingDirPath(wd, dagFile string) (string, error) {
 	return wd, nil
 }
 
-// getDefaultWorkingDir returns the current working directory or user home as fallback.
-func getDefaultWorkingDir() (string, error) {
-	if dir, _ := os.Getwd(); dir != "" {
-		return dir, nil
-	}
-	dir, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("failed to get working directory: %w", err)
-	}
-	return dir, nil
-}
-
-func buildContainer(ctx BuildContext, d *dag) (*core.Container, error) {
+func buildContainer(ctx buildContext, d *dag) (*core.Container, error) {
 	return buildContainerField(ctx, d.Container)
 }
 
 // buildContainerField handles both string and object forms of container field.
 // String form: "container-name" -> exec into existing container
 // Object form: {image: "...", ...} or {exec: "...", ...} -> create new or exec into existing
-func buildContainerField(ctx BuildContext, raw any) (*core.Container, error) {
+func buildContainerField(ctx buildContext, raw any) (*core.Container, error) {
 	if raw == nil {
 		return nil, nil
 	}
@@ -2098,7 +2112,7 @@ func buildContainerField(ctx BuildContext, raw any) (*core.Container, error) {
 
 // buildContainerFromSpec is a shared function that builds a core.Container from a container spec.
 // It is used by both DAG-level and step-level container configuration.
-func buildContainerFromSpec(_ BuildContext, c *container) (*core.Container, error) {
+func buildContainerFromSpec(_ buildContext, c *container) (*core.Container, error) {
 	// Validate mutual exclusivity
 	if c.Exec != "" && c.Image != "" {
 		return nil, core.NewValidationError("container", nil,
@@ -2291,7 +2305,7 @@ func parseHealthcheck(h *healthcheck) (*core.Healthcheck, error) {
 	return hc, nil
 }
 
-func buildRegistryAuths(_ BuildContext, d *dag) (map[string]*core.AuthConfig, error) {
+func buildRegistryAuths(_ buildContext, d *dag) (map[string]*core.AuthConfig, error) {
 	if d.RegistryAuths == nil {
 		return nil, nil
 	}
@@ -2360,7 +2374,7 @@ func buildRegistryAuths(_ BuildContext, d *dag) (map[string]*core.AuthConfig, er
 	return registryAuths, nil
 }
 
-func buildSSH(_ BuildContext, d *dag) (*core.SSHConfig, error) {
+func buildSSH(_ buildContext, d *dag) (*core.SSHConfig, error) {
 	if d.SSH == nil {
 		return nil, nil
 	}
@@ -2429,7 +2443,7 @@ func defaultPort(port, defaultVal string) string {
 	return port
 }
 
-func buildS3(_ BuildContext, d *dag) (*core.S3Config, error) {
+func buildS3(_ buildContext, d *dag) (*core.S3Config, error) {
 	if d.S3 == nil {
 		return nil, nil
 	}
@@ -2447,7 +2461,7 @@ func buildS3(_ BuildContext, d *dag) (*core.S3Config, error) {
 	}, nil
 }
 
-func buildLLM(_ BuildContext, d *dag) (*core.LLMConfig, error) {
+func buildLLM(_ buildContext, d *dag) (*core.LLMConfig, error) {
 	if d.LLM == nil {
 		return nil, nil
 	}
@@ -2519,6 +2533,8 @@ func buildLLM(_ BuildContext, d *dag) (*core.LLMConfig, error) {
 		APIKeyName:  cfg.APIKeyName,
 		Stream:      cfg.Stream,
 		Thinking:    thinking,
+		Tools:       cfg.Tools,
+		WebSearch:   buildWebSearchConfig(cfg.WebSearch),
 
 		MaxToolIterations:     cfg.MaxToolIterations,
 		MaxContextTokens:      cfg.MaxContextTokens,
@@ -2527,7 +2543,7 @@ func buildLLM(_ BuildContext, d *dag) (*core.LLMConfig, error) {
 	}, nil
 }
 
-func buildRedis(_ BuildContext, d *dag) (*core.RedisConfig, error) {
+func buildRedis(_ buildContext, d *dag) (*core.RedisConfig, error) {
 	if d.Redis == nil {
 		return nil, nil
 	}
@@ -2549,7 +2565,7 @@ func buildRedis(_ BuildContext, d *dag) (*core.RedisConfig, error) {
 	}, nil
 }
 
-func buildHarnesses(_ BuildContext, d *dag) (core.HarnessDefinitions, error) {
+func buildHarnesses(_ buildContext, d *dag) (core.HarnessDefinitions, error) {
 	defs, err := parseHarnessDefinitions(d.Harnesses)
 	if err != nil {
 		return nil, err
@@ -2778,7 +2794,7 @@ func harnessStringMap(raw any) (map[string]string, error) {
 	}
 }
 
-func buildHarness(ctx BuildContext, d *dag) (*core.HarnessConfig, error) {
+func buildHarness(ctx buildContext, d *dag) (*core.HarnessConfig, error) {
 	if d.Harness == nil {
 		return nil, nil
 	}
@@ -2823,14 +2839,14 @@ func buildHarness(ctx BuildContext, d *dag) (*core.HarnessConfig, error) {
 	}, nil
 }
 
-func buildSecrets(ctx BuildContext, d *dag) ([]core.SecretRef, error) {
+func buildSecrets(ctx buildContext, d *dag) ([]core.SecretRef, error) {
 	if len(d.Secrets) == 0 {
 		return nil, nil
 	}
 	return parseSecretRefs(ctx, d)
 }
 
-func buildTools(_ BuildContext, d *dag) (*core.ToolConfig, error) {
+func buildTools(_ buildContext, d *dag) (*core.ToolConfig, error) {
 	if d.Tools == nil {
 		return nil, nil
 	}
@@ -3112,7 +3128,7 @@ func cloneHarnessSpecValue(value any) any {
 	}
 }
 
-func buildDotenv(_ BuildContext, d *dag) ([]string, error) {
+func buildDotenv(_ buildContext, d *dag) ([]string, error) {
 	if d.Dotenv.IsZero() {
 		return []string{".env"}, nil
 	}
@@ -3158,8 +3174,8 @@ func cloneStepPointer(step *core.Step) *core.Step {
 	return &cloned
 }
 
-func buildHandlers(ctx BuildContext, d *dag, result *core.DAG) (core.HandlerOn, error) {
-	buildCtx := StepBuildContext{BuildContext: ctx, dag: result}
+func buildHandlers(ctx buildContext, d *dag, result *core.DAG) (core.HandlerOn, error) {
+	buildCtx := stepBuildContext{buildContext: ctx, dag: result}
 	var handlerOn core.HandlerOn
 
 	localDefs, err := decodeDefaults(d.Defaults)
@@ -3211,7 +3227,7 @@ func buildHandlers(ctx BuildContext, d *dag, result *core.DAG) (core.HandlerOn, 
 	return handlerOn, nil
 }
 
-func buildSMTPConfig(_ BuildContext, d *dag) (*core.SMTPConfig, error) {
+func buildSMTPConfig(_ buildContext, d *dag) (*core.SMTPConfig, error) {
 	if d.SMTP.IsZero() {
 		return nil, nil
 	}
@@ -3224,23 +3240,23 @@ func buildSMTPConfig(_ BuildContext, d *dag) (*core.SMTPConfig, error) {
 	}, nil
 }
 
-func buildErrMailConfig(_ BuildContext, d *dag) (*core.MailConfig, error) {
+func buildErrMailConfig(_ buildContext, d *dag) (*core.MailConfig, error) {
 	return buildMailConfigInternal(d.ErrorMail)
 }
 
-func buildInfoMailConfig(_ BuildContext, d *dag) (*core.MailConfig, error) {
+func buildInfoMailConfig(_ buildContext, d *dag) (*core.MailConfig, error) {
 	return buildMailConfigInternal(d.InfoMail)
 }
 
-func buildWaitMailConfig(_ BuildContext, d *dag) (*core.MailConfig, error) {
+func buildWaitMailConfig(_ buildContext, d *dag) (*core.MailConfig, error) {
 	return buildMailConfigInternal(d.WaitMail)
 }
 
-func buildPreconditions(ctx BuildContext, d *dag) ([]*core.Condition, error) {
+func buildPreconditions(ctx buildContext, d *dag) ([]*core.Condition, error) {
 	return parsePrecondition(ctx, d.Preconditions)
 }
 
-func buildOTel(_ BuildContext, d *dag) (*core.OTelConfig, error) {
+func buildOTel(_ buildContext, d *dag) (*core.OTelConfig, error) {
 	if d.OTel == nil {
 		return nil, nil
 	}
@@ -3284,8 +3300,8 @@ func buildOTel(_ BuildContext, d *dag) (*core.OTelConfig, error) {
 	}
 }
 
-func buildSteps(ctx BuildContext, d *dag, result *core.DAG) ([]core.Step, error) {
-	buildCtx := StepBuildContext{BuildContext: ctx, dag: result}
+func buildSteps(ctx buildContext, d *dag, result *core.DAG) ([]core.Step, error) {
+	buildCtx := stepBuildContext{buildContext: ctx, dag: result}
 	names := make(map[string]struct{})
 
 	localDefs, err := decodeDefaults(d.Defaults)

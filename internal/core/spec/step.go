@@ -334,10 +334,10 @@ type llmMessage struct {
 // stepTransformer is a generic implementation for step field transformations
 type stepTransformer[T any] struct {
 	fieldName string
-	builder   func(ctx StepBuildContext, s *step) (T, error)
+	builder   func(ctx stepBuildContext, s *step) (T, error)
 }
 
-func (t *stepTransformer[T]) Transform(ctx StepBuildContext, in *step, out reflect.Value) error {
+func (t *stepTransformer[T]) Transform(ctx stepBuildContext, in *step, out reflect.Value) error {
 	v, err := t.builder(ctx, in)
 	if err != nil {
 		return err
@@ -350,7 +350,7 @@ func (t *stepTransformer[T]) Transform(ctx StepBuildContext, in *step, out refle
 }
 
 // newStepTransformer creates a step transformer for a single field
-func newStepTransformer[T any](fieldName string, builder func(StepBuildContext, *step) (T, error)) Transformer[StepBuildContext, *step] {
+func newStepTransformer[T any](fieldName string, builder func(stepBuildContext, *step) (T, error)) Transformer[stepBuildContext, *step] {
 	return &stepTransformer[T]{
 		fieldName: fieldName,
 		builder:   builder,
@@ -360,7 +360,7 @@ func newStepTransformer[T any](fieldName string, builder func(StepBuildContext, 
 // stepTransform wraps a step transformer with its name for error reporting
 type stepTransform struct {
 	name        string
-	transformer Transformer[StepBuildContext, *step]
+	transformer Transformer[stepBuildContext, *step]
 }
 
 type stepTransformStage []stepTransform
@@ -422,7 +422,7 @@ var stepTransformStages = []stepTransformStage{
 }
 
 // runStepTransformers executes all step transformers
-func runStepTransformers(ctx StepBuildContext, spec *step, result *core.Step) core.ErrorList {
+func runStepTransformers(ctx stepBuildContext, spec *step, result *core.Step) core.ErrorList {
 	var errs core.ErrorList
 	out := reflect.ValueOf(result).Elem()
 
@@ -439,7 +439,7 @@ func runStepTransformers(ctx StepBuildContext, spec *step, result *core.Step) co
 
 type stepActionBuilder struct {
 	name                     string
-	build                    func(StepBuildContext, *step, *core.Step) error
+	build                    func(stepBuildContext, *step, *core.Step) error
 	stopOnStepTypeValidation bool
 }
 
@@ -466,7 +466,7 @@ func init() {
 var stepInteractionActionStage = stepActionStage{
 	// LLM must be after executor so we know if type supports LLM.
 	{"llm", buildStepLLM, false},
-	{"messages", func(_ StepBuildContext, s *step, result *core.Step) error {
+	{"messages", func(_ stepBuildContext, s *step, result *core.Step) error {
 		return buildStepMessages(s, result)
 	}, false},
 	{"router", buildStepRouter, false},
@@ -484,7 +484,7 @@ var stepActionStages = []stepActionStage{
 	stepCommandActionStage,
 }
 
-func runStepActionStages(ctx StepBuildContext, spec *step, result *core.Step) (core.ErrorList, bool) {
+func runStepActionStages(ctx stepBuildContext, spec *step, result *core.Step) (core.ErrorList, bool) {
 	var errs core.ErrorList
 	for _, stage := range stepActionStages {
 		for _, builder := range stage {
@@ -543,7 +543,7 @@ func runStepValidationStages(result *core.Step) core.ErrorList {
 }
 
 // build transforms the step specification into a core.Step.
-func (s *step) build(ctx StepBuildContext) (*core.Step, error) {
+func (s *step) build(ctx stepBuildContext) (*core.Step, error) {
 	if err := validateStepConfigAliasStruct(s); err != nil {
 		return nil, err
 	}
@@ -599,47 +599,47 @@ func validateStdoutStderr(s *core.Step) error {
 
 // Simple field builders
 
-func buildStepName(_ StepBuildContext, s *step) (string, error) {
+func buildStepName(_ stepBuildContext, s *step) (string, error) {
 	return strings.TrimSpace(s.Name), nil
 }
 
-func buildStepID(_ StepBuildContext, s *step) (string, error) {
+func buildStepID(_ stepBuildContext, s *step) (string, error) {
 	return strings.TrimSpace(s.ID), nil
 }
 
-func buildStepDescription(_ StepBuildContext, s *step) (string, error) {
+func buildStepDescription(_ stepBuildContext, s *step) (string, error) {
 	return strings.TrimSpace(s.Description), nil
 }
 
-func buildStepShellPackages(_ StepBuildContext, s *step) ([]string, error) {
+func buildStepShellPackages(_ stepBuildContext, s *step) ([]string, error) {
 	return s.ShellPackages, nil
 }
 
-func buildStepScript(_ StepBuildContext, s *step) (string, error) {
+func buildStepScript(_ stepBuildContext, s *step) (string, error) {
 	return strings.TrimSpace(s.Script), nil
 }
 
-func buildStepStdout(_ StepBuildContext, s *step) (string, error) {
+func buildStepStdout(_ stepBuildContext, s *step) (string, error) {
 	redirect, err := buildStepOutputRedirect("stdout", s.Stdout, true)
 	return redirect.filePath, err
 }
 
-func buildStepStdoutArtifact(_ StepBuildContext, s *step) (string, error) {
+func buildStepStdoutArtifact(_ stepBuildContext, s *step) (string, error) {
 	redirect, err := buildStepOutputRedirect("stdout", s.Stdout, true)
 	return redirect.artifactPath, err
 }
 
-func buildStepStdoutOutputs(_ StepBuildContext, s *step) (*core.StepOutputsConfig, error) {
+func buildStepStdoutOutputs(_ stepBuildContext, s *step) (*core.StepOutputsConfig, error) {
 	redirect, err := buildStepOutputRedirect("stdout", s.Stdout, true)
 	return redirect.outputs, err
 }
 
-func buildStepStderr(_ StepBuildContext, s *step) (string, error) {
+func buildStepStderr(_ stepBuildContext, s *step) (string, error) {
 	redirect, err := buildStepOutputRedirect("stderr", s.Stderr, false)
 	return redirect.filePath, err
 }
 
-func buildStepStderrArtifact(_ StepBuildContext, s *step) (string, error) {
+func buildStepStderrArtifact(_ stepBuildContext, s *step) (string, error) {
 	redirect, err := buildStepOutputRedirect("stderr", s.Stderr, false)
 	return redirect.artifactPath, err
 }
@@ -757,7 +757,7 @@ func hasWindowsDrive(value string) bool {
 	return (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z')
 }
 
-func buildStepLogOutput(_ StepBuildContext, s *step) (core.LogOutputMode, error) {
+func buildStepLogOutput(_ stepBuildContext, s *step) (core.LogOutputMode, error) {
 	if s.LogOutput.IsZero() {
 		// Return empty string to indicate "inherit from DAG"
 		return "", nil
@@ -765,15 +765,15 @@ func buildStepLogOutput(_ StepBuildContext, s *step) (core.LogOutputMode, error)
 	return s.LogOutput.Mode(), nil
 }
 
-func buildStepMailOnError(_ StepBuildContext, s *step) (bool, error) {
+func buildStepMailOnError(_ stepBuildContext, s *step) (bool, error) {
 	return s.MailOnError, nil
 }
 
-func buildStepWorkerSelector(_ StepBuildContext, s *step) (map[string]string, error) {
+func buildStepWorkerSelector(_ stepBuildContext, s *step) (map[string]string, error) {
 	return s.WorkerSelector, nil
 }
 
-func buildStepWorkingDir(_ StepBuildContext, s *step) (string, error) {
+func buildStepWorkingDir(_ stepBuildContext, s *step) (string, error) {
 	return strings.TrimSpace(s.WorkingDir), nil
 }
 
@@ -783,7 +783,7 @@ type stepShellResult struct {
 	Args  []string
 }
 
-func parseStepShellInternal(_ StepBuildContext, s *step) (*stepShellResult, error) {
+func parseStepShellInternal(_ stepBuildContext, s *step) (*stepShellResult, error) {
 	if s.Shell.IsZero() {
 		return &stepShellResult{}, nil
 	}
@@ -811,7 +811,7 @@ func parseStepShellInternal(_ StepBuildContext, s *step) (*stepShellResult, erro
 	}, nil
 }
 
-func buildStepShell(ctx StepBuildContext, s *step) (string, error) {
+func buildStepShell(ctx stepBuildContext, s *step) (string, error) {
 	result, err := parseStepShellInternal(ctx, s)
 	if err != nil {
 		return "", err
@@ -819,7 +819,7 @@ func buildStepShell(ctx StepBuildContext, s *step) (string, error) {
 	return result.Shell, nil
 }
 
-func buildStepShellArgs(ctx StepBuildContext, s *step) ([]string, error) {
+func buildStepShellArgs(ctx stepBuildContext, s *step) ([]string, error) {
 	result, err := parseStepShellInternal(ctx, s)
 	if err != nil {
 		return nil, err
@@ -831,22 +831,22 @@ func buildStepShellArgs(ctx StepBuildContext, s *step) ([]string, error) {
 	return result.Args, nil
 }
 
-func buildStepTimeout(_ StepBuildContext, s *step) (time.Duration, error) {
+func buildStepTimeout(_ stepBuildContext, s *step) (time.Duration, error) {
 	if s.TimeoutSec < 0 {
 		return 0, core.NewValidationError("timeout_sec", s.TimeoutSec, ErrTimeoutSecMustBeNonNegative)
 	}
 	return time.Second * time.Duration(s.TimeoutSec), nil
 }
 
-func buildStepDepends(_ StepBuildContext, s *step) ([]string, error) {
+func buildStepDepends(_ stepBuildContext, s *step) ([]string, error) {
 	return s.Depends.Values(), nil
 }
 
-func buildStepExplicitlyNoDeps(_ StepBuildContext, s *step) (bool, error) {
+func buildStepExplicitlyNoDeps(_ stepBuildContext, s *step) (bool, error) {
 	return !s.Depends.IsZero() && s.Depends.IsEmpty(), nil
 }
 
-func buildStepContinueOn(_ StepBuildContext, s *step) (core.ContinueOn, error) {
+func buildStepContinueOn(_ stepBuildContext, s *step) (core.ContinueOn, error) {
 	if s.ContinueOn.IsZero() {
 		return core.ContinueOn{}, nil
 	}
@@ -860,7 +860,7 @@ func buildStepContinueOn(_ StepBuildContext, s *step) (core.ContinueOn, error) {
 	}, nil
 }
 
-func buildStepRetryPolicy(_ StepBuildContext, s *step) (core.RetryPolicy, error) {
+func buildStepRetryPolicy(_ stepBuildContext, s *step) (core.RetryPolicy, error) {
 	if s.RetryPolicy == nil {
 		return core.RetryPolicy{}, nil
 	}
@@ -969,7 +969,7 @@ func parseBackoffValue(val any, fieldName string) (float64, error) {
 	return backoff, nil
 }
 
-func buildStepRepeatPolicy(_ StepBuildContext, s *step) (core.RepeatPolicy, error) {
+func buildStepRepeatPolicy(_ stepBuildContext, s *step) (core.RepeatPolicy, error) {
 	if s.RepeatPolicy == nil {
 		return core.RepeatPolicy{}, nil
 	}
@@ -1042,7 +1042,7 @@ func buildStepRepeatPolicy(_ StepBuildContext, s *step) (core.RepeatPolicy, erro
 	return result, nil
 }
 
-func buildStepSignalOnStop(_ StepBuildContext, s *step) (string, error) {
+func buildStepSignalOnStop(_ stepBuildContext, s *step) (string, error) {
 	if s.SignalOnStop == nil {
 		return "", nil
 	}
@@ -1504,7 +1504,7 @@ func parseStructuredOutputEntry(raw any) (core.StepOutputEntry, error) {
 	return entry, nil
 }
 
-func buildStepOutput(_ StepBuildContext, s *step) (string, error) {
+func buildStepOutput(_ stepBuildContext, s *step) (string, error) {
 	cfg, err := s.parsedOutputConfig()
 	if err != nil {
 		return "", err
@@ -1515,7 +1515,7 @@ func buildStepOutput(_ StepBuildContext, s *step) (string, error) {
 	return cfg.Name, nil
 }
 
-func buildStepStructuredOutput(_ StepBuildContext, s *step) (map[string]core.StepOutputEntry, error) {
+func buildStepStructuredOutput(_ stepBuildContext, s *step) (map[string]core.StepOutputEntry, error) {
 	cfg, err := s.parsedOutputConfig()
 	if err != nil {
 		return nil, err
@@ -1526,7 +1526,7 @@ func buildStepStructuredOutput(_ StepBuildContext, s *step) (map[string]core.Ste
 	return cfg.StructuredOutput, nil
 }
 
-func buildStepOutputSchema(_ StepBuildContext, s *step) (map[string]any, error) {
+func buildStepOutputSchema(_ stepBuildContext, s *step) (map[string]any, error) {
 	if s.OutputSchema == nil {
 		return nil, nil
 	}
@@ -1537,7 +1537,7 @@ func buildStepOutputSchema(_ StepBuildContext, s *step) (map[string]any, error) 
 	return schemaMap, nil
 }
 
-func buildStepDeclaredOutputs(_ StepBuildContext, s *step) ([]core.StepOutputDeclaration, error) {
+func buildStepDeclaredOutputs(_ stepBuildContext, s *step) ([]core.StepOutputDeclaration, error) {
 	if !s.outputsSet {
 		return nil, nil
 	}
@@ -1547,7 +1547,7 @@ func buildStepDeclaredOutputs(_ StepBuildContext, s *step) ([]core.StepOutputDec
 	return parseDeclaredOutputs(s.Outputs)
 }
 
-func buildStepEnvs(_ StepBuildContext, s *step) ([]string, error) {
+func buildStepEnvs(_ stepBuildContext, s *step) ([]string, error) {
 	if s.Env.IsZero() {
 		return nil, nil
 	}
@@ -1565,12 +1565,12 @@ func buildStepEnvs(_ StepBuildContext, s *step) ([]string, error) {
 	return envs, nil
 }
 
-func buildStepPreconditions(ctx StepBuildContext, s *step) ([]*core.Condition, error) {
-	return parsePrecondition(ctx.BuildContext, s.Preconditions)
+func buildStepPreconditions(ctx stepBuildContext, s *step) ([]*core.Condition, error) {
+	return parsePrecondition(ctx.buildContext, s.Preconditions)
 }
 
 // buildStepCommand parses the command field in the step definition.
-func buildStepCommand(_ StepBuildContext, s *step, result *core.Step) error {
+func buildStepCommand(_ stepBuildContext, s *step, result *core.Step) error {
 	if s.Exec != nil {
 		if s.Command != nil {
 			return core.NewValidationError("exec", s.Exec, fmt.Errorf("exec cannot be used together with command"))
@@ -1960,13 +1960,13 @@ func validateMessages(result *core.Step) error {
 	return nil
 }
 
-func buildStepParamsField(ctx StepBuildContext, s *step, result *core.Step) error {
+func buildStepParamsField(ctx stepBuildContext, s *step, result *core.Step) error {
 	if s.Params == nil {
 		return nil
 	}
 
 	// Parse params using existing parseParamValue function
-	paramPairs, err := parseParamValue(ctx.BuildContext, s.Params)
+	paramPairs, err := parseParamValue(ctx.buildContext, s.Params)
 	if err != nil {
 		return core.NewValidationError("params", s.Params, err)
 	}
@@ -1982,7 +1982,7 @@ func buildStepParamsField(ctx StepBuildContext, s *step, result *core.Step) erro
 }
 
 // buildStepExecutor parses the executor configuration from step fields.
-func buildStepExecutor(ctx StepBuildContext, s *step, result *core.Step) error {
+func buildStepExecutor(ctx stepBuildContext, s *step, result *core.Step) error {
 	if err := validateStepConfigAliasStruct(s); err != nil {
 		return err
 	}
@@ -2170,7 +2170,7 @@ func isRedisZeroValue(v any) bool {
 }
 
 // buildStepParallel parses the parallel field in the step definition.
-func buildStepParallel(_ StepBuildContext, s *step, result *core.Step) error {
+func buildStepParallel(_ stepBuildContext, s *step, result *core.Step) error {
 	if s.Parallel == nil {
 		return nil
 	}
@@ -2242,7 +2242,7 @@ func buildStepParallel(_ StepBuildContext, s *step, result *core.Step) error {
 var foreachIdentifierPattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*$`)
 
 // buildStepForeach parses the foreach field in the step definition.
-func buildStepForeach(ctx StepBuildContext, s *step, result *core.Step) error {
+func buildStepForeach(ctx stepBuildContext, s *step, result *core.Step) error {
 	if s.Foreach == nil {
 		return nil
 	}
@@ -2281,7 +2281,7 @@ func validateForeachExecutionTarget(s *step) error {
 	return nil
 }
 
-func parseForeachConfig(ctx StepBuildContext, raw any) (*core.ForeachConfig, error) {
+func parseForeachConfig(ctx stepBuildContext, raw any) (*core.ForeachConfig, error) {
 	obj, ok := raw.(map[string]any)
 	if !ok {
 		return nil, core.NewValidationError("foreach", raw,
@@ -2396,7 +2396,7 @@ func parseForeachMaxConcurrent(value any) (int, error) {
 	return maxConcurrent, nil
 }
 
-func parseForeachSteps(ctx StepBuildContext, value any) ([]core.Step, error) {
+func parseForeachSteps(ctx stepBuildContext, value any) ([]core.Step, error) {
 	rawSteps, ok := value.([]any)
 	if !ok {
 		return nil, core.NewValidationError("foreach.steps", value,
@@ -2454,12 +2454,12 @@ func validateForeachIdentifier(fieldName, value string) error {
 }
 
 // buildStepContainer parses the container field in the step definition.
-func buildStepContainer(ctx StepBuildContext, s *step, result *core.Step) error {
+func buildStepContainer(ctx stepBuildContext, s *step, result *core.Step) error {
 	if s.Container == nil {
 		return nil
 	}
 
-	ct, err := buildContainerField(ctx.BuildContext, s.Container)
+	ct, err := buildContainerField(ctx.buildContext, s.Container)
 	if err != nil {
 		return err
 	}
@@ -2473,7 +2473,7 @@ func buildStepContainer(ctx StepBuildContext, s *step, result *core.Step) error 
 // via type: chat in YAML (no auto-detection).
 // If step has no llm: config but DAG has one, the DAG config is inherited.
 // If step has llm: config, it completely overrides DAG-level (full override pattern).
-func buildStepLLM(ctx StepBuildContext, s *step, result *core.Step) error {
+func buildStepLLM(ctx stepBuildContext, s *step, result *core.Step) error {
 	// Only process LLM for executors that support it
 	if !core.SupportsLLM(result.ExecutorConfig.Type) {
 		return nil
@@ -2699,7 +2699,7 @@ func buildStepMessages(s *step, result *core.Step) error {
 }
 
 // buildStepRouter parses the router configuration from step fields.
-func buildStepRouter(_ StepBuildContext, s *step, result *core.Step) error {
+func buildStepRouter(_ stepBuildContext, s *step, result *core.Step) error {
 	if s.Type != "router" {
 		return nil
 	}
@@ -2774,7 +2774,7 @@ func buildStepRouter(_ StepBuildContext, s *step, result *core.Step) error {
 }
 
 // buildStepApproval parses the approval configuration for a step.
-func buildStepApproval(_ StepBuildContext, s *step, result *core.Step) error {
+func buildStepApproval(_ stepBuildContext, s *step, result *core.Step) error {
 	if s.Approval == nil {
 		return nil
 	}
@@ -2794,7 +2794,7 @@ func buildStepApproval(_ StepBuildContext, s *step, result *core.Step) error {
 }
 
 // buildStepSubDAG parses the child core.DAG definition and sets up the step to run a sub DAG.
-func buildStepSubDAG(ctx StepBuildContext, s *step, result *core.Step) error {
+func buildStepSubDAG(ctx stepBuildContext, s *step, result *core.Step) error {
 	name := strings.TrimSpace(s.Call)
 
 	// if the call field is not set, return nil.
@@ -2807,8 +2807,8 @@ func buildStepSubDAG(ctx StepBuildContext, s *step, result *core.Step) error {
 	if s.Params != nil {
 		// Parse the params to convert them to string format
 		ctxCopy := ctx
-		ctxCopy.opts.Flags |= BuildFlagNoEval // Disable evaluation for params parsing
-		paramPairs, err := parseParamValue(ctxCopy.BuildContext, s.Params)
+		ctxCopy.opts.Flags |= buildFlagNoEval // Disable evaluation for params parsing
+		paramPairs, err := parseParamValue(ctxCopy.buildContext, s.Params)
 		if err != nil {
 			return core.NewValidationError("params", s.Params, err)
 		}

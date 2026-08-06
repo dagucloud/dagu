@@ -6,7 +6,6 @@ package spec
 import (
 	"encoding/json"
 	"fmt"
-	"sort"
 	"strings"
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
@@ -96,19 +95,6 @@ var builtinActionNormalizers = map[string]actionNormalizer{
 	"wait.file":           operationAction("wait", "file"),
 	"wait.http":           operationAction("wait", "http"),
 	"wait.until":          operationAction("wait", "until"),
-}
-
-// BuiltinActionNames returns the currently accepted built-in action names in
-// sorted order. Redis operations are intentionally exposed as a pattern because
-// they normalize dynamically from any redis.<operation> action.
-func BuiltinActionNames() []string {
-	names := make([]string, 0, len(builtinActionNormalizers)+1)
-	for name := range builtinActionNormalizers {
-		names = append(names, name)
-	}
-	names = append(names, "redis.<operation>")
-	sort.Strings(names)
-	return names
 }
 
 func normalizeStepExecutionRaw(raw map[string]any, registry *customStepTypeRegistry) (map[string]any, error) {

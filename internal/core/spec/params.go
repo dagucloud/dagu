@@ -108,7 +108,7 @@ func quotedNames(names []string) string {
 // Parameter values are always treated as literal strings — no variable
 // expansion or command substitution is performed.
 func parseParams(value any, params *[]paramPair, envs *[]string) error {
-	noEvalCtx := BuildContext{opts: BuildOpts{Flags: BuildFlagNoEval}}
+	noEvalCtx := buildContext{opts: buildOpts{Flags: buildFlagNoEval}}
 
 	paramPairs, err := parseParamValue(noEvalCtx, value)
 	if err != nil {
@@ -131,7 +131,7 @@ func parseParams(value any, params *[]paramPair, envs *[]string) error {
 }
 
 // parseParamValue parses the parameters for the DAG.
-func parseParamValue(ctx BuildContext, input any) ([]paramPair, error) {
+func parseParamValue(ctx buildContext, input any) ([]paramPair, error) {
 	switch v := input.(type) {
 	case nil:
 		return nil, nil
@@ -167,7 +167,7 @@ func parseParamValue(ctx BuildContext, input any) ([]paramPair, error) {
 	}
 }
 
-func parseListParams(ctx BuildContext, input []string) ([]paramPair, error) {
+func parseListParams(ctx buildContext, input []string) ([]paramPair, error) {
 	var params []paramPair
 
 	for _, v := range input {
@@ -181,7 +181,7 @@ func parseListParams(ctx BuildContext, input []string) ([]paramPair, error) {
 	return params, nil
 }
 
-func parseMapParams(ctx BuildContext, input []any) ([]paramPair, error) {
+func parseMapParams(ctx buildContext, input []any) ([]paramPair, error) {
 	var params []paramPair
 
 	for _, m := range input {
@@ -233,7 +233,7 @@ var paramRegex = regexp.MustCompile(
 
 // tryParseJSONParams attempts to parse the input as JSON and convert it to paramPairs.
 // Returns an error if the input is not valid JSON.
-func tryParseJSONParams(ctx BuildContext, input string) ([]paramPair, error) {
+func tryParseJSONParams(ctx buildContext, input string) ([]paramPair, error) {
 	// Try parsing as JSON object first
 	var jsonObj map[string]any
 	if err := json.Unmarshal([]byte(input), &jsonObj); err == nil {
@@ -265,7 +265,7 @@ func tryParseJSONParams(ctx BuildContext, input string) ([]paramPair, error) {
 	return nil, fmt.Errorf("not valid JSON")
 }
 
-func parseStringParams(ctx BuildContext, input string) ([]paramPair, error) {
+func parseStringParams(ctx buildContext, input string) ([]paramPair, error) {
 	input = strings.TrimSpace(input)
 
 	// Check if input looks like a JSON object or array

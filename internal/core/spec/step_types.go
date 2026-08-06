@@ -156,21 +156,6 @@ func isRegisteredExecutorTypeName(name string) bool {
 	return ok
 }
 
-// StepTypeNames returns the currently accepted builtin and runtime-registered
-// executor type names in sorted order. It excludes the implicit empty command
-// executor type; callers should mention omitted type handling separately.
-func StepTypeNames() []string {
-	stepTypeNamesMu.RLock()
-	defer stepTypeNamesMu.RUnlock()
-
-	names := make([]string, 0, len(builtinStepTypeNames))
-	for name := range builtinStepTypeNames {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
-}
-
 var customStepForbiddenCallSiteFields = map[string]struct{}{
 	"call":           {},
 	"command":        {},
@@ -940,7 +925,7 @@ func cloneAny(value any) any {
 }
 
 func buildCustomStepFromSpec(
-	ctx StepBuildContext,
+	ctx stepBuildContext,
 	callSite *step,
 	raw map[string]any,
 	defs *defaults,
@@ -951,7 +936,7 @@ func buildCustomStepFromSpec(
 }
 
 func buildCustomStepFromSpecWithStack(
-	ctx StepBuildContext,
+	ctx stepBuildContext,
 	callSite *step,
 	raw map[string]any,
 	defs *defaults,
@@ -1035,7 +1020,7 @@ func customStepStackContains(stack []string, name string) bool {
 }
 
 func buildExpandedCustomStep(
-	ctx StepBuildContext,
+	ctx stepBuildContext,
 	expandedSpec *step,
 	normalizedRaw map[string]any,
 	defs *defaults,

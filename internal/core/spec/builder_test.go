@@ -122,7 +122,7 @@ func TestEnvParams(t *testing.T) {
 	paramTests := []struct {
 		name       string
 		yaml       string
-		opts       *spec.BuildOpts
+		opts       []spec.LoadOption
 		wantParams []string
 	}{
 		{
@@ -157,7 +157,7 @@ params:
   - BAR: bar
   - BAZ: "` + "`echo baz`" + `"
 `,
-			opts:       &spec.BuildOpts{Parameters: "FOO=X BAZ=Y"},
+			opts:       []spec.LoadOption{spec.WithParams("FOO=X BAZ=Y")},
 			wantParams: []string{"FOO=X", "BAR=bar", "BAZ=Y"},
 		},
 		{
@@ -191,7 +191,7 @@ params:
   - BASE: ${SOURCE_ID}
   - PREFIX: ${BASE:0:5}
 `,
-			opts:       &spec.BuildOpts{Flags: spec.BuildFlagNoEval},
+			opts:       []spec.LoadOption{spec.WithoutEval()},
 			wantParams: []string{"BASE=${SOURCE_ID}", "PREFIX=${BASE:0:5}"},
 		},
 	}
@@ -199,13 +199,7 @@ params:
 	for _, tt := range paramTests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			var dag *core.DAG
-			var err error
-			if tt.opts != nil {
-				dag, err = spec.LoadYAMLWithOpts(context.Background(), []byte(tt.yaml), *tt.opts)
-			} else {
-				dag, err = spec.LoadYAML(context.Background(), []byte(tt.yaml))
-			}
+			dag, err := spec.LoadYAML(context.Background(), []byte(tt.yaml), tt.opts...)
 			require.NoError(t, err)
 			th := DAG{t: t, DAG: dag}
 			th.AssertParam(t, tt.wantParams...)
@@ -3692,7 +3686,7 @@ steps:
   - run: echo hello
 `, tempDir)
 
-		dag, err := spec.LoadYAMLWithOpts(context.Background(), []byte(yaml), spec.BuildOpts{Flags: spec.BuildFlagNoEval})
+		dag, err := spec.LoadYAML(context.Background(), []byte(yaml), spec.WithoutEval())
 		require.NoError(t, err)
 		require.NotNil(t, dag)
 
@@ -3721,7 +3715,7 @@ env:
 steps:
   - run: echo hello
 `
-		dag, err := spec.LoadYAMLWithOpts(context.Background(), []byte(yaml), spec.BuildOpts{Flags: spec.BuildFlagNoEval})
+		dag, err := spec.LoadYAML(context.Background(), []byte(yaml), spec.WithoutEval())
 		require.NoError(t, err)
 		require.NotNil(t, dag)
 
@@ -3751,7 +3745,7 @@ steps:
   - run: echo hello
 `, tempDir)
 
-		dag, err := spec.LoadYAMLWithOpts(context.Background(), []byte(yaml), spec.BuildOpts{Flags: spec.BuildFlagNoEval})
+		dag, err := spec.LoadYAML(context.Background(), []byte(yaml), spec.WithoutEval())
 		require.NoError(t, err)
 		require.NotNil(t, dag)
 
@@ -3878,7 +3872,7 @@ shell: $MY_SHELL -e
 steps:
   - run: echo hello
 `)
-		dag, err := spec.LoadYAMLWithOpts(context.Background(), data, spec.BuildOpts{Flags: spec.BuildFlagNoEval})
+		dag, err := spec.LoadYAML(context.Background(), data, spec.WithoutEval())
 		require.NoError(t, err)
 		assert.Equal(t, "$MY_SHELL", dag.Shell)
 		assert.Equal(t, []string{"-e"}, dag.ShellArgs)
@@ -3893,7 +3887,7 @@ shell:
 steps:
   - run: echo hello
 `)
-		dag, err := spec.LoadYAMLWithOpts(context.Background(), data, spec.BuildOpts{Flags: spec.BuildFlagNoEval})
+		dag, err := spec.LoadYAML(context.Background(), data, spec.WithoutEval())
 		require.NoError(t, err)
 		assert.Equal(t, "bash", dag.Shell)
 		assert.Equal(t, []string{"$SHELL_ARG"}, dag.ShellArgs)
@@ -4017,7 +4011,7 @@ steps:
   - name: test
     run: echo test
 `)
-		dag, err := spec.LoadYAMLWithOpts(context.Background(), data, spec.BuildOpts{Flags: spec.BuildFlagNoEval})
+		dag, err := spec.LoadYAML(context.Background(), data, spec.WithoutEval())
 		require.NoError(t, err)
 
 		// When NoEval is set, the variable should not be expanded
@@ -4034,7 +4028,7 @@ steps:
     depends:
       - nonexistent
 `)
-		dag, err := spec.LoadYAMLWithOpts(context.Background(), data, spec.BuildOpts{Flags: spec.BuildFlagAllowBuildErrors})
+		dag, err := spec.LoadYAML(context.Background(), data, spec.WithAllowBuildErrors())
 		require.NoError(t, err)
 		require.NotNil(t, dag)
 		assert.NotEmpty(t, dag.BuildErrors)
@@ -4042,7 +4036,7 @@ steps:
 
 	t.Run("SkipSchemaValidation_SkipsParamsSchema", func(t *testing.T) {
 		t.Parallel()
-		// BuildFlagSkipSchemaValidation skips JSON schema validation for params,
+		// SkipSchemaValidation skips JSON schema validation for params,
 		// not YAML structure validation
 		data := []byte(`
 params:
@@ -4058,7 +4052,7 @@ steps:
 		require.Error(t, err)
 
 		// With schema validation skipped, it succeeds
-		dag, err := spec.LoadYAMLWithOpts(context.Background(), data, spec.BuildOpts{Flags: spec.BuildFlagSkipSchemaValidation})
+		dag, err := spec.LoadYAML(context.Background(), data, spec.SkipSchemaValidation())
 		require.NoError(t, err)
 		require.NotNil(t, dag)
 	})

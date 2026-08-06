@@ -28,23 +28,7 @@ import (
 // Errors for loading DAGs
 var (
 	ErrNameOrPathRequired = errors.New("name or path is required")
-	ErrInvalidJSONFile    = errors.New("invalid JSON file")
 )
-
-// LoadOptions contains options for loading a DAG.
-type LoadOptions struct {
-	name                   string   // Name of the DAG.
-	baseConfig             string   // Path to the base core.DAG configuration file.
-	baseConfigContent      []byte   // Raw base config YAML content (used when file is unavailable, e.g., distributed mode).
-	workspaceBaseConfigDir string   // Directory containing workspace base configs (<workspace>/base.yaml).
-	params                 string   // Parameters to override default parameters in the DAG.
-	paramsList             []string // List of parameters to override default parameters in the DAG.
-	flags                  BuildFlag
-	dagsDir                string            // Directory containing the core.DAG files.
-	defaultWorkingDir      string            // Default working directory for DAGs without explicit workingDir.
-	sourceFile             string            // Path the DAG was authored at, used to resolve relative paths.
-	buildEnv               map[string]string // Pre-populated env vars for build (used for retry with dotenv).
-}
 
 // LoadResult contains a loaded DAG and transient value-reference notices produced by that load operation.
 type LoadResult struct {
@@ -52,13 +36,13 @@ type LoadResult struct {
 	ValueReferenceNotices []cmnvalue.ValueReferenceNotice
 }
 
-// LoadOption is a function type for setting LoadOptions.
-type LoadOption func(*LoadOptions)
+// LoadOption is a function type for setting load options.
+type LoadOption func(*buildOpts)
 
 // WithBaseConfig sets the base core.DAG configuration file.
 func WithBaseConfig(baseDAG string) LoadOption {
-	return func(o *LoadOptions) {
-		o.baseConfig = baseDAG
+	return func(o *buildOpts) {
+		o.Base = baseDAG
 	}
 }
 
@@ -66,28 +50,28 @@ func WithBaseConfig(baseDAG string) LoadOption {
 // This is used in distributed mode where workers may not have local base config files.
 // When set, this takes precedence over the base config file path.
 func WithBaseConfigContent(content []byte) LoadOption {
-	return func(o *LoadOptions) {
-		o.baseConfigContent = content
+	return func(o *buildOpts) {
+		o.BaseConfigContent = content
 	}
 }
 
 // WithWorkspaceBaseConfigDir sets the directory containing workspace base configs.
 // Named workspace DAGs inherit <dir>/<workspace>/base.yaml after the global base config.
 func WithWorkspaceBaseConfigDir(dir string) LoadOption {
-	return func(o *LoadOptions) {
-		o.workspaceBaseConfigDir = dir
+	return func(o *buildOpts) {
+		o.WorkspaceBaseConfigDir = dir
 	}
 }
 
 // WithParams sets the parameters for the DAG.
 func WithParams(params any) LoadOption {
-	return func(o *LoadOptions) {
-		o.flags |= BuildFlagValidateRuntimeParams
+	return func(o *buildOpts) {
+		o.Flags |= buildFlagValidateRuntimeParams
 		switch params := params.(type) {
 		case string:
-			o.params = params
+			o.Parameters = params
 		case []string:
-			o.paramsList = params
+			o.ParametersList = params
 		default:
 			panic(fmt.Sprintf("invalid type %T for params", params))
 		}
@@ -96,22 +80,22 @@ func WithParams(params any) LoadOption {
 
 // WithoutEval disables the evaluation of dynamic fields.
 func WithoutEval() LoadOption {
-	return func(o *LoadOptions) {
-		o.flags |= BuildFlagNoEval
+	return func(o *buildOpts) {
+		o.Flags |= buildFlagNoEval
 	}
 }
 
 // OnlyMetadata sets the flag to load only metadata.
 func OnlyMetadata() LoadOption {
-	return func(o *LoadOptions) {
-		o.flags |= BuildFlagOnlyMetadata
+	return func(o *buildOpts) {
+		o.Flags |= buildFlagOnlyMetadata
 	}
 }
 
 // WithName sets the name of the DAG.
 func WithName(name string) LoadOption {
-	return func(o *LoadOptions) {
-		o.name = name
+	return func(o *buildOpts) {
+		o.Name = name
 	}
 }
 
@@ -121,8 +105,8 @@ func WithName(name string) LoadOption {
 // for the core.DAG file in this directory. If not specified, the current working
 // directory is used as the default.
 func WithDAGsDir(dagsDir string) LoadOption {
-	return func(o *LoadOptions) {
-		o.dagsDir = dagsDir
+	return func(o *buildOpts) {
+		o.DAGsDir = dagsDir
 	}
 }
 
@@ -132,15 +116,15 @@ func WithDAGsDir(dagsDir string) LoadOption {
 // the loader will return a core.DAG with the errors included in the DAG's `BuildErrors` field,
 // and will not fail the loading process.
 func WithAllowBuildErrors() LoadOption {
-	return func(o *LoadOptions) {
-		o.flags |= BuildFlagAllowBuildErrors
+	return func(o *buildOpts) {
+		o.Flags |= buildFlagAllowBuildErrors
 	}
 }
 
 // SkipSchemaValidation disables schema resolution/validation during build.
 func SkipSchemaValidation() LoadOption {
-	return func(o *LoadOptions) {
-		o.flags |= BuildFlagSkipSchemaValidation
+	return func(o *buildOpts) {
+		o.Flags |= buildFlagSkipSchemaValidation
 	}
 }
 
@@ -148,19 +132,19 @@ func SkipSchemaValidation() LoadOption {
 // This is used for sub-DAG runs to prevent handler inheritance from base config.
 // Sub-DAGs should have their own handlers defined explicitly if needed.
 func WithSkipBaseHandlers() LoadOption {
-	return func(o *LoadOptions) {
-		o.flags |= BuildFlagSkipBaseHandlers
+	return func(o *buildOpts) {
+		o.Flags |= buildFlagSkipBaseHandlers
 	}
 }
 
 // WithDefaultWorkingDir sets the default working directory for DAGs without explicit workingDir.
 func WithDefaultWorkingDir(defaultWorkingDir string) LoadOption {
-	return func(o *LoadOptions) {
+	return func(o *buildOpts) {
 		dir := strings.TrimSpace(defaultWorkingDir)
 		if dir == "" {
 			return
 		}
-		o.defaultWorkingDir = filepath.Clean(dir)
+		o.DefaultWorkingDir = filepath.Clean(dir)
 	}
 }
 
@@ -169,8 +153,8 @@ func WithDefaultWorkingDir(defaultWorkingDir string) LoadOption {
 // worker, resolves its relative paths against this rather than against the
 // copy.
 func WithSourceFile(sourceFile string) LoadOption {
-	return func(o *LoadOptions) {
-		o.sourceFile = strings.TrimSpace(sourceFile)
+	return func(o *buildOpts) {
+		o.SourceFile = strings.TrimSpace(sourceFile)
 	}
 }
 
@@ -179,8 +163,8 @@ func WithSourceFile(sourceFile string) LoadOption {
 // reference them via ${VAR}. This is used for retry scenarios where
 // dotenv values need to be available during rebuild from YamlData.
 func WithBuildEnv(env map[string]string) LoadOption {
-	return func(o *LoadOptions) {
-		o.buildEnv = env
+	return func(o *buildOpts) {
+		o.BuildEnv = env
 	}
 }
 
@@ -203,8 +187,8 @@ func Load(ctx context.Context, nameOrPath string, opts ...LoadOption) (*core.DAG
 	if nameOrPath == "" {
 		return nil, ErrNameOrPathRequired
 	}
-	buildContext := loadBuildContext(ctx, opts...)
-	return loadDAG(buildContext, nameOrPath)
+	bc := loadBuildContext(ctx, opts...)
+	return loadDAG(bc, nameOrPath)
 }
 
 // LoadWithResult loads a DAG and returns transient value-reference notices produced by that load operation.
@@ -213,9 +197,9 @@ func LoadWithResult(ctx context.Context, nameOrPath string, opts ...LoadOption) 
 		return nil, ErrNameOrPathRequired
 	}
 	var collector cmnvalue.ValueReferenceNoticeCollector
-	buildContext := loadBuildContext(ctx, opts...)
-	buildContext.valueReferenceNotices = &collector
-	dag, err := loadDAG(buildContext, nameOrPath)
+	bc := loadBuildContext(ctx, opts...)
+	bc.valueReferenceNotices = &collector
+	dag, err := loadDAG(bc, nameOrPath)
 	if err != nil {
 		return nil, err
 	}
@@ -223,22 +207,22 @@ func LoadWithResult(ctx context.Context, nameOrPath string, opts ...LoadOption) 
 	return &LoadResult{DAG: dag, ValueReferenceNotices: collector.Notices()}, nil
 }
 
-func loadBuildContext(ctx context.Context, opts ...LoadOption) BuildContext {
-	return BuildContext{
+func loadBuildContext(ctx context.Context, opts ...LoadOption) buildContext {
+	return buildContext{
 		ctx:  ctx,
-		opts: loadBuildOpts(loadOptions(opts...)),
+		opts: newBuildOpts(opts...),
 	}
 }
 
 // LoadYAML loads the core.DAG from the given YAML data with the specified options.
 func LoadYAML(ctx context.Context, data []byte, opts ...LoadOption) (*core.DAG, error) {
-	return LoadYAMLWithOpts(ctx, data, loadBuildOpts(loadOptions(opts...)))
+	return loadYAMLWithOptsAndNotices(ctx, data, newBuildOpts(opts...), nil)
 }
 
 // LoadYAMLWithResult loads a DAG from YAML and returns transient value-reference notices produced by that load operation.
 func LoadYAMLWithResult(ctx context.Context, data []byte, opts ...LoadOption) (*LoadResult, error) {
 	var collector cmnvalue.ValueReferenceNoticeCollector
-	dag, err := loadYAMLWithOptsAndNotices(ctx, data, loadBuildOpts(loadOptions(opts...)), &collector)
+	dag, err := loadYAMLWithOptsAndNotices(ctx, data, newBuildOpts(opts...), &collector)
 	if err != nil {
 		return nil, err
 	}
@@ -246,39 +230,18 @@ func LoadYAMLWithResult(ctx context.Context, data []byte, opts ...LoadOption) (*
 	return &LoadResult{DAG: dag, ValueReferenceNotices: collector.Notices()}, nil
 }
 
-func loadOptions(opts ...LoadOption) LoadOptions {
-	var options LoadOptions
+func newBuildOpts(opts ...LoadOption) buildOpts {
+	var options buildOpts
 	for _, opt := range opts {
 		opt(&options)
 	}
 	return options
 }
 
-func loadBuildOpts(options LoadOptions) BuildOpts {
-	return BuildOpts{
-		Base:                   options.baseConfig,
-		BaseConfigContent:      options.baseConfigContent,
-		WorkspaceBaseConfigDir: options.workspaceBaseConfigDir,
-		Parameters:             options.params,
-		ParametersList:         options.paramsList,
-		Name:                   options.name,
-		DAGsDir:                options.dagsDir,
-		DefaultWorkingDir:      options.defaultWorkingDir,
-		SourceFile:             options.sourceFile,
-		Flags:                  options.flags,
-		BuildEnv:               options.buildEnv,
-	}
-}
-
-// LoadYAMLWithOpts loads the core.DAG configuration from YAML data.
-func LoadYAMLWithOpts(ctx context.Context, data []byte, opts BuildOpts) (*core.DAG, error) {
-	return loadYAMLWithOptsAndNotices(ctx, data, opts, nil)
-}
-
 func loadYAMLWithOptsAndNotices(
 	ctx context.Context,
 	data []byte,
-	opts BuildOpts,
+	opts buildOpts,
 	valueReferenceNotices *cmnvalue.ValueReferenceNoticeCollector,
 ) (*core.DAG, error) {
 	baseDef, baseRaw, err := loadBaseDefinition(opts)
@@ -286,11 +249,11 @@ func loadYAMLWithOptsAndNotices(
 		return loadYAMLFailure(opts, err)
 	}
 
-	buildContext := BuildContext{ctx: ctx, opts: opts}
+	bc := buildContext{ctx: ctx, opts: opts}
 	if valueReferenceNotices != nil {
-		buildContext.valueReferenceNotices = valueReferenceNotices
+		bc.valueReferenceNotices = valueReferenceNotices
 	}
-	dags, err := loadDAGsFromData(buildContext, data, "", baseDef, baseRaw)
+	dags, err := loadDAGsFromData(bc, data, "", baseDef, baseRaw)
 	if err != nil {
 		return loadYAMLFailure(opts, err)
 	}
@@ -307,7 +270,7 @@ func loadYAMLWithOptsAndNotices(
 }
 
 // loadYAMLFailure returns a placeholder DAG when YAML loading is allowed to fail.
-func loadYAMLFailure(opts BuildOpts, err error) (*core.DAG, error) {
+func loadYAMLFailure(opts buildOpts, err error) (*core.DAG, error) {
 	if dag := buildLoadErrorDAG(opts, "", err); dag != nil {
 		return dag, nil
 	}
@@ -315,8 +278,8 @@ func loadYAMLFailure(opts BuildOpts, err error) (*core.DAG, error) {
 }
 
 // buildLoadErrorDAG creates a placeholder DAG when build errors are allowed.
-func buildLoadErrorDAG(opts BuildOpts, filePath string, err error) *core.DAG {
-	if !opts.Has(BuildFlagAllowBuildErrors) {
+func buildLoadErrorDAG(opts buildOpts, filePath string, err error) *core.DAG {
+	if !opts.Has(buildFlagAllowBuildErrors) {
 		return nil
 	}
 
@@ -333,9 +296,9 @@ func buildLoadErrorDAG(opts BuildOpts, filePath string, err error) *core.DAG {
 	}
 }
 
-// LoadBaseConfig loads the global configuration from the given file.
+// loadBaseConfig loads the global configuration from the given file.
 // The global configuration can be overridden by the core.DAG configuration.
-func LoadBaseConfig(ctx BuildContext, file string) (*core.DAG, error) {
+func loadBaseConfig(ctx buildContext, file string) (*core.DAG, error) {
 	// The base config is optional.
 	if !fileutil.FileExists(file) {
 		return nil, nil
@@ -353,7 +316,7 @@ func LoadBaseConfig(ctx BuildContext, file string) (*core.DAG, error) {
 		return nil, core.ErrorList{err}
 	}
 
-	ctx = ctx.WithOpts(BuildOpts{
+	ctx = ctx.WithOpts(buildOpts{
 		Flags: ctx.opts.Flags,
 	}).WithFile(file)
 
@@ -361,7 +324,7 @@ func LoadBaseConfig(ctx BuildContext, file string) (*core.DAG, error) {
 }
 
 // loadDAG loads the core.DAG from the given file.
-func loadDAG(ctx BuildContext, nameOrPath string) (*core.DAG, error) {
+func loadDAG(ctx buildContext, nameOrPath string) (*core.DAG, error) {
 	filePath, err := resolveYamlFilePath(ctx, nameOrPath)
 	if err != nil {
 		return nil, err
@@ -385,15 +348,13 @@ func loadDAG(ctx BuildContext, nameOrPath string) (*core.DAG, error) {
 	}
 
 	core.InitializeDefaults(mainDAG)
-	if err := applyWorkingDirFallback(mainDAG, filePath); err != nil {
-		return nil, err
-	}
+	applyWorkingDirFallback(mainDAG, filePath)
 
 	return mainDAG, nil
 }
 
 // loadDAGFailure returns a placeholder DAG when file loading is allowed to fail.
-func loadDAGFailure(ctx BuildContext, filePath string, err error) (*core.DAG, error) {
+func loadDAGFailure(ctx buildContext, filePath string, err error) (*core.DAG, error) {
 	if dag := buildLoadErrorDAG(ctx.opts, filePath, err); dag != nil {
 		return dag, nil
 	}
@@ -432,27 +393,16 @@ func attachLocalDAGs(mainDAG *core.DAG, localDAGs []*core.DAG) error {
 }
 
 // applyWorkingDirFallback marks configured working directories as explicit,
-// then synthesizes a fallback from filePath or the process working directory
-// when the manifest omits one, returning an error if the process working
-// directory cannot be determined.
-func applyWorkingDirFallback(dag *core.DAG, filePath string) error {
+// then defaults the DAG working directory to the manifest's directory when the
+// manifest omits one. filePath must be non-empty.
+func applyWorkingDirFallback(dag *core.DAG, filePath string) {
 	markConfiguredWorkingDirsExplicit(dag)
 
 	if dag.WorkingDir != "" {
-		return nil
+		return
 	}
 
-	if filePath != "" {
-		dag.WorkingDir = filepath.Dir(filePath)
-		return nil
-	}
-
-	wd, err := getDefaultWorkingDir()
-	if err != nil {
-		return fmt.Errorf("failed to determine working directory: %w", err)
-	}
-	dag.WorkingDir = wd
-	return nil
+	dag.WorkingDir = filepath.Dir(filePath)
 }
 
 // markConfiguredWorkingDirsExplicit preserves configured working directories
@@ -470,7 +420,7 @@ func markConfiguredWorkingDirsExplicit(dag *core.DAG) {
 }
 
 // loadDAGsFromFile loads all DAGs from a multi-document YAML file.
-func loadDAGsFromFile(ctx BuildContext, filePath string, baseDef *dag, baseRaw []byte) ([]*core.DAG, error) {
+func loadDAGsFromFile(ctx buildContext, filePath string, baseDef *dag, baseRaw []byte) ([]*core.DAG, error) {
 	data, err := fileutil.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file %q: %w", filePath, err)
@@ -484,7 +434,7 @@ type dagDocument struct {
 }
 
 // loadDAGsFromData builds DAGs from every non-empty YAML document in the input.
-func loadDAGsFromData(ctx BuildContext, data []byte, filePath string, baseDef *dag, baseRaw []byte) ([]*core.DAG, error) {
+func loadDAGsFromData(ctx buildContext, data []byte, filePath string, baseDef *dag, baseRaw []byte) ([]*core.DAG, error) {
 	docs, err := decodeDocuments(data)
 	if err != nil {
 		return nil, err
@@ -564,8 +514,8 @@ func decodeDocuments(data []byte) ([]dagDocument, error) {
 }
 
 // loadBaseDefinition loads and decodes the optional base manifest.
-func loadBaseDefinition(opts BuildOpts) (*dag, []byte, error) {
-	if opts.Has(BuildFlagOnlyMetadata) {
+func loadBaseDefinition(opts buildOpts) (*dag, []byte, error) {
+	if opts.Has(buildFlagOnlyMetadata) {
 		return nil, nil, nil
 	}
 
@@ -582,7 +532,7 @@ func loadBaseDefinition(opts BuildOpts) (*dag, []byte, error) {
 }
 
 // readBaseDefinitionData returns the raw bytes and label for the base manifest.
-func readBaseDefinitionData(opts BuildOpts) ([]byte, string, error) {
+func readBaseDefinitionData(opts buildOpts) ([]byte, string, error) {
 	if len(opts.BaseConfigContent) > 0 {
 		return opts.BaseConfigContent, "embedded base config", nil
 	}
@@ -615,7 +565,7 @@ func decodeDefinitionData(data []byte, description string) (*dag, error) {
 
 // processDAGDocument processes a single DAG document from the YAML file.
 func processDAGDocument(
-	ctx BuildContext,
+	ctx buildContext,
 	doc map[string]any,
 	baseDef *dag,
 	baseRaw []byte,
@@ -657,7 +607,7 @@ func processDAGDocument(
 // loadEffectiveBaseDefinition returns the base definition that applies to a document.
 // Embedded base configs are already effective for distributed workers, so local
 // workspace config files are only considered when loading from filesystem state.
-func loadEffectiveBaseDefinition(opts BuildOpts, doc map[string]any, baseDef *dag, baseRaw []byte) (*dag, []byte, error) {
+func loadEffectiveBaseDefinition(opts buildOpts, doc map[string]any, baseDef *dag, baseRaw []byte) (*dag, []byte, error) {
 	workspaceRaw, err := readWorkspaceBaseDefinitionData(opts, doc)
 	if err != nil {
 		return nil, nil, err
@@ -669,8 +619,8 @@ func loadEffectiveBaseDefinition(opts BuildOpts, doc map[string]any, baseDef *da
 }
 
 // readWorkspaceBaseDefinitionData returns raw per-workspace base config data for a named workspace DAG.
-func readWorkspaceBaseDefinitionData(opts BuildOpts, doc map[string]any) ([]byte, error) {
-	if opts.Has(BuildFlagOnlyMetadata) || opts.WorkspaceBaseConfigDir == "" || len(opts.BaseConfigContent) > 0 {
+func readWorkspaceBaseDefinitionData(opts buildOpts, doc map[string]any) ([]byte, error) {
+	if opts.Has(buildFlagOnlyMetadata) || opts.WorkspaceBaseConfigDir == "" || len(opts.BaseConfigContent) > 0 {
 		return nil, nil
 	}
 
@@ -827,7 +777,7 @@ func mergeBaseEnvRaw(base, override any) (any, error) {
 }
 
 // buildDocumentContext applies per-document overrides for multi-DAG files.
-func buildDocumentContext(ctx BuildContext, index int) BuildContext {
+func buildDocumentContext(ctx buildContext, index int) buildContext {
 	ctx.index = index
 	if index == 0 {
 		return ctx
@@ -836,12 +786,12 @@ func buildDocumentContext(ctx BuildContext, index int) BuildContext {
 	opts := ctx.opts
 	opts.Parameters = ""
 	opts.ParametersList = nil
-	opts.Flags &^= BuildFlagValidateRuntimeParams
+	opts.Flags &^= buildFlagValidateRuntimeParams
 	return ctx.WithOpts(opts)
 }
 
 // prepareDocumentContext builds the inherited context and destination DAG.
-func prepareDocumentContext(ctx BuildContext, baseDef, spec *dag) (BuildContext, *core.DAG, error) {
+func prepareDocumentContext(ctx buildContext, baseDef, spec *dag) (buildContext, *core.DAG, error) {
 	customStepTypes, err := buildCustomStepActionRegistry(
 		stepTypesOf(baseDef),
 		stepTypesOf(spec),
@@ -867,7 +817,7 @@ func prepareDocumentContext(ctx BuildContext, baseDef, spec *dag) (BuildContext,
 }
 
 // buildDocumentBase builds the reusable base DAG and decoded defaults.
-func buildDocumentBase(ctx BuildContext, baseDef *dag) (*core.DAG, *defaults, error) {
+func buildDocumentBase(ctx buildContext, baseDef *dag) (*core.DAG, *defaults, error) {
 	baseDAG, err := buildBaseDAG(ctx, baseDef)
 	if err != nil {
 		return nil, nil, err
@@ -890,11 +840,11 @@ func documentYAML(index int, doc map[string]any, fullData []byte) ([]byte, error
 }
 
 // buildBaseDAG builds a new base DAG from the base definition.
-func buildBaseDAG(ctx BuildContext, baseDef *dag) (*core.DAG, error) {
+func buildBaseDAG(ctx buildContext, baseDef *dag) (*core.DAG, error) {
 	buildOpts := ctx.opts
 	buildOpts.Parameters = ""
 	buildOpts.ParametersList = nil
-	buildOpts.Flags |= BuildFlagDeferWorkerSelector
+	buildOpts.Flags |= buildFlagDeferWorkerSelector
 
 	customStepTypes, err := buildCustomStepActionRegistry(stepTypesOf(baseDef), nil, actionsOf(baseDef), nil)
 	if err != nil {
@@ -908,7 +858,7 @@ func buildBaseDAG(ctx BuildContext, baseDef *dag) (*core.DAG, error) {
 
 	// Skip handlers from base config for sub-DAG runs to prevent inheritance.
 	// Sub-DAGs should define their own handlers explicitly if needed.
-	if ctx.opts.Has(BuildFlagSkipBaseHandlers) {
+	if ctx.opts.Has(buildFlagSkipBaseHandlers) {
 		baseDAG.HandlerOn = core.HandlerOn{}
 	}
 
@@ -976,13 +926,16 @@ func defaultName(file string) string {
 
 // resolveYamlFilePath resolves the YAML file path.
 // If the file name does not have an extension, it appends ".yaml".
-func resolveYamlFilePath(ctx BuildContext, file string) (string, error) {
+func resolveYamlFilePath(ctx buildContext, file string) (string, error) {
 	file = strings.TrimSpace(file)
 	if file == "" {
 		return "", errors.New("file path is required")
 	}
 
-	file = expandHomeDir(file)
+	file, err := expandHomeDir(file)
+	if err != nil {
+		return "", err
+	}
 
 	if filepath.IsAbs(file) {
 		return file, nil
@@ -1004,16 +957,18 @@ func resolveYamlFilePath(ctx BuildContext, file string) (string, error) {
 }
 
 // expandHomeDir expands a leading tilde when the caller used a home-relative path.
-func expandHomeDir(file string) string {
+// It reports an error when the home directory cannot be determined, so that a
+// home-relative path is never silently resolved against another directory.
+func expandHomeDir(file string) (string, error) {
 	if file != "~" && !strings.HasPrefix(file, "~/") && !strings.HasPrefix(file, `~\`) {
-		return file
+		return file, nil
 	}
 
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return file
+		return "", fmt.Errorf("failed to expand %q: %w", file, err)
 	}
-	return strings.Replace(file, "~", homeDir, 1)
+	return strings.Replace(file, "~", homeDir, 1), nil
 }
 
 type mergeTransformer struct{}
@@ -1166,10 +1121,10 @@ func (*mergeTransformer) Transformer(
 }
 
 // readYAMLFile reads the contents of the file into a map.
-func readYAMLFile(file string) (cfg map[string]any, err error) {
+func readYAMLFile(file string) (map[string]any, error) {
 	data, err := fileutil.ReadFile(file)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read file %q: %v", file, err)
+		return nil, fmt.Errorf("failed to read file %q: %w", file, err)
 	}
 
 	return unmarshalData(data)
