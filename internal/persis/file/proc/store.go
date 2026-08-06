@@ -108,11 +108,6 @@ func WithHeartbeatInterval(d time.Duration) StoreOption {
 	}
 }
 
-// WithHeartbeatSyncInterval preserves the file proc store configuration surface.
-func WithHeartbeatSyncInterval(_ time.Duration) StoreOption {
-	return func(_ *Store) {}
-}
-
 // New creates a Store rooted at dir.
 func New(root string, opts ...StoreOption) *Store {
 	s := &Store{
@@ -322,15 +317,14 @@ func (s *Store) LatestFreshEntryByDAGName(ctx context.Context, groupName, dagNam
 	}
 	var freshest *exec.ProcEntry
 	for i := range entries {
-		entry := entries[i]
+		entry := &entries[i]
 		if !entry.Fresh || entry.Meta.Name != dagName {
 			continue
 		}
 		if freshest == nil ||
 			entry.Meta.StartedAt > freshest.Meta.StartedAt ||
 			(entry.Meta.StartedAt == freshest.Meta.StartedAt && entry.LastHeartbeatAt > freshest.LastHeartbeatAt) {
-			copy := entry
-			freshest = &copy
+			freshest = entry
 		}
 	}
 	return freshest, nil
@@ -531,7 +525,7 @@ func removeEmptyProcDirs(dir string) {
 }
 
 // ListEntries returns proc entries for a group.
-func (s *Store) ListEntries(_ context.Context, groupName string) ([]exec.ProcEntry, error) {
+func (s *Store) ListEntries(ctx context.Context, groupName string) ([]exec.ProcEntry, error) {
 	groupDir := filepath.Join(s.root, groupName)
 	if _, err := os.Stat(groupDir); errors.Is(err, os.ErrNotExist) {
 		return nil, nil
@@ -540,11 +534,11 @@ func (s *Store) ListEntries(_ context.Context, groupName string) ([]exec.ProcEnt
 	if err != nil {
 		return nil, err
 	}
-	return s.entriesFromFiles(groupName, files)
+	return s.entriesFromFiles(ctx, groupName, files)
 }
 
 // ListAllEntries returns all proc entries under the store root.
-func (s *Store) ListAllEntries(_ context.Context) ([]exec.ProcEntry, error) {
+func (s *Store) ListAllEntries(ctx context.Context) ([]exec.ProcEntry, error) {
 	dirEntries, err := os.ReadDir(s.root)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -563,7 +557,7 @@ func (s *Store) ListAllEntries(_ context.Context) ([]exec.ProcEntry, error) {
 		if err != nil {
 			return nil, err
 		}
-		groupEntries, err := s.entriesFromFiles(groupName, files)
+		groupEntries, err := s.entriesFromFiles(ctx, groupName, files)
 		if err != nil {
 			return nil, err
 		}
@@ -585,7 +579,7 @@ func (s *Store) LatestHeartbeat(_ context.Context, groupName string, dagRun exec
 	now := time.Now().UTC()
 	var latest *exec.ProcHeartbeat
 	for _, file := range files {
-		observed, err := readProcEntryObservedWithRetry(file, groupName, s.staleTime, now)
+		observed, err := readProcEntryWithRetry(file, groupName, s.staleTime, now)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) || errors.Is(err, errInvalidProcFile) {
 				// Heartbeat observation should not fail because an unrelated
@@ -637,18 +631,24 @@ func procFilesInGroup(groupDir string) ([]string, error) {
 	return files, nil
 }
 
-func (s *Store) entriesFromFiles(groupName string, files []string) ([]exec.ProcEntry, error) {
+func (s *Store) entriesFromFiles(ctx context.Context, groupName string, files []string) ([]exec.ProcEntry, error) {
 	now := time.Now().UTC()
 	entries := make([]exec.ProcEntry, 0, len(files))
 	for _, file := range files {
-		entry, err := readProcEntryWithRetry(file, groupName, s.staleTime, now)
+		observed, err := readProcEntryWithRetry(file, groupName, s.staleTime, now)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
 				continue
 			}
+			if errors.Is(err, errInvalidProcFile) {
+				// An undecodable file describes no live run. Skipping it keeps a
+				// single damaged file from hiding every run in the group.
+				logger.Warn(ctx, "Skipping undecodable proc file", tag.File(file), tag.Error(err))
+				continue
+			}
 			return nil, err
 		}
-		entries = append(entries, entry)
+		entries = append(entries, observed.entry)
 	}
 	return entries, nil
 }
@@ -659,14 +659,14 @@ func (s *Store) RemoveIfStale(ctx context.Context, entry exec.ProcEntry) error {
 	if !ok {
 		return nil
 	}
-	current, err := readProcEntryWithRetry(path, entry.GroupName, s.staleTime, time.Now().UTC())
+	observed, err := readProcEntryWithRetry(path, entry.GroupName, s.staleTime, time.Now().UTC())
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	if current.Fresh || !sameProcEntry(current, entry) {
+	if observed.entry.Fresh || !sameProcEntry(observed.entry, entry) {
 		return nil
 	}
 	if err := removeProcFile(path); err != nil {
@@ -676,31 +676,7 @@ func (s *Store) RemoveIfStale(ctx context.Context, entry exec.ProcEntry) error {
 	return nil
 }
 
-func readProcEntry(path, groupName string, staleTime time.Duration, now time.Time) (exec.ProcEntry, error) {
-	observed, err := readProcEntryObserved(path, groupName, staleTime, now)
-	if err != nil {
-		return exec.ProcEntry{}, err
-	}
-	return observed.entry, nil
-}
-
-func readProcEntryWithRetry(path, groupName string, staleTime time.Duration, now time.Time) (exec.ProcEntry, error) {
-	var lastErr error
-	for attempt := range procFileRetries {
-		entry, err := readProcEntry(path, groupName, staleTime, now)
-		if err == nil || errors.Is(err, os.ErrNotExist) {
-			return entry, err
-		}
-		if !fileutil.IsTransientFileError(err) {
-			return exec.ProcEntry{}, err
-		}
-		lastErr = err
-		time.Sleep(time.Duration(attempt+1) * 25 * time.Millisecond)
-	}
-	return exec.ProcEntry{}, lastErr
-}
-
-func readProcEntryObservedWithRetry(path, groupName string, staleTime time.Duration, now time.Time) (observedProcEntry, error) {
+func readProcEntryWithRetry(path, groupName string, staleTime time.Duration, now time.Time) (observedProcEntry, error) {
 	var lastErr error
 	for attempt := range procFileRetries {
 		observed, err := readProcEntryObserved(path, groupName, staleTime, now)
@@ -711,7 +687,9 @@ func readProcEntryObservedWithRetry(path, groupName string, staleTime time.Durat
 			return observedProcEntry{}, err
 		}
 		lastErr = err
-		time.Sleep(time.Duration(attempt+1) * 25 * time.Millisecond)
+		if attempt < procFileRetries-1 {
+			time.Sleep(time.Duration(attempt+1) * 25 * time.Millisecond)
+		}
 	}
 	return observedProcEntry{}, lastErr
 }
@@ -738,18 +716,19 @@ func readProcEntryObserved(path, groupName string, staleTime time.Duration, now 
 
 	lastHeartbeatAt := int64(binary.BigEndian.Uint64(data[:procHeartbeatSize])) //nolint:gosec // heartbeat unix time.
 	heartbeatTime := time.Unix(lastHeartbeatAt, 0).UTC()
-	if heartbeatTime.After(now.Add(5 * time.Minute)) {
-		return observedProcEntry{}, fmt.Errorf("%w: proc heartbeat timestamp is in the future for %s", errInvalidProcFile, path)
-	}
 
-	meta, err := procMetaFromLegacyData(path, parsedName, data[procHeartbeatSize:], heartbeatTime, info)
+	meta, err := procMetaFromData(path, parsedName, data[procHeartbeatSize:], heartbeatTime, info)
 	if err != nil {
 		return observedProcEntry{}, err
 	}
 
+	// The heartbeat carries the writing process's clock, so it is only trusted
+	// when it is not ahead of the reader. A skewed or garbled timestamp leaves
+	// the entry stale rather than alive forever.
 	fresh := now.Sub(info.ModTime()) < staleTime
 	if !fresh {
-		fresh = now.Sub(heartbeatTime) < staleTime
+		age := now.Sub(heartbeatTime)
+		fresh = age >= 0 && age < staleTime
 	}
 	entry := exec.ProcEntry{
 		GroupName:       groupName,
@@ -761,7 +740,7 @@ func readProcEntryObserved(path, groupName string, staleTime time.Duration, now 
 	return observedProcEntry{entry: entry, observedAt: info.ModTime()}, nil
 }
 
-func procMetaFromLegacyData(path string, parsedName procFileName, payload []byte, heartbeatTime time.Time, info os.FileInfo) (exec.ProcMeta, error) {
+func procMetaFromData(path string, parsedName procFileName, payload []byte, heartbeatTime time.Time, info os.FileInfo) (exec.ProcMeta, error) {
 	switch parsedName.format {
 	case procFileFormatCurrent:
 		if len(payload) == 0 {

@@ -32,10 +32,7 @@ func TestStoreWritesReleasedProcFileLayoutOnly(t *testing.T) {
 
 	ctx := context.Background()
 	root := t.TempDir()
-	s := New(root,
-		WithHeartbeatInterval(10*time.Millisecond),
-		WithHeartbeatSyncInterval(10*time.Millisecond),
-	)
+	s := New(root, WithHeartbeatInterval(10*time.Millisecond))
 	ref := exec.NewDAGRunRef("sidecar-dag", "run-1")
 
 	handle, err := s.Acquire(ctx, "queue-a", testProcMeta(ref))
@@ -88,6 +85,63 @@ func TestStoreReadsAndRemovesReleasedProcFiles(t *testing.T) {
 	assert.False(t, entries[0].Fresh)
 	assert.False(t, entries[0].Identity.IsZero())
 	assert.NotEqual(t, procFile, entries[0].Identity.String())
+
+	require.NoError(t, s.RemoveIfStale(ctx, entries[0]))
+	_, err = os.Stat(procFile)
+	assert.ErrorIs(t, err, os.ErrNotExist)
+}
+
+func TestStoreKeepsGroupReadableWhenAProcFileIsDamaged(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	s := New(root, WithHeartbeatInterval(10*time.Millisecond))
+	ref := exec.NewDAGRunRef("healthy-dag", "run-1")
+
+	handle, err := s.Acquire(ctx, "queue-a", testProcMeta(ref))
+	require.NoError(t, err)
+	defer func() { _ = handle.Stop(ctx) }()
+	require.NotEmpty(t, waitForProcFile(t, root, "queue-a", "healthy-dag"))
+
+	damaged := filepath.Join(root, "queue-a", "healthy-dag", "proc_20260101_000000Z_6161_6262.proc")
+	require.NoError(t, os.WriteFile(damaged, []byte{0x00, 0x01}, 0o600))
+
+	entries, err := s.ListEntries(ctx, "queue-a")
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	assert.Equal(t, ref, entries[0].Meta.DAGRun())
+
+	count, err := s.CountAlive(ctx, "queue-a")
+	require.NoError(t, err)
+	assert.Equal(t, 1, count)
+
+	alive, err := s.IsRunAlive(ctx, "queue-a", ref)
+	require.NoError(t, err)
+	assert.True(t, alive)
+
+	require.NoError(t, s.Validate(ctx))
+}
+
+func TestStoreTreatsFutureHeartbeatAsStale(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	s := New(root, WithStaleThreshold(time.Minute))
+	ref := exec.NewDAGRunRef("skewed-dag", "run-1")
+	meta := testProcMeta(ref)
+
+	// A writer whose clock runs ahead must not keep the entry alive forever.
+	writtenAt := time.Now().Add(-time.Hour).UTC()
+	procFile := s.filePath("queue-a", meta, writtenAt)
+	require.NoError(t, writeProcFile(procFile, time.Now().Add(time.Hour).UTC().Unix(), meta))
+	require.NoError(t, os.Chtimes(procFile, writtenAt, writtenAt))
+
+	entries, err := s.ListEntries(ctx, "queue-a")
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	assert.False(t, entries[0].Fresh)
 
 	require.NoError(t, s.RemoveIfStale(ctx, entries[0]))
 	_, err = os.Stat(procFile)
