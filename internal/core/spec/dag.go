@@ -1145,19 +1145,168 @@ func dagUsesBuiltinArtifactAction(d *dag) bool {
 	if d == nil {
 		return false
 	}
-	return valueUsesBuiltinArtifactAction(reflect.ValueOf(d.Steps)) ||
-		valueUsesBuiltinArtifactAction(reflect.ValueOf(d.HandlerOn)) ||
+	return artifactActionInStepContainer(reflect.ValueOf(d.Steps)) ||
+		artifactActionInStepContainer(reflect.ValueOf(d.HandlerOn)) ||
 		customStepSpecsUseBuiltinArtifactAction(d.StepTypes) ||
 		customStepSpecsUseBuiltinArtifactAction(d.Actions)
 }
 
 func customStepSpecsUseBuiltinArtifactAction(specs map[string]customStepTypeSpec) bool {
 	for _, spec := range specs {
-		if valueUsesBuiltinArtifactAction(reflect.ValueOf(spec.Template)) {
+		// A template is a single step declaration.
+		if artifactActionInStep(reflect.ValueOf(spec.Template)) {
 			return true
 		}
 	}
 	return false
+}
+
+// artifactActionInStepContainer searches a value holding step declarations. In
+// map form the keys name the steps, so they are not field names and carry no
+// meaning for this search.
+func artifactActionInStepContainer(v reflect.Value) bool {
+	v, ok := derefForSearch(v)
+	if !ok {
+		return false
+	}
+
+	if v.Kind() == reflect.Map {
+		iter := v.MapRange()
+		for iter.Next() {
+			if artifactActionInStep(iter.Value()) {
+				return true
+			}
+		}
+		return false
+	}
+
+	if v.Kind() == reflect.Slice || v.Kind() == reflect.Array {
+		for i := range v.Len() {
+			item, ok := derefForSearch(v.Index(i))
+			if !ok {
+				continue
+			}
+			// A nested list declares steps that run at one position.
+			if item.Kind() == reflect.Slice || item.Kind() == reflect.Array {
+				if artifactActionInStepContainer(item) {
+					return true
+				}
+				continue
+			}
+			if artifactActionInStep(item) {
+				return true
+			}
+		}
+		return false
+	}
+
+	// A struct groups steps by role, as the handlers do.
+	if v.Kind() == reflect.Struct {
+		t := v.Type()
+		for i := range v.NumField() {
+			if t.Field(i).PkgPath != "" {
+				continue
+			}
+			if artifactActionInStep(v.Field(i)) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// artifactActionInStep searches one step declaration. Within a step every
+// params entry is a payload handed to a child DAG rather than step syntax,
+// and a steps entry opens a nested container whose keys name steps again.
+func artifactActionInStep(v reflect.Value) bool {
+	v, ok := derefForSearch(v)
+	if !ok {
+		return false
+	}
+
+	if v.Kind() == reflect.Map {
+		iter := v.MapRange()
+		for iter.Next() {
+			key, value := iter.Key(), iter.Value()
+			if key.Kind() != reflect.String {
+				if artifactActionInStep(value) {
+					return true
+				}
+				continue
+			}
+			switch key.String() {
+			case "params":
+				continue
+			case "steps":
+				if artifactActionInStepContainer(value) {
+					return true
+				}
+				continue
+			case "action":
+				if action, ok := reflectString(value); ok && strings.HasPrefix(action, "artifact.") {
+					return true
+				}
+			}
+			if artifactActionInStep(value) {
+				return true
+			}
+		}
+		return false
+	}
+
+	if v.Kind() == reflect.Slice || v.Kind() == reflect.Array {
+		for i := range v.Len() {
+			if artifactActionInStep(v.Index(i)) {
+				return true
+			}
+		}
+		return false
+	}
+
+	if v.Kind() == reflect.Struct {
+		t := v.Type()
+		for i := range v.NumField() {
+			fieldInfo := t.Field(i)
+			if fieldInfo.PkgPath != "" {
+				continue
+			}
+			field := v.Field(i)
+			switch fieldInfo.Name {
+			case "Params":
+				continue
+			case "Steps":
+				if artifactActionInStepContainer(field) {
+					return true
+				}
+				continue
+			case "Action":
+				if action, ok := reflectString(field); ok && strings.HasPrefix(action, "artifact.") {
+					return true
+				}
+			}
+			if artifactActionInStep(field) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// derefForSearch unwraps pointers and interfaces, reporting false when the
+// value is absent.
+func derefForSearch(v reflect.Value) (reflect.Value, bool) {
+	if !v.IsValid() {
+		return v, false
+	}
+	for v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
+		if v.IsNil() {
+			return v, false
+		}
+		v = v.Elem()
+	}
+	return v, true
 }
 
 func dagUsesArtifactOutput(d *dag) bool {
@@ -1289,18 +1438,6 @@ var runArtifactsDirVisitor = specVisitor{
 	matchString:          referencesArtifactsEnvVar,
 }
 
-// builtinArtifactActionVisitor finds a step declaring a builtin artifact
-// action.
-var builtinArtifactActionVisitor = specVisitor{
-	matchNamed: func(name string, value reflect.Value) bool {
-		if name != "action" && name != "Action" {
-			return false
-		}
-		action, ok := reflectString(value)
-		return ok && strings.HasPrefix(action, "artifact.")
-	},
-}
-
 // artifactOutputVisitor finds a step redirecting an output stream to an
 // artifact.
 var artifactOutputVisitor = specVisitor{
@@ -1311,10 +1448,6 @@ var artifactOutputVisitor = specVisitor{
 
 func valueReferencesRunArtifactsDir(v reflect.Value) bool {
 	return runArtifactsDirVisitor.visit(v)
-}
-
-func valueUsesBuiltinArtifactAction(v reflect.Value) bool {
-	return builtinArtifactActionVisitor.visit(v)
 }
 
 func valueUsesArtifactOutput(v reflect.Value) bool {

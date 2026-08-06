@@ -4378,6 +4378,115 @@ steps:
 		assert.False(t, dag.Artifacts.Enabled)
 	})
 
+	t.Run("ParamsPayloadPassedToChildDAGIsNotAnArtifactAction", func(t *testing.T) {
+		t.Parallel()
+
+		// with.params is data handed to the child DAG, not step syntax.
+		for name, data := range map[string]string{
+			"step": `
+artifacts:
+  enabled: false
+steps:
+  - name: s1
+    action: dag.run
+    with:
+      dag: child
+      params:
+        action: artifact.write
+`,
+			"handler": `
+artifacts:
+  enabled: false
+handler_on:
+  success:
+    action: dag.run
+    with:
+      dag: child
+      params:
+        action: artifact.write
+steps:
+  - name: s1
+    command: echo hello
+`,
+			"custom action template": `
+artifacts:
+  enabled: false
+actions:
+  myact:
+    input_schema: {type: object}
+    template:
+      action: dag.run
+      with:
+        dag: child
+        params:
+          action: artifact.write
+steps:
+  - name: s1
+    command: echo hello
+`,
+		} {
+			t.Run(name, func(t *testing.T) {
+				t.Parallel()
+
+				dag, err := spec.LoadYAML(context.Background(), []byte(data))
+				require.NoError(t, err)
+				require.NotNil(t, dag.Artifacts)
+				assert.False(t, dag.Artifacts.Enabled)
+			})
+		}
+	})
+
+	t.Run("NestedAndHandlerArtifactActionsAreDetected", func(t *testing.T) {
+		t.Parallel()
+
+		for name, data := range map[string]string{
+			"handler": `
+artifacts:
+  enabled: false
+handler_on:
+  success:
+    action: artifact.write
+    with: {path: out.txt, content: hello}
+steps:
+  - name: s1
+    command: echo hello
+`,
+			"foreach": `
+artifacts:
+  enabled: false
+steps:
+  - name: s1
+    foreach:
+      items: [1]
+      steps:
+        - name: inner
+          action: artifact.write
+          with: {path: out.txt, content: hello}
+`,
+			"custom action template": `
+artifacts:
+  enabled: false
+actions:
+  myact:
+    input_schema: {type: object}
+    template:
+      action: artifact.write
+      with: {path: out.txt, content: hello}
+steps:
+  - name: s1
+    command: echo hello
+`,
+		} {
+			t.Run(name, func(t *testing.T) {
+				t.Parallel()
+
+				_, err := spec.LoadYAML(context.Background(), []byte(data))
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "artifact actions require artifacts.enabled to be true")
+			})
+		}
+	})
+
 	t.Run("MapFormStepNamedParamsIsStillDetected", func(t *testing.T) {
 		t.Parallel()
 
