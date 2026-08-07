@@ -3726,9 +3726,11 @@ steps:
       steps:
         - id: build
           run: echo build
-          inputs:
-            - name: source
-              path: source.txt
+          outputs:
+            - name: first
+              path: first.txt
+            - name: second
+              path: second.txt
 `,
 			wantDetail: "not supported in foreach steps",
 		},

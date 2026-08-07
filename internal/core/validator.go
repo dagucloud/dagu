@@ -183,8 +183,14 @@ func validateIncrementalStep(dag *DAG, step Step, errs *ErrorList) {
 }
 
 func validateUnsupportedIncrementalPaths(step Step, field, scope string, errs *ErrorList) {
-	_, hasPathOutput := step.PathOutput()
-	if len(step.Inputs) > 0 || hasPathOutput {
+	hasPaths := len(step.Inputs) > 0
+	for _, output := range step.Outputs {
+		if output.Path != "" {
+			hasPaths = true
+			break
+		}
+	}
+	if hasPaths {
 		*errs = append(*errs, NewValidationError(field, step.Name,
 			fmt.Errorf("incremental paths are not supported in %s", scope)))
 	}
