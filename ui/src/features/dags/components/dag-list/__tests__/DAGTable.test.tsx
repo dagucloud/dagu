@@ -47,14 +47,21 @@ function renderTable(
     activeOnly?: boolean;
     isAllWorkflowsView?: boolean;
     panelWidth?: number | null;
-    onDeleteDAGs?: (fileNames: string[]) => Promise<void>;
+    canDeleteDAGs?: boolean;
+    canRenameDAGs?: boolean;
+    onDeleteDAGs?: React.ComponentProps<typeof DAGTable>['onDeleteDAGs'];
     onRenameDAG?: (fileName: string, newFileName: string) => Promise<void>;
   } = {}
 ) {
   const onShowAllWorkflows = vi.fn();
   const handleActiveOnlyChange = vi.fn();
   const onDeleteDAGs =
-    options.onDeleteDAGs ?? vi.fn().mockResolvedValue(undefined);
+    options.onDeleteDAGs ??
+    vi
+      .fn()
+      .mockImplementation(async (fileNames: string[]) =>
+        fileNames.map((fileName) => ({ fileName }))
+      );
   const onRenameDAG =
     options.onRenameDAG ?? vi.fn().mockResolvedValue(undefined);
   const result = render(
@@ -101,8 +108,8 @@ function renderTable(
             isAllWorkflowsView={options.isAllWorkflowsView ?? true}
             isWorkflowViewEdited={false}
             canManageWorkflowViews={true}
-            canDeleteDAGs={true}
-            canRenameDAGs={true}
+            canDeleteDAGs={options.canDeleteDAGs ?? true}
+            canRenameDAGs={options.canRenameDAGs ?? true}
             onSelectWorkflowView={vi.fn()}
             onShowAllWorkflows={onShowAllWorkflows}
             onResetWorkflowView={vi.fn()}
@@ -191,6 +198,65 @@ describe('DAGTable', () => {
     );
   });
 
+  it('hides workflow mutation controls without write permission', () => {
+    renderTable('', { canDeleteDAGs: false, canRenameDAGs: false });
+
+    const table = screen.getByRole('table');
+    expect(
+      within(table).queryByRole('checkbox', {
+        name: 'Select all loaded workflows',
+      })
+    ).not.toBeInTheDocument();
+    expect(
+      within(table).queryByRole('button', { name: 'Rename workflow example' })
+    ).not.toBeInTheDocument();
+    expect(
+      within(table).queryByRole('button', { name: 'Delete workflow example' })
+    ).not.toBeInTheDocument();
+  });
+
+  it('selects only workflows visible through the client-side filter', async () => {
+    renderTable('alpha', {
+      dags: [
+        {
+          fileName: 'alpha.yaml',
+          dag: { name: 'alpha' },
+          latestDAGRun: {
+            status: Status.Success,
+            statusLabel: 'Success',
+          },
+          suspended: false,
+          errors: [],
+        } as never,
+        {
+          fileName: 'beta.yaml',
+          dag: { name: 'beta' },
+          latestDAGRun: {
+            status: Status.Success,
+            statusLabel: 'Success',
+          },
+          suspended: false,
+          errors: [],
+        } as never,
+      ],
+    });
+
+    const table = screen.getByRole('table');
+    await waitFor(() => {
+      expect(within(table).queryByText('beta')).not.toBeInTheDocument();
+    });
+    fireEvent.click(
+      within(table).getByRole('checkbox', {
+        name: 'Select all loaded workflows',
+      })
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Delete (1)' }));
+
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveTextContent('alpha.yaml');
+    expect(dialog).not.toHaveTextContent('beta.yaml');
+  });
+
   it('selects loaded workflows and deletes them after confirmation', async () => {
     const { onDeleteDAGs } = renderTable('', {
       dags: [
@@ -242,6 +308,61 @@ describe('DAGTable', () => {
     expect(
       screen.queryByRole('button', { name: /^Delete \(/ })
     ).not.toBeInTheDocument();
+  });
+
+  it('keeps failed workflows selected with their individual errors', async () => {
+    const onDeleteDAGs = vi
+      .fn()
+      .mockResolvedValue([
+        { fileName: 'alpha.yaml' },
+        { fileName: 'beta.yaml', error: 'permission denied' },
+      ]);
+    renderTable('', {
+      dags: [
+        {
+          fileName: 'alpha.yaml',
+          dag: { name: 'alpha' },
+          latestDAGRun: {
+            status: Status.Success,
+            statusLabel: 'Success',
+          },
+          suspended: false,
+          errors: [],
+        } as never,
+        {
+          fileName: 'beta.yaml',
+          dag: { name: 'beta' },
+          latestDAGRun: {
+            status: Status.Success,
+            statusLabel: 'Success',
+          },
+          suspended: false,
+          errors: [],
+        } as never,
+      ],
+      onDeleteDAGs,
+    });
+
+    fireEvent.click(
+      within(screen.getByRole('table')).getByRole('checkbox', {
+        name: 'Select all loaded workflows',
+      })
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Delete (2)' }));
+    fireEvent.click(
+      within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete' })
+    );
+
+    await waitFor(() => {
+      const dialog = screen.getByRole('dialog');
+      expect(dialog).not.toHaveTextContent('alpha.yaml');
+      expect(dialog).toHaveTextContent('beta.yaml');
+      expect(dialog).toHaveTextContent('permission denied');
+    });
+    fireEvent.click(
+      within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' })
+    );
+    expect(screen.getByRole('button', { name: 'Delete (1)' })).toBeEnabled();
   });
 
   it('renames a workflow from the actions column', async () => {

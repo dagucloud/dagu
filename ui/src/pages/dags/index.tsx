@@ -18,7 +18,10 @@ import { useSearchState } from '../../contexts/SearchStateContext';
 import { useUserPreferences } from '../../contexts/UserPreference';
 import { DAGDetailsModal } from '../../features/dags/components/dag-details';
 import { DAGErrors } from '../../features/dags/components/dag-editor';
-import { DAGTable } from '../../features/dags/components/dag-list';
+import {
+  DAGTable,
+  type DAGDeleteResult,
+} from '../../features/dags/components/dag-list';
 import DAGListHeader from '../../features/dags/components/dag-list/DAGListHeader';
 import type {
   WorkflowFilterSet,
@@ -73,6 +76,7 @@ const areDAGDefinitionsFiltersEqual = (
   a.sortOrder === b.sortOrder;
 
 const ALL_WORKFLOWS_VIEW_PARAM = 'all';
+const DELETE_BATCH_SIZE = 5;
 
 function normalizeWorkflowSortField(value?: string | null): ViewSortField {
   return value === ViewSortField.nextRun
@@ -671,37 +675,44 @@ function DAGsContent() {
   }, [mutate, resetLoadedPages]);
 
   const handleDeleteDAGs = React.useCallback(
-    async (fileNames: string[]): Promise<void> => {
-      const results = await Promise.all(
-        fileNames.map(async (fileName) => {
-          try {
-            const { error } = await client.DELETE('/dags/{fileName}', {
-              params: {
-                path: { fileName },
-                query: { remoteNode },
-              },
-            });
-            return {
-              fileName,
-              error: error
-                ? error.message || 'The delete request failed'
-                : undefined,
-            };
-          } catch (error) {
-            return {
-              fileName,
-              error:
-                error instanceof Error
-                  ? error.message
-                  : 'Unexpected server error',
-            };
-          }
-        })
-      );
+    async (fileNames: string[]): Promise<DAGDeleteResult[]> => {
+      const deleteOne = async (fileName: string): Promise<DAGDeleteResult> => {
+        try {
+          const { error } = await client.DELETE('/dags/{fileName}', {
+            params: {
+              path: { fileName },
+              query: { remoteNode },
+            },
+          });
+          return {
+            fileName,
+            error: error
+              ? error.message || 'The delete request failed'
+              : undefined,
+          };
+        } catch (error) {
+          return {
+            fileName,
+            error:
+              error instanceof Error
+                ? error.message
+                : 'Unexpected server error',
+          };
+        }
+      };
+
+      const results: DAGDeleteResult[] = [];
+      for (
+        let index = 0;
+        index < fileNames.length;
+        index += DELETE_BATCH_SIZE
+      ) {
+        const batch = fileNames.slice(index, index + DELETE_BATCH_SIZE);
+        results.push(...(await Promise.all(batch.map(deleteOne))));
+      }
       const deletedFileNames = results
         .filter((result) => !result.error)
         .map((result) => result.fileName);
-      const failures = results.filter((result) => result.error);
 
       if (deletedFileNames.length > 0) {
         if (selectedDAG && deletedFileNames.includes(selectedDAG)) {
@@ -711,19 +722,7 @@ function DAGsContent() {
         await mutate();
       }
 
-      if (failures.length === 1) {
-        const [failure] = failures;
-        throw new Error(
-          `Failed to delete "${failure?.fileName}": ${failure?.error}`
-        );
-      }
-      if (failures.length > 1) {
-        throw new Error(
-          `Failed to delete ${failures.length} workflows: ${failures
-            .map((failure) => failure.fileName)
-            .join(', ')}`
-        );
-      }
+      return results;
     },
     [client, mutate, remoteNode, resetLoadedPages, selectedDAG]
   );

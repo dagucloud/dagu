@@ -30,7 +30,9 @@ const {
   clientGetMock,
   clientPostMock,
   createViewMock,
+  deleteResultsMock,
   deleteViewMock,
+  renameErrorMock,
   sharedWorkflowViewState,
   updateViewMock,
   userPreferences,
@@ -39,7 +41,9 @@ const {
   clientGetMock: vi.fn(),
   clientPostMock: vi.fn(),
   createViewMock: vi.fn(),
+  deleteResultsMock: vi.fn(),
   deleteViewMock: vi.fn(),
+  renameErrorMock: vi.fn(),
   sharedWorkflowViewState: { views: [] as View[] },
   updateViewMock: vi.fn(),
   userPreferences: {
@@ -121,7 +125,9 @@ vi.mock('@/features/dags/components/dag-list', () => ({
     onSetDefaultWorkflowView: (viewId: string | undefined) => Promise<void>;
     onSetPinnedWorkflowView: (viewId: string, pinned: boolean) => Promise<void>;
     onDeleteWorkflowView: (viewId: string) => Promise<void>;
-    onDeleteDAGs: (fileNames: string[]) => Promise<void>;
+    onDeleteDAGs: (
+      fileNames: string[]
+    ) => Promise<Array<{ fileName: string; error?: string }>>;
     onRenameDAG: (fileName: string, newFileName: string) => Promise<void>;
   }) => (
     <div>
@@ -144,6 +150,7 @@ vi.mock('@/features/dags/components/dag-list', () => ({
       >
         Open demo workflow
       </button>
+      <span data-testid="selected-dag">{selectedDAG ?? 'none'}</span>
       <span data-testid="active-workflow-view">
         {activeWorkflowViewId ?? 'none'}
       </span>
@@ -185,12 +192,32 @@ vi.mock('@/features/dags/components/dag-list', () => ({
       >
         Delete production view
       </button>
-      <button type="button" onClick={() => void onDeleteDAGs(['demo.yaml'])}>
+      <button
+        type="button"
+        onClick={() => void onDeleteDAGs(['demo.yaml']).then(deleteResultsMock)}
+      >
         Delete demo workflow
       </button>
       <button
         type="button"
-        onClick={() => void onRenameDAG('demo.yaml', 'renamed.yaml')}
+        onClick={() =>
+          void onDeleteDAGs([
+            'one.yaml',
+            'two.yaml',
+            'three.yaml',
+            'four.yaml',
+            'five.yaml',
+            'six.yaml',
+          ]).then(deleteResultsMock)
+        }
+      >
+        Delete workflow batch
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          void onRenameDAG('demo.yaml', 'renamed.yaml').catch(renameErrorMock)
+        }
       >
         Rename demo workflow
       </button>
@@ -383,9 +410,11 @@ describe('DagsPage', () => {
     calls.length = 0;
     clientDeleteMock.mockReset();
     clientDeleteMock.mockResolvedValue({});
+    deleteResultsMock.mockReset();
     clientGetMock.mockReset();
     clientPostMock.mockReset();
     clientPostMock.mockResolvedValue({});
+    renameErrorMock.mockReset();
     sharedWorkflowViewState.views = [];
     createViewMock.mockReset();
     updateViewMock.mockReset();
@@ -890,6 +919,9 @@ describe('DagsPage', () => {
   it('deletes selected workflows through the existing DAG endpoint', async () => {
     renderPage();
 
+    fireEvent.click(screen.getByRole('button', { name: 'Open demo workflow' }));
+    expect(screen.getByTestId('selected-dag')).toHaveTextContent('demo.yaml');
+
     await act(async () => {
       fireEvent.click(
         screen.getByRole('button', { name: 'Delete demo workflow' })
@@ -902,10 +934,65 @@ describe('DagsPage', () => {
         query: { remoteNode: 'remote-a' },
       },
     });
+    expect(screen.getByTestId('selected-dag')).toHaveTextContent('none');
+    expect(deleteResultsMock).toHaveBeenCalledWith([
+      { fileName: 'demo.yaml', error: undefined },
+    ]);
+  });
+
+  it('returns the individual delete error without clearing the selection', async () => {
+    clientDeleteMock.mockResolvedValueOnce({
+      error: { message: 'workflow is read-only' },
+    });
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Open demo workflow' }));
+
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Delete demo workflow' })
+      );
+    });
+
+    expect(deleteResultsMock).toHaveBeenCalledWith([
+      { fileName: 'demo.yaml', error: 'workflow is read-only' },
+    ]);
+    expect(screen.getByTestId('selected-dag')).toHaveTextContent('demo.yaml');
+  });
+
+  it('limits concurrent workflow deletion requests', async () => {
+    const pendingDeletes: Array<(value: object) => void> = [];
+    clientDeleteMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          pendingDeletes.push(resolve);
+        })
+    );
+    renderPage();
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Delete workflow batch' })
+    );
+    expect(clientDeleteMock).toHaveBeenCalledTimes(5);
+
+    await act(async () => {
+      pendingDeletes.splice(0).forEach((resolve) => resolve({}));
+      await Promise.resolve();
+    });
+    expect(clientDeleteMock).toHaveBeenCalledTimes(6);
+
+    await act(async () => {
+      pendingDeletes.splice(0).forEach((resolve) => resolve({}));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(deleteResultsMock).toHaveBeenCalledOnce();
   });
 
   it('renames workflows through the existing DAG endpoint', async () => {
     renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open demo workflow' }));
+    expect(screen.getByTestId('selected-dag')).toHaveTextContent('demo.yaml');
 
     await act(async () => {
       fireEvent.click(
@@ -920,6 +1007,26 @@ describe('DagsPage', () => {
       },
       body: { newFileName: 'renamed.yaml' },
     });
+    expect(screen.getByTestId('selected-dag')).toHaveTextContent(
+      'renamed.yaml'
+    );
+  });
+
+  it('surfaces workflow rename errors', async () => {
+    clientPostMock.mockResolvedValueOnce({
+      error: { message: 'name already exists' },
+    });
+    renderPage();
+
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Rename demo workflow' })
+      );
+    });
+
+    expect(renameErrorMock).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'name already exists' })
+    );
   });
 
   it('opens workflow details in the page-level modal when a table row is selected', () => {

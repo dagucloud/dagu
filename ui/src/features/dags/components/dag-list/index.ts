@@ -5,3 +5,4 @@
  */
 
 export { default as DAGTable } from './DAGTable';
+export type { DAGDeleteResult } from './DAGTable';

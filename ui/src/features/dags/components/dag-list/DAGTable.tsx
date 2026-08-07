@@ -407,7 +407,7 @@ type Props = {
   onSetDefaultWorkflowView: (viewId: string | undefined) => Promise<void>;
   onSetPinnedWorkflowView: (viewId: string, pinned: boolean) => Promise<void>;
   onDeleteWorkflowView: (viewId: string) => Promise<void>;
-  onDeleteDAGs: (fileNames: string[]) => Promise<void>;
+  onDeleteDAGs: (fileNames: string[]) => Promise<DAGDeleteResult[]>;
   onRenameDAG: (fileName: string, newFileName: string) => Promise<void>;
   /** Total workflows matching the server-side filters */
   resultCount?: number;
@@ -415,6 +415,11 @@ type Props = {
   selectedDAG?: string | null;
   /** Handler for DAG selection changes */
   onSelectDAG?: (fileName: string, title: string) => void;
+};
+
+export type DAGDeleteResult = {
+  fileName: string;
+  error?: string;
 };
 
 /**
@@ -443,7 +448,7 @@ declare module '@tanstack/react-table' {
     refreshFn: () => void;
     // Add label click handler to meta for direct access in cell
     onLabelClick?: (label: string) => void;
-    deleteSelectionState?: boolean | 'indeterminate';
+    getDeleteSelectionState?: () => boolean | 'indeterminate';
     isDeleteSelected?: (fileName: string) => boolean;
     onToggleDeleteSelection?: (fileName: string) => void;
     onToggleAllDeleteSelection?: (checked: boolean) => void;
@@ -466,7 +471,7 @@ const deleteSelectionColumn = columnHelper.display({
     <div className="flex h-8 items-center justify-center">
       <Checkbox
         aria-label="Select all loaded workflows"
-        checked={table.options.meta?.deleteSelectionState ?? false}
+        checked={table.options.meta?.getDeleteSelectionState?.() ?? false}
         onCheckedChange={(checked) =>
           table.options.meta?.onToggleAllDeleteSelection?.(checked === true)
         }
@@ -1125,6 +1130,9 @@ function DAGTable({
         : defaultColumns,
     [canDeleteDAGs]
   );
+  const tableInstanceRef = useRef<ReturnType<typeof useReactTable> | null>(
+    null
+  );
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [deleteSelection, setDeleteSelection] = useState<Set<string>>(
     () => new Set()
@@ -1134,6 +1142,9 @@ function DAGTable({
   >(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleteFailures, setDeleteFailures] = useState<Record<string, string>>(
+    {}
+  );
   const [renameTarget, setRenameTarget] = useState<
     components['schemas']['DAGFile'] | null
   >(null);
@@ -1184,25 +1195,42 @@ function DAGTable({
     });
   }, []);
 
-  const toggleAllDeleteSelection = useCallback(
-    (checked: boolean) => {
-      setDeleteSelection(
-        checked ? new Set(dags.map((dag) => dag.fileName)) : new Set()
-      );
-    },
-    [dags]
+  const getFilteredDAGFileNames = useCallback(
+    () =>
+      (tableInstanceRef.current?.getFilteredRowModel().flatRows ?? [])
+        .filter((row) => (row.original as Data).kind === ItemKind.DAG)
+        .map((row) => (row.original as DAGRow).dag.fileName),
+    []
   );
 
-  const selectedDAGsForDelete = useMemo(
-    () => dags.filter((dag) => deleteSelection.has(dag.fileName)),
-    [dags, deleteSelection]
+  const toggleAllDeleteSelection = useCallback(
+    (checked: boolean) => {
+      const filteredFileNames = getFilteredDAGFileNames();
+      setDeleteSelection((current) => {
+        const next = new Set(current);
+        filteredFileNames.forEach((fileName) => {
+          if (checked) {
+            next.add(fileName);
+          } else {
+            next.delete(fileName);
+          }
+        });
+        return next;
+      });
+    },
+    [getFilteredDAGFileNames]
   );
-  const deleteSelectionState: boolean | 'indeterminate' =
-    selectedDAGsForDelete.length === 0
-      ? false
-      : selectedDAGsForDelete.length === dags.length
-        ? true
-        : 'indeterminate';
+
+  const getDeleteSelectionState = useCallback((): boolean | 'indeterminate' => {
+    const filteredFileNames = getFilteredDAGFileNames();
+    const selectedCount = filteredFileNames.filter((fileName) =>
+      deleteSelection.has(fileName)
+    ).length;
+    if (selectedCount === 0) {
+      return false;
+    }
+    return selectedCount === filteredFileNames.length ? true : 'indeterminate';
+  }, [deleteSelection, getFilteredDAGFileNames]);
 
   const handleDeleteSubmit = useCallback(async () => {
     if (!deleteTargets || deleteTargets.length === 0) {
@@ -1210,18 +1238,46 @@ function DAGTable({
     }
     setIsDeleting(true);
     setDeleteError(null);
+    setDeleteFailures({});
     try {
-      const deletedFileNames = new Set(
+      const results = await onDeleteDAGs(
         deleteTargets.map((dag) => dag.fileName)
       );
-      await onDeleteDAGs([...deletedFileNames]);
+      const failedFileNames = new Set(
+        results
+          .filter((result) => result.error)
+          .map((result) => result.fileName)
+      );
+      const deletedFileNames = new Set(
+        results
+          .filter((result) => !result.error)
+          .map((result) => result.fileName)
+      );
       setDeleteSelection(
         (current) =>
           new Set(
             [...current].filter((fileName) => !deletedFileNames.has(fileName))
           )
       );
-      setDeleteTargets(null);
+      if (failedFileNames.size > 0) {
+        setDeleteTargets(
+          deleteTargets.filter((dag) => failedFileNames.has(dag.fileName))
+        );
+        setDeleteFailures(
+          Object.fromEntries(
+            results.flatMap((result) =>
+              result.error ? [[result.fileName, result.error]] : []
+            )
+          )
+        );
+        setDeleteError(
+          failedFileNames.size === 1
+            ? 'The workflow could not be deleted. Review the error below and retry.'
+            : 'Some workflows could not be deleted. Review the errors below and retry.'
+        );
+      } else {
+        setDeleteTargets(null);
+      }
     } catch (error) {
       setDeleteError(
         error instanceof Error ? error.message : 'Failed to delete workflows'
@@ -1233,6 +1289,7 @@ function DAGTable({
 
   const openDeleteDAG = useCallback((dag: components['schemas']['DAGFile']) => {
     setDeleteError(null);
+    setDeleteFailures({});
     setDeleteTargets([dag]);
   }, []);
 
@@ -1424,10 +1481,6 @@ function DAGTable({
     return hierarchicalData;
   }, [dags, clientSort, compareDags]);
 
-  const tableInstanceRef = useRef<ReturnType<typeof useReactTable> | null>(
-    null
-  );
-
   useEffect(() => {
     if (!selectedDAG || !tableInstanceRef.current || !onSelectDAG) return;
 
@@ -1493,7 +1546,7 @@ function DAGTable({
       group,
       refreshFn,
       onLabelClick: handleLabelClick,
-      deleteSelectionState,
+      getDeleteSelectionState,
       isDeleteSelected: (fileName) => deleteSelection.has(fileName),
       onToggleDeleteSelection: toggleDeleteSelection,
       onToggleAllDeleteSelection: toggleAllDeleteSelection,
@@ -1505,6 +1558,12 @@ function DAGTable({
   });
 
   tableInstanceRef.current = instance as ReturnType<typeof useReactTable>;
+  const filteredDAGFileNames = new Set(getFilteredDAGFileNames());
+  const selectedDAGsForDelete = dags.filter(
+    (dag) =>
+      filteredDAGFileNames.has(dag.fileName) &&
+      deleteSelection.has(dag.fileName)
+  );
 
   const appBarContext = useContext(AppBarContext);
   const panelWidth = useContext(PanelWidthContext);
@@ -1595,6 +1654,7 @@ function DAGTable({
               disabled={isDeleting}
               onClick={() => {
                 setDeleteError(null);
+                setDeleteFailures({});
                 setDeleteTargets(selectedDAGsForDelete);
               }}
             >
@@ -1985,6 +2045,7 @@ function DAGTable({
           if (!isDeleting) {
             setDeleteTargets(null);
             setDeleteError(null);
+            setDeleteFailures({});
           }
         }}
         submitDisabled={isDeleting}
@@ -2004,6 +2065,11 @@ function DAGTable({
                 {dag.dag.name !== dag.fileName && (
                   <div className="truncate font-mono text-xs text-muted-foreground">
                     {dag.fileName}
+                  </div>
+                )}
+                {deleteFailures[dag.fileName] && (
+                  <div className="text-xs text-destructive">
+                    {deleteFailures[dag.fileName]}
                   </div>
                 )}
               </li>

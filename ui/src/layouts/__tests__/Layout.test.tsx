@@ -79,6 +79,11 @@ describe('Layout', () => {
       'href',
       '/dag-runs/briefing_gmail_fetch_test/019df6cf-0127-7340-bd96-d51bc1453045'
     );
+    expect(
+      within(breadcrumbs).getByRole('link', {
+        name: '019df6cf-0127-7340-bd96-d51bc1453045',
+      })
+    ).toHaveAttribute('aria-current', 'page');
     expect(within(breadcrumbs).getAllByRole('link')).toHaveLength(5);
   });
 });
