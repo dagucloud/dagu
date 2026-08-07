@@ -372,6 +372,19 @@ steps:
 	_, err = store.GetDetails(ctx, "non-existent")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to locate DAG non-existent")
+
+	// Dots remain part of the DAG's lookup identity.
+	dottedDAGContent := `name: dagu.update-cloud-image
+steps:
+  - name: step1
+    run: echo "dotted"`
+	err = os.WriteFile(filepath.Join(tmpDir, "dagu.update-cloud-image.yaml"), []byte(dottedDAGContent), 0600)
+	require.NoError(t, err)
+
+	recursiveStore := New(tmpDir, WithSkipExamples(true), WithRecursiveDiscovery(true))
+	dag, err = recursiveStore.GetDetails(ctx, "dagu.update-cloud-image")
+	require.NoError(t, err)
+	assert.Equal(t, "dagu.update-cloud-image", dag.Name)
 }
 
 func TestGetSpec(t *testing.T) {
