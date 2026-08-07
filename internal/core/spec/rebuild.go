@@ -67,18 +67,10 @@ func RebuildFromYAML(ctx context.Context, dag *core.DAG, paramsOverride ...[]str
 		return nil, err
 	}
 
+	dag.RestoreUnpersistedFrom(fresh)
+	// Env is the one restored field that is merged rather than replaced, so it is
+	// resolved after the wholesale copy.
 	dag.Env = buildenv.AppendMissing(fresh.Env, loadedEnv, buildenv.FromMap(dag.PresolvedBuildEnv), transportEnv)
-	dag.Params = fresh.Params
-	dag.ParamsJSON = fresh.ParamsJSON
-	dag.SMTP = fresh.SMTP
-	dag.SSH = fresh.SSH
-	dag.S3 = fresh.S3
-	dag.Redis = fresh.Redis
-	dag.RegistryAuths = fresh.RegistryAuths
-	dag.Harness = fresh.Harness
-	dag.Harnesses = fresh.Harnesses
-	dag.Kubernetes = fresh.Kubernetes
-	dag.WorkingDirExplicit = fresh.WorkingDirExplicit
 
 	core.InitializeDefaults(dag)
 
