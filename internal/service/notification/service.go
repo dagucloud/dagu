@@ -831,7 +831,7 @@ func (s *Service) deliverTestTargets(ctx context.Context, targets []resolvedTarg
 func (s *Service) testEvent(ctx context.Context, dagName string, eventType eventstore.EventType) chatbridge.NotificationEvent {
 	status := testStatus(dagName, eventType)
 	if s.dagStore != nil {
-		if dag, err := s.dagStore.GetDetails(ctx, dagName); err == nil && dag != nil {
+		if dag, err := s.dagStore.GetDetails(ctx, dagName, exec.DAGLoadOptions{}); err == nil && dag != nil {
 			if dag.Name != "" {
 				status.Name = dag.Name
 			}

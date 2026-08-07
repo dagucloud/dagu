@@ -19,7 +19,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
-	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	localapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
@@ -962,11 +961,11 @@ type loadSpecErrorDAGStore struct {
 	updateCalled bool
 }
 
-func (s *loadSpecErrorDAGStore) GetDetails(context.Context, string, ...spec.LoadOption) (*core.DAG, error) {
+func (s *loadSpecErrorDAGStore) GetDetails(context.Context, string, exec.DAGLoadOptions) (*core.DAG, error) {
 	return &core.DAG{Name: "load-spec-error"}, nil
 }
 
-func (s *loadSpecErrorDAGStore) LoadSpec(context.Context, []byte, ...spec.LoadOption) (*core.DAG, error) {
+func (s *loadSpecErrorDAGStore) LoadSpec(context.Context, []byte, string, exec.DAGLoadOptions) (*core.DAG, error) {
 	return nil, errLoadSpecFatal
 }
 

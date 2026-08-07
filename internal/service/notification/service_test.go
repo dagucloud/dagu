@@ -23,7 +23,6 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
-	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	notificationmodel "github.com/dagucloud/dagu/v2/internal/notification"
 	"github.com/dagucloud/dagu/v2/internal/service/chatbridge"
 	"github.com/dagucloud/dagu/v2/internal/service/eventstore"
@@ -212,7 +211,7 @@ func (s testDAGStore) GetMetadata(context.Context, string) (*core.DAG, error) {
 	return s.dag, nil
 }
 
-func (s testDAGStore) GetDetails(context.Context, string, ...spec.LoadOption) (*core.DAG, error) {
+func (s testDAGStore) GetDetails(context.Context, string, exec.DAGLoadOptions) (*core.DAG, error) {
 	return s.dag, nil
 }
 
@@ -240,7 +239,7 @@ func (s testDAGStore) UpdateSpec(context.Context, string, []byte) error {
 	return nil
 }
 
-func (s testDAGStore) LoadSpec(context.Context, []byte, ...spec.LoadOption) (*core.DAG, error) {
+func (s testDAGStore) LoadSpec(context.Context, []byte, string, exec.DAGLoadOptions) (*core.DAG, error) {
 	return s.dag, nil
 }
 

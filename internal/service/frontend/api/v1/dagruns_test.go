@@ -262,7 +262,7 @@ func TestGetDAGRunSpec(t *testing.T) {
 		Spec: &dagSpec,
 	}).ExpectStatus(http.StatusCreated).Send(t)
 
-	dag, err := server.DAGStore.GetDetails(server.Context, dagName)
+	dag, err := server.DAGStore.GetDetails(server.Context, dagName, exec.DAGLoadOptions{})
 	require.NoError(t, err)
 	seedLatestDAGRunStatus(t, server, dag, dagRunID, core.Succeeded, seedDAGRunStatusOptions{})
 

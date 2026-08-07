@@ -97,8 +97,8 @@ func (a *API) ValidateDAGSpec(ctx context.Context, request api.ValidateDAGSpecRe
 	// Load the DAG spec
 	dag, err := a.dagStore.LoadSpec(ctx,
 		[]byte(request.Body.Spec),
-		spec.WithName(name),
-		spec.WithAllowBuildErrors(),
+		name,
+		exec.DAGLoadOptions{AllowBuildErrors: true},
 	)
 
 	var errs []string
@@ -147,7 +147,8 @@ func (a *API) CreateNewDAG(ctx context.Context, request api.CreateNewDAGRequestO
 	if request.Body.Spec != nil && strings.TrimSpace(*request.Body.Spec) != "" {
 		dag, err := a.dagStore.LoadSpec(ctx,
 			[]byte(*request.Body.Spec),
-			spec.WithName(request.Body.Name),
+			request.Body.Name,
+			exec.DAGLoadOptions{},
 		)
 
 		if err != nil {
@@ -197,7 +198,7 @@ func (a *API) DeleteDAG(ctx context.Context, request api.DeleteDAGRequestObject)
 	if a.dagWritesDisabled {
 		return nil, errDAGWritesDisabled
 	}
-	dag, err := a.dagStore.GetDetails(ctx, request.FileName, spec.WithAllowBuildErrors())
+	dag, err := a.dagStore.GetDetails(ctx, request.FileName, exec.DAGLoadOptions{AllowBuildErrors: true})
 	if err != nil {
 		return nil, &Error{
 			HTTPStatus: http.StatusNotFound,
@@ -320,7 +321,7 @@ func (a *API) UpdateDAGSpec(ctx context.Context, request api.UpdateDAGSpecReques
 	if a.dagWritesDisabled {
 		return nil, errDAGWritesDisabled
 	}
-	currentDAG, err := a.dagStore.GetDetails(ctx, request.FileName, spec.WithAllowBuildErrors())
+	currentDAG, err := a.dagStore.GetDetails(ctx, request.FileName, exec.DAGLoadOptions{AllowBuildErrors: true})
 	if err != nil {
 		return nil, err
 	}
@@ -329,8 +330,8 @@ func (a *API) UpdateDAGSpec(ctx context.Context, request api.UpdateDAGSpecReques
 	}
 	nextDAG, err := a.dagStore.LoadSpec(ctx,
 		[]byte(request.Body.Spec),
-		spec.WithName(request.FileName),
-		spec.WithAllowBuildErrors(),
+		string(request.FileName),
+		exec.DAGLoadOptions{AllowBuildErrors: true},
 	)
 	if err != nil {
 		return nil, err
@@ -417,7 +418,7 @@ func (a *API) RenameDAG(ctx context.Context, request api.RenameDAGRequestObject)
 }
 
 func (a *API) GetDAGDAGRunHistory(ctx context.Context, request api.GetDAGDAGRunHistoryRequestObject) (api.GetDAGDAGRunHistoryResponseObject, error) {
-	dag, err := a.dagStore.GetDetails(ctx, request.FileName, spec.WithAllowBuildErrors())
+	dag, err := a.dagStore.GetDetails(ctx, request.FileName, exec.DAGLoadOptions{AllowBuildErrors: true})
 	if err != nil {
 		return nil, &Error{
 			HTTPStatus: http.StatusNotFound,
@@ -468,7 +469,7 @@ func (a *API) GetDAGDetails(ctx context.Context, request api.GetDAGDetailsReques
 
 // getDAGDetailsData returns DAG details data. Used by both HTTP handler and SSE fetcher.
 func (a *API) getDAGDetailsData(ctx context.Context, fileName string) (api.GetDAGDetails200JSONResponse, error) {
-	dag, err := a.dagStore.GetDetails(ctx, fileName, spec.WithAllowBuildErrors())
+	dag, err := a.dagStore.GetDetails(ctx, fileName, exec.DAGLoadOptions{AllowBuildErrors: true})
 	if err != nil {
 		return api.GetDAGDetails200JSONResponse{}, fmt.Errorf("failed to load DAG %s: %w", fileName, err)
 	}
@@ -900,7 +901,7 @@ func (a *API) GetDAGDAGRunDetails(ctx context.Context, request api.GetDAGDAGRunD
 	dag, err := a.dagStore.GetMetadata(ctx, dagFileName)
 	if err != nil {
 		// For DAGs with errors, try to load with AllowBuildErrors
-		dag, err = a.dagStore.GetDetails(ctx, dagFileName, spec.WithAllowBuildErrors())
+		dag, err = a.dagStore.GetDetails(ctx, dagFileName, exec.DAGLoadOptions{AllowBuildErrors: true})
 		if err != nil {
 			return nil, &Error{
 				HTTPStatus: http.StatusNotFound,
@@ -974,7 +975,7 @@ func (a *API) ExecuteDAG(ctx context.Context, request api.ExecuteDAGRequestObjec
 	if err := a.isAllowed(config.PermissionRunDAGs); err != nil {
 		return nil, err
 	}
-	dag, err := a.dagStore.GetDetails(ctx, request.FileName, spec.WithAllowBuildErrors())
+	dag, err := a.dagStore.GetDetails(ctx, request.FileName, exec.DAGLoadOptions{AllowBuildErrors: true})
 	if err != nil {
 		return nil, &Error{
 			HTTPStatus: http.StatusNotFound,
@@ -1078,7 +1079,7 @@ func (a *API) ExecuteDAGSync(ctx context.Context, request api.ExecuteDAGSyncRequ
 		}
 	}
 
-	dag, err := a.dagStore.GetDetails(ctx, request.FileName, spec.WithAllowBuildErrors())
+	dag, err := a.dagStore.GetDetails(ctx, request.FileName, exec.DAGLoadOptions{AllowBuildErrors: true})
 	if err != nil {
 		return nil, &Error{
 			HTTPStatus: http.StatusNotFound,
@@ -1632,7 +1633,7 @@ func (a *API) EnqueueDAGDAGRun(ctx context.Context, request api.EnqueueDAGDAGRun
 		return nil, err
 	}
 
-	dag, err := a.dagStore.GetDetails(ctx, request.FileName, spec.WithAllowBuildErrors(), spec.WithoutEval())
+	dag, err := a.dagStore.GetDetails(ctx, request.FileName, exec.DAGLoadOptions{AllowBuildErrors: true})
 	if err != nil {
 		return nil, &Error{
 			HTTPStatus: http.StatusNotFound,
@@ -1926,7 +1927,7 @@ func (a *API) GetDAGHistoryData(ctx context.Context, fileName string) (any, erro
 		endpoint: "/dags/{fileName}/dag-runs",
 		dagName:  fileName,
 	}, func(readCtx context.Context) (api.GetDAGDAGRunHistory200JSONResponse, error) {
-		dag, err := a.dagStore.GetDetails(readCtx, fileName, spec.WithAllowBuildErrors())
+		dag, err := a.dagStore.GetDetails(readCtx, fileName, exec.DAGLoadOptions{AllowBuildErrors: true})
 		if err != nil {
 			return api.GetDAGDAGRunHistory200JSONResponse{}, err
 		}

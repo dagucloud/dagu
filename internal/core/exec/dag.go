@@ -9,8 +9,15 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/spec"
 )
+
+// DAGLoadOptions selects the loading behaviour a DAGStore caller can choose.
+type DAGLoadOptions struct {
+	// AllowBuildErrors reports whether a DAG whose build produced errors should be
+	// returned instead of failing, so callers can present the errors alongside the
+	// partially built DAG.
+	AllowBuildErrors bool
+}
 
 // Errors for DAG file operations
 var (
@@ -30,7 +37,7 @@ type DAGStore interface {
 	// GetMetadata retrieves only the metadata of a DAG definition (faster than full load)
 	GetMetadata(ctx context.Context, fileName string) (*core.DAG, error)
 	// GetDetails retrieves the complete DAG definition including all fields
-	GetDetails(ctx context.Context, fileName string, opts ...spec.LoadOption) (*core.DAG, error)
+	GetDetails(ctx context.Context, fileName string, opts DAGLoadOptions) (*core.DAG, error)
 	// Grep searches for a pattern in all DAG definitions and returns matching results
 	Grep(ctx context.Context, pattern string) (ret []*GrepDAGsResult, errs []string, err error)
 	// SearchCursor returns lightweight, cursor-based search hits for DAG definitions.
@@ -43,8 +50,8 @@ type DAGStore interface {
 	GetSpec(ctx context.Context, fileName string) (string, error)
 	// UpdateSpec modifies the specification of an existing DAG
 	UpdateSpec(ctx context.Context, fileName string, spec []byte) error
-	// LoadSpec loads a DAG from a YAML file and returns the DAG object
-	LoadSpec(ctx context.Context, spec []byte, opts ...spec.LoadOption) (*core.DAG, error)
+	// LoadSpec builds a DAG with the given name from raw YAML without storing it
+	LoadSpec(ctx context.Context, source []byte, name string, opts DAGLoadOptions) (*core.DAG, error)
 	// LabelList returns all unique labels across all DAGs with any errors encountered
 	LabelList(ctx context.Context) ([]string, []string, error)
 	// ToggleSuspend changes the suspension state of a DAG by ID

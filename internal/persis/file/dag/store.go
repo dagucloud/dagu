@@ -11,7 +11,6 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -297,13 +296,21 @@ func (store *Storage) GetMetadata(ctx context.Context, name string) (*core.DAG, 
 	})
 }
 
+// specLoadOptions translates the store-facing load options into loader options.
+func specLoadOptions(opts exec.DAGLoadOptions) []spec.LoadOption {
+	if !opts.AllowBuildErrors {
+		return nil
+	}
+	return []spec.LoadOption{spec.WithAllowBuildErrors()}
+}
+
 // GetDetails retrieves the details of a DAG by its name.
-func (store *Storage) GetDetails(ctx context.Context, name string, opts ...spec.LoadOption) (*core.DAG, error) {
+func (store *Storage) GetDetails(ctx context.Context, name string, opts exec.DAGLoadOptions) (*core.DAG, error) {
 	filePath, err := store.locateDAG(ctx, name)
 	if err != nil {
 		return nil, fmt.Errorf("failed to locate DAG %s: %w", name, err)
 	}
-	loadOpts := store.defaultLoadOptions(opts...)
+	loadOpts := store.defaultLoadOptions(specLoadOptions(opts)...)
 	loadOpts = append(loadOpts, spec.WithoutEval())
 
 	dat, err := spec.Load(ctx, filePath, loadOpts...)
@@ -329,11 +336,11 @@ func (store *Storage) GetSpec(ctx context.Context, name string) (string, error) 
 // FileMode used for newly created DAG files
 const defaultPerm os.FileMode = 0600
 
-func (store *Storage) LoadSpec(ctx context.Context, yamlSpec []byte, opts ...spec.LoadOption) (*core.DAG, error) {
+func (store *Storage) LoadSpec(ctx context.Context, source []byte, name string, opts exec.DAGLoadOptions) (*core.DAG, error) {
 	// Validate the spec before saving it.
-	loadOpts := store.defaultLoadOptions(slices.Clone(opts)...)
-	loadOpts = append(loadOpts, spec.WithoutEval())
-	return spec.LoadYAML(ctx, yamlSpec, loadOpts...)
+	loadOpts := store.defaultLoadOptions(specLoadOptions(opts)...)
+	loadOpts = append(loadOpts, spec.WithName(name), spec.WithoutEval())
+	return spec.LoadYAML(ctx, source, loadOpts...)
 }
 
 // UpdateSpec updates the specification of a DAG by its name.

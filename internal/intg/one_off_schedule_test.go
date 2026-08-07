@@ -44,7 +44,7 @@ steps:
 	th := test.SetupScheduler(t, test.WithDAGsDir(dagsDir))
 	th.Config.Scheduler.RetryFailureWindow = 0
 
-	dag, err := th.DAGStore.GetDetails(th.Context, "one-off-restart-test")
+	dag, err := th.DAGStore.GetDetails(th.Context, "one-off-restart-test", exec.DAGLoadOptions{})
 	require.NoError(t, err)
 	require.Len(t, dag.Schedule, 1)
 
@@ -151,7 +151,7 @@ steps:
 
 	th := test.SetupScheduler(t, test.WithBuiltExecutable(), test.WithDAGsDir(dagsDir))
 
-	dag, err := th.DAGStore.GetDetails(th.Context, "one-off-env-secret-test")
+	dag, err := th.DAGStore.GetDetails(th.Context, "one-off-env-secret-test", exec.DAGLoadOptions{})
 	require.NoError(t, err)
 	require.Len(t, dag.Schedule, 1)
 

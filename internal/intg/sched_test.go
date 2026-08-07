@@ -104,7 +104,7 @@ func TestScheduleEditWhileSuspendedDoesNotSuppressNewSlot(t *testing.T) {
 	writeSpec("0 10 * * *")
 
 	th := test.SetupScheduler(t, test.WithDAGsDir(dagsDir))
-	dag, err := th.DAGStore.GetDetails(th.Context, dagName)
+	dag, err := th.DAGStore.GetDetails(th.Context, dagName, exec.DAGLoadOptions{})
 	require.NoError(t, err)
 
 	require.NoError(t, os.MkdirAll(th.Config.Paths.SuspendFlagsDir, 0o755))

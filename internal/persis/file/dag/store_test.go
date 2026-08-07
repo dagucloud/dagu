@@ -361,7 +361,7 @@ steps:
 	err := os.WriteFile(filepath.Join(tmpDir, "detailed-dag.yaml"), []byte(dagContent), 0600)
 	require.NoError(t, err)
 
-	dag, err := store.GetDetails(ctx, "detailed-dag")
+	dag, err := store.GetDetails(ctx, "detailed-dag", exec.DAGLoadOptions{})
 	require.NoError(t, err)
 	require.NotNil(t, dag)
 	assert.Equal(t, "detailed-dag", dag.Name)
@@ -369,7 +369,7 @@ steps:
 	assert.Equal(t, "0 1 * * *", dag.Schedule[0].Expression)
 
 	// Test DAG not found
-	_, err = store.GetDetails(ctx, "non-existent")
+	_, err = store.GetDetails(ctx, "non-existent", exec.DAGLoadOptions{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to locate DAG non-existent")
 
@@ -384,7 +384,7 @@ steps:
 	require.NoError(t, err)
 
 	recursiveStore := New(tmpDir, WithSkipExamples(true), WithRecursiveDiscovery(true))
-	dag, err = recursiveStore.GetDetails(ctx, "dagu.update-cloud-image")
+	dag, err = recursiveStore.GetDetails(ctx, "dagu.update-cloud-image", exec.DAGLoadOptions{})
 	require.NoError(t, err)
 	assert.Equal(t, "dagu.update-cloud-image", dag.Name)
 
@@ -1043,14 +1043,14 @@ func TestLoadSpec(t *testing.T) {
 steps:
   - name: step1
     run: echo "load spec"`
-	dag, err := store.LoadSpec(ctx, []byte(validSpec))
+	dag, err := store.LoadSpec(ctx, []byte(validSpec), "", exec.DAGLoadOptions{})
 	require.NoError(t, err)
 	require.NotNil(t, dag)
 	assert.Equal(t, "load-spec-dag", dag.Name)
 
 	// Test invalid spec
 	invalidSpec := `invalid: yaml: content: [unclosed`
-	_, err = store.LoadSpec(ctx, []byte(invalidSpec))
+	_, err = store.LoadSpec(ctx, []byte(invalidSpec), "", exec.DAGLoadOptions{})
 	require.Error(t, err)
 }
 
@@ -1073,7 +1073,7 @@ steps:
   - name: test
     run: echo test
     depends: [build]
-`))
+`), "", exec.DAGLoadOptions{})
 	require.NoError(t, err)
 	require.Equal(t, core.TypeGraph, dag.Type)
 	require.Len(t, dag.Steps, 2)
@@ -1114,7 +1114,7 @@ labels:
 steps:
   - name: step1
     run: echo "hello"
-`))
+`), "", exec.DAGLoadOptions{})
 	require.NoError(t, err)
 	assert.Contains(t, dag.Env, "GLOBAL_ONLY=1")
 	assert.Contains(t, dag.Env, "WORKSPACE_ONLY=1")

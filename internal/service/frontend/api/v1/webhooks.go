@@ -87,7 +87,7 @@ func (a *API) CreateDAGWebhook(ctx context.Context, request api.CreateDAGWebhook
 	}
 
 	// Check if DAG exists
-	if _, err := a.dagStore.GetDetails(ctx, request.FileName); err != nil {
+	if _, err := a.dagStore.GetDetails(ctx, string(request.FileName), exec.DAGLoadOptions{}); err != nil {
 		if errors.Is(err, exec.ErrDAGNotFound) {
 			return nil, &Error{
 				HTTPStatus: http.StatusNotFound,
@@ -604,7 +604,7 @@ func (a *API) TriggerWebhook(ctx context.Context, request api.TriggerWebhookRequ
 	}
 
 	// Load the DAG (we need it for enqueuing)
-	dag, err := a.dagStore.GetDetails(ctx, request.FileName)
+	dag, err := a.dagStore.GetDetails(ctx, string(request.FileName), exec.DAGLoadOptions{})
 	if err != nil {
 		logger.Warn(ctx, "Webhook: DAG not found",
 			tag.Name(request.FileName),

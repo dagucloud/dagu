@@ -420,7 +420,7 @@ func (a *API) resolveNotificationRouteWorkspace(ctx context.Context, name string
 }
 
 func (a *API) ensureDAGExists(ctx context.Context, dagName string) error {
-	if _, err := a.dagStore.GetDetails(ctx, dagName); err != nil {
+	if _, err := a.dagStore.GetDetails(ctx, dagName, exec.DAGLoadOptions{}); err != nil {
 		if errors.Is(err, exec.ErrDAGNotFound) {
 			return &Error{
 				HTTPStatus: http.StatusNotFound,

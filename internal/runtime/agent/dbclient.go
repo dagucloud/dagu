@@ -47,7 +47,7 @@ func (o *dbClient) GetDAG(ctx context.Context, name string) (*core.DAG, error) {
 		return remoteDAG, nil
 	}
 
-	dag, err := o.ds.GetDetails(ctx, name)
+	dag, err := o.ds.GetDetails(ctx, name, exec.DAGLoadOptions{})
 	if err == nil {
 		return dag, nil
 	}
