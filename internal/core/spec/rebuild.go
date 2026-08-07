@@ -6,6 +6,7 @@ package spec
 import (
 	"context"
 	"fmt"
+	"maps"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/buildenv"
 	"github.com/dagucloud/dagu/v2/internal/core"
@@ -29,24 +30,17 @@ func RebuildFromYAML(ctx context.Context, dag *core.DAG, paramsOverride ...[]str
 
 	loadedEnv := append([]string{}, dag.Env...)
 	buildEnvMap := buildenv.ToMap(dag.Env)
-	for key, value := range dag.PresolvedBuildEnv {
-		if buildEnvMap == nil {
-			buildEnvMap = make(map[string]string)
-		}
-		buildEnvMap[key] = value
+	if buildEnvMap == nil {
+		buildEnvMap = make(map[string]string)
 	}
+	maps.Copy(buildEnvMap, dag.PresolvedBuildEnv)
 
 	presolvedBuildEnv, err := buildenv.Load()
 	if err != nil {
 		return nil, fmt.Errorf("failed to load presolved build env: %w", err)
 	}
 	transportEnv := buildenv.FromMap(presolvedBuildEnv)
-	for key, value := range presolvedBuildEnv {
-		if buildEnvMap == nil {
-			buildEnvMap = make(map[string]string)
-		}
-		buildEnvMap[key] = value
-	}
+	maps.Copy(buildEnvMap, presolvedBuildEnv)
 
 	params := dag.Params
 	if len(paramsOverride) > 0 {

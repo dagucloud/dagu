@@ -62,6 +62,29 @@ func TestRebuildFromYAML_EmptyYAML(t *testing.T) {
 	assert.Equal(t, "Default", result.Queue)
 }
 
+func TestRebuildFromYAML_ParamsOverrideReplacesSnapshotParams(t *testing.T) {
+	t.Parallel()
+
+	// Both production callers pass runtime params captured from the run's status,
+	// which must win over the params the snapshot carries and over the YAML default.
+	dag := &core.DAG{
+		Name:   "params-override",
+		Params: []string{`topic="from-snapshot"`},
+		YamlData: []byte(`
+params:
+  - topic: from-default
+steps:
+  - run: echo ${topic}
+`),
+	}
+
+	restored, err := spec.RebuildFromYAML(context.Background(), dag, []string{`topic="from-override"`})
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"topic=from-override"}, restored.Params)
+	assert.JSONEq(t, `{"topic":"from-override"}`, restored.ParamsJSON)
+}
+
 func TestRebuildFromYAML_RebuildsEnvFromYAML(t *testing.T) {
 	t.Parallel()
 
