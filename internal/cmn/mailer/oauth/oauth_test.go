@@ -71,15 +71,13 @@ func TestCachedTokenFuncCoalescesConcurrentRefresh(t *testing.T) {
 	var wg sync.WaitGroup
 	errs := make(chan error, callers)
 	for range callers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			got, err := token(context.Background())
 			if err == nil && got.AccessToken != "token" {
 				err = errors.New("unexpected token")
 			}
 			errs <- err
-		}()
+		})
 	}
 	wg.Wait()
 	close(errs)

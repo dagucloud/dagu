@@ -105,16 +105,13 @@ type WorkspaceSettings struct {
 }
 
 type SMTPConfig struct {
-	Host                    string            `json:"host,omitempty"`
-	Port                    string            `json:"port,omitempty"`
-	Username                string            `json:"username,omitempty"`
-	Password                string            `json:"password,omitempty"`
-	OAuth                   *mailoauth.Config `json:"oauth,omitempty"`
-	From                    string            `json:"from,omitempty"`
-	ClearPassword           bool              `json:"-"`
-	ClearClientSecret       bool              `json:"-"`
-	ClearRefreshToken       bool              `json:"-"`
-	ClearServiceAccountJSON bool              `json:"-"`
+	Host          string            `json:"host,omitempty"`
+	Port          string            `json:"port,omitempty"`
+	Username      string            `json:"username,omitempty"`
+	Password      string            `json:"password,omitempty"`
+	OAuth         *mailoauth.Config `json:"oauth,omitempty"`
+	From          string            `json:"from,omitempty"`
+	ClearPassword bool              `json:"-"`
 }
 
 type RouteSet struct {
@@ -1082,13 +1079,13 @@ func PreserveWorkspaceSecrets(next, existing *WorkspaceSettings) {
 	if !sameSMTPOAuthIdentity(next.SMTP, existing.SMTP) {
 		return
 	}
-	if next.SMTP.OAuth.ClientSecret == "" && !next.SMTP.ClearClientSecret {
+	if next.SMTP.OAuth.ClientSecret == "" {
 		next.SMTP.OAuth.ClientSecret = existing.SMTP.OAuth.ClientSecret
 	}
-	if next.SMTP.OAuth.RefreshToken == "" && !next.SMTP.ClearRefreshToken {
+	if next.SMTP.OAuth.RefreshToken == "" {
 		next.SMTP.OAuth.RefreshToken = existing.SMTP.OAuth.RefreshToken
 	}
-	if next.SMTP.OAuth.ServiceAccountJSON == "" && !next.SMTP.ClearServiceAccountJSON {
+	if next.SMTP.OAuth.ServiceAccountJSON == "" {
 		next.SMTP.OAuth.ServiceAccountJSON = existing.SMTP.OAuth.ServiceAccountJSON
 	}
 }

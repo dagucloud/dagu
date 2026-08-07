@@ -85,9 +85,6 @@ type SMTPDraft = {
   clientSecretConfigured: boolean;
   refreshTokenConfigured: boolean;
   serviceAccountJsonConfigured: boolean;
-  clearClientSecret: boolean;
-  clearRefreshToken: boolean;
-  clearServiceAccountJson: boolean;
 };
 
 const blankSMTPDraft: SMTPDraft = {
@@ -108,9 +105,6 @@ const blankSMTPDraft: SMTPDraft = {
   clientSecretConfigured: false,
   refreshTokenConfigured: false,
   serviceAccountJsonConfigured: false,
-  clearClientSecret: false,
-  clearRefreshToken: false,
-  clearServiceAccountJson: false,
 };
 
 const smtpOAuthDestinations = {
@@ -216,9 +210,6 @@ function smtpDraftFromAPI(settings: NotificationWorkspaceSettings): SMTPDraft {
     clientSecretConfigured: !!smtp.oauth?.clientSecretConfigured,
     refreshTokenConfigured: !!smtp.oauth?.refreshTokenConfigured,
     serviceAccountJsonConfigured: !!smtp.oauth?.serviceAccountJsonConfigured,
-    clearClientSecret: false,
-    clearRefreshToken: false,
-    clearServiceAccountJson: false,
   };
 }
 
@@ -299,9 +290,6 @@ function smtpInput(draft: SMTPDraft) {
           clientSecret: draft.clientSecret || undefined,
           refreshToken: draft.refreshToken || undefined,
           serviceAccountJson: draft.serviceAccountJson || undefined,
-          clearClientSecret: draft.clearClientSecret || undefined,
-          clearRefreshToken: draft.clearRefreshToken || undefined,
-          clearServiceAccountJson: draft.clearServiceAccountJson || undefined,
         },
       },
     };
@@ -327,9 +315,6 @@ function resetOAuthSecrets(draft: SMTPDraft): SMTPDraft {
     clientSecretConfigured: false,
     refreshTokenConfigured: false,
     serviceAccountJsonConfigured: false,
-    clearClientSecret: false,
-    clearRefreshToken: false,
-    clearServiceAccountJson: false,
   };
 }
 
@@ -1859,74 +1844,40 @@ export function NotificationChannelsPage() {
                     }}
                   />
                 </div>
-                <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px]">
-                  <Input
-                    type="password"
-                    value={smtpDraft.clientSecret}
-                    placeholder={
-                      smtpDraft.clientSecretConfigured
-                        ? 'Client secret configured'
-                        : 'Client secret'
-                    }
-                    onChange={(event) =>
-                      setSMTPDraft((current) => ({
-                        ...current,
-                        clientSecret: event.target.value,
-                        clearClientSecret: false,
-                      }))
-                    }
-                  />
-                  <label className="flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm">
-                    <Checkbox
-                      checked={smtpDraft.clearClientSecret}
-                      disabled={!smtpDraft.clientSecretConfigured}
-                      onCheckedChange={(value) =>
-                        setSMTPDraft((current) => ({
-                          ...current,
-                          clientSecret: '',
-                          clearClientSecret: !!value,
-                        }))
-                      }
-                    />
-                    Clear client secret
-                  </label>
-                </div>
+                <Input
+                  type="password"
+                  value={smtpDraft.clientSecret}
+                  placeholder={
+                    smtpDraft.clientSecretConfigured
+                      ? 'Client secret configured'
+                      : 'Client secret'
+                  }
+                  onChange={(event) =>
+                    setSMTPDraft((current) => ({
+                      ...current,
+                      clientSecret: event.target.value,
+                    }))
+                  }
+                />
               </>
             )}
           {smtpDraft.mode === 'oauth' &&
             smtpDraft.oauthProvider ===
               NotificationSMTPOAuthSettingsInputProvider.google_service_account && (
-              <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px]">
-                <Textarea
-                  value={smtpDraft.serviceAccountJson}
-                  placeholder={
-                    smtpDraft.serviceAccountJsonConfigured
-                      ? 'Service-account JSON configured'
-                      : 'Service-account JSON'
-                  }
-                  onChange={(event) =>
-                    setSMTPDraft((current) => ({
-                      ...current,
-                      serviceAccountJson: event.target.value,
-                      clearServiceAccountJson: false,
-                    }))
-                  }
-                />
-                <label className="flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm">
-                  <Checkbox
-                    checked={smtpDraft.clearServiceAccountJson}
-                    disabled={!smtpDraft.serviceAccountJsonConfigured}
-                    onCheckedChange={(value) =>
-                      setSMTPDraft((current) => ({
-                        ...current,
-                        serviceAccountJson: '',
-                        clearServiceAccountJson: !!value,
-                      }))
-                    }
-                  />
-                  Clear service-account JSON
-                </label>
-              </div>
+              <Textarea
+                value={smtpDraft.serviceAccountJson}
+                placeholder={
+                  smtpDraft.serviceAccountJsonConfigured
+                    ? 'Service-account JSON configured'
+                    : 'Service-account JSON'
+                }
+                onChange={(event) =>
+                  setSMTPDraft((current) => ({
+                    ...current,
+                    serviceAccountJson: event.target.value,
+                  }))
+                }
+              />
             )}
           {smtpDraft.mode === 'oauth' &&
             smtpDraft.oauthProvider ===
@@ -1942,70 +1893,36 @@ export function NotificationChannelsPage() {
                     );
                   }}
                 />
-                <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px]">
-                  <Input
-                    type="password"
-                    value={smtpDraft.clientSecret}
-                    placeholder={
-                      smtpDraft.clientSecretConfigured
-                        ? 'Client secret configured'
-                        : 'Client secret'
-                    }
-                    onChange={(event) =>
-                      setSMTPDraft((current) => ({
-                        ...current,
-                        clientSecret: event.target.value,
-                        clearClientSecret: false,
-                      }))
-                    }
-                  />
-                  <label className="flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm">
-                    <Checkbox
-                      checked={smtpDraft.clearClientSecret}
-                      disabled={!smtpDraft.clientSecretConfigured}
-                      onCheckedChange={(value) =>
-                        setSMTPDraft((current) => ({
-                          ...current,
-                          clientSecret: '',
-                          clearClientSecret: !!value,
-                        }))
-                      }
-                    />
-                    Clear client secret
-                  </label>
-                </div>
-                <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px]">
-                  <Input
-                    type="password"
-                    value={smtpDraft.refreshToken}
-                    placeholder={
-                      smtpDraft.refreshTokenConfigured
-                        ? 'Refresh token configured'
-                        : 'Refresh token'
-                    }
-                    onChange={(event) =>
-                      setSMTPDraft((current) => ({
-                        ...current,
-                        refreshToken: event.target.value,
-                        clearRefreshToken: false,
-                      }))
-                    }
-                  />
-                  <label className="flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm">
-                    <Checkbox
-                      checked={smtpDraft.clearRefreshToken}
-                      disabled={!smtpDraft.refreshTokenConfigured}
-                      onCheckedChange={(value) =>
-                        setSMTPDraft((current) => ({
-                          ...current,
-                          refreshToken: '',
-                          clearRefreshToken: !!value,
-                        }))
-                      }
-                    />
-                    Clear refresh token
-                  </label>
-                </div>
+                <Input
+                  type="password"
+                  value={smtpDraft.clientSecret}
+                  placeholder={
+                    smtpDraft.clientSecretConfigured
+                      ? 'Client secret configured'
+                      : 'Client secret'
+                  }
+                  onChange={(event) =>
+                    setSMTPDraft((current) => ({
+                      ...current,
+                      clientSecret: event.target.value,
+                    }))
+                  }
+                />
+                <Input
+                  type="password"
+                  value={smtpDraft.refreshToken}
+                  placeholder={
+                    smtpDraft.refreshTokenConfigured
+                      ? 'Refresh token configured'
+                      : 'Refresh token'
+                  }
+                  onChange={(event) =>
+                    setSMTPDraft((current) => ({
+                      ...current,
+                      refreshToken: event.target.value,
+                    }))
+                  }
+                />
                 <p className="text-xs text-muted-foreground">
                   The refresh token must have been granted with offline access
                   and the https://mail.google.com/ scope.

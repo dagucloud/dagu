@@ -10363,23 +10363,14 @@ components:
           type: string
           writeOnly: true
           description: "OAuth client secret. Omit on updates to preserve the existing value when the OAuth identity is unchanged."
-        clearClientSecret:
-          type: boolean
-          description: "Clear the stored OAuth client secret."
         refreshToken:
           type: string
           writeOnly: true
           description: "Google refresh token. Omit on updates to preserve the existing value when the OAuth identity is unchanged."
-        clearRefreshToken:
-          type: boolean
-          description: "Clear the stored Google refresh token."
         serviceAccountJson:
           type: string
           writeOnly: true
           description: "Google service-account JSON. Omit on updates to preserve the existing value when the OAuth identity is unchanged."
-        clearServiceAccountJson:
-          type: boolean
-          description: "Clear the stored Google service-account JSON."
 
     NotificationSMTPOAuthSettings:
       type: object

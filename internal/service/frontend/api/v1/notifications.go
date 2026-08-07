@@ -513,9 +513,6 @@ func notificationWorkspaceSettingsFromRequest(input api.NotificationWorkspaceSet
 				RefreshToken:       valueOf(input.Smtp.Oauth.RefreshToken),
 				ServiceAccountJSON: valueOf(input.Smtp.Oauth.ServiceAccountJson),
 			}
-			settings.SMTP.ClearClientSecret = valueOf(input.Smtp.Oauth.ClearClientSecret)
-			settings.SMTP.ClearRefreshToken = valueOf(input.Smtp.Oauth.ClearRefreshToken)
-			settings.SMTP.ClearServiceAccountJSON = valueOf(input.Smtp.Oauth.ClearServiceAccountJson)
 		}
 	}
 	return settings

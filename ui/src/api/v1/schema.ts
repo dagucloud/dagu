@@ -3798,16 +3798,10 @@ export interface components {
             clientId?: string;
             /** @description OAuth client secret. Omit on updates to preserve the existing value when the OAuth identity is unchanged. */
             clientSecret?: string;
-            /** @description Clear the stored OAuth client secret. */
-            clearClientSecret?: boolean;
             /** @description Google refresh token. Omit on updates to preserve the existing value when the OAuth identity is unchanged. */
             refreshToken?: string;
-            /** @description Clear the stored Google refresh token. */
-            clearRefreshToken?: boolean;
             /** @description Google service-account JSON. Omit on updates to preserve the existing value when the OAuth identity is unchanged. */
             serviceAccountJson?: string;
-            /** @description Clear the stored Google service-account JSON. */
-            clearServiceAccountJson?: boolean;
         };
         /** @description Public SMTP OAuth settings. Secret values are never returned. */
         NotificationSMTPOAuthSettings: {
