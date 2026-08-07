@@ -624,6 +624,39 @@ func TestService_WebhookBodyTemplateRetryDoesNotResendDeliveredEvents(t *testing
 	assert.Equal(t, []string{`{"run": "run-1"}`, `{"run": "run-2"}`}, bodies)
 }
 
+func TestService_WebhookBodyTemplateValidatesBatchBeforeDelivery(t *testing.T) {
+	t.Parallel()
+
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+
+	svc := New(newMemoryStore(), nil, WithDeliveryRetry(DeliveryRetryConfig{MaxAttempts: 1}))
+	target := notificationmodel.Target{
+		ID:      "webhook-1",
+		Type:    notificationmodel.ProviderWebhook,
+		Enabled: true,
+		Webhook: &notificationmodel.WebhookTarget{
+			URL:                 server.URL,
+			AllowInsecureHTTP:   true,
+			AllowPrivateNetwork: true,
+			BodyTemplate:        `{"errorCode": {{run.error}}}`,
+		},
+	}
+	validEvent := notificationEventForRun(t, "run-1")
+	validEvent.Status.Error = "1"
+	invalidEvent := notificationEventForRun(t, "run-2")
+	invalidEvent.Status.Error = "not-a-number"
+
+	err := svc.deliverTarget(context.Background(), target, []chatbridge.NotificationEvent{validEvent, invalidEvent})
+
+	require.ErrorContains(t, err, "webhook body template did not render valid JSON")
+	assert.Equal(t, int32(0), requests.Load())
+}
+
 func notificationEventForRun(t *testing.T, dagRunID string) chatbridge.NotificationEvent {
 	t.Helper()
 	return chatbridge.NotificationEvent{

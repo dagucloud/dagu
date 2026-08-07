@@ -1335,17 +1335,21 @@ func (s *Service) sendWebhookBodyTemplate(
 	events []chatbridge.NotificationEvent,
 	publicURL string,
 ) error {
+	bodies := make([][]byte, 0, len(events))
 	for _, event := range events {
 		if event.Status == nil {
 			continue
 		}
 		single := []chatbridge.NotificationEvent{event}
 		message := messageForEvents(target.Webhook.MessageTemplate, single, publicURL)
-		body := renderWebhookBodyTemplate(target.Webhook.BodyTemplate, event, message, publicURL)
-		if !json.Valid([]byte(body)) {
+		body := []byte(renderWebhookBodyTemplate(target.Webhook.BodyTemplate, event, message, publicURL))
+		if !json.Valid(body) {
 			return errors.New("webhook body template did not render valid JSON")
 		}
-		if err := s.postWebhookBody(ctx, target, []byte(body)); err != nil {
+		bodies = append(bodies, body)
+	}
+	for _, body := range bodies {
+		if err := s.postWebhookBody(ctx, target, body); err != nil {
 			return err
 		}
 	}
