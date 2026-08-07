@@ -288,7 +288,11 @@ func TestService_SendTestWebhookIncludesPayloadHeadersAndSignature(t *testing.T)
 		receivedSignature = r.Header.Get("X-Dagu-Signature")
 		receivedHeader = r.Header.Get("X-Test")
 		body, err := io.ReadAll(r.Body)
-		require.NoError(t, err)
+		if err != nil {
+			t.Errorf("read request body: %v", err)
+			http.Error(w, "failed to read request body", http.StatusInternalServerError)
+			return
+		}
 		receivedBody = body
 		w.WriteHeader(http.StatusAccepted)
 	}))
@@ -482,7 +486,11 @@ func TestService_SendTestWebhookIncludesCustomMessage(t *testing.T) {
 	var receivedBody atomic.Value
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
-		require.NoError(t, err)
+		if err != nil {
+			t.Errorf("read request body: %v", err)
+			http.Error(w, "failed to read request body", http.StatusInternalServerError)
+			return
+		}
 		receivedBody.Store(string(body))
 		w.WriteHeader(http.StatusAccepted)
 	}))
@@ -523,7 +531,11 @@ func TestService_SendTestWebhookUsesBodyTemplate(t *testing.T) {
 	var receivedBody atomic.Value
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
-		require.NoError(t, err)
+		if err != nil {
+			t.Errorf("read request body: %v", err)
+			http.Error(w, "failed to read request body", http.StatusInternalServerError)
+			return
+		}
 		receivedBody.Store(string(body))
 		w.WriteHeader(http.StatusAccepted)
 	}))
@@ -566,7 +578,11 @@ func TestService_WebhookBodyTemplateRetryDoesNotResendDeliveredEvents(t *testing
 	failedOnce := false
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
-		require.NoError(t, err)
+		if err != nil {
+			t.Errorf("read request body: %v", err)
+			http.Error(w, "failed to read request body", http.StatusInternalServerError)
+			return
+		}
 
 		mu.Lock()
 		defer mu.Unlock()
@@ -752,7 +768,11 @@ func TestService_SendTestWebhookIncludesRunLinks(t *testing.T) {
 	var receivedBody atomic.Value
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
-		require.NoError(t, err)
+		if err != nil {
+			t.Errorf("read request body: %v", err)
+			http.Error(w, "failed to read request body", http.StatusInternalServerError)
+			return
+		}
 		receivedBody.Store(string(body))
 		w.WriteHeader(http.StatusAccepted)
 	}))
@@ -1057,7 +1077,11 @@ func TestService_SendTestUsesEffectiveGlobalRouteWithoutDAGSettings(t *testing.T
 	var receivedBody atomic.Value
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
-		require.NoError(t, err)
+		if err != nil {
+			t.Errorf("read request body: %v", err)
+			http.Error(w, "failed to read request body", http.StatusInternalServerError)
+			return
+		}
 		receivedBody.Store(string(body))
 		w.WriteHeader(http.StatusAccepted)
 	}))
@@ -1936,7 +1960,11 @@ func TestService_ReusableChannelSubscriptionsDeliverForMatchingDAGEvent(t *testi
 	var receivedBody atomic.Value
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
-		require.NoError(t, err)
+		if err != nil {
+			t.Errorf("read request body: %v", err)
+			http.Error(w, "failed to read request body", http.StatusInternalServerError)
+			return
+		}
 		receivedBody.Store(string(body))
 		w.WriteHeader(http.StatusAccepted)
 	}))
