@@ -310,6 +310,14 @@ func (e *parallelExecutor) GetStatusDetails() []exec1.NodeStatusDetail {
 	e.lock.Lock()
 	defer e.lock.Unlock()
 
+	nameCounts := make(map[string]int, len(e.runParamsList))
+	for _, params := range e.runParamsList {
+		name := parallelRunName(params, e.results[params.RunID])
+		if name != "" {
+			nameCounts[name]++
+		}
+	}
+
 	details := make([]exec1.NodeStatusDetail, 0, len(e.runParamsList))
 	for _, params := range e.runParamsList {
 		result := e.results[params.RunID]
@@ -320,7 +328,7 @@ func (e *parallelExecutor) GetStatusDetails() []exec1.NodeStatusDetail {
 			status = parallelNodeStatus(result.Status)
 		}
 		details = append(details, exec1.NodeStatusDetail{
-			Label:  parallelRunLabel(params, result),
+			Label:  parallelRunLabel(params, result, nameCounts[parallelRunName(params, result)] > 1),
 			Status: status,
 		})
 	}
@@ -350,18 +358,21 @@ func parallelNodeStatus(status core.Status) core.NodeStatus {
 	}
 }
 
-func parallelRunLabel(params executor.RunParams, result *exec1.RunStatus) string {
+func parallelRunName(params executor.RunParams, result *exec1.RunStatus) string {
 	name := params.DAGName
-	values := params.Params
-	if result != nil {
-		if result.Name != "" {
-			name = result.Name
-		}
-		if result.Params != "" {
-			values = result.Params
-		}
+	if result != nil && result.Name != "" {
+		name = result.Name
 	}
-	if name != "" && values != "" {
+	return name
+}
+
+func parallelRunLabel(params executor.RunParams, result *exec1.RunStatus, duplicateName bool) string {
+	name := parallelRunName(params, result)
+	values := params.Params
+	if result != nil && result.Params != "" {
+		values = result.Params
+	}
+	if duplicateName && values != "" {
 		return fmt.Sprintf("%s (%s)", name, values)
 	}
 	if name != "" {
