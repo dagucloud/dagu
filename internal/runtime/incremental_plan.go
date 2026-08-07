@@ -6,6 +6,7 @@ package runtime
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
@@ -81,6 +82,38 @@ func prepareIncrementalPlan(ctx context.Context, plan *Plan) error {
 	}
 
 	for _, node := range plan.Nodes() {
+		step := node.Step()
+		env, err := NewPlanEnvForNodeWithError(ctx, node, plan)
+		if err != nil {
+			return err
+		}
+		resolver := resolverFromEnv(env)
+		redirects := []struct {
+			field string
+			path  string
+		}{
+			{field: "stdout", path: step.Stdout},
+			{field: "stderr", path: step.Stderr},
+		}
+		for _, redirect := range redirects {
+			if redirect.path == "" {
+				continue
+			}
+			resolved, err := resolver.String(ctx, redirect.path, cmnvalue.StepArtifactOutputField(redirect.field))
+			if err != nil {
+				return err
+			}
+			if strings.Contains(resolved, "${") {
+				continue
+			}
+			if !filepath.IsAbs(resolved) {
+				resolved = filepath.Join(env.WorkingDir, resolved)
+			}
+			if producer, ok := producers[pathKeys.ComparisonKey(filepath.Clean(resolved))]; ok {
+				return fmt.Errorf("step %s %s path aliases incremental output produced by %s: %s", step.Name, redirect.field, producer, resolved)
+			}
+		}
+
 		for _, input := range node.Step().Inputs {
 			if producer, ok := producers[pathKeys.ComparisonKey(input.Path)]; ok {
 				if err := plan.AddInferredDependency(producer, node.Name()); err != nil {

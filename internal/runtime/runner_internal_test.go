@@ -189,6 +189,37 @@ func TestPrepareIncrementalPlanInfersFileDependency(t *testing.T) {
 	assert.Equal(t, producerNode.Step().Outputs[0].Path, consumerNode.Step().Inputs[0].Path)
 }
 
+func TestPrepareIncrementalPlanRejectsOutputRedirectAlias(t *testing.T) {
+	t.Parallel()
+
+	for _, field := range []string{"stdout", "stderr"} {
+		t.Run(field, func(t *testing.T) {
+			workingDir := t.TempDir()
+			step := core.Step{
+				ID:      "build",
+				Name:    "build",
+				Outputs: []core.StepOutputDeclaration{{Name: "artifact", Path: "artifact.txt"}},
+			}
+			if field == "stdout" {
+				step.Stdout = "./artifact.txt"
+			} else {
+				step.Stderr = "./artifact.txt"
+			}
+			plan, err := NewPlan(step)
+			require.NoError(t, err)
+			ctx := NewContext(context.Background(), &core.DAG{
+				Name:               "incremental-test",
+				Type:               core.TypeIncremental,
+				WorkingDir:         workingDir,
+				WorkingDirExplicit: true,
+			}, "run-1", filepath.Join(workingDir, "dag.log"))
+
+			err = prepareIncrementalPlan(ctx, plan)
+			require.ErrorContains(t, err, field+" path aliases incremental output")
+		})
+	}
+}
+
 func TestIncrementalInputIsAvailableToStepPrecondition(t *testing.T) {
 	t.Parallel()
 
