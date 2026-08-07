@@ -670,11 +670,14 @@ func TestService_TeamsThrottledResponseIsRetried(t *testing.T) {
 		WithHTTPClient(&http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 			if attempts.Add(1) == 1 {
 				// Teams reports throttling in the body of a 200 response.
-				resp := acceptedResponse(req)
-				resp.Body = io.NopCloser(strings.NewReader(
-					"Microsoft Teams endpoint returned HTTP error 429",
-				))
-				return resp, nil
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     make(http.Header),
+					Body: io.NopCloser(strings.NewReader(
+						"Microsoft Teams endpoint returned HTTP error 429",
+					)),
+					Request: req,
+				}, nil
 			}
 			return acceptedResponse(req), nil
 		})}),
