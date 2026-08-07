@@ -378,13 +378,18 @@ steps:
 steps:
   - name: step1
     run: echo "dotted"`
-	err = os.WriteFile(filepath.Join(tmpDir, "dagu.update-cloud-image.yaml"), []byte(dottedDAGContent), 0600)
+	nestedDir := filepath.Join(tmpDir, "nested")
+	require.NoError(t, os.Mkdir(nestedDir, 0750))
+	err = os.WriteFile(filepath.Join(nestedDir, "dagu.update-cloud-image.yaml"), []byte(dottedDAGContent), 0600)
 	require.NoError(t, err)
 
 	recursiveStore := New(tmpDir, WithSkipExamples(true), WithRecursiveDiscovery(true))
 	dag, err = recursiveStore.GetDetails(ctx, "dagu.update-cloud-image")
 	require.NoError(t, err)
 	assert.Equal(t, "dagu.update-cloud-image", dag.Name)
+
+	err = recursiveStore.Create(ctx, "dagu.update-cloud-image", []byte(dottedDAGContent))
+	require.ErrorIs(t, err, exec.ErrDAGAlreadyExists)
 }
 
 func TestGetSpec(t *testing.T) {
