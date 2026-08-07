@@ -101,7 +101,9 @@ func ValidateSteps(dag *DAG) error {
 
 func validateIncrementalSteps(dag *DAG, errs *ErrorList) {
 	if dag.Type == TypeIncremental {
-		validateNoAttemptOutputReference(errs, "working_dir", dag.WorkingDir)
+		validateNoPreExecutionPathReference(errs, "working_dir", dag.WorkingDir)
+		validateNoPreExecutionPathReference(errs, "shell", dag.Shell)
+		validateNoPreExecutionPathReferences(errs, "shell_args", dag.ShellArgs)
 		for _, condition := range dag.Preconditions {
 			validateNoIncrementalPathCondition(errs, "preconditions", condition)
 		}
@@ -118,7 +120,7 @@ func validateIncrementalSteps(dag *DAG, errs *ErrorList) {
 		dag.HandlerOn.Wait,
 	} {
 		if handler != nil {
-			validateIncrementalStep(dag, *handler, errs)
+			validateUnsupportedIncrementalPaths(*handler, "handler_on", "lifecycle handlers", errs)
 		}
 	}
 }
@@ -153,21 +155,21 @@ func validateIncrementalStep(dag *DAG, step Step, errs *ErrorList) {
 			*errs = append(*errs, NewValidationError("type", executorType,
 				fmt.Errorf("incremental paths are not supported by executor %q", executorType)))
 		}
-		validateNoAttemptOutputReference(errs, "working_dir", step.Dir)
-		validateNoAttemptOutputReference(errs, "stdout", step.Stdout)
-		validateNoAttemptOutputReference(errs, "stdout.artifact", step.StdoutArtifact)
-		validateNoAttemptOutputReference(errs, "stderr", step.Stderr)
-		validateNoAttemptOutputReference(errs, "stderr.artifact", step.StderrArtifact)
-		validateNoAttemptOutputReference(errs, "shell", step.Shell)
-		validateNoAttemptOutputReferences(errs, "shell_args", step.ShellArgs)
-		validateNoAttemptOutputReferences(errs, "shell_packages", step.ShellPackages)
+		validateNoPreExecutionPathReference(errs, "working_dir", step.Dir)
+		validateNoPreExecutionPathReference(errs, "stdout", step.Stdout)
+		validateNoPreExecutionPathReference(errs, "stdout.artifact", step.StdoutArtifact)
+		validateNoPreExecutionPathReference(errs, "stderr", step.Stderr)
+		validateNoPreExecutionPathReference(errs, "stderr.artifact", step.StderrArtifact)
+		validateNoPreExecutionPathReference(errs, "shell", step.Shell)
+		validateNoPreExecutionPathReferences(errs, "shell_args", step.ShellArgs)
+		validateNoPreExecutionPathReferences(errs, "shell_packages", step.ShellPackages)
 		validateNoAttemptOutputReferences(errs, "continue_on.output", step.ContinueOn.Output)
-		validateNoAttemptOutputReference(errs, "signal_on_stop", step.SignalOnStop)
-		validateNoAttemptOutputReference(errs, "retry_policy.limit", step.RetryPolicy.LimitStr)
-		validateNoAttemptOutputReference(errs, "retry_policy.interval_sec", step.RetryPolicy.IntervalSecStr)
-		validateNoAttemptOutputReference(errs, "repeat_policy.limit", step.RepeatPolicy.LimitStr)
-		validateNoAttemptOutputReference(errs, "repeat_policy.interval_sec", step.RepeatPolicy.IntervalStr)
-		validateNoAttemptOutputReference(errs, "repeat_policy.max_interval_sec", step.RepeatPolicy.MaxIntervalStr)
+		validateNoPreExecutionPathReference(errs, "signal_on_stop", step.SignalOnStop)
+		validateNoPreExecutionPathReference(errs, "retry_policy.limit", step.RetryPolicy.LimitStr)
+		validateNoPreExecutionPathReference(errs, "retry_policy.interval_sec", step.RetryPolicy.IntervalSecStr)
+		validateNoPreExecutionPathReference(errs, "repeat_policy.limit", step.RepeatPolicy.LimitStr)
+		validateNoPreExecutionPathReference(errs, "repeat_policy.interval_sec", step.RepeatPolicy.IntervalStr)
+		validateNoPreExecutionPathReference(errs, "repeat_policy.max_interval_sec", step.RepeatPolicy.MaxIntervalStr)
 		validateNoAttemptOutputCondition(errs, "repeat_policy.condition", step.RepeatPolicy.Condition)
 		for _, condition := range step.Preconditions {
 			validateNoAttemptOutputCondition(errs, "preconditions", condition)
@@ -175,7 +177,20 @@ func validateIncrementalStep(dag *DAG, step Step, errs *ErrorList) {
 	}
 	if step.Foreach != nil {
 		for _, child := range step.Foreach.Steps {
-			validateIncrementalStep(dag, child, errs)
+			validateUnsupportedIncrementalPaths(child, "foreach.steps", "foreach steps", errs)
+		}
+	}
+}
+
+func validateUnsupportedIncrementalPaths(step Step, field, scope string, errs *ErrorList) {
+	_, hasPathOutput := step.PathOutput()
+	if len(step.Inputs) > 0 || hasPathOutput {
+		*errs = append(*errs, NewValidationError(field, step.Name,
+			fmt.Errorf("incremental paths are not supported in %s", scope)))
+	}
+	if step.Foreach != nil {
+		for _, child := range step.Foreach.Steps {
+			validateUnsupportedIncrementalPaths(child, field, scope, errs)
 		}
 	}
 }
@@ -186,6 +201,10 @@ func validateIncrementalPathExpression(errs *ErrorList, field, path string) {
 			fmt.Errorf("incremental paths cannot use command substitution")))
 	}
 	if containsStepReference(path) {
+		*errs = append(*errs, NewValidationError(field, path,
+			fmt.Errorf("incremental paths must resolve before step execution")))
+	}
+	if containsInputPathReference(path) {
 		*errs = append(*errs, NewValidationError(field, path,
 			fmt.Errorf("incremental paths must resolve before step execution")))
 	}
@@ -207,6 +226,10 @@ func containsAttemptOutputReference(value string) bool {
 	return strings.Contains(value, "${outputs.")
 }
 
+func containsInputPathReference(value string) bool {
+	return strings.Contains(value, "${inputs.")
+}
+
 func validateNoAttemptOutputReference(errs *ErrorList, field, value string) {
 	if !containsAttemptOutputReference(value) {
 		return
@@ -219,6 +242,25 @@ func validateNoAttemptOutputReferences(errs *ErrorList, field string, values []s
 	for _, value := range values {
 		validateNoAttemptOutputReference(errs, field, value)
 	}
+}
+
+func validateNoPreExecutionPathReference(errs *ErrorList, field, value string) {
+	validateNoAttemptOutputReference(errs, field, value)
+	validateNoInputPathReference(errs, field, value)
+}
+
+func validateNoPreExecutionPathReferences(errs *ErrorList, field string, values []string) {
+	for _, value := range values {
+		validateNoPreExecutionPathReference(errs, field, value)
+	}
+}
+
+func validateNoInputPathReference(errs *ErrorList, field, value string) {
+	if !containsInputPathReference(value) {
+		return
+	}
+	*errs = append(*errs, NewValidationError(field, value,
+		fmt.Errorf("input path references are unavailable before step execution")))
 }
 
 func validateNoAttemptOutputCondition(errs *ErrorList, field string, condition *Condition) {

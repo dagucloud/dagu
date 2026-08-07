@@ -3697,7 +3697,7 @@ steps:
 			wantDetail: "relative incremental paths",
 		},
 		{
-			name: "handler paths use the same expression rules",
+			name: "handler paths are unsupported",
 			yaml: `
 type: incremental
 working_dir: .
@@ -3707,15 +3707,15 @@ handler_on:
     run: echo cleanup
     inputs:
       - name: source
-        path: $(find-source)
+        path: source.txt
 steps:
   - name: build
     run: echo build
 `,
-			wantDetail: "cannot use command substitution",
+			wantDetail: "not supported in lifecycle handlers",
 		},
 		{
-			name: "foreach body paths use the same expression rules",
+			name: "foreach body paths are unsupported",
 			yaml: `
 type: incremental
 working_dir: .
@@ -3728,9 +3728,9 @@ steps:
           run: echo build
           inputs:
             - name: source
-              path: ${steps.fetch.outputs.path}
+              path: source.txt
 `,
-			wantDetail: "must resolve before step execution",
+			wantDetail: "not supported in foreach steps",
 		},
 		{
 			name: "missing input name reports required field",
@@ -3787,6 +3787,69 @@ steps:
         path: $(find-source)
 `,
 			wantDetail: "cannot use command substitution",
+		},
+		{
+			name: "input references are unavailable to paths",
+			yaml: `
+type: incremental
+working_dir: .
+steps:
+  - id: build
+    name: build
+    run: echo build
+    inputs:
+      - name: source
+        path: ${inputs.source}
+`,
+			wantDetail: "must resolve before step execution",
+		},
+		{
+			name: "input references are unavailable to setup fields",
+			yaml: `
+type: incremental
+working_dir: .
+steps:
+  - id: build
+    name: build
+    run: echo build
+    working_dir: ${inputs.source}
+    inputs:
+      - name: source
+        path: source.txt
+`,
+			wantDetail: "unavailable before step execution",
+		},
+		{
+			name: "input references are unavailable to output redirection",
+			yaml: `
+type: incremental
+working_dir: .
+steps:
+  - id: build
+    name: build
+    run: echo build
+    stdout: ${inputs.source}
+    inputs:
+      - name: source
+        path: source.txt
+`,
+			wantDetail: "unavailable before step execution",
+		},
+		{
+			name: "input references are unavailable to shell configuration",
+			yaml: `
+type: incremental
+working_dir: .
+steps:
+  - id: build
+    name: build
+    command: echo build
+    shell: [sh, "${inputs.source}"]
+    inputs:
+      - name: source
+        path: source.txt
+`,
+			wantDetail: "unavailable before step execution",
 		},
 		{
 			name: "attempt output references are unavailable to preconditions",
