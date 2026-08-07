@@ -747,27 +747,32 @@ func (a *Agent) Run(ctx context.Context) error {
 	// Evaluate SMTP and mail configs with environment variables and secrets.
 	// This must happen AFTER attempt.Open() to avoid persisting expanded secrets.
 	if err := a.evaluateMailConfigs(ctx); err != nil {
-		return err
+		initErr = err
+		return initErr
 	}
 
 	// Evaluate registry auth credentials with environment variables and secrets.
 	if err := a.evaluateRegistryAuths(ctx); err != nil {
-		return err
+		initErr = err
+		return initErr
 	}
 
 	// Evaluate working directory with environment variables.
 	if err := a.evaluateWorkingDir(ctx); err != nil {
-		return err
+		initErr = err
+		return initErr
 	}
 
 	// Evaluate S3 configuration with environment variables and secrets.
 	if err := a.evaluateS3Config(ctx); err != nil {
-		return err
+		initErr = err
+		return initErr
 	}
 
 	// Setup the reporter to send notifications (must be after mail config evaluation)
 	if err := a.setupReporter(ctx); err != nil {
-		return err
+		initErr = err
+		return initErr
 	}
 
 	// Update the initial persisted status.

@@ -10342,6 +10342,14 @@ components:
           type: boolean
           description: "Attach DAG and step logs when available"
 
+    NotificationSMTPOAuthProvider:
+      type: string
+      description: "SMTP OAuth token provider"
+      enum:
+        - microsoft
+        - google_service_account
+        - google_refresh
+
     NotificationSMTPOAuthSettingsInput:
       type: object
       description: "SMTP OAuth credentials. Secret values are encrypted at rest and omitted from responses."
@@ -10349,11 +10357,7 @@ components:
         - provider
       properties:
         provider:
-          type: string
-          enum:
-            - microsoft
-            - google_service_account
-            - google_refresh
+          $ref: "#/components/schemas/NotificationSMTPOAuthProvider"
         tenantId:
           type: string
           description: "Microsoft Entra tenant ID"
@@ -10383,11 +10387,7 @@ components:
         - serviceAccountJsonConfigured
       properties:
         provider:
-          type: string
-          enum:
-            - microsoft
-            - google_service_account
-            - google_refresh
+          $ref: "#/components/schemas/NotificationSMTPOAuthProvider"
         tenantId:
           type: string
         clientId:

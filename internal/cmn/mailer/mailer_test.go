@@ -84,6 +84,7 @@ func TestAuthenticateOAuthPreservesServerChallenge(t *testing.T) {
 	t.Parallel()
 
 	clientConn, serverConn := net.Pipe()
+	setPipeDeadline(t, clientConn, serverConn)
 	certificate := newTestTLSCertificate(t)
 	serverDone := make(chan error, 1)
 	authPayload := make(chan string, 1)
@@ -228,6 +229,7 @@ func TestAuthenticateOAuthRequiresAdvertisedXOAUTH2BeforeToken(t *testing.T) {
 		"250-mock.server\r\n250 AUTH LOGIN PLAIN\r\n",
 	} {
 		clientConn, serverConn := net.Pipe()
+		setPipeDeadline(t, clientConn, serverConn)
 		go func() {
 			defer func() { _ = serverConn.Close() }()
 			reader := bufio.NewReader(serverConn)
@@ -258,6 +260,7 @@ func TestPrepareSessionRequiresSTARTTLSBeforeOAuthToken(t *testing.T) {
 	t.Parallel()
 
 	clientConn, serverConn := net.Pipe()
+	setPipeDeadline(t, clientConn, serverConn)
 	go func() {
 		defer func() { _ = serverConn.Close() }()
 		reader := bufio.NewReader(serverConn)
@@ -302,6 +305,14 @@ func newTestTLSCertificate(t *testing.T) tls.Certificate {
 	certificate, err := tls.X509KeyPair(certificatePEM, keyPEM)
 	require.NoError(t, err)
 	return certificate
+}
+
+func setPipeDeadline(t *testing.T, connections ...net.Conn) {
+	t.Helper()
+	deadline := time.Now().Add(30 * time.Second)
+	for _, connection := range connections {
+		require.NoError(t, connection.SetDeadline(deadline))
+	}
 }
 
 func TestIsHTMLContent(t *testing.T) {

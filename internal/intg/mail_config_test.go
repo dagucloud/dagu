@@ -98,6 +98,27 @@ steps:
 		require.Equal(t, "${OAUTH_CLIENT_SECRET}", dag.DAG.SMTP.OAuth.ClientSecret)
 	})
 
+	t.Run("InvalidSMTPOAuthSetupMarksRunFailed", func(t *testing.T) {
+		t.Parallel()
+
+		th := test.Setup(t)
+		dag := th.DAG(t, `
+smtp:
+  host: smtp.example.com
+  username: sender@example.com
+  oauth:
+    provider: microsoft
+    tenant_id: tenant
+    client_id: client
+    client_secret: secret
+
+steps:
+  - name: test-step
+    run: echo "not reached"
+`)
+		dag.Agent().RunCheckErr(t, `requires host "smtp.office365.com"`)
+	})
+
 	t.Run("WaitMailConfigWithEnvVars", func(t *testing.T) {
 		t.Parallel()
 

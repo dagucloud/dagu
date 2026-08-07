@@ -39,6 +39,8 @@ const (
 	tokenRequestTimeout = 15 * time.Second
 )
 
+var tokenHTTPClient = &http.Client{Timeout: tokenRequestTimeout}
+
 // Config contains the provider credentials needed to acquire SMTP access tokens.
 type Config struct {
 	Provider           Provider `json:"provider,omitempty" yaml:"provider,omitempty"`
@@ -227,7 +229,7 @@ func providerRefresh(username string, cfg Config) (refreshFunc, error) {
 }
 
 func tokenHTTPContext(ctx context.Context) context.Context {
-	return context.WithValue(ctx, oauth2.HTTPClient, &http.Client{Timeout: tokenRequestTimeout})
+	return context.WithValue(ctx, oauth2.HTTPClient, tokenHTTPClient)
 }
 
 func cacheKey(username string, cfg Config) ([sha256.Size]byte, error) {
@@ -301,7 +303,10 @@ func cachedTokenFunc(key [sha256.Size]byte, refresh refreshFunc) TokenFunc {
 	state := tokenCache.entries[key]
 	if state == nil {
 		if len(tokenCache.entries) >= maxCacheEntries {
-			clear(tokenCache.entries)
+			for cachedKey := range tokenCache.entries {
+				delete(tokenCache.entries, cachedKey)
+				break
+			}
 		}
 		state = newTokenState()
 		tokenCache.entries[key] = state

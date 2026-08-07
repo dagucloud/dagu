@@ -3788,10 +3788,14 @@ export interface components {
             /** @description Attach DAG and step logs when available */
             attachLogs?: boolean;
         };
+        /**
+         * @description SMTP OAuth token provider
+         * @enum {string}
+         */
+        NotificationSMTPOAuthProvider: NotificationSMTPOAuthProvider;
         /** @description SMTP OAuth credentials. Secret values are encrypted at rest and omitted from responses. */
         NotificationSMTPOAuthSettingsInput: {
-            /** @enum {string} */
-            provider: NotificationSMTPOAuthSettingsInputProvider;
+            provider: components["schemas"]["NotificationSMTPOAuthProvider"];
             /** @description Microsoft Entra tenant ID */
             tenantId?: string;
             /** @description OAuth client ID */
@@ -3805,8 +3809,7 @@ export interface components {
         };
         /** @description Public SMTP OAuth settings. Secret values are never returned. */
         NotificationSMTPOAuthSettings: {
-            /** @enum {string} */
-            provider: NotificationSMTPOAuthSettingsProvider;
+            provider: components["schemas"]["NotificationSMTPOAuthProvider"];
             tenantId?: string;
             clientId?: string;
             clientSecretConfigured: boolean;
@@ -17822,12 +17825,7 @@ export enum NotificationEventType {
     dag_run_aborted = "dag.run.aborted",
     dag_run_rejected = "dag.run.rejected"
 }
-export enum NotificationSMTPOAuthSettingsInputProvider {
-    microsoft = "microsoft",
-    google_service_account = "google_service_account",
-    google_refresh = "google_refresh"
-}
-export enum NotificationSMTPOAuthSettingsProvider {
+export enum NotificationSMTPOAuthProvider {
     microsoft = "microsoft",
     google_service_account = "google_service_account",
     google_refresh = "google_refresh"

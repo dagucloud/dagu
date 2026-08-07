@@ -727,7 +727,7 @@ func toAPINotificationWorkspaceSettings(settings *notificationmodel.WorkspaceSet
 		}
 		if pub.SMTP.OAuth != nil {
 			result.Smtp.Oauth = &api.NotificationSMTPOAuthSettings{
-				Provider:                     api.NotificationSMTPOAuthSettingsProvider(pub.SMTP.OAuth.Provider),
+				Provider:                     api.NotificationSMTPOAuthProvider(pub.SMTP.OAuth.Provider),
 				TenantId:                     ptrOf(pub.SMTP.OAuth.TenantID),
 				ClientId:                     ptrOf(pub.SMTP.OAuth.ClientID),
 				ClientSecretConfigured:       pub.SMTP.OAuth.ClientSecretConfigured,

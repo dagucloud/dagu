@@ -59,6 +59,8 @@ func TestValidateStructure(t *testing.T) {
 }
 
 func TestCachedTokenFuncCoalescesConcurrentRefresh(t *testing.T) {
+	t.Parallel()
+
 	var refreshes atomic.Int32
 	refresh := func(context.Context, *oauth2.Token) (*oauth2.Token, error) {
 		refreshes.Add(1)

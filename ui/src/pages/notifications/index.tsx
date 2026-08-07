@@ -57,7 +57,7 @@ import {
   components,
   NotificationEventType,
   NotificationProviderType,
-  NotificationSMTPOAuthSettingsInputProvider,
+  NotificationSMTPOAuthProvider,
 } from '@/api/v1/schema';
 import { Link } from 'react-router-dom';
 
@@ -76,7 +76,7 @@ type SMTPDraft = {
   from: string;
   passwordConfigured: boolean;
   clearPassword: boolean;
-  oauthProvider: NotificationSMTPOAuthSettingsInputProvider;
+  oauthProvider: NotificationSMTPOAuthProvider;
   tenantId: string;
   clientId: string;
   clientSecret: string;
@@ -96,7 +96,7 @@ const blankSMTPDraft: SMTPDraft = {
   from: '',
   passwordConfigured: false,
   clearPassword: false,
-  oauthProvider: NotificationSMTPOAuthSettingsInputProvider.microsoft,
+  oauthProvider: NotificationSMTPOAuthProvider.microsoft,
   tenantId: '',
   clientId: '',
   clientSecret: '',
@@ -107,31 +107,34 @@ const blankSMTPDraft: SMTPDraft = {
   serviceAccountJsonConfigured: false,
 };
 
-const smtpOAuthDestinations = {
-  [NotificationSMTPOAuthSettingsInputProvider.microsoft]: {
+const smtpOAuthDestinations: Record<
+  NotificationSMTPOAuthProvider,
+  { host: string; port: string }
+> = {
+  [NotificationSMTPOAuthProvider.microsoft]: {
     host: 'smtp.office365.com',
     port: '587',
   },
-  [NotificationSMTPOAuthSettingsInputProvider.google_service_account]: {
+  [NotificationSMTPOAuthProvider.google_service_account]: {
     host: 'smtp.gmail.com',
     port: '587',
   },
-  [NotificationSMTPOAuthSettingsInputProvider.google_refresh]: {
+  [NotificationSMTPOAuthProvider.google_refresh]: {
     host: 'smtp.gmail.com',
     port: '587',
   },
 };
 
 function smtpOAuthProviderFromAPI(
-  provider?: string
-): NotificationSMTPOAuthSettingsInputProvider {
+  provider?: NotificationSMTPOAuthProvider
+): NotificationSMTPOAuthProvider {
   switch (provider) {
-    case NotificationSMTPOAuthSettingsInputProvider.google_service_account:
-      return NotificationSMTPOAuthSettingsInputProvider.google_service_account;
-    case NotificationSMTPOAuthSettingsInputProvider.google_refresh:
-      return NotificationSMTPOAuthSettingsInputProvider.google_refresh;
+    case NotificationSMTPOAuthProvider.google_service_account:
+      return NotificationSMTPOAuthProvider.google_service_account;
+    case NotificationSMTPOAuthProvider.google_refresh:
+      return NotificationSMTPOAuthProvider.google_refresh;
     default:
-      return NotificationSMTPOAuthSettingsInputProvider.microsoft;
+      return NotificationSMTPOAuthProvider.microsoft;
   }
 }
 
@@ -278,13 +281,12 @@ function smtpInput(draft: SMTPDraft) {
         oauth: {
           provider: draft.oauthProvider,
           tenantId:
-            draft.oauthProvider ===
-            NotificationSMTPOAuthSettingsInputProvider.microsoft
+            draft.oauthProvider === NotificationSMTPOAuthProvider.microsoft
               ? draft.tenantId.trim() || undefined
               : undefined,
           clientId:
             draft.oauthProvider ===
-            NotificationSMTPOAuthSettingsInputProvider.google_service_account
+            NotificationSMTPOAuthProvider.google_service_account
               ? undefined
               : draft.clientId.trim() || undefined,
           clientSecret: draft.clientSecret || undefined,
@@ -312,6 +314,15 @@ function resetOAuthSecrets(draft: SMTPDraft): SMTPDraft {
     clientSecret: '',
     refreshToken: '',
     serviceAccountJson: '',
+    clientSecretConfigured: false,
+    refreshTokenConfigured: false,
+    serviceAccountJsonConfigured: false,
+  };
+}
+
+function resetOAuthSecretState(draft: SMTPDraft): SMTPDraft {
+  return {
+    ...draft,
     clientSecretConfigured: false,
     refreshTokenConfigured: false,
     serviceAccountJsonConfigured: false,
@@ -1648,13 +1659,12 @@ export function NotificationChannelsPage() {
               onValueChange={(value) =>
                 setSMTPDraft((current) =>
                   value === 'oauth'
-                    ? resetOAuthSecrets({
+                    ? {
                         ...current,
                         mode: 'oauth',
                         password: '',
-                        passwordConfigured: false,
                         clearPassword: false,
-                      })
+                      }
                     : { ...current, mode: 'password' }
                 )
               }
@@ -1674,8 +1684,7 @@ export function NotificationChannelsPage() {
                   setSMTPDraft((current) =>
                     resetOAuthSecrets({
                       ...current,
-                      oauthProvider:
-                        value as NotificationSMTPOAuthSettingsInputProvider,
+                      oauthProvider: value as NotificationSMTPOAuthProvider,
                       tenantId: '',
                       clientId: '',
                     })
@@ -1686,22 +1695,16 @@ export function NotificationChannelsPage() {
                   <SelectValue placeholder="OAuth provider" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem
-                    value={NotificationSMTPOAuthSettingsInputProvider.microsoft}
-                  >
+                  <SelectItem value={NotificationSMTPOAuthProvider.microsoft}>
                     Microsoft 365
                   </SelectItem>
                   <SelectItem
-                    value={
-                      NotificationSMTPOAuthSettingsInputProvider.google_service_account
-                    }
+                    value={NotificationSMTPOAuthProvider.google_service_account}
                   >
                     Google Workspace service account
                   </SelectItem>
                   <SelectItem
-                    value={
-                      NotificationSMTPOAuthSettingsInputProvider.google_refresh
-                    }
+                    value={NotificationSMTPOAuthProvider.google_refresh}
                   >
                     Google refresh token
                   </SelectItem>
@@ -1754,7 +1757,7 @@ export function NotificationChannelsPage() {
                   const next = { ...current, username };
                   return current.mode === 'oauth' &&
                     username !== current.username
-                    ? resetOAuthSecrets(next)
+                    ? resetOAuthSecretState(next)
                     : next;
                 });
               }}
@@ -1820,7 +1823,7 @@ export function NotificationChannelsPage() {
           )}
           {smtpDraft.mode === 'oauth' &&
             smtpDraft.oauthProvider ===
-              NotificationSMTPOAuthSettingsInputProvider.microsoft && (
+              NotificationSMTPOAuthProvider.microsoft && (
               <>
                 <div className="grid gap-3 md:grid-cols-2">
                   <Input
@@ -1829,7 +1832,7 @@ export function NotificationChannelsPage() {
                     onChange={(event) => {
                       const tenantId = event.target.value;
                       setSMTPDraft((current) =>
-                        resetOAuthSecrets({ ...current, tenantId })
+                        resetOAuthSecretState({ ...current, tenantId })
                       );
                     }}
                   />
@@ -1839,7 +1842,7 @@ export function NotificationChannelsPage() {
                     onChange={(event) => {
                       const clientId = event.target.value;
                       setSMTPDraft((current) =>
-                        resetOAuthSecrets({ ...current, clientId })
+                        resetOAuthSecretState({ ...current, clientId })
                       );
                     }}
                   />
@@ -1863,7 +1866,7 @@ export function NotificationChannelsPage() {
             )}
           {smtpDraft.mode === 'oauth' &&
             smtpDraft.oauthProvider ===
-              NotificationSMTPOAuthSettingsInputProvider.google_service_account && (
+              NotificationSMTPOAuthProvider.google_service_account && (
               <Textarea
                 value={smtpDraft.serviceAccountJson}
                 placeholder={
@@ -1881,7 +1884,7 @@ export function NotificationChannelsPage() {
             )}
           {smtpDraft.mode === 'oauth' &&
             smtpDraft.oauthProvider ===
-              NotificationSMTPOAuthSettingsInputProvider.google_refresh && (
+              NotificationSMTPOAuthProvider.google_refresh && (
               <>
                 <Input
                   value={smtpDraft.clientId}
@@ -1889,7 +1892,7 @@ export function NotificationChannelsPage() {
                   onChange={(event) => {
                     const clientId = event.target.value;
                     setSMTPDraft((current) =>
-                      resetOAuthSecrets({ ...current, clientId })
+                      resetOAuthSecretState({ ...current, clientId })
                     );
                   }}
                 />
