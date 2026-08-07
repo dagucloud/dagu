@@ -662,10 +662,19 @@ func TestService_AuthorizeWebhookRequest(t *testing.T) {
 		body := []byte(`{"payload":{"event":"push"}}`)
 		signature := signWebhookBody(hmacResult.FullSecret, body)
 
-		_, err = service.AuthorizeWebhookRequest(ctx, "strict-auth-dag", created.FullToken, "", "", body)
+		_, err = service.AuthorizeWebhookRequest(ctx, AuthorizeWebhookRequestInput{
+			DAGName: "strict-auth-dag",
+			Token:   created.FullToken,
+			Body:    body,
+		})
 		assert.ErrorIs(t, err, ErrMissingWebhookHMACSignature)
 
-		webhook, err := service.AuthorizeWebhookRequest(ctx, "strict-auth-dag", created.FullToken, signature, "", body)
+		webhook, err := service.AuthorizeWebhookRequest(ctx, AuthorizeWebhookRequestInput{
+			DAGName:   "strict-auth-dag",
+			Token:     created.FullToken,
+			Signature: signature,
+			Body:      body,
+		})
 		require.NoError(t, err)
 		assert.Equal(t, "strict-auth-dag", webhook.DAGName)
 	})
@@ -687,7 +696,11 @@ func TestService_AuthorizeWebhookRequest(t *testing.T) {
 		require.NoError(t, err)
 
 		body := []byte(`{"payload":{"event":"push"}}`)
-		webhook, err := service.AuthorizeWebhookRequest(ctx, "observe-auth-dag", created.FullToken, "", "", body)
+		webhook, err := service.AuthorizeWebhookRequest(ctx, AuthorizeWebhookRequestInput{
+			DAGName: "observe-auth-dag",
+			Token:   created.FullToken,
+			Body:    body,
+		})
 		require.NoError(t, err)
 		assert.Equal(t, "observe-auth-dag", webhook.DAGName)
 	})
@@ -711,7 +724,11 @@ func TestService_AuthorizeWebhookRequest(t *testing.T) {
 		body := []byte(`{"payload":{"event":"push"}}`)
 		signature := signWebhookBody(hmacResult.FullSecret, body)
 
-		webhook, err := service.AuthorizeWebhookRequest(ctx, "hmac-only-dag", "", signature, "", body)
+		webhook, err := service.AuthorizeWebhookRequest(ctx, AuthorizeWebhookRequestInput{
+			DAGName:   "hmac-only-dag",
+			Signature: signature,
+			Body:      body,
+		})
 		require.NoError(t, err)
 		assert.Equal(t, "hmac-only-dag", webhook.DAGName)
 	})
@@ -735,14 +752,22 @@ func TestService_AuthorizeWebhookRequest(t *testing.T) {
 		body := []byte(`{"payload":{"event":"deploy"}}`)
 		signature := signWebhookProfileBody(hmacResult.FullSecret, "prod", body)
 
-		_, err = service.AuthorizeWebhookRequest(
-			ctx, "profile-signature-dag", created.FullToken, signature, "staging", body,
-		)
+		_, err = service.AuthorizeWebhookRequest(ctx, AuthorizeWebhookRequestInput{
+			DAGName:     "profile-signature-dag",
+			Token:       created.FullToken,
+			Signature:   signature,
+			ProfileName: "staging",
+			Body:        body,
+		})
 		assert.ErrorIs(t, err, ErrInvalidWebhookHMACSignature)
 
-		_, err = service.AuthorizeWebhookRequest(
-			ctx, "profile-signature-dag", created.FullToken, signature, "prod", body,
-		)
+		_, err = service.AuthorizeWebhookRequest(ctx, AuthorizeWebhookRequestInput{
+			DAGName:     "profile-signature-dag",
+			Token:       created.FullToken,
+			Signature:   signature,
+			ProfileName: "prod",
+			Body:        body,
+		})
 		require.NoError(t, err)
 	})
 }

@@ -1255,18 +1255,22 @@ func (s *Service) ValidateWebhookToken(ctx context.Context, dagName, token strin
 	return webhook, nil
 }
 
+// AuthorizeWebhookRequestInput contains the credentials and signed content for a webhook request.
+type AuthorizeWebhookRequestInput struct {
+	DAGName     string
+	Token       string
+	Signature   string
+	ProfileName string
+	Body        []byte
+}
+
 // AuthorizeWebhookRequest validates the request according to the webhook's auth mode.
-func (s *Service) AuthorizeWebhookRequest(
-	ctx context.Context,
-	dagName, token, signature string,
-	profileName string,
-	body []byte,
-) (*auth.Webhook, error) {
+func (s *Service) AuthorizeWebhookRequest(ctx context.Context, input AuthorizeWebhookRequestInput) (*auth.Webhook, error) {
 	if s.webhookStore == nil {
 		return nil, ErrWebhookNotConfigured
 	}
 
-	webhook, err := s.GetWebhookByDAGName(ctx, dagName)
+	webhook, err := s.GetWebhookByDAGName(ctx, input.DAGName)
 	if err != nil {
 		if errors.Is(err, auth.ErrWebhookNotFound) {
 			return nil, ErrInvalidWebhookToken
@@ -1279,25 +1283,25 @@ func (s *Service) AuthorizeWebhookRequest(
 
 	switch webhook.EffectiveAuthMode() {
 	case auth.WebhookAuthModeTokenOnly:
-		if err := validateWebhookTokenAgainst(webhook, token); err != nil {
+		if err := validateWebhookTokenAgainst(webhook, input.Token); err != nil {
 			return nil, err
 		}
 	case auth.WebhookAuthModeTokenAndHMAC:
-		if err := validateWebhookTokenAgainst(webhook, token); err != nil {
+		if err := validateWebhookTokenAgainst(webhook, input.Token); err != nil {
 			return nil, err
 		}
 		if webhook.HMACEnforcementMode == auth.WebhookHMACEnforcementModeObserve {
-			if err := validateWebhookHMACSignature(webhook, signature, profileName, body); err != nil {
+			if err := validateWebhookHMACSignature(webhook, input.Signature, input.ProfileName, input.Body); err != nil {
 				slog.Warn("webhook HMAC validation observed failure",
 					"dagName", webhook.DAGName,
 					"error", err,
 				)
 			}
-		} else if err := validateWebhookHMACSignature(webhook, signature, profileName, body); err != nil {
+		} else if err := validateWebhookHMACSignature(webhook, input.Signature, input.ProfileName, input.Body); err != nil {
 			return nil, err
 		}
 	case auth.WebhookAuthModeHMACOnly:
-		if err := validateWebhookHMACSignature(webhook, signature, profileName, body); err != nil {
+		if err := validateWebhookHMACSignature(webhook, input.Signature, input.ProfileName, input.Body); err != nil {
 			return nil, err
 		}
 	default:

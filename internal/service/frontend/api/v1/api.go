@@ -163,7 +163,7 @@ type AuthService interface {
 	ConfigureWebhookProfiles(ctx context.Context, dagName string, allowedProfiles []string) (*auth.Webhook, error)
 	RegenerateWebhookHMACSecret(ctx context.Context, dagName string) (*authservice.WebhookHMACSecretResult, error)
 	DisableWebhookHMAC(ctx context.Context, dagName string) (*auth.Webhook, error)
-	AuthorizeWebhookRequest(ctx context.Context, dagName, token, signature, profileName string, body []byte) (*auth.Webhook, error)
+	AuthorizeWebhookRequest(ctx context.Context, input authservice.AuthorizeWebhookRequestInput) (*auth.Webhook, error)
 	ToggleWebhook(ctx context.Context, dagName string, enabled bool) (*auth.Webhook, error)
 	ValidateWebhookToken(ctx context.Context, dagName, token string) (*auth.Webhook, error)
 	HasWebhookStore() bool

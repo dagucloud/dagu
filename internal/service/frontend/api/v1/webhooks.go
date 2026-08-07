@@ -548,11 +548,13 @@ func (a *API) TriggerWebhook(ctx context.Context, request api.TriggerWebhookRequ
 
 	webhook, err := a.authService.AuthorizeWebhookRequest(
 		ctx,
-		request.FileName,
-		token,
-		signature,
-		requestedProfile,
-		rawBody,
+		authservice.AuthorizeWebhookRequestInput{
+			DAGName:     request.FileName,
+			Token:       token,
+			Signature:   signature,
+			ProfileName: requestedProfile,
+			Body:        rawBody,
+		},
 	)
 	if err != nil {
 		if errors.Is(err, authservice.ErrInvalidWebhookToken) {
