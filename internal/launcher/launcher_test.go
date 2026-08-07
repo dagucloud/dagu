@@ -265,7 +265,7 @@ steps:
 `, test.EnvOutput("EXPORTED_SECRET", "SUBCMD_START_EXPLICIT_ENV")))
 
 	spec := th.SubCmdBuilder.Start(dagFile.DAG, launcher.StartOptions{})
-	err := launcher.Start(th.Context, spec)
+	started, err := launcher.StartProcess(th.Context, spec)
 	require.NoError(t, err, "env=%s", strings.Join(spec.Env, "\n"))
 
 	var status exec.DAGRunStatus
@@ -277,6 +277,7 @@ steps:
 		status = latest
 		return status.Status == core.Succeeded
 	}, statusTimeout, 100*time.Millisecond)
+	requireProcessCompletion(t, started, statusTimeout)
 	require.Equal(t, "from-host|", test.StatusOutputValue(t, &status, "RESULT"))
 }
 
@@ -301,7 +302,7 @@ steps:
 		require.False(t, strings.HasPrefix(entry, "_DAGU_PRESOLVED_SECRET_"), "unexpected presolved secret transport env: %s", entry)
 	}
 
-	err := launcher.Start(th.Context, spec)
+	started, err := launcher.StartProcess(th.Context, spec)
 	require.NoError(t, err, "env=%s", strings.Join(spec.Env, "\n"))
 
 	var status exec.DAGRunStatus
@@ -313,6 +314,7 @@ steps:
 		status = latest
 		return status.Status == core.Succeeded
 	}, statusTimeout, 100*time.Millisecond)
+	requireProcessCompletion(t, started, statusTimeout)
 	require.Equal(t, masking.DefaultMaskString+"|", test.StatusOutputValue(t, &status, "RESULT"))
 }
 
@@ -771,12 +773,17 @@ func TestStartProcessReportsPIDAndCompletion(t *testing.T) {
 	require.Positive(t, result.PID)
 	require.NotNil(t, result.Done)
 
+	requireProcessCompletion(t, result, 5*time.Second)
+}
+
+func requireProcessCompletion(t *testing.T, result *launcher.StartResult, timeout time.Duration) {
+	t.Helper()
 	select {
 	case err, ok := <-result.Done:
 		require.True(t, ok)
 		require.NoError(t, err)
-	case <-time.After(5 * time.Second):
-		t.Fatal("start process helper did not exit")
+	case <-time.After(timeout):
+		t.Fatal("started process did not exit")
 	}
 }
 
