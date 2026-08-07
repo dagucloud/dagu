@@ -473,6 +473,7 @@ type channelForStorage struct {
 	Webhook   *webhookTargetForStorage  `json:"webhook,omitempty"`
 	Slack     *slackTargetForStorage    `json:"slack,omitempty"`
 	Telegram  *telegramTargetForStorage `json:"telegram,omitempty"`
+	Teams     *teamsTargetForStorage    `json:"teams,omitempty"`
 	CreatedAt string                    `json:"createdAt"`
 	UpdatedAt string                    `json:"updatedAt"`
 	UpdatedBy string                    `json:"updatedBy,omitempty"`
@@ -539,6 +540,7 @@ type targetForStorage struct {
 	Webhook  *webhookTargetForStorage  `json:"webhook,omitempty"`
 	Slack    *slackTargetForStorage    `json:"slack,omitempty"`
 	Telegram *telegramTargetForStorage `json:"telegram,omitempty"`
+	Teams    *teamsTargetForStorage    `json:"teams,omitempty"`
 }
 
 type webhookTargetForStorage struct {
@@ -546,11 +548,17 @@ type webhookTargetForStorage struct {
 	HeadersEnc          map[string]string `json:"headersEnc,omitempty"`
 	HMACSecretEnc       string            `json:"hmacSecretEnc,omitempty"`
 	MessageTemplate     string            `json:"messageTemplate,omitempty"`
+	BodyTemplate        string            `json:"bodyTemplate,omitempty"`
 	AllowInsecureHTTP   bool              `json:"allowInsecureHttp,omitempty"`
 	AllowPrivateNetwork bool              `json:"allowPrivateNetwork,omitempty"`
 }
 
 type slackTargetForStorage struct {
+	WebhookURLEnc   string `json:"webhookUrlEnc,omitempty"`
+	MessageTemplate string `json:"messageTemplate,omitempty"`
+}
+
+type teamsTargetForStorage struct {
 	WebhookURLEnc   string `json:"webhookUrlEnc,omitempty"`
 	MessageTemplate string `json:"messageTemplate,omitempty"`
 }
@@ -611,6 +619,7 @@ func (s *Store) channelToStorage(channel *notification.Channel) (*channelForStor
 		Webhook:   target.Webhook,
 		Slack:     target.Slack,
 		Telegram:  target.Telegram,
+		Teams:     target.Teams,
 		CreatedAt: channel.CreatedAt.Format(timeFormat),
 		UpdatedAt: channel.UpdatedAt.Format(timeFormat),
 		UpdatedBy: channel.UpdatedBy,
@@ -694,6 +703,7 @@ func (s *Store) targetToStorage(target notification.Target) (targetForStorage, e
 			AllowInsecureHTTP:   target.Webhook.AllowInsecureHTTP,
 			AllowPrivateNetwork: target.Webhook.AllowPrivateNetwork,
 			MessageTemplate:     target.Webhook.MessageTemplate,
+			BodyTemplate:        target.Webhook.BodyTemplate,
 		}
 		if stored.Webhook.URLEnc, err = s.encryptRequired(target.Webhook.URL); err != nil {
 			return stored, err
@@ -725,6 +735,12 @@ func (s *Store) targetToStorage(target notification.Target) (targetForStorage, e
 			MessageTemplate: target.Telegram.MessageTemplate,
 		}
 		if stored.Telegram.BotTokenEnc, err = s.encryptRequired(target.Telegram.BotToken); err != nil {
+			return stored, err
+		}
+	}
+	if target.Teams != nil {
+		stored.Teams = &teamsTargetForStorage{MessageTemplate: target.Teams.MessageTemplate}
+		if stored.Teams.WebhookURLEnc, err = s.encryptRequired(target.Teams.WebhookURL); err != nil {
 			return stored, err
 		}
 	}
@@ -794,6 +810,7 @@ func (s *Store) channelFromStorage(stored *channelForStorage) (*notification.Cha
 		Webhook:  stored.Webhook,
 		Slack:    stored.Slack,
 		Telegram: stored.Telegram,
+		Teams:    stored.Teams,
 	})
 	if err != nil {
 		return nil, err
@@ -813,6 +830,7 @@ func (s *Store) channelFromStorage(stored *channelForStorage) (*notification.Cha
 	channel.Webhook = target.Webhook
 	channel.Slack = target.Slack
 	channel.Telegram = target.Telegram
+	channel.Teams = target.Teams
 	return channel, nil
 }
 
@@ -902,6 +920,7 @@ func (s *Store) targetFromStorage(stored targetForStorage) (notification.Target,
 			AllowInsecureHTTP:   stored.Webhook.AllowInsecureHTTP,
 			AllowPrivateNetwork: stored.Webhook.AllowPrivateNetwork,
 			MessageTemplate:     stored.Webhook.MessageTemplate,
+			BodyTemplate:        stored.Webhook.BodyTemplate,
 		}
 		if target.Webhook.URL, err = s.decryptOptional(stored.Webhook.URLEnc); err != nil {
 			return target, err
@@ -933,6 +952,12 @@ func (s *Store) targetFromStorage(stored targetForStorage) (notification.Target,
 			MessageTemplate: stored.Telegram.MessageTemplate,
 		}
 		if target.Telegram.BotToken, err = s.decryptOptional(stored.Telegram.BotTokenEnc); err != nil {
+			return target, err
+		}
+	}
+	if stored.Teams != nil {
+		target.Teams = &notification.TeamsTarget{MessageTemplate: stored.Teams.MessageTemplate}
+		if target.Teams.WebhookURL, err = s.decryptOptional(stored.Teams.WebhookURLEnc); err != nil {
 			return target, err
 		}
 	}

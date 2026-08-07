@@ -1,4 +1,11 @@
-import { Bell, Mail, MessageSquare, Send, Webhook } from 'lucide-react';
+import {
+  Bell,
+  Mail,
+  MessageSquare,
+  MessagesSquare,
+  Send,
+  Webhook,
+} from 'lucide-react';
 
 import {
   components,
@@ -40,6 +47,7 @@ export type DeliveryDraft = {
     headers: string;
     hmacSecret: string;
     messageTemplate: string;
+    bodyTemplate: string;
     urlPreview?: string;
     urlConfigured?: boolean;
     headerPreviews?: Record<string, string>;
@@ -62,6 +70,12 @@ export type DeliveryDraft = {
     chatId: string;
     topicId: string;
     messageTemplate: string;
+  };
+  teams: {
+    webhookUrl: string;
+    messageTemplate: string;
+    webhookUrlPreview?: string;
+    webhookUrlConfigured?: boolean;
   };
 };
 
@@ -113,6 +127,11 @@ export const PROVIDER_OPTIONS = [
     icon: MessageSquare,
   },
   { value: NotificationProviderType.telegram, label: 'Telegram', icon: Send },
+  {
+    value: NotificationProviderType.teams,
+    label: 'Microsoft Teams',
+    icon: MessagesSquare,
+  },
 ];
 
 export const DEFAULT_NOTIFICATION_EVENTS = [
@@ -127,6 +146,8 @@ export const DEFAULT_MESSAGE_TEMPLATE =
   'DAG {{dag.name}} {{run.status}}: {{run.error}}\n{{run.link}}';
 export const DEFAULT_EMAIL_BODY_TEMPLATE =
   'DAG: {{dag.name}}\nRun ID: {{run.id}}\nStatus: {{run.status}}\nError: {{run.error}}\n{{run.link}}';
+export const WEBHOOK_BODY_TEMPLATE_PLACEHOLDER =
+  'Custom JSON body (optional)\n{\n  "text": "{{message}}"\n}';
 
 export function defaultDraft(): DraftSettings {
   return {
@@ -176,6 +197,7 @@ export function blankDelivery(type: NotificationProviderType): DeliveryDraft {
       headers: '',
       hmacSecret: '',
       messageTemplate: DEFAULT_MESSAGE_TEMPLATE,
+      bodyTemplate: '',
       clearHeaders: false,
       clearHmacSecret: false,
       allowInsecureHttp: false,
@@ -189,6 +211,10 @@ export function blankDelivery(type: NotificationProviderType): DeliveryDraft {
       botToken: '',
       chatId: '',
       topicId: '',
+      messageTemplate: DEFAULT_MESSAGE_TEMPLATE,
+    },
+    teams: {
+      webhookUrl: '',
       messageTemplate: DEFAULT_MESSAGE_TEMPLATE,
     },
   };
@@ -293,6 +319,7 @@ function applyWebhookDraft(
   draft.webhook.hmacSecretConfigured = webhook.hmacSecretConfigured;
   draft.webhook.messageTemplate =
     webhook.messageTemplate || DEFAULT_MESSAGE_TEMPLATE;
+  draft.webhook.bodyTemplate = webhook.bodyTemplate || '';
   draft.webhook.allowInsecureHttp = !!webhook.allowInsecureHttp;
   draft.webhook.allowPrivateNetwork = !!webhook.allowPrivateNetwork;
 }
@@ -321,6 +348,17 @@ function applyTelegramDraft(
     telegram.messageTemplate || DEFAULT_MESSAGE_TEMPLATE;
 }
 
+function applyTeamsDraft(
+  draft: DeliveryDraft,
+  teams?: components['schemas']['NotificationTeamsTarget']
+) {
+  if (!teams) return;
+  draft.teams.webhookUrlPreview = teams.webhookUrlPreview;
+  draft.teams.webhookUrlConfigured = teams.webhookUrlConfigured;
+  draft.teams.messageTemplate =
+    teams.messageTemplate || DEFAULT_MESSAGE_TEMPLATE;
+}
+
 function draftTargetFromAPI(target: NotificationTarget): DraftTarget {
   const draft = blankTarget(target.type);
   draft.id = target.id;
@@ -331,6 +369,7 @@ function draftTargetFromAPI(target: NotificationTarget): DraftTarget {
   applyWebhookDraft(draft, target.webhook);
   applySlackDraft(draft, target.slack);
   applyTelegramDraft(draft, target.telegram);
+  applyTeamsDraft(draft, target.teams);
   return draft;
 }
 
@@ -345,6 +384,7 @@ export function draftChannelFromAPI(
   applyWebhookDraft(draft, channel.webhook);
   applySlackDraft(draft, channel.slack);
   applyTelegramDraft(draft, channel.telegram);
+  applyTeamsDraft(draft, channel.teams);
   return draft;
 }
 
@@ -399,6 +439,7 @@ function deliveryInput(target: DeliveryDraft) {
           : parseHeaders(target.webhook.headers),
         hmacSecret: target.webhook.hmacSecret.trim() || undefined,
         messageTemplate: optionalTemplate(target.webhook.messageTemplate),
+        bodyTemplate: optionalTemplate(target.webhook.bodyTemplate),
         clearHeaders: target.webhook.clearHeaders || undefined,
         clearHmacSecret: target.webhook.clearHmacSecret || undefined,
         allowInsecureHttp: target.webhook.allowInsecureHttp || undefined,
@@ -412,6 +453,15 @@ function deliveryInput(target: DeliveryDraft) {
       slack: {
         webhookUrl: target.slack.webhookUrl.trim() || undefined,
         messageTemplate: optionalTemplate(target.slack.messageTemplate),
+      },
+    };
+  }
+  if (target.type === NotificationProviderType.teams) {
+    return {
+      ...input,
+      teams: {
+        webhookUrl: target.teams.webhookUrl.trim() || undefined,
+        messageTemplate: optionalTemplate(target.teams.messageTemplate),
       },
     };
   }

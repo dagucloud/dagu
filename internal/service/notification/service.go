@@ -601,7 +601,8 @@ func (s *Service) FlushNotificationBatch(ctx context.Context, destination string
 	if target.Type != notificationmodel.ProviderEmail &&
 		target.Type != notificationmodel.ProviderWebhook &&
 		target.Type != notificationmodel.ProviderSlack &&
-		target.Type != notificationmodel.ProviderTelegram {
+		target.Type != notificationmodel.ProviderTelegram &&
+		target.Type != notificationmodel.ProviderTeams {
 		s.logger.Warn("Unsupported notification target provider",
 			slog.String("destination", destination),
 			slog.String("provider", string(target.Type)),
@@ -913,11 +914,13 @@ func (s *Service) deliverTarget(ctx context.Context, target notificationmodel.Ta
 	case notificationmodel.ProviderEmail:
 		return s.sendEmail(ctx, target, events)
 	case notificationmodel.ProviderWebhook:
-		return s.withRetry(ctx, func() error { return s.sendWebhook(ctx, target, events) })
+		return s.sendWebhook(ctx, target, events)
 	case notificationmodel.ProviderSlack:
 		return s.withRetry(ctx, func() error { return s.sendSlack(ctx, target, events) })
 	case notificationmodel.ProviderTelegram:
 		return s.withRetry(ctx, func() error { return s.sendTelegram(ctx, target, events) })
+	case notificationmodel.ProviderTeams:
+		return s.withRetry(ctx, func() error { return s.sendTeams(ctx, target, events) })
 	default:
 		return notificationmodel.ErrUnsupportedTarget
 	}
@@ -1315,24 +1318,65 @@ func (s *Service) sendWebhook(ctx context.Context, target notificationmodel.Targ
 		return err
 	}
 	publicURL := s.publicURL()
+	if target.Webhook.BodyTemplate != "" {
+		return s.sendWebhookBodyTemplate(ctx, target, events, publicURL)
+	}
 	payload := webhookPayloadForEvents(events, publicURL)
 	payload["message"] = messageForEvents(target.Webhook.MessageTemplate, events, publicURL)
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target.Webhook.URL, bytes.NewReader(body))
-	if err != nil {
-		return err
+	return s.postWebhookBody(ctx, target, body)
+}
+
+// sendWebhookBodyTemplate posts one custom-rendered request per event, so that
+// every request carries a payload the receiving service can parse on its own.
+// Each request is retried on its own, so a transient failure part-way through
+// does not re-deliver the events that already succeeded.
+func (s *Service) sendWebhookBodyTemplate(
+	ctx context.Context,
+	target notificationmodel.Target,
+	events []chatbridge.NotificationEvent,
+	publicURL string,
+) error {
+	bodies := make([][]byte, 0, len(events))
+	for _, event := range events {
+		if event.Status == nil {
+			continue
+		}
+		single := []chatbridge.NotificationEvent{event}
+		message := messageForEvents(target.Webhook.MessageTemplate, single, publicURL)
+		body := []byte(renderWebhookBodyTemplate(target.Webhook.BodyTemplate, event, message, publicURL))
+		if !json.Valid(body) {
+			return errors.New("webhook body template did not render valid JSON")
+		}
+		bodies = append(bodies, body)
 	}
-	req.Header.Set("Content-Type", "application/json")
-	for key, value := range target.Webhook.Headers {
-		req.Header.Set(key, value)
+	for _, body := range bodies {
+		if err := s.postWebhookBody(ctx, target, body); err != nil {
+			return err
+		}
 	}
-	if target.Webhook.HMACSecret != "" {
-		req.Header.Set("X-Dagu-Signature", "sha256="+signWebhookBody(body, target.Webhook.HMACSecret))
-	}
-	return s.doWebhookRequest(req)
+	return nil
+}
+
+// postWebhookBody delivers a single request body, retrying transient failures.
+func (s *Service) postWebhookBody(ctx context.Context, target notificationmodel.Target, body []byte) error {
+	return s.withRetry(ctx, func() error {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, target.Webhook.URL, bytes.NewReader(body))
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		for key, value := range target.Webhook.Headers {
+			req.Header.Set(key, value)
+		}
+		if target.Webhook.HMACSecret != "" {
+			req.Header.Set("X-Dagu-Signature", "sha256="+signWebhookBody(body, target.Webhook.HMACSecret))
+		}
+		return s.doWebhookRequest(req)
+	})
 }
 
 func (s *Service) sendSlack(ctx context.Context, target notificationmodel.Target, events []chatbridge.NotificationEvent) error {
@@ -1354,6 +1398,35 @@ func (s *Service) sendSlack(ctx context.Context, target notificationmodel.Target
 	}
 	req.Header.Set("Content-Type", "application/json")
 	return s.doWebhookRequest(req)
+}
+
+func (s *Service) sendTeams(ctx context.Context, target notificationmodel.Target, events []chatbridge.NotificationEvent) error {
+	if target.Teams == nil || target.Teams.WebhookURL == "" {
+		return errors.New("teams webhook url is not configured")
+	}
+	if err := validateOutboundURL(ctx, target.Teams.WebhookURL, false, false); err != nil {
+		return err
+	}
+	body, err := json.Marshal(teamsPayloadForEvents(target.Teams.MessageTemplate, events, s.publicURL()))
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target.Teams.WebhookURL, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	return s.deliverRequest(req, teamsThrottleError)
+}
+
+// teamsThrottleError reports rate limiting for Microsoft Teams incoming
+// webhooks, which report it in the body of a 200 response instead of with
+// HTTP 429.
+func teamsThrottleError(body string) error {
+	if strings.Contains(body, "Microsoft Teams endpoint returned HTTP error 429") {
+		return temporaryDeliveryError{err: errors.New("teams webhook is rate limited")}
+	}
+	return nil
 }
 
 func (s *Service) sendTelegram(ctx context.Context, target notificationmodel.Target, events []chatbridge.NotificationEvent) error {
@@ -1383,6 +1456,12 @@ func (s *Service) sendTelegram(ctx context.Context, target notificationmodel.Tar
 }
 
 func (s *Service) doWebhookRequest(req *http.Request) error {
+	return s.deliverRequest(req, nil)
+}
+
+// deliverRequest sends req and maps the response to a delivery error. checkBody,
+// when set, inspects the body of an otherwise successful response.
+func (s *Service) deliverRequest(req *http.Request, checkBody func(body string) error) error {
 	resp, err := s.http.Do(req)
 	if err != nil {
 		return temporaryDeliveryError{err: err}
@@ -1397,6 +1476,9 @@ func (s *Service) doWebhookRequest(req *http.Request) error {
 			return temporaryDeliveryError{err: err}
 		}
 		return err
+	}
+	if checkBody != nil {
+		return checkBody(readLimitedBody(resp.Body))
 	}
 	return nil
 }
@@ -1456,15 +1538,19 @@ func (s *Service) withRetry(ctx context.Context, send func() error) error {
 }
 
 func limitedResponseBody(body io.Reader) string {
-	if body == nil {
-		return ""
-	}
-	data, _ := io.ReadAll(io.LimitReader(body, 512))
-	text := strings.TrimSpace(string(data))
+	text := readLimitedBody(body)
 	if text == "" {
 		return ""
 	}
 	return ": " + text
+}
+
+func readLimitedBody(body io.Reader) string {
+	if body == nil {
+		return ""
+	}
+	data, _ := io.ReadAll(io.LimitReader(body, 512))
+	return strings.TrimSpace(string(data))
 }
 
 func validateOutboundURL(ctx context.Context, rawURL string, allowInsecureHTTP, allowPrivateNetwork bool) error {
@@ -1611,14 +1697,43 @@ func messageForEvents(template string, events []chatbridge.NotificationEvent, pu
 var notificationTemplateTokenRE = regexp.MustCompile(`\{\{\s*([A-Za-z0-9_.-]+)\s*\}\}`)
 
 func renderNotificationTemplate(template string, event chatbridge.NotificationEvent, publicURL string) string {
+	return renderTemplateTokens(template, notificationTemplateValues(event, publicURL), nil)
+}
+
+// renderWebhookBodyTemplate renders a user-supplied JSON request body. Token
+// values are escaped as JSON string content, so a value carrying quotes or
+// newlines cannot break out of the surrounding string literal.
+func renderWebhookBodyTemplate(
+	template string,
+	event chatbridge.NotificationEvent,
+	message string,
+	publicURL string,
+) string {
 	values := notificationTemplateValues(event, publicURL)
+	values["message"] = message
+	return renderTemplateTokens(template, values, escapeJSONStringContent)
+}
+
+func renderTemplateTokens(template string, values map[string]string, escape func(string) string) string {
 	return notificationTemplateTokenRE.ReplaceAllStringFunc(template, func(token string) string {
 		matches := notificationTemplateTokenRE.FindStringSubmatch(token)
 		if len(matches) != 2 {
 			return ""
 		}
-		return values[matches[1]]
+		value := values[matches[1]]
+		if escape != nil {
+			return escape(value)
+		}
+		return value
 	})
+}
+
+func escapeJSONStringContent(value string) string {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return ""
+	}
+	return string(encoded[1 : len(encoded)-1])
 }
 
 func notificationTemplateValues(event chatbridge.NotificationEvent, publicURL string) map[string]string {
@@ -1781,6 +1896,19 @@ func normalizeNotificationPublicURL(rawURL string) string {
 	parsed.Fragment = ""
 	parsed.Path = strings.TrimRight(parsed.Path, "/")
 	return parsed.String()
+}
+
+// teamsPayloadForEvents builds a Message Card accepted by Teams Workflows and
+// legacy connectors. The summary provides concise notification preview text.
+func teamsPayloadForEvents(template string, events []chatbridge.NotificationEvent, publicURL string) map[string]any {
+	title := titleForEvents(events)
+	return map[string]any{
+		"@type":    "MessageCard",
+		"@context": "http://schema.org/extensions",
+		"summary":  title,
+		"title":    title,
+		"text":     messageForEvents(template, events, publicURL),
+	}
 }
 
 func webhookPayloadForEvents(events []chatbridge.NotificationEvent, publicURL string) map[string]any {
