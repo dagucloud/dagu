@@ -18,7 +18,6 @@ import {
   ArrowDown,
   ArrowUp,
   Calendar,
-  CalendarCheck,
   ChevronDown,
   ChevronUp,
   Search,
@@ -95,6 +94,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 import { AppBarContext } from '../../../../contexts/AppBarContext';
 import type { WorkflowFilterView } from './workflowViews';
 import { useQuery } from '../../../../hooks/api';
@@ -1440,16 +1440,15 @@ function DAGTable({
             className="h-9 min-w-[170px] max-w-[220px]"
           />
 
-          <Button
-            type="button"
-            variant={activeOnly ? 'secondary' : 'outline'}
-            aria-pressed={activeOnly}
-            onClick={() => handleActiveOnlyChange(!activeOnly)}
-            className="h-9 px-3"
-          >
-            <CalendarCheck className="mr-1.5 h-4 w-4" />
-            Active only
-          </Button>
+          <label className="flex h-9 cursor-pointer items-center gap-2 rounded-md border border-input bg-card px-3 text-sm font-medium text-foreground shadow-sm transition-colors hover:border-border-strong hover:bg-muted">
+            <span>Active only</span>
+            <Switch
+              checked={activeOnly}
+              onCheckedChange={handleActiveOnlyChange}
+              aria-label="Active only"
+              className="focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            />
+          </label>
 
           {canDeleteDAGs && (
             <Button
