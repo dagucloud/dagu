@@ -1889,53 +1889,17 @@ func normalizeNotificationPublicURL(rawURL string) string {
 	return parsed.String()
 }
 
-// teamsPayloadForEvents builds an Adaptive Card wrapped in the message
-// envelope accepted by both Teams Workflows triggers and legacy connectors.
-//
-// The card declares schema 1.2 because the Teams mobile clients render only up
-// to that version; the card uses no element beyond it.
+// teamsPayloadForEvents builds a Message Card accepted by Teams Workflows and
+// legacy connectors. The summary provides concise notification preview text.
 func teamsPayloadForEvents(template string, events []chatbridge.NotificationEvent, publicURL string) map[string]any {
-	card := map[string]any{
-		"$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
-		"type":    "AdaptiveCard",
-		"version": "1.2",
-		"body": []map[string]any{{
-			"type": "TextBlock",
-			"text": messageForEvents(template, events, publicURL),
-			"wrap": true,
-		}},
-	}
-	if actions := teamsCardActions(events, publicURL); len(actions) > 0 {
-		card["actions"] = actions
-	}
+	title := titleForEvents(events)
 	return map[string]any{
-		"type": "message",
-		"attachments": []map[string]any{{
-			"contentType": "application/vnd.microsoft.card.adaptive",
-			"content":     card,
-		}},
+		"@type":    "MessageCard",
+		"@context": "http://schema.org/extensions",
+		"summary":  title,
+		"title":    title,
+		"text":     messageForEvents(template, events, publicURL),
 	}
-}
-
-func teamsCardActions(events []chatbridge.NotificationEvent, publicURL string) []map[string]any {
-	actions := make([]map[string]any, 0, len(events))
-	seen := make(map[string]struct{}, len(events))
-	for _, event := range events {
-		runURL := notificationRunURL(publicURL, notificationRunPath(event.Status))
-		if runURL == "" {
-			continue
-		}
-		if _, ok := seen[runURL]; ok {
-			continue
-		}
-		seen[runURL] = struct{}{}
-		actions = append(actions, map[string]any{
-			"type":  "Action.OpenUrl",
-			"title": "Open run",
-			"url":   runURL,
-		})
-	}
-	return actions
 }
 
 func webhookPayloadForEvents(events []chatbridge.NotificationEvent, publicURL string) map[string]any {

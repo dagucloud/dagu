@@ -698,7 +698,7 @@ func TestService_TeamsThrottledResponseIsRetried(t *testing.T) {
 	assert.Equal(t, int32(2), attempts.Load())
 }
 
-func TestService_SendTestTeamsPostsAdaptiveCard(t *testing.T) {
+func TestService_SendTestTeamsPostsMessageCard(t *testing.T) {
 	t.Parallel()
 
 	var receivedBody atomic.Value
@@ -714,7 +714,7 @@ func TestService_SendTestTeamsPostsAdaptiveCard(t *testing.T) {
 				Enabled: true,
 				Teams: &notificationmodel.TeamsTarget{
 					WebhookURL:      "https://93.184.216.34/workflows/trigger",
-					MessageTemplate: "DAG {{dag.name}} {{run.status}}",
+					MessageTemplate: "DAG {{dag.name}} {{run.status}}\n{{run.url}}",
 				},
 			}},
 		})),
@@ -735,37 +735,33 @@ func TestService_SendTestTeamsPostsAdaptiveCard(t *testing.T) {
 
 	body, _ := receivedBody.Load().(string)
 	var payload struct {
-		Type        string `json:"type"`
-		Attachments []struct {
-			ContentType string `json:"contentType"`
-			Content     struct {
-				Type    string `json:"type"`
-				Version string `json:"version"`
-				Body    []struct {
-					Text string `json:"text"`
-				} `json:"body"`
-				Actions []struct {
-					Type string `json:"type"`
-					URL  string `json:"url"`
-				} `json:"actions"`
-			} `json:"content"`
-		} `json:"attachments"`
+		Type    string `json:"@type"`
+		Context string `json:"@context"`
+		Summary string `json:"summary"`
+		Title   string `json:"title"`
+		Text    string `json:"text"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(body), &payload))
-	assert.Equal(t, "message", payload.Type)
-	require.Len(t, payload.Attachments, 1)
-	assert.Equal(t, "application/vnd.microsoft.card.adaptive", payload.Attachments[0].ContentType)
-	assert.Equal(t, "AdaptiveCard", payload.Attachments[0].Content.Type)
-	// Teams mobile renders Adaptive Cards only up to schema 1.2.
-	assert.Equal(t, "1.2", payload.Attachments[0].Content.Version)
-	require.Len(t, payload.Attachments[0].Content.Body, 1)
-	assert.Equal(t, "DAG daily-report failed", payload.Attachments[0].Content.Body[0].Text)
-	require.Len(t, payload.Attachments[0].Content.Actions, 1)
-	assert.Equal(t, "Action.OpenUrl", payload.Attachments[0].Content.Actions[0].Type)
+	assert.Equal(t, "MessageCard", payload.Type)
+	assert.Equal(t, "http://schema.org/extensions", payload.Context)
+	assert.Equal(t, "daily-report failed", payload.Summary)
+	assert.Equal(t, "daily-report failed", payload.Title)
 	assert.Equal(t,
-		"https://dagu.example.com/dag-runs/daily-report/notification-test",
-		payload.Attachments[0].Content.Actions[0].URL,
+		"DAG daily-report failed\nhttps://dagu.example.com/dag-runs/daily-report/notification-test",
+		payload.Text,
 	)
+}
+
+func TestTeamsPayloadForEventsSummarizesBatch(t *testing.T) {
+	t.Parallel()
+
+	payload := teamsPayloadForEvents("", []chatbridge.NotificationEvent{
+		notificationEventForRun(t, "run-1"),
+		notificationEventForRun(t, "run-2"),
+	}, "")
+
+	assert.Equal(t, "daily-report: 2 notifications", payload["summary"])
+	assert.Equal(t, "daily-report: 2 notifications", payload["title"])
 }
 
 func TestService_SendTestWebhookIncludesRunLinks(t *testing.T) {
