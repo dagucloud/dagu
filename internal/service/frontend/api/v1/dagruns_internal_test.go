@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -969,4 +970,78 @@ steps:
 	assert.Equal(t, "gemini", restored.Harnesses["gemini"].Binary)
 	assert.Equal(t, core.HarnessPromptModeFlag, restored.Harnesses["gemini"].PromptMode)
 	assert.Equal(t, "--prompt", restored.Harnesses["gemini"].PromptFlag)
+}
+
+func TestRebuildDAGRunSnapshotFromYAMLRestoresExecutorDefaults(t *testing.T) {
+	t.Parallel()
+
+	// WorkingDir is persisted in dag.json while WorkingDirExplicit is not, so a
+	// snapshot arrives with the path set and the flag cleared. The YAML declares a
+	// different path so the assertions below distinguish the snapshot's persisted
+	// value from the one a rebuild would produce.
+	snapshotWorkingDir := t.TempDir()
+	yamlWorkingDir := t.TempDir()
+	dag := &core.DAG{
+		Name:       "snapshot-executor-defaults",
+		WorkingDir: snapshotWorkingDir,
+		YamlData: fmt.Appendf(nil, `
+working_dir: %q
+s3:
+  region: us-west-2
+  bucket: snapshot-bucket
+redis:
+  host: redis.internal
+  port: 6380
+kubernetes:
+  namespace: dag-ns
+steps:
+  - run: echo hello
+`, yamlWorkingDir),
+	}
+
+	restored, err := rebuildDAGRunSnapshotFromYAML(context.Background(), dag)
+	require.NoError(t, err)
+	require.Same(t, dag, restored)
+
+	require.NotNil(t, restored.S3)
+	assert.Equal(t, "us-west-2", restored.S3.Region)
+	assert.Equal(t, "snapshot-bucket", restored.S3.Bucket)
+
+	require.NotNil(t, restored.Redis)
+	assert.Equal(t, "redis.internal", restored.Redis.Host)
+	assert.Equal(t, 6380, restored.Redis.Port)
+
+	require.NotNil(t, restored.Kubernetes)
+	assert.Equal(t, "dag-ns", restored.Kubernetes["namespace"])
+
+	// WorkingDirExplicit is json:"-", so only the rebuild can restore it.
+	assert.True(t, restored.WorkingDirExplicit)
+	// WorkingDir already survived in dag.json, so the rebuild must neither blank
+	// it nor replace it with the value it just parsed out of the YAML.
+	assert.Equal(t, snapshotWorkingDir, restored.WorkingDir)
+}
+
+func TestRebuildDAGRunSnapshotFromYAMLPreservesPresolvedBuildEnv(t *testing.T) {
+	t.Parallel()
+
+	dag := &core.DAG{
+		Name: "snapshot-presolved-env",
+		YamlData: []byte(`
+env:
+  - DECLARED: from-yaml
+steps:
+  - run: echo hello
+`),
+		// Resolved at original build time from a source the retrying process may
+		// no longer have. The DAG's own env block does not declare it, so
+		// rebuilding from YAML cannot recover it.
+		PresolvedBuildEnv: map[string]string{"SNAPSHOT_ONLY": "kept"},
+	}
+
+	restored, err := rebuildDAGRunSnapshotFromYAML(context.Background(), dag)
+	require.NoError(t, err)
+	require.Same(t, dag, restored)
+
+	assert.Contains(t, restored.Env, "DECLARED=from-yaml")
+	assert.Contains(t, restored.Env, "SNAPSHOT_ONLY=kept")
 }

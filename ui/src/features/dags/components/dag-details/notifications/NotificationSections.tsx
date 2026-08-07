@@ -11,7 +11,7 @@ import {
   Trash2,
   XCircle,
 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { Badge } from '@/components/ui/badge';
@@ -19,6 +19,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -48,6 +49,7 @@ import {
   PROVIDER_OPTIONS,
   replaceDeliveryProvider,
   TestResult,
+  WEBHOOK_BODY_TEMPLATE_PLACEHOLDER,
 } from './notificationDrafts';
 import type { EffectiveNotificationRoute } from './useNotificationSettings';
 
@@ -57,6 +59,7 @@ type ProviderFieldsProps = {
 };
 
 function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
+  const fieldId = useId();
   const update = (patch: Partial<DeliveryDraft>) =>
     onChange({ ...draft, ...patch });
 
@@ -112,7 +115,7 @@ function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
           }
         />
         <Textarea
-          className="min-h-24 md:col-span-2"
+          className="min-h-24 py-1 md:col-span-2"
           aria-label="Email body template"
           value={draft.email.bodyTemplate}
           placeholder={DEFAULT_MESSAGE_TEMPLATE}
@@ -143,19 +146,23 @@ function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
       isSlackIncomingWebhookURL(draft.webhook.urlPreview || '');
     return (
       <div className="space-y-3">
-        <Input
-          value={draft.webhook.url}
-          placeholder={
-            draft.webhook.urlConfigured
-              ? `URL configured (${draft.webhook.urlPreview || 'saved'})`
-              : 'Webhook endpoint URL'
-          }
-          onChange={(event) =>
-            update({
-              webhook: { ...draft.webhook, url: event.target.value },
-            })
-          }
-        />
+        <div className="space-y-2">
+          <Label htmlFor={`${fieldId}-webhook-url`}>Webhook endpoint URL</Label>
+          <Input
+            id={`${fieldId}-webhook-url`}
+            value={draft.webhook.url}
+            placeholder={
+              draft.webhook.urlConfigured
+                ? `URL configured (${draft.webhook.urlPreview || 'saved'})`
+                : 'https://example.com/webhook'
+            }
+            onChange={(event) =>
+              update({
+                webhook: { ...draft.webhook, url: event.target.value },
+              })
+            }
+          />
+        </div>
         {hasSlackURL && (
           <div className="rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
             This is a Slack Incoming Webhook URL. Select Slack as the provider.
@@ -196,20 +203,59 @@ function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
             })
           }
         />
-        <Textarea
-          className="min-h-24"
-          aria-label="Webhook message template"
-          value={draft.webhook.messageTemplate}
-          placeholder={DEFAULT_MESSAGE_TEMPLATE}
-          onChange={(event) =>
-            update({
-              webhook: {
-                ...draft.webhook,
-                messageTemplate: event.target.value,
-              },
-            })
-          }
-        />
+        <div className="space-y-2">
+          <Label htmlFor={`${fieldId}-webhook-message-template`}>
+            Webhook message template
+          </Label>
+          <Textarea
+            id={`${fieldId}-webhook-message-template`}
+            className="min-h-24 py-1"
+            value={draft.webhook.messageTemplate}
+            placeholder={DEFAULT_MESSAGE_TEMPLATE}
+            onChange={(event) =>
+              update({
+                webhook: {
+                  ...draft.webhook,
+                  messageTemplate: event.target.value,
+                },
+              })
+            }
+          />
+          <p className="text-xs text-muted-foreground">
+            Supports tokens such as <code>{'{{dag.name}}'}</code>,{' '}
+            <code>{'{{run.status}}'}</code>, <code>{'{{run.error}}'}</code>, and{' '}
+            <code>{'{{run.link}}'}</code>.
+          </p>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor={`${fieldId}-webhook-body-template`}>
+            Webhook JSON body template
+          </Label>
+          <Textarea
+            id={`${fieldId}-webhook-body-template`}
+            className="min-h-24 py-1 font-mono"
+            value={draft.webhook.bodyTemplate}
+            placeholder={WEBHOOK_BODY_TEMPLATE_PLACEHOLDER}
+            onChange={(event) =>
+              update({
+                webhook: {
+                  ...draft.webhook,
+                  bodyTemplate: event.target.value,
+                },
+              })
+            }
+          />
+          <p className="text-xs text-muted-foreground">
+            Optional. Replaces the default webhook payload and must render as
+            valid JSON. Supports the message-template tokens plus{' '}
+            <code>{'{{message}}'}</code>. Leave blank to keep the default Dagu
+            payload.
+          </p>
+          <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs">
+            <div className="mb-1 text-muted-foreground">Example</div>
+            <code>{'{"text": "{{message}}"}'}</code>
+          </div>
+        </div>
         <div className="grid gap-2 md:grid-cols-2">
           <label className="flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm">
             <Checkbox
@@ -278,7 +324,7 @@ function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
           }
         />
         <Textarea
-          className="min-h-24"
+          className="min-h-24 py-1"
           aria-label="Slack message template"
           value={draft.slack.messageTemplate}
           placeholder={DEFAULT_MESSAGE_TEMPLATE}
@@ -291,6 +337,75 @@ function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
             })
           }
         />
+      </div>
+    );
+  }
+
+  if (draft.type === NotificationProviderType.teams) {
+    return (
+      <div className="space-y-3">
+        <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+          Create an incoming-webhook Workflow in Teams, select its destination,
+          save it, and copy the generated URL. Dagu sends the compatible
+          MessageCard format automatically.{' '}
+          <a
+            className="font-medium text-primary underline-offset-4 hover:underline"
+            href="https://support.microsoft.com/en-US/Workflows/send-messages-in-teams-using-incoming-webhooks"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Open Microsoft setup guide
+          </a>
+          .
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor={`${fieldId}-teams-webhook-url`}>
+            Teams webhook URL
+          </Label>
+          <Input
+            id={`${fieldId}-teams-webhook-url`}
+            type="password"
+            value={draft.teams.webhookUrl}
+            placeholder={
+              draft.teams.webhookUrlConfigured
+                ? `Webhook URL configured (${draft.teams.webhookUrlPreview || 'saved'})`
+                : 'https://...'
+            }
+            onChange={(event) =>
+              update({
+                teams: { ...draft.teams, webhookUrl: event.target.value },
+              })
+            }
+          />
+          <p className="text-xs text-muted-foreground">
+            Only HTTPS URLs are accepted. A saved URL remains configured unless
+            it is replaced.
+          </p>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor={`${fieldId}-teams-message-template`}>
+            Teams message template
+          </Label>
+          <Textarea
+            id={`${fieldId}-teams-message-template`}
+            className="min-h-24 py-1"
+            value={draft.teams.messageTemplate}
+            placeholder={DEFAULT_MESSAGE_TEMPLATE}
+            onChange={(event) =>
+              update({
+                teams: {
+                  ...draft.teams,
+                  messageTemplate: event.target.value,
+                },
+              })
+            }
+          />
+          <p className="text-xs text-muted-foreground">
+            Supports tokens such as <code>{'{{dag.name}}'}</code>,{' '}
+            <code>{'{{run.status}}'}</code>, <code>{'{{run.error}}'}</code>, and{' '}
+            <code>{'{{run.link}}'}</code>.
+          </p>
+        </div>
       </div>
     );
   }
@@ -333,7 +448,7 @@ function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
         }
       />
       <Textarea
-        className="min-h-24"
+        className="min-h-24 py-1"
         aria-label="Telegram message template"
         value={draft.telegram.messageTemplate}
         placeholder={DEFAULT_MESSAGE_TEMPLATE}

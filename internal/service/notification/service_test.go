@@ -10,6 +10,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"io"
 	"net"
 	"net/http"
@@ -287,7 +288,11 @@ func TestService_SendTestWebhookIncludesPayloadHeadersAndSignature(t *testing.T)
 		receivedSignature = r.Header.Get("X-Dagu-Signature")
 		receivedHeader = r.Header.Get("X-Test")
 		body, err := io.ReadAll(r.Body)
-		require.NoError(t, err)
+		if err != nil {
+			t.Errorf("read request body: %v", err)
+			http.Error(w, "failed to read request body", http.StatusInternalServerError)
+			return
+		}
 		receivedBody = body
 		w.WriteHeader(http.StatusAccepted)
 	}))
@@ -481,7 +486,11 @@ func TestService_SendTestWebhookIncludesCustomMessage(t *testing.T) {
 	var receivedBody atomic.Value
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
-		require.NoError(t, err)
+		if err != nil {
+			t.Errorf("read request body: %v", err)
+			http.Error(w, "failed to read request body", http.StatusInternalServerError)
+			return
+		}
 		receivedBody.Store(string(body))
 		w.WriteHeader(http.StatusAccepted)
 	}))
@@ -516,13 +525,289 @@ func TestService_SendTestWebhookIncludesCustomMessage(t *testing.T) {
 	assert.Contains(t, body, `"events":[`)
 }
 
+func TestService_SendTestWebhookUsesBodyTemplate(t *testing.T) {
+	t.Parallel()
+
+	var receivedBody atomic.Value
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read request body: %v", err)
+			http.Error(w, "failed to read request body", http.StatusInternalServerError)
+			return
+		}
+		receivedBody.Store(string(body))
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+
+	settings, err := notificationmodel.Normalize(&notificationmodel.Settings{
+		DAGName: "daily-report",
+		Enabled: true,
+		Events:  []eventstore.EventType{eventstore.TypeDAGRunFailed},
+		Targets: []notificationmodel.Target{{
+			ID:      "webhook-1",
+			Name:    "Teams Relay",
+			Type:    notificationmodel.ProviderWebhook,
+			Enabled: true,
+			Webhook: &notificationmodel.WebhookTarget{
+				URL:                 server.URL,
+				AllowInsecureHTTP:   true,
+				AllowPrivateNetwork: true,
+				MessageTemplate:     "DAG {{dag.name}} {{run.status}}",
+				BodyTemplate:        `{"text": "{{message}}", "dag": "{{dag.name}}"}`,
+			},
+		}},
+	}, "tester")
+	require.NoError(t, err)
+	svc := New(newMemoryStore(settings), nil)
+
+	results, err := svc.SendTest(context.Background(), "daily-report", "webhook-1", eventstore.TypeDAGRunFailed)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.True(t, results[0].Delivered)
+	body, _ := receivedBody.Load().(string)
+	assert.JSONEq(t, `{"text": "DAG daily-report failed", "dag": "daily-report"}`, body)
+}
+
+func TestService_WebhookBodyTemplateRetryDoesNotResendDeliveredEvents(t *testing.T) {
+	t.Parallel()
+
+	var mu sync.Mutex
+	var bodies []string
+	failedOnce := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read request body: %v", err)
+			http.Error(w, "failed to read request body", http.StatusInternalServerError)
+			return
+		}
+
+		mu.Lock()
+		defer mu.Unlock()
+		if strings.Contains(string(body), "run-2") && !failedOnce {
+			failedOnce = true
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		bodies = append(bodies, string(body))
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+
+	svc := New(
+		newMemoryStore(),
+		nil,
+		WithDeliveryRetry(DeliveryRetryConfig{MaxAttempts: 3}),
+	)
+	target := notificationmodel.Target{
+		ID:      "webhook-1",
+		Type:    notificationmodel.ProviderWebhook,
+		Enabled: true,
+		Webhook: &notificationmodel.WebhookTarget{
+			URL:                 server.URL,
+			AllowInsecureHTTP:   true,
+			AllowPrivateNetwork: true,
+			BodyTemplate:        `{"run": "{{run.id}}"}`,
+		},
+	}
+
+	err := svc.deliverTarget(context.Background(), target, []chatbridge.NotificationEvent{
+		notificationEventForRun(t, "run-1"),
+		notificationEventForRun(t, "run-2"),
+	})
+	require.NoError(t, err)
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, []string{`{"run": "run-1"}`, `{"run": "run-2"}`}, bodies)
+}
+
+func TestService_WebhookBodyTemplateValidatesBatchBeforeDelivery(t *testing.T) {
+	t.Parallel()
+
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+
+	svc := New(newMemoryStore(), nil, WithDeliveryRetry(DeliveryRetryConfig{MaxAttempts: 1}))
+	target := notificationmodel.Target{
+		ID:      "webhook-1",
+		Type:    notificationmodel.ProviderWebhook,
+		Enabled: true,
+		Webhook: &notificationmodel.WebhookTarget{
+			URL:                 server.URL,
+			AllowInsecureHTTP:   true,
+			AllowPrivateNetwork: true,
+			BodyTemplate:        `{"errorCode": {{run.error}}}`,
+		},
+	}
+	validEvent := notificationEventForRun(t, "run-1")
+	validEvent.Status.Error = "1"
+	invalidEvent := notificationEventForRun(t, "run-2")
+	invalidEvent.Status.Error = "not-a-number"
+
+	err := svc.deliverTarget(context.Background(), target, []chatbridge.NotificationEvent{validEvent, invalidEvent})
+
+	require.ErrorContains(t, err, "webhook body template did not render valid JSON")
+	assert.Equal(t, int32(0), requests.Load())
+}
+
+func notificationEventForRun(t *testing.T, dagRunID string) chatbridge.NotificationEvent {
+	t.Helper()
+	return chatbridge.NotificationEvent{
+		Type: eventstore.TypeDAGRunFailed,
+		Status: &exec.DAGRunStatus{
+			Name:     "daily-report",
+			DAGRunID: dagRunID,
+			Status:   core.Failed,
+		},
+	}
+}
+
+func TestRenderWebhookBodyTemplateEscapesValues(t *testing.T) {
+	t.Parallel()
+
+	event := chatbridge.NotificationEvent{
+		Type: eventstore.TypeDAGRunFailed,
+		Status: &exec.DAGRunStatus{
+			Name:     "daily-report",
+			DAGRunID: "run-1",
+			Status:   core.Failed,
+			Error:    "exit status 1: \"boom\"\nsecond line",
+		},
+	}
+
+	body := renderWebhookBodyTemplate(`{"text": "{{run.error}}"}`, event, "", "")
+
+	require.True(t, json.Valid([]byte(body)), "rendered body must be valid JSON: %s", body)
+	var decoded struct {
+		Text string `json:"text"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(body), &decoded))
+	assert.Equal(t, "exit status 1: \"boom\"\nsecond line", decoded.Text)
+}
+
+func TestService_TeamsThrottledResponseIsRetried(t *testing.T) {
+	t.Parallel()
+
+	var attempts atomic.Int32
+	svc := New(
+		newMemoryStore(),
+		nil,
+		WithDeliveryRetry(DeliveryRetryConfig{MaxAttempts: 2}),
+		WithHTTPClient(&http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			if attempts.Add(1) == 1 {
+				// Teams reports throttling in the body of a 200 response.
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     make(http.Header),
+					Body: io.NopCloser(strings.NewReader(
+						"Microsoft Teams endpoint returned HTTP error 429",
+					)),
+					Request: req,
+				}, nil
+			}
+			return acceptedResponse(req), nil
+		})}),
+	)
+	target := notificationmodel.Target{
+		ID:      "teams-1",
+		Type:    notificationmodel.ProviderTeams,
+		Enabled: true,
+		Teams: &notificationmodel.TeamsTarget{
+			WebhookURL: "https://93.184.216.34/workflows/trigger",
+		},
+	}
+
+	err := svc.deliverTarget(context.Background(), target, []chatbridge.NotificationEvent{
+		notificationEventForRun(t, "run-1"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int32(2), attempts.Load())
+}
+
+func TestService_SendTestTeamsPostsMessageCard(t *testing.T) {
+	t.Parallel()
+
+	var receivedBody atomic.Value
+	svc := New(
+		newMemoryStore(mustNormalizeSettings(t, &notificationmodel.Settings{
+			DAGName: "daily-report",
+			Enabled: true,
+			Events:  []eventstore.EventType{eventstore.TypeDAGRunFailed},
+			Targets: []notificationmodel.Target{{
+				ID:      "teams-1",
+				Name:    "Ops Teams",
+				Type:    notificationmodel.ProviderTeams,
+				Enabled: true,
+				Teams: &notificationmodel.TeamsTarget{
+					WebhookURL:      "https://93.184.216.34/workflows/trigger",
+					MessageTemplate: "DAG {{dag.name}} {{run.status}}\n{{run.url}}",
+				},
+			}},
+		})),
+		nil,
+		WithPublicURL("https://dagu.example.com"),
+		WithHTTPClient(&http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			body, err := io.ReadAll(req.Body)
+			require.NoError(t, err)
+			receivedBody.Store(string(body))
+			return acceptedResponse(req), nil
+		})}),
+	)
+
+	results, err := svc.SendTest(context.Background(), "daily-report", "teams-1", eventstore.TypeDAGRunFailed)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.True(t, results[0].Delivered)
+
+	body, _ := receivedBody.Load().(string)
+	var payload struct {
+		Type    string `json:"@type"`
+		Context string `json:"@context"`
+		Summary string `json:"summary"`
+		Title   string `json:"title"`
+		Text    string `json:"text"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(body), &payload))
+	assert.Equal(t, "MessageCard", payload.Type)
+	assert.Equal(t, "http://schema.org/extensions", payload.Context)
+	assert.Equal(t, "daily-report failed", payload.Summary)
+	assert.Equal(t, "daily-report failed", payload.Title)
+	assert.Equal(t,
+		"DAG daily-report failed\nhttps://dagu.example.com/dag-runs/daily-report/notification-test",
+		payload.Text,
+	)
+}
+
+func TestTeamsPayloadForEventsSummarizesBatch(t *testing.T) {
+	t.Parallel()
+
+	payload := teamsPayloadForEvents("", []chatbridge.NotificationEvent{
+		notificationEventForRun(t, "run-1"),
+		notificationEventForRun(t, "run-2"),
+	}, "")
+
+	assert.Equal(t, "daily-report: 2 notifications", payload["summary"])
+	assert.Equal(t, "daily-report: 2 notifications", payload["title"])
+}
+
 func TestService_SendTestWebhookIncludesRunLinks(t *testing.T) {
 	t.Parallel()
 
 	var receivedBody atomic.Value
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
-		require.NoError(t, err)
+		if err != nil {
+			t.Errorf("read request body: %v", err)
+			http.Error(w, "failed to read request body", http.StatusInternalServerError)
+			return
+		}
 		receivedBody.Store(string(body))
 		w.WriteHeader(http.StatusAccepted)
 	}))
@@ -827,7 +1112,11 @@ func TestService_SendTestUsesEffectiveGlobalRouteWithoutDAGSettings(t *testing.T
 	var receivedBody atomic.Value
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
-		require.NoError(t, err)
+		if err != nil {
+			t.Errorf("read request body: %v", err)
+			http.Error(w, "failed to read request body", http.StatusInternalServerError)
+			return
+		}
 		receivedBody.Store(string(body))
 		w.WriteHeader(http.StatusAccepted)
 	}))
@@ -1706,7 +1995,11 @@ func TestService_ReusableChannelSubscriptionsDeliverForMatchingDAGEvent(t *testi
 	var receivedBody atomic.Value
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
-		require.NoError(t, err)
+		if err != nil {
+			t.Errorf("read request body: %v", err)
+			http.Error(w, "failed to read request body", http.StatusInternalServerError)
+			return
+		}
 		receivedBody.Store(string(body))
 		w.WriteHeader(http.StatusAccepted)
 	}))

@@ -564,6 +564,7 @@ func notificationChannelFromRequest(id string, input api.NotificationChannelInpu
 			URL:                 valueOf(input.Webhook.Url),
 			HMACSecret:          valueOf(input.Webhook.HmacSecret),
 			MessageTemplate:     valueOf(input.Webhook.MessageTemplate),
+			BodyTemplate:        valueOf(input.Webhook.BodyTemplate),
 			AllowInsecureHTTP:   valueOf(input.Webhook.AllowInsecureHttp),
 			AllowPrivateNetwork: valueOf(input.Webhook.AllowPrivateNetwork),
 			ClearHeaders:        valueOf(input.Webhook.ClearHeaders),
@@ -585,6 +586,12 @@ func notificationChannelFromRequest(id string, input api.NotificationChannelInpu
 			ChatID:          valueOf(input.Telegram.ChatId),
 			TopicID:         valueOf(input.Telegram.TopicId),
 			MessageTemplate: valueOf(input.Telegram.MessageTemplate),
+		}
+	}
+	if input.Teams != nil {
+		channel.Teams = &notificationmodel.TeamsTarget{
+			WebhookURL:      valueOf(input.Teams.WebhookUrl),
+			MessageTemplate: valueOf(input.Teams.MessageTemplate),
 		}
 	}
 	return channel
@@ -624,6 +631,7 @@ func notificationTargetFromRequest(input api.NotificationTargetInput) notificati
 			URL:                 valueOf(input.Webhook.Url),
 			HMACSecret:          valueOf(input.Webhook.HmacSecret),
 			MessageTemplate:     valueOf(input.Webhook.MessageTemplate),
+			BodyTemplate:        valueOf(input.Webhook.BodyTemplate),
 			AllowInsecureHTTP:   valueOf(input.Webhook.AllowInsecureHttp),
 			AllowPrivateNetwork: valueOf(input.Webhook.AllowPrivateNetwork),
 			ClearHeaders:        valueOf(input.Webhook.ClearHeaders),
@@ -645,6 +653,12 @@ func notificationTargetFromRequest(input api.NotificationTargetInput) notificati
 			ChatID:          valueOf(input.Telegram.ChatId),
 			TopicID:         valueOf(input.Telegram.TopicId),
 			MessageTemplate: valueOf(input.Telegram.MessageTemplate),
+		}
+	}
+	if input.Teams != nil {
+		target.Teams = &notificationmodel.TeamsTarget{
+			WebhookURL:      valueOf(input.Teams.WebhookUrl),
+			MessageTemplate: valueOf(input.Teams.MessageTemplate),
 		}
 	}
 	return target
@@ -792,6 +806,7 @@ func toAPINotificationChannel(channel *notificationmodel.Channel) api.Notificati
 			Headers:              ptrOf(pub.Webhook.Headers),
 			HmacSecretConfigured: pub.Webhook.HMACSecretConfigured,
 			MessageTemplate:      ptrOf(pub.Webhook.MessageTemplate),
+			BodyTemplate:         ptrOf(pub.Webhook.BodyTemplate),
 			AllowInsecureHttp:    ptrOf(pub.Webhook.AllowInsecureHTTP),
 			AllowPrivateNetwork:  ptrOf(pub.Webhook.AllowPrivateNetwork),
 		}
@@ -810,6 +825,13 @@ func toAPINotificationChannel(channel *notificationmodel.Channel) api.Notificati
 			ChatId:             ptrOf(pub.Telegram.ChatID),
 			TopicId:            ptrOf(pub.Telegram.TopicID),
 			MessageTemplate:    ptrOf(pub.Telegram.MessageTemplate),
+		}
+	}
+	if pub.Teams != nil {
+		result.Teams = &api.NotificationTeamsTarget{
+			WebhookUrlConfigured: pub.Teams.WebhookURLConfigured,
+			WebhookUrlPreview:    ptrOf(pub.Teams.WebhookURLPreview),
+			MessageTemplate:      ptrOf(pub.Teams.MessageTemplate),
 		}
 	}
 	return result
@@ -855,6 +877,7 @@ func toAPINotificationTarget(target notificationmodel.PublicTarget) api.Notifica
 			Headers:              ptrOf(target.Webhook.Headers),
 			HmacSecretConfigured: target.Webhook.HMACSecretConfigured,
 			MessageTemplate:      ptrOf(target.Webhook.MessageTemplate),
+			BodyTemplate:         ptrOf(target.Webhook.BodyTemplate),
 			AllowInsecureHttp:    ptrOf(target.Webhook.AllowInsecureHTTP),
 			AllowPrivateNetwork:  ptrOf(target.Webhook.AllowPrivateNetwork),
 		}
@@ -873,6 +896,13 @@ func toAPINotificationTarget(target notificationmodel.PublicTarget) api.Notifica
 			ChatId:             ptrOf(target.Telegram.ChatID),
 			TopicId:            ptrOf(target.Telegram.TopicID),
 			MessageTemplate:    ptrOf(target.Telegram.MessageTemplate),
+		}
+	}
+	if target.Teams != nil {
+		result.Teams = &api.NotificationTeamsTarget{
+			WebhookUrlConfigured: target.Teams.WebhookURLConfigured,
+			WebhookUrlPreview:    ptrOf(target.Teams.WebhookURLPreview),
+			MessageTemplate:      ptrOf(target.Teams.MessageTemplate),
 		}
 	}
 	return result

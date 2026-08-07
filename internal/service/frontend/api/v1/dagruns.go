@@ -586,6 +586,7 @@ func rebuildDAGRunSnapshotFromYAML(ctx context.Context, dag *core.DAG, paramsOve
 		return dag, nil
 	}
 
+	loadedEnv := append([]string{}, dag.Env...)
 	buildEnvMap := buildenv.ToMap(dag.Env)
 	for key, value := range dag.PresolvedBuildEnv {
 		if buildEnvMap == nil {
@@ -598,6 +599,7 @@ func rebuildDAGRunSnapshotFromYAML(ctx context.Context, dag *core.DAG, paramsOve
 	if err != nil {
 		return nil, fmt.Errorf("failed to load presolved build env: %w", err)
 	}
+	transportEnv := buildenv.FromMap(presolvedBuildEnv)
 	for key, value := range presolvedBuildEnv {
 		if buildEnvMap == nil {
 			buildEnvMap = make(map[string]string)
@@ -627,16 +629,24 @@ func rebuildDAGRunSnapshotFromYAML(ctx context.Context, dag *core.DAG, paramsOve
 	if err != nil {
 		return nil, err
 	}
-	fresh.SourceFile = dag.SourceFile
-
-	dag.Env = fresh.Env
+	// Restore the fields excluded from JSON serialization (json:"-"), which the
+	// snapshot cannot carry. Every other field is already stored in dag.json.
+	//
+	// Env falls back, first-wins, to entries resolved when the run was first
+	// built. Keys the rebuilt YAML declares take precedence; keys it cannot
+	// resolve at all are recovered from the snapshot rather than dropped.
+	dag.Env = buildenv.AppendMissing(fresh.Env, loadedEnv, buildenv.FromMap(dag.PresolvedBuildEnv), transportEnv)
 	dag.Params = fresh.Params
 	dag.ParamsJSON = fresh.ParamsJSON
 	dag.SMTP = fresh.SMTP
 	dag.SSH = fresh.SSH
+	dag.S3 = fresh.S3
+	dag.Redis = fresh.Redis
 	dag.RegistryAuths = fresh.RegistryAuths
 	dag.Harness = fresh.Harness
 	dag.Harnesses = fresh.Harnesses
+	dag.Kubernetes = fresh.Kubernetes
+	dag.WorkingDirExplicit = fresh.WorkingDirExplicit
 
 	core.InitializeDefaults(dag)
 

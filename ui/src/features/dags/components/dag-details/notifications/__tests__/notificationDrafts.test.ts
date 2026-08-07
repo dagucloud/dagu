@@ -8,6 +8,7 @@ import {
   DEFAULT_EMAIL_BODY_TEMPLATE,
   DEFAULT_MESSAGE_TEMPLATE,
   DEFAULT_SUBJECT_TEMPLATE,
+  draftChannelFromAPI,
   isDefaultDeliveryName,
   replaceDeliveryProvider,
   targetInput,
@@ -65,6 +66,54 @@ describe('notificationDrafts', () => {
     expect(next.name).toBe('Webhook');
     expect(next.type).toBe(NotificationProviderType.webhook);
     expect(next.webhook.messageTemplate).toBe(DEFAULT_MESSAGE_TEMPLATE);
+  });
+
+  it('sends an edited webhook body template and omits it when left blank', () => {
+    const target = blankTarget(NotificationProviderType.webhook);
+    target.webhook.url = 'https://example.com/hook';
+
+    expect(targetInput(target)).toMatchObject({
+      webhook: { bodyTemplate: undefined },
+    });
+
+    target.webhook.bodyTemplate = '{"text": "{{message}}"}';
+    expect(targetInput(target)).toMatchObject({
+      webhook: { bodyTemplate: '{"text": "{{message}}"}' },
+    });
+  });
+
+  it('round-trips a Teams channel between the API and the draft', () => {
+    const draft = draftChannelFromAPI({
+      id: 'teams-1',
+      name: 'Ops Teams',
+      type: NotificationProviderType.teams,
+      enabled: true,
+      createdAt: '2026-08-07T00:00:00Z',
+      updatedAt: '2026-08-07T00:00:00Z',
+      teams: {
+        webhookUrlConfigured: true,
+        webhookUrlPreview: 'http...cdef',
+        messageTemplate: 'DAG {{dag.name}} {{run.status}}',
+      },
+    });
+
+    expect(draft.teams.webhookUrlConfigured).toBe(true);
+    expect(draft.teams.webhookUrlPreview).toBe('http...cdef');
+    expect(draft.teams.messageTemplate).toBe('DAG {{dag.name}} {{run.status}}');
+
+    // A saved URL stays server-side, so an untouched draft must not clear it.
+    expect(channelInput(draft)).toMatchObject({
+      type: NotificationProviderType.teams,
+      teams: {
+        webhookUrl: undefined,
+        messageTemplate: 'DAG {{dag.name}} {{run.status}}',
+      },
+    });
+
+    draft.teams.webhookUrl = 'https://example.webhook.office.com/webhookb2/abc';
+    expect(channelInput(draft)).toMatchObject({
+      teams: { webhookUrl: 'https://example.webhook.office.com/webhookb2/abc' },
+    });
   });
 
   it('keeps a custom channel name when the provider changes', () => {

@@ -224,4 +224,64 @@ describe('NotificationsTab', () => {
       screen.getAllByRole('button', { name: /save changes/i })
     ).toHaveLength(1);
   });
+
+  it('explains Teams setup and custom webhook body templates', async () => {
+    dagSettingsResponse = () =>
+      jsonResponse({
+        id: 'settings-1',
+        dagName: 'example',
+        enabled: true,
+        events: ['dag_run_failed'],
+        targets: [
+          {
+            id: 'webhook-1',
+            name: 'Custom webhook',
+            type: 'webhook',
+            enabled: true,
+            events: [],
+            webhook: {
+              urlConfigured: true,
+              urlPreview: 'http...hook',
+              messageTemplate: 'DAG {{dag.name}} {{run.status}}',
+            },
+          },
+          {
+            id: 'teams-1',
+            name: 'Teams alerts',
+            type: 'teams',
+            enabled: true,
+            events: [],
+            teams: {
+              webhookUrlConfigured: true,
+              webhookUrlPreview: 'http...teams',
+              messageTemplate: 'DAG {{dag.name}} {{run.status}}',
+            },
+          },
+        ],
+        subscriptions: [],
+        createdAt: '2026-05-17T00:00:00Z',
+        updatedAt: '2026-05-17T00:00:00Z',
+      });
+    renderTab();
+
+    expect(await screen.findByLabelText('Webhook endpoint URL')).toBeVisible();
+    expect(screen.getByLabelText('Webhook message template')).toBeVisible();
+    expect(screen.getByLabelText('Webhook JSON body template')).toBeVisible();
+    expect(
+      screen.getByText(/leave blank to keep the default Dagu payload/i)
+    ).toBeVisible();
+    expect(screen.getByText('{"text": "{{message}}"}')).toBeVisible();
+
+    expect(screen.getByLabelText('Teams webhook URL')).toBeVisible();
+    expect(screen.getByLabelText('Teams message template')).toBeVisible();
+    expect(
+      screen.getByText(/sends the compatible MessageCard format automatically/i)
+    ).toBeVisible();
+    expect(
+      screen.getByRole('link', { name: /open microsoft setup guide/i })
+    ).toHaveAttribute(
+      'href',
+      'https://support.microsoft.com/en-US/Workflows/send-messages-in-teams-using-incoming-webhooks'
+    );
+  });
 });

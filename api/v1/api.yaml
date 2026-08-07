@@ -10312,6 +10312,7 @@ components:
         - webhook
         - slack
         - telegram
+        - teams
 
     NotificationEventType:
       type: string
@@ -10575,6 +10576,9 @@ components:
         messageTemplate:
           type: string
           description: "Optional rendered message added to the webhook JSON payload as message."
+        bodyTemplate:
+          type: string
+          description: "Optional request body template. When set, it replaces the default Dagu payload and must render to valid JSON. One request is sent per event. Supports the same tokens as messageTemplate plus {{message}}."
         allowInsecureHttp:
           type: boolean
           description: "Allow plain HTTP webhook URLs. Disabled by default."
@@ -10606,6 +10610,9 @@ components:
         messageTemplate:
           type: string
           description: "Optional rendered message added to the webhook JSON payload as message."
+        bodyTemplate:
+          type: string
+          description: "Optional request body template that replaces the default Dagu payload."
         allowInsecureHttp:
           type: boolean
           description: "Whether this target allows plain HTTP webhook URLs"
@@ -10680,6 +10687,34 @@ components:
           type: string
           description: "Optional Telegram message template. When omitted, Dagu sends the default notification text."
 
+    NotificationTeamsTargetInput:
+      type: object
+      description: "Microsoft Teams incoming webhook target input. Values are encrypted at rest."
+      properties:
+        webhookUrl:
+          type: string
+          format: uri
+          description: "Microsoft Teams incoming webhook URL, from a Teams Workflows (Power Automate) trigger or a legacy connector. Must use HTTPS. Omit on updates to preserve the existing URL."
+        messageTemplate:
+          type: string
+          description: "Optional Teams message template. When omitted, Dagu sends the default notification text."
+
+    NotificationTeamsTarget:
+      type: object
+      description: "Public Microsoft Teams target details"
+      required:
+        - webhookUrlConfigured
+      properties:
+        webhookUrlConfigured:
+          type: boolean
+          description: "Whether a Microsoft Teams incoming webhook URL is configured"
+        webhookUrlPreview:
+          type: string
+          description: "Redacted Microsoft Teams webhook URL preview"
+        messageTemplate:
+          type: string
+          description: "Optional Teams message template. When omitted, Dagu sends the default notification text."
+
     NotificationTargetInput:
       type: object
       description: "Notification target input"
@@ -10711,6 +10746,8 @@ components:
           $ref: "#/components/schemas/NotificationSlackTargetInput"
         telegram:
           $ref: "#/components/schemas/NotificationTelegramTargetInput"
+        teams:
+          $ref: "#/components/schemas/NotificationTeamsTargetInput"
 
     NotificationTarget:
       type: object
@@ -10744,6 +10781,8 @@ components:
           $ref: "#/components/schemas/NotificationSlackTarget"
         telegram:
           $ref: "#/components/schemas/NotificationTelegramTarget"
+        teams:
+          $ref: "#/components/schemas/NotificationTeamsTarget"
 
     NotificationChannelInput:
       type: object
@@ -10769,6 +10808,8 @@ components:
           $ref: "#/components/schemas/NotificationSlackTargetInput"
         telegram:
           $ref: "#/components/schemas/NotificationTelegramTargetInput"
+        teams:
+          $ref: "#/components/schemas/NotificationTeamsTargetInput"
 
     NotificationChannel:
       type: object
@@ -10800,6 +10841,8 @@ components:
           $ref: "#/components/schemas/NotificationSlackTarget"
         telegram:
           $ref: "#/components/schemas/NotificationTelegramTarget"
+        teams:
+          $ref: "#/components/schemas/NotificationTeamsTarget"
         createdAt:
           type: string
           format: date-time
