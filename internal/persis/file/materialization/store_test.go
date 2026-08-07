@@ -124,18 +124,19 @@ func TestCommitCanPublishWithoutReplacingManifest(t *testing.T) {
 	require.Equal(t, firstManifest.CommitID, stored.CommitID)
 }
 
-func TestGetRejectsUnsupportedSchemaVersion(t *testing.T) {
+func TestGetTreatsUnsupportedSchemaVersionAsMissing(t *testing.T) {
 	t.Parallel()
 
 	store := New(t.TempDir())
 	require.NoError(t, store.ensureDirs())
 	manifest := exec.Materialization{
-		SchemaVersion:      incremental.SchemaVersion + 1,
+		SchemaVersion:      exec.MaterializationSchemaVersion + 1,
 		MaterializationKey: "materialization",
 	}
 	require.NoError(t, fileutil.WriteJSONAtomic(store.manifestPath(manifest.MaterializationKey), manifest, fileMode))
 
 	_, err := store.Get(context.Background(), manifest.MaterializationKey)
+	require.ErrorIs(t, err, exec.ErrMaterializationNotFound)
 	require.ErrorContains(t, err, "unsupported materialization schema version")
 }
 
@@ -288,7 +289,7 @@ func testManifest(t *testing.T, key, commitID, sourcePath, finalPath string) exe
 	require.NoError(t, err)
 	output.Path = finalPath
 	return exec.Materialization{
-		SchemaVersion:      1,
+		SchemaVersion:      exec.MaterializationSchemaVersion,
 		MaterializationKey: key,
 		CommitID:           commitID,
 		Output:             output,
@@ -304,6 +305,7 @@ func TestRecoverIncompleteCommit(t *testing.T) {
 		backupContent    string
 		finalContent     string
 		manifest         string
+		preserveManifest bool
 		wantFinalContent string
 		wantManifest     string
 	}{
@@ -332,6 +334,22 @@ func TestRecoverIncompleteCommit(t *testing.T) {
 			manifest:         "proposed",
 			wantFinalContent: "proposed",
 			wantManifest:     "proposed",
+		},
+		{
+			name:             "preserved manifest and final committed",
+			previous:         true,
+			backupContent:    "known-good",
+			finalContent:     "proposed",
+			manifest:         "previous",
+			preserveManifest: true,
+			wantFinalContent: "proposed",
+			wantManifest:     "previous",
+		},
+		{
+			name:             "first always-run publication committed",
+			finalContent:     "proposed",
+			preserveManifest: true,
+			wantFinalContent: "proposed",
 		},
 		{
 			name:         "first materialization before manifest",
@@ -385,6 +403,7 @@ func TestRecoverIncompleteCommit(t *testing.T) {
 				ManifestPath:     manifestPath,
 				PreviousManifest: previousManifest,
 				Proposed:         proposed,
+				PreserveManifest: tt.preserveManifest,
 			}
 			if tt.previous {
 				journal.PreviousFinal = &previousSnapshot
@@ -470,7 +489,7 @@ func TestAcquirePathsClearsUnrecoverableJournal(t *testing.T) {
 		ManifestPath:  store.manifestPath("materialization"),
 		PreviousFinal: &previous,
 		Proposed: exec.Materialization{
-			SchemaVersion:      incremental.SchemaVersion,
+			SchemaVersion:      exec.MaterializationSchemaVersion,
 			MaterializationKey: "materialization",
 			CommitID:           "proposed",
 			Output:             proposed,

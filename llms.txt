@@ -1567,6 +1567,8 @@ A reusable step has exactly one path-backed output and a stable host command or 
 
 Dagu hashes the resolved recipe, declared input contents, and current output. A matching materialization produces a `reuse` decision and a succeeded node. Changed inputs, recipe, environment, tools, working directory, missing output, or modified output produce an `execute` decision.
 
+The default per-run scratch directory is normalized in the recipe digest, so a different run ID does not prevent reuse by itself. An authored working directory remains part of the recipe and changing it requires execution.
+
 Always write the result to `${outputs.<name>}`. Dagu verifies the staged file and input snapshots before atomically replacing the final output. Writing directly to the final output bypasses that contract. `stdout`, `stderr`, `stdout.artifact`, and `stderr.artifact` destinations cannot target any declared incremental input or output.
 
 Each retry receives a new staging path. A failed, timed-out, or aborted attempt removes its staging file and leaves the previous final output and manifest unchanged.

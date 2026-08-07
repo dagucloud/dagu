@@ -9,6 +9,9 @@ import (
 	"time"
 )
 
+// MaterializationSchemaVersion identifies the persisted manifest format.
+const MaterializationSchemaVersion = 1
+
 var (
 	// ErrMaterializationNotFound indicates that no committed manifest exists.
 	ErrMaterializationNotFound = errors.New("materialization not found")

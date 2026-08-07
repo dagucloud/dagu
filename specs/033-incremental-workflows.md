@@ -75,8 +75,10 @@ foreach, sub-DAG, or container output surface. Other valid steps run with the
 
 The recipe digest includes the resolved command/script configuration,
 parameters, non-secret environment, declarations, platform, tools, and
-effective working directory. Regular input and output files are hashed with
-SHA-256.
+effective working directory. A working directory under per-run scratch is
+recorded relative to a stable scratch marker, so a new run ID alone does not
+invalidate an otherwise identical recipe. Regular input and output files are
+hashed with SHA-256.
 
 Evaluation holds shared input locks and an exclusive output lock through
 preconditions, execution, verification, and commit. Each retry uses a new

@@ -66,6 +66,40 @@ func TestPrepareCommitAndReuse(t *testing.T) {
 	assert.Equal(t, "result", string(content))
 }
 
+func TestImplicitRunWorkingDirectoryReusesMaterialization(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	inputPath := filepath.Join(dataDir, "input.txt")
+	outputPath := filepath.Join(dataDir, "output.txt")
+	require.NoError(t, os.WriteFile(inputPath, []byte("input"), 0o600))
+
+	store := materialization.New(filepath.Join(t.TempDir(), "materializations"))
+	firstRunWorkDir := t.TempDir()
+	request := prepareRequest(firstRunWorkDir, inputPath, outputPath)
+	request.RunWorkDir = firstRunWorkDir
+	first, err := incremental.Prepare(ctx, store, request)
+	require.NoError(t, err)
+	require.NoError(t, first.Evaluate(ctx))
+	_, staging, err := first.NewAttempt(0)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(staging, []byte("result"), 0o600))
+	require.NoError(t, first.Commit(ctx, staging))
+	require.NoError(t, first.Close(staging))
+
+	secondRunWorkDir := t.TempDir()
+	request.DAGRunID = "run-2"
+	request.AttemptID = "attempt-2"
+	request.WorkingDir = secondRunWorkDir
+	request.RunWorkDir = secondRunWorkDir
+	second, err := incremental.Prepare(ctx, store, request)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, second.Close("")) })
+	require.NoError(t, second.Evaluate(ctx))
+	require.True(t, second.Reused())
+}
+
 func TestPrepareReevaluatesAfterWaitingForOutputLock(t *testing.T) {
 	t.Parallel()
 

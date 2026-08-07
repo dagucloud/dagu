@@ -7,12 +7,18 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+)
+
+const (
+	fingerprintSchemaVersion = 1
+	runWorkDirFingerprint    = "${DAG_RUN_WORK_DIR}"
 )
 
 type recipe struct {
@@ -35,16 +41,17 @@ type recipe struct {
 }
 
 func recipeDigest(request PrepareRequest) (string, error) {
+	workingDir, workingDirKey := recipeWorkingDir(request.WorkingDir, request.RunWorkDir)
 	value := recipe{
-		SchemaVersion: SchemaVersion,
+		SchemaVersion: fingerprintSchemaVersion,
 		ExecutorType:  request.Step.ExecutorConfig.Type,
 		Executor:      request.Step.ExecutorConfig.Config,
 		Commands:      request.Step.Commands,
 		Script:        request.Step.Script,
 		Shell:         request.Shell,
 		ShellPackages: request.Step.ShellPackages,
-		WorkingDir:    request.WorkingDir,
-		WorkingDirKey: ComparisonKey(request.WorkingDir),
+		WorkingDir:    workingDir,
+		WorkingDirKey: workingDirKey,
 		Parameters:    request.DAG.ParamValues(),
 		Environment:   recipeEnvironment(request.Environment),
 		StepEnv:       request.Step.Env,
@@ -58,6 +65,20 @@ func recipeDigest(request PrepareRequest) (string, error) {
 		return "", err
 	}
 	return digest(data), nil
+}
+
+func recipeWorkingDir(workingDir, runWorkDir string) (string, string) {
+	if runWorkDir != "" {
+		relative, err := filepath.Rel(runWorkDir, workingDir)
+		if err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			if relative == "." {
+				return runWorkDirFingerprint, runWorkDirFingerprint
+			}
+			normalized := filepath.Join(runWorkDirFingerprint, relative)
+			return normalized, normalized
+		}
+	}
+	return workingDir, ComparisonKey(workingDir)
 }
 
 func canonicalInputs(inputs []core.StepInputDeclaration) []core.StepInputDeclaration {
@@ -104,7 +125,7 @@ func fingerprint(recipeDigest string, inputs []exec.FileSnapshot, controlTokens 
 		RecipeDigest  string              `json:"recipeDigest"`
 		Inputs        []exec.FileSnapshot `json:"inputs,omitempty"`
 		Control       map[string]string   `json:"control,omitempty"`
-	}{SchemaVersion, recipeDigest, inputs, controlTokens}
+	}{fingerprintSchemaVersion, recipeDigest, inputs, controlTokens}
 	data, _ := json.Marshal(value)
 	return digest(data)
 }

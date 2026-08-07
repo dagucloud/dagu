@@ -21,11 +21,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 )
 
-const (
-	// SchemaVersion identifies the persisted materialization format.
-	SchemaVersion        = 1
-	maxStagingBaseLength = 128
-)
+const maxStagingBaseLength = 128
 
 // PrepareRequest contains resolved runtime information used before execution.
 type PrepareRequest struct {
@@ -34,6 +30,7 @@ type PrepareRequest struct {
 	DAGRunID             string
 	AttemptID            string
 	WorkingDir           string
+	RunWorkDir           string
 	Shell                []string
 	Environment          map[string]string
 	HasSecrets           bool
@@ -321,7 +318,7 @@ func (s *Session) Commit(ctx context.Context, staging string) error {
 		return err
 	}
 	manifest := exec.Materialization{
-		SchemaVersion:      SchemaVersion,
+		SchemaVersion:      exec.MaterializationSchemaVersion,
 		MaterializationKey: s.materialKey,
 		CommitID:           commitID,
 		DAGName:            s.request.DAG.Name,

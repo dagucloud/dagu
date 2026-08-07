@@ -23,8 +23,10 @@ func (r *Runner) startIncrementalSession(ctx context.Context, plan *Plan, node *
 
 	env := GetEnv(ctx)
 	environment := make(map[string]string)
+	runWorkDir := ""
 	if env.Scope != nil {
 		environment = env.Scope.ToMap()
+		runWorkDir, _ = env.Scope.Get(exec.EnvKeyDAGRunWorkDir)
 	}
 	shell, err := env.ResolveShell(ctx)
 	if err != nil {
@@ -56,6 +58,7 @@ func (r *Runner) startIncrementalSession(ctx context.Context, plan *Plan, node *
 		DAGRunID:             r.dagRunID,
 		AttemptID:            GetDAGContext(ctx).AttemptID,
 		WorkingDir:           env.WorkingDir,
+		RunWorkDir:           runWorkDir,
 		Shell:                shell,
 		Environment:          environment,
 		HasSecrets:           env.Scope != nil && len(env.Scope.AllSecrets()) > 0,

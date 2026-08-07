@@ -4,6 +4,7 @@
 package materialization
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -66,8 +67,8 @@ func (s *Store) Get(_ context.Context, key string) (*exec.Materialization, error
 	if err := json.Unmarshal(data, &manifest); err != nil {
 		return nil, fmt.Errorf("decode materialization manifest: %w", err)
 	}
-	if manifest.SchemaVersion != incremental.SchemaVersion {
-		return nil, fmt.Errorf("unsupported materialization schema version %d", manifest.SchemaVersion)
+	if manifest.SchemaVersion != exec.MaterializationSchemaVersion {
+		return nil, fmt.Errorf("%w: unsupported materialization schema version %d", exec.ErrMaterializationNotFound, manifest.SchemaVersion)
 	}
 	return &manifest, nil
 }
@@ -189,6 +190,7 @@ func (s *Store) Commit(_ context.Context, lock exec.MaterializationLock, req exe
 		PreviousFinal:    previousFinal,
 		PreviousManifest: previousManifest,
 		Proposed:         req.Manifest,
+		PreserveManifest: req.PreserveManifest,
 	}
 	if err := fileutil.WriteJSONAtomic(journalPath, journal, fileMode); err != nil {
 		return fmt.Errorf("write materialization journal: %w", err)
@@ -227,6 +229,7 @@ type commitJournal struct {
 	PreviousFinal    *exec.FileSnapshot   `json:"previousFinal,omitempty"`
 	PreviousManifest json.RawMessage      `json:"previousManifest,omitempty"`
 	Proposed         exec.Materialization `json:"proposed"`
+	PreserveManifest bool                 `json:"preserveManifest,omitempty"`
 }
 
 func (s *Store) recover(pathKey string) error {
@@ -242,10 +245,13 @@ func (s *Store) recover(pathKey string) error {
 	if err := json.Unmarshal(data, &journal); err != nil {
 		return fmt.Errorf("recover materialization: invalid journal: %w", err)
 	}
-	var current exec.Materialization
 	manifestData, manifestErr := os.ReadFile(journal.ManifestPath) //nolint:gosec
-	if manifestErr == nil && json.Unmarshal(manifestData, &current) == nil &&
-		current.CommitID == journal.Proposed.CommitID && verifyFile(journal.FinalPath, journal.Proposed.Output) == nil {
+	manifestCommitted := journal.PreserveManifest && preservedManifestMatches(manifestData, manifestErr, journal.PreviousManifest)
+	if !journal.PreserveManifest {
+		var current exec.Materialization
+		manifestCommitted = manifestErr == nil && json.Unmarshal(manifestData, &current) == nil && current.CommitID == journal.Proposed.CommitID
+	}
+	if manifestCommitted && verifyFile(journal.FinalPath, journal.Proposed.Output) == nil {
 		_ = fileutil.RemoveFileDurable(journal.BackupPath)
 		return fileutil.RemoveFileDurable(journalPath)
 	}
@@ -258,6 +264,20 @@ func (s *Store) recover(pathKey string) error {
 	}
 	_ = fileutil.RemoveFileDurable(journalPath)
 	return nil
+}
+
+func preservedManifestMatches(current []byte, currentErr error, previous json.RawMessage) bool {
+	if len(previous) == 0 {
+		return errors.Is(currentErr, os.ErrNotExist)
+	}
+	if currentErr != nil {
+		return false
+	}
+	var currentCompact, previousCompact bytes.Buffer
+	if json.Compact(&currentCompact, current) != nil || json.Compact(&previousCompact, previous) != nil {
+		return false
+	}
+	return bytes.Equal(currentCompact.Bytes(), previousCompact.Bytes())
 }
 
 func restorePrevious(journal commitJournal) error {
