@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { describe, expect, it } from 'vitest';
+import { WebhookAuthMode } from '../../../../../api/v1/schema';
 import {
-  buildHMACSignatureInputExamples,
+  buildWebhookExamples,
   findUnavailableAllowedProfiles,
   updateAllowedProfiles,
 } from '../webhookProfileSelection';
@@ -32,16 +33,45 @@ describe('webhook profile selection', () => {
     ).toEqual(['retired']);
   });
 
-  it('builds profile-bound and default signature input examples', () => {
-    expect(buildHMACSignatureInputExamples('prod')).toEqual({
-      shell: `profile='prod'
-signature_input=$(printf 'x-dagu-profile:%s\\n%s' "$profile" "$body")`,
-      node: `const profile = 'prod';
-const signatureInput = 'x-dagu-profile:' + profile + '\\n' + body;`,
+  it('builds profile-bound HMAC request examples', () => {
+    const examples = buildWebhookExamples({
+      authMode: WebhookAuthMode.token_and_hmac,
+      profileName: 'prod',
+      webhookUrl: 'https://dagu.example/api/v1/webhooks/example',
     });
-    expect(buildHMACSignatureInputExamples('')).toEqual({
-      shell: 'signature_input="$body"',
-      node: 'const signatureInput = body;',
+
+    expect(examples.curl).toContain('-H "Authorization: Bearer <YOUR_TOKEN>"');
+    expect(examples.curl).toContain(
+      '-H "X-Dagu-Signature: sha256=<SIGNATURE>"'
+    );
+    expect(examples.curl).toContain('-H "X-Dagu-Profile: prod"');
+    expect(examples.hmacShell).toContain("profile='prod'");
+    expect(examples.hmacShell).toContain(
+      'signature_input=$(printf \'x-dagu-profile:%s\\n%s\' "$profile" "$body")'
+    );
+    expect(examples.hmacNode).toContain(
+      "const signatureInput = 'x-dagu-profile:' + profile + '\\n' + body;"
+    );
+  });
+
+  it('builds examples for token-only and HMAC-only authentication', () => {
+    const tokenOnly = buildWebhookExamples({
+      authMode: WebhookAuthMode.token_only,
+      profileName: '',
+      webhookUrl: 'https://dagu.example/token',
     });
+    expect(tokenOnly.curl).toContain('Authorization: Bearer <YOUR_TOKEN>');
+    expect(tokenOnly.curl).not.toContain('X-Dagu-Signature');
+    expect(tokenOnly.curl).not.toContain('X-Dagu-Profile');
+
+    const hmacOnly = buildWebhookExamples({
+      authMode: WebhookAuthMode.hmac_only,
+      profileName: '',
+      webhookUrl: 'https://dagu.example/hmac',
+    });
+    expect(hmacOnly.curl).not.toContain('Authorization');
+    expect(hmacOnly.curl).toContain('X-Dagu-Signature');
+    expect(hmacOnly.hmacShell).toContain('signature_input="$body"');
+    expect(hmacOnly.hmacNode).toContain('const signatureInput = body;');
   });
 });

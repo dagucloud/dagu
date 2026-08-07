@@ -14,7 +14,6 @@ import {
   Loader2,
   Plus,
   RefreshCw,
-  Save,
   Terminal,
   Trash2,
   Webhook,
@@ -26,9 +25,7 @@ import {
   WebhookAuthMode as WebhookAuthModeValue,
   WebhookHMACConfigureRequestAuthMode as WebhookHMACAuthModeValue,
   WebhookHMACEnforcementMode as WebhookHMACEnforcementModeValue,
-  RuntimeProfileStatus,
 } from '../../../../api/v1/schema';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -45,18 +42,14 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { Checkbox } from '@/components/ui/checkbox';
 import { TOKEN_KEY, useIsAdmin } from '../../../../contexts/AuthContext';
 import { useConfig } from '../../../../contexts/ConfigContext';
 import { useRemoteNode } from '../../../../contexts/RemoteNodeContext';
 import { useClient } from '../../../../hooks/api';
 import dayjs from '../../../../lib/dayjs';
 import ConfirmModal from '@/components/ui/confirm-dialog';
-import {
-  buildHMACSignatureInputExamples,
-  findUnavailableAllowedProfiles,
-  updateAllowedProfiles,
-} from './webhookProfileSelection';
+import WebhookProfileSelectionCard from './WebhookProfileSelectionCard';
+import { buildWebhookExamples } from './webhookProfileSelection';
 
 type WebhookDetails = components['schemas']['WebhookDetails'];
 type WebhookAuthMode = components['schemas']['WebhookAuthMode'];
@@ -64,7 +57,6 @@ type WebhookHMACAuthMode =
   components['schemas']['WebhookHMACConfigureRequest']['authMode'];
 type WebhookHMACEnforcementMode =
   components['schemas']['WebhookHMACEnforcementMode'];
-type RuntimeProfile = components['schemas']['RuntimeProfileResponse'];
 
 interface WebhookTabProps {
   fileName: string;
@@ -134,16 +126,6 @@ function WebhookTab({ fileName }: WebhookTabProps) {
   const [pendingToggleState, setPendingToggleState] = useState<boolean | null>(
     null
   );
-  const [runtimeProfiles, setRuntimeProfiles] = useState<RuntimeProfile[]>([]);
-  const [draftAllowedProfiles, setDraftAllowedProfiles] = useState<string[]>(
-    []
-  );
-  const [profilesLoading, setProfilesLoading] = useState(false);
-  const [profilesLoadFailed, setProfilesLoadFailed] = useState(false);
-  const [profileSelectionSaving, setProfileSelectionSaving] = useState(false);
-  const [profileSelectionError, setProfileSelectionError] = useState<
-    string | null
-  >(null);
 
   // Copy states
   const [copiedUrl, setCopiedUrl] = useState(false);
@@ -224,7 +206,6 @@ function WebhookTab({ fileName }: WebhookTabProps) {
     if (!webhook) {
       setDraftAuthMode(WebhookAuthModeValue.token_only);
       setDraftEnforcementMode(WebhookHMACEnforcementModeValue.strict);
-      setDraftAllowedProfiles([]);
       return;
     }
 
@@ -232,58 +213,7 @@ function WebhookTab({ fileName }: WebhookTabProps) {
     setDraftEnforcementMode(
       webhook.hmac.enforcementMode || WebhookHMACEnforcementModeValue.strict
     );
-    setDraftAllowedProfiles(webhook.profileSelection.allowedProfiles);
   }, [webhook]);
-
-  useEffect(() => {
-    if (!webhook?.id || !isAdmin) {
-      setRuntimeProfiles([]);
-      setProfilesLoading(false);
-      setProfilesLoadFailed(false);
-      return;
-    }
-
-    let cancelled = false;
-    const fetchProfiles = async () => {
-      setProfilesLoading(true);
-      setProfilesLoadFailed(false);
-      setRuntimeProfiles([]);
-      setProfileSelectionError(null);
-      try {
-        const { data, error: apiError } = await client.GET('/profiles', {
-          params: {
-            query: { remoteNode: getRemoteNodeParam() },
-          },
-        });
-        if (cancelled) return;
-        if (apiError || !data) {
-          throw new Error(
-            apiError?.message || 'Failed to load runtime profiles'
-          );
-        }
-        setRuntimeProfiles(
-          data.profiles.filter(
-            (profile) => profile.status === RuntimeProfileStatus.active
-          )
-        );
-      } catch (err) {
-        if (cancelled) return;
-        setProfileSelectionError(
-          err instanceof Error ? err.message : 'Failed to load runtime profiles'
-        );
-        setProfilesLoadFailed(true);
-      } finally {
-        if (!cancelled) {
-          setProfilesLoading(false);
-        }
-      }
-    };
-
-    void fetchProfiles();
-    return () => {
-      cancelled = true;
-    };
-  }, [client, getRemoteNodeParam, isAdmin, webhook?.id]);
 
   // Create webhook
   const handleCreate = async () => {
@@ -561,46 +491,6 @@ function WebhookTab({ fileName }: WebhookTabProps) {
     }
   };
 
-  const handleAllowedProfileChange = (
-    profileName: string,
-    checked: boolean
-  ) => {
-    setDraftAllowedProfiles((current) =>
-      updateAllowedProfiles(current, profileName, checked)
-    );
-  };
-
-  const handleSaveProfileSelection = async () => {
-    try {
-      setProfileSelectionSaving(true);
-      setProfileSelectionError(null);
-      const { data, error: apiError } = await client.PUT(
-        '/dags/{fileName}/webhook/profile-selection',
-        {
-          params: {
-            path: { fileName },
-            query: { remoteNode: getRemoteNodeParam() },
-          },
-          body: { allowedProfiles: draftAllowedProfiles },
-        }
-      );
-      if (apiError || !data) {
-        throw new Error(
-          apiError?.message || 'Failed to update profile selection'
-        );
-      }
-      setWebhook(data);
-    } catch (err) {
-      setProfileSelectionError(
-        err instanceof Error
-          ? err.message
-          : 'Failed to update profile selection'
-      );
-    } finally {
-      setProfileSelectionSaving(false);
-    }
-  };
-
   // Dismiss secret display
   const handleDismissSecret = () => {
     setSecretReveal(null);
@@ -721,69 +611,16 @@ function WebhookTab({ fileName }: WebhookTabProps) {
 
   const isHMACEnabled = webhook.authMode !== WebhookAuthModeValue.token_only;
   const configuredAllowedProfiles = webhook.profileSelection.allowedProfiles;
-  const profileSelectionChanged =
-    JSON.stringify([...draftAllowedProfiles].sort()) !==
-    JSON.stringify([...configuredAllowedProfiles].sort());
-  const unavailableAllowedProfiles = findUnavailableAllowedProfiles(
-    draftAllowedProfiles,
-    runtimeProfiles.map((profile) => profile.name)
-  );
   const exampleProfile = configuredAllowedProfiles[0] || '';
-  const profileHeader = exampleProfile
-    ? `  -H "X-Dagu-Profile: ${exampleProfile}" \\\n`
-    : '';
-  const requestBody = `'{"dagRunId": "my-unique-id", "payload": {"key": "value"}}'`;
-  const curlExample =
-    webhook.authMode === WebhookAuthModeValue.hmac_only
-      ? `curl -X POST "${webhookUrl}" \\
-  -H "X-Dagu-Signature: sha256=<SIGNATURE>" \\
-${profileHeader}  -H "Content-Type: application/json" \\
-  -d ${requestBody}`
-      : webhook.authMode === WebhookAuthModeValue.token_and_hmac
-        ? `curl -X POST "${webhookUrl}" \\
-  -H "Authorization: Bearer <YOUR_TOKEN>" \\
-  -H "X-Dagu-Signature: sha256=<SIGNATURE>" \\
-${profileHeader}  -H "Content-Type: application/json" \\
-  -d ${requestBody}`
-        : `curl -X POST "${webhookUrl}" \\
-  -H "Authorization: Bearer <YOUR_TOKEN>" \\
-${profileHeader}  -H "Content-Type: application/json" \\
-  -d ${requestBody}`;
-  const hmacSignatureInputExamples =
-    buildHMACSignatureInputExamples(exampleProfile);
-  const hmacShellExample = `body='{"dagRunId":"my-unique-id","payload":{"key":"value"}}'
-${hmacSignatureInputExamples.shell}
-sig=$(printf '%s' "$signature_input" | openssl dgst -sha256 -hmac "$DAGU_HMAC_SECRET" -hex | sed 's/^.* //')
-
-curl -X POST "${webhookUrl}" \\
-  ${webhook.authMode === WebhookAuthModeValue.token_and_hmac ? '-H "Authorization: Bearer <YOUR_TOKEN>" \\\n  ' : ''}-H "X-Dagu-Signature: sha256=$sig" \\
-  ${exampleProfile ? `-H "X-Dagu-Profile: $profile" \\\n  ` : ''}-H "Content-Type: application/json" \\
-  -d "$body"`;
-  const hmacNodeExample = `import crypto from 'node:crypto';
-
-const body = JSON.stringify({
-  dagRunId: 'my-unique-id',
-  payload: { key: 'value' },
-});
-
-${hmacSignatureInputExamples.node}
-
-const signature =
-  'sha256=' +
-  crypto.createHmac('sha256', process.env.DAGU_HMAC_SECRET!)
-    .update(signatureInput, 'utf8')
-    .digest('hex');
-
-const headers = {
-  'Content-Type': 'application/json',
-  'X-Dagu-Signature': signature,
-  ${exampleProfile ? "'X-Dagu-Profile': profile,\n  " : ''}${webhook.authMode === WebhookAuthModeValue.token_and_hmac ? "'Authorization': 'Bearer <YOUR_TOKEN>',\n  " : ''}}
-
-await fetch('${webhookUrl}', {
-  method: 'POST',
-  headers,
-  body,
-});`;
+  const {
+    curl: curlExample,
+    hmacShell: hmacShellExample,
+    hmacNode: hmacNodeExample,
+  } = buildWebhookExamples({
+    authMode: webhook.authMode,
+    profileName: exampleProfile,
+    webhookUrl,
+  });
 
   // Webhook configured
   return (
@@ -1032,168 +869,13 @@ await fetch('${webhookUrl}', {
         </CardContent>
       </Card>
 
-      <Card className="gap-0 py-0">
-        <CardHeader className="pb-3 px-4 pt-3">
-          <CardTitle className="text-sm">Runtime profile selection</CardTitle>
-          <CardDescription className="text-xs">
-            Allow callers to select an approved profile with{' '}
-            <code className="bg-accent px-1 rounded-md border">
-              X-Dagu-Profile
-            </code>
-            . Without the header, the DAG&apos;s default profile resolution is
-            used.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="px-4 pb-3 pt-2 space-y-3">
-          {(isAdmin || configuredAllowedProfiles.length > 0) && (
-            <div className="rounded-md border bg-warning/10 px-3 py-2 text-xs text-muted-foreground">
-              Anyone holding this webhook credential can run the DAG with every
-              profile selected here.
-            </div>
-          )}
-
-          {profileSelectionError && (
-            <div className="text-xs text-destructive">
-              {profileSelectionError}
-            </div>
-          )}
-
-          {isAdmin ? (
-            <>
-              {profilesLoading ? (
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  Loading profiles...
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {profilesLoadFailed && (
-                    <div className="rounded-md border p-3 text-xs text-muted-foreground">
-                      Runtime profiles could not be loaded. Editing is disabled.
-                    </div>
-                  )}
-                  <div className="space-y-2 rounded-md border p-3">
-                    {runtimeProfiles.length === 0 &&
-                    unavailableAllowedProfiles.length === 0 ? (
-                      <div className="text-xs text-muted-foreground">
-                        {profilesLoadFailed
-                          ? 'No configured profiles to display.'
-                          : 'No active runtime profiles are available.'}
-                      </div>
-                    ) : (
-                      runtimeProfiles.map((profile) => {
-                        const inputId = `webhook-profile-${profile.id}`;
-                        return (
-                          <label
-                            key={profile.id}
-                            htmlFor={inputId}
-                            className="flex cursor-pointer items-center gap-2 text-sm"
-                          >
-                            <Checkbox
-                              id={inputId}
-                              checked={draftAllowedProfiles.includes(
-                                profile.name
-                              )}
-                              disabled={
-                                profileSelectionSaving || profilesLoadFailed
-                              }
-                              onCheckedChange={(checked) =>
-                                handleAllowedProfileChange(
-                                  profile.name,
-                                  checked === true
-                                )
-                              }
-                            />
-                            <span>{profile.name}</span>
-                            {profile.protected && (
-                              <Badge variant="outline" className="text-[10px]">
-                                Protected
-                              </Badge>
-                            )}
-                          </label>
-                        );
-                      })
-                    )}
-                    {unavailableAllowedProfiles.map((profileName) => {
-                      const inputId = `webhook-profile-unavailable-${profileName}`;
-                      return (
-                        <label
-                          key={profileName}
-                          htmlFor={inputId}
-                          className="flex cursor-pointer items-center gap-2 text-sm"
-                        >
-                          <Checkbox
-                            id={inputId}
-                            checked
-                            disabled={
-                              profileSelectionSaving || profilesLoadFailed
-                            }
-                            onCheckedChange={(checked) =>
-                              handleAllowedProfileChange(
-                                profileName,
-                                checked === true
-                              )
-                            }
-                          />
-                          <span>{profileName}</span>
-                          <Badge variant="secondary" className="text-[10px]">
-                            {profilesLoadFailed
-                              ? 'Status unknown'
-                              : 'Unavailable'}
-                          </Badge>
-                        </label>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={profileSelectionSaving || !profileSelectionChanged}
-                  onClick={() =>
-                    setDraftAllowedProfiles(configuredAllowedProfiles)
-                  }
-                >
-                  Reset
-                </Button>
-                <Button
-                  size="sm"
-                  disabled={
-                    profileSelectionSaving ||
-                    profilesLoading ||
-                    profilesLoadFailed ||
-                    !profileSelectionChanged
-                  }
-                  onClick={handleSaveProfileSelection}
-                >
-                  {profileSelectionSaving ? (
-                    <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
-                  ) : (
-                    <Save className="h-3.5 w-3.5 mr-1" />
-                  )}
-                  Save profile selection
-                </Button>
-              </div>
-            </>
-          ) : configuredAllowedProfiles.length > 0 ? (
-            <div className="flex flex-wrap gap-2">
-              {configuredAllowedProfiles.map((profileName) => (
-                <Badge key={profileName} variant="secondary">
-                  {profileName}
-                </Badge>
-              ))}
-            </div>
-          ) : (
-            <div className="text-xs text-muted-foreground">
-              Header-based profile selection is disabled. An administrator can
-              configure it.
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      <WebhookProfileSelectionCard
+        fileName={fileName}
+        isAdmin={isAdmin}
+        remoteNode={remoteNode}
+        webhook={webhook}
+        onWebhookChange={setWebhook}
+      />
 
       {isHMACEnabled && (
         <Card className="gap-0 py-0">
