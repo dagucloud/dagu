@@ -975,12 +975,15 @@ steps:
 func TestRebuildDAGRunSnapshotFromYAMLRestoresExecutorDefaults(t *testing.T) {
 	t.Parallel()
 
-	workingDir := t.TempDir()
 	// WorkingDir is persisted in dag.json while WorkingDirExplicit is not, so a
-	// snapshot arrives with the path set and the flag cleared.
+	// snapshot arrives with the path set and the flag cleared. The YAML declares a
+	// different path so the assertions below distinguish the snapshot's persisted
+	// value from the one a rebuild would produce.
+	snapshotWorkingDir := t.TempDir()
+	yamlWorkingDir := t.TempDir()
 	dag := &core.DAG{
 		Name:       "snapshot-executor-defaults",
-		WorkingDir: workingDir,
+		WorkingDir: snapshotWorkingDir,
 		YamlData: fmt.Appendf(nil, `
 working_dir: %q
 s3:
@@ -993,7 +996,7 @@ kubernetes:
   namespace: dag-ns
 steps:
   - run: echo hello
-`, workingDir),
+`, yamlWorkingDir),
 	}
 
 	restored, err := rebuildDAGRunSnapshotFromYAML(context.Background(), dag)
@@ -1011,6 +1014,9 @@ steps:
 	require.NotNil(t, restored.Kubernetes)
 	assert.Equal(t, "dag-ns", restored.Kubernetes["namespace"])
 
+	// WorkingDirExplicit is json:"-", so only the rebuild can restore it.
 	assert.True(t, restored.WorkingDirExplicit)
-	assert.Equal(t, workingDir, restored.WorkingDir)
+	// WorkingDir already survived in dag.json, so the rebuild must neither blank
+	// it nor replace it with the value it just parsed out of the YAML.
+	assert.Equal(t, snapshotWorkingDir, restored.WorkingDir)
 }
