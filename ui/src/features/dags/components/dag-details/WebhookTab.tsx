@@ -52,6 +52,11 @@ import { useRemoteNode } from '../../../../contexts/RemoteNodeContext';
 import { useClient } from '../../../../hooks/api';
 import dayjs from '../../../../lib/dayjs';
 import ConfirmModal from '@/components/ui/confirm-dialog';
+import {
+  buildHMACSignatureInputExamples,
+  findUnavailableAllowedProfiles,
+  updateAllowedProfiles,
+} from './webhookProfileSelection';
 
 type WebhookDetails = components['schemas']['WebhookDetails'];
 type WebhookAuthMode = components['schemas']['WebhookAuthMode'];
@@ -134,6 +139,7 @@ function WebhookTab({ fileName }: WebhookTabProps) {
     []
   );
   const [profilesLoading, setProfilesLoading] = useState(false);
+  const [profilesLoadFailed, setProfilesLoadFailed] = useState(false);
   const [profileSelectionSaving, setProfileSelectionSaving] = useState(false);
   const [profileSelectionError, setProfileSelectionError] = useState<
     string | null
@@ -233,32 +239,44 @@ function WebhookTab({ fileName }: WebhookTabProps) {
     if (!webhook?.id || !isAdmin) {
       setRuntimeProfiles([]);
       setProfilesLoading(false);
+      setProfilesLoadFailed(false);
       return;
     }
 
     let cancelled = false;
     const fetchProfiles = async () => {
       setProfilesLoading(true);
+      setProfilesLoadFailed(false);
+      setRuntimeProfiles([]);
       setProfileSelectionError(null);
-      const { data, error: apiError } = await client.GET('/profiles', {
-        params: {
-          query: { remoteNode: getRemoteNodeParam() },
-        },
-      });
-      if (cancelled) return;
-      if (apiError || !data) {
-        setProfileSelectionError(
-          apiError?.message || 'Failed to load runtime profiles'
+      try {
+        const { data, error: apiError } = await client.GET('/profiles', {
+          params: {
+            query: { remoteNode: getRemoteNodeParam() },
+          },
+        });
+        if (cancelled) return;
+        if (apiError || !data) {
+          throw new Error(
+            apiError?.message || 'Failed to load runtime profiles'
+          );
+        }
+        setRuntimeProfiles(
+          data.profiles.filter(
+            (profile) => profile.status === RuntimeProfileStatus.active
+          )
         );
-        setProfilesLoading(false);
-        return;
+      } catch (err) {
+        if (cancelled) return;
+        setProfileSelectionError(
+          err instanceof Error ? err.message : 'Failed to load runtime profiles'
+        );
+        setProfilesLoadFailed(true);
+      } finally {
+        if (!cancelled) {
+          setProfilesLoading(false);
+        }
       }
-      setRuntimeProfiles(
-        data.profiles.filter(
-          (profile) => profile.status === RuntimeProfileStatus.active
-        )
-      );
-      setProfilesLoading(false);
     };
 
     void fetchProfiles();
@@ -547,12 +565,9 @@ function WebhookTab({ fileName }: WebhookTabProps) {
     profileName: string,
     checked: boolean
   ) => {
-    setDraftAllowedProfiles((current) => {
-      if (!checked) {
-        return current.filter((name) => name !== profileName);
-      }
-      return Array.from(new Set([...current, profileName])).sort();
-    });
+    setDraftAllowedProfiles((current) =>
+      updateAllowedProfiles(current, profileName, checked)
+    );
   };
 
   const handleSaveProfileSelection = async () => {
@@ -709,8 +724,9 @@ function WebhookTab({ fileName }: WebhookTabProps) {
   const profileSelectionChanged =
     JSON.stringify([...draftAllowedProfiles].sort()) !==
     JSON.stringify([...configuredAllowedProfiles].sort());
-  const unavailableAllowedProfiles = draftAllowedProfiles.filter(
-    (name) => !runtimeProfiles.some((profile) => profile.name === name)
+  const unavailableAllowedProfiles = findUnavailableAllowedProfiles(
+    draftAllowedProfiles,
+    runtimeProfiles.map((profile) => profile.name)
   );
   const exampleProfile = configuredAllowedProfiles[0] || '';
   const profileHeader = exampleProfile
@@ -733,12 +749,10 @@ ${profileHeader}  -H "Content-Type: application/json" \\
   -H "Authorization: Bearer <YOUR_TOKEN>" \\
 ${profileHeader}  -H "Content-Type: application/json" \\
   -d ${requestBody}`;
-  const hmacSignatureInput = exampleProfile
-    ? `profile='${exampleProfile}'
-signature_input=$(printf 'x-dagu-profile:%s\\n%s' "$profile" "$body")`
-    : 'signature_input="$body"';
+  const hmacSignatureInputExamples =
+    buildHMACSignatureInputExamples(exampleProfile);
   const hmacShellExample = `body='{"dagRunId":"my-unique-id","payload":{"key":"value"}}'
-${hmacSignatureInput}
+${hmacSignatureInputExamples.shell}
 sig=$(printf '%s' "$signature_input" | openssl dgst -sha256 -hmac "$DAGU_HMAC_SECRET" -hex | sed 's/^.* //')
 
 curl -X POST "${webhookUrl}" \\
@@ -752,12 +766,7 @@ const body = JSON.stringify({
   payload: { key: 'value' },
 });
 
-${
-  exampleProfile
-    ? `const profile = '${exampleProfile}';
-const signatureInput = 'x-dagu-profile:' + profile + '\\n' + body;`
-    : 'const signatureInput = body;'
-}
+${hmacSignatureInputExamples.node}
 
 const signature =
   'sha256=' +
@@ -1057,70 +1066,85 @@ await fetch('${webhookUrl}', {
                   Loading profiles...
                 </div>
               ) : (
-                <div className="space-y-2 rounded-md border p-3">
-                  {runtimeProfiles.length === 0 &&
-                  unavailableAllowedProfiles.length === 0 ? (
-                    <div className="text-xs text-muted-foreground">
-                      No active runtime profiles are available.
+                <div className="space-y-2">
+                  {profilesLoadFailed && (
+                    <div className="rounded-md border p-3 text-xs text-muted-foreground">
+                      Runtime profiles could not be loaded. Editing is disabled.
                     </div>
-                  ) : (
-                    runtimeProfiles.map((profile) => {
-                      const inputId = `webhook-profile-${profile.id}`;
+                  )}
+                  <div className="space-y-2 rounded-md border p-3">
+                    {runtimeProfiles.length === 0 &&
+                    unavailableAllowedProfiles.length === 0 ? (
+                      <div className="text-xs text-muted-foreground">
+                        {profilesLoadFailed
+                          ? 'No configured profiles to display.'
+                          : 'No active runtime profiles are available.'}
+                      </div>
+                    ) : (
+                      runtimeProfiles.map((profile) => {
+                        const inputId = `webhook-profile-${profile.id}`;
+                        return (
+                          <label
+                            key={profile.id}
+                            htmlFor={inputId}
+                            className="flex cursor-pointer items-center gap-2 text-sm"
+                          >
+                            <Checkbox
+                              id={inputId}
+                              checked={draftAllowedProfiles.includes(
+                                profile.name
+                              )}
+                              disabled={
+                                profileSelectionSaving || profilesLoadFailed
+                              }
+                              onCheckedChange={(checked) =>
+                                handleAllowedProfileChange(
+                                  profile.name,
+                                  checked === true
+                                )
+                              }
+                            />
+                            <span>{profile.name}</span>
+                            {profile.protected && (
+                              <Badge variant="outline" className="text-[10px]">
+                                Protected
+                              </Badge>
+                            )}
+                          </label>
+                        );
+                      })
+                    )}
+                    {unavailableAllowedProfiles.map((profileName) => {
+                      const inputId = `webhook-profile-unavailable-${profileName}`;
                       return (
                         <label
-                          key={profile.id}
+                          key={profileName}
                           htmlFor={inputId}
                           className="flex cursor-pointer items-center gap-2 text-sm"
                         >
                           <Checkbox
                             id={inputId}
-                            checked={draftAllowedProfiles.includes(
-                              profile.name
-                            )}
-                            disabled={profileSelectionSaving}
+                            checked
+                            disabled={
+                              profileSelectionSaving || profilesLoadFailed
+                            }
                             onCheckedChange={(checked) =>
                               handleAllowedProfileChange(
-                                profile.name,
+                                profileName,
                                 checked === true
                               )
                             }
                           />
-                          <span>{profile.name}</span>
-                          {profile.protected && (
-                            <Badge variant="outline" className="text-[10px]">
-                              Protected
-                            </Badge>
-                          )}
+                          <span>{profileName}</span>
+                          <Badge variant="secondary" className="text-[10px]">
+                            {profilesLoadFailed
+                              ? 'Status unknown'
+                              : 'Unavailable'}
+                          </Badge>
                         </label>
                       );
-                    })
-                  )}
-                  {unavailableAllowedProfiles.map((profileName) => {
-                    const inputId = `webhook-profile-unavailable-${profileName}`;
-                    return (
-                      <label
-                        key={profileName}
-                        htmlFor={inputId}
-                        className="flex cursor-pointer items-center gap-2 text-sm"
-                      >
-                        <Checkbox
-                          id={inputId}
-                          checked
-                          disabled={profileSelectionSaving}
-                          onCheckedChange={(checked) =>
-                            handleAllowedProfileChange(
-                              profileName,
-                              checked === true
-                            )
-                          }
-                        />
-                        <span>{profileName}</span>
-                        <Badge variant="secondary" className="text-[10px]">
-                          Unavailable
-                        </Badge>
-                      </label>
-                    );
-                  })}
+                    })}
+                  </div>
                 </div>
               )}
 
@@ -1140,6 +1164,7 @@ await fetch('${webhookUrl}', {
                   disabled={
                     profileSelectionSaving ||
                     profilesLoading ||
+                    profilesLoadFailed ||
                     !profileSelectionChanged
                   }
                   onClick={handleSaveProfileSelection}
