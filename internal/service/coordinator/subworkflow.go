@@ -1,8 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Package node wires runtime node adapters.
-package node
+package coordinator
 
 import (
 	"context"
@@ -15,7 +14,6 @@ import (
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
 	"github.com/dagucloud/dagu/v2/internal/secret"
-	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/subflow"
 )
 
@@ -52,7 +50,7 @@ func NewSubWorkflowRunnerFactory(cfg SubWorkflowRunnerConfig) func(context.Conte
 		if err != nil {
 			return nil, err
 		}
-		dispatcher, err := coordinator.NewRuntimeDispatcher(cfg.ServiceRegistry, cfg.PeerConfig)
+		dispatcher, err := NewRuntimeDispatcher(cfg.ServiceRegistry, cfg.PeerConfig)
 		if err != nil {
 			return nil, err
 		}
