@@ -373,6 +373,25 @@ steps:
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to locate DAG non-existent")
 
+	// A DAG that builds with errors fails unless the caller tolerates them, in
+	// which case the partially built DAG is returned carrying the errors.
+	buildErrContent := `name: build-error-dag
+steps:
+  - name: step1
+    run: echo "build error"
+    depends: [missing-step]`
+	err = os.WriteFile(filepath.Join(tmpDir, "build-error-dag.yaml"), []byte(buildErrContent), 0600)
+	require.NoError(t, err)
+
+	_, err = store.GetDetails(ctx, "build-error-dag", exec.DAGLoadOptions{})
+	require.Error(t, err)
+
+	dag, err = store.GetDetails(ctx, "build-error-dag", exec.DAGLoadOptions{AllowBuildErrors: true})
+	require.NoError(t, err)
+	require.NotNil(t, dag)
+	assert.Equal(t, "build-error-dag", dag.Name)
+	assert.NotEmpty(t, dag.BuildErrors)
+
 	// Dots remain part of the DAG's lookup identity.
 	dottedDAGContent := `name: dagu.update-cloud-image
 steps:
