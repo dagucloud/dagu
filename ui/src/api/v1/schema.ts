@@ -3907,6 +3907,8 @@ export interface components {
             clearHmacSecret?: boolean;
             /** @description Optional rendered message added to the webhook JSON payload as message. */
             messageTemplate?: string;
+            /** @description Optional request body template. When set, it replaces the default Dagu payload and must render to valid JSON. One request is sent per event. Supports the same tokens as messageTemplate plus {{message}}. */
+            bodyTemplate?: string;
             /** @description Allow plain HTTP webhook URLs. Disabled by default. */
             allowInsecureHttp?: boolean;
             /** @description Allow loopback or private network webhook targets. Disabled by default. */
@@ -3926,6 +3928,8 @@ export interface components {
             hmacSecretConfigured: boolean;
             /** @description Optional rendered message added to the webhook JSON payload as message. */
             messageTemplate?: string;
+            /** @description Optional request body template that replaces the default Dagu payload. */
+            bodyTemplate?: string;
             /** @description Whether this target allows plain HTTP webhook URLs */
             allowInsecureHttp?: boolean;
             /** @description Whether this target allows loopback or private network webhook targets */
@@ -3974,6 +3978,25 @@ export interface components {
             /** @description Optional Telegram message template. When omitted, Dagu sends the default notification text. */
             messageTemplate?: string;
         };
+        /** @description Microsoft Teams incoming webhook target input. Values are encrypted at rest. */
+        NotificationTeamsTargetInput: {
+            /**
+             * Format: uri
+             * @description Microsoft Teams incoming webhook URL, from a Teams Workflows (Power Automate) trigger or a legacy connector. Omit on updates to preserve the existing URL.
+             */
+            webhookUrl?: string;
+            /** @description Optional Teams message template. When omitted, Dagu sends the default notification text. */
+            messageTemplate?: string;
+        };
+        /** @description Public Microsoft Teams target details */
+        NotificationTeamsTarget: {
+            /** @description Whether a Microsoft Teams incoming webhook URL is configured */
+            webhookUrlConfigured: boolean;
+            /** @description Redacted Microsoft Teams webhook URL preview */
+            webhookUrlPreview?: string;
+            /** @description Optional Teams message template. When omitted, Dagu sends the default notification text. */
+            messageTemplate?: string;
+        };
         /** @description Notification target input */
         NotificationTargetInput: {
             /** @description Stable target ID. Omit when creating a new target. */
@@ -3989,6 +4012,7 @@ export interface components {
             webhook?: components["schemas"]["NotificationWebhookTargetInput"];
             slack?: components["schemas"]["NotificationSlackTargetInput"];
             telegram?: components["schemas"]["NotificationTelegramTargetInput"];
+            teams?: components["schemas"]["NotificationTeamsTargetInput"];
         };
         /** @description Public notification target details. Secrets are never returned. */
         NotificationTarget: {
@@ -4005,6 +4029,7 @@ export interface components {
             webhook?: components["schemas"]["NotificationWebhookTarget"];
             slack?: components["schemas"]["NotificationSlackTarget"];
             telegram?: components["schemas"]["NotificationTelegramTarget"];
+            teams?: components["schemas"]["NotificationTeamsTarget"];
         };
         /** @description Notification channel input */
         NotificationChannelInput: {
@@ -4017,6 +4042,7 @@ export interface components {
             webhook?: components["schemas"]["NotificationWebhookTargetInput"];
             slack?: components["schemas"]["NotificationSlackTargetInput"];
             telegram?: components["schemas"]["NotificationTelegramTargetInput"];
+            teams?: components["schemas"]["NotificationTeamsTargetInput"];
         };
         /** @description Notification channel. Secrets are never returned. */
         NotificationChannel: {
@@ -4031,6 +4057,7 @@ export interface components {
             webhook?: components["schemas"]["NotificationWebhookTarget"];
             slack?: components["schemas"]["NotificationSlackTarget"];
             telegram?: components["schemas"]["NotificationTelegramTarget"];
+            teams?: components["schemas"]["NotificationTeamsTarget"];
             /** Format: date-time */
             createdAt: string;
             /** Format: date-time */
@@ -17757,7 +17784,8 @@ export enum NotificationProviderType {
     email = "email",
     webhook = "webhook",
     slack = "slack",
-    telegram = "telegram"
+    telegram = "telegram",
+    teams = "teams"
 }
 export enum NotificationEventType {
     dag_run_waiting = "dag.run.waiting",

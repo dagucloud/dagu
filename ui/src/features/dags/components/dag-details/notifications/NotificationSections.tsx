@@ -48,6 +48,7 @@ import {
   PROVIDER_OPTIONS,
   replaceDeliveryProvider,
   TestResult,
+  WEBHOOK_BODY_TEMPLATE_PLACEHOLDER,
 } from './notificationDrafts';
 import type { EffectiveNotificationRoute } from './useNotificationSettings';
 
@@ -210,6 +211,20 @@ function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
             })
           }
         />
+        <Textarea
+          className="min-h-24 font-mono"
+          aria-label="Webhook body template"
+          value={draft.webhook.bodyTemplate}
+          placeholder={WEBHOOK_BODY_TEMPLATE_PLACEHOLDER}
+          onChange={(event) =>
+            update({
+              webhook: {
+                ...draft.webhook,
+                bodyTemplate: event.target.value,
+              },
+            })
+          }
+        />
         <div className="grid gap-2 md:grid-cols-2">
           <label className="flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm">
             <Checkbox
@@ -286,6 +301,41 @@ function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
             update({
               slack: {
                 ...draft.slack,
+                messageTemplate: event.target.value,
+              },
+            })
+          }
+        />
+      </div>
+    );
+  }
+
+  if (draft.type === NotificationProviderType.teams) {
+    return (
+      <div className="space-y-3">
+        <Input
+          type="password"
+          value={draft.teams.webhookUrl}
+          placeholder={
+            draft.teams.webhookUrlConfigured
+              ? `Webhook URL configured (${draft.teams.webhookUrlPreview || 'saved'})`
+              : 'Teams incoming webhook URL'
+          }
+          onChange={(event) =>
+            update({
+              teams: { ...draft.teams, webhookUrl: event.target.value },
+            })
+          }
+        />
+        <Textarea
+          className="min-h-24"
+          aria-label="Teams message template"
+          value={draft.teams.messageTemplate}
+          placeholder={DEFAULT_MESSAGE_TEMPLATE}
+          onChange={(event) =>
+            update({
+              teams: {
+                ...draft.teams,
                 messageTemplate: event.target.value,
               },
             })

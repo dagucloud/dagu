@@ -29,6 +29,7 @@ const (
 	ProviderWebhook  ProviderType = "webhook"
 	ProviderSlack    ProviderType = "slack"
 	ProviderTelegram ProviderType = "telegram"
+	ProviderTeams    ProviderType = "teams"
 )
 
 var defaultEvents = []eventstore.EventType{
@@ -88,6 +89,7 @@ type Channel struct {
 	Webhook  *WebhookTarget  `json:"webhook,omitempty"`
 	Slack    *SlackTarget    `json:"slack,omitempty"`
 	Telegram *TelegramTarget `json:"telegram,omitempty"`
+	Teams    *TeamsTarget    `json:"teams,omitempty"`
 
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
@@ -148,6 +150,7 @@ type Target struct {
 	Webhook  *WebhookTarget  `json:"webhook,omitempty"`
 	Slack    *SlackTarget    `json:"slack,omitempty"`
 	Telegram *TelegramTarget `json:"telegram,omitempty"`
+	Teams    *TeamsTarget    `json:"teams,omitempty"`
 }
 
 type EmailTarget struct {
@@ -166,6 +169,7 @@ type WebhookTarget struct {
 	Headers             map[string]string `json:"headers,omitempty"`
 	HMACSecret          string            `json:"hmacSecret,omitempty"`
 	MessageTemplate     string            `json:"messageTemplate,omitempty"`
+	BodyTemplate        string            `json:"bodyTemplate,omitempty"`
 	AllowInsecureHTTP   bool              `json:"allowInsecureHttp,omitempty"`
 	AllowPrivateNetwork bool              `json:"allowPrivateNetwork,omitempty"`
 	ClearHeaders        bool              `json:"-"`
@@ -181,6 +185,11 @@ type TelegramTarget struct {
 	BotToken        string `json:"botToken,omitempty"`
 	ChatID          string `json:"chatId,omitempty"`
 	TopicID         string `json:"topicId,omitempty"`
+	MessageTemplate string `json:"messageTemplate,omitempty"`
+}
+
+type TeamsTarget struct {
+	WebhookURL      string `json:"webhookUrl,omitempty"`
 	MessageTemplate string `json:"messageTemplate,omitempty"`
 }
 
@@ -206,6 +215,7 @@ type PublicChannel struct {
 	Webhook  *PublicWebhookTarget  `json:"webhook,omitempty"`
 	Slack    *PublicSlackTarget    `json:"slack,omitempty"`
 	Telegram *PublicTelegramTarget `json:"telegram,omitempty"`
+	Teams    *PublicTeamsTarget    `json:"teams,omitempty"`
 
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
@@ -265,6 +275,7 @@ type PublicTarget struct {
 	Webhook  *PublicWebhookTarget  `json:"webhook,omitempty"`
 	Slack    *PublicSlackTarget    `json:"slack,omitempty"`
 	Telegram *PublicTelegramTarget `json:"telegram,omitempty"`
+	Teams    *PublicTeamsTarget    `json:"teams,omitempty"`
 }
 
 type PublicWebhookTarget struct {
@@ -273,11 +284,18 @@ type PublicWebhookTarget struct {
 	Headers              map[string]string `json:"headers,omitempty"`
 	HMACSecretConfigured bool              `json:"hmacSecretConfigured"`
 	MessageTemplate      string            `json:"messageTemplate,omitempty"`
+	BodyTemplate         string            `json:"bodyTemplate,omitempty"`
 	AllowInsecureHTTP    bool              `json:"allowInsecureHttp"`
 	AllowPrivateNetwork  bool              `json:"allowPrivateNetwork"`
 }
 
 type PublicSlackTarget struct {
+	WebhookURLConfigured bool   `json:"webhookUrlConfigured"`
+	WebhookURLPreview    string `json:"webhookUrlPreview,omitempty"`
+	MessageTemplate      string `json:"messageTemplate,omitempty"`
+}
+
+type PublicTeamsTarget struct {
 	WebhookURLConfigured bool   `json:"webhookUrlConfigured"`
 	WebhookURLPreview    string `json:"webhookUrlPreview,omitempty"`
 	MessageTemplate      string `json:"messageTemplate,omitempty"`
@@ -573,6 +591,7 @@ func normalizeTarget(target *Target) error {
 			return fmt.Errorf("%w: webhook target config is required", ErrInvalidSettings)
 		}
 		target.Webhook.MessageTemplate = normalizeTemplate(target.Webhook.MessageTemplate)
+		target.Webhook.BodyTemplate = normalizeTemplate(target.Webhook.BodyTemplate)
 		if target.Webhook.URL == "" {
 			return fmt.Errorf("%w: webhook target requires url", ErrInvalidSettings)
 		}
@@ -609,6 +628,17 @@ func normalizeTarget(target *Target) error {
 			if err != nil || topicID <= 0 {
 				return fmt.Errorf("%w: telegram target topicId must be a positive integer", ErrInvalidSettings)
 			}
+		}
+	case ProviderTeams:
+		if target.Teams == nil {
+			return fmt.Errorf("%w: teams target config is required", ErrInvalidSettings)
+		}
+		target.Teams.MessageTemplate = normalizeTemplate(target.Teams.MessageTemplate)
+		if target.Teams.WebhookURL == "" {
+			return fmt.Errorf("%w: teams target requires webhookUrl", ErrInvalidSettings)
+		}
+		if err := validateHTTPSURL(target.Teams.WebhookURL); err != nil {
+			return err
 		}
 	default:
 		return fmt.Errorf("%w: %s", ErrUnsupportedTarget, target.Type)
@@ -827,6 +857,7 @@ func (c Channel) ToPublic() PublicChannel {
 		Webhook:   target.Webhook,
 		Slack:     target.Slack,
 		Telegram:  target.Telegram,
+		Teams:     target.Teams,
 		CreatedAt: c.CreatedAt,
 		UpdatedAt: c.UpdatedAt,
 		UpdatedBy: c.UpdatedBy,
@@ -905,6 +936,10 @@ func (c Channel) ToTarget() Target {
 		copy := *c.Telegram
 		target.Telegram = &copy
 	}
+	if c.Teams != nil {
+		copy := *c.Teams
+		target.Teams = &copy
+	}
 	return target
 }
 
@@ -917,6 +952,7 @@ func (c *Channel) applyTarget(target Target) {
 	c.Webhook = target.Webhook
 	c.Slack = target.Slack
 	c.Telegram = target.Telegram
+	c.Teams = target.Teams
 }
 
 func (t Target) ToPublic() PublicTarget {
@@ -941,6 +977,7 @@ func (t Target) ToPublic() PublicTarget {
 				Headers:              previewHeaderValues(t.Webhook.Headers),
 				HMACSecretConfigured: t.Webhook.HMACSecret != "",
 				MessageTemplate:      t.Webhook.MessageTemplate,
+				BodyTemplate:         t.Webhook.BodyTemplate,
 				AllowInsecureHTTP:    t.Webhook.AllowInsecureHTTP,
 				AllowPrivateNetwork:  t.Webhook.AllowPrivateNetwork,
 			}
@@ -961,6 +998,14 @@ func (t Target) ToPublic() PublicTarget {
 				ChatID:             t.Telegram.ChatID,
 				TopicID:            t.Telegram.TopicID,
 				MessageTemplate:    t.Telegram.MessageTemplate,
+			}
+		}
+	case ProviderTeams:
+		if t.Teams != nil {
+			pub.Teams = &PublicTeamsTarget{
+				WebhookURLConfigured: t.Teams.WebhookURL != "",
+				WebhookURLPreview:    PreviewSecret(t.Teams.WebhookURL),
+				MessageTemplate:      t.Teams.MessageTemplate,
 			}
 		}
 	}
@@ -1060,5 +1105,8 @@ func preserveTargetSecrets(next *Target, prev Target) {
 	}
 	if next.Telegram != nil && prev.Telegram != nil && next.Telegram.BotToken == "" {
 		next.Telegram.BotToken = prev.Telegram.BotToken
+	}
+	if next.Teams != nil && prev.Teams != nil && next.Teams.WebhookURL == "" {
+		next.Teams.WebhookURL = prev.Teams.WebhookURL
 	}
 }

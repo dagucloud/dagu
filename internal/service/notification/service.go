@@ -601,7 +601,8 @@ func (s *Service) FlushNotificationBatch(ctx context.Context, destination string
 	if target.Type != notificationmodel.ProviderEmail &&
 		target.Type != notificationmodel.ProviderWebhook &&
 		target.Type != notificationmodel.ProviderSlack &&
-		target.Type != notificationmodel.ProviderTelegram {
+		target.Type != notificationmodel.ProviderTelegram &&
+		target.Type != notificationmodel.ProviderTeams {
 		s.logger.Warn("Unsupported notification target provider",
 			slog.String("destination", destination),
 			slog.String("provider", string(target.Type)),
@@ -918,6 +919,8 @@ func (s *Service) deliverTarget(ctx context.Context, target notificationmodel.Ta
 		return s.withRetry(ctx, func() error { return s.sendSlack(ctx, target, events) })
 	case notificationmodel.ProviderTelegram:
 		return s.withRetry(ctx, func() error { return s.sendTelegram(ctx, target, events) })
+	case notificationmodel.ProviderTeams:
+		return s.withRetry(ctx, func() error { return s.sendTeams(ctx, target, events) })
 	default:
 		return notificationmodel.ErrUnsupportedTarget
 	}
@@ -1310,12 +1313,44 @@ func (s *Service) sendWebhook(ctx context.Context, target notificationmodel.Targ
 		return err
 	}
 	publicURL := s.publicURL()
+	if target.Webhook.BodyTemplate != "" {
+		return s.sendWebhookBodyTemplate(ctx, target, events, publicURL)
+	}
 	payload := webhookPayloadForEvents(events, publicURL)
 	payload["message"] = messageForEvents(target.Webhook.MessageTemplate, events, publicURL)
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}
+	return s.postWebhookBody(ctx, target, body)
+}
+
+// sendWebhookBodyTemplate posts one custom-rendered request per event, so that
+// every request carries a payload the receiving service can parse on its own.
+func (s *Service) sendWebhookBodyTemplate(
+	ctx context.Context,
+	target notificationmodel.Target,
+	events []chatbridge.NotificationEvent,
+	publicURL string,
+) error {
+	for _, event := range events {
+		if event.Status == nil {
+			continue
+		}
+		single := []chatbridge.NotificationEvent{event}
+		message := messageForEvents(target.Webhook.MessageTemplate, single, publicURL)
+		body := renderWebhookBodyTemplate(target.Webhook.BodyTemplate, event, message, publicURL)
+		if !json.Valid([]byte(body)) {
+			return errors.New("webhook body template did not render valid JSON")
+		}
+		if err := s.postWebhookBody(ctx, target, []byte(body)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) postWebhookBody(ctx context.Context, target notificationmodel.Target, body []byte) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target.Webhook.URL, bytes.NewReader(body))
 	if err != nil {
 		return err
@@ -1344,6 +1379,25 @@ func (s *Service) sendSlack(ctx context.Context, target notificationmodel.Target
 		return err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target.Slack.WebhookURL, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	return s.doWebhookRequest(req)
+}
+
+func (s *Service) sendTeams(ctx context.Context, target notificationmodel.Target, events []chatbridge.NotificationEvent) error {
+	if target.Teams == nil || target.Teams.WebhookURL == "" {
+		return errors.New("teams webhook url is not configured")
+	}
+	if err := validateOutboundURL(ctx, target.Teams.WebhookURL, false, false); err != nil {
+		return err
+	}
+	body, err := json.Marshal(teamsPayloadForEvents(target.Teams.MessageTemplate, events, s.publicURL()))
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target.Teams.WebhookURL, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -1606,14 +1660,43 @@ func messageForEvents(template string, events []chatbridge.NotificationEvent, pu
 var notificationTemplateTokenRE = regexp.MustCompile(`\{\{\s*([A-Za-z0-9_.-]+)\s*\}\}`)
 
 func renderNotificationTemplate(template string, event chatbridge.NotificationEvent, publicURL string) string {
+	return renderTemplateTokens(template, notificationTemplateValues(event, publicURL), nil)
+}
+
+// renderWebhookBodyTemplate renders a user-supplied JSON request body. Token
+// values are escaped as JSON string content, so a value carrying quotes or
+// newlines cannot break out of the surrounding string literal.
+func renderWebhookBodyTemplate(
+	template string,
+	event chatbridge.NotificationEvent,
+	message string,
+	publicURL string,
+) string {
 	values := notificationTemplateValues(event, publicURL)
+	values["message"] = message
+	return renderTemplateTokens(template, values, escapeJSONStringContent)
+}
+
+func renderTemplateTokens(template string, values map[string]string, escape func(string) string) string {
 	return notificationTemplateTokenRE.ReplaceAllStringFunc(template, func(token string) string {
 		matches := notificationTemplateTokenRE.FindStringSubmatch(token)
 		if len(matches) != 2 {
 			return ""
 		}
-		return values[matches[1]]
+		value := values[matches[1]]
+		if escape != nil {
+			return escape(value)
+		}
+		return value
 	})
+}
+
+func escapeJSONStringContent(value string) string {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return ""
+	}
+	return string(encoded[1 : len(encoded)-1])
 }
 
 func notificationTemplateValues(event chatbridge.NotificationEvent, publicURL string) map[string]string {
@@ -1776,6 +1859,52 @@ func normalizeNotificationPublicURL(rawURL string) string {
 	parsed.Fragment = ""
 	parsed.Path = strings.TrimRight(parsed.Path, "/")
 	return parsed.String()
+}
+
+// teamsPayloadForEvents builds an Adaptive Card wrapped in the message
+// envelope accepted by both Teams Workflows triggers and legacy connectors.
+func teamsPayloadForEvents(template string, events []chatbridge.NotificationEvent, publicURL string) map[string]any {
+	card := map[string]any{
+		"$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+		"type":    "AdaptiveCard",
+		"version": "1.4",
+		"body": []map[string]any{{
+			"type": "TextBlock",
+			"text": messageForEvents(template, events, publicURL),
+			"wrap": true,
+		}},
+	}
+	if actions := teamsCardActions(events, publicURL); len(actions) > 0 {
+		card["actions"] = actions
+	}
+	return map[string]any{
+		"type": "message",
+		"attachments": []map[string]any{{
+			"contentType": "application/vnd.microsoft.card.adaptive",
+			"content":     card,
+		}},
+	}
+}
+
+func teamsCardActions(events []chatbridge.NotificationEvent, publicURL string) []map[string]any {
+	actions := make([]map[string]any, 0, len(events))
+	seen := make(map[string]struct{}, len(events))
+	for _, event := range events {
+		runURL := notificationRunURL(publicURL, notificationRunPath(event.Status))
+		if runURL == "" {
+			continue
+		}
+		if _, ok := seen[runURL]; ok {
+			continue
+		}
+		seen[runURL] = struct{}{}
+		actions = append(actions, map[string]any{
+			"type":  "Action.OpenUrl",
+			"title": "Open run",
+			"url":   runURL,
+		})
+	}
+	return actions
 }
 
 func webhookPayloadForEvents(events []chatbridge.NotificationEvent, publicURL string) map[string]any {

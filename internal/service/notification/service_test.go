@@ -10,6 +10,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"io"
 	"net"
 	"net/http"
@@ -514,6 +515,137 @@ func TestService_SendTestWebhookIncludesCustomMessage(t *testing.T) {
 	body, _ := receivedBody.Load().(string)
 	assert.Contains(t, body, `"message":"DAG daily-report failed in notification-test"`)
 	assert.Contains(t, body, `"events":[`)
+}
+
+func TestService_SendTestWebhookUsesBodyTemplate(t *testing.T) {
+	t.Parallel()
+
+	var receivedBody atomic.Value
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		receivedBody.Store(string(body))
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+
+	settings, err := notificationmodel.Normalize(&notificationmodel.Settings{
+		DAGName: "daily-report",
+		Enabled: true,
+		Events:  []eventstore.EventType{eventstore.TypeDAGRunFailed},
+		Targets: []notificationmodel.Target{{
+			ID:      "webhook-1",
+			Name:    "Teams Relay",
+			Type:    notificationmodel.ProviderWebhook,
+			Enabled: true,
+			Webhook: &notificationmodel.WebhookTarget{
+				URL:                 server.URL,
+				AllowInsecureHTTP:   true,
+				AllowPrivateNetwork: true,
+				MessageTemplate:     "DAG {{dag.name}} {{run.status}}",
+				BodyTemplate:        `{"text": "{{message}}", "dag": "{{dag.name}}"}`,
+			},
+		}},
+	}, "tester")
+	require.NoError(t, err)
+	svc := New(newMemoryStore(settings), nil)
+
+	results, err := svc.SendTest(context.Background(), "daily-report", "webhook-1", eventstore.TypeDAGRunFailed)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.True(t, results[0].Delivered)
+	body, _ := receivedBody.Load().(string)
+	assert.JSONEq(t, `{"text": "DAG daily-report failed", "dag": "daily-report"}`, body)
+}
+
+func TestRenderWebhookBodyTemplateEscapesValues(t *testing.T) {
+	t.Parallel()
+
+	event := chatbridge.NotificationEvent{
+		Type: eventstore.TypeDAGRunFailed,
+		Status: &exec.DAGRunStatus{
+			Name:     "daily-report",
+			DAGRunID: "run-1",
+			Status:   core.Failed,
+			Error:    "exit status 1: \"boom\"\nsecond line",
+		},
+	}
+
+	body := renderWebhookBodyTemplate(`{"text": "{{run.error}}"}`, event, "", "")
+
+	require.True(t, json.Valid([]byte(body)), "rendered body must be valid JSON: %s", body)
+	var decoded struct {
+		Text string `json:"text"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(body), &decoded))
+	assert.Equal(t, "exit status 1: \"boom\"\nsecond line", decoded.Text)
+}
+
+func TestService_SendTestTeamsPostsAdaptiveCard(t *testing.T) {
+	t.Parallel()
+
+	var receivedBody atomic.Value
+	svc := New(
+		newMemoryStore(mustNormalizeSettings(t, &notificationmodel.Settings{
+			DAGName: "daily-report",
+			Enabled: true,
+			Events:  []eventstore.EventType{eventstore.TypeDAGRunFailed},
+			Targets: []notificationmodel.Target{{
+				ID:      "teams-1",
+				Name:    "Ops Teams",
+				Type:    notificationmodel.ProviderTeams,
+				Enabled: true,
+				Teams: &notificationmodel.TeamsTarget{
+					WebhookURL:      "https://93.184.216.34/workflows/trigger",
+					MessageTemplate: "DAG {{dag.name}} {{run.status}}",
+				},
+			}},
+		})),
+		nil,
+		WithPublicURL("https://dagu.example.com"),
+		WithHTTPClient(&http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			body, err := io.ReadAll(req.Body)
+			require.NoError(t, err)
+			receivedBody.Store(string(body))
+			return acceptedResponse(req), nil
+		})}),
+	)
+
+	results, err := svc.SendTest(context.Background(), "daily-report", "teams-1", eventstore.TypeDAGRunFailed)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.True(t, results[0].Delivered)
+
+	body, _ := receivedBody.Load().(string)
+	var payload struct {
+		Type        string `json:"type"`
+		Attachments []struct {
+			ContentType string `json:"contentType"`
+			Content     struct {
+				Type string `json:"type"`
+				Body []struct {
+					Text string `json:"text"`
+				} `json:"body"`
+				Actions []struct {
+					Type string `json:"type"`
+					URL  string `json:"url"`
+				} `json:"actions"`
+			} `json:"content"`
+		} `json:"attachments"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(body), &payload))
+	assert.Equal(t, "message", payload.Type)
+	require.Len(t, payload.Attachments, 1)
+	assert.Equal(t, "application/vnd.microsoft.card.adaptive", payload.Attachments[0].ContentType)
+	assert.Equal(t, "AdaptiveCard", payload.Attachments[0].Content.Type)
+	require.Len(t, payload.Attachments[0].Content.Body, 1)
+	assert.Equal(t, "DAG daily-report failed", payload.Attachments[0].Content.Body[0].Text)
+	require.Len(t, payload.Attachments[0].Content.Actions, 1)
+	assert.Equal(t, "Action.OpenUrl", payload.Attachments[0].Content.Actions[0].Type)
+	assert.Equal(t,
+		"https://dagu.example.com/dag-runs/daily-report/notification-test",
+		payload.Attachments[0].Content.Actions[0].URL,
+	)
 }
 
 func TestService_SendTestWebhookIncludesRunLinks(t *testing.T) {
