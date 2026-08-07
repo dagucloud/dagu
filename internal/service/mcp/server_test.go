@@ -184,6 +184,9 @@ func TestServerExposesReferenceResourcesAndPrompts(t *testing.T) {
 	require.Len(t, authoring.Contents, 1)
 	require.Contains(t, authoring.Contents[0].Text, "human.task")
 	require.Contains(t, authoring.Contents[0].Text, "Human task form properties")
+	require.Contains(t, authoring.Contents[0].Text, "type: incremental")
+	require.Contains(t, authoring.Contents[0].Text, "${outputs.name}")
+	require.Contains(t, authoring.Contents[0].Text, "Incremental workflows are local-only")
 
 	prompts, err := session.ListPrompts(ctx, nil)
 	require.NoError(t, err)

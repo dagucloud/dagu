@@ -235,9 +235,9 @@ Use `--inputs-json` instead of repeated `--input` flags when input types must be
 
 Completing the last waiting human task resumes a local run directly. A distributed run is re-queued, so its scheduler must be running.
 
-## Declared Step Outputs
+## Declared Value Outputs
 
-Declare `outputs:` when a step should publish named values for later steps as `${steps.<step_id>.outputs.<name>}`.
+Declare value-form `outputs:` when a step should publish named values for later steps as `${steps.<step_id>.outputs.<name>}`. Incremental file outputs use `path` instead; see `references/incremental.md`.
 
 ```yaml
 steps:
