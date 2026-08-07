@@ -1020,3 +1020,28 @@ steps:
 	// it nor replace it with the value it just parsed out of the YAML.
 	assert.Equal(t, snapshotWorkingDir, restored.WorkingDir)
 }
+
+func TestRebuildDAGRunSnapshotFromYAMLPreservesPresolvedBuildEnv(t *testing.T) {
+	t.Parallel()
+
+	dag := &core.DAG{
+		Name: "snapshot-presolved-env",
+		YamlData: []byte(`
+env:
+  - DECLARED: from-yaml
+steps:
+  - run: echo hello
+`),
+		// Resolved at original build time from a source the retrying process may
+		// no longer have. The DAG's own env block does not declare it, so
+		// rebuilding from YAML cannot recover it.
+		PresolvedBuildEnv: map[string]string{"SNAPSHOT_ONLY": "kept"},
+	}
+
+	restored, err := rebuildDAGRunSnapshotFromYAML(context.Background(), dag)
+	require.NoError(t, err)
+	require.Same(t, dag, restored)
+
+	assert.Contains(t, restored.Env, "DECLARED=from-yaml")
+	assert.Contains(t, restored.Env, "SNAPSHOT_ONLY=kept")
+}
