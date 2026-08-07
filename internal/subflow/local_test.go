@@ -18,7 +18,9 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/collections"
 	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	filematerialization "github.com/dagucloud/dagu/v2/internal/persis/file/materialization"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/subflow"
@@ -174,6 +176,59 @@ steps:
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Equal(t, core.Succeeded, result.Status)
+}
+
+func TestLocalRunPreservesIncrementalPathBaseFromCopiedDefinition(t *testing.T) {
+	if goruntime.GOOS == "windows" {
+		t.Skip("uses a POSIX command")
+	}
+
+	th := test.Setup(t)
+	authoredDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(authoredDir, "source.txt"), []byte("source"), 0o600))
+	authoredPath := filepath.Join(authoredDir, "child.yaml")
+	require.NoError(t, os.WriteFile(authoredPath, []byte(`
+name: incremental-child
+type: incremental
+steps:
+  - id: build
+    inputs:
+      - name: source
+        path: source.txt
+    outputs:
+      - name: artifact
+        path: artifact.txt
+    run: cp "${inputs.source}" "${outputs.artifact}"
+`), 0o600))
+
+	child, err := spec.Load(th.Context, authoredPath)
+	require.NoError(t, err)
+	copyDir := t.TempDir()
+	child.Location = filepath.Join(copyDir, "child.yaml")
+	require.NoError(t, os.WriteFile(child.Location, child.YamlData, 0o600))
+
+	root := exec.NewDAGRunRef("parent", uuid.Must(uuid.NewV7()).String())
+	ctx := exec.NewContext(
+		th.Context,
+		&core.DAG{Name: root.Name},
+		root.ID,
+		filepath.Join(t.TempDir(), "parent.log"),
+		exec.WithMaterializationStore(filematerialization.New(filepath.Join(t.TempDir(), "materializations"))),
+	)
+	runner := subflow.NewLocal(th.DAGRunMgr, th.DAGStore)
+	result, err := runner.Run(ctx, executor.SubWorkflowRequest{
+		DAG:          child,
+		RootDAGRun:   root,
+		ParentDAGRun: root,
+		RunID:        uuid.Must(uuid.NewV7()).String(),
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, core.Succeeded, result.Status)
+	content, err := os.ReadFile(filepath.Join(authoredDir, "artifact.txt"))
+	require.NoError(t, err)
+	require.Equal(t, "source", string(content))
 }
 
 func TestLocalRunPreparesDeclaredTools(t *testing.T) {

@@ -24,10 +24,7 @@ func prepareIncrementalPlan(ctx context.Context, plan *Plan) error {
 	if err != nil {
 		return err
 	}
-	base := dag.WorkingDir
-	if dag.WorkingDirExplicit {
-		base = baseEnv.WorkingDir
-	}
+	base := incrementalDeclaredPathBase(dag, baseEnv.WorkingDir)
 	pathKeys := incremental.NewPathKeyResolver()
 	producers := make(map[string]string)
 	declaredPaths := make(map[string]string)
@@ -44,7 +41,7 @@ func prepareIncrementalPlan(ctx context.Context, plan *Plan) error {
 			if err != nil {
 				return err
 			}
-			if strings.Contains(resolved, "${") {
+			if cmnvalue.HasValueReference(resolved) {
 				return fmt.Errorf("step %s input %s path must resolve before execution", step.Name, step.Inputs[idx].Name)
 			}
 			step.Inputs[idx].Path, err = incremental.ResolvePath(resolved, base, false)
@@ -61,7 +58,7 @@ func prepareIncrementalPlan(ctx context.Context, plan *Plan) error {
 			if err != nil {
 				return err
 			}
-			if strings.Contains(resolved, "${") {
+			if cmnvalue.HasValueReference(resolved) {
 				return fmt.Errorf("step %s output %s path must resolve before execution", step.Name, step.Outputs[idx].Name)
 			}
 			step.Outputs[idx].Path, err = incremental.ResolvePath(resolved, base, true)
@@ -91,7 +88,7 @@ func prepareIncrementalPlan(ctx context.Context, plan *Plan) error {
 		if err != nil {
 			return err
 		}
-		if err := validateIncrementalRedirectAliases(ctx, step, env, declaredPaths, pathKeys, true); err != nil {
+		if err := validateIncrementalRedirectAliases(ctx, step, env, base, declaredPaths, pathKeys, true); err != nil {
 			return err
 		}
 
@@ -106,6 +103,13 @@ func prepareIncrementalPlan(ctx context.Context, plan *Plan) error {
 	return nil
 }
 
+func incrementalDeclaredPathBase(dag *core.DAG, runtimeWorkingDir string) string {
+	if dag.WorkingDirExplicit {
+		return runtimeWorkingDir
+	}
+	return dag.WorkingDir
+}
+
 type incrementalRedirect struct {
 	field    string
 	path     string
@@ -118,10 +122,10 @@ func validateIncrementalRuntimeRedirectAliases(ctx context.Context, plan *Plan, 
 		return nil
 	}
 	step := node.Step()
-	if !strings.Contains(step.Stdout, "${") &&
-		!strings.Contains(step.Stderr, "${") &&
-		!strings.Contains(step.StdoutArtifact, "${") &&
-		!strings.Contains(step.StderrArtifact, "${") {
+	if !cmnvalue.HasValueReference(step.Stdout) &&
+		!cmnvalue.HasValueReference(step.Stderr) &&
+		!cmnvalue.HasValueReference(step.StdoutArtifact) &&
+		!cmnvalue.HasValueReference(step.StderrArtifact) {
 		return nil
 	}
 
@@ -138,13 +142,23 @@ func validateIncrementalRuntimeRedirectAliases(ctx context.Context, plan *Plan, 
 			}
 		}
 	}
-	return validateIncrementalRedirectAliases(ctx, step, GetEnv(ctx), declaredPaths, pathKeys, false)
+	env := GetEnv(ctx)
+	return validateIncrementalRedirectAliases(
+		ctx,
+		step,
+		env,
+		incrementalDeclaredPathBase(dag, env.WorkingDir),
+		declaredPaths,
+		pathKeys,
+		false,
+	)
 }
 
 func validateIncrementalRedirectAliases(
 	ctx context.Context,
 	step core.Step,
 	env Env,
+	base string,
 	declaredPaths map[string]string,
 	pathKeys *incremental.PathKeyResolver,
 	deferUnresolved bool,
@@ -169,7 +183,7 @@ func validateIncrementalRedirectAliases(
 		if err != nil {
 			return err
 		}
-		if strings.Contains(resolved, "${") {
+		if cmnvalue.HasValueReference(resolved) {
 			if deferUnresolved {
 				continue
 			}
@@ -193,7 +207,7 @@ func validateIncrementalRedirectAliases(
 			}
 			resolved = filepath.Join(filepath.Clean(artifactDir), filepath.FromSlash(rel))
 		} else if !filepath.IsAbs(resolved) {
-			resolved = filepath.Join(env.WorkingDir, resolved)
+			resolved = filepath.Join(base, resolved)
 		}
 		if declaration, ok := declaredPaths[pathKeys.ComparisonKey(filepath.Clean(resolved))]; ok {
 			return fmt.Errorf("step %s %s path aliases %s: %s", step.Name, redirect.field, declaration, resolved)

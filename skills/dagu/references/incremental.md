@@ -66,7 +66,7 @@ The default per-run scratch directory is normalized in the recipe digest, so a d
 
 Always write the result to `${outputs.<name>}`. Dagu verifies the staged file and input snapshots before atomically replacing the final output. Writing directly to the final output bypasses that contract. `stdout`, `stderr`, `stdout.artifact`, and `stderr.artifact` destinations cannot target any declared incremental input or output.
 
-Potentially reusable producers expose downstream data only through `${steps.<step_id>.outputs.<name>}`. Do not read `${step_id.stdout}`, `${step_id.stderr}`, `${step_id.exit_code}`, `${step_id.output}`, or `${step_id.outputs}` from them because reuse does not recreate attempt results. Path-output steps also cannot use `continue_on.mark_success`; failed attempts must not expose an old or missing final file as a successful publication.
+Potentially reusable producers expose downstream data only through `${steps.<step_id>.outputs.<name>}`. Do not read `${step_id.stdout}`, `${step_id.stderr}`, or `${step_id.exit_code}` from them. This also applies to `${step_id.output.<name>}` and `${step_id.outputs.<name>}`, including their whole-value `${step_id.output}` and `${step_id.outputs}` forms, because reuse does not recreate attempt results. Path-output steps also cannot use `continue_on.mark_success`; failed attempts must not expose an old or missing final file as a successful publication.
 
 Each retry receives a new staging path. A failed, timed-out, or aborted attempt removes its staging file and leaves the previous final output and manifest unchanged.
 Crash recovery refuses to overwrite a final output that was externally replaced with content matching neither the previous nor the proposed materialization.

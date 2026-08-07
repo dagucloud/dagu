@@ -927,7 +927,7 @@ func (r *Runner) setupVariables(ctx context.Context, plan *Plan, node *Node) (co
 func environmentWithoutAttemptPaths(values []string) []string {
 	filtered := make([]string, 0, len(values))
 	for _, value := range values {
-		if !strings.Contains(value, "${inputs.") && !strings.Contains(value, "${outputs.") {
+		if !cmnvalue.HasReferenceToNamespace(value, "inputs", "outputs") {
 			filtered = append(filtered, value)
 		}
 	}
@@ -937,7 +937,7 @@ func environmentWithoutAttemptPaths(values []string) []string {
 func environmentWithoutAttemptOutputs(values []string) []string {
 	filtered := make([]string, 0, len(values))
 	for _, value := range values {
-		if !strings.Contains(value, "${outputs.") {
+		if !cmnvalue.HasReferenceToNamespace(value, "outputs") {
 			filtered = append(filtered, value)
 		}
 	}

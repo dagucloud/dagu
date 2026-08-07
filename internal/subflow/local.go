@@ -537,6 +537,14 @@ func loadInProcessDAG(
 		cleanup()
 		return nil, nil, fmt.Errorf("failed to load child workflow DAG: %w", err)
 	}
+	// Incremental paths remain anchored to the authored definition when a local
+	// child is reloaded from a temporary copy.
+	if req.DAG.Type == core.TypeIncremental &&
+		!req.DAG.WorkingDirExplicit &&
+		!dag.WorkingDirExplicit &&
+		req.DAG.WorkingDir != "" {
+		dag.WorkingDir = req.DAG.WorkingDir
+	}
 	dag.SourceFile = req.DAG.SourceFile
 	return dag, cleanup, nil
 }

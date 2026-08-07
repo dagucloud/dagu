@@ -285,9 +285,14 @@ func validateIncrementalPathBaseFrom(dag *core.DAG, inheritedWorkingDir string) 
 	if effectiveWorkingDir == "" {
 		effectiveWorkingDir = inheritedWorkingDir
 	}
-	if dag.Type == core.TypeIncremental && effectiveWorkingDir == "" && hasRelativeIncrementalPath(dag) {
-		return core.NewValidationError("working_dir", dag.WorkingDir,
-			fmt.Errorf("relative incremental paths require an authored or caller-supplied working_dir"))
+	if dag.Type == core.TypeIncremental && hasRelativeIncrementalPath(dag) {
+		if effectiveWorkingDir == "" {
+			return core.NewValidationError("working_dir", dag.WorkingDir,
+				fmt.Errorf("relative incremental paths require an authored or caller-supplied working_dir"))
+		}
+		if dag.WorkingDir == "" {
+			dag.WorkingDir = effectiveWorkingDir
+		}
 	}
 	for _, localDAG := range dag.LocalDAGs {
 		if err := validateIncrementalPathBaseFrom(localDAG, effectiveWorkingDir); err != nil {

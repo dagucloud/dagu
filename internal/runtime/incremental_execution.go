@@ -165,6 +165,8 @@ func resolveIncrementalRecipe(ctx context.Context, step core.Step) (core.Step, m
 	outputs := make(map[string]string, len(step.Outputs))
 	for _, output := range step.Outputs {
 		if output.Path != "" {
+			// Recipe resolution keeps the logical output binding stable across
+			// attempts whose physical staging paths are necessarily different.
 			outputs[output.Name] = "${outputs." + output.Name + "}"
 		}
 	}

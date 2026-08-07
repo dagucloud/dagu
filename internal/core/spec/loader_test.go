@@ -1548,9 +1548,10 @@ steps:
 func TestLoadYAMLIncrementalLocalDAGUsesParentWorkingDirAsStableBase(t *testing.T) {
 	t.Parallel()
 
-	dag, err := spec.LoadYAML(context.Background(), []byte(`
+	parentWorkingDir := t.TempDir()
+	dag, err := spec.LoadYAML(context.Background(), fmt.Appendf(nil, `
 type: incremental
-working_dir: .
+working_dir: %q
 steps:
   - name: call-child
     action: dag.run
@@ -1569,9 +1570,12 @@ steps:
     outputs:
       - name: artifact
         path: artifact.txt
-`), spec.WithName("parent-task"), spec.WithoutEval())
+`, parentWorkingDir), spec.WithName("parent-task"), spec.WithoutEval())
 	require.NoError(t, err)
-	require.Contains(t, dag.LocalDAGs, "child-task")
+	childDAG, ok := dag.LocalDAGs["child-task"]
+	require.True(t, ok)
+	assert.Equal(t, parentWorkingDir, childDAG.WorkingDir)
+	assert.False(t, childDAG.WorkingDirExplicit)
 }
 
 func TestLoad_MultiDocumentFilePreservesDocumentProvenance(t *testing.T) {

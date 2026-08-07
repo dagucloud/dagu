@@ -4,6 +4,7 @@
 package value
 
 import (
+	"slices"
 	"sort"
 	"strings"
 )
@@ -83,6 +84,19 @@ func scanReferences(raw string) []reference {
 func HasValueReference(raw string) bool {
 	for _, ref := range scanReferences(raw) {
 		if ref.Kind == referenceStrict || ref.Kind == referenceEval {
+			return true
+		}
+	}
+	return false
+}
+
+// HasReferenceToNamespace reports whether raw references one of the named scopes.
+func HasReferenceToNamespace(raw string, namespaces ...string) bool {
+	for _, ref := range scanReferences(raw) {
+		if ref.Kind != referenceStrict && ref.Kind != referenceEval {
+			continue
+		}
+		if slices.Contains(namespaces, ref.Namespace) {
 			return true
 		}
 	}

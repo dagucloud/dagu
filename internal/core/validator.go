@@ -274,11 +274,11 @@ func containsCommandSubstitution(value string) bool {
 }
 
 func containsAttemptOutputReference(value string) bool {
-	return strings.Contains(value, "${outputs.")
+	return cmnvalue.HasReferenceToNamespace(value, "outputs")
 }
 
 func containsInputPathReference(value string) bool {
-	return strings.Contains(value, "${inputs.")
+	return cmnvalue.HasReferenceToNamespace(value, "inputs")
 }
 
 func validateNoAttemptOutputReference(errs *ErrorList, field, value string) {

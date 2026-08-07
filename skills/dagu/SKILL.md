@@ -42,7 +42,7 @@ Load only the reference file that matches the task.
 - `${step_id.stdout}` is a log file path, not stdout content.
 - Use `${context.*}` for run metadata in DAG YAML, for example `${context.dag.name}`, `${context.run.id}`, or `${context.paths.artifacts_dir}`. Unavailable context values remain unresolved text instead of becoming empty strings.
 - In an incremental step, `${inputs.<name>}` is the final input path and `${outputs.<name>}` is a fresh attempt staging path. Write file results only to the staging path; dependencies read the committed path as `${steps.<step_id>.outputs.<name>}`.
-- Do not read attempt-only `${step_id.stdout}`, `${step_id.stderr}`, `${step_id.exit_code}`, `${step_id.output}`, or `${step_id.outputs}` from potentially reusable producers. Path-output steps cannot use `continue_on.mark_success`.
+- Do not read attempt-only `${step_id.stdout}`, `${step_id.stderr}`, or `${step_id.exit_code}` from potentially reusable producers. This also applies to `${step_id.output.<name>}` and `${step_id.outputs.<name>}`, including their whole-value `${step_id.output}` and `${step_id.outputs}` forms. Path-output steps cannot use `continue_on.mark_success`.
 - Incremental workflows are local-only. Path declarations are supported only on host command or shell steps without containers, and stream redirects cannot target declared incremental inputs or outputs.
 - Use `${consts.NAME}`, `${params.NAME}`, and `${env.NAME}` for Dagu-side named values. Use shell `$NAME` or `printenv NAME` only when the target shell or process should read the variable at execution time.
 - `consts:` must use list form with one key per item, for example `consts: [{service: api}]`. Const values are resolved while loading the DAG and can reference inherited or earlier consts.

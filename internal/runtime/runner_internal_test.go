@@ -210,6 +210,7 @@ func TestPrepareIncrementalPlanRejectsRedirectAlias(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			workingDir := t.TempDir()
+			runWorkDir := t.TempDir()
 			artifactDir := t.TempDir()
 			require.NoError(t, os.WriteFile(filepath.Join(workingDir, "source.txt"), []byte("source"), 0o600))
 
@@ -241,11 +242,10 @@ func TestPrepareIncrementalPlanRejectsRedirectAlias(t *testing.T) {
 			plan, err := NewPlan(step)
 			require.NoError(t, err)
 			ctx := NewContext(context.Background(), &core.DAG{
-				Name:               "incremental-test",
-				Type:               core.TypeIncremental,
-				WorkingDir:         workingDir,
-				WorkingDirExplicit: true,
-			}, "run-1", filepath.Join(workingDir, "dag.log"), WithArtifactDir(artifactDir))
+				Name:       "incremental-test",
+				Type:       core.TypeIncremental,
+				WorkingDir: workingDir,
+			}, "run-1", filepath.Join(workingDir, "dag.log"), WithArtifactDir(artifactDir), WithWorkDir(runWorkDir))
 
 			err = prepareIncrementalPlan(ctx, plan)
 			require.ErrorContains(t, err, tt.field+" path aliases incremental "+tt.targetKind)
@@ -286,9 +286,10 @@ func TestValidateIncrementalRuntimeRedirectAliases(t *testing.T) {
 		field      string
 		targetKind string
 		artifact   bool
+		reference  string
 	}{
-		{name: "stdout input", field: "stdout", targetKind: "input"},
-		{name: "stdout artifact output", field: "stdout.artifact", targetKind: "output", artifact: true},
+		{name: "stdout input", field: "stdout", targetKind: "input", reference: "$producer.output"},
+		{name: "stdout artifact output", field: "stdout.artifact", targetKind: "output", artifact: true, reference: "${producer.output}"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -309,9 +310,9 @@ func TestValidateIncrementalRuntimeRedirectAliases(t *testing.T) {
 			if tt.artifact {
 				outputPath = "${context.paths.artifacts_dir}/result.txt"
 				resolvedRedirect = "result.txt"
-				consumer.StdoutArtifact = "${producer.output}"
+				consumer.StdoutArtifact = tt.reference
 			} else {
-				consumer.Stdout = "${producer.output}"
+				consumer.Stdout = tt.reference
 			}
 			consumer.Outputs = []core.StepOutputDeclaration{{Name: "result", Path: outputPath}}
 
@@ -338,6 +339,25 @@ func TestValidateIncrementalRuntimeRedirectAliases(t *testing.T) {
 			require.ErrorContains(t, err, tt.field+" path aliases incremental "+tt.targetKind)
 		})
 	}
+}
+
+func TestEnvironmentWithoutAttemptPathsRecognizesReferenceForms(t *testing.T) {
+	t.Parallel()
+
+	values := []string{
+		"KEEP=${params.keep}",
+		"BRACED_INPUT=${inputs.source}",
+		"PLAIN_INPUT=$inputs.source",
+		"BRACED_OUTPUT=${outputs.artifact}",
+		"PLAIN_OUTPUT=$outputs.artifact",
+	}
+
+	assert.Equal(t, []string{"KEEP=${params.keep}"}, environmentWithoutAttemptPaths(values))
+	assert.Equal(t, []string{
+		"KEEP=${params.keep}",
+		"BRACED_INPUT=${inputs.source}",
+		"PLAIN_INPUT=$inputs.source",
+	}, environmentWithoutAttemptOutputs(values))
 }
 
 func TestIncrementalInputIsAvailableToStepPrecondition(t *testing.T) {

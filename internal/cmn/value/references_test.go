@@ -115,6 +115,27 @@ func TestHasStepRuntimeOutputReference(t *testing.T) {
 	}
 }
 
+func TestHasReferenceToNamespace(t *testing.T) {
+	t.Parallel()
+
+	for _, input := range []string{
+		"${inputs.source}",
+		"$inputs.source",
+		"prefix ${outputs.artifact}",
+		"prefix $outputs.artifact",
+	} {
+		assert.True(t, value.HasReferenceToNamespace(input, "inputs", "outputs"), input)
+	}
+
+	for _, input := range []string{
+		"${params.source}",
+		"$build.output",
+		`\${inputs.source}`,
+	} {
+		assert.False(t, value.HasReferenceToNamespace(input, "inputs", "outputs"), input)
+	}
+}
+
 func TestResolverStringResolvesParamsAndPreservesOtherNamespaces(t *testing.T) {
 	t.Parallel()
 
