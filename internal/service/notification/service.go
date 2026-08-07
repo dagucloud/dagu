@@ -1407,7 +1407,17 @@ func (s *Service) sendTeams(ctx context.Context, target notificationmodel.Target
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	return s.doWebhookRequest(req)
+	return s.deliverRequest(req, teamsThrottleError)
+}
+
+// teamsThrottleError reports rate limiting for Microsoft Teams incoming
+// webhooks, which report it in the body of a 200 response instead of with
+// HTTP 429.
+func teamsThrottleError(body string) error {
+	if strings.Contains(body, "Microsoft Teams endpoint returned HTTP error 429") {
+		return temporaryDeliveryError{err: errors.New("teams webhook is rate limited")}
+	}
+	return nil
 }
 
 func (s *Service) sendTelegram(ctx context.Context, target notificationmodel.Target, events []chatbridge.NotificationEvent) error {
@@ -1437,6 +1447,12 @@ func (s *Service) sendTelegram(ctx context.Context, target notificationmodel.Tar
 }
 
 func (s *Service) doWebhookRequest(req *http.Request) error {
+	return s.deliverRequest(req, nil)
+}
+
+// deliverRequest sends req and maps the response to a delivery error. checkBody,
+// when set, inspects the body of an otherwise successful response.
+func (s *Service) deliverRequest(req *http.Request, checkBody func(body string) error) error {
 	resp, err := s.http.Do(req)
 	if err != nil {
 		return temporaryDeliveryError{err: err}
@@ -1451,6 +1467,9 @@ func (s *Service) doWebhookRequest(req *http.Request) error {
 			return temporaryDeliveryError{err: err}
 		}
 		return err
+	}
+	if checkBody != nil {
+		return checkBody(readLimitedBody(resp.Body))
 	}
 	return nil
 }
@@ -1510,15 +1529,19 @@ func (s *Service) withRetry(ctx context.Context, send func() error) error {
 }
 
 func limitedResponseBody(body io.Reader) string {
-	if body == nil {
-		return ""
-	}
-	data, _ := io.ReadAll(io.LimitReader(body, 512))
-	text := strings.TrimSpace(string(data))
+	text := readLimitedBody(body)
 	if text == "" {
 		return ""
 	}
 	return ": " + text
+}
+
+func readLimitedBody(body io.Reader) string {
+	if body == nil {
+		return ""
+	}
+	data, _ := io.ReadAll(io.LimitReader(body, 512))
+	return strings.TrimSpace(string(data))
 }
 
 func validateOutboundURL(ctx context.Context, rawURL string, allowInsecureHTTP, allowPrivateNetwork bool) error {

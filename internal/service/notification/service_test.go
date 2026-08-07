@@ -643,6 +643,42 @@ func TestRenderWebhookBodyTemplateEscapesValues(t *testing.T) {
 	assert.Equal(t, "exit status 1: \"boom\"\nsecond line", decoded.Text)
 }
 
+func TestService_TeamsThrottledResponseIsRetried(t *testing.T) {
+	t.Parallel()
+
+	var attempts atomic.Int32
+	svc := New(
+		newMemoryStore(),
+		nil,
+		WithDeliveryRetry(DeliveryRetryConfig{MaxAttempts: 2}),
+		WithHTTPClient(&http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			if attempts.Add(1) == 1 {
+				// Teams reports throttling in the body of a 200 response.
+				resp := acceptedResponse(req)
+				resp.Body = io.NopCloser(strings.NewReader(
+					"Microsoft Teams endpoint returned HTTP error 429",
+				))
+				return resp, nil
+			}
+			return acceptedResponse(req), nil
+		})}),
+	)
+	target := notificationmodel.Target{
+		ID:      "teams-1",
+		Type:    notificationmodel.ProviderTeams,
+		Enabled: true,
+		Teams: &notificationmodel.TeamsTarget{
+			WebhookURL: "https://93.184.216.34/workflows/trigger",
+		},
+	}
+
+	err := svc.deliverTarget(context.Background(), target, []chatbridge.NotificationEvent{
+		notificationEventForRun(t, "run-1"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int32(2), attempts.Load())
+}
+
 func TestService_SendTestTeamsPostsAdaptiveCard(t *testing.T) {
 	t.Parallel()
 
