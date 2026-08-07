@@ -140,6 +140,15 @@ func TestMarshalWebhookHeaders_Filtering(t *testing.T) {
 			},
 			want: `{"x-github-event":["push"]}`,
 		},
+		{
+			name:      "profile selection header is never forwarded",
+			allowList: []string{"x-dagu-profile", "x-github-event"},
+			headers: http.Header{
+				"X-Dagu-Profile": {"prod"},
+				"X-GitHub-Event": {"push"},
+			},
+			want: `{"x-github-event":["push"]}`,
+		},
 	}
 
 	for _, tt := range tests {
@@ -151,4 +160,18 @@ func TestMarshalWebhookHeaders_Filtering(t *testing.T) {
 			assert.JSONEq(t, tt.want, got)
 		})
 	}
+}
+
+func TestRequestedWebhookProfile(t *testing.T) {
+	t.Parallel()
+
+	profileName := api.RuntimeProfileName("prod")
+	ctx := apiimpl.WithRequestHeaders(context.Background(), http.Header{
+		"X-Dagu-Profile": {"prod", "staging"},
+	})
+
+	got, apiErr := apiimpl.RequestedWebhookProfile(ctx, &profileName)
+	assert.Empty(t, got)
+	require.NotNil(t, apiErr)
+	assert.Equal(t, http.StatusBadRequest, apiErr.HTTPStatus)
 }

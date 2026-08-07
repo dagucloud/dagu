@@ -21,6 +21,7 @@ func TestIsDeniedWebhookForwardHeader(t *testing.T) {
 
 	assert.True(t, IsDeniedWebhookForwardHeader("Authorization"))
 	assert.True(t, IsDeniedWebhookForwardHeader(" authorization "))
+	assert.True(t, IsDeniedWebhookForwardHeader("X-Dagu-Profile"))
 	assert.False(t, IsDeniedWebhookForwardHeader("X-GitHub-Event"))
 }
 

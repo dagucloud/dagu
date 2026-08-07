@@ -18,7 +18,10 @@ import { useSearchState } from '../../contexts/SearchStateContext';
 import { useUserPreferences } from '../../contexts/UserPreference';
 import { DAGDetailsModal } from '../../features/dags/components/dag-details';
 import { DAGErrors } from '../../features/dags/components/dag-editor';
-import { DAGTable } from '../../features/dags/components/dag-list';
+import {
+  DAGTable,
+  type DAGDeleteResult,
+} from '../../features/dags/components/dag-list';
 import DAGListHeader from '../../features/dags/components/dag-list/DAGListHeader';
 import type {
   WorkflowFilterSet,
@@ -73,6 +76,7 @@ const areDAGDefinitionsFiltersEqual = (
   a.sortOrder === b.sortOrder;
 
 const ALL_WORKFLOWS_VIEW_PARAM = 'all';
+const DELETE_BATCH_SIZE = 5;
 
 function normalizeWorkflowSortField(value?: string | null): ViewSortField {
   return value === ViewSortField.nextRun
@@ -670,6 +674,81 @@ function DAGsContent() {
     setTimeout(() => mutate(), 500);
   }, [mutate, resetLoadedPages]);
 
+  const handleDeleteDAGs = React.useCallback(
+    async (fileNames: string[]): Promise<DAGDeleteResult[]> => {
+      const deleteOne = async (fileName: string): Promise<DAGDeleteResult> => {
+        try {
+          const { error } = await client.DELETE('/dags/{fileName}', {
+            params: {
+              path: { fileName },
+              query: { remoteNode },
+            },
+          });
+          return {
+            fileName,
+            error: error
+              ? error.message || 'The delete request failed'
+              : undefined,
+          };
+        } catch (error) {
+          return {
+            fileName,
+            error:
+              error instanceof Error
+                ? error.message
+                : 'Unexpected server error',
+          };
+        }
+      };
+
+      const results: DAGDeleteResult[] = [];
+      for (
+        let index = 0;
+        index < fileNames.length;
+        index += DELETE_BATCH_SIZE
+      ) {
+        const batch = fileNames.slice(index, index + DELETE_BATCH_SIZE);
+        results.push(...(await Promise.all(batch.map(deleteOne))));
+      }
+      const deletedFileNames = results
+        .filter((result) => !result.error)
+        .map((result) => result.fileName);
+
+      if (deletedFileNames.length > 0) {
+        if (selectedDAG && deletedFileNames.includes(selectedDAG)) {
+          setSelectedDAG(null);
+        }
+        resetLoadedPages();
+        await mutate();
+      }
+
+      return results;
+    },
+    [client, mutate, remoteNode, resetLoadedPages, selectedDAG]
+  );
+
+  const handleRenameDAG = React.useCallback(
+    async (fileName: string, newFileName: string): Promise<void> => {
+      const { error } = await client.POST('/dags/{fileName}/rename', {
+        params: {
+          path: { fileName },
+          query: { remoteNode },
+        },
+        body: { newFileName },
+      });
+      if (error) {
+        throw new Error(error.message || 'Failed to rename workflow');
+      }
+
+      if (selectedDAG === fileName) {
+        setSelectedDAG(newFileName);
+      }
+      resetLoadedPages();
+      await mutate();
+    },
+    [client, mutate, remoteNode, resetLoadedPages, selectedDAG]
+  );
+
   const handleSelectDAG = React.useCallback((fileName: string) => {
     setSelectedDAG(fileName);
   }, []);
@@ -1021,6 +1100,8 @@ function DAGsContent() {
             isAllWorkflowsView={isAllWorkflowsView}
             isWorkflowViewEdited={isWorkflowViewEdited}
             canManageWorkflowViews={canManageWorkflowViews}
+            canDeleteDAGs={canManageWorkflowViews}
+            canRenameDAGs={canManageWorkflowViews}
             workflowViewError={workflowViewError}
             onSelectWorkflowView={handleSelectWorkflowView}
             onShowAllWorkflows={handleShowAllWorkflows}
@@ -1030,6 +1111,8 @@ function DAGsContent() {
             onSetDefaultWorkflowView={handleSetDefaultWorkflowView}
             onSetPinnedWorkflowView={handleSetPinnedWorkflowView}
             onDeleteWorkflowView={handleDeleteWorkflowView}
+            onDeleteDAGs={handleDeleteDAGs}
+            onRenameDAG={handleRenameDAG}
             resultCount={data.pagination.totalRecords}
             selectedDAG={selectedDAG}
             onSelectDAG={handleSelectDAG}

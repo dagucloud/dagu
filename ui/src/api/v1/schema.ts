@@ -2065,6 +2065,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dags/{fileName}/webhook/profile-selection": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Configure webhook profile selection
+         * @description Replaces the runtime profiles that callers may select through the
+         *     `X-Dagu-Profile` header. An empty list disables caller selection.
+         *     Admin only.
+         *
+         */
+        put: operations["configureDAGWebhookProfileSelection"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dags/{fileName}/webhook/toggle": {
         parameters: {
             query?: never;
@@ -3675,6 +3698,7 @@ export interface components {
             enabled: boolean;
             authMode: components["schemas"]["WebhookAuthMode"];
             hmac: components["schemas"]["WebhookHMACDetails"];
+            profileSelection: components["schemas"]["WebhookProfileSelectionDetails"];
             /**
              * Format: date-time
              * @description When the webhook was created
@@ -3707,6 +3731,15 @@ export interface components {
         WebhookToggleRequest: {
             /** @description Whether to enable or disable the webhook */
             enabled: boolean;
+        };
+        /** @description Runtime profiles that webhook callers may select */
+        WebhookProfileSelectionDetails: {
+            /** @description Runtime profile names accepted through X-Dagu-Profile. An empty list disables caller selection. */
+            allowedProfiles: components["schemas"]["RuntimeProfileName"][];
+        };
+        /** @description Replacement runtime-profile allowlist for a webhook */
+        WebhookProfileSelectionRequest: {
+            allowedProfiles: components["schemas"]["RuntimeProfileName"][];
         };
         /** @description Request to configure webhook HMAC auth mode and enforcement.
          *     If enforcementMode is omitted when enabling HMAC, it defaults to strict.
@@ -11239,8 +11272,15 @@ export interface operations {
             header?: {
                 /** @description Bearer token for webhook authentication (e.g., 'Bearer dagu_wh_...'). Required only when the webhook auth mode includes token authentication. */
                 Authorization?: string;
-                /** @description HMAC webhook signature in the format 'sha256=<hex>'. Required only when the webhook auth mode includes HMAC authentication with strict enforcement. */
+                /** @description HMAC webhook signature in the format `sha256=<hex>`. Required only
+                 *     when the webhook auth mode includes HMAC authentication with strict
+                 *     enforcement. Sign the raw request body when `X-Dagu-Profile` is
+                 *     absent. When it is present, sign
+                 *     `x-dagu-profile:<profile>\n<raw-request-body>`.
+                 *      */
                 "X-Dagu-Signature"?: string;
+                /** @description Runtime profile selected for this DAG run. The profile must be allowed by the webhook profile-selection policy. Omit the header to use the DAG's default profile resolution. */
+                "X-Dagu-Profile"?: components["schemas"]["RuntimeProfileName"];
             };
             path: {
                 /** @description the name of the DAG file */
@@ -12701,6 +12741,63 @@ export interface operations {
                 };
             };
             /** @description No webhook configured for this DAG */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    configureDAGWebhookProfileSelection: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description the name of the DAG file */
+                fileName: components["parameters"]["DAGFileName"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WebhookProfileSelectionRequest"];
+            };
+        };
+        responses: {
+            /** @description Webhook profile selection updated successfully */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookDetails"];
+                };
+            };
+            /** @description Invalid or unavailable runtime profile */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No webhook or runtime profile found */
             404: {
                 headers: {
                     [name: string]: unknown;

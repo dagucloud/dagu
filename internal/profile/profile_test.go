@@ -4,6 +4,7 @@
 package profile_test
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -50,6 +51,8 @@ func TestValidateName(t *testing.T) {
 		{name: "Prod", want: false},
 		{name: "-prod", want: false},
 		{name: "prod/slash", want: false},
+		{name: strings.Repeat("a", 128), want: true},
+		{name: strings.Repeat("a", 129), want: false},
 	}
 
 	for _, tt := range tests {

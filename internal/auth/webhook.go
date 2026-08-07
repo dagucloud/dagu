@@ -53,6 +53,9 @@ type Webhook struct {
 	TokenPrefix string `json:"tokenPrefix"`
 	// Enabled indicates whether the webhook is active.
 	Enabled bool `json:"enabled"`
+	// AllowedProfiles contains the runtime profiles callers may select with the
+	// webhook profile header. An empty list disables caller selection.
+	AllowedProfiles []string `json:"allowedProfiles,omitempty"`
 	// CreatedAt is the timestamp when the webhook was created.
 	CreatedAt time.Time `json:"createdAt"`
 	// UpdatedAt is the timestamp when the webhook was last modified.
@@ -103,6 +106,7 @@ type WebhookForStorage struct {
 	TokenHash             string                     `json:"tokenHash"`
 	TokenPrefix           string                     `json:"tokenPrefix"`
 	Enabled               bool                       `json:"enabled"`
+	AllowedProfiles       []string                   `json:"allowedProfiles,omitempty"`
 	CreatedAt             time.Time                  `json:"createdAt"`
 	UpdatedAt             time.Time                  `json:"updatedAt"`
 	CreatedBy             string                     `json:"createdBy"`
@@ -123,6 +127,7 @@ func (w *Webhook) ToStorage() *WebhookForStorage {
 		TokenHash:             w.TokenHash,
 		TokenPrefix:           w.TokenPrefix,
 		Enabled:               w.Enabled,
+		AllowedProfiles:       append([]string(nil), w.AllowedProfiles...),
 		CreatedAt:             w.CreatedAt,
 		UpdatedAt:             w.UpdatedAt,
 		CreatedBy:             w.CreatedBy,
@@ -143,6 +148,7 @@ func (s *WebhookForStorage) ToWebhook() *Webhook {
 		TokenHash:             s.TokenHash,
 		TokenPrefix:           s.TokenPrefix,
 		Enabled:               s.Enabled,
+		AllowedProfiles:       append([]string(nil), s.AllowedProfiles...),
 		CreatedAt:             s.CreatedAt,
 		UpdatedAt:             s.UpdatedAt,
 		CreatedBy:             s.CreatedBy,

@@ -4066,7 +4066,18 @@ paths:
             type: string
             pattern: '^sha256=[0-9a-fA-F]{64}$'
             example: "sha256=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-          description: "HMAC webhook signature in the format 'sha256=<hex>'. Required only when the webhook auth mode includes HMAC authentication with strict enforcement."
+          description: |
+            HMAC webhook signature in the format `sha256=<hex>`. Required only
+            when the webhook auth mode includes HMAC authentication with strict
+            enforcement. Sign the raw request body when `X-Dagu-Profile` is
+            absent. When it is present, sign
+            `x-dagu-profile:<profile>\n<raw-request-body>`.
+        - name: X-Dagu-Profile
+          in: header
+          required: false
+          schema:
+            $ref: "#/components/schemas/RuntimeProfileName"
+          description: "Runtime profile selected for this DAG run. The profile must be allowed by the webhook profile-selection policy. Omit the header to use the DAG's default profile resolution."
       requestBody:
         required: false
         content:
@@ -5146,6 +5157,51 @@ paths:
                 $ref: "#/components/schemas/WebhookCreateResponse"
         "404":
           description: "No webhook configured for this DAG"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /dags/{fileName}/webhook/profile-selection:
+    put:
+      summary: "Configure webhook profile selection"
+      description: |
+        Replaces the runtime profiles that callers may select through the
+        `X-Dagu-Profile` header. An empty list disables caller selection.
+        Admin only.
+      operationId: "configureDAGWebhookProfileSelection"
+      tags:
+        - "webhooks"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGFileName"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebhookProfileSelectionRequest"
+      responses:
+        "200":
+          description: "Webhook profile selection updated successfully"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookDetails"
+        "400":
+          description: "Invalid or unavailable runtime profile"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "No webhook or runtime profile found"
           content:
             application/json:
               schema:
@@ -10117,6 +10173,7 @@ components:
         - enabled
         - authMode
         - hmac
+        - profileSelection
         - createdAt
         - updatedAt
       properties:
@@ -10137,6 +10194,8 @@ components:
           $ref: "#/components/schemas/WebhookAuthMode"
         hmac:
           $ref: "#/components/schemas/WebhookHMACDetails"
+        profileSelection:
+          $ref: "#/components/schemas/WebhookProfileSelectionDetails"
         createdAt:
           type: string
           format: date-time
@@ -10186,6 +10245,31 @@ components:
         enabled:
           type: boolean
           description: "Whether to enable or disable the webhook"
+
+    WebhookProfileSelectionDetails:
+      type: object
+      description: "Runtime profiles that webhook callers may select"
+      required:
+        - allowedProfiles
+      properties:
+        allowedProfiles:
+          type: array
+          description: "Runtime profile names accepted through X-Dagu-Profile. An empty list disables caller selection."
+          items:
+            $ref: "#/components/schemas/RuntimeProfileName"
+
+    WebhookProfileSelectionRequest:
+      type: object
+      description: "Replacement runtime-profile allowlist for a webhook"
+      required:
+        - allowedProfiles
+      properties:
+        allowedProfiles:
+          type: array
+          uniqueItems: true
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/RuntimeProfileName"
 
     WebhookHMACConfigureRequest:
       type: object

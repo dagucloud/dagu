@@ -281,6 +281,7 @@ export default function WebhooksPage() {
               <TableHead className="w-[250px]">DAG</TableHead>
               <TableHead className="w-[150px]">Token</TableHead>
               <TableHead className="w-[160px]">Auth</TableHead>
+              <TableHead className="w-[140px]">Profiles</TableHead>
               <TableHead className="w-[100px]">Status</TableHead>
               <TableHead className="w-[180px]">Created</TableHead>
               <TableHead className="w-[180px]">Last Triggered</TableHead>
@@ -291,7 +292,7 @@ export default function WebhooksPage() {
             {isLoading ? (
               <TableRow>
                 <TableCell
-                  colSpan={7}
+                  colSpan={8}
                   className="text-center text-muted-foreground py-8"
                 >
                   Loading webhooks...
@@ -300,7 +301,7 @@ export default function WebhooksPage() {
             ) : webhooks.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={7}
+                  colSpan={8}
                   className="text-center text-muted-foreground py-8"
                 >
                   No webhooks found. Create webhooks from individual DAG pages.
@@ -337,6 +338,11 @@ export default function WebhooksPage() {
                           </span>
                         )}
                     </div>
+                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground">
+                    {webhook.profileSelection.allowedProfiles.length === 0
+                      ? 'Default only'
+                      : `${webhook.profileSelection.allowedProfiles.length} selectable`}
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2">

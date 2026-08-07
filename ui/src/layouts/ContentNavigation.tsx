@@ -5,7 +5,6 @@ import {
   Breadcrumb,
   BreadcrumbItem,
   BreadcrumbList,
-  BreadcrumbPage,
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
 import { Button } from '@/components/ui/button';
@@ -16,7 +15,7 @@ import { Link } from 'react-router-dom';
 
 type BreadcrumbItemData = {
   label: string;
-  to?: string;
+  to: string;
 };
 
 const STATIC_ROUTE_LABELS: Record<string, string> = {
@@ -71,7 +70,7 @@ export function getBreadcrumbItems(pathname: string): BreadcrumbItemData[] {
   const items: BreadcrumbItemData[] = [{ label: 'Home', to: '/home' }];
 
   if (normalized === '/home') {
-    return [{ label: 'Home' }];
+    return items;
   }
 
   if (normalized === '/') {
@@ -79,7 +78,10 @@ export function getBreadcrumbItems(pathname: string): BreadcrumbItemData[] {
   }
 
   if (segments[0] === 'dags') {
-    items.push({ label: 'Workflows' }, { label: 'DAGs', to: '/dags' });
+    items.push(
+      { label: 'Workflows', to: '/dags' },
+      { label: 'DAGs', to: '/dags' }
+    );
     if (segments[1]) {
       items.push({
         label: decodePathSegment(segments[1]),
@@ -87,32 +89,54 @@ export function getBreadcrumbItems(pathname: string): BreadcrumbItemData[] {
       });
     }
     if (segments[2]) {
-      items.push({ label: humanizePathSegment(segments[2]) });
+      items.push({
+        label: humanizePathSegment(segments[2]),
+        to: `/dags/${segments[1]}/${segments[2]}`,
+      });
     }
     return items;
   }
 
   if (segments[0] === 'dag-runs') {
-    items.push({ label: 'Executions' }, { label: 'DAG Runs', to: '/dag-runs' });
+    items.push(
+      { label: 'Executions', to: '/dag-runs' },
+      { label: 'DAG Runs', to: '/dag-runs' }
+    );
     if (segments[1]) {
-      items.push({ label: decodePathSegment(segments[1]) });
+      const dagName = decodePathSegment(segments[1]);
+      items.push({
+        label: dagName,
+        to: `/dag-runs?name=${encodeURIComponent(dagName)}`,
+      });
     }
     if (segments[2]) {
-      items.push({ label: decodePathSegment(segments[2]) });
+      items.push({
+        label: decodePathSegment(segments[2]),
+        to: `/dag-runs/${segments[1]}/${segments[2]}`,
+      });
     }
     return items;
   }
 
   if (segments[0] === 'queues') {
-    items.push({ label: 'Executions' }, { label: 'Queues', to: '/queues' });
+    items.push(
+      { label: 'Executions', to: '/dag-runs' },
+      { label: 'Queues', to: '/queues' }
+    );
     if (segments[1]) {
-      items.push({ label: decodePathSegment(segments[1]) });
+      items.push({
+        label: decodePathSegment(segments[1]),
+        to: `/queues/${segments[1]}`,
+      });
     }
     return items;
   }
 
   if (segments[0] === 'docs') {
-    items.push({ label: 'Workflows' }, { label: 'Docs', to: '/docs' });
+    items.push(
+      { label: 'Workflows', to: '/dags' },
+      { label: 'Docs', to: '/docs' }
+    );
     let docsPath = '/docs';
     for (const segment of segments.slice(1)) {
       docsPath += `/${segment}`;
@@ -139,6 +163,7 @@ export function getBreadcrumbItems(pathname: string): BreadcrumbItemData[] {
       label:
         STATIC_ROUTE_LABELS[normalized] ??
         humanizePathSegment(segments[0] ?? ''),
+      to: normalized,
     });
     return items;
   }
@@ -146,11 +171,12 @@ export function getBreadcrumbItems(pathname: string): BreadcrumbItemData[] {
   if (
     ['system-status', 'event-logs', 'audit-logs'].includes(segments[0] ?? '')
   ) {
-    items.push({ label: 'Monitor' });
+    items.push({ label: 'Monitor', to: '/system-status' });
     items.push({
       label:
         STATIC_ROUTE_LABELS[normalized] ??
         humanizePathSegment(segments[0] ?? ''),
+      to: normalized,
     });
     return items;
   }
@@ -163,6 +189,7 @@ export function getBreadcrumbItems(pathname: string): BreadcrumbItemData[] {
       label:
         STATIC_ROUTE_LABELS[normalized] ??
         humanizePathSegment(segments[0] ?? ''),
+      to: normalized,
     });
     return items;
   }
@@ -179,6 +206,7 @@ export function getBreadcrumbItems(pathname: string): BreadcrumbItemData[] {
       label:
         STATIC_ROUTE_LABELS[normalized] ??
         humanizePathSegment(segments[0] ?? ''),
+      to: normalized,
     });
     return items;
   }
@@ -195,7 +223,19 @@ export function getBreadcrumbItems(pathname: string): BreadcrumbItemData[] {
       label:
         STATIC_ROUTE_LABELS[normalized] ??
         humanizePathSegment(segments[0] ?? ''),
+      to: normalized,
     });
+    return items;
+  }
+
+  if (segments[0] === 'views' && segments[1]) {
+    items.push(
+      { label: 'Cockpit', to: '/cockpit' },
+      {
+        label: decodePathSegment(segments[1]),
+        to: `/views/${segments[1]}`,
+      }
+    );
     return items;
   }
 
@@ -210,7 +250,7 @@ export function getBreadcrumbItems(pathname: string): BreadcrumbItemData[] {
     items.push({
       label:
         STATIC_ROUTE_LABELS[path] ?? humanizePathSegment(segments[index] ?? ''),
-      to: index === segments.length - 1 ? undefined : path,
+      to: path,
     });
   }
 
@@ -239,23 +279,19 @@ export function ContentNavigation({
               <React.Fragment key={`${item.label}-${index}`}>
                 {index > 0 && <BreadcrumbSeparator className="shrink-0" />}
                 <BreadcrumbItem className="min-w-0">
-                  {isLast || !item.to ? (
-                    <BreadcrumbPage
-                      className={cn(
-                        'block truncate',
-                        item.label.length > 28 && 'max-w-[28ch]'
-                      )}
-                    >
-                      {item.label}
-                    </BreadcrumbPage>
-                  ) : (
-                    <Link
-                      to={item.to}
-                      className="block truncate text-muted-foreground hover:text-foreground"
-                    >
-                      {item.label}
-                    </Link>
-                  )}
+                  <Link
+                    to={item.to}
+                    aria-current={isLast ? 'page' : undefined}
+                    className={cn(
+                      'block truncate hover:text-foreground',
+                      isLast
+                        ? 'font-medium text-foreground'
+                        : 'text-muted-foreground',
+                      item.label.length > 28 && 'max-w-[28ch]'
+                    )}
+                  >
+                    {item.label}
+                  </Link>
                 </BreadcrumbItem>
               </React.Fragment>
             );

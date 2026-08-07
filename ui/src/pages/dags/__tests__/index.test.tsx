@@ -26,16 +26,24 @@ import { WorkspaceKind, workspaceSelectionKey } from '@/lib/workspace';
 import DagsPage from '../index';
 
 const {
+  clientDeleteMock,
   clientGetMock,
+  clientPostMock,
   createViewMock,
+  deleteResultsMock,
   deleteViewMock,
+  renameErrorMock,
   sharedWorkflowViewState,
   updateViewMock,
   userPreferences,
 } = vi.hoisted(() => ({
+  clientDeleteMock: vi.fn(),
   clientGetMock: vi.fn(),
+  clientPostMock: vi.fn(),
   createViewMock: vi.fn(),
+  deleteResultsMock: vi.fn(),
   deleteViewMock: vi.fn(),
+  renameErrorMock: vi.fn(),
   sharedWorkflowViewState: { views: [] as View[] },
   updateViewMock: vi.fn(),
   userPreferences: {
@@ -94,6 +102,8 @@ vi.mock('@/features/dags/components/dag-list', () => ({
     onSetDefaultWorkflowView,
     onSetPinnedWorkflowView,
     onDeleteWorkflowView,
+    onDeleteDAGs,
+    onRenameDAG,
   }: {
     dags: Array<{ fileName: string; dag: { name: string } }>;
     searchText: string;
@@ -115,6 +125,10 @@ vi.mock('@/features/dags/components/dag-list', () => ({
     onSetDefaultWorkflowView: (viewId: string | undefined) => Promise<void>;
     onSetPinnedWorkflowView: (viewId: string, pinned: boolean) => Promise<void>;
     onDeleteWorkflowView: (viewId: string) => Promise<void>;
+    onDeleteDAGs: (
+      fileNames: string[]
+    ) => Promise<Array<{ fileName: string; error?: string }>>;
+    onRenameDAG: (fileName: string, newFileName: string) => Promise<void>;
   }) => (
     <div>
       <input
@@ -136,6 +150,7 @@ vi.mock('@/features/dags/components/dag-list', () => ({
       >
         Open demo workflow
       </button>
+      <span data-testid="selected-dag">{selectedDAG ?? 'none'}</span>
       <span data-testid="active-workflow-view">
         {activeWorkflowViewId ?? 'none'}
       </span>
@@ -177,6 +192,35 @@ vi.mock('@/features/dags/components/dag-list', () => ({
       >
         Delete production view
       </button>
+      <button
+        type="button"
+        onClick={() => void onDeleteDAGs(['demo.yaml']).then(deleteResultsMock)}
+      >
+        Delete demo workflow
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          void onDeleteDAGs([
+            'one.yaml',
+            'two.yaml',
+            'three.yaml',
+            'four.yaml',
+            'five.yaml',
+            'six.yaml',
+          ]).then(deleteResultsMock)
+        }
+      >
+        Delete workflow batch
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          void onRenameDAG('demo.yaml', 'renamed.yaml').catch(renameErrorMock)
+        }
+      >
+        Rename demo workflow
+      </button>
       <ul>
         {dags.map((dag) => (
           <li key={dag.fileName}>{dag.fileName}</li>
@@ -193,7 +237,9 @@ vi.mock('@/features/dags/components/dag-list/DAGListHeader', () => ({
 vi.mock('@/hooks/api', () => ({
   useQuery: vi.fn(),
   useClient: () => ({
+    DELETE: clientDeleteMock,
     GET: clientGetMock,
+    POST: clientPostMock,
   }),
 }));
 
@@ -362,7 +408,13 @@ describe('DagsPage', () => {
     localStorage.clear();
     sessionStorage.clear();
     calls.length = 0;
+    clientDeleteMock.mockReset();
+    clientDeleteMock.mockResolvedValue({});
+    deleteResultsMock.mockReset();
     clientGetMock.mockReset();
+    clientPostMock.mockReset();
+    clientPostMock.mockResolvedValue({});
+    renameErrorMock.mockReset();
     sharedWorkflowViewState.views = [];
     createViewMock.mockReset();
     updateViewMock.mockReset();
@@ -861,6 +913,119 @@ describe('DagsPage', () => {
     );
     expect(screen.getByTestId('active-workflow-view')).toHaveTextContent(
       'none'
+    );
+  });
+
+  it('deletes selected workflows through the existing DAG endpoint', async () => {
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open demo workflow' }));
+    expect(screen.getByTestId('selected-dag')).toHaveTextContent('demo.yaml');
+
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Delete demo workflow' })
+      );
+    });
+
+    expect(clientDeleteMock).toHaveBeenCalledWith('/dags/{fileName}', {
+      params: {
+        path: { fileName: 'demo.yaml' },
+        query: { remoteNode: 'remote-a' },
+      },
+    });
+    expect(screen.getByTestId('selected-dag')).toHaveTextContent('none');
+    expect(deleteResultsMock).toHaveBeenCalledWith([
+      { fileName: 'demo.yaml', error: undefined },
+    ]);
+  });
+
+  it('returns the individual delete error without clearing the selection', async () => {
+    clientDeleteMock.mockResolvedValueOnce({
+      error: { message: 'workflow is read-only' },
+    });
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Open demo workflow' }));
+
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Delete demo workflow' })
+      );
+    });
+
+    expect(deleteResultsMock).toHaveBeenCalledWith([
+      { fileName: 'demo.yaml', error: 'workflow is read-only' },
+    ]);
+    expect(screen.getByTestId('selected-dag')).toHaveTextContent('demo.yaml');
+  });
+
+  it('limits concurrent workflow deletion requests', async () => {
+    const pendingDeletes: Array<(value: object) => void> = [];
+    clientDeleteMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          pendingDeletes.push(resolve);
+        })
+    );
+    renderPage();
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Delete workflow batch' })
+    );
+    expect(clientDeleteMock).toHaveBeenCalledTimes(5);
+
+    await act(async () => {
+      pendingDeletes.splice(0).forEach((resolve) => resolve({}));
+      await Promise.resolve();
+    });
+    expect(clientDeleteMock).toHaveBeenCalledTimes(6);
+
+    await act(async () => {
+      pendingDeletes.splice(0).forEach((resolve) => resolve({}));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(deleteResultsMock).toHaveBeenCalledOnce();
+  });
+
+  it('renames workflows through the existing DAG endpoint', async () => {
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open demo workflow' }));
+    expect(screen.getByTestId('selected-dag')).toHaveTextContent('demo.yaml');
+
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Rename demo workflow' })
+      );
+    });
+
+    expect(clientPostMock).toHaveBeenCalledWith('/dags/{fileName}/rename', {
+      params: {
+        path: { fileName: 'demo.yaml' },
+        query: { remoteNode: 'remote-a' },
+      },
+      body: { newFileName: 'renamed.yaml' },
+    });
+    expect(screen.getByTestId('selected-dag')).toHaveTextContent(
+      'renamed.yaml'
+    );
+  });
+
+  it('surfaces workflow rename errors', async () => {
+    clientPostMock.mockResolvedValueOnce({
+      error: { message: 'name already exists' },
+    });
+    renderPage();
+
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Rename demo workflow' })
+      );
+    });
+
+    expect(renameErrorMock).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'name already exists' })
     );
   });
 

@@ -15,6 +15,7 @@ var (
 	ExtractWebhookToken         = extractWebhookToken
 	MarshalWebhookPayload       = marshalWebhookPayload
 	MarshalWebhookHeaders       = marshalWebhookHeaders
+	RequestedWebhookProfile     = requestedWebhookProfile
 	IsWebhookTriggerPath        = isWebhookTriggerPath
 	WithRawBody                 = withRawBody
 	WithRequestHeaders          = withRequestHeaders

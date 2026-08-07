@@ -42,12 +42,17 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { TOKEN_KEY } from '../../../../contexts/AuthContext';
+import { TOKEN_KEY, useIsAdmin } from '../../../../contexts/AuthContext';
 import { useConfig } from '../../../../contexts/ConfigContext';
 import { useRemoteNode } from '../../../../contexts/RemoteNodeContext';
 import { useClient } from '../../../../hooks/api';
 import dayjs from '../../../../lib/dayjs';
 import ConfirmModal from '@/components/ui/confirm-dialog';
+import WebhookProfileSelectionCard from './WebhookProfileSelectionCard';
+import {
+  buildWebhookExamples,
+  findActiveAllowedProfile,
+} from './webhookProfileSelection';
 
 type WebhookDetails = components['schemas']['WebhookDetails'];
 type WebhookAuthMode = components['schemas']['WebhookAuthMode'];
@@ -108,6 +113,7 @@ function WebhookTab({ fileName }: WebhookTabProps) {
   const config = useConfig();
   const remoteNode = useRemoteNode();
   const client = useClient();
+  const isAdmin = useIsAdmin();
 
   // State
   const [webhook, setWebhook] = useState<WebhookDetails | null>(null);
@@ -123,6 +129,7 @@ function WebhookTab({ fileName }: WebhookTabProps) {
   const [pendingToggleState, setPendingToggleState] = useState<boolean | null>(
     null
   );
+  const [activeProfileNames, setActiveProfileNames] = useState<string[]>([]);
 
   // Copy states
   const [copiedUrl, setCopiedUrl] = useState(false);
@@ -607,53 +614,20 @@ function WebhookTab({ fileName }: WebhookTabProps) {
   }
 
   const isHMACEnabled = webhook.authMode !== WebhookAuthModeValue.token_only;
-  const requestBody = `'{"dagRunId": "my-unique-id", "payload": {"key": "value"}}'`;
-  const curlExample =
-    webhook.authMode === WebhookAuthModeValue.hmac_only
-      ? `curl -X POST "${webhookUrl}" \\
-  -H "X-Dagu-Signature: sha256=<SIGNATURE>" \\
-  -H "Content-Type: application/json" \\
-  -d ${requestBody}`
-      : webhook.authMode === WebhookAuthModeValue.token_and_hmac
-        ? `curl -X POST "${webhookUrl}" \\
-  -H "Authorization: Bearer <YOUR_TOKEN>" \\
-  -H "X-Dagu-Signature: sha256=<SIGNATURE>" \\
-  -H "Content-Type: application/json" \\
-  -d ${requestBody}`
-        : `curl -X POST "${webhookUrl}" \\
-  -H "Authorization: Bearer <YOUR_TOKEN>" \\
-  -H "Content-Type: application/json" \\
-  -d ${requestBody}`;
-  const hmacShellExample = `body='{"dagRunId":"my-unique-id","payload":{"key":"value"}}'
-sig=$(printf '%s' "$body" | openssl dgst -sha256 -hmac "$DAGU_HMAC_SECRET" -hex | sed 's/^.* //')
-
-curl -X POST "${webhookUrl}" \\
-  ${webhook.authMode === WebhookAuthModeValue.token_and_hmac ? '-H "Authorization: Bearer <YOUR_TOKEN>" \\\n  ' : ''}-H "X-Dagu-Signature: sha256=$sig" \\
-  -H "Content-Type: application/json" \\
-  -d "$body"`;
-  const hmacNodeExample = `import crypto from 'node:crypto';
-
-const body = JSON.stringify({
-  dagRunId: 'my-unique-id',
-  payload: { key: 'value' },
-});
-
-const signature =
-  'sha256=' +
-  crypto.createHmac('sha256', process.env.DAGU_HMAC_SECRET!)
-    .update(body, 'utf8')
-    .digest('hex');
-
-const headers = {
-  'Content-Type': 'application/json',
-  'X-Dagu-Signature': signature,
-  ${webhook.authMode === WebhookAuthModeValue.token_and_hmac ? "'Authorization': 'Bearer <YOUR_TOKEN>',\n  " : ''}}
-
-await fetch('${webhookUrl}', {
-  method: 'POST',
-  headers,
-  body,
-});`;
+  const configuredAllowedProfiles = webhook.profileSelection.allowedProfiles;
+  const exampleProfile = findActiveAllowedProfile(
+    configuredAllowedProfiles,
+    activeProfileNames
+  );
+  const {
+    curl: curlExample,
+    hmacShell: hmacShellExample,
+    hmacNode: hmacNodeExample,
+  } = buildWebhookExamples({
+    authMode: webhook.authMode,
+    profileName: exampleProfile,
+    webhookUrl,
+  });
 
   // Webhook configured
   return (
@@ -760,7 +734,15 @@ await fetch('${webhookUrl}', {
             <code className="bg-accent px-1 rounded-md border">
               X-Dagu-Signature: sha256=&lt;hex&gt;
             </code>{' '}
-            computed from the exact raw request body.
+            computed from the exact signature input shown below. Requests with{' '}
+            <code className="bg-accent px-1 rounded-md border">
+              X-Dagu-Profile
+            </code>{' '}
+            sign{' '}
+            <code className="bg-accent px-1 rounded-md border">
+              x-dagu-profile:&lt;profile&gt;\n&lt;body&gt;
+            </code>
+            .
           </CardDescription>
         </CardHeader>
         <CardContent className="px-4 pb-3 pt-2 space-y-3">
@@ -902,13 +884,23 @@ await fetch('${webhookUrl}', {
         </CardContent>
       </Card>
 
+      <WebhookProfileSelectionCard
+        fileName={fileName}
+        isAdmin={isAdmin}
+        remoteNode={remoteNode}
+        webhook={webhook}
+        onActiveProfileNamesChange={setActiveProfileNames}
+        onWebhookChange={setWebhook}
+      />
+
       {isHMACEnabled && (
         <Card className="gap-0 py-0">
           <CardHeader className="pb-3 px-4 pt-3">
             <CardTitle className="text-sm">Generate HMAC</CardTitle>
             <CardDescription className="text-xs">
-              Compute the HMAC from the exact raw request body you send. If the
-              body is reformatted before sending, verification will fail.
+              Compute the HMAC from the exact signature input shown below. A
+              selected profile is prefixed to the raw request body so the header
+              cannot be changed without invalidating the signature.
             </CardDescription>
           </CardHeader>
           <CardContent className="px-4 pb-3 pt-2 space-y-3">
@@ -1004,9 +996,16 @@ await fetch('${webhookUrl}', {
               <code className="bg-accent px-1 rounded-md border">dagRunId</code>{' '}
               (optional) can be used as an idempotency key.
             </li>
+            <li>
+              <code className="bg-accent px-1 rounded-md border">
+                X-Dagu-Profile
+              </code>{' '}
+              is accepted only for profiles approved in this webhook&apos;s
+              profile-selection policy.
+            </li>
             {isHMACEnabled && (
               <li>
-                Sign the exact raw JSON request body bytes with your HMAC secret
+                Sign the exact input shown in the HMAC examples with your secret
                 and send the hex digest in{' '}
                 <code className="bg-accent px-1 rounded-md border">
                   X-Dagu-Signature

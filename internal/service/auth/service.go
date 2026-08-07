@@ -1043,6 +1043,28 @@ func (s *Service) ToggleWebhook(ctx context.Context, dagName string, enabled boo
 	return webhook, nil
 }
 
+// ConfigureWebhookProfiles replaces the runtime profiles that webhook callers
+// may select.
+func (s *Service) ConfigureWebhookProfiles(ctx context.Context, dagName string, allowedProfiles []string) (*auth.Webhook, error) {
+	if s.webhookStore == nil {
+		return nil, ErrWebhookNotConfigured
+	}
+
+	webhook, err := s.GetWebhookByDAGName(ctx, dagName)
+	if err != nil {
+		return nil, err
+	}
+
+	webhook.AllowedProfiles = append([]string(nil), allowedProfiles...)
+	webhook.UpdatedAt = time.Now().UTC()
+
+	if err := s.webhookStore.Update(ctx, webhook); err != nil {
+		return nil, err
+	}
+
+	return webhook, nil
+}
+
 // EnableWebhookHMAC configures HMAC auth for an existing webhook and returns
 // the generated secret exactly once.
 func (s *Service) EnableWebhookHMAC(
@@ -1233,17 +1255,22 @@ func (s *Service) ValidateWebhookToken(ctx context.Context, dagName, token strin
 	return webhook, nil
 }
 
+// AuthorizeWebhookRequestInput contains the credentials and signed content for a webhook request.
+type AuthorizeWebhookRequestInput struct {
+	DAGName     string
+	Token       string
+	Signature   string
+	ProfileName string
+	Body        []byte
+}
+
 // AuthorizeWebhookRequest validates the request according to the webhook's auth mode.
-func (s *Service) AuthorizeWebhookRequest(
-	ctx context.Context,
-	dagName, token, signature string,
-	body []byte,
-) (*auth.Webhook, error) {
+func (s *Service) AuthorizeWebhookRequest(ctx context.Context, input AuthorizeWebhookRequestInput) (*auth.Webhook, error) {
 	if s.webhookStore == nil {
 		return nil, ErrWebhookNotConfigured
 	}
 
-	webhook, err := s.GetWebhookByDAGName(ctx, dagName)
+	webhook, err := s.GetWebhookByDAGName(ctx, input.DAGName)
 	if err != nil {
 		if errors.Is(err, auth.ErrWebhookNotFound) {
 			return nil, ErrInvalidWebhookToken
@@ -1256,25 +1283,25 @@ func (s *Service) AuthorizeWebhookRequest(
 
 	switch webhook.EffectiveAuthMode() {
 	case auth.WebhookAuthModeTokenOnly:
-		if err := validateWebhookTokenAgainst(webhook, token); err != nil {
+		if err := validateWebhookTokenAgainst(webhook, input.Token); err != nil {
 			return nil, err
 		}
 	case auth.WebhookAuthModeTokenAndHMAC:
-		if err := validateWebhookTokenAgainst(webhook, token); err != nil {
+		if err := validateWebhookTokenAgainst(webhook, input.Token); err != nil {
 			return nil, err
 		}
 		if webhook.HMACEnforcementMode == auth.WebhookHMACEnforcementModeObserve {
-			if err := validateWebhookHMACSignature(webhook, signature, body); err != nil {
+			if err := validateWebhookHMACSignature(webhook, input.Signature, input.ProfileName, input.Body); err != nil {
 				slog.Warn("webhook HMAC validation observed failure",
 					"dagName", webhook.DAGName,
 					"error", err,
 				)
 			}
-		} else if err := validateWebhookHMACSignature(webhook, signature, body); err != nil {
+		} else if err := validateWebhookHMACSignature(webhook, input.Signature, input.ProfileName, input.Body); err != nil {
 			return nil, err
 		}
 	case auth.WebhookAuthModeHMACOnly:
-		if err := validateWebhookHMACSignature(webhook, signature, body); err != nil {
+		if err := validateWebhookHMACSignature(webhook, input.Signature, input.ProfileName, input.Body); err != nil {
 			return nil, err
 		}
 	default:
@@ -1342,7 +1369,7 @@ func validateWebhookTokenAgainst(webhook *auth.Webhook, token string) error {
 	return nil
 }
 
-func validateWebhookHMACSignature(webhook *auth.Webhook, signature string, body []byte) error {
+func validateWebhookHMACSignature(webhook *auth.Webhook, signature, profileName string, body []byte) error {
 	if webhook.HMACSecret == "" {
 		return ErrWebhookHMACNotConfigured
 	}
@@ -1361,6 +1388,9 @@ func validateWebhookHMACSignature(webhook *auth.Webhook, signature string, body 
 	}
 
 	mac := hmac.New(sha256.New, []byte(webhook.HMACSecret))
+	if profileName != "" {
+		_, _ = mac.Write([]byte("x-dagu-profile:" + profileName + "\n"))
+	}
 	_, _ = mac.Write(body)
 	expected := mac.Sum(nil)
 
