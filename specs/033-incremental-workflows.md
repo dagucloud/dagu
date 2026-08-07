@@ -84,6 +84,10 @@ same-directory staging path. A successful attempt is published with a
 recoverable output-and-manifest journal. Failure leaves the previous final
 output and manifest intact.
 
+Standard-stream destinations, including artifact destinations, must not resolve
+to any declared incremental input or output. Static aliases are rejected during
+planning, and late-resolved aliases are rejected before opening the destination.
+
 `--no-reuse` on `start`, `dry`, or `enqueue` bypasses manifest hits without
 bypassing staging or commit safety. Dry-run only previews decisions: it creates
 no locks, staging files, manifests, or run-history records.

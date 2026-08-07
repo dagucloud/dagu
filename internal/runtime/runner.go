@@ -395,6 +395,14 @@ func (r *Runner) runGraphLoop(ctx context.Context, plan *Plan, nodes []*Node, pr
 					r.runHumanTask(ctx, plan, n, progressCh)
 					return
 				}
+				if !r.dry {
+					if err := validateIncrementalRuntimeRedirectAliases(ctx, plan, n); err != nil {
+						r.setLastError(err)
+						n.MarkError(err)
+						n.SetStatus(core.NodeFailed)
+						return
+					}
+				}
 
 				if err := r.prepareNode(ctx, n); err != nil {
 					r.setLastError(err)

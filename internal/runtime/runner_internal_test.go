@@ -189,21 +189,52 @@ func TestPrepareIncrementalPlanInfersFileDependency(t *testing.T) {
 	assert.Equal(t, producerNode.Step().Outputs[0].Path, consumerNode.Step().Inputs[0].Path)
 }
 
-func TestPrepareIncrementalPlanRejectsOutputRedirectAlias(t *testing.T) {
+func TestPrepareIncrementalPlanRejectsRedirectAlias(t *testing.T) {
 	t.Parallel()
 
-	for _, field := range []string{"stdout", "stderr"} {
-		t.Run(field, func(t *testing.T) {
+	tests := []struct {
+		name       string
+		field      string
+		targetKind string
+		artifact   bool
+	}{
+		{name: "stdout output", field: "stdout", targetKind: "output"},
+		{name: "stderr output", field: "stderr", targetKind: "output"},
+		{name: "stdout input", field: "stdout", targetKind: "input"},
+		{name: "stderr input", field: "stderr", targetKind: "input"},
+		{name: "stdout artifact output", field: "stdout.artifact", targetKind: "output", artifact: true},
+		{name: "stderr artifact output", field: "stderr.artifact", targetKind: "output", artifact: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			workingDir := t.TempDir()
+			artifactDir := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(workingDir, "source.txt"), []byte("source"), 0o600))
+
+			outputPath := "artifact.txt"
+			redirectPath := "./source.txt"
+			if tt.targetKind == "output" {
+				redirectPath = "./artifact.txt"
+			}
+			if tt.artifact {
+				outputPath = "${context.paths.artifacts_dir}/artifact.txt"
+				redirectPath = "artifact.txt"
+			}
 			step := core.Step{
 				ID:      "build",
 				Name:    "build",
-				Outputs: []core.StepOutputDeclaration{{Name: "artifact", Path: "artifact.txt"}},
+				Inputs:  []core.StepInputDeclaration{{Name: "source", Path: "source.txt"}},
+				Outputs: []core.StepOutputDeclaration{{Name: "artifact", Path: outputPath}},
 			}
-			if field == "stdout" {
-				step.Stdout = "./artifact.txt"
-			} else {
-				step.Stderr = "./artifact.txt"
+			switch tt.field {
+			case "stdout":
+				step.Stdout = redirectPath
+			case "stderr":
+				step.Stderr = redirectPath
+			case "stdout.artifact":
+				step.StdoutArtifact = redirectPath
+			case "stderr.artifact":
+				step.StderrArtifact = redirectPath
 			}
 			plan, err := NewPlan(step)
 			require.NoError(t, err)
@@ -212,10 +243,72 @@ func TestPrepareIncrementalPlanRejectsOutputRedirectAlias(t *testing.T) {
 				Type:               core.TypeIncremental,
 				WorkingDir:         workingDir,
 				WorkingDirExplicit: true,
-			}, "run-1", filepath.Join(workingDir, "dag.log"))
+			}, "run-1", filepath.Join(workingDir, "dag.log"), WithArtifactDir(artifactDir))
 
 			err = prepareIncrementalPlan(ctx, plan)
-			require.ErrorContains(t, err, field+" path aliases incremental output")
+			require.ErrorContains(t, err, tt.field+" path aliases incremental "+tt.targetKind)
+		})
+	}
+}
+
+func TestValidateIncrementalRuntimeRedirectAliases(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		field      string
+		targetKind string
+		artifact   bool
+	}{
+		{name: "stdout input", field: "stdout", targetKind: "input"},
+		{name: "stdout artifact output", field: "stdout.artifact", targetKind: "output", artifact: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			workingDir := t.TempDir()
+			artifactDir := t.TempDir()
+			sourcePath := filepath.Join(workingDir, "source.txt")
+			require.NoError(t, os.WriteFile(sourcePath, []byte("source"), 0o600))
+
+			producer := core.Step{ID: "producer", Name: "producer", Output: "TARGET"}
+			outputPath := "result.txt"
+			resolvedRedirect := sourcePath
+			consumer := core.Step{
+				ID:      "consumer",
+				Name:    "consumer",
+				Depends: []string{"producer"},
+				Inputs:  []core.StepInputDeclaration{{Name: "source", Path: "source.txt"}},
+			}
+			if tt.artifact {
+				outputPath = "${context.paths.artifacts_dir}/result.txt"
+				resolvedRedirect = "result.txt"
+				consumer.StdoutArtifact = "${producer.output}"
+			} else {
+				consumer.Stdout = "${producer.output}"
+			}
+			consumer.Outputs = []core.StepOutputDeclaration{{Name: "result", Path: outputPath}}
+
+			plan, err := NewPlan(producer, consumer)
+			require.NoError(t, err)
+			ctx := NewContext(context.Background(), &core.DAG{
+				Name:               "incremental-test",
+				Type:               core.TypeIncremental,
+				WorkingDir:         workingDir,
+				WorkingDirExplicit: true,
+			}, "run-1", filepath.Join(workingDir, "dag.log"), WithArtifactDir(artifactDir))
+			require.NoError(t, prepareIncrementalPlan(ctx, plan))
+
+			producerNode := plan.GetNodeByName("producer")
+			consumerNode := plan.GetNodeByName("consumer")
+			require.NotNil(t, producerNode)
+			require.NotNil(t, consumerNode)
+			producerNode.setOutputValue(resolvedRedirect)
+
+			runner := New(&Config{})
+			ctx, err = runner.setupVariables(ctx, plan, consumerNode)
+			require.NoError(t, err)
+			err = validateIncrementalRuntimeRedirectAliases(ctx, plan, consumerNode)
+			require.ErrorContains(t, err, tt.field+" path aliases incremental "+tt.targetKind)
 		})
 	}
 }
