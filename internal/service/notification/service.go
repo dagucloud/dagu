@@ -914,7 +914,7 @@ func (s *Service) deliverTarget(ctx context.Context, target notificationmodel.Ta
 	case notificationmodel.ProviderEmail:
 		return s.sendEmail(ctx, target, events)
 	case notificationmodel.ProviderWebhook:
-		return s.withRetry(ctx, func() error { return s.sendWebhook(ctx, target, events) })
+		return s.sendWebhook(ctx, target, events)
 	case notificationmodel.ProviderSlack:
 		return s.withRetry(ctx, func() error { return s.sendSlack(ctx, target, events) })
 	case notificationmodel.ProviderTelegram:
@@ -1327,6 +1327,8 @@ func (s *Service) sendWebhook(ctx context.Context, target notificationmodel.Targ
 
 // sendWebhookBodyTemplate posts one custom-rendered request per event, so that
 // every request carries a payload the receiving service can parse on its own.
+// Each request is retried on its own, so a transient failure part-way through
+// does not re-deliver the events that already succeeded.
 func (s *Service) sendWebhookBodyTemplate(
 	ctx context.Context,
 	target notificationmodel.Target,
@@ -1350,19 +1352,22 @@ func (s *Service) sendWebhookBodyTemplate(
 	return nil
 }
 
+// postWebhookBody delivers a single request body, retrying transient failures.
 func (s *Service) postWebhookBody(ctx context.Context, target notificationmodel.Target, body []byte) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target.Webhook.URL, bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	for key, value := range target.Webhook.Headers {
-		req.Header.Set(key, value)
-	}
-	if target.Webhook.HMACSecret != "" {
-		req.Header.Set("X-Dagu-Signature", "sha256="+signWebhookBody(body, target.Webhook.HMACSecret))
-	}
-	return s.doWebhookRequest(req)
+	return s.withRetry(ctx, func() error {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, target.Webhook.URL, bytes.NewReader(body))
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		for key, value := range target.Webhook.Headers {
+			req.Header.Set(key, value)
+		}
+		if target.Webhook.HMACSecret != "" {
+			req.Header.Set("X-Dagu-Signature", "sha256="+signWebhookBody(body, target.Webhook.HMACSecret))
+		}
+		return s.doWebhookRequest(req)
+	})
 }
 
 func (s *Service) sendSlack(ctx context.Context, target notificationmodel.Target, events []chatbridge.NotificationEvent) error {

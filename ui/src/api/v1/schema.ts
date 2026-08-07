@@ -3982,7 +3982,7 @@ export interface components {
         NotificationTeamsTargetInput: {
             /**
              * Format: uri
-             * @description Microsoft Teams incoming webhook URL, from a Teams Workflows (Power Automate) trigger or a legacy connector. Omit on updates to preserve the existing URL.
+             * @description Microsoft Teams incoming webhook URL, from a Teams Workflows (Power Automate) trigger or a legacy connector. Must use HTTPS. Omit on updates to preserve the existing URL.
              */
             webhookUrl?: string;
             /** @description Optional Teams message template. When omitted, Dagu sends the default notification text. */

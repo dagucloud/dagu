@@ -558,6 +558,68 @@ func TestService_SendTestWebhookUsesBodyTemplate(t *testing.T) {
 	assert.JSONEq(t, `{"text": "DAG daily-report failed", "dag": "daily-report"}`, body)
 }
 
+func TestService_WebhookBodyTemplateRetryDoesNotResendDeliveredEvents(t *testing.T) {
+	t.Parallel()
+
+	var mu sync.Mutex
+	var bodies []string
+	failedOnce := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+
+		mu.Lock()
+		defer mu.Unlock()
+		if strings.Contains(string(body), "run-2") && !failedOnce {
+			failedOnce = true
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		bodies = append(bodies, string(body))
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+
+	svc := New(
+		newMemoryStore(),
+		nil,
+		WithDeliveryRetry(DeliveryRetryConfig{MaxAttempts: 3}),
+	)
+	target := notificationmodel.Target{
+		ID:      "webhook-1",
+		Type:    notificationmodel.ProviderWebhook,
+		Enabled: true,
+		Webhook: &notificationmodel.WebhookTarget{
+			URL:                 server.URL,
+			AllowInsecureHTTP:   true,
+			AllowPrivateNetwork: true,
+			BodyTemplate:        `{"run": "{{run.id}}"}`,
+		},
+	}
+
+	err := svc.deliverTarget(context.Background(), target, []chatbridge.NotificationEvent{
+		notificationEventForRun(t, "run-1"),
+		notificationEventForRun(t, "run-2"),
+	})
+	require.NoError(t, err)
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, []string{`{"run": "run-1"}`, `{"run": "run-2"}`}, bodies)
+}
+
+func notificationEventForRun(t *testing.T, dagRunID string) chatbridge.NotificationEvent {
+	t.Helper()
+	return chatbridge.NotificationEvent{
+		Type: eventstore.TypeDAGRunFailed,
+		Status: &exec.DAGRunStatus{
+			Name:     "daily-report",
+			DAGRunID: dagRunID,
+			Status:   core.Failed,
+		},
+	}
+}
+
 func TestRenderWebhookBodyTemplateEscapesValues(t *testing.T) {
 	t.Parallel()
 

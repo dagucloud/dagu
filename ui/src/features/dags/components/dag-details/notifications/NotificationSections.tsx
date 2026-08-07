@@ -113,7 +113,7 @@ function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
           }
         />
         <Textarea
-          className="min-h-24 md:col-span-2"
+          className="min-h-24 py-1 md:col-span-2"
           aria-label="Email body template"
           value={draft.email.bodyTemplate}
           placeholder={DEFAULT_MESSAGE_TEMPLATE}
@@ -198,7 +198,7 @@ function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
           }
         />
         <Textarea
-          className="min-h-24"
+          className="min-h-24 py-1"
           aria-label="Webhook message template"
           value={draft.webhook.messageTemplate}
           placeholder={DEFAULT_MESSAGE_TEMPLATE}
@@ -212,7 +212,7 @@ function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
           }
         />
         <Textarea
-          className="min-h-24 font-mono"
+          className="min-h-24 py-1 font-mono"
           aria-label="Webhook body template"
           value={draft.webhook.bodyTemplate}
           placeholder={WEBHOOK_BODY_TEMPLATE_PLACEHOLDER}
@@ -293,7 +293,7 @@ function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
           }
         />
         <Textarea
-          className="min-h-24"
+          className="min-h-24 py-1"
           aria-label="Slack message template"
           value={draft.slack.messageTemplate}
           placeholder={DEFAULT_MESSAGE_TEMPLATE}
@@ -315,6 +315,7 @@ function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
       <div className="space-y-3">
         <Input
           type="password"
+          aria-label="Teams incoming webhook URL"
           value={draft.teams.webhookUrl}
           placeholder={
             draft.teams.webhookUrlConfigured
@@ -328,7 +329,7 @@ function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
           }
         />
         <Textarea
-          className="min-h-24"
+          className="min-h-24 py-1"
           aria-label="Teams message template"
           value={draft.teams.messageTemplate}
           placeholder={DEFAULT_MESSAGE_TEMPLATE}
@@ -383,7 +384,7 @@ function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
         }
       />
       <Textarea
-        className="min-h-24"
+        className="min-h-24 py-1"
         aria-label="Telegram message template"
         value={draft.telegram.messageTemplate}
         placeholder={DEFAULT_MESSAGE_TEMPLATE}
