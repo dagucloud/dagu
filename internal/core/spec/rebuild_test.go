@@ -155,6 +155,54 @@ steps:
 	assert.Contains(t, result.Env, "BACKTICK_VALUE=from-transport-backtick")
 }
 
+func TestRebuildFromYAML_EnvPrecedenceWhenSourcesConflict(t *testing.T) {
+	extraEnv, cleanup, err := buildenv.Prepare([]string{
+		"DECLARED=from-transport",
+		"CONFLICT=from-transport",
+		"TRANSPORT_ONLY=from-transport",
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, cleanup()) })
+
+	for _, entry := range extraEnv {
+		key, value, ok := strings.Cut(entry, "=")
+		require.True(t, ok)
+		t.Setenv(key, value)
+	}
+
+	dag := &core.DAG{
+		Name: "env-precedence",
+		YamlData: []byte(`
+env:
+  - DECLARED: from-yaml
+steps:
+  - run: echo hello
+`),
+		PresolvedBuildEnv: map[string]string{
+			"CONFLICT":      "from-snapshot",
+			"SNAPSHOT_ONLY": "from-snapshot",
+		},
+	}
+
+	restored, err := spec.RebuildFromYAML(context.Background(), dag)
+	require.NoError(t, err)
+
+	// A key carried by the build env overrides its own env: declaration instead of
+	// being re-evaluated, so a rebuild reuses the value resolved when the run was
+	// first built rather than whatever the YAML would resolve to now.
+	assert.Contains(t, restored.Env, "DECLARED=from-transport")
+	assert.NotContains(t, restored.Env, "DECLARED=from-yaml")
+
+	// Both build env sources resolve a shared key the same way in the map handed to
+	// the loader and in the fallbacks appended afterwards: the transported value wins.
+	assert.Contains(t, restored.Env, "CONFLICT=from-transport")
+	assert.NotContains(t, restored.Env, "CONFLICT=from-snapshot")
+
+	// A key only one source defines survives from that source.
+	assert.Contains(t, restored.Env, "TRANSPORT_ONLY=from-transport")
+	assert.Contains(t, restored.Env, "SNAPSHOT_ONLY=from-snapshot")
+}
+
 func TestRebuildFromYAML_RestoresHarnessConfig(t *testing.T) {
 	t.Parallel()
 
