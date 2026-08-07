@@ -173,6 +173,119 @@ func TestNotificationSettings_SMTPTransportIsNotReusableChannelLicensed(t *testi
 	response.Unmarshal(t, &settings)
 	require.NotNil(t, settings.Smtp)
 	assert.False(t, settings.Smtp.PasswordConfigured)
+
+	server.Client().Put("/api/v1/notification-settings", api.NotificationWorkspaceSettingsInput{
+		Smtp: &api.NotificationSMTPSettingsInput{
+			Username: new("sender@contoso.com"),
+			Password: new("smtp-secret"),
+			From:     new("sender@contoso.com"),
+			Oauth: &api.NotificationSMTPOAuthSettingsInput{
+				Provider:     api.NotificationSMTPOAuthProviderMicrosoft,
+				TenantId:     new("tenant"),
+				ClientId:     new("client"),
+				ClientSecret: new("client-secret"),
+			},
+		},
+	}).ExpectStatus(http.StatusBadRequest).Send(t)
+
+	response = server.Client().Put("/api/v1/notification-settings", api.NotificationWorkspaceSettingsInput{
+		Smtp: &api.NotificationSMTPSettingsInput{
+			Username: new("sender@contoso.com"),
+			From:     new("sender@contoso.com"),
+			Oauth: &api.NotificationSMTPOAuthSettingsInput{
+				Provider:     api.NotificationSMTPOAuthProviderMicrosoft,
+				TenantId:     new("tenant"),
+				ClientId:     new("client"),
+				ClientSecret: new("client-secret"),
+			},
+		},
+	}).ExpectStatus(http.StatusOK).Send(t)
+	response.Unmarshal(t, &settings)
+	require.NotNil(t, settings.Smtp)
+	assert.Equal(t, "smtp.office365.com", testValue(settings.Smtp.Host))
+	assert.Equal(t, "587", testValue(settings.Smtp.Port))
+	require.NotNil(t, settings.Smtp.Oauth)
+	assert.Equal(t, api.NotificationSMTPOAuthProviderMicrosoft, settings.Smtp.Oauth.Provider)
+	assert.True(t, settings.Smtp.Oauth.ClientSecretConfigured)
+
+	response = server.Client().Put("/api/v1/notification-settings", api.NotificationWorkspaceSettingsInput{
+		Smtp: &api.NotificationSMTPSettingsInput{
+			Username: new("sender@contoso.com"),
+			From:     new("sender@contoso.com"),
+			Oauth: &api.NotificationSMTPOAuthSettingsInput{
+				Provider: api.NotificationSMTPOAuthProviderMicrosoft,
+				TenantId: new("tenant"),
+				ClientId: new("client"),
+			},
+		},
+	}).ExpectStatus(http.StatusOK).Send(t)
+	response.Unmarshal(t, &settings)
+	require.NotNil(t, settings.Smtp)
+	require.NotNil(t, settings.Smtp.Oauth)
+	assert.True(t, settings.Smtp.Oauth.ClientSecretConfigured)
+
+	server.Client().Put("/api/v1/notification-settings", api.NotificationWorkspaceSettingsInput{
+		Smtp: &api.NotificationSMTPSettingsInput{
+			Username: new("other@contoso.com"),
+			From:     new("other@contoso.com"),
+			Oauth: &api.NotificationSMTPOAuthSettingsInput{
+				Provider: api.NotificationSMTPOAuthProviderMicrosoft,
+				TenantId: new("tenant"),
+				ClientId: new("client"),
+			},
+		},
+	}).ExpectStatus(http.StatusBadRequest).Send(t)
+
+	response = server.Client().Put("/api/v1/notification-settings", api.NotificationWorkspaceSettingsInput{
+		Smtp: &api.NotificationSMTPSettingsInput{
+			Username: new("sender@gmail.com"),
+			From:     new("sender@gmail.com"),
+			Oauth: &api.NotificationSMTPOAuthSettingsInput{
+				Provider:     api.NotificationSMTPOAuthProviderGoogleRefresh,
+				ClientId:     new("google-client"),
+				ClientSecret: new("google-secret"),
+				RefreshToken: new("refresh-token"),
+			},
+		},
+	}).ExpectStatus(http.StatusOK).Send(t)
+	response.Unmarshal(t, &settings)
+	require.NotNil(t, settings.Smtp)
+	require.NotNil(t, settings.Smtp.Oauth)
+	assert.Equal(t, api.NotificationSMTPOAuthProviderGoogleRefresh, settings.Smtp.Oauth.Provider)
+	assert.True(t, settings.Smtp.Oauth.ClientSecretConfigured)
+	assert.True(t, settings.Smtp.Oauth.RefreshTokenConfigured)
+
+	serviceAccountJSON := `{"type":"service_account","client_email":"service@example.com","private_key":"private-key"}`
+	response = server.Client().Put("/api/v1/notification-settings", api.NotificationWorkspaceSettingsInput{
+		Smtp: &api.NotificationSMTPSettingsInput{
+			Username: new("sender@example.com"),
+			From:     new("sender@example.com"),
+			Oauth: &api.NotificationSMTPOAuthSettingsInput{
+				Provider:           api.NotificationSMTPOAuthProviderGoogleServiceAccount,
+				ServiceAccountJson: &serviceAccountJSON,
+			},
+		},
+	}).ExpectStatus(http.StatusOK).Send(t)
+	response.Unmarshal(t, &settings)
+	require.NotNil(t, settings.Smtp)
+	require.NotNil(t, settings.Smtp.Oauth)
+	assert.Equal(t, api.NotificationSMTPOAuthProviderGoogleServiceAccount, settings.Smtp.Oauth.Provider)
+	assert.True(t, settings.Smtp.Oauth.ServiceAccountJsonConfigured)
+
+	response = server.Client().Put("/api/v1/notification-settings", api.NotificationWorkspaceSettingsInput{
+		Smtp: &api.NotificationSMTPSettingsInput{
+			Host:     new("smtp.example.com"),
+			Port:     new("587"),
+			Username: new("smtp-user"),
+			Password: new("smtp-secret"),
+			From:     new("dagu@example.com"),
+		},
+	}).ExpectStatus(http.StatusOK).Send(t)
+	settings = api.NotificationWorkspaceSettings{}
+	response.Unmarshal(t, &settings)
+	require.NotNil(t, settings.Smtp)
+	assert.Nil(t, settings.Smtp.Oauth)
+	assert.True(t, settings.Smtp.PasswordConfigured)
 }
 
 func testValue[T any](value *T) T {

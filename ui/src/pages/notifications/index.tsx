@@ -27,6 +27,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import ConfirmDialog from '@/components/ui/confirm-dialog';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import Title from '@/components/ui/title';
 import {
   Select,
@@ -56,6 +57,7 @@ import {
   components,
   NotificationEventType,
   NotificationProviderType,
+  NotificationSMTPOAuthProvider,
 } from '@/api/v1/schema';
 import { Link } from 'react-router-dom';
 
@@ -66,6 +68,7 @@ type NotificationRouteSetInput =
   components['schemas']['NotificationRouteSetInput'];
 
 type SMTPDraft = {
+  mode: 'password' | 'oauth';
   host: string;
   port: string;
   username: string;
@@ -73,9 +76,19 @@ type SMTPDraft = {
   from: string;
   passwordConfigured: boolean;
   clearPassword: boolean;
+  oauthProvider: NotificationSMTPOAuthProvider;
+  tenantId: string;
+  clientId: string;
+  clientSecret: string;
+  refreshToken: string;
+  serviceAccountJson: string;
+  clientSecretConfigured: boolean;
+  refreshTokenConfigured: boolean;
+  serviceAccountJsonConfigured: boolean;
 };
 
 const blankSMTPDraft: SMTPDraft = {
+  mode: 'password',
   host: '',
   port: '',
   username: '',
@@ -83,7 +96,47 @@ const blankSMTPDraft: SMTPDraft = {
   from: '',
   passwordConfigured: false,
   clearPassword: false,
+  oauthProvider: NotificationSMTPOAuthProvider.microsoft,
+  tenantId: '',
+  clientId: '',
+  clientSecret: '',
+  refreshToken: '',
+  serviceAccountJson: '',
+  clientSecretConfigured: false,
+  refreshTokenConfigured: false,
+  serviceAccountJsonConfigured: false,
 };
+
+const smtpOAuthDestinations: Record<
+  NotificationSMTPOAuthProvider,
+  { host: string; port: string }
+> = {
+  [NotificationSMTPOAuthProvider.microsoft]: {
+    host: 'smtp.office365.com',
+    port: '587',
+  },
+  [NotificationSMTPOAuthProvider.google_service_account]: {
+    host: 'smtp.gmail.com',
+    port: '587',
+  },
+  [NotificationSMTPOAuthProvider.google_refresh]: {
+    host: 'smtp.gmail.com',
+    port: '587',
+  },
+};
+
+function smtpOAuthProviderFromAPI(
+  provider?: NotificationSMTPOAuthProvider
+): NotificationSMTPOAuthProvider {
+  switch (provider) {
+    case NotificationSMTPOAuthProvider.google_service_account:
+      return NotificationSMTPOAuthProvider.google_service_account;
+    case NotificationSMTPOAuthProvider.google_refresh:
+      return NotificationSMTPOAuthProvider.google_refresh;
+    default:
+      return NotificationSMTPOAuthProvider.microsoft;
+  }
+}
 
 type DraftRoute = {
   id?: string;
@@ -143,6 +196,7 @@ function smtpDraftFromAPI(settings: NotificationWorkspaceSettings): SMTPDraft {
     return { ...blankSMTPDraft };
   }
   return {
+    mode: smtp.oauth ? 'oauth' : 'password',
     host: smtp.host || '',
     port: smtp.port || '',
     username: smtp.username || '',
@@ -150,6 +204,15 @@ function smtpDraftFromAPI(settings: NotificationWorkspaceSettings): SMTPDraft {
     from: smtp.from || '',
     passwordConfigured: !!smtp.passwordConfigured,
     clearPassword: false,
+    oauthProvider: smtpOAuthProviderFromAPI(smtp.oauth?.provider),
+    tenantId: smtp.oauth?.tenantId || '',
+    clientId: smtp.oauth?.clientId || '',
+    clientSecret: '',
+    refreshToken: '',
+    serviceAccountJson: '',
+    clientSecretConfigured: !!smtp.oauth?.clientSecretConfigured,
+    refreshTokenConfigured: !!smtp.oauth?.refreshTokenConfigured,
+    serviceAccountJsonConfigured: !!smtp.oauth?.serviceAccountJsonConfigured,
   };
 }
 
@@ -196,7 +259,9 @@ function blankRoute(
 }
 
 function smtpInput(draft: SMTPDraft) {
+  const oauthDestination = smtpOAuthDestinations[draft.oauthProvider];
   const hasSMTP =
+    draft.mode === 'oauth' ||
     draft.host.trim() ||
     draft.port.trim() ||
     draft.username.trim() ||
@@ -205,6 +270,31 @@ function smtpInput(draft: SMTPDraft) {
     draft.clearPassword;
   if (!hasSMTP) {
     return { smtp: null };
+  }
+  if (draft.mode === 'oauth') {
+    return {
+      smtp: {
+        host: oauthDestination.host,
+        port: oauthDestination.port,
+        username: draft.username.trim() || undefined,
+        from: draft.from.trim() || undefined,
+        oauth: {
+          provider: draft.oauthProvider,
+          tenantId:
+            draft.oauthProvider === NotificationSMTPOAuthProvider.microsoft
+              ? draft.tenantId.trim() || undefined
+              : undefined,
+          clientId:
+            draft.oauthProvider ===
+            NotificationSMTPOAuthProvider.google_service_account
+              ? undefined
+              : draft.clientId.trim() || undefined,
+          clientSecret: draft.clientSecret || undefined,
+          refreshToken: draft.refreshToken || undefined,
+          serviceAccountJson: draft.serviceAccountJson || undefined,
+        },
+      },
+    };
   }
   return {
     smtp: {
@@ -215,6 +305,27 @@ function smtpInput(draft: SMTPDraft) {
       from: draft.from.trim() || undefined,
       clearPassword: draft.clearPassword || undefined,
     },
+  };
+}
+
+function resetOAuthSecrets(draft: SMTPDraft): SMTPDraft {
+  return {
+    ...draft,
+    clientSecret: '',
+    refreshToken: '',
+    serviceAccountJson: '',
+    clientSecretConfigured: false,
+    refreshTokenConfigured: false,
+    serviceAccountJsonConfigured: false,
+  };
+}
+
+function resetOAuthSecretState(draft: SMTPDraft): SMTPDraft {
+  return {
+    ...draft,
+    clientSecretConfigured: false,
+    refreshTokenConfigured: false,
+    serviceAccountJsonConfigured: false,
   };
 }
 
@@ -1361,6 +1472,7 @@ export function NotificationChannelsPage() {
   );
 
   const isLoading = settingsLoading || channelsLoading;
+  const oauthDestination = smtpOAuthDestinations[smtpDraft.oauthProvider];
   const loadError =
     apiErrorMessage(settingsLoadError, 'Failed to load email delivery') ??
     apiErrorMessage(channelsLoadError, 'Failed to load channels');
@@ -1519,8 +1631,16 @@ export function NotificationChannelsPage() {
           <div className="flex items-center gap-2">
             <Mail className="h-4 w-4 text-muted-foreground" />
             <CardTitle className="text-sm">Email Delivery</CardTitle>
-            <Badge variant={smtpDraft.host ? 'success' : 'default'}>
-              {smtpDraft.host ? 'Configured' : 'Not Configured'}
+            <Badge
+              variant={
+                smtpDraft.host || smtpDraft.mode === 'oauth'
+                  ? 'success'
+                  : 'default'
+              }
+            >
+              {smtpDraft.host || smtpDraft.mode === 'oauth'
+                ? 'Configured'
+                : 'Not Configured'}
             </Badge>
           </div>
           <Button size="sm" onClick={saveSettings} disabled={isSavingSettings}>
@@ -1533,10 +1653,74 @@ export function NotificationChannelsPage() {
           </Button>
         </CardHeader>
         <CardContent className="space-y-3">
+          <div className="grid gap-3 md:grid-cols-2">
+            <Select
+              value={smtpDraft.mode}
+              onValueChange={(value) =>
+                setSMTPDraft((current) =>
+                  value === 'oauth'
+                    ? {
+                        ...current,
+                        mode: 'oauth',
+                        password: '',
+                        clearPassword: false,
+                      }
+                    : { ...current, mode: 'password' }
+                )
+              }
+            >
+              <SelectTrigger aria-label="SMTP authentication">
+                <SelectValue placeholder="Authentication" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="password">Password</SelectItem>
+                <SelectItem value="oauth">OAuth 2.0</SelectItem>
+              </SelectContent>
+            </Select>
+            {smtpDraft.mode === 'oauth' && (
+              <Select
+                value={smtpDraft.oauthProvider}
+                onValueChange={(value) =>
+                  setSMTPDraft((current) =>
+                    resetOAuthSecrets({
+                      ...current,
+                      oauthProvider: value as NotificationSMTPOAuthProvider,
+                      tenantId: '',
+                      clientId: '',
+                    })
+                  )
+                }
+              >
+                <SelectTrigger aria-label="OAuth provider">
+                  <SelectValue placeholder="OAuth provider" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NotificationSMTPOAuthProvider.microsoft}>
+                    Microsoft 365
+                  </SelectItem>
+                  <SelectItem
+                    value={NotificationSMTPOAuthProvider.google_service_account}
+                  >
+                    Google Workspace service account
+                  </SelectItem>
+                  <SelectItem
+                    value={NotificationSMTPOAuthProvider.google_refresh}
+                  >
+                    Google refresh token
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            )}
+          </div>
           <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_120px]">
             <Input
-              value={smtpDraft.host}
+              value={
+                smtpDraft.mode === 'oauth'
+                  ? oauthDestination.host
+                  : smtpDraft.host
+              }
               placeholder="SMTP host"
+              disabled={smtpDraft.mode === 'oauth'}
               onChange={(event) =>
                 setSMTPDraft((current) => ({
                   ...current,
@@ -1545,9 +1729,14 @@ export function NotificationChannelsPage() {
               }
             />
             <Input
-              value={smtpDraft.port}
+              value={
+                smtpDraft.mode === 'oauth'
+                  ? oauthDestination.port
+                  : smtpDraft.port
+              }
               placeholder="Port"
               inputMode="numeric"
+              disabled={smtpDraft.mode === 'oauth'}
               onChange={(event) =>
                 setSMTPDraft((current) => ({
                   ...current,
@@ -1559,57 +1748,190 @@ export function NotificationChannelsPage() {
           <div className="grid gap-3 md:grid-cols-2">
             <Input
               value={smtpDraft.username}
-              placeholder="Username"
-              onChange={(event) =>
-                setSMTPDraft((current) => ({
-                  ...current,
-                  username: event.target.value,
-                }))
-              }
-            />
-            <Input
-              type="password"
-              value={smtpDraft.password}
               placeholder={
-                smtpDraft.passwordConfigured
-                  ? 'Password configured'
-                  : 'Password'
+                smtpDraft.mode === 'oauth' ? 'Sender mailbox' : 'Username'
               }
-              onChange={(event) =>
-                setSMTPDraft((current) => ({
-                  ...current,
-                  password: event.target.value,
-                  clearPassword: false,
-                }))
-              }
+              onChange={(event) => {
+                const username = event.target.value;
+                setSMTPDraft((current) => {
+                  const next = { ...current, username };
+                  return current.mode === 'oauth' &&
+                    username !== current.username
+                    ? resetOAuthSecretState(next)
+                    : next;
+                });
+              }}
             />
-          </div>
-          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px]">
-            <Input
-              value={smtpDraft.from}
-              placeholder="Default sender"
-              onChange={(event) =>
-                setSMTPDraft((current) => ({
-                  ...current,
-                  from: event.target.value,
-                }))
-              }
-            />
-            <label className="flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm">
-              <Checkbox
-                checked={smtpDraft.clearPassword}
-                disabled={!smtpDraft.passwordConfigured}
-                onCheckedChange={(value) =>
+            {smtpDraft.mode === 'password' && (
+              <Input
+                type="password"
+                value={smtpDraft.password}
+                placeholder={
+                  smtpDraft.passwordConfigured
+                    ? 'Password configured'
+                    : 'Password'
+                }
+                onChange={(event) =>
                   setSMTPDraft((current) => ({
                     ...current,
-                    password: '',
-                    clearPassword: !!value,
+                    password: event.target.value,
+                    clearPassword: false,
                   }))
                 }
               />
-              Clear password
-            </label>
+            )}
+            {smtpDraft.mode === 'oauth' && (
+              <Input
+                value={smtpDraft.from}
+                placeholder="Default sender"
+                onChange={(event) =>
+                  setSMTPDraft((current) => ({
+                    ...current,
+                    from: event.target.value,
+                  }))
+                }
+              />
+            )}
           </div>
+          {smtpDraft.mode === 'password' && (
+            <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px]">
+              <Input
+                value={smtpDraft.from}
+                placeholder="Default sender"
+                onChange={(event) =>
+                  setSMTPDraft((current) => ({
+                    ...current,
+                    from: event.target.value,
+                  }))
+                }
+              />
+              <label className="flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm">
+                <Checkbox
+                  checked={smtpDraft.clearPassword}
+                  disabled={!smtpDraft.passwordConfigured}
+                  onCheckedChange={(value) =>
+                    setSMTPDraft((current) => ({
+                      ...current,
+                      password: '',
+                      clearPassword: !!value,
+                    }))
+                  }
+                />
+                Clear password
+              </label>
+            </div>
+          )}
+          {smtpDraft.mode === 'oauth' &&
+            smtpDraft.oauthProvider ===
+              NotificationSMTPOAuthProvider.microsoft && (
+              <>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <Input
+                    value={smtpDraft.tenantId}
+                    placeholder="Microsoft tenant ID"
+                    onChange={(event) => {
+                      const tenantId = event.target.value;
+                      setSMTPDraft((current) =>
+                        resetOAuthSecretState({ ...current, tenantId })
+                      );
+                    }}
+                  />
+                  <Input
+                    value={smtpDraft.clientId}
+                    placeholder="Client ID"
+                    onChange={(event) => {
+                      const clientId = event.target.value;
+                      setSMTPDraft((current) =>
+                        resetOAuthSecretState({ ...current, clientId })
+                      );
+                    }}
+                  />
+                </div>
+                <Input
+                  type="password"
+                  value={smtpDraft.clientSecret}
+                  placeholder={
+                    smtpDraft.clientSecretConfigured
+                      ? 'Client secret configured'
+                      : 'Client secret'
+                  }
+                  onChange={(event) =>
+                    setSMTPDraft((current) => ({
+                      ...current,
+                      clientSecret: event.target.value,
+                    }))
+                  }
+                />
+              </>
+            )}
+          {smtpDraft.mode === 'oauth' &&
+            smtpDraft.oauthProvider ===
+              NotificationSMTPOAuthProvider.google_service_account && (
+              <Textarea
+                value={smtpDraft.serviceAccountJson}
+                placeholder={
+                  smtpDraft.serviceAccountJsonConfigured
+                    ? 'Service-account JSON configured'
+                    : 'Service-account JSON'
+                }
+                onChange={(event) =>
+                  setSMTPDraft((current) => ({
+                    ...current,
+                    serviceAccountJson: event.target.value,
+                  }))
+                }
+              />
+            )}
+          {smtpDraft.mode === 'oauth' &&
+            smtpDraft.oauthProvider ===
+              NotificationSMTPOAuthProvider.google_refresh && (
+              <>
+                <Input
+                  value={smtpDraft.clientId}
+                  placeholder="Google OAuth client ID"
+                  onChange={(event) => {
+                    const clientId = event.target.value;
+                    setSMTPDraft((current) =>
+                      resetOAuthSecretState({ ...current, clientId })
+                    );
+                  }}
+                />
+                <Input
+                  type="password"
+                  value={smtpDraft.clientSecret}
+                  placeholder={
+                    smtpDraft.clientSecretConfigured
+                      ? 'Client secret configured'
+                      : 'Client secret'
+                  }
+                  onChange={(event) =>
+                    setSMTPDraft((current) => ({
+                      ...current,
+                      clientSecret: event.target.value,
+                    }))
+                  }
+                />
+                <Input
+                  type="password"
+                  value={smtpDraft.refreshToken}
+                  placeholder={
+                    smtpDraft.refreshTokenConfigured
+                      ? 'Refresh token configured'
+                      : 'Refresh token'
+                  }
+                  onChange={(event) =>
+                    setSMTPDraft((current) => ({
+                      ...current,
+                      refreshToken: event.target.value,
+                    }))
+                  }
+                />
+                <p className="text-xs text-muted-foreground">
+                  The refresh token must have been granted with offline access
+                  and the https://mail.google.com/ scope.
+                </p>
+              </>
+            )}
         </CardContent>
       </Card>
 

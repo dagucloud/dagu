@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
+	mailoauth "github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauth"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/spec/types"
@@ -246,10 +247,11 @@ func handlerFieldName(name core.HandlerType) string {
 
 // smtpConfig defines the SMTP configuration.
 type smtpConfig struct {
-	Host     string          `yaml:"host,omitempty"`     // SMTP host
-	Port     types.PortValue `yaml:"port,omitempty"`     // SMTP port (can be string or number)
-	Username string          `yaml:"username,omitempty"` // SMTP username
-	Password string          `yaml:"password,omitempty"` // SMTP password
+	Host     string            `yaml:"host,omitempty"`     // SMTP host
+	Port     types.PortValue   `yaml:"port,omitempty"`     // SMTP port (can be string or number)
+	Username string            `yaml:"username,omitempty"` // SMTP username
+	Password string            `yaml:"password,omitempty"` // SMTP password
+	OAuth    *mailoauth.Config `yaml:"oauth,omitempty"`    // SMTP OAuth credentials
 }
 
 // IsZero returns true if all fields are empty/default.
@@ -921,6 +923,10 @@ func composeBuildDAGContext(base, current *core.DAG, currentSpec *dag) (*core.DA
 	}
 
 	effective := base.Clone()
+	if !currentSpec.SMTP.IsZero() && ((base.SMTP != nil && base.SMTP.OAuth != nil) ||
+		(current.SMTP != nil && current.SMTP.OAuth != nil)) {
+		effective.SMTP = nil
+	}
 	if err := merge(effective, current); err != nil {
 		return nil, err
 	}
@@ -3202,11 +3208,24 @@ func buildSMTPConfig(_ buildContext, d *dag) (*core.SMTPConfig, error) {
 		return nil, nil
 	}
 
+	if d.SMTP.OAuth != nil {
+		if strings.TrimSpace(d.SMTP.Password) != "" {
+			return nil, errors.New("smtp password and oauth are mutually exclusive")
+		}
+		if strings.TrimSpace(d.SMTP.Username) == "" {
+			return nil, errors.New("smtp username is required with oauth")
+		}
+		if err := mailoauth.ValidateStructure(d.SMTP.OAuth); err != nil {
+			return nil, err
+		}
+	}
+
 	return &core.SMTPConfig{
 		Host:     d.SMTP.Host,
 		Port:     d.SMTP.Port.String(),
 		Username: d.SMTP.Username,
 		Password: d.SMTP.Password,
+		OAuth:    d.SMTP.OAuth,
 	}, nil
 }
 

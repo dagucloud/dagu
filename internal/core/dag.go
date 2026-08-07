@@ -18,6 +18,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/buildenv"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
+	mailoauth "github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauth"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/joho/godotenv"
 	"github.com/robfig/cron/v3"
@@ -389,6 +390,14 @@ func (d *DAG) Clone() *DAG {
 	if d.Artifacts != nil {
 		artifactsCopy := *d.Artifacts
 		clone.Artifacts = &artifactsCopy
+	}
+	if d.SMTP != nil {
+		smtpCopy := *d.SMTP
+		if d.SMTP.OAuth != nil {
+			oauthCopy := *d.SMTP.OAuth
+			smtpCopy.OAuth = &oauthCopy
+		}
+		clone.SMTP = &smtpCopy
 	}
 	if d.Resources != nil {
 		clone.Resources = d.Resources.Clone()
@@ -1093,10 +1102,11 @@ type MailOn struct {
 
 // SMTPConfig contains the SMTP configuration.
 type SMTPConfig struct {
-	Host     string `json:"host,omitempty"`
-	Port     string `json:"port,omitempty"`
-	Username string `json:"username,omitempty"`
-	Password string `json:"password,omitempty"`
+	Host     string            `json:"host,omitempty"`
+	Port     string            `json:"port,omitempty"`
+	Username string            `json:"username,omitempty"`
+	Password string            `json:"password,omitempty"`
+	OAuth    *mailoauth.Config `json:"oauth,omitempty"`
 }
 
 // MailConfig contains the mail configuration.

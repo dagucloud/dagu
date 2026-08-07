@@ -7,7 +7,17 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/base64"
+	"encoding/pem"
+	"fmt"
+	"math/big"
 	"net"
+	"net/smtp"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,9 +25,295 @@ import (
 	"testing"
 	"time"
 
+	mailoauth "github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauth"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/oauth2"
 )
+
+func TestXOAUTH2Auth(t *testing.T) {
+	t.Parallel()
+
+	auth := &xoauth2Auth{username: "sender@example.com", token: "access-token"}
+	mechanism, response, err := auth.Start(&smtp.ServerInfo{Name: "smtp.example.com", TLS: true})
+	require.NoError(t, err)
+	assert.Equal(t, "XOAUTH2", mechanism)
+	assert.Equal(t, "user=sender@example.com\x01auth=Bearer access-token\x01\x01", string(response))
+
+	response, err = auth.Next([]byte(`{"status":"401"}`), true)
+	require.NoError(t, err)
+	require.NotNil(t, response)
+	assert.Empty(t, response)
+	assert.Equal(t, `{"status":"401"}`, auth.challenge)
+
+	_, _, err = auth.Start(&smtp.ServerInfo{Name: "smtp.example.com", TLS: false})
+	assert.ErrorContains(t, err, "requires a TLS connection")
+}
+
+func TestBuildConfigWithOAuth(t *testing.T) {
+	t.Parallel()
+
+	oauthConfig := &mailoauth.Config{
+		Provider:     mailoauth.ProviderMicrosoft,
+		TenantID:     "tenant",
+		ClientID:     "client",
+		ClientSecret: "secret",
+	}
+	config, err := BuildConfig("", "", "sender@example.com", "", oauthConfig)
+	require.NoError(t, err)
+	assert.Equal(t, "smtp.office365.com", config.Host)
+	assert.Equal(t, "587", config.Port)
+	assert.Equal(t, "sender@example.com", config.Username)
+	assert.NotNil(t, config.Token)
+
+	_, err = BuildConfig("smtp.example.com", "587", "sender@example.com", "", oauthConfig)
+	assert.ErrorContains(t, err, "requires host")
+	_, err = BuildConfig("smtp.office365.com", "25", "sender@example.com", "", oauthConfig)
+	assert.ErrorContains(t, err, "requires port")
+	_, err = BuildConfig("", "", "sender@example.com", "password", oauthConfig)
+	assert.ErrorContains(t, err, "mutually exclusive")
+	_, err = BuildConfig("", "", "", "", oauthConfig)
+	assert.ErrorContains(t, err, "username is required")
+	_, err = BuildConfig("", "", "sender@example.com", "", &mailoauth.Config{
+		Provider: mailoauth.ProviderGoogleServiceAccount, ServiceAccountJSON: "{}",
+	})
+	assert.ErrorContains(t, err, "invalid Google service account JSON")
+}
+
+func TestAuthenticateOAuthPreservesServerChallenge(t *testing.T) {
+	t.Parallel()
+
+	clientConn, serverConn := net.Pipe()
+	setPipeDeadline(t, clientConn, serverConn)
+	certificate := newTestTLSCertificate(t)
+	serverDone := make(chan error, 1)
+	authPayload := make(chan string, 1)
+	challenge := `{"status":"401","schemes":"bearer"}`
+	go func() {
+		defer func() { _ = serverConn.Close() }()
+		reader := bufio.NewReader(serverConn)
+		writer := bufio.NewWriter(serverConn)
+		write := func(response string) error {
+			if _, err := writer.WriteString(response); err != nil {
+				return err
+			}
+			return writer.Flush()
+		}
+		readPrefix := func(prefix string) (string, error) {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				return "", err
+			}
+			if !strings.HasPrefix(line, prefix) {
+				return "", fmt.Errorf("expected %q, got %q", prefix, line)
+			}
+			return line, nil
+		}
+
+		if err := write("220 mock.server ESMTP\r\n"); err != nil {
+			serverDone <- err
+			return
+		}
+		if _, err := readPrefix("EHLO"); err != nil {
+			serverDone <- err
+			return
+		}
+		if err := write("250-mock.server\r\n250-STARTTLS\r\n250 AUTH LOGIN\r\n"); err != nil {
+			serverDone <- err
+			return
+		}
+		if _, err := readPrefix("STARTTLS"); err != nil {
+			serverDone <- err
+			return
+		}
+		if err := write("220 Ready to start TLS\r\n"); err != nil {
+			serverDone <- err
+			return
+		}
+
+		tlsConn := tls.Server(serverConn, &tls.Config{
+			Certificates: []tls.Certificate{certificate},
+			MinVersion:   tls.VersionTLS12,
+		})
+		if err := tlsConn.Handshake(); err != nil {
+			serverDone <- err
+			return
+		}
+		reader = bufio.NewReader(tlsConn)
+		writer = bufio.NewWriter(tlsConn)
+		if _, err := readPrefix("EHLO"); err != nil {
+			serverDone <- err
+			return
+		}
+		if err := write("250-mock.server\r\n250 AUTH XOAUTH2\r\n"); err != nil {
+			serverDone <- err
+			return
+		}
+		authLine, err := readPrefix("AUTH XOAUTH2 ")
+		if err != nil {
+			serverDone <- err
+			return
+		}
+		parts := strings.Fields(authLine)
+		if len(parts) != 3 {
+			serverDone <- fmt.Errorf("unexpected AUTH command %q", authLine)
+			return
+		}
+		payload, err := base64.StdEncoding.DecodeString(parts[2])
+		if err != nil {
+			serverDone <- err
+			return
+		}
+		authPayload <- string(payload)
+		if err := write("334 " + base64.StdEncoding.EncodeToString([]byte(challenge)) + "\r\n"); err != nil {
+			serverDone <- err
+			return
+		}
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			serverDone <- err
+			return
+		}
+		if strings.TrimSpace(line) != "" {
+			serverDone <- fmt.Errorf("expected empty challenge response, got %q", line)
+			return
+		}
+		if err := write("535 5.7.8 Authentication failed\r\n"); err != nil {
+			serverDone <- err
+			return
+		}
+		if _, err := readPrefix("*"); err != nil {
+			serverDone <- err
+			return
+		}
+		if err := write("501 Authentication canceled\r\n"); err != nil {
+			serverDone <- err
+			return
+		}
+		if _, err := readPrefix("QUIT"); err != nil {
+			serverDone <- err
+			return
+		}
+		serverDone <- write("221 Bye\r\n")
+	}()
+
+	client, err := smtp.NewClient(clientConn, "localhost")
+	require.NoError(t, err)
+	require.NoError(t, client.Hello("localhost"))
+	require.NoError(t, client.StartTLS(&tls.Config{ //nolint:gosec // the test server uses an ephemeral self-signed certificate.
+		InsecureSkipVerify: true,
+		MinVersion:         tls.VersionTLS12,
+	}))
+	tokenCalls := 0
+	mailer := &Client{
+		host: "localhost", port: "587", username: "sender@example.com",
+		token: func(context.Context) (*oauth2.Token, error) {
+			tokenCalls++
+			return &oauth2.Token{AccessToken: "access-token"}, nil
+		},
+	}
+	err = mailer.authenticateOAuth(context.Background(), client)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "535")
+	assert.ErrorContains(t, err, challenge)
+	assert.Equal(t, 1, tokenCalls)
+	assert.Equal(t, "user=sender@example.com\x01auth=Bearer access-token\x01\x01", <-authPayload)
+	require.NoError(t, <-serverDone)
+}
+
+func TestAuthenticateOAuthRequiresAdvertisedXOAUTH2BeforeToken(t *testing.T) {
+	t.Parallel()
+
+	for _, response := range []string{
+		"250 mock.server\r\n",
+		"250-mock.server\r\n250 AUTH LOGIN PLAIN\r\n",
+	} {
+		clientConn, serverConn := net.Pipe()
+		setPipeDeadline(t, clientConn, serverConn)
+		go func() {
+			defer func() { _ = serverConn.Close() }()
+			reader := bufio.NewReader(serverConn)
+			writer := bufio.NewWriter(serverConn)
+			_, _ = writer.WriteString("220 mock.server ESMTP\r\n")
+			_ = writer.Flush()
+			_, _ = reader.ReadString('\n')
+			_, _ = writer.WriteString(response)
+			_ = writer.Flush()
+		}()
+
+		client, err := smtp.NewClient(clientConn, "localhost")
+		require.NoError(t, err)
+		require.NoError(t, client.Hello("localhost"))
+		tokenCalls := 0
+		mailer := &Client{token: func(context.Context) (*oauth2.Token, error) {
+			tokenCalls++
+			return &oauth2.Token{AccessToken: "token"}, nil
+		}}
+		err = mailer.authenticateOAuth(context.Background(), client)
+		assert.ErrorContains(t, err, "does not advertise AUTH XOAUTH2")
+		assert.Zero(t, tokenCalls)
+		_ = client.Close()
+	}
+}
+
+func TestPrepareSessionRequiresSTARTTLSBeforeOAuthToken(t *testing.T) {
+	t.Parallel()
+
+	clientConn, serverConn := net.Pipe()
+	setPipeDeadline(t, clientConn, serverConn)
+	go func() {
+		defer func() { _ = serverConn.Close() }()
+		reader := bufio.NewReader(serverConn)
+		writer := bufio.NewWriter(serverConn)
+		_, _ = writer.WriteString("220 mock.server ESMTP\r\n")
+		_ = writer.Flush()
+		_, _ = reader.ReadString('\n')
+		_, _ = writer.WriteString("250-mock.server\r\n250 AUTH XOAUTH2\r\n")
+		_ = writer.Flush()
+	}()
+
+	client, err := smtp.NewClient(clientConn, "localhost")
+	require.NoError(t, err)
+	tokenCalls := 0
+	mailer := &Client{token: func(context.Context) (*oauth2.Token, error) {
+		tokenCalls++
+		return &oauth2.Token{AccessToken: "token"}, nil
+	}}
+	err = mailer.prepareSession(context.Background(), client)
+	assert.ErrorContains(t, err, "requires STARTTLS")
+	assert.Zero(t, tokenCalls)
+	_ = client.Close()
+}
+
+func newTestTLSCertificate(t *testing.T) tls.Certificate {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "localhost"},
+		NotBefore:    time.Now().Add(-time.Minute),
+		NotAfter:     time.Now().Add(time.Hour),
+		KeyUsage:     x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		DNSNames:     []string{"localhost"},
+	}
+	certificateDER, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	require.NoError(t, err)
+	certificatePEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certificateDER})
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+	certificate, err := tls.X509KeyPair(certificatePEM, keyPEM)
+	require.NoError(t, err)
+	return certificate
+}
+
+func setPipeDeadline(t *testing.T, connections ...net.Conn) {
+	t.Helper()
+	deadline := time.Now().Add(30 * time.Second)
+	for _, connection := range connections {
+		require.NoError(t, connection.SetDeadline(deadline))
+	}
+}
 
 func TestIsHTMLContent(t *testing.T) {
 	tests := []struct {

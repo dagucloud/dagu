@@ -3788,6 +3788,34 @@ export interface components {
             /** @description Attach DAG and step logs when available */
             attachLogs?: boolean;
         };
+        /**
+         * @description SMTP OAuth token provider
+         * @enum {string}
+         */
+        NotificationSMTPOAuthProvider: NotificationSMTPOAuthProvider;
+        /** @description SMTP OAuth credentials. Secret values are encrypted at rest and omitted from responses. */
+        NotificationSMTPOAuthSettingsInput: {
+            provider: components["schemas"]["NotificationSMTPOAuthProvider"];
+            /** @description Microsoft Entra tenant ID */
+            tenantId?: string;
+            /** @description OAuth client ID */
+            clientId?: string;
+            /** @description OAuth client secret. Omit on updates to preserve the existing value when the OAuth identity is unchanged. */
+            clientSecret?: string;
+            /** @description Google refresh token. Omit on updates to preserve the existing value when the OAuth identity is unchanged. */
+            refreshToken?: string;
+            /** @description Google service-account JSON. Omit on updates to preserve the existing value when the OAuth identity is unchanged. */
+            serviceAccountJson?: string;
+        };
+        /** @description Public SMTP OAuth settings. Secret values are never returned. */
+        NotificationSMTPOAuthSettings: {
+            provider: components["schemas"]["NotificationSMTPOAuthProvider"];
+            tenantId?: string;
+            clientId?: string;
+            clientSecretConfigured: boolean;
+            refreshTokenConfigured: boolean;
+            serviceAccountJsonConfigured: boolean;
+        };
         /** @description Workspace SMTP transport input for notification email delivery. Values are encrypted at rest where applicable. */
         NotificationSMTPSettingsInput: {
             /** @description SMTP server host */
@@ -3800,6 +3828,7 @@ export interface components {
             password?: string;
             /** @description Clear the stored SMTP password. */
             clearPassword?: boolean;
+            oauth?: components["schemas"]["NotificationSMTPOAuthSettingsInput"] | null;
             /** @description Default sender address for notification email channels */
             from?: string;
         };
@@ -3811,6 +3840,7 @@ export interface components {
             port?: string;
             /** @description SMTP username */
             username?: string;
+            oauth?: components["schemas"]["NotificationSMTPOAuthSettings"];
             /** @description Default sender address for notification email channels */
             from?: string;
             /** @description Whether an SMTP password is configured */
@@ -17851,6 +17881,11 @@ export enum NotificationEventType {
     dag_run_failed = "dag.run.failed",
     dag_run_aborted = "dag.run.aborted",
     dag_run_rejected = "dag.run.rejected"
+}
+export enum NotificationSMTPOAuthProvider {
+    microsoft = "microsoft",
+    google_service_account = "google_service_account",
+    google_refresh = "google_refresh"
 }
 export enum NotificationRouteScope {
     global = "global",

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
+	mailoauth "github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauth"
 	"github.com/dagucloud/dagu/v2/internal/notification"
 	"github.com/dagucloud/dagu/v2/internal/service/eventstore"
 	"github.com/stretchr/testify/assert"
@@ -232,6 +233,87 @@ func TestStore_PersistsWorkspaceSMTPSettingsEncrypted(t *testing.T) {
 	assert.Equal(t, "smtp-secret", got.SMTP.Password)
 	assert.Equal(t, "dagu@example.com", got.SMTP.From)
 	assert.Equal(t, "tester", got.UpdatedBy)
+}
+
+func TestStore_PersistsWorkspaceSMTPOAuthSettingsEncrypted(t *testing.T) {
+	t.Parallel()
+
+	enc, err := crypto.NewEncryptor("test-key")
+	require.NoError(t, err)
+	store, err := New(t.TempDir(), WithEncryptor(enc))
+	require.NoError(t, err)
+
+	settings, err := notification.NormalizeWorkspaceSettings(&notification.WorkspaceSettings{
+		SMTP: &notification.SMTPConfig{
+			Username: "sender@gmail.com",
+			OAuth: &mailoauth.Config{
+				Provider: mailoauth.ProviderGoogleRefresh, ClientID: "client-id",
+				ClientSecret: "client-secret", RefreshToken: "refresh-token",
+			},
+			From: "sender@gmail.com",
+		},
+	}, "tester")
+	require.NoError(t, err)
+	require.NoError(t, store.SaveWorkspaceSettings(context.Background(), settings))
+
+	raw, err := os.ReadFile(store.workspaceSettingsFile) //nolint:gosec // test reads its temp directory.
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), "google_refresh")
+	assert.NotContains(t, string(raw), "client-secret")
+	assert.NotContains(t, string(raw), "refresh-token")
+
+	got, err := store.GetWorkspaceSettings(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, got.SMTP)
+	require.NotNil(t, got.SMTP.OAuth)
+	assert.Equal(t, "smtp.gmail.com", got.SMTP.Host)
+	assert.Equal(t, mailoauth.ProviderGoogleRefresh, got.SMTP.OAuth.Provider)
+	assert.Equal(t, "client-id", got.SMTP.OAuth.ClientID)
+	assert.Equal(t, "client-secret", got.SMTP.OAuth.ClientSecret)
+	assert.Equal(t, "refresh-token", got.SMTP.OAuth.RefreshToken)
+
+	serviceAccountJSON := `{"type":"service_account","client_email":"sender@example.com"}`
+	serviceAccountSettings := &notification.WorkspaceSettings{
+		SMTP: &notification.SMTPConfig{
+			Host: "smtp.gmail.com", Port: "587", Username: "sender@example.com", From: "sender@example.com",
+			OAuth: &mailoauth.Config{
+				Provider: mailoauth.ProviderGoogleServiceAccount, ServiceAccountJSON: serviceAccountJSON,
+			},
+		},
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}
+	require.NoError(t, store.SaveWorkspaceSettings(context.Background(), serviceAccountSettings))
+	raw, err = os.ReadFile(store.workspaceSettingsFile) //nolint:gosec // test reads its temp directory.
+	require.NoError(t, err)
+	assert.NotContains(t, string(raw), serviceAccountJSON)
+	got, err = store.GetWorkspaceSettings(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, got.SMTP.OAuth)
+	assert.Equal(t, serviceAccountJSON, got.SMTP.OAuth.ServiceAccountJSON)
+
+	microsoftSettings := &notification.WorkspaceSettings{
+		SMTP: &notification.SMTPConfig{
+			Host: "smtp.office365.com", Port: "587", Username: "sender@contoso.com", From: "sender@contoso.com",
+			OAuth: &mailoauth.Config{
+				Provider: mailoauth.ProviderMicrosoft, TenantID: "tenant-id",
+				ClientID: "microsoft-client", ClientSecret: "microsoft-secret",
+			},
+		},
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}
+	require.NoError(t, store.SaveWorkspaceSettings(context.Background(), microsoftSettings))
+	raw, err = os.ReadFile(store.workspaceSettingsFile) //nolint:gosec // test reads its temp directory.
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), "tenant-id")
+	assert.NotContains(t, string(raw), "microsoft-secret")
+	got, err = store.GetWorkspaceSettings(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, got.SMTP.OAuth)
+	assert.Equal(t, "tenant-id", got.SMTP.OAuth.TenantID)
+	assert.Equal(t, "microsoft-client", got.SMTP.OAuth.ClientID)
+	assert.Equal(t, "microsoft-secret", got.SMTP.OAuth.ClientSecret)
 }
 
 func TestStore_PersistsGlobalAndWorkspaceRouteSets(t *testing.T) {

@@ -11,6 +11,7 @@ import (
 	"net/http"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
+	mailoauth "github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauth"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	notificationmodel "github.com/dagucloud/dagu/v2/internal/notification"
 	"github.com/dagucloud/dagu/v2/internal/service/audit"
@@ -503,6 +504,16 @@ func notificationWorkspaceSettingsFromRequest(input api.NotificationWorkspaceSet
 			From:          valueOf(input.Smtp.From),
 			ClearPassword: valueOf(input.Smtp.ClearPassword),
 		}
+		if input.Smtp.Oauth != nil {
+			settings.SMTP.OAuth = &mailoauth.Config{
+				Provider:           mailoauth.Provider(input.Smtp.Oauth.Provider),
+				TenantID:           valueOf(input.Smtp.Oauth.TenantId),
+				ClientID:           valueOf(input.Smtp.Oauth.ClientId),
+				ClientSecret:       valueOf(input.Smtp.Oauth.ClientSecret),
+				RefreshToken:       valueOf(input.Smtp.Oauth.RefreshToken),
+				ServiceAccountJSON: valueOf(input.Smtp.Oauth.ServiceAccountJson),
+			}
+		}
 	}
 	return settings
 }
@@ -713,6 +724,16 @@ func toAPINotificationWorkspaceSettings(settings *notificationmodel.WorkspaceSet
 			Username:           ptrOf(pub.SMTP.Username),
 			From:               ptrOf(pub.SMTP.From),
 			PasswordConfigured: pub.SMTP.PasswordConfigured,
+		}
+		if pub.SMTP.OAuth != nil {
+			result.Smtp.Oauth = &api.NotificationSMTPOAuthSettings{
+				Provider:                     api.NotificationSMTPOAuthProvider(pub.SMTP.OAuth.Provider),
+				TenantId:                     ptrOf(pub.SMTP.OAuth.TenantID),
+				ClientId:                     ptrOf(pub.SMTP.OAuth.ClientID),
+				ClientSecretConfigured:       pub.SMTP.OAuth.ClientSecretConfigured,
+				RefreshTokenConfigured:       pub.SMTP.OAuth.RefreshTokenConfigured,
+				ServiceAccountJsonConfigured: pub.SMTP.OAuth.ServiceAccountJSONConfigured,
+			}
 		}
 	}
 	return result

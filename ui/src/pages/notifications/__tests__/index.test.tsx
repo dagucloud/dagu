@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AppBarContext } from '@/contexts/AppBarContext';
 
@@ -14,7 +15,26 @@ vi.hoisted(() => {
   }));
 });
 
-import NotificationsPage from '..';
+const mocks = vi.hoisted(() => ({
+  useQuery: vi.fn(),
+  client: {
+    PUT: vi.fn(),
+    POST: vi.fn(),
+    DELETE: vi.fn(),
+  },
+}));
+
+vi.mock('@/hooks/api', () => ({
+  useClient: () => mocks.client,
+  useQuery: mocks.useQuery,
+}));
+
+import NotificationsPage, { NotificationChannelsPage } from '..';
+
+Object.defineProperty(HTMLElement.prototype, 'hasPointerCapture', {
+  configurable: true,
+  value: () => false,
+});
 
 function renderPage() {
   const setTitle = vi.fn();
@@ -29,6 +49,43 @@ function renderPage() {
 
   return { setTitle };
 }
+
+function renderChannelsPage(settings: object) {
+  const settingsQuery = {
+    data: settings,
+    error: undefined,
+    isLoading: false,
+    mutate: vi.fn(),
+  };
+  const channelsQuery = {
+    data: { channels: [] },
+    error: undefined,
+    isLoading: false,
+    mutate: vi.fn(),
+  };
+  mocks.useQuery.mockImplementation((path: string) =>
+    path === '/notification-settings' ? settingsQuery : channelsQuery
+  );
+
+  render(
+    <MemoryRouter>
+      <AppBarContext.Provider
+        value={
+          {
+            setTitle: vi.fn(),
+            selectedRemoteNode: 'local',
+          } as never
+        }
+      >
+        <NotificationChannelsPage />
+      </AppBarContext.Provider>
+    </MemoryRouter>
+  );
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 describe('NotificationsPage', () => {
   it('renders notification links by section', () => {
@@ -54,5 +111,82 @@ describe('NotificationsPage', () => {
       )
     ).toBeVisible();
     expect(setTitle).toHaveBeenCalledWith('Notifications');
+  });
+});
+
+describe('NotificationChannelsPage', () => {
+  it('preserves the configured password indicator when toggling authentication modes', async () => {
+    const user = userEvent.setup();
+    renderChannelsPage({
+      smtp: {
+        host: 'smtp.example.com',
+        port: '587',
+        username: 'sender@example.com',
+        passwordConfigured: true,
+      },
+    });
+
+    expect(screen.getByPlaceholderText('Password configured')).toBeVisible();
+
+    await user.click(screen.getByLabelText('SMTP authentication'));
+    await user.click(screen.getByRole('option', { name: 'OAuth 2.0' }));
+    await user.click(screen.getByLabelText('SMTP authentication'));
+    await user.click(screen.getByRole('option', { name: 'Password' }));
+
+    expect(screen.getByPlaceholderText('Password configured')).toBeVisible();
+  });
+
+  it('preserves configured OAuth indicators when toggling authentication modes', async () => {
+    const user = userEvent.setup();
+    renderChannelsPage({
+      smtp: {
+        host: 'smtp.office365.com',
+        port: '587',
+        username: 'sender@example.com',
+        oauth: {
+          provider: 'microsoft',
+          tenantId: 'tenant',
+          clientId: 'client',
+          clientSecretConfigured: true,
+          refreshTokenConfigured: false,
+          serviceAccountJsonConfigured: false,
+        },
+      },
+    });
+
+    expect(
+      screen.getByPlaceholderText('Client secret configured')
+    ).toBeVisible();
+
+    await user.click(screen.getByLabelText('SMTP authentication'));
+    await user.click(screen.getByRole('option', { name: 'Password' }));
+    await user.click(screen.getByLabelText('SMTP authentication'));
+    await user.click(screen.getByRole('option', { name: 'OAuth 2.0' }));
+
+    expect(
+      screen.getByPlaceholderText('Client secret configured')
+    ).toBeVisible();
+  });
+
+  it('keeps typed OAuth secrets when identity fields change', async () => {
+    const user = userEvent.setup();
+    renderChannelsPage({});
+
+    await user.click(screen.getByLabelText('SMTP authentication'));
+    await user.click(screen.getByRole('option', { name: 'OAuth 2.0' }));
+
+    const clientSecret = screen.getByPlaceholderText('Client secret');
+    await user.type(clientSecret, 'typed-secret');
+    await user.type(
+      screen.getByPlaceholderText('Microsoft tenant ID'),
+      'tenant'
+    );
+    await user.type(screen.getByPlaceholderText('Client ID'), 'client');
+    await user.type(
+      screen.getByPlaceholderText('Sender mailbox'),
+      'sender@example.com'
+    );
+
+    expect(clientSecret).toHaveValue('typed-secret');
   });
 });

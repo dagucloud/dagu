@@ -15,12 +15,14 @@ import (
 	"net/smtp"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
+	"golang.org/x/oauth2"
 )
 
 // Client is a mailer that sends emails.
@@ -29,6 +31,7 @@ type Client struct {
 	port     string
 	username string
 	password string
+	token    func(context.Context) (*oauth2.Token, error)
 }
 
 // Config is a config for SMTP mailer.
@@ -37,6 +40,7 @@ type Config struct {
 	Port     string
 	Username string
 	Password string
+	Token    func(context.Context) (*oauth2.Token, error)
 }
 
 func New(cfg Config) *Client {
@@ -45,6 +49,7 @@ func New(cfg Config) *Client {
 		port:     cfg.Port,
 		username: cfg.Username,
 		password: cfg.Password,
+		token:    cfg.Token,
 	}
 }
 
@@ -85,7 +90,7 @@ func (m *Client) SendWithRecipients(
 	defer cancel()
 
 	logger.Info(ctx, "Sending email", slog.Any("to", to), tag.Subject(subject))
-	if m.username == "" && m.password == "" {
+	if m.username == "" && m.password == "" && m.token == nil {
 		return m.send(ctx, from, to, cc, bcc, subject, body, attachments, false)
 	}
 	return m.send(ctx, from, to, cc, bcc, subject, body, attachments, true)
@@ -208,6 +213,8 @@ func (m *Client) prepareSession(ctx context.Context, c *smtp.Client) error {
 		if err := c.StartTLS(tlsConfig); err != nil {
 			return fmt.Errorf("STARTTLS failed: %w", err)
 		}
+	} else if m.token != nil {
+		return errors.New("SMTP OAuth requires STARTTLS")
 	}
 
 	if err := m.authenticate(ctx, c); err != nil {
@@ -219,6 +226,10 @@ func (m *Client) prepareSession(ctx context.Context, c *smtp.Client) error {
 // authenticate tries LOGIN auth first, then falls back to PLAIN auth.
 // LOGIN auth is more commonly supported for "basic authentication" scenarios.
 func (m *Client) authenticate(ctx context.Context, c *smtp.Client) error {
+	if m.token != nil {
+		return m.authenticateOAuth(ctx, c)
+	}
+
 	// Check if server advertises AUTH extension
 	if ok, _ := c.Extension("AUTH"); !ok {
 		// Server doesn't advertise AUTH - this is unusual for servers requiring auth
@@ -247,6 +258,30 @@ func (m *Client) authenticate(ctx context.Context, c *smtp.Client) error {
 
 	// Both failed - return a combined error message
 	return fmt.Errorf("LOGIN auth failed: %v; PLAIN auth failed: %v", loginErr, plainErr)
+}
+
+func (m *Client) authenticateOAuth(ctx context.Context, c *smtp.Client) error {
+	ok, mechanisms := c.Extension("AUTH")
+	if !ok || !slices.ContainsFunc(strings.Fields(mechanisms), func(mechanism string) bool {
+		return strings.EqualFold(mechanism, "XOAUTH2")
+	}) {
+		return errors.New("SMTP server does not advertise AUTH XOAUTH2 after STARTTLS")
+	}
+	token, err := m.token(ctx)
+	if err != nil {
+		return fmt.Errorf("acquire SMTP OAuth token: %w", err)
+	}
+	if token == nil || strings.TrimSpace(token.AccessToken) == "" {
+		return errors.New("SMTP OAuth token is empty")
+	}
+	auth := &xoauth2Auth{username: m.username, token: token.AccessToken}
+	if err := c.Auth(auth); err != nil {
+		if auth.challenge != "" {
+			return fmt.Errorf("XOAUTH2 auth failed: %w (server: %s)", err, auth.challenge)
+		}
+		return fmt.Errorf("XOAUTH2 auth failed: %w", err)
+	}
+	return nil
 }
 
 // loginAuth implements smtp.Auth interface for LOGIN authentication mechanism.

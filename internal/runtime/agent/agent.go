@@ -763,26 +763,33 @@ func (a *Agent) Run(ctx context.Context) error {
 	// Evaluate SMTP and mail configs with environment variables and secrets.
 	// This must happen AFTER attempt.Open() to avoid persisting expanded secrets.
 	if err := a.evaluateMailConfigs(ctx); err != nil {
-		return err
+		initErr = err
+		return initErr
 	}
 
 	// Evaluate registry auth credentials with environment variables and secrets.
 	if err := a.evaluateRegistryAuths(ctx); err != nil {
-		return err
+		initErr = err
+		return initErr
 	}
 
 	// Evaluate working directory with environment variables.
 	if err := a.evaluateWorkingDir(ctx); err != nil {
-		return err
+		initErr = err
+		return initErr
 	}
 
 	// Evaluate S3 configuration with environment variables and secrets.
 	if err := a.evaluateS3Config(ctx); err != nil {
-		return err
+		initErr = err
+		return initErr
 	}
 
 	// Setup the reporter to send notifications (must be after mail config evaluation)
-	a.setupReporter(ctx)
+	if err := a.setupReporter(ctx); err != nil {
+		initErr = err
+		return initErr
+	}
 
 	// Update the initial persisted status.
 	st := a.Status(ctx)
@@ -1652,19 +1659,18 @@ func (a *Agent) HandleHTTP(ctx context.Context) sock.HTTPHandlerFunc {
 }
 
 // setupReporter setups the reporter to send the report to the user.
-func (a *Agent) setupReporter(ctx context.Context) {
+func (a *Agent) setupReporter(ctx context.Context) error {
 	// Lock to prevent race condition.
 	a.lock.Lock()
 	defer a.lock.Unlock()
 
 	var senderFn SenderFn
 	if a.evaluatedSMTP != nil {
-		senderFn = mailer.New(mailer.Config{
-			Host:     a.evaluatedSMTP.Host,
-			Port:     a.evaluatedSMTP.Port,
-			Username: a.evaluatedSMTP.Username,
-			Password: a.evaluatedSMTP.Password,
-		}).Send
+		config, err := mailerConfigFromSMTP(a.evaluatedSMTP)
+		if err != nil {
+			return fmt.Errorf("invalid smtp config: %w", err)
+		}
+		senderFn = mailer.New(config).Send
 	} else {
 		senderFn = func(ctx context.Context, _ string, _ []string, subject, _ string, _ []string) error {
 			logger.Debug(ctx, "Mail notification is disabled",
@@ -1679,6 +1685,14 @@ func (a *Agent) setupReporter(ctx context.Context) {
 		InfoMail:  a.evaluatedInfoMail,
 		WaitMail:  a.evaluatedWaitMail,
 	})
+	return nil
+}
+
+func mailerConfigFromSMTP(config *core.SMTPConfig) (mailer.Config, error) {
+	if config == nil {
+		return mailer.Config{}, nil
+	}
+	return mailer.BuildConfig(config.Host, config.Port, config.Username, config.Password, config.OAuth)
 }
 
 // newRunner creates a runner instance for the dag-run.

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	mailoauth "github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauth"
 	"github.com/dagucloud/dagu/v2/internal/service/eventstore"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -282,6 +283,27 @@ func TestNormalizeWorkspaceSettingsValidatesSMTP(t *testing.T) {
 		SMTP: &SMTPConfig{Host: "smtp.example.com", Port: "587", From: "invalid"},
 	}, "tester")
 	assert.ErrorIs(t, err, ErrInvalidSettings)
+
+	oauthSettings, err := NormalizeWorkspaceSettings(&WorkspaceSettings{
+		SMTP: &SMTPConfig{
+			Username: " sender@example.com ",
+			OAuth: &mailoauth.Config{
+				Provider: mailoauth.ProviderMicrosoft, TenantID: " tenant ",
+				ClientID: " client ", ClientSecret: "secret",
+			},
+			From: "sender@example.com",
+		},
+	}, "tester")
+	require.NoError(t, err)
+	require.NotNil(t, oauthSettings.SMTP)
+	assert.Equal(t, "smtp.office365.com", oauthSettings.SMTP.Host)
+	assert.Equal(t, "587", oauthSettings.SMTP.Port)
+	assert.Equal(t, "sender@example.com", oauthSettings.SMTP.Username)
+	public := oauthSettings.ToPublic()
+	require.NotNil(t, public.SMTP)
+	require.NotNil(t, public.SMTP.OAuth)
+	assert.True(t, public.SMTP.OAuth.ClientSecretConfigured)
+	assert.Empty(t, public.SMTP.OAuth.RefreshTokenConfigured)
 }
 
 func TestNormalizeRouteSetValidatesScopeAndRoutes(t *testing.T) {
@@ -362,6 +384,43 @@ func TestPreserveWorkspaceSecrets(t *testing.T) {
 	next.SMTP.Password = ""
 	PreserveWorkspaceSecrets(next, existing)
 	assert.Empty(t, next.SMTP.Password)
+
+	existing.SMTP = &SMTPConfig{
+		Username: "sender@example.com",
+		OAuth: &mailoauth.Config{
+			Provider: mailoauth.ProviderGoogleRefresh, ClientID: "client",
+			ClientSecret: "old-client-secret", RefreshToken: "old-refresh-token",
+		},
+	}
+	next.SMTP = &SMTPConfig{
+		Username: "sender@example.com",
+		OAuth: &mailoauth.Config{
+			Provider: mailoauth.ProviderGoogleRefresh, ClientID: "client",
+		},
+	}
+	PreserveWorkspaceSecrets(next, existing)
+	assert.Equal(t, "old-client-secret", next.SMTP.OAuth.ClientSecret)
+	assert.Equal(t, "old-refresh-token", next.SMTP.OAuth.RefreshToken)
+
+	next.SMTP.Username = "other@example.com"
+	next.SMTP.OAuth.ClientSecret = ""
+	next.SMTP.OAuth.RefreshToken = ""
+	PreserveWorkspaceSecrets(next, existing)
+	assert.Empty(t, next.SMTP.OAuth.ClientSecret)
+	assert.Empty(t, next.SMTP.OAuth.RefreshToken)
+
+	existing.SMTP = &SMTPConfig{
+		Username: "sender@example.com",
+		OAuth: &mailoauth.Config{
+			Provider: mailoauth.ProviderGoogleServiceAccount, ServiceAccountJSON: "service-account-json",
+		},
+	}
+	next.SMTP = &SMTPConfig{
+		Username: "sender@example.com",
+		OAuth:    &mailoauth.Config{Provider: mailoauth.ProviderGoogleServiceAccount},
+	}
+	PreserveWorkspaceSecrets(next, existing)
+	assert.Equal(t, "service-account-json", next.SMTP.OAuth.ServiceAccountJSON)
 }
 
 func TestPreserveChannelSecrets(t *testing.T) {

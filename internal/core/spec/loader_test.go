@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	mailoauth "github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauth"
 	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/harness"
@@ -299,6 +300,87 @@ steps:
 		// Host and port should be inherited from base
 		assert.Equal(t, "smtp.base.com", dag.SMTP.Host, "smtp host should be inherited from base")
 		assert.Equal(t, "587", dag.SMTP.Port, "smtp port should be inherited from base")
+	})
+	t.Run("OAuthSMTPInheritanceIsAtomic", func(t *testing.T) {
+		t.Parallel()
+
+		base := createTempYAMLFile(t, `smtp:
+  username: base@example.com
+  oauth:
+    provider: microsoft
+    tenant_id: tenant
+    client_id: client
+    client_secret: secret
+`)
+
+		t.Run("InheritedUnchanged", func(t *testing.T) {
+			dagFile := createTempYAMLFile(t, "steps:\n  - name: one\n    run: 'true'\n")
+			dag, err := spec.Load(context.Background(), dagFile, spec.WithBaseConfig(base))
+			require.NoError(t, err)
+			require.NotNil(t, dag.SMTP)
+			require.NotNil(t, dag.SMTP.OAuth)
+			assert.Equal(t, mailoauth.ProviderMicrosoft, dag.SMTP.OAuth.Provider)
+		})
+
+		t.Run("ChildPasswordReplacesOAuth", func(t *testing.T) {
+			dagFile := createTempYAMLFile(t, `smtp:
+  host: smtp.example.com
+  port: 587
+  username: child
+  password: password
+steps:
+  - name: one
+    run: "true"
+`)
+			dag, err := spec.Load(context.Background(), dagFile, spec.WithBaseConfig(base))
+			require.NoError(t, err)
+			require.NotNil(t, dag.SMTP)
+			assert.Nil(t, dag.SMTP.OAuth)
+			assert.Equal(t, "smtp.example.com", dag.SMTP.Host)
+			assert.Equal(t, "password", dag.SMTP.Password)
+		})
+
+		t.Run("UsernameOnlyDoesNotReuseOAuth", func(t *testing.T) {
+			dagFile := createTempYAMLFile(t, `smtp:
+  username: child@example.com
+steps:
+  - name: one
+    run: "true"
+`)
+			dag, err := spec.Load(context.Background(), dagFile, spec.WithBaseConfig(base))
+			require.NoError(t, err)
+			require.NotNil(t, dag.SMTP)
+			assert.Nil(t, dag.SMTP.OAuth)
+			assert.Empty(t, dag.SMTP.Host)
+		})
+	})
+	t.Run("ChildOAuthReplacesPasswordSMTP", func(t *testing.T) {
+		t.Parallel()
+
+		base := createTempYAMLFile(t, `smtp:
+  host: smtp.example.com
+  port: 587
+  username: base
+  password: password
+`)
+		dagFile := createTempYAMLFile(t, `smtp:
+  username: child@example.com
+  oauth:
+    provider: google_refresh
+    client_id: client
+    client_secret: secret
+    refresh_token: refresh
+steps:
+  - name: one
+    run: "true"
+`)
+		dag, err := spec.Load(context.Background(), dagFile, spec.WithBaseConfig(base))
+		require.NoError(t, err)
+		require.NotNil(t, dag.SMTP)
+		require.NotNil(t, dag.SMTP.OAuth)
+		assert.Equal(t, mailoauth.ProviderGoogleRefresh, dag.SMTP.OAuth.Provider)
+		assert.Empty(t, dag.SMTP.Host)
+		assert.Empty(t, dag.SMTP.Password)
 	})
 	t.Run("WaitMailConfig", func(t *testing.T) {
 		t.Parallel()
@@ -918,6 +1000,49 @@ steps:
 		assert.Contains(t, dag.Env, "GLOBAL_ONLY=global")
 		assert.Contains(t, dag.Env, "WORKSPACE_ONLY=ops")
 		assert.Contains(t, dag.Env, "SHARED=workspace")
+	})
+
+	t.Run("WithWorkspaceBaseConfigDir_ReplacesOAuthSMTPAtomically", func(t *testing.T) {
+		t.Parallel()
+
+		root := t.TempDir()
+		globalBase := filepath.Join(root, "base.yaml")
+		require.NoError(t, os.WriteFile(globalBase, []byte(`
+smtp:
+  username: base@example.com
+  oauth:
+    provider: microsoft
+    tenant_id: tenant
+    client_id: client
+    client_secret: secret
+`), 0600))
+
+		workspaceConfigDir := filepath.Join(root, "workspaces")
+		require.NoError(t, os.MkdirAll(filepath.Join(workspaceConfigDir, "ops"), 0750))
+		require.NoError(t, os.WriteFile(filepath.Join(workspaceConfigDir, "ops", "base.yaml"), []byte(`
+smtp:
+  host: smtp.example.com
+  port: 587
+  username: workspace
+  password: password
+`), 0600))
+
+		childDAG := createTempYAMLFile(t, `
+labels:
+  - workspace=ops
+steps:
+  - name: step1
+    run: "true"
+`)
+		dag, err := spec.Load(context.Background(), childDAG,
+			spec.WithBaseConfig(globalBase),
+			spec.WithWorkspaceBaseConfigDir(workspaceConfigDir),
+		)
+		require.NoError(t, err)
+		require.NotNil(t, dag.SMTP)
+		assert.Nil(t, dag.SMTP.OAuth)
+		assert.Equal(t, "smtp.example.com", dag.SMTP.Host)
+		assert.Equal(t, "workspace", dag.SMTP.Username)
 	})
 
 	t.Run("WithWorkspaceBaseConfigDir_IgnoresDefaultWorkspace", func(t *testing.T) {
