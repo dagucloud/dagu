@@ -37,6 +37,21 @@ func TestParallelStatusDetailsIdentifyChildRuns(t *testing.T) {
 			},
 		},
 		{
+			name: "resolved child names take precedence when checking uniqueness",
+			runParamsList: []executor.RunParams{
+				{RunID: "run-a", DAGName: "intraday", Params: "CUSTOMER=a"},
+				{RunID: "run-b", DAGName: "intraday", Params: "CUSTOMER=b"},
+			},
+			results: map[string]*exec1.RunStatus{
+				"run-a": {Name: "intraday-a", DAGRunID: "run-a", Status: core.Failed},
+				"run-b": {Name: "intraday-b", DAGRunID: "run-b", Status: core.Succeeded},
+			},
+			want: []exec1.NodeStatusDetail{
+				{Label: "intraday-a", Status: core.NodeFailed},
+				{Label: "intraday-b", Status: core.NodeSucceeded},
+			},
+		},
+		{
 			name: "duplicate child names retain params",
 			runParamsList: []executor.RunParams{
 				{RunID: "run-a", DAGName: "child", Params: "CUSTOMER=a"},
