@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -969,4 +970,43 @@ steps:
 	assert.Equal(t, "gemini", restored.Harnesses["gemini"].Binary)
 	assert.Equal(t, core.HarnessPromptModeFlag, restored.Harnesses["gemini"].PromptMode)
 	assert.Equal(t, "--prompt", restored.Harnesses["gemini"].PromptFlag)
+}
+
+func TestRebuildDAGRunSnapshotFromYAMLRestoresExecutorDefaults(t *testing.T) {
+	t.Parallel()
+
+	workingDir := t.TempDir()
+	dag := &core.DAG{
+		Name: "snapshot-executor-defaults",
+		YamlData: fmt.Appendf(nil, `
+working_dir: %q
+s3:
+  region: us-west-2
+  bucket: snapshot-bucket
+redis:
+  host: redis.internal
+  port: 6380
+kubernetes:
+  namespace: dag-ns
+steps:
+  - run: echo hello
+`, workingDir),
+	}
+
+	restored, err := rebuildDAGRunSnapshotFromYAML(context.Background(), dag)
+	require.NoError(t, err)
+	require.Same(t, dag, restored)
+
+	require.NotNil(t, restored.S3)
+	assert.Equal(t, "us-west-2", restored.S3.Region)
+	assert.Equal(t, "snapshot-bucket", restored.S3.Bucket)
+
+	require.NotNil(t, restored.Redis)
+	assert.Equal(t, "redis.internal", restored.Redis.Host)
+	assert.Equal(t, 6380, restored.Redis.Port)
+
+	require.NotNil(t, restored.Kubernetes)
+	assert.Equal(t, "dag-ns", restored.Kubernetes["namespace"])
+
+	assert.True(t, restored.WorkingDirExplicit)
 }

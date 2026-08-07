@@ -627,16 +627,20 @@ func rebuildDAGRunSnapshotFromYAML(ctx context.Context, dag *core.DAG, paramsOve
 	if err != nil {
 		return nil, err
 	}
-	fresh.SourceFile = dag.SourceFile
-
+	// Restore the fields excluded from JSON serialization (json:"-"), which the
+	// snapshot cannot carry. Every other field is already stored in dag.json.
 	dag.Env = fresh.Env
 	dag.Params = fresh.Params
 	dag.ParamsJSON = fresh.ParamsJSON
 	dag.SMTP = fresh.SMTP
 	dag.SSH = fresh.SSH
+	dag.S3 = fresh.S3
+	dag.Redis = fresh.Redis
 	dag.RegistryAuths = fresh.RegistryAuths
 	dag.Harness = fresh.Harness
 	dag.Harnesses = fresh.Harnesses
+	dag.Kubernetes = fresh.Kubernetes
+	dag.WorkingDirExplicit = fresh.WorkingDirExplicit
 
 	core.InitializeDefaults(dag)
 
