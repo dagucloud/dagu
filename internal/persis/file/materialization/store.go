@@ -178,7 +178,7 @@ func (s *Store) Commit(_ context.Context, lock exec.MaterializationLock, req exe
 	}
 
 	journalPath := s.journalPath(outputKey)
-	backupPath := req.FinalPath + ".dagu-backup-" + req.Manifest.CommitID
+	backupPath := filepath.Join(filepath.Dir(req.FinalPath), ".dagu-backup-"+digestName(req.FinalPath+"\x00"+req.Manifest.CommitID))
 	journal := commitJournal{
 		FinalPath:        req.FinalPath,
 		BackupPath:       backupPath,

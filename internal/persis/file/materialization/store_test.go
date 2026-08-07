@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -83,6 +84,43 @@ func TestCommitPublishesOutputAndManifest(t *testing.T) {
 	stored, err := store.Get(context.Background(), manifest.MaterializationKey)
 	require.NoError(t, err)
 	require.Equal(t, manifest.CommitID, stored.CommitID)
+}
+
+func TestCommitReplacesLongNamedOutput(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	store := New(filepath.Join(dir, "store"))
+	finalPath := filepath.Join(dir, strings.Repeat("x", 240))
+	if err := os.WriteFile(finalPath, []byte("probe"), fileMode); err != nil {
+		t.Skipf("filesystem does not support long basenames: %v", err)
+	}
+	require.NoError(t, os.Remove(finalPath))
+	lock, err := store.AcquirePaths(context.Background(), []exec.PathLockRequest{{
+		Key: incremental.ComparisonKey(finalPath), Mode: exec.PathLockExclusive,
+	}})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, lock.Release()) })
+
+	for _, commit := range []struct {
+		id      string
+		content string
+	}{
+		{id: "commit-1", content: "first"},
+		{id: "commit-2", content: "second"},
+	} {
+		stagingPath := filepath.Join(dir, "."+commit.id+".tmp")
+		require.NoError(t, os.WriteFile(stagingPath, []byte(commit.content), fileMode))
+		require.NoError(t, store.Commit(context.Background(), lock, exec.MaterializationCommit{
+			StagingPath: stagingPath,
+			FinalPath:   finalPath,
+			Manifest:    testManifest(t, "materialization", commit.id, stagingPath, finalPath),
+		}))
+	}
+
+	content, err := os.ReadFile(finalPath)
+	require.NoError(t, err)
+	require.Equal(t, "second", string(content))
 }
 
 func TestCommitRequiresMatchingExclusiveOutputLock(t *testing.T) {
