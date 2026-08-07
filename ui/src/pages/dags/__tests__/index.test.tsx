@@ -26,6 +26,7 @@ import { WorkspaceKind, workspaceSelectionKey } from '@/lib/workspace';
 import DagsPage from '../index';
 
 const {
+  clientDeleteMock,
   clientGetMock,
   createViewMock,
   deleteViewMock,
@@ -33,6 +34,7 @@ const {
   updateViewMock,
   userPreferences,
 } = vi.hoisted(() => ({
+  clientDeleteMock: vi.fn(),
   clientGetMock: vi.fn(),
   createViewMock: vi.fn(),
   deleteViewMock: vi.fn(),
@@ -94,6 +96,7 @@ vi.mock('@/features/dags/components/dag-list', () => ({
     onSetDefaultWorkflowView,
     onSetPinnedWorkflowView,
     onDeleteWorkflowView,
+    onDeleteDAGs,
   }: {
     dags: Array<{ fileName: string; dag: { name: string } }>;
     searchText: string;
@@ -115,6 +118,7 @@ vi.mock('@/features/dags/components/dag-list', () => ({
     onSetDefaultWorkflowView: (viewId: string | undefined) => Promise<void>;
     onSetPinnedWorkflowView: (viewId: string, pinned: boolean) => Promise<void>;
     onDeleteWorkflowView: (viewId: string) => Promise<void>;
+    onDeleteDAGs: (fileNames: string[]) => Promise<void>;
   }) => (
     <div>
       <input
@@ -177,6 +181,9 @@ vi.mock('@/features/dags/components/dag-list', () => ({
       >
         Delete production view
       </button>
+      <button type="button" onClick={() => void onDeleteDAGs(['demo.yaml'])}>
+        Delete demo workflow
+      </button>
       <ul>
         {dags.map((dag) => (
           <li key={dag.fileName}>{dag.fileName}</li>
@@ -193,6 +200,7 @@ vi.mock('@/features/dags/components/dag-list/DAGListHeader', () => ({
 vi.mock('@/hooks/api', () => ({
   useQuery: vi.fn(),
   useClient: () => ({
+    DELETE: clientDeleteMock,
     GET: clientGetMock,
   }),
 }));
@@ -362,6 +370,8 @@ describe('DagsPage', () => {
     localStorage.clear();
     sessionStorage.clear();
     calls.length = 0;
+    clientDeleteMock.mockReset();
+    clientDeleteMock.mockResolvedValue({});
     clientGetMock.mockReset();
     sharedWorkflowViewState.views = [];
     createViewMock.mockReset();
@@ -862,6 +872,23 @@ describe('DagsPage', () => {
     expect(screen.getByTestId('active-workflow-view')).toHaveTextContent(
       'none'
     );
+  });
+
+  it('deletes selected workflows through the existing DAG endpoint', async () => {
+    renderPage();
+
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Delete demo workflow' })
+      );
+    });
+
+    expect(clientDeleteMock).toHaveBeenCalledWith('/dags/{fileName}', {
+      params: {
+        path: { fileName: 'demo.yaml' },
+        query: { remoteNode: 'remote-a' },
+      },
+    });
   });
 
   it('opens workflow details in the page-level modal when a table row is selected', () => {

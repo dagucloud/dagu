@@ -670,6 +670,64 @@ function DAGsContent() {
     setTimeout(() => mutate(), 500);
   }, [mutate, resetLoadedPages]);
 
+  const handleDeleteDAGs = React.useCallback(
+    async (fileNames: string[]): Promise<void> => {
+      const results = await Promise.all(
+        fileNames.map(async (fileName) => {
+          try {
+            const { error } = await client.DELETE('/dags/{fileName}', {
+              params: {
+                path: { fileName },
+                query: { remoteNode },
+              },
+            });
+            return {
+              fileName,
+              error: error
+                ? error.message || 'The delete request failed'
+                : undefined,
+            };
+          } catch (error) {
+            return {
+              fileName,
+              error:
+                error instanceof Error
+                  ? error.message
+                  : 'Unexpected server error',
+            };
+          }
+        })
+      );
+      const deletedFileNames = results
+        .filter((result) => !result.error)
+        .map((result) => result.fileName);
+      const failures = results.filter((result) => result.error);
+
+      if (deletedFileNames.length > 0) {
+        if (selectedDAG && deletedFileNames.includes(selectedDAG)) {
+          setSelectedDAG(null);
+        }
+        resetLoadedPages();
+        await mutate();
+      }
+
+      if (failures.length === 1) {
+        const [failure] = failures;
+        throw new Error(
+          `Failed to delete "${failure?.fileName}": ${failure?.error}`
+        );
+      }
+      if (failures.length > 1) {
+        throw new Error(
+          `Failed to delete ${failures.length} workflows: ${failures
+            .map((failure) => failure.fileName)
+            .join(', ')}`
+        );
+      }
+    },
+    [client, mutate, remoteNode, resetLoadedPages, selectedDAG]
+  );
+
   const handleSelectDAG = React.useCallback((fileName: string) => {
     setSelectedDAG(fileName);
   }, []);
@@ -1021,6 +1079,7 @@ function DAGsContent() {
             isAllWorkflowsView={isAllWorkflowsView}
             isWorkflowViewEdited={isWorkflowViewEdited}
             canManageWorkflowViews={canManageWorkflowViews}
+            canDeleteDAGs={canManageWorkflowViews}
             workflowViewError={workflowViewError}
             onSelectWorkflowView={handleSelectWorkflowView}
             onShowAllWorkflows={handleShowAllWorkflows}
@@ -1030,6 +1089,7 @@ function DAGsContent() {
             onSetDefaultWorkflowView={handleSetDefaultWorkflowView}
             onSetPinnedWorkflowView={handleSetPinnedWorkflowView}
             onDeleteWorkflowView={handleDeleteWorkflowView}
+            onDeleteDAGs={handleDeleteDAGs}
             resultCount={data.pagination.totalRecords}
             selectedDAG={selectedDAG}
             onSelectDAG={handleSelectDAG}

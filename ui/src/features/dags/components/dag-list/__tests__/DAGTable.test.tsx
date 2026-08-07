@@ -1,7 +1,13 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import React from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -41,10 +47,13 @@ function renderTable(
     activeOnly?: boolean;
     isAllWorkflowsView?: boolean;
     panelWidth?: number | null;
+    onDeleteDAGs?: (fileNames: string[]) => Promise<void>;
   } = {}
 ) {
   const onShowAllWorkflows = vi.fn();
   const handleActiveOnlyChange = vi.fn();
+  const onDeleteDAGs =
+    options.onDeleteDAGs ?? vi.fn().mockResolvedValue(undefined);
   const result = render(
     <MemoryRouter>
       <AppBarContext.Provider
@@ -89,6 +98,7 @@ function renderTable(
             isAllWorkflowsView={options.isAllWorkflowsView ?? true}
             isWorkflowViewEdited={false}
             canManageWorkflowViews={true}
+            canDeleteDAGs={true}
             onSelectWorkflowView={vi.fn()}
             onShowAllWorkflows={onShowAllWorkflows}
             onResetWorkflowView={vi.fn()}
@@ -97,12 +107,18 @@ function renderTable(
             onSetDefaultWorkflowView={vi.fn()}
             onSetPinnedWorkflowView={vi.fn()}
             onDeleteWorkflowView={vi.fn()}
+            onDeleteDAGs={onDeleteDAGs}
           />
         </PanelWidthContext.Provider>
       </AppBarContext.Provider>
     </MemoryRouter>
   );
-  return { ...result, handleActiveOnlyChange, onShowAllWorkflows };
+  return {
+    ...result,
+    handleActiveOnlyChange,
+    onDeleteDAGs,
+    onShowAllWorkflows,
+  };
 }
 
 describe('DAGTable', () => {
@@ -165,6 +181,55 @@ describe('DAGTable', () => {
       'aria-pressed',
       'true'
     );
+  });
+
+  it('selects loaded workflows and deletes them after confirmation', async () => {
+    const { onDeleteDAGs } = renderTable('', {
+      dags: [
+        {
+          fileName: 'alpha.yaml',
+          dag: { name: 'alpha' },
+          latestDAGRun: {
+            status: Status.Success,
+            statusLabel: 'Success',
+          },
+          suspended: false,
+          errors: [],
+        } as never,
+        {
+          fileName: 'beta.yaml',
+          dag: { name: 'beta' },
+          latestDAGRun: {
+            status: Status.Success,
+            statusLabel: 'Success',
+          },
+          suspended: false,
+          errors: [],
+        } as never,
+      ],
+    });
+
+    expect(screen.getByRole('button', { name: 'Delete' })).toBeDisabled();
+    fireEvent.click(
+      within(screen.getByRole('table')).getByRole('checkbox', {
+        name: 'Select all loaded workflows',
+      })
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Delete (2)' }));
+
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveTextContent('Delete 2 workflows?');
+    expect(dialog).toHaveTextContent('alpha.yaml');
+    expect(dialog).toHaveTextContent('beta.yaml');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }));
+
+    await waitFor(() => {
+      expect(onDeleteDAGs).toHaveBeenCalledWith(['alpha.yaml', 'beta.yaml']);
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+    expect(screen.getByRole('button', { name: 'Delete' })).toBeDisabled();
   });
 
   it('explains an empty saved view and offers to show all workflows', () => {

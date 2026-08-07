@@ -22,6 +22,7 @@ import {
   ChevronDown,
   ChevronUp,
   Search,
+  Trash2,
 } from 'lucide-react';
 import React, {
   useCallback,
@@ -70,6 +71,8 @@ function formatMs(ms: number): string {
 import { PanelWidthContext } from '../../../../components/SplitLayout';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import ConfirmDialog from '@/components/ui/confirm-dialog';
 import { Input } from '@/components/ui/input';
 import {
   Table,
@@ -113,6 +116,9 @@ interface DAGCardProps {
   onSelect: (fileName: string, title: string) => void;
   onLabelClick: (label: string) => void;
   refreshFn: () => void;
+  canDeleteDAGs: boolean;
+  isDeleteSelected: boolean;
+  onToggleDeleteSelection: (fileName: string) => void;
   className?: string;
 }
 
@@ -122,6 +128,9 @@ function DAGCard({
   onSelect,
   onLabelClick,
   refreshFn,
+  canDeleteDAGs,
+  isDeleteSelected,
+  onToggleDeleteSelection,
   className = '',
 }: DAGCardProps) {
   const fileName = dag.fileName;
@@ -149,8 +158,22 @@ function DAGCard({
     >
       {/* Header: Name + Status */}
       <div className="flex justify-between items-start gap-2 mb-1.5">
-        <div className="font-medium text-xs truncate flex-1 min-w-0">
-          {dag.dag.name}
+        <div className="flex min-w-0 flex-1 items-start gap-2">
+          {canDeleteDAGs && (
+            <div
+              className="flex h-6 w-6 flex-shrink-0 items-center justify-center"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <Checkbox
+                aria-label={`Select workflow ${title}`}
+                checked={isDeleteSelected}
+                onCheckedChange={() => onToggleDeleteSelection(fileName)}
+              />
+            </div>
+          )}
+          <div className="font-medium text-xs truncate flex-1 min-w-0">
+            {title}
+          </div>
         </div>
         <StatusChip status={status} size="xs">
           {statusLabel}
@@ -307,6 +330,8 @@ type Props = {
   isWorkflowViewEdited: boolean;
   /** Whether the current user can mutate shared views in this scope */
   canManageWorkflowViews: boolean;
+  /** Whether the current user can delete workflows in this scope */
+  canDeleteDAGs: boolean;
   /** Latest shared-view mutation error */
   workflowViewError?: string | null;
   onSelectWorkflowView: (viewId: string) => void;
@@ -321,6 +346,7 @@ type Props = {
   onSetDefaultWorkflowView: (viewId: string | undefined) => Promise<void>;
   onSetPinnedWorkflowView: (viewId: string, pinned: boolean) => Promise<void>;
   onDeleteWorkflowView: (viewId: string) => Promise<void>;
+  onDeleteDAGs: (fileNames: string[]) => Promise<void>;
   /** Total workflows matching the server-side filters */
   resultCount?: number;
   /** Currently selected DAG file name */
@@ -355,11 +381,54 @@ declare module '@tanstack/react-table' {
     refreshFn: () => void;
     // Add label click handler to meta for direct access in cell
     onLabelClick?: (label: string) => void;
+    deleteSelectionState?: boolean | 'indeterminate';
+    isDeleteSelected?: (fileName: string) => boolean;
+    onToggleDeleteSelection?: (fileName: string) => void;
+    onToggleAllDeleteSelection?: (checked: boolean) => void;
   }
 }
 
 const columnHelper = createColumnHelper<Data>();
 // --- End Helper Functions ---
+
+const deleteSelectionColumn = columnHelper.display({
+  id: 'Select',
+  size: 40,
+  minSize: 40,
+  maxSize: 40,
+  header: ({ table }) => (
+    <div className="flex h-8 items-center justify-center">
+      <Checkbox
+        aria-label="Select all loaded workflows"
+        checked={table.options.meta?.deleteSelectionState ?? false}
+        onCheckedChange={(checked) =>
+          table.options.meta?.onToggleAllDeleteSelection?.(checked === true)
+        }
+      />
+    </div>
+  ),
+  cell: ({ row, table }) => {
+    const data = row.original;
+    if (data.kind !== ItemKind.DAG) {
+      return null;
+    }
+    const fileName = data.dag.fileName;
+    return (
+      <div
+        className="flex h-8 items-center justify-center"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <Checkbox
+          aria-label={`Select workflow ${data.dag.dag.name}`}
+          checked={table.options.meta?.isDeleteSelected?.(fileName) ?? false}
+          onCheckedChange={() =>
+            table.options.meta?.onToggleDeleteSelection?.(fileName)
+          }
+        />
+      </div>
+    );
+  },
+});
 
 const defaultColumns = [
   columnHelper.accessor('name', {
@@ -953,6 +1022,7 @@ function DAGTable({
   isAllWorkflowsView,
   isWorkflowViewEdited,
   canManageWorkflowViews,
+  canDeleteDAGs,
   workflowViewError,
   onSelectWorkflowView,
   onShowAllWorkflows,
@@ -962,13 +1032,26 @@ function DAGTable({
   onSetDefaultWorkflowView,
   onSetPinnedWorkflowView,
   onDeleteWorkflowView,
+  onDeleteDAGs,
   resultCount,
   selectedDAG = null,
   onSelectDAG,
 }: Props) {
   const navigate = useNavigate();
-  const [columns] = useState(() => [...defaultColumns]);
+  const columns = useMemo(
+    () =>
+      canDeleteDAGs
+        ? [deleteSelectionColumn, ...defaultColumns]
+        : defaultColumns,
+    [canDeleteDAGs]
+  );
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
+  const [deleteSelection, setDeleteSelection] = useState<Set<string>>(
+    () => new Set()
+  );
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<ExpandedState>(() => {
     try {
       const saved = localStorage.getItem('dagu_dag_table_expanded');
@@ -991,6 +1074,67 @@ function DAGTable({
 
   const [clientSort, setClientSort] = useState<string>('');
   const [clientOrder, setClientOrder] = useState<string>('asc');
+
+  useEffect(() => {
+    const loadedFileNames = new Set(dags.map((dag) => dag.fileName));
+    setDeleteSelection((current) => {
+      const next = new Set(
+        [...current].filter((fileName) => loadedFileNames.has(fileName))
+      );
+      return next.size === current.size ? current : next;
+    });
+  }, [dags]);
+
+  const toggleDeleteSelection = useCallback((fileName: string) => {
+    setDeleteSelection((current) => {
+      const next = new Set(current);
+      if (next.has(fileName)) {
+        next.delete(fileName);
+      } else {
+        next.add(fileName);
+      }
+      return next;
+    });
+  }, []);
+
+  const toggleAllDeleteSelection = useCallback(
+    (checked: boolean) => {
+      setDeleteSelection(
+        checked ? new Set(dags.map((dag) => dag.fileName)) : new Set()
+      );
+    },
+    [dags]
+  );
+
+  const selectedDAGsForDelete = useMemo(
+    () => dags.filter((dag) => deleteSelection.has(dag.fileName)),
+    [dags, deleteSelection]
+  );
+  const deleteSelectionState: boolean | 'indeterminate' =
+    selectedDAGsForDelete.length === 0
+      ? false
+      : selectedDAGsForDelete.length === dags.length
+        ? true
+        : 'indeterminate';
+
+  const handleDeleteSubmit = useCallback(async () => {
+    if (selectedDAGsForDelete.length === 0) {
+      return;
+    }
+    setIsDeleting(true);
+    setDeleteError(null);
+    try {
+      await onDeleteDAGs(selectedDAGsForDelete.map((dag) => dag.fileName));
+      setDeleteSelection(new Set());
+      setIsDeleteDialogOpen(false);
+    } catch (error) {
+      setDeleteError(
+        error instanceof Error ? error.message : 'Failed to delete workflows'
+      );
+    } finally {
+      setIsDeleting(false);
+    }
+  }, [onDeleteDAGs, selectedDAGsForDelete]);
 
   // Handler for client-side sorting
   const handleClientSort = (field: string, order: string) => {
@@ -1215,6 +1359,10 @@ function DAGTable({
       group,
       refreshFn,
       onLabelClick: handleLabelClick,
+      deleteSelectionState,
+      isDeleteSelected: (fileName) => deleteSelection.has(fileName),
+      onToggleDeleteSelection: toggleDeleteSelection,
+      onToggleAllDeleteSelection: toggleAllDeleteSelection,
     },
   });
 
@@ -1302,6 +1450,23 @@ function DAGTable({
             <CalendarCheck className="mr-1.5 h-4 w-4" />
             Active only
           </Button>
+
+          {canDeleteDAGs && (
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={selectedDAGsForDelete.length === 0 || isDeleting}
+              onClick={() => {
+                setDeleteError(null);
+                setIsDeleteDialogOpen(true);
+              }}
+            >
+              <Trash2 className="h-4 w-4" />
+              {selectedDAGsForDelete.length > 0
+                ? `Delete (${selectedDAGsForDelete.length})`
+                : 'Delete'}
+            </Button>
+          )}
 
           {/* Pagination - pushed to right */}
           {pagination && (
@@ -1401,8 +1566,9 @@ function DAGTable({
           className={`w-full text-xs ${isLoading ? 'opacity-70' : ''}`}
           style={{ tableLayout: 'fixed' }}
         >
-          {/* Column widths: Expand 32px fixed, Name auto, Status 10%, LastRun 18%, Schedule 20%, Actions 10% */}
+          {/* Column widths: Select 40px, Expand 32px, Name auto, Status 10%, LastRun 18%, Schedule 20%, Actions 10% */}
           <colgroup>
+            {canDeleteDAGs && <col style={{ width: '40px' }} />}
             <col style={{ width: '32px' }} />
             <col />
             <col style={{ width: '10%' }} />
@@ -1413,10 +1579,10 @@ function DAGTable({
           <TableHeader>
             {instance.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
-                {headerGroup.headers.map((header, index) => (
+                {headerGroup.headers.map((header) => (
                   <TableHead
                     key={header.id}
-                    className={`py-1 text-muted-foreground text-xs overflow-hidden ${index === 0 ? 'px-0' : 'px-2'}`}
+                    className={`py-1 text-muted-foreground text-xs overflow-hidden ${header.column.id === 'Select' || header.column.id === 'Expand' ? 'px-0' : 'px-2'}`}
                   >
                     {header.isPlaceholder ? null : (
                       <div>
@@ -1456,12 +1622,16 @@ function DAGTable({
               instance.getRowModel().rows.map((row) => {
                 // For DAG rows, make the entire row clickable
                 const isDAGRow = row.original?.kind === ItemKind.DAG;
+                const isDeleteSelected =
+                  isDAGRow &&
+                  'dag' in row.original &&
+                  deleteSelection.has((row.original as DAGRow).dag.fileName);
                 // Type guard to ensure we only access dag property when it exists
 
                 return (
                   <TableRow
                     key={row.id}
-                    data-state={row.getIsSelected() && 'selected'}
+                    data-state={isDeleteSelected ? 'selected' : undefined}
                     className={`text-[0.8125rem] ${
                       row.original?.kind === ItemKind.Group
                         ? 'bg-muted/50 font-semibold cursor-pointer hover:bg-muted/70'
@@ -1493,10 +1663,10 @@ function DAGTable({
                       }
                     }}
                   >
-                    {row.getVisibleCells().map((cell, index) => (
+                    {row.getVisibleCells().map((cell) => (
                       <TableCell
                         key={cell.id}
-                        className={`py-1 align-middle ${cell.column.id === 'Status' ? 'overflow-visible whitespace-nowrap' : 'overflow-hidden truncate'} ${index === 0 ? 'px-0' : 'px-2'}`}
+                        className={`py-1 align-middle ${cell.column.id === 'Status' ? 'overflow-visible whitespace-nowrap' : 'overflow-hidden truncate'} ${cell.column.id === 'Select' || cell.column.id === 'Expand' ? 'px-0' : 'px-2'}`}
                       >
                         {flexRender(
                           cell.column.columnDef.cell,
@@ -1597,6 +1767,11 @@ function DAGTable({
                               onSelect={handleSelectDAG}
                               onLabelClick={handleLabelClick}
                               refreshFn={refreshFn}
+                              canDeleteDAGs={canDeleteDAGs}
+                              isDeleteSelected={deleteSelection.has(
+                                dagRow.dag.fileName
+                              )}
+                              onToggleDeleteSelection={toggleDeleteSelection}
                               className="ml-2"
                             />
                           );
@@ -1625,6 +1800,9 @@ function DAGTable({
                   onSelect={handleSelectDAG}
                   onLabelClick={handleLabelClick}
                   refreshFn={refreshFn}
+                  canDeleteDAGs={canDeleteDAGs}
+                  isDeleteSelected={deleteSelection.has(dagRow.dag.fileName)}
+                  onToggleDeleteSelection={toggleDeleteSelection}
                 />
               );
             }
@@ -1653,6 +1831,50 @@ function DAGTable({
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        title={
+          selectedDAGsForDelete.length === 1
+            ? 'Delete workflow?'
+            : `Delete ${selectedDAGsForDelete.length} workflows?`
+        }
+        buttonText={isDeleting ? 'Deleting...' : 'Delete'}
+        visible={isDeleteDialogOpen}
+        dismissModal={() => {
+          if (!isDeleting) {
+            setIsDeleteDialogOpen(false);
+            setDeleteError(null);
+          }
+        }}
+        submitDisabled={isDeleting}
+        onSubmit={() => void handleDeleteSubmit()}
+      >
+        <div className="space-y-3 text-sm">
+          <p>
+            {selectedDAGsForDelete.length === 1
+              ? 'The workflow definition file will be removed.'
+              : 'The selected workflow definition files will be removed.'}{' '}
+            Past run history will be kept. This action cannot be undone.
+          </p>
+          <ul className="max-h-48 space-y-1 overflow-y-auto rounded-md border bg-muted/30 p-2">
+            {selectedDAGsForDelete.map((dag) => (
+              <li key={dag.fileName} className="min-w-0">
+                <div className="truncate font-medium">{dag.dag.name}</div>
+                {dag.dag.name !== dag.fileName && (
+                  <div className="truncate font-mono text-xs text-muted-foreground">
+                    {dag.fileName}
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+          {deleteError && (
+            <p role="alert" className="text-sm text-destructive">
+              {deleteError}
+            </p>
+          )}
+        </div>
+      </ConfirmDialog>
     </div>
   );
 }
