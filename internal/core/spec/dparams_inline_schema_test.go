@@ -509,8 +509,8 @@ params:
 }
 
 // C1: SkipSchemaValidation + inline schema + runtime params must not panic.
-// rebuildDAGFromYAML in cmd/helper.go always combines SkipSchemaValidation with
-// WithParams, so a nil plan.schema would cause a nil-pointer panic on restart/retry.
+// RebuildFromYAML always combines SkipSchemaValidation with WithParams, so a nil
+// plan.schema would cause a nil-pointer panic on restart/retry.
 func TestBuildInlineSchemaParamPlan_SkipSchemaValidationWithParamsNoPanic(t *testing.T) {
 	t.Parallel()
 
@@ -524,7 +524,7 @@ params:
       default: 10
 `)
 
-	// This combination mirrors rebuildDAGFromYAML: SkipSchemaValidation() + WithParams().
+	// This combination mirrors RebuildFromYAML: SkipSchemaValidation() + WithParams().
 	// Before the fix this panicked with a nil-pointer dereference in validateSchemaMap.
 	dag, err := LoadYAML(context.Background(), yamlData, SkipSchemaValidation(), WithParams("batch_size=50"))
 	require.NoError(t, err)

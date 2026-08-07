@@ -7,64 +7,14 @@ import (
 	"context"
 	"fmt"
 	"slices"
-	"strings"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/cmn/buildenv"
 	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func TestRebuildDAGFromYAML_PreservesJSONSerializedFields(t *testing.T) {
-	t.Parallel()
-
-	// Create a DAG with JSON-serialized fields (typically inherited from base.yaml)
-	dag := &core.DAG{
-		Name:           "test-dag",
-		Queue:          "Default",
-		WorkerSelector: map[string]string{"env": "prod"},
-		MaxActiveRuns:  5,
-		MaxActiveSteps: 3,
-		LogDir:         "/custom/logs",
-		Labels:         core.NewLabels([]string{"important", "production"}),
-		Location:       "/path/to/dag.yaml",
-		YamlData:       []byte("steps:\n  - name: test\n    command: echo hello"),
-	}
-
-	result, err := rebuildDAGFromYAML(context.Background(), dag)
-	require.NoError(t, err)
-
-	// Verify JSON-serialized fields are preserved
-	assert.Equal(t, "Default", result.Queue)
-	assert.Equal(t, map[string]string{"env": "prod"}, result.WorkerSelector)
-	assert.Equal(t, 5, result.MaxActiveRuns)
-	assert.Equal(t, 3, result.MaxActiveSteps)
-	assert.Equal(t, "/custom/logs", result.LogDir)
-	assert.Equal(t, []string{"important", "production"}, result.Labels.Strings())
-	assert.Equal(t, "/path/to/dag.yaml", result.Location)
-
-	// Verify the original DAG pointer is returned (not a new DAG)
-	assert.Same(t, dag, result)
-}
-
-func TestRebuildDAGFromYAML_EmptyYAML(t *testing.T) {
-	t.Parallel()
-
-	dag := &core.DAG{
-		Name:     "test-dag",
-		Queue:    "Default",
-		YamlData: nil,
-	}
-
-	result, err := rebuildDAGFromYAML(context.Background(), dag)
-	require.NoError(t, err)
-
-	assert.Same(t, dag, result)
-	assert.Equal(t, "Default", result.Queue)
-}
 
 func TestQuoteParamValues(t *testing.T) {
 	t.Parallel()
@@ -237,76 +187,6 @@ steps:
 	require.NoError(t, err)
 	assert.Equal(t, persistedWorkDir, result.WorkingDir)
 	assert.True(t, result.WorkingDirExplicit)
-}
-
-func TestRebuildDAGFromYAML_RebuildEnvFromYAML(t *testing.T) {
-	t.Parallel()
-
-	dag := &core.DAG{
-		Name:     "test-dag",
-		Queue:    "Default",
-		Location: "/path/to/dag.yaml",
-		YamlData: []byte("env:\n  - MY_VAR: my_value\nsteps:\n  - name: test\n    command: echo $MY_VAR"),
-	}
-
-	result, err := rebuildDAGFromYAML(context.Background(), dag)
-	require.NoError(t, err)
-
-	assert.Equal(t, "Default", result.Queue)
-	assert.Contains(t, result.Env, "MY_VAR=my_value")
-}
-
-func TestRebuildDAGFromYAML_ReappliesBaseConfigContent(t *testing.T) {
-	t.Parallel()
-
-	dag := &core.DAG{
-		Name: "test-dag",
-		YamlData: []byte(`
-steps:
-  - name: test
-    run: echo hello
-`),
-		BaseConfigData: []byte(`
-env:
-  - BASE_ONLY: "from-base-config"
-`),
-	}
-
-	result, err := rebuildDAGFromYAML(context.Background(), dag)
-	require.NoError(t, err)
-	assert.Contains(t, result.Env, "BASE_ONLY=from-base-config")
-}
-
-func TestRebuildDAGFromYAML_UsesTransportedBuildEnv(t *testing.T) {
-	extraEnv, cleanup, err := buildenv.Prepare([]string{
-		"HOST_VALUE=from-transport-host",
-		"BACKTICK_VALUE=from-transport-backtick",
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, cleanup()) })
-
-	for _, entry := range extraEnv {
-		key, value, ok := strings.Cut(entry, "=")
-		require.True(t, ok)
-		t.Setenv(key, value)
-	}
-
-	dag := &core.DAG{
-		Name: "test-dag",
-		YamlData: []byte(`
-env:
-  - HOST_VALUE: "${MISSING_NON_WHITELISTED_ENV}"
-  - BACKTICK_VALUE: "` + "`command_that_does_not_exist_12345`" + `"
-steps:
-  - name: test
-    run: echo hello
-`),
-	}
-
-	result, err := rebuildDAGFromYAML(context.Background(), dag)
-	require.NoError(t, err)
-	assert.Contains(t, result.Env, "HOST_VALUE=from-transport-host")
-	assert.Contains(t, result.Env, "BACKTICK_VALUE=from-transport-backtick")
 }
 
 func TestRestoreDAGFromStatus_RestoresRegistryAuthsFromYAML(t *testing.T) {

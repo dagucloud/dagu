@@ -23,7 +23,6 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
-	"github.com/dagucloud/dagu/v2/internal/cmn/buildenv"
 	"github.com/dagucloud/dagu/v2/internal/cmn/collections"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
@@ -572,85 +571,13 @@ func restoreDAGRunSnapshot(ctx context.Context, dag *core.DAG, status *exec.DAGR
 	}
 
 	quotedParams := spec.QuoteRuntimeParams(runtimeParams, dag.ParamDefs)
-	restored, err := rebuildDAGRunSnapshotFromYAML(ctx, dag, quotedParams)
+	restored, err := spec.RebuildFromYAML(ctx, dag, quotedParams)
 	if err != nil {
 		return nil, "", err
 	}
 
 	preservedParams := strings.Join(quotedParams, " ")
 	return restored, preservedParams, nil
-}
-
-func rebuildDAGRunSnapshotFromYAML(ctx context.Context, dag *core.DAG, paramsOverride ...[]string) (*core.DAG, error) {
-	if len(dag.YamlData) == 0 {
-		return dag, nil
-	}
-
-	loadedEnv := append([]string{}, dag.Env...)
-	buildEnvMap := buildenv.ToMap(dag.Env)
-	for key, value := range dag.PresolvedBuildEnv {
-		if buildEnvMap == nil {
-			buildEnvMap = make(map[string]string)
-		}
-		buildEnvMap[key] = value
-	}
-
-	presolvedBuildEnv, err := buildenv.Load()
-	if err != nil {
-		return nil, fmt.Errorf("failed to load presolved build env: %w", err)
-	}
-	transportEnv := buildenv.FromMap(presolvedBuildEnv)
-	for key, value := range presolvedBuildEnv {
-		if buildEnvMap == nil {
-			buildEnvMap = make(map[string]string)
-		}
-		buildEnvMap[key] = value
-	}
-
-	params := dag.Params
-	if len(paramsOverride) > 0 {
-		params = paramsOverride[0]
-	}
-	loadOpts := []spec.LoadOption{
-		spec.WithParams(params),
-		spec.SkipSchemaValidation(),
-	}
-	if len(buildEnvMap) > 0 {
-		loadOpts = append(loadOpts, spec.WithBuildEnv(buildEnvMap))
-	}
-	if len(dag.BaseConfigData) > 0 {
-		loadOpts = append(loadOpts, spec.WithBaseConfigContent(dag.BaseConfigData))
-	}
-	if dag.Name != "" {
-		loadOpts = append(loadOpts, spec.WithName(dag.Name))
-	}
-
-	fresh, err := spec.LoadYAML(ctx, dag.YamlData, loadOpts...)
-	if err != nil {
-		return nil, err
-	}
-	// Restore the fields excluded from JSON serialization (json:"-"), which the
-	// snapshot cannot carry. Every other field is already stored in dag.json.
-	//
-	// Env falls back, first-wins, to entries resolved when the run was first
-	// built. Keys the rebuilt YAML declares take precedence; keys it cannot
-	// resolve at all are recovered from the snapshot rather than dropped.
-	dag.Env = buildenv.AppendMissing(fresh.Env, loadedEnv, buildenv.FromMap(dag.PresolvedBuildEnv), transportEnv)
-	dag.Params = fresh.Params
-	dag.ParamsJSON = fresh.ParamsJSON
-	dag.SMTP = fresh.SMTP
-	dag.SSH = fresh.SSH
-	dag.S3 = fresh.S3
-	dag.Redis = fresh.Redis
-	dag.RegistryAuths = fresh.RegistryAuths
-	dag.Harness = fresh.Harness
-	dag.Harnesses = fresh.Harnesses
-	dag.Kubernetes = fresh.Kubernetes
-	dag.WorkingDirExplicit = fresh.WorkingDirExplicit
-
-	core.InitializeDefaults(dag)
-
-	return dag, nil
 }
 
 func (a *API) ListDAGRuns(ctx context.Context, request api.ListDAGRunsRequestObject) (api.ListDAGRunsResponseObject, error) {
