@@ -3854,6 +3854,24 @@ steps:
 			wantDetail: "unavailable before step execution",
 		},
 		{
+			name: "path output cannot mark failed attempt successful",
+			yaml: `
+type: incremental
+working_dir: .
+steps:
+  - id: build
+    name: build
+    run: echo build
+    continue_on:
+      failure: true
+      mark_success: true
+    outputs:
+      - name: artifact
+        path: artifact.txt
+`,
+			wantDetail: "continue_on.mark_success",
+		},
+		{
 			name: "attempt output references are unavailable to preconditions",
 			yaml: `
 type: incremental
@@ -3948,4 +3966,70 @@ steps:
 			assert.Contains(t, err.Error(), tt.wantDetail)
 		})
 	}
+}
+
+func TestLoadIncrementalStepRuntimeOutputReferences(t *testing.T) {
+	t.Parallel()
+
+	for _, reference := range []string{
+		"${build.stdout}",
+		"${build.stderr}",
+		"${build.exit_code}",
+		"${build.output}",
+		"${build.outputs.result}",
+	} {
+		t.Run(reference, func(t *testing.T) {
+			t.Parallel()
+			_, err := LoadYAML(context.Background(), []byte(`
+type: incremental
+working_dir: .
+steps:
+  - id: build
+    run: echo build
+    outputs:
+      - name: artifact
+        path: artifact.txt
+  - id: consume
+    depends: [build]
+    run: echo "`+reference+`"
+`), WithoutEval())
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "runtime outputs from reusable incremental step build are unavailable on reuse")
+		})
+	}
+}
+
+func TestLoadIncrementalStepAllowsStableOutputReferences(t *testing.T) {
+	t.Parallel()
+
+	_, err := LoadYAML(context.Background(), []byte(`
+type: incremental
+working_dir: .
+steps:
+  - id: build
+    run: echo build
+    outputs:
+      - name: artifact
+        path: artifact.txt
+  - id: consume
+    depends: [build]
+    run: cat ${steps.build.outputs.artifact}
+`), WithoutEval())
+	require.NoError(t, err)
+
+	_, err = LoadYAML(context.Background(), []byte(`
+type: incremental
+working_dir: .
+steps:
+  - id: build
+    run: echo build
+    output: RESULT
+    outputs:
+      - name: artifact
+        path: artifact.txt
+  - id: consume
+    depends: [build]
+    run: cat ${build.stdout}
+`), WithoutEval())
+	require.NoError(t, err)
 }

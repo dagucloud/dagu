@@ -300,6 +300,7 @@ func executeAuditMetadata(input executeInput) toolAuditMetadata {
 		"target_type": targetType,
 		"dag_name":    input.Name,
 		"singleton":   input.Singleton,
+		"no_reuse":    input.NoReuse,
 		"label_count": len(input.Labels),
 	}
 	if input.DAGRunID != "" {

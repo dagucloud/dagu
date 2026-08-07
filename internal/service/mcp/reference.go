@@ -56,6 +56,7 @@ Authoring rules:
 - type: incremental is for local workflows that transform stable regular-file inputs into reusable file outputs.
 - An incremental path step declares named inputs entries with path and at most one outputs entry with path. Only host command or shell steps without containers may declare incremental paths. Matching canonical producer-output and consumer-input paths infer dependencies, and each output path must have one producer.
 - Inside the owning step, ${inputs.name} is the final input path and ${outputs.name} is a fresh per-attempt staging path. Write the result to ${outputs.name}; after commit or reuse, dependent steps read the final path as ${steps.step_id.outputs.name}. stdout, stderr, and artifact stream destinations must not target declared incremental paths.
+- Potentially reusable producers expose downstream data through ${steps.step_id.outputs.name}; attempt-only stdout, stderr, exit-code, output, and outputs references are invalid because reuse does not recreate them. Path-output steps cannot use continue_on.mark_success.
 - Incremental workflows are local-only. Distributed execution requests are rejected because materialization fencing is not shared across workers.
 - human.task defines a processless root-DAG operator step with an explicit id, required with.prompt, and optional flat scalar with.form JSON Schema. Omit form for acknowledgement-only tasks.
 - Human task form properties that are required or have defaults become ${steps.step_id.outputs.name} values after completion. Do not declare outputs on a human.task step; additionalProperties defaults to false.
@@ -235,6 +236,7 @@ Fields:
 - params: run parameters string for start and enqueue.
 - queue: queue name for enqueue.
 - singleton: singleton run flag for start and enqueue.
+- noReuse: when true for start or enqueue, execute eligible incremental steps instead of reusing prior materializations.
 - labels: labels for start and enqueue.
 - stepName: optional failed step name for retry.
 

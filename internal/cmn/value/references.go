@@ -173,6 +173,38 @@ func IsStepOutputReferenceToken(token string) bool {
 	return ok
 }
 
+// HasStepRuntimeOutputReference reports whether raw reads an attempt result from stepID.
+func HasStepRuntimeOutputReference(raw, stepID string) bool {
+	for _, ref := range scanReferences(raw) {
+		if ref.Kind != referenceEval {
+			continue
+		}
+		name, path, ok := referenceParts(ref.Raw)
+		if !ok || name != stepID || !isStepRuntimeOutputPath(path) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func isStepRuntimeOutputPath(path string) bool {
+	if strings.HasPrefix(path, ".output.") || strings.HasPrefix(path, ".output[") ||
+		strings.HasPrefix(path, ".outputs.") || strings.HasPrefix(path, ".outputs[") {
+		return true
+	}
+	property, _, err := parseStepReference(path)
+	if err != nil {
+		return false
+	}
+	switch property {
+	case ".stdout", ".stderr", ".exitCode", ".exit_code", ".output", ".outputs":
+		return true
+	default:
+		return false
+	}
+}
+
 // ParseStepOutputReferenceToken parses an exact Spec 007 reference token.
 func ParseStepOutputReferenceToken(token string) (StepOutputReference, bool) {
 	if !strings.HasPrefix(token, "${") || !strings.HasSuffix(token, "}") {

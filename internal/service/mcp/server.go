@@ -116,6 +116,7 @@ type executeInput struct {
 	Params     string   `json:"params,omitempty" jsonschema:"Runtime parameters as a JSON string."`
 	Queue      string   `json:"queue,omitempty" jsonschema:"Queue override for enqueue."`
 	Singleton  bool     `json:"singleton,omitempty" jsonschema:"Prevent duplicate running or queued DAG-runs when supported by the action."`
+	NoReuse    bool     `json:"noReuse,omitempty" jsonschema:"Execute eligible incremental steps without reusing prior materializations for start or enqueue."`
 	Labels     []string `json:"labels,omitempty" jsonschema:"Additional labels, each as key=value or key-only."`
 	StepName   string   `json:"stepName,omitempty" jsonschema:"Optional step name for retry."`
 }
@@ -491,6 +492,7 @@ func (svc *Service) startDAG(ctx context.Context, targetType string, input execu
 			DagRunId:  body.DagRunId,
 			Labels:    body.Labels,
 			Name:      stringPtr(input.Name),
+			NoReuse:   body.NoReuse,
 			Params:    body.Params,
 			Singleton: body.Singleton,
 			Spec:      input.Spec,
@@ -542,6 +544,7 @@ func (svc *Service) enqueueDAG(ctx context.Context, targetType string, input exe
 			DagRunId:  body.DagRunId,
 			Labels:    body.Labels,
 			Name:      stringPtr(input.Name),
+			NoReuse:   body.NoReuse,
 			Params:    body.Params,
 			Queue:     body.Queue,
 			Singleton: body.Singleton,
@@ -612,6 +615,9 @@ func executeBody(input executeInput) *daguapi.ExecuteDAGJSONRequestBody {
 	if input.Singleton {
 		body.Singleton = &input.Singleton
 	}
+	if input.NoReuse {
+		body.NoReuse = &input.NoReuse
+	}
 	if len(input.Labels) > 0 {
 		labels := daguapi.Labels(input.Labels)
 		body.Labels = &labels
@@ -632,6 +638,9 @@ func enqueueBody(input executeInput) *daguapi.EnqueueDAGDAGRunJSONRequestBody {
 	}
 	if input.Singleton {
 		body.Singleton = &input.Singleton
+	}
+	if input.NoReuse {
+		body.NoReuse = &input.NoReuse
 	}
 	if len(input.Labels) > 0 {
 		labels := daguapi.Labels(input.Labels)

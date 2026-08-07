@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+
+	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 )
 
 // Constants for validation limits.
@@ -111,6 +113,9 @@ func validateIncrementalSteps(dag *DAG, errs *ErrorList) {
 	for _, step := range dag.Steps {
 		validateIncrementalStep(dag, step, errs)
 	}
+	if dag.Type == TypeIncremental {
+		validateIncrementalRuntimeOutputReferences(dag, errs)
+	}
 	for _, handler := range []*Step{
 		dag.HandlerOn.Init,
 		dag.HandlerOn.Failure,
@@ -164,6 +169,10 @@ func validateIncrementalStep(dag *DAG, step Step, errs *ErrorList) {
 		validateNoPreExecutionPathReferences(errs, "shell_args", step.ShellArgs)
 		validateNoPreExecutionPathReferences(errs, "shell_packages", step.ShellPackages)
 		validateNoAttemptOutputReferences(errs, "continue_on.output", step.ContinueOn.Output)
+		if pathOutputs > 0 && step.ContinueOn.MarkSuccess {
+			*errs = append(*errs, NewValidationError("continue_on.mark_success", true,
+				fmt.Errorf("incremental path output step %s cannot mark a failed attempt as successful", step.Name)))
+		}
 		validateNoPreExecutionPathReference(errs, "signal_on_stop", step.SignalOnStop)
 		validateNoPreExecutionPathReference(errs, "retry_policy.limit", step.RetryPolicy.LimitStr)
 		validateNoPreExecutionPathReference(errs, "retry_policy.interval_sec", step.RetryPolicy.IntervalSecStr)
@@ -180,6 +189,42 @@ func validateIncrementalStep(dag *DAG, step Step, errs *ErrorList) {
 			validateUnsupportedIncrementalPaths(child, "foreach.steps", "foreach steps", errs)
 		}
 	}
+}
+
+func validateIncrementalRuntimeOutputReferences(dag *DAG, errs *ErrorList) {
+	producers := make([]Step, 0)
+	for _, step := range dag.Steps {
+		if isPotentiallyReusableIncrementalStep(dag, step) {
+			producers = append(producers, step)
+		}
+	}
+	for _, field := range ReferenceFields(dag) {
+		for _, producer := range producers {
+			if !cmnvalue.HasStepRuntimeOutputReference(field.Value, producer.ID) {
+				continue
+			}
+			*errs = append(*errs, NewValidationError(field.Path, field.Value,
+				fmt.Errorf("runtime outputs from reusable incremental step %s are unavailable on reuse; use ${steps.%s.outputs.<name>}", producer.Name, producer.ID)))
+		}
+	}
+}
+
+func isPotentiallyReusableIncrementalStep(dag *DAG, step Step) bool {
+	if dag.Type != TypeIncremental || step.ID == "" || len(step.Outputs) != 1 || step.Outputs[0].Path == "" {
+		return false
+	}
+	if step.Output != "" || len(step.StructuredOutput) > 0 || step.StdoutOutputs != nil {
+		return false
+	}
+	if step.HumanTask != nil || step.Approval != nil || step.RepeatPolicy.RepeatMode != "" ||
+		step.Parallel != nil || step.Foreach != nil || step.SubDAG != nil {
+		return false
+	}
+	if dag.Container != nil || step.Container != nil {
+		return false
+	}
+	executorType := step.ExecutorConfig.Type
+	return executorType == "" || executorType == "command" || executorType == "shell"
 }
 
 func validateUnsupportedIncrementalPaths(step Step, field, scope string, errs *ErrorList) {
