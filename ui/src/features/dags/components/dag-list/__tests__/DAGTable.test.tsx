@@ -48,12 +48,15 @@ function renderTable(
     isAllWorkflowsView?: boolean;
     panelWidth?: number | null;
     onDeleteDAGs?: (fileNames: string[]) => Promise<void>;
+    onRenameDAG?: (fileName: string, newFileName: string) => Promise<void>;
   } = {}
 ) {
   const onShowAllWorkflows = vi.fn();
   const handleActiveOnlyChange = vi.fn();
   const onDeleteDAGs =
     options.onDeleteDAGs ?? vi.fn().mockResolvedValue(undefined);
+  const onRenameDAG =
+    options.onRenameDAG ?? vi.fn().mockResolvedValue(undefined);
   const result = render(
     <MemoryRouter>
       <AppBarContext.Provider
@@ -99,6 +102,7 @@ function renderTable(
             isWorkflowViewEdited={false}
             canManageWorkflowViews={true}
             canDeleteDAGs={true}
+            canRenameDAGs={true}
             onSelectWorkflowView={vi.fn()}
             onShowAllWorkflows={onShowAllWorkflows}
             onResetWorkflowView={vi.fn()}
@@ -108,6 +112,7 @@ function renderTable(
             onSetPinnedWorkflowView={vi.fn()}
             onDeleteWorkflowView={vi.fn()}
             onDeleteDAGs={onDeleteDAGs}
+            onRenameDAG={onRenameDAG}
           />
         </PanelWidthContext.Provider>
       </AppBarContext.Provider>
@@ -117,6 +122,7 @@ function renderTable(
     ...result,
     handleActiveOnlyChange,
     onDeleteDAGs,
+    onRenameDAG,
     onShowAllWorkflows,
   };
 }
@@ -211,7 +217,9 @@ describe('DAGTable', () => {
       ],
     });
 
-    expect(screen.getByRole('button', { name: 'Delete' })).toBeDisabled();
+    expect(
+      screen.queryByRole('button', { name: /^Delete \(/ })
+    ).not.toBeInTheDocument();
     fireEvent.click(
       within(screen.getByRole('table')).getByRole('checkbox', {
         name: 'Select all loaded workflows',
@@ -231,7 +239,55 @@ describe('DAGTable', () => {
     await waitFor(() => {
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     });
-    expect(screen.getByRole('button', { name: 'Delete' })).toBeDisabled();
+    expect(
+      screen.queryByRole('button', { name: /^Delete \(/ })
+    ).not.toBeInTheDocument();
+  });
+
+  it('renames a workflow from the actions column', async () => {
+    const { onRenameDAG } = renderTable();
+
+    fireEvent.click(
+      within(screen.getByRole('table')).getByRole('button', {
+        name: 'Rename workflow example',
+      })
+    );
+
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveTextContent('Rename DAG');
+    const nameInput = within(dialog).getByLabelText('DAG Name');
+    expect(nameInput).toHaveValue('example.yaml');
+    fireEvent.change(nameInput, { target: { value: 'renamed.yaml' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Rename' }));
+
+    await waitFor(() => {
+      expect(onRenameDAG).toHaveBeenCalledWith('example.yaml', 'renamed.yaml');
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+  });
+
+  it('deletes a workflow from the actions column after confirmation', async () => {
+    const { onDeleteDAGs } = renderTable();
+
+    fireEvent.click(
+      within(screen.getByRole('table')).getByRole('button', {
+        name: 'Delete workflow example',
+      })
+    );
+
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveTextContent('Delete workflow?');
+    expect(dialog).toHaveTextContent('example.yaml');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }));
+
+    await waitFor(() => {
+      expect(onDeleteDAGs).toHaveBeenCalledWith(['example.yaml']);
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
   });
 
   it('explains an empty saved view and offers to show all workflows', () => {

@@ -728,6 +728,28 @@ function DAGsContent() {
     [client, mutate, remoteNode, resetLoadedPages, selectedDAG]
   );
 
+  const handleRenameDAG = React.useCallback(
+    async (fileName: string, newFileName: string): Promise<void> => {
+      const { error } = await client.POST('/dags/{fileName}/rename', {
+        params: {
+          path: { fileName },
+          query: { remoteNode },
+        },
+        body: { newFileName },
+      });
+      if (error) {
+        throw new Error(error.message || 'Failed to rename workflow');
+      }
+
+      if (selectedDAG === fileName) {
+        setSelectedDAG(newFileName);
+      }
+      resetLoadedPages();
+      await mutate();
+    },
+    [client, mutate, remoteNode, resetLoadedPages, selectedDAG]
+  );
+
   const handleSelectDAG = React.useCallback((fileName: string) => {
     setSelectedDAG(fileName);
   }, []);
@@ -1080,6 +1102,7 @@ function DAGsContent() {
             isWorkflowViewEdited={isWorkflowViewEdited}
             canManageWorkflowViews={canManageWorkflowViews}
             canDeleteDAGs={canManageWorkflowViews}
+            canRenameDAGs={canManageWorkflowViews}
             workflowViewError={workflowViewError}
             onSelectWorkflowView={handleSelectWorkflowView}
             onShowAllWorkflows={handleShowAllWorkflows}
@@ -1090,6 +1113,7 @@ function DAGsContent() {
             onSetPinnedWorkflowView={handleSetPinnedWorkflowView}
             onDeleteWorkflowView={handleDeleteWorkflowView}
             onDeleteDAGs={handleDeleteDAGs}
+            onRenameDAG={handleRenameDAG}
             resultCount={data.pagination.totalRecords}
             selectedDAG={selectedDAG}
             onSelectDAG={handleSelectDAG}

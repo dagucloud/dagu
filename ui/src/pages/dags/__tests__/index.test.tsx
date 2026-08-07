@@ -28,6 +28,7 @@ import DagsPage from '../index';
 const {
   clientDeleteMock,
   clientGetMock,
+  clientPostMock,
   createViewMock,
   deleteViewMock,
   sharedWorkflowViewState,
@@ -36,6 +37,7 @@ const {
 } = vi.hoisted(() => ({
   clientDeleteMock: vi.fn(),
   clientGetMock: vi.fn(),
+  clientPostMock: vi.fn(),
   createViewMock: vi.fn(),
   deleteViewMock: vi.fn(),
   sharedWorkflowViewState: { views: [] as View[] },
@@ -97,6 +99,7 @@ vi.mock('@/features/dags/components/dag-list', () => ({
     onSetPinnedWorkflowView,
     onDeleteWorkflowView,
     onDeleteDAGs,
+    onRenameDAG,
   }: {
     dags: Array<{ fileName: string; dag: { name: string } }>;
     searchText: string;
@@ -119,6 +122,7 @@ vi.mock('@/features/dags/components/dag-list', () => ({
     onSetPinnedWorkflowView: (viewId: string, pinned: boolean) => Promise<void>;
     onDeleteWorkflowView: (viewId: string) => Promise<void>;
     onDeleteDAGs: (fileNames: string[]) => Promise<void>;
+    onRenameDAG: (fileName: string, newFileName: string) => Promise<void>;
   }) => (
     <div>
       <input
@@ -184,6 +188,12 @@ vi.mock('@/features/dags/components/dag-list', () => ({
       <button type="button" onClick={() => void onDeleteDAGs(['demo.yaml'])}>
         Delete demo workflow
       </button>
+      <button
+        type="button"
+        onClick={() => void onRenameDAG('demo.yaml', 'renamed.yaml')}
+      >
+        Rename demo workflow
+      </button>
       <ul>
         {dags.map((dag) => (
           <li key={dag.fileName}>{dag.fileName}</li>
@@ -202,6 +212,7 @@ vi.mock('@/hooks/api', () => ({
   useClient: () => ({
     DELETE: clientDeleteMock,
     GET: clientGetMock,
+    POST: clientPostMock,
   }),
 }));
 
@@ -373,6 +384,8 @@ describe('DagsPage', () => {
     clientDeleteMock.mockReset();
     clientDeleteMock.mockResolvedValue({});
     clientGetMock.mockReset();
+    clientPostMock.mockReset();
+    clientPostMock.mockResolvedValue({});
     sharedWorkflowViewState.views = [];
     createViewMock.mockReset();
     updateViewMock.mockReset();
@@ -888,6 +901,24 @@ describe('DagsPage', () => {
         path: { fileName: 'demo.yaml' },
         query: { remoteNode: 'remote-a' },
       },
+    });
+  });
+
+  it('renames workflows through the existing DAG endpoint', async () => {
+    renderPage();
+
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Rename demo workflow' })
+      );
+    });
+
+    expect(clientPostMock).toHaveBeenCalledWith('/dags/{fileName}/rename', {
+      params: {
+        path: { fileName: 'demo.yaml' },
+        query: { remoteNode: 'remote-a' },
+      },
+      body: { newFileName: 'renamed.yaml' },
     });
   });
 
