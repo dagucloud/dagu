@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -39,6 +39,22 @@ const webhook: WebhookDetails = {
   updatedAt: '2026-08-07T00:00:00Z',
 };
 
+const activeProfilesResponse = {
+  data: {
+    profiles: [
+      {
+        id: 'profile-1',
+        name: 'prod',
+        status: RuntimeProfileStatus.active,
+        protected: false,
+        entries: [],
+        createdAt: '2026-08-07T00:00:00Z',
+        updatedAt: '2026-08-07T00:00:00Z',
+      },
+    ],
+  },
+};
+
 describe('WebhookProfileSelectionCard', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -53,28 +69,14 @@ describe('WebhookProfileSelectionCard', () => {
       .mockResolvedValueOnce({
         error: { message: 'Profile service unavailable' },
       })
-      .mockResolvedValueOnce({
-        data: {
-          profiles: [
-            {
-              id: 'profile-1',
-              name: 'prod',
-              status: RuntimeProfileStatus.active,
-              protected: false,
-              entries: [],
-              createdAt: '2026-08-07T00:00:00Z',
-              updatedAt: '2026-08-07T00:00:00Z',
-            },
-          ],
-        },
-      });
+      .mockResolvedValueOnce(activeProfilesResponse);
 
     const user = userEvent.setup();
     render(
       <WebhookProfileSelectionCard
         fileName="example"
         isAdmin
-        remoteNode="local"
+        remoteNode="worker-a"
         webhook={webhook}
         onWebhookChange={vi.fn()}
       />
@@ -87,6 +89,83 @@ describe('WebhookProfileSelectionCard', () => {
 
     expect(await screen.findByText('prod')).toBeVisible();
     expect(screen.queryByText('Profile service unavailable')).toBeNull();
-    expect(getMock).toHaveBeenCalledTimes(2);
+    expect(getMock.mock.calls).toEqual([
+      ['/profiles', { params: { query: { remoteNode: 'worker-a' } } }],
+      ['/profiles', { params: { query: { remoteNode: 'worker-a' } } }],
+    ]);
+  });
+
+  it('preserves unsaved edits when unchanged configuration is refreshed', async () => {
+    getMock.mockResolvedValue(activeProfilesResponse);
+
+    const user = userEvent.setup();
+    const { rerender } = render(
+      <WebhookProfileSelectionCard
+        fileName="example"
+        isAdmin
+        remoteNode="worker-a"
+        webhook={webhook}
+        onWebhookChange={vi.fn()}
+      />
+    );
+    const checkbox = await screen.findByRole('checkbox', { name: 'prod' });
+    await user.click(checkbox);
+    expect(checkbox).toBeChecked();
+
+    rerender(
+      <WebhookProfileSelectionCard
+        fileName="example"
+        isAdmin
+        remoteNode="worker-a"
+        webhook={{
+          ...webhook,
+          updatedAt: '2026-08-07T01:00:00Z',
+          profileSelection: { allowedProfiles: [] },
+        }}
+        onWebhookChange={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole('checkbox', { name: 'prod' })).toBeChecked();
+  });
+
+  it('routes profile selection updates to the selected remote node', async () => {
+    const updatedWebhook = {
+      ...webhook,
+      profileSelection: { allowedProfiles: ['prod'] },
+    };
+    getMock.mockResolvedValue(activeProfilesResponse);
+    putMock.mockResolvedValue({ data: updatedWebhook });
+    const onWebhookChange = vi.fn();
+
+    const user = userEvent.setup();
+    render(
+      <WebhookProfileSelectionCard
+        fileName="example"
+        isAdmin
+        remoteNode="worker-a"
+        webhook={webhook}
+        onWebhookChange={onWebhookChange}
+      />
+    );
+
+    await user.click(await screen.findByRole('checkbox', { name: 'prod' }));
+    await user.click(
+      screen.getByRole('button', { name: 'Save profile selection' })
+    );
+
+    await waitFor(() => {
+      expect(putMock).toHaveBeenCalledWith(
+        '/dags/{fileName}/webhook/profile-selection',
+        {
+          params: {
+            path: { fileName: 'example' },
+            query: { remoteNode: 'worker-a' },
+          },
+          body: { allowedProfiles: ['prod'] },
+        }
+      );
+    });
+    expect(onWebhookChange).toHaveBeenCalledWith(updatedWebhook);
   });
 });

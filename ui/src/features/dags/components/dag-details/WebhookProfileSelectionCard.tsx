@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { Loader2, RefreshCw, Save } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { components, RuntimeProfileStatus } from '../../../../api/v1/schema';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -40,6 +40,11 @@ function WebhookProfileSelectionCard({
 }: WebhookProfileSelectionCardProps) {
   const client = useClient();
   const configuredAllowedProfiles = webhook.profileSelection.allowedProfiles;
+  const configuredAllowedProfilesKey = JSON.stringify(
+    [...configuredAllowedProfiles].sort()
+  );
+  const configuredAllowedProfilesRef = useRef(configuredAllowedProfiles);
+  configuredAllowedProfilesRef.current = configuredAllowedProfiles;
   const [runtimeProfiles, setRuntimeProfiles] = useState<RuntimeProfile[]>([]);
   const [draftAllowedProfiles, setDraftAllowedProfiles] = useState<string[]>(
     configuredAllowedProfiles
@@ -53,8 +58,8 @@ function WebhookProfileSelectionCard({
   const [profilesReloadKey, setProfilesReloadKey] = useState(0);
 
   useEffect(() => {
-    setDraftAllowedProfiles(configuredAllowedProfiles);
-  }, [configuredAllowedProfiles]);
+    setDraftAllowedProfiles(configuredAllowedProfilesRef.current);
+  }, [configuredAllowedProfilesKey]);
 
   useEffect(() => {
     if (!isAdmin) {

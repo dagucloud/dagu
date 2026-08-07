@@ -113,14 +113,14 @@ ${signatureInput.node}
 
 const signature =
   'sha256=' +
-  crypto.createHmac('sha256', process.env.DAGU_HMAC_SECRET!)
+  crypto.createHmac('sha256', process.env.DAGU_HMAC_SECRET)
     .update(signatureInput, 'utf8')
     .digest('hex');
 
 const headers = {
   'Content-Type': 'application/json',
   'X-Dagu-Signature': signature,
-  ${profileNodeHeader}${tokenNodeHeader}}
+  ${profileNodeHeader}${tokenNodeHeader}};
 
 await fetch('${webhookUrl}', {
   method: 'POST',

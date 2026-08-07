@@ -52,6 +52,12 @@ describe('webhook profile selection', () => {
     expect(examples.hmacNode).toContain(
       "const signatureInput = 'x-dagu-profile:' + profile + '\\n' + body;"
     );
+    expect(examples.hmacNode).toContain(
+      "crypto.createHmac('sha256', process.env.DAGU_HMAC_SECRET)"
+    );
+    expect(examples.hmacNode).toContain(
+      "'Authorization': 'Bearer <YOUR_TOKEN>',\n  };"
+    );
   });
 
   it('builds examples for token-only and HMAC-only authentication', () => {
