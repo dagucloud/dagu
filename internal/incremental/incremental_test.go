@@ -204,6 +204,50 @@ func TestPrepareExplainsWhyExecutionIsRequired(t *testing.T) {
 	})
 }
 
+func TestIneligibleCommitPreservesReusableManifest(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	workingDir := t.TempDir()
+	inputPath := filepath.Join(workingDir, "input.txt")
+	outputPath := filepath.Join(workingDir, "output.txt")
+	require.NoError(t, os.WriteFile(inputPath, []byte("input"), 0o600))
+	store := materialization.New(filepath.Join(t.TempDir(), "materializations"))
+	request := prepareRequest(workingDir, inputPath, outputPath)
+
+	first, err := incremental.Prepare(ctx, store, request)
+	require.NoError(t, err)
+	require.NoError(t, first.Evaluate(ctx))
+	_, staging, err := first.NewAttempt(0)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(staging, []byte("first"), 0o600))
+	require.NoError(t, first.Commit(ctx, staging))
+	require.NoError(t, first.Close(staging))
+
+	ineligibleRequest := request
+	ineligibleRequest.DAGRunID = "run-2"
+	ineligibleRequest.AttemptID = "attempt-2"
+	ineligibleRequest.HasSecrets = true
+	ineligible, err := incremental.Prepare(ctx, store, ineligibleRequest)
+	require.NoError(t, err)
+	require.NoError(t, ineligible.Evaluate(ctx))
+	require.Equal(t, exec.IncrementalDecisionAlways, ineligible.Metadata().Decision)
+	_, staging, err = ineligible.NewAttempt(0)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(staging, []byte("second"), 0o600))
+	require.NoError(t, ineligible.Commit(ctx, staging))
+	require.NoError(t, ineligible.Close(staging))
+
+	request.DAGRunID = "run-3"
+	request.AttemptID = "attempt-3"
+	third, err := incremental.Prepare(ctx, store, request)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, third.Close("")) })
+	require.NoError(t, third.Evaluate(ctx))
+	require.Equal(t, exec.IncrementalDecisionExecute, third.Metadata().Decision)
+	require.Equal(t, exec.IncrementalReasonOutputChanged, third.Metadata().Reason)
+}
+
 func TestPrepareDryRunDoesNotAcquirePathLocks(t *testing.T) {
 	t.Parallel()
 

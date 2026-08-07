@@ -59,11 +59,12 @@ type Materialization struct {
 	CompletedAt        time.Time      `json:"completedAt"`
 }
 
-// MaterializationCommit atomically publishes a staged output and its manifest.
+// MaterializationCommit describes publication of a staged output and its manifest state.
 type MaterializationCommit struct {
-	StagingPath string
-	FinalPath   string
-	Manifest    Materialization
+	StagingPath      string
+	FinalPath        string
+	Manifest         Materialization
+	PreserveManifest bool
 }
 
 // MaterializationStore persists manifests and coordinates path access.

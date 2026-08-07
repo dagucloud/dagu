@@ -18,6 +18,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/collections"
 	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/subflow"
@@ -105,6 +106,24 @@ func TestLocalRetryRejectsMissingRunDatabase(t *testing.T) {
 
 	require.Nil(t, result)
 	require.ErrorContains(t, err, "child workflow status database is not configured")
+}
+
+func TestLocalRunRejectsIncrementalWorkflowOnRemoteWorker(t *testing.T) {
+	t.Parallel()
+
+	runner := subflow.NewLocal(
+		runtime.Manager{},
+		nil,
+		subflow.WithLocalWorkerID("worker-1"),
+	)
+	result, err := runner.Run(context.Background(), executor.SubWorkflowRequest{
+		DAG:        &core.DAG{Name: "child", Type: core.TypeIncremental},
+		RootDAGRun: exec.NewDAGRunRef("parent", "root-1"),
+		RunID:      "child-run",
+	})
+
+	require.Nil(t, result)
+	require.ErrorIs(t, err, dispatch.ErrIncrementalRequiresLocal)
 }
 
 func TestLocalRetryReadsStoredChildAttemptStatus(t *testing.T) {

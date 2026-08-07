@@ -47,6 +47,21 @@ func TestPlan_NodeByName(t *testing.T) {
 	require.Nil(t, p.GetNodeByName("c"))
 }
 
+func TestPlan_ExplicitDependencyRemainsExplicit(t *testing.T) {
+	t.Parallel()
+
+	plan, err := runtime.NewPlan(
+		core.Step{Name: "producer"},
+		core.Step{Name: "consumer", Depends: []string{"producer"}},
+	)
+	require.NoError(t, err)
+	require.NoError(t, plan.AddInferredDependency("producer", "consumer"))
+
+	producer := plan.GetNodeByName("producer")
+	consumer := plan.GetNodeByName("consumer")
+	require.False(t, plan.IsInferredDependency(producer.ID(), consumer.ID()))
+}
+
 func TestPlan_DependencyStructures(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

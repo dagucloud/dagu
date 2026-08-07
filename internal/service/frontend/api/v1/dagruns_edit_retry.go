@@ -545,6 +545,11 @@ func (a *API) launchEditRetryDAGRun(ctx context.Context, plan *editRetryPlan) (q
 	if plan == nil || plan.editedDAG == nil || plan.sourceStatus == nil {
 		return false, fmt.Errorf("edit retry plan is incomplete")
 	}
+	queueConfigured := a.config.FindQueueConfig(plan.editedDAG.ProcGroup()) != nil
+	shouldDispatch := !queueConfigured && dispatch.ShouldDispatchToCoordinator(plan.editedDAG, a.coordinatorCli != nil, a.defaultExecMode)
+	if shouldDispatch && plan.editedDAG.Type == core.TypeIncremental {
+		return false, incrementalRequiresLocalAPIError()
+	}
 
 	nodes := editRetrySeedNodes(plan.editedDAG, plan.sourceStatus, plan.skippedSteps)
 	seedStatus, err := a.seedEditRetryAttempt(ctx, plan.editedDAG, plan.newDAGRunID, plan.params, plan.profileName, nodes, plan.sourceAttempt.WorkDir())
@@ -557,7 +562,7 @@ func (a *API) launchEditRetryDAGRun(ctx context.Context, plan *editRetryPlan) (q
 		}
 	}()
 
-	if a.config.FindQueueConfig(plan.editedDAG.ProcGroup()) != nil {
+	if queueConfigured {
 		if a.queueStore == nil {
 			return false, fmt.Errorf("queue store is not configured")
 		}
@@ -567,7 +572,7 @@ func (a *API) launchEditRetryDAGRun(ctx context.Context, plan *editRetryPlan) (q
 		return true, nil
 	}
 
-	if dispatch.ShouldDispatchToCoordinator(plan.editedDAG, a.coordinatorCli != nil, a.defaultExecMode) {
+	if shouldDispatch {
 		if err := a.dispatchEditRetry(ctx, plan.editedDAG, seedStatus); err != nil {
 			return false, err
 		}

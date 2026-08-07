@@ -116,6 +116,71 @@ steps:
 	require.NotNil(t, task.PreviousStatus)
 }
 
+func TestRetryDAGRun_RejectsDistributedIncrementalWorkflow(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+	dagFile := filepath.Join(tmpDir, "incremental-retry.yaml")
+	require.NoError(t, os.WriteFile(dagFile, []byte(`
+name: incremental_retry_dag
+type: incremental
+worker_selector:
+  region: apac
+steps:
+  - name: main
+    run: echo incremental retry
+`), 0o600))
+	dag, err := spec.Load(ctx, dagFile)
+	require.NoError(t, err)
+
+	dagRunStore := dagrun.New(filepath.Join(tmpDir, "dag-runs"))
+	attempt, err := dagRunStore.CreateAttempt(
+		ctx,
+		dag,
+		time.Now().Add(-2*time.Minute),
+		"incremental-run",
+		exec.NewDAGRunAttemptOptions{},
+	)
+	require.NoError(t, err)
+	status := transform.NewStatusBuilder(dag).Create(
+		"incremental-run",
+		core.Failed,
+		0,
+		time.Now().Add(-2*time.Minute),
+		transform.WithAttemptID(attempt.ID()),
+		transform.WithFinishedAt(time.Now().Add(-time.Minute)),
+		transform.WithError("step failed"),
+	)
+	require.NotEmpty(t, status.Nodes)
+	status.Nodes[0].Status = core.NodeFailed
+	require.NoError(t, attempt.Open(ctx))
+	require.NoError(t, attempt.Write(ctx, status))
+	require.NoError(t, attempt.Close(ctx))
+
+	coordinatorCli := &retryCoordinatorRecorder{}
+	api := &API{
+		dagRunStore: dagRunStore,
+		config: &config.Config{Server: config.Server{Permissions: map[config.Permission]bool{
+			config.PermissionRunDAGs: true,
+		}}},
+		coordinatorCli:  coordinatorCli,
+		defaultExecMode: config.ExecutionModeLocal,
+	}
+
+	resp, err := api.RetryDAGRun(ctx, openapiv1.RetryDAGRunRequestObject{
+		Name:     dag.Name,
+		DagRunId: "incremental-run",
+		Body: &openapiv1.RetryDAGRunJSONRequestBody{
+			DagRunId: "incremental-run",
+		},
+	})
+	require.Nil(t, resp)
+	var apiErr *Error
+	require.ErrorAs(t, err, &apiErr)
+	require.Equal(t, http.StatusBadRequest, apiErr.HTTPStatus)
+	require.Contains(t, apiErr.Message, "incremental workflows require local execution")
+	require.Empty(t, coordinatorCli.dispatched)
+}
+
 func TestRetryDAGRun_RejectsMismatchedBodyDagRunID(t *testing.T) {
 	ctx := context.Background()
 

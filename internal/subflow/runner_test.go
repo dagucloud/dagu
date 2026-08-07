@@ -12,6 +12,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/subflow"
 	"github.com/stretchr/testify/assert"
@@ -187,6 +188,22 @@ func TestRunnerRunDispatchesWorkflowRequest(t *testing.T) {
 	assert.Equal(t, core.Succeeded, result.Status)
 	assert.Equal(t, "ok", result.Outputs["RESULT"])
 	assert.Equal(t, true, result.OutputValues["typed"])
+}
+
+func TestRunnerRunRejectsIncrementalWorkflow(t *testing.T) {
+	t.Parallel()
+
+	dispatcher := &mockDispatcher{}
+	runner := newFastRunner(dispatcher)
+	result, err := runner.Run(context.Background(), runtimeexec.SubWorkflowRequest{
+		DAG:        &core.DAG{Name: "child", Type: core.TypeIncremental},
+		RootDAGRun: exec.NewDAGRunRef("parent", "root-1"),
+		RunID:      "child-1",
+	})
+
+	require.Nil(t, result)
+	require.ErrorIs(t, err, dispatch.ErrIncrementalRequiresLocal)
+	require.Empty(t, dispatcher.dispatches)
 }
 
 func TestRunnerRunDispatchesRetryWhenChildRunExists(t *testing.T) {

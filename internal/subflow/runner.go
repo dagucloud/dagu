@@ -20,6 +20,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 )
@@ -215,6 +216,9 @@ func (r *Runner) validate(req executor.SubWorkflowRequest) error {
 	}
 	if req.DAG == nil {
 		return errMissingChildDAG
+	}
+	if req.DAG.Type == core.TypeIncremental {
+		return dispatch.ErrIncrementalRequiresLocal
 	}
 	if req.RunID == "" {
 		return errRunIDNotSet

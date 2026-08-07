@@ -5,8 +5,10 @@ package runtime
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	gort "runtime"
 	"testing"
 	"time"
 
@@ -251,6 +253,31 @@ func TestPrepareIncrementalPlanRejectsRedirectAlias(t *testing.T) {
 	}
 }
 
+func TestPrepareIncrementalPlanChecksPlainRedirectWhenArtifactRedirectIsSet(t *testing.T) {
+	t.Parallel()
+
+	workingDir := t.TempDir()
+	artifactDir := t.TempDir()
+	step := core.Step{
+		ID:             "build",
+		Name:           "build",
+		Outputs:        []core.StepOutputDeclaration{{Name: "artifact", Path: "artifact.txt"}},
+		Stdout:         "./artifact.txt",
+		StdoutArtifact: "step.log",
+	}
+	plan, err := NewPlan(step)
+	require.NoError(t, err)
+	ctx := NewContext(context.Background(), &core.DAG{
+		Name:               "incremental-test",
+		Type:               core.TypeIncremental,
+		WorkingDir:         workingDir,
+		WorkingDirExplicit: true,
+	}, "run-1", filepath.Join(workingDir, "dag.log"), WithArtifactDir(artifactDir))
+
+	err = prepareIncrementalPlan(ctx, plan)
+	require.ErrorContains(t, err, "stdout path aliases incremental output")
+}
+
 func TestValidateIncrementalRuntimeRedirectAliases(t *testing.T) {
 	t.Parallel()
 
@@ -324,7 +351,8 @@ func TestIncrementalInputIsAvailableToStepPrecondition(t *testing.T) {
 		Name:          "build",
 		Inputs:        []core.StepInputDeclaration{{Name: "source", Path: inputPath}},
 		Outputs:       []core.StepOutputDeclaration{{Name: "artifact", Path: filepath.Join(workingDir, "artifact.txt")}},
-		Preconditions: []*core.Condition{{Condition: `test -f "${inputs.source}"`}},
+		Env:           []string{"SOURCE=${inputs.source}"},
+		Preconditions: []*core.Condition{{Condition: `test -f "$SOURCE"`}},
 	}
 	plan, err := NewPlan(step)
 	require.NoError(t, err)
@@ -352,7 +380,122 @@ func TestIncrementalInputIsAvailableToStepPrecondition(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, session.Close("")) })
 
 	assert.Equal(t, inputPath, GetEnv(ctx).Inputs["source"])
+	assert.Equal(t, inputPath, AllEnvsMap(ctx)["SOURCE"])
 	require.NoError(t, node.evalPreconditions(ctx))
+}
+
+func TestEvaluateIncrementalNodeReportsReusePublishFailure(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	workingDir := t.TempDir()
+	inputPath := filepath.Join(workingDir, "input.txt")
+	outputPath := filepath.Join(workingDir, "output.txt")
+	require.NoError(t, os.WriteFile(inputPath, []byte("input"), 0o600))
+	dag := &core.DAG{Name: "incremental-test", Type: core.TypeIncremental, WorkingDir: workingDir}
+	step := core.Step{
+		ID:       "build",
+		Name:     "build",
+		Commands: []core.CommandEntry{{Command: "build"}},
+		Inputs:   []core.StepInputDeclaration{{Name: "source", Path: inputPath}},
+		Outputs:  []core.StepOutputDeclaration{{Name: "artifact", Path: outputPath}},
+	}
+	store := filematerialization.New(filepath.Join(t.TempDir(), "materializations"))
+	request := incremental.PrepareRequest{
+		DAG:         dag,
+		Step:        step,
+		DAGRunID:    "run-1",
+		AttemptID:   "attempt-1",
+		WorkingDir:  workingDir,
+		Shell:       []string{"sh"},
+		Environment: map[string]string{},
+	}
+
+	first, err := incremental.Prepare(ctx, store, request)
+	require.NoError(t, err)
+	require.NoError(t, first.Evaluate(ctx))
+	_, stagingPath, err := first.NewAttempt(0)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(stagingPath, []byte("output"), 0o600))
+	require.NoError(t, first.Commit(ctx, stagingPath))
+	require.NoError(t, first.Close(stagingPath))
+
+	request.DAGRunID = "run-2"
+	request.AttemptID = "attempt-2"
+	second, err := incremental.Prepare(ctx, store, request)
+	require.NoError(t, err)
+	require.NoError(t, second.Evaluate(ctx))
+	require.True(t, second.Reused())
+	t.Cleanup(func() { require.NoError(t, second.Close("")) })
+
+	plan, err := NewPlan(step)
+	require.NoError(t, err)
+	node := plan.GetNodeByName(step.Name)
+	require.NotNil(t, node)
+	node.setStepOutputsValue("{")
+	reported := 0
+	runner := New(&Config{})
+
+	handled := runner.evaluateIncrementalNode(ctx, node, second, func() { reported++ })
+
+	require.True(t, handled)
+	require.Equal(t, core.NodeFailed, node.State().Status)
+	require.Equal(t, 1, reported)
+}
+
+func TestIncrementalRepeatRemovesUncommittedStagingOutput(t *testing.T) {
+	if gort.GOOS == "windows" {
+		t.Skip("uses a POSIX shell script")
+	}
+
+	workingDir := t.TempDir()
+	inputPath := filepath.Join(workingDir, "input.txt")
+	outputPath := filepath.Join(workingDir, "artifact.txt")
+	counterPath := filepath.Join(workingDir, "counter")
+	require.NoError(t, os.WriteFile(inputPath, []byte("input"), 0o600))
+	step := core.Step{
+		ID:   "build",
+		Name: "build",
+		Script: fmt.Sprintf(`
+if [ ! -f %q ]; then
+  touch %q
+  echo partial > "${outputs.artifact}"
+  exit 1
+fi
+echo complete > "${outputs.artifact}"
+`, counterPath, counterPath),
+		Inputs:  []core.StepInputDeclaration{{Name: "source", Path: inputPath}},
+		Outputs: []core.StepOutputDeclaration{{Name: "artifact", Path: outputPath}},
+		ContinueOn: core.ContinueOn{
+			Failure:     true,
+			MarkSuccess: true,
+			ExitCode:    []int{1},
+		},
+		RepeatPolicy: core.RepeatPolicy{RepeatMode: core.RepeatModeUntil},
+	}
+	plan, err := NewPlan(step)
+	require.NoError(t, err)
+	runner := New(&Config{
+		DAGRunID:             "run-1",
+		LogDir:               t.TempDir(),
+		MaterializationStore: filematerialization.New(filepath.Join(t.TempDir(), "materializations")),
+	})
+	dag := &core.DAG{
+		Name:               "incremental-test",
+		Type:               core.TypeIncremental,
+		WorkingDir:         workingDir,
+		WorkingDirExplicit: true,
+		Shell:              "sh",
+	}
+	ctx := NewContext(context.Background(), dag, "run-1", filepath.Join(workingDir, "dag.log"))
+
+	require.NoError(t, runner.Run(ctx, plan, nil))
+	content, err := os.ReadFile(outputPath)
+	require.NoError(t, err)
+	require.Equal(t, "complete\n", string(content))
+	stagingFiles, err := filepath.Glob(filepath.Join(workingDir, ".artifact.txt.dagu-*.tmp"))
+	require.NoError(t, err)
+	require.Empty(t, stagingFiles)
 }
 
 func TestPrepareIncrementalPlanRejectsInferredCycle(t *testing.T) {

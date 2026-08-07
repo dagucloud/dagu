@@ -257,14 +257,14 @@ func (p *Plan) AddInferredDependency(producerName, consumerName string) error {
 		return fmt.Errorf("%w: %s", ErrMissingNode, consumerName)
 	}
 	edge := [2]int{producer.id, consumer.id}
+	if !p.addEdge(producer, consumer) {
+		return nil
+	}
 	p.inferredEdges[edge] = struct{}{}
-	added := p.addEdge(producer, consumer)
 	if p.isCyclic() {
 		delete(p.inferredEdges, edge)
-		if added {
-			p.DependantMap[producer.id] = removeNodeID(p.DependantMap[producer.id], consumer.id)
-			p.DependencyMap[consumer.id] = removeNodeID(p.DependencyMap[consumer.id], producer.id)
-		}
+		p.DependantMap[producer.id] = removeNodeID(p.DependantMap[producer.id], consumer.id)
+		p.DependencyMap[consumer.id] = removeNodeID(p.DependencyMap[consumer.id], producer.id)
 		return ErrCyclicPlan
 	}
 	return nil

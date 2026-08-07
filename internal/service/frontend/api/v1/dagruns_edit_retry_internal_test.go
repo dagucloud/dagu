@@ -187,6 +187,30 @@ func TestEditRetryDAGRun_DispatchesSeededRetryWithSkippedOutputs(t *testing.T) {
 	require.True(t, previousStatus.Nodes[0].SkippedByRetry)
 }
 
+func TestEditRetryDAGRun_RejectsDistributedIncrementalWorkflow(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+	api, dag := setupEditRetryAPI(t, tmpDir, editRetrySourceYAML())
+	seedEditRetrySourceAttempt(t, ctx, api.dagRunStore, dag, "source-run")
+	recorder := &retryCoordinatorRecorder{}
+	api.coordinatorCli = recorder
+
+	resp, err := api.EditRetryDAGRun(ctx, openapiv1.EditRetryDAGRunRequestObject{
+		Name:     dag.Name,
+		DagRunId: "source-run",
+		Body: &openapiv1.EditRetryDAGRunJSONRequestBody{
+			DagRunId: ptrOf("edit-run"),
+			Spec:     editRetryIncrementalYAMLWithWorkerSelector(),
+		},
+	})
+	require.Nil(t, resp)
+	var apiErr *Error
+	require.ErrorAs(t, err, &apiErr)
+	require.Equal(t, http.StatusBadRequest, apiErr.HTTPStatus)
+	require.Contains(t, apiErr.Message, "incremental workflows require local execution")
+	require.Empty(t, recorder.dispatched)
+}
+
 func TestSkippedEditRetryNodeStatePreservesHumanTaskCompletion(t *testing.T) {
 	outputs := `{"decision":"approve"}`
 	source := &exec.Node{
@@ -624,6 +648,27 @@ func editRetryEditedYAMLWithWorkerSelector() string {
 	return `
 name: edit_retry_test
 type: graph
+worker_selector:
+  region: apac
+steps:
+  - name: build
+    run: exit 99
+    output: RESULT
+  - name: consume
+    run: echo "$RESULT"
+    depends:
+      - build
+  - name: notify
+    run: echo done
+    depends:
+      - consume
+`
+}
+
+func editRetryIncrementalYAMLWithWorkerSelector() string {
+	return `
+name: edit_retry_test
+type: incremental
 worker_selector:
   region: apac
 steps:

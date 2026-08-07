@@ -1544,11 +1544,7 @@ func (a *API) startPreparedDAGRunWithOptions(
 	// Check if this DAG should be dispatched to the coordinator for distributed execution
 	if dispatch.ShouldDispatchToCoordinator(dag, a.coordinatorCli != nil, a.defaultExecMode) {
 		if dag.Type == core.TypeIncremental {
-			return &Error{
-				HTTPStatus: http.StatusBadRequest,
-				Code:       api.ErrorCodeBadRequest,
-				Message:    dispatch.ErrIncrementalRequiresLocal.Error(),
-			}
+			return incrementalRequiresLocalAPIError()
 		}
 		timeout := 10 * time.Second
 		if osrt.GOOS == "windows" {
@@ -1599,6 +1595,14 @@ func (a *API) startPreparedDAGRunWithOptions(
 	}
 
 	return a.waitForLocalDAGStart(ctx, dag, opts.dagRunID, started, timeout)
+}
+
+func incrementalRequiresLocalAPIError() *Error {
+	return &Error{
+		HTTPStatus: http.StatusBadRequest,
+		Code:       api.ErrorCodeBadRequest,
+		Message:    dispatch.ErrIncrementalRequiresLocal.Error(),
+	}
 }
 
 func writeInlineRescheduleSpec(name, dagRunID string, data []byte) (string, error) {

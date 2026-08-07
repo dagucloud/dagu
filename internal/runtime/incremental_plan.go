@@ -154,10 +154,10 @@ func validateIncrementalRedirectAliases(
 		{field: "stderr", path: step.Stderr},
 	}
 	if step.StdoutArtifact != "" {
-		redirects[0] = incrementalRedirect{field: "stdout.artifact", path: step.StdoutArtifact, artifact: true}
+		redirects = append(redirects, incrementalRedirect{field: "stdout.artifact", path: step.StdoutArtifact, artifact: true})
 	}
 	if step.StderrArtifact != "" {
-		redirects[1] = incrementalRedirect{field: "stderr.artifact", path: step.StderrArtifact, artifact: true}
+		redirects = append(redirects, incrementalRedirect{field: "stderr.artifact", path: step.StderrArtifact, artifact: true})
 	}
 
 	resolver := resolverFromEnv(env)

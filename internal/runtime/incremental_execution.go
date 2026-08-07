@@ -105,7 +105,6 @@ func (r *Runner) evaluateIncrementalNode(
 	ctx context.Context,
 	node *Node,
 	session *incremental.Session,
-	progressCh chan *Node,
 	reportPreparedNode func(),
 ) bool {
 	if session == nil {
@@ -116,9 +115,7 @@ func (r *Runner) evaluateIncrementalNode(
 		r.setLastError(err)
 		node.MarkError(err)
 		node.SetStatus(core.NodeFailed)
-		if progressCh != nil {
-			progressCh <- node
-		}
+		reportPreparedNode()
 		return true
 	}
 	node.setIncremental(session.Metadata())
@@ -135,6 +132,7 @@ func (r *Runner) evaluateIncrementalNode(
 		r.setLastError(err)
 		node.MarkError(err)
 		node.SetStatus(core.NodeFailed)
+		reportPreparedNode()
 		return true
 	}
 	node.IncDoneCount()
@@ -185,15 +183,16 @@ func withIncrementalPaths(
 	ctx context.Context,
 	node *Node,
 	inputs, outputs map[string]string,
-	resolveEnv bool,
+	resolveOutputs bool,
 ) (context.Context, error) {
 	env := GetEnv(ctx)
 	env.Inputs = cmnvalue.ValuesFromStrings(inputs)
 	env.Outputs = cmnvalue.ValuesFromStrings(outputs)
-	if !resolveEnv {
-		return WithEnv(ctx, env), nil
+	stepEnv := node.Step().Env
+	if !resolveOutputs {
+		stepEnv = environmentWithoutAttemptOutputs(stepEnv)
 	}
-	if err := addResolvedEnvVars(ctx, &env, node.Step().Env, "env.", cmnvalue.StepEnvField); err != nil {
+	if err := addResolvedEnvVars(ctx, &env, stepEnv, "env.", cmnvalue.StepEnvField); err != nil {
 		return ctx, err
 	}
 	return WithEnv(ctx, env), nil

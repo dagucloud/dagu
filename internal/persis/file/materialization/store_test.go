@@ -86,6 +86,59 @@ func TestCommitPublishesOutputAndManifest(t *testing.T) {
 	require.Equal(t, manifest.CommitID, stored.CommitID)
 }
 
+func TestCommitCanPublishWithoutReplacingManifest(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	store := New(filepath.Join(dir, "store"))
+	finalPath := filepath.Join(dir, "output.txt")
+	lock, err := store.AcquirePaths(context.Background(), []exec.PathLockRequest{{
+		Key: incremental.ComparisonKey(finalPath), Mode: exec.PathLockExclusive,
+	}})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, lock.Release()) })
+
+	firstStage := filepath.Join(dir, ".first.tmp")
+	require.NoError(t, os.WriteFile(firstStage, []byte("first"), fileMode))
+	firstManifest := testManifest(t, "materialization", "commit-1", firstStage, finalPath)
+	require.NoError(t, store.Commit(context.Background(), lock, exec.MaterializationCommit{
+		StagingPath: firstStage,
+		FinalPath:   finalPath,
+		Manifest:    firstManifest,
+	}))
+
+	secondStage := filepath.Join(dir, ".second.tmp")
+	require.NoError(t, os.WriteFile(secondStage, []byte("second"), fileMode))
+	require.NoError(t, store.Commit(context.Background(), lock, exec.MaterializationCommit{
+		StagingPath:      secondStage,
+		FinalPath:        finalPath,
+		Manifest:         testManifest(t, "materialization", "commit-2", secondStage, finalPath),
+		PreserveManifest: true,
+	}))
+
+	content, err := os.ReadFile(finalPath)
+	require.NoError(t, err)
+	require.Equal(t, "second", string(content))
+	stored, err := store.Get(context.Background(), firstManifest.MaterializationKey)
+	require.NoError(t, err)
+	require.Equal(t, firstManifest.CommitID, stored.CommitID)
+}
+
+func TestGetRejectsUnsupportedSchemaVersion(t *testing.T) {
+	t.Parallel()
+
+	store := New(t.TempDir())
+	require.NoError(t, store.ensureDirs())
+	manifest := exec.Materialization{
+		SchemaVersion:      incremental.SchemaVersion + 1,
+		MaterializationKey: "materialization",
+	}
+	require.NoError(t, fileutil.WriteJSONAtomic(store.manifestPath(manifest.MaterializationKey), manifest, fileMode))
+
+	_, err := store.Get(context.Background(), manifest.MaterializationKey)
+	require.ErrorContains(t, err, "unsupported materialization schema version")
+}
+
 func TestCommitReplacesLongNamedOutput(t *testing.T) {
 	t.Parallel()
 
@@ -385,5 +438,57 @@ func TestRestorePreviousPreservesUnknownFinal(t *testing.T) {
 	require.Error(t, err)
 	content, readErr := os.ReadFile(finalPath)
 	require.NoError(t, readErr)
+	require.Equal(t, "user-data", string(content))
+}
+
+func TestAcquirePathsClearsUnrecoverableJournal(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	store := New(filepath.Join(dir, "store"))
+	require.NoError(t, store.ensureDirs())
+	finalPath := filepath.Join(dir, "output.txt")
+	require.NoError(t, os.WriteFile(finalPath, []byte("user-data"), fileMode))
+
+	previousSource := filepath.Join(dir, "previous.txt")
+	require.NoError(t, os.WriteFile(previousSource, []byte("previous"), fileMode))
+	previous, err := snapshotFile(previousSource)
+	require.NoError(t, err)
+	previous.Path = finalPath
+
+	proposedSource := filepath.Join(dir, "proposed.txt")
+	require.NoError(t, os.WriteFile(proposedSource, []byte("proposed"), fileMode))
+	proposed, err := snapshotFile(proposedSource)
+	require.NoError(t, err)
+	proposed.Path = finalPath
+
+	pathKey := incremental.ComparisonKey(finalPath)
+	journalPath := store.journalPath(pathKey)
+	require.NoError(t, fileutil.WriteJSONAtomic(journalPath, commitJournal{
+		FinalPath:     finalPath,
+		BackupPath:    filepath.Join(dir, "missing-backup"),
+		ManifestPath:  store.manifestPath("materialization"),
+		PreviousFinal: &previous,
+		Proposed: exec.Materialization{
+			SchemaVersion:      incremental.SchemaVersion,
+			MaterializationKey: "materialization",
+			CommitID:           "proposed",
+			Output:             proposed,
+		},
+	}, fileMode))
+
+	_, err = store.AcquirePaths(context.Background(), []exec.PathLockRequest{{
+		Key: pathKey, Mode: exec.PathLockExclusive,
+	}})
+	require.ErrorIs(t, err, exec.ErrMaterializationRecovery)
+	require.NoFileExists(t, journalPath)
+
+	lock, err := store.AcquirePaths(context.Background(), []exec.PathLockRequest{{
+		Key: pathKey, Mode: exec.PathLockExclusive,
+	}})
+	require.NoError(t, err)
+	require.NoError(t, lock.Release())
+	content, err := os.ReadFile(finalPath)
+	require.NoError(t, err)
 	require.Equal(t, "user-data", string(content))
 }

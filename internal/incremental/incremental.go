@@ -22,7 +22,8 @@ import (
 )
 
 const (
-	schemaVersion        = 1
+	// SchemaVersion identifies the persisted materialization format.
+	SchemaVersion        = 1
 	maxStagingBaseLength = 128
 )
 
@@ -320,7 +321,7 @@ func (s *Session) Commit(ctx context.Context, staging string) error {
 		return err
 	}
 	manifest := exec.Materialization{
-		SchemaVersion:      schemaVersion,
+		SchemaVersion:      SchemaVersion,
 		MaterializationKey: s.materialKey,
 		CommitID:           commitID,
 		DAGName:            s.request.DAG.Name,
@@ -335,9 +336,10 @@ func (s *Session) Commit(ctx context.Context, staging string) error {
 	}
 	s.metadata.Phase = exec.IncrementalPhaseCommit
 	if err := s.store.Commit(ctx, s.lock, exec.MaterializationCommit{
-		StagingPath: staging,
-		FinalPath:   s.outputPath,
-		Manifest:    manifest,
+		StagingPath:      staging,
+		FinalPath:        s.outputPath,
+		Manifest:         manifest,
+		PreserveManifest: s.metadata.Decision == exec.IncrementalDecisionAlways,
 	}); err != nil {
 		return err
 	}

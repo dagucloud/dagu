@@ -572,7 +572,7 @@ func (r *Runner) runNodeExecution(ctx context.Context, plan *Plan, node *Node, p
 			"step precondition was not met", progressCh)
 		return
 	}
-	if r.evaluateIncrementalNode(ctx, node, incrementalSession, progressCh, reportPreparedNode) {
+	if r.evaluateIncrementalNode(ctx, node, incrementalSession, reportPreparedNode) {
 		return
 	}
 
@@ -619,6 +619,10 @@ ExecRepeat: // repeat execution
 
 		shouldRepeat := r.shouldRepeatNode(ctx, node, execErr)
 		if shouldRepeat && !r.isCanceled() {
+			if stagingPath != "" {
+				_ = os.Remove(stagingPath)
+				stagingPath = ""
+			}
 			r.prepareNodeForRepeat(ctx, node, progressCh)
 			continue
 		}
@@ -924,6 +928,16 @@ func environmentWithoutAttemptPaths(values []string) []string {
 	filtered := make([]string, 0, len(values))
 	for _, value := range values {
 		if !strings.Contains(value, "${inputs.") && !strings.Contains(value, "${outputs.") {
+			filtered = append(filtered, value)
+		}
+	}
+	return filtered
+}
+
+func environmentWithoutAttemptOutputs(values []string) []string {
+	filtered := make([]string, 0, len(values))
+	for _, value := range values {
+		if !strings.Contains(value, "${outputs.") {
 			filtered = append(filtered, value)
 		}
 	}

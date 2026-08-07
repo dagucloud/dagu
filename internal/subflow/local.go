@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	rtagent "github.com/dagucloud/dagu/v2/internal/runtime/agent"
@@ -188,6 +189,9 @@ func (r *Local) Run(ctx context.Context, req executor.SubWorkflowRequest) (*exec
 	if err := validateInProcessRequest(req); err != nil {
 		return nil, err
 	}
+	if err := r.validateIncrementalDAG(req.DAG); err != nil {
+		return nil, err
+	}
 
 	retryTarget, err := r.existingChildRetryTarget(ctx, req)
 	if err != nil {
@@ -231,6 +235,9 @@ func (r *Local) Retry(ctx context.Context, req executor.SubWorkflowRetryRequest)
 	if err := validateInProcessRequest(req.SubWorkflowRequest); err != nil {
 		return nil, err
 	}
+	if err := r.validateIncrementalDAG(req.DAG); err != nil {
+		return nil, err
+	}
 	if req.StepName == "" {
 		return nil, errStepNameNotSet
 	}
@@ -255,6 +262,13 @@ func (r *Local) Retry(ctx context.Context, req executor.SubWorkflowRetryRequest)
 		return nil, err
 	}
 	return r.runAgent(ctx, req.RunID, child)
+}
+
+func (r *Local) validateIncrementalDAG(dag *core.DAG) error {
+	if dag.Type == core.TypeIncremental && exec.IsRemoteWorkerID(r.workerID) {
+		return dispatch.ErrIncrementalRequiresLocal
+	}
+	return nil
 }
 
 func (r *Local) existingChildRetryTarget(

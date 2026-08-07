@@ -66,6 +66,9 @@ func (s *Store) Get(_ context.Context, key string) (*exec.Materialization, error
 	if err := json.Unmarshal(data, &manifest); err != nil {
 		return nil, fmt.Errorf("decode materialization manifest: %w", err)
 	}
+	if manifest.SchemaVersion != incremental.SchemaVersion {
+		return nil, fmt.Errorf("unsupported materialization schema version %d", manifest.SchemaVersion)
+	}
 	return &manifest, nil
 }
 
@@ -207,8 +210,10 @@ func (s *Store) Commit(_ context.Context, lock exec.MaterializationLock, req exe
 	if err := fileutil.ReplaceFileDurable(req.StagingPath, req.FinalPath); err != nil {
 		return rollback(fmt.Errorf("replace materialized output: %w", err))
 	}
-	if err := fileutil.WriteJSONAtomic(manifestPath, req.Manifest, fileMode); err != nil {
-		return rollback(fmt.Errorf("write materialization manifest: %w", err))
+	if !req.PreserveManifest {
+		if err := fileutil.WriteJSONAtomic(manifestPath, req.Manifest, fileMode); err != nil {
+			return rollback(fmt.Errorf("write materialization manifest: %w", err))
+		}
 	}
 	_ = fileutil.RemoveFileDurable(backupPath)
 	_ = fileutil.RemoveFileDurable(journalPath)
@@ -245,7 +250,11 @@ func (s *Store) recover(pathKey string) error {
 		return fileutil.RemoveFileDurable(journalPath)
 	}
 	if err := restorePrevious(journal); err != nil {
-		return fmt.Errorf("recover materialization: %w", err)
+		recoveryErr := fmt.Errorf("recover materialization: %w", err)
+		if removeErr := fileutil.RemoveFileDurable(journalPath); removeErr != nil {
+			return errors.Join(recoveryErr, fmt.Errorf("remove unrecoverable materialization journal: %w", removeErr))
+		}
+		return recoveryErr
 	}
 	_ = fileutil.RemoveFileDurable(journalPath)
 	return nil

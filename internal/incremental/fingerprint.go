@@ -36,7 +36,7 @@ type recipe struct {
 
 func recipeDigest(request PrepareRequest) (string, error) {
 	value := recipe{
-		SchemaVersion: schemaVersion,
+		SchemaVersion: SchemaVersion,
 		ExecutorType:  request.Step.ExecutorConfig.Type,
 		Executor:      request.Step.ExecutorConfig.Config,
 		Commands:      request.Step.Commands,
@@ -104,7 +104,7 @@ func fingerprint(recipeDigest string, inputs []exec.FileSnapshot, controlTokens 
 		RecipeDigest  string              `json:"recipeDigest"`
 		Inputs        []exec.FileSnapshot `json:"inputs,omitempty"`
 		Control       map[string]string   `json:"control,omitempty"`
-	}{schemaVersion, recipeDigest, inputs, controlTokens}
+	}{SchemaVersion, recipeDigest, inputs, controlTokens}
 	data, _ := json.Marshal(value)
 	return digest(data)
 }
