@@ -282,14 +282,28 @@ func preservedManifestMatches(current []byte, currentErr error, previous json.Ra
 
 func restorePrevious(journal commitJournal) error {
 	if journal.PreviousFinal != nil {
-		if err := verifyFile(journal.BackupPath, *journal.PreviousFinal); err == nil {
-			if err := fileutil.ReplaceFileDurable(journal.BackupPath, journal.FinalPath); err != nil {
+		restoreBackup := func() error {
+			if err := verifyFile(journal.BackupPath, *journal.PreviousFinal); err != nil {
+				return fmt.Errorf("previous output backup is unavailable: %w", err)
+			}
+			return fileutil.ReplaceFileDurable(journal.BackupPath, journal.FinalPath)
+		}
+		_, err := os.Lstat(journal.FinalPath)
+		switch {
+		case errors.Is(err, os.ErrNotExist):
+			if err := restoreBackup(); err != nil {
 				return err
 			}
-		} else if currentErr := verifyFile(journal.FinalPath, *journal.PreviousFinal); currentErr == nil {
+		case err != nil:
+			return err
+		case verifyFile(journal.FinalPath, *journal.PreviousFinal) == nil:
 			_ = fileutil.RemoveFileDurable(journal.BackupPath)
-		} else {
-			return fmt.Errorf("previous output and backup are unavailable: %w", err)
+		case verifyFile(journal.FinalPath, journal.Proposed.Output) == nil:
+			if err := restoreBackup(); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("current output cannot be identified as the previous or proposed materialization")
 		}
 	} else if _, err := os.Lstat(journal.FinalPath); err == nil {
 		if verifyErr := verifyFile(journal.FinalPath, journal.Proposed.Output); verifyErr != nil {

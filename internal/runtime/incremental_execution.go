@@ -113,7 +113,19 @@ func (r *Runner) evaluateIncrementalNode(
 	if session == nil {
 		return false
 	}
-	if err := session.Evaluate(ctx); err != nil {
+	var err error
+	if session.Metadata().Decision != exec.IncrementalDecisionAlways {
+		var resolvedStep core.Step
+		var environment map[string]string
+		resolvedStep, environment, err = resolveIncrementalRecipe(ctx, node.Step())
+		if err == nil {
+			session.SetResolvedRecipe(resolvedStep, environment)
+		}
+	}
+	if err == nil {
+		err = session.Evaluate(ctx)
+	}
+	if err != nil {
 		node.setIncremental(session.Metadata())
 		r.setLastError(err)
 		node.MarkError(err)
@@ -142,6 +154,43 @@ func (r *Runner) evaluateIncrementalNode(
 	node.SetStatus(core.NodeSucceeded)
 	reportPreparedNode()
 	return true
+}
+
+func resolveIncrementalRecipe(ctx context.Context, step core.Step) (core.Step, map[string]string, error) {
+	env := GetEnv(ctx)
+	inputs := make(map[string]string, len(step.Inputs))
+	for _, input := range step.Inputs {
+		inputs[input.Name] = input.Path
+	}
+	outputs := make(map[string]string, len(step.Outputs))
+	for _, output := range step.Outputs {
+		if output.Path != "" {
+			outputs[output.Name] = "${outputs." + output.Name + "}"
+		}
+	}
+	env.Inputs = cmnvalue.ValuesFromStrings(inputs)
+	env.Outputs = cmnvalue.ValuesFromStrings(outputs)
+	if err := addResolvedEnvVars(ctx, &env, step.Env, "env.", cmnvalue.StepEnvField); err != nil {
+		return core.Step{}, nil, err
+	}
+
+	resolvedCtx := WithEnv(ctx, env)
+	resolvedStep, err := resolveStepCommandArgs(resolvedCtx, step)
+	if err != nil {
+		return core.Step{}, nil, err
+	}
+	config, err := evalExecutorConfig(resolvedCtx, resolvedStep)
+	if err != nil {
+		return core.Step{}, nil, fmt.Errorf("failed to evaluate step configuration: %w", err)
+	}
+	resolvedStep.ExecutorConfig.Config = config
+	if resolvedStep.Script != "" {
+		resolvedStep.Script, err = resolveRuntimeString(resolvedCtx, resolvedStep.Script, scriptField(resolvedCtx, resolvedStep))
+		if err != nil {
+			return core.Step{}, nil, fmt.Errorf("failed to eval script: %w", err)
+		}
+	}
+	return resolvedStep, env.Scope.ToMap(), nil
 }
 
 func prepareIncrementalAttempt(

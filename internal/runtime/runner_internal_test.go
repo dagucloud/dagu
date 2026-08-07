@@ -384,6 +384,72 @@ func TestIncrementalInputIsAvailableToStepPrecondition(t *testing.T) {
 	require.NoError(t, node.evalPreconditions(ctx))
 }
 
+func TestIncrementalRunnerFingerprintsResolvedRecipe(t *testing.T) {
+	if gort.GOOS == "windows" {
+		t.Skip("uses a POSIX shell script")
+	}
+
+	dataDir := t.TempDir()
+	inputPath := filepath.Join(dataDir, "source.txt")
+	outputPath := filepath.Join(dataDir, "artifact.txt")
+	require.NoError(t, os.WriteFile(inputPath, []byte("source"), 0o600))
+	store := filematerialization.New(filepath.Join(t.TempDir(), "materializations"))
+
+	run := func(runID, version string) exec.IncrementalExecution {
+		t.Helper()
+		step := core.Step{
+			ID:       "build",
+			Name:     "build",
+			Commands: []core.CommandEntry{{CmdWithArgs: `printf '%s' "${consts.version}" > "${outputs.artifact}"`}},
+			Inputs:   []core.StepInputDeclaration{{Name: "source", Path: inputPath}},
+			Outputs:  []core.StepOutputDeclaration{{Name: "artifact", Path: outputPath}},
+		}
+		plan, err := NewPlan(step)
+		require.NoError(t, err)
+		dag := &core.DAG{
+			Name:       "incremental-test",
+			Type:       core.TypeIncremental,
+			WorkingDir: dataDir,
+			Shell:      "sh",
+			Consts:     map[string]any{"version": version},
+		}
+		ctx := NewContext(
+			context.Background(),
+			dag,
+			runID,
+			filepath.Join(t.TempDir(), "dag.log"),
+			WithAttemptID(runID+"-attempt"),
+			WithWorkDir(t.TempDir()),
+		)
+		runner := New(&Config{
+			DAGRunID:             runID,
+			LogDir:               t.TempDir(),
+			MaterializationStore: store,
+		})
+		require.NoError(t, runner.Run(ctx, plan, nil))
+		node := plan.GetNodeByName(step.Name)
+		require.NotNil(t, node)
+		require.NotNil(t, node.State().Incremental)
+		return *node.State().Incremental
+	}
+
+	first := run("run-1", "v1")
+	require.Equal(t, exec.IncrementalDecisionExecute, first.Decision)
+	content, err := os.ReadFile(outputPath)
+	require.NoError(t, err)
+	require.Equal(t, "v1", string(content))
+
+	second := run("run-2", "v1")
+	require.Equal(t, exec.IncrementalDecisionReuse, second.Decision)
+
+	third := run("run-3", "v2")
+	require.Equal(t, exec.IncrementalDecisionExecute, third.Decision)
+	require.Equal(t, exec.IncrementalReasonRecipeChanged, third.Reason)
+	content, err = os.ReadFile(outputPath)
+	require.NoError(t, err)
+	require.Equal(t, "v2", string(content))
+}
+
 func TestEvaluateIncrementalNodeReportsReusePublishFailure(t *testing.T) {
 	t.Parallel()
 

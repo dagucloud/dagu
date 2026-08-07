@@ -1003,7 +1003,16 @@ func (n *Node) evaluateCommandArgs(ctx context.Context) error {
 		return nil
 	}
 
-	step := n.Step()
+	step, err := resolveStepCommandArgs(ctx, n.Step())
+	if err != nil {
+		return err
+	}
+	n.SetStep(step)
+	n.cmdEvaluated.Store(true)
+	return nil
+}
+
+func resolveStepCommandArgs(ctx context.Context, step core.Step) (core.Step, error) {
 	command := step.CommandResolution(ctx)
 
 	if len(step.Commands) > 0 {
@@ -1014,7 +1023,7 @@ func (n *Node) evaluateCommandArgs(ctx context.Context) error {
 			if commandName != "" {
 				evaluated, err := resolveRuntimeString(ctx, commandName, cmnvalue.DirectCommandField(fieldPath, command))
 				if err != nil {
-					return fmt.Errorf("failed to eval command: %w", err)
+					return core.Step{}, fmt.Errorf("failed to eval command: %w", err)
 				}
 				commandName = evaluated
 			}
@@ -1023,7 +1032,7 @@ func (n *Node) evaluateCommandArgs(ctx context.Context) error {
 			for j, arg := range cmdEntry.Args {
 				value, err := resolveRuntimeString(ctx, arg, cmnvalue.DirectCommandField(fieldPath, command))
 				if err != nil {
-					return fmt.Errorf("failed to eval command args: %w", err)
+					return core.Step{}, fmt.Errorf("failed to eval command args: %w", err)
 				}
 				args[j] = value
 			}
@@ -1033,10 +1042,10 @@ func (n *Node) evaluateCommandArgs(ctx context.Context) error {
 			if cmdWithArgs != "" {
 				evaluated, err := resolveRuntimeString(ctx, cmdWithArgs, cmnvalue.ShellCommandField(fieldPath, command))
 				if err != nil {
-					return fmt.Errorf("failed to eval command with args: %w", err)
+					return core.Step{}, fmt.Errorf("failed to eval command with args: %w", err)
 				}
 				if commandFormRunRejectsLineBreak(step) && commandTextHasLineBreak(evaluated) {
-					return fmt.Errorf("resolved command text for %s contains a line break", fieldPath)
+					return core.Step{}, fmt.Errorf("resolved command text for %s contains a line break", fieldPath)
 				}
 				cmdWithArgs = evaluated
 			}
@@ -1048,15 +1057,8 @@ func (n *Node) evaluateCommandArgs(ctx context.Context) error {
 			}
 		}
 		step.Commands = commands
-
-		n.SetStep(step)
-		n.cmdEvaluated.Store(true)
-		return nil
 	}
-
-	// No commands to evaluate
-	n.cmdEvaluated.Store(true)
-	return nil
+	return step, nil
 }
 
 func commandEntryFieldPath(count, index int) string {

@@ -53,7 +53,7 @@ func recipeDigest(request PrepareRequest) (string, error) {
 		WorkingDir:    workingDir,
 		WorkingDirKey: workingDirKey,
 		Parameters:    request.DAG.ParamValues(),
-		Environment:   recipeEnvironment(request.Environment),
+		Environment:   recipeEnvironment(request.Environment, request.WorkingDir, request.RunWorkDir),
 		StepEnv:       request.Step.Env,
 		Inputs:        canonicalInputs(request.Step.Inputs),
 		Outputs:       request.Step.Outputs,
@@ -87,7 +87,7 @@ func canonicalInputs(inputs []core.StepInputDeclaration) []core.StepInputDeclara
 	return result
 }
 
-func recipeEnvironment(environment map[string]string) map[string]string {
+func recipeEnvironment(environment map[string]string, workingDir, runWorkDir string) map[string]string {
 	if len(environment) == 0 {
 		return nil
 	}
@@ -95,6 +95,9 @@ func recipeEnvironment(environment map[string]string) map[string]string {
 	for key, value := range environment {
 		if volatileRuntimeEnvironment[key] {
 			continue
+		}
+		if key == "PWD" && value == workingDir {
+			value, _ = recipeWorkingDir(value, runWorkDir)
 		}
 		result[key] = value
 	}

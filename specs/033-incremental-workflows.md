@@ -84,7 +84,8 @@ Evaluation holds shared input locks and an exclusive output lock through
 preconditions, execution, verification, and commit. Each retry uses a new
 same-directory staging path. A successful attempt is published with a
 recoverable output-and-manifest journal. Failure leaves the previous final
-output and manifest intact.
+output and manifest intact. Recovery refuses to overwrite a final output that
+matches neither the previous nor the proposed materialization.
 
 Standard-stream destinations, including artifact destinations, must not resolve
 to any declared incremental input or output. Static aliases are rejected during

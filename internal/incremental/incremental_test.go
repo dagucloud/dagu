@@ -79,6 +79,7 @@ func TestImplicitRunWorkingDirectoryReusesMaterialization(t *testing.T) {
 	firstRunWorkDir := t.TempDir()
 	request := prepareRequest(firstRunWorkDir, inputPath, outputPath)
 	request.RunWorkDir = firstRunWorkDir
+	request.Environment["PWD"] = firstRunWorkDir
 	first, err := incremental.Prepare(ctx, store, request)
 	require.NoError(t, err)
 	require.NoError(t, first.Evaluate(ctx))
@@ -93,6 +94,7 @@ func TestImplicitRunWorkingDirectoryReusesMaterialization(t *testing.T) {
 	request.AttemptID = "attempt-2"
 	request.WorkingDir = secondRunWorkDir
 	request.RunWorkDir = secondRunWorkDir
+	request.Environment["PWD"] = secondRunWorkDir
 	second, err := incremental.Prepare(ctx, store, request)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, second.Close("")) })

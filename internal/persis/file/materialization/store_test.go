@@ -441,23 +441,51 @@ func TestRecoverIncompleteCommit(t *testing.T) {
 func TestRestorePreviousPreservesUnknownFinal(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
-	finalPath := filepath.Join(dir, "output.txt")
-	require.NoError(t, os.WriteFile(finalPath, []byte("user-data"), 0o600))
-	proposedPath := filepath.Join(dir, "proposed.txt")
-	require.NoError(t, os.WriteFile(proposedPath, []byte("proposed"), 0o600))
-	proposed, err := snapshotFile(proposedPath)
-	require.NoError(t, err)
-	proposed.Path = finalPath
+	for _, tt := range []struct {
+		name         string
+		withPrevious bool
+	}{
+		{name: "without previous output"},
+		{name: "with previous output", withPrevious: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			finalPath := filepath.Join(dir, "output.txt")
+			backupPath := filepath.Join(dir, "output.backup")
+			require.NoError(t, os.WriteFile(finalPath, []byte("user-data"), 0o600))
+			proposedPath := filepath.Join(dir, "proposed.txt")
+			require.NoError(t, os.WriteFile(proposedPath, []byte("proposed"), 0o600))
+			proposed, err := snapshotFile(proposedPath)
+			require.NoError(t, err)
+			proposed.Path = finalPath
 
-	err = restorePrevious(commitJournal{
-		FinalPath: finalPath,
-		Proposed:  exec.Materialization{Output: proposed},
-	})
-	require.Error(t, err)
-	content, readErr := os.ReadFile(finalPath)
-	require.NoError(t, readErr)
-	require.Equal(t, "user-data", string(content))
+			journal := commitJournal{
+				FinalPath:  finalPath,
+				BackupPath: backupPath,
+				Proposed:   exec.Materialization{Output: proposed},
+			}
+			if tt.withPrevious {
+				previousPath := filepath.Join(dir, "previous.txt")
+				require.NoError(t, os.WriteFile(previousPath, []byte("previous"), 0o600))
+				previous, err := snapshotFile(previousPath)
+				require.NoError(t, err)
+				previous.Path = finalPath
+				journal.PreviousFinal = &previous
+				require.NoError(t, os.WriteFile(backupPath, []byte("previous"), 0o600))
+			}
+
+			err = restorePrevious(journal)
+			require.Error(t, err)
+			content, readErr := os.ReadFile(finalPath)
+			require.NoError(t, readErr)
+			require.Equal(t, "user-data", string(content))
+			if tt.withPrevious {
+				backup, readErr := os.ReadFile(backupPath)
+				require.NoError(t, readErr)
+				require.Equal(t, "previous", string(backup))
+			}
+		})
+	}
 }
 
 func TestAcquirePathsClearsUnrecoverableJournal(t *testing.T) {

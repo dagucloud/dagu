@@ -249,6 +249,15 @@ func (s *Session) executeReason(reason exec.IncrementalReason, detail string) {
 	s.metadata.Detail = detail
 }
 
+// SetResolvedRecipe supplies the execution fields used by the reuse decision.
+// It must be called before Evaluate.
+func (s *Session) SetResolvedRecipe(step core.Step, environment map[string]string) {
+	s.request.Step.ExecutorConfig = step.ExecutorConfig
+	s.request.Step.Commands = step.Commands
+	s.request.Step.Script = step.Script
+	s.request.Environment = environment
+}
+
 // Metadata returns the current persisted decision metadata.
 func (s *Session) Metadata() exec.IncrementalExecution { return s.metadata }
 
