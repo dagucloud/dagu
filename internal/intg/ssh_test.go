@@ -4,9 +4,14 @@
 package intg_test
 
 import (
+	"archive/tar"
+	"bytes"
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -18,6 +23,7 @@ import (
 	"time"
 
 	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/jsonstream"
 	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/client"
 	specs "github.com/opencontainers/image-spec/specs-go/v1"
@@ -29,11 +35,14 @@ import (
 )
 
 const (
-	// Use alpine with openssh for minimal SSH server
-	sshServerImage = "alpine:3"
+	sshServerImage = "dagu-ssh-test:alpine3-openssh"
 	sshTestUser    = "testuser"
 	sshTestPass    = "testpass123"
 )
+
+const sshServerDockerfile = `FROM alpine:3
+RUN apk add --no-cache openssh bash
+`
 
 // sshServerContainer holds info about a running SSH server container
 type sshServerContainer struct {
@@ -92,7 +101,7 @@ func TestSSHExecutorIntegration(t *testing.T) {
 
 	// Start SSH server container
 	sshServer := startSSHServer(t, th, dockerClient)
-	defer stopSSHServer(t, th, dockerClient, sshServer)
+	defer stopSSHServer(t, dockerClient, sshServer)
 
 	// Wait for SSH server to be ready
 	waitForSSHReady(t, sshServer)
@@ -557,12 +566,7 @@ func startSSHServer(t *testing.T, th test.Helper, dockerClient *client.Client) *
 	platform, err := currentDockerPlatform(ctx, dockerClient)
 	require.NoError(t, err, "failed to get docker info")
 
-	// Pull the image
-	pullOpts := client.ImagePullOptions{Platforms: []specs.Platform{platform}}
-	reader, err := dockerClient.ImagePull(ctx, sshServerImage, pullOpts)
-	require.NoError(t, err, "failed to pull ssh server image")
-	_, _ = io.Copy(io.Discard, reader)
-	_ = reader.Close()
+	buildSSHServerImage(t, ctx, dockerClient, platform)
 
 	// Create temp directory for SSH keys
 	keyDir := t.TempDir()
@@ -587,7 +591,6 @@ USER="%s"
 PASS="%s"
 PUBKEY='%s'
 
-apk add --no-cache openssh bash
 ssh-keygen -A
 
 adduser -D -s /bin/bash "$USER"
@@ -647,6 +650,46 @@ exec /usr/sbin/sshd -D -e
 	}
 }
 
+func buildSSHServerImage(t *testing.T, ctx context.Context, dockerClient *client.Client, platform specs.Platform) {
+	t.Helper()
+
+	var buildContext bytes.Buffer
+	tarWriter := tar.NewWriter(&buildContext)
+	require.NoError(t, tarWriter.WriteHeader(&tar.Header{
+		Name: "Dockerfile",
+		Mode: 0600,
+		Size: int64(len(sshServerDockerfile)),
+	}))
+	_, err := tarWriter.Write([]byte(sshServerDockerfile))
+	require.NoError(t, err)
+	require.NoError(t, tarWriter.Close())
+
+	result, err := dockerClient.ImageBuild(ctx, &buildContext, client.ImageBuildOptions{
+		Tags:       []string{sshServerImage},
+		Remove:     true,
+		PullParent: true,
+		Platforms:  []specs.Platform{platform},
+	})
+	require.NoError(t, err, "failed to build SSH server image")
+	defer func() { _ = result.Body.Close() }()
+
+	var output strings.Builder
+	decoder := json.NewDecoder(result.Body)
+	for {
+		var message jsonstream.Message
+		err = decoder.Decode(&message)
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		require.NoError(t, err, "failed to read SSH server image build output")
+		if message.Error != nil {
+			require.NoError(t, message.Error, "failed to build SSH server image:\n%s", output.String())
+		}
+		output.WriteString(message.Stream)
+		output.WriteString(message.Status)
+	}
+}
+
 // generateSSHKey generates an ED25519 SSH key pair using Go crypto library
 func generateSSHKey(t *testing.T, keyPath, pubKeyPath string) {
 	t.Helper()
@@ -674,12 +717,14 @@ func generateSSHKey(t *testing.T, keyPath, pubKeyPath string) {
 }
 
 // stopSSHServer stops and removes the SSH server container
-func stopSSHServer(t *testing.T, th test.Helper, dockerClient *client.Client, server *sshServerContainer) {
+func stopSSHServer(t *testing.T, dockerClient *client.Client, server *sshServerContainer) {
 	t.Helper()
 
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	timeout := 5
-	_, _ = dockerClient.ContainerStop(th.Context, server.containerID, client.ContainerStopOptions{Timeout: &timeout})
-	_, _ = dockerClient.ContainerRemove(th.Context, server.containerID, client.ContainerRemoveOptions{Force: true})
+	_, _ = dockerClient.ContainerStop(ctx, server.containerID, client.ContainerStopOptions{Timeout: &timeout})
+	_, _ = dockerClient.ContainerRemove(ctx, server.containerID, client.ContainerRemoveOptions{Force: true})
 }
 
 // waitForSSHReady waits for the SSH server to be ready to accept connections

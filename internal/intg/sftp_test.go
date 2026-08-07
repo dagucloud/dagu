@@ -28,7 +28,7 @@ func TestSFTPExecutorIntegration(t *testing.T) {
 
 	// Start SSH server container (reuses helpers from ssh_test.go)
 	sshServer := startSSHServer(t, th, dockerClient)
-	defer stopSSHServer(t, th, dockerClient, sshServer)
+	defer stopSSHServer(t, dockerClient, sshServer)
 
 	// Wait for SSH server to be ready
 	waitForSSHReady(t, sshServer)
