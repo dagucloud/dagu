@@ -49,7 +49,10 @@ import { useClient } from '../../../../hooks/api';
 import dayjs from '../../../../lib/dayjs';
 import ConfirmModal from '@/components/ui/confirm-dialog';
 import WebhookProfileSelectionCard from './WebhookProfileSelectionCard';
-import { buildWebhookExamples } from './webhookProfileSelection';
+import {
+  buildWebhookExamples,
+  findActiveAllowedProfile,
+} from './webhookProfileSelection';
 
 type WebhookDetails = components['schemas']['WebhookDetails'];
 type WebhookAuthMode = components['schemas']['WebhookAuthMode'];
@@ -126,6 +129,7 @@ function WebhookTab({ fileName }: WebhookTabProps) {
   const [pendingToggleState, setPendingToggleState] = useState<boolean | null>(
     null
   );
+  const [activeProfileNames, setActiveProfileNames] = useState<string[]>([]);
 
   // Copy states
   const [copiedUrl, setCopiedUrl] = useState(false);
@@ -611,7 +615,10 @@ function WebhookTab({ fileName }: WebhookTabProps) {
 
   const isHMACEnabled = webhook.authMode !== WebhookAuthModeValue.token_only;
   const configuredAllowedProfiles = webhook.profileSelection.allowedProfiles;
-  const exampleProfile = configuredAllowedProfiles[0] || '';
+  const exampleProfile = findActiveAllowedProfile(
+    configuredAllowedProfiles,
+    activeProfileNames
+  );
   const {
     curl: curlExample,
     hmacShell: hmacShellExample,
@@ -727,7 +734,15 @@ function WebhookTab({ fileName }: WebhookTabProps) {
             <code className="bg-accent px-1 rounded-md border">
               X-Dagu-Signature: sha256=&lt;hex&gt;
             </code>{' '}
-            computed from the exact raw request body.
+            computed from the exact signature input shown below. Requests with{' '}
+            <code className="bg-accent px-1 rounded-md border">
+              X-Dagu-Profile
+            </code>{' '}
+            sign{' '}
+            <code className="bg-accent px-1 rounded-md border">
+              x-dagu-profile:&lt;profile&gt;\n&lt;body&gt;
+            </code>
+            .
           </CardDescription>
         </CardHeader>
         <CardContent className="px-4 pb-3 pt-2 space-y-3">
@@ -874,6 +889,7 @@ function WebhookTab({ fileName }: WebhookTabProps) {
         isAdmin={isAdmin}
         remoteNode={remoteNode}
         webhook={webhook}
+        onActiveProfileNamesChange={setActiveProfileNames}
         onWebhookChange={setWebhook}
       />
 

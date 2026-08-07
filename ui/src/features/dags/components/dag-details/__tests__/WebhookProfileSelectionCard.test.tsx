@@ -78,6 +78,7 @@ describe('WebhookProfileSelectionCard', () => {
         isAdmin
         remoteNode="worker-a"
         webhook={webhook}
+        onActiveProfileNamesChange={vi.fn()}
         onWebhookChange={vi.fn()}
       />
     );
@@ -99,13 +100,16 @@ describe('WebhookProfileSelectionCard', () => {
     getMock.mockResolvedValue(activeProfilesResponse);
 
     const user = userEvent.setup();
+    const onActiveProfileNamesChange = vi.fn();
+    const onWebhookChange = vi.fn();
     const { rerender } = render(
       <WebhookProfileSelectionCard
         fileName="example"
         isAdmin
         remoteNode="worker-a"
         webhook={webhook}
-        onWebhookChange={vi.fn()}
+        onActiveProfileNamesChange={onActiveProfileNamesChange}
+        onWebhookChange={onWebhookChange}
       />
     );
     const checkbox = await screen.findByRole('checkbox', { name: 'prod' });
@@ -122,7 +126,8 @@ describe('WebhookProfileSelectionCard', () => {
           updatedAt: '2026-08-07T01:00:00Z',
           profileSelection: { allowedProfiles: [] },
         }}
-        onWebhookChange={vi.fn()}
+        onActiveProfileNamesChange={onActiveProfileNamesChange}
+        onWebhookChange={onWebhookChange}
       />
     );
 
@@ -136,6 +141,7 @@ describe('WebhookProfileSelectionCard', () => {
     };
     getMock.mockResolvedValue(activeProfilesResponse);
     putMock.mockResolvedValue({ data: updatedWebhook });
+    const onActiveProfileNamesChange = vi.fn();
     const onWebhookChange = vi.fn();
 
     const user = userEvent.setup();
@@ -145,6 +151,7 @@ describe('WebhookProfileSelectionCard', () => {
         isAdmin
         remoteNode="worker-a"
         webhook={webhook}
+        onActiveProfileNamesChange={onActiveProfileNamesChange}
         onWebhookChange={onWebhookChange}
       />
     );
@@ -166,6 +173,7 @@ describe('WebhookProfileSelectionCard', () => {
         }
       );
     });
+    expect(onActiveProfileNamesChange).toHaveBeenCalledWith(['prod']);
     expect(onWebhookChange).toHaveBeenCalledWith(updatedWebhook);
   });
 });

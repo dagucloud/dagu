@@ -39,6 +39,14 @@ export function findUnavailableAllowedProfiles(
   return allowedProfiles.filter((name) => !available.has(name));
 }
 
+export function findActiveAllowedProfile(
+  allowedProfiles: string[],
+  activeProfileNames: string[]
+): string {
+  const active = new Set(activeProfileNames);
+  return allowedProfiles.find((name) => active.has(name)) || '';
+}
+
 function buildHMACSignatureInputExamples(profileName: string): {
   shell: string;
   node: string;

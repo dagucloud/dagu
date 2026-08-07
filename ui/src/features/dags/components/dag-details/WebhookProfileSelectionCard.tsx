@@ -28,6 +28,7 @@ interface WebhookProfileSelectionCardProps {
   isAdmin: boolean;
   remoteNode: string;
   webhook: WebhookDetails;
+  onActiveProfileNamesChange: (profileNames: string[]) => void;
   onWebhookChange: (webhook: WebhookDetails) => void;
 }
 
@@ -36,6 +37,7 @@ function WebhookProfileSelectionCard({
   isAdmin,
   remoteNode,
   webhook,
+  onActiveProfileNamesChange,
   onWebhookChange,
 }: WebhookProfileSelectionCardProps) {
   const client = useClient();
@@ -64,6 +66,7 @@ function WebhookProfileSelectionCard({
   useEffect(() => {
     if (!isAdmin) {
       setRuntimeProfiles([]);
+      onActiveProfileNamesChange([]);
       setProfilesLoading(false);
       setProfilesLoadFailed(false);
       setProfileSelectionError(null);
@@ -75,6 +78,7 @@ function WebhookProfileSelectionCard({
       setProfilesLoading(true);
       setProfilesLoadFailed(false);
       setRuntimeProfiles([]);
+      onActiveProfileNamesChange([]);
       setProfileSelectionError(null);
       try {
         const { data, error } = await client.GET('/profiles', {
@@ -84,13 +88,16 @@ function WebhookProfileSelectionCard({
         if (error || !data) {
           throw new Error(error?.message || 'Failed to load runtime profiles');
         }
-        setRuntimeProfiles(
-          data.profiles.filter(
-            (profile) => profile.status === RuntimeProfileStatus.active
-          )
+        const activeProfiles = data.profiles.filter(
+          (profile) => profile.status === RuntimeProfileStatus.active
+        );
+        setRuntimeProfiles(activeProfiles);
+        onActiveProfileNamesChange(
+          activeProfiles.map((profile) => profile.name)
         );
       } catch (error) {
         if (cancelled) return;
+        onActiveProfileNamesChange([]);
         setProfileSelectionError(
           error instanceof Error
             ? error.message
@@ -108,7 +115,14 @@ function WebhookProfileSelectionCard({
     return () => {
       cancelled = true;
     };
-  }, [client, isAdmin, profilesReloadKey, remoteNode, webhook.id]);
+  }, [
+    client,
+    isAdmin,
+    onActiveProfileNamesChange,
+    profilesReloadKey,
+    remoteNode,
+    webhook.id,
+  ]);
 
   const handleAllowedProfileChange = (
     profileName: string,

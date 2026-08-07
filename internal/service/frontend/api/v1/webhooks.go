@@ -257,6 +257,12 @@ func (a *API) ConfigureDAGWebhookProfileSelection(
 			Message: "request body is required",
 		}, nil
 	}
+	if request.Body.AllowedProfiles == nil {
+		return api.ConfigureDAGWebhookProfileSelection400JSONResponse{
+			Code:    api.ErrorCodeBadRequest,
+			Message: "allowedProfiles is required",
+		}, nil
+	}
 	if len(request.Body.AllowedProfiles) > maxWebhookAllowedProfiles {
 		return api.ConfigureDAGWebhookProfileSelection400JSONResponse{
 			Code:    api.ErrorCodeBadRequest,

@@ -641,6 +641,49 @@ steps:
 	assert.Equal(t, "prod", status.ProfileName)
 }
 
+func TestWebhooks_ProfileSelectionRequiresAllowedProfiles(t *testing.T) {
+	webhookParallel(t)
+	server := setupWebhookTestServer(t)
+	token := getWebhookAdminToken(t, server)
+
+	dagName := "webhook_profile_selection_request_test"
+	createTestDAG(t, server, token, dagName)
+	server.Client().Post("/api/v1/profiles", api.CreateRuntimeProfileJSONRequestBody{
+		Name: "prod",
+	}).WithBearerToken(token).ExpectStatus(http.StatusCreated).Send(t)
+	server.Client().Post("/api/v1/dags/"+dagName+"/webhook", nil).
+		WithBearerToken(token).ExpectStatus(http.StatusCreated).Send(t)
+
+	path := "/api/v1/dags/" + dagName + "/webhook/profile-selection"
+	server.Client().Put(path, api.WebhookProfileSelectionRequest{
+		AllowedProfiles: []api.RuntimeProfileName{"prod"},
+	}).WithBearerToken(token).ExpectStatus(http.StatusOK).Send(t)
+
+	invalidBodies := map[string]any{
+		"missing field":    map[string]any{},
+		"null field":       map[string]any{"allowedProfiles": nil},
+		"misspelled field": map[string]any{"allowedProfile": []string{}},
+	}
+	for name, body := range invalidBodies {
+		t.Run(name, func(t *testing.T) {
+			server.Client().Put(path, body).
+				WithBearerToken(token).ExpectStatus(http.StatusBadRequest).Send(t)
+		})
+	}
+
+	getResp := server.Client().Get("/api/v1/dags/" + dagName + "/webhook").
+		WithBearerToken(token).ExpectStatus(http.StatusOK).Send(t)
+	var configured api.WebhookDetails
+	getResp.Unmarshal(t, &configured)
+	assert.Equal(t, []api.RuntimeProfileName{"prod"}, configured.ProfileSelection.AllowedProfiles)
+
+	clearResp := server.Client().Put(path, api.WebhookProfileSelectionRequest{
+		AllowedProfiles: []api.RuntimeProfileName{},
+	}).WithBearerToken(token).ExpectStatus(http.StatusOK).Send(t)
+	clearResp.Unmarshal(t, &configured)
+	assert.Empty(t, configured.ProfileSelection.AllowedProfiles)
+}
+
 func TestWebhooks_TriggerSelectsAllowedProfile(t *testing.T) {
 	webhookParallel(t)
 	server := setupWebhookTestServer(t)

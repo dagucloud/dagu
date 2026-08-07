@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { WebhookAuthMode } from '../../../../../api/v1/schema';
 import {
   buildWebhookExamples,
+  findActiveAllowedProfile,
   findUnavailableAllowedProfiles,
   updateAllowedProfiles,
 } from '../webhookProfileSelection';
@@ -31,6 +32,13 @@ describe('webhook profile selection', () => {
         ['prod', 'staging']
       )
     ).toEqual(['retired']);
+  });
+
+  it('selects an active allowed profile for generated examples', () => {
+    expect(
+      findActiveAllowedProfile(['retired', 'staging'], ['prod', 'staging'])
+    ).toBe('staging');
+    expect(findActiveAllowedProfile(['retired'], ['prod'])).toBe('');
   });
 
   it('builds profile-bound HMAC request examples', () => {
