@@ -20,9 +20,11 @@ import (
 // rebuild. When paramsOverride is supplied its first element replaces the DAG's
 // params for the reload.
 //
-// Env resolves first-wins: keys the reloaded YAML declares take precedence, and
-// keys it cannot resolve fall back to the values captured when the run was first
-// built rather than being dropped.
+// Env is drawn from the reloaded YAML and from the environment captured when the
+// run was first built. A captured key overrides the YAML's declaration of it, so
+// the rebuild reuses the original value rather than one the current process may
+// resolve differently or fail to resolve at all. Keys the YAML does not declare
+// are appended from the captured environment instead of being dropped.
 func RebuildFromYAML(ctx context.Context, dag *core.DAG, paramsOverride ...[]string) (*core.DAG, error) {
 	if len(dag.YamlData) == 0 {
 		return dag, nil
