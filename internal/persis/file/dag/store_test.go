@@ -1052,6 +1052,26 @@ steps:
 	invalidSpec := `invalid: yaml: content: [unclosed`
 	_, err = store.LoadSpec(ctx, []byte(invalidSpec), "", exec.DAGLoadOptions{})
 	require.Error(t, err)
+
+	// An explicit name takes precedence over the one the spec declares.
+	dag, err = store.LoadSpec(ctx, []byte(validSpec), "explicit-name", exec.DAGLoadOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, "explicit-name", dag.Name)
+
+	// A spec that builds with errors fails unless the caller tolerates them, in
+	// which case the partially built DAG is returned carrying the errors.
+	buildErrSpec := `steps:
+  - name: step1
+    run: echo "load spec"
+    depends: [missing-step]`
+	_, err = store.LoadSpec(ctx, []byte(buildErrSpec), "build-error-dag", exec.DAGLoadOptions{})
+	require.Error(t, err)
+
+	dag, err = store.LoadSpec(ctx, []byte(buildErrSpec), "build-error-dag", exec.DAGLoadOptions{AllowBuildErrors: true})
+	require.NoError(t, err)
+	require.NotNil(t, dag)
+	assert.Equal(t, "build-error-dag", dag.Name)
+	assert.NotEmpty(t, dag.BuildErrors)
 }
 
 func TestLoadSpecWithBaseGraphType(t *testing.T) {
