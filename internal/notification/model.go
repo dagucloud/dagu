@@ -16,6 +16,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/mailer"
+	mailoauth "github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauth"
 	"github.com/google/uuid"
 
 	"github.com/dagucloud/dagu/v2/internal/service/eventstore"
@@ -103,12 +105,16 @@ type WorkspaceSettings struct {
 }
 
 type SMTPConfig struct {
-	Host          string `json:"host,omitempty"`
-	Port          string `json:"port,omitempty"`
-	Username      string `json:"username,omitempty"`
-	Password      string `json:"password,omitempty"`
-	From          string `json:"from,omitempty"`
-	ClearPassword bool   `json:"-"`
+	Host                    string            `json:"host,omitempty"`
+	Port                    string            `json:"port,omitempty"`
+	Username                string            `json:"username,omitempty"`
+	Password                string            `json:"password,omitempty"`
+	OAuth                   *mailoauth.Config `json:"oauth,omitempty"`
+	From                    string            `json:"from,omitempty"`
+	ClearPassword           bool              `json:"-"`
+	ClearClientSecret       bool              `json:"-"`
+	ClearRefreshToken       bool              `json:"-"`
+	ClearServiceAccountJSON bool              `json:"-"`
 }
 
 type RouteSet struct {
@@ -221,11 +227,21 @@ type PublicWorkspaceSettings struct {
 }
 
 type PublicSMTPConfig struct {
-	Host               string `json:"host,omitempty"`
-	Port               string `json:"port,omitempty"`
-	Username           string `json:"username,omitempty"`
-	From               string `json:"from,omitempty"`
-	PasswordConfigured bool   `json:"passwordConfigured"`
+	Host               string                 `json:"host,omitempty"`
+	Port               string                 `json:"port,omitempty"`
+	Username           string                 `json:"username,omitempty"`
+	OAuth              *PublicSMTPOAuthConfig `json:"oauth,omitempty"`
+	From               string                 `json:"from,omitempty"`
+	PasswordConfigured bool                   `json:"passwordConfigured"`
+}
+
+type PublicSMTPOAuthConfig struct {
+	Provider                     mailoauth.Provider `json:"provider"`
+	TenantID                     string             `json:"tenantId,omitempty"`
+	ClientID                     string             `json:"clientId,omitempty"`
+	ClientSecretConfigured       bool               `json:"clientSecretConfigured"`
+	RefreshTokenConfigured       bool               `json:"refreshTokenConfigured"`
+	ServiceAccountJSONConfigured bool               `json:"serviceAccountJsonConfigured"`
 }
 
 type PublicRouteSet struct {
@@ -491,8 +507,20 @@ func normalizeSMTPConfig(cfg *SMTPConfig) (*SMTPConfig, error) {
 	cfg.Port = strings.TrimSpace(cfg.Port)
 	cfg.Username = strings.TrimSpace(cfg.Username)
 	cfg.From = strings.TrimSpace(cfg.From)
-	if cfg.Host == "" && cfg.Port == "" && cfg.Username == "" && cfg.Password == "" && cfg.From == "" {
+	if cfg.Host == "" && cfg.Port == "" && cfg.Username == "" && cfg.Password == "" && cfg.OAuth == nil && cfg.From == "" {
 		return nil, nil
+	}
+	if cfg.OAuth != nil {
+		cfg.OAuth.Provider = strings.TrimSpace(cfg.OAuth.Provider)
+		cfg.OAuth.TenantID = strings.TrimSpace(cfg.OAuth.TenantID)
+		cfg.OAuth.ClientID = strings.TrimSpace(cfg.OAuth.ClientID)
+		mailerConfig, err := mailer.BuildConfig(cfg.Host, cfg.Port, cfg.Username, cfg.Password, cfg.OAuth)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid smtp oauth config: %w", ErrInvalidSettings, err)
+		}
+		cfg.Host = mailerConfig.Host
+		cfg.Port = mailerConfig.Port
+		cfg.Username = mailerConfig.Username
 	}
 	if cfg.Host == "" {
 		return nil, fmt.Errorf("%w: smtp host is required", ErrInvalidSettings)
@@ -847,6 +875,16 @@ func (s WorkspaceSettings) ToPublic() PublicWorkspaceSettings {
 			From:               s.SMTP.From,
 			PasswordConfigured: s.SMTP.Password != "",
 		}
+		if s.SMTP.OAuth != nil {
+			pub.SMTP.OAuth = &PublicSMTPOAuthConfig{
+				Provider:                     s.SMTP.OAuth.Provider,
+				TenantID:                     s.SMTP.OAuth.TenantID,
+				ClientID:                     s.SMTP.OAuth.ClientID,
+				ClientSecretConfigured:       s.SMTP.OAuth.ClientSecret != "",
+				RefreshTokenConfigured:       s.SMTP.OAuth.RefreshToken != "",
+				ServiceAccountJSONConfigured: s.SMTP.OAuth.ServiceAccountJSON != "",
+			}
+		}
 	}
 	return pub
 }
@@ -1038,9 +1076,31 @@ func PreserveWorkspaceSecrets(next, existing *WorkspaceSettings) {
 	if next == nil || existing == nil || next.SMTP == nil || existing.SMTP == nil {
 		return
 	}
-	if next.SMTP.Password == "" && !next.SMTP.ClearPassword {
+	if next.SMTP.OAuth == nil && existing.SMTP.OAuth == nil && next.SMTP.Password == "" && !next.SMTP.ClearPassword {
 		next.SMTP.Password = existing.SMTP.Password
 	}
+	if !sameSMTPOAuthIdentity(next.SMTP, existing.SMTP) {
+		return
+	}
+	if next.SMTP.OAuth.ClientSecret == "" && !next.SMTP.ClearClientSecret {
+		next.SMTP.OAuth.ClientSecret = existing.SMTP.OAuth.ClientSecret
+	}
+	if next.SMTP.OAuth.RefreshToken == "" && !next.SMTP.ClearRefreshToken {
+		next.SMTP.OAuth.RefreshToken = existing.SMTP.OAuth.RefreshToken
+	}
+	if next.SMTP.OAuth.ServiceAccountJSON == "" && !next.SMTP.ClearServiceAccountJSON {
+		next.SMTP.OAuth.ServiceAccountJSON = existing.SMTP.OAuth.ServiceAccountJSON
+	}
+}
+
+func sameSMTPOAuthIdentity(next, existing *SMTPConfig) bool {
+	if next.OAuth == nil || existing.OAuth == nil {
+		return false
+	}
+	return strings.TrimSpace(string(next.OAuth.Provider)) == strings.TrimSpace(string(existing.OAuth.Provider)) &&
+		strings.TrimSpace(next.Username) == strings.TrimSpace(existing.Username) &&
+		strings.TrimSpace(next.OAuth.TenantID) == strings.TrimSpace(existing.OAuth.TenantID) &&
+		strings.TrimSpace(next.OAuth.ClientID) == strings.TrimSpace(existing.OAuth.ClientID)
 }
 
 func preserveTargetSecrets(next *Target, prev Target) {

@@ -715,6 +715,11 @@ func mergeDefinitionMaps(base, override map[string]any) (map[string]any, error) 
 
 		baseMap, baseIsMap := baseValue.(map[string]any)
 		overrideMap, overrideIsMap := overrideValue.(map[string]any)
+		if key == "smtp" && ok && baseIsMap && overrideIsMap &&
+			(smtpMapUsesOAuth(baseMap) || smtpMapUsesOAuth(overrideMap)) {
+			merged[key] = cloneAny(overrideValue)
+			continue
+		}
 		if ok && baseIsMap && overrideIsMap {
 			mergedNested, err := mergeDefinitionMaps(baseMap, overrideMap)
 			if err != nil {
@@ -726,6 +731,11 @@ func mergeDefinitionMaps(base, override map[string]any) (map[string]any, error) 
 		merged[key] = cloneAny(overrideValue)
 	}
 	return merged, nil
+}
+
+func smtpMapUsesOAuth(value map[string]any) bool {
+	oauth, ok := value["oauth"]
+	return ok && oauth != nil
 }
 
 func mergeBaseEnvRaw(base, override any) (any, error) {

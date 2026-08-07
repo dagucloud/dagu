@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	mailoauth "github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauth"
 	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/spec/types"
 	"github.com/goccy/go-yaml"
@@ -1671,9 +1672,10 @@ func TestBuildSMTPConfig(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		input    smtpConfig
-		expected *core.SMTPConfig
+		name        string
+		input       smtpConfig
+		expected    *core.SMTPConfig
+		errContains string
 	}{
 		{
 			name:     "Empty",
@@ -1695,12 +1697,45 @@ func TestBuildSMTPConfig(t *testing.T) {
 				Password: "pass",
 			},
 		},
+		{
+			name: "OAuth",
+			input: smtpConfig{
+				Username: "sender@example.com",
+				OAuth: &mailoauth.Config{
+					Provider: mailoauth.ProviderMicrosoft, TenantID: "${TENANT_ID}",
+					ClientID: "${CLIENT_ID}", ClientSecret: "${CLIENT_SECRET}",
+				},
+			},
+			expected: &core.SMTPConfig{
+				Username: "sender@example.com",
+				OAuth: &mailoauth.Config{
+					Provider: mailoauth.ProviderMicrosoft, TenantID: "${TENANT_ID}",
+					ClientID: "${CLIENT_ID}", ClientSecret: "${CLIENT_SECRET}",
+				},
+			},
+		},
+		{
+			name: "PasswordAndOAuth",
+			input: smtpConfig{
+				Username: "sender@example.com",
+				Password: "password",
+				OAuth: &mailoauth.Config{
+					Provider: mailoauth.ProviderMicrosoft, TenantID: "tenant",
+					ClientID: "client", ClientSecret: "secret",
+				},
+			},
+			errContains: "mutually exclusive",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			d := &dag{SMTP: tt.input}
 			result, err := buildSMTPConfig(testBuildContext(), d)
+			if tt.errContains != "" {
+				require.ErrorContains(t, err, tt.errContains)
+				return
+			}
 			require.NoError(t, err)
 			assert.Equal(t, tt.expected, result)
 		})

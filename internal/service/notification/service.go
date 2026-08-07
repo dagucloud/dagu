@@ -1249,12 +1249,17 @@ func (s *Service) sendEmail(ctx context.Context, target notificationmodel.Target
 	if target.Email.AttachLogs {
 		attachments = logAttachments(events)
 	}
-	err = mailer.New(mailer.Config{
-		Host:     workspaceSettings.SMTP.Host,
-		Port:     workspaceSettings.SMTP.Port,
-		Username: workspaceSettings.SMTP.Username,
-		Password: workspaceSettings.SMTP.Password,
-	}).SendWithRecipients(
+	mailerConfig, err := mailer.BuildConfig(
+		workspaceSettings.SMTP.Host,
+		workspaceSettings.SMTP.Port,
+		workspaceSettings.SMTP.Username,
+		workspaceSettings.SMTP.Password,
+		workspaceSettings.SMTP.OAuth,
+	)
+	if err != nil {
+		return fmt.Errorf("invalid SMTP configuration: %w", err)
+	}
+	err = mailer.New(mailerConfig).SendWithRecipients(
 		ctx,
 		from,
 		target.Email.To,

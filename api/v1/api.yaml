@@ -10341,6 +10341,72 @@ components:
           type: boolean
           description: "Attach DAG and step logs when available"
 
+    NotificationSMTPOAuthSettingsInput:
+      type: object
+      description: "SMTP OAuth credentials. Secret values are encrypted at rest and omitted from responses."
+      required:
+        - provider
+      properties:
+        provider:
+          type: string
+          enum:
+            - microsoft
+            - google_service_account
+            - google_refresh
+        tenantId:
+          type: string
+          description: "Microsoft Entra tenant ID"
+        clientId:
+          type: string
+          description: "OAuth client ID"
+        clientSecret:
+          type: string
+          writeOnly: true
+          description: "OAuth client secret. Omit on updates to preserve the existing value when the OAuth identity is unchanged."
+        clearClientSecret:
+          type: boolean
+          description: "Clear the stored OAuth client secret."
+        refreshToken:
+          type: string
+          writeOnly: true
+          description: "Google refresh token. Omit on updates to preserve the existing value when the OAuth identity is unchanged."
+        clearRefreshToken:
+          type: boolean
+          description: "Clear the stored Google refresh token."
+        serviceAccountJson:
+          type: string
+          writeOnly: true
+          description: "Google service-account JSON. Omit on updates to preserve the existing value when the OAuth identity is unchanged."
+        clearServiceAccountJson:
+          type: boolean
+          description: "Clear the stored Google service-account JSON."
+
+    NotificationSMTPOAuthSettings:
+      type: object
+      description: "Public SMTP OAuth settings. Secret values are never returned."
+      required:
+        - provider
+        - clientSecretConfigured
+        - refreshTokenConfigured
+        - serviceAccountJsonConfigured
+      properties:
+        provider:
+          type: string
+          enum:
+            - microsoft
+            - google_service_account
+            - google_refresh
+        tenantId:
+          type: string
+        clientId:
+          type: string
+        clientSecretConfigured:
+          type: boolean
+        refreshTokenConfigured:
+          type: boolean
+        serviceAccountJsonConfigured:
+          type: boolean
+
     NotificationSMTPSettingsInput:
       type: object
       description: "Workspace SMTP transport input for notification email delivery. Values are encrypted at rest where applicable."
@@ -10360,6 +10426,10 @@ components:
         clearPassword:
           type: boolean
           description: "Clear the stored SMTP password."
+        oauth:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/NotificationSMTPOAuthSettingsInput"
         from:
           type: string
           description: "Default sender address for notification email channels"
@@ -10379,6 +10449,8 @@ components:
         username:
           type: string
           description: "SMTP username"
+        oauth:
+          $ref: "#/components/schemas/NotificationSMTPOAuthSettings"
         from:
           type: string
           description: "Default sender address for notification email channels"

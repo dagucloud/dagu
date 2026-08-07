@@ -18,6 +18,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
+	mailoauth "github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauth"
 	"github.com/dagucloud/dagu/v2/internal/notification"
 	"github.com/dagucloud/dagu/v2/internal/service/eventstore"
 )
@@ -504,11 +505,21 @@ type routeForStorage struct {
 }
 
 type smtpConfigForStorage struct {
-	Host        string `json:"host,omitempty"`
-	Port        string `json:"port,omitempty"`
-	Username    string `json:"username,omitempty"`
-	PasswordEnc string `json:"passwordEnc,omitempty"`
-	From        string `json:"from,omitempty"`
+	Host        string                     `json:"host,omitempty"`
+	Port        string                     `json:"port,omitempty"`
+	Username    string                     `json:"username,omitempty"`
+	PasswordEnc string                     `json:"passwordEnc,omitempty"`
+	OAuth       *smtpOAuthConfigForStorage `json:"oauth,omitempty"`
+	From        string                     `json:"from,omitempty"`
+}
+
+type smtpOAuthConfigForStorage struct {
+	Provider              mailoauth.Provider `json:"provider"`
+	TenantID              string             `json:"tenantId,omitempty"`
+	ClientID              string             `json:"clientId,omitempty"`
+	ClientSecretEnc       string             `json:"clientSecretEnc,omitempty"`
+	RefreshTokenEnc       string             `json:"refreshTokenEnc,omitempty"`
+	ServiceAccountJSONEnc string             `json:"serviceAccountJsonEnc,omitempty"`
 }
 
 type subscriptionForStorage struct {
@@ -622,6 +633,22 @@ func (s *Store) workspaceSettingsToStorage(settings *notification.WorkspaceSetti
 		var err error
 		if stored.SMTP.PasswordEnc, err = s.encryptOptional(settings.SMTP.Password); err != nil {
 			return nil, err
+		}
+		if settings.SMTP.OAuth != nil {
+			stored.SMTP.OAuth = &smtpOAuthConfigForStorage{
+				Provider: settings.SMTP.OAuth.Provider,
+				TenantID: settings.SMTP.OAuth.TenantID,
+				ClientID: settings.SMTP.OAuth.ClientID,
+			}
+			if stored.SMTP.OAuth.ClientSecretEnc, err = s.encryptOptional(settings.SMTP.OAuth.ClientSecret); err != nil {
+				return nil, err
+			}
+			if stored.SMTP.OAuth.RefreshTokenEnc, err = s.encryptOptional(settings.SMTP.OAuth.RefreshToken); err != nil {
+				return nil, err
+			}
+			if stored.SMTP.OAuth.ServiceAccountJSONEnc, err = s.encryptOptional(settings.SMTP.OAuth.ServiceAccountJSON); err != nil {
+				return nil, err
+			}
 		}
 	}
 	return stored, nil
@@ -808,6 +835,28 @@ func (s *Store) workspaceSettingsFromStorage(stored *workspaceSettingsForStorage
 			Username: stored.SMTP.Username,
 			Password: password,
 			From:     stored.SMTP.From,
+		}
+		if stored.SMTP.OAuth != nil {
+			clientSecret, err := s.decryptOptional(stored.SMTP.OAuth.ClientSecretEnc)
+			if err != nil {
+				return nil, err
+			}
+			refreshToken, err := s.decryptOptional(stored.SMTP.OAuth.RefreshTokenEnc)
+			if err != nil {
+				return nil, err
+			}
+			serviceAccountJSON, err := s.decryptOptional(stored.SMTP.OAuth.ServiceAccountJSONEnc)
+			if err != nil {
+				return nil, err
+			}
+			settings.SMTP.OAuth = &mailoauth.Config{
+				Provider:           stored.SMTP.OAuth.Provider,
+				TenantID:           stored.SMTP.OAuth.TenantID,
+				ClientID:           stored.SMTP.OAuth.ClientID,
+				ClientSecret:       clientSecret,
+				RefreshToken:       refreshToken,
+				ServiceAccountJSON: serviceAccountJSON,
+			}
 		}
 	}
 	return settings, nil

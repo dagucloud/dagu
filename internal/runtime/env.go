@@ -531,20 +531,15 @@ func (e Env) MailerConfig(ctx context.Context) (mailer.Config, error) {
 		return mailer.Config{}, nil
 	}
 	resolver := resolverFromEnv(e)
-	got, err := resolver.Object(ctx, mailer.Config{
-		Host:     e.DAG.SMTP.Host,
-		Port:     e.DAG.SMTP.Port,
-		Username: e.DAG.SMTP.Username,
-		Password: e.DAG.SMTP.Password,
-	}, cmnvalue.HostConfigObjectField("smtp"))
+	got, err := resolver.Object(ctx, *e.DAG.SMTP, cmnvalue.HostConfigObjectField("smtp"))
 	if err != nil {
 		return mailer.Config{}, err
 	}
-	config, ok := got.(mailer.Config)
+	config, ok := got.(core.SMTPConfig)
 	if !ok {
-		return mailer.Config{}, fmt.Errorf("type assertion failed: expected mailer.Config, got %T", got)
+		return mailer.Config{}, fmt.Errorf("type assertion failed: expected core.SMTPConfig, got %T", got)
 	}
-	return config, nil
+	return mailer.BuildConfig(config.Host, config.Port, config.Username, config.Password, config.OAuth)
 }
 
 // EvalBool evaluates the given value with the variables within the execution context

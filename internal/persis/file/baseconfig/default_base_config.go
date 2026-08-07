@@ -191,6 +191,32 @@ retry_policy:
 #   username: ""
 #   password: ""
 #
+# # OAuth selects the provider's fixed SMTP host and STARTTLS port.
+# # Microsoft 365 client credentials:
+# smtp:
+#   username: alerts@contoso.com
+#   oauth:
+#     provider: microsoft
+#     tenant_id: ${AZURE_TENANT_ID}
+#     client_id: ${AZURE_CLIENT_ID}
+#     client_secret: ${AZURE_CLIENT_SECRET}
+#
+# # Google Workspace domain-wide delegation:
+# smtp:
+#   username: alerts@example.com
+#   oauth:
+#     provider: google_service_account
+#     service_account_json: ${GMAIL_SERVICE_ACCOUNT_JSON}
+#
+# # Consumer Gmail refresh token:
+# smtp:
+#   username: me@gmail.com
+#   oauth:
+#     provider: google_refresh
+#     client_id: ${GMAIL_CLIENT_ID}
+#     client_secret: ${GMAIL_CLIENT_SECRET}
+#     refresh_token: ${GMAIL_REFRESH_TOKEN}
+#
 # # Sent on DAG failure (when mail_on.failure is true).
 # error_mail:
 #   from: dagu@example.com
