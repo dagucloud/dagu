@@ -1004,7 +1004,7 @@ func (store *Storage) locateDAG(ctx context.Context, nameOrPath string) (string,
 		if err != nil {
 			return "", fmt.Errorf("failed to discover DAGs: %w", err)
 		}
-		fileName := strings.TrimSuffix(filepath.Base(relativePath), filepath.Ext(relativePath))
+		fileName := fileutil.TrimYAMLFileExtension(filepath.Base(relativePath))
 		if entry, ok := catalog.byStem[fileName]; ok {
 			resolvedPath, err := fileutil.ResolveExistingPathWithinBase(
 				store.baseDir,
@@ -1056,13 +1056,13 @@ func (store *Storage) stemExists(name, exceptPath string) bool {
 		return false
 	}
 	base := filepath.Base(filepath.FromSlash(name))
-	target := strings.TrimSuffix(base, filepath.Ext(base))
+	target := fileutil.TrimYAMLFileExtension(base)
 	for _, file := range scan.Files {
 		if exceptPath != "" && file.RelPath == exceptPath {
 			continue
 		}
 		fileBase := filepath.Base(filepath.FromSlash(file.RelPath))
-		if strings.TrimSuffix(fileBase, filepath.Ext(fileBase)) == target {
+		if fileutil.TrimYAMLFileExtension(fileBase) == target {
 			return true
 		}
 	}
