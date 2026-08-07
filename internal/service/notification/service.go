@@ -1891,11 +1891,14 @@ func normalizeNotificationPublicURL(rawURL string) string {
 
 // teamsPayloadForEvents builds an Adaptive Card wrapped in the message
 // envelope accepted by both Teams Workflows triggers and legacy connectors.
+//
+// The card declares schema 1.2 because the Teams mobile clients render only up
+// to that version; the card uses no element beyond it.
 func teamsPayloadForEvents(template string, events []chatbridge.NotificationEvent, publicURL string) map[string]any {
 	card := map[string]any{
 		"$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
 		"type":    "AdaptiveCard",
-		"version": "1.4",
+		"version": "1.2",
 		"body": []map[string]any{{
 			"type": "TextBlock",
 			"text": messageForEvents(template, events, publicURL),

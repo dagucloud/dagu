@@ -739,8 +739,9 @@ func TestService_SendTestTeamsPostsAdaptiveCard(t *testing.T) {
 		Attachments []struct {
 			ContentType string `json:"contentType"`
 			Content     struct {
-				Type string `json:"type"`
-				Body []struct {
+				Type    string `json:"type"`
+				Version string `json:"version"`
+				Body    []struct {
 					Text string `json:"text"`
 				} `json:"body"`
 				Actions []struct {
@@ -755,6 +756,8 @@ func TestService_SendTestTeamsPostsAdaptiveCard(t *testing.T) {
 	require.Len(t, payload.Attachments, 1)
 	assert.Equal(t, "application/vnd.microsoft.card.adaptive", payload.Attachments[0].ContentType)
 	assert.Equal(t, "AdaptiveCard", payload.Attachments[0].Content.Type)
+	// Teams mobile renders Adaptive Cards only up to schema 1.2.
+	assert.Equal(t, "1.2", payload.Attachments[0].Content.Version)
 	require.Len(t, payload.Attachments[0].Content.Body, 1)
 	assert.Equal(t, "DAG daily-report failed", payload.Attachments[0].Content.Body[0].Text)
 	require.Len(t, payload.Attachments[0].Content.Actions, 1)
