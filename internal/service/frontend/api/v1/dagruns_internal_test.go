@@ -976,8 +976,11 @@ func TestRebuildDAGRunSnapshotFromYAMLRestoresExecutorDefaults(t *testing.T) {
 	t.Parallel()
 
 	workingDir := t.TempDir()
+	// WorkingDir is persisted in dag.json while WorkingDirExplicit is not, so a
+	// snapshot arrives with the path set and the flag cleared.
 	dag := &core.DAG{
-		Name: "snapshot-executor-defaults",
+		Name:       "snapshot-executor-defaults",
+		WorkingDir: workingDir,
 		YamlData: fmt.Appendf(nil, `
 working_dir: %q
 s3:
@@ -1009,4 +1012,5 @@ steps:
 	assert.Equal(t, "dag-ns", restored.Kubernetes["namespace"])
 
 	assert.True(t, restored.WorkingDirExplicit)
+	assert.Equal(t, workingDir, restored.WorkingDir)
 }
