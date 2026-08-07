@@ -153,12 +153,19 @@ func createTestDAGWithSpec(t *testing.T, server test.Server, token, name, spec s
 }
 
 func signWebhookPayload(t *testing.T, secret string, body any) string {
+	return signWebhookProfilePayload(t, secret, "", body)
+}
+
+func signWebhookProfilePayload(t *testing.T, secret, profileName string, body any) string {
 	t.Helper()
 
 	raw, err := json.Marshal(body)
 	require.NoError(t, err)
 
 	mac := hmac.New(sha256.New, []byte(secret))
+	if profileName != "" {
+		_, _ = mac.Write([]byte("x-dagu-profile:" + profileName + "\n"))
+	}
 	_, _ = mac.Write(raw)
 	return "sha256=" + hex.EncodeToString(mac.Sum(nil))
 }
@@ -288,6 +295,11 @@ func TestWebhooks_RequiresDeveloperOrAbove(t *testing.T) {
 	server.Client().Post("/api/v1/dags/"+dagName+"/webhook", nil).
 		WithBearerToken(developerLogin.Token).
 		ExpectStatus(http.StatusCreated).Send(t)
+
+	server.Client().Put("/api/v1/dags/"+dagName+"/webhook/profile-selection", api.WebhookProfileSelectionRequest{
+		AllowedProfiles: []api.RuntimeProfileName{},
+	}).WithBearerToken(developerLogin.Token).
+		ExpectStatus(http.StatusForbidden).Send(t)
 }
 
 // TestWebhooks_CRUD tests the full CRUD lifecycle of webhooks
@@ -629,6 +641,53 @@ steps:
 	assert.Equal(t, "prod", status.ProfileName)
 }
 
+func TestWebhooks_TriggerSelectsAllowedProfile(t *testing.T) {
+	webhookParallel(t)
+	server := setupWebhookTestServer(t)
+	token := getWebhookAdminToken(t, server)
+
+	dagName := "webhook_selected_profile_test"
+	createTestDAG(t, server, token, dagName)
+
+	for _, name := range []string{"prod", "staging"} {
+		server.Client().Post("/api/v1/profiles", api.CreateRuntimeProfileJSONRequestBody{
+			Name: api.RuntimeProfileName(name),
+		}).WithBearerToken(token).ExpectStatus(http.StatusCreated).Send(t)
+	}
+
+	createResp := server.Client().Post("/api/v1/dags/"+dagName+"/webhook", nil).
+		WithBearerToken(token).ExpectStatus(http.StatusCreated).Send(t)
+	var createResult api.WebhookCreateResponse
+	createResp.Unmarshal(t, &createResult)
+
+	configureResp := server.Client().Put(
+		"/api/v1/dags/"+dagName+"/webhook/profile-selection",
+		api.WebhookProfileSelectionRequest{
+			AllowedProfiles: []api.RuntimeProfileName{"staging"},
+		},
+	).WithBearerToken(token).ExpectStatus(http.StatusOK).Send(t)
+	var configured api.WebhookDetails
+	configureResp.Unmarshal(t, &configured)
+	assert.Equal(t, []api.RuntimeProfileName{"staging"}, configured.ProfileSelection.AllowedProfiles)
+
+	triggerResp := server.Client().Post("/api/v1/webhooks/"+dagName, api.WebhookRequest{}).
+		WithBearerToken(createResult.Token).
+		WithHeader("X-Dagu-Profile", "staging").
+		ExpectStatus(http.StatusOK).Send(t)
+	var triggerResult api.WebhookResponse
+	triggerResp.Unmarshal(t, &triggerResult)
+
+	status := waitForStoredDAGRunStatus(t, server, dagName, triggerResult.DagRunId, 10*time.Second, func(status *exec.DAGRunStatus) bool {
+		return status.ProfileName == "staging"
+	})
+	assert.Equal(t, "staging", status.ProfileName)
+
+	server.Client().Post("/api/v1/webhooks/"+dagName, api.WebhookRequest{}).
+		WithBearerToken(createResult.Token).
+		WithHeader("X-Dagu-Profile", "prod").
+		ExpectStatus(http.StatusForbidden).Send(t)
+}
+
 // TestWebhooks_TriggerInvalidToken tests webhook trigger with invalid tokens
 func TestWebhooks_TriggerInvalidToken(t *testing.T) {
 	webhookParallel(t)
@@ -692,6 +751,26 @@ func TestWebhooks_EnableHMAC_StrictRequiresSignature(t *testing.T) {
 	server.Client().Post("/api/v1/webhooks/"+dagName, body).
 		WithBearerToken(createResult.Token).
 		WithHeader("X-Dagu-Signature", signature).
+		ExpectStatus(http.StatusOK).Send(t)
+
+	server.Client().Post("/api/v1/profiles", api.CreateRuntimeProfileJSONRequestBody{
+		Name: "staging",
+	}).WithBearerToken(token).ExpectStatus(http.StatusCreated).Send(t)
+	server.Client().Put("/api/v1/dags/"+dagName+"/webhook/profile-selection", api.WebhookProfileSelectionRequest{
+		AllowedProfiles: []api.RuntimeProfileName{"staging"},
+	}).WithBearerToken(token).ExpectStatus(http.StatusOK).Send(t)
+
+	server.Client().Post("/api/v1/webhooks/"+dagName, body).
+		WithBearerToken(createResult.Token).
+		WithHeader("X-Dagu-Profile", "staging").
+		WithHeader("X-Dagu-Signature", signature).
+		ExpectStatus(http.StatusUnauthorized).Send(t)
+
+	profileSignature := signWebhookProfilePayload(t, hmacSecret, "staging", body)
+	server.Client().Post("/api/v1/webhooks/"+dagName, body).
+		WithBearerToken(createResult.Token).
+		WithHeader("X-Dagu-Profile", "staging").
+		WithHeader("X-Dagu-Signature", profileSignature).
 		ExpectStatus(http.StatusOK).Send(t)
 }
 

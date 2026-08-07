@@ -5,7 +5,10 @@ package core
 
 import "strings"
 
-const webhookAuthorizationHeader = "authorization"
+const (
+	webhookAuthorizationHeader = "authorization"
+	webhookProfileHeader       = "x-dagu-profile"
+)
 
 // NormalizeWebhookForwardHeader canonicalizes a webhook header name for
 // config validation and runtime matching.
@@ -39,5 +42,10 @@ func IsValidWebhookHeaderToken(name string) bool {
 // IsDeniedWebhookForwardHeader reports whether a webhook header must never be
 // forwarded into DAG runtime params.
 func IsDeniedWebhookForwardHeader(name string) bool {
-	return NormalizeWebhookForwardHeader(name) == webhookAuthorizationHeader
+	switch NormalizeWebhookForwardHeader(name) {
+	case webhookAuthorizationHeader, webhookProfileHeader:
+		return true
+	default:
+		return false
+	}
 }

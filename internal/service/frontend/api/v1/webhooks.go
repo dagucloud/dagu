@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
@@ -17,11 +18,14 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/service/audit"
 	authservice "github.com/dagucloud/dagu/v2/internal/service/auth"
 	"github.com/google/uuid"
 	openapitypes "github.com/oapi-codegen/runtime/types"
 )
+
+const maxWebhookAllowedProfiles = 100
 
 // ListWebhooks returns all webhooks across all DAGs.
 // Requires developer role or above.
@@ -234,6 +238,71 @@ func (a *API) ToggleDAGWebhook(ctx context.Context, request api.ToggleDAGWebhook
 	})
 
 	return api.ToggleDAGWebhook200JSONResponse(toWebhookDetails(webhook)), nil
+}
+
+// ConfigureDAGWebhookProfileSelection replaces the profiles webhook callers may select.
+func (a *API) ConfigureDAGWebhookProfileSelection(
+	ctx context.Context,
+	request api.ConfigureDAGWebhookProfileSelectionRequestObject,
+) (api.ConfigureDAGWebhookProfileSelectionResponseObject, error) {
+	if err := a.requireWebhookManagement(ctx); err != nil {
+		return nil, err
+	}
+	if err := a.requireAdmin(ctx); err != nil {
+		return nil, err
+	}
+	if request.Body == nil {
+		return api.ConfigureDAGWebhookProfileSelection400JSONResponse{
+			Code:    api.ErrorCodeBadRequest,
+			Message: "request body is required",
+		}, nil
+	}
+	if len(request.Body.AllowedProfiles) > maxWebhookAllowedProfiles {
+		return api.ConfigureDAGWebhookProfileSelection400JSONResponse{
+			Code:    api.ErrorCodeBadRequest,
+			Message: fmt.Sprintf("at most %d runtime profiles may be selected", maxWebhookAllowedProfiles),
+		}, nil
+	}
+
+	allowedProfiles := make([]string, 0, len(request.Body.AllowedProfiles))
+	seen := make(map[string]struct{}, len(request.Body.AllowedProfiles))
+	for _, requested := range request.Body.AllowedProfiles {
+		requestedName := strings.TrimSpace(string(requested))
+		if err := profilepkg.ValidateName(requestedName); err != nil {
+			return api.ConfigureDAGWebhookProfileSelection400JSONResponse(
+				runtimeProfileBadRequest(err.Error()),
+			), nil
+		}
+		profileName, err := a.ensureRunnableRuntimeProfile(ctx, requestedName)
+		if err != nil {
+			return nil, err
+		}
+		if _, exists := seen[profileName]; exists {
+			continue
+		}
+		seen[profileName] = struct{}{}
+		allowedProfiles = append(allowedProfiles, profileName)
+	}
+	slices.Sort(allowedProfiles)
+
+	webhook, err := a.authService.ConfigureWebhookProfiles(ctx, request.FileName, allowedProfiles)
+	if err != nil {
+		if errors.Is(err, auth.ErrWebhookNotFound) {
+			return api.ConfigureDAGWebhookProfileSelection404JSONResponse{
+				Code:    api.ErrorCodeNotFound,
+				Message: fmt.Sprintf("no webhook configured for DAG %s", request.FileName),
+			}, nil
+		}
+		return nil, err
+	}
+
+	a.logAudit(ctx, audit.CategoryWebhook, "webhook_profile_selection_configure", map[string]any{
+		"dag_name":         request.FileName,
+		"webhook_id":       webhook.ID,
+		"allowed_profiles": append([]string(nil), allowedProfiles...),
+	})
+
+	return api.ConfigureDAGWebhookProfileSelection200JSONResponse(toWebhookDetails(webhook)), nil
 }
 
 func mapWebhookHMACError(err error, dagName string) (int, api.Error, bool) {
@@ -458,6 +527,10 @@ func (a *API) TriggerWebhook(ctx context.Context, request api.TriggerWebhookRequ
 
 	token := extractWebhookToken(valueOf(request.Params.Authorization))
 	signature := valueOf(request.Params.XDaguSignature)
+	requestedProfile, profileErr := requestedWebhookProfile(ctx, request.Params.XDaguProfile)
+	if profileErr != nil {
+		return nil, profileErr
+	}
 	rawBody := rawBodyFromContext(ctx)
 	maxPayloadSize := a.webhookMaxPayloadSize()
 	if len(rawBody) > maxPayloadSize {
@@ -473,7 +546,14 @@ func (a *API) TriggerWebhook(ctx context.Context, request api.TriggerWebhookRequ
 		}
 	}
 
-	webhook, err := a.authService.AuthorizeWebhookRequest(ctx, request.FileName, token, signature, rawBody)
+	webhook, err := a.authService.AuthorizeWebhookRequest(
+		ctx,
+		request.FileName,
+		token,
+		signature,
+		requestedProfile,
+		rawBody,
+	)
 	if err != nil {
 		if errors.Is(err, authservice.ErrInvalidWebhookToken) {
 			logger.Warn(ctx, "Webhook: invalid token", tag.Name(request.FileName))
@@ -529,6 +609,11 @@ func (a *API) TriggerWebhook(ctx context.Context, request api.TriggerWebhookRequ
 		}
 	}
 
+	profileName, err := a.webhookRunProfile(ctx, webhook, request.FileName, dagWorkspaceName(dag), requestedProfile)
+	if err != nil {
+		return nil, err
+	}
+
 	params, apiErr := buildWebhookRequestRuntimeParams(ctx, dag, request.Body, maxPayloadSize)
 	if apiErr != nil {
 		return nil, apiErr
@@ -556,11 +641,6 @@ func (a *API) TriggerWebhook(ctx context.Context, request api.TriggerWebhookRequ
 		dagRunID = uuid.Must(uuid.NewV7()).String()
 	}
 
-	profileName, err := a.runProfileForDAG(ctx, request.FileName, dagWorkspaceName(dag), nil)
-	if err != nil {
-		return nil, err
-	}
-
 	// Enqueue directly from the API layer so accepted webhook payloads do not
 	// need to fit in a subprocess command line.
 	if err := a.enqueuePreparedDAGRun(ctx, dag, params, dagRunID, core.TriggerTypeWebhook, profileName); err != nil {
@@ -579,12 +659,57 @@ func (a *API) TriggerWebhook(ctx context.Context, request api.TriggerWebhookRequ
 		tag.DAG(dag.Name),
 		tag.RunID(dagRunID),
 		tag.Key("webhookID"), tag.Value(webhook.ID),
+		tag.Key("profile"), tag.Value(profileName),
 	)
 
 	return api.TriggerWebhook200JSONResponse{
 		DagRunId: dagRunID,
 		DagName:  dag.Name,
 	}, nil
+}
+
+func requestedWebhookProfile(ctx context.Context, raw *api.RuntimeProfileName) (string, *Error) {
+	values := requestHeadersFromContext(ctx)[core.NormalizeWebhookForwardHeader("X-Dagu-Profile")]
+	if len(values) > 1 {
+		return "", invalidWebhookProfileHeader()
+	}
+	if raw == nil {
+		return "", nil
+	}
+
+	profileName := strings.TrimSpace(string(*raw))
+	if profileName == "" || profilepkg.ValidateName(profileName) != nil {
+		return "", invalidWebhookProfileHeader()
+	}
+	return profileName, nil
+}
+
+func invalidWebhookProfileHeader() *Error {
+	return &Error{
+		HTTPStatus: http.StatusBadRequest,
+		Code:       api.ErrorCodeBadRequest,
+		Message:    "invalid X-Dagu-Profile header",
+	}
+}
+
+func (a *API) webhookRunProfile(
+	ctx context.Context,
+	webhook *auth.Webhook,
+	dagName string,
+	workspaceName string,
+	requestedProfile string,
+) (string, error) {
+	if requestedProfile == "" {
+		return a.defaultRunProfileName(ctx, dagName, workspaceName)
+	}
+	if !slices.Contains(webhook.AllowedProfiles, requestedProfile) {
+		return "", &Error{
+			HTTPStatus: http.StatusForbidden,
+			Code:       api.ErrorCodeForbidden,
+			Message:    "runtime profile selection is not allowed for this webhook",
+		}
+	}
+	return a.ensureRunnableRuntimeProfileAvailable(ctx, requestedProfile)
 }
 
 func buildWebhookRequestRuntimeParams(
@@ -678,11 +803,22 @@ func toWebhookDetails(wh *auth.Webhook) api.WebhookDetails {
 		Enabled:     wh.Enabled,
 		AuthMode:    api.WebhookAuthMode(wh.EffectiveAuthMode()),
 		Hmac:        toWebhookHMACDetails(wh),
-		CreatedAt:   wh.CreatedAt,
-		UpdatedAt:   wh.UpdatedAt,
-		CreatedBy:   ptrOf(wh.CreatedBy),
-		LastUsedAt:  wh.LastUsedAt,
+		ProfileSelection: api.WebhookProfileSelectionDetails{
+			AllowedProfiles: toRuntimeProfileNames(wh.AllowedProfiles),
+		},
+		CreatedAt:  wh.CreatedAt,
+		UpdatedAt:  wh.UpdatedAt,
+		CreatedBy:  ptrOf(wh.CreatedBy),
+		LastUsedAt: wh.LastUsedAt,
 	}
+}
+
+func toRuntimeProfileNames(names []string) []api.RuntimeProfileName {
+	result := make([]api.RuntimeProfileName, 0, len(names))
+	for _, name := range names {
+		result = append(result, api.RuntimeProfileName(name))
+	}
+	return result
 }
 
 func toWebhookHMACDetails(wh *auth.Webhook) api.WebhookHMACDetails {

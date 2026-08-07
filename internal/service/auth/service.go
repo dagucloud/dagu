@@ -1043,6 +1043,28 @@ func (s *Service) ToggleWebhook(ctx context.Context, dagName string, enabled boo
 	return webhook, nil
 }
 
+// ConfigureWebhookProfiles replaces the runtime profiles that webhook callers
+// may select.
+func (s *Service) ConfigureWebhookProfiles(ctx context.Context, dagName string, allowedProfiles []string) (*auth.Webhook, error) {
+	if s.webhookStore == nil {
+		return nil, ErrWebhookNotConfigured
+	}
+
+	webhook, err := s.GetWebhookByDAGName(ctx, dagName)
+	if err != nil {
+		return nil, err
+	}
+
+	webhook.AllowedProfiles = append([]string(nil), allowedProfiles...)
+	webhook.UpdatedAt = time.Now().UTC()
+
+	if err := s.webhookStore.Update(ctx, webhook); err != nil {
+		return nil, err
+	}
+
+	return webhook, nil
+}
+
 // EnableWebhookHMAC configures HMAC auth for an existing webhook and returns
 // the generated secret exactly once.
 func (s *Service) EnableWebhookHMAC(
@@ -1237,6 +1259,7 @@ func (s *Service) ValidateWebhookToken(ctx context.Context, dagName, token strin
 func (s *Service) AuthorizeWebhookRequest(
 	ctx context.Context,
 	dagName, token, signature string,
+	profileName string,
 	body []byte,
 ) (*auth.Webhook, error) {
 	if s.webhookStore == nil {
@@ -1264,17 +1287,17 @@ func (s *Service) AuthorizeWebhookRequest(
 			return nil, err
 		}
 		if webhook.HMACEnforcementMode == auth.WebhookHMACEnforcementModeObserve {
-			if err := validateWebhookHMACSignature(webhook, signature, body); err != nil {
+			if err := validateWebhookHMACSignature(webhook, signature, profileName, body); err != nil {
 				slog.Warn("webhook HMAC validation observed failure",
 					"dagName", webhook.DAGName,
 					"error", err,
 				)
 			}
-		} else if err := validateWebhookHMACSignature(webhook, signature, body); err != nil {
+		} else if err := validateWebhookHMACSignature(webhook, signature, profileName, body); err != nil {
 			return nil, err
 		}
 	case auth.WebhookAuthModeHMACOnly:
-		if err := validateWebhookHMACSignature(webhook, signature, body); err != nil {
+		if err := validateWebhookHMACSignature(webhook, signature, profileName, body); err != nil {
 			return nil, err
 		}
 	default:
@@ -1342,7 +1365,7 @@ func validateWebhookTokenAgainst(webhook *auth.Webhook, token string) error {
 	return nil
 }
 
-func validateWebhookHMACSignature(webhook *auth.Webhook, signature string, body []byte) error {
+func validateWebhookHMACSignature(webhook *auth.Webhook, signature, profileName string, body []byte) error {
 	if webhook.HMACSecret == "" {
 		return ErrWebhookHMACNotConfigured
 	}
@@ -1361,6 +1384,9 @@ func validateWebhookHMACSignature(webhook *auth.Webhook, signature string, body 
 	}
 
 	mac := hmac.New(sha256.New, []byte(webhook.HMACSecret))
+	if profileName != "" {
+		_, _ = mac.Write([]byte("x-dagu-profile:" + profileName + "\n"))
+	}
 	_, _ = mac.Write(body)
 	expected := mac.Sum(nil)
 

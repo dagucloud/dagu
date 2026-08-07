@@ -113,12 +113,14 @@ func TestWebhookUpdate(t *testing.T) {
 
 	wh.Enabled = false
 	wh.TokenPrefix = "tok2"
+	wh.AllowedProfiles = []string{"prod", "staging"}
 	require.NoError(t, s.Update(ctx, wh))
 
 	got, err := s.GetByID(ctx, wh.ID)
 	require.NoError(t, err)
 	assert.False(t, got.Enabled)
 	assert.Equal(t, "tok2", got.TokenPrefix)
+	assert.Equal(t, []string{"prod", "staging"}, got.AllowedProfiles)
 }
 
 func TestWebhookUpdate_NotFound(t *testing.T) {
