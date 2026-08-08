@@ -6,6 +6,7 @@ import { AppBarContext } from '@/contexts/AppBarContext';
 import { useQuery } from '@/hooks/api';
 import { useDAGsListSSE } from '@/hooks/useDAGsListSSE';
 import { sseFallbackOptions, useSSECacheSync } from '@/hooks/useSSECacheSync';
+import { workspaceTargetQueryForWorkspace } from '@/lib/workspace';
 import React, {
   useCallback,
   useContext,
@@ -56,10 +57,7 @@ export function DocLiveProvider({ workspace, children }: Props) {
     () => ({
       remoteNode,
       perPage: DAG_LIST_PER_PAGE,
-      // An omitted workspace means "all" to the server; a doc in the default
-      // scope must resolve refs against the default workspace only, or
-      // same-named DAGs from other workspaces could be shown and executed.
-      workspace: workspace ?? 'default',
+      ...workspaceTargetQueryForWorkspace(workspace),
     }),
     [remoteNode, workspace]
   );

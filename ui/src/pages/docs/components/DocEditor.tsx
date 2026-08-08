@@ -1,7 +1,9 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import MarkdownEditor from '@/components/editors/MarkdownEditor';
+import MarkdownEditor, {
+  type MarkdownEditorInstance,
+} from '@/components/editors/MarkdownEditor';
 import { DocMarkdownPreview } from '@/components/ui/doc-markdown-preview';
 import { useSimpleToast } from '@/components/ui/simple-toast';
 import { useCanWrite, useCanWriteForWorkspace } from '@/contexts/AuthContext';
@@ -28,7 +30,7 @@ import {
   Trash2,
   Undo2,
 } from 'lucide-react';
-import React, {
+import {
   useCallback,
   useContext,
   useEffect,
@@ -41,6 +43,7 @@ import DocExternalChangeDialog from './DocExternalChangeDialog';
 import { DocHistoryModal } from './DocHistoryModal';
 import { DOC_SSE_FALLBACK_INTERVAL_MS } from '../lib/doc-polling';
 import { useDocDraftPersistence } from '../hooks/useDocDraftPersistence';
+import { attachmentUploadName } from '../lib/doc-attachments';
 
 type Props = {
   tabId: string;
@@ -280,30 +283,18 @@ function DocEditor({
   const [historyOpen, setHistoryOpen] = useState(false);
 
   // Attachment upload via paste/drop into the editor.
-  const editorInstanceRef = useRef<Parameters<
-    NonNullable<React.ComponentProps<typeof MarkdownEditor>['onEditorMount']>
-  >[0] | null>(null);
+  const editorInstanceRef = useRef<MarkdownEditorInstance | null>(null);
 
   const uploadAttachment = useCallback(
     async (file: File) => {
-      const generatedName = () => {
-        const stamp = new Date()
-          .toISOString()
-          .replace(/[-:T]/g, '')
-          .slice(0, 14);
-        const ext = file.type.split('/')[1] || 'bin';
-        return `pasted-${stamp}.${ext}`;
-      };
-      const validName = /^[a-zA-Z0-9_][a-zA-Z0-9_. -]{0,127}$/.test(file.name)
-        ? file.name
-        : generatedName();
+      const name = attachmentUploadName(file);
 
       const { data, error } = await client.PUT('/docs/doc/attachment', {
         params: {
           query: {
             remoteNode,
             path: docPath,
-            name: validName,
+            name,
             ...workspaceTargetQuery,
           },
         },
@@ -331,40 +322,53 @@ function DocEditor({
       }
       showToast(`Attached ${data.name}`);
     },
-    [client, remoteNode, docPath, workspaceTargetQuery, showToast, setCurrentValue, currentValueRef]
+    [
+      client,
+      remoteNode,
+      docPath,
+      workspaceTargetQuery,
+      showToast,
+      setCurrentValue,
+      currentValueRef,
+    ]
   );
+  const uploadAttachmentRef = useRef(uploadAttachment);
+  uploadAttachmentRef.current = uploadAttachment;
 
-  const handleEditorMount = useCallback(
-    (editor: NonNullable<typeof editorInstanceRef.current>) => {
-      editorInstanceRef.current = editor;
-      const dom = editor.getContainerDomNode();
-      const onPaste = (e: ClipboardEvent) => {
-        if (!canEditRef.current) return;
-        const files = Array.from(e.clipboardData?.files ?? []);
-        if (files.length === 0) return;
+  const handleEditorMount = useCallback((editor: MarkdownEditorInstance) => {
+    editorInstanceRef.current = editor;
+    const dom = editor.getContainerDomNode();
+    const uploadFiles = (files: FileList | null | undefined, event: Event) => {
+      if (!canEditRef.current || !files?.length) return;
+      event.preventDefault();
+      event.stopPropagation();
+      Array.from(files).forEach(
+        (file) => void uploadAttachmentRef.current(file)
+      );
+    };
+    const onPaste = (e: ClipboardEvent) => {
+      uploadFiles(e.clipboardData?.files, e);
+    };
+    const onDrop = (e: DragEvent) => {
+      uploadFiles(e.dataTransfer?.files, e);
+    };
+    const onDragOver = (e: DragEvent) => {
+      if ((e.dataTransfer?.types ?? []).includes('Files')) {
         e.preventDefault();
-        e.stopPropagation();
-        files.forEach((file) => void uploadAttachment(file));
-      };
-      const onDrop = (e: DragEvent) => {
-        if (!canEditRef.current) return;
-        const files = Array.from(e.dataTransfer?.files ?? []);
-        if (files.length === 0) return;
-        e.preventDefault();
-        e.stopPropagation();
-        files.forEach((file) => void uploadAttachment(file));
-      };
-      const onDragOver = (e: DragEvent) => {
-        if ((e.dataTransfer?.types ?? []).includes('Files')) {
-          e.preventDefault();
-        }
-      };
-      dom.addEventListener('paste', onPaste, true);
-      dom.addEventListener('drop', onDrop, true);
-      dom.addEventListener('dragover', onDragOver, true);
-    },
-    [uploadAttachment]
-  );
+      }
+    };
+    dom.addEventListener('paste', onPaste, true);
+    dom.addEventListener('drop', onDrop, true);
+    dom.addEventListener('dragover', onDragOver, true);
+    editor.onDidDispose(() => {
+      dom.removeEventListener('paste', onPaste, true);
+      dom.removeEventListener('drop', onDrop, true);
+      dom.removeEventListener('dragover', onDragOver, true);
+      if (editorInstanceRef.current === editor) {
+        editorInstanceRef.current = null;
+      }
+    });
+  }, []);
 
   const title = doc?.title || docPath.split('/').pop() || docPath;
 
