@@ -22,6 +22,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/license"
 	notificationmodel "github.com/dagucloud/dagu/v2/internal/notification"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/service/chatbridge"
 	"github.com/dagucloud/dagu/v2/internal/service/eventstore"
@@ -34,7 +35,7 @@ import (
 type SchedulerConfig struct {
 	Context           context.Context
 	Config            *config.Config
-	QueueStore        exec.QueueStore
+	QueueStore        queue.QueueStore
 	ProcStore         exec.ProcStore
 	ServiceRegistry   exec.ServiceRegistry
 	DispatchTaskStore exec.DispatchTaskStore

@@ -17,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
@@ -172,7 +173,7 @@ func TestClientDispatch(t *testing.T) {
 
 		mockCoord := &mockCoordinatorService{
 			dispatchFunc: func(_ context.Context, _ *coordinatorv1.DispatchRequest) (*coordinatorv1.DispatchResponse, error) {
-				return nil, status.Error(codes.FailedPrecondition, (&exec.StaleQueueDispatchError{
+				return nil, status.Error(codes.FailedPrecondition, (&queue.StaleQueueDispatchError{
 					Reason: "queued attempt was superseded",
 				}).Error())
 			},
@@ -199,7 +200,7 @@ func TestClientDispatch(t *testing.T) {
 		require.Error(t, err)
 		require.ErrorIs(t, err, backoff.ErrPermanent)
 
-		var staleErr *exec.StaleQueueDispatchError
+		var staleErr *queue.StaleQueueDispatchError
 		require.ErrorAs(t, err, &staleErr)
 		require.Equal(t, "queued attempt was superseded", staleErr.Reason)
 	})

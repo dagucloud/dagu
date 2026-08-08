@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package exec_test
+package queue_test
 
 import (
 	"context"
@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -30,7 +30,7 @@ func TestAbortQueuedDAGRun_PreservesPreviousVisibleAttempt(t *testing.T) {
 	writeAttemptStatus(t, ctx, store, dag, "run-1", ir.Succeeded, dagrun.NewDAGRunAttemptOptions{}, time.Now().Add(-time.Minute))
 	writeAttemptStatus(t, ctx, store, dag, "run-1", ir.Queued, dagrun.NewDAGRunAttemptOptions{Retry: true}, time.Now())
 
-	require.NoError(t, exec.AbortQueuedDAGRun(ctx, store, runRef))
+	require.NoError(t, queue.AbortQueuedDAGRun(ctx, store, runRef))
 
 	attempt, err := store.FindAttempt(ctx, runRef)
 	require.NoError(t, err)
@@ -49,7 +49,7 @@ func TestAbortQueuedDAGRun_RemovesRunWhenQueuedAttemptIsOnlyVisibleAttempt(t *te
 
 	writeAttemptStatus(t, ctx, store, dag, "run-2", ir.Queued, dagrun.NewDAGRunAttemptOptions{}, time.Now())
 
-	require.NoError(t, exec.AbortQueuedDAGRun(ctx, store, runRef))
+	require.NoError(t, queue.AbortQueuedDAGRun(ctx, store, runRef))
 
 	_, err := store.FindAttempt(ctx, runRef)
 	require.Error(t, err)
@@ -66,10 +66,10 @@ func TestAbortQueuedDAGRun_RejectsNonQueuedStatus(t *testing.T) {
 
 	writeAttemptStatus(t, ctx, store, dag, "run-3", ir.Running, dagrun.NewDAGRunAttemptOptions{}, time.Now())
 
-	err := exec.AbortQueuedDAGRun(ctx, store, runRef)
+	err := queue.AbortQueuedDAGRun(ctx, store, runRef)
 	require.Error(t, err)
 
-	var notQueuedErr *exec.DAGRunNotQueuedError
+	var notQueuedErr *queue.DAGRunNotQueuedError
 	require.ErrorAs(t, err, &notQueuedErr)
 	assert.Equal(t, ir.Running, notQueuedErr.Status)
 }

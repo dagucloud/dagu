@@ -36,6 +36,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 	runtimepkg "github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
@@ -519,7 +520,7 @@ type Helper struct {
 	DAGRunStore               dagrun.DAGRunStore
 	DAGRunMgr                 runtimepkg.Manager
 	ProcStore                 exec1.ProcStore
-	QueueStore                exec1.QueueStore
+	QueueStore                queue.QueueStore
 	StateStore                dagstate.Store
 	ServiceRegistry           exec1.ServiceRegistry
 	DispatchTaskStore         exec1.DispatchTaskStore

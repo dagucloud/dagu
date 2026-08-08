@@ -15,11 +15,11 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
@@ -455,7 +455,7 @@ func (f *testFixture) enqueueDirect() error {
 	return f.coord.QueueStore.Enqueue(
 		f.coord.Context,
 		dagCopy.ProcGroup(),
-		exec.QueuePriorityLow,
+		queue.QueuePriorityLow,
 		dagrun.NewDAGRunRef(dagCopy.Name, runID),
 	)
 }

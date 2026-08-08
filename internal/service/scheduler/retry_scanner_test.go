@@ -10,9 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
+	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -210,8 +211,8 @@ func TestRetryScannerScanEnqueuesRetry(t *testing.T) {
 		ScheduleTime:   now.Add(-10 * time.Minute).Format(time.RFC3339),
 	}
 	store := newRetryScannerStore(dag, status)
-	queueStore := &exec.MockQueueStore{}
-	queueStore.On("Enqueue", mock.Anything, dag.ProcGroup(), exec.QueuePriorityLow, status.DAGRun()).
+	queueStore := &testutil.MockQueueStore{}
+	queueStore.On("Enqueue", mock.Anything, dag.ProcGroup(), queuedomain.QueuePriorityLow, status.DAGRun()).
 		Return(nil).
 		Once()
 
@@ -262,7 +263,7 @@ func TestRetryScannerScanSkipsDisabledRetryPolicy(t *testing.T) {
 		ScheduleTime:   now.Add(-10 * time.Minute).Format(time.RFC3339),
 	}
 	store := newRetryScannerStore(dag, status)
-	queueStore := &exec.MockQueueStore{}
+	queueStore := &testutil.MockQueueStore{}
 
 	scanner, err := NewRetryScanner(
 		store,
@@ -283,7 +284,7 @@ func TestRetryScannerScanSkipsDisabledRetryPolicy(t *testing.T) {
 	assert.Equal(t, 0, store.latestAttemptCalls)
 	assert.Len(t, store.listCalls, 1)
 	assert.Equal(t, 0, store.findAttemptCalls)
-	queueStore.AssertNotCalled(t, "Enqueue", mock.Anything, dag.ProcGroup(), exec.QueuePriorityLow, status.DAGRun())
+	queueStore.AssertNotCalled(t, "Enqueue", mock.Anything, dag.ProcGroup(), queuedomain.QueuePriorityLow, status.DAGRun())
 }
 
 func TestRetryScannerScanEnqueuesRetryWithoutLiveTargets(t *testing.T) {
@@ -310,8 +311,8 @@ func TestRetryScannerScanEnqueuesRetryWithoutLiveTargets(t *testing.T) {
 		ScheduleTime:   now.Add(-10 * time.Minute).Format(time.RFC3339),
 	}
 	store := newRetryScannerStore(dag, status)
-	queueStore := &exec.MockQueueStore{}
-	queueStore.On("Enqueue", mock.Anything, dag.ProcGroup(), exec.QueuePriorityLow, status.DAGRun()).
+	queueStore := &testutil.MockQueueStore{}
+	queueStore.On("Enqueue", mock.Anything, dag.ProcGroup(), queuedomain.QueuePriorityLow, status.DAGRun()).
 		Return(nil).
 		Once()
 
@@ -363,8 +364,8 @@ func TestRetryScannerScanRetriesOlderFailedRunEvenWhenNewerRunExists(t *testing.
 	}
 
 	store := newRetryScannerStore(dag, failed, active)
-	queueStore := &exec.MockQueueStore{}
-	queueStore.On("Enqueue", mock.Anything, dag.ProcGroup(), exec.QueuePriorityLow, failed.DAGRun()).
+	queueStore := &testutil.MockQueueStore{}
+	queueStore.On("Enqueue", mock.Anything, dag.ProcGroup(), queuedomain.QueuePriorityLow, failed.DAGRun()).
 		Return(nil).
 		Once()
 
@@ -424,8 +425,8 @@ func TestRetryScannerScanUsesPersistedRetryPolicy(t *testing.T) {
 		retryScannerStoreEntry{dag: retryDAG, status: retryStatus},
 		retryScannerStoreEntry{dag: noRetryDAG, status: plainStatus},
 	)
-	queueStore := &exec.MockQueueStore{}
-	queueStore.On("Enqueue", mock.Anything, retryDAG.ProcGroup(), exec.QueuePriorityLow, retryStatus.DAGRun()).
+	queueStore := &testutil.MockQueueStore{}
+	queueStore.On("Enqueue", mock.Anything, retryDAG.ProcGroup(), queuedomain.QueuePriorityLow, retryStatus.DAGRun()).
 		Return(nil).
 		Once()
 
@@ -477,7 +478,7 @@ func TestRetryScannerScanSkipsSuspendedPersistedRetries(t *testing.T) {
 
 	scanner, err := NewRetryScanner(
 		store,
-		&exec.MockQueueStore{},
+		&testutil.MockQueueStore{},
 		func(_ context.Context, name string) bool { return name == suspendedFlag },
 		24*time.Hour,
 		func() time.Time { return now },
@@ -531,7 +532,7 @@ func TestRetryScannerScanSkipsSuspendedLegacyStatuses(t *testing.T) {
 
 	scanner, err := NewRetryScanner(
 		store,
-		&exec.MockQueueStore{},
+		&testutil.MockQueueStore{},
 		func(_ context.Context, name string) bool { return name == suspendedFlag },
 		24*time.Hour,
 		func() time.Time { return now },
@@ -575,7 +576,7 @@ func TestRetryScannerScanFallsBackToDAGNameWhenSuspendSnapshotMissing(t *testing
 	var checked string
 	scanner, err := NewRetryScanner(
 		store,
-		&exec.MockQueueStore{},
+		&testutil.MockQueueStore{},
 		func(_ context.Context, name string) bool {
 			checked = name
 			return name == dag.Name
@@ -616,8 +617,8 @@ func TestRetryScannerScanIsIdempotentForQueuedRun(t *testing.T) {
 		ScheduleTime:   now.Add(-10 * time.Minute).Format(time.RFC3339),
 	}
 	store := newRetryScannerStore(dag, status)
-	queueStore := &exec.MockQueueStore{}
-	queueStore.On("Enqueue", mock.Anything, dag.ProcGroup(), exec.QueuePriorityLow, status.DAGRun()).
+	queueStore := &testutil.MockQueueStore{}
+	queueStore.On("Enqueue", mock.Anything, dag.ProcGroup(), queuedomain.QueuePriorityLow, status.DAGRun()).
 		Return(nil).
 		Once()
 

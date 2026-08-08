@@ -11,9 +11,9 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 )
 
 const retryScanInterval = 30 * time.Second
@@ -40,7 +40,7 @@ type retryCandidateLister interface {
 // DAG-level retries once their backoff has elapsed.
 type RetryScanner struct {
 	dagRunStore dagrun.DAGRunStore
-	queueStore  exec.QueueStore
+	queueStore  queuedomain.QueueStore
 	isSuspended IsSuspendedFunc
 	retryWindow time.Duration
 	clock       Clock
@@ -48,7 +48,7 @@ type RetryScanner struct {
 
 func NewRetryScanner(
 	dagRunStore dagrun.DAGRunStore,
-	queueStore exec.QueueStore,
+	queueStore queuedomain.QueueStore,
 	isSuspended IsSuspendedFunc,
 	retryWindow time.Duration,
 	clock Clock,
@@ -171,11 +171,11 @@ func (s *RetryScanner) processFailedRunFromSummary(
 		return nil
 	}
 
-	_, err := exec.EnqueueRetry(ctx, s.dagRunStore, s.queueStore, nil, listed, exec.EnqueueRetryOptions{
+	_, err := queuedomain.EnqueueRetry(ctx, s.dagRunStore, s.queueStore, nil, listed, queuedomain.EnqueueRetryOptions{
 		AutoRetry: true,
 	})
 	if err != nil {
-		if errors.Is(err, exec.ErrRetryStaleLatest) {
+		if errors.Is(err, queuedomain.ErrRetryStaleLatest) {
 			logger.Debug(ctx, "Retry scanner skipped DAG run",
 				tag.DAG(listed.Name),
 				tag.RunID(listed.DAGRunID),
@@ -252,11 +252,11 @@ func (s *RetryScanner) processFailedRunLegacy(
 		return nil
 	}
 
-	_, err = exec.EnqueueRetry(ctx, s.dagRunStore, s.queueStore, dagSnapshot, latestStatus, exec.EnqueueRetryOptions{
+	_, err = queuedomain.EnqueueRetry(ctx, s.dagRunStore, s.queueStore, dagSnapshot, latestStatus, queuedomain.EnqueueRetryOptions{
 		AutoRetry: true,
 	})
 	if err != nil {
-		if errors.Is(err, exec.ErrRetryStaleLatest) {
+		if errors.Is(err, queuedomain.ErrRetryStaleLatest) {
 			logger.Debug(ctx, "Retry scanner skipped DAG run",
 				tag.DAG(latestStatus.Name),
 				tag.RunID(latestStatus.DAGRunID),

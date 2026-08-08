@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package exec
+package queue
 
 import (
 	"context"
@@ -9,7 +9,6 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
-	"github.com/stretchr/testify/mock"
 )
 
 // Errors for the queue
@@ -65,82 +64,4 @@ type QueuedItemData interface {
 	ID() string
 	// Data returns the data of the queued item
 	Data() (*dagrun.DAGRunRef, error)
-}
-
-var _ QueueStore = (*MockQueueStore)(nil)
-
-// MockQueueStore is a mock implementation of QueueStore for testing.
-type MockQueueStore struct {
-	mock.Mock
-}
-
-func (m *MockQueueStore) Enqueue(ctx context.Context, name string, priority QueuePriority, dagRun dagrun.DAGRunRef) error {
-	args := m.Called(ctx, name, priority, dagRun)
-	return args.Error(0)
-}
-
-func (m *MockQueueStore) DequeueByDAGRunID(ctx context.Context, name string, dagRun dagrun.DAGRunRef) ([]QueuedItemData, error) {
-	args := m.Called(ctx, name, dagRun)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]QueuedItemData), args.Error(1)
-}
-
-func (m *MockQueueStore) DeleteByItemIDs(ctx context.Context, name string, itemIDs []string) (int, error) {
-	args := m.Called(ctx, name, itemIDs)
-	return args.Int(0), args.Error(1)
-}
-
-func (m *MockQueueStore) Len(ctx context.Context, name string) (int, error) {
-	args := m.Called(ctx, name)
-	return args.Int(0), args.Error(1)
-}
-
-func (m *MockQueueStore) List(ctx context.Context, name string) ([]QueuedItemData, error) {
-	args := m.Called(ctx, name)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]QueuedItemData), args.Error(1)
-}
-
-func (m *MockQueueStore) ListCursor(ctx context.Context, name, cursor string, limit int) (pagination.CursorResult[QueuedItemData], error) {
-	args := m.Called(ctx, name, cursor, limit)
-	if args.Get(0) == nil {
-		return pagination.CursorResult[QueuedItemData]{}, args.Error(1)
-	}
-	return args.Get(0).(pagination.CursorResult[QueuedItemData]), args.Error(1)
-}
-
-func (m *MockQueueStore) All(ctx context.Context) ([]QueuedItemData, error) {
-	args := m.Called(ctx)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]QueuedItemData), args.Error(1)
-}
-
-func (m *MockQueueStore) ListByDAGName(ctx context.Context, name, dagName string) ([]QueuedItemData, error) {
-	args := m.Called(ctx, name, dagName)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]QueuedItemData), args.Error(1)
-}
-
-func (m *MockQueueStore) QueueList(ctx context.Context) ([]string, error) {
-	args := m.Called(ctx)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]string), args.Error(1)
-}
-
-func (m *MockQueueStore) QueueWatcher(ctx context.Context) QueueWatcher {
-	args := m.Called(ctx)
-	if args.Get(0) == nil {
-		return nil
-	}
-	return args.Get(0).(QueueWatcher)
 }

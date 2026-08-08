@@ -24,6 +24,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
+	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
@@ -37,7 +38,7 @@ type Scheduler struct {
 	quit                chan any
 	running             atomic.Bool
 	dagRunStore         dagrun.DAGRunStore
-	queueStore          exec.QueueStore
+	queueStore          queuedomain.QueueStore
 	procStore           exec.ProcStore
 	config              *config.Config
 	dirLock             dirlock.DirLock // File-based lock to prevent multiple scheduler instances
@@ -48,7 +49,7 @@ type Scheduler struct {
 	zombieDetector      *ZombieDetector // Zombie DAG run detector
 	instanceID          string          // Unique instance identifier for service registry
 	queueProcessor      *QueueProcessor // Processor for queued DAG runs
-	queueWatcher        exec.QueueWatcher
+	queueWatcher        queuedomain.QueueWatcher
 	retryScanner        *RetryScanner // DAG-level retry scanner
 	planner             *TickPlanner  // Unified scheduling decision module
 	stopOnce            sync.Once
@@ -103,7 +104,7 @@ func New(
 	er EntryReader,
 	drm runtime.Manager,
 	dagRunStore dagrun.DAGRunStore,
-	queueStore exec.QueueStore,
+	queueStore queuedomain.QueueStore,
 	procStore exec.ProcStore,
 	reg exec.ServiceRegistry,
 	coordinatorCli exec.Dispatcher,
@@ -124,7 +125,7 @@ func newScheduler(
 	er EntryReader,
 	drm runtime.Manager,
 	dagRunStore dagrun.DAGRunStore,
-	queueStore exec.QueueStore,
+	queueStore queuedomain.QueueStore,
 	procStore exec.ProcStore,
 	reg exec.ServiceRegistry,
 	coordinatorCli exec.Dispatcher,
@@ -474,7 +475,7 @@ func (s *Scheduler) closeDAGExecutor(ctx context.Context) {
 	}
 }
 
-func (s *Scheduler) setQueueWatcher(w exec.QueueWatcher) {
+func (s *Scheduler) setQueueWatcher(w queuedomain.QueueWatcher) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 

@@ -30,6 +30,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	rtagent "github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
@@ -201,7 +202,7 @@ func (h *remoteTaskHandler) handleRetry(ctx context.Context, task *coordinatorv1
 		retry: &retryConfig{
 			target:      status,
 			stepName:    task.Step,
-			triggerType: exec.PreservedQueueTriggerType(status),
+			triggerType: queue.PreservedQueueTriggerType(status),
 			retryPath:   retryPath,
 		},
 	}

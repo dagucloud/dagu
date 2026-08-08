@@ -11,6 +11,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 )
 
 // Resume retries a pending human-task enqueue without requiring the submitted form values.
@@ -50,13 +51,13 @@ func (s *Service) enqueueResume(ctx context.Context, target *target, result Resu
 	postCommitCtx := context.WithoutCancel(ctx)
 	enqueueCtx, cancel := context.WithTimeout(postCommitCtx, s.EnqueueTimeout)
 	defer cancel()
-	queued, err := exec.EnqueueRetry(
+	queued, err := queue.EnqueueRetry(
 		enqueueCtx,
 		s.DAGRunStore,
 		s.QueueStore,
 		target.dag,
 		target.status,
-		exec.EnqueueRetryOptions{},
+		queue.EnqueueRetryOptions{},
 	)
 	if err != nil {
 		var latest *dagrun.DAGRunStatus
@@ -75,7 +76,7 @@ func (s *Service) enqueueResume(ctx context.Context, target *target, result Resu
 		if readErr != nil {
 			return result, errorf(ErrorInternal, "failed to verify DAG-run status after queue failure: %v", readErr)
 		}
-		if errors.Is(err, exec.ErrRetryStaleLatest) {
+		if errors.Is(err, queue.ErrRetryStaleLatest) {
 			completed := hasCompletedHumanTask(latest.Nodes)
 			if result.StepID != "" {
 				node, findErr := findNodeByID(latest.Nodes, result.StepID)

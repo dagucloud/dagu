@@ -29,6 +29,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
@@ -567,7 +568,7 @@ func (a *API) launchEditRetryDAGRun(ctx context.Context, plan *editRetryPlan) (q
 		if a.queueStore == nil {
 			return false, fmt.Errorf("queue store is not configured")
 		}
-		if err := a.queueStore.Enqueue(ctx, plan.editedDAG.ProcGroup(), exec.QueuePriorityLow, seedStatus.DAGRun()); err != nil {
+		if err := a.queueStore.Enqueue(ctx, plan.editedDAG.ProcGroup(), queue.QueuePriorityLow, seedStatus.DAGRun()); err != nil {
 			return false, fmt.Errorf("failed to enqueue edit retry dag-run: %w", err)
 		}
 		return true, nil

@@ -14,6 +14,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -512,12 +513,12 @@ func (s *sequenceProcStore) IsAttemptAlive(
 }
 
 type serviceQueueStore struct {
-	exec.QueueStore
+	queue.QueueStore
 	enqueued      []dagrun.DAGRunRef
 	enqueueErrors []error
 }
 
-func (s *serviceQueueStore) Enqueue(_ context.Context, _ string, _ exec.QueuePriority, ref dagrun.DAGRunRef) error {
+func (s *serviceQueueStore) Enqueue(_ context.Context, _ string, _ queue.QueuePriority, ref dagrun.DAGRunRef) error {
 	if len(s.enqueueErrors) > 0 {
 		err := s.enqueueErrors[0]
 		s.enqueueErrors = s.enqueueErrors[1:]

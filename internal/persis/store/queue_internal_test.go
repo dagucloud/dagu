@@ -14,11 +14,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 )
 
 func TestQueueCursorHelpersRejectInvalidState(t *testing.T) {
@@ -84,11 +84,11 @@ func TestQueueItemMetadataAndNormalization(t *testing.T) {
 	fallback := time.Date(2026, 1, 2, 3, 4, 5, 6, time.UTC)
 
 	priority, queuedAt := queueItemMetadata("item_high_20260102_030405_000000007Z_run", fallback)
-	assert.Equal(t, exec.QueuePriorityHigh, priority)
+	assert.Equal(t, queue.QueuePriorityHigh, priority)
 	assert.Equal(t, time.Date(2026, 1, 2, 3, 4, 5, 7, time.UTC), queuedAt)
 
 	priority, queuedAt = queueItemMetadata("not-a-queue-item", fallback)
-	assert.Equal(t, exec.QueuePriorityLow, priority)
+	assert.Equal(t, queue.QueuePriorityLow, priority)
 	assert.Equal(t, fallback, queuedAt)
 
 	assert.Equal(t, "item.json.bak", normalizeQueueItemID("ignored/item.json.bak"))
@@ -147,7 +147,7 @@ func TestQueueStoreNextQueueItemIDSkipsExistingTimestamp(t *testing.T) {
 	ctx := context.Background()
 	queueName := "main"
 	dagRun := dagrun.NewDAGRunRef("dag", "run-same")
-	priority := exec.QueuePriorityLow
+	priority := queue.QueuePriorityLow
 	start := time.Date(2026, 1, 1, 0, 0, 0, 1, time.UTC)
 
 	s := NewQueueStore(testutil.NewMemoryBackend().Collection("queue"))

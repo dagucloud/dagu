@@ -13,6 +13,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -30,7 +31,7 @@ func TestEnsureQueueDispatchRetryTarget_MissingRunReturnsNotQueued(t *testing.T)
 	)
 	require.Error(t, err)
 
-	var notQueuedErr *exec.DAGRunNotQueuedError
+	var notQueuedErr *queue.DAGRunNotQueuedError
 	require.ErrorAs(t, err, &notQueuedErr)
 	assert.False(t, notQueuedErr.HasStatus)
 }
@@ -65,7 +66,7 @@ func TestEnsureQueueDispatchRetryTarget_MissingStatusReturnsNotQueued(t *testing
 	)
 	require.Error(t, err)
 
-	var notQueuedErr *exec.DAGRunNotQueuedError
+	var notQueuedErr *queue.DAGRunNotQueuedError
 	require.ErrorAs(t, err, &notQueuedErr)
 	assert.False(t, notQueuedErr.HasStatus)
 }

@@ -14,10 +14,10 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/dagucloud/dagu/v2/internal/test"
@@ -161,10 +161,10 @@ steps:
   - name: echo
     run: echo done
 `).
-		EnqueueWithPriority(exec.QueuePriorityLow).
-		EnqueueWithPriority(exec.QueuePriorityLow).
-		EnqueueWithPriority(exec.QueuePriorityHigh).
-		EnqueueWithPriority(exec.QueuePriorityHigh).
+		EnqueueWithPriority(queue.QueuePriorityLow).
+		EnqueueWithPriority(queue.QueuePriorityLow).
+		EnqueueWithPriority(queue.QueuePriorityHigh).
+		EnqueueWithPriority(queue.QueuePriorityHigh).
 		StartScheduler(30 * time.Second)
 	defer f.Stop()
 

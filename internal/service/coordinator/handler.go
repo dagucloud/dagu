@@ -30,6 +30,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
@@ -611,7 +612,7 @@ func queueDispatchStatusForTask(task *coordinatorv1.Task) (*dagrun.DAGRunStatus,
 }
 
 func staleQueueDispatchError(reason string) error {
-	return &exec.StaleQueueDispatchError{Reason: reason}
+	return &queue.StaleQueueDispatchError{Reason: reason}
 }
 
 // createAttemptForTask creates a DAGRun attempt for a root-level task.
@@ -931,7 +932,7 @@ func (h *Handler) dispatchToWaitingPoller(task *coordinatorv1.Task) error {
 }
 
 func dispatchErrorCode(err error) codes.Code {
-	var staleErr *exec.StaleQueueDispatchError
+	var staleErr *queue.StaleQueueDispatchError
 	switch {
 	case errors.Is(err, errNoMatchingWorkers):
 		return codes.FailedPrecondition
@@ -943,7 +944,7 @@ func dispatchErrorCode(err error) codes.Code {
 }
 
 func prepareAttemptErrorCode(err error) codes.Code {
-	var staleErr *exec.StaleQueueDispatchError
+	var staleErr *queue.StaleQueueDispatchError
 	if errors.As(err, &staleErr) {
 		return codes.FailedPrecondition
 	}

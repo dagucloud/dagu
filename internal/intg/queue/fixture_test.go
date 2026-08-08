@@ -15,11 +15,11 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmd"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/dagucloud/dagu/v2/internal/test"
@@ -186,10 +186,10 @@ func (f *fixture) Enqueue(n int) *fixture {
 }
 
 func (f *fixture) enqueueOne() string {
-	return f.enqueueWithPriority(exec.QueuePriorityLow)
+	return f.enqueueWithPriority(queue.QueuePriorityLow)
 }
 
-func (f *fixture) enqueueWithPriority(priority exec.QueuePriority) string {
+func (f *fixture) enqueueWithPriority(priority queue.QueuePriority) string {
 	id := uuid.New().String()
 	att, err := f.th.DAGRunStore.CreateAttempt(f.th.Context, f.dag, time.Now(), id, dagrun.NewDAGRunAttemptOptions{})
 	require.NoError(f.t, err)
@@ -229,7 +229,7 @@ func (f *fixture) enqueueCatchup(scheduleTime time.Time) string {
 }
 
 // EnqueueWithPriority adds a single DAG run with specified priority.
-func (f *fixture) EnqueueWithPriority(priority exec.QueuePriority) *fixture {
+func (f *fixture) EnqueueWithPriority(priority queue.QueuePriority) *fixture {
 	f.runIDs = append(f.runIDs, f.enqueueWithPriority(priority))
 	return f
 }
@@ -528,15 +528,15 @@ func (f *fixture) RunningRunWithMetadata(opts runStatusOptions) string {
 	return f.writeRunStatus(ir.Running, opts)
 }
 
-// RetryEnqueue enqueues a previously failed run for retry using exec.EnqueueRetry.
+// RetryEnqueue enqueues a previously failed run for retry using queue.EnqueueRetry.
 func (f *fixture) RetryEnqueue(runID string) *fixture {
-	_, err := exec.EnqueueRetry(
+	_, err := queue.EnqueueRetry(
 		f.th.Context,
 		f.th.DAGRunStore,
 		f.th.QueueStore,
 		f.dag,
 		f.MustStatus(runID),
-		exec.EnqueueRetryOptions{},
+		queue.EnqueueRetryOptions{},
 	)
 	require.NoError(f.t, err)
 	return f

@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package exec_test
+package queue_test
 
 import (
 	"context"
@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -26,9 +26,9 @@ func TestEnqueueRetry(t *testing.T) {
 		name        string
 		dag         *ir.DAG
 		status      *dagrun.DAGRunStatus
-		opts        exec.EnqueueRetryOptions
+		opts        queue.EnqueueRetryOptions
 		store       *stubDAGRunStore
-		setupQueue  func(qs *exec.MockQueueStore)
+		setupQueue  func(qs *testutil.MockQueueStore)
 		assertErr   func(t *testing.T, err error)
 		assertStore func(t *testing.T, store *stubDAGRunStore)
 		wantQueued  bool
@@ -39,7 +39,7 @@ func TestEnqueueRetry(t *testing.T) {
 			dag:    &ir.DAG{Name: "test-dag"},
 			status: &dagrun.DAGRunStatus{Status: ir.Queued},
 			store:  &stubDAGRunStore{},
-			setupQueue: func(qs *exec.MockQueueStore) {
+			setupQueue: func(qs *testutil.MockQueueStore) {
 				qs.AssertNotCalled(t, "Enqueue", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 			},
 		},
@@ -53,7 +53,7 @@ func TestEnqueueRetry(t *testing.T) {
 				Status:         ir.Failed,
 				AutoRetryCount: 2,
 			},
-			opts: exec.EnqueueRetryOptions{TriggerActor: &triggerActor},
+			opts: queue.EnqueueRetryOptions{TriggerActor: &triggerActor},
 			store: &stubDAGRunStore{
 				status: &dagrun.DAGRunStatus{
 					Name:           "test-dag",
@@ -70,8 +70,8 @@ func TestEnqueueRetry(t *testing.T) {
 					).Format(time.RFC3339),
 				},
 			},
-			setupQueue: func(qs *exec.MockQueueStore) {
-				qs.On("Enqueue", mock.Anything, "test-dag", exec.QueuePriorityLow, dagrun.NewDAGRunRef("test-dag", "run-1")).
+			setupQueue: func(qs *testutil.MockQueueStore) {
+				qs.On("Enqueue", mock.Anything, "test-dag", queue.QueuePriorityLow, dagrun.NewDAGRunRef("test-dag", "run-1")).
 					Return(nil)
 			},
 			assertStore: func(t *testing.T, store *stubDAGRunStore) {
@@ -99,7 +99,7 @@ func TestEnqueueRetry(t *testing.T) {
 				Status:         ir.Failed,
 				AutoRetryCount: 2,
 			},
-			opts: exec.EnqueueRetryOptions{AutoRetry: true},
+			opts: queue.EnqueueRetryOptions{AutoRetry: true},
 			store: &stubDAGRunStore{
 				status: &dagrun.DAGRunStatus{
 					Name:           "test-dag",
@@ -110,8 +110,8 @@ func TestEnqueueRetry(t *testing.T) {
 					TriggerActor:   "bob",
 				},
 			},
-			setupQueue: func(qs *exec.MockQueueStore) {
-				qs.On("Enqueue", mock.Anything, "test-dag", exec.QueuePriorityLow, dagrun.NewDAGRunRef("test-dag", "run-auto")).
+			setupQueue: func(qs *testutil.MockQueueStore) {
+				qs.On("Enqueue", mock.Anything, "test-dag", queue.QueuePriorityLow, dagrun.NewDAGRunRef("test-dag", "run-auto")).
 					Return(nil)
 			},
 			assertStore: func(t *testing.T, store *stubDAGRunStore) {
@@ -142,8 +142,8 @@ func TestEnqueueRetry(t *testing.T) {
 					Log:            "/tmp/test-dag/run-fast-path.log",
 				},
 			},
-			setupQueue: func(qs *exec.MockQueueStore) {
-				qs.On("Enqueue", mock.Anything, "custom-queue", exec.QueuePriorityLow, dagrun.NewDAGRunRef("test-dag", "run-fast-path")).
+			setupQueue: func(qs *testutil.MockQueueStore) {
+				qs.On("Enqueue", mock.Anything, "custom-queue", queue.QueuePriorityLow, dagrun.NewDAGRunRef("test-dag", "run-fast-path")).
 					Return(nil)
 			},
 			assertStore: func(t *testing.T, store *stubDAGRunStore) {
@@ -171,8 +171,8 @@ func TestEnqueueRetry(t *testing.T) {
 					Status:    ir.Failed,
 				},
 			},
-			setupQueue: func(qs *exec.MockQueueStore) {
-				qs.On("Enqueue", mock.Anything, "child-dag", exec.QueuePriorityLow, dagrun.NewDAGRunRef("child-dag", "run-root")).
+			setupQueue: func(qs *testutil.MockQueueStore) {
+				qs.On("Enqueue", mock.Anything, "child-dag", queue.QueuePriorityLow, dagrun.NewDAGRunRef("child-dag", "run-root")).
 					Return(nil)
 			},
 			assertStore: func(t *testing.T, store *stubDAGRunStore) {
@@ -225,7 +225,7 @@ func TestEnqueueRetry(t *testing.T) {
 				status: &dagrun.DAGRunStatus{Name: "test-dag", DAGRunID: "run-3b", AttemptID: "att-other", Status: ir.Running},
 			},
 			assertErr: func(t *testing.T, err error) {
-				assert.ErrorIs(t, err, exec.ErrRetryStaleLatest)
+				assert.ErrorIs(t, err, queue.ErrRetryStaleLatest)
 			},
 		},
 		{
@@ -248,9 +248,9 @@ func TestEnqueueRetry(t *testing.T) {
 					TriggerActor:   "bob",
 				},
 			},
-			opts: exec.EnqueueRetryOptions{AutoRetry: true, TriggerActor: &triggerActor},
-			setupQueue: func(qs *exec.MockQueueStore) {
-				qs.On("Enqueue", mock.Anything, "test-dag", exec.QueuePriorityLow, dagrun.NewDAGRunRef("test-dag", "run-4")).
+			opts: queue.EnqueueRetryOptions{AutoRetry: true, TriggerActor: &triggerActor},
+			setupQueue: func(qs *testutil.MockQueueStore) {
+				qs.On("Enqueue", mock.Anything, "test-dag", queue.QueuePriorityLow, dagrun.NewDAGRunRef("test-dag", "run-4")).
 					Return(errors.New("enqueue error"))
 			},
 			assertStore: func(t *testing.T, store *stubDAGRunStore) {
@@ -281,8 +281,8 @@ func TestEnqueueRetry(t *testing.T) {
 				},
 				secondErr: errors.New("rollback error"),
 			},
-			setupQueue: func(qs *exec.MockQueueStore) {
-				qs.On("Enqueue", mock.Anything, "test-dag", exec.QueuePriorityLow, dagrun.NewDAGRunRef("test-dag", "run-rollback-failure")).
+			setupQueue: func(qs *testutil.MockQueueStore) {
+				qs.On("Enqueue", mock.Anything, "test-dag", queue.QueuePriorityLow, dagrun.NewDAGRunRef("test-dag", "run-rollback-failure")).
 					Return(errors.New("enqueue error"))
 			},
 			assertStore: func(t *testing.T, store *stubDAGRunStore) {
@@ -308,7 +308,7 @@ func TestEnqueueRetry(t *testing.T) {
 					TriggerActor:   "bob",
 				},
 			},
-			opts: exec.EnqueueRetryOptions{TriggerActor: &triggerActor},
+			opts: queue.EnqueueRetryOptions{TriggerActor: &triggerActor},
 			assertStore: func(t *testing.T, store *stubDAGRunStore) {
 				require.NotNil(t, store.status)
 				assert.Equal(t, ir.Failed, store.status.Status)
@@ -326,12 +326,12 @@ func TestEnqueueRetry(t *testing.T) {
 			t.Parallel()
 
 			ctx := context.Background()
-			qs := &exec.MockQueueStore{}
+			qs := &testutil.MockQueueStore{}
 			if tt.setupQueue != nil {
 				tt.setupQueue(qs)
 			}
 
-			queued, err := exec.EnqueueRetry(ctx, tt.store, qs, tt.dag, tt.status, tt.opts)
+			queued, err := queue.EnqueueRetry(ctx, tt.store, qs, tt.dag, tt.status, tt.opts)
 			if tt.wantErr != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.wantErr)

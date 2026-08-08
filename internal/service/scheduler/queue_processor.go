@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 )
 
 const queueAgeWarningThreshold = 2 * time.Minute
@@ -87,7 +88,7 @@ func (e startupExecutionError) Unwrap() error {
 
 // QueueProcessor is responsible for processing queued DAG runs.
 type QueueProcessor struct {
-	queueStore             exec.QueueStore
+	queueStore             queuedomain.QueueStore
 	dagRunStore            dagrun.DAGRunStore
 	procStore              exec.ProcStore
 	dagRunLeaseStore       exec.DAGRunLeaseStore
@@ -185,7 +186,7 @@ func WithIsSuspended(isSuspended IsSuspendedFunc) QueueProcessorOption {
 
 // NewQueueProcessor creates a new QueueProcessor.
 func NewQueueProcessor(
-	queueStore exec.QueueStore,
+	queueStore queuedomain.QueueStore,
 	dagRunStore dagrun.DAGRunStore,
 	procStore exec.ProcStore,
 	dagExecutor *DAGExecutor,
@@ -396,7 +397,7 @@ func (p *QueueProcessor) ProcessQueueItems(ctx context.Context, queueName string
 	var wg sync.WaitGroup
 	for _, item := range batch.items {
 		wg.Add(1)
-		go func(queuedItem exec.QueuedItemData) {
+		go func(queuedItem queuedomain.QueuedItemData) {
 			defer wg.Done()
 			defer func() {
 				if r := recover(); r != nil {

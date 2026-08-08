@@ -20,6 +20,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	rtagent "github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -36,7 +37,7 @@ type Local struct {
 	dagStore                 dagstore.DAGStore
 	dagRunStore              dagrun.DAGRunStore
 	runStateStore            runstate.Store
-	queueStore               exec.QueueStore
+	queueStore               queue.QueueStore
 	stateStore               dagstate.Store
 	secretStore              secretpkg.Store
 	profileStore             profilepkg.Store
@@ -81,7 +82,7 @@ func WithLocalRunStateStore(store runstate.Store) LocalOption {
 }
 
 // WithLocalQueueStore sets the queue store used by child workflow agents.
-func WithLocalQueueStore(store exec.QueueStore) LocalOption {
+func WithLocalQueueStore(store queue.QueueStore) LocalOption {
 	return func(r *Local) {
 		r.queueStore = store
 	}
@@ -478,7 +479,7 @@ func (r *Local) runStateStoreFromContext(ctx context.Context) runstate.Store {
 	return nil
 }
 
-func (r *Local) queueStoreFromContext(ctx context.Context) exec.QueueStore {
+func (r *Local) queueStoreFromContext(ctx context.Context) queue.QueueStore {
 	if r.queueStore != nil {
 		return r.queueStore
 	}
@@ -617,7 +618,7 @@ func inProcessArtifactDir(ctx context.Context, dag *ir.DAG, baseDir, runID strin
 }
 
 func inProcessRetryTriggerType(status *dagrun.DAGRunStatus) ir.TriggerType {
-	triggerType := exec.PreservedQueueTriggerType(status)
+	triggerType := queue.PreservedQueueTriggerType(status)
 	if triggerType != ir.TriggerTypeUnknown {
 		return triggerType
 	}

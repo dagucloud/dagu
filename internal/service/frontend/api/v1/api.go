@@ -34,6 +34,7 @@ import (
 	notificationmodel "github.com/dagucloud/dagu/v2/internal/notification"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/remotenode"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
@@ -64,7 +65,7 @@ type API struct {
 	dagStore             dagstore.DAGStore
 	dagRunStore          dagrun.DAGRunStore
 	dagRunMgr            runtime.Manager
-	queueStore           exec.QueueStore
+	queueStore           queue.QueueStore
 	procStore            exec.ProcStore
 	dagRunLeaseStore     exec.DAGRunLeaseStore
 	workerHeartbeatStore exec.WorkerHeartbeatStore
@@ -361,7 +362,7 @@ func WithLeaseStaleThreshold(threshold time.Duration) APIOption {
 func New(
 	dr dagstore.DAGStore,
 	drs dagrun.DAGRunStore,
-	qs exec.QueueStore,
+	qs queue.QueueStore,
 	ps exec.ProcStore,
 	drm runtime.Manager,
 	cfg *config.Config,

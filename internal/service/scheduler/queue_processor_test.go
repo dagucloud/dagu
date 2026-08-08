@@ -24,6 +24,7 @@ import (
 	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/proc"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
+	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -141,7 +142,7 @@ func (f *queueFixture) enqueueRuns(n int) *queueFixture {
 		st.Status, st.DAGRunID = ir.Queued, runID
 		require.NoError(f.t, run.Write(f.ctx, st))
 		require.NoError(f.t, run.Close(f.ctx))
-		require.NoError(f.t, f.queueStore.Enqueue(f.ctx, f.dag.Name, exec.QueuePriorityHigh, dagrun.NewDAGRunRef(f.dag.Name, runID)))
+		require.NoError(f.t, f.queueStore.Enqueue(f.ctx, f.dag.Name, queuedomain.QueuePriorityHigh, dagrun.NewDAGRunRef(f.dag.Name, runID)))
 	}
 	return f
 }
@@ -176,19 +177,19 @@ func (f *queueFixture) getQueue(name string) *queue {
 	return v.(*queue)
 }
 
-func (f *queueFixture) enqueueWithPriority(runID string, priority exec.QueuePriority) {
+func (f *queueFixture) enqueueWithPriority(runID string, priority queuedomain.QueuePriority) {
 	f.enqueueToQueue(f.dag.Name, runID, priority)
 }
 
 func (f *queueFixture) enqueueRunWithTrigger(runID string, triggerType ir.TriggerType) {
-	f.enqueueToQueueWithTrigger(f.dag.Name, runID, exec.QueuePriorityHigh, triggerType)
+	f.enqueueToQueueWithTrigger(f.dag.Name, runID, queuedomain.QueuePriorityHigh, triggerType)
 }
 
-func (f *queueFixture) enqueueToQueue(queueName, runID string, priority exec.QueuePriority) {
+func (f *queueFixture) enqueueToQueue(queueName, runID string, priority queuedomain.QueuePriority) {
 	f.enqueueToQueueWithTrigger(queueName, runID, priority, ir.TriggerTypeUnknown)
 }
 
-func (f *queueFixture) enqueueToQueueWithTrigger(queueName, runID string, priority exec.QueuePriority, triggerType ir.TriggerType) {
+func (f *queueFixture) enqueueToQueueWithTrigger(queueName, runID string, priority queuedomain.QueuePriority, triggerType ir.TriggerType) {
 	run, err := f.dagRunStore.CreateAttempt(f.ctx, f.dag, time.Now(), runID, dagrun.NewDAGRunAttemptOptions{})
 	require.NoError(f.t, err)
 	require.NoError(f.t, run.Open(f.ctx))
@@ -221,7 +222,7 @@ func TestQueueProcessor_GlobalQueue(t *testing.T) {
 	})
 
 	for i := 1; i <= 3; i++ {
-		f.enqueueToQueue("global-queue", fmt.Sprintf("run-%d", i), exec.QueuePriorityHigh)
+		f.enqueueToQueue("global-queue", fmt.Sprintf("run-%d", i), queuedomain.QueuePriorityHigh)
 	}
 
 	require.Equal(t, 3, f.getQueue("global-queue").getMaxConcurrency())
@@ -266,10 +267,10 @@ func TestQueueProcessor_PriorityOrdering(t *testing.T) {
 	f := newQueueFixture(t).withDAG("priority-dag", 1).withProcessor(config.Queues{})
 
 	// Enqueue low priority first, then high priority
-	f.enqueueWithPriority("low-1", exec.QueuePriorityLow)
-	f.enqueueWithPriority("low-2", exec.QueuePriorityLow)
-	f.enqueueWithPriority("high-1", exec.QueuePriorityHigh)
-	f.enqueueWithPriority("high-2", exec.QueuePriorityHigh)
+	f.enqueueWithPriority("low-1", queuedomain.QueuePriorityLow)
+	f.enqueueWithPriority("low-2", queuedomain.QueuePriorityLow)
+	f.enqueueWithPriority("high-1", queuedomain.QueuePriorityHigh)
+	f.enqueueWithPriority("high-2", queuedomain.QueuePriorityHigh)
 
 	// Dequeue should return high priority first, then low priority
 	expectedOrder := []string{"high-1", "high-2", "low-1", "low-2"}
@@ -311,7 +312,7 @@ func TestQueueProcessor_PreservesSameRunItemEnqueuedDuringDispatch(t *testing.T)
 	var enqueueErr error
 	procStore.On("IsRunAlive", mock.Anything, f.dag.Name, runRef).
 		Run(func(mock.Arguments) {
-			enqueueErr = f.queueStore.Enqueue(f.ctx, f.dag.Name, exec.QueuePriorityLow, runRef)
+			enqueueErr = f.queueStore.Enqueue(f.ctx, f.dag.Name, queuedomain.QueuePriorityLow, runRef)
 		}).
 		Return(true, nil).
 		Once()
@@ -765,7 +766,7 @@ func TestQueueProcessor_GlobalQueueIgnoresDAGMaxActiveRuns(t *testing.T) {
 
 	// Enqueue 5 items to the global queue
 	for i := 1; i <= 5; i++ {
-		f.enqueueToQueue("global-queue", fmt.Sprintf("run-%d", i), exec.QueuePriorityHigh)
+		f.enqueueToQueue("global-queue", fmt.Sprintf("run-%d", i), queuedomain.QueuePriorityHigh)
 	}
 
 	// Verify initial maxConcurrency is 5 (from global config)
@@ -790,7 +791,7 @@ func TestQueueProcessor_GlobalQueueViaLoop(t *testing.T) {
 
 	// Enqueue 3 items BEFORE calling process (mimics real scenario)
 	for i := 1; i <= 3; i++ {
-		f.enqueueToQueue("global-queue", fmt.Sprintf("run-%d", i), exec.QueuePriorityHigh)
+		f.enqueueToQueue("global-queue", fmt.Sprintf("run-%d", i), queuedomain.QueuePriorityHigh)
 	}
 
 	// Verify queue list returns the global queue

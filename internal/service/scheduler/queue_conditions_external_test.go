@@ -20,6 +20,7 @@ import (
 	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/proc"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
+	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -445,7 +446,7 @@ func TestQueueProcessorPreservesRetryPublishedDuringFailureCleanup(t *testing.T)
 					isRunAliveDelay: 50 * time.Millisecond,
 				}
 			},
-			queueStore: func(base exec.QueueStore) exec.QueueStore {
+			queueStore: func(base queuedomain.QueueStore) queuedomain.QueueStore {
 				hookedQueueStore = &queueConditionQueueStore{QueueStore: base}
 				return hookedQueueStore
 			},
@@ -467,7 +468,7 @@ func TestQueueProcessorPreservesRetryPublishedDuringFailureCleanup(t *testing.T)
 		if err != nil {
 			return err
 		}
-		queued, err := exec.EnqueueRetry(ctx, f.dagRunStore, f.queueStore, f.dag, status, exec.EnqueueRetryOptions{})
+		queued, err := queuedomain.EnqueueRetry(ctx, f.dagRunStore, f.queueStore, f.dag, status, queuedomain.EnqueueRetryOptions{})
 		if err != nil {
 			return err
 		}
@@ -557,7 +558,7 @@ type queueConditionFixture struct {
 	ctx           context.Context
 	dag           *ir.DAG
 	dagRunStore   *countingDAGRunStore
-	queueStore    exec.QueueStore
+	queueStore    queuedomain.QueueStore
 	leaseStore    exec.DAGRunLeaseStore
 	dispatchStore exec.DispatchTaskStore
 	processor     *scheduler.QueueProcessor
@@ -566,7 +567,7 @@ type queueConditionFixture struct {
 type queueConditionFixtureConfig struct {
 	executable string
 	procStore  func(exec.ProcStore) exec.ProcStore
-	queueStore func(exec.QueueStore) exec.QueueStore
+	queueStore func(queuedomain.QueueStore) queuedomain.QueueStore
 }
 
 func newQueueConditionFixture(
@@ -607,7 +608,7 @@ func newQueueConditionFixtureWithConfig(
 	}
 	ir.InitializeDefaults(dag)
 	dagRunStore := newCountingDAGRunStore(filedagrun.New(filepath.Join(tmp, "dag-runs"), filedagrun.WithLatestStatusToday(false)))
-	var queueStore exec.QueueStore = store.NewQueueStore(file.NewCollection(filepath.Join(tmp, "queue")))
+	var queueStore queuedomain.QueueStore = store.NewQueueStore(file.NewCollection(filepath.Join(tmp, "queue")))
 	if fixtureConfig.queueStore != nil {
 		queueStore = fixtureConfig.queueStore(queueStore)
 	}
@@ -692,7 +693,7 @@ func (f *queueConditionFixture) createQueuedAttempt(runID string, conditions []d
 
 func (f *queueConditionFixture) enqueueRun(runID string, conditions []dagrun.DAGRunCondition) dagrun.DAGRunAttempt {
 	attempt := f.createQueuedAttempt(runID, conditions)
-	if err := f.queueStore.Enqueue(f.ctx, f.dag.Name, exec.QueuePriorityHigh, dagrun.NewDAGRunRef(f.dag.Name, runID)); err != nil {
+	if err := f.queueStore.Enqueue(f.ctx, f.dag.Name, queuedomain.QueuePriorityHigh, dagrun.NewDAGRunRef(f.dag.Name, runID)); err != nil {
 		panic(err)
 	}
 	return attempt
@@ -1041,7 +1042,7 @@ func (d *queueConditionDispatcher) RequestCancel(context.Context, string, string
 }
 
 type queueConditionQueueStore struct {
-	exec.QueueStore
+	queuedomain.QueueStore
 
 	once         sync.Once
 	beforeDelete func(context.Context) error

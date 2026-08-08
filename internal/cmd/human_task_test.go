@@ -17,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/humantask"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -448,7 +449,7 @@ func (s *humanTaskCompletionStore) CompareAndSwapLatestAttemptStatus(
 }
 
 type humanTaskCompletionQueueStore struct {
-	exec.QueueStore
+	queue.QueueStore
 	enqueued      []dagrun.DAGRunRef
 	enqueueErrors []error
 }
@@ -456,7 +457,7 @@ type humanTaskCompletionQueueStore struct {
 func (s *humanTaskCompletionQueueStore) Enqueue(
 	_ context.Context,
 	_ string,
-	_ exec.QueuePriority,
+	_ queue.QueuePriority,
 	ref dagrun.DAGRunRef,
 ) error {
 	if len(s.enqueueErrors) > 0 {

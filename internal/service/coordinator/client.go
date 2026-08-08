@@ -27,6 +27,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"google.golang.org/grpc"
@@ -232,7 +233,7 @@ func (cli *clientImpl) Dispatch(ctx context.Context, req exec.DispatchRequest) e
 				// FailedPrecondition means permanent misconfiguration (e.g. selector mismatch).
 				// Stop retrying across coordinators and across the outer backoff loop.
 				if st, ok := status.FromError(err); ok && st.Code() == codes.FailedPrecondition {
-					if staleErr, ok := exec.ParseStaleQueueDispatchError(st.Message()); ok {
+					if staleErr, ok := queue.ParseStaleQueueDispatchError(st.Message()); ok {
 						return backoff.PermanentError(fmt.Errorf("failed to dispatch task to coordinator %s: %w", member.ID, staleErr))
 					}
 					return backoff.PermanentError(wrapped)

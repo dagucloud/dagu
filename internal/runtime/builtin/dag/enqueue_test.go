@@ -12,9 +12,9 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/dag"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -299,7 +299,7 @@ func enqueueConcurrencyWaitTimeout(t *testing.T) time.Duration {
 }
 
 type recordingQueueStore struct {
-	exec.QueueStore
+	queue.QueueStore
 
 	mu        sync.Mutex
 	active    int
@@ -312,7 +312,7 @@ type recordingQueueStore struct {
 	releaseOnce  sync.Once
 }
 
-func newRecordingQueueStore(store exec.QueueStore, targetActive int) *recordingQueueStore {
+func newRecordingQueueStore(store queue.QueueStore, targetActive int) *recordingQueueStore {
 	return &recordingQueueStore{
 		QueueStore:   store,
 		targetActive: targetActive,
@@ -321,7 +321,7 @@ func newRecordingQueueStore(store exec.QueueStore, targetActive int) *recordingQ
 	}
 }
 
-func (s *recordingQueueStore) Enqueue(ctx context.Context, name string, priority exec.QueuePriority, dagRun dagrun.DAGRunRef) error {
+func (s *recordingQueueStore) Enqueue(ctx context.Context, name string, priority queue.QueuePriority, dagRun dagrun.DAGRunRef) error {
 	s.mu.Lock()
 	s.active++
 	if s.active > s.maxActive {

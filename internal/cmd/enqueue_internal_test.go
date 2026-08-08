@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -210,7 +210,7 @@ type enqueueObservingQueueStore struct {
 	enqueued bool
 }
 
-func (s *enqueueObservingQueueStore) Enqueue(context.Context, string, exec.QueuePriority, dagrun.DAGRunRef) error {
+func (s *enqueueObservingQueueStore) Enqueue(context.Context, string, queue.QueuePriority, dagrun.DAGRunRef) error {
 	if !s.attempt.closed {
 		return errors.New("status attempt was not closed before queue enqueue")
 	}
@@ -221,8 +221,8 @@ func (s *enqueueObservingQueueStore) Enqueue(context.Context, string, exec.Queue
 	return nil
 }
 
-func (s *enqueueObservingQueueStore) DequeueByDAGRunID(context.Context, string, dagrun.DAGRunRef) ([]exec.QueuedItemData, error) {
-	return nil, exec.ErrQueueItemNotFound
+func (s *enqueueObservingQueueStore) DequeueByDAGRunID(context.Context, string, dagrun.DAGRunRef) ([]queue.QueuedItemData, error) {
+	return nil, queue.ErrQueueItemNotFound
 }
 
 func (s *enqueueObservingQueueStore) DeleteByItemIDs(context.Context, string, []string) (int, error) {
@@ -233,19 +233,19 @@ func (s *enqueueObservingQueueStore) Len(context.Context, string) (int, error) {
 	return 0, nil
 }
 
-func (s *enqueueObservingQueueStore) List(context.Context, string) ([]exec.QueuedItemData, error) {
+func (s *enqueueObservingQueueStore) List(context.Context, string) ([]queue.QueuedItemData, error) {
 	return nil, nil
 }
 
-func (s *enqueueObservingQueueStore) ListCursor(context.Context, string, string, int) (pagination.CursorResult[exec.QueuedItemData], error) {
-	return pagination.CursorResult[exec.QueuedItemData]{}, nil
+func (s *enqueueObservingQueueStore) ListCursor(context.Context, string, string, int) (pagination.CursorResult[queue.QueuedItemData], error) {
+	return pagination.CursorResult[queue.QueuedItemData]{}, nil
 }
 
-func (s *enqueueObservingQueueStore) All(context.Context) ([]exec.QueuedItemData, error) {
+func (s *enqueueObservingQueueStore) All(context.Context) ([]queue.QueuedItemData, error) {
 	return nil, nil
 }
 
-func (s *enqueueObservingQueueStore) ListByDAGName(context.Context, string, string) ([]exec.QueuedItemData, error) {
+func (s *enqueueObservingQueueStore) ListByDAGName(context.Context, string, string) ([]queue.QueuedItemData, error) {
 	return nil, nil
 }
 
@@ -253,6 +253,6 @@ func (s *enqueueObservingQueueStore) QueueList(context.Context) ([]string, error
 	return nil, nil
 }
 
-func (s *enqueueObservingQueueStore) QueueWatcher(context.Context) exec.QueueWatcher {
+func (s *enqueueObservingQueueStore) QueueWatcher(context.Context) queue.QueueWatcher {
 	return nil
 }

@@ -19,6 +19,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
+	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/stretchr/testify/require"
 )
@@ -63,7 +64,7 @@ func TestScheduler_StandbyHealthServerStartsBeforeLockAndStopsCleanly(t *testing
 type haSchedulerFixture struct {
 	cfg         *config.Config
 	dagRunStore dagrun.DAGRunStore
-	queueStore  exec.QueueStore
+	queueStore  queuedomain.QueueStore
 	procStore   exec.ProcStore
 	dagRunMgr   runtime.Manager
 }

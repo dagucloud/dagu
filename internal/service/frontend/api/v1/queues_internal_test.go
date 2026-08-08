@@ -17,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -324,7 +325,7 @@ func createQueuedQueueRun(
 	t *testing.T,
 	ctx context.Context,
 	store dagrun.DAGRunStore,
-	queueStore exec.QueueStore,
+	queueStore queue.QueueStore,
 	name string,
 	dagRunID string,
 	status ir.Status,
@@ -357,7 +358,7 @@ func createQueuedQueueRun(
 	}
 
 	require.NoError(t, attempt.Write(ctx, runStatus))
-	require.NoError(t, queueStore.Enqueue(ctx, name, exec.QueuePriorityLow, dagrun.NewDAGRunRef(name, dagRunID)))
+	require.NoError(t, queueStore.Enqueue(ctx, name, queue.QueuePriorityLow, dagrun.NewDAGRunRef(name, dagRunID)))
 }
 
 func queueListLimitPtr(v int) *openapiv1.QueueListLimit {

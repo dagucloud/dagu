@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 )
 
 // Context contains the execution metadata for a dag-run.
@@ -34,7 +35,7 @@ type Context struct {
 	EnvScope             *cmnvalue.EnvScope // Unified environment scope for runtime variables
 	CoordinatorCli       Dispatcher
 	DAGRunStore          dagrun.DAGRunStore
-	QueueStore           QueueStore
+	QueueStore           queue.QueueStore
 	StateStore           dagstate.Store
 	MaterializationStore MaterializationStore
 	DAGRunLogDir         string
@@ -248,7 +249,7 @@ func WithDAGRunStore(store dagrun.DAGRunStore) ContextOption {
 }
 
 // WithQueueStore sets the queue store for executors that enqueue DAG runs.
-func WithQueueStore(store QueueStore) ContextOption {
+func WithQueueStore(store queue.QueueStore) ContextOption {
 	return func(o *contextOptions) {
 		o.QueueStore = store
 	}

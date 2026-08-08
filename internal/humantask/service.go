@@ -12,6 +12,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 )
 
 const (
@@ -76,7 +77,7 @@ func (e *ResumeError) Unwrap() error { return e.Err }
 // Service completes human tasks and queues recoverable retries.
 type Service struct {
 	DAGRunStore    dagrun.DAGRunStore
-	QueueStore     exec.QueueStore
+	QueueStore     queue.QueueStore
 	ProcStore      exec.ProcStore
 	Now            func() time.Time
 	SettleTimeout  time.Duration

@@ -8,9 +8,9 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -168,7 +168,7 @@ steps:
 	require.NoError(t, th.QueueStore.Enqueue(
 		th.Context,
 		dag.ProcGroup(),
-		exec.QueuePriorityLow,
+		queue.QueuePriorityLow,
 		dagrun.NewDAGRunRef(dag.Name, "stale-run"),
 	))
 
@@ -204,7 +204,7 @@ steps:
 	require.NoError(t, th.QueueStore.Enqueue(
 		th.Context,
 		dag.ProcGroup(),
-		exec.QueuePriorityLow,
+		queue.QueuePriorityLow,
 		runRef,
 	))
 

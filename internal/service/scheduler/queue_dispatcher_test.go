@@ -10,6 +10,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -73,7 +74,7 @@ func TestQueueDispatcher_SelectRunnableQueueItemsSkipsInvalidItems(t *testing.T)
 	dispatcher := newQueueDispatcher(queueDispatchDeps{})
 	validRef := dagrun.NewDAGRunRef("dag", "run-ok")
 
-	runnable, err := dispatcher.selectRunnableQueueItems(t.Context(), []exec.QueuedItemData{
+	runnable, err := dispatcher.selectRunnableQueueItems(t.Context(), []queuedomain.QueuedItemData{
 		testQueuedItem{id: "bad", err: fmt.Errorf("invalid queued item")},
 		testQueuedItem{id: "ok", ref: &validRef},
 	}, 1)

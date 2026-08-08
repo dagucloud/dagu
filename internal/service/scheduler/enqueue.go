@@ -11,10 +11,10 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagrun/intake"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 )
 
 // EnqueueCatchupRun enqueues a catchup run for a DAG.
@@ -32,7 +32,7 @@ import (
 func EnqueueCatchupRun(
 	ctx context.Context,
 	dagRunStore dagrun.DAGRunStore,
-	queueStore exec.QueueStore,
+	queueStore queuedomain.QueueStore,
 	baseLogDir string,
 	baseArtifactDir string,
 	baseConfig string,

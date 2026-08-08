@@ -39,6 +39,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/humantask"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/service/audit"
@@ -3058,7 +3059,7 @@ func retryPathRequestError(err error) error {
 	}
 }
 
-// enqueueRetry enqueues the retry and persists Queued status via exec.EnqueueRetry.
+// enqueueRetry enqueues the retry and persists Queued status via queue.EnqueueRetry.
 // Retries respect global queue capacity because the queue processor picks them up
 // when capacity is available.
 func (a *API) enqueueRetry(ctx context.Context, attempt dagrun.DAGRunAttempt, dag *ir.DAG) error {
@@ -3067,12 +3068,12 @@ func (a *API) enqueueRetry(ctx context.Context, attempt dagrun.DAGRunAttempt, da
 		return fmt.Errorf("error reading status: %w", err)
 	}
 	eventCtx := a.withEventContext(ctx)
-	opts := exec.EnqueueRetryOptions{}
+	opts := queue.EnqueueRetryOptions{}
 	if actor := triggerActorFromContext(ctx); actor != "" {
 		opts.TriggerActor = &actor
 	}
-	if _, err := exec.EnqueueRetry(eventCtx, a.dagRunStore, a.queueStore, dag, status, opts); err != nil {
-		if errors.Is(err, exec.ErrRetryStaleLatest) {
+	if _, err := queue.EnqueueRetry(eventCtx, a.dagRunStore, a.queueStore, dag, status, opts); err != nil {
+		if errors.Is(err, queue.ErrRetryStaleLatest) {
 			return &Error{
 				HTTPStatus: http.StatusBadRequest,
 				Code:       api.ErrorCodeBadRequest,
@@ -3291,10 +3292,10 @@ func (a *API) DequeueDAGRun(ctx context.Context, request api.DequeueDAGRunReques
 	}
 	defer a.procStore.Unlock(ctx, queueName)
 
-	if err := exec.AbortQueuedDAGRun(ctx, a.dagRunStore, dagRun); err != nil {
+	if err := queue.AbortQueuedDAGRun(ctx, a.dagRunStore, dagRun); err != nil {
 		return nil, mapAbortQueuedDAGRunAPIError(request.Name, request.DagRunId, err)
 	}
-	if _, err := a.queueStore.DequeueByDAGRunID(ctx, queueName, dagRun); err != nil && !errors.Is(err, exec.ErrQueueItemNotFound) {
+	if _, err := a.queueStore.DequeueByDAGRunID(ctx, queueName, dagRun); err != nil && !errors.Is(err, queue.ErrQueueItemNotFound) {
 		return nil, fmt.Errorf("error dequeueing dag-run: %w", err)
 	}
 

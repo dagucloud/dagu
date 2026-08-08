@@ -47,6 +47,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/output"
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/docker"
 	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/s3"
@@ -93,7 +94,7 @@ type Agent struct {
 	runStateStore runstate.Store
 
 	// queueStore is the database to store queued dag-run items.
-	queueStore exec.QueueStore
+	queueStore queue.QueueStore
 
 	// stateStore is the persistent state store shared across DAG runs.
 	stateStore dagstate.Store
@@ -332,7 +333,7 @@ type Options struct {
 	// DAGRunStore is the store for dag-run data. Nil for remote worker execution.
 	DAGRunStore dagrun.DAGRunStore
 	// QueueStore is the store for queued dag-run items. Nil when queues are unavailable.
-	QueueStore exec.QueueStore
+	QueueStore queue.QueueStore
 	// StateStore is the persistent state store shared across DAG runs.
 	StateStore dagstate.Store
 	// MaterializationStore coordinates incremental file materializations.

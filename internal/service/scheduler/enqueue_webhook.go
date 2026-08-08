@@ -11,10 +11,10 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagrun/intake"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 )
 
 // EnqueueWebhookRun enqueues a webhook-triggered run while preserving the same
@@ -22,7 +22,7 @@ import (
 func EnqueueWebhookRun(
 	ctx context.Context,
 	dagRunStore dagrun.DAGRunStore,
-	queueStore exec.QueueStore,
+	queueStore queuedomain.QueueStore,
 	baseLogDir string,
 	baseArtifactDir string,
 	baseConfig string,

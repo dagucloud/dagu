@@ -19,6 +19,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/humantask"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	"github.com/spf13/cobra"
 )
@@ -234,7 +235,7 @@ func runRetry(ctx *Context, args []string) error {
 		parent:       status.Parent,
 		workerID:     workerID,
 		attemptID:    attemptID,
-		triggerType:  exec.PreservedQueueTriggerType(status),
+		triggerType:  queue.PreservedQueueTriggerType(status),
 		triggerActor: triggerActor,
 		scheduleTime: status.ScheduleTime,
 		profileName:  profileName,
@@ -440,21 +441,21 @@ func findRetryAttempt(
 	return dagRunStore.FindSubAttempt(ctx, rootRun, ref.ID)
 }
 
-func newQueueDispatchNotQueuedError(status *dagrun.DAGRunStatus) *exec.DAGRunNotQueuedError {
+func newQueueDispatchNotQueuedError(status *dagrun.DAGRunStatus) *queue.DAGRunNotQueuedError {
 	if status == nil {
-		return &exec.DAGRunNotQueuedError{}
+		return &queue.DAGRunNotQueuedError{}
 	}
-	return &exec.DAGRunNotQueuedError{Status: status.Status, HasStatus: true}
+	return &queue.DAGRunNotQueuedError{Status: status.Status, HasStatus: true}
 }
 
-// enqueueRetry enqueues the retry and persists Queued status via exec.EnqueueRetry.
+// enqueueRetry enqueues the retry and persists Queued status via queue.EnqueueRetry.
 // Retries respect global queue capacity because the queue processor picks them up
 // when capacity is available.
 func enqueueRetry(ctx *Context, dag *ir.DAG, status *dagrun.DAGRunStatus, triggerActor string) error {
-	if _, err := exec.EnqueueRetry(ctx.Context, ctx.DAGRunStore, ctx.QueueStore, dag, status, exec.EnqueueRetryOptions{
+	if _, err := queue.EnqueueRetry(ctx.Context, ctx.DAGRunStore, ctx.QueueStore, dag, status, queue.EnqueueRetryOptions{
 		TriggerActor: &triggerActor,
 	}); err != nil {
-		if errors.Is(err, exec.ErrRetryStaleLatest) {
+		if errors.Is(err, queue.ErrRetryStaleLatest) {
 			return fmt.Errorf("dag-run state changed before retry could be queued")
 		}
 		return err
@@ -472,7 +473,7 @@ func enqueueRetry(ctx *Context, dag *ir.DAG, status *dagrun.DAGRunStatus, trigge
 // previously broken queued catchup statuses may have an empty log path, so
 // this fills it in and persists the repaired status before execution.
 func prepareQueuedCatchupRetry(ctx *Context, attempt dagrun.DAGRunAttempt, dag *ir.DAG, status *dagrun.DAGRunStatus) error {
-	if !exec.IsQueuedCatchup(status) || (status.Log != "" && (!dag.ArtifactsEnabled() || status.ArchiveDir != "")) {
+	if !queue.IsQueuedCatchup(status) || (status.Log != "" && (!dag.ArtifactsEnabled() || status.ArchiveDir != "")) {
 		return nil
 	}
 
@@ -628,7 +629,7 @@ func executeRetry(ctx *Context, dag *ir.DAG, status *dagrun.DAGRunStatus, opts r
 	}
 
 	as := ctx.runtimeStores()
-	triggerType := exec.PreservedQueueTriggerType(status)
+	triggerType := queue.PreservedQueueTriggerType(status)
 	if triggerType == ir.TriggerTypeUnknown {
 		triggerType = ir.TriggerTypeRetry
 	}

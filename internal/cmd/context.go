@@ -36,6 +36,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/license"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
@@ -63,7 +64,7 @@ type Context struct {
 	DAGRunStore               dagrun.DAGRunStore
 	DAGRunMgr                 runtime.Manager
 	ProcStore                 exec.ProcStore
-	QueueStore                exec.QueueStore
+	QueueStore                queue.QueueStore
 	StateStore                dagstate.Store
 	ServiceRegistry           exec.ServiceRegistry
 	DispatchTaskStore         exec.DispatchTaskStore

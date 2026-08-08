@@ -12,6 +12,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
 	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/profile"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
@@ -29,7 +30,7 @@ type SubWorkflowRunnerConfig struct {
 	DAGStoreFactory   DAGStoreFactory
 	DAGRunStore       dagrun.DAGRunStore
 	RunStateStore     runstate.Store
-	QueueStore        exec.QueueStore
+	QueueStore        queue.QueueStore
 	StateStore        dagstate.Store
 	SecretStore       secret.Store
 	ProfileStore      profile.Store

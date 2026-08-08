@@ -20,12 +20,13 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
 type queueDispatchDeps struct {
-	queueStore             exec.QueueStore
+	queueStore             queuedomain.QueueStore
 	dagRunStore            dagrun.DAGRunStore
 	procStore              exec.ProcStore
 	dagRunLeaseStore       exec.DAGRunLeaseStore
@@ -41,7 +42,7 @@ type queueDispatchDeps struct {
 
 // queueDispatcher owns queue-item dispatch decisions after a queue has capacity.
 type queueDispatcher struct {
-	queueStore             exec.QueueStore
+	queueStore             queuedomain.QueueStore
 	dagRunStore            dagrun.DAGRunStore
 	procStore              exec.ProcStore
 	dagRunLeaseStore       exec.DAGRunLeaseStore
@@ -59,7 +60,7 @@ type queueDispatcher struct {
 }
 
 type queueDispatchBatch struct {
-	items                 []exec.QueuedItemData
+	items                 []queuedomain.QueuedItemData
 	maxConcurrency        int
 	aliveCount            int
 	nonAdmissionOccupancy int
@@ -321,8 +322,8 @@ type queuedConditionStage struct {
 
 func (d *queueDispatcher) queuedConditionItemsForRefresh(
 	queueName string,
-	items []exec.QueuedItemData,
-) []exec.QueuedItemData {
+	items []queuedomain.QueuedItemData,
+) []queuedomain.QueuedItemData {
 	if len(items) <= queuedConditionRefreshBatchLimit {
 		return items
 	}
@@ -332,7 +333,7 @@ func (d *queueDispatcher) queuedConditionItemsForRefresh(
 	d.queuedConditionCursor[queueName] = (start + queuedConditionRefreshBatchLimit) % len(items)
 	d.queuedConditionCursorMu.Unlock()
 
-	selected := make([]exec.QueuedItemData, 0, queuedConditionRefreshBatchLimit)
+	selected := make([]queuedomain.QueuedItemData, 0, queuedConditionRefreshBatchLimit)
 	for i := range queuedConditionRefreshBatchLimit {
 		selected = append(selected, items[(start+i)%len(items)])
 	}
@@ -365,7 +366,7 @@ func (d *queueDispatcher) newQueuedConditionStage(
 func (d *queueDispatcher) newQueuedConditionStageFromItem(
 	ctx context.Context,
 	queueName string,
-	item exec.QueuedItemData,
+	item queuedomain.QueuedItemData,
 ) *queuedConditionStage {
 	if d == nil || d.dagRunStore == nil || item == nil {
 		return nil
@@ -547,7 +548,7 @@ func (s *queuedConditionStage) itemStillQueued(ctx context.Context) bool {
 func (d *queueDispatcher) selectDispatchBatch(
 	ctx context.Context,
 	queueName string,
-	items []exec.QueuedItemData,
+	items []queuedomain.QueuedItemData,
 	maxConcurrency int,
 	inflightCount int,
 ) (queueDispatchBatch, error) {
@@ -613,7 +614,7 @@ func (d *queueDispatcher) selectDispatchBatch(
 
 func (d *queueDispatcher) dispatchQueuedItem(
 	ctx context.Context,
-	item exec.QueuedItemData,
+	item queuedomain.QueuedItemData,
 	queueName string,
 	batch queueDispatchBatch,
 	incInflight,
@@ -776,7 +777,7 @@ func (d *queueDispatcher) dropSuspendedQueuedRun(
 		return fmt.Errorf("abort suspended queued DAG run: %w", err)
 	}
 
-	if _, err := d.queueStore.DequeueByDAGRunID(ctx, queueName, runRef); err != nil && !errors.Is(err, exec.ErrQueueItemNotFound) {
+	if _, err := d.queueStore.DequeueByDAGRunID(ctx, queueName, runRef); err != nil && !errors.Is(err, queuedomain.ErrQueueItemNotFound) {
 		return fmt.Errorf("dequeue suspended queued DAG run: %w", err)
 	}
 
@@ -836,7 +837,7 @@ func (d *queueDispatcher) dispatchAndWaitForStartupWithConditions(
 			err := d.dagExecutor.ExecuteDAGWithAdmission(ctx, dag, exec.DispatchOperationRetry,
 				runID, dagStatus, dagStatus.TriggerType, dagStatus.ScheduleTime, admissionReservationToken)
 			if err != nil {
-				var staleErr *exec.StaleQueueDispatchError
+				var staleErr *queuedomain.StaleQueueDispatchError
 				if errors.As(err, &staleErr) {
 					return backoff.PermanentError(err)
 				}
@@ -863,7 +864,7 @@ func (d *queueDispatcher) dispatchAndWaitForStartupWithConditions(
 
 	if err := backoff.Retry(retryCtx, operation, policy, nil); err != nil {
 		d.releaseAdmissionToken(ctx, admissionReservationToken)
-		var staleErr *exec.StaleQueueDispatchError
+		var staleErr *queuedomain.StaleQueueDispatchError
 		if errors.As(err, &staleErr) {
 			logger.Info(ctx, "Discarding stale distributed queue dispatch",
 				tag.DAG(runRef.Name),
@@ -1224,23 +1225,23 @@ func (d *queueDispatcher) inStartupGracePeriod(launchedAt time.Time) bool {
 
 func (d *queueDispatcher) selectRunnableQueueItems(
 	ctx context.Context,
-	items []exec.QueuedItemData,
+	items []queuedomain.QueuedItemData,
 	freeSlots int,
-) ([]exec.QueuedItemData, error) {
+) ([]queuedomain.QueuedItemData, error) {
 	return d.selectRunnableQueueItemsInQueue(ctx, "", items, freeSlots)
 }
 
 func (d *queueDispatcher) selectRunnableQueueItemsInQueue(
 	ctx context.Context,
 	queueName string,
-	items []exec.QueuedItemData,
+	items []queuedomain.QueuedItemData,
 	freeSlots int,
-) ([]exec.QueuedItemData, error) {
+) ([]queuedomain.QueuedItemData, error) {
 	if freeSlots <= 0 {
 		return nil, nil
 	}
 
-	runnable := make([]exec.QueuedItemData, 0, min(freeSlots, len(items)))
+	runnable := make([]queuedomain.QueuedItemData, 0, min(freeSlots, len(items)))
 	for _, item := range items {
 		if len(runnable) >= freeSlots {
 			break
@@ -1321,7 +1322,7 @@ func errorMessage(err error) string {
 func (d *queueDispatcher) recordCapacityUnavailableConditions(
 	ctx context.Context,
 	queueName string,
-	items []exec.QueuedItemData,
+	items []queuedomain.QueuedItemData,
 	checkOutstandingDispatch bool,
 ) {
 	items = d.queuedConditionItemsForRefresh(queueName, items)
@@ -1350,7 +1351,7 @@ func (d *queueDispatcher) recordCapacityUnavailableConditions(
 func (d *queueDispatcher) recordQueueStateUnavailableConditions(
 	ctx context.Context,
 	queueName string,
-	items []exec.QueuedItemData,
+	items []queuedomain.QueuedItemData,
 ) {
 	items = d.queuedConditionItemsForRefresh(queueName, items)
 	for _, item := range items {

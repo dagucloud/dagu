@@ -21,6 +21,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 )
 
 // Histogram bucket definitions
@@ -40,7 +41,7 @@ type Collector struct {
 	version              string
 	dagStore             dagstore.DAGStore
 	dagRunStore          dagrun.DAGRunStore
-	queueStore           exec.QueueStore
+	queueStore           queue.QueueStore
 	serviceRegistry      exec.ServiceRegistry
 	workerHeartbeatStore exec.WorkerHeartbeatStore
 	caches               []fileutil.CacheMetrics
@@ -82,7 +83,7 @@ func NewCollector(
 	version string,
 	dagStore dagstore.DAGStore,
 	dagRunStore dagrun.DAGRunStore,
-	queueStore exec.QueueStore,
+	queueStore queue.QueueStore,
 	serviceRegistry exec.ServiceRegistry,
 ) *Collector {
 	return &Collector{

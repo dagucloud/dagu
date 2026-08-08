@@ -17,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -373,7 +374,7 @@ func TestQueueDispatcher_DispatchAndWaitForStartup_StaleQueueDispatchIsDiscarded
 
 	disp := &mockDispatcher{
 		errFunc: func(_ int32) error {
-			return backoff.PermanentError(&exec.StaleQueueDispatchError{
+			return backoff.PermanentError(&queuedomain.StaleQueueDispatchError{
 				Reason: "queued attempt was superseded",
 			})
 		},
@@ -408,7 +409,7 @@ func TestQueueDispatcher_DispatchAndWaitForStartup_RawStaleQueueDispatchStopsRet
 
 	disp := &mockDispatcher{
 		errFunc: func(_ int32) error {
-			return &exec.StaleQueueDispatchError{Reason: "queued attempt was superseded"}
+			return &queuedomain.StaleQueueDispatchError{Reason: "queued attempt was superseded"}
 		},
 	}
 

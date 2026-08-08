@@ -12,6 +12,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
@@ -22,7 +23,7 @@ import (
 type Scheduler struct {
 	Helper
 	EntryReader    scheduler.EntryReader
-	QueueStore     exec.QueueStore
+	QueueStore     queue.QueueStore
 	CoordinatorCli exec.Dispatcher
 }
 

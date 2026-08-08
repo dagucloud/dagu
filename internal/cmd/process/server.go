@@ -15,6 +15,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/license"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/service/frontend"
 	apiv1 "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
@@ -27,7 +28,7 @@ type ServerConfig struct {
 	Context              context.Context
 	Config               *config.Config
 	DAGRunStore          dagrun.DAGRunStore
-	QueueStore           exec.QueueStore
+	QueueStore           queue.QueueStore
 	ProcStore            exec.ProcStore
 	DAGRunManager        runtime.Manager
 	ServiceRegistry      exec.ServiceRegistry

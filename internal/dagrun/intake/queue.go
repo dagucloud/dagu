@@ -13,9 +13,9 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 )
 
@@ -23,7 +23,7 @@ import (
 // attempt before publishing the queue item.
 type QueueRequest struct {
 	DAGRunStore dagrun.DAGRunStore
-	QueueStore  exec.QueueStore
+	QueueStore  queue.QueueStore
 	DAG         *ir.DAG
 	DAGRunID    string
 
@@ -109,7 +109,7 @@ func EnqueueRun(ctx context.Context, req QueueRequest) (*QueuedRun, error) {
 		return nil, err
 	}
 
-	if err := req.QueueStore.Enqueue(ctx, queueName, exec.QueuePriorityLow, dagRun); err != nil {
+	if err := req.QueueStore.Enqueue(ctx, queueName, queue.QueuePriorityLow, dagRun); err != nil {
 		return nil, joinCloseAndEnqueue(
 			wrapCloseErr(writeResult.closeErr),
 			fmt.Errorf("failed to enqueue DAG run: %w", err),

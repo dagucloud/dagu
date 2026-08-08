@@ -23,6 +23,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
@@ -496,7 +497,7 @@ func handleSubDAGRun(ctx *Context, dag *ir.DAG, dagRunID string, params string, 
 
 	retry := opts
 	retry.parent = status.Parent
-	retry.triggerType = exec.PreservedQueueTriggerType(status)
+	retry.triggerType = queue.PreservedQueueTriggerType(status)
 	retry.triggerActor = status.TriggerActor
 	retry.scheduleTime = status.ScheduleTime
 
