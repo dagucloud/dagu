@@ -18,10 +18,10 @@ type ToolCallFunction struct {
 
 // LLMMessage represents a persisted message in an LLM session.
 type LLMMessage struct {
-	Role       LLMRole            `json:"role"`
-	Content    string             `json:"content"`
-	ToolCallID string             `json:"tool_call_id,omitempty"`
-	ToolCalls  []ToolCall         `json:"tool_calls,omitempty"`
+	Role       LLMRole             `json:"role"`
+	Content    string              `json:"content"`
+	ToolCallID string              `json:"tool_call_id,omitempty"`
+	ToolCalls  []ToolCall          `json:"tool_calls,omitempty"`
 	Metadata   *LLMMessageMetadata `json:"metadata,omitempty"`
 }
 

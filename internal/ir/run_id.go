@@ -22,7 +22,7 @@ const (
 )
 
 var (
-	reDAGRunID            = regexp.MustCompile(`^[-a-zA-Z0-9_]+$`)
+	reDAGRunID             = regexp.MustCompile(`^[-a-zA-Z0-9_]+$`)
 	ErrInvalidRunRefFormat = errors.New("invalid dag-run reference format")
 )
 
