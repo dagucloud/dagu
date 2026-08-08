@@ -53,6 +53,23 @@ func TestRevisionSnapshotOnUpdate(t *testing.T) {
 	assert.Equal(t, "v1\n", oldest.Content)
 }
 
+func TestRevisionSnapshotsEmptyPriorContent(t *testing.T) {
+	store := newTestStoreWithRevisions(t)
+	ctx := context.Background()
+
+	// The first save of a document created empty must still enter history.
+	require.NoError(t, store.Create(ctx, "doc", ""))
+	require.NoError(t, store.Update(ctx, "doc", "v1"))
+
+	revisions, err := store.ListRevisions(ctx, "doc")
+	require.NoError(t, err)
+	require.Len(t, revisions, 1)
+
+	revision, err := store.GetRevision(ctx, "doc", revisions[0].Rev)
+	require.NoError(t, err)
+	assert.Empty(t, revision.Content)
+}
+
 func TestRevisionSkipsUnchangedContent(t *testing.T) {
 	store := newTestStoreWithRevisions(t)
 	ctx := context.Background()

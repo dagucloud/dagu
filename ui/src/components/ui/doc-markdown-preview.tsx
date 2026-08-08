@@ -14,7 +14,7 @@ import {
   remarkWikilink,
   WIKILINK_DAG_PREFIX,
 } from '@/lib/remark-wikilink';
-import { isValidElement, type ReactNode } from 'react';
+import { isValidElement, useEffect, useState, type ReactNode } from 'react';
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import { Link } from 'react-router-dom';
 import remarkGfm from 'remark-gfm';
@@ -32,14 +32,23 @@ const ATTACHMENT_SCHEME = 'attachment:';
 // A bare file name with an extension (no slash, no scheme) also resolves as
 // an attachment of the containing document, keeping hand-written
 // ![](image.png) references portable.
+function safeDecode(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    // Keep the raw value when it is not valid percent-encoding.
+    return value;
+  }
+}
+
 function attachmentNameFromSrc(src: string | undefined): string | null {
   if (!src) return null;
   if (src.startsWith(ATTACHMENT_SCHEME)) {
-    const name = decodeURIComponent(src.slice(ATTACHMENT_SCHEME.length));
+    const name = safeDecode(src.slice(ATTACHMENT_SCHEME.length));
     return name || null;
   }
   if (src.includes('/') || src.includes(':')) return null;
-  return src.includes('.') ? decodeURIComponent(src) : null;
+  return src.includes('.') ? safeDecode(src) : null;
 }
 
 /**
@@ -146,6 +155,46 @@ function WikilinkAnchor({ href, linkContext, children }: WikilinkAnchorProps) {
   );
 }
 
+type DocAttachmentLinkProps = {
+  name: string;
+  linkContext: DocLinkContext;
+  children: ReactNode;
+};
+
+// Anchor for a non-image attachment: fetches the blob on demand and triggers
+// a browser download, since the attachment: scheme is not navigable.
+function DocAttachmentLink({ name, linkContext, children }: DocAttachmentLinkProps) {
+  const [requested, setRequested] = useState(false);
+  const { url, error } = useDocAttachmentUrl(
+    requested ? linkContext.docPath : null,
+    linkContext.workspace,
+    requested ? name : null
+  );
+
+  useEffect(() => {
+    if (!requested || !url) return;
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = name;
+    anchor.click();
+    setRequested(false);
+  }, [requested, url, name]);
+
+  return (
+    <a
+      href={`attachment:${encodeURIComponent(name)}`}
+      className={error ? 'wikilink wikilink-inert' : 'wikilink'}
+      title={error ? `Attachment not found: ${name}` : `Download ${name}`}
+      onClick={(e) => {
+        e.preventDefault();
+        setRequested(true);
+      }}
+    >
+      {children}
+    </a>
+  );
+}
+
 type DocAttachmentImageProps = {
   name: string;
   alt?: string;
@@ -196,6 +245,17 @@ export function DocMarkdownPreview({
                 <WikilinkAnchor href={href} linkContext={linkContext}>
                   {children}
                 </WikilinkAnchor>
+              );
+            }
+            if (href?.startsWith(ATTACHMENT_SCHEME)) {
+              const name = safeDecode(href.slice(ATTACHMENT_SCHEME.length));
+              if (!name || !linkContext) {
+                return <span className="wikilink wikilink-inert">{children}</span>;
+              }
+              return (
+                <DocAttachmentLink name={name} linkContext={linkContext}>
+                  {children}
+                </DocAttachmentLink>
               );
             }
             if (href?.startsWith('http://') || href?.startsWith('https://')) {

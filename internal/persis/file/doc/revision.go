@@ -105,7 +105,7 @@ func newDocRevisionName(now time.Time) string {
 // overwrite. Failures must not fail the save; the caller logs the error.
 // Callers hold mutationMu, which serializes manifest read-modify-write.
 func (s *Store) snapshotRevision(id string, prior []byte, next []byte) error {
-	if !s.revisionsEnabled() || len(prior) == 0 || string(prior) == string(next) {
+	if !s.revisionsEnabled() || string(prior) == string(next) {
 		return nil
 	}
 	manifest, err := s.loadRevisionsManifest()
