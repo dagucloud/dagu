@@ -12,6 +12,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
@@ -32,13 +33,13 @@ type dagRetryMetadata struct {
 }
 
 type retryCandidateLister interface {
-	ListRetryCandidates(ctx context.Context, from exec.TimeInUTC) ([]*exec.DAGRunStatus, error)
+	ListRetryCandidates(ctx context.Context, from dagrun.TimeInUTC) ([]*dagrun.DAGRunStatus, error)
 }
 
 // RetryScanner periodically discovers failed latest attempts and enqueues
 // DAG-level retries once their backoff has elapsed.
 type RetryScanner struct {
-	dagRunStore exec.DAGRunStore
+	dagRunStore dagrun.DAGRunStore
 	queueStore  exec.QueueStore
 	isSuspended IsSuspendedFunc
 	retryWindow time.Duration
@@ -46,7 +47,7 @@ type RetryScanner struct {
 }
 
 func NewRetryScanner(
-	dagRunStore exec.DAGRunStore,
+	dagRunStore dagrun.DAGRunStore,
 	queueStore exec.QueueStore,
 	isSuspended IsSuspendedFunc,
 	retryWindow time.Duration,
@@ -93,7 +94,7 @@ func (s *RetryScanner) Start(ctx context.Context) {
 
 func (s *RetryScanner) scan(ctx context.Context) error {
 	now := s.clock().UTC()
-	from := exec.NewUTC(now.Add(-s.retryWindow))
+	from := dagrun.NewUTC(now.Add(-s.retryWindow))
 
 	failedRuns, err := s.listFailedRuns(ctx, from)
 	if err != nil {
@@ -115,20 +116,20 @@ func (s *RetryScanner) scan(ctx context.Context) error {
 	return nil
 }
 
-func (s *RetryScanner) listFailedRuns(ctx context.Context, from exec.TimeInUTC) ([]*exec.DAGRunStatus, error) {
+func (s *RetryScanner) listFailedRuns(ctx context.Context, from dagrun.TimeInUTC) ([]*dagrun.DAGRunStatus, error) {
 	if lister, ok := s.dagRunStore.(retryCandidateLister); ok {
 		return lister.ListRetryCandidates(ctx, from)
 	}
 	return s.dagRunStore.ListStatuses(ctx,
-		exec.WithStatuses([]ir.Status{ir.Failed}),
-		exec.WithFrom(from),
-		exec.WithoutLimit(),
+		dagrun.WithStatuses([]ir.Status{ir.Failed}),
+		dagrun.WithFrom(from),
+		dagrun.WithoutLimit(),
 	)
 }
 
 func (s *RetryScanner) processFailedRun(
 	ctx context.Context,
-	listed *exec.DAGRunStatus,
+	listed *dagrun.DAGRunStatus,
 	now time.Time,
 ) error {
 	if listed == nil {
@@ -142,7 +143,7 @@ func (s *RetryScanner) processFailedRun(
 
 func (s *RetryScanner) processFailedRunFromSummary(
 	ctx context.Context,
-	listed *exec.DAGRunStatus,
+	listed *dagrun.DAGRunStatus,
 	metadata dagRetryMetadata,
 	now time.Time,
 ) error {
@@ -196,7 +197,7 @@ func (s *RetryScanner) processFailedRunFromSummary(
 
 func (s *RetryScanner) processFailedRunLegacy(
 	ctx context.Context,
-	listed *exec.DAGRunStatus,
+	listed *dagrun.DAGRunStatus,
 	now time.Time,
 ) error {
 	ref := listed.DAGRun()
@@ -277,7 +278,7 @@ func (s *RetryScanner) processFailedRunLegacy(
 
 func (s *RetryScanner) evaluateRetryDecision(
 	_ context.Context,
-	status *exec.DAGRunStatus,
+	status *dagrun.DAGRunStatus,
 	metadata dagRetryMetadata,
 	now time.Time,
 ) retryDecision {
@@ -314,7 +315,7 @@ func dagRetryDelay(interval time.Duration, backoff float64, maxInterval time.Dur
 	return ir.CalculateBackoffInterval(interval, backoff, maxInterval, retryCount)
 }
 
-func retryReferenceTime(status *exec.DAGRunStatus) (time.Time, bool) {
+func retryReferenceTime(status *dagrun.DAGRunStatus) (time.Time, bool) {
 	if status == nil {
 		return time.Time{}, false
 	}
@@ -341,7 +342,7 @@ func parseRFC3339(val string) (time.Time, bool) {
 	return parsed, true
 }
 
-func retryMetadataFromStatus(status *exec.DAGRunStatus) (dagRetryMetadata, bool) {
+func retryMetadataFromStatus(status *dagrun.DAGRunStatus) (dagRetryMetadata, bool) {
 	if status == nil || status.ProcGroup == "" {
 		return dagRetryMetadata{}, false
 	}

@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	notificationmodel "github.com/dagucloud/dagu/v2/internal/notification"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
@@ -661,7 +662,7 @@ func notificationEventForRun(t *testing.T, dagRunID string) chatbridge.Notificat
 	t.Helper()
 	return chatbridge.NotificationEvent{
 		Type: eventstore.TypeDAGRunFailed,
-		Status: &exec.DAGRunStatus{
+		Status: &dagrun.DAGRunStatus{
 			Name:     "daily-report",
 			DAGRunID: dagRunID,
 			Status:   ir.Failed,
@@ -674,7 +675,7 @@ func TestRenderWebhookBodyTemplateEscapesValues(t *testing.T) {
 
 	event := chatbridge.NotificationEvent{
 		Type: eventstore.TypeDAGRunFailed,
-		Status: &exec.DAGRunStatus{
+		Status: &dagrun.DAGRunStatus{
 			Name:     "daily-report",
 			DAGRunID: "run-1",
 			Status:   ir.Failed,
@@ -964,9 +965,9 @@ func TestNotificationTemplateRunPathSupportsSubDAGRun(t *testing.T) {
 
 	event := chatbridge.NotificationEvent{
 		Type: eventstore.TypeDAGRunFailed,
-		Status: &exec.DAGRunStatus{
-			Root:     exec.NewDAGRunRef("root dag", "root run"),
-			Parent:   exec.NewDAGRunRef("root dag", "root run"),
+		Status: &dagrun.DAGRunStatus{
+			Root:     dagrun.NewDAGRunRef("root dag", "root run"),
+			Parent:   dagrun.NewDAGRunRef("root dag", "root run"),
 			Name:     "child dag",
 			DAGRunID: "child run",
 			Status:   ir.Failed,
@@ -993,11 +994,11 @@ func TestNotificationTemplateIncludesStepStatusLists(t *testing.T) {
 
 	event := chatbridge.NotificationEvent{
 		Type: eventstore.TypeDAGRunFailed,
-		Status: &exec.DAGRunStatus{
+		Status: &dagrun.DAGRunStatus{
 			Name:     "daily-report",
 			DAGRunID: "run-1",
 			Status:   ir.Failed,
-			Nodes: []*exec.Node{
+			Nodes: []*dagrun.Node{
 				{Step: ir.Step{Name: "fetch"}, Status: ir.NodeFailed},
 				{Step: ir.Step{Name: "publish"}, Status: ir.NodePartiallySucceeded},
 				{Step: ir.Step{Name: "cleanup"}, Status: ir.NodeAborted},
@@ -1005,7 +1006,7 @@ func TestNotificationTemplateIncludesStepStatusLists(t *testing.T) {
 				{
 					Step:   ir.Step{Name: "process"},
 					Status: ir.NodeFailed,
-					StatusDetails: []exec.NodeStatusDetail{
+					StatusDetails: []dagrun.NodeStatusDetail{
 						{Label: "customer-a", Status: ir.NodeFailed},
 						{Label: "customer-b", Status: ir.NodeSucceeded},
 					},
@@ -1013,7 +1014,7 @@ func TestNotificationTemplateIncludesStepStatusLists(t *testing.T) {
 				{
 					Step:   ir.Step{Name: "children"},
 					Status: ir.NodePartiallySucceeded,
-					StatusDetails: []exec.NodeStatusDetail{
+					StatusDetails: []dagrun.NodeStatusDetail{
 						{Label: "child-a", Status: ir.NodePartiallySucceeded},
 						{Label: "child-b", Status: ir.NodeAborted},
 					},
@@ -1035,8 +1036,8 @@ func TestNotificationTemplateIncludesStepStatusLists(t *testing.T) {
 		"Succeeded: prepare, process[customer-b]",
 	}, "\n"), rendered)
 
-	emptyEvent := chatbridge.NotificationEvent{Status: &exec.DAGRunStatus{
-		Nodes: []*exec.Node{{Step: ir.Step{Name: "fetch"}, Status: ir.NodeFailed}},
+	emptyEvent := chatbridge.NotificationEvent{Status: &dagrun.DAGRunStatus{
+		Nodes: []*dagrun.Node{{Step: ir.Step{Name: "fetch"}, Status: ir.NodeFailed}},
 	}}
 	assert.Empty(t, renderNotificationTemplate("{{run.succeeded_steps}}", emptyEvent, ""))
 }
@@ -1335,7 +1336,7 @@ func TestService_WorkspaceInheritUsesGlobalRoutesOnly(t *testing.T) {
 
 	destinations := svc.NotificationDestinationsForEvent(chatbridge.NotificationEvent{
 		Type: eventstore.TypeDAGRunFailed,
-		Status: &exec.DAGRunStatus{
+		Status: &dagrun.DAGRunStatus{
 			Name:   "daily-report",
 			Status: ir.Failed,
 			Labels: []string{"workspace=ops"},
@@ -1347,7 +1348,7 @@ func TestService_WorkspaceInheritUsesGlobalRoutesOnly(t *testing.T) {
 
 	defaultDestinations := svc.NotificationDestinationsForEvent(chatbridge.NotificationEvent{
 		Type:   eventstore.TypeDAGRunFailed,
-		Status: &exec.DAGRunStatus{Name: "daily-report", Status: ir.Failed},
+		Status: &dagrun.DAGRunStatus{Name: "daily-report", Status: ir.Failed},
 	})
 	assert.ElementsMatch(t, []string{
 		routeDestinationID(notificationmodel.RouteScopeGlobal, "", "global-route"),
@@ -1355,7 +1356,7 @@ func TestService_WorkspaceInheritUsesGlobalRoutesOnly(t *testing.T) {
 
 	invalidWorkspace := svc.NotificationDestinationsForEvent(chatbridge.NotificationEvent{
 		Type: eventstore.TypeDAGRunFailed,
-		Status: &exec.DAGRunStatus{
+		Status: &dagrun.DAGRunStatus{
 			Name:   "daily-report",
 			Status: ir.Failed,
 			Labels: []string{"workspace=ops", "workspace=engineering"},
@@ -1365,7 +1366,7 @@ func TestService_WorkspaceInheritUsesGlobalRoutesOnly(t *testing.T) {
 
 	assert.Empty(t, svc.NotificationDestinationsForEvent(chatbridge.NotificationEvent{
 		Type:   eventstore.TypeDAGRunSucceeded,
-		Status: &exec.DAGRunStatus{Name: "daily-report", Status: ir.Succeeded, Labels: []string{"workspace=ops"}},
+		Status: &dagrun.DAGRunStatus{Name: "daily-report", Status: ir.Succeeded, Labels: []string{"workspace=ops"}},
 	}))
 }
 
@@ -1412,7 +1413,7 @@ func TestService_WorkspaceConfiguredRoutesOverrideGlobalRoutes(t *testing.T) {
 
 	destinations := svc.NotificationDestinationsForEvent(chatbridge.NotificationEvent{
 		Type: eventstore.TypeDAGRunFailed,
-		Status: &exec.DAGRunStatus{
+		Status: &dagrun.DAGRunStatus{
 			Name:   "daily-report",
 			Status: ir.Failed,
 			Labels: []string{"workspace=ops"},
@@ -1459,7 +1460,7 @@ func TestService_ConfiguredWorkspaceWithoutRoutesSuppressesGlobalRoutes(t *testi
 
 	destinations := svc.NotificationDestinationsForEvent(chatbridge.NotificationEvent{
 		Type: eventstore.TypeDAGRunFailed,
-		Status: &exec.DAGRunStatus{
+		Status: &dagrun.DAGRunStatus{
 			Name:   "daily-report",
 			Status: ir.Failed,
 			Labels: []string{"workspace=ops"},
@@ -1523,7 +1524,7 @@ func TestService_DAGSettingsOverrideGlobalAndWorkspaceRoutes(t *testing.T) {
 	destinations := svc.NotificationDestinationsForEvent(chatbridge.NotificationEvent{
 		Type:    eventstore.TypeDAGRunFailed,
 		DAGFile: "daily-report-file",
-		Status: &exec.DAGRunStatus{
+		Status: &dagrun.DAGRunStatus{
 			Name:   "daily-report",
 			Status: ir.Failed,
 			Labels: []string{"workspace=ops"},
@@ -1568,7 +1569,7 @@ func TestService_DisabledDAGSettingsSuppressInheritedRoutes(t *testing.T) {
 
 	destinations := svc.NotificationDestinationsForEvent(chatbridge.NotificationEvent{
 		Type:   eventstore.TypeDAGRunFailed,
-		Status: &exec.DAGRunStatus{Name: "daily-report", Status: ir.Failed},
+		Status: &dagrun.DAGRunStatus{Name: "daily-report", Status: ir.Failed},
 	})
 	assert.Empty(t, destinations)
 }
@@ -1622,7 +1623,7 @@ func TestService_GlobalRouteFlushSkipsWorkspaceWithDisabledInheritance(t *testin
 		routeDestinationID(notificationmodel.RouteScopeGlobal, "", "global-route"),
 		chatbridge.NotificationBatch{Events: []chatbridge.NotificationEvent{{
 			Type: eventstore.TypeDAGRunFailed,
-			Status: &exec.DAGRunStatus{
+			Status: &dagrun.DAGRunStatus{
 				Name:   "daily-report",
 				Status: ir.Failed,
 				Labels: []string{"workspace=ops"},
@@ -1684,7 +1685,7 @@ func TestService_RouteFlushSkipsDAGWithConfiguredNotifications(t *testing.T) {
 		chatbridge.NotificationBatch{Events: []chatbridge.NotificationEvent{{
 			Type:    eventstore.TypeDAGRunFailed,
 			DAGFile: "daily-report-file",
-			Status: &exec.DAGRunStatus{
+			Status: &dagrun.DAGRunStatus{
 				Name:   "daily-report",
 				Status: ir.Failed,
 			},
@@ -1737,7 +1738,7 @@ func TestService_NotificationDestinationsForEventFiltersByDAGAndEvent(t *testing
 	waitingEvent := chatbridge.NotificationEvent{
 		Type:    eventstore.TypeDAGRunWaiting,
 		DAGFile: "daily-report-file",
-		Status: &exec.DAGRunStatus{
+		Status: &dagrun.DAGRunStatus{
 			Name:      "daily-report",
 			Status:    ir.Waiting,
 			DAGRunID:  "run-1",
@@ -1755,12 +1756,12 @@ func TestService_NotificationDestinationsForEventFiltersByDAGAndEvent(t *testing
 	assert.Empty(t, svc.NotificationDestinationsForEvent(chatbridge.NotificationEvent{
 		Type:    eventstore.TypeDAGRunFailed,
 		DAGFile: "daily-report-file",
-		Status:  &exec.DAGRunStatus{Name: "daily-report", Status: ir.Failed},
+		Status:  &dagrun.DAGRunStatus{Name: "daily-report", Status: ir.Failed},
 	}))
 	assert.Empty(t, svc.NotificationDestinationsForEvent(chatbridge.NotificationEvent{
 		Type:    eventstore.TypeDAGRunFailed,
 		DAGFile: "other-file",
-		Status:  &exec.DAGRunStatus{Name: "other-dag", Status: ir.Failed},
+		Status:  &dagrun.DAGRunStatus{Name: "other-dag", Status: ir.Failed},
 	}))
 }
 
@@ -1824,7 +1825,7 @@ func TestServicePartialSuccessRouting(t *testing.T) {
 			svc := New(newMemoryStore(settings), nil)
 			destinations := svc.NotificationDestinationsForEvent(chatbridge.NotificationEvent{
 				Type: tt.event,
-				Status: &exec.DAGRunStatus{
+				Status: &dagrun.DAGRunStatus{
 					Name:      "daily-report",
 					Status:    tt.status,
 					DAGRunID:  "run-1",
@@ -2036,7 +2037,7 @@ func TestService_ReusableChannelSubscriptionsDeliverForMatchingDAGEvent(t *testi
 	destinations := svc.NotificationDestinationsForEvent(chatbridge.NotificationEvent{
 		Type:    eventstore.TypeDAGRunFailed,
 		DAGFile: "daily-report-file",
-		Status: &exec.DAGRunStatus{
+		Status: &dagrun.DAGRunStatus{
 			Name:      "daily-report",
 			Status:    ir.Failed,
 			DAGRunID:  "run-1",
@@ -2049,7 +2050,7 @@ func TestService_ReusableChannelSubscriptionsDeliverForMatchingDAGEvent(t *testi
 		Events: []chatbridge.NotificationEvent{{
 			Type:       eventstore.TypeDAGRunFailed,
 			DAGFile:    "daily-report-file",
-			Status:     &exec.DAGRunStatus{Name: "daily-report", Status: ir.Failed, DAGRunID: "run-1"},
+			Status:     &dagrun.DAGRunStatus{Name: "daily-report", Status: ir.Failed, DAGRunID: "run-1"},
 			ObservedAt: time.Now().UTC(),
 		}},
 	}, false)
@@ -2060,7 +2061,7 @@ func TestService_ReusableChannelSubscriptionsDeliverForMatchingDAGEvent(t *testi
 	assert.Empty(t, svc.NotificationDestinationsForEvent(chatbridge.NotificationEvent{
 		Type:    eventstore.TypeDAGRunSucceeded,
 		DAGFile: "daily-report-file",
-		Status:  &exec.DAGRunStatus{Name: "daily-report", Status: ir.Succeeded},
+		Status:  &dagrun.DAGRunStatus{Name: "daily-report", Status: ir.Succeeded},
 	}))
 }
 
@@ -2114,7 +2115,7 @@ func TestService_DisabledReusableChannelGateSkipsSubscriptions(t *testing.T) {
 
 	event := chatbridge.NotificationEvent{
 		Type: eventstore.TypeDAGRunFailed,
-		Status: &exec.DAGRunStatus{
+		Status: &dagrun.DAGRunStatus{
 			Name:      "daily-report",
 			Status:    ir.Failed,
 			DAGRunID:  "run-1",

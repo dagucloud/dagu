@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/require"
@@ -312,10 +312,10 @@ steps:
 `)
 
 	runID := "existing-run"
-	attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dag.DAG, time.Now(), runID, exec.NewDAGRunAttemptOptions{})
+	attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dag.DAG, time.Now(), runID, dagrun.NewDAGRunAttemptOptions{})
 	require.NoError(t, err)
 
-	status := exec.InitialStatus(dag.DAG)
+	status := dagrun.InitialStatus(dag.DAG)
 	status.DAGRunID = runID
 	status.AttemptID = attempt.ID()
 	writeStatus(t, th.Context, attempt, status)
@@ -326,7 +326,7 @@ steps:
 	require.Error(t, err)
 	require.ErrorContains(t, err, "already exists")
 
-	latestAttempt, err := th.DAGRunStore.FindAttempt(th.Context, exec.NewDAGRunRef(dag.Name, runID))
+	latestAttempt, err := th.DAGRunStore.FindAttempt(th.Context, dagrun.NewDAGRunRef(dag.Name, runID))
 	require.NoError(t, err)
 	require.Equal(t, attempt.ID(), latestAttempt.ID())
 

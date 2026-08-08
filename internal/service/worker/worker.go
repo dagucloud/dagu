@@ -18,6 +18,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/sql"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/healthcheck"
@@ -68,7 +69,7 @@ var errTaskClaimRejectedBeforeExecution = errors.New("task claim rejected before
 
 const (
 	ownerRunHeartbeatCallTimeout = 10 * time.Second
-	ownerHeartbeatTimeout        = exec.DefaultStaleLeaseThreshold
+	ownerHeartbeatTimeout        = dagrun.DefaultStaleLeaseThreshold
 )
 
 // SetHandler sets a custom task executor for testing or custom execution logic

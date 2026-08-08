@@ -13,6 +13,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/dag"
@@ -42,7 +43,7 @@ func TestEnqueueExecutorPersistsInheritedProfile(t *testing.T) {
 			},
 		},
 	}
-	parentRun := exec.NewDAGRunRef(parent.Name, "parent-run")
+	parentRun := dagrun.NewDAGRunRef(parent.Name, "parent-run")
 	ctx := runtime.NewContext(
 		th.Context,
 		parent,
@@ -72,7 +73,7 @@ func TestEnqueueExecutorPersistsInheritedProfile(t *testing.T) {
 	execImpl.SetStdout(&stdout)
 	require.NoError(t, execImpl.Run(ctx))
 
-	attempt, err := th.DAGRunStore.FindAttempt(ctx, exec.NewDAGRunRef("child", "child-run"))
+	attempt, err := th.DAGRunStore.FindAttempt(ctx, dagrun.NewDAGRunRef("child", "child-run"))
 	require.NoError(t, err)
 	status, err := attempt.ReadStatus(ctx)
 	require.NoError(t, err)
@@ -80,7 +81,7 @@ func TestEnqueueExecutorPersistsInheritedProfile(t *testing.T) {
 	assert.Equal(t, ir.Queued, status.Status)
 	assert.Equal(t, ir.TriggerTypeSubDAG, status.TriggerType)
 	assert.Equal(t, "prod", status.ProfileName)
-	assert.Equal(t, exec.NewDAGRunRef("child", "child-run"), status.Root)
+	assert.Equal(t, dagrun.NewDAGRunRef("child", "child-run"), status.Root)
 	assert.True(t, status.Parent.Zero())
 }
 
@@ -104,7 +105,7 @@ func TestEnqueueWorkerSelector(t *testing.T) {
 			},
 		},
 	}
-	parentRun := exec.NewDAGRunRef(parent.Name, "parent-run")
+	parentRun := dagrun.NewDAGRunRef(parent.Name, "parent-run")
 	ctx := runtime.NewContext(
 		th.Context,
 		parent,
@@ -138,7 +139,7 @@ func TestEnqueueWorkerSelector(t *testing.T) {
 
 	require.NoError(t, execImpl.Run(ctx))
 
-	attempt, err := th.DAGRunStore.FindAttempt(ctx, exec.NewDAGRunRef("child", "child-run"))
+	attempt, err := th.DAGRunStore.FindAttempt(ctx, dagrun.NewDAGRunRef("child", "child-run"))
 	require.NoError(t, err)
 	child, err := attempt.ReadDAG(ctx)
 	require.NoError(t, err)
@@ -162,7 +163,7 @@ func TestSubDAGExecutorsRejectHumanTasks(t *testing.T) {
 			},
 		},
 	}
-	root := exec.NewDAGRunRef(parent.Name, "parent-run")
+	root := dagrun.NewDAGRunRef(parent.Name, "parent-run")
 	ctx := runtime.NewContext(
 		th.Context,
 		parent,
@@ -223,7 +224,7 @@ func TestEnqueueExecutorParallelHonorsMaxConcurrent(t *testing.T) {
 			},
 		},
 	}
-	parentRun := exec.NewDAGRunRef(parent.Name, "parent-run")
+	parentRun := dagrun.NewDAGRunRef(parent.Name, "parent-run")
 	queueStore := newRecordingQueueStore(th.QueueStore, 2)
 	ctx := runtime.NewContext(
 		th.Context,
@@ -320,7 +321,7 @@ func newRecordingQueueStore(store exec.QueueStore, targetActive int) *recordingQ
 	}
 }
 
-func (s *recordingQueueStore) Enqueue(ctx context.Context, name string, priority exec.QueuePriority, dagRun exec.DAGRunRef) error {
+func (s *recordingQueueStore) Enqueue(ctx context.Context, name string, priority exec.QueuePriority, dagRun dagrun.DAGRunRef) error {
 	s.mu.Lock()
 	s.active++
 	if s.active > s.maxActive {

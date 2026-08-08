@@ -11,7 +11,7 @@ import (
 	"testing"
 
 	cmdpkg "github.com/dagucloud/dagu/v2/internal/cmd"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/require"
 )
@@ -47,7 +47,7 @@ steps:
 			{Name: "COL", Type: ir.ParamDefTypeString, Required: true},
 		},
 	}
-	status := &exec.DAGRunStatus{ParamsList: []string{"COL=foo"}}
+	status := &dagrun.DAGRunStatus{ParamsList: []string{"COL=foo"}}
 
 	restored, err := cmdpkg.RestoreDAGFromStatusForTest(context.Background(), dag, status)
 	require.NoError(t, err)

@@ -13,7 +13,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/humantask"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/controller"
@@ -267,7 +267,7 @@ func toTriggerType(t ir.TriggerType) *api.TriggerType {
 	return new(api.TriggerType(t.String()))
 }
 
-func toDAGRunConditions(status ir.Status, conditions []exec.DAGRunCondition) *[]api.DAGRunCondition {
+func toDAGRunConditions(status ir.Status, conditions []dagrun.DAGRunCondition) *[]api.DAGRunCondition {
 	if status != ir.Queued || len(conditions) == 0 {
 		return nil
 	}
@@ -318,7 +318,7 @@ func toRuntimeProfileName(name string) *api.RuntimeProfileName {
 	return &profileName
 }
 
-func toDAGRunSummary(s exec.DAGRunStatus) api.DAGRunSummary {
+func toDAGRunSummary(s dagrun.DAGRunStatus) api.DAGRunSummary {
 	var autoRetryLimit *int
 	if s.AutoRetryLimit > 0 {
 		autoRetryLimit = ptrOf(s.AutoRetryLimit)
@@ -350,7 +350,7 @@ func toDAGRunSummary(s exec.DAGRunStatus) api.DAGRunSummary {
 	}
 }
 
-func toDAGRunsPageResponse(page exec.DAGRunStatusPage) api.DAGRunsPageResponse {
+func toDAGRunsPageResponse(page dagrun.DAGRunStatusPage) api.DAGRunsPageResponse {
 	dagRuns := make([]api.DAGRunSummary, 0, len(page.Items))
 	for _, item := range page.Items {
 		if item == nil {
@@ -370,7 +370,7 @@ func toDAGRunsPageResponse(page exec.DAGRunStatusPage) api.DAGRunsPageResponse {
 
 // ToDAGRunDetails converts a DAGRunStatus to its API representation.
 // This function is exported for use by the SSE package.
-func ToDAGRunDetails(s exec.DAGRunStatus) api.DAGRunDetails {
+func ToDAGRunDetails(s dagrun.DAGRunStatus) api.DAGRunDetails {
 	preconditions := make([]api.Condition, len(s.Preconditions))
 	for i, p := range s.Preconditions {
 		preconditions[i] = toPrecondition(p)
@@ -454,7 +454,7 @@ func hasArtifactEntries(archiveDir string) bool {
 	return false
 }
 
-func toNode(node *exec.Node) api.Node {
+func toNode(node *dagrun.Node) api.Node {
 	if node == nil {
 		return api.Node{}
 	}
@@ -505,7 +505,7 @@ func toNode(node *exec.Node) api.Node {
 	return result
 }
 
-func toPushBackHistory(node *exec.Node) []api.PushBackHistoryEntry {
+func toPushBackHistory(node *dagrun.Node) []api.PushBackHistoryEntry {
 	if node == nil {
 		return nil
 	}
@@ -514,7 +514,7 @@ func toPushBackHistory(node *exec.Node) []api.PushBackHistoryEntry {
 	if node.Step.Approval != nil {
 		allowedInputs = node.Step.Approval.Input
 	}
-	history := exec.NormalizePushBackHistory(
+	history := dagrun.NormalizePushBackHistory(
 		allowedInputs,
 		node.ApprovalIteration,
 		node.PushBackInputs,
@@ -541,7 +541,7 @@ func toPushBackHistory(node *exec.Node) []api.PushBackHistoryEntry {
 	return items
 }
 
-func toSubDAGRuns(subDAGRuns []exec.SubDAGRun) []api.SubDAGRun {
+func toSubDAGRuns(subDAGRuns []dagrun.SubDAGRun) []api.SubDAGRun {
 	result := make([]api.SubDAGRun, len(subDAGRuns))
 	for i, w := range subDAGRuns {
 		result[i] = api.SubDAGRun{
@@ -663,7 +663,7 @@ func declaredControllerTasks(dag *ir.DAG) *[]api.ControllerTask {
 }
 
 // controllerTimeline reports the ordered decisions a controller DAG-run made.
-func controllerTimeline(nodes []*exec.Node) *[]api.ControllerEvent {
+func controllerTimeline(nodes []*dagrun.Node) *[]api.ControllerEvent {
 	for _, node := range nodes {
 		if node == nil || node.Step.Name != ir.ControllerStepName {
 			continue
@@ -694,7 +694,7 @@ func controllerTimeline(nodes []*exec.Node) *[]api.ControllerEvent {
 
 // controllerTaskProgress reports goal progress recorded by the controller step
 // of a controller DAG-run.
-func controllerTaskProgress(nodes []*exec.Node) *[]api.ControllerTask {
+func controllerTaskProgress(nodes []*dagrun.Node) *[]api.ControllerTask {
 	for _, node := range nodes {
 		if node == nil || node.Step.Name != ir.ControllerStepName {
 			continue
@@ -862,7 +862,7 @@ func toHandlerOn(handlers ir.HandlerOn) api.HandlerOn {
 	return handlerOn
 }
 
-func toChatMessages(messages []exec.LLMMessage) []api.ChatMessage {
+func toChatMessages(messages []dagrun.LLMMessage) []api.ChatMessage {
 	if messages == nil {
 		return []api.ChatMessage{}
 	}
@@ -874,7 +874,7 @@ func toChatMessages(messages []exec.LLMMessage) []api.ChatMessage {
 	return result
 }
 
-func toChatMessage(msg exec.LLMMessage) api.ChatMessage {
+func toChatMessage(msg dagrun.LLMMessage) api.ChatMessage {
 	apiMsg := api.ChatMessage{
 		Role:    api.ChatMessageRole(msg.Role),
 		Content: msg.Content,
@@ -905,7 +905,7 @@ func toChatMessage(msg exec.LLMMessage) api.ChatMessage {
 	return apiMsg
 }
 
-func toToolDefinitions(defs []exec.ToolDefinition) *[]api.ToolDefinition {
+func toToolDefinitions(defs []dagrun.ToolDefinition) *[]api.ToolDefinition {
 	if len(defs) == 0 {
 		return nil
 	}

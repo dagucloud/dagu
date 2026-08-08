@@ -25,6 +25,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
@@ -77,7 +78,7 @@ type Client interface {
 
 	// RequestCancel requests cancellation of a DAG run through the coordinator.
 	// Used by worker sub-DAG cancellation.
-	RequestCancel(ctx context.Context, dagName, dagRunID string, rootRef *exec.DAGRunRef) error
+	RequestCancel(ctx context.Context, dagName, dagRunID string, rootRef *dagrun.DAGRunRef) error
 
 	// GetDAGRunStatus is inherited from execution.Dispatcher
 
@@ -1024,7 +1025,7 @@ func openStreamWithFailover[T any](
 }
 
 // GetDAGRunStatus retrieves the status of a DAG run from the coordinator.
-func (cli *clientImpl) GetDAGRunStatus(ctx context.Context, dagName, dagRunID string, rootRef *exec.DAGRunRef) (*exec.DAGRunStatusResult, error) {
+func (cli *clientImpl) GetDAGRunStatus(ctx context.Context, dagName, dagRunID string, rootRef *dagrun.DAGRunRef) (*exec.DAGRunStatusResult, error) {
 	members, err := cli.getCoordinatorMembers(ctx)
 	if err != nil {
 		return nil, err
@@ -1101,7 +1102,7 @@ func (cli *clientImpl) GetDAG(ctx context.Context, name string) (string, error) 
 }
 
 // RequestCancel requests cancellation of a DAG run through the coordinator
-func (cli *clientImpl) RequestCancel(ctx context.Context, dagName, dagRunID string, rootRef *exec.DAGRunRef) error {
+func (cli *clientImpl) RequestCancel(ctx context.Context, dagName, dagRunID string, rootRef *dagrun.DAGRunRef) error {
 	members, err := cli.getCoordinatorMembers(ctx)
 	if err != nil {
 		return err

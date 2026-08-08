@@ -23,6 +23,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	coreexec "github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
@@ -65,8 +66,8 @@ type harnessExecutor struct {
 	prompt                 string
 	script                 string // piped to stdin if present
 	workDir                string
-	contextMessages        []coreexec.LLMMessage
-	savedMessages          []coreexec.LLMMessage
+	contextMessages        []dagrun.LLMMessage
+	savedMessages          []dagrun.LLMMessage
 	pushBackInputs         map[string]string
 	pushBackIteration      int
 	pushBackPreviousStdout string
@@ -91,15 +92,15 @@ func (e *harnessExecutor) SetStderr(out io.Writer) {
 	e.stderr = out
 }
 
-func (e *harnessExecutor) SetContext(msgs []coreexec.LLMMessage) {
-	e.contextMessages = append([]coreexec.LLMMessage(nil), msgs...)
+func (e *harnessExecutor) SetContext(msgs []dagrun.LLMMessage) {
+	e.contextMessages = append([]dagrun.LLMMessage(nil), msgs...)
 }
 
-func (e *harnessExecutor) GetMessages() []coreexec.LLMMessage {
+func (e *harnessExecutor) GetMessages() []dagrun.LLMMessage {
 	if e.savedMessages == nil {
-		return append([]coreexec.LLMMessage(nil), e.contextMessages...)
+		return append([]dagrun.LLMMessage(nil), e.contextMessages...)
 	}
-	return append([]coreexec.LLMMessage(nil), e.savedMessages...)
+	return append([]dagrun.LLMMessage(nil), e.savedMessages...)
 }
 
 func (e *harnessExecutor) Kill(sig os.Signal) error {

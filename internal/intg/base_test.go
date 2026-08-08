@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	runtimepkg "github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
@@ -72,7 +72,7 @@ func TestBaseDAGSpecialEnvVarsInHandler(t *testing.T) {
 	dagRunID := uuid.New().String()
 	logDir := th.Config.Paths.LogDir
 	logFile := filepath.Join(logDir, dagRunID+".log")
-	root := exec.NewDAGRunRef(dag.Name, dagRunID)
+	root := dagrun.NewDAGRunRef(dag.Name, dagRunID)
 
 	drm := runtimepkg.NewManager(th.DAGRunStore, th.ProcStore, th.Config)
 
@@ -190,7 +190,7 @@ steps:
 	dagRunID := uuid.New().String()
 	logDir := th.Config.Paths.LogDir
 	logFile := filepath.Join(logDir, dagRunID+".log")
-	root := exec.NewDAGRunRef(dag.Name, dagRunID)
+	root := dagrun.NewDAGRunRef(dag.Name, dagRunID)
 
 	drm := runtimepkg.NewManager(th.DAGRunStore, th.ProcStore, th.Config)
 

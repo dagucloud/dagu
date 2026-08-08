@@ -9,11 +9,12 @@ import (
 	"os"
 
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 )
 
 // StatusPusher reports DAG run status outside the current execution process.
 type StatusPusher interface {
-	Push(ctx context.Context, status exec.DAGRunStatus) error
+	Push(ctx context.Context, status dagrun.DAGRunStatus) error
 }
 
 // AttemptRejected marks a status push failure caused by a non-authoritative attempt.

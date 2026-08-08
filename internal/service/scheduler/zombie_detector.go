@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/procutil"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 )
@@ -31,7 +32,7 @@ func panicToError(r any) error {
 
 // ZombieDetector finds and cleans up zombie DAG runs
 type ZombieDetector struct {
-	dagRunStore      exec.DAGRunStore
+	dagRunStore      dagrun.DAGRunStore
 	procStore        exec.ProcStore
 	interval         time.Duration
 	failureThreshold int
@@ -44,7 +45,7 @@ type ZombieDetector struct {
 
 // NewZombieDetector creates a new zombie detector
 func NewZombieDetector(
-	dagRunStore exec.DAGRunStore,
+	dagRunStore dagrun.DAGRunStore,
 	procStore exec.ProcStore,
 	interval time.Duration,
 	failureThreshold int,
@@ -116,7 +117,7 @@ func (z *ZombieDetector) clearAttemptState(attemptKey string) {
 	delete(z.staleCounters, attemptKey)
 }
 
-func (z *ZombieDetector) findAttempt(ctx context.Context, entry exec.ProcEntry) (exec.DAGRunAttempt, error) {
+func (z *ZombieDetector) findAttempt(ctx context.Context, entry exec.ProcEntry) (dagrun.DAGRunAttempt, error) {
 	if entry.IsRoot() {
 		return z.dagRunStore.FindAttempt(ctx, entry.Meta.DAGRun())
 	}
@@ -291,13 +292,13 @@ func (z *ZombieDetector) checkAndCleanZombie(ctx context.Context, entry exec.Pro
 }
 
 func (z *ZombieDetector) cleanupOrphanedStaleEntry(ctx context.Context, entry exec.ProcEntry, attemptKey string, findErr error) error {
-	if !errors.Is(findErr, exec.ErrDAGRunIDNotFound) &&
-		!errors.Is(findErr, exec.ErrNoStatusData) &&
-		!errors.Is(findErr, exec.ErrCorruptedStatusFile) {
+	if !errors.Is(findErr, dagrun.ErrDAGRunIDNotFound) &&
+		!errors.Is(findErr, dagrun.ErrNoStatusData) &&
+		!errors.Is(findErr, dagrun.ErrCorruptedStatusFile) {
 		return fmt.Errorf("find attempt: %w", findErr)
 	}
 
-	if errors.Is(findErr, exec.ErrCorruptedStatusFile) {
+	if errors.Is(findErr, dagrun.ErrCorruptedStatusFile) {
 		logger.Warn(ctx, "Removing orphaned stale proc entry with corrupted persisted DAG run state", tag.Error(findErr))
 	} else {
 		logger.Info(ctx, "Removing orphaned stale proc entry with missing persisted DAG run state", tag.Error(findErr))

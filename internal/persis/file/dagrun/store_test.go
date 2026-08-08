@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -28,20 +28,20 @@ func TestStoreWritesCurrentDAGRunFileCompatibilityLayout(t *testing.T) {
 		Location: filepath.Join(baseDir, "compat-dag.yaml"),
 	}
 	parentTS := time.Date(2026, 5, 27, 1, 2, 3, 456_000_000, time.UTC)
-	parentAttempt, err := store.CreateAttempt(ctx, parentDAG, parentTS, "run-compat", exec.NewDAGRunAttemptOptions{
+	parentAttempt, err := store.CreateAttempt(ctx, parentDAG, parentTS, "run-compat", dagrun.NewDAGRunAttemptOptions{
 		AttemptID: "attempt-compat",
 	})
 	require.NoError(t, err)
 	require.NoError(t, parentAttempt.Open(ctx))
 
-	parentStatus := exec.InitialStatus(parentDAG)
+	parentStatus := dagrun.InitialStatus(parentDAG)
 	parentStatus.DAGRunID = "run-compat"
 	parentStatus.AttemptID = parentAttempt.ID()
 	parentStatus.Status = ir.Succeeded
 	require.NoError(t, parentAttempt.Write(ctx, parentStatus))
 
-	parentOutputs := &exec.DAGRunOutputs{
-		Metadata: exec.OutputsMetadata{
+	parentOutputs := &dagrun.DAGRunOutputs{
+		Metadata: dagrun.OutputsMetadata{
 			DAGName:     parentDAG.Name,
 			DAGRunID:    parentStatus.DAGRunID,
 			AttemptID:   parentStatus.AttemptID,
@@ -51,25 +51,25 @@ func TestStoreWritesCurrentDAGRunFileCompatibilityLayout(t *testing.T) {
 		Outputs: map[string]string{"step-one": "ok"},
 	}
 	require.NoError(t, parentAttempt.WriteOutputs(ctx, parentOutputs))
-	require.NoError(t, parentAttempt.WriteStepMessages(ctx, "step-one", []exec.LLMMessage{
-		{Role: exec.RoleUser, Content: "hello"},
+	require.NoError(t, parentAttempt.WriteStepMessages(ctx, "step-one", []dagrun.LLMMessage{
+		{Role: dagrun.RoleUser, Content: "hello"},
 	}))
 	require.NoError(t, parentAttempt.Close(ctx))
 
-	rootRef := exec.NewDAGRunRef(parentDAG.Name, parentStatus.DAGRunID)
+	rootRef := dagrun.NewDAGRunRef(parentDAG.Name, parentStatus.DAGRunID)
 	childDAG := &ir.DAG{
 		Name:     "child-dag",
 		Location: filepath.Join(baseDir, "child-dag.yaml"),
 	}
 	childTS := time.Date(2026, 5, 27, 1, 2, 4, 789_000_000, time.UTC)
-	childAttempt, err := store.CreateAttempt(ctx, childDAG, childTS, "child-run", exec.NewDAGRunAttemptOptions{
+	childAttempt, err := store.CreateAttempt(ctx, childDAG, childTS, "child-run", dagrun.NewDAGRunAttemptOptions{
 		RootDAGRun: &rootRef,
 		AttemptID:  "child-attempt",
 	})
 	require.NoError(t, err)
 	require.NoError(t, childAttempt.Open(ctx))
 
-	childStatus := exec.InitialStatus(childDAG)
+	childStatus := dagrun.InitialStatus(childDAG)
 	childStatus.Root = rootRef
 	childStatus.DAGRunID = "child-run"
 	childStatus.AttemptID = childAttempt.ID()
@@ -129,7 +129,7 @@ func TestStoreWritesCurrentDAGRunFileCompatibilityLayout(t *testing.T) {
 
 	foundMessages, err := foundParent.ReadStepMessages(ctx, "step-one")
 	require.NoError(t, err)
-	assert.Equal(t, []exec.LLMMessage{{Role: exec.RoleUser, Content: "hello"}}, foundMessages)
+	assert.Equal(t, []dagrun.LLMMessage{{Role: dagrun.RoleUser, Content: "hello"}}, foundMessages)
 
 	foundChild, err := store.FindSubAttempt(ctx, rootRef, "child-run")
 	require.NoError(t, err)
@@ -149,7 +149,7 @@ func TestStoreRetriesLegacySubDAGRunInSameDirectory(t *testing.T) {
 		Location: filepath.Join(baseDir, "compat-dag.yaml"),
 	}
 	parentTS := time.Date(2026, 5, 27, 1, 2, 3, 456_000_000, time.UTC)
-	_, err := store.CreateAttempt(ctx, parentDAG, parentTS, "run-compat", exec.NewDAGRunAttemptOptions{
+	_, err := store.CreateAttempt(ctx, parentDAG, parentTS, "run-compat", dagrun.NewDAGRunAttemptOptions{
 		AttemptID: "attempt-compat",
 	})
 	require.NoError(t, err)
@@ -158,13 +158,13 @@ func TestStoreRetriesLegacySubDAGRunInSameDirectory(t *testing.T) {
 	legacyChildDir := filepath.Join(runDir, LegacySubDAGRunsDir, LegacySubDAGRunDirPrefix+"child-run")
 	require.NoError(t, os.MkdirAll(legacyChildDir, 0750))
 
-	rootRef := exec.NewDAGRunRef(parentDAG.Name, "run-compat")
+	rootRef := dagrun.NewDAGRunRef(parentDAG.Name, "run-compat")
 	childDAG := &ir.DAG{
 		Name:     "child-dag",
 		Location: filepath.Join(baseDir, "child-dag.yaml"),
 	}
 	childTS := time.Date(2026, 5, 27, 1, 2, 4, 789_000_000, time.UTC)
-	childAttempt, err := store.CreateAttempt(ctx, childDAG, childTS, "child-run", exec.NewDAGRunAttemptOptions{
+	childAttempt, err := store.CreateAttempt(ctx, childDAG, childTS, "child-run", dagrun.NewDAGRunAttemptOptions{
 		RootDAGRun: &rootRef,
 		Retry:      true,
 		AttemptID:  "child-retry",
@@ -253,7 +253,7 @@ func TestJSONDB(t *testing.T) {
 		th.CreateAttempt(t, ts3, "dagrun-id-3", ir.Succeeded)
 
 		// Find the record with dag-run ID "dagrun-id-2"
-		ref := exec.NewDAGRunRef("test_DAG", "dagrun-id-2")
+		ref := dagrun.NewDAGRunRef("test_DAG", "dagrun-id-2")
 		attempt, err := th.Store.FindAttempt(th.Context, ref)
 		require.NoError(t, err)
 
@@ -263,9 +263,9 @@ func TestJSONDB(t *testing.T) {
 		assert.Equal(t, "dagrun-id-2", dagRunStatus.DAGRunID)
 
 		// Verify an error is returned if the dag-run ID does not exist
-		refNonExist := exec.NewDAGRunRef("test_DAG", "nonexistent-id")
+		refNonExist := dagrun.NewDAGRunRef("test_DAG", "nonexistent-id")
 		_, err = th.Store.FindAttempt(th.Context, refNonExist)
-		assert.ErrorIs(t, err, exec.ErrDAGRunIDNotFound)
+		assert.ErrorIs(t, err, dagrun.ErrDAGRunIDNotFound)
 	})
 	t.Run("RemoveOld", func(t *testing.T) {
 		th := setupTestStore(t)
@@ -317,7 +317,7 @@ func TestJSONDB(t *testing.T) {
 			th.Context,
 			"test_DAG",
 			30, // ignored when OlderThan is set
-			exec.WithOlderThan(cutoff),
+			dagrun.WithOlderThan(cutoff),
 		)
 		require.NoError(t, err)
 		assert.Equal(t, []string{"old-run"}, removedIDs)
@@ -337,7 +337,7 @@ func TestJSONDB(t *testing.T) {
 			th.Context,
 			"test_DAG",
 			30,
-			exec.WithOlderThan(time.Time{}),
+			dagrun.WithOlderThan(time.Time{}),
 		)
 		require.NoError(t, err)
 		assert.Empty(t, removedIDs)
@@ -351,12 +351,12 @@ func TestJSONDB(t *testing.T) {
 	t.Run("RemoveDAGRunRejectsActiveWhenRequested", func(t *testing.T) {
 		th := setupTestStore(t)
 		ts := time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)
-		ref := exec.NewDAGRunRef("test_DAG", "active-id")
+		ref := dagrun.NewDAGRunRef("test_DAG", "active-id")
 
 		th.CreateAttempt(t, ts, ref.ID, ir.Running)
 
-		err := th.Store.RemoveDAGRun(th.Context, ref, exec.WithRejectActiveDAGRun())
-		require.ErrorIs(t, err, exec.ErrDAGRunActive)
+		err := th.Store.RemoveDAGRun(th.Context, ref, dagrun.WithRejectActiveDAGRun())
+		require.ErrorIs(t, err, dagrun.ErrDAGRunActive)
 
 		attempt, err := th.Store.FindAttempt(th.Context, ref)
 		require.NoError(t, err)
@@ -369,7 +369,7 @@ func TestJSONDB(t *testing.T) {
 		require.NoError(t, err)
 
 		_, err = th.Store.FindAttempt(th.Context, ref)
-		assert.ErrorIs(t, err, exec.ErrDAGRunIDNotFound)
+		assert.ErrorIs(t, err, dagrun.ErrDAGRunIDNotFound)
 	})
 	t.Run("RemoveDAGRunRemovesArtifactDirsIncludingSubDAGRuns", func(t *testing.T) {
 		th := setupTestStore(t)
@@ -384,26 +384,26 @@ func TestJSONDB(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(subArtifactDir, "summary.md"), []byte("child"), 0o600))
 
 		dag := th.DAG("test_DAG")
-		parentAttempt, err := th.Store.CreateAttempt(th.Context, dag.DAG, ts, "parent-id", exec.NewDAGRunAttemptOptions{})
+		parentAttempt, err := th.Store.CreateAttempt(th.Context, dag.DAG, ts, "parent-id", dagrun.NewDAGRunAttemptOptions{})
 		require.NoError(t, err)
 		require.NoError(t, parentAttempt.Open(th.Context))
 
-		parentStatus := exec.InitialStatus(dag.DAG)
+		parentStatus := dagrun.InitialStatus(dag.DAG)
 		parentStatus.DAGRunID = "parent-id"
 		parentStatus.Status = ir.Succeeded
 		parentStatus.ArchiveDir = parentArtifactDir
 		require.NoError(t, parentAttempt.Write(th.Context, parentStatus))
 		require.NoError(t, parentAttempt.Close(th.Context))
 
-		rootRef := exec.NewDAGRunRef("test_DAG", "parent-id")
+		rootRef := dagrun.NewDAGRunRef("test_DAG", "parent-id")
 		subDAG := th.DAG("child")
-		subAttempt, err := th.Store.CreateAttempt(th.Context, subDAG.DAG, ts, "sub-id", exec.NewDAGRunAttemptOptions{
+		subAttempt, err := th.Store.CreateAttempt(th.Context, subDAG.DAG, ts, "sub-id", dagrun.NewDAGRunAttemptOptions{
 			RootDAGRun: &rootRef,
 		})
 		require.NoError(t, err)
 		require.NoError(t, subAttempt.Open(th.Context))
 
-		subStatus := exec.InitialStatus(subDAG.DAG)
+		subStatus := dagrun.InitialStatus(subDAG.DAG)
 		subStatus.DAGRunID = "sub-id"
 		subStatus.Status = ir.Succeeded
 		subStatus.ArchiveDir = subArtifactDir
@@ -420,7 +420,7 @@ func TestJSONDB(t *testing.T) {
 		assert.NoDirExists(t, subArtifactDir)
 
 		_, err = th.Store.FindAttempt(th.Context, rootRef)
-		assert.ErrorIs(t, err, exec.ErrDAGRunIDNotFound)
+		assert.ErrorIs(t, err, dagrun.ErrDAGRunIDNotFound)
 	})
 	t.Run("RemoveDAGRunSkipsArtifactDirsOutsideTrustedRoot", func(t *testing.T) {
 		th := setupTestStore(t)
@@ -431,18 +431,18 @@ func TestJSONDB(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(outsideArtifactDir, "summary.md"), []byte("outside"), 0o600))
 
 		dag := th.DAG("test_DAG")
-		attempt, err := th.Store.CreateAttempt(th.Context, dag.DAG, ts, "outside-id", exec.NewDAGRunAttemptOptions{})
+		attempt, err := th.Store.CreateAttempt(th.Context, dag.DAG, ts, "outside-id", dagrun.NewDAGRunAttemptOptions{})
 		require.NoError(t, err)
 		require.NoError(t, attempt.Open(th.Context))
 
-		status := exec.InitialStatus(dag.DAG)
+		status := dagrun.InitialStatus(dag.DAG)
 		status.DAGRunID = "outside-id"
 		status.Status = ir.Succeeded
 		status.ArchiveDir = outsideArtifactDir
 		require.NoError(t, attempt.Write(th.Context, status))
 		require.NoError(t, attempt.Close(th.Context))
 
-		rootRef := exec.NewDAGRunRef("test_DAG", "outside-id")
+		rootRef := dagrun.NewDAGRunRef("test_DAG", "outside-id")
 		require.DirExists(t, outsideArtifactDir)
 
 		err = th.Store.RemoveDAGRun(th.Context, rootRef)
@@ -450,7 +450,7 @@ func TestJSONDB(t *testing.T) {
 
 		require.DirExists(t, outsideArtifactDir)
 		_, err = th.Store.FindAttempt(th.Context, rootRef)
-		assert.ErrorIs(t, err, exec.ErrDAGRunIDNotFound)
+		assert.ErrorIs(t, err, dagrun.ErrDAGRunIDNotFound)
 	})
 	t.Run("SubDAGRun", func(t *testing.T) {
 		th := setupTestStore(t)
@@ -462,9 +462,9 @@ func TestJSONDB(t *testing.T) {
 		_ = th.CreateAttempt(t, ts, "parent-id", ir.Running)
 
 		// Create a child attempt
-		rootDAGRun := exec.NewDAGRunRef("test_DAG", "parent-id")
+		rootDAGRun := dagrun.NewDAGRunRef("test_DAG", "parent-id")
 		subDAG := th.DAG("child")
-		subAttempt, err := th.Store.CreateAttempt(th.Context, subDAG.DAG, ts, "sub-id", exec.NewDAGRunAttemptOptions{
+		subAttempt, err := th.Store.CreateAttempt(th.Context, subDAG.DAG, ts, "sub-id", dagrun.NewDAGRunAttemptOptions{
 			RootDAGRun: &rootDAGRun,
 		})
 		require.NoError(t, err)
@@ -476,13 +476,13 @@ func TestJSONDB(t *testing.T) {
 			_ = subAttempt.Close(th.Context)
 		}()
 
-		statusToWrite := exec.InitialStatus(subDAG.DAG)
+		statusToWrite := dagrun.InitialStatus(subDAG.DAG)
 		statusToWrite.DAGRunID = "sub-id"
 		err = subAttempt.Write(th.Context, statusToWrite)
 		require.NoError(t, err)
 
 		// Verify record is created
-		dagRunRef := exec.NewDAGRunRef("test_DAG", "parent-id")
+		dagRunRef := dagrun.NewDAGRunRef("test_DAG", "parent-id")
 		existingAttempt, err := th.Store.FindSubAttempt(th.Context, dagRunRef, "sub-id")
 		require.NoError(t, err)
 
@@ -503,9 +503,9 @@ func TestJSONDB(t *testing.T) {
 		const subDAGRunID = "sub-dagrun-id"
 		const parentDAGRunID = "parent-id"
 
-		rootDAGRun := exec.NewDAGRunRef("test_DAG", parentDAGRunID)
+		rootDAGRun := dagrun.NewDAGRunRef("test_DAG", parentDAGRunID)
 		subDAG := th.DAG("child")
-		attempt, err := th.Store.CreateAttempt(th.Context, subDAG.DAG, ts, subDAGRunID, exec.NewDAGRunAttemptOptions{
+		attempt, err := th.Store.CreateAttempt(th.Context, subDAG.DAG, ts, subDAGRunID, dagrun.NewDAGRunAttemptOptions{
 			RootDAGRun: &rootDAGRun,
 		})
 		require.NoError(t, err)
@@ -517,7 +517,7 @@ func TestJSONDB(t *testing.T) {
 			_ = attempt.Close(th.Context)
 		}()
 
-		statusToWrite := exec.InitialStatus(subDAG.DAG)
+		statusToWrite := dagrun.InitialStatus(subDAG.DAG)
 		statusToWrite.DAGRunID = subDAGRunID
 		statusToWrite.Status = ir.Running
 		err = attempt.Write(th.Context, statusToWrite)
@@ -525,7 +525,7 @@ func TestJSONDB(t *testing.T) {
 
 		// Find the sub dag-run record
 		ts = time.Date(2021, 1, 2, 0, 0, 0, 0, time.UTC)
-		dagRunRef := exec.NewDAGRunRef("test_DAG", parentDAGRunID)
+		dagRunRef := dagrun.NewDAGRunRef("test_DAG", parentDAGRunID)
 		existingAttempt, err := th.Store.FindSubAttempt(th.Context, dagRunRef, subDAGRunID)
 		require.NoError(t, err)
 		existingAttemptStatus, err := existingAttempt.ReadStatus(th.Context)
@@ -534,7 +534,7 @@ func TestJSONDB(t *testing.T) {
 		assert.Equal(t, ir.Running.String(), existingAttemptStatus.Status.String())
 
 		// Create a retry record and write different status
-		retryAttempt, err := th.Store.CreateAttempt(th.Context, subDAG.DAG, ts, subDAGRunID, exec.NewDAGRunAttemptOptions{
+		retryAttempt, err := th.Store.CreateAttempt(th.Context, subDAG.DAG, ts, subDAGRunID, dagrun.NewDAGRunAttemptOptions{
 			RootDAGRun: &rootDAGRun,
 			Retry:      true,
 		})
@@ -560,7 +560,7 @@ func TestJSONDB(t *testing.T) {
 		th.CreateAttempt(t, ts, "parent-id", ir.Running)
 
 		// Create sub-attempt using CreateSubAttempt
-		rootRef := exec.NewDAGRunRef("test_DAG", "parent-id")
+		rootRef := dagrun.NewDAGRunRef("test_DAG", "parent-id")
 		subAttempt, err := th.Store.CreateSubAttempt(th.Context, rootRef, "sub-id")
 		require.NoError(t, err)
 
@@ -571,7 +571,7 @@ func TestJSONDB(t *testing.T) {
 		require.NoError(t, err)
 		defer func() { _ = subAttempt.Close(th.Context) }()
 
-		statusToWrite := exec.InitialStatus(subDAG.DAG)
+		statusToWrite := dagrun.InitialStatus(subDAG.DAG)
 		statusToWrite.DAGRunID = "sub-id"
 		err = subAttempt.Write(th.Context, statusToWrite)
 		require.NoError(t, err)
@@ -590,21 +590,21 @@ func TestJSONDB(t *testing.T) {
 		ts := time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)
 		th.CreateAttempt(t, ts, "parent-id", ir.Running)
 
-		rootRef := exec.NewDAGRunRef("test_DAG", "parent-id")
-		subRef := exec.NewDAGRunRef("child", "parent-id")
+		rootRef := dagrun.NewDAGRunRef("test_DAG", "parent-id")
+		subRef := dagrun.NewDAGRunRef("child", "parent-id")
 		subAttempt, err := th.Store.CreateSubAttempt(th.Context, rootRef, subRef.ID)
 		require.NoError(t, err)
 
 		subDAG := th.DAG(subRef.Name)
 		subAttempt.SetDAG(subDAG.DAG)
 		require.NoError(t, subAttempt.Open(th.Context))
-		statusToWrite := exec.InitialStatus(subDAG.DAG)
+		statusToWrite := dagrun.InitialStatus(subDAG.DAG)
 		statusToWrite.DAGRunID = subRef.ID
 		statusToWrite.Root = rootRef
 		statusToWrite.AttemptID = subAttempt.ID()
-		statusToWrite.AttemptKey = exec.GenerateAttemptKey(rootRef.Name, rootRef.ID, subRef.Name, subRef.ID, subAttempt.ID())
+		statusToWrite.AttemptKey = dagrun.GenerateAttemptKey(rootRef.Name, rootRef.ID, subRef.Name, subRef.ID, subAttempt.ID())
 		statusToWrite.Status = ir.Running
-		statusToWrite.Nodes = []*exec.Node{{Status: ir.NodeRunning}}
+		statusToWrite.Nodes = []*dagrun.Node{{Status: ir.NodeRunning}}
 		require.NoError(t, subAttempt.Write(th.Context, statusToWrite))
 		require.NoError(t, subAttempt.Close(th.Context))
 
@@ -613,14 +613,14 @@ func TestJSONDB(t *testing.T) {
 			subRef,
 			subAttempt.ID(),
 			ir.Running,
-			func(status *exec.DAGRunStatus) error {
+			func(status *dagrun.DAGRunStatus) error {
 				status.Status = ir.Failed
 				status.Error = "lease expired"
 				status.Nodes[0].Status = ir.NodeFailed
 				return nil
 			},
-			exec.WithCompareAndSwapRootDAGRun(rootRef),
-			exec.WithCompareAndSwapExpectedAttemptKey(statusToWrite.AttemptKey),
+			dagrun.WithCompareAndSwapRootDAGRun(rootRef),
+			dagrun.WithCompareAndSwapExpectedAttemptKey(statusToWrite.AttemptKey),
 		)
 		require.NoError(t, err)
 		require.True(t, swapped)
@@ -638,7 +638,7 @@ func TestJSONDB(t *testing.T) {
 		th := setupTestStore(t)
 
 		// Try to create sub-attempt with empty root ID
-		rootRef := exec.NewDAGRunRef("test_DAG", "")
+		rootRef := dagrun.NewDAGRunRef("test_DAG", "")
 		_, err := th.Store.CreateSubAttempt(th.Context, rootRef, "sub-id")
 		require.ErrorIs(t, err, ErrDAGRunIDEmpty)
 	})
@@ -658,7 +658,7 @@ func TestJSONDB(t *testing.T) {
 			_ = rec.Close(th.Context)
 		}()
 
-		statusToWrite := exec.InitialStatus(rec.dag)
+		statusToWrite := dagrun.InitialStatus(rec.dag)
 		statusToWrite.DAGRunID = "parent-id"
 
 		err = rec.Write(th.Context, statusToWrite)
@@ -809,12 +809,12 @@ func TestListStatuses(t *testing.T) {
 		th.CreateAttempt(t, ts3, "dagrun-id-3", ir.Succeeded)
 
 		// Filter by time range (only ts2 should be included)
-		from := exec.NewUTC(time.Date(2021, 1, 1, 12, 0, 0, 0, time.UTC))
-		to := exec.NewUTC(time.Date(2021, 1, 2, 12, 0, 0, 0, time.UTC))
+		from := dagrun.NewUTC(time.Date(2021, 1, 1, 12, 0, 0, 0, time.UTC))
+		to := dagrun.NewUTC(time.Date(2021, 1, 2, 12, 0, 0, 0, time.UTC))
 
 		statuses, err := th.Store.ListStatuses(th.Context,
-			exec.WithFrom(from),
-			exec.WithTo(to),
+			dagrun.WithFrom(from),
+			dagrun.WithTo(to),
 		)
 
 		require.NoError(t, err)
@@ -833,8 +833,8 @@ func TestListStatuses(t *testing.T) {
 
 		// Filter by status (only StatusError should be included)
 		statuses, err := th.Store.ListStatuses(th.Context,
-			exec.WithStatuses([]ir.Status{ir.Failed}),
-			exec.WithFrom(exec.NewUTC(ts)),
+			dagrun.WithStatuses([]ir.Status{ir.Failed}),
+			dagrun.WithFrom(dagrun.NewUTC(ts)),
 		)
 
 		require.NoError(t, err)
@@ -853,10 +853,10 @@ func TestListStatuses(t *testing.T) {
 		}
 
 		// Limit to 3 results
-		options := &exec.ListDAGRunStatusesOptions{Limit: 3}
-		statuses, err := th.Store.ListStatuses(th.Context, func(o *exec.ListDAGRunStatusesOptions) {
+		options := &dagrun.ListDAGRunStatusesOptions{Limit: 3}
+		statuses, err := th.Store.ListStatuses(th.Context, func(o *dagrun.ListDAGRunStatusesOptions) {
 			o.Limit = options.Limit
-		}, exec.WithFrom(exec.NewUTC(ts)))
+		}, dagrun.WithFrom(dagrun.NewUTC(ts)))
 
 		require.NoError(t, err)
 		require.Len(t, statuses, 3)
@@ -876,7 +876,7 @@ func TestListStatuses(t *testing.T) {
 
 		// Get all statuses
 		statuses, err := th.Store.ListStatuses(
-			th.Context, exec.WithFrom(exec.NewUTC(ts1)),
+			th.Context, dagrun.WithFrom(dagrun.NewUTC(ts1)),
 		)
 
 		require.NoError(t, err)
@@ -908,16 +908,16 @@ func TestListStatuses(t *testing.T) {
 
 		// Filter by label "prod" (should match run-1 and run-2)
 		statuses, err := th.Store.ListStatuses(th.Context,
-			exec.WithLabels([]string{"prod"}),
-			exec.WithFrom(exec.NewUTC(ts)),
+			dagrun.WithLabels([]string{"prod"}),
+			dagrun.WithFrom(dagrun.NewUTC(ts)),
 		)
 		require.NoError(t, err)
 		assert.Len(t, statuses, 2)
 
 		// Filter by labels "prod" AND "batch" (should match only run-1)
 		statuses, err = th.Store.ListStatuses(th.Context,
-			exec.WithLabels([]string{"prod", "batch"}),
-			exec.WithFrom(exec.NewUTC(ts)),
+			dagrun.WithLabels([]string{"prod", "batch"}),
+			dagrun.WithFrom(dagrun.NewUTC(ts)),
 		)
 		require.NoError(t, err)
 		assert.Len(t, statuses, 1)
@@ -925,8 +925,8 @@ func TestListStatuses(t *testing.T) {
 
 		// Filter by label "dev" (should match only run-3)
 		statuses, err = th.Store.ListStatuses(th.Context,
-			exec.WithLabels([]string{"dev"}),
-			exec.WithFrom(exec.NewUTC(ts)),
+			dagrun.WithLabels([]string{"dev"}),
+			dagrun.WithFrom(dagrun.NewUTC(ts)),
 		)
 		require.NoError(t, err)
 		assert.Len(t, statuses, 1)
@@ -934,8 +934,8 @@ func TestListStatuses(t *testing.T) {
 
 		// Filter by label "nonexistent" (should match nothing)
 		statuses, err = th.Store.ListStatuses(th.Context,
-			exec.WithLabels([]string{"nonexistent"}),
-			exec.WithFrom(exec.NewUTC(ts)),
+			dagrun.WithLabels([]string{"nonexistent"}),
+			dagrun.WithFrom(dagrun.NewUTC(ts)),
 		)
 		require.NoError(t, err)
 		assert.Empty(t, statuses)
@@ -955,7 +955,7 @@ func TestListStatuses(t *testing.T) {
 
 		th.CreateAttemptWithDAG(t, ts, "retry-run", ir.Failed, dag.DAG)
 
-		statuses, err := th.Store.ListStatuses(th.Context, exec.WithFrom(exec.NewUTC(ts)))
+		statuses, err := th.Store.ListStatuses(th.Context, dagrun.WithFrom(dagrun.NewUTC(ts)))
 		require.NoError(t, err)
 		require.Len(t, statuses, 1)
 		assert.Equal(t, 3, statuses[0].AutoRetryLimit)
@@ -1086,9 +1086,9 @@ func TestListStatuses_RemainingCountWithFilters(t *testing.T) {
 	// Before the fix, len(dagRuns) would consume the budget even for filtered-out runs,
 	// potentially returning fewer results than expected.
 	statuses, err := th.Store.ListStatuses(th.Context,
-		exec.WithStatuses([]ir.Status{ir.Succeeded}),
-		exec.WithFrom(exec.NewUTC(ts)),
-		func(o *exec.ListDAGRunStatusesOptions) { o.Limit = 10 },
+		dagrun.WithStatuses([]ir.Status{ir.Succeeded}),
+		dagrun.WithFrom(dagrun.NewUTC(ts)),
+		func(o *dagrun.ListDAGRunStatusesOptions) { o.Limit = 10 },
 	)
 	require.NoError(t, err)
 	// Should return all 5 succeeded runs, not fewer.
@@ -1187,8 +1187,8 @@ func TestResolveStatus_StandardPath(t *testing.T) {
 	ctx := context.Background()
 
 	root := NewDataRoot(th.TmpDir, "std-path-dag")
-	start := exec.NewUTC(ts)
-	end := exec.NewUTC(ts.Add(24 * time.Hour))
+	start := dagrun.NewUTC(ts)
+	end := dagrun.NewUTC(ts.Add(24 * time.Hour))
 	dagRuns := root.listDAGRunsInRange(ctx, start, end, nil)
 	require.NotEmpty(t, dagRuns)
 
@@ -1236,16 +1236,16 @@ func TestListStatuses_WithAllHistoryBypassesDefaultTodayWindow(t *testing.T) {
 	th.CreateAttempt(t, oldTs, "old-run", ir.Running)
 
 	statuses, err := th.Store.ListStatuses(th.Context,
-		exec.WithStatuses([]ir.Status{ir.Running}),
-		exec.WithoutLimit(),
+		dagrun.WithStatuses([]ir.Status{ir.Running}),
+		dagrun.WithoutLimit(),
 	)
 	require.NoError(t, err)
 	require.Empty(t, statuses)
 
 	statuses, err = th.Store.ListStatuses(th.Context,
-		exec.WithStatuses([]ir.Status{ir.Running}),
-		exec.WithoutLimit(),
-		exec.WithAllHistory(),
+		dagrun.WithStatuses([]ir.Status{ir.Running}),
+		dagrun.WithoutLimit(),
+		dagrun.WithAllHistory(),
 	)
 	require.NoError(t, err)
 	require.Len(t, statuses, 1)
@@ -1260,14 +1260,14 @@ func TestListStatusesPage(t *testing.T) {
 		dag := th.DAG("artifact-dag")
 		artifactDir := filepath.Join(th.TmpDir, "artifacts", "artifact-dag", "artifact-run")
 
-		attempt, err := th.Store.CreateAttempt(th.Context, dag.DAG, base, "artifact-run", exec.NewDAGRunAttemptOptions{})
+		attempt, err := th.Store.CreateAttempt(th.Context, dag.DAG, base, "artifact-run", dagrun.NewDAGRunAttemptOptions{})
 		require.NoError(t, err)
 		require.NoError(t, attempt.Open(th.Context))
 		defer func() {
 			require.NoError(t, attempt.Close(th.Context))
 		}()
 
-		status := exec.InitialStatus(dag.DAG)
+		status := dagrun.InitialStatus(dag.DAG)
 		status.DAGRunID = "artifact-run"
 		status.Status = ir.Succeeded
 		status.ArchiveDir = artifactDir
@@ -1280,17 +1280,17 @@ func TestListStatusesPage(t *testing.T) {
 
 		_, err = th.Store.ListStatusesPage(
 			th.Context,
-			exec.WithAllHistory(),
-			exec.WithDAGRunID("artifact-run"),
-			exec.WithLimit(20),
+			dagrun.WithAllHistory(),
+			dagrun.WithDAGRunID("artifact-run"),
+			dagrun.WithLimit(20),
 		)
 		require.NoError(t, err)
 
 		page, err := th.Store.ListStatusesPage(
 			th.Context,
-			exec.WithAllHistory(),
-			exec.WithDAGRunID("artifact-run"),
-			exec.WithLimit(20),
+			dagrun.WithAllHistory(),
+			dagrun.WithDAGRunID("artifact-run"),
+			dagrun.WithLimit(20),
 		)
 		require.NoError(t, err)
 		require.Len(t, page.Items, 1)
@@ -1313,8 +1313,8 @@ func TestListStatusesPage(t *testing.T) {
 
 		page1, err := th.Store.ListStatusesPage(
 			th.Context,
-			exec.WithAllHistory(),
-			exec.WithLimit(2),
+			dagrun.WithAllHistory(),
+			dagrun.WithLimit(2),
 		)
 		require.NoError(t, err)
 		require.Len(t, page1.Items, 2)
@@ -1326,9 +1326,9 @@ func TestListStatusesPage(t *testing.T) {
 
 		page2, err := th.Store.ListStatusesPage(
 			th.Context,
-			exec.WithAllHistory(),
-			exec.WithLimit(2),
-			exec.WithCursor(page1.NextCursor),
+			dagrun.WithAllHistory(),
+			dagrun.WithLimit(2),
+			dagrun.WithCursor(page1.NextCursor),
 		)
 		require.NoError(t, err)
 		require.Len(t, page2.Items, 2)
@@ -1340,9 +1340,9 @@ func TestListStatusesPage(t *testing.T) {
 
 		page3, err := th.Store.ListStatusesPage(
 			th.Context,
-			exec.WithAllHistory(),
-			exec.WithLimit(2),
-			exec.WithCursor(page2.NextCursor),
+			dagrun.WithAllHistory(),
+			dagrun.WithLimit(2),
+			dagrun.WithCursor(page2.NextCursor),
 		)
 		require.NoError(t, err)
 		require.Len(t, page3.Items, 1)
@@ -1350,7 +1350,7 @@ func TestListStatusesPage(t *testing.T) {
 		assert.Equal(t, "run-0", page3.Items[0].DAGRunID)
 
 		seen := make(map[string]struct{})
-		for _, page := range [][]*exec.DAGRunStatus{page1.Items, page2.Items, page3.Items} {
+		for _, page := range [][]*dagrun.DAGRunStatus{page1.Items, page2.Items, page3.Items} {
 			for _, item := range page {
 				key := item.Name + "/" + item.DAGRunID
 				if _, ok := seen[key]; ok {
@@ -1370,19 +1370,19 @@ func TestListStatusesPage(t *testing.T) {
 
 		page, err := th.Store.ListStatusesPage(
 			th.Context,
-			exec.WithAllHistory(),
-			exec.WithStatuses([]ir.Status{ir.Succeeded}),
-			exec.WithLimit(1),
+			dagrun.WithAllHistory(),
+			dagrun.WithStatuses([]ir.Status{ir.Succeeded}),
+			dagrun.WithLimit(1),
 		)
 		require.NoError(t, err)
 		require.NotEmpty(t, page.NextCursor)
 
 		_, err = th.Store.ListStatusesPage(
 			th.Context,
-			exec.WithAllHistory(),
-			exec.WithStatuses([]ir.Status{ir.Failed}),
-			exec.WithLimit(1),
-			exec.WithCursor(page.NextCursor),
+			dagrun.WithAllHistory(),
+			dagrun.WithStatuses([]ir.Status{ir.Failed}),
+			dagrun.WithLimit(1),
+			dagrun.WithCursor(page.NextCursor),
 		)
 		require.ErrorIs(t, err, ErrInvalidQueryCursor)
 	})
@@ -1397,8 +1397,8 @@ func TestListStatusesPage(t *testing.T) {
 
 		page1, err := th.Store.ListStatusesPage(
 			th.Context,
-			exec.WithAllHistory(),
-			exec.WithLimit(2),
+			dagrun.WithAllHistory(),
+			dagrun.WithLimit(2),
 		)
 		require.NoError(t, err)
 		require.Len(t, page1.Items, 2)
@@ -1408,9 +1408,9 @@ func TestListStatusesPage(t *testing.T) {
 
 		page2, err := th.Store.ListStatusesPage(
 			th.Context,
-			exec.WithAllHistory(),
-			exec.WithLimit(2),
-			exec.WithCursor(page1.NextCursor),
+			dagrun.WithAllHistory(),
+			dagrun.WithLimit(2),
+			dagrun.WithCursor(page1.NextCursor),
 		)
 		require.NoError(t, err)
 		require.Len(t, page2.Items, 1)

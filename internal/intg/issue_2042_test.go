@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 	"github.com/dagucloud/dagu/v2/internal/test"
@@ -34,7 +34,7 @@ func TestIssue2042_EditedSuspendedScheduleDispatchesWithSkipIfSuccessful(t *test
 
 	dispatchedAt := make(chan time.Time, 4)
 	dispatchStub := func(ctx context.Context, dag *ir.DAG, runID string, trigger ir.TriggerType, scheduleTime time.Time) error {
-		attempt, err := th.DAGRunStore.CreateAttempt(ctx, dag, scheduleTime, runID, exec.NewDAGRunAttemptOptions{})
+		attempt, err := th.DAGRunStore.CreateAttempt(ctx, dag, scheduleTime, runID, dagrun.NewDAGRunAttemptOptions{})
 		if err != nil {
 			return err
 		}
@@ -45,9 +45,9 @@ func TestIssue2042_EditedSuspendedScheduleDispatchesWithSkipIfSuccessful(t *test
 			0,
 			scheduleTime,
 			transform.WithAttemptID(attempt.ID()),
-			transform.WithHierarchyRefs(exec.NewDAGRunRef(dag.Name, runID), exec.DAGRunRef{}),
+			transform.WithHierarchyRefs(dagrun.NewDAGRunRef(dag.Name, runID), dagrun.DAGRunRef{}),
 			transform.WithFinishedAt(scheduleTime.Add(time.Second)),
-			transform.WithScheduleTime(exec.FormatTime(scheduleTime)),
+			transform.WithScheduleTime(dagrun.FormatTime(scheduleTime)),
 			transform.WithTriggerType(trigger),
 		)
 

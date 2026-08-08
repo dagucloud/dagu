@@ -29,6 +29,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/signalctx"
 	exec1 "github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
@@ -514,7 +515,7 @@ type Helper struct {
 	ChildEnv                  []string
 	LoggingOutput             *SyncBuffer
 	DAGStore                  exec1.DAGStore
-	DAGRunStore               exec1.DAGRunStore
+	DAGRunStore               dagrun.DAGRunStore
 	DAGRunMgr                 runtimepkg.Manager
 	ProcStore                 exec1.ProcStore
 	QueueStore                exec1.QueueStore
@@ -735,7 +736,7 @@ func (d *DAG) ReadOutputs(t *testing.T) map[string]string {
 	data, err := os.ReadFile(outputsPath) //nolint:gosec // path is constructed from test config
 	require.NoError(t, err)
 
-	var outputs exec1.DAGRunOutputs
+	var outputs dagrun.DAGRunOutputs
 	require.NoError(t, json.Unmarshal(data, &outputs))
 
 	return outputs.Outputs
@@ -778,7 +779,7 @@ func (d *DAG) Agent(opts ...AgentOption) *Agent {
 
 	logDir := d.Config.Paths.LogDir
 	logFile := filepath.Join(d.Config.Paths.LogDir, dagRunID+".log")
-	root := exec1.NewDAGRunRef(d.Name, dagRunID)
+	root := dagrun.NewDAGRunRef(d.Name, dagRunID)
 
 	helper.opts.DAGRunStore = d.DAGRunStore
 	helper.opts.QueueStore = d.QueueStore

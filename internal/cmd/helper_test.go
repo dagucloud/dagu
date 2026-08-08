@@ -9,8 +9,8 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -91,7 +91,7 @@ func TestRestoreDAGFromStatus_ParamsWithSpaces(t *testing.T) {
 		YamlData: []byte("params:\n  - topic: \"\"\nsteps:\n  - name: test\n    command: echo $topic"),
 	}
 
-	status := &exec.DAGRunStatus{
+	status := &dagrun.DAGRunStatus{
 		ParamsList: []string{"topic=hello world"},
 	}
 
@@ -114,7 +114,7 @@ func TestRestoreDAGFromStatus_PositionalParamsRemainOverrides(t *testing.T) {
 		},
 	}
 
-	status := &exec.DAGRunStatus{
+	status := &dagrun.DAGRunStatus{
 		ParamsList: []string{"1=override"},
 	}
 
@@ -137,7 +137,7 @@ steps:
     run: pwd
 `, workDir),
 	}
-	status := &exec.DAGRunStatus{}
+	status := &dagrun.DAGRunStatus{}
 
 	result, err := restoreDAGFromStatus(context.Background(), dag, status)
 	require.NoError(t, err)
@@ -159,7 +159,7 @@ steps:
 `),
 		BaseConfigData: fmt.Appendf(nil, "working_dir: %q\n", workDir),
 	}
-	status := &exec.DAGRunStatus{}
+	status := &dagrun.DAGRunStatus{}
 
 	result, err := restoreDAGFromStatus(context.Background(), dag, status)
 	require.NoError(t, err)
@@ -181,7 +181,7 @@ steps:
     run: pwd
 `),
 	}
-	status := &exec.DAGRunStatus{WorkingDir: persistedWorkDir}
+	status := &dagrun.DAGRunStatus{WorkingDir: persistedWorkDir}
 
 	result, err := restoreDAGFromStatus(context.Background(), dag, status)
 	require.NoError(t, err)
@@ -202,7 +202,7 @@ steps:
     run: echo hello
 `),
 	}
-	status := &exec.DAGRunStatus{}
+	status := &dagrun.DAGRunStatus{}
 
 	result, err := restoreDAGFromStatus(context.Background(), dag, status)
 	require.NoError(t, err)
@@ -226,7 +226,7 @@ registry_auths:
     password: ${REGISTRY_PASSWORD}
 `),
 	}
-	status := &exec.DAGRunStatus{}
+	status := &dagrun.DAGRunStatus{}
 
 	result, err := restoreDAGFromStatus(context.Background(), dag, status)
 	require.NoError(t, err)
@@ -251,7 +251,7 @@ harness:
   provider: passthrough
 `),
 	}
-	status := &exec.DAGRunStatus{}
+	status := &dagrun.DAGRunStatus{}
 
 	result, err := restoreDAGFromStatus(context.Background(), dag, status)
 	require.NoError(t, err)

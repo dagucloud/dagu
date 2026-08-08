@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/spf13/cobra"
 )
 
@@ -216,9 +216,9 @@ func previewRm(ctx *Context, opts rmOptions) error {
 
 func removeHistory(ctx *Context, opts rmOptions) ([]string, error) {
 	retentionDays := 0
-	var removeOpts []exec.RemoveOldDAGRunsOption
+	var removeOpts []dagrun.RemoveOldDAGRunsOption
 	if opts.dryRun {
-		removeOpts = append(removeOpts, exec.WithDryRun())
+		removeOpts = append(removeOpts, dagrun.WithDryRun())
 	}
 
 	switch {
@@ -230,7 +230,7 @@ func removeHistory(ctx *Context, opts rmOptions) ([]string, error) {
 			return nil, fmt.Errorf("invalid --older-than value %q: %w. Valid formats: 7d, 24h, 1w", opts.olderThan, err)
 		}
 		cutoff := time.Now().UTC().Add(-dur)
-		removeOpts = append(removeOpts, exec.WithOlderThan(cutoff))
+		removeOpts = append(removeOpts, dagrun.WithOlderThan(cutoff))
 	}
 
 	runIDs, err := ctx.DAGRunStore.RemoveOldDAGRuns(ctx, opts.dagName, retentionDays, removeOpts...)

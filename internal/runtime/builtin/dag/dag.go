@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
@@ -34,7 +35,7 @@ type dagExecutor struct {
 	stderr    io.Writer
 	runParams executor.RunParams
 	step      ir.Step
-	result    *exec.RunStatus
+	result    *dagrun.RunStatus
 	outputs   map[string]any
 	cancel    context.CancelFunc
 }
@@ -43,7 +44,7 @@ type dagExecutor struct {
 // through `outputs.write` or `stdout.outputs`. It returns nil when the child
 // published nothing that way, so a step whose child only sets flat `output:`
 // variables keeps reporting through the child run itself.
-func declaredChildOutputs(result *exec.RunStatus) map[string]any {
+func declaredChildOutputs(result *dagrun.RunStatus) map[string]any {
 	if result == nil || len(result.OutputValues) == 0 {
 		return nil
 	}
@@ -143,7 +144,7 @@ func (e *dagExecutor) Run(ctx context.Context) error {
 	e.runParams = runParams
 	e.child.SetWorkerSelector(runParams.WorkerSelector)
 
-	var result *exec.RunStatus
+	var result *dagrun.RunStatus
 	var execErr error
 	path := exec.GetContext(ctx).RetryPath
 	if hop, ok := path.Current(); ok && hop.Step == e.step.Name {

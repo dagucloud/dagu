@@ -11,6 +11,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/stretchr/testify/assert"
@@ -35,7 +36,7 @@ func TestResolveStringBuiltInRunContext(t *testing.T) {
 	ctx := config.WithConfig(context.Background(), cfg)
 	ctx = runtime.NewContext(ctx, dag, "run-1", logFile,
 		runtime.WithAttemptID("attempt-1"),
-		runtime.WithRootDAGRun(exec.NewDAGRunRef("root", "root-run-1")),
+		runtime.WithRootDAGRun(dagrun.NewDAGRunRef("root", "root-run-1")),
 		runtime.WithTriggerType(ir.TriggerTypeScheduler),
 		runtime.WithRunStartedAt(startedAt),
 		runtime.WithScheduleTime(scheduledAt),

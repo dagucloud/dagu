@@ -17,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
@@ -106,7 +107,7 @@ func newFixture(t *testing.T, dagYAML string, opts ...func(*fixture)) *fixture {
 }
 
 func (f *fixture) Run(runID string) intgharness.RunProbe {
-	return f.h.Run(exec.NewDAGRunRef(f.dag.Name, runID), f.queue)
+	return f.h.Run(dagrun.NewDAGRunRef(f.dag.Name, runID), f.queue)
 }
 
 func (f *fixture) Marker(path string) intgharness.Marker {
@@ -190,19 +191,19 @@ func (f *fixture) enqueueOne() string {
 
 func (f *fixture) enqueueWithPriority(priority exec.QueuePriority) string {
 	id := uuid.New().String()
-	att, err := f.th.DAGRunStore.CreateAttempt(f.th.Context, f.dag, time.Now(), id, exec.NewDAGRunAttemptOptions{})
+	att, err := f.th.DAGRunStore.CreateAttempt(f.th.Context, f.dag, time.Now(), id, dagrun.NewDAGRunAttemptOptions{})
 	require.NoError(f.t, err)
 	logFile := filepath.Join(f.th.Config.Paths.LogDir, f.dag.Name, id+".log")
 	require.NoError(f.t, os.MkdirAll(filepath.Dir(logFile), 0755))
 	st := transform.NewStatusBuilder(f.dag).Create(id, ir.Queued, 0, time.Time{},
 		transform.WithLogFilePath(logFile),
 		transform.WithAttemptID(att.ID()),
-		transform.WithHierarchyRefs(exec.NewDAGRunRef(f.dag.Name, id), exec.DAGRunRef{}),
+		transform.WithHierarchyRefs(dagrun.NewDAGRunRef(f.dag.Name, id), dagrun.DAGRunRef{}),
 	)
 	require.NoError(f.t, att.Open(f.th.Context))
 	require.NoError(f.t, att.Write(f.th.Context, st))
 	require.NoError(f.t, att.Close(f.th.Context))
-	require.NoError(f.t, f.th.QueueStore.Enqueue(f.th.Context, f.queue, priority, exec.NewDAGRunRef(f.dag.Name, id)))
+	require.NoError(f.t, f.th.QueueStore.Enqueue(f.th.Context, f.queue, priority, dagrun.NewDAGRunRef(f.dag.Name, id)))
 	return id
 }
 
@@ -291,7 +292,7 @@ func (f *fixture) WaitForAllStopped(timeout time.Duration) *fixture {
 	timeout = queueTestTimeout(timeout)
 	f.h.Wait.EventuallyEveryWithin("timed out waiting for queued runs to stop", timeout, 50*time.Millisecond, func() bool {
 		for _, runID := range f.runIDs {
-			alive, err := f.th.ProcStore.IsRunAlive(f.th.Context, f.queue, exec.NewDAGRunRef(f.dag.Name, runID))
+			alive, err := f.th.ProcStore.IsRunAlive(f.th.Context, f.queue, dagrun.NewDAGRunRef(f.dag.Name, runID))
 			if err != nil || alive {
 				return false
 			}
@@ -356,7 +357,7 @@ func (f *fixture) Stop() {
 }
 
 // Status returns the latest persisted status for the given DAG run.
-func (f *fixture) Status(runID string) (*exec.DAGRunStatus, error) {
+func (f *fixture) Status(runID string) (*dagrun.DAGRunStatus, error) {
 	ctx := f.th.Context
 	cancel := func() {}
 	if ctx.Err() != nil {
@@ -364,7 +365,7 @@ func (f *fixture) Status(runID string) (*exec.DAGRunStatus, error) {
 	}
 	defer cancel()
 
-	ref := exec.NewDAGRunRef(f.dag.Name, runID)
+	ref := dagrun.NewDAGRunRef(f.dag.Name, runID)
 	store := file.NewDAGRunStore(f.th.Config)
 	attempt, err := store.FindAttempt(ctx, ref)
 	if err != nil {
@@ -374,7 +375,7 @@ func (f *fixture) Status(runID string) (*exec.DAGRunStatus, error) {
 }
 
 // MustStatus returns the latest persisted status and fails the test on error.
-func (f *fixture) MustStatus(runID string) *exec.DAGRunStatus {
+func (f *fixture) MustStatus(runID string) *dagrun.DAGRunStatus {
 	f.t.Helper()
 	status, err := f.Status(runID)
 	require.NoError(f.t, err)
@@ -384,8 +385,8 @@ func (f *fixture) MustStatus(runID string) *exec.DAGRunStatus {
 func (f *fixture) WaitForStatusMatch(
 	runID string,
 	timeout time.Duration,
-	match func(*exec.DAGRunStatus) bool,
-) (*exec.DAGRunStatus, error) {
+	match func(*dagrun.DAGRunStatus) bool,
+) (*dagrun.DAGRunStatus, error) {
 	f.t.Helper()
 
 	timeout = queueTestTimeout(timeout)
@@ -432,10 +433,10 @@ func (f *fixture) collectStartTimes() []time.Time {
 	return times
 }
 
-func (f *fixture) waitForRecentStatus(timeout time.Duration, match func(exec.DAGRunStatus) bool) exec.DAGRunStatus {
+func (f *fixture) waitForRecentStatus(timeout time.Duration, match func(dagrun.DAGRunStatus) bool) dagrun.DAGRunStatus {
 	f.t.Helper()
 
-	var matched exec.DAGRunStatus
+	var matched dagrun.DAGRunStatus
 	timeout = queueTestTimeout(timeout)
 	f.h.Wait.EventuallyEveryWithin("timed out waiting for recent status match", timeout, 200*time.Millisecond, func() bool {
 		for _, status := range f.th.DAGRunMgr.ListRecentStatus(f.th.Context, f.dag.Name, 10) {
@@ -467,7 +468,7 @@ func (f *fixture) writeRunStatus(status ir.Status, opts runStatusOptions) string
 		runID = uuid.New().String()
 	}
 
-	att, err := f.th.DAGRunStore.CreateAttempt(f.th.Context, f.dag, time.Now(), runID, exec.NewDAGRunAttemptOptions{})
+	att, err := f.th.DAGRunStore.CreateAttempt(f.th.Context, f.dag, time.Now(), runID, dagrun.NewDAGRunAttemptOptions{})
 	require.NoError(f.t, err)
 	logFile := filepath.Join(f.th.Config.Paths.LogDir, f.dag.Name, runID+".log")
 	require.NoError(f.t, os.MkdirAll(filepath.Dir(logFile), 0755))
@@ -480,7 +481,7 @@ func (f *fixture) writeRunStatus(status ir.Status, opts runStatusOptions) string
 	statusOpts := []transform.StatusOption{
 		transform.WithLogFilePath(logFile),
 		transform.WithAttemptID(att.ID()),
-		transform.WithHierarchyRefs(exec.NewDAGRunRef(f.dag.Name, runID), exec.DAGRunRef{}),
+		transform.WithHierarchyRefs(dagrun.NewDAGRunRef(f.dag.Name, runID), dagrun.DAGRunRef{}),
 		transform.WithAutoRetryCount(opts.AutoRetryCount),
 	}
 	if !opts.CreatedAt.IsZero() {
@@ -490,10 +491,10 @@ func (f *fixture) writeRunStatus(status ir.Status, opts runStatusOptions) string
 		statusOpts = append(statusOpts, transform.WithFinishedAt(opts.FinishedAt))
 	}
 	if !opts.QueuedAt.IsZero() {
-		statusOpts = append(statusOpts, transform.WithQueuedAt(exec.FormatTime(opts.QueuedAt)))
+		statusOpts = append(statusOpts, transform.WithQueuedAt(dagrun.FormatTime(opts.QueuedAt)))
 	}
 	if !opts.ScheduleTime.IsZero() {
-		statusOpts = append(statusOpts, transform.WithScheduleTime(exec.FormatTime(opts.ScheduleTime)))
+		statusOpts = append(statusOpts, transform.WithScheduleTime(dagrun.FormatTime(opts.ScheduleTime)))
 	}
 	if opts.TriggerType != ir.TriggerTypeUnknown {
 		statusOpts = append(statusOpts, transform.WithTriggerType(opts.TriggerType))

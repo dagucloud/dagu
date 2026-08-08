@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
@@ -141,7 +142,7 @@ func newCoordinator(
 	ctx *Context,
 	cfg *config.Config,
 	registry exec.ServiceRegistry,
-	dagRunStore exec.DAGRunStore,
+	dagRunStore dagrun.DAGRunStore,
 	stateStore dagstate.Store,
 	dispatchTaskStore exec.DispatchTaskStore,
 	workerHeartbeatStore exec.WorkerHeartbeatStore,

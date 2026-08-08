@@ -9,7 +9,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagrun/intake"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/spf13/cobra"
@@ -111,7 +111,7 @@ func enqueueDAGRun(ctx *Context, dag *ir.DAG, dagRunID string, opts runOptions) 
 		return fmt.Errorf("queues are disabled in configuration")
 	}
 
-	dagRun := exec.NewDAGRunRef(dag.Name, dagRunID)
+	dagRun := dagrun.NewDAGRunRef(dag.Name, dagRunID)
 
 	if _, err := ctx.DAGRunStore.FindAttempt(ctx, dagRun); err == nil {
 		return fmt.Errorf("DAG %q with ID %q already exists", dag.Name, dagRunID)

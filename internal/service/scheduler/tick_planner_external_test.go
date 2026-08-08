@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
@@ -49,8 +49,8 @@ func TestTickPlanner_ProfileScopedSchedulesUseDAGFileName(t *testing.T) {
 	scheduledAt := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
 	tp := scheduler.NewTickPlanner(scheduler.TickPlannerConfig{
 		ProfileResolver: fileNameProfileResolver{},
-		GetLatestStatus: func(context.Context, *ir.DAG) (exec.DAGRunStatus, error) {
-			return exec.DAGRunStatus{}, nil
+		GetLatestStatus: func(context.Context, *ir.DAG) (dagrun.DAGRunStatus, error) {
+			return dagrun.DAGRunStatus{}, nil
 		},
 		IsRunning: func(context.Context, *ir.DAG) (bool, error) {
 			return false, nil
@@ -85,8 +85,8 @@ func TestTickPlanner_ProfileScopedSchedulesUseWorkspaceDefaultProfile(t *testing
 	scheduledAt := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
 	tp := scheduler.NewTickPlanner(scheduler.TickPlannerConfig{
 		ProfileResolver: workspaceProfileResolver{},
-		GetLatestStatus: func(context.Context, *ir.DAG) (exec.DAGRunStatus, error) {
-			return exec.DAGRunStatus{}, nil
+		GetLatestStatus: func(context.Context, *ir.DAG) (dagrun.DAGRunStatus, error) {
+			return dagrun.DAGRunStatus{}, nil
 		},
 		IsRunning: func(context.Context, *ir.DAG) (bool, error) {
 			return false, nil
@@ -122,8 +122,8 @@ func TestTickPlanner_ProfileScopedSchedulesRejectInvalidWorkspaceLabel(t *testin
 	scheduledAt := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
 	tp := scheduler.NewTickPlanner(scheduler.TickPlannerConfig{
 		ProfileResolver: workspaceProfileResolver{},
-		GetLatestStatus: func(context.Context, *ir.DAG) (exec.DAGRunStatus, error) {
-			return exec.DAGRunStatus{}, nil
+		GetLatestStatus: func(context.Context, *ir.DAG) (dagrun.DAGRunStatus, error) {
+			return dagrun.DAGRunStatus{}, nil
 		},
 		IsRunning: func(context.Context, *ir.DAG) (bool, error) {
 			return false, nil
@@ -159,8 +159,8 @@ func TestTickPlanner_UnprofiledSchedulesSkipProfileResolver(t *testing.T) {
 	resolver := &countingProfileResolver{profile: "prod"}
 	tp := scheduler.NewTickPlanner(scheduler.TickPlannerConfig{
 		ProfileResolver: resolver,
-		GetLatestStatus: func(context.Context, *ir.DAG) (exec.DAGRunStatus, error) {
-			return exec.DAGRunStatus{}, nil
+		GetLatestStatus: func(context.Context, *ir.DAG) (dagrun.DAGRunStatus, error) {
+			return dagrun.DAGRunStatus{}, nil
 		},
 		IsRunning: func(context.Context, *ir.DAG) (bool, error) {
 			return false, nil
@@ -196,8 +196,8 @@ func TestTickPlanner_InactiveProfileSchedulePersistsNoNextRunProjection(t *testi
 	tp := scheduler.NewTickPlanner(scheduler.TickPlannerConfig{
 		WatermarkStore:  store,
 		ProfileResolver: &countingProfileResolver{},
-		GetLatestStatus: func(context.Context, *ir.DAG) (exec.DAGRunStatus, error) {
-			return exec.DAGRunStatus{}, nil
+		GetLatestStatus: func(context.Context, *ir.DAG) (dagrun.DAGRunStatus, error) {
+			return dagrun.DAGRunStatus{}, nil
 		},
 		IsRunning: func(context.Context, *ir.DAG) (bool, error) {
 			return false, nil

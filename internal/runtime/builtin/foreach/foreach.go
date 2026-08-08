@@ -18,6 +18,7 @@ import (
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	coreexec "github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
@@ -33,7 +34,7 @@ type foreachExecutor struct {
 	stdout        io.Writer
 	stderr        io.Writer
 	cancel        context.CancelFunc
-	statusDetails []coreexec.NodeStatusDetail
+	statusDetails []dagrun.NodeStatusDetail
 }
 
 type expandedItem struct {
@@ -101,17 +102,17 @@ func (e *foreachExecutor) Run(ctx context.Context) error {
 	return runErr
 }
 
-func (e *foreachExecutor) GetStatusDetails() []coreexec.NodeStatusDetail {
-	return append([]coreexec.NodeStatusDetail(nil), e.statusDetails...)
+func (e *foreachExecutor) GetStatusDetails() []dagrun.NodeStatusDetail {
+	return append([]dagrun.NodeStatusDetail(nil), e.statusDetails...)
 }
 
-func foreachStatusDetails(items []expandedItem, results []itemResult, useKey bool) []coreexec.NodeStatusDetail {
-	details := make([]coreexec.NodeStatusDetail, 0, len(results))
+func foreachStatusDetails(items []expandedItem, results []itemResult, useKey bool) []dagrun.NodeStatusDetail {
+	details := make([]dagrun.NodeStatusDetail, 0, len(results))
 	for i, result := range results {
 		if i >= len(items) {
 			break
 		}
-		details = append(details, coreexec.NodeStatusDetail{
+		details = append(details, dagrun.NodeStatusDetail{
 			Label:  foreachItemLabel(items[i], useKey),
 			Status: foreachItemStatus(result.Status),
 		})

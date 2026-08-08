@@ -20,12 +20,13 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
 const (
 	dispatchTaskStoreVersion      = 1
-	defaultDispatchReservationTTL = exec.DefaultStaleLeaseThreshold
+	defaultDispatchReservationTTL = dagrun.DefaultStaleLeaseThreshold
 	minDispatchCleanupInterval    = 100 * time.Millisecond
 	maxDispatchCleanupInterval    = time.Second
 
@@ -1135,7 +1136,7 @@ func legacyPreviousStatusJSON(data json.RawMessage) (json.RawMessage, error) {
 	if status.JSONData == "" {
 		return nil, nil
 	}
-	var decoded exec.DAGRunStatus
+	var decoded dagrun.DAGRunStatus
 	if err := json.Unmarshal([]byte(status.JSONData), &decoded); err != nil {
 		return nil, fmt.Errorf("decode previous status: %w", err)
 	}

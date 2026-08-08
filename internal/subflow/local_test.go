@@ -18,6 +18,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/collections"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	filematerialization "github.com/dagucloud/dagu/v2/internal/persis/file/materialization"
@@ -25,6 +26,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/subflow"
 	"github.com/dagucloud/dagu/v2/internal/test"
+	"github.com/dagucloud/dagu/v2/internal/testutil"
 	dagutools "github.com/dagucloud/dagu/v2/internal/tools"
 )
 
@@ -32,8 +34,8 @@ func TestLocalCancelRequestsStoredChildAttemptWhenInactive(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	root := exec.NewDAGRunRef("root", "root-run")
-	attempt := new(exec.MockDAGRunAttempt)
+	root := dagrun.NewDAGRunRef("root", "root-run")
+	attempt := new(testutil.MockDAGRunAttempt)
 	attempt.On("Abort", ctx).Return(nil).Once()
 	store := &localDAGRunStore{subAttempt: attempt}
 	runner := subflow.NewLocal(runtime.Manager{}, nil, subflow.WithLocalDAGRunStore(store))
@@ -54,7 +56,7 @@ func TestLocalCancelIgnoresMissingStoredChildAttemptWhenInactive(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	root := exec.NewDAGRunRef("root", "root-run")
+	root := dagrun.NewDAGRunRef("root", "root-run")
 	store := &localDAGRunStore{}
 	runner := subflow.NewLocal(runtime.Manager{}, nil, subflow.WithLocalDAGRunStore(store))
 
@@ -73,7 +75,7 @@ func TestLocalCancelReturnsStoredChildAttemptLookupError(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	root := exec.NewDAGRunRef("root", "root-run")
+	root := dagrun.NewDAGRunRef("root", "root-run")
 	findErr := errors.New("store unavailable")
 	store := &localDAGRunStore{findErr: findErr}
 	runner := subflow.NewLocal(runtime.Manager{}, nil, subflow.WithLocalDAGRunStore(store))
@@ -94,7 +96,7 @@ func TestLocalRetryRejectsMissingRunDatabase(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	root := exec.NewDAGRunRef("root", "root-run")
+	root := dagrun.NewDAGRunRef("root", "root-run")
 	runner := subflow.NewLocal(runtime.Manager{}, nil)
 
 	result, err := runner.Retry(ctx, executor.SubWorkflowRetryRequest{
@@ -120,7 +122,7 @@ func TestLocalRunRejectsIncrementalWorkflowOnRemoteWorker(t *testing.T) {
 	)
 	result, err := runner.Run(context.Background(), executor.SubWorkflowRequest{
 		DAG:        &ir.DAG{Name: "child", Type: ir.TypeIncremental},
-		RootDAGRun: exec.NewDAGRunRef("parent", "root-1"),
+		RootDAGRun: dagrun.NewDAGRunRef("parent", "root-1"),
 		RunID:      "child-run",
 	})
 
@@ -132,9 +134,9 @@ func TestLocalRetryReadsStoredChildAttemptStatus(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	root := exec.NewDAGRunRef("root", "root-run")
+	root := dagrun.NewDAGRunRef("root", "root-run")
 	readErr := errors.New("read status failed")
-	attempt := new(exec.MockDAGRunAttempt)
+	attempt := new(testutil.MockDAGRunAttempt)
 	attempt.On("ReadStatus", ctx).Return(nil, readErr).Once()
 	store := &localDAGRunStore{subAttempt: attempt}
 	runner := subflow.NewLocal(runtime.Manager{}, nil, subflow.WithLocalDAGRunStore(store))
@@ -163,7 +165,7 @@ steps:
   - name: work
     run: echo ok
 `)
-	root := exec.NewDAGRunRef("root", uuid.Must(uuid.NewV7()).String())
+	root := dagrun.NewDAGRunRef("root", uuid.Must(uuid.NewV7()).String())
 	runner := subflow.NewLocal(th.DAGRunMgr, th.DAGStore)
 
 	result, err := runner.Run(th.Context, executor.SubWorkflowRequest{
@@ -207,7 +209,7 @@ steps:
 	child.Location = filepath.Join(copyDir, "child.yaml")
 	require.NoError(t, os.WriteFile(child.Location, child.YamlData, 0o600))
 
-	root := exec.NewDAGRunRef("parent", uuid.Must(uuid.NewV7()).String())
+	root := dagrun.NewDAGRunRef("parent", uuid.Must(uuid.NewV7()).String())
 	ctx := exec.NewContext(
 		th.Context,
 		&ir.DAG{Name: root.Name},
@@ -258,7 +260,7 @@ steps:
     run: |
       child-tool
 `)
-	root := exec.NewDAGRunRef("root", uuid.Must(uuid.NewV7()).String())
+	root := dagrun.NewDAGRunRef("root", uuid.Must(uuid.NewV7()).String())
 	runner := subflow.NewLocal(
 		th.DAGRunMgr,
 		th.DAGStore,
@@ -308,7 +310,7 @@ steps:
 		childStatus,
 	)
 
-	rootRef := exec.NewDAGRunRef(rootDAG.Name, rootRunID)
+	rootRef := dagrun.NewDAGRunRef(rootDAG.Name, rootRunID)
 	runner := subflow.NewLocal(
 		th.DAGRunMgr,
 		th.DAGStore,
@@ -350,11 +352,11 @@ steps:
 	staleAt := time.Now().Add(-3 * time.Second)
 	childStatus := localRunStatus(childDAG.DAG, childRunID, ir.Running, ir.NodeRunning)
 	childStatus.WorkerID = "local"
-	childStatus.StartedAt = exec.FormatTime(staleAt)
+	childStatus.StartedAt = dagrun.FormatTime(staleAt)
 	childStatus.CreatedAt = staleAt.UnixMilli()
 	createStoredRunningChildAttempt(t, th, rootDAG.DAG, childDAG.DAG, rootRunID, childRunID, childStatus)
 
-	rootRef := exec.NewDAGRunRef(rootDAG.Name, rootRunID)
+	rootRef := dagrun.NewDAGRunRef(rootDAG.Name, rootRunID)
 	runner := subflow.NewLocal(th.DAGRunMgr, th.DAGStore, subflow.WithLocalDAGRunStore(th.DAGRunStore))
 
 	result, err := runner.Run(th.Context, executor.SubWorkflowRequest{
@@ -373,11 +375,11 @@ steps:
 	require.Equal(t, ir.Succeeded, persisted.Status)
 }
 
-func localRunStatus(dag *ir.DAG, dagRunID string, dagStatus ir.Status, nodeStatus ir.NodeStatus) exec.DAGRunStatus {
-	status := exec.InitialStatus(dag)
+func localRunStatus(dag *ir.DAG, dagRunID string, dagStatus ir.Status, nodeStatus ir.NodeStatus) dagrun.DAGRunStatus {
+	status := dagrun.InitialStatus(dag)
 	status.DAGRunID = dagRunID
 	status.Status = dagStatus
-	status.StartedAt = exec.FormatTime(time.Now())
+	status.StartedAt = dagrun.FormatTime(time.Now())
 	status.CreatedAt = time.Now().UnixMilli()
 	for _, node := range status.Nodes {
 		node.Status = nodeStatus
@@ -392,19 +394,19 @@ func createStoredRunningChildAttempt(
 	childDAG *ir.DAG,
 	rootRunID string,
 	childRunID string,
-	status exec.DAGRunStatus,
-) exec.DAGRunAttempt {
+	status dagrun.DAGRunStatus,
+) dagrun.DAGRunAttempt {
 	t.Helper()
 
 	ctx := th.Context
-	rootRef := exec.NewDAGRunRef(rootDAG.Name, rootRunID)
+	rootRef := dagrun.NewDAGRunRef(rootDAG.Name, rootRunID)
 
-	rootAttempt, err := th.DAGRunStore.CreateAttempt(ctx, rootDAG, time.Now(), rootRunID, exec.NewDAGRunAttemptOptions{})
+	rootAttempt, err := th.DAGRunStore.CreateAttempt(ctx, rootDAG, time.Now(), rootRunID, dagrun.NewDAGRunAttemptOptions{})
 	require.NoError(t, err)
 	require.NoError(t, rootAttempt.Open(ctx))
 	rootStatus := localRunStatus(rootDAG, rootRunID, ir.Running, ir.NodeRunning)
 	rootStatus.AttemptID = rootAttempt.ID()
-	rootStatus.AttemptKey = exec.GenerateAttemptKey(rootDAG.Name, rootRunID, rootDAG.Name, rootRunID, rootStatus.AttemptID)
+	rootStatus.AttemptKey = dagrun.GenerateAttemptKey(rootDAG.Name, rootRunID, rootDAG.Name, rootRunID, rootStatus.AttemptID)
 	require.NoError(t, rootAttempt.Write(ctx, rootStatus))
 	require.NoError(t, rootAttempt.Close(ctx))
 
@@ -413,7 +415,7 @@ func createStoredRunningChildAttempt(
 	childAttempt.SetDAG(childDAG)
 	require.NoError(t, childAttempt.Open(ctx))
 	status.AttemptID = childAttempt.ID()
-	status.AttemptKey = exec.GenerateAttemptKey(rootRef.Name, rootRef.ID, childDAG.Name, childRunID, status.AttemptID)
+	status.AttemptKey = dagrun.GenerateAttemptKey(rootRef.Name, rootRef.ID, childDAG.Name, childRunID, status.AttemptID)
 	status.Root = rootRef
 	status.Parent = rootRef
 	status.DAGRunID = childRunID
@@ -423,9 +425,9 @@ func createStoredRunningChildAttempt(
 }
 
 type localDAGRunStore struct {
-	subAttempt exec.DAGRunAttempt
+	subAttempt dagrun.DAGRunAttempt
 	findErr    error
-	findRoot   exec.DAGRunRef
+	findRoot   dagrun.DAGRunRef
 	findRunID  string
 }
 
@@ -441,61 +443,61 @@ func (i *staticInstaller) Install(
 	return i.manifest, nil
 }
 
-func (s *localDAGRunStore) CreateAttempt(context.Context, *ir.DAG, time.Time, string, exec.NewDAGRunAttemptOptions) (exec.DAGRunAttempt, error) {
+func (s *localDAGRunStore) CreateAttempt(context.Context, *ir.DAG, time.Time, string, dagrun.NewDAGRunAttemptOptions) (dagrun.DAGRunAttempt, error) {
 	return nil, nil
 }
 
-func (s *localDAGRunStore) RecentAttempts(context.Context, string, int) []exec.DAGRunAttempt {
+func (s *localDAGRunStore) RecentAttempts(context.Context, string, int) []dagrun.DAGRunAttempt {
 	return nil
 }
 
-func (s *localDAGRunStore) LatestAttempt(context.Context, string) (exec.DAGRunAttempt, error) {
-	return nil, exec.ErrDAGRunIDNotFound
+func (s *localDAGRunStore) LatestAttempt(context.Context, string) (dagrun.DAGRunAttempt, error) {
+	return nil, dagrun.ErrDAGRunIDNotFound
 }
 
-func (s *localDAGRunStore) ListStatuses(context.Context, ...exec.ListDAGRunStatusesOption) ([]*exec.DAGRunStatus, error) {
+func (s *localDAGRunStore) ListStatuses(context.Context, ...dagrun.ListDAGRunStatusesOption) ([]*dagrun.DAGRunStatus, error) {
 	return nil, nil
 }
 
-func (s *localDAGRunStore) ListStatusesPage(context.Context, ...exec.ListDAGRunStatusesOption) (exec.DAGRunStatusPage, error) {
-	return exec.DAGRunStatusPage{}, nil
+func (s *localDAGRunStore) ListStatusesPage(context.Context, ...dagrun.ListDAGRunStatusesOption) (dagrun.DAGRunStatusPage, error) {
+	return dagrun.DAGRunStatusPage{}, nil
 }
 
 func (s *localDAGRunStore) CompareAndSwapLatestAttemptStatus(
 	context.Context,
-	exec.DAGRunRef,
+	dagrun.DAGRunRef,
 	string,
 	ir.Status,
-	func(*exec.DAGRunStatus) error,
-	...exec.CompareAndSwapStatusOption,
-) (*exec.DAGRunStatus, bool, error) {
+	func(*dagrun.DAGRunStatus) error,
+	...dagrun.CompareAndSwapStatusOption,
+) (*dagrun.DAGRunStatus, bool, error) {
 	return nil, false, nil
 }
 
-func (s *localDAGRunStore) FindAttempt(context.Context, exec.DAGRunRef) (exec.DAGRunAttempt, error) {
-	return nil, exec.ErrDAGRunIDNotFound
+func (s *localDAGRunStore) FindAttempt(context.Context, dagrun.DAGRunRef) (dagrun.DAGRunAttempt, error) {
+	return nil, dagrun.ErrDAGRunIDNotFound
 }
 
-func (s *localDAGRunStore) FindSubAttempt(_ context.Context, root exec.DAGRunRef, childRunID string) (exec.DAGRunAttempt, error) {
+func (s *localDAGRunStore) FindSubAttempt(_ context.Context, root dagrun.DAGRunRef, childRunID string) (dagrun.DAGRunAttempt, error) {
 	s.findRoot = root
 	s.findRunID = childRunID
 	if s.findErr != nil {
 		return nil, s.findErr
 	}
 	if s.subAttempt == nil {
-		return nil, exec.ErrDAGRunIDNotFound
+		return nil, dagrun.ErrDAGRunIDNotFound
 	}
 	return s.subAttempt, nil
 }
 
-func (s *localDAGRunStore) CreateSubAttempt(context.Context, exec.DAGRunRef, string) (exec.DAGRunAttempt, error) {
+func (s *localDAGRunStore) CreateSubAttempt(context.Context, dagrun.DAGRunRef, string) (dagrun.DAGRunAttempt, error) {
 	return nil, nil
 }
 
-func (s *localDAGRunStore) RemoveOldDAGRuns(context.Context, string, int, ...exec.RemoveOldDAGRunsOption) ([]string, error) {
+func (s *localDAGRunStore) RemoveOldDAGRuns(context.Context, string, int, ...dagrun.RemoveOldDAGRunsOption) ([]string, error) {
 	return nil, nil
 }
 
-func (s *localDAGRunStore) RemoveDAGRun(context.Context, exec.DAGRunRef, ...exec.RemoveDAGRunOption) error {
+func (s *localDAGRunStore) RemoveDAGRun(context.Context, dagrun.DAGRunRef, ...dagrun.RemoveDAGRunOption) error {
 	return nil
 }

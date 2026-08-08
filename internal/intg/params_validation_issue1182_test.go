@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
-	exec1 "github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/google/uuid"
@@ -78,8 +78,8 @@ steps:
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "start_date")
 
-	_, lookupErr := th.DAGRunStore.FindAttempt(th.Context, exec1.NewDAGRunRef("issue1182-required", runID))
-	require.ErrorIs(t, lookupErr, exec1.ErrDAGRunIDNotFound)
+	_, lookupErr := th.DAGRunStore.FindAttempt(th.Context, dagrun.NewDAGRunRef("issue1182-required", runID))
+	require.ErrorIs(t, lookupErr, dagrun.ErrDAGRunIDNotFound)
 }
 
 // I3: inline JSON Schema start fails when a value has the wrong type.

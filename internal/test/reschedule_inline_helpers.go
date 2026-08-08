@@ -14,7 +14,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
@@ -112,10 +112,10 @@ func AssertInlineRescheduledRunParams(t *testing.T, server Server, dagName, dagR
 	require.Equal(t, []string{"KEY=hello world", "COUNT=3"}, status.ParamsList)
 }
 
-func latestStoredAttemptStatus(server Server, dagName, dagRunID string) (*exec.DAGRunStatus, error) {
+func latestStoredAttemptStatus(server Server, dagName, dagRunID string) (*dagrun.DAGRunStatus, error) {
 	store := file.NewDAGRunStore(server.Config)
 
-	attempt, err := store.FindAttempt(server.Context, exec.NewDAGRunRef(dagName, dagRunID))
+	attempt, err := store.FindAttempt(server.Context, dagrun.NewDAGRunRef(dagName, dagRunID))
 	if err != nil {
 		return nil, err
 	}
@@ -123,22 +123,22 @@ func latestStoredAttemptStatus(server Server, dagName, dagRunID string) (*exec.D
 	return attempt.ReadStatus(server.Context)
 }
 
-func WaitForAttemptSnapshot(t *testing.T, server Server, dagName, dagRunID string) exec.DAGRunAttempt {
+func WaitForAttemptSnapshot(t *testing.T, server Server, dagName, dagRunID string) dagrun.DAGRunAttempt {
 	t.Helper()
 
 	store := file.NewDAGRunStore(server.Config)
 
-	var attempt exec.DAGRunAttempt
+	var attempt dagrun.DAGRunAttempt
 	require.Eventually(t, func() bool {
 		var err error
-		attempt, err = store.FindAttempt(server.Context, exec.NewDAGRunRef(dagName, dagRunID))
+		attempt, err = store.FindAttempt(server.Context, dagrun.NewDAGRunRef(dagName, dagRunID))
 		return err == nil
 	}, rescheduleEventuallyTimeout(10*time.Second), 100*time.Millisecond)
 
 	return attempt
 }
 
-func WaitForAttemptSnapshotWithDAG(t *testing.T, server Server, dagName, dagRunID string) (exec.DAGRunAttempt, *ir.DAG) {
+func WaitForAttemptSnapshotWithDAG(t *testing.T, server Server, dagName, dagRunID string) (dagrun.DAGRunAttempt, *ir.DAG) {
 	t.Helper()
 
 	attempt := WaitForAttemptSnapshot(t, server, dagName, dagRunID)

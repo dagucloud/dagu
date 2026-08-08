@@ -11,6 +11,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/collections"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -27,7 +28,7 @@ func TestRunnerShouldRun(t *testing.T) {
 	dispatcher := &mockDispatcher{}
 	validReq := runtimeexec.SubWorkflowRequest{
 		DAG:        &ir.DAG{Name: "child"},
-		RootDAGRun: exec.NewDAGRunRef("parent", "root-1"),
+		RootDAGRun: dagrun.NewDAGRunRef("parent", "root-1"),
 		RunID:      "child-1",
 	}
 
@@ -52,7 +53,7 @@ func TestRunnerShouldRun(t *testing.T) {
 			name:   "missing child DAG",
 			runner: subflow.New(dispatcher, config.ExecutionModeDistributed),
 			req: runtimeexec.SubWorkflowRequest{
-				RootDAGRun: exec.NewDAGRunRef("parent", "root-1"),
+				RootDAGRun: dagrun.NewDAGRunRef("parent", "root-1"),
 				RunID:      "child-1",
 			},
 			want: false,
@@ -62,7 +63,7 @@ func TestRunnerShouldRun(t *testing.T) {
 			runner: subflow.New(dispatcher, config.ExecutionModeDistributed),
 			req: runtimeexec.SubWorkflowRequest{
 				DAG:        &ir.DAG{Name: "child"},
-				RootDAGRun: exec.NewDAGRunRef("parent", "root-1"),
+				RootDAGRun: dagrun.NewDAGRunRef("parent", "root-1"),
 			},
 			want: false,
 		},
@@ -80,7 +81,7 @@ func TestRunnerShouldRun(t *testing.T) {
 			runner: subflow.New(dispatcher, config.ExecutionModeDistributed),
 			req: runtimeexec.SubWorkflowRequest{
 				DAG:            &ir.DAG{Name: "child", ForceLocal: true},
-				RootDAGRun:     exec.NewDAGRunRef("parent", "root-1"),
+				RootDAGRun:     dagrun.NewDAGRunRef("parent", "root-1"),
 				RunID:          "child-1",
 				WorkerSelector: map[string]string{"role": "gpu"},
 			},
@@ -91,7 +92,7 @@ func TestRunnerShouldRun(t *testing.T) {
 			runner: subflow.New(dispatcher, config.ExecutionModeLocal),
 			req: runtimeexec.SubWorkflowRequest{
 				DAG:            &ir.DAG{Name: "child"},
-				RootDAGRun:     exec.NewDAGRunRef("parent", "root-1"),
+				RootDAGRun:     dagrun.NewDAGRunRef("parent", "root-1"),
 				RunID:          "child-1",
 				WorkerSelector: map[string]string{"role": "gpu"},
 			},
@@ -132,12 +133,12 @@ func TestRunnerRunDispatchesWorkflowRequest(t *testing.T) {
 			{Found: false},
 			{
 				Found: true,
-				Status: &exec.DAGRunStatus{
+				Status: &dagrun.DAGRunStatus{
 					Name:     "child",
 					DAGRunID: "child-1",
 					Status:   ir.Succeeded,
 					Params:   "ITEM=1",
-					Nodes: []*exec.Node{
+					Nodes: []*dagrun.Node{
 						{
 							OutputVariables: &outputVars,
 							OutputsValue:    &outputValue,
@@ -159,8 +160,8 @@ func TestRunnerRunDispatchesWorkflowRequest(t *testing.T) {
 			Name:           "parent",
 			BaseConfigData: []byte("parent-base"),
 		},
-		RootDAGRun:        exec.NewDAGRunRef("parent", "root-1"),
-		ParentDAGRun:      exec.NewDAGRunRef("parent", "parent-1"),
+		RootDAGRun:        dagrun.NewDAGRunRef("parent", "root-1"),
+		ParentDAGRun:      dagrun.NewDAGRunRef("parent", "parent-1"),
 		RunID:             "child-1",
 		Params:            "ITEM=1",
 		WorkerSelector:    map[string]string{"role": "gpu"},
@@ -197,7 +198,7 @@ func TestRunnerRunRejectsIncrementalWorkflow(t *testing.T) {
 	runner := newFastRunner(dispatcher)
 	result, err := runner.Run(context.Background(), runtimeexec.SubWorkflowRequest{
 		DAG:        &ir.DAG{Name: "child", Type: ir.TypeIncremental},
-		RootDAGRun: exec.NewDAGRunRef("parent", "root-1"),
+		RootDAGRun: dagrun.NewDAGRunRef("parent", "root-1"),
 		RunID:      "child-1",
 	})
 
@@ -209,12 +210,12 @@ func TestRunnerRunRejectsIncrementalWorkflow(t *testing.T) {
 func TestRunnerRunDispatchesRetryWhenChildRunExists(t *testing.T) {
 	t.Parallel()
 
-	previous := &exec.DAGRunStatus{
+	previous := &dagrun.DAGRunStatus{
 		Name:      "child",
 		DAGRunID:  "child-1",
 		ProcGroup: "queue-a",
 		Status:    ir.Failed,
-		Nodes: []*exec.Node{
+		Nodes: []*dagrun.Node{
 			{
 				Step:   ir.Step{Name: "already-done"},
 				Status: ir.NodeSucceeded,
@@ -230,7 +231,7 @@ func TestRunnerRunDispatchesRetryWhenChildRunExists(t *testing.T) {
 			{Found: true, Status: previous},
 			{
 				Found: true,
-				Status: &exec.DAGRunStatus{
+				Status: &dagrun.DAGRunStatus{
 					Name:     "child",
 					DAGRunID: "child-1",
 					Status:   ir.Succeeded,
@@ -245,8 +246,8 @@ func TestRunnerRunDispatchesRetryWhenChildRunExists(t *testing.T) {
 			Name:     "child",
 			YamlData: []byte("name: child"),
 		},
-		RootDAGRun:   exec.NewDAGRunRef("parent", "root-1"),
-		ParentDAGRun: exec.NewDAGRunRef("parent", "parent-1"),
+		RootDAGRun:   dagrun.NewDAGRunRef("parent", "root-1"),
+		ParentDAGRun: dagrun.NewDAGRunRef("parent", "parent-1"),
 		RunID:        "child-1",
 	})
 	require.NoError(t, err)
@@ -266,11 +267,11 @@ func TestRunnerRunReusesSucceededChildForExternalStepRetry(t *testing.T) {
 
 	var outputVars collections.SyncMap
 	outputVars.Store("RESULT", "RESULT=ok")
-	previous := &exec.DAGRunStatus{
+	previous := &dagrun.DAGRunStatus{
 		Name:     "child",
 		DAGRunID: "child-1",
 		Status:   ir.Succeeded,
-		Nodes: []*exec.Node{
+		Nodes: []*dagrun.Node{
 			{OutputVariables: &outputVars},
 		},
 	}
@@ -286,8 +287,8 @@ func TestRunnerRunReusesSucceededChildForExternalStepRetry(t *testing.T) {
 			Name:     "child",
 			YamlData: []byte("name: child"),
 		},
-		RootDAGRun:        exec.NewDAGRunRef("parent", "root-1"),
-		ParentDAGRun:      exec.NewDAGRunRef("parent", "parent-1"),
+		RootDAGRun:        dagrun.NewDAGRunRef("parent", "root-1"),
+		ParentDAGRun:      dagrun.NewDAGRunRef("parent", "parent-1"),
 		RunID:             "child-1",
 		ExternalStepRetry: true,
 	})
@@ -309,7 +310,7 @@ func TestRunnerRunReuseRequiresPersistedChild(t *testing.T) {
 
 	result, err := runner.Run(context.Background(), runtimeexec.SubWorkflowRequest{
 		DAG:        &ir.DAG{Name: "child", YamlData: []byte("name: child")},
-		RootDAGRun: exec.NewDAGRunRef("parent", "root-1"),
+		RootDAGRun: dagrun.NewDAGRunRef("parent", "root-1"),
 		RunID:      "child-1",
 		Reuse:      true,
 	})
@@ -322,7 +323,7 @@ func TestRunnerRunReuseRequiresPersistedChild(t *testing.T) {
 func TestRunnerRetryDispatchesPreviousStatus(t *testing.T) {
 	t.Parallel()
 
-	previous := &exec.DAGRunStatus{
+	previous := &dagrun.DAGRunStatus{
 		Name:      "child",
 		DAGRunID:  "child-1",
 		ProcGroup: "queue-a",
@@ -333,7 +334,7 @@ func TestRunnerRetryDispatchesPreviousStatus(t *testing.T) {
 			{Found: true, Status: previous},
 			{
 				Found: true,
-				Status: &exec.DAGRunStatus{
+				Status: &dagrun.DAGRunStatus{
 					Name:     "child",
 					DAGRunID: "child-1",
 					Status:   ir.Succeeded,
@@ -349,8 +350,8 @@ func TestRunnerRetryDispatchesPreviousStatus(t *testing.T) {
 				Name:     "child",
 				YamlData: []byte("name: child"),
 			},
-			RootDAGRun:   exec.NewDAGRunRef("parent", "root-1"),
-			ParentDAGRun: exec.NewDAGRunRef("parent", "parent-1"),
+			RootDAGRun:   dagrun.NewDAGRunRef("parent", "root-1"),
+			ParentDAGRun: dagrun.NewDAGRunRef("parent", "parent-1"),
 			RunID:        "child-1",
 		},
 		StepName: "flaky",
@@ -379,7 +380,7 @@ func TestRunnerRetryRejectsEmptyStepName(t *testing.T) {
 				Name:     "child",
 				YamlData: []byte("name: child"),
 			},
-			RootDAGRun: exec.NewDAGRunRef("parent", "root-1"),
+			RootDAGRun: dagrun.NewDAGRunRef("parent", "root-1"),
 			RunID:      "child-1",
 		},
 	})
@@ -395,7 +396,7 @@ func TestRunnerCancelRequestsDispatcherCancel(t *testing.T) {
 
 	dispatcher := &mockDispatcher{}
 	runner := newFastRunner(dispatcher)
-	root := exec.NewDAGRunRef("parent", "root-1")
+	root := dagrun.NewDAGRunRef("parent", "root-1")
 
 	err := runner.Cancel(context.Background(), runtimeexec.SubWorkflowCancelRequest{
 		DAG:        &ir.DAG{Name: "child"},
@@ -430,7 +431,7 @@ type mockDispatcher struct {
 type cancelRequest struct {
 	name string
 	id   string
-	root *exec.DAGRunRef
+	root *dagrun.DAGRunRef
 }
 
 func (m *mockDispatcher) Dispatch(_ context.Context, req exec.DispatchRequest) error {
@@ -446,7 +447,7 @@ func (m *mockDispatcher) GetDAGRunStatus(
 	_ context.Context,
 	_ string,
 	_ string,
-	_ *exec.DAGRunRef,
+	_ *dagrun.DAGRunRef,
 ) (*exec.DAGRunStatusResult, error) {
 	if len(m.statuses) == 0 {
 		return &exec.DAGRunStatusResult{Found: false}, nil
@@ -456,7 +457,7 @@ func (m *mockDispatcher) GetDAGRunStatus(
 	return status, nil
 }
 
-func (m *mockDispatcher) RequestCancel(_ context.Context, name, id string, root *exec.DAGRunRef) error {
+func (m *mockDispatcher) RequestCancel(_ context.Context, name, id string, root *dagrun.DAGRunRef) error {
 	m.cancels = append(m.cancels, cancelRequest{name: name, id: id, root: root})
 	return nil
 }

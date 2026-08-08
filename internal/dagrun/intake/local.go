@@ -13,6 +13,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 )
@@ -24,7 +25,7 @@ var (
 
 // LocalAttemptBuilder creates or resolves the attempt that a local execution
 // will own.
-type LocalAttemptBuilder func(context.Context) (exec.DAGRunAttempt, error)
+type LocalAttemptBuilder func(context.Context) (dagrun.DAGRunAttempt, error)
 
 // LocalProcStore is the proc-store surface needed to claim local execution
 // ownership.
@@ -40,8 +41,8 @@ type LocalRequest struct {
 	DAG       *ir.DAG
 	DAGRunID  string
 
-	Root         exec.DAGRunRef
-	Parent       exec.DAGRunRef
+	Root         dagrun.DAGRunRef
+	Parent       dagrun.DAGRunRef
 	TriggerType  ir.TriggerType
 	TriggerActor string
 
@@ -56,7 +57,7 @@ type LocalRequest struct {
 
 // LocalPreparation is the successfully prepared local execution ownership.
 type LocalPreparation struct {
-	Attempt exec.DAGRunAttempt
+	Attempt dagrun.DAGRunAttempt
 	Proc    exec.ProcHandle
 }
 
@@ -68,7 +69,7 @@ func PrepareLocalExecution(ctx context.Context, req LocalRequest) (*LocalPrepara
 		return nil, err
 	}
 	if req.Root.Zero() {
-		req.Root = exec.NewDAGRunRef(req.DAG.Name, req.DAGRunID)
+		req.Root = dagrun.NewDAGRunRef(req.DAG.Name, req.DAGRunID)
 	}
 
 	if err := req.ProcStore.Lock(ctx, req.DAG.ProcGroup()); err != nil {
@@ -78,7 +79,7 @@ func PrepareLocalExecution(ctx context.Context, req LocalRequest) (*LocalPrepara
 
 	attempt, err := req.BuildAttempt(ctx)
 	if err != nil {
-		if errors.Is(err, exec.ErrDAGRunAlreadyExists) {
+		if errors.Is(err, dagrun.ErrDAGRunAlreadyExists) {
 			return nil, fmt.Errorf("%w: dag-run ID %s already exists for DAG %s", ErrLocalExecutionAlreadyExists, req.DAGRunID, req.DAG.Name)
 		}
 		return nil, fmt.Errorf("failed to prepare execution attempt: %w", err)
@@ -131,7 +132,7 @@ func (r LocalRequest) validate() error {
 func recordPreparedAttemptFailure(
 	ctx context.Context,
 	req LocalRequest,
-	attempt exec.DAGRunAttempt,
+	attempt dagrun.DAGRunAttempt,
 	runErr error,
 ) error {
 	logFile, logErr := logpath.Generate(ctx, req.LogBaseDir, req.DAG.LogDir, req.DAG.Name, req.DAGRunID)

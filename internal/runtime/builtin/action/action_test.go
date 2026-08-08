@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	coreexec "github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -246,7 +246,7 @@ func TestWriteJSONOutputValidatesDeclaredOutputs(t *testing.T) {
 func TestActionOutputsFromRunStatusPrefersTypedOutputs(t *testing.T) {
 	t.Parallel()
 
-	outputs := actionOutputsFromRunStatus(&coreexec.RunStatus{
+	outputs := actionOutputsFromRunStatus(&dagrun.RunStatus{
 		Outputs: map[string]string{
 			"messageId": "legacy-msg",
 			"status":    "legacy",

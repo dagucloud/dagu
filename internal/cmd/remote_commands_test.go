@@ -13,7 +13,7 @@ import (
 	"time"
 
 	api "github.com/dagucloud/dagu/v2/api/v1"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
@@ -191,7 +191,7 @@ func TestWaitForRemoteStopHonorsContextCancellation(t *testing.T) {
 func TestEnrichRemoteHistoryStatusPopulatesErrorAndMetadata(t *testing.T) {
 	t.Parallel()
 
-	status := &exec.DAGRunStatus{Name: "example", DAGRunID: "run-1"}
+	status := &dagrun.DAGRunStatus{Name: "example", DAGRunID: "run-1"}
 	detail := &api.DAGRunDetails{
 		Name:           "example",
 		DagRunId:       "run-1",

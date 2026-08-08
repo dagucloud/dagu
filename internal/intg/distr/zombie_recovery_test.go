@@ -18,6 +18,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/service/worker"
 	"github.com/dagucloud/dagu/v2/internal/test/intgharness"
@@ -89,8 +90,8 @@ steps:
 	f.waitForQueued()
 	f.startScheduler(schedulerTimeout)
 
-	var status exec.DAGRunStatus
-	var subRuns []exec.DAGRunStatus
+	var status dagrun.DAGRunStatus
+	var subRuns []dagrun.DAGRunStatus
 	require.Eventually(t, func() bool {
 		var ok bool
 		status, subRuns, ok = readRunningInlineSubDAGs(f, 1)
@@ -103,7 +104,7 @@ steps:
 	require.NoError(t, cmdutil.TerminateProcessGroup(workerCmd, cmdutil.ForceTermination()))
 
 	expectedReason := exec.DistributedLeaseExpiredReason("crash-worker")
-	rootRef := exec.NewDAGRunRef(status.Name, status.DAGRunID)
+	rootRef := dagrun.NewDAGRunRef(status.Name, status.DAGRunID)
 	childStatus := waitForSubDAGRunStatus(t, f, rootRef, subRuns[0].DAGRunID, ir.Failed, failureTimeout)
 	require.Equal(t, expectedReason, childStatus.Error)
 
@@ -187,8 +188,8 @@ steps:
 	f.waitForQueued()
 	f.startScheduler(schedulerTimeout)
 
-	var status exec.DAGRunStatus
-	var subRuns []exec.DAGRunStatus
+	var status dagrun.DAGRunStatus
+	var subRuns []dagrun.DAGRunStatus
 	require.Eventually(t, func() bool {
 		var ok bool
 		status, subRuns, ok = readRunningInlineSubDAGs(f, 2)
@@ -272,8 +273,8 @@ steps:
 	require.Eventually(t, func() bool {
 		statuses, err := f.coord.DAGRunStore.ListStatuses(
 			f.coord.Context,
-			exec.WithExactName("queue-concurrency-test"),
-			exec.WithoutLimit(),
+			dagrun.WithExactName("queue-concurrency-test"),
+			dagrun.WithoutLimit(),
 		)
 		if err != nil || len(statuses) < 2 {
 			return false
@@ -301,8 +302,8 @@ steps:
 		require.Never(t, func() bool {
 			statuses, err := f.coord.DAGRunStore.ListStatuses(
 				f.coord.Context,
-				exec.WithExactName("queue-concurrency-test"),
-				exec.WithoutLimit(),
+				dagrun.WithExactName("queue-concurrency-test"),
+				dagrun.WithoutLimit(),
 			)
 			if err != nil {
 				return false
@@ -336,8 +337,8 @@ steps:
 	require.Eventually(t, func() bool {
 		statuses, err := f.coord.DAGRunStore.ListStatuses(
 			f.coord.Context,
-			exec.WithExactName("queue-concurrency-test"),
-			exec.WithoutLimit(),
+			dagrun.WithExactName("queue-concurrency-test"),
+			dagrun.WithoutLimit(),
 		)
 		if err != nil || len(statuses) < 2 {
 			return false
@@ -378,8 +379,8 @@ steps:
 	require.Equal(t, ir.Succeeded, status.Status)
 
 	activeStatuses, err := f.coord.DAGRunStore.ListStatuses(f.coord.Context,
-		exec.WithStatuses([]ir.Status{ir.Running}),
-		exec.WithoutLimit(),
+		dagrun.WithStatuses([]ir.Status{ir.Running}),
+		dagrun.WithoutLimit(),
 	)
 	require.NoError(t, err)
 
@@ -662,14 +663,14 @@ steps:
 	require.NotEmpty(t, task.RootDagRunId)
 	require.NotEmpty(t, task.DagRunId)
 
-	rootRef := exec.NewDAGRunRef(task.RootDagRunName, task.RootDagRunId)
-	subRunRef := exec.NewDAGRunRef(task.Target, task.DagRunId)
+	rootRef := dagrun.NewDAGRunRef(task.RootDagRunName, task.RootDagRunId)
+	subRunRef := dagrun.NewDAGRunRef(task.Target, task.DagRunId)
 	lease := waitForLease(t, f, task.AttemptKey, 5*time.Second)
 	require.Equal(t, subRunRef, lease.DAGRun)
 	require.Equal(t, rootRef, lease.Root)
 	require.Equal(t, task.AttemptId, lease.AttemptID)
 
-	var initialSubStatus exec.DAGRunStatus
+	var initialSubStatus dagrun.DAGRunStatus
 	require.Eventually(t, func() bool {
 		subStatus, err := readSubDAGRunStatus(f, rootRef, subRunRef.ID)
 		if err != nil || subStatus == nil {
@@ -781,22 +782,22 @@ func waitForLease(t *testing.T, f *testFixture, attemptKey string, timeout time.
 	return *lease
 }
 
-func readRunningInlineSubDAGs(f *testFixture, expected int) (exec.DAGRunStatus, []exec.DAGRunStatus, bool) {
+func readRunningInlineSubDAGs(f *testFixture, expected int) (dagrun.DAGRunStatus, []dagrun.DAGRunStatus, bool) {
 	status, err := f.latestStatus()
 	if err != nil || status.Status != ir.Running || status.AttemptKey == "" || len(status.Nodes) != expected {
-		return exec.DAGRunStatus{}, nil, false
+		return dagrun.DAGRunStatus{}, nil, false
 	}
 
-	rootRef := exec.NewDAGRunRef(status.Name, status.DAGRunID)
-	subRuns := make([]exec.DAGRunStatus, 0, expected)
+	rootRef := dagrun.NewDAGRunRef(status.Name, status.DAGRunID)
+	subRuns := make([]dagrun.DAGRunStatus, 0, expected)
 	for _, node := range status.Nodes {
 		if node == nil || node.Status != ir.NodeRunning || len(node.SubRuns) != 1 {
-			return exec.DAGRunStatus{}, nil, false
+			return dagrun.DAGRunStatus{}, nil, false
 		}
 		subStatus, err := readSubDAGRunStatus(f, rootRef, node.SubRuns[0].DAGRunID)
 		if err != nil || subStatus == nil || subStatus.Status != ir.Running ||
 			subStatus.AttemptKey == "" || subStatus.ClaimKey != status.AttemptKey {
-			return exec.DAGRunStatus{}, nil, false
+			return dagrun.DAGRunStatus{}, nil, false
 		}
 		subRuns = append(subRuns, *subStatus)
 	}
@@ -807,15 +808,15 @@ func readRunningInlineSubDAGs(f *testFixture, expected int) (exec.DAGRunStatus, 
 func waitForSubDAGRunStatus(
 	t *testing.T,
 	f *testFixture,
-	rootRef exec.DAGRunRef,
+	rootRef dagrun.DAGRunRef,
 	subRunID string,
 	expected ir.Status,
 	timeout time.Duration,
-) exec.DAGRunStatus {
+) dagrun.DAGRunStatus {
 	t.Helper()
 
 	timeout = distrTestTimeout(timeout)
-	var status *exec.DAGRunStatus
+	var status *dagrun.DAGRunStatus
 	var schedulerErr error
 	require.Eventually(t, func() bool {
 		schedulerErr = f.pollSchedulerErr()
@@ -834,9 +835,9 @@ func waitForSubDAGRunStatus(
 
 func readSubDAGRunStatus(
 	f *testFixture,
-	rootRef exec.DAGRunRef,
+	rootRef dagrun.DAGRunRef,
 	subRunID string,
-) (*exec.DAGRunStatus, error) {
+) (*dagrun.DAGRunStatus, error) {
 	attempt, err := f.coord.DAGRunStore.FindSubAttempt(f.coord.Context, rootRef, subRunID)
 	if err != nil {
 		return nil, err

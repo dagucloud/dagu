@@ -12,6 +12,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagrun/intake"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
@@ -30,7 +31,7 @@ import (
 // unix pipe conflicts for concurrent runs).
 func EnqueueCatchupRun(
 	ctx context.Context,
-	dagRunStore exec.DAGRunStore,
+	dagRunStore dagrun.DAGRunStore,
 	queueStore exec.QueueStore,
 	baseLogDir string,
 	baseArtifactDir string,
@@ -42,7 +43,7 @@ func EnqueueCatchupRun(
 	scheduleTime time.Time,
 	profileName string,
 ) error {
-	dagRun := exec.NewDAGRunRef(dag.Name, runID)
+	dagRun := dagrun.NewDAGRunRef(dag.Name, runID)
 
 	// Idempotency: skip if a run with this ID already exists.
 	if _, err := dagRunStore.FindAttempt(ctx, dagRun); err == nil {

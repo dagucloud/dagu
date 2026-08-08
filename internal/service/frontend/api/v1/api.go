@@ -24,6 +24,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/core/baseconfig"
 	"github.com/dagucloud/dagu/v2/internal/core/docs"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagsettings"
 	incidentmodel "github.com/dagucloud/dagu/v2/internal/incident"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -60,7 +61,7 @@ var _ api.StrictServerInterface = (*API)(nil)
 
 type API struct {
 	dagStore             exec.DAGStore
-	dagRunStore          exec.DAGRunStore
+	dagRunStore          dagrun.DAGRunStore
 	dagRunMgr            runtime.Manager
 	queueStore           exec.QueueStore
 	procStore            exec.ProcStore
@@ -358,7 +359,7 @@ func WithLeaseStaleThreshold(threshold time.Duration) APIOption {
 // applies any supplied APIOption functions to customize the instance.
 func New(
 	dr exec.DAGStore,
-	drs exec.DAGRunStore,
+	drs dagrun.DAGRunStore,
 	qs exec.QueueStore,
 	ps exec.ProcStore,
 	drm runtime.Manager,
@@ -383,7 +384,7 @@ func New(
 		metricsRegistry:     mr,
 		resourceService:     rs,
 		defaultExecMode:     cfg.DefaultExecMode,
-		leaseStaleThreshold: exec.DefaultStaleLeaseThreshold,
+		leaseStaleThreshold: dagrun.DefaultStaleLeaseThreshold,
 	}
 
 	for _, opt := range opts {
@@ -758,7 +759,7 @@ func (a *API) resolveError(err error) (api.ErrorCode, string, int) {
 	if errors.Is(err, exec.ErrDAGNotFound) {
 		return api.ErrorCodeNotFound, "DAG not found", http.StatusNotFound
 	}
-	if errors.Is(err, exec.ErrDAGRunIDNotFound) {
+	if errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
 		return api.ErrorCodeNotFound, "dag-run ID not found", http.StatusNotFound
 	}
 	if errors.Is(err, exec.ErrDAGAlreadyExists) {

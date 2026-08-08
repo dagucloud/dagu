@@ -17,12 +17,14 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/procutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/sock"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	procctrl "github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 	"github.com/dagucloud/dagu/v2/internal/test"
+	"github.com/dagucloud/dagu/v2/internal/testutil"
 )
 
 // TestManager exercises DAG run manager status and control behavior.
@@ -79,7 +81,7 @@ func TestManager(t *testing.T) {
 `)
 		ctx := th.Context
 		dagRunID := uuid.Must(uuid.NewV7()).String()
-		attempt, err := th.DAGRunStore.CreateAttempt(ctx, dag.DAG, time.Now(), dagRunID, exec.NewDAGRunAttemptOptions{})
+		attempt, err := th.DAGRunStore.CreateAttempt(ctx, dag.DAG, time.Now(), dagRunID, dagrun.NewDAGRunAttemptOptions{})
 		require.NoError(t, err)
 		require.NoError(t, attempt.Open(ctx))
 		require.NoError(t, attempt.Write(ctx, testNewStatus(dag.DAG, dagRunID, ir.Running, ir.NodeRunning)))
@@ -149,7 +151,7 @@ func TestManager(t *testing.T) {
 		cli := th.DAGRunMgr
 
 		// Open the Attempt data and write a status before updating it.
-		att, err := th.DAGRunStore.CreateAttempt(ctx, dag.DAG, now, dagRunID, exec.NewDAGRunAttemptOptions{})
+		att, err := th.DAGRunStore.CreateAttempt(ctx, dag.DAG, now, dagRunID, dagrun.NewDAGRunAttemptOptions{})
 		require.NoError(t, err)
 
 		err = att.Open(ctx)
@@ -162,7 +164,7 @@ func TestManager(t *testing.T) {
 		_ = att.Close(ctx)
 
 		// Get the status and check if it is the same as the one we wrote.
-		ref := exec.NewDAGRunRef(dag.Name, dagRunID)
+		ref := dagrun.NewDAGRunRef(dag.Name, dagRunID)
 		statusToCheck, err := cli.GetSavedStatus(ctx, ref)
 		require.NoError(t, err)
 		require.Equal(t, ir.NodeSucceeded, statusToCheck.Nodes[0].Status)
@@ -171,7 +173,7 @@ func TestManager(t *testing.T) {
 		newStatus := ir.NodeFailed
 		dagRunStatus.Nodes[0].Status = newStatus
 
-		root := exec.NewDAGRunRef(dag.Name, dagRunID)
+		root := dagrun.NewDAGRunRef(dag.Name, dagRunID)
 		err = cli.UpdateStatus(ctx, root, dagRunStatus)
 		require.NoError(t, err)
 
@@ -200,7 +202,7 @@ steps:
 		err := launcher.Start(th.Context, spec)
 		require.NoError(t, err)
 
-		var status exec.DAGRunStatus
+		var status dagrun.DAGRunStatus
 		require.Eventually(t, func() bool {
 			latest, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag.DAG)
 			if err != nil {
@@ -215,7 +217,7 @@ steps:
 		dagRunID := status.DAGRunID
 		subDAGRun := status.Nodes[0].SubRuns[0]
 
-		root := exec.NewDAGRunRef(dag.Name, dagRunID)
+		root := dagrun.NewDAGRunRef(dag.Name, dagRunID)
 		subDAGRunStatus, err := th.DAGRunMgr.FindSubDAGRunStatus(th.Context, root, subDAGRun.DAGRunID)
 		require.NoError(t, err)
 		require.Equal(t, ir.Succeeded.String(), subDAGRunStatus.Status.String())
@@ -247,11 +249,11 @@ steps:
 		staleAt := time.Now().Add(-3 * time.Second)
 		childStatus := testNewStatus(childDAG.DAG, childRunID, ir.Running, ir.NodeRunning)
 		childStatus.WorkerID = "local"
-		childStatus.StartedAt = exec.FormatTime(staleAt)
+		childStatus.StartedAt = dagrun.FormatTime(staleAt)
 		childStatus.CreatedAt = staleAt.UnixMilli()
 		childAttempt := createRunningSubAttempt(t, th, rootDAG.DAG, childDAG.DAG, rootRunID, childRunID, childStatus)
 
-		rootRef := exec.NewDAGRunRef(rootDAG.Name, rootRunID)
+		rootRef := dagrun.NewDAGRunRef(rootDAG.Name, rootRunID)
 		status, err := th.DAGRunMgr.FindSubDAGRunStatus(th.Context, rootRef, childRunID)
 
 		require.NoError(t, err)
@@ -287,11 +289,11 @@ steps:
 		)
 		childStatus := testNewStatus(childDAG.DAG, childRunID, ir.Running, ir.NodeRunning)
 		childStatus.WorkerID = "local"
-		childStatus.StartedAt = exec.FormatTime(statusTime)
+		childStatus.StartedAt = dagrun.FormatTime(statusTime)
 		childStatus.CreatedAt = statusTime.UnixMilli()
 		childAttempt := createRunningSubAttempt(t, th, rootDAG.DAG, childDAG.DAG, rootRunID, childRunID, childStatus)
 
-		rootRef := exec.NewDAGRunRef(rootDAG.Name, rootRunID)
+		rootRef := dagrun.NewDAGRunRef(rootDAG.Name, rootRunID)
 		status, err := mgr.FindSubDAGRunStatus(th.Context, rootRef, childRunID)
 
 		require.NoError(t, err)
@@ -320,11 +322,11 @@ steps:
 		staleAt := time.Now().Add(-3 * time.Second)
 		childStatus := testNewStatus(childDAG.DAG, childRunID, ir.Running, ir.NodeRunning)
 		childStatus.WorkerID = "worker-1"
-		childStatus.StartedAt = exec.FormatTime(staleAt)
+		childStatus.StartedAt = dagrun.FormatTime(staleAt)
 		childStatus.CreatedAt = staleAt.UnixMilli()
 		childAttempt := createRunningSubAttempt(t, th, rootDAG.DAG, childDAG.DAG, rootRunID, childRunID, childStatus)
 
-		rootRef := exec.NewDAGRunRef(rootDAG.Name, rootRunID)
+		rootRef := dagrun.NewDAGRunRef(rootDAG.Name, rootRunID)
 		status, err := th.DAGRunMgr.FindSubDAGRunStatus(th.Context, rootRef, childRunID)
 
 		require.NoError(t, err)
@@ -339,15 +341,15 @@ steps:
 	})
 	t.Run("FindSubDAGRunStatusReturnsNoStatusDataForNilChildStatus", func(t *testing.T) {
 		ctx := th.Context
-		attempt := new(exec.MockDAGRunAttempt)
+		attempt := new(testutil.MockDAGRunAttempt)
 		attempt.On("ReadStatus", ctx).Return(nil, nil).Once()
 		store := &managerDAGRunStore{subAttempt: attempt}
 		mgr := runtime.NewManager(store, th.ProcStore, th.Config)
 
-		status, err := mgr.FindSubDAGRunStatus(ctx, exec.NewDAGRunRef("root", "root-run"), "child-run")
+		status, err := mgr.FindSubDAGRunStatus(ctx, dagrun.NewDAGRunRef("root", "root-run"), "child-run")
 
 		require.Nil(t, status)
-		require.ErrorIs(t, err, exec.ErrNoStatusData)
+		require.ErrorIs(t, err, dagrun.ErrNoStatusData)
 		attempt.AssertExpectations(t)
 	})
 	t.Run("InvalidUpdateStatusWithInvalidDAGRunID", func(t *testing.T) {
@@ -362,7 +364,7 @@ steps:
 		status := testNewStatus(dag.DAG, "unknown-req-id", ir.Failed, ir.NodeFailed)
 
 		// Check if the update fails.
-		root := exec.NewDAGRunRef(dag.Name, "unknown-req-id")
+		root := dagrun.NewDAGRunRef(dag.Name, "unknown-req-id")
 		err := cli.UpdateStatus(ctx, root, status)
 		require.Error(t, err)
 	})
@@ -376,7 +378,7 @@ steps:
 		now := time.Now()
 		ctx := th.Context
 
-		att, err := th.DAGRunStore.CreateAttempt(ctx, dag.DAG, now, dagRunID, exec.NewDAGRunAttemptOptions{})
+		att, err := th.DAGRunStore.CreateAttempt(ctx, dag.DAG, now, dagRunID, dagrun.NewDAGRunAttemptOptions{})
 		require.NoError(t, err)
 		require.NoError(t, att.Open(ctx))
 
@@ -408,7 +410,7 @@ steps:
 		now := time.Now()
 		ctx := th.Context
 
-		att, err := th.DAGRunStore.CreateAttempt(ctx, dag.DAG, now, dagRunID, exec.NewDAGRunAttemptOptions{})
+		att, err := th.DAGRunStore.CreateAttempt(ctx, dag.DAG, now, dagRunID, dagrun.NewDAGRunAttemptOptions{})
 		require.NoError(t, err)
 		require.NoError(t, att.Open(ctx))
 
@@ -436,13 +438,13 @@ steps:
 		now := time.Now()
 		ctx := th.Context
 
-		att, err := th.DAGRunStore.CreateAttempt(ctx, dag.DAG, now, dagRunID, exec.NewDAGRunAttemptOptions{})
+		att, err := th.DAGRunStore.CreateAttempt(ctx, dag.DAG, now, dagRunID, dagrun.NewDAGRunAttemptOptions{})
 		require.NoError(t, err)
 		require.NoError(t, att.Open(ctx))
 
 		runningStatus := testNewStatus(dag.DAG, dagRunID, ir.Running, ir.NodeRunning)
 		runningStatus.AttemptID = att.ID()
-		runningStatus.AttemptKey = exec.GenerateAttemptKey(dag.Name, dagRunID, dag.Name, dagRunID, runningStatus.AttemptID)
+		runningStatus.AttemptKey = dagrun.GenerateAttemptKey(dag.Name, dagRunID, dag.Name, dagRunID, runningStatus.AttemptID)
 		staleAt := time.Now().Add(-3 * time.Second)
 		runningStatus.StartedAt = staleAt.UTC().Format(time.RFC3339)
 		runningStatus.CreatedAt = staleAt.UnixMilli()
@@ -483,15 +485,15 @@ steps:
 		now := time.Now()
 		ctx := th.Context
 
-		att, err := th.DAGRunStore.CreateAttempt(ctx, dag.DAG, now, dagRunID, exec.NewDAGRunAttemptOptions{})
+		att, err := th.DAGRunStore.CreateAttempt(ctx, dag.DAG, now, dagRunID, dagrun.NewDAGRunAttemptOptions{})
 		require.NoError(t, err)
 		require.NoError(t, att.Open(ctx))
 
 		runningStatus := testNewStatus(dag.DAG, dagRunID, ir.Running, ir.NodeRunning)
 		runningStatus.AttemptID = att.ID()
-		runningStatus.AttemptKey = exec.GenerateAttemptKey(dag.Name, dagRunID, dag.Name, dagRunID, runningStatus.AttemptID)
+		runningStatus.AttemptKey = dagrun.GenerateAttemptKey(dag.Name, dagRunID, dag.Name, dagRunID, runningStatus.AttemptID)
 		runningStatus.WorkerID = "local"
-		runningStatus.PID = exec.PID(os.Getpid())
+		runningStatus.PID = dagrun.PID(os.Getpid())
 		pidStartedAt, ok := procutil.StartTime(os.Getpid())
 		require.True(t, ok)
 		runningStatus.PIDStartedAt = pidStartedAt
@@ -521,9 +523,9 @@ steps:
 		dagRunID := uuid.Must(uuid.NewV7()).String()
 		now := time.Now()
 		ctx := th.Context
-		ref := exec.NewDAGRunRef(dag.Name, dagRunID)
+		ref := dagrun.NewDAGRunRef(dag.Name, dagRunID)
 
-		att, err := th.DAGRunStore.CreateAttempt(ctx, dag.DAG, now, dagRunID, exec.NewDAGRunAttemptOptions{})
+		att, err := th.DAGRunStore.CreateAttempt(ctx, dag.DAG, now, dagRunID, dagrun.NewDAGRunAttemptOptions{})
 		require.NoError(t, err)
 		require.NoError(t, att.Open(ctx))
 
@@ -557,12 +559,12 @@ steps:
 			runtime.WithManagerClock(func() time.Time { return statusTime }),
 		)
 
-		att, err := th.DAGRunStore.CreateAttempt(ctx, dag.DAG, now, dagRunID, exec.NewDAGRunAttemptOptions{})
+		att, err := th.DAGRunStore.CreateAttempt(ctx, dag.DAG, now, dagRunID, dagrun.NewDAGRunAttemptOptions{})
 		require.NoError(t, err)
 		require.NoError(t, att.Open(ctx))
 
 		runningStatus := testNewStatus(dag.DAG, dagRunID, ir.Running, ir.NodeRunning)
-		runningStatus.StartedAt = exec.FormatTime(statusTime)
+		runningStatus.StartedAt = dagrun.FormatTime(statusTime)
 		runningStatus.CreatedAt = statusTime.UnixMilli()
 		require.NoError(t, att.Write(ctx, runningStatus))
 		require.NoError(t, att.Close(ctx))
@@ -587,7 +589,7 @@ steps:
 		now := time.Now()
 		statusTime := now.UTC()
 		ctx := th.Context
-		ref := exec.NewDAGRunRef(dag.Name, dagRunID)
+		ref := dagrun.NewDAGRunRef(dag.Name, dagRunID)
 		mgr := runtime.NewManager(
 			th.DAGRunStore,
 			th.ProcStore,
@@ -595,12 +597,12 @@ steps:
 			runtime.WithManagerClock(func() time.Time { return statusTime }),
 		)
 
-		att, err := th.DAGRunStore.CreateAttempt(ctx, dag.DAG, now, dagRunID, exec.NewDAGRunAttemptOptions{})
+		att, err := th.DAGRunStore.CreateAttempt(ctx, dag.DAG, now, dagRunID, dagrun.NewDAGRunAttemptOptions{})
 		require.NoError(t, err)
 		require.NoError(t, att.Open(ctx))
 
 		runningStatus := testNewStatus(dag.DAG, dagRunID, ir.Running, ir.NodeRunning)
-		runningStatus.StartedAt = exec.FormatTime(statusTime)
+		runningStatus.StartedAt = dagrun.FormatTime(statusTime)
 		runningStatus.CreatedAt = statusTime.UnixMilli()
 		require.NoError(t, att.Write(ctx, runningStatus))
 		require.NoError(t, att.Close(ctx))
@@ -619,15 +621,15 @@ steps:
 		dagRunID := uuid.Must(uuid.NewV7()).String()
 		now := time.Now()
 		ctx := th.Context
-		ref := exec.NewDAGRunRef(dag.Name, dagRunID)
+		ref := dagrun.NewDAGRunRef(dag.Name, dagRunID)
 
-		att, err := th.DAGRunStore.CreateAttempt(ctx, dag.DAG, now, dagRunID, exec.NewDAGRunAttemptOptions{})
+		att, err := th.DAGRunStore.CreateAttempt(ctx, dag.DAG, now, dagRunID, dagrun.NewDAGRunAttemptOptions{})
 		require.NoError(t, err)
 		require.NoError(t, att.Open(ctx))
 
 		runningStatus := testNewStatus(dag.DAG, dagRunID, ir.Running, ir.NodeRunning)
 		runningStatus.AttemptID = "attempt-1"
-		runningStatus.AttemptKey = exec.GenerateAttemptKey(dag.Name, dagRunID, dag.Name, dagRunID, runningStatus.AttemptID)
+		runningStatus.AttemptKey = dagrun.GenerateAttemptKey(dag.Name, dagRunID, dag.Name, dagRunID, runningStatus.AttemptID)
 		runningStatus.WorkerID = "worker-1"
 		require.NoError(t, att.Write(ctx, runningStatus))
 		require.NoError(t, att.Close(ctx))
@@ -649,13 +651,13 @@ steps:
 		now := time.Now()
 		ctx := th.Context
 
-		att, err := th.DAGRunStore.CreateAttempt(ctx, dag.DAG, now, dagRunID, exec.NewDAGRunAttemptOptions{})
+		att, err := th.DAGRunStore.CreateAttempt(ctx, dag.DAG, now, dagRunID, dagrun.NewDAGRunAttemptOptions{})
 		require.NoError(t, err)
 		require.NoError(t, att.Open(ctx))
 
 		runningStatus := testNewStatus(dag.DAG, dagRunID, ir.Running, ir.NodeRunning)
 		runningStatus.AttemptID = "attempt-1"
-		runningStatus.AttemptKey = exec.GenerateAttemptKey(dag.Name, dagRunID, dag.Name, dagRunID, runningStatus.AttemptID)
+		runningStatus.AttemptKey = dagrun.GenerateAttemptKey(dag.Name, dagRunID, dag.Name, dagRunID, runningStatus.AttemptID)
 		runningStatus.WorkerID = "worker-1"
 		require.NoError(t, att.Write(ctx, runningStatus))
 		require.NoError(t, att.Close(ctx))
@@ -679,13 +681,13 @@ steps:
 		now := time.Now()
 		ctx := th.Context
 
-		att, err := th.DAGRunStore.CreateAttempt(ctx, dag.DAG, now, dagRunID, exec.NewDAGRunAttemptOptions{})
+		att, err := th.DAGRunStore.CreateAttempt(ctx, dag.DAG, now, dagRunID, dagrun.NewDAGRunAttemptOptions{})
 		require.NoError(t, err)
 		require.NoError(t, att.Open(ctx))
 
 		runningStatus := testNewStatus(dag.DAG, dagRunID, ir.Running, ir.NodeRunning)
 		runningStatus.AttemptID = "attempt-1"
-		runningStatus.AttemptKey = exec.GenerateAttemptKey(dag.Name, dagRunID, dag.Name, dagRunID, runningStatus.AttemptID)
+		runningStatus.AttemptKey = dagrun.GenerateAttemptKey(dag.Name, dagRunID, dag.Name, dagRunID, runningStatus.AttemptID)
 		runningStatus.WorkerID = "worker-1"
 		require.NoError(t, att.Write(ctx, runningStatus))
 		require.NoError(t, att.Close(ctx))
@@ -709,13 +711,13 @@ steps:
 		now := time.Now()
 		ctx := th.Context
 
-		att, err := th.DAGRunStore.CreateAttempt(ctx, dag.DAG, now, dagRunID, exec.NewDAGRunAttemptOptions{})
+		att, err := th.DAGRunStore.CreateAttempt(ctx, dag.DAG, now, dagRunID, dagrun.NewDAGRunAttemptOptions{})
 		require.NoError(t, err)
 		require.NoError(t, att.Open(ctx))
 
 		runningStatus := testNewStatus(dag.DAG, dagRunID, ir.Running, ir.NodeRunning)
 		runningStatus.AttemptID = "attempt-1"
-		runningStatus.AttemptKey = exec.GenerateAttemptKey(dag.Name, dagRunID, dag.Name, dagRunID, runningStatus.AttemptID)
+		runningStatus.AttemptKey = dagrun.GenerateAttemptKey(dag.Name, dagRunID, dag.Name, dagRunID, runningStatus.AttemptID)
 		runningStatus.WorkerID = "worker-1"
 		require.NoError(t, att.Write(ctx, runningStatus))
 		require.NoError(t, att.Close(ctx))
@@ -736,7 +738,7 @@ steps:
 		dagRunID := uuid.Must(uuid.NewV7()).String()
 		attemptID := "attempt-no-socket"
 
-		att, err := th.DAGRunStore.CreateAttempt(ctx, dag.DAG, time.Now(), dagRunID, exec.NewDAGRunAttemptOptions{
+		att, err := th.DAGRunStore.CreateAttempt(ctx, dag.DAG, time.Now(), dagRunID, dagrun.NewDAGRunAttemptOptions{
 			AttemptID: attemptID,
 		})
 		require.NoError(t, err)
@@ -819,12 +821,12 @@ steps:
 			runtime.WithManagerClock(func() time.Time { return time.Now() }),
 		)
 
-		att, err := th.DAGRunStore.CreateAttempt(ctx, dag.DAG, startedAt, dagRunID, exec.NewDAGRunAttemptOptions{})
+		att, err := th.DAGRunStore.CreateAttempt(ctx, dag.DAG, startedAt, dagRunID, dagrun.NewDAGRunAttemptOptions{})
 		require.NoError(t, err)
 		require.NoError(t, att.Open(ctx))
 
 		runningStatus := testNewStatus(dag.DAG, dagRunID, ir.Running, ir.NodeRunning)
-		runningStatus.StartedAt = exec.FormatTime(startedAt)
+		runningStatus.StartedAt = dagrun.FormatTime(startedAt)
 		runningStatus.CreatedAt = startedAt.UnixMilli()
 		require.NoError(t, att.Write(ctx, runningStatus))
 		require.NoError(t, att.Close(ctx))
@@ -837,7 +839,7 @@ steps:
 }
 
 // testNewStatus builds a minimal persisted DAG run status for manager tests.
-func testNewStatus(dag *ir.DAG, dagRunID string, dagStatus ir.Status, nodeStatus ir.NodeStatus) exec.DAGRunStatus {
+func testNewStatus(dag *ir.DAG, dagRunID string, dagStatus ir.Status, nodeStatus ir.NodeStatus) dagrun.DAGRunStatus {
 	nodes := []runtime.NodeData{{State: runtime.NodeState{Status: nodeStatus}}}
 	return transform.NewStatusBuilder(dag).Create(dagRunID, dagStatus, 0, time.Now(), transform.WithNodes(nodes))
 }
@@ -849,19 +851,19 @@ func createRunningSubAttempt(
 	childDAG *ir.DAG,
 	rootRunID string,
 	childRunID string,
-	status exec.DAGRunStatus,
-) exec.DAGRunAttempt {
+	status dagrun.DAGRunStatus,
+) dagrun.DAGRunAttempt {
 	t.Helper()
 
 	ctx := th.Context
-	rootRef := exec.NewDAGRunRef(rootDAG.Name, rootRunID)
+	rootRef := dagrun.NewDAGRunRef(rootDAG.Name, rootRunID)
 
-	rootAttempt, err := th.DAGRunStore.CreateAttempt(ctx, rootDAG, time.Now(), rootRunID, exec.NewDAGRunAttemptOptions{})
+	rootAttempt, err := th.DAGRunStore.CreateAttempt(ctx, rootDAG, time.Now(), rootRunID, dagrun.NewDAGRunAttemptOptions{})
 	require.NoError(t, err)
 	require.NoError(t, rootAttempt.Open(ctx))
 	rootStatus := testNewStatus(rootDAG, rootRunID, ir.Running, ir.NodeRunning)
 	rootStatus.AttemptID = rootAttempt.ID()
-	rootStatus.AttemptKey = exec.GenerateAttemptKey(rootDAG.Name, rootRunID, rootDAG.Name, rootRunID, rootStatus.AttemptID)
+	rootStatus.AttemptKey = dagrun.GenerateAttemptKey(rootDAG.Name, rootRunID, rootDAG.Name, rootRunID, rootStatus.AttemptID)
 	require.NoError(t, rootAttempt.Write(ctx, rootStatus))
 	require.NoError(t, rootAttempt.Close(ctx))
 
@@ -870,7 +872,7 @@ func createRunningSubAttempt(
 	childAttempt.SetDAG(childDAG)
 	require.NoError(t, childAttempt.Open(ctx))
 	status.AttemptID = childAttempt.ID()
-	status.AttemptKey = exec.GenerateAttemptKey(rootRef.Name, rootRef.ID, childDAG.Name, childRunID, status.AttemptID)
+	status.AttemptKey = dagrun.GenerateAttemptKey(rootRef.Name, rootRef.ID, childDAG.Name, childRunID, status.AttemptID)
 	status.Root = rootRef
 	status.Parent = rootRef
 	status.DAGRunID = childRunID
@@ -880,65 +882,65 @@ func createRunningSubAttempt(
 }
 
 type managerDAGRunStore struct {
-	subAttempt exec.DAGRunAttempt
+	subAttempt dagrun.DAGRunAttempt
 }
 
-func (s *managerDAGRunStore) CreateAttempt(context.Context, *ir.DAG, time.Time, string, exec.NewDAGRunAttemptOptions) (exec.DAGRunAttempt, error) {
+func (s *managerDAGRunStore) CreateAttempt(context.Context, *ir.DAG, time.Time, string, dagrun.NewDAGRunAttemptOptions) (dagrun.DAGRunAttempt, error) {
 	panic("unexpected call: CreateAttempt")
 }
 
-func (s *managerDAGRunStore) RecentAttempts(context.Context, string, int) []exec.DAGRunAttempt {
+func (s *managerDAGRunStore) RecentAttempts(context.Context, string, int) []dagrun.DAGRunAttempt {
 	panic("unexpected call: RecentAttempts")
 }
 
-func (s *managerDAGRunStore) LatestAttempt(context.Context, string) (exec.DAGRunAttempt, error) {
+func (s *managerDAGRunStore) LatestAttempt(context.Context, string) (dagrun.DAGRunAttempt, error) {
 	panic("unexpected call: LatestAttempt")
 }
 
-func (s *managerDAGRunStore) ListStatuses(context.Context, ...exec.ListDAGRunStatusesOption) ([]*exec.DAGRunStatus, error) {
+func (s *managerDAGRunStore) ListStatuses(context.Context, ...dagrun.ListDAGRunStatusesOption) ([]*dagrun.DAGRunStatus, error) {
 	panic("unexpected call: ListStatuses")
 }
 
-func (s *managerDAGRunStore) ListStatusesPage(context.Context, ...exec.ListDAGRunStatusesOption) (exec.DAGRunStatusPage, error) {
+func (s *managerDAGRunStore) ListStatusesPage(context.Context, ...dagrun.ListDAGRunStatusesOption) (dagrun.DAGRunStatusPage, error) {
 	panic("unexpected call: ListStatusesPage")
 }
 
 func (s *managerDAGRunStore) CompareAndSwapLatestAttemptStatus(
 	context.Context,
-	exec.DAGRunRef,
+	dagrun.DAGRunRef,
 	string,
 	ir.Status,
-	func(*exec.DAGRunStatus) error,
-	...exec.CompareAndSwapStatusOption,
-) (*exec.DAGRunStatus, bool, error) {
+	func(*dagrun.DAGRunStatus) error,
+	...dagrun.CompareAndSwapStatusOption,
+) (*dagrun.DAGRunStatus, bool, error) {
 	panic("unexpected call: CompareAndSwapLatestAttemptStatus")
 }
 
-func (s *managerDAGRunStore) FindAttempt(context.Context, exec.DAGRunRef) (exec.DAGRunAttempt, error) {
+func (s *managerDAGRunStore) FindAttempt(context.Context, dagrun.DAGRunRef) (dagrun.DAGRunAttempt, error) {
 	panic("unexpected call: FindAttempt")
 }
 
-func (s *managerDAGRunStore) FindSubAttempt(context.Context, exec.DAGRunRef, string) (exec.DAGRunAttempt, error) {
+func (s *managerDAGRunStore) FindSubAttempt(context.Context, dagrun.DAGRunRef, string) (dagrun.DAGRunAttempt, error) {
 	if s.subAttempt == nil {
-		return nil, exec.ErrDAGRunIDNotFound
+		return nil, dagrun.ErrDAGRunIDNotFound
 	}
 	return s.subAttempt, nil
 }
 
-func (s *managerDAGRunStore) CreateSubAttempt(context.Context, exec.DAGRunRef, string) (exec.DAGRunAttempt, error) {
+func (s *managerDAGRunStore) CreateSubAttempt(context.Context, dagrun.DAGRunRef, string) (dagrun.DAGRunAttempt, error) {
 	panic("unexpected call: CreateSubAttempt")
 }
 
-func (s *managerDAGRunStore) RemoveOldDAGRuns(context.Context, string, int, ...exec.RemoveOldDAGRunsOption) ([]string, error) {
+func (s *managerDAGRunStore) RemoveOldDAGRuns(context.Context, string, int, ...dagrun.RemoveOldDAGRunsOption) ([]string, error) {
 	panic("unexpected call: RemoveOldDAGRuns")
 }
 
-func (s *managerDAGRunStore) RemoveDAGRun(context.Context, exec.DAGRunRef, ...exec.RemoveDAGRunOption) error {
+func (s *managerDAGRunStore) RemoveDAGRun(context.Context, dagrun.DAGRunRef, ...dagrun.RemoveDAGRunOption) error {
 	panic("unexpected call: RemoveDAGRun")
 }
 
 // startStatusSocketServer serves a fixed status over the DAG run socket.
-func startStatusSocketServer(t *testing.T, ctx context.Context, dag *ir.DAG, dagRunID string, status exec.DAGRunStatus) func() {
+func startStatusSocketServer(t *testing.T, ctx context.Context, dag *ir.DAG, dagRunID string, status dagrun.DAGRunStatus) func() {
 	t.Helper()
 
 	socketServer, err := sock.NewServer(

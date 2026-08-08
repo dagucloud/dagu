@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/assert"
@@ -93,7 +93,7 @@ steps:
 	require.NoError(t, err)
 	require.Equal(t, ir.Succeeded, status.Status)
 
-	ref := exec.NewDAGRunRef(status.Name, status.DAGRunID)
+	ref := dagrun.NewDAGRunRef(status.Name, status.DAGRunID)
 
 	for _, node := range status.Nodes {
 		if len(node.SubRuns) == 0 {
@@ -117,7 +117,7 @@ steps:
 }
 
 // getSubDAGWorkingDir retrieves the working directory from a subDAG's stdout log.
-func getSubDAGWorkingDir(t *testing.T, ctx context.Context, subAttempt exec.DAGRunAttempt) string {
+func getSubDAGWorkingDir(t *testing.T, ctx context.Context, subAttempt dagrun.DAGRunAttempt) string {
 	t.Helper()
 
 	subStatus, err := subAttempt.ReadStatus(ctx)

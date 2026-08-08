@@ -11,7 +11,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	llmpkg "github.com/dagucloud/dagu/v2/internal/llm"
 )
@@ -144,7 +144,7 @@ func coalesceStr(override, fallback string) string {
 // resolved against the runtime scope, so a reference to a secret becomes the
 // secret itself; only the copy sent to the provider is masked, and the run's own
 // transcript keeps the resolved text.
-func MaskSecretsForProvider(ctx context.Context, msgs []exec.LLMMessage) []exec.LLMMessage {
+func MaskSecretsForProvider(ctx context.Context, msgs []dagrun.LLMMessage) []dagrun.LLMMessage {
 	rCtx := GetDAGContext(ctx)
 	if rCtx.EnvScope == nil {
 		return msgs
@@ -160,9 +160,9 @@ func MaskSecretsForProvider(ctx context.Context, msgs []exec.LLMMessage) []exec.
 	}
 	masker := masking.NewMasker(masking.SourcedEnvVars{Secrets: envPairs})
 
-	result := make([]exec.LLMMessage, len(msgs))
+	result := make([]dagrun.LLMMessage, len(msgs))
 	for i, msg := range msgs {
-		result[i] = exec.LLMMessage{
+		result[i] = dagrun.LLMMessage{
 			Role:       msg.Role,
 			Content:    masker.MaskString(msg.Content),
 			ToolCallID: msg.ToolCallID,

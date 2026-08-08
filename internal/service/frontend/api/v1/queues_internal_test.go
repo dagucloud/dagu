@@ -12,9 +12,10 @@ import (
 	openapiv1 "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
-	"github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
+	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -29,7 +30,7 @@ func TestGetQueueFiltersDistributedRunsByLeaseFreshness(t *testing.T) {
 
 	ctx := context.Background()
 	tmpDir := t.TempDir()
-	dagRunStore := dagrun.New(filepath.Join(tmpDir, "dag-runs"))
+	dagRunStore := filedagrun.New(filepath.Join(tmpDir, "dag-runs"))
 	leaseStore := newTestDAGRunLeaseStore(filepath.Join(tmpDir, "distributed"))
 	procStore := newTestProcStore(filepath.Join(tmpDir, "proc"))
 
@@ -61,7 +62,7 @@ func TestGetQueueFallsBackToDAGNameWhenLeaseQueueIsEmpty(t *testing.T) {
 
 	ctx := context.Background()
 	tmpDir := t.TempDir()
-	dagRunStore := dagrun.New(filepath.Join(tmpDir, "dag-runs"))
+	dagRunStore := filedagrun.New(filepath.Join(tmpDir, "dag-runs"))
 	leaseStore := newTestDAGRunLeaseStore(filepath.Join(tmpDir, "distributed"))
 	procStore := newTestProcStore(filepath.Join(tmpDir, "proc"))
 
@@ -103,7 +104,7 @@ func TestGetQueueCountsFreshLeaseForClaimedAttemptAsRunning(t *testing.T) {
 
 			ctx := context.Background()
 			tmpDir := t.TempDir()
-			dagRunStore := dagrun.New(filepath.Join(tmpDir, "dag-runs"))
+			dagRunStore := filedagrun.New(filepath.Join(tmpDir, "dag-runs"))
 			leaseStore := newTestDAGRunLeaseStore(filepath.Join(tmpDir, "distributed"))
 			procStore := newTestProcStore(filepath.Join(tmpDir, "proc"))
 
@@ -139,7 +140,7 @@ func TestGetQueueCountsQueuedItemsSeparatelyFromRunningItems(t *testing.T) {
 
 	ctx := context.Background()
 	tmpDir := t.TempDir()
-	dagRunStore := dagrun.New(filepath.Join(tmpDir, "dag-runs"))
+	dagRunStore := filedagrun.New(filepath.Join(tmpDir, "dag-runs"))
 	leaseStore := newTestDAGRunLeaseStore(filepath.Join(tmpDir, "distributed"))
 	queueStore := store.NewQueueStore(file.NewCollection(filepath.Join(tmpDir, "queue")))
 	procStore := newTestProcStore(filepath.Join(tmpDir, "proc"))
@@ -172,7 +173,7 @@ func TestListQueueItemsUsesCursorPaginationAndSkipsRunningEntries(t *testing.T) 
 
 	ctx := context.Background()
 	tmpDir := t.TempDir()
-	dagRunStore := dagrun.New(filepath.Join(tmpDir, "dag-runs"))
+	dagRunStore := filedagrun.New(filepath.Join(tmpDir, "dag-runs"))
 	queueStore := store.NewQueueStore(file.NewCollection(filepath.Join(tmpDir, "queue")))
 	procStore := newTestProcStore(filepath.Join(tmpDir, "proc"))
 
@@ -247,7 +248,7 @@ func TestListQueuesReturnsDeterministicQueueOrder(t *testing.T) {
 func createDistributedQueueRun(
 	t *testing.T,
 	ctx context.Context,
-	store exec.DAGRunStore,
+	store dagrun.DAGRunStore,
 	leaseStore exec.DAGRunLeaseStore,
 	name string,
 	dagRunID string,
@@ -261,7 +262,7 @@ func createDistributedQueueRun(
 func createDistributedQueueRunWithStatus(
 	t *testing.T,
 	ctx context.Context,
-	store exec.DAGRunStore,
+	store dagrun.DAGRunStore,
 	leaseStore exec.DAGRunLeaseStore,
 	name string,
 	dagRunID string,
@@ -278,22 +279,22 @@ func createDistributedQueueRunWithStatus(
 		},
 	}
 
-	attempt, err := store.CreateAttempt(ctx, dag, time.Now().UTC(), dagRunID, exec.NewDAGRunAttemptOptions{})
+	attempt, err := store.CreateAttempt(ctx, dag, time.Now().UTC(), dagRunID, dagrun.NewDAGRunAttemptOptions{})
 	require.NoError(t, err)
 	require.NoError(t, attempt.Open(ctx))
 	defer func() {
 		require.NoError(t, attempt.Close(ctx))
 	}()
 
-	runStatus := exec.InitialStatus(dag)
+	runStatus := dagrun.InitialStatus(dag)
 	runStatus.Status = status
 	runStatus.DAGRunID = dagRunID
 	runStatus.AttemptID = attempt.ID()
 	runStatus.ProcGroup = name
 	runStatus.WorkerID = "worker-1"
 	if status == ir.Queued {
-		runStatus.Conditions = []exec.DAGRunCondition{
-			exec.NewDAGRunCondition(
+		runStatus.Conditions = []dagrun.DAGRunCondition{
+			dagrun.NewDAGRunCondition(
 				"Runnable",
 				"False",
 				"MaxConcurrencyReached",
@@ -309,9 +310,9 @@ func createDistributedQueueRunWithStatus(
 
 	require.NoError(t, attempt.Write(ctx, runStatus))
 	require.NoError(t, leaseStore.Upsert(ctx, exec.DAGRunLease{
-		AttemptKey:      exec.GenerateAttemptKey(name, dagRunID, name, dagRunID, attempt.ID()),
-		DAGRun:          exec.NewDAGRunRef(name, dagRunID),
-		Root:            exec.NewDAGRunRef(name, dagRunID),
+		AttemptKey:      dagrun.GenerateAttemptKey(name, dagRunID, name, dagRunID, attempt.ID()),
+		DAGRun:          dagrun.NewDAGRunRef(name, dagRunID),
+		Root:            dagrun.NewDAGRunRef(name, dagRunID),
 		AttemptID:       attempt.ID(),
 		QueueName:       leaseQueueName,
 		WorkerID:        "worker-1",
@@ -322,7 +323,7 @@ func createDistributedQueueRunWithStatus(
 func createQueuedQueueRun(
 	t *testing.T,
 	ctx context.Context,
-	store exec.DAGRunStore,
+	store dagrun.DAGRunStore,
 	queueStore exec.QueueStore,
 	name string,
 	dagRunID string,
@@ -337,14 +338,14 @@ func createQueuedQueueRun(
 		},
 	}
 
-	attempt, err := store.CreateAttempt(ctx, dag, time.Now().UTC(), dagRunID, exec.NewDAGRunAttemptOptions{})
+	attempt, err := store.CreateAttempt(ctx, dag, time.Now().UTC(), dagRunID, dagrun.NewDAGRunAttemptOptions{})
 	require.NoError(t, err)
 	require.NoError(t, attempt.Open(ctx))
 	defer func() {
 		require.NoError(t, attempt.Close(ctx))
 	}()
 
-	runStatus := exec.InitialStatus(dag)
+	runStatus := dagrun.InitialStatus(dag)
 	runStatus.Status = status
 	runStatus.DAGRunID = dagRunID
 	runStatus.AttemptID = attempt.ID()
@@ -356,7 +357,7 @@ func createQueuedQueueRun(
 	}
 
 	require.NoError(t, attempt.Write(ctx, runStatus))
-	require.NoError(t, queueStore.Enqueue(ctx, name, exec.QueuePriorityLow, exec.NewDAGRunRef(name, dagRunID)))
+	require.NoError(t, queueStore.Enqueue(ctx, name, exec.QueuePriorityLow, dagrun.NewDAGRunRef(name, dagRunID)))
 }
 
 func queueListLimitPtr(v int) *openapiv1.QueueListLimit {

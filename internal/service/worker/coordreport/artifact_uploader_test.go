@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/worker/coordreport"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
@@ -117,7 +118,7 @@ func TestArtifactUploaderUploadDirIncludesEmptyFiles(t *testing.T) {
 		},
 	}
 
-	uploader := coordreport.NewArtifactUploader(client, "worker-1", "run-123", "test-dag", "attempt-1", exec.DAGRunRef{})
+	uploader := coordreport.NewArtifactUploader(client, "worker-1", "run-123", "test-dag", "attempt-1", dagrun.DAGRunRef{})
 	err := uploader.UploadDir(context.Background(), dir)
 	require.NoError(t, err)
 
@@ -157,7 +158,7 @@ func TestArtifactUploaderUploadDirUsesSingleAttemptIDSnapshot(t *testing.T) {
 		},
 	}
 
-	uploader = coordreport.NewArtifactUploader(client, "worker-1", "run-123", "test-dag", "attempt-1", exec.DAGRunRef{})
+	uploader = coordreport.NewArtifactUploader(client, "worker-1", "run-123", "test-dag", "attempt-1", dagrun.DAGRunRef{})
 	err := uploader.UploadDir(context.Background(), dir)
 	require.NoError(t, err)
 

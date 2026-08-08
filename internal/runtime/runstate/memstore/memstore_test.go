@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate/memstore"
@@ -18,7 +18,7 @@ import (
 func TestStoreRecordsRootAndChildAttempts(t *testing.T) {
 	ctx := context.Background()
 	store := memstore.New()
-	rootRef := exec.NewDAGRunRef("root", "root-run")
+	rootRef := dagrun.NewDAGRunRef("root", "root-run")
 
 	root, err := store.BeginAttempt(ctx, runstate.BeginAttemptRequest{
 		DAG:   &ir.DAG{Name: "root"},
@@ -28,16 +28,16 @@ func TestStoreRecordsRootAndChildAttempts(t *testing.T) {
 	require.Equal(t, "root-run", root.ID())
 
 	require.NoError(t, root.Open(ctx))
-	require.NoError(t, root.RecordStatus(ctx, exec.DAGRunStatus{
+	require.NoError(t, root.RecordStatus(ctx, dagrun.DAGRunStatus{
 		Name:      rootRef.Name,
 		DAGRunID:  rootRef.ID,
 		AttemptID: root.ID(),
 		Status:    ir.Running,
 	}))
-	require.NoError(t, root.RecordOutputs(ctx, &exec.DAGRunOutputs{
+	require.NoError(t, root.RecordOutputs(ctx, &dagrun.DAGRunOutputs{
 		Outputs: map[string]string{"result": "root-value"},
 	}))
-	require.NoError(t, root.WriteStepMessages(ctx, "ask", []exec.LLMMessage{{Role: "assistant", Content: "done"}}))
+	require.NoError(t, root.WriteStepMessages(ctx, "ask", []dagrun.LLMMessage{{Role: "assistant", Content: "done"}}))
 
 	openedRoot, err := store.OpenAttempt(ctx, rootRef)
 	require.NoError(t, err)
@@ -49,7 +49,7 @@ func TestStoreRecordsRootAndChildAttempts(t *testing.T) {
 	require.Equal(t, map[string]string{"result": "root-value"}, rootOutputs.Outputs)
 	messages, err := openedRoot.ReadStepMessages(ctx, "ask")
 	require.NoError(t, err)
-	require.Equal(t, []exec.LLMMessage{{Role: "assistant", Content: "done"}}, messages)
+	require.Equal(t, []dagrun.LLMMessage{{Role: "assistant", Content: "done"}}, messages)
 
 	child, err := store.BeginAttempt(ctx, runstate.BeginAttemptRequest{
 		DAG:        &ir.DAG{Name: "child"},
@@ -57,7 +57,7 @@ func TestStoreRecordsRootAndChildAttempts(t *testing.T) {
 		RootDAGRun: rootRef,
 	})
 	require.NoError(t, err)
-	require.NoError(t, child.RecordStatus(ctx, exec.DAGRunStatus{
+	require.NoError(t, child.RecordStatus(ctx, dagrun.DAGRunStatus{
 		Name:      "child",
 		DAGRunID:  "child-run",
 		AttemptID: child.ID(),

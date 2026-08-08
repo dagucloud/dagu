@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	runtimeagent "github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	"github.com/dagucloud/dagu/v2/internal/test"
@@ -106,7 +107,7 @@ steps:
 			return false
 		}, distrTestTimeout(15*time.Second), 200*time.Millisecond, "Timeout waiting for worker to start sub-DAG")
 
-		rootRef := exec.NewDAGRunRef(f.dagWrapper.Name, dagRunID)
+		rootRef := dagrun.NewDAGRunRef(f.dagWrapper.Name, dagRunID)
 		require.Eventually(t, func() bool {
 			status, err := f.dagWrapper.DAGRunMgr.FindSubDAGRunStatus(f.coord.Context, rootRef, subRunID)
 			return err == nil && status != nil && status.Status == ir.Running
@@ -174,7 +175,7 @@ steps:
 			errCh <- agent.Run(ctx)
 		}()
 
-		rootRef := exec.NewDAGRunRef(f.dagWrapper.Name, runID)
+		rootRef := dagrun.NewDAGRunRef(f.dagWrapper.Name, runID)
 		var subRunID string
 		subDAGCancelTimeout := distrTestTimeout(30 * time.Second)
 		require.Eventually(t, func() bool {

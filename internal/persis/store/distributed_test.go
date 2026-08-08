@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
@@ -37,8 +38,8 @@ func TestDAGRunLeaseStore_UpsertTouchListAndDelete(t *testing.T) {
 	claimedAt := time.Now().Add(-time.Minute).UTC()
 	require.NoError(t, s.Upsert(ctx, exec.DAGRunLease{
 		AttemptKey:      "attempt-key-1",
-		DAGRun:          exec.NewDAGRunRef("dag-a", "run-1"),
-		Root:            exec.NewDAGRunRef("dag-a", "run-1"),
+		DAGRun:          dagrun.NewDAGRunRef("dag-a", "run-1"),
+		Root:            dagrun.NewDAGRunRef("dag-a", "run-1"),
 		AttemptID:       "attempt-1",
 		QueueName:       "queue-a",
 		WorkerID:        "worker-1",
@@ -47,8 +48,8 @@ func TestDAGRunLeaseStore_UpsertTouchListAndDelete(t *testing.T) {
 	}))
 	require.NoError(t, s.Upsert(ctx, exec.DAGRunLease{
 		AttemptKey:      "attempt-key-2",
-		DAGRun:          exec.NewDAGRunRef("dag-b", "run-2"),
-		Root:            exec.NewDAGRunRef("dag-b", "run-2"),
+		DAGRun:          dagrun.NewDAGRunRef("dag-b", "run-2"),
+		Root:            dagrun.NewDAGRunRef("dag-b", "run-2"),
 		AttemptID:       "attempt-2",
 		QueueName:       "queue-b",
 		WorkerID:        "worker-2",
@@ -81,8 +82,8 @@ func TestDAGRunLeaseStore_ConcurrentTouchPreservesLatestHeartbeat(t *testing.T) 
 
 	require.NoError(t, s.Upsert(ctx, exec.DAGRunLease{
 		AttemptKey:      "attempt-key-concurrent",
-		DAGRun:          exec.NewDAGRunRef("dag-a", "run-1"),
-		Root:            exec.NewDAGRunRef("dag-a", "run-1"),
+		DAGRun:          dagrun.NewDAGRunRef("dag-a", "run-1"),
+		Root:            dagrun.NewDAGRunRef("dag-a", "run-1"),
 		AttemptID:       "attempt-1",
 		QueueName:       "queue-a",
 		WorkerID:        "worker-1",
@@ -134,8 +135,8 @@ func TestDAGRunLeaseStore_ConcurrentTouchAndUpsertNoClobber(t *testing.T) {
 
 	initial := exec.DAGRunLease{
 		AttemptKey:      "attempt-key-clobber",
-		DAGRun:          exec.NewDAGRunRef("dag-a", "run-1"),
-		Root:            exec.NewDAGRunRef("dag-a", "run-1"),
+		DAGRun:          dagrun.NewDAGRunRef("dag-a", "run-1"),
+		Root:            dagrun.NewDAGRunRef("dag-a", "run-1"),
 		AttemptID:       "attempt-1",
 		QueueName:       "queue-a",
 		WorkerID:        "worker-old",
@@ -208,8 +209,8 @@ func TestDAGRunLeaseStore_UpsertReplacesCorruptRecord(t *testing.T) {
 	s := store.NewDAGRunLeaseStore(file.NewCollection(dir))
 	require.NoError(t, s.Upsert(ctx, exec.DAGRunLease{
 		AttemptKey:      "repair-lease",
-		DAGRun:          exec.NewDAGRunRef("dag-a", "run-1"),
-		Root:            exec.NewDAGRunRef("dag-a", "run-1"),
+		DAGRun:          dagrun.NewDAGRunRef("dag-a", "run-1"),
+		Root:            dagrun.NewDAGRunRef("dag-a", "run-1"),
 		AttemptID:       "attempt-1",
 		QueueName:       "queue-a",
 		WorkerID:        "worker-1",
@@ -255,16 +256,16 @@ func TestActiveDistributedRunStore_UpsertListGetAndDelete(t *testing.T) {
 
 	require.NoError(t, s.Upsert(ctx, exec.ActiveDistributedRun{
 		AttemptKey: "attempt-key-1",
-		DAGRun:     exec.NewDAGRunRef("dag-a", "run-1"),
-		Root:       exec.NewDAGRunRef("dag-a", "run-1"),
+		DAGRun:     dagrun.NewDAGRunRef("dag-a", "run-1"),
+		Root:       dagrun.NewDAGRunRef("dag-a", "run-1"),
 		AttemptID:  "attempt-1",
 		WorkerID:   "worker-1",
 		Status:     ir.Running,
 	}))
 	require.NoError(t, s.Upsert(ctx, exec.ActiveDistributedRun{
 		AttemptKey: "attempt-key-2",
-		DAGRun:     exec.NewDAGRunRef("dag-b", "run-2"),
-		Root:       exec.NewDAGRunRef("dag-b", "run-2"),
+		DAGRun:     dagrun.NewDAGRunRef("dag-b", "run-2"),
+		Root:       dagrun.NewDAGRunRef("dag-b", "run-2"),
 		AttemptID:  "attempt-2",
 		WorkerID:   "worker-2",
 		Status:     ir.NotStarted,
@@ -295,8 +296,8 @@ func TestActiveDistributedRunStore_UpsertRefreshesUpdatedAt(t *testing.T) {
 	staleUpdatedAt := time.Now().Add(-time.Hour).UTC().UnixMilli()
 	require.NoError(t, s.Upsert(ctx, exec.ActiveDistributedRun{
 		AttemptKey: "attempt-key-refresh",
-		DAGRun:     exec.NewDAGRunRef("dag-a", "run-1"),
-		Root:       exec.NewDAGRunRef("dag-a", "run-1"),
+		DAGRun:     dagrun.NewDAGRunRef("dag-a", "run-1"),
+		Root:       dagrun.NewDAGRunRef("dag-a", "run-1"),
 		AttemptID:  "attempt-1",
 		WorkerID:   "worker-1",
 		Status:     ir.Running,
@@ -321,8 +322,8 @@ func TestActiveDistributedRunStore_ConcurrentUpsertSerializes(t *testing.T) {
 
 	base := exec.ActiveDistributedRun{
 		AttemptKey: "attempt-key-active-concurrent",
-		DAGRun:     exec.NewDAGRunRef("dag-a", "run-1"),
-		Root:       exec.NewDAGRunRef("dag-a", "run-1"),
+		DAGRun:     dagrun.NewDAGRunRef("dag-a", "run-1"),
+		Root:       dagrun.NewDAGRunRef("dag-a", "run-1"),
 		AttemptID:  "attempt-1",
 		Status:     ir.Running,
 	}
@@ -364,8 +365,8 @@ func TestActiveDistributedRunStore_ListAllSkipsCorruptRecord(t *testing.T) {
 	s := store.NewActiveDistributedRunStore(file.NewCollection(dir))
 	require.NoError(t, s.Upsert(ctx, exec.ActiveDistributedRun{
 		AttemptKey: "attempt-key-1",
-		DAGRun:     exec.NewDAGRunRef("dag-a", "run-1"),
-		Root:       exec.NewDAGRunRef("dag-a", "run-1"),
+		DAGRun:     dagrun.NewDAGRunRef("dag-a", "run-1"),
+		Root:       dagrun.NewDAGRunRef("dag-a", "run-1"),
 		AttemptID:  "attempt-1",
 		WorkerID:   "worker-1",
 		Status:     ir.Running,
@@ -392,8 +393,8 @@ func TestActiveDistributedRunStore_UpsertReplacesCorruptRecord(t *testing.T) {
 	s := store.NewActiveDistributedRunStore(file.NewCollection(dir))
 	require.NoError(t, s.Upsert(ctx, exec.ActiveDistributedRun{
 		AttemptKey: "repair-active",
-		DAGRun:     exec.NewDAGRunRef("dag-a", "run-1"),
-		Root:       exec.NewDAGRunRef("dag-a", "run-1"),
+		DAGRun:     dagrun.NewDAGRunRef("dag-a", "run-1"),
+		Root:       dagrun.NewDAGRunRef("dag-a", "run-1"),
 		AttemptID:  "attempt-1",
 		WorkerID:   "worker-1",
 		Status:     ir.Running,
@@ -511,7 +512,7 @@ func TestDispatchTaskStore_ClaimsLegacyProtoJSONTaskRecord(t *testing.T) {
 	dir := t.TempDir()
 	s := store.NewDispatchTaskStore(file.NewCollection(dir))
 
-	statusData, err := json.Marshal(exec.DAGRunStatus{
+	statusData, err := json.Marshal(dagrun.DAGRunStatus{
 		Name:     "dag-legacy",
 		DAGRunID: "run-legacy",
 		Status:   ir.Running,
@@ -1945,8 +1946,8 @@ func TestDistributedStores_ReadFileLayout(t *testing.T) {
 
 	fileLease := exec.DAGRunLease{
 		AttemptKey:      leaseKey,
-		DAGRun:          exec.NewDAGRunRef("dag-a", "run-1"),
-		Root:            exec.NewDAGRunRef("dag-a", "run-1"),
+		DAGRun:          dagrun.NewDAGRunRef("dag-a", "run-1"),
+		Root:            dagrun.NewDAGRunRef("dag-a", "run-1"),
 		AttemptID:       "attempt-1",
 		QueueName:       "queue-a",
 		WorkerID:        "worker-1",
@@ -1962,8 +1963,8 @@ func TestDistributedStores_ReadFileLayout(t *testing.T) {
 
 	fileActive := exec.ActiveDistributedRun{
 		AttemptKey: activeKey,
-		DAGRun:     exec.NewDAGRunRef("dag-a", "run-1"),
-		Root:       exec.NewDAGRunRef("dag-a", "run-1"),
+		DAGRun:     dagrun.NewDAGRunRef("dag-a", "run-1"),
+		Root:       dagrun.NewDAGRunRef("dag-a", "run-1"),
 		AttemptID:  "attempt-1",
 		WorkerID:   "worker-1",
 		Status:     ir.Running,

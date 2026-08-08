@@ -12,28 +12,28 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	"github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
+	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/stretchr/testify/require"
 )
 
 func TestAttemptCloseKeepsSingleStatusFile(t *testing.T) {
 	ctx := context.Background()
 	baseDir := t.TempDir()
-	store := dagrun.New(baseDir, dagrun.WithLatestStatusToday(false))
+	store := filedagrun.New(baseDir, filedagrun.WithLatestStatusToday(false))
 	dag := &ir.DAG{Name: "single-status-close"}
 	startedAt := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
 
-	attempt, err := store.CreateAttempt(ctx, dag, startedAt, "run-1", exec.NewDAGRunAttemptOptions{})
+	attempt, err := store.CreateAttempt(ctx, dag, startedAt, "run-1", dagrun.NewDAGRunAttemptOptions{})
 	require.NoError(t, err)
 	require.NoError(t, attempt.Open(ctx))
-	require.NoError(t, attempt.Write(ctx, exec.DAGRunStatus{
+	require.NoError(t, attempt.Write(ctx, dagrun.DAGRunStatus{
 		Name:      dag.Name,
 		DAGRunID:  "run-1",
 		AttemptID: attempt.ID(),
 		Status:    ir.Queued,
-		QueuedAt:  exec.FormatTime(startedAt),
+		QueuedAt:  dagrun.FormatTime(startedAt),
 	}))
 
 	statusFile := findOnlyStatusFile(t, baseDir)
@@ -56,37 +56,37 @@ func TestAttempt_WriteClearsRuntimeConditionsWhenStatusLeavesQueued(t *testing.T
 
 	ctx := context.Background()
 	baseDir := t.TempDir()
-	store := dagrun.New(baseDir, dagrun.WithLatestStatusToday(false))
+	store := filedagrun.New(baseDir, filedagrun.WithLatestStatusToday(false))
 	dag := &ir.DAG{Name: "runtime-conditions"}
 	startedAt := time.Date(2026, 5, 19, 1, 2, 3, 0, time.UTC)
 
-	attempt, err := store.CreateAttempt(ctx, dag, startedAt, "run-1", exec.NewDAGRunAttemptOptions{})
+	attempt, err := store.CreateAttempt(ctx, dag, startedAt, "run-1", dagrun.NewDAGRunAttemptOptions{})
 	require.NoError(t, err)
 	require.NoError(t, attempt.Open(ctx))
 	defer func() {
 		_ = attempt.Close(ctx)
 	}()
 
-	condition := exec.NewDAGRunCondition(
+	condition := dagrun.NewDAGRunCondition(
 		"Runnable",
 		"False",
 		"MaxConcurrencyReached",
 		"The DAG-run cannot start because the queue active-run concurrency limit has been reached.",
 		startedAt,
 	)
-	queued := exec.DAGRunStatus{
+	queued := dagrun.DAGRunStatus{
 		Name:       dag.Name,
 		DAGRunID:   "run-1",
 		AttemptID:  attempt.ID(),
 		Status:     ir.Queued,
-		QueuedAt:   exec.FormatTime(startedAt),
-		Conditions: []exec.DAGRunCondition{condition},
+		QueuedAt:   dagrun.FormatTime(startedAt),
+		Conditions: []dagrun.DAGRunCondition{condition},
 	}
 	require.NoError(t, attempt.Write(ctx, queued))
 
 	persistedQueued, err := attempt.ReadStatus(ctx)
 	require.NoError(t, err)
-	require.Equal(t, []exec.DAGRunCondition{condition}, persistedQueued.Conditions)
+	require.Equal(t, []dagrun.DAGRunCondition{condition}, persistedQueued.Conditions)
 
 	running := queued
 	running.Status = ir.Running
@@ -103,11 +103,11 @@ func TestCompareAndSwapLatestAttemptStatusReturnsNormalizedConditions(t *testing
 
 	ctx := context.Background()
 	baseDir := t.TempDir()
-	store := dagrun.New(baseDir, dagrun.WithLatestStatusToday(false))
+	store := filedagrun.New(baseDir, filedagrun.WithLatestStatusToday(false))
 	dag := &ir.DAG{Name: "conditions-return"}
 	startedAt := time.Date(2026, 5, 19, 1, 2, 3, 0, time.UTC)
 
-	attempt, err := store.CreateAttempt(ctx, dag, startedAt, "run-conditions", exec.NewDAGRunAttemptOptions{})
+	attempt, err := store.CreateAttempt(ctx, dag, startedAt, "run-conditions", dagrun.NewDAGRunAttemptOptions{})
 	require.NoError(t, err)
 	require.NoError(t, attempt.Open(ctx))
 	closed := false
@@ -117,13 +117,13 @@ func TestCompareAndSwapLatestAttemptStatusReturnsNormalizedConditions(t *testing
 		}
 	})
 
-	status := exec.DAGRunStatus{
+	status := dagrun.DAGRunStatus{
 		Name:      dag.Name,
 		DAGRunID:  "run-conditions",
 		AttemptID: attempt.ID(),
 		Status:    ir.Queued,
-		Conditions: []exec.DAGRunCondition{
-			exec.NewDAGRunCondition(
+		Conditions: []dagrun.DAGRunCondition{
+			dagrun.NewDAGRunCondition(
 				"Runnable",
 				"False",
 				"MaxConcurrencyReached",
@@ -138,10 +138,10 @@ func TestCompareAndSwapLatestAttemptStatusReturnsNormalizedConditions(t *testing
 
 	updated, swapped, err := store.CompareAndSwapLatestAttemptStatus(
 		ctx,
-		exec.NewDAGRunRef(dag.Name, "run-conditions"),
+		dagrun.NewDAGRunRef(dag.Name, "run-conditions"),
 		attempt.ID(),
 		ir.Queued,
-		func(latest *exec.DAGRunStatus) error {
+		func(latest *dagrun.DAGRunStatus) error {
 			latest.Status = ir.Failed
 			return nil
 		},
@@ -161,7 +161,7 @@ func findOnlyStatusFile(t *testing.T, root string) string {
 		if walkErr != nil {
 			return walkErr
 		}
-		if d.IsDir() || d.Name() != dagrun.JSONLStatusFile {
+		if d.IsDir() || d.Name() != filedagrun.JSONLStatusFile {
 			return nil
 		}
 		matches = append(matches, path)

@@ -12,6 +12,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagrun/intake"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
@@ -20,7 +21,7 @@ import (
 // runtime-param semantics as direct webhook execution.
 func EnqueueWebhookRun(
 	ctx context.Context,
-	dagRunStore exec.DAGRunStore,
+	dagRunStore dagrun.DAGRunStore,
 	queueStore exec.QueueStore,
 	baseLogDir string,
 	baseArtifactDir string,
@@ -30,7 +31,7 @@ func EnqueueWebhookRun(
 	params string,
 	now time.Time,
 ) error {
-	dagRun := exec.NewDAGRunRef(dag.Name, runID)
+	dagRun := dagrun.NewDAGRunRef(dag.Name, runID)
 
 	if _, err := dagRunStore.FindAttempt(ctx, dagRun); err == nil {
 		logger.Info(ctx, "Webhook run already exists; skipping",
@@ -38,7 +39,7 @@ func EnqueueWebhookRun(
 			tag.RunID(runID),
 		)
 		return nil
-	} else if !errors.Is(err, exec.ErrDAGRunIDNotFound) {
+	} else if !errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
 		return fmt.Errorf("failed to check existing webhook run: %w", err)
 	}
 

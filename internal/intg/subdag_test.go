@@ -13,7 +13,7 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/dagucloud/dagu/v2/internal/test/intgharness"
@@ -579,7 +579,7 @@ steps:
 		})
 
 		ctx := context.Background()
-		ref := exec.NewDAGRunRef("parent_basic", dagRunID)
+		ref := dagrun.NewDAGRunRef("parent_basic", dagRunID)
 		parentAttempt, err := th.DAGRunStore.FindAttempt(ctx, ref)
 		require.NoError(t, err)
 
@@ -644,11 +644,11 @@ steps:
 
 		// Update the sub_2 status to "failed" to simulate a retry
 		ctx := context.Background()
-		ref := exec.NewDAGRunRef("parent", dagRunID)
+		ref := dagrun.NewDAGRunRef("parent", dagRunID)
 		parentAttempt, err := th.DAGRunStore.FindAttempt(ctx, ref)
 		require.NoError(t, err)
 
-		updateStatus := func(rec exec.DAGRunAttempt, dagRunStatus *exec.DAGRunStatus) {
+		updateStatus := func(rec dagrun.DAGRunAttempt, dagRunStatus *dagrun.DAGRunStatus) {
 			err = rec.Open(ctx)
 			require.NoError(t, err)
 			err = rec.Write(ctx, *dagRunStatus)
@@ -792,7 +792,7 @@ steps:
 		require.NoError(t, err)
 		require.Equal(t, "1", strings.TrimSpace(string(counter)), "parent retry should not rerun child steps that already succeeded")
 
-		ref := exec.NewDAGRunRef("parent_retry_child_state", dagRunID)
+		ref := dagrun.NewDAGRunRef("parent_retry_child_state", dagRunID)
 		parentAttempt, err := th.DAGRunStore.FindAttempt(context.Background(), ref)
 		require.NoError(t, err)
 		parentStatus, err := parentAttempt.ReadStatus(context.Background())
@@ -834,7 +834,7 @@ steps:
 		})
 
 		ctx := context.Background()
-		ref := exec.NewDAGRunRef("parent_retry", dagRunID)
+		ref := dagrun.NewDAGRunRef("parent_retry", dagRunID)
 		parentAttempt, err := th.DAGRunStore.FindAttempt(ctx, ref)
 		require.NoError(t, err)
 
@@ -888,7 +888,7 @@ steps:
 		})
 
 		ctx := context.Background()
-		ref := exec.NewDAGRunRef("basic_retry", dagRunID)
+		ref := dagrun.NewDAGRunRef("basic_retry", dagRunID)
 		attempt, err := th.DAGRunStore.FindAttempt(ctx, ref)
 		require.NoError(t, err)
 
@@ -923,7 +923,7 @@ steps:
 		})
 
 		ctx := context.Background()
-		ref := exec.NewDAGRunRef("no_retry", dagRunID)
+		ref := dagrun.NewDAGRunRef("no_retry", dagRunID)
 		attempt, err := th.DAGRunStore.FindAttempt(ctx, ref)
 		require.NoError(t, err)
 

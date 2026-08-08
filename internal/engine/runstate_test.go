@@ -10,6 +10,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	coreexec "github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/engine"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
@@ -50,7 +51,7 @@ steps:
 	require.NoError(t, err)
 	require.Equal(t, map[string]string{"result": "memory-state"}, outputs)
 
-	opened, err := runStateStore.OpenAttempt(ctx, coreexec.NewDAGRunRef("embedded-memory-state", "memory-run"))
+	opened, err := runStateStore.OpenAttempt(ctx, dagrun.NewDAGRunRef("embedded-memory-state", "memory-run"))
 	require.NoError(t, err)
 	persisted, err := opened.ReadStatus(ctx)
 	require.NoError(t, err)
@@ -129,8 +130,8 @@ steps:
 		require.NoError(t, hybridEngine.Close(context.Background()))
 	})
 
-	_, err = runStateStore.OpenAttempt(ctx, coreexec.NewDAGRunRef("embedded-history-state", "history-run"))
-	require.ErrorIs(t, err, coreexec.ErrDAGRunIDNotFound)
+	_, err = runStateStore.OpenAttempt(ctx, dagrun.NewDAGRunRef("embedded-history-state", "history-run"))
+	require.ErrorIs(t, err, dagrun.ErrDAGRunIDNotFound)
 
 	status, err = hybridEngine.Status(ctx, ref)
 	require.NoError(t, err)
@@ -170,7 +171,7 @@ steps:
 	require.NoError(t, err)
 
 	secondRun, err := eng.RunYAML(ctx, dagYAML, engine.RunOptions{RunID: "duplicate-run"})
-	require.ErrorIs(t, err, coreexec.ErrDAGRunAlreadyExists)
+	require.ErrorIs(t, err, dagrun.ErrDAGRunAlreadyExists)
 	require.Nil(t, secondRun)
 }
 

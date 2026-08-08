@@ -10,6 +10,7 @@ import (
 	"time"
 
 	coreexec "github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
@@ -37,7 +38,7 @@ type Options struct {
 	Persistence        Persistence
 	PersistenceFactory PersistenceFactory
 	RunStateStore      runstate.Store
-	DAGRunStore        coreexec.DAGRunStore
+	DAGRunStore        dagrun.DAGRunStore
 	DefaultMode        ExecutionMode
 	Distributed        *DistributedOptions
 }
@@ -122,6 +123,6 @@ type Worker struct {
 }
 
 type localPreparation struct {
-	attempt coreexec.DAGRunAttempt
+	attempt dagrun.DAGRunAttempt
 	proc    coreexec.ProcHandle
 }

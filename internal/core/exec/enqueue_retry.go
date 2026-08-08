@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
@@ -33,10 +34,10 @@ type EnqueueRetryOptions struct {
 // call added the queue item.
 func EnqueueRetry(
 	ctx context.Context,
-	dagRunStore DAGRunStore,
+	dagRunStore dagrun.DAGRunStore,
 	queueStore QueueStore,
 	dag *ir.DAG,
-	status *DAGRunStatus,
+	status *dagrun.DAGRunStatus,
 	opts EnqueueRetryOptions,
 ) (bool, error) {
 	if dagRunStore == nil {
@@ -53,13 +54,13 @@ func EnqueueRetry(
 	}
 
 	dagRun := status.DAGRun()
-	var originalStatus *DAGRunStatus
+	var originalStatus *dagrun.DAGRunStatus
 	updatedStatus, swapped, err := dagRunStore.CompareAndSwapLatestAttemptStatus(
 		ctx,
 		dagRun,
 		status.AttemptID,
 		status.Status,
-		func(latest *DAGRunStatus) error {
+		func(latest *dagrun.DAGRunStatus) error {
 			snapshot := *latest
 			originalStatus = &snapshot
 			now := time.Now()
@@ -111,10 +112,10 @@ func EnqueueRetry(
 
 func rollbackQueuedRetry(
 	ctx context.Context,
-	dagRunStore DAGRunStore,
-	dagRun DAGRunRef,
-	queued *DAGRunStatus,
-	original *DAGRunStatus,
+	dagRunStore dagrun.DAGRunStore,
+	dagRun dagrun.DAGRunRef,
+	queued *dagrun.DAGRunStatus,
+	original *dagrun.DAGRunStatus,
 ) error {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), retryEnqueueRollbackTimeout)
 	defer cancel()
@@ -123,7 +124,7 @@ func rollbackQueuedRetry(
 		dagRun,
 		queued.AttemptID,
 		ir.Queued,
-		func(latest *DAGRunStatus) error {
+		func(latest *dagrun.DAGRunStatus) error {
 			latest.Status = original.Status
 			latest.QueuedAt = original.QueuedAt
 			latest.Conditions = original.Conditions
@@ -143,7 +144,7 @@ func rollbackQueuedRetry(
 	return nil
 }
 
-func retryProcGroup(dag *ir.DAG, status *DAGRunStatus) string {
+func retryProcGroup(dag *ir.DAG, status *dagrun.DAGRunStatus) string {
 	if status != nil && status.ProcGroup != "" {
 		return status.ProcGroup
 	}

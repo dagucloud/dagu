@@ -17,6 +17,7 @@ import (
 	daguapi "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	frontendapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -731,7 +732,7 @@ func (svc *Service) readResourceText(ctx context.Context, rawURI string) (string
 		if isStepLogResourceSegments(segments) {
 			data, err = svc.api.GetStepLogDataByRef(
 				ctx,
-				exec.NewDAGRunRef(segments[0], segments[1]),
+				dagrun.NewDAGRunRef(segments[0], segments[1]),
 				segments[3],
 			)
 		} else if len(segments) == 3 {

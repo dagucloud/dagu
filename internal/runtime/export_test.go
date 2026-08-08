@@ -7,7 +7,7 @@ import (
 	"context"
 	"maps"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
@@ -46,10 +46,10 @@ func (n *Node) SetPushBackInputs(inputs map[string]string) {
 }
 
 // SetPushBackHistory sets push-back history for testing.
-func (n *Node) SetPushBackHistory(history []exec.PushBackEntry) {
+func (n *Node) SetPushBackHistory(history []dagrun.PushBackEntry) {
 	n.Data.mu.Lock()
 	defer n.Data.mu.Unlock()
-	n.inner.State.PushBackHistory = exec.ClonePushBackHistory(history)
+	n.inner.State.PushBackHistory = dagrun.ClonePushBackHistory(history)
 }
 
 // SetPushBackPreviousStdout sets the previous stdout log path for testing.

@@ -11,6 +11,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/secrets"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
 	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
@@ -225,7 +226,7 @@ func (h *Handler) secretReferenceDAG(ctx context.Context, lease *exec.DAGRunLeas
 	}
 
 	var (
-		attempt exec.DAGRunAttempt
+		attempt dagrun.DAGRunAttempt
 		err     error
 	)
 	if !lease.Root.Zero() && lease.Root != lease.DAGRun {
@@ -234,7 +235,7 @@ func (h *Handler) secretReferenceDAG(ctx context.Context, lease *exec.DAGRunLeas
 		attempt, err = h.dagRunStore.FindAttempt(ctx, lease.DAGRun)
 	}
 	if err != nil {
-		if errors.Is(err, exec.ErrDAGRunIDNotFound) || errors.Is(err, exec.ErrNoStatusData) || errors.Is(err, exec.ErrCorruptedStatusFile) {
+		if errors.Is(err, dagrun.ErrDAGRunIDNotFound) || errors.Is(err, dagrun.ErrNoStatusData) || errors.Is(err, dagrun.ErrCorruptedStatusFile) {
 			return nil, status.Error(codes.PermissionDenied, "secret reference access denied")
 		}
 		return nil, status.Error(codes.Internal, err.Error())

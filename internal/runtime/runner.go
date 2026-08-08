@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
@@ -39,9 +40,9 @@ var (
 // ChatMessagesHandler handles chat session messages for persistence.
 type ChatMessagesHandler interface {
 	// WriteStepMessages writes messages for a single step.
-	WriteStepMessages(ctx context.Context, stepName string, messages []exec.LLMMessage) error
+	WriteStepMessages(ctx context.Context, stepName string, messages []dagrun.LLMMessage) error
 	// ReadStepMessages reads messages for a single step.
-	ReadStepMessages(ctx context.Context, stepName string) ([]exec.LLMMessage, error)
+	ReadStepMessages(ctx context.Context, stepName string) ([]dagrun.LLMMessage, error)
 }
 
 // Runner runs a plan of steps.
@@ -564,13 +565,13 @@ func (r *Runner) runNodeExecution(ctx context.Context, plan *Plan, node *Node, p
 	}
 	met, err := meetsPreconditions(ctx, node, preconditionProgress)
 	if err != nil {
-		markIncrementalPrecondition(incrementalSession, node, exec.IncrementalReasonPreconditionError, "", progressCh)
+		markIncrementalPrecondition(incrementalSession, node, dagrun.IncrementalReasonPreconditionError, "", progressCh)
 		r.setLastError(err)
 		r.Cancel(plan)
 		return
 	}
 	if !met {
-		markIncrementalPrecondition(incrementalSession, node, exec.IncrementalReasonPreconditionNotMet,
+		markIncrementalPrecondition(incrementalSession, node, dagrun.IncrementalReasonPreconditionNotMet,
 			"step precondition was not met", progressCh)
 		return
 	}
@@ -661,7 +662,7 @@ ExecRepeat: // repeat execution
 	}
 	if node.State().Status == ir.NodeSucceeded && incrementalSession != nil {
 		metadata := incrementalSession.Metadata()
-		metadata.Phase = exec.IncrementalPhaseComplete
+		metadata.Phase = dagrun.IncrementalPhaseComplete
 		node.setIncremental(metadata)
 	}
 
@@ -691,7 +692,7 @@ func (r *Runner) setupNodeExecutionEnv(ctx context.Context, node *Node) context.
 		allowedInputs = approval.Input
 	}
 
-	filteredInputs := exec.FilterPushBackInputs(allowedInputs, state.PushBackInputs)
+	filteredInputs := dagrun.FilterPushBackInputs(allowedInputs, state.PushBackInputs)
 	for k, v := range filteredInputs {
 		env = env.WithEnvVars(k, v)
 	}
@@ -799,7 +800,7 @@ func (r *Runner) setupChatMessages(ctx context.Context, node *Node) {
 	}
 
 	// Read messages from each dependency step
-	var inherited []exec.LLMMessage
+	var inherited []dagrun.LLMMessage
 	for _, dep := range step.Depends {
 		msgs, err := r.messagesHandler.ReadStepMessages(ctx, dep)
 		if err != nil {
@@ -811,7 +812,7 @@ func (r *Runner) setupChatMessages(ctx context.Context, node *Node) {
 	}
 
 	// Deduplicate system messages (keep only first)
-	inherited = exec.DeduplicateSystemMessages(inherited)
+	inherited = dagrun.DeduplicateSystemMessages(inherited)
 	if len(inherited) > 0 {
 		node.SetChatMessages(inherited)
 	}

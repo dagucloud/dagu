@@ -8,11 +8,11 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/collections"
 	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
-func (a *Agent) maskStatusSecrets(status *exec.DAGRunStatus) {
+func (a *Agent) maskStatusSecrets(status *dagrun.DAGRunStatus) {
 	if a.secretMasker == nil {
 		return
 	}
@@ -36,7 +36,7 @@ func newStatusSecretMasker(secretEnvs []string) *masking.Masker {
 	return masking.NewMasker(masking.SourcedEnvVars{Secrets: secretEnvs})
 }
 
-func maskNodeSecrets(masker *masking.Masker, node *exec.Node) {
+func maskNodeSecrets(masker *masking.Masker, node *dagrun.Node) {
 	if node == nil {
 		return
 	}
@@ -48,11 +48,11 @@ func maskNodeSecrets(masker *masking.Masker, node *exec.Node) {
 	node.OutputsValue = maskStringPointer(masker, node.OutputsValue)
 }
 
-func maskNodeStatusDetails(masker *masking.Masker, details []exec.NodeStatusDetail) []exec.NodeStatusDetail {
+func maskNodeStatusDetails(masker *masking.Masker, details []dagrun.NodeStatusDetail) []dagrun.NodeStatusDetail {
 	if len(details) == 0 {
 		return details
 	}
-	masked := append([]exec.NodeStatusDetail(nil), details...)
+	masked := append([]dagrun.NodeStatusDetail(nil), details...)
 	for i := range masked {
 		masked[i].Label = masker.MaskString(masked[i].Label)
 	}

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
@@ -56,13 +56,13 @@ func (s *Service) Complete(ctx context.Context, request CompleteRequest) (Result
 	}
 
 	completedAt := s.Now().UTC().Format(time.RFC3339)
-	var concurrentlyCompleted *exec.DAGRunStatus
+	var concurrentlyCompleted *dagrun.DAGRunStatus
 	updated, swapped, err := s.DAGRunStore.CompareAndSwapLatestAttemptStatus(
 		ctx,
 		target.ref,
 		target.status.AttemptID,
 		ir.Waiting,
-		func(latest *exec.DAGRunStatus) error {
+		func(latest *dagrun.DAGRunStatus) error {
 			latestNode, err := findNodeByID(latest.Nodes, request.StepID)
 			if err != nil {
 				return err
@@ -121,7 +121,7 @@ func (s *Service) queueCompletedTaskResume(ctx context.Context, target *target) 
 func (s *Service) resolveCompletionConflict(
 	ctx context.Context,
 	target *target,
-	updated *exec.DAGRunStatus,
+	updated *dagrun.DAGRunStatus,
 	canonical json.RawMessage,
 ) (Result, error) {
 	if updated != nil {

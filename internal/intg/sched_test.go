@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/dagucloud/dagu/v2/internal/test/intgharness"
@@ -111,17 +112,17 @@ func TestScheduleEditWhileSuspendedDoesNotSuppressNewSlot(t *testing.T) {
 	suspendFlag := filepath.Join(th.Config.Paths.SuspendFlagsDir, dag.SuspendFlagName())
 	require.NoError(t, os.WriteFile(suspendFlag, []byte{}, 0o644))
 
-	attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dag, oldSlot, "old-success", exec.NewDAGRunAttemptOptions{})
+	attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dag, oldSlot, "old-success", dagrun.NewDAGRunAttemptOptions{})
 	require.NoError(t, err)
 
-	status := exec.InitialStatus(dag)
+	status := dagrun.InitialStatus(dag)
 	status.DAGRunID = "old-success"
 	status.AttemptID = attempt.ID()
 	status.Status = ir.Succeeded
 	status.TriggerType = ir.TriggerTypeScheduler
-	status.ScheduleTime = exec.FormatTime(oldSlot)
-	status.StartedAt = exec.FormatTime(oldSlot.Add(15 * time.Second))
-	status.FinishedAt = exec.FormatTime(oldSlot.Add(45 * time.Second))
+	status.ScheduleTime = dagrun.FormatTime(oldSlot)
+	status.StartedAt = dagrun.FormatTime(oldSlot.Add(15 * time.Second))
+	status.FinishedAt = dagrun.FormatTime(oldSlot.Add(45 * time.Second))
 
 	require.NoError(t, attempt.Open(th.Context))
 	require.NoError(t, attempt.Write(th.Context, status))

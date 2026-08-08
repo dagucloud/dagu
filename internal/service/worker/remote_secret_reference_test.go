@@ -15,6 +15,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
@@ -163,11 +164,11 @@ func (c *secretResolvingRemoteCoordinatorClient) Cleanup(context.Context) error 
 	return nil
 }
 
-func (c *secretResolvingRemoteCoordinatorClient) GetDAGRunStatus(context.Context, string, string, *exec.DAGRunRef) (*exec.DAGRunStatusResult, error) {
+func (c *secretResolvingRemoteCoordinatorClient) GetDAGRunStatus(context.Context, string, string, *dagrun.DAGRunRef) (*exec.DAGRunStatusResult, error) {
 	return &exec.DAGRunStatusResult{Found: false}, nil
 }
 
-func (c *secretResolvingRemoteCoordinatorClient) RequestCancel(context.Context, string, string, *exec.DAGRunRef) error {
+func (c *secretResolvingRemoteCoordinatorClient) RequestCancel(context.Context, string, string, *dagrun.DAGRunRef) error {
 	return nil
 }
 

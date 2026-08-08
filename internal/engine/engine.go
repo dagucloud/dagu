@@ -14,6 +14,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	coreexec "github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
@@ -25,7 +26,7 @@ import (
 
 type Engine struct {
 	cfg             *config.Config
-	dagRunStore     coreexec.DAGRunStore
+	dagRunStore     dagrun.DAGRunStore
 	runStateStore   runstate.Store
 	stateStore      dagstate.Store
 	procStore       coreexec.ProcStore
@@ -221,7 +222,7 @@ func (e *Engine) subWorkflowRunnerFactory(stores RuntimeStores) func(context.Con
 	})
 }
 
-func runStatusToPublic(status *coreexec.DAGRunStatus) (*Status, error) {
+func runStatusToPublic(status *dagrun.DAGRunStatus) (*Status, error) {
 	if status == nil {
 		return nil, nil
 	}
@@ -259,7 +260,7 @@ func parseStatusTime(value string) (time.Time, error) {
 	return time.Parse(time.RFC3339Nano, value)
 }
 
-func statusFromValue(status coreexec.DAGRunStatus) (*Status, error) {
+func statusFromValue(status dagrun.DAGRunStatus) (*Status, error) {
 	return runStatusToPublic(&status)
 }
 

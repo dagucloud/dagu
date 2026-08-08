@@ -13,6 +13,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -331,7 +332,7 @@ func TestNewContext_DAGEnvCanReferenceBuiltInRunContext(t *testing.T) {
 
 	ctx := exec.NewContext(context.Background(), dag, "run-1", logFile,
 		exec.WithAttemptID("attempt-1"),
-		exec.WithRootDAGRun(exec.NewDAGRunRef("root", "root-run-1")),
+		exec.WithRootDAGRun(dagrun.NewDAGRunRef("root", "root-run-1")),
 		exec.WithTriggerType(ir.TriggerTypeScheduler),
 		exec.WithTriggerActor("alice"),
 		exec.WithRunStartedAt(startedAt),
@@ -370,7 +371,7 @@ func TestNewContext_DAGEnvDoesNotExposeRootFieldsForRootRun(t *testing.T) {
 	}
 
 	ctx := exec.NewContext(context.Background(), dag, "run-1", "dag.log",
-		exec.WithRootDAGRun(exec.NewDAGRunRef("root", "run-1")),
+		exec.WithRootDAGRun(dagrun.NewDAGRunRef("root", "run-1")),
 	)
 
 	envs := exec.GetContext(ctx).UserEnvsMap()
@@ -488,7 +489,7 @@ func TestPendingStepRetryJSON(t *testing.T) {
 	t.Run("MarshalUsesDurationString", func(t *testing.T) {
 		t.Parallel()
 
-		data, err := json.Marshal(exec.PendingStepRetry{
+		data, err := json.Marshal(dagrun.PendingStepRetry{
 			StepName: "step1",
 			Interval: 2 * time.Second,
 		})
@@ -499,7 +500,7 @@ func TestPendingStepRetryJSON(t *testing.T) {
 	t.Run("UnmarshalSupportsLegacyNumericInterval", func(t *testing.T) {
 		t.Parallel()
 
-		var retry exec.PendingStepRetry
+		var retry dagrun.PendingStepRetry
 		err := json.Unmarshal([]byte(`{"stepName":"step1","interval":2000000000}`), &retry)
 		require.NoError(t, err)
 		assert.Equal(t, "step1", retry.StepName)

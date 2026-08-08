@@ -6,7 +6,7 @@ package agent
 import (
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 )
@@ -38,21 +38,21 @@ func TestSimpleProgressDisplay_UpdateNode(t *testing.T) {
 	display := NewSimpleProgressDisplay(dag)
 
 	// Update with running node - should not increment completed
-	display.UpdateNode(&exec.Node{
+	display.UpdateNode(&dagrun.Node{
 		Step:   ir.Step{Name: "step1"},
 		Status: ir.NodeRunning,
 	})
 	assert.Equal(t, 0, display.completed)
 
 	// Update with succeeded node - should increment completed
-	display.UpdateNode(&exec.Node{
+	display.UpdateNode(&dagrun.Node{
 		Step:   ir.Step{Name: "step1"},
 		Status: ir.NodeSucceeded,
 	})
 	assert.Equal(t, 1, display.completed)
 
 	// Update with failed node - should increment completed
-	display.UpdateNode(&exec.Node{
+	display.UpdateNode(&dagrun.Node{
 		Step:   ir.Step{Name: "step2"},
 		Status: ir.NodeFailed,
 	})
@@ -72,12 +72,12 @@ func TestSimpleProgressDisplay_UpdateStatus(t *testing.T) {
 	dag := &ir.DAG{Name: "test-dag"}
 	display := NewSimpleProgressDisplay(dag)
 
-	display.UpdateStatus(&exec.DAGRunStatus{
+	display.UpdateStatus(&dagrun.DAGRunStatus{
 		Status: ir.Succeeded,
 	})
 	assert.Equal(t, ir.Succeeded, display.status)
 
-	display.UpdateStatus(&exec.DAGRunStatus{
+	display.UpdateStatus(&dagrun.DAGRunStatus{
 		Status: ir.Failed,
 	})
 	assert.Equal(t, ir.Failed, display.status)
@@ -95,19 +95,19 @@ func TestSimpleProgressDisplay_NoDuplicateCounting(t *testing.T) {
 	display := NewSimpleProgressDisplay(dag)
 
 	// Update same node multiple times - should only count once
-	display.UpdateNode(&exec.Node{
+	display.UpdateNode(&dagrun.Node{
 		Step:   ir.Step{Name: "step1"},
 		Status: ir.NodeSucceeded,
 	})
 	assert.Equal(t, 1, display.completed)
 
-	display.UpdateNode(&exec.Node{
+	display.UpdateNode(&dagrun.Node{
 		Step:   ir.Step{Name: "step1"},
 		Status: ir.NodeSucceeded,
 	})
 	assert.Equal(t, 1, display.completed) // Still 1, not 2
 
-	display.UpdateNode(&exec.Node{
+	display.UpdateNode(&dagrun.Node{
 		Step:   ir.Step{Name: "step1"},
 		Status: ir.NodeSucceeded,
 	})
@@ -127,19 +127,19 @@ func TestSimpleProgressDisplay_PartiallySucceeded(t *testing.T) {
 	display := NewSimpleProgressDisplay(dag)
 
 	// NodePartiallySucceeded should count as completed
-	display.UpdateNode(&exec.Node{
+	display.UpdateNode(&dagrun.Node{
 		Step:   ir.Step{Name: "step1"},
 		Status: ir.NodePartiallySucceeded,
 	})
 	assert.Equal(t, 1, display.completed)
 
-	display.UpdateNode(&exec.Node{
+	display.UpdateNode(&dagrun.Node{
 		Step:   ir.Step{Name: "step2"},
 		Status: ir.NodeSucceeded,
 	})
 	assert.Equal(t, 2, display.completed)
 
-	display.UpdateNode(&exec.Node{
+	display.UpdateNode(&dagrun.Node{
 		Step:   ir.Step{Name: "step3"},
 		Status: ir.NodePartiallySucceeded,
 	})

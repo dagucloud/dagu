@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/stretchr/testify/mock"
 )
@@ -21,9 +22,9 @@ var (
 // for storing and retrieving queued dag-run items.
 type QueueStore interface {
 	// Enqueue adds an item to the queue
-	Enqueue(ctx context.Context, name string, priority QueuePriority, dagRun DAGRunRef) error
+	Enqueue(ctx context.Context, name string, priority QueuePriority, dagRun dagrun.DAGRunRef) error
 	// DequeueByDAGRunID retrieves items from the queue by dag-run reference and removes them
-	DequeueByDAGRunID(ctx context.Context, name string, dagRun DAGRunRef) ([]QueuedItemData, error)
+	DequeueByDAGRunID(ctx context.Context, name string, dagRun dagrun.DAGRunRef) ([]QueuedItemData, error)
 	// DeleteByItemIDs removes the exact queued items identified by their queue item IDs.
 	DeleteByItemIDs(ctx context.Context, name string, itemIDs []string) (int, error)
 	// Len returns the number of items in the queue
@@ -63,7 +64,7 @@ type QueuedItemData interface {
 	// ID returns the ID of the queued item
 	ID() string
 	// Data returns the data of the queued item
-	Data() (*DAGRunRef, error)
+	Data() (*dagrun.DAGRunRef, error)
 }
 
 var _ QueueStore = (*MockQueueStore)(nil)
@@ -73,12 +74,12 @@ type MockQueueStore struct {
 	mock.Mock
 }
 
-func (m *MockQueueStore) Enqueue(ctx context.Context, name string, priority QueuePriority, dagRun DAGRunRef) error {
+func (m *MockQueueStore) Enqueue(ctx context.Context, name string, priority QueuePriority, dagRun dagrun.DAGRunRef) error {
 	args := m.Called(ctx, name, priority, dagRun)
 	return args.Error(0)
 }
 
-func (m *MockQueueStore) DequeueByDAGRunID(ctx context.Context, name string, dagRun DAGRunRef) ([]QueuedItemData, error) {
+func (m *MockQueueStore) DequeueByDAGRunID(ctx context.Context, name string, dagRun dagrun.DAGRunRef) ([]QueuedItemData, error) {
 	args := m.Called(ctx, name, dagRun)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)

@@ -14,7 +14,7 @@ import (
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/service/audit"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
@@ -203,7 +203,7 @@ func dagWorkspaceName(dag *ir.DAG) string {
 	return ""
 }
 
-func statusWorkspaceName(status *exec.DAGRunStatus) string {
+func statusWorkspaceName(status *dagrun.DAGRunStatus) string {
 	if status == nil {
 		return ""
 	}
@@ -380,7 +380,7 @@ func (a *API) requireExecuteForWorkspace(ctx context.Context, workspaceName stri
 	return nil
 }
 
-func (a *API) workspaceNameForDAGRun(ctx context.Context, dagRun exec.DAGRunRef) (string, error) {
+func (a *API) workspaceNameForDAGRun(ctx context.Context, dagRun dagrun.DAGRunRef) (string, error) {
 	attempt, err := a.dagRunStore.FindAttempt(ctx, dagRun)
 	if err != nil {
 		return "", err
@@ -388,7 +388,7 @@ func (a *API) workspaceNameForDAGRun(ctx context.Context, dagRun exec.DAGRunRef)
 	return workspaceNameForAttempt(ctx, attempt)
 }
 
-func workspaceNameForAttempt(ctx context.Context, attempt exec.DAGRunAttempt) (string, error) {
+func workspaceNameForAttempt(ctx context.Context, attempt dagrun.DAGRunAttempt) (string, error) {
 	status, err := attempt.ReadStatus(ctx)
 	if err == nil && status != nil {
 		if workspaceName := statusWorkspaceName(status); workspaceName != "" {
@@ -405,7 +405,7 @@ func workspaceNameForAttempt(ctx context.Context, attempt exec.DAGRunAttempt) (s
 	return dagWorkspaceName(dag), nil
 }
 
-func (a *API) requireDAGRunVisible(ctx context.Context, dagRun exec.DAGRunRef) error {
+func (a *API) requireDAGRunVisible(ctx context.Context, dagRun dagrun.DAGRunRef) error {
 	if a.authService == nil {
 		return nil
 	}
@@ -416,14 +416,14 @@ func (a *API) requireDAGRunVisible(ctx context.Context, dagRun exec.DAGRunRef) e
 	return a.requireWorkspaceVisible(ctx, workspaceName)
 }
 
-func (a *API) requireDAGRunStatusVisible(ctx context.Context, status *exec.DAGRunStatus) error {
+func (a *API) requireDAGRunStatusVisible(ctx context.Context, status *dagrun.DAGRunStatus) error {
 	if status == nil {
 		return nil
 	}
 	return a.requireWorkspaceVisible(ctx, statusWorkspaceName(status))
 }
 
-func (a *API) requireDAGRunStatusExecute(ctx context.Context, status *exec.DAGRunStatus) error {
+func (a *API) requireDAGRunStatusExecute(ctx context.Context, status *dagrun.DAGRunStatus) error {
 	if status == nil {
 		return nil
 	}

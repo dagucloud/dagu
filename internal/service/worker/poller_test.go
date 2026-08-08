@@ -13,6 +13,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/backoff"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/worker"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
@@ -504,7 +505,7 @@ func (m *mockCoordinatorCli) StreamArtifactsTo(ctx context.Context, _ exec.HostI
 	return m.StreamArtifacts(ctx)
 }
 
-func (m *mockCoordinatorCli) GetDAGRunStatus(_ context.Context, _, _ string, _ *exec.DAGRunRef) (*exec.DAGRunStatusResult, error) {
+func (m *mockCoordinatorCli) GetDAGRunStatus(_ context.Context, _, _ string, _ *dagrun.DAGRunRef) (*exec.DAGRunStatusResult, error) {
 	return &exec.DAGRunStatusResult{Found: false}, nil
 }
 
@@ -512,7 +513,7 @@ func (m *mockCoordinatorCli) GetDAG(_ context.Context, _ string) (string, error)
 	return "", nil
 }
 
-func (m *mockCoordinatorCli) RequestCancel(_ context.Context, _, _ string, _ *exec.DAGRunRef) error {
+func (m *mockCoordinatorCli) RequestCancel(_ context.Context, _, _ string, _ *dagrun.DAGRunRef) error {
 	return nil
 }
 

@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
@@ -101,7 +101,7 @@ func runDry(ctx *Context, args []string) error {
 			ProfileName:              profileName,
 			ServiceRegistry:          ctx.ServiceRegistry,
 			SubWorkflowRunnerFactory: ctx.SubWorkflowRunnerFactory(),
-			RootDAGRun:               exec.NewDAGRunRef(dag.Name, dagRunID),
+			RootDAGRun:               dagrun.NewDAGRunRef(dag.Name, dagRunID),
 			PeerConfig:               ctx.Config.Core.Peer,
 			DefaultExecMode:          ctx.Config.DefaultExecMode,
 			DAGRunLogDir:             ctx.Config.Paths.LogDir,

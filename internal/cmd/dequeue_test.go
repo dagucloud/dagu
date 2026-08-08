@@ -9,6 +9,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/assert"
@@ -54,7 +55,7 @@ func TestDequeueCommand_PreservesState(t *testing.T) {
 	})
 
 	// Wait for it to complete
-	attempt, err := th.DAGRunStore.FindAttempt(ctx, exec.DAGRunRef{
+	attempt, err := th.DAGRunStore.FindAttempt(ctx, dagrun.DAGRunRef{
 		Name: dag.Name,
 		ID:   "success-run",
 	})
@@ -78,7 +79,7 @@ func TestDequeueCommand_PreservesState(t *testing.T) {
 	})
 
 	// Verify the previous successful run remains intact after the queued run is hidden.
-	successAttempt, err := th.DAGRunStore.FindAttempt(ctx, exec.DAGRunRef{
+	successAttempt, err := th.DAGRunStore.FindAttempt(ctx, dagrun.DAGRunRef{
 		Name: dag.Name,
 		ID:   "success-run",
 	})
@@ -88,7 +89,7 @@ func TestDequeueCommand_PreservesState(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, ir.Succeeded, successStatus.Status, "Dequeuing should not alter the prior successful run")
 
-	queuedAttempt, err := th.DAGRunStore.FindAttempt(ctx, exec.DAGRunRef{
+	queuedAttempt, err := th.DAGRunStore.FindAttempt(ctx, dagrun.DAGRunRef{
 		Name: dag.Name,
 		ID:   "queued-run",
 	})
@@ -99,7 +100,7 @@ func TestDequeueCommand_PreservesState(t *testing.T) {
 		require.NoError(t, readErr)
 		assert.Equal(t, ir.Aborted, queuedStatus.Status, "Dequeued run should be marked aborted before it is hidden")
 	} else {
-		assert.ErrorIs(t, err, exec.ErrDAGRunIDNotFound, "Dequeued run should not remain visible after it is hidden")
+		assert.ErrorIs(t, err, dagrun.ErrDAGRunIDNotFound, "Dequeued run should not remain visible after it is hidden")
 	}
 }
 
@@ -168,7 +169,7 @@ steps:
 		th.Context,
 		dag.ProcGroup(),
 		exec.QueuePriorityLow,
-		exec.NewDAGRunRef(dag.Name, "stale-run"),
+		dagrun.NewDAGRunRef(dag.Name, "stale-run"),
 	))
 
 	th.RunCommand(t, cmd.Enqueue(), test.CmdTest{
@@ -186,8 +187,8 @@ steps:
 	require.NoError(t, err)
 	assert.Equal(t, 0, length)
 
-	_, err = th.DAGRunStore.FindAttempt(th.Context, exec.NewDAGRunRef(dag.Name, "valid-run"))
-	assert.ErrorIs(t, err, exec.ErrDAGRunIDNotFound)
+	_, err = th.DAGRunStore.FindAttempt(th.Context, dagrun.NewDAGRunRef(dag.Name, "valid-run"))
+	assert.ErrorIs(t, err, dagrun.ErrDAGRunIDNotFound)
 }
 
 func TestDequeueCommand_TargetedDequeueFallsBackToRequestedQueueForOrphanedItem(t *testing.T) {
@@ -199,7 +200,7 @@ steps:
     run: "true"
 `)
 
-	runRef := exec.NewDAGRunRef(dag.Name, "orphaned-run")
+	runRef := dagrun.NewDAGRunRef(dag.Name, "orphaned-run")
 	require.NoError(t, th.QueueStore.Enqueue(
 		th.Context,
 		dag.ProcGroup(),

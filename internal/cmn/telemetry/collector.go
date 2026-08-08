@@ -18,6 +18,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
@@ -37,7 +38,7 @@ type Collector struct {
 	startTime            time.Time
 	version              string
 	dagStore             exec.DAGStore
-	dagRunStore          exec.DAGRunStore
+	dagRunStore          dagrun.DAGRunStore
 	queueStore           exec.QueueStore
 	serviceRegistry      exec.ServiceRegistry
 	workerHeartbeatStore exec.WorkerHeartbeatStore
@@ -79,7 +80,7 @@ type Collector struct {
 func NewCollector(
 	version string,
 	dagStore exec.DAGStore,
-	dagRunStore exec.DAGRunStore,
+	dagRunStore dagrun.DAGRunStore,
 	queueStore exec.QueueStore,
 	serviceRegistry exec.ServiceRegistry,
 ) *Collector {

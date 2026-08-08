@@ -26,6 +26,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 )
 
 const (
@@ -266,7 +267,7 @@ func (s *Store) CountAliveByDAGName(ctx context.Context, groupName, dagName stri
 }
 
 // IsRunAlive reports whether dagRun has a fresh proc entry in groupName.
-func (s *Store) IsRunAlive(ctx context.Context, groupName string, dagRun exec.DAGRunRef) (bool, error) {
+func (s *Store) IsRunAlive(ctx context.Context, groupName string, dagRun dagrun.DAGRunRef) (bool, error) {
 	entries, err := s.ListEntries(ctx, groupName)
 	if err != nil {
 		return false, err
@@ -280,7 +281,7 @@ func (s *Store) IsRunAlive(ctx context.Context, groupName string, dagRun exec.DA
 }
 
 // IsAttemptAlive reports whether a specific attempt has a fresh proc entry.
-func (s *Store) IsAttemptAlive(ctx context.Context, groupName string, dagRun exec.DAGRunRef, attemptID string) (bool, error) {
+func (s *Store) IsAttemptAlive(ctx context.Context, groupName string, dagRun dagrun.DAGRunRef, attemptID string) (bool, error) {
 	entries, err := s.ListEntries(ctx, groupName)
 	if err != nil {
 		return false, err
@@ -294,7 +295,7 @@ func (s *Store) IsAttemptAlive(ctx context.Context, groupName string, dagRun exe
 }
 
 // ListAlive returns fresh DAG runs in a group.
-func (s *Store) ListAlive(ctx context.Context, groupName string) ([]exec.DAGRunRef, error) {
+func (s *Store) ListAlive(ctx context.Context, groupName string) ([]dagrun.DAGRunRef, error) {
 	entries, err := s.ListEntries(ctx, groupName)
 	if err != nil {
 		return nil, err
@@ -324,12 +325,12 @@ func (s *Store) LatestFreshEntryByDAGName(ctx context.Context, groupName, dagNam
 }
 
 // ListAllAlive returns all fresh DAG runs grouped by process group.
-func (s *Store) ListAllAlive(ctx context.Context) (map[string][]exec.DAGRunRef, error) {
+func (s *Store) ListAllAlive(ctx context.Context) (map[string][]dagrun.DAGRunRef, error) {
 	entries, err := s.ListAllEntries(ctx)
 	if err != nil {
 		return nil, err
 	}
-	result := make(map[string][]exec.DAGRunRef)
+	result := make(map[string][]dagrun.DAGRunRef)
 	seen := make(map[string]map[string]struct{})
 	for _, entry := range entries {
 		if !entry.Fresh {
@@ -383,7 +384,7 @@ func validateProcMeta(meta exec.ProcMeta) error {
 	if meta.Name == "" {
 		return fmt.Errorf("proc meta name is required")
 	}
-	if err := exec.ValidateDAGRunID(meta.DAGRunID); err != nil {
+	if err := dagrun.ValidateDAGRunID(meta.DAGRunID); err != nil {
 		return fmt.Errorf("invalid proc meta dag run id: %w", err)
 	}
 	if meta.AttemptID == "" {
@@ -399,7 +400,7 @@ func validateProcMeta(meta exec.ProcMeta) error {
 		return fmt.Errorf("proc meta root name and root dag run id must both be set or both be empty")
 	}
 	if meta.RootDAGRunID != "" {
-		if err := exec.ValidateDAGRunID(meta.RootDAGRunID); err != nil {
+		if err := dagrun.ValidateDAGRunID(meta.RootDAGRunID); err != nil {
 			return fmt.Errorf("invalid proc meta root dag run id: %w", err)
 		}
 	}
@@ -560,7 +561,7 @@ func (s *Store) ListAllEntries(_ context.Context) ([]exec.ProcEntry, error) {
 }
 
 // LatestHeartbeat returns the latest heartbeat for dagRun.
-func (s *Store) LatestHeartbeat(_ context.Context, groupName string, dagRun exec.DAGRunRef) (*exec.ProcHeartbeat, error) {
+func (s *Store) LatestHeartbeat(_ context.Context, groupName string, dagRun dagrun.DAGRunRef) (*exec.ProcHeartbeat, error) {
 	groupDir := filepath.Join(s.root, groupName)
 	if _, err := os.Stat(groupDir); errors.Is(err, os.ErrNotExist) {
 		return nil, nil
@@ -653,7 +654,7 @@ func (s *Store) entriesFromFiles(groupName string, files []string) ([]exec.ProcE
 // judging by the DAG directory and the identifiers carried in the file name.
 // A name that cannot be parsed is a possible match, because attributing such a
 // file needs its contents.
-func procFileMayBelongTo(path string, dagRun exec.DAGRunRef) bool {
+func procFileMayBelongTo(path string, dagRun dagrun.DAGRunRef) bool {
 	if filepath.Base(filepath.Dir(path)) != dagRun.Name {
 		return false
 	}
@@ -826,7 +827,7 @@ func parseProcFileName(filename string) (procFileName, error) {
 		if err != nil {
 			return procFileName{}, fmt.Errorf("%w: parse legacy proc timestamp: %w", errInvalidProcFile, err)
 		}
-		if err := exec.ValidateDAGRunID(matches[2]); err != nil {
+		if err := dagrun.ValidateDAGRunID(matches[2]); err != nil {
 			return procFileName{}, fmt.Errorf("%w: invalid legacy dag-run id: %w", errInvalidProcFile, err)
 		}
 		return procFileName{
@@ -888,8 +889,8 @@ func sameProcEntry(a, b exec.ProcEntry) bool {
 		a.Meta == b.Meta
 }
 
-func freshRefs(entries []exec.ProcEntry) []exec.DAGRunRef {
-	seen := make(map[string]exec.DAGRunRef)
+func freshRefs(entries []exec.ProcEntry) []dagrun.DAGRunRef {
+	seen := make(map[string]dagrun.DAGRunRef)
 	for _, entry := range entries {
 		if !entry.Fresh {
 			continue
@@ -897,7 +898,7 @@ func freshRefs(entries []exec.ProcEntry) []exec.DAGRunRef {
 		ref := entry.Meta.DAGRun()
 		seen[ref.String()] = ref
 	}
-	refs := make([]exec.DAGRunRef, 0, len(seen))
+	refs := make([]dagrun.DAGRunRef, 0, len(seen))
 	for _, ref := range seen {
 		refs = append(refs, ref)
 	}

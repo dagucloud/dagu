@@ -6,6 +6,8 @@ package exec
 import (
 	"context"
 	"time"
+
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 )
 
 // ProcStore is an interface for managing process storage.
@@ -22,20 +24,20 @@ type ProcStore interface {
 	// CountAlive retrieves the number of processes associated with a group name.
 	CountAliveByDAGName(ctx context.Context, groupName, dagName string) (int, error)
 	// IsRunAlive checks if a specific DAG run is currently alive.
-	IsRunAlive(ctx context.Context, groupName string, dagRun DAGRunRef) (bool, error)
+	IsRunAlive(ctx context.Context, groupName string, dagRun dagrun.DAGRunRef) (bool, error)
 	// IsAttemptAlive checks if a specific DAG-run attempt is currently alive.
-	IsAttemptAlive(ctx context.Context, groupName string, dagRun DAGRunRef, attemptID string) (bool, error)
+	IsAttemptAlive(ctx context.Context, groupName string, dagRun dagrun.DAGRunRef, attemptID string) (bool, error)
 	// ListAlive returns list of running DAG runs by the group name.
-	ListAlive(ctx context.Context, groupName string) ([]DAGRunRef, error)
+	ListAlive(ctx context.Context, groupName string) ([]dagrun.DAGRunRef, error)
 	// ListAllAlive returns all running DAG runs across all groups.
 	// Returns a map where key is the group name and value is list of DAG runs.
-	ListAllAlive(ctx context.Context) (map[string][]DAGRunRef, error)
+	ListAllAlive(ctx context.Context) (map[string][]dagrun.DAGRunRef, error)
 	// ListEntries returns all proc entries for a group, including stale entries.
 	ListEntries(ctx context.Context, groupName string) ([]ProcEntry, error)
 	// LatestFreshEntryByDAGName returns the freshest proc entry for the DAG in the group.
 	LatestFreshEntryByDAGName(ctx context.Context, groupName, dagName string) (*ProcEntry, error)
 	// LatestHeartbeat returns the latest heartbeat observation for a DAG-run in the group.
-	LatestHeartbeat(ctx context.Context, groupName string, dagRun DAGRunRef) (*ProcHeartbeat, error)
+	LatestHeartbeat(ctx context.Context, groupName string, dagRun dagrun.DAGRunRef) (*ProcHeartbeat, error)
 	// ListAllEntries returns all proc entries across all groups, including stale entries.
 	ListAllEntries(ctx context.Context) ([]ProcEntry, error)
 	// RemoveIfStale removes the exact proc entry if it is still stale and unchanged.
@@ -59,16 +61,16 @@ type ProcMeta struct {
 }
 
 // Root returns the root DAG-run reference if present.
-func (m ProcMeta) Root() DAGRunRef {
+func (m ProcMeta) Root() dagrun.DAGRunRef {
 	if m.RootName == "" || m.RootDAGRunID == "" {
-		return DAGRunRef{}
+		return dagrun.DAGRunRef{}
 	}
-	return NewDAGRunRef(m.RootName, m.RootDAGRunID)
+	return dagrun.NewDAGRunRef(m.RootName, m.RootDAGRunID)
 }
 
 // DAGRun returns the DAG-run reference for the proc entry.
-func (m ProcMeta) DAGRun() DAGRunRef {
-	return NewDAGRunRef(m.Name, m.DAGRunID)
+func (m ProcMeta) DAGRun() dagrun.DAGRunRef {
+	return dagrun.NewDAGRunRef(m.Name, m.DAGRunID)
 }
 
 // ProcEntry represents a storage-independent proc heartbeat observation.
@@ -104,7 +106,7 @@ func (id ProcEntryID) String() string {
 // ProcHeartbeat is a storage-independent observation of a proc heartbeat.
 type ProcHeartbeat struct {
 	GroupName       string
-	DAGRun          DAGRunRef
+	DAGRun          dagrun.DAGRunRef
 	AttemptID       string
 	StartedAt       int64
 	LastHeartbeatAt int64
@@ -124,7 +126,7 @@ func (h ProcHeartbeat) AdvancedSince(previous ProcHeartbeat) bool {
 }
 
 // DAGRun returns the DAG-run reference for the proc entry.
-func (e ProcEntry) DAGRun() DAGRunRef {
+func (e ProcEntry) DAGRun() dagrun.DAGRunRef {
 	return e.Meta.DAGRun()
 }
 

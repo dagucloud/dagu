@@ -7,6 +7,7 @@ import (
 	"context"
 
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
@@ -20,7 +21,7 @@ type (
 	// Dispatcher is an alias for execution.Dispatcher
 	Dispatcher = exec.Dispatcher
 	// RunStatus is an alias for execution.RunStatus
-	RunStatus = exec.RunStatus
+	RunStatus = dagrun.RunStatus
 	// ContextOption is an alias for execution.ContextOption
 	ContextOption = exec.ContextOption
 )
@@ -110,8 +111,8 @@ func WithDAGContext(ctx context.Context, rCtx Context) context.Context {
 }
 
 // NewDAGRunRef is a convenience wrapper for execution.NewDAGRunRef.
-func NewDAGRunRef(name, runID string) exec.DAGRunRef {
-	return exec.NewDAGRunRef(name, runID)
+func NewDAGRunRef(name, runID string) dagrun.DAGRunRef {
+	return dagrun.NewDAGRunRef(name, runID)
 }
 
 // NewContextForTest creates a minimal context for testing purposes.

@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/controller"
 )
@@ -75,7 +75,7 @@ func (p *ControllerProgressDisplay) Stop() {
 
 // UpdateNode consumes node updates. The controller node carries the decision
 // timeline; every other node marks which action is in flight.
-func (p *ControllerProgressDisplay) UpdateNode(node *exec.Node) {
+func (p *ControllerProgressDisplay) UpdateNode(node *dagrun.Node) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -101,7 +101,7 @@ func (p *ControllerProgressDisplay) UpdateNode(node *exec.Node) {
 }
 
 // UpdateStatus updates the overall DAG status.
-func (p *ControllerProgressDisplay) UpdateStatus(status *exec.DAGRunStatus) {
+func (p *ControllerProgressDisplay) UpdateStatus(status *dagrun.DAGRunStatus) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.status = status.Status

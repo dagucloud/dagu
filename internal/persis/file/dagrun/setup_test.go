@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -18,7 +18,7 @@ import (
 
 type StoreTest struct {
 	Context context.Context
-	Store   exec.DAGRunStore
+	Store   dagrun.DAGRunStore
 	TmpDir  string
 }
 
@@ -48,7 +48,7 @@ func (th StoreTest) CreateAttempt(t *testing.T, ts time.Time, dagRunID string, s
 func (th StoreTest) CreateAttemptWithDAG(t *testing.T, ts time.Time, dagRunID string, s ir.Status, dag *ir.DAG) *Attempt {
 	t.Helper()
 
-	attempt, err := th.Store.CreateAttempt(th.Context, dag, ts, dagRunID, exec.NewDAGRunAttemptOptions{})
+	attempt, err := th.Store.CreateAttempt(th.Context, dag, ts, dagRunID, dagrun.NewDAGRunAttemptOptions{})
 	require.NoError(t, err)
 
 	err = attempt.Open(th.Context)
@@ -58,7 +58,7 @@ func (th StoreTest) CreateAttemptWithDAG(t *testing.T, ts time.Time, dagRunID st
 		_ = attempt.Close(th.Context)
 	}()
 
-	dagRunStatus := exec.InitialStatus(dag)
+	dagRunStatus := dagrun.InitialStatus(dag)
 	dagRunStatus.DAGRunID = dagRunID
 	dagRunStatus.Status = s
 
@@ -87,11 +87,11 @@ func (d DAGTest) Writer(t *testing.T, dagRunID string, startedAt time.Time) Writ
 	t.Helper()
 
 	root := NewDataRoot(d.th.TmpDir, d.Name)
-	dagRun, err := root.CreateDAGRun(exec.NewUTC(startedAt), dagRunID)
+	dagRun, err := root.CreateDAGRun(dagrun.NewUTC(startedAt), dagRunID)
 	require.NoError(t, err)
 
 	store := d.th.Store.(*Store)
-	attempt, err := dagRun.CreateAttempt(d.th.Context, exec.NewUTC(startedAt), store.cache, "", WithDAG(d.DAG))
+	attempt, err := dagRun.CreateAttempt(d.th.Context, dagrun.NewUTC(startedAt), store.cache, "", WithDAG(d.DAG))
 	require.NoError(t, err)
 
 	writer := NewWriter(attempt.file)
@@ -110,7 +110,7 @@ func (d DAGTest) Writer(t *testing.T, dagRunID string, startedAt time.Time) Writ
 	}
 }
 
-func (w WriterTest) Write(t *testing.T, dagRunStatus exec.DAGRunStatus) {
+func (w WriterTest) Write(t *testing.T, dagRunStatus dagrun.DAGRunStatus) {
 	t.Helper()
 
 	err := w.Writer.write(dagRunStatus)

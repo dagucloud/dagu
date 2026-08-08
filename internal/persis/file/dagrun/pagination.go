@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/dagrun/dagrunindex"
 )
@@ -28,7 +28,7 @@ type dagRunListKey struct {
 
 type dagRunListItem struct {
 	Key    dagRunListKey
-	Status *exec.DAGRunStatus
+	Status *dagrun.DAGRunStatus
 }
 
 func compareDagRunListKeys(a, b dagRunListKey) int {
@@ -50,18 +50,18 @@ func compareDagRunListKeys(a, b dagRunListKey) int {
 	}
 }
 
-func (store *Store) ListStatusesPage(ctx context.Context, opts ...exec.ListDAGRunStatusesOption) (exec.DAGRunStatusPage, error) {
+func (store *Store) ListStatusesPage(ctx context.Context, opts ...dagrun.ListDAGRunStatusesOption) (dagrun.DAGRunStatusPage, error) {
 	options, err := prepareListOptions(opts)
 	if err != nil {
-		return exec.DAGRunStatusPage{}, fmt.Errorf("failed to prepare options: %w", err)
+		return dagrun.DAGRunStatusPage{}, fmt.Errorf("failed to prepare options: %w", err)
 	}
 
 	items, nextCursor, err := store.listStatusesOrdered(ctx, options, options.Limit, true)
 	if err != nil {
-		return exec.DAGRunStatusPage{}, err
+		return dagrun.DAGRunStatusPage{}, err
 	}
 
-	return exec.DAGRunStatusPage{
+	return dagrun.DAGRunStatusPage{
 		Items:      items,
 		NextCursor: nextCursor,
 	}, nil
@@ -69,10 +69,10 @@ func (store *Store) ListStatusesPage(ctx context.Context, opts ...exec.ListDAGRu
 
 func (store *Store) listStatusesOrdered(
 	ctx context.Context,
-	opts exec.ListDAGRunStatusesOptions,
+	opts dagrun.ListDAGRunStatusesOptions,
 	limit int,
 	returnCursor bool,
-) ([]*exec.DAGRunStatus, string, error) {
+) ([]*dagrun.DAGRunStatus, string, error) {
 	cursorKey, err := decodeQueryCursor(opts.Cursor, opts)
 	if err != nil {
 		return nil, "", err
@@ -114,7 +114,7 @@ func (store *Store) listStatusesOrdered(
 	}
 	heap.Init(&pq)
 
-	statuses := make([]*exec.DAGRunStatus, 0, min(target, len(iterators)))
+	statuses := make([]*dagrun.DAGRunStatus, 0, min(target, len(iterators)))
 	keys := make([]dagRunListKey, 0, cap(statuses))
 
 	for pq.Len() > 0 && len(statuses) < target {
@@ -145,7 +145,7 @@ func (store *Store) listStatusesOrdered(
 	return statuses[:limit], nextCursor, nil
 }
 
-func (store *Store) newStatusIterators(ctx context.Context, opts exec.ListDAGRunStatusesOptions) ([]*dagRunStatusIterator, error) {
+func (store *Store) newStatusIterators(ctx context.Context, opts dagrun.ListDAGRunStatusesOptions) ([]*dagRunStatusIterator, error) {
 	var roots []DataRoot
 	if opts.ExactName == "" {
 		listed, err := store.listRoot(ctx, "")
@@ -172,7 +172,7 @@ func (store *Store) newStatusIterators(ctx context.Context, opts exec.ListDAGRun
 type dagRunStatusIterator struct {
 	store           *Store
 	root            DataRoot
-	opts            exec.ListDAGRunStatusesOptions
+	opts            dagrun.ListDAGRunStatusesOptions
 	dayPaths        []string
 	dayIndex        int
 	dayItems        []dagRunListItem
@@ -182,7 +182,7 @@ type dagRunStatusIterator struct {
 	hasStatusFilter bool
 }
 
-func newDAGRunStatusIterator(store *Store, root DataRoot, opts exec.ListDAGRunStatusesOptions) (*dagRunStatusIterator, error) {
+func newDAGRunStatusIterator(store *Store, root DataRoot, opts dagrun.ListDAGRunStatusesOptions) (*dagRunStatusIterator, error) {
 	dayPaths, err := listDayPathsInRange(root, opts.From, opts.To)
 	if err != nil {
 		return nil, err
@@ -291,7 +291,7 @@ func containsFold(value, query string) bool {
 	return strings.Contains(strings.ToLower(value), strings.ToLower(query))
 }
 
-func effectiveTimeRange(from, to exec.TimeInUTC) (time.Time, time.Time) {
+func effectiveTimeRange(from, to dagrun.TimeInUTC) (time.Time, time.Time) {
 	start := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
 	end := time.Now().UTC()
 	if !from.IsZero() {
@@ -303,7 +303,7 @@ func effectiveTimeRange(from, to exec.TimeInUTC) (time.Time, time.Time) {
 	return start, end
 }
 
-func listDayPathsInRange(root DataRoot, from, to exec.TimeInUTC) ([]string, error) {
+func listDayPathsInRange(root DataRoot, from, to dagrun.TimeInUTC) ([]string, error) {
 	startDate, endDate := effectiveTimeRange(from, to)
 
 	years, err := listDirsSorted(root.dagRunsDir, true, reYear)

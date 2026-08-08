@@ -14,13 +14,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
-	"github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
+	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
@@ -87,7 +88,7 @@ func registerCommandExecutorCapsForCoordinatorTest() {
 	registry.RegisterExecutorCapabilities("command", caps)
 }
 
-func (m *mockDAGRunStore) addSubAttempt(rootRef exec.DAGRunRef, subDAGRunID string, status *exec.DAGRunStatus) *mockDAGRunAttempt {
+func (m *mockDAGRunStore) addSubAttempt(rootRef dagrun.DAGRunRef, subDAGRunID string, status *dagrun.DAGRunStatus) *mockDAGRunAttempt {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	attempt := &mockDAGRunAttempt{
@@ -98,7 +99,7 @@ func (m *mockDAGRunStore) addSubAttempt(rootRef exec.DAGRunRef, subDAGRunID stri
 	return attempt
 }
 
-func (m *mockDAGRunStore) addAttempt(ref exec.DAGRunRef, status *exec.DAGRunStatus) *mockDAGRunAttempt {
+func (m *mockDAGRunStore) addAttempt(ref dagrun.DAGRunRef, status *dagrun.DAGRunStatus) *mockDAGRunAttempt {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	attempt := &mockDAGRunAttempt{
@@ -108,7 +109,7 @@ func (m *mockDAGRunStore) addAttempt(ref exec.DAGRunRef, status *exec.DAGRunStat
 	return attempt
 }
 
-func (m *mockDAGRunStore) addAbortingAttempt(ref exec.DAGRunRef, status *exec.DAGRunStatus) *mockDAGRunAttempt {
+func (m *mockDAGRunStore) addAbortingAttempt(ref dagrun.DAGRunRef, status *dagrun.DAGRunStatus) *mockDAGRunAttempt {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	attempt := &mockDAGRunAttempt{
@@ -119,41 +120,41 @@ func (m *mockDAGRunStore) addAbortingAttempt(ref exec.DAGRunRef, status *exec.DA
 	return attempt
 }
 
-func (m *mockDAGRunStore) FindAttempt(_ context.Context, dagRun exec.DAGRunRef) (exec.DAGRunAttempt, error) {
+func (m *mockDAGRunStore) FindAttempt(_ context.Context, dagRun dagrun.DAGRunRef) (dagrun.DAGRunAttempt, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if attempt, ok := m.attempts[dagRun.ID]; ok {
 		return attempt, nil
 	}
-	return nil, exec.ErrDAGRunIDNotFound
+	return nil, dagrun.ErrDAGRunIDNotFound
 }
 
 // Implement other required interface methods (unused in tests)
 // These methods return sentinel errors or panic to make test failures obvious if accidentally called.
-func (m *mockDAGRunStore) CreateAttempt(_ context.Context, dag *ir.DAG, _ time.Time, dagRunID string, _ exec.NewDAGRunAttemptOptions) (exec.DAGRunAttempt, error) {
+func (m *mockDAGRunStore) CreateAttempt(_ context.Context, dag *ir.DAG, _ time.Time, dagRunID string, _ dagrun.NewDAGRunAttemptOptions) (dagrun.DAGRunAttempt, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.createAttemptErr != nil {
 		return nil, m.createAttemptErr
 	}
 	attempt := &mockDAGRunAttempt{
-		status: &exec.DAGRunStatus{Name: dag.Name, DAGRunID: dagRunID},
+		status: &dagrun.DAGRunStatus{Name: dag.Name, DAGRunID: dagRunID},
 	}
 	m.attempts[dagRunID] = attempt
 	return attempt, nil
 }
-func (m *mockDAGRunStore) RecentAttempts(_ context.Context, _ string, _ int) []exec.DAGRunAttempt {
+func (m *mockDAGRunStore) RecentAttempts(_ context.Context, _ string, _ int) []dagrun.DAGRunAttempt {
 	return nil // Empty slice is valid
 }
-func (m *mockDAGRunStore) LatestAttempt(_ context.Context, _ string) (exec.DAGRunAttempt, error) {
-	return nil, exec.ErrDAGRunIDNotFound
+func (m *mockDAGRunStore) LatestAttempt(_ context.Context, _ string) (dagrun.DAGRunAttempt, error) {
+	return nil, dagrun.ErrDAGRunIDNotFound
 }
-func (m *mockDAGRunStore) ListStatuses(ctx context.Context, opts ...exec.ListDAGRunStatusesOption) ([]*exec.DAGRunStatus, error) {
+func (m *mockDAGRunStore) ListStatuses(ctx context.Context, opts ...dagrun.ListDAGRunStatusesOption) ([]*dagrun.DAGRunStatus, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 
-	var options exec.ListDAGRunStatusesOptions
+	var options dagrun.ListDAGRunStatusesOptions
 	for _, opt := range opts {
 		opt(&options)
 	}
@@ -167,8 +168,8 @@ func (m *mockDAGRunStore) ListStatuses(ctx context.Context, opts ...exec.ListDAG
 	defer m.mu.Unlock()
 	m.listStatusesCalls++
 
-	var statuses []*exec.DAGRunStatus
-	appendStatus := func(status *exec.DAGRunStatus) {
+	var statuses []*dagrun.DAGRunStatus
+	appendStatus := func(status *dagrun.DAGRunStatus) {
 		if status == nil {
 			return
 		}
@@ -213,21 +214,21 @@ func (m *mockDAGRunStore) CompareAndSwapCallCount() int {
 	return m.compareAndSwapCalls
 }
 
-func (m *mockDAGRunStore) ListStatusesPage(ctx context.Context, opts ...exec.ListDAGRunStatusesOption) (exec.DAGRunStatusPage, error) {
+func (m *mockDAGRunStore) ListStatusesPage(ctx context.Context, opts ...dagrun.ListDAGRunStatusesOption) (dagrun.DAGRunStatusPage, error) {
 	items, err := m.ListStatuses(ctx, opts...)
 	if err != nil {
-		return exec.DAGRunStatusPage{}, err
+		return dagrun.DAGRunStatusPage{}, err
 	}
-	return exec.DAGRunStatusPage{Items: items}, nil
+	return dagrun.DAGRunStatusPage{Items: items}, nil
 }
 func (m *mockDAGRunStore) CompareAndSwapLatestAttemptStatus(
 	ctx context.Context,
-	dagRun exec.DAGRunRef,
+	dagRun dagrun.DAGRunRef,
 	expectedAttemptID string,
 	expectedStatus ir.Status,
-	mutate func(*exec.DAGRunStatus) error,
-	opts ...exec.CompareAndSwapStatusOption,
-) (*exec.DAGRunStatus, bool, error) {
+	mutate func(*dagrun.DAGRunStatus) error,
+	opts ...dagrun.CompareAndSwapStatusOption,
+) (*dagrun.DAGRunStatus, bool, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, false, err
 	}
@@ -236,7 +237,7 @@ func (m *mockDAGRunStore) CompareAndSwapLatestAttemptStatus(
 	defer m.mu.Unlock()
 	m.compareAndSwapCalls++
 
-	cfg := exec.NewCompareAndSwapStatusOptions(opts...)
+	cfg := dagrun.NewCompareAndSwapStatusOptions(opts...)
 	root := cfg.RootDAGRun
 	if root.Zero() {
 		root = dagRun
@@ -274,16 +275,16 @@ func (m *mockDAGRunStore) CompareAndSwapLatestAttemptStatus(
 	attempt.written = true
 	return &current, true, nil
 }
-func (m *mockDAGRunStore) FindSubAttempt(_ context.Context, rootRef exec.DAGRunRef, subDAGRunID string) (exec.DAGRunAttempt, error) {
+func (m *mockDAGRunStore) FindSubAttempt(_ context.Context, rootRef dagrun.DAGRunRef, subDAGRunID string) (dagrun.DAGRunAttempt, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	key := rootRef.ID + ":" + subDAGRunID
 	if attempt, ok := m.subAttempts[key]; ok {
 		return attempt, nil
 	}
-	return nil, exec.ErrDAGRunIDNotFound
+	return nil, dagrun.ErrDAGRunIDNotFound
 }
-func (m *mockDAGRunStore) CreateSubAttempt(_ context.Context, rootRef exec.DAGRunRef, subDAGRunID string) (exec.DAGRunAttempt, error) {
+func (m *mockDAGRunStore) CreateSubAttempt(_ context.Context, rootRef dagrun.DAGRunRef, subDAGRunID string) (dagrun.DAGRunAttempt, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.createSubAttemptErr != nil {
@@ -291,22 +292,22 @@ func (m *mockDAGRunStore) CreateSubAttempt(_ context.Context, rootRef exec.DAGRu
 	}
 	key := rootRef.ID + ":" + subDAGRunID
 	attempt := &mockDAGRunAttempt{
-		status: &exec.DAGRunStatus{},
+		status: &dagrun.DAGRunStatus{},
 	}
 	m.subAttempts[key] = attempt
 	return attempt, nil
 }
-func (m *mockDAGRunStore) RemoveOldDAGRuns(_ context.Context, _ string, _ int, _ ...exec.RemoveOldDAGRunsOption) ([]string, error) {
+func (m *mockDAGRunStore) RemoveOldDAGRuns(_ context.Context, _ string, _ int, _ ...dagrun.RemoveOldDAGRunsOption) ([]string, error) {
 	return nil, nil
 }
-func (m *mockDAGRunStore) RemoveDAGRun(_ context.Context, _ exec.DAGRunRef, _ ...exec.RemoveDAGRunOption) error {
+func (m *mockDAGRunStore) RemoveDAGRun(_ context.Context, _ dagrun.DAGRunRef, _ ...dagrun.RemoveDAGRunOption) error {
 	return nil
 }
 
 // mockDAGRunAttempt is a test implementation of execution.DAGRunAttempt
 type mockDAGRunAttempt struct {
 	dag                    *ir.DAG
-	status                 *exec.DAGRunStatus
+	status                 *dagrun.DAGRunStatus
 	opened                 bool
 	closed                 bool
 	written                bool
@@ -316,8 +317,8 @@ type mockDAGRunAttempt struct {
 	writeError             error
 	writeStarted           chan struct{}
 	releaseWrite           chan struct{}
-	stepMessages           map[string][]exec.LLMMessage // stepName -> messages
-	writeStepMessagesError error                        // injected error for WriteStepMessages
+	stepMessages           map[string][]dagrun.LLMMessage // stepName -> messages
+	writeStepMessagesError error                          // injected error for WriteStepMessages
 	mu                     sync.Mutex
 }
 
@@ -338,7 +339,7 @@ func (m *mockDAGRunAttempt) Open(_ context.Context) error {
 	m.opened = true
 	return nil
 }
-func (m *mockDAGRunAttempt) Write(_ context.Context, s exec.DAGRunStatus) error {
+func (m *mockDAGRunAttempt) Write(_ context.Context, s dagrun.DAGRunStatus) error {
 	m.mu.Lock()
 	writeStarted := m.writeStarted
 	releaseWrite := m.releaseWrite
@@ -369,14 +370,14 @@ func (m *mockDAGRunAttempt) Close(_ context.Context) error {
 	m.closed = true
 	return nil
 }
-func (m *mockDAGRunAttempt) ReadStatus(_ context.Context) (*exec.DAGRunStatus, error) {
+func (m *mockDAGRunAttempt) ReadStatus(_ context.Context) (*dagrun.DAGRunStatus, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.readStatusError != nil {
 		return nil, m.readStatusError
 	}
 	if m.status == nil {
-		return nil, exec.ErrNoStatusData
+		return nil, dagrun.ErrNoStatusData
 	}
 	cloned := *m.status
 	return &cloned, nil
@@ -400,25 +401,25 @@ func (m *mockDAGRunAttempt) IsAborting(_ context.Context) (bool, error) {
 }
 func (m *mockDAGRunAttempt) Hide(_ context.Context) error { return nil }
 func (m *mockDAGRunAttempt) Hidden() bool                 { return false }
-func (m *mockDAGRunAttempt) WriteOutputs(_ context.Context, _ *exec.DAGRunOutputs) error {
+func (m *mockDAGRunAttempt) WriteOutputs(_ context.Context, _ *dagrun.DAGRunOutputs) error {
 	return nil
 }
-func (m *mockDAGRunAttempt) ReadOutputs(_ context.Context) (*exec.DAGRunOutputs, error) {
+func (m *mockDAGRunAttempt) ReadOutputs(_ context.Context) (*dagrun.DAGRunOutputs, error) {
 	return nil, nil
 }
-func (m *mockDAGRunAttempt) WriteStepMessages(_ context.Context, stepName string, messages []exec.LLMMessage) error {
+func (m *mockDAGRunAttempt) WriteStepMessages(_ context.Context, stepName string, messages []dagrun.LLMMessage) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.writeStepMessagesError != nil {
 		return m.writeStepMessagesError
 	}
 	if m.stepMessages == nil {
-		m.stepMessages = make(map[string][]exec.LLMMessage)
+		m.stepMessages = make(map[string][]dagrun.LLMMessage)
 	}
 	m.stepMessages[stepName] = messages
 	return nil
 }
-func (m *mockDAGRunAttempt) ReadStepMessages(_ context.Context, stepName string) ([]exec.LLMMessage, error) {
+func (m *mockDAGRunAttempt) ReadStepMessages(_ context.Context, stepName string) ([]dagrun.LLMMessage, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.stepMessages == nil {
@@ -430,7 +431,7 @@ func (m *mockDAGRunAttempt) ReadStepMessages(_ context.Context, stepName string)
 func (m *mockDAGRunAttempt) WorkDir() string { return "" }
 
 // GetStepMessages returns the messages written for a step (for test assertions)
-func (m *mockDAGRunAttempt) GetStepMessages(stepName string) []exec.LLMMessage {
+func (m *mockDAGRunAttempt) GetStepMessages(stepName string) []dagrun.LLMMessage {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.stepMessages == nil {
@@ -452,7 +453,7 @@ func TestTransformArtifactPathsCreatesDirectory(t *testing.T) {
 			},
 		},
 	}
-	incoming := &exec.DAGRunStatus{
+	incoming := &dagrun.DAGRunStatus{
 		DAGRunID:   "run-123",
 		ArchiveDir: "/tmp/worker/dag-run_20260412_000000Z_run-123",
 	}
@@ -479,7 +480,7 @@ func TestTransformArtifactPathsSanitizesDAGName(t *testing.T) {
 			},
 		},
 	}
-	incoming := &exec.DAGRunStatus{
+	incoming := &dagrun.DAGRunStatus{
 		DAGRunID:   "run-123",
 		ArchiveDir: "/tmp/worker/dag-run_20260412_000000Z_run-123",
 	}
@@ -501,8 +502,8 @@ func TestTransformArtifactPathsPreservesLatestArchiveDir(t *testing.T) {
 	baseDir := t.TempDir()
 	existingArchiveDir := filepath.Join(baseDir, "test-dag", "dag-run_20260412_000000Z_run-123")
 	handler := &Handler{artifactDir: baseDir}
-	incoming := &exec.DAGRunStatus{DAGRunID: "run-123"}
-	latestStatus := &exec.DAGRunStatus{ArchiveDir: existingArchiveDir}
+	incoming := &dagrun.DAGRunStatus{DAGRunID: "run-123"}
+	latestStatus := &dagrun.DAGRunStatus{ArchiveDir: existingArchiveDir}
 
 	err := handler.transformArtifactPaths(context.Background(), nil, latestStatus, incoming)
 	require.NoError(t, err)
@@ -526,7 +527,7 @@ func TestTransformArtifactPathsRejectsEmptyExpandedBaseDir(t *testing.T) {
 			},
 		},
 	}
-	incoming := &exec.DAGRunStatus{
+	incoming := &dagrun.DAGRunStatus{
 		DAGRunID:   "run-123",
 		ArchiveDir: "/tmp/worker/dag-run_20260412_000000Z_run-123",
 	}
@@ -549,7 +550,7 @@ func TestTransformArtifactPathsUsesDAGSpecificDirWithoutGlobalArtifactDir(t *tes
 			},
 		},
 	}
-	incoming := &exec.DAGRunStatus{
+	incoming := &dagrun.DAGRunStatus{
 		DAGRunID:   "run-123",
 		ArchiveDir: "/tmp/worker/dag-run_20260412_000000Z_run-123",
 	}
@@ -714,7 +715,7 @@ func TestHandler_Poll(t *testing.T) {
 				ScheduleTime: "2026-03-13T10:00:00Z",
 			},
 			"test-dag",
-			exec.DAGRunRef{},
+			dagrun.DAGRunRef{},
 			nil,
 		)
 		require.NoError(t, err)
@@ -787,9 +788,9 @@ func TestHandler_Poll(t *testing.T) {
 			ActiveDistributedRunStore: activeStore,
 		})
 
-		runRef := exec.NewDAGRunRef("test-dag", "run-123")
+		runRef := dagrun.NewDAGRunRef("test-dag", "run-123")
 		attemptID := "test-attempt"
-		attemptKey := exec.GenerateAttemptKey(runRef.Name, runRef.ID, runRef.Name, runRef.ID, attemptID)
+		attemptKey := dagrun.GenerateAttemptKey(runRef.Name, runRef.ID, runRef.Name, runRef.ID, attemptID)
 		decision, err := dispatchStore.ReserveAdmission(ctx, exec.DispatchAdmissionRequest{
 			QueueName:      "test-queue",
 			MaxConcurrency: 1,
@@ -845,7 +846,7 @@ func TestHandler_Poll(t *testing.T) {
 			LastHeartbeatAt: time.Now().UTC().UnixMilli(),
 		}))
 
-		store := dagrun.New(filepath.Join(t.TempDir(), "dag-runs"))
+		store := filedagrun.New(filepath.Join(t.TempDir(), "dag-runs"))
 		h := NewHandler(HandlerConfig{
 			DAGRunStore:          store,
 			DispatchTaskStore:    &failingDispatchTaskStore{enqueueErr: errors.New("disk full")},
@@ -863,7 +864,7 @@ func TestHandler_Poll(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "failed to enqueue task")
 
-		attempt, findErr := store.FindAttempt(context.Background(), exec.DAGRunRef{Name: "test-dag", ID: "run-123"})
+		attempt, findErr := store.FindAttempt(context.Background(), dagrun.DAGRunRef{Name: "test-dag", ID: "run-123"})
 		require.NoError(t, findErr)
 		runStatus, readErr := attempt.ReadStatus(context.Background())
 		require.NoError(t, readErr)
@@ -886,8 +887,8 @@ func TestHandler_Poll(t *testing.T) {
 		}))
 
 		store := newMockDAGRunStore()
-		ref := exec.DAGRunRef{Name: "test-dag", ID: "run-123"}
-		attempt := store.addAttempt(ref, &exec.DAGRunStatus{
+		ref := dagrun.DAGRunRef{Name: "test-dag", ID: "run-123"}
+		attempt := store.addAttempt(ref, &dagrun.DAGRunStatus{
 			Name:      "test-dag",
 			DAGRunID:  "run-123",
 			AttemptID: "attempt-existing",
@@ -972,15 +973,15 @@ func TestHandler_DispatchRejectsStaleQueueDispatchRetry(t *testing.T) {
 	}))
 
 	store := newMockDAGRunStore()
-	ref := exec.DAGRunRef{Name: "test-dag", ID: "run-123"}
-	store.addAttempt(ref, &exec.DAGRunStatus{
+	ref := dagrun.DAGRunRef{Name: "test-dag", ID: "run-123"}
+	store.addAttempt(ref, &dagrun.DAGRunStatus{
 		Name:      "test-dag",
 		DAGRunID:  "run-123",
 		AttemptID: "attempt-current",
 		Status:    ir.Aborted,
 	})
 
-	previousStatus, err := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
+	previousStatus, err := convert.DAGRunStatusToProto(&dagrun.DAGRunStatus{
 		Name:      "test-dag",
 		DAGRunID:  "run-123",
 		AttemptID: "attempt-queued",
@@ -1142,8 +1143,8 @@ func TestHandler_Heartbeat(t *testing.T) {
 		ctx := context.Background()
 
 		initialLease := time.Now().Add(-10 * time.Second).UnixMilli()
-		ref := exec.DAGRunRef{Name: "test-dag", ID: "run-123"}
-		attempt := store.addAttempt(ref, &exec.DAGRunStatus{
+		ref := dagrun.DAGRunRef{Name: "test-dag", ID: "run-123"}
+		attempt := store.addAttempt(ref, &dagrun.DAGRunStatus{
 			Name:       "test-dag",
 			DAGRunID:   "run-123",
 			AttemptID:  "attempt-1",
@@ -1177,8 +1178,8 @@ func TestHandler_Heartbeat(t *testing.T) {
 		ctx := context.Background()
 
 		initialLease := time.Now().Add(-10 * time.Second).UnixMilli()
-		rootRef := exec.DAGRunRef{Name: "root-dag", ID: "root-123"}
-		attempt := store.addSubAttempt(rootRef, "sub-456", &exec.DAGRunStatus{
+		rootRef := dagrun.DAGRunRef{Name: "root-dag", ID: "root-123"}
+		attempt := store.addSubAttempt(rootRef, "sub-456", &dagrun.DAGRunStatus{
 			Name:       "sub-dag",
 			DAGRunID:   "sub-456",
 			AttemptID:  "attempt-2",
@@ -1223,8 +1224,8 @@ func TestHandler_Heartbeat(t *testing.T) {
 		initial := time.Now().Add(-10 * time.Second).UTC()
 		require.NoError(t, leaseStore.Upsert(ctx, exec.DAGRunLease{
 			AttemptKey:      "attempt-key-1",
-			DAGRun:          exec.NewDAGRunRef("test-dag", "run-123"),
-			Root:            exec.NewDAGRunRef("test-dag", "run-123"),
+			DAGRun:          dagrun.NewDAGRunRef("test-dag", "run-123"),
+			Root:            dagrun.NewDAGRunRef("test-dag", "run-123"),
 			AttemptID:       "attempt-1",
 			QueueName:       "test-dag",
 			WorkerID:        "worker-1",
@@ -1260,7 +1261,7 @@ func TestHandler_Heartbeat(t *testing.T) {
 		initial := time.Now().UTC()
 		require.NoError(t, leaseStore.Upsert(ctx, exec.DAGRunLease{
 			AttemptKey:      "attempt-key-1",
-			DAGRun:          exec.NewDAGRunRef("test-dag", "run-123"),
+			DAGRun:          dagrun.NewDAGRunRef("test-dag", "run-123"),
 			AttemptID:       "attempt-1",
 			WorkerID:        "worker-1",
 			LastHeartbeatAt: initial.UnixMilli(),
@@ -1293,7 +1294,7 @@ func TestHandler_Heartbeat(t *testing.T) {
 		initial := time.Now().Add(-10 * time.Second).UTC()
 		require.NoError(t, baseStore.Upsert(ctx, exec.DAGRunLease{
 			AttemptKey:      "valid-key",
-			DAGRun:          exec.NewDAGRunRef("test-dag", "run-123"),
+			DAGRun:          dagrun.NewDAGRunRef("test-dag", "run-123"),
 			AttemptID:       "attempt-1",
 			WorkerID:        "worker-1",
 			LastHeartbeatAt: initial.UnixMilli(),
@@ -1331,9 +1332,9 @@ func TestHandler_Heartbeat(t *testing.T) {
 		})
 		ctx := context.Background()
 
-		ref := exec.NewDAGRunRef("test-dag", "run-123")
+		ref := dagrun.NewDAGRunRef("test-dag", "run-123")
 		reason := exec.DistributedLeaseExpiredReason("worker-1")
-		attempt := store.addAttempt(ref, &exec.DAGRunStatus{
+		attempt := store.addAttempt(ref, &dagrun.DAGRunStatus{
 			Name:       "test-dag",
 			DAGRunID:   "run-123",
 			Root:       ref,
@@ -1343,7 +1344,7 @@ func TestHandler_Heartbeat(t *testing.T) {
 			WorkerID:   "worker-1",
 			FinishedAt: "2026-04-20T00:00:01Z",
 			Error:      reason,
-			Nodes: []*exec.Node{
+			Nodes: []*dagrun.Node{
 				{
 					Step:       ir.Step{Name: "long-step"},
 					StartedAt:  "2026-04-20T00:00:00Z",
@@ -1423,9 +1424,9 @@ func TestHandler_Heartbeat(t *testing.T) {
 		})
 		ctx := context.Background()
 
-		ref := exec.NewDAGRunRef("test-dag", "run-123")
+		ref := dagrun.NewDAGRunRef("test-dag", "run-123")
 		reason := exec.DistributedLeaseExpiredReason("worker-1")
-		attempt := store.addAttempt(ref, &exec.DAGRunStatus{
+		attempt := store.addAttempt(ref, &dagrun.DAGRunStatus{
 			Name:       "test-dag",
 			DAGRunID:   "run-123",
 			Root:       ref,
@@ -1477,8 +1478,8 @@ func TestHandler_Heartbeat(t *testing.T) {
 		})
 		ctx := context.Background()
 
-		ref := exec.NewDAGRunRef("test-dag", "run-123")
-		store.addAttempt(ref, &exec.DAGRunStatus{
+		ref := dagrun.NewDAGRunRef("test-dag", "run-123")
+		store.addAttempt(ref, &dagrun.DAGRunStatus{
 			Name:       "test-dag",
 			DAGRunID:   "run-123",
 			Root:       ref,
@@ -1525,8 +1526,8 @@ func TestHandler_Heartbeat(t *testing.T) {
 		})
 		ctx := context.Background()
 
-		ref := exec.NewDAGRunRef("test-dag", "run-123")
-		attempt := store.addAttempt(ref, &exec.DAGRunStatus{
+		ref := dagrun.NewDAGRunRef("test-dag", "run-123")
+		attempt := store.addAttempt(ref, &dagrun.DAGRunStatus{
 			Name:       "test-dag",
 			DAGRunID:   "run-123",
 			Root:       ref,
@@ -1535,7 +1536,7 @@ func TestHandler_Heartbeat(t *testing.T) {
 			Status:     ir.Failed,
 			WorkerID:   "worker-1",
 			Error:      "exit status 1",
-			Nodes: []*exec.Node{
+			Nodes: []*dagrun.Node{
 				{Status: ir.NodeFailed, Error: "exit status 1"},
 			},
 		})
@@ -1623,8 +1624,8 @@ func TestHandler_Heartbeat(t *testing.T) {
 		ctx := context.Background()
 
 		initialLease := time.Now().Add(-10 * time.Second).UnixMilli()
-		ref := exec.DAGRunRef{Name: "test-dag", ID: "run-123"}
-		attempt := store.addAttempt(ref, &exec.DAGRunStatus{
+		ref := dagrun.DAGRunRef{Name: "test-dag", ID: "run-123"}
+		attempt := store.addAttempt(ref, &dagrun.DAGRunStatus{
 			Name:       "test-dag",
 			DAGRunID:   "run-123",
 			AttemptID:  "attempt-1",
@@ -1658,8 +1659,8 @@ func TestHandler_Heartbeat(t *testing.T) {
 		ctx := context.Background()
 
 		initialLease := time.Now().Add(-10 * time.Second).UnixMilli()
-		ref := exec.DAGRunRef{Name: "test-dag", ID: "run-123"}
-		attempt := store.addAttempt(ref, &exec.DAGRunStatus{
+		ref := dagrun.DAGRunRef{Name: "test-dag", ID: "run-123"}
+		attempt := store.addAttempt(ref, &dagrun.DAGRunStatus{
 			Name:      "test-dag",
 			DAGRunID:  "run-123",
 			AttemptID: "attempt-1",
@@ -1847,12 +1848,12 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		ctx := context.Background()
 
 		// Create a running DAG run
-		ref := exec.DAGRunRef{Name: "test-dag", ID: "run-123"}
-		initialStatus := &exec.DAGRunStatus{
+		ref := dagrun.DAGRunRef{Name: "test-dag", ID: "run-123"}
+		initialStatus := &dagrun.DAGRunStatus{
 			Name:     "test-dag",
 			DAGRunID: "run-123",
 			Status:   ir.Running,
-			Nodes: []*exec.Node{
+			Nodes: []*dagrun.Node{
 				{Status: ir.NodeRunning},
 				{Status: ir.NodeSucceeded},
 			},
@@ -1889,8 +1890,8 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		ctx := context.Background()
 
 		// Create an already completed DAG run
-		ref := exec.DAGRunRef{Name: "test-dag", ID: "run-123"}
-		initialStatus := &exec.DAGRunStatus{
+		ref := dagrun.DAGRunRef{Name: "test-dag", ID: "run-123"}
+		initialStatus := &dagrun.DAGRunStatus{
 			Name:     "test-dag",
 			DAGRunID: "run-123",
 			Status:   ir.Succeeded,
@@ -1951,8 +1952,8 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		ctx := context.Background()
 
 		// Create a running DAG run
-		ref := exec.DAGRunRef{Name: "test-dag", ID: "run-123"}
-		initialStatus := &exec.DAGRunStatus{
+		ref := dagrun.DAGRunRef{Name: "test-dag", ID: "run-123"}
+		initialStatus := &dagrun.DAGRunStatus{
 			Name:     "test-dag",
 			DAGRunID: "run-123",
 			Status:   ir.Running,
@@ -1992,16 +1993,16 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		ctx := context.Background()
 
 		// Create two running DAG runs
-		ref1 := exec.DAGRunRef{Name: "dag1", ID: "run-1"}
-		status1 := &exec.DAGRunStatus{
+		ref1 := dagrun.DAGRunRef{Name: "dag1", ID: "run-1"}
+		status1 := &dagrun.DAGRunStatus{
 			Name:     "dag1",
 			DAGRunID: "run-1",
 			Status:   ir.Running,
 		}
 		attempt1 := store.addAttempt(ref1, status1)
 
-		ref2 := exec.DAGRunRef{Name: "dag2", ID: "run-2"}
-		status2 := &exec.DAGRunStatus{
+		ref2 := dagrun.DAGRunRef{Name: "dag2", ID: "run-2"}
+		status2 := &dagrun.DAGRunStatus{
 			Name:     "dag2",
 			DAGRunID: "run-2",
 			Status:   ir.Running,
@@ -2048,8 +2049,8 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		h := NewHandler(HandlerConfig{DAGRunStore: store})
 
 		// Create a running DAG run
-		ref := exec.DAGRunRef{Name: "test-dag", ID: "run-123"}
-		status := &exec.DAGRunStatus{
+		ref := dagrun.DAGRunRef{Name: "test-dag", ID: "run-123"}
+		status := &dagrun.DAGRunStatus{
 			Name:     "test-dag",
 			DAGRunID: "run-123",
 			Status:   ir.Running,
@@ -2096,21 +2097,21 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		ctx := context.Background()
 
 		staleLease := time.Now().Add(-5 * time.Second).UnixMilli()
-		runningAttempt := store.addAttempt(exec.DAGRunRef{Name: "running-dag", ID: "run-1"}, &exec.DAGRunStatus{
+		runningAttempt := store.addAttempt(dagrun.DAGRunRef{Name: "running-dag", ID: "run-1"}, &dagrun.DAGRunStatus{
 			Name:     "running-dag",
 			DAGRunID: "run-1",
 			Status:   ir.Running,
 			WorkerID: "worker1",
 			LeaseAt:  staleLease,
 		})
-		waitingAttempt := store.addAttempt(exec.DAGRunRef{Name: "waiting-dag", ID: "run-2"}, &exec.DAGRunStatus{
+		waitingAttempt := store.addAttempt(dagrun.DAGRunRef{Name: "waiting-dag", ID: "run-2"}, &dagrun.DAGRunStatus{
 			Name:     "waiting-dag",
 			DAGRunID: "run-2",
 			Status:   ir.Waiting,
 			WorkerID: "worker1",
 			LeaseAt:  staleLease,
 		})
-		queuedAttempt := store.addAttempt(exec.DAGRunRef{Name: "queued-dag", ID: "run-3"}, &exec.DAGRunStatus{
+		queuedAttempt := store.addAttempt(dagrun.DAGRunRef{Name: "queued-dag", ID: "run-3"}, &dagrun.DAGRunStatus{
 			Name:     "queued-dag",
 			DAGRunID: "run-3",
 			Status:   ir.Queued,
@@ -2162,15 +2163,15 @@ func TestHandler_ZombieDetection(t *testing.T) {
 				})
 				ctx := context.Background()
 
-				ref := exec.DAGRunRef{Name: "lease-dag", ID: "run-lease"}
-				attempt := store.addAttempt(ref, &exec.DAGRunStatus{
+				ref := dagrun.DAGRunRef{Name: "lease-dag", ID: "run-lease"}
+				attempt := store.addAttempt(ref, &dagrun.DAGRunStatus{
 					Name:       "lease-dag",
 					DAGRunID:   "run-lease",
 					AttemptID:  "attempt-1",
 					AttemptKey: "lease-key-1",
 					Status:     tc.status,
 					WorkerID:   tc.workerID,
-					Nodes: []*exec.Node{
+					Nodes: []*dagrun.Node{
 						{Status: tc.nodeStatus},
 					},
 				})
@@ -2217,15 +2218,15 @@ func TestHandler_ZombieDetection(t *testing.T) {
 			StaleLeaseThreshold:       time.Second,
 		})
 
-		ref := exec.DAGRunRef{Name: "lease-dag", ID: "run-lease"}
-		attempt := store.addAttempt(ref, &exec.DAGRunStatus{
+		ref := dagrun.DAGRunRef{Name: "lease-dag", ID: "run-lease"}
+		attempt := store.addAttempt(ref, &dagrun.DAGRunStatus{
 			Name:       "lease-dag",
 			DAGRunID:   "run-lease",
 			AttemptID:  "attempt-1",
 			AttemptKey: "lease-key-1",
 			Status:     ir.Running,
 			WorkerID:   "worker-1",
-			Nodes: []*exec.Node{
+			Nodes: []*dagrun.Node{
 				{Status: ir.NodeRunning},
 			},
 		})
@@ -2271,15 +2272,15 @@ func TestHandler_ZombieDetection(t *testing.T) {
 			StaleLeaseThreshold:       time.Second,
 		})
 
-		ref := exec.DAGRunRef{Name: "lease-dag", ID: "run-lease"}
-		attempt := store.addAttempt(ref, &exec.DAGRunStatus{
+		ref := dagrun.DAGRunRef{Name: "lease-dag", ID: "run-lease"}
+		attempt := store.addAttempt(ref, &dagrun.DAGRunStatus{
 			Name:       "lease-dag",
 			DAGRunID:   "run-lease",
 			AttemptID:  "attempt-1",
 			AttemptKey: "lease-key-1",
 			Status:     ir.Running,
 			WorkerID:   "worker-1",
-			Nodes: []*exec.Node{
+			Nodes: []*dagrun.Node{
 				{Status: ir.NodeRunning},
 			},
 		})
@@ -2327,17 +2328,17 @@ func TestHandler_ZombieDetection(t *testing.T) {
 			Owner:                   exec.CoordinatorEndpoint{ID: "coord-a"},
 		})
 
-		ref := exec.DAGRunRef{Name: "lease-dag", ID: "run-lease"}
+		ref := dagrun.DAGRunRef{Name: "lease-dag", ID: "run-lease"}
 		writeStarted := make(chan struct{})
 		releaseWrite := make(chan struct{})
-		attempt := store.addAttempt(ref, &exec.DAGRunStatus{
+		attempt := store.addAttempt(ref, &dagrun.DAGRunStatus{
 			Name:       "lease-dag",
 			DAGRunID:   "run-lease",
 			AttemptID:  "attempt-1",
 			AttemptKey: "lease-key-1",
 			Status:     ir.Running,
 			WorkerID:   "worker-1",
-			Nodes: []*exec.Node{
+			Nodes: []*dagrun.Node{
 				{Status: ir.NodeRunning},
 			},
 		})
@@ -2360,7 +2361,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 			LastHeartbeatAt: staleAt.UnixMilli(),
 		}))
 
-		protoStatus, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
+		protoStatus, convErr := convert.DAGRunStatusToProto(&dagrun.DAGRunStatus{
 			Name:       ref.Name,
 			DAGRunID:   ref.ID,
 			AttemptID:  "attempt-1",
@@ -2445,11 +2446,11 @@ func TestHandler_ZombieDetection(t *testing.T) {
 			StaleLeaseThreshold:     time.Second,
 		})
 
-		root := exec.NewDAGRunRef("root-dag", "root-run")
-		subRun := exec.NewDAGRunRef("sub-dag", "sub-run")
+		root := dagrun.NewDAGRunRef("root-dag", "root-run")
+		subRun := dagrun.NewDAGRunRef("sub-dag", "sub-run")
 		attemptKey := "sub-attempt-key"
 		attemptID := "sub-attempt-id"
-		attempt := store.addSubAttempt(root, subRun.ID, &exec.DAGRunStatus{
+		attempt := store.addSubAttempt(root, subRun.ID, &dagrun.DAGRunStatus{
 			Name:       subRun.Name,
 			DAGRunID:   subRun.ID,
 			Root:       root,
@@ -2457,7 +2458,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 			AttemptKey: attemptKey,
 			Status:     ir.Running,
 			WorkerID:   "worker-1",
-			Nodes: []*exec.Node{
+			Nodes: []*dagrun.Node{
 				{Status: ir.NodeRunning},
 			},
 		})
@@ -2510,16 +2511,16 @@ func TestHandler_ZombieDetection(t *testing.T) {
 			StaleLeaseThreshold:     time.Second,
 		})
 
-		ref := exec.DAGRunRef{Name: "lease-dag", ID: "run-lease"}
+		ref := dagrun.DAGRunRef{Name: "lease-dag", ID: "run-lease"}
 		attemptKey := "lease-key-1"
-		attempt := store.addAttempt(ref, &exec.DAGRunStatus{
+		attempt := store.addAttempt(ref, &dagrun.DAGRunStatus{
 			Name:       "lease-dag",
 			DAGRunID:   "run-lease",
 			AttemptID:  "attempt-1",
 			AttemptKey: attemptKey,
 			Status:     ir.Running,
 			WorkerID:   "worker-1",
-			Nodes: []*exec.Node{
+			Nodes: []*dagrun.Node{
 				{Status: ir.NodeRunning},
 			},
 		})
@@ -2581,16 +2582,16 @@ func TestHandler_ZombieDetection(t *testing.T) {
 			StaleLeaseThreshold:     time.Second,
 		})
 
-		ref := exec.DAGRunRef{Name: "lease-dag", ID: "run-lease"}
+		ref := dagrun.DAGRunRef{Name: "lease-dag", ID: "run-lease"}
 		attemptKey := "lease-key-1"
-		attempt := store.addAttempt(ref, &exec.DAGRunStatus{
+		attempt := store.addAttempt(ref, &dagrun.DAGRunStatus{
 			Name:       "lease-dag",
 			DAGRunID:   "run-lease",
 			AttemptID:  "attempt-1",
 			AttemptKey: attemptKey,
 			Status:     ir.Running,
 			WorkerID:   "worker-1",
-			Nodes: []*exec.Node{
+			Nodes: []*dagrun.Node{
 				{Status: ir.NodeRunning},
 			},
 		})
@@ -2640,16 +2641,16 @@ func TestHandler_ZombieDetection(t *testing.T) {
 			StaleLeaseThreshold:     time.Second,
 		})
 
-		ref := exec.DAGRunRef{Name: "lease-dag", ID: "run-lease"}
+		ref := dagrun.DAGRunRef{Name: "lease-dag", ID: "run-lease"}
 		attemptKey := "lease-key-1"
-		attempt := store.addAttempt(ref, &exec.DAGRunStatus{
+		attempt := store.addAttempt(ref, &dagrun.DAGRunStatus{
 			Name:       "lease-dag",
 			DAGRunID:   "run-lease",
 			AttemptID:  "attempt-1",
 			AttemptKey: attemptKey,
 			Status:     ir.Running,
 			WorkerID:   "worker-1",
-			Nodes: []*exec.Node{
+			Nodes: []*dagrun.Node{
 				{Status: ir.NodeRunning},
 			},
 		})
@@ -2697,15 +2698,15 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		})
 		ctx := context.Background()
 
-		ref := exec.DAGRunRef{Name: "lease-dag", ID: "run-lease"}
-		attempt := store.addAttempt(ref, &exec.DAGRunStatus{
+		ref := dagrun.DAGRunRef{Name: "lease-dag", ID: "run-lease"}
+		attempt := store.addAttempt(ref, &dagrun.DAGRunStatus{
 			Name:       "lease-dag",
 			DAGRunID:   "run-lease",
 			AttemptID:  "attempt-1",
 			AttemptKey: "lease-key-1",
 			Status:     ir.Running,
 			WorkerID:   "worker-1",
-			Nodes: []*exec.Node{
+			Nodes: []*dagrun.Node{
 				{Status: ir.NodeRunning},
 			},
 		})
@@ -2737,16 +2738,16 @@ func TestHandler_ZombieDetection(t *testing.T) {
 			StaleLeaseThreshold:       time.Second,
 		})
 
-		ref := exec.DAGRunRef{Name: "lease-dag", ID: "run-lease"}
+		ref := dagrun.DAGRunRef{Name: "lease-dag", ID: "run-lease"}
 		attemptKey := "lease-key-1"
-		attempt := store.addAttempt(ref, &exec.DAGRunStatus{
+		attempt := store.addAttempt(ref, &dagrun.DAGRunStatus{
 			Name:       "lease-dag",
 			DAGRunID:   "run-lease",
 			AttemptID:  "attempt-1",
 			AttemptKey: attemptKey,
 			Status:     ir.Running,
 			WorkerID:   "worker-1",
-			Nodes: []*exec.Node{
+			Nodes: []*dagrun.Node{
 				{Status: ir.NodeRunning},
 			},
 		})
@@ -2809,16 +2810,16 @@ func TestHandler_ZombieDetection(t *testing.T) {
 			StaleLeaseThreshold:       time.Minute,
 		})
 
-		ref := exec.DAGRunRef{Name: "lease-dag", ID: "run-lease"}
+		ref := dagrun.DAGRunRef{Name: "lease-dag", ID: "run-lease"}
 		attemptKey := "lease-key-1"
-		attempt := store.addAttempt(ref, &exec.DAGRunStatus{
+		attempt := store.addAttempt(ref, &dagrun.DAGRunStatus{
 			Name:       "lease-dag",
 			DAGRunID:   "run-lease",
 			AttemptID:  "attempt-1",
 			AttemptKey: attemptKey,
 			Status:     ir.Running,
 			WorkerID:   "worker-1",
-			Nodes: []*exec.Node{
+			Nodes: []*dagrun.Node{
 				{Status: ir.NodeRunning},
 			},
 		})
@@ -2864,15 +2865,15 @@ func TestHandler_ZombieDetection(t *testing.T) {
 			StaleLeaseThreshold:       time.Second,
 		})
 
-		ref := exec.DAGRunRef{Name: "lease-dag", ID: "run-lease"}
-		attempt := store.addAttempt(ref, &exec.DAGRunStatus{
+		ref := dagrun.DAGRunRef{Name: "lease-dag", ID: "run-lease"}
+		attempt := store.addAttempt(ref, &dagrun.DAGRunStatus{
 			Name:       "lease-dag",
 			DAGRunID:   "run-lease",
 			AttemptID:  "attempt-1",
 			AttemptKey: "lease-key-1",
 			Status:     ir.Running,
 			WorkerID:   "worker-1",
-			Nodes: []*exec.Node{
+			Nodes: []*dagrun.Node{
 				{Status: ir.NodeRunning},
 			},
 		})
@@ -2912,15 +2913,15 @@ func TestHandler_ZombieDetection(t *testing.T) {
 			StaleLeaseThreshold:       time.Second,
 		})
 
-		ref := exec.DAGRunRef{Name: "lease-dag", ID: "run-missing-index"}
-		attempt := store.addAttempt(ref, &exec.DAGRunStatus{
+		ref := dagrun.DAGRunRef{Name: "lease-dag", ID: "run-missing-index"}
+		attempt := store.addAttempt(ref, &dagrun.DAGRunStatus{
 			Name:       "lease-dag",
 			DAGRunID:   "run-missing-index",
 			AttemptID:  "attempt-1",
 			AttemptKey: "lease-key-missing-index",
 			Status:     ir.Running,
 			WorkerID:   "worker-1",
-			Nodes: []*exec.Node{
+			Nodes: []*dagrun.Node{
 				{Status: ir.NodeRunning},
 			},
 		})
@@ -2952,9 +2953,9 @@ func TestHandler_ZombieDetection(t *testing.T) {
 			StaleLeaseThreshold:       time.Second,
 		})
 
-		ref := exec.DAGRunRef{Name: "lease-dag", ID: "run-corrupted"}
+		ref := dagrun.DAGRunRef{Name: "lease-dag", ID: "run-corrupted"}
 		attemptKey := "lease-key-corrupted"
-		attempt := store.addAttempt(ref, &exec.DAGRunStatus{
+		attempt := store.addAttempt(ref, &dagrun.DAGRunStatus{
 			Name:       "lease-dag",
 			DAGRunID:   "run-corrupted",
 			AttemptID:  "attempt-1",
@@ -2962,7 +2963,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 			Status:     ir.Running,
 			WorkerID:   "worker-1",
 		})
-		attempt.readStatusError = exec.ErrCorruptedStatusFile
+		attempt.readStatusError = dagrun.ErrCorruptedStatusFile
 
 		staleAt := time.Now().Add(-10 * time.Second).UTC()
 		require.NoError(t, leaseStore.Upsert(ctx, exec.DAGRunLease{
@@ -3005,15 +3006,15 @@ func TestHandler_ReportStatus(t *testing.T) {
 		ctx := context.Background()
 
 		// Create an attempt for the DAG run
-		ref := exec.DAGRunRef{Name: "test-dag", ID: "run-123"}
-		store.addAttempt(ref, &exec.DAGRunStatus{
+		ref := dagrun.DAGRunRef{Name: "test-dag", ID: "run-123"}
+		store.addAttempt(ref, &dagrun.DAGRunStatus{
 			Name:     "test-dag",
 			DAGRunID: "run-123",
 			Status:   ir.Running,
 		})
 
 		// Report status
-		protoStatus, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
+		protoStatus, convErr := convert.DAGRunStatusToProto(&dagrun.DAGRunStatus{
 			Name:     "test-dag",
 			DAGRunID: "run-123",
 			Status:   ir.Running,
@@ -3037,14 +3038,14 @@ func TestHandler_ReportStatus(t *testing.T) {
 		h := NewHandler(HandlerConfig{DAGRunStore: store})
 		ctx := context.Background()
 
-		ref := exec.DAGRunRef{Name: "test-dag", ID: "run-123"}
-		attempt := store.addAttempt(ref, &exec.DAGRunStatus{
+		ref := dagrun.DAGRunRef{Name: "test-dag", ID: "run-123"}
+		attempt := store.addAttempt(ref, &dagrun.DAGRunStatus{
 			Name:     "test-dag",
 			DAGRunID: "run-123",
 			Status:   ir.Running,
 		})
 
-		protoStatus, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
+		protoStatus, convErr := convert.DAGRunStatusToProto(&dagrun.DAGRunStatus{
 			Name:     "test-dag",
 			DAGRunID: "run-123",
 			Status:   ir.Running,
@@ -3068,8 +3069,8 @@ func TestHandler_ReportStatus(t *testing.T) {
 		h := NewHandler(HandlerConfig{DAGRunStore: store})
 		ctx := context.Background()
 
-		ref := exec.DAGRunRef{Name: "test-dag", ID: "run-123"}
-		attempt := store.addAttempt(ref, &exec.DAGRunStatus{
+		ref := dagrun.DAGRunRef{Name: "test-dag", ID: "run-123"}
+		attempt := store.addAttempt(ref, &dagrun.DAGRunStatus{
 			Name:      ref.Name,
 			DAGRunID:  ref.ID,
 			AttemptID: "attempt-1",
@@ -3077,7 +3078,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 			Labels:    []string{"workspace=ops"},
 		})
 
-		protoStatus, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
+		protoStatus, convErr := convert.DAGRunStatusToProto(&dagrun.DAGRunStatus{
 			Name:      ref.Name,
 			DAGRunID:  ref.ID,
 			AttemptID: "attempt-1",
@@ -3101,14 +3102,14 @@ func TestHandler_ReportStatus(t *testing.T) {
 		h := NewHandler(HandlerConfig{DAGRunStore: store})
 		ctx := context.Background()
 
-		ref := exec.DAGRunRef{Name: "test-dag", ID: "run-123"}
-		attempt := store.addAttempt(ref, &exec.DAGRunStatus{
+		ref := dagrun.DAGRunRef{Name: "test-dag", ID: "run-123"}
+		attempt := store.addAttempt(ref, &dagrun.DAGRunStatus{
 			Name:      ref.Name,
 			DAGRunID:  ref.ID,
 			AttemptID: "attempt-1",
 			Status:    ir.Running,
 		})
-		runningProto, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
+		runningProto, convErr := convert.DAGRunStatusToProto(&dagrun.DAGRunStatus{
 			Name:      ref.Name,
 			DAGRunID:  ref.ID,
 			AttemptID: "attempt-1",
@@ -3119,7 +3120,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, runningResp.Accepted)
 
-		protoStatus, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
+		protoStatus, convErr := convert.DAGRunStatusToProto(&dagrun.DAGRunStatus{
 			Name:       ref.Name,
 			DAGRunID:   ref.ID,
 			AttemptID:  "attempt-1",
@@ -3145,16 +3146,16 @@ func TestHandler_ReportStatus(t *testing.T) {
 
 		store := newMockDAGRunStore()
 		h := NewHandler(HandlerConfig{DAGRunStore: store})
-		ref := exec.NewDAGRunRef("test-dag", "run-123")
+		ref := dagrun.NewDAGRunRef("test-dag", "run-123")
 		completedAt := time.Now().UTC().Format(time.RFC3339)
 		outputs := `{"environment":"production"}`
-		attempt := store.addAttempt(ref, &exec.DAGRunStatus{
+		attempt := store.addAttempt(ref, &dagrun.DAGRunStatus{
 			Name:       ref.Name,
 			DAGRunID:   ref.ID,
 			AttemptID:  "attempt-1",
 			AttemptKey: "attempt-key-1",
 			Status:     ir.Waiting,
-			Nodes: []*exec.Node{{
+			Nodes: []*dagrun.Node{{
 				Step:                   ir.Step{ID: "review", HumanTask: &ir.HumanTaskConfig{Prompt: "Review"}},
 				Status:                 ir.NodeSucceeded,
 				FinishedAt:             completedAt,
@@ -3164,13 +3165,13 @@ func TestHandler_ReportStatus(t *testing.T) {
 				HumanTaskCompletedByID: "user-1",
 			}},
 		})
-		incoming, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
+		incoming, convErr := convert.DAGRunStatusToProto(&dagrun.DAGRunStatus{
 			Name:       ref.Name,
 			DAGRunID:   ref.ID,
 			AttemptID:  "attempt-1",
 			AttemptKey: "attempt-key-1",
 			Status:     ir.Waiting,
-			Nodes: []*exec.Node{{
+			Nodes: []*dagrun.Node{{
 				Step:   ir.Step{ID: "review", HumanTask: &ir.HumanTaskConfig{Prompt: "Review"}},
 				Status: ir.NodeWaiting,
 			}},
@@ -3198,15 +3199,15 @@ func TestHandler_ReportStatus(t *testing.T) {
 
 		store := newMockDAGRunStore()
 		h := NewHandler(HandlerConfig{DAGRunStore: store})
-		ref := exec.NewDAGRunRef("test-dag", "run-123")
+		ref := dagrun.NewDAGRunRef("test-dag", "run-123")
 		approvedAt := time.Now().UTC().Format(time.RFC3339)
-		attempt := store.addAttempt(ref, &exec.DAGRunStatus{
+		attempt := store.addAttempt(ref, &dagrun.DAGRunStatus{
 			Name:       ref.Name,
 			DAGRunID:   ref.ID,
 			AttemptID:  "attempt-1",
 			AttemptKey: "attempt-key-1",
 			Status:     ir.Waiting,
-			Nodes: []*exec.Node{{
+			Nodes: []*dagrun.Node{{
 				Step:         ir.Step{Name: "review", Approval: &ir.ApprovalConfig{}},
 				Status:       ir.NodeSucceeded,
 				ApprovedAt:   approvedAt,
@@ -3217,13 +3218,13 @@ func TestHandler_ReportStatus(t *testing.T) {
 				},
 			}},
 		})
-		incoming, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
+		incoming, convErr := convert.DAGRunStatusToProto(&dagrun.DAGRunStatus{
 			Name:       ref.Name,
 			DAGRunID:   ref.ID,
 			AttemptID:  "attempt-1",
 			AttemptKey: "attempt-key-1",
 			Status:     ir.Waiting,
-			Nodes: []*exec.Node{{
+			Nodes: []*dagrun.Node{{
 				Step:   ir.Step{Name: "review", Approval: &ir.ApprovalConfig{}},
 				Status: ir.NodeWaiting,
 			}},
@@ -3250,15 +3251,15 @@ func TestHandler_ReportStatus(t *testing.T) {
 
 		store := newMockDAGRunStore()
 		h := NewHandler(HandlerConfig{DAGRunStore: store})
-		ref := exec.NewDAGRunRef("test-dag", "run-123")
+		ref := dagrun.NewDAGRunRef("test-dag", "run-123")
 		pushedBackAt := time.Now().UTC().Format(time.RFC3339)
-		attempt := store.addAttempt(ref, &exec.DAGRunStatus{
+		attempt := store.addAttempt(ref, &dagrun.DAGRunStatus{
 			Name:       ref.Name,
 			DAGRunID:   ref.ID,
 			AttemptID:  "attempt-1",
 			AttemptKey: "attempt-key-1",
 			Status:     ir.Waiting,
-			Nodes: []*exec.Node{{
+			Nodes: []*dagrun.Node{{
 				Step:                   ir.Step{ID: "prepare", Name: "prepare"},
 				StartedAt:              "-",
 				FinishedAt:             "-",
@@ -3266,7 +3267,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 				ApprovalIteration:      1,
 				PushBackInputs:         map[string]string{"FEEDBACK": "revise"},
 				PushBackPreviousStdout: "/tmp/prepare.out",
-				PushBackHistory: []exec.PushBackEntry{{
+				PushBackHistory: []dagrun.PushBackEntry{{
 					Iteration: 1,
 					By:        "operator",
 					ByID:      "user-1",
@@ -3275,13 +3276,13 @@ func TestHandler_ReportStatus(t *testing.T) {
 				}},
 			}},
 		})
-		incoming, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
+		incoming, convErr := convert.DAGRunStatusToProto(&dagrun.DAGRunStatus{
 			Name:       ref.Name,
 			DAGRunID:   ref.ID,
 			AttemptID:  "attempt-1",
 			AttemptKey: "attempt-key-1",
 			Status:     ir.Waiting,
-			Nodes: []*exec.Node{{
+			Nodes: []*dagrun.Node{{
 				Step:       ir.Step{ID: "prepare", Name: "prepare"},
 				StartedAt:  pushedBackAt,
 				FinishedAt: pushedBackAt,
@@ -3312,22 +3313,22 @@ func TestHandler_ReportStatus(t *testing.T) {
 
 		store := newMockDAGRunStore()
 		h := NewHandler(HandlerConfig{DAGRunStore: store})
-		ref := exec.NewDAGRunRef("test-dag", "run-123")
+		ref := dagrun.NewDAGRunRef("test-dag", "run-123")
 		pushedBackAt := time.Now().UTC().Format(time.RFC3339)
-		history := []exec.PushBackEntry{{
+		history := []dagrun.PushBackEntry{{
 			Iteration: 1,
 			By:        "operator",
 			ByID:      "user-1",
 			At:        pushedBackAt,
 			Inputs:    map[string]string{"FEEDBACK": "revise"},
 		}}
-		attempt := store.addAttempt(ref, &exec.DAGRunStatus{
+		attempt := store.addAttempt(ref, &dagrun.DAGRunStatus{
 			Name:       ref.Name,
 			DAGRunID:   ref.ID,
 			AttemptID:  "attempt-1",
 			AttemptKey: "attempt-key-1",
 			Status:     ir.Running,
-			Nodes: []*exec.Node{{
+			Nodes: []*dagrun.Node{{
 				Step:                   ir.Step{ID: "prepare", Name: "prepare"},
 				StartedAt:              "-",
 				FinishedAt:             "-",
@@ -3338,13 +3339,13 @@ func TestHandler_ReportStatus(t *testing.T) {
 				PushBackPreviousStdout: "/tmp/prepare.out",
 			}},
 		})
-		incoming, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
+		incoming, convErr := convert.DAGRunStatusToProto(&dagrun.DAGRunStatus{
 			Name:       ref.Name,
 			DAGRunID:   ref.ID,
 			AttemptID:  "attempt-1",
 			AttemptKey: "attempt-key-1",
 			Status:     ir.Waiting,
-			Nodes: []*exec.Node{{
+			Nodes: []*dagrun.Node{{
 				Step:                   ir.Step{ID: "prepare", Name: "prepare"},
 				StartedAt:              pushedBackAt,
 				FinishedAt:             pushedBackAt,
@@ -3374,9 +3375,9 @@ func TestHandler_ReportStatus(t *testing.T) {
 
 		store := newMockDAGRunStore()
 		h := NewHandler(HandlerConfig{DAGRunStore: store})
-		ref := exec.NewDAGRunRef("test-dag", "run-123")
+		ref := dagrun.NewDAGRunRef("test-dag", "run-123")
 		completedAt := time.Now().UTC().Format(time.RFC3339)
-		completedNode := &exec.Node{
+		completedNode := &dagrun.Node{
 			Step:                   ir.Step{ID: "review", HumanTask: &ir.HumanTaskConfig{Prompt: "Review"}},
 			Status:                 ir.NodeSucceeded,
 			FinishedAt:             completedAt,
@@ -3384,21 +3385,21 @@ func TestHandler_ReportStatus(t *testing.T) {
 			HumanTaskCompletedBy:   "operator",
 			HumanTaskCompletedByID: "user-1",
 		}
-		store.addAttempt(ref, &exec.DAGRunStatus{
+		store.addAttempt(ref, &dagrun.DAGRunStatus{
 			Name:       ref.Name,
 			DAGRunID:   ref.ID,
 			AttemptID:  "attempt-1",
 			AttemptKey: "attempt-key-1",
 			Status:     ir.Queued,
-			Nodes:      []*exec.Node{completedNode},
+			Nodes:      []*dagrun.Node{completedNode},
 		})
-		incoming, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
+		incoming, convErr := convert.DAGRunStatusToProto(&dagrun.DAGRunStatus{
 			Name:       ref.Name,
 			DAGRunID:   ref.ID,
 			AttemptID:  "attempt-1",
 			AttemptKey: "attempt-key-1",
 			Status:     ir.Waiting,
-			Nodes: []*exec.Node{
+			Nodes: []*dagrun.Node{
 				completedNode,
 				{
 					Step:   ir.Step{ID: "publish", HumanTask: &ir.HumanTaskConfig{Prompt: "Publish"}},
@@ -3425,8 +3426,8 @@ func TestHandler_ReportStatus(t *testing.T) {
 		})
 		ctx := context.Background()
 
-		ref := exec.DAGRunRef{Name: "test-dag", ID: "run-123"}
-		attempt := store.addAttempt(ref, &exec.DAGRunStatus{
+		ref := dagrun.DAGRunRef{Name: "test-dag", ID: "run-123"}
+		attempt := store.addAttempt(ref, &dagrun.DAGRunStatus{
 			Name:       "test-dag",
 			DAGRunID:   "run-123",
 			AttemptID:  "attempt-1",
@@ -3434,7 +3435,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 			Status:     ir.Failed,
 		})
 
-		protoStatus, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
+		protoStatus, convErr := convert.DAGRunStatusToProto(&dagrun.DAGRunStatus{
 			Name:       "test-dag",
 			DAGRunID:   "run-123",
 			AttemptID:  "attempt-1",
@@ -3477,15 +3478,15 @@ func TestHandler_ReportStatus(t *testing.T) {
 		})
 		ctx := context.Background()
 
-		rootRef := exec.DAGRunRef{Name: "root-dag", ID: "root-run-123"}
-		store.addAttempt(rootRef, &exec.DAGRunStatus{
+		rootRef := dagrun.DAGRunRef{Name: "root-dag", ID: "root-run-123"}
+		store.addAttempt(rootRef, &dagrun.DAGRunStatus{
 			Name:     rootRef.Name,
 			DAGRunID: rootRef.ID,
 			Root:     rootRef,
 			Status:   ir.Running,
 		})
 
-		runningProto, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
+		runningProto, convErr := convert.DAGRunStatusToProto(&dagrun.DAGRunStatus{
 			Name:      "child-dag",
 			DAGRunID:  "child-run-123",
 			Root:      rootRef,
@@ -3512,7 +3513,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		current, err := attempt.ReadStatus(ctx)
 		require.NoError(t, err)
 
-		attemptKey := exec.GenerateAttemptKey(rootRef.Name, rootRef.ID, "child-dag", "child-run-123", "child-attempt-1")
+		attemptKey := dagrun.GenerateAttemptKey(rootRef.Name, rootRef.ID, "child-dag", "child-run-123", "child-attempt-1")
 		assert.Equal(t, "child-dag", current.Name)
 		assert.Equal(t, "child-run-123", current.DAGRunID)
 		assert.Equal(t, rootRef, current.Root)
@@ -3539,7 +3540,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		assert.Equal(t, "worker-1", record.WorkerID)
 		assert.Equal(t, ir.Running, record.Status)
 
-		succeededProto, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
+		succeededProto, convErr := convert.DAGRunStatusToProto(&dagrun.DAGRunStatus{
 			Name:       "child-dag",
 			DAGRunID:   "child-run-123",
 			Root:       rootRef,
@@ -3581,22 +3582,22 @@ func TestHandler_ReportStatus(t *testing.T) {
 		})
 		ctx := context.Background()
 
-		rootRef := exec.DAGRunRef{Name: "root-dag", ID: "root-run-123"}
-		store.addAttempt(rootRef, &exec.DAGRunStatus{
+		rootRef := dagrun.DAGRunRef{Name: "root-dag", ID: "root-run-123"}
+		store.addAttempt(rootRef, &dagrun.DAGRunStatus{
 			Name:     rootRef.Name,
 			DAGRunID: rootRef.ID,
 			Root:     rootRef,
 			Status:   ir.Running,
 		})
 
-		runningProto, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
+		runningProto, convErr := convert.DAGRunStatusToProto(&dagrun.DAGRunStatus{
 			Name:      "child-dag",
 			DAGRunID:  "child-run-123",
 			Root:      rootRef,
 			ProcGroup: "child-queue",
 			Status:    ir.Running,
 			WorkerID:  "worker-1",
-			Nodes: []*exec.Node{
+			Nodes: []*dagrun.Node{
 				{
 					Step:   ir.Step{Name: "child-step"},
 					Status: ir.NodeRunning,
@@ -3634,8 +3635,8 @@ func TestHandler_ReportStatus(t *testing.T) {
 		h := NewHandler(HandlerConfig{DAGRunStore: store})
 		ctx := context.Background()
 
-		rootRef := exec.DAGRunRef{Name: "root-dag", ID: "missing-root-run"}
-		protoStatus, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
+		rootRef := dagrun.DAGRunRef{Name: "root-dag", ID: "missing-root-run"}
+		protoStatus, convErr := convert.DAGRunStatusToProto(&dagrun.DAGRunStatus{
 			Name:     "child-dag",
 			DAGRunID: "child-run-123",
 			Root:     rootRef,
@@ -3654,7 +3655,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		assert.Equal(t, remoteAttemptRejectedLeaseInactive, resp.Error)
 
 		_, err = store.FindSubAttempt(ctx, rootRef, "child-run-123")
-		assert.ErrorIs(t, err, exec.ErrDAGRunIDNotFound)
+		assert.ErrorIs(t, err, dagrun.ErrDAGRunIDNotFound)
 	})
 
 	t.Run("DoesNotBootstrapMissingSubAttemptUnderTerminalRoot", func(t *testing.T) {
@@ -3664,15 +3665,15 @@ func TestHandler_ReportStatus(t *testing.T) {
 		h := NewHandler(HandlerConfig{DAGRunStore: store})
 		ctx := context.Background()
 
-		rootRef := exec.DAGRunRef{Name: "root-dag", ID: "root-run-123"}
-		store.addAttempt(rootRef, &exec.DAGRunStatus{
+		rootRef := dagrun.DAGRunRef{Name: "root-dag", ID: "root-run-123"}
+		store.addAttempt(rootRef, &dagrun.DAGRunStatus{
 			Name:     rootRef.Name,
 			DAGRunID: rootRef.ID,
 			Root:     rootRef,
 			Status:   ir.Succeeded,
 		})
 
-		protoStatus, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
+		protoStatus, convErr := convert.DAGRunStatusToProto(&dagrun.DAGRunStatus{
 			Name:     "child-dag",
 			DAGRunID: "child-run-123",
 			Root:     rootRef,
@@ -3691,7 +3692,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		assert.Equal(t, remoteAttemptRejectedLeaseInactive, resp.Error)
 
 		_, err = store.FindSubAttempt(ctx, rootRef, "child-run-123")
-		assert.ErrorIs(t, err, exec.ErrDAGRunIDNotFound)
+		assert.ErrorIs(t, err, dagrun.ErrDAGRunIDNotFound)
 	})
 
 	t.Run("DoesNotBootstrapMissingSubAttemptWithMismatchedWorkerID", func(t *testing.T) {
@@ -3701,15 +3702,15 @@ func TestHandler_ReportStatus(t *testing.T) {
 		h := NewHandler(HandlerConfig{DAGRunStore: store})
 		ctx := context.Background()
 
-		rootRef := exec.DAGRunRef{Name: "root-dag", ID: "root-run-123"}
-		store.addAttempt(rootRef, &exec.DAGRunStatus{
+		rootRef := dagrun.DAGRunRef{Name: "root-dag", ID: "root-run-123"}
+		store.addAttempt(rootRef, &dagrun.DAGRunStatus{
 			Name:     rootRef.Name,
 			DAGRunID: rootRef.ID,
 			Root:     rootRef,
 			Status:   ir.Running,
 		})
 
-		protoStatus, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
+		protoStatus, convErr := convert.DAGRunStatusToProto(&dagrun.DAGRunStatus{
 			Name:     "child-dag",
 			DAGRunID: "child-run-123",
 			Root:     rootRef,
@@ -3728,7 +3729,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		assert.Equal(t, remoteAttemptRejectedLeaseInactive, resp.Error)
 
 		_, err = store.FindSubAttempt(ctx, rootRef, "child-run-123")
-		assert.ErrorIs(t, err, exec.ErrDAGRunIDNotFound)
+		assert.ErrorIs(t, err, dagrun.ErrDAGRunIDNotFound)
 	})
 
 	t.Run("AcceptsCancelledTerminalStatusAfterLeaseFailure", func(t *testing.T) {
@@ -3746,8 +3747,8 @@ func TestHandler_ReportStatus(t *testing.T) {
 		})
 		ctx := context.Background()
 
-		ref := exec.DAGRunRef{Name: "test-dag", ID: "run-123"}
-		attempt := store.addAbortingAttempt(ref, &exec.DAGRunStatus{
+		ref := dagrun.DAGRunRef{Name: "test-dag", ID: "run-123"}
+		attempt := store.addAbortingAttempt(ref, &dagrun.DAGRunStatus{
 			Name:       "test-dag",
 			DAGRunID:   "run-123",
 			AttemptID:  "attempt-1",
@@ -3756,7 +3757,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 			Status:     ir.Failed,
 		})
 
-		protoStatus, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
+		protoStatus, convErr := convert.DAGRunStatusToProto(&dagrun.DAGRunStatus{
 			Name:       "test-dag",
 			DAGRunID:   "run-123",
 			AttemptID:  "attempt-1",
@@ -3796,8 +3797,8 @@ func TestHandler_ReportStatus(t *testing.T) {
 		h := NewHandler(HandlerConfig{DAGRunStore: store})
 		ctx := context.Background()
 
-		ref := exec.DAGRunRef{Name: "test-dag", ID: "run-123"}
-		attempt := store.addAttempt(ref, &exec.DAGRunStatus{
+		ref := dagrun.DAGRunRef{Name: "test-dag", ID: "run-123"}
+		attempt := store.addAttempt(ref, &dagrun.DAGRunStatus{
 			Name:       "test-dag",
 			DAGRunID:   "run-123",
 			AttemptID:  "attempt-2",
@@ -3805,7 +3806,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 			Status:     ir.Running,
 		})
 
-		protoStatus, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
+		protoStatus, convErr := convert.DAGRunStatusToProto(&dagrun.DAGRunStatus{
 			Name:       "test-dag",
 			DAGRunID:   "run-123",
 			AttemptID:  "attempt-1",
@@ -3842,8 +3843,8 @@ func TestHandler_ReportStatus(t *testing.T) {
 		})
 		ctx := context.Background()
 
-		ref := exec.DAGRunRef{Name: "test-dag", ID: "run-123"}
-		attempt := store.addAttempt(ref, &exec.DAGRunStatus{
+		ref := dagrun.DAGRunRef{Name: "test-dag", ID: "run-123"}
+		attempt := store.addAttempt(ref, &dagrun.DAGRunStatus{
 			Name:       "test-dag",
 			DAGRunID:   "run-123",
 			AttemptID:  "attempt-1",
@@ -3870,7 +3871,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 			Status:     ir.Running,
 		}))
 
-		protoStatus, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
+		protoStatus, convErr := convert.DAGRunStatusToProto(&dagrun.DAGRunStatus{
 			Name:       "test-dag",
 			DAGRunID:   "run-123",
 			AttemptID:  "attempt-1",
@@ -3878,12 +3879,12 @@ func TestHandler_ReportStatus(t *testing.T) {
 			WorkerID:   "worker-1",
 			Status:     ir.Failed,
 			Error:      "duplicate terminal payload",
-			Nodes: []*exec.Node{
+			Nodes: []*dagrun.Node{
 				{
 					Step:   ir.Step{Name: "chat-step"},
 					Status: ir.NodeFailed,
-					ChatMessages: []exec.LLMMessage{
-						{Role: exec.RoleAssistant, Content: "final summary"},
+					ChatMessages: []dagrun.LLMMessage{
+						{Role: dagrun.RoleAssistant, Content: "final summary"},
 					},
 				},
 			},
@@ -3939,7 +3940,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		h := NewHandler(HandlerConfig{}) // No dagRunStore
 		ctx := context.Background()
 
-		protoStatus, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
+		protoStatus, convErr := convert.DAGRunStatusToProto(&dagrun.DAGRunStatus{
 			Name:     "test-dag",
 			DAGRunID: "run-123",
 			Status:   ir.Running,
@@ -3965,25 +3966,25 @@ func TestHandler_ReportStatus(t *testing.T) {
 		ctx := context.Background()
 
 		// Create an attempt for the DAG run
-		ref := exec.DAGRunRef{Name: "chat-dag", ID: "chat-run-123"}
-		attempt := store.addAttempt(ref, &exec.DAGRunStatus{
+		ref := dagrun.DAGRunRef{Name: "chat-dag", ID: "chat-run-123"}
+		attempt := store.addAttempt(ref, &dagrun.DAGRunStatus{
 			Name:     "chat-dag",
 			DAGRunID: "chat-run-123",
 			Status:   ir.Running,
 		})
 
 		// Create status with ChatMessages
-		statusWithMessages := &exec.DAGRunStatus{
+		statusWithMessages := &dagrun.DAGRunStatus{
 			Name:     "chat-dag",
 			DAGRunID: "chat-run-123",
 			Status:   ir.Running,
-			Nodes: []*exec.Node{
+			Nodes: []*dagrun.Node{
 				{
 					Step:   ir.Step{Name: "chat-step"},
 					Status: ir.NodeSucceeded,
-					ChatMessages: []exec.LLMMessage{
-						{Role: exec.RoleUser, Content: "Hello!"},
-						{Role: exec.RoleAssistant, Content: "Hi there!", Metadata: &exec.LLMMessageMetadata{
+					ChatMessages: []dagrun.LLMMessage{
+						{Role: dagrun.RoleUser, Content: "Hello!"},
+						{Role: dagrun.RoleAssistant, Content: "Hi there!", Metadata: &dagrun.LLMMessageMetadata{
 							Provider:    "openai",
 							Model:       "gpt-4",
 							TotalTokens: 10,
@@ -4013,9 +4014,9 @@ func TestHandler_ReportStatus(t *testing.T) {
 		// Verify ChatMessages were persisted via WriteStepMessages
 		chatStepMessages := attempt.GetStepMessages("chat-step")
 		require.Len(t, chatStepMessages, 2)
-		assert.Equal(t, exec.RoleUser, chatStepMessages[0].Role)
+		assert.Equal(t, dagrun.RoleUser, chatStepMessages[0].Role)
 		assert.Equal(t, "Hello!", chatStepMessages[0].Content)
-		assert.Equal(t, exec.RoleAssistant, chatStepMessages[1].Role)
+		assert.Equal(t, dagrun.RoleAssistant, chatStepMessages[1].Role)
 		assert.Equal(t, "Hi there!", chatStepMessages[1].Content)
 		require.NotNil(t, chatStepMessages[1].Metadata)
 		assert.Equal(t, "openai", chatStepMessages[1].Metadata.Provider)
@@ -4035,32 +4036,32 @@ func TestHandler_ReportStatus(t *testing.T) {
 		ctx := context.Background()
 
 		// Create an existing attempt
-		ref := exec.DAGRunRef{Name: "handler-dag", ID: "handler-run-123"}
-		attempt := store.addAttempt(ref, &exec.DAGRunStatus{
+		ref := dagrun.DAGRunRef{Name: "handler-dag", ID: "handler-run-123"}
+		attempt := store.addAttempt(ref, &dagrun.DAGRunStatus{
 			Name:     "handler-dag",
 			DAGRunID: "handler-run-123",
 			Status:   ir.Running,
 		})
 
 		// Create status with handler nodes that have empty step names
-		statusWithHandlers := &exec.DAGRunStatus{
+		statusWithHandlers := &dagrun.DAGRunStatus{
 			Name:     "handler-dag",
 			DAGRunID: "handler-run-123",
 			Status:   ir.Succeeded,
 			// OnInit handler with empty step name - should use "on_init" fallback
-			OnInit: &exec.Node{
+			OnInit: &dagrun.Node{
 				Step:   ir.Step{}, // Empty name
 				Status: ir.NodeSucceeded,
-				ChatMessages: []exec.LLMMessage{
-					{Role: exec.RoleAssistant, Content: "Init completed"},
+				ChatMessages: []dagrun.LLMMessage{
+					{Role: dagrun.RoleAssistant, Content: "Init completed"},
 				},
 			},
 			// OnSuccess handler with explicit name - should use explicit name
-			OnSuccess: &exec.Node{
+			OnSuccess: &dagrun.Node{
 				Step:   ir.Step{Name: "my-success-handler"},
 				Status: ir.NodeSucceeded,
-				ChatMessages: []exec.LLMMessage{
-					{Role: exec.RoleAssistant, Content: "Success!"},
+				ChatMessages: []dagrun.LLMMessage{
+					{Role: dagrun.RoleAssistant, Content: "Success!"},
 				},
 			},
 		}
@@ -4096,8 +4097,8 @@ func TestHandler_ReportStatus(t *testing.T) {
 		ctx := context.Background()
 
 		// Create an existing attempt with error injection
-		ref := exec.DAGRunRef{Name: "error-dag", ID: "error-run-123"}
-		attempt := store.addAttempt(ref, &exec.DAGRunStatus{
+		ref := dagrun.DAGRunRef{Name: "error-dag", ID: "error-run-123"}
+		attempt := store.addAttempt(ref, &dagrun.DAGRunStatus{
 			Name:     "error-dag",
 			DAGRunID: "error-run-123",
 			Status:   ir.Running,
@@ -4107,16 +4108,16 @@ func TestHandler_ReportStatus(t *testing.T) {
 		attempt.writeStepMessagesError = errors.New("simulated write failure")
 
 		// Create status with ChatMessages
-		statusWithMessages := &exec.DAGRunStatus{
+		statusWithMessages := &dagrun.DAGRunStatus{
 			Name:     "error-dag",
 			DAGRunID: "error-run-123",
 			Status:   ir.Succeeded,
-			Nodes: []*exec.Node{
+			Nodes: []*dagrun.Node{
 				{
 					Step:   ir.Step{Name: "chat-step"},
 					Status: ir.NodeSucceeded,
-					ChatMessages: []exec.LLMMessage{
-						{Role: exec.RoleUser, Content: "Hello!"},
+					ChatMessages: []dagrun.LLMMessage{
+						{Role: dagrun.RoleUser, Content: "Hello!"},
 					},
 				},
 			},
@@ -4151,14 +4152,14 @@ func TestHandler_ReportStatus(t *testing.T) {
 		})
 		ctx := context.Background()
 
-		ref := exec.DAGRunRef{Name: "test-dag", ID: "run-123"}
-		attempt := store.addAttempt(ref, &exec.DAGRunStatus{
+		ref := dagrun.DAGRunRef{Name: "test-dag", ID: "run-123"}
+		attempt := store.addAttempt(ref, &dagrun.DAGRunStatus{
 			Name:     "test-dag",
 			DAGRunID: "run-123",
 			Status:   ir.NotStarted,
 		})
 
-		protoStatus, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
+		protoStatus, convErr := convert.DAGRunStatusToProto(&dagrun.DAGRunStatus{
 			Name:       "test-dag",
 			DAGRunID:   "run-123",
 			AttemptID:  "attempt-1",
@@ -4201,8 +4202,8 @@ func TestHandler_ReportStatus(t *testing.T) {
 		})
 		ctx := context.Background()
 
-		ref := exec.DAGRunRef{Name: "test-dag", ID: "run-123"}
-		store.addAttempt(ref, &exec.DAGRunStatus{
+		ref := dagrun.DAGRunRef{Name: "test-dag", ID: "run-123"}
+		store.addAttempt(ref, &dagrun.DAGRunStatus{
 			Name:     "test-dag",
 			DAGRunID: "run-123",
 			Status:   ir.NotStarted,
@@ -4219,7 +4220,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 			LastHeartbeatAt: time.Now().Add(-time.Second).UTC().UnixMilli(),
 		}))
 
-		protoStatus, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
+		protoStatus, convErr := convert.DAGRunStatusToProto(&dagrun.DAGRunStatus{
 			Name:       "test-dag",
 			DAGRunID:   "run-123",
 			AttemptID:  "attempt-1",
@@ -4256,8 +4257,8 @@ func TestHandler_ReportStatus(t *testing.T) {
 		})
 		ctx := context.Background()
 
-		ref := exec.DAGRunRef{Name: "test-dag", ID: "run-123"}
-		store.addAttempt(ref, &exec.DAGRunStatus{
+		ref := dagrun.DAGRunRef{Name: "test-dag", ID: "run-123"}
+		store.addAttempt(ref, &dagrun.DAGRunStatus{
 			Name:       "test-dag",
 			DAGRunID:   "run-123",
 			AttemptID:  "attempt-1",
@@ -4266,7 +4267,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 			WorkerID:   "worker-1",
 		})
 
-		runningProto, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
+		runningProto, convErr := convert.DAGRunStatusToProto(&dagrun.DAGRunStatus{
 			Name:       "test-dag",
 			DAGRunID:   "run-123",
 			AttemptID:  "attempt-1",
@@ -4291,7 +4292,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		assert.Equal(t, "worker-1", record.WorkerID)
 		assert.Equal(t, ir.Running, record.Status)
 
-		succeededProto, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
+		succeededProto, convErr := convert.DAGRunStatusToProto(&dagrun.DAGRunStatus{
 			Name:       "test-dag",
 			DAGRunID:   "run-123",
 			AttemptID:  "attempt-1",
@@ -4431,8 +4432,8 @@ func TestHandler_GetDAGRunStatus(t *testing.T) {
 		ctx := context.Background()
 
 		// Create an attempt with status
-		ref := exec.DAGRunRef{Name: "test-dag", ID: "run-123"}
-		store.addAttempt(ref, &exec.DAGRunStatus{
+		ref := dagrun.DAGRunRef{Name: "test-dag", ID: "run-123"}
+		store.addAttempt(ref, &dagrun.DAGRunStatus{
 			Name:     "test-dag",
 			DAGRunID: "run-123",
 			Status:   ir.Running,
@@ -4652,8 +4653,8 @@ func TestHandler_Close(t *testing.T) {
 		ctx := context.Background()
 
 		// Create and cache an attempt
-		ref := exec.DAGRunRef{Name: "test-dag", ID: "run-123"}
-		attempt := store.addAttempt(ref, &exec.DAGRunStatus{
+		ref := dagrun.DAGRunRef{Name: "test-dag", ID: "run-123"}
+		attempt := store.addAttempt(ref, &dagrun.DAGRunStatus{
 			Name:     "test-dag",
 			DAGRunID: "run-123",
 			Status:   ir.Running,
@@ -4854,8 +4855,8 @@ func TestHandler_GetCancelledRunsForWorker_Full(t *testing.T) {
 		ctx := context.Background()
 
 		// Create an attempt that is aborting (cancelled)
-		ref := exec.DAGRunRef{Name: "test-dag", ID: "run-123"}
-		store.addAbortingAttempt(ref, &exec.DAGRunStatus{
+		ref := dagrun.DAGRunRef{Name: "test-dag", ID: "run-123"}
+		store.addAbortingAttempt(ref, &dagrun.DAGRunStatus{
 			Name:     "test-dag",
 			DAGRunID: "run-123",
 			Status:   ir.Running, // Status doesn't matter, IsAborting is what's checked
@@ -4881,8 +4882,8 @@ func TestHandler_GetCancelledRunsForWorker_Full(t *testing.T) {
 		ctx := context.Background()
 
 		// Create an attempt that is running (not cancelled)
-		ref := exec.DAGRunRef{Name: "test-dag", ID: "run-456"}
-		store.addAttempt(ref, &exec.DAGRunStatus{
+		ref := dagrun.DAGRunRef{Name: "test-dag", ID: "run-456"}
+		store.addAttempt(ref, &dagrun.DAGRunStatus{
 			Name:     "test-dag",
 			DAGRunID: "run-456",
 			Status:   ir.Running,
@@ -4905,8 +4906,8 @@ func TestHandler_GetCancelledRunsForWorker_Full(t *testing.T) {
 		h := NewHandler(HandlerConfig{DAGRunStore: store})
 		ctx := context.Background()
 
-		ref := exec.DAGRunRef{Name: "test-dag", ID: "run-789"}
-		store.addAttempt(ref, &exec.DAGRunStatus{
+		ref := dagrun.DAGRunRef{Name: "test-dag", ID: "run-789"}
+		store.addAttempt(ref, &dagrun.DAGRunStatus{
 			Name:       "test-dag",
 			DAGRunID:   "run-789",
 			AttemptID:  "attempt-2",
@@ -4932,8 +4933,8 @@ func TestHandler_GetCancelledRunsForWorker_Full(t *testing.T) {
 		h := NewHandler(HandlerConfig{DAGRunStore: store})
 		ctx := context.Background()
 
-		ref := exec.DAGRunRef{Name: "test-dag", ID: "run-999"}
-		store.addAttempt(ref, &exec.DAGRunStatus{
+		ref := dagrun.DAGRunRef{Name: "test-dag", ID: "run-999"}
+		store.addAttempt(ref, &dagrun.DAGRunStatus{
 			Name:       "test-dag",
 			DAGRunID:   "run-999",
 			AttemptID:  "attempt-1",
@@ -4959,8 +4960,8 @@ func TestHandler_GetCancelledRunsForWorker_Full(t *testing.T) {
 		h := NewHandler(HandlerConfig{DAGRunStore: store})
 		ctx := context.Background()
 
-		ref := exec.DAGRunRef{Name: "test-dag", ID: "run-success"}
-		store.addAttempt(ref, &exec.DAGRunStatus{
+		ref := dagrun.DAGRunRef{Name: "test-dag", ID: "run-success"}
+		store.addAttempt(ref, &dagrun.DAGRunStatus{
 			Name:       "test-dag",
 			DAGRunID:   "run-success",
 			AttemptID:  "attempt-1",
@@ -4989,8 +4990,8 @@ func TestHandler_RequestCancel(t *testing.T) {
 		h := NewHandler(HandlerConfig{DAGRunStore: store})
 		ctx := context.Background()
 
-		rootRef := exec.DAGRunRef{Name: "parent-dag", ID: "root-run"}
-		attempt := store.addSubAttempt(rootRef, "child-run", &exec.DAGRunStatus{
+		rootRef := dagrun.DAGRunRef{Name: "parent-dag", ID: "root-run"}
+		attempt := store.addSubAttempt(rootRef, "child-run", &dagrun.DAGRunStatus{
 			Name:      "child-dag",
 			DAGRunID:  "child-run",
 			AttemptID: "attempt-1",
@@ -5025,8 +5026,8 @@ func TestHandler_RequestCancel(t *testing.T) {
 		h := NewHandler(HandlerConfig{DAGRunStore: store})
 		ctx := context.Background()
 
-		rootRef := exec.DAGRunRef{Name: "parent-dag", ID: "root-run"}
-		attempt := store.addSubAttempt(rootRef, "child-run", &exec.DAGRunStatus{
+		rootRef := dagrun.DAGRunRef{Name: "parent-dag", ID: "root-run"}
+		attempt := store.addSubAttempt(rootRef, "child-run", &dagrun.DAGRunStatus{
 			Name:      "child-dag",
 			DAGRunID:  "child-run",
 			AttemptID: "attempt-1",
@@ -5064,9 +5065,9 @@ func TestHandler_GetOrOpenSubAttempt(t *testing.T) {
 		ctx := context.Background()
 
 		// Add a sub-attempt
-		rootRef := exec.DAGRunRef{Name: "parent-dag", ID: "root-123"}
+		rootRef := dagrun.DAGRunRef{Name: "parent-dag", ID: "root-123"}
 		subDAGRunID := "sub-456"
-		store.addSubAttempt(rootRef, subDAGRunID, &exec.DAGRunStatus{
+		store.addSubAttempt(rootRef, subDAGRunID, &dagrun.DAGRunStatus{
 			Name:     "child-dag",
 			DAGRunID: subDAGRunID,
 			Status:   ir.Running,
@@ -5090,9 +5091,9 @@ func TestHandler_GetOrOpenSubAttempt(t *testing.T) {
 		ctx := context.Background()
 
 		// Add a sub-attempt
-		rootRef := exec.DAGRunRef{Name: "parent-dag", ID: "root-789"}
+		rootRef := dagrun.DAGRunRef{Name: "parent-dag", ID: "root-789"}
 		subDAGRunID := "sub-101"
-		store.addSubAttempt(rootRef, subDAGRunID, &exec.DAGRunStatus{
+		store.addSubAttempt(rootRef, subDAGRunID, &dagrun.DAGRunStatus{
 			Name:     "child-dag",
 			DAGRunID: subDAGRunID,
 			Status:   ir.Running,
@@ -5116,7 +5117,7 @@ func TestHandler_GetOrOpenSubAttempt(t *testing.T) {
 		h := NewHandler(HandlerConfig{DAGRunStore: store})
 		ctx := context.Background()
 
-		rootRef := exec.DAGRunRef{Name: "parent-dag", ID: "root-999"}
+		rootRef := dagrun.DAGRunRef{Name: "parent-dag", ID: "root-999"}
 
 		// Try to get a non-existent sub-attempt
 		_, err := h.getOrOpenSubAttempt(ctx, rootRef, "non-existent")

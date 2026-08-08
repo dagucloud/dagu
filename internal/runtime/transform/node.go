@@ -7,19 +7,19 @@ import (
 	"errors"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 )
 
 // ToNode converts a persistence Node back to a runtime Node
-func ToNode(n *exec.Node) *runtime.Node {
+func ToNode(n *dagrun.Node) *runtime.Node {
 	return ToNodeWithStep(n, n.Step)
 }
 
 // ToNodeWithStep converts a persistence Node back to a runtime Node using the
 // supplied step definition.
-func ToNodeWithStep(n *exec.Node, step ir.Step) *runtime.Node {
+func ToNodeWithStep(n *dagrun.Node, step ir.Step) *runtime.Node {
 	startedAt, _ := stringutil.ParseTime(n.StartedAt)
 	finishedAt, _ := stringutil.ParseTime(n.FinishedAt)
 	retriedAt, _ := stringutil.ParseTime(n.RetriedAt)
@@ -48,7 +48,7 @@ func ToNodeWithStep(n *exec.Node, step ir.Step) *runtime.Node {
 		Repeated:               n.Repeated,
 		SkippedByRetry:         n.SkippedByRetry,
 		Error:                  err,
-		StatusDetails:          append([]exec.NodeStatusDetail(nil), n.StatusDetails...),
+		StatusDetails:          append([]dagrun.NodeStatusDetail(nil), n.StatusDetails...),
 		Incremental:            n.Incremental,
 		SubRuns:                children,
 		SubRunsRepeated:        childrenRepeated,
@@ -72,26 +72,26 @@ func ToNodeWithStep(n *exec.Node, step ir.Step) *runtime.Node {
 		RejectionReason:        n.RejectionReason,
 		ApprovalIteration:      n.ApprovalIteration,
 		PushBackInputs:         n.PushBackInputs,
-		PushBackHistory:        exec.ClonePushBackHistory(n.PushBackHistory),
+		PushBackHistory:        dagrun.ClonePushBackHistory(n.PushBackHistory),
 		PushBackPreviousStdout: n.PushBackPreviousStdout,
 	})
 }
 
 // newNode converts a single runtime NodeData to a persistence Node
-func newNode(node runtime.NodeData) *exec.Node {
-	children := make([]exec.SubDAGRun, len(node.State.SubRuns))
+func newNode(node runtime.NodeData) *dagrun.Node {
+	children := make([]dagrun.SubDAGRun, len(node.State.SubRuns))
 	for i, child := range node.State.SubRuns {
-		children[i] = exec.SubDAGRun(child)
+		children[i] = dagrun.SubDAGRun(child)
 	}
 	var errText string
 	if node.State.Error != nil {
 		errText = node.State.Error.Error()
 	}
-	childrenRepeated := make([]exec.SubDAGRun, len(node.State.SubRunsRepeated))
+	childrenRepeated := make([]dagrun.SubDAGRun, len(node.State.SubRunsRepeated))
 	for i, child := range node.State.SubRunsRepeated {
-		childrenRepeated[i] = exec.SubDAGRun(child)
+		childrenRepeated[i] = dagrun.SubDAGRun(child)
 	}
-	return &exec.Node{
+	return &dagrun.Node{
 		Step:                   node.Step,
 		Stdout:                 node.State.Stdout,
 		Stderr:                 node.State.Stderr,
@@ -105,7 +105,7 @@ func newNode(node runtime.NodeData) *exec.Node {
 		Repeated:               node.State.Repeated,
 		SkippedByRetry:         node.State.SkippedByRetry,
 		Error:                  errText,
-		StatusDetails:          append([]exec.NodeStatusDetail(nil), node.State.StatusDetails...),
+		StatusDetails:          append([]dagrun.NodeStatusDetail(nil), node.State.StatusDetails...),
 		Incremental:            node.State.Incremental,
 		SubRuns:                children,
 		SubRunsRepeated:        childrenRepeated,
@@ -129,7 +129,7 @@ func newNode(node runtime.NodeData) *exec.Node {
 		RejectionReason:        node.State.RejectionReason,
 		ApprovalIteration:      node.State.ApprovalIteration,
 		PushBackInputs:         node.State.PushBackInputs,
-		PushBackHistory:        exec.ClonePushBackHistory(node.State.PushBackHistory),
+		PushBackHistory:        dagrun.ClonePushBackHistory(node.State.PushBackHistory),
 		PushBackPreviousStdout: node.State.PushBackPreviousStdout,
 	}
 }

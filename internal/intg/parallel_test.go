@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/require"
@@ -25,7 +25,7 @@ type parallelExecutionItemSourceCase struct {
 	expectedNodes     int
 	parallelNodeIndex int
 	expectedChildren  int
-	verify            func(*testing.T, *exec.DAGRunStatus, *exec.Node)
+	verify            func(*testing.T, *dagrun.DAGRunStatus, *dagrun.Node)
 }
 
 func yamlParallelItems(key string, items []string) string {
@@ -216,7 +216,7 @@ func TestParallelExecution_ItemSources_ObjectItems(t *testing.T) {
 		expectedNodes:     1,
 		parallelNodeIndex: 0,
 		expectedChildren:  3,
-		verify: func(t *testing.T, _ *exec.DAGRunStatus, node *exec.Node) {
+		verify: func(t *testing.T, _ *dagrun.DAGRunStatus, node *dagrun.Node) {
 			for _, child := range node.SubRuns {
 				require.Contains(t, child.Params, `"REGION"`)
 				require.Contains(t, child.Params, `"VERSION"`)
@@ -279,7 +279,7 @@ steps:
 		expectedNodes:     2,
 		parallelNodeIndex: 0,
 		expectedChildren:  3,
-		verify: func(t *testing.T, dagStatus *exec.DAGRunStatus, _ *exec.Node) {
+		verify: func(t *testing.T, dagStatus *dagrun.DAGRunStatus, _ *dagrun.Node) {
 			require.Greater(t, len(dagStatus.Nodes), 1, "node index out of range")
 			aggregate := dagStatus.Nodes[1]
 			require.Equal(t, ir.NodeSucceeded, aggregate.Status)
@@ -406,7 +406,7 @@ steps:
 			return false
 		}
 
-		rootRun := exec.NewDAGRunRef(status.Name, status.DAGRunID)
+		rootRun := dagrun.NewDAGRunRef(status.Name, status.DAGRunID)
 		started := 0
 		for _, subRun := range status.Nodes[0].SubRuns {
 			if _, subErr := dag.DAGRunMgr.FindSubDAGRunStatus(dag.Context, rootRun, subRun.DAGRunID); subErr == nil {
@@ -422,7 +422,7 @@ steps:
 			return false
 		}
 
-		rootRun := exec.NewDAGRunRef(status.Name, status.DAGRunID)
+		rootRun := dagrun.NewDAGRunRef(status.Name, status.DAGRunID)
 		started := 0
 		for _, subRun := range status.Nodes[0].SubRuns {
 			if _, subErr := dag.DAGRunMgr.FindSubDAGRunStatus(dag.Context, rootRun, subRun.DAGRunID); subErr == nil {
@@ -504,7 +504,7 @@ steps:
 		return
 	}
 
-	rootRun := exec.NewDAGRunRef(finalStatus.Name, finalStatus.DAGRunID)
+	rootRun := dagrun.NewDAGRunRef(finalStatus.Name, finalStatus.DAGRunID)
 	startedRunID := ""
 	for _, subRun := range parallelNode.SubRuns {
 		if _, subErr := dag.DAGRunMgr.FindSubDAGRunStatus(dag.Context, rootRun, subRun.DAGRunID); subErr != nil {
@@ -561,7 +561,7 @@ steps:
 	}, intgTestTimeout(45*time.Second), 50*time.Millisecond, "expected first attempt to create marker file before abort")
 
 	startedRunID := ""
-	rootRun := exec.DAGRunRef{}
+	rootRun := dagrun.DAGRunRef{}
 	require.Eventually(t, func() bool {
 		attempt, err := dag.DAGRunStore.LatestAttempt(dag.Context, dag.Name)
 		if err != nil {
@@ -576,7 +576,7 @@ steps:
 			return false
 		}
 
-		rootRun = exec.NewDAGRunRef(status.Name, status.DAGRunID)
+		rootRun = dagrun.NewDAGRunRef(status.Name, status.DAGRunID)
 		startedRunID = status.Nodes[0].SubRuns[0].DAGRunID
 		_, err = dag.DAGRunMgr.FindSubDAGRunStatus(dag.Context, rootRun, startedRunID)
 		return err == nil
@@ -598,7 +598,7 @@ steps:
 	require.Len(t, finalStatus.Nodes, 1)
 	require.Equal(t, ir.NodeAborted, finalStatus.Nodes[0].Status)
 
-	rootRun = exec.NewDAGRunRef(finalStatus.Name, finalStatus.DAGRunID)
+	rootRun = dagrun.NewDAGRunRef(finalStatus.Name, finalStatus.DAGRunID)
 	startedRunID = ""
 	for _, subRun := range finalStatus.Nodes[0].SubRuns {
 		if _, subErr := dag.DAGRunMgr.FindSubDAGRunStatus(dag.Context, rootRun, subRun.DAGRunID); subErr != nil {
@@ -1771,7 +1771,7 @@ steps:
 	require.Len(t, parallelNode.SubRuns, 2)
 
 	gotNames := make(map[string]struct{}, len(parallelNode.SubRuns))
-	rootRun := exec.NewDAGRunRef(dag.Name, dagStatus.DAGRunID)
+	rootRun := dagrun.NewDAGRunRef(dag.Name, dagStatus.DAGRunID)
 	for _, subRun := range parallelNode.SubRuns {
 		subStatus, err := dag.DAGRunMgr.FindSubDAGRunStatus(dag.Context, rootRun, subRun.DAGRunID)
 		require.NoError(t, err)

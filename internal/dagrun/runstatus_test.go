@@ -1,14 +1,14 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package exec_test
+package dagrun_test
 
 import (
 	"encoding/json"
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -29,7 +29,7 @@ func TestInitialStatusSnapshotsDAGRetryMetadata(t *testing.T) {
 		},
 	}
 
-	status := exec.InitialStatus(dag)
+	status := dagrun.InitialStatus(dag)
 
 	assert.Equal(t, 3, status.AutoRetryLimit)
 	assert.Equal(t, 2*time.Minute, status.AutoRetryInterval)
@@ -54,7 +54,7 @@ func TestInitialStatusSnapshotsDisabledDAGRetryPolicy(t *testing.T) {
 		},
 	}
 
-	status := exec.InitialStatus(dag)
+	status := dagrun.InitialStatus(dag)
 
 	assert.Equal(t, 0, status.AutoRetryLimit)
 	assert.Equal(t, time.Minute, status.AutoRetryInterval)
@@ -68,11 +68,11 @@ func TestPendingStepRetriesFromStatus(t *testing.T) {
 	t.Parallel()
 
 	t.Run("PrefersPersistedField", func(t *testing.T) {
-		status := &exec.DAGRunStatus{
-			PendingStepRetries: []exec.PendingStepRetry{
+		status := &dagrun.DAGRunStatus{
+			PendingStepRetries: []dagrun.PendingStepRetry{
 				{StepName: "persisted", Interval: 5 * time.Second},
 			},
-			Nodes: []*exec.Node{
+			Nodes: []*dagrun.Node{
 				{
 					Step: ir.Step{
 						Name: "derived",
@@ -86,15 +86,15 @@ func TestPendingStepRetriesFromStatus(t *testing.T) {
 			},
 		}
 
-		retries := exec.PendingStepRetriesFromStatus(status)
-		assert.Equal(t, []exec.PendingStepRetry{
+		retries := dagrun.PendingStepRetriesFromStatus(status)
+		assert.Equal(t, []dagrun.PendingStepRetry{
 			{StepName: "persisted", Interval: 5 * time.Second},
 		}, retries)
 	})
 
 	t.Run("FallsBackToNodesForLegacyStatuses", func(t *testing.T) {
-		status := &exec.DAGRunStatus{
-			Nodes: []*exec.Node{
+		status := &dagrun.DAGRunStatus{
+			Nodes: []*dagrun.Node{
 				{
 					Step: ir.Step{
 						Name: "legacy",
@@ -108,15 +108,15 @@ func TestPendingStepRetriesFromStatus(t *testing.T) {
 			},
 		}
 
-		retries := exec.PendingStepRetriesFromStatus(status)
-		assert.Equal(t, []exec.PendingStepRetry{
+		retries := dagrun.PendingStepRetriesFromStatus(status)
+		assert.Equal(t, []dagrun.PendingStepRetry{
 			{StepName: "legacy", Interval: 2 * time.Second},
 		}, retries)
 	})
 
 	t.Run("FallsBackToRegularAndHandlerNodesForLegacyStatuses", func(t *testing.T) {
-		status := &exec.DAGRunStatus{
-			Nodes: []*exec.Node{
+		status := &dagrun.DAGRunStatus{
+			Nodes: []*dagrun.Node{
 				{
 					Step: ir.Step{
 						Name: "regular",
@@ -128,7 +128,7 @@ func TestPendingStepRetriesFromStatus(t *testing.T) {
 					RetryCount: 1,
 				},
 			},
-			OnFailure: &exec.Node{
+			OnFailure: &dagrun.Node{
 				Step: ir.Step{
 					Name: "onFailure",
 					RetryPolicy: ir.RetryPolicy{
@@ -140,16 +140,16 @@ func TestPendingStepRetriesFromStatus(t *testing.T) {
 			},
 		}
 
-		retries := exec.PendingStepRetriesFromStatus(status)
-		assert.Equal(t, []exec.PendingStepRetry{
+		retries := dagrun.PendingStepRetriesFromStatus(status)
+		assert.Equal(t, []dagrun.PendingStepRetry{
 			{StepName: "regular", Interval: time.Second},
 			{StepName: "onFailure", Interval: 3 * time.Second},
 		}, retries)
 	})
 
 	t.Run("FallsBackToHandlerIdentityWhenHandlerStepNameMissing", func(t *testing.T) {
-		status := &exec.DAGRunStatus{
-			OnFailure: &exec.Node{
+		status := &dagrun.DAGRunStatus{
+			OnFailure: &dagrun.Node{
 				Step: ir.Step{
 					RetryPolicy: ir.RetryPolicy{
 						Interval: 3 * time.Second,
@@ -160,16 +160,16 @@ func TestPendingStepRetriesFromStatus(t *testing.T) {
 			},
 		}
 
-		retries := exec.PendingStepRetriesFromStatus(status)
-		assert.Equal(t, []exec.PendingStepRetry{
+		retries := dagrun.PendingStepRetriesFromStatus(status)
+		assert.Equal(t, []dagrun.PendingStepRetry{
 			{StepName: "onFailure", Interval: 3 * time.Second},
 		}, retries)
 	})
 
 	t.Run("ExplicitEmptySliceSurvivesJSONRoundTrip", func(t *testing.T) {
-		status := &exec.DAGRunStatus{
-			PendingStepRetries: []exec.PendingStepRetry{},
-			Nodes: []*exec.Node{
+		status := &dagrun.DAGRunStatus{
+			PendingStepRetries: []dagrun.PendingStepRetry{},
+			Nodes: []*dagrun.Node{
 				{
 					Step: ir.Step{
 						Name: "legacy",
@@ -187,10 +187,10 @@ func TestPendingStepRetriesFromStatus(t *testing.T) {
 		require.NoError(t, err)
 		assert.Contains(t, string(data), `"pendingStepRetries":[]`)
 
-		var decoded exec.DAGRunStatus
+		var decoded dagrun.DAGRunStatus
 		require.NoError(t, json.Unmarshal(data, &decoded))
 		require.NotNil(t, decoded.PendingStepRetries)
-		assert.Empty(t, exec.PendingStepRetriesFromStatus(&decoded))
+		assert.Empty(t, dagrun.PendingStepRetriesFromStatus(&decoded))
 	})
 }
 
@@ -199,7 +199,7 @@ func TestNewDAGRunCondition(t *testing.T) {
 
 	checkedAt := time.Date(2026, 5, 19, 1, 2, 3, 0, time.UTC)
 
-	condition := exec.NewDAGRunCondition(
+	condition := dagrun.NewDAGRunCondition(
 		"Runnable",
 		"False",
 		"MaxConcurrencyReached",
@@ -207,7 +207,7 @@ func TestNewDAGRunCondition(t *testing.T) {
 		checkedAt,
 	)
 
-	assert.Equal(t, exec.DAGRunCondition{
+	assert.Equal(t, dagrun.DAGRunCondition{
 		Type:      "Runnable",
 		Status:    "False",
 		Reason:    "MaxConcurrencyReached",
@@ -233,28 +233,28 @@ func TestMergeDAGRunConditionsUpsertsByTypeAndOrdersConditions(t *testing.T) {
 	older := checkedAt.Add(-time.Minute)
 	newer := checkedAt.Add(time.Minute)
 
-	runnable := exec.NewDAGRunCondition(
+	runnable := dagrun.NewDAGRunCondition(
 		"Runnable",
 		"False",
 		"MaxConcurrencyReached",
 		"The DAG-run cannot start because the queue active-run concurrency limit has been reached.",
 		checkedAt,
 	)
-	concurrencyReadyOlder := exec.NewDAGRunCondition(
+	concurrencyReadyOlder := dagrun.NewDAGRunCondition(
 		"ConcurrencyReady",
 		"False",
 		"MaxConcurrencyReached",
 		"The queue active-run concurrency limit has been reached.",
 		older,
 	)
-	concurrencyReadyNewer := exec.NewDAGRunCondition(
+	concurrencyReadyNewer := dagrun.NewDAGRunCondition(
 		"ConcurrencyReady",
 		"True",
 		"ConcurrencyAvailable",
 		"The queue active-run concurrency limit has capacity.",
 		newer,
 	)
-	workerReady := exec.NewDAGRunCondition(
+	workerReady := dagrun.NewDAGRunCondition(
 		"WorkerReady",
 		"Unknown",
 		"WorkerStateUnknown",
@@ -262,12 +262,12 @@ func TestMergeDAGRunConditionsUpsertsByTypeAndOrdersConditions(t *testing.T) {
 		checkedAt,
 	)
 
-	conditions := exec.MergeDAGRunConditions(nil, concurrencyReadyOlder, workerReady)
-	conditions = exec.MergeDAGRunConditions(conditions, runnable)
-	conditions = exec.MergeDAGRunConditions(conditions, concurrencyReadyNewer)
-	conditions = exec.MergeDAGRunConditions(
+	conditions := dagrun.MergeDAGRunConditions(nil, concurrencyReadyOlder, workerReady)
+	conditions = dagrun.MergeDAGRunConditions(conditions, runnable)
+	conditions = dagrun.MergeDAGRunConditions(conditions, concurrencyReadyNewer)
+	conditions = dagrun.MergeDAGRunConditions(
 		conditions,
-		exec.NewDAGRunCondition(
+		dagrun.NewDAGRunCondition(
 			"ConcurrencyReady",
 			"False",
 			"StaleConcurrencyObservation",
@@ -276,7 +276,7 @@ func TestMergeDAGRunConditionsUpsertsByTypeAndOrdersConditions(t *testing.T) {
 		),
 	)
 
-	assert.Equal(t, []exec.DAGRunCondition{
+	assert.Equal(t, []dagrun.DAGRunCondition{
 		runnable,
 		concurrencyReadyNewer,
 		workerReady,
@@ -287,15 +287,15 @@ func TestNormalizeDAGRunConditions(t *testing.T) {
 	t.Parallel()
 
 	checkedAt := time.Date(2026, 5, 19, 1, 2, 3, 0, time.UTC)
-	conditions := []exec.DAGRunCondition{
-		exec.NewDAGRunCondition(
+	conditions := []dagrun.DAGRunCondition{
+		dagrun.NewDAGRunCondition(
 			"Runnable",
 			"False",
 			"MaxConcurrencyReached",
 			"The DAG-run cannot start because the queue active-run concurrency limit has been reached.",
 			checkedAt,
 		),
-		exec.NewDAGRunCondition(
+		dagrun.NewDAGRunCondition(
 			"ConcurrencyReady",
 			"False",
 			"MaxConcurrencyReached",
@@ -304,9 +304,9 @@ func TestNormalizeDAGRunConditions(t *testing.T) {
 		),
 	}
 
-	queued := &exec.DAGRunStatus{
+	queued := &dagrun.DAGRunStatus{
 		Status: ir.Queued,
-		Conditions: append(conditions, exec.NewDAGRunCondition(
+		Conditions: append(conditions, dagrun.NewDAGRunCondition(
 			"Runnable",
 			"Unknown",
 			"StaleRunnableObservation",
@@ -314,28 +314,28 @@ func TestNormalizeDAGRunConditions(t *testing.T) {
 			checkedAt.Add(-time.Second),
 		)),
 	}
-	exec.NormalizeDAGRunConditions(queued)
+	dagrun.NormalizeDAGRunConditions(queued)
 	assert.Equal(t, conditions, queued.Conditions)
 
-	running := &exec.DAGRunStatus{
+	running := &dagrun.DAGRunStatus{
 		Status:     ir.Running,
 		Conditions: conditions,
 	}
-	exec.NormalizeDAGRunConditions(running)
+	dagrun.NormalizeDAGRunConditions(running)
 	assert.Nil(t, running.Conditions)
 
-	exec.NormalizeDAGRunConditions(nil)
+	dagrun.NormalizeDAGRunConditions(nil)
 }
 
 func TestDAGRunStatusUnmarshalJSONDeprecatedTags(t *testing.T) {
 	t.Parallel()
 
-	var status exec.DAGRunStatus
+	var status dagrun.DAGRunStatus
 	err := json.Unmarshal([]byte(`{"name":"legacy","tags":["env=prod","team=platform"]}`), &status)
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []string{"env=prod", "team=platform"}, status.Labels)
 
-	var explicitLabels exec.DAGRunStatus
+	var explicitLabels dagrun.DAGRunStatus
 	err = json.Unmarshal([]byte(`{"name":"canonical","labels":[],"tags":["env=legacy"]}`), &explicitLabels)
 	require.NoError(t, err)
 	assert.Empty(t, explicitLabels.Labels)

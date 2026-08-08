@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
@@ -73,7 +74,7 @@ func NewStatusPusher(client coordinator.Client, workerID, claimKey string, owner
 }
 
 // Push sends a status update to the coordinator
-func (p *StatusPusher) Push(ctx context.Context, status exec.DAGRunStatus) error {
+func (p *StatusPusher) Push(ctx context.Context, status dagrun.DAGRunStatus) error {
 	if p.claimKey != "" {
 		status.ClaimKey = p.claimKey
 	}

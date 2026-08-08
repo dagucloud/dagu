@@ -8,7 +8,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/dag"
@@ -25,10 +25,10 @@ func TestParallelRetryPathReusesSiblings(t *testing.T) {
 	parent := &ir.DAG{Name: "root", LocalDAGs: map[string]*ir.DAG{child.Name: child}}
 	runner := &retryRecorder{}
 	baseCtx := executor.WithSubWorkflowRunner(context.Background(), runner)
-	rootRef := exec.NewDAGRunRef(parent.Name, "root-run")
-	path := exec.RetryPath{
+	rootRef := dagrun.NewDAGRunRef(parent.Name, "root-run")
+	path := dagrun.RetryPath{
 		Step: "target",
-		Hops: []exec.RetryHop{{
+		Hops: []dagrun.RetryHop{{
 			Step:  "parallel-child",
 			RunID: "child-selected",
 		}},
@@ -78,16 +78,16 @@ func TestSubDAGRetryPathRejectsUnknownTarget(t *testing.T) {
 	parent := &ir.DAG{Name: "root", LocalDAGs: map[string]*ir.DAG{child.Name: child}}
 	runner := &retryRecorder{}
 	baseCtx := executor.WithSubWorkflowRunner(context.Background(), runner)
-	rootRef := exec.NewDAGRunRef(parent.Name, "root-run")
+	rootRef := dagrun.NewDAGRunRef(parent.Name, "root-run")
 	ctx := runtime.NewContext(
 		baseCtx,
 		parent,
 		rootRef.ID,
 		"",
 		runtime.WithRootDAGRun(rootRef),
-		runtime.WithRetryPath(exec.RetryPath{
+		runtime.WithRetryPath(dagrun.RetryPath{
 			Step: "target",
-			Hops: []exec.RetryHop{{Step: "run-child", RunID: "child-stale"}},
+			Hops: []dagrun.RetryHop{{Step: "run-child", RunID: "child-stale"}},
 		}),
 	)
 	step := ir.Step{
@@ -121,18 +121,18 @@ func (r *retryRecorder) ShouldRun(context.Context, executor.SubWorkflowRequest) 
 	return true
 }
 
-func (r *retryRecorder) Run(_ context.Context, req executor.SubWorkflowRequest) (*exec.RunStatus, error) {
+func (r *retryRecorder) Run(_ context.Context, req executor.SubWorkflowRequest) (*dagrun.RunStatus, error) {
 	r.mu.Lock()
 	r.runs = append(r.runs, req)
 	r.mu.Unlock()
-	return &exec.RunStatus{Name: req.DAG.Name, DAGRunID: req.RunID, Params: req.Params, Status: ir.Succeeded}, nil
+	return &dagrun.RunStatus{Name: req.DAG.Name, DAGRunID: req.RunID, Params: req.Params, Status: ir.Succeeded}, nil
 }
 
-func (r *retryRecorder) Retry(_ context.Context, req executor.SubWorkflowRetryRequest) (*exec.RunStatus, error) {
+func (r *retryRecorder) Retry(_ context.Context, req executor.SubWorkflowRetryRequest) (*dagrun.RunStatus, error) {
 	r.mu.Lock()
 	r.retries = append(r.retries, req)
 	r.mu.Unlock()
-	return &exec.RunStatus{Name: req.DAG.Name, DAGRunID: req.RunID, Params: req.Params, Status: ir.Succeeded}, nil
+	return &dagrun.RunStatus{Name: req.DAG.Name, DAGRunID: req.RunID, Params: req.Params, Status: ir.Succeeded}, nil
 }
 
 func (*retryRecorder) Cancel(context.Context, executor.SubWorkflowCancelRequest) error {

@@ -14,7 +14,7 @@ import (
 
 	api "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/dagucloud/dagu/v2/internal/test/intgharness"
@@ -442,11 +442,11 @@ func waitForApprovalStepWaitingStatus(
 	server test.Server,
 	dagName, dagRunID, stepName string,
 	iteration int,
-) *exec.DAGRunStatus {
+) *dagrun.DAGRunStatus {
 	t.Helper()
 
 	h := intgharness.New(t, server.Helper)
-	return h.Run(exec.NewDAGRunRef(dagName, dagRunID), "").RequireStatusMatchWithin("approval step should reach waiting status", intgTestTimeout(15*time.Second), func(status *exec.DAGRunStatus) bool {
+	return h.Run(dagrun.NewDAGRunRef(dagName, dagRunID), "").RequireStatusMatchWithin("approval step should reach waiting status", intgTestTimeout(15*time.Second), func(status *dagrun.DAGRunStatus) bool {
 		if status.Status != ir.Waiting {
 			return false
 		}
@@ -466,14 +466,14 @@ func waitForDAGRunStatus(
 	server test.Server,
 	dagName, dagRunID string,
 	expected ir.Status,
-) *exec.DAGRunStatus {
+) *dagrun.DAGRunStatus {
 	t.Helper()
 
 	h := intgharness.New(t, server.Helper)
-	return h.Run(exec.NewDAGRunRef(dagName, dagRunID), "").RequireStatusWithin(expected, intgTestTimeout(15*time.Second))
+	return h.Run(dagrun.NewDAGRunRef(dagName, dagRunID), "").RequireStatusWithin(expected, intgTestTimeout(15*time.Second))
 }
 
-func nodeByName(t *testing.T, status *exec.DAGRunStatus, stepName string) *exec.Node {
+func nodeByName(t *testing.T, status *dagrun.DAGRunStatus, stepName string) *dagrun.Node {
 	t.Helper()
 
 	for _, node := range status.Nodes {

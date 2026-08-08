@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
@@ -195,7 +196,7 @@ steps:
 
 	runID := f.runIDs[0]
 
-	ref := exec.NewDAGRunRef(f.dag.Name, runID)
+	ref := dagrun.NewDAGRunRef(f.dag.Name, runID)
 	att, err := f.th.DAGRunStore.FindAttempt(f.th.Context, ref)
 	require.NoError(t, err)
 	status, err := att.ReadStatus(f.th.Context)
@@ -324,7 +325,7 @@ steps:
 		f.StartScheduler(40 * time.Second)
 		defer f.Stop()
 
-		latest, err := f.WaitForStatusMatch(runID, 25*time.Second, func(status *exec.DAGRunStatus) bool {
+		latest, err := f.WaitForStatusMatch(runID, 25*time.Second, func(status *dagrun.DAGRunStatus) bool {
 			return status.Status == ir.Succeeded &&
 				status.AttemptID != originalAttemptID &&
 				status.AutoRetryCount == 1
@@ -369,7 +370,7 @@ steps:
 		f.StartScheduler(40 * time.Second)
 		defer f.Stop()
 
-		latest, err := f.WaitForStatusMatch(runID, 25*time.Second, func(status *exec.DAGRunStatus) bool {
+		latest, err := f.WaitForStatusMatch(runID, 25*time.Second, func(status *dagrun.DAGRunStatus) bool {
 			return status.Status == ir.Succeeded &&
 				status.AttemptID != originalAttemptID &&
 				status.AutoRetryCount == 1
@@ -483,7 +484,7 @@ steps:
 		f.StartScheduler(35 * time.Second)
 		defer f.Stop()
 
-		latest, err := f.WaitForStatusMatch(runID, 25*time.Second, func(status *exec.DAGRunStatus) bool {
+		latest, err := f.WaitForStatusMatch(runID, 25*time.Second, func(status *dagrun.DAGRunStatus) bool {
 			return status.Status == ir.Succeeded &&
 				status.AttemptID != originalAttemptID &&
 				status.AutoRetryCount == 1
@@ -511,7 +512,7 @@ steps:
 	defer f.Stop()
 
 	f.WaitDrain(25 * time.Second)
-	status := f.waitForRecentStatus(25*time.Second, func(st exec.DAGRunStatus) bool {
+	status := f.waitForRecentStatus(25*time.Second, func(st dagrun.DAGRunStatus) bool {
 		return st.DAGRunID == runID && st.Status == ir.Succeeded
 	})
 
@@ -541,7 +542,7 @@ steps:
 	defer f.Stop()
 
 	f.WaitDrain(30 * time.Second)
-	status := f.waitForRecentStatus(30*time.Second, func(st exec.DAGRunStatus) bool {
+	status := f.waitForRecentStatus(30*time.Second, func(st dagrun.DAGRunStatus) bool {
 		return st.Status == ir.Succeeded &&
 			st.TriggerType == ir.TriggerTypeCatchUp &&
 			st.ScheduleTime == stringutil.FormatTime(scheduledTime)

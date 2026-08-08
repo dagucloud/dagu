@@ -12,7 +12,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/spf13/cobra"
 )
@@ -135,10 +135,10 @@ func runExec(ctx *Context, args []string) error {
 		return err
 	}
 
-	dagRunRef := exec.NewDAGRunRef(dag.Name, runID)
+	dagRunRef := dagrun.NewDAGRunRef(dag.Name, runID)
 
 	attempt, err := ctx.DAGRunStore.FindAttempt(ctx, dagRunRef)
-	if err != nil && !errors.Is(err, exec.ErrDAGRunIDNotFound) {
+	if err != nil && !errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
 		return fmt.Errorf("failed to check for existing dag-run: %w", err)
 	}
 	if attempt != nil {

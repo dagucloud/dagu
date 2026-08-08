@@ -11,7 +11,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
 )
@@ -79,7 +79,7 @@ func TestHistoryStoreBeginAttemptCreatesAttemptAndAppliesRetention(t *testing.T)
 		RunID:      "run-2",
 		AttemptID:  "attempt-2",
 		Retry:      true,
-		RootDAGRun: exec.NewDAGRunRef("root", "root-run"),
+		RootDAGRun: dagrun.NewDAGRunRef("root", "root-run"),
 	})
 
 	require.NoError(t, err)
@@ -89,7 +89,7 @@ func TestHistoryStoreBeginAttemptCreatesAttemptAndAppliesRetention(t *testing.T)
 	require.True(t, store.createOpts.Retry)
 	require.Equal(t, "attempt-2", store.createOpts.AttemptID)
 	require.NotNil(t, store.createOpts.RootDAGRun)
-	require.Equal(t, exec.NewDAGRunRef("root", "root-run"), *store.createOpts.RootDAGRun)
+	require.Equal(t, dagrun.NewDAGRunRef("root", "root-run"), *store.createOpts.RootDAGRun)
 	require.Len(t, store.removeOldCalls, 1)
 	require.Equal(t, 0, store.removeOldCalls[0].retentionDays)
 	require.NotNil(t, store.removeOldCalls[0].opts.RetentionRuns)
@@ -106,7 +106,7 @@ func TestHistoryStoreBeginAttemptOmitsRootDAGRunForRootAttempt(t *testing.T) {
 	got, err := stateStore.BeginAttempt(ctx, runstate.BeginAttemptRequest{
 		DAG:        &ir.DAG{Name: "parent"},
 		RunID:      "root-run",
-		RootDAGRun: exec.NewDAGRunRef("parent", "root-run"),
+		RootDAGRun: dagrun.NewDAGRunRef("parent", "root-run"),
 	})
 
 	require.NoError(t, err)
@@ -137,7 +137,7 @@ func TestHistoryStoreBeginAttemptIgnoresRetentionCleanupFailure(t *testing.T) {
 
 func TestHistoryStoreOpenChildAttemptReturnsAttemptState(t *testing.T) {
 	ctx := context.Background()
-	status := &exec.DAGRunStatus{Name: "child", DAGRunID: "child-run", Status: ir.Succeeded}
+	status := &dagrun.DAGRunStatus{Name: "child", DAGRunID: "child-run", Status: ir.Succeeded}
 	attempt := newRecordingAttempt("child-attempt")
 	attempt.status = status
 	store := &recordingDAGRunStore{
@@ -145,7 +145,7 @@ func TestHistoryStoreOpenChildAttemptReturnsAttemptState(t *testing.T) {
 	}
 
 	stateStore := runstate.NewHistoryStore(store)
-	child, err := stateStore.OpenChildAttempt(ctx, exec.NewDAGRunRef("root", "root-run"), "child-run")
+	child, err := stateStore.OpenChildAttempt(ctx, dagrun.NewDAGRunRef("root", "root-run"), "child-run")
 	require.NoError(t, err)
 
 	got, err := child.ReadStatus(ctx)
@@ -169,9 +169,9 @@ func TestAttemptDelegatesStateOperations(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	status := exec.DAGRunStatus{Name: "parent", DAGRunID: "run-1", Status: ir.Running}
-	outputs := &exec.DAGRunOutputs{Outputs: map[string]string{"result": "ok"}}
-	messages := []exec.LLMMessage{{Role: exec.RoleAssistant, Content: "done"}}
+	status := dagrun.DAGRunStatus{Name: "parent", DAGRunID: "run-1", Status: ir.Running}
+	outputs := &dagrun.DAGRunOutputs{Outputs: map[string]string{"result": "ok"}}
+	messages := []dagrun.LLMMessage{{Role: dagrun.RoleAssistant, Content: "done"}}
 
 	require.NoError(t, stateAttempt.Open(ctx))
 	require.NoError(t, stateAttempt.RecordStatus(ctx, status))
@@ -192,21 +192,21 @@ func TestAttemptDelegatesStateOperations(t *testing.T) {
 }
 
 type recordingDAGRunStore struct {
-	createAttempt  exec.DAGRunAttempt
-	subAttempt     exec.DAGRunAttempt
+	createAttempt  dagrun.DAGRunAttempt
+	subAttempt     dagrun.DAGRunAttempt
 	createCalls    int
 	createRunID    string
-	createOpts     exec.NewDAGRunAttemptOptions
+	createOpts     dagrun.NewDAGRunAttemptOptions
 	removeOldErr   error
 	removeOldCalls []removeOldCall
 }
 
 type removeOldCall struct {
 	retentionDays int
-	opts          exec.RemoveOldDAGRunsOptions
+	opts          dagrun.RemoveOldDAGRunsOptions
 }
 
-func (s *recordingDAGRunStore) CreateAttempt(_ context.Context, dag *ir.DAG, _ time.Time, dagRunID string, opts exec.NewDAGRunAttemptOptions) (exec.DAGRunAttempt, error) {
+func (s *recordingDAGRunStore) CreateAttempt(_ context.Context, dag *ir.DAG, _ time.Time, dagRunID string, opts dagrun.NewDAGRunAttemptOptions) (dagrun.DAGRunAttempt, error) {
 	s.createCalls++
 	s.createRunID = dagRunID
 	s.createOpts = opts
@@ -217,43 +217,43 @@ func (s *recordingDAGRunStore) CreateAttempt(_ context.Context, dag *ir.DAG, _ t
 	return s.createAttempt, nil
 }
 
-func (s *recordingDAGRunStore) RecentAttempts(context.Context, string, int) []exec.DAGRunAttempt {
+func (s *recordingDAGRunStore) RecentAttempts(context.Context, string, int) []dagrun.DAGRunAttempt {
 	return nil
 }
 
-func (s *recordingDAGRunStore) LatestAttempt(context.Context, string) (exec.DAGRunAttempt, error) {
-	return nil, exec.ErrDAGRunIDNotFound
+func (s *recordingDAGRunStore) LatestAttempt(context.Context, string) (dagrun.DAGRunAttempt, error) {
+	return nil, dagrun.ErrDAGRunIDNotFound
 }
 
-func (s *recordingDAGRunStore) ListStatuses(context.Context, ...exec.ListDAGRunStatusesOption) ([]*exec.DAGRunStatus, error) {
+func (s *recordingDAGRunStore) ListStatuses(context.Context, ...dagrun.ListDAGRunStatusesOption) ([]*dagrun.DAGRunStatus, error) {
 	return nil, nil
 }
 
-func (s *recordingDAGRunStore) ListStatusesPage(context.Context, ...exec.ListDAGRunStatusesOption) (exec.DAGRunStatusPage, error) {
-	return exec.DAGRunStatusPage{}, nil
+func (s *recordingDAGRunStore) ListStatusesPage(context.Context, ...dagrun.ListDAGRunStatusesOption) (dagrun.DAGRunStatusPage, error) {
+	return dagrun.DAGRunStatusPage{}, nil
 }
 
-func (s *recordingDAGRunStore) CompareAndSwapLatestAttemptStatus(context.Context, exec.DAGRunRef, string, ir.Status, func(*exec.DAGRunStatus) error, ...exec.CompareAndSwapStatusOption) (*exec.DAGRunStatus, bool, error) {
+func (s *recordingDAGRunStore) CompareAndSwapLatestAttemptStatus(context.Context, dagrun.DAGRunRef, string, ir.Status, func(*dagrun.DAGRunStatus) error, ...dagrun.CompareAndSwapStatusOption) (*dagrun.DAGRunStatus, bool, error) {
 	return nil, false, nil
 }
 
-func (s *recordingDAGRunStore) FindAttempt(context.Context, exec.DAGRunRef) (exec.DAGRunAttempt, error) {
-	return nil, exec.ErrDAGRunIDNotFound
+func (s *recordingDAGRunStore) FindAttempt(context.Context, dagrun.DAGRunRef) (dagrun.DAGRunAttempt, error) {
+	return nil, dagrun.ErrDAGRunIDNotFound
 }
 
-func (s *recordingDAGRunStore) FindSubAttempt(context.Context, exec.DAGRunRef, string) (exec.DAGRunAttempt, error) {
+func (s *recordingDAGRunStore) FindSubAttempt(context.Context, dagrun.DAGRunRef, string) (dagrun.DAGRunAttempt, error) {
 	if s.subAttempt == nil {
-		return nil, exec.ErrDAGRunIDNotFound
+		return nil, dagrun.ErrDAGRunIDNotFound
 	}
 	return s.subAttempt, nil
 }
 
-func (s *recordingDAGRunStore) CreateSubAttempt(context.Context, exec.DAGRunRef, string) (exec.DAGRunAttempt, error) {
+func (s *recordingDAGRunStore) CreateSubAttempt(context.Context, dagrun.DAGRunRef, string) (dagrun.DAGRunAttempt, error) {
 	return nil, nil
 }
 
-func (s *recordingDAGRunStore) RemoveOldDAGRuns(_ context.Context, _ string, retentionDays int, opts ...exec.RemoveOldDAGRunsOption) ([]string, error) {
-	var options exec.RemoveOldDAGRunsOptions
+func (s *recordingDAGRunStore) RemoveOldDAGRuns(_ context.Context, _ string, retentionDays int, opts ...dagrun.RemoveOldDAGRunsOption) ([]string, error) {
+	var options dagrun.RemoveOldDAGRunsOptions
 	for _, opt := range opts {
 		opt(&options)
 	}
@@ -261,24 +261,24 @@ func (s *recordingDAGRunStore) RemoveOldDAGRuns(_ context.Context, _ string, ret
 	return nil, s.removeOldErr
 }
 
-func (s *recordingDAGRunStore) RemoveDAGRun(context.Context, exec.DAGRunRef, ...exec.RemoveDAGRunOption) error {
+func (s *recordingDAGRunStore) RemoveDAGRun(context.Context, dagrun.DAGRunRef, ...dagrun.RemoveDAGRunOption) error {
 	return nil
 }
 
 type recordingAttempt struct {
 	id             string
 	dag            *ir.DAG
-	status         *exec.DAGRunStatus
-	writtenStatus  exec.DAGRunStatus
-	writtenOutputs *exec.DAGRunOutputs
-	messages       map[string][]exec.LLMMessage
+	status         *dagrun.DAGRunStatus
+	writtenStatus  dagrun.DAGRunStatus
+	writtenOutputs *dagrun.DAGRunOutputs
+	messages       map[string][]dagrun.LLMMessage
 	openCalls      int
 	closeCalls     int
 	abortCalls     int
 }
 
 func newRecordingAttempt(id string) *recordingAttempt {
-	return &recordingAttempt{id: id, messages: make(map[string][]exec.LLMMessage)}
+	return &recordingAttempt{id: id, messages: make(map[string][]dagrun.LLMMessage)}
 }
 
 func (a *recordingAttempt) ID() string { return a.id }
@@ -288,7 +288,7 @@ func (a *recordingAttempt) Open(context.Context) error {
 	return nil
 }
 
-func (a *recordingAttempt) Write(_ context.Context, status exec.DAGRunStatus) error {
+func (a *recordingAttempt) Write(_ context.Context, status dagrun.DAGRunStatus) error {
 	a.writtenStatus = status
 	return nil
 }
@@ -298,7 +298,7 @@ func (a *recordingAttempt) Close(context.Context) error {
 	return nil
 }
 
-func (a *recordingAttempt) ReadStatus(context.Context) (*exec.DAGRunStatus, error) {
+func (a *recordingAttempt) ReadStatus(context.Context) (*dagrun.DAGRunStatus, error) {
 	return a.status, nil
 }
 
@@ -323,22 +323,22 @@ func (a *recordingAttempt) Hide(context.Context) error { return nil }
 
 func (a *recordingAttempt) Hidden() bool { return false }
 
-func (a *recordingAttempt) WriteOutputs(_ context.Context, outputs *exec.DAGRunOutputs) error {
+func (a *recordingAttempt) WriteOutputs(_ context.Context, outputs *dagrun.DAGRunOutputs) error {
 	a.writtenOutputs = outputs
 	return nil
 }
 
-func (a *recordingAttempt) ReadOutputs(context.Context) (*exec.DAGRunOutputs, error) {
+func (a *recordingAttempt) ReadOutputs(context.Context) (*dagrun.DAGRunOutputs, error) {
 	return nil, nil
 }
 
-func (a *recordingAttempt) WriteStepMessages(_ context.Context, stepName string, messages []exec.LLMMessage) error {
-	a.messages[stepName] = append([]exec.LLMMessage(nil), messages...)
+func (a *recordingAttempt) WriteStepMessages(_ context.Context, stepName string, messages []dagrun.LLMMessage) error {
+	a.messages[stepName] = append([]dagrun.LLMMessage(nil), messages...)
 	return nil
 }
 
-func (a *recordingAttempt) ReadStepMessages(_ context.Context, stepName string) ([]exec.LLMMessage, error) {
-	return append([]exec.LLMMessage(nil), a.messages[stepName]...), nil
+func (a *recordingAttempt) ReadStepMessages(_ context.Context, stepName string) ([]dagrun.LLMMessage, error) {
+	return append([]dagrun.LLMMessage(nil), a.messages[stepName]...), nil
 }
 
 func (a *recordingAttempt) WorkDir() string { return "" }

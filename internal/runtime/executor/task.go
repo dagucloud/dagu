@@ -9,6 +9,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 )
 
@@ -42,7 +43,7 @@ func CreateTask(
 type TaskOption func(*exec.DispatchTask)
 
 // WithRootDagRun sets the root DAG run name and ID in the task.
-func WithRootDagRun(ref exec.DAGRunRef) TaskOption {
+func WithRootDagRun(ref dagrun.DAGRunRef) TaskOption {
 	return func(task *exec.DispatchTask) {
 		if ref.Name == "" || ref.ID == "" {
 			return // No root DAG run reference provided
@@ -53,7 +54,7 @@ func WithRootDagRun(ref exec.DAGRunRef) TaskOption {
 }
 
 // WithParentDagRun sets the parent DAG run name and ID in the task.
-func WithParentDagRun(ref exec.DAGRunRef) TaskOption {
+func WithParentDagRun(ref dagrun.DAGRunRef) TaskOption {
 	return func(task *exec.DispatchTask) {
 		if ref.Name == "" || ref.ID == "" {
 			return // No parent DAG run reference provided
@@ -152,7 +153,7 @@ func WithExternalStepRetry(enabled bool) TaskOption {
 }
 
 // WithRetryPath sets the persisted child DAG path for a retry task.
-func WithRetryPath(path exec.RetryPath) TaskOption {
+func WithRetryPath(path dagrun.RetryPath) TaskOption {
 	return func(task *exec.DispatchTask) {
 		task.RetryPath = path.Encode()
 	}
@@ -179,7 +180,7 @@ func ResolveBaseConfig(baseConfigData []byte, fallbackPath string) string {
 
 // WithPreviousStatus sets the previous status for retry operations.
 // When set, workers can retry without needing local DAGRunStore access.
-func WithPreviousStatus(status *exec.DAGRunStatus) TaskOption {
+func WithPreviousStatus(status *dagrun.DAGRunStatus) TaskOption {
 	return func(task *exec.DispatchTask) {
 		if status != nil {
 			if task.QueueName == "" && status.ProcGroup != "" {

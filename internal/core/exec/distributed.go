@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
@@ -58,7 +59,7 @@ type DispatchAdmissionRequest struct {
 	NonAdmissionOccupancy int
 	AttemptKey            string
 	AttemptID             string
-	DAGRun                DAGRunRef
+	DAGRun                dagrun.DAGRunRef
 	StaleThreshold        time.Duration
 }
 
@@ -149,8 +150,8 @@ type WorkerHeartbeatStore interface {
 // DAGRunLease is the shared liveness record for an accepted worker claim.
 type DAGRunLease struct {
 	AttemptKey      string              `json:"attemptKey"`
-	DAGRun          DAGRunRef           `json:"dagRun"`
-	Root            DAGRunRef           `json:"root,omitzero"`
+	DAGRun          dagrun.DAGRunRef    `json:"dagRun"`
+	Root            dagrun.DAGRunRef    `json:"root,omitzero"`
 	AttemptID       string              `json:"attemptId"`
 	QueueName       string              `json:"queueName"`
 	WorkerID        string              `json:"workerId"`
@@ -197,13 +198,13 @@ type DAGRunLeaseStore interface {
 
 // ActiveDistributedRun is the durable active-set record for a remote attempt.
 type ActiveDistributedRun struct {
-	AttemptKey string    `json:"attemptKey"`
-	DAGRun     DAGRunRef `json:"dagRun"`
-	Root       DAGRunRef `json:"root,omitzero"`
-	AttemptID  string    `json:"attemptId"`
-	WorkerID   string    `json:"workerId"`
-	Status     ir.Status `json:"status"`
-	UpdatedAt  int64     `json:"updatedAt"`
+	AttemptKey string           `json:"attemptKey"`
+	DAGRun     dagrun.DAGRunRef `json:"dagRun"`
+	Root       dagrun.DAGRunRef `json:"root,omitzero"`
+	AttemptID  string           `json:"attemptId"`
+	WorkerID   string           `json:"workerId"`
+	Status     ir.Status        `json:"status"`
+	UpdatedAt  int64            `json:"updatedAt"`
 }
 
 // ActiveDistributedRunStore persists the coordinator-owned active distributed
@@ -224,7 +225,7 @@ func IsRemoteWorkerID(workerID string) bool {
 // AttemptKeyForStatus resolves the authoritative attempt key for a persisted
 // status. When older statuses omit AttemptKey, it is regenerated from the
 // stored DAG-run identity and attempt ID.
-func AttemptKeyForStatus(status *DAGRunStatus, fallbackAttemptID string) string {
+func AttemptKeyForStatus(status *dagrun.DAGRunStatus, fallbackAttemptID string) string {
 	if status == nil {
 		return ""
 	}
@@ -251,14 +252,14 @@ func AttemptKeyForStatus(status *DAGRunStatus, fallbackAttemptID string) string 
 		root = status.DAGRun()
 	}
 
-	return GenerateAttemptKey(root.Name, root.ID, status.Name, status.DAGRunID, attemptID)
+	return dagrun.GenerateAttemptKey(root.Name, root.ID, status.Name, status.DAGRunID, attemptID)
 }
 
 // LeaseMatchesStatus reports whether the lease still authoritatively belongs to
 // the exact distributed attempt represented by the persisted status.
 func LeaseMatchesStatus(
 	lease *DAGRunLease,
-	status *DAGRunStatus,
+	status *dagrun.DAGRunStatus,
 	fallbackAttemptID string,
 	now time.Time,
 	staleThreshold time.Duration,
@@ -276,7 +277,7 @@ func LeaseMatchesStatus(
 // persisted distributed attempt as status, independent of freshness.
 func LeaseIdentityMatchesStatus(
 	lease *DAGRunLease,
-	status *DAGRunStatus,
+	status *dagrun.DAGRunStatus,
 	fallbackAttemptID string,
 ) bool {
 	if lease == nil || status == nil {

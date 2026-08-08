@@ -6,7 +6,7 @@ package scheduler
 import (
 	"context"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
@@ -20,7 +20,7 @@ func isSchedulerManagedTriggerType(triggerType ir.TriggerType) bool {
 	return false
 }
 
-func suspendFlagName(status *exec.DAGRunStatus, dag *ir.DAG) string {
+func suspendFlagName(status *dagrun.DAGRunStatus, dag *ir.DAG) string {
 	if status != nil && status.SuspendFlagName != "" {
 		return status.SuspendFlagName
 	}
@@ -38,7 +38,7 @@ func suspendFlagName(status *exec.DAGRunStatus, dag *ir.DAG) string {
 func isSuspendedDAG(
 	ctx context.Context,
 	isSuspended IsSuspendedFunc,
-	status *exec.DAGRunStatus,
+	status *dagrun.DAGRunStatus,
 	dag *ir.DAG,
 ) bool {
 	if isSuspended == nil {

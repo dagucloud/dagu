@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	agent "github.com/dagucloud/dagu/v2/internal/runtime/agent"
@@ -36,8 +36,8 @@ func TestRetryNodesUseRestoredDAGStepDefinition(t *testing.T) {
 			IntervalStr: "${REPEAT_INTERVAL}",
 		},
 	}
-	status := &exec.DAGRunStatus{
-		Nodes: []*exec.Node{
+	status := &dagrun.DAGRunStatus{
+		Nodes: []*dagrun.Node{
 			{
 				Step: ir.Step{
 					Name:   "target",
@@ -83,8 +83,8 @@ func TestRetryNodesUseRestoredDAGStepDefinition(t *testing.T) {
 func TestRetryNodesRejectMissingRestoredSourceStep(t *testing.T) {
 	t.Parallel()
 
-	status := &exec.DAGRunStatus{
-		Nodes: []*exec.Node{
+	status := &dagrun.DAGRunStatus{
+		Nodes: []*dagrun.Node{
 			{Step: ir.Step{Name: "missing"}, Status: ir.NodeFailed},
 		},
 	}

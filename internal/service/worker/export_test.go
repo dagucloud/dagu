@@ -9,6 +9,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
@@ -17,7 +18,7 @@ import (
 
 type captureCoordinatorClientForTest struct {
 	coordinator.Client
-	status *exec.DAGRunStatus
+	status *dagrun.DAGRunStatus
 	err    error
 }
 
@@ -31,17 +32,17 @@ func (c *captureCoordinatorClientForTest) ReportStatusTo(ctx context.Context, _ 
 }
 
 type captureStatusPusherForTest struct {
-	status *exec.DAGRunStatus
+	status *dagrun.DAGRunStatus
 }
 
-func (p *captureStatusPusherForTest) Push(_ context.Context, status exec.DAGRunStatus) error {
+func (p *captureStatusPusherForTest) Push(_ context.Context, status dagrun.DAGRunStatus) error {
 	copied := status
 	p.status = &copied
 	return nil
 }
 
 // ReportTaskLoadFailureStatusForTest returns the status emitted for a task load failure.
-func ReportTaskLoadFailureStatusForTest(ctx context.Context, task *coordinatorv1.Task, root, parent exec.DAGRunRef, loadErr error, profileName string) (*exec.DAGRunStatus, error) {
+func ReportTaskLoadFailureStatusForTest(ctx context.Context, task *coordinatorv1.Task, root, parent dagrun.DAGRunRef, loadErr error, profileName string) (*dagrun.DAGRunStatus, error) {
 	client := &captureCoordinatorClientForTest{}
 	handler := &remoteTaskHandler{
 		workerID:          "worker-test",
@@ -63,7 +64,7 @@ func ReportTaskLoadFailureStatusForTest(ctx context.Context, task *coordinatorv1
 }
 
 // ReportTaskInitFailureStatusForTest returns the status emitted for a task init failure.
-func ReportTaskInitFailureStatusForTest(ctx context.Context, task *coordinatorv1.Task, root, parent exec.DAGRunRef, initErr error, profileName string) (*exec.DAGRunStatus, error) {
+func ReportTaskInitFailureStatusForTest(ctx context.Context, task *coordinatorv1.Task, root, parent dagrun.DAGRunRef, initErr error, profileName string) (*dagrun.DAGRunStatus, error) {
 	pusher := &captureStatusPusherForTest{}
 	handler := &remoteTaskHandler{}
 	handler.reportTaskInitFailure(ctx, remoteRun{

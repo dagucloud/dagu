@@ -12,6 +12,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 )
@@ -57,8 +58,8 @@ func (h *Handler) attemptOwnership() *attemptOwnership {
 
 func (o *attemptOwnership) statusDecision(
 	ctx context.Context,
-	latest *exec.DAGRunStatus,
-	incoming *exec.DAGRunStatus,
+	latest *dagrun.DAGRunStatus,
+	incoming *dagrun.DAGRunStatus,
 	opts statusDecisionOptions,
 ) (accepted bool, rejectionReason string) {
 	if latest == nil || incoming == nil {
@@ -113,7 +114,7 @@ func (o *attemptOwnership) leaseInactive(ctx context.Context, attemptKey string)
 func (o *attemptOwnership) syncFromStatus(
 	ctx context.Context,
 	workerID string,
-	status *exec.DAGRunStatus,
+	status *dagrun.DAGRunStatus,
 	fallbackAttemptID string,
 ) {
 	o.syncLeaseFromStatus(ctx, workerID, status, fallbackAttemptID)
@@ -123,7 +124,7 @@ func (o *attemptOwnership) syncFromStatus(
 func (o *attemptOwnership) syncLeaseFromStatus(
 	ctx context.Context,
 	workerID string,
-	status *exec.DAGRunStatus,
+	status *dagrun.DAGRunStatus,
 	fallbackAttemptID string,
 ) {
 	if o.leaseStore == nil || status == nil {
@@ -151,7 +152,7 @@ func (o *attemptOwnership) syncLeaseFromStatus(
 func (o *attemptOwnership) upsertLeaseFromStatus(
 	ctx context.Context,
 	workerID string,
-	status *exec.DAGRunStatus,
+	status *dagrun.DAGRunStatus,
 	fallbackAttemptID string,
 ) {
 	if o.leaseStore == nil || status == nil {
@@ -189,7 +190,7 @@ func (o *attemptOwnership) upsertLeaseFromStatus(
 	now := o.now()
 	lease := exec.DAGRunLease{
 		AttemptKey: attemptKey,
-		DAGRun: exec.DAGRunRef{
+		DAGRun: dagrun.DAGRunRef{
 			Name: status.Name,
 			ID:   status.DAGRunID,
 		},
@@ -218,7 +219,7 @@ func (o *attemptOwnership) upsertLeaseFromStatus(
 func (o *attemptOwnership) restoreConfirmedFromStatus(
 	ctx context.Context,
 	workerID string,
-	status *exec.DAGRunStatus,
+	status *dagrun.DAGRunStatus,
 	fallbackAttemptID string,
 ) {
 	if status == nil {
@@ -237,7 +238,7 @@ func (o *attemptOwnership) restoreConfirmedFromStatus(
 func (o *attemptOwnership) syncActiveRunFromStatus(
 	ctx context.Context,
 	workerID string,
-	status *exec.DAGRunStatus,
+	status *dagrun.DAGRunStatus,
 	fallbackAttemptID string,
 ) {
 	if o.activeRunStore == nil || status == nil {
@@ -266,7 +267,7 @@ func (o *attemptOwnership) syncActiveRunFromStatus(
 
 func (o *attemptOwnership) upsertActiveFromStatus(
 	ctx context.Context,
-	runStatus *exec.DAGRunStatus,
+	runStatus *dagrun.DAGRunStatus,
 	workerID string,
 	fallbackAttemptID string,
 ) {
@@ -334,14 +335,14 @@ func (o *attemptOwnership) upsertActiveFromTask(
 		return
 	}
 
-	root := exec.DAGRunRef{Name: task.RootDagRunName, ID: task.RootDagRunId}
+	root := dagrun.DAGRunRef{Name: task.RootDagRunName, ID: task.RootDagRunId}
 	if root.Zero() {
-		root = exec.DAGRunRef{Name: task.Target, ID: task.DagRunId}
+		root = dagrun.DAGRunRef{Name: task.Target, ID: task.DagRunId}
 	}
 
 	record := exec.ActiveDistributedRun{
 		AttemptKey: task.AttemptKey,
-		DAGRun: exec.DAGRunRef{
+		DAGRun: dagrun.DAGRunRef{
 			Name: task.Target,
 			ID:   task.DagRunId,
 		},
@@ -365,9 +366,9 @@ func (o *attemptOwnership) leaseFromTask(
 	workerID string,
 	now time.Time,
 ) exec.DAGRunLease {
-	root := exec.DAGRunRef{Name: task.RootDagRunName, ID: task.RootDagRunId}
+	root := dagrun.DAGRunRef{Name: task.RootDagRunName, ID: task.RootDagRunId}
 	if root.Zero() {
-		root = exec.DAGRunRef{Name: task.Target, ID: task.DagRunId}
+		root = dagrun.DAGRunRef{Name: task.Target, ID: task.DagRunId}
 	}
 	queueName := task.QueueName
 	if queueName == "" {
@@ -375,7 +376,7 @@ func (o *attemptOwnership) leaseFromTask(
 	}
 	return exec.DAGRunLease{
 		AttemptKey: task.AttemptKey,
-		DAGRun: exec.DAGRunRef{
+		DAGRun: dagrun.DAGRunRef{
 			Name: task.Target,
 			ID:   task.DagRunId,
 		},
@@ -392,7 +393,7 @@ func (o *attemptOwnership) leaseFromTask(
 func (o *attemptOwnership) deleteTracking(
 	ctx context.Context,
 	storeCtx context.Context,
-	dagRun exec.DAGRunRef,
+	dagRun dagrun.DAGRunRef,
 	attemptKey string,
 	leaseMessage string,
 	activeRunMessage string,
@@ -404,7 +405,7 @@ func (o *attemptOwnership) deleteTracking(
 func (o *attemptOwnership) deleteLease(
 	ctx context.Context,
 	storeCtx context.Context,
-	dagRun exec.DAGRunRef,
+	dagRun dagrun.DAGRunRef,
 	attemptKey string,
 	message string,
 ) {
@@ -423,7 +424,7 @@ func (o *attemptOwnership) deleteLease(
 func (o *attemptOwnership) deleteActiveRun(
 	ctx context.Context,
 	storeCtx context.Context,
-	dagRun exec.DAGRunRef,
+	dagRun dagrun.DAGRunRef,
 	attemptKey string,
 	message string,
 ) {
@@ -442,7 +443,7 @@ func (o *attemptOwnership) deleteActiveRun(
 
 func (o *attemptOwnership) indexedRunMatchesStatus(
 	record exec.ActiveDistributedRun,
-	runStatus *exec.DAGRunStatus,
+	runStatus *dagrun.DAGRunStatus,
 ) bool {
 	if _, ok := remoteWorkerID(runStatus, record.WorkerID); !ok {
 		return false
@@ -477,7 +478,7 @@ func isCancellableTerminalRunStatus(status ir.Status) bool {
 	return isTerminalRunStatus(status) && !status.IsSuccess()
 }
 
-func sameAttemptStatus(current, incoming *exec.DAGRunStatus) bool {
+func sameAttemptStatus(current, incoming *dagrun.DAGRunStatus) bool {
 	if current == nil || incoming == nil {
 		return false
 	}
@@ -496,7 +497,7 @@ func sameAttemptStatus(current, incoming *exec.DAGRunStatus) bool {
 	return current.AttemptKey != "" && current.AttemptKey == incoming.AttemptKey
 }
 
-func remoteWorkerID(status *exec.DAGRunStatus, fallbackWorkerID string) (string, bool) {
+func remoteWorkerID(status *dagrun.DAGRunStatus, fallbackWorkerID string) (string, bool) {
 	if status == nil {
 		return "", false
 	}
@@ -515,7 +516,7 @@ func remoteWorkerID(status *exec.DAGRunStatus, fallbackWorkerID string) (string,
 	return fallbackWorkerID, true
 }
 
-func queueNameForStatus(status *exec.DAGRunStatus) string {
+func queueNameForStatus(status *dagrun.DAGRunStatus) string {
 	if status == nil || status.ProcGroup == "" {
 		if status == nil {
 			return ""
@@ -528,8 +529,8 @@ func queueNameForStatus(status *exec.DAGRunStatus) string {
 func logRejectedRemoteStatusUpdate(
 	ctx context.Context,
 	workerID string,
-	incoming *exec.DAGRunStatus,
-	latest *exec.DAGRunStatus,
+	incoming *dagrun.DAGRunStatus,
+	latest *dagrun.DAGRunStatus,
 	reason string,
 ) {
 	attrs := []slog.Attr{

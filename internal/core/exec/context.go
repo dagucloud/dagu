@@ -5,17 +5,15 @@ package exec
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"io"
 	"maps"
 	"strings"
-	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
@@ -23,8 +21,8 @@ import (
 // Context contains the execution metadata for a dag-run.
 type Context struct {
 	DAGRunID             string
-	RootDAGRun           DAGRunRef
-	RetryPath            RetryPath
+	RootDAGRun           dagrun.DAGRunRef
+	RetryPath            dagrun.RetryPath
 	AttemptID            string
 	TriggerType          ir.TriggerType
 	TriggerActor         string
@@ -35,7 +33,7 @@ type Context struct {
 	BaseEnv              *config.BaseEnv
 	EnvScope             *cmnvalue.EnvScope // Unified environment scope for runtime variables
 	CoordinatorCli       Dispatcher
-	DAGRunStore          DAGRunStore
+	DAGRunStore          dagrun.DAGRunStore
 	QueueStore           QueueStore
 	StateStore           dagstate.Store
 	MaterializationStore MaterializationStore
@@ -43,20 +41,12 @@ type Context struct {
 	DAGRunArtifactDir    string
 	ProfileName          string
 	ProfileResolvedAt    string
-	ProfileEntries       []RuntimeProfileEntry
+	ProfileEntries       []dagrun.RuntimeProfileEntry
 	Shell                string               // Default shell for this DAG (from DAG.Shell)
 	LogEncodingCharset   string               // Character encoding for log files (e.g., "utf-8", "shift_jis", "euc-jp")
 	LogWriterFactory     LogWriterFactory     // For remote log streaming (nil = use local files)
 	DefaultExecMode      config.ExecutionMode // Server-level default execution mode (local or distributed)
 	NoReuse              bool
-}
-
-// RuntimeProfileEntry is non-secret metadata about a profile key injected into a run.
-type RuntimeProfileEntry struct {
-	// Key is the injected environment variable name.
-	Key string `json:"key"`
-	// Kind is the profile entry type, such as variable or secret.
-	Kind string `json:"kind"`
 }
 
 // LogWriterFactory creates log writers for step stdout/stderr.
@@ -86,9 +76,9 @@ func (e Context) UserEnvsMap() map[string]string {
 	return e.EnvScope.AllUserEnvs()
 }
 
-// DAGRunRef returns the DAGRunRef for the current DAG context.
-func (e Context) DAGRunRef() DAGRunRef {
-	return NewDAGRunRef(e.DAG.Name, e.DAGRunID)
+// DAGRunRef returns the DAG-run reference for the current DAG context.
+func (e Context) DAGRunRef() dagrun.DAGRunRef {
+	return dagrun.NewDAGRunRef(e.DAG.Name, e.DAGRunID)
 }
 
 // AllEnvs returns every environment variable as "key=value" strings.
@@ -106,93 +96,7 @@ type Database interface {
 	// GetDAG retrieves a DAG by its name.
 	GetDAG(ctx context.Context, name string) (*ir.DAG, error)
 	// RequestChildCancel requests cancellation of a sub dag-run.
-	RequestChildCancel(ctx context.Context, dagRunID string, rootDAGRun DAGRunRef) error
-}
-
-// SubDAGRunStatus is an interface that represents the status of a sub dag-run.
-type PendingStepRetry struct {
-	StepName string        `json:"stepName"`
-	Interval time.Duration `json:"interval"`
-}
-
-// MarshalJSON emits Interval as a Go duration string while keeping the
-// surrounding shape stable for callers.
-func (p PendingStepRetry) MarshalJSON() ([]byte, error) {
-	return json.Marshal(struct {
-		StepName string `json:"stepName"`
-		Interval string `json:"interval"`
-	}{
-		StepName: p.StepName,
-		Interval: p.Interval.String(),
-	})
-}
-
-// UnmarshalJSON accepts both the current string encoding and the legacy
-// numeric nanosecond encoding for backward compatibility with persisted data.
-func (p *PendingStepRetry) UnmarshalJSON(data []byte) error {
-	var current struct {
-		StepName string `json:"stepName"`
-		Interval string `json:"interval"`
-	}
-	if err := json.Unmarshal(data, &current); err == nil && current.Interval != "" {
-		interval, parseErr := time.ParseDuration(current.Interval)
-		if parseErr != nil {
-			return fmt.Errorf("parse pending step retry interval: %w", parseErr)
-		}
-		p.StepName = current.StepName
-		p.Interval = interval
-		return nil
-	}
-
-	var legacy struct {
-		StepName string        `json:"stepName"`
-		Interval time.Duration `json:"interval"`
-	}
-	if err := json.Unmarshal(data, &legacy); err != nil {
-		return err
-	}
-	p.StepName = legacy.StepName
-	p.Interval = legacy.Interval
-	return nil
-}
-
-type RunStatus struct {
-	// Name represents the name of the executed DAG.
-	Name string
-	// DAGRunID is the ID of the dag-run.
-	DAGRunID string
-	// Params is the parameters of the DAG.
-	Params string
-	// Outputs is the outputs of the dag-run.
-	Outputs map[string]string
-	// OutputValues contains typed outputs published through stdout.outputs or outputs.write.
-	OutputValues map[string]any
-	// Status is the execution status of the dag-run.
-	Status ir.Status
-	// PendingStepRetries contains any step retries that are waiting to be scheduled
-	// by the parent executor.
-	PendingStepRetries []PendingStepRetry
-}
-
-// MarshalJSON implements the json.Marshaler interface for RunStatus.
-func (r *RunStatus) MarshalJSON() ([]byte, error) {
-	return json.MarshalIndent(struct {
-		Name               string             `json:"name,omitempty"`
-		DAGRunID           string             `json:"dagRunId,omitempty"`
-		Params             string             `json:"params,omitempty"`
-		Outputs            map[string]string  `json:"outputs,omitzero"`
-		OutputValues       map[string]any     `json:"outputValues,omitzero"`
-		Status             string             `json:"status"`
-		PendingStepRetries []PendingStepRetry `json:"pendingStepRetries,omitempty"`
-	}{
-		Name:               r.Name,
-		DAGRunID:           r.DAGRunID,
-		Params:             r.Params,
-		Outputs:            r.Outputs,
-		OutputValues:       r.OutputValues,
-		Status:             r.Status.String(),
-		PendingStepRetries: r.PendingStepRetries,
-	}, "", "  ")
+	RequestChildCancel(ctx context.Context, dagRunID string, rootDAGRun dagrun.DAGRunRef) error
 }
 
 // contextOptions holds optional configuration for NewContext.
@@ -224,14 +128,14 @@ func WithDatabase(db Database) ContextOption {
 }
 
 // WithRootDAGRun sets the root DAG run reference for sub-DAG execution.
-func WithRootDAGRun(ref DAGRunRef) ContextOption {
+func WithRootDAGRun(ref dagrun.DAGRunRef) ContextOption {
 	return func(o *contextOptions) {
 		o.RootDAGRun = ref
 	}
 }
 
 // WithRetryPath sets the persisted child DAG path for a targeted retry.
-func WithRetryPath(path RetryPath) ContextOption {
+func WithRetryPath(path dagrun.RetryPath) ContextOption {
 	return func(o *contextOptions) {
 		o.RetryPath = path
 	}
@@ -337,7 +241,7 @@ func WithDefaultExecMode(mode config.ExecutionMode) ContextOption {
 }
 
 // WithDAGRunStore sets the dag-run store for executors that persist DAG runs.
-func WithDAGRunStore(store DAGRunStore) ContextOption {
+func WithDAGRunStore(store dagrun.DAGRunStore) ContextOption {
 	return func(o *contextOptions) {
 		o.DAGRunStore = store
 	}
@@ -400,11 +304,11 @@ func WithArtifactDir(dir string) ContextOption {
 }
 
 // WithRuntimeProfile sets the selected profile metadata for this run context.
-func WithRuntimeProfile(name, resolvedAt string, entries []RuntimeProfileEntry) ContextOption {
+func WithRuntimeProfile(name, resolvedAt string, entries []dagrun.RuntimeProfileEntry) ContextOption {
 	return func(o *contextOptions) {
 		o.ProfileName = name
 		o.ProfileResolvedAt = resolvedAt
-		o.ProfileEntries = append([]RuntimeProfileEntry(nil), entries...)
+		o.ProfileEntries = append([]dagrun.RuntimeProfileEntry(nil), entries...)
 	}
 }
 
@@ -565,7 +469,7 @@ func buildDAGRunBuiltinContext(
 	return cmnvalue.NewBuiltinContext(values)
 }
 
-func rootDAGRunContextAvailable(root DAGRunRef, dag *ir.DAG, dagRunID string) bool {
+func rootDAGRunContextAvailable(root dagrun.DAGRunRef, dag *ir.DAG, dagRunID string) bool {
 	if root.Zero() {
 		return false
 	}

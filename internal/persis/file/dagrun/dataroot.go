@@ -26,7 +26,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/dagrun/dagrunindex"
 )
 
@@ -148,7 +148,7 @@ func (dr *DataRoot) FindByDAGRunID(ctx context.Context, dagRunID string) (*DAGRu
 		}
 	}
 
-	return nil, fmt.Errorf("%w: %s", exec.ErrDAGRunIDNotFound, dagRunID)
+	return nil, fmt.Errorf("%w: %s", dagrun.ErrDAGRunIDNotFound, dagRunID)
 }
 
 func findDAGRunInDay(ctx context.Context, dayPath, dagRunID, artifactDir string) (*DAGRun, error) {
@@ -221,23 +221,23 @@ func (dr *DataRoot) Latest(ctx context.Context, itemLimit int) []*DAGRun {
 
 // LatestAfter returns the most recent dag-run that occurred after the specified cutoff time.
 // Returns ErrNoStatusData if no dag-run is found or if the latest run is before the cutoff.
-func (dr *DataRoot) LatestAfter(ctx context.Context, cutoff exec.TimeInUTC) (*DAGRun, error) {
+func (dr *DataRoot) LatestAfter(ctx context.Context, cutoff dagrun.TimeInUTC) (*DAGRun, error) {
 	runs, err := dr.listRecentDAGRuns(ctx, 1)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list recent runs: %w", err)
 	}
 	if len(runs) == 0 {
-		return nil, exec.ErrNoStatusData
+		return nil, dagrun.ErrNoStatusData
 	}
 	if runs[0].timestamp.Before(cutoff.Time) {
-		return nil, exec.ErrNoStatusData
+		return nil, dagrun.ErrNoStatusData
 	}
 	return runs[0], nil
 }
 
 // CreateDAGRun creates a new dag-run directory with the specified timestamp and ID.
 // The directory structure follows the pattern: year/month/day/run-YYYYMMDD_HHMMSS_dagRunID
-func (dr *DataRoot) CreateDAGRun(ts exec.TimeInUTC, dagRunID string) (*DAGRun, error) {
+func (dr *DataRoot) CreateDAGRun(ts dagrun.TimeInUTC, dagRunID string) (*DAGRun, error) {
 	dirName := DAGRunDirPrefix + formatDAGRunTimestamp(ts) + "_" + dagRunID
 	dir := filepath.Join(dr.dagRunsDir, ts.Format("2006"), ts.Format("01"), ts.Format("02"), dirName)
 
@@ -292,19 +292,19 @@ func (dr DataRoot) RemoveOld(ctx context.Context, retentionDays int, dryRun bool
 	if retentionDays < 0 {
 		return nil, nil
 	}
-	keepTime := exec.NewUTC(time.Now().AddDate(0, 0, -retentionDays))
+	keepTime := dagrun.NewUTC(time.Now().AddDate(0, 0, -retentionDays))
 	return dr.removeOldBefore(ctx, keepTime, dryRun)
 }
 
 // removeOldBefore removes dag-runs whose recorded time is strictly before keepTime.
 // Active (non-final) runs are never removed. If dryRun is true, it returns the run
 // IDs that would be removed without actually deleting them.
-func (dr DataRoot) removeOldBefore(ctx context.Context, keepTime exec.TimeInUTC, dryRun bool) ([]string, error) {
+func (dr DataRoot) removeOldBefore(ctx context.Context, keepTime dagrun.TimeInUTC, dryRun bool) ([]string, error) {
 	if keepTime.IsZero() {
 		return nil, nil
 	}
 
-	dagRuns := dr.listDAGRunsInRange(ctx, exec.TimeInUTC{}, keepTime, &listDAGRunsInRangeOpts{})
+	dagRuns := dr.listDAGRunsInRange(ctx, dagrun.TimeInUTC{}, keepTime, &listDAGRunsInRangeOpts{})
 
 	var removedRunIDs []string
 
@@ -326,7 +326,7 @@ func (dr DataRoot) RemoveOldByRuns(ctx context.Context, retentionRuns int, dryRu
 		return nil, nil
 	}
 
-	dagRuns := dr.listDAGRunsInRange(ctx, exec.TimeInUTC{}, exec.TimeInUTC{}, &listDAGRunsInRangeOpts{})
+	dagRuns := dr.listDAGRunsInRange(ctx, dagrun.TimeInUTC{}, dagrun.TimeInUTC{}, &listDAGRunsInRangeOpts{})
 	if len(dagRuns) <= retentionRuns {
 		return nil, nil
 	}
@@ -455,7 +455,7 @@ type listDAGRunsInRangeOpts struct {
 	limit int
 }
 
-func (dr DataRoot) listDAGRunsInRange(ctx context.Context, start, end exec.TimeInUTC, opts *listDAGRunsInRangeOpts) []*DAGRun {
+func (dr DataRoot) listDAGRunsInRange(ctx context.Context, start, end dagrun.TimeInUTC, opts *listDAGRunsInRangeOpts) []*DAGRun {
 	var result []*DAGRun
 	var lock sync.Mutex
 

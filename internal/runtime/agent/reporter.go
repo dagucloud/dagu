@@ -10,7 +10,7 @@ import (
 	"html"
 	"strings"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/jedib0t/go-pretty/v6/table"
@@ -62,7 +62,7 @@ func newReporter(f SenderFn, cfg reporterConfig) *reporter {
 
 // reportStep is a function that reports the status of a step.
 func (r *reporter) reportStep(
-	ctx context.Context, dag *ir.DAG, dagStatus exec.DAGRunStatus, node *runtime.Node,
+	ctx context.Context, dag *ir.DAG, dagStatus dagrun.DAGRunStatus, node *runtime.Node,
 ) error {
 	if r == nil {
 		return nil
@@ -77,7 +77,7 @@ func (r *reporter) reportStep(
 }
 
 // send is a function that sends a report mail.
-func (r *reporter) send(ctx context.Context, dag *ir.DAG, dagStatus exec.DAGRunStatus, err error) error {
+func (r *reporter) send(ctx context.Context, dag *ir.DAG, dagStatus dagrun.DAGRunStatus, err error) error {
 	if r == nil {
 		return nil
 	}
@@ -89,7 +89,7 @@ func (r *reporter) send(ctx context.Context, dag *ir.DAG, dagStatus exec.DAGRunS
 }
 
 // selectMailConfig returns the appropriate mail config based on status, or nil if no mail should be sent.
-func (r *reporter) selectMailConfig(dag *ir.DAG, dagStatus exec.DAGRunStatus, err error) *ir.MailConfig {
+func (r *reporter) selectMailConfig(dag *ir.DAG, dagStatus dagrun.DAGRunStatus, err error) *ir.MailConfig {
 	if dag.MailOn == nil {
 		return nil
 	}
@@ -106,7 +106,7 @@ func (r *reporter) selectMailConfig(dag *ir.DAG, dagStatus exec.DAGRunStatus, er
 	}
 }
 
-func (r *reporter) sendConfiguredMail(ctx context.Context, mailConfig *ir.MailConfig, dagName string, dagStatus exec.DAGRunStatus) error {
+func (r *reporter) sendConfiguredMail(ctx context.Context, mailConfig *ir.MailConfig, dagName string, dagStatus dagrun.DAGRunStatus) error {
 	return r.senderFn(
 		ctx,
 		mailConfig.From,
@@ -173,7 +173,7 @@ var dagHeader = table.Row{
 	"Error",
 }
 
-func renderDAGSummary(dagStatus exec.DAGRunStatus, err error) string {
+func renderDAGSummary(dagStatus dagrun.DAGRunStatus, err error) string {
 	errText := ""
 	if err != nil {
 		errText = err.Error()
@@ -205,7 +205,7 @@ var stepHeader = table.Row{
 	"Error",
 }
 
-func renderStepSummary(nodes []*exec.Node) string {
+func renderStepSummary(nodes []*dagrun.Node) string {
 	stepTable := table.NewWriter()
 	stepTable.AppendHeader(stepHeader)
 
@@ -224,7 +224,7 @@ func renderStepSummary(nodes []*exec.Node) string {
 	return stepTable.Render()
 }
 
-func renderHTML(nodes []*exec.Node) string {
+func renderHTML(nodes []*dagrun.Node) string {
 	var buffer bytes.Buffer
 
 	// Start with basic HTML structure with improved styling
@@ -294,7 +294,7 @@ func renderHTML(nodes []*exec.Node) string {
 
 var htmlTableHeaders = []string{"#", "Step", "Started At", "Finished At", "Status", "Command", "Error"}
 
-func writeHTMLTable(buffer *bytes.Buffer, nodes []*exec.Node) {
+func writeHTMLTable(buffer *bytes.Buffer, nodes []*dagrun.Node) {
 	_, _ = buffer.WriteString("<table><thead><tr>")
 	writeHTMLHeaderCells(buffer, htmlTableHeaders)
 	_, _ = buffer.WriteString("</tr></thead><tbody>")
@@ -313,7 +313,7 @@ func writeHTMLHeaderCells(buffer *bytes.Buffer, headers []string) {
 }
 
 // writeNodeRow writes a single node row to the HTML buffer.
-func writeNodeRow(buffer *bytes.Buffer, index int, n *exec.Node) {
+func writeNodeRow(buffer *bytes.Buffer, index int, n *dagrun.Node) {
 	_, _ = buffer.WriteString("<tr>")
 	_, _ = buffer.WriteString(fmt.Sprintf("<td class=\"row-number\">%d</td>", index+1))
 	_, _ = buffer.WriteString(fmt.Sprintf("<td class=\"step-name\">%s</td>", html.EscapeString(n.Step.Name)))
@@ -332,7 +332,7 @@ func writeNodeRow(buffer *bytes.Buffer, index int, n *exec.Node) {
 	_, _ = buffer.WriteString("</tr>")
 }
 
-func renderHTMLWithDAGInfo(dagStatus exec.DAGRunStatus) string {
+func renderHTMLWithDAGInfo(dagStatus dagrun.DAGRunStatus) string {
 	var buffer bytes.Buffer
 
 	// Start with enhanced HTML structure and styling
@@ -579,7 +579,7 @@ func renderHTMLWithDAGInfo(dagStatus exec.DAGRunStatus) string {
 }
 
 func addAttachments(
-	trigger bool, nodes []*exec.Node,
+	trigger bool, nodes []*dagrun.Node,
 ) (attachments []string) {
 	if trigger {
 		for _, n := range nodes {

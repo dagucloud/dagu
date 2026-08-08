@@ -15,7 +15,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
@@ -25,16 +25,16 @@ var (
 	ErrDAGRunIDEmpty = errors.New("dag-run ID is empty")
 )
 
-var _ exec.DAGRunStore = (*Store)(nil)
+var _ dagrun.DAGRunStore = (*Store)(nil)
 
 // Store manages DAG run status files on the local filesystem.
 type Store struct {
-	baseDir           string                              // Base directory for all status files
-	artifactDir       string                              // Trusted root for artifact cleanup
-	latestStatusToday bool                                // Whether to only return today's status
-	cache             *fileutil.Cache[*exec.DAGRunStatus] // Optional cache for read operations
-	maxWorkers        int                                 // Maximum number of parallel workers
-	location          *time.Location                      // Timezone location for date calculations
+	baseDir           string                                // Base directory for all status files
+	artifactDir       string                                // Trusted root for artifact cleanup
+	latestStatusToday bool                                  // Whether to only return today's status
+	cache             *fileutil.Cache[*dagrun.DAGRunStatus] // Optional cache for read operations
+	maxWorkers        int                                   // Maximum number of parallel workers
+	location          *time.Location                        // Timezone location for date calculations
 }
 
 // DAGRunStoreOption defines functional options for configuring Store.
@@ -42,15 +42,15 @@ type DAGRunStoreOption func(*DAGRunStoreOptions)
 
 // DAGRunStoreOptions holds configuration options for Store.
 type DAGRunStoreOptions struct {
-	FileCache         *fileutil.Cache[*exec.DAGRunStatus] // Optional cache for status files
-	ArtifactDir       string                              // Trusted root for artifact cleanup
-	LatestStatusToday bool                                // Whether to only return today's status
-	MaxWorkers        int                                 // Maximum number of parallel workers
-	Location          *time.Location                      // Timezone location for date calculations
+	FileCache         *fileutil.Cache[*dagrun.DAGRunStatus] // Optional cache for status files
+	ArtifactDir       string                                // Trusted root for artifact cleanup
+	LatestStatusToday bool                                  // Whether to only return today's status
+	MaxWorkers        int                                   // Maximum number of parallel workers
+	Location          *time.Location                        // Timezone location for date calculations
 }
 
 // WithHistoryFileCache sets the file cache for Store.
-func WithHistoryFileCache(cache *fileutil.Cache[*exec.DAGRunStatus]) DAGRunStoreOption {
+func WithHistoryFileCache(cache *fileutil.Cache[*dagrun.DAGRunStatus]) DAGRunStoreOption {
 	return func(o *DAGRunStoreOptions) {
 		o.FileCache = cache
 	}
@@ -78,7 +78,7 @@ func WithLocation(location *time.Location) DAGRunStoreOption {
 }
 
 // New creates a new Store instance with the specified options.
-func New(baseDir string, opts ...DAGRunStoreOption) exec.DAGRunStore {
+func New(baseDir string, opts ...DAGRunStoreOption) dagrun.DAGRunStore {
 	options := &DAGRunStoreOptions{
 		LatestStatusToday: true,
 		MaxWorkers:        runtime.NumCPU(),
@@ -102,7 +102,7 @@ func New(baseDir string, opts ...DAGRunStoreOption) exec.DAGRunStore {
 
 // ListStatuses retrieves status records based on the provided options.
 // It supports filtering by time range, status, and limiting the number of results.
-func (store *Store) ListStatuses(ctx context.Context, opts ...exec.ListDAGRunStatusesOption) ([]*exec.DAGRunStatus, error) {
+func (store *Store) ListStatuses(ctx context.Context, opts ...dagrun.ListDAGRunStatusesOption) ([]*dagrun.DAGRunStatus, error) {
 	options, err := prepareListOptions(opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare options: %w", err)
@@ -115,8 +115,8 @@ func (store *Store) ListStatuses(ctx context.Context, opts ...exec.ListDAGRunSta
 }
 
 // prepareListOptions processes the provided options and sets default values.
-func prepareListOptions(opts []exec.ListDAGRunStatusesOption) (exec.ListDAGRunStatusesOptions, error) {
-	var options exec.ListDAGRunStatusesOptions
+func prepareListOptions(opts []dagrun.ListDAGRunStatusesOption) (dagrun.ListDAGRunStatusesOptions, error) {
+	var options dagrun.ListDAGRunStatusesOptions
 
 	// Apply all options
 	for _, opt := range opts {
@@ -126,7 +126,7 @@ func prepareListOptions(opts []exec.ListDAGRunStatusesOption) (exec.ListDAGRunSt
 	// Set default time range if not specified. Internal reconciliation paths can
 	// opt out when they need to scan historical rows explicitly.
 	if !options.AllHistory && options.From.IsZero() && options.To.IsZero() {
-		options.From = exec.NewUTC(time.Now().Truncate(24 * time.Hour))
+		options.From = dagrun.NewUTC(time.Now().Truncate(24 * time.Hour))
 	}
 
 	// Enforce a reasonable limit on the number of results
@@ -150,7 +150,7 @@ func (store *Store) resolveStatus(
 	workspaceFilter *workspace.WorkspaceFilter,
 	statusesFilter map[ir.Status]struct{},
 	hasStatusFilter bool,
-) *exec.DAGRunStatus {
+) *dagrun.DAGRunStatus {
 	// Fast path: use pre-loaded summary for filtering.
 	if dagRun.summary != nil {
 		if hasStatusFilter {
@@ -170,8 +170,8 @@ func (store *Store) resolveStatus(
 
 		// Passed filters — construct status directly from index.
 		s := dagRun.summary
-		return &exec.DAGRunStatus{
-			Parent:               exec.NewDAGRunRef(s.ParentName, s.ParentID),
+		return &dagrun.DAGRunStatus{
+			Parent:               dagrun.NewDAGRunRef(s.ParentName, s.ParentID),
 			Name:                 s.Name,
 			DAGRunID:             s.DagRunID,
 			AttemptID:            s.AttemptID,
@@ -201,7 +201,7 @@ func (store *Store) resolveStatus(
 	// Standard path: discover latest attempt and read status.
 	run, err := dagRun.LatestAttempt(ctx, store.cache)
 	if err != nil {
-		if !errors.Is(err, exec.ErrNoStatusData) {
+		if !errors.Is(err, dagrun.ErrNoStatusData) {
 			logger.Error(ctx, "Failed to get latest run", tag.Error(err))
 		}
 		return nil
@@ -234,16 +234,16 @@ func (store *Store) resolveStatus(
 
 func (store *Store) CompareAndSwapLatestAttemptStatus(
 	ctx context.Context,
-	dagRun exec.DAGRunRef,
+	dagRun dagrun.DAGRunRef,
 	expectedAttemptID string,
 	expectedStatus ir.Status,
-	mutate func(*exec.DAGRunStatus) error,
-	opts ...exec.CompareAndSwapStatusOption,
-) (*exec.DAGRunStatus, bool, error) {
+	mutate func(*dagrun.DAGRunStatus) error,
+	opts ...dagrun.CompareAndSwapStatusOption,
+) (*dagrun.DAGRunStatus, bool, error) {
 	if dagRun.ID == "" {
 		return nil, false, ErrDAGRunIDEmpty
 	}
-	cfg := exec.NewCompareAndSwapStatusOptions(opts...)
+	cfg := dagrun.NewCompareAndSwapStatusOptions(opts...)
 	rootRef := cfg.RootDAGRun
 	if rootRef.Zero() {
 		rootRef = dagRun
@@ -313,7 +313,7 @@ func (store *Store) CompareAndSwapLatestAttemptStatus(
 	if err := mutate(status); err != nil {
 		return nil, false, err
 	}
-	exec.NormalizeDAGRunConditions(status)
+	dagrun.NormalizeDAGRunConditions(status)
 	if err := attempt.Write(ctx, *status); err != nil {
 		return nil, false, err
 	}
@@ -330,7 +330,7 @@ func formatUnixToRFC3339(unix int64) string {
 // CreateAttempt creates a new history record for the specified dag-run ID.
 // If opts.Root is not nil, it creates a new history record for a sub dag-run.
 // If opts.Retry is true, it creates a retry record for the specified dag-run ID.
-func (store *Store) CreateAttempt(ctx context.Context, dag *ir.DAG, timestamp time.Time, dagRunID string, opts exec.NewDAGRunAttemptOptions) (exec.DAGRunAttempt, error) {
+func (store *Store) CreateAttempt(ctx context.Context, dag *ir.DAG, timestamp time.Time, dagRunID string, opts dagrun.NewDAGRunAttemptOptions) (dagrun.DAGRunAttempt, error) {
 	if dagRunID == "" {
 		return nil, ErrDAGRunIDEmpty
 	}
@@ -340,7 +340,7 @@ func (store *Store) CreateAttempt(ctx context.Context, dag *ir.DAG, timestamp ti
 	}
 
 	dataRoot := NewDataRoot(store.baseDir, dag.Name)
-	ts := exec.NewUTC(timestamp)
+	ts := dagrun.NewUTC(timestamp)
 
 	lockCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -366,7 +366,7 @@ func (store *Store) CreateAttempt(ctx context.Context, dag *ir.DAG, timestamp ti
 		existingRun, _ := dataRoot.FindByDAGRunID(ctx, dagRunID)
 		if existingRun != nil {
 			// Error if the dag-run already exists
-			return nil, fmt.Errorf("%w: %s", exec.ErrDAGRunAlreadyExists, dagRunID)
+			return nil, fmt.Errorf("%w: %s", dagrun.ErrDAGRunAlreadyExists, dagRunID)
 		}
 		r, err := dataRoot.CreateDAGRun(ts, dagRunID)
 		if err != nil {
@@ -384,14 +384,14 @@ func (store *Store) CreateAttempt(ctx context.Context, dag *ir.DAG, timestamp ti
 }
 
 // newChildRecord creates a new history record for a sub dag-run.
-func (b *Store) newChildRecord(ctx context.Context, dag *ir.DAG, timestamp time.Time, dagRunID string, opts exec.NewDAGRunAttemptOptions) (exec.DAGRunAttempt, error) {
+func (b *Store) newChildRecord(ctx context.Context, dag *ir.DAG, timestamp time.Time, dagRunID string, opts dagrun.NewDAGRunAttemptOptions) (dagrun.DAGRunAttempt, error) {
 	dataRoot := NewDataRoot(b.baseDir, opts.RootDAGRun.Name)
 	root, err := dataRoot.FindByDAGRunID(ctx, opts.RootDAGRun.ID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find root execution: %w", err)
 	}
 
-	ts := exec.NewUTC(timestamp)
+	ts := dagrun.NewUTC(timestamp)
 
 	var run *DAGRun
 	if opts.Retry {
@@ -418,7 +418,7 @@ func (b *Store) newChildRecord(ctx context.Context, dag *ir.DAG, timestamp time.
 }
 
 // RecentAttempts returns the most recent history records for the specified DAG name.
-func (store *Store) RecentAttempts(ctx context.Context, dagName string, itemLimit int) []exec.DAGRunAttempt {
+func (store *Store) RecentAttempts(ctx context.Context, dagName string, itemLimit int) []dagrun.DAGRunAttempt {
 	if itemLimit <= 0 {
 		logger.Warn(ctx, "Invalid itemLimit, using default of 10",
 			tag.Limit(itemLimit))
@@ -430,7 +430,7 @@ func (store *Store) RecentAttempts(ctx context.Context, dagName string, itemLimi
 	items := root.Latest(ctx, itemLimit)
 
 	// Get the latest record for each item
-	records := make([]exec.DAGRunAttempt, 0, len(items))
+	records := make([]dagrun.DAGRunAttempt, 0, len(items))
 	for _, item := range items {
 		record, err := item.LatestAttempt(ctx, store.cache)
 		if err != nil {
@@ -445,14 +445,14 @@ func (store *Store) RecentAttempts(ctx context.Context, dagName string, itemLimi
 
 // LatestAttempt returns the most recent history record for the specified DAG name.
 // If latestStatusToday is true, it only returns today's status.
-func (store *Store) LatestAttempt(ctx context.Context, dagName string) (exec.DAGRunAttempt, error) {
+func (store *Store) LatestAttempt(ctx context.Context, dagName string) (dagrun.DAGRunAttempt, error) {
 	root := NewDataRoot(store.baseDir, dagName)
 
 	if store.latestStatusToday {
 		// Use the configured timezone to calculate "today"
 		now := time.Now().In(store.location)
 		startOfDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, store.location)
-		startOfDayInUTC := exec.NewUTC(startOfDay)
+		startOfDayInUTC := dagrun.NewUTC(startOfDay)
 
 		if attempt, err := root.latestAttemptFromPointer(ctx, store.cache, startOfDayInUTC); err == nil {
 			return attempt, nil
@@ -473,14 +473,14 @@ func (store *Store) LatestAttempt(ctx context.Context, dagName string) (exec.DAG
 		return attempt, err
 	}
 
-	if attempt, err := root.latestAttemptFromPointer(ctx, store.cache, exec.TimeInUTC{}); err == nil {
+	if attempt, err := root.latestAttemptFromPointer(ctx, store.cache, dagrun.TimeInUTC{}); err == nil {
 		return attempt, nil
 	}
 
 	// Get the latest execution data.
 	latest := root.Latest(ctx, 1)
 	if len(latest) == 0 {
-		return nil, exec.ErrNoStatusData
+		return nil, dagrun.ErrNoStatusData
 	}
 	attempt, err := latest[0].LatestAttempt(ctx, store.cache)
 	if err == nil {
@@ -492,7 +492,7 @@ func (store *Store) LatestAttempt(ctx context.Context, dagName string) (exec.DAG
 }
 
 // FindAttempt finds a history record by dag-run ID.
-func (store *Store) FindAttempt(ctx context.Context, ref exec.DAGRunRef) (exec.DAGRunAttempt, error) {
+func (store *Store) FindAttempt(ctx context.Context, ref dagrun.DAGRunRef) (dagrun.DAGRunAttempt, error) {
 	if ref.ID == "" {
 		return nil, ErrDAGRunIDEmpty
 	}
@@ -508,7 +508,7 @@ func (store *Store) FindAttempt(ctx context.Context, ref exec.DAGRunRef) (exec.D
 
 // FindSubAttempt finds a sub dag-run by its ID.
 // It returns the latest record for the specified sub dag-run ID.
-func (store *Store) FindSubAttempt(ctx context.Context, ref exec.DAGRunRef, subDAGRunID string) (exec.DAGRunAttempt, error) {
+func (store *Store) FindSubAttempt(ctx context.Context, ref dagrun.DAGRunRef, subDAGRunID string) (dagrun.DAGRunAttempt, error) {
 	if ref.ID == "" {
 		return nil, ErrDAGRunIDEmpty
 	}
@@ -529,7 +529,7 @@ func (store *Store) FindSubAttempt(ctx context.Context, ref exec.DAGRunRef, subD
 // CreateSubAttempt creates a new sub dag-run attempt under the root dag-run.
 // This is used for distributed sub-DAG execution where the coordinator needs
 // to create the attempt directory before the worker reports status.
-func (store *Store) CreateSubAttempt(ctx context.Context, rootRef exec.DAGRunRef, subDAGRunID string) (exec.DAGRunAttempt, error) {
+func (store *Store) CreateSubAttempt(ctx context.Context, rootRef dagrun.DAGRunRef, subDAGRunID string) (dagrun.DAGRunAttempt, error) {
 	if rootRef.ID == "" {
 		return nil, ErrDAGRunIDEmpty
 	}
@@ -561,7 +561,7 @@ func (store *Store) CreateSubAttempt(ctx context.Context, rootRef exec.DAGRunRef
 	}
 
 	// Create an attempt within the sub-DAG run (no preset attemptID)
-	return subDAGRun.CreateAttempt(ctx, exec.NewUTC(time.Now()), store.cache, "")
+	return subDAGRun.CreateAttempt(ctx, dagrun.NewUTC(time.Now()), store.cache, "")
 }
 
 // RemoveOldDAGRuns removes old history records by retention days, absolute cutoff, or run count.
@@ -571,8 +571,8 @@ func (store *Store) CreateSubAttempt(ctx context.Context, rootRef exec.DAGRunRef
 // If retentionDays is zero, all files will be removed.
 // If retentionDays is positive, only files older than the specified number of days will be removed.
 // Returns a list of file paths that were removed (or would be removed in dry-run mode).
-func (store *Store) RemoveOldDAGRuns(ctx context.Context, dagName string, retentionDays int, opts ...exec.RemoveOldDAGRunsOption) ([]string, error) {
-	var options exec.RemoveOldDAGRunsOptions
+func (store *Store) RemoveOldDAGRuns(ctx context.Context, dagName string, retentionDays int, opts ...dagrun.RemoveOldDAGRunsOption) ([]string, error) {
+	var options dagrun.RemoveOldDAGRunsOptions
 	for _, opt := range opts {
 		opt(&options)
 	}
@@ -592,7 +592,7 @@ func (store *Store) RemoveOldDAGRuns(ctx context.Context, dagName string, retent
 	root := NewDataRootWithArtifactDir(store.baseDir, dagName, store.artifactDir)
 
 	if options.OlderThan != nil {
-		return root.removeOldBefore(ctx, exec.NewUTC(*options.OlderThan), options.DryRun)
+		return root.removeOldBefore(ctx, dagrun.NewUTC(*options.OlderThan), options.DryRun)
 	}
 
 	if retentionDays < 0 {
@@ -606,12 +606,12 @@ func (store *Store) RemoveOldDAGRuns(ctx context.Context, dagName string, retent
 }
 
 // RemoveDAGRun implements models.DAGRunStore.
-func (store *Store) RemoveDAGRun(ctx context.Context, dagRun exec.DAGRunRef, opts ...exec.RemoveDAGRunOption) error {
+func (store *Store) RemoveDAGRun(ctx context.Context, dagRun dagrun.DAGRunRef, opts ...dagrun.RemoveDAGRunOption) error {
 	if dagRun.ID == "" {
 		return ErrDAGRunIDEmpty
 	}
 
-	var options exec.RemoveDAGRunOptions
+	var options dagrun.RemoveDAGRunOptions
 	for _, opt := range opts {
 		opt(&options)
 	}
@@ -642,10 +642,10 @@ func (store *Store) RemoveDAGRun(ctx context.Context, dagRun exec.DAGRunRef, opt
 			return fmt.Errorf("failed to read dag-run %s status: %w", dagRun.ID, err)
 		}
 		if status == nil {
-			return fmt.Errorf("failed to read dag-run %s status: %w", dagRun.ID, exec.ErrNoStatusData)
+			return fmt.Errorf("failed to read dag-run %s status: %w", dagRun.ID, dagrun.ErrNoStatusData)
 		}
 		if status.Status.IsActive() {
-			return fmt.Errorf("%w: %s", exec.ErrDAGRunActive, status.Status.String())
+			return fmt.Errorf("%w: %s", dagrun.ErrDAGRunActive, status.Status.String())
 		}
 	}
 

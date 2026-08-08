@@ -8,6 +8,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
 	"github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
@@ -25,7 +26,7 @@ type SubWorkflowRunnerConfig struct {
 	DAGRunMgr         runtime.Manager
 	DAGStore          exec.DAGStore
 	DAGStoreFactory   DAGStoreFactory
-	DAGRunStore       exec.DAGRunStore
+	DAGRunStore       dagrun.DAGRunStore
 	RunStateStore     runstate.Store
 	QueueStore        exec.QueueStore
 	StateStore        dagstate.Store

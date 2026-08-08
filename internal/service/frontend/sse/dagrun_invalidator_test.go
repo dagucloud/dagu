@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/service/eventstore"
 	"github.com/stretchr/testify/require"
@@ -85,7 +85,7 @@ func TestDAGRunInvalidatorRefreshesListsOnlyForLifecycleEvents(t *testing.T) {
 			require.NotNil(t, result.session)
 			defer mux.removeSession(result.session)
 
-			status := &exec.DAGRunStatus{
+			status := &dagrun.DAGRunStatus{
 				Name:      "test",
 				DAGRunID:  "run-1",
 				AttemptID: "attempt-1",
@@ -158,7 +158,7 @@ func TestDAGRunInvalidatorBatchesAndTargetsLifecycleListRefreshes(t *testing.T) 
 		events = append(events, eventstore.NewDAGRunEvent(
 			eventstore.Source{Service: eventstore.SourceServiceServer},
 			eventstore.TypeDAGRunRunning,
-			&exec.DAGRunStatus{
+			&dagrun.DAGRunStatus{
 				Name:      "test",
 				DAGRunID:  runID,
 				AttemptID: "attempt-1",

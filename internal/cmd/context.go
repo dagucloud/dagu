@@ -29,6 +29,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/signalctx"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/license"
@@ -58,7 +59,7 @@ type Context struct {
 
 	EventService              *eventstore.Service
 	EventSourceInstance       string
-	DAGRunStore               exec.DAGRunStore
+	DAGRunStore               dagrun.DAGRunStore
 	DAGRunMgr                 runtime.Manager
 	ProcStore                 exec.ProcStore
 	QueueStore                exec.QueueStore
@@ -320,7 +321,7 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 	case "server", "scheduler", "start-all", "coordinator":
 		// For long-running process, we setup file cache for better performance
 		limits := cfg.Cache.Limits()
-		hc := fileutil.NewCache[*exec.DAGRunStatus]("dag_run_status", limits.DAGRun.Limit, limits.DAGRun.TTL)
+		hc := fileutil.NewCache[*dagrun.DAGRunStatus]("dag_run_status", limits.DAGRun.Limit, limits.DAGRun.TTL)
 		hc.StartEviction(ctx)
 		hrOpts = append(hrOpts, file.WithDAGRunHistoryFileCache(hc))
 	}
@@ -735,12 +736,12 @@ func NewCommand(cmd *cobra.Command, flags []commandLineFlag, runFunc func(cmd *C
 
 // genRunID creates a new auto-generated dag-run ID.
 func genRunID() (string, error) {
-	return exec.NewDAGRunID()
+	return dagrun.NewDAGRunID()
 }
 
 // validateRunID checks if the dag-run ID is valid and not empty.
 func validateRunID(dagRunID string) error {
-	return exec.ValidateDAGRunID(dagRunID)
+	return dagrun.ValidateDAGRunID(dagRunID)
 }
 
 // signalListener is an interface for types that can receive OS signals.
@@ -784,15 +785,15 @@ func (c *Context) RecordEarlyFailure(dag *ir.DAG, dagRunID string, err error) er
 	}
 
 	// 1. Check if a DAGRunAttempt already exists for the given run-id.
-	ref := exec.NewDAGRunRef(dag.Name, dagRunID)
+	ref := dagrun.NewDAGRunRef(dag.Name, dagRunID)
 	attempt, findErr := c.DAGRunStore.FindAttempt(c, ref)
-	if findErr != nil && !errors.Is(findErr, exec.ErrDAGRunIDNotFound) {
+	if findErr != nil && !errors.Is(findErr, dagrun.ErrDAGRunIDNotFound) {
 		return fmt.Errorf("failed to check for existing attempt: %w", findErr)
 	}
 
 	if attempt == nil {
 		// 2. Create the attempt if not exists
-		att, createErr := c.DAGRunStore.CreateAttempt(c, dag, time.Now(), dagRunID, exec.NewDAGRunAttemptOptions{})
+		att, createErr := c.DAGRunStore.CreateAttempt(c, dag, time.Now(), dagRunID, dagrun.NewDAGRunAttemptOptions{})
 		if createErr != nil {
 			return fmt.Errorf("failed to create run to record failure: %w", createErr)
 		}

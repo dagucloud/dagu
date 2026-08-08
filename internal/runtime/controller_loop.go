@@ -19,6 +19,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/controller"
 )
@@ -88,7 +89,7 @@ func (r *Runner) runControllerLoop(ctx context.Context, plan *Plan, progressCh c
 	}
 	planner := newControllerModelPlanner(
 		ctrlCtx, dag.LLM, models, catalog, system,
-		func(msgs []exec.LLMMessage) []exec.LLMMessage {
+		func(msgs []dagrun.LLMMessage) []dagrun.LLMMessage {
 			return MaskSecretsForProvider(ctrlCtx, msgs)
 		})
 
@@ -343,8 +344,8 @@ func (r *Runner) nudge(ctx context.Context, state *controller.State) error {
 		Reason: "no action chosen while " + open + " remained open",
 	})
 	logger.Warn(ctx, "Controller answered without acting", slog.String("openTasks", open))
-	state.Append(exec.LLMMessage{
-		Role: exec.RoleUser,
+	state.Append(dagrun.LLMMessage{
+		Role: dagrun.RoleUser,
 		Content: fmt.Sprintf(
 			"These tasks are still open: %s. Either run an action that advances one of them, "+
 				"or settle each one with %s as completed, skipped, or failed.",
@@ -551,7 +552,7 @@ func (r *Runner) report(progressCh chan *Node, node *Node) {
 
 // observe renders the outcome of an action as the tool result the controller
 // sees on its next turn.
-func observe(ctx context.Context, node *Node, toolCallID string) exec.LLMMessage {
+func observe(ctx context.Context, node *Node, toolCallID string) dagrun.LLMMessage {
 	if node == nil {
 		return toolResult(ctx, toolCallID, "Error: the step disappeared from the workflow")
 	}
@@ -654,7 +655,7 @@ func childRunSummary(ctx context.Context, childRunID string, outputsReported boo
 }
 
 // childOutputs flattens the output variables declared by a child run's steps.
-func childOutputs(nodes []*exec.Node) map[string]string {
+func childOutputs(nodes []*dagrun.Node) map[string]string {
 	outputs := make(map[string]string)
 	for _, node := range nodes {
 		if node == nil || node.OutputVariables == nil {
@@ -698,14 +699,14 @@ func logTail(path string) string {
 	return strings.TrimSpace(strings.Join(result.Lines, "\n"))
 }
 
-func toolResult(ctx context.Context, toolCallID, content string) exec.LLMMessage {
+func toolResult(ctx context.Context, toolCallID, content string) dagrun.LLMMessage {
 	dag := GetDAGContext(ctx).DAG
 	maxBytes := ir.DefaultControllerObservationMaxBytes
 	if dag != nil {
 		maxBytes = dag.ControllerObservationMaxBytes()
 	}
-	return exec.LLMMessage{
-		Role:       exec.RoleTool,
+	return dagrun.LLMMessage{
+		Role:       dagrun.RoleTool,
 		ToolCallID: toolCallID,
 		Content:    limitControllerObservation(content, maxBytes),
 	}

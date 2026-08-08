@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -21,11 +21,11 @@ import (
 func TestDAGRun(t *testing.T) {
 	t.Run("Basic", func(t *testing.T) {
 		root := setupTestDataRoot(t)
-		run := root.CreateTestDAGRun(t, "test-id-1", exec.NewUTC(time.Now()))
+		run := root.CreateTestDAGRun(t, "test-id-1", dagrun.NewUTC(time.Now()))
 
-		ts1 := exec.NewUTC(time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC))
-		ts2 := exec.NewUTC(time.Date(2021, 1, 2, 0, 0, 0, 0, time.UTC))
-		ts3 := exec.NewUTC(time.Date(2021, 1, 3, 0, 0, 0, 0, time.UTC))
+		ts1 := dagrun.NewUTC(time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC))
+		ts2 := dagrun.NewUTC(time.Date(2021, 1, 2, 0, 0, 0, 0, time.UTC))
+		ts3 := dagrun.NewUTC(time.Date(2021, 1, 3, 0, 0, 0, 0, time.UTC))
 
 		_ = run.WriteStatus(t, ts1, ir.Running)
 		_ = run.WriteStatus(t, ts2, ir.Succeeded)
@@ -47,11 +47,11 @@ type DAGRunTest struct {
 	TB testing.TB
 }
 
-func (dr DAGRunTest) WriteStatus(t *testing.T, ts exec.TimeInUTC, s ir.Status) *Attempt {
+func (dr DAGRunTest) WriteStatus(t *testing.T, ts dagrun.TimeInUTC, s ir.Status) *Attempt {
 	t.Helper()
 
 	dag := &ir.DAG{Name: "test-dag"}
-	dagRunStatus := exec.InitialStatus(dag)
+	dagRunStatus := dagrun.InitialStatus(dag)
 	dagRunStatus.DAGRunID = "test-id-1"
 	dagRunStatus.Status = s
 
@@ -72,10 +72,10 @@ func (dr DAGRunTest) WriteStatus(t *testing.T, ts exec.TimeInUTC, s ir.Status) *
 
 func TestAttemptByDir(t *testing.T) {
 	root := setupTestDataRoot(t)
-	run := root.CreateTestDAGRun(t, "attempt-test", exec.NewUTC(time.Now()))
+	run := root.CreateTestDAGRun(t, "attempt-test", dagrun.NewUTC(time.Now()))
 
 	// Write a status to create an attempt.
-	ts := exec.NewUTC(time.Now())
+	ts := dagrun.NewUTC(time.Now())
 	att := run.WriteStatus(t, ts, ir.Succeeded)
 
 	// Get the attempt dir name.
@@ -98,7 +98,7 @@ func TestAttemptByDir(t *testing.T) {
 func TestListSubDAGRuns(t *testing.T) {
 	t.Run("NoSubDAGRuns", func(t *testing.T) {
 		root := setupTestDataRoot(t)
-		run := root.CreateTestDAGRun(t, "test-dag-run", exec.NewUTC(time.Now()))
+		run := root.CreateTestDAGRun(t, "test-dag-run", dagrun.NewUTC(time.Now()))
 
 		subRuns, err := run.ListSubDAGRuns(run.Context)
 		require.NoError(t, err)
@@ -107,7 +107,7 @@ func TestListSubDAGRuns(t *testing.T) {
 
 	t.Run("WithSubDAGRuns", func(t *testing.T) {
 		root := setupTestDataRoot(t)
-		run := root.CreateTestDAGRun(t, "parent-dag-run", exec.NewUTC(time.Now()))
+		run := root.CreateTestDAGRun(t, "parent-dag-run", dagrun.NewUTC(time.Now()))
 
 		// Create sub dag-run directory and some sub dag-run directories
 		subDir := filepath.Join(run.baseDir, SubDAGRunsDir)
@@ -138,7 +138,7 @@ func TestListSubDAGRuns(t *testing.T) {
 
 	t.Run("WithCurrentAndLegacySubDAGRuns", func(t *testing.T) {
 		root := setupTestDataRoot(t)
-		run := root.CreateTestDAGRun(t, "parent-dag-run", exec.NewUTC(time.Now()))
+		run := root.CreateTestDAGRun(t, "parent-dag-run", dagrun.NewUTC(time.Now()))
 
 		currentSubDir := filepath.Join(run.baseDir, SubDAGRunsDir)
 		legacySubDir := filepath.Join(run.baseDir, LegacySubDAGRunsDir)
@@ -163,7 +163,7 @@ func TestListSubDAGRuns(t *testing.T) {
 
 	t.Run("RejectsInvalidSubDAGRunID", func(t *testing.T) {
 		root := setupTestDataRoot(t)
-		run := root.CreateTestDAGRun(t, "parent-dag-run", exec.NewUTC(time.Now()))
+		run := root.CreateTestDAGRun(t, "parent-dag-run", dagrun.NewUTC(time.Now()))
 
 		_, err := run.CreateSubDAGRun(run.Context, "../../escape")
 		require.Error(t, err)
@@ -180,15 +180,15 @@ func TestListSubDAGRuns(t *testing.T) {
 func TestListLogFiles(t *testing.T) {
 	t.Run("WithLogFiles", func(t *testing.T) {
 		root := setupTestDataRoot(t)
-		run := root.CreateTestDAGRun(t, "test-dag-run", exec.NewUTC(time.Now()))
+		run := root.CreateTestDAGRun(t, "test-dag-run", dagrun.NewUTC(time.Now()))
 
 		// Create a run with log files
 		dag := &ir.DAG{Name: "test-dag"}
-		dagRunStatus := exec.InitialStatus(dag)
+		dagRunStatus := dagrun.InitialStatus(dag)
 		dagRunStatus.DAGRunID = "test-dag-run"
 		dagRunStatus.Status = ir.Succeeded
 		dagRunStatus.Log = "/tmp/test.log"
-		dagRunStatus.Nodes = []*exec.Node{
+		dagRunStatus.Nodes = []*dagrun.Node{
 			{
 				Step:   ir.Step{Name: "step1"},
 				Stdout: "/tmp/step1.out",
@@ -201,7 +201,7 @@ func TestListLogFiles(t *testing.T) {
 			},
 		}
 
-		ts := exec.NewUTC(time.Now())
+		ts := dagrun.NewUTC(time.Now())
 		att, err := run.CreateAttempt(run.Context, ts, nil, "")
 		require.NoError(t, err)
 		require.NoError(t, att.Open(run.Context))
@@ -225,30 +225,30 @@ func TestListLogFiles(t *testing.T) {
 
 	t.Run("WithLifecycleHandlerLogFiles", func(t *testing.T) {
 		root := setupTestDataRoot(t)
-		run := root.CreateTestDAGRun(t, "test-dag-run", exec.NewUTC(time.Now()))
+		run := root.CreateTestDAGRun(t, "test-dag-run", dagrun.NewUTC(time.Now()))
 
 		dag := &ir.DAG{Name: "test-dag"}
-		dagRunStatus := exec.InitialStatus(dag)
+		dagRunStatus := dagrun.InitialStatus(dag)
 		dagRunStatus.DAGRunID = "test-dag-run"
 		dagRunStatus.Status = ir.Succeeded
 		dagRunStatus.Log = "/tmp/test.log"
-		dagRunStatus.OnInit = &exec.Node{
+		dagRunStatus.OnInit = &dagrun.Node{
 			Step:   ir.Step{Name: "onInit"},
 			Stdout: "/tmp/onInit.out",
 			Stderr: "/tmp/onInit.err",
 		}
-		dagRunStatus.OnWait = &exec.Node{
+		dagRunStatus.OnWait = &dagrun.Node{
 			Step:   ir.Step{Name: "onWait"},
 			Stdout: "/tmp/onWait.out",
 			Stderr: "/tmp/onWait.err",
 		}
-		dagRunStatus.OnExit = &exec.Node{
+		dagRunStatus.OnExit = &dagrun.Node{
 			Step:   ir.Step{Name: "onExit"},
 			Stdout: "/tmp/onExit.out",
 			Stderr: "/tmp/onExit.err",
 		}
 
-		ts := exec.NewUTC(time.Now())
+		ts := dagrun.NewUTC(time.Now())
 		att, err := run.CreateAttempt(run.Context, ts, nil, "")
 		require.NoError(t, err)
 		require.NoError(t, att.Open(run.Context))
@@ -288,15 +288,15 @@ func TestRemoveLogFiles(t *testing.T) {
 		}
 
 		root := setupTestDataRoot(t)
-		run := root.CreateTestDAGRun(t, "test-dag-run", exec.NewUTC(time.Now()))
+		run := root.CreateTestDAGRun(t, "test-dag-run", dagrun.NewUTC(time.Now()))
 
 		// Create a run with log files pointing to our test files
 		dag := &ir.DAG{Name: "test-dag"}
-		dagRunStatus := exec.InitialStatus(dag)
+		dagRunStatus := dagrun.InitialStatus(dag)
 		dagRunStatus.DAGRunID = "test-dag-run"
 		dagRunStatus.Status = ir.Succeeded
 		dagRunStatus.Log = logFiles[0]
-		dagRunStatus.Nodes = []*exec.Node{
+		dagRunStatus.Nodes = []*dagrun.Node{
 			{
 				Step:   ir.Step{Name: "step1"},
 				Stdout: logFiles[1],
@@ -304,7 +304,7 @@ func TestRemoveLogFiles(t *testing.T) {
 			},
 		}
 
-		ts := exec.NewUTC(time.Now())
+		ts := dagrun.NewUTC(time.Now())
 		att, err := run.CreateAttempt(run.Context, ts, nil, "")
 		require.NoError(t, err)
 		require.NoError(t, att.Open(run.Context))
@@ -347,19 +347,19 @@ func TestRemoveLogFiles(t *testing.T) {
 		}
 
 		root := setupTestDataRoot(t)
-		run := root.CreateTestDAGRun(t, "parent-dag-run", exec.NewUTC(time.Now()))
+		run := root.CreateTestDAGRun(t, "parent-dag-run", dagrun.NewUTC(time.Now()))
 
 		// Create parent dag-run with log files
 		dag := &ir.DAG{Name: "test-dag"}
-		dagRunStatus := exec.InitialStatus(dag)
+		dagRunStatus := dagrun.InitialStatus(dag)
 		dagRunStatus.DAGRunID = "parent-dag-run"
 		dagRunStatus.Log = parentLogFiles[0]
-		dagRunStatus.Nodes = []*exec.Node{{
+		dagRunStatus.Nodes = []*dagrun.Node{{
 			Step:   ir.Step{Name: "parent-step"},
 			Stdout: parentLogFiles[1],
 		}}
 
-		ts := exec.NewUTC(time.Now())
+		ts := dagrun.NewUTC(time.Now())
 		att, err := run.CreateAttempt(run.Context, ts, nil, "")
 		require.NoError(t, err)
 		require.NoError(t, att.Open(run.Context))
@@ -377,10 +377,10 @@ func TestRemoveLogFiles(t *testing.T) {
 		require.NoError(t, err)
 
 		// Create sub run with log files
-		subStatus := exec.InitialStatus(dag)
+		subStatus := dagrun.InitialStatus(dag)
 		subStatus.DAGRunID = "sub1"
 		subStatus.Log = subRunLogFiles[0]
-		subStatus.Nodes = []*exec.Node{{
+		subStatus.Nodes = []*dagrun.Node{{
 			Step:   ir.Step{Name: "sub-step"},
 			Stdout: subRunLogFiles[1],
 		}}
@@ -425,15 +425,15 @@ func TestDAGRunRemove(t *testing.T) {
 		}
 
 		root := setupTestDataRoot(t)
-		run := root.CreateTestDAGRun(t, "test-dag-run", exec.NewUTC(time.Now()))
+		run := root.CreateTestDAGRun(t, "test-dag-run", dagrun.NewUTC(time.Now()))
 
 		// Create a run with log files
 		dag := &ir.DAG{Name: "test-dag"}
-		dagRunStatus := exec.InitialStatus(dag)
+		dagRunStatus := dagrun.InitialStatus(dag)
 		dagRunStatus.DAGRunID = "test-dag-run"
 		dagRunStatus.Status = ir.Succeeded
 		dagRunStatus.Log = logFiles[0]
-		dagRunStatus.Nodes = []*exec.Node{
+		dagRunStatus.Nodes = []*dagrun.Node{
 			{
 				Step:   ir.Step{Name: "step1"},
 				Stdout: logFiles[1],
@@ -441,7 +441,7 @@ func TestDAGRunRemove(t *testing.T) {
 			},
 		}
 
-		ts := exec.NewUTC(time.Now())
+		ts := dagrun.NewUTC(time.Now())
 		att, err := run.CreateAttempt(run.Context, ts, nil, "")
 		require.NoError(t, err)
 		require.NoError(t, att.Open(run.Context))
@@ -495,19 +495,19 @@ func TestDAGRunRemove(t *testing.T) {
 		}
 
 		root := setupTestDataRoot(t)
-		run := root.CreateTestDAGRun(t, "parent-dag-run", exec.NewUTC(time.Now()))
+		run := root.CreateTestDAGRun(t, "parent-dag-run", dagrun.NewUTC(time.Now()))
 
 		// Create parent dag-run with log files
 		dag := &ir.DAG{Name: "test-dag"}
-		dagRunStatus := exec.InitialStatus(dag)
+		dagRunStatus := dagrun.InitialStatus(dag)
 		dagRunStatus.DAGRunID = "parent-dag-run"
 		dagRunStatus.Log = parentLogFiles[0]
-		dagRunStatus.Nodes = []*exec.Node{{
+		dagRunStatus.Nodes = []*dagrun.Node{{
 			Step:   ir.Step{Name: "parent-step"},
 			Stdout: parentLogFiles[1],
 		}}
 
-		ts := exec.NewUTC(time.Now())
+		ts := dagrun.NewUTC(time.Now())
 		att, err := run.CreateAttempt(run.Context, ts, nil, "")
 		require.NoError(t, err)
 		require.NoError(t, att.Open(run.Context))
@@ -534,10 +534,10 @@ func TestDAGRunRemove(t *testing.T) {
 			subDAGRun, err := NewDAGRun(subDAGRunDir)
 			require.NoError(t, err)
 
-			subStatus := exec.InitialStatus(dag)
+			subStatus := dagrun.InitialStatus(dag)
 			subStatus.DAGRunID = subRun.dagRunID
 			subStatus.Log = subRun.logFiles[0]
-			subStatus.Nodes = []*exec.Node{{
+			subStatus.Nodes = []*dagrun.Node{{
 				Step:   ir.Step{Name: fmt.Sprintf("%s-step", subRun.dagRunID)},
 				Stdout: subRun.logFiles[1],
 			}}
@@ -572,14 +572,14 @@ func TestDAGRunRemove(t *testing.T) {
 
 	t.Run("RemoveHandlesNonExistentLogFiles", func(t *testing.T) {
 		root := setupTestDataRoot(t)
-		run := root.CreateTestDAGRun(t, "test-dag-run", exec.NewUTC(time.Now()))
+		run := root.CreateTestDAGRun(t, "test-dag-run", dagrun.NewUTC(time.Now()))
 
 		// Create a run with log files that don't exist
 		dag := &ir.DAG{Name: "test-dag"}
-		dagRunStatus := exec.InitialStatus(dag)
+		dagRunStatus := dagrun.InitialStatus(dag)
 		dagRunStatus.DAGRunID = "test-dag-run"
 		dagRunStatus.Log = "/non/existent/path/dag-run.log"
-		dagRunStatus.Nodes = []*exec.Node{
+		dagRunStatus.Nodes = []*dagrun.Node{
 			{
 				Step:   ir.Step{Name: "step1"},
 				Stdout: "/non/existent/path/step1.out",
@@ -587,7 +587,7 @@ func TestDAGRunRemove(t *testing.T) {
 			},
 		}
 
-		ts := exec.NewUTC(time.Now())
+		ts := dagrun.NewUTC(time.Now())
 		att, err := run.CreateAttempt(run.Context, ts, nil, "")
 		require.NoError(t, err)
 		require.NoError(t, att.Open(run.Context))

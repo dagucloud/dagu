@@ -27,6 +27,7 @@ import (
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
@@ -479,7 +480,7 @@ func (a *API) getDAGDetailsData(ctx context.Context, fileName string) (api.GetDA
 	}
 
 	dagStatus, err := a.dagRunMgr.GetLatestStatus(ctx, dag)
-	if err != nil && !errors.Is(err, exec.ErrNoStatusData) {
+	if err != nil && !errors.Is(err, dagrun.ErrNoStatusData) {
 		return api.GetDAGDetails200JSONResponse{}, fmt.Errorf("failed to get latest status for DAG %s", fileName)
 	}
 	// If ErrNoStatusData, dagStatus will be zero-value (empty), which is fine for DAGs with no runs
@@ -604,7 +605,7 @@ func extractBuildErrors(errs []error) []string {
 	return result
 }
 
-func (a *API) readHistoryData(_ context.Context, dag *ir.DAG, statusList []exec.DAGRunStatus) []api.DAGGridItem {
+func (a *API) readHistoryData(_ context.Context, dag *ir.DAG, statusList []dagrun.DAGRunStatus) []api.DAGGridItem {
 	statusLen := len(statusList)
 	nodeData := make(map[string][]ir.NodeStatus)
 	handlerData := make(map[string][]ir.NodeStatus)
@@ -630,7 +631,7 @@ func (a *API) readHistoryData(_ context.Context, dag *ir.DAG, statusList []exec.
 		// to ensure consistent lookup later
 		handlerPairs := []struct {
 			handlerType ir.HandlerType
-			node        *exec.Node
+			node        *dagrun.Node
 		}{
 			{ir.HandlerOnInit, st.OnInit},
 			{ir.HandlerOnWait, st.OnWait},
@@ -918,7 +919,7 @@ func (a *API) GetDAGDAGRunDetails(ctx context.Context, request api.GetDAGDAGRunD
 	if dagRunId == "latest" {
 		attempt, err := a.dagRunStore.LatestAttempt(ctx, dag.Name)
 		if err != nil {
-			if errors.Is(err, exec.ErrDAGRunIDNotFound) {
+			if errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
 				return nil, &Error{
 					HTTPStatus: http.StatusNotFound,
 					Code:       api.ErrorCodeNotFound,
@@ -941,9 +942,9 @@ func (a *API) GetDAGDAGRunDetails(ctx context.Context, request api.GetDAGDAGRunD
 		}, nil
 	}
 
-	attempt, err := a.dagRunStore.FindAttempt(ctx, exec.NewDAGRunRef(dag.Name, dagRunId))
+	attempt, err := a.dagRunStore.FindAttempt(ctx, dagrun.NewDAGRunRef(dag.Name, dagRunId))
 	if err != nil {
-		if errors.Is(err, exec.ErrDAGRunIDNotFound) {
+		if errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
 			return nil, &Error{
 				HTTPStatus: http.StatusNotFound,
 				Code:       api.ErrorCodeNotFound,
@@ -955,7 +956,7 @@ func (a *API) GetDAGDAGRunDetails(ctx context.Context, request api.GetDAGDAGRunD
 
 	dagStatus, err := a.dagRunMgr.GetCurrentStatus(ctx, dag, dagRunId)
 	if err != nil {
-		if errors.Is(err, exec.ErrNoStatusData) {
+		if errors.Is(err, dagrun.ErrNoStatusData) {
 			return nil, &Error{
 				HTTPStatus: http.StatusNotFound,
 				Code:       api.ErrorCodeNotFound,
@@ -1183,7 +1184,7 @@ func (a *API) waitForDAGCompletion(
 	dag *ir.DAG,
 	dagRunId string,
 	timeoutSeconds int,
-) (*exec.DAGRunStatus, error) {
+) (*dagrun.DAGRunStatus, error) {
 	// Create context with timeout
 	waitCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSeconds)*time.Second)
 	defer cancel()
@@ -1195,7 +1196,7 @@ func (a *API) waitForDAGCompletion(
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 
-	var lastStatus *exec.DAGRunStatus
+	var lastStatus *dagrun.DAGRunStatus
 
 	for {
 		select {
@@ -1233,8 +1234,8 @@ func (a *API) waitForDAGCompletion(
 	}
 }
 
-func (a *API) readDAGRunStatusForSync(ctx context.Context, dag *ir.DAG, dagRunID string) (*exec.DAGRunStatus, error) {
-	attempt, err := a.dagRunStore.FindAttempt(ctx, exec.NewDAGRunRef(dag.Name, dagRunID))
+func (a *API) readDAGRunStatusForSync(ctx context.Context, dag *ir.DAG, dagRunID string) (*dagrun.DAGRunStatus, error) {
+	attempt, err := a.dagRunStore.FindAttempt(ctx, dagrun.NewDAGRunRef(dag.Name, dagRunID))
 	if err != nil {
 		return nil, fmt.Errorf("failed to find dag-run attempt: %w", err)
 	}
@@ -1302,7 +1303,7 @@ func validateDAGRunID(dagRunID string) error {
 	if dagRunID == "" {
 		return nil
 	}
-	if err := exec.ValidateDAGRunID(dagRunID); err != nil {
+	if err := dagrun.ValidateDAGRunID(dagRunID); err != nil {
 		return &Error{
 			HTTPStatus: http.StatusBadRequest,
 			Code:       api.ErrorCodeBadRequest,
@@ -1317,13 +1318,13 @@ func (a *API) ensureDAGRunIDUnique(ctx context.Context, dag *ir.DAG, dagRunID st
 	if dagRunID == "" {
 		return fmt.Errorf("dagRunID must be non-empty")
 	}
-	if _, err := a.dagRunStore.FindAttempt(ctx, exec.NewDAGRunRef(dag.Name, dagRunID)); err == nil {
+	if _, err := a.dagRunStore.FindAttempt(ctx, dagrun.NewDAGRunRef(dag.Name, dagRunID)); err == nil {
 		return &Error{
 			HTTPStatus: http.StatusConflict,
 			Code:       api.ErrorCodeAlreadyExists,
 			Message:    fmt.Sprintf("dag-run ID %s already exists for DAG %s", dagRunID, dag.Name),
 		}
-	} else if !errors.Is(err, exec.ErrDAGRunIDNotFound) {
+	} else if !errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
 		return fmt.Errorf("failed to verify dag-run ID uniqueness: %w", err)
 	}
 	return nil
@@ -1876,8 +1877,8 @@ func (a *API) StopAllDAGRuns(ctx context.Context, request api.StopAllDAGRunsRequ
 
 	// Get all running DAG-runs for this DAG
 	runningStatuses, err := a.dagRunStore.ListStatuses(ctx,
-		exec.WithExactName(dag.Name),
-		exec.WithStatuses([]ir.Status{ir.Running}),
+		dagrun.WithExactName(dag.Name),
+		dagrun.WithStatuses([]ir.Status{ir.Running}),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error listing running DAG-runs: %w", err)

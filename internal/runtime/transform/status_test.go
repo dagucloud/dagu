@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
@@ -42,7 +42,7 @@ func TestStatusSerialization(t *testing.T) {
 	rawJSON, err := json.Marshal(statusToPersist)
 	require.NoError(t, err)
 
-	statusObject, err := exec.StatusFromJSON(string(rawJSON))
+	statusObject, err := dagrun.StatusFromJSON(string(rawJSON))
 	require.NoError(t, err)
 
 	require.Equal(t, statusToPersist.Name, statusObject.Name)
@@ -81,7 +81,7 @@ func TestStatusBuilder(t *testing.T) {
 	assert.Equal(t, dag.Name, result.Name)
 	assert.Equal(t, dagRunID, result.DAGRunID)
 	assert.Equal(t, s, result.Status)
-	assert.Equal(t, exec.PID(pid), result.PID)
+	assert.Equal(t, dagrun.PID(pid), result.PID)
 	assert.NotEmpty(t, result.StartedAt)
 	assert.Equal(t, 2, len(result.Nodes))
 	assert.NotNil(t, result.OnExit)
@@ -125,8 +125,8 @@ func TestStatusBuilderWithOptions(t *testing.T) {
 	failureNode := runtime.NewNode(ir.Step{Name: "failure-step"}, runtime.NodeState{})
 	abortNode := runtime.NewNode(ir.Step{Name: "abort-step"}, runtime.NodeState{})
 
-	rootRef := exec.NewDAGRunRef("root-dag", "root-run-123")
-	parentRef := exec.NewDAGRunRef("parent-dag", "parent-run-456")
+	rootRef := dagrun.NewDAGRunRef("root-dag", "root-run-123")
+	parentRef := dagrun.NewDAGRunRef("parent-dag", "parent-run-456")
 
 	// Test with all options
 	result := builder.Create(
@@ -174,21 +174,21 @@ func TestStatusBuilderWithConditions(t *testing.T) {
 
 	dag := &ir.DAG{Name: "queued-dag"}
 	checkedAt := time.Date(2026, 5, 19, 1, 2, 3, 0, time.UTC)
-	runnable := exec.NewDAGRunCondition(
+	runnable := dagrun.NewDAGRunCondition(
 		"Runnable",
 		"False",
 		"MaxConcurrencyReached",
 		"The DAG-run cannot start because the queue active-run concurrency limit has been reached.",
 		checkedAt,
 	)
-	concurrencyReadyOlder := exec.NewDAGRunCondition(
+	concurrencyReadyOlder := dagrun.NewDAGRunCondition(
 		"ConcurrencyReady",
 		"False",
 		"MaxConcurrencyReached",
 		"The queue active-run concurrency limit has been reached.",
 		checkedAt.Add(-time.Minute),
 	)
-	concurrencyReadyNewer := exec.NewDAGRunCondition(
+	concurrencyReadyNewer := dagrun.NewDAGRunCondition(
 		"ConcurrencyReady",
 		"True",
 		"ConcurrencyAvailable",
@@ -201,14 +201,14 @@ func TestStatusBuilderWithConditions(t *testing.T) {
 		ir.Queued,
 		0,
 		time.Time{},
-		transform.WithConditions([]exec.DAGRunCondition{
+		transform.WithConditions([]dagrun.DAGRunCondition{
 			concurrencyReadyOlder,
 			runnable,
 			concurrencyReadyNewer,
 		}),
 	)
 
-	assert.Equal(t, []exec.DAGRunCondition{
+	assert.Equal(t, []dagrun.DAGRunCondition{
 		runnable,
 		concurrencyReadyNewer,
 	}, result.Conditions)
@@ -225,8 +225,8 @@ func TestStatusBuilderWithConditionsClearsConditionsForNonQueuedStatus(t *testin
 		ir.Running,
 		0,
 		time.Time{},
-		transform.WithConditions([]exec.DAGRunCondition{
-			exec.NewDAGRunCondition(
+		transform.WithConditions([]dagrun.DAGRunCondition{
+			dagrun.NewDAGRunCondition(
 				"Runnable",
 				"False",
 				"MaxConcurrencyReached",
@@ -269,7 +269,7 @@ func TestStatusBuilderPopulatesPendingStepRetriesFromNodes(t *testing.T) {
 		}),
 	)
 
-	assert.Equal(t, []exec.PendingStepRetry{
+	assert.Equal(t, []dagrun.PendingStepRetry{
 		{StepName: "step1", Interval: 2 * time.Second},
 	}, result.PendingStepRetries)
 }
@@ -302,7 +302,7 @@ func TestStatusBuilderPendingStepRetriesOptionOverridesAutoDerivation(t *testing
 				},
 			},
 		}),
-		transform.WithPendingStepRetries([]exec.PendingStepRetry{}),
+		transform.WithPendingStepRetries([]dagrun.PendingStepRetry{}),
 	)
 
 	assert.NotNil(t, result.PendingStepRetries)
@@ -339,7 +339,7 @@ func TestStatusBuilderPopulatesPendingStepRetriesFromHandlerNodes(t *testing.T) 
 		transform.WithOnFailureNode(failureHandler),
 	)
 
-	assert.Equal(t, []exec.PendingStepRetry{
+	assert.Equal(t, []dagrun.PendingStepRetry{
 		{StepName: "onFailure", Interval: 3 * time.Second},
 	}, result.PendingStepRetries)
 }
@@ -363,11 +363,11 @@ func TestInitialStatus(t *testing.T) {
 		},
 	}
 
-	st := exec.InitialStatus(dag)
+	st := dagrun.InitialStatus(dag)
 
 	assert.Equal(t, dag.Name, st.Name)
 	assert.Equal(t, ir.NotStarted, st.Status)
-	assert.Equal(t, exec.PID(0), st.PID)
+	assert.Equal(t, dagrun.PID(0), st.PID)
 	assert.Equal(t, 2, len(st.Nodes))
 	assert.NotNil(t, st.OnExit)
 	assert.NotNil(t, st.OnSuccess)
@@ -383,16 +383,16 @@ func TestInitialStatus(t *testing.T) {
 
 func TestStatusFromJSONError(t *testing.T) {
 	// Test with invalid JSON
-	_, err := exec.StatusFromJSON("invalid json")
+	_, err := dagrun.StatusFromJSON("invalid json")
 	assert.Error(t, err)
 
 	// Test with empty string
-	_, err = exec.StatusFromJSON("")
+	_, err = dagrun.StatusFromJSON("")
 	assert.Error(t, err)
 }
 
 func TestDAGRunStatus_DAGRun(t *testing.T) {
-	dagRunStatus := &exec.DAGRunStatus{
+	dagRunStatus := &dagrun.DAGRunStatus{
 		Name:     "test-dag",
 		DAGRunID: "run-123",
 	}
@@ -403,16 +403,16 @@ func TestDAGRunStatus_DAGRun(t *testing.T) {
 }
 
 func TestDAGRunStatus_Errors(t *testing.T) {
-	dagRunStatus := &exec.DAGRunStatus{
-		Nodes: []*exec.Node{
+	dagRunStatus := &dagrun.DAGRunStatus{
+		Nodes: []*dagrun.Node{
 			{Step: ir.Step{Name: "step1"}, Error: "error1"},
 			{Step: ir.Step{Name: "step2"}, Error: ""},
 			{Step: ir.Step{Name: "step3"}, Error: "error3"},
 		},
-		OnExit:    &exec.Node{Step: ir.Step{Name: "exit"}, Error: "exit error"},
-		OnSuccess: &exec.Node{Step: ir.Step{Name: "success"}, Error: ""},
-		OnFailure: &exec.Node{Step: ir.Step{Name: "failure"}, Error: "failure error"},
-		OnAbort:   &exec.Node{Step: ir.Step{Name: "cancel"}, Error: "cancel error"},
+		OnExit:    &dagrun.Node{Step: ir.Step{Name: "exit"}, Error: "exit error"},
+		OnSuccess: &dagrun.Node{Step: ir.Step{Name: "success"}, Error: ""},
+		OnFailure: &dagrun.Node{Step: ir.Step{Name: "failure"}, Error: "failure error"},
+		OnAbort:   &dagrun.Node{Step: ir.Step{Name: "cancel"}, Error: "cancel error"},
 	}
 
 	errors := dagRunStatus.Errors()
@@ -425,15 +425,15 @@ func TestDAGRunStatus_Errors(t *testing.T) {
 }
 
 func TestDAGRunStatus_NodeByName(t *testing.T) {
-	dagRunStatus := &exec.DAGRunStatus{
-		Nodes: []*exec.Node{
+	dagRunStatus := &dagrun.DAGRunStatus{
+		Nodes: []*dagrun.Node{
 			{Step: ir.Step{Name: "step1"}},
 			{Step: ir.Step{Name: "step2"}},
 		},
-		OnExit:    &exec.Node{Step: ir.Step{Name: "exit"}},
-		OnSuccess: &exec.Node{Step: ir.Step{Name: "success"}},
-		OnFailure: &exec.Node{Step: ir.Step{Name: "failure"}},
-		OnAbort:   &exec.Node{Step: ir.Step{Name: "cancel"}},
+		OnExit:    &dagrun.Node{Step: ir.Step{Name: "exit"}},
+		OnSuccess: &dagrun.Node{Step: ir.Step{Name: "success"}},
+		OnFailure: &dagrun.Node{Step: ir.Step{Name: "failure"}},
+		OnAbort:   &dagrun.Node{Step: ir.Step{Name: "cancel"}},
 	}
 
 	// Test finding regular nodes
@@ -459,22 +459,22 @@ func TestDAGRunStatus_NodeByName(t *testing.T) {
 func TestPID_String(t *testing.T) {
 	tests := []struct {
 		name     string
-		pid      exec.PID
+		pid      dagrun.PID
 		expected string
 	}{
 		{
 			name:     "PositivePID",
-			pid:      exec.PID(12345),
+			pid:      dagrun.PID(12345),
 			expected: "12345",
 		},
 		{
 			name:     "ZeroPID",
-			pid:      exec.PID(0),
+			pid:      dagrun.PID(0),
 			expected: "",
 		},
 		{
 			name:     "NegativePID",
-			pid:      exec.PID(-1),
+			pid:      dagrun.PID(-1),
 			expected: "",
 		},
 	}
@@ -500,7 +500,7 @@ func TestNewNodesFromSteps(t *testing.T) {
 		},
 	}
 
-	nodes := exec.NewNodesFromSteps(steps)
+	nodes := dagrun.NewNodesFromSteps(steps)
 
 	assert.Equal(t, 2, len(nodes))
 	assert.Equal(t, "step1", nodes[0].Step.Name)
@@ -511,7 +511,7 @@ func TestNewNodesFromSteps(t *testing.T) {
 
 func TestWithCreatedAtDefaultTime(t *testing.T) {
 	dag := &ir.DAG{Name: "test"}
-	dagRunStatus := exec.InitialStatus(dag)
+	dagRunStatus := dagrun.InitialStatus(dag)
 
 	// Test WithCreatedAt with 0 - should use current time
 	beforeTime := time.Now().UnixMilli()

@@ -18,6 +18,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -25,7 +26,7 @@ import (
 
 type queueDispatchDeps struct {
 	queueStore             exec.QueueStore
-	dagRunStore            exec.DAGRunStore
+	dagRunStore            dagrun.DAGRunStore
 	procStore              exec.ProcStore
 	dagRunLeaseStore       exec.DAGRunLeaseStore
 	dispatchTaskStore      exec.DispatchTaskStore
@@ -41,7 +42,7 @@ type queueDispatchDeps struct {
 // queueDispatcher owns queue-item dispatch decisions after a queue has capacity.
 type queueDispatcher struct {
 	queueStore             exec.QueueStore
-	dagRunStore            exec.DAGRunStore
+	dagRunStore            dagrun.DAGRunStore
 	procStore              exec.ProcStore
 	dagRunLeaseStore       exec.DAGRunLeaseStore
 	dispatchTaskStore      exec.DispatchTaskStore
@@ -65,7 +66,7 @@ type queueDispatchBatch struct {
 }
 
 type dispatchAdmissionInput struct {
-	status                *exec.DAGRunStatus
+	status                *dagrun.DAGRunStatus
 	maxConcurrency        int
 	nonAdmissionOccupancy int
 }
@@ -312,9 +313,9 @@ type queuedConditionStage struct {
 	dispatcher   *queueDispatcher
 	queueName    string
 	itemID       string
-	runRef       exec.DAGRunRef
+	runRef       dagrun.DAGRunRef
 	attemptID    string
-	observations []exec.DAGRunCondition
+	observations []dagrun.DAGRunCondition
 	flushed      bool
 }
 
@@ -339,11 +340,11 @@ func (d *queueDispatcher) queuedConditionItemsForRefresh(
 }
 
 func (d *queueDispatcher) newQueuedConditionStage(
-	runRef exec.DAGRunRef,
+	runRef dagrun.DAGRunRef,
 	queueName string,
 	itemID string,
-	attempt exec.DAGRunAttempt,
-	status *exec.DAGRunStatus,
+	attempt dagrun.DAGRunAttempt,
+	status *dagrun.DAGRunStatus,
 ) *queuedConditionStage {
 	if d == nil || d.dagRunStore == nil || status == nil || status.Status != ir.Queued {
 		return nil
@@ -410,11 +411,11 @@ func (d *queueDispatcher) newQueuedConditionStageFromItem(
 
 func (d *queueDispatcher) readQueuedConditionStatus(
 	ctx context.Context,
-	runRef exec.DAGRunRef,
-) (exec.DAGRunAttempt, *exec.DAGRunStatus, bool) {
+	runRef dagrun.DAGRunRef,
+) (dagrun.DAGRunAttempt, *dagrun.DAGRunStatus, bool) {
 	attempt, err := d.dagRunStore.FindAttempt(ctx, runRef)
 	if err != nil {
-		if errors.Is(err, exec.ErrDAGRunIDNotFound) {
+		if errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
 			return nil, nil, false
 		}
 		logger.Warn(ctx, "Failed to find queued DAG-run while staging condition",
@@ -428,7 +429,7 @@ func (d *queueDispatcher) readQueuedConditionStatus(
 	}
 	status, err := attempt.ReadStatus(ctx)
 	if err != nil {
-		if errors.Is(err, exec.ErrNoStatusData) || errors.Is(err, exec.ErrCorruptedStatusFile) {
+		if errors.Is(err, dagrun.ErrNoStatusData) || errors.Is(err, dagrun.ErrCorruptedStatusFile) {
 			return nil, nil, false
 		}
 		logger.Warn(ctx, "Failed to read queued DAG-run status while staging condition",
@@ -448,9 +449,9 @@ func (s *queuedConditionStage) observe(defs ...queuedConditionDef) {
 		return
 	}
 	checkedAt := time.Now()
-	observations := make([]exec.DAGRunCondition, 0, len(defs))
+	observations := make([]dagrun.DAGRunCondition, 0, len(defs))
 	for _, def := range defs {
-		observations = append(observations, exec.NewDAGRunCondition(
+		observations = append(observations, dagrun.NewDAGRunCondition(
 			def.conditionType,
 			def.status,
 			def.reason,
@@ -458,7 +459,7 @@ func (s *queuedConditionStage) observe(defs ...queuedConditionDef) {
 			checkedAt,
 		))
 	}
-	s.observations = exec.MergeDAGRunConditions(s.observations, observations...)
+	s.observations = dagrun.MergeDAGRunConditions(s.observations, observations...)
 }
 
 func (s *queuedConditionStage) flush(ctx context.Context) {
@@ -490,7 +491,7 @@ func (s *queuedConditionStage) flushErr(ctx context.Context) error {
 	if expectedAttemptID == "" && attempt != nil {
 		expectedAttemptID = attempt.ID()
 	}
-	observations := append([]exec.DAGRunCondition(nil), s.observations...)
+	observations := append([]dagrun.DAGRunCondition(nil), s.observations...)
 	if !queuedConditionNeedsUpdate(status, observations) {
 		return nil
 	}
@@ -500,7 +501,7 @@ func (s *queuedConditionStage) flushErr(ctx context.Context) error {
 		s.runRef,
 		expectedAttemptID,
 		ir.Queued,
-		func(latest *exec.DAGRunStatus) error {
+		func(latest *dagrun.DAGRunStatus) error {
 			if !queuedConditionNeedsUpdate(latest, observations) {
 				return errQueuedConditionFresh
 			}
@@ -645,7 +646,7 @@ func (d *queueDispatcher) dispatchQueuedItem(
 
 	attempt, err := d.dagRunStore.FindAttempt(ctx, runRef)
 	if err != nil {
-		if errors.Is(err, exec.ErrDAGRunIDNotFound) {
+		if errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
 			logger.Error(ctx, "DAG run not found, discarding")
 			return true
 		}
@@ -660,7 +661,7 @@ func (d *queueDispatcher) dispatchQueuedItem(
 
 	status, err := attempt.ReadStatus(ctx)
 	if err != nil {
-		if errors.Is(err, exec.ErrCorruptedStatusFile) {
+		if errors.Is(err, dagrun.ErrCorruptedStatusFile) {
 			logger.Error(ctx, "Status file is corrupted, marking as invalid", tag.Error(err))
 			return true
 		}
@@ -750,9 +751,9 @@ func (d *queueDispatcher) dispatchQueuedItem(
 func (d *queueDispatcher) dropSuspendedQueuedRun(
 	ctx context.Context,
 	queueName string,
-	runRef exec.DAGRunRef,
+	runRef dagrun.DAGRunRef,
 	attemptID string,
-	status *exec.DAGRunStatus,
+	status *dagrun.DAGRunStatus,
 ) error {
 	finishedAt := stringutil.FormatTime(time.Now().UTC())
 	currentStatus, swapped, err := d.dagRunStore.CompareAndSwapLatestAttemptStatus(
@@ -760,7 +761,7 @@ func (d *queueDispatcher) dropSuspendedQueuedRun(
 		runRef,
 		attemptID,
 		ir.Queued,
-		func(latest *exec.DAGRunStatus) error {
+		func(latest *dagrun.DAGRunStatus) error {
 			latest.Status = ir.Aborted
 			latest.FinishedAt = finishedAt
 			latest.Error = suspendedQueueDropReason
@@ -797,10 +798,10 @@ func (d *queueDispatcher) dropSuspendedQueuedRun(
 func (d *queueDispatcher) dispatchAndWaitForStartup(
 	ctx context.Context,
 	queueName string,
-	runRef exec.DAGRunRef,
+	runRef dagrun.DAGRunRef,
 	dag *ir.DAG,
 	runID string,
-	dagStatus *exec.DAGRunStatus,
+	dagStatus *dagrun.DAGRunStatus,
 	admissionReservationToken string,
 ) bool {
 	conditionStage := d.newQueuedConditionStage(runRef, queueName, "", nil, dagStatus)
@@ -810,10 +811,10 @@ func (d *queueDispatcher) dispatchAndWaitForStartup(
 func (d *queueDispatcher) dispatchAndWaitForStartupWithConditions(
 	ctx context.Context,
 	queueName string,
-	runRef exec.DAGRunRef,
+	runRef dagrun.DAGRunRef,
 	dag *ir.DAG,
 	runID string,
-	dagStatus *exec.DAGRunStatus,
+	dagStatus *dagrun.DAGRunStatus,
 	admissionReservationToken string,
 	conditionStage *queuedConditionStage,
 ) bool {
@@ -892,8 +893,8 @@ func (d *queueDispatcher) dispatchAndWaitForStartupWithConditions(
 func (d *queueDispatcher) reserveDistributedAdmission(
 	ctx context.Context,
 	queueName string,
-	runRef exec.DAGRunRef,
-	attempt exec.DAGRunAttempt,
+	runRef dagrun.DAGRunRef,
+	attempt dagrun.DAGRunAttempt,
 	input dispatchAdmissionInput,
 	conditionStage *queuedConditionStage,
 ) (string, bool) {
@@ -968,14 +969,14 @@ func (d *queueDispatcher) releaseAdmissionToken(ctx context.Context, token strin
 	)
 }
 
-func (d *queueDispatcher) waitForStartup(ctx context.Context, queueName string, runRef exec.DAGRunRef, waitState startupWaitState) bool {
+func (d *queueDispatcher) waitForStartup(ctx context.Context, queueName string, runRef dagrun.DAGRunRef, waitState startupWaitState) bool {
 	return d.waitForStartupWithConditions(ctx, queueName, runRef, waitState, nil)
 }
 
 func (d *queueDispatcher) waitForStartupWithConditions(
 	ctx context.Context,
 	queueName string,
-	runRef exec.DAGRunRef,
+	runRef dagrun.DAGRunRef,
 	waitState startupWaitState,
 	conditionStage *queuedConditionStage,
 ) bool {
@@ -1027,7 +1028,7 @@ func (d *queueDispatcher) waitForStartupWithConditions(
 func (d *queueDispatcher) failQueuedRunBeforeStartup(
 	ctx context.Context,
 	queueName string,
-	runRef exec.DAGRunRef,
+	runRef dagrun.DAGRunRef,
 	failure error,
 	conditionStage *queuedConditionStage,
 ) error {
@@ -1054,7 +1055,7 @@ func (d *queueDispatcher) failQueuedRunBeforeStartup(
 		runRef,
 		attemptID,
 		ir.Queued,
-		func(latest *exec.DAGRunStatus) error {
+		func(latest *dagrun.DAGRunStatus) error {
 			latest.Status = ir.Failed
 			latest.FinishedAt = finishedAt
 			latest.Error = startupFailureMessage(failure)
@@ -1126,7 +1127,7 @@ func shouldBoundLocalStartupError(waitState startupWaitState, err error) bool {
 		!errors.Is(err, backoff.ErrPermanent)
 }
 
-func (d *queueDispatcher) checkStartupStatus(ctx context.Context, queueName string, runRef exec.DAGRunRef, waitState startupWaitState) (bool, error) {
+func (d *queueDispatcher) checkStartupStatus(ctx context.Context, queueName string, runRef dagrun.DAGRunRef, waitState startupWaitState) (bool, error) {
 	if err := d.checkContextAndQuit(ctx); err != nil {
 		return false, err
 	}
@@ -1360,8 +1361,8 @@ func (d *queueDispatcher) recordQueueStateUnavailableConditions(
 }
 
 func queuedConditionNeedsUpdate(
-	status *exec.DAGRunStatus,
-	observations []exec.DAGRunCondition,
+	status *dagrun.DAGRunStatus,
+	observations []dagrun.DAGRunCondition,
 ) bool {
 	if status == nil || len(observations) == 0 {
 		return false
@@ -1381,8 +1382,8 @@ func queuedConditionNeedsUpdate(
 }
 
 func hasNewerQueuedCondition(
-	conditions []exec.DAGRunCondition,
-	observations []exec.DAGRunCondition,
+	conditions []dagrun.DAGRunCondition,
+	observations []dagrun.DAGRunCondition,
 ) bool {
 	newestObservedAt, ok := newestConditionCheckedAt(observations)
 	if !ok {
@@ -1400,7 +1401,7 @@ func hasNewerQueuedCondition(
 	return false
 }
 
-func newestConditionCheckedAt(conditions []exec.DAGRunCondition) (time.Time, bool) {
+func newestConditionCheckedAt(conditions []dagrun.DAGRunCondition) (time.Time, bool) {
 	var newest time.Time
 	for _, condition := range conditions {
 		checkedAt, ok := conditionCheckedAt(condition)
@@ -1414,23 +1415,23 @@ func newestConditionCheckedAt(conditions []exec.DAGRunCondition) (time.Time, boo
 	return newest, !newest.IsZero()
 }
 
-func conditionCheckedAt(condition exec.DAGRunCondition) (time.Time, bool) {
+func conditionCheckedAt(condition dagrun.DAGRunCondition) (time.Time, bool) {
 	checkedAt, err := stringutil.ParseTime(condition.CheckedAt)
 	return checkedAt, err == nil && !checkedAt.IsZero()
 }
 
 func mergeQueuedConditionObservations(
-	conditions []exec.DAGRunCondition,
-	observations []exec.DAGRunCondition,
-) []exec.DAGRunCondition {
-	return exec.MergeDAGRunConditions(withoutQueuedConditionTypes(conditions), observations...)
+	conditions []dagrun.DAGRunCondition,
+	observations []dagrun.DAGRunCondition,
+) []dagrun.DAGRunCondition {
+	return dagrun.MergeDAGRunConditions(withoutQueuedConditionTypes(conditions), observations...)
 }
 
-func withoutQueuedConditionTypes(conditions []exec.DAGRunCondition) []exec.DAGRunCondition {
+func withoutQueuedConditionTypes(conditions []dagrun.DAGRunCondition) []dagrun.DAGRunCondition {
 	if !hasQueuedConditionType(conditions) {
 		return conditions
 	}
-	filtered := make([]exec.DAGRunCondition, 0, len(conditions))
+	filtered := make([]dagrun.DAGRunCondition, 0, len(conditions))
 	for _, condition := range conditions {
 		if isQueuedConditionType(condition.Type) {
 			continue
@@ -1440,7 +1441,7 @@ func withoutQueuedConditionTypes(conditions []exec.DAGRunCondition) []exec.DAGRu
 	return filtered
 }
 
-func hasQueuedConditionType(conditions []exec.DAGRunCondition) bool {
+func hasQueuedConditionType(conditions []dagrun.DAGRunCondition) bool {
 	for _, condition := range conditions {
 		if isQueuedConditionType(condition.Type) {
 			return true
@@ -1450,8 +1451,8 @@ func hasQueuedConditionType(conditions []exec.DAGRunCondition) bool {
 }
 
 func hasUnobservedQueuedConditionType(
-	conditions []exec.DAGRunCondition,
-	observations []exec.DAGRunCondition,
+	conditions []dagrun.DAGRunCondition,
+	observations []dagrun.DAGRunCondition,
 ) bool {
 	observed := make(map[string]struct{}, len(observations))
 	for _, observation := range observations {
@@ -1484,7 +1485,7 @@ func isQueuedConditionType(conditionType string) bool {
 	}
 }
 
-func queuedConditionObservationNeedsUpdate(status *exec.DAGRunStatus, observation exec.DAGRunCondition) bool {
+func queuedConditionObservationNeedsUpdate(status *dagrun.DAGRunStatus, observation dagrun.DAGRunCondition) bool {
 	observedAt, ok := conditionCheckedAt(observation)
 	if !ok {
 		return true
@@ -1508,23 +1509,23 @@ func queuedConditionObservationNeedsUpdate(status *exec.DAGRunStatus, observatio
 	return observedAt.Sub(currentAt) >= queuedConditionRefreshInterval
 }
 
-func queuedConditionByType(conditions []exec.DAGRunCondition, conditionType string) (exec.DAGRunCondition, bool) {
+func queuedConditionByType(conditions []dagrun.DAGRunCondition, conditionType string) (dagrun.DAGRunCondition, bool) {
 	for _, condition := range conditions {
 		if condition.Type == conditionType {
 			return condition, true
 		}
 	}
-	return exec.DAGRunCondition{}, false
+	return dagrun.DAGRunCondition{}, false
 }
 
-func (d *queueDispatcher) hasOutstandingDispatchReservation(ctx context.Context, runRef exec.DAGRunRef) (bool, error) {
+func (d *queueDispatcher) hasOutstandingDispatchReservation(ctx context.Context, runRef dagrun.DAGRunRef) (bool, error) {
 	if d.dispatchTaskStore == nil {
 		return false, nil
 	}
 
 	attempt, err := d.dagRunStore.FindAttempt(ctx, runRef)
 	if err != nil {
-		if errors.Is(err, exec.ErrDAGRunIDNotFound) {
+		if errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
 			return false, nil
 		}
 		return false, err
@@ -1535,7 +1536,7 @@ func (d *queueDispatcher) hasOutstandingDispatchReservation(ctx context.Context,
 
 	status, err := attempt.ReadStatus(ctx)
 	if err != nil {
-		if errors.Is(err, exec.ErrNoStatusData) || errors.Is(err, exec.ErrCorruptedStatusFile) {
+		if errors.Is(err, dagrun.ErrNoStatusData) || errors.Is(err, dagrun.ErrCorruptedStatusFile) {
 			return false, nil
 		}
 		return false, err
@@ -1586,9 +1587,9 @@ func (d *queueDispatcher) countOutstandingDispatchReservations(ctx context.Conte
 func (d *queueDispatcher) hasFreshDistributedLease(
 	ctx context.Context,
 	queueName string,
-	runRef exec.DAGRunRef,
-	attempt exec.DAGRunAttempt,
-	status *exec.DAGRunStatus,
+	runRef dagrun.DAGRunRef,
+	attempt dagrun.DAGRunAttempt,
+	status *dagrun.DAGRunStatus,
 ) (bool, error) {
 	if d.dagRunLeaseStore == nil || status == nil {
 		return false, nil
@@ -1628,7 +1629,7 @@ func (d *queueDispatcher) hasFreshDistributedLease(
 
 func (d *queueDispatcher) leaseStaleThresholdOrDefault() time.Duration {
 	if d.leaseStaleThreshold <= 0 {
-		return exec.DefaultStaleLeaseThreshold
+		return dagrun.DefaultStaleLeaseThreshold
 	}
 	return d.leaseStaleThreshold
 }

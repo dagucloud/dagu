@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
@@ -42,7 +42,7 @@ func TestNewContext_DAGRunStoreUsesConfiguredArtifactDirForCleanup(t *testing.T)
 	}
 	const dagRunID = "run-cleanup-1"
 
-	attempt, err := ctx.DAGRunStore.CreateAttempt(ctx.Context, dag, time.Now(), dagRunID, exec.NewDAGRunAttemptOptions{})
+	attempt, err := ctx.DAGRunStore.CreateAttempt(ctx.Context, dag, time.Now(), dagRunID, dagrun.NewDAGRunAttemptOptions{})
 	require.NoError(t, err)
 	require.NoError(t, attempt.Open(ctx.Context))
 
@@ -50,7 +50,7 @@ func TestNewContext_DAGRunStoreUsesConfiguredArtifactDirForCleanup(t *testing.T)
 	require.NoError(t, os.MkdirAll(archiveDir, 0o750))
 	require.NoError(t, os.WriteFile(filepath.Join(archiveDir, "artifact.txt"), []byte("artifact"), 0o600))
 
-	status := exec.InitialStatus(dag)
+	status := dagrun.InitialStatus(dag)
 	status.DAGRunID = dagRunID
 	status.Status = ir.Succeeded
 	status.ArchiveDir = archiveDir
@@ -59,7 +59,7 @@ func TestNewContext_DAGRunStoreUsesConfiguredArtifactDirForCleanup(t *testing.T)
 
 	require.DirExists(t, archiveDir)
 
-	err = ctx.DAGRunStore.RemoveDAGRun(ctx.Context, exec.NewDAGRunRef(dag.Name, dagRunID))
+	err = ctx.DAGRunStore.RemoveDAGRun(ctx.Context, dagrun.NewDAGRunRef(dag.Name, dagRunID))
 	require.NoError(t, err)
 	assert.NoDirExists(t, archiveDir)
 }

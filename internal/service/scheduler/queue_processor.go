@@ -15,6 +15,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 )
 
 const queueAgeWarningThreshold = 2 * time.Minute
@@ -87,7 +88,7 @@ func (e startupExecutionError) Unwrap() error {
 // QueueProcessor is responsible for processing queued DAG runs.
 type QueueProcessor struct {
 	queueStore             exec.QueueStore
-	dagRunStore            exec.DAGRunStore
+	dagRunStore            dagrun.DAGRunStore
 	procStore              exec.ProcStore
 	dagRunLeaseStore       exec.DAGRunLeaseStore
 	dispatchTaskStore      exec.DispatchTaskStore
@@ -185,7 +186,7 @@ func WithIsSuspended(isSuspended IsSuspendedFunc) QueueProcessorOption {
 // NewQueueProcessor creates a new QueueProcessor.
 func NewQueueProcessor(
 	queueStore exec.QueueStore,
-	dagRunStore exec.DAGRunStore,
+	dagRunStore dagrun.DAGRunStore,
 	procStore exec.ProcStore,
 	dagExecutor *DAGExecutor,
 	queuesConfig config.Queues,
@@ -202,7 +203,7 @@ func NewQueueProcessor(
 		// throttled by the minimum processing interval.
 		prevTime:            time.Now().Add(-queueProcessMinInterval),
 		backoffConfig:       DefaultBackoffConfig(),
-		leaseStaleThreshold: exec.DefaultStaleLeaseThreshold,
+		leaseStaleThreshold: dagrun.DefaultStaleLeaseThreshold,
 		isSuspended:         func(context.Context, string) bool { return false },
 	}
 
@@ -413,7 +414,7 @@ func (p *QueueProcessor) ProcessQueueItems(ctx context.Context, queueName string
 	wg.Wait()
 }
 
-func currentStatusString(status *exec.DAGRunStatus) string {
+func currentStatusString(status *dagrun.DAGRunStatus) string {
 	if status == nil {
 		return "unknown"
 	}
@@ -461,7 +462,7 @@ func readStartupExecutionError(execErrCh <-chan error) error {
 	}
 }
 
-func queueAttemptKey(runRef exec.DAGRunRef, attempt exec.DAGRunAttempt, status *exec.DAGRunStatus) string {
+func queueAttemptKey(runRef dagrun.DAGRunRef, attempt dagrun.DAGRunAttempt, status *dagrun.DAGRunStatus) string {
 	if status == nil {
 		return ""
 	}
@@ -476,12 +477,12 @@ func queueAttemptKey(runRef exec.DAGRunRef, attempt exec.DAGRunAttempt, status *
 	if attemptID == "" {
 		return ""
 	}
-	return exec.GenerateAttemptKey(runRef.Name, runRef.ID, runRef.Name, runRef.ID, attemptID)
+	return dagrun.GenerateAttemptKey(runRef.Name, runRef.ID, runRef.Name, runRef.ID, attemptID)
 }
 
 func (p *QueueProcessor) leaseStaleThresholdOrDefault() time.Duration {
 	if p.leaseStaleThreshold <= 0 {
-		return exec.DefaultStaleLeaseThreshold
+		return dagrun.DefaultStaleLeaseThreshold
 	}
 	return p.leaseStaleThreshold
 }

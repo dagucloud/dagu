@@ -14,6 +14,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
@@ -68,9 +69,9 @@ steps:
 		},
 	}))
 
-	attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dag, scheduledAt, runID, exec.NewDAGRunAttemptOptions{})
+	attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dag, scheduledAt, runID, dagrun.NewDAGRunAttemptOptions{})
 	require.NoError(t, err)
-	initialStatus := exec.InitialStatus(dag)
+	initialStatus := dagrun.InitialStatus(dag)
 	initialStatus.DAGRunID = runID
 	initialStatus.AttemptID = attempt.ID()
 	initialStatus.TriggerType = ir.TriggerTypeScheduler

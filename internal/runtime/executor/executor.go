@@ -13,7 +13,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
@@ -124,8 +124,8 @@ type RunParams struct {
 
 // ChatMessageHandler is an interface for executors that handle chat session messages.
 type ChatMessageHandler interface {
-	SetContext([]exec.LLMMessage)
-	GetMessages() []exec.LLMMessage
+	SetContext([]dagrun.LLMMessage)
+	GetMessages() []dagrun.LLMMessage
 }
 
 // PushBackAware is implemented by executors that can incorporate
@@ -144,19 +144,19 @@ type PushBackPreviousStdoutAware interface {
 // This is used by executors like chat (with tools) to report sub-runs
 // for UI drill-down functionality.
 type SubRunProvider interface {
-	GetSubRuns() []exec.SubDAGRun
+	GetSubRuns() []dagrun.SubDAGRun
 }
 
 // StatusDetailsProvider reports independently tracked executions within a node.
 type StatusDetailsProvider interface {
-	GetStatusDetails() []exec.NodeStatusDetail
+	GetStatusDetails() []dagrun.NodeStatusDetail
 }
 
 // ToolDefinitionProvider is an interface for executors that provide tool definitions.
 // This is used by chat executors to report what tools were available to the LLM
 // for debugging and visibility purposes.
 type ToolDefinitionProvider interface {
-	GetToolDefinitions() []exec.ToolDefinition
+	GetToolDefinitions() []dagrun.ToolDefinition
 }
 
 // OutputsProvider is implemented by executors that publish DAG/action outputs.

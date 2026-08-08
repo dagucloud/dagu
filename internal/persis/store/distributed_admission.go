@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
@@ -38,7 +39,7 @@ type dispatchAdmissionAttemptPayload struct {
 	QueueName        string                 `json:"queueName"`
 	AttemptKey       string                 `json:"attemptKey"`
 	AttemptID        string                 `json:"attemptId"`
-	DAGRun           exec.DAGRunRef         `json:"dagRun"`
+	DAGRun           dagrun.DAGRunRef       `json:"dagRun"`
 	State            dispatchAdmissionState `json:"state"`
 	ReservationToken string                 `json:"reservationToken"`
 	SlotID           string                 `json:"slotId,omitempty"`
@@ -52,13 +53,13 @@ type dispatchAdmissionAttemptPayload struct {
 }
 
 type dispatchAdmissionSlotPayload struct {
-	Version          int            `json:"version"`
-	QueueName        string         `json:"queueName"`
-	AttemptKey       string         `json:"attemptKey"`
-	AttemptID        string         `json:"attemptId"`
-	DAGRun           exec.DAGRunRef `json:"dagRun"`
-	ReservationToken string         `json:"reservationToken"`
-	CreatedAt        int64          `json:"createdAt"`
+	Version          int              `json:"version"`
+	QueueName        string           `json:"queueName"`
+	AttemptKey       string           `json:"attemptKey"`
+	AttemptID        string           `json:"attemptId"`
+	DAGRun           dagrun.DAGRunRef `json:"dagRun"`
+	ReservationToken string           `json:"reservationToken"`
+	CreatedAt        int64            `json:"createdAt"`
 }
 
 type dispatchAdmissionTokenPayload struct {

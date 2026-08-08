@@ -10,8 +10,10 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	"github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
+	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -19,12 +21,12 @@ import (
 func TestEnsureQueueDispatchRetryTarget_MissingRunReturnsNotQueued(t *testing.T) {
 	t.Parallel()
 
-	store := dagrun.New(filepath.Join(t.TempDir(), "dag-runs"))
+	store := filedagrun.New(filepath.Join(t.TempDir(), "dag-runs"))
 	err := ensureQueueDispatchRetryTarget(
 		context.Background(),
 		store,
-		exec.NewDAGRunRef("retry-test", "missing-run"),
-		exec.DAGRunRef{},
+		dagrun.NewDAGRunRef("retry-test", "missing-run"),
+		dagrun.DAGRunRef{},
 	)
 	require.Error(t, err)
 
@@ -44,7 +46,7 @@ func TestEnsureQueueDispatchRetryTarget_MissingStatusReturnsNotQueued(t *testing
 	t.Parallel()
 
 	ctx := context.Background()
-	store := dagrun.New(filepath.Join(t.TempDir(), "dag-runs"))
+	store := filedagrun.New(filepath.Join(t.TempDir(), "dag-runs"))
 	dag := &ir.DAG{
 		Name: "retry-test",
 		Steps: []ir.Step{
@@ -52,14 +54,14 @@ func TestEnsureQueueDispatchRetryTarget_MissingStatusReturnsNotQueued(t *testing
 		},
 	}
 
-	_, err := store.CreateAttempt(ctx, dag, time.Now(), "run-1", exec.NewDAGRunAttemptOptions{})
+	_, err := store.CreateAttempt(ctx, dag, time.Now(), "run-1", dagrun.NewDAGRunAttemptOptions{})
 	require.NoError(t, err)
 
 	err = ensureQueueDispatchRetryTarget(
 		ctx,
 		store,
-		exec.NewDAGRunRef(dag.Name, "run-1"),
-		exec.DAGRunRef{},
+		dagrun.NewDAGRunRef(dag.Name, "run-1"),
+		dagrun.DAGRunRef{},
 	)
 	require.Error(t, err)
 
@@ -78,7 +80,7 @@ func TestRestoreRetryExecutionContext_BackfillsStoredWorkingDirSnapshot(t *testi
 		Location:   filepath.Join(dagDir, "retry-test.yaml"),
 		WorkingDir: workDir,
 	}
-	status := &exec.DAGRunStatus{}
+	status := &dagrun.DAGRunStatus{}
 
 	restoreRetryExecutionContext(dag, status, nil)
 
@@ -97,8 +99,8 @@ func TestRestoreRetryExecutionContext_BackfillsAttemptWorkDirSnapshot(t *testing
 		Location:   filepath.Join(dagDir, "retry-test.yaml"),
 		WorkingDir: dagDir,
 	}
-	status := &exec.DAGRunStatus{}
-	attempt := &exec.MockDAGRunAttempt{}
+	status := &dagrun.DAGRunStatus{}
+	attempt := &testutil.MockDAGRunAttempt{}
 	attempt.On("WorkDir").Return(attemptWorkDir).Once()
 
 	restoreRetryExecutionContext(dag, status, attempt)
@@ -118,7 +120,7 @@ func TestWaitForRetrySourceRelease_WaitsForTerminalRunProcToStop(t *testing.T) {
 		retryReleaseHeartbeat(dag.Name, "run-1", "attempt-1", true),
 		nil,
 	}}
-	status := &exec.DAGRunStatus{
+	status := &dagrun.DAGRunStatus{
 		Name:      dag.Name,
 		DAGRunID:  "run-1",
 		AttemptID: "attempt-1",
@@ -135,7 +137,7 @@ func TestWaitForRetrySourceRelease_WaitsForTerminalRunProcToStop(t *testing.T) {
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, store.calls, 3)
 	assert.Equal(t, dag.ProcGroup(), store.groupName)
-	assert.Equal(t, exec.NewDAGRunRef(dag.Name, "run-1"), store.dagRun)
+	assert.Equal(t, dagrun.NewDAGRunRef(dag.Name, "run-1"), store.dagRun)
 }
 
 func TestWaitForRetrySourceRelease_SkipsActiveStatus(t *testing.T) {
@@ -147,7 +149,7 @@ func TestWaitForRetrySourceRelease_SkipsActiveStatus(t *testing.T) {
 		},
 	}
 	dag := &ir.DAG{Name: "retry-test"}
-	status := &exec.DAGRunStatus{
+	status := &dagrun.DAGRunStatus{
 		Name:     dag.Name,
 		DAGRunID: "run-1",
 		Status:   ir.Running,
@@ -171,7 +173,7 @@ func TestWaitForRetrySourceRelease_TimesOutWhileProcAlive(t *testing.T) {
 	store := &retryReleaseProcStore{
 		alwaysHeartbeat: retryReleaseHeartbeat(dag.Name, "run-1", "attempt-1", true),
 	}
-	status := &exec.DAGRunStatus{
+	status := &dagrun.DAGRunStatus{
 		Name:      dag.Name,
 		DAGRunID:  "run-1",
 		AttemptID: "attempt-1",
@@ -197,7 +199,7 @@ func TestWaitForRetrySourceReleaseRejectsDifferentActiveAttempt(t *testing.T) {
 	store := &retryReleaseProcStore{heartbeats: []*exec.ProcHeartbeat{
 		retryReleaseHeartbeat(dag.Name, "run-1", "attempt-2", true),
 	}}
-	status := &exec.DAGRunStatus{
+	status := &dagrun.DAGRunStatus{
 		Name:      dag.Name,
 		DAGRunID:  "run-1",
 		AttemptID: "attempt-1",
@@ -222,10 +224,10 @@ type retryReleaseProcStore struct {
 	alwaysHeartbeat *exec.ProcHeartbeat
 	calls           int
 	groupName       string
-	dagRun          exec.DAGRunRef
+	dagRun          dagrun.DAGRunRef
 }
 
-func (s *retryReleaseProcStore) LatestHeartbeat(_ context.Context, groupName string, dagRun exec.DAGRunRef) (*exec.ProcHeartbeat, error) {
+func (s *retryReleaseProcStore) LatestHeartbeat(_ context.Context, groupName string, dagRun dagrun.DAGRunRef) (*exec.ProcHeartbeat, error) {
 	s.calls++
 	s.groupName = groupName
 	s.dagRun = dagRun
@@ -247,7 +249,7 @@ func (s *retryReleaseProcStore) LatestHeartbeat(_ context.Context, groupName str
 
 func retryReleaseHeartbeat(dagName, runID, attemptID string, fresh bool) *exec.ProcHeartbeat {
 	return &exec.ProcHeartbeat{
-		DAGRun:    exec.NewDAGRunRef(dagName, runID),
+		DAGRun:    dagrun.NewDAGRunRef(dagName, runID),
 		AttemptID: attemptID,
 		Fresh:     fresh,
 	}

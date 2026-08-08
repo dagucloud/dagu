@@ -20,6 +20,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/procutil"
 	exec1 "github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
@@ -234,7 +235,7 @@ func (b *SubCmdBuilder) Enqueue(dag *ir.DAG, opts EnqueueOptions) CmdSpec {
 }
 
 // Dequeue creates a dequeue command spec.
-func (b *SubCmdBuilder) Dequeue(dag *ir.DAG, dagRun exec1.DAGRunRef) CmdSpec {
+func (b *SubCmdBuilder) Dequeue(dag *ir.DAG, dagRun dagrun.DAGRunRef) CmdSpec {
 	queueName := dag.ProcGroup()
 	args := []string{"dequeue", queueName, fmt.Sprintf("--dag-run=%s", dagRun.String())}
 
@@ -356,8 +357,8 @@ type EnqueueOptions struct {
 type RetryOptions struct {
 	DAGRunID      string
 	Step          string
-	Root          exec1.DAGRunRef
-	RetryPath     exec1.RetryPath
+	Root          dagrun.DAGRunRef
+	RetryPath     dagrun.RetryPath
 	TriggerActor  string
 	QueueDispatch bool
 }

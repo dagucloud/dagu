@@ -8,7 +8,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
@@ -29,7 +29,7 @@ func WithCorruptRecordGracePeriod(period time.Duration) DistributedStoreOption {
 }
 
 func resolveDistributedStoreOptions(opts []DistributedStoreOption) distributedStoreOptions {
-	resolved := distributedStoreOptions{corruptRecordGracePeriod: exec.DefaultStaleLeaseThreshold}
+	resolved := distributedStoreOptions{corruptRecordGracePeriod: dagrun.DefaultStaleLeaseThreshold}
 	for _, opt := range opts {
 		opt(&resolved)
 	}

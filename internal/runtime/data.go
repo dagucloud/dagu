@@ -17,7 +17,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/collections"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
@@ -64,9 +64,9 @@ type NodeState struct {
 	// Error is the error that the executor encountered.
 	Error error
 	// StatusDetails tracks independently executed items within the node.
-	StatusDetails []exec.NodeStatusDetail
+	StatusDetails []dagrun.NodeStatusDetail
 	// Incremental explains the materialization decision for this node.
-	Incremental *exec.IncrementalExecution
+	Incremental *dagrun.IncrementalExecution
 	// ExitCode is the exit code that the command exited with.
 	// It only makes sense when the node is a command executor.
 	ExitCode int
@@ -98,10 +98,10 @@ type NodeState struct {
 	// HumanTaskCompletedByID is the ID of the subject that completed the human task.
 	HumanTaskCompletedByID string
 	// ChatMessages stores the chat session messages for message passing between steps.
-	ChatMessages []exec.LLMMessage
+	ChatMessages []dagrun.LLMMessage
 	// ToolDefinitions stores the tool definitions that were available to the LLM during execution.
 	// This provides visibility into what tools/functions the LLM could call.
-	ToolDefinitions []exec.ToolDefinition
+	ToolDefinitions []dagrun.ToolDefinition
 	// ApprovalInputs stores key-value parameters provided during approval.
 	// These are available as environment variables in subsequent steps.
 	ApprovalInputs map[string]string
@@ -124,7 +124,7 @@ type NodeState struct {
 	// PushBackInputs stores inputs from the last push-back for env var injection.
 	PushBackInputs map[string]string
 	// PushBackHistory stores the chronological push-back feedback for this step.
-	PushBackHistory []exec.PushBackEntry
+	PushBackHistory []dagrun.PushBackEntry
 	// PushBackPreviousStdout stores the stdout log path from the execution that
 	// was reset by the latest push-back.
 	PushBackPreviousStdout string
@@ -263,11 +263,11 @@ func (d *Data) SetSubRuns(subRuns []SubDAGRun) {
 }
 
 // SetStatusDetails replaces the independently tracked execution statuses.
-func (d *Data) SetStatusDetails(details []exec.NodeStatusDetail) {
+func (d *Data) SetStatusDetails(details []dagrun.NodeStatusDetail) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	d.inner.State.StatusDetails = append([]exec.NodeStatusDetail(nil), details...)
+	d.inner.State.StatusDetails = append([]dagrun.NodeStatusDetail(nil), details...)
 }
 
 // AddSubRunsRepeated appends repeated sub DAG runs to the node.
@@ -358,7 +358,7 @@ func (d *Data) SetStatus(s ir.NodeStatus) {
 	d.inner.State.Status = s
 }
 
-func (d *Data) setIncremental(value exec.IncrementalExecution) {
+func (d *Data) setIncremental(value dagrun.IncrementalExecution) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	copy := value
@@ -785,28 +785,28 @@ func (d *Data) SetControllerState(raw json.RawMessage) {
 }
 
 // SetChatMessages sets the chat session messages for the node.
-func (d *Data) SetChatMessages(messages []exec.LLMMessage) {
+func (d *Data) SetChatMessages(messages []dagrun.LLMMessage) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.inner.State.ChatMessages = messages
 }
 
 // GetChatMessages returns the chat session messages for the node.
-func (d *Data) GetChatMessages() []exec.LLMMessage {
+func (d *Data) GetChatMessages() []dagrun.LLMMessage {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	return d.inner.State.ChatMessages
 }
 
 // SetToolDefinitions sets the tool definitions that were available to the LLM.
-func (d *Data) SetToolDefinitions(tools []exec.ToolDefinition) {
+func (d *Data) SetToolDefinitions(tools []dagrun.ToolDefinition) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.inner.State.ToolDefinitions = tools
 }
 
 // GetToolDefinitions returns the tool definitions that were available to the LLM.
-func (d *Data) GetToolDefinitions() []exec.ToolDefinition {
+func (d *Data) GetToolDefinitions() []dagrun.ToolDefinition {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	return d.inner.State.ToolDefinitions

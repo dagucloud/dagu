@@ -39,6 +39,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/telemetry"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
 	"github.com/dagucloud/dagu/v2/internal/dagwarning"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -79,13 +80,13 @@ type Agent struct {
 
 	// retryTarget is the target status to retry the DAG.
 	// It is nil if it's not a retry execution.
-	retryTarget *exec.DAGRunStatus
+	retryTarget *dagrun.DAGRunStatus
 
 	// dagStore is the database to store the DAG definitions.
 	dagStore exec.DAGStore
 
 	// dagRunStore is the database to store the run history.
-	dagRunStore exec.DAGRunStore
+	dagRunStore dagrun.DAGRunStore
 
 	// runStateStore opens execution state for this run.
 	runStateStore runstate.Store
@@ -153,10 +154,10 @@ type Agent struct {
 	// rootDAGRun indicates the root dag-run of the current dag-run.
 	// If the current dag-run is the root dag-run, it is the same as the current
 	// DAG name and dag-run ID.
-	rootDAGRun exec.DAGRunRef
+	rootDAGRun dagrun.DAGRunRef
 
 	// parentDAGRun is the execution reference of the parent dag-run.
-	parentDAGRun exec.DAGRunRef
+	parentDAGRun dagrun.DAGRunRef
 
 	// dagRunID is the ID for the current dag-run.
 	dagRunID string
@@ -184,7 +185,7 @@ type Agent struct {
 	stepRetry string
 
 	// retryPath identifies the persisted child invocation selected by a root retry.
-	retryPath exec.RetryPath
+	retryPath dagrun.RetryPath
 
 	// workerID is the identifier of the worker executing this DAG run.
 	workerID string
@@ -232,7 +233,7 @@ type Agent struct {
 	// profileResolvedAt records when the selected runtime profile was resolved.
 	profileResolvedAt string
 	// profileEntries records non-secret injected key metadata for status/history.
-	profileEntries []exec.RuntimeProfileEntry
+	profileEntries []dagrun.RuntimeProfileEntry
 	// secretReferenceResolver resolves registry refs without requiring local store access.
 	secretReferenceResolver secrets.ReferenceResolver
 	// secretMasker redacts resolved secret values from status/history snapshots.
@@ -289,10 +290,10 @@ type Options struct {
 	// RetryTarget is the target status (runstore of execution) to retry.
 	// If it's specified the agent will execute the DAG with the same
 	// configuration as the specified history.
-	RetryTarget *exec.DAGRunStatus
+	RetryTarget *dagrun.DAGRunStatus
 	// ParentDAGRun is the dag-run reference of the parent dag-run.
 	// It is required for sub dag-runs to identify the parent dag-run.
-	ParentDAGRun exec.DAGRunRef
+	ParentDAGRun dagrun.DAGRunRef
 	// ProgressDisplay indicates if the progress display should be shown.
 	// This is typically enabled for CLI execution in a TTY environment.
 	ProgressDisplay bool
@@ -301,7 +302,7 @@ type Options struct {
 	// StepRetry is the name of the step to retry, if specified.
 	StepRetry string
 	// RetryPath identifies a persisted child DAG step retry.
-	RetryPath exec.RetryPath
+	RetryPath dagrun.RetryPath
 	// WorkerID is the identifier of the worker executing this DAG run.
 	// For distributed execution, this is set to the worker's ID.
 	// For local execution, this defaults to "local".
@@ -324,11 +325,11 @@ type Options struct {
 	AttemptID string
 	// PreparedAttempt is an exact attempt that was created or reopened before proc acquisition.
 	// This is used for local execution so the proc heartbeat can include the final attempt ID.
-	PreparedAttempt exec.DAGRunAttempt
+	PreparedAttempt dagrun.DAGRunAttempt
 	// RunStateStore records execution state for this DAG run.
 	RunStateStore runstate.Store
 	// DAGRunStore is the store for dag-run data. Nil for remote worker execution.
-	DAGRunStore exec.DAGRunStore
+	DAGRunStore dagrun.DAGRunStore
 	// QueueStore is the store for queued dag-run items. Nil when queues are unavailable.
 	QueueStore exec.QueueStore
 	// StateStore is the persistent state store shared across DAG runs.
@@ -347,7 +348,7 @@ type Options struct {
 	// ServiceRegistry is the registry for service discovery.
 	ServiceRegistry exec.ServiceRegistry
 	// RootDAGRun is the root dag-run reference for sub-DAG runs.
-	RootDAGRun exec.DAGRunRef
+	RootDAGRun dagrun.DAGRunRef
 	// PeerConfig is the configuration for peer communication.
 	PeerConfig config.Peer
 	// TriggerType indicates how this DAG run was initiated.
@@ -748,7 +749,7 @@ func (a *Agent) Run(ctx context.Context) error {
 			st := a.Status(ctx)
 			st.Status = ir.Failed
 			if st.FinishedAt == "" {
-				st.FinishedAt = exec.FormatTime(time.Now())
+				st.FinishedAt = dagrun.FormatTime(time.Now())
 			}
 			a.writeStatus(ctx, attempt, st)
 		}
@@ -1193,14 +1194,14 @@ func (a *Agent) shouldDelayTerminalStatus(status ir.Status) bool {
 	}
 }
 
-// nodeToModelNode converts a runner NodeData to an exec.Node.
-func (a *Agent) nodeToModelNode(nodeData runtime.NodeData) *exec.Node {
-	subRuns := make([]exec.SubDAGRun, len(nodeData.State.SubRuns))
+// nodeToModelNode converts a runner NodeData to an dagrun.Node.
+func (a *Agent) nodeToModelNode(nodeData runtime.NodeData) *dagrun.Node {
+	subRuns := make([]dagrun.SubDAGRun, len(nodeData.State.SubRuns))
 	for i, child := range nodeData.State.SubRuns {
-		subRuns[i] = exec.SubDAGRun(child)
+		subRuns[i] = dagrun.SubDAGRun(child)
 	}
 
-	return &exec.Node{
+	return &dagrun.Node{
 		Step:             nodeData.Step,
 		Stdout:           nodeData.State.Stdout,
 		Stderr:           nodeData.State.Stderr,
@@ -1301,7 +1302,7 @@ func (a *Agent) collectOutputs(ctx context.Context) map[string]string {
 
 // buildOutputs creates the full DAGRunOutputs structure with metadata.
 // Returns nil if no outputs were collected.
-func (a *Agent) buildOutputs(ctx context.Context, finalStatus ir.Status) *exec.DAGRunOutputs {
+func (a *Agent) buildOutputs(ctx context.Context, finalStatus ir.Status) *dagrun.DAGRunOutputs {
 	outputs := a.collectOutputs(ctx)
 
 	if len(outputs) == 0 {
@@ -1336,8 +1337,8 @@ func (a *Agent) buildOutputs(ctx context.Context, finalStatus ir.Status) *exec.D
 		}
 	}
 
-	return &exec.DAGRunOutputs{
-		Metadata: exec.OutputsMetadata{
+	return &dagrun.DAGRunOutputs{
+		Metadata: dagrun.OutputsMetadata{
 			DAGName:     a.dag.Name,
 			DAGRunID:    a.dagRunID,
 			AttemptID:   a.dagRunAttemptID,
@@ -1370,7 +1371,7 @@ func (a *Agent) PrintSummary(ctx context.Context) {
 }
 
 // Status collects the current running status of the DAG and returns it.
-func (a *Agent) Status(ctx context.Context) exec.DAGRunStatus {
+func (a *Agent) Status(ctx context.Context) dagrun.DAGRunStatus {
 	// Lock to avoid race condition.
 	a.lock.RLock()
 	defer a.lock.RUnlock()
@@ -1485,7 +1486,7 @@ func (a *Agent) currentAutoRetryCount() int {
 	return a.retryTarget.AutoRetryCount
 }
 
-func (a *Agent) statusSourceTarget() *exec.DAGRunStatus {
+func (a *Agent) statusSourceTarget() *dagrun.DAGRunStatus {
 	return a.retryTarget
 }
 
@@ -1551,7 +1552,7 @@ func (a *Agent) prepareWorkDir(ctx context.Context, attempt runstate.Attempt) (f
 // writeStatus writes the current status to storage.
 // When statusPusher is set, it pushes to the coordinator.
 // Otherwise, it writes to local storage via the run-state attempt.
-func (a *Agent) writeStatus(ctx context.Context, attempt runstate.Attempt, status exec.DAGRunStatus) {
+func (a *Agent) writeStatus(ctx context.Context, attempt runstate.Attempt, status dagrun.DAGRunStatus) {
 	if a.statusPusher != nil {
 		a.pushStatus(ctx, status)
 		return
@@ -1559,7 +1560,7 @@ func (a *Agent) writeStatus(ctx context.Context, attempt runstate.Attempt, statu
 	a.writeStatusLocally(ctx, attempt, status)
 }
 
-func (a *Agent) pushStatus(ctx context.Context, status exec.DAGRunStatus) {
+func (a *Agent) pushStatus(ctx context.Context, status dagrun.DAGRunStatus) {
 	pushCtx := context.WithoutCancel(ctx)
 	if remoteStatusPushTimeout > 0 {
 		var cancel context.CancelFunc
@@ -1578,7 +1579,7 @@ func (a *Agent) pushStatus(ctx context.Context, status exec.DAGRunStatus) {
 	}
 }
 
-func (a *Agent) writeStatusLocally(ctx context.Context, attempt runstate.Attempt, status exec.DAGRunStatus) {
+func (a *Agent) writeStatusLocally(ctx context.Context, attempt runstate.Attempt, status dagrun.DAGRunStatus) {
 	if attempt == nil {
 		return
 	}
@@ -1867,13 +1868,13 @@ func (a *Agent) resolveInheritedProfiles(
 	return defaultLayers, nil
 }
 
-func profileEntries(resolved *profilepkg.Resolved) []exec.RuntimeProfileEntry {
+func profileEntries(resolved *profilepkg.Resolved) []dagrun.RuntimeProfileEntry {
 	if resolved == nil {
 		return nil
 	}
-	entries := make([]exec.RuntimeProfileEntry, 0, len(resolved.Entries))
+	entries := make([]dagrun.RuntimeProfileEntry, 0, len(resolved.Entries))
 	for _, entry := range resolved.Entries {
-		entries = append(entries, exec.RuntimeProfileEntry{
+		entries = append(entries, dagrun.RuntimeProfileEntry{
 			Key:  entry.Key,
 			Kind: string(entry.Kind),
 		})

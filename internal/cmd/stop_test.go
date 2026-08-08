@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 	"github.com/dagucloud/dagu/v2/internal/test"
@@ -133,7 +133,7 @@ func seedFailedAutoRetryPendingRun(t *testing.T, th test.Command, dag test.DAG, 
 		dag.DAG,
 		time.Now(),
 		dagRunID,
-		exec.NewDAGRunAttemptOptions{},
+		dagrun.NewDAGRunAttemptOptions{},
 	)
 	require.NoError(t, err)
 

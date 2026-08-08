@@ -11,6 +11,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 )
@@ -19,11 +20,11 @@ var _ runtime.Database = &dbClient{}
 
 type dbClient struct {
 	ds              exec.DAGStore
-	drs             exec.DAGRunStore
+	drs             dagrun.DAGRunStore
 	remoteDAGLoader RemoteDAGLoader
 }
 
-func newDBClient(drs exec.DAGRunStore, ds exec.DAGStore, remoteDAGLoader RemoteDAGLoader) *dbClient {
+func newDBClient(drs dagrun.DAGRunStore, ds exec.DAGStore, remoteDAGLoader RemoteDAGLoader) *dbClient {
 	return &dbClient{drs: drs, ds: ds, remoteDAGLoader: remoteDAGLoader}
 }
 
@@ -79,7 +80,7 @@ func (o *dbClient) GetDAG(ctx context.Context, name string) (*ir.DAG, error) {
 	return remoteDAG, nil
 }
 
-func (o *dbClient) RequestChildCancel(ctx context.Context, dagRunID string, rootDAGRun exec.DAGRunRef) error {
+func (o *dbClient) RequestChildCancel(ctx context.Context, dagRunID string, rootDAGRun dagrun.DAGRunRef) error {
 	subAttempt, err := o.drs.FindSubAttempt(ctx, rootDAGRun, dagRunID)
 	if err != nil {
 		return fmt.Errorf("failed to find child attempt for dag-run ID %s: %w", dagRunID, err)

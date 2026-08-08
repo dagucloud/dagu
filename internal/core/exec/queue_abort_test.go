@@ -12,8 +12,9 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	"github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
+	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -22,12 +23,12 @@ func TestAbortQueuedDAGRun_PreservesPreviousVisibleAttempt(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	store := dagrun.New(filepath.Join(t.TempDir(), "dag-runs"))
+	store := filedagrun.New(filepath.Join(t.TempDir(), "dag-runs"))
 	dag := testQueueAbortDAG()
-	runRef := exec.NewDAGRunRef(dag.Name, "run-1")
+	runRef := dagrun.NewDAGRunRef(dag.Name, "run-1")
 
-	writeAttemptStatus(t, ctx, store, dag, "run-1", ir.Succeeded, exec.NewDAGRunAttemptOptions{}, time.Now().Add(-time.Minute))
-	writeAttemptStatus(t, ctx, store, dag, "run-1", ir.Queued, exec.NewDAGRunAttemptOptions{Retry: true}, time.Now())
+	writeAttemptStatus(t, ctx, store, dag, "run-1", ir.Succeeded, dagrun.NewDAGRunAttemptOptions{}, time.Now().Add(-time.Minute))
+	writeAttemptStatus(t, ctx, store, dag, "run-1", ir.Queued, dagrun.NewDAGRunAttemptOptions{Retry: true}, time.Now())
 
 	require.NoError(t, exec.AbortQueuedDAGRun(ctx, store, runRef))
 
@@ -42,28 +43,28 @@ func TestAbortQueuedDAGRun_RemovesRunWhenQueuedAttemptIsOnlyVisibleAttempt(t *te
 	t.Parallel()
 
 	ctx := context.Background()
-	store := dagrun.New(filepath.Join(t.TempDir(), "dag-runs"))
+	store := filedagrun.New(filepath.Join(t.TempDir(), "dag-runs"))
 	dag := testQueueAbortDAG()
-	runRef := exec.NewDAGRunRef(dag.Name, "run-2")
+	runRef := dagrun.NewDAGRunRef(dag.Name, "run-2")
 
-	writeAttemptStatus(t, ctx, store, dag, "run-2", ir.Queued, exec.NewDAGRunAttemptOptions{}, time.Now())
+	writeAttemptStatus(t, ctx, store, dag, "run-2", ir.Queued, dagrun.NewDAGRunAttemptOptions{}, time.Now())
 
 	require.NoError(t, exec.AbortQueuedDAGRun(ctx, store, runRef))
 
 	_, err := store.FindAttempt(ctx, runRef)
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, exec.ErrDAGRunIDNotFound) || errors.Is(err, exec.ErrNoStatusData))
+	assert.True(t, errors.Is(err, dagrun.ErrDAGRunIDNotFound) || errors.Is(err, dagrun.ErrNoStatusData))
 }
 
 func TestAbortQueuedDAGRun_RejectsNonQueuedStatus(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	store := dagrun.New(filepath.Join(t.TempDir(), "dag-runs"))
+	store := filedagrun.New(filepath.Join(t.TempDir(), "dag-runs"))
 	dag := testQueueAbortDAG()
-	runRef := exec.NewDAGRunRef(dag.Name, "run-3")
+	runRef := dagrun.NewDAGRunRef(dag.Name, "run-3")
 
-	writeAttemptStatus(t, ctx, store, dag, "run-3", ir.Running, exec.NewDAGRunAttemptOptions{}, time.Now())
+	writeAttemptStatus(t, ctx, store, dag, "run-3", ir.Running, dagrun.NewDAGRunAttemptOptions{}, time.Now())
 
 	err := exec.AbortQueuedDAGRun(ctx, store, runRef)
 	require.Error(t, err)
@@ -85,11 +86,11 @@ func testQueueAbortDAG() *ir.DAG {
 func writeAttemptStatus(
 	t *testing.T,
 	ctx context.Context,
-	store exec.DAGRunStore,
+	store dagrun.DAGRunStore,
 	dag *ir.DAG,
 	runID string,
 	status ir.Status,
-	opts exec.NewDAGRunAttemptOptions,
+	opts dagrun.NewDAGRunAttemptOptions,
 	ts time.Time,
 ) {
 	t.Helper()
@@ -98,7 +99,7 @@ func writeAttemptStatus(
 	require.NoError(t, err)
 	require.NoError(t, attempt.Open(ctx))
 
-	runStatus := exec.InitialStatus(dag)
+	runStatus := dagrun.InitialStatus(dag)
 	runStatus.Status = status
 	runStatus.DAGRunID = runID
 	runStatus.AttemptID = attempt.ID()

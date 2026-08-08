@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/llm"
 	"github.com/dagucloud/dagu/v2/internal/runtime/controller"
@@ -91,7 +91,7 @@ func TestLoadState_PreservesProgressAcrossAttempts(t *testing.T) {
 	raw, err := state.Marshal()
 	require.NoError(t, err)
 
-	messages := []exec.LLMMessage{{Role: exec.RoleAssistant, Content: "hello"}}
+	messages := []dagrun.LLMMessage{{Role: dagrun.RoleAssistant, Content: "hello"}}
 	restored, err := controller.LoadState(raw, messages, testDAG())
 	require.NoError(t, err)
 
@@ -446,8 +446,8 @@ func TestPlanner_MasksTheOutboundCopy(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	mask := func(msgs []exec.LLMMessage) []exec.LLMMessage {
-		out := make([]exec.LLMMessage, len(msgs))
+	mask := func(msgs []dagrun.LLMMessage) []dagrun.LLMMessage {
+		out := make([]dagrun.LLMMessage, len(msgs))
 		for i, m := range msgs {
 			out[i] = m
 			out[i].Content = strings.ReplaceAll(m.Content, "super-secret", "***")
@@ -459,7 +459,7 @@ func TestPlanner_MasksTheOutboundCopy(t *testing.T) {
 		"Authenticate with super-secret.", mask)
 
 	state := controller.NewState(&ir.DAG{Tasks: []ir.ControllerTask{{Name: "t", Description: "d"}}})
-	state.Append(exec.LLMMessage{Role: exec.RoleUser, Content: "token is super-secret"})
+	state.Append(dagrun.LLMMessage{Role: dagrun.RoleUser, Content: "token is super-secret"})
 
 	_, err = planner.Next(t.Context(), state)
 	require.NoError(t, err)

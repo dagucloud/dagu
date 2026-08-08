@@ -21,6 +21,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
@@ -35,7 +36,7 @@ type Scheduler struct {
 	entryReader         EntryReader
 	quit                chan any
 	running             atomic.Bool
-	dagRunStore         exec.DAGRunStore
+	dagRunStore         dagrun.DAGRunStore
 	queueStore          exec.QueueStore
 	procStore           exec.ProcStore
 	config              *config.Config
@@ -101,7 +102,7 @@ func New(
 	cfg *config.Config,
 	er EntryReader,
 	drm runtime.Manager,
-	dagRunStore exec.DAGRunStore,
+	dagRunStore dagrun.DAGRunStore,
 	queueStore exec.QueueStore,
 	procStore exec.ProcStore,
 	reg exec.ServiceRegistry,
@@ -122,7 +123,7 @@ func newScheduler(
 	cfg *config.Config,
 	er EntryReader,
 	drm runtime.Manager,
-	dagRunStore exec.DAGRunStore,
+	dagRunStore dagrun.DAGRunStore,
 	queueStore exec.QueueStore,
 	procStore exec.ProcStore,
 	reg exec.ServiceRegistry,
@@ -241,13 +242,13 @@ func newScheduler(
 		Enqueue:         enqueueFunc,
 		IsQueued:        isQueued,
 		RunExists: func(ctx context.Context, dag *ir.DAG, runID string) (bool, error) {
-			_, err := dagRunStore.FindAttempt(ctx, exec.NewDAGRunRef(dag.Name, runID))
+			_, err := dagRunStore.FindAttempt(ctx, dagrun.NewDAGRunRef(dag.Name, runID))
 			switch {
 			case err == nil:
 				return true, nil
-			case errors.Is(err, exec.ErrDAGRunIDNotFound):
+			case errors.Is(err, dagrun.ErrDAGRunIDNotFound):
 				return false, nil
-			case errors.Is(err, exec.ErrNoStatusData):
+			case errors.Is(err, dagrun.ErrNoStatusData):
 				return true, nil
 			default:
 				return false, err

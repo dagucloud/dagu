@@ -10,8 +10,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
@@ -107,7 +107,7 @@ func requireJSONEOF(decoder *json.Decoder) error {
 	return nil
 }
 
-func prepareCompletion(dag *ir.DAG, node *exec.Node, input Input) (*spec.HumanTaskInputResult, string, error) {
+func prepareCompletion(dag *ir.DAG, node *dagrun.Node, input Input) (*spec.HumanTaskInputResult, string, error) {
 	result, err := spec.ValidateHumanTaskInputs(node.Step.HumanTask.Form, input.Values, input.CoerceStrings)
 	if err != nil {
 		return nil, "", errorf(ErrorInvalid, "invalid input for human task step %q: %v", node.Step.ID, err)

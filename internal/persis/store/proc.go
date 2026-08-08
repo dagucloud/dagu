@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
@@ -138,7 +139,7 @@ func (s *ProcStore) CountAliveByDAGName(ctx context.Context, groupName, dagName 
 }
 
 // ListAlive returns fresh DAG runs in a group.
-func (s *ProcStore) ListAlive(ctx context.Context, groupName string) ([]exec.DAGRunRef, error) {
+func (s *ProcStore) ListAlive(ctx context.Context, groupName string) ([]dagrun.DAGRunRef, error) {
 	entries, err := s.ListEntries(ctx, groupName)
 	if err != nil {
 		return nil, err
@@ -147,7 +148,7 @@ func (s *ProcStore) ListAlive(ctx context.Context, groupName string) ([]exec.DAG
 }
 
 // IsRunAlive reports whether dagRun has a fresh proc entry in groupName.
-func (s *ProcStore) IsRunAlive(ctx context.Context, groupName string, dagRun exec.DAGRunRef) (bool, error) {
+func (s *ProcStore) IsRunAlive(ctx context.Context, groupName string, dagRun dagrun.DAGRunRef) (bool, error) {
 	entries, err := s.ListEntries(ctx, groupName)
 	if err != nil {
 		return false, err
@@ -161,7 +162,7 @@ func (s *ProcStore) IsRunAlive(ctx context.Context, groupName string, dagRun exe
 }
 
 // IsAttemptAlive reports whether a specific attempt has a fresh proc entry.
-func (s *ProcStore) IsAttemptAlive(ctx context.Context, groupName string, dagRun exec.DAGRunRef, attemptID string) (bool, error) {
+func (s *ProcStore) IsAttemptAlive(ctx context.Context, groupName string, dagRun dagrun.DAGRunRef, attemptID string) (bool, error) {
 	entries, err := s.ListEntries(ctx, groupName)
 	if err != nil {
 		return false, err
@@ -209,17 +210,17 @@ func (s *ProcStore) LatestFreshEntryByDAGName(ctx context.Context, groupName, da
 }
 
 // LatestHeartbeat returns the latest heartbeat observation for dagRun.
-func (s *ProcStore) LatestHeartbeat(ctx context.Context, groupName string, dagRun exec.DAGRunRef) (*exec.ProcHeartbeat, error) {
+func (s *ProcStore) LatestHeartbeat(ctx context.Context, groupName string, dagRun dagrun.DAGRunRef) (*exec.ProcHeartbeat, error) {
 	return s.latestCollectionHeartbeat(ctx, groupName, dagRun)
 }
 
 // ListAllAlive returns all fresh DAG runs grouped by process group.
-func (s *ProcStore) ListAllAlive(ctx context.Context) (map[string][]exec.DAGRunRef, error) {
+func (s *ProcStore) ListAllAlive(ctx context.Context) (map[string][]dagrun.DAGRunRef, error) {
 	entries, err := s.ListAllEntries(ctx)
 	if err != nil {
 		return nil, err
 	}
-	result := make(map[string][]exec.DAGRunRef)
+	result := make(map[string][]dagrun.DAGRunRef)
 	seen := make(map[string]map[string]struct{})
 	for _, entry := range entries {
 		if !entry.Fresh {

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	runtimeagent "github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	"github.com/dagucloud/dagu/v2/internal/test"
@@ -65,7 +66,7 @@ func TestHandlerOn(t *testing.T) {
 		dagYAML      string
 		setupFunc    func(*testing.T, *ir.DAG) // Optional: verify DAG parsing
 		runFunc      func(*testing.T, context.Context, *test.Agent)
-		validateFunc func(*testing.T, *exec.DAGRunStatus)
+		validateFunc func(*testing.T, *dagrun.DAGRunStatus)
 	}{
 		{
 			name: "InitHandler_Success",
@@ -85,7 +86,7 @@ steps:
 			runFunc: func(t *testing.T, _ context.Context, agent *test.Agent) {
 				agent.RunSuccess(t)
 			},
-			validateFunc: func(t *testing.T, status *exec.DAGRunStatus) {
+			validateFunc: func(t *testing.T, status *dagrun.DAGRunStatus) {
 				require.Equal(t, ir.Succeeded, status.Status)
 				require.NotNil(t, status.OnInit, "init handler should have been executed")
 				require.Equal(t, ir.NodeSucceeded, status.OnInit.Status)
@@ -107,7 +108,7 @@ steps:
 			runFunc: func(_ *testing.T, ctx context.Context, agent *test.Agent) {
 				_ = agent.Run(ctx)
 			},
-			validateFunc: func(t *testing.T, status *exec.DAGRunStatus) {
+			validateFunc: func(t *testing.T, status *dagrun.DAGRunStatus) {
 				// Init failure causes DAG to be aborted (canceled internally)
 				require.Equal(t, ir.Aborted, status.Status)
 				require.NotNil(t, status.OnInit, "init handler should have been executed")
@@ -137,7 +138,7 @@ steps:
 			runFunc: func(t *testing.T, _ context.Context, agent *test.Agent) {
 				agent.RunSuccess(t)
 			},
-			validateFunc: func(t *testing.T, status *exec.DAGRunStatus) {
+			validateFunc: func(t *testing.T, status *dagrun.DAGRunStatus) {
 				require.Equal(t, ir.Succeeded, status.Status)
 				require.NotNil(t, status.OnInit, "init handler node should exist")
 				require.Equal(t, ir.NodeSkipped, status.OnInit.Status)
@@ -162,7 +163,7 @@ steps:
 			runFunc: func(_ *testing.T, ctx context.Context, agent *test.Agent) {
 				_ = agent.Run(ctx)
 			},
-			validateFunc: func(t *testing.T, status *exec.DAGRunStatus) {
+			validateFunc: func(t *testing.T, status *dagrun.DAGRunStatus) {
 				require.Equal(t, ir.Aborted, status.Status)
 
 				// Init handler should not have run (DAG precondition failed first)
@@ -197,7 +198,7 @@ steps:
 			runFunc: func(t *testing.T, _ context.Context, agent *test.Agent) {
 				agent.RunError(t)
 			},
-			validateFunc: func(t *testing.T, status *exec.DAGRunStatus) {
+			validateFunc: func(t *testing.T, status *dagrun.DAGRunStatus) {
 				require.Equal(t, ir.Failed, status.Status)
 				require.NotNil(t, status.OnFailure, "failure handler should have been executed")
 				require.Equal(t, ir.NodeSucceeded, status.OnFailure.Status)
@@ -217,7 +218,7 @@ steps:
 			runFunc: func(t *testing.T, _ context.Context, agent *test.Agent) {
 				agent.RunSuccess(t)
 			},
-			validateFunc: func(t *testing.T, status *exec.DAGRunStatus) {
+			validateFunc: func(t *testing.T, status *dagrun.DAGRunStatus) {
 				require.Equal(t, ir.Succeeded, status.Status)
 				require.NotNil(t, status.OnSuccess, "success handler should have been executed")
 				require.Equal(t, ir.NodeSucceeded, status.OnSuccess.Status)
@@ -237,7 +238,7 @@ steps:
 			runFunc: func(t *testing.T, _ context.Context, agent *test.Agent) {
 				agent.RunSuccess(t)
 			},
-			validateFunc: func(t *testing.T, status *exec.DAGRunStatus) {
+			validateFunc: func(t *testing.T, status *dagrun.DAGRunStatus) {
 				require.Equal(t, ir.Succeeded, status.Status)
 				require.NotNil(t, status.OnExit, "exit handler should have been executed")
 				require.Equal(t, ir.NodeSucceeded, status.OnExit.Status)
@@ -262,7 +263,7 @@ steps:
 			runFunc: func(_ *testing.T, ctx context.Context, agent *test.Agent) {
 				_ = agent.Run(ctx)
 			},
-			validateFunc: func(t *testing.T, status *exec.DAGRunStatus) {
+			validateFunc: func(t *testing.T, status *dagrun.DAGRunStatus) {
 				require.Equal(t, ir.Waiting, status.Status)
 				require.NotNil(t, status.OnWait, "wait handler should have been executed")
 				require.Equal(t, ir.NodeSucceeded, status.OnWait.Status)
@@ -283,7 +284,7 @@ steps:
 			runFunc: func(_ *testing.T, ctx context.Context, agent *test.Agent) {
 				_ = agent.Run(ctx)
 			},
-			validateFunc: func(t *testing.T, status *exec.DAGRunStatus) {
+			validateFunc: func(t *testing.T, status *dagrun.DAGRunStatus) {
 				// DAG should still be in Wait status even if handler failed
 				require.Equal(t, ir.Waiting, status.Status)
 				require.NotNil(t, status.OnWait, "wait handler should have been executed")

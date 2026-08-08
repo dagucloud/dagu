@@ -10,6 +10,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
 	"github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
@@ -22,7 +23,7 @@ type PersistenceFactory func(context.Context, *config.Config) (Persistence, erro
 // Persistence contains the storage dependencies required by Engine.
 type Persistence struct {
 	DAGStore             exec.DAGStore
-	DAGRunStore          exec.DAGRunStore
+	DAGRunStore          dagrun.DAGRunStore
 	RunStateStore        runstate.Store
 	ProcStore            exec.ProcStore
 	StateStore           dagstate.Store

@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -660,7 +660,7 @@ func TestRunIDNeverTruncated(t *testing.T) {
 	longRunID := "dag-run_20260201_120000Z_" + strings.Repeat("abcdef123456", 10)
 
 	// Create a mock DAGRunStatus with the long run ID
-	statuses := []*exec.DAGRunStatus{
+	statuses := []*dagrun.DAGRunStatus{
 		{
 			Name:      "test-dag",
 			DAGRunID:  longRunID,
@@ -697,7 +697,7 @@ func TestRunIDNeverTruncated(t *testing.T) {
 func TestCSVOutput(t *testing.T) {
 	// Note: not parallel - manipulates os.Stdout
 
-	statuses := []*exec.DAGRunStatus{
+	statuses := []*dagrun.DAGRunStatus{
 		{
 			Name:      "test-dag",
 			DAGRunID:  "run-001",

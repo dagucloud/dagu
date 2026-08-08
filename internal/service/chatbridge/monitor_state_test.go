@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	fileeventstore "github.com/dagucloud/dagu/v2/internal/persis/file/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/service/eventstore"
@@ -58,7 +58,7 @@ func TestNotificationMonitor_BootstrapsFromCurrentHeadAndOnlyDeliversFutureEvent
 	require.NoError(t, err)
 	service := eventstore.New(store)
 
-	oldStatus := &exec.DAGRunStatus{
+	oldStatus := &dagrun.DAGRunStatus{
 		Name:       "briefing",
 		DAGRunID:   "run-old",
 		AttemptID:  "attempt-old",
@@ -102,7 +102,7 @@ func TestNotificationMonitor_BootstrapsFromCurrentHeadAndOnlyDeliversFutureEvent
 		return monitor.ownsNotificationLock() && monitor.notificationSessionActive() && bootstrapped
 	}, notificationMonitorEventuallyTimeout(time.Second), 10*time.Millisecond)
 
-	newStatus := &exec.DAGRunStatus{
+	newStatus := &dagrun.DAGRunStatus{
 		Name:       "briefing",
 		DAGRunID:   "run-new",
 		AttemptID:  "attempt-new",
@@ -143,7 +143,7 @@ func TestNotificationMonitor_RestartRequeuesPersistedPending(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	cfg := newTestNotificationMonitorConfig()
 
-	status := &exec.DAGRunStatus{
+	status := &dagrun.DAGRunStatus{
 		Name:      "briefing",
 		Labels:    []string{"workspace=ops"},
 		Status:    ir.Failed,
@@ -276,7 +276,7 @@ func TestNotificationMonitor_StateLockAllowsSingleWriterAndTakeover(t *testing.T
 		}
 	}, notificationMonitorEventuallyTimeout(time.Second), 10*time.Millisecond)
 
-	firstStatus := &exec.DAGRunStatus{
+	firstStatus := &dagrun.DAGRunStatus{
 		Name:       "briefing",
 		DAGRunID:   "run-first",
 		AttemptID:  "attempt-first",
@@ -333,7 +333,7 @@ func TestNotificationMonitor_StateLockAllowsSingleWriterAndTakeover(t *testing.T
 		t.Fatalf("first owner not determined: %q", firstOwner)
 	}
 
-	secondStatus := &exec.DAGRunStatus{
+	secondStatus := &dagrun.DAGRunStatus{
 		Name:       "briefing",
 		DAGRunID:   "run-second",
 		AttemptID:  "attempt-second",
@@ -373,7 +373,7 @@ func TestNotificationMonitor_CorruptStateIsQuarantinedAndOnlyFutureEventsAreDeli
 	stateFile := filepath.Join(t.TempDir(), "state.json")
 	require.NoError(t, os.WriteFile(stateFile, []byte("{not-json"), 0o600))
 
-	oldStatus := &exec.DAGRunStatus{
+	oldStatus := &dagrun.DAGRunStatus{
 		Name:       "briefing",
 		DAGRunID:   "run-old",
 		AttemptID:  "attempt-old",
@@ -423,7 +423,7 @@ func TestNotificationMonitor_CorruptStateIsQuarantinedAndOnlyFutureEventsAreDeli
 		return monitor.state.Bootstrapped
 	}, notificationMonitorEventuallyTimeout(time.Second), 10*time.Millisecond)
 
-	newStatus := &exec.DAGRunStatus{
+	newStatus := &dagrun.DAGRunStatus{
 		Name:       "briefing",
 		DAGRunID:   "run-new",
 		AttemptID:  "attempt-new",
@@ -514,7 +514,7 @@ func TestNotificationMonitor_SaveFailureDoesNotLoseUnreadEvents(t *testing.T) {
 		_ = os.Chmod(stateDir, 0o700)
 	}()
 
-	status := &exec.DAGRunStatus{
+	status := &dagrun.DAGRunStatus{
 		Name:       "briefing",
 		DAGRunID:   "run-save-retry",
 		AttemptID:  "attempt-save-retry",
@@ -574,7 +574,7 @@ func TestNotificationMonitor_NotifyCompletionSaveFailureDoesNotMutateLiveState(t
 		_ = os.Chmod(stateDir, 0o700)
 	}()
 
-	status := &exec.DAGRunStatus{
+	status := &dagrun.DAGRunStatus{
 		Name:      "briefing",
 		DAGRunID:  "run-save-fail",
 		AttemptID: "attempt-save-fail",
@@ -607,7 +607,7 @@ func TestNotificationMonitor_MarkBatchDeliveredSaveFailureDoesNotMutateLiveState
 	monitor.lock = nil
 	monitor.lockDir = ""
 
-	status := &exec.DAGRunStatus{
+	status := &dagrun.DAGRunStatus{
 		Name:      "briefing",
 		DAGRunID:  "run-ack-save-fail",
 		AttemptID: "attempt-ack-save-fail",
@@ -647,7 +647,7 @@ func TestNotificationMonitor_RemovedDestinationsArePurgedOnStartup(t *testing.T)
 	t.Parallel()
 
 	stateFile := filepath.Join(t.TempDir(), "state.json")
-	status := &exec.DAGRunStatus{
+	status := &dagrun.DAGRunStatus{
 		Name:      "briefing",
 		Status:    ir.Failed,
 		DAGRunID:  "run-removed",
@@ -758,7 +758,7 @@ func TestNotificationMonitor_LockTheftSelfFencesActiveOwner(t *testing.T) {
 		return !monitor.ownsNotificationLock() && !monitor.notificationSessionActive()
 	}, notificationMonitorEventuallyTimeout(2*time.Second), 10*time.Millisecond)
 
-	status := &exec.DAGRunStatus{
+	status := &dagrun.DAGRunStatus{
 		Name:       "briefing",
 		DAGRunID:   "run-stolen-lock",
 		AttemptID:  "attempt-stolen-lock",

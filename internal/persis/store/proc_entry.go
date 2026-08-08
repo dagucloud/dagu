@@ -14,6 +14,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
@@ -130,8 +131,8 @@ func (s *ProcStore) removeCollectionIfStale(ctx context.Context, entry exec.Proc
 	return nil
 }
 
-func procFreshRefs(entries []exec.ProcEntry) []exec.DAGRunRef {
-	seen := make(map[string]exec.DAGRunRef)
+func procFreshRefs(entries []exec.ProcEntry) []dagrun.DAGRunRef {
+	seen := make(map[string]dagrun.DAGRunRef)
 	for _, entry := range entries {
 		if !entry.Fresh {
 			continue
@@ -139,7 +140,7 @@ func procFreshRefs(entries []exec.ProcEntry) []exec.DAGRunRef {
 		ref := entry.Meta.DAGRun()
 		seen[ref.String()] = ref
 	}
-	refs := make([]exec.DAGRunRef, 0, len(seen))
+	refs := make([]dagrun.DAGRunRef, 0, len(seen))
 	for _, ref := range seen {
 		refs = append(refs, ref)
 	}

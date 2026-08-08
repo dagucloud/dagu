@@ -17,7 +17,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	indexv1 "github.com/dagucloud/dagu/v2/proto/index/v1"
 	"golang.org/x/sync/singleflight"
@@ -117,7 +117,7 @@ func TryLoadForDay(ctx context.Context, dayDir string, dagRunDirs []os.DirEntry)
 		return dayLoadResult{entries: entries, fromIndex: fromIndex}, nil
 	}
 
-	batchID, batched := exec.DAGRunListReadBatchID(ctx)
+	batchID, batched := dagrun.DAGRunListReadBatchID(ctx)
 	if !batched {
 		result, err := load()
 		return result.entries, result.fromIndex, err
@@ -456,7 +456,7 @@ func parseTimeToUnix(s string) int64 {
 // importing the parent dagrun package (which would create a circular dependency).
 // It reads the file and finds the last valid JSON line.
 // Keep in sync with internal/core/exec/runstatus.go:StatusFromJSON if the format changes.
-func parseStatusFile(filePath string) (*exec.DAGRunStatus, error) {
+func parseStatusFile(filePath string) (*dagrun.DAGRunStatus, error) {
 	data, err := fileutil.ReadFile(filePath)
 	if err != nil {
 		return nil, err
@@ -469,7 +469,7 @@ func parseStatusFile(filePath string) (*exec.DAGRunStatus, error) {
 		if line == "" {
 			continue
 		}
-		status, err := exec.StatusFromJSON(line)
+		status, err := dagrun.StatusFromJSON(line)
 		if err == nil {
 			return status, nil
 		}

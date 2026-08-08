@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
-	exec1 "github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/google/uuid"
@@ -79,8 +79,8 @@ steps:
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "region")
 
-	_, err = th.DAGRunStore.FindAttempt(th.Context, exec1.NewDAGRunRef("inline-required", runID))
-	require.ErrorIs(t, err, exec1.ErrDAGRunIDNotFound)
+	_, err = th.DAGRunStore.FindAttempt(th.Context, dagrun.NewDAGRunRef("inline-required", runID))
+	require.ErrorIs(t, err, dagrun.ErrDAGRunIDNotFound)
 }
 
 func TestInlineParams_StartFailsOnInvalidTypedValue(t *testing.T) {
@@ -114,8 +114,8 @@ steps:
 	require.Contains(t, err.Error(), "count")
 	require.Contains(t, err.Error(), "integer")
 
-	_, err = th.DAGRunStore.FindAttempt(th.Context, exec1.NewDAGRunRef("inline-invalid", runID))
-	require.ErrorIs(t, err, exec1.ErrDAGRunIDNotFound)
+	_, err = th.DAGRunStore.FindAttempt(th.Context, dagrun.NewDAGRunRef("inline-invalid", runID))
+	require.ErrorIs(t, err, dagrun.ErrDAGRunIDNotFound)
 }
 
 func TestInlineParams_LocalSubDAGRuntimeCoercion(t *testing.T) {
@@ -161,7 +161,7 @@ steps:
 		ExpectedOut: []string{"DAG run finished"},
 	})
 
-	rootRef := exec1.NewDAGRunRef("inline-subdag-parent", runID)
+	rootRef := dagrun.NewDAGRunRef("inline-subdag-parent", runID)
 	parentAttempt, err := th.DAGRunStore.FindAttempt(th.Context, rootRef)
 	require.NoError(t, err)
 
@@ -183,10 +183,10 @@ steps:
 	assert.JSONEq(t, `["region=us-west-2","count=5","debug=true"]`, subOutputs.Metadata.Params)
 }
 
-func readAttemptStatusAndOutputs(t *testing.T, th test.Command, dagName, runID string) (*exec1.DAGRunStatus, *exec1.DAGRunOutputs) {
+func readAttemptStatusAndOutputs(t *testing.T, th test.Command, dagName, runID string) (*dagrun.DAGRunStatus, *dagrun.DAGRunOutputs) {
 	t.Helper()
 
-	attempt, err := th.DAGRunStore.FindAttempt(th.Context, exec1.NewDAGRunRef(dagName, runID))
+	attempt, err := th.DAGRunStore.FindAttempt(th.Context, dagrun.NewDAGRunRef(dagName, runID))
 	require.NoError(t, err)
 
 	status, err := attempt.ReadStatus(th.Context)
@@ -198,7 +198,7 @@ func readAttemptStatusAndOutputs(t *testing.T, th test.Command, dagName, runID s
 	return status, outputs
 }
 
-func readSubAttemptStatusAndOutputs(t *testing.T, th test.Command, rootRef exec1.DAGRunRef, subRunID string) (*exec1.DAGRunStatus, *exec1.DAGRunOutputs) {
+func readSubAttemptStatusAndOutputs(t *testing.T, th test.Command, rootRef dagrun.DAGRunRef, subRunID string) (*dagrun.DAGRunStatus, *dagrun.DAGRunOutputs) {
 	t.Helper()
 
 	attempt, err := th.DAGRunStore.FindSubAttempt(th.Context, rootRef, subRunID)

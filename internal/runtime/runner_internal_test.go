@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/incremental"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	filematerialization "github.com/dagucloud/dagu/v2/internal/persis/file/materialization"
@@ -415,7 +416,7 @@ func TestIncrementalRunnerFingerprintsResolvedRecipe(t *testing.T) {
 	require.NoError(t, os.WriteFile(inputPath, []byte("source"), 0o600))
 	store := filematerialization.New(filepath.Join(t.TempDir(), "materializations"))
 
-	run := func(runID, version string) exec.IncrementalExecution {
+	run := func(runID, version string) dagrun.IncrementalExecution {
 		t.Helper()
 		step := ir.Step{
 			ID:       "build",
@@ -454,17 +455,17 @@ func TestIncrementalRunnerFingerprintsResolvedRecipe(t *testing.T) {
 	}
 
 	first := run("run-1", "v1")
-	require.Equal(t, exec.IncrementalDecisionExecute, first.Decision)
+	require.Equal(t, dagrun.IncrementalDecisionExecute, first.Decision)
 	content, err := os.ReadFile(outputPath)
 	require.NoError(t, err)
 	require.Equal(t, "v1", string(content))
 
 	second := run("run-2", "v1")
-	require.Equal(t, exec.IncrementalDecisionReuse, second.Decision)
+	require.Equal(t, dagrun.IncrementalDecisionReuse, second.Decision)
 
 	third := run("run-3", "v2")
-	require.Equal(t, exec.IncrementalDecisionExecute, third.Decision)
-	require.Equal(t, exec.IncrementalReasonRecipeChanged, third.Reason)
+	require.Equal(t, dagrun.IncrementalDecisionExecute, third.Decision)
+	require.Equal(t, dagrun.IncrementalReasonRecipeChanged, third.Reason)
 	content, err = os.ReadFile(outputPath)
 	require.NoError(t, err)
 	require.Equal(t, "v2", string(content))

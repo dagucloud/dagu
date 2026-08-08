@@ -1,34 +1,34 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package exec_test
+package dagrun_test
 
 import (
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestListDAGRunStatusesOptions(t *testing.T) {
-	from := exec.NewUTC(time.Now().Add(-24 * time.Hour))
-	to := exec.NewUTC(time.Now())
+	from := dagrun.NewUTC(time.Now().Add(-24 * time.Hour))
+	to := dagrun.NewUTC(time.Now())
 	statuses := []ir.Status{ir.Succeeded, ir.Failed}
 
-	opts := exec.ListDAGRunStatusesOptions{}
+	opts := dagrun.ListDAGRunStatusesOptions{}
 
 	// Apply options
-	exec.WithFrom(from)(&opts)
-	exec.WithTo(to)(&opts)
-	exec.WithStatuses(statuses)(&opts)
-	exec.WithExactName("test-dag")(&opts)
-	exec.WithName("partial-name")(&opts)
-	exec.WithDAGRunID("run-123")(&opts)
-	exec.WithAllHistory()(&opts)
+	dagrun.WithFrom(from)(&opts)
+	dagrun.WithTo(to)(&opts)
+	dagrun.WithStatuses(statuses)(&opts)
+	dagrun.WithExactName("test-dag")(&opts)
+	dagrun.WithName("partial-name")(&opts)
+	dagrun.WithDAGRunID("run-123")(&opts)
+	dagrun.WithAllHistory()(&opts)
 
 	// Verify options were set correctly
 	assert.Equal(t, from, opts.From)
@@ -41,12 +41,12 @@ func TestListDAGRunStatusesOptions(t *testing.T) {
 }
 
 func TestNewDAGRunAttemptOptions(t *testing.T) {
-	rootDAGRun := &exec.DAGRunRef{
+	rootDAGRun := &dagrun.DAGRunRef{
 		Name: "root-dag",
 		ID:   "root-run-123",
 	}
 
-	opts := exec.NewDAGRunAttemptOptions{
+	opts := dagrun.NewDAGRunAttemptOptions{
 		RootDAGRun: rootDAGRun,
 		Retry:      true,
 	}
@@ -77,10 +77,10 @@ func TestParseDAGRunRef(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ref, err := exec.ParseDAGRunRef(tt.input)
+			ref, err := dagrun.ParseDAGRunRef(tt.input)
 			if tt.wantErr {
-				require.ErrorIs(t, err, exec.ErrInvalidRunRefFormat)
-				assert.Equal(t, exec.DAGRunRef{}, ref)
+				require.ErrorIs(t, err, dagrun.ErrInvalidRunRefFormat)
+				assert.Equal(t, dagrun.DAGRunRef{}, ref)
 				return
 			}
 			require.NoError(t, err)

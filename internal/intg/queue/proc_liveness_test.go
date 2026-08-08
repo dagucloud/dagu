@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 	"github.com/dagucloud/dagu/v2/internal/test"
@@ -63,8 +63,8 @@ steps:
 	defer f.Stop()
 
 	dagRunID := uuid.Must(uuid.NewV7()).String()
-	ref := exec.NewDAGRunRef(f.dag.Name, dagRunID)
-	attempt, err := f.th.DAGRunStore.CreateAttempt(f.th.Context, f.dag, time.Now(), dagRunID, exec.NewDAGRunAttemptOptions{})
+	ref := dagrun.NewDAGRunRef(f.dag.Name, dagRunID)
+	attempt, err := f.th.DAGRunStore.CreateAttempt(f.th.Context, f.dag, time.Now(), dagRunID, dagrun.NewDAGRunAttemptOptions{})
 	require.NoError(t, err)
 
 	status := transform.NewStatusBuilder(f.dag).Create(
@@ -73,7 +73,7 @@ steps:
 		0,
 		time.Now().Add(-2*time.Second),
 		transform.WithAttemptID(attempt.ID()),
-		transform.WithHierarchyRefs(ref, exec.DAGRunRef{}),
+		transform.WithHierarchyRefs(ref, dagrun.DAGRunRef{}),
 	)
 	require.NotEmpty(t, status.Nodes)
 	status.Nodes[0].Status = ir.NodeRunning
@@ -115,7 +115,7 @@ steps:
 	defer f.Stop()
 
 	fakeRunID := uuid.Must(uuid.NewV7()).String()
-	fakeRef := exec.NewDAGRunRef(f.dag.Name, fakeRunID)
+	fakeRef := dagrun.NewDAGRunRef(f.dag.Name, fakeRunID)
 	staleStartedAt := time.Now().Add(-30 * time.Second)
 	procFile := test.CreateStaleLegacyProcFile(
 		t,

@@ -15,7 +15,7 @@ import (
 
 	daguapi "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/core/docs"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	frontendapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -258,7 +258,7 @@ func (svc *Service) readToolImpl(ctx context.Context, input readInput) (*mcpsdk.
 		if err = svc.requireAPI(); err == nil {
 			data, err = svc.api.GetStepLogDataByRef(
 				ctx,
-				exec.NewDAGRunRef(input.Name, input.DAGRunID),
+				dagrun.NewDAGRunRef(input.Name, input.DAGRunID),
 				input.StepName,
 			)
 		}
@@ -1110,8 +1110,8 @@ func classifyReadToolError(input readInput, err error) *readToolError {
 
 func isReadResourceNotFound(err error) bool {
 	return isDAGNotFound(err) ||
-		errors.Is(err, exec.ErrDAGRunIDNotFound) ||
-		errors.Is(err, exec.ErrNoStatusData) ||
+		errors.Is(err, dagrun.ErrDAGRunIDNotFound) ||
+		errors.Is(err, dagrun.ErrNoStatusData) ||
 		looksNotFound(err)
 }
 

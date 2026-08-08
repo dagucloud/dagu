@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/assert"
@@ -347,7 +347,7 @@ steps:
 		Args: []string{"history", "--labels=prod"},
 	})
 
-	statuses, err := th.DAGRunStore.ListStatuses(ctx, exec.WithLabels([]string{"prod"}), exec.WithAllHistory())
+	statuses, err := th.DAGRunStore.ListStatuses(ctx, dagrun.WithLabels([]string{"prod"}), dagrun.WithAllHistory())
 	require.NoError(t, err)
 	names := make(map[string]bool, len(statuses))
 	for _, status := range statuses {
@@ -422,7 +422,7 @@ steps:
 
 	// Test limit - verify command runs successfully with --limit flag.
 	// Stdout table output is not captured, so we just verify no error.
-	// The limit logic is tested via the exec.WithLimit() functional option.
+	// The limit logic is tested via the dagrun.WithLimit() functional option.
 	th.RunCommand(t, cmd.History(), test.CmdTest{
 		Name: "LimitResults",
 		Args: []string{"history", "test-limit", "--limit=2"},

@@ -10,7 +10,9 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -23,7 +25,7 @@ func TestEnqueueRetry(t *testing.T) {
 	tests := []struct {
 		name        string
 		dag         *ir.DAG
-		status      *exec.DAGRunStatus
+		status      *dagrun.DAGRunStatus
 		opts        exec.EnqueueRetryOptions
 		store       *stubDAGRunStore
 		setupQueue  func(qs *exec.MockQueueStore)
@@ -35,7 +37,7 @@ func TestEnqueueRetry(t *testing.T) {
 		{
 			name:   "AlreadyQueued",
 			dag:    &ir.DAG{Name: "test-dag"},
-			status: &exec.DAGRunStatus{Status: ir.Queued},
+			status: &dagrun.DAGRunStatus{Status: ir.Queued},
 			store:  &stubDAGRunStore{},
 			setupQueue: func(qs *exec.MockQueueStore) {
 				qs.AssertNotCalled(t, "Enqueue", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
@@ -44,7 +46,7 @@ func TestEnqueueRetry(t *testing.T) {
 		{
 			name: "SuccessRecordsTriggerActor",
 			dag:  &ir.DAG{Name: "test-dag"},
-			status: &exec.DAGRunStatus{
+			status: &dagrun.DAGRunStatus{
 				Name:           "test-dag",
 				DAGRunID:       "run-1",
 				AttemptID:      "att-1",
@@ -53,7 +55,7 @@ func TestEnqueueRetry(t *testing.T) {
 			},
 			opts: exec.EnqueueRetryOptions{TriggerActor: &triggerActor},
 			store: &stubDAGRunStore{
-				status: &exec.DAGRunStatus{
+				status: &dagrun.DAGRunStatus{
 					Name:           "test-dag",
 					DAGRunID:       "run-1",
 					AttemptID:      "att-1",
@@ -69,7 +71,7 @@ func TestEnqueueRetry(t *testing.T) {
 				},
 			},
 			setupQueue: func(qs *exec.MockQueueStore) {
-				qs.On("Enqueue", mock.Anything, "test-dag", exec.QueuePriorityLow, exec.NewDAGRunRef("test-dag", "run-1")).
+				qs.On("Enqueue", mock.Anything, "test-dag", exec.QueuePriorityLow, dagrun.NewDAGRunRef("test-dag", "run-1")).
 					Return(nil)
 			},
 			assertStore: func(t *testing.T, store *stubDAGRunStore) {
@@ -90,7 +92,7 @@ func TestEnqueueRetry(t *testing.T) {
 		{
 			name: "AutoRetryIncrementsCount",
 			dag:  &ir.DAG{Name: "test-dag"},
-			status: &exec.DAGRunStatus{
+			status: &dagrun.DAGRunStatus{
 				Name:           "test-dag",
 				DAGRunID:       "run-auto",
 				AttemptID:      "att-auto",
@@ -99,7 +101,7 @@ func TestEnqueueRetry(t *testing.T) {
 			},
 			opts: exec.EnqueueRetryOptions{AutoRetry: true},
 			store: &stubDAGRunStore{
-				status: &exec.DAGRunStatus{
+				status: &dagrun.DAGRunStatus{
 					Name:           "test-dag",
 					DAGRunID:       "run-auto",
 					AttemptID:      "att-auto",
@@ -109,7 +111,7 @@ func TestEnqueueRetry(t *testing.T) {
 				},
 			},
 			setupQueue: func(qs *exec.MockQueueStore) {
-				qs.On("Enqueue", mock.Anything, "test-dag", exec.QueuePriorityLow, exec.NewDAGRunRef("test-dag", "run-auto")).
+				qs.On("Enqueue", mock.Anything, "test-dag", exec.QueuePriorityLow, dagrun.NewDAGRunRef("test-dag", "run-auto")).
 					Return(nil)
 			},
 			assertStore: func(t *testing.T, store *stubDAGRunStore) {
@@ -121,7 +123,7 @@ func TestEnqueueRetry(t *testing.T) {
 		},
 		{
 			name: "UsesPersistedProcGroupWhenDAGIsNil",
-			status: &exec.DAGRunStatus{
+			status: &dagrun.DAGRunStatus{
 				Name:           "test-dag",
 				DAGRunID:       "run-fast-path",
 				AttemptID:      "att-fast-path",
@@ -130,7 +132,7 @@ func TestEnqueueRetry(t *testing.T) {
 				ProcGroup:      "input-queue",
 			},
 			store: &stubDAGRunStore{
-				status: &exec.DAGRunStatus{
+				status: &dagrun.DAGRunStatus{
 					Name:           "test-dag",
 					DAGRunID:       "run-fast-path",
 					AttemptID:      "att-fast-path",
@@ -141,7 +143,7 @@ func TestEnqueueRetry(t *testing.T) {
 				},
 			},
 			setupQueue: func(qs *exec.MockQueueStore) {
-				qs.On("Enqueue", mock.Anything, "custom-queue", exec.QueuePriorityLow, exec.NewDAGRunRef("test-dag", "run-fast-path")).
+				qs.On("Enqueue", mock.Anything, "custom-queue", exec.QueuePriorityLow, dagrun.NewDAGRunRef("test-dag", "run-fast-path")).
 					Return(nil)
 			},
 			assertStore: func(t *testing.T, store *stubDAGRunStore) {
@@ -154,15 +156,15 @@ func TestEnqueueRetry(t *testing.T) {
 		{
 			name: "BackfillsMissingRootFromCallerStatus",
 			dag:  &ir.DAG{Name: "child-dag"},
-			status: &exec.DAGRunStatus{
+			status: &dagrun.DAGRunStatus{
 				Name:      "child-dag",
 				DAGRunID:  "run-root",
 				AttemptID: "att-root",
 				Status:    ir.Failed,
-				Root:      exec.NewDAGRunRef("root-dag", "root-run"),
+				Root:      dagrun.NewDAGRunRef("root-dag", "root-run"),
 			},
 			store: &stubDAGRunStore{
-				status: &exec.DAGRunStatus{
+				status: &dagrun.DAGRunStatus{
 					Name:      "child-dag",
 					DAGRunID:  "run-root",
 					AttemptID: "att-root",
@@ -170,26 +172,26 @@ func TestEnqueueRetry(t *testing.T) {
 				},
 			},
 			setupQueue: func(qs *exec.MockQueueStore) {
-				qs.On("Enqueue", mock.Anything, "child-dag", exec.QueuePriorityLow, exec.NewDAGRunRef("child-dag", "run-root")).
+				qs.On("Enqueue", mock.Anything, "child-dag", exec.QueuePriorityLow, dagrun.NewDAGRunRef("child-dag", "run-root")).
 					Return(nil)
 			},
 			assertStore: func(t *testing.T, store *stubDAGRunStore) {
 				require.NotNil(t, store.status)
-				assert.Equal(t, exec.NewDAGRunRef("root-dag", "root-run"), store.status.Root)
+				assert.Equal(t, dagrun.NewDAGRunRef("root-dag", "root-run"), store.status.Root)
 			},
 			wantQueued: true,
 		},
 		{
 			name: "PersistQueuedStatusFails",
 			dag:  &ir.DAG{Name: "test-dag"},
-			status: &exec.DAGRunStatus{
+			status: &dagrun.DAGRunStatus{
 				Name:      "test-dag",
 				DAGRunID:  "run-2",
 				AttemptID: "att-2",
 				Status:    ir.Failed,
 			},
 			store: &stubDAGRunStore{
-				status:   &exec.DAGRunStatus{Name: "test-dag", DAGRunID: "run-2", AttemptID: "att-2", Status: ir.Failed},
+				status:   &dagrun.DAGRunStatus{Name: "test-dag", DAGRunID: "run-2", AttemptID: "att-2", Status: ir.Failed},
 				firstErr: errors.New("cas error"),
 			},
 			wantErr: "persist queued retry status",
@@ -197,7 +199,7 @@ func TestEnqueueRetry(t *testing.T) {
 		{
 			name: "CompareAndSwapLosesRaceToSameAttemptQueued",
 			dag:  &ir.DAG{Name: "test-dag"},
-			status: &exec.DAGRunStatus{
+			status: &dagrun.DAGRunStatus{
 				Name:       "test-dag",
 				DAGRunID:   "run-3",
 				AttemptID:  "att-3",
@@ -205,7 +207,7 @@ func TestEnqueueRetry(t *testing.T) {
 				Status:     ir.Failed,
 			},
 			store: &stubDAGRunStore{
-				status: &exec.DAGRunStatus{
+				status: &dagrun.DAGRunStatus{
 					Name: "test-dag", DAGRunID: "run-3", AttemptID: "att-3", AttemptKey: "key-3", Status: ir.Queued,
 				},
 			},
@@ -213,14 +215,14 @@ func TestEnqueueRetry(t *testing.T) {
 		{
 			name: "CompareAndSwapLosesRaceToDifferentLatestStatus",
 			dag:  &ir.DAG{Name: "test-dag"},
-			status: &exec.DAGRunStatus{
+			status: &dagrun.DAGRunStatus{
 				Name:      "test-dag",
 				DAGRunID:  "run-3b",
 				AttemptID: "att-3b",
 				Status:    ir.Failed,
 			},
 			store: &stubDAGRunStore{
-				status: &exec.DAGRunStatus{Name: "test-dag", DAGRunID: "run-3b", AttemptID: "att-other", Status: ir.Running},
+				status: &dagrun.DAGRunStatus{Name: "test-dag", DAGRunID: "run-3b", AttemptID: "att-other", Status: ir.Running},
 			},
 			assertErr: func(t *testing.T, err error) {
 				assert.ErrorIs(t, err, exec.ErrRetryStaleLatest)
@@ -229,7 +231,7 @@ func TestEnqueueRetry(t *testing.T) {
 		{
 			name: "EnqueueFailsAndRollsBack",
 			dag:  &ir.DAG{Name: "test-dag"},
-			status: &exec.DAGRunStatus{
+			status: &dagrun.DAGRunStatus{
 				Name:           "test-dag",
 				DAGRunID:       "run-4",
 				AttemptID:      "att-4",
@@ -237,7 +239,7 @@ func TestEnqueueRetry(t *testing.T) {
 				AutoRetryCount: 1,
 			},
 			store: &stubDAGRunStore{
-				status: &exec.DAGRunStatus{
+				status: &dagrun.DAGRunStatus{
 					Name:           "test-dag",
 					DAGRunID:       "run-4",
 					AttemptID:      "att-4",
@@ -248,7 +250,7 @@ func TestEnqueueRetry(t *testing.T) {
 			},
 			opts: exec.EnqueueRetryOptions{AutoRetry: true, TriggerActor: &triggerActor},
 			setupQueue: func(qs *exec.MockQueueStore) {
-				qs.On("Enqueue", mock.Anything, "test-dag", exec.QueuePriorityLow, exec.NewDAGRunRef("test-dag", "run-4")).
+				qs.On("Enqueue", mock.Anything, "test-dag", exec.QueuePriorityLow, dagrun.NewDAGRunRef("test-dag", "run-4")).
 					Return(errors.New("enqueue error"))
 			},
 			assertStore: func(t *testing.T, store *stubDAGRunStore) {
@@ -264,14 +266,14 @@ func TestEnqueueRetry(t *testing.T) {
 		{
 			name: "EnqueueAndRollbackFail",
 			dag:  &ir.DAG{Name: "test-dag"},
-			status: &exec.DAGRunStatus{
+			status: &dagrun.DAGRunStatus{
 				Name:      "test-dag",
 				DAGRunID:  "run-rollback-failure",
 				AttemptID: "att-rollback-failure",
 				Status:    ir.Waiting,
 			},
 			store: &stubDAGRunStore{
-				status: &exec.DAGRunStatus{
+				status: &dagrun.DAGRunStatus{
 					Name:      "test-dag",
 					DAGRunID:  "run-rollback-failure",
 					AttemptID: "att-rollback-failure",
@@ -280,7 +282,7 @@ func TestEnqueueRetry(t *testing.T) {
 				secondErr: errors.New("rollback error"),
 			},
 			setupQueue: func(qs *exec.MockQueueStore) {
-				qs.On("Enqueue", mock.Anything, "test-dag", exec.QueuePriorityLow, exec.NewDAGRunRef("test-dag", "run-rollback-failure")).
+				qs.On("Enqueue", mock.Anything, "test-dag", exec.QueuePriorityLow, dagrun.NewDAGRunRef("test-dag", "run-rollback-failure")).
 					Return(errors.New("enqueue error"))
 			},
 			assertStore: func(t *testing.T, store *stubDAGRunStore) {
@@ -291,14 +293,14 @@ func TestEnqueueRetry(t *testing.T) {
 		},
 		{
 			name: "EmptyProcGroupRollsBackQueuedStatus",
-			status: &exec.DAGRunStatus{
+			status: &dagrun.DAGRunStatus{
 				DAGRunID:       "run-empty-group",
 				AttemptID:      "att-empty-group",
 				Status:         ir.Failed,
 				AutoRetryCount: 1,
 			},
 			store: &stubDAGRunStore{
-				status: &exec.DAGRunStatus{
+				status: &dagrun.DAGRunStatus{
 					DAGRunID:       "run-empty-group",
 					AttemptID:      "att-empty-group",
 					Status:         ir.Failed,
@@ -352,40 +354,40 @@ func TestEnqueueRetry(t *testing.T) {
 }
 
 type stubDAGRunStore struct {
-	status    *exec.DAGRunStatus
+	status    *dagrun.DAGRunStatus
 	firstErr  error
 	secondErr error
 	casCalls  int
 }
 
-func (s *stubDAGRunStore) CreateAttempt(context.Context, *ir.DAG, time.Time, string, exec.NewDAGRunAttemptOptions) (exec.DAGRunAttempt, error) {
+func (s *stubDAGRunStore) CreateAttempt(context.Context, *ir.DAG, time.Time, string, dagrun.NewDAGRunAttemptOptions) (dagrun.DAGRunAttempt, error) {
 	return nil, errors.New("unexpected call")
 }
 
-func (s *stubDAGRunStore) RecentAttempts(context.Context, string, int) []exec.DAGRunAttempt {
+func (s *stubDAGRunStore) RecentAttempts(context.Context, string, int) []dagrun.DAGRunAttempt {
 	return nil
 }
 
-func (s *stubDAGRunStore) LatestAttempt(context.Context, string) (exec.DAGRunAttempt, error) {
+func (s *stubDAGRunStore) LatestAttempt(context.Context, string) (dagrun.DAGRunAttempt, error) {
 	return nil, errors.New("unexpected call")
 }
 
-func (s *stubDAGRunStore) ListStatuses(context.Context, ...exec.ListDAGRunStatusesOption) ([]*exec.DAGRunStatus, error) {
+func (s *stubDAGRunStore) ListStatuses(context.Context, ...dagrun.ListDAGRunStatusesOption) ([]*dagrun.DAGRunStatus, error) {
 	return nil, nil
 }
 
-func (s *stubDAGRunStore) ListStatusesPage(context.Context, ...exec.ListDAGRunStatusesOption) (exec.DAGRunStatusPage, error) {
-	return exec.DAGRunStatusPage{}, nil
+func (s *stubDAGRunStore) ListStatusesPage(context.Context, ...dagrun.ListDAGRunStatusesOption) (dagrun.DAGRunStatusPage, error) {
+	return dagrun.DAGRunStatusPage{}, nil
 }
 
 func (s *stubDAGRunStore) CompareAndSwapLatestAttemptStatus(
 	_ context.Context,
-	_ exec.DAGRunRef,
+	_ dagrun.DAGRunRef,
 	expectedAttemptID string,
 	expectedStatus ir.Status,
-	mutate func(*exec.DAGRunStatus) error,
-	_ ...exec.CompareAndSwapStatusOption,
-) (*exec.DAGRunStatus, bool, error) {
+	mutate func(*dagrun.DAGRunStatus) error,
+	_ ...dagrun.CompareAndSwapStatusOption,
+) (*dagrun.DAGRunStatus, bool, error) {
 	s.casCalls++
 	if s.casCalls == 1 && s.firstErr != nil {
 		return nil, false, s.firstErr
@@ -410,34 +412,34 @@ func (s *stubDAGRunStore) CompareAndSwapLatestAttemptStatus(
 	return s.cloneStatus(), true, nil
 }
 
-func (s *stubDAGRunStore) FindAttempt(context.Context, exec.DAGRunRef) (exec.DAGRunAttempt, error) {
+func (s *stubDAGRunStore) FindAttempt(context.Context, dagrun.DAGRunRef) (dagrun.DAGRunAttempt, error) {
 	if s.status == nil {
-		return nil, exec.ErrDAGRunIDNotFound
+		return nil, dagrun.ErrDAGRunIDNotFound
 	}
-	return &exec.MockDAGRunAttempt{Status: s.cloneStatus()}, nil
+	return &testutil.MockDAGRunAttempt{Status: s.cloneStatus()}, nil
 }
 
-func (s *stubDAGRunStore) FindSubAttempt(context.Context, exec.DAGRunRef, string) (exec.DAGRunAttempt, error) {
+func (s *stubDAGRunStore) FindSubAttempt(context.Context, dagrun.DAGRunRef, string) (dagrun.DAGRunAttempt, error) {
 	return nil, errors.New("unexpected call")
 }
 
-func (s *stubDAGRunStore) CreateSubAttempt(context.Context, exec.DAGRunRef, string) (exec.DAGRunAttempt, error) {
+func (s *stubDAGRunStore) CreateSubAttempt(context.Context, dagrun.DAGRunRef, string) (dagrun.DAGRunAttempt, error) {
 	return nil, errors.New("unexpected call")
 }
 
-func (s *stubDAGRunStore) RemoveOldDAGRuns(context.Context, string, int, ...exec.RemoveOldDAGRunsOption) ([]string, error) {
+func (s *stubDAGRunStore) RemoveOldDAGRuns(context.Context, string, int, ...dagrun.RemoveOldDAGRunsOption) ([]string, error) {
 	return nil, nil
 }
 
-func (s *stubDAGRunStore) RemoveDAGRun(context.Context, exec.DAGRunRef, ...exec.RemoveDAGRunOption) error {
+func (s *stubDAGRunStore) RemoveDAGRun(context.Context, dagrun.DAGRunRef, ...dagrun.RemoveDAGRunOption) error {
 	return nil
 }
 
-func (s *stubDAGRunStore) cloneStatus() *exec.DAGRunStatus {
+func (s *stubDAGRunStore) cloneStatus() *dagrun.DAGRunStatus {
 	return cloneDAGRunStatus(s.status)
 }
 
-func cloneDAGRunStatus(status *exec.DAGRunStatus) *exec.DAGRunStatus {
+func cloneDAGRunStatus(status *dagrun.DAGRunStatus) *dagrun.DAGRunStatus {
 	if status == nil {
 		return nil
 	}

@@ -20,7 +20,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
 	"github.com/dagucloud/dagu/v2/internal/cmn/sock"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
@@ -182,8 +182,8 @@ func TestAgent_Run(t *testing.T) {
       prompt: Review the deployment
 `)
 		dagAgent := dag.Agent(test.WithAgentOptions(agent.Options{
-			RootDAGRun:   exec.NewDAGRunRef("root", "root-run"),
-			ParentDAGRun: exec.NewDAGRunRef("parent", "parent-run"),
+			RootDAGRun:   dagrun.NewDAGRunRef("root", "root-run"),
+			ParentDAGRun: dagrun.NewDAGRunRef("parent", "parent-run"),
 		}))
 
 		err := dagAgent.Run(th.Context)
@@ -381,7 +381,7 @@ steps:
 		}()
 
 		waitForTestFile(t, startedFile, 2*time.Minute)
-		runRef := exec.NewDAGRunRef(dag.Name, dagRunID)
+		runRef := dagrun.NewDAGRunRef(dag.Name, dagRunID)
 		require.Eventually(t, func() bool {
 			_, err := th.DAGRunStore.FindAttempt(th.Context, runRef)
 			return err == nil
@@ -834,7 +834,7 @@ func TestAgent_HandleHTTP(t *testing.T) {
 				return false
 			}
 
-			dagRunStatus, err := exec.StatusFromJSON(rw.body)
+			dagRunStatus, err := dagrun.StatusFromJSON(rw.body)
 			return err == nil && dagRunStatus.Status == ir.Running
 		}, 10*time.Second, 50*time.Millisecond)
 
@@ -1203,7 +1203,7 @@ steps:
 	status := dagAgent.Status(th.Context)
 	require.Equal(t, "prod", status.ProfileName)
 	require.NotEmpty(t, status.ProfileResolvedAt)
-	require.ElementsMatch(t, []exec.RuntimeProfileEntry{
+	require.ElementsMatch(t, []dagrun.RuntimeProfileEntry{
 		{Key: "LOG_LEVEL", Kind: "variable"},
 		{Key: "API_TOKEN", Kind: "secret"},
 	}, status.ProfileEntries)
@@ -1340,7 +1340,7 @@ steps:
 	status := dagAgent.Status(th.Context)
 	require.Equal(t, "prod", status.ProfileName)
 	require.NotEmpty(t, status.ProfileResolvedAt)
-	require.ElementsMatch(t, []exec.RuntimeProfileEntry{
+	require.ElementsMatch(t, []dagrun.RuntimeProfileEntry{
 		{Key: "GLOBAL_ONLY", Kind: "variable"},
 		{Key: "WORKSPACE_ONLY", Kind: "variable"},
 		{Key: "SHARED", Kind: "variable"},
@@ -1458,7 +1458,7 @@ steps:
 	subRun := status.Nodes[0].SubRuns[0]
 	attempt, err := th.DAGRunStore.FindSubAttempt(
 		th.Context,
-		exec.NewDAGRunRef(parent.Name, parentRunID),
+		dagrun.NewDAGRunRef(parent.Name, parentRunID),
 		subRun.DAGRunID,
 	)
 	require.NoError(t, err)
@@ -1513,7 +1513,7 @@ steps:
 	subRun := status.Nodes[0].SubRuns[0]
 	attempt, err := th.DAGRunStore.FindSubAttempt(
 		th.Context,
-		exec.NewDAGRunRef(parent.Name, parentRunID),
+		dagrun.NewDAGRunRef(parent.Name, parentRunID),
 		subRun.DAGRunID,
 	)
 	require.NoError(t, err)
@@ -1574,7 +1574,7 @@ steps:
 
 	ref, err := items[0].Data()
 	require.NoError(t, err)
-	require.Equal(t, exec.NewDAGRunRef("child-enqueued", subRun.DAGRunID), *ref)
+	require.Equal(t, dagrun.NewDAGRunRef("child-enqueued", subRun.DAGRunID), *ref)
 
 	attempt, err := th.DAGRunStore.FindAttempt(th.Context, *ref)
 	require.NoError(t, err)
@@ -1636,7 +1636,7 @@ steps:
 	require.Len(t, status.Nodes, 1)
 	require.Len(t, status.Nodes[0].SubRuns, 1)
 	subRun := status.Nodes[0].SubRuns[0]
-	ref := exec.NewDAGRunRef("child-queue-exec", subRun.DAGRunID)
+	ref := dagrun.NewDAGRunRef("child-queue-exec", subRun.DAGRunID)
 
 	dagExecutor := scheduler.NewDAGExecutor(
 		nil,

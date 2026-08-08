@@ -23,6 +23,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -136,8 +137,8 @@ func (h *remoteTaskHandler) Handle(ctx context.Context, task *coordinatorv1.Task
 }
 
 func (h *remoteTaskHandler) handleStart(ctx context.Context, task *coordinatorv1.Task, queuedRun bool) error {
-	root := exec.DAGRunRef{Name: task.RootDagRunName, ID: task.RootDagRunId}
-	parent := exec.DAGRunRef{Name: task.ParentDagRunName, ID: task.ParentDagRunId}
+	root := dagrun.DAGRunRef{Name: task.RootDagRunName, ID: task.RootDagRunId}
+	parent := dagrun.DAGRunRef{Name: task.ParentDagRunName, ID: task.ParentDagRunId}
 	owner, err := taskOwner(task)
 	if err != nil {
 		return fmt.Errorf("invalid task owner coordinator metadata: %w", err)
@@ -170,8 +171,8 @@ func (h *remoteTaskHandler) handleStart(ctx context.Context, task *coordinatorv1
 }
 
 func (h *remoteTaskHandler) handleRetry(ctx context.Context, task *coordinatorv1.Task) error {
-	root := exec.DAGRunRef{Name: task.RootDagRunName, ID: task.RootDagRunId}
-	parent := exec.DAGRunRef{Name: task.ParentDagRunName, ID: task.ParentDagRunId}
+	root := dagrun.DAGRunRef{Name: task.RootDagRunName, ID: task.RootDagRunId}
+	parent := dagrun.DAGRunRef{Name: task.ParentDagRunName, ID: task.ParentDagRunId}
 	owner, err := taskOwner(task)
 	if err != nil {
 		return fmt.Errorf("invalid task owner coordinator metadata: %w", err)
@@ -185,7 +186,7 @@ func (h *remoteTaskHandler) handleRetry(ctx context.Context, task *coordinatorv1
 	if convErr != nil {
 		return fmt.Errorf("failed to convert previous status: %w", convErr)
 	}
-	retryPath, err := exec.ParseRetryPath(task.RetryPath)
+	retryPath, err := dagrun.ParseRetryPath(task.RetryPath)
 	if err != nil {
 		return fmt.Errorf("invalid retry path: %w", err)
 	}
@@ -225,7 +226,7 @@ func (h *remoteTaskHandler) handleRetry(ctx context.Context, task *coordinatorv1
 	return err
 }
 
-func retryTaskProfileName(status *exec.DAGRunStatus) string {
+func retryTaskProfileName(status *dagrun.DAGRunStatus) string {
 	if status == nil {
 		return ""
 	}
@@ -241,7 +242,7 @@ func (h *remoteTaskHandler) reportTaskLoadFailure(ctx context.Context, run remot
 		tag.RunID(task.DagRunId),
 		tag.Error(loadErr),
 	)
-	status := exec.DAGRunStatus{
+	status := dagrun.DAGRunStatus{
 		Root:         run.root,
 		Parent:       run.parent,
 		Name:         task.Target,
@@ -295,7 +296,7 @@ func (h *remoteTaskHandler) reportDAGRunInitFailure(
 		tag.RunID(task.DagRunId),
 		tag.Error(initErr),
 	)
-	status := exec.DAGRunStatus{
+	status := dagrun.DAGRunStatus{
 		Root:         run.root,
 		Parent:       run.parent,
 		Name:         target,
@@ -334,10 +335,10 @@ func sanitizeTaskLoadError(target string, loadErr error) string {
 
 // retryConfig holds retry-specific configuration
 type retryConfig struct {
-	target      *exec.DAGRunStatus
+	target      *dagrun.DAGRunStatus
 	stepName    string
 	triggerType ir.TriggerType
-	retryPath   exec.RetryPath
+	retryPath   dagrun.RetryPath
 }
 
 type runHandlers struct {
@@ -348,8 +349,8 @@ type runHandlers struct {
 
 type remoteRun struct {
 	task        *coordinatorv1.Task
-	root        exec.DAGRunRef
-	parent      exec.DAGRunRef
+	root        dagrun.DAGRunRef
+	parent      dagrun.DAGRunRef
 	owner       exec.HostInfo
 	handlers    runHandlers
 	queued      bool

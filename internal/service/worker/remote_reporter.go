@@ -15,6 +15,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
@@ -30,7 +31,7 @@ type remoteRunMetadata struct {
 	dagRunID  string
 	dagName   string
 	attemptID string
-	root      exec.DAGRunRef
+	root      dagrun.DAGRunRef
 }
 
 func (m remoteRunMetadata) key() string {
@@ -39,12 +40,12 @@ func (m remoteRunMetadata) key() string {
 
 func (m remoteRunMetadata) normalize() remoteRunMetadata {
 	if m.root.Zero() && m.dagName != "" && m.dagRunID != "" {
-		m.root = exec.NewDAGRunRef(m.dagName, m.dagRunID)
+		m.root = dagrun.NewDAGRunRef(m.dagName, m.dagRunID)
 	}
 	return m
 }
 
-func (m remoteRunMetadata) withRun(dagRunID, dagName, attemptID string, root exec.DAGRunRef) remoteRunMetadata {
+func (m remoteRunMetadata) withRun(dagRunID, dagName, attemptID string, root dagrun.DAGRunRef) remoteRunMetadata {
 	if dagRunID != "" {
 		m.dagRunID = dagRunID
 	}
@@ -182,7 +183,7 @@ func (r *remoteRunReporter) Finalize(ctx context.Context, attemptID, dir string)
 	return uploader.Finalize(ctx, attemptID, dir)
 }
 
-func (r *remoteRunReporter) finalizeSchedulerLogForStatus(ctx context.Context, status exec.DAGRunStatus) (bool, error) {
+func (r *remoteRunReporter) finalizeSchedulerLogForStatus(ctx context.Context, status dagrun.DAGRunStatus) (bool, error) {
 	if r == nil {
 		return false, nil
 	}
@@ -230,7 +231,7 @@ func (r *remoteRunReporter) metadataFromContext(ctx context.Context) remoteRunMe
 	return meta.normalize()
 }
 
-func (r *remoteRunReporter) metadataFromStatus(status exec.DAGRunStatus) remoteRunMetadata {
+func (r *remoteRunReporter) metadataFromStatus(status dagrun.DAGRunStatus) remoteRunMetadata {
 	return r.defaultMetadata().withRun(status.DAGRunID, status.Name, status.AttemptID, status.Root)
 }
 
@@ -510,10 +511,10 @@ type finalSchedulerLogStatusPusher struct {
 }
 
 type schedulerLogStatusFinalizer interface {
-	finalizeSchedulerLogForStatus(context.Context, exec.DAGRunStatus) (bool, error)
+	finalizeSchedulerLogForStatus(context.Context, dagrun.DAGRunStatus) (bool, error)
 }
 
-func (p *finalSchedulerLogStatusPusher) Push(ctx context.Context, status exec.DAGRunStatus) error {
+func (p *finalSchedulerLogStatusPusher) Push(ctx context.Context, status dagrun.DAGRunStatus) error {
 	if p.finalizer != nil && shouldFinalizeSchedulerLogBeforeStatus(status.Status) {
 		if ran, err := p.finalizer.finalizeSchedulerLogForStatus(ctx, status); ran {
 			if err != nil {

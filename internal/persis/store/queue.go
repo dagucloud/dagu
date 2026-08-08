@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 )
@@ -44,7 +45,7 @@ func NewQueueStore(col persis.Collection) *QueueStore {
 }
 
 // Enqueue adds a DAG-run reference to the named queue.
-func (s *QueueStore) Enqueue(ctx context.Context, name string, priority exec.QueuePriority, dagRun exec.DAGRunRef) error {
+func (s *QueueStore) Enqueue(ctx context.Context, name string, priority exec.QueuePriority, dagRun dagrun.DAGRunRef) error {
 	if name == "" {
 		return fmt.Errorf("queue store: queue name is required")
 	}
@@ -156,7 +157,7 @@ func (s *QueueStore) DequeueByName(ctx context.Context, name string) (exec.Queue
 }
 
 // DequeueByDAGRunID removes all queued items matching dagRun from the named queue.
-func (s *QueueStore) DequeueByDAGRunID(ctx context.Context, name string, dagRun exec.DAGRunRef) ([]exec.QueuedItemData, error) {
+func (s *QueueStore) DequeueByDAGRunID(ctx context.Context, name string, dagRun dagrun.DAGRunRef) ([]exec.QueuedItemData, error) {
 	var removed []exec.QueuedItemData
 	err := s.withQueueLock(ctx, name, func() error {
 		s.mu.Lock()

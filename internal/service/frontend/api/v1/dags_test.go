@@ -18,6 +18,7 @@ import (
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	localapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
@@ -74,7 +75,7 @@ func sendRawRequestStatus(
 	return resp.StatusCode
 }
 
-func apiStatusOutputValue(t *testing.T, status *exec.DAGRunStatus, key string) string {
+func apiStatusOutputValue(t *testing.T, status *dagrun.DAGRunStatus, key string) string {
 	t.Helper()
 
 	require.NotNil(t, status)
@@ -775,7 +776,7 @@ steps:
 		resp.Unmarshal(t, &body)
 		require.NotEmpty(t, body.DagRunId)
 
-		ref := exec.NewDAGRunRef(dagName, body.DagRunId)
+		ref := dagrun.NewDAGRunRef(dagName, body.DagRunId)
 		require.Eventually(t, func() bool {
 			attempt, err := server.DAGRunStore.FindAttempt(server.Context, ref)
 			if err != nil {
@@ -824,7 +825,7 @@ steps:
 		resp.Unmarshal(t, &body)
 		require.NotEmpty(t, body.DagRunId)
 
-		attempt, err := server.DAGRunStore.FindAttempt(server.Context, exec.NewDAGRunRef(dagName, body.DagRunId))
+		attempt, err := server.DAGRunStore.FindAttempt(server.Context, dagrun.NewDAGRunRef(dagName, body.DagRunId))
 		require.NoError(t, err)
 
 		status, err := attempt.ReadStatus(server.Context)
@@ -851,7 +852,7 @@ steps:
 		queueProcessor.ProcessQueueItems(server.Context, dagName)
 
 		require.Eventually(t, func() bool {
-			latestAttempt, err := server.DAGRunStore.FindAttempt(server.Context, exec.NewDAGRunRef(dagName, body.DagRunId))
+			latestAttempt, err := server.DAGRunStore.FindAttempt(server.Context, dagrun.NewDAGRunRef(dagName, body.DagRunId))
 			if err != nil {
 				return false
 			}
@@ -862,7 +863,7 @@ steps:
 			return latestStatus.Status == ir.Succeeded
 		}, dagRunEventuallyTimeout(10*time.Second), 200*time.Millisecond)
 
-		latestAttempt, err := server.DAGRunStore.FindAttempt(server.Context, exec.NewDAGRunRef(dagName, body.DagRunId))
+		latestAttempt, err := server.DAGRunStore.FindAttempt(server.Context, dagrun.NewDAGRunRef(dagName, body.DagRunId))
 		require.NoError(t, err)
 		latestStatus, err := latestAttempt.ReadStatus(server.Context)
 		require.NoError(t, err)

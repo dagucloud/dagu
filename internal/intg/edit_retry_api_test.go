@@ -12,7 +12,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/dagucloud/dagu/v2/internal/test/intgharness"
@@ -162,7 +162,7 @@ steps:
 	sourceStatus.Params = "one two three"
 	sourceStatus.ParamsList = []string{"problem=one two three"}
 
-	attempt, err := server.DAGRunStore.FindAttempt(server.Context, exec.NewDAGRunRef(dagName, sourceRunID))
+	attempt, err := server.DAGRunStore.FindAttempt(server.Context, dagrun.NewDAGRunRef(dagName, sourceRunID))
 	require.NoError(t, err)
 	require.NoError(t, attempt.Open(server.Context))
 	require.NoError(t, attempt.Write(server.Context, *sourceStatus))
@@ -195,11 +195,11 @@ steps:
 	require.Equal(t, []string{"consume"}, preview.RunnableSteps)
 }
 
-func waitForEditRetryStoredStatus(t *testing.T, server test.Server, dagName, dagRunID string, expected ir.Status) *exec.DAGRunStatus {
+func waitForEditRetryStoredStatus(t *testing.T, server test.Server, dagName, dagRunID string, expected ir.Status) *dagrun.DAGRunStatus {
 	t.Helper()
 
 	h := intgharness.New(t, server.Helper)
-	return h.Run(exec.NewDAGRunRef(dagName, dagRunID), "").RequireStatusWithin(expected, intgTestTimeout(15*time.Second))
+	return h.Run(dagrun.NewDAGRunRef(dagName, dagRunID), "").RequireStatusWithin(expected, intgTestTimeout(15*time.Second))
 }
 
 func indentStepField(value string) string {

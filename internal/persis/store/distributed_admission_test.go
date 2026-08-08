@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
 )
@@ -101,8 +102,8 @@ func TestDispatchAdmissionStore_ReserveAdmissionCountsLegacyPendingClaimAndLease
 	require.NoError(t, s.Enqueue(ctx, dispatchAdmissionTask("queue-a", "legacy-pending-attempt", "legacy-pending")))
 	require.NoError(t, leaseStore.Upsert(ctx, exec.DAGRunLease{
 		AttemptKey:      "legacy-lease-attempt",
-		DAGRun:          exec.NewDAGRunRef("dag-a", "run-legacy"),
-		Root:            exec.NewDAGRunRef("dag-a", "run-legacy"),
+		DAGRun:          dagrun.NewDAGRunRef("dag-a", "run-legacy"),
+		Root:            dagrun.NewDAGRunRef("dag-a", "run-legacy"),
 		AttemptID:       "legacy-lease",
 		QueueName:       "queue-a",
 		WorkerID:        "worker-a",
@@ -337,7 +338,7 @@ func dispatchAdmissionRequest(queueName, attemptKey, attemptID string, maxConcur
 		MaxConcurrency: maxConcurrency,
 		AttemptKey:     attemptKey,
 		AttemptID:      attemptID,
-		DAGRun:         exec.NewDAGRunRef("dag-a", "run-"+attemptID),
+		DAGRun:         dagrun.NewDAGRunRef("dag-a", "run-"+attemptID),
 		StaleThreshold: time.Minute,
 	}
 }

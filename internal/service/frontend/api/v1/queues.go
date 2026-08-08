@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
 )
@@ -100,7 +101,7 @@ func (a *API) GetQueue(ctx context.Context, req api.GetQueueRequestObject) (api.
 }
 
 // fetchDAGRunSummary fetches the status and converts it to a summary for a given DAG-run reference.
-func (a *API) fetchDAGRunSummary(ctx context.Context, dagRun exec.DAGRunRef) (api.DAGRunSummary, error) {
+func (a *API) fetchDAGRunSummary(ctx context.Context, dagRun dagrun.DAGRunRef) (api.DAGRunSummary, error) {
 	attempt, err := a.dagRunStore.FindAttempt(ctx, dagRun)
 	if err != nil {
 		return api.DAGRunSummary{}, err
@@ -215,7 +216,7 @@ func (a *API) collectQueues(ctx context.Context, onlyQueue string) (map[string]*
 		}
 	}
 
-	runningByGroup := map[string][]exec.DAGRunRef{}
+	runningByGroup := map[string][]dagrun.DAGRunRef{}
 	if a.procStore != nil {
 		var err error
 		runningByGroup, err = a.procStore.ListAllAlive(ctx)
@@ -424,7 +425,7 @@ func (a *API) effectiveLeaseStaleThreshold() time.Duration {
 	if a.leaseStaleThreshold > 0 {
 		return a.leaseStaleThreshold
 	}
-	return exec.DefaultStaleLeaseThreshold
+	return dagrun.DefaultStaleLeaseThreshold
 }
 
 func (a *API) activeDistributedRunningSummaries(ctx context.Context, queueName string, excludeRunIDs map[string]struct{}) map[string][]api.DAGRunSummary {

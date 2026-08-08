@@ -8,9 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
@@ -18,14 +19,14 @@ import (
 func TestRepairStaleLocalRunDoesNotMutateReadStatusSnapshot(t *testing.T) {
 	t.Parallel()
 
-	sharedStatus := &exec.DAGRunStatus{
+	sharedStatus := &dagrun.DAGRunStatus{
 		Name:       "test",
 		DAGRunID:   "run-1",
 		AttemptID:  "attempt-1",
 		Status:     ir.Running,
 		StartedAt:  time.Now().Add(-time.Minute).UTC().Format(time.RFC3339),
-		FinishedAt: exec.FormatTime(time.Time{}),
-		Nodes: []*exec.Node{
+		FinishedAt: dagrun.FormatTime(time.Time{}),
+		Nodes: []*dagrun.Node{
 			{
 				Step:   ir.Step{Name: "step-1"},
 				Status: ir.NodeRunning,
@@ -33,14 +34,14 @@ func TestRepairStaleLocalRunDoesNotMutateReadStatusSnapshot(t *testing.T) {
 		},
 	}
 
-	attempt := &exec.MockDAGRunAttempt{Status: sharedStatus}
+	attempt := &testutil.MockDAGRunAttempt{Status: sharedStatus}
 	attempt.On("Open", mock.Anything).Return(nil).Once()
 
-	var written exec.DAGRunStatus
+	var written dagrun.DAGRunStatus
 	attempt.
 		On("Write", mock.Anything, mock.Anything).
 		Run(func(args mock.Arguments) {
-			written = args.Get(1).(exec.DAGRunStatus)
+			written = args.Get(1).(dagrun.DAGRunStatus)
 		}).
 		Return(nil).
 		Once()

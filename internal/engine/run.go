@@ -23,6 +23,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
 	coreexec "github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	filematerialization "github.com/dagucloud/dagu/v2/internal/persis/file/materialization"
@@ -55,7 +56,7 @@ func (e *Engine) Status(ctx context.Context, ref RunRef) (*Status, error) {
 	if ref.Name == "" || ref.ID == "" {
 		return nil, fmt.Errorf("run name and ID are required")
 	}
-	status, err := e.readStatus(ctx, coreexec.NewDAGRunRef(ref.Name, ref.ID))
+	status, err := e.readStatus(ctx, dagrun.NewDAGRunRef(ref.Name, ref.ID))
 	if err != nil {
 		return nil, err
 	}
@@ -67,7 +68,7 @@ func (e *Engine) Outputs(ctx context.Context, ref RunRef) (map[string]string, er
 	if ref.Name == "" || ref.ID == "" {
 		return nil, fmt.Errorf("run name and ID are required")
 	}
-	outputs, err := e.readOutputs(ctx, coreexec.NewDAGRunRef(ref.Name, ref.ID))
+	outputs, err := e.readOutputs(ctx, dagrun.NewDAGRunRef(ref.Name, ref.ID))
 	if err != nil {
 		return nil, err
 	}
@@ -82,7 +83,7 @@ func (e *Engine) Stop(ctx context.Context, ref RunRef) error {
 	if ref.Name == "" || ref.ID == "" {
 		return fmt.Errorf("run name and ID are required")
 	}
-	runRef := coreexec.NewDAGRunRef(ref.Name, ref.ID)
+	runRef := dagrun.NewDAGRunRef(ref.Name, ref.ID)
 	if e.runStateStore != nil {
 		attempt, err := e.runStateStore.OpenAttempt(ctx, runRef)
 		if err == nil {
@@ -98,7 +99,7 @@ func (e *Engine) Stop(ctx context.Context, ref RunRef) error {
 	return e.stopDAGRunStore(ctx, ref.ID, runRef)
 }
 
-func (e *Engine) readStatus(ctx context.Context, ref coreexec.DAGRunRef) (*coreexec.DAGRunStatus, error) {
+func (e *Engine) readStatus(ctx context.Context, ref dagrun.DAGRunRef) (*dagrun.DAGRunStatus, error) {
 	if e.runStateStore != nil {
 		status, err := e.readRunStateStatus(ctx, ref)
 		if err == nil {
@@ -114,7 +115,7 @@ func (e *Engine) readStatus(ctx context.Context, ref coreexec.DAGRunRef) (*coree
 	return nil, fmt.Errorf("neither run-state store nor DAG-run store is configured")
 }
 
-func (e *Engine) stopDAGRunStore(ctx context.Context, dagRunID string, ref coreexec.DAGRunRef) error {
+func (e *Engine) stopDAGRunStore(ctx context.Context, dagRunID string, ref dagrun.DAGRunRef) error {
 	attempt, err := e.dagRunStore.FindAttempt(ctx, ref)
 	if err != nil {
 		return err
@@ -191,7 +192,7 @@ func (r *Run) Stop(ctx context.Context) error {
 	return r.engine.Stop(ctx, r.ref)
 }
 
-func (e *Engine) readRunStateStatus(ctx context.Context, ref coreexec.DAGRunRef) (*coreexec.DAGRunStatus, error) {
+func (e *Engine) readRunStateStatus(ctx context.Context, ref dagrun.DAGRunRef) (*dagrun.DAGRunStatus, error) {
 	attempt, err := e.runStateStore.OpenAttempt(ctx, ref)
 	if err != nil {
 		return nil, err
@@ -203,7 +204,7 @@ func (e *Engine) readRunStateStatus(ctx context.Context, ref coreexec.DAGRunRef)
 	return status, nil
 }
 
-func (e *Engine) readOutputs(ctx context.Context, ref coreexec.DAGRunRef) (*coreexec.DAGRunOutputs, error) {
+func (e *Engine) readOutputs(ctx context.Context, ref dagrun.DAGRunRef) (*dagrun.DAGRunOutputs, error) {
 	if e.runStateStore != nil {
 		outputs, err := e.readRunStateOutputs(ctx, ref)
 		if err == nil {
@@ -219,7 +220,7 @@ func (e *Engine) readOutputs(ctx context.Context, ref coreexec.DAGRunRef) (*core
 	return nil, fmt.Errorf("neither run-state store nor DAG-run store is configured")
 }
 
-func (e *Engine) readRunStateOutputs(ctx context.Context, ref coreexec.DAGRunRef) (*coreexec.DAGRunOutputs, error) {
+func (e *Engine) readRunStateOutputs(ctx context.Context, ref dagrun.DAGRunRef) (*dagrun.DAGRunOutputs, error) {
 	attempt, err := e.runStateStore.OpenAttempt(ctx, ref)
 	if err != nil {
 		return nil, err
@@ -227,7 +228,7 @@ func (e *Engine) readRunStateOutputs(ctx context.Context, ref coreexec.DAGRunRef
 	return attempt.ReadOutputs(ctx)
 }
 
-func (e *Engine) readDAGRunOutputs(ctx context.Context, ref coreexec.DAGRunRef) (*coreexec.DAGRunOutputs, error) {
+func (e *Engine) readDAGRunOutputs(ctx context.Context, ref dagrun.DAGRunRef) (*dagrun.DAGRunOutputs, error) {
 	attempt, err := e.dagRunStore.FindAttempt(ctx, ref)
 	if err != nil {
 		return nil, err
@@ -236,7 +237,7 @@ func (e *Engine) readDAGRunOutputs(ctx context.Context, ref coreexec.DAGRunRef) 
 }
 
 func (e *Engine) shouldFallbackToDAGRunStore(err error) bool {
-	return e.dagRunStore != nil && errors.Is(err, coreexec.ErrDAGRunIDNotFound)
+	return e.dagRunStore != nil && errors.Is(err, dagrun.ErrDAGRunIDNotFound)
 }
 
 func (r *Run) waitLocal(ctx context.Context) (*Status, error) {
@@ -393,7 +394,7 @@ func (e *Engine) runLoaded(ctx context.Context, dag *ir.DAG, opts RunOptions) (*
 			return nil, err
 		}
 		runID = id
-	} else if err := coreexec.ValidateDAGRunID(runID); err != nil {
+	} else if err := dagrun.ValidateDAGRunID(runID); err != nil {
 		return nil, err
 	}
 	mode := opts.Mode
@@ -430,7 +431,7 @@ func (e *Engine) runLocal(ctx context.Context, dag *ir.DAG, runID string, opts R
 		_ = logFile.Close()
 		return nil, err
 	}
-	root := coreexec.NewDAGRunRef(dag.Name, runID)
+	root := dagrun.NewDAGRunRef(dag.Name, runID)
 	var prepared *localPreparation
 	if !opts.DryRun {
 		prepared, err = e.prepareLocal(ctx, dag, runID, root)
@@ -587,18 +588,18 @@ func (r *Run) doneError() error {
 	return r.doneErr
 }
 
-func (e *Engine) prepareLocal(ctx context.Context, dag *ir.DAG, runID string, root coreexec.DAGRunRef) (*localPreparation, error) {
+func (e *Engine) prepareLocal(ctx context.Context, dag *ir.DAG, runID string, root dagrun.DAGRunRef) (*localPreparation, error) {
 	if err := e.procStore.Lock(ctx, dag.ProcGroup()); err != nil {
 		return nil, fmt.Errorf("lock process group: %w", err)
 	}
 	defer e.procStore.Unlock(ctx, dag.ProcGroup())
 
-	var attempt coreexec.DAGRunAttempt
+	var attempt dagrun.DAGRunAttempt
 	attemptID := runID
 	if e.dagRunStore != nil {
-		created, err := e.dagRunStore.CreateAttempt(ctx, dag, time.Now(), runID, coreexec.NewDAGRunAttemptOptions{})
+		created, err := e.dagRunStore.CreateAttempt(ctx, dag, time.Now(), runID, dagrun.NewDAGRunAttemptOptions{})
 		if err != nil {
-			if errors.Is(err, coreexec.ErrDAGRunAlreadyExists) {
+			if errors.Is(err, dagrun.ErrDAGRunAlreadyExists) {
 				return nil, fmt.Errorf("dag-run ID %s already exists for DAG %s: %w", runID, dag.Name, err)
 			}
 			return nil, fmt.Errorf("create DAG run attempt: %w", err)
@@ -608,8 +609,8 @@ func (e *Engine) prepareLocal(ctx context.Context, dag *ir.DAG, runID string, ro
 		attemptID = created.ID()
 	} else if e.runStateStore != nil {
 		if _, err := e.runStateStore.OpenAttempt(ctx, root); err == nil {
-			return nil, fmt.Errorf("%w: %s", coreexec.ErrDAGRunAlreadyExists, runID)
-		} else if !errors.Is(err, coreexec.ErrDAGRunIDNotFound) {
+			return nil, fmt.Errorf("%w: %s", dagrun.ErrDAGRunAlreadyExists, runID)
+		} else if !errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
 			return nil, fmt.Errorf("check existing run-state attempt: %w", err)
 		}
 	}
@@ -632,10 +633,10 @@ func (e *Engine) prepareLocal(ctx context.Context, dag *ir.DAG, runID string, ro
 
 func (e *Engine) recordPreparedFailure(
 	ctx context.Context,
-	attempt coreexec.DAGRunAttempt,
+	attempt dagrun.DAGRunAttempt,
 	dag *ir.DAG,
 	runID string,
-	root coreexec.DAGRunRef,
+	root dagrun.DAGRunRef,
 	runErr error,
 ) error {
 	logFile, logErr := logpath.Generate(ctx, e.cfg.Paths.LogDir, dag.LogDir, dag.Name, runID)
@@ -652,7 +653,7 @@ func (e *Engine) recordPreparedFailure(
 		0,
 		time.Now(),
 		transform.WithAttemptID(attempt.ID()),
-		transform.WithHierarchyRefs(root, coreexec.DAGRunRef{}),
+		transform.WithHierarchyRefs(root, dagrun.DAGRunRef{}),
 		transform.WithLogFilePath(logFile),
 		transform.WithArchiveDir(artifactDir),
 		transform.WithFinishedAt(time.Now()),
@@ -695,7 +696,7 @@ func (e *Engine) runtimeStores(ctx context.Context) RuntimeStores {
 	return e.runtimeStoresFactory(ctx, e.cfg)
 }
 
-func preparedAttempt(prepared *localPreparation) coreexec.DAGRunAttempt {
+func preparedAttempt(prepared *localPreparation) dagrun.DAGRunAttempt {
 	if prepared == nil {
 		return nil
 	}

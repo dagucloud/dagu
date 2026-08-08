@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"testing"
 
-	exec1 "github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/require"
@@ -587,7 +587,7 @@ steps:
 	}
 }
 
-func findNodeByStepID(t *testing.T, nodes []*exec1.Node, stepID string) *exec1.Node {
+func findNodeByStepID(t *testing.T, nodes []*dagrun.Node, stepID string) *dagrun.Node {
 	t.Helper()
 
 	for _, node := range nodes {

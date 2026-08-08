@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -89,9 +89,9 @@ func TestStableIDUsesCollisionSafeFraming(t *testing.T) {
 func TestNewDAGRunEventEmbedsDAGRunSnapshot(t *testing.T) {
 	t.Parallel()
 
-	status := &exec.DAGRunStatus{
-		Root:           exec.NewDAGRunRef("root-briefing", "root-run"),
-		Parent:         exec.NewDAGRunRef("root-briefing", "parent-run"),
+	status := &dagrun.DAGRunStatus{
+		Root:           dagrun.NewDAGRunRef("root-briefing", "root-run"),
+		Parent:         dagrun.NewDAGRunRef("root-briefing", "parent-run"),
 		Name:           "briefing",
 		Labels:         []string{"workspace=ops", "team=platform"},
 		DAGRunID:       "run-1",
@@ -105,17 +105,17 @@ func TestNewDAGRunEventEmbedsDAGRunSnapshot(t *testing.T) {
 		FinishedAt:     "2026-04-01T09:02:00Z",
 		AutoRetryCount: 1,
 		AutoRetryLimit: 3,
-		Nodes: []*exec.Node{
+		Nodes: []*dagrun.Node{
 			{
 				Step:   ir.Step{Name: "fetch"},
 				Status: ir.NodeFailed,
 				Error:  "node boom",
-				StatusDetails: []exec.NodeStatusDetail{
+				StatusDetails: []dagrun.NodeStatusDetail{
 					{Label: "customer-a", Status: ir.NodeFailed},
 				},
 			},
 		},
-		OnFailure: &exec.Node{
+		OnFailure: &dagrun.Node{
 			Step:  ir.Step{Name: "notify"},
 			Error: "handler boom",
 		},
@@ -205,7 +205,7 @@ func TestEmitPersistedStatusTransitionFromContextEmitsUpdateForRepeatedStatus(t 
 	store := &captureStore{}
 	service := New(store)
 	ctx := WithContext(context.Background(), service, Source{Service: SourceServiceServer})
-	status := &exec.DAGRunStatus{
+	status := &dagrun.DAGRunStatus{
 		Name:      "briefing",
 		DAGRunID:  "run-1",
 		AttemptID: "attempt-1",
@@ -244,7 +244,7 @@ func TestDAGRunUpdateEventIDIncludesRecordedAt(t *testing.T) {
 func TestNewDAGRunEventDeepClonesData(t *testing.T) {
 	t.Parallel()
 
-	status := &exec.DAGRunStatus{
+	status := &dagrun.DAGRunStatus{
 		Name:      "briefing",
 		DAGRunID:  "run-1",
 		AttemptID: "attempt-1",

@@ -19,8 +19,9 @@ import (
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	"github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
+	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/assert"
@@ -69,12 +70,12 @@ func waitForDAGRunStatus(
 	dagName string,
 	dagRunID string,
 	timeout time.Duration,
-	predicate func(*exec.DAGRunStatus) bool,
-) *exec.DAGRunStatus {
+	predicate func(*dagrun.DAGRunStatus) bool,
+) *dagrun.DAGRunStatus {
 	t.Helper()
 
 	dag := &ir.DAG{Name: dagName}
-	var status *exec.DAGRunStatus
+	var status *dagrun.DAGRunStatus
 	require.Eventually(t, func() bool {
 		current, err := server.DAGRunMgr.GetCurrentStatus(server.Context, dag, dagRunID)
 		if err != nil || current == nil {
@@ -93,19 +94,19 @@ func waitForStoredDAGRunStatus(
 	dagName string,
 	dagRunID string,
 	timeout time.Duration,
-	predicate func(*exec.DAGRunStatus) bool,
-) *exec.DAGRunStatus {
+	predicate func(*dagrun.DAGRunStatus) bool,
+) *dagrun.DAGRunStatus {
 	t.Helper()
 
-	ref := exec.NewDAGRunRef(dagName, dagRunID)
-	var status *exec.DAGRunStatus
+	ref := dagrun.NewDAGRunRef(dagName, dagRunID)
+	var status *dagrun.DAGRunStatus
 	require.Eventually(t, func() bool {
 		// Create the store inside the poll so attempt discovery can observe a
 		// retry/resume attempt created after polling starts.
-		store := dagrun.New(
+		store := filedagrun.New(
 			server.Config.Paths.DAGRunsDir,
-			dagrun.WithLatestStatusToday(server.Config.Server.LatestStatusToday),
-			dagrun.WithLocation(server.Config.Core.Location),
+			filedagrun.WithLatestStatusToday(server.Config.Server.LatestStatusToday),
+			filedagrun.WithLocation(server.Config.Core.Location),
 		)
 		attempt, err := store.FindAttempt(server.Context, ref)
 		if err != nil {
@@ -125,19 +126,19 @@ func waitForStoredDAGRunStatus(
 func waitForStoredSubDAGRunStatus(
 	t *testing.T,
 	server test.Server,
-	root exec.DAGRunRef,
+	root dagrun.DAGRunRef,
 	subDAGRunID string,
 	timeout time.Duration,
-	predicate func(*exec.DAGRunStatus) bool,
-) *exec.DAGRunStatus {
+	predicate func(*dagrun.DAGRunStatus) bool,
+) *dagrun.DAGRunStatus {
 	t.Helper()
 
-	var status *exec.DAGRunStatus
+	var status *dagrun.DAGRunStatus
 	require.Eventually(t, func() bool {
-		store := dagrun.New(
+		store := filedagrun.New(
 			server.Config.Paths.DAGRunsDir,
-			dagrun.WithLatestStatusToday(server.Config.Server.LatestStatusToday),
-			dagrun.WithLocation(server.Config.Core.Location),
+			filedagrun.WithLatestStatusToday(server.Config.Server.LatestStatusToday),
+			filedagrun.WithLocation(server.Config.Core.Location),
 		)
 		attempt, err := store.FindSubAttempt(server.Context, root, subDAGRunID)
 		if err != nil {
@@ -154,7 +155,7 @@ func waitForStoredSubDAGRunStatus(
 	return status
 }
 
-func hasNodeWithStatus(status *exec.DAGRunStatus, stepName string, nodeStatus ir.NodeStatus) bool {
+func hasNodeWithStatus(status *dagrun.DAGRunStatus, stepName string, nodeStatus ir.NodeStatus) bool {
 	if status == nil {
 		return false
 	}
@@ -168,7 +169,7 @@ func hasNodeWithStatus(status *exec.DAGRunStatus, stepName string, nodeStatus ir
 	return false
 }
 
-func findNodeByName(status *exec.DAGRunStatus, stepName string) *exec.Node {
+func findNodeByName(status *dagrun.DAGRunStatus, stepName string) *dagrun.Node {
 	if status == nil {
 		return nil
 	}
@@ -180,7 +181,7 @@ func findNodeByName(status *exec.DAGRunStatus, stepName string) *exec.Node {
 	return nil
 }
 
-func requireNodeByName(t *testing.T, status *exec.DAGRunStatus, stepName string) *exec.Node {
+func requireNodeByName(t *testing.T, status *dagrun.DAGRunStatus, stepName string) *dagrun.Node {
 	t.Helper()
 
 	node := findNodeByName(status, stepName)
@@ -192,7 +193,7 @@ func requireNodeByName(t *testing.T, status *exec.DAGRunStatus, stepName string)
 	return nil
 }
 
-func hasRunProcessIdentity(status *exec.DAGRunStatus) bool {
+func hasRunProcessIdentity(status *dagrun.DAGRunStatus) bool {
 	return status.PID > 0 && status.PIDStartedAt > 0
 }
 
@@ -507,7 +508,7 @@ steps:
 	var startBody api.ExecuteDAG200JSONResponse
 	startResp.Unmarshal(t, &startBody)
 	require.NotEmpty(t, startBody.DagRunId)
-	waitForDAGRunStatus(t, server, dagName, startBody.DagRunId, 10*time.Second, func(status *exec.DAGRunStatus) bool {
+	waitForDAGRunStatus(t, server, dagName, startBody.DagRunId, 10*time.Second, func(status *dagrun.DAGRunStatus) bool {
 		return status.Status == ir.Succeeded || status.Status == ir.Failed
 	})
 
@@ -518,7 +519,7 @@ steps:
 		WithBearerToken(operatorKey).
 		ExpectStatus(http.StatusOK).
 		Send(t)
-	waitForDAGRunStatus(t, server, dagName, startBody.DagRunId, 10*time.Second, func(status *exec.DAGRunStatus) bool {
+	waitForDAGRunStatus(t, server, dagName, startBody.DagRunId, 10*time.Second, func(status *dagrun.DAGRunStatus) bool {
 		return status.Status == ir.Succeeded || status.Status == ir.Failed
 	})
 
@@ -640,7 +641,7 @@ steps:
 	require.NotEmpty(t, startBody.DagRunId)
 
 	status := waitForDAGRunStatus(t, server, "parent_dag_for_subdag_spec", startBody.DagRunId, 30*time.Second,
-		func(status *exec.DAGRunStatus) bool {
+		func(status *dagrun.DAGRunStatus) bool {
 			return status.Status == ir.Succeeded &&
 				len(status.Nodes) == 1 &&
 				len(status.Nodes[0].SubRuns) == 1
@@ -711,7 +712,7 @@ steps:
 	require.NotEmpty(t, startBody.DagRunId)
 
 	// Wait for DAG to enter Wait status
-	waitForStoredDAGRunStatus(t, server, "approval_test_dag", startBody.DagRunId, 10*time.Second, func(status *exec.DAGRunStatus) bool {
+	waitForStoredDAGRunStatus(t, server, "approval_test_dag", startBody.DagRunId, 10*time.Second, func(status *dagrun.DAGRunStatus) bool {
 		return status.Status == ir.Waiting && hasNodeWithStatus(status, "wait-step", ir.NodeWaiting)
 	})
 
@@ -728,7 +729,7 @@ steps:
 	require.True(t, approveBody.Resumed)
 
 	// Wait for DAG to complete
-	waitForStoredDAGRunStatus(t, server, "approval_test_dag", startBody.DagRunId, 10*time.Second, func(status *exec.DAGRunStatus) bool {
+	waitForStoredDAGRunStatus(t, server, "approval_test_dag", startBody.DagRunId, 10*time.Second, func(status *dagrun.DAGRunStatus) bool {
 		return status.Status == ir.Succeeded
 	})
 }
@@ -762,7 +763,7 @@ func TestCompleteHumanTask(t *testing.T) {
 	var startBody api.ExecuteDAG200JSONResponse
 	startResp.Unmarshal(t, &startBody)
 
-	waitForStoredDAGRunStatus(t, server, "human_task_api_test", startBody.DagRunId, 10*time.Second, func(status *exec.DAGRunStatus) bool {
+	waitForStoredDAGRunStatus(t, server, "human_task_api_test", startBody.DagRunId, 10*time.Second, func(status *dagrun.DAGRunStatus) bool {
 		return status.Status == ir.Waiting && hasNodeWithStatus(status, "review", ir.NodeWaiting)
 	})
 
@@ -795,7 +796,7 @@ func TestCompleteHumanTask(t *testing.T) {
 	require.True(t, completeBody.Queued)
 	require.Zero(t, completeBody.RemainingWaitingSteps)
 
-	queuedStatus := waitForStoredDAGRunStatus(t, server, "human_task_api_test", startBody.DagRunId, 10*time.Second, func(status *exec.DAGRunStatus) bool {
+	queuedStatus := waitForStoredDAGRunStatus(t, server, "human_task_api_test", startBody.DagRunId, 10*time.Second, func(status *dagrun.DAGRunStatus) bool {
 		return status.Status == ir.Queued && hasNodeWithStatus(status, "review", ir.NodeSucceeded)
 	})
 	queueName := queuedStatus.ProcGroup
@@ -845,7 +846,7 @@ steps:
 	startResp.Unmarshal(t, &startBody)
 	require.NotEmpty(t, startBody.DagRunId)
 
-	waitForStoredDAGRunStatus(t, server, dagName, startBody.DagRunId, 10*time.Second, func(status *exec.DAGRunStatus) bool {
+	waitForStoredDAGRunStatus(t, server, dagName, startBody.DagRunId, 10*time.Second, func(status *dagrun.DAGRunStatus) bool {
 		return status.Status == ir.Running &&
 			hasNodeWithStatus(status, "wait-step", ir.NodeWaiting) &&
 			hasNodeWithStatus(status, "long-step", ir.NodeRunning)
@@ -870,7 +871,7 @@ steps:
 		api.PushBackStepRequest{},
 	).ExpectStatus(http.StatusBadRequest).Send(t)
 
-	runningStatus := waitForStoredDAGRunStatus(t, server, dagName, startBody.DagRunId, 10*time.Second, func(status *exec.DAGRunStatus) bool {
+	runningStatus := waitForStoredDAGRunStatus(t, server, dagName, startBody.DagRunId, 10*time.Second, func(status *dagrun.DAGRunStatus) bool {
 		return status.Status == ir.Running &&
 			hasNodeWithStatus(status, "wait-step", ir.NodeWaiting) &&
 			hasNodeWithStatus(status, "long-step", ir.NodeRunning)
@@ -884,7 +885,7 @@ steps:
 	require.Empty(t, waitStep.PushBackHistory)
 
 	releaseHoldFile(t, release)
-	waitForStoredDAGRunStatus(t, server, dagName, startBody.DagRunId, 10*time.Second, func(status *exec.DAGRunStatus) bool {
+	waitForStoredDAGRunStatus(t, server, dagName, startBody.DagRunId, 10*time.Second, func(status *dagrun.DAGRunStatus) bool {
 		return status.Status == ir.Waiting &&
 			hasNodeWithStatus(status, "wait-step", ir.NodeWaiting) &&
 			hasNodeWithStatus(status, "long-step", ir.NodeSucceeded)
@@ -894,7 +895,7 @@ steps:
 		fmt.Sprintf("/api/v1/dag-runs/%s/%s/steps/wait-step/status", dagName, startBody.DagRunId),
 		api.UpdateDAGRunStepStatusJSONRequestBody{Status: api.NodeStatusSuccess},
 	).ExpectStatus(http.StatusBadRequest).Send(t)
-	waitingStatus := waitForStoredDAGRunStatus(t, server, dagName, startBody.DagRunId, 10*time.Second, func(status *exec.DAGRunStatus) bool {
+	waitingStatus := waitForStoredDAGRunStatus(t, server, dagName, startBody.DagRunId, 10*time.Second, func(status *dagrun.DAGRunStatus) bool {
 		return status.Status == ir.Waiting && hasNodeWithStatus(status, "wait-step", ir.NodeWaiting)
 	})
 	require.Equal(t, ir.NodeWaiting, requireNodeByName(t, waitingStatus, "wait-step").Status)
@@ -908,7 +909,7 @@ steps:
 	approveResp.Unmarshal(t, &approveBody)
 	require.True(t, approveBody.Resumed)
 
-	waitForStoredDAGRunStatus(t, server, dagName, startBody.DagRunId, 10*time.Second, func(status *exec.DAGRunStatus) bool {
+	waitForStoredDAGRunStatus(t, server, dagName, startBody.DagRunId, 10*time.Second, func(status *dagrun.DAGRunStatus) bool {
 		return status.Status == ir.Succeeded
 	})
 }
@@ -949,7 +950,7 @@ steps:
 	require.NotEmpty(t, startBody.DagRunId)
 
 	var subDAGRunID string
-	rootStatus := waitForStoredDAGRunStatus(t, server, dagName, startBody.DagRunId, 10*time.Second, func(status *exec.DAGRunStatus) bool {
+	rootStatus := waitForStoredDAGRunStatus(t, server, dagName, startBody.DagRunId, 10*time.Second, func(status *dagrun.DAGRunStatus) bool {
 		callChild := findNodeByName(status, "call-child")
 		if callChild == nil || len(callChild.SubRuns) != 1 {
 			return false
@@ -960,9 +961,9 @@ steps:
 			hasNodeWithStatus(status, "parent-long", ir.NodeRunning) &&
 			subDAGRunID != ""
 	})
-	rootRef := exec.NewDAGRunRef(dagName, startBody.DagRunId)
+	rootRef := dagrun.NewDAGRunRef(dagName, startBody.DagRunId)
 
-	waitForStoredSubDAGRunStatus(t, server, rootRef, subDAGRunID, 10*time.Second, func(status *exec.DAGRunStatus) bool {
+	waitForStoredSubDAGRunStatus(t, server, rootRef, subDAGRunID, 10*time.Second, func(status *dagrun.DAGRunStatus) bool {
 		return status.Status == ir.Waiting &&
 			hasNodeWithStatus(status, "child-wait", ir.NodeWaiting)
 	})
@@ -986,7 +987,7 @@ steps:
 		api.PushBackStepRequest{},
 	).ExpectStatus(http.StatusBadRequest).Send(t)
 
-	childStatus := waitForStoredSubDAGRunStatus(t, server, rootRef, subDAGRunID, 10*time.Second, func(status *exec.DAGRunStatus) bool {
+	childStatus := waitForStoredSubDAGRunStatus(t, server, rootRef, subDAGRunID, 10*time.Second, func(status *dagrun.DAGRunStatus) bool {
 		return status.Status == ir.Waiting &&
 			hasNodeWithStatus(status, "child-wait", ir.NodeWaiting)
 	})
@@ -999,7 +1000,7 @@ steps:
 	require.Empty(t, childWait.PushBackHistory)
 
 	releaseHoldFile(t, release)
-	waitForStoredDAGRunStatus(t, server, dagName, rootStatus.DAGRunID, 10*time.Second, func(status *exec.DAGRunStatus) bool {
+	waitForStoredDAGRunStatus(t, server, dagName, rootStatus.DAGRunID, 10*time.Second, func(status *dagrun.DAGRunStatus) bool {
 		return status.Status == ir.Waiting &&
 			hasNodeWithStatus(status, "call-child", ir.NodeWaiting) &&
 			hasNodeWithStatus(status, "parent-long", ir.NodeSucceeded)
@@ -1012,7 +1013,7 @@ steps:
 	var updateBody api.UpdateSubDAGRunStepStatus400JSONResponse
 	updateResp.Unmarshal(t, &updateBody)
 	require.Contains(t, updateBody.Message, subDAGRunID)
-	waitingChildStatus := waitForStoredSubDAGRunStatus(t, server, rootRef, subDAGRunID, 10*time.Second, func(status *exec.DAGRunStatus) bool {
+	waitingChildStatus := waitForStoredSubDAGRunStatus(t, server, rootRef, subDAGRunID, 10*time.Second, func(status *dagrun.DAGRunStatus) bool {
 		return status.Status == ir.Waiting && hasNodeWithStatus(status, "child-wait", ir.NodeWaiting)
 	})
 	require.Equal(t, ir.NodeWaiting, requireNodeByName(t, waitingChildStatus, "child-wait").Status)
@@ -1026,7 +1027,7 @@ steps:
 	approveResp.Unmarshal(t, &approveBody)
 	require.True(t, approveBody.Resumed)
 
-	waitForStoredSubDAGRunStatus(t, server, rootRef, subDAGRunID, 10*time.Second, func(status *exec.DAGRunStatus) bool {
+	waitForStoredSubDAGRunStatus(t, server, rootRef, subDAGRunID, 10*time.Second, func(status *dagrun.DAGRunStatus) bool {
 		return status.Status == ir.Succeeded
 	})
 }
@@ -1067,7 +1068,7 @@ steps:
 	startResp.Unmarshal(t, &startBody)
 	require.NotEmpty(t, startBody.DagRunId)
 
-	waitingStatus := waitForStoredDAGRunStatus(t, server, dagName, startBody.DagRunId, 10*time.Second, func(status *exec.DAGRunStatus) bool {
+	waitingStatus := waitForStoredDAGRunStatus(t, server, dagName, startBody.DagRunId, 10*time.Second, func(status *dagrun.DAGRunStatus) bool {
 		return status.Status == ir.Waiting &&
 			hasNodeWithStatus(status, "wait-step", ir.NodeWaiting) &&
 			hasRunProcessIdentity(status)
@@ -1078,7 +1079,7 @@ steps:
 		api.ApproveStepRequest{},
 	).ExpectStatus(http.StatusOK).Send(t)
 
-	runningStatus := waitForStoredDAGRunStatus(t, server, dagName, startBody.DagRunId, 10*time.Second, func(status *exec.DAGRunStatus) bool {
+	runningStatus := waitForStoredDAGRunStatus(t, server, dagName, startBody.DagRunId, 10*time.Second, func(status *dagrun.DAGRunStatus) bool {
 		return status.Status == ir.Running &&
 			hasNodeWithStatus(status, "after-wait", ir.NodeRunning) &&
 			status.AttemptID != "" &&
@@ -1102,7 +1103,7 @@ steps:
 	require.Equal(t, api.Status(ir.Running), details.DagRunDetails.Status)
 
 	releaseHoldFile(t, release)
-	waitForStoredDAGRunStatus(t, server, dagName, startBody.DagRunId, 10*time.Second, func(status *exec.DAGRunStatus) bool {
+	waitForStoredDAGRunStatus(t, server, dagName, startBody.DagRunId, 10*time.Second, func(status *dagrun.DAGRunStatus) bool {
 		return status.Status == ir.Succeeded
 	})
 }
@@ -1140,7 +1141,7 @@ steps:
 	require.NotEmpty(t, startBody.DagRunId)
 
 	// Wait for DAG to enter Wait status
-	waitForStoredDAGRunStatus(t, server, "approval_inputs_dag", startBody.DagRunId, 10*time.Second, func(status *exec.DAGRunStatus) bool {
+	waitForStoredDAGRunStatus(t, server, "approval_inputs_dag", startBody.DagRunId, 10*time.Second, func(status *dagrun.DAGRunStatus) bool {
 		return status.Status == ir.Waiting &&
 			hasNodeWithStatus(status, "wait-step", ir.NodeWaiting) &&
 			hasNodeWithStatus(status, "hold-step", ir.NodeWaiting)
@@ -1162,14 +1163,14 @@ steps:
 
 	// The second waiting step keeps the DAG in a non-terminal state while the
 	// approved node's API-side mutation is persisted.
-	status := waitForStoredDAGRunStatus(t, server, "approval_inputs_dag", startBody.DagRunId, 10*time.Second, func(status *exec.DAGRunStatus) bool {
+	status := waitForStoredDAGRunStatus(t, server, "approval_inputs_dag", startBody.DagRunId, 10*time.Second, func(status *dagrun.DAGRunStatus) bool {
 		return status.Status == ir.Waiting &&
 			hasNodeWithStatus(status, "wait-step", ir.NodeSucceeded) &&
 			hasNodeWithStatus(status, "hold-step", ir.NodeWaiting)
 	})
 	require.Len(t, status.Nodes, 2)
 
-	var waitNode *exec.Node
+	var waitNode *dagrun.Node
 	for _, node := range status.Nodes {
 		if node.Step.Name == "wait-step" {
 			waitNode = node
@@ -1247,7 +1248,7 @@ func TestApproveDAGRunStepNotWaiting(t *testing.T) {
 	var startBody api.ExecuteDAG200JSONResponse
 	startResp.Unmarshal(t, &startBody)
 
-	waitForDAGRunStatus(t, server, "no_wait_dag", startBody.DagRunId, 10*time.Second, func(status *exec.DAGRunStatus) bool {
+	waitForDAGRunStatus(t, server, "no_wait_dag", startBody.DagRunId, 10*time.Second, func(status *dagrun.DAGRunStatus) bool {
 		return status.Status == ir.Succeeded
 	})
 
@@ -1290,7 +1291,7 @@ steps:
 	require.Equal(t, "wait-step", rejectBody.StepName)
 
 	// Verify DAG status is Rejected
-	status := waitForStoredDAGRunStatus(t, server, ref.Name, ref.ID, 2*time.Second, func(status *exec.DAGRunStatus) bool {
+	status := waitForStoredDAGRunStatus(t, server, ref.Name, ref.ID, 2*time.Second, func(status *dagrun.DAGRunStatus) bool {
 		return status.Status == ir.Rejected
 	})
 	require.True(t, hasNodeWithStatus(status, "wait-step", ir.NodeRejected))
@@ -1315,7 +1316,7 @@ func TestRejectDAGRunStepNotWaiting(t *testing.T) {
 	var startBody api.ExecuteDAG200JSONResponse
 	startResp.Unmarshal(t, &startBody)
 
-	waitForDAGRunStatus(t, server, "reject_not_waiting_dag", startBody.DagRunId, 10*time.Second, func(status *exec.DAGRunStatus) bool {
+	waitForDAGRunStatus(t, server, "reject_not_waiting_dag", startBody.DagRunId, 10*time.Second, func(status *dagrun.DAGRunStatus) bool {
 		return status.Status == ir.Succeeded
 	})
 
@@ -1350,7 +1351,7 @@ func TestRescheduleDAGRun(t *testing.T) {
 	startResp.Unmarshal(t, &startBody)
 	require.NotEmpty(t, startBody.DagRunId)
 
-	waitForDAGRunStatus(t, server, "reschedule_dag", startBody.DagRunId, 10*time.Second, func(status *exec.DAGRunStatus) bool {
+	waitForDAGRunStatus(t, server, "reschedule_dag", startBody.DagRunId, 10*time.Second, func(status *dagrun.DAGRunStatus) bool {
 		return status.Status == ir.Succeeded
 	})
 
@@ -1366,7 +1367,7 @@ func TestRescheduleDAGRun(t *testing.T) {
 
 	test.ProcessQueuedInlineRun(t, server, "reschedule_dag")
 
-	waitForDAGRunStatus(t, server, "reschedule_dag", rescheduleBody.DagRunId, 10*time.Second, func(status *exec.DAGRunStatus) bool {
+	waitForDAGRunStatus(t, server, "reschedule_dag", rescheduleBody.DagRunId, 10*time.Second, func(status *dagrun.DAGRunStatus) bool {
 		return status.Status == ir.Succeeded
 	})
 }
@@ -1498,7 +1499,7 @@ env:
 	startResp.Unmarshal(t, &startBody)
 	require.NotEmpty(t, startBody.DagRunId)
 
-	waitForDAGRunStatus(t, server, dagName, startBody.DagRunId, 10*time.Second, func(status *exec.DAGRunStatus) bool {
+	waitForDAGRunStatus(t, server, dagName, startBody.DagRunId, 10*time.Second, func(status *dagrun.DAGRunStatus) bool {
 		return status.Status == ir.Succeeded
 	})
 
@@ -1604,7 +1605,7 @@ steps:
 	require.Contains(t, string(dag.YamlData), "current file")
 	require.Equal(t, resolvedDAGPath, dag.SourceFile)
 
-	rescheduledStatus := waitForStoredDAGRunStatus(t, server, dagName, body.DagRunId, 10*time.Second, func(status *exec.DAGRunStatus) bool {
+	rescheduledStatus := waitForStoredDAGRunStatus(t, server, dagName, body.DagRunId, 10*time.Second, func(status *dagrun.DAGRunStatus) bool {
 		return status.Status == ir.Succeeded
 	})
 	require.Contains(t, rescheduledStatus.ParamsList, "MESSAGE=hello world")
@@ -1683,7 +1684,7 @@ steps:
 		api.RetryDAGRunJSONRequestBody{DagRunId: "queued-run"},
 	).ExpectStatus(http.StatusOK).Send(t)
 
-	attempt, err := server.DAGRunStore.FindAttempt(server.Context, exec.NewDAGRunRef(dag.Name, "queued-run"))
+	attempt, err := server.DAGRunStore.FindAttempt(server.Context, dagrun.NewDAGRunRef(dag.Name, "queued-run"))
 	require.NoError(t, err)
 
 	status, err := attempt.ReadStatus(server.Context)
@@ -1713,7 +1714,7 @@ steps:
 	parentRunID := "parent-run"
 	childRunID := "child-run"
 	seedLatestDAGRunStatus(t, server, parent.DAG, parentRunID, ir.Succeeded, seedDAGRunStatusOptions{
-		subRuns: map[string][]exec.SubDAGRun{
+		subRuns: map[string][]dagrun.SubDAGRun{
 			"enqueue-child": {{
 				DAGRunID: childRunID,
 				DAGName:  child.Name,
@@ -1756,7 +1757,7 @@ func TestUpdateSubDAGRunStepStatusHandlesTopLevelDagEnqueueRun(t *testing.T) {
 	parentRunID := "status-parent-run"
 	childRunID := "status-child-run"
 	seedLatestDAGRunStatus(t, server, parent, parentRunID, ir.Succeeded, seedDAGRunStatusOptions{
-		subRuns: map[string][]exec.SubDAGRun{
+		subRuns: map[string][]dagrun.SubDAGRun{
 			"enqueue-child": {{
 				DAGRunID: childRunID,
 				DAGName:  child.Name,
@@ -1776,14 +1777,14 @@ func TestUpdateSubDAGRunStepStatusHandlesTopLevelDagEnqueueRun(t *testing.T) {
 		child.Name,
 		childRunID,
 		5*time.Second,
-		func(status *exec.DAGRunStatus) bool {
+		func(status *dagrun.DAGRunStatus) bool {
 			return status.Status == ir.Failed &&
 				hasNodeWithStatus(status, "child", ir.NodeFailed)
 		},
 	)
 	require.Equal(t, ir.Failed, status.Status)
 
-	_, err := server.DAGRunStore.FindSubAttempt(server.Context, exec.NewDAGRunRef(parent.Name, parentRunID), childRunID)
+	_, err := server.DAGRunStore.FindSubAttempt(server.Context, dagrun.NewDAGRunRef(parent.Name, parentRunID), childRunID)
 	require.Error(t, err)
 }
 
@@ -1810,7 +1811,7 @@ func TestRejectSubDAGRunStepHandlesTopLevelDagEnqueueRun(t *testing.T) {
 	parentRunID := "reject-parent-run"
 	childRunID := "reject-child-run"
 	seedLatestDAGRunStatus(t, server, parent, parentRunID, ir.Succeeded, seedDAGRunStatusOptions{
-		subRuns: map[string][]exec.SubDAGRun{
+		subRuns: map[string][]dagrun.SubDAGRun{
 			"enqueue-child": {{
 				DAGRunID: childRunID,
 				DAGName:  child.Name,
@@ -1840,7 +1841,7 @@ func TestRejectSubDAGRunStepHandlesTopLevelDagEnqueueRun(t *testing.T) {
 		child.Name,
 		childRunID,
 		5*time.Second,
-		func(status *exec.DAGRunStatus) bool {
+		func(status *dagrun.DAGRunStatus) bool {
 			return status.Status == ir.Rejected &&
 				hasNodeWithStatus(status, "wait-step", ir.NodeRejected)
 		},
@@ -1906,7 +1907,7 @@ steps:
 		"single_retry_local_dag",
 		startBody.DagRunId,
 		15*time.Second,
-		func(status *exec.DAGRunStatus) bool {
+		func(status *dagrun.DAGRunStatus) bool {
 			return status.Status == ir.Failed
 		},
 	)
@@ -1915,7 +1916,7 @@ steps:
 	require.NotEmpty(t, sourceWorkDir)
 
 	staleWorkDir := filepath.Join(t.TempDir(), "stale-work")
-	attempt, err := server.DAGRunStore.FindAttempt(server.Context, exec.NewDAGRunRef("single_retry_local_dag", startBody.DagRunId))
+	attempt, err := server.DAGRunStore.FindAttempt(server.Context, dagrun.NewDAGRunRef("single_retry_local_dag", startBody.DagRunId))
 	require.NoError(t, err)
 	persistedStatus, err := attempt.ReadStatus(server.Context)
 	require.NoError(t, err)
@@ -1936,7 +1937,7 @@ steps:
 		"single_retry_local_dag",
 		startBody.DagRunId,
 		15*time.Second,
-		func(status *exec.DAGRunStatus) bool {
+		func(status *dagrun.DAGRunStatus) bool {
 			return status.Status == ir.Succeeded
 		},
 	)
@@ -2095,7 +2096,7 @@ func TestExecuteDAGSyncTimeout(t *testing.T) {
 	require.NotEmpty(t, errBody.DagRunId, "408 response should include dagRunId for tracking")
 
 	require.NoError(t, os.WriteFile(releaseFile, []byte("ok"), 0600))
-	waitForDAGRunStatus(t, server, "sync_timeout_dag", errBody.DagRunId, 15*time.Second, func(status *exec.DAGRunStatus) bool {
+	waitForDAGRunStatus(t, server, "sync_timeout_dag", errBody.DagRunId, 15*time.Second, func(status *dagrun.DAGRunStatus) bool {
 		return status.Status == ir.Succeeded
 	})
 }
@@ -2133,12 +2134,12 @@ func TestExecuteDAGSyncWithWaitingStatus(t *testing.T) {
 type seedDAGRunStatusOptions struct {
 	autoRetryCount int
 	errorText      string
-	parentRef      exec.DAGRunRef
+	parentRef      dagrun.DAGRunRef
 	paramsList     []string
 	profileName    string
 	triggerActor   string
 	nodeStatuses   map[string]ir.NodeStatus
-	subRuns        map[string][]exec.SubDAGRun
+	subRuns        map[string][]dagrun.SubDAGRun
 }
 
 func seedLatestDAGRunStatus(
@@ -2148,7 +2149,7 @@ func seedLatestDAGRunStatus(
 	dagRunID string,
 	status ir.Status,
 	opts seedDAGRunStatusOptions,
-) exec.DAGRunRef {
+) dagrun.DAGRunRef {
 	t.Helper()
 
 	attempt, err := server.DAGRunStore.CreateAttempt(
@@ -2156,11 +2157,11 @@ func seedLatestDAGRunStatus(
 		dag,
 		time.Now().Add(-2*time.Minute),
 		dagRunID,
-		exec.NewDAGRunAttemptOptions{},
+		dagrun.NewDAGRunAttemptOptions{},
 	)
 	require.NoError(t, err)
 
-	ref := exec.NewDAGRunRef(dag.Name, dagRunID)
+	ref := dagrun.NewDAGRunRef(dag.Name, dagRunID)
 	statusOptions := []transform.StatusOption{
 		transform.WithAttemptID(attempt.ID()),
 		transform.WithHierarchyRefs(ref, opts.parentRef),
@@ -2189,7 +2190,7 @@ func seedLatestDAGRunStatus(
 	}
 	if len(dagRunStatus.Nodes) > 0 && status == ir.Failed {
 		dagRunStatus.Nodes[0].Status = ir.NodeFailed
-		dagRunStatus.Nodes[0].FinishedAt = exec.FormatTime(time.Now().Add(-time.Minute))
+		dagRunStatus.Nodes[0].FinishedAt = dagrun.FormatTime(time.Now().Add(-time.Minute))
 		dagRunStatus.Nodes[0].Error = opts.errorText
 	}
 	for stepName, nodeStatus := range opts.nodeStatuses {
@@ -2210,7 +2211,7 @@ func seedLatestDAGRunStatus(
 			if node.Step.Name != stepName {
 				continue
 			}
-			node.SubRuns = append([]exec.SubDAGRun(nil), subRuns...)
+			node.SubRuns = append([]dagrun.SubDAGRun(nil), subRuns...)
 			found = true
 			break
 		}
@@ -2260,7 +2261,7 @@ func TestUpdateDAGRunStepStatusRecomputesAggregateStatus(t *testing.T) {
 		dag.Name,
 		dagRunID,
 		5*time.Second,
-		func(status *exec.DAGRunStatus) bool {
+		func(status *dagrun.DAGRunStatus) bool {
 			return status.Status == ir.Failed &&
 				hasNodeWithStatus(status, "step1", ir.NodeFailed)
 		},
@@ -2285,7 +2286,7 @@ func TestDeleteDAGRun(t *testing.T) {
 	).ExpectStatus(http.StatusNoContent).Send(t)
 
 	_, err := server.DAGRunStore.FindAttempt(server.Context, ref)
-	require.ErrorIs(t, err, exec.ErrDAGRunIDNotFound)
+	require.ErrorIs(t, err, dagrun.ErrDAGRunIDNotFound)
 
 	server.Client().Get(
 		fmt.Sprintf("/api/v1/dag-runs/%s/%s", ref.Name, ref.ID),
@@ -2404,7 +2405,7 @@ func TestExecuteDAGSyncSingleton(t *testing.T) {
 	}).ExpectStatus(http.StatusConflict).Send(t)
 
 	require.NoError(t, os.WriteFile(releaseFile, []byte("ok"), 0600))
-	waitForDAGRunStatus(t, server, "sync_singleton_dag", startBody.DagRunId, 15*time.Second, func(status *exec.DAGRunStatus) bool {
+	waitForDAGRunStatus(t, server, "sync_singleton_dag", startBody.DagRunId, 15*time.Second, func(status *dagrun.DAGRunStatus) bool {
 		return status.Status == ir.Succeeded
 	})
 }

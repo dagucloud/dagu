@@ -6,7 +6,7 @@ package foreach
 import (
 	"testing"
 
-	coreexec "github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 )
@@ -23,7 +23,7 @@ func TestForeachStatusDetailsIdentifyItems(t *testing.T) {
 		{Index: 1, Key: "1", Status: ir.NodeSucceeded.String()},
 	}
 
-	assert.Equal(t, []coreexec.NodeStatusDetail{
+	assert.Equal(t, []dagrun.NodeStatusDetail{
 		{Label: "customer-a", Status: ir.NodeFailed},
 		{Label: `{"customer":"customer-b"}`, Status: ir.NodeSucceeded},
 	}, foreachStatusDetails(items, results, false))
@@ -35,7 +35,7 @@ func TestForeachStatusDetailsUseConfiguredKeys(t *testing.T) {
 	items := []expandedItem{{index: 0, key: "customer-a", value: map[string]any{"id": 42}}}
 	results := []itemResult{{Index: 0, Key: "customer-a", Status: ir.NodeFailed.String()}}
 
-	assert.Equal(t, []coreexec.NodeStatusDetail{
+	assert.Equal(t, []dagrun.NodeStatusDetail{
 		{Label: "customer-a", Status: ir.NodeFailed},
 	}, foreachStatusDetails(items, results, true))
 }

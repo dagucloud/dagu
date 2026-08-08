@@ -11,7 +11,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
@@ -57,10 +57,10 @@ func runRestart(ctx *Context, args []string) error {
 
 	name := args[0]
 
-	var attempt exec.DAGRunAttempt
+	var attempt dagrun.DAGRunAttempt
 	if dagRunID != "" {
 		// Retrieve the previous run for the specified dag-run ID.
-		dagRunRef := exec.NewDAGRunRef(name, dagRunID)
+		dagRunRef := dagrun.NewDAGRunRef(name, dagRunID)
 		attempt, err = ctx.DAGRunStore.FindAttempt(ctx, dagRunRef)
 		if err != nil {
 			return fmt.Errorf("failed to find the run for dag-run ID %s: %w", dagRunID, err)
@@ -117,22 +117,22 @@ func handleRestartProcess(ctx *Context, d *ir.DAG, oldDagRunID string, scheduleT
 		d,
 		newDagRunID,
 		runOptions{
-			root:         exec.NewDAGRunRef(d.Name, newDagRunID),
+			root:         dagrun.NewDAGRunRef(d.Name, newDagRunID),
 			triggerType:  ir.TriggerTypeUnknown,
 			scheduleTime: scheduleTime,
 			noReuse:      noReuse,
 		},
-		func(execCtx context.Context) (exec.DAGRunAttempt, error) {
-			return ctx.DAGRunStore.CreateAttempt(execCtx, d, time.Now(), newDagRunID, exec.NewDAGRunAttemptOptions{})
+		func(execCtx context.Context) (dagrun.DAGRunAttempt, error) {
+			return ctx.DAGRunStore.CreateAttempt(execCtx, d, time.Now(), newDagRunID, dagrun.NewDAGRunAttemptOptions{})
 		},
-		func(preparedAttempt exec.DAGRunAttempt) error {
+		func(preparedAttempt dagrun.DAGRunAttempt) error {
 			return executeDAGWithRunID(ctx, ctx.DAGRunMgr, d, newDagRunID, scheduleTime, noReuse, preparedAttempt)
 		},
 	)
 }
 
 // executeDAGWithRunID executes a DAG with a pre-generated run ID.
-func executeDAGWithRunID(ctx *Context, cli runtime.Manager, dag *ir.DAG, dagRunID string, scheduleTime string, noReuse bool, preparedAttempt exec.DAGRunAttempt) error {
+func executeDAGWithRunID(ctx *Context, cli runtime.Manager, dag *ir.DAG, dagRunID string, scheduleTime string, noReuse bool, preparedAttempt dagrun.DAGRunAttempt) error {
 	logFile, err := ctx.OpenLogFile(dag, dagRunID)
 	if err != nil {
 		return fmt.Errorf("failed to initialize log file: %w", err)
@@ -185,7 +185,7 @@ func executeDAGWithRunID(ctx *Context, cli runtime.Manager, dag *ir.DAG, dagRunI
 			ProfileStore:             as.ProfileStore,
 			ServiceRegistry:          ctx.ServiceRegistry,
 			SubWorkflowRunnerFactory: ctx.SubWorkflowRunnerFactory(),
-			RootDAGRun:               exec.NewDAGRunRef(dag.Name, dagRunID),
+			RootDAGRun:               dagrun.NewDAGRunRef(dag.Name, dagRunID),
 			PeerConfig:               ctx.Config.Core.Peer,
 			DefaultExecMode:          ctx.Config.DefaultExecMode,
 			ScheduleTime:             scheduleTime,

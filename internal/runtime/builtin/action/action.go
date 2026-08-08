@@ -13,8 +13,8 @@ import (
 	"strings"
 	"sync"
 
-	coreexec "github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
@@ -47,7 +47,7 @@ type Executor struct {
 	dag     *runtimeexec.SubDAGExecutor
 	outputs map[string]any
 
-	subRuns []coreexec.SubDAGRun
+	subRuns []dagrun.SubDAGRun
 }
 
 func newAction(_ context.Context, step ir.Step) (runtimeexec.Executor, error) {
@@ -202,7 +202,7 @@ func (e *Executor) runActionDAG(ctx context.Context, bundle *actionBundle, m *ma
 	}
 	run.Params = params
 	run.DAGName = dag.Name
-	e.setSubRuns([]coreexec.SubDAGRun{{
+	e.setSubRuns([]dagrun.SubDAGRun{{
 		DAGRunID: run.RunID,
 		Params:   params,
 		DAGName:  dag.Name,
@@ -220,7 +220,7 @@ func (e *Executor) runActionDAG(ctx context.Context, bundle *actionBundle, m *ma
 	return execErr
 }
 
-func actionOutputsFromRunStatus(result *coreexec.RunStatus) map[string]any {
+func actionOutputsFromRunStatus(result *dagrun.RunStatus) map[string]any {
 	if result == nil {
 		return nil
 	}
@@ -283,16 +283,16 @@ func (e *Executor) setSubDAGExecutor(child *runtimeexec.SubDAGExecutor) {
 	e.dag = child
 }
 
-func (e *Executor) GetSubRuns() []coreexec.SubDAGRun {
+func (e *Executor) GetSubRuns() []dagrun.SubDAGRun {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return append([]coreexec.SubDAGRun(nil), e.subRuns...)
+	return append([]dagrun.SubDAGRun(nil), e.subRuns...)
 }
 
-func (e *Executor) setSubRuns(subRuns []coreexec.SubDAGRun) {
+func (e *Executor) setSubRuns(subRuns []dagrun.SubDAGRun) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.subRuns = append([]coreexec.SubDAGRun(nil), subRuns...)
+	e.subRuns = append([]dagrun.SubDAGRun(nil), subRuns...)
 }
 
 func (e *Executor) setOutputs(outputs map[string]any) {

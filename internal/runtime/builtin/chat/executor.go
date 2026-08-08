@@ -17,7 +17,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	llmpkg "github.com/dagucloud/dagu/v2/internal/llm"
@@ -41,9 +41,9 @@ type Executor struct {
 	step              ir.Step
 	providerType      llmpkg.ProviderType
 	apiKeyEnvVar      string
-	messages          []exec.LLMMessage
-	contextMessages   []exec.LLMMessage
-	savedMessages     []exec.LLMMessage
+	messages          []dagrun.LLMMessage
+	contextMessages   []dagrun.LLMMessage
+	savedMessages     []dagrun.LLMMessage
 	pushBackInputs    map[string]string
 	pushBackIteration int
 
@@ -52,10 +52,10 @@ type Executor struct {
 	toolExecutor *ToolExecutor
 
 	// Collected sub-runs from tool executions for UI drill-down
-	collectedSubRuns []exec.SubDAGRun
+	collectedSubRuns []dagrun.SubDAGRun
 
 	// Tool definitions that were available to the LLM (for UI visibility)
-	savedToolDefinitions []exec.ToolDefinition
+	savedToolDefinitions []dagrun.ToolDefinition
 }
 
 // newChatExecutor creates a new chat executor from a step configuration.
@@ -96,11 +96,11 @@ func newChatExecutor(ctx context.Context, step ir.Step) (executor.Executor, erro
 
 	// Convert messages from ir.LLMMessage to execution.LLMMessage
 	// Messages are now at step level, not inside LLM config
-	messages := make([]exec.LLMMessage, 0, len(step.Messages)+1)
+	messages := make([]dagrun.LLMMessage, 0, len(step.Messages)+1)
 
 	// Add system message from config if specified
 	if cfg.System != "" {
-		messages = append(messages, exec.LLMMessage{
+		messages = append(messages, dagrun.LLMMessage{
 			Role:    ir.LLMRoleSystem,
 			Content: cfg.System,
 		})
@@ -108,7 +108,7 @@ func newChatExecutor(ctx context.Context, step ir.Step) (executor.Executor, erro
 
 	// Add step-level messages
 	for _, msg := range step.Messages {
-		messages = append(messages, exec.LLMMessage{
+		messages = append(messages, dagrun.LLMMessage{
 			Role:    msg.Role,
 			Content: msg.Content,
 		})
@@ -154,13 +154,13 @@ func (e *Executor) Kill(sig os.Signal) error {
 }
 
 // SetContext sets the session context from prior steps.
-func (e *Executor) SetContext(messages []exec.LLMMessage) {
+func (e *Executor) SetContext(messages []dagrun.LLMMessage) {
 	e.contextMessages = messages
 }
 
 // GetMessages returns the complete session messages after execution.
 // This includes inherited messages, step messages, and the assistant response.
-func (e *Executor) GetMessages() []exec.LLMMessage {
+func (e *Executor) GetMessages() []dagrun.LLMMessage {
 	return e.savedMessages
 }
 
@@ -171,24 +171,24 @@ func (e *Executor) SetPushBackContext(inputs map[string]string, iteration int) {
 
 // GetSubRuns returns the collected sub-DAG runs from tool executions.
 // This implements the SubRunProvider interface for UI drill-down functionality.
-func (e *Executor) GetSubRuns() []exec.SubDAGRun {
+func (e *Executor) GetSubRuns() []dagrun.SubDAGRun {
 	return e.collectedSubRuns
 }
 
 // GetToolDefinitions returns the tool definitions that were available to the LLM.
 // This implements the ToolDefinitionProvider interface for UI visibility.
-func (e *Executor) GetToolDefinitions() []exec.ToolDefinition {
+func (e *Executor) GetToolDefinitions() []dagrun.ToolDefinition {
 	return e.savedToolDefinitions
 }
 
 // buildMessageList orders messages so step's system message takes precedence over context.
-func buildMessageList(stepMsgs, contextMsgs []exec.LLMMessage) []exec.LLMMessage {
-	var result []exec.LLMMessage
-	var stepSystemMsg *exec.LLMMessage
-	var stepOtherMsgs []exec.LLMMessage
+func buildMessageList(stepMsgs, contextMsgs []dagrun.LLMMessage) []dagrun.LLMMessage {
+	var result []dagrun.LLMMessage
+	var stepSystemMsg *dagrun.LLMMessage
+	var stepOtherMsgs []dagrun.LLMMessage
 
 	for i := range stepMsgs {
-		if stepMsgs[i].Role == exec.RoleSystem {
+		if stepMsgs[i].Role == dagrun.RoleSystem {
 			stepSystemMsg = &stepMsgs[i]
 		} else {
 			stepOtherMsgs = append(stepOtherMsgs, stepMsgs[i])
@@ -201,10 +201,10 @@ func buildMessageList(stepMsgs, contextMsgs []exec.LLMMessage) []exec.LLMMessage
 	result = append(result, contextMsgs...)
 	result = append(result, stepOtherMsgs...)
 
-	return exec.DeduplicateSystemMessages(result)
+	return dagrun.DeduplicateSystemMessages(result)
 }
 
-func (e *Executor) executionMessages(ctx context.Context) ([]exec.LLMMessage, error) {
+func (e *Executor) executionMessages(ctx context.Context) ([]dagrun.LLMMessage, error) {
 	evaluatedMessages, err := evalMessages(ctx, e.messages)
 	if err != nil {
 		return nil, err
@@ -214,17 +214,17 @@ func (e *Executor) executionMessages(ctx context.Context) ([]exec.LLMMessage, er
 	}
 
 	pushBackMessages := systemMessages(evaluatedMessages)
-	pushBackMessages = append(pushBackMessages, exec.LLMMessage{
-		Role:    exec.RoleUser,
+	pushBackMessages = append(pushBackMessages, dagrun.LLMMessage{
+		Role:    dagrun.RoleUser,
 		Content: formatPushBackFeedback(e.pushBackInputs, e.pushBackIteration, e.step.Approval),
 	})
 	return buildMessageList(pushBackMessages, e.contextMessages), nil
 }
 
-func systemMessages(messages []exec.LLMMessage) []exec.LLMMessage {
-	var result []exec.LLMMessage
+func systemMessages(messages []dagrun.LLMMessage) []dagrun.LLMMessage {
+	var result []dagrun.LLMMessage
 	for _, msg := range messages {
-		if msg.Role == exec.RoleSystem {
+		if msg.Role == dagrun.RoleSystem {
 			result = append(result, msg)
 		}
 	}
@@ -265,7 +265,7 @@ func formatPushBackFeedback(inputs map[string]string, iteration int, approval *i
 }
 
 // toLLMMessages converts execution.LLMMessage to llmpkg.Message for provider calls.
-func toLLMMessages(msgs []exec.LLMMessage) []llmpkg.Message {
+func toLLMMessages(msgs []dagrun.LLMMessage) []llmpkg.Message {
 	result := make([]llmpkg.Message, len(msgs))
 	for i, msg := range msgs {
 		result[i] = llmpkg.Message{
@@ -327,14 +327,14 @@ func toWebSearchRequest(cfg *ir.WebSearchConfig) *llmpkg.WebSearchRequest {
 }
 
 // evalMessages evaluates variable substitution in message content.
-func evalMessages(ctx context.Context, msgs []exec.LLMMessage) ([]exec.LLMMessage, error) {
-	result := make([]exec.LLMMessage, len(msgs))
+func evalMessages(ctx context.Context, msgs []dagrun.LLMMessage) ([]dagrun.LLMMessage, error) {
+	result := make([]dagrun.LLMMessage, len(msgs))
 	for i, msg := range msgs {
 		content, err := runtime.ResolveString(ctx, msg.Content, cmnvalue.WorkflowField("messages.content"))
 		if err != nil {
 			return nil, fmt.Errorf("failed to evaluate message content: %w", err)
 		}
-		result[i] = exec.LLMMessage{
+		result[i] = dagrun.LLMMessage{
 			Role:       msg.Role,
 			Content:    content,
 			ToolCallID: msg.ToolCallID,
@@ -347,7 +347,7 @@ func evalMessages(ctx context.Context, msgs []exec.LLMMessage) ([]exec.LLMMessag
 
 // maskSecretsForProvider masks secret values in messages before sending to LLM provider.
 // This prevents secrets from being leaked to external LLM APIs.
-func maskSecretsForProvider(ctx context.Context, msgs []exec.LLMMessage) []exec.LLMMessage {
+func maskSecretsForProvider(ctx context.Context, msgs []dagrun.LLMMessage) []dagrun.LLMMessage {
 	return runtime.MaskSecretsForProvider(ctx, msgs)
 }
 
@@ -402,7 +402,7 @@ func (e *Executor) Run(ctx context.Context) error {
 }
 
 // runWithModel executes a chat request with a specific model.
-func (e *Executor) runWithModel(ctx context.Context, model ir.ModelEntry, allMessages []exec.LLMMessage) error {
+func (e *Executor) runWithModel(ctx context.Context, model ir.ModelEntry, allMessages []dagrun.LLMMessage) error {
 	// Build effective config for this model
 	effectiveCfg := e.buildEffectiveConfig(model)
 
@@ -437,7 +437,7 @@ func (e *Executor) createProviderForModel(ctx context.Context, _ ir.ModelEntry, 
 }
 
 // runSimpleForModel executes a chat request without tool calling, using the given config.
-func (e *Executor) runSimpleForModel(ctx context.Context, provider llmpkg.Provider, allMessages []exec.LLMMessage, cfg *ir.LLMConfig) error {
+func (e *Executor) runSimpleForModel(ctx context.Context, provider llmpkg.Provider, allMessages []dagrun.LLMMessage, cfg *ir.LLMConfig) error {
 	maskedForProvider := maskSecretsForProvider(ctx, allMessages)
 
 	req := &llmpkg.ChatRequest{
@@ -473,7 +473,7 @@ func (e *Executor) runSimpleForModel(ctx context.Context, provider llmpkg.Provid
 	}
 
 	// Build metadata for the assistant response
-	metadata := &exec.LLMMessageMetadata{
+	metadata := &dagrun.LLMMessageMetadata{
 		Provider: cfg.Provider,
 		Model:    cfg.Model,
 	}
@@ -484,8 +484,8 @@ func (e *Executor) runSimpleForModel(ctx context.Context, provider llmpkg.Provid
 	}
 
 	// Save full session (inherited + step messages + response)
-	e.savedMessages = append(allMessages, exec.LLMMessage{
-		Role:     exec.RoleAssistant,
+	e.savedMessages = append(allMessages, dagrun.LLMMessage{
+		Role:     dagrun.RoleAssistant,
 		Content:  responseContent,
 		Metadata: metadata,
 	})
@@ -499,7 +499,7 @@ func (e *Executor) runSimpleForModel(ctx context.Context, provider llmpkg.Provid
 // 2. If LLM requests tool calls, execute them
 // 3. Add tool results to session
 // 4. Repeat until LLM provides final response (no more tool calls) or max iterations
-func (e *Executor) runWithToolsForModel(ctx context.Context, provider llmpkg.Provider, allMessages []exec.LLMMessage, cfg *ir.LLMConfig) error {
+func (e *Executor) runWithToolsForModel(ctx context.Context, provider llmpkg.Provider, allMessages []dagrun.LLMMessage, cfg *ir.LLMConfig) error {
 	maxIterations := cfg.GetMaxToolIterations()
 	workDir := runtime.GetEnv(ctx).WorkingDir
 
@@ -510,9 +510,9 @@ func (e *Executor) runWithToolsForModel(ctx context.Context, provider llmpkg.Pro
 	tools := e.toolRegistry.ToLLMTools()
 
 	// Store tool definitions for UI visibility
-	e.savedToolDefinitions = make([]exec.ToolDefinition, len(tools))
+	e.savedToolDefinitions = make([]dagrun.ToolDefinition, len(tools))
 	for i, t := range tools {
-		e.savedToolDefinitions[i] = exec.ToolDefinition{
+		e.savedToolDefinitions[i] = dagrun.ToolDefinition{
 			Name:        t.Function.Name,
 			Description: t.Function.Description,
 			Parameters:  t.Function.Parameters,
@@ -525,7 +525,7 @@ func (e *Executor) runWithToolsForModel(ctx context.Context, provider llmpkg.Pro
 	)
 
 	// Working copy of messages for the tool loop
-	sessionMessages := make([]exec.LLMMessage, len(allMessages))
+	sessionMessages := make([]dagrun.LLMMessage, len(allMessages))
 	copy(sessionMessages, allMessages)
 
 	for iteration := range maxIterations {
@@ -552,9 +552,9 @@ func (e *Executor) executeToolStep(
 	provider llmpkg.Provider,
 	cfg *ir.LLMConfig,
 	tools []llmpkg.Tool,
-	msgs []exec.LLMMessage,
+	msgs []dagrun.LLMMessage,
 	iteration int,
-) ([]exec.LLMMessage, bool, error) {
+) ([]dagrun.LLMMessage, bool, error) {
 	logger.Debug(ctx, "Tool loop iteration",
 		slog.Int("iteration", iteration+1),
 		slog.Int("message_count", len(msgs)),
@@ -585,8 +585,8 @@ func (e *Executor) executeToolStep(
 	if len(resp.ToolCalls) == 0 {
 		e.handleFinalResponse(ctx, msgs, resp, cfg, iteration)
 		// Return updated messages including the final response
-		finalMsgs := append(msgs, exec.LLMMessage{
-			Role:     exec.RoleAssistant,
+		finalMsgs := append(msgs, dagrun.LLMMessage{
+			Role:     dagrun.RoleAssistant,
 			Content:  resp.Content,
 			Metadata: e.createResponseMetadata(cfg, &resp.Usage),
 		})
@@ -676,7 +676,7 @@ func waitForStreamRetry(ctx context.Context, cfg llmpkg.LogicalRetryConfig, fail
 // handleFinalResponse processes and logs the final response from the LLM.
 func (e *Executor) handleFinalResponse(
 	ctx context.Context,
-	msgs []exec.LLMMessage,
+	msgs []dagrun.LLMMessage,
 	resp *llmpkg.ChatResponse,
 	cfg *ir.LLMConfig,
 	iteration int,
@@ -695,29 +695,29 @@ func (e *Executor) handleFinalResponse(
 // processToolCalls handles the execution of tool calls requested by the LLM.
 func (e *Executor) processToolCalls(
 	ctx context.Context,
-	msgs []exec.LLMMessage,
+	msgs []dagrun.LLMMessage,
 	resp *llmpkg.ChatResponse,
 	iteration int,
-) ([]exec.LLMMessage, bool, error) {
+) ([]dagrun.LLMMessage, bool, error) {
 	logger.Info(ctx, "LLM requested tool calls",
 		slog.Int("tool_call_count", len(resp.ToolCalls)),
 	)
 
 	// Add assistant message with tool calls
-	execToolCalls := make([]exec.ToolCall, len(resp.ToolCalls))
+	execToolCalls := make([]dagrun.ToolCall, len(resp.ToolCalls))
 	for i, tc := range resp.ToolCalls {
-		execToolCalls[i] = exec.ToolCall{
+		execToolCalls[i] = dagrun.ToolCall{
 			ID:   tc.ID,
 			Type: tc.Type,
-			Function: exec.ToolCallFunction{
+			Function: dagrun.ToolCallFunction{
 				Name:      tc.Function.Name,
 				Arguments: tc.Function.Arguments,
 			},
 		}
 	}
 
-	assistantMsg := exec.LLMMessage{
-		Role:      exec.RoleAssistant,
+	assistantMsg := dagrun.LLMMessage{
+		Role:      dagrun.RoleAssistant,
 		Content:   resp.Content,
 		ToolCalls: execToolCalls,
 	}
@@ -729,8 +729,8 @@ func (e *Executor) processToolCalls(
 	// Append results
 	for _, tcr := range toolCallResults {
 		result := tcr.Result
-		toolMsg := exec.LLMMessage{
-			Role:       exec.RoleTool,
+		toolMsg := dagrun.LLMMessage{
+			Role:       dagrun.RoleTool,
 			Content:    result.Content,
 			ToolCallID: result.ToolCallID,
 		}
@@ -761,7 +761,7 @@ func (e *Executor) processToolCalls(
 func (e *Executor) handleMaxIterationsReached(
 	ctx context.Context,
 	maxIterations int,
-	msgs []exec.LLMMessage,
+	msgs []dagrun.LLMMessage,
 ) error {
 	logger.Warn(ctx, "Max tool iterations reached",
 		slog.Int("max_iterations", maxIterations),
@@ -771,7 +771,7 @@ func (e *Executor) handleMaxIterationsReached(
 
 	// Try to find the last assistant message
 	for i := len(msgs) - 1; i >= 0; i-- {
-		if msgs[i].Role == exec.RoleAssistant {
+		if msgs[i].Role == dagrun.RoleAssistant {
 			lastContent = msgs[i].Content
 			break
 		}
@@ -786,8 +786,8 @@ func (e *Executor) handleMaxIterationsReached(
 }
 
 // createResponseMetadata builds metadata for the assistant response.
-func (e *Executor) createResponseMetadata(cfg *ir.LLMConfig, usage *llmpkg.Usage) *exec.LLMMessageMetadata {
-	metadata := &exec.LLMMessageMetadata{
+func (e *Executor) createResponseMetadata(cfg *ir.LLMConfig, usage *llmpkg.Usage) *dagrun.LLMMessageMetadata {
+	metadata := &dagrun.LLMMessageMetadata{
 		Provider: cfg.Provider,
 		Model:    cfg.Model,
 	}

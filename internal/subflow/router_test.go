@@ -7,7 +7,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -21,7 +21,7 @@ func TestRouterPrefersFirstMatchingRunner(t *testing.T) {
 
 	distributed := &stubRunner{
 		shouldRun: true,
-		result: &exec.RunStatus{
+		result: &dagrun.RunStatus{
 			Name:     "child",
 			DAGRunID: "child-run",
 			Status:   ir.Succeeded,
@@ -29,7 +29,7 @@ func TestRouterPrefersFirstMatchingRunner(t *testing.T) {
 	}
 	local := &stubRunner{
 		shouldRun: true,
-		result: &exec.RunStatus{
+		result: &dagrun.RunStatus{
 			Name:     "child",
 			DAGRunID: "child-run",
 			Status:   ir.Failed,
@@ -52,7 +52,7 @@ func TestRouterFallsBackToLocalRunner(t *testing.T) {
 	distributed := &stubRunner{shouldRun: false}
 	local := &stubRunner{
 		shouldRun: true,
-		result: &exec.RunStatus{
+		result: &dagrun.RunStatus{
 			Name:     "child",
 			DAGRunID: "child-run",
 			Status:   ir.Succeeded,
@@ -155,15 +155,15 @@ func validSubWorkflowRequest() executor.SubWorkflowRequest {
 			Name:     "child",
 			Location: "/tmp/child.yaml",
 		},
-		RootDAGRun:   exec.NewDAGRunRef("root", "root-run"),
-		ParentDAGRun: exec.NewDAGRunRef("parent", "parent-run"),
+		RootDAGRun:   dagrun.NewDAGRunRef("root", "root-run"),
+		ParentDAGRun: dagrun.NewDAGRunRef("parent", "parent-run"),
 		RunID:        "child-run",
 	}
 }
 
 type stubRunner struct {
 	shouldRun   bool
-	result      *exec.RunStatus
+	result      *dagrun.RunStatus
 	runCount    int
 	cancelCount int
 }
@@ -172,12 +172,12 @@ func (r *stubRunner) ShouldRun(context.Context, executor.SubWorkflowRequest) boo
 	return r.shouldRun
 }
 
-func (r *stubRunner) Run(context.Context, executor.SubWorkflowRequest) (*exec.RunStatus, error) {
+func (r *stubRunner) Run(context.Context, executor.SubWorkflowRequest) (*dagrun.RunStatus, error) {
 	r.runCount++
 	return r.result, nil
 }
 
-func (r *stubRunner) Retry(context.Context, executor.SubWorkflowRetryRequest) (*exec.RunStatus, error) {
+func (r *stubRunner) Retry(context.Context, executor.SubWorkflowRetryRequest) (*dagrun.RunStatus, error) {
 	return r.result, nil
 }
 
@@ -205,17 +205,17 @@ func (r *blockingRunner) ShouldRun(context.Context, executor.SubWorkflowRequest)
 	return r.shouldRun
 }
 
-func (r *blockingRunner) Run(context.Context, executor.SubWorkflowRequest) (*exec.RunStatus, error) {
+func (r *blockingRunner) Run(context.Context, executor.SubWorkflowRequest) (*dagrun.RunStatus, error) {
 	close(r.started)
 	<-r.release
-	return &exec.RunStatus{
+	return &dagrun.RunStatus{
 		Name:     "child",
 		DAGRunID: "child-run",
 		Status:   ir.Succeeded,
 	}, nil
 }
 
-func (r *blockingRunner) Retry(context.Context, executor.SubWorkflowRetryRequest) (*exec.RunStatus, error) {
+func (r *blockingRunner) Retry(context.Context, executor.SubWorkflowRetryRequest) (*dagrun.RunStatus, error) {
 	return nil, nil
 }
 

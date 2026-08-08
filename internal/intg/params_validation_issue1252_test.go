@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
-	exec1 "github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/google/uuid"
@@ -56,8 +56,8 @@ steps:
 		})
 		require.Error(t, err)
 
-		_, lookupErr := th.DAGRunStore.FindAttempt(th.Context, exec1.NewDAGRunRef("issue1252-enum", runID))
-		require.ErrorIs(t, lookupErr, exec1.ErrDAGRunIDNotFound)
+		_, lookupErr := th.DAGRunStore.FindAttempt(th.Context, dagrun.NewDAGRunRef("issue1252-enum", runID))
+		require.ErrorIs(t, lookupErr, dagrun.ErrDAGRunIDNotFound)
 	})
 
 	t.Run("default value used when param not explicitly provided", func(t *testing.T) {

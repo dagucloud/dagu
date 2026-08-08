@@ -19,6 +19,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	exec1 "github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
@@ -41,7 +42,7 @@ type parallelExecutor struct {
 	maxConcurrent int
 
 	// Runtime state
-	results  map[string]*exec1.RunStatus         // Maps DAG run ID to result
+	results  map[string]*dagrun.RunStatus        // Maps DAG run ID to result
 	errors   []error                             // Collects errors from failed executions
 	children map[string]*executor.SubDAGExecutor // Active child executors keyed by attempt
 
@@ -56,12 +57,12 @@ type scheduledAttempt struct {
 	stepName  string
 	readyAt   time.Time
 	reuse     bool
-	retryPath exec1.RetryPath
+	retryPath dagrun.RetryPath
 }
 
 type attemptResult struct {
 	attempt scheduledAttempt
-	result  *exec1.RunStatus
+	result  *dagrun.RunStatus
 	err     error
 }
 
@@ -89,7 +90,7 @@ func newParallelExecutor(
 		step:          step,
 		workDir:       dir,
 		maxConcurrent: maxConcurrent,
-		results:       make(map[string]*exec1.RunStatus),
+		results:       make(map[string]*dagrun.RunStatus),
 		errors:        make([]error, 0),
 		children:      make(map[string]*executor.SubDAGExecutor),
 		cancel:        make(chan struct{}),
@@ -307,7 +308,7 @@ func (e *parallelExecutor) SetParamsList(paramsList []executor.RunParams) {
 	e.runParamsList = paramsList
 }
 
-func (e *parallelExecutor) GetStatusDetails() []exec1.NodeStatusDetail {
+func (e *parallelExecutor) GetStatusDetails() []dagrun.NodeStatusDetail {
 	e.lock.Lock()
 	defer e.lock.Unlock()
 
@@ -319,7 +320,7 @@ func (e *parallelExecutor) GetStatusDetails() []exec1.NodeStatusDetail {
 		}
 	}
 
-	details := make([]exec1.NodeStatusDetail, 0, len(e.runParamsList))
+	details := make([]dagrun.NodeStatusDetail, 0, len(e.runParamsList))
 	for _, params := range e.runParamsList {
 		result := e.results[params.RunID]
 		status := ir.NodeFailed
@@ -328,7 +329,7 @@ func (e *parallelExecutor) GetStatusDetails() []exec1.NodeStatusDetail {
 		} else if result != nil {
 			status = parallelNodeStatus(result.Status)
 		}
-		details = append(details, exec1.NodeStatusDetail{
+		details = append(details, dagrun.NodeStatusDetail{
 			Label:  parallelRunLabel(params, result, nameCounts[parallelRunName(params, result)] > 1),
 			Status: status,
 		})
@@ -359,7 +360,7 @@ func parallelNodeStatus(status ir.Status) ir.NodeStatus {
 	}
 }
 
-func parallelRunName(params executor.RunParams, result *exec1.RunStatus) string {
+func parallelRunName(params executor.RunParams, result *dagrun.RunStatus) string {
 	name := params.DAGName
 	if result != nil && result.Name != "" {
 		name = result.Name
@@ -367,7 +368,7 @@ func parallelRunName(params executor.RunParams, result *exec1.RunStatus) string 
 	return name
 }
 
-func parallelRunLabel(params executor.RunParams, result *exec1.RunStatus, duplicateName bool) string {
+func parallelRunLabel(params executor.RunParams, result *dagrun.RunStatus, duplicateName bool) string {
 	name := parallelRunName(params, result)
 	values := params.Params
 	if result != nil && result.Params != "" {
@@ -451,7 +452,7 @@ func (e *parallelExecutor) DetermineNodeStatus() (ir.NodeStatus, error) {
 	return ir.NodeSucceeded, nil
 }
 
-func (e *parallelExecutor) runAttempt(ctx context.Context, attempt *scheduledAttempt) (*exec1.RunStatus, error) {
+func (e *parallelExecutor) runAttempt(ctx context.Context, attempt *scheduledAttempt) (*dagrun.RunStatus, error) {
 	if e.cancelled() {
 		return nil, errParallelCancelled
 	}
@@ -564,12 +565,12 @@ func (e *parallelExecutor) outputResults() error {
 			Succeeded int `json:"succeeded"`
 			Failed    int `json:"failed"`
 		} `json:"summary"`
-		Results []exec1.RunStatus   `json:"results"`
+		Results []dagrun.RunStatus  `json:"results"`
 		Outputs []map[string]string `json:"outputs"`
 	}{}
 
 	output.Summary.Total = len(e.runParamsList)
-	output.Results = make([]exec1.RunStatus, 0, len(e.results))
+	output.Results = make([]dagrun.RunStatus, 0, len(e.results))
 	output.Outputs = make([]map[string]string, 0, len(e.results))
 
 	// Collect results in order of runParamsList for consistency

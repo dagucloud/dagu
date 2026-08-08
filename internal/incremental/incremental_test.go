@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/incremental"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/materialization"
@@ -38,8 +39,8 @@ func TestPrepareCommitAndReuse(t *testing.T) {
 	first, err := incremental.Prepare(ctx, store, request)
 	require.NoError(t, err)
 	require.NoError(t, first.Evaluate(ctx))
-	assert.Equal(t, exec.IncrementalDecisionExecute, first.Metadata().Decision)
-	assert.Equal(t, exec.IncrementalReasonManifestMissing, first.Metadata().Reason)
+	assert.Equal(t, dagrun.IncrementalDecisionExecute, first.Metadata().Decision)
+	assert.Equal(t, dagrun.IncrementalReasonManifestMissing, first.Metadata().Reason)
 
 	outputs, staging, err := first.NewAttempt(0)
 	require.NoError(t, err)
@@ -58,8 +59,8 @@ func TestPrepareCommitAndReuse(t *testing.T) {
 	require.NoError(t, second.Evaluate(ctx))
 
 	assert.True(t, second.Reused())
-	assert.Equal(t, exec.IncrementalReasonMatched, second.Metadata().Reason)
-	assert.Equal(t, exec.NewDAGRunRef("incremental-test", "run-1"), second.Metadata().ProducerRun)
+	assert.Equal(t, dagrun.IncrementalReasonMatched, second.Metadata().Reason)
+	assert.Equal(t, dagrun.NewDAGRunRef("incremental-test", "run-1"), second.Metadata().ProducerRun)
 	assert.Equal(t, outputPath, second.PublishedOutputs()["artifact"])
 	content, err := os.ReadFile(outputPath)
 	require.NoError(t, err)
@@ -153,7 +154,7 @@ func TestPrepareReevaluatesAfterWaitingForOutputLock(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, result.session.Close("")) })
 	require.NoError(t, result.session.Evaluate(ctx))
 	assert.True(t, result.session.Reused())
-	assert.Equal(t, exec.IncrementalReasonMatched, result.session.Metadata().Reason)
+	assert.Equal(t, dagrun.IncrementalReasonMatched, result.session.Metadata().Reason)
 }
 
 func TestPrepareExplainsWhyExecutionIsRequired(t *testing.T) {
@@ -182,8 +183,8 @@ func TestPrepareExplainsWhyExecutionIsRequired(t *testing.T) {
 		require.NoError(t, err)
 		t.Cleanup(func() { require.NoError(t, session.Close("")) })
 		require.NoError(t, session.Evaluate(ctx))
-		assert.Equal(t, exec.IncrementalDecisionExecute, session.Metadata().Decision)
-		assert.Equal(t, exec.IncrementalReasonInputChanged, session.Metadata().Reason)
+		assert.Equal(t, dagrun.IncrementalDecisionExecute, session.Metadata().Decision)
+		assert.Equal(t, dagrun.IncrementalReasonInputChanged, session.Metadata().Reason)
 	})
 
 	require.NoError(t, os.WriteFile(inputPath, []byte("input"), 0o600))
@@ -194,7 +195,7 @@ func TestPrepareExplainsWhyExecutionIsRequired(t *testing.T) {
 		require.NoError(t, err)
 		t.Cleanup(func() { require.NoError(t, session.Close("")) })
 		require.NoError(t, session.Evaluate(ctx))
-		assert.Equal(t, exec.IncrementalReasonRecipeChanged, session.Metadata().Reason)
+		assert.Equal(t, dagrun.IncrementalReasonRecipeChanged, session.Metadata().Reason)
 	})
 
 	t.Run("step environment changed", func(t *testing.T) {
@@ -204,7 +205,7 @@ func TestPrepareExplainsWhyExecutionIsRequired(t *testing.T) {
 		require.NoError(t, err)
 		t.Cleanup(func() { require.NoError(t, session.Close("")) })
 		require.NoError(t, session.Evaluate(ctx))
-		assert.Equal(t, exec.IncrementalReasonRecipeChanged, session.Metadata().Reason)
+		assert.Equal(t, dagrun.IncrementalReasonRecipeChanged, session.Metadata().Reason)
 	})
 
 	t.Run("effective shell changed", func(t *testing.T) {
@@ -214,7 +215,7 @@ func TestPrepareExplainsWhyExecutionIsRequired(t *testing.T) {
 		require.NoError(t, err)
 		t.Cleanup(func() { require.NoError(t, session.Close("")) })
 		require.NoError(t, session.Evaluate(ctx))
-		assert.Equal(t, exec.IncrementalReasonRecipeChanged, session.Metadata().Reason)
+		assert.Equal(t, dagrun.IncrementalReasonRecipeChanged, session.Metadata().Reason)
 	})
 
 	t.Run("reuse disabled", func(t *testing.T) {
@@ -224,7 +225,7 @@ func TestPrepareExplainsWhyExecutionIsRequired(t *testing.T) {
 		require.NoError(t, err)
 		t.Cleanup(func() { require.NoError(t, session.Close("")) })
 		require.NoError(t, session.Evaluate(ctx))
-		assert.Equal(t, exec.IncrementalReasonReuseDisabled, session.Metadata().Reason)
+		assert.Equal(t, dagrun.IncrementalReasonReuseDisabled, session.Metadata().Reason)
 	})
 
 	t.Run("secret consuming step", func(t *testing.T) {
@@ -234,8 +235,8 @@ func TestPrepareExplainsWhyExecutionIsRequired(t *testing.T) {
 		require.NoError(t, err)
 		t.Cleanup(func() { require.NoError(t, session.Close("")) })
 		require.NoError(t, session.Evaluate(ctx))
-		assert.Equal(t, exec.IncrementalDecisionAlways, session.Metadata().Decision)
-		assert.Equal(t, exec.IncrementalReasonIneligible, session.Metadata().Reason)
+		assert.Equal(t, dagrun.IncrementalDecisionAlways, session.Metadata().Decision)
+		assert.Equal(t, dagrun.IncrementalReasonIneligible, session.Metadata().Reason)
 		assert.Empty(t, session.Metadata().Fingerprint)
 	})
 }
@@ -267,7 +268,7 @@ func TestIneligibleCommitPreservesReusableManifest(t *testing.T) {
 	ineligible, err := incremental.Prepare(ctx, store, ineligibleRequest)
 	require.NoError(t, err)
 	require.NoError(t, ineligible.Evaluate(ctx))
-	require.Equal(t, exec.IncrementalDecisionAlways, ineligible.Metadata().Decision)
+	require.Equal(t, dagrun.IncrementalDecisionAlways, ineligible.Metadata().Decision)
 	_, staging, err = ineligible.NewAttempt(0)
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(staging, []byte("second"), 0o600))
@@ -280,8 +281,8 @@ func TestIneligibleCommitPreservesReusableManifest(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, third.Close("")) })
 	require.NoError(t, third.Evaluate(ctx))
-	require.Equal(t, exec.IncrementalDecisionExecute, third.Metadata().Decision)
-	require.Equal(t, exec.IncrementalReasonOutputChanged, third.Metadata().Reason)
+	require.Equal(t, dagrun.IncrementalDecisionExecute, third.Metadata().Decision)
+	require.Equal(t, dagrun.IncrementalReasonOutputChanged, third.Metadata().Reason)
 }
 
 func TestPrepareDryRunDoesNotAcquirePathLocks(t *testing.T) {
@@ -298,8 +299,8 @@ func TestPrepareDryRunDoesNotAcquirePathLocks(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, session.Evaluate(context.Background()))
 	assert.False(t, store.acquireCalled)
-	assert.Equal(t, exec.IncrementalDecisionExecute, session.Metadata().Decision)
-	assert.Equal(t, exec.IncrementalReasonManifestMissing, session.Metadata().Reason)
+	assert.Equal(t, dagrun.IncrementalDecisionExecute, session.Metadata().Decision)
+	assert.Equal(t, dagrun.IncrementalReasonManifestMissing, session.Metadata().Reason)
 }
 
 func TestCommitRejectsUnavailableStore(t *testing.T) {

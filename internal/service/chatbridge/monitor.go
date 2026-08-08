@@ -14,7 +14,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/service/eventstore"
 )
 
@@ -202,7 +202,7 @@ func (m *NotificationMonitor) Run(ctx context.Context) {
 }
 
 // NotifyCompletion queues a status update for every destination that has not yet acknowledged it.
-func (m *NotificationMonitor) NotifyCompletion(status *exec.DAGRunStatus) bool {
+func (m *NotificationMonitor) NotifyCompletion(status *dagrun.DAGRunStatus) bool {
 	if status == nil {
 		return false
 	}
@@ -230,7 +230,7 @@ func (m *NotificationMonitor) NotifyCompletion(status *exec.DAGRunStatus) bool {
 }
 
 // IsDelivered reports whether a destination has already acknowledged a status.
-func (m *NotificationMonitor) IsDelivered(destination string, status *exec.DAGRunStatus) bool {
+func (m *NotificationMonitor) IsDelivered(destination string, status *dagrun.DAGRunStatus) bool {
 	if destination == "" || status == nil {
 		return false
 	}

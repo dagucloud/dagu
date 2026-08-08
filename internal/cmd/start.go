@@ -20,6 +20,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
@@ -160,7 +161,7 @@ func runStart(ctx *Context, args []string) error {
 			return fmt.Errorf("failed to resolve DAG name: %w", err)
 		}
 
-		attempt, err := ctx.DAGRunStore.FindAttempt(ctx, exec.NewDAGRunRef(dagName, fromRunID))
+		attempt, err := ctx.DAGRunStore.FindAttempt(ctx, dagrun.NewDAGRunRef(dagName, fromRunID))
 		if err != nil {
 			return fmt.Errorf("failed to find historic dag-run %s for DAG %s: %w", fromRunID, dagName, err)
 		}
@@ -241,7 +242,7 @@ func runStart(ctx *Context, args []string) error {
 	ctx.Context = logger.WithValues(ctx.Context, tag.DAG(dag.Name), tag.RunID(dagRunID))
 
 	if isSubDAGRun {
-		parent, err := exec.ParseDAGRunRef(parentRef)
+		parent, err := dagrun.ParseDAGRunRef(parentRef)
 		if err != nil {
 			return fmt.Errorf("failed to parse parent dag-run reference: %w", err)
 		}
@@ -287,7 +288,7 @@ func tryExecuteDAG(ctx *Context, dag *ir.DAG, dagRunID string, opts runOptions) 
 		dag,
 		dagRunID,
 		opts,
-		func(execCtx context.Context) (exec.DAGRunAttempt, error) {
+		func(execCtx context.Context) (dagrun.DAGRunAttempt, error) {
 			if opts.workerID != "local" {
 				attempt, _, err := resolveWorkerPreparedAttempt(execCtx, ctx.DAGRunStore, dag.Name, dagRunID, opts.root, opts.attemptID)
 				if err != nil {
@@ -295,9 +296,9 @@ func tryExecuteDAG(ctx *Context, dag *ir.DAG, dagRunID string, opts runOptions) 
 				}
 				return attempt, nil
 			}
-			return ctx.DAGRunStore.CreateAttempt(execCtx, dag, time.Now(), dagRunID, exec.NewDAGRunAttemptOptions{})
+			return ctx.DAGRunStore.CreateAttempt(execCtx, dag, time.Now(), dagRunID, dagrun.NewDAGRunAttemptOptions{})
 		},
-		func(preparedAttempt exec.DAGRunAttempt) error {
+		func(preparedAttempt dagrun.DAGRunAttempt) error {
 			run := opts
 			run.preparedAttempt = preparedAttempt
 			return executeDAGRun(ctx, dag, dagRunID, run)
@@ -414,15 +415,15 @@ func parseAndAppendLabels(ctx *Context, dag *ir.DAG) error {
 }
 
 // determineRootDAGRun creates or parses the root execution reference.
-func determineRootDAGRun(isSubDAGRun bool, rootDAGRun string, dag *ir.DAG, dagRunID string) (exec.DAGRunRef, error) {
+func determineRootDAGRun(isSubDAGRun bool, rootDAGRun string, dag *ir.DAG, dagRunID string) (dagrun.DAGRunRef, error) {
 	if isSubDAGRun {
-		ref, err := exec.ParseDAGRunRef(rootDAGRun)
+		ref, err := dagrun.ParseDAGRunRef(rootDAGRun)
 		if err != nil {
-			return exec.DAGRunRef{}, fmt.Errorf("failed to parse root exec ref: %w", err)
+			return dagrun.DAGRunRef{}, fmt.Errorf("failed to parse root exec ref: %w", err)
 		}
 		return ref, nil
 	}
-	return exec.NewDAGRunRef(dag.Name, dagRunID), nil
+	return dagrun.NewDAGRunRef(dag.Name, dagRunID), nil
 }
 
 // handleSubDAGRun processes a sub dag-run, checking for previous runs.
@@ -448,14 +449,14 @@ func handleSubDAGRun(ctx *Context, dag *ir.DAG, dagRunID string, params string, 
 			dag,
 			dagRunID,
 			opts,
-			func(execCtx context.Context) (exec.DAGRunAttempt, error) {
+			func(execCtx context.Context) (dagrun.DAGRunAttempt, error) {
 				attempt, _, err := resolveWorkerPreparedAttempt(execCtx, ctx.DAGRunStore, dag.Name, dagRunID, opts.root, opts.attemptID)
 				if err != nil {
 					return nil, err
 				}
 				return attempt, nil
 			},
-			func(preparedAttempt exec.DAGRunAttempt) error {
+			func(preparedAttempt dagrun.DAGRunAttempt) error {
 				run := opts
 				run.preparedAttempt = preparedAttempt
 				return executeDAGRun(ctx, dag, dagRunID, run)
@@ -466,18 +467,18 @@ func handleSubDAGRun(ctx *Context, dag *ir.DAG, dagRunID string, params string, 
 	logger.Debug(ctx, "Checking for previous sub dag-run with the dag-run ID")
 
 	subAttempt, err := ctx.DAGRunStore.FindSubAttempt(ctx, opts.root, dagRunID)
-	if errors.Is(err, exec.ErrDAGRunIDNotFound) {
+	if errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
 		return withPreparedLocalExecution(
 			ctx,
 			dag,
 			dagRunID,
 			opts,
-			func(execCtx context.Context) (exec.DAGRunAttempt, error) {
-				return ctx.DAGRunStore.CreateAttempt(execCtx, dag, time.Now(), dagRunID, exec.NewDAGRunAttemptOptions{
+			func(execCtx context.Context) (dagrun.DAGRunAttempt, error) {
+				return ctx.DAGRunStore.CreateAttempt(execCtx, dag, time.Now(), dagRunID, dagrun.NewDAGRunAttemptOptions{
 					RootDAGRun: &opts.root,
 				})
 			},
-			func(preparedAttempt exec.DAGRunAttempt) error {
+			func(preparedAttempt dagrun.DAGRunAttempt) error {
 				run := opts
 				run.preparedAttempt = preparedAttempt
 				return executeDAGRun(ctx, dag, dagRunID, run)
@@ -504,17 +505,17 @@ func handleSubDAGRun(ctx *Context, dag *ir.DAG, dagRunID string, params string, 
 		dag,
 		dagRunID,
 		retry,
-		func(execCtx context.Context) (exec.DAGRunAttempt, error) {
+		func(execCtx context.Context) (dagrun.DAGRunAttempt, error) {
 			if status.Status == ir.Queued {
 				subAttempt.SetDAG(dag)
 				return subAttempt, nil
 			}
-			return ctx.DAGRunStore.CreateAttempt(execCtx, dag, time.Now(), dagRunID, exec.NewDAGRunAttemptOptions{
+			return ctx.DAGRunStore.CreateAttempt(execCtx, dag, time.Now(), dagRunID, dagrun.NewDAGRunAttemptOptions{
 				Retry:      true,
 				RootDAGRun: &opts.root,
 			})
 		},
-		func(preparedAttempt exec.DAGRunAttempt) error {
+		func(preparedAttempt dagrun.DAGRunAttempt) error {
 			prepared := retry
 			prepared.preparedAttempt = preparedAttempt
 			return executeRetry(ctx, dag, status, prepared)

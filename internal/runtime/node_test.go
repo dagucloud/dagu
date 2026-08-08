@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
@@ -1988,10 +1989,10 @@ func TestNodeChatMessages(t *testing.T) {
 		assert.Empty(t, node.GetChatMessages())
 
 		// Set messages
-		messages := []exec.LLMMessage{
-			{Role: exec.RoleSystem, Content: "be helpful"},
-			{Role: exec.RoleUser, Content: "hello"},
-			{Role: exec.RoleAssistant, Content: "hi there"},
+		messages := []dagrun.LLMMessage{
+			{Role: dagrun.RoleSystem, Content: "be helpful"},
+			{Role: dagrun.RoleUser, Content: "hello"},
+			{Role: dagrun.RoleAssistant, Content: "hi there"},
 		}
 		node.SetChatMessages(messages)
 
@@ -2006,7 +2007,7 @@ func TestNodeChatMessages(t *testing.T) {
 		node := runtime.NewNode(step, runtime.NodeState{})
 
 		// Set empty messages
-		node.SetChatMessages([]exec.LLMMessage{})
+		node.SetChatMessages([]dagrun.LLMMessage{})
 		assert.Empty(t, node.GetChatMessages())
 	})
 
@@ -2031,8 +2032,8 @@ func TestNodeChatMessages(t *testing.T) {
 		done := make(chan bool)
 		for i := range 10 {
 			go func(id int) {
-				messages := []exec.LLMMessage{
-					{Role: exec.RoleUser, Content: fmt.Sprintf("message %d", id)},
+				messages := []dagrun.LLMMessage{
+					{Role: dagrun.RoleUser, Content: fmt.Sprintf("message %d", id)},
 				}
 				node.SetChatMessages(messages)
 				_ = node.GetChatMessages()

@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/stretchr/testify/require"
@@ -67,8 +67,8 @@ steps:
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		statuses, err := f.coord.DAGRunStore.ListStatuses(
 			ctx,
-			exec.WithExactName(f.dagWrapper.Name),
-			exec.WithAllHistory(),
+			dagrun.WithExactName(f.dagWrapper.Name),
+			dagrun.WithAllHistory(),
 		)
 		cancel()
 		require.NoError(t, err)

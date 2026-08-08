@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/require"
 )
@@ -82,7 +82,7 @@ outputs:
 	return actionDir
 }
 
-func requireNodeByID(t *testing.T, status exec.DAGRunStatus, id string) *exec.Node {
+func requireNodeByID(t *testing.T, status dagrun.DAGRunStatus, id string) *dagrun.Node {
 	t.Helper()
 	for _, node := range status.Nodes {
 		if node == nil {
@@ -152,7 +152,7 @@ steps:
 	subRunID := parentStatus.Nodes[0].SubRuns[0].DAGRunID
 	subAttempt, err := f.coord.DAGRunStore.FindSubAttempt(
 		f.coord.Context,
-		exec.NewDAGRunRef(parentStatus.Name, parentStatus.DAGRunID),
+		dagrun.NewDAGRunRef(parentStatus.Name, parentStatus.DAGRunID),
 		subRunID,
 	)
 	require.NoError(t, err)
@@ -192,7 +192,7 @@ steps:
 		subRunID := parentStatus.Nodes[0].SubRuns[0].DAGRunID
 		subAttempt, err := f.coord.DAGRunStore.FindSubAttempt(
 			f.coord.Context,
-			exec.NewDAGRunRef(parentStatus.Name, parentStatus.DAGRunID),
+			dagrun.NewDAGRunRef(parentStatus.Name, parentStatus.DAGRunID),
 			subRunID,
 		)
 		require.NoError(t, err)

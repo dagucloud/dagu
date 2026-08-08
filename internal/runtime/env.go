@@ -19,6 +19,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/mailer"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
@@ -526,8 +527,8 @@ func defaultShell(ctx context.Context) []string {
 }
 
 // DAGRunRef returns the DAGRunRef for the current execution context.
-func (e Env) DAGRunRef() exec.DAGRunRef {
-	return exec.NewDAGRunRef(e.DAG.Name, e.DAGRunID)
+func (e Env) DAGRunRef() dagrun.DAGRunRef {
+	return dagrun.NewDAGRunRef(e.DAG.Name, e.DAGRunID)
 }
 
 // MailerConfig returns the SMTP mailer configuration with variables evaluated.

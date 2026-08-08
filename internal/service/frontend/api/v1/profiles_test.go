@@ -14,7 +14,7 @@ import (
 	apigen "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	persiststore "github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
@@ -478,7 +478,7 @@ steps:
 	server.Client().Post(fmt.Sprintf("/api/v1/dags/%s/start", dagName), apigen.ExecuteDAGJSONRequestBody{
 		DagRunId: &defaultRunID,
 	}).WithBearerToken(operatorToken).ExpectStatus(http.StatusOK).Send(t)
-	defaultStatus := waitForStoredDAGRunStatus(t, server, dagName, defaultRunID, 10*time.Second, func(status *exec.DAGRunStatus) bool {
+	defaultStatus := waitForStoredDAGRunStatus(t, server, dagName, defaultRunID, 10*time.Second, func(status *dagrun.DAGRunStatus) bool {
 		return status.ProfileName == "prod"
 	})
 	assert.Equal(t, "prod", defaultStatus.ProfileName)
@@ -489,7 +489,7 @@ steps:
 		DagRunId: &noProfileRunID,
 		Profile:  &noProfile,
 	}).WithBearerToken(operatorToken).ExpectStatus(http.StatusOK).Send(t)
-	noProfileStatus := waitForStoredDAGRunStatus(t, server, dagName, noProfileRunID, 10*time.Second, func(status *exec.DAGRunStatus) bool {
+	noProfileStatus := waitForStoredDAGRunStatus(t, server, dagName, noProfileRunID, 10*time.Second, func(status *dagrun.DAGRunStatus) bool {
 		return status.DAGRunID == noProfileRunID
 	})
 	assert.Empty(t, noProfileStatus.ProfileName)
@@ -545,7 +545,7 @@ steps:
 		DagRunId: &runID,
 	}).WithBearerToken(operatorToken).ExpectStatus(http.StatusOK).Send(t)
 
-	status := waitForStoredDAGRunStatus(t, server, dagName, runID, 10*time.Second, func(status *exec.DAGRunStatus) bool {
+	status := waitForStoredDAGRunStatus(t, server, dagName, runID, 10*time.Second, func(status *dagrun.DAGRunStatus) bool {
 		return status.ProfileName == "local"
 	})
 	assert.Equal(t, "local", status.ProfileName)
@@ -654,7 +654,7 @@ steps:
 		apigen.RetryDAGRunJSONRequestBody{DagRunId: "protected-profile-source-run"},
 	).WithBearerToken(operatorToken).ExpectStatus(http.StatusOK).Send(t)
 
-	attempt, err := server.DAGRunStore.FindAttempt(server.Context, exec.NewDAGRunRef(dagName, "protected-profile-source-run"))
+	attempt, err := server.DAGRunStore.FindAttempt(server.Context, dagrun.NewDAGRunRef(dagName, "protected-profile-source-run"))
 	require.NoError(t, err)
 
 	status, err := attempt.ReadStatus(server.Context)

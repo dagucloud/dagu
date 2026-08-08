@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -20,7 +21,7 @@ func TestPrepareLocalExecutionAcquiresProcWithPreparedAttempt(t *testing.T) {
 	attempt := &queueAttempt{id: "attempt-1"}
 	procStore := &localProcStore{handle: &localProcHandle{}}
 	dag := newLocalDAG()
-	root := exec.NewDAGRunRef("root-dag", "root-run")
+	root := dagrun.NewDAGRunRef("root-dag", "root-run")
 
 	prepared, err := PrepareLocalExecution(context.Background(), LocalRequest{
 		ProcStore:   procStore,
@@ -28,7 +29,7 @@ func TestPrepareLocalExecutionAcquiresProcWithPreparedAttempt(t *testing.T) {
 		DAGRunID:    "run-1",
 		Root:        root,
 		TriggerType: ir.TriggerTypeManual,
-		BuildAttempt: func(context.Context) (exec.DAGRunAttempt, error) {
+		BuildAttempt: func(context.Context) (dagrun.DAGRunAttempt, error) {
 			return attempt, nil
 		},
 	})
@@ -61,7 +62,7 @@ func TestPrepareLocalExecutionRecordsFailedStatusWhenProcAcquireFails(t *testing
 		DAG:         dag,
 		DAGRunID:    "run-1",
 		TriggerType: ir.TriggerTypeManual,
-		BuildAttempt: func(context.Context) (exec.DAGRunAttempt, error) {
+		BuildAttempt: func(context.Context) (dagrun.DAGRunAttempt, error) {
 			return attempt, nil
 		},
 	})
@@ -92,7 +93,7 @@ func TestPrepareLocalExecutionReturnsFailureRecordingErrorWhenRecordFails(t *tes
 		DAG:         dag,
 		DAGRunID:    "run-1",
 		TriggerType: ir.TriggerTypeManual,
-		BuildAttempt: func(context.Context) (exec.DAGRunAttempt, error) {
+		BuildAttempt: func(context.Context) (dagrun.DAGRunAttempt, error) {
 			return attempt, nil
 		},
 	})

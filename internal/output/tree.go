@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
@@ -91,7 +91,7 @@ func NewRenderer(config Config) *Renderer {
 }
 
 // RenderDAGStatus renders the complete DAG status as a tree structure.
-func (r *Renderer) RenderDAGStatus(dag *ir.DAG, status *exec.DAGRunStatus) string {
+func (r *Renderer) RenderDAGStatus(dag *ir.DAG, status *dagrun.DAGRunStatus) string {
 	var buf strings.Builder
 
 	buf.WriteString(r.renderHeader(status))
@@ -119,7 +119,7 @@ func (r *Renderer) RenderDAGStatus(dag *ir.DAG, status *exec.DAGRunStatus) strin
 }
 
 // renderHeader renders the status header line with status text and timestamp.
-func (r *Renderer) renderHeader(status *exec.DAGRunStatus) string {
+func (r *Renderer) renderHeader(status *dagrun.DAGRunStatus) string {
 	startTime := status.StartedAt
 	if startTime == "" || startTime == "-" {
 		startTime = time.Now().Format("2006-01-02 15:04:05")
@@ -128,7 +128,7 @@ func (r *Renderer) renderHeader(status *exec.DAGRunStatus) string {
 }
 
 // renderDAGLine renders the DAG name with total duration.
-func (r *Renderer) renderDAGLine(dag *ir.DAG, status *exec.DAGRunStatus) string {
+func (r *Renderer) renderDAGLine(dag *ir.DAG, status *dagrun.DAGRunStatus) string {
 	duration := r.calculateDuration(status.StartedAt, status.FinishedAt, status.Status)
 	if duration != "" {
 		return fmt.Sprintf("dag: %s %s", dag.Name, r.gray("("+duration+")"))
@@ -137,7 +137,7 @@ func (r *Renderer) renderDAGLine(dag *ir.DAG, status *exec.DAGRunStatus) string 
 }
 
 // renderStep renders a single step with its commands and output content.
-func (r *Renderer) renderStep(node *exec.Node, isLast bool, prefix string) string {
+func (r *Renderer) renderStep(node *dagrun.Node, isLast bool, prefix string) string {
 	var buf strings.Builder
 
 	buf.WriteString(r.renderStepHeader(node, isLast, prefix))
@@ -165,7 +165,7 @@ func (r *Renderer) renderStep(node *exec.Node, isLast bool, prefix string) strin
 }
 
 // renderStepHeader renders the step name line with duration and status.
-func (r *Renderer) renderStepHeader(node *exec.Node, isLast bool, prefix string) string {
+func (r *Renderer) renderStepHeader(node *dagrun.Node, isLast bool, prefix string) string {
 	lineParts := []string{r.text(node.Step.Name)}
 
 	if shouldShowDuration(node.Status) {
@@ -182,7 +182,7 @@ func (r *Renderer) renderStepHeader(node *exec.Node, isLast bool, prefix string)
 }
 
 // renderStepContent renders commands, outputs, sub-runs, and errors for a step.
-func (r *Renderer) renderStepContent(node *exec.Node, isLast bool, prefix string) string {
+func (r *Renderer) renderStepContent(node *dagrun.Node, isLast bool, prefix string) string {
 	var buf strings.Builder
 	cPrefix := childPrefix(prefix, isLast)
 
@@ -227,7 +227,7 @@ func (r *Renderer) renderStepContent(node *exec.Node, isLast bool, prefix string
 	return buf.String()
 }
 
-func (r *Renderer) renderIncremental(value *exec.IncrementalExecution, isLast bool, prefix string) string {
+func (r *Renderer) renderIncremental(value *dagrun.IncrementalExecution, isLast bool, prefix string) string {
 	line := fmt.Sprintf("incremental: %s (%s)", value.Decision, value.Reason)
 	if value.Detail != "" {
 		line += " - " + value.Detail
@@ -239,7 +239,7 @@ func (r *Renderer) renderIncremental(value *exec.IncrementalExecution, isLast bo
 }
 
 // renderCommands renders step commands and returns true if any were written.
-func (r *Renderer) renderCommands(buf *strings.Builder, node *exec.Node, cPrefix string, hasFollowingContent bool) bool {
+func (r *Renderer) renderCommands(buf *strings.Builder, node *dagrun.Node, cPrefix string, hasFollowingContent bool) bool {
 	if len(node.Step.Commands) > 0 {
 		for i, cmd := range node.Step.Commands {
 			isLastCmd := i == len(node.Step.Commands)-1 && !hasFollowingContent
@@ -257,7 +257,7 @@ func (r *Renderer) renderCommands(buf *strings.Builder, node *exec.Node, cPrefix
 	return false
 }
 
-func (r *Renderer) renderHumanTask(node *exec.Node, isLastSection bool, prefix string) string {
+func (r *Renderer) renderHumanTask(node *dagrun.Node, isLastSection bool, prefix string) string {
 	details := []string{
 		"step id: " + node.Step.ID,
 		"prompt: " + node.Step.HumanTask.Prompt,
@@ -312,7 +312,7 @@ func (r *Renderer) getStatusLabel(status ir.NodeStatus) string {
 }
 
 // hasOutput checks if the node has any stdout or stderr content.
-func (r *Renderer) hasOutput(node *exec.Node) bool {
+func (r *Renderer) hasOutput(node *dagrun.Node) bool {
 	if !r.config.ShowStdout && !r.config.ShowStderr {
 		return false
 	}
@@ -411,7 +411,7 @@ func wrapText(text string, maxWidth int) []string {
 }
 
 // getLegacyCommand extracts command string from legacy step format.
-func (r *Renderer) getLegacyCommand(node *exec.Node) string {
+func (r *Renderer) getLegacyCommand(node *dagrun.Node) string {
 	if node.Step.CmdWithArgs != "" {
 		return node.Step.CmdWithArgs
 	}
@@ -426,7 +426,7 @@ func (r *Renderer) getLegacyCommand(node *exec.Node) string {
 }
 
 // renderOutputs renders stdout and stderr for a node.
-func (r *Renderer) renderOutputs(node *exec.Node, isLast bool, prefix string) string {
+func (r *Renderer) renderOutputs(node *dagrun.Node, isLast bool, prefix string) string {
 	var buf strings.Builder
 
 	hasStdoutContent := r.config.ShowStdout && r.hasLogContent(node.Stdout)
@@ -493,7 +493,7 @@ func (r *Renderer) writeContentLine(buf *strings.Builder, line string, contPrefi
 }
 
 // renderSubRuns renders references to sub-DAG runs.
-func (r *Renderer) renderSubRuns(subRuns []exec.SubDAGRun, isLastSection bool, prefix string) string {
+func (r *Renderer) renderSubRuns(subRuns []dagrun.SubDAGRun, isLastSection bool, prefix string) string {
 	var buf strings.Builder
 
 	for i, sub := range subRuns {
@@ -541,7 +541,7 @@ func cleanErrorMessage(errMsg string) string {
 }
 
 // renderFinalStatus renders the final result line at the bottom of the tree.
-func (r *Renderer) renderFinalStatus(status *exec.DAGRunStatus) string {
+func (r *Renderer) renderFinalStatus(status *dagrun.DAGRunStatus) string {
 	label := "Result"
 	if status.Status == ir.Running {
 		label = "Status"
@@ -581,7 +581,7 @@ func (r *Renderer) calculateDuration(startedAt, finishedAt string, status ir.Sta
 }
 
 // calculateNodeDuration calculates duration for a specific node.
-func (r *Renderer) calculateNodeDuration(node *exec.Node) string {
+func (r *Renderer) calculateNodeDuration(node *dagrun.Node) string {
 	nodeStatus := nodeStatusToStatus(node.Status)
 	return r.calculateDuration(node.StartedAt, node.FinishedAt, nodeStatus)
 }

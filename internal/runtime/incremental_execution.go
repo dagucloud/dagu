@@ -11,6 +11,7 @@ import (
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/incremental"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
@@ -39,7 +40,7 @@ func (r *Runner) startIncrementalSession(ctx context.Context, plan *Plan, node *
 		dependency := plan.GetNode(dependencyID)
 		state := dependency.State()
 		if plan.IsInferredDependency(dependencyID, node.ID()) {
-			if r.dry && (state.Incremental == nil || state.Incremental.Decision != exec.IncrementalDecisionReuse) {
+			if r.dry && (state.Incremental == nil || state.Incremental.Decision != dagrun.IncrementalDecisionReuse) {
 				deferred = true
 			}
 			continue
@@ -47,7 +48,7 @@ func (r *Runner) startIncrementalSession(ctx context.Context, plan *Plan, node *
 		if state.Incremental != nil && state.Incremental.Fingerprint != "" {
 			controlTokens[dependency.Name()] = state.Incremental.Fingerprint
 		}
-		if state.Incremental != nil && state.Incremental.Decision == exec.IncrementalDecisionReuse {
+		if state.Incremental != nil && state.Incremental.Decision == dagrun.IncrementalDecisionReuse {
 			continue
 		}
 		controlDependencyRan = true
@@ -86,7 +87,7 @@ func (r *Runner) startIncrementalSession(ctx context.Context, plan *Plan, node *
 func markIncrementalPrecondition(
 	session *incremental.Session,
 	node *Node,
-	reason exec.IncrementalReason,
+	reason dagrun.IncrementalReason,
 	detail string,
 	progressCh chan *Node,
 ) {
@@ -94,8 +95,8 @@ func markIncrementalPrecondition(
 		return
 	}
 	metadata := session.Metadata()
-	metadata.Decision = exec.IncrementalDecisionNone
-	metadata.Phase = exec.IncrementalPhasePrecondition
+	metadata.Decision = dagrun.IncrementalDecisionNone
+	metadata.Phase = dagrun.IncrementalPhasePrecondition
 	metadata.Reason = reason
 	metadata.Detail = detail
 	node.setIncremental(metadata)
@@ -114,7 +115,7 @@ func (r *Runner) evaluateIncrementalNode(
 		return false
 	}
 	var err error
-	if session.Metadata().Decision != exec.IncrementalDecisionAlways {
+	if session.Metadata().Decision != dagrun.IncrementalDecisionAlways {
 		var resolvedStep ir.Step
 		var environment map[string]string
 		resolvedStep, environment, err = resolveIncrementalRecipe(ctx, node.Step())
