@@ -107,6 +107,19 @@ describe('DocLiveProvider', () => {
     expect(sseCalls.every((c) => !c.enabled)).toBe(true);
   });
 
+  it('scopes the default doc scope to the default workspace, never all', () => {
+    sseCalls.length = 0;
+    render(
+      <DocLiveProvider workspace={null}>
+        <Probe dagRef="daily-etl" />
+      </DocLiveProvider>
+    );
+
+    for (const call of sseCalls) {
+      expect(call.params).toMatchObject({ workspace: 'default' });
+    }
+  });
+
   it('renders a no-provider marker outside the provider', () => {
     render(<Probe dagRef="daily-etl" />);
     expect(screen.getByText('no-provider')).toBeInTheDocument();

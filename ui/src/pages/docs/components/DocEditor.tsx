@@ -316,7 +316,9 @@ function DocEditor({
         return;
       }
       const isImage = file.type.startsWith('image/');
-      const markdown = `${isImage ? '!' : ''}[${data.name}](attachment:${data.name})`;
+      // Names may contain spaces; the destination must be percent-encoded to
+      // stay a valid Markdown link. The preview decodes it on resolution.
+      const markdown = `${isImage ? '!' : ''}[${data.name}](attachment:${encodeURIComponent(data.name)})`;
       const editor = editorInstanceRef.current;
       const selection = editor?.getSelection();
       if (editor && selection) {

@@ -56,7 +56,10 @@ export function DocLiveProvider({ workspace, children }: Props) {
     () => ({
       remoteNode,
       perPage: DAG_LIST_PER_PAGE,
-      ...(workspace ? { workspace } : {}),
+      // An omitted workspace means "all" to the server; a doc in the default
+      // scope must resolve refs against the default workspace only, or
+      // same-named DAGs from other workspaces could be shown and executed.
+      workspace: workspace ?? 'default',
     }),
     [remoteNode, workspace]
   );

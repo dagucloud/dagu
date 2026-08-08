@@ -146,6 +146,30 @@ describe('DocMarkdownPreview wikilinks', () => {
     expect(screen.queryByRole('link')).not.toBeInTheDocument();
   });
 
+  it('renders non-image attachment links as downloadable anchors', () => {
+    renderWithRouter(
+      <DocMarkdownPreview
+        content="[report](attachment:monthly%20report.pdf)"
+        linkContext={linkContext}
+      />
+    );
+
+    const link = screen.getByRole('link', { name: 'report' });
+    expect(link).toHaveAttribute('title', 'Download monthly report.pdf');
+  });
+
+  it('survives malformed percent-encoding in attachment references', () => {
+    const { container } = renderWithRouter(
+      <DocMarkdownPreview
+        content={'![bad](attachment:bad%ZZ.png)\n\n[bad](attachment:bad%ZZ.pdf)'}
+        linkContext={linkContext}
+      />
+    );
+
+    // Must render without throwing; the raw value is kept as the name.
+    expect(container).toBeTruthy();
+  });
+
   it('degrades doc-path embeds to plain wiki links', () => {
     renderWithRouter(
       <DocMarkdownPreview
