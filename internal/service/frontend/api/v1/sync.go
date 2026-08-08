@@ -269,8 +269,8 @@ func (a *API) GetSyncItemDiff(ctx context.Context, req api.GetSyncItemDiffReques
 	}
 	if diff.Binary {
 		resp.Binary = ptrOf(true)
-		resp.LocalSize = ptrOf(diff.LocalSize)
-		resp.RemoteSize = ptrOf(diff.RemoteSize)
+		resp.LocalSize = diff.LocalSize
+		resp.RemoteSize = diff.RemoteSize
 		return resp, nil
 	}
 	resp.LocalContent = ptrOf(diff.LocalContent)

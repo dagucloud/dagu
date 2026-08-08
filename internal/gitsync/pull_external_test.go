@@ -259,8 +259,10 @@ func TestPullSyncsDocAttachments(t *testing.T) {
 	assert.True(t, diff.Binary)
 	assert.Empty(t, diff.LocalContent)
 	assert.Empty(t, diff.RemoteContent)
-	assert.Equal(t, int64(len("changed-bytes")), diff.LocalSize)
-	assert.Equal(t, int64(len(pngBytes)), diff.RemoteSize)
+	require.NotNil(t, diff.LocalSize)
+	require.NotNil(t, diff.RemoteSize)
+	assert.Equal(t, int64(len("changed-bytes")), *diff.LocalSize)
+	assert.Equal(t, int64(len(pngBytes)), *diff.RemoteSize)
 }
 
 func initPullExternalTestRepo(t *testing.T, repoPath string) *git.Repository {

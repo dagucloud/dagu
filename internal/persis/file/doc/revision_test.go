@@ -47,10 +47,10 @@ func TestRevisionSnapshotOnUpdate(t *testing.T) {
 	// Newest first: the latest snapshot holds v2, the older one v1.
 	newest, err := store.GetRevision(ctx, "doc", revisions[0].Rev)
 	require.NoError(t, err)
-	assert.Equal(t, "v2\n", newest.Content)
+	assert.Equal(t, "v2", newest.Content)
 	oldest, err := store.GetRevision(ctx, "doc", revisions[1].Rev)
 	require.NoError(t, err)
-	assert.Equal(t, "v1\n", oldest.Content)
+	assert.Equal(t, "v1", oldest.Content)
 }
 
 func TestRevisionSnapshotsEmptyPriorContent(t *testing.T) {

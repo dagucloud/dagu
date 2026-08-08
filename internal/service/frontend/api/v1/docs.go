@@ -339,7 +339,7 @@ func (a *API) UploadDocAttachment(ctx context.Context, request api.UploadDocAtta
 	}
 	if len(data) > maxDocAttachmentSize {
 		return nil, &Error{
-			Code:       api.ErrorCodeBadRequest,
+			Code:       api.ErrorCodePayloadTooLarge,
 			Message:    fmt.Sprintf("attachment too large (max %d bytes)", maxDocAttachmentSize),
 			HTTPStatus: http.StatusRequestEntityTooLarge,
 		}

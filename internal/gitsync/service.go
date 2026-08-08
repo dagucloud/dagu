@@ -143,8 +143,8 @@ type SyncItemDiff struct {
 	Binary        bool       `json:"binary,omitempty"`
 	LocalContent  string     `json:"localContent"`
 	RemoteContent string     `json:"remoteContent,omitempty"`
-	LocalSize     int64      `json:"localSize,omitempty"`
-	RemoteSize    int64      `json:"remoteSize,omitempty"`
+	LocalSize     *int64     `json:"localSize,omitempty"`
+	RemoteSize    *int64     `json:"remoteSize,omitempty"`
 	RemoteCommit  string     `json:"remoteCommit,omitempty"`
 	RemoteAuthor  string     `json:"remoteAuthor,omitempty"`
 	RemoteMessage string     `json:"remoteMessage,omitempty"`
@@ -1686,7 +1686,8 @@ func (s *serviceImpl) GetSyncItemDiff(_ context.Context, itemID string) (*SyncIt
 		diff.Binary = true
 		if localPath, err := s.safeDAGIDToFilePath(itemID, ""); err == nil {
 			if info, err := os.Stat(localPath); err == nil {
-				diff.LocalSize = info.Size()
+				size := info.Size()
+				diff.LocalSize = &size
 			}
 		}
 		remoteCommit := itemState.BaseCommit
@@ -1696,11 +1697,18 @@ func (s *serviceImpl) GetSyncItemDiff(_ context.Context, itemID string) (*SyncIt
 			diff.RemoteMessage = itemState.RemoteMessage
 		}
 		if remoteCommit != "" {
-			if repoPath, err := s.safeDAGIDToRepoPath(itemID, ""); err == nil {
-				if size, err := s.gitClient.GetFileSizeAtCommit(repoPath, remoteCommit); err == nil {
-					diff.RemoteSize = size
-				}
+			if err := s.gitClient.Open(); err != nil {
+				return nil, fmt.Errorf("failed to open repository for binary diff: %w", err)
 			}
+			repoPath, err := s.safeDAGIDToRepoPath(itemID, "")
+			if err != nil {
+				return nil, err
+			}
+			size, err := s.gitClient.GetFileSizeAtCommit(repoPath, remoteCommit)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read remote binary metadata: %w", err)
+			}
+			diff.RemoteSize = &size
 			diff.RemoteCommit = remoteCommit
 		}
 		return diff, nil

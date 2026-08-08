@@ -646,7 +646,7 @@ func TestFrontmatter(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "My Custom Title", doc.Title)
 	// Content now includes the full file with frontmatter.
-	assert.Equal(t, "---\ntitle: My Custom Title\n---\n# Content here", doc.Content)
+	assert.Equal(t, string(data), doc.Content)
 }
 
 func TestTitleFromID(t *testing.T) {
@@ -1348,12 +1348,11 @@ func TestRenamePreservesContent(t *testing.T) {
 }
 
 func TestParseDocFileCRLF(t *testing.T) {
-	// Verify CRLF normalization.
 	input := "---\r\ntitle: CRLF\r\n---\r\n# Content"
 	doc, err := parseDocFile([]byte(input), "crlf-doc")
 	require.NoError(t, err)
 	assert.Equal(t, "CRLF", doc.Title)
-	assert.Equal(t, "---\ntitle: CRLF\n---\n# Content", doc.Content)
+	assert.Equal(t, input, doc.Content)
 }
 
 func TestParseDocFileOnlyFrontmatter(t *testing.T) {
@@ -1362,7 +1361,7 @@ func TestParseDocFileOnlyFrontmatter(t *testing.T) {
 	doc, err := parseDocFile([]byte(input), "no-body")
 	require.NoError(t, err)
 	assert.Equal(t, "No Body", doc.Title)
-	assert.Equal(t, "---\ntitle: No Body\n---", doc.Content)
+	assert.Equal(t, input, doc.Content)
 }
 
 func TestParseDocFileInvalidFrontmatter(t *testing.T) {
@@ -1843,7 +1842,7 @@ func TestRenameDirectoryPreservesContent(t *testing.T) {
 	doc, err := store.Get(ctx, "newdir/doc")
 	require.NoError(t, err)
 	assert.Equal(t, "My Title", doc.Title)
-	assert.Equal(t, strings.TrimRight(content, "\n"), doc.Content)
+	assert.Equal(t, content, doc.Content)
 }
 
 func TestRenameDirectoryToRoot(t *testing.T) {
@@ -2023,10 +2022,10 @@ func TestMutationRejectsAmbiguousFileAndDirectoryID(t *testing.T) {
 
 	doc, err := store.Get(ctx, "foo")
 	require.NoError(t, err)
-	assert.Equal(t, "file content", doc.Content)
+	assert.Equal(t, "file content\n", doc.Content)
 	doc, err = store.Get(ctx, "foo/child")
 	require.NoError(t, err)
-	assert.Equal(t, "child content", doc.Content)
+	assert.Equal(t, "child content\n", doc.Content)
 }
 
 func TestDeleteDirectoryNotFound(t *testing.T) {

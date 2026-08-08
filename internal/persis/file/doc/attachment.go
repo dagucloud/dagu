@@ -43,6 +43,10 @@ func (s *Store) PutAttachment(_ context.Context, id, name string, content io.Rea
 	if err := docs.ValidateAttachmentName(name); err != nil {
 		return nil, err
 	}
+	data, err := io.ReadAll(content)
+	if err != nil {
+		return nil, fmt.Errorf("filedoc: failed to read attachment content: %w", err)
+	}
 
 	s.mutationMu.Lock()
 	defer s.mutationMu.Unlock()
@@ -61,10 +65,6 @@ func (s *Store) PutAttachment(_ context.Context, id, name string, content io.Rea
 	filePath, err := s.attachmentFilePath(id, name)
 	if err != nil {
 		return nil, err
-	}
-	data, err := io.ReadAll(content)
-	if err != nil {
-		return nil, fmt.Errorf("filedoc: failed to read attachment content: %w", err)
 	}
 	if err := os.MkdirAll(filepath.Dir(filePath), docDirPermissions); err != nil {
 		return nil, fmt.Errorf("filedoc: failed to create attachments directory: %w", err)

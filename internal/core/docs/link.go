@@ -21,9 +21,6 @@ type WikiLink struct {
 // and [[target#anchor|label]], with an optional leading ! marking an embed.
 var wikiLinkRegexp = regexp.MustCompile(`(!?)\[\[([^\[\]|#]+)(#[^\[\]|]*)?(\|[^\[\]]*)?\]\]`)
 
-// inlineCodeRegexp matches inline code spans so links inside them are ignored.
-var inlineCodeRegexp = regexp.MustCompile("`[^`]*`")
-
 // fenceRegexp matches a code fence opening or closing line.
 var fenceRegexp = regexp.MustCompile("^\\s*(```|~~~)")
 
@@ -34,7 +31,9 @@ var fenceRegexp = regexp.MustCompile("^\\s*(```|~~~)")
 func ExtractWikiLinks(content string) []WikiLink {
 	var links []WikiLink
 	inFence := false
-	for line := range strings.SplitSeq(content, "\n") {
+	inlineCodeDelimiter := 0
+	lines := strings.Split(content, "\n")
+	for lineIndex, line := range lines {
 		if fenceRegexp.MatchString(line) {
 			inFence = !inFence
 			continue
@@ -42,7 +41,7 @@ func ExtractWikiLinks(content string) []WikiLink {
 		if inFence {
 			continue
 		}
-		line = inlineCodeRegexp.ReplaceAllString(line, "")
+		line = stripInlineCode(line, lines[lineIndex+1:], &inlineCodeDelimiter)
 		for _, m := range wikiLinkRegexp.FindAllStringSubmatch(line, -1) {
 			if m[1] == "!" {
 				continue
@@ -59,4 +58,64 @@ func ExtractWikiLinks(content string) []WikiLink {
 		}
 	}
 	return links
+}
+
+func stripInlineCode(line string, followingLines []string, delimiter *int) string {
+	var visible strings.Builder
+	for i := 0; i < len(line); {
+		if line[i] != '`' {
+			if *delimiter == 0 {
+				visible.WriteByte(line[i])
+			}
+			i++
+			continue
+		}
+		start := i
+		for i < len(line) && line[i] == '`' {
+			i++
+		}
+		run := i - start
+		if *delimiter == 0 {
+			if hasInlineCodeCloser(line[i:], followingLines, run) {
+				*delimiter = run
+			} else {
+				visible.WriteString(line[start:i])
+			}
+		} else if run == *delimiter {
+			*delimiter = 0
+		}
+	}
+	return visible.String()
+}
+
+func hasInlineCodeCloser(line string, followingLines []string, delimiter int) bool {
+	if hasBacktickRun(line, delimiter) {
+		return true
+	}
+	for _, line := range followingLines {
+		if fenceRegexp.MatchString(line) {
+			return false
+		}
+		if hasBacktickRun(line, delimiter) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasBacktickRun(line string, delimiter int) bool {
+	for i := 0; i < len(line); {
+		if line[i] != '`' {
+			i++
+			continue
+		}
+		start := i
+		for i < len(line) && line[i] == '`' {
+			i++
+		}
+		if i-start == delimiter {
+			return true
+		}
+	}
+	return false
 }
