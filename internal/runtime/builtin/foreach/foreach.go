@@ -16,7 +16,7 @@ import (
 	"strings"
 	"sync"
 
-	runenv "github.com/dagucloud/dagu/v2/internal/runctx/env"
+	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"

@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	runenv "github.com/dagucloud/dagu/v2/internal/runctx/env"
+	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 
 	"github.com/dagucloud/dagu/v2/internal/build"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"

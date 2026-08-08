@@ -14,7 +14,7 @@ import (
 	"strconv"
 	"strings"
 
-	runenv "github.com/dagucloud/dagu/v2/internal/runctx/env"
+	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/buildenv"
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"

@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
@@ -257,26 +258,24 @@ var (
 	secretRefPathPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*(/[a-z0-9][a-z0-9-]*)*$`)
 )
 
-// Keep in sync with internal/runctx/env runtime env keys. This package cannot
-// import core/exec because core/exec imports spec for DAG loading.
 var reservedSecretEnvNames = []string{
-	"DAG_NAME",
-	"DAG_RUN_ID",
-	"DAG_RUN_LOG_FILE",
-	"DAG_RUN_STEP_NAME",
-	"DAG_RUN_STEP_STDOUT_FILE",
-	"DAG_RUN_STEP_STDERR_FILE",
-	"DAG_RUN_STATUS",
-	"DAG_DOCS_DIR",
-	"DAG_PARAMS_JSON",
-	"DAGU_PARAMS_JSON",
-	"DAG_RUN_WORK_DIR",
-	"DAG_RUN_ARTIFACTS_DIR",
-	"DAG_PUSHBACK",
-	"DAG_PUSHBACK_ITERATION",
-	"DAG_PUSHBACK_PREVIOUS_STDOUT_FILE",
-	"DAGU_EXTERNAL_STEP_RETRY",
-	"DAGU_QUEUE_DISPATCH_RETRY",
+	runenv.EnvKeyDAGName,
+	runenv.EnvKeyDAGRunID,
+	runenv.EnvKeyDAGRunLogFile,
+	runenv.EnvKeyDAGRunStepName,
+	runenv.EnvKeyDAGRunStepStdoutFile,
+	runenv.EnvKeyDAGRunStepStderrFile,
+	runenv.EnvKeyDAGRunStatus,
+	runenv.EnvKeyDAGDocsDir,
+	runenv.EnvKeyDAGParamsJSON,
+	runenv.EnvKeyDAGParamsJSONCompat,
+	runenv.EnvKeyDAGRunWorkDir,
+	runenv.EnvKeyDAGRunArtifactsDir,
+	runenv.EnvKeyDAGPushBack,
+	runenv.EnvKeyDAGPushBackIteration,
+	runenv.EnvKeyDAGPushBackPreviousStdoutFile,
+	runenv.EnvKeyExternalStepRetry,
+	runenv.EnvKeyQueueDispatchRetry,
 }
 
 // parseSecretRefs parses secret references from the YAML definition.
