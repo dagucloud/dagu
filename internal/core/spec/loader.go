@@ -265,18 +265,18 @@ func loadYAMLWithOptsAndNotices(
 
 	mainDAG.YamlData = data
 	markConfiguredWorkingDirsExplicit(mainDAG)
-	if err := validateIncrementalPathBase(mainDAG); err != nil {
+	if err := validateBuildPathBase(mainDAG); err != nil {
 		return loadYAMLFailure(opts, err)
 	}
 
 	return mainDAG, nil
 }
 
-func validateIncrementalPathBase(dag *ir.DAG) error {
-	return validateIncrementalPathBaseFrom(dag, "")
+func validateBuildPathBase(dag *ir.DAG) error {
+	return validateBuildPathBaseFrom(dag, "")
 }
 
-func validateIncrementalPathBaseFrom(dag *ir.DAG, inheritedWorkingDir string) error {
+func validateBuildPathBaseFrom(dag *ir.DAG, inheritedWorkingDir string) error {
 	if dag == nil {
 		return nil
 	}
@@ -284,24 +284,24 @@ func validateIncrementalPathBaseFrom(dag *ir.DAG, inheritedWorkingDir string) er
 	if effectiveWorkingDir == "" {
 		effectiveWorkingDir = inheritedWorkingDir
 	}
-	if dag.Type == ir.TypeIncremental && hasRelativeIncrementalPath(dag) {
+	if dag.Type == ir.TypeBuild && hasRelativeBuildPath(dag) {
 		if effectiveWorkingDir == "" {
 			return ir.NewValidationError("working_dir", dag.WorkingDir,
-				fmt.Errorf("relative incremental paths require an authored or caller-supplied working_dir"))
+				fmt.Errorf("relative build paths require an authored or caller-supplied working_dir"))
 		}
 		if dag.WorkingDir == "" {
 			dag.WorkingDir = effectiveWorkingDir
 		}
 	}
 	for _, localDAG := range dag.LocalDAGs {
-		if err := validateIncrementalPathBaseFrom(localDAG, effectiveWorkingDir); err != nil {
+		if err := validateBuildPathBaseFrom(localDAG, effectiveWorkingDir); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func hasRelativeIncrementalPath(dag *ir.DAG) bool {
+func hasRelativeBuildPath(dag *ir.DAG) bool {
 	var visit func(ir.Step) bool
 	visit = func(step ir.Step) bool {
 		for _, input := range step.Inputs {

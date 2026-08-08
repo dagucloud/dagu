@@ -1,11 +1,11 @@
-# Incremental Workflows
+# Build Workflows
 
-Use `type: incremental` for local workflows that transform stable regular files and should reuse unchanged work across DAG runs. Incremental execution is materialization reuse, not a cache that restores a missing output: a missing or modified final output causes recomputation.
+Use `type: build` for local workflows that transform stable regular files and should reuse unchanged work across DAG runs. Build execution is materialization reuse, not a cache that restores a missing output: a missing or modified final output causes recomputation.
 
 ## Minimal Pipeline
 
 ```yaml
-type: incremental
+type: build
 working_dir: /srv/build
 
 steps:
@@ -64,7 +64,7 @@ Dagu hashes the resolved recipe, declared input contents, and current output. A 
 
 The default per-run scratch directory is normalized in the recipe digest, so a different run ID does not prevent reuse by itself. An authored working directory remains part of the recipe and changing it requires execution.
 
-Always write the result to `${outputs.<name>}`. Dagu verifies the staged file and input snapshots before atomically replacing the final output. Writing directly to the final output bypasses that contract. `stdout`, `stderr`, `stdout.artifact`, and `stderr.artifact` destinations cannot target any declared incremental input or output.
+Always write the result to `${outputs.<name>}`. Dagu verifies the staged file and input snapshots before atomically replacing the final output. Writing directly to the final output bypasses that contract. `stdout`, `stderr`, `stdout.artifact`, and `stderr.artifact` destinations cannot target any declared build input or output.
 
 Potentially reusable producers expose downstream data only through `${steps.<step_id>.outputs.<name>}`. Do not read `${step_id.stdout}`, `${step_id.stderr}`, or `${step_id.exit_code}` from them. This also applies to `${step_id.output.<name>}` and `${step_id.outputs.<name>}`, including their whole-value `${step_id.output}` and `${step_id.outputs}` forms, because reuse does not recreate attempt results. Path-output steps also cannot use `continue_on.mark_success`; failed attempts must not expose an old or missing final file as a successful publication.
 
@@ -73,7 +73,7 @@ Crash recovery refuses to overwrite a final output that was externally replaced 
 
 ## Execution Controls
 
-Incremental workflows are local-only. Distributed execution is rejected because workers do not share the required materialization fencing.
+Build workflows are local-only. Distributed execution is rejected because workers do not share the required materialization fencing.
 
 Preview decisions without executing:
 

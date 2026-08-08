@@ -13,6 +13,7 @@ import {
   Status,
   StatusLabel,
 } from '@/api/v1/schema';
+import { ToastProvider } from '@/components/ui/simple-toast';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { DAGRunContext } from '@/features/dag-runs/contexts/DAGRunContext';
 import { useQuery } from '@/hooks/api';
@@ -99,7 +100,7 @@ describe('NodeStatusTableRow', () => {
       finishedAt: '',
       retryCount: 0,
       doneCount: 1,
-      incremental: {
+      build: {
         decision: 'reuse',
         phase: 'complete',
         reason: 'matched',
@@ -468,6 +469,7 @@ describe('NodeStatusTableRow', () => {
   it('retries a child step through its root DAG run', async () => {
     const user = userEvent.setup();
     postMock.mockResolvedValueOnce({});
+    const refresh = vi.fn();
     const node = {
       step: { name: 'build' },
       status: NodeStatus.Failed,
@@ -482,33 +484,35 @@ describe('NodeStatusTableRow', () => {
 
     render(
       <MemoryRouter>
-        <AppBarContext.Provider value={appBarValue}>
-          <DAGContext.Provider
-            value={{
-              refresh: vi.fn(),
-              name: 'child',
-              fileName: 'child.yaml',
-            }}
-          >
-            <table>
-              <tbody>
-                <NodeStatusTableRow
-                  rownum={1}
-                  node={node}
-                  name="child.yaml"
-                  dagRun={{
-                    ...dagRun,
-                    name: 'child',
-                    dagRunId: 'child-run',
-                    rootDAGRunName: 'root',
-                    rootDAGRunId: 'root-run',
-                  }}
-                  view="desktop"
-                />
-              </tbody>
-            </table>
-          </DAGContext.Provider>
-        </AppBarContext.Provider>
+        <ToastProvider>
+          <AppBarContext.Provider value={appBarValue}>
+            <DAGContext.Provider
+              value={{
+                refresh,
+                name: 'child',
+                fileName: 'child.yaml',
+              }}
+            >
+              <table>
+                <tbody>
+                  <NodeStatusTableRow
+                    rownum={1}
+                    node={node}
+                    name="child.yaml"
+                    dagRun={{
+                      ...dagRun,
+                      name: 'child',
+                      dagRunId: 'child-run',
+                      rootDAGRunName: 'root',
+                      rootDAGRunId: 'root-run',
+                    }}
+                    view="desktop"
+                  />
+                </tbody>
+              </table>
+            </DAGContext.Provider>
+          </AppBarContext.Provider>
+        </ToastProvider>
       </MemoryRouter>
     );
 
@@ -534,6 +538,8 @@ describe('NodeStatusTableRow', () => {
         }
       );
     });
+    expect(await screen.findByText('Step retry started')).toBeVisible();
+    expect(refresh).toHaveBeenCalled();
   });
 
   it.each(['desktop', 'mobile'] as const)(

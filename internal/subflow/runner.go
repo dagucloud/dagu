@@ -217,8 +217,8 @@ func (r *Runner) validate(req executor.SubWorkflowRequest) error {
 	if req.DAG == nil {
 		return errMissingChildDAG
 	}
-	if req.DAG.Type == ir.TypeIncremental {
-		return dispatch.ErrIncrementalRequiresLocal
+	if req.DAG.Type == ir.TypeBuild {
+		return dispatch.ErrBuildRequiresLocal
 	}
 	if req.RunID == "" {
 		return errRunIDNotSet

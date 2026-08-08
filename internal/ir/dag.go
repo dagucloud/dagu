@@ -25,8 +25,8 @@ const (
 	TypeChain = "chain"
 	// TypeController lets an LLM choose which step runs next until every task is complete.
 	TypeController = "controller"
-	// TypeIncremental runs a graph while reusing verified file materializations.
-	TypeIncremental = "incremental"
+	// TypeBuild runs a graph while reusing verified file materializations.
+	TypeBuild = "build"
 )
 
 // DefaultMaxOutputSize is the default maximum captured step output size in bytes.

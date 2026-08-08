@@ -69,7 +69,7 @@ type step struct {
 	OutputSchema any `yaml:"output_schema,omitempty"`
 	// Outputs declares named step outputs.
 	Outputs any `yaml:"outputs,omitempty"`
-	// Inputs declares named regular-file inputs for incremental execution.
+	// Inputs declares named regular-file inputs for build execution.
 	Inputs any `yaml:"inputs,omitempty"`
 	// Depends is the list of steps to depend on.
 	Depends types.StringOrArray `yaml:"depends,omitempty"`

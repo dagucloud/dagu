@@ -74,20 +74,20 @@ func mapAPINode(node api.Node) *dagrun.Node {
 		Error:      derefString(node.Error),
 		SubRuns:    mapAPISubRuns(node.SubRuns),
 	}
-	if node.Incremental != nil {
-		mapped.Incremental = &dagrun.IncrementalExecution{
-			Decision:           dagrun.IncrementalDecision(node.Incremental.Decision),
-			Phase:              dagrun.IncrementalPhase(node.Incremental.Phase),
-			Reason:             dagrun.IncrementalReason(node.Incremental.Reason),
-			Detail:             derefString(node.Incremental.Detail),
-			Fingerprint:        derefString(node.Incremental.Fingerprint),
-			MaterializationKey: derefString(node.Incremental.MaterializationKey),
-			ProducerAttemptID:  derefString(node.Incremental.ProducerAttemptId),
+	if node.Build != nil {
+		mapped.Build = &dagrun.BuildExecution{
+			Decision:           dagrun.BuildDecision(node.Build.Decision),
+			Phase:              dagrun.BuildPhase(node.Build.Phase),
+			Reason:             dagrun.BuildReason(node.Build.Reason),
+			Detail:             derefString(node.Build.Detail),
+			Fingerprint:        derefString(node.Build.Fingerprint),
+			MaterializationKey: derefString(node.Build.MaterializationKey),
+			ProducerAttemptID:  derefString(node.Build.ProducerAttemptId),
 		}
-		if node.Incremental.ProducerRun != nil {
-			mapped.Incremental.ProducerRun = dagrun.NewDAGRunRef(
-				derefString(node.Incremental.ProducerRun.Name),
-				derefString(node.Incremental.ProducerRun.Id),
+		if node.Build.ProducerRun != nil {
+			mapped.Build.ProducerRun = dagrun.NewDAGRunRef(
+				derefString(node.Build.ProducerRun.Name),
+				derefString(node.Build.ProducerRun.Id),
 			)
 		}
 	}

@@ -2987,8 +2987,8 @@ func (a *API) retryDAGRun(ctx context.Context, dagName, dagRunID, retryDagRunID,
 
 	// Check if this DAG should be dispatched to the coordinator for distributed execution
 	if dispatch.ShouldDispatchToCoordinator(dag, a.coordinatorCli != nil, a.defaultExecMode) {
-		if dag.Type == ir.TypeIncremental {
-			return retryDAGRunResult{}, incrementalRequiresLocalAPIError()
+		if dag.Type == ir.TypeBuild {
+			return retryDAGRunResult{}, buildRequiresLocalAPIError()
 		}
 		// Create and dispatch retry task to coordinator
 		opts := []executor.TaskOption{

@@ -41,7 +41,7 @@ func decodeDefaults(raw any) (*defaults, error) {
 		return nil, ir.NewValidationError("defaults", raw, err)
 	}
 	if err := decoder.Decode(raw); err != nil {
-		return nil, ir.NewValidationError("defaults", raw, withSnakeCaseKeyHint(err))
+		return nil, ir.NewValidationError("defaults", raw, withLegacyKeyHint(err))
 	}
 	return d, nil
 }

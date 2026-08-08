@@ -42,7 +42,7 @@ export function KanbanBoard({
   }
 
   return (
-    <div className="flex gap-3 min-h-0 overflow-x-auto p-1 max-h-[50vh]">
+    <div className="flex gap-3 min-h-0 overflow-x-auto p-1 max-h-[50vh] [&>section]:min-w-[260px] [&>section]:max-w-[420px]">
       {columnOrder.map((column) => (
         <KanbanColumn
           key={column}

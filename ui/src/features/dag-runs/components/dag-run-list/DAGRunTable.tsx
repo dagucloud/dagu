@@ -3,7 +3,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Checkbox } from '@/components/ui/checkbox';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { SlidersHorizontal } from 'lucide-react';
 import { components, Status } from '../../../../api/v1/schema';
 import {
@@ -29,6 +29,8 @@ import { DAGRunArtifactsButton } from './DAGRunArtifactsButton';
 
 interface DAGRunTableProps {
   dagRuns: components['schemas']['DAGRunSummary'][];
+  /** True while the first page is being fetched; suppresses the empty state. */
+  isLoading?: boolean;
   selectedRunKeys?: Set<string>;
   selectedDAGRun?: { name: string; dagRunId: string } | null;
   onSelectDAGRun?: (dagRun: { name: string; dagRunId: string } | null) => void;
@@ -54,6 +56,7 @@ function isInteractiveEventTarget(target: EventTarget | null): boolean {
 
 function DAGRunTable({
   dagRuns,
+  isLoading = false,
   selectedRunKeys,
   selectedDAGRun = null,
   onSelectDAGRun,
@@ -255,6 +258,14 @@ function DAGRunTable({
   };
 
   const timezoneInfo = getTimezoneInfo();
+  const formatScheduleTime = (scheduleTime: string): string => {
+    const value = dayjs(scheduleTime);
+    const configuredTime =
+      config.tzOffsetInSec === undefined
+        ? value
+        : value.utcOffset(config.tzOffsetInSec / 60);
+    return configuredTime.format('YYYY-MM-DD HH:mm:ss');
+  };
   const showScheduleColumn = dagRuns.some((dagRun) =>
     Boolean(dagRun.scheduleTime)
   );
@@ -272,14 +283,21 @@ function DAGRunTable({
         No DAG runs found
       </h3>
       <p className="text-sm text-muted-foreground text-center max-w-md mb-4">
-        There are no DAG runs matching your current filters. Try adjusting your
-        search criteria or date range.
+        No DAG runs in the selected time range. Adjust the date range or
+        filters, or start a workflow from the Workflows page.
       </p>
     </div>
   );
 
-  // If there are no DAG runs, show empty state
+  // If there are no DAG runs, show empty state (unless the first page is still loading)
   if (dagRuns.length === 0) {
+    if (isLoading) {
+      return (
+        <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
+          Loading DAG runs...
+        </div>
+      );
+    }
     return <EmptyState />;
   }
 
@@ -335,7 +353,13 @@ function DAGRunTable({
                     />
                   </div>
                 )}
-                <div className="font-normal text-sm">{dagRun.name}</div>
+                <Link
+                  to={`/dag-runs/${dagRun.name}/${dagRun.dagRunId}`}
+                  className="font-normal text-sm hover:underline"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  {dagRun.name}
+                </Link>
               </div>
               <div className="flex items-start gap-2">
                 {onViewArtifacts && (
@@ -377,7 +401,9 @@ function DAGRunTable({
                 <div className="flex justify-between items-center">
                   <div className="whitespace-normal break-words">
                     <span className="text-muted-foreground">Scheduled: </span>
-                    {dagRun.scheduleTime}
+                    <span title={dagRun.scheduleTime}>
+                      {formatScheduleTime(dagRun.scheduleTime)}
+                    </span>
                   </div>
                 </div>
               )}
@@ -539,7 +565,13 @@ function DAGRunTable({
               )}
               <TableCell className="py-1 px-2 font-normal">
                 <div className="flex items-center gap-2">
-                  <span className="min-w-0 truncate">{dagRun.name}</span>
+                  <Link
+                    to={`/dag-runs/${dagRun.name}/${dagRun.dagRunId}`}
+                    className="min-w-0 truncate hover:underline"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    {dagRun.name}
+                  </Link>
                   {onViewArtifacts && (
                     <DAGRunArtifactsButton
                       dagRun={dagRun}
@@ -589,7 +621,13 @@ function DAGRunTable({
               )}
               {showScheduleColumn && (
                 <TableCell className="py-1 px-2 text-left whitespace-normal break-words">
-                  {dagRun.scheduleTime || '-'}
+                  {dagRun.scheduleTime ? (
+                    <span title={dagRun.scheduleTime}>
+                      {formatScheduleTime(dagRun.scheduleTime)}
+                    </span>
+                  ) : (
+                    '-'
+                  )}
                 </TableCell>
               )}
               <TableCell className="py-1 px-2 text-left">

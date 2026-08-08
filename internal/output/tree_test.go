@@ -71,26 +71,26 @@ func TestRenderDAGStatus_BasicSuccess(t *testing.T) {
 	require.Contains(t, output, "Result: Succeeded")
 }
 
-func TestRenderDAGStatus_IncrementalDecision(t *testing.T) {
+func TestRenderDAGStatus_BuildDecision(t *testing.T) {
 	t.Parallel()
-	dag := &ir.DAG{Name: "incremental-dag"}
+	dag := &ir.DAG{Name: "build-dag"}
 	status := &dagrun.DAGRunStatus{
 		Status: ir.Succeeded,
 		Nodes: []*dagrun.Node{
 			{
 				Step:   ir.Step{Name: "build"},
 				Status: ir.NodeSucceeded,
-				Incremental: &dagrun.IncrementalExecution{
+				Build: &dagrun.BuildExecution{
 					Decision:    "reuse",
 					Reason:      "matched",
 					Detail:      "recipe, inputs, and output match the committed manifest",
-					ProducerRun: dagrun.NewDAGRunRef("incremental-dag", "run-1"),
+					ProducerRun: dagrun.NewDAGRunRef("build-dag", "run-1"),
 				},
 			},
 			{
 				Step:   ir.Step{Name: "publish"},
 				Status: ir.NodeSkipped,
-				Incremental: &dagrun.IncrementalExecution{
+				Build: &dagrun.BuildExecution{
 					Decision: "none",
 					Reason:   "precondition_not_met",
 				},
@@ -100,9 +100,9 @@ func TestRenderDAGStatus_IncrementalDecision(t *testing.T) {
 
 	output := newTestRenderer().RenderDAGStatus(dag, status)
 
-	require.Contains(t, output, "incremental: reuse (matched)")
-	require.Contains(t, output, "producer: incremental-dag:run-1")
-	require.Contains(t, output, "incremental: none (precondition_not_met)")
+	require.Contains(t, output, "build: reuse (matched)")
+	require.Contains(t, output, "producer: build-dag:run-1")
+	require.Contains(t, output, "build: none (precondition_not_met)")
 }
 
 func TestRenderDAGStatus_FailedStep(t *testing.T) {

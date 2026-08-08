@@ -584,8 +584,8 @@ func (h *remoteTaskHandler) executeDAGRun(
 	dag *ir.DAG,
 	run remoteRun,
 ) error {
-	if dag != nil && dag.Type == ir.TypeIncremental {
-		return newTaskInitError(dispatch.ErrIncrementalRequiresLocal)
+	if dag != nil && dag.Type == ir.TypeBuild {
+		return newTaskInitError(dispatch.ErrBuildRequiresLocal)
 	}
 	task := run.task
 	dagRunID := task.DagRunId

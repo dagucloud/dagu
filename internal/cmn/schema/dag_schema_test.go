@@ -2278,7 +2278,7 @@ func TestDAGSchemaRepoCopyMatchesEmbeddedSchema(t *testing.T) {
 	require.Equal(t, string(DAGSchemaJSON), string(repoSchemaJSON))
 }
 
-func TestDAGSchemaRequiresIDForIncrementalDeclarations(t *testing.T) {
+func TestDAGSchemaRequiresIDForBuildDeclarations(t *testing.T) {
 	t.Parallel()
 
 	resolved := mustResolveDAGSchema(t)

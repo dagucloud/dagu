@@ -66,7 +66,7 @@ const currentDAGRun = {
   artifactsAvailable: true,
 } as never;
 
-function renderContent() {
+function renderContent(activeTab = 'status') {
   render(
     <MemoryRouter>
       <DAGDetailsContent
@@ -75,7 +75,7 @@ function renderContent() {
         currentDAGRun={currentDAGRun}
         refreshFn={vi.fn()}
         formatDuration={vi.fn()}
-        activeTab="status"
+        activeTab={activeTab}
         isModal
         fillHeight
       />
@@ -92,4 +92,29 @@ describe('DAGDetailsContent', () => {
       'true'
     );
   });
+
+  it('keeps compact navigation labels visible', () => {
+    renderContent();
+
+    for (const label of [
+      'Latest Run',
+      'Incidents',
+      'Spec',
+      'Webhook',
+      'Settings',
+      'Notifications',
+      'History',
+    ]) {
+      expect(screen.getAllByText(label)).toHaveLength(2);
+    }
+  });
+
+  it.each(['log', 'dagRun-log'])(
+    'keeps both %s navigation labels visible',
+    (activeTab) => {
+      renderContent(activeTab);
+
+      expect(screen.getAllByText('Log')).toHaveLength(2);
+    }
+  );
 });

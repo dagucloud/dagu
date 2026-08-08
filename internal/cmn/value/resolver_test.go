@@ -429,7 +429,7 @@ func TestResolverPowerShellCommandFieldPreservesEnvMemberAccess(t *testing.T) {
 	assert.Equal(t, "if ([int]($env:DEV_PCENT) -ge [int]($env:DEV_ALERT)) { exit 0 } else { exit 1 }", got)
 }
 
-func TestResolverConditionCommandResolvesIncrementalInput(t *testing.T) {
+func TestResolverConditionCommandResolvesBuildInput(t *testing.T) {
 	ctx := context.Background()
 	resolver := value.NewResolver(value.StaticScope{}, value.RuntimeScope{
 		Inputs: value.Values{"source": "/tmp/source.txt"},

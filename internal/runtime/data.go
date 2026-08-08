@@ -67,8 +67,8 @@ type NodeState struct {
 	PreconditionResults []dagrun.ConditionResult
 	// StatusDetails tracks independently executed items within the node.
 	StatusDetails []dagrun.NodeStatusDetail
-	// Incremental explains the materialization decision for this node.
-	Incremental *dagrun.IncrementalExecution
+	// Build explains the materialization decision for this node.
+	Build *dagrun.BuildExecution
 	// ExitCode is the exit code that the command exited with.
 	// It only makes sense when the node is a command executor.
 	ExitCode int
@@ -367,11 +367,11 @@ func (d *Data) SetStatus(s ir.NodeStatus) {
 	d.inner.State.Status = s
 }
 
-func (d *Data) setIncremental(value dagrun.IncrementalExecution) {
+func (d *Data) setBuild(value dagrun.BuildExecution) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	copy := value
-	d.inner.State.Incremental = &copy
+	d.inner.State.Build = &copy
 }
 
 // OpenHumanTask records the resolved prompt and transitions the node to waiting.

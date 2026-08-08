@@ -565,6 +565,11 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
     document.documentElement.style.backgroundColor = 'var(--background)';
   }, [theme]);
 
+  React.useEffect(() => {
+    const base = config.title || 'Dagu';
+    document.title = title ? `${title} - ${base}` : base;
+  }, [title, config.title]);
+
   return (
     <SWRConfig
       value={{

@@ -145,6 +145,14 @@ describe('DAGTable', () => {
     vi.unstubAllGlobals();
   });
 
+  it('links workflow names to their canonical detail pages', () => {
+    renderTable();
+
+    for (const link of screen.getAllByRole('link', { name: 'example' })) {
+      expect(link).toHaveAttribute('href', '/dags/example.yaml');
+    }
+  });
+
   it('uses the same control surface sizing as the executions page', () => {
     renderTable();
 
@@ -409,6 +417,16 @@ describe('DAGTable', () => {
     await waitFor(() => {
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     });
+  });
+
+  it('invites creating the first workflow when none exist and no filters are set', () => {
+    renderTable('', { dags: [] });
+
+    expect(screen.getAllByText('No workflows yet').length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText('Create your first workflow to get started.').length
+    ).toBeGreaterThan(0);
+    expect(screen.queryByText('No workflows found')).not.toBeInTheDocument();
   });
 
   it('explains an empty saved view and offers to show all workflows', () => {

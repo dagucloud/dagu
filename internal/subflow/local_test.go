@@ -112,7 +112,7 @@ func TestLocalRetryRejectsMissingRunDatabase(t *testing.T) {
 	require.ErrorContains(t, err, "child workflow status database is not configured")
 }
 
-func TestLocalRunRejectsIncrementalWorkflowOnRemoteWorker(t *testing.T) {
+func TestLocalRunRejectsBuildWorkflowOnRemoteWorker(t *testing.T) {
 	t.Parallel()
 
 	runner := subflow.NewLocal(
@@ -121,13 +121,13 @@ func TestLocalRunRejectsIncrementalWorkflowOnRemoteWorker(t *testing.T) {
 		subflow.WithLocalWorkerID("worker-1"),
 	)
 	result, err := runner.Run(context.Background(), executor.SubWorkflowRequest{
-		DAG:        &ir.DAG{Name: "child", Type: ir.TypeIncremental},
+		DAG:        &ir.DAG{Name: "child", Type: ir.TypeBuild},
 		RootDAGRun: dagrun.NewDAGRunRef("parent", "root-1"),
 		RunID:      "child-run",
 	})
 
 	require.Nil(t, result)
-	require.ErrorIs(t, err, dispatch.ErrIncrementalRequiresLocal)
+	require.ErrorIs(t, err, dispatch.ErrBuildRequiresLocal)
 }
 
 func TestLocalRetryReadsStoredChildAttemptStatus(t *testing.T) {
@@ -180,7 +180,7 @@ steps:
 	require.Equal(t, ir.Succeeded, result.Status)
 }
 
-func TestLocalRunPreservesIncrementalPathBaseFromCopiedDefinition(t *testing.T) {
+func TestLocalRunPreservesBuildPathBaseFromCopiedDefinition(t *testing.T) {
 	if goruntime.GOOS == "windows" {
 		t.Skip("uses a POSIX command")
 	}
@@ -190,8 +190,8 @@ func TestLocalRunPreservesIncrementalPathBaseFromCopiedDefinition(t *testing.T) 
 	require.NoError(t, os.WriteFile(filepath.Join(authoredDir, "source.txt"), []byte("source"), 0o600))
 	authoredPath := filepath.Join(authoredDir, "child.yaml")
 	require.NoError(t, os.WriteFile(authoredPath, []byte(`
-name: incremental-child
-type: incremental
+name: build-child
+type: build
 steps:
   - id: build
     inputs:

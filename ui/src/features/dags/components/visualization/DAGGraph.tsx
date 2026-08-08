@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import React from 'react';
 import { useCookies } from 'react-cookie';
-import { components, Status } from '../../../../api/v1/schema';
+import { components } from '../../../../api/v1/schema';
 import { useConfig } from '../../../../contexts/ConfigContext';
 import BorderedBox from '@/components/ui/bordered-box';
 import { FlowchartType, Graph, TimelineChart } from './';
@@ -148,8 +148,6 @@ function DAGGraph({
               onRightClickNode={
                 config.permissions.runDags ? onRightClickStep : undefined
               }
-              showIcons={dagRun.status > Status.NotStarted}
-              animate={dagRun.status == Status.Running}
               height={graphHeight}
             />
           ) : (

@@ -65,7 +65,7 @@ func (d *manifestDecoder) Decode(input map[string]any) (*dag, error) {
 		return nil, err
 	}
 
-	if err := withSnakeCaseKeyHint(mapDecoder.Decode(input)); err != nil {
+	if err := withLegacyKeyHint(mapDecoder.Decode(input)); err != nil {
 		return nil, err
 	}
 

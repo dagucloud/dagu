@@ -4,7 +4,7 @@
 import dayjs from 'dayjs';
 import { Layers, List, Search } from 'lucide-react';
 import React from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Status } from '../../api/v1/schema';
 import { Button } from '@/components/ui/button';
 import { DateRangePicker } from '@/components/ui/date-range-picker';
@@ -126,6 +126,7 @@ function supportsIntersectionObserver(): boolean {
 
 function DAGRuns() {
   const location = useLocation();
+  const navigate = useNavigate();
   const appBarContext = React.useContext(AppBarContext);
   const config = useConfig();
   const { preferences, updatePreference } = useUserPreferences();
@@ -254,22 +255,73 @@ function DAGRuns() {
   const [selectedDAGRun, setSelectedDAGRun] = React.useState<{
     name: string;
     dagRunId: string;
-  } | null>(null);
+  } | null>(() => {
+    const params = new URLSearchParams(location.search);
+    const name = params.get('selectedRunName');
+    const dagRunId = params.get('selectedRunId');
+    return name && dagRunId ? { name, dagRunId } : null;
+  });
   const [selectedDAGRunInitialTab, setSelectedDAGRunInitialTab] =
-    React.useState<StatusTab>('status');
+    React.useState<StatusTab>(() =>
+      new URLSearchParams(location.search).get('selectedRunTab') === 'artifacts'
+        ? 'artifacts'
+        : 'status'
+    );
+  const updateSelectedDAGRun = React.useCallback(
+    (
+      dagRun: { name: string; dagRunId: string } | null,
+      initialTab: StatusTab = 'status',
+      replace = false
+    ) => {
+      setSelectedDAGRun(dagRun);
+      setSelectedDAGRunInitialTab(initialTab);
+      const params = new URLSearchParams(location.search);
+      if (dagRun) {
+        params.set('selectedRunName', dagRun.name);
+        params.set('selectedRunId', dagRun.dagRunId);
+        if (initialTab === 'status') {
+          params.delete('selectedRunTab');
+        } else {
+          params.set('selectedRunTab', initialTab);
+        }
+      } else {
+        params.delete('selectedRunName');
+        params.delete('selectedRunId');
+        params.delete('selectedRunTab');
+      }
+      const search = params.toString();
+      navigate(
+        {
+          pathname: location.pathname,
+          search: search ? `?${search}` : '',
+        },
+        { replace }
+      );
+    },
+    [location.pathname, location.search, navigate]
+  );
+
+  React.useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const name = params.get('selectedRunName');
+    const dagRunId = params.get('selectedRunId');
+    setSelectedDAGRun(name && dagRunId ? { name, dagRunId } : null);
+    setSelectedDAGRunInitialTab(
+      params.get('selectedRunTab') === 'artifacts' ? 'artifacts' : 'status'
+    );
+  }, [location.search]);
+
   const selectDAGRun = React.useCallback(
     (dagRun: { name: string; dagRunId: string } | null) => {
-      setSelectedDAGRunInitialTab('status');
-      setSelectedDAGRun(dagRun);
+      updateSelectedDAGRun(dagRun);
     },
-    []
+    [updateSelectedDAGRun]
   );
   const viewDAGRunArtifacts = React.useCallback(
     (dagRun: { name: string; dagRunId: string }) => {
-      setSelectedDAGRunInitialTab('artifacts');
-      setSelectedDAGRun(dagRun);
+      updateSelectedDAGRun(dagRun, 'artifacts');
     },
-    []
+    [updateSelectedDAGRun]
   );
   const loadMoreSentinelRef = React.useRef<HTMLDivElement>(null);
   const autoLoadPendingRef = React.useRef(false);
@@ -505,6 +557,7 @@ function DAGRuns() {
   );
   const {
     dagRuns,
+    isInitialLoading,
     isLoadingMore,
     loadMoreError,
     hasMore,
@@ -539,21 +592,23 @@ function DAGRuns() {
     toggleSelection,
   } = useBulkDAGRunSelection(dagRuns);
 
-  const addSearchParam = (key: string, value: string | undefined) => {
-    const locationQuery = new URLSearchParams(window.location.search);
-    if (key === 'labels') {
-      locationQuery.delete('tags');
+  const updateSearchParams = (updates: Record<string, string | undefined>) => {
+    const params = new URLSearchParams(location.search);
+    if ('labels' in updates) {
+      params.delete('tags');
     }
-    if (value && value.length > 0) {
-      locationQuery.set(key, value);
-    } else {
-      locationQuery.delete(key);
+    for (const [key, value] of Object.entries(updates)) {
+      if (value) {
+        params.set(key, value);
+      } else {
+        params.delete(key);
+      }
     }
-    window.history.pushState(
-      {},
-      '',
-      `${window.location.pathname}?${locationQuery.toString()}`
-    );
+    const search = params.toString();
+    navigate({
+      pathname: location.pathname,
+      search: search ? `?${search}` : '',
+    });
   };
 
   const handleSearch = (overrideStatus?: string) => {
@@ -568,20 +623,18 @@ function DAGRuns() {
     setApiFromDate(fromDate);
     setApiToDate(toDate);
 
-    // Update URL parameters
-    addSearchParam('name', searchText);
-    addSearchParam('dagRunId', dagRunId);
-    addSearchParam('status', statusToUse);
-    addSearchParam(
-      'labels',
-      selectedLabels.length > 0 ? selectedLabels.join(',') : undefined
-    );
-    addSearchParam('fromDate', fromDate);
-    addSearchParam('toDate', toDate);
-    addSearchParam('dateMode', dateRangeMode);
-    addSearchParam('preset', datePreset);
-    addSearchParam('specificValue', specificValue);
-    addSearchParam('specificPeriod', specificPeriod);
+    updateSearchParams({
+      name: searchText,
+      dagRunId,
+      status: statusToUse,
+      labels: selectedLabels.length > 0 ? selectedLabels.join(',') : undefined,
+      fromDate,
+      toDate,
+      dateMode: dateRangeMode,
+      preset: dateRangeMode === 'preset' ? datePreset : undefined,
+      specificValue: dateRangeMode === 'specific' ? specificValue : undefined,
+      specificPeriod: dateRangeMode === 'specific' ? specificPeriod : undefined,
+    });
   };
 
   const handleNameInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -603,10 +656,9 @@ function DAGRuns() {
   const updateLabels = (newLabels: string[]) => {
     setSelectedLabels(newLabels);
     setApiLabels(newLabels);
-    addSearchParam(
-      'labels',
-      newLabels.length > 0 ? newLabels.join(',') : undefined
-    );
+    updateSearchParams({
+      labels: newLabels.length > 0 ? newLabels.join(',') : undefined,
+    });
   };
 
   const handleViewModeChange = (value: string) => {
@@ -653,10 +705,12 @@ function DAGRuns() {
     setToDate(dates.to);
     setApiFromDate(dates.from);
     setApiToDate(dates.to);
-    addSearchParam('preset', preset);
-    addSearchParam('dateMode', 'preset');
-    addSearchParam('fromDate', dates.from);
-    addSearchParam('toDate', dates.to);
+    updateSearchParams({
+      preset,
+      dateMode: 'preset',
+      fromDate: dates.from,
+      toDate: dates.to,
+    });
   };
 
   const getSpecificPeriodDates = (
@@ -710,18 +764,19 @@ function DAGRuns() {
     setToDate(dates.to);
     setApiFromDate(dates.from);
     setApiToDate(dates.to);
-    addSearchParam('specificValue', value);
-    addSearchParam('specificPeriod', periodToUse);
-    addSearchParam('dateMode', 'specific');
-    addSearchParam('fromDate', dates.from);
-    addSearchParam('toDate', dates.to);
+    updateSearchParams({
+      specificValue: value,
+      specificPeriod: periodToUse,
+      dateMode: 'specific',
+      fromDate: dates.from,
+      toDate: dates.to,
+    });
   };
 
   const handleDateRangeModeChange = (
     newMode: 'preset' | 'specific' | 'custom'
   ) => {
     setDateRangeMode(newMode);
-    addSearchParam('dateMode', newMode);
 
     if (newMode === 'preset') {
       // Apply current preset
@@ -730,11 +785,14 @@ function DAGRuns() {
       setToDate(dates.to);
       setApiFromDate(dates.from);
       setApiToDate(dates.to);
-      addSearchParam('preset', datePreset);
-      addSearchParam('fromDate', dates.from);
-      addSearchParam('toDate', dates.to);
-      addSearchParam('specificValue', '');
-      addSearchParam('specificPeriod', '');
+      updateSearchParams({
+        dateMode: newMode,
+        preset: datePreset,
+        fromDate: dates.from,
+        toDate: dates.to,
+        specificValue: undefined,
+        specificPeriod: undefined,
+      });
     } else if (newMode === 'specific') {
       // Apply current specific period value
       const dates = getSpecificPeriodDates(specificPeriod, specificValue);
@@ -742,15 +800,21 @@ function DAGRuns() {
       setToDate(dates.to);
       setApiFromDate(dates.from);
       setApiToDate(dates.to);
-      addSearchParam('specificPeriod', specificPeriod);
-      addSearchParam('specificValue', specificValue);
-      addSearchParam('fromDate', dates.from);
-      addSearchParam('toDate', dates.to);
-      addSearchParam('preset', '');
+      updateSearchParams({
+        dateMode: newMode,
+        specificPeriod,
+        specificValue,
+        fromDate: dates.from,
+        toDate: dates.to,
+        preset: undefined,
+      });
     } else {
-      addSearchParam('preset', '');
-      addSearchParam('specificValue', '');
-      addSearchParam('specificPeriod', '');
+      updateSearchParams({
+        dateMode: newMode,
+        preset: undefined,
+        specificValue: undefined,
+        specificPeriod: undefined,
+      });
     }
   };
 
@@ -857,10 +921,7 @@ function DAGRuns() {
               placeholder="Filter by labels..."
               className="h-9 min-w-[170px] max-w-[220px]"
             />
-            <Button
-              onClick={() => handleSearch()}
-              className="px-4 font-medium"
-            >
+            <Button onClick={() => handleSearch()} className="px-4 font-medium">
               <Search className="mr-1.5 h-4 w-4" />
               Search
             </Button>
@@ -987,6 +1048,7 @@ function DAGRuns() {
         {viewMode === 'list' ? (
           <DAGRunTable
             dagRuns={dagRuns}
+            isLoading={isInitialLoading}
             selectedDAGRun={selectedDAGRun}
             onSelectDAGRun={selectDAGRun}
             onViewArtifacts={viewDAGRunArtifacts}
@@ -996,6 +1058,7 @@ function DAGRuns() {
         ) : (
           <DAGRunGroupedView
             dagRuns={dagRuns}
+            isLoading={isInitialLoading}
             selectedDAGRun={selectedDAGRun}
             onSelectDAGRun={selectDAGRun}
             onViewArtifacts={viewDAGRunArtifacts}
@@ -1039,7 +1102,7 @@ function DAGRuns() {
           name={selectedDAGRun.name}
           dagRunId={selectedDAGRun.dagRunId}
           isOpen={!!selectedDAGRun}
-          onClose={() => setSelectedDAGRun(null)}
+          onClose={() => updateSelectedDAGRun(null, 'status', true)}
           initialTab={selectedDAGRunInitialTab}
         />
       )}

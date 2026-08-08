@@ -287,7 +287,7 @@ function DAGActions({
       <div
         className={`flex items-center ${displayMode === 'compact' ? 'space-x-1' : 'space-x-2'}`}
       >
-        {/* Enqueue Button */}
+        {/* Start Button */}
         <Tooltip>
           <TooltipTrigger asChild>
             <ActionButton
@@ -303,7 +303,7 @@ function DAGActions({
               }}
               className="cursor-pointer"
             >
-              Enqueue
+              Start
             </ActionButton>
           </TooltipTrigger>
           <TooltipContent>

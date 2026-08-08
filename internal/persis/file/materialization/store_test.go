@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/build"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
-	"github.com/dagucloud/dagu/v2/internal/incremental"
 	"github.com/stretchr/testify/require"
 )
 
@@ -22,7 +22,7 @@ func TestAcquirePathsAllowsReadersAndExcludesWriter(t *testing.T) {
 	t.Parallel()
 
 	store := New(t.TempDir())
-	request := []incremental.PathLockRequest{{Key: "/data/input.txt", Mode: incremental.PathLockShared}}
+	request := []build.PathLockRequest{{Key: "/data/input.txt", Mode: build.PathLockShared}}
 	first, err := store.AcquirePaths(context.Background(), request)
 	require.NoError(t, err)
 	second, err := store.AcquirePaths(context.Background(), request)
@@ -30,17 +30,17 @@ func TestAcquirePathsAllowsReadersAndExcludesWriter(t *testing.T) {
 
 	blockedCtx, cancel := context.WithTimeout(context.Background(), 75*time.Millisecond)
 	defer cancel()
-	_, err = store.AcquirePaths(blockedCtx, []incremental.PathLockRequest{{
+	_, err = store.AcquirePaths(blockedCtx, []build.PathLockRequest{{
 		Key:  "/data/input.txt",
-		Mode: incremental.PathLockExclusive,
+		Mode: build.PathLockExclusive,
 	}})
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 
 	require.NoError(t, second.Release())
 	require.NoError(t, first.Release())
-	writer, err := store.AcquirePaths(context.Background(), []incremental.PathLockRequest{{
+	writer, err := store.AcquirePaths(context.Background(), []build.PathLockRequest{{
 		Key:  "/data/input.txt",
-		Mode: incremental.PathLockExclusive,
+		Mode: build.PathLockExclusive,
 	}})
 	require.NoError(t, err)
 	require.NoError(t, writer.Release())
@@ -64,13 +64,13 @@ func TestCommitPublishesOutputAndManifest(t *testing.T) {
 	stagingPath := filepath.Join(dir, ".output.tmp")
 	require.NoError(t, os.WriteFile(stagingPath, []byte("new"), fileMode))
 	manifest := testManifest(t, "materialization", "commit", stagingPath, finalPath)
-	lock, err := store.AcquirePaths(context.Background(), []incremental.PathLockRequest{{
-		Key: incremental.ComparisonKey(finalPath), Mode: incremental.PathLockExclusive,
+	lock, err := store.AcquirePaths(context.Background(), []build.PathLockRequest{{
+		Key: build.ComparisonKey(finalPath), Mode: build.PathLockExclusive,
 	}})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, lock.Release()) })
 
-	require.NoError(t, store.Commit(context.Background(), lock, incremental.MaterializationCommit{
+	require.NoError(t, store.Commit(context.Background(), lock, build.MaterializationCommit{
 		StagingPath: stagingPath,
 		FinalPath:   finalPath,
 		Manifest:    manifest,
@@ -91,8 +91,8 @@ func TestCommitCanPublishWithoutReplacingManifest(t *testing.T) {
 	dir := t.TempDir()
 	store := New(filepath.Join(dir, "store"))
 	finalPath := filepath.Join(dir, "output.txt")
-	lock, err := store.AcquirePaths(context.Background(), []incremental.PathLockRequest{{
-		Key: incremental.ComparisonKey(finalPath), Mode: incremental.PathLockExclusive,
+	lock, err := store.AcquirePaths(context.Background(), []build.PathLockRequest{{
+		Key: build.ComparisonKey(finalPath), Mode: build.PathLockExclusive,
 	}})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, lock.Release()) })
@@ -100,7 +100,7 @@ func TestCommitCanPublishWithoutReplacingManifest(t *testing.T) {
 	firstStage := filepath.Join(dir, ".first.tmp")
 	require.NoError(t, os.WriteFile(firstStage, []byte("first"), fileMode))
 	firstManifest := testManifest(t, "materialization", "commit-1", firstStage, finalPath)
-	require.NoError(t, store.Commit(context.Background(), lock, incremental.MaterializationCommit{
+	require.NoError(t, store.Commit(context.Background(), lock, build.MaterializationCommit{
 		StagingPath: firstStage,
 		FinalPath:   finalPath,
 		Manifest:    firstManifest,
@@ -108,7 +108,7 @@ func TestCommitCanPublishWithoutReplacingManifest(t *testing.T) {
 
 	secondStage := filepath.Join(dir, ".second.tmp")
 	require.NoError(t, os.WriteFile(secondStage, []byte("second"), fileMode))
-	require.NoError(t, store.Commit(context.Background(), lock, incremental.MaterializationCommit{
+	require.NoError(t, store.Commit(context.Background(), lock, build.MaterializationCommit{
 		StagingPath:      secondStage,
 		FinalPath:        finalPath,
 		Manifest:         testManifest(t, "materialization", "commit-2", secondStage, finalPath),
@@ -128,14 +128,14 @@ func TestGetTreatsUnsupportedSchemaVersionAsMissing(t *testing.T) {
 
 	store := New(t.TempDir())
 	require.NoError(t, store.ensureDirs())
-	manifest := incremental.Materialization{
-		SchemaVersion:      incremental.MaterializationSchemaVersion + 1,
+	manifest := build.Materialization{
+		SchemaVersion:      build.MaterializationSchemaVersion + 1,
 		MaterializationKey: "materialization",
 	}
 	require.NoError(t, fileutil.WriteJSONAtomic(store.manifestPath(manifest.MaterializationKey), manifest, fileMode))
 
 	_, err := store.Get(context.Background(), manifest.MaterializationKey)
-	require.ErrorIs(t, err, incremental.ErrMaterializationNotFound)
+	require.ErrorIs(t, err, build.ErrMaterializationNotFound)
 	require.ErrorContains(t, err, "unsupported materialization schema version")
 }
 
@@ -149,8 +149,8 @@ func TestCommitReplacesLongNamedOutput(t *testing.T) {
 		t.Skipf("filesystem does not support long basenames: %v", err)
 	}
 	require.NoError(t, os.Remove(finalPath))
-	lock, err := store.AcquirePaths(context.Background(), []incremental.PathLockRequest{{
-		Key: incremental.ComparisonKey(finalPath), Mode: incremental.PathLockExclusive,
+	lock, err := store.AcquirePaths(context.Background(), []build.PathLockRequest{{
+		Key: build.ComparisonKey(finalPath), Mode: build.PathLockExclusive,
 	}})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, lock.Release()) })
@@ -164,7 +164,7 @@ func TestCommitReplacesLongNamedOutput(t *testing.T) {
 	} {
 		stagingPath := filepath.Join(dir, "."+commit.id+".tmp")
 		require.NoError(t, os.WriteFile(stagingPath, []byte(commit.content), fileMode))
-		require.NoError(t, store.Commit(context.Background(), lock, incremental.MaterializationCommit{
+		require.NoError(t, store.Commit(context.Background(), lock, build.MaterializationCommit{
 			StagingPath: stagingPath,
 			FinalPath:   finalPath,
 			Manifest:    testManifest(t, "materialization", commit.id, stagingPath, finalPath),
@@ -185,13 +185,13 @@ func TestCommitRequiresMatchingExclusiveOutputLock(t *testing.T) {
 	stagingPath := filepath.Join(dir, ".output.tmp")
 	require.NoError(t, os.WriteFile(stagingPath, []byte("new"), fileMode))
 	manifest := testManifest(t, "materialization", "commit", stagingPath, finalPath)
-	lock, err := store.AcquirePaths(context.Background(), []incremental.PathLockRequest{{
-		Key: incremental.ComparisonKey(filepath.Join(dir, "other.txt")), Mode: incremental.PathLockExclusive,
+	lock, err := store.AcquirePaths(context.Background(), []build.PathLockRequest{{
+		Key: build.ComparisonKey(filepath.Join(dir, "other.txt")), Mode: build.PathLockExclusive,
 	}})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, lock.Release()) })
 
-	err = store.Commit(context.Background(), lock, incremental.MaterializationCommit{
+	err = store.Commit(context.Background(), lock, build.MaterializationCommit{
 		StagingPath: stagingPath,
 		FinalPath:   finalPath,
 		Manifest:    manifest,
@@ -210,13 +210,13 @@ func TestCommitRejectsSharedOutputLock(t *testing.T) {
 	stagingPath := filepath.Join(dir, ".output.tmp")
 	require.NoError(t, os.WriteFile(stagingPath, []byte("new"), fileMode))
 	manifest := testManifest(t, "materialization", "commit", stagingPath, finalPath)
-	lock, err := store.AcquirePaths(context.Background(), []incremental.PathLockRequest{{
-		Key: incremental.ComparisonKey(finalPath), Mode: incremental.PathLockShared,
+	lock, err := store.AcquirePaths(context.Background(), []build.PathLockRequest{{
+		Key: build.ComparisonKey(finalPath), Mode: build.PathLockShared,
 	}})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, lock.Release()) })
 
-	err = store.Commit(context.Background(), lock, incremental.MaterializationCommit{
+	err = store.Commit(context.Background(), lock, build.MaterializationCommit{
 		StagingPath: stagingPath,
 		FinalPath:   finalPath,
 		Manifest:    manifest,
@@ -233,13 +233,13 @@ func TestCommitRequiresSiblingStagingPath(t *testing.T) {
 	stagingPath := filepath.Join(t.TempDir(), "output.tmp")
 	require.NoError(t, os.WriteFile(stagingPath, []byte("new"), fileMode))
 	manifest := testManifest(t, "materialization", "commit", stagingPath, finalPath)
-	lock, err := store.AcquirePaths(context.Background(), []incremental.PathLockRequest{{
-		Key: incremental.ComparisonKey(finalPath), Mode: incremental.PathLockExclusive,
+	lock, err := store.AcquirePaths(context.Background(), []build.PathLockRequest{{
+		Key: build.ComparisonKey(finalPath), Mode: build.PathLockExclusive,
 	}})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, lock.Release()) })
 
-	err = store.Commit(context.Background(), lock, incremental.MaterializationCommit{
+	err = store.Commit(context.Background(), lock, build.MaterializationCommit{
 		StagingPath: stagingPath,
 		FinalPath:   finalPath,
 		Manifest:    manifest,
@@ -259,8 +259,8 @@ func TestCommitRollsBackOutputWhenManifestWriteFails(t *testing.T) {
 	require.NoError(t, os.WriteFile(finalPath, []byte("old"), fileMode))
 	require.NoError(t, os.WriteFile(stagingPath, []byte("new"), fileMode))
 	manifest := testManifest(t, "materialization", "commit", stagingPath, finalPath)
-	lock, err := store.AcquirePaths(context.Background(), []incremental.PathLockRequest{{
-		Key: incremental.ComparisonKey(finalPath), Mode: incremental.PathLockExclusive,
+	lock, err := store.AcquirePaths(context.Background(), []build.PathLockRequest{{
+		Key: build.ComparisonKey(finalPath), Mode: build.PathLockExclusive,
 	}})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, lock.Release()) })
@@ -268,7 +268,7 @@ func TestCommitRollsBackOutputWhenManifestWriteFails(t *testing.T) {
 	manifestsDir := filepath.Join(store.root, "manifests")
 	require.NoError(t, os.Chmod(manifestsDir, 0o500))
 	t.Cleanup(func() { require.NoError(t, os.Chmod(manifestsDir, 0o750)) })
-	err = store.Commit(context.Background(), lock, incremental.MaterializationCommit{
+	err = store.Commit(context.Background(), lock, build.MaterializationCommit{
 		StagingPath: stagingPath,
 		FinalPath:   finalPath,
 		Manifest:    manifest,
@@ -279,16 +279,16 @@ func TestCommitRollsBackOutputWhenManifestWriteFails(t *testing.T) {
 	require.Equal(t, "old", string(content))
 	require.NoFileExists(t, stagingPath)
 	require.NoFileExists(t, store.manifestPath(manifest.MaterializationKey))
-	require.NoFileExists(t, store.journalPath(incremental.ComparisonKey(finalPath)))
+	require.NoFileExists(t, store.journalPath(build.ComparisonKey(finalPath)))
 }
 
-func testManifest(t *testing.T, key, commitID, sourcePath, finalPath string) incremental.Materialization {
+func testManifest(t *testing.T, key, commitID, sourcePath, finalPath string) build.Materialization {
 	t.Helper()
 	output, err := snapshotFile(sourcePath)
 	require.NoError(t, err)
 	output.Path = finalPath
-	return incremental.Materialization{
-		SchemaVersion:      incremental.MaterializationSchemaVersion,
+	return build.Materialization{
+		SchemaVersion:      build.MaterializationSchemaVersion,
 		MaterializationKey: key,
 		CommitID:           commitID,
 		Output:             output,
@@ -377,7 +377,7 @@ func TestRecoverIncompleteCommit(t *testing.T) {
 			proposedSnapshot, err := snapshotFile(proposedSource)
 			require.NoError(t, err)
 			proposedSnapshot.Path = finalPath
-			proposed := incremental.Materialization{CommitID: "proposed", Output: proposedSnapshot}
+			proposed := build.Materialization{CommitID: "proposed", Output: proposedSnapshot}
 
 			if tt.finalContent != "" {
 				require.NoError(t, os.WriteFile(finalPath, []byte(tt.finalContent), fileMode))
@@ -427,7 +427,7 @@ func TestRecoverIncompleteCommit(t *testing.T) {
 			case "proposed":
 				manifest, err := os.ReadFile(manifestPath)
 				require.NoError(t, err)
-				var recovered incremental.Materialization
+				var recovered build.Materialization
 				require.NoError(t, json.Unmarshal(manifest, &recovered))
 				require.Equal(t, proposed.CommitID, recovered.CommitID)
 			default:
@@ -461,7 +461,7 @@ func TestRestorePreviousPreservesUnknownFinal(t *testing.T) {
 			journal := commitJournal{
 				FinalPath:  finalPath,
 				BackupPath: backupPath,
-				Proposed:   incremental.Materialization{Output: proposed},
+				Proposed:   build.Materialization{Output: proposed},
 			}
 			if tt.withPrevious {
 				previousPath := filepath.Join(dir, "previous.txt")
@@ -508,29 +508,29 @@ func TestAcquirePathsClearsUnrecoverableJournal(t *testing.T) {
 	require.NoError(t, err)
 	proposed.Path = finalPath
 
-	pathKey := incremental.ComparisonKey(finalPath)
+	pathKey := build.ComparisonKey(finalPath)
 	journalPath := store.journalPath(pathKey)
 	require.NoError(t, fileutil.WriteJSONAtomic(journalPath, commitJournal{
 		FinalPath:     finalPath,
 		BackupPath:    filepath.Join(dir, "missing-backup"),
 		ManifestPath:  store.manifestPath("materialization"),
 		PreviousFinal: &previous,
-		Proposed: incremental.Materialization{
-			SchemaVersion:      incremental.MaterializationSchemaVersion,
+		Proposed: build.Materialization{
+			SchemaVersion:      build.MaterializationSchemaVersion,
 			MaterializationKey: "materialization",
 			CommitID:           "proposed",
 			Output:             proposed,
 		},
 	}, fileMode))
 
-	_, err = store.AcquirePaths(context.Background(), []incremental.PathLockRequest{{
-		Key: pathKey, Mode: incremental.PathLockExclusive,
+	_, err = store.AcquirePaths(context.Background(), []build.PathLockRequest{{
+		Key: pathKey, Mode: build.PathLockExclusive,
 	}})
-	require.ErrorIs(t, err, incremental.ErrMaterializationRecovery)
+	require.ErrorIs(t, err, build.ErrMaterializationRecovery)
 	require.NoFileExists(t, journalPath)
 
-	lock, err := store.AcquirePaths(context.Background(), []incremental.PathLockRequest{{
-		Key: pathKey, Mode: incremental.PathLockExclusive,
+	lock, err := store.AcquirePaths(context.Background(), []build.PathLockRequest{{
+		Key: pathKey, Mode: build.PathLockExclusive,
 	}})
 	require.NoError(t, err)
 	require.NoError(t, lock.Release())

@@ -955,10 +955,10 @@ func buildType(_ buildContext, d *dag) (string, error) {
 		return ir.TypeGraph, nil
 	}
 	switch t {
-	case ir.TypeGraph, ir.TypeChain, ir.TypeController, ir.TypeIncremental:
+	case ir.TypeGraph, ir.TypeChain, ir.TypeController, ir.TypeBuild:
 		return t, nil
 	default:
-		return "", ir.NewValidationError("type", t, fmt.Errorf("invalid type: %s (must be one of: graph, chain, controller, incremental)", t))
+		return "", ir.NewValidationError("type", t, fmt.Errorf("invalid type: %s (must be one of: graph, chain, controller, build)", t))
 	}
 }
 
@@ -2115,7 +2115,7 @@ func buildContainerField(ctx buildContext, raw any) (*ir.Container, error) {
 		}
 		if err := decoder.Decode(v); err != nil {
 			return nil, ir.NewValidationError("container", nil,
-				fmt.Errorf("failed to decode container: %w", withSnakeCaseKeyHint(err)))
+				fmt.Errorf("failed to decode container: %w", withLegacyKeyHint(err)))
 		}
 		return buildContainerFromSpec(ctx, &c)
 

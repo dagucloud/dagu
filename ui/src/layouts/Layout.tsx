@@ -122,6 +122,53 @@ function Content({ navbarColor, children }: LayoutProps) {
   });
   // Mobile sidebar state (hidden by default)
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = React.useState(false);
+  const openMenuButtonRef = React.useRef<HTMLButtonElement>(null);
+  const closeMenuButtonRef = React.useRef<HTMLButtonElement>(null);
+  const mobileSidebarRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    if (!isMobileSidebarOpen) {
+      return;
+    }
+
+    closeMenuButtonRef.current?.focus();
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsMobileSidebarOpen(false);
+        requestAnimationFrame(() => openMenuButtonRef.current?.focus());
+        return;
+      }
+      if (event.key !== 'Tab') {
+        return;
+      }
+
+      const focusableElements = Array.from(
+        mobileSidebarRef.current?.querySelectorAll<HTMLElement>(
+          'a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])'
+        ) ?? []
+      ).filter((element) => !element.closest('[inert]'));
+      const first = focusableElements[0];
+      const last = focusableElements[focusableElements.length - 1];
+      if (!first || !last) {
+        event.preventDefault();
+        return;
+      }
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [isMobileSidebarOpen]);
+
+  const closeMobileSidebar = () => {
+    setIsMobileSidebarOpen(false);
+    requestAnimationFrame(() => openMenuButtonRef.current?.focus());
+  };
 
   // Save sidebar state to localStorage when it changes
   React.useEffect(() => {
@@ -166,7 +213,11 @@ function Content({ navbarColor, children }: LayoutProps) {
       </aside>
 
       {/* Main Content Area - Developer-tool */}
-      <div className="flex flex-col flex-1 h-full overflow-hidden relative bg-background">
+      <div
+        className="flex flex-col flex-1 h-full overflow-hidden relative bg-background"
+        aria-hidden={isMobileSidebarOpen || undefined}
+        inert={isMobileSidebarOpen ? true : undefined}
+      >
         {/* Mobile Header Bar - Minimal Design */}
         <header
           className={cn(
@@ -177,6 +228,7 @@ function Content({ navbarColor, children }: LayoutProps) {
           style={sidebarStyle}
         >
           <button
+            ref={openMenuButtonRef}
             className="p-2 rounded-md hover:bg-muted transition-colors"
             onClick={() => setIsMobileSidebarOpen(true)}
             aria-label="Open menu"
@@ -209,9 +261,13 @@ function Content({ navbarColor, children }: LayoutProps) {
       {isMobileSidebarOpen && (
         <div
           className="fixed inset-0 bg-background/60 z-50 md:hidden flex backdrop-blur-sm"
-          onClick={() => setIsMobileSidebarOpen(false)}
+          onClick={closeMobileSidebar}
         >
           <div
+            ref={mobileSidebarRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="mobile-navigation-title"
             className={cn(
               'h-full w-64 overflow-hidden shadow-lg border-r border-border',
               !hasCustomColor && 'bg-sidebar text-sidebar-foreground',
@@ -222,6 +278,7 @@ function Content({ navbarColor, children }: LayoutProps) {
           >
             <div className="flex justify-between items-center p-4 border-b border-sidebar-border">
               <span
+                id="mobile-navigation-title"
                 className={cn(
                   'font-semibold whitespace-normal leading-tight',
                   getResponsiveTitleClass(
@@ -233,7 +290,10 @@ function Content({ navbarColor, children }: LayoutProps) {
                 {config.title || 'Dagu'}
               </span>
               <button
-                onClick={() => setIsMobileSidebarOpen(false)}
+                ref={closeMenuButtonRef}
+                type="button"
+                aria-label="Close menu"
+                onClick={closeMobileSidebar}
                 className="p-1.5 hover:bg-sidebar-hover rounded-md transition-colors"
               >
                 <X className="h-5 w-5" />
@@ -243,7 +303,7 @@ function Content({ navbarColor, children }: LayoutProps) {
               <nav className="flex-1 overflow-y-auto min-h-0 px-2">
                 <MainListItems
                   isOpen={true}
-                  onNavItemClick={() => setIsMobileSidebarOpen(false)}
+                  onNavItemClick={closeMobileSidebar}
                   customColor={hasCustomColor}
                 />
               </nav>

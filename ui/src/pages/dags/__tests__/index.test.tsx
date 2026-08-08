@@ -22,7 +22,11 @@ import {
 } from '@/api/v1/schema';
 import { useQuery } from '@/hooks/api';
 import type { View, ViewSpec } from '@/hooks/useViews';
-import { WorkspaceKind, workspaceSelectionKey } from '@/lib/workspace';
+import {
+  WorkspaceKind,
+  type WorkspaceSelection,
+  workspaceSelectionKey,
+} from '@/lib/workspace';
 import DagsPage from '../index';
 
 const {
@@ -75,8 +79,19 @@ vi.mock('@/hooks/useViews', () => ({
 }));
 
 vi.mock('@/features/dags/components/dag-details', () => ({
-  DAGDetailsModal: ({ fileName }: { fileName: string }) => (
-    <div role="dialog">Workflow modal for {fileName}</div>
+  DAGDetailsModal: ({
+    fileName,
+    onClose,
+  }: {
+    fileName: string;
+    onClose: () => void;
+  }) => (
+    <div role="dialog">
+      Workflow modal for {fileName}
+      <button type="button" onClick={onClose}>
+        Close workflow
+      </button>
+    </div>
   ),
 }));
 
@@ -344,29 +359,44 @@ function LocationProbe() {
   return <output data-testid="location-search">{location.search}</output>;
 }
 
+function DagsPageHarness({
+  setTitle,
+  workspaceSelection,
+}: {
+  setTitle: (title: string) => void;
+  workspaceSelection: WorkspaceSelection;
+}) {
+  return (
+    <ConfigContext.Provider value={makeConfig()}>
+      <SearchStateProvider>
+        <AppBarContext.Provider
+          value={{
+            title: '',
+            setTitle,
+            remoteNodes: ['local', 'remote-a'],
+            setRemoteNodes: () => undefined,
+            selectedRemoteNode: 'remote-a',
+            selectRemoteNode: () => undefined,
+            workspaces: [],
+            workspaceSelection,
+            selectWorkspace: () => undefined,
+          }}
+        >
+          <DagsPage />
+        </AppBarContext.Provider>
+      </SearchStateProvider>
+    </ConfigContext.Provider>
+  );
+}
+
 function renderPage(setTitle = vi.fn(), initialEntry = '/dags') {
   return render(
     <MemoryRouter initialEntries={[initialEntry]}>
       <LocationProbe />
-      <ConfigContext.Provider value={makeConfig()}>
-        <SearchStateProvider>
-          <AppBarContext.Provider
-            value={{
-              title: '',
-              setTitle,
-              remoteNodes: ['local', 'remote-a'],
-              setRemoteNodes: () => undefined,
-              selectedRemoteNode: 'remote-a',
-              selectRemoteNode: () => undefined,
-              workspaces: [],
-              workspaceSelection: { kind: WorkspaceKind.all },
-              selectWorkspace: () => undefined,
-            }}
-          >
-            <DagsPage />
-          </AppBarContext.Provider>
-        </SearchStateProvider>
-      </ConfigContext.Provider>
+      <DagsPageHarness
+        setTitle={setTitle}
+        workspaceSelection={{ kind: WorkspaceKind.all }}
+      />
     </MemoryRouter>
   );
 }
@@ -1040,6 +1070,67 @@ describe('DagsPage', () => {
     expect(
       screen.getByRole('button', { name: 'Open demo workflow' })
     ).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('location-search')).toHaveTextContent(
+      '?selectedDAG=demo.yaml'
+    );
+  });
+
+  it('restores and closes workflow details from the URL', () => {
+    renderPage(vi.fn(), '/dags?selectedDAG=demo.yaml');
+
+    expect(screen.getByRole('dialog')).toHaveTextContent(
+      'Workflow modal for demo.yaml'
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Close workflow' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByTestId('location-search')).toHaveTextContent('');
+  });
+
+  it('closes workflow details and removes its URL state when the workspace changes', () => {
+    function WorkspaceSwitchHarness() {
+      const [workspaceSelection, setWorkspaceSelection] =
+        React.useState<WorkspaceSelection>({
+          kind: WorkspaceKind.all,
+        });
+
+      return (
+        <>
+          <button
+            type="button"
+            onClick={() =>
+              setWorkspaceSelection({
+                kind: WorkspaceKind.workspace,
+                workspace: 'production',
+              })
+            }
+          >
+            Switch workspace
+          </button>
+          <DagsPageHarness
+            setTitle={vi.fn()}
+            workspaceSelection={workspaceSelection}
+          />
+        </>
+      );
+    }
+
+    render(
+      <MemoryRouter initialEntries={['/dags?selectedDAG=demo.yaml']}>
+        <LocationProbe />
+        <WorkspaceSwitchHarness />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByRole('dialog')).toHaveTextContent(
+      'Workflow modal for demo.yaml'
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Switch workspace' }));
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByTestId('location-search')).not.toHaveTextContent(
+      'selectedDAG'
+    );
   });
 
   it('loads and appends the next workflow page from the footer control', async () => {

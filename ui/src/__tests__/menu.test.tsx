@@ -234,8 +234,12 @@ describe('sidebar menu', () => {
     expect(
       screen.getByRole('button', { name: 'Toggle Notifications section' })
     ).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.getByRole('link', { name: 'Rules' })).not.toBeVisible();
-    expect(screen.getByRole('link', { name: 'Channels' })).not.toBeVisible();
+    expect(
+      screen.queryByRole('link', { name: 'Rules' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('link', { name: 'Channels' })
+    ).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Integrations' })).toHaveAttribute(
       'href',
       '/integrations'
@@ -254,8 +258,8 @@ describe('sidebar menu', () => {
     ).toHaveAttribute('aria-expanded', 'false');
 
     expect(
-      screen.getByRole('link', { name: 'API Reference' })
-    ).not.toBeVisible();
+      screen.queryByRole('link', { name: 'API Reference' })
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByRole('link', { name: 'Dashboard' })
     ).not.toBeInTheDocument();
@@ -512,7 +516,8 @@ describe('sidebar menu', () => {
   ])('marks %s as the active notification item', (path, label) => {
     renderMenu(path);
 
-    expect(screen.getByRole('link', { name: label })).toHaveAttribute(
+    expect(screen.queryByRole('link', { name: label })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Notifications' })).toHaveAttribute(
       'aria-current',
       'page'
     );

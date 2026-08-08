@@ -9,6 +9,7 @@
 import { Button } from '@/components/ui/button';
 import { CommandDisplay } from '@/components/ui/command-display';
 import { useErrorModal } from '@/components/ui/error-modal';
+import { useSimpleToast } from '@/components/ui/simple-toast';
 import { ScriptBadge } from '@/components/ui/script-dialog';
 import { TableCell } from '@/components/ui/table';
 import {
@@ -108,24 +109,24 @@ type Props = {
   defaultLogExpanded?: boolean;
 };
 
-type IncrementalExecution = components['schemas']['IncrementalExecution'];
+type BuildExecution = components['schemas']['BuildExecution'];
 
-function IncrementalDecisionBadge({
-  incremental,
+function BuildDecisionBadge({
+  build,
   remoteNode,
 }: {
-  incremental?: IncrementalExecution;
+  build?: BuildExecution;
   remoteNode: string;
 }) {
-  if (!incremental) return null;
+  if (!build) return null;
 
   const label =
-    incremental.decision === 'reuse'
+    build.decision === 'reuse'
       ? 'reused'
-      : incremental.decision === 'always'
+      : build.decision === 'always'
         ? 'always run'
-        : incremental.decision;
-  const producer = incremental.producerRun;
+        : build.decision;
+  const producer = build.producerRun;
 
   return (
     <Tooltip>
@@ -133,7 +134,7 @@ function IncrementalDecisionBadge({
         <span
           className={cn(
             'inline-flex rounded-full border px-2 py-0.5 text-[11px] font-medium',
-            incremental.decision === 'reuse'
+            build.decision === 'reuse'
               ? 'border-success/30 bg-success/10 text-success'
               : 'border-border bg-muted text-muted-foreground'
           )}
@@ -143,10 +144,10 @@ function IncrementalDecisionBadge({
       </TooltipTrigger>
       <TooltipContent className="max-w-80 space-y-1 text-xs">
         <div className="font-medium">
-          {incremental.reason.replace(/_/g, ' ')}
+          {build.reason.replace(/_/g, ' ')}
         </div>
-        {incremental.decision === 'reuse' && <div>No executor ran.</div>}
-        {incremental.detail && <div>{incremental.detail}</div>}
+        {build.decision === 'reuse' && <div>No executor ran.</div>}
+        {build.detail && <div>{build.detail}</div>}
         {producer?.name && producer.id && (
           <Link
             className="block underline underline-offset-2"
@@ -310,6 +311,7 @@ function NodeStatusTableRow({
   const dagRunContext = useContext(DAGRunContext);
   const remoteNode = useRemoteNode();
   const { showError } = useErrorModal();
+  const { showToast } = useSimpleToast();
   // State to store the current duration for running tasks
   const [currentDuration, setCurrentDuration] = useState<string>('-');
   // State for expanding/collapsing parallel executions
@@ -382,7 +384,7 @@ function NodeStatusTableRow({
     loading || dagRun.status === Status.Running || rootRunning;
   const retryTitle = rootRunning
     ? 'Retry unavailable while the root DAG run is running.'
-    : 'Retry from this step';
+    : 'Retry this step';
 
   const subDAGLogQuery = useQuery(
     '/dag-runs/{name}/{dagRunId}/sub-dag-runs/{subDAGRunId}/steps/{stepName}/log',
@@ -618,6 +620,8 @@ function NodeStatusTableRow({
         return;
       }
       setShowDialog(false);
+      showToast('Step retry started');
+      dagContext.refresh();
     } catch (e) {
       const requestError = e as {
         data?: { message?: string };
@@ -690,7 +694,7 @@ function NodeStatusTableRow({
     <Dialog open={showDialog} onOpenChange={handleRetryDialogOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Retry from this step?</DialogTitle>
+          <DialogTitle>Retry this step?</DialogTitle>
         </DialogHeader>
         <div className="py-2 text-sm">
           This will re-execute <b>{node.step.name}</b>. Are you sure?
@@ -982,8 +986,8 @@ function NodeStatusTableRow({
                   {node.statusLabel}
                 </NodeStatusChip>
               </div>
-              <IncrementalDecisionBadge
-                incremental={node.incremental}
+              <BuildDecisionBadge
+                build={node.build}
                 remoteNode={remoteNode}
               />
             </div>
@@ -1193,8 +1197,8 @@ function NodeStatusTableRow({
           <NodeStatusChip status={node.status} size="sm">
             {node.statusLabel}
           </NodeStatusChip>
-          <IncrementalDecisionBadge
-            incremental={node.incremental}
+          <BuildDecisionBadge
+            build={node.build}
             remoteNode={remoteNode}
           />
           {stepActionsMenu}

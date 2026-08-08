@@ -223,11 +223,6 @@ function DAGEditor({
       });
     }
 
-    // Format document after a short delay
-    setTimeout(() => {
-      editor.getAction('editor.action.formatDocument')?.run();
-    }, 100);
-
     // Prevent 'f' key from propagating to prevent fullscreen shortcuts
     // when user is typing in the editor
     editor.onKeyDown((e) => {
@@ -283,7 +278,7 @@ function DAGEditor({
             ? false
             : { other: true, comments: false, strings: true },
           suggestOnTriggerCharacters: !readOnly,
-          formatOnType: !readOnly,
+          formatOnType: false,
           formatOnPaste: !readOnly,
           renderValidationDecorations: readOnly ? 'off' : 'on',
           lineNumbers: lineNumbers ? 'on' : 'off',

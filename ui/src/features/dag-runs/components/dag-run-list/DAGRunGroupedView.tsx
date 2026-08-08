@@ -19,6 +19,8 @@ import { DAGRunArtifactsButton } from './DAGRunArtifactsButton';
 
 interface DAGRunGroupedViewProps {
   dagRuns: components['schemas']['DAGRunSummary'][];
+  /** True while the first page is being fetched; suppresses the empty state. */
+  isLoading?: boolean;
   selectedRunKeys?: Set<string>;
   selectedDAGRun?: { name: string; dagRunId: string } | null;
   onSelectDAGRun?: (dagRun: { name: string; dagRunId: string } | null) => void;
@@ -32,6 +34,7 @@ interface GroupedDAGRuns {
 
 function DAGRunGroupedView({
   dagRuns,
+  isLoading = false,
   selectedRunKeys,
   selectedDAGRun = null,
   onSelectDAGRun,
@@ -164,13 +167,20 @@ function DAGRunGroupedView({
         No DAG runs found
       </h3>
       <p className="text-sm text-muted-foreground text-center max-w-md mb-4">
-        There are no DAG runs matching your current filters. Try adjusting your
-        search criteria or date range.
+        No DAG runs in the selected time range. Adjust the date range or
+        filters, or start a workflow from the Workflows page.
       </p>
     </div>
   );
 
   if (dagRuns.length === 0) {
+    if (isLoading) {
+      return (
+        <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
+          Loading DAG runs...
+        </div>
+      );
+    }
     return <EmptyState />;
   }
 

@@ -11,6 +11,7 @@ import (
 
 	runenv "github.com/dagucloud/dagu/v2/internal/runctx/env"
 
+	"github.com/dagucloud/dagu/v2/internal/build"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
@@ -18,7 +19,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
-	"github.com/dagucloud/dagu/v2/internal/incremental"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 )
@@ -41,7 +41,7 @@ type Context struct {
 	DAGRunStore          dagrun.DAGRunStore
 	QueueStore           queue.QueueStore
 	StateStore           dagstate.Store
-	MaterializationStore incremental.MaterializationStore
+	MaterializationStore build.MaterializationStore
 	DAGRunLogDir         string
 	DAGRunArtifactDir    string
 	ProfileName          string
@@ -266,8 +266,8 @@ func WithStateStore(store dagstate.Store) ContextOption {
 	}
 }
 
-// WithMaterializationStore sets the incremental materialization store.
-func WithMaterializationStore(store incremental.MaterializationStore) ContextOption {
+// WithMaterializationStore sets the build materialization store.
+func WithMaterializationStore(store build.MaterializationStore) ContextOption {
 	return func(o *contextOptions) {
 		o.MaterializationStore = store
 	}

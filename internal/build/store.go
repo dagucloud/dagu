@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package incremental
+package build
 
 import (
 	"context"
@@ -48,7 +48,7 @@ type FileSnapshot struct {
 	Digest string `json:"digest"`
 }
 
-// Materialization records one committed incremental output.
+// Materialization records one committed build output.
 type Materialization struct {
 	SchemaVersion      int              `json:"schemaVersion"`
 	MaterializationKey string           `json:"materializationKey"`

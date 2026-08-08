@@ -142,12 +142,12 @@ func (r *Renderer) renderStep(node *dagrun.Node, isLast bool, prefix string) str
 
 	buf.WriteString(r.renderStepHeader(node, isLast, prefix))
 
-	// A skipped incremental node still has a decision explaining why execution
+	// A skipped build node still has a decision explaining why execution
 	// did not begin.
 	if isSkippedStatus(node.Status) {
-		if node.Incremental != nil {
+		if node.Build != nil {
 			cPrefix := childPrefix(prefix, isLast)
-			buf.WriteString(r.renderIncremental(node.Incremental, true, cPrefix))
+			buf.WriteString(r.renderBuild(node.Build, true, cPrefix))
 		}
 		if !isLast {
 			buf.WriteString(prefix + TreePipe + "\n")
@@ -190,14 +190,14 @@ func (r *Renderer) renderStepContent(node *dagrun.Node, isLast bool, prefix stri
 	hasError := node.Error != "" && node.Status == ir.NodeFailed
 	hasSubRuns := len(node.SubRuns) > 0
 	hasHumanTask := node.Status == ir.NodeWaiting && node.Step.HumanTask != nil
-	hasIncremental := node.Incremental != nil
+	hasBuild := node.Build != nil
 
-	hasFollowingContent := hasOutput || hasError || hasSubRuns || hasHumanTask || hasIncremental
+	hasFollowingContent := hasOutput || hasError || hasSubRuns || hasHumanTask || hasBuild
 	wroteField := r.renderCommands(&buf, node, cPrefix, hasFollowingContent)
 
-	if hasIncremental {
+	if hasBuild {
 		r.addFieldSpacing(&buf, wroteField, cPrefix)
-		buf.WriteString(r.renderIncremental(node.Incremental, !hasOutput && !hasError && !hasSubRuns && !hasHumanTask, cPrefix))
+		buf.WriteString(r.renderBuild(node.Build, !hasOutput && !hasError && !hasSubRuns && !hasHumanTask, cPrefix))
 		wroteField = true
 	}
 
@@ -227,8 +227,8 @@ func (r *Renderer) renderStepContent(node *dagrun.Node, isLast bool, prefix stri
 	return buf.String()
 }
 
-func (r *Renderer) renderIncremental(value *dagrun.IncrementalExecution, isLast bool, prefix string) string {
-	line := fmt.Sprintf("incremental: %s (%s)", value.Decision, value.Reason)
+func (r *Renderer) renderBuild(value *dagrun.BuildExecution, isLast bool, prefix string) string {
+	line := fmt.Sprintf("build: %s (%s)", value.Decision, value.Reason)
 	if value.Detail != "" {
 		line += " - " + value.Detail
 	}

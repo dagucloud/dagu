@@ -63,10 +63,6 @@ type Props = {
   onDoubleClickNode?: onClickNode;
   /** Callback for node right-click events */
   onRightClickNode?: onRightClickNode;
-  /** Whether to show status icons */
-  showIcons?: boolean;
-  /** Whether to animate running nodes */
-  animate?: boolean;
   /** Whether the graph is currently displayed in an expanded modal view */
   isExpandedView?: boolean;
   /** Custom height for the graph container */
@@ -131,7 +127,6 @@ function Graph({
   selectOnClick = false,
   onDoubleClickNode,
   onRightClickNode,
-  showIcons = true,
   isExpandedView = false,
   height,
 }: Props): React.JSX.Element {
@@ -395,7 +390,7 @@ function Graph({
     });
 
     return dat.join('\n');
-  }, [steps, onClickNode, flowchart, showIcons, isDarkMode]);
+  }, [steps, type, onClickNode, flowchart, isDarkMode]);
 
   return (
     <div
@@ -538,7 +533,6 @@ function Graph({
                 selectOnClick={selectOnClick}
                 onDoubleClickNode={onDoubleClickNode}
                 onRightClickNode={onRightClickNode}
-                showIcons={showIcons}
                 isExpandedView={true}
               />
             </div>

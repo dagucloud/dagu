@@ -11,22 +11,22 @@ import (
 
 	runenv "github.com/dagucloud/dagu/v2/internal/runctx/env"
 
+	"github.com/dagucloud/dagu/v2/internal/build"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/incremental"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
-func prepareIncrementalPlan(ctx context.Context, plan *Plan) error {
+func prepareBuildPlan(ctx context.Context, plan *Plan) error {
 	dag := GetDAGContext(ctx).DAG
-	if dag == nil || dag.Type != ir.TypeIncremental {
+	if dag == nil || dag.Type != ir.TypeBuild {
 		return nil
 	}
 	baseEnv, err := NewEnvWithError(ctx, ir.Step{})
 	if err != nil {
 		return err
 	}
-	base := incrementalDeclaredPathBase(dag, baseEnv.WorkingDir)
-	pathKeys := incremental.NewPathKeyResolver()
+	base := buildDeclaredPathBase(dag, baseEnv.WorkingDir)
+	pathKeys := build.NewPathKeyResolver()
 	producers := make(map[string]string)
 	declaredPaths := make(map[string]string)
 
@@ -45,11 +45,11 @@ func prepareIncrementalPlan(ctx context.Context, plan *Plan) error {
 			if cmnvalue.HasValueReference(resolved) {
 				return fmt.Errorf("step %s input %s path must resolve before execution", step.Name, step.Inputs[idx].Name)
 			}
-			step.Inputs[idx].Path, err = incremental.ResolvePath(resolved, base, false)
+			step.Inputs[idx].Path, err = build.ResolvePath(resolved, base, false)
 			if err != nil {
 				return fmt.Errorf("step %s input %s: %w", step.Name, step.Inputs[idx].Name, err)
 			}
-			declaredPaths[pathKeys.ComparisonKey(step.Inputs[idx].Path)] = fmt.Sprintf("incremental input %s declared by %s", step.Inputs[idx].Name, step.Name)
+			declaredPaths[pathKeys.ComparisonKey(step.Inputs[idx].Path)] = fmt.Sprintf("build input %s declared by %s", step.Inputs[idx].Name, step.Name)
 		}
 		for idx := range step.Outputs {
 			if step.Outputs[idx].Path == "" {
@@ -62,16 +62,16 @@ func prepareIncrementalPlan(ctx context.Context, plan *Plan) error {
 			if cmnvalue.HasValueReference(resolved) {
 				return fmt.Errorf("step %s output %s path must resolve before execution", step.Name, step.Outputs[idx].Name)
 			}
-			step.Outputs[idx].Path, err = incremental.ResolvePath(resolved, base, true)
+			step.Outputs[idx].Path, err = build.ResolvePath(resolved, base, true)
 			if err != nil {
 				return fmt.Errorf("step %s output %s: %w", step.Name, step.Outputs[idx].Name, err)
 			}
 			key := pathKeys.ComparisonKey(step.Outputs[idx].Path)
 			if previous, exists := producers[key]; exists {
-				return fmt.Errorf("incremental output path %s has multiple producers: %s and %s", step.Outputs[idx].Path, previous, step.Name)
+				return fmt.Errorf("build output path %s has multiple producers: %s and %s", step.Outputs[idx].Path, previous, step.Name)
 			}
 			producers[key] = step.Name
-			declaredPaths[key] = fmt.Sprintf("incremental output produced by %s", step.Name)
+			declaredPaths[key] = fmt.Sprintf("build output produced by %s", step.Name)
 		}
 		for _, input := range step.Inputs {
 			for _, output := range step.Outputs {
@@ -89,7 +89,7 @@ func prepareIncrementalPlan(ctx context.Context, plan *Plan) error {
 		if err != nil {
 			return err
 		}
-		if err := validateIncrementalRedirectAliases(ctx, step, env, base, declaredPaths, pathKeys, true); err != nil {
+		if err := validateBuildRedirectAliases(ctx, step, env, base, declaredPaths, pathKeys, true); err != nil {
 			return err
 		}
 
@@ -104,22 +104,22 @@ func prepareIncrementalPlan(ctx context.Context, plan *Plan) error {
 	return nil
 }
 
-func incrementalDeclaredPathBase(dag *ir.DAG, runtimeWorkingDir string) string {
+func buildDeclaredPathBase(dag *ir.DAG, runtimeWorkingDir string) string {
 	if dag.WorkingDirExplicit {
 		return runtimeWorkingDir
 	}
 	return dag.WorkingDir
 }
 
-type incrementalRedirect struct {
+type buildRedirect struct {
 	field    string
 	path     string
 	artifact bool
 }
 
-func validateIncrementalRuntimeRedirectAliases(ctx context.Context, plan *Plan, node *Node) error {
+func validateBuildRuntimeRedirectAliases(ctx context.Context, plan *Plan, node *Node) error {
 	dag := GetDAGContext(ctx).DAG
-	if dag == nil || dag.Type != ir.TypeIncremental {
+	if dag == nil || dag.Type != ir.TypeBuild {
 		return nil
 	}
 	step := node.Step()
@@ -130,49 +130,49 @@ func validateIncrementalRuntimeRedirectAliases(ctx context.Context, plan *Plan, 
 		return nil
 	}
 
-	pathKeys := incremental.NewPathKeyResolver()
+	pathKeys := build.NewPathKeyResolver()
 	declaredPaths := make(map[string]string)
 	for _, planNode := range plan.Nodes() {
 		step := planNode.Step()
 		for _, input := range step.Inputs {
-			declaredPaths[pathKeys.ComparisonKey(input.Path)] = fmt.Sprintf("incremental input %s declared by %s", input.Name, step.Name)
+			declaredPaths[pathKeys.ComparisonKey(input.Path)] = fmt.Sprintf("build input %s declared by %s", input.Name, step.Name)
 		}
 		for _, output := range step.Outputs {
 			if output.Path != "" {
-				declaredPaths[pathKeys.ComparisonKey(output.Path)] = fmt.Sprintf("incremental output produced by %s", step.Name)
+				declaredPaths[pathKeys.ComparisonKey(output.Path)] = fmt.Sprintf("build output produced by %s", step.Name)
 			}
 		}
 	}
 	env := GetEnv(ctx)
-	return validateIncrementalRedirectAliases(
+	return validateBuildRedirectAliases(
 		ctx,
 		step,
 		env,
-		incrementalDeclaredPathBase(dag, env.WorkingDir),
+		buildDeclaredPathBase(dag, env.WorkingDir),
 		declaredPaths,
 		pathKeys,
 		false,
 	)
 }
 
-func validateIncrementalRedirectAliases(
+func validateBuildRedirectAliases(
 	ctx context.Context,
 	step ir.Step,
 	env Env,
 	base string,
 	declaredPaths map[string]string,
-	pathKeys *incremental.PathKeyResolver,
+	pathKeys *build.PathKeyResolver,
 	deferUnresolved bool,
 ) error {
-	redirects := []incrementalRedirect{
+	redirects := []buildRedirect{
 		{field: "stdout", path: step.Stdout},
 		{field: "stderr", path: step.Stderr},
 	}
 	if step.StdoutArtifact != "" {
-		redirects = append(redirects, incrementalRedirect{field: "stdout.artifact", path: step.StdoutArtifact, artifact: true})
+		redirects = append(redirects, buildRedirect{field: "stdout.artifact", path: step.StdoutArtifact, artifact: true})
 	}
 	if step.StderrArtifact != "" {
-		redirects = append(redirects, incrementalRedirect{field: "stderr.artifact", path: step.StderrArtifact, artifact: true})
+		redirects = append(redirects, buildRedirect{field: "stderr.artifact", path: step.StderrArtifact, artifact: true})
 	}
 
 	resolver := resolverFromEnv(env)

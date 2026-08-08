@@ -443,7 +443,7 @@ func decodeStep(raw map[string]any) (*step, error) {
 		DecodeHook:  typedUnionDecodeHook(),
 	})
 	if err := md.Decode(raw); err != nil {
-		return nil, ir.NewValidationError("steps", raw, withSnakeCaseKeyHint(err))
+		return nil, ir.NewValidationError("steps", raw, withLegacyKeyHint(err))
 	}
 	_, st.outputsSet = raw["outputs"]
 	_, st.inputsSet = raw["inputs"]

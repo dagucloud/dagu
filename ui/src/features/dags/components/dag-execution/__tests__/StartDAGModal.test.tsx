@@ -357,7 +357,7 @@ describe('StartDAGModal', () => {
     );
   });
 
-  it('can disable reuse for an incremental run', async () => {
+  it('can disable reuse for a build run', async () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn().mockResolvedValue(undefined);
 
@@ -366,7 +366,7 @@ describe('StartDAGModal', () => {
         visible={true}
         dismissModal={vi.fn()}
         onSubmit={onSubmit}
-        dag={{ name: 'incremental-dag', type: 'incremental' } as never}
+        dag={{ name: 'build-dag', type: 'build' } as never}
       />
     );
 

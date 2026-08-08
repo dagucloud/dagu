@@ -340,7 +340,7 @@ type StartOptions struct {
 	Tags         string // Deprecated: use Labels.
 	ScheduleTime string // RFC 3339 timestamp of when this run was scheduled
 	ProfileName  string // Runtime profile name
-	NoReuse      bool   // Disable incremental materialization reuse
+	NoReuse      bool   // Disable build materialization reuse
 }
 
 // EnqueueOptions contains options for enqueuing a dag-run.
@@ -356,7 +356,7 @@ type EnqueueOptions struct {
 	Tags         string // Deprecated: use Labels.
 	ScheduleTime string // RFC 3339 timestamp of when this run was scheduled
 	ProfileName  string // Runtime profile name
-	NoReuse      bool   // Disable incremental materialization reuse
+	NoReuse      bool   // Disable build materialization reuse
 }
 
 // RetryOptions contains options for retrying a dag-run.

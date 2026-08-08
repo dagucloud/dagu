@@ -59,6 +59,24 @@ func TestLoad(t *testing.T) {
 			useFile:     true,
 			errContains: "invalidyaml",
 		},
+		{
+			name:        "RemovedExecutorKeyHint",
+			content:     "steps:\n  - name: a\n    executor: docker\n",
+			useFile:     true,
+			errContains: `"executor" has been removed; use "action"`,
+		},
+		{
+			name:        "LegacyCamelCaseKeyHint",
+			content:     "steps:\n  - name: a\n    run: \"true\"\n    retryPolicy:\n      limit: 2\n",
+			useFile:     true,
+			errContains: "use snake_case keys (retryPolicy -> retry_policy)",
+		},
+		{
+			name:        "RenamedPreconditionKeyHint",
+			content:     "steps:\n  - name: a\n    run: \"true\"\n    precondition: \"test -f /tmp/x\"\n",
+			useFile:     true,
+			errContains: `use "preconditions"`,
+		},
 	}
 
 	for _, tt := range errorTests {
@@ -1670,12 +1688,12 @@ steps:
 	assert.Equal(t, ir.TypeGraph, childDAG.Type)
 }
 
-func TestLoadYAMLIncrementalLocalDAGUsesParentWorkingDirAsStableBase(t *testing.T) {
+func TestLoadYAMLBuildLocalDAGUsesParentWorkingDirAsStableBase(t *testing.T) {
 	t.Parallel()
 
 	parentWorkingDir := t.TempDir()
 	dag, err := spec.LoadYAML(context.Background(), fmt.Appendf(nil, `
-type: incremental
+type: build
 working_dir: %q
 steps:
   - name: call-child
@@ -1685,7 +1703,7 @@ steps:
 
 ---
 name: child-task
-type: incremental
+type: build
 steps:
   - id: build
     run: echo build

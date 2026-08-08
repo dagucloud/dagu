@@ -18,9 +18,9 @@ import (
 
 	runenv "github.com/dagucloud/dagu/v2/internal/runctx/env"
 
+	"github.com/dagucloud/dagu/v2/internal/build"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
-	"github.com/dagucloud/dagu/v2/internal/incremental"
 	"github.com/dagucloud/dagu/v2/internal/runctx"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
@@ -65,7 +65,7 @@ type Runner struct {
 	stepExecutor     *StepExecutor
 	onWait           *ir.Step
 	forcedStatus     *ir.Status
-	materializations incremental.MaterializationStore
+	materializations build.MaterializationStore
 	noReuse          bool
 
 	dagRunAutoRetryCount int
@@ -134,7 +134,7 @@ type Config struct {
 	MessagesHandler      ChatMessagesHandler
 	OnWait               *ir.Step
 	ForcedStatus         *ir.Status
-	MaterializationStore incremental.MaterializationStore
+	MaterializationStore build.MaterializationStore
 	NoReuse              bool
 
 	DAGRunAutoRetryCount int
@@ -147,7 +147,7 @@ func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan *Node) err
 	if err := r.setup(ctx); err != nil {
 		return err
 	}
-	if err := prepareIncrementalPlan(ctx, plan); err != nil {
+	if err := prepareBuildPlan(ctx, plan); err != nil {
 		return err
 	}
 	r.resetRunState(plan)
@@ -408,7 +408,7 @@ func (r *Runner) runGraphLoop(ctx context.Context, plan *Plan, nodes []*Node, pr
 					return
 				}
 				if !r.dry {
-					if err := validateIncrementalRuntimeRedirectAliases(ctx, plan, n); err != nil {
+					if err := validateBuildRuntimeRedirectAliases(ctx, plan, n); err != nil {
 						r.setLastError(err)
 						n.MarkError(err)
 						n.SetStatus(ir.NodeFailed)
@@ -550,11 +550,11 @@ func (r *Runner) runNodeExecution(ctx context.Context, plan *Plan, node *Node, p
 	defer teardownPreparedNode()
 
 	var stagingPath string
-	ctx, incrementalSession, err := r.startIncrementalSession(ctx, plan, node)
-	if incrementalSession != nil {
+	ctx, buildSession, err := r.startBuildSession(ctx, plan, node)
+	if buildSession != nil {
 		defer func() {
-			if closeErr := incrementalSession.Close(stagingPath); closeErr != nil {
-				logger.Warn(ctx, "Failed to release incremental path locks", tag.Error(closeErr))
+			if closeErr := buildSession.Close(stagingPath); closeErr != nil {
+				logger.Warn(ctx, "Failed to release build path locks", tag.Error(closeErr))
 			}
 		}()
 	}
@@ -569,22 +569,22 @@ func (r *Runner) runNodeExecution(ctx context.Context, plan *Plan, node *Node, p
 	// Check preconditions
 	logger.Debug(ctx, "Checking preconditions")
 	preconditionProgress := progressCh
-	if incrementalSession != nil {
+	if buildSession != nil {
 		preconditionProgress = nil
 	}
 	met, err := meetsPreconditions(ctx, node, preconditionProgress)
 	if err != nil {
-		markIncrementalPrecondition(incrementalSession, node, dagrun.IncrementalReasonPreconditionError, "", progressCh)
+		markBuildPrecondition(buildSession, node, dagrun.BuildReasonPreconditionError, "", progressCh)
 		r.setLastError(err)
 		r.Cancel(plan)
 		return
 	}
 	if !met {
-		markIncrementalPrecondition(incrementalSession, node, dagrun.IncrementalReasonPreconditionNotMet,
+		markBuildPrecondition(buildSession, node, dagrun.BuildReasonPreconditionNotMet,
 			"step precondition was not met", progressCh)
 		return
 	}
-	if r.evaluateIncrementalNode(ctx, node, incrementalSession, reportPreparedNode) {
+	if r.evaluateBuildNode(ctx, node, buildSession, reportPreparedNode) {
 		return
 	}
 
@@ -596,7 +596,7 @@ func (r *Runner) runNodeExecution(ctx context.Context, plan *Plan, node *Node, p
 ExecRepeat: // repeat execution
 	for !r.isCanceled() {
 		logger.Debug(ctx, "Executing node loop")
-		attemptCtx, nextStagingPath, attemptErr := prepareIncrementalAttempt(ctx, node, incrementalSession, declaredStep)
+		attemptCtx, nextStagingPath, attemptErr := prepareBuildAttempt(ctx, node, buildSession, declaredStep)
 		stagingPath = nextStagingPath
 		if attemptErr != nil {
 			r.setLastError(attemptErr)
@@ -606,7 +606,7 @@ ExecRepeat: // repeat execution
 		}
 		execErr := r.execNode(attemptCtx, node, progressCh)
 		if execErr == nil {
-			committed, commitErr := commitIncrementalAttempt(attemptCtx, node, incrementalSession, stagingPath)
+			committed, commitErr := commitBuildAttempt(attemptCtx, node, buildSession, stagingPath)
 			if committed {
 				stagingPath = ""
 			}
@@ -669,10 +669,10 @@ ExecRepeat: // repeat execution
 	if node.State().Status == ir.NodeSucceeded && node.Step().Approval != nil {
 		node.SetStatus(ir.NodeWaiting)
 	}
-	if node.State().Status == ir.NodeSucceeded && incrementalSession != nil {
-		metadata := incrementalSession.Metadata()
-		metadata.Phase = dagrun.IncrementalPhaseComplete
-		node.setIncremental(metadata)
+	if node.State().Status == ir.NodeSucceeded && buildSession != nil {
+		metadata := buildSession.Metadata()
+		metadata.Phase = dagrun.BuildPhaseComplete
+		node.setBuild(metadata)
 	}
 
 	// Save chat messages after execution (including waiting steps for push-back continuity).
@@ -917,10 +917,10 @@ func (r *Runner) setupVariables(ctx context.Context, plan *Plan, node *Node) (co
 		}
 	}
 
-	// Path-dependent environment values are resolved after incremental paths
+	// Path-dependent environment values are resolved after build paths
 	// enter scope. Output-dependent values are refreshed for every attempt.
 	stepEnv := node.Step().Env
-	if env.DAG != nil && env.DAG.Type == ir.TypeIncremental {
+	if env.DAG != nil && env.DAG.Type == ir.TypeBuild {
 		_, hasPathOutput := node.Step().PathOutput()
 		if len(node.Step().Inputs) > 0 || hasPathOutput {
 			stepEnv = environmentWithoutAttemptPaths(stepEnv)

@@ -77,13 +77,19 @@ var legacyToSnakeCaseKey = map[string]string{
 	"maxContextTokens":      "max_context_tokens",
 	"observationMaxBytes":   "observation_max_bytes",
 	"observationKeepRecent": "observation_keep_recent",
-	// Semantic renames (not just casing changes): these map legacy keys to their new equivalents.
-	"precondition": "preconditions",
-	"dir":          "working_dir",
-	"run":          "call",
 }
 
-func withSnakeCaseKeyHint(err error) error {
+// removedKeyHint maps keys that were renamed or removed (not just re-cased) to
+// a complete replacement hint.
+var removedKeyHint = map[string]string{
+	"precondition": `"precondition" is no longer supported; use "preconditions"`,
+	"dir":          `"dir" is no longer supported; use "working_dir"`,
+	"executor":     `"executor" has been removed; use "action" and pass executor options under "with"`,
+}
+
+// withLegacyKeyHint appends replacement hints to decoder errors that report
+// unknown keys, covering both camelCase-to-snake_case renames and removed keys.
+func withLegacyKeyHint(err error) error {
 	if err == nil {
 		return nil
 	}
@@ -101,21 +107,29 @@ func withSnakeCaseKeyHint(err error) error {
 	}
 
 	keys := strings.Split(raw, ",")
-	suggestions := make([]string, 0, len(keys))
+	snakeCasePairs := make([]string, 0, len(keys))
+	clauses := make([]string, 0, len(keys))
 	for _, key := range keys {
 		k := strings.TrimSpace(strings.Trim(key, `"'`))
 		if k == "" {
 			continue
 		}
-		snake, ok := legacyToSnakeCaseKey[k]
-		if !ok {
+		if hint, ok := removedKeyHint[k]; ok {
+			clauses = append(clauses, hint)
 			continue
 		}
-		suggestions = append(suggestions, fmt.Sprintf("%s -> %s", k, snake))
+		if snake, ok := legacyToSnakeCaseKey[k]; ok {
+			snakeCasePairs = append(snakeCasePairs, fmt.Sprintf("%s -> %s", k, snake))
+		}
 	}
 
-	if len(suggestions) == 0 {
+	if len(snakeCasePairs) > 0 {
+		clauses = append([]string{
+			fmt.Sprintf("use snake_case keys (%s)", strings.Join(snakeCasePairs, ", ")),
+		}, clauses...)
+	}
+	if len(clauses) == 0 {
 		return err
 	}
-	return fmt.Errorf("%w; use snake_case keys (%s)", err, strings.Join(suggestions, ", "))
+	return fmt.Errorf("%w; %s", err, strings.Join(clauses, "; "))
 }

@@ -1203,7 +1203,7 @@ func (n *Node) ResetForRerun(step ir.Step) {
 	n.cmdEvaluated.Store(false)
 }
 
-func (n *Node) resetForIncrementalAttempt(step ir.Step) {
+func (n *Node) resetForBuildAttempt(step ir.Step) {
 	n.SetStep(step)
 	n.cmdEvaluated.Store(false)
 }

@@ -196,8 +196,8 @@ func runRetry(ctx *Context, args []string) error {
 	if err := applyRetryDefaultWorkingDir(ctx, dag, status); err != nil {
 		return err
 	}
-	if dag.Type == ir.TypeIncremental && workerID != "local" {
-		return dispatch.ErrIncrementalRequiresLocal
+	if dag.Type == ir.TypeBuild && workerID != "local" {
+		return dispatch.ErrBuildRequiresLocal
 	}
 
 	if err := prepareQueuedCatchupRetry(ctx, attempt, dag, status); err != nil {

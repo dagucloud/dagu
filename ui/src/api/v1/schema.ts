@@ -4617,7 +4617,7 @@ export interface components {
         /** @description Detailed DAG configuration information */
         DAGDetails: {
             /**
-             * @description Execution type. 'graph' resolves dependencies, 'chain' runs steps in order, 'controller' lets an LLM choose each step, and 'incremental' adds file-derived dependencies and materialization reuse.
+             * @description Execution type. 'graph' resolves dependencies, 'chain' runs steps in order, 'controller' lets an LLM choose each step, and 'build' adds file-derived dependencies and materialization reuse.
              * @enum {string}
              */
             type?: DAGDetailsType;
@@ -4849,7 +4849,7 @@ export interface components {
             finishedAt: string;
             /** @description Whether artifact files are available for this DAG-run */
             artifactsAvailable: boolean;
-            /** @description Whether reuse of prior incremental materializations was disabled for this DAG-run */
+            /** @description Whether reuse of prior build materializations was disabled for this DAG-run */
             noReuse?: boolean;
             /** @description Runtime parameters passed to the DAG-run in JSON format */
             params?: string;
@@ -5022,23 +5022,23 @@ export interface components {
             reason?: string;
         };
         /** @description DAG-run that produced a reused materialization */
-        IncrementalProducer: {
+        BuildProducer: {
             name?: string;
             id?: string;
         };
-        /** @description Incremental execution decision and its explanation */
-        IncrementalExecution: {
+        /** @description Build execution decision and its explanation */
+        BuildExecution: {
             /** @enum {string} */
-            decision: IncrementalExecutionDecision;
+            decision: BuildExecutionDecision;
             /** @enum {string} */
-            phase: IncrementalExecutionPhase;
+            phase: BuildExecutionPhase;
             /** @description Stable machine-readable reason for the decision */
             reason: string;
             /** @description Human-readable explanation of the decision */
             detail?: string;
             fingerprint?: string;
             materializationKey?: string;
-            producerRun?: components["schemas"]["IncrementalProducer"];
+            producerRun?: components["schemas"]["BuildProducer"];
             producerAttemptId?: string;
         };
         /** @description Status of an individual step within a DAG-run */
@@ -5064,7 +5064,7 @@ export interface components {
             subRunsRepeated?: components["schemas"]["SubDAGRun"][];
             /** @description Error message if the step failed */
             error?: string;
-            incremental?: components["schemas"]["IncrementalExecution"];
+            build?: components["schemas"]["BuildExecution"];
             /** @description Name of the subject that completed the human task */
             humanTaskCompletedBy?: string;
             /** @description ID of the subject that completed the human task; local CLI IDs use the os:<uid> form */
@@ -5136,7 +5136,7 @@ export interface components {
             /** @description RFC 3339 timestamp when the sub DAG-run finished */
             finishedAt?: string;
         };
-        /** @description One named value output or incremental file output */
+        /** @description One named value output or build file output */
         StepOutputDeclaration: {
             /** @description Published output name scoped to the declaring step */
             name: string;
@@ -5145,10 +5145,10 @@ export interface components {
              * @enum {string}
              */
             type?: StepOutputDeclarationType;
-            /** @description Regular-file path published atomically by an incremental step */
+            /** @description Regular-file path published atomically by a build step */
             path?: string;
         };
-        /** @description One named regular-file input for incremental execution */
+        /** @description One named regular-file input for build execution */
         StepInputDeclaration: {
             name: string;
             path: string;
@@ -5175,7 +5175,7 @@ export interface components {
             output?: string;
             /** @description Declared named outputs. Value outputs are published through DAGU_OUTPUT_FILE; path outputs publish a verified materialized file. Steps that declare outputs must also define id. */
             outputs?: components["schemas"]["StepOutputDeclaration"][];
-            /** @description Named regular-file inputs used for incremental fingerprints and inferred dependencies. Steps that declare inputs must also define id. */
+            /** @description Named regular-file inputs used for build fingerprints and inferred dependencies. Steps that declare inputs must also define id. */
             inputs?: components["schemas"]["StepInputDeclaration"][];
             /** @description The name of the DAG to execute as a sub DAG-run */
             call?: string;
@@ -7729,7 +7729,7 @@ export interface operations {
                      */
                     singleton?: boolean;
                     /**
-                     * @description If true, execute eligible incremental steps without reusing prior materializations
+                     * @description If true, execute eligible build steps without reusing prior materializations
                      * @default false
                      */
                     noReuse?: boolean;
@@ -7810,7 +7810,7 @@ export interface operations {
                      */
                     singleton?: boolean;
                     /**
-                     * @description If true, execute eligible incremental steps without reusing prior materializations
+                     * @description If true, execute eligible build steps without reusing prior materializations
                      * @default false
                      */
                     noReuse?: boolean;
@@ -7904,7 +7904,7 @@ export interface operations {
                      */
                     singleton?: boolean;
                     /**
-                     * @description If true, execute eligible incremental steps without reusing prior materializations
+                     * @description If true, execute eligible build steps without reusing prior materializations
                      * @default false
                      */
                     noReuse?: boolean;
@@ -8701,7 +8701,7 @@ export interface operations {
                      */
                     singleton?: boolean;
                     /**
-                     * @description If true, execute eligible incremental steps without reusing prior materializations
+                     * @description If true, execute eligible build steps without reusing prior materializations
                      * @default false
                      */
                     noReuse?: boolean;
@@ -8783,7 +8783,7 @@ export interface operations {
                      */
                     singleton?: boolean;
                     /**
-                     * @description If true, execute eligible incremental steps without reusing prior materializations
+                     * @description If true, execute eligible build steps without reusing prior materializations
                      * @default false
                      */
                     noReuse?: boolean;
@@ -18008,7 +18008,7 @@ export enum DAGDetailsType {
     graph = "graph",
     chain = "chain",
     controller = "controller",
-    incremental = "incremental"
+    build = "build"
 }
 export enum ValueReferenceNoticeReason {
     unknown_step_id = "unknown_step_id",
@@ -18059,14 +18059,14 @@ export enum ControllerTaskStatus {
     skipped = "skipped",
     failed = "failed"
 }
-export enum IncrementalExecutionDecision {
+export enum BuildExecutionDecision {
     none = "none",
     always = "always",
     execute = "execute",
     reuse = "reuse",
     deferred = "deferred"
 }
-export enum IncrementalExecutionPhase {
+export enum BuildExecutionPhase {
     precondition = "precondition",
     evaluate = "evaluate",
     execute = "execute",

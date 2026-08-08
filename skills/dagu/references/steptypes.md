@@ -237,7 +237,7 @@ Completing the last waiting human task resumes a local run directly. A distribut
 
 ## Declared Value Outputs
 
-Declare value-form `outputs:` when a step should publish named values for later steps as `${steps.<step_id>.outputs.<name>}`. Incremental file outputs use `path` instead; see `references/incremental.md`.
+Declare value-form `outputs:` when a step should publish named values for later steps as `${steps.<step_id>.outputs.<name>}`. Build file outputs use `path` instead; see `references/build.md`.
 
 ```yaml
 steps:

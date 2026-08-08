@@ -14,8 +14,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
-// ErrIncrementalRequiresLocal reports that distributed materialization fencing is unavailable.
-var ErrIncrementalRequiresLocal = errors.New("incremental workflows require local execution; distributed fencing is not implemented")
+// ErrBuildRequiresLocal reports that distributed materialization fencing is unavailable.
+var ErrBuildRequiresLocal = errors.New("build workflows require local execution; distributed fencing is not implemented")
 
 // ShouldDispatchToCoordinator decides whether a DAG should be dispatched
 // to the coordinator for distributed execution.

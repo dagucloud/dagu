@@ -13,7 +13,7 @@ Use scoped references when Dagu should resolve a named value before execution.
 | `${consts.NAME}` | Top-level `consts:` value |
 | `${params.NAME}` | Runtime parameter value |
 | `${env.NAME}` | Value in Dagu's runtime environment scope for the current step |
-| `${steps.<step_id>.outputs.<name>}` | Declared value output, human-task form value, or committed incremental path output |
+| `${steps.<step_id>.outputs.<name>}` | Declared value output, human-task form value, or committed build path output |
 
 Use shell `$NAME` or `printenv NAME` only when the target shell or process should read the variable at execution time.
 
@@ -141,4 +141,4 @@ Rules:
 
 Declared step outputs are different from DAG or remote action outputs. To publish caller-visible DAG/action outputs, use `stdout.outputs` or `action: outputs.write`.
 
-In a `type: incremental` workflow, an `outputs:` entry may declare `path` instead of a value `type`. The owning step writes to `${outputs.<name>}`, and `${steps.<step_id>.outputs.<name>}` publishes the final path only after commit or reuse. See `references/incremental.md`.
+In a `type: build` workflow, an `outputs:` entry may declare `path` instead of a value `type`. The owning step writes to `${outputs.<name>}`, and `${steps.<step_id>.outputs.<name>}` publishes the final path only after commit or reuse. See `references/build.md`.

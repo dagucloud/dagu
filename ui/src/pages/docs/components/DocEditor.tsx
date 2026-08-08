@@ -16,7 +16,7 @@ import {
   workspaceDocumentSelectionQuery,
 } from '@/lib/workspace';
 import { cn } from '@/lib/utils';
-import { copyText } from '@/lib/clipboard';
+import { useCopyFeedback } from '@/hooks/useCopyFeedback';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import {
   Check,
@@ -272,49 +272,10 @@ function DocEditor({
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  const [copiedName, setCopiedName] = useState<string | null>(null);
-  const [copiedContent, setCopiedContent] = useState(false);
-  const copiedNameResetRef = useRef<ReturnType<typeof setTimeout>>(null);
-  const copiedContentResetRef = useRef<ReturnType<typeof setTimeout>>(null);
+  const { copied: nameCopied, copy: copyName } = useCopyFeedback();
+  const { copied: copiedContent, copy: copyContent } = useCopyFeedback();
 
   const title = doc?.title || docPath.split('/').pop() || docPath;
-  const nameCopied = copiedName !== null && copiedName === title;
-
-  const copyName = useCallback(async () => {
-    if (!title) return;
-    if (!(await copyText(title))) return;
-    setCopiedName(title);
-    if (copiedNameResetRef.current) {
-      clearTimeout(copiedNameResetRef.current);
-    }
-    copiedNameResetRef.current = setTimeout(() => setCopiedName(null), 2000);
-  }, [title]);
-
-  const copyContent = useCallback(async () => {
-    const text = currentValue ?? '';
-    if (!text) return;
-    if (!(await copyText(text))) return;
-    setCopiedContent(true);
-    if (copiedContentResetRef.current) {
-      clearTimeout(copiedContentResetRef.current);
-    }
-    copiedContentResetRef.current = setTimeout(
-      () => setCopiedContent(false),
-      2000
-    );
-  }, [currentValue]);
-
-  useEffect(
-    () => () => {
-      if (copiedNameResetRef.current) {
-        clearTimeout(copiedNameResetRef.current);
-      }
-      if (copiedContentResetRef.current) {
-        clearTimeout(copiedContentResetRef.current);
-      }
-    },
-    []
-  );
 
   return (
     <div className="flex flex-col h-full">
@@ -329,7 +290,7 @@ function DocEditor({
         {title && (
           <button
             type="button"
-            onClick={copyName}
+            onClick={() => copyName(title)}
             className="inline-flex items-center gap-1 px-1.5 py-0.5 text-xs rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-all shrink-0"
             title={nameCopied ? 'Name copied' : `Copy name: ${title}`}
             aria-label={nameCopied ? 'Name copied' : 'Copy name'}
@@ -350,7 +311,7 @@ function DocEditor({
         {/* Copy content */}
         <button
           type="button"
-          onClick={copyContent}
+          onClick={() => copyContent(currentValue ?? '')}
           disabled={!currentValue}
           className="flex items-center gap-1 px-2 py-0.5 text-xs rounded-md text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed transition-all"
           title="Copy content"

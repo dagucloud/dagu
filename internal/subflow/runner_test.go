@@ -190,19 +190,19 @@ func TestRunnerRunDispatchesWorkflowRequest(t *testing.T) {
 	assert.Equal(t, true, result.OutputValues["typed"])
 }
 
-func TestRunnerRunRejectsIncrementalWorkflow(t *testing.T) {
+func TestRunnerRunRejectsBuildWorkflow(t *testing.T) {
 	t.Parallel()
 
 	dispatcher := &mockDispatcher{}
 	runner := newFastRunner(dispatcher)
 	result, err := runner.Run(context.Background(), runtimeexec.SubWorkflowRequest{
-		DAG:        &ir.DAG{Name: "child", Type: ir.TypeIncremental},
+		DAG:        &ir.DAG{Name: "child", Type: ir.TypeBuild},
 		RootDAGRun: dagrun.NewDAGRunRef("parent", "root-1"),
 		RunID:      "child-1",
 	})
 
 	require.Nil(t, result)
-	require.ErrorIs(t, err, dispatch.ErrIncrementalRequiresLocal)
+	require.ErrorIs(t, err, dispatch.ErrBuildRequiresLocal)
 	require.Empty(t, dispatcher.dispatches)
 }
 

@@ -1,7 +1,13 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { render, screen, within } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import React from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -85,5 +91,28 @@ describe('Layout', () => {
       })
     ).toHaveAttribute('aria-current', 'page');
     expect(within(breadcrumbs).getAllByRole('link')).toHaveLength(5);
+  });
+
+  it('opens the mobile navigation as a keyboard-contained dialog', async () => {
+    renderLayout('/home');
+
+    const openButton = screen.getByRole('button', { name: 'Open menu' });
+    fireEvent.click(openButton);
+
+    const dialog = screen.getByRole('dialog', { name: 'Dagu' });
+    const closeButton = within(dialog).getByRole('button', {
+      name: 'Close menu',
+    });
+    expect(closeButton).toHaveFocus();
+    expect(
+      screen.getByText('Page Content').closest('[aria-hidden="true"]')
+    ).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: 'Tab' });
+    expect(closeButton).toHaveFocus();
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await waitFor(() => expect(openButton).toHaveFocus());
   });
 });

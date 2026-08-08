@@ -25,6 +25,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/term"
 
+	"github.com/dagucloud/dagu/v2/internal/build"
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
@@ -42,7 +43,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
 	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/dagwarning"
-	"github.com/dagucloud/dagu/v2/internal/incremental"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/output"
 	"github.com/dagucloud/dagu/v2/internal/proc"
@@ -102,8 +102,8 @@ type Agent struct {
 	// stateStore is the persistent state store shared across DAG runs.
 	stateStore dagstate.Store
 
-	// materializationStore coordinates incremental file materializations.
-	materializationStore incremental.MaterializationStore
+	// materializationStore coordinates build file materializations.
+	materializationStore build.MaterializationStore
 
 	// secretStore resolves workspace-local team-managed secret references.
 	secretStore secretpkg.Store
@@ -339,8 +339,8 @@ type Options struct {
 	QueueStore queue.QueueStore
 	// StateStore is the persistent state store shared across DAG runs.
 	StateStore dagstate.Store
-	// MaterializationStore coordinates incremental file materializations.
-	MaterializationStore incremental.MaterializationStore
+	// MaterializationStore coordinates build file materializations.
+	MaterializationStore build.MaterializationStore
 	// SecretStore resolves local registry refs and runtime profile secrets.
 	SecretStore secretpkg.Store
 	// SecretReferenceResolver resolves DAG-level registry refs.
@@ -1220,7 +1220,7 @@ func (a *Agent) nodeToModelNode(nodeData runtime.NodeData) *dagrun.Node {
 		RetryCount:       nodeData.State.RetryCount,
 		DoneCount:        nodeData.State.DoneCount,
 		Error:            errorString(nodeData.State.Error),
-		Incremental:      nodeData.State.Incremental,
+		Build:            nodeData.State.Build,
 		SubRuns:          subRuns,
 		OutputVariables:  nodeData.State.OutputVariables,
 		OutputsValue:     nodeData.State.OutputsValue,
