@@ -8,6 +8,7 @@ package proc
 import (
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -40,7 +41,12 @@ func TestStoreListEntriesWaitsForTransientDirectorySharingViolation(t *testing.T
 		0,
 	)
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = windows.CloseHandle(handle) })
+	var closeOnce sync.Once
+	closeHandle := func() (err error) {
+		closeOnce.Do(func() { err = windows.CloseHandle(handle) })
+		return err
+	}
+	t.Cleanup(func() { _ = closeHandle() })
 
 	_, err = os.ReadDir(dagDir)
 	require.Error(t, err)
@@ -49,7 +55,7 @@ func TestStoreListEntriesWaitsForTransientDirectorySharingViolation(t *testing.T
 	released := make(chan error, 1)
 	go func() {
 		time.Sleep(100 * time.Millisecond)
-		released <- windows.CloseHandle(handle)
+		released <- closeHandle()
 	}()
 
 	entries, err := store.ListEntries(t.Context(), "queue-a")
