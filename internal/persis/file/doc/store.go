@@ -36,8 +36,55 @@ const (
 
 // docFrontmatter holds the YAML fields in the doc file frontmatter.
 type docFrontmatter struct {
-	Title       string `yaml:"title,omitempty"`
-	Description string `yaml:"description,omitempty"`
+	Title       string     `yaml:"title,omitempty"`
+	Description string     `yaml:"description,omitempty"`
+	Tags        docTagList `yaml:"tags,omitempty"`
+}
+
+// docTagList accepts either a YAML sequence of tags or a single
+// comma-separated scalar. Unparseable values are ignored so that a malformed
+// tags field never invalidates the rest of the frontmatter.
+type docTagList []string
+
+func (t *docTagList) UnmarshalYAML(data []byte) error {
+	var list []string
+	if err := yaml.Unmarshal(data, &list); err == nil {
+		*t = normalizeDocTags(list)
+		return nil
+	}
+	var scalar string
+	if err := yaml.Unmarshal(data, &scalar); err == nil {
+		*t = normalizeDocTags(strings.Split(scalar, ","))
+		return nil
+	}
+	*t = nil
+	return nil
+}
+
+// normalizeDocTags trims whitespace, drops empties, and removes
+// case-insensitive duplicates while preserving authored order and casing.
+func normalizeDocTags(tags []string) []string {
+	if len(tags) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(tags))
+	normalized := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		tag = strings.TrimSpace(tag)
+		if tag == "" {
+			continue
+		}
+		key := strings.ToLower(tag)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		normalized = append(normalized, tag)
+	}
+	if len(normalized) == 0 {
+		return nil
+	}
+	return normalized
 }
 
 // Store implements a file-based doc store.
@@ -61,6 +108,7 @@ type docIndexEntry struct {
 	AbsPath     string
 	Title       string
 	Description string
+	Tags        []string
 	ModTime     time.Time
 	Size        int64
 	Mode        os.FileMode
@@ -561,6 +609,7 @@ func (s *Store) recordDirLocked(id, absPath string, info os.FileInfo) {
 func (s *Store) upsertDocLocked(ctx context.Context, id, absPath string, info os.FileInfo) error {
 	title := titleFromID(id)
 	var description string
+	var tags []string
 	readable := false
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return docs.ErrDocNotFound
@@ -574,6 +623,7 @@ func (s *Store) upsertDocLocked(ctx context.Context, id, absPath string, info os
 		}
 		title = doc.Title
 		description = doc.Description
+		tags = doc.Tags
 		readable = true
 	} else if errors.Is(err, docs.ErrDocNotFound) {
 		return err
@@ -584,6 +634,7 @@ func (s *Store) upsertDocLocked(ctx context.Context, id, absPath string, info os
 		AbsPath:     absPath,
 		Title:       title,
 		Description: description,
+		Tags:        tags,
 		ModTime:     info.ModTime(),
 		Size:        info.Size(),
 		Mode:        info.Mode(),
@@ -716,6 +767,7 @@ func parseDocFile(data []byte, id string) (*docs.Doc, error) {
 
 	var title string
 	var description string
+	var tags []string
 
 	if strings.HasPrefix(content, "---\n") {
 		rest := content[4:]
@@ -734,6 +786,7 @@ func parseDocFile(data []byte, id string) (*docs.Doc, error) {
 			if err := yaml.Unmarshal([]byte(frontmatterStr), &fm); err == nil {
 				title = fm.Title
 				description = fm.Description
+				tags = fm.Tags
 			}
 		}
 	}
@@ -746,6 +799,7 @@ func parseDocFile(data []byte, id string) (*docs.Doc, error) {
 		ID:          id,
 		Title:       title,
 		Description: description,
+		Tags:        tags,
 		Content:     content,
 	}, nil
 }
@@ -798,10 +852,15 @@ func (s *Store) ListFlat(ctx context.Context, opts docs.ListDocsOptions) (*pagin
 		return nil, err
 	}
 
+	tagFilter := normalizeDocTagFilter(opts.Tags)
+
 	s.mu.RLock()
 	items := make([]flatDocItem, 0, len(s.docs))
 	for _, doc := range s.docs {
 		if !doc.Readable || docPathRootExcluded(doc.ID, opts.ExcludePathRoots) {
+			continue
+		}
+		if !docTagsMatch(doc.Tags, tagFilter) {
 			continue
 		}
 		id, ok := relativeDocID(doc.ID, pathPrefix)
@@ -813,6 +872,7 @@ func (s *Store) ListFlat(ctx context.Context, opts docs.ListDocsOptions) (*pagin
 				ID:          id,
 				Title:       doc.Title,
 				Description: doc.Description,
+				Tags:        doc.Tags,
 				ModTime:     doc.ModTime,
 			},
 		})
@@ -866,6 +926,50 @@ func docPathRootExcluded(id string, excludedRoots []string) bool {
 	}
 	root, _, _ := strings.Cut(id, "/")
 	return slices.Contains(excludedRoots, root)
+}
+
+// normalizeDocTagFilter lowercases, sorts, and dedupes a requested tag
+// filter so it can be matched and embedded in cursors deterministically.
+func normalizeDocTagFilter(tags []string) []string {
+	if len(tags) == 0 {
+		return nil
+	}
+	normalized := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		tag = strings.ToLower(strings.TrimSpace(tag))
+		if tag != "" {
+			normalized = append(normalized, tag)
+		}
+	}
+	if len(normalized) == 0 {
+		return nil
+	}
+	sort.Strings(normalized)
+	return slices.Compact(normalized)
+}
+
+// docTagsMatch reports whether every tag in filter (already lowercased) is
+// present in docTags, compared case-insensitively.
+func docTagsMatch(docTags, filter []string) bool {
+	if len(filter) == 0 {
+		return true
+	}
+	if len(docTags) == 0 {
+		return false
+	}
+	for _, want := range filter {
+		found := false
+		for _, tag := range docTags {
+			if strings.ToLower(tag) == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
 }
 
 // Get retrieves a doc by its ID.

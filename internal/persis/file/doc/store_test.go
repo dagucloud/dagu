@@ -674,6 +674,128 @@ func TestListFlatIncludesDescriptionFromFrontmatter(t *testing.T) {
 	assert.Equal(t, "Restart the API service and verify health.", result.Items[0].Description)
 }
 
+func TestParseDocFileTags(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		tags  []string
+	}{
+		{
+			name:  "list form",
+			input: "---\ntitle: T\ntags:\n  - ops\n  - runbook\n---\nbody",
+			tags:  []string{"ops", "runbook"},
+		},
+		{
+			name:  "comma-separated scalar",
+			input: "---\ntitle: T\ntags: ops, runbook\n---\nbody",
+			tags:  []string{"ops", "runbook"},
+		},
+		{
+			name:  "case-insensitive dedupe keeps first casing",
+			input: "---\ntags: [Ops, ops, runbook]\n---\nbody",
+			tags:  []string{"Ops", "runbook"},
+		},
+		{
+			name:  "blank entries dropped",
+			input: "---\ntags: ['', '  ', ops]\n---\nbody",
+			tags:  []string{"ops"},
+		},
+		{
+			name:  "absent",
+			input: "---\ntitle: T\n---\nbody",
+			tags:  nil,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			doc, err := parseDocFile([]byte(tc.input), "test")
+			require.NoError(t, err)
+			assert.Equal(t, tc.tags, doc.Tags)
+		})
+	}
+}
+
+func TestParseDocFileMalformedTagsKeepTitle(t *testing.T) {
+	// A tags value of the wrong shape must not invalidate the other
+	// frontmatter fields.
+	input := "---\ntitle: Kept\ntags:\n  nested: map\n---\nbody"
+	doc, err := parseDocFile([]byte(input), "test")
+	require.NoError(t, err)
+	assert.Equal(t, "Kept", doc.Title)
+	assert.Nil(t, doc.Tags)
+}
+
+func TestListFlatFilterByTags(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	require.NoError(t, store.Create(ctx, "a", "---\ntags: [ops, runbook]\n---\nbody"))
+	require.NoError(t, store.Create(ctx, "b", "---\ntags: [ops]\n---\nbody"))
+	require.NoError(t, store.Create(ctx, "c", "no tags"))
+
+	opts := defaultFlatOpts(1, 50)
+	opts.Tags = []string{"OPS"}
+	result, err := store.ListFlat(ctx, opts)
+	require.NoError(t, err)
+	require.Len(t, result.Items, 2)
+	assert.Equal(t, []string{"ops", "runbook"}, result.Items[0].Tags)
+
+	// AND semantics: both tags must be present.
+	opts.Tags = []string{"ops", "runbook"}
+	result, err = store.ListFlat(ctx, opts)
+	require.NoError(t, err)
+	require.Len(t, result.Items, 1)
+	assert.Equal(t, "a", result.Items[0].ID)
+}
+
+func TestListTreeIncludesTags(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	require.NoError(t, store.Create(ctx, "guides/tagged", "---\ntags: [ops]\n---\nbody"))
+
+	result, err := store.List(ctx, defaultListOpts(1, 50))
+	require.NoError(t, err)
+	require.Len(t, result.Items, 1)
+	require.Len(t, result.Items[0].Children, 1)
+	assert.Equal(t, []string{"ops"}, result.Items[0].Children[0].Tags)
+}
+
+func TestSearchCursorFilterByTags(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	require.NoError(t, store.Create(ctx, "a", "---\ntags: [ops]\n---\nneedle"))
+	require.NoError(t, store.Create(ctx, "b", "needle"))
+
+	result, err := store.SearchCursor(ctx, docs.SearchDocsOptions{Query: "needle", Limit: 10, Tags: []string{"ops"}})
+	require.NoError(t, err)
+	require.Len(t, result.Items, 1)
+	assert.Equal(t, "a", result.Items[0].ID)
+	assert.Equal(t, []string{"ops"}, result.Items[0].Tags)
+
+	// A cursor issued for one tag filter must be rejected under another.
+	require.NoError(t, store.Create(ctx, "c", "---\ntags: [ops]\n---\nneedle"))
+	first, err := store.SearchCursor(ctx, docs.SearchDocsOptions{Query: "needle", Limit: 1, Tags: []string{"ops"}})
+	require.NoError(t, err)
+	require.True(t, first.HasMore)
+	_, err = store.SearchCursor(ctx, docs.SearchDocsOptions{Query: "needle", Limit: 1, Cursor: first.NextCursor})
+	assert.ErrorIs(t, err, pagination.ErrInvalidCursor)
+}
+
+func TestIndexRefreshesTagsAfterUpdate(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	require.NoError(t, store.Create(ctx, "doc", "---\ntags: [old]\n---\nbody"))
+	require.NoError(t, store.Update(ctx, "doc", "---\ntags: [new]\n---\nbody"))
+
+	result, err := store.ListFlat(ctx, defaultFlatOpts(1, 50))
+	require.NoError(t, err)
+	require.Len(t, result.Items, 1)
+	assert.Equal(t, []string{"new"}, result.Items[0].Tags)
+}
+
 func TestListFlatSkipsNonConformingFiles(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()

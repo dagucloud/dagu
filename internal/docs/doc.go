@@ -25,12 +25,13 @@ var (
 
 // Doc is the domain entity for a markdown document.
 type Doc struct {
-	ID          string `json:"id"`
-	Title       string `json:"title"`
-	Description string `json:"description,omitempty"`
-	Content     string `json:"content"`
-	CreatedAt   string `json:"createdAt"`
-	UpdatedAt   string `json:"updatedAt"`
+	ID          string   `json:"id"`
+	Title       string   `json:"title"`
+	Description string   `json:"description,omitempty"`
+	Tags        []string `json:"tags,omitempty"`
+	Content     string   `json:"content"`
+	CreatedAt   string   `json:"createdAt"`
+	UpdatedAt   string   `json:"updatedAt"`
 }
 
 // DocMetadata is a lightweight doc view excluding Content.
@@ -38,6 +39,7 @@ type DocMetadata struct {
 	ID          string    `json:"id"`
 	Title       string    `json:"title"`
 	Description string    `json:"description,omitempty"`
+	Tags        []string  `json:"tags,omitempty"`
 	ModTime     time.Time `json:"modTime"`
 }
 
@@ -46,6 +48,7 @@ type DocTreeNode struct {
 	ID       string         `json:"id"`
 	Name     string         `json:"name"`
 	Title    string         `json:"title,omitempty"`
+	Tags     []string       `json:"tags,omitempty"`
 	Type     string         `json:"type"` // "file" or "directory"
 	Children []*DocTreeNode `json:"children,omitempty"`
 	ModTime  time.Time      `json:"modTime"`
@@ -75,6 +78,7 @@ type ListDocsOptions struct {
 	Sort             DocSortField
 	Order            DocSortOrder
 	PathPrefix       string
+	Tags             []string
 	ExcludePathRoots []string
 }
 
@@ -86,6 +90,7 @@ type SearchDocsOptions struct {
 	MatchLimit       int
 	PathPrefix       string
 	FilterPrefix     string
+	Tags             []string
 	ExcludePathRoots []string
 }
 
@@ -102,6 +107,7 @@ type DocSearchResult struct {
 	ID                string            `json:"id"`
 	Title             string            `json:"title"`
 	Description       string            `json:"description,omitempty"`
+	Tags              []string          `json:"tags,omitempty"`
 	ModTime           time.Time         `json:"modTime"`
 	Matches           []*dagstore.Match `json:"matches"`
 	HasMoreMatches    bool              `json:"hasMoreMatches"`

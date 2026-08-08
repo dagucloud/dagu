@@ -119,6 +119,7 @@ func toDocSearchPageItem(
 		Id:                item.ID,
 		Title:             item.Title,
 		Description:       item.Description,
+		Tags:              docTagsValue(item.Tags),
 		Workspace:         docWorkspaceValue(workspaceName, item.ID, visibility, false),
 		HasMoreMatches:    item.HasMoreMatches,
 		NextMatchesCursor: optionalString(item.NextMatchesCursor),
@@ -217,6 +218,7 @@ func (a *API) SearchDocFeed(ctx context.Context, request api.SearchDocFeedReques
 		MatchLimit:       searchPreviewMatchesLimit,
 		PathPrefix:       workspaceName,
 		FilterPrefix:     filterPrefix,
+		Tags:             valueOf(request.Params.Tags),
 		ExcludePathRoots: visibility.excludedPathRoots(),
 	})
 	if err != nil {

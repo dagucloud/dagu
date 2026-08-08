@@ -8,6 +8,7 @@ import { useClient } from '@/hooks/api';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
@@ -26,6 +27,7 @@ import {
   Loader2,
   RefreshCw,
   Search,
+  Tag,
   Trash2,
   X,
 } from 'lucide-react';
@@ -177,6 +179,41 @@ function filterTree(
     );
 }
 
+// Collect the distinct tags present on file nodes, first casing wins.
+function collectTagVocabulary(nodes: DocTreeNodeResponse[] | undefined): string[] {
+  const byKey = new Map<string, string>();
+  const walk = (node: DocTreeNodeResponse) => {
+    node.tags?.forEach((tag) => {
+      const key = tag.toLowerCase();
+      if (!byKey.has(key)) byKey.set(key, tag);
+    });
+    node.children?.forEach(walk);
+  };
+  nodes?.forEach(walk);
+  return [...byKey.values()].sort((a, b) =>
+    a.toLowerCase().localeCompare(b.toLowerCase())
+  );
+}
+
+// Collect IDs of file nodes carrying every selected tag (case-insensitive).
+function collectTagMatchIds(
+  nodes: DocTreeNodeResponse[],
+  selectedTags: string[]
+): Set<string> {
+  const ids = new Set<string>();
+  const walk = (node: DocTreeNodeResponse) => {
+    if (node.type === DocTreeNodeResponseType.file) {
+      const nodeTags = (node.tags ?? []).map((t) => t.toLowerCase());
+      if (selectedTags.every((t) => nodeTags.includes(t))) {
+        ids.add(node.id);
+      }
+    }
+    node.children?.forEach(walk);
+  };
+  nodes.forEach(walk);
+  return ids;
+}
+
 const SKELETON_WIDTHS = [75, 60, 85, 65, 90, 70];
 
 function DocTreeSidebar({
@@ -243,6 +280,18 @@ function DocTreeSidebar({
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Tag filter state (lowercased tag keys)
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const tagVocabulary = useMemo(() => collectTagVocabulary(tree), [tree]);
+  // Drop selections for tags that no longer exist in the tree.
+  useEffect(() => {
+    if (selectedTags.length === 0) return;
+    const known = new Set(tagVocabulary.map((t) => t.toLowerCase()));
+    if (selectedTags.some((t) => !known.has(t))) {
+      setSelectedTags((prev) => prev.filter((t) => known.has(t)));
+    }
+  }, [tagVocabulary, selectedTags]);
 
   // Measure container height for react-arborist
   useEffect(() => {
@@ -323,26 +372,40 @@ function DocTreeSidebar({
     };
   }, [searchQuery, client, remoteNode, workspaceQuery]);
 
-  // Compute filtered tree data
+  // Compute filtered tree data (text search and tag filter intersect)
+  const filterMatchIds = useMemo(() => {
+    if (!tree) return null;
+    if (!searchResults && selectedTags.length === 0) return null;
+
+    let matchIds: Set<string> | null = searchResults
+      ? new Set(searchResults)
+      : null;
+    if (selectedTags.length > 0) {
+      const tagIds = collectTagMatchIds(tree, selectedTags);
+      matchIds = matchIds
+        ? new Set([...matchIds].filter((id) => tagIds.has(id)))
+        : tagIds;
+    }
+    return matchIds;
+  }, [tree, searchResults, selectedTags]);
+
   const treeData = useMemo(() => {
     if (!tree) return [];
-    if (!searchResults) return tree;
+    if (!filterMatchIds) return tree;
 
-    const matchIds = new Set(searchResults);
-    const ancestorIds = collectAncestorPaths(matchIds);
-    return filterTree(tree, matchIds, ancestorIds);
-  }, [tree, searchResults]);
+    const ancestorIds = collectAncestorPaths(filterMatchIds);
+    return filterTree(tree, filterMatchIds, ancestorIds);
+  }, [tree, filterMatchIds]);
 
   useEffect(() => {
-    if (!searchResults || !treeRef.current) return;
+    if (!filterMatchIds || !treeRef.current) return;
     const api = treeRef.current;
-    const matchIds = new Set(searchResults);
-    const ancestorIds = collectAncestorPaths(matchIds);
+    const ancestorIds = collectAncestorPaths(filterMatchIds);
     for (const id of ancestorIds) {
       const node = api.get(id);
       if (node && !node.isOpen) node.open();
     }
-  }, [searchResults, treeData]);
+  }, [filterMatchIds, treeData]);
 
   // Compute initial open state: expand ancestors of active doc
   const initialOpenState = useMemo(() => {
@@ -634,6 +697,60 @@ function DocTreeSidebar({
               </DropdownMenuRadioGroup>
             </DropdownMenuContent>
           </DropdownMenu>
+          {tagVocabulary.length > 0 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className={`p-1 rounded-sm hover:bg-accent hover:text-foreground ${
+                    selectedTags.length > 0
+                      ? 'text-primary'
+                      : 'text-muted-foreground'
+                  }`}
+                  title="Filter by tags"
+                >
+                  <Tag className="h-3.5 w-3.5" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuLabel className="text-xs py-1">
+                  Filter by tags
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {tagVocabulary.map((tag) => {
+                  const key = tag.toLowerCase();
+                  return (
+                    <DropdownMenuCheckboxItem
+                      key={key}
+                      className="text-xs"
+                      checked={selectedTags.includes(key)}
+                      onCheckedChange={(checked) => {
+                        setSelectedTags((prev) =>
+                          checked
+                            ? [...prev, key]
+                            : prev.filter((t) => t !== key)
+                        );
+                      }}
+                    >
+                      {tag}
+                    </DropdownMenuCheckboxItem>
+                  );
+                })}
+                {selectedTags.length > 0 && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <button
+                      type="button"
+                      className="w-full text-left text-xs px-2 py-1 text-muted-foreground hover:bg-accent rounded-sm"
+                      onClick={() => setSelectedTags([])}
+                    >
+                      Clear filter
+                    </button>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
           {canEdit && canCreateNew && (
             <button
               type="button"

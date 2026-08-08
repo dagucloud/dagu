@@ -286,6 +286,18 @@ function DocEditor({
         {hasUnsavedChanges && (
           <span className="h-1.5 w-1.5 rounded-full bg-amber-500 shrink-0" />
         )}
+        {doc?.tags && doc.tags.length > 0 && (
+          <span className="hidden sm:flex items-center gap-1 shrink-0">
+            {doc.tags.map((tag) => (
+              <span
+                key={tag}
+                className="px-1.5 py-0.5 text-[10px] leading-none rounded-full bg-muted text-muted-foreground border border-border"
+              >
+                {tag}
+              </span>
+            ))}
+          </span>
+        )}
 
         {title && (
           <button

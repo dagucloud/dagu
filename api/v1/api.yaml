@@ -1683,6 +1683,16 @@ paths:
           schema:
             type: "string"
           description: "A search query string"
+        - name: tags
+          in: query
+          description: "Only return documents carrying every given tag (case-insensitive)"
+          required: false
+          style: form
+          explode: false
+          schema:
+            type: array
+            items:
+              type: string
         - $ref: "#/components/parameters/SearchCursor"
         - $ref: "#/components/parameters/SearchLimit"
       responses:
@@ -6985,6 +6995,16 @@ paths:
           required: false
           schema:
             type: boolean
+        - name: tags
+          in: query
+          description: "Only return documents carrying every given tag (case-insensitive). Effective in flat mode only."
+          required: false
+          style: form
+          explode: false
+          schema:
+            type: array
+            items:
+              type: string
         - name: sort
           in: query
           required: false
@@ -13053,6 +13073,11 @@ components:
         description:
           type: string
           description: "Short document description from YAML frontmatter"
+        tags:
+          type: array
+          items:
+            type: string
+          description: "Document tags from YAML frontmatter"
         workspace:
           type: string
           description: "Workspace that owns this document. Omitted for default documents."
@@ -13144,6 +13169,11 @@ components:
         description:
           type: string
           description: "Short document description from YAML frontmatter"
+        tags:
+          type: array
+          items:
+            type: string
+          description: "Document tags from YAML frontmatter"
         workspace:
           type: string
           description: "Workspace that owns this document. Omitted for default documents."
@@ -13174,6 +13204,11 @@ components:
         description:
           type: string
           description: "Short document description from YAML frontmatter"
+        tags:
+          type: array
+          items:
+            type: string
+          description: "Document tags from YAML frontmatter"
         workspace:
           type: string
           description: "Workspace that owns this document. Omitted for default documents."
@@ -13196,6 +13231,11 @@ components:
           type: string
         title:
           type: string
+        tags:
+          type: array
+          items:
+            type: string
+          description: "Document tags from YAML frontmatter. Only present on file nodes."
         workspace:
           type: string
           description: "Workspace that owns this node. Omitted for default nodes."
@@ -13245,6 +13285,11 @@ components:
         description:
           type: string
           description: "Short document description from YAML frontmatter"
+        tags:
+          type: array
+          items:
+            type: string
+          description: "Document tags from YAML frontmatter"
         workspace:
           type: string
           description: "Workspace that owns this document. Omitted for default documents."

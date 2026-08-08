@@ -16,6 +16,7 @@ func toDocResponse(doc *docs.Doc) api.DocResponse {
 		Id:          doc.ID,
 		Title:       doc.Title,
 		Description: doc.Description,
+		Tags:        docTagsValue(doc.Tags),
 		Content:     doc.Content,
 	}
 	if t, err := time.Parse(time.RFC3339, doc.CreatedAt); err == nil {
@@ -32,12 +33,22 @@ func toDocMetadataResponse(m docs.DocMetadata) api.DocMetadataResponse {
 		Id:          m.ID,
 		Title:       m.Title,
 		Description: m.Description,
+		Tags:        docTagsValue(m.Tags),
 	}
 	if !m.ModTime.IsZero() {
 		t := m.ModTime
 		resp.ModifiedAt = &t
 	}
 	return resp
+}
+
+// docTagsValue converts doc tags to the optional response field, omitting
+// the field entirely for untagged documents.
+func docTagsValue(tags []string) *[]string {
+	if len(tags) == 0 {
+		return nil
+	}
+	return &tags
 }
 
 func toDocTreeResponse(node *docs.DocTreeNode) api.DocTreeNodeResponse {
@@ -53,6 +64,7 @@ func toDocTreeResponseWithWorkspace(
 		Id:        node.ID,
 		Name:      node.Name,
 		Title:     ptrOf(node.Title),
+		Tags:      docTagsValue(node.Tags),
 		Type:      api.DocTreeNodeResponseType(node.Type),
 		Workspace: docWorkspaceValue(workspaceName, node.ID, visibility, node.Type == "directory"),
 	}
