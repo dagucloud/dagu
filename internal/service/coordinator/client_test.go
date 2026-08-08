@@ -1404,8 +1404,10 @@ func TestClientHeartbeatReturnsDeadlineAfterFailoverExhaustion(t *testing.T) {
 	config := coordinator.DefaultConfig()
 	config.HeartbeatTimeout = 400 * time.Millisecond
 
+	var heartbeatCalls atomic.Int32
 	mockCoord := &mockCoordinatorService{
 		heartbeatFunc: func(ctx context.Context, _ *coordinatorv1.HeartbeatRequest) (*coordinatorv1.HeartbeatResponse, error) {
+			heartbeatCalls.Add(1)
 			<-ctx.Done()
 			return nil, ctx.Err()
 		},
@@ -1427,6 +1429,7 @@ func TestClientHeartbeatReturnsDeadlineAfterFailoverExhaustion(t *testing.T) {
 
 	_, err := client.Heartbeat(t.Context(), &coordinatorv1.HeartbeatRequest{WorkerId: "test-worker"})
 	require.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.Equal(t, int32(2), heartbeatCalls.Load())
 }
 
 func TestClientHeartbeatReturnsCallerCancellation(t *testing.T) {
