@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { DocMarkdownPreview } from '@/components/ui/doc-markdown-preview';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useClient } from '@/hooks/api';
+import { downloadBlob } from '@/lib/download';
 import { cn } from '@/lib/utils';
 import {
   AlertCircle,
@@ -531,20 +532,13 @@ export default function ArtifactsTab({
     }
 
     const request = await fetchArtifactDownload(selectedPath);
-    const blob = request.data;
-    const link = document.createElement('a');
-    const objectUrl = URL.createObjectURL(blob);
     const fileName =
       request.response.headers
         .get('Content-Disposition')
         ?.match(/filename="(.+)"/)?.[1] ||
       selectedNode?.name ||
       'artifact';
-
-    link.href = objectUrl;
-    link.download = fileName;
-    link.click();
-    URL.revokeObjectURL(objectUrl);
+    downloadBlob(request.data, fileName);
   };
 
   const handleCopyContent = async () => {

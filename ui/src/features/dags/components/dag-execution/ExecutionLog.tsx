@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ReloadButton } from '@/components/ui/reload-button';
 import { Switch } from '@/components/ui/switch';
-import { TOKEN_KEY } from '../../../../contexts/AuthContext';
+import { downloadFromUrl } from '@/lib/download';
 import { useConfig } from '../../../../contexts/ConfigContext';
 import { useRemoteNode } from '../../../../contexts/RemoteNodeContext';
 import { useUserPreferences } from '../../../../contexts/UserPreference';
@@ -276,7 +276,6 @@ function ExecutionLog({ name, dagRunId, dagRun }: Props) {
   }
 
   const handleDownload = useCallback(async () => {
-    const token = localStorage.getItem(TOKEN_KEY);
     const endpoint = isSubDAGRun
       ? `${config.apiURL}/dag-runs/${dagRun?.rootDAGRunName}/${dagRun?.rootDAGRunId}/sub-dag-runs/${dagRun?.dagRunId}/log/download`
       : `${config.apiURL}/dag-runs/${name}/${dagRunId}/log/download`;
@@ -285,26 +284,10 @@ function ExecutionLog({ name, dagRunId, dagRun }: Props) {
     url.searchParams.set('remoteNode', remoteNode);
 
     try {
-      const response = await fetch(url.toString(), {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-
-      if (!response.ok) {
-        throw new Error(`Download failed: ${response.statusText}`);
-      }
-
-      const blob = await response.blob();
-      const filename =
-        response.headers
-          .get('Content-Disposition')
-          ?.match(/filename="(.+)"/)?.[1] ||
-        `${name}-${dagRunId}-scheduler.log`;
-
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      link.download = filename;
-      link.click();
-      URL.revokeObjectURL(link.href);
+      await downloadFromUrl(
+        url.toString(),
+        `${name}-${dagRunId}-scheduler.log`
+      );
     } catch (err) {
       console.error('Download failed:', err);
     }
