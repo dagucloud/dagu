@@ -1,4 +1,4 @@
-﻿#
+#
 # Copyright (C) 2026 Yota Hamada
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
@@ -95,7 +95,7 @@ function Write-Section {
 
 function Write-Info {
     param([string]$Message)
-    Write-Host "· $Message" -ForegroundColor DarkGray
+    Write-Host "- $Message" -ForegroundColor DarkGray
 }
 
 function Write-WarnMessage {
@@ -105,12 +105,12 @@ function Write-WarnMessage {
 
 function Write-Success {
     param([string]$Message)
-    Write-Host "✓ $Message" -ForegroundColor Cyan
+    Write-Host "+ $Message" -ForegroundColor Cyan
 }
 
 function Write-ErrorMessage {
     param([string]$Message)
-    Write-Host "✗ $Message" -ForegroundColor Red
+    Write-Host "x $Message" -ForegroundColor Red
 }
 
 function Show-Banner {
