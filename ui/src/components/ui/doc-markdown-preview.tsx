@@ -3,6 +3,7 @@
 
 import { DagStatusChip } from '@/components/docs-live/DagStatusChip';
 import { DaguInfoBlock } from '@/components/docs-live/DaguInfoBlock';
+import { DaguRunBlock } from '@/components/docs-live/DaguRunBlock';
 import { useDocLive } from '@/components/docs-live/context';
 import { MermaidBlock } from '@/components/ui/mermaid-block';
 import { cn } from '@/lib/utils';
@@ -13,7 +14,7 @@ import {
   remarkWikilink,
   WIKILINK_DAG_PREFIX,
 } from '@/lib/remark-wikilink';
-import type { ReactElement, ReactNode } from 'react';
+import { isValidElement, type ReactNode } from 'react';
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import { Link } from 'react-router-dom';
 import remarkGfm from 'remark-gfm';
@@ -206,14 +207,34 @@ export function DocMarkdownPreview({
             if (codeClassName === 'language-dagu-info') {
               return <DaguInfoBlock source={String(children)} />;
             }
+            if (codeClassName === 'language-dagu-run') {
+              return <DaguRunBlock source={String(children)} />;
+            }
             return <code className={codeClassName}>{children}</code>;
           },
           pre({ children }) {
-            const child = children as ReactElement;
-            if (
-              child?.type === MermaidBlock ||
-              child?.type === DaguInfoBlock
-            ) {
+            // Fences dispatched to custom blocks must not keep the <pre>
+            // wrapper. The child may be the block element itself or the code
+            // override carrying the fence language in its className.
+            const childArray = Array.isArray(children) ? children : [children];
+            const unwrapped = childArray.some((child) => {
+              if (!isValidElement(child)) return false;
+              if (
+                child.type === MermaidBlock ||
+                child.type === DaguInfoBlock ||
+                child.type === DaguRunBlock
+              ) {
+                return true;
+              }
+              const className = (child.props as { className?: string })
+                .className;
+              return (
+                className === 'language-mermaid' ||
+                className === 'language-dagu-info' ||
+                className === 'language-dagu-run'
+              );
+            });
+            if (unwrapped) {
               return <>{children}</>;
             }
             return <pre>{children}</pre>;
