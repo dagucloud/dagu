@@ -4,7 +4,13 @@
 import { render, screen } from '@testing-library/react';
 import React from 'react';
 import { MemoryRouter } from 'react-router-dom';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+vi.mock('@/hooks/api', () => ({
+  useClient: () => ({ GET: vi.fn().mockResolvedValue({ data: null, error: { message: 'nope' } }) }),
+  useQuery: () => ({ data: undefined }),
+}));
+
 import { DocMarkdownPreview } from '../doc-markdown-preview';
 
 function renderWithRouter(ui: React.ReactElement) {

@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"regexp"
 	"strings"
 	"time"
@@ -17,11 +18,13 @@ import (
 
 // Sentinel errors for doc store operations.
 var (
-	ErrDocNotFound         = errors.New("doc not found")
-	ErrDocAlreadyExists    = errors.New("doc already exists")
-	ErrDocPathConflict     = errors.New("doc path conflicts with another node")
-	ErrInvalidDocID        = errors.New("invalid doc ID")
-	ErrDocRevisionNotFound = errors.New("doc revision not found")
+	ErrDocNotFound           = errors.New("doc not found")
+	ErrDocAlreadyExists      = errors.New("doc already exists")
+	ErrDocPathConflict       = errors.New("doc path conflicts with another node")
+	ErrInvalidDocID          = errors.New("invalid doc ID")
+	ErrDocRevisionNotFound   = errors.New("doc revision not found")
+	ErrDocAttachmentNotFound = errors.New("doc attachment not found")
+	ErrInvalidAttachmentName = errors.New("invalid attachment name")
 )
 
 // Doc is the domain entity for a markdown document.
@@ -123,6 +126,13 @@ type DocRevision struct {
 	Content string    `json:"content,omitempty"`
 }
 
+// DocAttachment is a binary file attached to a document.
+type DocAttachment struct {
+	Name    string    `json:"name"`
+	Size    int64     `json:"size"`
+	SavedAt time.Time `json:"savedAt"`
+}
+
 // DeleteError represents a single item failure in a batch delete operation.
 type DeleteError struct {
 	ID    string
@@ -150,6 +160,12 @@ type DocStore interface {
 	ListRevisions(ctx context.Context, id string) ([]DocRevision, error)
 	// GetRevision returns one stored revision including its content.
 	GetRevision(ctx context.Context, id, rev string) (*DocRevision, error)
+	// PutAttachment stores an attachment for an existing document,
+	// replacing any attachment with the same name.
+	PutAttachment(ctx context.Context, id, name string, content io.Reader) (*DocAttachment, error)
+	// OpenAttachment opens an attachment for reading. The caller closes the
+	// returned reader.
+	OpenAttachment(ctx context.Context, id, name string) (io.ReadCloser, *DocAttachment, error)
 	Search(ctx context.Context, query string) ([]*DocSearchResult, error)
 	SearchCursor(ctx context.Context, opts SearchDocsOptions) (*pagination.CursorResult[DocSearchResult], error)
 	SearchMatches(ctx context.Context, id string, opts SearchDocMatchesOptions) (*pagination.CursorResult[*dagstore.Match], error)
@@ -166,6 +182,34 @@ var (
 
 // maxDocIDLength is the maximum allowed length for a doc ID.
 const maxDocIDLength = 252
+
+// validAttachmentNameRegexp matches a single-segment attachment file name
+// using the doc-ID segment charset.
+var validAttachmentNameRegexp = regexp.MustCompile(`^[a-zA-Z0-9_][a-zA-Z0-9_. -]*$`)
+
+// maxAttachmentNameLength is the maximum allowed attachment name length.
+const maxAttachmentNameLength = 128
+
+// ValidateAttachmentName validates that name is a safe attachment file name:
+// a single path segment following the doc-ID segment rules.
+func ValidateAttachmentName(name string) error {
+	if name == "" {
+		return ErrInvalidAttachmentName
+	}
+	if len(name) > maxAttachmentNameLength {
+		return fmt.Errorf("%w: exceeds maximum length of %d", ErrInvalidAttachmentName, maxAttachmentNameLength)
+	}
+	if !validAttachmentNameRegexp.MatchString(name) {
+		return fmt.Errorf("%w: must be a single path segment", ErrInvalidAttachmentName)
+	}
+	if strings.HasSuffix(name, " ") || strings.HasSuffix(name, ".") {
+		return fmt.Errorf("%w: must not end with spaces or dots", ErrInvalidAttachmentName)
+	}
+	if windowsReservedSegment.MatchString(name) {
+		return fmt.Errorf("%w: must not use reserved device names", ErrInvalidAttachmentName)
+	}
+	return nil
+}
 
 // ValidateDocID validates that id is a safe, well-formed doc identifier.
 func ValidateDocID(id string) error {

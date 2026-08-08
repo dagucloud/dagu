@@ -4,8 +4,10 @@
 package api_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"path"
 	"slices"
@@ -36,6 +38,7 @@ var _ docs.DocStore = (*mockDocStore)(nil)
 type mockDocStore struct {
 	docs         map[string]*docs.Doc
 	revisions    map[string][]docs.DocRevision
+	attachments  map[string]map[string][]byte
 	failAll      bool // when true, all operations return errForced
 	lastListOpts docs.ListDocsOptions
 }
@@ -633,6 +636,45 @@ func (m *mockDocStore) GetRevision(_ context.Context, id, rev string) (*docs.Doc
 	return nil, docs.ErrDocRevisionNotFound
 }
 
+func (m *mockDocStore) PutAttachment(_ context.Context, id, name string, content io.Reader) (*docs.DocAttachment, error) {
+	if m.failAll {
+		return nil, errForced
+	}
+	if err := docs.ValidateAttachmentName(name); err != nil {
+		return nil, err
+	}
+	if _, ok := m.docs[id]; !ok {
+		return nil, docs.ErrDocNotFound
+	}
+	data, err := io.ReadAll(content)
+	if err != nil {
+		return nil, err
+	}
+	if m.attachments == nil {
+		m.attachments = map[string]map[string][]byte{}
+	}
+	if m.attachments[id] == nil {
+		m.attachments[id] = map[string][]byte{}
+	}
+	m.attachments[id][name] = data
+	return &docs.DocAttachment{Name: name, Size: int64(len(data)), SavedAt: time.Unix(1700000000, 0)}, nil
+}
+
+func (m *mockDocStore) OpenAttachment(_ context.Context, id, name string) (io.ReadCloser, *docs.DocAttachment, error) {
+	if m.failAll {
+		return nil, nil, errForced
+	}
+	data, ok := m.attachments[id][name]
+	if !ok {
+		return nil, nil, docs.ErrDocAttachmentNotFound
+	}
+	return io.NopCloser(bytes.NewReader(data)), &docs.DocAttachment{
+		Name:    name,
+		Size:    int64(len(data)),
+		SavedAt: time.Unix(1700000000, 0),
+	}, nil
+}
+
 // docTestSetup contains common test infrastructure for doc API tests.
 type docTestSetup struct {
 	api   *apiv1.API
@@ -1121,6 +1163,88 @@ func TestDocMutationsNotify(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, 4, notifications)
+
+	// Attachment uploads change neither content nor the tree, so they must
+	// not fan out doc invalidations.
+	_, err = setup.api.CreateDoc(adminCtx(), apigen.CreateDocRequestObject{
+		Body: &apigen.CreateDocJSONRequestBody{Id: "doc3", Content: "created"},
+	})
+	require.NoError(t, err)
+	require.Equal(t, 5, notifications)
+	_, err = setup.api.UploadDocAttachment(adminCtx(), apigen.UploadDocAttachmentRequestObject{
+		Params: apigen.UploadDocAttachmentParams{Path: "doc3", Name: "logo.png"},
+		Body:   strings.NewReader("png-bytes"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 5, notifications)
+}
+
+func TestDocAttachments(t *testing.T) {
+	t.Parallel()
+
+	newSetup := func(t *testing.T) *docTestSetup {
+		setup := newDocTestSetup(t)
+		setup.store.docs["doc"] = &docs.Doc{ID: "doc", Title: "doc", Content: "body"}
+		return setup
+	}
+
+	t.Run("upload and download round-trip", func(t *testing.T) {
+		t.Parallel()
+
+		setup := newSetup(t)
+		resp, err := setup.api.UploadDocAttachment(adminCtx(), apigen.UploadDocAttachmentRequestObject{
+			Params: apigen.UploadDocAttachmentParams{Path: "doc", Name: "logo.png"},
+			Body:   strings.NewReader("png-bytes"),
+		})
+		require.NoError(t, err)
+		uploadResp, ok := resp.(apigen.UploadDocAttachment201JSONResponse)
+		require.True(t, ok)
+		assert.Equal(t, "logo.png", uploadResp.Name)
+		assert.Equal(t, int64(len("png-bytes")), uploadResp.Size)
+
+		dlResp, err := setup.api.DownloadDocAttachment(adminCtx(), apigen.DownloadDocAttachmentRequestObject{
+			Params: apigen.DownloadDocAttachmentParams{Path: "doc", Name: "logo.png"},
+		})
+		require.NoError(t, err)
+		stream, ok := dlResp.(apigen.DownloadDocAttachment200ApplicationoctetStreamResponse)
+		require.True(t, ok)
+		data, err := io.ReadAll(stream.Body)
+		require.NoError(t, err)
+		assert.Equal(t, "png-bytes", string(data))
+		assert.Contains(t, stream.Headers.ContentDisposition, "logo.png")
+	})
+
+	t.Run("oversized upload is rejected", func(t *testing.T) {
+		t.Parallel()
+
+		setup := newSetup(t)
+		_, err := setup.api.UploadDocAttachment(adminCtx(), apigen.UploadDocAttachmentRequestObject{
+			Params: apigen.UploadDocAttachmentParams{Path: "doc", Name: "big.bin"},
+			Body:   bytes.NewReader(make([]byte, 10<<20+1)),
+		})
+		require.Error(t, err)
+	})
+
+	t.Run("invalid name is rejected", func(t *testing.T) {
+		t.Parallel()
+
+		setup := newSetup(t)
+		_, err := setup.api.UploadDocAttachment(adminCtx(), apigen.UploadDocAttachmentRequestObject{
+			Params: apigen.UploadDocAttachmentParams{Path: "doc", Name: "../escape"},
+			Body:   strings.NewReader("x"),
+		})
+		require.Error(t, err)
+	})
+
+	t.Run("unknown attachment returns not found", func(t *testing.T) {
+		t.Parallel()
+
+		setup := newSetup(t)
+		_, err := setup.api.DownloadDocAttachment(adminCtx(), apigen.DownloadDocAttachmentRequestObject{
+			Params: apigen.DownloadDocAttachmentParams{Path: "doc", Name: "missing.png"},
+		})
+		require.Error(t, err)
+	})
 }
 
 func TestCreateDoc(t *testing.T) {
@@ -1822,6 +1946,16 @@ func TestDocWritePermissionDenied(t *testing.T) {
 		_, err := a.UpdateDoc(adminCtx(), apigen.UpdateDocRequestObject{
 			Params: apigen.UpdateDocParams{Path: "test"},
 			Body:   &apigen.UpdateDocJSONRequestBody{Content: "new"},
+		})
+		require.Error(t, err)
+	})
+
+	t.Run("UploadDocAttachment denied", func(t *testing.T) {
+		t.Parallel()
+		a := newNoWriteSetup(t)
+		_, err := a.UploadDocAttachment(adminCtx(), apigen.UploadDocAttachmentRequestObject{
+			Params: apigen.UploadDocAttachmentParams{Path: "test", Name: "logo.png"},
+			Body:   strings.NewReader("x"),
 		})
 		require.Error(t, err)
 	})

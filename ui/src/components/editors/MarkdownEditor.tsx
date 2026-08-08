@@ -17,9 +17,16 @@ type Props = {
   onChange?: (value?: string) => void;
   readOnly?: boolean;
   className?: string;
+  onEditorMount?: (editor: monaco.editor.IStandaloneCodeEditor) => void;
 };
 
-function MarkdownEditor({ value, onChange, readOnly = false, className }: Props) {
+function MarkdownEditor({
+  value,
+  onChange,
+  readOnly = false,
+  className,
+  onEditorMount,
+}: Props) {
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
 
   useEffect(() => {
@@ -69,6 +76,7 @@ function MarkdownEditor({ value, onChange, readOnly = false, className }: Props)
         e.stopPropagation();
       }
     });
+    onEditorMount?.(editor);
   };
 
   const isDarkMode =

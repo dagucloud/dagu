@@ -1170,6 +1170,9 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 		if err := s.deleteRevisions(id); err != nil {
 			logger.Warn(ctx, "Failed to remove doc revisions", tag.File(filePath), tag.Error(err))
 		}
+		if err := s.deleteAttachments(id); err != nil {
+			logger.Warn(ctx, "Failed to remove doc attachments", tag.File(filePath), tag.Error(err))
+		}
 		s.cleanEmptyParents(filepath.Dir(filePath))
 		s.removeDocIndexAfterDelete(ctx, id)
 		return nil
@@ -1191,6 +1194,9 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 	}
 	if err := s.deleteRevisionsPrefix(id); err != nil {
 		logger.Warn(ctx, "Failed to remove doc revisions", tag.File(dirPath), tag.Error(err))
+	}
+	if err := s.deleteAttachmentsPrefix(id); err != nil {
+		logger.Warn(ctx, "Failed to remove doc attachments", tag.File(dirPath), tag.Error(err))
 	}
 	s.cleanEmptyParents(filepath.Dir(dirPath))
 	s.removeDirIndexAfterDelete(ctx, id)
@@ -1285,6 +1291,9 @@ func (s *Store) DeleteBatch(ctx context.Context, ids []string) ([]string, []docs
 			if err := s.deleteRevisions(id); err != nil {
 				logger.Warn(ctx, "Failed to remove doc revisions", tag.File(filePath), tag.Error(err))
 			}
+			if err := s.deleteAttachments(id); err != nil {
+				logger.Warn(ctx, "Failed to remove doc attachments", tag.File(filePath), tag.Error(err))
+			}
 			s.cleanEmptyParents(filepath.Dir(filePath))
 			s.removeDocIndexAfterDelete(ctx, id)
 			deleted = append(deleted, id)
@@ -1315,6 +1324,9 @@ func (s *Store) DeleteBatch(ctx context.Context, ids []string) ([]string, []docs
 		}
 		if err := s.deleteRevisionsPrefix(id); err != nil {
 			logger.Warn(ctx, "Failed to remove doc revisions", tag.File(dirPath), tag.Error(err))
+		}
+		if err := s.deleteAttachmentsPrefix(id); err != nil {
+			logger.Warn(ctx, "Failed to remove doc attachments", tag.File(dirPath), tag.Error(err))
 		}
 		s.cleanEmptyParents(filepath.Dir(dirPath))
 		s.removeDirIndexAfterDelete(ctx, id)
@@ -1415,6 +1427,9 @@ func (s *Store) renameFileLocked(ctx context.Context, oldID, newID, oldFilePath 
 	if err := s.renameRevisions(oldID, newID); err != nil {
 		logger.Warn(ctx, "Failed to rename doc revisions", tag.File(newFilePath), tag.Error(err))
 	}
+	if err := s.renameAttachments(oldID, newID); err != nil {
+		logger.Warn(ctx, "Failed to rename doc attachments", tag.File(newFilePath), tag.Error(err))
+	}
 	s.cleanEmptyParents(filepath.Dir(oldFilePath))
 	s.removeDocIndexAfterDelete(ctx, oldID)
 	s.upsertDocIndexAfterMutation(ctx, newID)
@@ -1471,6 +1486,9 @@ func (s *Store) renameDirectoryLocked(ctx context.Context, oldID, newID, oldDirP
 	}
 	if err := s.renameRevisionsPrefix(oldID, newID); err != nil {
 		logger.Warn(ctx, "Failed to rename doc revisions", tag.File(newDirPath), tag.Error(err))
+	}
+	if err := s.renameAttachmentsPrefix(oldID, newID); err != nil {
+		logger.Warn(ctx, "Failed to rename doc attachments", tag.File(newDirPath), tag.Error(err))
 	}
 	s.cleanEmptyParents(filepath.Dir(oldDirPath))
 	s.rebuildIndexAfterMutation(ctx)
