@@ -278,6 +278,91 @@ function DocEditor({
   const { copied: copiedContent, copy: copyContent } = useCopyFeedback();
   const [historyOpen, setHistoryOpen] = useState(false);
 
+  // Attachment upload via paste/drop into the editor.
+  const editorInstanceRef = useRef<Parameters<
+    NonNullable<React.ComponentProps<typeof MarkdownEditor>['onEditorMount']>
+  >[0] | null>(null);
+
+  const uploadAttachment = useCallback(
+    async (file: File) => {
+      const generatedName = () => {
+        const stamp = new Date()
+          .toISOString()
+          .replace(/[-:T]/g, '')
+          .slice(0, 14);
+        const ext = file.type.split('/')[1] || 'bin';
+        return `pasted-${stamp}.${ext}`;
+      };
+      const validName = /^[a-zA-Z0-9_][a-zA-Z0-9_. -]{0,127}$/.test(file.name)
+        ? file.name
+        : generatedName();
+
+      const { data, error } = await client.PUT('/docs/doc/attachment', {
+        params: {
+          query: {
+            remoteNode,
+            path: docPath,
+            name: validName,
+            ...workspaceTargetQuery,
+          },
+        },
+        body: file as unknown as string,
+        bodySerializer: (body: unknown) => body as BodyInit,
+        headers: { 'Content-Type': 'application/octet-stream' },
+      });
+      if (error || !data) {
+        showToast(error?.message || 'Failed to upload attachment');
+        return;
+      }
+      const isImage = file.type.startsWith('image/');
+      const markdown = `${isImage ? '!' : ''}[${data.name}](attachment:${data.name})`;
+      const editor = editorInstanceRef.current;
+      const selection = editor?.getSelection();
+      if (editor && selection) {
+        editor.executeEdits('doc-attachment', [
+          { range: selection, text: markdown, forceMoveMarkers: true },
+        ]);
+        editor.focus();
+      } else {
+        setCurrentValue(`${currentValueRef.current ?? ''}\n${markdown}\n`);
+      }
+      showToast(`Attached ${data.name}`);
+    },
+    [client, remoteNode, docPath, workspaceTargetQuery, showToast, setCurrentValue, currentValueRef]
+  );
+
+  const handleEditorMount = useCallback(
+    (editor: NonNullable<typeof editorInstanceRef.current>) => {
+      editorInstanceRef.current = editor;
+      const dom = editor.getContainerDomNode();
+      const onPaste = (e: ClipboardEvent) => {
+        if (!canEditRef.current) return;
+        const files = Array.from(e.clipboardData?.files ?? []);
+        if (files.length === 0) return;
+        e.preventDefault();
+        e.stopPropagation();
+        files.forEach((file) => void uploadAttachment(file));
+      };
+      const onDrop = (e: DragEvent) => {
+        if (!canEditRef.current) return;
+        const files = Array.from(e.dataTransfer?.files ?? []);
+        if (files.length === 0) return;
+        e.preventDefault();
+        e.stopPropagation();
+        files.forEach((file) => void uploadAttachment(file));
+      };
+      const onDragOver = (e: DragEvent) => {
+        if ((e.dataTransfer?.types ?? []).includes('Files')) {
+          e.preventDefault();
+        }
+      };
+      dom.addEventListener('paste', onPaste, true);
+      dom.addEventListener('drop', onDrop, true);
+      dom.addEventListener('dragover', onDragOver, true);
+    },
+    [uploadAttachment]
+  );
+
   const title = doc?.title || docPath.split('/').pop() || docPath;
 
   return (
@@ -434,6 +519,7 @@ function DocEditor({
             value={currentValue ?? ''}
             onChange={(val) => setCurrentValue(val ?? '')}
             readOnly={!canEdit}
+            onEditorMount={handleEditorMount}
           />
         ) : (
           <div className="h-full overflow-y-auto p-6">

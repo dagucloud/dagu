@@ -4,9 +4,11 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -19,10 +21,11 @@ import (
 )
 
 const (
-	auditActionDocCreate = "doc_create"
-	auditActionDocUpdate = "doc_update"
-	auditActionDocDelete = "doc_delete"
-	auditActionDocRename = "doc_rename"
+	auditActionDocCreate           = "doc_create"
+	auditActionDocUpdate           = "doc_update"
+	auditActionDocDelete           = "doc_delete"
+	auditActionDocRename           = "doc_rename"
+	auditActionDocAttachmentUpload = "doc_attachment_upload"
 )
 
 var (
@@ -54,6 +57,18 @@ var (
 		Code:       api.ErrorCodeNotFound,
 		Message:    "Document revision not found",
 		HTTPStatus: http.StatusNotFound,
+	}
+
+	errDocAttachmentNotFound = &Error{
+		Code:       api.ErrorCodeNotFound,
+		Message:    "Document attachment not found",
+		HTTPStatus: http.StatusNotFound,
+	}
+
+	errDocAttachmentsUnavailable = &Error{
+		Code:       api.ErrorCodeForbidden,
+		Message:    "Document attachments are not available",
+		HTTPStatus: http.StatusForbidden,
 	}
 )
 
@@ -290,6 +305,109 @@ func (a *API) GetDocRevision(ctx context.Context, request api.GetDocRevisionRequ
 		Size:    revision.Size,
 		Content: ptrOf(revision.Content),
 	}), nil
+}
+
+// maxDocAttachmentSize caps a single attachment upload.
+const maxDocAttachmentSize = 10 << 20 // 10 MiB
+
+// UploadDocAttachment stores a binary attachment for an existing document.
+func (a *API) UploadDocAttachment(ctx context.Context, request api.UploadDocAttachmentRequestObject) (api.UploadDocAttachmentResponseObject, error) {
+	if err := a.requireDocManagement(); err != nil {
+		return nil, err
+	}
+	a.workspaceDocMu.RLock()
+	defer a.workspaceDocMu.RUnlock()
+	if request.Body == nil {
+		return nil, ErrInvalidRequestBody
+	}
+	workspaceName, err := docMutationScopeForParams(request.Params.Workspace)
+	if err != nil {
+		return nil, err
+	}
+	if err := a.requireDAGWriteForWorkspace(ctx, workspaceName); err != nil {
+		return nil, err
+	}
+	if err := docs.ValidateAttachmentName(request.Params.Name); err != nil {
+		return nil, &Error{
+			Code:       api.ErrorCodeBadRequest,
+			Message:    err.Error(),
+			HTTPStatus: http.StatusBadRequest,
+		}
+	}
+	docID, err := scopedDocPath(workspaceName, request.Params.Path)
+	if err != nil {
+		return nil, err
+	}
+
+	data, err := io.ReadAll(io.LimitReader(request.Body, maxDocAttachmentSize+1))
+	if err != nil {
+		return nil, internalError(err)
+	}
+	if len(data) > maxDocAttachmentSize {
+		return nil, &Error{
+			Code:       api.ErrorCodeBadRequest,
+			Message:    fmt.Sprintf("attachment too large (max %d bytes)", maxDocAttachmentSize),
+			HTTPStatus: http.StatusRequestEntityTooLarge,
+		}
+	}
+
+	attachment, err := a.docStore.PutAttachment(ctx, docID, request.Params.Name, bytes.NewReader(data))
+	if err != nil {
+		switch {
+		case errors.Is(err, docs.ErrDocNotFound):
+			return nil, errDocNotFound
+		case errors.Is(err, docs.ErrInvalidAttachmentName):
+			return nil, &Error{
+				Code:       api.ErrorCodeBadRequest,
+				Message:    err.Error(),
+				HTTPStatus: http.StatusBadRequest,
+			}
+		case errors.Is(err, docs.ErrDocAttachmentNotFound):
+			return nil, errDocAttachmentsUnavailable
+		}
+		logger.Error(ctx, "Failed to store doc attachment", tag.Error(err))
+		return nil, internalError(err)
+	}
+
+	a.logAudit(ctx, audit.CategoryDoc, auditActionDocAttachmentUpload, map[string]any{
+		"workspace": workspaceName,
+		"path":      request.Params.Path,
+		"name":      attachment.Name,
+		"size":      attachment.Size,
+	})
+
+	return api.UploadDocAttachment201JSONResponse(api.DocAttachmentResponse{
+		Name: attachment.Name,
+		Size: attachment.Size,
+	}), nil
+}
+
+// DownloadDocAttachment streams a stored document attachment.
+func (a *API) DownloadDocAttachment(ctx context.Context, request api.DownloadDocAttachmentRequestObject) (api.DownloadDocAttachmentResponseObject, error) {
+	if err := a.requireDocManagement(); err != nil {
+		return nil, err
+	}
+	a.workspaceDocMu.RLock()
+	defer a.workspaceDocMu.RUnlock()
+	docID, err := a.docPointReadScopedID(ctx, request.Params.Workspace, request.Params.Path)
+	if err != nil {
+		return nil, err
+	}
+	reader, attachment, err := a.docStore.OpenAttachment(ctx, docID, request.Params.Name)
+	if err != nil {
+		if errors.Is(err, docs.ErrDocAttachmentNotFound) || errors.Is(err, docs.ErrInvalidAttachmentName) {
+			return nil, errDocAttachmentNotFound
+		}
+		logger.Error(ctx, "Failed to open doc attachment", tag.Error(err))
+		return nil, internalError(err)
+	}
+	return api.DownloadDocAttachment200ApplicationoctetStreamResponse{
+		Body: reader,
+		Headers: api.DownloadDocAttachment200ResponseHeaders{
+			ContentDisposition: fmt.Sprintf("attachment; filename=%q", sanitizeFilename(attachment.Name)),
+		},
+		ContentLength: attachment.Size,
+	}, nil
 }
 
 // ListDocBacklinks returns documents whose wiki links resolve to the target.

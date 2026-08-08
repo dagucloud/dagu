@@ -4,6 +4,7 @@
 import { MermaidBlock } from '@/components/ui/mermaid-block';
 import { cn } from '@/lib/utils';
 import { slugifyHeading } from '@/lib/text-utils';
+import { useDocAttachmentUrl } from '@/hooks/useDocAttachmentUrl';
 import {
   parseWikilinkHref,
   remarkWikilink,
@@ -16,10 +17,25 @@ import remarkGfm from 'remark-gfm';
 import './doc-markdown-preview.css';
 
 // The default transform strips URLs with unrecognized protocols; wikilink:
-// URLs must survive so the anchor override can resolve them.
+// and attachment: URLs must survive so the overrides can resolve them.
 function docUrlTransform(url: string): string {
-  if (url.startsWith('wikilink:')) return url;
+  if (url.startsWith('wikilink:') || url.startsWith('attachment:')) return url;
   return defaultUrlTransform(url);
+}
+
+const ATTACHMENT_SCHEME = 'attachment:';
+
+// A bare file name with an extension (no slash, no scheme) also resolves as
+// an attachment of the containing document, keeping hand-written
+// ![](image.png) references portable.
+function attachmentNameFromSrc(src: string | undefined): string | null {
+  if (!src) return null;
+  if (src.startsWith(ATTACHMENT_SCHEME)) {
+    const name = decodeURIComponent(src.slice(ATTACHMENT_SCHEME.length));
+    return name || null;
+  }
+  if (src.includes('/') || src.includes(':')) return null;
+  return src.includes('.') ? decodeURIComponent(src) : null;
 }
 
 /**
@@ -96,6 +112,33 @@ function WikilinkAnchor({ href, linkContext, children }: WikilinkAnchorProps) {
   );
 }
 
+type DocAttachmentImageProps = {
+  name: string;
+  alt?: string;
+  fallbackSrc?: string;
+  linkContext: DocLinkContext;
+};
+
+function DocAttachmentImage({
+  name,
+  alt,
+  fallbackSrc,
+  linkContext,
+}: DocAttachmentImageProps) {
+  const { url, error } = useDocAttachmentUrl(
+    linkContext.docPath,
+    linkContext.workspace,
+    name
+  );
+  if (error) {
+    // Not a stored attachment: fall back to the authored source so ordinary
+    // relative images keep their previous behavior.
+    return fallbackSrc ? <img src={fallbackSrc} alt={alt ?? name} /> : null;
+  }
+  if (!url) return null;
+  return <img src={url} alt={alt ?? name} />;
+}
+
 export function DocMarkdownPreview({
   content,
   className,
@@ -129,6 +172,24 @@ export function DocMarkdownPreview({
               );
             }
             return <a href={href}>{children}</a>;
+          },
+          img({ src, alt }) {
+            const source = typeof src === 'string' ? src : undefined;
+            const attachmentName = attachmentNameFromSrc(source);
+            if (attachmentName && linkContext) {
+              return (
+                <DocAttachmentImage
+                  name={attachmentName}
+                  alt={alt}
+                  fallbackSrc={
+                    source?.startsWith(ATTACHMENT_SCHEME) ? undefined : source
+                  }
+                  linkContext={linkContext}
+                />
+              );
+            }
+            if (source?.startsWith(ATTACHMENT_SCHEME)) return null;
+            return <img src={source} alt={alt} />;
           },
           code({ className: codeClassName, children }) {
             if (codeClassName === 'language-mermaid') {

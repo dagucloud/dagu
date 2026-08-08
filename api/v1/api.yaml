@@ -7234,6 +7234,118 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /docs/doc/attachment:
+    put:
+      summary: "Upload document attachment"
+      description: "Stores a binary attachment for an existing document, replacing any attachment with the same name. Requires DAG write permission."
+      operationId: "uploadDocAttachment"
+      tags:
+        - "docs"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/Workspace"
+        - name: path
+          in: query
+          description: "Document path (may include slashes for nested docs)"
+          required: true
+          schema:
+            $ref: "#/components/schemas/DocPath"
+        - name: name
+          in: query
+          description: "Attachment file name (single path segment)"
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 128
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "201":
+          description: "Attachment stored"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocAttachmentResponse"
+        "400":
+          description: "Invalid attachment name"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Document not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "413":
+          description: "Attachment too large"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    get:
+      summary: "Download document attachment"
+      description: "Streams a stored document attachment."
+      operationId: "downloadDocAttachment"
+      tags:
+        - "docs"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/Workspace"
+        - name: path
+          in: query
+          description: "Document path (may include slashes for nested docs)"
+          required: true
+          schema:
+            $ref: "#/components/schemas/DocPath"
+        - name: name
+          in: query
+          description: "Attachment file name (single path segment)"
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 128
+      responses:
+        "200":
+          description: "Attachment content"
+          headers:
+            Content-Disposition:
+              schema:
+                type: "string"
+              description: "Attachment filename"
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: "Document or attachment not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /docs/doc:
     get:
       summary: "Get document"
@@ -13472,6 +13584,21 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/DocRevisionResponse"
+
+    DocAttachmentResponse:
+      type: object
+      description: "A stored document attachment"
+      required:
+        - name
+        - size
+      properties:
+        name:
+          type: string
+          description: "Attachment file name"
+        size:
+          type: integer
+          format: int64
+          description: "Attachment size in bytes"
 
     DocPath:
       type: string

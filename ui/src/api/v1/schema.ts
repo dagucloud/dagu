@@ -2848,6 +2848,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/docs/doc/attachment": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download document attachment
+         * @description Streams a stored document attachment.
+         */
+        get: operations["downloadDocAttachment"];
+        /**
+         * Upload document attachment
+         * @description Stores a binary attachment for an existing document, replacing any attachment with the same name. Requires DAG write permission.
+         */
+        put: operations["uploadDocAttachment"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/docs/doc": {
         parameters: {
             query?: never;
@@ -5463,6 +5487,16 @@ export interface components {
         /** @description Stored revisions of a document, newest first */
         DocRevisionsResponse: {
             revisions: components["schemas"]["DocRevisionResponse"][];
+        };
+        /** @description A stored document attachment */
+        DocAttachmentResponse: {
+            /** @description Attachment file name */
+            name: string;
+            /**
+             * Format: int64
+             * @description Attachment size in bytes
+             */
+            size: number;
         };
         /** @description Relative document path without extension, for example docs/deploy-guide. Must not start with / or contain .. */
         DocPath: string;
@@ -15344,6 +15378,124 @@ export interface operations {
             };
             /** @description Document or revision not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    downloadDocAttachment: {
+        parameters: {
+            query: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
+                workspace?: components["parameters"]["Workspace"];
+                /** @description Document path (may include slashes for nested docs) */
+                path: components["schemas"]["DocPath"];
+                /** @description Attachment file name (single path segment) */
+                name: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Attachment content */
+            200: {
+                headers: {
+                    /** @description Attachment filename */
+                    "Content-Disposition"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            /** @description Document or attachment not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    uploadDocAttachment: {
+        parameters: {
+            query: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
+                workspace?: components["parameters"]["Workspace"];
+                /** @description Document path (may include slashes for nested docs) */
+                path: components["schemas"]["DocPath"];
+                /** @description Attachment file name (single path segment) */
+                name: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/octet-stream": string;
+            };
+        };
+        responses: {
+            /** @description Attachment stored */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocAttachmentResponse"];
+                };
+            };
+            /** @description Invalid attachment name */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Document not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Attachment too large */
+            413: {
                 headers: {
                     [name: string]: unknown;
                 };
