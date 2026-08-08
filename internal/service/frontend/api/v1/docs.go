@@ -64,12 +64,6 @@ var (
 		Message:    "Document attachment not found",
 		HTTPStatus: http.StatusNotFound,
 	}
-
-	errDocAttachmentsUnavailable = &Error{
-		Code:       api.ErrorCodeForbidden,
-		Message:    "Document attachments are not available",
-		HTTPStatus: http.StatusForbidden,
-	}
 )
 
 func (a *API) requireDocManagement() error {
@@ -362,8 +356,6 @@ func (a *API) UploadDocAttachment(ctx context.Context, request api.UploadDocAtta
 				Message:    err.Error(),
 				HTTPStatus: http.StatusBadRequest,
 			}
-		case errors.Is(err, docs.ErrDocAttachmentNotFound):
-			return nil, errDocAttachmentsUnavailable
 		}
 		logger.Error(ctx, "Failed to store doc attachment", tag.Error(err))
 		return nil, internalError(err)
