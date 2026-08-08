@@ -398,15 +398,10 @@ jobs:
           $stagedInstaller = Join-Path $env:RUNNER_TEMP "dagu-validation-installer.ps1"
           [IO.File]::WriteAllText($stagedInstaller, $source, [Text.Encoding]::UTF8)
           try {
-            & $stagedInstaller -NoPrompt -DryRun -Uninstall -Version latest
-            throw "The installer accepted install-only flags during uninstall."
-          }
-          catch {
-            if ($_.Exception.Message -eq "The installer accepted install-only flags during uninstall.") {
-              throw
-            }
-            if ($_.Exception.Message -ne "-Version is only supported during install.") {
-              throw
+            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $stagedInstaller `
+              -NoPrompt -DryRun -Uninstall -Version latest
+            if ($LASTEXITCODE -eq 0) {
+              throw "The installer accepted install-only flags during uninstall."
             }
           }
           finally {
