@@ -71,6 +71,14 @@ func (r *executorCapabilitiesRegistry) Get(executorType string) ExecutorCapabili
 	return ExecutorCapabilities{}
 }
 
+// Contains reports whether capabilities were registered for an executor type.
+func (r *executorCapabilitiesRegistry) Contains(executorType string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	_, ok := r.caps[executorType]
+	return ok
+}
+
 // RegisterExecutorCapabilities registers capabilities for an executor type.
 func RegisterExecutorCapabilities(executorType string, caps ExecutorCapabilities) {
 	executorCapabilities.Register(executorType, caps)
@@ -84,6 +92,11 @@ func UnregisterExecutorCapabilities(executorType string) {
 // ExecutorCapabilitiesFor returns the registered capabilities for an executor type.
 func ExecutorCapabilitiesFor(executorType string) ExecutorCapabilities {
 	return executorCapabilities.Get(executorType)
+}
+
+// IsExecutorRegistered reports whether an executor type has registered metadata.
+func IsExecutorRegistered(executorType string) bool {
+	return executorCapabilities.Contains(executorType)
 }
 
 // CommandResolution returns command execution facts for command field resolution.

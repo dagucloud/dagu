@@ -61,7 +61,6 @@ func RegisterExecutor(name string, factory ExecutorFactory, opts ...ExecutorOpti
 		registration.validator,
 		registration.caps,
 	)
-	spec.RegisterExecutorTypeName(name)
 }
 
 // UnregisterExecutor removes a custom executor type registered by RegisterExecutor.
@@ -72,9 +71,6 @@ func UnregisterExecutor(name string) {
 		return
 	}
 	runtimeexec.UnregisterExecutor(name)
-	registry.UnregisterStepValidator(name)
-	registry.UnregisterExecutorCapabilities(name)
-	spec.UnregisterExecutorTypeName(name)
 }
 
 // WithStepValidator registers a validation function for the custom executor.

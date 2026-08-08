@@ -13,11 +13,11 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	gotemplate "text/template"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/templatefuncs"
 	"github.com/dagucloud/dagu/v2/internal/core/spec/types"
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/goccy/go-yaml"
 	"github.com/google/jsonschema-go/jsonschema"
@@ -109,51 +109,17 @@ var builtinStepTypeNames = map[string]struct{}{
 	"wait":          {},
 }
 
-var registeredExecutorTypeNames = map[string]struct{}{}
-
-var stepTypeNamesMu sync.RWMutex
-
 // IsValidExecutorTypeName reports whether name is valid for an executor type.
 func IsValidExecutorTypeName(name string) bool {
 	return customStepTypeNameRegexp.MatchString(strings.TrimSpace(name))
 }
 
-// RegisterExecutorTypeName registers a runtime executor type name so DAG
-// loading accepts steps that use it directly in the type field.
-func RegisterExecutorTypeName(name string) {
-	name = strings.TrimSpace(name)
-	if !IsValidExecutorTypeName(name) {
-		return
-	}
-	stepTypeNamesMu.Lock()
-	defer stepTypeNamesMu.Unlock()
-	if _, builtin := builtinStepTypeNames[name]; !builtin {
-		registeredExecutorTypeNames[name] = struct{}{}
-	}
-	builtinStepTypeNames[name] = struct{}{}
-}
-
-// UnregisterExecutorTypeName removes a runtime executor type name that was
-// registered by RegisterExecutorTypeName. Built-in names are retained.
-func UnregisterExecutorTypeName(name string) {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return
-	}
-	stepTypeNamesMu.Lock()
-	defer stepTypeNamesMu.Unlock()
-	if _, registered := registeredExecutorTypeNames[name]; !registered {
-		return
-	}
-	delete(registeredExecutorTypeNames, name)
-	delete(builtinStepTypeNames, name)
-}
-
 func isRegisteredExecutorTypeName(name string) bool {
-	stepTypeNamesMu.RLock()
-	defer stepTypeNamesMu.RUnlock()
-	_, ok := registeredExecutorTypeNames[strings.TrimSpace(name)]
-	return ok
+	name = strings.TrimSpace(name)
+	if _, builtin := builtinStepTypeNames[name]; builtin {
+		return false
+	}
+	return registry.IsExecutorRegistered(name)
 }
 
 var customStepForbiddenCallSiteFields = map[string]struct{}{
@@ -551,10 +517,9 @@ func schemasDeclareObjects(root *jsonschema.Schema, schemas []*jsonschema.Schema
 }
 
 func isBuiltinStepTypeName(name string) bool {
-	stepTypeNamesMu.RLock()
-	defer stepTypeNamesMu.RUnlock()
-	_, ok := builtinStepTypeNames[strings.TrimSpace(name)]
-	return ok
+	name = strings.TrimSpace(name)
+	_, ok := builtinStepTypeNames[name]
+	return ok || registry.IsExecutorRegistered(name)
 }
 
 func validateCustomStepInput(stepTypeName string, schema *jsonschema.Resolved, fieldName string, input map[string]any) (map[string]any, error) {

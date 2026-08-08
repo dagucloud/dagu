@@ -78,8 +78,10 @@ func RegisterExecutor(executorType string, factory ExecutorFactory, validator re
 // UnregisterExecutor removes a registered executor type.
 func UnregisterExecutor(executorType string) {
 	executorRegistryMu.Lock()
-	defer executorRegistryMu.Unlock()
 	delete(executorRegistry, executorType)
+	executorRegistryMu.Unlock()
+	registry.UnregisterStepValidator(executorType)
+	registry.UnregisterExecutorCapabilities(executorType)
 }
 
 var executorRegistry = make(map[string]ExecutorFactory)

@@ -74,6 +74,15 @@ steps:
 
 func TestEmbeddedCustomExecutorRunYAML(t *testing.T) {
 	const executorType = "embedded_intg_echo"
+	dagYAML := []byte(`
+name: embedded-intg-custom-executor
+type: graph
+steps:
+  - name: go-step
+    action: embedded_intg_echo
+    with:
+      message: called from YAML
+`)
 
 	dagu.RegisterExecutor(
 		executorType,
@@ -95,21 +104,17 @@ func TestEmbeddedCustomExecutorRunYAML(t *testing.T) {
 		require.NoError(t, engine.Close(context.Background()))
 	})
 
-	run, err := engine.RunYAML(ctx, []byte(`
-name: embedded-intg-custom-executor
-type: graph
-steps:
-  - name: go-step
-    action: embedded_intg_echo
-    with:
-      message: called from YAML
-`))
+	run, err := engine.RunYAML(ctx, dagYAML)
 	require.NoError(t, err)
 
 	status, err := run.Wait(ctx)
 	require.NoError(t, err)
 	require.Equal(t, "embedded-intg-custom-executor", status.Name)
 	require.Equal(t, "succeeded", status.Status)
+
+	dagu.UnregisterExecutor(executorType)
+	_, err = engine.RunYAML(ctx, dagYAML)
+	require.ErrorContains(t, err, `unknown action "embedded_intg_echo"`)
 }
 
 func TestEmbeddedDistributedRunYAML(t *testing.T) {
