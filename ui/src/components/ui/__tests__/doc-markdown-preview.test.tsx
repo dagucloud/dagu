@@ -4,10 +4,13 @@
 import { render, screen } from '@testing-library/react';
 import React from 'react';
 import { MemoryRouter } from 'react-router-dom';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+let clientGet: (...args: unknown[]) => Promise<unknown> = () =>
+  Promise.resolve({ data: null, error: { message: 'nope' } });
 
 vi.mock('@/hooks/api', () => ({
-  useClient: () => ({ GET: vi.fn().mockResolvedValue({ data: null, error: { message: 'nope' } }) }),
+  useClient: () => ({ GET: (...args: unknown[]) => clientGet(...args) }),
   useQuery: () => ({ data: undefined }),
 }));
 
@@ -69,6 +72,11 @@ title: Restart API
 describe('DocMarkdownPreview wikilinks', () => {
   const linkContext = { workspace: 'ops', docPath: 'runbooks/etl' };
 
+  beforeEach(() => {
+    clientGet = () =>
+      Promise.resolve({ data: null, error: { message: 'nope' } });
+  });
+
   it('renders a doc wikilink as an internal link scoped to the workspace', () => {
     renderWithRouter(
       <DocMarkdownPreview
@@ -112,6 +120,43 @@ describe('DocMarkdownPreview wikilinks', () => {
 
     expect(screen.queryByRole('link')).not.toBeInTheDocument();
     expect(screen.getByText('guides/deploy')).toBeInTheDocument();
+  });
+
+  it('renders ![[name]] embeds as attachment images', async () => {
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      value: () => 'blob:attachment-test',
+    });
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      configurable: true,
+      value: () => {},
+    });
+    clientGet = () =>
+      Promise.resolve({ data: new Blob(['png']), error: undefined });
+
+    renderWithRouter(
+      <DocMarkdownPreview
+        content="before ![[logo.png|the logo]] after"
+        linkContext={linkContext}
+      />
+    );
+
+    const img = await screen.findByRole('img', { name: 'the logo' });
+    expect(img).toHaveAttribute('src', 'blob:attachment-test');
+    expect(screen.queryByRole('link')).not.toBeInTheDocument();
+  });
+
+  it('degrades doc-path embeds to plain wiki links', () => {
+    renderWithRouter(
+      <DocMarkdownPreview
+        content="![[guides/deploy]]"
+        linkContext={linkContext}
+      />
+    );
+
+    expect(
+      screen.getByRole('link', { name: 'guides/deploy' })
+    ).toBeInTheDocument();
   });
 
   it('dispatches dagu-run fences to the run block instead of plain code', () => {
