@@ -16,9 +16,9 @@ import (
 // reloading its YamlData, and returns dag. Fields that survive serialization are
 // preserved as-is. A dag without YamlData is returned unchanged.
 //
-// Callers must load dotenv before calling, so dotenv values are visible to the
-// rebuild. When paramsOverride is supplied its first element replaces the DAG's
-// params for the reload.
+// Callers must resolve the runtime environment before calling, so those values
+// are visible to the rebuild. When paramsOverride is supplied its first element
+// replaces the DAG's params for the reload.
 //
 // Env is drawn from the reloaded YAML and from the environment captured when the
 // run was first built. A captured key overrides the YAML's declaration of it, so

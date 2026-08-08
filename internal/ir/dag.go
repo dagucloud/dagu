@@ -4,22 +4,16 @@
 package ir
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"maps"
-	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/cmn/buildenv"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauthconfig"
-	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
-	"github.com/joho/godotenv"
 	"github.com/robfig/cron/v3"
 )
 
@@ -266,9 +260,6 @@ type DAG struct {
 	Secrets []secretref.Ref `json:"secrets,omitempty"`
 	// Tools declares external CLI tools that must be installed before the DAG runs.
 	Tools *ToolConfig `json:"tools,omitempty"`
-	// dotenvOnce ensures LoadDotEnv is called only once, even with concurrent calls.
-	// This provides thread-safe idempotency for dotenv loading.
-	dotenvOnce sync.Once
 }
 
 const (
@@ -358,15 +349,9 @@ func (d *DAG) HasTag(tag string) bool {
 	return d.HasLabel(tag)
 }
 
-// Clone creates a shallow copy of the DAG.
-// The sync.Once field is reset to zero value, allowing LoadDotEnv to be called
-// independently on the clone. This is safe for read-only field modifications
-// like changing Location.
+// Clone returns a DAG copy suitable for modifying top-level runtime state.
 func (d *DAG) Clone() *DAG {
-	//nolint:govet // intentional copy; sync.Once is immediately reset below
 	clone := *d
-	// Reset sync.Once so LoadDotEnv can be called on the clone
-	clone.dotenvOnce = sync.Once{}
 	if d.PresolvedBuildEnv != nil {
 		clone.PresolvedBuildEnv = maps.Clone(d.PresolvedBuildEnv)
 	}
@@ -503,122 +488,6 @@ func (d *DAG) NextRun(now time.Time) time.Time {
 		}
 	}
 	return next
-}
-
-// deduplicateStrings removes duplicate strings while preserving order.
-func deduplicateStrings(input []string) []string {
-	seen := make(map[string]bool, len(input))
-	result := make([]string, 0, len(input))
-	for _, s := range input {
-		if seen[s] {
-			continue
-		}
-		seen[s] = true
-		result = append(result, s)
-	}
-	return result
-}
-
-// LoadDotEnv loads all dotenv files in order, with later files overriding earlier ones.
-// This method is thread-safe and idempotent - concurrent calls will only load once.
-func (d *DAG) LoadDotEnv(ctx context.Context) {
-	d.dotenvOnce.Do(func() {
-		d.loadDotEnvFiles(ctx)
-	})
-}
-
-// loadDotEnvFiles performs the actual dotenv file loading.
-func (d *DAG) loadDotEnvFiles(ctx context.Context) {
-	if len(d.Dotenv) == 0 {
-		return
-	}
-
-	scope := d.dotenvEnvScope()
-	evalCtx := ctx
-	if evalCtx == nil {
-		evalCtx = context.Background()
-	}
-	evalCtx = cmnvalue.WithEnvScope(evalCtx, scope)
-
-	workingDir := d.expandDotEnvPath(d.WorkingDir, scope)
-	relativeTos := []string{workingDir}
-	if fileDir := filepath.Dir(d.Location); d.Location != "" && fileDir != workingDir {
-		relativeTos = append(relativeTos, fileDir)
-	}
-
-	resolver := fileutil.NewFileResolver(relativeTos)
-	candidates := deduplicateStrings(append([]string{".env"}, d.Dotenv...))
-
-	for _, filePath := range candidates {
-		d.loadSingleDotEnvFile(evalCtx, resolver, filePath)
-	}
-}
-
-// dotenvEnvScope builds the variable scope used to resolve dotenv search paths.
-func (d *DAG) dotenvEnvScope() *cmnvalue.EnvScope {
-	scope := cmnvalue.NewEnvScope(nil, true)
-	if params := buildenv.ToMap(d.Params); len(params) > 0 {
-		scope = scope.WithEntries(params, cmnvalue.EnvSourceParam)
-	}
-	if len(d.PresolvedBuildEnv) > 0 {
-		scope = scope.WithEntries(d.PresolvedBuildEnv, cmnvalue.EnvSourcePresolved)
-	}
-	if envs := buildenv.ToMap(d.Env); len(envs) > 0 {
-		scope = scope.WithEntries(envs, cmnvalue.EnvSourceDAGEnv)
-	}
-	return scope
-}
-
-func (d *DAG) expandConsts(value, field string) (string, error) {
-	resolver := cmnvalue.NewResolver(
-		cmnvalue.StaticScope{Consts: cmnvalue.Values(d.Consts)},
-		cmnvalue.RuntimeScope{Consts: cmnvalue.Values(d.Consts)},
-	)
-	return resolver.String(context.Background(), value, cmnvalue.StaticValidationField(field))
-}
-
-// expandDotEnvPath expands a dotenv-related path without mutating the DAG definition.
-func (d *DAG) expandDotEnvPath(path string, scope *cmnvalue.EnvScope) string {
-	expanded, err := d.expandConsts(path, "dotenv")
-	if err != nil {
-		expanded = path
-	}
-	if scope == nil {
-		return os.ExpandEnv(expanded)
-	}
-	return scope.Expand(expanded)
-}
-
-// loadSingleDotEnvFile loads a single dotenv file and appends its variables to d.Env.
-func (d *DAG) loadSingleDotEnvFile(ctx context.Context, resolver *fileutil.FileResolver, filePath string) {
-	if strings.TrimSpace(filePath) == "" {
-		return
-	}
-
-	valueResolver := cmnvalue.NewResolver(
-		cmnvalue.StaticScope{Consts: cmnvalue.Values(d.Consts), Params: d.ParamDeclarations()},
-		cmnvalue.RuntimeScope{Consts: cmnvalue.Values(d.Consts), Params: d.ParamValues(), ParamsJSON: d.ParamsJSON, Env: cmnvalue.GetEnvScope(ctx)},
-	)
-	evaluatedPath, err := valueResolver.String(ctx, filePath, cmnvalue.DotenvPathField("dotenv"))
-	if err != nil {
-		d.BuildErrors = append(d.BuildErrors, fmt.Errorf("failed to evaluate dotenv path %q: %w", filePath, err))
-		return
-	}
-
-	resolvedPath, err := resolver.ResolveFilePathLiteral(evaluatedPath)
-	if err != nil || !fileutil.FileExists(resolvedPath) {
-		return
-	}
-
-	vars, err := godotenv.Read(resolvedPath)
-	if err != nil {
-		d.BuildWarnings = append(d.BuildWarnings, fmt.Sprintf("failed to load .env file %q: %v", resolvedPath, err))
-		return
-	}
-
-	for k, v := range vars {
-		d.Env = append(d.Env, fmt.Sprintf("%s=%s", k, v))
-	}
 }
 
 // initializeDefaults sets the default values for the DAG.

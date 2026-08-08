@@ -57,6 +57,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime/resourcelimit"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
+	"github.com/dagucloud/dagu/v2/internal/runtimeenv"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
@@ -507,9 +508,11 @@ func (a *Agent) Run(ctx context.Context) error {
 	// Initialize propagators for W3C trace context before anything else
 	telemetry.InitializePropagators()
 
-	// Resolve secrets early so they're available for OTel config evaluation.
-	// LoadDotEnv is idempotent - safe to call even if already loaded by caller.
-	dotenvErr := dagwarning.LoadDotEnv(ctx, a.dag)
+	// Resolve the per-run environment before secrets and runtime configuration.
+	resolvedEnv, dotenvErr := runtimeenv.Resolve(ctx, a.dag)
+	a.dag.Env = resolvedEnv.Env
+	a.dag.RuntimeResolved = true
+	dagwarning.Log(ctx, resolvedEnv.Warnings)
 
 	secretEnvs, secretErr := a.resolveSecrets(ctx)
 	profileValues, profileErr := a.resolveProfile(ctx)

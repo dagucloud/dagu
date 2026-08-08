@@ -41,6 +41,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
+	"github.com/dagucloud/dagu/v2/internal/runtimeenv"
 	"github.com/dagucloud/dagu/v2/internal/service/audit"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 	"github.com/goccy/go-yaml"
@@ -567,7 +568,11 @@ func (a *API) loadInlineDAG(ctx context.Context, specContent string, name *strin
 func restoreDAGRunSnapshot(ctx context.Context, dag *ir.DAG, status *dagrun.DAGRunStatus) (*ir.DAG, string, error) {
 	runtimeParams := append([]string(nil), status.ParamsList...)
 	dag.Params = runtimeParams
-	if err := dagwarning.LoadDotEnv(ctx, dag); err != nil {
+	resolvedEnv, err := runtimeenv.Resolve(ctx, dag)
+	dag.Env = resolvedEnv.Env
+	dag.RuntimeResolved = true
+	dagwarning.Log(ctx, resolvedEnv.Warnings)
+	if err != nil {
 		return nil, "", err
 	}
 
@@ -3886,7 +3891,7 @@ func (a *API) prepareRetryDAGForSubprocess(ctx context.Context, dag *ir.DAG, sta
 		return dag, nil
 	}
 
-	result, err := spec.ResolveEnvWithWarnings(ctx, dag, status.ParamsList, spec.ResolveEnvOptions{
+	result, err := spec.ResolveRuntimeEnv(ctx, dag, status.ParamsList, spec.ResolveEnvOptions{
 		BaseConfig: a.config.Paths.BaseConfig,
 	})
 	if err != nil {
@@ -3896,6 +3901,7 @@ func (a *API) prepareRetryDAGForSubprocess(ctx context.Context, dag *ir.DAG, sta
 
 	prepared := dag.Clone()
 	prepared.Env = result.Env
+	prepared.RuntimeResolved = true
 	return prepared, nil
 }
 

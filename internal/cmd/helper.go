@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagwarning"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runtimeenv"
 )
 
 // parseTriggerTypeParam parses and validates the trigger-type flag from the command context.
@@ -83,7 +84,11 @@ func parseScheduleTimeParam(ctx *Context) (string, error) {
 func restoreDAGFromStatus(ctx context.Context, dag *ir.DAG, status *dagrun.DAGRunStatus) (*ir.DAG, error) {
 	runtimeParams := append([]string(nil), status.ParamsList...)
 	dag.Params = runtimeParams
-	if err := dagwarning.LoadDotEnv(ctx, dag); err != nil {
+	resolvedEnv, err := runtimeenv.Resolve(ctx, dag)
+	dag.Env = resolvedEnv.Env
+	dag.RuntimeResolved = true
+	dagwarning.Log(ctx, resolvedEnv.Warnings)
+	if err != nil {
 		return nil, err
 	}
 	restored, err := spec.RebuildFromYAML(ctx, dag, spec.QuoteRuntimeParams(runtimeParams, dag.ParamDefs))

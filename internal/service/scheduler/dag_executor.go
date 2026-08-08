@@ -402,7 +402,7 @@ func (e *DAGExecutor) prepareDAGForSubprocess(ctx context.Context, dag *ir.DAG, 
 		return nil, nil
 	}
 
-	result, err := spec.ResolveEnvWithWarnings(ctx, dag, params, spec.ResolveEnvOptions{
+	result, err := spec.ResolveRuntimeEnv(ctx, dag, params, spec.ResolveEnvOptions{
 		BaseConfig:             e.baseConfigPath,
 		WorkspaceBaseConfigDir: e.workspaceBaseConfigDir,
 	})
@@ -413,6 +413,7 @@ func (e *DAGExecutor) prepareDAGForSubprocess(ctx context.Context, dag *ir.DAG, 
 
 	prepared := dag.Clone()
 	prepared.Env = result.Env
+	prepared.RuntimeResolved = true
 	return prepared, nil
 }
 

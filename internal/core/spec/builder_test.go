@@ -19,6 +19,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/harness"
+	"github.com/dagucloud/dagu/v2/internal/runtimeenv"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -26,6 +27,15 @@ import (
 type DAG struct {
 	t *testing.T
 	*ir.DAG
+}
+
+func resolveDAGRuntimeEnv(t *testing.T, dag *ir.DAG) runtimeenv.Result {
+	t.Helper()
+	result, err := runtimeenv.Resolve(context.Background(), dag)
+	require.NoError(t, err)
+	dag.Env = result.Env
+	dag.RuntimeResolved = true
+	return result
 }
 
 func (th *DAG) AssertEnv(t *testing.T, key, val string) {
@@ -3717,7 +3727,7 @@ steps:
 		require.NotNil(t, dag)
 
 		// Load environment variables from dotenv file
-		dag.LoadDotEnv(context.Background())
+		resolveDAGRuntimeEnv(t, dag)
 
 		// Verify environment variables are in dag.Env (not process env)
 		// Child processes will receive them via cmd.Env = AllEnvs()
@@ -3746,7 +3756,7 @@ steps:
 		require.NotNil(t, dag)
 
 		// LoadDotEnv should not fail even if dotenv file doesn't exist
-		dag.LoadDotEnv(context.Background())
+		resolveDAGRuntimeEnv(t, dag)
 
 		// Environment variables from env should still be in dag.Env
 		envMap := make(map[string]string)
@@ -3775,10 +3785,10 @@ steps:
 		require.NoError(t, err)
 		require.NotNil(t, dag)
 
-		dag.LoadDotEnv(context.Background())
+		result := resolveDAGRuntimeEnv(t, dag)
 
-		require.Len(t, dag.BuildWarnings, 1)
-		assert.Contains(t, dag.BuildWarnings[0], "failed to load .env file")
+		require.Len(t, result.Warnings, 1)
+		assert.Contains(t, result.Warnings[0], "failed to load .env file")
 	})
 
 	t.Run("LoadEnvFromBaseEnvResolvedWorkingDir", func(t *testing.T) {
@@ -3805,7 +3815,7 @@ steps:
 		dag, err := spec.Load(context.Background(), dagFile, spec.WithBaseConfig(baseConfig))
 		require.NoError(t, err)
 
-		dag.LoadDotEnv(context.Background())
+		resolveDAGRuntimeEnv(t, dag)
 
 		envMap := envSliceMap(dag.Env)
 		assert.Equal(t, workDir, envMap["QUANT_SIGNAL_DIR"])
@@ -3837,7 +3847,7 @@ steps:
 		dag, err := spec.Load(context.Background(), dagFile, spec.WithBaseConfig(baseConfig))
 		require.NoError(t, err)
 
-		dag.LoadDotEnv(context.Background())
+		resolveDAGRuntimeEnv(t, dag)
 
 		envMap := envSliceMap(dag.Env)
 		assert.Equal(t, "/usr/local/bin/python", envMap["PYTHON_BIN"])

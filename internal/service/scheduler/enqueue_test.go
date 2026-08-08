@@ -193,9 +193,9 @@ steps:
 	persisted, err := attempt.ReadDAG(th.Context)
 	require.NoError(t, err)
 
-	resolvedEnv, err := spec.ResolveEnv(th.Context, persisted, nil, spec.ResolveEnvOptions{})
+	resolvedEnv, err := spec.ResolveRuntimeEnv(th.Context, persisted, nil, spec.ResolveEnvOptions{})
 	require.NoError(t, err)
-	env := buildenv.ToMap(resolvedEnv)
+	env := buildenv.ToMap(resolvedEnv.Env)
 	require.Equal(t, "from-workspace", env["GREETING"])
 	require.Equal(t, "only-in-workspace", env["OPS_ONLY"])
 }

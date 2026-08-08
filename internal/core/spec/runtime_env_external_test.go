@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/buildenv"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/require"
@@ -41,12 +42,12 @@ steps:
 	require.NoError(t, err)
 
 	dag.Env = nil
-	env, err := spec.ResolveEnv(context.Background(), dag, spec.QuoteRuntimeParams(nil, dag.ParamDefs), spec.ResolveEnvOptions{
+	result, err := spec.ResolveRuntimeEnv(context.Background(), dag, spec.QuoteRuntimeParams(nil, dag.ParamDefs), spec.ResolveEnvOptions{
 		BaseConfig: baseConfig,
 	})
 	require.NoError(t, err)
 
-	envMap := runtimeEnvSliceMap(env)
+	envMap := runtimeEnvSliceMap(result.Env)
 	require.Equal(t, workDir, envMap["QUANT_SIGNAL_DIR"])
 	require.Equal(t, "/usr/local/bin/python", envMap["PYTHON_BIN"])
 	require.Equal(t, "/work/quant-signal", envMap["PROJECT_DIR"])
@@ -70,11 +71,26 @@ steps:
 `, root))
 	require.NoError(t, err)
 
-	dag.LoadDotEnv(context.Background())
+	resolveDAGRuntimeEnv(t, dag)
 	require.Equal(t, "ready", runtimeEnvSliceMap(dag.Env)["CONST_DOTENV"])
 }
 
-func TestResolveEnvWithWarningsReturnsDotenvWarnings(t *testing.T) {
+func TestLoadPreservesRuntimeEnvironmentSnapshotState(t *testing.T) {
+	t.Parallel()
+
+	dag, err := spec.LoadYAML(context.Background(), []byte(`
+dotenv: .env
+env:
+  - VALUE: ${VALUE}
+steps:
+  - run: echo hello
+`), spec.WithBuildEnvSnapshot(buildenv.NewSnapshot([]string{"VALUE=transported"}, true)))
+	require.NoError(t, err)
+	require.True(t, dag.RuntimeResolved)
+	require.Equal(t, "transported", runtimeEnvSliceMap(dag.Env)["VALUE"])
+}
+
+func TestResolveRuntimeEnvReturnsDotenvWarnings(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
@@ -88,14 +104,14 @@ steps:
 `, root), spec.WithoutEval())
 	require.NoError(t, err)
 
-	result, err := spec.ResolveEnvWithWarnings(context.Background(), dag, nil, spec.ResolveEnvOptions{})
+	result, err := spec.ResolveRuntimeEnv(context.Background(), dag, nil, spec.ResolveEnvOptions{})
 	require.NoError(t, err)
 	require.Empty(t, result.Env)
 	require.Len(t, result.BuildWarnings, 1)
 	require.Contains(t, result.BuildWarnings[0], "failed to load .env file")
 }
 
-func TestResolveEnvWithWarningsLoadsDotenvWithRuntimeParams(t *testing.T) {
+func TestResolveRuntimeEnvLoadsDotenvWithRuntimeParams(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
@@ -118,18 +134,18 @@ steps:
 `, workDir)
 	dag, err := spec.LoadYAML(context.Background(), yamlData, spec.WithParams("COL=foo"))
 	require.NoError(t, err)
-	dag.LoadDotEnv(context.Background())
+	resolveDAGRuntimeEnv(t, dag)
 	require.Equal(t, "foo", runtimeEnvSliceMap(dag.Env)["TARGET_TABLE"])
 
 	persisted := dag.Clone()
 	persisted.Env = nil
 	persisted.Params = nil
-	result, err := spec.ResolveEnvWithWarnings(context.Background(), persisted, []string{"COL=foo"}, spec.ResolveEnvOptions{})
+	result, err := spec.ResolveRuntimeEnv(context.Background(), persisted, []string{"COL=foo"}, spec.ResolveEnvOptions{})
 	require.NoError(t, err)
 	require.Equal(t, "foo", runtimeEnvSliceMap(result.Env)["TARGET_TABLE"])
 }
 
-func TestResolveEnvWithWarningsLoadsDotenvWithParamsReference(t *testing.T) {
+func TestResolveRuntimeEnvLoadsDotenvWithParamsReference(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
@@ -152,19 +168,19 @@ steps:
 	dag, err := spec.LoadYAML(context.Background(), yamlData, spec.WithParams("ENVIRONMENT=prod"))
 	require.NoError(t, err)
 	require.Contains(t, dag.Params, "ENVIRONMENT=prod")
-	dag.LoadDotEnv(context.Background())
+	resolveDAGRuntimeEnv(t, dag)
 	require.Empty(t, dag.BuildErrors)
 	require.Equal(t, "prod", runtimeEnvSliceMap(dag.Env)["TARGET_TABLE"])
 
 	persisted := dag.Clone()
 	persisted.Env = nil
 	persisted.Params = nil
-	result, err := spec.ResolveEnvWithWarnings(context.Background(), persisted, []string{"ENVIRONMENT=prod"}, spec.ResolveEnvOptions{})
+	result, err := spec.ResolveRuntimeEnv(context.Background(), persisted, []string{"ENVIRONMENT=prod"}, spec.ResolveEnvOptions{})
 	require.NoError(t, err)
 	require.Equal(t, "prod", runtimeEnvSliceMap(result.Env)["TARGET_TABLE"])
 }
 
-func TestResolveEnvWithWarningsPreservesMissingDotenvParamReference(t *testing.T) {
+func TestResolveRuntimeEnvPreservesMissingDotenvParamReference(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
@@ -185,7 +201,7 @@ steps:
 `, workDir)
 	dag, err := spec.LoadYAML(context.Background(), yamlData)
 	require.NoError(t, err)
-	dag.LoadDotEnv(context.Background())
+	resolveDAGRuntimeEnv(t, dag)
 	require.Empty(t, dag.BuildErrors)
 	require.Empty(t, dag.Env)
 
@@ -193,12 +209,12 @@ steps:
 	require.NoError(t, err)
 	persisted.Env = nil
 	persisted.EnvEvaluated = false
-	result, err := spec.ResolveEnvWithWarnings(context.Background(), persisted, nil, spec.ResolveEnvOptions{})
+	result, err := spec.ResolveRuntimeEnv(context.Background(), persisted, nil, spec.ResolveEnvOptions{})
 	require.NoError(t, err)
 	require.Empty(t, result.Env)
 }
 
-func TestResolveEnvWithWarningsDoesNotMutateDAGBackingSlices(t *testing.T) {
+func TestResolveRuntimeEnvDoesNotMutateDAGBackingSlices(t *testing.T) {
 	t.Parallel()
 
 	t.Run("env", func(t *testing.T) {
@@ -217,7 +233,7 @@ steps:
 
 		dag.Env = make([]string, 0, 1)
 
-		result, err := spec.ResolveEnvWithWarnings(context.Background(), dag, nil, spec.ResolveEnvOptions{})
+		result, err := spec.ResolveRuntimeEnv(context.Background(), dag, nil, spec.ResolveEnvOptions{})
 		require.NoError(t, err)
 		require.Contains(t, result.Env, "DOTENV_VALUE=ready")
 		require.Empty(t, dag.Env)
@@ -241,7 +257,7 @@ steps:
 		dag.BuildWarnings = make([]string, 1, 2)
 		dag.BuildWarnings[0] = "existing warning"
 
-		result, err := spec.ResolveEnvWithWarnings(context.Background(), dag, nil, spec.ResolveEnvOptions{})
+		result, err := spec.ResolveRuntimeEnv(context.Background(), dag, nil, spec.ResolveEnvOptions{})
 		require.NoError(t, err)
 		require.Len(t, result.BuildWarnings, 1)
 		require.Len(t, dag.BuildWarnings, 1)
@@ -249,7 +265,7 @@ steps:
 	})
 }
 
-func TestResolveEnvWithWarningsReloadsNoEvalMetadataEnvFromSource(t *testing.T) {
+func TestResolveRuntimeEnvReloadsNoEvalMetadataEnvFromSource(t *testing.T) {
 	ctx := context.Background()
 	t.Setenv("ISSUE_2268_TOKEN", "secret123")
 
@@ -275,13 +291,13 @@ steps:
 	require.NoError(t, err)
 	require.Equal(t, "${ISSUE_2268_TOKEN}", runtimeEnvSliceMap(metadata.Env)["TOKEN"])
 
-	result, err := spec.ResolveEnvWithWarnings(ctx, metadata, nil, spec.ResolveEnvOptions{})
+	result, err := spec.ResolveRuntimeEnv(ctx, metadata, nil, spec.ResolveEnvOptions{})
 	require.NoError(t, err)
 	require.Equal(t, "secret123", runtimeEnvSliceMap(result.Env)["TOKEN"])
 	require.Equal(t, "${ISSUE_2268_TOKEN}", runtimeEnvSliceMap(metadata.Env)["TOKEN"])
 }
 
-func TestResolveEnvWithWarningsReloadsNoEvalMetadataEnvFromSourceFile(t *testing.T) {
+func TestResolveRuntimeEnvReloadsNoEvalMetadataEnvFromSourceFile(t *testing.T) {
 	ctx := context.Background()
 	t.Setenv("ISSUE_2268_TOKEN", "secret123")
 
@@ -311,7 +327,7 @@ steps:
 	metadata.Location = ""
 	metadata.YamlData = nil
 
-	result, err := spec.ResolveEnvWithWarnings(ctx, metadata, nil, spec.ResolveEnvOptions{})
+	result, err := spec.ResolveRuntimeEnv(ctx, metadata, nil, spec.ResolveEnvOptions{})
 	require.NoError(t, err)
 	require.Equal(t, "secret123", runtimeEnvSliceMap(result.Env)["TOKEN"])
 	require.Equal(t, "${ISSUE_2268_TOKEN}", runtimeEnvSliceMap(metadata.Env)["TOKEN"])
@@ -332,7 +348,7 @@ steps:
 	require.Empty(t, dag.PresolvedBuildEnv)
 }
 
-func TestResolveEnvWithWarningsReusesEvaluatedSourceEnv(t *testing.T) {
+func TestResolveRuntimeEnvReusesResolvedSourceEnv(t *testing.T) {
 	ctx := context.Background()
 	t.Setenv("ISSUE_2268_TOKEN", "old-value")
 
@@ -349,31 +365,32 @@ steps:
 
 	t.Setenv("ISSUE_2268_TOKEN", "new-value")
 
-	result, err := spec.ResolveEnvWithWarnings(ctx, dag, nil, spec.ResolveEnvOptions{})
+	result, err := spec.ResolveRuntimeEnv(ctx, dag, nil, spec.ResolveEnvOptions{})
 	require.NoError(t, err)
 	require.Equal(t, "old-value", runtimeEnvSliceMap(result.Env)["TOKEN"])
 }
 
-func TestResolveEnvWithWarningsReusesEvaluatedEmptySourceEnv(t *testing.T) {
+func TestResolveRuntimeEnvReusesResolvedEmptySourceEnv(t *testing.T) {
 	dag := &ir.DAG{
-		Name:         "evaluated-empty-source-env",
-		Env:          []string{},
-		EnvEvaluated: true,
-		YamlData:     []byte("invalid: ["),
+		Name:            "evaluated-empty-source-env",
+		Env:             []string{},
+		EnvEvaluated:    true,
+		RuntimeResolved: true,
+		YamlData:        []byte("invalid: ["),
 	}
 
-	result, err := spec.ResolveEnvWithWarnings(context.Background(), dag, nil, spec.ResolveEnvOptions{})
+	result, err := spec.ResolveRuntimeEnv(context.Background(), dag, nil, spec.ResolveEnvOptions{})
 	require.NoError(t, err)
 	require.Empty(t, result.Env)
 }
 
-func TestResolveEnvWithWarningsKeepsProgrammaticEnvWithoutSource(t *testing.T) {
+func TestResolveRuntimeEnvKeepsProgrammaticEnvWithoutSource(t *testing.T) {
 	dag := &ir.DAG{
 		Name: "programmatic-env",
 		Env:  []string{"TOKEN=${ISSUE_2268_TOKEN}"},
 	}
 
-	result, err := spec.ResolveEnvWithWarnings(context.Background(), dag, nil, spec.ResolveEnvOptions{})
+	result, err := spec.ResolveRuntimeEnv(context.Background(), dag, nil, spec.ResolveEnvOptions{})
 	require.NoError(t, err)
 	require.Equal(t, "${ISSUE_2268_TOKEN}", runtimeEnvSliceMap(result.Env)["TOKEN"])
 }

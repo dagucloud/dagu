@@ -65,6 +65,7 @@ steps:
 	)
 	prepared, err := executor.prepareDAGForSubprocess(ctx, dag, "")
 	require.NoError(t, err)
+	require.True(t, prepared.RuntimeResolved)
 
 	env := buildenv.ToMap(prepared.Env)
 	require.Equal(t, "from-workspace", env["GREETING"])

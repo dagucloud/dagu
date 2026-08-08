@@ -45,8 +45,8 @@ steps:
 
 	dag.Env = nil
 
-	env, err := ResolveEnv(context.Background(), dag, nil, ResolveEnvOptions{})
+	result, err := ResolveRuntimeEnv(context.Background(), dag, nil, ResolveEnvOptions{})
 	require.NoError(t, err)
-	assert.Contains(t, env, "SOURCE=from-snapshot")
-	assert.NotContains(t, env, "SOURCE=from-disk")
+	assert.Contains(t, result.Env, "SOURCE=from-snapshot")
+	assert.NotContains(t, result.Env, "SOURCE=from-disk")
 }

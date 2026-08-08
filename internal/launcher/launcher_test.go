@@ -59,10 +59,11 @@ func TestSubCmdBuilderStartInheritsParentEnv(t *testing.T) {
 	}
 
 	builder := launcher.NewSubCmdBuilder(cfg)
-	dag := &ir.DAG{Location: "/tmp/test.yaml"}
+	dag := &ir.DAG{Location: "/tmp/test.yaml", RuntimeResolved: true}
 	spec := builder.Start(dag, launcher.StartOptions{})
 
 	assert.Contains(t, spec.Env, "SUBCMD_PARENT_ENV=from-parent")
+	assert.True(t, spec.RuntimeResolved)
 }
 
 func TestSubCmdBuilderFilteredCommandsUseBaseEnv(t *testing.T) {
