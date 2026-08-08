@@ -9,7 +9,7 @@
 export const DOC_TEMPLATES_PREFIX = '_templates';
 
 /** Placeholder replaced with a DAG name when a template is created for a DAG. */
-export const DOC_TEMPLATE_DAG_NAME = 'DAG_NAME';
+export const DOC_TEMPLATE_DAG_NAME = '{{DAG_NAME}}';
 
 export type DocTemplate = {
   id: string;

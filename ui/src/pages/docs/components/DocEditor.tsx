@@ -287,40 +287,44 @@ function DocEditor({
 
   const uploadAttachment = useCallback(
     async (file: File) => {
-      const name = attachmentUploadName(file);
+      try {
+        const name = attachmentUploadName(file);
 
-      const { data, error } = await client.PUT('/docs/doc/attachment', {
-        params: {
-          query: {
-            remoteNode,
-            path: docPath,
-            name,
-            ...workspaceTargetQuery,
+        const { data, error } = await client.PUT('/docs/doc/attachment', {
+          params: {
+            query: {
+              remoteNode,
+              path: docPath,
+              name,
+              ...workspaceTargetQuery,
+            },
           },
-        },
-        body: file as unknown as string,
-        bodySerializer: (body: unknown) => body as BodyInit,
-        headers: { 'Content-Type': 'application/octet-stream' },
-      });
-      if (error || !data) {
-        showToast(error?.message || 'Failed to upload attachment');
-        return;
+          body: file as unknown as string,
+          bodySerializer: (body: unknown) => body as BodyInit,
+          headers: { 'Content-Type': 'application/octet-stream' },
+        });
+        if (error || !data) {
+          showToast(error?.message || 'Failed to upload attachment');
+          return;
+        }
+        const isImage = file.type.startsWith('image/');
+        // Names may contain spaces; the destination must be percent-encoded to
+        // stay a valid Markdown link. The preview decodes it on resolution.
+        const markdown = `${isImage ? '!' : ''}[${data.name}](attachment:${encodeURIComponent(data.name)})`;
+        const editor = editorInstanceRef.current;
+        const selection = editor?.getSelection();
+        if (editor && selection) {
+          editor.executeEdits('doc-attachment', [
+            { range: selection, text: markdown, forceMoveMarkers: true },
+          ]);
+          editor.focus();
+        } else {
+          setCurrentValue(`${currentValueRef.current ?? ''}\n${markdown}\n`);
+        }
+        showToast(`Attached ${data.name}`);
+      } catch {
+        showToast('Failed to upload attachment');
       }
-      const isImage = file.type.startsWith('image/');
-      // Names may contain spaces; the destination must be percent-encoded to
-      // stay a valid Markdown link. The preview decodes it on resolution.
-      const markdown = `${isImage ? '!' : ''}[${data.name}](attachment:${encodeURIComponent(data.name)})`;
-      const editor = editorInstanceRef.current;
-      const selection = editor?.getSelection();
-      if (editor && selection) {
-        editor.executeEdits('doc-attachment', [
-          { range: selection, text: markdown, forceMoveMarkers: true },
-        ]);
-        editor.focus();
-      } else {
-        setCurrentValue(`${currentValueRef.current ?? ''}\n${markdown}\n`);
-      }
-      showToast(`Attached ${data.name}`);
     },
     [
       client,
@@ -342,9 +346,11 @@ function DocEditor({
       if (!canEditRef.current || !files?.length) return;
       event.preventDefault();
       event.stopPropagation();
-      Array.from(files).forEach(
-        (file) => void uploadAttachmentRef.current(file)
-      );
+      void (async () => {
+        for (const file of Array.from(files)) {
+          await uploadAttachmentRef.current(file);
+        }
+      })();
     };
     const onPaste = (e: ClipboardEvent) => {
       uploadFiles(e.clipboardData?.files, e);

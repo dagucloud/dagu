@@ -146,7 +146,11 @@ export function CreateDocModal({
                 onValueChange={setTemplateId}
                 disabled={busy}
               >
-                <SelectTrigger id="doc-template" className="col-span-3 h-8">
+                <SelectTrigger
+                  id="doc-template"
+                  size="sm"
+                  className="col-span-3 h-7"
+                >
                   <SelectValue placeholder="Blank" />
                 </SelectTrigger>
                 <SelectContent>

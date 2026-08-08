@@ -9,6 +9,7 @@ import { MermaidBlock } from '@/components/ui/mermaid-block';
 import { cn } from '@/lib/utils';
 import { slugifyHeading } from '@/lib/text-utils';
 import { useDocAttachmentUrl } from '@/hooks/useDocAttachmentUrl';
+import { encodeDocPathForURL } from '@/pages/docs/lib/doc-path';
 import {
   parseWikilinkHref,
   remarkWikilink,
@@ -28,6 +29,21 @@ function docUrlTransform(url: string): string {
 }
 
 const ATTACHMENT_SCHEME = 'attachment:';
+
+const CUSTOM_FENCE_BLOCKS = {
+  'language-mermaid': {
+    component: MermaidBlock,
+    render: (source: string) => <MermaidBlock code={source} />,
+  },
+  'language-dagu-info': {
+    component: DaguInfoBlock,
+    render: (source: string) => <DaguInfoBlock source={source} />,
+  },
+  'language-dagu-run': {
+    component: DaguRunBlock,
+    render: (source: string) => <DaguRunBlock source={source} />,
+  },
+} as const;
 
 // A bare file name with an extension (no slash, no scheme) also resolves as
 // an attachment of the containing document, keeping hand-written
@@ -93,7 +109,7 @@ function docLinkTo(target: string, anchor: string, context: DocLinkContext) {
     ? `?workspace=${encodeURIComponent(context.workspace)}`
     : '';
   const hash = anchor ? `#${slugifyHeading(anchor)}` : '';
-  return `/docs/${encodeURI(target)}${search}${hash}`;
+  return `/docs/${encodeDocPathForURL(target)}${search}${hash}`;
 }
 
 type WikilinkAnchorProps = {
@@ -163,7 +179,11 @@ type DocAttachmentLinkProps = {
 
 // Anchor for a non-image attachment: fetches the blob on demand and triggers
 // a browser download, since the attachment: scheme is not navigable.
-function DocAttachmentLink({ name, linkContext, children }: DocAttachmentLinkProps) {
+function DocAttachmentLink({
+  name,
+  linkContext,
+  children,
+}: DocAttachmentLinkProps) {
   const [requested, setRequested] = useState(false);
   const { url, error } = useDocAttachmentUrl(
     requested ? linkContext.docPath : null,
@@ -250,7 +270,9 @@ export function DocMarkdownPreview({
             if (href?.startsWith(ATTACHMENT_SCHEME)) {
               const name = safeDecode(href.slice(ATTACHMENT_SCHEME.length));
               if (!name || !linkContext) {
-                return <span className="wikilink wikilink-inert">{children}</span>;
+                return (
+                  <span className="wikilink wikilink-inert">{children}</span>
+                );
               }
               return (
                 <DocAttachmentLink name={name} linkContext={linkContext}>
@@ -286,14 +308,13 @@ export function DocMarkdownPreview({
             return <img src={source} alt={alt} />;
           },
           code({ className: codeClassName, children }) {
-            if (codeClassName === 'language-mermaid') {
-              return <MermaidBlock code={String(children)} />;
-            }
-            if (codeClassName === 'language-dagu-info') {
-              return <DaguInfoBlock source={String(children)} />;
-            }
-            if (codeClassName === 'language-dagu-run') {
-              return <DaguRunBlock source={String(children)} />;
+            const block = codeClassName
+              ? CUSTOM_FENCE_BLOCKS[
+                  codeClassName as keyof typeof CUSTOM_FENCE_BLOCKS
+                ]
+              : undefined;
+            if (block) {
+              return block.render(String(children));
             }
             return <code className={codeClassName}>{children}</code>;
           },
@@ -305,19 +326,15 @@ export function DocMarkdownPreview({
             const unwrapped = childArray.some((child) => {
               if (!isValidElement(child)) return false;
               if (
-                child.type === MermaidBlock ||
-                child.type === DaguInfoBlock ||
-                child.type === DaguRunBlock
+                Object.values(CUSTOM_FENCE_BLOCKS).some(
+                  (block) => child.type === block.component
+                )
               ) {
                 return true;
               }
               const className = (child.props as { className?: string })
                 .className;
-              return (
-                className === 'language-mermaid' ||
-                className === 'language-dagu-info' ||
-                className === 'language-dagu-run'
-              );
+              return !!className && className in CUSTOM_FENCE_BLOCKS;
             });
             if (unwrapped) {
               return <>{children}</>;

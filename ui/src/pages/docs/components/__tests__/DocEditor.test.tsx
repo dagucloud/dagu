@@ -212,6 +212,42 @@ describe('DocEditor', () => {
       })
     );
   });
+
+  it('uploads pasted files in order', async () => {
+    let finishFirst: (value: {
+      data: { name: string };
+      error: undefined;
+    }) => void = () => {};
+    const firstUpload = new Promise<{
+      data: { name: string };
+      error: undefined;
+    }>((resolve) => {
+      finishFirst = resolve;
+    });
+    testState.put
+      .mockImplementationOnce(() => firstUpload)
+      .mockResolvedValueOnce({
+        data: { name: 'second.png' },
+        error: undefined,
+      });
+    renderEditor();
+
+    fireEvent.paste(screen.getByTestId('markdown-editor-container'), {
+      clipboardData: {
+        files: [
+          new File(['first'], 'first.png', { type: 'image/png' }),
+          new File(['second'], 'second.png', { type: 'image/png' }),
+        ],
+      },
+    });
+    expect(testState.put).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      finishFirst({ data: { name: 'first.png' }, error: undefined });
+      await firstUpload;
+    });
+    expect(testState.put).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('attachmentUploadName', () => {

@@ -26,17 +26,21 @@ export function parseWikilinkHref(
   href: string
 ): { target: string; anchor: string } | null {
   if (!href.startsWith(WIKILINK_SCHEME)) return null;
-  // The markdown pipeline percent-encodes URLs; decode to recover targets
-  // containing spaces and human-readable anchors.
-  let raw = href.slice(WIKILINK_SCHEME.length);
-  try {
-    raw = decodeURIComponent(raw);
-  } catch {
-    // Keep the raw value when it is not valid percent-encoding.
-  }
+  const raw = href.slice(WIKILINK_SCHEME.length);
   const hashIdx = raw.indexOf('#');
-  if (hashIdx < 0) return { target: raw, anchor: '' };
-  return { target: raw.slice(0, hashIdx), anchor: raw.slice(hashIdx + 1) };
+  if (hashIdx < 0) return { target: decodeWikilinkPart(raw), anchor: '' };
+  return {
+    target: decodeWikilinkPart(raw.slice(0, hashIdx)),
+    anchor: decodeWikilinkPart(raw.slice(hashIdx + 1)),
+  };
+}
+
+function decodeWikilinkPart(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }
 
 function parseMatch(match: RegExpExecArray): ParsedWikilink | null {
@@ -53,9 +57,7 @@ function parseMatch(match: RegExpExecArray): ParsedWikilink | null {
 // An embed target is an attachment when it is a bare file name; doc-path
 // embeds (transclusion) are not supported and degrade to plain links.
 function isAttachmentEmbed(link: ParsedWikilink): boolean {
-  return (
-    link.embed && !link.target.includes('/') && !link.target.includes(':')
-  );
+  return link.embed && !link.target.includes('/') && !link.target.includes(':');
 }
 
 type MdNode = {
@@ -107,8 +109,8 @@ export function remarkWikilink() {
               type: 'link',
               url:
                 WIKILINK_SCHEME +
-                link.target +
-                (link.anchor ? `#${link.anchor}` : ''),
+                encodeURIComponent(link.target) +
+                (link.anchor ? `#${encodeURIComponent(link.anchor)}` : ''),
               data: { hProperties: { className: 'wikilink' } },
               children: [{ type: 'text', value: link.label || link.target }],
             });

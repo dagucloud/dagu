@@ -10,6 +10,7 @@ import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
@@ -181,7 +182,9 @@ function filterTree(
 }
 
 // Collect the distinct tags present on file nodes, first casing wins.
-function collectTagVocabulary(nodes: DocTreeNodeResponse[] | undefined): string[] {
+function collectTagVocabulary(
+  nodes: DocTreeNodeResponse[] | undefined
+): string[] {
   const byKey = new Map<string, string>();
   const walk = (node: DocTreeNodeResponse) => {
     node.tags?.forEach((tag) => {
@@ -764,13 +767,12 @@ function DocTreeSidebar({
                 {selectedTags.length > 0 && (
                   <>
                     <DropdownMenuSeparator />
-                    <button
-                      type="button"
-                      className="w-full text-left text-xs px-2 py-1 text-muted-foreground hover:bg-accent rounded-sm"
-                      onClick={() => setSelectedTags([])}
+                    <DropdownMenuItem
+                      className="text-xs text-muted-foreground"
+                      onSelect={() => setSelectedTags([])}
                     >
                       Clear filter
-                    </button>
+                    </DropdownMenuItem>
                   </>
                 )}
               </DropdownMenuContent>
@@ -915,7 +917,10 @@ function DocTreeSidebar({
               </div>
             )}
             {rankedResults ? (
-              <div className="overflow-y-auto" style={{ height: containerHeight }}>
+              <div
+                className="overflow-y-auto"
+                style={{ height: containerHeight }}
+              >
                 {rankedResults.length === 0 && (
                   <div className="px-3 py-2 text-xs text-muted-foreground">
                     No matching documents
@@ -946,27 +951,29 @@ function DocTreeSidebar({
                 ))}
               </div>
             ) : (
-            <Tree<DocTreeNodeResponse>
-              ref={treeRef}
-              data={treeData}
-              width="100%"
-              height={error && onRetry ? containerHeight - 28 : containerHeight}
-              indent={16}
-              rowHeight={28}
-              openByDefault={false}
-              initialOpenState={initialOpenState}
-              disableEdit={!canEdit}
-              disableDrag={disableDrag}
-              disableDrop={disableDrop}
-              onActivate={handleActivate}
-              onSelect={handleSelect}
-              onRename={handleRename}
-              onMove={handleMove}
-              idAccessor="id"
-              childrenAccessor={(d) => d.children ?? null}
-            >
-              {renderNode}
-            </Tree>
+              <Tree<DocTreeNodeResponse>
+                ref={treeRef}
+                data={treeData}
+                width="100%"
+                height={
+                  error && onRetry ? containerHeight - 28 : containerHeight
+                }
+                indent={16}
+                rowHeight={28}
+                openByDefault={false}
+                initialOpenState={initialOpenState}
+                disableEdit={!canEdit}
+                disableDrag={disableDrag}
+                disableDrop={disableDrop}
+                onActivate={handleActivate}
+                onSelect={handleSelect}
+                onRename={handleRename}
+                onMove={handleMove}
+                idAccessor="id"
+                childrenAccessor={(d) => d.children ?? null}
+              >
+                {renderNode}
+              </Tree>
             )}
           </>
         ) : (

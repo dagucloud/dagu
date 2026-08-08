@@ -20,11 +20,11 @@ import { BookOpen, FilePlus, Link2 } from 'lucide-react';
 import React, { useContext, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { CreateDocModal } from '@/pages/docs/components/CreateDocModal';
+import { encodeDocPathForURL } from '@/pages/docs/lib/doc-path';
 
 type DocMetadataResponse = components['schemas']['DocMetadataResponse'];
 
 type Props = {
-  fileName: string;
   dagName: string;
   workspaceName?: string;
 };
@@ -37,10 +37,8 @@ function isValidDocSegment(name: string): boolean {
 
 function docLink(item: DocMetadataResponse, fallbackWorkspace: string | null) {
   const workspace = item.workspace ?? fallbackWorkspace;
-  const search = workspace
-    ? `?workspace=${encodeURIComponent(workspace)}`
-    : '';
-  return `/docs/${encodeURI(item.id)}${search}`;
+  const search = workspace ? `?workspace=${encodeURIComponent(workspace)}` : '';
+  return `/docs/${encodeDocPathForURL(item.id)}${search}`;
 }
 
 function DocRow({
@@ -71,7 +69,7 @@ function DocRow({
   );
 }
 
-function DAGDocsTab({ fileName, dagName, workspaceName }: Props) {
+function DAGDocsTab({ dagName, workspaceName }: Props) {
   const config = useConfig();
   const client = useClient();
   const navigate = useNavigate();
@@ -165,7 +163,11 @@ function DAGDocsTab({ fileName, dagName, workspaceName }: Props) {
       const search = workspace
         ? `?workspace=${encodeURIComponent(workspace)}`
         : '';
-      navigate(`/docs/${encodeURI(path)}${search}`);
+      navigate(`/docs/${encodeDocPathForURL(path)}${search}`);
+    } catch (error) {
+      setCreateError(
+        error instanceof Error ? error.message : 'Failed to create document'
+      );
     } finally {
       setCreateLoading(false);
     }
@@ -195,8 +197,9 @@ function DAGDocsTab({ fileName, dagName, workspaceName }: Props) {
         <div className="px-3 py-6 text-center text-xs text-muted-foreground space-y-1">
           <p>No documents reference this DAG yet.</p>
           <p>
-            Documents under <code>{validSegment ? `${dagName}/` : 'its folder'}</code>{' '}
-            or containing a <code>[[dag:{dagName}]]</code> wikilink appear here.
+            Documents under{' '}
+            <code>{validSegment ? `${dagName}/` : 'its folder'}</code> or
+            containing a <code>[[dag:{dagName}]]</code> wikilink appear here.
           </p>
         </div>
       ) : (

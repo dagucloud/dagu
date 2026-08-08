@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import StatusChip from '@/ui/StatusChip';
+import StatusChip from '@/components/ui/status-chip';
 import { CircleHelp } from 'lucide-react';
 import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
@@ -36,14 +36,14 @@ export function DagStatusChip({ dagRef, label }: Props) {
         title={`DAG not found: ${dagRef}`}
       >
         <CircleHelp className="h-3 w-3" />
-        {text || dagRef}
+        {text}
       </span>
     );
   }
   if (result.state === 'loading') {
     return (
       <span className="inline-flex items-center align-middle px-1.5 py-0.5 text-xs rounded-full bg-muted text-muted-foreground border border-border">
-        {text || dagRef}
+        {text}
       </span>
     );
   }

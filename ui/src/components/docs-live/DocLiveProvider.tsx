@@ -7,13 +7,7 @@ import { useQuery } from '@/hooks/api';
 import { useDAGsListSSE } from '@/hooks/useDAGsListSSE';
 import { sseFallbackOptions, useSSECacheSync } from '@/hooks/useSSECacheSync';
 import { workspaceTargetQueryForWorkspace } from '@/lib/workspace';
-import React, {
-  useCallback,
-  useContext,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import React, { useCallback, useContext, useMemo, useState } from 'react';
 import { DagLookup, DocLiveContext, DocLiveContextValue } from './context';
 
 type DAGFile = components['schemas']['DAGFile'];
@@ -36,19 +30,10 @@ export function DocLiveProvider({ workspace, children }: Props) {
   // The DAG list feed is enabled only while at least one live element
   // (chip, info block, run block) is mounted.
   const [refCount, setRefCount] = useState(0);
-  const countsRef = useRef(new Map<string, number>());
 
-  const registerRef = useCallback((ref: string) => {
-    const counts = countsRef.current;
-    counts.set(ref, (counts.get(ref) ?? 0) + 1);
+  const registerRef = useCallback(() => {
     setRefCount((c) => c + 1);
     return () => {
-      const current = counts.get(ref) ?? 0;
-      if (current <= 1) {
-        counts.delete(ref);
-      } else {
-        counts.set(ref, current - 1);
-      }
       setRefCount((c) => Math.max(0, c - 1));
     };
   }, []);
@@ -79,10 +64,12 @@ export function DocLiveProvider({ workspace, children }: Props) {
   const byRef = useMemo(() => {
     const map = new Map<string, DAGFile>();
     data?.dags?.forEach((item) => {
-      if (!map.has(item.fileName)) map.set(item.fileName, item);
       if (item.dag.name && !map.has(item.dag.name)) {
         map.set(item.dag.name, item);
       }
+    });
+    data?.dags?.forEach((item) => {
+      if (!map.has(item.fileName)) map.set(item.fileName, item);
     });
     return map;
   }, [data]);

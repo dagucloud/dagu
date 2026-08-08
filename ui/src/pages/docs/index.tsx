@@ -43,6 +43,7 @@ import DocTabEditorPanel from './components/DocTabEditorPanel';
 import DocTreeSidebar from './components/DocTreeSidebar';
 import { RenameDocModal } from './components/RenameDocModal';
 import { DOC_SSE_FALLBACK_INTERVAL_MS } from './lib/doc-polling';
+import { encodeDocPathForURL } from './lib/doc-path';
 import { normalizeDocPathFromURL } from './lib/doc-url';
 import type { DocMutationTarget } from './lib/doc-mutation';
 import { useDocMutations } from './hooks/useDocMutations';
@@ -51,10 +52,6 @@ import type { ContextAction } from './components/DocArboristNode';
 function titleFromPath(docPath: string): string {
   const segments = docPath.split('/');
   return segments[segments.length - 1] || docPath;
-}
-
-function encodeDocPathForURL(docPath: string): string {
-  return docPath.split('/').map(encodeURIComponent).join('/');
 }
 
 function safeDecodeURIComponent(value: string): string | null {

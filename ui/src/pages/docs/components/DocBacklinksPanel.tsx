@@ -10,7 +10,11 @@ import React, { useContext, useMemo, useState } from 'react';
 type Props = {
   docPath: string | null;
   workspace: string | null;
-  onSelectDoc: (docPath: string, title: string, workspace?: string | null) => void;
+  onSelectDoc: (
+    docPath: string,
+    title: string,
+    workspace?: string | null
+  ) => void;
 };
 
 function DocBacklinksPanel({ docPath, workspace, onSelectDoc }: Props) {
@@ -41,6 +45,7 @@ function DocBacklinksPanel({ docPath, workspace, onSelectDoc }: Props) {
       <button
         type="button"
         onClick={() => setCollapsed((c) => !c)}
+        aria-expanded={!collapsed}
         className="w-full flex items-center gap-1 px-3 py-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground hover:text-foreground"
       >
         {collapsed ? (

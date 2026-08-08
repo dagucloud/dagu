@@ -287,20 +287,13 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
                 />
               )}
 
-              {isModal ? (
+              {isModal && (
                 <ModalLinkTab
                   label="Docs"
                   value="docs"
                   isActive={activeTab === 'docs'}
                   icon={BookOpen}
                   onClick={() => handleTabClick('docs')}
-                />
-              ) : (
-                <LinkTab
-                  label="Docs"
-                  value={scopedUrl(`${baseUrl}/docs`)}
-                  isActive={activeTab === 'docs'}
-                  icon={BookOpen}
                 />
               )}
 
@@ -474,22 +467,13 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
                 />
               )}
 
-              {isModal ? (
+              {isModal && (
                 <ModalLinkTab
                   label="Docs"
                   value="docs"
                   isActive={activeTab === 'docs'}
                   icon={BookOpen}
                   onClick={() => handleTabClick('docs')}
-                  className="flex-1 justify-center"
-                  aria-label="Docs"
-                />
-              ) : (
-                <LinkTab
-                  label="Docs"
-                  value={scopedUrl(`${baseUrl}/docs`)}
-                  isActive={activeTab === 'docs'}
-                  icon={BookOpen}
                   className="flex-1 justify-center"
                   aria-label="Docs"
                 />
@@ -585,7 +569,6 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
           {activeTab === 'docs' ? (
             <>
               <DAGDocsTab
-                fileName={fileName || ''}
                 dagName={dag?.name || ''}
                 workspaceName={dagWorkspaceName}
               />
