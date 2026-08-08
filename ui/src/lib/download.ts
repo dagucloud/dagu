@@ -10,7 +10,9 @@ export function downloadBlob(blob: Blob, filename: string): void {
   link.href = objectUrl;
   link.download = filename;
   link.click();
-  URL.revokeObjectURL(objectUrl);
+  // The URL must outlive the click-initiated navigation; revoking in the
+  // same task can abort the download in some browsers.
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
 }
 
 /**

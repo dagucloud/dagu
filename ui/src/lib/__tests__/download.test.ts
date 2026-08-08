@@ -21,7 +21,8 @@ afterEach(() => {
 });
 
 describe('downloadBlob', () => {
-  it('saves through a temporary object URL with the given filename', () => {
+  it('saves through a temporary object URL and revokes it after the download starts', () => {
+    vi.useFakeTimers();
     const click = vi.fn();
     const anchor = document.createElement('a');
     anchor.click = click;
@@ -34,8 +35,13 @@ describe('downloadBlob', () => {
     expect(createObjectURL).toHaveBeenCalledTimes(1);
     expect(anchor.download).toBe('run.log');
     expect(click).toHaveBeenCalled();
+    // Revoking in the click task could abort the navigation.
+    expect(revokeObjectURL).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(1000);
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:mock');
     createElement.mockRestore();
+    vi.useRealTimers();
   });
 });
 

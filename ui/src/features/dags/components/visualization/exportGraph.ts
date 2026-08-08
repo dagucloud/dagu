@@ -38,6 +38,8 @@ function replaceForeignObjectLabels(
   cloneLabels.forEach((label, index) => {
     const source = renderedLabels[index];
     const textContent = (source ?? label).textContent?.trim() ?? '';
+    const x = Number(label.getAttribute('x') ?? 0);
+    const y = Number(label.getAttribute('y') ?? 0);
     const width = Number(label.getAttribute('width') ?? 0);
     const height = Number(label.getAttribute('height') ?? 0);
 
@@ -45,16 +47,20 @@ function replaceForeignObjectLabels(
       'http://www.w3.org/2000/svg',
       'text'
     );
-    text.setAttribute('x', String(width / 2));
-    text.setAttribute('y', String(height / 2));
+    text.setAttribute('x', String(x + width / 2));
+    text.setAttribute('y', String(y + height / 2));
     text.setAttribute('text-anchor', 'middle');
     text.setAttribute('dominant-baseline', 'central');
-    if (source?.firstElementChild) {
-      const style = window.getComputedStyle(source.firstElementChild);
-      text.setAttribute('font-family', style.fontFamily);
-      text.setAttribute('font-size', style.fontSize);
-      text.setAttribute('fill', style.color);
-    }
+    // Inline styles, not attributes: mermaid's embedded stylesheet styles
+    // node children with fill/stroke meant for shapes, which would render
+    // the text as a stroked outline in the node color.
+    const labelStyle = source?.firstElementChild
+      ? window.getComputedStyle(source.firstElementChild)
+      : null;
+    text.style.fill = labelStyle?.color || '#14161b';
+    text.style.stroke = 'none';
+    text.style.fontFamily = labelStyle?.fontFamily || 'Arial, sans-serif';
+    text.style.fontSize = labelStyle?.fontSize || '16px';
     text.textContent = textContent;
     label.replaceWith(text);
   });
