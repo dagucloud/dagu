@@ -102,7 +102,7 @@ func ResolveRetryPath(
 	root ir.DAGRunRef,
 	targetRunID string,
 	stepName string,
-) (RetryPath, *DAGRunStatus, error) {
+) (RetryPath, *ir.DAGRunStatus, error) {
 	if store == nil {
 		return RetryPath{}, nil, errors.New("retry path: DAG-run store is not configured")
 	}
@@ -147,7 +147,7 @@ func ResolveRetryPath(
 			return RetryPath{}, nil, fmt.Errorf("%w: DAG run %s has no parent", ErrInvalidRetryPath, current.DAGRunID)
 		}
 
-		var parentStatus *DAGRunStatus
+		var parentStatus *ir.DAGRunStatus
 		if parentRef.ID == root.ID {
 			parentStatus = rootStatus
 		} else {
@@ -185,7 +185,7 @@ func ResolveRetryPath(
 	return RetryPath{Hops: reversed, Step: targetNode.Step.Name}, targetStatus, nil
 }
 
-func readRetryStatus(ctx context.Context, attempt DAGRunAttempt) (*DAGRunStatus, error) {
+func readRetryStatus(ctx context.Context, attempt DAGRunAttempt) (*ir.DAGRunStatus, error) {
 	status, err := attempt.ReadStatus(ctx)
 	if err != nil {
 		return nil, err
@@ -196,7 +196,7 @@ func readRetryStatus(ctx context.Context, attempt DAGRunAttempt) (*DAGRunStatus,
 	return status, nil
 }
 
-func retryParentNode(status *DAGRunStatus, childRunID string) *ir.Node {
+func retryParentNode(status *ir.DAGRunStatus, childRunID string) *ir.Node {
 	for _, node := range status.Nodes {
 		if node == nil {
 			continue

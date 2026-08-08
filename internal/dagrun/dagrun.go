@@ -34,7 +34,7 @@ type DAGRunStore interface {
 	// LatestAttempt returns the most recent dag-run's attempt for the DAG name.
 	LatestAttempt(ctx context.Context, name string) (DAGRunAttempt, error)
 	// ListStatuses returns a list of statuses.
-	ListStatuses(ctx context.Context, opts ...ListDAGRunStatusesOption) ([]*DAGRunStatus, error)
+	ListStatuses(ctx context.Context, opts ...ListDAGRunStatusesOption) ([]*ir.DAGRunStatus, error)
 	// ListStatusesPage returns one forward-only page of statuses in canonical list order.
 	ListStatusesPage(ctx context.Context, opts ...ListDAGRunStatusesOption) (DAGRunStatusPage, error)
 	// CompareAndSwapLatestAttemptStatus atomically updates the latest attempt status
@@ -44,9 +44,9 @@ type DAGRunStore interface {
 		dagRun ir.DAGRunRef,
 		expectedAttemptID string,
 		expectedStatus ir.Status,
-		mutate func(*DAGRunStatus) error,
+		mutate func(*ir.DAGRunStatus) error,
 		opts ...CompareAndSwapStatusOption,
-	) (*DAGRunStatus, bool, error)
+	) (*ir.DAGRunStatus, bool, error)
 	// FindAttempt finds the latest attempt for the dag-run.
 	FindAttempt(ctx context.Context, dagRun ir.DAGRunRef) (DAGRunAttempt, error)
 	// FindSubAttempt finds a sub dag-run record by dag-run ID.
@@ -173,7 +173,7 @@ func WithAllHistory() ListDAGRunStatusesOption {
 
 // DAGRunStatusPage is one forward-only page of DAG-run statuses.
 type DAGRunStatusPage struct {
-	Items      []*DAGRunStatus
+	Items      []*ir.DAGRunStatus
 	NextCursor string
 }
 

@@ -12,7 +12,6 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtimeenv"
 	"github.com/dagucloud/dagu/v2/internal/spec"
@@ -80,7 +79,7 @@ func parseScheduleTimeParam(ctx *Context) (string, error) {
 // restoreDAGFromStatus restores a DAG from a previous run's status and YAML.
 // It restores params from the status, loads dotenv, and rebuilds fields excluded
 // from JSON serialization (env, params JSON, registryAuths, etc.).
-func restoreDAGFromStatus(ctx context.Context, dag *ir.DAG, status *dagrun.DAGRunStatus) (*ir.DAG, error) {
+func restoreDAGFromStatus(ctx context.Context, dag *ir.DAG, status *ir.DAGRunStatus) (*ir.DAG, error) {
 	runtimeParams := append([]string(nil), status.ParamsList...)
 	dag.Params = runtimeParams
 	resolvedEnv, err := runtimeenv.Resolve(ctx, dag)
@@ -100,7 +99,7 @@ func restoreDAGFromStatus(ctx context.Context, dag *ir.DAG, status *dagrun.DAGRu
 	return restored, nil
 }
 
-func applyPersistedRunWorkingDir(dag *ir.DAG, status *dagrun.DAGRunStatus) {
+func applyPersistedRunWorkingDir(dag *ir.DAG, status *ir.DAGRunStatus) {
 	if dag == nil || status == nil || status.WorkingDir == "" {
 		return
 	}

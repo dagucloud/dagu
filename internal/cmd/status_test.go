@@ -121,7 +121,7 @@ func TestStatusCommand(t *testing.T) {
 		err = attempt.Open(th.Context)
 		require.NoError(t, err)
 
-		status := dagrun.DAGRunStatus{
+		status := ir.DAGRunStatus{
 			Name:       dag.Name,
 			DAGRunID:   dagRunID,
 			Status:     ir.Failed,
@@ -235,7 +235,7 @@ steps:
 		require.NoError(t, err)
 
 		now := time.Now().Format(time.RFC3339)
-		status := dagrun.DAGRunStatus{
+		status := ir.DAGRunStatus{
 			Name:       dag.Name,
 			DAGRunID:   dagRunID,
 			Status:     ir.Failed,
@@ -416,7 +416,7 @@ steps:
 		require.NoError(t, err)
 
 		now := time.Now().Format(time.RFC3339)
-		status := dagrun.DAGRunStatus{
+		status := ir.DAGRunStatus{
 			Name:       dag.Name,
 			DAGRunID:   dagRunID,
 			Status:     ir.Succeeded,

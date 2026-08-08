@@ -6,7 +6,6 @@ package dispatch_test
 import (
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
@@ -18,7 +17,7 @@ func TestAttemptKeyForStatus(t *testing.T) {
 	t.Run("ReconstructsLegacyRootAttemptKeyWithoutRootField", func(t *testing.T) {
 		t.Parallel()
 
-		status := &dagrun.DAGRunStatus{
+		status := &ir.DAGRunStatus{
 			Name:      "root-dag",
 			DAGRunID:  "run-123",
 			AttemptID: "attempt-1",
@@ -34,7 +33,7 @@ func TestAttemptKeyForStatus(t *testing.T) {
 	t.Run("DoesNotFabricateSubDAGAttemptKeyWithoutRootField", func(t *testing.T) {
 		t.Parallel()
 
-		status := &dagrun.DAGRunStatus{
+		status := &ir.DAGRunStatus{
 			Name:      "child-dag",
 			DAGRunID:  "child-run-123",
 			Parent:    ir.NewDAGRunRef("root-dag", "run-123"),
@@ -48,8 +47,8 @@ func TestAttemptKeyForStatus(t *testing.T) {
 func TestDAGRunStatusEffectiveClaimKey(t *testing.T) {
 	t.Parallel()
 
-	assert.Equal(t, "attempt-key", (dagrun.DAGRunStatus{AttemptKey: "attempt-key"}).EffectiveClaimKey())
-	assert.Equal(t, "claim-key", (dagrun.DAGRunStatus{
+	assert.Equal(t, "attempt-key", (ir.DAGRunStatus{AttemptKey: "attempt-key"}).EffectiveClaimKey())
+	assert.Equal(t, "claim-key", (ir.DAGRunStatus{
 		AttemptKey: "attempt-key",
 		ClaimKey:   "claim-key",
 	}).EffectiveClaimKey())

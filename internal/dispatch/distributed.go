@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
@@ -225,7 +224,7 @@ func IsRemoteWorkerID(workerID string) bool {
 // AttemptKeyForStatus resolves the authoritative attempt key for a persisted
 // status. When older statuses omit AttemptKey, it is regenerated from the
 // stored DAG-run identity and attempt ID.
-func AttemptKeyForStatus(status *dagrun.DAGRunStatus, fallbackAttemptID string) string {
+func AttemptKeyForStatus(status *ir.DAGRunStatus, fallbackAttemptID string) string {
 	if status == nil {
 		return ""
 	}
@@ -259,7 +258,7 @@ func AttemptKeyForStatus(status *dagrun.DAGRunStatus, fallbackAttemptID string) 
 // the exact distributed attempt represented by the persisted status.
 func LeaseMatchesStatus(
 	lease *DAGRunLease,
-	status *dagrun.DAGRunStatus,
+	status *ir.DAGRunStatus,
 	fallbackAttemptID string,
 	now time.Time,
 	staleThreshold time.Duration,
@@ -277,7 +276,7 @@ func LeaseMatchesStatus(
 // persisted distributed attempt as status, independent of freshness.
 func LeaseIdentityMatchesStatus(
 	lease *DAGRunLease,
-	status *dagrun.DAGRunStatus,
+	status *ir.DAGRunStatus,
 	fallbackAttemptID string,
 ) bool {
 	if lease == nil || status == nil {

@@ -6,7 +6,6 @@ package convert_test
 import (
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
 	"github.com/stretchr/testify/require"
@@ -16,7 +15,7 @@ func TestDAGRunStatusProtoRoundTripPreservesStepOutputsValue(t *testing.T) {
 	t.Parallel()
 
 	stepOutputsValue := `{"image_tag":"v1.2.3","metadata":"{\"image\":\"api\"}"}`
-	original := &dagrun.DAGRunStatus{
+	original := &ir.DAGRunStatus{
 		Name:     "build",
 		DAGRunID: "run-1",
 		Status:   ir.Running,

@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
@@ -180,7 +179,7 @@ func TestNotificationMonitor_ShutdownDrainRetriesInFlightBatchWithoutLLM(t *test
 		close(done)
 	}()
 
-	status := &dagrun.DAGRunStatus{
+	status := &ir.DAGRunStatus{
 		Name:      "briefing",
 		Status:    ir.Failed,
 		DAGRunID:  "run-1",
@@ -243,7 +242,7 @@ func TestNotificationMonitor_NotifyCompletionSkipsFailedRunWithAutoRetryRemainin
 	stopMonitor := testutil.StartContextRunner(t, monitor)
 	defer stopMonitor()
 
-	status := &dagrun.DAGRunStatus{
+	status := &ir.DAGRunStatus{
 		Name:           "briefing",
 		Status:         ir.Failed,
 		DAGRunID:       "run-1",
@@ -314,7 +313,7 @@ func TestNotificationMonitor_PollSourceRoutesEventsPerDestination(t *testing.T) 
 		return headCalls > 0
 	}, time.Second, 10*time.Millisecond)
 
-	for _, status := range []*dagrun.DAGRunStatus{
+	for _, status := range []*ir.DAGRunStatus{
 		{Name: "dag-a", Status: ir.Failed, DAGRunID: "run-a", AttemptID: "attempt-a"},
 		{Name: "dag-b", Status: ir.Failed, DAGRunID: "run-b", AttemptID: "attempt-b"},
 	} {
@@ -371,7 +370,7 @@ func TestNotificationMonitor_PollSourceSkipsFailedRunWithAutoRetryRemaining(t *t
 		return headCalls > 0
 	}, time.Second, 10*time.Millisecond)
 
-	status := &dagrun.DAGRunStatus{
+	status := &ir.DAGRunStatus{
 		Name:           "briefing",
 		Status:         ir.Failed,
 		DAGRunID:       "run-1",
@@ -412,7 +411,7 @@ func TestEnqueueNotificationsByEventFiltersUnknownAndDuplicateRoutes(t *testing.
 			return []string{"dest-a", "unknown", "dest-a", ""}
 		},
 	}
-	status := &dagrun.DAGRunStatus{
+	status := &ir.DAGRunStatus{
 		Name:      "dag-a",
 		Status:    ir.Failed,
 		DAGRunID:  "run-a",
@@ -445,7 +444,7 @@ func TestNotificationMonitor_RequeuePendingDropsFailedRunWithAutoRetryRemaining(
 	cfg.SeenEvictInterval = time.Hour
 
 	monitor := NewNotificationMonitor(nil, "", transport, slog.New(slog.NewTextHandler(io.Discard, nil)), cfg)
-	status := &dagrun.DAGRunStatus{
+	status := &ir.DAGRunStatus{
 		Name:           "briefing",
 		Status:         ir.Failed,
 		DAGRunID:       "run-1",
@@ -524,7 +523,7 @@ func TestNotificationMonitor_BootstrapFailureDoesNotReplayFromZeroCursor(t *test
 		<-done
 	}()
 
-	oldStatus := &dagrun.DAGRunStatus{
+	oldStatus := &ir.DAGRunStatus{
 		Name:       "briefing",
 		DAGRunID:   "run-old",
 		AttemptID:  "attempt-old",
@@ -559,7 +558,7 @@ func TestNotificationMonitor_BootstrapFailureDoesNotReplayFromZeroCursor(t *test
 	assert.Empty(t, delivered)
 	mu.Unlock()
 
-	newStatus := &dagrun.DAGRunStatus{
+	newStatus := &ir.DAGRunStatus{
 		Name:       "briefing",
 		DAGRunID:   "run-new",
 		AttemptID:  "attempt-new",
@@ -617,7 +616,7 @@ func TestNotificationMonitor_ShutdownDrainFlushesPendingBatchWithoutLLM(t *testi
 		close(done)
 	}()
 
-	status := &dagrun.DAGRunStatus{
+	status := &ir.DAGRunStatus{
 		Name:      "briefing",
 		Status:    ir.Failed,
 		DAGRunID:  "run-2",
@@ -667,13 +666,13 @@ func TestNotificationMonitor_SuccessEventsAreAcknowledgedWithoutDelivery(t *test
 	stopMonitor := testutil.StartContextRunner(t, monitor)
 	defer stopMonitor()
 
-	first := &dagrun.DAGRunStatus{
+	first := &ir.DAGRunStatus{
 		Name:      "briefing",
 		Status:    ir.Succeeded,
 		DAGRunID:  "run-1",
 		AttemptID: "attempt-1",
 	}
-	second := &dagrun.DAGRunStatus{
+	second := &ir.DAGRunStatus{
 		Name:      "briefing",
 		Status:    ir.Succeeded,
 		DAGRunID:  "run-2",
@@ -724,7 +723,7 @@ func TestNotificationMonitor_PartiallySucceededEventsCanBeDeliveredByOptInTransp
 	stopMonitor := testutil.StartContextRunner(t, monitor)
 	defer stopMonitor()
 
-	status := &dagrun.DAGRunStatus{
+	status := &ir.DAGRunStatus{
 		Name:      "briefing",
 		Status:    ir.PartiallySucceeded,
 		DAGRunID:  "run-1",
@@ -761,7 +760,7 @@ func TestNotificationMonitor_PollSourceFiltersInterestedEventTypes(t *testing.T)
 	monitor := NewNotificationMonitor(service, "", transport, slog.New(slog.NewTextHandler(io.Discard, nil)), cfg)
 	monitor.initializeSession(context.Background())
 
-	queued := &dagrun.DAGRunStatus{
+	queued := &ir.DAGRunStatus{
 		Name:      "briefing",
 		DAGRunID:  "run-1",
 		AttemptID: "attempt-1",

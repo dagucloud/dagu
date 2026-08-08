@@ -20,7 +20,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
 	"github.com/dagucloud/dagu/v2/internal/cmn/sock"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
@@ -834,7 +833,7 @@ func TestAgent_HandleHTTP(t *testing.T) {
 				return false
 			}
 
-			dagRunStatus, err := dagrun.StatusFromJSON(rw.body)
+			dagRunStatus, err := ir.StatusFromJSON(rw.body)
 			return err == nil && dagRunStatus.Status == ir.Running
 		}, 10*time.Second, 50*time.Millisecond)
 

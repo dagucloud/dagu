@@ -25,7 +25,7 @@ func TestResolveRetryPathNestedRun(t *testing.T) {
 	targetStep := ir.Step{Name: "target-step"}
 
 	rootDAG := &ir.DAG{Name: rootRef.Name, Steps: []ir.Step{rootStep}}
-	rootAttempt := createRetryTestAttempt(t, ctx, store, rootDAG, rootRef.ID, nil, dagrun.DAGRunStatus{
+	rootAttempt := createRetryTestAttempt(t, ctx, store, rootDAG, rootRef.ID, nil, ir.DAGRunStatus{
 		Name:     rootRef.Name,
 		DAGRunID: rootRef.ID,
 		Status:   ir.Failed,
@@ -40,7 +40,7 @@ func TestResolveRetryPathNestedRun(t *testing.T) {
 	})
 
 	middleDAG := &ir.DAG{Name: "middle", Steps: []ir.Step{middleStep}}
-	createRetryTestAttempt(t, ctx, store, middleDAG, "middle-target", &rootRef, dagrun.DAGRunStatus{
+	createRetryTestAttempt(t, ctx, store, middleDAG, "middle-target", &rootRef, ir.DAGRunStatus{
 		Root:     rootRef,
 		Parent:   rootRef,
 		Name:     middleDAG.Name,
@@ -54,7 +54,7 @@ func TestResolveRetryPathNestedRun(t *testing.T) {
 	})
 
 	leafDAG := &ir.DAG{Name: "leaf", Steps: []ir.Step{targetStep}}
-	createRetryTestAttempt(t, ctx, store, leafDAG, "leaf-target", &rootRef, dagrun.DAGRunStatus{
+	createRetryTestAttempt(t, ctx, store, leafDAG, "leaf-target", &rootRef, ir.DAGRunStatus{
 		Root:     rootRef,
 		Parent:   ir.NewDAGRunRef(middleDAG.Name, "middle-target"),
 		Name:     leafDAG.Name,
@@ -115,7 +115,7 @@ func resolveRetryPathForChild(
 	t *testing.T,
 	rootStep ir.Step,
 	rootNode ir.Node,
-) (dagrun.RetryPath, *dagrun.DAGRunStatus, error) {
+) (dagrun.RetryPath, *ir.DAGRunStatus, error) {
 	t.Helper()
 	ctx := context.Background()
 	store := filedagrun.New(filepath.Join(t.TempDir(), "dag-runs"))
@@ -123,7 +123,7 @@ func resolveRetryPathForChild(
 	targetStep := ir.Step{Name: "target-step"}
 
 	rootDAG := &ir.DAG{Name: rootRef.Name, Steps: []ir.Step{rootStep}}
-	createRetryTestAttempt(t, ctx, store, rootDAG, rootRef.ID, nil, dagrun.DAGRunStatus{
+	createRetryTestAttempt(t, ctx, store, rootDAG, rootRef.ID, nil, ir.DAGRunStatus{
 		Name:     rootRef.Name,
 		DAGRunID: rootRef.ID,
 		Status:   ir.Failed,
@@ -131,7 +131,7 @@ func resolveRetryPathForChild(
 	})
 
 	childDAG := &ir.DAG{Name: "child", Steps: []ir.Step{targetStep}}
-	createRetryTestAttempt(t, ctx, store, childDAG, "child-target", &rootRef, dagrun.DAGRunStatus{
+	createRetryTestAttempt(t, ctx, store, childDAG, "child-target", &rootRef, ir.DAGRunStatus{
 		Root:     rootRef,
 		Parent:   rootRef,
 		Name:     childDAG.Name,
@@ -150,7 +150,7 @@ func createRetryTestAttempt(
 	dag *ir.DAG,
 	runID string,
 	root *ir.DAGRunRef,
-	status dagrun.DAGRunStatus,
+	status ir.DAGRunStatus,
 ) dagrun.DAGRunAttempt {
 	t.Helper()
 	attempt, err := store.CreateAttempt(ctx, dag, time.Now(), runID, dagrun.NewDAGRunAttemptOptions{RootDAGRun: root})

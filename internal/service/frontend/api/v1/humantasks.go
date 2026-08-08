@@ -160,7 +160,7 @@ func (a *API) authorizeHumanTaskMutation(
 	ctx context.Context,
 	dagName string,
 	dagRunID string,
-) (*dagrun.DAGRunStatus, error) {
+) (*ir.DAGRunStatus, error) {
 	attempt, err := a.dagRunStore.FindAttempt(ctx, ir.NewDAGRunRef(dagName, dagRunID))
 	if err != nil {
 		if errors.Is(err, dagrun.ErrDAGRunIDNotFound) {

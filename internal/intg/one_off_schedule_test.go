@@ -71,7 +71,7 @@ steps:
 
 	attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dag, scheduledAt, runID, dagrun.NewDAGRunAttemptOptions{})
 	require.NoError(t, err)
-	initialStatus := dagrun.InitialStatus(dag)
+	initialStatus := ir.InitialStatus(dag)
 	initialStatus.DAGRunID = runID
 	initialStatus.AttemptID = attempt.ID()
 	initialStatus.TriggerType = ir.TriggerTypeScheduler

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/require"
 )
 
@@ -18,7 +18,7 @@ type blockingStatusPusher struct {
 	errCh chan error
 }
 
-func (p *blockingStatusPusher) Push(ctx context.Context, _ dagrun.DAGRunStatus) error {
+func (p *blockingStatusPusher) Push(ctx context.Context, _ ir.DAGRunStatus) error {
 	p.calls.Add(1)
 	<-ctx.Done()
 	err := ctx.Err()
@@ -42,7 +42,7 @@ func TestPushStatusUsesBoundedContext(t *testing.T) {
 	done := make(chan struct{})
 	startedAt := time.Now()
 	go func() {
-		a.pushStatus(parentCtx, dagrun.DAGRunStatus{})
+		a.pushStatus(parentCtx, ir.DAGRunStatus{})
 		close(done)
 	}()
 

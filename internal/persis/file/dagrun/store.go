@@ -29,12 +29,12 @@ var _ dagrun.DAGRunStore = (*Store)(nil)
 
 // Store manages DAG run status files on the local filesystem.
 type Store struct {
-	baseDir           string                                // Base directory for all status files
-	artifactDir       string                                // Trusted root for artifact cleanup
-	latestStatusToday bool                                  // Whether to only return today's status
-	cache             *fileutil.Cache[*dagrun.DAGRunStatus] // Optional cache for read operations
-	maxWorkers        int                                   // Maximum number of parallel workers
-	location          *time.Location                        // Timezone location for date calculations
+	baseDir           string                            // Base directory for all status files
+	artifactDir       string                            // Trusted root for artifact cleanup
+	latestStatusToday bool                              // Whether to only return today's status
+	cache             *fileutil.Cache[*ir.DAGRunStatus] // Optional cache for read operations
+	maxWorkers        int                               // Maximum number of parallel workers
+	location          *time.Location                    // Timezone location for date calculations
 }
 
 // DAGRunStoreOption defines functional options for configuring Store.
@@ -42,15 +42,15 @@ type DAGRunStoreOption func(*DAGRunStoreOptions)
 
 // DAGRunStoreOptions holds configuration options for Store.
 type DAGRunStoreOptions struct {
-	FileCache         *fileutil.Cache[*dagrun.DAGRunStatus] // Optional cache for status files
-	ArtifactDir       string                                // Trusted root for artifact cleanup
-	LatestStatusToday bool                                  // Whether to only return today's status
-	MaxWorkers        int                                   // Maximum number of parallel workers
-	Location          *time.Location                        // Timezone location for date calculations
+	FileCache         *fileutil.Cache[*ir.DAGRunStatus] // Optional cache for status files
+	ArtifactDir       string                            // Trusted root for artifact cleanup
+	LatestStatusToday bool                              // Whether to only return today's status
+	MaxWorkers        int                               // Maximum number of parallel workers
+	Location          *time.Location                    // Timezone location for date calculations
 }
 
 // WithHistoryFileCache sets the file cache for Store.
-func WithHistoryFileCache(cache *fileutil.Cache[*dagrun.DAGRunStatus]) DAGRunStoreOption {
+func WithHistoryFileCache(cache *fileutil.Cache[*ir.DAGRunStatus]) DAGRunStoreOption {
 	return func(o *DAGRunStoreOptions) {
 		o.FileCache = cache
 	}
@@ -102,7 +102,7 @@ func New(baseDir string, opts ...DAGRunStoreOption) dagrun.DAGRunStore {
 
 // ListStatuses retrieves status records based on the provided options.
 // It supports filtering by time range, status, and limiting the number of results.
-func (store *Store) ListStatuses(ctx context.Context, opts ...dagrun.ListDAGRunStatusesOption) ([]*dagrun.DAGRunStatus, error) {
+func (store *Store) ListStatuses(ctx context.Context, opts ...dagrun.ListDAGRunStatusesOption) ([]*ir.DAGRunStatus, error) {
 	options, err := prepareListOptions(opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare options: %w", err)
@@ -150,7 +150,7 @@ func (store *Store) resolveStatus(
 	workspaceFilter *workspace.WorkspaceFilter,
 	statusesFilter map[ir.Status]struct{},
 	hasStatusFilter bool,
-) *dagrun.DAGRunStatus {
+) *ir.DAGRunStatus {
 	// Fast path: use pre-loaded summary for filtering.
 	if dagRun.summary != nil {
 		if hasStatusFilter {
@@ -170,7 +170,7 @@ func (store *Store) resolveStatus(
 
 		// Passed filters — construct status directly from index.
 		s := dagRun.summary
-		return &dagrun.DAGRunStatus{
+		return &ir.DAGRunStatus{
 			Parent:               ir.NewDAGRunRef(s.ParentName, s.ParentID),
 			Name:                 s.Name,
 			DAGRunID:             s.DagRunID,
@@ -237,9 +237,9 @@ func (store *Store) CompareAndSwapLatestAttemptStatus(
 	dagRun ir.DAGRunRef,
 	expectedAttemptID string,
 	expectedStatus ir.Status,
-	mutate func(*dagrun.DAGRunStatus) error,
+	mutate func(*ir.DAGRunStatus) error,
 	opts ...dagrun.CompareAndSwapStatusOption,
-) (*dagrun.DAGRunStatus, bool, error) {
+) (*ir.DAGRunStatus, bool, error) {
 	if dagRun.ID == "" {
 		return nil, false, ErrDAGRunIDEmpty
 	}
@@ -313,7 +313,7 @@ func (store *Store) CompareAndSwapLatestAttemptStatus(
 	if err := mutate(status); err != nil {
 		return nil, false, err
 	}
-	dagrun.NormalizeDAGRunConditions(status)
+	ir.NormalizeDAGRunConditions(status)
 	if err := attempt.Write(ctx, *status); err != nil {
 		return nil, false, err
 	}

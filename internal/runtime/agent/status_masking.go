@@ -8,11 +8,10 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/collections"
 	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
-func (a *Agent) maskStatusSecrets(status *dagrun.DAGRunStatus) {
+func (a *Agent) maskStatusSecrets(status *ir.DAGRunStatus) {
 	if a.secretMasker == nil {
 		return
 	}

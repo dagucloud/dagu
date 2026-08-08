@@ -13,7 +13,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
@@ -180,7 +179,7 @@ func (e *DAGExecutor) ExecuteDAG(
 	dag *ir.DAG,
 	operation dispatch.DispatchOperation,
 	runID string,
-	previousStatus *dagrun.DAGRunStatus,
+	previousStatus *ir.DAGRunStatus,
 	triggerType ir.TriggerType,
 	scheduleTime string,
 ) error {
@@ -192,7 +191,7 @@ func (e *DAGExecutor) ExecuteDAGWithAdmission(
 	dag *ir.DAG,
 	operation dispatch.DispatchOperation,
 	runID string,
-	previousStatus *dagrun.DAGRunStatus,
+	previousStatus *ir.DAGRunStatus,
 	triggerType ir.TriggerType,
 	scheduleTime string,
 	admissionReservationToken string,
@@ -205,7 +204,7 @@ func (e *DAGExecutor) executeDAG(
 	dag *ir.DAG,
 	operation dispatch.DispatchOperation,
 	runID string,
-	previousStatus *dagrun.DAGRunStatus,
+	previousStatus *ir.DAGRunStatus,
 	triggerType ir.TriggerType,
 	scheduleTime string,
 	defaultProfileName string,
@@ -323,7 +322,7 @@ func (e *DAGExecutor) defaultProfileName(ctx context.Context, dag *ir.DAG) (stri
 	return e.profileResolver.ResolveProfile(ctx, fileName, workspaceName)
 }
 
-func profileNameFromStatus(status *dagrun.DAGRunStatus) string {
+func profileNameFromStatus(status *ir.DAGRunStatus) string {
 	if status == nil {
 		return ""
 	}

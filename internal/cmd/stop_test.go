@@ -136,14 +136,14 @@ func seedFailedAutoRetryPendingRun(t *testing.T, th test.Command, dag test.DAG, 
 	)
 	require.NoError(t, err)
 
-	status := dagrun.NewStatusBuilder(dag.DAG).Create(
+	status := ir.NewStatusBuilder(dag.DAG).Create(
 		dagRunID,
 		ir.Failed,
 		0,
 		time.Now().Add(-time.Minute),
-		dagrun.WithAttemptID(attempt.ID()),
-		dagrun.WithAutoRetryCount(autoRetryCount),
-		dagrun.WithError("step failed"),
+		ir.WithAttemptID(attempt.ID()),
+		ir.WithAutoRetryCount(autoRetryCount),
+		ir.WithError("step failed"),
 	)
 	status.FinishedAt = time.Now().Add(-30 * time.Second).UTC().Format(time.RFC3339)
 

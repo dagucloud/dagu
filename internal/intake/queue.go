@@ -52,7 +52,7 @@ type QueueRequest struct {
 type QueuedRun struct {
 	DAGRun      ir.DAGRunRef
 	Attempt     dagrun.DAGRunAttempt
-	Status      dagrun.DAGRunStatus
+	Status      ir.DAGRunStatus
 	QueueName   string
 	LogFile     string
 	ArtifactDir string
@@ -169,29 +169,29 @@ func artifactDir(ctx context.Context, req QueueRequest) (string, error) {
 	return dir, nil
 }
 
-func queuedStatus(req QueueRequest, dagRun ir.DAGRunRef, attemptID, logFile, archiveDir string, now time.Time) dagrun.DAGRunStatus {
+func queuedStatus(req QueueRequest, dagRun ir.DAGRunRef, attemptID, logFile, archiveDir string, now time.Time) ir.DAGRunStatus {
 	root := req.Root
 	if root.Zero() {
 		root = dagRun
 	}
 
-	opts := []dagrun.StatusOption{
-		dagrun.WithLogFilePath(logFile),
-		dagrun.WithArchiveDir(archiveDir),
-		dagrun.WithAttemptID(attemptID),
-		dagrun.WithPreconditions(req.DAG.Preconditions),
-		dagrun.WithQueuedAt(stringutil.FormatTime(now)),
-		dagrun.WithHierarchyRefs(root, req.Parent),
-		dagrun.WithTriggerType(req.TriggerType),
-		dagrun.WithTriggerActor(req.TriggerActor),
-		dagrun.WithRuntimeProfile(req.ProfileName, "", nil),
-		dagrun.WithNoReuse(req.NoReuse),
+	opts := []ir.StatusOption{
+		ir.WithLogFilePath(logFile),
+		ir.WithArchiveDir(archiveDir),
+		ir.WithAttemptID(attemptID),
+		ir.WithPreconditions(req.DAG.Preconditions),
+		ir.WithQueuedAt(stringutil.FormatTime(now)),
+		ir.WithHierarchyRefs(root, req.Parent),
+		ir.WithTriggerType(req.TriggerType),
+		ir.WithTriggerActor(req.TriggerActor),
+		ir.WithRuntimeProfile(req.ProfileName, "", nil),
+		ir.WithNoReuse(req.NoReuse),
 	}
 	if req.ScheduleTime != "" {
-		opts = append(opts, dagrun.WithScheduleTime(req.ScheduleTime))
+		opts = append(opts, ir.WithScheduleTime(req.ScheduleTime))
 	}
 
-	return dagrun.NewStatusBuilder(req.DAG).Create(req.DAGRunID, ir.Queued, 0, time.Time{}, opts...)
+	return ir.NewStatusBuilder(req.DAG).Create(req.DAGRunID, ir.Queued, 0, time.Time{}, opts...)
 }
 
 // queuedStatusWriteResult captures non-fatal status write side effects.
@@ -201,7 +201,7 @@ type queuedStatusWriteResult struct {
 	closeErr error
 }
 
-func writeQueuedStatus(ctx context.Context, attempt dagrun.DAGRunAttempt, status dagrun.DAGRunStatus, proceedOnCloseErr bool) (queuedStatusWriteResult, error) {
+func writeQueuedStatus(ctx context.Context, attempt dagrun.DAGRunAttempt, status ir.DAGRunStatus, proceedOnCloseErr bool) (queuedStatusWriteResult, error) {
 	if err := attempt.Open(ctx); err != nil {
 		return queuedStatusWriteResult{}, fmt.Errorf("failed to open queued DAG run: %w", err)
 	}

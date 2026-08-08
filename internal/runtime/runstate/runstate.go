@@ -7,7 +7,6 @@ package runstate
 import (
 	"context"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
@@ -31,9 +30,9 @@ type BeginAttemptRequest struct {
 type Attempt interface {
 	ID() string
 	Open(ctx context.Context) error
-	RecordStatus(ctx context.Context, status dagrun.DAGRunStatus) error
+	RecordStatus(ctx context.Context, status ir.DAGRunStatus) error
 	RecordOutputs(ctx context.Context, outputs *ir.DAGRunOutputs) error
-	ReadStatus(ctx context.Context) (*dagrun.DAGRunStatus, error)
+	ReadStatus(ctx context.Context) (*ir.DAGRunStatus, error)
 	ReadOutputs(ctx context.Context) (*ir.DAGRunOutputs, error)
 	RequestCancel(ctx context.Context) error
 	CancelRequested(ctx context.Context) (bool, error)

@@ -14,7 +14,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/require"
@@ -25,7 +24,7 @@ type parallelExecutionItemSourceCase struct {
 	expectedNodes     int
 	parallelNodeIndex int
 	expectedChildren  int
-	verify            func(*testing.T, *dagrun.DAGRunStatus, *ir.Node)
+	verify            func(*testing.T, *ir.DAGRunStatus, *ir.Node)
 }
 
 func yamlParallelItems(key string, items []string) string {
@@ -216,7 +215,7 @@ func TestParallelExecution_ItemSources_ObjectItems(t *testing.T) {
 		expectedNodes:     1,
 		parallelNodeIndex: 0,
 		expectedChildren:  3,
-		verify: func(t *testing.T, _ *dagrun.DAGRunStatus, node *ir.Node) {
+		verify: func(t *testing.T, _ *ir.DAGRunStatus, node *ir.Node) {
 			for _, child := range node.SubRuns {
 				require.Contains(t, child.Params, `"REGION"`)
 				require.Contains(t, child.Params, `"VERSION"`)
@@ -279,7 +278,7 @@ steps:
 		expectedNodes:     2,
 		parallelNodeIndex: 0,
 		expectedChildren:  3,
-		verify: func(t *testing.T, dagStatus *dagrun.DAGRunStatus, _ *ir.Node) {
+		verify: func(t *testing.T, dagStatus *ir.DAGRunStatus, _ *ir.Node) {
 			require.Greater(t, len(dagStatus.Nodes), 1, "node index out of range")
 			aggregate := dagStatus.Nodes[1]
 			require.Equal(t, ir.NodeSucceeded, aggregate.Status)

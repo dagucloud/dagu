@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/dagucloud/dagu/v2/internal/test"
@@ -246,8 +245,8 @@ func TestScheduler_StopSchedule(t *testing.T) {
 	})
 
 	// GetLatestStatus must return Running for the stop guard
-	sc.SetGetLatestStatusFunc(func(_ context.Context, _ *ir.DAG) (dagrun.DAGRunStatus, error) {
-		return dagrun.DAGRunStatus{Status: ir.Running}, nil
+	sc.SetGetLatestStatusFunc(func(_ context.Context, _ *ir.DAG) (ir.DAGRunStatus, error) {
+		return ir.DAGRunStatus{Status: ir.Running}, nil
 	})
 
 	var stopCount atomic.Int32

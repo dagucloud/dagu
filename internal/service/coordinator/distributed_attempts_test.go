@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
@@ -27,8 +26,8 @@ func TestAttemptOwnershipStatusDecision(t *testing.T) {
 
 		ownership := newAttemptOwnership(attemptOwnershipConfig{})
 		accepted, reason := ownership.statusDecision(ctx,
-			&dagrun.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: ir.Running},
-			&dagrun.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: ir.Running},
+			&ir.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: ir.Running},
+			&ir.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: ir.Running},
 			statusDecisionOptions{},
 		)
 
@@ -41,8 +40,8 @@ func TestAttemptOwnershipStatusDecision(t *testing.T) {
 
 		ownership := newAttemptOwnership(attemptOwnershipConfig{})
 		accepted, reason := ownership.statusDecision(ctx,
-			&dagrun.DAGRunStatus{AttemptID: "attempt-2", AttemptKey: "attempt-key-2", Status: ir.Running},
-			&dagrun.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: ir.Running},
+			&ir.DAGRunStatus{AttemptID: "attempt-2", AttemptKey: "attempt-key-2", Status: ir.Running},
+			&ir.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: ir.Running},
 			statusDecisionOptions{},
 		)
 
@@ -61,8 +60,8 @@ func TestAttemptOwnershipStatusDecision(t *testing.T) {
 		})
 
 		accepted, reason := ownership.statusDecision(ctx,
-			&dagrun.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: ir.Failed},
-			&dagrun.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: ir.Running},
+			&ir.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: ir.Failed},
+			&ir.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: ir.Running},
 			statusDecisionOptions{},
 		)
 
@@ -75,8 +74,8 @@ func TestAttemptOwnershipStatusDecision(t *testing.T) {
 
 		ownership := newAttemptOwnership(attemptOwnershipConfig{})
 		accepted, reason := ownership.statusDecision(ctx,
-			&dagrun.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: ir.Succeeded},
-			&dagrun.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: ir.Succeeded},
+			&ir.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: ir.Succeeded},
+			&ir.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: ir.Succeeded},
 			statusDecisionOptions{},
 		)
 
@@ -89,8 +88,8 @@ func TestAttemptOwnershipStatusDecision(t *testing.T) {
 
 		ownership := newAttemptOwnership(attemptOwnershipConfig{})
 		accepted, reason := ownership.statusDecision(ctx,
-			&dagrun.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: ir.Failed},
-			&dagrun.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: ir.Aborted},
+			&ir.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: ir.Failed},
+			&ir.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: ir.Aborted},
 			statusDecisionOptions{},
 		)
 
@@ -103,8 +102,8 @@ func TestAttemptOwnershipStatusDecision(t *testing.T) {
 
 		ownership := newAttemptOwnership(attemptOwnershipConfig{})
 		accepted, reason := ownership.statusDecision(ctx,
-			&dagrun.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: ir.Failed},
-			&dagrun.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: ir.Aborted},
+			&ir.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: ir.Failed},
+			&ir.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: ir.Aborted},
 			statusDecisionOptions{CancellationRequested: true},
 		)
 
@@ -144,7 +143,7 @@ func TestAttemptOwnershipSyncFromStatus(t *testing.T) {
 		LastHeartbeatAt: oldTime.UnixMilli(),
 	}))
 
-	status := &dagrun.DAGRunStatus{
+	status := &ir.DAGRunStatus{
 		Name:       run.Name,
 		DAGRunID:   run.ID,
 		Root:       run,
@@ -215,7 +214,7 @@ func TestInlineRunSharesClaimLease(t *testing.T) {
 		WorkerID:        "worker-1",
 		LastHeartbeatAt: time.Now().UTC().UnixMilli(),
 	}))
-	status := &dagrun.DAGRunStatus{
+	status := &ir.DAGRunStatus{
 		Name:       "child",
 		DAGRunID:   "child-run",
 		AttemptID:  "child-attempt",

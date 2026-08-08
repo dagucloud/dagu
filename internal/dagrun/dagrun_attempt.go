@@ -28,11 +28,11 @@ type DAGRunAttempt interface {
 	// Open prepares the attempt for writing status updates
 	Open(ctx context.Context) error
 	// Write updates the status of the attempt
-	Write(ctx context.Context, status DAGRunStatus) error
+	Write(ctx context.Context, status ir.DAGRunStatus) error
 	// Close finalizes writing to the attempt
 	Close(ctx context.Context) error
 	// ReadStatus retrieves the current status of the attempt
-	ReadStatus(ctx context.Context) (*DAGRunStatus, error)
+	ReadStatus(ctx context.Context) (*ir.DAGRunStatus, error)
 	// ReadDAG reads the DAG associated with this run attempt
 	ReadDAG(ctx context.Context) (*ir.DAG, error)
 	// SetDAG sets the DAG for this attempt (must be called before Open for DAG to be persisted)

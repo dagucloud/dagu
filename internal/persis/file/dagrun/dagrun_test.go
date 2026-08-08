@@ -51,7 +51,7 @@ func (dr DAGRunTest) WriteStatus(t *testing.T, ts dagrun.TimeInUTC, s ir.Status)
 	t.Helper()
 
 	dag := &ir.DAG{Name: "test-dag"}
-	dagRunStatus := dagrun.InitialStatus(dag)
+	dagRunStatus := ir.InitialStatus(dag)
 	dagRunStatus.DAGRunID = "test-id-1"
 	dagRunStatus.Status = s
 
@@ -184,7 +184,7 @@ func TestListLogFiles(t *testing.T) {
 
 		// Create a run with log files
 		dag := &ir.DAG{Name: "test-dag"}
-		dagRunStatus := dagrun.InitialStatus(dag)
+		dagRunStatus := ir.InitialStatus(dag)
 		dagRunStatus.DAGRunID = "test-dag-run"
 		dagRunStatus.Status = ir.Succeeded
 		dagRunStatus.Log = "/tmp/test.log"
@@ -228,7 +228,7 @@ func TestListLogFiles(t *testing.T) {
 		run := root.CreateTestDAGRun(t, "test-dag-run", dagrun.NewUTC(time.Now()))
 
 		dag := &ir.DAG{Name: "test-dag"}
-		dagRunStatus := dagrun.InitialStatus(dag)
+		dagRunStatus := ir.InitialStatus(dag)
 		dagRunStatus.DAGRunID = "test-dag-run"
 		dagRunStatus.Status = ir.Succeeded
 		dagRunStatus.Log = "/tmp/test.log"
@@ -292,7 +292,7 @@ func TestRemoveLogFiles(t *testing.T) {
 
 		// Create a run with log files pointing to our test files
 		dag := &ir.DAG{Name: "test-dag"}
-		dagRunStatus := dagrun.InitialStatus(dag)
+		dagRunStatus := ir.InitialStatus(dag)
 		dagRunStatus.DAGRunID = "test-dag-run"
 		dagRunStatus.Status = ir.Succeeded
 		dagRunStatus.Log = logFiles[0]
@@ -351,7 +351,7 @@ func TestRemoveLogFiles(t *testing.T) {
 
 		// Create parent dag-run with log files
 		dag := &ir.DAG{Name: "test-dag"}
-		dagRunStatus := dagrun.InitialStatus(dag)
+		dagRunStatus := ir.InitialStatus(dag)
 		dagRunStatus.DAGRunID = "parent-dag-run"
 		dagRunStatus.Log = parentLogFiles[0]
 		dagRunStatus.Nodes = []*ir.Node{{
@@ -377,7 +377,7 @@ func TestRemoveLogFiles(t *testing.T) {
 		require.NoError(t, err)
 
 		// Create sub run with log files
-		subStatus := dagrun.InitialStatus(dag)
+		subStatus := ir.InitialStatus(dag)
 		subStatus.DAGRunID = "sub1"
 		subStatus.Log = subRunLogFiles[0]
 		subStatus.Nodes = []*ir.Node{{
@@ -429,7 +429,7 @@ func TestDAGRunRemove(t *testing.T) {
 
 		// Create a run with log files
 		dag := &ir.DAG{Name: "test-dag"}
-		dagRunStatus := dagrun.InitialStatus(dag)
+		dagRunStatus := ir.InitialStatus(dag)
 		dagRunStatus.DAGRunID = "test-dag-run"
 		dagRunStatus.Status = ir.Succeeded
 		dagRunStatus.Log = logFiles[0]
@@ -499,7 +499,7 @@ func TestDAGRunRemove(t *testing.T) {
 
 		// Create parent dag-run with log files
 		dag := &ir.DAG{Name: "test-dag"}
-		dagRunStatus := dagrun.InitialStatus(dag)
+		dagRunStatus := ir.InitialStatus(dag)
 		dagRunStatus.DAGRunID = "parent-dag-run"
 		dagRunStatus.Log = parentLogFiles[0]
 		dagRunStatus.Nodes = []*ir.Node{{
@@ -534,7 +534,7 @@ func TestDAGRunRemove(t *testing.T) {
 			subDAGRun, err := NewDAGRun(subDAGRunDir)
 			require.NoError(t, err)
 
-			subStatus := dagrun.InitialStatus(dag)
+			subStatus := ir.InitialStatus(dag)
 			subStatus.DAGRunID = subRun.dagRunID
 			subStatus.Log = subRun.logFiles[0]
 			subStatus.Nodes = []*ir.Node{{
@@ -576,7 +576,7 @@ func TestDAGRunRemove(t *testing.T) {
 
 		// Create a run with log files that don't exist
 		dag := &ir.DAG{Name: "test-dag"}
-		dagRunStatus := dagrun.InitialStatus(dag)
+		dagRunStatus := ir.InitialStatus(dag)
 		dagRunStatus.DAGRunID = "test-dag-run"
 		dagRunStatus.Log = "/non/existent/path/dag-run.log"
 		dagRunStatus.Nodes = []*ir.Node{

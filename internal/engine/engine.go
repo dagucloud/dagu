@@ -224,7 +224,7 @@ func (e *Engine) subWorkflowRunnerFactory(stores RuntimeStores) func(context.Con
 	})
 }
 
-func runStatusToPublic(status *dagrun.DAGRunStatus) (*Status, error) {
+func runStatusToPublic(status *ir.DAGRunStatus) (*Status, error) {
 	if status == nil {
 		return nil, nil
 	}
@@ -262,7 +262,7 @@ func parseStatusTime(value string) (time.Time, error) {
 	return time.Parse(time.RFC3339Nano, value)
 }
 
-func statusFromValue(status dagrun.DAGRunStatus) (*Status, error) {
+func statusFromValue(status ir.DAGRunStatus) (*Status, error) {
 	return runStatusToPublic(&status)
 }
 

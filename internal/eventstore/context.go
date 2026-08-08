@@ -6,7 +6,7 @@ package eventstore
 import (
 	"context"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 type contextKey struct{}
@@ -45,7 +45,7 @@ func SourceFromContext(ctx context.Context) (Source, bool) {
 	return source, ok
 }
 
-func EmitPersistedStatusFromContext(ctx context.Context, status *dagrun.DAGRunStatus) error {
+func EmitPersistedStatusFromContext(ctx context.Context, status *ir.DAGRunStatus) error {
 	_, _, err := EmitPersistedStatusTransitionFromContext(ctx, "", status, nil)
 	return err
 }
@@ -53,7 +53,7 @@ func EmitPersistedStatusFromContext(ctx context.Context, status *dagrun.DAGRunSt
 func EmitPersistedStatusTransitionFromContext(
 	ctx context.Context,
 	previous EventType,
-	status *dagrun.DAGRunStatus,
+	status *ir.DAGRunStatus,
 	data map[string]any,
 ) (EventType, bool, error) {
 	service, source, ok := FromContext(ctx)

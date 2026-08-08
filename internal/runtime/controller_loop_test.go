@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/llm"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
@@ -700,12 +700,12 @@ func roundTripNodes(t *testing.T, ch *controllerHelper, complete func(*ir.Node))
 	for _, node := range ch.plan.Nodes() {
 		nodeData = append(nodeData, node.NodeData())
 	}
-	status := dagrun.NewStatusBuilder(ch.dag).Create(
+	status := ir.NewStatusBuilder(ch.dag).Create(
 		ch.cfg.DAGRunID, ir.Waiting, 0, time.Now(), transform.WithNodes(nodeData))
 
 	encoded, err := json.Marshal(status)
 	require.NoError(t, err)
-	var decoded dagrun.DAGRunStatus
+	var decoded ir.DAGRunStatus
 	require.NoError(t, json.Unmarshal(encoded, &decoded))
 
 	nodes := make([]*runtime.Node, 0, len(decoded.Nodes))
@@ -1088,7 +1088,7 @@ func TestControllerLoop_FinalizesTheSuspendedActionEvent(t *testing.T) {
 		if node.Step.Name == "review" {
 			node.Status = ir.NodeSucceeded
 			node.HumanTaskInput = json.RawMessage(`{"approved":true}`)
-			node.FinishedAt = dagrun.FormatTime(time.Now())
+			node.FinishedAt = stringutil.FormatTime(time.Now())
 		}
 	})
 

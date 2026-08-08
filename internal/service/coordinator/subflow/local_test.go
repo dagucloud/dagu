@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/collections"
+	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -352,7 +353,7 @@ steps:
 	staleAt := time.Now().Add(-3 * time.Second)
 	childStatus := localRunStatus(childDAG.DAG, childRunID, ir.Running, ir.NodeRunning)
 	childStatus.WorkerID = "local"
-	childStatus.StartedAt = dagrun.FormatTime(staleAt)
+	childStatus.StartedAt = stringutil.FormatTime(staleAt)
 	childStatus.CreatedAt = staleAt.UnixMilli()
 	createStoredRunningChildAttempt(t, th, rootDAG.DAG, childDAG.DAG, rootRunID, childRunID, childStatus)
 
@@ -375,11 +376,11 @@ steps:
 	require.Equal(t, ir.Succeeded, persisted.Status)
 }
 
-func localRunStatus(dag *ir.DAG, dagRunID string, dagStatus ir.Status, nodeStatus ir.NodeStatus) dagrun.DAGRunStatus {
-	status := dagrun.InitialStatus(dag)
+func localRunStatus(dag *ir.DAG, dagRunID string, dagStatus ir.Status, nodeStatus ir.NodeStatus) ir.DAGRunStatus {
+	status := ir.InitialStatus(dag)
 	status.DAGRunID = dagRunID
 	status.Status = dagStatus
-	status.StartedAt = dagrun.FormatTime(time.Now())
+	status.StartedAt = stringutil.FormatTime(time.Now())
 	status.CreatedAt = time.Now().UnixMilli()
 	for _, node := range status.Nodes {
 		node.Status = nodeStatus
@@ -394,7 +395,7 @@ func createStoredRunningChildAttempt(
 	childDAG *ir.DAG,
 	rootRunID string,
 	childRunID string,
-	status dagrun.DAGRunStatus,
+	status ir.DAGRunStatus,
 ) dagrun.DAGRunAttempt {
 	t.Helper()
 
@@ -455,7 +456,7 @@ func (s *localDAGRunStore) LatestAttempt(context.Context, string) (dagrun.DAGRun
 	return nil, dagrun.ErrDAGRunIDNotFound
 }
 
-func (s *localDAGRunStore) ListStatuses(context.Context, ...dagrun.ListDAGRunStatusesOption) ([]*dagrun.DAGRunStatus, error) {
+func (s *localDAGRunStore) ListStatuses(context.Context, ...dagrun.ListDAGRunStatusesOption) ([]*ir.DAGRunStatus, error) {
 	return nil, nil
 }
 
@@ -468,9 +469,9 @@ func (s *localDAGRunStore) CompareAndSwapLatestAttemptStatus(
 	ir.DAGRunRef,
 	string,
 	ir.Status,
-	func(*dagrun.DAGRunStatus) error,
+	func(*ir.DAGRunStatus) error,
 	...dagrun.CompareAndSwapStatusOption,
-) (*dagrun.DAGRunStatus, bool, error) {
+) (*ir.DAGRunStatus, bool, error) {
 	return nil, false, nil
 }
 

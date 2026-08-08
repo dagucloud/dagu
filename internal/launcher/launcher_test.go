@@ -110,15 +110,15 @@ steps:
 	logPath := filepath.Join(th.Config.Paths.LogDir, "built-exec-retry.log")
 	require.NoError(t, os.MkdirAll(filepath.Dir(logPath), 0o750))
 
-	status := dagrun.NewStatusBuilder(dagFile.DAG).Create(
+	status := ir.NewStatusBuilder(dagFile.DAG).Create(
 		runID,
 		ir.Queued,
 		0,
 		time.Time{},
-		dagrun.WithAttemptID(attempt.ID()),
-		dagrun.WithTriggerType(ir.TriggerTypeRetry),
-		dagrun.WithQueuedAt(stringutil.FormatTime(time.Now())),
-		dagrun.WithLogFilePath(logPath),
+		ir.WithAttemptID(attempt.ID()),
+		ir.WithTriggerType(ir.TriggerTypeRetry),
+		ir.WithQueuedAt(stringutil.FormatTime(time.Now())),
+		ir.WithLogFilePath(logPath),
 	)
 
 	require.NoError(t, attempt.Open(th.Context))
@@ -146,14 +146,14 @@ steps:
 	logPath := filepath.Join(th.Config.Paths.LogDir, dagFile.Name, runID+".log")
 	require.NoError(t, os.MkdirAll(filepath.Dir(logPath), 0o750))
 
-	status := dagrun.NewStatusBuilder(dagFile.DAG).Create(
+	status := ir.NewStatusBuilder(dagFile.DAG).Create(
 		runID,
 		ir.Queued,
 		0,
 		time.Time{},
-		dagrun.WithLogFilePath(logPath),
-		dagrun.WithAttemptID(attempt.ID()),
-		dagrun.WithHierarchyRefs(ir.NewDAGRunRef(dagFile.Name, runID), ir.DAGRunRef{}),
+		ir.WithLogFilePath(logPath),
+		ir.WithAttemptID(attempt.ID()),
+		ir.WithHierarchyRefs(ir.NewDAGRunRef(dagFile.Name, runID), ir.DAGRunRef{}),
 	)
 
 	require.NoError(t, attempt.Open(th.Context))
@@ -181,14 +181,14 @@ steps:
 	logPath := filepath.Join(th.Config.Paths.LogDir, dagFile.Name, runID+".log")
 	require.NoError(t, os.MkdirAll(filepath.Dir(logPath), 0o750))
 
-	status := dagrun.NewStatusBuilder(dagFile.DAG).Create(
+	status := ir.NewStatusBuilder(dagFile.DAG).Create(
 		runID,
 		ir.Queued,
 		0,
 		time.Time{},
-		dagrun.WithLogFilePath(logPath),
-		dagrun.WithAttemptID(attempt.ID()),
-		dagrun.WithHierarchyRefs(ir.NewDAGRunRef(dagFile.Name, runID), ir.DAGRunRef{}),
+		ir.WithLogFilePath(logPath),
+		ir.WithAttemptID(attempt.ID()),
+		ir.WithHierarchyRefs(ir.NewDAGRunRef(dagFile.Name, runID), ir.DAGRunRef{}),
 	)
 
 	require.NoError(t, attempt.Open(th.Context))
@@ -216,14 +216,14 @@ steps:
 	logPath := filepath.Join(th.Config.Paths.LogDir, dagFile.Name, runID+".log")
 	require.NoError(t, os.MkdirAll(filepath.Dir(logPath), 0o750))
 
-	status := dagrun.NewStatusBuilder(dagFile.DAG).Create(
+	status := ir.NewStatusBuilder(dagFile.DAG).Create(
 		runID,
 		ir.Queued,
 		0,
 		time.Time{},
-		dagrun.WithLogFilePath(logPath),
-		dagrun.WithAttemptID(attempt.ID()),
-		dagrun.WithHierarchyRefs(ir.NewDAGRunRef(dagFile.Name, runID), ir.DAGRunRef{}),
+		ir.WithLogFilePath(logPath),
+		ir.WithAttemptID(attempt.ID()),
+		ir.WithHierarchyRefs(ir.NewDAGRunRef(dagFile.Name, runID), ir.DAGRunRef{}),
 	)
 
 	require.NoError(t, attempt.Open(th.Context))
@@ -270,7 +270,7 @@ steps:
 	started, err := launcher.StartProcess(th.Context, spec)
 	require.NoError(t, err, "env=%s", strings.Join(spec.Env, "\n"))
 
-	var status dagrun.DAGRunStatus
+	var status ir.DAGRunStatus
 	require.Eventually(t, func() bool {
 		latest, err := th.DAGRunMgr.GetLatestStatus(th.Context, dagFile.DAG)
 		if err != nil {
@@ -307,7 +307,7 @@ steps:
 	started, err := launcher.StartProcess(th.Context, spec)
 	require.NoError(t, err, "env=%s", strings.Join(spec.Env, "\n"))
 
-	var status dagrun.DAGRunStatus
+	var status ir.DAGRunStatus
 	require.Eventually(t, func() bool {
 		latest, err := th.DAGRunMgr.GetLatestStatus(th.Context, dagFile.DAG)
 		if err != nil {

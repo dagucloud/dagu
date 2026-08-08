@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	dagucmd "github.com/dagucloud/dagu/v2/internal/cmd"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/require"
 )
@@ -39,7 +38,7 @@ steps:
     run: ${PYTHON_BIN} ${PROJECT_DIR}/signals/run_signals.py
 `),
 	}
-	status := &dagrun.DAGRunStatus{}
+	status := &ir.DAGRunStatus{}
 
 	restored, err := dagucmd.RestoreDAGFromStatusForTest(context.Background(), dag, status)
 	require.NoError(t, err)

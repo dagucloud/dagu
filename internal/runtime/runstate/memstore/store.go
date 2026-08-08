@@ -115,7 +115,7 @@ type childKey struct {
 }
 
 type attemptState struct {
-	status    *dagrun.DAGRunStatus
+	status    *ir.DAGRunStatus
 	outputs   *ir.DAGRunOutputs
 	messages  map[string][]ir.LLMMessage
 	cancelled bool
@@ -140,7 +140,7 @@ func (a attempt) Open(_ context.Context) error {
 	return err
 }
 
-func (a attempt) RecordStatus(_ context.Context, status dagrun.DAGRunStatus) error {
+func (a attempt) RecordStatus(_ context.Context, status ir.DAGRunStatus) error {
 	cloned, err := cloneStatus(status)
 	if err != nil {
 		return err
@@ -167,7 +167,7 @@ func (a attempt) RecordOutputs(_ context.Context, outputs *ir.DAGRunOutputs) err
 	return nil
 }
 
-func (a attempt) ReadStatus(_ context.Context) (*dagrun.DAGRunStatus, error) {
+func (a attempt) ReadStatus(_ context.Context) (*ir.DAGRunStatus, error) {
 	a.store.mu.RLock()
 	defer a.store.mu.RUnlock()
 	state, err := a.stateRLocked()
@@ -272,11 +272,11 @@ func generatedAttemptID(runID string, count int) string {
 	return runID + "-" + strconv.Itoa(count)
 }
 
-func cloneStatus(status dagrun.DAGRunStatus) (*dagrun.DAGRunStatus, error) {
+func cloneStatus(status ir.DAGRunStatus) (*ir.DAGRunStatus, error) {
 	return cloneStatusValue(&status)
 }
 
-func cloneStatusValue(status *dagrun.DAGRunStatus) (*dagrun.DAGRunStatus, error) {
+func cloneStatusValue(status *ir.DAGRunStatus) (*ir.DAGRunStatus, error) {
 	if status == nil {
 		return nil, nil
 	}
@@ -284,7 +284,7 @@ func cloneStatusValue(status *dagrun.DAGRunStatus) (*dagrun.DAGRunStatus, error)
 	if err != nil {
 		return nil, fmt.Errorf("clone status: %w", err)
 	}
-	var cloned dagrun.DAGRunStatus
+	var cloned ir.DAGRunStatus
 	if err := json.Unmarshal(data, &cloned); err != nil {
 		return nil, fmt.Errorf("clone status: %w", err)
 	}

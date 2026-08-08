@@ -6,7 +6,6 @@ package agent
 import (
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 )
@@ -72,12 +71,12 @@ func TestSimpleProgressDisplay_UpdateStatus(t *testing.T) {
 	dag := &ir.DAG{Name: "test-dag"}
 	display := NewSimpleProgressDisplay(dag)
 
-	display.UpdateStatus(&dagrun.DAGRunStatus{
+	display.UpdateStatus(&ir.DAGRunStatus{
 		Status: ir.Succeeded,
 	})
 	assert.Equal(t, ir.Succeeded, display.status)
 
-	display.UpdateStatus(&dagrun.DAGRunStatus{
+	display.UpdateStatus(&ir.DAGRunStatus{
 		Status: ir.Failed,
 	})
 	assert.Equal(t, ir.Failed, display.status)

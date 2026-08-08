@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -149,7 +148,7 @@ steps:
 	assert.JSONEq(t, `{"content_hash":"sha256:abc123"}`, nodeOutputValue(t, status.Nodes[1], "PARAMS_JSON"))
 }
 
-func readDistributedSubAttemptStatus(t *testing.T, f *testFixture, rootRef ir.DAGRunRef, subRunID string) *dagrun.DAGRunStatus {
+func readDistributedSubAttemptStatus(t *testing.T, f *testFixture, rootRef ir.DAGRunRef, subRunID string) *ir.DAGRunStatus {
 	t.Helper()
 
 	attempt, err := f.coord.DAGRunStore.FindSubAttempt(f.coord.Context, rootRef, subRunID)

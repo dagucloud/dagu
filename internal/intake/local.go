@@ -152,22 +152,22 @@ func recordPreparedAttemptFailure(
 		)
 	}
 
-	opts := []dagrun.StatusOption{
-		dagrun.WithAttemptID(attempt.ID()),
-		dagrun.WithHierarchyRefs(req.Root, req.Parent),
-		dagrun.WithLogFilePath(logFile),
-		dagrun.WithArchiveDir(archiveDir),
-		dagrun.WithFinishedAt(time.Now()),
-		dagrun.WithError(runErr.Error()),
-		dagrun.WithWorkerID("local"),
-		dagrun.WithTriggerType(req.TriggerType),
-		dagrun.WithTriggerActor(req.TriggerActor),
-		dagrun.WithRuntimeProfile(req.ProfileName, "", nil),
+	opts := []ir.StatusOption{
+		ir.WithAttemptID(attempt.ID()),
+		ir.WithHierarchyRefs(req.Root, req.Parent),
+		ir.WithLogFilePath(logFile),
+		ir.WithArchiveDir(archiveDir),
+		ir.WithFinishedAt(time.Now()),
+		ir.WithError(runErr.Error()),
+		ir.WithWorkerID("local"),
+		ir.WithTriggerType(req.TriggerType),
+		ir.WithTriggerActor(req.TriggerActor),
+		ir.WithRuntimeProfile(req.ProfileName, "", nil),
 	}
 	if req.ScheduleTime != "" {
-		opts = append(opts, dagrun.WithScheduleTime(req.ScheduleTime))
+		opts = append(opts, ir.WithScheduleTime(req.ScheduleTime))
 	}
-	status := dagrun.NewStatusBuilder(req.DAG).Create(req.DAGRunID, ir.Failed, 0, time.Now(), opts...)
+	status := ir.NewStatusBuilder(req.DAG).Create(req.DAGRunID, ir.Failed, 0, time.Now(), opts...)
 
 	if err := attempt.Open(ctx); err != nil {
 		return fmt.Errorf("failed to open attempt for failure recording: %w", err)

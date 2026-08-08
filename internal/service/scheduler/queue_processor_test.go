@@ -139,7 +139,7 @@ func (f *queueFixture) enqueueRuns(n int) *queueFixture {
 		run, err := f.dagRunStore.CreateAttempt(f.ctx, f.dag, time.Now(), runID, dagrun.NewDAGRunAttemptOptions{})
 		require.NoError(f.t, err)
 		require.NoError(f.t, run.Open(f.ctx))
-		st := dagrun.InitialStatus(f.dag)
+		st := ir.InitialStatus(f.dag)
 		st.Status, st.DAGRunID = ir.Queued, runID
 		require.NoError(f.t, run.Write(f.ctx, st))
 		require.NoError(f.t, run.Close(f.ctx))
@@ -194,7 +194,7 @@ func (f *queueFixture) enqueueToQueueWithTrigger(queueName, runID string, priori
 	run, err := f.dagRunStore.CreateAttempt(f.ctx, f.dag, time.Now(), runID, dagrun.NewDAGRunAttemptOptions{})
 	require.NoError(f.t, err)
 	require.NoError(f.t, run.Open(f.ctx))
-	st := dagrun.InitialStatus(f.dag)
+	st := ir.InitialStatus(f.dag)
 	st.Status, st.DAGRunID = ir.Queued, runID
 	st.AttemptID = run.ID()
 	st.TriggerType = triggerType
@@ -342,7 +342,7 @@ func TestQueueProcessor_CountsFreshDistributedRunsAgainstQueueConcurrency(t *tes
 	runningAttempt, err := f.dagRunStore.CreateAttempt(f.ctx, f.dag, time.Now(), "running-run", dagrun.NewDAGRunAttemptOptions{})
 	require.NoError(t, err)
 	require.NoError(t, runningAttempt.Open(f.ctx))
-	runningStatus := dagrun.InitialStatus(f.dag)
+	runningStatus := ir.InitialStatus(f.dag)
 	runningStatus.Status = ir.Queued
 	runningStatus.DAGRunID = "running-run"
 	runningStatus.AttemptID = runningAttempt.ID()
@@ -705,7 +705,7 @@ func TestQueueProcessor_CheckStartupStatusTreatsRunningStatusAsStarted(t *testin
 	run, err := f.dagRunStore.CreateAttempt(f.ctx, f.dag, time.Now(), "running-startup-run", dagrun.NewDAGRunAttemptOptions{})
 	require.NoError(t, err)
 	require.NoError(t, run.Open(f.ctx))
-	status := dagrun.InitialStatus(f.dag)
+	status := ir.InitialStatus(f.dag)
 	status.Status = ir.Running
 	status.DAGRunID = "running-startup-run"
 	status.AttemptID = run.ID()
@@ -729,7 +729,7 @@ func TestQueueProcessor_CheckStartupStatusTreatsFreshDistributedLeaseAsStarted(t
 	run, err := f.dagRunStore.CreateAttempt(f.ctx, f.dag, time.Now(), "lease-startup-run", dagrun.NewDAGRunAttemptOptions{})
 	require.NoError(t, err)
 	require.NoError(t, run.Open(f.ctx))
-	status := dagrun.InitialStatus(f.dag)
+	status := ir.InitialStatus(f.dag)
 	status.Status = ir.Queued
 	status.DAGRunID = "lease-startup-run"
 	status.AttemptID = run.ID()

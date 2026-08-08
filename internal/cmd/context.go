@@ -324,7 +324,7 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 	case "server", "scheduler", "start-all", "coordinator":
 		// For long-running process, we setup file cache for better performance
 		limits := cfg.Cache.Limits()
-		hc := fileutil.NewCache[*dagrun.DAGRunStatus]("dag_run_status", limits.DAGRun.Limit, limits.DAGRun.TTL)
+		hc := fileutil.NewCache[*ir.DAGRunStatus]("dag_run_status", limits.DAGRun.Limit, limits.DAGRun.TTL)
 		hc.StartEviction(ctx)
 		hrOpts = append(hrOpts, file.WithDAGRunHistoryFileCache(hc))
 	}
@@ -804,7 +804,7 @@ func (c *Context) RecordEarlyFailure(dag *ir.DAG, dagRunID string, err error) er
 	}
 
 	// 3. Construct the "Failed" status
-	statusBuilder := dagrun.NewStatusBuilder(dag)
+	statusBuilder := ir.NewStatusBuilder(dag)
 	logPath, logPathErr := c.GenLogFileName(dag, dagRunID)
 	if logPathErr != nil {
 		logger.Warn(c, "Failed to generate log file path for early failure status",
@@ -822,10 +822,10 @@ func (c *Context) RecordEarlyFailure(dag *ir.DAG, dagRunID string, err error) er
 		)
 	}
 	status := statusBuilder.Create(dagRunID, ir.Failed, 0, time.Now(),
-		dagrun.WithLogFilePath(logPath),
-		dagrun.WithArchiveDir(artifactDir),
-		dagrun.WithFinishedAt(time.Now()),
-		dagrun.WithError(err.Error()),
+		ir.WithLogFilePath(logPath),
+		ir.WithArchiveDir(artifactDir),
+		ir.WithFinishedAt(time.Now()),
+		ir.WithError(err.Error()),
 	)
 
 	// 4. Write the status

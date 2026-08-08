@@ -14,7 +14,6 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
@@ -184,7 +183,7 @@ func (r *remoteRunReporter) Finalize(ctx context.Context, attemptID, dir string)
 	return uploader.Finalize(ctx, attemptID, dir)
 }
 
-func (r *remoteRunReporter) finalizeSchedulerLogForStatus(ctx context.Context, status dagrun.DAGRunStatus) (bool, error) {
+func (r *remoteRunReporter) finalizeSchedulerLogForStatus(ctx context.Context, status ir.DAGRunStatus) (bool, error) {
 	if r == nil {
 		return false, nil
 	}
@@ -232,7 +231,7 @@ func (r *remoteRunReporter) metadataFromContext(ctx context.Context) remoteRunMe
 	return meta.normalize()
 }
 
-func (r *remoteRunReporter) metadataFromStatus(status dagrun.DAGRunStatus) remoteRunMetadata {
+func (r *remoteRunReporter) metadataFromStatus(status ir.DAGRunStatus) remoteRunMetadata {
 	return r.defaultMetadata().withRun(status.DAGRunID, status.Name, status.AttemptID, status.Root)
 }
 
@@ -512,10 +511,10 @@ type finalSchedulerLogStatusPusher struct {
 }
 
 type schedulerLogStatusFinalizer interface {
-	finalizeSchedulerLogForStatus(context.Context, dagrun.DAGRunStatus) (bool, error)
+	finalizeSchedulerLogForStatus(context.Context, ir.DAGRunStatus) (bool, error)
 }
 
-func (p *finalSchedulerLogStatusPusher) Push(ctx context.Context, status dagrun.DAGRunStatus) error {
+func (p *finalSchedulerLogStatusPusher) Push(ctx context.Context, status ir.DAGRunStatus) error {
 	if p.finalizer != nil && shouldFinalizeSchedulerLogBeforeStatus(status.Status) {
 		if ran, err := p.finalizer.finalizeSchedulerLogForStatus(ctx, status); ran {
 			if err != nil {

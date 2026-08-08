@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package dagrun
+package ir
 
 import (
 	"encoding/json"
@@ -12,20 +12,15 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 const (
 	canonicalAbortHandlerName = "onAbort"
 	legacyAbortHandlerName    = "onCancel"
-	// DefaultStaleLeaseThreshold is the shared default for considering a
-	// distributed run lease stale when the coordinator has not observed recent
-	// liveness for that run.
-	DefaultStaleLeaseThreshold = 30 * time.Second
 )
 
 // InitialStatus creates an initial Status object for the given DAG
-func InitialStatus(dag *ir.DAG) DAGRunStatus {
+func InitialStatus(dag *DAG) DAGRunStatus {
 	var (
 		autoRetryLimit       int
 		autoRetryInterval    time.Duration
@@ -47,9 +42,9 @@ func InitialStatus(dag *ir.DAG) DAGRunStatus {
 
 	return DAGRunStatus{
 		Name:                 dag.Name,
-		Status:               ir.NotStarted,
+		Status:               NotStarted,
 		PID:                  PID(0),
-		Nodes:                ir.NewNodesFromSteps(dag.Steps),
+		Nodes:                NewNodesFromSteps(dag.Steps),
 		OnInit:               newNodeOrNil(dag.HandlerOn.Init),
 		OnExit:               newNodeOrNil(dag.HandlerOn.Exit),
 		OnSuccess:            newNodeOrNil(dag.HandlerOn.Success),
@@ -73,24 +68,17 @@ func InitialStatus(dag *ir.DAG) DAGRunStatus {
 	}
 }
 
-func snapshotConditionResults(conditions []*ir.Condition) []ir.ConditionResult {
+func snapshotConditionResults(conditions []*Condition) []ConditionResult {
 	if len(conditions) == 0 {
 		return nil
 	}
-	results := make([]ir.ConditionResult, len(conditions))
+	results := make([]ConditionResult, len(conditions))
 	for i, condition := range conditions {
 		if condition != nil {
 			results[i].Condition = *condition
 		}
 	}
 	return results
-}
-
-func newNodeOrNil(step *ir.Step) *ir.Node {
-	if step == nil {
-		return nil
-	}
-	return ir.NewNodeFromStep(*step)
 }
 
 // DAGRunCondition describes an observed runtime condition for a DAG-run.
@@ -176,27 +164,27 @@ func sortDAGRunConditions(conditions []DAGRunCondition) {
 
 // DAGRunStatus represents the complete execution state of a dag-run.
 type DAGRunStatus struct {
-	Root           ir.DAGRunRef      `json:"root,omitzero"`
-	Parent         ir.DAGRunRef      `json:"parent,omitzero"`
+	Root           DAGRunRef         `json:"root,omitzero"`
+	Parent         DAGRunRef         `json:"parent,omitzero"`
 	Name           string            `json:"name"`
 	DAGRunID       string            `json:"dagRunId"`
 	AttemptID      string            `json:"attemptId"`
 	AttemptKey     string            `json:"attemptKey,omitempty"` // Globally unique attempt identifier
 	ClaimKey       string            `json:"claimKey,omitempty"`   // Worker claim that executes this attempt
-	Status         ir.Status         `json:"status"`
+	Status         Status            `json:"status"`
 	Conditions     []DAGRunCondition `json:"conditions,omitempty"`
-	TriggerType    ir.TriggerType    `json:"triggerType,omitempty"`
+	TriggerType    TriggerType       `json:"triggerType,omitempty"`
 	TriggerActor   string            `json:"triggerActor,omitempty"`
 	WorkerID       string            `json:"workerId,omitempty"`
 	PID            PID               `json:"pid,omitempty"`
 	PIDStartedAt   int64             `json:"pidStartedAt,omitempty"`
-	Nodes          []*ir.Node        `json:"nodes,omitempty"`
-	OnInit         *ir.Node          `json:"onInit,omitempty"`
-	OnExit         *ir.Node          `json:"onExit,omitempty"`
-	OnSuccess      *ir.Node          `json:"onSuccess,omitempty"`
-	OnFailure      *ir.Node          `json:"onFailure,omitempty"`
-	OnAbort        *ir.Node          `json:"onAbort,omitempty"`
-	OnWait         *ir.Node          `json:"onWait,omitempty"`
+	Nodes          []*Node           `json:"nodes,omitempty"`
+	OnInit         *Node             `json:"onInit,omitempty"`
+	OnExit         *Node             `json:"onExit,omitempty"`
+	OnSuccess      *Node             `json:"onSuccess,omitempty"`
+	OnFailure      *Node             `json:"onFailure,omitempty"`
+	OnAbort        *Node             `json:"onAbort,omitempty"`
+	OnWait         *Node             `json:"onWait,omitempty"`
 	CreatedAt      int64             `json:"createdAt,omitempty"`
 	QueuedAt       string            `json:"queuedAt,omitempty"`
 	ScheduleTime   string            `json:"scheduleTime,omitempty"`
@@ -208,23 +196,23 @@ type DAGRunStatus struct {
 	AutoRetryInterval time.Duration `json:"autoRetryInterval,omitempty"`
 	AutoRetryBackoff  float64       `json:"autoRetryBackoff,omitempty"`
 	// AutoRetryMaxInterval is stored as a duration snapshot for retry scanner decisions.
-	AutoRetryMaxInterval time.Duration            `json:"autoRetryMaxInterval,omitempty"`
-	ProcGroup            string                   `json:"procGroup,omitempty"`
-	SuspendFlagName      string                   `json:"suspendFlagName,omitempty"`
-	Log                  string                   `json:"log,omitempty"`
-	WorkingDir           string                   `json:"workingDir,omitempty"`
-	ArchiveDir           string                   `json:"archiveDir,omitempty"`
-	Error                string                   `json:"error,omitempty"`
-	Params               string                   `json:"params,omitempty"`
-	ParamsList           []string                 `json:"paramsList,omitempty"`
-	ProfileName          string                   `json:"profileName,omitempty"`
-	ProfileResolvedAt    string                   `json:"profileResolvedAt,omitempty"`
-	ProfileEntries       []ir.RuntimeProfileEntry `json:"profileEntries,omitempty"`
-	NoReuse              bool                     `json:"noReuse,omitempty"`
-	PendingStepRetries   []ir.PendingStepRetry    `json:"pendingStepRetries"`
-	Preconditions        []ir.ConditionResult     `json:"preconditions,omitempty"`
-	Labels               []string                 `json:"labels,omitempty"`
-	LeaseAt              int64                    `json:"leaseAt,omitempty"` // Unix millis; stamped by coordinator on observed run liveness
+	AutoRetryMaxInterval time.Duration         `json:"autoRetryMaxInterval,omitempty"`
+	ProcGroup            string                `json:"procGroup,omitempty"`
+	SuspendFlagName      string                `json:"suspendFlagName,omitempty"`
+	Log                  string                `json:"log,omitempty"`
+	WorkingDir           string                `json:"workingDir,omitempty"`
+	ArchiveDir           string                `json:"archiveDir,omitempty"`
+	Error                string                `json:"error,omitempty"`
+	Params               string                `json:"params,omitempty"`
+	ParamsList           []string              `json:"paramsList,omitempty"`
+	ProfileName          string                `json:"profileName,omitempty"`
+	ProfileResolvedAt    string                `json:"profileResolvedAt,omitempty"`
+	ProfileEntries       []RuntimeProfileEntry `json:"profileEntries,omitempty"`
+	NoReuse              bool                  `json:"noReuse,omitempty"`
+	PendingStepRetries   []PendingStepRetry    `json:"pendingStepRetries"`
+	Preconditions        []ConditionResult     `json:"preconditions,omitempty"`
+	Labels               []string              `json:"labels,omitempty"`
+	LeaseAt              int64                 `json:"leaseAt,omitempty"` // Unix millis; stamped by coordinator on observed run liveness
 }
 
 // EffectiveClaimKey returns ClaimKey, falling back to AttemptKey when no claim
@@ -237,25 +225,12 @@ func (s DAGRunStatus) EffectiveClaimKey() string {
 	return s.AttemptKey
 }
 
-// IsLeaseActive reports whether the run's lease is fresh (i.e. a worker is
-// still actively executing and the coordinator has observed recent liveness).
-// A zero LeaseAt is treated as stale.
-func IsLeaseActive(status *DAGRunStatus, staleThreshold time.Duration) bool {
-	if status == nil || status.LeaseAt == 0 {
-		return false
-	}
-	if staleThreshold <= 0 {
-		staleThreshold = DefaultStaleLeaseThreshold
-	}
-	return time.Since(time.UnixMilli(status.LeaseAt)) < staleThreshold
-}
-
 // NormalizeDAGRunConditions clears runtime conditions from non-queued statuses.
 func NormalizeDAGRunConditions(status *DAGRunStatus) {
 	if status == nil {
 		return
 	}
-	if status.Status == ir.Queued {
+	if status.Status == Queued {
 		if len(status.Conditions) > 0 {
 			status.Conditions = MergeDAGRunConditions(nil, status.Conditions...)
 		}
@@ -265,17 +240,17 @@ func NormalizeDAGRunConditions(status *DAGRunStatus) {
 }
 
 // DAGRun returns a reference to the dag-run associated with this status
-func (st *DAGRunStatus) DAGRun() ir.DAGRunRef {
-	return ir.NewDAGRunRef(st.Name, st.DAGRunID)
+func (st *DAGRunStatus) DAGRun() DAGRunRef {
+	return NewDAGRunRef(st.Name, st.DAGRunID)
 }
 
 // NodesInRunOrder returns the run's step nodes together with the lifecycle
 // handler nodes that were configured, ordered by when they run. Handlers that
 // the DAG does not declare are omitted.
-func (st *DAGRunStatus) NodesInRunOrder() []*ir.Node {
-	afterSteps := []*ir.Node{st.OnWait, st.OnSuccess, st.OnFailure, st.OnAbort, st.OnExit}
+func (st *DAGRunStatus) NodesInRunOrder() []*Node {
+	afterSteps := []*Node{st.OnWait, st.OnSuccess, st.OnFailure, st.OnAbort, st.OnExit}
 
-	nodes := make([]*ir.Node, 0, len(st.Nodes)+1+len(afterSteps))
+	nodes := make([]*Node, 0, len(st.Nodes)+1+len(afterSteps))
 	if st.OnInit != nil {
 		nodes = append(nodes, st.OnInit)
 	}
@@ -309,8 +284,8 @@ func (st *DAGRunStatus) Errors() []error {
 
 // pendingStepRetriesFromNodes extracts pending parent-managed step retries from
 // a DAG status snapshot.
-func pendingStepRetriesFromNodes(nodes []*ir.Node) []ir.PendingStepRetry {
-	var retries []ir.PendingStepRetry
+func pendingStepRetriesFromNodes(nodes []*Node) []PendingStepRetry {
+	var retries []PendingStepRetry
 	for _, node := range nodes {
 		if retry, ok := pendingStepRetryForNode(node.Step.Name, node); ok {
 			retries = append(retries, retry)
@@ -322,7 +297,7 @@ func pendingStepRetriesFromNodes(nodes []*ir.Node) []ir.PendingStepRetry {
 // PendingStepRetriesFromStatus returns the persisted pending step retries when
 // present and falls back to deriving them from node state for older statuses
 // that predate the field.
-func PendingStepRetriesFromStatus(status *DAGRunStatus) []ir.PendingStepRetry {
+func PendingStepRetriesFromStatus(status *DAGRunStatus) []PendingStepRetry {
 	if status == nil {
 		return nil
 	}
@@ -346,7 +321,7 @@ func PendingStepRetriesFromStatus(status *DAGRunStatus) []ir.PendingStepRetry {
 // NodeByName returns the node with the specified name.
 // For handlers, it matches on both the handler label (e.g., "onSuccess")
 // and the step name within the handler.
-func (st *DAGRunStatus) NodeByName(name string) (*ir.Node, error) {
+func (st *DAGRunStatus) NodeByName(name string) (*Node, error) {
 	name = normalizeAbortHandlerLookup(name)
 	for _, node := range st.Nodes {
 		if node.Step.Name == name {
@@ -385,7 +360,7 @@ func (st *DAGRunStatus) UnmarshalJSON(data []byte) error {
 	type alias DAGRunStatus
 	aux := struct {
 		alias
-		OnCancel       *ir.Node `json:"onCancel,omitempty"`
+		OnCancel       *Node    `json:"onCancel,omitempty"`
 		DeprecatedTags []string `json:"tags,omitempty"`
 	}{}
 	if err := json.Unmarshal(data, &aux); err != nil {
@@ -414,16 +389,10 @@ func (p PID) String() string {
 	return fmt.Sprintf("%d", p)
 }
 
-// FormatTime formats a time.Time or returns empty string if it's the zero value.
-// This is a convenience wrapper around stringutil.FormatTime.
-func FormatTime(val time.Time) string {
-	return stringutil.FormatTime(val)
-}
-
 // handlerNode pairs a handler node with its name for iteration
 type handlerNode struct {
 	name string
-	node *ir.Node
+	node *Node
 }
 
 // handlerNodes returns all handler nodes for iteration
@@ -445,7 +414,7 @@ func normalizeAbortHandlerLookup(name string) string {
 	return name
 }
 
-func normalizeAbortHandlerNode(node *ir.Node) {
+func normalizeAbortHandlerNode(node *Node) {
 	if node == nil {
 		return
 	}
@@ -454,18 +423,18 @@ func normalizeAbortHandlerNode(node *ir.Node) {
 	}
 }
 
-func pendingStepRetryForNode(stepName string, node *ir.Node) (ir.PendingStepRetry, bool) {
-	if node == nil || node.Status != ir.NodeRetrying || stepName == "" {
-		return ir.PendingStepRetry{}, false
+func pendingStepRetryForNode(stepName string, node *Node) (PendingStepRetry, bool) {
+	if node == nil || node.Status != NodeRetrying || stepName == "" {
+		return PendingStepRetry{}, false
 	}
 
-	interval := ir.CalculateBackoffInterval(
+	interval := CalculateBackoffInterval(
 		node.Step.RetryPolicy.Interval,
 		node.Step.RetryPolicy.Backoff,
 		node.Step.RetryPolicy.MaxInterval,
 		node.RetryCount-1,
 	)
-	return ir.PendingStepRetry{
+	return PendingStepRetry{
 		StepName: stepName,
 		Interval: interval,
 	}, true

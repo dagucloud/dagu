@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/llm"
 )
@@ -233,7 +232,7 @@ func LLMUsageEventID(sessionID, messageID string) string {
 	return "llm_" + stableID(string(TypeLLMUsageRecorded), sessionID, messageID)
 }
 
-func NewDAGRunEvent(source Source, eventType EventType, status *dagrun.DAGRunStatus, data map[string]any) *Event {
+func NewDAGRunEvent(source Source, eventType EventType, status *ir.DAGRunStatus, data map[string]any) *Event {
 	if status == nil {
 		return nil
 	}
@@ -354,7 +353,7 @@ func normalizeSource(source Source) Source {
 	return source
 }
 
-func dagRunOccurredAt(status *dagrun.DAGRunStatus, eventType EventType) time.Time {
+func dagRunOccurredAt(status *ir.DAGRunStatus, eventType EventType) time.Time {
 	if status == nil {
 		return time.Now().UTC()
 	}

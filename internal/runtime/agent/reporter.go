@@ -10,7 +10,6 @@ import (
 	"html"
 	"strings"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/jedib0t/go-pretty/v6/table"
@@ -62,7 +61,7 @@ func newReporter(f SenderFn, cfg reporterConfig) *reporter {
 
 // reportStep is a function that reports the status of a step.
 func (r *reporter) reportStep(
-	ctx context.Context, dag *ir.DAG, dagStatus dagrun.DAGRunStatus, node *runtime.Node,
+	ctx context.Context, dag *ir.DAG, dagStatus ir.DAGRunStatus, node *runtime.Node,
 ) error {
 	if r == nil {
 		return nil
@@ -77,7 +76,7 @@ func (r *reporter) reportStep(
 }
 
 // send is a function that sends a report mail.
-func (r *reporter) send(ctx context.Context, dag *ir.DAG, dagStatus dagrun.DAGRunStatus, err error) error {
+func (r *reporter) send(ctx context.Context, dag *ir.DAG, dagStatus ir.DAGRunStatus, err error) error {
 	if r == nil {
 		return nil
 	}
@@ -89,7 +88,7 @@ func (r *reporter) send(ctx context.Context, dag *ir.DAG, dagStatus dagrun.DAGRu
 }
 
 // selectMailConfig returns the appropriate mail config based on status, or nil if no mail should be sent.
-func (r *reporter) selectMailConfig(dag *ir.DAG, dagStatus dagrun.DAGRunStatus, err error) *ir.MailConfig {
+func (r *reporter) selectMailConfig(dag *ir.DAG, dagStatus ir.DAGRunStatus, err error) *ir.MailConfig {
 	if dag.MailOn == nil {
 		return nil
 	}
@@ -106,7 +105,7 @@ func (r *reporter) selectMailConfig(dag *ir.DAG, dagStatus dagrun.DAGRunStatus, 
 	}
 }
 
-func (r *reporter) sendConfiguredMail(ctx context.Context, mailConfig *ir.MailConfig, dagName string, dagStatus dagrun.DAGRunStatus) error {
+func (r *reporter) sendConfiguredMail(ctx context.Context, mailConfig *ir.MailConfig, dagName string, dagStatus ir.DAGRunStatus) error {
 	return r.senderFn(
 		ctx,
 		mailConfig.From,
@@ -173,7 +172,7 @@ var dagHeader = table.Row{
 	"Error",
 }
 
-func renderDAGSummary(dagStatus dagrun.DAGRunStatus, err error) string {
+func renderDAGSummary(dagStatus ir.DAGRunStatus, err error) string {
 	errText := ""
 	if err != nil {
 		errText = err.Error()
@@ -332,7 +331,7 @@ func writeNodeRow(buffer *bytes.Buffer, index int, n *ir.Node) {
 	_, _ = buffer.WriteString("</tr>")
 }
 
-func renderHTMLWithDAGInfo(dagStatus dagrun.DAGRunStatus) string {
+func renderHTMLWithDAGInfo(dagStatus ir.DAGRunStatus) string {
 	var buffer bytes.Buffer
 
 	// Start with enhanced HTML structure and styling

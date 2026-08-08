@@ -19,7 +19,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	incidentmodel "github.com/dagucloud/dagu/v2/internal/incident"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -471,7 +470,7 @@ func failedEvent(dagName, runID string) chatbridge.NotificationEvent {
 		Key:        "key:" + dagName + ":" + runID,
 		Type:       eventstore.TypeDAGRunFailed,
 		ObservedAt: now,
-		Status: &dagrun.DAGRunStatus{
+		Status: &ir.DAGRunStatus{
 			Name:       dagName,
 			DAGRunID:   runID,
 			AttemptID:  runID,
@@ -483,7 +482,7 @@ func failedEvent(dagName, runID string) chatbridge.NotificationEvent {
 	}
 }
 
-func cloneStatus(status *dagrun.DAGRunStatus) *dagrun.DAGRunStatus {
+func cloneStatus(status *ir.DAGRunStatus) *ir.DAGRunStatus {
 	if status == nil {
 		return nil
 	}

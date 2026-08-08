@@ -565,7 +565,7 @@ func (a *API) loadInlineDAG(ctx context.Context, specContent string, name *strin
 	return dag, cleanup, nil
 }
 
-func restoreDAGRunSnapshot(ctx context.Context, dag *ir.DAG, status *dagrun.DAGRunStatus) (*ir.DAG, string, error) {
+func restoreDAGRunSnapshot(ctx context.Context, dag *ir.DAG, status *ir.DAGRunStatus) (*ir.DAG, string, error) {
 	runtimeParams := append([]string(nil), status.ParamsList...)
 	dag.Params = runtimeParams
 	resolvedEnv, err := runtimeenv.Resolve(ctx, dag)
@@ -1161,7 +1161,7 @@ func (a *API) UpdateDAGRunStepStatus(ctx context.Context, request api.UpdateDAGR
 	}
 
 	newStatus := nodeStatusMapping[request.Body.Status]
-	_, swapped, err := a.compareAndSwapManualStatus(ctx, ref, dagStatus, func(latest *dagrun.DAGRunStatus) error {
+	_, swapped, err := a.compareAndSwapManualStatus(ctx, ref, dagStatus, func(latest *ir.DAGRunStatus) error {
 		latestStepIdx := findStepByName(latest.Nodes, request.StepName)
 		if latestStepIdx < 0 {
 			return fmt.Errorf("step %s not found in DAG %s", request.StepName, request.Name)
@@ -1261,7 +1261,7 @@ func (a *API) ApproveDAGRunStep(ctx context.Context, request api.ApproveDAGRunSt
 		}, nil
 	}
 
-	updated, swapped, err := a.compareAndSwapManualStatus(ctx, ref, dagStatus, func(latest *dagrun.DAGRunStatus) error {
+	updated, swapped, err := a.compareAndSwapManualStatus(ctx, ref, dagStatus, func(latest *ir.DAGRunStatus) error {
 		latestStepIdx := findStepByName(latest.Nodes, request.StepName)
 		if latestStepIdx < 0 {
 			return fmt.Errorf("step %s not found in DAG %s", request.StepName, request.Name)
@@ -1397,7 +1397,7 @@ func (a *API) ApproveSubDAGRunStep(ctx context.Context, request api.ApproveSubDA
 		}, nil
 	}
 
-	updated, swapped, err := a.compareAndSwapManualStatus(ctx, mutationRef, dagStatus, func(latest *dagrun.DAGRunStatus) error {
+	updated, swapped, err := a.compareAndSwapManualStatus(ctx, mutationRef, dagStatus, func(latest *ir.DAGRunStatus) error {
 		latestStepIdx := findStepByName(latest.Nodes, request.StepName)
 		if latestStepIdx < 0 {
 			return fmt.Errorf("step %s not found in sub DAG-run %s", request.StepName, request.SubDAGRunId)
@@ -1599,7 +1599,7 @@ func (a *API) RejectDAGRunStep(ctx context.Context, request api.RejectDAGRunStep
 	if request.Body != nil {
 		reason = request.Body.Reason
 	}
-	_, swapped, err := a.compareAndSwapManualStatus(ctx, ref, dagStatus, func(latest *dagrun.DAGRunStatus) error {
+	_, swapped, err := a.compareAndSwapManualStatus(ctx, ref, dagStatus, func(latest *ir.DAGRunStatus) error {
 		latestStepIdx := findStepByName(latest.Nodes, request.StepName)
 		if latestStepIdx < 0 {
 			return fmt.Errorf("step %s not found in DAG %s", request.StepName, request.Name)
@@ -1714,7 +1714,7 @@ func (a *API) RejectSubDAGRunStep(ctx context.Context, request api.RejectSubDAGR
 	if request.Body != nil {
 		reason = request.Body.Reason
 	}
-	_, swapped, err := a.compareAndSwapManualStatus(ctx, mutationRef, dagStatus, func(latest *dagrun.DAGRunStatus) error {
+	_, swapped, err := a.compareAndSwapManualStatus(ctx, mutationRef, dagStatus, func(latest *ir.DAGRunStatus) error {
 		latestStepIdx := findStepByName(latest.Nodes, request.StepName)
 		if latestStepIdx < 0 {
 			return fmt.Errorf("step %s not found in sub DAG-run %s", request.StepName, request.SubDAGRunId)
@@ -1823,8 +1823,8 @@ func (a *API) PushBackDAGRunStep(ctx context.Context, request api.PushBackDAGRun
 		}, nil
 	}
 
-	var original *dagrun.DAGRunStatus
-	updated, swapped, err := a.compareAndSwapManualStatus(ctx, ref, dagStatus, func(latest *dagrun.DAGRunStatus) error {
+	var original *ir.DAGRunStatus
+	updated, swapped, err := a.compareAndSwapManualStatus(ctx, ref, dagStatus, func(latest *ir.DAGRunStatus) error {
 		latestStepIdx := findStepByName(latest.Nodes, request.StepName)
 		if latestStepIdx < 0 {
 			return fmt.Errorf("step %s not found in DAG %s", request.StepName, request.Name)
@@ -1971,8 +1971,8 @@ func (a *API) PushBackSubDAGRunStep(ctx context.Context, request api.PushBackSub
 		}, nil
 	}
 
-	var original *dagrun.DAGRunStatus
-	updated, swapped, err := a.compareAndSwapManualStatus(ctx, mutationRef, dagStatus, func(latest *dagrun.DAGRunStatus) error {
+	var original *ir.DAGRunStatus
+	updated, swapped, err := a.compareAndSwapManualStatus(ctx, mutationRef, dagStatus, func(latest *ir.DAGRunStatus) error {
 		latestStepIdx := findStepByName(latest.Nodes, request.StepName)
 		if latestStepIdx < 0 {
 			return fmt.Errorf("step %s not found in sub DAG-run %s", request.StepName, request.SubDAGRunId)
@@ -2145,7 +2145,7 @@ func (a *API) getDAGRunDetailsData(ctx context.Context, dagName, dagRunId string
 func (a *API) loadRootDAGRunDetailsAttemptAndStatus(
 	ctx context.Context,
 	dagName, dagRunId string,
-) (dagrun.DAGRunAttempt, *dagrun.DAGRunStatus, error) {
+) (dagrun.DAGRunAttempt, *ir.DAGRunStatus, error) {
 	if dagRunId == "latest" {
 		attempt, err := a.dagRunStore.LatestAttempt(ctx, dagName)
 		if err != nil {
@@ -2194,9 +2194,9 @@ func (a *API) loadRootDAGRunDetailsAttemptAndStatus(
 
 func (a *API) repairStaleRunOnRead(
 	ctx context.Context,
-	status *dagrun.DAGRunStatus,
+	status *ir.DAGRunStatus,
 	fallbackAttemptID string,
-) *dagrun.DAGRunStatus {
+) *ir.DAGRunStatus {
 	if status == nil || a.dagRunLeaseStore == nil || a.workerHeartbeatStore == nil {
 		return status
 	}
@@ -2233,7 +2233,7 @@ func (a *API) repairStaleRunOnRead(
 
 func (a *API) workerIDFromClaim(
 	ctx context.Context,
-	status *dagrun.DAGRunStatus,
+	status *ir.DAGRunStatus,
 	fallbackAttemptID string,
 ) string {
 	if status == nil || status.WorkerID != "" || a.dagRunLeaseStore == nil {
@@ -2256,7 +2256,7 @@ func (a *API) workerIDFromClaim(
 	return lease.WorkerID
 }
 
-func (a *API) toDAGRunDetailsWithSpecSource(ctx context.Context, attempt dagrun.DAGRunAttempt, status dagrun.DAGRunStatus) api.DAGRunDetails {
+func (a *API) toDAGRunDetailsWithSpecSource(ctx context.Context, attempt dagrun.DAGRunAttempt, status ir.DAGRunStatus) api.DAGRunDetails {
 	details := ToDAGRunDetails(status)
 	specFromFile, sourceFileName := a.dagRunSourceInfo(ctx, attempt)
 	details.SpecFromFile = ptrOf(specFromFile)
@@ -2317,7 +2317,7 @@ func (a *API) GetSubDAGRunDetails(ctx context.Context, request api.GetSubDAGRunD
 		dagName:     request.Name,
 		dagRunID:    request.DagRunId,
 		subDAGRunID: request.SubDAGRunId,
-	}, func(readCtx context.Context) (*dagrun.DAGRunStatus, error) {
+	}, func(readCtx context.Context) (*ir.DAGRunStatus, error) {
 		return a.getReferencedDAGRunStatus(readCtx, root, request.SubDAGRunId, "")
 	})
 	if err != nil {
@@ -2688,7 +2688,7 @@ func (a *API) UpdateSubDAGRunStepStatus(ctx context.Context, request api.UpdateS
 	}
 
 	newStatus := nodeStatusMapping[request.Body.Status]
-	_, swapped, err := a.compareAndSwapManualStatus(ctx, mutationRef, dagStatus, func(latest *dagrun.DAGRunStatus) error {
+	_, swapped, err := a.compareAndSwapManualStatus(ctx, mutationRef, dagStatus, func(latest *ir.DAGRunStatus) error {
 		latestStepIdx := findStepByName(latest.Nodes, request.StepName)
 		if latestStepIdx < 0 {
 			return fmt.Errorf("step %s not found in sub DAG-run %s", request.StepName, request.SubDAGRunId)
@@ -2950,7 +2950,7 @@ func (a *API) retryDAGRun(ctx context.Context, dagName, dagRunID, retryDagRunID,
 	var retryPath dagrun.RetryPath
 	retryValidationStatus := prevStatus
 	if subDAGRunID != "" {
-		var targetStatus *dagrun.DAGRunStatus
+		var targetStatus *ir.DAGRunStatus
 		retryPath, targetStatus, err = dagrun.ResolveRetryPath(
 			ctx,
 			a.dagRunStore,
@@ -3126,7 +3126,7 @@ func (a *API) waitForRetryStarted(ctx context.Context, dag *ir.DAG, dagRunID str
 	}
 }
 
-func failedAutoRetryCancelError(status *dagrun.DAGRunStatus) *Error {
+func failedAutoRetryCancelError(status *ir.DAGRunStatus) *Error {
 	switch dagrun.FailedAutoRetryCancelEligibilityOf(status) {
 	case dagrun.FailedAutoRetryCancelEligible:
 		return &Error{
@@ -3161,7 +3161,7 @@ func failedAutoRetryCancelError(status *dagrun.DAGRunStatus) *Error {
 	}
 }
 
-func failedAutoRetryCancelStateChangedError(updatedStatus *dagrun.DAGRunStatus) *Error {
+func failedAutoRetryCancelStateChangedError(updatedStatus *ir.DAGRunStatus) *Error {
 	currentStatus := "unknown"
 	if updatedStatus != nil {
 		currentStatus = updatedStatus.Status.String()
@@ -3571,7 +3571,7 @@ func (a *API) GetSubDAGRuns(ctx context.Context, request api.GetSubDAGRunsReques
 	rootRef := ir.NewDAGRunRef(request.Name, request.DagRunId)
 	parentSubDAGRunId := request.Params.ParentSubDAGRunId
 
-	var dagStatus *dagrun.DAGRunStatus
+	var dagStatus *ir.DAGRunStatus
 	var err error
 	detailParentRef := rootRef
 
@@ -3649,12 +3649,12 @@ func (a *API) getSubDAGRunDetail(ctx context.Context, parentRef ir.DAGRunRef, su
 	return detail, nil
 }
 
-func (a *API) getReferencedDAGRunStatus(ctx context.Context, parentRef ir.DAGRunRef, subRunID string, dagName string) (*dagrun.DAGRunStatus, error) {
+func (a *API) getReferencedDAGRunStatus(ctx context.Context, parentRef ir.DAGRunRef, subRunID string, dagName string) (*ir.DAGRunStatus, error) {
 	_, status, err := a.getReferencedDAGRunStatusWithRef(ctx, parentRef, subRunID, dagName)
 	return status, err
 }
 
-func (a *API) getReferencedDAGRunStatusWithRef(ctx context.Context, parentRef ir.DAGRunRef, subRunID string, dagName string) (ir.DAGRunRef, *dagrun.DAGRunStatus, error) {
+func (a *API) getReferencedDAGRunStatusWithRef(ctx context.Context, parentRef ir.DAGRunRef, subRunID string, dagName string) (ir.DAGRunRef, *ir.DAGRunStatus, error) {
 	status, err := a.dagRunMgr.FindSubDAGRunStatus(ctx, parentRef, subRunID)
 	if err == nil {
 		return parentRef, status, nil
@@ -3732,8 +3732,8 @@ func findDAGNameInSubRuns(subRuns []ir.SubDAGRun, subRunID string) (string, bool
 func (a *API) waitForManualStepMutationReady(
 	ctx context.Context,
 	attempt dagrun.DAGRunAttempt,
-	status *dagrun.DAGRunStatus,
-) (*dagrun.DAGRunStatus, error) {
+	status *ir.DAGRunStatus,
+) (*ir.DAGRunStatus, error) {
 	if status == nil {
 		return nil, errors.New("manual step status is nil")
 	}
@@ -3816,7 +3816,7 @@ func applyApproval(ctx context.Context, node *ir.Node, body *api.ApproveStepRequ
 	}
 }
 
-func applyRejection(ctx context.Context, node *ir.Node, status *dagrun.DAGRunStatus, reason *string) {
+func applyRejection(ctx context.Context, node *ir.Node, status *ir.DAGRunStatus, reason *string) {
 	node.Status = ir.NodeRejected
 	node.RejectedAt = time.Now().Format(time.RFC3339)
 	node.RejectedBy, node.RejectedByID = manualActionSubject(ctx)
@@ -3888,7 +3888,7 @@ func (a *API) resumeSubDAGRun(ctx context.Context, rootRef ir.DAGRunRef, subDAGR
 	return launcher.Start(ctx, a.subCmdBuilder.Retry(prepared, opts))
 }
 
-func (a *API) prepareRetryDAGForSubprocess(ctx context.Context, dag *ir.DAG, status *dagrun.DAGRunStatus) (*ir.DAG, error) {
+func (a *API) prepareRetryDAGForSubprocess(ctx context.Context, dag *ir.DAG, status *ir.DAGRunStatus) (*ir.DAG, error) {
 	if dag == nil || status == nil {
 		return dag, nil
 	}
@@ -4012,7 +4012,7 @@ func validatePushBackInputs(step ir.Step, body *api.PushBackStepRequest) error {
 	return checkMissingInputs(step.Approval.Required, provided)
 }
 
-func applyPushBack(ctx context.Context, node *ir.Node, status *dagrun.DAGRunStatus, body *api.PushBackStepRequest) error {
+func applyPushBack(ctx context.Context, node *ir.Node, status *ir.DAGRunStatus, body *api.PushBackStepRequest) error {
 	targetName := node.Step.Name
 	if node.Step.Approval != nil && strings.TrimSpace(node.Step.Approval.RewindTo) != "" {
 		targetName = strings.TrimSpace(node.Step.Approval.RewindTo)
@@ -4199,7 +4199,7 @@ func (a *API) GetSubDAGRunDetailsData(ctx context.Context, identifier string) (a
 		dagName:     parts[0],
 		dagRunID:    parts[1],
 		subDAGRunID: parts[2],
-	}, func(readCtx context.Context) (*dagrun.DAGRunStatus, error) {
+	}, func(readCtx context.Context) (*ir.DAGRunStatus, error) {
 		return a.getReferencedDAGRunStatus(readCtx, root, parts[2], "")
 	})
 	if err != nil {
@@ -4378,7 +4378,7 @@ func (a *API) getStepLogData(ctx context.Context, ref ir.DAGRunRef, stepName str
 	}, nil
 }
 
-func (a *API) getDAGRunArtifactStatus(ctx context.Context, dagName, dagRunID string) (*dagrun.DAGRunStatus, error) {
+func (a *API) getDAGRunArtifactStatus(ctx context.Context, dagName, dagRunID string) (*ir.DAGRunStatus, error) {
 	var (
 		attempt dagrun.DAGRunAttempt
 		err     error
@@ -4402,7 +4402,7 @@ func (a *API) getDAGRunArtifactStatus(ctx context.Context, dagName, dagRunID str
 	return status, nil
 }
 
-func (a *API) getSubDAGRunArtifactStatus(ctx context.Context, dagName, dagRunID, subDAGRunID string) (*dagrun.DAGRunStatus, error) {
+func (a *API) getSubDAGRunArtifactStatus(ctx context.Context, dagName, dagRunID, subDAGRunID string) (*ir.DAGRunStatus, error) {
 	attempt, err := a.getReferencedDAGRunAttempt(ctx, ir.NewDAGRunRef(dagName, dagRunID), subDAGRunID, "")
 	if err != nil {
 		return nil, err

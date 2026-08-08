@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
@@ -38,16 +39,16 @@ func TestIssue2042_EditedSuspendedScheduleDispatchesWithSkipIfSuccessful(t *test
 			return err
 		}
 
-		status := dagrun.NewStatusBuilder(dag).Create(
+		status := ir.NewStatusBuilder(dag).Create(
 			runID,
 			ir.Succeeded,
 			0,
 			scheduleTime,
-			dagrun.WithAttemptID(attempt.ID()),
-			dagrun.WithHierarchyRefs(ir.NewDAGRunRef(dag.Name, runID), ir.DAGRunRef{}),
-			dagrun.WithFinishedAt(scheduleTime.Add(time.Second)),
-			dagrun.WithScheduleTime(dagrun.FormatTime(scheduleTime)),
-			dagrun.WithTriggerType(trigger),
+			ir.WithAttemptID(attempt.ID()),
+			ir.WithHierarchyRefs(ir.NewDAGRunRef(dag.Name, runID), ir.DAGRunRef{}),
+			ir.WithFinishedAt(scheduleTime.Add(time.Second)),
+			ir.WithScheduleTime(stringutil.FormatTime(scheduleTime)),
+			ir.WithTriggerType(trigger),
 		)
 
 		if err := attempt.Open(ctx); err != nil {

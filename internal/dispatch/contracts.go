@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
@@ -54,7 +53,7 @@ type DispatchTask struct {
 	ProfileName  string
 	TriggerActor string
 
-	PreviousStatus *dagrun.DAGRunStatus
+	PreviousStatus *ir.DAGRunStatus
 
 	BaseConfig   string
 	Labels       string
@@ -79,7 +78,7 @@ type DispatchTask struct {
 // DAGRunStatusResult is a distributed status lookup result.
 type DAGRunStatusResult struct {
 	Found  bool
-	Status *dagrun.DAGRunStatus
+	Status *ir.DAGRunStatus
 }
 
 // DispatchRequest describes a distributed dispatch call.

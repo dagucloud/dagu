@@ -605,7 +605,7 @@ func extractBuildErrors(errs []error) []string {
 	return result
 }
 
-func (a *API) readHistoryData(_ context.Context, dag *ir.DAG, statusList []dagrun.DAGRunStatus) []api.DAGGridItem {
+func (a *API) readHistoryData(_ context.Context, dag *ir.DAG, statusList []ir.DAGRunStatus) []api.DAGGridItem {
 	statusLen := len(statusList)
 	nodeData := make(map[string][]ir.NodeStatus)
 	handlerData := make(map[string][]ir.NodeStatus)
@@ -1184,7 +1184,7 @@ func (a *API) waitForDAGCompletion(
 	dag *ir.DAG,
 	dagRunId string,
 	timeoutSeconds int,
-) (*dagrun.DAGRunStatus, error) {
+) (*ir.DAGRunStatus, error) {
 	// Create context with timeout
 	waitCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSeconds)*time.Second)
 	defer cancel()
@@ -1196,7 +1196,7 @@ func (a *API) waitForDAGCompletion(
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 
-	var lastStatus *dagrun.DAGRunStatus
+	var lastStatus *ir.DAGRunStatus
 
 	for {
 		select {
@@ -1234,7 +1234,7 @@ func (a *API) waitForDAGCompletion(
 	}
 }
 
-func (a *API) readDAGRunStatusForSync(ctx context.Context, dag *ir.DAG, dagRunID string) (*dagrun.DAGRunStatus, error) {
+func (a *API) readDAGRunStatusForSync(ctx context.Context, dag *ir.DAG, dagRunID string) (*ir.DAGRunStatus, error) {
 	attempt, err := a.dagRunStore.FindAttempt(ctx, ir.NewDAGRunRef(dag.Name, dagRunID))
 	if err != nil {
 		return nil, fmt.Errorf("failed to find dag-run attempt: %w", err)

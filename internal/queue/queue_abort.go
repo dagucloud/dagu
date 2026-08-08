@@ -50,7 +50,7 @@ func AbortQueuedDAGRun(ctx context.Context, dagRunStore dagrun.DAGRunStore, dagR
 		dagRun,
 		attempt.ID(),
 		ir.Queued,
-		func(latest *dagrun.DAGRunStatus) error {
+		func(latest *ir.DAGRunStatus) error {
 			latest.Status = ir.Aborted
 			latest.FinishedAt = finishedAt
 			latest.WorkerID = ""
@@ -91,7 +91,7 @@ func AbortQueuedDAGRun(ctx context.Context, dagRunStore dagrun.DAGRunStore, dagR
 	return nil
 }
 
-func newDAGRunNotQueuedError(status *dagrun.DAGRunStatus) *DAGRunNotQueuedError {
+func newDAGRunNotQueuedError(status *ir.DAGRunStatus) *DAGRunNotQueuedError {
 	if status == nil {
 		return &DAGRunNotQueuedError{}
 	}

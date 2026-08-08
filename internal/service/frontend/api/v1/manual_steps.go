@@ -51,9 +51,9 @@ func manualActionSubject(ctx context.Context) (name, id string) {
 func (a *API) compareAndSwapManualStatus(
 	ctx context.Context,
 	mutationRef ir.DAGRunRef,
-	status *dagrun.DAGRunStatus,
-	mutate func(*dagrun.DAGRunStatus) error,
-) (*dagrun.DAGRunStatus, bool, error) {
+	status *ir.DAGRunStatus,
+	mutate func(*ir.DAGRunStatus) error,
+) (*ir.DAGRunStatus, bool, error) {
 	if status == nil {
 		return nil, false, errors.New("manual step status is nil")
 	}
@@ -65,7 +65,7 @@ func (a *API) compareAndSwapManualStatus(
 	if mutationRef != targetRef {
 		opts = append(opts, dagrun.WithCompareAndSwapRootDAGRun(mutationRef))
 	}
-	wrappedMutate := func(latest *dagrun.DAGRunStatus) error {
+	wrappedMutate := func(latest *ir.DAGRunStatus) error {
 		if err := mutate(latest); err != nil {
 			return &manualStatusMutationError{cause: err}
 		}
@@ -81,12 +81,12 @@ func (a *API) compareAndSwapManualStatus(
 	)
 }
 
-func cloneManualStatus(status *dagrun.DAGRunStatus) (*dagrun.DAGRunStatus, error) {
+func cloneManualStatus(status *ir.DAGRunStatus) (*ir.DAGRunStatus, error) {
 	data, err := json.Marshal(status)
 	if err != nil {
 		return nil, err
 	}
-	var clone dagrun.DAGRunStatus
+	var clone ir.DAGRunStatus
 	if err := json.Unmarshal(data, &clone); err != nil {
 		return nil, err
 	}
@@ -96,8 +96,8 @@ func cloneManualStatus(status *dagrun.DAGRunStatus) (*dagrun.DAGRunStatus, error
 func (a *API) rollbackPushBack(
 	ctx context.Context,
 	mutationRef ir.DAGRunRef,
-	applied *dagrun.DAGRunStatus,
-	original *dagrun.DAGRunStatus,
+	applied *ir.DAGRunStatus,
+	original *ir.DAGRunStatus,
 ) error {
 	if applied == nil || original == nil {
 		return errors.New("push-back rollback status is nil")
@@ -126,7 +126,7 @@ func (a *API) rollbackPushBack(
 
 	rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), manualStepRollbackTimeout)
 	defer cancel()
-	_, swapped, err := a.compareAndSwapManualStatus(rollbackCtx, mutationRef, applied, func(latest *dagrun.DAGRunStatus) error {
+	_, swapped, err := a.compareAndSwapManualStatus(rollbackCtx, mutationRef, applied, func(latest *ir.DAGRunStatus) error {
 		for stepName, change := range changes {
 			idx := findStepByName(latest.Nodes, stepName)
 			if idx < 0 || !reflect.DeepEqual(latest.Nodes[idx], change.applied) {

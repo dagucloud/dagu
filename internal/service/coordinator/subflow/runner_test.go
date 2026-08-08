@@ -10,7 +10,6 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/collections"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -132,7 +131,7 @@ func TestRunnerRunDispatchesWorkflowRequest(t *testing.T) {
 			{Found: false},
 			{
 				Found: true,
-				Status: &dagrun.DAGRunStatus{
+				Status: &ir.DAGRunStatus{
 					Name:     "child",
 					DAGRunID: "child-1",
 					Status:   ir.Succeeded,
@@ -209,7 +208,7 @@ func TestRunnerRunRejectsBuildWorkflow(t *testing.T) {
 func TestRunnerRunDispatchesRetryWhenChildRunExists(t *testing.T) {
 	t.Parallel()
 
-	previous := &dagrun.DAGRunStatus{
+	previous := &ir.DAGRunStatus{
 		Name:      "child",
 		DAGRunID:  "child-1",
 		ProcGroup: "queue-a",
@@ -230,7 +229,7 @@ func TestRunnerRunDispatchesRetryWhenChildRunExists(t *testing.T) {
 			{Found: true, Status: previous},
 			{
 				Found: true,
-				Status: &dagrun.DAGRunStatus{
+				Status: &ir.DAGRunStatus{
 					Name:     "child",
 					DAGRunID: "child-1",
 					Status:   ir.Succeeded,
@@ -266,7 +265,7 @@ func TestRunnerRunReusesSucceededChildForExternalStepRetry(t *testing.T) {
 
 	var outputVars collections.SyncMap
 	outputVars.Store("RESULT", "RESULT=ok")
-	previous := &dagrun.DAGRunStatus{
+	previous := &ir.DAGRunStatus{
 		Name:     "child",
 		DAGRunID: "child-1",
 		Status:   ir.Succeeded,
@@ -322,7 +321,7 @@ func TestRunnerRunReuseRequiresPersistedChild(t *testing.T) {
 func TestRunnerRetryDispatchesPreviousStatus(t *testing.T) {
 	t.Parallel()
 
-	previous := &dagrun.DAGRunStatus{
+	previous := &ir.DAGRunStatus{
 		Name:      "child",
 		DAGRunID:  "child-1",
 		ProcGroup: "queue-a",
@@ -333,7 +332,7 @@ func TestRunnerRetryDispatchesPreviousStatus(t *testing.T) {
 			{Found: true, Status: previous},
 			{
 				Found: true,
-				Status: &dagrun.DAGRunStatus{
+				Status: &ir.DAGRunStatus{
 					Name:     "child",
 					DAGRunID: "child-1",
 					Status:   ir.Succeeded,

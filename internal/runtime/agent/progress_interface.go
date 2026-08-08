@@ -4,7 +4,6 @@
 package agent
 
 import (
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
@@ -20,7 +19,7 @@ type ProgressReporter interface {
 	UpdateNode(node *ir.Node)
 
 	// UpdateStatus updates the overall DAG status
-	UpdateStatus(status *dagrun.DAGRunStatus)
+	UpdateStatus(status *ir.DAGRunStatus)
 
 	// SetDAGRunInfo sets the DAG run ID and parameters
 	SetDAGRunInfo(dagRunID, params string)

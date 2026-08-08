@@ -16,6 +16,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/procutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/sock"
+	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
@@ -41,7 +42,7 @@ func TestManager(t *testing.T) {
 		socketServer, _ := sock.NewServer(
 			procctrl.DAGSocketAddr(dag.DAG, dagRunID),
 			func(w http.ResponseWriter, _ *http.Request) {
-				status := dagrun.NewStatusBuilder(dag.DAG).Create(
+				status := ir.NewStatusBuilder(dag.DAG).Create(
 					dagRunID, ir.Running, 0, time.Now(),
 				)
 				jsonData, err := json.Marshal(status)
@@ -201,7 +202,7 @@ steps:
 		err := launcher.Start(th.Context, spec)
 		require.NoError(t, err)
 
-		var status dagrun.DAGRunStatus
+		var status ir.DAGRunStatus
 		require.Eventually(t, func() bool {
 			latest, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag.DAG)
 			if err != nil {
@@ -248,7 +249,7 @@ steps:
 		staleAt := time.Now().Add(-3 * time.Second)
 		childStatus := testNewStatus(childDAG.DAG, childRunID, ir.Running, ir.NodeRunning)
 		childStatus.WorkerID = "local"
-		childStatus.StartedAt = dagrun.FormatTime(staleAt)
+		childStatus.StartedAt = stringutil.FormatTime(staleAt)
 		childStatus.CreatedAt = staleAt.UnixMilli()
 		childAttempt := createRunningSubAttempt(t, th, rootDAG.DAG, childDAG.DAG, rootRunID, childRunID, childStatus)
 
@@ -288,7 +289,7 @@ steps:
 		)
 		childStatus := testNewStatus(childDAG.DAG, childRunID, ir.Running, ir.NodeRunning)
 		childStatus.WorkerID = "local"
-		childStatus.StartedAt = dagrun.FormatTime(statusTime)
+		childStatus.StartedAt = stringutil.FormatTime(statusTime)
 		childStatus.CreatedAt = statusTime.UnixMilli()
 		childAttempt := createRunningSubAttempt(t, th, rootDAG.DAG, childDAG.DAG, rootRunID, childRunID, childStatus)
 
@@ -321,7 +322,7 @@ steps:
 		staleAt := time.Now().Add(-3 * time.Second)
 		childStatus := testNewStatus(childDAG.DAG, childRunID, ir.Running, ir.NodeRunning)
 		childStatus.WorkerID = "worker-1"
-		childStatus.StartedAt = dagrun.FormatTime(staleAt)
+		childStatus.StartedAt = stringutil.FormatTime(staleAt)
 		childStatus.CreatedAt = staleAt.UnixMilli()
 		childAttempt := createRunningSubAttempt(t, th, rootDAG.DAG, childDAG.DAG, rootRunID, childRunID, childStatus)
 
@@ -417,7 +418,7 @@ steps:
 		require.NoError(t, att.Write(ctx, runningStatus))
 		require.NoError(t, att.Close(ctx))
 
-		stopSocket := startStatusSocketServer(t, ctx, dag.DAG, dagRunID, dagrun.NewStatusBuilder(dag.DAG).Create(
+		stopSocket := startStatusSocketServer(t, ctx, dag.DAG, dagRunID, ir.NewStatusBuilder(dag.DAG).Create(
 			dagRunID, ir.Running, 0, time.Now(),
 		))
 		defer stopSocket()
@@ -492,7 +493,7 @@ steps:
 		runningStatus.AttemptID = att.ID()
 		runningStatus.AttemptKey = ir.GenerateAttemptKey(dag.Name, dagRunID, dag.Name, dagRunID, runningStatus.AttemptID)
 		runningStatus.WorkerID = "local"
-		runningStatus.PID = dagrun.PID(os.Getpid())
+		runningStatus.PID = ir.PID(os.Getpid())
 		pidStartedAt, ok := procutil.StartTime(os.Getpid())
 		require.True(t, ok)
 		runningStatus.PIDStartedAt = pidStartedAt
@@ -563,7 +564,7 @@ steps:
 		require.NoError(t, att.Open(ctx))
 
 		runningStatus := testNewStatus(dag.DAG, dagRunID, ir.Running, ir.NodeRunning)
-		runningStatus.StartedAt = dagrun.FormatTime(statusTime)
+		runningStatus.StartedAt = stringutil.FormatTime(statusTime)
 		runningStatus.CreatedAt = statusTime.UnixMilli()
 		require.NoError(t, att.Write(ctx, runningStatus))
 		require.NoError(t, att.Close(ctx))
@@ -601,7 +602,7 @@ steps:
 		require.NoError(t, att.Open(ctx))
 
 		runningStatus := testNewStatus(dag.DAG, dagRunID, ir.Running, ir.NodeRunning)
-		runningStatus.StartedAt = dagrun.FormatTime(statusTime)
+		runningStatus.StartedAt = stringutil.FormatTime(statusTime)
 		runningStatus.CreatedAt = statusTime.UnixMilli()
 		require.NoError(t, att.Write(ctx, runningStatus))
 		require.NoError(t, att.Close(ctx))
@@ -660,7 +661,7 @@ steps:
 		runningStatus.WorkerID = "worker-1"
 		require.NoError(t, att.Write(ctx, runningStatus))
 		require.NoError(t, att.Close(ctx))
-		stopSocket := startStatusSocketServer(t, ctx, dag.DAG, dagRunID, dagrun.NewStatusBuilder(dag.DAG).Create(
+		stopSocket := startStatusSocketServer(t, ctx, dag.DAG, dagRunID, ir.NewStatusBuilder(dag.DAG).Create(
 			dagRunID, ir.Failed, 0, time.Now(),
 		))
 		defer stopSocket()
@@ -690,7 +691,7 @@ steps:
 		runningStatus.WorkerID = "worker-1"
 		require.NoError(t, att.Write(ctx, runningStatus))
 		require.NoError(t, att.Close(ctx))
-		stopSocket := startStatusSocketServer(t, ctx, dag.DAG, dagRunID, dagrun.NewStatusBuilder(dag.DAG).Create(
+		stopSocket := startStatusSocketServer(t, ctx, dag.DAG, dagRunID, ir.NewStatusBuilder(dag.DAG).Create(
 			dagRunID, ir.Failed, 0, time.Now(),
 		))
 		defer stopSocket()
@@ -825,7 +826,7 @@ steps:
 		require.NoError(t, att.Open(ctx))
 
 		runningStatus := testNewStatus(dag.DAG, dagRunID, ir.Running, ir.NodeRunning)
-		runningStatus.StartedAt = dagrun.FormatTime(startedAt)
+		runningStatus.StartedAt = stringutil.FormatTime(startedAt)
 		runningStatus.CreatedAt = startedAt.UnixMilli()
 		require.NoError(t, att.Write(ctx, runningStatus))
 		require.NoError(t, att.Close(ctx))
@@ -838,9 +839,9 @@ steps:
 }
 
 // testNewStatus builds a minimal persisted DAG run status for manager tests.
-func testNewStatus(dag *ir.DAG, dagRunID string, dagStatus ir.Status, nodeStatus ir.NodeStatus) dagrun.DAGRunStatus {
+func testNewStatus(dag *ir.DAG, dagRunID string, dagStatus ir.Status, nodeStatus ir.NodeStatus) ir.DAGRunStatus {
 	nodes := []runtime.NodeData{{State: runtime.NodeState{Status: nodeStatus}}}
-	return dagrun.NewStatusBuilder(dag).Create(dagRunID, dagStatus, 0, time.Now(), transform.WithNodes(nodes))
+	return ir.NewStatusBuilder(dag).Create(dagRunID, dagStatus, 0, time.Now(), transform.WithNodes(nodes))
 }
 
 func createRunningSubAttempt(
@@ -850,7 +851,7 @@ func createRunningSubAttempt(
 	childDAG *ir.DAG,
 	rootRunID string,
 	childRunID string,
-	status dagrun.DAGRunStatus,
+	status ir.DAGRunStatus,
 ) dagrun.DAGRunAttempt {
 	t.Helper()
 
@@ -896,7 +897,7 @@ func (s *managerDAGRunStore) LatestAttempt(context.Context, string) (dagrun.DAGR
 	panic("unexpected call: LatestAttempt")
 }
 
-func (s *managerDAGRunStore) ListStatuses(context.Context, ...dagrun.ListDAGRunStatusesOption) ([]*dagrun.DAGRunStatus, error) {
+func (s *managerDAGRunStore) ListStatuses(context.Context, ...dagrun.ListDAGRunStatusesOption) ([]*ir.DAGRunStatus, error) {
 	panic("unexpected call: ListStatuses")
 }
 
@@ -909,9 +910,9 @@ func (s *managerDAGRunStore) CompareAndSwapLatestAttemptStatus(
 	ir.DAGRunRef,
 	string,
 	ir.Status,
-	func(*dagrun.DAGRunStatus) error,
+	func(*ir.DAGRunStatus) error,
 	...dagrun.CompareAndSwapStatusOption,
-) (*dagrun.DAGRunStatus, bool, error) {
+) (*ir.DAGRunStatus, bool, error) {
 	panic("unexpected call: CompareAndSwapLatestAttemptStatus")
 }
 
@@ -939,7 +940,7 @@ func (s *managerDAGRunStore) RemoveDAGRun(context.Context, ir.DAGRunRef, ...dagr
 }
 
 // startStatusSocketServer serves a fixed status over the DAG run socket.
-func startStatusSocketServer(t *testing.T, ctx context.Context, dag *ir.DAG, dagRunID string, status dagrun.DAGRunStatus) func() {
+func startStatusSocketServer(t *testing.T, ctx context.Context, dag *ir.DAG, dagRunID string, status ir.DAGRunStatus) func() {
 	t.Helper()
 
 	socketServer, err := sock.NewServer(

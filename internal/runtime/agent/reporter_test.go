@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/require"
 )
@@ -85,7 +84,7 @@ func TestReporter(t *testing.T) {
 
 func TestRenderHTMLWithDAGInfo(t *testing.T) {
 	// Create a test DAGRunStatus
-	status := dagrun.DAGRunStatus{
+	status := ir.DAGRunStatus{
 		Name:       "test-workflow",
 		DAGRunID:   "01975986-c13d-7b6d-b75e-abf4380a03fc",
 		Status:     ir.Succeeded,
@@ -195,7 +194,7 @@ func testErrorMail(t *testing.T, rp *reporter, mock *mockSender, dag *ir.DAG, no
 	dag.MailOn.Failure = true
 	dag.MailOn.Success = false
 
-	_ = rp.send(context.Background(), dag, dagrun.DAGRunStatus{
+	_ = rp.send(context.Background(), dag, ir.DAGRunStatus{
 		Status: ir.Failed,
 		Nodes:  nodes,
 	}, fmt.Errorf("Error"))
@@ -209,7 +208,7 @@ func testNoErrorMail(t *testing.T, rp *reporter, mock *mockSender, dag *ir.DAG, 
 	dag.MailOn.Failure = false
 	dag.MailOn.Success = true
 
-	err := rp.send(context.Background(), dag, dagrun.DAGRunStatus{
+	err := rp.send(context.Background(), dag, ir.DAGRunStatus{
 		Status: ir.Failed,
 		Nodes:  nodes,
 	}, nil)
@@ -221,7 +220,7 @@ func testSuccessMail(t *testing.T, rp *reporter, mock *mockSender, dag *ir.DAG, 
 	dag.MailOn.Failure = true
 	dag.MailOn.Success = true
 
-	err := rp.send(context.Background(), dag, dagrun.DAGRunStatus{
+	err := rp.send(context.Background(), dag, ir.DAGRunStatus{
 		Status: ir.Succeeded,
 		Nodes:  nodes,
 	}, nil)
@@ -237,7 +236,7 @@ func testWaitMail(t *testing.T, rp *reporter, mock *mockSender, dag *ir.DAG, nod
 	dag.MailOn.Success = false
 	dag.MailOn.Wait = true
 
-	err := rp.send(context.Background(), dag, dagrun.DAGRunStatus{
+	err := rp.send(context.Background(), dag, ir.DAGRunStatus{
 		Status: ir.Waiting,
 		Nodes:  nodes,
 	}, nil)
@@ -253,7 +252,7 @@ func testNoWaitMail(t *testing.T, rp *reporter, mock *mockSender, dag *ir.DAG, n
 	dag.MailOn.Success = false
 	dag.MailOn.Wait = false
 
-	err := rp.send(context.Background(), dag, dagrun.DAGRunStatus{
+	err := rp.send(context.Background(), dag, ir.DAGRunStatus{
 		Status: ir.Waiting,
 		Nodes:  nodes,
 	}, nil)
@@ -262,7 +261,7 @@ func testNoWaitMail(t *testing.T, rp *reporter, mock *mockSender, dag *ir.DAG, n
 }
 
 func testRenderSummary(t *testing.T, _ *reporter, _ *mockSender, dag *ir.DAG, _ []*ir.Node) {
-	status := dagrun.NewStatusBuilder(dag).Create("run-id", ir.Failed, 0, time.Now())
+	status := ir.NewStatusBuilder(dag).Create("run-id", ir.Failed, 0, time.Now())
 	summary := renderDAGSummary(status, errors.New("test error"))
 	require.Contains(t, summary, "test error")
 	require.Contains(t, summary, dag.Name)

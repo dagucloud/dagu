@@ -16,7 +16,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 var (
@@ -78,7 +78,7 @@ func (w *Writer) Open() error {
 
 // Write serializes the status to JSON and appends it to the file.
 // It automatically flushes data to ensure durability.
-func (w *Writer) Write(ctx context.Context, st dagrun.DAGRunStatus) error {
+func (w *Writer) Write(ctx context.Context, st ir.DAGRunStatus) error {
 	if err := w.write(st); err != nil {
 		logger.Error(ctx, "Failed to write status", tag.Error(err))
 		return err
@@ -88,7 +88,7 @@ func (w *Writer) Write(ctx context.Context, st dagrun.DAGRunStatus) error {
 }
 
 // write encodes a single status entry and persists it to disk.
-func (w *Writer) write(st dagrun.DAGRunStatus) error {
+func (w *Writer) write(st ir.DAGRunStatus) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 

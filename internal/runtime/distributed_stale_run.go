@@ -31,10 +31,10 @@ type StaleRunRepairConfig struct {
 func RepairStaleRemoteRun(
 	ctx context.Context,
 	cfg StaleRunRepairConfig,
-	status *dagrun.DAGRunStatus,
+	status *ir.DAGRunStatus,
 	fallbackAttemptID string,
 	fallbackWorkerID string,
-) (*dagrun.DAGRunStatus, bool, error) {
+) (*ir.DAGRunStatus, bool, error) {
 	if status == nil || cfg.DAGRunStore == nil || cfg.DAGRunLeaseStore == nil || cfg.WorkerHeartbeatStore == nil {
 		return status, false, nil
 	}
@@ -105,7 +105,7 @@ func RepairStaleRemoteRun(
 		status.DAGRun(),
 		attemptID,
 		status.Status,
-		func(current *dagrun.DAGRunStatus) error {
+		func(current *ir.DAGRunStatus) error {
 			markActiveStatusFailed(current, reason, now)
 			return nil
 		},
@@ -124,7 +124,7 @@ func RepairStaleRemoteRun(
 	return currentStatus, true, nil
 }
 
-func remoteWorkerIDForStatus(status *dagrun.DAGRunStatus, fallbackWorkerID string) (string, bool) {
+func remoteWorkerIDForStatus(status *ir.DAGRunStatus, fallbackWorkerID string) (string, bool) {
 	if status == nil {
 		return "", false
 	}
@@ -154,7 +154,7 @@ func workerHeartbeatFresh(record *dispatch.WorkerHeartbeatRecord, now time.Time,
 	return now.Sub(record.LastHeartbeatTime()) < threshold
 }
 
-func workerReportsClaim(record *dispatch.WorkerHeartbeatRecord, status *dagrun.DAGRunStatus, attemptKey, claimKey string) bool {
+func workerReportsClaim(record *dispatch.WorkerHeartbeatRecord, status *ir.DAGRunStatus, attemptKey, claimKey string) bool {
 	if record == nil || record.Stats == nil {
 		return false
 	}

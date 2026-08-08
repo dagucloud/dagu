@@ -203,7 +203,7 @@ func dagWorkspaceName(dag *ir.DAG) string {
 	return ""
 }
 
-func statusWorkspaceName(status *dagrun.DAGRunStatus) string {
+func statusWorkspaceName(status *ir.DAGRunStatus) string {
 	if status == nil {
 		return ""
 	}
@@ -416,14 +416,14 @@ func (a *API) requireDAGRunVisible(ctx context.Context, dagRun ir.DAGRunRef) err
 	return a.requireWorkspaceVisible(ctx, workspaceName)
 }
 
-func (a *API) requireDAGRunStatusVisible(ctx context.Context, status *dagrun.DAGRunStatus) error {
+func (a *API) requireDAGRunStatusVisible(ctx context.Context, status *ir.DAGRunStatus) error {
 	if status == nil {
 		return nil
 	}
 	return a.requireWorkspaceVisible(ctx, statusWorkspaceName(status))
 }
 
-func (a *API) requireDAGRunStatusExecute(ctx context.Context, status *dagrun.DAGRunStatus) error {
+func (a *API) requireDAGRunStatusExecute(ctx context.Context, status *ir.DAGRunStatus) error {
 	if status == nil {
 		return nil
 	}

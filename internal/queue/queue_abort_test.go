@@ -99,7 +99,7 @@ func writeAttemptStatus(
 	require.NoError(t, err)
 	require.NoError(t, attempt.Open(ctx))
 
-	runStatus := dagrun.InitialStatus(dag)
+	runStatus := ir.InitialStatus(dag)
 	runStatus.Status = status
 	runStatus.DAGRunID = runID
 	runStatus.AttemptID = attempt.ID()

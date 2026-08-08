@@ -565,7 +565,7 @@ func (h *Handler) releaseAdmissionToken(ctx context.Context, token string) {
 	)
 }
 
-func (h *Handler) finalizeAdmissionForStatus(ctx context.Context, status *dagrun.DAGRunStatus, attemptID string) {
+func (h *Handler) finalizeAdmissionForStatus(ctx context.Context, status *ir.DAGRunStatus, attemptID string) {
 	if h.dispatchAdmissionStore == nil || status == nil ||
 		(status.Status != ir.Waiting && !isTerminalRunStatus(status.Status)) {
 		return
@@ -596,7 +596,7 @@ func (h *Handler) finalizeAdmissionForAttempt(ctx context.Context, attempt dagru
 	h.finalizeAdmissionForStatus(ctx, status, attempt.ID())
 }
 
-func queueDispatchStatusForTask(task *coordinatorv1.Task) (*dagrun.DAGRunStatus, error) {
+func queueDispatchStatusForTask(task *coordinatorv1.Task) (*ir.DAGRunStatus, error) {
 	if task == nil || task.Operation != coordinatorv1.Operation_OPERATION_RETRY || task.PreviousStatus == nil {
 		return nil, nil
 	}
@@ -821,7 +821,7 @@ func (h *Handler) createSubAttemptForTask(ctx context.Context, task *coordinator
 // writeInitialStatus writes an initial NotStarted status to the attempt.
 // This ensures the status file is not empty when read before the worker reports its first status.
 func (h *Handler) writeInitialStatus(ctx context.Context, attempt dagrun.DAGRunAttempt, task *coordinatorv1.Task, dagName string, root ir.DAGRunRef, labels []string) error {
-	initialStatus := dagrun.DAGRunStatus{
+	initialStatus := ir.DAGRunStatus{
 		Name:         dagName,
 		DAGRunID:     task.DagRunId,
 		AttemptID:    attempt.ID(),
@@ -1264,7 +1264,7 @@ func (h *Handler) repairStaleLeaseFailureFromRunHeartbeat(
 		lease.DAGRun,
 		lease.AttemptID,
 		ir.Failed,
-		func(status *dagrun.DAGRunStatus) error {
+		func(status *ir.DAGRunStatus) error {
 			if !h.canRepairStaleLeaseFailureFromRunHeartbeat(workerID, task, lease, status, reason, observedAt) {
 				return errRunHeartbeatRepairSkipped
 			}
@@ -1301,7 +1301,7 @@ func (h *Handler) canRepairStaleLeaseFailureFromRunHeartbeat(
 	workerID string,
 	task *coordinatorv1.RunningTask,
 	lease *dispatch.DAGRunLease,
-	status *dagrun.DAGRunStatus,
+	status *ir.DAGRunStatus,
 	reason string,
 	observedAt time.Time,
 ) bool {
@@ -1326,7 +1326,7 @@ func (h *Handler) canRepairStaleLeaseFailureFromRunHeartbeat(
 	return dispatch.LeaseMatchesStatus(lease, status, lease.AttemptID, observedAt, h.staleLeaseThreshold)
 }
 
-func restoreStaleLeaseFailure(status *dagrun.DAGRunStatus, lease *dispatch.DAGRunLease, workerID, reason string) {
+func restoreStaleLeaseFailure(status *ir.DAGRunStatus, lease *dispatch.DAGRunLease, workerID, reason string) {
 	status.Status = ir.Running
 	status.Error = ""
 	status.FinishedAt = ""
@@ -1449,7 +1449,7 @@ func (h *Handler) getOrOpenAttemptForRunningTask(ctx context.Context, task *coor
 	return h.getOrOpenAttempt(ctx, task.DagName, task.DagRunId)
 }
 
-func (h *Handler) shouldThrottleLeaseRefresh(status *dagrun.DAGRunStatus, observedAt time.Time) bool {
+func (h *Handler) shouldThrottleLeaseRefresh(status *ir.DAGRunStatus, observedAt time.Time) bool {
 	if status == nil || status.LeaseAt == 0 {
 		return false
 	}
@@ -1687,7 +1687,7 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 			dagRunStatus.DAGRun(),
 			latestAttempt.ID(),
 			latestStatus.Status,
-			func(current *dagrun.DAGRunStatus) error {
+			func(current *ir.DAGRunStatus) error {
 				if !preservesCompletedManualActions(current, dagRunStatus) {
 					return errManualActionCheckpointChange
 				}
@@ -1740,7 +1740,7 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 	return &coordinatorv1.ReportStatusResponse{Accepted: true}, nil
 }
 
-func preservesCompletedManualActions(current, incoming *dagrun.DAGRunStatus) bool {
+func preservesCompletedManualActions(current, incoming *ir.DAGRunStatus) bool {
 	if current == nil || incoming == nil {
 		return false
 	}
@@ -1811,7 +1811,7 @@ func equalOptionalString(left, right *string) bool {
 
 func (h *Handler) closeCachedWaitingAttempt(
 	ctx context.Context,
-	status *dagrun.DAGRunStatus,
+	status *ir.DAGRunStatus,
 	attempt dagrun.DAGRunAttempt,
 ) {
 	if status == nil || attempt == nil || status.Status != ir.Waiting {
@@ -1824,7 +1824,7 @@ func (h *Handler) bootstrapMissingSubAttempt(
 	ctx context.Context,
 	workerID string,
 	sourceFile string,
-	runStatus *dagrun.DAGRunStatus,
+	runStatus *ir.DAGRunStatus,
 	resolveErr error,
 ) (dagrun.DAGRunAttempt, bool, error) {
 	if !errors.Is(resolveErr, dagrun.ErrDAGRunIDNotFound) || runStatus == nil {
@@ -1894,7 +1894,7 @@ func (h *Handler) bootstrapMissingSubAttempt(
 	return attempt, true, nil
 }
 
-func remoteWorkerIDForBootstrap(runStatus *dagrun.DAGRunStatus, fallbackWorkerID string) (string, bool) {
+func remoteWorkerIDForBootstrap(runStatus *ir.DAGRunStatus, fallbackWorkerID string) (string, bool) {
 	if runStatus == nil {
 		return "", false
 	}
@@ -1916,8 +1916,8 @@ func remoteWorkerIDForBootstrap(runStatus *dagrun.DAGRunStatus, fallbackWorkerID
 func (h *Handler) sameAttemptCancellationRequested(
 	ctx context.Context,
 	attempt dagrun.DAGRunAttempt,
-	latest *dagrun.DAGRunStatus,
-	incoming *dagrun.DAGRunStatus,
+	latest *ir.DAGRunStatus,
+	incoming *ir.DAGRunStatus,
 ) bool {
 	if attempt == nil || latest == nil || incoming == nil {
 		return false
@@ -1938,7 +1938,7 @@ func (h *Handler) sameAttemptCancellationRequested(
 }
 
 // transformLogPaths rewrites worker-local log paths to coordinator paths.
-func (h *Handler) transformLogPaths(status *dagrun.DAGRunStatus) {
+func (h *Handler) transformLogPaths(status *ir.DAGRunStatus) {
 	if h.logDir == "" {
 		return
 	}
@@ -2012,8 +2012,8 @@ func (h *Handler) transformLogPaths(status *dagrun.DAGRunStatus) {
 func (h *Handler) transformArtifactPaths(
 	ctx context.Context,
 	attempt dagrun.DAGRunAttempt,
-	latestStatus *dagrun.DAGRunStatus,
-	incoming *dagrun.DAGRunStatus,
+	latestStatus *ir.DAGRunStatus,
+	incoming *ir.DAGRunStatus,
 ) error {
 	if incoming == nil {
 		return nil
@@ -2076,7 +2076,7 @@ func (h *Handler) transformArtifactPaths(
 
 // persistChatMessages writes chat messages from status to the attempt.
 // Errors are logged but don't fail the status update since messages are auxiliary data.
-func (h *Handler) persistChatMessages(ctx context.Context, attempt dagrun.DAGRunAttempt, status *dagrun.DAGRunStatus) {
+func (h *Handler) persistChatMessages(ctx context.Context, attempt dagrun.DAGRunAttempt, status *ir.DAGRunStatus) {
 	// Helper to persist messages for a single node
 	persistNode := func(node *ir.Node, fallbackName string) {
 		if node == nil || len(node.ChatMessages) == 0 {
@@ -2122,7 +2122,7 @@ func (h *Handler) resolveLatestAttempt(
 	ctx context.Context,
 	dagName, dagRunID string,
 	rootRef ir.DAGRunRef,
-) (dagrun.DAGRunAttempt, *dagrun.DAGRunStatus, error) {
+) (dagrun.DAGRunAttempt, *ir.DAGRunStatus, error) {
 	if h.dagRunStore == nil {
 		return nil, nil, dagrun.ErrDAGRunIDNotFound
 	}
@@ -2150,7 +2150,7 @@ func (h *Handler) resolveLatestAttempt(
 	return attempt, runStatus, nil
 }
 
-func (h *Handler) resolveLatestAttemptForRunningTask(ctx context.Context, task *coordinatorv1.RunningTask) (dagrun.DAGRunAttempt, *dagrun.DAGRunStatus, error) {
+func (h *Handler) resolveLatestAttemptForRunningTask(ctx context.Context, task *coordinatorv1.RunningTask) (dagrun.DAGRunAttempt, *ir.DAGRunStatus, error) {
 	rootRef := ir.DAGRunRef{Name: task.RootDagRunName, ID: task.RootDagRunId}
 	return h.resolveLatestAttempt(ctx, task.DagName, task.DagRunId, rootRef)
 }
@@ -2582,10 +2582,10 @@ func (h *Handler) reconcileLease(ctx context.Context, lease dispatch.DAGRunLease
 
 func (h *Handler) repairStaleRun(
 	ctx context.Context,
-	status *dagrun.DAGRunStatus,
+	status *ir.DAGRunStatus,
 	fallbackAttemptID string,
 	fallbackWorkerID string,
-) (*dagrun.DAGRunStatus, bool, error) {
+) (*ir.DAGRunStatus, bool, error) {
 	repairCtx := context.WithoutCancel(ctx)
 	if status != nil && status.DAGRunID != "" {
 		runMu := h.getRunMutex(status.DAGRunID)
@@ -2780,7 +2780,7 @@ func (h *Handler) reconcileActiveRuns(ctx context.Context, now time.Time) {
 
 func (h *Handler) loadClaim(
 	ctx context.Context,
-	runStatus *dagrun.DAGRunStatus,
+	runStatus *ir.DAGRunStatus,
 ) (*runClaim, bool) {
 	attemptID, err := h.resolveAttemptIDForStatus(ctx, runStatus)
 	if err != nil {
@@ -2828,7 +2828,7 @@ func (h *Handler) loadClaim(
 
 func (h *Handler) failLeasedRun(
 	ctx context.Context,
-	status *dagrun.DAGRunStatus,
+	status *ir.DAGRunStatus,
 	attemptID string,
 	attemptKey string,
 	reason string,
@@ -2847,7 +2847,7 @@ func (h *Handler) failLeasedRun(
 	)
 }
 
-func (h *Handler) resolveAttemptIDForStatus(ctx context.Context, status *dagrun.DAGRunStatus) (string, error) {
+func (h *Handler) resolveAttemptIDForStatus(ctx context.Context, status *ir.DAGRunStatus) (string, error) {
 	if status == nil {
 		return "", nil
 	}
@@ -2895,7 +2895,7 @@ func (h *Handler) failCurrentRemoteAttempt(
 
 	h.closeCachedAttemptForRun(ctx, storeCtx, dagRun.ID, attemptID)
 
-	mutate := func(status *dagrun.DAGRunStatus) error {
+	mutate := func(status *ir.DAGRunStatus) error {
 		finishedAt := time.Now()
 		finishedAtStr := stringutil.FormatTime(finishedAt)
 		status.Status = ir.Failed
@@ -2918,7 +2918,7 @@ func (h *Handler) failCurrentRemoteAttempt(
 	}
 
 	var (
-		status  *dagrun.DAGRunStatus
+		status  *ir.DAGRunStatus
 		swapped bool
 		err     error
 	)

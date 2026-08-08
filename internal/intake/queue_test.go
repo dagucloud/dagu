@@ -155,7 +155,7 @@ func (s *queueRunStore) LatestAttempt(context.Context, string) (dagrun.DAGRunAtt
 	return nil, dagrun.ErrDAGRunIDNotFound
 }
 
-func (s *queueRunStore) ListStatuses(context.Context, ...dagrun.ListDAGRunStatusesOption) ([]*dagrun.DAGRunStatus, error) {
+func (s *queueRunStore) ListStatuses(context.Context, ...dagrun.ListDAGRunStatusesOption) ([]*ir.DAGRunStatus, error) {
 	return nil, nil
 }
 
@@ -163,7 +163,7 @@ func (s *queueRunStore) ListStatusesPage(context.Context, ...dagrun.ListDAGRunSt
 	return dagrun.DAGRunStatusPage{}, nil
 }
 
-func (s *queueRunStore) CompareAndSwapLatestAttemptStatus(context.Context, ir.DAGRunRef, string, ir.Status, func(*dagrun.DAGRunStatus) error, ...dagrun.CompareAndSwapStatusOption) (*dagrun.DAGRunStatus, bool, error) {
+func (s *queueRunStore) CompareAndSwapLatestAttemptStatus(context.Context, ir.DAGRunRef, string, ir.Status, func(*ir.DAGRunStatus) error, ...dagrun.CompareAndSwapStatusOption) (*ir.DAGRunStatus, bool, error) {
 	return nil, false, nil
 }
 
@@ -197,7 +197,7 @@ type queueAttempt struct {
 	openErr  error
 	writeErr error
 	closeErr error
-	status   *dagrun.DAGRunStatus
+	status   *ir.DAGRunStatus
 }
 
 func (a *queueAttempt) ID() string { return a.id }
@@ -211,7 +211,7 @@ func (a *queueAttempt) Open(context.Context) error {
 	return nil
 }
 
-func (a *queueAttempt) Write(_ context.Context, status dagrun.DAGRunStatus) error {
+func (a *queueAttempt) Write(_ context.Context, status ir.DAGRunStatus) error {
 	if !a.open {
 		return errors.New("attempt is not open")
 	}
@@ -228,7 +228,7 @@ func (a *queueAttempt) Close(context.Context) error {
 	return a.closeErr
 }
 
-func (a *queueAttempt) ReadStatus(context.Context) (*dagrun.DAGRunStatus, error) {
+func (a *queueAttempt) ReadStatus(context.Context) (*ir.DAGRunStatus, error) {
 	return a.status, nil
 }
 func (a *queueAttempt) ReadDAG(context.Context) (*ir.DAG, error) { return a.dag, nil }

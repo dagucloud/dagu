@@ -119,14 +119,14 @@ func createFailedRun(t *testing.T, th test.Command, dag *ir.DAG, dagRunID string
 	logFile := filepath.Join(th.Config.Paths.LogDir, dag.Name, dagRunID+".log")
 	require.NoError(t, os.MkdirAll(filepath.Dir(logFile), 0o750))
 
-	status := dagrun.NewStatusBuilder(dag).Create(
+	status := ir.NewStatusBuilder(dag).Create(
 		dagRunID,
 		ir.Failed,
 		0,
 		time.Now(),
-		dagrun.WithAttemptID(attempt.ID()),
-		dagrun.WithHierarchyRefs(ir.NewDAGRunRef(dag.Name, dagRunID), ir.DAGRunRef{}),
-		dagrun.WithLogFilePath(logFile),
+		ir.WithAttemptID(attempt.ID()),
+		ir.WithHierarchyRefs(ir.NewDAGRunRef(dag.Name, dagRunID), ir.DAGRunRef{}),
+		ir.WithLogFilePath(logFile),
 	)
 
 	require.NoError(t, attempt.Open(th.Context))

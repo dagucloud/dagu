@@ -27,7 +27,6 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/mailer"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -874,7 +873,7 @@ func (s *Service) isSupportedEvent(eventType eventstore.EventType) bool {
 	return false
 }
 
-func testStatus(dagName string, eventType eventstore.EventType) *dagrun.DAGRunStatus {
+func testStatus(dagName string, eventType eventstore.EventType) *ir.DAGRunStatus {
 	now := time.Now().UTC()
 	status := ir.Failed
 	message := "This is a test notification from Dagu."
@@ -900,7 +899,7 @@ func testStatus(dagName string, eventType eventstore.EventType) *dagrun.DAGRunSt
 		eventstore.TypeDAGRunUpdated,
 		eventstore.TypeLLMUsageRecorded:
 	}
-	return &dagrun.DAGRunStatus{
+	return &ir.DAGRunStatus{
 		Name:       dagName,
 		DAGRunID:   "notification-test",
 		AttemptID:  "notification-test",
@@ -1782,7 +1781,7 @@ func notificationTemplateValues(event chatbridge.NotificationEvent, publicURL st
 	return values
 }
 
-func notificationStepStatusValues(status *dagrun.DAGRunStatus) map[string]string {
+func notificationStepStatusValues(status *ir.DAGRunStatus) map[string]string {
 	labels := map[ir.NodeStatus][]string{
 		ir.NodeFailed:             nil,
 		ir.NodePartiallySucceeded: nil,
@@ -1842,7 +1841,7 @@ func notificationTemplateTime(value string) string {
 	return parsed.Format(time.RFC3339)
 }
 
-func notificationRunPath(status *dagrun.DAGRunStatus) string {
+func notificationRunPath(status *ir.DAGRunStatus) string {
 	if status == nil || status.Name == "" || status.DAGRunID == "" {
 		return ""
 	}
@@ -1878,7 +1877,7 @@ func notificationRunURL(publicURL, runPath string) string {
 	return strings.TrimRight(publicURL, "/") + "/" + strings.TrimLeft(runPath, "/")
 }
 
-func notificationRunLink(status *dagrun.DAGRunStatus, publicURL string) string {
+func notificationRunLink(status *ir.DAGRunStatus, publicURL string) string {
 	if runURL := notificationRunURL(publicURL, notificationRunPath(status)); runURL != "" {
 		return "Run: " + runURL
 	}

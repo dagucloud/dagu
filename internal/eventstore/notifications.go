@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"maps"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
@@ -140,7 +139,7 @@ func (s *DAGRunStatusSnapshot) Validate() error {
 	return nil
 }
 
-func newDAGRunStatusSnapshot(status *dagrun.DAGRunStatus, dagFile string) *DAGRunStatusSnapshot {
+func newDAGRunStatusSnapshot(status *ir.DAGRunStatus, dagFile string) *DAGRunStatusSnapshot {
 	if status == nil {
 		return nil
 	}
@@ -178,7 +177,7 @@ func newDAGRunStatusSnapshot(status *dagrun.DAGRunStatus, dagFile string) *DAGRu
 	}
 }
 
-func (s *DAGRunStatusSnapshot) DAGRunStatus() *dagrun.DAGRunStatus {
+func (s *DAGRunStatusSnapshot) DAGRunStatus() *ir.DAGRunStatus {
 	if s == nil {
 		return nil
 	}
@@ -188,7 +187,7 @@ func (s *DAGRunStatusSnapshot) DAGRunStatus() *dagrun.DAGRunStatus {
 		nodes = append(nodes, node.Node())
 	}
 
-	return &dagrun.DAGRunStatus{
+	return &ir.DAGRunStatus{
 		Root:           s.Root.DAGRunRef(),
 		Parent:         s.Parent.DAGRunRef(),
 		Name:           s.Name,
@@ -247,7 +246,7 @@ func IsNotificationEventType(kind EventKind, eventType EventType) bool {
 	}
 }
 
-func DAGRunStatusFromEvent(event *Event) (*dagrun.DAGRunStatus, error) {
+func DAGRunStatusFromEvent(event *Event) (*ir.DAGRunStatus, error) {
 	snapshot, err := DAGRunSnapshotFromEvent(event)
 	if err != nil {
 		return nil, err
@@ -265,7 +264,7 @@ func DAGRunSnapshotFromEvent(event *Event) (*DAGRunStatusSnapshot, error) {
 	return dagRunSnapshotFromData(event.Data)
 }
 
-func NotificationStatusFromEvent(event *Event) (*dagrun.DAGRunStatus, error) {
+func NotificationStatusFromEvent(event *Event) (*ir.DAGRunStatus, error) {
 	if event == nil {
 		return nil, errors.New("eventstore: event is nil")
 	}

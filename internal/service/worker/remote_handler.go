@@ -230,7 +230,7 @@ func (h *remoteTaskHandler) handleRetry(ctx context.Context, task *coordinatorv1
 	return err
 }
 
-func retryTaskProfileName(status *dagrun.DAGRunStatus) string {
+func retryTaskProfileName(status *ir.DAGRunStatus) string {
 	if status == nil {
 		return ""
 	}
@@ -246,7 +246,7 @@ func (h *remoteTaskHandler) reportTaskLoadFailure(ctx context.Context, run remot
 		tag.RunID(task.DagRunId),
 		tag.Error(loadErr),
 	)
-	status := dagrun.DAGRunStatus{
+	status := ir.DAGRunStatus{
 		Root:         run.root,
 		Parent:       run.parent,
 		Name:         task.Target,
@@ -300,7 +300,7 @@ func (h *remoteTaskHandler) reportDAGRunInitFailure(
 		tag.RunID(task.DagRunId),
 		tag.Error(initErr),
 	)
-	status := dagrun.DAGRunStatus{
+	status := ir.DAGRunStatus{
 		Root:         run.root,
 		Parent:       run.parent,
 		Name:         target,
@@ -339,7 +339,7 @@ func sanitizeTaskLoadError(target string, loadErr error) string {
 
 // retryConfig holds retry-specific configuration
 type retryConfig struct {
-	target      *dagrun.DAGRunStatus
+	target      *ir.DAGRunStatus
 	stepName    string
 	triggerType ir.TriggerType
 	retryPath   dagrun.RetryPath

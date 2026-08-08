@@ -45,7 +45,7 @@ type editRetryOptions struct {
 type editRetryPlan struct {
 	sourceAttempt   dagrun.DAGRunAttempt
 	sourceDAGRunID  string
-	sourceStatus    *dagrun.DAGRunStatus
+	sourceStatus    *ir.DAGRunStatus
 	editedDAG       *ir.DAG
 	targetWorkspace string
 	newDAGRunID     string
@@ -224,7 +224,7 @@ func (a *API) requireEditRetryPrePlanPermissions(ctx context.Context, dagName st
 	return a.requireDAGWriteForWorkspace(ctx, submittedSpecRuntimeWorkspaceName(specContent, ""))
 }
 
-func editRetryRuntimeParams(status *dagrun.DAGRunStatus, preservedParams string) string {
+func editRetryRuntimeParams(status *ir.DAGRunStatus, preservedParams string) string {
 	if status == nil {
 		return preservedParams
 	}
@@ -418,7 +418,7 @@ type editRetryStepPlan struct {
 }
 
 func planEditRetrySteps(
-	status *dagrun.DAGRunStatus,
+	status *ir.DAGRunStatus,
 	dag *ir.DAG,
 	requestedSkipSteps *[]string,
 ) editRetryStepPlan {
@@ -597,7 +597,7 @@ func (a *API) launchEditRetryDAGRun(ctx context.Context, plan *editRetryPlan) (q
 	return false, nil
 }
 
-func (a *API) markEditRetrySeedFailed(ctx context.Context, status *dagrun.DAGRunStatus, cause error) {
+func (a *API) markEditRetrySeedFailed(ctx context.Context, status *ir.DAGRunStatus, cause error) {
 	if status == nil || cause == nil {
 		return
 	}
@@ -606,7 +606,7 @@ func (a *API) markEditRetrySeedFailed(ctx context.Context, status *dagrun.DAGRun
 		status.DAGRun(),
 		status.AttemptID,
 		ir.Queued,
-		func(latest *dagrun.DAGRunStatus) error {
+		func(latest *ir.DAGRunStatus) error {
 			latest.Status = ir.Failed
 			latest.FinishedAt = stringutil.FormatTime(time.Now())
 			latest.Error = cause.Error()
@@ -630,7 +630,7 @@ func (a *API) seedEditRetryAttempt(
 	profileName string,
 	nodes []runtime.NodeData,
 	sourceWorkDir string,
-) (*dagrun.DAGRunStatus, error) {
+) (*ir.DAGRunStatus, error) {
 	now := time.Now()
 	attempt, err := a.dagRunStore.CreateAttempt(ctx, dag, now, dagRunID, dagrun.NewDAGRunAttemptOptions{})
 	if err != nil {
@@ -659,22 +659,22 @@ func (a *API) seedEditRetryAttempt(
 		return nil, err
 	}
 
-	opts := []dagrun.StatusOption{
+	opts := []ir.StatusOption{
 		transform.WithNodes(nodes),
-		dagrun.WithLogFilePath(logFile),
-		dagrun.WithArchiveDir(artifactDir),
-		dagrun.WithAttemptID(attempt.ID()),
-		dagrun.WithQueuedAt(stringutil.FormatTime(now)),
-		dagrun.WithPreconditions(dag.Preconditions),
-		dagrun.WithHierarchyRefs(
+		ir.WithLogFilePath(logFile),
+		ir.WithArchiveDir(artifactDir),
+		ir.WithAttemptID(attempt.ID()),
+		ir.WithQueuedAt(stringutil.FormatTime(now)),
+		ir.WithPreconditions(dag.Preconditions),
+		ir.WithHierarchyRefs(
 			ir.NewDAGRunRef(dag.Name, dagRunID),
 			ir.DAGRunRef{},
 		),
-		dagrun.WithTriggerType(ir.TriggerTypeRetry),
-		dagrun.WithTriggerActor(triggerActorFromContext(ctx)),
-		dagrun.WithRuntimeProfile(profileName, "", nil),
+		ir.WithTriggerType(ir.TriggerTypeRetry),
+		ir.WithTriggerActor(triggerActorFromContext(ctx)),
+		ir.WithRuntimeProfile(profileName, "", nil),
 	}
-	status := dagrun.NewStatusBuilder(dag).Create(dagRunID, ir.Queued, 0, time.Time{}, opts...)
+	status := ir.NewStatusBuilder(dag).Create(dagRunID, ir.Queued, 0, time.Time{}, opts...)
 	status.Params = params
 	status.ParamsList = dag.Params
 
@@ -900,7 +900,7 @@ func cleanEditRetryWorkDir(dir string) string {
 	return filepath.Clean(dir)
 }
 
-func (a *API) dispatchEditRetry(ctx context.Context, dag *ir.DAG, status *dagrun.DAGRunStatus) error {
+func (a *API) dispatchEditRetry(ctx context.Context, dag *ir.DAG, status *ir.DAGRunStatus) error {
 	opts := []executor.TaskOption{
 		executor.WithWorkerSelector(dag.WorkerSelector),
 		executor.WithPreviousStatus(status),
@@ -928,7 +928,7 @@ func (a *API) dispatchEditRetry(ctx context.Context, dag *ir.DAG, status *dagrun
 	return nil
 }
 
-func editRetrySeedNodes(dag *ir.DAG, sourceStatus *dagrun.DAGRunStatus, skippedSteps []string) []runtime.NodeData {
+func editRetrySeedNodes(dag *ir.DAG, sourceStatus *ir.DAGRunStatus, skippedSteps []string) []runtime.NodeData {
 	sourceNodes := make(map[string]*ir.Node, len(sourceStatus.Nodes))
 	for _, node := range sourceStatus.Nodes {
 		if node != nil {

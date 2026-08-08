@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
+	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -115,14 +116,14 @@ func TestScheduleEditWhileSuspendedDoesNotSuppressNewSlot(t *testing.T) {
 	attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dag, oldSlot, "old-success", dagrun.NewDAGRunAttemptOptions{})
 	require.NoError(t, err)
 
-	status := dagrun.InitialStatus(dag)
+	status := ir.InitialStatus(dag)
 	status.DAGRunID = "old-success"
 	status.AttemptID = attempt.ID()
 	status.Status = ir.Succeeded
 	status.TriggerType = ir.TriggerTypeScheduler
-	status.ScheduleTime = dagrun.FormatTime(oldSlot)
-	status.StartedAt = dagrun.FormatTime(oldSlot.Add(15 * time.Second))
-	status.FinishedAt = dagrun.FormatTime(oldSlot.Add(45 * time.Second))
+	status.ScheduleTime = stringutil.FormatTime(oldSlot)
+	status.StartedAt = stringutil.FormatTime(oldSlot.Add(15 * time.Second))
+	status.FinishedAt = stringutil.FormatTime(oldSlot.Add(45 * time.Second))
 
 	require.NoError(t, attempt.Open(th.Context))
 	require.NoError(t, attempt.Write(th.Context, status))

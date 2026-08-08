@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/require"
 )
@@ -82,7 +81,7 @@ outputs:
 	return actionDir
 }
 
-func requireNodeByID(t *testing.T, status dagrun.DAGRunStatus, id string) *ir.Node {
+func requireNodeByID(t *testing.T, status ir.DAGRunStatus, id string) *ir.Node {
 	t.Helper()
 	for _, node := range status.Nodes {
 		if node == nil {

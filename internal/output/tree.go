@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
@@ -91,7 +90,7 @@ func NewRenderer(config Config) *Renderer {
 }
 
 // RenderDAGStatus renders the complete DAG status as a tree structure.
-func (r *Renderer) RenderDAGStatus(dag *ir.DAG, status *dagrun.DAGRunStatus) string {
+func (r *Renderer) RenderDAGStatus(dag *ir.DAG, status *ir.DAGRunStatus) string {
 	var buf strings.Builder
 
 	buf.WriteString(r.renderHeader(status))
@@ -119,7 +118,7 @@ func (r *Renderer) RenderDAGStatus(dag *ir.DAG, status *dagrun.DAGRunStatus) str
 }
 
 // renderHeader renders the status header line with status text and timestamp.
-func (r *Renderer) renderHeader(status *dagrun.DAGRunStatus) string {
+func (r *Renderer) renderHeader(status *ir.DAGRunStatus) string {
 	startTime := status.StartedAt
 	if startTime == "" || startTime == "-" {
 		startTime = time.Now().Format("2006-01-02 15:04:05")
@@ -128,7 +127,7 @@ func (r *Renderer) renderHeader(status *dagrun.DAGRunStatus) string {
 }
 
 // renderDAGLine renders the DAG name with total duration.
-func (r *Renderer) renderDAGLine(dag *ir.DAG, status *dagrun.DAGRunStatus) string {
+func (r *Renderer) renderDAGLine(dag *ir.DAG, status *ir.DAGRunStatus) string {
 	duration := r.calculateDuration(status.StartedAt, status.FinishedAt, status.Status)
 	if duration != "" {
 		return fmt.Sprintf("dag: %s %s", dag.Name, r.gray("("+duration+")"))
@@ -541,7 +540,7 @@ func cleanErrorMessage(errMsg string) string {
 }
 
 // renderFinalStatus renders the final result line at the bottom of the tree.
-func (r *Renderer) renderFinalStatus(status *dagrun.DAGRunStatus) string {
+func (r *Renderer) renderFinalStatus(status *ir.DAGRunStatus) string {
 	label := "Result"
 	if status.Status == ir.Running {
 		label = "Status"

@@ -112,7 +112,7 @@ func AssertInlineRescheduledRunParams(t *testing.T, server Server, dagName, dagR
 	require.Equal(t, []string{"KEY=hello world", "COUNT=3"}, status.ParamsList)
 }
 
-func latestStoredAttemptStatus(server Server, dagName, dagRunID string) (*dagrun.DAGRunStatus, error) {
+func latestStoredAttemptStatus(server Server, dagName, dagRunID string) (*ir.DAGRunStatus, error) {
 	store := file.NewDAGRunStore(server.Config)
 
 	attempt, err := store.FindAttempt(server.Context, ir.NewDAGRunRef(dagName, dagRunID))

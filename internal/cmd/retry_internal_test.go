@@ -81,7 +81,7 @@ func TestRestoreRetryExecutionContext_BackfillsStoredWorkingDirSnapshot(t *testi
 		Location:   filepath.Join(dagDir, "retry-test.yaml"),
 		WorkingDir: workDir,
 	}
-	status := &dagrun.DAGRunStatus{}
+	status := &ir.DAGRunStatus{}
 
 	restoreRetryExecutionContext(dag, status, nil)
 
@@ -100,7 +100,7 @@ func TestRestoreRetryExecutionContext_BackfillsAttemptWorkDirSnapshot(t *testing
 		Location:   filepath.Join(dagDir, "retry-test.yaml"),
 		WorkingDir: dagDir,
 	}
-	status := &dagrun.DAGRunStatus{}
+	status := &ir.DAGRunStatus{}
 	attempt := &testutil.MockDAGRunAttempt{}
 	attempt.On("WorkDir").Return(attemptWorkDir).Once()
 
@@ -121,7 +121,7 @@ func TestWaitForRetrySourceRelease_WaitsForTerminalRunProcToStop(t *testing.T) {
 		retryReleaseHeartbeat(dag.Name, "run-1", "attempt-1", true),
 		nil,
 	}}
-	status := &dagrun.DAGRunStatus{
+	status := &ir.DAGRunStatus{
 		Name:      dag.Name,
 		DAGRunID:  "run-1",
 		AttemptID: "attempt-1",
@@ -150,7 +150,7 @@ func TestWaitForRetrySourceRelease_SkipsActiveStatus(t *testing.T) {
 		},
 	}
 	dag := &ir.DAG{Name: "retry-test"}
-	status := &dagrun.DAGRunStatus{
+	status := &ir.DAGRunStatus{
 		Name:     dag.Name,
 		DAGRunID: "run-1",
 		Status:   ir.Running,
@@ -174,7 +174,7 @@ func TestWaitForRetrySourceRelease_TimesOutWhileProcAlive(t *testing.T) {
 	store := &retryReleaseProcStore{
 		alwaysHeartbeat: retryReleaseHeartbeat(dag.Name, "run-1", "attempt-1", true),
 	}
-	status := &dagrun.DAGRunStatus{
+	status := &ir.DAGRunStatus{
 		Name:      dag.Name,
 		DAGRunID:  "run-1",
 		AttemptID: "attempt-1",
@@ -200,7 +200,7 @@ func TestWaitForRetrySourceReleaseRejectsDifferentActiveAttempt(t *testing.T) {
 	store := &retryReleaseProcStore{heartbeats: []*proc.ProcHeartbeat{
 		retryReleaseHeartbeat(dag.Name, "run-1", "attempt-2", true),
 	}}
-	status := &dagrun.DAGRunStatus{
+	status := &ir.DAGRunStatus{
 		Name:      dag.Name,
 		DAGRunID:  "run-1",
 		AttemptID: "attempt-1",

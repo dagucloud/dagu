@@ -158,14 +158,14 @@ steps:
 	logFile := filepath.Join(server.Config.Paths.LogDir, dag.Name, dagRunID+".log")
 	require.NoError(t, os.MkdirAll(filepath.Dir(logFile), 0o750))
 
-	status := dagrun.NewStatusBuilder(dag.DAG).Create(
+	status := ir.NewStatusBuilder(dag.DAG).Create(
 		dagRunID,
 		ir.Running,
 		0,
 		time.Now().Add(-2*time.Second),
-		dagrun.WithAttemptID(attempt.ID()),
-		dagrun.WithHierarchyRefs(ref, ir.DAGRunRef{}),
-		dagrun.WithLogFilePath(logFile),
+		ir.WithAttemptID(attempt.ID()),
+		ir.WithHierarchyRefs(ref, ir.DAGRunRef{}),
+		ir.WithLogFilePath(logFile),
 	)
 	require.NotEmpty(t, status.Nodes)
 	status.Nodes[0].Status = ir.NodeRunning
@@ -220,14 +220,14 @@ steps:
 	logFile := filepath.Join(server.Config.Paths.LogDir, dag.Name, dagRunID+".log")
 	require.NoError(t, os.MkdirAll(filepath.Dir(logFile), 0o750))
 
-	status := dagrun.NewStatusBuilder(dag.DAG).Create(
+	status := ir.NewStatusBuilder(dag.DAG).Create(
 		dagRunID,
 		ir.Running,
 		0,
 		time.Now().Add(-2*time.Second),
-		dagrun.WithAttemptID(attempt.ID()),
-		dagrun.WithHierarchyRefs(ref, ir.DAGRunRef{}),
-		dagrun.WithLogFilePath(logFile),
+		ir.WithAttemptID(attempt.ID()),
+		ir.WithHierarchyRefs(ref, ir.DAGRunRef{}),
+		ir.WithLogFilePath(logFile),
 	)
 	status.AttemptID = attempt.ID()
 	status.AttemptKey = ir.GenerateAttemptKey(dag.Name, dagRunID, dag.Name, dagRunID, attempt.ID())
@@ -291,14 +291,14 @@ steps:
 	logFile := filepath.Join(server.Config.Paths.LogDir, dag.Name, dagRunID+".log")
 	require.NoError(t, os.MkdirAll(filepath.Dir(logFile), 0o750))
 
-	status := dagrun.NewStatusBuilder(dag.DAG).Create(
+	status := ir.NewStatusBuilder(dag.DAG).Create(
 		dagRunID,
 		ir.NotStarted,
 		0,
 		time.Now().Add(-2*time.Second),
-		dagrun.WithAttemptID(attempt.ID()),
-		dagrun.WithHierarchyRefs(ref, ir.DAGRunRef{}),
-		dagrun.WithLogFilePath(logFile),
+		ir.WithAttemptID(attempt.ID()),
+		ir.WithHierarchyRefs(ref, ir.DAGRunRef{}),
+		ir.WithLogFilePath(logFile),
 	)
 	status.AttemptID = attempt.ID()
 	status.AttemptKey = ir.GenerateAttemptKey(dag.Name, dagRunID, dag.Name, dagRunID, attempt.ID())

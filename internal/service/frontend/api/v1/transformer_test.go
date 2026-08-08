@@ -13,7 +13,6 @@ import (
 
 	openapi "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/auth"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -29,7 +28,7 @@ func writeArtifactFile(t *testing.T) string {
 }
 
 func TestToDAGRunSummaryIncludesScheduleTime(t *testing.T) {
-	status := dagrun.DAGRunStatus{
+	status := ir.DAGRunStatus{
 		Name:           "test-dag",
 		DAGRunID:       "run-1",
 		AutoRetryCount: 2,
@@ -52,7 +51,7 @@ func TestToDAGRunSummaryIncludesScheduleTime(t *testing.T) {
 }
 
 func TestToDAGRunDetailsIncludesScheduleTime(t *testing.T) {
-	status := dagrun.DAGRunStatus{
+	status := ir.DAGRunStatus{
 		Name:           "test-dag",
 		DAGRunID:       "run-1",
 		AutoRetryCount: 3,
@@ -86,7 +85,7 @@ func TestTriggerActorFromContext(t *testing.T) {
 }
 
 func TestToDAGRunDetailsIncludesHumanTaskContract(t *testing.T) {
-	status := dagrun.DAGRunStatus{
+	status := ir.DAGRunStatus{
 		Name:     "test-dag",
 		DAGRunID: "run-1",
 		Status:   ir.Waiting,
@@ -118,7 +117,7 @@ func TestToDAGRunDetailsIncludesHumanTaskContract(t *testing.T) {
 }
 
 func TestToDAGRunDetailsTreatsNullHumanTaskFormAsAbsent(t *testing.T) {
-	status := dagrun.DAGRunStatus{
+	status := ir.DAGRunStatus{
 		Name:     "test-dag",
 		DAGRunID: "run-1",
 		Nodes: []*ir.Node{{
@@ -134,7 +133,7 @@ func TestToDAGRunDetailsTreatsNullHumanTaskFormAsAbsent(t *testing.T) {
 }
 
 func TestToDAGRunDetailsTreatsHumanTaskFormWithTrailingDataAsAbsent(t *testing.T) {
-	status := dagrun.DAGRunStatus{
+	status := ir.DAGRunStatus{
 		Name:     "test-dag",
 		DAGRunID: "run-1",
 		Nodes: []*ir.Node{{
@@ -152,7 +151,7 @@ func TestToDAGRunDetailsTreatsHumanTaskFormWithTrailingDataAsAbsent(t *testing.T
 }
 
 func TestToDAGRunSummaryOmitsAutoRetryLimitWhenUnconfigured(t *testing.T) {
-	status := dagrun.DAGRunStatus{
+	status := ir.DAGRunStatus{
 		Name:           "test-dag",
 		DAGRunID:       "run-1",
 		AutoRetryCount: 0,
@@ -166,7 +165,7 @@ func TestToDAGRunSummaryOmitsAutoRetryLimitWhenUnconfigured(t *testing.T) {
 }
 
 func TestToDAGRunDetailsOmitsAutoRetryLimitWhenUnconfigured(t *testing.T) {
-	status := dagrun.DAGRunStatus{
+	status := ir.DAGRunStatus{
 		Name:           "test-dag",
 		DAGRunID:       "run-1",
 		AutoRetryCount: 0,
@@ -180,7 +179,7 @@ func TestToDAGRunDetailsOmitsAutoRetryLimitWhenUnconfigured(t *testing.T) {
 }
 
 func TestToDAGRunSummarySetsProfileNameWhenPresent(t *testing.T) {
-	status := dagrun.DAGRunStatus{
+	status := ir.DAGRunStatus{
 		Name:        "test-dag",
 		DAGRunID:    "run-1",
 		Status:      ir.Succeeded,
@@ -193,7 +192,7 @@ func TestToDAGRunSummarySetsProfileNameWhenPresent(t *testing.T) {
 }
 
 func TestToDAGRunSummaryOmitsProfileNameWhenEmpty(t *testing.T) {
-	status := dagrun.DAGRunStatus{
+	status := ir.DAGRunStatus{
 		Name:     "test-dag",
 		DAGRunID: "run-1",
 		Status:   ir.Succeeded,
@@ -204,7 +203,7 @@ func TestToDAGRunSummaryOmitsProfileNameWhenEmpty(t *testing.T) {
 }
 
 func TestToDAGRunDetailsSetsProfileNameWhenPresent(t *testing.T) {
-	status := dagrun.DAGRunStatus{
+	status := ir.DAGRunStatus{
 		Name:        "test-dag",
 		DAGRunID:    "run-1",
 		Status:      ir.Succeeded,
@@ -217,7 +216,7 @@ func TestToDAGRunDetailsSetsProfileNameWhenPresent(t *testing.T) {
 }
 
 func TestToDAGRunDetailsOmitsProfileNameWhenEmpty(t *testing.T) {
-	status := dagrun.DAGRunStatus{
+	status := ir.DAGRunStatus{
 		Name:     "test-dag",
 		DAGRunID: "run-1",
 		Status:   ir.Succeeded,
@@ -354,7 +353,7 @@ func TestToDAGRunDetailsIncludesLifecycleHandlers(t *testing.T) {
 		}
 	}
 
-	status := dagrun.DAGRunStatus{
+	status := ir.DAGRunStatus{
 		Name:      "test-dag",
 		DAGRunID:  "run-1",
 		Status:    ir.Succeeded,
@@ -538,7 +537,7 @@ func TestToNodeMapsStatuses(t *testing.T) {
 func TestToDAGRunDetailsIncludesBuildMetadata(t *testing.T) {
 	t.Parallel()
 
-	status := dagrun.DAGRunStatus{
+	status := ir.DAGRunStatus{
 		Name:     "build-dag",
 		DAGRunID: "run-2",
 		Status:   ir.Succeeded,

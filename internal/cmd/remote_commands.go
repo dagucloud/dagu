@@ -11,7 +11,6 @@ import (
 	"time"
 
 	api "github.com/dagucloud/dagu/v2/api/v1"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
@@ -19,11 +18,11 @@ func toCoreDAG(name string) *ir.DAG {
 	return &ir.DAG{Name: name}
 }
 
-func toExecStatus(detail *api.DAGRunDetails) (*dagrun.DAGRunStatus, error) {
+func toExecStatus(detail *api.DAGRunDetails) (*ir.DAGRunStatus, error) {
 	if detail == nil {
 		return nil, fmt.Errorf("remote DAG run details are empty")
 	}
-	status := &dagrun.DAGRunStatus{
+	status := &ir.DAGRunStatus{
 		Name:         detail.Name,
 		DAGRunID:     detail.DagRunId,
 		Status:       ir.Status(detail.Status),
@@ -376,9 +375,9 @@ func remoteRunHistory(ctx *Context, args []string) error {
 	if len(runs) > limit {
 		runs = runs[:limit]
 	}
-	statuses := make([]*dagrun.DAGRunStatus, 0, len(runs))
+	statuses := make([]*ir.DAGRunStatus, 0, len(runs))
 	for _, run := range runs {
-		status := &dagrun.DAGRunStatus{
+		status := &ir.DAGRunStatus{
 			Name:         run.Name,
 			DAGRunID:     run.DagRunId,
 			Status:       ir.Status(run.Status),
@@ -689,7 +688,7 @@ func joinNonEmpty(parts []string) string {
 	return strings.Join(filtered, " ")
 }
 
-func enrichRemoteHistoryStatus(status *dagrun.DAGRunStatus, detail *api.DAGRunDetails) error {
+func enrichRemoteHistoryStatus(status *ir.DAGRunStatus, detail *api.DAGRunDetails) error {
 	remoteStatus, err := toExecStatus(detail)
 	if err != nil {
 		return err

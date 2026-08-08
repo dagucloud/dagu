@@ -294,7 +294,7 @@ type humanTaskCompleteFixture struct {
 	command     *cobra.Command
 	ctx         *Context
 	dag         *ir.DAG
-	status      *dagrun.DAGRunStatus
+	status      *ir.DAGRunStatus
 	store       *humanTaskCompletionStore
 	queue       *humanTaskCompletionQueueStore
 	output      *bytes.Buffer
@@ -316,7 +316,7 @@ func newHumanTaskCompleteFixture(t *testing.T, form json.RawMessage, anotherWait
 		Location: filepath.Join(t.TempDir(), "human-task-test.yaml"),
 		Steps:    []ir.Step{step},
 	}
-	status := &dagrun.DAGRunStatus{
+	status := &ir.DAGRunStatus{
 		Name:       dag.Name,
 		DAGRunID:   "run-1",
 		AttemptID:  "attempt-1",
@@ -386,7 +386,7 @@ func humanTaskTestForm() json.RawMessage {
 type humanTaskCompletionAttempt struct {
 	dagrun.DAGRunAttempt
 	dag    *ir.DAG
-	status *dagrun.DAGRunStatus
+	status *ir.DAGRunStatus
 }
 
 func (a *humanTaskCompletionAttempt) ID() string {
@@ -397,7 +397,7 @@ func (a *humanTaskCompletionAttempt) ReadDAG(context.Context) (*ir.DAG, error) {
 	return a.dag, nil
 }
 
-func (a *humanTaskCompletionAttempt) ReadStatus(context.Context) (*dagrun.DAGRunStatus, error) {
+func (a *humanTaskCompletionAttempt) ReadStatus(context.Context) (*ir.DAGRunStatus, error) {
 	return a.status, nil
 }
 
@@ -416,7 +416,7 @@ func (humanTaskCompletionProcStore) IsAttemptAlive(context.Context, string, ir.D
 type humanTaskCompletionStore struct {
 	dagrun.DAGRunStore
 	attempt      *humanTaskCompletionAttempt
-	status       *dagrun.DAGRunStatus
+	status       *ir.DAGRunStatus
 	beforeMutate func()
 }
 
@@ -429,9 +429,9 @@ func (s *humanTaskCompletionStore) CompareAndSwapLatestAttemptStatus(
 	_ ir.DAGRunRef,
 	expectedAttemptID string,
 	expectedStatus ir.Status,
-	mutate func(*dagrun.DAGRunStatus) error,
+	mutate func(*ir.DAGRunStatus) error,
 	opts ...dagrun.CompareAndSwapStatusOption,
-) (*dagrun.DAGRunStatus, bool, error) {
+) (*ir.DAGRunStatus, bool, error) {
 	options := dagrun.NewCompareAndSwapStatusOptions(opts...)
 	if s.beforeMutate != nil {
 		s.beforeMutate()

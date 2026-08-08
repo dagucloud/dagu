@@ -14,6 +14,7 @@ import (
 	openapiv1 "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -63,19 +64,19 @@ steps:
 	)
 	require.NoError(t, err)
 
-	status := dagrun.NewStatusBuilder(dag).Create(
+	status := ir.NewStatusBuilder(dag).Create(
 		"distributed-run",
 		ir.Failed,
 		0,
 		time.Now().Add(-2*time.Minute),
-		dagrun.WithAttemptID(attempt.ID()),
-		dagrun.WithFinishedAt(time.Now().Add(-time.Minute)),
-		dagrun.WithError("step failed"),
+		ir.WithAttemptID(attempt.ID()),
+		ir.WithFinishedAt(time.Now().Add(-time.Minute)),
+		ir.WithError("step failed"),
 	)
 	require.NotEmpty(t, status.Nodes)
 	status.Nodes[0].Status = ir.NodeFailed
 	status.Nodes[0].Error = "step failed"
-	status.Nodes[0].FinishedAt = dagrun.FormatTime(time.Now().Add(-time.Minute))
+	status.Nodes[0].FinishedAt = stringutil.FormatTime(time.Now().Add(-time.Minute))
 
 	require.NoError(t, attempt.Open(ctx))
 	require.NoError(t, attempt.Write(ctx, status))
@@ -141,14 +142,14 @@ steps:
 		dagrun.NewDAGRunAttemptOptions{},
 	)
 	require.NoError(t, err)
-	status := dagrun.NewStatusBuilder(dag).Create(
+	status := ir.NewStatusBuilder(dag).Create(
 		"build-run",
 		ir.Failed,
 		0,
 		time.Now().Add(-2*time.Minute),
-		dagrun.WithAttemptID(attempt.ID()),
-		dagrun.WithFinishedAt(time.Now().Add(-time.Minute)),
-		dagrun.WithError("step failed"),
+		ir.WithAttemptID(attempt.ID()),
+		ir.WithFinishedAt(time.Now().Add(-time.Minute)),
+		ir.WithError("step failed"),
 	)
 	require.NotEmpty(t, status.Nodes)
 	status.Nodes[0].Status = ir.NodeFailed
@@ -226,12 +227,12 @@ func TestRetryDAGRun_RejectsWaitingDAGAndStepRetry(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	status := dagrun.NewStatusBuilder(dag).Create(
+	status := ir.NewStatusBuilder(dag).Create(
 		"waiting-run",
 		ir.Waiting,
 		0,
 		time.Now().Add(-time.Minute),
-		dagrun.WithAttemptID(attempt.ID()),
+		ir.WithAttemptID(attempt.ID()),
 	)
 	require.Len(t, status.Nodes, 1)
 	status.Nodes[0].Status = ir.NodeSucceeded
@@ -301,14 +302,14 @@ steps:
 	)
 	require.NoError(t, err)
 
-	status := dagrun.NewStatusBuilder(dag).Create(
+	status := ir.NewStatusBuilder(dag).Create(
 		"latest-run",
 		ir.Failed,
 		0,
 		time.Now().Add(-time.Minute),
-		dagrun.WithAttemptID(attempt.ID()),
-		dagrun.WithFinishedAt(time.Now().Add(-30*time.Second)),
-		dagrun.WithError("step failed"),
+		ir.WithAttemptID(attempt.ID()),
+		ir.WithFinishedAt(time.Now().Add(-30*time.Second)),
+		ir.WithError("step failed"),
 	)
 	require.NoError(t, attempt.Open(ctx))
 	require.NoError(t, attempt.Write(ctx, status))
@@ -360,7 +361,7 @@ func TestRetryDAGRun_TargetsPersistedChildStepFromRoot(t *testing.T) {
 
 	rootAttempt, err := store.CreateAttempt(ctx, rootDAG, time.Now().Add(-time.Minute), rootRef.ID, dagrun.NewDAGRunAttemptOptions{})
 	require.NoError(t, err)
-	rootStatus := dagrun.DAGRunStatus{
+	rootStatus := ir.DAGRunStatus{
 		Root:      rootRef,
 		Name:      rootRef.Name,
 		DAGRunID:  rootRef.ID,
@@ -381,7 +382,7 @@ func TestRetryDAGRun_TargetsPersistedChildStepFromRoot(t *testing.T) {
 
 	childAttempt, err := store.CreateAttempt(ctx, childDAG, time.Now(), "child-target", dagrun.NewDAGRunAttemptOptions{RootDAGRun: &rootRef})
 	require.NoError(t, err)
-	childStatus := dagrun.DAGRunStatus{
+	childStatus := ir.DAGRunStatus{
 		Root:      rootRef,
 		Parent:    rootRef,
 		Name:      childDAG.Name,

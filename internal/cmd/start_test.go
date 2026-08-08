@@ -315,7 +315,7 @@ steps:
 	attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dag.DAG, time.Now(), runID, dagrun.NewDAGRunAttemptOptions{})
 	require.NoError(t, err)
 
-	status := dagrun.InitialStatus(dag.DAG)
+	status := ir.InitialStatus(dag.DAG)
 	status.DAGRunID = runID
 	status.AttemptID = attempt.ID()
 	writeStatus(t, th.Context, attempt, status)

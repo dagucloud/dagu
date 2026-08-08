@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -89,7 +88,7 @@ func TestStableIDUsesCollisionSafeFraming(t *testing.T) {
 func TestNewDAGRunEventEmbedsDAGRunSnapshot(t *testing.T) {
 	t.Parallel()
 
-	status := &dagrun.DAGRunStatus{
+	status := &ir.DAGRunStatus{
 		Root:           ir.NewDAGRunRef("root-briefing", "root-run"),
 		Parent:         ir.NewDAGRunRef("root-briefing", "parent-run"),
 		Name:           "briefing",
@@ -205,7 +204,7 @@ func TestEmitPersistedStatusTransitionFromContextEmitsUpdateForRepeatedStatus(t 
 	store := &captureStore{}
 	service := New(store)
 	ctx := WithContext(context.Background(), service, Source{Service: SourceServiceServer})
-	status := &dagrun.DAGRunStatus{
+	status := &ir.DAGRunStatus{
 		Name:      "briefing",
 		DAGRunID:  "run-1",
 		AttemptID: "attempt-1",
@@ -244,7 +243,7 @@ func TestDAGRunUpdateEventIDIncludesRecordedAt(t *testing.T) {
 func TestNewDAGRunEventDeepClonesData(t *testing.T) {
 	t.Parallel()
 
-	status := &dagrun.DAGRunStatus{
+	status := &ir.DAGRunStatus{
 		Name:      "briefing",
 		DAGRunID:  "run-1",
 		AttemptID: "attempt-1",

@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate/memstore"
@@ -28,7 +27,7 @@ func TestStoreRecordsRootAndChildAttempts(t *testing.T) {
 	require.Equal(t, "root-run", root.ID())
 
 	require.NoError(t, root.Open(ctx))
-	require.NoError(t, root.RecordStatus(ctx, dagrun.DAGRunStatus{
+	require.NoError(t, root.RecordStatus(ctx, ir.DAGRunStatus{
 		Name:      rootRef.Name,
 		DAGRunID:  rootRef.ID,
 		AttemptID: root.ID(),
@@ -57,7 +56,7 @@ func TestStoreRecordsRootAndChildAttempts(t *testing.T) {
 		RootDAGRun: rootRef,
 	})
 	require.NoError(t, err)
-	require.NoError(t, child.RecordStatus(ctx, dagrun.DAGRunStatus{
+	require.NoError(t, child.RecordStatus(ctx, ir.DAGRunStatus{
 		Name:      "child",
 		DAGRunID:  "child-run",
 		AttemptID: child.ID(),

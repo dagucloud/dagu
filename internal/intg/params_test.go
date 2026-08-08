@@ -183,7 +183,7 @@ steps:
 	assert.JSONEq(t, `["region=us-west-2","count=5","debug=true"]`, subOutputs.Metadata.Params)
 }
 
-func readAttemptStatusAndOutputs(t *testing.T, th test.Command, dagName, runID string) (*dagrun.DAGRunStatus, *ir.DAGRunOutputs) {
+func readAttemptStatusAndOutputs(t *testing.T, th test.Command, dagName, runID string) (*ir.DAGRunStatus, *ir.DAGRunOutputs) {
 	t.Helper()
 
 	attempt, err := th.DAGRunStore.FindAttempt(th.Context, ir.NewDAGRunRef(dagName, runID))
@@ -198,7 +198,7 @@ func readAttemptStatusAndOutputs(t *testing.T, th test.Command, dagName, runID s
 	return status, outputs
 }
 
-func readSubAttemptStatusAndOutputs(t *testing.T, th test.Command, rootRef ir.DAGRunRef, subRunID string) (*dagrun.DAGRunStatus, *ir.DAGRunOutputs) {
+func readSubAttemptStatusAndOutputs(t *testing.T, th test.Command, rootRef ir.DAGRunRef, subRunID string) (*ir.DAGRunStatus, *ir.DAGRunOutputs) {
 	t.Helper()
 
 	attempt, err := th.DAGRunStore.FindSubAttempt(th.Context, rootRef, subRunID)

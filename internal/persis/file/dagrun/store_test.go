@@ -34,7 +34,7 @@ func TestStoreWritesCurrentDAGRunFileCompatibilityLayout(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, parentAttempt.Open(ctx))
 
-	parentStatus := dagrun.InitialStatus(parentDAG)
+	parentStatus := ir.InitialStatus(parentDAG)
 	parentStatus.DAGRunID = "run-compat"
 	parentStatus.AttemptID = parentAttempt.ID()
 	parentStatus.Status = ir.Succeeded
@@ -69,7 +69,7 @@ func TestStoreWritesCurrentDAGRunFileCompatibilityLayout(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, childAttempt.Open(ctx))
 
-	childStatus := dagrun.InitialStatus(childDAG)
+	childStatus := ir.InitialStatus(childDAG)
 	childStatus.Root = rootRef
 	childStatus.DAGRunID = "child-run"
 	childStatus.AttemptID = childAttempt.ID()
@@ -388,7 +388,7 @@ func TestJSONDB(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, parentAttempt.Open(th.Context))
 
-		parentStatus := dagrun.InitialStatus(dag.DAG)
+		parentStatus := ir.InitialStatus(dag.DAG)
 		parentStatus.DAGRunID = "parent-id"
 		parentStatus.Status = ir.Succeeded
 		parentStatus.ArchiveDir = parentArtifactDir
@@ -403,7 +403,7 @@ func TestJSONDB(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, subAttempt.Open(th.Context))
 
-		subStatus := dagrun.InitialStatus(subDAG.DAG)
+		subStatus := ir.InitialStatus(subDAG.DAG)
 		subStatus.DAGRunID = "sub-id"
 		subStatus.Status = ir.Succeeded
 		subStatus.ArchiveDir = subArtifactDir
@@ -435,7 +435,7 @@ func TestJSONDB(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, attempt.Open(th.Context))
 
-		status := dagrun.InitialStatus(dag.DAG)
+		status := ir.InitialStatus(dag.DAG)
 		status.DAGRunID = "outside-id"
 		status.Status = ir.Succeeded
 		status.ArchiveDir = outsideArtifactDir
@@ -476,7 +476,7 @@ func TestJSONDB(t *testing.T) {
 			_ = subAttempt.Close(th.Context)
 		}()
 
-		statusToWrite := dagrun.InitialStatus(subDAG.DAG)
+		statusToWrite := ir.InitialStatus(subDAG.DAG)
 		statusToWrite.DAGRunID = "sub-id"
 		err = subAttempt.Write(th.Context, statusToWrite)
 		require.NoError(t, err)
@@ -517,7 +517,7 @@ func TestJSONDB(t *testing.T) {
 			_ = attempt.Close(th.Context)
 		}()
 
-		statusToWrite := dagrun.InitialStatus(subDAG.DAG)
+		statusToWrite := ir.InitialStatus(subDAG.DAG)
 		statusToWrite.DAGRunID = subDAGRunID
 		statusToWrite.Status = ir.Running
 		err = attempt.Write(th.Context, statusToWrite)
@@ -571,7 +571,7 @@ func TestJSONDB(t *testing.T) {
 		require.NoError(t, err)
 		defer func() { _ = subAttempt.Close(th.Context) }()
 
-		statusToWrite := dagrun.InitialStatus(subDAG.DAG)
+		statusToWrite := ir.InitialStatus(subDAG.DAG)
 		statusToWrite.DAGRunID = "sub-id"
 		err = subAttempt.Write(th.Context, statusToWrite)
 		require.NoError(t, err)
@@ -598,7 +598,7 @@ func TestJSONDB(t *testing.T) {
 		subDAG := th.DAG(subRef.Name)
 		subAttempt.SetDAG(subDAG.DAG)
 		require.NoError(t, subAttempt.Open(th.Context))
-		statusToWrite := dagrun.InitialStatus(subDAG.DAG)
+		statusToWrite := ir.InitialStatus(subDAG.DAG)
 		statusToWrite.DAGRunID = subRef.ID
 		statusToWrite.Root = rootRef
 		statusToWrite.AttemptID = subAttempt.ID()
@@ -613,7 +613,7 @@ func TestJSONDB(t *testing.T) {
 			subRef,
 			subAttempt.ID(),
 			ir.Running,
-			func(status *dagrun.DAGRunStatus) error {
+			func(status *ir.DAGRunStatus) error {
 				status.Status = ir.Failed
 				status.Error = "lease expired"
 				status.Nodes[0].Status = ir.NodeFailed
@@ -658,7 +658,7 @@ func TestJSONDB(t *testing.T) {
 			_ = rec.Close(th.Context)
 		}()
 
-		statusToWrite := dagrun.InitialStatus(rec.dag)
+		statusToWrite := ir.InitialStatus(rec.dag)
 		statusToWrite.DAGRunID = "parent-id"
 
 		err = rec.Write(th.Context, statusToWrite)
@@ -1267,7 +1267,7 @@ func TestListStatusesPage(t *testing.T) {
 			require.NoError(t, attempt.Close(th.Context))
 		}()
 
-		status := dagrun.InitialStatus(dag.DAG)
+		status := ir.InitialStatus(dag.DAG)
 		status.DAGRunID = "artifact-run"
 		status.Status = ir.Succeeded
 		status.ArchiveDir = artifactDir
@@ -1350,7 +1350,7 @@ func TestListStatusesPage(t *testing.T) {
 		assert.Equal(t, "run-0", page3.Items[0].DAGRunID)
 
 		seen := make(map[string]struct{})
-		for _, page := range [][]*dagrun.DAGRunStatus{page1.Items, page2.Items, page3.Items} {
+		for _, page := range [][]*ir.DAGRunStatus{page1.Items, page2.Items, page3.Items} {
 			for _, item := range page {
 				key := item.Name + "/" + item.DAGRunID
 				if _, ok := seen[key]; ok {

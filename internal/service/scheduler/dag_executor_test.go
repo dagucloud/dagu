@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
@@ -145,7 +144,7 @@ func TestDAGExecutor_DistributedRetryUsesPreviousStatusParamsList(t *testing.T) 
 		YamlData:       []byte("name: queued-param-dag\n"),
 		WorkerSelector: map[string]string{"type": "test-worker"},
 	}
-	previousStatus := &dagrun.DAGRunStatus{
+	previousStatus := &ir.DAGRunStatus{
 		Status:     ir.Queued,
 		Params:     "content_hash=sha256:abc123 message=hello world",
 		ParamsList: []string{"content_hash=sha256:abc123", "message=hello world"},
@@ -176,7 +175,7 @@ func TestDAGExecutor_DistributedRetryPassesLegacyQueuedParams(t *testing.T) {
 		YamlData:       []byte("name: legacy-queued-param-dag\n"),
 		WorkerSelector: map[string]string{"type": "test-worker"},
 	}
-	previousStatus := &dagrun.DAGRunStatus{
+	previousStatus := &ir.DAGRunStatus{
 		Status: ir.Queued,
 		Params: "content_hash=sha256:abc123",
 	}
@@ -211,7 +210,7 @@ func TestDAGExecutor_DistributedRetryCarriesAdmissionReservationToken(t *testing
 		dag,
 		dispatch.DispatchOperationRetry,
 		"admitted-run",
-		&dagrun.DAGRunStatus{Status: ir.Queued},
+		&ir.DAGRunStatus{Status: ir.Queued},
 		ir.TriggerTypeManual,
 		"",
 		"reservation-token-a",

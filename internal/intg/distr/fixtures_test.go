@@ -429,15 +429,15 @@ func (f *testFixture) enqueueDirect() error {
 		return err
 	}
 
-	status := dagrun.NewStatusBuilder(dagCopy).Create(
+	status := ir.NewStatusBuilder(dagCopy).Create(
 		runID,
 		ir.Queued,
 		0,
 		time.Time{},
-		dagrun.WithLogFilePath(logFile),
-		dagrun.WithAttemptID(att.ID()),
-		dagrun.WithHierarchyRefs(ir.NewDAGRunRef(dagCopy.Name, runID), ir.DAGRunRef{}),
-		dagrun.WithTriggerType(ir.TriggerTypeManual),
+		ir.WithLogFilePath(logFile),
+		ir.WithAttemptID(att.ID()),
+		ir.WithHierarchyRefs(ir.NewDAGRunRef(dagCopy.Name, runID), ir.DAGRunRef{}),
+		ir.WithTriggerType(ir.TriggerTypeManual),
 	)
 
 	if err := att.Open(f.coord.Context); err != nil {
@@ -515,9 +515,9 @@ func (f *testFixture) waitForQueued() {
 	})
 }
 
-func (f *testFixture) waitForStatus(expected ir.Status, timeout time.Duration) dagrun.DAGRunStatus {
+func (f *testFixture) waitForStatus(expected ir.Status, timeout time.Duration) ir.DAGRunStatus {
 	f.t.Helper()
-	var status dagrun.DAGRunStatus
+	var status ir.DAGRunStatus
 	f.requireEventuallyNoSchedulerError(fmt.Sprintf("timeout waiting for status %s", expected), timeout, 100*time.Millisecond, func() bool {
 		var err error
 		status, err = f.latestStoredStatus()
@@ -529,9 +529,9 @@ func (f *testFixture) waitForStatus(expected ir.Status, timeout time.Duration) d
 	return status
 }
 
-func (f *testFixture) waitForStatusIn(expected []ir.Status, timeout time.Duration) dagrun.DAGRunStatus {
+func (f *testFixture) waitForStatusIn(expected []ir.Status, timeout time.Duration) ir.DAGRunStatus {
 	f.t.Helper()
-	var status dagrun.DAGRunStatus
+	var status ir.DAGRunStatus
 	f.requireEventuallyNoSchedulerError(fmt.Sprintf("timeout waiting for status in %v", expected), timeout, 100*time.Millisecond, func() bool {
 		var err error
 		status, err = f.latestStoredStatus()
@@ -596,24 +596,24 @@ func (f *testFixture) pollSchedulerErr() error {
 	return f.schedulerErr
 }
 
-func (f *testFixture) latestStatus() (dagrun.DAGRunStatus, error) {
+func (f *testFixture) latestStatus() (ir.DAGRunStatus, error) {
 	return f.latestStoredStatus()
 }
 
-func (f *testFixture) latestStoredStatus() (dagrun.DAGRunStatus, error) {
+func (f *testFixture) latestStoredStatus() (ir.DAGRunStatus, error) {
 	store := file.NewDAGRunStore(f.coord.Config)
 
 	attempt, err := store.LatestAttempt(f.coord.Context, f.dagWrapper.Name)
 	if err != nil {
-		return dagrun.DAGRunStatus{}, err
+		return ir.DAGRunStatus{}, err
 	}
 
 	status, err := attempt.ReadStatus(f.coord.Context)
 	if err != nil {
-		return dagrun.DAGRunStatus{}, err
+		return ir.DAGRunStatus{}, err
 	}
 	if status == nil {
-		return dagrun.DAGRunStatus{}, dagrun.ErrCorruptedStatusFile
+		return ir.DAGRunStatus{}, dagrun.ErrCorruptedStatusFile
 	}
 
 	return *status, nil
@@ -662,14 +662,14 @@ func (f *testFixture) stopScheduler() {
 	}
 }
 
-func (f *testFixture) assertAllNodesSucceeded(status dagrun.DAGRunStatus) {
+func (f *testFixture) assertAllNodesSucceeded(status ir.DAGRunStatus) {
 	f.t.Helper()
 	for _, node := range status.Nodes {
 		require.Equal(f.t, ir.NodeSucceeded, node.Status, "step %s should have succeeded", node.Step.Name)
 	}
 }
 
-func (f *testFixture) assertWorkerID(status dagrun.DAGRunStatus, expected string) {
+func (f *testFixture) assertWorkerID(status ir.DAGRunStatus, expected string) {
 	f.t.Helper()
 	require.Equal(f.t, expected, status.WorkerID, "unexpected worker ID")
 }

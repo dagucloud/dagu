@@ -115,15 +115,15 @@ steps:
 		require.NoError(t, err)
 
 		scheduleTime := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
-		status := dagrun.NewStatusBuilder(dagFile.DAG).Create(
+		status := ir.NewStatusBuilder(dagFile.DAG).Create(
 			runID,
 			ir.Queued,
 			0,
 			time.Time{},
-			dagrun.WithAttemptID(attempt.ID()),
-			dagrun.WithTriggerType(ir.TriggerTypeCatchUp),
-			dagrun.WithQueuedAt(stringutil.FormatTime(time.Now())),
-			dagrun.WithScheduleTime(stringutil.FormatTime(scheduleTime)),
+			ir.WithAttemptID(attempt.ID()),
+			ir.WithTriggerType(ir.TriggerTypeCatchUp),
+			ir.WithQueuedAt(stringutil.FormatTime(time.Now())),
+			ir.WithScheduleTime(stringutil.FormatTime(scheduleTime)),
 		)
 		writeStatus(t, th.Context, attempt, status)
 
@@ -158,15 +158,15 @@ steps:
 		logPath := filepath.Join(th.Config.Paths.LogDir, "queued-retry-test.log")
 		require.NoError(t, os.MkdirAll(filepath.Dir(logPath), 0o750))
 
-		status := dagrun.NewStatusBuilder(dagFile.DAG).Create(
+		status := ir.NewStatusBuilder(dagFile.DAG).Create(
 			runID,
 			ir.Queued,
 			0,
 			time.Time{},
-			dagrun.WithAttemptID(attempt.ID()),
-			dagrun.WithTriggerType(ir.TriggerTypeRetry),
-			dagrun.WithQueuedAt(stringutil.FormatTime(time.Now())),
-			dagrun.WithLogFilePath(logPath),
+			ir.WithAttemptID(attempt.ID()),
+			ir.WithTriggerType(ir.TriggerTypeRetry),
+			ir.WithQueuedAt(stringutil.FormatTime(time.Now())),
+			ir.WithLogFilePath(logPath),
 		)
 		writeStatus(t, th.Context, attempt, status)
 
@@ -208,13 +208,13 @@ steps:
 		logPath := filepath.Join(th.Config.Paths.LogDir, "queued-retry-live-source-test.log")
 		require.NoError(t, os.MkdirAll(filepath.Dir(logPath), 0o750))
 
-		status := dagrun.NewStatusBuilder(dagFile.DAG).Create(
+		status := ir.NewStatusBuilder(dagFile.DAG).Create(
 			runID,
 			ir.Failed,
 			1,
 			startedAt,
-			dagrun.WithAttemptID(attempt.ID()),
-			dagrun.WithLogFilePath(logPath),
+			ir.WithAttemptID(attempt.ID()),
+			ir.WithLogFilePath(logPath),
 		)
 		writeStatus(t, th.Context, attempt, status)
 
@@ -277,15 +277,15 @@ steps:
 		logPath := filepath.Join(th.Config.Paths.LogDir, "queue-dispatch-test.log")
 		require.NoError(t, os.MkdirAll(filepath.Dir(logPath), 0o750))
 
-		status := dagrun.NewStatusBuilder(dagFile.DAG).Create(
+		status := ir.NewStatusBuilder(dagFile.DAG).Create(
 			runID,
 			ir.Queued,
 			0,
 			time.Time{},
-			dagrun.WithAttemptID(attempt.ID()),
-			dagrun.WithTriggerType(ir.TriggerTypeWebhook),
-			dagrun.WithQueuedAt(stringutil.FormatTime(time.Now())),
-			dagrun.WithLogFilePath(logPath),
+			ir.WithAttemptID(attempt.ID()),
+			ir.WithTriggerType(ir.TriggerTypeWebhook),
+			ir.WithQueuedAt(stringutil.FormatTime(time.Now())),
+			ir.WithLogFilePath(logPath),
 		)
 		writeStatus(t, th.Context, attempt, status)
 
@@ -318,15 +318,15 @@ steps:
 		logPath := filepath.Join(th.Config.Paths.LogDir, "queue-dispatch-retry-test.log")
 		require.NoError(t, os.MkdirAll(filepath.Dir(logPath), 0o750))
 
-		status := dagrun.NewStatusBuilder(dagFile.DAG).Create(
+		status := ir.NewStatusBuilder(dagFile.DAG).Create(
 			runID,
 			ir.Queued,
 			0,
 			time.Time{},
-			dagrun.WithAttemptID(attempt.ID()),
-			dagrun.WithTriggerType(ir.TriggerTypeRetry),
-			dagrun.WithQueuedAt(stringutil.FormatTime(time.Now())),
-			dagrun.WithLogFilePath(logPath),
+			ir.WithAttemptID(attempt.ID()),
+			ir.WithTriggerType(ir.TriggerTypeRetry),
+			ir.WithQueuedAt(stringutil.FormatTime(time.Now())),
+			ir.WithLogFilePath(logPath),
 		)
 		writeStatus(t, th.Context, attempt, status)
 
@@ -574,7 +574,7 @@ steps:
 	require.Equal(t, "from-host|", test.StatusOutputValue(t, retriedStatus, "RESULT"))
 }
 
-func writeStatus(t *testing.T, ctx context.Context, attempt dagrun.DAGRunAttempt, status dagrun.DAGRunStatus) {
+func writeStatus(t *testing.T, ctx context.Context, attempt dagrun.DAGRunAttempt, status ir.DAGRunStatus) {
 	t.Helper()
 
 	require.NoError(t, attempt.Open(ctx))

@@ -14,7 +14,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/service/chatbridge"
@@ -289,7 +288,7 @@ func newMonitorDAGRunEvent(name string) *eventstore.Event {
 	return eventstore.NewDAGRunEvent(
 		eventstore.Source{Service: eventstore.SourceServiceScheduler},
 		eventstore.TypeDAGRunFailed,
-		&dagrun.DAGRunStatus{
+		&ir.DAGRunStatus{
 			Name:      name,
 			Status:    ir.Failed,
 			DAGRunID:  name + "-run",

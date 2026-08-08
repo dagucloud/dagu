@@ -36,7 +36,7 @@ func (n *noopDAGRunAttempt) Open(_ context.Context) error {
 	return nil
 }
 
-func (n *noopDAGRunAttempt) Write(_ context.Context, _ DAGRunStatus) error {
+func (n *noopDAGRunAttempt) Write(_ context.Context, _ ir.DAGRunStatus) error {
 	return nil
 }
 
@@ -44,7 +44,7 @@ func (n *noopDAGRunAttempt) Close(_ context.Context) error {
 	return nil
 }
 
-func (n *noopDAGRunAttempt) ReadStatus(_ context.Context) (*DAGRunStatus, error) {
+func (n *noopDAGRunAttempt) ReadStatus(_ context.Context) (*ir.DAGRunStatus, error) {
 	return nil, ErrNoopAttemptNotSupported
 }
 

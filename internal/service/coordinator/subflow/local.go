@@ -280,7 +280,7 @@ func (r *Local) validateBuildDAG(dag *ir.DAG) error {
 func (r *Local) existingChildRetryTarget(
 	ctx context.Context,
 	req executor.SubWorkflowRequest,
-) (*dagrun.DAGRunStatus, error) {
+) (*ir.DAGRunStatus, error) {
 	retryTarget, err := r.existingChildStatus(ctx, req)
 	if err != nil {
 		if errors.Is(err, dagrun.ErrDAGRunIDNotFound) || errors.Is(err, errNoRunDatabase) {
@@ -294,7 +294,7 @@ func (r *Local) existingChildRetryTarget(
 func (r *Local) existingChildStatus(
 	ctx context.Context,
 	req executor.SubWorkflowRequest,
-) (*dagrun.DAGRunStatus, error) {
+) (*ir.DAGRunStatus, error) {
 	if req.RootDAGRun.ID != "" && req.RunID != "" {
 		status, err := r.dagRunMgr.FindSubDAGRunStatus(ctx, req.RootDAGRun, req.RunID)
 		if err == nil {
@@ -600,7 +600,7 @@ func inProcessExtraEnvs(rCtx runctx.Context, req executor.SubWorkflowRequest) []
 	return envs
 }
 
-func inProcessArtifactDir(ctx context.Context, dag *ir.DAG, baseDir, runID string, retryTarget *dagrun.DAGRunStatus) (string, error) {
+func inProcessArtifactDir(ctx context.Context, dag *ir.DAG, baseDir, runID string, retryTarget *ir.DAGRunStatus) (string, error) {
 	if retryTarget != nil && retryTarget.ArchiveDir != "" {
 		return retryTarget.ArchiveDir, nil
 	}
@@ -620,7 +620,7 @@ func inProcessArtifactDir(ctx context.Context, dag *ir.DAG, baseDir, runID strin
 	return dir, nil
 }
 
-func inProcessRetryTriggerType(status *dagrun.DAGRunStatus) ir.TriggerType {
+func inProcessRetryTriggerType(status *ir.DAGRunStatus) ir.TriggerType {
 	triggerType := queue.PreservedQueueTriggerType(status)
 	if triggerType != ir.TriggerTypeUnknown {
 		return triggerType

@@ -33,7 +33,7 @@ type dagRetryMetadata struct {
 }
 
 type retryCandidateLister interface {
-	ListRetryCandidates(ctx context.Context, from dagrun.TimeInUTC) ([]*dagrun.DAGRunStatus, error)
+	ListRetryCandidates(ctx context.Context, from dagrun.TimeInUTC) ([]*ir.DAGRunStatus, error)
 }
 
 // RetryScanner periodically discovers failed latest attempts and enqueues
@@ -116,7 +116,7 @@ func (s *RetryScanner) scan(ctx context.Context) error {
 	return nil
 }
 
-func (s *RetryScanner) listFailedRuns(ctx context.Context, from dagrun.TimeInUTC) ([]*dagrun.DAGRunStatus, error) {
+func (s *RetryScanner) listFailedRuns(ctx context.Context, from dagrun.TimeInUTC) ([]*ir.DAGRunStatus, error) {
 	if lister, ok := s.dagRunStore.(retryCandidateLister); ok {
 		return lister.ListRetryCandidates(ctx, from)
 	}
@@ -129,7 +129,7 @@ func (s *RetryScanner) listFailedRuns(ctx context.Context, from dagrun.TimeInUTC
 
 func (s *RetryScanner) processFailedRun(
 	ctx context.Context,
-	listed *dagrun.DAGRunStatus,
+	listed *ir.DAGRunStatus,
 	now time.Time,
 ) error {
 	if listed == nil {
@@ -143,7 +143,7 @@ func (s *RetryScanner) processFailedRun(
 
 func (s *RetryScanner) processFailedRunFromSummary(
 	ctx context.Context,
-	listed *dagrun.DAGRunStatus,
+	listed *ir.DAGRunStatus,
 	metadata dagRetryMetadata,
 	now time.Time,
 ) error {
@@ -197,7 +197,7 @@ func (s *RetryScanner) processFailedRunFromSummary(
 
 func (s *RetryScanner) processFailedRunLegacy(
 	ctx context.Context,
-	listed *dagrun.DAGRunStatus,
+	listed *ir.DAGRunStatus,
 	now time.Time,
 ) error {
 	ref := listed.DAGRun()
@@ -278,7 +278,7 @@ func (s *RetryScanner) processFailedRunLegacy(
 
 func (s *RetryScanner) evaluateRetryDecision(
 	_ context.Context,
-	status *dagrun.DAGRunStatus,
+	status *ir.DAGRunStatus,
 	metadata dagRetryMetadata,
 	now time.Time,
 ) retryDecision {
@@ -315,7 +315,7 @@ func dagRetryDelay(interval time.Duration, backoff float64, maxInterval time.Dur
 	return ir.CalculateBackoffInterval(interval, backoff, maxInterval, retryCount)
 }
 
-func retryReferenceTime(status *dagrun.DAGRunStatus) (time.Time, bool) {
+func retryReferenceTime(status *ir.DAGRunStatus) (time.Time, bool) {
 	if status == nil {
 		return time.Time{}, false
 	}
@@ -342,7 +342,7 @@ func parseRFC3339(val string) (time.Time, bool) {
 	return parsed, true
 }
 
-func retryMetadataFromStatus(status *dagrun.DAGRunStatus) (dagRetryMetadata, bool) {
+func retryMetadataFromStatus(status *ir.DAGRunStatus) (dagRetryMetadata, bool) {
 	if status == nil || status.ProcGroup == "" {
 		return dagRetryMetadata{}, false
 	}

@@ -50,7 +50,7 @@ func TestNewContext_DAGRunStoreUsesConfiguredArtifactDirForCleanup(t *testing.T)
 	require.NoError(t, os.MkdirAll(archiveDir, 0o750))
 	require.NoError(t, os.WriteFile(filepath.Join(archiveDir, "artifact.txt"), []byte("artifact"), 0o600))
 
-	status := dagrun.InitialStatus(dag)
+	status := ir.InitialStatus(dag)
 	status.DAGRunID = dagRunID
 	status.Status = ir.Succeeded
 	status.ArchiveDir = archiveDir

@@ -128,7 +128,7 @@ func TestQueueDispatcher_WaitForStartupKeepsLocalLaunchInFlightUntilDone(t *test
 	procStore := &mockProcStore{}
 	runRef := ir.NewDAGRunRef("test-dag", "run-1")
 	attempt := &testutil.MockDAGRunAttempt{
-		Status: &dagrun.DAGRunStatus{Status: ir.Queued},
+		Status: &ir.DAGRunStatus{Status: ir.Queued},
 	}
 	var checks atomic.Int32
 
@@ -209,7 +209,7 @@ func TestQueueDispatcher_CheckStartupStatus_AfterGraceFallsBackToStatus(t *testi
 			procStore := &mockProcStore{}
 			runRef := ir.NewDAGRunRef("test-dag", "run-1")
 			attempt := &testutil.MockDAGRunAttempt{
-				Status: &dagrun.DAGRunStatus{Status: tc.status},
+				Status: &ir.DAGRunStatus{Status: tc.status},
 			}
 
 			procStore.On("IsRunAlive", mock.Anything, "test-queue", runRef).Return(false, nil).Once()
@@ -247,7 +247,7 @@ func TestQueueDispatcher_CheckStartupStatus_AfterGracePropagatesLeaseLookupError
 	}
 	runRef := ir.NewDAGRunRef("test-dag", "run-1")
 	attempt := &testutil.MockDAGRunAttempt{
-		Status: &dagrun.DAGRunStatus{
+		Status: &ir.DAGRunStatus{
 			Status:    ir.Queued,
 			AttemptID: "attempt-1",
 		},
@@ -346,7 +346,7 @@ func TestQueueDispatcher_DispatchAndWaitForStartup_TransientRetryThenSuccess(t *
 
 	dagExec := NewDAGExecutor(disp, nil, config.ExecutionModeDistributed, "")
 	dag := &ir.DAG{Name: "test-dag"}
-	status := &dagrun.DAGRunStatus{Status: ir.Queued, TriggerType: ir.TriggerTypeScheduler}
+	status := &ir.DAGRunStatus{Status: ir.Queued, TriggerType: ir.TriggerTypeScheduler}
 
 	// After dispatch succeeds, the process should become alive.
 	procStore.On("IsRunAlive", mock.Anything, "test-queue", runRef).Return(true, nil).Once()
@@ -383,7 +383,7 @@ func TestQueueDispatcher_DispatchAndWaitForStartup_StaleQueueDispatchIsDiscarded
 
 	dagExec := NewDAGExecutor(disp, nil, config.ExecutionModeDistributed, "")
 	dag := &ir.DAG{Name: "test-dag"}
-	status := &dagrun.DAGRunStatus{Status: ir.Queued, TriggerType: ir.TriggerTypeScheduler}
+	status := &ir.DAGRunStatus{Status: ir.Queued, TriggerType: ir.TriggerTypeScheduler}
 	runRef := ir.NewDAGRunRef("test-dag", "run-1")
 
 	dispatcher := newQueueDispatcher(queueDispatchDeps{
@@ -416,7 +416,7 @@ func TestQueueDispatcher_DispatchAndWaitForStartup_RawStaleQueueDispatchStopsRet
 
 	dagExec := NewDAGExecutor(disp, nil, config.ExecutionModeDistributed, "")
 	dag := &ir.DAG{Name: "test-dag"}
-	status := &dagrun.DAGRunStatus{Status: ir.Queued, TriggerType: ir.TriggerTypeScheduler}
+	status := &ir.DAGRunStatus{Status: ir.Queued, TriggerType: ir.TriggerTypeScheduler}
 	runRef := ir.NewDAGRunRef("test-dag", "run-1")
 
 	dispatcher := newQueueDispatcher(queueDispatchDeps{
@@ -451,7 +451,7 @@ func TestQueueDispatcher_DispatchAndWaitForStartup_PermanentErrorStopsRetry(t *t
 
 	dagExec := NewDAGExecutor(disp, nil, config.ExecutionModeDistributed, "")
 	dag := &ir.DAG{Name: "test-dag"}
-	status := &dagrun.DAGRunStatus{
+	status := &ir.DAGRunStatus{
 		Name:        "test-dag",
 		DAGRunID:    "run-1",
 		AttemptID:   "attempt-1",

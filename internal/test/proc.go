@@ -142,7 +142,7 @@ func CreateStaleLegacyProcFileWithAttempt(
 }
 
 // ReadRunStatus loads the persisted status for the given dag-run reference.
-func ReadRunStatus(ctx context.Context, t *testing.T, store dagrun.DAGRunStore, dagRun ir.DAGRunRef) *dagrun.DAGRunStatus {
+func ReadRunStatus(ctx context.Context, t *testing.T, store dagrun.DAGRunStore, dagRun ir.DAGRunRef) *ir.DAGRunStatus {
 	t.Helper()
 
 	attempt, err := store.FindAttempt(ctx, dagRun)

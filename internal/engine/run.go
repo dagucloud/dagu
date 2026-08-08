@@ -98,7 +98,7 @@ func (e *Engine) Stop(ctx context.Context, ref RunRef) error {
 	return e.stopDAGRunStore(ctx, ref.ID, runRef)
 }
 
-func (e *Engine) readStatus(ctx context.Context, ref ir.DAGRunRef) (*dagrun.DAGRunStatus, error) {
+func (e *Engine) readStatus(ctx context.Context, ref ir.DAGRunRef) (*ir.DAGRunStatus, error) {
 	if e.runStateStore != nil {
 		status, err := e.readRunStateStatus(ctx, ref)
 		if err == nil {
@@ -191,7 +191,7 @@ func (r *Run) Stop(ctx context.Context) error {
 	return r.engine.Stop(ctx, r.ref)
 }
 
-func (e *Engine) readRunStateStatus(ctx context.Context, ref ir.DAGRunRef) (*dagrun.DAGRunStatus, error) {
+func (e *Engine) readRunStateStatus(ctx context.Context, ref ir.DAGRunRef) (*ir.DAGRunStatus, error) {
 	attempt, err := e.runStateStore.OpenAttempt(ctx, ref)
 	if err != nil {
 		return nil, err
@@ -646,19 +646,19 @@ func (e *Engine) recordPreparedFailure(
 	if artifactErr != nil {
 		logger.Warn(ctx, "Failed to generate artifact path for prepared local execution failure", tag.Error(artifactErr))
 	}
-	status := dagrun.NewStatusBuilder(dag).Create(
+	status := ir.NewStatusBuilder(dag).Create(
 		runID,
 		ir.Failed,
 		0,
 		time.Now(),
-		dagrun.WithAttemptID(attempt.ID()),
-		dagrun.WithHierarchyRefs(root, ir.DAGRunRef{}),
-		dagrun.WithLogFilePath(logFile),
-		dagrun.WithArchiveDir(artifactDir),
-		dagrun.WithFinishedAt(time.Now()),
-		dagrun.WithError(runErr.Error()),
-		dagrun.WithWorkerID("local"),
-		dagrun.WithTriggerType(ir.TriggerTypeManual),
+		ir.WithAttemptID(attempt.ID()),
+		ir.WithHierarchyRefs(root, ir.DAGRunRef{}),
+		ir.WithLogFilePath(logFile),
+		ir.WithArchiveDir(artifactDir),
+		ir.WithFinishedAt(time.Now()),
+		ir.WithError(runErr.Error()),
+		ir.WithWorkerID("local"),
+		ir.WithTriggerType(ir.TriggerTypeManual),
 	)
 	if err := attempt.Open(ctx); err != nil {
 		return err

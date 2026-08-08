@@ -137,7 +137,7 @@ func TestHistoryStoreBeginAttemptIgnoresRetentionCleanupFailure(t *testing.T) {
 
 func TestHistoryStoreOpenChildAttemptReturnsAttemptState(t *testing.T) {
 	ctx := context.Background()
-	status := &dagrun.DAGRunStatus{Name: "child", DAGRunID: "child-run", Status: ir.Succeeded}
+	status := &ir.DAGRunStatus{Name: "child", DAGRunID: "child-run", Status: ir.Succeeded}
 	attempt := newRecordingAttempt("child-attempt")
 	attempt.status = status
 	store := &recordingDAGRunStore{
@@ -169,7 +169,7 @@ func TestAttemptDelegatesStateOperations(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	status := dagrun.DAGRunStatus{Name: "parent", DAGRunID: "run-1", Status: ir.Running}
+	status := ir.DAGRunStatus{Name: "parent", DAGRunID: "run-1", Status: ir.Running}
 	outputs := &ir.DAGRunOutputs{Outputs: map[string]string{"result": "ok"}}
 	messages := []ir.LLMMessage{{Role: ir.LLMRoleAssistant, Content: "done"}}
 
@@ -225,7 +225,7 @@ func (s *recordingDAGRunStore) LatestAttempt(context.Context, string) (dagrun.DA
 	return nil, dagrun.ErrDAGRunIDNotFound
 }
 
-func (s *recordingDAGRunStore) ListStatuses(context.Context, ...dagrun.ListDAGRunStatusesOption) ([]*dagrun.DAGRunStatus, error) {
+func (s *recordingDAGRunStore) ListStatuses(context.Context, ...dagrun.ListDAGRunStatusesOption) ([]*ir.DAGRunStatus, error) {
 	return nil, nil
 }
 
@@ -233,7 +233,7 @@ func (s *recordingDAGRunStore) ListStatusesPage(context.Context, ...dagrun.ListD
 	return dagrun.DAGRunStatusPage{}, nil
 }
 
-func (s *recordingDAGRunStore) CompareAndSwapLatestAttemptStatus(context.Context, ir.DAGRunRef, string, ir.Status, func(*dagrun.DAGRunStatus) error, ...dagrun.CompareAndSwapStatusOption) (*dagrun.DAGRunStatus, bool, error) {
+func (s *recordingDAGRunStore) CompareAndSwapLatestAttemptStatus(context.Context, ir.DAGRunRef, string, ir.Status, func(*ir.DAGRunStatus) error, ...dagrun.CompareAndSwapStatusOption) (*ir.DAGRunStatus, bool, error) {
 	return nil, false, nil
 }
 
@@ -268,8 +268,8 @@ func (s *recordingDAGRunStore) RemoveDAGRun(context.Context, ir.DAGRunRef, ...da
 type recordingAttempt struct {
 	id             string
 	dag            *ir.DAG
-	status         *dagrun.DAGRunStatus
-	writtenStatus  dagrun.DAGRunStatus
+	status         *ir.DAGRunStatus
+	writtenStatus  ir.DAGRunStatus
 	writtenOutputs *ir.DAGRunOutputs
 	messages       map[string][]ir.LLMMessage
 	openCalls      int
@@ -288,7 +288,7 @@ func (a *recordingAttempt) Open(context.Context) error {
 	return nil
 }
 
-func (a *recordingAttempt) Write(_ context.Context, status dagrun.DAGRunStatus) error {
+func (a *recordingAttempt) Write(_ context.Context, status ir.DAGRunStatus) error {
 	a.writtenStatus = status
 	return nil
 }
@@ -298,7 +298,7 @@ func (a *recordingAttempt) Close(context.Context) error {
 	return nil
 }
 
-func (a *recordingAttempt) ReadStatus(context.Context) (*dagrun.DAGRunStatus, error) {
+func (a *recordingAttempt) ReadStatus(context.Context) (*ir.DAGRunStatus, error) {
 	return a.status, nil
 }
 

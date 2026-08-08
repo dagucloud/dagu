@@ -146,7 +146,7 @@ func validateFormat(format string) error {
 }
 
 // renderHistory renders DAG run history in the specified format.
-func renderHistory(format string, statuses []*dagrun.DAGRunStatus) error {
+func renderHistory(format string, statuses []*ir.DAGRunStatus) error {
 	switch format {
 	case "json":
 		return renderHistoryJSON(statuses)
@@ -473,7 +473,7 @@ func parseLabels(s string) []string {
 }
 
 // renderHistoryTable displays DAG run history as an aligned table.
-func renderHistoryTable(statuses []*dagrun.DAGRunStatus) error {
+func renderHistoryTable(statuses []*ir.DAGRunStatus) error {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	defer func() {
 		_ = w.Flush()
@@ -509,7 +509,7 @@ func renderHistoryTable(statuses []*dagrun.DAGRunStatus) error {
 }
 
 // renderHistoryCSV displays DAG run history as comma-separated values.
-func renderHistoryCSV(statuses []*dagrun.DAGRunStatus) error {
+func renderHistoryCSV(statuses []*ir.DAGRunStatus) error {
 	const csvHeader = "DAG NAME,RUN ID,STATUS,STARTED (UTC),DURATION,PARAMS"
 
 	// Write header
@@ -529,7 +529,7 @@ func renderHistoryCSV(statuses []*dagrun.DAGRunStatus) error {
 }
 
 // formatCSVRow formats a single DAG run status as a CSV row.
-func formatCSVRow(status *dagrun.DAGRunStatus) string {
+func formatCSVRow(status *ir.DAGRunStatus) string {
 	fields := []string{
 		escapeCSV(status.Name),
 		escapeCSV(status.DAGRunID),
@@ -560,7 +560,7 @@ func needsCSVQuoting(s string) bool {
 }
 
 // renderHistoryJSON displays DAG run history as JSON.
-func renderHistoryJSON(statuses []*dagrun.DAGRunStatus) error {
+func renderHistoryJSON(statuses []*ir.DAGRunStatus) error {
 	type historyEntry struct {
 		Name       string   `json:"name"`
 		DAGRunID   string   `json:"dagRunId"`
@@ -639,7 +639,7 @@ func formatTimestamp(ts string) string {
 
 // formatDuration calculates and formats the duration of a DAG run.
 // For running DAGs, shows elapsed time. For completed DAGs, shows total duration.
-func formatDuration(status *dagrun.DAGRunStatus) string {
+func formatDuration(status *ir.DAGRunStatus) string {
 	if status.StartedAt == "" {
 		return "-"
 	}

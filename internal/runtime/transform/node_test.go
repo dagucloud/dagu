@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/collections"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
@@ -63,7 +62,7 @@ func TestNodeFieldsRoundTrip(t *testing.T) {
 	assert.Equal(t, ir.NodeFailed, state.StatusDetails[0].Status)
 
 	dag := &ir.DAG{Name: "test", Steps: []ir.Step{original.Step}}
-	status := dagrun.NewStatusBuilder(dag).Create("run-1", ir.Succeeded, 0, time.Now(),
+	status := ir.NewStatusBuilder(dag).Create("run-1", ir.Succeeded, 0, time.Now(),
 		transform.WithNodes([]runtime.NodeData{{Step: original.Step, State: state}}))
 
 	result := status.Nodes[0]
@@ -118,7 +117,7 @@ func TestNodeChatMessagesRoundTrip(t *testing.T) {
 
 	// Verify round-trip through status builder
 	dag := &ir.DAG{Name: "test", Steps: []ir.Step{original.Step}}
-	status := dagrun.NewStatusBuilder(dag).Create("run-1", ir.Succeeded, 0, time.Now(),
+	status := ir.NewStatusBuilder(dag).Create("run-1", ir.Succeeded, 0, time.Now(),
 		transform.WithNodes([]runtime.NodeData{{Step: original.Step, State: state}}))
 
 	result := status.Nodes[0]
@@ -152,7 +151,7 @@ func TestNodeEmptyChatMessages(t *testing.T) {
 	assert.Nil(t, state.ChatMessages)
 
 	dag := &ir.DAG{Name: "test", Steps: []ir.Step{original.Step}}
-	status := dagrun.NewStatusBuilder(dag).Create("run-1", ir.Succeeded, 0, time.Now(),
+	status := ir.NewStatusBuilder(dag).Create("run-1", ir.Succeeded, 0, time.Now(),
 		transform.WithNodes([]runtime.NodeData{{Step: original.Step, State: state}}))
 
 	result := status.Nodes[0]

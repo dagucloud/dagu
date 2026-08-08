@@ -60,7 +60,7 @@ func (s *Service) enqueueResume(ctx context.Context, target *target, result Resu
 		queue.EnqueueRetryOptions{},
 	)
 	if err != nil {
-		var latest *dagrun.DAGRunStatus
+		var latest *ir.DAGRunStatus
 		readCtx, readCancel := context.WithTimeout(postCommitCtx, s.EnqueueTimeout)
 		defer readCancel()
 		attempt, readErr := s.DAGRunStore.FindAttempt(readCtx, target.ref)
@@ -96,9 +96,9 @@ func (s *Service) waitForCompletionReady(
 	ctx context.Context,
 	attempt dagrun.DAGRunAttempt,
 	dag *ir.DAG,
-	status *dagrun.DAGRunStatus,
+	status *ir.DAGRunStatus,
 	stepID string,
-) (*dagrun.DAGRunStatus, error) {
+) (*ir.DAGRunStatus, error) {
 	if status.Status != ir.Waiting || status.AttemptID == "" {
 		return status, nil
 	}
@@ -160,7 +160,7 @@ func (s *Service) waitForPoll(ctx context.Context) error {
 	}
 }
 
-func reloadStatus(ctx context.Context, attempt dagrun.DAGRunAttempt) (*dagrun.DAGRunStatus, error) {
+func reloadStatus(ctx context.Context, attempt dagrun.DAGRunAttempt) (*ir.DAGRunStatus, error) {
 	latest, err := attempt.ReadStatus(ctx)
 	if err != nil {
 		return nil, errorf(ErrorInternal, "failed to reload DAG-run status after waiting for the attempt to settle: %v", err)
@@ -171,7 +171,7 @@ func reloadStatus(ctx context.Context, attempt dagrun.DAGRunAttempt) (*dagrun.DA
 	return latest, nil
 }
 
-func attemptFinalizing(status *dagrun.DAGRunStatus, attemptID, stepID string) (bool, error) {
+func attemptFinalizing(status *ir.DAGRunStatus, attemptID, stepID string) (bool, error) {
 	if status.Status != ir.Waiting || status.AttemptID != attemptID || status.FinishedAt != "" {
 		return false, nil
 	}
@@ -247,17 +247,17 @@ func hasWaitingHumanTask(nodes []*ir.Node) bool {
 }
 
 // HasCompletedTask reports whether status contains durable human-task completion input.
-func HasCompletedTask(status *dagrun.DAGRunStatus) bool {
+func HasCompletedTask(status *ir.DAGRunStatus) bool {
 	return status != nil && hasCompletedHumanTask(status.Nodes)
 }
 
 // ResumePending reports whether a run is waiting for its human-task retry to be queued.
-func ResumePending(status *dagrun.DAGRunStatus) bool {
+func ResumePending(status *ir.DAGRunStatus) bool {
 	return status != nil && status.Status == ir.Waiting && !hasWaitingNodes(status.Nodes) && hasCompletedHumanTask(status.Nodes)
 }
 
 // ValidateRetry rejects retry operations that would bypass human-task completion state.
-func ValidateRetry(status *dagrun.DAGRunStatus, stepName string) error {
+func ValidateRetry(status *ir.DAGRunStatus, stepName string) error {
 	if status == nil {
 		return nil
 	}

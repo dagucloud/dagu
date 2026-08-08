@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/collections"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
@@ -22,7 +21,7 @@ func TestDAGRunStatusToProto(t *testing.T) {
 	})
 
 	t.Run("basic status", func(t *testing.T) {
-		status := &dagrun.DAGRunStatus{
+		status := &ir.DAGRunStatus{
 			Name:     "test-dag",
 			DAGRunID: "run-123",
 			Status:   ir.Running,
@@ -65,7 +64,7 @@ func TestRoundTrip(t *testing.T) {
 		outputVars.Store("key2", "value2")
 		outputsValue := `{"messageId":"msg-123","accepted":true}`
 
-		original := &dagrun.DAGRunStatus{
+		original := &ir.DAGRunStatus{
 			Name:       "test-dag",
 			DAGRunID:   "run-123",
 			AttemptID:  "attempt-1",
@@ -174,7 +173,7 @@ func TestRoundTrip(t *testing.T) {
 	})
 
 	t.Run("roundtrip with ChatMessages", func(t *testing.T) {
-		original := &dagrun.DAGRunStatus{
+		original := &ir.DAGRunStatus{
 			Name:     "chat-dag",
 			DAGRunID: "chat-run-123",
 			Status:   ir.Succeeded,

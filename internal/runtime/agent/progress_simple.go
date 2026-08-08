@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
@@ -78,7 +77,7 @@ func (p *SimpleProgressDisplay) UpdateNode(node *ir.Node) {
 }
 
 // UpdateStatus updates the overall DAG status.
-func (p *SimpleProgressDisplay) UpdateStatus(status *dagrun.DAGRunStatus) {
+func (p *SimpleProgressDisplay) UpdateStatus(status *ir.DAGRunStatus) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.status = status.Status

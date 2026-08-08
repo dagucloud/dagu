@@ -17,7 +17,6 @@ import (
 
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
@@ -75,7 +74,7 @@ func sendRawRequestStatus(
 	return resp.StatusCode
 }
 
-func apiStatusOutputValue(t *testing.T, status *dagrun.DAGRunStatus, key string) string {
+func apiStatusOutputValue(t *testing.T, status *ir.DAGRunStatus, key string) string {
 	t.Helper()
 
 	require.NotNil(t, status)

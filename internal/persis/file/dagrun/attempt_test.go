@@ -523,14 +523,14 @@ func createTestDAG() *ir.DAG {
 }
 
 // createTestStatus creates a sample status for testing using StatusFactory
-func createTestStatus(st ir.Status) dagrun.DAGRunStatus {
+func createTestStatus(st ir.Status) ir.DAGRunStatus {
 	dag := createTestDAG()
 
-	return dagrun.DAGRunStatus{
+	return ir.DAGRunStatus{
 		Name:      dag.Name,
 		DAGRunID:  "test",
 		Status:    st,
-		PID:       dagrun.PID(12345),
+		PID:       ir.PID(12345),
 		StartedAt: stringutil.FormatTime(time.Now()),
 		Nodes:     ir.NewNodesFromSteps(dag.Steps),
 	}

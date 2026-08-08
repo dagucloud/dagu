@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
@@ -37,12 +36,12 @@ func TestStatusSerialization(t *testing.T) {
 		SMTP:      &ir.SMTPConfig{},
 	}
 	dagRunID := uuid.Must(uuid.NewV7()).String()
-	statusToPersist := dagrun.NewStatusBuilder(dag).Create(dagRunID, ir.Succeeded, 0, startedAt, dagrun.WithFinishedAt(finishedAt))
+	statusToPersist := ir.NewStatusBuilder(dag).Create(dagRunID, ir.Succeeded, 0, startedAt, ir.WithFinishedAt(finishedAt))
 
 	rawJSON, err := json.Marshal(statusToPersist)
 	require.NoError(t, err)
 
-	statusObject, err := dagrun.StatusFromJSON(string(rawJSON))
+	statusObject, err := ir.StatusFromJSON(string(rawJSON))
 	require.NoError(t, err)
 
 	require.Equal(t, statusToPersist.Name, statusObject.Name)
@@ -69,7 +68,7 @@ func TestStatusBuilder(t *testing.T) {
 		},
 	}
 
-	builder := dagrun.NewStatusBuilder(dag)
+	builder := ir.NewStatusBuilder(dag)
 	dagRunID := "test-run-123"
 	s := ir.Running
 	pid := 12345
@@ -81,7 +80,7 @@ func TestStatusBuilder(t *testing.T) {
 	assert.Equal(t, dag.Name, result.Name)
 	assert.Equal(t, dagRunID, result.DAGRunID)
 	assert.Equal(t, s, result.Status)
-	assert.Equal(t, dagrun.PID(pid), result.PID)
+	assert.Equal(t, ir.PID(pid), result.PID)
 	assert.NotEmpty(t, result.StartedAt)
 	assert.Equal(t, 2, len(result.Nodes))
 	assert.NotNil(t, result.OnExit)
@@ -101,7 +100,7 @@ func TestStatusBuilderWithOptions(t *testing.T) {
 		},
 	}
 
-	builder := dagrun.NewStatusBuilder(dag)
+	builder := ir.NewStatusBuilder(dag)
 	dagRunID := "test-run-456"
 	s := ir.Succeeded
 	pid := 54321
@@ -134,21 +133,21 @@ func TestStatusBuilderWithOptions(t *testing.T) {
 		s,
 		pid,
 		startedAt,
-		dagrun.WithFinishedAt(finishedAt),
+		ir.WithFinishedAt(finishedAt),
 		transform.WithNodes(nodes),
 		transform.WithOnExitNode(exitNode),
 		transform.WithOnSuccessNode(successNode),
 		transform.WithOnFailureNode(failureNode),
 		transform.WithOnAbortNode(abortNode),
-		dagrun.WithLogFilePath("/tmp/log.txt"),
-		dagrun.WithWorkingDir("/tmp/work"),
-		dagrun.WithPreconditions([]*ir.Condition{{Condition: "test", Expected: "true"}}),
-		dagrun.WithHierarchyRefs(rootRef, parentRef),
-		dagrun.WithAttemptID("attempt-789"),
-		dagrun.WithQueuedAt("2024-01-01 12:00:00"),
-		dagrun.WithCreatedAt(1234567890),
-		dagrun.WithWorkerID("worker-abc"),
-		dagrun.WithPIDStartedAt(9876543210),
+		ir.WithLogFilePath("/tmp/log.txt"),
+		ir.WithWorkingDir("/tmp/work"),
+		ir.WithPreconditions([]*ir.Condition{{Condition: "test", Expected: "true"}}),
+		ir.WithHierarchyRefs(rootRef, parentRef),
+		ir.WithAttemptID("attempt-789"),
+		ir.WithQueuedAt("2024-01-01 12:00:00"),
+		ir.WithCreatedAt(1234567890),
+		ir.WithWorkerID("worker-abc"),
+		ir.WithPIDStartedAt(9876543210),
 	)
 
 	assert.Equal(t, stringutil.FormatTime(finishedAt), result.FinishedAt)
@@ -174,21 +173,21 @@ func TestStatusBuilderWithConditions(t *testing.T) {
 
 	dag := &ir.DAG{Name: "queued-dag"}
 	checkedAt := time.Date(2026, 5, 19, 1, 2, 3, 0, time.UTC)
-	runnable := dagrun.NewDAGRunCondition(
+	runnable := ir.NewDAGRunCondition(
 		"Runnable",
 		"False",
 		"MaxConcurrencyReached",
 		"The DAG-run cannot start because the queue active-run concurrency limit has been reached.",
 		checkedAt,
 	)
-	concurrencyReadyOlder := dagrun.NewDAGRunCondition(
+	concurrencyReadyOlder := ir.NewDAGRunCondition(
 		"ConcurrencyReady",
 		"False",
 		"MaxConcurrencyReached",
 		"The queue active-run concurrency limit has been reached.",
 		checkedAt.Add(-time.Minute),
 	)
-	concurrencyReadyNewer := dagrun.NewDAGRunCondition(
+	concurrencyReadyNewer := ir.NewDAGRunCondition(
 		"ConcurrencyReady",
 		"True",
 		"ConcurrencyAvailable",
@@ -196,19 +195,19 @@ func TestStatusBuilderWithConditions(t *testing.T) {
 		checkedAt.Add(time.Minute),
 	)
 
-	result := dagrun.NewStatusBuilder(dag).Create(
+	result := ir.NewStatusBuilder(dag).Create(
 		"queued-run",
 		ir.Queued,
 		0,
 		time.Time{},
-		dagrun.WithConditions([]dagrun.DAGRunCondition{
+		ir.WithConditions([]ir.DAGRunCondition{
 			concurrencyReadyOlder,
 			runnable,
 			concurrencyReadyNewer,
 		}),
 	)
 
-	assert.Equal(t, []dagrun.DAGRunCondition{
+	assert.Equal(t, []ir.DAGRunCondition{
 		runnable,
 		concurrencyReadyNewer,
 	}, result.Conditions)
@@ -220,13 +219,13 @@ func TestStatusBuilderWithConditionsClearsConditionsForNonQueuedStatus(t *testin
 	dag := &ir.DAG{Name: "running-dag"}
 	checkedAt := time.Date(2026, 5, 19, 1, 2, 3, 0, time.UTC)
 
-	result := dagrun.NewStatusBuilder(dag).Create(
+	result := ir.NewStatusBuilder(dag).Create(
 		"running-run",
 		ir.Running,
 		0,
 		time.Time{},
-		dagrun.WithConditions([]dagrun.DAGRunCondition{
-			dagrun.NewDAGRunCondition(
+		ir.WithConditions([]ir.DAGRunCondition{
+			ir.NewDAGRunCondition(
 				"Runnable",
 				"False",
 				"MaxConcurrencyReached",
@@ -247,7 +246,7 @@ func TestStatusBuilderPopulatesPendingStepRetriesFromNodes(t *testing.T) {
 		},
 	}
 
-	builder := dagrun.NewStatusBuilder(dag)
+	builder := ir.NewStatusBuilder(dag)
 	result := builder.Create(
 		"retry-run",
 		ir.Queued,
@@ -282,7 +281,7 @@ func TestStatusBuilderPendingStepRetriesOptionOverridesAutoDerivation(t *testing
 		},
 	}
 
-	builder := dagrun.NewStatusBuilder(dag)
+	builder := ir.NewStatusBuilder(dag)
 	result := builder.Create(
 		"retry-run",
 		ir.Queued,
@@ -302,7 +301,7 @@ func TestStatusBuilderPendingStepRetriesOptionOverridesAutoDerivation(t *testing
 				},
 			},
 		}),
-		dagrun.WithPendingStepRetries([]ir.PendingStepRetry{}),
+		ir.WithPendingStepRetries([]ir.PendingStepRetry{}),
 	)
 
 	assert.NotNil(t, result.PendingStepRetries)
@@ -330,7 +329,7 @@ func TestStatusBuilderPopulatesPendingStepRetriesFromHandlerNodes(t *testing.T) 
 		},
 	)
 
-	builder := dagrun.NewStatusBuilder(dag)
+	builder := ir.NewStatusBuilder(dag)
 	result := builder.Create(
 		"retry-run",
 		ir.Queued,
@@ -363,11 +362,11 @@ func TestInitialStatus(t *testing.T) {
 		},
 	}
 
-	st := dagrun.InitialStatus(dag)
+	st := ir.InitialStatus(dag)
 
 	assert.Equal(t, dag.Name, st.Name)
 	assert.Equal(t, ir.NotStarted, st.Status)
-	assert.Equal(t, dagrun.PID(0), st.PID)
+	assert.Equal(t, ir.PID(0), st.PID)
 	assert.Equal(t, 2, len(st.Nodes))
 	assert.NotNil(t, st.OnExit)
 	assert.NotNil(t, st.OnSuccess)
@@ -383,16 +382,16 @@ func TestInitialStatus(t *testing.T) {
 
 func TestStatusFromJSONError(t *testing.T) {
 	// Test with invalid JSON
-	_, err := dagrun.StatusFromJSON("invalid json")
+	_, err := ir.StatusFromJSON("invalid json")
 	assert.Error(t, err)
 
 	// Test with empty string
-	_, err = dagrun.StatusFromJSON("")
+	_, err = ir.StatusFromJSON("")
 	assert.Error(t, err)
 }
 
 func TestDAGRunStatus_DAGRun(t *testing.T) {
-	dagRunStatus := &dagrun.DAGRunStatus{
+	dagRunStatus := &ir.DAGRunStatus{
 		Name:     "test-dag",
 		DAGRunID: "run-123",
 	}
@@ -403,7 +402,7 @@ func TestDAGRunStatus_DAGRun(t *testing.T) {
 }
 
 func TestDAGRunStatus_Errors(t *testing.T) {
-	dagRunStatus := &dagrun.DAGRunStatus{
+	dagRunStatus := &ir.DAGRunStatus{
 		Nodes: []*ir.Node{
 			{Step: ir.Step{Name: "step1"}, Error: "error1"},
 			{Step: ir.Step{Name: "step2"}, Error: ""},
@@ -425,7 +424,7 @@ func TestDAGRunStatus_Errors(t *testing.T) {
 }
 
 func TestDAGRunStatus_NodeByName(t *testing.T) {
-	dagRunStatus := &dagrun.DAGRunStatus{
+	dagRunStatus := &ir.DAGRunStatus{
 		Nodes: []*ir.Node{
 			{Step: ir.Step{Name: "step1"}},
 			{Step: ir.Step{Name: "step2"}},
@@ -459,22 +458,22 @@ func TestDAGRunStatus_NodeByName(t *testing.T) {
 func TestPID_String(t *testing.T) {
 	tests := []struct {
 		name     string
-		pid      dagrun.PID
+		pid      ir.PID
 		expected string
 	}{
 		{
 			name:     "PositivePID",
-			pid:      dagrun.PID(12345),
+			pid:      ir.PID(12345),
 			expected: "12345",
 		},
 		{
 			name:     "ZeroPID",
-			pid:      dagrun.PID(0),
+			pid:      ir.PID(0),
 			expected: "",
 		},
 		{
 			name:     "NegativePID",
-			pid:      dagrun.PID(-1),
+			pid:      ir.PID(-1),
 			expected: "",
 		},
 	}
@@ -511,11 +510,11 @@ func TestNewNodesFromSteps(t *testing.T) {
 
 func TestWithCreatedAtDefaultTime(t *testing.T) {
 	dag := &ir.DAG{Name: "test"}
-	dagRunStatus := dagrun.InitialStatus(dag)
+	dagRunStatus := ir.InitialStatus(dag)
 
 	// Test WithCreatedAt with 0 - should use current time
 	beforeTime := time.Now().UnixMilli()
-	dagrun.WithCreatedAt(0)(&dagRunStatus)
+	ir.WithCreatedAt(0)(&dagRunStatus)
 	afterTime := time.Now().UnixMilli()
 
 	assert.GreaterOrEqual(t, dagRunStatus.CreatedAt, beforeTime)

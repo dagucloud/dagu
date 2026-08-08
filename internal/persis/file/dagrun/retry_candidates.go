@@ -28,12 +28,12 @@ const (
 )
 
 type retryCandidateFile struct {
-	RunTimestampUnix int64               `json:"runTimestampUnix"`
-	Status           dagrun.DAGRunStatus `json:"status"`
+	RunTimestampUnix int64           `json:"runTimestampUnix"`
+	Status           ir.DAGRunStatus `json:"status"`
 }
 
-func (store *Store) ListRetryCandidates(ctx context.Context, from dagrun.TimeInUTC) ([]*dagrun.DAGRunStatus, error) {
-	var candidates []*dagrun.DAGRunStatus
+func (store *Store) ListRetryCandidates(ctx context.Context, from dagrun.TimeInUTC) ([]*ir.DAGRunStatus, error) {
+	var candidates []*ir.DAGRunStatus
 
 	roots, err := store.listRoot(ctx, "")
 	if err != nil {
@@ -63,11 +63,11 @@ func (store *Store) ListRetryCandidates(ctx context.Context, from dagrun.TimeInU
 	return candidates, nil
 }
 
-func (store *Store) listRetryCandidatesForDay(ctx context.Context, dayPath string, from dagrun.TimeInUTC) ([]*dagrun.DAGRunStatus, error) {
+func (store *Store) listRetryCandidatesForDay(ctx context.Context, dayPath string, from dagrun.TimeInUTC) ([]*ir.DAGRunStatus, error) {
 	return store.listRetryCandidatesForDayAfterRebuild(ctx, dayPath, from, false)
 }
 
-func (store *Store) listRetryCandidatesForDayAfterRebuild(ctx context.Context, dayPath string, from dagrun.TimeInUTC, rebuiltCorruptCandidate bool) ([]*dagrun.DAGRunStatus, error) {
+func (store *Store) listRetryCandidatesForDayAfterRebuild(ctx context.Context, dayPath string, from dagrun.TimeInUTC, rebuiltCorruptCandidate bool) ([]*ir.DAGRunStatus, error) {
 	candidateDir := filepath.Join(dayPath, retryCandidateDirName)
 	needsRebuild, err := retryCandidatesNeedRebuild(dayPath)
 	if err != nil {
@@ -87,7 +87,7 @@ func (store *Store) listRetryCandidatesForDayAfterRebuild(ctx context.Context, d
 		return nil, fmt.Errorf("read retry candidate directory %s: %w", candidateDir, err)
 	}
 
-	var candidates []*dagrun.DAGRunStatus
+	var candidates []*ir.DAGRunStatus
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), retryCandidateExt) {
 			continue
@@ -135,7 +135,7 @@ func (store *Store) listRetryCandidatesForDayAfterRebuild(ctx context.Context, d
 	return candidates, nil
 }
 
-func updateRetryCandidateFromStatus(statusFile string, status dagrun.DAGRunStatus) error {
+func updateRetryCandidateFromStatus(statusFile string, status ir.DAGRunStatus) error {
 	runDir, dayDir, ok := retryCandidateRootPaths(statusFile)
 	if !ok {
 		return nil
@@ -214,7 +214,7 @@ func retryCandidatesNeedRebuild(dayPath string) (bool, error) {
 	return false, fmt.Errorf("stat retry candidate directory %s: %w", candidateDir, err)
 }
 
-func rebuildRetryCandidatesForDay(ctx context.Context, dayPath string, cache *fileutil.Cache[*dagrun.DAGRunStatus]) error {
+func rebuildRetryCandidatesForDay(ctx context.Context, dayPath string, cache *fileutil.Cache[*ir.DAGRunStatus]) error {
 	candidateDir := filepath.Join(dayPath, retryCandidateDirName)
 	if err := fileutil.RemoveAll(candidateDir); err != nil {
 		return fmt.Errorf("remove retry candidate directory: %w", err)
@@ -284,7 +284,7 @@ func readRetryCandidateFile(dir, name string) (*retryCandidateFile, error) {
 	return &candidate, nil
 }
 
-func retryCandidatePath(dayDir string, status dagrun.DAGRunStatus) string {
+func retryCandidatePath(dayDir string, status ir.DAGRunStatus) string {
 	key := status.Name + "\x00" + status.DAGRunID
 	sum := sha256.Sum256([]byte(key))
 	return filepath.Join(dayDir, retryCandidateDirName, hex.EncodeToString(sum[:])+retryCandidateExt)
@@ -303,15 +303,15 @@ func retryCandidateRunExists(dayPath string, candidate *retryCandidateFile) (boo
 	return false, fmt.Errorf("stat retry candidate run directory %s: %w", runDir, err)
 }
 
-func isRetryCandidateStatus(status dagrun.DAGRunStatus) bool {
+func isRetryCandidateStatus(status ir.DAGRunStatus) bool {
 	return status.Status == ir.Failed &&
 		status.Parent.Zero() &&
 		status.AutoRetryLimit > 0 &&
 		status.ProcGroup != ""
 }
 
-func retryCandidateStatus(status dagrun.DAGRunStatus) dagrun.DAGRunStatus {
-	return dagrun.DAGRunStatus{
+func retryCandidateStatus(status ir.DAGRunStatus) ir.DAGRunStatus {
+	return ir.DAGRunStatus{
 		Root:                 status.Root,
 		Parent:               status.Parent,
 		Name:                 status.Name,

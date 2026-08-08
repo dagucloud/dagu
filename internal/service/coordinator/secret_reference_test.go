@@ -66,7 +66,7 @@ func TestResolveSecretReference(t *testing.T) {
 	t.Cleanup(func() {
 		require.NoError(t, attempt.Close(context.Background()))
 	})
-	require.NoError(t, attempt.Write(ctx, dagrun.DAGRunStatus{
+	require.NoError(t, attempt.Write(ctx, ir.DAGRunStatus{
 		Name:       dag.Name,
 		DAGRunID:   "run-1",
 		AttemptID:  attempt.ID(),

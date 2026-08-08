@@ -20,7 +20,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
@@ -512,7 +511,7 @@ func TestDispatchTaskStore_ClaimsLegacyProtoJSONTaskRecord(t *testing.T) {
 	dir := t.TempDir()
 	s := store.NewDispatchTaskStore(file.NewCollection(dir))
 
-	statusData, err := json.Marshal(dagrun.DAGRunStatus{
+	statusData, err := json.Marshal(ir.DAGRunStatus{
 		Name:     "dag-legacy",
 		DAGRunID: "run-legacy",
 		Status:   ir.Running,

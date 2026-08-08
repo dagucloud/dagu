@@ -1,22 +1,22 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package dagrun
+package ir
 
 import (
 	"slices"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 )
 
 // StatusBuilder creates DAG-run statuses for a DAG definition.
 type StatusBuilder struct {
-	dag *ir.DAG
+	dag *DAG
 }
 
 // NewStatusBuilder returns a status builder for dag.
-func NewStatusBuilder(dag *ir.DAG) *StatusBuilder {
+func NewStatusBuilder(dag *DAG) *StatusBuilder {
 	return &StatusBuilder{dag: dag}
 }
 
@@ -24,7 +24,7 @@ func NewStatusBuilder(dag *ir.DAG) *StatusBuilder {
 type StatusOption func(*DAGRunStatus)
 
 // WithHierarchyRefs sets the root and parent DAG-run references.
-func WithHierarchyRefs(root, parent ir.DAGRunRef) StatusOption {
+func WithHierarchyRefs(root, parent DAGRunRef) StatusOption {
 	return func(status *DAGRunStatus) {
 		status.Root = root
 		status.Parent = parent
@@ -72,7 +72,7 @@ func WithScheduleTime(formattedTime string) StatusOption {
 // WithFinishedAt sets the completion time.
 func WithFinishedAt(finishedAt time.Time) StatusOption {
 	return func(status *DAGRunStatus) {
-		status.FinishedAt = FormatTime(finishedAt)
+		status.FinishedAt = stringutil.FormatTime(finishedAt)
 	}
 }
 
@@ -105,14 +105,14 @@ func WithError(err string) StatusOption {
 }
 
 // WithPreconditions initializes DAG-level precondition results.
-func WithPreconditions(conditions []*ir.Condition) StatusOption {
+func WithPreconditions(conditions []*Condition) StatusOption {
 	return func(status *DAGRunStatus) {
 		status.Preconditions = snapshotConditionResults(conditions)
 	}
 }
 
 // WithPreconditionResults sets evaluated DAG-level preconditions.
-func WithPreconditionResults(results []ir.ConditionResult) StatusOption {
+func WithPreconditionResults(results []ConditionResult) StatusOption {
 	return func(status *DAGRunStatus) {
 		if results == nil {
 			return
@@ -136,7 +136,7 @@ func WithPIDStartedAt(startedAt int64) StatusOption {
 }
 
 // WithTriggerType sets the run trigger type.
-func WithTriggerType(triggerType ir.TriggerType) StatusOption {
+func WithTriggerType(triggerType TriggerType) StatusOption {
 	return func(status *DAGRunStatus) {
 		status.TriggerType = triggerType
 	}
@@ -157,7 +157,7 @@ func WithAutoRetryCount(autoRetryCount int) StatusOption {
 }
 
 // WithPendingStepRetries sets parent-managed step retries awaiting scheduling.
-func WithPendingStepRetries(retries []ir.PendingStepRetry) StatusOption {
+func WithPendingStepRetries(retries []PendingStepRetry) StatusOption {
 	return func(status *DAGRunStatus) {
 		status.PendingStepRetries = retries
 	}
@@ -171,11 +171,11 @@ func WithConditions(conditions []DAGRunCondition) StatusOption {
 }
 
 // WithRuntimeProfile sets the selected runtime profile metadata.
-func WithRuntimeProfile(name, resolvedAt string, entries []ir.RuntimeProfileEntry) StatusOption {
+func WithRuntimeProfile(name, resolvedAt string, entries []RuntimeProfileEntry) StatusOption {
 	return func(status *DAGRunStatus) {
 		status.ProfileName = name
 		status.ProfileResolvedAt = resolvedAt
-		status.ProfileEntries = append([]ir.RuntimeProfileEntry(nil), entries...)
+		status.ProfileEntries = append([]RuntimeProfileEntry(nil), entries...)
 	}
 }
 
@@ -189,7 +189,7 @@ func WithNoReuse(disabled bool) StatusOption {
 // Create builds a DAG-run status.
 func (builder *StatusBuilder) Create(
 	dagRunID string,
-	status ir.Status,
+	status Status,
 	pid int,
 	startedAt time.Time,
 	opts ...StatusOption,
@@ -198,7 +198,7 @@ func (builder *StatusBuilder) Create(
 	result.DAGRunID = dagRunID
 	result.Status = status
 	result.PID = PID(pid)
-	result.StartedAt = FormatTime(startedAt)
+	result.StartedAt = stringutil.FormatTime(startedAt)
 	result.CreatedAt = time.Now().UnixMilli()
 
 	for _, opt := range opts {
@@ -217,7 +217,7 @@ func (builder *StatusBuilder) Create(
 			rootName = result.Name
 			rootID = result.DAGRunID
 		}
-		result.AttemptKey = ir.GenerateAttemptKey(
+		result.AttemptKey = GenerateAttemptKey(
 			rootName,
 			rootID,
 			result.Name,

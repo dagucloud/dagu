@@ -6,7 +6,6 @@ package executor_test
 import (
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -387,7 +386,7 @@ func TestTaskOption_Functions(t *testing.T) {
 		t.Parallel()
 
 		task := &dispatch.DispatchTask{}
-		status := &dagrun.DAGRunStatus{
+		status := &ir.DAGRunStatus{
 			Name:      "test-dag",
 			DAGRunID:  "run-123",
 			ProcGroup: "shared-queue",

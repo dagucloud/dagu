@@ -90,8 +90,8 @@ steps:
 	f.waitForQueued()
 	f.startScheduler(schedulerTimeout)
 
-	var status dagrun.DAGRunStatus
-	var subRuns []dagrun.DAGRunStatus
+	var status ir.DAGRunStatus
+	var subRuns []ir.DAGRunStatus
 	require.Eventually(t, func() bool {
 		var ok bool
 		status, subRuns, ok = readRunningInlineSubDAGs(f, 1)
@@ -188,8 +188,8 @@ steps:
 	f.waitForQueued()
 	f.startScheduler(schedulerTimeout)
 
-	var status dagrun.DAGRunStatus
-	var subRuns []dagrun.DAGRunStatus
+	var status ir.DAGRunStatus
+	var subRuns []ir.DAGRunStatus
 	require.Eventually(t, func() bool {
 		var ok bool
 		status, subRuns, ok = readRunningInlineSubDAGs(f, 2)
@@ -670,7 +670,7 @@ steps:
 	require.Equal(t, rootRef, lease.Root)
 	require.Equal(t, task.AttemptId, lease.AttemptID)
 
-	var initialSubStatus dagrun.DAGRunStatus
+	var initialSubStatus ir.DAGRunStatus
 	require.Eventually(t, func() bool {
 		subStatus, err := readSubDAGRunStatus(f, rootRef, subRunRef.ID)
 		if err != nil || subStatus == nil {
@@ -782,22 +782,22 @@ func waitForLease(t *testing.T, f *testFixture, attemptKey string, timeout time.
 	return *lease
 }
 
-func readRunningInlineSubDAGs(f *testFixture, expected int) (dagrun.DAGRunStatus, []dagrun.DAGRunStatus, bool) {
+func readRunningInlineSubDAGs(f *testFixture, expected int) (ir.DAGRunStatus, []ir.DAGRunStatus, bool) {
 	status, err := f.latestStatus()
 	if err != nil || status.Status != ir.Running || status.AttemptKey == "" || len(status.Nodes) != expected {
-		return dagrun.DAGRunStatus{}, nil, false
+		return ir.DAGRunStatus{}, nil, false
 	}
 
 	rootRef := ir.NewDAGRunRef(status.Name, status.DAGRunID)
-	subRuns := make([]dagrun.DAGRunStatus, 0, expected)
+	subRuns := make([]ir.DAGRunStatus, 0, expected)
 	for _, node := range status.Nodes {
 		if node == nil || node.Status != ir.NodeRunning || len(node.SubRuns) != 1 {
-			return dagrun.DAGRunStatus{}, nil, false
+			return ir.DAGRunStatus{}, nil, false
 		}
 		subStatus, err := readSubDAGRunStatus(f, rootRef, node.SubRuns[0].DAGRunID)
 		if err != nil || subStatus == nil || subStatus.Status != ir.Running ||
 			subStatus.AttemptKey == "" || subStatus.ClaimKey != status.AttemptKey {
-			return dagrun.DAGRunStatus{}, nil, false
+			return ir.DAGRunStatus{}, nil, false
 		}
 		subRuns = append(subRuns, *subStatus)
 	}
@@ -812,11 +812,11 @@ func waitForSubDAGRunStatus(
 	subRunID string,
 	expected ir.Status,
 	timeout time.Duration,
-) dagrun.DAGRunStatus {
+) ir.DAGRunStatus {
 	t.Helper()
 
 	timeout = distrTestTimeout(timeout)
-	var status *dagrun.DAGRunStatus
+	var status *ir.DAGRunStatus
 	var schedulerErr error
 	require.Eventually(t, func() bool {
 		schedulerErr = f.pollSchedulerErr()
@@ -837,7 +837,7 @@ func readSubDAGRunStatus(
 	f *testFixture,
 	rootRef ir.DAGRunRef,
 	subRunID string,
-) (*dagrun.DAGRunStatus, error) {
+) (*ir.DAGRunStatus, error) {
 	attempt, err := f.coord.DAGRunStore.FindSubAttempt(f.coord.Context, rootRef, subRunID)
 	if err != nil {
 		return nil, err

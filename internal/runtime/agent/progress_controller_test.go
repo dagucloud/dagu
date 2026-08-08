@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/controller"
 	"github.com/stretchr/testify/assert"
@@ -129,7 +128,7 @@ func TestControllerProgressDisplay_PrintFinalFlushesUnsettledAction(t *testing.T
 
 	// Suspension ends the process with the action still waiting; the final
 	// flush shows it as it stands.
-	display.UpdateStatus(&dagrun.DAGRunStatus{Status: ir.Waiting})
+	display.UpdateStatus(&ir.DAGRunStatus{Status: ir.Waiting})
 	display.printFinal()
 	assert.Contains(t, out.String(), "review ⏸")
 	assert.Contains(t, out.String(), "⏸ ")

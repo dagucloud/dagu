@@ -287,15 +287,15 @@ func createDistributedQueueRunWithStatus(
 		require.NoError(t, attempt.Close(ctx))
 	}()
 
-	runStatus := dagrun.InitialStatus(dag)
+	runStatus := ir.InitialStatus(dag)
 	runStatus.Status = status
 	runStatus.DAGRunID = dagRunID
 	runStatus.AttemptID = attempt.ID()
 	runStatus.ProcGroup = name
 	runStatus.WorkerID = "worker-1"
 	if status == ir.Queued {
-		runStatus.Conditions = []dagrun.DAGRunCondition{
-			dagrun.NewDAGRunCondition(
+		runStatus.Conditions = []ir.DAGRunCondition{
+			ir.NewDAGRunCondition(
 				"Runnable",
 				"False",
 				"MaxConcurrencyReached",
@@ -346,7 +346,7 @@ func createQueuedQueueRun(
 		require.NoError(t, attempt.Close(ctx))
 	}()
 
-	runStatus := dagrun.InitialStatus(dag)
+	runStatus := ir.InitialStatus(dag)
 	runStatus.Status = status
 	runStatus.DAGRunID = dagRunID
 	runStatus.AttemptID = attempt.ID()

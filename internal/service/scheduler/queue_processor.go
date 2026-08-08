@@ -417,7 +417,7 @@ func (p *QueueProcessor) ProcessQueueItems(ctx context.Context, queueName string
 	wg.Wait()
 }
 
-func currentStatusString(status *dagrun.DAGRunStatus) string {
+func currentStatusString(status *ir.DAGRunStatus) string {
 	if status == nil {
 		return "unknown"
 	}
@@ -465,7 +465,7 @@ func readStartupExecutionError(execErrCh <-chan error) error {
 	}
 }
 
-func queueAttemptKey(runRef ir.DAGRunRef, attempt dagrun.DAGRunAttempt, status *dagrun.DAGRunStatus) string {
+func queueAttemptKey(runRef ir.DAGRunRef, attempt dagrun.DAGRunAttempt, status *ir.DAGRunStatus) string {
 	if status == nil {
 		return ""
 	}

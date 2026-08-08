@@ -273,7 +273,7 @@ func toTriggerType(t ir.TriggerType) *api.TriggerType {
 	return new(api.TriggerType(t.String()))
 }
 
-func toDAGRunConditions(status ir.Status, conditions []dagrun.DAGRunCondition) *[]api.DAGRunCondition {
+func toDAGRunConditions(status ir.Status, conditions []ir.DAGRunCondition) *[]api.DAGRunCondition {
 	if status != ir.Queued || len(conditions) == 0 {
 		return nil
 	}
@@ -324,7 +324,7 @@ func toRuntimeProfileName(name string) *api.RuntimeProfileName {
 	return &profileName
 }
 
-func toDAGRunSummary(s dagrun.DAGRunStatus) api.DAGRunSummary {
+func toDAGRunSummary(s ir.DAGRunStatus) api.DAGRunSummary {
 	var autoRetryLimit *int
 	if s.AutoRetryLimit > 0 {
 		autoRetryLimit = ptrOf(s.AutoRetryLimit)
@@ -376,7 +376,7 @@ func toDAGRunsPageResponse(page dagrun.DAGRunStatusPage) api.DAGRunsPageResponse
 
 // ToDAGRunDetails converts a DAGRunStatus to its API representation.
 // This function is exported for use by the SSE package.
-func ToDAGRunDetails(s dagrun.DAGRunStatus) api.DAGRunDetails {
+func ToDAGRunDetails(s ir.DAGRunStatus) api.DAGRunDetails {
 	preconditions := make([]api.Condition, len(s.Preconditions))
 	for i, p := range s.Preconditions {
 		preconditions[i] = toPreconditionResult(p)

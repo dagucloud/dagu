@@ -42,7 +42,7 @@ func resolveWorkerPreparedAttempt(
 	dagName, dagRunID string,
 	root ir.DAGRunRef,
 	requestedAttemptID string,
-) (dagrun.DAGRunAttempt, *dagrun.DAGRunStatus, error) {
+) (dagrun.DAGRunAttempt, *ir.DAGRunStatus, error) {
 	attempt, runStatus, err := readLatestAttempt(ctx, dagRunStore, dagName, dagRunID, root)
 	if err != nil {
 		return nil, nil, err
@@ -58,7 +58,7 @@ func readLatestAttempt(
 	dagRunStore dagrun.DAGRunStore,
 	dagName, dagRunID string,
 	root ir.DAGRunRef,
-) (dagrun.DAGRunAttempt, *dagrun.DAGRunStatus, error) {
+) (dagrun.DAGRunAttempt, *ir.DAGRunStatus, error) {
 	var (
 		attempt dagrun.DAGRunAttempt
 		err     error
@@ -82,7 +82,7 @@ func readLatestAttempt(
 func validateWorkerAttemptBinding(
 	dagRunID, requestedAttemptID string,
 	attempt dagrun.DAGRunAttempt,
-	runStatus *dagrun.DAGRunStatus,
+	runStatus *ir.DAGRunStatus,
 ) error {
 	currentAttemptID := requestedAttemptID
 	if runStatus != nil && runStatus.AttemptID != "" {

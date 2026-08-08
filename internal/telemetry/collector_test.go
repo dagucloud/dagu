@@ -156,12 +156,12 @@ func (m *mockDAGRunStore) LatestAttempt(ctx context.Context, name string) (dagru
 	return args.Get(0).(dagrun.DAGRunAttempt), args.Error(1)
 }
 
-func (m *mockDAGRunStore) ListStatuses(ctx context.Context, opts ...dagrun.ListDAGRunStatusesOption) ([]*dagrun.DAGRunStatus, error) {
+func (m *mockDAGRunStore) ListStatuses(ctx context.Context, opts ...dagrun.ListDAGRunStatusesOption) ([]*ir.DAGRunStatus, error) {
 	args := m.Called(ctx, opts)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).([]*dagrun.DAGRunStatus), args.Error(1)
+	return args.Get(0).([]*ir.DAGRunStatus), args.Error(1)
 }
 
 func (m *mockDAGRunStore) ListStatusesPage(ctx context.Context, opts ...dagrun.ListDAGRunStatusesOption) (dagrun.DAGRunStatusPage, error) {
@@ -177,14 +177,14 @@ func (m *mockDAGRunStore) CompareAndSwapLatestAttemptStatus(
 	dagRun ir.DAGRunRef,
 	expectedAttemptID string,
 	expectedStatus ir.Status,
-	mutate func(*dagrun.DAGRunStatus) error,
+	mutate func(*ir.DAGRunStatus) error,
 	_ ...dagrun.CompareAndSwapStatusOption,
-) (*dagrun.DAGRunStatus, bool, error) {
+) (*ir.DAGRunStatus, bool, error) {
 	args := m.Called(ctx, dagRun, expectedAttemptID, expectedStatus, mutate)
 	if args.Get(0) == nil {
 		return nil, args.Bool(1), args.Error(2)
 	}
-	return args.Get(0).(*dagrun.DAGRunStatus), args.Bool(1), args.Error(2)
+	return args.Get(0).(*ir.DAGRunStatus), args.Bool(1), args.Error(2)
 }
 
 func (m *mockDAGRunStore) FindAttempt(ctx context.Context, dagRun ir.DAGRunRef) (dagrun.DAGRunAttempt, error) {
@@ -384,7 +384,7 @@ func TestCollector_Collect_BasicMetrics(t *testing.T) {
 		[]string{},
 		nil,
 	)
-	dagRunStore.On("ListStatuses", mock.Anything, mock.Anything).Return([]*dagrun.DAGRunStatus{}, nil)
+	dagRunStore.On("ListStatuses", mock.Anything, mock.Anything).Return([]*ir.DAGRunStatus{}, nil)
 	queueStore.On("All", mock.Anything).Return([]queue.QueuedItemData{}, nil)
 
 	serviceRegistry := &mockServiceRegistry{}
@@ -425,7 +425,7 @@ func TestCollector_Collect_WithDAGRuns(t *testing.T) {
 	)
 
 	// Mock DAG run store response
-	statuses := []*dagrun.DAGRunStatus{
+	statuses := []*ir.DAGRunStatus{
 		{Status: ir.Succeeded},
 		{Status: ir.Succeeded},
 		{Status: ir.Failed},
@@ -518,7 +518,7 @@ func TestCollector_Collect_WithWorkerHeartbeatMetrics(t *testing.T) {
 		[]string{},
 		nil,
 	)
-	dagRunStore.On("ListStatuses", mock.Anything, mock.Anything).Return([]*dagrun.DAGRunStatus{}, nil)
+	dagRunStore.On("ListStatuses", mock.Anything, mock.Anything).Return([]*ir.DAGRunStatus{}, nil)
 	queueStore.On("All", mock.Anything).Return([]queue.QueuedItemData{}, nil)
 
 	now := time.Now().UTC()
@@ -604,7 +604,7 @@ func TestCollector_Collect_WithWorkerInfoLabels(t *testing.T) {
 		[]string{},
 		nil,
 	)
-	dagRunStore.On("ListStatuses", mock.Anything, mock.Anything).Return([]*dagrun.DAGRunStatus{}, nil)
+	dagRunStore.On("ListStatuses", mock.Anything, mock.Anything).Return([]*ir.DAGRunStatus{}, nil)
 	queueStore.On("All", mock.Anything).Return([]queue.QueuedItemData{}, nil)
 
 	now := time.Now().UTC()
@@ -663,7 +663,7 @@ func TestCollector_Collect_WithErrors(t *testing.T) {
 		[]string{},
 		assert.AnError,
 	)
-	dagRunStore.On("ListStatuses", mock.Anything, mock.Anything).Return([]*dagrun.DAGRunStatus(nil), assert.AnError)
+	dagRunStore.On("ListStatuses", mock.Anything, mock.Anything).Return([]*ir.DAGRunStatus(nil), assert.AnError)
 	queueStore.On("All", mock.Anything).Return([]queue.QueuedItemData(nil), assert.AnError)
 
 	collector := NewCollector(
@@ -696,7 +696,7 @@ func TestNewRegistry(t *testing.T) {
 		[]string{},
 		nil,
 	)
-	dagRunStore.On("ListStatuses", mock.Anything, mock.Anything).Return([]*dagrun.DAGRunStatus{}, nil)
+	dagRunStore.On("ListStatuses", mock.Anything, mock.Anything).Return([]*ir.DAGRunStatus{}, nil)
 	queueStore.On("All", mock.Anything).Return([]queue.QueuedItemData{}, nil)
 
 	collector := NewCollector(
@@ -734,7 +734,7 @@ func TestCollector_SchedulerStatus(t *testing.T) {
 		[]string{},
 		nil,
 	)
-	dagRunStore.On("ListStatuses", mock.Anything, mock.Anything).Return([]*dagrun.DAGRunStatus{}, nil)
+	dagRunStore.On("ListStatuses", mock.Anything, mock.Anything).Return([]*ir.DAGRunStatus{}, nil)
 	queueStore.On("All", mock.Anything).Return([]queue.QueuedItemData{}, nil)
 
 	t.Run("ActiveScheduler", func(t *testing.T) {

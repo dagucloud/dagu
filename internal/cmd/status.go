@@ -107,7 +107,7 @@ func runStatus(ctx *Context, args []string) error {
 	return nil
 }
 
-func displayTreeStatus(dag *ir.DAG, dagStatus *dagrun.DAGRunStatus) {
+func displayTreeStatus(dag *ir.DAG, dagStatus *ir.DAGRunStatus) {
 	config := output.DefaultConfig()
 	config.ColorEnabled = term.IsTerminal(int(os.Stdout.Fd()))
 

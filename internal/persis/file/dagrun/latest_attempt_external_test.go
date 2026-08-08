@@ -27,7 +27,7 @@ func TestStoreLatestAttemptUsesPersistedLatestPointer(t *testing.T) {
 	attempt, err := store.CreateAttempt(ctx, dag, startedAt, "run-1", dagrun.NewDAGRunAttemptOptions{})
 	require.NoError(t, err)
 	require.NoError(t, attempt.Open(ctx))
-	require.NoError(t, attempt.Write(ctx, dagrun.DAGRunStatus{
+	require.NoError(t, attempt.Write(ctx, ir.DAGRunStatus{
 		Name:      dag.Name,
 		DAGRunID:  "run-1",
 		AttemptID: attempt.ID(),
@@ -79,7 +79,7 @@ func BenchmarkStoreLatestAttemptWithPersistedLatestPointer(b *testing.B) {
 	attempt, err := store.CreateAttempt(ctx, dag, startedAt, "run-1", dagrun.NewDAGRunAttemptOptions{})
 	require.NoError(b, err)
 	require.NoError(b, attempt.Open(ctx))
-	require.NoError(b, attempt.Write(ctx, dagrun.DAGRunStatus{
+	require.NoError(b, attempt.Write(ctx, ir.DAGRunStatus{
 		Name:      dag.Name,
 		DAGRunID:  "run-1",
 		AttemptID: attempt.ID(),

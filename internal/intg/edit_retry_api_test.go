@@ -12,7 +12,6 @@ import (
 
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/dagucloud/dagu/v2/internal/test/intgharness"
@@ -195,7 +194,7 @@ steps:
 	require.Equal(t, []string{"consume"}, preview.RunnableSteps)
 }
 
-func waitForEditRetryStoredStatus(t *testing.T, server test.Server, dagName, dagRunID string, expected ir.Status) *dagrun.DAGRunStatus {
+func waitForEditRetryStoredStatus(t *testing.T, server test.Server, dagName, dagRunID string, expected ir.Status) *ir.DAGRunStatus {
 	t.Helper()
 
 	h := intgharness.New(t, server.Helper)

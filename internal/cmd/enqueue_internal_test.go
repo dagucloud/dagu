@@ -92,7 +92,7 @@ func (s *enqueueTrackingDAGRunStore) LatestAttempt(context.Context, string) (dag
 	return nil, dagrun.ErrDAGRunIDNotFound
 }
 
-func (s *enqueueTrackingDAGRunStore) ListStatuses(context.Context, ...dagrun.ListDAGRunStatusesOption) ([]*dagrun.DAGRunStatus, error) {
+func (s *enqueueTrackingDAGRunStore) ListStatuses(context.Context, ...dagrun.ListDAGRunStatusesOption) ([]*ir.DAGRunStatus, error) {
 	return nil, nil
 }
 
@@ -100,7 +100,7 @@ func (s *enqueueTrackingDAGRunStore) ListStatusesPage(context.Context, ...dagrun
 	return dagrun.DAGRunStatusPage{}, nil
 }
 
-func (s *enqueueTrackingDAGRunStore) CompareAndSwapLatestAttemptStatus(context.Context, ir.DAGRunRef, string, ir.Status, func(*dagrun.DAGRunStatus) error, ...dagrun.CompareAndSwapStatusOption) (*dagrun.DAGRunStatus, bool, error) {
+func (s *enqueueTrackingDAGRunStore) CompareAndSwapLatestAttemptStatus(context.Context, ir.DAGRunRef, string, ir.Status, func(*ir.DAGRunStatus) error, ...dagrun.CompareAndSwapStatusOption) (*ir.DAGRunStatus, bool, error) {
 	return nil, false, nil
 }
 
@@ -130,7 +130,7 @@ type enqueueTrackingAttempt struct {
 	open     bool
 	closed   bool
 	closeErr error
-	status   *dagrun.DAGRunStatus
+	status   *ir.DAGRunStatus
 }
 
 func (a *enqueueTrackingAttempt) ID() string {
@@ -143,7 +143,7 @@ func (a *enqueueTrackingAttempt) Open(context.Context) error {
 	return nil
 }
 
-func (a *enqueueTrackingAttempt) Write(_ context.Context, status dagrun.DAGRunStatus) error {
+func (a *enqueueTrackingAttempt) Write(_ context.Context, status ir.DAGRunStatus) error {
 	if !a.open {
 		return errors.New("attempt is not open")
 	}
@@ -157,7 +157,7 @@ func (a *enqueueTrackingAttempt) Close(context.Context) error {
 	return a.closeErr
 }
 
-func (a *enqueueTrackingAttempt) ReadStatus(context.Context) (*dagrun.DAGRunStatus, error) {
+func (a *enqueueTrackingAttempt) ReadStatus(context.Context) (*ir.DAGRunStatus, error) {
 	return a.status, nil
 }
 

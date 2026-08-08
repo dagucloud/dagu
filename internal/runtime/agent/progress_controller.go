@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/controller"
 )
@@ -101,7 +100,7 @@ func (p *ControllerProgressDisplay) UpdateNode(node *ir.Node) {
 }
 
 // UpdateStatus updates the overall DAG status.
-func (p *ControllerProgressDisplay) UpdateStatus(status *dagrun.DAGRunStatus) {
+func (p *ControllerProgressDisplay) UpdateStatus(status *ir.DAGRunStatus) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.status = status.Status

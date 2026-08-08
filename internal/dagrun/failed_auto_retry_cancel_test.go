@@ -19,8 +19,8 @@ type failedAutoRetryCancelStoreStub struct {
 		dagRun ir.DAGRunRef,
 		expectedAttemptID string,
 		expectedStatus ir.Status,
-		mutate func(*DAGRunStatus) error,
-	) (*DAGRunStatus, bool, error)
+		mutate func(*ir.DAGRunStatus) error,
+	) (*ir.DAGRunStatus, bool, error)
 }
 
 func (s *failedAutoRetryCancelStoreStub) CompareAndSwapLatestAttemptStatus(
@@ -28,16 +28,16 @@ func (s *failedAutoRetryCancelStoreStub) CompareAndSwapLatestAttemptStatus(
 	dagRun ir.DAGRunRef,
 	expectedAttemptID string,
 	expectedStatus ir.Status,
-	mutate func(*DAGRunStatus) error,
+	mutate func(*ir.DAGRunStatus) error,
 	_ ...CompareAndSwapStatusOption,
-) (*DAGRunStatus, bool, error) {
+) (*ir.DAGRunStatus, bool, error) {
 	return s.compareAndSwap(ctx, dagRun, expectedAttemptID, expectedStatus, mutate)
 }
 
 func TestFailedAutoRetryCancelEligibilityOf(t *testing.T) {
 	t.Parallel()
 
-	base := &DAGRunStatus{
+	base := &ir.DAGRunStatus{
 		Name:           "retry-dag",
 		DAGRunID:       "run-1",
 		AttemptID:      "attempt-1",
@@ -93,7 +93,7 @@ func TestFailedAutoRetryCancelEligibilityOf(t *testing.T) {
 func TestCancelFailedAutoRetryPendingRun(t *testing.T) {
 	t.Parallel()
 
-	status := &DAGRunStatus{
+	status := &ir.DAGRunStatus{
 		Name:           "retry-dag",
 		DAGRunID:       "run-1",
 		AttemptID:      "attempt-1",
@@ -113,13 +113,13 @@ func TestCancelFailedAutoRetryPendingRun(t *testing.T) {
 					dagRun ir.DAGRunRef,
 					expectedAttemptID string,
 					expectedStatus ir.Status,
-					mutate func(*DAGRunStatus) error,
-				) (*DAGRunStatus, bool, error) {
+					mutate func(*ir.DAGRunStatus) error,
+				) (*ir.DAGRunStatus, bool, error) {
 					assert.Equal(t, status.DAGRun(), dagRun)
 					assert.Equal(t, status.AttemptID, expectedAttemptID)
 					assert.Equal(t, ir.Failed, expectedStatus)
 
-					latest := &DAGRunStatus{Status: ir.Failed}
+					latest := &ir.DAGRunStatus{Status: ir.Failed}
 					require.NoError(t, mutate(latest))
 					assert.Equal(t, ir.Aborted, latest.Status)
 					return latest, true, nil
@@ -141,9 +141,9 @@ func TestCancelFailedAutoRetryPendingRun(t *testing.T) {
 					_ ir.DAGRunRef,
 					_ string,
 					_ ir.Status,
-					_ func(*DAGRunStatus) error,
-				) (*DAGRunStatus, bool, error) {
-					return &DAGRunStatus{Status: ir.Queued}, false, nil
+					_ func(*ir.DAGRunStatus) error,
+				) (*ir.DAGRunStatus, bool, error) {
+					return &ir.DAGRunStatus{Status: ir.Queued}, false, nil
 				},
 			},
 			status,
@@ -161,7 +161,7 @@ func TestCancelFailedAutoRetryPendingRun(t *testing.T) {
 		t.Parallel()
 
 		compareAndSwapCalled := false
-		ineligible := &DAGRunStatus{
+		ineligible := &ir.DAGRunStatus{
 			Name:           "retry-dag",
 			DAGRunID:       "run-1",
 			AttemptID:      "attempt-1",
@@ -178,8 +178,8 @@ func TestCancelFailedAutoRetryPendingRun(t *testing.T) {
 					_ ir.DAGRunRef,
 					_ string,
 					_ ir.Status,
-					_ func(*DAGRunStatus) error,
-				) (*DAGRunStatus, bool, error) {
+					_ func(*ir.DAGRunStatus) error,
+				) (*ir.DAGRunStatus, bool, error) {
 					compareAndSwapCalled = true
 					return nil, false, nil
 				},
@@ -203,8 +203,8 @@ func TestCancelFailedAutoRetryPendingRun(t *testing.T) {
 					_ ir.DAGRunRef,
 					_ string,
 					_ ir.Status,
-					_ func(*DAGRunStatus) error,
-				) (*DAGRunStatus, bool, error) {
+					_ func(*ir.DAGRunStatus) error,
+				) (*ir.DAGRunStatus, bool, error) {
 					return nil, false, storeErr
 				},
 			},

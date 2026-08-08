@@ -19,7 +19,6 @@ import (
 
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/license"
 	"github.com/dagucloud/dagu/v2/internal/service/frontend"
@@ -635,7 +634,7 @@ steps:
 	var triggerResult api.WebhookResponse
 	triggerResp.Unmarshal(t, &triggerResult)
 
-	status := waitForStoredDAGRunStatus(t, server, runtimeName, triggerResult.DagRunId, 10*time.Second, func(status *dagrun.DAGRunStatus) bool {
+	status := waitForStoredDAGRunStatus(t, server, runtimeName, triggerResult.DagRunId, 10*time.Second, func(status *ir.DAGRunStatus) bool {
 		return status.ProfileName == "prod"
 	})
 	assert.Equal(t, "prod", status.ProfileName)
@@ -720,7 +719,7 @@ func TestWebhooks_TriggerSelectsAllowedProfile(t *testing.T) {
 	var triggerResult api.WebhookResponse
 	triggerResp.Unmarshal(t, &triggerResult)
 
-	status := waitForStoredDAGRunStatus(t, server, dagName, triggerResult.DagRunId, 10*time.Second, func(status *dagrun.DAGRunStatus) bool {
+	status := waitForStoredDAGRunStatus(t, server, dagName, triggerResult.DagRunId, 10*time.Second, func(status *ir.DAGRunStatus) bool {
 		return status.ProfileName == "staging"
 	})
 	assert.Equal(t, "staging", status.ProfileName)
@@ -1117,7 +1116,7 @@ steps:
 	assert.Equal(t, dagName, triggerResult.DagName)
 
 	test.ProcessQueuedInlineRun(t, server, dagName)
-	waitForStoredDAGRunStatus(t, server, dagName, triggerResult.DagRunId, 10*time.Second, func(status *dagrun.DAGRunStatus) bool {
+	waitForStoredDAGRunStatus(t, server, dagName, triggerResult.DagRunId, 10*time.Second, func(status *ir.DAGRunStatus) bool {
 		return status.Status == ir.Succeeded
 	})
 

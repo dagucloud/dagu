@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/require"
 )
 
@@ -43,7 +43,7 @@ func RunBuiltCLI(t *testing.T, th Helper, extraEnv []string, args ...string) str
 	return string(output)
 }
 
-func StatusOutputValue(t *testing.T, status *dagrun.DAGRunStatus, key string) string {
+func StatusOutputValue(t *testing.T, status *ir.DAGRunStatus, key string) string {
 	t.Helper()
 
 	require.NotNil(t, status)

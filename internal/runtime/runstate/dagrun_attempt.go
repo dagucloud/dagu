@@ -26,7 +26,7 @@ func (a dagRunAttempt) Open(ctx context.Context) error {
 	return a.attempt.Open(ctx)
 }
 
-func (a dagRunAttempt) RecordStatus(ctx context.Context, status dagrun.DAGRunStatus) error {
+func (a dagRunAttempt) RecordStatus(ctx context.Context, status ir.DAGRunStatus) error {
 	return a.attempt.Write(ctx, status)
 }
 
@@ -34,7 +34,7 @@ func (a dagRunAttempt) RecordOutputs(ctx context.Context, outputs *ir.DAGRunOutp
 	return a.attempt.WriteOutputs(ctx, outputs)
 }
 
-func (a dagRunAttempt) ReadStatus(ctx context.Context) (*dagrun.DAGRunStatus, error) {
+func (a dagRunAttempt) ReadStatus(ctx context.Context) (*ir.DAGRunStatus, error) {
 	return a.attempt.ReadStatus(ctx)
 }
 

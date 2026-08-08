@@ -66,13 +66,13 @@ steps:
 	attempt, err := f.th.DAGRunStore.CreateAttempt(f.th.Context, f.dag, time.Now(), dagRunID, dagrun.NewDAGRunAttemptOptions{})
 	require.NoError(t, err)
 
-	status := dagrun.NewStatusBuilder(f.dag).Create(
+	status := ir.NewStatusBuilder(f.dag).Create(
 		dagRunID,
 		ir.Running,
 		0,
 		time.Now().Add(-2*time.Second),
-		dagrun.WithAttemptID(attempt.ID()),
-		dagrun.WithHierarchyRefs(ref, ir.DAGRunRef{}),
+		ir.WithAttemptID(attempt.ID()),
+		ir.WithHierarchyRefs(ref, ir.DAGRunRef{}),
 	)
 	require.NotEmpty(t, status.Nodes)
 	status.Nodes[0].Status = ir.NodeRunning

@@ -18,7 +18,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -271,7 +270,7 @@ func (r *Runner) dispatchRetryWithStatus(
 	ctx context.Context,
 	req executor.SubWorkflowRequest,
 	stepName string,
-	previousStatus *dagrun.DAGRunStatus,
+	previousStatus *ir.DAGRunStatus,
 ) error {
 	task, err := r.buildRetryTask(req, stepName, previousStatus)
 	if err != nil {
@@ -310,7 +309,7 @@ func (r *Runner) buildStartTask(req executor.SubWorkflowRequest) (*dispatch.Disp
 func (r *Runner) buildRetryTask(
 	req executor.SubWorkflowRequest,
 	stepName string,
-	previousStatus *dagrun.DAGRunStatus,
+	previousStatus *ir.DAGRunStatus,
 ) (*dispatch.DispatchTask, error) {
 	extra := []executor.TaskOption{executor.WithPreviousStatus(previousStatus)}
 	if stepName != "" {
@@ -332,7 +331,7 @@ func (r *Runner) buildRetryTask(
 func (r *Runner) existingStatus(
 	ctx context.Context,
 	req executor.SubWorkflowRequest,
-) (*dagrun.DAGRunStatus, bool, error) {
+) (*ir.DAGRunStatus, bool, error) {
 	result, err := r.dispatcher.GetDAGRunStatus(ctx, req.DAG.Name, req.RunID, &req.RootDAGRun)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to get DAG run status from coordinator: %w", err)
@@ -519,7 +518,7 @@ func (r *Runner) getStatus(ctx context.Context, req executor.SubWorkflowRequest)
 func (r *Runner) getFullStatus(
 	ctx context.Context,
 	req executor.SubWorkflowRequest,
-) (*dagrun.DAGRunStatus, error) {
+) (*ir.DAGRunStatus, error) {
 	result, err := r.dispatcher.GetDAGRunStatus(ctx, req.DAG.Name, req.RunID, &req.RootDAGRun)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get DAG run status from coordinator: %w", err)
@@ -536,7 +535,7 @@ func (r *Runner) getFullStatus(
 	return result.Status, nil
 }
 
-func statusToRunStatus(status *dagrun.DAGRunStatus, runID string) *ir.RunStatus {
+func statusToRunStatus(status *ir.DAGRunStatus, runID string) *ir.RunStatus {
 	nodes := status.NodesInRunOrder()
 	return &ir.RunStatus{
 		Name:               status.Name,
@@ -545,7 +544,7 @@ func statusToRunStatus(status *dagrun.DAGRunStatus, runID string) *ir.RunStatus 
 		Outputs:            outputVariablesFromNodes(nodes),
 		OutputValues:       outputValuesFromNodes(nodes),
 		Status:             status.Status,
-		PendingStepRetries: dagrun.PendingStepRetriesFromStatus(status),
+		PendingStepRetries: ir.PendingStepRetriesFromStatus(status),
 	}
 }
 
