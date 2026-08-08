@@ -23,6 +23,13 @@ if defined _DAGU_INSTALLER_PS1_PATH (
   )
 )
 
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$content=[IO.File]::ReadAllText('%TEMP_PS1%', [Text.Encoding]::UTF8); [IO.File]::WriteAllText('%TEMP_PS1%', $content, [Text.Encoding]::UTF8);"
+if errorlevel 1 (
+  echo Failed to prepare the PowerShell installer. >&2
+  exit /b 1
+)
+
 powershell -NoProfile -ExecutionPolicy Bypass -File "%TEMP_PS1%" %*
 set "EXIT_CODE=%ERRORLEVEL%"
 
