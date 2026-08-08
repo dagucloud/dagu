@@ -86,28 +86,29 @@ type IncrementalExecution struct {
 
 // Node represents a DAG step with its execution state for persistence
 type Node struct {
-	Step             ir.Step               `json:"step,omitzero"`
-	Stdout           string                `json:"stdout"` // standard output log file path
-	Stderr           string                `json:"stderr"` // standard error log file path
-	WorkingDir       string                `json:"workingDir,omitempty"`
-	StartedAt        string                `json:"startedAt"`
-	FinishedAt       string                `json:"finishedAt"`
-	Status           ir.NodeStatus         `json:"status"`
-	RetriedAt        string                `json:"retriedAt,omitempty"`
-	RetryCount       int                   `json:"retryCount,omitempty"`
-	DoneCount        int                   `json:"doneCount,omitempty"`
-	Repeated         bool                  `json:"repeated,omitempty"` // indicates if the node has been repeated
-	SkippedByRetry   bool                  `json:"skippedByRetry,omitempty"`
-	Error            string                `json:"error,omitempty"`
-	StatusDetails    []NodeStatusDetail    `json:"statusDetails,omitempty"`
-	Incremental      *IncrementalExecution `json:"incremental,omitempty"`
-	SubRuns          []SubDAGRun           `json:"children,omitempty"`
-	SubRunsRepeated  []SubDAGRun           `json:"childrenRepeated,omitempty"` // repeated sub DAG runs
-	OutputVariables  *collections.SyncMap  `json:"outputVariables,omitempty"`
-	OutputValue      *string               `json:"outputValue,omitempty"`
-	OutputsValue     *string               `json:"outputsValue,omitempty"`
-	StepOutputsValue *string               `json:"stepOutputsValue,omitempty"`
-	HumanTaskInput   json.RawMessage       `json:"humanTaskInput,omitempty"`
+	Step                ir.Step               `json:"step,omitzero"`
+	PreconditionResults []ConditionResult     `json:"-"`
+	Stdout              string                `json:"stdout"` // standard output log file path
+	Stderr              string                `json:"stderr"` // standard error log file path
+	WorkingDir          string                `json:"workingDir,omitempty"`
+	StartedAt           string                `json:"startedAt"`
+	FinishedAt          string                `json:"finishedAt"`
+	Status              ir.NodeStatus         `json:"status"`
+	RetriedAt           string                `json:"retriedAt,omitempty"`
+	RetryCount          int                   `json:"retryCount,omitempty"`
+	DoneCount           int                   `json:"doneCount,omitempty"`
+	Repeated            bool                  `json:"repeated,omitempty"` // indicates if the node has been repeated
+	SkippedByRetry      bool                  `json:"skippedByRetry,omitempty"`
+	Error               string                `json:"error,omitempty"`
+	StatusDetails       []NodeStatusDetail    `json:"statusDetails,omitempty"`
+	Incremental         *IncrementalExecution `json:"incremental,omitempty"`
+	SubRuns             []SubDAGRun           `json:"children,omitempty"`
+	SubRunsRepeated     []SubDAGRun           `json:"childrenRepeated,omitempty"` // repeated sub DAG runs
+	OutputVariables     *collections.SyncMap  `json:"outputVariables,omitempty"`
+	OutputValue         *string               `json:"outputValue,omitempty"`
+	OutputsValue        *string               `json:"outputsValue,omitempty"`
+	StepOutputsValue    *string               `json:"stepOutputsValue,omitempty"`
+	HumanTaskInput      json.RawMessage       `json:"humanTaskInput,omitempty"`
 	// ControllerState stores the goal progress of a controller DAG's controller
 	// step, so a suspended run resumes with its task list intact.
 	ControllerState json.RawMessage `json:"controllerState,omitempty"`
@@ -150,6 +151,41 @@ type Node struct {
 	ToolDefinitions []ToolDefinition `json:"toolDefinitions,omitempty"`
 }
 
+type nodeJSON Node
+
+// MarshalJSON keeps runtime condition results inside the persisted step object.
+func (n Node) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Step StepSnapshot `json:"step,omitzero"`
+		nodeJSON
+	}{
+		Step:     NewStepSnapshot(n.Step, n.PreconditionResults),
+		nodeJSON: nodeJSON(n),
+	})
+}
+
+// UnmarshalJSON restores the step definition and its runtime condition results.
+func (n *Node) UnmarshalJSON(data []byte) error {
+	var decoded nodeJSON
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var runtimeState struct {
+		Step struct {
+			Preconditions []ConditionResult `json:"preconditions"`
+		} `json:"step"`
+	}
+	if err := json.Unmarshal(data, &runtimeState); err != nil {
+		return err
+	}
+	*n = Node(decoded)
+	n.PreconditionResults = CloneConditionResults(runtimeState.Step.Preconditions)
+	if n.PreconditionResults != nil {
+		n.Step = NewStepSnapshot(n.Step, n.PreconditionResults).Definition()
+	}
+	return nil
+}
+
 // SubDAGRun represents a sub DAG run associated with a node
 type SubDAGRun struct {
 	DAGRunID string `json:"dagRunId,omitempty"`
@@ -172,10 +208,11 @@ func NewNodesFromSteps(steps []ir.Step) []*Node {
 // NewNodeFromStep creates a new Node with default status values for the given step.
 func NewNodeFromStep(step ir.Step) *Node {
 	return &Node{
-		Step:       step,
-		StartedAt:  "-",
-		FinishedAt: "-",
-		Status:     ir.NodeNotStarted,
+		Step:                step,
+		PreconditionResults: NewConditionResults(step.Preconditions),
+		StartedAt:           "-",
+		FinishedAt:          "-",
+		Status:              ir.NodeNotStarted,
 	}
 }
 

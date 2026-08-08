@@ -1435,7 +1435,7 @@ func (a *Agent) Status(ctx context.Context) dagrun.DAGRunStatus {
 		transform.WithOnWaitNode(a.runner.HandlerNode(ir.HandlerOnWait)),
 		transform.WithAttemptID(a.dagRunAttemptID),
 		transform.WithHierarchyRefs(a.rootDAGRun, a.parentDAGRun),
-		transform.WithPreconditions(a.dag.Preconditions),
+		transform.WithPreconditionResults(a.runner.PreconditionResults()),
 		transform.WithWorkerID(a.workerID),
 		transform.WithTriggerType(a.triggerType),
 		transform.WithTriggerActor(a.triggerActor),

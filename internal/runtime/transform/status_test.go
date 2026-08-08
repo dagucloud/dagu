@@ -90,7 +90,7 @@ func TestStatusBuilder(t *testing.T) {
 	assert.NotNil(t, result.OnAbort)
 	assert.Equal(t, "param1 param2", result.Params)
 	assert.Equal(t, dag.Params, result.ParamsList)
-	assert.Equal(t, dag.Preconditions, result.Preconditions)
+	assert.Equal(t, dagrun.NewConditionResults(dag.Preconditions), result.Preconditions)
 }
 
 func TestStatusBuilderWithOptions(t *testing.T) {
@@ -375,7 +375,7 @@ func TestInitialStatus(t *testing.T) {
 	assert.NotNil(t, st.OnAbort)
 	assert.Equal(t, "arg1 arg2", st.Params)
 	assert.Equal(t, dag.Params, st.ParamsList)
-	assert.Equal(t, dag.Preconditions, st.Preconditions)
+	assert.Equal(t, dagrun.NewConditionResults(dag.Preconditions), st.Preconditions)
 	assert.NotZero(t, st.CreatedAt)
 	assert.Equal(t, "", st.StartedAt)
 	assert.Equal(t, "", st.FinishedAt)

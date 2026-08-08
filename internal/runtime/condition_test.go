@@ -212,14 +212,16 @@ func TestEvalConditionsClearsErrorsWhenReevaluationSucceeds(t *testing.T) {
 		{Condition: "ready", Expected: "ready"},
 	}
 
-	require.ErrorIs(t, runtime.EvalConditions(ctx, nil, conditions), runtime.ErrConditionNotMet)
-	require.NotEmpty(t, conditions[0].GetErrorMessage())
-	require.Equal(t, runtime.ErrMsgOtherConditionNotMet, conditions[1].GetErrorMessage())
+	results, err := runtime.EvaluateConditions(ctx, nil, conditions)
+	require.ErrorIs(t, err, runtime.ErrConditionNotMet)
+	require.NotEmpty(t, results[0].Error)
+	require.Equal(t, runtime.ErrMsgOtherConditionNotMet, results[1].Error)
 
 	conditions[0].Expected = "ready"
-	require.NoError(t, runtime.EvalConditions(ctx, nil, conditions))
-	require.Empty(t, conditions[0].GetErrorMessage())
-	require.Empty(t, conditions[1].GetErrorMessage())
+	results, err = runtime.EvaluateConditions(ctx, nil, conditions)
+	require.NoError(t, err)
+	require.Empty(t, results[0].Error)
+	require.Empty(t, results[1].Error)
 }
 
 func TestEvalConditions_ValueMatchEvalRunsCommandSubstitution(t *testing.T) {

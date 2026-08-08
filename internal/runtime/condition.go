@@ -13,6 +13,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
@@ -27,27 +28,32 @@ const ErrMsgOtherConditionNotMet = "other condition was not met"
 // EvalConditions evaluates a list of conditions and checks the results.
 // It returns an error if any of the conditions were not met.
 func EvalConditions(ctx context.Context, shell []string, cond []*ir.Condition) error {
+	_, err := EvaluateConditions(ctx, shell, cond)
+	return err
+}
+
+// EvaluateConditions evaluates conditions and returns their runtime results.
+func EvaluateConditions(ctx context.Context, shell []string, conditions []*ir.Condition) ([]dagrun.ConditionResult, error) {
+	results := dagrun.NewConditionResults(conditions)
 	var lastErr error
 
-	for i := range cond {
-		cond[i].SetErrorMessage("")
-		if err := EvalCondition(ctx, shell, cond[i]); err != nil {
-			cond[i].SetErrorMessage(err.Error())
+	for i := range conditions {
+		if err := EvalCondition(ctx, shell, conditions[i]); err != nil {
+			results[i].Error = err.Error()
 			lastErr = err
 		}
 	}
 
 	if lastErr != nil {
-		// Set error message
-		for i := range cond {
-			if cond[i].GetErrorMessage() != "" {
+		for i := range results {
+			if results[i].Error != "" {
 				continue
 			}
-			cond[i].SetErrorMessage(ErrMsgOtherConditionNotMet)
+			results[i].Error = ErrMsgOtherConditionNotMet
 		}
 	}
 
-	return lastErr
+	return results, lastErr
 }
 
 // EvalCondition evaluates the condition and returns the actual value.

@@ -29,18 +29,6 @@ func TestCondition_MarshalJSON(t *testing.T) {
 			expected: `{"condition":"test -f file.txt","expected":"true"}`,
 		},
 		{
-			name: "WithErrorMessage",
-			condition: func() *ir.Condition {
-				c := &ir.Condition{
-					Condition: "test -f file.txt",
-					Expected:  "true",
-				}
-				c.SetErrorMessage("file not found")
-				return c
-			}(),
-			expected: `{"condition":"test -f file.txt","expected":"true","error":"file not found"}`,
-		},
-		{
 			name: "WithEval",
 			condition: &ir.Condition{
 				Eval:     "$(printf ready)",
@@ -83,18 +71,6 @@ func TestCondition_UnmarshalJSON(t *testing.T) {
 			},
 		},
 		{
-			name: "WithErrorMessage",
-			json: `{"condition":"test -f file.txt","expected":"true","error":"file not found"}`,
-			expected: func() *ir.Condition {
-				c := &ir.Condition{
-					Condition: "test -f file.txt",
-					Expected:  "true",
-				}
-				c.SetErrorMessage("file not found")
-				return c
-			}(),
-		},
-		{
 			name: "WithEval",
 			json: `{"eval":"$(printf ready)","expected":"ready"}`,
 			expected: &ir.Condition{
@@ -120,7 +96,7 @@ func TestCondition_UnmarshalJSON(t *testing.T) {
 			assert.Equal(t, tt.expected.Condition, condition.Condition)
 			assert.Equal(t, tt.expected.Eval, condition.Eval)
 			assert.Equal(t, tt.expected.Expected, condition.Expected)
-			assert.Equal(t, tt.expected.GetErrorMessage(), condition.GetErrorMessage())
+			assert.Equal(t, tt.expected.Negate, condition.Negate)
 		})
 	}
 }
@@ -193,59 +169,4 @@ func TestCondition_Validate(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestCondition_ErrorMessage(t *testing.T) {
-	t.Parallel()
-
-	condition := &ir.Condition{
-		Condition: "test -f file.txt",
-		Expected:  "true",
-	}
-
-	// Initial error message should be empty
-	assert.Empty(t, condition.GetErrorMessage())
-
-	// Set error message
-	errorMsg := "file not found"
-	condition.SetErrorMessage(errorMsg)
-	assert.Equal(t, errorMsg, condition.GetErrorMessage())
-
-	// Update error message
-	newErrorMsg := "permission denied"
-	condition.SetErrorMessage(newErrorMsg)
-	assert.Equal(t, newErrorMsg, condition.GetErrorMessage())
-}
-
-func TestCondition_ConcurrentAccess(t *testing.T) {
-	t.Parallel()
-
-	condition := &ir.Condition{
-		Condition: "test -f file.txt",
-		Expected:  "true",
-	}
-
-	// Test concurrent access to error message
-	done := make(chan bool)
-	go func() {
-		for range 100 {
-			condition.SetErrorMessage("message 1")
-			_ = condition.GetErrorMessage()
-		}
-		done <- true
-	}()
-
-	go func() {
-		for range 100 {
-			condition.SetErrorMessage("message 2")
-			_ = condition.GetErrorMessage()
-		}
-		done <- true
-	}()
-
-	// Wait for goroutines to finish
-	<-done
-	<-done
-
-	// No assertion needed, we're just testing that there's no race condition
 }

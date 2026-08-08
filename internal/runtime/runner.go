@@ -72,11 +72,12 @@ type Runner struct {
 	dagRunAutoRetryLimit int
 	dagRunIsRoot         bool
 
-	canceled  int32
-	failed    int32
-	mu        sync.RWMutex
-	pause     time.Duration
-	lastError error
+	canceled      int32
+	failed        int32
+	mu            sync.RWMutex
+	pause         time.Duration
+	lastError     error
+	preconditions []dagrun.ConditionResult
 
 	handlerMu sync.RWMutex
 	handlers  map[ir.HandlerType]*Node
@@ -168,19 +169,24 @@ func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan *Node) err
 	// If one of the conditions does not met, cancel the execution.
 	rCtx := MustDAGContext(ctx)
 	if len(rCtx.DAG.Preconditions) > 0 {
+		r.setPreconditionResults(dagrun.NewConditionResults(rCtx.DAG.Preconditions))
 		shell, err := ResolveDAGShell(ctx)
 		if err != nil {
 			logger.Info(ctx, "Preconditions are not met", tag.Error(err))
 			r.setLastError(err)
 			r.setFailed()
 			r.Cancel(plan)
-		} else if err := EvalConditions(ctx, shell, rCtx.DAG.Preconditions); err != nil {
-			logger.Info(ctx, "Preconditions are not met", tag.Error(err))
-			if !errors.Is(err, ErrConditionNotMet) {
-				r.setLastError(err)
-				r.setFailed()
+		} else {
+			results, conditionErr := EvaluateConditions(ctx, shell, rCtx.DAG.Preconditions)
+			r.setPreconditionResults(results)
+			if conditionErr != nil {
+				logger.Info(ctx, "Preconditions are not met", tag.Error(conditionErr))
+				if !errors.Is(conditionErr, ErrConditionNotMet) {
+					r.setLastError(conditionErr)
+					r.setFailed()
+				}
+				r.Cancel(plan)
 			}
-			r.Cancel(plan)
 		}
 	}
 
@@ -728,6 +734,19 @@ func (r *Runner) setLastError(err error) {
 	defer r.mu.Unlock()
 
 	r.lastError = err
+}
+
+func (r *Runner) setPreconditionResults(results []dagrun.ConditionResult) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.preconditions = dagrun.CloneConditionResults(results)
+}
+
+// PreconditionResults returns the latest DAG-level precondition evaluation.
+func (r *Runner) PreconditionResults() []dagrun.ConditionResult {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return dagrun.CloneConditionResults(r.preconditions)
 }
 
 func (r *Runner) prepareNode(ctx context.Context, node *Node) error {
@@ -1385,6 +1404,7 @@ func (r *Runner) resetRunState(plan *Plan) {
 	}
 	r.failed = 0
 	r.lastError = nil
+	r.preconditions = nil
 }
 
 func (r *Runner) isSucceed(p *Plan) bool {

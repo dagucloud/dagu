@@ -170,7 +170,17 @@ func WithError(err string) StatusOption {
 // WithPreconditions returns a StatusOption that sets the preconditions
 func WithPreconditions(conditions []*ir.Condition) StatusOption {
 	return func(s *dagrun.DAGRunStatus) {
-		s.Preconditions = conditions
+		s.Preconditions = dagrun.NewConditionResults(conditions)
+	}
+}
+
+// WithPreconditionResults sets evaluated DAG-level preconditions.
+func WithPreconditionResults(results []dagrun.ConditionResult) StatusOption {
+	return func(s *dagrun.DAGRunStatus) {
+		if results == nil {
+			return
+		}
+		s.Preconditions = dagrun.CloneConditionResults(results)
 	}
 }
 

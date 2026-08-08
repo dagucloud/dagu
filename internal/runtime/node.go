@@ -1638,13 +1638,16 @@ func (n *Node) setupRepeatPolicy(ctx context.Context) error {
 }
 
 func (node *Node) evalPreconditions(ctx context.Context) error {
-	if len(node.Step().Preconditions) == 0 {
+	conditions := node.Step().Preconditions
+	if len(conditions) == 0 {
 		return nil
 	}
 	logger.Infof(ctx, "Checking preconditions for \"%s\"", node.Name())
 	env := GetEnv(ctx)
 	shell := env.Shell(ctx)
-	if err := EvalConditions(ctx, shell, node.Step().Preconditions); err != nil {
+	results, err := EvaluateConditions(ctx, shell, conditions)
+	node.SetPreconditionResults(results)
+	if err != nil {
 		logger.Infof(ctx, "Preconditions failed for \"%s\"", node.Name())
 		return err
 	}

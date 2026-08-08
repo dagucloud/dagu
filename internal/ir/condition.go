@@ -4,47 +4,16 @@
 package ir
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
-	"sync"
 )
 
 // Condition describes a precondition command check or value match.
 type Condition struct {
-	mu sync.RWMutex
-
-	Condition    string // Condition to evaluate
-	Eval         string // Dynamic value to evaluate
-	Expected     string // Expected value
-	Negate       bool   // Negate the condition result (run when condition does NOT match)
-	errorMessage string // Error message if the condition is not met
-}
-
-type conditionJSON struct {
-	Condition    string `json:"condition,omitempty"`
-	Eval         string `json:"eval,omitempty"`
-	Expected     string `json:"expected,omitempty"`
-	Negate       bool   `json:"negate,omitempty"`
-	ErrorMessage string `json:"error,omitempty"`
-}
-
-func (c *Condition) MarshalJSON() ([]byte, error) { return json.Marshal(c.snapshot()) }
-
-func (c *Condition) UnmarshalJSON(data []byte) error {
-	var decoded conditionJSON
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.Condition = decoded.Condition
-	c.Eval = decoded.Eval
-	c.Expected = decoded.Expected
-	c.Negate = decoded.Negate
-	c.errorMessage = decoded.ErrorMessage
-	return nil
+	Condition string `json:"condition,omitempty"` // Condition to evaluate
+	Eval      string `json:"eval,omitempty"`      // Dynamic value to evaluate
+	Expected  string `json:"expected,omitempty"`  // Expected value
+	Negate    bool   `json:"negate,omitempty"`    // Negate the condition result (run when condition does NOT match)
 }
 
 func (c *Condition) Validate() error {
@@ -59,28 +28,4 @@ func (c *Condition) Validate() error {
 		return fmt.Errorf("expected is required when eval is set")
 	}
 	return nil
-}
-
-func (c *Condition) SetErrorMessage(msg string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.errorMessage = msg
-}
-
-func (c *Condition) GetErrorMessage() string {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.errorMessage
-}
-
-func (c *Condition) snapshot() conditionJSON {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return conditionJSON{
-		Condition:    c.Condition,
-		Eval:         c.Eval,
-		Expected:     c.Expected,
-		Negate:       c.Negate,
-		ErrorMessage: c.errorMessage,
-	}
 }

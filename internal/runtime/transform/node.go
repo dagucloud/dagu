@@ -48,6 +48,7 @@ func ToNodeWithStep(n *dagrun.Node, step ir.Step) *runtime.Node {
 		Repeated:               n.Repeated,
 		SkippedByRetry:         n.SkippedByRetry,
 		Error:                  err,
+		PreconditionResults:    dagrun.CloneConditionResults(n.PreconditionResults),
 		StatusDetails:          append([]dagrun.NodeStatusDetail(nil), n.StatusDetails...),
 		Incremental:            n.Incremental,
 		SubRuns:                children,
@@ -93,6 +94,7 @@ func newNode(node runtime.NodeData) *dagrun.Node {
 	}
 	return &dagrun.Node{
 		Step:                   node.Step,
+		PreconditionResults:    dagrun.CloneConditionResults(node.State.PreconditionResults),
 		Stdout:                 node.State.Stdout,
 		Stderr:                 node.State.Stderr,
 		WorkingDir:             node.State.WorkingDir,

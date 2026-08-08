@@ -194,6 +194,38 @@ func TestPendingStepRetriesFromStatus(t *testing.T) {
 	})
 }
 
+func TestNodePreconditionResultsJSONRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	node := dagrun.NewNodeFromStep(ir.Step{
+		Name: "conditioned",
+		Preconditions: []*ir.Condition{
+			{Condition: "ready", Expected: "true"},
+		},
+	})
+	node.PreconditionResults[0].Error = "condition was not met"
+
+	data, err := json.Marshal(node)
+	require.NoError(t, err)
+
+	var payload struct {
+		Step struct {
+			Preconditions []dagrun.ConditionResult `json:"preconditions"`
+		} `json:"step"`
+	}
+	require.NoError(t, json.Unmarshal(data, &payload))
+	require.Equal(t, []dagrun.ConditionResult{{
+		Condition: "ready",
+		Expected:  "true",
+		Error:     "condition was not met",
+	}}, payload.Step.Preconditions)
+
+	var decoded dagrun.Node
+	require.NoError(t, json.Unmarshal(data, &decoded))
+	require.Equal(t, node.Step, decoded.Step)
+	require.Equal(t, node.PreconditionResults, decoded.PreconditionResults)
+}
+
 func TestNewDAGRunCondition(t *testing.T) {
 	t.Parallel()
 

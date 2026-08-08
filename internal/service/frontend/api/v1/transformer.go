@@ -249,7 +249,7 @@ func toPrecondition(obj *ir.Condition) api.Condition {
 	condition := api.Condition{
 		Expected: ptrOf(obj.Expected),
 		Negate:   ptrOf(obj.Negate),
-		Error:    ptrOf(obj.GetErrorMessage()),
+		Error:    ptrOf(""),
 	}
 	if obj.Condition != "" {
 		condition.Condition = ptrOf(obj.Condition)
@@ -257,6 +257,12 @@ func toPrecondition(obj *ir.Condition) api.Condition {
 	if obj.Eval != "" {
 		condition.Eval = ptrOf(obj.Eval)
 	}
+	return condition
+}
+
+func toPreconditionResult(result dagrun.ConditionResult) api.Condition {
+	condition := toPrecondition(result.Definition())
+	condition.Error = ptrOf(result.Error)
 	return condition
 }
 
@@ -373,7 +379,7 @@ func toDAGRunsPageResponse(page dagrun.DAGRunStatusPage) api.DAGRunsPageResponse
 func ToDAGRunDetails(s dagrun.DAGRunStatus) api.DAGRunDetails {
 	preconditions := make([]api.Condition, len(s.Preconditions))
 	for i, p := range s.Preconditions {
-		preconditions[i] = toPrecondition(p)
+		preconditions[i] = toPreconditionResult(p)
 	}
 	nodes := make([]api.Node, len(s.Nodes))
 	for i, n := range s.Nodes {
@@ -458,6 +464,14 @@ func toNode(node *dagrun.Node) api.Node {
 	if node == nil {
 		return api.Node{}
 	}
+	step := toStep(node.Step)
+	if node.PreconditionResults != nil {
+		preconditions := make([]api.Condition, len(node.PreconditionResults))
+		for i, condition := range node.PreconditionResults {
+			preconditions[i] = toPreconditionResult(condition)
+		}
+		step.Preconditions = ptrOf(preconditions)
+	}
 	result := api.Node{
 		DoneCount:              node.DoneCount,
 		FinishedAt:             node.FinishedAt,
@@ -467,7 +481,7 @@ func toNode(node *dagrun.Node) api.Node {
 		StartedAt:              node.StartedAt,
 		Status:                 api.NodeStatus(node.Status),
 		StatusLabel:            api.NodeStatusLabel(node.Status.String()),
-		Step:                   toStep(node.Step),
+		Step:                   step,
 		Error:                  ptrOf(node.Error),
 		SubRuns:                ptrOf(toSubDAGRuns(node.SubRuns)),
 		SubRunsRepeated:        ptrOf(toSubDAGRuns(node.SubRunsRepeated)),

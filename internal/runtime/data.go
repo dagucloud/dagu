@@ -63,6 +63,8 @@ type NodeState struct {
 	SkippedByRetry bool
 	// Error is the error that the executor encountered.
 	Error error
+	// PreconditionResults records the latest precondition evaluation.
+	PreconditionResults []dagrun.ConditionResult
 	// StatusDetails tracks independently executed items within the node.
 	StatusDetails []dagrun.NodeStatusDetail
 	// Incremental explains the materialization decision for this node.
@@ -268,6 +270,13 @@ func (d *Data) SetStatusDetails(details []dagrun.NodeStatusDetail) {
 	defer d.mu.Unlock()
 
 	d.inner.State.StatusDetails = append([]dagrun.NodeStatusDetail(nil), details...)
+}
+
+// SetPreconditionResults replaces the latest precondition evaluation results.
+func (d *Data) SetPreconditionResults(results []dagrun.ConditionResult) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.inner.State.PreconditionResults = dagrun.CloneConditionResults(results)
 }
 
 // AddSubRunsRepeated appends repeated sub DAG runs to the node.

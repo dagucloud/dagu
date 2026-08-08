@@ -68,7 +68,7 @@ func InitialStatus(dag *ir.DAG) DAGRunStatus {
 		CreatedAt:            time.Now().UnixMilli(),
 		StartedAt:            stringutil.FormatTime(time.Time{}),
 		FinishedAt:           stringutil.FormatTime(time.Time{}),
-		Preconditions:        dag.Preconditions,
+		Preconditions:        NewConditionResults(dag.Preconditions),
 		Labels:               dag.Labels.Strings(),
 	}
 }
@@ -202,7 +202,7 @@ type DAGRunStatus struct {
 	ProfileEntries       []RuntimeProfileEntry `json:"profileEntries,omitempty"`
 	NoReuse              bool                  `json:"noReuse,omitempty"`
 	PendingStepRetries   []PendingStepRetry    `json:"pendingStepRetries"`
-	Preconditions        []*ir.Condition       `json:"preconditions,omitempty"`
+	Preconditions        []ConditionResult     `json:"preconditions,omitempty"`
 	Labels               []string              `json:"labels,omitempty"`
 	LeaseAt              int64                 `json:"leaseAt,omitempty"` // Unix millis; stamped by coordinator on observed run liveness
 }
