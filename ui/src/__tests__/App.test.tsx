@@ -6,6 +6,7 @@ import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Config } from '@/contexts/ConfigContext';
+import { AppBarContext } from '@/contexts/AppBarContext';
 import App from '../App';
 
 const { clientMock, clientGetMock, overviewImportError, useQueryMock } =
@@ -104,7 +105,15 @@ vi.mock('../pages/queues', () => ({ default: () => <h1>Queues</h1> }));
 vi.mock('../pages/queues/queue', () => ({
   default: () => <h1>Queue Details</h1>,
 }));
-vi.mock('../pages/search', () => ({ default: () => <h1>Search</h1> }));
+vi.mock('../pages/search', () => ({
+  default: () => {
+    const { setTitle } = React.useContext(AppBarContext);
+    React.useEffect(() => {
+      setTitle('Search');
+    }, [setTitle]);
+    return <h1>Search</h1>;
+  },
+}));
 vi.mock('../pages/setup', () => ({ default: () => <h1>Setup</h1> }));
 vi.mock('../pages/system-status', () => ({
   default: () => <h1>System Status</h1>,
@@ -176,27 +185,44 @@ function renderAt(path: string, config = makeConfig()): void {
   render(<App config={config} />);
 }
 
-describe('App license routing', () => {
-  beforeEach(() => {
-    localStorage.clear();
-    sessionStorage.clear();
-    clientGetMock.mockReset();
-    clientGetMock.mockResolvedValue({ data: { workspaces: [] } });
-    useQueryMock.mockReset();
-    useQueryMock.mockReturnValue({ data: undefined });
-    overviewImportError.current = false;
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () =>
-        Response.json({
-          remoteNodes: [],
-          type: 'object',
-          properties: {},
-        })
-      )
-    );
+beforeEach(() => {
+  localStorage.clear();
+  sessionStorage.clear();
+  clientGetMock.mockReset();
+  clientGetMock.mockResolvedValue({ data: { workspaces: [] } });
+  useQueryMock.mockReset();
+  useQueryMock.mockReturnValue({ data: undefined });
+  overviewImportError.current = false;
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () =>
+      Response.json({
+        remoteNodes: [],
+        type: 'object',
+        properties: {},
+      })
+    )
+  );
+});
+
+describe('App document title', () => {
+  it('reflects the page title in the browser tab', async () => {
+    renderAt('/search');
+
+    await waitFor(() => {
+      expect(document.title).toBe('Search - Dagu');
+    });
   });
 
+  it('falls back to the configured title when a page sets none', async () => {
+    renderAt('/queues');
+
+    expect(await screen.findByRole('heading', { name: 'Queues' })).toBeVisible();
+    expect(document.title).toBe('Dagu');
+  });
+});
+
+describe('App license routing', () => {
   it.each([
     { path: '/notifications', heading: 'Notifications' },
     { path: '/notification-rules', heading: 'Notification Rules' },
