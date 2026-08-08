@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path"
 	"regexp"
 	"strings"
 	"time"
@@ -192,7 +193,9 @@ var validAttachmentNameRegexp = regexp.MustCompile(`^[a-zA-Z0-9_][a-zA-Z0-9_. -]
 const maxAttachmentNameLength = 128
 
 // ValidateAttachmentName validates that name is a safe attachment file name:
-// a single path segment following the doc-ID segment rules.
+// a single path segment following the doc-ID segment rules. Extensions used
+// by documents and DAG definitions are reserved so attachment files can
+// never be mistaken for either.
 func ValidateAttachmentName(name string) error {
 	if name == "" {
 		return ErrInvalidAttachmentName
@@ -208,6 +211,10 @@ func ValidateAttachmentName(name string) error {
 	}
 	if windowsReservedSegment.MatchString(name) {
 		return fmt.Errorf("%w: must not use reserved device names", ErrInvalidAttachmentName)
+	}
+	switch strings.ToLower(path.Ext(name)) {
+	case ".md", ".yaml", ".yml":
+		return fmt.Errorf("%w: extension is reserved for documents and DAG definitions", ErrInvalidAttachmentName)
 	}
 	return nil
 }
