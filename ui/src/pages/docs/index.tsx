@@ -299,7 +299,7 @@ function DocsContent() {
 
   // Create handler
   const handleCreate = useCallback(
-    async (path: string) => {
+    async (path: string, content: string) => {
       if (!canWrite) {
         setCreateError('You do not have permission to create documents');
         return;
@@ -310,7 +310,7 @@ function DocsContent() {
         const mutationQuery = workspaceTargetQueryForWorkspace(createWorkspace);
         const { error } = await client.POST('/docs', {
           params: { query: { remoteNode, ...mutationQuery } },
-          body: { id: path, content: '' },
+          body: { id: path, content },
         });
         if (error) {
           setCreateError(error?.message || 'Failed to create document');
@@ -548,6 +548,7 @@ function DocsContent() {
         onClose={() => setCreateModalOpen(false)}
         onSubmit={handleCreate}
         parentDir={createParentDir}
+        workspace={createWorkspace}
         isLoading={createLoading}
         externalError={createError}
       />
