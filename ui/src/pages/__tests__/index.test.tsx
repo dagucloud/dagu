@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import * as React from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -298,15 +298,27 @@ describe('DashboardPage', () => {
     expect(screen.queryByText(/No runs on /)).not.toBeInTheDocument();
   });
 
-  it('does not show first-run guidance when the DAG inventory request fails', async () => {
+  it('offers a retry instead of first-run guidance when the inventory request fails', async () => {
     clientGetMock.mockResolvedValue({});
 
     renderPage();
 
-    expect(await screen.findByText(/No runs on /)).toBeVisible();
+    expect(
+      await screen.findByText('Failed to load the workflow list.')
+    ).toBeVisible();
     expect(
       screen.queryByText('Create your first workflow')
     ).not.toBeInTheDocument();
+    expect(screen.queryByText(/No runs on /)).not.toBeInTheDocument();
+
+    const callsBeforeRetry = clientGetMock.mock.calls.length;
+    mockDAGInventory(['etl'], 1);
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+
+    await waitFor(() => {
+      expect(clientGetMock.mock.calls.length).toBeGreaterThan(callsBeforeRetry);
+    });
+    expect(await screen.findByText(/No runs on /)).toBeVisible();
   });
 
   it('shows placeholders instead of zeros while runs load', async () => {

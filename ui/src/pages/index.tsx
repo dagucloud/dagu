@@ -233,6 +233,7 @@ function Dashboard(): React.ReactElement | null {
     names: [],
     totalCount: 0,
   });
+  const [inventoryRetryNonce, setInventoryRetryNonce] = React.useState(0);
   const lastWindowScrollYRef = React.useRef(0);
 
   type DashboardFilters = {
@@ -438,7 +439,7 @@ function Dashboard(): React.ReactElement | null {
       });
 
     return () => controller.abort();
-  }, [client, remoteNode, workspaceQuery]);
+  }, [client, remoteNode, workspaceQuery, inventoryRetryNonce]);
 
   React.useEffect(() => {
     lastWindowScrollYRef.current = window.scrollY;
@@ -518,8 +519,15 @@ function Dashboard(): React.ReactElement | null {
 
   const showGettingStarted =
     dagInventory.status === 'loaded' && dagInventory.totalCount === 0;
+  // With the inventory pending or failed, "no runs" cannot be distinguished
+  // from "request failed", so first-run guidance stays off.
   const showNoRunsNotice =
-    !showGettingStarted && !isLoading && totalDAGRuns === 0;
+    dagInventory.status === 'loaded' &&
+    !showGettingStarted &&
+    !isLoading &&
+    totalDAGRuns === 0;
+  const showInventoryError =
+    dagInventory.status === 'error' && !isLoading && totalDAGRuns === 0;
   const hasExampleDAGs = dagInventory.names.some((name) =>
     name.startsWith('example-')
   );
@@ -656,6 +664,18 @@ function Dashboard(): React.ReactElement | null {
                     .format('MMM D, YYYY')}
                   hasExampleDAGs={hasExampleDAGs}
                 />
+              ) : showInventoryError ? (
+                <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center">
+                  <p className="text-sm font-medium text-foreground">
+                    Failed to load the workflow list.
+                  </p>
+                  <Button
+                    variant="outline"
+                    onClick={() => setInventoryRetryNonce((n) => n + 1)}
+                  >
+                    Retry
+                  </Button>
+                </div>
               ) : (
                 <DashboardTimeChart
                   data={dagRunsList}
