@@ -135,12 +135,16 @@ type ConnectionResult struct {
 }
 
 // SyncItemDiff represents the diff between local and remote versions of an item.
+// Binary items carry sizes instead of content.
 type SyncItemDiff struct {
 	ItemID        string     `json:"dagId"`
 	FileExtension string     `json:"fileExtension"`
 	Status        SyncStatus `json:"status"`
+	Binary        bool       `json:"binary,omitempty"`
 	LocalContent  string     `json:"localContent"`
 	RemoteContent string     `json:"remoteContent,omitempty"`
+	LocalSize     int64      `json:"localSize,omitempty"`
+	RemoteSize    int64      `json:"remoteSize,omitempty"`
 	RemoteCommit  string     `json:"remoteCommit,omitempty"`
 	RemoteAuthor  string     `json:"remoteAuthor,omitempty"`
 	RemoteMessage string     `json:"remoteMessage,omitempty"`
@@ -253,6 +257,12 @@ func (s *serviceImpl) syncFilesToLocal(_ context.Context, pullResult *PullResult
 	if err != nil {
 		return nil, nil, err
 	}
+	// Doc attachments are extension-agnostic; list their subtree separately.
+	assetFiles, err := s.gitClient.ListFilesUnder(path.Join(docsDir, docAssetsDirName))
+	if err != nil {
+		return nil, nil, err
+	}
+	files = append(files, assetFiles...)
 
 	state, _ := s.stateManager.GetState()
 	s.ensureSyncItemFileExtensions(state)
@@ -334,9 +344,14 @@ func (s *serviceImpl) syncFilesToLocal(_ context.Context, pullResult *PullResult
 
 		if err != nil {
 			// Before creating a new local file, check if this content matches
-			// a missing item's hash (prevents duplicates after move+pull)
+			// a missing item's hash (prevents duplicates after move+pull).
+			// Only same-kind entries qualify: identical bytes across kinds
+			// must not forget an unrelated item.
 			for otherID, otherState := range state.Items {
-				if otherID != dagID && otherState.Status == StatusMissing && otherState.LastSyncedHash == repoHash {
+				if otherID != dagID &&
+					otherState.Status == StatusMissing &&
+					otherState.LastSyncedHash == repoHash &&
+					SyncItemKindForID(otherID) == SyncItemKindForID(dagID) {
 					// Auto-forget the stale missing entry
 					delete(state.Items, otherID)
 					break
@@ -1390,6 +1405,9 @@ func (s *serviceImpl) Move(ctx context.Context, oldID, newID, message string, fo
 	if SyncItemKindForID(oldID) != SyncItemKindForID(newID) {
 		return &ValidationError{Field: "newItemId", Message: "source and destination must have the same item type"}
 	}
+	if isDocAssetFile(newID) && !isValidAssetItemID(newID) {
+		return &ValidationError{Field: "newItemId", Message: "destination is not a valid attachment path"}
+	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1655,6 +1673,32 @@ func (s *serviceImpl) GetSyncItemDiff(_ context.Context, itemID string) (*SyncIt
 		Status:        itemState.Status,
 	}
 
+	// Binary attachments never load content: sizes and commit metadata only.
+	// This guard must precede every content-loading branch below.
+	if isDocAssetFile(itemID) {
+		diff.Binary = true
+		if localPath, err := s.safeDAGIDToFilePath(itemID, ""); err == nil {
+			if info, err := os.Stat(localPath); err == nil {
+				diff.LocalSize = info.Size()
+			}
+		}
+		remoteCommit := itemState.BaseCommit
+		if itemState.Status == StatusConflict {
+			remoteCommit = itemState.RemoteCommit
+			diff.RemoteAuthor = itemState.RemoteAuthor
+			diff.RemoteMessage = itemState.RemoteMessage
+		}
+		if remoteCommit != "" {
+			if repoPath, err := s.safeDAGIDToRepoPath(itemID, ""); err == nil {
+				if size, err := s.gitClient.GetFileSizeAtCommit(repoPath, remoteCommit); err == nil {
+					diff.RemoteSize = size
+				}
+			}
+			diff.RemoteCommit = remoteCommit
+		}
+		return diff, nil
+	}
+
 	// Missing items have no local file.
 	if itemState.Status == StatusMissing {
 		diff.LocalContent = ""
@@ -1871,6 +1915,12 @@ func (s *serviceImpl) filePathToDAGID(filePath string) string {
 func isSyncableRepoFile(filePath, itemID string) bool {
 	if isBaseConfigID(itemID) {
 		return false
+	}
+	// Attachments are classified by location and validated by name; the
+	// extension switch below never applies to them, so a .md file under the
+	// asset subtree can never become a doc item.
+	if isDocAssetFile(itemID) {
+		return isValidAssetItemID(itemID)
 	}
 	switch strings.ToLower(path.Ext(filePath)) {
 	case docExtension:

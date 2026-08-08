@@ -182,6 +182,87 @@ func TestPullReturnsErrorWhenMissingDAGsDirCannotBeCreated(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to write")
 }
 
+func TestPullSyncsDocAttachments(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	remotePath := filepath.Join(root, "remote")
+	remoteRepo := initPullExternalTestRepo(t, remotePath)
+
+	pngBytes := string([]byte{0x89, 'P', 'N', 'G', 0x00, 0x01, 0xFF})
+	commitPullExternalTestFile(t, remoteRepo, remotePath, "docs/guides/setup.md", "# Setup\n", "doc")
+	commitPullExternalTestFile(t, remoteRepo, remotePath, "docs/.attachments/guides/setup/logo.png", pngBytes, "asset")
+	// Hostile or malformed asset paths must never reach the local disk:
+	// a reserved extension and a file with no doc segment.
+	commitPullExternalTestFile(t, remoteRepo, remotePath, "docs/.attachments/guides/setup/evil.md", "# evil\n", "evil")
+	commitPullExternalTestFile(t, remoteRepo, remotePath, "docs/.attachments/stray.png", "stray", "stray")
+
+	dataDir := filepath.Join(root, "data")
+	_, err := git.PlainCloneContext(ctx, filepath.Join(dataDir, "gitsync", "repo"), false, &git.CloneOptions{
+		URL:           remotePath,
+		ReferenceName: plumbing.NewBranchReferenceName("main"),
+		SingleBranch:  true,
+		Depth:         1,
+	})
+	require.NoError(t, err)
+
+	dagsDir := filepath.Join(root, "dags")
+	docsDir := filepath.Join(dagsDir, "docs")
+	svc := gitsync.NewService(&gitsync.Config{
+		Enabled:    true,
+		Repository: remotePath,
+		Branch:     "main",
+	}, dagsDir, docsDir, dataDir)
+
+	result, err := svc.Pull(ctx)
+	require.NoError(t, err)
+	require.True(t, result.Success)
+
+	assetID := "docs/.attachments/guides/setup/logo.png"
+	assert.Contains(t, result.Synced, assetID)
+
+	localAsset := filepath.Join(docsDir, ".attachments", "guides", "setup", "logo.png")
+	content, err := os.ReadFile(localAsset)
+	require.NoError(t, err)
+	assert.Equal(t, pngBytes, string(content))
+
+	_, err = os.Lstat(filepath.Join(docsDir, ".attachments", "guides", "setup", "evil.md"))
+	assert.True(t, os.IsNotExist(err))
+	_, err = os.Lstat(filepath.Join(docsDir, ".attachments", "stray.png"))
+	assert.True(t, os.IsNotExist(err))
+
+	status, err := svc.GetStatus(ctx)
+	require.NoError(t, err)
+	assetState := status.Items[assetID]
+	require.NotNil(t, assetState)
+	assert.Equal(t, gitsync.SyncItemKindDocAsset, assetState.Kind)
+	assert.Equal(t, gitsync.StatusSynced, assetState.Status)
+	assert.NotContains(t, status.Items, "docs/.attachments/guides/setup/evil")
+	assert.NotContains(t, status.Items, "docs/.attachments/guides/setup/evil.md")
+	assert.NotContains(t, status.Items, "docs/.attachments/stray.png")
+
+	// A second pull is idempotent.
+	result, err = svc.Pull(ctx)
+	require.NoError(t, err)
+	require.True(t, result.Success)
+
+	// Local modification surfaces as modified, and the diff withholds the
+	// binary content while reporting sizes.
+	require.NoError(t, os.WriteFile(localAsset, []byte("changed-bytes"), 0600))
+	status, err = svc.GetStatus(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, gitsync.StatusModified, status.Items[assetID].Status)
+
+	diff, err := svc.GetSyncItemDiff(ctx, assetID)
+	require.NoError(t, err)
+	assert.True(t, diff.Binary)
+	assert.Empty(t, diff.LocalContent)
+	assert.Empty(t, diff.RemoteContent)
+	assert.Equal(t, int64(len("changed-bytes")), diff.LocalSize)
+	assert.Equal(t, int64(len(pngBytes)), diff.RemoteSize)
+}
+
 func initPullExternalTestRepo(t *testing.T, repoPath string) *git.Repository {
 	t.Helper()
 

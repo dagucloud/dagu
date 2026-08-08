@@ -239,6 +239,15 @@ func TestIsSyncableRepoFile(t *testing.T) {
 	assert.True(t, isSyncableRepoFile("workflow.yml", "workflow"))
 	assert.True(t, isSyncableRepoFile("docs/operations/deploy.md", "docs/operations/deploy"))
 	assert.False(t, isSyncableRepoFile("README.md", "README"))
+
+	// Attachments: any valid name syncs, invalid locations and reserved
+	// extensions never do — even as docs.
+	assert.True(t, isSyncableRepoFile(
+		"docs/.attachments/guides/deploy/logo.png", "docs/.attachments/guides/deploy/logo.png"))
+	assert.False(t, isSyncableRepoFile(
+		"docs/.attachments/guides/deploy/evil.md", "docs/.attachments/guides/deploy/evil.md"))
+	assert.False(t, isSyncableRepoFile(
+		"docs/.attachments/stray.png", "docs/.attachments/stray.png"))
 }
 
 func TestResolvePublishTargets(t *testing.T) {
