@@ -66,6 +66,11 @@ func TestExtractWikiLinks(t *testing.T) {
 			links:   []WikiLink{{Target: "a", Label: "b|c"}},
 		},
 		{
+			name:    "embeds excluded from the link graph",
+			content: "![[logo.png]] but [[kept]]",
+			links:   []WikiLink{{Target: "kept"}},
+		},
+		{
 			name:    "no links",
 			content: "plain [markdown](link) only",
 			links:   nil,

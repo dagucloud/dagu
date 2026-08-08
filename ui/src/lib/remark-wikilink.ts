@@ -12,9 +12,10 @@ export const WIKILINK_SCHEME = 'wikilink:';
 /** Prefix marking a wikilink target as a DAG reference: [[dag:name]]. */
 export const WIKILINK_DAG_PREFIX = 'dag:';
 
-const WIKILINK_PATTERN = /\[\[([^[\]|#]+)(#[^[\]|]*)?(\|[^[\]]*)?\]\]/g;
+const WIKILINK_PATTERN = /(!?)\[\[([^[\]|#]+)(#[^[\]|]*)?(\|[^[\]]*)?\]\]/g;
 
 export type ParsedWikilink = {
+  embed: boolean;
   target: string;
   anchor: string;
   label: string;
@@ -39,13 +40,22 @@ export function parseWikilinkHref(
 }
 
 function parseMatch(match: RegExpExecArray): ParsedWikilink | null {
-  const target = match[1]?.trim() ?? '';
+  const target = match[2]?.trim() ?? '';
   if (!target) return null;
   return {
+    embed: match[1] === '!',
     target,
-    anchor: (match[2] ?? '').replace(/^#/, '').trim(),
-    label: (match[3] ?? '').replace(/^\|/, '').trim(),
+    anchor: (match[3] ?? '').replace(/^#/, '').trim(),
+    label: (match[4] ?? '').replace(/^\|/, '').trim(),
   };
+}
+
+// An embed target is an attachment when it is a bare file name; doc-path
+// embeds (transclusion) are not supported and degrade to plain links.
+function isAttachmentEmbed(link: ParsedWikilink): boolean {
+  return (
+    link.embed && !link.target.includes('/') && !link.target.includes(':')
+  );
 }
 
 type MdNode = {
@@ -58,8 +68,9 @@ type MdNode = {
 
 /**
  * remark plugin turning [[target]], [[target#anchor]], and [[target|label]]
- * text into link nodes with a wikilink: URL. Text inside code blocks and
- * inline code never appears as mdast text nodes, so it is left untouched.
+ * text into link nodes with a wikilink: URL, and ![[file.png]] embeds into
+ * attachment images. Text inside code blocks and inline code never appears
+ * as mdast text nodes, so it is left untouched.
  */
 export function remarkWikilink() {
   return (tree: MdNode) => {
@@ -84,15 +95,24 @@ export function remarkWikilink() {
               value: value.slice(last, match.index),
             });
           }
-          replacement.push({
-            type: 'link',
-            url:
-              WIKILINK_SCHEME +
-              link.target +
-              (link.anchor ? `#${link.anchor}` : ''),
-            data: { hProperties: { className: 'wikilink' } },
-            children: [{ type: 'text', value: link.label || link.target }],
-          });
+          if (isAttachmentEmbed(link)) {
+            replacement.push({
+              type: 'image',
+              url: `attachment:${link.target}`,
+              // Obsidian reuses the label position for alt text.
+              alt: link.label || link.target,
+            } as MdNode);
+          } else {
+            replacement.push({
+              type: 'link',
+              url:
+                WIKILINK_SCHEME +
+                link.target +
+                (link.anchor ? `#${link.anchor}` : ''),
+              data: { hProperties: { className: 'wikilink' } },
+              children: [{ type: 'text', value: link.label || link.target }],
+            });
+          }
           last = match.index + match[0].length;
         }
         if (replacement.length === 0) return;

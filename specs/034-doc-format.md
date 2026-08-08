@@ -82,6 +82,11 @@ standard Markdown, so external editors and git tooling keep working.
   a DAG by name: `[[dag:name]]`. Other schemes are reserved.
 - Wiki links inside fenced code blocks and inline code spans must be inert.
 - A wiki link whose target is empty after trimming is not a link.
+- A leading exclamation mark marks an embed: `![[name.png]]` references an
+  attachment of the containing document and renders it inline. The label
+  position supplies alternate text. Embeds are not document links and must
+  not appear in the link graph. An embed whose target contains a slash or a
+  colon is not supported and degrades to a plain wiki link.
 
 ### Reserved fenced languages
 

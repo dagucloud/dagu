@@ -18,8 +18,8 @@ type WikiLink struct {
 }
 
 // wikiLinkRegexp matches [[target]], [[target#anchor]], [[target|label]],
-// and [[target#anchor|label]].
-var wikiLinkRegexp = regexp.MustCompile(`\[\[([^\[\]|#]+)(#[^\[\]|]*)?(\|[^\[\]]*)?\]\]`)
+// and [[target#anchor|label]], with an optional leading ! marking an embed.
+var wikiLinkRegexp = regexp.MustCompile(`(!?)\[\[([^\[\]|#]+)(#[^\[\]|]*)?(\|[^\[\]]*)?\]\]`)
 
 // inlineCodeRegexp matches inline code spans so links inside them are ignored.
 var inlineCodeRegexp = regexp.MustCompile("`[^`]*`")
@@ -28,7 +28,8 @@ var inlineCodeRegexp = regexp.MustCompile("`[^`]*`")
 var fenceRegexp = regexp.MustCompile("^\\s*(```|~~~)")
 
 // ExtractWikiLinks returns the wiki links in content, in document order.
-// Links inside fenced code blocks and inline code spans are ignored.
+// Links inside fenced code blocks and inline code spans are ignored, as are
+// ![[name]] embeds, which reference attachments rather than documents.
 // Targets are returned raw, including scheme-prefixed targets.
 func ExtractWikiLinks(content string) []WikiLink {
 	var links []WikiLink
@@ -43,14 +44,17 @@ func ExtractWikiLinks(content string) []WikiLink {
 		}
 		line = inlineCodeRegexp.ReplaceAllString(line, "")
 		for _, m := range wikiLinkRegexp.FindAllStringSubmatch(line, -1) {
-			target := strings.TrimSpace(m[1])
+			if m[1] == "!" {
+				continue
+			}
+			target := strings.TrimSpace(m[2])
 			if target == "" {
 				continue
 			}
 			links = append(links, WikiLink{
 				Target: target,
-				Anchor: strings.TrimSpace(strings.TrimPrefix(m[2], "#")),
-				Label:  strings.TrimSpace(strings.TrimPrefix(m[3], "|")),
+				Anchor: strings.TrimSpace(strings.TrimPrefix(m[3], "#")),
+				Label:  strings.TrimSpace(strings.TrimPrefix(m[4], "|")),
 			})
 		}
 	}
