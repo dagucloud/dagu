@@ -42,11 +42,10 @@ func TestPersistedDAGRunEventTypeForStatus(t *testing.T) {
 	}
 }
 
-func TestPartiallySucceededIsNotificationEventType(t *testing.T) {
+func TestPartiallySucceededIsDAGRunEventType(t *testing.T) {
 	t.Parallel()
 
 	assert.True(t, IsDAGRunEventType(KindDAGRun, TypeDAGRunPartiallySucceeded))
-	assert.True(t, IsNotificationEventType(KindDAGRun, TypeDAGRunPartiallySucceeded))
 }
 
 func TestServiceEmitDefaultsFieldsWithoutReadTimeRepair(t *testing.T) {
@@ -191,7 +190,7 @@ func TestDAGRunSnapshotFromEventBackfillsLegacyDAGFile(t *testing.T) {
 	require.NotNil(t, snapshot)
 	assert.Equal(t, "legacy.yaml", snapshot.DAGFile)
 
-	status, err := NotificationStatusFromEvent(event)
+	status, err := DAGRunStatusFromEvent(event)
 	require.NoError(t, err)
 	require.NotNil(t, status)
 	assert.Equal(t, "legacy", status.Name)
@@ -227,7 +226,6 @@ func TestEmitPersistedStatusTransitionFromContextEmitsUpdateForRepeatedStatus(t 
 	assert.Equal(t, TypeDAGRunUpdated, store.event.Type)
 	assert.Equal(t, TypeDAGRunRunning, next)
 	assert.True(t, IsDAGRunEventType(store.event.Kind, store.event.Type))
-	assert.False(t, IsNotificationEventType(store.event.Kind, store.event.Type))
 }
 
 func TestDAGRunUpdateEventIDIncludesRecordedAt(t *testing.T) {
@@ -269,10 +267,10 @@ func TestNewDAGRunEventDeepClonesData(t *testing.T) {
 	assert.Equal(t, "fetch", event.Data["steps"].([]any)[0].(map[string]any)["name"])
 }
 
-func TestNotificationStatusFromEventRejectsInvalidSnapshot(t *testing.T) {
+func TestDAGRunStatusFromEventRejectsInvalidSnapshot(t *testing.T) {
 	t.Parallel()
 
-	status, err := NotificationStatusFromEvent(&Event{
+	status, err := DAGRunStatusFromEvent(&Event{
 		ID:            "evt-1",
 		SchemaVersion: SchemaVersion,
 		OccurredAt:    time.Now().UTC(),
@@ -289,32 +287,32 @@ func TestNotificationStatusFromEventRejectsInvalidSnapshot(t *testing.T) {
 	assert.ErrorContains(t, err, "missing dag_run_id")
 }
 
-func TestNotificationServiceNormalizesCursorAtBoundary(t *testing.T) {
+func TestDAGRunServiceNormalizesCursorAtBoundary(t *testing.T) {
 	t.Parallel()
 
 	store := &captureStore{
-		notificationHeadCursor: DAGRunCursor{},
-		notificationReadCursor: DAGRunCursor{
+		dagRunHeadCursor: DAGRunCursor{},
+		dagRunReadCursor: DAGRunCursor{
 			LastInboxFile: "inbox-1",
 		},
 	}
 	service := New(store)
 
-	head, err := service.NotificationHeadCursor(context.Background())
+	head, err := service.DAGRunHeadCursor(context.Background())
 	require.NoError(t, err)
 	require.NotNil(t, head.CommittedOffsets)
 
-	_, nextCursor, err := service.ReadNotificationEvents(context.Background(), DAGRunCursor{})
+	_, nextCursor, err := service.ReadDAGRunEvents(context.Background(), DAGRunCursor{})
 	require.NoError(t, err)
-	require.NotNil(t, store.lastNotificationReadCursor.CommittedOffsets)
+	require.NotNil(t, store.lastDAGRunReadCursor.CommittedOffsets)
 	require.NotNil(t, nextCursor.CommittedOffsets)
 }
 
 type captureStore struct {
-	event                      *Event
-	notificationHeadCursor     DAGRunCursor
-	notificationReadCursor     DAGRunCursor
-	lastNotificationReadCursor DAGRunCursor
+	event                *Event
+	dagRunHeadCursor     DAGRunCursor
+	dagRunReadCursor     DAGRunCursor
+	lastDAGRunReadCursor DAGRunCursor
 }
 
 func (c *captureStore) Emit(_ context.Context, event *Event) error {
@@ -326,11 +324,11 @@ func (*captureStore) Query(context.Context, QueryFilter) (*QueryResult, error) {
 	return nil, nil
 }
 
-func (c *captureStore) NotificationHeadCursor(context.Context) (DAGRunCursor, error) {
-	return c.notificationHeadCursor, nil
+func (c *captureStore) DAGRunHeadCursor(context.Context) (DAGRunCursor, error) {
+	return c.dagRunHeadCursor, nil
 }
 
-func (c *captureStore) ReadNotificationEvents(_ context.Context, cursor DAGRunCursor) ([]*Event, DAGRunCursor, error) {
-	c.lastNotificationReadCursor = cursor
-	return nil, c.notificationReadCursor, nil
+func (c *captureStore) ReadDAGRunEvents(_ context.Context, cursor DAGRunCursor) ([]*Event, DAGRunCursor, error) {
+	c.lastDAGRunReadCursor = cursor
+	return nil, c.dagRunReadCursor, nil
 }

@@ -31,7 +31,7 @@ type monitorEventStore struct {
 }
 
 var _ eventstore.Store = (*monitorEventStore)(nil)
-var _ eventstore.NotificationReader = (*monitorEventStore)(nil)
+var _ eventstore.DAGRunReader = (*monitorEventStore)(nil)
 
 func monitorEventuallyTimeout(base time.Duration) time.Duration {
 	if runtime.GOOS == "windows" {
@@ -56,7 +56,7 @@ func (s *monitorEventStore) Query(context.Context, eventstore.QueryFilter) (*eve
 	return &eventstore.QueryResult{}, nil
 }
 
-func (s *monitorEventStore) NotificationHeadCursor(context.Context) (eventstore.DAGRunCursor, error) {
+func (s *monitorEventStore) DAGRunHeadCursor(context.Context) (eventstore.DAGRunCursor, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.headCalls++
@@ -64,7 +64,7 @@ func (s *monitorEventStore) NotificationHeadCursor(context.Context) (eventstore.
 	return s.currentCursorLocked(), nil
 }
 
-func (s *monitorEventStore) ReadNotificationEvents(_ context.Context, cursor eventstore.DAGRunCursor) ([]*eventstore.Event, eventstore.DAGRunCursor, error) {
+func (s *monitorEventStore) ReadDAGRunEvents(_ context.Context, cursor eventstore.DAGRunCursor) ([]*eventstore.Event, eventstore.DAGRunCursor, error) {
 	s.mu.Lock()
 	s.readCalls++
 

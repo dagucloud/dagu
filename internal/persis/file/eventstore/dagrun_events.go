@@ -21,7 +21,6 @@ import (
 )
 
 var _ eventstore.DAGRunReader = (*Store)(nil)
-var _ eventstore.NotificationReader = (*Store)(nil)
 
 func (s *Store) DAGRunHeadCursor(_ context.Context) (eventstore.DAGRunCursor, error) {
 	cursor := eventstore.DAGRunCursor{
@@ -49,11 +48,6 @@ func (s *Store) DAGRunHeadCursor(_ context.Context) (eventstore.DAGRunCursor, er
 	}
 	cursor.LastInboxFile = lastInbox
 	return cursor.Normalize(), nil
-}
-
-func (s *Store) NotificationHeadCursor(ctx context.Context) (eventstore.DAGRunCursor, error) {
-	cursor, err := s.DAGRunHeadCursor(ctx)
-	return cursor, err
 }
 
 func (s *Store) ReadDAGRunEvents(_ context.Context, cursor eventstore.DAGRunCursor) ([]*eventstore.Event, eventstore.DAGRunCursor, error) {
@@ -116,21 +110,6 @@ func (s *Store) ReadDAGRunEvents(_ context.Context, cursor eventstore.DAGRunCurs
 		return events[i].ID < events[j].ID
 	})
 	return events, nextCursor.Normalize(), nil
-}
-
-func (s *Store) ReadNotificationEvents(ctx context.Context, cursor eventstore.DAGRunCursor) ([]*eventstore.Event, eventstore.DAGRunCursor, error) {
-	events, nextCursor, err := s.ReadDAGRunEvents(ctx, cursor)
-	if err != nil {
-		return nil, eventstore.DAGRunCursor{}, err
-	}
-	filtered := make([]*eventstore.Event, 0, len(events))
-	for _, event := range events {
-		if event == nil || !eventstore.IsNotificationEventType(event.Kind, event.Type) {
-			continue
-		}
-		filtered = append(filtered, event)
-	}
-	return filtered, nextCursor, nil
 }
 
 func (s *Store) listCommittedLogNames() ([]string, error) {
