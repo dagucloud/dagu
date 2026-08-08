@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package ir
+package spec
 
 import (
 	"context"
@@ -9,10 +9,11 @@ import (
 	"strings"
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // ReportValueReferenceNotices reports passive notices for value references in dag.
-func ReportValueReferenceNotices(dag *DAG, sink cmnvalue.ValueReferenceNoticeSink) {
+func ReportValueReferenceNotices(dag *ir.DAG, sink cmnvalue.ValueReferenceNoticeSink) {
 	if dag == nil || sink == nil {
 		return
 	}
@@ -100,7 +101,7 @@ func isForeachItemScopeFieldPath(path string) bool {
 }
 
 func reportStepEnvValueReferenceNotices(
-	dag *DAG,
+	dag *ir.DAG,
 	staticScope cmnvalue.StaticScope,
 	runtimeScope cmnvalue.RuntimeScope,
 	rootEnvScope *cmnvalue.EnvScope,
@@ -108,8 +109,8 @@ func reportStepEnvValueReferenceNotices(
 	sink cmnvalue.ValueReferenceNoticeSink,
 ) map[string]*cmnvalue.EnvScope {
 	scopes := make(map[string]*cmnvalue.EnvScope)
-	var reportStep func(string, Step)
-	reportStep = func(path string, step Step) {
+	var reportStep func(string, ir.Step)
+	reportStep = func(path string, step ir.Step) {
 		scopes[path] = reportSingleStepEnvValueReferenceNotices(
 			path,
 			step,
@@ -132,7 +133,7 @@ func reportStepEnvValueReferenceNotices(
 	}
 	handlers := []struct {
 		path string
-		step *Step
+		step *ir.Step
 	}{
 		{"handler_on.init", dag.HandlerOn.Init},
 		{"handler_on.success", dag.HandlerOn.Success},
@@ -152,7 +153,7 @@ func reportStepEnvValueReferenceNotices(
 
 func reportSingleStepEnvValueReferenceNotices(
 	path string,
-	step Step,
+	step ir.Step,
 	dagName string,
 	staticScope cmnvalue.StaticScope,
 	runtimeScope cmnvalue.RuntimeScope,
@@ -263,14 +264,14 @@ func isEnvReferenceFieldPath(path string) bool {
 }
 
 type stepOutputNoticeContext struct {
-	stepsByID      map[string]Step
+	stepsByID      map[string]ir.Step
 	outputNames    map[string]map[string]struct{}
 	depsByStepName map[string][]string
 }
 
-func newStepOutputNoticeContext(dag *DAG) *stepOutputNoticeContext {
+func newStepOutputNoticeContext(dag *ir.DAG) *stepOutputNoticeContext {
 	ctx := &stepOutputNoticeContext{
-		stepsByID:      make(map[string]Step),
+		stepsByID:      make(map[string]ir.Step),
 		outputNames:    make(map[string]map[string]struct{}),
 		depsByStepName: make(map[string][]string),
 	}
@@ -296,25 +297,25 @@ func newStepOutputNoticeContext(dag *DAG) *stepOutputNoticeContext {
 	return ctx
 }
 
-func fixedActionOutputs(step Step) []StepOutputDeclaration {
+func fixedActionOutputs(step ir.Step) []ir.StepOutputDeclaration {
 	if step.ExecutorConfig.Type != "git" || len(step.Commands) == 0 {
 		return nil
 	}
 	switch strings.TrimSpace(step.Commands[0].Command) {
 	case "worktree.add":
-		return []StepOutputDeclaration{
-			{Name: "path", Type: StepDeclaredOutputTypeString},
-			{Name: "branch", Type: StepDeclaredOutputTypeString},
-			{Name: "commit", Type: StepDeclaredOutputTypeString},
-			{Name: "worktree_created", Type: StepDeclaredOutputTypeJSON},
-			{Name: "branch_created", Type: StepDeclaredOutputTypeJSON},
+		return []ir.StepOutputDeclaration{
+			{Name: "path", Type: ir.StepDeclaredOutputTypeString},
+			{Name: "branch", Type: ir.StepDeclaredOutputTypeString},
+			{Name: "commit", Type: ir.StepDeclaredOutputTypeString},
+			{Name: "worktree_created", Type: ir.StepDeclaredOutputTypeJSON},
+			{Name: "branch_created", Type: ir.StepDeclaredOutputTypeJSON},
 		}
 	case "worktree.remove":
-		return []StepOutputDeclaration{
-			{Name: "path", Type: StepDeclaredOutputTypeString},
-			{Name: "branch", Type: StepDeclaredOutputTypeString},
-			{Name: "worktree_removed", Type: StepDeclaredOutputTypeJSON},
-			{Name: "branch_deleted", Type: StepDeclaredOutputTypeJSON},
+		return []ir.StepOutputDeclaration{
+			{Name: "path", Type: ir.StepDeclaredOutputTypeString},
+			{Name: "branch", Type: ir.StepDeclaredOutputTypeString},
+			{Name: "worktree_removed", Type: ir.StepDeclaredOutputTypeJSON},
+			{Name: "branch_deleted", Type: ir.StepDeclaredOutputTypeJSON},
 		}
 	default:
 		return nil

@@ -849,7 +849,7 @@ func (s *dagBuildState) buildActionGraph() {
 
 func (s *dagBuildState) validateResult() {
 	if !s.ctx.opts.Has(buildFlagOnlyMetadata) {
-		if err := ir.ValidateSteps(s.result); err != nil {
+		if err := ValidateSteps(s.result); err != nil {
 			s.errs = append(s.errs, err)
 		}
 
@@ -861,7 +861,7 @@ func (s *dagBuildState) validateResult() {
 			))
 		}
 
-		if err := ir.ValidateController(s.result); err != nil {
+		if err := validateController(s.result); err != nil {
 			s.errs = append(s.errs, err)
 		}
 	}
@@ -1082,7 +1082,7 @@ func buildCatchupWindow(_ buildContext, d *dag) (time.Duration, error) {
 	if d.CatchupWindow == "" {
 		return 0, nil
 	}
-	return ir.ParseDuration(d.CatchupWindow)
+	return ParseDuration(d.CatchupWindow)
 }
 
 func buildOverlapPolicy(_ buildContext, d *dag) (ir.OverlapPolicy, error) {

@@ -132,3 +132,27 @@ func TestValidateRequiredInputs(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildWebhookRuntimeParams(t *testing.T) {
+	t.Parallel()
+
+	t.Run("payload and headers only", func(t *testing.T) {
+		t.Parallel()
+
+		got := buildWebhookRuntimeParams(`{"event":"push"}`, `{"x-github-event":["push"]}`, nil)
+		want := `WEBHOOK_PAYLOAD="{\"event\":\"push\"}" WEBHOOK_HEADERS="{\"x-github-event\":[\"push\"]}"`
+		assert.Equal(t, want, got)
+	})
+
+	t.Run("ordered non-empty extras", func(t *testing.T) {
+		t.Parallel()
+
+		got := buildWebhookRuntimeParams("{}", "{}", map[string]string{
+			"GITHUB_REF":        "refs/heads/main",
+			"GITHUB_EVENT_NAME": "push",
+			"GITHUB_SHA":        "",
+		})
+		want := `WEBHOOK_PAYLOAD="{}" WEBHOOK_HEADERS="{}" GITHUB_EVENT_NAME="push" GITHUB_REF="refs/heads/main"`
+		assert.Equal(t, want, got)
+	})
+}

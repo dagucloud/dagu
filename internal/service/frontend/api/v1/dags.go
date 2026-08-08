@@ -1523,7 +1523,7 @@ func (a *API) startDAGRunWithOptions(ctx context.Context, dag *ir.DAG, opts star
 		return err
 	}
 
-	if err := ir.ValidateStartParams(dag.DefaultParams, ir.StartParamInput{
+	if err := spec.ValidateStartParams(dag.DefaultParams, spec.StartParamInput{
 		RawParams: opts.params,
 	}); err != nil {
 		return &Error{
@@ -1739,7 +1739,7 @@ func (a *API) enqueueDAGRun(ctx context.Context, dag *ir.DAG, params, dagRunID, 
 		return err
 	}
 
-	if err := ir.ValidateStartParams(dag.DefaultParams, ir.StartParamInput{
+	if err := spec.ValidateStartParams(dag.DefaultParams, spec.StartParamInput{
 		RawParams: params,
 	}); err != nil {
 		return &Error{

@@ -3,8 +3,6 @@
 
 package ir
 
-import "fmt"
-
 const (
 	// ControllerStepName is the reserved name of the synthesized step that drives
 	// a controller DAG. It cannot be used as a step name or ID.
@@ -135,70 +133,4 @@ func NewControllerStep(dag *DAG) Step {
 			Type: ExecutorTypeController,
 		},
 	}
-}
-
-// ValidateController checks the DAG-level invariants of a controller DAG: an LLM
-// must be configured, at least one uniquely named task must be declared, and the
-// declared steps must form a tool catalog rather than a dependency graph.
-func ValidateController(d *DAG) error {
-	if d == nil || !d.IsController() {
-		return nil
-	}
-
-	var errs ErrorList
-
-	if d.LLM == nil {
-		errs = append(errs, NewValidationError("llm", nil,
-			fmt.Errorf("type: controller requires an llm configuration")))
-	}
-
-	if len(d.Tasks) == 0 {
-		errs = append(errs, NewValidationError("tasks", nil,
-			fmt.Errorf("type: controller requires at least one task")))
-	}
-
-	seen := make(map[string]struct{}, len(d.Tasks))
-	for _, task := range d.Tasks {
-		if task.Name == "" {
-			errs = append(errs, NewValidationError("tasks.name", nil,
-				fmt.Errorf("task name must not be empty")))
-			continue
-		}
-		if _, dup := seen[task.Name]; dup {
-			errs = append(errs, NewValidationError("tasks.name", task.Name,
-				fmt.Errorf("duplicate task name: %s", task.Name)))
-			continue
-		}
-		seen[task.Name] = struct{}{}
-		if task.Description == "" {
-			errs = append(errs, NewValidationError("tasks.description", task.Name,
-				fmt.Errorf("task %q must declare a description stating when it is complete", task.Name)))
-		}
-	}
-
-	actionable := 0
-	for _, step := range d.Steps {
-		if IsSynthesizedControllerStep(step.Name) {
-			continue
-		}
-		actionable++
-		if len(step.Depends) > 0 || step.ExplicitlyNoDeps {
-			errs = append(errs, NewValidationError("depends", step.Depends,
-				fmt.Errorf("step %q: depends is not allowed in type: controller; the controller decides step order", step.Name)))
-		}
-		if step.Router != nil {
-			errs = append(errs, NewValidationError("router", step.Name,
-				fmt.Errorf("step %q: router steps require type 'graph'", step.Name)))
-		}
-	}
-
-	if actionable == 0 {
-		errs = append(errs, NewValidationError("steps", nil,
-			fmt.Errorf("type: controller requires at least one step for the controller to run")))
-	}
-
-	if len(errs) == 0 {
-		return nil
-	}
-	return errs
 }

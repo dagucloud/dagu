@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package ir_test
+package spec_test
 
 import (
 	"os"
@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
+	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -28,7 +29,7 @@ func TestReportValueReferenceNoticesForBuiltInRunContext(t *testing.T) {
 	}
 
 	var collector cmnvalue.ValueReferenceNoticeCollector
-	ir.ReportValueReferenceNotices(dag, &collector)
+	spec.ReportValueReferenceNotices(dag, &collector)
 
 	notices := collector.Notices()
 	require.Len(t, notices, 2)
@@ -58,7 +59,7 @@ func TestReportValueReferenceNoticesDoesNotRunPreconditionEval(t *testing.T) {
 	}
 
 	var collector cmnvalue.ValueReferenceNoticeCollector
-	ir.ReportValueReferenceNotices(dag, &collector)
+	spec.ReportValueReferenceNotices(dag, &collector)
 
 	_, err := os.Stat(marker)
 	require.True(t, os.IsNotExist(err), "expected marker to be absent")

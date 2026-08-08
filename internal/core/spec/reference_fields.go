@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package ir
+package spec
 
 import (
 	"context"
@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 type ReferenceField struct {
@@ -21,7 +22,7 @@ type ReferenceField struct {
 	OwnerStepName string
 	OwnerStepID   string
 	// OwnerStepPath is the spec path of the owning step, such as "steps[0]" or
-	// "handler_on.exit". It is empty for DAG-level fields.
+	// "handler_on.exit". It is empty for ir.DAG-level fields.
 	OwnerStepPath string
 	Field         cmnvalue.Field
 }
@@ -30,7 +31,7 @@ type referenceFieldWalker struct {
 	fields []ReferenceField
 }
 
-func ReferenceFields(dag *DAG) []ReferenceField {
+func ReferenceFields(dag *ir.DAG) []ReferenceField {
 	var w referenceFieldWalker
 	w.walkDAG(dag)
 	return w.fields
@@ -50,7 +51,7 @@ func (f ReferenceField) noticeFieldPath() string {
 	return f.Path
 }
 
-func (w *referenceFieldWalker) walkDAG(dag *DAG) {
+func (w *referenceFieldWalker) walkDAG(dag *ir.DAG) {
 	if dag == nil {
 		return
 	}
@@ -80,14 +81,14 @@ func (w *referenceFieldWalker) walkDAG(dag *DAG) {
 	w.walkHandlerStep("handler_on.wait", dag.HandlerOn.Wait)
 }
 
-func (w *referenceFieldWalker) walkHandlerStep(path string, step *Step) {
+func (w *referenceFieldWalker) walkHandlerStep(path string, step *ir.Step) {
 	if step == nil {
 		return
 	}
 	w.walkStep(path, *step)
 }
 
-func (w *referenceFieldWalker) walkStep(path string, step Step) {
+func (w *referenceFieldWalker) walkStep(path string, step ir.Step) {
 	base := ReferenceField{
 		OwnerStepName: step.Name,
 		OwnerStepID:   step.ID,
@@ -163,7 +164,7 @@ func (w *referenceFieldWalker) walkStep(path string, step Step) {
 	w.walkMessages(path+".messages", step.Messages, base)
 }
 
-func scriptReferenceField(path string, step Step, command cmnvalue.CommandContext) cmnvalue.Field {
+func scriptReferenceField(path string, step ir.Step, command cmnvalue.CommandContext) cmnvalue.Field {
 	if step.ExecutorConfig.Type == "template" {
 		return cmnvalue.TemplateScriptField(path)
 	}
@@ -180,18 +181,18 @@ func commandEntryNoticePath(stepPath string, index, count int) string {
 	return fmt.Sprintf("%s.run[%d]", stepPath, index)
 }
 
-func (w *referenceFieldWalker) walkRetryPolicy(path string, policy RetryPolicy, base ReferenceField) {
+func (w *referenceFieldWalker) walkRetryPolicy(path string, policy ir.RetryPolicy, base ReferenceField) {
 	w.add(base.withPathValue(path+".limit", policy.LimitStr).withField(cmnvalue.RetryIntegerField(path + ".limit")))
 	w.add(base.withPathValue(path+".interval_sec", policy.IntervalSecStr).withField(cmnvalue.RetryIntegerField(path + ".interval_sec")))
 }
 
-func (w *referenceFieldWalker) walkRepeatPolicy(path string, policy RepeatPolicy, base ReferenceField) {
+func (w *referenceFieldWalker) walkRepeatPolicy(path string, policy ir.RepeatPolicy, base ReferenceField) {
 	w.add(base.withPathValue(path+".limit", policy.LimitStr).withField(cmnvalue.RepeatIntegerField(path + ".limit")))
 	w.add(base.withPathValue(path+".interval_sec", policy.IntervalStr).withField(cmnvalue.RepeatIntegerField(path + ".interval_sec")))
 	w.add(base.withPathValue(path+".max_interval_sec", policy.MaxIntervalStr).withField(cmnvalue.RepeatIntegerField(path + ".max_interval_sec")))
 }
 
-func (w *referenceFieldWalker) walkSubDAG(path string, subDAG *SubDAG, base ReferenceField) {
+func (w *referenceFieldWalker) walkSubDAG(path string, subDAG *ir.SubDAG, base ReferenceField) {
 	if subDAG == nil {
 		return
 	}
@@ -199,7 +200,7 @@ func (w *referenceFieldWalker) walkSubDAG(path string, subDAG *SubDAG, base Refe
 	w.add(base.withPathValue(path+".params", subDAG.Params).withField(cmnvalue.SubDAGParamsField(path + ".params")))
 }
 
-func (w *referenceFieldWalker) walkLLM(path string, llm *LLMConfig, base ReferenceField) {
+func (w *referenceFieldWalker) walkLLM(path string, llm *ir.LLMConfig, base ReferenceField) {
 	if llm == nil {
 		return
 	}
@@ -215,14 +216,14 @@ func (w *referenceFieldWalker) walkLLM(path string, llm *LLMConfig, base Referen
 	}
 }
 
-func (w *referenceFieldWalker) walkMessages(path string, messages []LLMMessage, base ReferenceField) {
+func (w *referenceFieldWalker) walkMessages(path string, messages []ir.LLMMessage, base ReferenceField) {
 	for i, message := range messages {
 		fieldPath := fmt.Sprintf("%s[%d].content", path, i)
 		w.add(base.withPathValue(fieldPath, message.Content).withField(cmnvalue.WorkflowField(fieldPath)))
 	}
 }
 
-func (w *referenceFieldWalker) walkConditions(path string, conditions []*Condition, base ReferenceField) {
+func (w *referenceFieldWalker) walkConditions(path string, conditions []*ir.Condition, base ReferenceField) {
 	for i, condition := range conditions {
 		if condition == nil {
 			continue
@@ -245,7 +246,7 @@ func (w *referenceFieldWalker) walkEnvWith(path string, env []string, base Refer
 	}
 }
 
-func (w *referenceFieldWalker) walkParallel(path string, parallel *ParallelConfig, base ReferenceField) {
+func (w *referenceFieldWalker) walkParallel(path string, parallel *ir.ParallelConfig, base ReferenceField) {
 	w.add(base.withPathValue(path+".variable", parallel.Variable).withField(cmnvalue.ParallelItemField(path + ".variable")))
 	for i, item := range parallel.Items {
 		itemPath := fmt.Sprintf("%s.items[%d]", path, i)
@@ -257,7 +258,7 @@ func (w *referenceFieldWalker) walkParallel(path string, parallel *ParallelConfi
 	}
 }
 
-func (w *referenceFieldWalker) walkForeach(path string, foreach *ForeachConfig, base ReferenceField) {
+func (w *referenceFieldWalker) walkForeach(path string, foreach *ir.ForeachConfig, base ReferenceField) {
 	w.add(base.withPathValue(path+".items", foreach.ItemsExpr).withField(cmnvalue.WorkflowField(path + ".items")))
 	w.walkStringLeaves(path+".items", foreach.Items, base.withField(cmnvalue.WorkflowField(path+".items")))
 	w.add(base.withPathValue(path+".key", foreach.Key).withField(cmnvalue.WorkflowField(path + ".key")))
@@ -270,7 +271,7 @@ func (w *referenceFieldWalker) walkForeach(path string, foreach *ForeachConfig, 
 	}
 }
 
-func (w *referenceFieldWalker) walkStdoutOutputs(path string, outputs *StepOutputsConfig, base ReferenceField) {
+func (w *referenceFieldWalker) walkStdoutOutputs(path string, outputs *ir.StepOutputsConfig, base ReferenceField) {
 	for _, key := range sortedStringKeys(outputs.Fields) {
 		entry := outputs.Fields[key]
 		if entry.HasValue {
@@ -280,7 +281,7 @@ func (w *referenceFieldWalker) walkStdoutOutputs(path string, outputs *StepOutpu
 	}
 }
 
-func (w *referenceFieldWalker) walkStructuredOutput(path string, output map[string]StepOutputEntry, base ReferenceField) {
+func (w *referenceFieldWalker) walkStructuredOutput(path string, output map[string]ir.StepOutputEntry, base ReferenceField) {
 	for _, key := range sortedStringKeys(output) {
 		entry := output[key]
 		if entry.HasValue {
@@ -292,7 +293,7 @@ func (w *referenceFieldWalker) walkStructuredOutput(path string, output map[stri
 	}
 }
 
-func (w *referenceFieldWalker) walkContainer(path string, container *Container, base ReferenceField) {
+func (w *referenceFieldWalker) walkContainer(path string, container *ir.Container, base ReferenceField) {
 	if container == nil {
 		return
 	}

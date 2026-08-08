@@ -204,7 +204,7 @@ func LoadWithResult(ctx context.Context, nameOrPath string, opts ...LoadOption) 
 	if err != nil {
 		return nil, err
 	}
-	ir.ReportValueReferenceNotices(dag, &collector)
+	ReportValueReferenceNotices(dag, &collector)
 	return &LoadResult{DAG: dag, ValueReferenceNotices: collector.Notices()}, nil
 }
 
@@ -227,7 +227,7 @@ func LoadYAMLWithResult(ctx context.Context, data []byte, opts ...LoadOption) (*
 	if err != nil {
 		return nil, err
 	}
-	ir.ReportValueReferenceNotices(dag, &collector)
+	ReportValueReferenceNotices(dag, &collector)
 	return &LoadResult{DAG: dag, ValueReferenceNotices: collector.Notices()}, nil
 }
 

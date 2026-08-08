@@ -13,6 +13,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 )
@@ -47,7 +48,7 @@ func init() {
 		LLM: true,
 	})
 
-	ir.RegisterStepValidator(ir.ExecutorTypeController, func(step ir.Step) error {
+	spec.RegisterStepValidator(ir.ExecutorTypeController, func(step ir.Step) error {
 		if step.Name != ir.ControllerStepName {
 			return fmt.Errorf("controller is not a step action; set the DAG type to 'controller' instead")
 		}

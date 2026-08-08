@@ -3519,7 +3519,7 @@ func (a *API) enqueuePreparedDAGRun(
 	if err := buildErrorsToAPIError(dag.BuildErrors); err != nil {
 		return err
 	}
-	if err := ir.ValidateStartParams(dag.DefaultParams, ir.StartParamInput{
+	if err := spec.ValidateStartParams(dag.DefaultParams, spec.StartParamInput{
 		RawParams: params,
 	}); err != nil {
 		return &Error{

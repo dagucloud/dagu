@@ -165,7 +165,7 @@ steps:
 }
 
 func referenceFieldValues(dag *ir.DAG) []string {
-	fields := ir.ReferenceFields(dag)
+	fields := spec.ReferenceFields(dag)
 	values := make([]string, 0, len(fields))
 	for _, field := range fields {
 		values = append(values, field.Value)

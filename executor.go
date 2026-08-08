@@ -22,7 +22,7 @@ type Executor = runtimeexec.Executor
 type ExecutorFactory func(context.Context, Step) (Executor, error)
 
 // StepValidator validates custom executor step configuration during DAG loading.
-type StepValidator = ir.StepValidator
+type StepValidator = spec.StepValidator
 
 // ExecutorCapabilities declares which step fields a custom executor supports.
 type ExecutorCapabilities = ir.ExecutorCapabilities
@@ -71,7 +71,7 @@ func UnregisterExecutor(name string) {
 		return
 	}
 	runtimeexec.UnregisterExecutor(name)
-	ir.UnregisterStepValidator(name)
+	spec.UnregisterStepValidator(name)
 	ir.UnregisterExecutorCapabilities(name)
 	spec.UnregisterExecutorTypeName(name)
 }

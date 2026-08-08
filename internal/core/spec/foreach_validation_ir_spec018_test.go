@@ -1,11 +1,12 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package ir_test
+package spec_test
 
 import (
 	"testing"
 
+	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -40,7 +41,7 @@ func TestValidateStepsSpec018ForeachBodyDependencyByID(t *testing.T) {
 		},
 	}
 
-	require.NoError(t, ir.ValidateSteps(dag))
+	require.NoError(t, spec.ValidateSteps(dag))
 	assert.Equal(t, []string{"First"}, dag.Steps[0].Foreach.Steps[1].Depends)
 }
 
@@ -76,7 +77,7 @@ func TestValidateStepsSpec018ForeachBodyApprovalRewindByID(t *testing.T) {
 		},
 	}
 
-	require.NoError(t, ir.ValidateSteps(dag))
+	require.NoError(t, spec.ValidateSteps(dag))
 	require.NotNil(t, dag.Steps[0].Foreach.Steps[1].Approval)
 	assert.Equal(t, "prepare", dag.Steps[0].Foreach.Steps[1].Approval.RewindTo)
 }
@@ -109,7 +110,7 @@ func TestValidateStepsSpec018ForeachRejectsVisibleIdentityCollision(t *testing.T
 		},
 	}
 
-	err := ir.ValidateSteps(dag)
+	err := spec.ValidateSteps(dag)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "collides with a visible step")
 }
@@ -145,7 +146,7 @@ func TestValidateStepsSpec018ForeachRejectsVisibleApprovalRewindTarget(t *testin
 		},
 	}
 
-	err := ir.ValidateSteps(dag)
+	err := spec.ValidateSteps(dag)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "approval.rewind_to")
 }
@@ -180,7 +181,7 @@ func TestValidateStepsSpec018ForeachRejectsTopLevelBodyDependency(t *testing.T) 
 		},
 	}
 
-	err := ir.ValidateSteps(dag)
+	err := spec.ValidateSteps(dag)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "body dependencies must stay inside foreach.steps")
 }
@@ -208,7 +209,7 @@ func TestValidateStepsForeachRejectsHumanTaskBody(t *testing.T) {
 		},
 	}
 
-	err := ir.ValidateSteps(dag)
+	err := spec.ValidateSteps(dag)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "human.task cannot be used inside foreach.steps")
 }

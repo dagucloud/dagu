@@ -398,7 +398,7 @@ func (a *API) loadEditedRetryDAG(
 	if apiErr := buildErrorsToAPIError(resolved.BuildErrors); apiErr != nil {
 		validationErrors = append(validationErrors, apiErr.Message)
 	}
-	if err := ir.ValidateStartParams(resolved.DefaultParams, ir.StartParamInput{RawParams: params}); err != nil {
+	if err := spec.ValidateStartParams(resolved.DefaultParams, spec.StartParamInput{RawParams: params}); err != nil {
 		validationErrors = append(validationErrors, err.Error())
 	}
 

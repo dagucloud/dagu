@@ -1,12 +1,13 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package ir_test
+package spec_test
 
 import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/collections"
+	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 )
@@ -152,7 +153,7 @@ func TestReferenceFieldsEmitsValidationPathSet(t *testing.T) {
 		},
 	}
 
-	fields := ir.ReferenceFields(dag)
+	fields := spec.ReferenceFields(dag)
 	got := make([]string, 0, len(fields))
 	for _, field := range fields {
 		got = append(got, field.Path)

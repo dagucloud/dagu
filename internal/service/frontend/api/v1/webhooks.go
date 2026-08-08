@@ -8,8 +8,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
@@ -769,7 +771,7 @@ func buildWebhookRequestRuntimeParams(
 		}
 	}
 
-	return buildWebhookRuntimeParams(payload, headers), nil
+	return buildWebhookRuntimeParams(payload, headers, nil), nil
 }
 
 // requireWebhookManagement checks if webhook management is enabled and
@@ -920,6 +922,17 @@ func marshalWebhookHeaders(ctx context.Context, allowList []string) (string, err
 	return string(encoded), nil
 }
 
-func buildWebhookRuntimeParams(payload, headers string) string {
-	return ir.BuildWebhookRuntimeParams(payload, headers, nil)
+func buildWebhookRuntimeParams(payload, headers string, extras map[string]string) string {
+	parts := []string{
+		fmt.Sprintf("WEBHOOK_PAYLOAD=%s", strconv.Quote(payload)),
+		fmt.Sprintf("WEBHOOK_HEADERS=%s", strconv.Quote(headers)),
+	}
+
+	for _, key := range slices.Sorted(maps.Keys(extras)) {
+		if value := extras[key]; value != "" {
+			parts = append(parts, fmt.Sprintf("%s=%s", key, strconv.Quote(value)))
+		}
+	}
+
+	return strings.Join(parts, " ")
 }

@@ -1,11 +1,12 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package ir_test
+package spec_test
 
 import (
 	"testing"
 
+	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/require"
 )
@@ -28,7 +29,7 @@ func TestValidateStepsConstReferencesUseRootConstScope(t *testing.T) {
 			},
 		}
 
-		require.NoError(t, ir.ValidateSteps(dag))
+		require.NoError(t, spec.ValidateSteps(dag))
 	})
 
 	t.Run("unknown const is non-fatal", func(t *testing.T) {
@@ -44,7 +45,7 @@ func TestValidateStepsConstReferencesUseRootConstScope(t *testing.T) {
 			},
 		}
 
-		require.NoError(t, ir.ValidateSteps(dag))
+		require.NoError(t, spec.ValidateSteps(dag))
 	})
 
 	t.Run("const shorthand is ordinary content", func(t *testing.T) {
@@ -60,7 +61,7 @@ func TestValidateStepsConstReferencesUseRootConstScope(t *testing.T) {
 			},
 		}
 
-		require.NoError(t, ir.ValidateSteps(dag))
+		require.NoError(t, spec.ValidateSteps(dag))
 	})
 }
 
@@ -117,7 +118,7 @@ func TestValidateStepsHandlesParamsAndFutureStrictNamespaces(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			require.NoError(t, ir.ValidateSteps(tt.dag))
+			require.NoError(t, spec.ValidateSteps(tt.dag))
 		})
 	}
 }
@@ -135,7 +136,7 @@ func TestValidateStepsTreatsTemplateRunAsLiteral(t *testing.T) {
 		},
 	}
 
-	require.NoError(t, ir.ValidateSteps(dag))
+	require.NoError(t, spec.ValidateSteps(dag))
 }
 
 func TestValidateStepsCoversRuntimeResolvedFields(t *testing.T) {
@@ -217,7 +218,7 @@ func TestValidateStepsCoversRuntimeResolvedFields(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			err := ir.ValidateSteps(&ir.DAG{
+			err := spec.ValidateSteps(&ir.DAG{
 				Consts: map[string]any{"service": "api"},
 				Steps:  []ir.Step{tt.step},
 			})

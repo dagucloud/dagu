@@ -6,11 +6,12 @@ package cmd
 import (
 	"fmt"
 
+	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 func validateStartArgumentSeparator(ctx *Context, args []string) error {
-	return ir.ValidateStartArgs(ctx.Command.ArgsLenAtDash() != -1, args)
+	return spec.ValidateStartArgs(ctx.Command.ArgsLenAtDash() != -1, args)
 }
 
 func validateStartPositionalParamCount(ctx *Context, args []string, dag *ir.DAG) error {
@@ -18,20 +19,20 @@ func validateStartPositionalParamCount(ctx *Context, args []string, dag *ir.DAG)
 	if err != nil {
 		return err
 	}
-	return ir.ValidateStartParams(dag.DefaultParams, input)
+	return spec.ValidateStartParams(dag.DefaultParams, input)
 }
 
-func buildStartValidationInput(ctx *Context, args []string) (ir.StartParamInput, error) {
+func buildStartValidationInput(ctx *Context, args []string) (spec.StartParamInput, error) {
 	if argsLenAtDash := ctx.Command.ArgsLenAtDash(); argsLenAtDash != -1 {
 		if argsLenAtDash >= len(args) {
-			return ir.StartParamInput{}, nil
+			return spec.StartParamInput{}, nil
 		}
-		return ir.StartParamInput{DashArgs: quoteStartDashArgs(args[argsLenAtDash:])}, nil
+		return spec.StartParamInput{DashArgs: quoteStartDashArgs(args[argsLenAtDash:])}, nil
 	}
 
 	raw, err := ctx.Command.Flags().GetString("params")
 	if err != nil {
-		return ir.StartParamInput{}, fmt.Errorf("failed to get parameters: %w", err)
+		return spec.StartParamInput{}, fmt.Errorf("failed to get parameters: %w", err)
 	}
-	return ir.StartParamInput{RawParams: raw}, nil
+	return spec.StartParamInput{RawParams: raw}, nil
 }

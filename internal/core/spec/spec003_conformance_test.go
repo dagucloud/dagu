@@ -392,7 +392,7 @@ func resolveSpec003Fields(t *testing.T, dag *ir.DAG, params cmnvalue.Values) map
 	)
 
 	resolved := make(map[string]string)
-	for _, field := range ir.ReferenceFields(dag) {
+	for _, field := range spec.ReferenceFields(dag) {
 		got, err := resolver.String(context.Background(), field.Value, field.Field)
 		require.NoError(t, err, "field %s", field.Path)
 		resolved[field.Path] = got

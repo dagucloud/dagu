@@ -1332,7 +1332,7 @@ func TestValidateCommandStepMissingCommandErrorMessage(t *testing.T) {
 		},
 	}
 
-	err := ir.ValidateSteps(dag)
+	err := spec.ValidateSteps(dag)
 	require.Error(t, err)
 	assert.Equal(t, "field 'command': step command is required", err.Error())
 	assert.NotContains(t, err.Error(), "executor_config")
