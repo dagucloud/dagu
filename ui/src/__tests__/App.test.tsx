@@ -215,10 +215,10 @@ describe('App document title', () => {
   });
 
   it('falls back to the configured title when a page sets none', async () => {
-    renderAt('/queues');
+    renderAt('/queues', makeConfig({ title: 'Operations' }));
 
     expect(await screen.findByRole('heading', { name: 'Queues' })).toBeVisible();
-    expect(document.title).toBe('Dagu');
+    expect(document.title).toBe('Operations');
   });
 });
 
