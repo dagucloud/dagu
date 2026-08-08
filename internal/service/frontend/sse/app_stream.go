@@ -513,6 +513,9 @@ func snapshotMarkdownFiles(root string) (map[string]markdownFileState, error) {
 			return nil
 		}
 		if entry.IsDir() {
+			if entry.Name() == docAttachmentsDirName {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if filepath.Ext(entry.Name()) != ".md" {
@@ -734,8 +737,22 @@ func (s *AppStreamService) handleQueueEvent(_, relPath string, op fsnotify.Op) {
 	})
 }
 
+// docAttachmentsDirName is the reserved attachment subtree inside the docs
+// directory. Files under it are attachments rather than documents and must
+// not produce doc invalidations.
+const docAttachmentsDirName = ".attachments"
+
+func isDocAttachmentPath(relPath string) bool {
+	for segment := range strings.SplitSeq(filepath.ToSlash(relPath), "/") {
+		if segment == docAttachmentsDirName {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *AppStreamService) handleDocEvent(_, relPath string, op fsnotify.Op) {
-	if filepath.Ext(relPath) != ".md" {
+	if filepath.Ext(relPath) != ".md" || isDocAttachmentPath(relPath) {
 		return
 	}
 	s.coalescer.Enqueue(AppEvent{
