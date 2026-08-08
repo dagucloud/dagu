@@ -9,6 +9,8 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -140,7 +142,7 @@ func TestStateExecutorRequiresStateStore(t *testing.T) {
 func TestStateConfigAllowsExpectedVersionExpression(t *testing.T) {
 	t.Parallel()
 
-	err := ir.ValidateExecutorConfig(executorType, map[string]any{
+	err := registry.ValidateExecutorConfig(executorType, map[string]any{
 		"key":              "cursors/api",
 		"value":            "next",
 		"expected_version": "${steps.load.outputs.version}",

@@ -6,6 +6,7 @@ package kubernetes
 import (
 	"testing"
 
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -328,14 +329,14 @@ func TestBuildCommand(t *testing.T) {
 
 func TestKubernetesDefaultsSchema(t *testing.T) {
 	t.Run("DoesNotRequireImage", func(t *testing.T) {
-		err := ir.ValidateExecutorConfig("kubernetes_defaults", map[string]any{
+		err := registry.ValidateExecutorConfig("kubernetes_defaults", map[string]any{
 			"namespace": "dag-ns",
 		})
 		require.NoError(t, err)
 	})
 
 	t.Run("RejectsUnknownKeys", func(t *testing.T) {
-		err := ir.ValidateExecutorConfig("kubernetes_defaults", map[string]any{
+		err := registry.ValidateExecutorConfig("kubernetes_defaults", map[string]any{
 			"unsupported_field": true,
 		})
 		require.Error(t, err)
@@ -343,7 +344,7 @@ func TestKubernetesDefaultsSchema(t *testing.T) {
 	})
 
 	t.Run("RejectsInvalidEnvShape", func(t *testing.T) {
-		err := ir.ValidateExecutorConfig("kubernetes_defaults", map[string]any{
+		err := registry.ValidateExecutorConfig("kubernetes_defaults", map[string]any{
 			"env": []map[string]any{
 				{
 					"value": "missing-name",
@@ -355,7 +356,7 @@ func TestKubernetesDefaultsSchema(t *testing.T) {
 	})
 
 	t.Run("RejectsInvalidEnvFromShape", func(t *testing.T) {
-		err := ir.ValidateExecutorConfig("kubernetes_defaults", map[string]any{
+		err := registry.ValidateExecutorConfig("kubernetes_defaults", map[string]any{
 			"env_from": []map[string]any{
 				{
 					"prefix": "APP_",
@@ -367,7 +368,7 @@ func TestKubernetesDefaultsSchema(t *testing.T) {
 	})
 
 	t.Run("RejectsInvalidSeccompSchema", func(t *testing.T) {
-		err := ir.ValidateExecutorConfig("kubernetes_defaults", map[string]any{
+		err := registry.ValidateExecutorConfig("kubernetes_defaults", map[string]any{
 			"security_context": map[string]any{
 				"seccomp_profile": map[string]any{
 					"localhost_profile": "profiles/custom.json",
@@ -379,7 +380,7 @@ func TestKubernetesDefaultsSchema(t *testing.T) {
 	})
 
 	t.Run("RejectsUnsupportedPodFailureAction", func(t *testing.T) {
-		err := ir.ValidateExecutorConfig("kubernetes_defaults", map[string]any{
+		err := registry.ValidateExecutorConfig("kubernetes_defaults", map[string]any{
 			"pod_failure_policy": map[string]any{
 				"rules": []map[string]any{
 					{
@@ -397,7 +398,7 @@ func TestKubernetesDefaultsSchema(t *testing.T) {
 	})
 
 	t.Run("AllowsClearingPodFailurePolicyRules", func(t *testing.T) {
-		err := ir.ValidateExecutorConfig("kubernetes_defaults", map[string]any{
+		err := registry.ValidateExecutorConfig("kubernetes_defaults", map[string]any{
 			"pod_failure_policy": map[string]any{
 				"rules": []any{},
 			},
@@ -406,7 +407,7 @@ func TestKubernetesDefaultsSchema(t *testing.T) {
 	})
 
 	t.Run("AllowsClearingRequiredNodeSelector", func(t *testing.T) {
-		err := ir.ValidateExecutorConfig("kubernetes_defaults", map[string]any{
+		err := registry.ValidateExecutorConfig("kubernetes_defaults", map[string]any{
 			"affinity": map[string]any{
 				"node_affinity": map[string]any{
 					"required_during_scheduling_ignored_during_execution": map[string]any{},

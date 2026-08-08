@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
+
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
@@ -146,7 +148,7 @@ func TestStepExecutorPeriodicallyFlushesRemoteOutputWhileExecutorRuns(t *testing
 			started: started,
 			release: release,
 		}, nil
-	}, nil, ir.ExecutorCapabilities{})
+	}, nil, registry.ExecutorCapabilities{})
 	t.Cleanup(func() { runtimeexec.UnregisterExecutor(periodicFlushExecutorType) })
 
 	writer := &flushObservingWriter{
@@ -223,7 +225,7 @@ func TestStepExecutorCapturesExecutorSideChannels(t *testing.T) {
 		}
 		execCh <- exec
 		return exec, nil
-	}, nil, ir.ExecutorCapabilities{})
+	}, nil, registry.ExecutorCapabilities{})
 	t.Cleanup(func() { runtimeexec.UnregisterExecutor(executorType) })
 
 	node := runtime.NewNode(ir.Step{

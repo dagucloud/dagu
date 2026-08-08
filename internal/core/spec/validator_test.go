@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 
 	"github.com/stretchr/testify/assert"
@@ -477,7 +478,7 @@ func TestRegisterStepValidator(t *testing.T) {
 
 	t.Run("register validator for new type", func(t *testing.T) {
 		// Clean up after test
-		defer UnregisterStepValidator("test-executor")
+		defer registry.UnregisterStepValidator("test-executor")
 
 		validatorCalled := false
 		validator := func(_ ir.Step) error {
@@ -485,7 +486,7 @@ func TestRegisterStepValidator(t *testing.T) {
 			return nil
 		}
 
-		RegisterStepValidator("test-executor", validator)
+		registry.RegisterStepValidator("test-executor", validator)
 
 		// Create a ir.DAG with a step using this executor type
 		dag := &ir.DAG{
@@ -503,14 +504,14 @@ func TestRegisterStepValidator(t *testing.T) {
 	})
 
 	t.Run("validator returning error propagates", func(t *testing.T) {
-		defer UnregisterStepValidator("error-executor")
+		defer registry.UnregisterStepValidator("error-executor")
 
 		expectedErr := errors.New("validation failed")
 		validator := func(_ ir.Step) error {
 			return expectedErr
 		}
 
-		RegisterStepValidator("error-executor", validator)
+		registry.RegisterStepValidator("error-executor", validator)
 
 		dag := &ir.DAG{
 			Steps: []ir.Step{
@@ -527,7 +528,7 @@ func TestRegisterStepValidator(t *testing.T) {
 	})
 
 	t.Run("overwrite existing validator", func(t *testing.T) {
-		defer UnregisterStepValidator("overwrite-executor")
+		defer registry.UnregisterStepValidator("overwrite-executor")
 
 		firstCalled := false
 		secondCalled := false
@@ -541,8 +542,8 @@ func TestRegisterStepValidator(t *testing.T) {
 			return nil
 		}
 
-		RegisterStepValidator("overwrite-executor", first)
-		RegisterStepValidator("overwrite-executor", second)
+		registry.RegisterStepValidator("overwrite-executor", first)
+		registry.RegisterStepValidator("overwrite-executor", second)
 
 		dag := &ir.DAG{
 			Steps: []ir.Step{
@@ -760,8 +761,8 @@ func TestValidateStepWithValidator(t *testing.T) {
 	})
 
 	t.Run("nil validator returns nil", func(t *testing.T) {
-		defer UnregisterStepValidator("nil-validator-type")
-		RegisterStepValidator("nil-validator-type", nil)
+		defer registry.UnregisterStepValidator("nil-validator-type")
+		registry.RegisterStepValidator("nil-validator-type", nil)
 
 		step := ir.Step{
 			Name:           "step1",
@@ -771,10 +772,10 @@ func TestValidateStepWithValidator(t *testing.T) {
 	})
 
 	t.Run("validator error is wrapped", func(t *testing.T) {
-		defer UnregisterStepValidator("wrap-error-type")
+		defer registry.UnregisterStepValidator("wrap-error-type")
 
 		customErr := errors.New("custom validation error")
-		RegisterStepValidator("wrap-error-type", func(_ ir.Step) error {
+		registry.RegisterStepValidator("wrap-error-type", func(_ ir.Step) error {
 			return customErr
 		})
 
@@ -795,9 +796,9 @@ func TestValidateStepWithValidator(t *testing.T) {
 	})
 
 	t.Run("validator validation error keeps field context", func(t *testing.T) {
-		defer UnregisterStepValidator("pre-wrapped-error-type")
+		defer registry.UnregisterStepValidator("pre-wrapped-error-type")
 
-		RegisterStepValidator("pre-wrapped-error-type", func(_ ir.Step) error {
+		registry.RegisterStepValidator("pre-wrapped-error-type", func(_ ir.Step) error {
 			return ir.NewValidationError("command", nil, ir.ErrStepCommandIsRequired)
 		})
 

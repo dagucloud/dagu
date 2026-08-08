@@ -18,6 +18,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
+
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
@@ -83,7 +85,7 @@ func registerStoppedStatusExecutor(t *testing.T) (string, <-chan *stoppedStatusE
 			return exec, nil
 		},
 		nil,
-		ir.ExecutorCapabilities{},
+		registry.ExecutorCapabilities{},
 	)
 	t.Cleanup(func() {
 		runtimeexec.UnregisterExecutor(executorType)

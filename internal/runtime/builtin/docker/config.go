@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/google/jsonschema-go/jsonschema"
@@ -345,8 +346,8 @@ func ApplyResourceLimitsToConfig(cfg *Config, limits *ir.ResourceLimits) bool {
 }
 
 func init() {
-	ir.RegisterExecutorConfigSchema("docker", configSchema)
-	ir.RegisterExecutorConfigSchema("container", configSchema)
+	registry.RegisterExecutorConfigSchema("docker", configSchema)
+	registry.RegisterExecutorConfigSchema("container", configSchema)
 }
 
 // configSchema defines the JSON schema for docker/container executor config.

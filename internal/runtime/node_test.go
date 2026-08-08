@@ -17,6 +17,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
+
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
@@ -113,7 +115,7 @@ func registerNodeSignalExecutor(t *testing.T) {
 				return factory(), nil
 			},
 			nil,
-			ir.ExecutorCapabilities{},
+			registry.ExecutorCapabilities{},
 		)
 	})
 }
@@ -828,7 +830,7 @@ func TestStepExecutorResolvesMultiCommandExecutableToken(t *testing.T) {
 	runtimeexec.RegisterExecutor(executorType, func(_ context.Context, step ir.Step) (runtimeexec.Executor, error) {
 		created <- step
 		return &sideChannelExecutor{}, nil
-	}, nil, ir.ExecutorCapabilities{
+	}, nil, registry.ExecutorCapabilities{
 		Command:          true,
 		MultipleCommands: true,
 		CommandContext: func(_ context.Context, _ ir.Step) cmnvalue.CommandContext {

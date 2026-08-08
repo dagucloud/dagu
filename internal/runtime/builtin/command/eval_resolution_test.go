@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/stretchr/testify/assert"
@@ -24,7 +25,7 @@ func TestCommandExecutorCommandResolutionUsesShellFacts(t *testing.T) {
 	ctx = runtime.WithEnv(ctx, env)
 	t.Setenv("DAGU_COMMAND_RESOLUTION_OS", "from-os")
 
-	command := step.CommandResolution(ctx)
+	command := registry.CommandResolution(ctx, step)
 	assert.Equal(t, cmnvalue.CommandTargetLocal, command.Target)
 	assert.True(t, command.ShellConfigured)
 	require.Equal(t, []string{"direct"}, command.Shell)

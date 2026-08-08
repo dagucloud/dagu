@@ -20,6 +20,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -366,7 +367,7 @@ func NewCommandConfig(ctx context.Context, step ir.Step) (*commandConfig, error)
 // init registers command executors ("", "shell", "command") with the executor
 // framework, associating each with NewCommand and validateCommandStep.
 func init() {
-	caps := ir.ExecutorCapabilities{
+	caps := registry.ExecutorCapabilities{
 		Command:          true,
 		MultipleCommands: true,
 		Script:           true,

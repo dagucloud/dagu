@@ -4,7 +4,7 @@
 package template
 
 import (
-	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/google/jsonschema-go/jsonschema"
 )
 
@@ -18,5 +18,5 @@ var configSchema = &jsonschema.Schema{
 }
 
 func init() {
-	ir.RegisterExecutorConfigSchema("template", configSchema)
+	registry.RegisterExecutorConfigSchema("template", configSchema)
 }

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/stretchr/testify/assert"
@@ -27,8 +28,8 @@ func TestCommandResolutionWithoutRuntimeEnvUsesDAGShell(t *testing.T) {
 	}
 
 	for _, command := range []cmnvalue.CommandContext{
-		step.CommandResolution(ctx),
-		step.ScriptResolution(ctx),
+		registry.CommandResolution(ctx, step),
+		registry.ScriptResolution(ctx, step),
 	} {
 		assert.Equal(t, cmnvalue.CommandTargetLocal, command.Target)
 		assert.True(t, command.ShellConfigured)
@@ -52,8 +53,8 @@ func TestCommandResolutionWithoutRuntimeEnvPrefersStepShell(t *testing.T) {
 	}
 
 	for _, command := range []cmnvalue.CommandContext{
-		step.CommandResolution(ctx),
-		step.ScriptResolution(ctx),
+		registry.CommandResolution(ctx, step),
+		registry.ScriptResolution(ctx, step),
 	} {
 		assert.Equal(t, cmnvalue.CommandTargetLocal, command.Target)
 		assert.True(t, command.ShellConfigured)
@@ -70,8 +71,8 @@ func TestCommandResolutionWithoutDAGContextUsesStepShell(t *testing.T) {
 	}
 
 	for _, command := range []cmnvalue.CommandContext{
-		step.CommandResolution(context.Background()),
-		step.ScriptResolution(context.Background()),
+		registry.CommandResolution(context.Background(), step),
+		registry.ScriptResolution(context.Background(), step),
 	} {
 		assert.Equal(t, cmnvalue.CommandTargetLocal, command.Target)
 		assert.True(t, command.ShellConfigured)

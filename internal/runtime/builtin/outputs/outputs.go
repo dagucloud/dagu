@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/google/jsonschema-go/jsonschema"
@@ -41,8 +42,8 @@ type executorImpl struct {
 }
 
 func init() {
-	executor.RegisterExecutor(executorType, newExecutor, validateStep, ir.ExecutorCapabilities{Command: true})
-	ir.RegisterExecutorConfigSchema(executorType, configSchema)
+	executor.RegisterExecutor(executorType, newExecutor, validateStep, registry.ExecutorCapabilities{Command: true})
+	registry.RegisterExecutorConfigSchema(executorType, configSchema)
 }
 
 func newExecutor(_ context.Context, step ir.Step) (executor.Executor, error) {

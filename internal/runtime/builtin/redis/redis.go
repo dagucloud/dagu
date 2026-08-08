@@ -12,6 +12,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
+
 	goredis "github.com/redis/go-redis/v9"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -278,6 +280,6 @@ func init() {
 		"redis",
 		newRedisExecutor,
 		nil,
-		ir.ExecutorCapabilities{Command: true, Script: true},
+		registry.ExecutorCapabilities{Command: true, Script: true},
 	)
 }

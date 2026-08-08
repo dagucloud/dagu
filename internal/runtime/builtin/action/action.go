@@ -15,6 +15,7 @@ import (
 
 	coreexec "github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -358,8 +359,8 @@ var configSchema = &jsonschema.Schema{
 }
 
 func init() {
-	ir.RegisterExecutorConfigSchema(executorType, configSchema)
-	runtimeexec.RegisterExecutor(executorType, newAction, validateStep, ir.ExecutorCapabilities{
+	registry.RegisterExecutorConfigSchema(executorType, configSchema)
+	runtimeexec.RegisterExecutor(executorType, newAction, validateStep, registry.ExecutorCapabilities{
 		SubDAG: true,
 	})
 }

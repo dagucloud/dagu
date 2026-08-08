@@ -14,6 +14,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -184,5 +185,5 @@ func decodeJqConfig(dat map[string]any, cfg *jqConfig) error {
 }
 
 func init() {
-	executor.RegisterExecutor("jq", newJQ, nil, ir.ExecutorCapabilities{Command: true, Script: true})
+	executor.RegisterExecutor("jq", newJQ, nil, registry.ExecutorCapabilities{Command: true, Script: true})
 }

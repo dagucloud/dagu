@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
+
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
@@ -237,7 +239,7 @@ func resolveShell(step ir.Step, client *Client) (string, []string) {
 }
 
 func init() {
-	caps := ir.ExecutorCapabilities{
+	caps := registry.ExecutorCapabilities{
 		Command:          true,
 		MultipleCommands: true,
 		Script:           true,

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/stretchr/testify/assert"
@@ -55,7 +56,7 @@ func TestDockerExecutorCommandResolution(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			command := tt.step.CommandResolution(context.Background())
+			command := registry.CommandResolution(context.Background(), tt.step)
 			assert.Equal(t, cmnvalue.CommandTargetDocker, command.Target)
 			assert.Equal(t, tt.wantShellConfig, command.ShellConfigured)
 		})

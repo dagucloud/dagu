@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
+
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
@@ -277,7 +279,7 @@ func TestSSHExecutorCommandResolution(t *testing.T) {
 				ctx = WithSSHClient(ctx, &Client{Shell: tt.dagShell})
 			}
 
-			command := tt.step.CommandResolution(ctx)
+			command := registry.CommandResolution(ctx, tt.step)
 			require.Equal(t, cmnvalue.CommandTargetSSH, command.Target)
 			require.Equal(t, !tt.expectSkipShell, command.ShellConfigured)
 		})

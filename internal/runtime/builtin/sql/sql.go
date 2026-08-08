@@ -16,6 +16,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
+
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
@@ -704,7 +706,7 @@ func init() {
 		"postgres",
 		newPostgresExecutor,
 		nil,
-		ir.ExecutorCapabilities{Command: true, Script: true},
+		registry.ExecutorCapabilities{Command: true, Script: true},
 	)
 
 	// Register SQLite executor
@@ -712,6 +714,6 @@ func init() {
 		"sqlite",
 		newSQLiteExecutor,
 		nil,
-		ir.ExecutorCapabilities{Command: true, Script: true},
+		registry.ExecutorCapabilities{Command: true, Script: true},
 	)
 }

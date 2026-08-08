@@ -22,6 +22,7 @@ import (
 	mailoauth "github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauth"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/core/spec/types"
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/go-viper/mapstructure/v2"
 )
@@ -2824,7 +2825,7 @@ func buildHarness(ctx buildContext, d *dag) (*ir.HarnessConfig, error) {
 		return nil, ir.NewValidationError("harness", d.Harness, err)
 	}
 
-	if err := ir.ValidateExecutorConfig("harness", config); err != nil {
+	if err := registry.ValidateExecutorConfig("harness", config); err != nil {
 		return nil, ir.NewValidationError("harness", d.Harness, err)
 	}
 	defs, err := parseHarnessDefinitions(d.Harnesses)
@@ -2844,7 +2845,7 @@ func buildHarness(ctx buildContext, d *dag) (*ir.HarnessConfig, error) {
 		return nil, ir.NewValidationError("harness", d.Harness, err)
 	}
 	for i := range fallbacks {
-		if err := ir.ValidateExecutorConfig("harness", fallbacks[i]); err != nil {
+		if err := registry.ValidateExecutorConfig("harness", fallbacks[i]); err != nil {
 			return nil, ir.NewValidationError(fmt.Sprintf("harness.fallback[%d]", i), fallbacks[i], err)
 		}
 		if err := validateHarnessProviderConfig(defs, fallbacks[i]); err != nil {

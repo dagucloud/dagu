@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/mailer"
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -125,5 +126,5 @@ func decodeMailConfig(dat map[string]any, cfg *mailConfig) error {
 }
 
 func init() {
-	executor.RegisterExecutor("mail", newMail, nil, ir.ExecutorCapabilities{})
+	executor.RegisterExecutor("mail", newMail, nil, registry.ExecutorCapabilities{})
 }

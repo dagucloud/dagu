@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/core/spec/types"
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/goccy/go-yaml"
 	"github.com/stretchr/testify/assert"
@@ -24,59 +25,59 @@ func TestMain(m *testing.M) {
 
 	// Command executors: support command, multiple commands, script, shell
 	for _, t := range []string{"", "shell", "command"} {
-		ir.RegisterExecutorCapabilities(t, ir.ExecutorCapabilities{
+		registry.RegisterExecutorCapabilities(t, registry.ExecutorCapabilities{
 			Command: true, MultipleCommands: true, Script: true, Shell: true,
 		})
 	}
 	// Docker: supports command, multiple commands, and container
 	for _, t := range []string{"docker", "container"} {
-		ir.RegisterExecutorCapabilities(t, ir.ExecutorCapabilities{
+		registry.RegisterExecutorCapabilities(t, registry.ExecutorCapabilities{
 			Command: true, MultipleCommands: true, Container: true,
 		})
 	}
 	// SSH: supports command, multiple commands, and shell
-	ir.RegisterExecutorCapabilities("ssh", ir.ExecutorCapabilities{
+	registry.RegisterExecutorCapabilities("ssh", registry.ExecutorCapabilities{
 		Command: true, MultipleCommands: true, Shell: true,
 	})
 	// jq and http: support command and script
-	ir.RegisterExecutorCapabilities("jq", ir.ExecutorCapabilities{Command: true, Script: true})
-	ir.RegisterExecutorCapabilities("http", ir.ExecutorCapabilities{Command: true, Script: true})
+	registry.RegisterExecutorCapabilities("jq", registry.ExecutorCapabilities{Command: true, Script: true})
+	registry.RegisterExecutorCapabilities("http", registry.ExecutorCapabilities{Command: true, Script: true})
 	// SQL executors: support query command and script execution
 	for _, t := range []string{"postgres", "sqlite"} {
-		ir.RegisterExecutorCapabilities(t, ir.ExecutorCapabilities{Command: true, Script: true})
+		registry.RegisterExecutorCapabilities(t, registry.ExecutorCapabilities{Command: true, Script: true})
 	}
 	// kubernetes: supports a single command only
 	for _, t := range []string{"kubernetes", "k8s"} {
-		ir.RegisterExecutorCapabilities(t, ir.ExecutorCapabilities{Command: true})
+		registry.RegisterExecutorCapabilities(t, registry.ExecutorCapabilities{Command: true})
 	}
 	// archive: supports command only
-	ir.RegisterExecutorCapabilities("archive", ir.ExecutorCapabilities{Command: true})
+	registry.RegisterExecutorCapabilities("archive", registry.ExecutorCapabilities{Command: true})
 	// artifact: supports command only
-	ir.RegisterExecutorCapabilities("artifact", ir.ExecutorCapabilities{Command: true})
+	registry.RegisterExecutorCapabilities("artifact", registry.ExecutorCapabilities{Command: true})
 	// file: supports command only
-	ir.RegisterExecutorCapabilities("file", ir.ExecutorCapabilities{Command: true})
+	registry.RegisterExecutorCapabilities("file", registry.ExecutorCapabilities{Command: true})
 	// data: supports operation commands only
-	ir.RegisterExecutorCapabilities("data", ir.ExecutorCapabilities{Command: true})
+	registry.RegisterExecutorCapabilities("data", registry.ExecutorCapabilities{Command: true})
 	// wait: supports command only
-	ir.RegisterExecutorCapabilities("wait", ir.ExecutorCapabilities{Command: true})
+	registry.RegisterExecutorCapabilities("wait", registry.ExecutorCapabilities{Command: true})
 	// git: supports command only
-	ir.RegisterExecutorCapabilities("git", ir.ExecutorCapabilities{Command: true})
+	registry.RegisterExecutorCapabilities("git", registry.ExecutorCapabilities{Command: true})
 	// dag/subworkflow/parallel/dag_enqueue: support SubDAG and WorkerSelector
 	for _, t := range []string{"dag", "subworkflow", "parallel", ir.ExecutorTypeDAGEnqueue} {
-		ir.RegisterExecutorCapabilities(t, ir.ExecutorCapabilities{
+		registry.RegisterExecutorCapabilities(t, registry.ExecutorCapabilities{
 			SubDAG: true, WorkerSelector: true,
 		})
 	}
 	// mail: no command support
-	ir.RegisterExecutorCapabilities("mail", ir.ExecutorCapabilities{})
+	registry.RegisterExecutorCapabilities("mail", registry.ExecutorCapabilities{})
 	// log: no command support
-	ir.RegisterExecutorCapabilities("log", ir.ExecutorCapabilities{})
+	registry.RegisterExecutorCapabilities("log", registry.ExecutorCapabilities{})
 	// outputs: supports write command
-	ir.RegisterExecutorCapabilities("outputs", ir.ExecutorCapabilities{Command: true})
+	registry.RegisterExecutorCapabilities("outputs", registry.ExecutorCapabilities{Command: true})
 	// state: supports operation commands only
-	ir.RegisterExecutorCapabilities("state", ir.ExecutorCapabilities{Command: true})
+	registry.RegisterExecutorCapabilities("state", registry.ExecutorCapabilities{Command: true})
 	// chat: LLM executor
-	ir.RegisterExecutorCapabilities("chat", ir.ExecutorCapabilities{LLM: true})
+	registry.RegisterExecutorCapabilities("chat", registry.ExecutorCapabilities{LLM: true})
 
 	os.Exit(m.Run())
 }

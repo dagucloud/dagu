@@ -18,6 +18,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	llmpkg "github.com/dagucloud/dagu/v2/internal/llm"
 
@@ -799,7 +800,7 @@ func (e *Executor) createResponseMetadata(cfg *ir.LLMConfig, usage *llmpkg.Usage
 }
 
 func init() {
-	executor.RegisterExecutor(ir.ExecutorTypeChat, newChatExecutor, nil, ir.ExecutorCapabilities{
+	executor.RegisterExecutor(ir.ExecutorTypeChat, newChatExecutor, nil, registry.ExecutorCapabilities{
 		LLM: true,
 		// All others false - chat doesn't support command, script, shell, container, subdag
 	})

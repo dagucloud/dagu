@@ -33,6 +33,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/goccy/go-yaml"
@@ -946,7 +947,7 @@ func scriptField(ctx context.Context, step ir.Step) cmnvalue.Field {
 	if step.ExecutorConfig.Type == "template" {
 		return cmnvalue.TemplateScriptField("run")
 	}
-	command := step.ScriptResolution(ctx)
+	command := registry.ScriptResolution(ctx, step)
 	if step.ExecutorConfig.IsCommand() {
 		return cmnvalue.CommandScriptField("run", command)
 	}
@@ -1013,7 +1014,7 @@ func (n *Node) evaluateCommandArgs(ctx context.Context) error {
 }
 
 func resolveStepCommandArgs(ctx context.Context, step ir.Step) (ir.Step, error) {
-	command := step.CommandResolution(ctx)
+	command := registry.CommandResolution(ctx, step)
 
 	if len(step.Commands) > 0 {
 		commands := make([]ir.CommandEntry, len(step.Commands))

@@ -1,13 +1,14 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package ir
+package registry
 
 import (
 	"context"
 	"sync"
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // ExecutorCapabilities defines what an executor can do.
@@ -29,9 +30,9 @@ type ExecutorCapabilities struct {
 	// LLM indicates whether the executor supports the llm field.
 	LLM bool
 	// CommandContext returns command execution facts for command field resolution.
-	CommandContext func(ctx context.Context, step Step) cmnvalue.CommandContext
+	CommandContext func(ctx context.Context, step ir.Step) cmnvalue.CommandContext
 	// ScriptContext returns command execution facts for script field resolution.
-	ScriptContext func(ctx context.Context, step Step) cmnvalue.CommandContext
+	ScriptContext func(ctx context.Context, step ir.Step) cmnvalue.CommandContext
 }
 
 // executorCapabilitiesRegistry is a typed registry of executor capabilities.
@@ -121,7 +122,7 @@ func SupportsLLM(executorType string) bool {
 }
 
 // CommandResolution returns command execution facts for command field resolution.
-func (s Step) CommandResolution(ctx context.Context) cmnvalue.CommandContext {
+func CommandResolution(ctx context.Context, s ir.Step) cmnvalue.CommandContext {
 	caps := executorCapabilities.Get(s.ExecutorConfig.Type)
 	if caps.CommandContext != nil {
 		return caps.CommandContext(ctx, s)
@@ -130,7 +131,7 @@ func (s Step) CommandResolution(ctx context.Context) cmnvalue.CommandContext {
 }
 
 // ScriptResolution returns command execution facts for script field resolution.
-func (s Step) ScriptResolution(ctx context.Context) cmnvalue.CommandContext {
+func ScriptResolution(ctx context.Context, s ir.Step) cmnvalue.CommandContext {
 	caps := executorCapabilities.Get(s.ExecutorConfig.Type)
 	if caps.ScriptContext != nil {
 		return caps.ScriptContext(ctx, s)

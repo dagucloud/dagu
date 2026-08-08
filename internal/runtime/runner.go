@@ -16,6 +16,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
+
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
@@ -871,7 +873,7 @@ func (r *Runner) setupPushBackConversation(ctx context.Context, node *Node) {
 
 func stepSupportsChatMessages(step ir.Step) bool {
 	executorType := step.ExecutorConfig.Type
-	return ir.SupportsLLM(executorType)
+	return registry.SupportsLLM(executorType)
 }
 
 func (r *Runner) setupVariables(ctx context.Context, plan *Plan, node *Node) (context.Context, error) {

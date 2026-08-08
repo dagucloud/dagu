@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package ir
+package registry
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -84,14 +85,14 @@ func TestStepResolutionDeclarations(t *testing.T) {
 	t.Run("CommandUsesCommandContextHook", func(t *testing.T) {
 		RegisterExecutorCapabilities("command-resolution-test", ExecutorCapabilities{
 			Command: true,
-			CommandContext: func(_ context.Context, _ Step) cmnvalue.CommandContext {
+			CommandContext: func(_ context.Context, _ ir.Step) cmnvalue.CommandContext {
 				return cmnvalue.CommandContext{Target: cmnvalue.CommandTargetSSH, ShellConfigured: true}
 			},
 		})
 		t.Cleanup(func() { UnregisterExecutorCapabilities("command-resolution-test") })
 
-		step := Step{ExecutorConfig: ExecutorConfig{Type: "command-resolution-test"}}
-		command := step.CommandResolution(ctx)
+		step := ir.Step{ExecutorConfig: ir.ExecutorConfig{Type: "command-resolution-test"}}
+		command := CommandResolution(ctx, step)
 		assert.Equal(t, cmnvalue.CommandTargetSSH, command.Target)
 		assert.True(t, command.ShellConfigured)
 	})
@@ -100,36 +101,36 @@ func TestStepResolutionDeclarations(t *testing.T) {
 		RegisterExecutorCapabilities("script-resolution-test", ExecutorCapabilities{
 			Command: true,
 			Script:  true,
-			CommandContext: func(_ context.Context, _ Step) cmnvalue.CommandContext {
+			CommandContext: func(_ context.Context, _ ir.Step) cmnvalue.CommandContext {
 				return cmnvalue.CommandContext{Target: cmnvalue.CommandTargetDocker}
 			},
-			ScriptContext: func(_ context.Context, _ Step) cmnvalue.CommandContext {
+			ScriptContext: func(_ context.Context, _ ir.Step) cmnvalue.CommandContext {
 				return cmnvalue.CommandContext{Target: cmnvalue.CommandTargetSSH}
 			},
 		})
 		t.Cleanup(func() { UnregisterExecutorCapabilities("script-resolution-test") })
 
-		step := Step{ExecutorConfig: ExecutorConfig{Type: "script-resolution-test"}}
-		assert.Equal(t, cmnvalue.CommandTargetSSH, step.ScriptResolution(ctx).Target)
+		step := ir.Step{ExecutorConfig: ir.ExecutorConfig{Type: "script-resolution-test"}}
+		assert.Equal(t, cmnvalue.CommandTargetSSH, ScriptResolution(ctx, step).Target)
 	})
 
 	t.Run("ScriptFallsBackToCommandContext", func(t *testing.T) {
 		RegisterExecutorCapabilities("script-command-fallback-test", ExecutorCapabilities{
 			Command: true,
 			Script:  true,
-			CommandContext: func(_ context.Context, _ Step) cmnvalue.CommandContext {
+			CommandContext: func(_ context.Context, _ ir.Step) cmnvalue.CommandContext {
 				return cmnvalue.CommandContext{Target: cmnvalue.CommandTargetDocker}
 			},
 		})
 		t.Cleanup(func() { UnregisterExecutorCapabilities("script-command-fallback-test") })
 
-		step := Step{ExecutorConfig: ExecutorConfig{Type: "script-command-fallback-test"}}
-		assert.Equal(t, cmnvalue.CommandTargetDocker, step.ScriptResolution(ctx).Target)
+		step := ir.Step{ExecutorConfig: ir.ExecutorConfig{Type: "script-command-fallback-test"}}
+		assert.Equal(t, cmnvalue.CommandTargetDocker, ScriptResolution(ctx, step).Target)
 	})
 
 	t.Run("UnregisteredExecutorUsesDefaults", func(t *testing.T) {
-		step := Step{ExecutorConfig: ExecutorConfig{Type: "unregistered-executor"}}
-		assert.Equal(t, cmnvalue.CommandTargetLocal, step.CommandResolution(ctx).Target)
-		assert.False(t, step.CommandResolution(ctx).ShellConfigured)
+		step := ir.Step{ExecutorConfig: ir.ExecutorConfig{Type: "unregistered-executor"}}
+		assert.Equal(t, cmnvalue.CommandTargetLocal, CommandResolution(ctx, step).Target)
+		assert.False(t, CommandResolution(ctx, step).ShellConfigured)
 	})
 }

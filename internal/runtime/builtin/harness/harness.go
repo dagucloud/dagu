@@ -23,6 +23,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	coreexec "github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	dockerexec "github.com/dagucloud/dagu/v2/internal/runtime/builtin/docker"
@@ -1429,7 +1430,7 @@ func exitCodeFromError(err error) int {
 }
 
 func init() {
-	caps := ir.ExecutorCapabilities{
+	caps := registry.ExecutorCapabilities{
 		Command:   true,
 		Script:    true,
 		Container: true,

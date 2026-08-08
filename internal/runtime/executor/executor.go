@@ -14,7 +14,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
-	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
@@ -65,14 +65,14 @@ func NewExecutor(ctx context.Context, step ir.Step) (Executor, error) {
 }
 
 // RegisterExecutor registers a new executor type with its factory, validator, and capabilities.
-func RegisterExecutor(executorType string, factory ExecutorFactory, validator spec.StepValidator, caps ir.ExecutorCapabilities) {
+func RegisterExecutor(executorType string, factory ExecutorFactory, validator registry.StepValidator, caps registry.ExecutorCapabilities) {
 	executorRegistryMu.Lock()
 	executorRegistry[executorType] = factory
 	executorRegistryMu.Unlock()
 	if validator != nil {
-		spec.RegisterStepValidator(executorType, validator)
+		registry.RegisterStepValidator(executorType, validator)
 	}
-	ir.RegisterExecutorCapabilities(executorType, caps)
+	registry.RegisterExecutorCapabilities(executorType, caps)
 }
 
 // UnregisterExecutor removes a registered executor type.

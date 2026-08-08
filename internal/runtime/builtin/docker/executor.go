@@ -19,6 +19,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/signal"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -571,7 +572,7 @@ func evalEnvSequentially(ctx context.Context, envs []string) ([]string, error) {
 }
 
 func init() {
-	caps := ir.ExecutorCapabilities{
+	caps := registry.ExecutorCapabilities{
 		Command:          true,
 		MultipleCommands: true,
 		Container:        true,

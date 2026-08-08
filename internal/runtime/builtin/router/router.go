@@ -9,6 +9,8 @@ import (
 	"io"
 	"os"
 
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
+
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 )
@@ -42,5 +44,5 @@ func (e *routerExecutor) Run(_ context.Context) error {
 }
 
 func init() {
-	executor.RegisterExecutor("router", newRouter, nil, ir.ExecutorCapabilities{})
+	executor.RegisterExecutor("router", newRouter, nil, registry.ExecutorCapabilities{})
 }

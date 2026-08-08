@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/stretchr/testify/assert"
@@ -147,7 +148,7 @@ func TestFileExecutorRejectsUnknownConfigKeys(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "dryrun")
 
-	err = ir.ValidateExecutorConfig(executorType, map[string]any{
+	err = registry.ValidateExecutorConfig(executorType, map[string]any{
 		"path":   "target.txt",
 		"dryrun": true,
 	})

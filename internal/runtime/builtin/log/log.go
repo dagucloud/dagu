@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/google/jsonschema-go/jsonschema"
@@ -93,6 +94,6 @@ var configSchema = &jsonschema.Schema{
 }
 
 func init() {
-	ir.RegisterExecutorConfigSchema(executorType, configSchema)
-	executor.RegisterExecutor(executorType, newLog, validateLogStep, ir.ExecutorCapabilities{})
+	registry.RegisterExecutorConfigSchema(executorType, configSchema)
+	executor.RegisterExecutor(executorType, newLog, validateLogStep, registry.ExecutorCapabilities{})
 }

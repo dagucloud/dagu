@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
@@ -95,8 +96,8 @@ func (w *referenceFieldWalker) walkStep(path string, step ir.Step) {
 		OwnerStepPath: path,
 		Field:         cmnvalue.WorkflowField(""),
 	}
-	command := step.CommandResolution(context.Background())
-	scriptCommand := step.ScriptResolution(context.Background())
+	command := registry.CommandResolution(context.Background(), step)
+	scriptCommand := registry.ScriptResolution(context.Background(), step)
 
 	w.add(base.withPathValue(path+".run", step.Script).withField(scriptReferenceField(path+".run", step, scriptCommand)))
 	w.add(base.withPathValue(path+".command", step.Command).withField(cmnvalue.DirectCommandField(path+".command", command)))

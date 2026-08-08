@@ -15,6 +15,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
+
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -227,5 +229,5 @@ func poll(ctx context.Context, interval time.Duration, check func() (bool, error
 }
 
 func init() {
-	executor.RegisterExecutor(executorType, newExecutor, validateStep, ir.ExecutorCapabilities{Command: true})
+	executor.RegisterExecutor(executorType, newExecutor, validateStep, registry.ExecutorCapabilities{Command: true})
 }

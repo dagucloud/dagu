@@ -6,6 +6,7 @@ package spec
 import (
 	"strings"
 
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
@@ -17,7 +18,7 @@ func buildKubernetes(_ buildContext, d *dag) (ir.KubernetesConfig, error) {
 	}
 
 	cfg := cloneKubernetesConfigMap(d.Kubernetes)
-	if err := ir.ValidateExecutorConfig(kubernetesDefaultsSchemaType, cfg); err != nil {
+	if err := registry.ValidateExecutorConfig(kubernetesDefaultsSchemaType, cfg); err != nil {
 		return nil, ir.NewValidationError("kubernetes", d.Kubernetes, err)
 	}
 

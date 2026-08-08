@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/require"
 )
@@ -51,7 +52,7 @@ func TestDockerConfigSchema(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := ir.ValidateExecutorConfig("docker", tt.config)
+			err := registry.ValidateExecutorConfig("docker", tt.config)
 			if tt.wantErr {
 				require.Error(t, err)
 			} else {

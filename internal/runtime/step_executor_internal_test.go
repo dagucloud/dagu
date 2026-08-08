@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
+
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -61,7 +63,7 @@ func TestStepExecutorReturnsWrappedSetupError(t *testing.T) {
 	setupErr := errors.New("setup failed")
 	runtimeexec.RegisterExecutor(executorType, func(context.Context, ir.Step) (runtimeexec.Executor, error) {
 		return nil, setupErr
-	}, nil, ir.ExecutorCapabilities{})
+	}, nil, registry.ExecutorCapabilities{})
 	t.Cleanup(func() { runtimeexec.UnregisterExecutor(executorType) })
 
 	node := NewNode(ir.Step{
@@ -83,7 +85,7 @@ func TestStepExecutorClearsEmptyToolDefinitionsAndOutputs(t *testing.T) {
 	executorType := "test-step-executor-empty-side-channels"
 	runtimeexec.RegisterExecutor(executorType, func(context.Context, ir.Step) (runtimeexec.Executor, error) {
 		return &emptySideChannelExecutor{}, nil
-	}, nil, ir.ExecutorCapabilities{})
+	}, nil, registry.ExecutorCapabilities{})
 	t.Cleanup(func() { runtimeexec.UnregisterExecutor(executorType) })
 
 	node := NewNode(ir.Step{
@@ -105,7 +107,7 @@ func TestStepExecutorPublishesExecutorDeclaredOutputs(t *testing.T) {
 	executorType := "test-step-executor-declared-outputs"
 	runtimeexec.RegisterExecutor(executorType, func(context.Context, ir.Step) (runtimeexec.Executor, error) {
 		return &declaredSideChannelExecutor{}, nil
-	}, nil, ir.ExecutorCapabilities{})
+	}, nil, registry.ExecutorCapabilities{})
 	t.Cleanup(func() { runtimeexec.UnregisterExecutor(executorType) })
 
 	node := NewNode(ir.Step{
@@ -129,7 +131,7 @@ func TestStepExecutorRecordsDeclaredOutputSerializationError(t *testing.T) {
 	executorType := "test-step-executor-invalid-declared-outputs"
 	runtimeexec.RegisterExecutor(executorType, func(context.Context, ir.Step) (runtimeexec.Executor, error) {
 		return &invalidDeclaredSideChannelExecutor{}, nil
-	}, nil, ir.ExecutorCapabilities{})
+	}, nil, registry.ExecutorCapabilities{})
 	t.Cleanup(func() { runtimeexec.UnregisterExecutor(executorType) })
 
 	node := NewNode(ir.Step{
@@ -150,7 +152,7 @@ func TestStepExecutorRecordsTimeoutBeforeCommandStarts(t *testing.T) {
 	runtimeexec.RegisterExecutor(executorType, func(ctx context.Context, _ ir.Step) (runtimeexec.Executor, error) {
 		<-ctx.Done()
 		return &emptySideChannelExecutor{}, nil
-	}, nil, ir.ExecutorCapabilities{})
+	}, nil, registry.ExecutorCapabilities{})
 	t.Cleanup(func() { runtimeexec.UnregisterExecutor(executorType) })
 
 	node := NewNode(ir.Step{

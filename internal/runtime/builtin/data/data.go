@@ -19,6 +19,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/datapath"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -55,7 +56,7 @@ type executorImpl struct {
 }
 
 func init() {
-	executor.RegisterExecutor(executorType, newExecutor, validateStep, ir.ExecutorCapabilities{Command: true})
+	executor.RegisterExecutor(executorType, newExecutor, validateStep, registry.ExecutorCapabilities{Command: true})
 }
 
 func newExecutor(ctx context.Context, step ir.Step) (executor.Executor, error) {

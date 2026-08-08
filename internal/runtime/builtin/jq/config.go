@@ -4,7 +4,7 @@
 package jq
 
 import (
-	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/google/jsonschema-go/jsonschema"
 )
 
@@ -17,5 +17,5 @@ var configSchema = &jsonschema.Schema{
 }
 
 func init() {
-	ir.RegisterExecutorConfigSchema("jq", configSchema)
+	registry.RegisterExecutorConfigSchema("jq", configSchema)
 }

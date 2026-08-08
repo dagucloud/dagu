@@ -19,6 +19,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	exec1 "github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -679,7 +680,7 @@ func (e *parallelExecutor) newChildExecutor(
 }
 
 func init() {
-	caps := ir.ExecutorCapabilities{
+	caps := registry.ExecutorCapabilities{
 		SubDAG:         true,
 		WorkerSelector: true,
 	}

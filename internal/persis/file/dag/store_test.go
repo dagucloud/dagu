@@ -14,6 +14,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/dag/dagindex"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
@@ -26,7 +27,7 @@ func TestMain(m *testing.M) {
 	// Register executor capabilities for testing.
 	// In production, this is done by runtime/builtin init functions.
 	for _, t := range []string{"", "shell", "command"} {
-		ir.RegisterExecutorCapabilities(t, ir.ExecutorCapabilities{
+		registry.RegisterExecutorCapabilities(t, registry.ExecutorCapabilities{
 			Command: true, MultipleCommands: true, Script: true, Shell: true,
 		})
 	}

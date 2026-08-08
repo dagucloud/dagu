@@ -9,6 +9,7 @@ import (
 	"os"
 
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 )
@@ -75,6 +76,6 @@ func (m *MockEmptyExecutor) GetMessages() []exec.LLMMessage { return nil }
 
 // RegisterMockExecutors registers mock executors for testing.
 func RegisterMockExecutors() {
-	executor.RegisterExecutor(MockExecutorType, NewMockExecutor, nil, ir.ExecutorCapabilities{LLM: true})
-	executor.RegisterExecutor(MockEmptyExecutorType, NewMockEmptyExecutor, nil, ir.ExecutorCapabilities{LLM: true})
+	executor.RegisterExecutor(MockExecutorType, NewMockExecutor, nil, registry.ExecutorCapabilities{LLM: true})
+	executor.RegisterExecutor(MockEmptyExecutorType, NewMockEmptyExecutor, nil, registry.ExecutorCapabilities{LLM: true})
 }

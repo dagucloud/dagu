@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
+
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -74,15 +76,15 @@ func newMockDAGRunStore() *mockDAGRunStore {
 }
 
 func registerCommandExecutorCapsForCoordinatorTest() {
-	caps := ir.ExecutorCapabilities{
+	caps := registry.ExecutorCapabilities{
 		Command:          true,
 		MultipleCommands: true,
 		Script:           true,
 		Shell:            true,
 	}
-	ir.RegisterExecutorCapabilities("", caps)
-	ir.RegisterExecutorCapabilities("shell", caps)
-	ir.RegisterExecutorCapabilities("command", caps)
+	registry.RegisterExecutorCapabilities("", caps)
+	registry.RegisterExecutorCapabilities("shell", caps)
+	registry.RegisterExecutorCapabilities("command", caps)
 }
 
 func (m *mockDAGRunStore) addSubAttempt(rootRef exec.DAGRunRef, subDAGRunID string, status *exec.DAGRunStatus) *mockDAGRunAttempt {

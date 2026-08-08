@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -305,7 +306,7 @@ func buildCommand(step ir.Step) []string {
 }
 
 func init() {
-	caps := ir.ExecutorCapabilities{
+	caps := registry.ExecutorCapabilities{
 		Command: true,
 	}
 	executor.RegisterExecutor("kubernetes", newKubernetes, validateStep, caps)

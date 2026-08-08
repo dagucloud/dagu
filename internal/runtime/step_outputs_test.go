@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
+
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
@@ -112,7 +114,7 @@ func TestStepExecutorRemovesStepOutputFileAfterSetupFailure(t *testing.T) {
 		_, err := os.Stat(outputPath)
 		require.NoError(t, err)
 		return nil, errors.New("executor factory failed")
-	}, nil, ir.ExecutorCapabilities{})
+	}, nil, registry.ExecutorCapabilities{})
 	t.Cleanup(func() { runtimeexec.UnregisterExecutor(executorType) })
 
 	node := newDeclaredOutputNode(t, executorType, nil)
@@ -228,7 +230,7 @@ func registerDeclaredOutputExecutor(t *testing.T, run func(context.Context, *dec
 	executorType := "test-declared-step-output-" + t.Name()
 	runtimeexec.RegisterExecutor(executorType, func(context.Context, ir.Step) (runtimeexec.Executor, error) {
 		return &declaredOutputExecutor{run: run}, nil
-	}, nil, ir.ExecutorCapabilities{})
+	}, nil, registry.ExecutorCapabilities{})
 	t.Cleanup(func() { runtimeexec.UnregisterExecutor(executorType) })
 	return executorType
 }

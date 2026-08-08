@@ -8,9 +8,9 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-	"sync"
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
@@ -34,28 +34,6 @@ var reservedWords = map[string]bool{
 	"stderr":  true,
 	"output":  true,
 	"outputs": true,
-}
-
-// StepValidator is a function type for validating step configurations.
-type StepValidator func(step ir.Step) error
-
-// stepValidators holds registered validators for each executor type.
-var stepValidators = make(map[string]StepValidator)
-
-var stepValidatorsMu sync.RWMutex
-
-// RegisterStepValidator registers a validator for a specific executor type.
-func RegisterStepValidator(executorType string, validator StepValidator) {
-	stepValidatorsMu.Lock()
-	defer stepValidatorsMu.Unlock()
-	stepValidators[executorType] = validator
-}
-
-// UnregisterStepValidator removes a validator for a specific executor type.
-func UnregisterStepValidator(executorType string) {
-	stepValidatorsMu.Lock()
-	defer stepValidatorsMu.Unlock()
-	delete(stepValidators, executorType)
 }
 
 // ValidateSteps validates all steps in a ir.DAG, collecting all validation errors.
@@ -582,11 +560,7 @@ func validateStepWithValidator(step ir.Step) error {
 	if step.HumanTask != nil {
 		return validateHumanTaskStep(step)
 	}
-	validator := stepValidator(step.ExecutorConfig.Type)
-	if validator == nil {
-		return nil
-	}
-	if err := validator(step); err != nil {
+	if err := registry.ValidateStep(step); err != nil {
 		var ve *ir.ValidationError
 		if errors.As(err, &ve) {
 			return err
@@ -605,12 +579,6 @@ func validateHumanTaskStep(step ir.Step) error {
 		return ir.NewValidationError("command", nil, fmt.Errorf("human task cannot execute commands"))
 	}
 	return nil
-}
-
-func stepValidator(executorType string) StepValidator {
-	stepValidatorsMu.RLock()
-	defer stepValidatorsMu.RUnlock()
-	return stepValidators[executorType]
 }
 
 func isValidStepID(id string) bool {

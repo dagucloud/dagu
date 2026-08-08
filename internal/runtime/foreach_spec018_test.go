@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
+
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/foreach"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -139,10 +141,10 @@ func registerForeachProbeExecutor(t *testing.T) (string, *foreachProbeState) {
 			state: state,
 			cfg:   step.ExecutorConfig.Config,
 		}, nil
-	}, nil, ir.ExecutorCapabilities{})
+	}, nil, registry.ExecutorCapabilities{})
 	t.Cleanup(func() {
 		executor.UnregisterExecutor(executorType)
-		ir.UnregisterExecutorCapabilities(executorType)
+		registry.UnregisterExecutorCapabilities(executorType)
 	})
 	return executorType, state
 }

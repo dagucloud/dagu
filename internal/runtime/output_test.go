@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
+
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	executorpkg "github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -94,7 +96,7 @@ func registerOutputTestExecutor(t *testing.T, run func(context.Context, *outputT
 	executorType := fmt.Sprintf("__output_test_%d", outputTestExecutorSeq.Add(1))
 	executorpkg.RegisterExecutor(executorType, func(context.Context, ir.Step) (executorpkg.Executor, error) {
 		return &outputTestExecutor{run: run}, nil
-	}, nil, ir.ExecutorCapabilities{})
+	}, nil, registry.ExecutorCapabilities{})
 	t.Cleanup(func() {
 		executorpkg.UnregisterExecutor(executorType)
 	})

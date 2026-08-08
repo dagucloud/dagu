@@ -15,6 +15,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
+
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -342,7 +344,7 @@ func (e *sftpExecutor) downloadDir(ctx context.Context, sftpClient *sftp.Client,
 }
 
 func init() {
-	caps := ir.ExecutorCapabilities{
+	caps := registry.ExecutorCapabilities{
 		// SFTP executor doesn't use command/script - it uses source/destination paths
 		Command:          false,
 		MultipleCommands: false,

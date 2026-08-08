@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	indexv1 "github.com/dagucloud/dagu/v2/proto/index/v1"
 	"github.com/stretchr/testify/assert"
@@ -172,7 +173,7 @@ func TestBuild_BasicDAGs(t *testing.T) {
 	}
 
 	// Register executor capabilities for testing.
-	ir.RegisterExecutorCapabilities("", ir.ExecutorCapabilities{
+	registry.RegisterExecutorCapabilities("", registry.ExecutorCapabilities{
 		Command: true, MultipleCommands: true, Script: true, Shell: true,
 	})
 
@@ -250,7 +251,7 @@ func TestRoundTrip(t *testing.T) {
 	oneOffContent := []byte("name: roundtrip-one-off\nschedule:\n  - at: \"2026-03-29T02:10:00+01:00\"\nsteps:\n  - name: s1\n    command: echo ok\n")
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "rt-one-off.yaml"), oneOffContent, 0600))
 
-	ir.RegisterExecutorCapabilities("", ir.ExecutorCapabilities{
+	registry.RegisterExecutorCapabilities("", registry.ExecutorCapabilities{
 		Command: true, MultipleCommands: true, Script: true, Shell: true,
 	})
 
@@ -337,7 +338,7 @@ func TestBuild_WithSuspendFlags(t *testing.T) {
 	dagContent := []byte("name: flagged-dag\nsteps:\n  - name: step1\n    command: echo hello\n")
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "flagged.yaml"), dagContent, 0600))
 
-	ir.RegisterExecutorCapabilities("", ir.ExecutorCapabilities{
+	registry.RegisterExecutorCapabilities("", registry.ExecutorCapabilities{
 		Command: true, MultipleCommands: true, Script: true, Shell: true,
 	})
 
@@ -357,7 +358,7 @@ func TestBuild_WithSuspendFlags(t *testing.T) {
 func TestBuild_ContextCancellation(t *testing.T) {
 	dir := t.TempDir()
 
-	ir.RegisterExecutorCapabilities("", ir.ExecutorCapabilities{
+	registry.RegisterExecutorCapabilities("", registry.ExecutorCapabilities{
 		Command: true, MultipleCommands: true, Script: true, Shell: true,
 	})
 

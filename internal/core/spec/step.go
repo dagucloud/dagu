@@ -21,6 +21,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/signal"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/core/spec/types"
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/llm"
 )
@@ -613,7 +614,7 @@ func (s *step) build(ctx stepBuildContext) (*ir.Step, error) {
 	// Validate executor config against registered schema
 	// Only validate when config has actual values (not just initialized as empty map)
 	if len(result.ExecutorConfig.Config) > 0 {
-		if err := ir.ValidateExecutorConfig(result.ExecutorConfig.Type, result.ExecutorConfig.Config); err != nil {
+		if err := registry.ValidateExecutorConfig(result.ExecutorConfig.Type, result.ExecutorConfig.Config); err != nil {
 			errs = append(errs, wrapTransformError(s.executorConfigFieldName(), err))
 		}
 	}
@@ -1858,7 +1859,7 @@ func validateCommand(result *ir.Step) error {
 	if len(result.Commands) == 0 {
 		return nil
 	}
-	if !ir.SupportsCommand(result.ExecutorConfig.Type) {
+	if !registry.SupportsCommand(result.ExecutorConfig.Type) {
 		return ir.NewValidationError(
 			"command",
 			result.Commands,
@@ -1874,7 +1875,7 @@ func validateMultipleCommands(result *ir.Step) error {
 	if len(result.Commands) <= 1 {
 		return nil
 	}
-	if !ir.SupportsMultipleCommands(result.ExecutorConfig.Type) {
+	if !registry.SupportsMultipleCommands(result.ExecutorConfig.Type) {
 		return ir.NewValidationError(
 			"command",
 			result.Commands,
@@ -1906,7 +1907,7 @@ func validateScript(result *ir.Step) error {
 	if result.Script == "" {
 		return nil
 	}
-	if !ir.SupportsScript(result.ExecutorConfig.Type) {
+	if !registry.SupportsScript(result.ExecutorConfig.Type) {
 		return ir.NewValidationError(
 			"script",
 			result.Script,
@@ -1921,7 +1922,7 @@ func validateShell(result *ir.Step) error {
 	if result.Shell == "" && len(result.ShellArgs) == 0 && len(result.ShellPackages) == 0 {
 		return nil
 	}
-	if !ir.SupportsShell(result.ExecutorConfig.Type) {
+	if !registry.SupportsShell(result.ExecutorConfig.Type) {
 		return ir.NewValidationError(
 			"shell",
 			result.Shell,
@@ -1936,7 +1937,7 @@ func validateContainer(result *ir.Step) error {
 	if result.Container == nil {
 		return nil
 	}
-	if !ir.SupportsContainer(result.ExecutorConfig.Type) {
+	if !registry.SupportsContainer(result.ExecutorConfig.Type) {
 		return ir.NewValidationError(
 			"container",
 			result.Container,
@@ -1951,7 +1952,7 @@ func validateSubDAG(result *ir.Step) error {
 	if result.SubDAG == nil {
 		return nil
 	}
-	if !ir.SupportsSubDAG(result.ExecutorConfig.Type) {
+	if !registry.SupportsSubDAG(result.ExecutorConfig.Type) {
 		return ir.NewValidationError(
 			"call",
 			result.SubDAG,
@@ -1966,7 +1967,7 @@ func validateWorkerSelector(result *ir.Step) error {
 	if len(result.WorkerSelector) == 0 {
 		return nil
 	}
-	if !ir.SupportsWorkerSelector(result.ExecutorConfig.Type) {
+	if !registry.SupportsWorkerSelector(result.ExecutorConfig.Type) {
 		return ir.NewValidationError(
 			"worker_selector",
 			result.WorkerSelector,
@@ -1981,7 +1982,7 @@ func validateLLM(result *ir.Step) error {
 	if result.LLM == nil {
 		return nil
 	}
-	if !ir.SupportsLLM(result.ExecutorConfig.Type) {
+	if !registry.SupportsLLM(result.ExecutorConfig.Type) {
 		return ir.NewValidationError(
 			"llm",
 			result.LLM,
@@ -2026,7 +2027,7 @@ func validateMessages(result *ir.Step) error {
 	if len(result.Messages) == 0 {
 		return nil
 	}
-	if !ir.SupportsLLM(result.ExecutorConfig.Type) {
+	if !registry.SupportsLLM(result.ExecutorConfig.Type) {
 		return ir.NewValidationError(
 			"messages",
 			result.Messages,
@@ -2551,7 +2552,7 @@ func buildStepContainer(ctx stepBuildContext, s *step, result *ir.Step) error {
 // If step has llm: config, it completely overrides DAG-level (full override pattern).
 func buildStepLLM(ctx stepBuildContext, s *step, result *ir.Step) error {
 	// Only process LLM for executors that support it
-	if !ir.SupportsLLM(result.ExecutorConfig.Type) {
+	if !registry.SupportsLLM(result.ExecutorConfig.Type) {
 		return nil
 	}
 

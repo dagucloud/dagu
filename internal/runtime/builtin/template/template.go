@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"text/template"
 
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
+
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/templatefuncs"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
@@ -155,7 +157,7 @@ func buildFuncMap() template.FuncMap {
 }
 
 func init() {
-	executor.RegisterExecutor("template", newTemplate, validateTemplate, ir.ExecutorCapabilities{
+	executor.RegisterExecutor("template", newTemplate, validateTemplate, registry.ExecutorCapabilities{
 		Script: true,
 	})
 }

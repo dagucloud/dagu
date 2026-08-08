@@ -18,6 +18,7 @@ import (
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	coreexec "github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -458,5 +459,5 @@ func sortedCollectNames(values map[string]string) []string {
 }
 
 func init() {
-	executor.RegisterExecutor(ir.ExecutorTypeForeach, newExecutor, nil, ir.ExecutorCapabilities{})
+	executor.RegisterExecutor(ir.ExecutorTypeForeach, newExecutor, nil, registry.ExecutorCapabilities{})
 }

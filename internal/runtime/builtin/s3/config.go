@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
+
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/google/jsonschema-go/jsonschema"
@@ -288,5 +290,5 @@ var configSchema = &jsonschema.Schema{
 }
 
 func init() {
-	ir.RegisterExecutorConfigSchema("s3", configSchema)
+	registry.RegisterExecutorConfigSchema("s3", configSchema)
 }

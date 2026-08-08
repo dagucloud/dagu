@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/stretchr/testify/assert"
@@ -132,7 +133,7 @@ func TestConvertRejectsDataAndInput(t *testing.T) {
 func TestConvertConfigSchemaRejectsMissingDataAndInput(t *testing.T) {
 	t.Parallel()
 
-	err := ir.ValidateExecutorConfig(executorType, map[string]any{
+	err := registry.ValidateExecutorConfig(executorType, map[string]any{
 		"from": "csv",
 		"to":   "json",
 	})

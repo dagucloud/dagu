@@ -11,6 +11,7 @@ import (
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -353,26 +354,26 @@ var registerSpec003ExecutorCapabilitiesOnce sync.Once
 func registerSpec003ExecutorCapabilities() {
 	registerSpec003ExecutorCapabilitiesOnce.Do(func() {
 		for _, typ := range []string{"", "shell", "command"} {
-			ir.RegisterExecutorCapabilities(typ, ir.ExecutorCapabilities{
+			registry.RegisterExecutorCapabilities(typ, registry.ExecutorCapabilities{
 				Command: true, MultipleCommands: true, Script: true, Shell: true,
 			})
 		}
 		for _, typ := range []string{"docker", "container"} {
-			ir.RegisterExecutorCapabilities(typ, ir.ExecutorCapabilities{
+			registry.RegisterExecutorCapabilities(typ, registry.ExecutorCapabilities{
 				Command: true, MultipleCommands: true, Container: true,
 			})
 		}
 		for _, typ := range []string{"dag", "subworkflow", "parallel", ir.ExecutorTypeDAGEnqueue} {
-			ir.RegisterExecutorCapabilities(typ, ir.ExecutorCapabilities{
+			registry.RegisterExecutorCapabilities(typ, registry.ExecutorCapabilities{
 				SubDAG: true, WorkerSelector: true,
 			})
 		}
-		ir.RegisterExecutorCapabilities("chat", ir.ExecutorCapabilities{LLM: true})
-		ir.RegisterExecutorCapabilities("harness", ir.ExecutorCapabilities{
+		registry.RegisterExecutorCapabilities("chat", registry.ExecutorCapabilities{LLM: true})
+		registry.RegisterExecutorCapabilities("harness", registry.ExecutorCapabilities{
 			Command: true, Script: true, Container: true,
 		})
-		ir.RegisterExecutorCapabilities("log", ir.ExecutorCapabilities{})
-		ir.RegisterExecutorCapabilities("template", ir.ExecutorCapabilities{Script: true})
+		registry.RegisterExecutorCapabilities("log", registry.ExecutorCapabilities{})
+		registry.RegisterExecutorCapabilities("template", registry.ExecutorCapabilities{Script: true})
 	})
 }
 
