@@ -224,6 +224,40 @@ describe('DAGSpec live validation', () => {
     expect(markers[0]?.startLineNumber).toBe(3);
   });
 
+  it('clears previous validation results when a validate request fails', async () => {
+    vi.useFakeTimers();
+    mocks.post.mockResolvedValueOnce({
+      data: {
+        valid: false,
+        errors: ['[3:1] mapping values are not allowed in this context'],
+        dag: undefined,
+      },
+    });
+
+    renderSpec();
+    const editor = screen.getByLabelText('DAG spec');
+    fireEvent.change(editor, { target: { value: 'steps: [broken' } });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(600);
+    });
+    expect(
+      screen.getByText(/mapping values are not allowed/)
+    ).toBeInTheDocument();
+
+    // The next validation request fails; the old result no longer describes
+    // the buffer and must not linger.
+    mocks.post.mockResolvedValueOnce({ error: { message: 'boom' } });
+    fireEvent.change(editor, { target: { value: 'steps: [more broken' } });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(600);
+    });
+
+    expect(
+      screen.queryByText(/mapping values are not allowed/)
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/issue/)).not.toBeInTheDocument();
+  });
+
   it('renders the saved graph alongside saved errors', () => {
     mocks.useQuery.mockReturnValue(
       specData({ errors: ['something is misconfigured'] })

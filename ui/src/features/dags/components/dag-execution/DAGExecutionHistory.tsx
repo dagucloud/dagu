@@ -558,6 +558,28 @@ function DAGHistoryTable({
                 stream: stream === 'stderr' ? Stream.stderr : Stream.stdout,
               });
             }}
+            onOpenSubRun={(node, subRunIndex) => {
+              if (!selectedDAGRun) {
+                return;
+              }
+              const subRuns = [
+                ...(node.subRuns ?? []),
+                ...(node.subRunsRepeated ?? []),
+              ];
+              const subDAGRun = subRuns[subRunIndex];
+              if (!subDAGRun?.dagRunId) {
+                return;
+              }
+              navigate(
+                buildDAGPageURL({
+                  fileName,
+                  remoteNode,
+                  rootDAGRunId: selectedDAGRun.rootDAGRunId,
+                  rootDAGRunName: selectedDAGRun.rootDAGRunName,
+                  subDAGRunId: subDAGRun.dagRunId,
+                })
+              );
+            }}
           />
         </div>
       )}

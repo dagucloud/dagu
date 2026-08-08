@@ -127,7 +127,9 @@ function StepRuntimeSection({
           {infoRows.map(([label, value]) => (
             <React.Fragment key={label}>
               <dt className="text-muted-foreground">{label}</dt>
-              <dd className="tabular-nums text-foreground">{value}</dd>
+              <dd className="min-w-0 whitespace-normal break-words tabular-nums text-foreground">
+                {value}
+              </dd>
             </React.Fragment>
           ))}
         </dl>
@@ -162,7 +164,7 @@ function StepRuntimeSection({
               key={`${subRun.dagRunId}-${index}`}
               className="flex items-center justify-between gap-2 text-sm"
             >
-              <span className="min-w-0 truncate">
+              <span className="min-w-0 whitespace-normal break-words">
                 {subRun.dagName || node.step.name}{' '}
                 <code className="text-xs text-muted-foreground">
                   {subRun.dagRunId}

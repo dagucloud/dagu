@@ -229,11 +229,16 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
           setIsValidating(false);
           if (!requestError && result) {
             setLiveValidation({ errors: result.errors ?? [], dag: result.dag });
+          } else {
+            // A failed request leaves the buffer's validity unknown; stale
+            // results from an older buffer would misreport it.
+            setLiveValidation(null);
           }
         })
         .catch(() => {
           if (validateSeqRef.current === seq) {
             setIsValidating(false);
+            setLiveValidation(null);
           }
         });
     }, 600);

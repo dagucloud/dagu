@@ -41,10 +41,12 @@ export function formatRunDuration(
     return '-';
   }
 
-  const diff = end.diff(start, 'second');
-  if (diff < 0) {
+  // Millisecond precision: second-level diff truncates toward zero, so a
+  // finish up to 999ms before the start would read as a valid "0s".
+  if (end.diff(start) < 0) {
     return '-';
   }
+  const diff = end.diff(start, 'second');
 
   const hours = Math.floor(diff / 3600);
   const minutes = Math.floor((diff % 3600) / 60);
