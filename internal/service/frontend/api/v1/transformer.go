@@ -17,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/humantask"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/controller"
+	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
 const maxIntValue = int(^uint(0) >> 1)
@@ -37,7 +38,7 @@ func toSchedule(s ir.Schedule) api.Schedule {
 }
 
 func workspaceResponseNameFromLabels(labels ir.Labels) *string {
-	workspaceName, ok := exec.WorkspaceNameFromLabels(labels)
+	workspaceName, ok := workspace.WorkspaceNameFromLabels(labels)
 	if !ok {
 		return nil
 	}

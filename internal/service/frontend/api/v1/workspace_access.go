@@ -191,13 +191,13 @@ func dagWorkspaceName(dag *ir.DAG) string {
 	if dag == nil {
 		return ""
 	}
-	workspaceName, state := exec.WorkspaceLabelFromLabels(dag.Labels)
+	workspaceName, state := workspace.WorkspaceLabelFromLabels(dag.Labels)
 	switch state {
-	case exec.WorkspaceLabelValid:
+	case workspace.WorkspaceLabelValid:
 		return workspaceName
-	case exec.WorkspaceLabelInvalid:
+	case workspace.WorkspaceLabelInvalid:
 		return invalidWorkspaceLabelName
-	case exec.WorkspaceLabelMissing:
+	case workspace.WorkspaceLabelMissing:
 		return ""
 	}
 	return ""
@@ -207,13 +207,13 @@ func statusWorkspaceName(status *exec.DAGRunStatus) string {
 	if status == nil {
 		return ""
 	}
-	workspaceName, state := exec.WorkspaceLabelFromLabels(ir.NewLabels(status.Labels))
+	workspaceName, state := workspace.WorkspaceLabelFromLabels(ir.NewLabels(status.Labels))
 	switch state {
-	case exec.WorkspaceLabelValid:
+	case workspace.WorkspaceLabelValid:
 		return workspaceName
-	case exec.WorkspaceLabelInvalid:
+	case workspace.WorkspaceLabelInvalid:
 		return invalidWorkspaceLabelName
-	case exec.WorkspaceLabelMissing:
+	case workspace.WorkspaceLabelMissing:
 		return ""
 	}
 	return ""
@@ -223,13 +223,13 @@ func workspaceNameFromLabelString(labels string) string {
 	if strings.TrimSpace(labels) == "" {
 		return ""
 	}
-	workspaceName, state := exec.WorkspaceLabelFromLabels(ir.NewLabels(strings.Split(labels, ",")))
+	workspaceName, state := workspace.WorkspaceLabelFromLabels(ir.NewLabels(strings.Split(labels, ",")))
 	switch state {
-	case exec.WorkspaceLabelValid:
+	case workspace.WorkspaceLabelValid:
 		return workspaceName
-	case exec.WorkspaceLabelInvalid:
+	case workspace.WorkspaceLabelInvalid:
 		return invalidWorkspaceLabelName
-	case exec.WorkspaceLabelMissing:
+	case workspace.WorkspaceLabelMissing:
 		return ""
 	}
 	return ""
@@ -242,13 +242,13 @@ func runtimeWorkspaceName(dag *ir.DAG, labels string) string {
 	return dagWorkspaceName(dag)
 }
 
-func (a *API) workspaceFilterForContext(ctx context.Context) *exec.WorkspaceFilter {
+func (a *API) workspaceFilterForContext(ctx context.Context) *workspace.WorkspaceFilter {
 	if a.authService == nil {
 		return nil
 	}
 	user, ok := auth.UserFromContext(ctx)
 	if !ok {
-		return &exec.WorkspaceFilter{Enabled: true}
+		return &workspace.WorkspaceFilter{Enabled: true}
 	}
 	access := auth.NormalizeWorkspaceAccess(user.WorkspaceAccess)
 	if access.All {
@@ -262,14 +262,14 @@ func (a *API) workspaceFilterForContext(ctx context.Context) *exec.WorkspaceFilt
 	if isMCPSourceContext(ctx) {
 		includeUnlabelled = workspaceAccessHasGrant(access, "default")
 	}
-	return &exec.WorkspaceFilter{
+	return &workspace.WorkspaceFilter{
 		Enabled:           true,
 		Workspaces:        names,
 		IncludeUnlabelled: includeUnlabelled,
 	}
 }
 
-func (a *API) workspaceFilterForSelection(ctx context.Context, selection workspaceSelection) (*exec.WorkspaceFilter, error) {
+func (a *API) workspaceFilterForSelection(ctx context.Context, selection workspaceSelection) (*workspace.WorkspaceFilter, error) {
 	switch selection.mode {
 	case workspaceSelectionAll:
 		return a.workspaceFilterForContext(ctx), nil
@@ -277,7 +277,7 @@ func (a *API) workspaceFilterForSelection(ctx context.Context, selection workspa
 		if err := a.requireWorkspaceVisible(ctx, ""); err != nil {
 			return nil, err
 		}
-		return &exec.WorkspaceFilter{
+		return &workspace.WorkspaceFilter{
 			Enabled:           true,
 			IncludeUnlabelled: true,
 		}, nil
@@ -285,7 +285,7 @@ func (a *API) workspaceFilterForSelection(ctx context.Context, selection workspa
 		if err := a.requireWorkspaceVisible(ctx, selection.workspace); err != nil {
 			return nil, err
 		}
-		return &exec.WorkspaceFilter{
+		return &workspace.WorkspaceFilter{
 			Enabled:    true,
 			Workspaces: []string{selection.workspace},
 		}, nil
@@ -294,7 +294,7 @@ func (a *API) workspaceFilterForSelection(ctx context.Context, selection workspa
 	}
 }
 
-func (a *API) workspaceFilterForParams(ctx context.Context, workspaceParam *api.Workspace) (*exec.WorkspaceFilter, error) {
+func (a *API) workspaceFilterForParams(ctx context.Context, workspaceParam *api.Workspace) (*workspace.WorkspaceFilter, error) {
 	selection, err := parseWorkspaceSelection(workspaceParam)
 	if err != nil {
 		return nil, err

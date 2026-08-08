@@ -9,6 +9,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
 // buildManagedDAGRunEnvs returns the environment variables Dagu generates for a
@@ -48,7 +49,7 @@ func dagDocsDir(ctx context.Context, dag *ir.DAG) string {
 	if cfg.Paths.DocsDir == "" {
 		return ""
 	}
-	if workspaceName, ok := WorkspaceNameFromLabels(dag.Labels); ok {
+	if workspaceName, ok := workspace.WorkspaceNameFromLabels(dag.Labels); ok {
 		return filepath.Join(cfg.Paths.DocsDir, workspaceName, dag.Name)
 	}
 	return filepath.Join(cfg.Paths.DocsDir, dag.Name)

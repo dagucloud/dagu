@@ -19,6 +19,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/dag/dagindex"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
+	"github.com/dagucloud/dagu/v2/internal/workspace"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -653,7 +654,7 @@ steps:
 	firstPage := pagination.NewPaginator(1, 1)
 	result, errs, err := store.List(ctx, exec.ListDAGsOptions{
 		Paginator: &firstPage,
-		WorkspaceFilter: &exec.WorkspaceFilter{
+		WorkspaceFilter: &workspace.WorkspaceFilter{
 			Enabled:           true,
 			Workspaces:        []string{"ops"},
 			IncludeUnlabelled: true,
@@ -669,7 +670,7 @@ steps:
 	secondPage := pagination.NewPaginator(2, 1)
 	result, errs, err = store.List(ctx, exec.ListDAGsOptions{
 		Paginator: &secondPage,
-		WorkspaceFilter: &exec.WorkspaceFilter{
+		WorkspaceFilter: &workspace.WorkspaceFilter{
 			Enabled:           true,
 			Workspaces:        []string{"ops"},
 			IncludeUnlabelled: true,
@@ -685,7 +686,7 @@ steps:
 	workspaceOnly := pagination.NewPaginator(1, 10)
 	result, errs, err = store.List(ctx, exec.ListDAGsOptions{
 		Paginator: &workspaceOnly,
-		WorkspaceFilter: &exec.WorkspaceFilter{
+		WorkspaceFilter: &workspace.WorkspaceFilter{
 			Enabled:    true,
 			Workspaces: []string{"ops"},
 		},
@@ -730,7 +731,7 @@ steps:
 		Query:      "needle",
 		Limit:      10,
 		MatchLimit: 1,
-		WorkspaceFilter: &exec.WorkspaceFilter{
+		WorkspaceFilter: &workspace.WorkspaceFilter{
 			Enabled:           true,
 			Workspaces:        []string{"ops"},
 			IncludeUnlabelled: true,
@@ -752,7 +753,7 @@ steps:
 		Query:      "needle",
 		Limit:      10,
 		MatchLimit: 1,
-		WorkspaceFilter: &exec.WorkspaceFilter{
+		WorkspaceFilter: &workspace.WorkspaceFilter{
 			Enabled:    true,
 			Workspaces: []string{"ops"},
 		},

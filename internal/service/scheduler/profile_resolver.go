@@ -7,10 +7,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagsettings"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/profile"
+	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
 type dagProfileResolver struct {
@@ -36,13 +36,13 @@ func dagWorkspaceName(dag *ir.DAG) (string, error) {
 	if dag == nil {
 		return "", nil
 	}
-	workspaceName, state := exec.WorkspaceLabelFromLabels(dag.Labels)
+	workspaceName, state := workspace.WorkspaceLabelFromLabels(dag.Labels)
 	switch state {
-	case exec.WorkspaceLabelValid:
+	case workspace.WorkspaceLabelValid:
 		return workspaceName, nil
-	case exec.WorkspaceLabelMissing:
+	case workspace.WorkspaceLabelMissing:
 		return "", nil
-	case exec.WorkspaceLabelInvalid:
+	case workspace.WorkspaceLabelInvalid:
 		return "", fmt.Errorf("invalid workspace label")
 	}
 	return "", nil

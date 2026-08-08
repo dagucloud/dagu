@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
 // Errors related to dag-run management
@@ -104,7 +105,7 @@ type ListDAGRunStatusesOptions struct {
 	Limit           int
 	Cursor          string
 	Labels          []string // Filter by DAG labels (AND logic - all labels must match)
-	WorkspaceFilter *WorkspaceFilter
+	WorkspaceFilter *workspace.WorkspaceFilter
 	Unlimited       bool
 	AllHistory      bool
 }
@@ -162,7 +163,7 @@ func WithLabels(labels []string) ListDAGRunStatusesOption {
 }
 
 // WithWorkspaceFilter sets the workspace visibility filter for listing dag-runs.
-func WithWorkspaceFilter(filter *WorkspaceFilter) ListDAGRunStatusesOption {
+func WithWorkspaceFilter(filter *workspace.WorkspaceFilter) ListDAGRunStatusesOption {
 	return func(o *ListDAGRunStatusesOptions) {
 		o.WorkspaceFilter = filter
 	}

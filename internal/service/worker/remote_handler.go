@@ -36,6 +36,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/service/worker/coordreport"
 	dagutools "github.com/dagucloud/dagu/v2/internal/tools"
 	daguaqua "github.com/dagucloud/dagu/v2/internal/tools/aqua"
+	"github.com/dagucloud/dagu/v2/internal/workspace"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 )
 
@@ -756,7 +757,7 @@ func (h *remoteTaskHandler) secretReferenceResolver(dag *ir.DAG, owner exec.Host
 	}
 	workspaceName := ""
 	if dag != nil {
-		if name, found := exec.WorkspaceNameFromLabels(dag.Labels); found {
+		if name, found := workspace.WorkspaceNameFromLabels(dag.Labels); found {
 			workspaceName = name
 		}
 	}

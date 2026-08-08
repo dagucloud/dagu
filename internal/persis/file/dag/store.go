@@ -633,7 +633,7 @@ func normalizedDAGSearchLabels(labels []string) string {
 	return strings.Join(normalized, ",")
 }
 
-func dagSearchScopeKey(labels []string, filter *exec.WorkspaceFilter) string {
+func dagSearchScopeKey(labels []string, filter *workspace.WorkspaceFilter) string {
 	parts := []string{normalizedDAGSearchLabels(labels)}
 	if filter != nil && filter.Enabled {
 		workspaces := append([]string(nil), filter.Workspaces...)
@@ -824,7 +824,7 @@ func (store *Storage) SearchCursor(ctx context.Context, opts exec.SearchDAGsOpti
 			}
 		}
 		if dag != nil {
-			if name, ok := exec.WorkspaceNameFromLabels(dag.Labels); ok {
+			if name, ok := workspace.WorkspaceNameFromLabels(dag.Labels); ok {
 				workspaceName = name
 			}
 		}

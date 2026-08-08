@@ -14,6 +14,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
 	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
+	"github.com/dagucloud/dagu/v2/internal/workspace"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -256,7 +257,7 @@ func secretReferenceWorkspace(dag *ir.DAG) string {
 	if dag == nil {
 		return secretpkg.GlobalWorkspace
 	}
-	if workspaceName, found := exec.WorkspaceNameFromLabels(dag.Labels); found {
+	if workspaceName, found := workspace.WorkspaceNameFromLabels(dag.Labels); found {
 		return secretpkg.NormalizeWorkspace(workspaceName)
 	}
 	return secretpkg.GlobalWorkspace

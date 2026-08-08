@@ -32,6 +32,7 @@ import (
 	notificationmodel "github.com/dagucloud/dagu/v2/internal/notification"
 	"github.com/dagucloud/dagu/v2/internal/service/chatbridge"
 	"github.com/dagucloud/dagu/v2/internal/service/eventstore"
+	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
 type Service struct {
@@ -469,7 +470,7 @@ func (s *Service) NotificationDestinationsForEvent(event chatbridge.Notification
 	if event.Status == nil || routeKey == "" {
 		return nil
 	}
-	if _, state := eventWorkspace(event); state == exec.WorkspaceLabelInvalid {
+	if _, state := eventWorkspace(event); state == workspace.WorkspaceLabelInvalid {
 		return nil
 	}
 	ctx := context.Background()
@@ -1126,7 +1127,7 @@ func (s *Service) routeSetDestinationsForEvent(
 
 func (s *Service) effectiveRouteSetForEvent(ctx context.Context, event chatbridge.NotificationEvent) *notificationmodel.RouteSet {
 	workspaceName, state := eventWorkspace(event)
-	if state == exec.WorkspaceLabelInvalid {
+	if state == workspace.WorkspaceLabelInvalid {
 		return nil
 	}
 	if workspaceName != "" {
@@ -1211,16 +1212,16 @@ func (s *Service) matchingRouteEvents(ctx context.Context, routeSet *notificatio
 	return result
 }
 
-func eventWorkspace(event chatbridge.NotificationEvent) (string, exec.WorkspaceLabelState) {
+func eventWorkspace(event chatbridge.NotificationEvent) (string, workspace.WorkspaceLabelState) {
 	if event.Status == nil {
-		return "", exec.WorkspaceLabelMissing
+		return "", workspace.WorkspaceLabelMissing
 	}
-	return exec.WorkspaceLabelFromLabels(ir.NewLabels(event.Status.Labels))
+	return workspace.WorkspaceLabelFromLabels(ir.NewLabels(event.Status.Labels))
 }
 
 func eventWorkspaceName(event chatbridge.NotificationEvent) string {
 	workspaceName, state := eventWorkspace(event)
-	if state == exec.WorkspaceLabelValid {
+	if state == workspace.WorkspaceLabelValid {
 		return workspaceName
 	}
 	return ""

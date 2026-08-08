@@ -17,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
 // Error definitions for common issues
@@ -146,7 +147,7 @@ func (store *Store) resolveStatus(
 	ctx context.Context,
 	dagRun *DAGRun,
 	labelFilters []ir.LabelFilter,
-	workspaceFilter *exec.WorkspaceFilter,
+	workspaceFilter *workspace.WorkspaceFilter,
 	statusesFilter map[ir.Status]struct{},
 	hasStatusFilter bool,
 ) *exec.DAGRunStatus {

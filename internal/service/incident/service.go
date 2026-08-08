@@ -31,6 +31,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/service/chatbridge"
 	"github.com/dagucloud/dagu/v2/internal/service/eventstore"
+	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
 type Service struct {
@@ -716,7 +717,7 @@ func incidentEventSupported(event chatbridge.NotificationEvent) bool {
 	if event.Status == nil || event.Status.Name == "" {
 		return false
 	}
-	if _, state := eventWorkspace(event); state == exec.WorkspaceLabelInvalid {
+	if _, state := eventWorkspace(event); state == workspace.WorkspaceLabelInvalid {
 		return false
 	}
 	if event.Type == eventstore.TypeDAGRunFailed {
@@ -734,17 +735,17 @@ func isFinalFailure(status *exec.DAGRunStatus) bool {
 
 func eventWorkspaceName(event chatbridge.NotificationEvent) string {
 	workspaceName, state := eventWorkspace(event)
-	if state == exec.WorkspaceLabelValid {
+	if state == workspace.WorkspaceLabelValid {
 		return workspaceName
 	}
 	return ""
 }
 
-func eventWorkspace(event chatbridge.NotificationEvent) (string, exec.WorkspaceLabelState) {
+func eventWorkspace(event chatbridge.NotificationEvent) (string, workspace.WorkspaceLabelState) {
 	if event.Status == nil {
-		return "", exec.WorkspaceLabelMissing
+		return "", workspace.WorkspaceLabelMissing
 	}
-	return exec.WorkspaceLabelFromLabels(ir.NewLabels(event.Status.Labels))
+	return workspace.WorkspaceLabelFromLabels(ir.NewLabels(event.Status.Labels))
 }
 
 func stateMatchesEvent(state *incidentmodel.IncidentState, event chatbridge.NotificationEvent) bool {
@@ -752,7 +753,7 @@ func stateMatchesEvent(state *incidentmodel.IncidentState, event chatbridge.Noti
 		return false
 	}
 	workspaceName, workspaceState := eventWorkspace(event)
-	return workspaceState != exec.WorkspaceLabelInvalid && state.Workspace == workspaceName
+	return workspaceState != workspace.WorkspaceLabelInvalid && state.Workspace == workspaceName
 }
 
 func findPolicy(policySet *incidentmodel.PolicySet, policyID string) (incidentmodel.Policy, bool) {

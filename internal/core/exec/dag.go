@@ -10,6 +10,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
+	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
 // DAGLoadOptions selects the loading behaviour a DAGStore caller can choose.
@@ -71,7 +72,7 @@ type ListDAGsOptions struct {
 	Order             string                             // Optional sort order (asc, desc)
 	Time              *time.Time                         // Optional reference time for nextRun sorting/projection (defaults to time.Now())
 	NextRunProjection func(*ir.DAG, time.Time) time.Time // Optional scheduler-aware nextRun projector used when Sort == "nextRun"
-	WorkspaceFilter   *WorkspaceFilter                   // Optional workspace visibility filter
+	WorkspaceFilter   *workspace.WorkspaceFilter         // Optional workspace visibility filter
 }
 
 // SearchDAGsOptions contains parameters for cursor-based DAG search.
@@ -81,7 +82,7 @@ type SearchDAGsOptions struct {
 	Query           string
 	MatchLimit      int
 	Labels          []string
-	WorkspaceFilter *WorkspaceFilter
+	WorkspaceFilter *workspace.WorkspaceFilter
 }
 
 // SearchDAGMatchesOptions contains parameters for cursor-based snippet loading.
@@ -90,7 +91,7 @@ type SearchDAGMatchesOptions struct {
 	Limit           int
 	Query           string
 	Labels          []string
-	WorkspaceFilter *WorkspaceFilter
+	WorkspaceFilter *workspace.WorkspaceFilter
 }
 
 // GrepDAGsResult represents the result of a pattern search within a DAG definition

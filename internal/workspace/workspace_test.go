@@ -32,3 +32,23 @@ func TestValidateNameRejectsReservedGlobalName(t *testing.T) {
 	assert.Error(t, ValidateName("global"))
 	assert.Error(t, ValidateName("GLOBAL"))
 }
+
+func TestWorkspaceFilterRejectsInvalidWorkspaceLabels(t *testing.T) {
+	t.Parallel()
+
+	filter := &WorkspaceFilter{
+		Enabled:           true,
+		Workspaces:        []string{"ops"},
+		IncludeUnlabelled: true,
+	}
+
+	assert.False(t, filter.MatchesLabels(testLabels{"workspace": {""}}))
+	assert.False(t, filter.MatchesLabels(testLabels{"workspace": {"bad/name"}}))
+	assert.False(t, filter.MatchesLabels(testLabels{"workspace": {"ops", "prod"}}))
+	assert.True(t, filter.MatchesLabels(testLabels{"team": {"platform"}}))
+	assert.True(t, filter.MatchesLabels(testLabels{"workspace": {"ops"}}))
+}
+
+type testLabels map[string][]string
+
+func (l testLabels) Get(key string) []string { return l[key] }

@@ -54,6 +54,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
+	"github.com/dagucloud/dagu/v2/internal/workspace"
 
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin"
 )
@@ -466,7 +467,7 @@ func workspaceNameFromDAG(dag *ir.DAG) string {
 	if dag == nil {
 		return ""
 	}
-	name, ok := exec.WorkspaceNameFromLabels(dag.Labels)
+	name, ok := workspace.WorkspaceNameFromLabels(dag.Labels)
 	if !ok {
 		return ""
 	}
@@ -1844,7 +1845,7 @@ func (a *Agent) resolveInheritedProfiles(
 		)
 	}
 
-	workspaceName, ok := exec.WorkspaceNameFromLabels(a.dag.Labels)
+	workspaceName, ok := workspace.WorkspaceNameFromLabels(a.dag.Labels)
 	if !ok {
 		return defaultLayers, nil
 	}
