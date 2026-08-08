@@ -40,7 +40,14 @@ const (
 const (
 	docsDir      = "docs"
 	baseConfigID = "base"
+
+	// docAssetsDirName is the reserved subtree inside the docs directory
+	// holding binary doc attachments: docs/.attachments/{docID}/{name}.
+	docAssetsDirName = ".attachments"
 )
+
+// docAssetsPrefix is the item ID prefix classifying doc attachment files.
+var docAssetsPrefix = docsDir + "/" + docAssetsDirName + "/"
 
 // SyncItemKind identifies a supported Git Sync item type.
 type SyncItemKind string
@@ -48,11 +55,18 @@ type SyncItemKind string
 const (
 	SyncItemKindDAG SyncItemKind = "dag"
 	SyncItemKindDoc SyncItemKind = "doc"
+	// SyncItemKindDocAsset is a binary doc attachment. Unlike DAG and doc
+	// items, its ID keeps the file extension: names inside one attachment
+	// directory differ only by extension.
+	SyncItemKindDocAsset SyncItemKind = "doc-asset"
 )
 
 // SyncItemKindForID derives the item type from its normalized ID.
 func SyncItemKindForID(id string) SyncItemKind {
 	id = normalizeDAGIDSeparators(id)
+	if strings.HasPrefix(id, docAssetsPrefix) {
+		return SyncItemKindDocAsset
+	}
 	if strings.HasPrefix(id, docsDir+"/") {
 		return SyncItemKindDoc
 	}
@@ -61,6 +75,10 @@ func SyncItemKindForID(id string) SyncItemKind {
 
 func isDocFile(id string) bool {
 	return SyncItemKindForID(id) == SyncItemKindDoc
+}
+
+func isDocAssetFile(id string) bool {
+	return SyncItemKindForID(id) == SyncItemKindDocAsset
 }
 
 func isBaseConfigID(id string) bool {
@@ -220,7 +238,9 @@ func normalizeTrackedItems(state *State) {
 			delete(state.Items, itemID)
 			continue
 		}
-		if itemState.Kind != "" && itemState.Kind != SyncItemKindDAG && itemState.Kind != SyncItemKindDoc {
+		switch itemState.Kind {
+		case "", SyncItemKindDAG, SyncItemKindDoc, SyncItemKindDocAsset:
+		default:
 			delete(state.Items, itemID)
 			continue
 		}

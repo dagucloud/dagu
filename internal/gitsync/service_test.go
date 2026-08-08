@@ -156,6 +156,83 @@ func TestScanLocalItems(t *testing.T) {
 	assert.Equal(t, filepath.Join(docsPath, "operations", "deploy.MD"), localPath)
 }
 
+func TestScanLocalItemsDocAssets(t *testing.T) {
+	tempDir := t.TempDir()
+	docsPath := filepath.Join(tempDir, "document-root")
+
+	assetDir := filepath.Join(docsPath, ".attachments", "guides", "deploy")
+	require.NoError(t, os.MkdirAll(assetDir, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(assetDir, "logo.png"), []byte{0x89, 'P', 'N', 'G'}, 0600))
+	// A markdown-named file inside the asset subtree is neither a doc item
+	// (the doc scan skips the subtree) nor an asset (reserved extension).
+	require.NoError(t, os.WriteFile(filepath.Join(assetDir, "evil.md"), []byte("# evil"), 0600))
+	// Files placed directly under .attachments have no doc segment.
+	require.NoError(t, os.WriteFile(filepath.Join(docsPath, ".attachments", "stray.png"), []byte("x"), 0600))
+
+	s := &serviceImpl{
+		dagsDir: tempDir,
+		docsDir: docsPath,
+		cfg:     &Config{},
+	}
+
+	state := &State{Items: make(map[string]*SyncItemState)}
+	require.NoError(t, s.scanLocalItems(state))
+
+	require.Len(t, state.Items, 1)
+	item := state.Items["docs/.attachments/guides/deploy/logo.png"]
+	require.NotNil(t, item)
+	assert.Equal(t, SyncItemKindDocAsset, item.Kind)
+	assert.Equal(t, StatusUntracked, item.Status)
+	assert.Empty(t, item.FileExtension)
+
+	localPath, err := s.safeDAGIDToFilePath("docs/.attachments/guides/deploy/logo.png", "")
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(assetDir, "logo.png"), localPath)
+}
+
+func TestSyncItemKindForIDAssets(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, SyncItemKindDocAsset, SyncItemKindForID("docs/.attachments/guides/deploy/logo.png"))
+	assert.Equal(t, SyncItemKindDoc, SyncItemKindForID("docs/guides/deploy"))
+	assert.Equal(t, SyncItemKindDAG, SyncItemKindForID("my-dag"))
+	// A doc that happens to be named .attachments.md is not an asset.
+	assert.Equal(t, SyncItemKindDoc, SyncItemKindForID("docs/.attachments"))
+}
+
+func TestIsValidAssetItemID(t *testing.T) {
+	t.Parallel()
+
+	assert.True(t, isValidAssetItemID("docs/.attachments/guides/deploy/logo.png"))
+	assert.True(t, isValidAssetItemID("docs/.attachments/doc/image with space.jpg"))
+
+	// No doc segment.
+	assert.False(t, isValidAssetItemID("docs/.attachments/logo.png"))
+	// Reserved extensions.
+	assert.False(t, isValidAssetItemID("docs/.attachments/doc/evil.md"))
+	assert.False(t, isValidAssetItemID("docs/.attachments/doc/flow.yaml"))
+	// Invalid doc segment (leading dot) and invalid file name.
+	assert.False(t, isValidAssetItemID("docs/.attachments/.hidden/logo.png"))
+	assert.False(t, isValidAssetItemID("docs/.attachments/doc/.hidden"))
+	// Not under the asset prefix at all.
+	assert.False(t, isValidAssetItemID("docs/guides/deploy"))
+}
+
+func TestNormalizeTrackedItemsKeepsAssetKind(t *testing.T) {
+	t.Parallel()
+
+	state := &State{Items: map[string]*SyncItemState{
+		"docs/.attachments/doc/logo.png": {Kind: SyncItemKindDocAsset, Status: StatusSynced},
+		"docs/guides/deploy":             {Kind: SyncItemKindDoc, Status: StatusSynced},
+		"bogus":                          {Kind: SyncItemKind("mystery"), Status: StatusSynced},
+	}}
+	normalizeTrackedItems(state)
+
+	require.Contains(t, state.Items, "docs/.attachments/doc/logo.png")
+	assert.Equal(t, SyncItemKindDocAsset, state.Items["docs/.attachments/doc/logo.png"].Kind)
+	assert.NotContains(t, state.Items, "bogus")
+}
+
 func TestIsSyncableRepoFile(t *testing.T) {
 	t.Parallel()
 
