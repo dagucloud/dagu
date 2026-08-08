@@ -388,7 +388,7 @@ jobs:
             }
           }
           finally {
-            & $installerPath -NoPrompt -Uninstall -InstallDir $installDir
+            & ([scriptblock]::Create($source)) -NoPrompt -Uninstall -InstallDir $installDir
             $env:LOCALAPPDATA = $originalLocalAppData
           }
           if (Test-Path $daguExe) {
