@@ -419,6 +419,16 @@ describe('DAGTable', () => {
     });
   });
 
+  it('invites creating the first workflow when none exist and no filters are set', () => {
+    renderTable('', { dags: [] });
+
+    expect(screen.getAllByText('No workflows yet').length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText('Create your first workflow to get started.').length
+    ).toBeGreaterThan(0);
+    expect(screen.queryByText('No workflows found')).not.toBeInTheDocument();
+  });
+
   it('explains an empty saved view and offers to show all workflows', () => {
     const { onShowAllWorkflows } = renderTable('', {
       dags: [],

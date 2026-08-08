@@ -985,6 +985,38 @@ function getDefaultSortOrder(field: string): string {
   return 'asc';
 }
 
+function WorkflowsEmptyState({
+  icon,
+  heading,
+  description,
+  showAllButton,
+  onShowAllWorkflows,
+}: {
+  icon: string;
+  heading: string;
+  description: string;
+  showAllButton: boolean;
+  onShowAllWorkflows?: () => void;
+}) {
+  return (
+    <>
+      <div className="text-6xl mb-4">{icon}</div>
+      <h3 className="text-lg font-medium text-foreground mb-2">{heading}</h3>
+      <p className="text-sm text-muted-foreground text-center max-w-md mb-4 whitespace-normal break-words">
+        {description}
+      </p>
+      <div className="flex flex-wrap items-center justify-center gap-2">
+        {showAllButton && (
+          <Button type="button" variant="outline" onClick={onShowAllWorkflows}>
+            Show all workflows
+          </Button>
+        )}
+        <CreateDAGModal />
+      </div>
+    </>
+  );
+}
+
 function buildGrepSearchUrl(searchText: string): string {
   const params = new URLSearchParams();
   const query = searchText.trim();
@@ -1590,9 +1622,26 @@ function DAGTable({
   const activeWorkflowViewName = workflowViews.find(
     (view) => view.id === activeWorkflowViewId
   )?.name;
-  const emptyStateDescription = activeWorkflowViewName
-    ? `No workflows match the “${activeWorkflowViewName}” view. Try adjusting its filters or show all workflows.`
-    : 'There are no workflows matching your current filters. Try adjusting your search criteria or labels.';
+  const isPristineAllView =
+    isAllWorkflowsView && !searchText && searchLabels.length === 0 && !activeOnly;
+  const emptyState = activeWorkflowViewName
+    ? {
+        icon: '🔍',
+        heading: 'No workflows found',
+        description: `No workflows match the “${activeWorkflowViewName}” view. Try adjusting its filters or show all workflows.`,
+      }
+    : isPristineAllView
+      ? {
+          icon: '🌱',
+          heading: 'No workflows yet',
+          description: 'Create your first workflow to get started.',
+        }
+      : {
+          icon: '🔍',
+          heading: 'No workflows found',
+          description:
+            'There are no workflows matching your current filters. Try adjusting your search criteria or labels.',
+        };
 
   return (
     <div className="space-y-2">
@@ -1888,25 +1937,11 @@ function DAGTable({
                   className="h-64 text-center"
                 >
                   <div className="flex flex-col items-center justify-center py-8">
-                    <div className="text-6xl mb-4">🔍</div>
-                    <h3 className="text-lg font-medium text-foreground mb-2">
-                      No workflows found
-                    </h3>
-                    <p className="text-sm text-muted-foreground text-center max-w-md mb-4 whitespace-normal break-words">
-                      {emptyStateDescription}
-                    </p>
-                    <div className="flex flex-wrap items-center justify-center gap-2">
-                      {!isAllWorkflowsView && (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={onShowAllWorkflows}
-                        >
-                          Show all workflows
-                        </Button>
-                      )}
-                      <CreateDAGModal />
-                    </div>
+                    <WorkflowsEmptyState
+                      {...emptyState}
+                      showAllButton={!isAllWorkflowsView}
+                      onShowAllWorkflows={onShowAllWorkflows}
+                    />
                   </div>
                 </TableCell>
               </TableRow>
@@ -2021,23 +2056,11 @@ function DAGTable({
           })
         ) : (
           <div className="flex flex-col items-center justify-center py-12 px-4 border rounded-md bg-card">
-            <div className="text-6xl mb-4">🔍</div>
-            <h3 className="text-lg font-medium mb-2">No workflows found</h3>
-            <p className="text-sm text-muted-foreground text-center max-w-md mb-4 whitespace-normal break-words">
-              {emptyStateDescription}
-            </p>
-            <div className="flex flex-wrap items-center justify-center gap-2">
-              {!isAllWorkflowsView && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={onShowAllWorkflows}
-                >
-                  Show all workflows
-                </Button>
-              )}
-              <CreateDAGModal />
-            </div>
+            <WorkflowsEmptyState
+              {...emptyState}
+              showAllButton={!isAllWorkflowsView}
+              onShowAllWorkflows={onShowAllWorkflows}
+            />
           </div>
         )}
       </div>
