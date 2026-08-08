@@ -5255,6 +5255,8 @@ export interface components {
             title: string;
             /** @description Short document description from YAML frontmatter */
             description: string;
+            /** @description Document tags from YAML frontmatter */
+            tags?: string[];
             /** @description Workspace that owns this document. Omitted for default documents. */
             workspace?: string;
             /**
@@ -5296,6 +5298,8 @@ export interface components {
             title: string;
             /** @description Short document description from YAML frontmatter */
             description: string;
+            /** @description Document tags from YAML frontmatter */
+            tags?: string[];
             /** @description Workspace that owns this document. Omitted for default documents. */
             workspace?: string;
             /** @description Full file content including YAML frontmatter */
@@ -5317,6 +5321,8 @@ export interface components {
             title: string;
             /** @description Short document description from YAML frontmatter */
             description: string;
+            /** @description Document tags from YAML frontmatter */
+            tags?: string[];
             /** @description Workspace that owns this document. Omitted for default documents. */
             workspace?: string;
             /**
@@ -5330,6 +5336,8 @@ export interface components {
             id: string;
             name: string;
             title?: string;
+            /** @description Document tags from YAML frontmatter. Only present on file nodes. */
+            tags?: string[];
             /** @description Workspace that owns this node. Omitted for default nodes. */
             workspace?: string;
             /** @enum {string} */
@@ -5353,6 +5361,8 @@ export interface components {
             title: string;
             /** @description Short document description from YAML frontmatter */
             description: string;
+            /** @description Document tags from YAML frontmatter */
+            tags?: string[];
             /** @description Workspace that owns this document. Omitted for default documents. */
             workspace?: string;
             /**
@@ -8378,6 +8388,8 @@ export interface operations {
                 prefix?: components["parameters"]["DocPrefix"];
                 /** @description A search query string */
                 q: string;
+                /** @description Only return documents carrying every given tag (case-insensitive) */
+                tags?: string[];
                 /** @description Opaque cursor returned by the previous search response */
                 cursor?: components["parameters"]["SearchCursor"];
                 /** @description Number of search results to return (default 20, max 50) */
@@ -14994,6 +15006,8 @@ export interface operations {
                 perPage?: components["parameters"]["DocsPerPage"];
                 /** @description If true, returns flat list instead of tree */
                 flat?: boolean;
+                /** @description Only return documents carrying every given tag (case-insensitive). Effective in flat mode only. */
+                tags?: string[];
                 /** @description Field to sort by:
                  *     - `name`: Alphabetically by display name (case-insensitive)
                  *     - `type`: By node type (dirs vs files), then alphabetically within each group

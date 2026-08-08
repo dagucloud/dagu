@@ -83,6 +83,7 @@ func (a *API) ListDocs(ctx context.Context, request api.ListDocsRequestObject) (
 		Sort:             sortField,
 		Order:            sortOrder,
 		PathPrefix:       pathPrefix,
+		Tags:             valueOf(request.Params.Tags),
 		ExcludePathRoots: visibility.excludedPathRoots(),
 	}
 
@@ -246,6 +247,7 @@ func (a *API) SearchDocs(ctx context.Context, request api.SearchDocsRequestObjec
 			Id:          r.ID,
 			Title:       r.Title,
 			Description: r.Description,
+			Tags:        docTagsValue(r.Tags),
 			Workspace:   docWorkspaceValue(workspaceName, rawID, visibility, false),
 		}
 		if !r.ModTime.IsZero() {

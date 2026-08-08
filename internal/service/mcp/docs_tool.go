@@ -162,6 +162,9 @@ func (svc *Service) searchDocs(
 			"hasMoreMatches": item.HasMoreMatches,
 			"uri":            docURI(itemWorkspace, path),
 		}
+		if item.Tags != nil && len(*item.Tags) > 0 {
+			entry["tags"] = *item.Tags
+		}
 		if item.ModifiedAt != nil {
 			entry["modifiedAt"] = item.ModifiedAt
 		}
@@ -195,6 +198,9 @@ func normalizeDocList(resp daguapi.ListDocs200JSONResponse, selectedWorkspace st
 				"description": item.Description,
 				"uri":         docURI(workspace, path),
 			}
+			if item.Tags != nil && len(*item.Tags) > 0 {
+				entry["tags"] = *item.Tags
+			}
 			if item.ModifiedAt != nil {
 				entry["modifiedAt"] = item.ModifiedAt
 			}
@@ -223,6 +229,9 @@ func normalizeDocTreeNode(node daguapi.DocTreeNodeResponse, selectedWorkspace st
 	}
 	if node.Title != nil {
 		entry["title"] = *node.Title
+	}
+	if node.Tags != nil && len(*node.Tags) > 0 {
+		entry["tags"] = *node.Tags
 	}
 	if node.ModifiedAt != nil {
 		entry["modifiedAt"] = node.ModifiedAt
@@ -264,6 +273,9 @@ func normalizeDoc(doc daguapi.DocResponse, workspace string) map[string]any {
 		"content":     doc.Content,
 		"mimeType":    resourceMIMEText,
 		"uri":         docURI(workspace, doc.Id),
+	}
+	if doc.Tags != nil && len(*doc.Tags) > 0 {
+		output["tags"] = *doc.Tags
 	}
 	if doc.CreatedAt != nil {
 		output["createdAt"] = doc.CreatedAt

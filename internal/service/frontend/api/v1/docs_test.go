@@ -541,6 +541,7 @@ func (m *mockDocStore) List(_ context.Context, opts docs.ListDocsOptions) (*pagi
 			ID:    id,
 			Name:  path.Base(id),
 			Title: doc.Title,
+			Tags:  doc.Tags,
 			Type:  "file",
 		})
 	}
@@ -571,6 +572,7 @@ func (m *mockDocStore) ListFlat(_ context.Context, opts docs.ListDocsOptions) (*
 			ID:          id,
 			Title:       doc.Title,
 			Description: doc.Description,
+			Tags:        doc.Tags,
 			ModTime:     time.Unix(1700000000, 0),
 		})
 	}
@@ -660,6 +662,32 @@ func TestListDocs(t *testing.T) {
 		require.NotNil(t, listResp.Items)
 		assert.Len(t, *listResp.Items, 2)
 		assert.Equal(t, "Alpha doc", (*listResp.Items)[0].Description)
+	})
+
+	t.Run("tags filter is forwarded and tags are returned", func(t *testing.T) {
+		t.Parallel()
+
+		setup := newDocTestSetup(t)
+		setup.store.docs["tagged"] = &docs.Doc{ID: "tagged", Title: "tagged", Tags: []string{"ops", "runbook"}, Content: "body"}
+
+		tags := []string{"ops"}
+		resp, err := setup.api.ListDocs(adminCtx(), apigen.ListDocsRequestObject{
+			Params: apigen.ListDocsParams{
+				Flat:    new(true),
+				Tags:    &tags,
+				Page:    new(1),
+				PerPage: new(10),
+			},
+		})
+		require.NoError(t, err)
+
+		listResp, ok := resp.(apigen.ListDocs200JSONResponse)
+		require.True(t, ok)
+		assert.Equal(t, []string{"ops"}, setup.store.lastListOpts.Tags)
+		require.NotNil(t, listResp.Items)
+		require.Len(t, *listResp.Items, 1)
+		require.NotNil(t, (*listResp.Items)[0].Tags)
+		assert.Equal(t, []string{"ops", "runbook"}, *(*listResp.Items)[0].Tags)
 	})
 
 	t.Run("tree mode returns nodes", func(t *testing.T) {
