@@ -2808,6 +2808,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/docs/doc/revisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List document revisions
+         * @description Returns stored prior versions of a document, newest first, without content.
+         */
+        get: operations["listDocRevisions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/docs/doc/revision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get document revision
+         * @description Returns one stored revision including its content.
+         */
+        get: operations["getDocRevision"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/docs/doc": {
         parameters: {
             query?: never;
@@ -5402,6 +5442,27 @@ export interface components {
         /** @description Documents linking to a wiki-link target */
         DocBacklinksResponse: {
             items: components["schemas"]["DocMetadataResponse"][];
+        };
+        /** @description A stored prior version of a document */
+        DocRevisionResponse: {
+            /** @description Opaque revision identifier */
+            rev: string;
+            /**
+             * Format: date-time
+             * @description When the revision was stored
+             */
+            savedAt: string;
+            /**
+             * Format: int64
+             * @description Revision content size in bytes
+             */
+            size: number;
+            /** @description Revision content. Present only when fetching a single revision. */
+            content?: string;
+        };
+        /** @description Stored revisions of a document, newest first */
+        DocRevisionsResponse: {
+            revisions: components["schemas"]["DocRevisionResponse"][];
         };
         /** @description Relative document path without extension, for example docs/deploy-guide. Must not start with / or contain .. */
         DocPath: string;
@@ -15196,6 +15257,98 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DocBacklinksResponse"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listDocRevisions: {
+        parameters: {
+            query: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
+                workspace?: components["parameters"]["Workspace"];
+                /** @description Document path (may include slashes for nested docs) */
+                path: components["schemas"]["DocPath"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stored revisions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocRevisionsResponse"];
+                };
+            };
+            /** @description Document not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getDocRevision: {
+        parameters: {
+            query: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
+                workspace?: components["parameters"]["Workspace"];
+                /** @description Document path (may include slashes for nested docs) */
+                path: components["schemas"]["DocPath"];
+                /** @description Revision identifier from the revision list */
+                rev: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Revision with content */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocRevisionResponse"];
+                };
+            };
+            /** @description Document or revision not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Unexpected error */

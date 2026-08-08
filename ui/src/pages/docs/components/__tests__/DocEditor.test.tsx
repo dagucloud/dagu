@@ -60,6 +60,10 @@ vi.mock('@/hooks/useSSECacheSync', () => ({
   useSSECacheSync: () => undefined,
 }));
 
+vi.mock('../DocHistoryModal', () => ({
+  DocHistoryModal: () => null,
+}));
+
 vi.mock('../DocExternalChangeDialog', () => ({
   default: ({
     visible,

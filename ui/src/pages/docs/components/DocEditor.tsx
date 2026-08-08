@@ -23,6 +23,7 @@ import {
   ClipboardCopy,
   Copy,
   FileText,
+  History,
   Save,
   Trash2,
   Undo2,
@@ -36,6 +37,7 @@ import React, {
   useState,
 } from 'react';
 import DocExternalChangeDialog from './DocExternalChangeDialog';
+import { DocHistoryModal } from './DocHistoryModal';
 import { DOC_SSE_FALLBACK_INTERVAL_MS } from '../lib/doc-polling';
 import { useDocDraftPersistence } from '../hooks/useDocDraftPersistence';
 
@@ -274,6 +276,7 @@ function DocEditor({
 
   const { copied: nameCopied, copy: copyName } = useCopyFeedback();
   const { copied: copiedContent, copy: copyContent } = useCopyFeedback();
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   const title = doc?.title || docPath.split('/').pop() || docPath;
 
@@ -319,6 +322,17 @@ function DocEditor({
         </span>
 
         <div className="flex-1" />
+
+        {/* History */}
+        <button
+          type="button"
+          onClick={() => setHistoryOpen(true)}
+          className="flex items-center gap-1 px-2 py-0.5 text-xs rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-all"
+          title="Revision history"
+        >
+          <History className="h-3 w-3" />
+          <span>History</span>
+        </button>
 
         {/* Copy content */}
         <button
@@ -440,6 +454,16 @@ function DocEditor({
           markTabSaved(tabId);
         }}
         onIgnore={() => resolveConflict('ignore')}
+      />
+
+      {/* Revision history */}
+      <DocHistoryModal
+        isOpen={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        docPath={docPath}
+        workspace={workspace ?? null}
+        currentContent={currentValue ?? ''}
+        onRestore={(content) => setCurrentValue(content)}
       />
     </div>
   );

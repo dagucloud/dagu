@@ -35,6 +35,7 @@ var _ docs.DocStore = (*mockDocStore)(nil)
 
 type mockDocStore struct {
 	docs         map[string]*docs.Doc
+	revisions    map[string][]docs.DocRevision
 	failAll      bool // when true, all operations return errForced
 	lastListOpts docs.ListDocsOptions
 }
@@ -612,6 +613,26 @@ func (m *mockDocStore) Backlinks(_ context.Context, target, pathPrefix string) (
 	return results, nil
 }
 
+func (m *mockDocStore) ListRevisions(_ context.Context, id string) ([]docs.DocRevision, error) {
+	if m.failAll {
+		return nil, errForced
+	}
+	return m.revisions[id], nil
+}
+
+func (m *mockDocStore) GetRevision(_ context.Context, id, rev string) (*docs.DocRevision, error) {
+	if m.failAll {
+		return nil, errForced
+	}
+	for _, revision := range m.revisions[id] {
+		if revision.Rev == rev {
+			cp := revision
+			return &cp, nil
+		}
+	}
+	return nil, docs.ErrDocRevisionNotFound
+}
+
 // docTestSetup contains common test infrastructure for doc API tests.
 type docTestSetup struct {
 	api   *apiv1.API
@@ -904,6 +925,73 @@ func TestListDocBacklinks(t *testing.T) {
 		setup := newDocTestSetup(t)
 		_, err := setup.api.ListDocBacklinks(adminCtx(), apigen.ListDocBacklinksRequestObject{
 			Params: apigen.ListDocBacklinksParams{Target: "../escape"},
+		})
+		require.Error(t, err)
+	})
+}
+
+func TestDocRevisions(t *testing.T) {
+	t.Parallel()
+
+	newSetup := func(t *testing.T) *docTestSetup {
+		setup := newDocTestSetup(t)
+		setup.store.docs["doc"] = &docs.Doc{ID: "doc", Title: "doc", Content: "current"}
+		setup.store.revisions = map[string][]docs.DocRevision{
+			"doc": {
+				{Rev: "r2", SavedAt: time.Unix(1700000100, 0), Size: 2, Content: "v2"},
+				{Rev: "r1", SavedAt: time.Unix(1700000000, 0), Size: 2, Content: "v1"},
+			},
+		}
+		return setup
+	}
+
+	t.Run("list returns revisions without content", func(t *testing.T) {
+		t.Parallel()
+
+		setup := newSetup(t)
+		resp, err := setup.api.ListDocRevisions(adminCtx(), apigen.ListDocRevisionsRequestObject{
+			Params: apigen.ListDocRevisionsParams{Path: "doc"},
+		})
+		require.NoError(t, err)
+
+		listResp, ok := resp.(apigen.ListDocRevisions200JSONResponse)
+		require.True(t, ok)
+		require.Len(t, listResp.Revisions, 2)
+		assert.Equal(t, "r2", listResp.Revisions[0].Rev)
+		assert.Nil(t, listResp.Revisions[0].Content)
+	})
+
+	t.Run("get returns revision content", func(t *testing.T) {
+		t.Parallel()
+
+		setup := newSetup(t)
+		resp, err := setup.api.GetDocRevision(adminCtx(), apigen.GetDocRevisionRequestObject{
+			Params: apigen.GetDocRevisionParams{Path: "doc", Rev: "r1"},
+		})
+		require.NoError(t, err)
+
+		revResp, ok := resp.(apigen.GetDocRevision200JSONResponse)
+		require.True(t, ok)
+		require.NotNil(t, revResp.Content)
+		assert.Equal(t, "v1", *revResp.Content)
+	})
+
+	t.Run("unknown revision returns not found", func(t *testing.T) {
+		t.Parallel()
+
+		setup := newSetup(t)
+		_, err := setup.api.GetDocRevision(adminCtx(), apigen.GetDocRevisionRequestObject{
+			Params: apigen.GetDocRevisionParams{Path: "doc", Rev: "missing"},
+		})
+		require.Error(t, err)
+	})
+
+	t.Run("unknown document returns not found", func(t *testing.T) {
+		t.Parallel()
+
+		setup := newSetup(t)
+		_, err := setup.api.ListDocRevisions(adminCtx(), apigen.ListDocRevisionsRequestObject{
+			Params: apigen.ListDocRevisionsParams{Path: "missing"},
 		})
 		require.Error(t, err)
 	})
