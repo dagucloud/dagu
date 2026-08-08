@@ -199,7 +199,8 @@ function DAGDocsTab({ dagName, workspaceName }: Props) {
           <p>
             Documents under{' '}
             <code>{validSegment ? `${dagName}/` : 'its folder'}</code> or
-            containing a <code>[[dag:{dagName}]]</code> wikilink appear here.
+            containing a <code>{`[[dag:${dagName}]]`}</code> wikilink appear
+            here.
           </p>
         </div>
       ) : (
