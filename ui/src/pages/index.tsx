@@ -11,7 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Filter } from 'lucide-react';
+import { Filter, GanttChart } from 'lucide-react';
 import React from 'react';
 import { Link } from 'react-router-dom';
 import {
@@ -149,7 +149,7 @@ function GettingStartedPanel(): React.ReactElement {
       <h2 className="text-xl font-semibold text-foreground">
         Create your first workflow
       </h2>
-      <p className="max-w-md text-sm text-muted-foreground">
+      <p className="max-w-md text-base text-muted-foreground">
         Dagu runs workflows defined in YAML. Create one from scratch or start
         from the documentation examples.
       </p>
@@ -184,11 +184,12 @@ function NoRunsNotice({
   hasExampleDAGs: boolean;
 }): React.ReactElement {
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center">
-      <p className="text-sm font-medium text-foreground">
-        No runs on {dateLabel}.
-      </p>
-      <p className="text-sm text-muted-foreground">
+    <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
+      <GanttChart className="h-12 w-12 text-muted-foreground/40" />
+      <h2 className="text-xl font-semibold text-foreground">
+        No runs on {dateLabel}
+      </h2>
+      <p className="text-base text-muted-foreground">
         {hasExampleDAGs
           ? 'Run one of the example workflows from the '
           : 'Start a workflow from the '}
@@ -665,8 +666,8 @@ function Dashboard(): React.ReactElement | null {
                   hasExampleDAGs={hasExampleDAGs}
                 />
               ) : showInventoryError ? (
-                <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center">
-                  <p className="text-sm font-medium text-foreground">
+                <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
+                  <p className="text-base font-medium text-foreground">
                     Failed to load the workflow list.
                   </p>
                   <Button
